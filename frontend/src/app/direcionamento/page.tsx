@@ -158,7 +158,7 @@ export default function DirecionamentoPage() {
           </p>
           {impressoras.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              Nenhuma impressora cadastrada. Cadastre em Cadastros → Equipamentos.
+              Nenhuma impressora cadastrada. Cadastre em Configurações → Equipamentos.
             </p>
           ) : (
             <div className="space-y-1">
@@ -300,7 +300,7 @@ export default function DirecionamentoPage() {
             <h2 className="mb-2 font-display font-semibold">Destinos ({equipamentos.length})</h2>
             {!equipamentos.length ? (
               <p className="text-sm text-muted-foreground">
-                Nenhum KDS/impressora cadastrado. Cadastre em Cadastros → Equipamentos.
+                Nenhum KDS/impressora cadastrado. Cadastre em Configurações → Equipamentos.
               </p>
             ) : (
               <div className="max-h-[300px] space-y-1 overflow-y-auto pr-1">

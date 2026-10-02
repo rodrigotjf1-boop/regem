@@ -258,7 +258,7 @@ export default function ProducaoConfigPage() {
           )}
           {equipamentos.length === 0 && setores.length > 0 && (
             <p className="text-sm text-muted-foreground">
-              Nenhum KDS/impressora. Cadastre em Cadastros → Equipamentos (as
+              Nenhum KDS/impressora. Cadastre em Configurações → Equipamentos (as
               impressoras do sistema são registradas pelo servidor edge).
             </p>
           )}

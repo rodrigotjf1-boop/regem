@@ -20,6 +20,9 @@ const INTEGRADORES = new Set(['gogem']);
 /** O "visto" do integrador é regravado no máximo de hora em hora — o GoGeM chama a cada poucos minutos. */
 const INTEGRADOR_VISTO_MINUTOS = 60;
 
+/** Quem fez a alteração, para a auditoria (vem do usuário logado, no controller). */
+export type AtorEquipamento = { id: string; perfil: string };
+
 @Injectable()
 export class EquipamentoService {
   private readonly logger = new Logger('Equipamento');
@@ -48,6 +51,48 @@ export class EquipamentoService {
 
   private novoToken() {
     return randomBytes(24).toString('hex');
+  }
+
+  // Toda mudança no cadastro de equipamentos fica na auditoria com `entidade_tipo = 'equipamento'`
+  // — é por aí que a tela de Equipamentos monta o histórico (`historico`).
+  private auditar(
+    tenantId: string,
+    ator: AtorEquipamento | undefined,
+    acao: string,
+    alvo: { id: string; unidadeId?: string | null },
+    detalhe: Record<string, unknown>,
+  ) {
+    return this.auditoria.registrar({
+      tenantId,
+      unidadeId: alvo.unidadeId ?? null,
+      atorId: ator?.id ?? null,
+      atorPerfil: ator?.perfil ?? null,
+      tipo: 'config',
+      acao,
+      entidadeTipo: 'equipamento',
+      entidadeId: alvo.id,
+      detalhe,
+    });
+  }
+
+  /** Quem mexeu nos equipamentos (os 100 registros mais recentes). */
+  historico(tenantId: string) {
+    return this.auditoria.listarPorEntidade(tenantId, 'equipamento', 100);
+  }
+
+  /** Nome de outro equipamento da empresa (impressora de destino, próximo KDS) para o histórico. */
+  private async nomeDe(tenantId: string, id?: string | null): Promise<string | null> {
+    if (!id) return null;
+    const [r] = await this.db
+      .select({ nome: equipamento.nome })
+      .from(equipamento)
+      .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, id)));
+    return r?.nome ?? id;
+  }
+
+  /** Para onde a impressora manda: `ip:porta` na rede, ou o nome dela no Windows. */
+  private destinoImpressora(r: { conexao?: string | null; host?: string | null; porta?: number | null; dispositivo?: string | null }) {
+    return r.conexao === 'local' ? (r.dispositivo ?? null) : r.host ? `${r.host}${r.porta ? `:${r.porta}` : ''}` : null;
   }
 
   // ===== Pareamento do PC (mig 142) =====
@@ -307,9 +352,10 @@ export class EquipamentoService {
     tenantId: string,
     id: string,
     impressoraId: string | null,
+    ator?: AtorEquipamento,
   ) {
     const [term] = await this.db
-      .select({ unidadeId: equipamento.unidadeId })
+      .select({ unidadeId: equipamento.unidadeId, antes: equipamento.impressoraPadraoId })
       .from(equipamento)
       .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, id)));
     await garantirImpressoraDaLoja(this.db, tenantId, impressoraId, term?.unidadeId ?? null);
@@ -325,6 +371,15 @@ export class EquipamentoService {
       )
       .returning();
     if (!row) throw new NotFoundException('Terminal não encontrado');
+    const [antes, depois] = [term?.antes ?? null, row.impressoraPadraoId ?? null];
+    if (antes !== depois) {
+      // o nome das impressoras, para o histórico se ler sozinho
+      await this.auditar(tenantId, ator, 'alterou_impressora_do_terminal', row, {
+        nome: row.nome,
+        impressoraAntes: await this.nomeDe(tenantId, antes),
+        impressoraDepois: await this.nomeDe(tenantId, depois),
+      });
+    }
     return this.publico(row);
   }
 
@@ -479,7 +534,7 @@ export class EquipamentoService {
 
   // Pareamento de um terminal de PDV: valida o token (device tipo 'pdv', ativo, do
   // tenant) e devolve a identidade que o PC guarda localmente (id + nome + unidade).
-  async parear(tenantId: string, token: string) {
+  async parear(tenantId: string, token: string, ator?: AtorEquipamento) {
     const t = (token ?? '').trim();
     if (!t) throw new NotFoundException('Informe o token do terminal.');
     const [row] = await this.db
@@ -499,6 +554,7 @@ export class EquipamentoService {
         'Terminal não encontrado ou inativo. Confira o token com o gestor.',
       );
     await this.registrarPing(row.id);
+    await this.auditar(tenantId, ator, 'terminal_pareado', row, { nome: row.nome, tipo: row.tipo, por: 'token' });
     return { id: row.id, nome: row.nome, unidadeId: row.unidadeId, tipo: row.tipo, pdvMainId: row.pdvMainId ?? null };
   }
 
@@ -556,6 +612,7 @@ export class EquipamentoService {
     tenantId: string,
     id: string,
     dto: { imprimeAoAvancar?: boolean; imprimeNoStatus?: string; impressoraDestinoId?: string | null },
+    ator?: AtorEquipamento,
   ) {
     await this.garantirConfigLocal(tenantId);
     const status = ['recebido', 'preparo', 'pronto', 'entregue'].includes(dto?.imprimeNoStatus ?? '')
@@ -577,11 +634,17 @@ export class EquipamentoService {
       )
       .returning();
     if (!row) throw new NotFoundException('KDS não encontrado.');
+    await this.auditar(tenantId, ator, 'alterou_impressao_por_etapa', row, {
+      nome: row.nome,
+      imprimeAoAvancar: row.imprimeAoAvancar,
+      imprimeNoStatus: row.imprimeNoStatus,
+      impressoraDestino: await this.nomeDe(tenantId, row.impressoraDestinoId),
+    });
     return this.publico(row);
   }
 
   // Fase E — próximo KDS da cadeia (ao avançar o card migra para ele). null = fim.
-  async setProximoKds(tenantId: string, id: string, proximoKdsId: string | null) {
+  async setProximoKds(tenantId: string, id: string, proximoKdsId: string | null, ator?: AtorEquipamento) {
     await this.garantirConfigLocal(tenantId);
     if (proximoKdsId === id) throw new BadRequestException('Um KDS não pode apontar para si mesmo.');
     const [row] = await this.db
@@ -590,6 +653,10 @@ export class EquipamentoService {
       .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, id), eq(equipamento.tipo, 'kds')))
       .returning();
     if (!row) throw new NotFoundException('KDS não encontrado.');
+    await this.auditar(tenantId, ator, 'alterou_proximo_kds', row, {
+      nome: row.nome,
+      proximoKds: await this.nomeDe(tenantId, row.proximoKdsId),
+    });
     return this.publico(row);
   }
 
@@ -598,6 +665,7 @@ export class EquipamentoService {
     tenantId: string,
     id: string,
     dto: { fazCupom?: boolean; fazProducao?: boolean },
+    ator?: AtorEquipamento,
   ) {
     await this.garantirConfigLocal(tenantId);
     const set: { fazCupom?: boolean; fazProducao?: boolean } = {};
@@ -616,6 +684,7 @@ export class EquipamentoService {
       )
       .returning();
     if (!row) throw new NotFoundException('Impressora não encontrada.');
+    await this.auditar(tenantId, ator, 'alterou_papeis_impressora', row, { nome: row.nome, ...set });
     return this.publico(row);
   }
 
@@ -674,7 +743,7 @@ export class EquipamentoService {
   }
 
   // Cria ou edita uma impressora. papel: 'cupom' (caixa) | 'producao' (cozinha).
-  async salvarImpressora(tenantId: string, dto: any) {
+  async salvarImpressora(tenantId: string, dto: any, ator?: AtorEquipamento) {
     await this.garantirConfigLocal(tenantId);
     const local = dto.conexao === 'local';
     // Papel múltiplo (mig 167/179): usa os flags; se não vierem, deriva do papel legado.
@@ -723,22 +792,39 @@ export class EquipamentoService {
         .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, dto.id), eq(equipamento.tipo, 'impressora')))
         .returning();
       if (!row) throw new NotFoundException('Impressora não encontrada');
+      await this.auditar(tenantId, ator, 'editou_impressora', row, this.resumoImpressora(row));
       return this.publico(row);
     }
     const [row] = await this.db
       .insert(equipamento)
       .values({ tenantId, unidadeId: dto.unidadeId ?? null, tipo: 'impressora', token: this.novoToken(), escopo: 'producao', ...vals })
       .returning();
+    await this.auditar(tenantId, ator, 'cadastrou_impressora', row, this.resumoImpressora(row));
     return this.publico(row);
   }
 
-  async removerImpressora(tenantId: string, id: string) {
+  /** O que a auditoria guarda de uma impressora: como ela ficou depois da mudança. */
+  private resumoImpressora(r: any) {
+    return {
+      nome: r.nome,
+      papel: r.papel,
+      conexao: r.conexao ?? 'rede',
+      destino: this.destinoImpressora(r),
+      largura: r.largura,
+      vias: r.vias,
+      padrao: !!r.padrao,
+      ativo: !!r.ativo,
+    };
+  }
+
+  async removerImpressora(tenantId: string, id: string, ator?: AtorEquipamento) {
     await this.garantirConfigLocal(tenantId);
     const [row] = await this.db
       .delete(equipamento)
       .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, id), eq(equipamento.tipo, 'impressora')))
       .returning();
     if (!row) throw new NotFoundException('Impressora não encontrada');
+    await this.auditar(tenantId, ator, 'excluiu_impressora', row, this.resumoImpressora(row));
     return { ok: true };
   }
 }

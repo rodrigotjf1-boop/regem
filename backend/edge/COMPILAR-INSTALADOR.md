@@ -87,7 +87,7 @@ abaixo são o detalhe manual do que esse comando faz.
 - **Ação:** instalar o servidor local no PC da loja.
 - **Onde:** o PC da loja (leve o `RegemEdgeSetup.exe` por pen drive/rede).
 - **Como:** duplo-clique → aceite o **UAC** (Administrador) → na tela **"Dados desta loja"** preencha:
-  - **ID da unidade** e **Token do servidor local** (Cadastros → Equipamentos, tipo `servidor_local`);
+  - **ID da unidade** e **Token do servidor local** (Configurações → Equipamentos, tipo `servidor_local`);
   - **Token de ativação da licença** (tela `/frota`) — opcional, dá pra ativar depois.
   
   Clique **Instalar** e aguarde (Postgres, banco, certificado, serviços, migrations — tudo automático).

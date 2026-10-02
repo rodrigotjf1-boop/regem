@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ResponsiveTable, type Column } from '@/components/ui/responsive-table';
 import { cn } from '@/lib/utils';
+import { ACOES_EQUIPAMENTO } from '@/lib/auditoria-equipamentos';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -71,8 +72,8 @@ const ACAO_LABEL: Record<string, string> = {
   incluiu_marcacao: 'Incluiu marcação (ajuste)',
   aprovou_hora_extra: 'Aprovou hora extra',
   produziu_ficha: 'Produziu ficha técnica',
-  cadastrou_equipamento: 'Cadastrou equipamento',
-  revogou_equipamento: 'Revogou equipamento',
+  // cadastrar, parear, trocar, revogar e alterar equipamento (as mesmas da tela Equipamentos)
+  ...ACOES_EQUIPAMENTO,
 };
 const acaoLabel = (a: string) => ACAO_LABEL[a] ?? a.replace(/_/g, ' ');
 

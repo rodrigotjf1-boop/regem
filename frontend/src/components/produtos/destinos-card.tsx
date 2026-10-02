@@ -26,7 +26,7 @@ export function DestinosCard({
       </p>
       {equipamentos.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          Nenhum KDS/impressora cadastrado. Cadastre em Cadastros → Equipamentos.
+          Nenhum KDS/impressora cadastrado. Cadastre em Configurações → Equipamentos.
         </p>
       ) : (
         <>
