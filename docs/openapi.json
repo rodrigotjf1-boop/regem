@@ -2914,6 +2914,27 @@
         }
       }
     },
+    "/api/v1/equipamento/historico": {
+      "get": {
+        "operationId": "EquipamentoController_historico",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/equipamento/edge-ativo": {
       "get": {
         "operationId": "EquipamentoController_edgeAtivo",

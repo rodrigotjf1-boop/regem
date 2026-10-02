@@ -158,4 +158,20 @@ export class AuditoriaService {
       order by tipo`);
     return { registros, tipos: tipos.map((t) => t.tipo as string) };
   }
+
+  // Histórico de UMA entidade (ex.: os equipamentos), mais recentes primeiro — para a tela da
+  // própria entidade mostrar quem mexeu. Só leitura, sempre da empresa.
+  async listarPorEntidade(tenantId: string, entidadeTipo: string, limite = 100) {
+    const n = Math.min(Math.max(Math.trunc(Number(limite)) || 100, 1), 300);
+    return this.rows(sql`
+      select a.id, a.tipo, a.acao, a.detalhe, a.entidade_id as "entidadeId",
+             a.actor_id as "atorId", a.actor_perfil as "atorPerfil", a.origem,
+             a.created_at as "criadoEm", c.nome as "atorNome"
+      from audit_log a
+      left join colaborador c on c.id = a.actor_id
+      where a.tenant_id = ${tenantId} and a.entidade_tipo = ${entidadeTipo}
+      order by a.created_at desc
+      limit ${n}
+    `);
+  }
 }

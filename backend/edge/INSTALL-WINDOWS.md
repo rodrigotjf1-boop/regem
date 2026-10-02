@@ -96,7 +96,7 @@
 - **Ação:** obter as 2 credenciais que faltam.
 - **Onde:** no **Regem da nuvem** (app.dmsregem.com), logado como presidente/gerente.
 - **Como:**
-  - **Token do servidor local:** menu **Cadastros → Equipamentos → Novo equipamento**, tipo **`servidor_local`**. Ao salvar, o **token aparece uma vez** — copie e cole no `SYNC_TOKEN` do `.env.local`.
+  - **Token do servidor local:** menu **Configurações → Equipamentos → Novo equipamento**, tipo **`servidor_local`**. Ao salvar, o **token aparece uma vez** — copie e cole no `SYNC_TOKEN` do `.env.local`.
   - **Chave pública da licença:** peça a quem gerou as chaves (`node scripts/gen-license-keys.mjs`) o valor **`LICENSE_PUBLIC_KEY_B64`** e cole no `.env.local`.
 - **Confirmação:** o `.env.local` agora tem `SYNC_TOKEN=...` e `LICENSE_PUBLIC_KEY_B64=...` preenchidos (não vazios).
 

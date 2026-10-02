@@ -19,6 +19,9 @@ import { AuthUser } from '../../auth/auth-user';
 import { EquipamentoService } from './equipamento.service';
 import { CreateEquipamentoDto } from './dto/create-equipamento.dto';
 
+/** Quem fez a alteração, para a auditoria do cadastro de equipamentos. */
+const ator = (user: AuthUser) => ({ id: user.colaboradorId, perfil: user.categoria });
+
 // Gestão de equipamentos (KDS / Terminal de Ponto) — só presidente/gerente.
 @Controller('equipamento')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -31,6 +34,16 @@ export class EquipamentoController {
   @RequirePerm('servidor')
   listar(@CurrentUser() user: AuthUser) {
     return this.service.listar(user.tenantId);
+  }
+
+  // Histórico do cadastro de equipamentos: quem cadastrou, pareou, trocou, revogou ou alterou
+  // (auditoria com entidade = equipamento). Mesmo acesso da lista.
+  @Get('historico')
+  @UseGuards(PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('servidor')
+  historico(@CurrentUser() user: AuthUser) {
+    return this.service.historico(user.tenantId);
   }
 
   // F10 — a loja tem servidor local (edge) ativo? Se sim, a config de impressão é
@@ -67,7 +80,7 @@ export class EquipamentoController {
   @Roles('presidente', 'gerente')
   @RequirePerm('impressoras')
   salvarImpressora(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.service.salvarImpressora(user.tenantId, dto);
+    return this.service.salvarImpressora(user.tenantId, dto, ator(user));
   }
 
   @Delete('impressoras/:id')
@@ -75,7 +88,7 @@ export class EquipamentoController {
   @Roles('presidente', 'gerente')
   @RequirePerm('impressoras')
   removerImpressora(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.removerImpressora(user.tenantId, id);
+    return this.service.removerImpressora(user.tenantId, id, ator(user));
   }
 
   // ----- Terminal de PDV: pareamento do PC (só presidente/gerente com perm servidor) -----
@@ -84,7 +97,7 @@ export class EquipamentoController {
   @Roles('presidente', 'gerente')
   @RequirePerm('servidor')
   parear(@CurrentUser() user: AuthUser, @Body() dto: { token?: string }) {
-    return this.service.parear(user.tenantId, dto?.token ?? '');
+    return this.service.parear(user.tenantId, dto?.token ?? '', ator(user));
   }
 
   // Gestor gera um código de 6 dígitos (uso único, 15 min) para o PC parear.
@@ -120,6 +133,7 @@ export class EquipamentoController {
       user.tenantId,
       id,
       dto?.impressoraId ?? null,
+      ator(user),
     );
   }
 
@@ -130,7 +144,7 @@ export class EquipamentoController {
   @Roles('presidente', 'gerente')
   @RequirePerm('direcionamento_impressao')
   setPapeis(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
-    return this.service.setPapeisImpressora(user.tenantId, id, dto ?? {});
+    return this.service.setPapeisImpressora(user.tenantId, id, dto ?? {}, ator(user));
   }
 
   // KDS: impressão guiada por etapa (mig 129).
@@ -139,7 +153,7 @@ export class EquipamentoController {
   @Roles('presidente', 'gerente')
   @RequirePerm('kds')
   setImpressaoEtapa(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
-    return this.service.setImpressaoEtapa(user.tenantId, id, dto ?? {});
+    return this.service.setImpressaoEtapa(user.tenantId, id, dto ?? {}, ator(user));
   }
 
   // KDS: próximo KDS da cadeia — ao avançar, o card migra p/ ele (mig 159, Fase E).
@@ -148,7 +162,7 @@ export class EquipamentoController {
   @Roles('presidente', 'gerente')
   @RequirePerm('kds')
   setProximoKds(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
-    return this.service.setProximoKds(user.tenantId, id, dto?.proximoKdsId ?? null);
+    return this.service.setProximoKds(user.tenantId, id, dto?.proximoKdsId ?? null, ator(user));
   }
 
   @Patch(':id/revogar')

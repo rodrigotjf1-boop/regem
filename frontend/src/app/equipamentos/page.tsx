@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { HistoricoEquipamentos } from '@/components/equipamentos/historico-equipamentos';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -319,7 +320,7 @@ export default function EquipamentosPage() {
     unidades.find((u) => u.id === id)?.nome ?? '—';
 
   return (
-    <Shell eyebrow="Gestão" title="Equipamentos & Apps">
+    <Shell eyebrow="Configurações" title="Equipamentos & Apps">
       <div className="space-y-4">
         {edgeOn && (
           <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700">
@@ -1028,6 +1029,9 @@ export default function EquipamentosPage() {
             ))}
           </div>
         </Card>
+
+        {/* Quem mexeu no cadastro (auditoria dos equipamentos) */}
+        <HistoricoEquipamentos />
       </div>
     </Shell>
   );

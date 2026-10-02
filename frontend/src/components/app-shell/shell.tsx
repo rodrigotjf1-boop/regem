@@ -28,6 +28,7 @@ import {
   Megaphone,
   Menu,
   MessageCircle,
+  MonitorSmartphone,
   PackageCheck,
   PanelLeftClose,
   PanelLeftOpen,
@@ -142,6 +143,8 @@ const NAV: NavNode[] = [
       { href: '/producao-config', label: 'Produção & KDS', icon: Flame, perm: 'producao_kds', modulo: 'kds' },
       { href: '/kds/alertas', label: 'Alertas do KDS', icon: Flame, perm: 'producao_kds', modulo: 'kds' },
       { href: '/direcionamento', label: 'Direcionamento do catálogo', icon: Flame, perm: 'producao_kds' },
+      // Terminais de PDV e de ponto, KDS, impressoras e servidor local. Mesma permissão da API.
+      { href: '/equipamentos', label: 'Equipamentos', icon: MonitorSmartphone, perm: 'servidor' },
       { href: '/impressao', label: 'Impressoras e cupons', icon: Printer, perm: 'impressoras' },
       { href: '/ordens-producao', label: 'Ordens de produção', icon: Flame, perm: 'producao_kds' },
       { href: '/wizard', label: 'Config. por ramo', icon: Wand2, perm: 'config_ramo' },
