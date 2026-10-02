@@ -1679,6 +1679,11 @@ export const api = {
     req('/financeiro/caixa/abrir', { method: 'POST', body: JSON.stringify(body) }),
   movimentarCaixa: (body: Record<string, unknown>) =>
     req('/financeiro/caixa/movimentar', { method: 'POST', body: JSON.stringify(body) }),
+  // Pedidos do turno ainda sem baixa (entregas no delivery, retiradas no balcão) e a baixa
+  // administrativa das antigas (só gerente/presidente).
+  caixaPendencias: (origem: string) => req(`/financeiro/caixa/pendencias?origem=${encodeURIComponent(origem)}`),
+  baixarPendenciasAntigas: (origem: string) =>
+    req('/financeiro/caixa/pendencias/baixar-antigas', { method: 'POST', body: JSON.stringify({ origem }) }),
   fecharCaixa: (body: Record<string, unknown>) =>
     req('/financeiro/caixa/fechar', { method: 'POST', body: JSON.stringify(body) }),
   fechamentosCaixa: (inicio?: string, fim?: string) => {

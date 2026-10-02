@@ -1,12 +1,14 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PendenciasTurno, type PendenciasDoTurno } from '@/components/pdv/pendencias-turno';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -37,6 +39,35 @@ export function CaixaPanel({
   const [informados, setInformados] = useState<Record<string, string>>({ dinheiro: '', cartao: '', pix: '' });
   const [obs, setObs] = useState('');
   const [resultado, setResultado] = useState<any>(null);
+  // Antes da contagem: pedidos do turno que ainda não foram baixados (entregas no delivery,
+  // retiradas no balcão). `pend` com pedidos = a tela mostra o passo das pendências.
+  const router = useRouter();
+  const [conferindo, setConferindo] = useState(false);
+  const [pend, setPend] = useState<PendenciasDoTurno | null>(null);
+  const [justificativa, setJustificativa] = useState('');
+
+  async function abrirFechamento() {
+    setPend(null);
+    setJustificativa('');
+    setFechar(true);
+    setConferindo(true);
+    try {
+      const p = (await api.caixaPendencias(origem)) as PendenciasDoTurno;
+      setPend(p?.total > 0 ? p : null);
+    } catch {
+      // Sem a lista (servidor antigo ou falha de rede) o fechamento segue como sempre; no
+      // delivery o servidor confere as pendências de novo na hora de fechar.
+      setPend(null);
+    } finally {
+      setConferindo(false);
+    }
+  }
+
+  function sairParaResolver() {
+    setFechar(false);
+    setPend(null);
+    if (origem !== 'delivery') router.push('/pdv/retirada');
+  }
 
   async function abrir() {
     const v = prompt('Valor de abertura (troco inicial) do caixa:', '0');
@@ -82,10 +113,13 @@ export function CaixaPanel({
         valoresInformados,
         obs: obs.trim() || undefined,
         origem,
+        ...(justificativa ? { justificativaPendencias: justificativa } : {}),
       });
       setResultado(r);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao fechar o caixa');
+      // 409 = o servidor achou pendência (pedido que chegou durante a contagem): volta a mostrar.
+      if ((e as any)?.status === 409) void abrirFechamento();
     } finally {
       setBusy(false);
     }
@@ -96,6 +130,8 @@ export function CaixaPanel({
     setResultado(null);
     setInformados({ dinheiro: '', cartao: '', pix: '' });
     setObs('');
+    setPend(null);
+    setJustificativa('');
     onChange(); // caixa fechado → o pai recarrega (volta a "abrir")
   }
 
@@ -129,7 +165,7 @@ export function CaixaPanel({
         <div className="ml-auto flex flex-wrap gap-1.5">
           <Button type="button" size="sm" variant="outline" className={embedded ? 'h-8 text-sm' : ''} onClick={() => setMov('suprimento')}>Suprimento</Button>
           <Button type="button" size="sm" variant="outline" className={embedded ? 'h-8 text-sm' : ''} onClick={() => setMov('sangria')}>Sangria</Button>
-          <Button type="button" size="sm" variant="outline" className={embedded ? 'h-8 text-sm' : ''} onClick={() => setFechar(true)}>Fechar turno</Button>
+          <Button type="button" size="sm" variant="outline" className={embedded ? 'h-8 text-sm' : ''} onClick={abrirFechamento}>Fechar turno</Button>
         </div>
       </div>
 
@@ -160,7 +196,22 @@ export function CaixaPanel({
       {fechar && (
         <div className="fixed inset-0 z-40 grid place-items-center overflow-y-auto bg-black/50 p-4" onClick={() => (resultado ? encerrarConferencia() : setFechar(false))}>
           <Card className="w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
-            {!resultado ? (
+            {conferindo ? (
+              <p className="py-6 text-center text-sm text-muted-foreground" role="status">Conferindo os pedidos do turno…</p>
+            ) : pend && !resultado ? (
+              <PendenciasTurno
+                dados={pend}
+                onAtualizar={(d) => {
+                  setPend(d.total > 0 ? d : null); // zerou → segue para a contagem
+                  onChange(); // a lista de pedidos da tela de trás acompanha a baixa
+                }}
+                onResolver={sairParaResolver}
+                onSeguir={(motivo) => {
+                  setJustificativa(motivo ?? '');
+                  setPend(null);
+                }}
+              />
+            ) : !resultado ? (
               <>
                 <h3 className="font-display font-semibold">Fechar turno {String(caixa.turnoNumero ?? '').padStart(2, '0')}</h3>
                 <p className="mb-3 mt-0.5 text-xs text-muted-foreground">Conte cada forma e informe o valor. Você não vê o esperado — o sistema mostra a comparação depois de confirmar.</p>
