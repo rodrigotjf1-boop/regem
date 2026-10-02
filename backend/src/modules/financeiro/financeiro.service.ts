@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -29,8 +30,14 @@ import { paraCentavos, paraReais, somarCentavos } from '../../util/dinheiro';
 import { CreateTituloDto } from './dto/create-titulo.dto';
 import { PagarTituloDto } from './dto/pagar-titulo.dto';
 import { hojeISO } from '../../common/data';
+import { baixarPendenciasAntigas, escopoDoTurno, pendenciasDoTurno } from '../delivery/pendencias-turno';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+/** Tamanho mínimo do motivo para o gestor fechar o turno do delivery com entrega pendente. */
+const JUSTIFICATIVA_MINIMA = 10;
+/** Gerente ou presidente da loja — o técnico de suporte NÃO entra (ele passa no @Roles como gerente). */
+const gerenteOuPresidente = (perfil?: string | null) => perfil === 'gerente' || perfil === 'presidente';
 
 @Injectable()
 export class FinanceiroService {
@@ -716,6 +723,51 @@ export class FinanceiroService {
     }
   }
 
+  // ===== Pendências do turno (pedidos ainda não baixados na hora de fechar) =====
+  // O que a tela de fechar mostra ANTES da contagem: as entregas (turno do delivery) ou as
+  // retiradas (turno do balcão) que ainda não foram concluídas nem canceladas.
+  async pendenciasDoTurno(tenantId: string, unidadeAtual: string | null, origem: string | undefined, atorPerfil: string) {
+    const escopo = escopoDoTurno(origem);
+    const p = await pendenciasDoTurno(this.db, tenantId, unidadeAtual, escopo);
+    return {
+      ...p,
+      // delivery: pendência barra o fechamento; balcão: só avisa.
+      bloqueia: escopo === 'delivery' && p.total > 0,
+      // quem pode fechar o delivery justificando e quem pode baixar as antigas.
+      gestor: gerenteOuPresidente(atorPerfil),
+      justificativaMinima: JUSTIFICATIVA_MINIMA,
+    };
+  }
+
+  // Baixa administrativa das pendências antigas (ver `pendencias-turno.ts`): um clique do
+  // gerente/presidente, auditado. Não mexe em estoque, caixa, canal nem cliente.
+  async baixarPendenciasAntigas(tenantId: string, atorId: string, atorPerfil: string, unidadeAtual: string | null, origem: string | undefined) {
+    if (!gerenteOuPresidente(atorPerfil)) throw new ForbiddenException('Só gerente ou presidente baixa as pendências antigas.');
+    const escopo = escopoDoTurno(origem);
+    const r = await baixarPendenciasAntigas(this.db, tenantId, unidadeAtual, escopo);
+    if (r.concluidos + r.cancelados > 0) {
+      await this.auditoria.registrar({
+        tenantId,
+        atorId,
+        atorPerfil,
+        tipo: 'delivery',
+        acao: 'baixou_pendencias_antigas',
+        entidadeTipo: 'pedido_externo',
+        unidadeId: unidadeAtual,
+        detalhe: {
+          escopo,
+          concluidos: r.concluidos,
+          cancelados: r.cancelados,
+          porCanal: r.porCanal,
+          // a lista inteira não cabe no registro quando são centenas: os 200 primeiros e a contagem
+          pedidos: r.ids.slice(0, 200),
+          semEfeitos: 'não baixou estoque, não lançou no caixa, não avisou canal nem cliente',
+        },
+      });
+    }
+    return { concluidos: r.concluidos, cancelados: r.cancelados, porCanal: r.porCanal, pendencias: await this.pendenciasDoTurno(tenantId, unidadeAtual, origem, atorPerfil) };
+  }
+
   // Fechamento CEGO por forma: recebe o CONTADO por forma (o operador não vê o
   // esperado); calcula esperado e diferença por forma (dinheiro inclui a abertura
   // e sangrias/suprimentos) e devolve o comparativo. Diferença acima do limite da
@@ -730,6 +782,10 @@ export class FinanceiroService {
       obs?: string;
       origem?: string;
       terminalId?: string | null;
+      /** Loja selecionada por quem fecha (o caixa do delivery é da empresa; os pedidos são da loja). */
+      unidadeAtual?: string | null;
+      /** Só gerente/presidente: o motivo de fechar o turno do delivery com entrega pendente. */
+      justificativaPendencias?: string;
     },
   ) {
     const s = await this.sessaoAberta(
@@ -744,6 +800,32 @@ export class FinanceiroService {
     if (dto?.valoresInformados == null && dto?.valorInformado == null)
       throw new BadRequestException('Informe os valores contados (valoresInformados).');
     this.exigeDonoDoTurno(s, atorId, atorPerfil);
+
+    // Turno do DELIVERY só fecha sem entrega pendente (decisão do dono, 02/10/2026). O operador é
+    // barrado; gerente e presidente podem fechar mesmo assim ESCREVENDO o motivo, que vai para a
+    // auditoria — sem isso, um pedido preso deixaria o caixa aberto para sempre. O balcão não é
+    // barrado aqui: lá a tela só avisa das retiradas pendentes antes de fechar.
+    let fechouComPendencias: { total: number; justificativa: string; pedidos: string[] } | null = null;
+    if (s.origem === 'delivery') {
+      const pend = await pendenciasDoTurno(this.db, tenantId, dto.unidadeAtual ?? null, 'delivery');
+      if (pend.total > 0) {
+        const n = pend.total === 1 ? 'Há 1 entrega pendente' : `Há ${pend.total} entregas pendentes`;
+        if (!gerenteOuPresidente(atorPerfil))
+          throw new ConflictException({
+            message: `${n}. Conclua ou cancele os pedidos antes de fechar o turno do delivery — ou chame um gerente.`,
+            codigo: 'PENDENCIAS_DO_TURNO',
+            total: pend.total,
+          });
+        const justificativa = String(dto.justificativaPendencias ?? '').replace(/\s+/g, ' ').trim();
+        if (justificativa.length < JUSTIFICATIVA_MINIMA)
+          throw new ConflictException({
+            message: `${n}. Para fechar mesmo assim, escreva o motivo (pelo menos ${JUSTIFICATIVA_MINIMA} letras).`,
+            codigo: 'PENDENCIAS_DO_TURNO_JUSTIFICAR',
+            total: pend.total,
+          });
+        fechouComPendencias = { total: pend.total, justificativa: justificativa.slice(0, 300), pedidos: pend.itens.slice(0, 50).map((p) => p.id) };
+      }
+    }
 
     // Esperado por forma = movimentos (entrada − saída) da sessão agrupados por
     // forma; sangrias/suprimentos já são lançamentos, então entram naturalmente.
@@ -815,6 +897,18 @@ export class FinanceiroService {
       entidadeId: s.id,
       detalhe: { esperado, informado, diferenca, esperadoPorForma, informadoPorForma, diferencaPorForma },
     });
+    if (fechouComPendencias) {
+      await this.auditoria.registrar({
+        tenantId,
+        atorId,
+        atorPerfil,
+        tipo: 'financeiro',
+        acao: 'fechou_turno_com_pendencias',
+        entidadeTipo: 'caixa_sessao',
+        entidadeId: s.id,
+        detalhe: fechouComPendencias,
+      });
+    }
 
     if (excedeu) {
       // Ocorrência não bloqueia o fechamento (best-effort).

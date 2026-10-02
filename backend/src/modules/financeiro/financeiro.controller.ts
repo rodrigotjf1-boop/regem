@@ -206,14 +206,39 @@ export class FinanceiroController {
   fecharCaixa(
     @CurrentUser() user: AuthUser,
     @TerminalAtual() terminalId: string | null,
+    @UnidadeAtual() atual: string | null,
     @Body() dto: any,
   ) {
     return this.service.fecharSessao(
       user.tenantId,
       user.colaboradorId,
       user.categoria,
-      { ...dto, terminalId },
+      // `unidadeAtual` vem SEMPRE do contexto de quem fecha, nunca do corpo.
+      { ...dto, terminalId, unidadeAtual: atual },
     );
+  }
+
+  // Pedidos ainda não baixados na hora de fechar o turno: entregas (turno do delivery) ou
+  // retiradas (turno do balcão). A tela mostra ANTES da contagem.
+  @Get('caixa/pendencias')
+  @OperadorDeCaixa()
+  pendenciasDoTurno(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
+    @Query('origem') origem?: string,
+  ) {
+    return this.service.pendenciasDoTurno(user.tenantId, atual, origem, user.categoria);
+  }
+
+  // Baixa administrativa das pendências paradas há mais de 24 h — só gerente e presidente
+  // (o @Roles da classe), auditada. Não baixa estoque, não mexe no caixa, não avisa canal.
+  @Post('caixa/pendencias/baixar-antigas')
+  baixarPendenciasAntigas(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
+    @Body() dto: any,
+  ) {
+    return this.service.baixarPendenciasAntigas(user.tenantId, user.colaboradorId, user.categoria, atual, dto?.origem);
   }
 
   // Relatório de fechamentos de caixa (só gestão) — permissão "turnos".

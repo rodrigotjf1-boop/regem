@@ -4831,6 +4831,37 @@
         }
       }
     },
+    "/api/v1/financeiro/caixa/pendencias": {
+      "get": {
+        "operationId": "FinanceiroController_pendenciasDoTurno",
+        "parameters": [
+          {
+            "name": "origem",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/financeiro/caixa/pendencias/baixar-antigas": {
+      "post": {
+        "operationId": "FinanceiroController_baixarPendenciasAntigas",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/financeiro/caixa/fechamentos": {
       "get": {
         "operationId": "FinanceiroController_fechamentos",
