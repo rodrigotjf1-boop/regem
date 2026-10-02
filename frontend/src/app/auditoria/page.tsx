@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { ResponsiveTable, type Column } from '@/components/ui/responsive-table';
 import { cn } from '@/lib/utils';
 import { ACOES_EQUIPAMENTO } from '@/lib/auditoria-equipamentos';
+import { ACOES_KDS } from '@/lib/auditoria-kds';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -74,6 +75,8 @@ const ACAO_LABEL: Record<string, string> = {
   produziu_ficha: 'Produziu ficha técnica',
   // cadastrar, parear, trocar, revogar e alterar equipamento (as mesmas da tela Equipamentos)
   ...ACOES_EQUIPAMENTO,
+  // KDS: finalizar a tela, cancelar pedido, etapas, destinos e alertas (as mesmas do histórico do KDS)
+  ...ACOES_KDS,
 };
 const acaoLabel = (a: string) => ACAO_LABEL[a] ?? a.replace(/_/g, ' ');
 

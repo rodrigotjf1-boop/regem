@@ -174,4 +174,23 @@ export class AuditoriaService {
       limit ${n}
     `);
   }
+
+  // Histórico de um conjunto de AÇÕES (ex.: as do KDS), mais recentes primeiro. Com `unidadeId`,
+  // traz o que é da loja ou não tem loja (configuração da rede).
+  async listarPorAcoes(tenantId: string, acoes: readonly string[], opts: { unidadeId?: string | null; limite?: number } = {}) {
+    if (!acoes.length) return [];
+    const n = Math.min(Math.max(Math.trunc(Number(opts.limite)) || 60, 1), 300);
+    const lista = sql.join(acoes.map((a) => sql`${a}`), sql`, `);
+    return this.rows(sql`
+      select a.id, a.tipo, a.acao, a.detalhe, a.entidade_id as "entidadeId", a.unidade_id as "unidadeId",
+             a.actor_id as "atorId", a.actor_perfil as "atorPerfil", a.origem,
+             a.created_at as "criadoEm", c.nome as "atorNome"
+      from audit_log a
+      left join colaborador c on c.id = a.actor_id
+      where a.tenant_id = ${tenantId} and a.acao in (${lista})
+        ${opts.unidadeId ? sql`and (a.unidade_id = ${opts.unidadeId} or a.unidade_id is null)` : sql``}
+      order by a.created_at desc
+      limit ${n}
+    `);
+  }
 }

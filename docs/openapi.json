@@ -5006,6 +5006,27 @@
         }
       }
     },
+    "/api/v1/producao/historico": {
+      "get": {
+        "operationId": "ProducaoPedidoController_historico",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/producao/pedidos": {
       "get": {
         "operationId": "ProducaoPedidoController_pedidos",

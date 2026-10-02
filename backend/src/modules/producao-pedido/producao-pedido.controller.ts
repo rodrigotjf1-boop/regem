@@ -22,6 +22,8 @@ import { ProducaoPedidoService } from './producao-pedido.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const GESTOR = ['presidente', 'gerente', 'supervisao'];
+/** Quem fez, para a auditoria do KDS. */
+const ator = (user: AuthUser) => ({ id: user.colaboradorId, perfil: user.categoria });
 
 // Produção (Fase F1). Ver decisoes-design. KDS informa/avança; PDV é dono do ciclo.
 @Controller('producao')
@@ -74,7 +76,15 @@ export class ProducaoPedidoController {
       equipamentoId: dto?.equipamentoId || undefined,
       unidadeId:
         (user.categoria === 'presidente' ? dto?.unidadeId || unidadeAtual : unidadeAtual) || undefined,
-    });
+    }, user.categoria);
+  }
+
+  // Histórico do KDS: quem limpou a fila, cancelou pedido, mudou etapas/destinos ou mexeu nos
+  // alertas (vem da auditoria). Mesmo acesso da fila; só da loja de quem consulta.
+  @Get('historico')
+  @RequireModulo('kds')
+  historico(@CurrentUser() user: AuthUser, @UnidadeAtual() unidadeAtual: string | null) {
+    return this.service.historicoKds(user.tenantId, unidadeAtual);
   }
 
   // ----- PDV (atendente é dono): consultar + cancelar em produção -----
@@ -122,6 +132,7 @@ export class ProducaoPedidoController {
       user.tenantId,
       id,
       dto?.equipamentoIds ?? [],
+      ator(user),
     );
   }
 
@@ -142,6 +153,7 @@ export class ProducaoPedidoController {
       user.tenantId,
       id,
       dto?.equipamentoIds ?? [],
+      ator(user),
     );
   }
 
@@ -159,7 +171,7 @@ export class ProducaoPedidoController {
       amareloAteMin: dto?.amareloAteMin,
       usaPreparo: dto?.usaPreparo,
       usaEntregue: dto?.usaEntregue,
-    });
+    }, ator(user));
   }
 
   // Config da senha (período de reset) — gerente/presidente.
@@ -176,6 +188,7 @@ export class ProducaoPedidoController {
       user.tenantId,
       dto?.unidadeId || null,
       dto?.periodo,
+      ator(user),
     );
   }
 }

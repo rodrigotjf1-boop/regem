@@ -7,6 +7,8 @@ import { AuthUser } from '../../auth/auth-user';
 import { KdsAlertaService } from './kds-alerta.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+/** Quem fez, para a auditoria. */
+const ator = (user: AuthUser) => ({ id: user.colaboradorId, perfil: user.categoria });
 
 // Cadastro dos alertas do rodapé do KDS (presidente/C&O/gerente). O disparo em si é
 // feito pelo scheduler do serviço; aqui é só o CRUD + o disparo manual (teste/urgente).
@@ -24,25 +26,25 @@ export class KdsAlertaController {
   @Post()
   @Roles('presidente', 'gerente')
   criar(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.service.criar(user.tenantId, user.colaboradorId ?? null, dto);
+    return this.service.criar(user.tenantId, user.colaboradorId ?? null, dto, ator(user));
   }
 
   @Patch(':id')
   @Roles('presidente', 'gerente')
   atualizar(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
-    return this.service.atualizar(user.tenantId, id, dto);
+    return this.service.atualizar(user.tenantId, id, dto, ator(user));
   }
 
   @Delete(':id')
   @Roles('presidente', 'gerente')
   remover(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.remover(user.tenantId, id);
+    return this.service.remover(user.tenantId, id, ator(user));
   }
 
   // Disparo manual/urgente — o presidente/gerente joga um alerta no rodapé na hora.
   @Post('disparar')
   @Roles('presidente', 'gerente')
   disparar(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.service.dispararManual(user.tenantId, dto);
+    return this.service.dispararManual(user.tenantId, dto, ator(user));
   }
 }
