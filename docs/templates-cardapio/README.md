@@ -10,7 +10,12 @@ Especificação para o **Claude Code** implementar 4 templates novos no cardápi
 | 3 | Oferta — promoções e combos na frente | `oferta` | Anota AI | [`03-oferta.md`](03-oferta.md) |
 | 4 | **Regem Fluxo** — clean, uma decisão por tela | `fluxo` | próprio do Regem | [`04-regem-fluxo.md`](04-regem-fluxo.md) |
 | — | Recursos do cardápio de hoje nos templates (ler junto com a base) | — | — | [`05-recursos-integrados.md`](05-recursos-integrados.md) |
-| — | Como foi implementado, o que ficou diferente do protótipo e como foi conferido | — | — | [`06-implementacao.md`](06-implementacao.md) |
+| + | **Eventos sazonais** — camada por cima de qualquer template (Natal, Carnaval, Halloween, Dia do Hambúrguer, Dia de jogo e mais 8); o presidente liga só os que quiser | `temaConfig.eventos` | — | [`06-eventos-sazonais.md`](06-eventos-sazonais.md) |
+| + | **Clube de recompra** — raspadinha, álbum de selos, aniversário e meta do mês (sem sorteio, dispensa autorização) · *não implementado* | módulo `clube` | — | [`07-clube-de-recompra.md`](07-clube-de-recompra.md) |
+| + | **Eventos nas TVs (RegemBoard)** — a mesma camada de eventos no menu board (cópia de referência) | `contas.aparencia.eventos` | — | [`08-eventos-no-regemboard.md`](08-eventos-no-regemboard.md) |
+| — | **O que está implementado**, onde fica, o que ficou diferente do protótipo e como foi conferido | — | — | [`IMPLEMENTACAO.md`](IMPLEMENTACAO.md) |
+
+**Estado (01/10/2026):** os 4 templates e os eventos sazonais estão implementados; o clube de recompra ainda não. **Prompts prontos para colar:** [`PROMPTS.md`](PROMPTS.md) (Regem e RegemBoard).
 
 Todos os templates mantêm os recursos que o cardápio já tem hoje — conta do cliente (pedidos, benefícios, perfil), promoções pelo WhatsApp, aviso de origem do anúncio, sinal e recorrência da encomenda, QR de mesa e os ramos serviços e indústria —, conforme o `05-recursos-integrados.md` (conferido contra `origin/main` em 01/10/2026).
 
@@ -26,8 +31,13 @@ docs/templates-cardapio/
 ├── 00-base-cardapio.md       ← arquitetura comum, contrato, regras do checkout em etapas, correções, API/admin
 ├── 01-galeria.md … 04-regem-fluxo.md
 ├── 05-recursos-integrados.md ← onde ficam os recursos de hoje em cada template + o que o código faz diferente da base
+├── 06-eventos-sazonais.md    ← os 13 eventos, calendário, configuração do presidente, camada no front
+├── 07-clube-de-recompra.md   ← raspadinha, selos, aniversário e meta do mês (especificação; não implementado)
+├── 08-eventos-no-regemboard.md ← os mesmos eventos nas TVs (cópia da especificação do RegemBoard)
+├── IMPLEMENTACAO.md          ← o que entrou no código, onde está e as diferenças para o protótipo
+├── PROMPTS.md                ← prompts prontos (Regem e RegemBoard)
 └── prototipo/
-    └── prototipo-interativo.html   ← protótipo navegável dos 4 templates (abra no navegador)
+    └── prototipo-interativo.html   ← protótipo navegável: 4 templates, evento sazonal e clube de recompra (abra no navegador)
 ```
 
 O protótipo é a **referência visual e de comportamento** (como os `mockups/*.html` do `CLAUDE.md`). Ele usa o cardápio da Mister Burguer como exemplo, com fotos de banco gratuito embutidas só para teste. No cardápio real, tudo vem de `menu.loja`, `menu.produtos`, `menu.bairros` etc.
@@ -44,7 +54,11 @@ O `CLAUDE.md` do Regem pede **plano antes de código** em tarefa grande. Por iss
 
    > Leia `docs/templates-cardapio/00-base-cardapio.md` e `docs/templates-cardapio/04-regem-fluxo.md`. No protótipo, selecione **Regem Fluxo** e percorra o pedido completo (com e sem "Cliente que já comprou"). Apresente o plano e aguarde aprovação. Implemente o template seguindo o contrato da base, sem mudar regra de negócio do pedido. Compare com o protótipo tela a tela, liste as divergências na descrição do PR e entregue com o checklist de aceite do arquivo.
 
-3. **Fase B (opcional, depois):** itens marcados como Fase B na seção 9 do `00-base-cardapio.md` (vira trio cadastrado, upsell por histórico, recuperação de carrinho etc.). Cada um é um PR próprio porque mexe em backend e migration.
+3. **Eventos sazonais — implementados** (ver `IMPLEMENTACAO.md` §5). O presidente liga os eventos em Delivery → Configurações → Eventos; para ver um evento sem ligar, abra o cardápio com `?evento=natal` (ou o botão "Ver prévia" do painel).
+
+4. **Clube de recompra — a fazer.** O `07-clube-de-recompra.md` traz o resumo, o modelo de dados, as regras e os prompts de 4 PRs. Leia antes a seção "Antes de implementar" dele: o gancho do pedido concluído roda também no servidor da loja.
+
+5. **Fase B (opcional, depois):** itens marcados como Fase B na seção 9 do `00-base-cardapio.md` (vira trio cadastrado, upsell por histórico, recuperação de carrinho etc.). Cada um é um PR próprio porque mexe em backend e migration.
 
 ## Como conferir o resultado
 

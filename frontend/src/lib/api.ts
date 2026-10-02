@@ -1217,6 +1217,11 @@ export const api = {
   cardapioConfig: () => req('/cardapio/config'),
   setCardapioConfig: (body: Record<string, unknown>) =>
     req('/cardapio/config', { method: 'PUT', body: JSON.stringify(body) }),
+  // Eventos sazonais do cardápio (Natal, Black Friday, Dia de jogo…): quem tem a permissão da
+  // loja vê a agenda; só o presidente grava (o servidor recusa os demais).
+  cardapioEventos: () => req('/cardapio/eventos'),
+  salvarCardapioEventos: (body: Record<string, unknown>) =>
+    req('/cardapio/eventos', { method: 'PUT', body: JSON.stringify(body) }),
   // Regras de sinal da encomenda por faixa de quantidade (mig 187).
   regrasSinalEncomenda: () => req('/cardapio/encomenda/regras-sinal'),
   setRegrasSinalEncomenda: (regras: unknown[]) =>
@@ -1315,7 +1320,9 @@ export const api = {
     const q = p.toString();
     return req(`/relatorios/producao${q ? `?${q}` : ''}`);
   },
-  cardapioMenu: (token: string) => pub(`/publico/cardapio/${token}`),
+  // `previaEvento` (ex.: "natal") mostra o cardápio como fica naquele evento sazonal — a prévia do painel.
+  cardapioMenu: (token: string, previaEvento?: string | null) =>
+    pub(`/publico/cardapio/${token}${previaEvento ? `?evento=${encodeURIComponent(previaEvento)}` : ''}`),
   cardapioPedido: (token: string, body: Record<string, unknown>) =>
     pub(`/publico/cardapio/${token}/pedido`, { method: 'POST', body: JSON.stringify(body) }),
   cardapioCupomValidar: (token: string, codigo: string, subtotal: number, telefone?: string) =>

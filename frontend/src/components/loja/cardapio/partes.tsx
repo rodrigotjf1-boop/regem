@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { brl, SELO } from '@/components/loja/tipos';
+import { EvFoto } from '@/components/loja/eventos/contexto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @next/next/no-img-element */
 
@@ -48,13 +49,25 @@ export function Ic({ n, s = 20 }: { n: NomeIcone; s?: number }) {
 
 export { brl };
 
-/** Foto do produto; sem foto, um quadro neutro (nunca um emoji). */
-export function Foto({ src, alt = '' }: { src?: string | null; alt?: string }) {
-  if (src) return <img src={src} alt={alt} loading="lazy" />;
-  return (
+/**
+ * Foto do produto; sem foto, um quadro neutro (nunca um emoji).
+ * `enfeite` e `produtoId` só servem aos eventos sazonais (acessório em 1 a cada 3 fotos da vitrine
+ * e o ovo da Páscoa): sem evento no ar, não desenham nada.
+ */
+export function Foto({ src, alt = '', enfeite, produtoId }: { src?: string | null; alt?: string; enfeite?: boolean; produtoId?: string }) {
+  const foto = src ? (
+    <img src={src} alt={alt} loading="lazy" />
+  ) : (
     <span className="p-semfoto" aria-hidden="true">
       <Ic n="bag" s={22} />
     </span>
+  );
+  if (!src || (!enfeite && !produtoId)) return foto;
+  return (
+    <>
+      {foto}
+      <EvFoto enfeite={enfeite} produtoId={produtoId} />
+    </>
   );
 }
 

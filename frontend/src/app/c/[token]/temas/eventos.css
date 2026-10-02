@@ -1,0 +1,196 @@
+/* EVENTOS SAZONAIS DO CARDÁPIO (docs/templates-cardapio/06-eventos-sazonais.md).
+   Carregado sob demanda, só quando há evento no ar. Tudo fica sob `.p-root`: as classes do
+   evento (`ev-on ev-<evento>`) vão na raiz do cardápio e, sem elas, nada aqui se aplica.
+   Gerado do protótipo aprovado + ajustes do cardápio real (fontes embutidas, modo escuro,
+   animações desligadas). Tudo é enfeite: nenhuma regra muda tamanho de botão nem ordem de tela. */
+
+/* guirlanda do topo */
+.p-root.ev-on .p-pbody{position:relative}
+.p-root .ev-gar{position:absolute;left:0;right:0;top:0;height:44px;pointer-events:none;z-index:6}
+.p-root .ev-gar svg.w{position:absolute;left:0;top:0;overflow:visible}
+.p-root .ev-gar .it{position:absolute;transform-origin:50% 0}
+.p-root .ev-gar .it > span{display:block;transform-origin:50% 0}
+.p-root .ev-gar .it svg{display:block;width:100%;height:auto}
+.p-root .ev-gar .sw{animation:lpe-balanca 3.2s ease-in-out var(--d,0s) infinite}
+@keyframes lpe-balanca{0%,100%{transform:rotate(-7deg)}50%{transform:rotate(7deg)}}
+.p-root .bulb{display:block;width:9px;height:13px;margin-top:3px;border-radius:50% 50% 50% 50%/40% 40% 62% 62%;background:var(--c);box-shadow:0 0 7px 2px var(--c);animation:lpe-pisca 2.2s var(--d,0s) infinite;position:relative}
+.p-root .bulb::before{content:"";position:absolute;left:2px;top:-3px;width:5px;height:4px;border-radius:1px;background:#2F3B2C}
+@keyframes lpe-pisca{0%,100%{opacity:1}50%{opacity:.35;box-shadow:0 0 0 0 transparent}}
+.p-root .flag{display:block;width:16px;height:19px;background:var(--c);clip-path:polygon(0 0,100% 0,100% 100%,50% 74%,0 100%)}
+.p-root .penn{display:block;width:14px;height:18px;background:var(--c);clip-path:polygon(0 0,100% 0,50% 100%)}
+.p-root .ev-gar .it .fio{display:block;width:1px;margin:0 auto;background:rgba(184,134,11,.7)}
+.p-root .ev-gar .balc{position:absolute;right:58px;top:2px;width:30px;animation:lpe-flutua 4s ease-in-out infinite}
+@keyframes lpe-flutua{50%{transform:translateY(-4px) rotate(3deg)}}
+.p-root .ev-gar .web{position:absolute;right:0;top:0;width:62px;height:62px;opacity:.85}
+.p-root .ev-gar .aranha{position:absolute;right:58px;top:0;width:18px;display:flex;flex-direction:column;align-items:center;animation:lpe-desce 5s ease-in-out infinite}
+.p-root .ev-gar .aranha .fio{display:block;width:1px;height:26px;background:rgba(40,30,55,.6)}
+.p-root .ev-gar .aranha svg{width:18px;height:18px}
+@keyframes lpe-desce{0%,100%{transform:translateY(-10px)}50%{transform:translateY(22px)}}
+.p-root .ev-gar .xadrez{position:absolute;left:0;right:0;top:0;height:10px;background:repeating-linear-gradient(90deg,rgba(30,58,95,.92) 0 7px,rgba(212,163,115,.95) 7px 10px,rgba(30,58,95,.92) 10px 17px,rgba(245,235,221,.9) 17px 18px),#1E3A5F;box-shadow:0 2px 4px rgba(0,0,0,.15)}
+.p-root .ev-gar .xadrez::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent 0 3px,rgba(245,235,221,.35) 3px 4px)}
+.p-root .ev-gar .bow{position:absolute;left:50%;top:1px;width:38px;margin-left:-19px;filter:drop-shadow(0 2px 2px rgba(0,0,0,.25))}
+.p-root .ev-gar .fita{position:absolute;left:-12px;right:-12px;top:6px;height:22px;background:#FACC15;transform:rotate(-2deg);overflow:hidden;border-block:2px solid #0A0A0A;box-shadow:0 3px 8px rgba(0,0,0,.25);display:flex;align-items:center}
+.p-root .ev-gar .fita span{font:400 13px/1 'Anton',Impact,sans-serif;letter-spacing:.08em;color:#0A0A0A;white-space:nowrap;animation:lpe-corre 18s linear infinite}
+@keyframes lpe-corre{to{transform:translateX(-50%)}}
+.p-root.ev-on .g-top{padding-top:34px}.p-root.ev-on .f-top{padding-top:38px}
+/* faixa do evento */
+.p-root .ev-strip{position:relative;margin:14px 16px 0;padding:14px 10px 14px 16px;border-radius:18px;display:grid;grid-template-columns:minmax(0,1fr) 92px;gap:8px;align-items:center;background:var(--ev-bg);color:var(--ev-ink);overflow:hidden;isolation:isolate}
+.p-root .ev-strip::before{content:"";position:absolute;inset:0;background:var(--ev-pat,none);opacity:.55;z-index:-1}
+.p-root .ev-strip small{font:700 10.5px var(--p-font);letter-spacing:.12em;text-transform:uppercase;opacity:.85}
+.p-root .ev-strip h3{margin:3px 0 4px;font:var(--ev-fi,normal) 700 var(--ev-fs,24px)/1.02 var(--ev-font);text-transform:var(--ev-up,none);text-wrap:balance}
+.p-root .ev-strip p{margin:0;font-size:12.5px;line-height:1.35;opacity:.92}
+.p-root .ev-strip .row{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;align-items:center}
+.p-root .ev-chip{display:inline-flex;align-items:center;gap:4px;font:700 11.5px var(--p-font);padding:5px 10px;border-radius:999px;background:var(--ev-chip);color:var(--ev-chip-ink);font-variant-numeric:tabular-nums}
+.p-root .ev-go{display:inline-flex;align-items:center;gap:3px;font:700 11.5px var(--p-font);padding:5px 9px;border-radius:999px;box-shadow:inset 0 0 0 1.5px currentColor;color:inherit}
+.p-root .ev-art{display:block;width:92px;height:92px}
+.p-root .ev-art svg{width:100%;height:100%;display:block}
+.p-root .ev-ovos i{display:inline-block;width:12px;height:15px}
+.p-root .ev-ovos i svg{width:100%;height:100%}
+.p-root .ev-pk{animation:lpe-balanca 1.6s ease-in-out infinite;transform-origin:50% 90%;filter:drop-shadow(0 0 12px rgba(253,224,71,.55))}
+.p-root .ev-pk.aberta{animation:none;filter:drop-shadow(0 0 20px rgba(253,224,71,.9))}
+.p-root .ev-pk:disabled{opacity:1;cursor:default}
+/* coleção do evento */
+.p-root .ev-col{padding-top:16px}
+.p-root .ev-col h2{margin:0;padding:0 16px 8px;font:700 17px var(--p-disp);display:flex;align-items:center;gap:6px}
+.p-root .ev-row{gap:12px;padding:12px 16px 4px}
+.p-root .ev-ci{flex:0 0 128px;display:grid;gap:3px;text-align:left;position:relative;align-content:start}
+.p-root .ev-ci .a{height:104px;border-radius:var(--p-r);background:var(--p-art);position:relative}
+.p-root .ev-ci .a > img,.p-root .ev-ci .a > .p-semfoto{border-radius:inherit}
+.p-root .ev-ci .pl{position:absolute;right:6px;top:72px;width:30px;height:30px;border-radius:50%;background:var(--p-acc);color:var(--p-on);display:grid;place-items:center;box-shadow:0 4px 10px -4px rgba(0,0,0,.4);z-index:4}
+.p-root .ev-ci b{font-size:13px;font-weight:600;line-height:1.25;margin-top:4px}
+.p-root .ev-ci small{font:600 12px var(--p-num)}
+.p-root .ev-ci small s{font-weight:400;color:var(--p-mut)}
+.p-root .ev-off{position:absolute;left:6px;top:6px;font:800 11px var(--p-font);padding:3px 7px;border-radius:8px;background:var(--ev-chip);color:var(--ev-chip-ink);z-index:2}
+.p-root .ev-ico{display:inline-grid;place-items:center;width:20px;height:20px;flex:none;vertical-align:-4px;margin-right:6px}
+.p-root .ev-ico svg{width:20px;height:20px}
+.p-root .ev-col h2 .ev-ico{margin-right:0}
+/* acessórios nas fotos */
+.p-root.ev-on .hs.g-car,.p-root.ev-on .hs.o-pro,.p-root.ev-on .hs.f-hi{padding-top:16px}
+.p-root .ev-hat{position:absolute;z-index:3;pointer-events:none;filter:drop-shadow(0 3px 3px rgba(0,0,0,.2))}
+.p-root .ev-hat svg{display:block;width:100%;height:auto;overflow:visible}
+.p-root .ev-hat.canto{top:-15px;right:-9px;width:46%;max-width:62px;transform:rotate(16deg)}
+.p-root .ev-hat.big{top:12px;right:14px;width:92px;transform:rotate(12deg)}
+.p-root .ev-hat.topo{bottom:calc(100% - 6px);left:50%;width:46%;max-width:58px;transform:translateX(-50%);z-index:0}
+.p-root .ev-hat.bigode{top:60%;left:50%;width:44%;max-width:62px;transform:translate(-50%,-50%) rotate(-3deg)}
+.p-root .h-criancas .prop{transform-box:fill-box;transform-origin:center;animation:lpe-helice .5s linear infinite}
+@keyframes lpe-helice{50%{transform:scaleX(.15)}}
+.p-root .ev-egg{position:absolute;left:6px;bottom:6px;width:20px;height:25px;z-index:4;cursor:pointer;animation:lpe-balanca 1.4s ease-in-out infinite;transform-origin:50% 100%;filter:drop-shadow(0 2px 2px rgba(0,0,0,.3))}
+.p-root .ev-egg svg{width:100%;height:100%}
+/* trilha das etapas */
+.p-root.ev-on .f-prog,.p-root.ev-on .g-prog{display:none}
+.p-root .ev-trail{position:relative;height:34px;margin:0 16px 4px;flex:none}
+.p-root .ev-trail .t,.p-root .ev-trail .f{position:absolute;left:0;top:24px;height:6px;border-radius:3px}
+.p-root .ev-trail .t{right:0;background:var(--p-surf)}
+.p-root .ev-trail .f{background:var(--ev-stripe);background-size:40px 100%;transition:width .7s cubic-bezier(.3,1,.4,1)}
+.p-root .ev-trail.corre .f{animation:lpe-faixa 1.2s linear infinite}
+.p-root .ev-trail.brilho .f{background-size:200% 100%;animation:lpe-faixa2 2.4s linear infinite}
+@keyframes lpe-faixa{to{background-position:40px 0}}
+@keyframes lpe-faixa2{to{background-position:-200% 0}}
+.p-root .ev-trail .m{position:absolute;top:23px;width:8px;height:8px;margin-left:-4px;border-radius:50%;background:var(--p-bg);box-shadow:0 0 0 2px var(--p-line)}
+.p-root .ev-trail .m.on{box-shadow:0 0 0 2px var(--p-acc)}
+.p-root .ev-trail .r{position:absolute;top:0;width:30px;height:26px;margin-left:-15px;transition:left .7s cubic-bezier(.3,1.25,.5,1);filter:drop-shadow(0 2px 2px rgba(0,0,0,.18))}
+.p-root .ev-trail .r svg{width:100%;height:100%;display:block}
+.p-root .ev-trail.pula .r svg{animation:lpe-pulo .55s ease-in-out 3}
+@keyframes lpe-pulo{50%{transform:translateY(-8px)}}
+.p-root .ev-trail .r .fl,.p-root .ev-art .fl{animation:lpe-chama .35s ease-in-out infinite alternate;transform-box:fill-box;transform-origin:100% 50%}
+@keyframes lpe-chama{to{transform:scale(1.15,.85)}}
+.p-root .ev-trail .r .wg{transform-box:fill-box;transform-origin:100% 60%;animation:lpe-asa .4s ease-in-out infinite alternate}
+.p-root .ev-trail .r .wg.wr{transform-origin:0 60%}
+@keyframes lpe-asa{to{transform:scaleY(.6)}}
+/* neve acumulada (Natal) */
+.p-root.ev-natal .p-btn,.p-root.ev-natal .b-bar button,.p-root.ev-natal .o-bar button,.p-root.ev-natal .f-bar .r button{position:relative}
+.p-root.ev-natal .p-btn:not(:disabled):not(.falta)::before,.p-root.ev-natal .g-bar::before,.p-root.ev-natal .b-bar button::before,.p-root.ev-natal .o-bar button::before,.p-root.ev-natal .f-bar .r button::before{content:"";position:absolute;left:6px;right:6px;top:-7px;height:12px;pointer-events:none;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 14' preserveAspectRatio='none'%3E%3Cpath d='M0 9 Q5 2 13 6 Q19 0 28 6 Q35 1 44 6 Q52 2 58 8 Q66 1 74 6 Q82 2 90 7 Q98 0 106 6 Q113 3 120 8 L120 14 Q117 14 116 11 Q114 14 110 14 L68 14 Q66 18 63 14 L30 14 Q27 17 25 14 L0 14Z' fill='white'/%3E%3C/svg%3E") center/100% 100% no-repeat;filter:drop-shadow(0 1px 1.5px rgba(30,50,80,.35))}
+/* confirmação */
+.p-root .ok-top .ev-kick{font:var(--ev-fi,normal) 700 calc(var(--ev-fs,24px) * .85)/1 var(--ev-font);color:var(--p-acc);text-transform:var(--ev-up,none);margin-top:4px}
+.p-root .ok-top .ev-oksub{font-size:13.5px;color:var(--p-mut);margin:0}
+.p-root.ev-on .ok-top{padding-top:44px}
+.p-root .ok-badge.ev{background:var(--p-acc-soft);position:relative;box-shadow:inset 0 0 0 2px var(--p-acc)}
+.p-root .ok-badge.ev svg{width:42px;height:36px}
+.p-root .ok-badge.ev .ck{position:absolute;right:-2px;bottom:-2px;width:24px;height:24px;border-radius:50%;background:#0E7C66;color:#fff;display:grid;place-items:center;box-shadow:0 0 0 3px var(--p-bg)}
+.p-root .ok-badge.ev .ck svg{width:13px;height:13px}
+/* identidade de cada evento: faixa, fonte, chips */
+.p-root.ev-on{--ev-fs:24px}
+.p-root.ev-natal{--ev-bg:linear-gradient(135deg,#0F5132,#14532D 60%,#0B3D24);--ev-ink:#fff;--ev-chip:#C8102E;--ev-chip-ink:#fff;--ev-pat:radial-gradient(circle at 20% 30%,#fff 1.3px,transparent 1.8px) 0 0/22px 22px,radial-gradient(circle at 70% 70%,rgba(255,255,255,.8) 1px,transparent 1.5px) 0 0/31px 31px;--ev-font:'Mountains of Christmas',cursive;--ev-fs:30px;--ev-stripe:repeating-linear-gradient(-45deg,#C8102E 0 6px,#fff 6px 12px)}
+.p-root.ev-reveillon{--ev-bg:radial-gradient(circle at 85% 0%,rgba(231,181,60,.35),transparent 55%),linear-gradient(135deg,#0B1026,#1E1B4B);--ev-ink:#FFF7E0;--ev-chip:#E7B53C;--ev-chip-ink:#1E1B4B;--ev-pat:radial-gradient(circle,#F8E7A6 1px,transparent 1.5px) 0 0/18px 18px;--ev-font:'Cinzel',serif;--ev-fs:21px;--ev-stripe:linear-gradient(90deg,#B8860B,#F8E7A6,#E7B53C,#F8E7A6,#B8860B)}
+.p-root.ev-carnaval{--ev-bg:linear-gradient(120deg,#6D28D9,#DB2777 60%,#F59E0B);--ev-ink:#fff;--ev-chip:#FACC15;--ev-chip-ink:#3B0764;--ev-pat:radial-gradient(circle,#FACC15 2px,transparent 2.5px) 0 0/26px 26px,radial-gradient(circle,#10B981 2px,transparent 2.5px) 13px 9px/26px 26px,radial-gradient(circle,#fff 1.5px,transparent 2px) 6px 18px/26px 26px;--ev-font:'Bungee',sans-serif;--ev-fs:20px;--ev-stripe:linear-gradient(90deg,#7C3AED,#EC4899,#F97316,#FACC15,#10B981,#3B82F6,#7C3AED)}
+.p-root.ev-pascoa{--ev-bg:linear-gradient(135deg,#EDE9FE,#FCE7F3 55%,#D1FAE5);--ev-ink:#4C1D95;--ev-chip:#7B4A2E;--ev-chip-ink:#fff;--ev-pat:radial-gradient(circle,#fff 2px,transparent 2.5px) 0 0/20px 20px;--ev-font:'Sniglet',sans-serif;--ev-fs:25px;--ev-stripe:repeating-linear-gradient(90deg,#C4B5FD 0 10px,#F9A8D4 10px 20px,#6EE7B7 20px 30px,#FDE68A 30px 40px)}
+.p-root.ev-maes{--ev-bg:linear-gradient(135deg,#FFE4E6,#FBCFE8);--ev-ink:#831843;--ev-chip:#D6455D;--ev-chip-ink:#fff;--ev-pat:radial-gradient(circle,#fff 2.5px,transparent 3px) 0 0/24px 24px,radial-gradient(circle,#F9A8D4 1.5px,transparent 2px) 12px 12px/24px 24px;--ev-font:'Playfair Display',serif;--ev-fi:italic;--ev-fs:25px;--ev-stripe:linear-gradient(90deg,#FBA6B5,#E8505B)}
+.p-root.ev-namorados{--ev-bg:linear-gradient(135deg,#881337,#E11D48);--ev-ink:#fff;--ev-chip:#fff;--ev-chip-ink:#9F1239;--ev-pat:radial-gradient(circle,rgba(255,255,255,.5) 1.5px,transparent 2px) 0 0/20px 20px;--ev-font:'Dancing Script',cursive;--ev-fs:30px;--ev-stripe:repeating-linear-gradient(90deg,#E11D48 0 8px,#FB7185 8px 16px)}
+.p-root.ev-junina{--ev-bg:#F8E9C8;--ev-ink:#7C2D12;--ev-chip:#C2410C;--ev-chip-ink:#fff;--ev-pat:radial-gradient(circle at 25% 25%,#E63946 3.5px,transparent 4px) 0 0/28px 28px,radial-gradient(circle at 75% 70%,#2A9D8F 3px,transparent 3.5px) 0 0/28px 28px,radial-gradient(circle at 62% 22%,#F4A261 2.5px,transparent 3px) 0 0/28px 28px,radial-gradient(circle at 20% 78%,#3B82F6 2px,transparent 2.5px) 0 0/28px 28px;--ev-font:'Rye',serif;--ev-fs:21px;--ev-stripe:repeating-linear-gradient(90deg,#E63946 0 10px,#FACC15 10px 20px,#2A9D8F 20px 30px,#F4A261 30px 40px,#3B82F6 40px 50px)}
+.p-root.ev-pais{--ev-bg:#1E3A5F;--ev-ink:#fff;--ev-chip:#D4A373;--ev-chip-ink:#1E1E1E;--ev-pat:repeating-linear-gradient(0deg,rgba(255,255,255,.07) 0 8px,transparent 8px 16px),repeating-linear-gradient(90deg,rgba(212,163,115,.16) 0 8px,transparent 8px 16px);--ev-font:'Alfa Slab One',serif;--ev-fs:21px;--ev-stripe:repeating-linear-gradient(90deg,#1E3A5F 0 8px,#D4A373 8px 11px,#1E3A5F 11px 19px,#F5EBDD 19px 20px)}
+.p-root.ev-criancas{--ev-bg:linear-gradient(135deg,#2563EB,#06B6D4);--ev-ink:#fff;--ev-chip:#FACC15;--ev-chip-ink:#1E3A8A;--ev-pat:radial-gradient(circle,#FACC15 2px,transparent 2.5px) 0 0/24px 24px,radial-gradient(circle,#F472B6 2px,transparent 2.5px) 12px 12px/24px 24px;--ev-font:'Fredoka',sans-serif;--ev-fs:25px;--ev-stripe:repeating-linear-gradient(90deg,#EF4444 0 10px,#FACC15 10px 20px,#3B82F6 20px 30px,#22C55E 30px 40px)}
+.p-root.ev-halloween{--ev-bg:radial-gradient(circle at 84% 24%,#FDE68A 0 17px,rgba(253,230,138,.22) 18px 30px,transparent 31px),linear-gradient(160deg,#2E1065,#1B0F2E);--ev-ink:#FDF4FF;--ev-chip:#F97316;--ev-chip-ink:#1B0F2E;--ev-pat:radial-gradient(circle,rgba(255,255,255,.5) .8px,transparent 1.2px) 0 0/16px 16px;--ev-font:'Creepster',cursive;--ev-fs:26px;--ev-stripe:repeating-linear-gradient(-45deg,#EA580C 0 7px,#2E1065 7px 14px)}
+.p-root.ev-blackfriday{--ev-bg:#0A0A0A;--ev-ink:#fff;--ev-chip:#FACC15;--ev-chip-ink:#0A0A0A;--ev-pat:linear-gradient(transparent calc(100% - 8px),transparent 0),repeating-linear-gradient(-45deg,rgba(250,204,21,.16) 0 10px,transparent 10px 20px);--ev-font:'Anton',sans-serif;--ev-fs:27px;--ev-up:uppercase;--ev-stripe:repeating-linear-gradient(-45deg,#FACC15 0 7px,#0A0A0A 7px 14px)}
+.p-root .ev-gar .gramado{position:absolute;left:0;right:0;top:0;height:14px;background:repeating-linear-gradient(90deg,#16A34A 0 22px,#15803D 22px 44px);box-shadow:0 2px 4px rgba(0,0,0,.18)}
+.p-root .ev-gar .gramado .linha{position:absolute;left:0;right:0;top:6px;height:2px;background:rgba(255,255,255,.85)}
+.p-root .ev-gar .gramado .bolinha{position:absolute;top:1px;left:0;width:13px;height:13px;animation:lpe-rola 7s linear infinite}
+.p-root .ev-gar .gramado .bolinha svg{width:100%;height:100%;display:block;animation:lpe-gira 1s linear infinite}
+@keyframes lpe-rola{from{transform:translateX(-14px)}to{transform:translateX(calc(var(--ev-w,420px) + 14px))}}
+@keyframes lpe-gira{to{transform:rotate(360deg)}}
+.p-root .ev-trail .r .gira{transform-box:fill-box;transform-origin:center;animation:lpe-gira .8s linear infinite}
+.p-root .ev-trail .r .pernas{transform-box:fill-box;transform-origin:50% 0;animation:lpe-passo .25s ease-in-out infinite alternate}
+@keyframes lpe-passo{to{transform:scaleX(-1)}}
+.p-root.ev-hamburguer{--ev-bg:linear-gradient(135deg,#FDB913,#F59E0B);--ev-ink:#3B1D0A;--ev-chip:#C1121F;--ev-chip-ink:#fff;--ev-pat:radial-gradient(ellipse 3px 1.6px,#FFF3D6 90%,transparent) 0 0/22px 18px,radial-gradient(ellipse 3px 1.6px,#FFF3D6 90%,transparent) 11px 9px/22px 18px;--ev-font:'Titan One',sans-serif;--ev-fs:24px;--ev-stripe:repeating-linear-gradient(-45deg,#C1121F 0 7px,#FDB913 7px 14px)}
+.p-root.ev-jogo{--ev-bg:repeating-linear-gradient(90deg,#16A34A 0 26px,#15803D 26px 52px);--ev-ink:#fff;--ev-chip:#fff;--ev-chip-ink:#15803D;--ev-pat:linear-gradient(90deg,transparent calc(50% - 1px),rgba(255,255,255,.55) calc(50% - 1px),rgba(255,255,255,.55) calc(50% + 1px),transparent calc(50% + 1px)),radial-gradient(circle at 50% 50%,transparent 26px,rgba(255,255,255,.55) 27px,rgba(255,255,255,.55) 29px,transparent 30px);--ev-font:'Anton',sans-serif;--ev-fs:27px;--ev-up:uppercase;--ev-stripe:repeating-linear-gradient(90deg,#16A34A 0 10px,#15803D 10px 20px)}
+.p-root.ev-on.ev-jogo .ev-strip p,.p-root.ev-on.ev-jogo .ev-strip small{text-shadow:0 1px 2px rgba(0,0,0,.35)}
+
+/* ---------- fontes dos títulos de evento: embutidas (nunca vêm do Google) e baixadas só quando usadas ---------- */
+@font-face{font-family:'Mountains of Christmas';font-style:normal;font-weight:700;font-display:swap;src:url('../../../../fonts/eventos/mountains-of-christmas.woff2') format('woff2')}
+@font-face{font-family:'Cinzel';font-style:normal;font-weight:700;font-display:swap;src:url('../../../../fonts/eventos/cinzel.woff2') format('woff2')}
+@font-face{font-family:'Bungee';font-style:normal;font-weight:400;font-display:swap;src:url('../../../../fonts/eventos/bungee.woff2') format('woff2')}
+@font-face{font-family:'Sniglet';font-style:normal;font-weight:800;font-display:swap;src:url('../../../../fonts/eventos/sniglet.woff2') format('woff2')}
+@font-face{font-family:'Playfair Display';font-style:italic;font-weight:700;font-display:swap;src:url('../../../../fonts/eventos/playfair-display-italic.woff2') format('woff2')}
+@font-face{font-family:'Dancing Script';font-style:normal;font-weight:700;font-display:swap;src:url('../../../../fonts/eventos/dancing-script.woff2') format('woff2')}
+@font-face{font-family:'Rye';font-style:normal;font-weight:400;font-display:swap;src:url('../../../../fonts/eventos/rye.woff2') format('woff2')}
+@font-face{font-family:'Alfa Slab One';font-style:normal;font-weight:400;font-display:swap;src:url('../../../../fonts/eventos/alfa-slab-one.woff2') format('woff2')}
+@font-face{font-family:'Fredoka';font-style:normal;font-weight:700;font-display:swap;src:url('../../../../fonts/eventos/fredoka.woff2') format('woff2')}
+@font-face{font-family:'Creepster';font-style:normal;font-weight:400;font-display:swap;src:url('../../../../fonts/eventos/creepster.woff2') format('woff2')}
+@font-face{font-family:'Anton';font-style:normal;font-weight:400;font-display:swap;src:url('../../../../fonts/eventos/anton.woff2') format('woff2')}
+@font-face{font-family:'Titan One';font-style:normal;font-weight:400;font-display:swap;src:url('../../../../fonts/eventos/titan-one.woff2') format('woff2')}
+/* ---------- partículas: um canvas por cima de tudo, que nunca recebe toque ---------- */
+.p-root .ev-fx{position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none;z-index:45}
+/* ---------- enfeite do topo: corta o que passa da largura (a fita da Black Friday é mais larga que a tela) ---------- */
+.p-root .ev-gar{overflow-x:hidden;overflow-x:clip;height:70px}
+.p-root .ev-gar .it svg,.p-root .ev-gar .balc svg{display:block;width:100%;height:auto}
+.p-root .ev-strip .tx{min-width:0}
+.p-root .ev-strip h3{overflow-wrap:anywhere}
+.p-root .ev-art{flex:none}
+.p-root button.ev-art{padding:0;background:none;border:0;cursor:pointer}
+.p-root .ev-go{background:none;border:0;cursor:pointer}
+.p-root .ev-ci{background:none;border:0;padding:0;color:inherit;cursor:pointer;font:inherit}
+.p-root .ev-col{scroll-margin-top:12px}
+.p-root .ev-ovos i svg{display:block}
+.p-root .ev-ci small s{margin-right:5px}
+/* títulos em flex (Oferta e Regem Fluxo) já têm o espaço entre os itens */
+.p-root .f-sec h2 .ev-ico,.p-root .o-sec h2 .ev-ico{margin-right:0;align-self:center}
+.p-root .ev-trail .r .ev-corre{display:block;width:100%;height:100%}
+.p-root .ok-badge.ev > span:first-child{display:grid;place-items:center}
+/* ---------- acessório nas fotos: sai para fora do bloco sem desarredondar a foto ----------
+   O bloco da foto corta o que passa dele (cantos arredondados). Com o acessório dentro, o corte
+   sai do bloco e vai para a própria foto. Navegador sem :has() fica com o acessório por dentro. */
+.p-root.ev-on .b-th,.p-root.ev-on .f-row .a{position:relative}
+.p-root.ev-on :is(.g-art,.b-th,.o-card .a,.o-pc .a,.f-hc .a,.f-row .a,.ev-ci .a):has(> .ev-hat){overflow:visible}
+.p-root.ev-on :is(.g-art,.b-th,.o-card .a,.o-pc .a,.f-hc .a,.f-row .a,.ev-ci .a):has(> .ev-hat) > img,.p-root.ev-on :is(.g-art,.b-th,.o-card .a,.o-pc .a,.f-hc .a,.f-row .a,.ev-ci .a):has(> .ev-hat) > .p-semfoto{border-radius:inherit}
+@supports not selector(:has(*)){
+.p-root .ev-hat.canto{top:2px;right:2px;transform:rotate(12deg)}
+.p-root .ev-hat.topo{bottom:auto;top:2px}
+}
+/* ---------- "travessura": a tela treme uma vez ---------- */
+.p-root.ev-treme{animation:lpe-treme .6s}
+@keyframes lpe-treme{20%{transform:translateX(-6px) rotate(-.6deg)}40%{transform:translateX(6px) rotate(.6deg)}60%{transform:translateX(-4px)}80%{transform:translateX(3px)}}
+/* ---------- animações desligadas pela loja, ou movimento reduzido no aparelho: tudo parado ---------- */
+.p-root.ev-parado .ev-gar *,.p-root.ev-parado .ev-trail *,.p-root.ev-parado .ev-hat *,.p-root.ev-parado .ev-art *,.p-root.ev-parado .ev-pk,.p-root.ev-parado .ev-egg,.p-root.ev-parado.ev-treme{animation:none!important}
+.p-root.ev-parado .ev-trail .f,.p-root.ev-parado .ev-trail .r{transition:none}
+@media (prefers-reduced-motion: reduce){
+.p-root.ev-on .ev-gar *,.p-root.ev-on .ev-trail *,.p-root.ev-on .ev-hat *,.p-root.ev-on .ev-art *,.p-root.ev-on .ev-pk,.p-root.ev-on .ev-egg,.p-root.ev-on.ev-treme{animation:none!important}
+.p-root.ev-on .ev-trail .f,.p-root.ev-on .ev-trail .r{transition:none}
+}
+/* ---------- modo escuro: os fios e a teia somem no fundo escuro; clareia ---------- */
+body.tema-escuro .p-root .ev-gar .fv{stroke:rgba(255,255,255,.4)}
+body.tema-escuro .p-root .ev-gar .web path{stroke:rgba(225,215,240,.5)}
+body.tema-escuro .p-root .ev-gar .aranha .fio{background:rgba(225,215,240,.55)}
+body.tema-escuro .p-root .ev-gar .it .fio{background:rgba(231,181,60,.8)}
+body.tema-escuro .p-root .bulb::before{background:#8FA08A}
+body.tema-escuro .p-root.ev-blackfriday .ev-ico,body.tema-escuro .p-root.ev-blackfriday .ev-hat{filter:drop-shadow(0 0 1.5px rgba(250,204,21,.95))}
+body.tema-escuro .p-root .ev-trail .m{box-shadow:0 0 0 2px var(--p-line)}
+body.tema-escuro .p-root .ev-trail .m.on{box-shadow:0 0 0 2px var(--p-acc)}

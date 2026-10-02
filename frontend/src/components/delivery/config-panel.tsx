@@ -14,6 +14,7 @@ import { Label } from '@/components/ui/label';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { FidelidadePanel } from '@/components/delivery/fidelidade-panel';
 import { CashbackPanel } from '@/components/delivery/cashback-panel';
+import { EventosPanel } from '@/components/delivery/eventos-panel';
 import { NumerosWhatsapp } from '@/components/delivery/numeros-whatsapp';
 import { localizacaoAtual, geocodificar, mapaEmbedUrl } from '@/lib/geo';
 import { INDICADO_PARA, ROTULO_TEMPLATE, TEMPLATES, templateDe } from '@/components/loja/cardapio/tipos-template';
@@ -27,6 +28,7 @@ const MENU: { grupo: string; itens: { k: string; label: string; breve?: boolean 
     grupo: 'Cardápio digital',
     itens: [
       { k: 'cardapio', label: 'Cardápio' },
+      { k: 'eventos', label: 'Eventos' },
       { k: 'horarios', label: 'Horários' },
       { k: 'encomenda', label: 'Encomenda' },
       { k: 'area', label: 'Área de atendimento' },
@@ -760,6 +762,9 @@ export function ConfigPanel({
                     pode={isGestor}
                   />
                 )}
+
+                {/* EVENTOS SAZONAIS (só o presidente edita; o painel mesmo trata quem só vê) */}
+                {sec === 'eventos' && <EventosPanel linkCardapio={linkDelivery} />}
 
                 {/* BANNERS */}
                 {sec === 'banners' && (
