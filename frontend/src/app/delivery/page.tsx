@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { CaixaPanel } from '@/components/pdv/caixa-panel';
 import { PedidoDetalhe } from '@/components/delivery/pedido-detalhe';
+import { FalhasEnvioAviso } from '@/components/delivery/falhas-envio-aviso';
 import { NovoPedido } from '@/components/delivery/novo-pedido';
 import { UnidadeSeletor } from '@/components/app-shell/unidade-seletor';
 import { ModoOperacao } from '@/components/ui/modo-operacao';
@@ -538,6 +539,15 @@ export default function DeliveryPage() {
             )}
           </div>
         )}
+
+        {/* O que o Regem tentou enviar ao canal ou ao cliente e falhou (últimas 24 h) */}
+        <FalhasEnvioAviso
+          onAbrirPedido={(id) => {
+            const alvo = (pedidos ?? []).find((x) => x.id === id);
+            if (alvo) { setDetalheModo('view'); setDetalhe(alvo); }
+            else toast.info('Este pedido não está mais na lista do painel.');
+          }}
+        />
 
         {/* Barra operacional: identidade + matriz/modo/hora + turno + filtros + recursos */}
         <Card className="px-3 py-2">

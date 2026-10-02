@@ -345,12 +345,15 @@ export class IfoodService {
   // O cancel do kanban NÃO é mais fire-and-forget: se o requestCancellation falhar
   // (rede/queda/status), o pedido entra em config.pendingCancels e o poller reenvia
   // com backoff até o iFood aceitar. Evita "cancelado local, não cancelado no iFood".
-  async cancelarComBlindagem(tenantId: string, orderId: string, motivo?: string): Promise<void> {
+  // Devolve se o iFood aceitou AGORA (false = ficou pendente para o reenvio) — só para o registro
+  // do envio na linha do tempo do pedido; o envio e a blindagem são os mesmos.
+  async cancelarComBlindagem(tenantId: string, orderId: string, motivo?: string): Promise<boolean> {
     const ig = await this.integracaoDoTenant(tenantId);
-    if (!ig) return;
+    if (!ig) return false;
     const ok = await this.cancelar(ig, orderId, motivo);
     if (ok) await this.limparCancelPendente(ig, orderId);
     else await this.marcarCancelPendente(ig, orderId, motivo);
+    return ok;
   }
 
   private async marcarCancelPendente(ig: IntegIfood, orderId: string, motivo?: string): Promise<void> {

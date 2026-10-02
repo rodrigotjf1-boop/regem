@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Put,
@@ -163,6 +164,23 @@ export class DeliveryController {
   @RequirePerm('delivery')
   retirada(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
     return this.service.listarRetirada(user.tenantId, atual);
+  }
+
+  // Linha do tempo do pedido (mig 305): os marcos dele e o que o Regem enviou ao canal e ao
+  // cliente em cada um, com o resultado. Só leitura.
+  @Get('pedidos/:id/linha-do-tempo')
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
+  linhaDoTempo(@CurrentUser() user: AuthUser, @Param('id', new ParseUUIDPipe()) id: string) {
+    return this.service.linhaDoTempo(user.tenantId, id);
+  }
+
+  // Aviso do painel: o que FALHOU ao enviar ao canal ou ao cliente nas últimas 24 h.
+  @Get('envios/falhas')
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
+  falhasDeEnvio(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
+    return this.service.falhasDeEnvio(user.tenantId, atual);
   }
 
   // Aviso do PDV: pedidos do totem em dinheiro sem pagar há mais de 8 min (só com a loja em

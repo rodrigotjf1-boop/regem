@@ -69,6 +69,8 @@ import { IfoodService } from '../integracoes/ifood/ifood.service';
 import { Food99Service } from '../integracoes/food99/food99.service';
 import { AnotaAiService } from '../integracoes/anotaai/anotaai.service';
 import { adaptar, DescontoCanal, PedidoNormalizado } from './adapters';
+import { observarChamadasExternas } from '../../common/chamadas-externas';
+import { enviosDoPedido, falhasDeEnvio, gravarEnvio, NaoEnviado, resumirEnvio, SEM_CREDENCIAL } from './pedido-envio';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -104,17 +106,33 @@ export class DeliveryService {
     @Optional() private readonly gogemAviso?: GogemAvisoService,
   ) {}
 
+  // ENVIA AO CANAL E REGISTRA (mig 305). `enviar` é o MESMO envio de sempre; aqui só se observa o
+  // que saiu e se grava o resultado na linha do tempo do pedido (`pedido_envio`). Decisão do dono
+  // (02/10/2026): registrar e mostrar, SEM mudar o envio — nada é reenviado, nada é barrado.
+  // É chamado com `void` e por isso NUNCA rejeita (V3): o erro do envio é engolido como sempre
+  // foi, e uma falha ao registrar só vira aviso no log.
+  private async enviarAoCanal(tenantId: string, row: any, acao: string, enviar: () => Promise<unknown>): Promise<void> {
+    try {
+      const obs = await observarChamadasExternas(enviar);
+      const r = resumirEnvio(obs);
+      if (r && row?.id) await gravarEnvio(this.db, { tenantId, pedidoId: row.id, destino: String(row.canal), acao, ...r });
+    } catch (e: any) {
+      this.logger.warn(`registro do envio ${row?.canal}/${acao} falhou: ${e?.message ?? e}`);
+    }
+  }
+
   // Status back para marketplaces (hoje: Open Delivery). Best-effort.
   private async statusBack(tenantId: string, row: any, acao: 'dispatch' | 'cancel') {
-    if (!this.openDelivery || !['open_delivery', 'delivery_direto'].includes(row?.canal) || !row?.externalId) return;
-    try {
-      const ig = await this.openDelivery.integracaoDoTenant(tenantId, row.canal);
-      if (!ig) return;
-      if (acao === 'dispatch') await this.openDelivery.despachar(ig, row.externalId);
-      else await this.openDelivery.cancelar(ig, row.externalId, row.motivoCancelamento ?? undefined);
-    } catch {
-      /* nunca quebra o fluxo por causa do status back */
-    }
+    if (!['open_delivery', 'delivery_direto'].includes(row?.canal) || !row?.externalId) return;
+    const od = this.openDelivery;
+    await this.enviarAoCanal(tenantId, row, acao, async () => {
+      if (!od) return SEM_CREDENCIAL();
+      const ig = await od.integracaoDoTenant(tenantId, row.canal);
+      if (!ig) return SEM_CREDENCIAL();
+      if (acao === 'dispatch') await od.despachar(ig, row.externalId);
+      else await od.cancelar(ig, row.externalId, row.motivoCancelamento ?? undefined);
+      return undefined;
+    });
   }
 
   // Status back para o Cardápio Web (API Aberta) — confirm/ready/delivered/
@@ -124,17 +142,12 @@ export class DeliveryService {
     row: any,
     acao: 'confirm' | 'ready' | 'delivered' | 'finalize' | 'cancel',
   ) {
-    if (!this.cardapioWeb || row?.canal !== 'cardapio_web' || !row?.externalId) return;
-    try {
-      await this.cardapioWeb.statusBack(
-        tenantId,
-        String(row.externalId),
-        acao,
-        row.motivoCancelamento ?? undefined,
-      );
-    } catch {
-      /* nunca quebra o fluxo por causa do status back */
-    }
+    if (row?.canal !== 'cardapio_web' || !row?.externalId) return;
+    const cw = this.cardapioWeb;
+    await this.enviarAoCanal(tenantId, row, acao, async () => {
+      if (!cw) return SEM_CREDENCIAL();
+      return cw.statusBack(tenantId, String(row.externalId), acao, row.motivoCancelamento ?? undefined);
+    });
   }
 
   // Status back para o iFood — confirm/ready/dispatch/cancel. Best-effort.
@@ -143,13 +156,15 @@ export class DeliveryService {
     row: any,
     acao: 'confirm' | 'ready' | 'dispatch' | 'cancel',
   ) {
-    if (!this.ifood || row?.canal !== 'ifood' || !row?.externalId) return;
-    try {
-      const ig = await this.ifood.integracaoDoTenant(tenantId);
-      if (!ig) return;
+    if (row?.canal !== 'ifood' || !row?.externalId) return;
+    const ifood = this.ifood;
+    await this.enviarAoCanal(tenantId, row, acao, async () => {
+      if (!ifood) return SEM_CREDENCIAL();
+      const ig = await ifood.integracaoDoTenant(tenantId);
+      if (!ig) return SEM_CREDENCIAL();
       const id = String(row.externalId);
-      if (acao === 'confirm') await this.ifood.confirmar(ig, id);
-      else if (acao === 'ready') await this.ifood.prontoRetirada(ig, id);
+      if (acao === 'confirm') await ifood.confirmar(ig, id);
+      else if (acao === 'ready') await ifood.prontoRetirada(ig, id);
       else if (acao === 'dispatch') {
         // Pedido AGENDADO não pode ser despachado no iFood antes da janela marcada.
         // Se ainda não chegou a hora, NÃO enviamos o dispatch agora (o kanban local
@@ -159,16 +174,15 @@ export class DeliveryService {
           this.logger.warn(
             `dispatch adiado ${id.slice(0, 8)}: pedido agendado para ${janela.toISOString()}`,
           );
-          return;
+          return new NaoEnviado('adiado: o pedido é agendado e o iFood só aceita a saída na hora marcada');
         }
-        await this.ifood.despachar(ig, id);
+        await ifood.despachar(ig, id);
       } else {
         // Blindagem: enfileira + reenvia até o iFood aceitar (não fire-and-forget).
-        await this.ifood.cancelarComBlindagem(tenantId, id, row.motivoCancelamento ?? undefined);
+        return ifood.cancelarComBlindagem(tenantId, id, row.motivoCancelamento ?? undefined);
       }
-    } catch {
-      /* nunca quebra o fluxo por causa do status back */
-    }
+      return undefined;
+    });
   }
 
   // Status back para o 99Food / DiDi Food — confirm/ready/delivered/cancel.
@@ -179,50 +193,45 @@ export class DeliveryService {
     row: any,
     acao: 'confirm' | 'ready' | 'delivered' | 'cancel',
   ) {
-    if (!this.food99 || row?.canal !== '99food' || !row?.externalId) return;
-    try {
+    if (row?.canal !== '99food' || !row?.externalId) return;
+    const food99 = this.food99;
+    await this.enviarAoCanal(tenantId, row, acao, async () => {
+      if (!food99) return SEM_CREDENCIAL();
       const id = String(row.externalId);
       if (acao === 'cancel') {
         // Blindagem: reenfileira até o 99food aceitar (não fire-and-forget).
-        await this.food99.cancelarComBlindagem(tenantId, id, row.motivoCancelamento ?? undefined);
-        return;
+        return food99.cancelarComBlindagem(tenantId, id, row.motivoCancelamento ?? undefined);
       }
-      const ig = await this.food99.integracaoDoTenant(tenantId);
-      if (!ig) return;
-      if (acao === 'confirm') await this.food99.confirmar(ig, id);
-      else if (acao === 'ready') await this.food99.pronto(ig, id);
-      else if (acao === 'delivered') {
-        // Conclusão depende de COMO o pedido é atendido (doc oficial 99Food):
-        //  • retirada (fulfillment_mode=1) → POST /order/order/finish (ERR-060);
-        //  • entrega da 99 (delivery_type=1) → quem conclui é a 99 (orderFinish);
-        //  • entrega própria (delivery_type=2) → /order/order/delivered (se o código do
-        //    cliente já concluiu, a 99 só recusa — sem efeito).
-        const raw = (row?.raw ?? {}) as any;
-        if (row?.tipo === 'retirada' || Number(raw?.fulfillment_mode) === 1) {
-          await this.food99.finalizarRetirada(ig, id);
-        } else if (Number(raw?.delivery_type) !== 1) {
-          await this.food99.entregue(ig, id);
-        }
-      }
-    } catch {
-      /* nunca quebra o fluxo por causa do status back */
-    }
+      const ig = await food99.integracaoDoTenant(tenantId);
+      if (!ig) return SEM_CREDENCIAL();
+      if (acao === 'confirm') return food99.confirmar(ig, id);
+      if (acao === 'ready') return food99.pronto(ig, id);
+      // Conclusão depende de COMO o pedido é atendido (doc oficial 99Food):
+      //  • retirada (fulfillment_mode=1) → POST /order/order/finish (ERR-060);
+      //  • entrega da 99 (delivery_type=1) → quem conclui é a 99 (orderFinish);
+      //  • entrega própria (delivery_type=2) → /order/order/delivered (se o código do
+      //    cliente já concluiu, a 99 só recusa — sem efeito).
+      const raw = (row?.raw ?? {}) as any;
+      if (row?.tipo === 'retirada' || Number(raw?.fulfillment_mode) === 1) return food99.finalizarRetirada(ig, id);
+      if (Number(raw?.delivery_type) !== 1) return food99.entregue(ig, id);
+      return new NaoEnviado('entrega feita pela 99: quem conclui é o canal', false); // nada a enviar
+    });
   }
 
   // Status back para a Anota Aí — pronto / finalizar / cancelar. (O aceite acontece
   // no poller ao ingerir, então o "confirm" do kanban não reenvia.) Best-effort.
   private async statusBackAnotaAi(tenantId: string, row: any, acao: 'ready' | 'finalizar' | 'cancel') {
-    if (!this.anotaai || row?.canal !== 'anotaai' || !row?.externalId) return;
-    try {
-      const ig = await this.anotaai.integracaoDoTenant(tenantId);
-      if (!ig) return;
+    if (row?.canal !== 'anotaai' || !row?.externalId) return;
+    const anotaai = this.anotaai;
+    await this.enviarAoCanal(tenantId, row, acao, async () => {
+      if (!anotaai) return SEM_CREDENCIAL();
+      const ig = await anotaai.integracaoDoTenant(tenantId);
+      if (!ig) return SEM_CREDENCIAL();
       const id = String(row.externalId);
-      if (acao === 'ready') await this.anotaai.pronto(ig, id);
-      else if (acao === 'finalizar') await this.anotaai.finalizar(ig, id);
-      else if (acao === 'cancel') await this.anotaai.cancelar(ig, id, row.motivoCancelamento ?? undefined);
-    } catch {
-      /* nunca quebra o fluxo por causa do status back */
-    }
+      if (acao === 'ready') return anotaai.pronto(ig, id);
+      if (acao === 'finalizar') return anotaai.finalizar(ig, id);
+      return anotaai.cancelar(ig, id, row.motivoCancelamento ?? undefined);
+    });
   }
 
   // Reflete localmente uma mudança de status que veio DO canal (ex.: a Anota Aí/
@@ -848,6 +857,36 @@ export class DeliveryService {
       .where(and(eq(pedidoExterno.id, id), eq(pedidoExterno.tenantId, tenantId)));
     if (!p) throw new NotFoundException('Pedido externo não encontrado');
     return p;
+  }
+
+  // ===== Linha do tempo do pedido (mig 305) =====
+  // Os marcos do próprio pedido + o que o Regem enviou ao canal e ao cliente em cada um deles.
+  // Só leitura. `avisoPeloCanal`: pedido de marketplace/integrado — quem avisa o cliente é o canal.
+  async linhaDoTempo(tenantId: string, id: string) {
+    const p: any = await this.carregar(tenantId, id);
+    return {
+      pedido: {
+        id: p.id,
+        numero: p.numero,
+        displayId: p.displayId,
+        canal: p.canal,
+        tipo: p.tipo,
+        status: p.status,
+        criadoEm: p.criadoEm,
+        prontoEm: p.prontoEm ?? null,
+        despachadoEm: p.despachadoEm ?? null,
+        concluidoEm: p.concluidoEm ?? null,
+        canceladoEm: p.canceladoEm ?? null,
+        motivoCancelamento: p.motivoCancelamento ?? null,
+      },
+      avisoPeloCanal: DeliveryService.grupoCanal(p.canal) !== 'regem',
+      envios: await enviosDoPedido(this.db, tenantId, id),
+    };
+  }
+
+  /** O que falhou ao enviar nas últimas 24 h, da loja de quem consulta — para o aviso do painel. */
+  falhasDeEnvio(tenantId: string, unidadeAtual: string | null) {
+    return falhasDeEnvio(this.db, tenantId, unidadeAtual);
   }
 
   /**
@@ -2266,6 +2305,27 @@ export class DeliveryService {
   // 409 até ele chegar — ela só aceita aviso de pedido que conhece). Esgotadas as tentativas, envia
   // pelo n8n direto da loja quando dá (provedor gratuito com URL global); senão registra que o
   // cliente ficou sem este aviso.
+  /** Registro (mig 305) de um AVISO AO CLIENTE na linha do tempo do pedido. Nunca lança. */
+  private registrarAviso(
+    tenantId: string,
+    pedidoId: unknown,
+    destino: 'cliente_whatsapp' | 'cliente_cardapio' | 'nuvem',
+    acao: string,
+    resultado: 'enviado' | 'falhou' | 'nao_enviado',
+    motivo?: string | null,
+    httpStatus?: number | null,
+  ): void {
+    const id = String(pedidoId ?? '');
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return;
+    void gravarEnvio(this.db, { tenantId, pedidoId: id, destino, acao: acao.slice(0, 60), resultado, motivo: motivo ?? null, httpStatus: httpStatus ?? null });
+  }
+
+  /** O nome do aviso para o registro: o evento do modelo (saiu_entrega…) ou o evento cru. */
+  private static acaoDoAviso(ped: any, evento: string): string {
+    const final = evento === 'status' && ped?.status === 'cancelado' ? 'cancelado' : evento;
+    return DeliveryService.eventoDeStatus(ped?.status, ped?.tipo, final) ?? (final === 'status' ? `status_${ped?.status ?? ''}` : final);
+  }
+
   private async encaminharAvisoParaNuvem(tenantId: string, ped: any, evento: string) {
     const nuvem = String(process.env.CLOUD_API ?? '').replace(/\/$/, '');
     const token = process.env.SYNC_TOKEN ?? '';
@@ -2289,7 +2349,10 @@ export class DeliveryService {
             body: corpo,
             signal: AbortSignal.timeout(15_000),
           });
-          if (res.ok) return;
+          if (res.ok) {
+            this.registrarAviso(tenantId, ped.id, 'nuvem', DeliveryService.acaoDoAviso(ped, evento), 'enviado', null, res.status);
+            return;
+          }
           ultimo = `HTTP ${res.status}`;
           if (res.status !== 409 && res.status < 500) break; // recusa definitiva: não insiste
         } catch (e: any) {
@@ -2297,6 +2360,7 @@ export class DeliveryService {
         }
       }
     }
+    this.registrarAviso(tenantId, ped.id, 'nuvem', DeliveryService.acaoDoAviso(ped, evento), 'falhou', `a nuvem não enviou o aviso (${ultimo})`);
     this.logger.warn(`[aviso-status] nuvem não enviou o aviso do pedido ${ped.id} (${ultimo}) — tentando pela loja`);
     await this.enviarAvisoStatus(tenantId, ped, evento);
   }
@@ -2375,6 +2439,7 @@ export class DeliveryService {
     // Aqui só se chega no servidor local quando a nuvem não atendeu (encaminharAvisoParaNuvem).
     if (ehServidorLocal()) {
       this.logger.warn(`[aviso-status] pedido ${ped.id}: WhatsApp oficial precisa da nuvem — cliente ficou sem este aviso`);
+      this.registrarAviso(tenantId, ped.id, 'cliente_whatsapp', eventoStatus ?? eventoFinal, 'nao_enviado', 'o WhatsApp oficial só sai pela nuvem, e ela não atendeu — o cliente ficou sem este aviso');
       return;
     }
 
@@ -2466,7 +2531,11 @@ export class DeliveryService {
         .select({ clienteId: pedidoExterno.clienteId, rastreioToken: pedidoExterno.rastreioToken })
         .from(pedidoExterno)
         .where(eq(pedidoExterno.id, ped.id));
-      if (!row?.clienteId) return; // pedido sem cliente identificado — não há onde mostrar
+      if (!row?.clienteId) {
+        // pedido sem cliente identificado — não há onde mostrar
+        this.registrarAviso(tenantId, ped.id, 'cliente_cardapio', eventoStatus, 'nao_enviado', 'pedido sem cliente identificado: não há onde mostrar o aviso');
+        return;
+      }
       const t = DeliveryService.textoNotificacao(eventoStatus, ped);
       const rastreioUrl =
         eventoStatus === 'saiu_entrega' && row.rastreioToken ? `${this.basePublica()}/r/${row.rastreioToken}` : null;
@@ -2479,8 +2548,10 @@ export class DeliveryService {
         texto: t.texto,
         rastreioUrl,
       });
-    } catch {
+      this.registrarAviso(tenantId, ped.id, 'cliente_cardapio', eventoStatus, 'enviado');
+    } catch (e: any) {
       /* best-effort: um aviso in-app não pode quebrar a mudança de status */
+      this.registrarAviso(tenantId, ped.id, 'cliente_cardapio', eventoStatus, 'falhou', `aviso no cardápio não gravado (${e?.code ?? 'erro'})`);
     }
   }
 
@@ -2504,6 +2575,12 @@ export class DeliveryService {
   // reusam para avisos de WhatsApp. Sempre carimba `em`. No-op se não configurado.
   async notificarN8n(tenantId: string, payload: Record<string, unknown>): Promise<void> {
     const evento = String(payload?.evento ?? 'status');
+    // Registro na linha do tempo do pedido (mig 305): só quando o aviso é de um pedido e o status
+    // gera aviso ao cliente (`eventoStatus: null` = o robô recebe, mas não fala com o cliente).
+    const semAviso = 'eventoStatus' in (payload ?? {}) && payload.eventoStatus == null;
+    const registrar = (resultado: 'enviado' | 'falhou' | 'nao_enviado', motivo?: string | null, http?: number | null) => {
+      if (!semAviso) this.registrarAviso(tenantId, payload?.pedidoId, 'cliente_whatsapp', String(payload?.eventoStatus ?? evento), resultado, motivo, http);
+    };
     try {
       const [row] = await this.db
         .select()
@@ -2525,11 +2602,13 @@ export class DeliveryService {
       })();
       if (!url) {
         this.logger.warn(`[n8n-aviso] evento=${evento} SEM URL (integração n8n inativa e OTP_WEBHOOK_URL vazio)`);
+        registrar('nao_enviado', 'o robô de WhatsApp não está configurado para esta loja');
         return;
       }
       // Anti-SSRF: a URL vem do lojista — bloqueia IP privado/local/metadata cloud.
       if (!(await urlPublicaSegura(url))) {
         this.logger.warn(`[n8n-aviso] evento=${evento} BLOQUEADO (URL não-pública): ${host}`);
+        registrar('nao_enviado', 'o endereço do robô de WhatsApp foi bloqueado (não é público)');
         return;
       }
       const body = JSON.stringify({ em: new Date().toISOString(), ...payload });
@@ -2545,9 +2624,13 @@ export class DeliveryService {
           const linha = `[n8n-aviso] evento=${evento} fonte=${fonte} → ${host} status=${res.status} ${txt.slice(0, 200)}`;
           if (res.ok) this.logger.log(linha);
           else this.logger.warn(linha);
+          // "enviado" = o robô RECEBEU o aviso; a entrega no WhatsApp é com ele.
+          if (res.ok) registrar('enviado', null, res.status);
+          else registrar('falhou', `o robô de WhatsApp respondeu HTTP ${res.status}`, res.status);
         })
         .catch((e: any) => {
           this.logger.warn(`[n8n-aviso] evento=${evento} fonte=${fonte} → ${host} FALHOU: ${e?.message ?? e}`);
+          registrar('falhou', 'o robô de WhatsApp não respondeu');
         });
     } catch (e: any) {
       this.logger.warn(`[n8n-aviso] evento=${evento} erro interno: ${e?.message ?? e}`);

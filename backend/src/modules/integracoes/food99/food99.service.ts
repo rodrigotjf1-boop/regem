@@ -593,12 +593,15 @@ export class Food99Service {
     orderId: string,
     reason?: string,
     reasonId: number = CANCEL_REASON_PADRAO,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const ig = await this.integracaoDoTenant(tenantId);
-    if (!ig) return;
+    if (!ig) return false;
     const r = await this.cancelarApi(ig, orderId, reasonId, reason);
     if (r.ok) await this.limparCancelPendente(ig, orderId);
     else await this.marcarCancelPendente(ig, orderId, reasonId, reason);
+    // Devolve se a 99 aceitou AGORA (false = ficou pendente para o reenvio) — só para o registro
+    // do envio na linha do tempo do pedido; o envio e a blindagem são os mesmos.
+    return r.ok;
   }
 
   // Liga na loja o recebimento de cancelamento/reembolso do cliente (apply/set) —

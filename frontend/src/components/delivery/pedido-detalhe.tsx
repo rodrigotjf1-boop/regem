@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { SeletorProduto, type SelecaoProduto } from '@/components/pdv/seletor-produto';
 import { DetalheEntregadorDoCanal } from '@/components/delivery/logistica-canal';
+import { LinhaDoTempoPedido } from '@/components/delivery/linha-do-tempo-pedido';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -250,6 +251,9 @@ export function PedidoDetalhe({
               )}
               <div className="flex justify-between text-sm font-bold text-foreground"><span>Total</span><span>{brl(Number(p.total))}</span></div>
             </div>
+
+            {/* O que aconteceu com o pedido e o que foi enviado ao canal e ao cliente */}
+            <LinhaDoTempoPedido pedidoId={p.id} />
 
             {/* Ações (ícones) */}
             <div className="mt-4 flex gap-2">
