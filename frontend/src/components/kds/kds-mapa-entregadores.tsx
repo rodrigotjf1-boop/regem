@@ -74,7 +74,7 @@ export function KdsMapaEntregadores({
 
   return (
     <section aria-label="Entregadores ao vivo" className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
-      <div className="overflow-hidden rounded-[14px] border" style={{ borderColor: T.border, background: T.panel }}>
+      <div className="overflow-hidden border" style={{ borderColor: T.border, background: T.panel }}>
         {semConexao && (
           <div
             role="status"
@@ -93,7 +93,7 @@ export function KdsMapaEntregadores({
         />
       </div>
 
-      <div className="rounded-[14px] border p-4" style={{ borderColor: T.border, background: T.panel }}>
+      <div className="border p-4" style={{ borderColor: T.border, background: T.panel }}>
         <div className="mb-3 flex items-baseline justify-between gap-2">
           <h2 className="font-extrabold" style={{ fontFamily: 'Archivo, sans-serif', fontSize: 18 * esc }}>
             Em rota agora
@@ -105,7 +105,7 @@ export function KdsMapaEntregadores({
         {carregando ? (
           <p style={{ color: T.muted }}>Carregando…</p>
         ) : vivos.length === 0 ? (
-          <div className="rounded-[10px] border border-dashed p-5 text-center" style={{ borderColor: T.border, color: T.muted, fontSize: 14 * esc }}>
+          <div className="border border-dashed p-5 text-center" style={{ borderColor: T.border, color: T.muted, fontSize: 14 * esc }}>
             Nenhum entregador transmitindo posição agora. Aparecem aqui quando estão com uma entrega ativa no app.
           </div>
         ) : (
@@ -115,7 +115,7 @@ export function KdsMapaEntregadores({
               return (
                 <li
                   key={v.colaborador_id}
-                  className="flex items-center justify-between gap-3 rounded-[10px] border px-3 py-2.5"
+                  className="flex items-center justify-between gap-3 border px-3 py-2.5"
                   style={{ borderColor: T.border, background: T.panel2 }}
                 >
                   <div className="min-w-0">

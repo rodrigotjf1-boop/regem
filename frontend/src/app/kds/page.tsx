@@ -7,12 +7,34 @@ import { rotuloSenha, senhaCasa } from '@/lib/senha';
 import { connectAsGestor, connectAsDevice, type Socket } from '@/lib/rt';
 import { KdsMapaEntregadores } from '@/components/kds/kds-mapa-entregadores';
 import { HistoricoKds } from '@/components/kds/historico-kds';
-import { textoEntregadorDoCanal } from '@/components/delivery/logistica-canal';
+import { KdsCartaoPedido, type CorDoCartao, type TemaKds } from '@/components/kds/kds-cartao-pedido';
+import { KdsCartaoItem } from '@/components/kds/kds-cartao-item';
+import { KdsResumoItens } from '@/components/kds/kds-resumo-itens';
+import {
+  COR_STATUS,
+  FILTROS_ETAPA,
+  agruparPorItem,
+  contarEtapas,
+  decidirTecla,
+  filtrarEtapa,
+  formaDeUso,
+  identPedido,
+  minutosDesde,
+  pedidoTemItem,
+  somarItens,
+  type CorStatus,
+  type FiltroEtapa,
+  type FormaUso,
+} from '@/lib/kds-fila';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // KDS web (superfície de teste do tempo real). Base do futuro app nativo empacotado.
 // KDS = informativo + avanço de produção. Consultar/alterar/cancelar é no PDV.
+//
+// Desenho (02/10/2026, mockup `mockups/regem-kds-producao.html`): tela NEUTRA — a única cor é a
+// do status do tempo (verde, amarelo, vermelho), no cabeçalho do cartão e no botão de avanço;
+// cantos retos; cartões colados. As regras puras da fila ficam em `lib/kds-fila.ts`.
 
 type Alerta = {
   id: string;
@@ -39,15 +61,6 @@ function bgAlerta(p: Alerta['prioridade']) {
   if (p === 'ok') return '#0E7C66';
   return '#B7791F';
 }
-
-// Cor pelo tempo decorrido vs. limiares configurados pelo gerente (usada no selo de min).
-function corTempo(min: number, cores: { verdeAteMin: number; amareloAteMin: number }) {
-  if (min <= cores.verdeAteMin) return '#19C08F';
-  if (min <= cores.amareloAteMin) return '#FFB13D';
-  return '#FF5A4E';
-}
-const proximaLabel = (status: string) =>
-  status === 'recebido' ? 'Iniciar' : status === 'preparo' ? 'Pronto' : 'Entregar';
 
 // ── Fase C: filtros ricos (aninhados por canal) ──────────────────────────────
 // Delivery agrupa a plataforma; Balcão/Salão agrupa origem + plataforma (Totem).
@@ -78,52 +91,34 @@ function grupoPedido(p: any, canal: 'delivery' | 'balcao'): string {
   return 'pdv';
 }
 
-// ── Fase D: config de exibição do card (por aparelho, no localStorage) ────────
+// ── Preferências da tela (por aparelho, no localStorage — UI, não dado de negócio) ──────────
 type ViewCfg = {
   escala: number; // multiplicador de fonte/espaçamento (0.85 .. 1.5)
-  corSenha: string; // cor da fonte da senha ('' = tema)
-  corProduto: string; // cor da fonte do produto ('' = tema)
-  corObs: string; // cor da fonte das observações
   agregar: boolean; // agregar itens iguais (soma quantidade) vs. mostrar separados
+  cor: CorDoCartao; // onde a cor do tempo entra: só no cabeçalho ou no cartão inteiro
+  uso: '' | FormaUso; // forma de uso; '' = adivinha pelo aparelho (tela de toque → toque)
 };
-const VIEW_PADRAO: ViewCfg = {
-  escala: 1,
-  corSenha: '#E2A340',
-  corProduto: '',
-  corObs: '#FF3B30',
-  agregar: false,
-};
-// Agrega itens iguais (mesma descrição + complementos + obs) somando a quantidade.
-function agregarItens(itens: any[]): any[] {
-  const mapa = new Map<string, any>();
-  for (const it of itens ?? []) {
-    const chave = `${it.descricao}|${it.complementosTexto ?? ''}|${it.observacao ?? ''}`;
-    const ex = mapa.get(chave);
-    if (ex) ex.quantidade = Number(ex.quantidade) + Number(it.quantidade);
-    else mapa.set(chave, { ...it, quantidade: Number(it.quantidade) });
-  }
-  return [...mapa.values()];
+const VIEW_PADRAO: ViewCfg = { escala: 1, agregar: false, cor: 'cabecalho', uso: '' };
+// Lê o que estava guardado (ou veio num atalho) e descarta o que não existe mais — as três
+// cores escolhidas à mão (senha, produto, observação) saíram com a tela neutra.
+function normalizarView(v: any): ViewCfg {
+  const esc = Number(v?.escala);
+  return {
+    escala: esc >= 0.85 && esc <= 1.5 ? esc : 1,
+    agregar: v?.agregar === true,
+    cor: v?.cor === 'inteiro' ? 'inteiro' : 'cabecalho',
+    uso: v?.uso === 'toque' || v?.uso === 'teclado' ? v.uso : '',
+  };
 }
 
-// Temas do KDS (só o "chrome" muda; verde/amarelo/vermelho/dourado são semânticos).
-const TEMAS = {
-  escuro: {
-    bg: '#0B141B',
-    panel: '#12202A',
-    panel2: '#182B37',
-    border: '#22333F',
-    text: '#EAF1F5',
-    muted: '#9FB3BF',
-  },
-  claro: {
-    bg: '#EDF0F4',
-    panel: '#FFFFFF',
-    panel2: '#F1F4F8',
-    border: '#D8DEE6',
-    text: '#0F2230',
-    muted: '#5B6B78',
-  },
+// Temas do KDS: só tinta e cinza (a cor fica para o status do tempo).
+const TEMAS: Record<'escuro' | 'claro', TemaKds> = {
+  escuro: { bg: '#0B1117', panel: '#151E27', panel2: '#1D2833', border: '#2C3A47', text: '#F1F5F8', muted: '#A3B1BD' },
+  claro: { bg: '#E9EDF1', panel: '#FFFFFF', panel2: '#F2F4F7', border: '#CBD3DC', text: '#0F1B24', muted: '#55636F' },
 };
+const FOCO = '#2F7FD8'; // anel de foco (teclado)
+const MONO = 'JetBrains Mono, monospace';
+const TITULO = 'Archivo, sans-serif';
 
 export default function KdsPage() {
   const [conectado, setConectado] = useState(false);
@@ -139,11 +134,20 @@ export default function KdsPage() {
   // Fase C — filtros de sub-origem, um por canal (no modal de config).
   const [subDelivery, setSubDelivery] = useState('todos');
   const [subBalcao, setSubBalcao] = useState('todos');
+  // A fila vista POR PEDIDO (um cartão por pedido) ou POR ITEM (um cartão por item, somado).
+  const [ver, setVer] = useState<'pedido' | 'item'>('pedido');
+  const [etapaSel, setEtapaSel] = useState<FiltroEtapa>('todos');
+  // Resumo de itens (painel ao lado) e o item escolhido nele, que destaca os pedidos.
+  const [resumoAberto, setResumoAberto] = useState(false);
+  const [itemSel, setItemSel] = useState('');
   const [senhaDigitada, setSenhaDigitada] = useState(''); // Fase F — teclado de senha
   const [senhaErro, setSenhaErro] = useState(false);
+  const [senhaMsg, setSenhaMsg] = useState<{ texto: string; erro: boolean } | null>(null);
+  const [senhaFocada, setSenhaFocada] = useState(false);
   const [mudo, setMudo] = useState(false);
   // Fase D — config de exibição do card (por aparelho; guardada no localStorage).
   const [view, setView] = useState<ViewCfg>(VIEW_PADRAO);
+  const [telaDeToque, setTelaDeToque] = useState(false); // só para adivinhar a forma de uso
   const [cfgAberta, setCfgAberta] = useState(false);
   // Histórico (auditoria): quem finalizou a tela, cancelou pedido ou mudou a configuração.
   const [histAberto, setHistAberto] = useState(false);
@@ -154,13 +158,27 @@ export default function KdsPage() {
   useEffect(() => {
     try {
       const s = localStorage.getItem('kds-view');
-      if (s) setView({ ...VIEW_PADRAO, ...JSON.parse(s) });
+      if (s) setView(normalizarView(JSON.parse(s)));
       if (localStorage.getItem('kds-tela') === 'mapa') setTela('mapa');
+      if (localStorage.getItem('kds-ver') === 'item') setVer('item');
+      // Resumo: aberto por padrão em tela larga; a escolha do aparelho vale sobre o padrão.
+      const r = localStorage.getItem('kds-resumo');
+      setResumoAberto(r ? r === '1' : window.innerWidth >= 1280);
+      setTelaDeToque(window.matchMedia?.('(pointer: coarse)').matches === true);
     } catch { /* ignora */ }
   }, []);
   function escolherTela(t: 'pedidos' | 'mapa') {
     setTela(t);
     try { localStorage.setItem('kds-tela', t); } catch { /* ignora */ }
+  }
+  function escolherVer(v: 'pedido' | 'item') {
+    setVer(v);
+    try { localStorage.setItem('kds-ver', v); } catch { /* ignora */ }
+  }
+  function abrirResumo(aberto: boolean) {
+    setResumoAberto(aberto);
+    if (!aberto) setItemSel('');
+    try { localStorage.setItem('kds-resumo', aberto ? '1' : '0'); } catch { /* ignora */ }
   }
   // O gestor desligou a chave com a tela no mapa: volta aos pedidos (sem apagar a escolha —
   // se ligarem de novo, a tela volta sozinha ao mapa na próxima abertura).
@@ -174,6 +192,8 @@ export default function KdsPage() {
     });
   }
   const esc = view.escala; // multiplicador de fonte/espaço
+  // Forma de uso: TECLADO (o campo da senha é o dono do foco) ou TOQUE (nada depende do foco).
+  const uso = formaDeUso(view.uso, telaDeToque);
   const [pedirTelaCheia, setPedirTelaCheia] = useState(false);
   // Tema do KDS (preferência do aparelho — UI, não dado de negócio). CLARO por padrão.
   const [claro, setClaro] = useState(true);
@@ -201,9 +221,12 @@ export default function KdsPage() {
   canalRef.current = canal;
   const kdsRef = useRef(kdsSel);
   kdsRef.current = kdsSel;
+  const usoRef = useRef(uso);
+  usoRef.current = uso;
   const senhaRef = useRef<HTMLInputElement | null>(null); // Fase F — campo de senha (foco)
   const senhaDigitadaRef = useRef('');
   senhaDigitadaRef.current = senhaDigitada;
+  const senhaMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const bip = useCallback(() => {
     if (mudoRef.current) return;
@@ -277,7 +300,7 @@ export default function KdsPage() {
   function criarAtalho() {
     const cfg = {
       view, tema: claro ? 'claro' : 'escuro', canal, setor: setorSel,
-      kds: kdsSel, subDelivery, subBalcao, mudo, tela,
+      kds: kdsSel, subDelivery, subBalcao, mudo, tela, ver,
     };
     const enc = btoa(encodeURIComponent(JSON.stringify(cfg)));
     const url = `${window.location.origin}/kds?cfg=${enc}&full=1`;
@@ -296,7 +319,7 @@ export default function KdsPage() {
     if (cfg) {
       try {
         const c = JSON.parse(decodeURIComponent(atob(cfg)));
-        if (c.view) setView({ ...VIEW_PADRAO, ...c.view });
+        if (c.view) setView(normalizarView(c.view));
         if (c.tema) setClaro(c.tema !== 'escuro');
         if (c.canal) setCanal(c.canal);
         if (c.setor != null) setSetorSel(c.setor);
@@ -305,6 +328,7 @@ export default function KdsPage() {
         if (c.subBalcao) setSubBalcao(c.subBalcao);
         if (c.mudo != null) setMudo(!!c.mudo);
         if (c.tela === 'mapa' || c.tela === 'pedidos') setTela(c.tela);
+        if (c.ver === 'item' || c.ver === 'pedido') setVer(c.ver);
       } catch { /* ignora cfg inválida */ }
     }
     if (params.get('full') === '1') setPedirTelaCheia(true);
@@ -395,6 +419,18 @@ export default function KdsPage() {
     };
   }, [bip, carregarFila]);
 
+  // Sem conexão: avisa em faixa larga (a fila na tela pode estar velha). Espera 4 s para não
+  // piscar na abertura nem numa queda momentânea.
+  const [semConexao, setSemConexao] = useState(false);
+  useEffect(() => {
+    if (temSessao !== true || conectado) {
+      setSemConexao(false);
+      return;
+    }
+    const t = setTimeout(() => setSemConexao(true), 4000);
+    return () => clearTimeout(t);
+  }, [conectado, temSessao]);
+
   async function avancar(id: string) {
     try {
       // Board único por canal → permite concluir (entregue) no próprio KDS.
@@ -426,16 +462,35 @@ export default function KdsPage() {
   const mostrado = escolherAlerta(alertas);
   const nowMs = now ? now.getTime() : Date.now();
 
-  // Fase C — cards filtrados pela sub-origem do canal ativo (client-side).
+  // Fase C — pedidos filtrados pela sub-origem do canal ativo (client-side).
   // canal 'todos' (KDS único) não aplica sub-filtro.
   const subAtivo = canal === 'delivery' ? subDelivery : canal === 'balcao' ? subBalcao : 'todos';
-  const pedidosFiltrados =
+  const pedidosOrigem =
     canal === 'todos' || subAtivo === 'todos'
       ? pedidos
       : pedidos.filter((p) => grupoPedido(p, canal as 'delivery' | 'balcao') === subAtivo);
+  // Etapas: os contadores valem para a fila inteira; o filtro escolhe o que aparece.
+  const contagem = contarEtapas(pedidosOrigem, nowMs, cores);
+  const pedidosVisiveis = filtrarEtapa(pedidosOrigem, etapaSel, nowMs, cores);
+  const grupos = ver === 'item' ? agruparPorItem(pedidosVisiveis, nowMs) : [];
+  // O resumo ao lado só existe na visão por pedido (na visão por item seria a mesma soma duas vezes).
+  const resumoVisivel = resumoAberto && ver === 'pedido' && !modoEntrega && !mostrarMapa;
+  const itensResumo = resumoVisivel ? somarItens(pedidosOrigem) : [];
+  const itemAtivo = resumoVisivel && itensResumo.some((i) => i.descricao === itemSel) ? itemSel : '';
 
-  // Fase F — teclado numérico FÍSICO do equipamento: o campo fica com foco aguardando
-  // a digitação; Enter avança o card daquela senha. Sem botões na tela.
+  function avisarSenha(texto: string, erro: boolean) {
+    if (senhaMsgTimer.current) clearTimeout(senhaMsgTimer.current);
+    setSenhaMsg({ texto, erro });
+    // O erro fica até a próxima tecla; a confirmação some sozinha.
+    if (!erro) senhaMsgTimer.current = setTimeout(() => setSenhaMsg(null), 3500);
+  }
+  function limparErroSenha() {
+    setSenhaErro(false);
+    setSenhaMsg((m) => (m?.erro ? null : m));
+  }
+
+  // Fase F — teclado numérico FÍSICO do equipamento: Enter avança o card daquela senha.
+  // Vale para a fila INTEIRA do aparelho, não só para o que os filtros da tela mostram.
   function avancarPorSenha() {
     const s = senhaDigitadaRef.current.trim();
     if (!s) return;
@@ -444,30 +499,79 @@ export default function KdsPage() {
     const alvo = pedidosRef.current.find((p) => senhaCasa(s, p.senha, p.senhaPrefixo) && p.status !== 'cancelado');
     if (!alvo) {
       setSenhaErro(true);
+      avisarSenha(`Senha ${s} não está na fila`, true);
       return;
     }
     setSenhaDigitada('');
+    avisarSenha(`${identPedido(alvo)} avançou`, false);
     void avancar(alvo.id);
-    senhaRef.current?.focus();
+    if (usoRef.current === 'teclado') senhaRef.current?.focus({ preventScroll: true });
   }
 
-  // Teclado numérico FÍSICO do equipamento: captura dígitos/Enter/Backspace mesmo se o
-  // campo perder o foco (o "às vezes não funciona"). Ignora quando a config está aberta
-  // ou o foco está em outro input (aí o próprio campo trata).
+  // TECLADO do equipamento, mesmo com o foco fora do campo. A decisão é de `decidirTecla`:
+  //  · forma de uso TECLADO — número, Enter e Backspace são SEMPRE da senha; a tecla é tomada
+  //    antes de chegar ao botão em foco (fase de captura) e o foco vai para o campo. Enter sem
+  //    número só leva o foco para o campo.
+  //  · forma de uso TOQUE — como sempre foi: número solto cai na senha; Enter num botão é do botão.
+  const painelAberto = cfgAberta || histAberto;
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (cfgAberta || histAberto || pedirTelaCheia || mostrarMapa) return; // no mapa não há card a avançar
+      if (e.key === 'Escape' && painelAberto) {
+        setCfgAberta(false);
+        setHistAberto(false);
+        return;
+      }
+      // Com painel aberto o teclado é do painel; no mapa não há card a avançar.
+      if (painelAberto || pedirTelaCheia || mostrarMapa || temSessao !== true) return;
       const t = e.target as HTMLElement | null;
-      const tag = t?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return; // campo trata
-      if (/^[0-9]$/.test(e.key)) { setSenhaErro(false); setSenhaDigitada((v) => (v.length < 6 ? v + e.key : v)); }
-      else if (e.key === 'Enter') avancarPorSenha();
-      else if (e.key === 'Backspace') setSenhaDigitada((v) => v.slice(0, -1));
+      const d = decidirTecla(uso, e.key, { tag: t?.tagName ?? '', ehCampoSenha: t === senhaRef.current });
+      if (d.acao === 'ignorar') return;
+      if (d.tomar) e.preventDefault();
+      if (d.acao === 'digito') {
+        limparErroSenha();
+        setSenhaDigitada((v) => (v.length < 6 ? v + e.key : v));
+      } else if (d.acao === 'enter') avancarPorSenha();
+      else setSenhaDigitada((v) => v.slice(0, -1));
+      if (d.tomar) senhaRef.current?.focus({ preventScroll: true });
     }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cfgAberta, histAberto, pedirTelaCheia, mostrarMapa]);
+  }, [uso, painelAberto, pedirTelaCheia, mostrarMapa, temSessao]);
+
+  // Forma de uso TECLADO: o campo da senha é o dono do foco — ao abrir a tela, ao fechar um
+  // painel, ao voltar para a janela e depois de QUALQUER clique (botão, filtro, cartão, fundo).
+  // Assim não há como digitar um número com o foco em outro lugar. No TOQUE nada puxa o foco.
+  const focoNaSenha = uso === 'teclado' && temSessao === true && !painelAberto && !pedirTelaCheia && !mostrarMapa;
+  const focoNaSenhaRef = useRef(focoNaSenha);
+  focoNaSenhaRef.current = focoNaSenha;
+  useEffect(() => {
+    if (!focoNaSenha) return;
+    const focar = () => {
+      if (focoNaSenhaRef.current) senhaRef.current?.focus({ preventScroll: true });
+    };
+    focar();
+    const onClick = (e: MouseEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'SELECT' || tag === 'OPTION' || tag === 'INPUT' || tag === 'TEXTAREA') return; // o seletor precisa abrir
+      setTimeout(focar, 0);
+    };
+    const onChange = (e: Event) => {
+      if ((e.target as HTMLElement | null)?.tagName === 'SELECT') focar();
+    };
+    document.addEventListener('click', onClick);
+    document.addEventListener('change', onChange);
+    window.addEventListener('focus', focar);
+    return () => {
+      document.removeEventListener('click', onClick);
+      document.removeEventListener('change', onChange);
+      window.removeEventListener('focus', focar);
+    };
+  }, [focoNaSenha]);
+  // Passou para TOQUE: solta o campo (num tablet, o foco manteria o teclado da tela aberto).
+  useEffect(() => {
+    if (uso === 'toque' && document.activeElement === senhaRef.current) senhaRef.current?.blur();
+  }, [uso]);
 
   // Limpa a tela: o SERVIDOR avança todos os cards num único request (vão para o próximo
   // KDS ou concluem). Assim não dispara um POST por card (o que estourava o 429).
@@ -485,226 +589,367 @@ export default function KdsPage() {
     await carregarFila();
   }
 
+  // Estilos que se repetem: botão/segmento ligado = tinta invertida (sem cor); desligado = cinza.
+  const ligado = (on: boolean) =>
+    on ? { background: T.text, color: T.panel, borderColor: T.text } : { background: T.panel2, color: T.muted, borderColor: T.border };
+  const neutro = { background: T.panel2, borderColor: T.border, color: T.text };
+  const botaoIcone = 'grid h-11 w-11 flex-none place-items-center border text-[17px]';
+  const seletor = 'min-h-[44px] max-w-full border px-3 text-[13px] font-semibold';
+
   return (
-    <main
-      className="min-h-dvh"
-      style={{ background: T.bg, color: T.text }}
-    >
-      {/* Header */}
-      <header
-        className="sticky top-0 z-10 flex items-center gap-4 border-b px-6 py-3"
-        style={{ background: T.panel, borderColor: T.border }}
-      >
-        <div
-          className="grid h-10 w-10 place-items-center rounded-[10px] font-bold"
-          style={{
-            background: 'linear-gradient(135deg,#0F2230,#1D3B4D)',
-            color: '#E2A340',
-            border: '1px solid #E2A340',
-            fontFamily: 'Archivo, sans-serif',
-          }}
-        >
-          R
-        </div>
-        <div>
+    <main className="kds-tela min-h-dvh overflow-x-hidden" style={{ background: T.bg, color: T.text }}>
+      {/* Cabeçalho: linha do APARELHO (canal, senha, conexão, hora, utilidades) e linha da FILA. */}
+      <header className="z-10 border-b md:sticky md:top-0" style={{ background: T.panel, borderColor: T.border }}>
+        <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 sm:gap-3 sm:px-5">
           <div
-            className="text-[17px] font-extrabold tracking-wide"
-            style={{ fontFamily: 'Archivo, sans-serif' }}
+            aria-hidden="true"
+            className="grid h-10 w-10 flex-none place-items-center text-[18px] font-extrabold"
+            style={{ background: '#0F2230', color: '#E2A340', fontFamily: TITULO }}
           >
-            Regem KDS
+            R
           </div>
-          <div
-            className="text-[11px] uppercase tracking-[0.12em]"
-            style={{ color: T.muted }}
-          >
-            {mostrarMapa ? 'Entregadores ao vivo' : 'Produção & alertas'}
+          <div className="hidden xl:block">
+            <div className="text-[17px] font-extrabold tracking-wide" style={{ fontFamily: TITULO }}>
+              Regem KDS
+            </div>
+            <div className="text-[11px] uppercase tracking-[0.12em]" style={{ color: T.muted }}>
+              {mostrarMapa ? 'Entregadores ao vivo' : 'Produção & alertas'}
+            </div>
           </div>
-        </div>
 
-        {!mostrarMapa && (<>
-        {/* Canal: balcão/salão (local + retirada) x delivery (courier) */}
-        <div className="ml-2 flex overflow-hidden rounded-lg border" style={{ borderColor: T.border }}>
-          {([
-            ['balcao', 'Balcão / Salão'],
-            ['delivery', 'Delivery'],
-            ['todos', 'Tudo'],
-          ] as const).map(([c, rotulo]) => (
-            <button
-              key={c}
-              type="button"
-              onClick={() => { setCanal(c); try { localStorage.setItem('kds-canal', c); } catch { /* */ } }}
-              className="px-3 py-2 text-[13px] font-semibold"
+          {!mostrarMapa && (<>
+          {/* Canal: balcão/salão (local + retirada) x delivery (courier) */}
+          <div role="group" aria-label="Canal" className="flex max-w-full flex-none overflow-x-auto border" style={{ borderColor: T.border }}>
+            {([
+              ['balcao', 'Balcão / Salão'],
+              ['delivery', 'Delivery'],
+              ['todos', 'Tudo'],
+            ] as const).map(([c, rotulo]) => (
+              <button
+                key={c}
+                type="button"
+                aria-pressed={canal === c}
+                onClick={() => { setCanal(c); try { localStorage.setItem('kds-canal', c); } catch { /* */ } }}
+                className="min-h-[44px] whitespace-nowrap px-3.5 text-[13.5px] font-bold"
+                style={{ background: canal === c ? T.text : T.panel2, color: canal === c ? T.panel : T.muted }}
+              >
+                {rotulo}
+              </button>
+            ))}
+          </div>
+
+          {/* Senha (Fase F): a caixa só recebe o número (teclado físico ou captura global).
+              Enter avança o card daquela senha. No modo TECLADO ela é o dono do foco. */}
+          <div className="relative flex items-center gap-2">
+            <label htmlFor="kds-senha" className="text-[11px] font-bold uppercase tracking-[0.08em]" style={{ color: T.muted }}>
+              Senha
+            </label>
+            <input
+              id="kds-senha"
+              ref={senhaRef}
+              inputMode="numeric"
+              autoComplete="off"
+              value={senhaDigitada}
+              onChange={(e) => { limparErroSenha(); setSenhaDigitada(e.target.value.replace(/\D/g, '').slice(0, 6)); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') avancarPorSenha(); }}
+              onFocus={() => setSenhaFocada(true)}
+              onBlur={() => setSenhaFocada(false)}
+              placeholder="—"
+              aria-label="Senha do pedido (Enter avança)"
+              aria-describedby="kds-senha-msg"
+              className="min-h-[44px] border-2 text-center text-[24px] font-bold tabular-nums"
               style={{
-                background: canal === c ? '#E2A340' : T.panel2,
-                color: canal === c ? '#0B141B' : T.muted,
+                width: uso === 'teclado' ? 124 : 92,
+                background: T.panel2,
+                borderColor: senhaErro ? COR_STATUS.atrasado.fundo : uso === 'teclado' ? T.text : T.border,
+                borderStyle: uso === 'teclado' && !senhaFocada ? 'dashed' : 'solid',
+                color: T.text,
+                fontFamily: MONO,
+                outline: senhaFocada ? `3px solid ${FOCO}` : 'none',
+                outlineOffset: 2,
               }}
+            />
+            <span
+              id="kds-senha-msg"
+              role="status"
+              aria-live="polite"
+              className={senhaMsg ? 'absolute left-0 top-[calc(100%+4px)] z-[12] whitespace-nowrap px-2.5 py-1 text-[13px] font-bold shadow-lg' : 'sr-only'}
+              style={
+                senhaMsg
+                  ? senhaMsg.erro
+                    ? { background: COR_STATUS.atrasado.fundo, color: COR_STATUS.atrasado.texto }
+                    : { background: T.text, color: T.panel }
+                  : undefined
+              }
             >
-              {rotulo}
+              {senhaMsg?.texto ?? ''}
+            </span>
+            {/* Modo teclado com o foco fora do campo (janela em segundo plano): diz como voltar. */}
+            {now && uso === 'teclado' && !senhaFocada && !senhaMsg && !painelAberto && (
+              <span
+                aria-hidden="true"
+                className="absolute left-0 top-[calc(100%+4px)] z-[11] whitespace-nowrap border-[1.5px] border-dashed px-2 py-1 text-[12.5px] font-bold"
+                style={{ background: T.panel, color: T.text, borderColor: T.text }}
+              >
+                Enter para digitar a senha
+              </span>
+            )}
+          </div>
+          </>)}
+
+          <div className="hidden min-w-0 flex-1 md:block" />
+
+          <div
+            className="flex min-h-[44px] items-center gap-2 border px-3 text-[12.5px] font-bold"
+            style={
+              semConexao
+                ? { background: COR_STATUS.atrasado.fundo, borderColor: COR_STATUS.atrasado.fundo, color: COR_STATUS.atrasado.texto }
+                : { background: T.panel2, borderColor: T.border, color: T.muted }
+            }
+          >
+            <span
+              className="inline-block h-2.5 w-2.5 rounded-full"
+              style={{ background: semConexao ? COR_STATUS.atrasado.texto : conectado ? COR_STATUS.ok.fundo : T.muted }}
+            />
+            {conectado ? 'online' : 'offline'}
+          </div>
+
+          <div className="text-[20px] font-bold tabular-nums md:text-[26px]" style={{ fontFamily: MONO }} aria-label="Hora">
+            {now
+              ? now.toLocaleTimeString('pt-BR', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  second: '2-digit',
+                })
+              : '--:--:--'}
+          </div>
+
+          <div className="flex flex-none gap-2">
+            <button
+              type="button"
+              onClick={() => setMudo((m) => !m)}
+              aria-pressed={mudo}
+              aria-label={mudo ? 'Som dos avisos: desligado' : 'Som dos avisos: ligado'}
+              className={botaoIcone}
+              style={neutro}
+              title={mudo ? 'Som desligado' : 'Som ligado'}
+            >
+              {mudo ? '🔇' : '🔊'}
             </button>
-          ))}
+
+            <button
+              type="button"
+              onClick={() => { setCfgAberta(false); setHistAberto((v) => !v); }}
+              aria-expanded={histAberto}
+              aria-label="Histórico: quem finalizou, cancelou ou mudou a configuração"
+              className={botaoIcone}
+              style={histAberto ? { ...neutro, borderColor: T.text, boxShadow: `inset 0 0 0 1px ${T.text}` } : neutro}
+              title="Histórico: quem finalizou, cancelou ou mudou a configuração"
+            >
+              🕘
+            </button>
+
+            <button
+              type="button"
+              onClick={() => { setHistAberto(false); setCfgAberta((v) => !v); }}
+              aria-expanded={cfgAberta}
+              aria-label="Configuração da tela"
+              className={botaoIcone}
+              style={cfgAberta ? { ...neutro, borderColor: T.text, boxShadow: `inset 0 0 0 1px ${T.text}` } : neutro}
+              title="Configuração da tela"
+            >
+              ⚙️
+            </button>
+
+            <button
+              type="button"
+              onClick={alternarTema}
+              aria-label={claro ? 'Tema claro ligado' : 'Tema escuro ligado'}
+              className={botaoIcone}
+              style={neutro}
+              title={claro ? 'Modo claro' : 'Modo escuro'}
+            >
+              {claro ? '☀️' : '🌙'}
+            </button>
+          </div>
         </div>
 
-        {setores.length > 0 && (
-          <select
-            aria-label="Filtrar por setor"
-            value={setorSel}
-            onChange={(e) => setSetorSel(e.target.value)}
-            className="ml-1 rounded-lg border px-3 py-2 text-[13px] font-semibold"
-            style={{ background: T.panel2, borderColor: T.border, color: T.text }}
-          >
-            <option value="">Todos os setores</option>
-            {setores.map((s) => (
-              <option key={s.id} value={s.id}>{s.nome}</option>
-            ))}
-          </select>
+        {!mostrarMapa && (
+          <div className="flex flex-wrap items-center gap-2 border-t px-4 pb-2.5 pt-2 sm:px-5" style={{ borderColor: T.border }}>
+            {!modoEntrega && (<>
+              {/* A fila por pedido (um cartão por pedido) ou por item (um cartão por item, somado). */}
+              <div role="group" aria-label="Ver a fila" className="flex flex-none border" style={{ borderColor: T.border }}>
+                {([
+                  ['pedido', 'Por pedido'],
+                  ['item', 'Por item'],
+                ] as const).map(([v, rotulo]) => (
+                  <button
+                    key={v}
+                    type="button"
+                    aria-pressed={ver === v}
+                    onClick={() => escolherVer(v)}
+                    className="min-h-[44px] whitespace-nowrap px-3.5 text-[13.5px] font-bold"
+                    style={{ background: ver === v ? T.text : T.panel2, color: ver === v ? T.panel : T.muted }}
+                  >
+                    {rotulo}
+                  </button>
+                ))}
+              </div>
+
+              <div role="group" aria-label="Filtrar por etapa" className="flex max-w-full gap-2 overflow-x-auto">
+                {FILTROS_ETAPA.map((f) => {
+                  const n = contagem[f.key];
+                  const sel = etapaSel === f.key;
+                  const alerta = f.key === 'atrasados' && n > 0; // há atraso: o contador fica vermelho
+                  return (
+                    <button
+                      key={f.key}
+                      type="button"
+                      aria-pressed={sel}
+                      onClick={() => setEtapaSel(f.key)}
+                      className="flex min-h-[44px] flex-none items-center gap-2 border px-3.5 text-[13.5px] font-bold"
+                      style={
+                        alerta
+                          ? {
+                              background: COR_STATUS.atrasado.fundo,
+                              borderColor: COR_STATUS.atrasado.fundo,
+                              color: COR_STATUS.atrasado.texto,
+                              boxShadow: sel ? `inset 0 0 0 3px ${T.text}` : undefined,
+                            }
+                          : ligado(sel)
+                      }
+                    >
+                      {f.label}
+                      <b className="text-[15px] tabular-nums" style={{ fontFamily: MONO, color: alerta ? COR_STATUS.atrasado.texto : sel ? T.panel : T.text }}>
+                        {n}
+                      </b>
+                    </button>
+                  );
+                })}
+              </div>
+            </>)}
+
+            {setores.length > 0 && (
+              <select
+                aria-label="Filtrar por setor"
+                value={setorSel}
+                onChange={(e) => setSetorSel(e.target.value)}
+                className={seletor}
+                style={neutro}
+              >
+                <option value="">Todos os setores</option>
+                {setores.map((s) => (
+                  <option key={s.id} value={s.id}>{s.nome}</option>
+                ))}
+              </select>
+            )}
+
+            {kdsList.length > 0 && (
+              <select
+                aria-label="Este KDS"
+                value={kdsSel}
+                onChange={(e) => escolherKds(e.target.value)}
+                className={seletor}
+                style={neutro}
+                title="Qual KDS este aparelho opera (para a cadeia de produção)"
+              >
+                <option value="">KDS: todos (por setor)</option>
+                {kdsList.map((k) => (
+                  <option key={k.id} value={k.id}>KDS: {k.nome}{k.escopo === 'entrega' ? ' (entrega)' : ''}</option>
+                ))}
+              </select>
+            )}
+
+            <div className="hidden min-w-0 flex-1 md:block" />
+
+            {!modoEntrega && ver === 'pedido' && (
+              <button
+                type="button"
+                onClick={() => abrirResumo(!resumoAberto)}
+                aria-pressed={resumoAberto}
+                aria-expanded={resumoAberto}
+                aria-controls="kds-resumo"
+                aria-label="Resumo de itens"
+                className="flex min-h-[44px] min-w-[44px] items-center justify-center gap-2 border px-3.5 text-[13px] font-bold"
+                style={resumoAberto ? { ...neutro, borderColor: T.text, boxShadow: `inset 0 0 0 1px ${T.text}` } : neutro}
+                title="Resumo de itens: a soma do que falta produzir"
+              >
+                📋 <span className="hidden sm:inline">Resumo de itens</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={limparCards}
+              aria-label="Finalizar todos os pedidos da tela"
+              className="flex min-h-[44px] min-w-[44px] items-center justify-center gap-2 border px-3.5 text-[13px] font-bold"
+              style={{ ...neutro, color: T.muted }}
+              title="Finalizar/avançar todos os cards da tela"
+            >
+              🧹 <span className="hidden min-[1560px]:inline">Finalizar todos</span>
+            </button>
+          </div>
         )}
 
-        {kdsList.length > 0 && (
-          <select
-            aria-label="Este KDS"
-            value={kdsSel}
-            onChange={(e) => escolherKds(e.target.value)}
-            className="rounded-lg border px-3 py-2 text-[13px] font-semibold"
-            style={{ background: T.panel2, borderColor: T.border, color: T.text }}
-            title="Qual KDS este aparelho opera (para a cadeia de produção)"
+        {semConexao && (
+          <div
+            role="alert"
+            className="px-4 py-2.5 text-[14px] font-bold sm:px-5"
+            style={{ background: COR_STATUS.atrasado.fundo, color: COR_STATUS.atrasado.texto }}
           >
-            <option value="">KDS: todos (por setor)</option>
-            {kdsList.map((k) => (
-              <option key={k.id} value={k.id}>KDS: {k.nome}{k.escopo === 'entrega' ? ' (entrega)' : ''}</option>
-            ))}
-          </select>
+            ⚠ Sem conexão com o servidor. A fila pode estar desatualizada — reconectando…
+          </div>
         )}
-
-        {/* Senha (Fase F): rótulo FORA; a caixa só recebe o número (teclado físico ou
-            captura global). Enter avança o card daquela senha. */}
-        <div className="ml-1 flex items-center gap-1.5">
-          <span className="text-[11px] font-bold uppercase tracking-wide" style={{ color: T.muted }}>Senha</span>
-          <input
-            ref={senhaRef}
-            autoFocus
-            inputMode="numeric"
-            value={senhaDigitada}
-            onChange={(e) => { setSenhaErro(false); setSenhaDigitada(e.target.value.replace(/\D/g, '').slice(0, 6)); }}
-            onKeyDown={(e) => { if (e.key === 'Enter') avancarPorSenha(); }}
-            placeholder="—"
-            aria-label="Senha do pedido (Enter avança)"
-            className="w-20 rounded-lg border py-1.5 text-center text-[22px] font-bold tabular-nums outline-none"
-            style={{
-              background: senhaErro ? 'rgba(255,90,78,.18)' : T.panel2,
-              borderColor: senhaErro ? '#FF5A4E' : T.border,
-              color: T.text,
-              fontFamily: 'JetBrains Mono, monospace',
-            }}
-          />
-        </div>
-
-        <div
-          className="rounded-lg border px-3 py-2 text-[12.5px] font-bold tabular-nums"
-          style={{ background: T.panel2, borderColor: T.border, color: T.muted, fontFamily: 'JetBrains Mono, monospace' }}
-          title="Cards na fila"
-        >
-          {pedidosFiltrados.length} na fila
-        </div>
-
-        <button
-          type="button"
-          onClick={limparCards}
-          className="grid h-[42px] w-[42px] place-items-center rounded-[10px] border text-[17px]"
-          style={{ background: T.panel2, borderColor: T.border }}
-          title="Finalizar/avançar todos os cards da tela"
-        >
-          🧹
-        </button>
-        </>)}
-
-        <div
-          className="ml-auto flex items-center gap-2 rounded-lg border px-3 py-2 text-[12.5px] font-semibold"
-          style={{ background: T.panel2, borderColor: T.border, color: T.muted }}
-        >
-          <span
-            className="inline-block h-2.5 w-2.5 rounded-full"
-            style={{ background: conectado ? '#19C08F' : '#FF5A4E' }}
-          />
-          {conectado ? 'online' : 'offline'}
-        </div>
-
-        <div
-          className="text-[26px] font-bold tabular-nums"
-          style={{ fontFamily: 'JetBrains Mono, monospace' }}
-        >
-          {now
-            ? now.toLocaleTimeString('pt-BR', {
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit',
-              })
-            : '--:--:--'}
-        </div>
-
-        <button
-          type="button"
-          onClick={() => setMudo((m) => !m)}
-          aria-pressed={mudo}
-          className="grid h-[42px] w-[42px] place-items-center rounded-[10px] border text-[17px]"
-          style={{ background: T.panel2, borderColor: T.border }}
-          title={mudo ? 'Som desligado' : 'Som ligado'}
-        >
-          {mudo ? '🔇' : '🔊'}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => { setCfgAberta(false); setHistAberto((v) => !v); }}
-          aria-pressed={histAberto}
-          aria-expanded={histAberto}
-          className="grid h-[42px] w-[42px] place-items-center rounded-[10px] border text-[17px]"
-          style={{ background: T.panel2, borderColor: T.border }}
-          title="Histórico: quem finalizou, cancelou ou mudou a configuração"
-        >
-          🕘
-        </button>
-
-        <button
-          type="button"
-          onClick={() => { setHistAberto(false); setCfgAberta((v) => !v); }}
-          aria-pressed={cfgAberta}
-          className="grid h-[42px] w-[42px] place-items-center rounded-[10px] border text-[17px]"
-          style={{ background: T.panel2, borderColor: T.border }}
-          title="Exibição dos cards"
-        >
-          ⚙️
-        </button>
-
-        <button
-          type="button"
-          onClick={alternarTema}
-          aria-pressed={claro}
-          className="grid h-[42px] w-[42px] place-items-center rounded-[10px] border text-[17px]"
-          style={{ background: T.panel2, borderColor: T.border }}
-          title={claro ? 'Modo claro' : 'Modo escuro'}
-        >
-          {claro ? '☀️' : '🌙'}
-        </button>
       </header>
 
       {histAberto && <HistoricoKds T={T} onFechar={() => setHistAberto(false)} />}
 
-      {/* Modal de configuração (exibição + filtros + atalho). */}
+      {/* Painel de configuração (forma de uso + exibição + filtros + atalho). */}
       {cfgAberta && (
         <div
-          className="fixed right-4 top-[74px] z-30 max-h-[calc(100dvh-90px)] w-[340px] overflow-y-auto rounded-[14px] border p-4 shadow-2xl"
+          role="dialog"
+          aria-label="Configuração da tela"
+          className="fixed right-4 top-[124px] z-30 max-h-[calc(100dvh-140px)] w-[340px] max-w-[calc(100vw-2rem)] overflow-y-auto border p-4 shadow-2xl"
           style={{ background: T.panel, borderColor: T.border, color: T.text }}
         >
           <div className="mb-3 flex items-center justify-between">
             <span className="text-[13px] font-bold uppercase tracking-wider" style={{ color: T.muted }}>Configuração</span>
-            <button type="button" onClick={() => setCfgAberta(false)} style={{ color: T.muted }}>✕</button>
+            <button type="button" onClick={() => setCfgAberta(false)} aria-label="Fechar a configuração" className="grid h-11 w-11 place-items-center" style={{ color: T.muted }}>✕</button>
           </div>
+
+          {/* Forma de uso deste aparelho: toque ou teclado. */}
+          <div className="mb-3">
+            <span className="mb-1 block text-[12px] font-semibold" style={{ color: T.muted }}>Forma de uso</span>
+            <div role="group" aria-label="Forma de uso" className="flex border" style={{ borderColor: T.border }}>
+              {([
+                ['toque', 'Toque'],
+                ['teclado', 'Teclado'],
+              ] as const).map(([v, rotulo]) => (
+                <button
+                  key={v}
+                  type="button"
+                  aria-pressed={uso === v}
+                  onClick={() => setViewCfg({ uso: v })}
+                  className="min-h-[44px] flex-1 px-2.5 text-[12.5px] font-bold"
+                  style={{ background: uso === v ? T.text : T.panel2, color: uso === v ? T.panel : T.muted }}
+                >
+                  {rotulo}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1.5 text-[11.5px] leading-relaxed" style={{ color: T.muted }}>
+              {uso === 'teclado'
+                ? 'Teclado: o campo da senha fica sempre pronto para digitar. Enter com número avança o pedido; Enter sem número leva o cursor para o campo.'
+                : 'Toque: os pedidos avançam pelo botão do cartão. Nada puxa o cursor para o campo da senha.'}
+            </p>
+          </div>
+          <div className="my-3 border-t" style={{ borderColor: T.border }} />
 
           {/* O que esta tela mostra (mig 293). */}
           <div className="mb-3">
             <span className="mb-1 block text-[12px] font-semibold" style={{ color: T.muted }}>Esta tela mostra</span>
             {mapaHabilitado ? (
-              <div className="flex overflow-hidden rounded-lg border" style={{ borderColor: T.border }}>
+              <div className="flex border" style={{ borderColor: T.border }}>
                 {([
                   ['pedidos', 'Pedidos'],
                   ['mapa', 'Mapa dos entregadores'],
@@ -714,11 +959,8 @@ export default function KdsPage() {
                     type="button"
                     aria-pressed={tela === v}
                     onClick={() => escolherTela(v)}
-                    className="flex-1 px-2.5 py-1.5 text-[12px] font-semibold"
-                    style={{
-                      background: tela === v ? '#E2A340' : T.panel2,
-                      color: tela === v ? '#0B141B' : T.muted,
-                    }}
+                    className="min-h-[44px] flex-1 px-2.5 text-[12.5px] font-bold"
+                    style={{ background: tela === v ? T.text : T.panel2, color: tela === v ? T.panel : T.muted }}
                   >
                     {rotulo}
                   </button>
@@ -744,13 +986,10 @@ export default function KdsPage() {
                   <button
                     key={s.key}
                     type="button"
+                    aria-pressed={valor === s.key}
                     onClick={() => setar(s.key)}
-                    className="rounded-md px-2.5 py-1 text-[12px] font-semibold"
-                    style={{
-                      background: valor === s.key ? '#E2A340' : T.panel2,
-                      color: valor === s.key ? '#0B141B' : T.muted,
-                      border: `1px solid ${T.border}`,
-                    }}
+                    className="min-h-[44px] border px-2.5 text-[12px] font-bold"
+                    style={ligado(valor === s.key)}
                   >
                     {s.label}
                   </button>
@@ -762,35 +1001,37 @@ export default function KdsPage() {
           <div className="my-3 border-t" style={{ borderColor: T.border }} />
           <span className="mb-2 block text-[12px] font-semibold" style={{ color: T.muted }}>Exibição dos cards</span>
 
-          <label className="mb-1 block text-[12px] font-semibold" style={{ color: T.muted }}>
+          <label htmlFor="kds-tamanho" className="mb-1 block text-[12px] font-semibold" style={{ color: T.muted }}>
             Tamanho ({Math.round(esc * 100)}%)
           </label>
           <input
+            id="kds-tamanho"
             type="range" min={0.85} max={1.5} step={0.05} value={esc}
             onChange={(e) => setViewCfg({ escala: Number(e.target.value) })}
             className="mb-3 w-full"
           />
 
-          {([
-            ['corSenha', 'Cor da senha'],
-            ['corProduto', 'Cor do produto'],
-            ['corObs', 'Cor da observação'],
-          ] as const).map(([k, rotulo]) => (
-            <div key={k} className="mb-2 flex items-center justify-between gap-2">
-              <span className="text-[12.5px]">{rotulo}</span>
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="color"
-                  value={(view[k] as string) || (k === 'corProduto' ? (claro ? '#0F2230' : '#EAF1F5') : '#E2A340')}
-                  onChange={(e) => setViewCfg({ [k]: e.target.value } as any)}
-                  className="h-7 w-9 cursor-pointer rounded border-0 bg-transparent p-0"
-                />
-                <button type="button" onClick={() => setViewCfg({ [k]: '' } as any)} className="text-[11px]" style={{ color: T.muted }} title="Usar a cor do tema">padrão</button>
-              </div>
-            </div>
-          ))}
+          {/* Onde a cor do tempo entra. */}
+          <span className="mb-1 block text-[12px] font-semibold" style={{ color: T.muted }}>Cor do status</span>
+          <div role="group" aria-label="Cor do status" className="mb-3 flex border" style={{ borderColor: T.border }}>
+            {([
+              ['cabecalho', 'Cabeçalho'],
+              ['inteiro', 'Cartão inteiro'],
+            ] as const).map(([v, rotulo]) => (
+              <button
+                key={v}
+                type="button"
+                aria-pressed={view.cor === v}
+                onClick={() => setViewCfg({ cor: v })}
+                className="min-h-[44px] flex-1 px-2.5 text-[12.5px] font-bold"
+                style={{ background: view.cor === v ? T.text : T.panel2, color: view.cor === v ? T.panel : T.muted }}
+              >
+                {rotulo}
+              </button>
+            ))}
+          </div>
 
-          <label className="mt-2 flex items-center gap-2 text-[13px]">
+          <label className="flex items-center gap-2 text-[13px]">
             <input type="checkbox" checked={view.agregar} onChange={(e) => setViewCfg({ agregar: e.target.checked })} />
             Agregar itens iguais (somar quantidade)
           </label>
@@ -798,8 +1039,8 @@ export default function KdsPage() {
           <button
             type="button"
             onClick={() => setViewCfg(VIEW_PADRAO)}
-            className="mt-3 w-full rounded-[10px] py-2 text-[12px] font-bold"
-            style={{ background: T.panel2, color: T.muted }}
+            className="mt-3 min-h-[44px] w-full border text-[12px] font-bold"
+            style={{ ...neutro, color: T.muted }}
           >
             Restaurar padrão
           </button>
@@ -808,8 +1049,8 @@ export default function KdsPage() {
           <button
             type="button"
             onClick={criarAtalho}
-            className="w-full rounded-[10px] py-2.5 text-[13px] font-bold"
-            style={{ background: '#E2A340', color: '#0B141B' }}
+            className="min-h-[44px] w-full text-[13px] font-bold"
+            style={{ background: T.text, color: T.panel }}
           >
             🔗 Criar atalho na área de trabalho
           </button>
@@ -820,162 +1061,69 @@ export default function KdsPage() {
         </div>
       )}
 
-      {/* Corpo full-width — os alertas foram para o RODAPÉ fixo (abaixo). */}
-      <div className="mx-auto max-w-[1600px] px-6 py-6" style={{ paddingBottom: mostrado ? 96 : 24 }}>
+      {/* Corpo — os alertas ficam no RODAPÉ fixo (abaixo); o resumo de itens, ao lado em tela larga. */}
+      <div
+        className={`mx-auto grid max-w-[1800px] grid-cols-1 gap-4 px-4 py-4 sm:px-5 ${resumoVisivel ? 'xl:grid-cols-[minmax(0,1fr)_300px]' : ''}`}
+        style={{ paddingBottom: mostrado ? 96 : 24 }}
+      >
+        <div className="min-w-0">
         {mostrarMapa ? (
           <KdsMapaEntregadores T={T} escuro={!claro} esc={esc} onDesligado={mapaDesligado} />
         ) : modoEntrega ? (
-          <EntregaBoard pedidos={pedidosFiltrados} onEntregar={avancar} T={T} esc={esc} />
+          <EntregaBoard pedidos={pedidosOrigem} onEntregar={avancar} T={T} esc={esc} />
         ) : (
-        /* Cards de produção — coloridos por tempo. */
-        <section>
+        /* Fila de produção — cartões colados, cor só no status do tempo. */
+        <section aria-label={ver === 'item' ? 'Itens a produzir' : 'Pedidos em produção'}>
           {temSessao === null && (
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-1 sm:grid-cols-2 xl:grid-cols-3">
               {Array.from({ length: 3 }).map((_, i) => (
-                <div
-                  key={i}
-                  className="animate-pulse rounded-2xl border p-4"
-                  style={{ borderColor: T.border, background: T.panel }}
-                >
-                  <div className="h-4 w-1/2 rounded" style={{ background: T.border }} />
-                  <div className="mt-3 h-3 w-2/3 rounded" style={{ background: T.panel2 }} />
-                  <div className="mt-2 h-3 w-1/3 rounded" style={{ background: T.panel2 }} />
+                <div key={i} className="animate-pulse border p-4" style={{ borderColor: T.border, background: T.panel }}>
+                  <div className="h-4 w-1/2" style={{ background: T.border }} />
+                  <div className="mt-3 h-3 w-2/3" style={{ background: T.panel2 }} />
+                  <div className="mt-2 h-3 w-1/3" style={{ background: T.panel2 }} />
                 </div>
               ))}
             </div>
           )}
 
-          {temSessao !== null && pedidosFiltrados.length === 0 && (
-            <div
-              className="rounded-2xl border border-dashed px-6 py-14 text-center text-sm"
-              style={{ borderColor: T.border, color: T.muted }}
-            >
-              Nenhum pedido em produção. Novos pedidos aparecem aqui em tempo real.
+          {temSessao !== null && (ver === 'item' ? grupos.length === 0 : pedidosVisiveis.length === 0) && (
+            <div className="border border-dashed px-6 py-14 text-center text-sm" style={{ borderColor: T.border, color: T.muted }}>
+              {pedidosOrigem.length > 0 && etapaSel !== 'todos'
+                ? 'Nenhum pedido nesta etapa. Escolha “Todos” para ver a fila inteira.'
+                : ver === 'item' && pedidosVisiveis.length > 0
+                  ? 'Nada a produzir agora: os pedidos da tela já estão prontos.'
+                  : 'Nenhum pedido em produção. Novos pedidos aparecem aqui em tempo real.'}
             </div>
           )}
 
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-            {pedidosFiltrados.map((p) => {
-              const min = Math.max(
-                0,
-                Math.floor((nowMs - new Date(p.criadoEm).getTime()) / 60000),
-              );
-              const cor = corTempo(min, cores);
-              const atrasado = p.tempoPreparoMin && min > p.tempoPreparoMin;
-              const cancelado = p.status === 'cancelado';
-              const alterado = p.obs === 'ALTERADO';
-              return (
-                <div
-                  key={p.id}
-                  className="flex flex-col rounded-[14px]"
-                  style={{
-                    // Fundo neutro por tema (branco no claro, escuro no escuro) + contorno
-                    // fino. A cor do TEMPO fica no selo de minutos e no botão de avanço.
-                    background: cancelado ? (claro ? '#F7E4E4' : '#2A1416') : T.panel,
-                    border: `1px solid ${claro ? '#0F2230' : T.border}`,
-                    color: T.text,
-                    padding: Math.round(16 * esc),
-                  }}
-                >
-                  <div className="mb-2 flex items-center justify-between">
-                    <span
-                      className="font-bold"
-                      style={{ fontFamily: 'Archivo, sans-serif', fontSize: Math.round(17 * esc), color: view.corSenha || undefined, textDecoration: cancelado ? 'line-through' : 'none', opacity: cancelado ? 0.7 : 1 }}
-                    >
-                      {p.senha
-                        ? `Senha ${rotuloSenha(p.senha, p.senhaPrefixo)}`
-                        : p.mesa
-                          ? `Mesa ${p.mesa}`
-                          : p.numero
-                            ? `#${p.numero}`
-                            : 'Balcão'}
-                    </span>
-                    <span
-                      className="rounded px-2 py-0.5 text-[12px] font-bold tabular-nums"
-                      style={{ background: cor, color: '#04241A', fontFamily: 'JetBrains Mono, monospace' }}
-                    >
-                      {min} min
-                    </span>
-                  </div>
-                  {p.plataforma && (
-                    <div
-                      className="mb-2 inline-flex w-max items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-bold"
-                      style={{ background: 'rgba(226,163,64,.16)', color: '#E2A340' }}
-                    >
-                      🛵 {p.plataforma}{p.senhaPlataforma ? ` · #${p.senhaPlataforma}` : ''}
-                    </div>
-                  )}
-                  {/* Entregador da 99 (mig 294): quem vem buscar, se já chegou e o código de coleta. */}
-                  {textoEntregadorDoCanal(p.logistica) && (
-                    <div
-                      className="mb-2 inline-flex w-max max-w-full flex-wrap items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-bold"
-                      style={{
-                        background: p.logistica.status === 130 ? 'rgba(25,192,143,.18)' : T.panel2,
-                        color: p.logistica.status === 130 ? '#19C08F' : T.text,
-                      }}
-                    >
-                      {textoEntregadorDoCanal(p.logistica)}
-                      {p.logistica.codigoColeta ? ` · código ${p.logistica.codigoColeta}` : ''}
-                    </div>
-                  )}
-                  {(cancelado || alterado) && (
-                    <div
-                      className="mb-2 inline-flex w-max items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-bold"
-                      style={cancelado ? { background: 'rgba(224,82,82,.2)', color: '#FF8A80' } : { background: 'rgba(226,163,64,.18)', color: '#F4C578' }}
-                    >
-                      {cancelado ? '✕ CANCELADA' : '✏️ ALTERADO'}
-                    </div>
-                  )}
-                  <div className="mb-3 flex-1 space-y-1">
-                    {(view.agregar ? agregarItens(p.itens ?? []) : (p.itens ?? [])).map((it: any, ix: number) => (
-                      <div key={it.id ?? ix} style={{ fontSize: Math.round(14 * esc), textDecoration: cancelado ? 'line-through' : 'none', opacity: cancelado ? 0.65 : 1 }}>
-                        <span className="font-semibold" style={{ color: view.corProduto || undefined }}>
-                          {Number(it.quantidade)}× {it.descricao}
-                        </span>
-                        {it.complementosTexto && (
-                          <div
-                            className="mt-0.5 rounded px-1.5 py-0.5 font-semibold"
-                            style={{ background: 'rgba(226,163,64,.18)', color: '#F4C578', fontSize: Math.round(12 * esc) }}
-                          >
-                            {it.complementosTexto}
-                          </div>
-                        )}
-                        {it.observacao && (
-                          <div
-                            className="mt-0.5 rounded px-1.5 py-0.5 font-bold"
-                            style={{ background: 'rgba(255,59,48,.16)', color: view.corObs || '#FF3B30', fontSize: Math.round(12 * esc) }}
-                          >
-                            OBS: {it.observacao}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span
-                      className="text-[11px] uppercase tracking-wide"
-                      style={{ color: cancelado ? '#FF8A80' : atrasado ? '#FF5A4E' : T.muted }}
-                    >
-                      {p.status}
-                      {atrasado && !cancelado ? ' · atrasado' : ''}
-                    </span>
-                    {!cancelado && (
-                      <button
-                        type="button"
-                        onClick={() => avancar(p.id)}
-                        className="rounded-[10px] px-4 py-2 text-[13px] font-extrabold uppercase tracking-[0.08em]"
-                        // Cor do botão acompanha o selo de tempo (verde→amarelo→vermelho).
-                        style={{ background: cor, color: '#04241A' }}
-                      >
-                        {proximaLabel(p.status)}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+          <div
+            className="grid"
+            style={{ gap: 4, gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${Math.round(260 * esc)}px), 1fr))` }}
+          >
+            {ver === 'item'
+              ? grupos.map((g) => <KdsCartaoItem key={g.descricao} g={g} limites={cores} T={T} esc={esc} cor={view.cor} />)
+              : pedidosVisiveis.map((p) => (
+                  <KdsCartaoPedido
+                    key={p.id}
+                    p={p}
+                    min={minutosDesde(p.criadoEm, nowMs)}
+                    limites={cores}
+                    T={T}
+                    esc={esc}
+                    cor={view.cor}
+                    agregar={view.agregar}
+                    realce={!itemAtivo ? 'nenhum' : pedidoTemItem(p, itemAtivo) ? 'destaque' : 'apagado'}
+                    itemEmDestaque={itemAtivo}
+                    onAvancar={avancar}
+                  />
+                ))}
           </div>
         </section>
+        )}
+        </div>
+
+        {resumoVisivel && (
+          <KdsResumoItens itens={itensResumo} escolhido={itemAtivo} onEscolher={setItemSel} onFechar={() => abrirResumo(false)} T={T} />
         )}
       </div>
 
@@ -988,28 +1136,31 @@ export default function KdsPage() {
           style={{ background: bgAlerta(mostrado.prioridade), borderColor: 'rgba(0,0,0,.25)', height: 64 }}
         >
           <div
-            className="grid h-full place-items-center px-4 text-[13px] font-extrabold uppercase tracking-wider"
-            style={{ background: 'rgba(0,0,0,.22)', color: '#fff', minWidth: 120 }}
+            className="grid h-full place-items-center whitespace-nowrap px-4 text-[13px] font-extrabold uppercase tracking-wider"
+            style={{ background: 'rgba(0,0,0,.22)', color: '#fff' }}
           >
             {mostrado.prioridade === 'danger' ? '⚠ Urgente' : mostrado.prioridade === 'ok' ? '✓ Aviso' : '● Aviso'}
           </div>
           <div className="relative min-w-0 flex-1 overflow-hidden">
             <div
               key={mostrado.id}
-              className="whitespace-nowrap py-3 text-[26px] font-extrabold text-white"
-              style={{ fontFamily: 'Archivo, sans-serif', animation: 'kdsMarquee 16s linear infinite' }}
+              className="kds-marquee whitespace-nowrap py-3 text-[26px] font-extrabold text-white"
+              style={{ fontFamily: TITULO, animation: 'kdsMarquee 16s linear infinite' }}
             >
               {mostrado.titulo}
               {mostrado.detalhe ? ` — ${mostrado.detalhe}` : ''}
-              <span className="mx-16 opacity-70">•</span>
-              {mostrado.titulo}
-              {mostrado.detalhe ? ` — ${mostrado.detalhe}` : ''}
+              <span className="kds-marquee-eco">
+                <span className="mx-16 opacity-70">•</span>
+                {mostrado.titulo}
+                {mostrado.detalhe ? ` — ${mostrado.detalhe}` : ''}
+              </span>
             </div>
           </div>
           <div
-            className="grid h-full place-items-center px-4 text-[15px] font-bold tabular-nums text-white"
-            style={{ background: 'rgba(0,0,0,.22)', fontFamily: 'JetBrains Mono, monospace', minWidth: 64 }}
+            className="grid h-full place-items-center whitespace-nowrap px-4 text-[13px] font-bold uppercase tabular-nums tracking-wider text-white"
+            style={{ background: 'rgba(0,0,0,.22)', fontFamily: MONO }}
           >
+            {alertas.length > 1 ? `+${alertas.length - 1} na fila · ` : ''}
             {mostrado.restanteSeg}s
           </div>
         </footer>
@@ -1018,6 +1169,23 @@ export default function KdsPage() {
         @keyframes kdsMarquee {
           0% { transform: translateX(60%); }
           100% { transform: translateX(-100%); }
+        }
+        .kds-tela :focus-visible {
+          outline: 3px solid ${FOCO};
+          outline-offset: 2px;
+        }
+        /* Quem pede menos movimento lê o alerta parado, sem a rolagem. */
+        @media (prefers-reduced-motion: reduce) {
+          .kds-marquee {
+            animation: none !important;
+            white-space: normal !important;
+            font-size: 18px !important;
+            line-height: 1.15;
+            padding: 0 14px !important;
+          }
+          .kds-marquee-eco {
+            display: none;
+          }
         }
       `}</style>
 
@@ -1028,12 +1196,12 @@ export default function KdsPage() {
           onClick={() => {
             document.documentElement.requestFullscreen?.().catch(() => {});
             setPedirTelaCheia(false);
-            senhaRef.current?.focus();
+            if (uso === 'teclado') senhaRef.current?.focus();
           }}
           className="fixed inset-0 z-40 grid place-items-center"
-          style={{ background: 'rgba(11,20,27,.92)', color: '#fff' }}
+          style={{ background: 'rgba(11,17,23,.92)', color: '#fff' }}
         >
-          <span className="rounded-full px-8 py-4 text-lg font-bold" style={{ background: '#E2A340', color: '#0B141B' }}>
+          <span className="px-8 py-4 text-lg font-bold" style={{ background: '#FFFFFF', color: '#0F1B24' }}>
             Toque para entrar em tela cheia
           </span>
         </button>
@@ -1042,14 +1210,14 @@ export default function KdsPage() {
       {temSessao === false && (
         <div
           className="fixed inset-0 z-20 grid place-items-center px-4"
-          style={{ background: 'rgba(11,20,27,.94)' }}
+          style={{ background: 'rgba(11,17,23,.94)', color: '#fff' }}
         >
           <div className="text-center">
             <p className="mb-4 text-lg">Entre para operar o KDS.</p>
             <Link
               href="/entrar"
-              className="rounded-full px-6 py-3 text-sm font-bold"
-              style={{ background: '#E2A340', color: '#0B141B' }}
+              className="inline-block px-6 py-3 text-sm font-bold"
+              style={{ background: '#FFFFFF', color: '#0F1B24' }}
             >
               Ir para o login
             </Link>
@@ -1078,18 +1246,18 @@ function EntregaBoard({
     p.senha ? rotuloSenha(p.senha, p.senhaPrefixo) : p.mesa ? p.mesa : p.numero ? `#${p.numero}` : '—';
   const preparando = pedidos.filter((p) => p.status === 'recebido' || p.status === 'preparo');
   const pronto = pedidos.filter((p) => p.status === 'pronto');
-  const Coluna = ({ titulo, itens, cor, tocavel }: { titulo: string; itens: any[]; cor: string; tocavel?: boolean }) => (
+  const Coluna = ({ titulo, itens, cor, tocavel }: { titulo: string; itens: any[]; cor: CorStatus; tocavel?: boolean }) => (
     <section className="min-w-0">
       <div className="mb-3 flex items-center gap-2">
-        <span className="inline-block h-3 w-3 rounded-full" style={{ background: cor }} />
-        <span className="text-[15px] font-bold uppercase tracking-wider" style={{ color: T.muted, fontFamily: 'Archivo, sans-serif' }}>
+        <span className="inline-block h-3 w-3 rounded-full" style={{ background: cor.fundo }} />
+        <span className="text-[15px] font-bold uppercase tracking-wider" style={{ color: T.muted, fontFamily: TITULO }}>
           {titulo}
         </span>
-        <span className="text-[15px] font-bold" style={{ color: T.muted, fontFamily: 'JetBrains Mono, monospace' }}>{itens.length}</span>
+        <span className="text-[15px] font-bold" style={{ color: T.muted, fontFamily: MONO }}>{itens.length}</span>
       </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-4">
         {itens.length === 0 && (
-          <div className="col-span-full rounded-2xl border border-dashed px-6 py-10 text-center text-sm" style={{ borderColor: T.border, color: T.muted }}>
+          <div className="col-span-full border border-dashed px-6 py-10 text-center text-sm" style={{ borderColor: T.border, color: T.muted }}>
             Vazio
           </div>
         )}
@@ -1099,12 +1267,12 @@ function EntregaBoard({
             type="button"
             disabled={!tocavel}
             onClick={() => tocavel && onEntregar(p.id)}
-            className="grid place-items-center rounded-[16px] border font-extrabold tabular-nums disabled:cursor-default"
+            className="grid place-items-center border font-extrabold tabular-nums disabled:cursor-default"
             style={{
-              background: tocavel ? cor : T.panel,
-              color: tocavel ? '#04241A' : T.text,
-              borderColor: T.border,
-              fontFamily: 'JetBrains Mono, monospace',
+              background: tocavel ? cor.fundo : T.panel,
+              color: tocavel ? cor.texto : T.text,
+              borderColor: tocavel ? cor.fundo : T.border,
+              fontFamily: MONO,
               fontSize: Math.round(48 * esc),
               padding: Math.round(22 * esc),
               minHeight: Math.round(96 * esc),
@@ -1124,8 +1292,8 @@ function EntregaBoard({
   );
   return (
     <div className="grid gap-8 lg:grid-cols-2">
-      <Coluna titulo="Preparando" itens={preparando} cor="#FFB13D" />
-      <Coluna titulo="Pronto — chamar / entregar" itens={pronto} cor="#19C08F" tocavel />
+      <Coluna titulo="Preparando" itens={preparando} cor={COR_STATUS.atencao} />
+      <Coluna titulo="Pronto — chamar / entregar" itens={pronto} cor={COR_STATUS.ok} tocavel />
     </div>
   );
 }
