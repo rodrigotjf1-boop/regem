@@ -68,6 +68,8 @@ export default function RetiradaPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [origensEmUso, setOrigensEmUso] = useState<Record<string, boolean>>({});
   const [totemAposPagamento, setTotemAposPagamento] = useState(true);
+  // A partir de quantos minutos sem pagar o pedido do totem em dinheiro fica em alerta.
+  const [totemAlertaMin, setTotemAlertaMin] = useState(8);
   // Pedido do totem JÁ PAGO: sai da lista quando a cozinha marca pronto (true) ou fica até o
   // "Entregar" (false, padrão). Mig 301.
   const [totemConcluiPronto, setTotemConcluiPronto] = useState(false);
@@ -90,6 +92,8 @@ export default function RetiradaPage() {
         setTotemAposPagamento(!!(p as any).totemAposPagamento);
       if (!Array.isArray(p) && (p as any)?.totemConcluiAoFicarPronto != null)
         setTotemConcluiPronto(!!(p as any).totemConcluiAoFicarPronto);
+      if (!Array.isArray(p) && Number((p as any)?.totemAlertaMinutos) > 0)
+        setTotemAlertaMin(Number((p as any).totemAlertaMinutos));
       setCaixa(c);
       setFormas(Array.isArray(f) ? f : []);
     } catch {
@@ -278,6 +282,7 @@ export default function RetiradaPage() {
                     p={p}
                     busy={busy === p.id}
                     totemAposPagamento={totemAposPagamento}
+                    totemAlertaMin={totemAlertaMin}
                     onAbrir={() => setDetalhe(p)}
                     onAceitar={() => aceitar(p)}
                     onReceber={() => receberPagamento(p)}
@@ -342,9 +347,9 @@ function ChipCanal({ canal }: { canal: string }) {
 }
 
 function PedidoCard({
-  p, busy, totemAposPagamento, onAbrir, onAceitar, onReceber, onAvisar, onEntregar, onCancelar,
+  p, busy, totemAposPagamento, totemAlertaMin, onAbrir, onAceitar, onReceber, onAvisar, onEntregar, onCancelar,
 }: {
-  p: any; busy: boolean; totemAposPagamento: boolean;
+  p: any; busy: boolean; totemAposPagamento: boolean; totemAlertaMin: number;
   onAbrir: () => void;
   onAceitar: () => void; onReceber: () => void; onAvisar: () => void; onEntregar: () => void; onCancelar: () => void;
 }) {
@@ -363,6 +368,12 @@ function PedidoCard({
     : totemReceberPrimeiro && p.status === 'novo'
       ? { txt: 'Aguardando pagamento', cls: 'bg-warn/10 text-warn' }
       : st;
+  // Há quanto tempo o cliente do totem espera para pagar (a lista se atualiza a cada 15 s).
+  const esperaMin =
+    totemReceberPrimeiro && p.status === 'novo' && p.criadoEm
+      ? Math.max(0, Math.floor((Date.now() - new Date(p.criadoEm).getTime()) / 60_000))
+      : null;
+  const esperaAlerta = esperaMin != null && esperaMin >= totemAlertaMin;
   return (
     <Card
       className="cursor-pointer p-3 transition-colors hover:bg-secondary/40"
@@ -402,9 +413,19 @@ function PedidoCard({
             <p className="truncate text-xs text-muted-foreground">{p.clienteTelefone}</p>
           )}
         </div>
-        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${stMostra.cls}`}>
-          {stMostra.txt}
-        </span>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${stMostra.cls}`}>
+            {stMostra.txt}
+          </span>
+          {esperaMin != null && esperaMin >= 1 && (
+            <span
+              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${esperaAlerta ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground'}`}
+              title={esperaAlerta ? `Sem pagar há mais de ${totemAlertaMin} min` : 'Tempo de espera do cliente'}
+            >
+              ⏱ há {esperaMin < 60 ? `${esperaMin} min` : `${Math.floor(esperaMin / 60)} h ${String(esperaMin % 60).padStart(2, '0')}`}
+            </span>
+          )}
+        </div>
       </div>
 
       <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">

@@ -9114,6 +9114,17 @@
         }
       }
     },
+    "/api/v1/delivery/totem/aguardando-pagamento": {
+      "get": {
+        "operationId": "DeliveryController_totemAguardandoPagamento",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/delivery/encomendas": {
       "get": {
         "operationId": "DeliveryController_encomendas",

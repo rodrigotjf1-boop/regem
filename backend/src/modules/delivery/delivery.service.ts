@@ -17,6 +17,7 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { PREFIXO_BALCAO } from '../../common/senha-origem';
 import { serieDaSenha } from './serie-da-senha';
 import { retidosVencidos } from './totem-retido.query';
+import { MINUTOS_ALERTA_TOTEM, totemDinheiroSemPagar } from './totem-a-pagar.query';
 import { motivoVendaDesfeita } from '../fiscal/nfce-totem';
 import { gravarAvisoCancelamentoTotem, resultadoDoAviso } from '../gogem/aviso-gogem';
 import { GogemAvisoService } from '../gogem/gogem-aviso.service';
@@ -1385,7 +1386,8 @@ export class DeliveryService {
     const origensEmUso = await this.origensEmUso(tenantId);
     const totemAposPagamento = await this.totemAposPagamento(tenantId);
     const totemConcluiAoFicarPronto = await this.totemConcluiAoFicarPronto(tenantId);
-    return { pedidos, origensEmUso, totemAposPagamento, totemConcluiAoFicarPronto };
+    // `totemAlertaMinutos`: a partir de quantos minutos sem pagar o cartão do totem fica em alerta.
+    return { pedidos, origensEmUso, totemAposPagamento, totemConcluiAoFicarPronto, totemAlertaMinutos: MINUTOS_ALERTA_TOTEM };
   }
 
   /**
@@ -1473,6 +1475,15 @@ export class DeliveryService {
         values (${tenantId}, null, ${v})`);
     }
     return { totemAposPagamento: v };
+  }
+
+  // Aviso do PDV: pedidos do totem em DINHEIRO sem pagar há mais de 8 min. Só existe com a loja
+  // em "produzir só após o pagamento" — no outro modo o pedido já está na cozinha e a cobrança
+  // é na entrega. Só leitura: nada muda no pedido (ver `totem-a-pagar.query.ts`).
+  async totemAguardandoPagamento(tenantId: string, atual: string | null) {
+    const ativo = await this.totemAposPagamento(tenantId);
+    const pedidos = ativo ? await totemDinheiroSemPagar(this.db, tenantId, atual) : [];
+    return { ativo, minutos: MINUTOS_ALERTA_TOTEM, pedidos };
   }
 
   // "Receber pagamento" do totem (modo APÓS pagamento): cobra o dinheiro no caixa e
