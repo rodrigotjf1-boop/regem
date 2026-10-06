@@ -94,7 +94,7 @@
 - **escala_regra** — id, tenant_id, unidade_id, colaborador_id, etiqueta_id, turno_id, jornada_tipo, folgas_semana, data_inicio, data_fim, feriados_fechar, ativo, created_at, updated_at, deleted_at
 - **estoque_snapshot** — tenant_id, unidade_id, item_id, data, saldo, custo_medio
 - **etiqueta** — id, tenant_id, unidade_id, setor_id, funcao_id, sigla, contador, cor, icone, titular_padrao_colaborador_id, created_at, updated_at, deleted_at
-- **etiqueta_template** — id, tenant_id, unidade_id, nome, campos, tamanho, codigo_tipo, padrao, created_at, updated_at
+- **etiqueta_template** — id, tenant_id, unidade_id, nome, campos, tamanho, codigo_tipo, modelo, padrao, created_at, updated_at
 - **etiqueta_validade** — id, tenant_id, unidade_id, produto_id, ficha_id, template_id, descricao, unidade_medida, tipo, status, fabricacao, compra, abertura, validade, codigo, impressa_em, baixado_em, baixado_por_id, virou_perda, desperdicio_id, criado_por_id, created_at, updated_at, deleted_at
 - **feriado** — id, tenant_id, unidade_id, data, nome, created_at
 - **ficha_ingrediente** — id, tenant_id, ficha_id, item_id, insumo_nome, quantidade, unidade, fator_correcao, custo_unitario, ordem, created_at, sub_ficha_id, somente_delivery

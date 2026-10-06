@@ -166,6 +166,8 @@ function qrCode(data) {
 //   '@ETIQUETA' (marcador), '@B<texto>' (negrito), texto puro,
 //   '@BARCODE:code128|ean13:<cod>', '@QR:<payload>'.
 function renderEtiqueta(conteudo, largura) {
+  const moderna = dadosDaEtiqueta(conteudo);
+  if (moderna) return renderEtiquetaModernaBobina(moderna, largura);
   const cols = colsDe(largura);
   const out = [];
   const push = (arr) => out.push(...arr);
@@ -326,6 +328,8 @@ function renderEtiquetaZpl(conteudo) {
   const { textos, code, wMm, hMm } = parseEtiqueta(conteudo);
   const W = Math.round(wMm * DPMM);
   const L = Math.round(hMm * DPMM);
+  const moderna = dadosDaEtiqueta(conteudo);
+  if (moderna && W >= MODERNO_MIN_W && L >= MODERNO_MIN_H) return Buffer.from(zplModerno(moderna, W, L), 'utf8');
   const out = ['^XA', '^CI28', `^PW${W}`, `^LL${L}`, '^LH0,0'];
   let y = 12;
   for (const t of textos) {
@@ -368,6 +372,224 @@ function zplCode128(valor, y, W) {
     }
   }
   return `^FO14,${y}^BQN,2,${W >= 139 ? 5 : 3}^FDLA,${v}^FS`;
+}
+
+// ---- Modelo MODERNO da etiqueta de validade (escolha do dono, 06/10/2026) ----
+//
+// O desenho clássico empilha tudo numa coluna e nunca conferiu a ALTURA: com seis linhas o
+// QR passava do fim da etiqueta de 40 mm e saía cortado (ERR-156). O moderno segue o padrão
+// dos sistemas de etiqueta de rede: faixa preta com o produto, quem/quando à esquerda, QR
+// à direita, e a VALIDADE com o dia da semana em caixa preta ao lado da data grande.
+//
+// COMO OS DADOS CHEGAM: na própria linha do cabeçalho —
+//   '@ETIQUETA:60x40;v=2;d=<JSON em base64url>'
+// O servidor de loja ANTIGO lê só o tamanho dessa linha e ignora o resto, e as linhas
+// clássicas continuam no corpo do job: versão antiga imprime o clássico, sem erro. Dado
+// ausente ou ilegível, etiqueta menor que 40 x 25 mm e etiquetadora EPL → clássico também.
+//
+// Tudo é posicionado por conta, em pontos (203 dpi = 8 por mm): nada passa da largura nem
+// da altura. Sem acento de propósito — sai igual em qualquer etiquetadora.
+const MODERNO_MIN_W = 320; // 40 mm
+const MODERNO_MIN_H = 200; // 25 mm — menor que isso não cabe o QR
+const DIAS_SEMANA = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB'];
+const dataBr = (s) => /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(s ?? ''));
+function diaDaSemana(br) {
+  const m = dataBr(br);
+  // Meio-dia UTC: o dia da semana não depende do fuso da máquina.
+  return m ? DIAS_SEMANA[new Date(Date.UTC(+m[3], +m[2] - 1, +m[1], 12)).getUTCDay()] : '';
+}
+function dadosDaEtiqueta(conteudo) {
+  const cabecalho = String(conteudo ?? '').split(/\r?\n/, 1)[0];
+  const m = /;d=([A-Za-z0-9_-]+)/.exec(cabecalho);
+  if (!m) return null;
+  try {
+    const d = JSON.parse(Buffer.from(m[1], 'base64url').toString('utf8'));
+    if (d?.m !== 'moderno' || !String(d.produto ?? '').trim() || !dataBr(d.validade)) return null;
+    return d;
+  } catch {
+    return null; // cabeçalho estragado nunca derruba a impressão: sai o clássico
+  }
+}
+
+// Largura média de um caractere da fonte 0 do ZPL, em fração da altura.
+const LARG_MAIUSC = 0.54;
+const LARG_MISTA = 0.47;
+const LARG_NUM = 0.45;
+const cabem = (largura, h, fator = LARG_MISTA) => Math.max(1, Math.floor(largura / (h * fator)));
+const cortar = (t, n) => (t.length > n ? t.slice(0, Math.max(1, n - 1)).trimEnd() + '.' : t);
+// Corta o texto para caber na largura. Texto todo em maiúsculas (código de lote) é mais
+// largo que nome com minúsculas — medir os dois igual deixava o lote invadir o QR. Quem
+// decide é o texto JÁ cortado: "LOTE X-77  Fornecedor" cortado vira só maiúsculas.
+const caber = (t, largura, h) => {
+  const curto = cortar(t, cabem(largura, h, LARG_MISTA));
+  return curto === curto.toUpperCase() ? cortar(t, cabem(largura, h, LARG_MAIUSC)) : curto;
+};
+
+function zplModerno(d, Wreal, Hreal) {
+  // Maior que 60 x 40: o MESMO desenho, ampliado (até 2x). As contas são feitas em pontos
+  // "lógicos" e `u()` converte na hora de escrever.
+  const s = Math.min(2, Math.max(1, Math.min(Wreal / 480, Hreal / 320)));
+  const u = (n) => Math.round(n * s);
+  const W = Math.floor(Wreal / s);
+  // Etiqueta muito mais alta que larga (100 x 150): o desenho ocupa o topo, não se espalha.
+  const H = Math.min(Math.floor(Hreal / s), 330);
+  const z = ['^XA', '^CI28', `^PW${Wreal}`, `^LL${Hreal}`, '^LH0,0'];
+  const caixa = (x, y, w, h, espessura = Math.min(w, h)) =>
+    z.push(`^FO${u(x)},${u(y)}^GB${u(w)},${u(h)},${Math.max(1, u(espessura))}^FS`);
+  const texto = (x, y, h, t, o = {}) =>
+    z.push(
+      `^FO${u(x)},${u(y)}^A0N,${u(h)},${u(o.larg ?? h)}${o.inv ? '^FR' : ''}` +
+        `${o.bloco ? `^FB${u(o.bloco)},${o.linhas ?? 1},0,${o.alinha ?? 'L'}` : ''}^FD${t}^FS`,
+    );
+
+  const M = 8;
+  const X = 12;
+  const alta = H >= 300; // 37,5 mm: tem rodapé
+  const media = H >= 230; // 29 mm: tem o rótulo VALIDADE
+  const status = zplEsc(d.status ?? '').toUpperCase().slice(0, 12);
+  const loja = zplEsc(d.loja ?? '');
+
+  // 1) Faixa preta com o produto: a maior letra que couber numa linha; senão, duas linhas.
+  const faixaH = alta ? 60 : media ? 46 : 38;
+  caixa(M, M, W - 2 * M, faixaH);
+  const nome = zplEsc(d.produto).toUpperCase();
+  const largNome = W - 2 * M - 20;
+  const h1 = (alta ? [44, 38, 32, 28] : media ? [34, 30, 26, 22] : [28, 24, 20]).find(
+    (h) => nome.length * h * LARG_MAIUSC <= largNome,
+  );
+  if (h1) texto(M + 10, M + Math.round((faixaH - h1) / 2) + 2, h1, nome, { inv: true });
+  else {
+    const h2 = Math.floor((faixaH - 6) / 2);
+    // Corta com folga: texto que sobra do bloco de duas linhas seria impresso por cima.
+    const limite = Math.floor(cabem(largNome, h2, LARG_MAIUSC) * 1.7);
+    texto(M + 10, M + 4, h2, cortar(nome, limite), { inv: true, bloco: largNome, linhas: 2 });
+  }
+
+  // 2) Validade, ancorada embaixo: dia da semana em caixa preta + data grande.
+  const temRodape = alta && Boolean(status || loja);
+  const rodapeH = temRodape ? 34 : 0;
+  let caixaH = alta ? 54 : media ? 46 : 40;
+  if (W < 400) caixaH = Math.min(caixaH, 46);
+  const yCaixa = H - M - rodapeH - caixaH;
+  const rotuloH = media ? 18 : 0;
+  const yRotulo = yCaixa - rotuloH - 3;
+  const yLinha = (rotuloH ? yRotulo : yCaixa) - 7;
+  const fonteDia = caixaH - 8;
+  const caixaW = Math.round(fonteDia * 2.45);
+  const xData = X + caixaW + 12;
+  const hData =
+    [64, 56, 48, 42, 36, 30].find(
+      (h) => h <= caixaH + 10 && 10 * Math.round(h * 0.94) * LARG_NUM <= W - X - xData,
+    ) ?? 30;
+  caixa(X, yLinha, W - 2 * X, 2, 2);
+  if (rotuloH) {
+    texto(X, yRotulo, 18, 'VALIDADE');
+    // Sem rodapé (etiqueta média), a situação vai na linha do rótulo, à direita.
+    if (!alta && status) texto(X, yRotulo, 18, status, { bloco: W - 2 * X, alinha: 'R' });
+  }
+  caixa(X, yCaixa, caixaW, caixaH);
+  texto(X, yCaixa + 7, fonteDia, diaDaSemana(d.validade), { inv: true, bloco: caixaW, alinha: 'C' });
+  texto(xData, yCaixa + Math.round((caixaH - hData) / 2) + 3, hData, d.validade, { larg: Math.round(hData * 0.94) });
+
+  // 3) Miolo: QR à direita (com o número embaixo, para digitar se o leitor faltar) e
+  //    quem/quando à esquerda. O QR do ZPL desce 10 pontos REAIS a partir do ^FO.
+  const yTopo = M + faixaH + 8;
+  const area = yLinha - 4 - yTopo;
+  const codigo = zplEsc(d.codigo ?? '').trim();
+  let larguraTexto = W - 2 * X;
+  if (d.cod !== 'nenhum' && codigo) {
+    const mag = Math.max(2, Math.round((area >= 94 ? 4 : 3) * s));
+    const lado = (21 * mag) / s;
+    const recuo = 10 / s;
+    const xQr = W - M - 22 - lado;
+    z.push(`^FO${u(xQr)},${u(yTopo)}^BQN,2,${mag}^FDLA,${codigo}^FS`);
+    if (area >= recuo + lado + 22) {
+      texto(xQr - 20, yTopo + recuo + lado + 6, 16, codigo, { bloco: lado + 40, alinha: 'C' });
+    }
+    larguraTexto = xQr - 20 - X;
+  }
+  const quando = [d.manip, d.hora].map((v) => zplEsc(v ?? '').trim()).filter(Boolean).join(' ');
+  const resp = zplEsc(d.resp ?? '').trim();
+  const terceira = zplEsc(
+    d.lote ? `LOTE ${d.lote}  ${d.fornecedor ?? ''}` : d.unidade ? `UNID. ${d.unidade}` : '',
+  ).trim();
+  if (area >= 112) {
+    if (quando) {
+      texto(X, yTopo + 4, 18, 'MANIPULADO');
+      const hQ = [28, 26, 24, 22, 20].find((h) => quando.length * h * LARG_NUM <= larguraTexto) ?? 20;
+      texto(X, yTopo + 24 + Math.round((28 - hQ) / 2), hQ, quando);
+    }
+    if (resp) {
+      texto(X, yTopo + 60, 18, 'RESP.');
+      texto(X + 58, yTopo + 56, 26, caber(resp, larguraTexto - 58, 26));
+    }
+    if (terceira) texto(X, yTopo + 88, 22, caber(terceira, larguraTexto, 22));
+  } else {
+    // Etiqueta baixa: linhas curtas, sem rótulo, quantas couberem.
+    const linhas = [quando, resp ? `RESP. ${resp}` : '', media ? '' : status, terceira].filter(Boolean);
+    const cabemLinhas = Math.max(1, Math.floor(area / 26));
+    linhas.slice(0, cabemLinhas).forEach((t, i) => texto(X, yTopo + 2 + i * 26, 22, caber(t, larguraTexto, 22)));
+  }
+
+  // 4) Rodapé (etiqueta alta): situação em caixa preta + nome da loja.
+  if (temRodape) {
+    const y = H - M - 26;
+    let x = X;
+    if (status) {
+      const larg = status.length * 13 + 22;
+      caixa(X, y, larg, 26);
+      texto(X, y + 4, 20, status, { inv: true, bloco: larg, alinha: 'C' });
+      x = X + larg + 10;
+    }
+    if (loja) texto(x, y + 4, 20, caber(loja, W - X - x, 20));
+  }
+  z.push('^XZ');
+  return z.join('\n') + '\n';
+}
+
+// Bobina (ESC/POS) no modelo moderno: a mesma informação, na mesma ordem, empilhada — só
+// com os comandos que o resto deste arquivo já usa (negrito, letra dupla, QR).
+function renderEtiquetaModernaBobina(d, largura) {
+  const cols = colsDe(largura);
+  const out = [];
+  const push = (arr) => out.push(...arr);
+  const escrever = (s, n) => {
+    for (const parte of wrap(ascii(s), n)) {
+      push([...Buffer.from(parte, 'ascii')]);
+      push([0x0a]);
+    }
+  };
+  const linha = (s) => escrever(s, cols);
+  const grande = (s) => {
+    push(boldOn());
+    push(sizeDouble());
+    escrever(s, Math.floor(cols / 2));
+    push(sizeNormal());
+    push(boldOff());
+  };
+  push(init());
+  push(align(1));
+  grande(String(d.produto).toUpperCase());
+  const quando = [d.manip, d.hora].filter(Boolean).join(' ');
+  if (quando) linha(`MANIPULADO ${quando}`);
+  if (d.resp) linha(`RESP. ${d.resp}`);
+  if (d.lote) linha(`LOTE ${d.lote} ${d.fornecedor ?? ''}`.trim());
+  else if (d.unidade) linha(`UNID. ${d.unidade}`);
+  linha('VALIDADE');
+  grande(`${diaDaSemana(d.validade)} ${d.validade}`);
+  if (d.cod !== 'nenhum' && d.codigo) {
+    push(qrCode(String(d.codigo)));
+    push([0x0a]);
+    linha(String(d.codigo));
+  }
+  const pe = [d.status, d.loja].filter(Boolean).join(' - ');
+  if (pe) linha(pe);
+  push(sizeNormal());
+  push(boldOff());
+  push(align(0));
+  push(feed(2));
+  push(cut());
+  return Buffer.from(out);
 }
 
 function renderEtiquetaEpl(conteudo) {

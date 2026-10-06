@@ -30,6 +30,7 @@ SaaS de gestão operacional com hierarquia completa do proprietário à ponta. R
 | `mockups/regem-kds.html` | KDS de alertas (app **independente**, rede local, tema escuro) |
 | `mockups/regem-kds-producao.html` | KDS de **produção** (a tela `/kds`): tela neutra com cor só no status do tempo, por pedido \| por item, resumo de itens, forma de uso toque \| teclado |
 | `mockups/regem-ponto.html` | Terminal de ponto (PIN → marcação → comprovante NSR) |
+| `mockups/regem-etiqueta-validade.html` | Etiqueta de validade impressa, **modelo moderno** (faixa do produto, dia da semana da validade, QR ao lado), em vários tamanhos de papel, com as regras do que sai |
 
 ## Identidade Regem (⚠️ difere do mockup Omera)
 
