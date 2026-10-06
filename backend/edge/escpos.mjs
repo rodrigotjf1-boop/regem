@@ -337,10 +337,37 @@ function renderEtiquetaZpl(conteudo) {
     y += 6;
     if (code.tipo === 'qr') out.push(`^FO14,${y}^BQN,2,5^FDLA,${zplEsc(code.valor)}^FS`);
     else if (code.tipo === 'ean13') out.push(`^FO14,${y}^BY2^BEN,60,Y,N^FD${digits(code.valor)}^FS`);
-    else out.push(`^FO14,${y}^BY2^BCN,60,Y,N,N^FD${zplEsc(code.valor)}^FS`);
+    else out.push(zplCode128(code.valor, y, W));
   }
   out.push('^XZ');
   return Buffer.from(out.join('\n') + '\n', 'utf8');
+}
+
+// Code128 na etiquetadora ZPL, sempre dentro da largura do modelo.
+//
+// A largura das barras é conta fechada: (início + símbolos + verificador) × 11 módulos
+// + parada de 13, a 2 pontos por módulo (^BY2). No modo normal do ^BC cada caractere é
+// um símbolo: os 12 dígitos do código da etiqueta dão 334 pontos (41,8 mm). No modelo
+// de 40 mm (^PW320) a impressora cortava os últimos 28 pontos — a parada inteira — e
+// nenhum leitor lia a etiqueta.
+//
+// Cabe com a margem branca que o leitor exige (10 módulos de cada lado)? A linha sai
+// IGUAL à de sempre. Não cabe e o código é só de dígitos em pares? Vai compactado
+// ('>;' abre o subconjunto C: um símbolo a cada dois dígitos, 202 pontos), centralizado.
+// Nem assim? QR, que é o que cabe.
+const C128_MODULO = 2;
+const C128_MARGEM = 10 * C128_MODULO;
+const c128Largura = (simbolos) => ((simbolos + 2) * 11 + 13) * C128_MODULO;
+function zplCode128(valor, y, W) {
+  const v = zplEsc(valor);
+  if (14 + c128Largura(v.length) + C128_MARGEM <= W) return `^FO14,${y}^BY2^BCN,60,Y,N,N^FD${v}^FS`;
+  if (/^(\d\d)+$/.test(v)) {
+    const largura = c128Largura(v.length / 2);
+    if (largura + 2 * C128_MARGEM <= W) {
+      return `^FO${Math.round((W - largura) / 2)},${y}^BY2^BCN,60,Y,N,N^FD>;${v}^FS`;
+    }
+  }
+  return `^FO14,${y}^BQN,2,${W >= 139 ? 5 : 3}^FDLA,${v}^FS`;
 }
 
 function renderEtiquetaEpl(conteudo) {

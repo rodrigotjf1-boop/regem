@@ -237,7 +237,10 @@ descrever('pendências do turno (Postgres real)', () => {
       const t = await empresa();
       const gerente = await pessoa(t);
       await pedido(t, { tipo: 'retirada', status: 'pronto', criado: new Date(Date.now() - 30 * 3_600_000) });
-      await pedido(t, { tipo: 'retirada', status: 'pronto' });
+      // O serviço mede a idade pelo relógio de verdade: o pedido "recente" também. Sem `criado`
+      // ele nascia 1 h antes do AGORA fixo do arquivo (02/10/2026) e, 24 h depois dessa data,
+      // passou a contar como antigo — o teste quebrou sozinho, sem ninguém mexer no código.
+      await pedido(t, { tipo: 'retirada', status: 'pronto', criado: new Date(Date.now() - 3_600_000) });
       const s = servico();
       for (const perfil of ['execucao', 'supervisao', 'suporte']) await expect(s.baixarPendenciasAntigas(t, gerente, perfil, null, 'pdv')).rejects.toThrow(/Só gerente ou presidente/);
       expect(auditoria.registrar).not.toHaveBeenCalled();

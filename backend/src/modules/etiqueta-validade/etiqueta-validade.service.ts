@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { and, desc, eq, gte, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   etiquetaTemplate,
@@ -25,6 +25,7 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { gravarOuEncaminharImpressao } from '../../common/impressao-destino';
 import { hojeISO } from '../../common/data';
 import { DesperdicioService } from '../desperdicio/desperdicio.service';
+import { candidatosCodigoLido, escolherPorCodigoLido } from './codigo-lido';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // QUINTA cópia de `hojeISO` em UTC, achada depois do conserto das outras quatro:
@@ -535,15 +536,30 @@ export class EtiquetaValidadeService {
     return { acao: 'aberto', reimpresso: false, substituida: false, etiqueta: row };
   }
 
+  // A etiqueta do código que o LEITOR entregou. O texto lido nem sempre é o gravado
+  // (EAN-13 chega com o dígito verificador; ver `codigo-lido.ts`) — antes cada busca
+  // comparava o texto inteiro e o modelo EAN-13 nunca era encontrado.
+  private async acharPorCodigoLido(tenantId: string, codigo: unknown) {
+    const candidatos = candidatosCodigoLido(codigo);
+    if (!candidatos.length) return null;
+    const achadas = await this.db
+      .select()
+      .from(etiquetaValidade)
+      .where(
+        and(
+          eq(etiquetaValidade.tenantId, tenantId),
+          inArray(etiquetaValidade.codigo, candidatos),
+          isNull(etiquetaValidade.deletedAt),
+        ),
+      );
+    return escolherPorCodigoLido(candidatos, achadas);
+  }
+
   // Busca a etiqueta pelo código (read-only) — o ponto de baixa lê, mostra e decide
   // a ação (baixar/abrir) conforme o modo. Não muta nada.
   async buscarPorCodigo(tenantId: string, codigo: string) {
-    const cod = String(codigo ?? '').trim();
-    if (!cod) throw new NotFoundException('Código vazio.');
-    const [e] = await this.db
-      .select()
-      .from(etiquetaValidade)
-      .where(and(eq(etiquetaValidade.tenantId, tenantId), eq(etiquetaValidade.codigo, cod), isNull(etiquetaValidade.deletedAt)));
+    if (!String(codigo ?? '').trim()) throw new NotFoundException('Código vazio.');
+    const e = await this.acharPorCodigoLido(tenantId, codigo);
     if (!e) throw new NotFoundException('Etiqueta não encontrada.');
     const hoje = hojeISO();
     const diasRestantes = Math.round(
@@ -591,10 +607,7 @@ export class EtiquetaValidadeService {
 
   // Leitura do código: fechado → em uso (recalcula/reimprime) → baixado.
   async lerCodigo(tenantId: string, atorId: string | null, codigo: string) {
-    const [e] = await this.db
-      .select()
-      .from(etiquetaValidade)
-      .where(and(eq(etiquetaValidade.tenantId, tenantId), eq(etiquetaValidade.codigo, codigo), isNull(etiquetaValidade.deletedAt)));
+    const e = await this.acharPorCodigoLido(tenantId, codigo);
     if (!e) throw new NotFoundException('Código não encontrado.');
     if (e.status === 'fechado') return this.abrirEtiquetaRow(e, atorId);
     if (e.status === 'em_uso') {
