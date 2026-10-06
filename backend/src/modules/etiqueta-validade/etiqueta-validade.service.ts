@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -19,13 +20,22 @@ import {
   impressaoJob,
   equipamento,
   desperdicio,
+  colaborador,
+  fornecedor,
 } from '../../db/schema';
 import { condUnidade, condUnidadeOuRede } from '../../common/filtro-unidade';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { gravarOuEncaminharImpressao } from '../../common/impressao-destino';
-import { hojeISO } from '../../common/data';
+import { dataNoFuso, hojeISO, horaNoFuso } from '../../common/data';
 import { DesperdicioService } from '../desperdicio/desperdicio.service';
 import { candidatosCodigoLido, escolherPorCodigoLido } from './codigo-lido';
+import {
+  CAMPOS_PADRAO,
+  MODELOS_ETIQUETA,
+  montarConteudoEtiqueta,
+  nomeCurto,
+  type DadosEtiqueta,
+} from './etiqueta-conteudo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // QUINTA cópia de `hojeISO` em UTC, achada depois do conserto das outras quatro:
@@ -45,20 +55,11 @@ const addDias = (iso: string, d: number) => {
   dt.setUTCDate(dt.getUTCDate() + d);
   return dt.toISOString().slice(0, 10);
 };
-// Campos padrão da etiqueta (RDC 216): produto, validade e a data são obrigatórios.
-const CAMPOS_PADRAO = [
-  { campo: 'loja', visivel: true, negrito: false },
-  { campo: 'produto', visivel: true, negrito: true },
-  { campo: 'unidade', visivel: true, negrito: false },
-  { campo: 'fabricacao', visivel: true, negrito: false },
-  { campo: 'compra', visivel: false, negrito: false },
-  { campo: 'status', visivel: true, negrito: false },
-  { campo: 'validade', visivel: true, negrito: true },
-  { campo: 'responsavel', visivel: false, negrito: false },
-];
 
 @Injectable()
 export class EtiquetaValidadeService {
+  private readonly log = new Logger(EtiquetaValidadeService.name);
+
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly auditoria: AuditoriaService,
@@ -117,6 +118,7 @@ export class EtiquetaValidadeService {
       campos: CAMPOS_PADRAO,
       tamanho: '40x40',
       codigoTipo: 'code128',
+      modelo: 'classico',
       padrao: true,
     };
   }
@@ -131,22 +133,28 @@ export class EtiquetaValidadeService {
         ? `${+mT[1]}x${+mT[2]}`
         : '40x40';
     const codigoTipo = ['nenhum', 'ean13', 'code128', 'qr'].includes(dto?.codigoTipo) ? dto.codigoTipo : 'code128';
+    // Modelo do desenho (mig 306). Valor desconhecido é recusado; AUSENTE mantém o que
+    // está salvo — tela antiga (ou outra integração) que salva sem o campo não pode
+    // devolver a loja ao clássico sem ninguém pedir.
+    if (dto?.modelo != null && !MODELOS_ETIQUETA.includes(dto.modelo))
+      throw new BadRequestException('Modelo de etiqueta inválido. Use "classico" ou "moderno".');
     const [existente] = await this.db
-      .select({ id: etiquetaTemplate.id })
+      .select({ id: etiquetaTemplate.id, modelo: etiquetaTemplate.modelo })
       .from(etiquetaTemplate)
       .where(and(eq(etiquetaTemplate.tenantId, tenantId), eq(etiquetaTemplate.padrao, true)))
       .limit(1);
+    const modelo: string = dto?.modelo ?? existente?.modelo ?? 'classico';
     if (existente) {
       const [row] = await this.db
         .update(etiquetaTemplate)
-        .set({ nome: dto?.nome ?? 'Padrão', campos, tamanho, codigoTipo, updatedAt: new Date() })
+        .set({ nome: dto?.nome ?? 'Padrão', campos, tamanho, codigoTipo, modelo, updatedAt: new Date() })
         .where(eq(etiquetaTemplate.id, existente.id))
         .returning();
       return row;
     }
     const [row] = await this.db
       .insert(etiquetaTemplate)
-      .values({ tenantId, nome: dto?.nome ?? 'Padrão', campos, tamanho, codigoTipo, padrao: true })
+      .values({ tenantId, nome: dto?.nome ?? 'Padrão', campos, tamanho, codigoTipo, modelo, padrao: true })
       .returning();
     return row;
   }
@@ -316,6 +324,9 @@ export class EtiquetaValidadeService {
       cfgsLoja.find((c) => c.unidadeId == null) ??
       cfgsLoja[0];
     const nomeLoja = cfgLoja?.nomePublico?.trim() || emp?.nome || 'Regem';
+    const extras = await this.extrasDaEtiqueta(tenantId, {
+      atorId, loteId: loteIdOk, fabricacao, criadaEm: new Date(),
+    });
     const criadas: any[] = [];
     for (let i = 0; i < qtd; i++) {
       const codigo = this.gerarCodigo();
@@ -348,6 +359,7 @@ export class EtiquetaValidadeService {
         loja: nomeLoja,
         descricao, unidadeMedida, tipoUso: usado ? 'EM USO' : 'FECHADO',
         fabricacao, compra: dto.compra ?? null, validade, codigo,
+        ...extras,
       }).catch(() => {});
     }
     await this.auditoria.registrar({
@@ -372,7 +384,7 @@ export class EtiquetaValidadeService {
     unidadeId: string | null,
     impressoraId: string | undefined,
     template: any,
-    dados: any,
+    dados: DadosEtiqueta,
   ) {
     let equipamentoId = impressoraId ?? null;
     if (!equipamentoId) {
@@ -407,45 +419,49 @@ export class EtiquetaValidadeService {
       }
     }
     if (!equipamentoId) return; // sem impressora cadastrada: etiqueta fica só no sistema
-    const conteudo = this.renderEtiqueta(template, dados);
+    // Texto da etiqueta (cabeçalho + linhas + código) — ver `etiqueta-conteudo.ts`.
+    const conteudo = montarConteudoEtiqueta(template, dados);
     // Loja com servidor local ativo: vai por comando para ele (a fila da nuvem não é lida lá).
     await gravarOuEncaminharImpressao(this.db, {
       tenantId, unidadeId: unidadeId ?? null, equipamentoId, via: 'etiqueta', conteudo,
     });
   }
 
-  // Texto da etiqueta + marcadores @BARCODE/@QR que o edge (escpos.mjs) converte.
-  private renderEtiqueta(template: any, d: any): string {
-    const campos: any[] = Array.isArray(template?.campos) && template.campos.length ? template.campos : CAMPOS_PADRAO;
-    const val: Record<string, string> = {
-      loja: d.loja,
-      produto: d.descricao,
-      unidade: d.unidadeMedida ? `Unid.: ${d.unidadeMedida}` : '',
-      fabricacao: `Fabricacao: ${this.brDate(d.fabricacao)}`,
-      compra: d.compra ? `Compra: ${this.brDate(d.compra)}` : '',
-      status: `Status: ${d.tipoUso}`,
-      validade: `VALIDADE: ${this.brDate(d.validade)}`,
-      responsavel: '',
-    };
-    // Header carrega o TAMANHO (mm) do modelo — o worker do edge aplica nas
-    // etiquetadoras ZPL/EPL (a linguagem vem da impressora). Ex.: '@ETIQUETA:40x40'.
-    const linhas: string[] = [`@ETIQUETA:${template?.tamanho ?? '40x40'}`];
-    for (const c of campos) {
-      if (c.visivel === false) continue;
-      const texto = val[c.campo];
-      if (!texto) continue;
-      linhas.push(c.negrito ? `@B${texto}` : texto);
+  // O que a etiqueta mostra além do básico: a hora, quem gerou e, quando ela nasce de um
+  // lote, o lote e o fornecedor. Falha aqui NUNCA impede a etiqueta de sair: o motivo vai
+  // para o log e ela é impressa sem o dado.
+  private async extrasDaEtiqueta(
+    tenantId: string,
+    o: { atorId: string | null; loteId: string | null; fabricacao?: string | null; criadaEm: Date },
+  ): Promise<Pick<DadosEtiqueta, 'hora' | 'responsavel' | 'lote' | 'fornecedor'>> {
+    const extras: Pick<DadosEtiqueta, 'hora' | 'responsavel' | 'lote' | 'fornecedor'> = {};
+    // A hora só vale quando a etiqueta nasce NO DIA da manipulação: numa reimpressão de
+    // outro dia (ou com a fabricação informada à mão) ela seria a hora de outra coisa.
+    if (o.fabricacao && dataNoFuso(o.criadaEm) === String(o.fabricacao).slice(0, 10))
+      extras.hora = horaNoFuso(o.criadaEm);
+    try {
+      if (o.atorId) {
+        const [c] = await this.db
+          .select({ nome: colaborador.nome })
+          .from(colaborador)
+          .where(and(eq(colaborador.id, o.atorId), eq(colaborador.tenantId, tenantId)));
+        extras.responsavel = nomeCurto(c?.nome) || null;
+      }
+      if (o.loteId) {
+        const [l] = await this.db
+          .select({ codigo: lote.codigo, fornecedor: fornecedor.nome })
+          .from(lote)
+          .leftJoin(fornecedor, and(eq(fornecedor.id, lote.fornecedorId), eq(fornecedor.tenantId, tenantId)))
+          .where(and(eq(lote.id, o.loteId), eq(lote.tenantId, tenantId)));
+        if (l?.codigo) {
+          extras.lote = l.codigo;
+          extras.fornecedor = l.fornecedor ?? null;
+        }
+      }
+    } catch (e) {
+      this.log.warn(`etiqueta: sem os dados complementares (${(e as Error).message}) — sai sem eles`);
     }
-    const tipo = template?.codigoTipo ?? 'code128';
-    if (tipo === 'qr') linhas.push(`@QR:${d.codigo}`);
-    else if (tipo && tipo !== 'nenhum') linhas.push(`@BARCODE:${tipo}:${d.codigo}`);
-    else linhas.push(d.codigo);
-    return linhas.join('\n');
-  }
-  private brDate(iso?: string) {
-    if (!iso) return '—';
-    const [y, m, dd] = iso.slice(0, 10).split('-');
-    return `${dd}/${m}/${y}`;
+    return extras;
   }
 
   // ===== Lista + lifecycle =====
@@ -586,6 +602,12 @@ export class EtiquetaValidadeService {
       .where(eq(cardapioConfig.tenantId, e.tenantId));
     const cfg = cfgs.find((c) => c.unidadeId === e.unidadeId) ?? cfgs.find((c) => c.unidadeId == null) ?? cfgs[0];
     const nomeLoja = cfg?.nomePublico?.trim() || emp?.nome || 'Regem';
+    const extras = await this.extrasDaEtiqueta(e.tenantId, {
+      atorId: e.criadoPorId ?? null,
+      loteId: e.loteId ?? null,
+      fabricacao: e.fabricacao,
+      criadaEm: e.createdAt ? new Date(e.createdAt) : new Date(),
+    });
     await this.enfileirarImpressao(e.tenantId, e.unidadeId ?? null, undefined, template, {
       loja: nomeLoja,
       descricao: e.descricao,
@@ -595,6 +617,7 @@ export class EtiquetaValidadeService {
       compra: e.compra ?? null,
       validade: e.validade,
       codigo: e.codigo,
+      ...extras,
     });
   }
 

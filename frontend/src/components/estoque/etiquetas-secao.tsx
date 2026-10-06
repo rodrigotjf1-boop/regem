@@ -353,11 +353,33 @@ const CAMPO_EXEMPLO: Record<string, string> = {
   status: 'Status: FECHADO', validade: 'VALIDADE: 13/08/2026', responsavel: 'Resp.: Rodrigo',
 };
 
+// Modelo MODERNO (mig 306): o desenho é fixo — produto, manipulação e validade sempre saem;
+// a data da compra não tem lugar nele; os demais campos só ligam e desligam (sem negrito).
+const MODERNO_SEMPRE = ['produto', 'fabricacao', 'validade'];
+const MODERNO_FORA = ['compra'];
+// Menor que isso o QR não cabe ao lado do texto: o servidor da loja imprime o clássico.
+const MODERNO_MIN = { largura: 40, altura: 25 };
+
 function TemplateEditor({ template, onSaved }: { template: any; onSaved: () => void }) {
   const [campos, setCampos] = useState<any[]>(template.campos ?? []);
   const [tamanho, setTamanho] = useState<string>(template.tamanho ?? '40x40');
   const [codigoTipo, setCodigoTipo] = useState(template.codigoTipo ?? 'code128');
+  const [modelo, setModelo] = useState<'classico' | 'moderno'>(template.modelo === 'moderno' ? 'moderno' : 'classico');
   const [busy, setBusy] = useState(false);
+  const moderno = modelo === 'moderno';
+
+  function trocarModelo(novo: 'classico' | 'moderno') {
+    setModelo(novo);
+    // O moderno foi desenhado com o responsável: ao escolher o modelo ele já vem ligado
+    // (dá para desligar em seguida).
+    if (novo === 'moderno') {
+      setCampos((prev) =>
+        prev.some((c) => c.campo === 'responsavel')
+          ? prev.map((c) => (c.campo === 'responsavel' ? { ...c, visivel: true } : c))
+          : [...prev, { campo: 'responsavel', visivel: true, negrito: false }],
+      );
+    }
+  }
 
   const isCustom = !TAMANHOS.includes(tamanho);
   const [cw, ch] = (/^\d+x\d+$/.test(tamanho) ? tamanho.split('x') : ['40', '40']).map(Number);
@@ -374,7 +396,7 @@ function TemplateEditor({ template, onSaved }: { template: any; onSaved: () => v
   async function salvar() {
     setBusy(true);
     try {
-      await api.salvarEtiquetaTemplate({ campos, tamanho, codigoTipo });
+      await api.salvarEtiquetaTemplate({ campos, tamanho, codigoTipo, modelo });
       toast.success('Modelo salvo.');
       onSaved();
     } catch (err: any) {
@@ -385,8 +407,11 @@ function TemplateEditor({ template, onSaved }: { template: any; onSaved: () => v
   }
 
   // Prévia: caixa proporcional ao tamanho (mm). s = px por mm (limita p/ caber).
-  const s = Math.min(3.4, 250 / Math.max(cw, ch));
+  // O moderno tem letra miúda nos rótulos: a prévia dele pode ser um pouco maior (ainda cabe em 375 px).
+  const s = moderno ? Math.min(4.4, 260 / Math.max(cw, ch)) : Math.min(3.4, 250 / Math.max(cw, ch));
   const visiveis = campos.filter((c) => c.visivel !== false);
+  const pequenaDemais = cw < MODERNO_MIN.largura || ch < MODERNO_MIN.altura;
+  const ligado = (campo: string) => campos.find((c) => c.campo === campo)?.visivel !== false && campos.some((c) => c.campo === campo);
 
   return (
     <Card className="p-4">
@@ -394,6 +419,25 @@ function TemplateEditor({ template, onSaved }: { template: any; onSaved: () => v
         {/* Editor */}
         <div>
           <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="etq-modelo">Modelo</Label>
+              <select
+                id="etq-modelo"
+                className={selectCls}
+                value={modelo}
+                onChange={(e) => trocarModelo(e.target.value === 'moderno' ? 'moderno' : 'classico')}
+              >
+                <option value="classico">Clássico — uma linha por campo</option>
+                <option value="moderno">Moderno — faixa do produto e dia da validade</option>
+              </select>
+              {moderno && (
+                <p className="text-xs text-muted-foreground" role="status">
+                  {pequenaDemais
+                    ? `Papel menor que ${MODERNO_MIN.largura} × ${MODERNO_MIN.altura} mm não comporta o Moderno: a etiqueta sai no Clássico.`
+                    : 'O Moderno sai em etiquetadora ZPL e em bobina. Etiquetadora EPL imprime o Clássico.'}
+                </p>
+              )}
+            </div>
             <div className="space-y-1.5">
               <Label>Tamanho (mm)</Label>
               <select
@@ -414,30 +458,53 @@ function TemplateEditor({ template, onSaved }: { template: any; onSaved: () => v
               )}
             </div>
             <div className="space-y-1.5">
-              <Label>Código</Label>
-              <select className={selectCls} value={codigoTipo} onChange={(e) => setCodigoTipo(e.target.value)}>
-                <option value="code128">Barras (Code128)</option>
-                <option value="ean13">Barras (EAN-13)</option>
-                <option value="qr">Mini-QR</option>
-                <option value="nenhum">Sem código</option>
-              </select>
+              <Label htmlFor="etq-codigo">Código</Label>
+              {moderno ? (
+                // No moderno as barras não cabem ao lado do texto: é QR ou nada. O tipo de
+                // barras escolhido antes fica guardado para quando voltar ao clássico.
+                <select
+                  id="etq-codigo"
+                  className={selectCls}
+                  value={codigoTipo === 'nenhum' ? 'nenhum' : 'qr'}
+                  onChange={(e) => setCodigoTipo(e.target.value)}
+                >
+                  <option value="qr">QR</option>
+                  <option value="nenhum">Sem código</option>
+                </select>
+              ) : (
+                <select id="etq-codigo" className={selectCls} value={codigoTipo} onChange={(e) => setCodigoTipo(e.target.value)}>
+                  <option value="code128">Barras (Code128)</option>
+                  <option value="ean13">Barras (EAN-13)</option>
+                  <option value="qr">Mini-QR</option>
+                  <option value="nenhum">Sem código</option>
+                </select>
+              )}
+              {moderno && <p className="text-xs text-muted-foreground">Leitor só de barras? Use o Clássico.</p>}
             </div>
           </div>
           <p className="mt-4 mb-2 text-sm font-medium">Campos da etiqueta</p>
           <div className="space-y-1.5">
             {campos.map((c, i) => (
-              <div key={c.campo} className="flex items-center justify-between gap-2 rounded border border-border px-3 py-2 text-sm">
+              <div key={c.campo} className="flex flex-wrap items-center justify-between gap-2 rounded border border-border px-3 py-2 text-sm">
                 <span>{CAMPO_LABEL[c.campo] ?? c.campo}</span>
-                <span className="flex gap-3 text-xs">
-                  <label className="flex items-center gap-1.5">
-                    <input type="checkbox" checked={c.visivel !== false} onChange={() => toggle(i, 'visivel')} className="h-4 w-4 accent-primary" />
-                    visível
-                  </label>
-                  <label className="flex items-center gap-1.5">
-                    <input type="checkbox" checked={!!c.negrito} onChange={() => toggle(i, 'negrito')} className="h-4 w-4 accent-primary" />
-                    negrito
-                  </label>
-                </span>
+                {moderno && MODERNO_SEMPRE.includes(c.campo) ? (
+                  <span className="text-xs text-muted-foreground">sempre sai</span>
+                ) : moderno && MODERNO_FORA.includes(c.campo) ? (
+                  <span className="text-xs text-muted-foreground">não sai neste modelo</span>
+                ) : (
+                  <span className="flex gap-3 text-xs">
+                    <label className="flex items-center gap-1.5">
+                      <input type="checkbox" checked={c.visivel !== false} onChange={() => toggle(i, 'visivel')} className="h-4 w-4 accent-primary" />
+                      visível
+                    </label>
+                    {!moderno && (
+                      <label className="flex items-center gap-1.5">
+                        <input type="checkbox" checked={!!c.negrito} onChange={() => toggle(i, 'negrito')} className="h-4 w-4 accent-primary" />
+                        negrito
+                      </label>
+                    )}
+                  </span>
+                )}
               </div>
             ))}
           </div>
@@ -448,6 +515,18 @@ function TemplateEditor({ template, onSaved }: { template: any; onSaved: () => v
         <div className="space-y-1.5">
           <Label>Prévia — {cw} × {ch} mm</Label>
           <div className="flex justify-center rounded-lg border border-dashed border-border bg-secondary/30 p-4">
+            {moderno && !pequenaDemais ? (
+              <PreviaModerna
+                largura={cw}
+                altura={ch}
+                s={s}
+                comCodigo={codigoTipo !== 'nenhum'}
+                loja={ligado('loja')}
+                unidade={ligado('unidade')}
+                status={ligado('status')}
+                responsavel={ligado('responsavel')}
+              />
+            ) : (
             <div
               className="flex flex-col overflow-hidden bg-white text-black shadow-sm"
               style={{ width: cw * s, height: ch * s, padding: Math.max(3, 4 * (s / 3)), fontSize: Math.max(7, 3.2 * s), lineHeight: 1.15 }}
@@ -468,10 +547,70 @@ function TemplateEditor({ template, onSaved }: { template: any; onSaved: () => v
                 </div>
               )}
             </div>
+            )}
           </div>
           <p className="text-[11px] text-muted-foreground">Prévia aproximada. O <b>nome da loja</b> real vem de Configurações → Loja (“Nome do estabelecimento”).</p>
         </div>
       </div>
     </Card>
+  );
+}
+
+// Prévia do modelo MODERNO: mesma ordem e mesmas regras de altura do servidor da loja
+// (`backend/edge/escpos.mjs` → `zplModerno`): rodapé só na etiqueta alta (≥ 37,5 mm), rótulo
+// VALIDADE só a partir de 29 mm. Valores fixos de exemplo (13/08/2026 é uma quinta) — nada
+// de relógio no desenho, a página é pré-renderizada.
+function PreviaModerna(p: {
+  largura: number; altura: number; s: number; comCodigo: boolean;
+  loja: boolean; unidade: boolean; status: boolean; responsavel: boolean;
+}) {
+  const alta = p.altura >= 37.5;
+  const media = p.altura >= 29;
+  // A etiqueta maior que 60 × 40 é o mesmo desenho ampliado: a letra acompanha.
+  const fonte = Math.max(5, p.s * 2.6 * Math.min(2, Math.max(1, Math.min(p.largura / 60, p.altura / 40))));
+  const preto = { background: '#000', color: '#fff' } as const;
+  const pad = `${0.25}em ${0.55}em`;
+  return (
+    <div
+      className="flex flex-col overflow-hidden bg-white text-black shadow-sm"
+      style={{ width: p.largura * p.s, height: p.altura * p.s, padding: p.s, fontSize: fonte, lineHeight: 1.12, fontWeight: 700 }}
+      role="img"
+      aria-label="Prévia do modelo moderno: produto numa faixa preta, manipulação e responsável à esquerda, QR à direita e a validade com o dia da semana"
+    >
+      <div style={{ ...preto, padding: pad, fontSize: alta ? '1.75em' : media ? '1.4em' : '1.15em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>TOMATE</div>
+      <div className="flex min-h-0 flex-1 justify-between gap-1" style={{ padding: '0.35em 0.2em 0' }}>
+        <div className="min-w-0">
+          {alta && <div style={{ fontSize: '0.72em' }}>MANIPULADO</div>}
+          <div style={{ fontSize: alta ? '1.12em' : '0.9em', whiteSpace: 'nowrap' }}>11/08/2026 09:30</div>
+          {p.responsavel && <div style={{ fontSize: alta ? '1.02em' : '0.9em', whiteSpace: 'nowrap' }}><span style={{ fontSize: '0.72em' }}>RESP.</span> Rodrigo O.</div>}
+          {!media && p.status && <div style={{ fontSize: '0.9em' }}>FECHADO</div>}
+          {p.unidade && <div style={{ fontSize: '0.88em', whiteSpace: 'nowrap' }}>UNID. kg</div>}
+        </div>
+        {p.comCodigo && (
+          <div className="shrink-0 text-center">
+            <div style={{ width: (alta ? 10.5 : 8) * p.s, height: (alta ? 10.5 : 8) * p.s, background: 'conic-gradient(#000 25%, #fff 0 50%, #000 0 75%, #fff 0)', backgroundSize: '3px 3px' }} />
+            {alta && <div style={{ fontSize: '0.6em' }}>123456789012</div>}
+          </div>
+        )}
+      </div>
+      <div style={{ borderTop: '1px solid #000', margin: '0 0.2em', paddingTop: '0.15em' }}>
+        {media && (
+          <div className="flex justify-between" style={{ fontSize: '0.72em' }}>
+            <span>VALIDADE</span>
+            {!alta && p.status && <span>FECHADO</span>}
+          </div>
+        )}
+        <div className="flex items-center" style={{ gap: '0.45em' }}>
+          <span style={{ ...preto, padding: '0.05em 0.4em', fontSize: alta ? '1.85em' : '1.5em' }}>QUI</span>
+          <span style={{ fontSize: alta ? '2.5em' : '2em', whiteSpace: 'nowrap' }}>13/08/2026</span>
+        </div>
+      </div>
+      {alta && (p.status || p.loja) && (
+        <div className="flex items-center" style={{ gap: '0.45em', margin: '0.2em 0.2em 0', fontSize: '0.8em' }}>
+          {p.status && <span style={{ ...preto, padding: '0.1em 0.55em' }}>FECHADO</span>}
+          {p.loja && <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Minha Loja</span>}
+        </div>
+      )}
+    </div>
   );
 }

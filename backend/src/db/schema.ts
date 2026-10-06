@@ -3554,6 +3554,7 @@ export const etiquetaTemplate = pgTable('etiqueta_template', {
   campos: jsonb('campos').notNull().default('[]'),
   tamanho: text('tamanho').notNull().default('40x40'), // 40x40 | 60x40 | 40x25 (mm)
   codigoTipo: text('codigo_tipo').notNull().default('code128'), // nenhum | ean13 | code128 | qr
+  modelo: text('modelo').notNull().default('classico'), // classico | moderno (mig 306)
   padrao: boolean('padrao').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

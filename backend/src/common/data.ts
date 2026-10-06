@@ -39,5 +39,10 @@ export function somarDias(iso: string, dias: number): string {
 
 /** Hora atual (HH:MM) no fuso da operação. */
 export function horaAgora(): string {
-  return new Date().toLocaleTimeString('en-GB', { timeZone: FUSO, hour12: false }).slice(0, 5);
+  return horaNoFuso(new Date());
+}
+
+/** Hora (HH:MM) de um instante qualquer, no fuso da operação. */
+export function horaNoFuso(d: Date): string {
+  return d.toLocaleTimeString('en-GB', { timeZone: FUSO, hour12: false }).slice(0, 5);
 }
