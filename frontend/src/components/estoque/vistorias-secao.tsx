@@ -13,7 +13,7 @@ import { Dialogo, Gaveta } from '@/components/ui/sobreposto';
 import {
   FiltroBusca, FiltroSelect, Filtros, ListaDados, NomeComApoio, PERIODOS, PERIODO_PADRAO, Selo, Situacoes, TituloLista, Vazio,
   consultaDoPeriodo, dataBr, distintos, hojeIso, semAcento, texto2, type Situacao,
-} from './lista';
+} from '@/components/ui/lista';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const TIPOS = [

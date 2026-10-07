@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
+import { Dialogo } from '@/components/ui/sobreposto';
 
 // Confirmação de revogar um aplicativo (numa loja ou em todas). O foco abre no "Manter" (a ação
-// segura), o Esc fecha, e quem chamou devolve o foco ao botão que abriu.
+// segura), o Tab fica preso no diálogo, o Esc fecha e o foco volta ao botão que abriu — ou ao
+// elemento `voltarPara`, quando a linha (e o botão) saiu da lista.
 export function DialogoRevogar({
   app,
   leitura = 'os dados',
@@ -12,6 +13,7 @@ export function DialogoRevogar({
   revogando,
   aoManter,
   aoRevogar,
+  voltarPara,
 }: {
   app: string;
   /** O que o aplicativo lê, como a frase diz ("os pedidos", "os dados"). */
@@ -21,45 +23,29 @@ export function DialogoRevogar({
   revogando: boolean;
   aoManter: () => void;
   aoRevogar: () => void;
+  voltarPara?: string;
 }) {
-  const manter = useRef<HTMLButtonElement>(null);
-  const fechar = useRef(aoManter);
-  fechar.current = aoManter;
-  useEffect(() => {
-    manter.current?.focus();
-    const esc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') fechar.current();
-    };
-    window.addEventListener('keydown', esc);
-    return () => window.removeEventListener('keydown', esc);
-  }, []);
-
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" onClick={aoManter}>
-      <div
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="revogar-titulo"
-        aria-describedby="revogar-texto"
-        className="w-full max-w-md space-y-3 rounded-xl bg-card p-5 text-foreground shadow-lg"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 id="revogar-titulo" className="font-display text-lg font-extrabold">
-          {loja ? `Revogar o ${app} na ${loja}?` : `Revogar o ${app} em todas as lojas?`}
-        </h2>
-        <p id="revogar-texto" className="text-sm text-secondary-foreground">
-          O {app} para de ler {leitura} {loja ? 'desta loja' : 'de todas as lojas'} agora. O que ele já leu segue o prazo de
-          guarda de lá. Para voltar, é preciso autorizar de novo pelo {app}.
-        </p>
-        <div className="flex flex-wrap justify-end gap-2 pt-1">
-          <Button ref={manter} type="button" variant="outline" onClick={aoManter} disabled={revogando}>
+    <Dialogo
+      alerta
+      titulo={loja ? `Revogar o ${app} na ${loja}?` : `Revogar o ${app} em todas as lojas?`}
+      aoFechar={aoManter}
+      voltarPara={voltarPara}
+      rodape={
+        <>
+          <Button type="button" variant="outline" data-foco-inicial onClick={aoManter} disabled={revogando}>
             Manter
           </Button>
           <Button type="button" variant="destructive" onClick={aoRevogar} disabled={revogando}>
             {revogando ? 'Revogando…' : 'Revogar'}
           </Button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      <p className="text-sm text-secondary-foreground">
+        O {app} para de ler {leitura} {loja ? 'desta loja' : 'de todas as lojas'} agora. O que ele já leu segue o prazo de
+        guarda de lá. Para voltar, é preciso autorizar de novo pelo {app}.
+      </p>
+    </Dialogo>
   );
 }

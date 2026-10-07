@@ -11,7 +11,7 @@ import { RecebimentoForm } from '@/components/recebimento/recebimento-form';
 import {
   FiltroBusca, FiltroSelect, Filtros, ListaDados, NomeComApoio, PERIODOS, PERIODO_PADRAO, Selo, Situacoes, TituloLista, Vazio,
   consultaDoPeriodo, dataBr, distintos, num, semAcento, texto2, type Situacao,
-} from './lista';
+} from '@/components/ui/lista';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const conferido = (r: any) => r.status === 'conferido';

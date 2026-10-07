@@ -84,6 +84,9 @@
 - **Ficha técnica excluída não baixa estoque; ingrediente removido não esgota o produto — sem migration — MUDA O SERVIDOR DA LOJA; entra no próximo `.zip` (não toca `backend/edge/` nem o sync).** A venda e a produção deixam de consumir os insumos de uma ficha excluída (também quando ela é sub-receita de outra), e o cardápio deixa de marcar "Esgotado" por insumo de ficha excluída ou por ingrediente que já saiu da receita.
   ⚠️ **Servidor da loja ainda na 1.30.x:** até o `.zip`, a venda feita NA LOJA continua baixando os insumos da ficha excluída (a exclusão desce pelo sync, mas quem decide a baixa é o código do servidor da loja).
   ⚠️ **Ordem de deploy:** nenhuma migration.
+- **Configurações no modelo novo — entrega 1: Unidades, Alertas do KDS, Aplicativos conectados e Planos — sem migration, SÓ TELA (o servidor não mudou) — entra no próximo `.zip` (não toca `backend/edge/` nem o sync).** As quatro telas ganharam o título com a contagem, as situações com quantidade, busca e filtros; criar e editar abrem na gaveta e as perguntas saíram da janela do navegador para diálogos. Alerta do KDS liga e desliga na linha, e "Testar" pede confirmação. "Ordens de produção" saiu do menu Configurações (continua em Tarefas → Pedidos de produção).
+  ⚠️ **Servidor da loja ainda na 1.30.x:** a loja continua com as telas antigas até o `.zip`. Aplicativos conectados e Planos só existem na nuvem.
+  ⚠️ **Ordem de deploy:** nenhuma migration.
 
 ## Última release: `1.30.2` — gerada em 30/09/2026 da `origin/main` `3e81449`, **.exe COMPILADO** e publicado (`instaladores/RegemEdgeSetup.exe`, 92.720.473 bytes, SHA-256 `91fdd1fd8b6b442c820222512f3d2ac0ae3f2e9ddad9e4ad84a03e7091ae90ad`, download público conferido); sem `.zip`
 

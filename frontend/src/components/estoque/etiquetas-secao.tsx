@@ -13,7 +13,7 @@ import { Dialogo, Gaveta } from '@/components/ui/sobreposto';
 import {
   FiltroBusca, Filtros, ListaDados, NomeComApoio, Selo, Situacoes, TituloLista, Vazio,
   dataBr, hojeIso, semAcento, texto2, type Situacao,
-} from './lista';
+} from '@/components/ui/lista';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const selectCls = 'flex h-11 w-full rounded-md border border-input bg-card px-3 text-sm';

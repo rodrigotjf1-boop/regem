@@ -14,7 +14,7 @@ import { EscolhaProdutos, type Escolha } from './escolha-produtos';
 import {
   FiltroBusca, FiltroSelect, Filtros, ListaDados, NomeComApoio, Selo, Situacoes, TituloLista, Vazio,
   dataBr, diasAte, distintos, num, semAcento, texto2, type Situacao,
-} from './lista';
+} from '@/components/ui/lista';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const DIAS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];

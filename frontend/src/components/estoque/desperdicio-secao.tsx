@@ -14,7 +14,7 @@ import { Dialogo, Gaveta } from '@/components/ui/sobreposto';
 import {
   FiltroBusca, FiltroSelect, Filtros, ListaDados, NomeComApoio, PERIODOS, PERIODO_PADRAO, Situacoes, TituloLista, Vazio,
   brl, consultaDoPeriodo, dataBr, distintos, hojeIso, num, semAcento, texto2, type Situacao,
-} from './lista';
+} from '@/components/ui/lista';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const perdaDe = (d: any) => (d.custoUnitario != null && d.quantidade != null ? Number(d.custoUnitario) * Number(d.quantidade) : 0);

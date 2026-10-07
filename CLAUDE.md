@@ -33,6 +33,7 @@ SaaS de gestão operacional com hierarquia completa do proprietário à ponta. R
 | `mockups/regem-etiqueta-validade.html` | Etiqueta de validade impressa, **modelo moderno** (faixa do produto, dia da semana da validade, QR ao lado), em vários tamanhos de papel, com as regras do que sai |
 | `mockups/regem-estoque-produtos.html` | **Estoque › Produtos** (o cadastro do estoque): lista com busca e filtros, criar/editar em **gaveta lateral**, movimentar e excluir em diálogo, importar (assistente de 3 passos) e exportar por planilha |
 | `mockups/regem-estoque-abas.html` | **Estoque — as 8 abas depois de Produtos** (Fichas técnicas, Contagem, Compras, Recebimento, Validades, Etiquetas, Desperdício, Vistorias): título com a contagem da lista, situações com quantidade que filtram, busca e filtros, ações na linha, criar/editar em gaveta |
+| `mockups/regem-configuracoes.html` | **Configurações — as 12 telas do menu e Pedidos de produção (Tarefas)**: as telas de lista no modelo do Estoque (contagem, situações, busca e filtros, ações na linha, gaveta) e o modelo de **ajustes** (grupos contados, "buscar ajuste", barra de "N alterações ainda não salvas") |
 
 ## Identidade Regem (⚠️ difere do mockup Omera)
 

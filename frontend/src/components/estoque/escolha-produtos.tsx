@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
-import { distintos, num, semAcento, texto2 } from './lista';
+import { distintos, num, semAcento, texto2 } from '@/components/ui/lista';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /** Um produto marcado. Em Compras leva a quantidade e o custo; em Contagem, fica vazio. */
