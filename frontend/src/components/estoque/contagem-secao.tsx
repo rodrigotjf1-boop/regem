@@ -152,7 +152,7 @@ export function ContagemSecao({ itens }: { itens: any[] }) {
           <div className="space-y-1.5">
             <Label>Produtos a contar ({sel.length})</Label>
             <div className="max-h-40 overflow-y-auto rounded-md border border-border p-2">
-              {itens.length === 0 && <p className="text-xs text-muted-foreground">Cadastre insumos primeiro.</p>}
+              {itens.length === 0 && <p className="text-xs text-muted-foreground">Cadastre produtos primeiro.</p>}
               <div className="flex flex-wrap gap-1.5">
                 {itens.map((i) => {
                   const on = sel.includes(i.id);

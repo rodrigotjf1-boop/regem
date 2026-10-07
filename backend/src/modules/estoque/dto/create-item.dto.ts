@@ -61,6 +61,13 @@ export class CreateItemDto {
   @IsUUID()
   setorId?: string;
 
+  // Setores onde o produto fica guardado (mig 307). Quando enviado, substitui a lista; o 1º
+  // vira o principal (`setor_id`), os demais vão para `setores_extras`.
+  @IsOptional()
+  @IsArray()
+  @IsUUID(undefined, { each: true })
+  setorIds?: string[];
+
   // Data de validade opcional (ISO yyyy-mm-dd do seletor nativo).
   @IsOptional()
   @IsString()

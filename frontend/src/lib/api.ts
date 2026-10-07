@@ -546,7 +546,12 @@ async function uploadFile(path: string, file: File, campos?: Record<string, stri
     res = await fetch(`${apiBase()}${path}`, {
       method: 'POST',
       credentials: ehEdge() ? 'same-origin' : 'include',
-      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        // A loja em uso vai junto, como no `req`: a prévia de importação de produtos compara o
+        // arquivo com o cadastro que a pessoa enxerga (o da loja + o compartilhado).
+        ...(getUnidadeAtual() ? { 'X-Unidade-Id': getUnidadeAtual() as string } : {}),
+      },
       body: form,
     });
   } catch {
@@ -784,6 +789,22 @@ export const api = {
   estoqueItens: () => req('/estoque/itens'),
   atualizarItem: (id: string, body: Record<string, unknown>) =>
     req(`/estoque/itens/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  // Produtos do estoque: lista fechada de unidades, exclusão (com o exame antes) e planilha.
+  estoqueUnidades: () => req('/estoque/unidades-medida') as Promise<{ unidades: string[] }>,
+  exclusaoDoItem: (id: string) =>
+    req(`/estoque/itens/${id}/exclusao`) as Promise<{ id: string; nome: string; pode: boolean; motivos: string[]; comoResolver: string[] }>,
+  excluirItem: (id: string) => req(`/estoque/itens/${id}`, { method: 'DELETE' }),
+  importarProdutosPrevia: (file: File) =>
+    uploadFile('/estoque/itens/importar/previa', file) as unknown as Promise<any>,
+  importarProdutos: (body: Record<string, unknown>) =>
+    req('/estoque/itens/importar', { method: 'POST', body: JSON.stringify(body) }),
+  exportarProdutos: (formato: 'xlsx' | 'csv', ids?: string[]) =>
+    req('/estoque/itens/exportar', { method: 'POST', body: JSON.stringify({ formato, ids }) }) as Promise<{
+      filename: string;
+      mime: string;
+      base64: string;
+      produtos: number;
+    }>,
   estoqueCategorias: () => req('/estoque/categorias-item'),
   criarEstoqueCategoria: (body: Record<string, unknown>) =>
     req('/estoque/categorias-item', { method: 'POST', body: JSON.stringify(body) }),

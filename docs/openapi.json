@@ -2050,6 +2050,17 @@
         }
       }
     },
+    "/api/v1/estoque/unidades-medida": {
+      "get": {
+        "operationId": "EstoqueController_listUnidades",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/estoque/itens": {
       "post": {
         "operationId": "EstoqueController_createItem",
@@ -2112,6 +2123,77 @@
         },
         "responses": {
           "200": {
+            "description": ""
+          }
+        }
+      },
+      "delete": {
+        "operationId": "EstoqueController_removerItem",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/estoque/itens/{id}/exclusao": {
+      "get": {
+        "operationId": "EstoqueController_exclusaoDoItem",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/estoque/itens/importar/previa": {
+      "post": {
+        "operationId": "EstoqueController_importarPrevia",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/estoque/itens/importar": {
+      "post": {
+        "operationId": "EstoqueController_importar",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/estoque/itens/exportar": {
+      "post": {
+        "operationId": "EstoqueController_exportar",
+        "parameters": [],
+        "responses": {
+          "201": {
             "description": ""
           }
         }
@@ -2180,7 +2262,14 @@
         },
         "responses": {
           "201": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       },
@@ -17139,6 +17228,12 @@
           "setorId": {
             "type": "string"
           },
+          "setorIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "validade": {
             "type": "string"
           },
@@ -17173,6 +17268,10 @@
           "quantidade": {
             "type": "number"
           },
+          "saldoContado": {
+            "type": "number",
+            "minimum": 0
+          },
           "motivo": {
             "type": "string"
           },
@@ -17182,8 +17281,7 @@
         },
         "required": [
           "itemId",
-          "tipo",
-          "quantidade"
+          "tipo"
         ]
       },
       "CreateTipoOcorrenciaDto": {

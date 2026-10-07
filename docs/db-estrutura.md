@@ -113,7 +113,7 @@
 - **impressao_job** — id, tenant_id, unidade_id, equipamento_id, pedido_id, via, conteudo, status, tentativas, erro, criado_em, impresso_em
 - **integracao** — id, tenant_id, unidade_id, canal, ativo, merchant_id, client_id, client_secret, token, config, updated_at, created_at
 - **item_conversao** — id, tenant_id, item_id, unidade_de, fator, unidade_para, created_at
-- **item_estoque** — id, tenant_id, unidade_id, nome, unidade_medida, estoque_minimo, categoria, created_at, updated_at, deleted_at, custo_medio, dias_seguranca, classe_abc, fornecedor_id, categoria_item_id, validade
+- **item_estoque** — id, tenant_id, unidade_id, nome, unidade_medida, estoque_minimo, categoria, created_at, updated_at, deleted_at, custo_medio, dias_seguranca, classe_abc, fornecedor_id, categoria_item_id, validade, setor_id, validade_aberto_dias, setores_extras
 - **janela_pico** — id, tenant_id, unidade_id, setor_id, dia_semana, hora_inicio, hora_fim, intensidade, created_at, updated_at, deleted_at, nome, dia_semana_fim
 - **kds_alerta_config** — id, tenant_id, unidade_id, titulo, detalhe, prioridade, tipo, horarios, dias_semana, condicao, duracao_seg, ativo, criado_por, created_at, updated_at
 - **kds_cor_config** — id, tenant_id, unidade_id, verde_ate_min, amarelo_ate_min, created_at, updated_at, usa_preparo, usa_entregue
