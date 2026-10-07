@@ -688,7 +688,7 @@ TELAS.equipamentos = {
         if (k === 'config') return formEquip(r);
         if (k === 'codigo') return dialogoCodigo(r);
         confirmarRetirar(r, { titulo: 'Revogar equipamento', verbo: 'Revogar', depois: 'Equipamento revogado.', fazer: () => { r.sit = 'revogado'; r.visto = 'agora'; },
-          consequencia: r.gogem ? '<b>Esta é a credencial do totem (GoGeM): a venda pelo totem para.</b> Revogar não tem volta por esta tela.' : 'Revogar não tem volta por esta tela. <i>O texto final deste aviso eu escrevo lendo o servidor, na implementação.</i>' });
+          consequencia: (r.gogem ? '<b>Esta é a credencial do totem (GoGeM): a venda pelo totem para.</b> ' : '') + (r.tipo === TIPOS_EQ[4] ? 'A impressora fica inativa e deixa de receber impressões; o que estava direcionado a ela segue os outros destinos ou o padrão do setor. Dá para reativar em Configurações → Impressoras e cupons.' : 'O aparelho perde o acesso na hora: o token deixa de valer e o pareamento é desfeito. Não dá para reativar por esta tela — para voltar a usar, cadastre o equipamento de novo.') });
       },
     },
     { nome: 'Fila de impressão', tipo: 'lista', titulo: 'Fila de impressão', um: 'impressão', varios: 'impressões', buscar: 'Impressora ou via', botoes: [['↻ Atualizar', () => avisar('Fila atualizada.')]],
@@ -740,7 +740,7 @@ function formEquip(r) {
   painel({ tipo: 'gaveta', titulo: r ? `Configurar ${r.nome}` : 'Novo equipamento',
     rodape: r ? rodapeSalvar('Salvar alterações', 'Equipamento atualizado.') : `<button class="bt" data-fechar>Cancelar</button><button class="bt pri" id="bCad">Cadastrar equipamento</button>`,
     corpo: campo('Tipo', `<select id="tipoEq"${r ? ' disabled' : ''}>${TIPOS_EQ.map((t) => `<option${t === tipo ? ' selected' : ''}>${t}</option>`).join('')}</select>`.replace('<select id="tipoEq"', '<select data-tipo-eq'), r ? 'O tipo não muda depois do cadastro.' : '')
-      + campo('Nome', `<input value="${r ? esc(r.nome) : ''}" placeholder="Ex.: Terminal do balcão">`) + campo('Unidade', sel(['— sem unidade —', ...UNID], r ? r.un : 'Matriz Centro'))
+      + campo('Nome', `<input value="${r ? esc(r.nome) : ''}" placeholder="Ex.: Terminal do balcão">`) + campo('Unidade', sel(['— sem unidade —', ...UNID], r ? r.un : 'Matriz Centro').replace('<select', r ? '<select disabled' : '<select'), r ? 'A unidade não muda depois do cadastro.' : '')
       + `<div id="extraEq" style="display:grid;gap:14px">${camposEquip(tipo, r)}</div>` });
   aberto.addEventListener('change', (ev) => { if (ev.target.matches('[data-tipo-eq]')) $('#extraEq').innerHTML = camposEquip(ev.target.value, null); });
   const b = $('#bCad'); if (b) b.onclick = () => painel({ titulo: 'Token do equipamento', alerta: true, foco: 'footer button',
@@ -980,7 +980,7 @@ const pessoa = (nome, email, perfil, app, nuvem, ativo) => ({ nome, email, perfi
 const SUP = { bloqueado: false, total: false };
 TELAS.acessos = {
   menu: 'Acessos & perfis',
-  hoje: ['Hoje a tela é uma página longa: suporte, um cartão comprido por perfil (65 chaves cada) e a lista de pessoas. Vira três partes — Perfis, Pessoas e Suporte — cada uma com contagem.', 'Perfis em lista: nível, se entra pelo sistema, quantas permissões ligadas e <b>quantas pessoas usam</b>. As permissões abrem na gaveta, com busca, grupos contados e aviso de alteração não salva (hoje não avisa).', 'Pessoas com busca por nome ou e-mail, filtro por perfil e situações (ativas, bloqueadas, sem e-mail, com acesso pela internet).', 'Bloquear uma pessoa passa a pedir confirmação — hoje a chave grava na hora.', 'Remover perfil e dar acesso total ao suporte saem da janela do navegador para o diálogo, com o texto inteiro.', 'Aparece "carregando" (hoje a lista mostra "Nenhum colaborador." enquanto carrega).'],
+  hoje: ['<b>O banco guarda um perfil por nível</b> (Gerência / ADM, Supervisão, Execução): na tela de verdade, “Novo perfil” só aparece quando um nível está sem perfil. Os vários perfis de Execução deste protótipo dependem de uma decisão do dono (pede migration).', 'Hoje a tela é uma página longa: suporte, um cartão comprido por perfil (65 chaves cada) e a lista de pessoas. Vira três partes — Perfis, Pessoas e Suporte — cada uma com contagem.', 'Perfis em lista: nível, se entra pelo sistema, quantas permissões ligadas e <b>quantas pessoas usam</b>. As permissões abrem na gaveta, com busca, grupos contados e aviso de alteração não salva (hoje não avisa).', 'Pessoas com busca por nome ou e-mail, filtro por perfil e situações (ativas, bloqueadas, sem e-mail, com acesso pela internet).', 'Bloquear uma pessoa passa a pedir confirmação — hoje a chave grava na hora.', 'Remover perfil e dar acesso total ao suporte saem da janela do navegador para o diálogo, com o texto inteiro.', 'Aparece "carregando" (hoje a lista mostra "Nenhum colaborador." enquanto carrega).'],
   secoes: [
     { nome: 'Perfis', tipo: 'lista', titulo: 'Perfis de acesso', um: 'perfil', varios: 'perfis', novo: '＋ Novo perfil', buscar: 'Nome do perfil',
       dados: PERFIS,
@@ -996,7 +996,7 @@ TELAS.acessos = {
       aoNovo() { painel({ tipo: 'gaveta', titulo: 'Novo perfil', rodape: rodapeSalvar('Adicionar perfil', 'Perfil criado.'), corpo: campo('Nome do novo perfil', '<input placeholder="Ex.: Caixa, Cozinheiro, Atendente">') + campo('Nível (hierarquia)', sel(['Gerência / ADM', 'Supervisão', 'Execução'], 'Execução')) }); },
       aoAcao(k, r) {
         if (k === 'perm') return gavetaPermissoes(r);
-        confirmarRetirar(r, { consequencia: `${r.pessoas ? `<b>${plural(r.pessoas, 'pessoa usa', 'pessoas usam')} este perfil.</b> ` : ''}<i>O texto final deste aviso (o que acontece com quem está no perfil) eu escrevo lendo o servidor, na implementação.</i>`, depois: 'Perfil removido.' });
+        confirmarRetirar(r, { consequencia: `${r.pessoas ? `<b>${plural(r.pessoas, 'pessoa usa', 'pessoas usam')} este perfil.</b> ` : ''}${r.pessoas ? 'O servidor não remove perfil em uso: troque o perfil delas na parte “Pessoas” e volte aqui.' : 'O perfil é apagado e o nível fica sem perfil até você criar outro. Não dá para desfazer.'}`, depois: 'Perfil removido.' });
       },
     },
     { nome: 'Pessoas', tipo: 'lista', titulo: 'Colaboradores & acesso', um: 'pessoa', varios: 'pessoas', buscar: 'Nome ou e-mail',

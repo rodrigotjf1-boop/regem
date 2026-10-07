@@ -31,6 +31,7 @@ export default function AcessosPage() {
   const [pessoas, setPessoas] = useState<any[] | null>(null);
   const [erroPessoas, setErroPessoas] = useState('');
   const [soDaLojaEmUso, setSoDaLojaEmUso] = useState(false);
+  const [nivelDaFuncao, setNivelDaFuncao] = useState<Record<string, string>>({});
 
   const lerPerfis = useCallback(async () => {
     setErroPerfis('');
@@ -66,6 +67,9 @@ export default function AcessosPage() {
     setSoDaLojaEmUso(!!getUnidadeAtual());
     void lerPerfis();
     void lerPessoas();
+    // O nível de quem ainda não tem perfil vem da função. Sem esta lista a tela segue de pé:
+    // o servidor recusa mexer no presidente de qualquer jeito.
+    api.get('/funcoes').then((fs: any) => setNivelDaFuncao(Object.fromEntries((Array.isArray(fs) ? fs : []).map((f: any) => [f.id, f.categoria])))).catch(() => {});
   }, [lerPerfis, lerPessoas, router]);
 
   const falhou = (titulo: string, msg: string, tentar: () => void) => (
@@ -109,7 +113,7 @@ export default function AcessosPage() {
           ) : !pessoas || !perfis ? (
             <SkeletonList rows={6} />
           ) : (
-            <PessoasParte pessoas={pessoas} perfis={perfis} soDaLojaEmUso={soDaLojaEmUso} recarregar={lerPessoas} />
+            <PessoasParte pessoas={pessoas} perfis={perfis} nivelDaFuncao={nivelDaFuncao} soDaLojaEmUso={soDaLojaEmUso} recarregar={lerPessoas} />
           ))}
 
         {parte === 'suporte' && <SuporteParte />}

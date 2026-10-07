@@ -22,11 +22,13 @@ const bloqueada = (c: any) => c.status === 'bloqueado';
 // colaborador, o app, o acesso pela internet e o bloqueio. O acesso muda na gaveta (grava só o que
 // mudou); bloquear pede confirmação. O presidente/C&O é fixo: o servidor não deixa mexer nele por aqui.
 export function PessoasParte({
-  pessoas, perfis, soDaLojaEmUso, recarregar,
+  pessoas, perfis, nivelDaFuncao, soDaLojaEmUso, recarregar,
 }: {
   pessoas: any[];
   /** Todos os perfis da empresa, inclusive o do presidente (para reconhecer quem é C&O). */
   perfis: any[];
+  /** id da função → nível dela: é o nível de quem ainda não tem perfil (mesma regra do servidor). */
+  nivelDaFuncao: Record<string, string>;
   soDaLojaEmUso: boolean;
   recarregar: () => Promise<void>;
 }) {
@@ -38,7 +40,8 @@ export function PessoasParte({
   const [gravando, setGravando] = useState<string | null>(null);
 
   const perfilDoId = (id: string | null) => perfis.find((p) => p.id === id);
-  const ehPresidente = (c: any) => perfilDoId(c.perfilAcessoId)?.nivel === 'presidente';
+  // O nível do perfil manda; sem perfil, vale o da função.
+  const ehPresidente = (c: any) => (perfilDoId(c.perfilAcessoId)?.nivel ?? nivelDaFuncao[c.funcaoId]) === 'presidente';
   const perfilDe = (c: any) => (ehPresidente(c) ? PRESIDENTE : perfilDoId(c.perfilAcessoId)?.nome ?? 'Sem perfil');
   // O presidente/C&O entra pela internet sempre.
   const naInternet = (c: any) => ehPresidente(c) || !!c.podeNuvem;
