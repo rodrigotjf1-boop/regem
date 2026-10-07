@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { createHmac, randomBytes } from 'crypto';
-import { and, desc, eq, gte, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, ilike, inArray, isNotNull, isNull, notInArray, or, sql } from 'drizzle-orm';
 import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { PREFIXO_BALCAO } from '../../common/senha-origem';
@@ -35,6 +35,7 @@ import {
   cliente,
   clienteEndereco,
   colaborador,
+  comanda,
   comandaItem,
   cupomUso,
   deliveryConfig,
@@ -437,8 +438,21 @@ export class DeliveryService {
     const [upd] = await this.db
       .update(pedidoExterno)
       .set(patch)
-      .where(eq(pedidoExterno.id, row.id))
+      .where(
+        novoStatus === 'cancelado'
+          ? // Um só cancela: se o painel concluiu ou cancelou no meio do caminho, ou o mesmo
+            // evento chegou duas vezes, esta gravação não acha o pedido e nada se desfaz em dobro.
+            and(eq(pedidoExterno.id, row.id), notInArray(pedidoExterno.status, ['cancelado', 'concluido']))
+          : eq(pedidoExterno.id, row.id),
+      )
       .returning();
+    if (!upd) return;
+    // O canal cancelou: a venda é desfeita e o pedido sai da cozinha — como no cancelamento do
+    // painel — e o cupom, o cashback e os pontos do pedido voltam.
+    if (novoStatus === 'cancelado') {
+      await this.desfazerVendaDoCancelado(tenantId, upd, patch.motivoCancelamento);
+      await this.estornarBeneficiosDoCancelado(tenantId, upd);
+    }
     // Conclusão baixa o estoque e concilia o dinheiro (igual ao avanço manual).
     if (novoStatus === 'concluido' && upd.comandaId) {
       await this.vendas
@@ -455,6 +469,56 @@ export class DeliveryService {
     }
     this.logger.log(`reflexo ${canal} ${externalId.slice(0, 8)} → ${novoStatus}`);
     void this.dispararWebhook(tenantId, upd);
+  }
+
+  // PEDIDO CANCELADO SEM PASSAR PELO PAINEL — o canal cancelou (iFood, 99Food, Anota AI,
+  // Cardápio Web) ou o cliente cancelou a própria encomenda. Antes só o status do pedido mudava:
+  // a comanda seguia fechada com a receita e o card seguia na cozinha, avançando até "pronto".
+  // Passa pelo MESMO serviço do cancelamento do painel: estorna os lançamentos da venda, cancela
+  // a comanda, tira os cards do KDS (com o alerta de cancelado) e registra na auditoria.
+  // Não há operador para dizer "perda ou reaproveitado": o estoque fica como está (no delivery a
+  // baixa só acontece na conclusão) — a comida que já tinha sido feita se lança em Desperdício.
+  // Nunca derruba o cancelamento do pedido, mas a falha não passa em silêncio.
+  private async desfazerVendaDoCancelado(
+    tenantId: string,
+    ped: { id: string; comandaId: string | null },
+    motivo: string,
+  ) {
+    if (!ped.comandaId) return; // nunca foi aceito: não há venda nem cozinha
+    try {
+      const [c] = await this.db
+        .select({ status: comanda.status })
+        .from(comanda)
+        .where(and(eq(comanda.id, ped.comandaId), eq(comanda.tenantId, tenantId)));
+      // Sem a venda aqui (ainda não desceu pelo sincronismo), ou já desfeita por outro caminho
+      // (totem sem cupom fiscal): nada a estornar de novo.
+      if (!c || c.status === 'cancelada') return;
+      await this.vendas.estornarVendaExterna(tenantId, null, 'servico', ped.comandaId, motivo, true);
+    } catch (e: any) {
+      this.logger.error(
+        `pedido ${ped.id} cancelado, mas a venda/cozinha NÃO foi desfeita (comanda ${ped.comandaId}): ${e?.message ?? e}`,
+      );
+    }
+  }
+
+  // Cancelamento estorna cashback, pontos de fidelidade e o uso do cupom do pedido (o cashback
+  // GASTO só volta se a loja configurou; o padrão é voltar). Cada um é idempotente e nenhum
+  // derruba o cancelamento.
+  private async estornarBeneficiosDoCancelado(tenantId: string, ped: { id: string; clienteTelefone?: string | null }) {
+    try {
+      const [cfgLoja] = await this.db
+        .select({ estorna: cardapioConfig.cancelamentoEstornaCashback })
+        .from(cardapioConfig)
+        .where(eq(cardapioConfig.tenantId, tenantId))
+        .limit(1);
+      void this.cashback
+        .estornarPedido(tenantId, ped.id, ped.clienteTelefone ?? undefined, cfgLoja?.estorna !== false)
+        .catch(() => {});
+      void this.fidelidade.estornarPedido(tenantId, ped.id).catch(() => {});
+      void this.estornarCupomUso(tenantId, ped.id);
+    } catch (e: any) {
+      this.logger.warn(`pedido ${ped.id} cancelado: cupom/cashback/pontos não estornados: ${e?.message ?? e}`);
+    }
   }
 
   // Materializa (aceita) um pedido externo se ainda estiver 'novo'. Usado pelos pollers
@@ -1425,6 +1489,10 @@ export class DeliveryService {
     if (!tenantId || !comandaId) return;
     let ped: { id: string; status: string; canal: string | null; pago: boolean | null } | undefined;
     try {
+      // Item acrescentado depois do aceite vira um SEGUNDO card da mesma comanda: o pedido só
+      // está pronto (e o canal só é avisado) quando o último card fica pronto. O evento chega a
+      // cada card; os primeiros esperam.
+      if (!(await this.producao.comandaTodaPronta(tenantId, comandaId))) return;
       [ped] = await this.db
         .select({ id: pedidoExterno.id, status: pedidoExterno.status, canal: pedidoExterno.canal, pago: pedidoExterno.pago })
         .from(pedidoExterno)
@@ -1432,8 +1500,9 @@ export class DeliveryService {
       if (ped && ped.status === 'confirmado') {
         await this.avancar(tenantId, ped.id); // confirmado → pronto (+ status-back ready)
       }
-    } catch {
-      // silencioso
+    } catch (e: any) {
+      // Nunca derruba o avanço do KDS — mas o pedido que não subiu para "pronto" fica com o motivo.
+      this.logger.warn(`pronto do KDS não refletido no pedido da comanda ${comandaId}: ${e?.message ?? e}`);
       return;
     }
     // Totem com a opção "o pago sai da lista quando ficar pronto" (mig 301): o pronto da cozinha
@@ -1945,22 +2014,28 @@ export class DeliveryService {
     return row;
   }
 
-  // "Voltar pedido" na coluna Finalizado: reabre um pedido concluído/cancelado,
-  // trazendo-o de volta uma etapa. Exige senha de gestor (presidente/C&O). A baixa
-  // de estoque feita na conclusão NÃO é estornada (o re-concluir é idempotente).
+  // "Voltar pedido" na coluna Finalizado: reabre um pedido CONCLUÍDO, trazendo-o de volta
+  // uma etapa. Exige senha de gestor (presidente/C&O). A baixa de estoque feita na conclusão
+  // NÃO é estornada (o re-concluir é idempotente). Pedido cancelado não volta (ver abaixo).
   async voltarPedido(tenantId: string, atorId: string | null, id: string, senha?: string) {
     const ped = await this.carregar(tenantId, id);
     if (ped.status !== 'concluido' && ped.status !== 'cancelado')
       throw new BadRequestException('Só um pedido finalizado pode voltar.');
+    // Pedido CANCELADO não volta. O cancelamento estornou a venda, tirou o pedido da cozinha,
+    // avisou o canal e devolveu cupom/cashback; "voltar" só mudava o status — o pedido reabria
+    // sem card no KDS e sem receita, e a conclusão baixava o estoque de uma venda que não
+    // existe mais (o nunca aceito ia a "confirmado" sem comanda nenhuma). Reabrir de verdade
+    // seria refazer tudo isso: o caminho certo é um pedido novo.
+    if (ped.status === 'cancelado')
+      throw new BadRequestException(
+        ped.comandaId
+          ? 'Pedido cancelado não pode ser reaberto: a venda já foi estornada e a cozinha, avisada. Lance um pedido novo.'
+          : 'Pedido cancelado não pode ser reaberto. Lance um pedido novo.',
+      );
     // Autorização de gestor (mesmo portão do cancelamento).
     await this.autorizarPorSenha(tenantId, senha);
-    // Destino: cancelado → confirmado; concluído → em rota (entrega) ou pronto (retirada).
-    const destino =
-      ped.status === 'cancelado'
-        ? 'confirmado'
-        : ped.tipo === 'retirada'
-          ? 'pronto'
-          : 'despachado';
+    // Destino: concluído → em rota (entrega) ou pronto (retirada).
+    const destino = ped.tipo === 'retirada' ? 'pronto' : 'despachado';
     const patch: any = { status: destino, concluidoEm: null, canceladoEm: null, motivoCancelamento: null };
     if (destino !== 'despachado') {
       patch.despachadoEm = null;
@@ -2049,10 +2124,30 @@ export class DeliveryService {
       throw new BadRequestException('Pedido concluído não pode ser cancelado.');
     // Trava: exige senha de um gestor com autoridade para cancelar.
     const autorizou = await this.autorizarPorSenha(tenantId, senha);
-    // Estorna o financeiro (a baixa de estoque só ocorre na conclusão, então não
-    // há estoque a estornar aqui).
+    // O que aconteceu com o estoque — dito ao operador pelo que foi FEITO, não pelo que se supõe:
+    // 'devolvido' (a baixa existia e voltou), 'perda' (ficou baixado), 'nada' (nada tinha saído).
+    let estoque: 'devolvido' | 'perda' | 'nada' | 'nao_iniciado' | 'perda_falhou' = 'nada';
     if (ped.comandaId) {
-      await this.vendas.estornarVendaExterna(
+      // PERDA com a cozinha já em produção: o insumo foi gasto, mas no delivery a baixa só
+      // acontece na conclusão — sem isto "perda" e "reaproveitado" davam no mesmo (nada saía) e a
+      // resposta ainda dizia "registrados como perda". Baixa o consumo da venda agora (a mesma
+      // conta da conclusão, idempotente); o estorno abaixo, com reaproveitado = false, mantém.
+      // A embalagem (custo só de delivery) entra quando o pedido já saiu da cozinha — pronto ou
+      // em rota; ainda em preparo, perdeu-se o insumo da receita, não a embalagem.
+      const saiuDaCozinha = ['pronto', 'despachado', 'entregue'].includes(ped.status);
+      const iniciada =
+        !reaproveitado && (saiuDaCozinha || (await this.producao.producaoIniciada(tenantId, ped.comandaId)));
+      let baixaFalhou = false;
+      if (iniciada)
+        // O estoque não segura o cancelamento (como não segura a conclusão) — mas o motivo fica
+        // no log e o operador é avisado de que a perda NÃO foi lançada.
+        await this.vendas.baixarEstoqueExterno(tenantId, ped.comandaId, saiuDaCozinha).catch((e) => {
+          baixaFalhou = true;
+          this.logger.error(
+            `baixa da PERDA FALHOU no cancelamento do pedido ${ped.id} (comanda ${ped.comandaId}): ${e?.message ?? e}`,
+          );
+        });
+      const r = await this.vendas.estornarVendaExterna(
         tenantId,
         atorId,
         atorPerfil,
@@ -2060,6 +2155,9 @@ export class DeliveryService {
         motivo,
         reaproveitado,
       );
+      if (r.saidasDaVenda > 0) estoque = reaproveitado ? 'devolvido' : 'perda';
+      else if (baixaFalhou) estoque = 'perda_falhou';
+      else if (!reaproveitado && !iniciada) estoque = 'nao_iniciado';
     }
     // Pedido do TOTEM: o dinheiro do cartão/PIX quem devolve é o GoGeM — o aviso nasce na MESMA
     // transação do cancelamento do pedido. No dinheiro também vai: o GoGeM mantém o relatório
@@ -2124,18 +2222,25 @@ export class DeliveryService {
     return {
       ...row,
       // Informa o destino do insumo já baixado (perda × reutilizado) — mig 128.
-      estoqueAviso: ped.comandaId
-        ? reaproveitado
+      estoqueAviso: !ped.comandaId
+        ? null
+        : estoque === 'devolvido'
           ? 'Os insumos deste pedido foram devolvidos ao estoque (reutilizados).'
-          : 'Os insumos deste pedido foram registrados como PERDA (não voltaram ao estoque).'
-        : null,
+          : estoque === 'perda'
+            ? 'Os insumos deste pedido foram baixados do estoque como PERDA.'
+            : estoque === 'nao_iniciado'
+              ? 'A cozinha ainda não tinha começado este pedido: nada foi baixado do estoque.'
+              : estoque === 'perda_falhou'
+                ? 'Não foi possível baixar os insumos como perda: o estoque não mudou. Lance a perda em Estoque → Desperdício.'
+                : 'Nenhum insumo tinha saído do estoque por este pedido: o estoque não mudou.',
       ...(estornoGogem ? { estornoGogem } : {}),
     };
   }
 
-  // Cancelamento automático pelo SISTEMA (cron de expiração de PIX) — sem senha de
-  // gestor. O pedido está em 'novo' (nunca aceito → sem comanda/estoque a estornar).
-  // Estorna cupom/cashback/fidelidade e avisa os canais. Idempotente.
+  // Cancelamento automático pelo SISTEMA — sem senha de gestor: PIX que não chegou no prazo,
+  // pedido retido do totem que expirou (ambos em 'novo', sem venda) e a ENCOMENDA que o cliente
+  // cancela depois de aceita — essa já tem venda e card na cozinha, que são desfeitos aqui.
+  // Estorna cupom/cashback/fidelidade. Idempotente.
   async cancelarSistema(tenantId: string, id: string, motivo: string) {
     const [ped] = await this.db
       .select({ status: pedidoExterno.status })
@@ -2145,20 +2250,14 @@ export class DeliveryService {
     const [row] = await this.db
       .update(pedidoExterno)
       .set({ status: 'cancelado', canceladoEm: new Date(), motivoCancelamento: motivo, updatedAt: new Date() })
-      .where(eq(pedidoExterno.id, id))
+      // um só cancela: concluído ou cancelado por outro caminho no meio do caminho não é desfeito
+      .where(and(eq(pedidoExterno.id, id), notInArray(pedidoExterno.status, ['cancelado', 'concluido'])))
       .returning();
+    if (!row) return { ok: false };
+    await this.desfazerVendaDoCancelado(tenantId, row, motivo);
     void this.flash.flashPedidos([row.id]); // push imediato → a nuvem reflete o cancelamento
     void this.dispararWebhook(tenantId, row);
-    const [cfgLoja] = await this.db
-      .select({ estorna: cardapioConfig.cancelamentoEstornaCashback })
-      .from(cardapioConfig)
-      .where(eq(cardapioConfig.tenantId, tenantId))
-      .limit(1);
-    void this.cashback
-      .estornarPedido(tenantId, id, row.clienteTelefone ?? undefined, cfgLoja?.estorna !== false)
-      .catch(() => {});
-    void this.fidelidade.estornarPedido(tenantId, id).catch(() => {});
-    void this.estornarCupomUso(tenantId, id);
+    await this.estornarBeneficiosDoCancelado(tenantId, row);
     return { ok: true, id: row.id };
   }
 

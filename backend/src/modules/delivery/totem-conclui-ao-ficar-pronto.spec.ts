@@ -63,7 +63,8 @@ descrever('totem: pedido pago sai da lista ao ficar pronto (mig 301)', () => {
     servico = new DeliveryService(
       drizzle(pool, { schema }) as any,
       vendas as any,
-      {} as any,
+      // a produção responde que a comanda está toda pronta (o caso de dois cards tem spec própria)
+      { comandaTodaPronta: async () => true } as any,
       {} as any,
       {} as any,
       { emit: () => undefined } as any,

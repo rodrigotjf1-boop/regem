@@ -623,7 +623,7 @@ function CancelarModal({
               onClick={() => setReaproveitado(true)}
               className={`rounded-lg border p-2 text-xs font-semibold ${reaproveitado ? 'border-ok bg-ok/10 text-ok' : 'border-border'}`}
             >
-              ♻️ Reutilizados<br />(voltam ao estoque)
+              ♻️ Reutilizados<br />(ficam no estoque)
             </button>
             <button
               type="button"
@@ -631,7 +631,7 @@ function CancelarModal({
               onClick={() => setReaproveitado(false)}
               className={`rounded-lg border p-2 text-xs font-semibold ${!reaproveitado ? 'border-danger bg-danger/10 text-danger' : 'border-border'}`}
             >
-              🗑️ Perda<br />(não voltam)
+              🗑️ Perda<br />(saem do estoque)
             </button>
           </div>
         </>
