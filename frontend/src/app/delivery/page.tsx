@@ -264,7 +264,9 @@ export default function DeliveryPage() {
 
   async function salvarTipo(patch: any) {
     try {
-      const c = await api.setCardapioConfig({ ...(lojaCfg ?? {}), ...patch });
+      // Só o que mudou, pelo mesmo motivo do `toggleCfg`: a configuração do cardápio é editada
+      // também em Configurações → Loja, e esta tela fica aberta o dia todo.
+      const c = await api.setCardapioConfig(patch);
       setLojaCfg(c);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
