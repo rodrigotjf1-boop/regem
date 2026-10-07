@@ -23,9 +23,13 @@ export class LoteService {
       select l.id, l.validade, l.entrada, l.codigo,
         (l.quantidade - coalesce((select sum(ml.quantidade) from movimento_lote ml where ml.lote_id = l.id), 0)) as quantidade,
         l.quantidade as "quantidadeEntrada",
-        i.nome as "itemNome", i.unidade_medida as "unidade"
+        l.item_id as "itemId",
+        i.nome as "itemNome", i.unidade_medida as "unidade",
+        -- Categoria do produto: a tela de Validades filtra por ela.
+        cat.nome as "categoriaNome"
       from lote l
       join item_estoque i on i.id = l.item_id
+      left join categoria_item cat on cat.id = i.categoria_item_id and cat.tenant_id = l.tenant_id and cat.deleted_at is null
       where l.tenant_id = ${tenantId} and l.deleted_at is null
         and l.esgotado = false
         -- Saldo DERIVADO (mig 248): lote.quantidade é o que ENTROU e nunca muda; o

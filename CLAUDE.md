@@ -32,6 +32,7 @@ SaaS de gestão operacional com hierarquia completa do proprietário à ponta. R
 | `mockups/regem-ponto.html` | Terminal de ponto (PIN → marcação → comprovante NSR) |
 | `mockups/regem-etiqueta-validade.html` | Etiqueta de validade impressa, **modelo moderno** (faixa do produto, dia da semana da validade, QR ao lado), em vários tamanhos de papel, com as regras do que sai |
 | `mockups/regem-estoque-produtos.html` | **Estoque › Produtos** (o cadastro do estoque): lista com busca e filtros, criar/editar em **gaveta lateral**, movimentar e excluir em diálogo, importar (assistente de 3 passos) e exportar por planilha |
+| `mockups/regem-estoque-abas.html` | **Estoque — as 8 abas depois de Produtos** (Fichas técnicas, Contagem, Compras, Recebimento, Validades, Etiquetas, Desperdício, Vistorias): título com a contagem da lista, situações com quantidade que filtram, busca e filtros, ações na linha, criar/editar em gaveta |
 
 ## Identidade Regem (⚠️ difere do mockup Omera)
 

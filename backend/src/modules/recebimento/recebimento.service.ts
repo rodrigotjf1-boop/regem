@@ -20,6 +20,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ponderarCustoDaEntrada } from '../../common/custo-loja';
 import { sqlUnidade, condUnidade, condUnidadeOuRede } from '../../common/filtro-unidade';
+import type { Periodo } from '../../common/periodo';
 import { CreateRecebimentoDto } from './dto/create-recebimento.dto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -125,7 +126,11 @@ export class RecebimentoService {
     });
   }
 
-  async findAll(tenantId: string, atual: string | null = null) {
+  // `periodo` (pela DATA do recebimento) é o que a tela pede para a lista não crescer para
+  // sempre; sem ele, devolve tudo — como sempre foi para quem não manda. O período corta só o
+  // que já foi CONFERIDO: recebimento que ainda falta confirmar aparece sempre, por mais antigo
+  // que seja — senão o rascunho esquecido sumiria da tela justamente quando precisa ser visto.
+  async findAll(tenantId: string, atual: string | null = null, periodo: Periodo = { inicio: null, fim: null }) {
     const r: any = await this.db.execute(sql`
       select r.id, r.data, r.status, r.nota_ref as "notaRef",
         f.nome as "fornecedorNome",
@@ -135,6 +140,8 @@ export class RecebimentoService {
       from recebimento r
       left join fornecedor f on f.id = r.fornecedor_id and f.tenant_id = r.tenant_id
       where r.tenant_id = ${tenantId} and r.deleted_at is null ${sqlUnidade('r.unidade_id', atual)}
+        ${periodo.inicio ? sql`and (r.status <> 'conferido' or r.data >= ${periodo.inicio})` : sql``}
+        ${periodo.fim ? sql`and (r.status <> 'conferido' or r.data <= ${periodo.fim})` : sql``}
       order by r.data desc, r.created_at desc
     `);
     return (r.rows ?? r).map((x: any) => ({
