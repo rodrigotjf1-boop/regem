@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { api, getUnidadeAtual } from '@/lib/api';
 import { toast } from '@/lib/toast';
@@ -20,6 +20,26 @@ import { INDICADO_PARA, ROTULO_TEMPLATE, TEMPLATES, templateDe } from '@/compone
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+const mesmo = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+/**
+ * As chaves de `atual` que diferem do que está `gravado` — é só isso que vai no salvar (o servidor
+ * mantém o que não vem). O tema (`temaConfig`) o servidor mescla por chave: dele vão só as chaves
+ * do tema que mudaram.
+ */
+export function alteracoesDaLoja(atual: any, gravado: any): Record<string, any> {
+  const fora: Record<string, any> = {};
+  for (const k of Object.keys(atual ?? {})) {
+    if (mesmo(atual[k], gravado?.[k])) continue;
+    if (k === 'temaConfig' && atual[k] && typeof atual[k] === 'object') {
+      const tema = Object.fromEntries(Object.entries(atual[k]).filter(([c, v]) => !mesmo(v, gravado?.temaConfig?.[c])));
+      if (Object.keys(tema).length) fora[k] = tema;
+      continue;
+    }
+    fora[k] = atual[k];
+  }
+  return fora;
+}
 
 
 const MENU: { grupo: string; itens: { k: string; label: string; breve?: boolean }[] }[] = [
@@ -81,8 +101,29 @@ export function ConfigPanel({
   const [salvando, setSalvando] = useState(false);
   const [editarTema, setEditarTema] = useState(false);
 
+  // A configuração GRAVADA (a última resposta do servidor). Salvar manda só a diferença entre ela
+  // e a tela: a mesma configuração é editada em Configurações → Loja e na tela de pedidos, e
+  // devolver o objeto inteiro regravava, com os valores de quando este painel abriu, o que as
+  // outras tinham salvo depois.
+  const lojaGravada = useRef<any>({});
+  const [erroLoja, setErroLoja] = useState('');
+  // Cópia à parte: listas da tela (horários, raios, mensagens) são alteradas no lugar em alguns
+  // pontos; se o retrato gravado dividisse os mesmos objetos, a diferença sumiria.
+  const guardarGravada = (c: any) => {
+    lojaGravada.current = JSON.parse(JSON.stringify(c ?? {}));
+  };
+  const receberLoja = (c: any) => {
+    guardarGravada(c);
+    setLoja(c ?? {});
+  };
+  // Leitura que falha NÃO vira formulário em branco (parecia que a configuração tinha sumido).
+  const lerLoja = () => {
+    setErroLoja('');
+    api.cardapioConfig().then(receberLoja).catch((e) => setErroLoja(e instanceof Error && e.message ? e.message : 'Não foi possível carregar a configuração.'));
+  };
+
   useEffect(() => {
-    api.cardapioConfig().then((c: any) => setLoja(c ?? {})).catch(() => setLoja({}));
+    lerLoja();
     api.cardapioBairros().then((b: any) => setBairros((b as any[]) ?? [])).catch(() => {});
     api.cardapioBanners().then((b: any) => setBanners((b as any[]) ?? [])).catch(() => {});
     api.cardapioCupons().then((c: any) => setCupons((c as any[]) ?? [])).catch(() => {});
@@ -144,11 +185,32 @@ export function ConfigPanel({
     }
   }
 
-  // Persiste a config da loja com um patch explícito (usado ao trocar o modo da área).
+  // Grava `patch` — só o que nele difere do que está gravado — e atualiza a tela SEM perder o que
+  // está digitado em outros campos e ainda não foi salvo. Devolve se houve o que gravar.
+  async function gravarNaLoja(patch: any): Promise<boolean> {
+    const corpo = alteracoesDaLoja(patch, lojaGravada.current);
+    if (!Object.keys(corpo).length) return false;
+    const pendentes = alteracoesDaLoja(loja, lojaGravada.current);
+    for (const k of Object.keys(patch)) {
+      if (k === 'temaConfig' && pendentes.temaConfig && patch.temaConfig) for (const c of Object.keys(patch.temaConfig)) delete pendentes.temaConfig[c];
+      else delete pendentes[k];
+    }
+    const c: any = await api.setCardapioConfig(corpo);
+    guardarGravada(c);
+    setLoja({ ...(c ?? {}), ...pendentes, ...(pendentes.temaConfig ? { temaConfig: { ...(c?.temaConfig ?? {}), ...pendentes.temaConfig } } : {}) });
+    return true;
+  }
+
+  // Persiste a config da loja com um patch explícito (usado ao trocar o modo da área e ao salvar o tema).
   async function salvarLojaPatch(patch: any) {
-    const novo = { ...(loja ?? {}), ...patch };
-    setLoja(novo);
-    try { setLoja(await api.setCardapioConfig(novo)); } catch (e) { toast.error(e instanceof Error ? e.message : 'Erro'); }
+    const antes = loja;
+    setLoja({ ...(loja ?? {}), ...patch });
+    try {
+      await gravarNaLoja(patch);
+    } catch (e) {
+      setLoja(antes); // não gravou: a tela volta ao que era
+      toast.error(e instanceof Error ? e.message : 'Erro');
+    }
   }
 
   async function salvarBanners(lista: any[], intervalo: number) {
@@ -156,12 +218,8 @@ export function ConfigPanel({
     try {
       const b = await api.setCardapioBanners(lista.filter((x) => x.imagemRef));
       setBanners(b as any[]);
-      // Intervalo do carrossel vive no tema_config da loja.
-      const c = await api.setCardapioConfig({
-        ...(loja ?? {}),
-        temaConfig: { ...(loja?.temaConfig ?? {}), bannerIntervalo: intervalo },
-      });
-      setLoja(c);
+      // Intervalo do carrossel vive no tema_config da loja (o servidor mescla o tema por chave).
+      await gravarNaLoja({ temaConfig: { bannerIntervalo: intervalo } });
       toast.success('Banners salvos.');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
@@ -173,9 +231,9 @@ export function ConfigPanel({
   async function salvarLoja() {
     setSalvando(true);
     try {
-      const c = await api.setCardapioConfig(loja);
-      setLoja(c);
-      toast.success('Configuração salva.');
+      const gravou = await gravarNaLoja(loja);
+      if (gravou) toast.success('Configuração salva.');
+      else toast.info('Nenhuma alteração para salvar.');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
     } finally {
@@ -323,7 +381,12 @@ export function ConfigPanel({
           )}
 
           <div className={pagina ? 'min-h-0 flex-1' : 'min-h-0 flex-1 overflow-y-auto p-4'}>
-            {loja === null ? (
+            {erroLoja ? (
+              <div className="space-y-3 text-sm">
+                <p role="alert">Não deu para carregar a configuração: {erroLoja}</p>
+                <Button type="button" variant="outline" size="sm" onClick={lerLoja}>Tentar de novo</Button>
+              </div>
+            ) : loja === null ? (
               <p className="text-sm text-muted-foreground">Carregando…</p>
             ) : (
               <>

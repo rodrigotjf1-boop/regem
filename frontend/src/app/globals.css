@@ -46,7 +46,10 @@
   --secondary-foreground: 211 23% 34%; /* #43586C ink-2 */
   --muted: 210 33% 98%;
   --muted-foreground: 210 16% 56%;   /* #7E90A2 ink-3 */
-  --destructive: 0 64% 55%;          /* #D64545 crítico (claro) */
+  /* crítico (claro). Era 0 64% 55% (#D64545): o texto branco do botão sobre ele dava 4,4:1 —
+     abaixo do mínimo de 4,5:1. Com 52% dá 4,8:1 (decisão do dono, 07/10/2026: a paleta é guia,
+     a legibilidade vem antes). */
+  --destructive: 0 64% 52%;          /* #D33636 */
   --destructive-foreground: 0 0% 100%;
   --border: 211 26% 90%;             /* #DEE5EC line */
   --input: 210 25% 82%;              /* #C8D2DC line-2 */

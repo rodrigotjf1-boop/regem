@@ -98,6 +98,8 @@
   ⚠️ **Servidor da loja ainda na 1.30.x:** a loja continua com as telas antigas e sem a rota de "Configurar" até o `.zip`. Com servidor local ativo, impressora e KDS se configuram NELE (na nuvem ficam só leitura) — conferir "Configurar" no servidor da loja na primeira instalação com este pacote.
   ⚠️ **"Novo perfil" só aparece para nível sem perfil:** o banco guarda um perfil por nível (mig 069). Vários perfis por nível é decisão em aberto (pede migration).
   ⚠️ **Ordem de deploy:** nenhuma migration.
+- **Delivery → Configurações manda só o que mudou + tom do botão vermelho — sem migration, SÓ TELA — entra no próximo `.zip` (não toca `backend/edge/` nem o sync).** Os três salvar do painel (seções, modo da área, banners) deixam de regravar a configuração do cardápio inteira por cima do que outra tela salvou. O vermelho dos botões de excluir/revogar/bloquear ficou um pouco mais escuro (#D64545 → #D33636) para o texto branco passar do contraste mínimo.
+  ⚠️ **Ordem de deploy:** nenhuma migration.
 
 ## Última release: `1.30.2` — gerada em 30/09/2026 da `origin/main` `3e81449`, **.exe COMPILADO** e publicado (`instaladores/RegemEdgeSetup.exe`, 92.720.473 bytes, SHA-256 `91fdd1fd8b6b442c820222512f3d2ac0ae3f2e9ddad9e4ad84a03e7091ae90ad`, download público conferido); sem `.zip`
 

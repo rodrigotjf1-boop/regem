@@ -10,8 +10,10 @@ const buttonVariants = cva(
         default: 'bg-primary text-primary-foreground hover:bg-primary/90',
         outline: 'border border-input bg-card hover:bg-secondary',
         ghost: 'hover:bg-secondary',
+        // Ao passar o mouse ESCURECE (clarear, como nas outras variantes, derrubaria o contraste
+        // do texto branco para menos de 4,5:1).
         destructive:
-          'bg-destructive text-destructive-foreground hover:bg-destructive/90',
+          'bg-destructive text-destructive-foreground hover:brightness-90',
       },
       size: {
         default: 'h-11 px-4 py-2',
