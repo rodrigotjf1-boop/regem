@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Trash2, Pencil, Copy, ArrowLeft } from 'lucide-react';
-import { api, getToken } from '@/lib/api';
+import { Plus, Trash2, Pencil, Copy } from 'lucide-react';
+import { api, getCategoria, getToken, podePerm } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
@@ -12,6 +12,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { SkeletonList } from '@/components/ui/skeleton';
+import { Dialogo, Gaveta } from '@/components/ui/sobreposto';
+import { AbasEstoque } from '@/components/estoque/abas-estoque';
+import {
+  FiltroBusca, FiltroSelect, Filtros, ListaDados, NomeComApoio, Selo, Situacoes, TituloLista, Vazio,
+  num, semAcento, type Situacao,
+} from '@/components/estoque/lista';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Ing = {
@@ -36,6 +42,16 @@ const brl = (v: number) =>
   v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 const META_CMV = 31.5;
+const categoriaDe = (f: any) => CATEGORIAS.find((c) => c.value === f.categoria)?.label ?? f.categoria ?? '—';
+const usaSub = (f: any) => !!f.ingredientes?.some((i: any) => i.subFichaId);
+const dentroDaMeta = (f: any) => f.cmv != null && Number(f.cmv) <= Number(f.metaCmv ?? META_CMV);
+const SITUACOES: Situacao<any>[] = [
+  { rotulo: 'Dentro da meta', filtro: dentroDaMeta },
+  { rotulo: 'Acima da meta', filtro: (f) => f.cmv != null && !dentroDaMeta(f), tom: 'critico' },
+  { rotulo: 'Sem preço', filtro: (f) => f.cmv == null, tom: 'aviso' },
+];
+const ID_TITULO = 'fichas-titulo';
+const ID_ERRO = 'ficha-erro';
 
 function linhaVazia(somenteDelivery = false): Ing {
   return { insumoNome: '', quantidade: '', unidade: '', fatorCorrecao: '1', custoUnitario: '', somenteDelivery };
@@ -58,6 +74,14 @@ export default function FichasPage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [carregou, setCarregou] = useState(false);
   const [acAberto, setAcAberto] = useState<number | null>(null); // linha com autocomplete aberto
+  // O editor (nova ficha, editar, duplicar) abre numa gaveta; a lista fica à vista atrás.
+  const [editor, setEditor] = useState(false);
+  const [excluindo, setExcluindo] = useState<any>(null);
+  const [apagando, setApagando] = useState(false);
+  const [busca, setBusca] = useState('');
+  const [sit, setSit] = useState(-1);
+  const [filtroCategoria, setFiltroCategoria] = useState('');
+  const [filtroSub, setFiltroSub] = useState('');
 
   const carregar = useCallback(async () => {
     try {
@@ -74,6 +98,10 @@ export default function FichasPage() {
   useEffect(() => {
     if (getToken()) carregar();
   }, [carregar]);
+  // O formulário é longo e o botão de salvar fica no rodapé da gaveta: o erro rola até aparecer.
+  useEffect(() => {
+    if (erro && editor) document.getElementById(ID_ERRO)?.scrollIntoView({ block: 'nearest' });
+  }, [erro, editor]);
 
   function setIng(idx: number, campo: keyof Ing, valor: string) {
     setIngs((arr) => arr.map((i, n) => (n === idx ? { ...i, [campo]: valor } : i)));
@@ -165,12 +193,25 @@ export default function FichasPage() {
           }))
         : [linhaVazia()],
     );
-    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+    setErro('');
+    setEditor(true);
+  }
+
+  function nova() {
+    resetForm();
+    setErro('');
+    setEditor(true);
+  }
+  function fecharEditor() {
+    setEditor(false);
+    resetForm();
+    setErro('');
   }
 
   async function salvar() {
     if (nome.trim().length < 2) {
       setErro('Informe o nome da ficha.');
+      document.getElementById('nome')?.focus();
       return;
     }
     setSaving(true);
@@ -199,6 +240,7 @@ export default function FichasPage() {
       if (editId) await api.patch(`/fichas/${editId}`, body);
       else await api.post('/fichas', body);
       toast.success(editId ? 'Ficha atualizada.' : 'Ficha salva.');
+      setEditor(false);
       resetForm();
       await carregar();
     } catch (e) {
@@ -216,10 +258,20 @@ export default function FichasPage() {
     setNome(`${f.nome ?? 'Ficha'} (cópia)`.trim());
   }
 
-  async function excluir(id: string) {
-    if (editId === id) resetForm();
-    await api.del(`/fichas/${id}`);
-    carregar();
+  async function confirmarExclusao() {
+    if (!excluindo || apagando) return;
+    setApagando(true);
+    try {
+      await api.del(`/fichas/${excluindo.id}`);
+      toast.success('Ficha excluída.');
+      setExcluindo(null);
+      await carregar();
+      document.getElementById(ID_TITULO)?.focus(); // a linha (e o botão que abriu) saiu da tela
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao excluir');
+    } finally {
+      setApagando(false);
+    }
   }
 
   // Uma linha de insumo (usada tanto na seção balcão quanto na de delivery). O
@@ -253,7 +305,7 @@ export default function FichasPage() {
           type="button"
           variant="ghost"
           size="icon"
-          aria-label="Remover"
+          aria-label={`Remover o ingrediente ${idx + 1}`}
           onClick={() => setIngs((a) => (a.length > 1 ? a.filter((_, n) => n !== idx) : a))}
         >
           <Trash2 className="h-4 w-4" />
@@ -265,6 +317,7 @@ export default function FichasPage() {
         <div className="relative">
           <Input
             placeholder="Insumo (digite p/ buscar)"
+            aria-label="Nome do ingrediente"
             value={ing.insumoNome}
             disabled={!!ing.subFichaId || !!ing.itemId}
             autoComplete="off"
@@ -286,7 +339,7 @@ export default function FichasPage() {
                       onMouseDown={(e) => { e.preventDefault(); escolherTipo(idx, `item:${it.id}`); setAcAberto(null); }}
                     >
                       <span className="truncate">{it.nome}</span>
-                      <span className="flex-none font-mono text-xs text-muted-foreground">{brl(Number(it.custoMedio ?? 0))}/{it.unidadeMedida ?? 'un'}</span>
+                      <span className="flex-none font-mono text-xs text-secondary-foreground">{brl(Number(it.custoMedio ?? 0))}/{it.unidadeMedida ?? 'un'}</span>
                     </button>
                   </li>
                 ))}
@@ -294,251 +347,270 @@ export default function FichasPage() {
             );
           })()}
         </div>
-        <Input type="number" placeholder="Qtd" value={ing.quantidade} onChange={(e) => setIng(idx, 'quantidade', e.target.value)} />
-        <Input placeholder="un" value={ing.unidade} disabled={!!ing.itemId} onChange={(e) => setIng(idx, 'unidade', e.target.value)} />
-        <Input type="number" placeholder="FC" value={ing.fatorCorrecao} onChange={(e) => setIng(idx, 'fatorCorrecao', e.target.value)} />
-        <Input type="number" placeholder="R$/un" value={ing.custoUnitario} disabled={!!ing.subFichaId || !!ing.itemId} onChange={(e) => setIng(idx, 'custoUnitario', e.target.value)} />
+        <Input type="number" min={0} step="any" inputMode="decimal" placeholder="Qtd" aria-label="Quantidade" value={ing.quantidade} onChange={(e) => setIng(idx, 'quantidade', e.target.value)} />
+        <Input placeholder="un" aria-label="Unidade" value={ing.unidade} disabled={!!ing.itemId} onChange={(e) => setIng(idx, 'unidade', e.target.value)} />
+        <Input type="number" min={0} step="any" inputMode="decimal" placeholder="FC" aria-label="Fator de correção" value={ing.fatorCorrecao} onChange={(e) => setIng(idx, 'fatorCorrecao', e.target.value)} />
+        <Input type="number" min={0} step="any" inputMode="decimal" placeholder="R$/un" aria-label="Custo unitário" value={ing.custoUnitario} disabled={!!ing.subFichaId || !!ing.itemId} onChange={(e) => setIng(idx, 'custoUnitario', e.target.value)} />
       </div>
       {ing.itemId && (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-secondary-foreground">
           📦 Insumo do estoque — custo pelo custo médio; <b>baixa o estoque</b> ao produzir.
         </p>
       )}
       {ing.subFichaId && (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-secondary-foreground">
           🧩 Custo da sub-receita entra automático (por porção) e é recalculado ao produzir.
         </p>
       )}
     </div>
   );
 
+  // ── a lista, com os filtros ──
+  // O servidor é quem autoriza; aqui só não se oferece o que ele recusaria.
+  const papel = getCategoria() ?? '';
+  const podeEditar = ['presidente', 'gerente', 'supervisao', 'suporte'].includes(papel) && podePerm('fichas');
+  const podeExcluir = ['presidente', 'gerente', 'suporte'].includes(papel) && podePerm('fichas');
+  const b = semAcento(busca);
+  const base = fichas.filter(
+    (f) =>
+      (!b || semAcento(f.nome).includes(b)) &&
+      (!filtroCategoria || categoriaDe(f) === filtroCategoria) &&
+      (!filtroSub || (filtroSub === 'sim') === usaSub(f)),
+  );
+  const linhas = sit < 0 ? base : base.filter(SITUACOES[sit].filtro);
+  const filtrando = !!(busca.trim() || filtroCategoria || filtroSub || sit >= 0);
+  const limpar = () => { setBusca(''); setFiltroCategoria(''); setFiltroSub(''); setSit(-1); };
+
   return (
-    <Shell
-      eyebrow="Estoque · produção"
-      title="Fichas Técnicas"
-      actions={
-        <Button size="sm" variant="outline" onClick={() => router.push('/operacao')}>
-          <ArrowLeft className="h-4 w-4" /> Estoque
-        </Button>
-      }
-    >
-      {erro && <p className="mb-4 text-destructive">{erro}</p>}
+    <Shell eyebrow="Insumos & produção" title="Estoque">
+      <div className="space-y-4">
+        {/* A mesma faixa de abas do Estoque: as fichas moram em rota própria, mas são uma aba dele. */}
+        <AbasEstoque ativa="fichas" aoEscolher={(a) => { if (a !== 'fichas') router.push(`/operacao?aba=${a}`); }} />
+        {erro && !editor && <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm font-medium">{erro}</p>}
 
-      <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
-        {/* Formulário */}
-        <Card className="p-5">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="font-display text-lg font-bold">
-              {editId ? 'Editar ficha técnica' : 'Nova ficha técnica'}
-            </h2>
-            {editId && (
-              <Button type="button" variant="outline" size="sm" onClick={resetForm}>
-                Cancelar edição
-              </Button>
-            )}
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="nome">Nome da receita / produção</Label>
-              <Input id="nome" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Molho base de tomate" />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="cat">Categoria</Label>
-              <Select id="cat" value={categoria} onChange={(e) => setCategoria(e.target.value)}>
-                {CATEGORIAS.map((c) => (
-                  <option key={c.value} value={c.value}>{c.label}</option>
-                ))}
-              </Select>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="rend">Rendimento</Label>
-                <Input id="rend" type="number" value={rendimento} onChange={(e) => setRendimento(e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="ru">Unidade</Label>
-                <Input id="ru" value={rendUnidade} onChange={(e) => setRendUnidade(e.target.value)} placeholder="porções" />
-              </div>
-            </div>
-          </div>
+        {!carregou ? (
+          <SkeletonList rows={4} />
+        ) : (
+          <section className="space-y-3" aria-labelledby={ID_TITULO}>
+            <TituloLista id={ID_TITULO} titulo="Fichas técnicas" total={fichas.length} mostrando={linhas.length} um="ficha" varios="fichas"
+              extra={`meta de CMV padrão ${String(META_CMV).replace('.', ',')}%`}>
+              {podeEditar && <Button type="button" onClick={nova}><Plus className="h-4 w-4" aria-hidden="true" /> Nova ficha</Button>}
+            </TituloLista>
+            <Situacoes base={base} opcoes={SITUACOES} valor={sit} aoMudar={setSit} />
+            <Filtros>
+              <FiltroBusca id="fichas-busca" valor={busca} aoMudar={setBusca} placeholder="Nome da ficha" />
+              <FiltroSelect id="fichas-categoria" rotulo="Categoria" todos="Todas as categorias" opcoes={CATEGORIAS.map((c) => c.label)} valor={filtroCategoria} aoMudar={setFiltroCategoria} />
+              <FiltroSelect id="fichas-sub" rotulo="Sub-receita" todos="Com e sem sub-receita" opcoes={[{ v: 'sim', rotulo: 'Usa sub-receita' }, { v: 'nao', rotulo: 'Não usa' }]} valor={filtroSub} aoMudar={setFiltroSub} />
+            </Filtros>
 
-          <div className="mt-5">
-            <div className="mb-2 flex items-center justify-between">
-              <h3 className="font-display text-sm font-bold">Ingredientes e custo</h3>
-              <span className="font-mono text-xs text-muted-foreground">FC = fator de correção</span>
-            </div>
-            <div className="space-y-2">
-              {ings.map((ing, idx) => (ing.somenteDelivery ? null : renderLinha(ing, idx)))}
-            </div>
-            <Button type="button" variant="outline" className="mt-2" onClick={() => setIngs((a) => [...a, linhaVazia(false)])}>
-              <Plus className="h-4 w-4" /> Adicionar insumo
-            </Button>
-          </div>
-
-          {/* Custos delivery — insumos/itens (ex.: embalagens) contabilizados SÓ em
-              pedido externo (cardápio digital próprio/integrado + marketplaces). */}
-          <div className="mt-5 rounded-xl border border-dashed border-info/40 bg-info/5 p-3">
-            <div className="mb-1 flex items-center justify-between">
-              <h3 className="font-display text-sm font-bold">🛵 Custos delivery</h3>
-              <span className="font-mono text-[10px] text-muted-foreground">só em pedido externo</span>
-            </div>
-            <p className="mb-2 text-xs text-muted-foreground">
-              Embalagens e itens que só entram no custo de pedidos de delivery/retirada externa (iFood, 99food, cardápio digital). O balcão/mesa não conta esses.
-            </p>
-            <div className="space-y-2">
-              {ings.map((ing, idx) => (ing.somenteDelivery ? renderLinha(ing, idx) : null))}
-              {!temDelivery && (
-                <p className="py-1 text-xs text-muted-foreground">Nenhum custo de delivery. Adicione a embalagem, por exemplo.</p>
-              )}
-            </div>
-            <Button type="button" variant="outline" className="mt-2" onClick={() => setIngs((a) => [...a, linhaVazia(true)])}>
-              <Plus className="h-4 w-4" /> Adicionar custo de delivery
-            </Button>
-          </div>
-
-          <Button className="mt-5 w-full" size="lg" disabled={saving} onClick={salvar}>
-            {saving ? 'Salvando…' : editId ? 'Salvar alterações' : 'Salvar ficha'}
-          </Button>
-        </Card>
-
-        {/* Custo calculado */}
-        <Card className="h-fit border-t-4 border-t-primary p-5">
-          <h2 className="mb-3 font-display text-lg font-bold">Custo calculado</h2>
-          <div className="space-y-2 text-sm">
-            <Row label="Custo total dos insumos" value={brl(custoTotal)} />
-            <Row label="Rendimento" value={`${rend} ${rendUnidade}`} />
-            <Row label={temDelivery ? 'Custo por porção (balcão)' : 'Custo por porção'} value={brl(custoPorcao)} strong />
-            {temDelivery && (
-              <>
-                <Row label="+ Custos delivery" value={brl(custoDeliveryExtra)} />
-                <Row label="Custo por porção (delivery)" value={brl(custoPorcaoDelivery)} strong />
-              </>
-            )}
-          </div>
-          <div className="mt-4 space-y-1.5">
-            <Label htmlFor="pv">Preço de venda (R$)</Label>
-            <Input id="pv" type="number" value={precoVenda} onChange={(e) => setPrecoVenda(e.target.value)} placeholder="0,00" />
-          </div>
-          <div className="mt-4 rounded-lg bg-secondary p-4 text-center">
-            <p className="font-display text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">
-              CMV do item
-            </p>
-            <p
-              className="font-mono text-3xl font-bold"
-              style={{ color: cmv == null ? undefined : cmvOk ? 'hsl(var(--ok))' : 'hsl(var(--destructive))' }}
-            >
-              {cmv == null ? '—' : `${cmv.toFixed(1).replace('.', ',')}%`}
-            </p>
-            <span
-              className="mt-1 inline-block rounded-md px-2 py-0.5 text-[11px] font-bold"
-              style={{
-                background: cmv == null ? 'hsl(var(--muted))' : cmvOk ? 'hsl(var(--ok)/.15)' : 'hsl(var(--destructive)/.12)',
-                color: cmv == null ? 'hsl(var(--muted-foreground))' : cmvOk ? 'hsl(var(--ok))' : 'hsl(var(--destructive))',
-              }}
-            >
-              {cmv == null ? 'Informe o preço' : cmvOk ? 'Dentro da meta' : 'Acima da meta'}
-            </span>
-          </div>
-          <div className="mt-3 flex items-center justify-between gap-2">
-            <Label htmlFor="meta" className="text-xs text-muted-foreground">Meta de CMV (%)</Label>
-            <Input id="meta" type="number" value={metaCmvInput} onChange={(e) => setMetaCmvInput(e.target.value)} className="h-8 w-24" />
-          </div>
-
-          {temDelivery && (
-            <div className="mt-2 flex items-center justify-between rounded-lg border border-info/30 bg-info/5 px-3 py-2">
-              <span className="text-xs text-muted-foreground">CMV delivery (com embalagem)</span>
-              <span
-                className="font-mono text-sm font-bold"
-                style={{ color: cmvDelivery == null ? undefined : cmvDeliveryOk ? 'hsl(var(--ok))' : 'hsl(var(--destructive))' }}
-              >
-                {cmvDelivery == null ? '—' : `${cmvDelivery.toFixed(1).replace('.', ',')}%`}
-              </span>
-            </div>
-          )}
-
-          {precoSugerido != null && (
-            <div className="mt-3 rounded-lg border border-primary/40 bg-primary/5 p-3 text-center">
-              <p className="font-display text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">
-                Preço sugerido (p/ meta {meta.toFixed(1).replace('.', ',')}%)
-              </p>
-              <p className="font-mono text-2xl font-bold text-primary">
-                {brl(precoSugerido)}
-              </p>
-            </div>
-          )}
-
-          {(markup != null || margem != null) && (
-            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-              <Row
-                label="Markup (preço÷custo)"
-                value={markup != null ? `${markup.toFixed(2).replace('.', ',')}×` : '—'}
+            {fichas.length === 0 ? (
+              <Vazio>Nenhuma ficha técnica ainda. Crie a primeira com os ingredientes e o rendimento — o custo por porção e o CMV saem calculados.</Vazio>
+            ) : linhas.length === 0 ? (
+              <Vazio aoLimpar={limpar} />
+            ) : (
+              <ListaDados
+                legenda="Fichas técnicas"
+                linhas={linhas}
+                chave={(f) => f.id}
+                nome={(f) => f.nome}
+                colunas={[
+                  { titulo: 'Ficha', celula: (f) => <NomeComApoio nome={f.nome} apoio={`${categoriaDe(f)}${usaSub(f) ? ' · usa sub-receita' : ''}`} /> },
+                  { titulo: 'Rendimento', celula: (f) => <span className="whitespace-nowrap">{num(f.rendimento ?? 1)} {f.rendimentoUnidade ?? 'porções'}</span> },
+                  { titulo: 'Custo por porção', celula: (f) => <span className="whitespace-nowrap font-mono">{brl(Number(f.custoPorcao ?? 0))}</span> },
+                  { titulo: 'Preço de venda', celula: (f) => (Number(f.precoVenda) > 0 ? <span className="whitespace-nowrap font-mono">{brl(Number(f.precoVenda))}</span> : '—') },
+                  {
+                    titulo: 'CMV',
+                    celula: (f) =>
+                      f.cmv == null ? <Selo tom="aviso">sem preço</Selo> : <Selo tom={dentroDaMeta(f) ? 'ok' : 'critico'}><span className="font-mono">{String(f.cmv).replace('.', ',')}%</span></Selo>,
+                  },
+                ]}
+                acoes={() => [
+                  ...(podeEditar
+                    ? [
+                        { rotulo: 'Duplicar', icone: Copy, aoClicar: duplicar },
+                        { rotulo: 'Editar', icone: Pencil, aoClicar: editar },
+                      ]
+                    : []),
+                  ...(podeExcluir ? [{ rotulo: 'Excluir', icone: Trash2, aoClicar: setExcluindo, tom: 'perigo' as const }] : []),
+                ]}
               />
-              <Row
-                label="Margem (lucro÷preço)"
-                value={margem != null ? `${margem.toFixed(1).replace('.', ',')}%` : '—'}
-              />
-            </div>
-          )}
-        </Card>
+            )}
+            {filtrando && linhas.length > 0 && (
+              <p><Button type="button" variant="outline" size="sm" onClick={limpar}>Limpar filtros</Button></p>
+            )}
+          </section>
+        )}
       </div>
 
-      {/* Fichas cadastradas */}
-      <h2 className="mb-3 mt-8 font-display text-sm font-bold uppercase tracking-wide text-muted-foreground">
-        Fichas cadastradas ({fichas.length})
-      </h2>
-      {!carregou ? (
-        <SkeletonList rows={3} />
-      ) : (
-      <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
-        {fichas.length === 0 && (
-          <p className="text-sm text-muted-foreground">Nenhuma ficha ainda.</p>
-        )}
-        {fichas.map((f) => {
-          const ok = f.cmv != null && f.cmv <= Number(f.metaCmv ?? META_CMV);
-          return (
-            <Card key={f.id} className="p-4">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="truncate font-semibold">{f.nome}</p>
-                  <p className="text-xs capitalize text-muted-foreground">
-                    {f.categoria}
-                    {f.ingredientes?.some((i: any) => i.subFichaId) && (
-                      <span className="ml-1.5 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium normal-case text-muted-foreground">
-                        🧩 usa sub-receita
-                      </span>
-                    )}
+      {editor && (
+        <Gaveta
+          larga
+          titulo={editId ? 'Editar ficha técnica' : 'Nova ficha técnica'}
+          aoFechar={fecharEditor}
+          voltarPara={ID_TITULO}
+          rodape={
+            <>
+              <Button type="button" variant="outline" onClick={fecharEditor} disabled={saving}>Cancelar</Button>
+              <Button type="button" disabled={saving} onClick={salvar}>{saving ? 'Salvando…' : editId ? 'Salvar alterações' : 'Salvar ficha'}</Button>
+            </>
+          }
+        >
+          {/* Formulário e custo calculado lado a lado na tela larga; um embaixo do outro na estreita. */}
+          <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
+            <div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="nome">Nome da receita / produção</Label>
+                  <Input id="nome" data-foco-inicial value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Molho base de tomate" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="cat">Categoria</Label>
+                  <Select id="cat" value={categoria} onChange={(e) => setCategoria(e.target.value)}>
+                    {CATEGORIAS.map((c) => (
+                      <option key={c.value} value={c.value}>{c.label}</option>
+                    ))}
+                  </Select>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="rend">Rendimento</Label>
+                    <Input id="rend" type="number" min={0} step="any" inputMode="decimal" value={rendimento} onChange={(e) => setRendimento(e.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ru">Unidade</Label>
+                    <Input id="ru" value={rendUnidade} onChange={(e) => setRendUnidade(e.target.value)} placeholder="porções" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5">
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="font-display text-sm font-bold">Ingredientes e custo</h3>
+                  <span className="font-mono text-xs text-secondary-foreground">FC = fator de correção</span>
+                </div>
+                <div className="space-y-2">
+                  {ings.map((ing, idx) => (ing.somenteDelivery ? null : renderLinha(ing, idx)))}
+                </div>
+                <Button type="button" variant="outline" className="mt-2" onClick={() => setIngs((a) => [...a, linhaVazia(false)])}>
+                  <Plus className="h-4 w-4" /> Adicionar insumo
+                </Button>
+              </div>
+
+              {/* Custos delivery — insumos/itens (ex.: embalagens) contabilizados SÓ em
+                  pedido externo (cardápio digital próprio/integrado + marketplaces). */}
+              <div className="mt-5 rounded-xl border border-dashed border-info/40 bg-info/5 p-3">
+                <div className="mb-1 flex items-center justify-between">
+                  <h3 className="font-display text-sm font-bold">🛵 Custos delivery</h3>
+                  <span className="font-mono text-[10px] text-secondary-foreground">só em pedido externo</span>
+                </div>
+                <p className="mb-2 text-xs text-secondary-foreground">
+                  Embalagens e itens que só entram no custo de pedidos de delivery/retirada externa (iFood, 99food, cardápio digital). O balcão/mesa não conta esses.
+                </p>
+                <div className="space-y-2">
+                  {ings.map((ing, idx) => (ing.somenteDelivery ? renderLinha(ing, idx) : null))}
+                  {!temDelivery && (
+                    <p className="py-1 text-xs text-secondary-foreground">Nenhum custo de delivery. Adicione a embalagem, por exemplo.</p>
+                  )}
+                </div>
+                <Button type="button" variant="outline" className="mt-2" onClick={() => setIngs((a) => [...a, linhaVazia(true)])}>
+                  <Plus className="h-4 w-4" /> Adicionar custo de delivery
+                </Button>
+              </div>
+            </div>
+            {/* Custo calculado */}
+            <Card className="h-fit border-t-4 border-t-primary p-4">
+              <h2 className="mb-3 font-display text-lg font-bold">Custo calculado</h2>
+              <div className="space-y-2 text-sm">
+                <Row label="Custo total dos insumos" value={brl(custoTotal)} />
+                <Row label="Rendimento" value={`${rend} ${rendUnidade}`} />
+                <Row label={temDelivery ? 'Custo por porção (balcão)' : 'Custo por porção'} value={brl(custoPorcao)} strong />
+                {temDelivery && (
+                  <>
+                    <Row label="+ Custos delivery" value={brl(custoDeliveryExtra)} />
+                    <Row label="Custo por porção (delivery)" value={brl(custoPorcaoDelivery)} strong />
+                  </>
+                )}
+              </div>
+              <div className="mt-4 space-y-1.5">
+                <Label htmlFor="pv">Preço de venda (R$)</Label>
+                <Input id="pv" type="number" min={0} step="any" inputMode="decimal" value={precoVenda} onChange={(e) => setPrecoVenda(e.target.value)} placeholder="0,00" />
+              </div>
+              {/* Fundo claro com moldura: sobre o cinza, o verde do CMV não chegava ao contraste mínimo. */}
+              <div className="mt-4 rounded-lg border border-border bg-card p-4 text-center">
+                <p className="font-display text-[10px] font-bold uppercase tracking-[.14em] text-secondary-foreground">
+                  CMV do item
+                </p>
+                <p
+                  className="font-mono text-3xl font-bold"
+                  style={{ color: cmv == null ? undefined : cmvOk ? 'hsl(var(--ok))' : 'hsl(var(--destructive))' }}
+                >
+                  {cmv == null ? '—' : `${cmv.toFixed(1).replace('.', ',')}%`}
+                </p>
+                <span className="mt-1 inline-block">
+                  <Selo tom={cmv == null ? 'aviso' : cmvOk ? 'ok' : 'critico'}>
+                    {cmv == null ? 'Informe o preço' : cmvOk ? 'Dentro da meta' : 'Acima da meta'}
+                  </Selo>
+                </span>
+              </div>
+              <div className="mt-3 flex items-center justify-between gap-2">
+                <Label htmlFor="meta" className="text-xs text-secondary-foreground">Meta de CMV (%)</Label>
+                <Input id="meta" type="number" min={0} step="any" inputMode="decimal" value={metaCmvInput} onChange={(e) => setMetaCmvInput(e.target.value)} className="h-10 w-24" />
+              </div>
+
+              {temDelivery && (
+                <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-info/30 bg-info/5 px-3 py-2">
+                  <span className="text-xs text-secondary-foreground">CMV delivery (com embalagem)</span>
+                  <Selo tom={cmvDelivery == null ? 'neutro' : cmvDeliveryOk ? 'ok' : 'critico'}>
+                    <span className="font-mono">{cmvDelivery == null ? '—' : `${cmvDelivery.toFixed(1).replace('.', ',')}%`}</span>
+                  </Selo>
+                </div>
+              )}
+
+              {precoSugerido != null && (
+                <div className="mt-3 rounded-lg border border-primary/40 bg-primary/5 p-3 text-center">
+                  <p className="font-display text-[10px] font-bold uppercase tracking-[.14em] text-secondary-foreground">
+                    Preço sugerido (p/ meta {meta.toFixed(1).replace('.', ',')}%)
+                  </p>
+                  {/* O dourado fica na moldura: como cor de texto sobre o claro ele não se lê. */}
+                  <p className="font-mono text-2xl font-bold">
+                    {brl(precoSugerido)}
                   </p>
                 </div>
-                <div className="flex flex-none gap-0.5">
-                  <Button variant="ghost" size="icon" aria-label="Duplicar" title="Duplicar ficha" onClick={() => duplicar(f)}>
-                    <Copy className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="icon" aria-label="Editar" onClick={() => editar(f)}>
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="icon" aria-label="Excluir" className="text-destructive" onClick={() => excluir(f.id)}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+              )}
+
+              {(markup != null || margem != null) && (
+                <div className="mt-3 space-y-2 text-sm">
+                  <Row
+                    label="Markup (preço÷custo)"
+                    value={markup != null ? `${markup.toFixed(2).replace('.', ',')}×` : '—'}
+                  />
+                  <Row
+                    label="Margem (lucro÷preço)"
+                    value={margem != null ? `${margem.toFixed(1).replace('.', ',')}%` : '—'}
+                  />
                 </div>
-              </div>
-              <div className="mt-3 flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">
-                  {brl(Number(f.custoPorcao ?? 0))} / porção
-                </span>
-                <span
-                  className="rounded-md px-2 py-0.5 font-mono text-xs font-bold"
-                  style={{
-                    background: f.cmv == null ? 'hsl(var(--muted))' : ok ? 'hsl(var(--ok)/.15)' : 'hsl(var(--destructive)/.12)',
-                    color: f.cmv == null ? 'hsl(var(--muted-foreground))' : ok ? 'hsl(var(--ok))' : 'hsl(var(--destructive))',
-                  }}
-                >
-                  {f.cmv == null ? 'sem preço' : `CMV ${String(f.cmv).replace('.', ',')}%`}
-                </span>
-              </div>
+              )}
             </Card>
-          );
-        })}
-      </div>
+          </div>
+          {erro && <p id={ID_ERRO} role="alert" className="mt-3 rounded-md bg-destructive/10 px-3 py-2 text-sm font-medium">{erro}</p>}
+        </Gaveta>
+      )}
+
+      {excluindo && (
+        <Dialogo alerta titulo="Excluir ficha técnica" aoFechar={() => setExcluindo(null)} voltarPara={ID_TITULO}
+          rodape={
+            <>
+              <Button type="button" variant="outline" data-foco-inicial onClick={() => setExcluindo(null)} disabled={apagando}>Cancelar</Button>
+              <Button type="button" variant="destructive" onClick={confirmarExclusao} disabled={apagando}>{apagando ? 'Excluindo…' : 'Excluir ficha'}</Button>
+            </>
+          }>
+          <div className="space-y-3 text-sm">
+            <p>Excluir <b>{excluindo.nome}</b>?</p>
+            <p className="rounded-md border-l-4 border-destructive bg-destructive/10 px-3 py-2">
+              A ficha sai desta lista e deixa de ser opção de sub-receita e de etiqueta. O produto do cardápio que já usa esta ficha continua ligado a ela — confira o produto antes de excluir. Não dá para desfazer por aqui.
+            </p>
+          </div>
+        </Dialogo>
       )}
     </Shell>
   );
@@ -547,8 +619,8 @@ export default function FichasPage() {
 function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
     <div className="flex items-center justify-between border-b border-border pb-2">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={`font-mono ${strong ? 'text-base font-bold text-primary' : 'font-semibold'}`}>
+      <span className="text-secondary-foreground">{label}</span>
+      <span className={`font-mono ${strong ? 'text-base font-bold' : 'font-semibold'}`}>
         {value}
       </span>
     </div>

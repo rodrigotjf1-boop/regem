@@ -1,8 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Recycle } from 'lucide-react';
-import { api, podePerm } from '@/lib/api';
+import { Recycle, Tag } from 'lucide-react';
+import { api, getCategoria, podePerm } from '@/lib/api';
 import { SkeletonList } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { DesperdicioForm } from './desperdicio-secao';
@@ -29,8 +29,17 @@ function situacao(l: any): { tom: Tom; texto: string } {
 }
 
 // Aba Validades: os lotes com saldo, do que vence primeiro para o que vence por último (o
-// primeiro que vence é o primeiro que sai). Do lote vencido dá para registrar a perda aqui.
-export function ValidadesSecao({ itens, aoMudarEstoque }: { itens: any[]; aoMudarEstoque: () => void }) {
+// primeiro que vence é o primeiro que sai). Do lote vencido dá para registrar a perda aqui; do
+// lote com validade, gerar a etiqueta (`aoEtiquetar` leva para a aba Etiquetas com ele escolhido).
+export function ValidadesSecao({
+  itens,
+  aoMudarEstoque,
+  aoEtiquetar,
+}: {
+  itens: any[];
+  aoMudarEstoque: () => void;
+  aoEtiquetar?: (lote: any) => void;
+}) {
   const [lista, setLista] = useState<any[] | null>(null);
   const [erro, setErro] = useState('');
   const [busca, setBusca] = useState('');
@@ -60,6 +69,9 @@ export function ValidadesSecao({ itens, aoMudarEstoque }: { itens: any[]; aoMuda
   const filtrando = !!(busca.trim() || categoria || sit >= 0);
   const limpar = () => { setBusca(''); setCategoria(''); setSit(-1); };
   const podePerda = podePerm('desperdicio');
+  // Mesma regra de "Gerar etiqueta" na aba Etiquetas: gestão com "editar estoque".
+  const podeEtiquetar =
+    !!aoEtiquetar && ['presidente', 'gerente', 'supervisao', 'suporte'].includes(getCategoria() ?? '') && podePerm('estoque', 'editar');
 
   return (
     <section className="space-y-3" aria-labelledby="validades-titulo">
@@ -89,7 +101,11 @@ export function ValidadesSecao({ itens, aoMudarEstoque }: { itens: any[]; aoMuda
             { titulo: 'Validade', celula: (l) => (l.validade ? <span className="font-mono">{dataBr(l.validade)}</span> : '—') },
             { titulo: 'Situação', celula: (l) => <Selo tom={situacao(l).tom}>{situacao(l).texto}</Selo> },
           ]}
-          acoes={(l) => (podePerda && dias(l) !== null && dias(l)! <= 0 ? [{ rotulo: 'Registrar perda', icone: Recycle, aoClicar: setPerda, tom: 'perigo' as const }] : [])}
+          acoes={(l) => [
+            // Lote sem validade não vira etiqueta de validade (não há data para imprimir).
+            ...(podeEtiquetar && dias(l) !== null ? [{ rotulo: 'Etiqueta', icone: Tag, aoClicar: aoEtiquetar! }] : []),
+            ...(podePerda && dias(l) !== null && dias(l)! <= 0 ? [{ rotulo: 'Registrar perda', icone: Recycle, aoClicar: setPerda, tom: 'perigo' as const }] : []),
+          ]}
         />
       )}
       {filtrando && linhas.length > 0 && (

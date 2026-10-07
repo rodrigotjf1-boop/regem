@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
@@ -50,11 +51,14 @@ export class EtiquetaValidadeController {
     return this.service.fontes(user.tenantId, atual);
   }
 
+  // `?situacao=vivas` = só as fechadas e em uso (a aba Etiquetas). Sem o parâmetro, as 300 mais
+  // recentes de qualquer situação, como sempre foi.
   @Get()
+  @ApiQuery({ name: 'situacao', required: false, enum: ['vivas'], description: 'Só as etiquetas fechadas e em uso, por ordem de validade.' })
   @Roles(...GESTAO)
   @RequirePerm('estoque', 'ver')
-  listar(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
-    return this.service.listar(user.tenantId, atual);
+  listar(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Query('situacao') situacao?: string) {
+    return this.service.listar(user.tenantId, atual, situacao === 'vivas');
   }
 
   @Post()

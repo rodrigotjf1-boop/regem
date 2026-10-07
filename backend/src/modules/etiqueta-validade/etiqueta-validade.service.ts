@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { and, desc, eq, gte, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   etiquetaTemplate,
@@ -465,7 +465,11 @@ export class EtiquetaValidadeService {
   }
 
   // ===== Lista + lifecycle =====
-  async listar(tenantId: string, atual: string | null = null) {
+  // `soVivas` = só as que ainda estão na prateleira (fechada ou em uso), da que vence primeiro
+  // para a que vence por último — é o que a aba Etiquetas mostra e conta. Sem o filtro vêm as
+  // 300 mais recentes de QUALQUER situação: numa cozinha que etiqueta muito, a vencida ainda
+  // não baixada (a mais antiga, justamente a que pede a perda) ficava fora da lista.
+  async listar(tenantId: string, atual: string | null = null, soVivas = false) {
     const rows = await this.db
       .select()
       .from(etiquetaValidade)
@@ -474,10 +478,11 @@ export class EtiquetaValidadeService {
           eq(etiquetaValidade.tenantId, tenantId),
           condUnidade(etiquetaValidade.unidadeId, atual),
           isNull(etiquetaValidade.deletedAt),
+          soVivas ? inArray(etiquetaValidade.status, EtiquetaValidadeService.VIVA) : undefined,
         ),
       )
-      .orderBy(desc(etiquetaValidade.createdAt))
-      .limit(300);
+      .orderBy(...(soVivas ? [asc(etiquetaValidade.validade), asc(etiquetaValidade.createdAt)] : [desc(etiquetaValidade.createdAt)]))
+      .limit(soVivas ? 1000 : 300);
     const hoje = hojeISO();
     return rows.map((r) => {
       const diasRestantes = Math.round((new Date(r.validade + 'T00:00:00').getTime() - new Date(hoje + 'T00:00:00').getTime()) / 86400000);

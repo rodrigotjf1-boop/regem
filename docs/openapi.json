@@ -5811,7 +5811,20 @@
     "/api/v1/etiquetas-validade": {
       "get": {
         "operationId": "EtiquetaValidadeController_listar",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "situacao",
+            "required": false,
+            "in": "query",
+            "description": "Só as etiquetas fechadas e em uso, por ordem de validade.",
+            "schema": {
+              "enum": [
+                "vivas"
+              ],
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": ""

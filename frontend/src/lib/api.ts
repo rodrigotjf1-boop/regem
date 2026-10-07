@@ -961,7 +961,8 @@ export const api = {
   salvarEtiquetaTemplate: (body: Record<string, unknown>) =>
     req('/etiquetas-validade/template', { method: 'PUT', body: JSON.stringify(body) }),
   etiquetaFontes: () => req('/etiquetas-validade/fontes'),
-  etiquetasValidade: () => req('/etiquetas-validade'),
+  // `soVivas` = só as fechadas e em uso, da que vence primeiro para a última (aba Etiquetas).
+  etiquetasValidade: (soVivas = false) => req('/etiquetas-validade' + (soVivas ? '?situacao=vivas' : '')),
   criarEtiqueta: (body: Record<string, unknown>) =>
     req('/etiquetas-validade', { method: 'POST', body: JSON.stringify(body) }),
   lerEtiqueta: (codigo: string) =>
