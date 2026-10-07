@@ -4,25 +4,55 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, getToken, getCategoria } from '@/lib/api';
 import { toast } from '@/lib/toast';
-import { buscarCep } from '@/lib/geo';
+import { buscarCep, geocodificar, localizacaoAtual, mapaEmbedUrl } from '@/lib/geo';
 import { Shell } from '@/components/app-shell/shell';
-import { Card } from '@/components/ui/card';
+import { Ajustes, alterados, type GrupoDeAjustes, type Valor, type Valores } from '@/components/ui/ajustes';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Card } from '@/components/ui/card';
 import { ImageUpload } from '@/components/ui/image-upload';
-import { Campo, PontoLojaMapa } from '@/components/delivery/config-panel';
+import { SkeletonList } from '@/components/ui/skeleton';
+import { texto2 } from '@/components/ui/lista';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+// Os campos de `/cardapio/config` que ESTA tela edita. O mesmo registro tem dezenas de outros
+// (tema, horários, frete…), editados em Delivery → Configurações: daqui só saem estes, e só os
+// que mudaram — mandar o registro inteiro regravava por cima o que a outra tela tinha salvo.
+const CAMPOS = [
+  'logoRef', 'nomePublico', 'contatoLoja', 'documento', 'whatsapp', 'instagram', 'subtitulo',
+  'endCep', 'endCidade', 'endRua', 'endNumero', 'endBairro', 'endEstado', 'endReferencia', 'endComplemento',
+  'endLat', 'endLng', 'pedidoMinimo', 'obsCheckout',
+] as const;
+const retrato = (cfg: any): Valores => Object.fromEntries(CAMPOS.map((k) => [k, cfg?.[k] ?? '']));
+
+// Configurações → Loja (mockup `mockups/regem-configuracoes.html`): identidade e endereço do
+// estabelecimento, no modelo de ajustes. Só o presidente.
 export default function LojaPage() {
   const router = useRouter();
-  const [loja, setLoja] = useState<any>(null);
+  const [salvos, setSalvos] = useState<Valores | null>(null);
+  const [valores, setValores] = useState<Valores>({});
+  const [idLoja, setIdLoja] = useState('');
+  const [erroCarga, setErroCarga] = useState('');
   const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState('');
   const [copiado, setCopiado] = useState(false);
+  const [msgMapa, setMsgMapa] = useState('');
 
-  const carregar = useCallback(async () => {
-    setLoja((await api.cardapioConfig().catch(() => ({}))) ?? {});
+  const receber = useCallback((cfg: any) => {
+    const r = retrato(cfg);
+    setSalvos(r);
+    setValores(r);
+    setIdLoja(cfg?.id ?? '');
   }, []);
+  const carregar = useCallback(async () => {
+    setErroCarga('');
+    try {
+      receber((await api.cardapioConfig()) ?? {});
+    } catch (e) {
+      // Erro não é "loja sem dados": o formulário vazio aqui enganava (e salvar por cima apagaria).
+      setErroCarga(e instanceof Error ? e.message : 'Não foi possível carregar os dados da loja.');
+    }
+  }, [receber]);
   useEffect(() => {
     if (!getToken()) {
       router.replace('/entrar');
@@ -33,121 +63,162 @@ export default function LojaPage() {
       router.replace('/painel');
       return;
     }
-    carregar();
+    void carregar();
   }, [carregar, router]);
 
-  const up = (patch: any) => setLoja((x: any) => ({ ...x, ...patch }));
+  const mudar = useCallback((chave: string, valor: Valor) => setValores((v) => ({ ...v, [chave]: valor })), []);
+  const varios = (patch: Valores) => setValores((v) => ({ ...v, ...patch }));
+
+  async function aoSairDoCep(cep: string) {
+    const d = await buscarCep(cep);
+    if (!d) return;
+    setValores((v) => ({ ...v, endRua: d.logradouro || v.endRua, endBairro: d.bairro || v.endBairro, endCidade: d.cidade || v.endCidade, endEstado: d.uf || v.endEstado }));
+  }
+  async function usarLocalizacao() {
+    setMsgMapa('Obtendo localização…');
+    try {
+      const c = await localizacaoAtual();
+      varios({ endLat: c.lat, endLng: c.lng });
+      setMsgMapa('Ponto definido pela sua localização.');
+    } catch (e) {
+      setMsgMapa(e instanceof Error ? e.message : 'Falha ao localizar.');
+    }
+  }
+  async function pontoPeloEndereco() {
+    const endereco = [valores.endRua, valores.endNumero, valores.endBairro, valores.endCidade, valores.endEstado].filter(Boolean).join(', ');
+    setMsgMapa('Geocodificando o endereço…');
+    const c = await geocodificar(endereco || String(valores.endCep ?? ''));
+    if (c) {
+      varios({ endLat: c.lat, endLng: c.lng });
+      setMsgMapa('Ponto definido pelo endereço.');
+    } else {
+      setMsgMapa('Endereço não encontrado. Confira rua/número/cidade ou use "Usar minha localização".');
+    }
+  }
+
+  const lat = Number(valores.endLat);
+  const lng = Number(valores.endLng);
+  const temPonto = String(valores.endLat ?? '') !== '' && Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0);
+
+  const grupos: GrupoDeAjustes[] = [
+    {
+      titulo: 'Identidade',
+      itens: [
+        {
+          id: 'logoRef', rotulo: 'Logo da loja (imagem)', tipo: 'livre',
+          desenhar: (v, m) => <ImageUpload value={String(v || '') || undefined} onChange={(url) => m(url)} id="logo-loja" alt="Logo da loja" />,
+        },
+        { id: 'nomePublico', rotulo: 'Nome do estabelecimento', tipo: 'texto' },
+        { id: 'contatoLoja', rotulo: 'Telefone de contato', tipo: 'texto', entrada: 'tel' },
+        { id: 'documento', rotulo: 'CPF / CNPJ', tipo: 'texto' },
+        { id: 'whatsapp', rotulo: 'WhatsApp', tipo: 'texto', placeholder: '+55', entrada: 'tel', opcional: true },
+        { id: 'instagram', rotulo: 'Instagram', tipo: 'texto', placeholder: '@sualoja', opcional: true },
+        { id: 'subtitulo', rotulo: 'Descrição', ajuda: 'Uma frase sobre a loja (aparece no cardápio).', tipo: 'area', opcional: true },
+      ],
+    },
+    {
+      titulo: 'Endereço do estabelecimento',
+      nota: 'Ao sair do campo CEP, rua, bairro, cidade e UF são preenchidos sozinhos.',
+      itens: [
+        { id: 'endCep', rotulo: 'CEP', tipo: 'texto', placeholder: '00000-000', entrada: 'numeric', aoSair: (v) => void aoSairDoCep(v) },
+        { id: 'endCidade', rotulo: 'Cidade', tipo: 'texto' },
+        { id: 'endRua', rotulo: 'Rua', tipo: 'texto' },
+        { id: 'endNumero', rotulo: 'Número', tipo: 'texto' },
+        { id: 'endBairro', rotulo: 'Bairro', tipo: 'texto' },
+        { id: 'endEstado', rotulo: 'Estado (UF)', tipo: 'texto', maximo: 2 },
+        { id: 'endReferencia', rotulo: 'Referência', tipo: 'texto', opcional: true },
+        { id: 'endComplemento', rotulo: 'Complemento', tipo: 'texto', opcional: true },
+      ],
+    },
+    {
+      titulo: 'Ponto da loja no mapa',
+      nota: 'Base para o frete por distância (raio). Defina pelo endereço, pela sua localização, ou ajuste as coordenadas.',
+      itens: [
+        { id: 'endLat', rotulo: 'Latitude', tipo: 'texto', palavras: 'mapa coordenadas' },
+        { id: 'endLng', rotulo: 'Longitude', tipo: 'texto', palavras: 'mapa coordenadas' },
+      ],
+      depois: (
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" onClick={() => void pontoPeloEndereco()}>Definir pelo endereço</Button>
+            <Button type="button" variant="outline" onClick={() => void usarLocalizacao()}>Usar minha localização</Button>
+          </div>
+          {msgMapa && <p className={`text-sm ${texto2}`} role="status">{msgMapa}</p>}
+          {temPonto ? (
+            <iframe title="Mapa da loja" src={mapaEmbedUrl(lat, lng)} className="h-56 w-full rounded-lg border-0" loading="lazy" allowFullScreen />
+          ) : (
+            <p className={`text-sm ${texto2}`}>Defina o ponto para ver o mapa.</p>
+          )}
+        </div>
+      ),
+    },
+    {
+      titulo: 'Pedidos pelo cardápio',
+      itens: [
+        { id: 'pedidoMinimo', rotulo: 'Pedido mínimo p/ delivery', tipo: 'texto', placeholder: '0,00', entrada: 'decimal', sufixo: 'R$', opcional: true },
+        { id: 'obsCheckout', rotulo: 'Observação antes de finalizar o pedido', ajuda: 'Aparece para o cliente antes de fechar o pedido no cardápio.', tipo: 'area', opcional: true },
+      ],
+      depois: idLoja ? (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold">ID do estabelecimento</p>
+            <p className="break-all font-mono text-xs">{idLoja}</p>
+          </div>
+          <Button type="button" variant="outline" onClick={async () => { await navigator.clipboard.writeText(idLoja); setCopiado(true); setTimeout(() => setCopiado(false), 1500); }}>
+            {copiado ? 'Copiado' : 'Copiar'}
+          </Button>
+        </div>
+      ) : undefined,
+    },
+  ];
 
   async function salvar() {
+    if (!salvos || salvando) return;
+    const chaves = alterados(grupos, valores, salvos);
+    if (!chaves.length) return;
+    setErro('');
     setSalvando(true);
     try {
-      setLoja(await api.setCardapioConfig(loja));
+      receber(await api.setCardapioConfig(Object.fromEntries(chaves.map((k) => [k, valores[k]]))));
       toast.success('Loja salva.');
+      document.getElementById('loja-titulo')?.focus(); // a barra de salvar (e o botão) sai da tela
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
+      setErro(e instanceof Error ? e.message : 'Erro ao salvar');
     } finally {
       setSalvando(false);
     }
   }
 
-  if (!loja) {
+  if (erroCarga)
     return (
       <Shell eyebrow="Configurações" title="Loja">
-        <p className="text-sm text-muted-foreground">Carregando…</p>
+        <Card className="flex flex-wrap items-center justify-center gap-3 p-8 text-center text-sm">
+          <span role="alert">{erroCarga}</span>
+          <Button type="button" variant="outline" size="sm" onClick={() => void carregar()}>Tentar de novo</Button>
+        </Card>
       </Shell>
     );
-  }
+  if (!salvos)
+    return (
+      <Shell eyebrow="Configurações" title="Loja">
+        <SkeletonList rows={5} />
+      </Shell>
+    );
 
   return (
     <Shell eyebrow="Configurações" title="Loja">
-      <div className="grid gap-4 lg:grid-cols-2">
-        {/* Identidade */}
-        <Card className="space-y-4 p-5">
-          <h2 className="font-display text-base font-bold">Identidade</h2>
-          <div className="flex items-center gap-3">
-            <ImageUpload value={loja.logoRef} onChange={(url) => up({ logoRef: url })} id="logo-loja" alt="Logo da loja" />
-            <div className="text-xs text-muted-foreground">Logo da loja (imagem)</div>
-          </div>
-          <Campo label="Nome do estabelecimento"><Input value={loja.nomePublico ?? ''} onChange={(e) => up({ nomePublico: e.target.value })} /></Campo>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <Campo label="Telefone de contato"><Input value={loja.contatoLoja ?? ''} onChange={(e) => up({ contatoLoja: e.target.value })} /></Campo>
-            <Campo label="CPF / CNPJ"><Input value={loja.documento ?? ''} onChange={(e) => up({ documento: e.target.value })} /></Campo>
-            <Campo label="WhatsApp"><Input value={loja.whatsapp ?? ''} onChange={(e) => up({ whatsapp: e.target.value })} placeholder="+55" /></Campo>
-            <Campo label="Instagram"><Input value={loja.instagram ?? ''} onChange={(e) => up({ instagram: e.target.value })} placeholder="@sualoja" /></Campo>
-          </div>
-          <Campo label="Descrição">
-            <textarea
-              rows={3}
-              value={loja.subtitulo ?? ''}
-              onChange={(e) => up({ subtitulo: e.target.value })}
-              className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm"
-              placeholder="Uma frase sobre a loja (aparece no cardápio)"
-            />
-          </Campo>
-        </Card>
-
-        {/* Endereço + operação */}
-        <Card className="space-y-4 p-5">
-          <h2 className="font-display text-base font-bold">Endereço do estabelecimento</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <Campo label="CEP">
-              <Input
-                value={loja.endCep ?? ''}
-                onChange={(e) => up({ endCep: e.target.value })}
-                onBlur={async (e) => {
-                  const d = await buscarCep(e.target.value);
-                  if (d) up({ endRua: d.logradouro || loja.endRua, endBairro: d.bairro || loja.endBairro, endCidade: d.cidade || loja.endCidade, endEstado: d.uf || loja.endEstado });
-                }}
-                placeholder="00000-000"
-              />
-            </Campo>
-            <Campo label="Cidade"><Input value={loja.endCidade ?? ''} onChange={(e) => up({ endCidade: e.target.value })} /></Campo>
-            <Campo label="Rua"><Input value={loja.endRua ?? ''} onChange={(e) => up({ endRua: e.target.value })} /></Campo>
-            <Campo label="Número"><Input value={loja.endNumero ?? ''} onChange={(e) => up({ endNumero: e.target.value })} /></Campo>
-            <Campo label="Bairro"><Input value={loja.endBairro ?? ''} onChange={(e) => up({ endBairro: e.target.value })} /></Campo>
-            <Campo label="Estado (UF)"><Input value={loja.endEstado ?? ''} onChange={(e) => up({ endEstado: e.target.value })} maxLength={2} /></Campo>
-            <Campo label="Referência"><Input value={loja.endReferencia ?? ''} onChange={(e) => up({ endReferencia: e.target.value })} /></Campo>
-            <Campo label="Complemento"><Input value={loja.endComplemento ?? ''} onChange={(e) => up({ endComplemento: e.target.value })} /></Campo>
-          </div>
-          <PontoLojaMapa loja={loja} up={up} pode />
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 border-t border-border pt-3">
-            <Campo label="Pedido mínimo p/ delivery (R$)"><Input inputMode="decimal" value={loja.pedidoMinimo ?? ''} onChange={(e) => up({ pedidoMinimo: e.target.value })} placeholder="0,00" /></Campo>
-          </div>
-          <Campo label="Observação antes de finalizar o pedido">
-            <textarea
-              rows={2}
-              value={loja.obsCheckout ?? ''}
-              onChange={(e) => up({ obsCheckout: e.target.value })}
-              className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm"
-              placeholder="Aparece para o cliente antes de fechar o pedido no cardápio"
-            />
-          </Campo>
-
-          {loja.id && (
-            <div className="flex items-center gap-2">
-              <Campo label="ID do estabelecimento">
-                <Input value={loja.id} readOnly className="font-mono text-xs" />
-              </Campo>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="mt-5"
-                onClick={async () => { await navigator.clipboard.writeText(loja.id); setCopiado(true); setTimeout(() => setCopiado(false), 1500); }}
-              >
-                {copiado ? 'Copiado' : 'Copiar'}
-              </Button>
-            </div>
-          )}
-        </Card>
-      </div>
-
-      <div className="sticky bottom-0 mt-4 flex justify-end border-t border-border bg-background/80 py-3 backdrop-blur">
-        <Button type="button" onClick={salvar} disabled={salvando}>
-          {salvando ? 'Salvando…' : 'Salvar loja'}
-        </Button>
-      </div>
+      <Ajustes
+        id="loja"
+        titulo="Dados da loja"
+        grupos={grupos}
+        valores={valores}
+        salvos={salvos}
+        aoMudar={mudar}
+        aoSalvar={() => void salvar()}
+        aoDescartar={() => { setValores(salvos); setErro(''); setMsgMapa(''); document.getElementById('loja-titulo')?.focus(); }}
+        salvando={salvando}
+        erro={erro}
+      />
     </Shell>
   );
 }

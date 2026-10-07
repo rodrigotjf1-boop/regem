@@ -1,50 +1,81 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Pencil } from 'lucide-react';
 import { api, getToken } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
-import { Card } from '@/components/ui/card';
+import { Ajustes, alterados, type GrupoDeAjustes, type Valor, type Valores } from '@/components/ui/ajustes';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Card } from '@/components/ui/card';
+import { Partes } from '@/components/ui/partes';
+import { SkeletonList } from '@/components/ui/skeleton';
+import { Gaveta } from '@/components/ui/sobreposto';
+import {
+  FiltroBusca, FiltroSelect, Filtros, ListaDados, Selo, Situacoes, TituloLista, Vazio, semAcento, texto2, type Situacao,
+} from '@/components/ui/lista';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+type Parte = 'ajustes' | 'setores';
+const PERIODOS_SENHA = [
+  { v: 'diario', rotulo: 'Diário' },
+  { v: 'semanal', rotulo: 'Semanal' },
+  { v: 'nunca', rotulo: 'Sem reset' },
+];
+const CHAVES_DO_KDS = ['verdeAteMin', 'amareloAteMin', 'usaPreparo', 'usaEntregue'];
+const tipoDe = (e: any) => (e.tipo === 'impressora' ? 'Impressora' : 'KDS');
+const ID_SETORES = 'setores-titulo';
 
+// Configurações → Produção & KDS (mockup `mockups/regem-configuracoes.html`). Duas partes:
+//  • Ajustes do KDS — cores por tempo, etapas, reinício da senha e momento da impressão. Um só
+//    "Salvar alterações": cada grupo grava na sua rota, e só o que mudou.
+//  • Destino por setor — para onde vai a produção de cada setor (lista; edição na gaveta).
 export default function ProducaoConfigPage() {
   const router = useRouter();
-  const [setores, setSetores] = useState<any[]>([]);
+  const [parte, setParte] = useState<Parte>('ajustes');
+  const [setores, setSetores] = useState<any[] | null>(null);
   const [equipamentos, setEquipamentos] = useState<any[]>([]);
   const [destinosPorSetor, setDestinosPorSetor] = useState<Record<string, string[]>>({});
-  const [cores, setCores] = useState({ verdeAteMin: 5, amareloAteMin: 10, usaPreparo: true, usaEntregue: true });
-  const [senhaPeriodo, setSenhaPeriodo] = useState('diario');
-  const [dcfg, setDcfg] = useState<any>({});
+  const [salvos, setSalvos] = useState<Valores>({});
+  const [valores, setValores] = useState<Valores>({});
+  const [erroCarga, setErroCarga] = useState('');
+  // Quais leituras de ajuste deram certo (cada grupo tem a sua rota, com a sua permissão).
+  const [fontes, setFontes] = useState({ cores: false, senha: false, delivery: false });
+  const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
-  const [salvando, setSalvando] = useState('');
+  const [editando, setEditando] = useState<any | null>(null);
+  const [busca, setBusca] = useState('');
+  const [sit, setSit] = useState(-1);
+  const [filtroTipo, setFiltroTipo] = useState('');
 
   const reload = useCallback(async () => {
-    setErro('');
+    setErroCarga('');
     try {
+      // Leitura de ajuste que falha NÃO vira valor padrão: um padrão na tela seria salvo por cima
+      // do que está gravado. O grupo dela simplesmente não aparece (ver `fontes`).
+      const naoVeio = Symbol('nao veio');
+      const ler = (x: Promise<unknown>) => x.catch(() => naoVeio);
       const [ss, eq, cor, sc, dc] = await Promise.all([
         api.setores(),
         api.equipamentos().catch(() => []),
-        api.kdsCores().catch(() => ({})),
-        api.senhaConfig().catch(() => ({ periodo: 'diario' })),
-        api.deliveryConfig().catch(() => ({})),
+        ler(api.kdsCores()),
+        ler(api.senhaConfig()),
+        ler(api.deliveryConfig()),
       ]);
-      setSetores(ss as any[]);
-      setDcfg(dc ?? {});
-      setEquipamentos(
-        (eq as any[]).filter((e) => e.tipo === 'kds' || e.tipo === 'impressora'),
-      );
-      setCores({
-        verdeAteMin: (cor as any).verdeAteMin ?? 5,
-        amareloAteMin: (cor as any).amareloAteMin ?? 10,
-        usaPreparo: (cor as any).usaPreparo ?? true,
-        usaEntregue: (cor as any).usaEntregue ?? true,
-      });
-      setSenhaPeriodo((sc as any).periodo ?? 'diario');
+      const r: Valores = {};
+      if (cor !== naoVeio) {
+        r.verdeAteMin = (cor as any)?.verdeAteMin ?? 5;
+        r.amareloAteMin = (cor as any)?.amareloAteMin ?? 10;
+        r.usaPreparo = (cor as any)?.usaPreparo ?? true;
+        r.usaEntregue = (cor as any)?.usaEntregue ?? true;
+      }
+      if (sc !== naoVeio) r.periodo = (sc as any)?.periodo ?? 'diario';
+      if (dc !== naoVeio) r.adiarProducaoAteKds = !!(dc as any)?.adiarProducaoAteKds;
+      setFontes({ cores: cor !== naoVeio, senha: sc !== naoVeio, delivery: dc !== naoVeio });
+      setSalvos(r);
+      setValores(r);
+      setEquipamentos((eq as any[]).filter((e) => e.tipo === 'kds' || e.tipo === 'impressora'));
       const mapa: Record<string, string[]> = {};
       await Promise.all(
         (ss as any[]).map(async (s) => {
@@ -53,8 +84,9 @@ export default function ProducaoConfigPage() {
         }),
       );
       setDestinosPorSetor(mapa);
+      setSetores(ss as any[]);
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro ao carregar');
+      setErroCarga(e instanceof Error ? e.message : 'Erro ao carregar');
     }
   }, []);
 
@@ -63,244 +95,284 @@ export default function ProducaoConfigPage() {
       router.replace('/entrar');
       return;
     }
-    reload();
+    void reload();
   }, [reload, router]);
 
-  function toggle(setorId: string, equipId: string) {
-    setDestinosPorSetor((m) => {
-      const atual = m[setorId] ?? [];
-      return {
-        ...m,
-        [setorId]: atual.includes(equipId)
-          ? atual.filter((x) => x !== equipId)
-          : [...atual, equipId],
-      };
-    });
+  const verde = Number(valores.verdeAteMin);
+  const amarelo = Number(valores.amareloAteMin);
+  const faixasOk = Number.isFinite(verde) && Number.isFinite(amarelo) && verde >= 0 && verde < amarelo;
+  const todosOsGrupos: (GrupoDeAjustes & { fonte: keyof typeof fontes })[] = [
+    {
+      fonte: 'cores',
+      titulo: 'Cores do KDS por tempo',
+      nota: 'Limiares em minutos desde a chegada do pedido: até verde, até amarelo, acima disso vermelho.',
+      itens: [
+        { id: 'verdeAteMin', rotulo: 'Verde até', tipo: 'numero', sufixo: 'min' },
+        { id: 'amareloAteMin', rotulo: 'Amarelo até', tipo: 'numero', sufixo: 'min' },
+      ],
+      depois: (
+        <div className="flex flex-wrap items-center gap-2" aria-label="Prévia das faixas de cor">
+          <Selo tom="ok">0–{String(valores.verdeAteMin)} min</Selo>
+          <Selo tom="aviso">{String(valores.verdeAteMin)}–{String(valores.amareloAteMin)} min</Selo>
+          <Selo tom="critico">acima de {String(valores.amareloAteMin)} min</Selo>
+          {!faixasOk && <span className="text-sm font-semibold" role="alert">O verde precisa terminar antes do amarelo.</span>}
+        </div>
+      ),
+    },
+    {
+      fonte: 'cores',
+      titulo: 'Etapas do pedido',
+      nota: 'A etapa “pronto” é sempre usada.',
+      itens: [
+        { id: 'usaPreparo', rotulo: 'Usar “em preparo”', tipo: 'chave' },
+        { id: 'usaEntregue', rotulo: 'Usar “entregue”', tipo: 'chave' },
+      ],
+    },
+    {
+      fonte: 'senha',
+      titulo: 'Senha de atendimento',
+      itens: [{ id: 'periodo', rotulo: 'Quando a numeração da senha reinicia', tipo: 'selecao', opcoes: PERIODOS_SENHA }],
+    },
+    {
+      fonte: 'delivery',
+      titulo: 'Impressão da produção',
+      itens: [
+        {
+          id: 'adiarProducaoAteKds',
+          rotulo: 'Imprimir a produção só ao avançar no KDS',
+          ajuda: 'Por padrão a via de produção sai ao registrar o pedido. Ligado, ela sai apenas quando o pedido avança no KDS que imprime na etapa (ex.: só no despacho). Se nenhum KDS estiver com “imprimir ao avançar”, a via sai no registro mesmo (não perde o ticket).',
+          tipo: 'chave',
+        },
+      ],
+    },
+  ];
+  const grupos: GrupoDeAjustes[] = todosOsGrupos.filter((g) => fontes[g.fonte]);
+  const semLeitura = todosOsGrupos.filter((g) => !fontes[g.fonte]).map((g) => g.titulo);
+
+  async function salvarAjustes() {
+    if (salvando) return;
+    const chaves = alterados(grupos, valores, salvos);
+    if (!chaves.length) return;
+    if (chaves.some((k) => k === 'verdeAteMin' || k === 'amareloAteMin') && !faixasOk) {
+      setErro('o verde precisa terminar antes do amarelo.');
+      return;
+    }
+    setErro('');
+    setSalvando(true);
+    // Cada grupo tem a sua rota; grava só as que mudaram e guarda como salvo o que deu certo —
+    // se uma falhar, só ela continua pendente.
+    const feito: Valores = {};
+    const falhas: string[] = [];
+    const tentar = async (nome: string, chavesDoGrupo: string[], gravar: () => Promise<unknown>) => {
+      if (!chaves.some((k) => chavesDoGrupo.includes(k))) return;
+      try {
+        await gravar();
+        for (const k of chavesDoGrupo) feito[k] = valores[k];
+      } catch (e) {
+        falhas.push(`${nome} (${e instanceof Error ? e.message : 'erro'})`);
+      }
+    };
+    await tentar('cores e etapas', CHAVES_DO_KDS, () =>
+      api.setKdsCores({ verdeAteMin: verde, amareloAteMin: amarelo, usaPreparo: !!valores.usaPreparo, usaEntregue: !!valores.usaEntregue }));
+    await tentar('reinício da senha', ['periodo'], () => api.setSenhaPeriodo(String(valores.periodo)));
+    // Só o campo desta tela: a configuração do delivery tem dezenas de outros, de outra tela.
+    await tentar('impressão da produção', ['adiarProducaoAteKds'], () => api.setDeliveryConfig({ adiarProducaoAteKds: !!valores.adiarProducaoAteKds }));
+    setSalvos((s) => ({ ...s, ...feito }));
+    setSalvando(false);
+    if (falhas.length) {
+      setErro(falhas.join('; '));
+    } else {
+      toast.success('Configuração do KDS salva.');
+      document.getElementById('kds-titulo')?.focus(); // a barra de salvar (e o botão) sai da tela
+    }
   }
 
-  async function salvarSetor(setorId: string) {
-    setSalvando(setorId);
+  if (erroCarga)
+    return (
+      <Shell eyebrow="Configurações" title="Produção & KDS">
+        <Card className="flex flex-wrap items-center justify-center gap-3 p-8 text-center text-sm">
+          <span role="alert">{erroCarga}</span>
+          <Button type="button" variant="outline" size="sm" onClick={() => void reload()}>Tentar de novo</Button>
+        </Card>
+      </Shell>
+    );
+  if (setores === null)
+    return (
+      <Shell eyebrow="Configurações" title="Produção & KDS">
+        <SkeletonList rows={5} />
+      </Shell>
+    );
+
+  // ── parte "Destino por setor" ──
+  const nomeDe = (id: string) => equipamentos.find((e) => e.id === id);
+  const destinosDe = (s: any) => (destinosPorSetor[s.id] ?? []).map(nomeDe).filter(Boolean) as any[];
+  const SITUACOES: Situacao<any>[] = [
+    { rotulo: 'Com destino', filtro: (s) => destinosDe(s).length > 0 },
+    { rotulo: 'Sem destino', filtro: (s) => destinosDe(s).length === 0, tom: 'aviso' },
+  ];
+  const b = semAcento(busca);
+  const base = setores.filter((s) => (!b || semAcento(s.nome).includes(b)) && (!filtroTipo || destinosDe(s).some((e) => tipoDe(e) === filtroTipo)));
+  const linhas = sit < 0 ? base : base.filter(SITUACOES[sit].filtro);
+  const filtrando = !!(busca.trim() || filtroTipo || sit >= 0);
+  const limpar = () => { setBusca(''); setFiltroTipo(''); setSit(-1); };
+  const pendentes = alterados(grupos, valores, salvos).length;
+
+  return (
+    <Shell eyebrow="Configurações" title="Produção & KDS">
+      <div className="space-y-4">
+        <Partes
+          rotulo="Partes de Produção & KDS"
+          ativa={parte}
+          aoEscolher={(p) => {
+            // Trocar de parte com ajuste pendente perderia a barra de salvar de vista: avisa e fica.
+            if (parte === 'ajustes' && p !== 'ajustes' && pendentes > 0) return toast.error('Salve ou descarte as alterações antes de trocar de parte.');
+            setParte(p);
+          }}
+          partes={[
+            { key: 'ajustes', label: 'Ajustes do KDS', conta: grupos.reduce((n, g) => n + g.itens.length, 0) },
+            { key: 'setores', label: 'Destino por setor', conta: setores.length },
+          ]}
+        />
+
+        {parte === 'ajustes' && (
+          <Ajustes
+            id="kds"
+            titulo="Ajustes do KDS"
+            grupos={grupos}
+            valores={valores}
+            salvos={salvos}
+            aoMudar={(k: string, v: Valor) => setValores((x) => ({ ...x, [k]: v }))}
+            aoSalvar={() => void salvarAjustes()}
+            aoDescartar={() => { setValores(salvos); setErro(''); document.getElementById('kds-titulo')?.focus(); }}
+            salvando={salvando}
+            erro={erro}
+            antes={
+              semLeitura.length > 0 && (
+                <p className="rounded-md border-l-4 border-warn bg-warn/10 px-3 py-2 text-sm" role="status">
+                  Não deu para carregar: <b>{semLeitura.join(', ')}</b>. Esses ajustes ficam de fora desta tela (seu perfil pode não ter acesso a eles).
+                </p>
+              )
+            }
+          />
+        )}
+
+        {parte === 'setores' && (
+          <section className="space-y-3" aria-labelledby={ID_SETORES}>
+            <TituloLista id={ID_SETORES} titulo="Destino padrão de cada setor" total={setores.length} mostrando={linhas.length} um="setor" varios="setores" />
+            <p className={`max-w-3xl text-sm ${texto2}`}>
+              Para onde vai a produção de cada setor: um <strong>KDS</strong> (tela) ou uma <strong>impressora</strong> (via automática,
+              cadastrada pelo servidor edge). A venda continua com <strong>1 senha</strong>; os itens do setor aparecem no destino escolhido.
+            </p>
+            {equipamentos.length === 0 && setores.length > 0 && (
+              <p className="rounded-md border-l-4 border-warn bg-warn/10 px-3 py-2 text-sm">
+                Nenhum KDS/impressora. Cadastre em Configurações → Equipamentos (as impressoras do sistema são registradas pelo servidor edge).
+              </p>
+            )}
+            <Situacoes base={base} opcoes={SITUACOES} valor={sit} aoMudar={setSit} />
+            <Filtros>
+              <FiltroBusca id="setores-busca" valor={busca} aoMudar={setBusca} placeholder="Nome do setor" />
+              <FiltroSelect id="setores-tipo" rotulo="Tipo de destino" todos="KDS e impressora" opcoes={['KDS', 'Impressora']} valor={filtroTipo} aoMudar={setFiltroTipo} />
+            </Filtros>
+            {setores.length === 0 ? (
+              <Vazio>Nenhum setor cadastrado.</Vazio>
+            ) : linhas.length === 0 ? (
+              <Vazio aoLimpar={limpar} />
+            ) : (
+              <ListaDados
+                legenda="Destino padrão de cada setor"
+                linhas={linhas}
+                chave={(s) => s.id}
+                nome={(s) => s.nome}
+                colunas={[
+                  { titulo: 'Setor', celula: (s) => <span className="font-bold">{s.nome}</span> },
+                  {
+                    titulo: 'Destinos',
+                    celula: (s) =>
+                      destinosDe(s).length ? (
+                        <span className="flex flex-wrap justify-end gap-1.5 xl:justify-start">{destinosDe(s).map((e) => <Selo key={e.id} tom="info">{e.nome}</Selo>)}</span>
+                      ) : (
+                        <Selo tom="aviso">sem destino</Selo>
+                      ),
+                  },
+                  { titulo: 'Quantidade', celula: (s) => <span className="font-mono">{destinosDe(s).length}</span> },
+                ]}
+                acoes={() => (equipamentos.length ? [{ rotulo: 'Destinos', icone: Pencil, aoClicar: setEditando, tom: 'primaria' as const }] : [])}
+              />
+            )}
+            {filtrando && linhas.length > 0 && (
+              <p><Button type="button" variant="outline" size="sm" onClick={limpar}>Limpar filtros</Button></p>
+            )}
+          </section>
+        )}
+      </div>
+
+      {editando && (
+        <DestinosDoSetor
+          setor={editando}
+          equipamentos={equipamentos}
+          marcados={destinosPorSetor[editando.id] ?? []}
+          aoFechar={() => setEditando(null)}
+          aoSalvar={(ids) => {
+            setDestinosPorSetor((m) => ({ ...m, [editando.id]: ids }));
+            setEditando(null);
+          }}
+        />
+      )}
+    </Shell>
+  );
+}
+
+function DestinosDoSetor({ setor, equipamentos, marcados, aoFechar, aoSalvar }: { setor: any; equipamentos: any[]; marcados: string[]; aoFechar: () => void; aoSalvar: (ids: string[]) => void }) {
+  const formId = useId();
+  const [ids, setIds] = useState<string[]>(marcados);
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState('');
+  const trocar = (id: string) => setIds((a) => (a.includes(id) ? a.filter((x) => x !== id) : [...a, id]));
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault();
+    if (salvando) return;
+    setErro('');
+    setSalvando(true);
     try {
-      await api.setDestinosSetor(setorId, destinosPorSetor[setorId] ?? []);
+      await api.setDestinosSetor(setor.id, ids);
       toast.success('Direcionamento do setor salvo.');
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
-    } finally {
-      setSalvando('');
-    }
-  }
-
-  async function salvarCores() {
-    setSalvando('cores');
-    try {
-      await api.setKdsCores({
-        verdeAteMin: Number(cores.verdeAteMin),
-        amareloAteMin: Number(cores.amareloAteMin),
-        usaPreparo: cores.usaPreparo,
-        usaEntregue: cores.usaEntregue,
-      });
-      toast.success('Configuração do KDS salva.');
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
-    } finally {
-      setSalvando('');
-    }
-  }
-
-  async function salvarSenha(periodo: string) {
-    setSenhaPeriodo(periodo);
-    try {
-      await api.setSenhaPeriodo(periodo);
-      toast.success('Reset de senha atualizado.');
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
-    }
-  }
-
-  async function salvarAdiar(v: boolean) {
-    const prev = dcfg;
-    setDcfg((d: any) => ({ ...d, adiarProducaoAteKds: v }));
-    try {
-      const c = await api.setDeliveryConfig({ ...dcfg, adiarProducaoAteKds: v });
-      setDcfg(c);
-      toast.success('Configuração do KDS salva.');
-    } catch (e) {
-      setDcfg(prev);
-      toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
+      aoSalvar(ids);
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao salvar');
+      setSalvando(false);
     }
   }
 
   return (
-    <Shell eyebrow="Gestão · produção" title="Produção & KDS">
-      <div className="space-y-4">
-        {erro && <p className="text-destructive">{erro}</p>}
-
-        {/* Cores do KDS */}
-        <Card className="p-4">
-          <h2 className="font-display text-lg font-semibold">Cores do KDS por tempo</h2>
-          <p className="mb-3 text-xs text-muted-foreground">
-            Limiares em minutos desde a chegada do pedido: até verde, até amarelo, acima disso vermelho.
-          </p>
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="space-y-1">
-              <Label className="text-xs">Verde até (min)</Label>
-              <Input
-                type="number"
-                className="w-28"
-                value={cores.verdeAteMin}
-                onChange={(e) => setCores((c) => ({ ...c, verdeAteMin: Number(e.target.value) }))}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Amarelo até (min)</Label>
-              <Input
-                type="number"
-                className="w-28"
-                value={cores.amareloAteMin}
-                onChange={(e) => setCores((c) => ({ ...c, amareloAteMin: Number(e.target.value) }))}
-              />
-            </div>
-            <Button type="button" onClick={salvarCores} disabled={salvando === 'cores'}>
-              {salvando === 'cores' ? 'Salvando…' : 'Salvar'}
-            </Button>
-          </div>
-
-          {/* Prévia das 3 faixas */}
-          <div className="mt-3 flex items-stretch gap-1 text-center text-[11px] font-semibold">
-            <div className="flex-1 rounded-md bg-ok/15 py-1.5 text-ok">
-              🟢 0–{cores.verdeAteMin} min
-            </div>
-            <div className="flex-1 rounded-md bg-warn/15 py-1.5 text-warn">
-              🟡 {cores.verdeAteMin}–{cores.amareloAteMin} min
-            </div>
-            <div className="flex-1 rounded-md bg-destructive/15 py-1.5 text-destructive">
-              🔴 acima de {cores.amareloAteMin} min
-            </div>
-          </div>
-
-          <div className="mt-4 border-t border-border pt-3">
-            <p className="mb-2 text-xs font-semibold text-muted-foreground">
-              Etapas do pedido (a etapa “pronto” é sempre usada)
-            </p>
-            <div className="flex flex-wrap gap-4">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={cores.usaPreparo}
-                  onChange={(e) => setCores((c) => ({ ...c, usaPreparo: e.target.checked }))}
-                  className="h-4 w-4 accent-primary"
-                />
-                Usar “em preparo”
+    <Gaveta
+      titulo={`Destinos do setor ${setor.nome}`}
+      aoFechar={aoFechar}
+      voltarPara={ID_SETORES}
+      rodape={
+        <>
+          <Button type="button" variant="outline" onClick={aoFechar} disabled={salvando}>Cancelar</Button>
+          <Button type="submit" form={formId} disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar setor'}</Button>
+        </>
+      }
+    >
+      <form id={formId} onSubmit={salvar} className="space-y-3">
+        <p className={`text-sm ${texto2}`} role="status">
+          Marque os KDS e as impressoras que recebem a produção deste setor. {ids.length} de {equipamentos.length} marcados.
+        </p>
+        <ul className="overflow-hidden rounded-md border border-border">
+          {equipamentos.map((e, i) => (
+            <li key={e.id} className="border-b border-border last:border-b-0">
+              <label className="flex min-h-11 cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-secondary/60">
+                <input type="checkbox" className="h-5 w-5 flex-none accent-primary" checked={ids.includes(e.id)} onChange={() => trocar(e.id)} data-foco-inicial={i === 0 ? '' : undefined} />
+                <span className="min-w-0 flex-1 font-semibold">{e.nome}</span>
+                <Selo tom="neutro">{tipoDe(e)}</Selo>
               </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={cores.usaEntregue}
-                  onChange={(e) => setCores((c) => ({ ...c, usaEntregue: e.target.checked }))}
-                  className="h-4 w-4 accent-primary"
-                />
-                Usar “entregue”
-              </label>
-            </div>
-          </div>
-        </Card>
-
-        {/* Senha */}
-        <Card className="p-4">
-          <h2 className="font-display text-lg font-semibold">Senha de atendimento</h2>
-          <p className="mb-3 text-xs text-muted-foreground">
-            Quando a numeração da senha reinicia.
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {[
-              { v: 'diario', l: 'Diário' },
-              { v: 'semanal', l: 'Semanal' },
-              { v: 'nunca', l: 'Sem reset' },
-            ].map((o) => (
-              <button
-                key={o.v}
-                type="button"
-                onClick={() => salvarSenha(o.v)}
-                className={`rounded-md border px-3 py-1.5 text-sm font-medium ${senhaPeriodo === o.v ? 'border-primary bg-primary/15 text-primary' : 'border-border'}`}
-              >
-                {o.l}
-              </button>
-            ))}
-          </div>
-        </Card>
-
-        {/* Impressão da produção (movido de Delivery → Impressoras e cupons) */}
-        <Card className="p-4">
-          <h2 className="font-display text-lg font-semibold">Impressão da produção</h2>
-          <label className="mt-2 flex items-start gap-2 text-sm">
-            <input type="checkbox" className="mt-0.5 h-4 w-4 accent-primary"
-              checked={!!dcfg?.adiarProducaoAteKds}
-              onChange={(e) => salvarAdiar(e.target.checked)} />
-            <span>Imprimir a produção só ao avançar no KDS
-              <span className="block text-[11px] text-muted-foreground">Por padrão a via de produção sai ao registrar o pedido. Ligado, ela sai apenas quando o pedido avança no KDS que imprime na etapa (ex.: só no despacho). Se nenhum KDS estiver com “imprimir ao avançar”, a via sai no registro mesmo (não perde o ticket).</span>
-            </span>
-          </label>
-        </Card>
-
-        {/* Direcionamento por setor */}
-        <Card className="p-4">
-          <h2 className="font-display text-lg font-semibold">
-            Direcionamento por setor
-          </h2>
-          <p className="mb-3 text-xs text-muted-foreground">
-            Para onde vai a produção de cada setor: um <strong>KDS</strong> (tela)
-            ou uma <strong>impressora</strong> (via automática, cadastrada pelo
-            servidor edge). A venda continua com <strong>1 senha</strong>; os itens
-            do setor aparecem no destino escolhido.
-          </p>
-          {setores.length === 0 && (
-            <p className="text-sm text-muted-foreground">Nenhum setor cadastrado.</p>
-          )}
-          {equipamentos.length === 0 && setores.length > 0 && (
-            <p className="text-sm text-muted-foreground">
-              Nenhum KDS/impressora. Cadastre em Configurações → Equipamentos (as
-              impressoras do sistema são registradas pelo servidor edge).
-            </p>
-          )}
-          <div className="space-y-3">
-            {setores.map((s) => (
-              <div key={s.id} className="rounded-lg border border-border p-3">
-                <div className="mb-2 font-medium">{s.nome}</div>
-                <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-                  {equipamentos.map((e) => (
-                    <label
-                      key={e.id}
-                      className={`flex cursor-pointer items-center gap-2 rounded-lg border p-2 text-sm ${(destinosPorSetor[s.id] ?? []).includes(e.id) ? 'border-primary bg-primary/10' : 'border-border'}`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={(destinosPorSetor[s.id] ?? []).includes(e.id)}
-                        onChange={() => toggle(s.id, e.id)}
-                        className="h-4 w-4 accent-primary"
-                      />
-                      <span className="flex-1">{e.nome}</span>
-                      <span className="rounded bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground">
-                        {e.tipo === 'impressora' ? '🖨️ impressora' : '🖥️ KDS'}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-                {equipamentos.length > 0 && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="mt-2"
-                    onClick={() => salvarSetor(s.id)}
-                    disabled={salvando === s.id}
-                  >
-                    {salvando === s.id ? 'Salvando…' : 'Salvar setor'}
-                  </Button>
-                )}
-              </div>
-            ))}
-          </div>
-        </Card>
-      </div>
-    </Shell>
+            </li>
+          ))}
+        </ul>
+        {erro && <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm font-medium">{erro}</p>}
+      </form>
+    </Gaveta>
   );
 }
