@@ -696,7 +696,7 @@ export class EtiquetaValidadeService {
           quantidade: baixa ? qtd : undefined,
           unidadeMedida: e.unidadeMedida ?? undefined,
           descricao: `Etiqueta vencida: ${e.descricao}`,
-          motivo: 'validade',
+          motivo: 'Validade',
           colaboradorId: atorId ?? undefined,
           unidadeId: e.unidadeId ?? undefined,
         } as any,

@@ -2,40 +2,24 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, ArrowRight } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { api, getToken, podeVerFinanceiro } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { SkeletonList } from '@/components/ui/skeleton';
-import { EntityForm, type FieldDef } from '@/components/cadastros/entity-form';
 import { ProdutosSecao } from '@/components/estoque/produtos-secao';
 import { PainelSecao } from '@/components/estoque/painel-secao';
 import { ContagemSecao } from '@/components/estoque/contagem-secao';
 import { ComprasSecao } from '@/components/estoque/compras-secao';
 import { EtiquetasSecao } from '@/components/estoque/etiquetas-secao';
-import { RecebimentoForm } from '@/components/recebimento/recebimento-form';
+import { RecebimentoSecao } from '@/components/estoque/recebimento-secao';
+import { ValidadesSecao } from '@/components/estoque/validades-secao';
+import { DesperdicioSecao } from '@/components/estoque/desperdicio-secao';
+import { VistoriasSecao } from '@/components/estoque/vistorias-secao';
 import { Shell } from '@/components/app-shell/shell';
 import { toast } from '@/lib/toast';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-function validadeStatus(validade: string | null) {
-  if (!validade) return { label: 'sem validade', cls: 'bg-secondary text-muted-foreground' };
-  const hoje = new Date();
-  hoje.setHours(0, 0, 0, 0);
-  const v = new Date(`${validade}T00:00:00`);
-  const dias = Math.round((v.getTime() - hoje.getTime()) / 86400000);
-  const dm = v.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-  if (dias < 0)
-    return { label: `vencido há ${Math.abs(dias)}d`, cls: 'bg-destructive/10 text-destructive' };
-  if (dias === 0) return { label: 'vence hoje', cls: 'bg-destructive/10 text-destructive' };
-  if (dias <= 7) return { label: `vence em ${dias}d (${dm})`, cls: 'bg-warn/10 text-warn' };
-  return { label: dm, cls: 'bg-ok/10 text-ok' };
-}
-
-const brl = (n: number) =>
-  Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-
 type Secao =
   | 'painel'
   | 'produtos'
@@ -67,70 +51,38 @@ export default function EstoquePage() {
   const [itens, setItens] = useState<any[]>([]);
   const [categorias, setCategorias] = useState<any[]>([]);
   const [fornecedores, setFornecedores] = useState<any[]>([]);
-  const [desperdicios, setDesperdicios] = useState<any[]>([]);
-  const [vistorias, setVistorias] = useState<any[]>([]);
-  const [recebimentos, setRecebimentos] = useState<any[]>([]);
-  const [lotes, setLotes] = useState<any[]>([]);
-  const [showReceb, setShowReceb] = useState(false);
   const [pronto, setPronto] = useState(false);
   const [erro, setErro] = useState('');
-  const [ver, setVer] = useState(0);
 
+  // O que VÁRIAS abas usam: produtos, categorias e fornecedores. As listas de cada aba
+  // (recebimentos, lotes, desperdícios, vistorias…) cada seção carrega a sua, com o período.
   const reload = useCallback(async () => {
     try {
-      // allSettled, NÃO all: o hub carrega 7 seções e o perfil de supervisão não tem
-      // permissão em todas. Com `Promise.all`, um único 403 (ex.: /fornecedores)
-      // rejeitava tudo e a tela inteira ficava VAZIA — o operador achava que não havia
-      // estoque cadastrado. Agora cada seção falha sozinha e as demais aparecem.
+      // allSettled, NÃO all: o perfil de supervisão não tem permissão em tudo. Com
+      // `Promise.all`, um único 403 (ex.: /fornecedores) rejeitava tudo e a tela inteira
+      // ficava VAZIA — o operador achava que não havia estoque cadastrado.
       const r = await Promise.allSettled([
         api.get('/estoque/itens'),
         api.estoqueCategorias(),
         api.fornecedores(),
-        api.get('/desperdicios'),
-        api.get('/vistorias'),
-        api.recebimentos(),
-        api.lotes(),
       ]);
       const val = <T,>(i: number, vazio: T): T =>
         r[i].status === 'fulfilled' ? ((r[i] as PromiseFulfilledResult<T>).value ?? vazio) : vazio;
       setItens(val(0, [] as any));
       setCategorias(val(1, [] as any));
       setFornecedores(val(2, [] as any));
-      setDesperdicios(val(3, [] as any));
-      setVistorias(val(4, [] as any));
-      setRecebimentos(val(5, [] as any));
-      setLotes(val(6, [] as any));
       // Só avisa se TUDO falhou — falha parcial por permissão é esperada e silenciosa.
       const caiu = r.filter((x) => x.status === 'rejected');
       if (caiu.length === r.length) {
         const e = (caiu[0] as PromiseRejectedResult).reason;
         setErro(e instanceof Error ? e.message : 'Erro ao carregar');
       }
-      setVer((v) => v + 1);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     } finally {
       setPronto(true);
     }
   }, []);
-
-  // Trava de duplo clique: confirmar duas vezes dava entrada em dobro no estoque E
-  // criava duas contas a pagar ao fornecedor. O servidor agora recusa a segunda, mas
-  // o botão não pode nem deixar o usuário tentar (e nem parecer que travou).
-  const [confirmando, setConfirmando] = useState<string | null>(null);
-  async function confirmarRecebimento(id: string) {
-    if (confirmando) return;
-    setErro('');
-    setConfirmando(id);
-    try {
-      await api.confirmarRecebimento(id);
-      await reload();
-    } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro ao confirmar');
-    } finally {
-      setConfirmando(null);
-    }
-  }
 
   // Pausar automaticamente o item no cardápio ao esgotar o estoque (config global).
   const [autoPausa, setAutoPausa] = useState(true);
@@ -155,12 +107,6 @@ export default function EstoquePage() {
 
   const optCat: { id: string; nome: string }[] = categorias.map((c: any) => ({ id: c.id, nome: c.nome }));
   const optForn: { id: string; nome: string }[] = fornecedores.map((f: any) => ({ id: f.id, nome: f.nome }));
-  const hoje = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
-  const TIPO_VIST = [
-    { value: 'abertura', label: 'Abertura' },
-    { value: 'fechamento', label: 'Fechamento' },
-    { value: 'padrao', label: 'Padrão' },
-  ];
 
   const verFin = podeVerFinanceiro(); // valor do estoque (R$) conforme permissão do perfil
 
@@ -248,169 +194,19 @@ export default function EstoquePage() {
         {secao === 'compras' && <ComprasSecao itens={itens} fornecedores={fornecedores} />}
 
         {/* ---------- RECEBIMENTO ---------- */}
-        {secao === 'recebimento' && (
-          <section className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="font-display font-semibold">Recebimento</h2>
-              <Button size="sm" onClick={() => setShowReceb((v) => !v)}>
-                {showReceb ? 'Fechar' : (<><Plus className="h-4 w-4" /> Novo recebimento</>)}
-              </Button>
-            </div>
-            {showReceb && (
-              <RecebimentoForm
-                fornecedores={fornecedores}
-                itens={itens}
-                onCancel={() => setShowReceb(false)}
-                onCreated={() => { setShowReceb(false); reload(); }}
-              />
-            )}
-            {recebimentos.length === 0 && !showReceb && (
-              <Card className="p-6 text-center text-sm text-muted-foreground">Nenhum recebimento registrado.</Card>
-            )}
-            {recebimentos.map((r: any) => (
-              <Card key={r.id} className="flex items-center justify-between gap-3 p-4">
-                <div className="min-w-0">
-                  <p className="font-medium">
-                    {r.fornecedorNome ?? 'Sem fornecedor'}{' '}
-                    <span className="text-xs font-normal text-muted-foreground">· {r.data}</span>
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {r.itens} item(ns){r.divergencias > 0 ? ` · ${r.divergencias} divergência(s)` : ''}
-                  </p>
-                </div>
-                {r.status === 'conferido' ? (
-                  <Badge className="bg-ok/10 text-ok">conferido</Badge>
-                ) : (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={confirmando !== null}
-                    onClick={() => confirmarRecebimento(r.id)}
-                  >
-                    {confirmando === r.id ? 'Confirmando…' : 'Confirmar'}
-                  </Button>
-                )}
-              </Card>
-            ))}
-          </section>
-        )}
+        {secao === 'recebimento' && <RecebimentoSecao itens={itens} fornecedores={fornecedores} aoMudarEstoque={reload} />}
 
         {/* ---------- VALIDADES ---------- */}
-        {secao === 'validades' && (
-          <section className="space-y-3">
-            <h2 className="font-display font-semibold">Validades (FEFO)</h2>
-            {lotes.length === 0 ? (
-              <Card className="p-6 text-center text-sm text-muted-foreground">
-                Nenhum lote com validade. Lotes nascem ao confirmar recebimentos com data de validade.
-              </Card>
-            ) : (
-              lotes.map((l: any) => {
-                const st = validadeStatus(l.validade);
-                return (
-                  <Card key={l.id} className="flex items-center justify-between gap-3 p-4">
-                    <div className="min-w-0">
-                      <p className="font-medium">{l.itemNome}</p>
-                      <p className="text-xs text-muted-foreground">{l.quantidade} {l.unidade} · entrada {l.entrada}</p>
-                    </div>
-                    <Badge className={st.cls}>{st.label}</Badge>
-                  </Card>
-                );
-              })
-            )}
-          </section>
-        )}
+        {secao === 'validades' && <ValidadesSecao itens={itens} aoMudarEstoque={reload} />}
 
         {/* ---------- ETIQUETAS DE VALIDADE ---------- */}
         {secao === 'etiquetas' && <EtiquetasSecao />}
 
         {/* ---------- DESPERDÍCIO ---------- */}
-        {secao === 'desperdicio' && (
-          <section className="space-y-3">
-            <h2 className="font-display font-semibold">Desperdício</h2>
-            <Card className="p-4">
-              <EntityForm
-                key={`desp-${ver}`}
-                submitLabel="Registrar desperdício"
-                fields={[
-                  { name: 'descricao', label: 'Descrição', type: 'text', required: true, placeholder: 'Ex.: Pão queimado' },
-                  { name: 'itemId', label: 'Item de estoque (opcional — baixa o estoque e entra no CMV)', type: 'select', defaultValue: '', options: [{ value: '', label: '— sem vínculo (só registro) —' }, ...itens.map((i: any) => ({ value: i.id, label: i.nome }))] },
-                  { name: 'quantidade', label: 'Quantidade', type: 'text', placeholder: '0' },
-                  { name: 'motivo', label: 'Motivo', type: 'text', placeholder: 'Ex.: forno' },
-                  { name: 'fotoRef', label: 'Foto (opcional)', type: 'image' },
-                  { name: 'data', label: 'Data', type: 'date', defaultValue: hoje },
-                ] as FieldDef[]}
-                onSubmit={async (v) => {
-                  await api.post('/desperdicios', { descricao: v.descricao, itemId: v.itemId || undefined, quantidade: v.quantidade ? Number(v.quantidade) : undefined, motivo: v.motivo || undefined, fotoRef: v.fotoRef || undefined, data: v.data || undefined });
-                  await reload();
-                }}
-              />
-            </Card>
-            {desperdicios.map((d: any) => (
-              <Card key={d.id} className="flex items-center gap-3 p-4">
-                {d.fotoRef && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={d.fotoRef} alt="Foto do desperdício" className="h-14 w-14 flex-none rounded-md object-cover" />
-                )}
-                <div>
-                  <p className="font-medium">{d.descricao}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {d.quantidade ?? '—'} {d.unidadeMedida ?? ''}{d.motivo ? ` · ${d.motivo}` : ''} · {d.data}
-                    {d.custoUnitario && d.quantidade ? ` · perda ${brl(Number(d.custoUnitario) * Number(d.quantidade))}` : ''}
-                  </p>
-                  {/* Rastro do registro (mig 251): a hora do servidor, o ponto de leitura e
-                      quem estava logado. O desperdício é registrado por qualquer colaborador,
-                      então o controle está aqui, não na permissão. */}
-                  <p className="text-xs text-muted-foreground">
-                    registrado{' '}
-                    {d.createdAt
-                      ? new Date(d.createdAt).toLocaleString('pt-BR', {
-                          day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
-                        })
-                      : '—'}
-                    {d.pontoNome ? ` · ponto ${d.pontoNome}` : ''}
-                    {d.registradoPorNome ? ` · por ${d.registradoPorNome}` : ''}
-                  </p>
-                </div>
-              </Card>
-            ))}
-          </section>
-        )}
+        {secao === 'desperdicio' && <DesperdicioSecao itens={itens} aoMudarEstoque={reload} />}
 
         {/* ---------- VISTORIAS ---------- */}
-        {secao === 'vistorias' && (
-          <section className="space-y-3">
-            <h2 className="font-display font-semibold">Vistorias</h2>
-            <Card className="p-4">
-              <EntityForm
-                key={`vist-${ver}`}
-                submitLabel="Registrar vistoria"
-                fields={[
-                  { name: 'tipo', label: 'Tipo', type: 'select', options: TIPO_VIST, defaultValue: 'abertura' },
-                  { name: 'observacao', label: 'Observação', type: 'text', placeholder: 'Ex.: Tudo ok' },
-                  { name: 'fotoRef', label: 'Foto (opcional)', type: 'image' },
-                  { name: 'data', label: 'Data', type: 'date', defaultValue: hoje },
-                ] as FieldDef[]}
-                onSubmit={async (v) => {
-                  await api.post('/vistorias', { tipo: v.tipo, observacao: v.observacao || undefined, fotoRef: v.fotoRef || undefined, data: v.data || undefined });
-                  await reload();
-                }}
-              />
-            </Card>
-            {vistorias.map((vi: any) => (
-              <Card key={vi.id} className="flex items-center gap-3 p-4">
-                {vi.fotoRef && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={vi.fotoRef} alt="Foto da vistoria" className="h-14 w-14 flex-none rounded-md object-cover" />
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium capitalize">{vi.tipo}</p>
-                  <p className="text-sm text-muted-foreground">{vi.observacao ?? ''} · {vi.data}</p>
-                </div>
-                <Badge className="bg-ok/10 text-ok">{vi.status}</Badge>
-              </Card>
-            ))}
-          </section>
-        )}
+        {secao === 'vistorias' && <VistoriasSecao />}
       </div>
     </Shell>
   );

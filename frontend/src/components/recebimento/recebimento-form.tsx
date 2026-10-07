@@ -1,13 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
-import { Card } from '@/components/ui/card';
+import { Gaveta } from '@/components/ui/sobreposto';
 import { ImageUpload } from '@/components/ui/image-upload';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -76,6 +76,7 @@ export function RecebimentoForm({
   const [linhas, setLinhas] = useState<Linha[]>([linhaVazia(itens)]);
   const [erro, setErro] = useState('');
   const [saving, setSaving] = useState(false);
+  const formId = useId();
 
   function setLinha(i: number, patch: Partial<Linha>) {
     setLinhas((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -114,8 +115,22 @@ export function RecebimentoForm({
   }
 
   return (
-    <Card className="p-4">
-      <form onSubmit={salvar} className="space-y-4">
+    <Gaveta
+      larga
+      titulo="Novo recebimento"
+      aoFechar={onCancel}
+      rodape={
+        <>
+          <Button type="button" variant="outline" onClick={onCancel}>
+            Cancelar
+          </Button>
+          <Button type="submit" form={formId} disabled={saving}>
+            {saving ? 'Salvando…' : 'Salvar recebimento (rascunho)'}
+          </Button>
+        </>
+      }
+    >
+      <form id={formId} onSubmit={salvar} className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor="fr">Fornecedor</Label>
@@ -301,19 +316,11 @@ export function RecebimentoForm({
           </p>
         )}
 
-        <div className="flex gap-2">
-          <Button type="submit" className="flex-1" disabled={saving}>
-            {saving ? 'Salvando…' : 'Salvar recebimento (rascunho)'}
-          </Button>
-          <Button type="button" variant="outline" onClick={onCancel}>
-            Cancelar
-          </Button>
-        </div>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-secondary-foreground">
           Salvar cria um rascunho. O estoque só é atualizado ao{' '}
           <strong>confirmar</strong> o recebimento na lista.
         </p>
       </form>
-    </Card>
+    </Gaveta>
   );
 }

@@ -94,8 +94,8 @@ function Cabecalho({ id, titulo, aoFechar }: { id: string; titulo: string; aoFec
   );
 }
 
-/** Gaveta lateral (direita). No celular ocupa a tela inteira. */
-export function Gaveta({ titulo, aoFechar, children, rodape, fecharNoFundo = false, voltarPara }: Base) {
+/** Gaveta lateral (direita). No celular ocupa a tela inteira. `larga` = formulário com tabela dentro. */
+export function Gaveta({ titulo, aoFechar, children, rodape, fecharNoFundo = false, voltarPara, larga = false }: Base & { larga?: boolean }) {
   const id = useId();
   const painel = useSobreposto(aoFechar, voltarPara);
   return (
@@ -107,7 +107,10 @@ export function Gaveta({ titulo, aoFechar, children, rodape, fecharNoFundo = fal
         aria-modal="true"
         aria-labelledby={id}
         tabIndex={-1}
-        className="absolute inset-y-0 right-0 flex w-full max-w-[560px] flex-col bg-card text-foreground shadow-2xl outline-none"
+        className={cn(
+          'absolute inset-y-0 right-0 flex w-full flex-col bg-card text-foreground shadow-2xl outline-none',
+          larga ? 'max-w-[980px]' : 'max-w-[560px]',
+        )}
       >
         <Cabecalho id={id} titulo={titulo} aoFechar={aoFechar} />
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>

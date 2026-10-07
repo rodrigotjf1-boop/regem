@@ -4,8 +4,10 @@ import {
   Get,
   Param,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
+import { periodoDaConsulta } from '../../common/periodo';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
@@ -22,10 +24,16 @@ import { CreateRecebimentoDto } from './dto/create-recebimento.dto';
 export class RecebimentoController {
   constructor(private readonly service: RecebimentoService) {}
 
+  // `?inicio=AAAA-MM-DD&fim=AAAA-MM-DD` limita pela data do recebimento; sem eles, tudo.
   @Get()
   @RequirePerm('estoque', 'ver')
-  findAll(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
-    return this.service.findAll(user.tenantId, atual);
+  findAll(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
+    @Query('inicio') inicio?: string,
+    @Query('fim') fim?: string,
+  ) {
+    return this.service.findAll(user.tenantId, atual, periodoDaConsulta(inicio, fim));
   }
 
   @Get(':id')

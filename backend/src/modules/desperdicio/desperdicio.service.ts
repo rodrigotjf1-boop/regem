@@ -4,14 +4,16 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, eq, isNull, desc, getTableColumns } from 'drizzle-orm';
+import { and, eq, gte, isNull, lte, desc, getTableColumns } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { consumirLotes } from '../../common/lotes';
 import { colaborador, desperdicio, equipamento, itemEstoque, movimentoEstoque } from '../../db/schema';
 import { AuthUser } from '../../auth/auth-user';
 import { condUnidade, condUnidadeOuRede } from '../../common/filtro-unidade';
 import { custoMedioDaSaida } from '../../common/custo-loja';
+import type { Periodo } from '../../common/periodo';
 import { CreateDesperdicioDto } from './dto/create-desperdicio.dto';
+import { normalizarMotivo } from './motivos';
 
 @Injectable()
 export class DesperdicioService {
@@ -146,7 +148,9 @@ export class DesperdicioService {
   }
 
   // Escopo RBAC: supervisor vê só o próprio setor; demais perfis veem tudo do tenant.
-  findAll(user: AuthUser, atual: string | null = null) {
+  // `periodo` (pela DATA do desperdício) é o que a tela pede para a lista não crescer para
+  // sempre; sem ele, devolve tudo — como sempre foi para quem não manda.
+  async findAll(user: AuthUser, atual: string | null = null, periodo: Periodo = { inicio: null, fim: null }) {
     const conds = [
       eq(desperdicio.tenantId, user.tenantId),
       isNull(desperdicio.deletedAt),
@@ -156,7 +160,9 @@ export class DesperdicioService {
     if (user.categoria === 'supervisao' && user.setorId) {
       conds.push(eq(desperdicio.setorId, user.setorId));
     }
-    return this.db
+    if (periodo.inicio) conds.push(gte(desperdicio.data, periodo.inicio));
+    if (periodo.fim) conds.push(lte(desperdicio.data, periodo.fim));
+    const linhas = await this.db
       .select({
         ...getTableColumns(desperdicio),
         // Onde e por quem (mig 251). `createdAt` é a hora do registro.
@@ -174,5 +180,8 @@ export class DesperdicioService {
       )
       .where(and(...conds))
       .orderBy(desc(desperdicio.createdAt));
+    // O motivo sai como o da LISTA quando corresponde (o "validade" que a perda por etiqueta
+    // gravava vira "Validade"); texto livre antigo que não corresponde sai como está.
+    return linhas.map((l) => ({ ...l, motivo: normalizarMotivo(l.motivo) ?? l.motivo }));
   }
 }

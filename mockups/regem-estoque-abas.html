@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regem — Estoque: as 8 abas no modelo novo (mockup)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* MOCKUP das 8 abas do Estoque depois de "Produtos" — Fichas técnicas, Contagem, Compras, Recebimento,
+   Validades, Etiquetas, Desperdício e Vistorias — no mesmo modelo aprovado em Produtos. Aprovado pelo dono
+   em 07/10/2026 ("implementar as sugestões, protótipos aprovados").
+   Dados inventados; nada aqui fala com o Regem. O que toda aba passa a ter:
+   (1) título com a CONTAGEM da lista ("3 de 12 fichas"); (2) situações com a quantidade de cada uma, que
+   também filtram; (3) busca e filtros; (4) lista em tabela (cartões no celular) com as ações na linha;
+   (5) criar/editar numa GAVETA lateral e confirmar/conferir num diálogo — nada abre no topo da página.
+   Onde a tela real difere, de propósito:
+   - os FORMULÁRIOS daqui são resumidos. Os de verdade mantêm todos os campos que já existiam — na
+     ficha técnica, por exemplo: custos de delivery, CMV de delivery, preço sugerido, markup e margem;
+   - a lista vira cartões abaixo de 1280 px, e a ação secundária da linha mostra só o ícone (com o
+     nome ao passar o mouse) abaixo de 1536 px; a ação principal mostra o texto sempre;
+   - o período (7/30/90 dias, todo o período) é cortado no SERVIDOR; aqui é só um filtro da amostra. */
+:root{
+  --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E8A845; --on-gold:#281B06; --navy:#0F2230; --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9;
+  --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8; --radius:12px;
+  --display:'Archivo',sans-serif; --body:'Figtree',sans-serif; --mono:'JetBrains Mono',monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:var(--body);background:var(--bg);color:var(--ink);font-size:15px;line-height:1.45}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid #3A7FB8;outline-offset:2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+[hidden]{display:none!important}
+.app{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh}
+.lado{background:var(--navy);color:#C9D6E2;padding:16px 10px}
+.lado .marca{display:flex;align-items:center;gap:10px;padding:4px 8px 16px;color:#fff;font-family:var(--display);font-weight:700;font-size:18px}
+.lado .marca svg{width:30px;height:30px}
+.lado a{display:block;padding:9px 12px;border-radius:10px;color:inherit;text-decoration:none;font-weight:600;font-size:14px}
+.lado a[aria-current]{background:rgba(232,168,69,.18);color:#fff;box-shadow:inset 3px 0 0 var(--gold)}
+main{min-width:0;padding:20px 24px 80px}
+.trilha{font-family:var(--display);font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#9A6A12}
+h1{font-family:var(--display);font-size:26px;margin:2px 0 14px}
+.abas{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;margin-bottom:16px}
+.aba{flex:none;min-height:40px;padding:8px 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);color:var(--ink-2);font-weight:600;font-size:14px;white-space:nowrap}
+.aba:hover{border-color:var(--ink-2);color:var(--ink)}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.barra{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:12px}
+.barra h2{font-family:var(--display);font-size:20px;margin:0}
+.resumo{color:var(--ink-2);font-size:13.5px;margin:2px 0 0}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+.bt{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:40px;padding:0 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);font-weight:600;font-size:14px;white-space:nowrap}
+.bt:hover{border-color:var(--ink-2)}
+.bt.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.bt.perigo{background:var(--crit);border-color:var(--crit);color:#fff}
+.bt[disabled]{opacity:.5;cursor:not-allowed}
+/* situações: a quantidade de cada uma, e clicar filtra */
+.sits{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.sit{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0 12px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);font-weight:600;font-size:14px;color:var(--ink-2)}
+.sit b{font-family:var(--mono);font-size:13px;background:#EEF2F6;color:var(--ink);border-radius:999px;padding:1px 8px}
+.sit[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.sit[aria-pressed="true"] b{background:rgba(255,255,255,.18);color:#fff}
+.sit.crit b{background:var(--crit-bg);color:var(--crit)} .sit.warn b{background:var(--warn-bg);color:var(--warn)}
+.sit[aria-pressed="true"].crit b,.sit[aria-pressed="true"].warn b{background:rgba(255,255,255,.18);color:#fff}
+.filtros{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin-bottom:12px}
+.filtros .larga{grid-column:span 2}
+.campo{display:flex;flex-direction:column;gap:4px;min-width:0}
+.campo label,.rot{font-size:12.5px;font-weight:700;color:var(--ink-2)}
+.campo input,.campo select,.campo textarea{min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 12px;background:#fff;width:100%}
+.campo textarea{padding:8px 12px;min-height:64px}
+.ajuda{font-size:12.5px;color:var(--ink-2)}
+.tabela{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+th{font-size:12px;letter-spacing:.06em;text-transform:uppercase;text-align:left;color:var(--ink-2);background:#F7F9FB;padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tbody tr:hover{background:#FAFBFD}
+.nome{font-weight:700}
+.sub{font-size:12.5px;color:var(--ink-2)}
+.num{font-family:var(--mono);font-size:13.5px;white-space:nowrap}
+.selo{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;font-weight:700;font-size:12.5px;white-space:nowrap}
+.selo.ok{background:var(--ok-bg);color:var(--ok)} .selo.crit{background:var(--crit-bg);color:var(--crit)}
+.selo.info{background:var(--info-bg);color:var(--info)} .selo.warn{background:var(--warn-bg);color:var(--warn)} .selo.neutro{background:#EEF2F6;color:var(--ink-2)}
+.linha-acoes{display:flex;gap:4px;justify-content:flex-end}
+.ic{display:inline-flex;align-items:center;gap:6px;min-width:40px;min-height:40px;justify-content:center;border-radius:10px;border:1px solid transparent;background:transparent;padding:0 9px;font-weight:600;font-size:13px;color:var(--ink-2);white-space:nowrap}
+.ic:hover{background:#EEF2F6;border-color:var(--line-2);color:var(--ink)}
+.ic.pri{background:var(--gold);color:var(--on-gold);border-color:var(--gold);font-weight:700}
+.ic.perigo:hover{background:var(--crit-bg);border-color:var(--crit);color:var(--crit)}
+.vazio{padding:36px 16px;text-align:center;color:var(--ink-2)}
+.nota{border-left:4px solid var(--info);background:var(--info-bg);padding:10px 12px;border-radius:8px;font-size:14px}
+.nota.crit{border-color:var(--crit);background:var(--crit-bg)}
+.fundo{position:fixed;inset:0;background:rgba(15,34,48,.45);z-index:40}
+.gaveta{position:fixed;top:0;right:0;bottom:0;width:min(560px,100%);background:var(--card);z-index:50;display:flex;flex-direction:column;box-shadow:-12px 0 32px rgba(15,34,48,.18)}
+.gaveta.larga{width:min(980px,100%)}
+.painel header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line)}
+.painel h3{font-family:var(--display);font-size:19px;margin:0}
+.painel .corpo{flex:1;overflow-y:auto;padding:16px 20px;display:grid;gap:14px;align-content:start;min-height:0}
+.painel footer{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;padding:14px 20px;border-top:1px solid var(--line);background:#F7F9FB}
+.dialogo{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(520px,calc(100% - 24px));max-height:calc(100% - 24px);background:var(--card);z-index:50;border-radius:16px;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(15,34,48,.3)}
+.dialogo.largo{width:min(940px,calc(100% - 24px))}
+.dialogo footer{border-radius:0 0 16px 16px}
+.duas{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.fichas{display:flex;flex-wrap:wrap;gap:6px}
+.ficha{min-height:40px;padding:6px 12px;border-radius:999px;border:1px solid var(--line-2);background:#fff;font-weight:600;font-size:13px;color:var(--ink-2)}
+.ficha[aria-pressed="true"]{background:#FFF4DF;border-color:var(--gold);color:#6B4505}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;border:1px solid var(--line-2);border-radius:10px;overflow:hidden}
+.seg button{min-height:40px;border:none;background:#fff;font-weight:600;border-right:1px solid var(--line-2)}
+.seg button:last-child{border-right:none}
+.seg button[aria-pressed="true"]{background:var(--navy);color:#fff}
+.escolha{border:1px solid var(--line);border-radius:10px;max-height:260px;overflow-y:auto}
+.escolha label{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);min-height:44px}
+.escolha label:last-child{border-bottom:none}
+.escolha input[type=number]{width:84px;min-height:36px;border:1px solid var(--line-2);border-radius:8px;padding:0 8px}
+.mini td,.mini th{padding:7px 10px}
+.mini input,.mini select{min-height:38px;border:1px solid var(--line-2);border-radius:8px;padding:0 8px;width:100%;min-width:64px;background:#fff}
+.conta{background:var(--info-bg);color:var(--info);border-radius:10px;padding:8px 12px;font-weight:600;font-size:13.5px}
+.custo{border:1px solid var(--line);border-top:4px solid var(--gold);border-radius:12px;padding:14px;display:grid;gap:8px;align-content:start}
+.custo .l{display:flex;justify-content:space-between;gap:10px;font-size:14px}
+.cmv{background:#F7F9FB;border-radius:10px;padding:12px;text-align:center}
+.cmv .v{font-family:var(--mono);font-size:30px;font-weight:700;color:var(--crit)}
+#toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--navy);color:#fff;padding:11px 18px;border-radius:12px;font-weight:600;z-index:60;box-shadow:0 10px 26px rgba(0,0,0,.25);max-width:calc(100% - 24px)}
+@media (max-width:1000px){ .app{grid-template-columns:1fr} .lado{display:none} main{padding:16px 16px 80px} }
+@media (max-width:1279px){
+  main .tabela.cartoes{border:none;background:none;overflow:visible} main .cartoes thead{display:none}
+  main .cartoes tbody tr{display:block;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin-bottom:10px}
+  main .cartoes td{display:flex;justify-content:space-between;align-items:baseline;gap:12px;border:none;padding:4px 0}
+  main .cartoes td::before{content:attr(data-rot);flex:none;font-size:12.5px;font-weight:700;color:var(--ink-2)}
+  main .cartoes td .v{text-align:right;min-width:0}
+  main .cartoes td.c-nome{display:block} main .cartoes td.c-nome .v{text-align:left} main .cartoes td.c-nome::before,main .cartoes td.c-acoes::before{content:none}
+  main .cartoes td.c-acoes{margin-top:8px} main .linha-acoes{width:100%;flex-wrap:wrap;justify-content:stretch} main .linha-acoes .ic{flex:1;border-color:var(--line-2)}
+}
+@media (min-width:700px) and (max-width:1279px){
+  main .cartoes table,main .cartoes tbody{display:block} main .cartoes tbody{display:grid;grid-template-columns:1fr 1fr;gap:10px} main .cartoes tbody tr{margin:0}
+}
+@media (max-width:820px){
+  .filtros{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))} .filtros .larga{grid-column:1 / -1} .duas{grid-template-columns:1fr} .gaveta.larga .dois-lados{grid-template-columns:1fr!important}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="lado" aria-label="Menu principal">
+    <div class="marca"><svg viewBox="0 0 80 80" aria-hidden="true"><circle cx="40" cy="40" r="29" fill="none" stroke="#E2A340" stroke-width="4.5"/><path d="M33 28V54M33 28H42A7.5 7 0 0 1 42 42H33M36 42L49 54" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="60.5" cy="19.5" r="5.5" fill="#F2C277"/></svg>Regem</div>
+    <a href="#">Dashboard</a><a href="#">PDV · Balcão</a><a href="#">Delivery</a><a href="#">Tarefas</a><a href="#">Escalas</a>
+    <a href="#" aria-current="page">Estoque</a><a href="#">Ponto de baixa (QR)</a><a href="#">Checklist &amp; registros</a><a href="#">Financeiro</a><a href="#">Cadastros</a><a href="#">Configurações</a>
+  </nav>
+  <main>
+    <div class="trilha">Insumos &amp; produção</div>
+    <h1>Estoque</h1>
+    <div class="abas" id="abas" role="group" aria-label="Seções do estoque"></div>
+    <div id="conteudo"></div>
+  </main>
+</div>
+<div class="fundo" id="fundo" hidden></div>
+<div id="painel"></div>
+<div id="toast" role="status" aria-live="polite" hidden></div>
+
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const HOJE = new Date('2026-10-07T12:00:00');
+const dt = (s) => new Date(s + 'T12:00:00');
+const br = (s) => (s ? s.slice(8, 10) + '/' + s.slice(5, 7) + (s.slice(0, 4) !== '2026' ? '/' + s.slice(0, 4) : '') : '—');
+const dias = (s) => Math.round((dt(s) - HOJE) / 864e5);
+const brl = (n) => Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const num = (n) => Number(n).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+const sem = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const selo = (cls, t) => `<span class="selo ${cls}">${t}</span>`;
+function avisar(t) { const x = $('#toast'); x.textContent = t; x.hidden = false; clearTimeout(avisar.t); avisar.t = setTimeout(() => (x.hidden = true), 2800); }
+const PERIODOS = [['7', 'Últimos 7 dias'], ['30', 'Últimos 30 dias'], ['90', 'Últimos 90 dias'], ['', 'Todo o período']];
+const noPeriodo = (data, p) => !p || dias(data) >= -Number(p);
+const FORN = ['Atacado Central', 'Distribuidora Boa Vista', 'Hortifruti da Serra', 'Verdes do Sítio', 'Frios & Cia'];
+const PESSOAS = ['Ana', 'Carlos', 'Marina'];
+const PRODUTOS = [['Refrigerante cola lata 350 ml', 'Bebidas', 'fardo', 3, 5], ['Refrigerante uva lata 350 ml', 'Bebidas', 'fardo', 16, 5], ['Guaraná copo 290 ml', 'Bebidas', 'caixa', 19, 5], ['Queijo muçarela peça', 'Laticínios', 'kg', 11.6, 5], ['Presunto fatiado', 'Laticínios', 'kg', 2, 3], ['Alface', 'Hortifruti', 'saco', 3, 8], ['Tomate', 'Hortifruti', 'kg', 6, 4], ['Pão brioche', 'Padaria', 'unidade', 40, 60], ['Batata palito congelada', 'Congelados', 'pacote', 0, 6], ['Embalagem hambúrguer kraft', 'Embalagens', 'pacote', 0, 4], ['Molho de tomate', 'Mercearia', 'lata', 12, 6], ['Detergente neutro 5 L', 'Limpeza', 'galão', 2, 1]];
+const META = 31.5;
+
+// ══ as 8 abas ═══════════════════════════════════════════════════════════════════════════════
+const ABAS = {
+  fichas: {
+    aba: 'Fichas técnicas', titulo: 'Fichas técnicas', um: 'ficha', varios: 'fichas', novo: '＋ Nova ficha',
+    dados: [
+      { nome: 'X-burger da casa', cat: 'Prato do cardápio', rend: '1 porção', custo: 9.84, preco: 32, sub: false },
+      { nome: 'Combo burger + fritas', cat: 'Prato do cardápio', rend: '1 porção', custo: 15.3, preco: 44.9, sub: true },
+      { nome: 'Batata frita porção', cat: 'Prato do cardápio', rend: '1 porção', custo: 6.2, preco: 22, sub: false },
+      { nome: 'Molho base de tomate', cat: 'Base / pré-preparo', rend: '10 porções', custo: 1.12, preco: null, sub: false },
+      { nome: 'Maionese verde', cat: 'Base / pré-preparo', rend: '20 porções', custo: 0.86, preco: null, sub: false },
+      { nome: 'Milk-shake de chocolate', cat: 'Drink / coquetel', rend: '1 porção', custo: 5.9, preco: 16, sub: false },
+      { nome: 'Caipirinha', cat: 'Drink / coquetel', rend: '1 porção', custo: 4.1, preco: 18, sub: false },
+      { nome: 'Brownie com sorvete', cat: 'Sobremesa', rend: '1 porção', custo: 7.45, preco: 19.9, sub: true },
+    ].map((f) => ({ ...f, cmv: f.preco ? Math.round((f.custo / f.preco) * 1000) / 10 : null })),
+    texto: (r) => r.nome,
+    sits: [['Dentro da meta', (r) => r.cmv != null && r.cmv <= META, ''], ['Acima da meta', (r) => r.cmv != null && r.cmv > META, 'crit'], ['Sem preço', (r) => r.cmv == null, 'warn']],
+    selects: [['Categoria', 'Todas as categorias', (r) => r.cat], ['Sub-receita', 'Com e sem sub-receita', (r) => (r.sub ? 'Usa sub-receita' : 'Não usa')]],
+    resumo: () => `meta de CMV ${String(META).replace('.', ',')}%`,
+    colunas: [
+      ['Ficha', (r) => `<div class="nome">${r.nome}</div><div class="sub">${r.cat}${r.sub ? ' · usa sub-receita' : ''}</div>`],
+      ['Rendimento', (r) => r.rend],
+      ['Custo por porção', (r) => `<span class="num">${brl(r.custo)}</span>`],
+      ['Preço de venda', (r) => (r.preco ? `<span class="num">${brl(r.preco)}</span>` : '—')],
+      ['CMV', (r) => (r.cmv == null ? selo('warn', 'sem preço') : selo(r.cmv <= META ? 'ok' : 'crit', `<span class="num">${String(r.cmv).replace('.', ',')}%</span>`))],
+    ],
+    acoes: () => [['⧉', 'Duplicar', 'duplicar'], ['✎', 'Editar', 'editar'], ['🗑', 'Excluir', 'excluir', 'perigo']],
+    aoNovo: () => editorFicha(null),
+    aoAcao: (k, r) => (k === 'editar' ? editorFicha(r) : k === 'duplicar' ? (avisar(`"${r.nome}" duplicada — abra a cópia para ajustar.`)) : confirmarExcluir(r, 'A ficha sai da lista. O produto do cardápio ligado a ela deixa de dar baixa nos ingredientes e fica sem custo calculado.')),
+  },
+  contagem: {
+    aba: 'Contagem', titulo: 'Contagem', um: 'lista', varios: 'listas', novo: '＋ Nova lista',
+    dados: [
+      { nome: 'Bebidas — fechamento', rec: 'Diária', quando: 'todo dia · 23:00', itens: 12, resp: 'Carlos', ultima: '2026-10-06', hoje: true },
+      { nome: 'Câmara fria', rec: 'Semanal', quando: 'quarta · 09:00', itens: 18, resp: 'Ana', ultima: '2026-09-30', hoje: true },
+      { nome: 'Contagem geral', rec: 'Semanal', quando: 'segunda · 08:00', itens: 42, resp: '', ultima: '2026-10-05', hoje: false },
+      { nome: 'Inventário do mês', rec: 'Mensal', quando: 'dia 1 · 07:00', itens: 96, resp: 'Marina', ultima: '2026-10-01', hoje: false },
+      { nome: 'Embalagens', rec: 'Avulsa', quando: 'sem dia marcado', itens: 9, resp: '', ultima: null, hoje: false },
+    ],
+    texto: (r) => r.nome,
+    sits: [['Para hoje', (r) => r.hoje, 'warn'], ['Em dia', (r) => !r.hoje && r.ultima, ''], ['Nunca contada', (r) => !r.ultima, 'crit']],
+    selects: [['Recorrência', 'Todas as recorrências', (r) => r.rec], ['Responsável', 'Todos os responsáveis', (r) => r.resp || 'Sem responsável']],
+    resumo: (l) => `${l.reduce((s, r) => s + r.itens, 0)} produtos nas listas`,
+    colunas: [
+      ['Lista', (r) => `<div class="nome">${r.nome} ${r.hoje ? selo('warn', 'hoje') : ''}</div><div class="sub">${r.rec} · ${r.quando}</div>`],
+      ['Produtos', (r) => `<span class="num">${r.itens}</span>`],
+      ['Responsável', (r) => r.resp || '—'],
+      ['Última contagem', (r) => (r.ultima ? `${br(r.ultima)}<div class="sub">há ${-dias(r.ultima)} dia(s)</div>` : selo('crit', 'nunca contada'))],
+    ],
+    acoes: () => [['☑', 'Contar', 'contar', 'pri'], ['⏱', 'Histórico', 'hist'], ['✎', 'Editar', 'editar'], ['🗑', 'Excluir', 'excluir', 'perigo']],
+    aoNovo: () => formContagem(null),
+    aoAcao: (k, r) => (k === 'contar' ? dialogoContar(r) : k === 'hist' ? dialogoHistorico(r) : k === 'editar' ? formContagem(r) : confirmarExcluir(r, 'A lista sai da tela e os avisos dela param. As contagens já feitas continuam no histórico do estoque.')),
+  },
+  compras: {
+    aba: 'Compras', titulo: 'Compras', um: 'lista', varios: 'listas', novo: '＋ Gerar lista', periodo: 'receber',
+    dados: [
+      { nome: 'Hortifruti de quarta', forn: 'Hortifruti da Serra', itens: 8, receber: '2026-10-07', resp: 'Carlos', st: 'aguardando', total: 312 },
+      { nome: 'Compra da semana', forn: 'Atacado Central', itens: 14, receber: '2026-10-08', resp: 'Ana', st: 'aguardando', total: 1284.5 },
+      { nome: 'Reposição de limpeza', forn: '', itens: 4, receber: '2026-10-10', resp: '', st: 'aguardando', total: 96.4 },
+      { nome: 'Bebidas do mês', forn: 'Distribuidora Boa Vista', itens: 11, receber: '2026-10-02', resp: 'Ana', st: 'recebida', total: 2140 },
+      { nome: 'Embalagens', forn: 'Atacado Central', itens: 5, receber: '2026-09-28', resp: 'Marina', st: 'recebida', total: 388.2 },
+      { nome: 'Frios da quinzena', forn: 'Frios & Cia', itens: 6, receber: '2026-09-25', resp: 'Ana', st: 'recebida', total: 954.8 },
+    ],
+    texto: (r) => r.nome + ' ' + r.forn,
+    sits: [['Aguardando', (r) => r.st === 'aguardando', 'warn'], ['Atrasadas', (r) => r.st === 'aguardando' && dias(r.receber) < 0, 'crit'], ['Recebidas', (r) => r.st === 'recebida', '']],
+    selects: [['Fornecedor', 'Todos os fornecedores', (r) => r.forn || 'Sem fornecedor'], ['Responsável', 'Todos os responsáveis', (r) => r.resp || 'Sem responsável']],
+    resumo: (l) => `${brl(l.filter((r) => r.st === 'aguardando').reduce((s, r) => s + r.total, 0))} a receber`,
+    colunas: [
+      ['Lista', (r) => `<div class="nome">${r.nome}</div><div class="sub">${r.forn || 'Sem fornecedor'}</div>`],
+      ['Itens', (r) => `<span class="num">${r.itens}</span>`],
+      ['Receber em', (r) => `${br(r.receber)}${r.st === 'aguardando' ? `<div class="sub">${dias(r.receber) === 0 ? 'hoje' : dias(r.receber) > 0 ? `em ${dias(r.receber)} dia(s)` : `atrasada ${-dias(r.receber)} dia(s)`}</div>` : ''}`],
+      ['Responsável', (r) => r.resp || '—'],
+      ['Valor estimado', (r) => `<span class="num">${brl(r.total)}</span>`],
+      ['Situação', (r) => selo(r.st === 'recebida' ? 'ok' : 'warn', r.st)],
+    ],
+    acoes: (r) => [...(r.st === 'aguardando' ? [['✓', 'Conferir e receber', 'receber', 'pri']] : []), ['☰', 'Ver itens', 'ver'], ['🗑', 'Excluir', 'excluir', 'perigo']],
+    aoNovo: () => formCompra(),
+    aoAcao: (k, r) => (k === 'receber' ? dialogoConferir(r) : k === 'ver' ? dialogoItens(r) : confirmarExcluir(r, r.st === 'recebida' ? 'A lista sai da tela. O que entrou no estoque e a conta a pagar continuam.' : 'A lista sai da tela e ninguém mais é avisado do recebimento. Nada entrou no estoque por ela.')),
+  },
+  recebimento: {
+    aba: 'Recebimento', titulo: 'Recebimento', um: 'recebimento', varios: 'recebimentos', novo: '＋ Novo recebimento', periodo: 'data',
+    dados: [
+      { data: '2026-10-07', forn: 'Hortifruti da Serra', nota: 'NF 4521', itens: 8, div: 1, st: 'a conferir' },
+      { data: '2026-10-07', forn: 'Verdes do Sítio', nota: '', itens: 3, div: 0, st: 'a conferir' },
+      { data: '2026-10-06', forn: 'Atacado Central', nota: 'NF 88213', itens: 14, div: 0, st: 'conferido' },
+      { data: '2026-10-02', forn: 'Distribuidora Boa Vista', nota: 'NF 1207', itens: 11, div: 2, st: 'conferido' },
+      { data: '2026-09-28', forn: 'Atacado Central', nota: '', itens: 5, div: 0, st: 'conferido' },
+      { data: '2026-09-25', forn: 'Frios & Cia', nota: 'NF 330', itens: 6, div: 0, st: 'conferido' },
+    ],
+    texto: (r) => r.forn + ' ' + r.nota,
+    sits: [['A conferir', (r) => r.st === 'a conferir', 'warn'], ['Conferidos', (r) => r.st === 'conferido', ''], ['Com divergência', (r) => r.div > 0, 'crit']],
+    selects: [['Fornecedor', 'Todos os fornecedores', (r) => r.forn]],
+    resumo: (l) => `${l.reduce((s, r) => s + r.itens, 0)} itens recebidos`,
+    colunas: [
+      ['Data', (r) => `<span class="num">${br(r.data)}</span>`],
+      ['Fornecedor', (r) => `<div class="nome">${r.forn}</div><div class="sub">${r.nota || 'sem nota informada'}</div>`],
+      ['Itens', (r) => `<span class="num">${r.itens}</span>`],
+      ['Divergências', (r) => (r.div ? selo('crit', `${r.div} divergência(s)`) : '—')],
+      ['Situação', (r) => selo(r.st === 'conferido' ? 'ok' : 'warn', r.st)],
+    ],
+    acoes: (r) => [...(r.st === 'a conferir' ? [['✓', 'Confirmar', 'confirmar', 'pri']] : []), ['☰', 'Ver', 'ver']],
+    aoNovo: () => formRecebimento(),
+    aoAcao: (k, r) => (k === 'confirmar' ? confirmar('Confirmar o recebimento', `<p style="margin:0">Confirmar o recebimento de <b>${r.forn}</b> (${r.itens} itens)?</p><div class="nota">A quantidade conferida entra no estoque, os lotes com validade são criados e a conta a pagar do fornecedor é gerada. Não dá para confirmar duas vezes.</div>`, 'Confirmar recebimento', () => { r.st = 'conferido'; desenhar(); avisar('Recebimento confirmado — estoque atualizado.'); }) : dialogoItens(r)),
+  },
+  validades: {
+    aba: 'Validades', titulo: 'Validades', um: 'lote', varios: 'lotes', novo: '',
+    dados: [
+      { nome: 'Queijo muçarela peça', cat: 'Laticínios', lote: 'L-2209', qtd: 4.2, un: 'kg', entrada: '2026-09-25', val: '2026-10-05' },
+      { nome: 'Presunto fatiado', cat: 'Laticínios', lote: 'L-778', qtd: 2, un: 'kg', entrada: '2026-09-28', val: '2026-10-07' },
+      { nome: 'Alface', cat: 'Hortifruti', lote: '', qtd: 3, un: 'saco', entrada: '2026-10-06', val: '2026-10-08' },
+      { nome: 'Molho de tomate', cat: 'Mercearia', lote: 'L-5510', qtd: 12, un: 'lata', entrada: '2026-10-02', val: '2026-10-12' },
+      { nome: 'Pão brioche', cat: 'Padaria', lote: '', qtd: 40, un: 'unidade', entrada: '2026-10-06', val: '2026-10-13' },
+      { nome: 'Batata palito congelada', cat: 'Congelados', lote: 'L-331', qtd: 10, un: 'pacote', entrada: '2026-09-28', val: '2027-01-15' },
+      { nome: 'Refrigerante cola lata 350 ml', cat: 'Bebidas', lote: 'L-A91', qtd: 8, un: 'fardo', entrada: '2026-10-02', val: '2027-03-20' },
+      { nome: 'Detergente neutro 5 L', cat: 'Limpeza', lote: '', qtd: 2, un: 'galão', entrada: '2026-09-28', val: null },
+    ],
+    texto: (r) => r.nome + ' ' + r.lote,
+    sits: [['Vencidos', (r) => r.val && dias(r.val) < 0, 'crit'], ['Vencem em 7 dias', (r) => r.val && dias(r.val) >= 0 && dias(r.val) <= 7, 'warn'], ['No prazo', (r) => r.val && dias(r.val) > 7, ''], ['Sem validade', (r) => !r.val, '']],
+    selects: [['Categoria', 'Todas as categorias', (r) => r.cat]],
+    resumo: () => 'primeiro que vence, primeiro que sai',
+    colunas: [
+      ['Produto', (r) => `<div class="nome">${r.nome}</div><div class="sub">${r.cat}${r.lote ? ' · lote ' + r.lote : ' · sem código de lote'}</div>`],
+      ['Quantidade', (r) => `<span class="num">${num(r.qtd)}</span> ${r.un}`],
+      ['Entrada', (r) => `<span class="num">${br(r.entrada)}</span>`],
+      ['Validade', (r) => (r.val ? `<span class="num">${br(r.val)}</span>` : '—')],
+      ['Situação', (r) => { if (!r.val) return selo('neutro', 'sem validade'); const d = dias(r.val); return d < 0 ? selo('crit', `vencido há ${-d} dia(s)`) : d === 0 ? selo('crit', 'vence hoje') : d <= 7 ? selo('warn', `vence em ${d} dia(s)`) : selo('ok', 'no prazo'); }],
+    ],
+    acoes: (r) => [['🏷', 'Etiqueta', 'etq'], ...(r.val && dias(r.val) <= 0 ? [['♻', 'Registrar perda', 'perda', 'perigo']] : [])],
+    aoAcao: (k, r) => (k === 'etq' ? avisar(`Abre "Gerar etiqueta" já com o lote de ${r.nome}.`) : formDesperdicio(r)),
+  },
+  etiquetas: {
+    aba: 'Etiquetas', titulo: 'Etiquetas de validade', um: 'etiqueta', varios: 'etiquetas', novo: '＋ Gerar etiqueta', extra: 'leitor',
+    dados: [
+      { nome: 'Maionese verde', cod: '866855088901', val: '2026-10-06', st: 'em uso' },
+      { nome: 'Queijo fatiado', cod: '866855088812', val: '2026-10-07', st: 'fechada' },
+      { nome: 'Alface higienizada', cod: '866855089014', val: '2026-10-07', st: 'em uso' },
+      { nome: 'Molho da casa', cod: '866855088746', val: '2026-10-08', st: 'em uso' },
+      { nome: 'Bacon em cubos', cod: '866855089102', val: '2026-10-09', st: 'fechada' },
+      { nome: 'Cebola caramelizada', cod: '866855088955', val: '2026-10-10', st: 'fechada' },
+      { nome: 'Brownie', cod: '866855089177', val: '2026-10-12', st: 'fechada' },
+    ],
+    texto: (r) => r.nome + ' ' + r.cod,
+    sits: [['Vencidas', (r) => dias(r.val) < 0, 'crit'], ['Vencem até amanhã', (r) => dias(r.val) >= 0 && dias(r.val) <= 1, 'warn'], ['Em uso', (r) => r.st === 'em uso', ''], ['Fechadas', (r) => r.st === 'fechada', '']],
+    selects: [],
+    resumo: () => 'só as etiquetas vivas (as baixadas saem da lista)',
+    colunas: [
+      ['Produto', (r) => `<div class="nome">${r.nome}</div><div class="sub num">#${r.cod}</div>`],
+      ['Validade', (r) => { const d = dias(r.val); return `<span class="num">${br(r.val)}</span><div class="sub">${d < 0 ? `venceu há ${-d} dia(s)` : d === 0 ? 'vence hoje' : `${d} dia(s)`}</div>`; }],
+      ['Situação', (r) => (dias(r.val) < 0 ? selo('crit', 'vencida') : selo(r.st === 'em uso' ? 'warn' : 'info', r.st))],
+    ],
+    acoes: (r) => [...(r.st === 'fechada' && dias(r.val) >= 0 ? [['◐', 'Abrir', 'abrir']] : []), ['✓', 'Baixar (usei)', 'baixar'], ...(dias(r.val) < 0 ? [['♻', 'Perda', 'perda', 'perigo']] : [])],
+    aoNovo: () => formEtiqueta(),
+    aoAcao: (k, r) => { if (k === 'perda') return dialogoPerda(r); if (k === 'abrir') { r.st = 'em uso'; desenhar(); return avisar('Etiqueta aberta (em uso).'); } ABAS.etiquetas.dados = ABAS.etiquetas.dados.filter((x) => x !== r); desenhar(); avisar('Etiqueta baixada (usada).'); },
+  },
+  desperdicio: {
+    aba: 'Desperdício', titulo: 'Desperdício', um: 'registro', varios: 'registros', novo: '＋ Registrar desperdício', periodo: 'data',
+    dados: [
+      { data: '2026-10-07', hora: '11:42', nome: 'Pão queimado', qtd: '6 unidade', motivo: 'Preparo', perda: 5.4, onde: 'Chapa', por: 'Carlos', baixa: true },
+      { data: '2026-10-06', hora: '22:10', nome: 'Alface murcha', qtd: '1 saco', motivo: 'Validade', perda: 11.12, onde: 'Câmara fria', por: 'Ana', baixa: true },
+      { data: '2026-10-05', hora: '09:03', nome: 'Queijo vencido', qtd: '4,2 kg', motivo: 'Validade', perda: 96.85, onde: 'Câmara fria', por: 'Ana', baixa: true },
+      { data: '2026-10-03', hora: '20:31', nome: 'Refrigerante caiu', qtd: '2 unidade', motivo: 'Queda', perda: 6.65, onde: 'Bar', por: 'Marina', baixa: true },
+      { data: '2026-10-01', hora: '13:15', nome: 'Molho derramado', qtd: '—', motivo: 'Queda', perda: 0, onde: 'Cozinha', por: 'Carlos', baixa: false },
+      { data: '2026-09-27', hora: '19:48', nome: 'Batata queimada', qtd: '1,5 kg', motivo: 'Preparo', perda: 19.44, onde: 'Fritadeira', por: 'Carlos', baixa: true },
+      { data: '2026-09-12', hora: '08:20', nome: 'Embalagem amassada', qtd: '12 unidade', motivo: 'Transporte', perda: 2.22, onde: 'Depósito', por: 'Marina', baixa: true },
+    ],
+    texto: (r) => r.nome + ' ' + r.motivo,
+    sits: [['Com baixa de estoque', (r) => r.baixa, ''], ['Só registro', (r) => !r.baixa, 'warn']],
+    selects: [['Motivo', 'Todos os motivos', (r) => r.motivo], ['Quem registrou', 'Todas as pessoas', (r) => r.por]],
+    resumo: (l) => `perda de ${brl(l.reduce((s, r) => s + r.perda, 0))}`,
+    colunas: [
+      ['Quando', (r) => `<span class="num">${br(r.data)}</span><div class="sub num">${r.hora}</div>`],
+      ['O que', (r) => `<div class="nome">${r.nome}</div><div class="sub">${r.baixa ? 'baixou do estoque' : 'sem vínculo com produto (só registro)'}</div>`],
+      ['Quantidade', (r) => r.qtd],
+      ['Motivo', (r) => r.motivo],
+      ['Perda', (r) => (r.perda ? `<span class="num">${brl(r.perda)}</span>` : '—')],
+      ['Onde · quem', (r) => `${r.onde}<div class="sub">${r.por}</div>`],
+    ],
+    acoes: () => [['☰', 'Ver', 'ver']],
+    aoNovo: () => formDesperdicio(null),
+    aoAcao: (k, r) => painel({ titulo: r.nome, corpo: `<p style="margin:0">${br(r.data)} às ${r.hora} · ${r.onde} · registrado por ${r.por}</p><p style="margin:0"><b>${r.qtd}</b> · motivo: ${r.motivo}${r.perda ? ' · perda de ' + brl(r.perda) : ''}</p><div class="nota">Registro de desperdício não se edita nem se apaga: é a trilha do que saiu do estoque. Um lançamento errado se corrige com um ajuste no produto.</div>`, rodape: '<button class="bt pri" data-fechar>Fechar</button>' }),
+  },
+  vistorias: {
+    aba: 'Vistorias', titulo: 'Vistorias', um: 'vistoria', varios: 'vistorias', novo: '＋ Registrar vistoria', periodo: 'data',
+    dados: [
+      { data: '2026-10-07', tipo: 'Abertura', obs: 'Tudo em ordem', foto: true, por: 'Ana' },
+      { data: '2026-10-06', tipo: 'Fechamento', obs: 'Lixo retirado, chapa limpa', foto: false, por: 'Carlos' },
+      { data: '2026-10-06', tipo: 'Abertura', obs: 'Freezer 2 com gelo acumulado', foto: true, por: 'Ana' },
+      { data: '2026-10-05', tipo: 'Padrão', obs: 'Câmara fria a 4 °C', foto: false, por: 'Marina' },
+      { data: '2026-10-05', tipo: 'Fechamento', obs: '', foto: false, por: 'Carlos' },
+      { data: '2026-09-20', tipo: 'Abertura', obs: 'Piso molhado perto da pia', foto: true, por: 'Ana' },
+    ],
+    texto: (r) => r.obs + ' ' + r.tipo,
+    sits: [['Abertura', (r) => r.tipo === 'Abertura', ''], ['Fechamento', (r) => r.tipo === 'Fechamento', ''], ['Padrão', (r) => r.tipo === 'Padrão', ''], ['Com foto', (r) => r.foto, '']],
+    selects: [['Quem registrou', 'Todas as pessoas', (r) => r.por]],
+    resumo: (l) => `${l.filter((r) => r.foto).length} com foto`,
+    colunas: [
+      ['Data', (r) => `<span class="num">${br(r.data)}</span>`],
+      ['Tipo', (r) => selo('info', r.tipo)],
+      ['Observação', (r) => (r.obs ? r.obs : '<span class="sub">sem observação</span>')],
+      ['Foto', (r) => (r.foto ? selo('neutro', 'com foto') : '—')],
+      ['Quem', (r) => r.por],
+    ],
+    acoes: (r) => (r.foto ? [['🖼', 'Ver foto', 'foto']] : []),
+    aoNovo: () => formVistoria(),
+    aoAcao: (k, r) => painel({ titulo: `Vistoria de ${r.tipo.toLowerCase()} · ${br(r.data)}`, corpo: `<div style="aspect-ratio:4/3;background:#DDE4EB;border-radius:12px;display:grid;place-items:center;color:var(--ink-2)">foto da vistoria</div><p style="margin:0">${r.obs || 'Sem observação.'} · ${r.por}</p>`, rodape: '<button class="bt pri" data-fechar>Fechar</button>' }),
+  },
+};
+const ORDEM = ['painel', 'produtos', 'fichas', 'contagem', 'compras', 'recebimento', 'validades', 'etiquetas', 'desperdicio', 'vistorias'];
+let atual = 'fichas';
+const estado = {};
+const est = () => (estado[atual] ||= { busca: '', sit: -1, sel: {}, periodo: '30' });
+
+// ══ desenho da aba ══════════════════════════════════════════════════════════════════════════
+function filtrar(a, e, semSit) {
+  const b = sem(e.busca);
+  return a.dados.filter((r) => (!b || sem(a.texto(r)).includes(b)) && (!a.periodo || noPeriodo(r[a.periodo], e.periodo)) &&
+    a.selects.every((s, i) => !e.sel[i] || s[2](r) === e.sel[i]) && (semSit || e.sit < 0 || a.sits[e.sit][1](r)));
+}
+function desenhar() {
+  $('#abas').innerHTML = ORDEM.map((k) => `<button class="aba" data-aba="${k}" aria-pressed="${k === atual}">${k === 'painel' ? 'Painel' : k === 'produtos' ? 'Produtos' : ABAS[k].aba}</button>`).join('');
+  const a = ABAS[atual];
+  if (!a) {
+    $('#conteudo').innerHTML = `<div class="tabela vazio"><b>${atual === 'painel' ? 'Painel' : 'Produtos'}</b> não muda nesta entrega${atual === 'produtos' ? ' — já está no modelo novo, no ar' : ''}. Este protótipo mostra as 8 abas seguintes.</div>`;
+    return;
+  }
+  const e = est();
+  const base = filtrar(a, e, true), lista = filtrar(a, e, false);
+  const filtrando = e.busca || e.sit >= 0 || Object.values(e.sel).some(Boolean) || (a.periodo && e.periodo !== '30');
+  const total = a.dados.length;
+  const qtd = (n) => `${n} ${n === 1 ? a.um : a.varios}`;
+  $('#conteudo').innerHTML = `
+    <div class="barra">
+      <div><h2>${a.titulo}</h2>
+        <p class="resumo" role="status" aria-live="polite">${lista.length === total ? qtd(total) : `${lista.length} de ${qtd(total)}`}${a.periodo && e.periodo ? ` · ${PERIODOS.find((p) => p[0] === e.periodo)[1].toLowerCase()}` : ''} · ${a.resumo(lista)}</p></div>
+      <div class="acoes">${a.novo ? `<button class="bt pri" id="bNovo">${a.novo}</button>` : ''}</div>
+    </div>
+    ${a.extra === 'leitor' ? `<div class="filtros" style="grid-template-columns:minmax(0,1fr) auto"><div class="campo"><label for="leitor">Ler o código da etiqueta (abre ou baixa)</label><input id="leitor" placeholder="Aponte o leitor ou digite o código" inputmode="numeric"></div><button class="bt" id="bLer" style="align-self:end">Ler</button></div>` : ''}
+    <div class="sits" role="group" aria-label="Situação">
+      <button class="sit" data-sit="-1" aria-pressed="${e.sit < 0}">Todas <b>${base.length}</b></button>
+      ${a.sits.map((s, i) => `<button class="sit ${s[2]}" data-sit="${i}" aria-pressed="${e.sit === i}">${s[0]} <b>${base.filter(s[1]).length}</b></button>`).join('')}
+    </div>
+    <div class="filtros">
+      <div class="campo larga"><label for="fBusca">Buscar</label><input id="fBusca" type="search" value="${e.busca.replace(/"/g, '&quot;')}" placeholder="Digite parte do nome" autocomplete="off"></div>
+      ${a.periodo ? `<div class="campo"><label for="fPer">Período</label><select id="fPer">${PERIODOS.map((p) => `<option value="${p[0]}"${p[0] === e.periodo ? ' selected' : ''}>${p[1]}</option>`).join('')}</select></div>` : ''}
+      ${a.selects.map((s, i) => `<div class="campo"><label for="fSel${i}">${s[0]}</label><select id="fSel${i}" data-sel="${i}"><option value="">${s[1]}</option>${[...new Set(a.dados.map(s[2]))].sort((x, y) => x.localeCompare(y, 'pt-BR')).map((v) => `<option${e.sel[i] === v ? ' selected' : ''}>${v}</option>`).join('')}</select></div>`).join('')}
+    </div>
+    <div class="tabela cartoes">${lista.length ? `<table><caption class="sr">${a.titulo}</caption>
+      <thead><tr>${a.colunas.map((c) => `<th scope="col">${c[0]}</th>`).join('')}<th scope="col"><span class="sr">Ações</span></th></tr></thead>
+      <tbody>${lista.map((r) => `<tr>${a.colunas.map((c, i) => `<td ${i === 0 ? 'class="c-nome"' : `data-rot="${c[0]}"`}><div class="v">${c[1](r)}</div></td>`).join('')}
+        <td class="c-acoes"><div class="linha-acoes">${a.acoes(r).map((x) => `<button class="ic ${x[3] || ''}" data-acao="${x[2]}" data-i="${a.dados.indexOf(r)}" aria-label="${x[1]}: ${r.nome || r.forn}">${x[0]} ${x[1]}</button>`).join('')}</div></td></tr>`).join('')}</tbody></table>`
+      : `<div class="vazio">${total === 0 ? `Nenhum registro ainda.` : `Nada com esses filtros. <button class="bt" id="bLimpar" style="margin-left:8px">Limpar filtros</button>`}</div>`}</div>
+    ${filtrando && lista.length ? '<p class="sub" style="margin:8px 2px 0"><button class="bt" id="bLimpar">Limpar filtros</button></p>' : ''}`;
+}
+document.addEventListener('click', (ev) => {
+  const t = ev.target;
+  const aba = t.closest('[data-aba]'); if (aba) { atual = aba.dataset.aba; return desenhar(); }
+  const sit = t.closest('[data-sit]'); if (sit) { est().sit = Number(sit.dataset.sit); return desenhar(); }
+  if (t.id === 'bLimpar') { estado[atual] = undefined; return desenhar(); }
+  if (t.id === 'bNovo') return ABAS[atual].aoNovo();
+  if (t.id === 'bLer') { const c = $('#leitor').value.trim(); return avisar(c ? `Etiqueta ${c}: aberta (em uso).` : 'Aponte o leitor ou digite o código.'); }
+  const ac = t.closest('[data-acao]'); if (ac) return ABAS[atual].aoAcao(ac.dataset.acao, ABAS[atual].dados[Number(ac.dataset.i)]);
+  if (t.closest('[data-fechar]')) return fechar();
+  const f = t.closest('.ficha, .seg button'); if (f) { if (f.parentElement.classList.contains('seg')) f.parentElement.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === f))); else f.setAttribute('aria-pressed', String(f.getAttribute('aria-pressed') !== 'true')); }
+});
+document.addEventListener('input', (ev) => {
+  const t = ev.target;
+  if (t.id === 'fBusca') { est().busca = t.value; desenhar(); const n = $('#fBusca'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); return; }
+  if (t.id === 'fPer') { est().periodo = t.value; return desenhar(); }
+  if (t.dataset.sel !== undefined) { est().sel[t.dataset.sel] = t.value; return desenhar(); }
+  if (t.closest('[data-escolha]')) return contarEscolha(t.closest('[data-escolha]'));
+  if (t.closest('#contando')) return progresso();
+});
+
+// ══ painéis (gaveta e diálogo): foco entra, fica preso, Esc fecha, foco volta ═══════════════
+let aberto = null, quemAbriu = null;
+function painel({ titulo, corpo, rodape, tipo = 'dialogo', largo = false, alerta = false, foco }) {
+  if (aberto) fechar();
+  quemAbriu = document.activeElement;
+  $('#painel').innerHTML = `<div class="painel ${tipo === 'gaveta' ? 'gaveta' + (largo ? ' larga' : '') : 'dialogo' + (largo ? ' largo' : '')}" role="${alerta ? 'alertdialog' : 'dialog'}" aria-modal="true" aria-labelledby="pTit">
+    <header><h3 id="pTit">${titulo}</h3><button class="ic" data-fechar aria-label="Fechar">✕</button></header><div class="corpo">${corpo}</div><footer>${rodape}</footer></div>`;
+  aberto = $('#painel').firstElementChild; $('#fundo').hidden = false;
+  (foco ? $(foco, aberto) : $('.corpo input, .corpo select, .corpo textarea', aberto) || $('footer button', aberto))?.focus();
+}
+function fechar() { if (!aberto) return; $('#painel').innerHTML = ''; aberto = null; $('#fundo').hidden = true; if (quemAbriu && document.contains(quemAbriu)) quemAbriu.focus(); }
+document.addEventListener('keydown', (e) => {
+  if (!aberto) return;
+  if (e.key === 'Escape') return fechar();
+  if (e.key !== 'Tab') return;
+  const f = [...aberto.querySelectorAll('button,input,select,textarea')].filter((x) => !x.disabled && x.offsetParent !== null);
+  if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f[f.length - 1].focus(); }
+  else if (!e.shiftKey && document.activeElement === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
+});
+const campo = (rot, html, ajuda = '') => `<div class="campo"><label>${rot}</label>${html}${ajuda ? `<span class="ajuda">${ajuda}</span>` : ''}</div>`;
+const sel = (ops, v = '') => `<select>${ops.map((o) => `<option${o === v ? ' selected' : ''}>${o}</option>`).join('')}</select>`;
+const rodapeSalvar = (t, msg) => `<button class="bt" data-fechar>Cancelar</button><button class="bt pri" onclick="fechar();avisar('${msg}')">${t}</button>`;
+function confirmar(titulo, corpo, botao, fn) {
+  painel({ titulo, corpo, alerta: true, rodape: `<button class="bt" data-fechar>Cancelar</button><button class="bt pri" id="bOk">${botao}</button>`, foco: 'footer button' });
+  $('#bOk').onclick = () => { fechar(); fn(); };
+}
+function confirmarExcluir(r, consequencia) {
+  painel({ titulo: 'Excluir', alerta: true, foco: 'footer button', corpo: `<p style="margin:0">Excluir <b>${r.nome}</b>?</p><div class="nota crit">${consequencia} Não dá para desfazer por aqui.</div>`,
+    rodape: `<button class="bt" data-fechar>Cancelar</button><button class="bt perigo" id="bExc">Excluir</button>` });
+  $('#bExc').onclick = () => { ABAS[atual].dados = ABAS[atual].dados.filter((x) => x !== r); fechar(); desenhar(); avisar('Excluído.'); $('#fBusca')?.focus(); };
+}
+// escolha de produtos com busca, categoria e contagem — usada por Contagem e Compras
+function escolhaProdutos(comQtd, marcados = []) {
+  const cats = [...new Set(PRODUTOS.map((p) => p[1]))];
+  return `<div data-escolha="${comQtd ? 'qtd' : ''}">
+    <div class="rot" style="display:flex;justify-content:space-between;gap:8px"><span>Produtos</span><span data-conta></span></div>
+    <div class="duas" style="margin:6px 0"><input data-eb placeholder="Buscar produto" style="min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 12px"><select data-ec style="min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 12px"><option value="">Todas as categorias</option>${cats.map((c) => `<option>${c}</option>`).join('')}</select></div>
+    <div class="fichas" style="margin-bottom:6px"><button type="button" class="ficha" data-ebaixo aria-pressed="false">Só abaixo do mínimo</button><button type="button" class="bt" data-etodos>Marcar os da lista</button><button type="button" class="bt" data-enada>Desmarcar todos</button></div>
+    <div class="escolha">${PRODUTOS.map((p, i) => `<label data-p="${i}"><input type="checkbox" ${marcados.includes(i) ? 'checked' : ''}><span><b>${p[0]}</b><span class="sub"> · ${p[1]} · saldo ${num(p[3])} ${p[2]}${p[3] < p[4] ? ' · abaixo do mínimo' : ''}</span></span>${comQtd ? `<input type="number" min="0" placeholder="qtd" aria-label="Quantidade de ${p[0]}">` : '<span></span>'}</label>`).join('')}</div></div>`;
+}
+function contarEscolha(raiz) {
+  const b = sem($('[data-eb]', raiz).value), c = $('[data-ec]', raiz).value, baixo = $('[data-ebaixo]', raiz).getAttribute('aria-pressed') === 'true';
+  let n = 0;
+  raiz.querySelectorAll('.escolha label').forEach((l) => { const p = PRODUTOS[l.dataset.p]; l.hidden = !((!b || sem(p[0]).includes(b)) && (!c || p[1] === c) && (!baixo || p[3] < p[4])); if ($('input[type=checkbox]', l).checked) n++; });
+  $('[data-conta]', raiz).textContent = `${n} de ${PRODUTOS.length} marcados`;
+}
+document.addEventListener('click', (ev) => {
+  const raiz = ev.target.closest('[data-escolha]'); if (!raiz) return;
+  if (ev.target.closest('[data-etodos]')) raiz.querySelectorAll('.escolha label:not([hidden]) input[type=checkbox]').forEach((x) => (x.checked = true));
+  if (ev.target.closest('[data-enada]')) raiz.querySelectorAll('.escolha input[type=checkbox]').forEach((x) => (x.checked = false));
+  setTimeout(() => contarEscolha(raiz));
+});
+
+// ══ formulários e diálogos de cada aba ══════════════════════════════════════════════════════
+function editorFicha(r) {
+  painel({ tipo: 'gaveta', largo: true, titulo: r ? 'Editar ficha técnica' : 'Nova ficha técnica', rodape: rodapeSalvar(r ? 'Salvar alterações' : 'Salvar ficha', 'Ficha salva.'),
+    corpo: `<div class="dois-lados" style="display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:16px;align-items:start">
+      <div style="display:grid;gap:14px">
+        ${campo('Nome da receita / produção', `<input value="${r ? r.nome : ''}" placeholder="Ex.: Molho base de tomate">`)}
+        <div class="duas">${campo('Categoria', sel(['Base / pré-preparo', 'Prato do cardápio', 'Drink / coquetel', 'Sobremesa'], r ? r.cat : ''))}${campo('Rendimento', `<input value="${r ? r.rend : '10 porções'}">`)}</div>
+        <div><div class="rot" style="display:flex;justify-content:space-between;align-items:center">Ingredientes e custo <button class="bt" type="button">＋ Ingrediente</button></div>
+          <div class="tabela" style="margin-top:6px"><table class="mini"><caption class="sr">Ingredientes da ficha</caption><thead><tr><th>Ingrediente</th><th>Qtd</th><th>Unidade</th><th>Custo</th><th><span class="sr">Remover</span></th></tr></thead><tbody>
+          ${[['Pão brioche', 1, 'unidade', 1.2], ['Carne moída', 0.15, 'kg', 5.4], ['Queijo muçarela peça', 0.04, 'kg', 0.92], ['Maionese verde (sub-receita)', 1, 'porção', 0.86]].map((i) => `<tr><td><input value="${i[0]}" aria-label="Ingrediente"></td><td><input type="number" value="${i[1]}" aria-label="Quantidade"></td><td>${i[2]}</td><td class="num">${brl(i[3])}</td><td><button class="ic perigo" aria-label="Remover ${i[0]}">🗑</button></td></tr>`).join('')}</tbody></table></div>
+          <p class="ajuda" style="margin:6px 0 0">O ingrediente é escolhido entre os Produtos do estoque (ou outra ficha, como sub-receita); a unidade e o custo vêm de lá.</p></div>
+      </div>
+      <div class="custo"><b style="font-family:var(--display);font-size:17px">Custo calculado</b>
+        <div class="l"><span>Custo dos ingredientes</span><span class="num">${brl(r ? r.custo : 8.38)}</span></div>
+        <div class="l"><span>Custo por porção</span><b class="num">${brl(r ? r.custo : 8.38)}</b></div>
+        ${campo('Preço de venda (R$)', `<input type="number" value="${r && r.preco ? r.preco : ''}" placeholder="0,00">`)}
+        <div class="cmv"><div class="rot">CMV do item</div><div class="v" style="color:${r && r.cmv != null && r.cmv <= META ? 'var(--ok)' : 'var(--crit)'}">${r && r.cmv != null ? String(r.cmv).replace('.', ',') + '%' : '—'}</div>${r && r.cmv != null ? selo(r.cmv <= META ? 'ok' : 'crit', r.cmv <= META ? 'Dentro da meta' : 'Acima da meta') : selo('warn', 'Informe o preço')}</div>
+        <div class="l"><span>Meta de CMV</span><span class="num">${String(META).replace('.', ',')}%</span></div>
+        <div class="l"><span>Preço sugerido para a meta</span><b class="num">${brl((r ? r.custo : 8.38) / (META / 100))}</b></div>
+      </div></div>` });
+}
+function formContagem(r) {
+  painel({ tipo: 'gaveta', titulo: r ? 'Editar lista de contagem' : 'Nova lista de contagem', rodape: rodapeSalvar(r ? 'Salvar alterações' : 'Criar lista', r ? 'Lista atualizada.' : 'Lista de contagem criada.'),
+    corpo: `${campo('Nome da contagem', `<input value="${r ? r.nome : ''}" placeholder="Ex.: Contagem geral de segunda">`)}
+      <div class="duas">${campo('Recorrência', sel(['Diária', 'Semanal', 'Mensal', 'Avulsa'], r ? r.rec : 'Semanal'))}${campo('Dia da semana', sel(['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'], 'Segunda'))}</div>
+      <div class="duas">${campo('Horário do aviso', '<input type="time" value="08:00">')}${campo('Responsável (opcional)', sel(['— ninguém —', ...PESSOAS], r ? r.resp : ''))}</div>
+      <div style="display:grid;gap:6px"><label><input type="checkbox" checked> Avisar no KDS</label><label><input type="checkbox" checked> Avisar no painel do gerente</label></div>
+      ${escolhaProdutos(false, r ? [0, 1, 2] : [])}` });
+  contarEscolha($('[data-escolha]'));
+}
+function dialogoContar(r) {
+  const itens = PRODUTOS.slice(0, 8);
+  painel({ largo: true, titulo: `Contar: ${r.nome}`, foco: '#cBusca',
+    rodape: `<label style="margin-right:auto;display:flex;align-items:center;gap:8px"><input type="checkbox" checked> Ajustar o estoque pela contagem</label><button class="bt" data-fechar>Cancelar</button><button class="bt pri" onclick="fechar();avisar('Contagem salva e estoque ajustado.')">Salvar contagem</button>`,
+    corpo: `<div id="contando" style="display:grid;gap:12px">
+      <div class="duas"><div class="campo"><label for="cBusca">Buscar produto</label><input id="cBusca" type="search" placeholder="Digite parte do nome"></div><div class="conta" id="cProg" style="align-self:end"></div></div>
+      <div class="fichas"><button type="button" class="ficha" id="cFalta" aria-pressed="false">Só os que faltam contar</button><button type="button" class="ficha" id="cDif" aria-pressed="false">Só com diferença</button></div>
+      <div class="tabela"><table class="mini"><caption class="sr">Produtos desta contagem</caption><thead><tr><th>Produto</th><th>No sistema</th><th>Contado</th><th>Diferença</th></tr></thead><tbody>
+      ${itens.map((p, i) => `<tr data-c="${i}"><td><b>${p[0]}</b><div class="sub">${p[1]}</div></td><td class="num">${num(p[3])} ${p[2]}</td><td><input type="number" min="0" step="any" inputmode="decimal" aria-label="Contado de ${p[0]}" placeholder="contado"></td><td class="num" data-d>—</td></tr>`).join('')}</tbody></table></div>
+      <p class="ajuda" style="margin:0">O saldo "no sistema" é o da abertura da contagem. Se o produto teve venda ou produção depois, a linha avisa.</p></div>` });
+  progresso();
+  $('#cFalta').onclick = $('#cDif').onclick = () => setTimeout(progresso);
+}
+function progresso() {
+  const raiz = $('#contando'); if (!raiz) return;
+  const b = sem($('#cBusca').value), falta = $('#cFalta').getAttribute('aria-pressed') === 'true', soDif = $('#cDif').getAttribute('aria-pressed') === 'true';
+  let contados = 0, difs = 0; const linhas = [...raiz.querySelectorAll('tr[data-c]')];
+  linhas.forEach((l) => { const p = PRODUTOS[l.dataset.c], v = $('input', l).value; const d = v === '' ? null : Number(v) - p[3];
+    if (v !== '') contados++; if (d) difs++;
+    $('[data-d]', l).innerHTML = d == null ? '—' : d === 0 ? selo('ok', 'confere') : selo(d < 0 ? 'crit' : 'warn', (d > 0 ? '+' : '') + num(d));
+    l.hidden = !((!b || sem(p[0]).includes(b)) && (!falta || v === '') && (!soDif || !!d)); });
+  $('#cProg').textContent = `${contados} de ${linhas.length} contados · ${difs} com diferença`;
+}
+function dialogoHistorico(r) {
+  painel({ largo: true, titulo: `Histórico: ${r.nome}`, rodape: '<button class="bt pri" data-fechar>Fechar</button>',
+    corpo: r.ultima ? `<div class="tabela"><table><caption class="sr">Contagens feitas</caption><thead><tr><th>Data</th><th>Quem contou</th><th>Produtos contados</th><th>Com diferença</th><th>Ajustou o estoque</th></tr></thead><tbody>
+      ${[[r.ultima, r.resp || 'Ana', r.itens, 3, 'sim'], ['2026-09-23', 'Carlos', r.itens, 0, 'sim'], ['2026-09-16', 'Ana', r.itens - 2, 5, 'não']].map((h) => `<tr><td class="num">${br(h[0])}</td><td>${h[1]}</td><td class="num">${h[2]}</td><td>${h[3] ? selo('warn', h[3] + ' produto(s)') : selo('ok', 'tudo conferiu')}</td><td>${h[4]}</td></tr>`).join('')}</tbody></table></div>` : '<div class="vazio">Esta lista ainda não foi contada.</div>' });
+}
+function formCompra() {
+  painel({ tipo: 'gaveta', largo: true, titulo: 'Gerar lista de compras', rodape: rodapeSalvar('Criar lista', 'Lista de compras criada.'),
+    corpo: `${campo('Nome da lista', '<input placeholder="Ex.: Compra da semana">')}
+      <div class="duas">${campo('Fornecedor', sel(['— sem fornecedor —', ...FORN]))}${campo('Responsável pelo recebimento (opcional)', sel(['— ninguém —', ...PESSOAS]))}</div>
+      <div class="duas">${campo('Data de recebimento', '<input type="date" value="2026-10-09">')}${campo('Data de pagamento', '<input type="date">', 'Pode ficar para a conferência. Em branco, usa o prazo do fornecedor.')}</div>
+      <div><button class="bt" type="button" onclick="document.querySelectorAll('[data-escolha] label').forEach(l=>{const p=PRODUTOS[l.dataset.p];if(p[3]<p[4]){l.querySelector('input[type=checkbox]').checked=true;l.querySelector('input[type=number]').value=p[4]*2-p[3]}});contarEscolha(document.querySelector('[data-escolha]'));avisar('Produtos abaixo do mínimo marcados, com a quantidade sugerida.')">✨ Sugerir do estoque baixo</button></div>
+      ${escolhaProdutos(true)}
+      <div style="display:grid;gap:6px"><label><input type="checkbox" checked> Avisar no KDS ao receber</label><label><input type="checkbox" checked> Avisar no painel</label></div>` });
+  contarEscolha($('[data-escolha]'));
+}
+function dialogoConferir(r) {
+  painel({ largo: true, titulo: `Conferir e receber: ${r.nome}`, rodape: `<button class="bt" data-fechar>Cancelar</button><button class="bt pri" id="bRec">Confirmar recebimento</button>`,
+    corpo: `<p class="ajuda" style="margin:0">Confira o que realmente chegou. Só a quantidade recebida entra no estoque.</p>
+      <div class="tabela"><table class="mini" style="min-width:680px"><caption class="sr">Conferência dos itens da compra</caption><thead><tr><th>Item</th><th>Pedido</th><th>Recebido</th><th>Validade</th><th>Lote</th></tr></thead><tbody>
+      ${PRODUTOS.slice(4, 8).map((p, i) => `<tr><td><b>${p[0]}</b><div class="sub">${p[2]}</div></td><td class="num">${p[4]}</td><td><input type="number" value="${i === 1 ? p[4] - 2 : p[4]}" aria-label="Recebido de ${p[0]}">${i === 1 ? '<div class="sub" style="color:var(--warn)">veio menos</div>' : ''}</td><td><input type="date" aria-label="Validade de ${p[0]}" value="2026-10-2${i}"><label class="sub" style="display:block;margin-top:2px"><input type="checkbox"> sem validade</label></td><td><input placeholder="opcional" aria-label="Lote de ${p[0]}"></td></tr>`).join('')}</tbody></table></div>
+      <div class="duas">${campo('Data de pagamento', '<input type="date">', 'Gera a conta a pagar pelo valor CONFERIDO.')}<div class="conta" style="align-self:start">4 itens · 1 com diferença do pedido</div></div>` });
+  $('#bRec').onclick = () => { r.st = 'recebida'; fechar(); desenhar(); avisar('Compra conferida e recebida — estoque atualizado.'); };
+}
+function dialogoItens(r) {
+  painel({ largo: true, titulo: `${r.nome || r.forn} · ${r.itens} itens`, rodape: '<button class="bt pri" data-fechar>Fechar</button>',
+    corpo: `<div class="tabela"><table><caption class="sr">Itens</caption><thead><tr><th>Produto</th><th>Quantidade</th><th>Custo unitário</th><th>Situação</th></tr></thead><tbody>
+      ${PRODUTOS.slice(3, 7).map((p, i) => `<tr><td><b>${p[0]}</b></td><td class="num">${p[4]} ${p[2]}</td><td class="num">${brl(4.5 + i * 3.2)}</td><td>${i === 1 && r.div ? selo('crit', 'veio menos') : selo('ok', 'ok')}</td></tr>`).join('')}</tbody></table></div><p class="sub" style="margin:0">Mostrando 4 de ${r.itens}.</p>` });
+}
+function formRecebimento() {
+  painel({ tipo: 'gaveta', largo: true, titulo: 'Novo recebimento', rodape: rodapeSalvar('Registrar recebimento', 'Recebimento registrado — falta confirmar.'),
+    corpo: `<div class="duas">${campo('Fornecedor', sel(FORN))}${campo('Data', '<input type="date" value="2026-10-07">')}</div>
+      <div class="duas">${campo('Nº / identificação da nota', '<input placeholder="Opcional">')}${campo('Vencimento (conta a pagar)', '<input type="date">')}</div>
+      ${campo('Foto da nota', '<input type="file" accept="image/*" style="padding:8px">')}
+      <div><div class="rot" style="display:flex;justify-content:space-between;align-items:center">Conferência de itens <button class="bt" type="button">＋ Item</button></div>
+      <div class="tabela" style="margin-top:6px"><table class="mini" style="min-width:640px"><caption class="sr">Itens recebidos</caption><thead><tr><th>Produto</th><th>Esperado</th><th>Recebido</th><th>Custo unit.</th><th>Validade</th></tr></thead><tbody>
+      ${PRODUTOS.slice(5, 8).map((p) => `<tr><td>${sel(PRODUTOS.map((x) => x[0]), p[0])}</td><td><input type="number" value="${p[4]}" aria-label="Esperado"></td><td><input type="number" value="${p[4]}" aria-label="Recebido"></td><td><input type="number" placeholder="0,00" aria-label="Custo unitário"></td><td><input type="date" aria-label="Validade"></td></tr>`).join('')}</tbody></table></div></div>
+      ${campo('Observações', '<textarea placeholder="Opcional"></textarea>')}` });
+}
+function formEtiqueta() {
+  painel({ tipo: 'gaveta', titulo: 'Gerar etiqueta de validade', rodape: rodapeSalvar('Gerar e imprimir', 'Etiqueta(s) enviada(s) à impressão.'),
+    corpo: `${campo('O que vai ser etiquetado', sel(['Molho da casa (ficha)', 'Queijo fatiado (produto)', 'Alface — lote de 06/10', 'Bacon em cubos (produto)']), 'Produtos do cardápio com validade, fichas, produtos do estoque e lotes recebidos.')}
+      <div><div class="rot" style="margin-bottom:4px">Situação</div><div class="seg"><button type="button" aria-pressed="true">Novo (fechado)</button><button type="button" aria-pressed="false">Já em uso</button></div></div>
+      <div class="duas">${campo('Quantidade de etiquetas', '<input type="number" min="1" value="1">')}${campo('Manipulado em', '<input type="date" value="2026-10-07">')}</div>
+      <div class="nota">Validade calculada: <b>10/10</b> (3 dias). O desenho sai no modelo escolhido na aba Modelo.</div>` });
+}
+function dialogoPerda(r) {
+  painel({ titulo: `Perda: ${r.nome}`, alerta: true, rodape: `<button class="bt" data-fechar>Cancelar</button><button class="bt perigo" id="bPerda">Registrar perda</button>`,
+    corpo: `<p style="margin:0">A etiqueta <span class="num">#${r.cod}</span> venceu em ${br(r.val)}.</p>${campo('Quanto foi perdido? (opcional)', '<input type="number" min="0" step="any" placeholder="ex.: 0,5">', 'Com a quantidade, a perda baixa o estoque. Sem ela, fica só o registro.')}` });
+  $('#bPerda').onclick = () => { ABAS.etiquetas.dados = ABAS.etiquetas.dados.filter((x) => x !== r); fechar(); desenhar(); avisar('Perda registrada.'); };
+}
+function formDesperdicio(lote) {
+  painel({ tipo: 'gaveta', titulo: 'Registrar desperdício', rodape: rodapeSalvar('Registrar desperdício', 'Desperdício registrado.'),
+    corpo: `${campo('Descrição', `<input value="${lote ? lote.nome + ' vencido' : ''}" placeholder="Ex.: Pão queimado">`)}
+      ${campo('Produto do estoque (opcional)', sel(['— sem vínculo (só registro) —', ...PRODUTOS.map((p) => p[0])], lote ? lote.nome : ''), 'Com o produto, baixa o estoque e entra no CMV.')}
+      <div class="duas">${campo('Quantidade', `<input type="number" min="0" step="any" value="${lote ? lote.qtd : ''}" placeholder="0">`)}${campo('Motivo', sel(['Validade', 'Preparo', 'Queda', 'Transporte', 'Outro'], lote ? 'Validade' : 'Preparo'))}</div>
+      <div class="duas">${campo('Data', '<input type="date" value="2026-10-07">')}${campo('Foto (opcional)', '<input type="file" accept="image/*" style="padding:8px">')}</div>` });
+}
+function formVistoria() {
+  painel({ tipo: 'gaveta', titulo: 'Registrar vistoria', rodape: rodapeSalvar('Registrar vistoria', 'Vistoria registrada.'),
+    corpo: `<div><div class="rot" style="margin-bottom:4px">Tipo</div><div class="seg"><button type="button" aria-pressed="true">Abertura</button><button type="button" aria-pressed="false">Fechamento</button><button type="button" aria-pressed="false">Padrão</button></div></div>
+      ${campo('Observação', '<textarea placeholder="Ex.: Tudo em ordem"></textarea>')}
+      <div class="duas">${campo('Data', '<input type="date" value="2026-10-07">')}${campo('Foto (opcional)', '<input type="file" accept="image/*" style="padding:8px">')}</div>` });
+}
+desenhar();
+</script>
+</body>
+</html>

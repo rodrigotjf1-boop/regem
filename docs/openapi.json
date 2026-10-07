@@ -1998,17 +1998,38 @@
       },
       "get": {
         "operationId": "DesperdicioController_findAll",
+        "parameters": [
+          {
+            "name": "inicio",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fim",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/desperdicios/motivos": {
+      "get": {
+        "operationId": "DesperdicioController_motivos",
         "parameters": [],
         "responses": {
           "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
+            "description": ""
           }
         }
       }
@@ -2035,7 +2056,24 @@
       },
       "get": {
         "operationId": "VistoriaController_findAll",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "inicio",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fim",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",
@@ -3427,7 +3465,24 @@
     "/api/v1/recebimentos": {
       "get": {
         "operationId": "RecebimentoController_findAll",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "inicio",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fim",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",
