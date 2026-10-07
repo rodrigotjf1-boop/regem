@@ -64,16 +64,32 @@ export class PerfilService {
       .from(perfilAcesso)
       .where(and(eq(perfilAcesso.tenantId, ator.tenantId), eq(perfilAcesso.nome, nome)));
     if (ja) throw new BadRequestException('Já existe um perfil com esse nome.');
-    const [row] = await this.db
-      .insert(perfilAcesso)
-      .values({
-        tenantId: ator.tenantId,
-        nome,
-        nivel,
-        loginWeb: dto.loginWeb ?? true,
-        permissoes: dto.permissoes ?? perfilPadrao(nivel).permissoes,
-      })
-      .returning();
+    // O banco guarda UM perfil por nível em cada empresa (`unique (tenant_id, nivel)`, mig 069).
+    // Sem esta resposta, o segundo perfil do mesmo nível batia no índice e saía como erro 500.
+    const [doNivel] = await this.db
+      .select({ nome: perfilAcesso.nome })
+      .from(perfilAcesso)
+      .where(and(eq(perfilAcesso.tenantId, ator.tenantId), eq(perfilAcesso.nivel, nivel)));
+    const recusa = (existente?: string) =>
+      new BadRequestException(`Já existe o perfil ${existente ? `"${existente}" ` : ''}neste nível. Hoje cada nível tem um perfil só: ajuste as permissões dele.`);
+    if (doNivel) throw recusa(doNivel.nome);
+    let row: typeof perfilAcesso.$inferSelect;
+    try {
+      [row] = await this.db
+        .insert(perfilAcesso)
+        .values({
+          tenantId: ator.tenantId,
+          nome,
+          nivel,
+          loginWeb: dto.loginWeb ?? true,
+          permissoes: dto.permissoes ?? perfilPadrao(nivel).permissoes,
+        })
+        .returning();
+    } catch (e: any) {
+      // dois pedidos ao mesmo tempo: o índice decide (V24)
+      if ((e?.code ?? e?.cause?.code) === '23505') throw recusa();
+      throw e;
+    }
     await this.auditoria.registrar({
       tenantId: ator.tenantId,
       atorId: ator.colaboradorId,
