@@ -26,6 +26,7 @@ import {
 } from '../../common/custo-loja';
 import { condUnidadeOuRede, sqlUnidade, sqlUnidadeOuRede } from '../../common/filtro-unidade';
 import { hojeISO } from '../../common/data';
+import type { Periodo } from '../../common/periodo';
 import { CreateCompraListaDto } from './dto/create-compra-lista.dto';
 import { ReceberCompraDto, ConferenciaItemDto } from './dto/receber-compra.dto';
 
@@ -108,7 +109,17 @@ export class ComprasService {
     return { ...lista, itens: linhas.length };
   }
 
-  async listListas(tenantId: string, atual: string | null = null) {
+  // `periodo` é o que a tela pede para a lista não crescer para sempre. Ele corta só as listas
+  // já RECEBIDAS (pela data em que foram recebidas); a que ainda aguarda aparece sempre, por
+  // mais antiga que seja — é a compra esquecida que precisa ser vista. Sem período, tudo.
+  // `verFinanceiro`: o valor estimado só sai para quem tem "ver valores em R$".
+  async listListas(
+    tenantId: string,
+    atual: string | null = null,
+    periodo: Periodo = { inicio: null, fim: null },
+    verFinanceiro = true,
+  ) {
+    const recebidaNoDia = sql`coalesce((${compraLista.recebidaEm} at time zone 'America/Sao_Paulo')::date, ${compraLista.dataRecebimento}, (${compraLista.createdAt} at time zone 'America/Sao_Paulo')::date)`;
     const listas = await this.db
       .select({
         id: compraLista.id,
@@ -116,6 +127,9 @@ export class ComprasService {
         status: compraLista.status,
         dataRecebimento: compraLista.dataRecebimento,
         recebidaEm: compraLista.recebidaEm,
+        createdAt: compraLista.createdAt,
+        fornecedorId: compraLista.fornecedorId,
+        delegadoId: compraLista.delegadoId,
         fornecedorNome: fornecedor.nome,
         delegadoNome: colaborador.nome,
       })
@@ -124,21 +138,42 @@ export class ComprasService {
       .leftJoin(colaborador, eq(compraLista.delegadoId, colaborador.id))
       // Escopo por loja (auditoria #6/#33): antes a lista da Filial A aparecia — e podia
       // ser removida — na tela da Filial B.
-      .where(and(eq(compraLista.tenantId, tenantId), isNull(compraLista.deletedAt), condUnidadeOuRede(compraLista.unidadeId, atual)))
+      .where(
+        and(
+          eq(compraLista.tenantId, tenantId),
+          isNull(compraLista.deletedAt),
+          condUnidadeOuRede(compraLista.unidadeId, atual),
+          periodo.inicio ? sql`(${compraLista.status} <> 'recebida' or ${recebidaNoDia} >= ${periodo.inicio})` : undefined,
+          periodo.fim ? sql`(${compraLista.status} <> 'recebida' or ${recebidaNoDia} <= ${periodo.fim})` : undefined,
+        ),
+      )
       .orderBy(desc(compraLista.createdAt));
     const ids = listas.map((l) => l.id);
+    // Por lista: quantos itens, o valor (quantidade × custo informado) e quantos estão sem custo
+    // — o valor é "estimado" justamente porque nem todo item tem o custo preenchido.
     const cnt = ids.length
       ? await this.db
-          .select({ listaId: compraItem.listaId, n: sql<number>`count(*)` })
+          .select({
+            listaId: compraItem.listaId,
+            n: sql<number>`count(*)`,
+            valor: sql<string>`coalesce(sum(${compraItem.quantidade} * ${compraItem.custoUnitario}), 0)`,
+            semCusto: sql<number>`count(*) filter (where ${compraItem.custoUnitario} is null)`,
+          })
           .from(compraItem)
           .where(inArray(compraItem.listaId, ids))
           .groupBy(compraItem.listaId)
       : [];
-    const nItens = new Map(cnt.map((c: any) => [c.listaId, Number(c.n)]));
-    return listas.map((l) => ({ ...l, itens: nItens.get(l.id) ?? 0 }));
+    const por = new Map(cnt.map((c: any) => [c.listaId, c]));
+    return listas.map((l) => ({
+      ...l,
+      itens: Number(por.get(l.id)?.n ?? 0),
+      valorEstimado: verFinanceiro ? Number(por.get(l.id)?.valor ?? 0) : null,
+      itensSemCusto: Number(por.get(l.id)?.semCusto ?? 0),
+    }));
   }
 
-  async getLista(tenantId: string, id: string, atual: string | null = null) {
+  // `verFinanceiro`: o custo de cada item só sai para quem tem "ver valores em R$".
+  async getLista(tenantId: string, id: string, atual: string | null = null, verFinanceiro = true) {
     const [lista] = await this.db
       .select()
       .from(compraLista)
@@ -180,7 +215,11 @@ export class ComprasService {
     );
     return {
       ...lista,
-      itens: itens.map((i) => ({ ...i, sugestao: memoria.get(i.itemId) ?? null })),
+      itens: itens.map((i) => ({
+        ...i,
+        custoUnitario: verFinanceiro ? i.custoUnitario : null,
+        sugestao: memoria.get(i.itemId) ?? null,
+      })),
     };
   }
 
