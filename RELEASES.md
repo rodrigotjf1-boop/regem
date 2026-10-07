@@ -94,6 +94,10 @@
   ⚠️ **Servidor da loja ainda na 1.30.x:** a loja continua com as telas antigas e com o servidor antigo (salvar impressora regrava tudo; "Repetir todo dia" é recusado) até o `.zip`.
   ⚠️ **Passa a sair papel onde antes não saía:** ordem de produção criada com "Impressão" marcada imprime a via da ordem na impressora escolhida. A ordem que se repete continua sem imprimir (decisão em aberto).
   ⚠️ **Ordem de deploy:** nenhuma migration.
+- **Configurações no modelo novo — entrega 4 (última): Equipamentos e Acessos & perfis — sem migration; MUDA O SERVIDOR (equipamentos, fila de impressão e perfis) — entra no próximo `.zip` (não toca `backend/edge/` nem o sync).** **Equipamentos**: lista com situações e filtros; "Novo equipamento" e "Configurar" na gaveta — agora dá para trocar o nome de qualquer equipamento, o setor e o escopo do KDS e o PDV principal do salão; token, código de pareamento (com contagem) e revogar em diálogos; a fila de impressão passa a mostrar todas as impressões que falharam (antes sumiam depois de 40 impressões). **Acessos & perfis**: três partes (Perfis, Pessoas, Suporte); permissões na gaveta, com busca; bloquear pessoa pede confirmação.
+  ⚠️ **Servidor da loja ainda na 1.30.x:** a loja continua com as telas antigas e sem a rota de "Configurar" até o `.zip`. Com servidor local ativo, impressora e KDS se configuram NELE (na nuvem ficam só leitura) — conferir "Configurar" no servidor da loja na primeira instalação com este pacote.
+  ⚠️ **"Novo perfil" só aparece para nível sem perfil:** o banco guarda um perfil por nível (mig 069). Vários perfis por nível é decisão em aberto (pede migration).
+  ⚠️ **Ordem de deploy:** nenhuma migration.
 
 ## Última release: `1.30.2` — gerada em 30/09/2026 da `origin/main` `3e81449`, **.exe COMPILADO** e publicado (`instaladores/RegemEdgeSetup.exe`, 92.720.473 bytes, SHA-256 `91fdd1fd8b6b442c820222512f3d2ac0ae3f2e9ddad9e4ad84a03e7091ae90ad`, download público conferido); sem `.zip`
 

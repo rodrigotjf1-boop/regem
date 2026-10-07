@@ -1854,6 +1854,10 @@ export const api = {
     }),
   revogarEquipamento: (id: string) =>
     req(`/equipamento/${id}/revogar`, { method: 'PATCH' }),
+  // "Configurar": nome de qualquer equipamento; setor e escopo do KDS; PDV principal do salão.
+  // Só as chaves enviadas mudam.
+  atualizarEquipamento: (id: string, body: Record<string, unknown>) =>
+    req(`/equipamento/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   recebimentos: () => req('/recebimentos'),
   recebimento: (id: string) => req(`/recebimentos/${id}`),
   criarRecebimento: (body: Record<string, unknown>) =>

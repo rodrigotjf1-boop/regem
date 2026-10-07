@@ -90,6 +90,13 @@ export class EquipamentoService {
     return r?.nome ?? id;
   }
 
+  /** Nome de um setor DA EMPRESA (null se não existe nela, ou se não veio id). */
+  private async nomeDoSetor(tenantId: string, id?: string | null): Promise<string | null> {
+    if (!id || !/^[0-9a-f-]{36}$/i.test(String(id))) return null;
+    const r: any = await this.db.execute(sql`select nome from setor where id = ${String(id)}::uuid and tenant_id = ${tenantId} and deleted_at is null`);
+    return (r.rows ?? r)[0]?.nome ?? null;
+  }
+
   /** Para onde a impressora manda: `ip:porta` na rede, ou o nome dela no Windows. */
   private destinoImpressora(r: { conexao?: string | null; host?: string | null; porta?: number | null; dispositivo?: string | null }) {
     return r.conexao === 'local' ? (r.dispositivo ?? null) : r.host ? `${r.host}${r.porta ? `:${r.porta}` : ''}` : null;
@@ -380,6 +387,75 @@ export class EquipamentoService {
         impressoraDepois: await this.nomeDe(tenantId, depois),
       });
     }
+    return this.publico(row);
+  }
+
+  // "Configurar" de QUALQUER equipamento: o nome e, por tipo, o que dá para trocar depois do
+  // cadastro — KDS: setor e escopo; sub-PDV do salão: o PDV principal. Campo ausente mantém (V16).
+  // O tipo, a unidade e o token não mudam por aqui. A impressora (conexão, papel, vias…) continua em
+  // `salvarImpressora`; a impressora de cupom do PDV, a impressão por etapa e o próximo KDS, nas
+  // rotas próprias. Antes só a impressora tinha edição: os outros não tinham como trocar o nome.
+  async atualizar(tenantId: string, id: string, dto: any, ator?: AtorEquipamento) {
+    const [atual] = await this.db
+      .select()
+      .from(equipamento)
+      .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, id)));
+    if (!atual) throw new NotFoundException('Equipamento não encontrado');
+    if (!atual.ativo) throw new BadRequestException('Equipamento revogado não é editado.');
+    // Com servidor local ativo, impressora e KDS são configurados nele (mesma trava do cadastro).
+    if (atual.tipo === 'impressora' || atual.tipo === 'kds') await this.garantirConfigLocal(tenantId);
+
+    const set: { nome?: string; escopo?: string; setorId?: string | null; pdvMainId?: string } = {};
+    const mudou: Record<string, { de: unknown; para: unknown }> = {};
+    if (dto?.nome !== undefined) {
+      const nome = String(dto.nome ?? '').trim();
+      if (!nome) throw new BadRequestException('Informe o nome do equipamento.');
+      if (nome.length > 80) throw new BadRequestException('O nome tem no máximo 80 caracteres.');
+      if (nome !== atual.nome) {
+        set.nome = nome;
+        mudou.nome = { de: atual.nome, para: nome };
+      }
+    }
+    if (atual.tipo === 'kds' && dto?.escopo !== undefined) {
+      if (!['producao', 'entrega', 'avisos'].includes(dto.escopo)) throw new BadRequestException('Escopo do KDS inválido.');
+      if (dto.escopo !== atual.escopo) {
+        set.escopo = dto.escopo;
+        mudou.escopo = { de: atual.escopo, para: dto.escopo };
+      }
+    }
+    if (atual.tipo === 'kds' && dto?.setorId !== undefined) {
+      const setorId: string | null = dto.setorId || null;
+      // O setor é conferido contra a empresa: o id não é aceito cru do pedido.
+      const nomeSetor = await this.nomeDoSetor(tenantId, setorId);
+      if (setorId && !nomeSetor) throw new BadRequestException('Setor não encontrado.');
+      if (setorId !== (atual.setorId ?? null)) {
+        set.setorId = setorId;
+        mudou.setor = { de: await this.nomeDoSetor(tenantId, atual.setorId), para: nomeSetor };
+      }
+    }
+    if (atual.tipo === 'salao' && dto?.pdvMainId !== undefined) {
+      const pdvMainId: string | null = dto.pdvMainId || null;
+      if (!pdvMainId) throw new BadRequestException('Escolha o PDV principal.');
+      const [main] = await this.db
+        .select({ id: equipamento.id, nome: equipamento.nome, unidadeId: equipamento.unidadeId })
+        .from(equipamento)
+        .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, pdvMainId), eq(equipamento.tipo, 'pdv'), eq(equipamento.ativo, true)));
+      if (!main) throw new BadRequestException('PDV principal não encontrado.');
+      if (main.unidadeId && atual.unidadeId && main.unidadeId !== atual.unidadeId)
+        throw new BadRequestException('O PDV principal é de outra loja.');
+      if (pdvMainId !== (atual.pdvMainId ?? null)) {
+        set.pdvMainId = pdvMainId;
+        mudou.pdvPrincipal = { de: await this.nomeDe(tenantId, atual.pdvMainId), para: main.nome };
+      }
+    }
+    if (!Object.keys(set).length) return this.publico(atual);
+
+    const [row] = await this.db
+      .update(equipamento)
+      .set(set)
+      .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, id)))
+      .returning();
+    await this.auditar(tenantId, ator, 'editou_equipamento', row, { nome: row.nome, tipo: row.tipo, mudou });
     return this.publico(row);
   }
 

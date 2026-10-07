@@ -3316,6 +3316,26 @@
         }
       }
     },
+    "/api/v1/equipamento/{id}": {
+      "patch": {
+        "operationId": "EquipamentoController_atualizar",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/equipamento/{id}/revogar": {
       "patch": {
         "operationId": "EquipamentoController_revogar",

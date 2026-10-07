@@ -165,6 +165,16 @@ export class EquipamentoController {
     return this.service.setProximoKds(user.tenantId, id, dto?.proximoKdsId ?? null, ator(user));
   }
 
+  // "Configurar": o nome de qualquer equipamento e, por tipo, o setor e o escopo (KDS) ou o PDV
+  // principal (sub-PDV do salão). Só o que veio muda.
+  @Patch(':id')
+  @UseGuards(PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('servidor')
+  atualizar(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    return this.service.atualizar(user.tenantId, id, dto ?? {}, ator(user));
+  }
+
   @Patch(':id/revogar')
   @UseGuards(PermissoesGuard)
   @Roles('presidente', 'gerente')

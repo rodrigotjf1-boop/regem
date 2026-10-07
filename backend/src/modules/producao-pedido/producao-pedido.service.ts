@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { PREFIXO_BALCAO, rotuloSenha } from '../../common/senha-origem';
 import {
@@ -1498,31 +1498,41 @@ export class ProducaoPedidoService {
 
   // Fila recente para o painel (status + impressora). Gestor logado. Usuário com loja vê só a
   // fila DELA (e os jobs sem loja) — antes o gerente da loja A via a fila da loja B.
+  //
+  // O que PEDE AÇÃO não divide limite com o histórico: vêm TODAS as que estão na fila e as que
+  // falharam (o expurgo já as limita no tempo; teto de segurança de `LIMITE_VIVAS`), mais as
+  // `limite` impressas mais recentes. Eram "as 40 mais recentes de qualquer situação": num dia de
+  // movimento, a que falhou saía do painel atrás de 40 impressões e não dava mais para reimprimir.
   async filaRecente(tenantId: string, unidadeId: string | null = null, limite = 40) {
-    return this.db
-      .select({
-        id: impressaoJob.id,
-        unidadeId: impressaoJob.unidadeId, // o "Imprimir em…" do painel oferece só as da loja do job
-        via: impressaoJob.via,
-        status: impressaoJob.status,
-        tentativas: impressaoJob.tentativas,
-        erro: impressaoJob.erro,
-        criadoEm: impressaoJob.criadoEm,
-        impressoEm: impressaoJob.impressoEm,
-        impressora: equipamento.nome,
-      })
-      .from(impressaoJob)
-      .leftJoin(equipamento, eq(equipamento.id, impressaoJob.equipamentoId))
-      .where(
-        and(
-          eq(impressaoJob.tenantId, tenantId),
-          unidadeId
-            ? or(eq(impressaoJob.unidadeId, unidadeId), isNull(impressaoJob.unidadeId))
-            : undefined,
-        ),
-      )
-      .orderBy(desc(impressaoJob.criadoEm))
-      .limit(limite);
+    const LIMITE_VIVAS = 300;
+    const campos = {
+      id: impressaoJob.id,
+      unidadeId: impressaoJob.unidadeId, // o "Imprimir em…" do painel oferece só as da loja do job
+      via: impressaoJob.via,
+      status: impressaoJob.status,
+      tentativas: impressaoJob.tentativas,
+      erro: impressaoJob.erro,
+      criadoEm: impressaoJob.criadoEm,
+      impressoEm: impressaoJob.impressoEm,
+      impressora: equipamento.nome,
+    };
+    const daLoja = and(
+      eq(impressaoJob.tenantId, tenantId),
+      unidadeId ? or(eq(impressaoJob.unidadeId, unidadeId), isNull(impressaoJob.unidadeId)) : undefined,
+    );
+    const ler = (situacao: SQL, quantas: number) =>
+      this.db
+        .select(campos)
+        .from(impressaoJob)
+        .leftJoin(equipamento, eq(equipamento.id, impressaoJob.equipamentoId))
+        .where(and(daLoja, situacao))
+        .orderBy(desc(impressaoJob.criadoEm))
+        .limit(quantas);
+    const [vivas, impressas] = await Promise.all([
+      ler(ne(impressaoJob.status, 'impresso'), LIMITE_VIVAS),
+      ler(eq(impressaoJob.status, 'impresso'), limite),
+    ]);
+    return [...vivas, ...impressas].sort((a, b) => new Date(b.criadoEm as any).getTime() - new Date(a.criadoEm as any).getTime());
   }
 
   // P4 — expurgo da fila de impressão (não cresce pra sempre). Roda no backend da NUVEM E no do
