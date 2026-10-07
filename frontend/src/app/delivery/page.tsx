@@ -437,7 +437,8 @@ export default function DeliveryPage() {
     },
     voltar: {
       show: true,
-      enabled: !!sel && ['despachado', 'concluido', 'cancelado'].includes(st),
+      // Pedido cancelado não volta: o servidor recusa (a venda foi estornada e a cozinha, avisada).
+      enabled: !!sel && ['despachado', 'concluido'].includes(st),
       onClick: () => {
         if (!sel) return;
         if (sel.status === 'despachado') retornar(sel);

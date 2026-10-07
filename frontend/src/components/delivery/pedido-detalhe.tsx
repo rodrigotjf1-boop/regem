@@ -269,7 +269,7 @@ export function PedidoDetalhe({
         {modo === 'cancelar' && (
           <div className="mt-3">
             <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">
-              Confirmar cancelamento? Esta ação não pode ser desfeita e não contabiliza estoque.
+              Confirmar cancelamento? Esta ação não pode ser desfeita: a venda é estornada, a cozinha é avisada e o pedido não pode ser reaberto.
             </p>
             <div className="mt-3 space-y-3">
               <div className="space-y-1">
@@ -281,28 +281,31 @@ export function PedidoDetalhe({
                 <Input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="senha do presidente/gerente" />
               </div>
             </div>
-            {/* Insumo já baixado (pedido produzido): voltou ao estoque ou virou perda? */}
-            <div className="mt-3 space-y-1.5">
-              <p className="text-xs font-medium">O que aconteceu com os insumos deste pedido?</p>
-              <div className="flex gap-1.5">
-                <button
-                  type="button"
-                  aria-pressed={reaproveitado}
-                  onClick={() => setReaproveitado(true)}
-                  className={`flex-1 rounded-md border px-2 py-1.5 text-xs font-medium ${reaproveitado ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground'}`}
-                >
-                  ♻️ Reutilizados (voltam ao estoque)
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={!reaproveitado}
-                  onClick={() => setReaproveitado(false)}
-                  className={`flex-1 rounded-md border px-2 py-1.5 text-xs font-medium ${!reaproveitado ? 'border-destructive bg-destructive/10 text-destructive' : 'border-border text-muted-foreground'}`}
-                >
-                  🗑️ Perda (não voltam)
-                </button>
+            {/* Só o pedido já aceito tem cozinha: perda baixa o insumo do estoque (se a produção
+                começou); reutilizado deixa no estoque. O servidor responde o que aconteceu. */}
+            {['confirmado', 'pronto', 'despachado', 'entregue'].includes(p.status) && (
+              <div className="mt-3 space-y-1.5">
+                <p className="text-xs font-medium">O que aconteceu com os insumos deste pedido?</p>
+                <div className="flex gap-1.5">
+                  <button
+                    type="button"
+                    aria-pressed={reaproveitado}
+                    onClick={() => setReaproveitado(true)}
+                    className={`flex-1 rounded-md border px-2 py-1.5 text-xs font-medium ${reaproveitado ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground'}`}
+                  >
+                    ♻️ Reutilizados (ficam no estoque)
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={!reaproveitado}
+                    onClick={() => setReaproveitado(false)}
+                    className={`flex-1 rounded-md border px-2 py-1.5 text-xs font-medium ${!reaproveitado ? 'border-destructive bg-destructive/10 text-destructive' : 'border-border text-muted-foreground'}`}
+                  >
+                    🗑️ Perda (saem do estoque)
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
             <div className="mt-4 flex gap-2">
               <Button type="button" variant="ghost" className="flex-1" onClick={() => setModo('view')}>Voltar</Button>
               <Button type="button" className="flex-1 bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={confirmarCancelamento} disabled={busy}>

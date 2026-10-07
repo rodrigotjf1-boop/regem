@@ -2043,6 +2043,16 @@ export class ProducaoPedidoService {
     const p = await this.carregar(tenantId, pedidoId);
     if (p.status === 'cancelado')
       throw new BadRequestException('Pedido cancelado não avança.');
+    // A venda foi desfeita (cancelada no painel, pelo canal ou pelo totem) e o card ficou para
+    // trás: o cancelamento veio da nuvem e a cozinha tocou no card antes de o sincronismo
+    // chegar, ou o aviso à produção falhou. Card de pedido cancelado não avança — sai da fila.
+    if (p.comandaId) {
+      const venda = await this.situacaoDaVenda(tenantId, p.comandaId);
+      if (venda && (venda.comandaCancelada || venda.pedidoCancelado)) {
+        await this.cancelarPorComanda(tenantId, null, p.comandaId, 'pedido cancelado');
+        throw new BadRequestException('Pedido cancelado: o card saiu da fila.');
+      }
+    }
     const { fluxo } = await this.etapasDe(tenantId, p.unidadeId);
     const idx = fluxo.indexOf(p.status);
     if (idx < 0 || idx >= fluxo.length - 1)
@@ -2276,6 +2286,17 @@ export class ProducaoPedidoService {
     const p = await this.carregar(tenantId, pedidoId);
     if (p.status === 'cancelado')
       throw new BadRequestException('Pedido já cancelado.');
+    // Card de pedido de canal (delivery, retirada, totem) não se cancela sozinho: o pedido
+    // continuaria valendo — "confirmado" para sempre, sem cozinha e com a venda de pé. Quem
+    // cancela é o pedido (estorna a venda, avisa o canal e tira este card daqui). Com o pedido
+    // já cancelado ou concluído, o card pode sair.
+    if (p.comandaId) {
+      const venda = await this.situacaoDaVenda(tenantId, p.comandaId);
+      if (venda?.pedidoAtivo)
+        throw new BadRequestException(
+          'Este card é de um pedido de delivery, retirada ou totem: cancele o pedido em Delivery → Painel ou em PDV → Retirada / Encomendas. O cancelamento do pedido estorna a venda, avisa o canal e tira o card da cozinha.',
+        );
+    }
     // Janela: livre enquanto não entregue; até 30min após pronto se já entregue.
     if (p.status === 'entregue') {
       const base = p.prontoEm ?? p.criadoEm;
@@ -2315,6 +2336,51 @@ export class ProducaoPedidoService {
       tipo: 'cancelado',
     });
     return { ok: true };
+  }
+
+  // A venda de um card e o pedido de canal ligado a ela (se houver): a venda foi cancelada? o
+  // pedido foi cancelado? o pedido ainda está valendo? Uma consulta — o card só guarda a comanda.
+  private async situacaoDaVenda(tenantId: string, comandaId: string) {
+    const r: any = await this.db.execute(sql`
+      select c.status = 'cancelada' as "comandaCancelada",
+             count(pe.id)::int as pedidos,
+             coalesce(bool_or(pe.status not in ('cancelado', 'concluido')), false) as "pedidoAtivo",
+             coalesce(bool_and(pe.status = 'cancelado'), false) as "pedidoCancelado"
+        from comanda c
+        left join pedido_externo pe on pe.comanda_id = c.id and pe.tenant_id = c.tenant_id
+       where c.id = ${comandaId} and c.tenant_id = ${tenantId}
+       group by c.status`);
+    const linha = (r.rows ?? r)[0];
+    if (!linha) return null;
+    return {
+      comandaCancelada: !!linha.comandaCancelada,
+      pedidoAtivo: !!linha.pedidoAtivo,
+      pedidoCancelado: !!linha.pedidoCancelado,
+    };
+  }
+
+  // A cozinha já começou algum card desta comanda? (decide se "perda" tem o que baixar.)
+  // Sem card nenhum (loja sem KDS, ou produto sem destino de produção) o aceite é o início:
+  // a cozinha trabalha pela via impressa.
+  async producaoIniciada(tenantId: string, comandaId: string): Promise<boolean> {
+    const r: any = await this.db.execute(sql`
+      select count(*) filter (where status <> 'cancelado')::int as cards,
+             count(*) filter (where status in ('preparo', 'pronto', 'entregue'))::int as iniciados
+        from producao_pedido
+       where tenant_id = ${tenantId} and comanda_id = ${comandaId}`);
+    const linha = (r.rows ?? r)[0];
+    return Number(linha?.cards ?? 0) === 0 || Number(linha?.iniciados ?? 0) > 0;
+  }
+
+  // Todos os cards da comanda (fora os cancelados) já estão prontos ou entregues?
+  // Pedido com item acrescentado depois do aceite tem mais de um card.
+  async comandaTodaPronta(tenantId: string, comandaId: string): Promise<boolean> {
+    const r: any = await this.db.execute(sql`
+      select count(*)::int as n
+        from producao_pedido
+       where tenant_id = ${tenantId} and comanda_id = ${comandaId}
+         and status not in ('cancelado', 'pronto', 'entregue')`);
+    return Number((r.rows ?? r)[0]?.n ?? 0) === 0;
   }
 
   // Cancela TODOS os pedidos de produção de uma comanda (ao cancelar o cupom):

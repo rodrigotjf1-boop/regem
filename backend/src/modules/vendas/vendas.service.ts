@@ -1848,6 +1848,9 @@ export class VendasService {
     // lançamento/auditoria têm de dizer isso — "delivery cancelado" ali confundiria o caixa.
     rotulo: { acao?: string; descricaoEstorno?: string } = {},
   ) {
+    // Quantas saídas de estoque a venda tinha: quem chama diz ao operador o que ACONTECEU com o
+    // insumo (voltou, ficou baixado como perda, ou nada tinha saído) — não o que se supõe.
+    let saidasDaVenda = 0;
     await this.db.transaction(async (tx) => {
       const [c] = await tx
         .select()
@@ -1866,6 +1869,7 @@ export class VendasService {
             eq(movimentoEstoque.refId, comandaId),
           ),
         );
+      saidasDaVenda = saidas.length;
       // Só devolve ao estoque se o insumo foi REUTILIZADO. Em caso de PERDA a saída
       // original permanece (o insumo realmente se perdeu) — nada a estornar.
       if (reaproveitado) {
@@ -1926,7 +1930,7 @@ export class VendasService {
       entidadeId: comandaId,
       detalhe: { motivo },
     });
-    return { ok: true };
+    return { ok: true, saidasDaVenda };
   }
 
   // Emite a NFC-e de uma comanda (botão "NF" do delivery). Usa a config fiscal.
@@ -1936,7 +1940,9 @@ export class VendasService {
 
   // Baixa de estoque do delivery na CONCLUSÃO (entrega). Idempotente pelo ref
   // (índice único em lancarSaidas). Recalcula o consumo a partir dos itens.
-  async baixarEstoqueExterno(tenantId: string, comandaId: string) {
+  // `comEmbalagem = false`: o pedido foi cancelado como PERDA ainda na cozinha — o insumo da
+  // receita se perdeu, mas a embalagem e os outros custos só de delivery nem chegaram a ser usados.
+  async baixarEstoqueExterno(tenantId: string, comandaId: string, comEmbalagem = true) {
     await this.db.transaction(async (tx) => {
       const itens = await tx
         .select()
@@ -1988,7 +1994,7 @@ export class VendasService {
           Number(it.quantidade) || 1,
           comps,
           consumo,
-          true, // pedido externo → baixa também os custos/embalagens de delivery
+          comEmbalagem, // pedido externo → baixa também os custos/embalagens de delivery
         );
       }
       await this.lancarSaidas(tx, tenantId, consumo, comandaId);
