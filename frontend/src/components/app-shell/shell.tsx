@@ -148,7 +148,8 @@ const NAV: NavNode[] = [
       // Terminais de PDV e de ponto, KDS, impressoras e servidor local. Mesma permissão da API.
       { href: '/equipamentos', label: 'Equipamentos', icon: MonitorSmartphone, perm: 'servidor' },
       { href: '/impressao', label: 'Impressoras e cupons', icon: Printer, perm: 'impressoras' },
-      { href: '/ordens-producao', label: 'Ordens de produção', icon: Flame, perm: 'producao_kds' },
+      // Ordens de produção fica só em Tarefas → "Pedidos de produção" (decisão do dono, 07/10/2026):
+      // aparecia aqui de novo, com outro nome, apontando para a mesma tela.
       { href: '/wizard', label: 'Config. por ramo', icon: Wand2, perm: 'config_ramo' },
       { href: '/planos', label: 'Planos & assinatura', icon: CreditCard, perm: 'planos' },
       { href: '/config/acessos', label: 'Acessos & perfis', icon: ShieldCheck, perm: 'acessos' },

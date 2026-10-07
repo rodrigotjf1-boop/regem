@@ -9,8 +9,8 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 
-// Peças comuns das listas do Estoque (modelo aprovado em Produtos e nas 8 abas seguintes — mockup
-// `mockups/regem-estoque-abas.html`). Toda aba monta a tela com as mesmas partes:
+// Peças comuns das telas de LISTA (modelo aprovado no Estoque — mockup `mockups/regem-estoque-abas.html` —
+// e levado às Configurações — `mockups/regem-configuracoes.html`). Toda lista monta a tela com as mesmas partes:
 //   TituloLista  → o título com a CONTAGEM ("3 de 12 fichas") e as ações da aba
 //   Situacoes    → as situações com a quantidade de cada uma; clicar filtra
 //   Filtros      → busca, período e os filtros próprios
@@ -267,7 +267,9 @@ export function ListaDados<T>({
 
   if (larga)
     return (
-      <Card className="overflow-x-auto">
+      // `relative`: a legenda e o cabeçalho só para leitor de tela (sr-only, absolutos) ficam presos à
+      // área com rolagem — sem ele, numa tabela mais larga que o cartão, escapam e a página rola de lado.
+      <Card className="relative overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <caption className="sr-only">{legenda}</caption>
           <thead>

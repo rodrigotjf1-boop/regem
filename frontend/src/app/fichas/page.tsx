@@ -17,7 +17,7 @@ import { AbasEstoque } from '@/components/estoque/abas-estoque';
 import {
   FiltroBusca, FiltroSelect, Filtros, ListaDados, NomeComApoio, Selo, Situacoes, TituloLista, Vazio,
   num, semAcento, type Situacao,
-} from '@/components/estoque/lista';
+} from '@/components/ui/lista';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Ing = {

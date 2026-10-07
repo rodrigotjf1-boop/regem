@@ -9,7 +9,7 @@ import { DesperdicioForm } from './desperdicio-secao';
 import {
   FiltroBusca, FiltroSelect, Filtros, ListaDados, NomeComApoio, Selo, Situacoes, TituloLista, Vazio,
   dataBr, diasAte, distintos, num, semAcento, type Situacao, type Tom,
-} from './lista';
+} from '@/components/ui/lista';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const dias = (l: any) => (l.validade ? diasAte(l.validade) : null);

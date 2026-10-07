@@ -1,163 +1,248 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api, getToken } from '@/lib/api';
+import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { api, getCategoria, getToken } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
-import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Building2, Pencil, Trash2, Plus } from 'lucide-react';
+import { Select } from '@/components/ui/select';
+import { SkeletonList } from '@/components/ui/skeleton';
+import { Dialogo, Gaveta } from '@/components/ui/sobreposto';
+import {
+  FiltroBusca, Filtros, ListaDados, NomeComApoio, Selo, Situacoes, TituloLista, Vazio, semAcento, texto2, type Situacao,
+} from '@/components/ui/lista';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+const ehMatriz = (u: any) => u.tipo === 'matriz';
+const SITUACOES: Situacao<any>[] = [
+  { rotulo: 'Matriz', filtro: ehMatriz },
+  { rotulo: 'Filiais', filtro: (u) => !ehMatriz(u) },
+  { rotulo: 'Sem endereço', filtro: (u) => !u.endereco, tom: 'aviso' },
+];
+const ID_TITULO = 'unidades-titulo';
 
+// Configurações → Unidades (mockup `mockups/regem-configuracoes.html`): as lojas da rede, em lista com
+// contagem, situações e busca. Criar e editar na gaveta; excluir num diálogo que diz a regra do servidor.
 export default function UnidadesPage() {
   const router = useRouter();
   const [lista, setLista] = useState<any[] | null>(null);
-  const [editar, setEditar] = useState<any | null>(null); // objeto em edição (ou {} para nova)
+  const [erro, setErro] = useState('');
+  const [busca, setBusca] = useState('');
+  const [sit, setSit] = useState(-1);
+  const [editando, setEditando] = useState<any | null>(null); // a unidade em edição, ou {} para nova
+  const [excluindo, setExcluindo] = useState<any | null>(null);
 
   const carregar = useCallback(async () => {
-    setLista(((await api.unidades().catch(() => [])) as any[]) ?? []);
+    setErro('');
+    try {
+      const r: any = await api.unidades();
+      setLista(Array.isArray(r) ? r : []);
+    } catch (e) {
+      // Erro não é "nenhuma unidade": mostrar a lista vazia aqui enganava.
+      setLista([]);
+      setErro(e instanceof Error ? e.message : 'Não foi possível carregar as unidades.');
+    }
   }, []);
   useEffect(() => {
     if (!getToken()) {
       router.replace('/entrar');
       return;
     }
-    carregar();
+    void carregar();
   }, [carregar, router]);
 
-  async function remover(u: any) {
-    if (!confirm(`Remover a unidade "${u.nome}"? Só é possível se não houver setores, turnos ou janelas nela.`)) return;
-    try {
-      await api.removerUnidade(u.id);
-      toast.success('Unidade removida.');
-      carregar();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Erro ao remover');
-    }
-  }
+  if (lista === null)
+    return (
+      <Shell eyebrow="Configurações" title="Unidades">
+        <SkeletonList rows={3} />
+      </Shell>
+    );
+
+  // O servidor é quem autoriza (criar, editar e excluir são do presidente); aqui só não se oferece o
+  // que ele recusaria.
+  const podeGerir = getCategoria() === 'presidente';
+  const b = semAcento(busca);
+  const base = lista.filter((u) => !b || semAcento(`${u.nome} ${u.endereco ?? ''}`).includes(b));
+  const linhas = sit < 0 ? base : base.filter(SITUACOES[sit].filtro);
+  const filtrando = !!(busca.trim() || sit >= 0);
+  const limpar = () => { setBusca(''); setSit(-1); };
 
   return (
     <Shell eyebrow="Configurações" title="Unidades">
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
-            As lojas da sua rede. Cada colaborador, setor, turno e venda pertence a uma unidade.
-          </p>
-          <Button type="button" onClick={() => setEditar({})} className="gap-1.5">
-            <Plus className="h-4 w-4" /> Nova unidade
-          </Button>
-        </div>
+      <section className="space-y-3" aria-labelledby={ID_TITULO}>
+        <TituloLista id={ID_TITULO} titulo="Unidades da rede" total={lista.length} mostrando={linhas.length} um="unidade" varios="unidades"
+          extra="cada colaborador, setor, turno e venda pertence a uma unidade">
+          {podeGerir && <Button type="button" onClick={() => setEditando({})}><Plus className="h-4 w-4" aria-hidden="true" /> Nova unidade</Button>}
+        </TituloLista>
 
-        <Card className="overflow-hidden p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <caption className="sr-only">Unidades da rede</caption>
-              <thead>
-                <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                  <th className="px-4 py-3 font-medium">Unidade</th>
-                  <th className="px-4 py-3 font-medium">Endereço</th>
-                  <th className="px-4 py-3 text-right font-medium">Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lista === null && (
-                  <tr><td colSpan={3} className="px-4 py-8 text-center text-muted-foreground">Carregando…</td></tr>
-                )}
-                {lista?.length === 0 && (
-                  <tr><td colSpan={3} className="px-4 py-10 text-center text-muted-foreground">
-                    Nenhuma unidade ainda. Cadastre a primeira loja da rede.
-                  </td></tr>
-                )}
-                {lista?.map((u) => (
-                  <tr key={u.id} className="border-b border-border/50 last:border-0">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2 font-medium">
-                        <Building2 className="h-4 w-4 text-primary" /> {u.nome}
-                        <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${u.tipo === 'matriz' ? 'bg-primary/15 text-primary' : 'bg-secondary text-muted-foreground'}`}>
-                          {u.tipo === 'matriz' ? 'Matriz' : 'Filial'}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">{u.endereco || '—'}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex justify-end gap-1.5">
-                        <button type="button" onClick={() => setEditar(u)} className="rounded-md border border-border p-1.5 hover:bg-secondary" aria-label={`Editar ${u.nome}`}>
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
-                        <button type="button" onClick={() => remover(u)} className="rounded-md border border-border p-1.5 text-destructive hover:bg-destructive/10" aria-label={`Remover ${u.nome}`}>
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      </div>
+        {erro ? (
+          <Card className="flex flex-wrap items-center justify-center gap-3 p-8 text-center text-sm">
+            <span role="alert">{erro}</span>
+            <Button type="button" variant="outline" size="sm" onClick={() => { setLista(null); void carregar(); }}>Tentar de novo</Button>
+          </Card>
+        ) : (
+          <>
+            <Situacoes base={base} opcoes={SITUACOES} valor={sit} aoMudar={setSit} />
+            <Filtros>
+              <FiltroBusca id="unidades-busca" valor={busca} aoMudar={setBusca} placeholder="Nome ou endereço" />
+            </Filtros>
+            {lista.length === 0 ? (
+              <Vazio>Nenhuma unidade ainda. Cadastre a primeira loja da rede.</Vazio>
+            ) : linhas.length === 0 ? (
+              <Vazio aoLimpar={limpar} />
+            ) : (
+              <ListaDados
+                legenda="Unidades da rede"
+                linhas={linhas}
+                chave={(u) => u.id}
+                nome={(u) => u.nome}
+                colunas={[
+                  { titulo: 'Unidade', celula: (u) => <NomeComApoio nome={u.nome}><Selo tom={ehMatriz(u) ? 'info' : 'neutro'}>{ehMatriz(u) ? 'Matriz' : 'Filial'}</Selo></NomeComApoio> },
+                  { titulo: 'Endereço', celula: (u) => u.endereco || '—' },
+                ]}
+                acoes={() =>
+                  podeGerir
+                    ? [
+                        { rotulo: 'Editar', icone: Pencil, aoClicar: setEditando },
+                        { rotulo: 'Excluir', icone: Trash2, aoClicar: setExcluindo, tom: 'perigo' as const },
+                      ]
+                    : []
+                }
+              />
+            )}
+            {filtrando && linhas.length > 0 && (
+              <p><Button type="button" variant="outline" size="sm" onClick={limpar}>Limpar filtros</Button></p>
+            )}
+          </>
+        )}
+      </section>
 
-      {editar && <ModalUnidade item={editar} onClose={() => setEditar(null)} onSaved={() => { setEditar(null); carregar(); }} />}
+      {editando && (
+        <UnidadeForm
+          item={editando}
+          aoFechar={() => setEditando(null)}
+          aoSalvar={async () => { setEditando(null); await carregar(); }}
+        />
+      )}
+      {excluindo && (
+        <ExcluirUnidade
+          unidade={excluindo}
+          aoFechar={() => setExcluindo(null)}
+          aoExcluir={async () => {
+            setExcluindo(null);
+            await carregar();
+            document.getElementById(ID_TITULO)?.focus(); // a linha (e o botão que abriu) saiu da lista
+          }}
+        />
+      )}
     </Shell>
   );
 }
 
-function ModalUnidade({ item, onClose, onSaved }: { item: any; onClose: () => void; onSaved: () => void }) {
+function UnidadeForm({ item, aoFechar, aoSalvar }: { item: any; aoFechar: () => void; aoSalvar: () => void }) {
+  const formId = useId();
   const [nome, setNome] = useState<string>(item.nome ?? '');
   const [tipo, setTipo] = useState<string>(item.tipo ?? 'filial');
   const [endereco, setEndereco] = useState<string>(item.endereco ?? '');
   const [salvando, setSalvando] = useState(false);
-  const novo = !item.id;
+  const [erro, setErro] = useState('');
+  const nova = !item.id;
 
-  async function salvar() {
-    if (nome.trim().length < 2) return toast.error('Informe o nome da unidade (mín. 2 letras).');
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault();
+    if (salvando) return;
+    if (nome.trim().length < 2) {
+      setErro('Informe o nome da unidade (mín. 2 letras).');
+      document.getElementById('unidade-nome')?.focus();
+      return;
+    }
+    setErro('');
     setSalvando(true);
     try {
       const body = { nome: nome.trim(), tipo, endereco: endereco.trim() || undefined };
-      if (novo) await api.criarUnidade(body);
+      if (nova) await api.criarUnidade(body);
       else await api.atualizarUnidade(item.id, body);
-      toast.success(novo ? 'Unidade criada.' : 'Unidade atualizada.');
-      onSaved();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
-    } finally {
+      toast.success(nova ? 'Unidade criada.' : 'Unidade atualizada.');
+      aoSalvar();
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao salvar');
       setSalvando(false);
     }
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
-      <Card className="w-full max-w-md space-y-4 p-5" onClick={(e) => e.stopPropagation()}>
-        <h2 className="font-display text-base font-bold">{novo ? 'Nova unidade' : 'Editar unidade'}</h2>
+    <Gaveta
+      titulo={nova ? 'Nova unidade' : 'Editar unidade'}
+      aoFechar={aoFechar}
+      voltarPara={ID_TITULO}
+      rodape={
+        <>
+          <Button type="button" variant="outline" onClick={aoFechar} disabled={salvando}>Cancelar</Button>
+          <Button type="submit" form={formId} disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar'}</Button>
+        </>
+      }
+    >
+      <form id={formId} onSubmit={salvar} className="space-y-4" noValidate>
         <div className="space-y-1.5">
-          <Label className="text-xs">Nome da unidade</Label>
-          <Input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Matriz, Filial Centro" autoFocus />
+          <Label htmlFor="unidade-nome">Nome da unidade</Label>
+          <Input id="unidade-nome" data-foco-inicial value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Matriz, Filial Centro" autoComplete="off" />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs">Tipo</Label>
-          <select
-            value={tipo}
-            onChange={(e) => setTipo(e.target.value)}
-            className="flex h-10 w-full rounded-md border border-input bg-card px-2 text-sm"
-            aria-label="Tipo da unidade"
-          >
+          <Label htmlFor="unidade-tipo">Tipo</Label>
+          <Select id="unidade-tipo" value={tipo} onChange={(e) => setTipo(e.target.value)}>
             <option value="matriz">Matriz</option>
             <option value="filial">Filial</option>
-          </select>
+          </Select>
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs">Endereço (opcional)</Label>
-          <Input value={endereco} onChange={(e) => setEndereco(e.target.value)} placeholder="Rua, número — bairro, cidade" />
+          <Label htmlFor="unidade-endereco">Endereço (opcional)</Label>
+          <Input id="unidade-endereco" value={endereco} onChange={(e) => setEndereco(e.target.value)} placeholder="Rua, número — bairro, cidade" autoComplete="off" />
         </div>
-        <div className="flex justify-end gap-2 pt-1">
-          <Button type="button" variant="outline" onClick={onClose}>Cancelar</Button>
-          <Button type="button" onClick={salvar} disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar'}</Button>
-        </div>
-      </Card>
-    </div>
+        {erro && <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm font-medium">{erro}</p>}
+      </form>
+    </Gaveta>
+  );
+}
+
+function ExcluirUnidade({ unidade, aoFechar, aoExcluir }: { unidade: any; aoFechar: () => void; aoExcluir: () => void }) {
+  const [apagando, setApagando] = useState(false);
+  const [erro, setErro] = useState('');
+
+  async function confirmar() {
+    if (apagando) return;
+    setErro('');
+    setApagando(true);
+    try {
+      await api.removerUnidade(unidade.id);
+      toast.success('Unidade removida.');
+      aoExcluir();
+    } catch (e) {
+      // A recusa do servidor (unidade com setores, turnos ou janelas) fica à vista, no próprio diálogo.
+      setErro(e instanceof Error ? e.message : 'Erro ao remover');
+      setApagando(false);
+    }
+  }
+
+  return (
+    <Dialogo alerta titulo="Excluir unidade" aoFechar={aoFechar} voltarPara={ID_TITULO}
+      rodape={
+        <>
+          <Button type="button" variant="outline" data-foco-inicial onClick={aoFechar} disabled={apagando}>Cancelar</Button>
+          <Button type="button" variant="destructive" onClick={confirmar} disabled={apagando}>{apagando ? 'Excluindo…' : 'Excluir unidade'}</Button>
+        </>
+      }>
+      <div className="space-y-3 text-sm">
+        <p>Excluir <b>{unidade.nome}</b>?</p>
+        <p className="rounded-md border-l-4 border-destructive bg-destructive/10 px-3 py-2">
+          A unidade sai da lista. Só é possível se não houver setores, turnos ou janelas de pico nela. Não dá para desfazer por aqui.
+        </p>
+        {erro && <p role="alert" className={`font-medium ${texto2}`}><b className="text-foreground">Não foi possível excluir:</b> {erro}</p>}
+      </div>
+    </Dialogo>
   );
 }

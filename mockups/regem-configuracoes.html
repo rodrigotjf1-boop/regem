@@ -1,0 +1,1144 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regem — Configurações no modelo novo (mockup)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* MOCKUP das telas do menu Configurações — Loja, Unidades, Produção & KDS, Alertas do KDS,
+   Direcionamento do catálogo, Equipamentos, Impressoras e cupons, Config. por ramo, Planos & assinatura,
+   Acessos & perfis, Aplicativos conectados e Servidor local — e de Pedidos de produção (menu Tarefas), no
+   mesmo modelo aprovado no Estoque. Aprovado pelo dono em 07/10/2026 ("protótipo pode"), com quatro
+   respostas: Unidades sem as colunas de setores e pessoas; "Configurar" em todo equipamento que tem o que
+   configurar; "Imprimir teste" na linha das impressoras; Ordens de produção fica só no menu Tarefas.
+   Nada aqui fala com o Regem e os dados são inventados.
+   O que toda tela passa a ter:
+   (1) título com a CONTAGEM do que ela lista ("3 de 12 equipamentos", "14 ajustes em 4 grupos");
+   (2) situações com a quantidade de cada uma, que também filtram;
+   (3) busca e filtros — inclusive nas telas de ajuste ("buscar ajuste");
+   (4) lista em tabela (cartões no celular) com as ações na linha;
+   (5) criar/editar numa GAVETA lateral e confirmar num diálogo — nada abre no topo da página e
+       nenhuma pergunta usa a janela do navegador;
+   (6) nas telas de ajuste: os ajustes em grupos, a quantidade de alterações ainda não salvas e uma
+       barra fixa de "Salvar alterações" (hoje cada tela salva de um jeito).
+   Onde a tela real difere, de propósito:
+   - os FORMULÁRIOS e os grupos de ajuste daqui são resumidos: os de verdade mantêm todos os campos
+     que já existem hoje;
+   - no celular o menu lateral some e aparece o seletor "Tela" no topo — no aplicativo é o menu ☰;
+   - a lista vira cartões abaixo de 1280 px. */
+:root{
+  --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E8A845; --on-gold:#281B06; --navy:#0F2230; --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9;
+  --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8; --radius:12px;
+  --display:'Archivo',sans-serif; --body:'Figtree',sans-serif; --mono:'JetBrains Mono',monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:var(--body);background:var(--bg);color:var(--ink);font-size:15px;line-height:1.45}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid #3A7FB8;outline-offset:2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+[hidden]{display:none!important}
+.app{display:grid;grid-template-columns:248px minmax(0,1fr);min-height:100vh}
+.lado{background:var(--navy);color:#C9D6E2;padding:16px 10px;position:sticky;top:0;height:100vh;overflow-y:auto}
+.lado .marca{display:flex;align-items:center;gap:10px;padding:4px 8px 14px;color:#fff;font-family:var(--display);font-weight:700;font-size:18px}
+.lado .marca svg{width:30px;height:30px}
+.lado .item{display:block;padding:8px 12px;border-radius:10px;color:inherit;font-weight:600;font-size:14px}
+.lado .grupo-menu{margin-top:2px;padding:8px 12px 4px;color:#fff;font-weight:700;font-size:14px}
+.lado button.sub{display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;min-height:36px;text-align:left;border:none;background:transparent;color:inherit;padding:6px 10px 6px 26px;border-radius:10px;font-weight:600;font-size:13.5px}
+.lado button.sub:hover{background:rgba(255,255,255,.06);color:#fff}
+.lado button.sub[aria-current="page"]{background:rgba(232,168,69,.18);color:#fff;box-shadow:inset 3px 0 0 var(--gold)}
+.lado button.sub i{font-style:normal;font-family:var(--mono);font-size:11.5px;color:#9FB2C4}
+main{min-width:0;padding:20px 24px 110px}
+.trilha{font-family:var(--display);font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#7A5209}
+h1{font-family:var(--display);font-size:26px;margin:2px 0 14px}
+.campo.so-celular{display:none;margin-bottom:14px}
+.abas{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;margin-bottom:16px}
+.aba{flex:none;display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:8px 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);color:var(--ink-2);font-weight:600;font-size:14px;white-space:nowrap}
+.aba:hover{border-color:var(--ink-2);color:var(--ink)}
+.aba b{font-family:var(--mono);font-size:12.5px;background:#EEF2F6;color:var(--ink);border-radius:999px;padding:1px 8px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.aba[aria-pressed="true"] b{background:rgba(40,27,6,.14);color:var(--on-gold)}
+.barra{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:12px}
+.barra h2{font-family:var(--display);font-size:20px;margin:0}
+.resumo{color:var(--ink-2);font-size:13.5px;margin:2px 0 0}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+.bt{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:40px;padding:0 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);font-weight:600;font-size:14px;white-space:nowrap}
+.bt:hover{border-color:var(--ink-2)}
+.bt.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.bt.perigo{background:var(--crit);border-color:var(--crit);color:#fff}
+.bt[disabled]{opacity:.5;cursor:not-allowed}
+.sits{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.sit{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0 12px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);font-weight:600;font-size:14px;color:var(--ink-2)}
+.sit b{font-family:var(--mono);font-size:13px;background:#EEF2F6;color:var(--ink);border-radius:999px;padding:1px 8px}
+.sit[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.sit[aria-pressed="true"] b{background:rgba(255,255,255,.18);color:#fff}
+.sit.crit b{background:var(--crit-bg);color:var(--crit)} .sit.warn b{background:var(--warn-bg);color:var(--warn)}
+.sit[aria-pressed="true"].crit b,.sit[aria-pressed="true"].warn b{background:rgba(255,255,255,.18);color:#fff}
+.filtros{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin-bottom:12px}
+.filtros .larga{grid-column:span 2}
+.campo{display:flex;flex-direction:column;gap:4px;min-width:0}
+.campo label,.rot{font-size:12.5px;font-weight:700;color:var(--ink-2)}
+.campo input,.campo select,.campo textarea{min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 12px;background:#fff;width:100%}
+.campo textarea{padding:8px 12px;min-height:64px}
+.ajuda{font-size:12.5px;color:var(--ink-2)}
+.tabela{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+th{font-size:12px;letter-spacing:.06em;text-transform:uppercase;text-align:left;color:var(--ink-2);background:#F7F9FB;padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tbody tr:hover{background:#FAFBFD}
+.nome{font-weight:700}
+.sub-t{font-size:12.5px;color:var(--ink-2)}
+.num{font-family:var(--mono);font-size:13.5px;white-space:nowrap}
+.selo{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;font-weight:700;font-size:12.5px;white-space:nowrap}
+.selo.ok{background:var(--ok-bg);color:var(--ok)} .selo.crit{background:var(--crit-bg);color:var(--crit)}
+.selo.info{background:var(--info-bg);color:var(--info)} .selo.warn{background:var(--warn-bg);color:var(--warn)} .selo.neutro{background:#EEF2F6;color:var(--ink-2)}
+.linha-acoes{display:flex;gap:4px;justify-content:flex-end}
+.ic{display:inline-flex;align-items:center;gap:6px;min-width:40px;min-height:40px;justify-content:center;border-radius:10px;border:1px solid transparent;background:transparent;padding:0 9px;font-weight:600;font-size:13px;color:var(--ink-2);white-space:nowrap}
+.ic:hover{background:#EEF2F6;border-color:var(--line-2);color:var(--ink)}
+.ic.pri{background:var(--gold);color:var(--on-gold);border-color:var(--gold);font-weight:700}
+.ic.perigo:hover{background:var(--crit-bg);border-color:var(--crit);color:var(--crit)}
+.vazio{padding:36px 16px;text-align:center;color:var(--ink-2)}
+.nota{border-left:4px solid var(--info);background:var(--info-bg);padding:10px 12px;border-radius:8px;font-size:14px}
+.nota.crit{border-color:var(--crit);background:var(--crit-bg)} .nota.warn{border-color:var(--warn);background:var(--warn-bg)} .nota.ok{border-color:var(--ok);background:var(--ok-bg)}
+/* telas de ajuste: grupos, linha de ajuste, chave liga/desliga, barra de salvar */
+.grupo{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);margin-bottom:12px}
+.grupo > header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.grupo > header h3{font-family:var(--display);font-size:16px;margin:0}
+.grupo > header span{font-size:12.5px;color:var(--ink-2)}
+.aj{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,280px);gap:6px 16px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)}
+.aj:last-child{border-bottom:none}
+.aj .rot-aj{font-weight:600}
+.aj .ajuda{display:block;margin-top:1px}
+.aj.mudou{background:#FFF9EC;box-shadow:inset 3px 0 0 var(--gold)}
+.aj .ctrl{display:flex;justify-content:flex-end;align-items:center;gap:8px;min-width:0}
+.aj .ctrl input,.aj .ctrl select{min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 12px;background:#fff;width:100%;min-width:0}
+.aj .ctrl .suf{font-size:13px;color:var(--ink-2);white-space:nowrap}
+.liga{position:relative;flex:none;width:52px;height:40px;border:none;background:transparent;padding:0}
+.liga::before{content:"";position:absolute;left:2px;right:2px;top:8px;bottom:8px;border-radius:999px;background:#B4C0CC;transition:background .15s}
+.liga::after{content:"";position:absolute;left:5px;top:11px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .15s}
+.liga[aria-checked="true"]::before{background:var(--ok)}
+.liga[aria-checked="true"]::after{transform:translateX(24px)}
+.liga-txt{font-size:13px;font-weight:700;color:var(--ink-2);min-width:68px;text-align:right}
+.barra-salvar{position:fixed;left:248px;right:0;bottom:0;z-index:30;display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;align-items:center;padding:12px 24px;background:var(--navy);color:#fff;box-shadow:0 -8px 24px rgba(15,34,48,.2)}
+.barra-salvar .bt{border-color:rgba(255,255,255,.35);background:transparent;color:#fff}
+.barra-salvar .bt.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.cartoes-plano{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-bottom:12px}
+.plano{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px;display:grid;gap:8px;align-content:start}
+.plano.atual{border:2px solid var(--gold)}
+.plano h3{font-family:var(--display);margin:0;font-size:17px}
+.plano .preco{font-family:var(--mono);font-size:22px;font-weight:700}
+.plano ul{margin:0;padding-left:18px;font-size:14px;color:var(--ink-2)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:12px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px}
+.kpi .rot{display:block}
+.kpi .v{font-family:var(--mono);font-size:19px;font-weight:700}
+.passos{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;padding:0;list-style:none}
+.passos li{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0 12px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);font-weight:600;font-size:14px;color:var(--ink-2)}
+.passos li b{font-family:var(--mono);font-size:12.5px;background:#EEF2F6;border-radius:999px;padding:1px 8px;color:var(--ink)}
+.passos li[aria-current]{background:var(--navy);border-color:var(--navy);color:#fff} .passos li[aria-current] b{background:rgba(255,255,255,.18);color:#fff}
+.passos li.feito b{background:var(--ok-bg);color:var(--ok)}
+.matriz td,.matriz th{padding:8px 10px;text-align:center} .matriz td:first-child,.matriz th:first-child{text-align:left}
+.matriz input[type=checkbox]{width:20px;height:20px;accent-color:#0F6647}
+.fundo{position:fixed;inset:0;background:rgba(15,34,48,.45);z-index:40}
+.gaveta{position:fixed;top:0;right:0;bottom:0;width:min(560px,100%);background:var(--card);z-index:50;display:flex;flex-direction:column;box-shadow:-12px 0 32px rgba(15,34,48,.18)}
+.gaveta.larga{width:min(1080px,100%)}
+.painel header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line)}
+.painel h3{font-family:var(--display);font-size:19px;margin:0}
+.painel .corpo{flex:1;overflow-y:auto;padding:16px 20px;display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-content:start;min-height:0}
+.painel .corpo > *{min-width:0}
+.painel footer{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;padding:14px 20px;border-top:1px solid var(--line);background:#F7F9FB}
+.dialogo{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(520px,calc(100% - 24px));max-height:calc(100% - 24px);background:var(--card);z-index:50;border-radius:16px;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(15,34,48,.3)}
+.dialogo.largo{width:min(940px,calc(100% - 24px))}
+.dialogo footer{border-radius:0 0 16px 16px}
+.duas{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+.fichas{display:flex;flex-wrap:wrap;gap:6px}
+.ficha{min-height:40px;padding:6px 12px;border-radius:999px;border:1px solid var(--line-2);background:#fff;font-weight:600;font-size:13px;color:var(--ink-2)}
+.ficha[aria-pressed="true"]{background:#FFF4DF;border-color:var(--gold);color:#6B4505}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;border:1px solid var(--line-2);border-radius:10px;overflow:hidden}
+.seg{grid-auto-columns:minmax(0,1fr)}
+.seg button{min-height:40px;border:none;background:#fff;font-weight:600;border-right:1px solid var(--line-2);padding:6px 8px;line-height:1.2}
+.seg button:last-child{border-right:none}
+.seg button[aria-pressed="true"]{background:var(--navy);color:#fff}
+.mini td,.mini th{padding:7px 10px}
+.codigo{font-family:var(--mono);font-size:22px;font-weight:700;letter-spacing:.18em;background:#F7F9FB;border:1px dashed var(--line-2);border-radius:10px;padding:10px 14px;text-align:center}
+#toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--navy);color:#fff;padding:11px 18px;border-radius:12px;font-weight:600;z-index:60;box-shadow:0 10px 26px rgba(0,0,0,.25);max-width:calc(100% - 24px)}
+@media (max-width:1000px){ .app{grid-template-columns:1fr} .lado{display:none} main{padding:16px 16px 120px} .campo.so-celular{display:flex} .barra-salvar{left:0;padding:10px 16px} }
+@media (max-width:1279px){
+  main .tabela.cartoes{border:none;background:none;overflow:visible} main .cartoes thead{display:none}
+  main .cartoes tbody tr{display:block;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin-bottom:10px}
+  main .cartoes td{display:flex;justify-content:space-between;align-items:baseline;gap:12px;border:none;padding:4px 0}
+  main .cartoes td::before{content:attr(data-rot);flex:none;font-size:12.5px;font-weight:700;color:var(--ink-2)}
+  main .cartoes td .v{text-align:right;min-width:0}
+  main .cartoes td.c-nome{display:block} main .cartoes td.c-nome .v{text-align:left} main .cartoes td.c-nome::before,main .cartoes td.c-acoes::before{content:none}
+  main .cartoes td.c-acoes{margin-top:8px} main .linha-acoes{width:100%;flex-wrap:wrap;justify-content:stretch} main .linha-acoes .ic{flex:1;border-color:var(--line-2)}
+}
+@media (min-width:1280px) and (max-width:1535px){ main .cartoes .ic:not(.pri) .rt{display:none} }
+@media (min-width:700px) and (max-width:1279px){
+  main .cartoes table,main .cartoes tbody{display:block} main .cartoes tbody{display:grid;grid-template-columns:1fr 1fr;gap:10px} main .cartoes tbody tr{margin:0}
+}
+@media (max-width:820px){
+  .filtros{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))} .filtros .larga{grid-column:1 / -1} .duas{grid-template-columns:minmax(0,1fr)}
+  .aj{grid-template-columns:minmax(0,1fr)!important} .aj .ctrl{justify-content:flex-start} .gaveta.larga .dois-lados{grid-template-columns:minmax(0,1fr)!important}
+  .filtros[style]{grid-template-columns:minmax(0,1fr)!important}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="lado" aria-label="Menu principal">
+    <div class="marca"><svg viewBox="0 0 80 80" aria-hidden="true"><circle cx="40" cy="40" r="29" fill="none" stroke="#E2A340" stroke-width="4.5"/><path d="M33 28V54M33 28H42A7.5 7 0 0 1 42 42H33M36 42L49 54" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="60.5" cy="19.5" r="5.5" fill="#F2C277"/></svg>Regem</div>
+    <span class="item">Dashboard</span><span class="item">PDV · Balcão</span><span class="item">Delivery</span>
+    <div class="grupo-menu">Tarefas</div>
+    <div id="menuTarefas"></div>
+    <span class="item">Estoque</span><span class="item">Financeiro</span><span class="item">Cadastros</span>
+    <div class="grupo-menu">Configurações</div>
+    <div id="menu"></div>
+    <span class="item" style="margin-top:6px">Relatórios</span>
+  </nav>
+  <main>
+    <div class="trilha" id="trilha">Configurações</div>
+    <h1 id="tituloTela"></h1>
+    <div class="campo so-celular"><label for="irPara">Tela (no aplicativo: menu ☰)</label><select id="irPara"></select></div>
+    <div class="abas" id="secoes" role="group" aria-label="Partes desta tela" hidden></div>
+    <div id="conteudo"></div>
+  </main>
+</div>
+<div class="barra-salvar" id="barraSalvar" hidden></div>
+<div class="fundo" id="fundo" hidden></div>
+<div id="painel"></div>
+<div id="toast" role="status" aria-live="polite" hidden></div>
+
+<script>
+// ══ motor do protótipo ══════════════════════════════════════════════════════════════════════
+// Cada tela do menu tem uma ou mais PARTES; cada parte é de um destes tipos:
+//   lista   — título com contagem, situações com quantidade, busca e filtros, ações na linha;
+//   ajustes — ajustes em grupos, com busca, contagem e a barra "N alterações ainda não salvas";
+//   livre   — telas que não são lista nem ajuste (planos, assistente, saúde do servidor).
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const sem = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+const selo = (cls, t) => `<span class="selo ${cls}">${t}</span>`;
+const brl = (n) => Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const num = (n) => Number(n).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
+function avisar(t) { const x = $('#toast'); x.textContent = t; x.hidden = false; clearTimeout(avisar.t); avisar.t = setTimeout(() => (x.hidden = true), 3200); }
+
+const TELAS = {};
+const ORDEM = ['loja', 'unidades', 'producao', 'alertas', 'direcionamento', 'equipamentos', 'impressao', 'ordens', 'ramo', 'planos', 'acessos', 'aplicativos', 'servidor'];
+let atual = 'equipamentos', sec = 0;
+const estado = {};
+const est = () => (estado[atual + '/' + sec] ||= { busca: '', sit: -1, sel: {}, vals: {}, marc: new Set() });
+const S = () => TELAS[atual].secoes[sec];
+const itensAj = (s) => s.grupos.flatMap((g) => g.itens);
+const valorAj = (it, e) => (it.id in e.vals ? e.vals[it.id] : it.v);
+const mudouAj = (it, e) => it.id in e.vals && e.vals[it.id] !== it.v;
+const pendentes = () => (S().tipo === 'ajustes' ? itensAj(S()).filter((it) => mudouAj(it, est())).length : 0);
+const contaDe = (s) => (typeof s.conta === 'function' ? s.conta() : s.tipo === 'lista' ? s.dados.length : s.tipo === 'ajustes' ? itensAj(s).length : null);
+const valores = (f, r) => { const v = f[2](r); return (Array.isArray(v) ? v : [v]).filter((x) => x !== '' && x != null); };
+
+function irPara(tela, parte, semPerguntar) {
+  const n = pendentes();
+  if (n && !semPerguntar && (tela !== atual || parte !== sec)) {
+    return confirmar('Sair sem salvar?', `<p style="margin:0">Há <b>${plural(n, 'alteração', 'alterações')}</b> nesta tela que ainda não ${n === 1 ? 'foi salva' : 'foram salvas'}.</p>`, 'Descartar e sair', () => { est().vals = {}; irPara(tela, parte, true); }, 'Continuar editando');
+  }
+  atual = tela; sec = parte;
+  history.replaceState(null, '', '#' + tela + (parte ? '/' + parte : ''));
+  desenhar();
+  window.scrollTo(0, 0);
+}
+
+function desenhar() {
+  const T = TELAS[atual], s = S();
+  const item = (k) => { const n = contaDe(TELAS[k].secoes[0]); return `<button class="sub" data-tela="${k}"${k === atual ? ' aria-current="page"' : ''}><span>${TELAS[k].menu}</span>${n != null ? `<i aria-hidden="true">${n}</i>` : ''}</button>`; };
+  // Pedidos de produção fica no menu Tarefas (decisão do dono); as outras 12, em Configurações.
+  $('#menuTarefas').innerHTML = item('ordens');
+  $('#menu').innerHTML = ORDEM.filter((k) => k !== 'ordens').map(item).join('');
+  $('#trilha').textContent = T.grupo || 'Configurações';
+  $('#irPara').innerHTML = ORDEM.map((k) => `<option value="${k}"${k === atual ? ' selected' : ''}>${TELAS[k].grupo ? TELAS[k].grupo + ' › ' : ''}${TELAS[k].menu}</option>`).join('');
+  $('#tituloTela').textContent = T.titulo || T.menu;
+  const ss = $('#secoes');
+  ss.hidden = T.secoes.length < 2;
+  ss.innerHTML = T.secoes.map((p, i) => { const n = contaDe(p); return `<button class="aba" data-secao="${i}" aria-pressed="${i === sec}">${p.nome}${n != null ? ` <b>${n}</b>` : ''}</button>`; }).join('');
+  $('#conteudo').innerHTML = (s.tipo === 'lista' ? htmlLista(s) : s.tipo === 'ajustes' ? htmlAjustes(s) : htmlLivre(s)) + (T.hoje ? `<details class="nota" style="margin-top:16px"><summary style="cursor:pointer;font-weight:700;min-height:40px;display:flex;align-items:center">▸ O que muda nesta tela em relação a hoje</summary><ul style="margin:8px 0 0;padding-left:18px">${T.hoje.map((x) => `<li>${x}</li>`).join('')}</ul></details>` : '');
+  barraSalvar();
+}
+
+// ── parte do tipo LISTA ──
+function filtrar(s, e, semSit) {
+  const b = sem(e.busca);
+  return s.dados.filter((r) => (!b || sem(s.texto(r)).includes(b)) && (s.selects || []).every((f, i) => !e.sel[i] || valores(f, r).includes(e.sel[i])) && (semSit || e.sit < 0 || s.sits[e.sit][1](r)));
+}
+function htmlLista(s) {
+  const e = est();
+  const base = filtrar(s, e, true), lista = filtrar(s, e, false), total = s.dados.length;
+  const qtd = (n) => plural(n, s.um, s.varios);
+  const filtrando = e.busca || e.sit >= 0 || Object.values(e.sel).some(Boolean);
+  const extra = s.resumo ? s.resumo(lista) : '';
+  const fora = s.selecao ? [...e.marc].filter((r) => !lista.includes(r)).length : 0;
+  return `
+    <div class="barra">
+      <div><h2 id="tLista" tabindex="-1">${s.titulo}</h2>
+        <p class="resumo" role="status" aria-live="polite">${lista.length === total ? qtd(total) : `${lista.length} de ${qtd(total)}`}${extra ? ' · ' + extra : ''}</p></div>
+      <div class="acoes">${(s.botoes || []).map((b, i) => `<button class="bt" data-botao="${i}">${b[0]}</button>`).join('')}${s.novo ? `<button class="bt pri" id="bNovo">${s.novo}</button>` : ''}</div>
+    </div>
+    ${typeof s.antes === 'function' ? s.antes() : s.antes || ''}
+    <div class="sits" role="group" aria-label="Situação">
+      <button class="sit" data-sit="-1" aria-pressed="${e.sit < 0}">${s.todas || 'Todas'} <b>${base.length}</b></button>
+      ${s.sits.map((x, i) => `<button class="sit ${x[2] || ''}" data-sit="${i}" aria-pressed="${e.sit === i}">${x[0]} <b>${base.filter(x[1]).length}</b></button>`).join('')}
+    </div>
+    <div class="filtros">
+      <div class="campo larga"><label for="fBusca">Buscar</label><input id="fBusca" type="search" value="${esc(e.busca)}" placeholder="${s.buscar || 'Digite parte do nome'}" autocomplete="off"></div>
+      ${(s.selects || []).map((f, i) => `<div class="campo"><label for="fSel${i}">${f[0]}</label><select id="fSel${i}" data-sel="${i}"><option value="">${f[1]}</option>${[...new Set(s.dados.flatMap((r) => valores(f, r)))].sort((x, y) => String(x).localeCompare(String(y), 'pt-BR')).map((v) => `<option${e.sel[i] === v ? ' selected' : ''}>${v}</option>`).join('')}</select></div>`).join('')}
+    </div>
+    ${s.selecao ? `<div class="filtros" style="grid-template-columns:minmax(0,1fr) auto;align-items:center">
+        <div><label style="display:inline-flex;align-items:center;gap:8px;min-height:40px;font-weight:600"><input type="checkbox" id="mTodos" style="width:20px;height:20px"${lista.length && lista.every((r) => e.marc.has(r)) ? ' checked' : ''}> Marcar ${lista.length === 1 ? 'o 1 da lista' : `os ${lista.length} da lista`}</label>
+          <span class="ajuda" role="status"> · ${plural(e.marc.size, 'marcado', 'marcados')}${fora ? ` (${fora} fora do filtro atual)` : ''}</span>${e.marc.size ? ' <button class="bt" id="mNada">Desmarcar todos</button>' : ''}</div>
+        <button class="bt pri" id="bSel"${e.marc.size ? '' : ' disabled'}>${s.selecao.rotulo}</button></div>` : ''}
+    <div class="tabela cartoes">${lista.length ? `<table><caption class="sr">${s.titulo}</caption>
+      <thead><tr>${s.colunas.map((c) => `<th scope="col">${c[0]}</th>`).join('')}<th scope="col"><span class="sr">Ações</span></th></tr></thead>
+      <tbody>${lista.map((r) => { const i = s.dados.indexOf(r); const ac = s.acoes ? s.acoes(r) : []; return `<tr>${s.colunas.map((c, k) => `<td ${k === 0 ? 'class="c-nome"' : `data-rot="${c[0]}"`}><div class="v">${k === 0 && s.selecao ? `<label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" data-marc="${i}" style="width:20px;height:20px;flex:none;margin-top:2px"${e.marc.has(r) ? ' checked' : ''} aria-label="Marcar ${esc(s.rotulo ? s.rotulo(r) : r.nome)}"><span>${c[1](r, i)}</span></label>` : c[1](r, i)}</div></td>`).join('')}
+        <td class="c-acoes">${ac.length ? `<div class="linha-acoes">${ac.map((x) => `<button class="ic ${x[3] || ''}" data-acao="${x[2]}" data-i="${i}" title="${x[1]}" aria-label="${x[1]}: ${esc(s.rotulo ? s.rotulo(r) : r.nome)}">${x[0]} <span class="rt">${x[1]}</span></button>`).join('')}</div>` : ''}</td></tr>`; }).join('')}</tbody></table>`
+      : `<div class="vazio">${total === 0 ? s.vazio || 'Nenhum registro ainda.' : 'Nada com esses filtros. <button class="bt" id="bLimpar" style="margin-left:8px">Limpar filtros</button>'}</div>`}</div>
+    ${filtrando && lista.length ? '<p style="margin:8px 2px 0"><button class="bt" id="bLimpar">Limpar filtros</button></p>' : ''}
+    ${typeof s.depois === 'function' ? s.depois() : s.depois || ''}`;
+}
+// chave liga/desliga dentro de uma linha da lista (grava na hora, com retorno)
+const ligaLinha = (r, i, campo, rot) => `<span style="display:inline-flex;align-items:center;gap:6px"><span class="liga-txt">${r[campo] ? 'Ligado' : 'Desligado'}</span><button class="liga" role="switch" aria-checked="${!!r[campo]}" data-liga="${campo}" data-i="${i}" aria-label="${esc(rot)}"></button></span>`;
+
+// ── parte do tipo AJUSTES ──
+const emBranco = (it, e) => it.tipo !== 'liga' && !it.opcional && String(valorAj(it, e)).trim() === '';
+// [rótulo, filtro, classe, aparece só se a tela tiver: 'liga' = chaves · 'campo' = campos de texto]
+const SITS_AJ = [['Ligados', (it, e) => it.tipo === 'liga' && valorAj(it, e) === true, '', 'liga'], ['Desligados', (it, e) => it.tipo === 'liga' && valorAj(it, e) === false, '', 'liga'], ['Em branco', emBranco, 'warn', 'campo'], ['Alterados, sem salvar', (it, e) => mudouAj(it, e), 'warn', '']];
+function controle(it, e) {
+  const v = valorAj(it, e), a = `data-aj="${it.id}" aria-labelledby="r-${it.id}"`;
+  if (it.tipo === 'liga') return `<span class="liga-txt">${v ? 'Ligado' : 'Desligado'}</span><button class="liga" role="switch" aria-checked="${v}" ${a}></button>`;
+  if (it.tipo === 'sel') return `<select ${a}>${it.ops.map((o) => `<option${o === v ? ' selected' : ''}>${o}</option>`).join('')}</select>`;
+  return `<input ${a} type="${it.tipo === 'num' ? 'number' : it.tipo === 'hora' ? 'time' : 'text'}" value="${esc(v)}"${it.tipo === 'num' ? ' min="0" inputmode="decimal"' : ''}>${it.suf ? `<span class="suf">${it.suf}</span>` : ''}`;
+}
+function htmlAjustes(s) {
+  const e = est(), todos = itensAj(s), b = sem(e.busca);
+  const casa = (it) => !b || sem(it.rot + ' ' + (it.ajuda || '')).includes(b);
+  const base = todos.filter(casa);
+  const ve = (it) => casa(it) && (e.sit < 0 || SITS_AJ[e.sit][1](it, e));
+  const vis = todos.filter(ve).length, alt = todos.filter((it) => mudouAj(it, e)).length;
+  const tem = { liga: todos.some((it) => it.tipo === 'liga'), campo: todos.some((it) => it.tipo !== 'liga' && !it.opcional), '': true };
+  return `
+    <div class="barra"><div><h2 id="tLista" tabindex="-1">${s.titulo}</h2>
+      <p class="resumo" role="status" aria-live="polite" id="resumoAj">${vis === todos.length ? plural(todos.length, 'ajuste', 'ajustes') : `${vis} de ${plural(todos.length, 'ajuste', 'ajustes')}`} em ${plural(s.grupos.length, 'grupo', 'grupos')}${alt ? ` · ${plural(alt, 'alteração ainda não salva', 'alterações ainda não salvas')}` : ''}</p></div>
+      <div class="acoes">${(s.botoes || []).map((x, i) => `<button class="bt" data-botao="${i}">${x[0]}</button>`).join('')}</div></div>
+    ${typeof s.antes === 'function' ? s.antes() : s.antes || ''}
+    <div class="sits" role="group" aria-label="Situação">
+      <button class="sit" data-sit="-1" aria-pressed="${e.sit < 0}">Todos <b>${base.length}</b></button>
+      ${SITS_AJ.map((x, i) => (!tem[x[3]] ? '' : `<button class="sit ${x[2]}" data-sit="${i}" aria-pressed="${e.sit === i}">${x[0]} <b data-conta="${i}">${base.filter((it) => x[1](it, e)).length}</b></button>`)).join('')}
+    </div>
+    <div class="filtros"><div class="campo larga"><label for="fBusca">Buscar ajuste</label><input id="fBusca" type="search" value="${esc(e.busca)}" placeholder="${s.buscar || 'Digite parte do nome do ajuste'}" autocomplete="off"></div></div>
+    ${vis ? s.grupos.map((g) => { const its = g.itens.filter(ve); if (!its.length) return ''; const lg = g.itens.filter((it) => it.tipo === 'liga');
+      return `<section class="grupo"><header><h3>${g.titulo}</h3><span>${lg.length ? `${lg.filter((it) => valorAj(it, e) === true).length} de ${lg.length} ligados` : plural(g.itens.length, 'ajuste', 'ajustes')}</span></header>
+        ${g.nota ? `<div class="aj" style="grid-template-columns:minmax(0,1fr)"><span class="ajuda">${g.nota}</span></div>` : ''}
+        ${its.map((it) => `<div class="aj${mudouAj(it, e) ? ' mudou' : ''}"><div><span class="rot-aj" id="r-${it.id}">${it.rot}</span>${it.ajuda ? `<span class="ajuda">${it.ajuda}</span>` : ''}</div><div class="ctrl">${controle(it, e)}</div></div>`).join('')}
+        ${g.html ? `<div class="aj" style="grid-template-columns:minmax(0,1fr)">${typeof g.html === 'function' ? g.html(e) : g.html}</div>` : ''}</section>`; }).join('')
+      : '<div class="tabela vazio">Nenhum ajuste com esses filtros. <button class="bt" id="bLimpar" style="margin-left:8px">Limpar filtros</button></div>'}
+    ${typeof s.depois === 'function' ? s.depois() : s.depois || ''}`;
+}
+function barraSalvar() {
+  const bar = $('#barraSalvar'), n = pendentes();
+  bar.hidden = !n;
+  bar.innerHTML = n ? `<span role="status" style="font-weight:700">${plural(n, 'alteração ainda não salva', 'alterações ainda não salvas')}</span><span class="acoes"><button class="bt" id="bDescartar">Descartar</button><button class="bt pri" id="bSalvar">Salvar alterações</button></span>` : '';
+}
+
+// ── parte do tipo LIVRE ──
+function htmlLivre(s) {
+  return `<div class="barra"><div><h2 id="tLista" tabindex="-1">${s.titulo}</h2><p class="resumo" role="status" aria-live="polite">${typeof s.resumo === 'function' ? s.resumo() : s.resumo || ''}</p></div>
+    <div class="acoes">${(s.botoes || []).map((x, i) => `<button class="bt${x[2] ? ' ' + x[2] : ''}" data-botao="${i}">${x[0]}</button>`).join('')}</div></div>${s.desenhar()}`;
+}
+
+// ── cliques e digitação ──
+function refocar(sel) { const n = $(sel); if (n) n.focus(); }
+document.addEventListener('click', (ev) => {
+  const t = ev.target;
+  if (t.closest('[data-fechar]')) return fechar();
+  if (aberto && aberto.contains(t)) { // dentro de gaveta ou diálogo: só os controles genéricos
+    const l = t.closest('button.liga'); if (l) { const v = l.getAttribute('aria-checked') !== 'true'; l.setAttribute('aria-checked', String(v)); const x = l.previousElementSibling; if (x && x.classList.contains('liga-txt')) x.textContent = v ? 'Ligado' : 'Desligado'; }
+    const f = t.closest('.ficha, .seg button'); if (f) { if (f.parentElement.classList.contains('seg')) $$('button', f.parentElement).forEach((x) => x.setAttribute('aria-pressed', String(x === f))); else f.setAttribute('aria-pressed', String(f.getAttribute('aria-pressed') !== 'true')); }
+    return;
+  }
+  const tela = t.closest('[data-tela]'); if (tela) return irPara(tela.dataset.tela, 0);
+  const parte = t.closest('[data-secao]'); if (parte) return irPara(atual, Number(parte.dataset.secao));
+  const sit = t.closest('[data-sit]'); if (sit) { const e = est(), n = Number(sit.dataset.sit); e.sit = e.sit === n ? -1 : n; desenhar(); return refocar(`[data-sit="${e.sit}"]`); }
+  if (t.id === 'bLimpar') { const e = est(); e.busca = ''; e.sit = -1; e.sel = {}; desenhar(); return refocar('#fBusca'); }
+  if (t.id === 'bNovo') return S().aoNovo();
+  if (t.id === 'bSel') return S().selecao.ao([...est().marc]);
+  if (t.id === 'mNada') { est().marc.clear(); return desenhar(); }
+  if (t.id === 'bDescartar') { est().vals = {}; desenhar(); avisar('Alterações descartadas.'); return refocar('#tLista'); }
+  if (t.id === 'bSalvar') { const e = est(), s = S(); for (const it of itensAj(s)) if (it.id in e.vals) it.v = e.vals[it.id]; e.vals = {}; desenhar(); avisar(s.salvou || 'Ajustes salvos.'); return refocar('#tLista'); }
+  const bo = t.closest('[data-botao]'); if (bo) return S().botoes[Number(bo.dataset.botao)][1]();
+  const ac = t.closest('[data-acao]'); if (ac) return S().aoAcao(ac.dataset.acao, S().dados[Number(ac.dataset.i)]);
+  const lg = t.closest('[data-liga]'); if (lg) { const s = S(), r = s.dados[Number(lg.dataset.i)], c = lg.dataset.liga; r[c] = !r[c]; desenhar(); avisar(s.aoLigar ? s.aoLigar(r, c) : 'Salvo.'); return refocar(`[data-liga="${c}"][data-i="${lg.dataset.i}"]`); }
+  const aj = t.closest('button.liga[data-aj]'); if (aj) { const e = est(); const it = itensAj(S()).find((x) => x.id === aj.dataset.aj); e.vals[it.id] = !valorAj(it, e); desenhar(); return refocar(`button.liga[data-aj="${it.id}"]`); }
+  S().aoClicar?.(ev);
+});
+document.addEventListener('change', (ev) => {
+  const t = ev.target;
+  if (t.id === 'irPara') return irPara(t.value, 0);
+  if (t.id === 'mTodos') { const e = est(), s = S(), lista = filtrar(s, e, false); lista.forEach((r) => (t.checked ? e.marc.add(r) : e.marc.delete(r))); desenhar(); return refocar('#mTodos'); }
+  if (t.dataset.marc !== undefined && !aberto) { const e = est(), r = S().dados[Number(t.dataset.marc)]; t.checked ? e.marc.add(r) : e.marc.delete(r); desenhar(); return refocar(`[data-marc="${t.dataset.marc}"]`); }
+});
+document.addEventListener('input', (ev) => {
+  const t = ev.target;
+  if (aberto && aberto.contains(t)) return S().aoDigitarNoPainel?.(ev);
+  if (t.id === 'fBusca') { est().busca = t.value; desenhar(); const n = $('#fBusca'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); return; }
+  if (t.dataset.sel !== undefined) { est().sel[t.dataset.sel] = t.value; desenhar(); return refocar(`#fSel${t.dataset.sel}`); }
+  if (t.dataset.aj !== undefined && t.tagName !== 'BUTTON') { // campo de ajuste: não redesenha (a pessoa está digitando)
+    const e = est(), s = S(), it = itensAj(s).find((x) => x.id === t.dataset.aj);
+    e.vals[it.id] = it.tipo === 'num' ? (t.value === '' ? '' : Number(t.value)) : t.value;
+    t.closest('.aj').classList.toggle('mudou', mudouAj(it, e));
+    SITS_AJ.forEach((x, i) => { const b = $(`[data-conta="${i}"]`); if (b) b.textContent = itensAj(s).filter((y) => x[1](y, e)).length; });
+    const alt = itensAj(s).filter((x) => mudouAj(x, e)).length, rs = $('#resumoAj'); if (rs) rs.textContent = rs.textContent.replace(/ · \d+ alteraç.*$/, '') + (alt ? ` · ${plural(alt, 'alteração ainda não salva', 'alterações ainda não salvas')}` : '');
+    barraSalvar(); s.aoAjustar?.(e);
+  }
+});
+
+// ── painéis (gaveta e diálogo): o foco entra, fica preso, Esc fecha, o foco volta ──
+let aberto = null, quemAbriu = null;
+function painel({ titulo, corpo, rodape, tipo = 'dialogo', largo = false, alerta = false, foco }) {
+  const volta = aberto ? quemAbriu : document.activeElement;
+  if (aberto) { $('#painel').innerHTML = ''; aberto = null; }
+  quemAbriu = volta;
+  $('#painel').innerHTML = `<div class="painel ${tipo === 'gaveta' ? 'gaveta' + (largo ? ' larga' : '') : 'dialogo' + (largo ? ' largo' : '')}" role="${alerta ? 'alertdialog' : 'dialog'}" aria-modal="true" aria-labelledby="pTit">
+    <header><h3 id="pTit">${titulo}</h3><button class="ic" data-fechar aria-label="Fechar">✕</button></header><div class="corpo">${corpo}</div><footer>${rodape}</footer></div>`;
+  aberto = $('#painel').firstElementChild; $('#fundo').hidden = false;
+  (foco ? $(foco, aberto) : $$('.corpo input, .corpo select, .corpo textarea', aberto).find((x) => !x.disabled) || $('footer button', aberto))?.focus();
+}
+function fechar() { if (!aberto) return; $('#painel').innerHTML = ''; aberto = null; $('#fundo').hidden = true; if (quemAbriu && document.contains(quemAbriu)) quemAbriu.focus(); else refocar('#tLista'); }
+document.addEventListener('keydown', (e) => {
+  if (!aberto) return;
+  if (e.key === 'Escape') return fechar();
+  if (e.key !== 'Tab') return;
+  const f = $$('button,input,select,textarea', aberto).filter((x) => !x.disabled && x.offsetParent !== null);
+  if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f[f.length - 1].focus(); }
+  else if (!e.shiftKey && document.activeElement === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
+});
+let nCampo = 0;
+const campo = (rot, html, ajuda = '') => { const id = 'c' + ++nCampo; return `<div class="campo"><label for="${id}">${rot}</label>${html.replace(/^<(input|select|textarea)/, `<$1 id="${id}"`)}${ajuda ? `<span class="ajuda">${ajuda}</span>` : ''}</div>`; };
+const sel = (ops, v = '') => `<select>${ops.map((o) => `<option${o === v ? ' selected' : ''}>${o}</option>`).join('')}</select>`;
+const chave = (rot, ligado, ajuda = '') => `<div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center"><div><span class="rot-aj" style="font-weight:600">${rot}</span>${ajuda ? `<span class="ajuda" style="display:block">${ajuda}</span>` : ''}</div><span style="display:inline-flex;align-items:center;gap:6px"><span class="liga-txt">${ligado ? 'Ligado' : 'Desligado'}</span><button type="button" class="liga" role="switch" aria-checked="${!!ligado}" aria-label="${esc(rot)}"></button></span></div>`;
+const rodapeSalvar = (t, msg) => `<button class="bt" data-fechar>Cancelar</button><button class="bt pri" onclick="fechar();avisar('${msg}')">${t}</button>`;
+function confirmar(titulo, corpo, botao, fn, cancelar = 'Cancelar', perigo = false) {
+  painel({ titulo, corpo, alerta: true, rodape: `<button class="bt" data-fechar>${cancelar}</button><button class="bt ${perigo ? 'perigo' : 'pri'}" id="bOk">${botao}</button>`, foco: 'footer button' });
+  $('#bOk').onclick = () => { fechar(); fn(); };
+}
+// excluir/revogar: diz a consequência e, depois, o foco vai para o título (a linha saiu da lista)
+function confirmarRetirar(r, { titulo = 'Excluir', verbo = 'Excluir', nome = r.nome, consequencia, depois = 'Excluído.', fazer }) {
+  painel({ titulo, alerta: true, foco: 'footer button', corpo: `<p style="margin:0">${verbo} <b>${nome}</b>?</p><div class="nota crit">${consequencia}</div>`,
+    rodape: `<button class="bt" data-fechar>Cancelar</button><button class="bt perigo" id="bExc">${verbo}</button>` });
+  $('#bExc').onclick = () => { const s = S(); fazer ? fazer() : (s.dados = s.dados.filter((x) => x !== r)); $('#painel').innerHTML = ''; aberto = null; $('#fundo').hidden = true; desenhar(); avisar(depois); refocar('#tLista'); };
+}
+
+// ══ as telas (dados inventados) ═════════════════════════════════════════════════════════════
+const UNID = ['Matriz Centro', 'Filial Praia', 'Filial Shopping'];
+const SETORES = ['Cozinha', 'Chapa', 'Bar', 'Sobremesas', 'Expedição'];
+const DESTINOS = [['KDS Cozinha', 'KDS'], ['KDS Expedição', 'KDS'], ['Impressora Cozinha', 'Impressora'], ['Impressora Bar', 'Impressora'], ['Impressora Caixa', 'Impressora']];
+const selos = (arr, cls = 'info') => arr.map((x) => selo(cls, x)).join(' ');
+const listaMarcar = (ops, marcados = []) => `<div class="tabela" style="max-height:280px;overflow-y:auto">${ops.map((o) => `<label style="display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;min-height:44px;padding:6px 12px;border-bottom:1px solid var(--line)"><input type="checkbox" style="width:20px;height:20px"${marcados.includes(o[0]) ? ' checked' : ''}><b>${o[0]}</b>${o[1] ? selo('neutro', o[1]) : '<span></span>'}</label>`).join('')}</div>`;
+
+// ── 1. Loja ──
+TELAS.loja = {
+  menu: 'Loja',
+  hoje: ['Os dois cartões de hoje viram grupos, cada um com a contagem dos seus ajustes.', 'Entra a busca de ajuste e a contagem de campos em branco.', 'A tela avisa quantas alterações ainda não foram salvas e pergunta antes de sair — hoje não avisa.', 'Se a carga falhar, aparece o erro com "Tentar de novo" — hoje aparece o formulário vazio, que engana.'],
+  secoes: [{
+    nome: 'Dados da loja', tipo: 'ajustes', titulo: 'Dados da loja', salvou: 'Loja salva.',
+    grupos: [
+      { titulo: 'Identidade', html: '<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center"><div style="width:64px;height:64px;border-radius:12px;background:#EEF2F6;display:grid;place-items:center;font-family:var(--display);font-weight:800;font-size:22px">CM</div><div style="flex:1;min-width:180px"><b>Logo da loja (imagem)</b><span class="ajuda" style="display:block">JPG, PNG, WEBP ou GIF · até 5 MB.</span></div><button class="bt" onclick="avisar(\'Aqui abre a escolha da imagem.\')">Trocar imagem</button><button class="bt" onclick="avisar(\'Logo removida.\')">Remover</button></div>',
+        itens: [
+          { id: 'l1', rot: 'Nome do estabelecimento', tipo: 'txt', v: 'Cantina Modelo' },
+          { id: 'l2', rot: 'Telefone de contato', tipo: 'txt', v: '(00) 0000-0000' },
+          { id: 'l3', rot: 'CPF / CNPJ', tipo: 'txt', v: '00.000.000/0001-00' },
+          { id: 'l4', rot: 'WhatsApp', tipo: 'txt', v: '+55 00 90000-0000' },
+          { id: 'l5', rot: 'Instagram', tipo: 'txt', v: '' },
+          { id: 'l6', rot: 'Descrição', ajuda: 'Uma frase sobre a loja (aparece no cardápio).', tipo: 'txt', v: 'Massas e grelhados feitos na hora' },
+        ] },
+      { titulo: 'Endereço do estabelecimento', nota: 'Ao sair do campo CEP, rua, bairro, cidade e UF são preenchidos sozinhos.',
+        itens: [
+          { id: 'e1', rot: 'CEP', tipo: 'txt', v: '00000-000' }, { id: 'e2', rot: 'Cidade', tipo: 'txt', v: 'Cidade Exemplo' },
+          { id: 'e3', rot: 'Rua', tipo: 'txt', v: 'Rua das Amostras' }, { id: 'e4', rot: 'Número', tipo: 'txt', v: '100' },
+          { id: 'e5', rot: 'Bairro', tipo: 'txt', v: 'Centro' }, { id: 'e6', rot: 'Estado (UF)', tipo: 'txt', v: 'XX' },
+          { id: 'e7', rot: 'Referência', tipo: 'txt', v: '', opcional: true }, { id: 'e8', rot: 'Complemento', tipo: 'txt', v: '', opcional: true },
+        ] },
+      { titulo: 'Ponto da loja no mapa', nota: 'Base para o frete por distância (raio). Defina pelo endereço, pela sua localização, ou ajuste as coordenadas.',
+        html: '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><button class="bt" onclick="avisar(\'Ponto definido pelo endereço.\')">Definir pelo endereço</button><button class="bt" onclick="avisar(\'Ponto definido pela sua localização.\')">Usar minha localização</button><span class="ajuda">O mapa aparece aqui, como hoje.</span></div>',
+        itens: [{ id: 'm1', rot: 'Latitude', tipo: 'txt', v: '-00.000000' }, { id: 'm2', rot: 'Longitude', tipo: 'txt', v: '-00.000000' }] },
+      { titulo: 'Pedidos pelo cardápio',
+        html: '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between"><div><b>ID do estabelecimento</b><span class="ajuda" style="display:block">Somente leitura.</span></div><span class="num">a0000000-0000-4000-8000-000000000000</span><button class="bt" onclick="avisar(\'Copiado.\')">Copiar</button></div>',
+        itens: [
+          { id: 'p1', rot: 'Pedido mínimo para delivery', tipo: 'txt', v: '25,00', suf: 'R$' },
+          { id: 'p2', rot: 'Observação antes de finalizar o pedido', ajuda: 'Aparece para o cliente antes de fechar o pedido no cardápio.', tipo: 'txt', v: '', opcional: true },
+        ] },
+    ],
+  }],
+};
+
+// ── 2. Unidades ──
+TELAS.unidades = {
+  menu: 'Unidades',
+  hoje: ['Título com a contagem e situações por tipo (matriz, filiais) e "sem endereço".', 'Busca por nome ou endereço — hoje não há.', 'Criar e editar passam do modal para a gaveta; remover pede confirmação num diálogo, com a regra que hoje vem na janela do navegador.', 'Só o presidente vê "Nova unidade", editar e excluir — hoje os botões aparecem para todos e o servidor recusa.'],
+  secoes: [{
+    nome: 'Unidades', tipo: 'lista', titulo: 'Unidades da rede', um: 'unidade', varios: 'unidades', novo: '＋ Nova unidade', buscar: 'Nome ou endereço',
+    dados: [
+      { nome: 'Matriz Centro', tipo: 'Matriz', end: 'Rua das Amostras, 100 — Centro, Cidade Exemplo' },
+      { nome: 'Filial Praia', tipo: 'Filial', end: 'Av. Beira-Mar, 2000 — Praia, Cidade Exemplo' },
+      { nome: 'Filial Shopping', tipo: 'Filial', end: '' },
+      { nome: 'Cozinha Central', tipo: 'Filial', end: 'Rua do Preparo, 45 — Distrito Industrial' },
+    ],
+    texto: (r) => r.nome + ' ' + r.end,
+    resumo: () => 'cada colaborador, setor, turno e venda pertence a uma unidade',
+    sits: [['Matriz', (r) => r.tipo === 'Matriz'], ['Filiais', (r) => r.tipo === 'Filial'], ['Sem endereço', (r) => !r.end, 'warn']],
+    colunas: [
+      ['Unidade', (r) => `<span class="nome">${r.nome}</span> ${selo(r.tipo === 'Matriz' ? 'info' : 'neutro', r.tipo)}`],
+      ['Endereço', (r) => r.end || '—'],
+    ],
+    acoes: () => [['✎', 'Editar', 'editar'], ['🗑', 'Excluir', 'excluir', 'perigo']],
+    aoNovo() { formUnidade(null); },
+    aoAcao(k, r) { k === 'editar' ? formUnidade(r) : confirmarRetirar(r, { consequencia: 'Só é possível se não houver setores, turnos ou janelas nela. Não dá para desfazer por aqui.', depois: 'Unidade removida.' }); },
+  }],
+};
+function formUnidade(r) {
+  painel({ tipo: 'gaveta', titulo: r ? 'Editar unidade' : 'Nova unidade', rodape: rodapeSalvar('Salvar', r ? 'Unidade atualizada.' : 'Unidade criada.'),
+    corpo: campo('Nome da unidade', `<input value="${r ? esc(r.nome) : ''}" placeholder="Ex.: Matriz, Filial Centro">`) + campo('Tipo', sel(['Matriz', 'Filial'], r ? r.tipo : 'Filial')) + campo('Endereço (opcional)', `<input value="${r ? esc(r.end) : ''}" placeholder="Rua, número — bairro, cidade">`) });
+}
+
+// ── 3. Produção & KDS ──
+TELAS.producao = {
+  menu: 'Produção & KDS',
+  hoje: ['Hoje cada cartão salva de um jeito (um botão, ao clicar, ao marcar). Passa a existir uma só barra "Salvar alterações", com a quantidade pendente.', 'As duas etapas do pedido deixam de depender do botão "Salvar" das cores, que fica longe delas.', 'O destino de cada setor vira lista, com "sem destino" contado em destaque e edição na gaveta.', 'A tela mostra "carregando" — hoje os campos nascem com 5 e 10 antes de a resposta chegar e podem ser salvos por cima.'],
+  secoes: [
+    { nome: 'Ajustes do KDS', tipo: 'ajustes', titulo: 'Ajustes do KDS', salvou: 'Configuração do KDS salva.',
+      grupos: [
+        { titulo: 'Cores do KDS por tempo',
+          html: (e) => { const v = e.vals.k1 ?? 5, a = e.vals.k2 ?? 10; return `<div class="fichas" id="previaCores">${selo('ok', `0–${v} min`)} ${selo('warn', `${v}–${a} min`)} ${selo('crit', `acima de ${a} min`)}${Number(v) >= Number(a) ? ' <span class="selo crit">o verde precisa terminar antes do amarelo</span>' : ''}</div>`; },
+          itens: [{ id: 'k1', rot: 'Verde até', tipo: 'num', v: 5, suf: 'min' }, { id: 'k2', rot: 'Amarelo até', tipo: 'num', v: 10, suf: 'min' }] },
+        { titulo: 'Etapas do pedido', nota: 'A etapa "pronto" é sempre usada.',
+          itens: [{ id: 'k3', rot: 'Usar "em preparo"', tipo: 'liga', v: true }, { id: 'k4', rot: 'Usar "entregue"', tipo: 'liga', v: true }] },
+        { titulo: 'Senha de atendimento', itens: [{ id: 'k5', rot: 'Quando a numeração da senha reinicia', tipo: 'sel', v: 'Diário', ops: ['Diário', 'Semanal', 'Sem reinício'] }] },
+        { titulo: 'Impressão da produção', itens: [{ id: 'k6', rot: 'Imprimir a produção só ao avançar no KDS', ajuda: 'Desligado, o ticket de produção sai quando o pedido entra. Ligado, sai quando a cozinha avança o pedido no KDS.', tipo: 'liga', v: false }] },
+      ],
+      aoAjustar(e) { const p = $('#previaCores'); if (p) p.outerHTML = this.grupos[0].html(e); } },
+    { nome: 'Destino por setor', tipo: 'lista', titulo: 'Destino padrão de cada setor', um: 'setor', varios: 'setores', buscar: 'Nome do setor',
+      dados: [
+        { nome: 'Cozinha', dest: ['KDS Cozinha', 'Impressora Cozinha'] }, { nome: 'Chapa', dest: ['KDS Cozinha'] }, { nome: 'Bar', dest: ['Impressora Bar'] },
+        { nome: 'Sobremesas', dest: [] }, { nome: 'Expedição', dest: ['KDS Expedição'] },
+      ],
+      texto: (r) => r.nome,
+      resumo: () => 'o produto sem destino próprio segue o do setor',
+      sits: [['Com destino', (r) => r.dest.length > 0], ['Sem destino', (r) => !r.dest.length, 'warn']],
+      selects: [['Tipo de destino', 'KDS e impressora', (r) => [...new Set(r.dest.map((d) => DESTINOS.find((x) => x[0] === d)[1]))]]],
+      colunas: [['Setor', (r) => `<span class="nome">${r.nome}</span>`], ['Destinos', (r) => (r.dest.length ? selos(r.dest) : selo('warn', 'sem destino'))], ['Quantidade', (r) => `<span class="num">${r.dest.length}</span>`]],
+      acoes: () => [['✎', 'Destinos', 'destinos', 'pri']],
+      aoAcao(k, r) { painel({ tipo: 'gaveta', titulo: `Destinos do setor ${r.nome}`, rodape: rodapeSalvar('Salvar setor', 'Direcionamento do setor salvo.'), corpo: `<p class="ajuda" style="margin:0">Marque os KDS e as impressoras que recebem os pedidos deste setor.</p>${listaMarcar(DESTINOS, r.dest)}` }); },
+    },
+  ],
+};
+
+// ── 4. Alertas do KDS ──
+const PRIOR = { 'Emergência': 'crit', 'Alta': 'warn', 'Informativo': 'info', 'Positivo': 'ok' };
+TELAS.alertas = {
+  menu: 'Alertas do KDS',
+  hoje: ['O formulário, que hoje fica fixo ao lado (e no topo, no celular), vai para a gaveta.', 'Ligar e desligar um alerta direto na linha — hoje é preciso abrir o formulário.', 'Situações (ativos, inativos, agendados, condicionais), filtro de prioridade e busca por título.', '"Testar" passa a pedir confirmação: ele dispara de verdade em todos os KDS. "Excluir" sai da janela do navegador para o diálogo.', 'Erro de carga deixa de ser silencioso.'],
+  secoes: [{
+    nome: 'Alertas', tipo: 'lista', titulo: 'Alertas do rodapé do KDS', um: 'alerta', varios: 'alertas', novo: '＋ Novo alerta', buscar: 'Título do alerta',
+    dados: [
+      { nome: 'Lavar as mãos', det: 'Todos os setores', tipo: 'Agendado', quando: '10:00 · 14:00 · 18:00 — todos os dias', pri: 'Informativo', seg: 60, ativo: true },
+      { nome: 'Trocar o óleo da fritadeira', det: '', tipo: 'Agendado', quando: '16:00 — seg e qui', pri: 'Alta', seg: 120, ativo: true },
+      { nome: 'Fila de delivery acumulando', det: 'Chamar reforço na expedição', tipo: 'Condicional', quando: 'Pedidos de delivery acumulados ≥ 8', pri: 'Emergência', seg: 90, ativo: true },
+      { nome: 'Pico de produção', det: '', tipo: 'Condicional', quando: 'Pedidos em produção (total) > 15', pri: 'Alta', seg: 60, ativo: false },
+      { nome: 'Conferir temperatura das geladeiras', det: 'Anotar na planilha', tipo: 'Agendado', quando: '09:00 · 21:00 — todos os dias', pri: 'Positivo', seg: 45, ativo: true },
+    ],
+    texto: (r) => r.nome + ' ' + r.det,
+    resumo: () => 'o KDS confere os alertas a cada 20 segundos',
+    sits: [['Ativos', (r) => r.ativo], ['Inativos', (r) => !r.ativo], ['Agendados', (r) => r.tipo === 'Agendado'], ['Condicionais', (r) => r.tipo === 'Condicional']],
+    selects: [['Prioridade', 'Todas as prioridades', (r) => r.pri]],
+    colunas: [
+      ['Alerta', (r) => `<span class="nome">${r.nome}</span>${r.det ? `<div class="sub-t">${r.det}</div>` : ''}`],
+      ['Tipo', (r) => r.tipo], ['Quando', (r) => r.quando], ['Prioridade', (r) => selo(PRIOR[r.pri], r.pri)], ['Duração', (r) => `<span class="num">${r.seg} s</span>`],
+      ['Ativo', (r, i) => ligaLinha(r, i, 'ativo', `Alerta ${r.nome} ativo`)],
+    ],
+    aoLigar: (r) => (r.ativo ? `"${r.nome}" ligado.` : `"${r.nome}" desligado.`),
+    acoes: () => [['▶', 'Testar', 'testar'], ['✎', 'Editar', 'editar'], ['🗑', 'Excluir', 'excluir', 'perigo']],
+    aoNovo() { formAlerta(null); },
+    aoAcao(k, r) {
+      if (k === 'editar') return formAlerta(r);
+      if (k === 'testar') return confirmar('Testar o alerta agora?', `<p style="margin:0"><b>${r.nome}</b> é disparado de verdade no KDS, agora — a cozinha vai ver.</p>`, 'Disparar no KDS', () => avisar('Alerta disparado no KDS.'));
+      confirmarRetirar(r, { consequencia: 'O alerta deixa de aparecer no rodapé do KDS. Não dá para desfazer por aqui.', depois: 'Alerta removido.' });
+    },
+  }],
+};
+function formAlerta(r) {
+  const ag = !r || r.tipo === 'Agendado';
+  painel({ tipo: 'gaveta', titulo: r ? 'Editar alerta' : 'Novo alerta', rodape: rodapeSalvar(r ? 'Salvar alterações' : 'Criar alerta', 'Alerta salvo.'),
+    corpo: campo('Título', `<input value="${r ? esc(r.nome) : ''}" placeholder="Ex.: Horário de lavar as mãos">`) + campo('Detalhe (opcional)', `<input value="${r ? esc(r.det) : ''}">`)
+      + `<div class="duas">${campo('Prioridade / cor', sel(['Emergência (vermelho)', 'Alta (âmbar)', 'Informativo (azul)', 'Positivo (verde)'], r ? Object.keys(PRIOR).map((p, i) => [p, ['Emergência (vermelho)', 'Alta (âmbar)', 'Informativo (azul)', 'Positivo (verde)'][i]]).find((x) => x[0] === r.pri)[1] : 'Informativo (azul)'))}${campo('Duração no rodapé (seg)', `<input type="number" min="3" max="3600" value="${r ? r.seg : 60}">`)}</div>`
+      + `<div><span class="rot">Tipo</span><div class="seg" style="margin-top:4px"><button type="button" aria-pressed="${ag}">Agendado (horário)</button><button type="button" aria-pressed="${!ag}">Condicional (limiar)</button></div></div>`
+      + (ag ? `<div><span class="rot">Horários</span><div class="fichas" style="margin-top:4px"><button type="button" class="ficha" aria-pressed="true">10:00 ✕</button><button type="button" class="ficha" aria-pressed="true">14:00 ✕</button><input type="time" aria-label="Novo horário" style="min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 10px"><button type="button" class="bt">Adicionar</button></div></div>
+        <div><span class="rot">Dias da semana</span><div class="fichas" style="margin-top:4px">${['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((d) => `<button type="button" class="ficha" aria-pressed="true">${d}</button>`).join('')}</div></div>`
+        : `${campo('Quando', sel(['Pedidos de balcão acumulados', 'Pedidos de delivery acumulados', 'Pedidos em produção (total)'], 'Pedidos de delivery acumulados'))}<div class="duas">${campo('Operador', sel(['>=', '>', '<=', '<', '=='], '>='))}${campo('Limiar', '<input type="number" value="10">')}</div><p class="ajuda" style="margin:0">Avaliado a cada ~20s; não repete enquanto ainda está no ar.</p>`)
+      + chave('Ativo', r ? r.ativo : true) });
+}
+
+// ── 5. Direcionamento do catálogo ──
+const prodDir = (nome, cat, setor, tipo, dest = []) => ({ nome, cat, setor, tipo, dest });
+TELAS.direcionamento = {
+  menu: 'Direcionamento do catálogo',
+  hoje: ['Os três cartões lado a lado viram uma lista só: marque os produtos, clique em "Direcionar marcados" e escolha os destinos na gaveta.', 'A tela mostra quantos marcados estão FORA do filtro atual — hoje eles ficam invisíveis e entram no envio.', 'Confirmar sem destino nenhum (que limpa os destinos) passa a avisar antes.', 'Filtro novo por destino; "Voltar ao padrão" na linha; "Já direcionados" deixa de ser uma tabela à parte e vira a situação "Com destino próprio".'],
+  secoes: [
+    { nome: 'Produtos', tipo: 'lista', titulo: 'Para onde vai cada produto', um: 'produto', varios: 'produtos', buscar: 'Nome do produto',
+      dados: [
+        prodDir('X-burger da casa', 'Lanches', 'Chapa', 'Produzido (com ficha)', ['KDS Cozinha']), prodDir('Batata frita porção', 'Porções', 'Cozinha', 'Produzido (com ficha)'),
+        prodDir('Suco de laranja 400 ml', 'Bebidas', 'Bar', 'Produzido (com ficha)', ['Impressora Bar']), prodDir('Refrigerante lata', 'Bebidas', 'Bar', 'Pronto (sem ficha)'),
+        prodDir('Petit gâteau', 'Sobremesas', 'Sobremesas', 'Produzido (com ficha)', ['KDS Cozinha', 'Impressora Cozinha']), prodDir('Água mineral 500 ml', 'Bebidas', 'Bar', 'Pronto (sem ficha)'),
+        prodDir('Combo burger + fritas', 'Lanches', 'Chapa', 'Produzido (com ficha)'), prodDir('Salada da casa', 'Entradas', 'Cozinha', 'Produzido (com ficha)'),
+        prodDir('Caipirinha', 'Bebidas', 'Bar', 'Produzido (com ficha)', ['Impressora Bar']), prodDir('Pudim de leite', 'Sobremesas', 'Sobremesas', 'Pronto (sem ficha)'),
+      ],
+      texto: (r) => r.nome,
+      resumo: () => 'sem destino próprio, o produto segue o padrão do setor',
+      sits: [['Com destino próprio', (r) => r.dest.length > 0], ['Herdando o padrão do setor', (r) => !r.dest.length]],
+      selects: [['Categoria', 'Todas as categorias', (r) => r.cat], ['Setor', 'Todos os setores', (r) => r.setor], ['Tipo', 'Produzidos e prontos', (r) => r.tipo], ['Destino', 'Qualquer destino', (r) => r.dest]],
+      colunas: [
+        ['Produto', (r) => `<span class="nome">${r.nome}</span><div class="sub-t">${r.cat} · ${r.setor}</div>`],
+        ['Tipo', (r) => r.tipo], ['Destinos', (r) => (r.dest.length ? selos(r.dest) : '<span class="sub-t">padrão do setor</span>')],
+      ],
+      acoes: (r) => [['✎', 'Destinos', 'destinos'], ...(r.dest.length ? [['↺', 'Voltar ao padrão', 'padrao']] : [])],
+      aoAcao(k, r) {
+        if (k === 'destinos') return gavetaDestinos([r]);
+        confirmar('Voltar ao padrão do setor?', `<p style="margin:0"><b>${r.nome}</b> deixa de ter destino próprio e passa a seguir o padrão do setor ${r.setor}.</p>`, 'Voltar ao padrão', () => { r.dest = []; desenhar(); avisar('Produto de volta ao padrão do setor.'); });
+      },
+      selecao: { rotulo: 'Direcionar marcados', ao: (m) => gavetaDestinos(m) },
+    },
+    { nome: 'Cupom do cliente', tipo: 'lista', titulo: 'Impressoras que imprimem o cupom do cliente', um: 'impressora', varios: 'impressoras', buscar: 'Nome da impressora',
+      dados: [
+        { nome: 'Impressora Caixa', alvo: 'rede: 192.168.0.50', cupom: true }, { nome: 'Impressora Bar', alvo: 'rede: 192.168.0.51', cupom: false },
+        { nome: 'Impressora Cozinha', alvo: 'USB: TERMICA-COZINHA', cupom: false }, { nome: 'Impressora Delivery', alvo: '', cupom: true },
+      ],
+      texto: (r) => r.nome + ' ' + r.alvo,
+      sits: [['Imprimem o cupom', (r) => r.cupom], ['Não imprimem', (r) => !r.cupom], ['Sem alvo configurado', (r) => !r.alvo, 'warn']],
+      colunas: [['Impressora', (r) => `<span class="nome">${r.nome}</span>`], ['Ligação', (r) => r.alvo || selo('warn', 'sem alvo — configure em Equipamentos')], ['Imprime o cupom', (r, i) => ligaLinha(r, i, 'cupom', `${r.nome} imprime o cupom do cliente`)]],
+      aoLigar: (r) => (r.cupom ? `${r.nome} passa a imprimir o cupom.` : `${r.nome} deixa de imprimir o cupom.`),
+    },
+  ],
+};
+function gavetaDestinos(lista) {
+  const um = lista.length === 1;
+  painel({ tipo: 'gaveta', titulo: um ? `Destinos de ${lista[0].nome}` : `Direcionar ${lista.length} produtos`,
+    rodape: `<button class="bt" data-fechar>Cancelar</button><button class="bt pri" id="bDir">Confirmar direcionamento</button>`,
+    corpo: `<p class="conta" style="margin:0;background:var(--info-bg);color:var(--info);border-radius:10px;padding:8px 12px;font-weight:600" role="status" id="contaDir"></p>
+      ${um ? '' : `<p class="ajuda" style="margin:0">${lista.slice(0, 4).map((r) => r.nome).join(' · ')}${lista.length > 4 ? ` · e mais ${lista.length - 4}` : ''}</p>`}
+      <div><span class="rot">Destinos</span>${listaMarcar(DESTINOS, um ? lista[0].dest : [])}</div>
+      <div><span class="rot">Como aplicar</span><div class="seg" style="margin-top:4px"><button type="button" aria-pressed="true">Substituir destinos</button><button type="button" aria-pressed="false">Adicionar aos atuais</button></div></div>
+      <div class="nota warn" id="avisoDir" hidden>Sem nenhum destino marcado, ${um ? 'o produto volta' : `os ${lista.length} produtos voltam`} a herdar o padrão do setor.</div>` });
+  const conta = () => { const n = $$('.corpo input[type=checkbox]:checked', aberto).length; $('#contaDir').textContent = `${plural(lista.length, 'produto', 'produtos')} · ${plural(n, 'destino', 'destinos')}`; $('#avisoDir').hidden = n > 0; };
+  aberto.addEventListener('change', conta); conta();
+  $('#bDir').onclick = () => { const d = $$('.corpo input[type=checkbox]:checked', aberto).map((x) => x.nextElementSibling.textContent); lista.forEach((r) => (r.dest = [...d])); est().marc.clear(); $('#painel').innerHTML = ''; aberto = null; $('#fundo').hidden = true; desenhar(); avisar(`Direcionamento salvo em ${plural(lista.length, 'produto', 'produtos')}.`); refocar('#tLista'); };
+}
+
+// ── 6. Equipamentos ──
+const TIPOS_EQ = ['Terminal de PDV (caixa)', 'Sub-PDV Salão (garçom)', 'Terminal de Ponto', 'KDS (cozinha)', 'Impressora térmica', 'Servidor local (edge)'];
+const eq = (nome, tipo, un, liga, visto, sit, extra = {}) => ({ nome, tipo, un, liga, visto, sit, setor: '', ...extra });
+const SIT_EQ = { ativo: ['ok', 'ativo'], nunca: ['warn', 'nunca conectou'], mudo: ['crit', 'sem responder'], revogado: ['neutro', 'revogado'] };
+TELAS.equipamentos = {
+  menu: 'Equipamentos', titulo: 'Equipamentos & apps',
+  hoje: ['O formulário "Novo equipamento", que hoje abre no topo da página, vai para a gaveta. "Configurar" deixa de rolar a página para cima.', 'Situações com contagem: ativos, nunca conectaram, sem responder, revogados. Busca e filtros por tipo, unidade e setor — hoje não há nenhum.', 'Os controles soltos na linha (impressora de cupom do PDV, imprimir ao avançar e próximo KDS) vão para a gaveta "Configurar", com aviso de que salvou.', 'O erro aparece perto do que falhou — hoje todo erro sai dentro do cartão do formulário, mesmo o de revogar.', 'Revogar sai da janela do navegador para um diálogo; na credencial do totem (GoGeM) o aviso de que a venda do totem para fica escrito, e não só ao passar o mouse.', 'O código de pareamento ganha contagem regressiva (vale 15 minutos e um uso).', 'Fila de impressão e histórico viram partes da tela, com situações e filtros.', '<b>Decidido pelo dono:</b> "Configurar" em todo equipamento que tem o que configurar (hoje só a impressora pode ser editada; os outros não têm como trocar o nome).'],
+  secoes: [
+    { nome: 'Equipamentos', tipo: 'lista', titulo: 'Equipamentos', um: 'equipamento', varios: 'equipamentos', novo: '＋ Novo equipamento', buscar: 'Nome do equipamento',
+      antes: () => `<div class="nota warn" style="margin-bottom:10px;display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;align-items:center"><span><b>2 produtos com setor que não existe na loja.</b></span><button class="bt" onclick="avisar('Abre a lista dos 2 produtos.')">Ver produtos</button></div>
+        <div class="grupo"><header><h3>Integração GoGeM (autoatendimento)</h3><span>última publicação: hoje, 08:30</span></header><div class="aj" style="grid-template-columns:minmax(0,1fr) auto"><span class="ajuda">Sincroniza os produtos com o GoGeM.</span><button class="bt" onclick="avisar('Publicado no GoGeM: 42 produtos sincronizados.')">Publicar no GoGeM</button></div></div>`,
+      dados: [
+        eq('Caixa principal', TIPOS_EQ[0], 'Matriz Centro', 'cupom: Impressora Caixa', 'hoje, 09:12', 'ativo'),
+        eq('Caixa 2', TIPOS_EQ[0], 'Matriz Centro', 'sem impressora de cupom', '—', 'nunca'),
+        eq('Salão garçons', TIPOS_EQ[1], 'Matriz Centro', 'principal: Caixa principal', 'ontem, 23:40', 'ativo'),
+        eq('Ponto da entrada', TIPOS_EQ[2], 'Matriz Centro', 'REP-Software', 'hoje, 08:01', 'ativo', { padrao: true }),
+        eq('KDS Cozinha', TIPOS_EQ[3], 'Matriz Centro', 'produção · próximo: KDS Expedição', 'hoje, 09:40', 'ativo', { setor: 'Cozinha' }),
+        eq('KDS Expedição', TIPOS_EQ[3], 'Matriz Centro', 'entrega (retirada por senha)', 'hoje, 09:40', 'ativo', { setor: 'Expedição' }),
+        eq('Impressora Caixa', TIPOS_EQ[4], 'Matriz Centro', '192.168.0.50:9100 · 80 mm · cupom', 'última impressão hoje, 09:38', 'ativo'),
+        eq('Impressora Cozinha', TIPOS_EQ[4], 'Matriz Centro', 'USB: TERMICA-COZINHA · 80 mm · produção', '3 tickets esperando há 12 min', 'mudo', { setor: 'Cozinha' }),
+        eq('Servidor da loja', TIPOS_EQ[5], 'Matriz Centro', 'servidor local', 'hoje, 09:41', 'ativo'),
+        eq('Totem da entrada', TIPOS_EQ[0], 'Filial Praia', 'Integração GoGeM', 'hoje, 09:15', 'ativo', { gogem: true }),
+        eq('Caixa antigo', TIPOS_EQ[0], 'Filial Praia', '—', 'há 40 dias', 'revogado'),
+      ],
+      texto: (r) => r.nome,
+      resumo: (l) => { const m = l.filter((r) => r.sit === 'mudo').length; return m ? `${plural(m, 'impressora sem responder', 'impressoras sem responder')}` : 'tudo respondendo'; },
+      sits: [['Ativos', (r) => r.sit === 'ativo'], ['Nunca conectaram', (r) => r.sit === 'nunca', 'warn'], ['Sem responder', (r) => r.sit === 'mudo', 'crit'], ['Revogados', (r) => r.sit === 'revogado']],
+      selects: [['Tipo', 'Todos os tipos', (r) => r.tipo], ['Unidade', 'Todas as unidades', (r) => r.un], ['Setor', 'Todos os setores', (r) => r.setor]],
+      colunas: [
+        ['Equipamento', (r) => `<span class="nome">${r.nome}</span>${r.gogem ? ' ' + selo('info', 'Integração GoGeM') : ''}${r.padrao ? ' ' + selo('neutro', 'padrão') : ''}<div class="sub-t">${r.un}${r.setor ? ' · ' + r.setor : ''}</div>`],
+        ['Tipo', (r) => r.tipo], ['Ligação', (r) => r.liga], ['Último acesso', (r) => r.visto], ['Situação', (r) => selo(...SIT_EQ[r.sit])],
+      ],
+      acoes: (r) => (r.sit === 'revogado' ? [] : [
+        ...(r.tipo === TIPOS_EQ[4] ? [['🖨', 'Imprimir teste', 'teste']] : []),
+        ...([TIPOS_EQ[0], TIPOS_EQ[1]].includes(r.tipo) && !r.gogem ? [['⌗', 'Gerar código', 'codigo']] : []),
+        ['⚙', 'Configurar', 'config'],
+        ...(r.padrao ? [] : [['⛔', 'Revogar', 'revogar', 'perigo']]),
+      ]),
+      aoNovo() { formEquip(null); },
+      aoAcao(k, r) {
+        if (k === 'teste') return avisar('Página de teste enviada. Se o servidor local estiver ativo, sai em segundos.');
+        if (k === 'config') return formEquip(r);
+        if (k === 'codigo') return dialogoCodigo(r);
+        confirmarRetirar(r, { titulo: 'Revogar equipamento', verbo: 'Revogar', depois: 'Equipamento revogado.', fazer: () => { r.sit = 'revogado'; r.visto = 'agora'; },
+          consequencia: r.gogem ? '<b>Esta é a credencial do totem (GoGeM): a venda pelo totem para.</b> Revogar não tem volta por esta tela.' : 'Revogar não tem volta por esta tela. <i>O texto final deste aviso eu escrevo lendo o servidor, na implementação.</i>' });
+      },
+    },
+    { nome: 'Fila de impressão', tipo: 'lista', titulo: 'Fila de impressão', um: 'impressão', varios: 'impressões', buscar: 'Impressora ou via', botoes: [['↻ Atualizar', () => avisar('Fila atualizada.')]],
+      dados: [
+        { nome: 'Impressora Cozinha', via: 'produção', quando: 'hoje, 09:29', st: 'Na fila', erro: '' }, { nome: 'Impressora Cozinha', via: 'produção', quando: 'hoje, 09:31', st: 'Na fila', erro: '' },
+        { nome: 'Impressora Cozinha', via: 'produção', quando: 'hoje, 09:26', st: 'Falhou', erro: 'falhou (3×): impressora não encontrada no Windows' },
+        { nome: 'Impressora Caixa', via: 'cupom', quando: 'hoje, 09:38', st: 'Impresso', erro: '' }, { nome: 'Impressora Caixa', via: 'cupom', quando: 'hoje, 09:35', st: 'Impresso', erro: '' },
+        { nome: 'Impressora Bar', via: 'produção', quando: 'hoje, 09:34', st: 'Impresso', erro: '' }, { nome: 'Impressora Bar', via: 'produção', quando: 'hoje, 09:20', st: 'Falhou', erro: 'falhou (1×): tempo esgotado ao conectar em 192.168.0.51' },
+      ],
+      texto: (r) => r.nome + ' ' + r.via,
+      vazio: 'Nenhuma impressão ainda. Confirme um pedido ou use "Imprimir teste".',
+      sits: [['Na fila', (r) => r.st === 'Na fila', 'warn'], ['Falharam', (r) => r.st === 'Falhou', 'crit'], ['Impressas', (r) => r.st === 'Impresso']],
+      selects: [['Impressora', 'Todas as impressoras', (r) => r.nome]],
+      colunas: [['Impressora', (r) => `<span class="nome">${r.nome}</span>${r.erro ? `<div class="sub-t">${r.erro}</div>` : ''}`], ['Via', (r) => r.via], ['Quando', (r) => `<span class="num">${r.quando}</span>`], ['Situação', (r) => selo(r.st === 'Falhou' ? 'crit' : r.st === 'Na fila' ? 'warn' : 'ok', r.st.toLowerCase())]],
+      acoes: (r) => (r.st === 'Falhou' ? [['↻', 'Reimprimir', 'reimprimir', 'pri']] : []),
+      aoAcao(k, r) { painel({ titulo: 'Reimprimir', rodape: rodapeSalvar('Reimprimir', 'Reenviado para a impressora.'), corpo: `<p style="margin:0">Via de <b>${r.via}</b>, de ${r.quando}.</p>${campo('Enviar para', sel(['A mesma impressora', 'Impressora Caixa', 'Impressora Bar', 'Impressora Cozinha']))}` }); },
+    },
+    { nome: 'Histórico', tipo: 'lista', titulo: 'Histórico de alterações', um: 'registro', varios: 'registros', buscar: 'Equipamento ou pessoa',
+      dados: [
+        { nome: 'Impressora Cozinha', quem: 'Ana (gerente)', acao: 'Editou', quando: 'hoje, 08:50' }, { nome: 'Caixa 2', quem: 'Carlos (presidente)', acao: 'Cadastrou', quando: 'ontem, 17:02' },
+        { nome: 'Salão garçons', quem: 'Ana (gerente)', acao: 'Gerou código de pareamento', quando: 'ontem, 16:40' }, { nome: 'Caixa antigo', quem: 'Carlos (presidente)', acao: 'Revogou', quando: 'há 40 dias' },
+        { nome: 'KDS Cozinha', quem: 'Ana (gerente)', acao: 'Editou', quando: 'há 41 dias' },
+      ],
+      texto: (r) => r.nome + ' ' + r.quem,
+      resumo: () => 'os mais recentes; o registro é imutável e a trilha completa fica em Auditoria',
+      sits: [['Cadastros', (r) => r.acao === 'Cadastrou'], ['Edições', (r) => r.acao === 'Editou'], ['Pareamentos', (r) => r.acao.startsWith('Gerou')], ['Revogações', (r) => r.acao === 'Revogou']],
+      selects: [['Quem', 'Todas as pessoas', (r) => r.quem]],
+      colunas: [['Equipamento', (r) => `<span class="nome">${r.nome}</span>`], ['O que fez', (r) => r.acao], ['Quem', (r) => r.quem], ['Quando', (r) => `<span class="num">${r.quando}</span>`]],
+    },
+  ],
+};
+function camposEquip(tipo, r) {
+  const imp = tipo === TIPOS_EQ[4];
+  return (tipo === TIPOS_EQ[0] ? campo('Impressora de cupom (opcional)', sel(['— definir depois —', 'Impressora Caixa'], r ? 'Impressora Caixa' : '')) : '')
+    + (tipo === TIPOS_EQ[1] ? campo('PDV principal (caixa)', sel(['— escolha o PDV principal —', 'Caixa principal', 'Caixa 2'], r ? 'Caixa principal' : '')) : '')
+    + (tipo === TIPOS_EQ[3] || imp ? campo('Setor de produção', sel(['— sem setor —', ...SETORES], r ? r.setor : '')) : '')
+    + (tipo === TIPOS_EQ[3] ? campo('Escopo do KDS', sel(['Produção (pedidos)', 'Entrega (retirada por senha)', 'Só avisos (tarefas/picos)']))
+        + chave('Imprimir ao avançar', !!r, 'Com ele ligado: escolha a etapa (ao iniciar preparo, ao ficar pronto, ao despachar/entregar) e a impressora de destino.')
+        + campo('Próximo KDS ao avançar', sel(['— nenhum (etapa final) —', 'KDS Expedição'], r ? 'KDS Expedição' : '')) : '')
+    + (imp ? `<div><span class="rot">O que esta impressora imprime</span><div class="fichas" style="margin-top:4px"><button type="button" class="ficha" aria-pressed="true">Cupom do cliente (com valores)</button><button type="button" class="ficha" aria-pressed="false">Produção (cozinha/bar — sem valores)</button></div></div>
+        <div><span class="rot">Conexão</span><div class="seg" style="margin-top:4px"><button type="button" aria-pressed="true">Rede (impressora com IP)</button><button type="button" aria-pressed="false">Local (USB / instalada no Windows)</button></div></div>
+        <div class="duas">${campo('IP da impressora', '<input placeholder="192.168.0.50">')}${campo('Porta', '<input type="number" value="9100">')}</div>
+        <div class="duas">${campo('Papel', sel(['80 mm', '58 mm']))}${campo('Acentos no ticket', sel(['Sem acento (funciona em qualquer impressora)', 'Com acento — português (CP860)', 'Com acento — multilíngue (CP850)']))}</div>
+        <div><span class="rot">Setores atendidos</span><div class="fichas" style="margin-top:4px">${SETORES.map((s) => `<button type="button" class="ficha" aria-pressed="false">${s}</button>`).join('')}</div></div>
+        ${chave('Impressora padrão da unidade', false, 'Recebe os itens sem setor.')}` : '');
+}
+function formEquip(r) {
+  const tipo = r ? r.tipo : TIPOS_EQ[2];
+  painel({ tipo: 'gaveta', titulo: r ? `Configurar ${r.nome}` : 'Novo equipamento',
+    rodape: r ? rodapeSalvar('Salvar alterações', 'Equipamento atualizado.') : `<button class="bt" data-fechar>Cancelar</button><button class="bt pri" id="bCad">Cadastrar equipamento</button>`,
+    corpo: campo('Tipo', `<select id="tipoEq"${r ? ' disabled' : ''}>${TIPOS_EQ.map((t) => `<option${t === tipo ? ' selected' : ''}>${t}</option>`).join('')}</select>`.replace('<select id="tipoEq"', '<select data-tipo-eq'), r ? 'O tipo não muda depois do cadastro.' : '')
+      + campo('Nome', `<input value="${r ? esc(r.nome) : ''}" placeholder="Ex.: Terminal do balcão">`) + campo('Unidade', sel(['— sem unidade —', ...UNID], r ? r.un : 'Matriz Centro'))
+      + `<div id="extraEq" style="display:grid;gap:14px">${camposEquip(tipo, r)}</div>` });
+  aberto.addEventListener('change', (ev) => { if (ev.target.matches('[data-tipo-eq]')) $('#extraEq').innerHTML = camposEquip(ev.target.value, null); });
+  const b = $('#bCad'); if (b) b.onclick = () => painel({ titulo: 'Token do equipamento', alerta: true, foco: 'footer button',
+    corpo: `<div class="nota warn"><b>Aparece só agora.</b> Guarde antes de fechar: depois não dá para ver de novo.</div><div class="codigo" style="font-size:15px;letter-spacing:.04em;word-break:break-all">eq_exemplo_0000000000000000</div>`,
+    rodape: `<button class="bt" onclick="avisar('Copiado.')">Copiar</button><button class="bt pri" onclick="fechar();avisar('Equipamento cadastrado.')">Já guardei, fechar</button>` });
+}
+function dialogoCodigo(r) {
+  painel({ titulo: `Código de pareamento — ${r.nome}`, foco: 'footer button', rodape: `<button class="bt pri" data-fechar>Fechar</button>`,
+    corpo: `<p style="margin:0">Digite este código no aparelho:</p><div class="codigo">482 915</div><p class="ajuda" style="margin:0" role="status">Vale por <b id="conta15">14:59</b> e por um uso só.</p>` });
+  let s = 899; const t = setInterval(() => { const n = $('#conta15'); if (!n) return clearInterval(t); s--; n.textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; }, 1000);
+}
+
+// ── 7. Impressoras e cupons ──
+const impr = (nome, dir, setor, con, alvo, vc, vp, ativa) => ({ nome, dir, setor, con, alvo, vc, vp, ativa });
+TELAS.impressao = {
+  menu: 'Impressoras e cupons',
+  hoje: ['Hoje cada impressora é um formulário sempre aberto na página, com campos de 32 px. Vira lista, com editar na gaveta.', 'Ativar e desativar direto na linha; situações, busca e filtros por direcionamento, conexão e setor.', 'Excluir impressora e excluir perfil de cupom passam a pedir confirmação — hoje somem com um clique.', 'O editor do perfil de cupom vai para a gaveta larga e ganha botões de subir e descer (hoje só dá para arrastar, o que não funciona no toque nem no teclado).', '"Salvar perfis" e "Salvar" do cabeçalho passam a avisar que salvou — e a avisar quando NÃO salvou (hoje o aviso de pendente some mesmo se der erro).', 'Salvar uma impressora deixa de descartar o que estava sendo editado nas outras.', '<b>Decidido pelo dono:</b> "Imprimir teste" na linha (a rota já existe no servidor; esta tela não usava).'],
+  secoes: [
+    { nome: 'Impressoras', tipo: 'lista', titulo: 'Impressoras', um: 'impressora', varios: 'impressoras', novo: '＋ Impressora', buscar: 'Nome, IP ou nome no Windows',
+      dados: [
+        impr('Impressora Caixa', 'Caixa (cupom)', '', 'Rede (IP)', '192.168.0.50 : 9100', 1, 0, true), impr('Impressora Cozinha', 'Cozinha (produção)', 'Cozinha', 'Local (USB/Windows)', 'TERMICA-COZINHA', 0, 1, true),
+        impr('Impressora Bar', 'Cozinha (produção)', 'Bar', 'Rede (IP)', '192.168.0.51 : 9100', 0, 2, true), impr('Etiquetadora', 'Etiqueta (validade)', '', 'Local (USB/Windows)', 'ETIQUETADORA-L42', 0, 0, true),
+        impr('Impressora reserva', 'Caixa (cupom)', '', 'Rede (IP)', '192.168.0.60 : 9100', 1, 0, false),
+      ],
+      texto: (r) => r.nome + ' ' + r.alvo,
+      sits: [['Ativas', (r) => r.ativa], ['Inativas', (r) => !r.ativa]],
+      selects: [['Direcionamento', 'Todos', (r) => r.dir], ['Conexão', 'Rede e local', (r) => r.con], ['Setor', 'Todos os setores', (r) => r.setor]],
+      colunas: [
+        ['Impressora', (r) => `<span class="nome">${r.nome}</span><div class="sub-t">${r.con} · <span class="num">${r.alvo}</span></div>`],
+        ['Direcionamento', (r) => r.dir], ['Setor', (r) => r.setor || (r.dir.startsWith('Cozinha') ? 'Todos / geral' : '—')], ['Vias (cupom / produção)', (r) => `<span class="num">${r.vc} / ${r.vp}</span>`],
+        ['Ativa', (r, i) => ligaLinha(r, i, 'ativa', `${r.nome} ativa`)],
+      ],
+      aoLigar: (r) => (r.ativa ? `${r.nome} ativada.` : `${r.nome} desativada.`),
+      acoes: () => [['🖨', 'Imprimir teste', 'teste'], ['✎', 'Editar', 'editar'], ['🗑', 'Excluir', 'excluir', 'perigo']],
+      aoNovo() { formImpressora(null); },
+      aoAcao(k, r) {
+        if (k === 'teste') return avisar('Página de teste enviada.');
+        if (k === 'editar') return formImpressora(r);
+        confirmarRetirar(r, { consequencia: 'A impressora sai da lista. <i>O texto final deste aviso (o que acontece com os setores e perfis de cupom que apontam para ela) eu escrevo lendo o servidor, na implementação.</i>', depois: 'Impressora removida.' });
+      },
+    },
+    { nome: 'Perfis de cupom', tipo: 'lista', titulo: 'Perfis de cupom', um: 'perfil', varios: 'perfis', novo: '＋ Novo perfil', buscar: 'Nome do perfil',
+      dados: [
+        { nome: 'Cupom do cliente', desc: 'Entregue ao cliente, com valores', grupo: 'Cliente', custom: false, imps: [], vis: 14, tot: 18 },
+        { nome: 'Cupom de delivery', desc: 'Com endereço e forma de pagamento', grupo: 'Cliente', custom: false, imps: ['Impressora Caixa'], vis: 16, tot: 18 },
+        { nome: 'Produção — cozinha', desc: 'Itens, complementos e observação, sem valores', grupo: 'Produção', custom: false, imps: [], vis: 7, tot: 11 },
+        { nome: 'Fechamento de caixa', desc: 'Resumo do turno', grupo: 'Caixa', custom: false, imps: [], vis: 9, tot: 9 },
+        { nome: 'Produção — bar (letra grande)', desc: 'Cópia de "Produção — cozinha"', grupo: 'Personalizados', custom: true, imps: ['Impressora Bar'], vis: 6, tot: 11 },
+      ],
+      texto: (r) => r.nome + ' ' + r.desc,
+      resumo: () => 'o que imprime, em que ordem e em quais impressoras',
+      sits: [['Padrão', (r) => !r.custom], ['Personalizados', (r) => r.custom], ['Com impressora própria', (r) => r.imps.length > 0], ['No roteamento padrão', (r) => !r.imps.length]],
+      selects: [['Grupo', 'Todos os grupos', (r) => r.grupo]],
+      colunas: [
+        ['Perfil', (r) => `<span class="nome">${r.nome}</span><div class="sub-t">${r.desc}</div>`], ['Grupo', (r) => r.grupo],
+        ['Impressoras', (r) => (r.imps.length ? selos(r.imps) : '<span class="sub-t">impressoras de cupom padrão</span>')], ['Campos no cupom', (r) => `<span class="num">${r.vis} de ${r.tot}</span>`],
+      ],
+      acoes: (r) => [['⧉', 'Duplicar', 'duplicar'], ['✎', 'Editar', 'editar'], ...(r.custom ? [['🗑', 'Excluir', 'excluir', 'perigo']] : [])],
+      aoNovo() { editorPerfilCupom(null); },
+      aoAcao(k, r) {
+        if (k === 'duplicar') return avisar(`"${r.nome}" duplicado — abra a cópia para ajustar.`);
+        if (k === 'editar') return editorPerfilCupom(r);
+        confirmarRetirar(r, { consequencia: 'O perfil personalizado é apagado. <i>O texto final deste aviso eu escrevo lendo o servidor, na implementação.</i>', depois: 'Perfil excluído.' });
+      },
+    },
+    { nome: 'Cabeçalho e rodapé', tipo: 'ajustes', titulo: 'Cabeçalho e rodapé do cupom', salvou: 'Cabeçalho e rodapé salvos.',
+      grupos: [{ titulo: 'Texto do cupom', itens: [{ id: 'c1', rot: 'Cabeçalho', tipo: 'txt', v: 'CANTINA MODELO' }, { id: 'c2', rot: 'Rodapé (mensagem final)', tipo: 'txt', v: 'Obrigado pela preferência!' }] }] },
+  ],
+};
+function formImpressora(r) {
+  painel({ tipo: 'gaveta', titulo: r ? `Editar ${r.nome}` : 'Nova impressora', rodape: rodapeSalvar('Salvar', 'Impressora salva.'),
+    corpo: campo('Nome da impressora', `<input value="${r ? esc(r.nome) : ''}">`) + chave('Ativa', r ? r.ativa : true)
+      + campo('Direcionamento', sel(['Caixa (cupom)', 'Cozinha (produção)', 'Etiqueta (validade)'], r ? r.dir : 'Caixa (cupom)'))
+      + campo('Setor', sel(['Todos / geral', ...SETORES], r && r.setor ? r.setor : 'Todos / geral'), 'Só para a impressora de produção.')
+      + campo('Modelo da etiquetadora', sel(['Etiquetadora ZPL (Zebra · Elgin L42 · Argox)', 'Etiquetadora EPL / PPLB', 'Térmica de bobina (58/80mm)']), 'Só para etiqueta. O tamanho vem do modelo (aba Etiquetas → Modelo). Elgin L42Pro: ZPL (ou EPL).')
+      + `<div><span class="rot">Conexão</span><div class="seg" style="margin-top:4px"><button type="button" aria-pressed="${!r || r.con.startsWith('Rede')}">Rede (IP)</button><button type="button" aria-pressed="${!!r && r.con.startsWith('Local')}">Local (USB/Windows)</button></div></div>`
+      + `<div class="duas">${campo('IP', '<input placeholder="192.168.0.50">')}${campo('Porta', '<input type="number" placeholder="9100">')}</div>`
+      + campo('Nome no Windows', '<input placeholder="Ex.: EPSON TM-T20">', 'Local (USB/Windows): informe o nome exato da impressora como aparece no Windows (Painel de Controle → Dispositivos e Impressoras). A impressão local roda no servidor local (edge) — sem edge instalado, use uma impressora de rede.')
+      + `<div class="duas">${campo('Vias — cupom', `<input type="number" min="0" value="${r ? r.vc : 1}">`)}${campo('Vias — produção', `<input type="number" min="0" value="${r ? r.vp : 0}">`)}</div>` });
+}
+function editorPerfilCupom(r) {
+  const CAMPOS = [['Cabeçalho da loja', true, 'Grande (24)', 'Centro', true], ['Número do pedido / senha', true, 'Enorme (36)', 'Centro', true], ['Cliente', true, 'Normal (12)', 'Esq', false], ['Itens', true, 'Média (18)', 'Esq', true], ['Observação do pedido', true, 'Normal (12)', 'Esq', false], ['Total', true, 'Grande (24)', 'Dir', false], ['Forma de pagamento', false, 'Normal (12)', 'Esq', false], ['Rodapé', true, 'Pequena (9)', 'Centro', false]];
+  painel({ tipo: 'gaveta', largo: true, titulo: r ? `Editar perfil — ${r.nome}` : 'Novo perfil de cupom',
+    rodape: `<span class="ajuda" style="margin-right:auto" role="status" id="pendCupom">nenhuma alteração</span><button class="bt" data-fechar>Cancelar</button><button class="bt pri" onclick="fechar();avisar('Perfis de cupom salvos.')">Salvar perfil</button>`,
+    corpo: `<div class="dois-lados" style="display:grid;grid-template-columns:minmax(0,2.2fr) minmax(0,1fr);gap:16px;align-items:start"><div style="display:grid;grid-template-columns:minmax(0,1fr);gap:14px">
+        ${r && !r.custom ? `<p class="ajuda" style="margin:0">${r.desc}. Perfil padrão: o nome e o grupo não mudam.</p>` : `<div class="duas">${campo('Nome do perfil', `<input maxlength="40" value="${r ? esc(r.nome) : ''}">`)}${campo('Grupo', sel(['Cliente', 'Produção', 'Caixa'], r ? 'Produção' : 'Cliente'))}</div>`}
+        <div><span class="rot">Impressoras deste cupom</span><div class="fichas" style="margin-top:4px">${['Impressora Caixa (1×)', 'Impressora Bar (2×)', 'Impressora Cozinha (1×)'].map((x) => `<button type="button" class="ficha" aria-pressed="${!!r && r.imps.some((i) => x.startsWith(i))}">${x}</button>`).join('')}</div>
+          <span class="ajuda">Marque em quais impressoras este cupom sai. Nenhuma marcada = usa as impressoras de cupom padrão. As vias saem da configuração de cada impressora.</span></div>
+        <div><span class="rot">Campos do cupom, na ordem em que saem</span>
+          <div class="tabela" style="margin-top:4px"><table class="mini"><caption class="sr">Campos do cupom</caption><thead><tr><th>Campo</th><th>Mostrar</th><th>Negrito</th><th>Tamanho</th><th>Alinhamento</th><th><span class="sr">Ordem</span></th></tr></thead><tbody>
+          ${CAMPOS.map((c, i) => `<tr><td><b>${c[0]}</b>${i < 2 ? ' <span class="sub-t">(sempre)</span>' : ''}</td><td><input type="checkbox" style="width:20px;height:20px" ${c[1] ? 'checked' : ''}${i < 2 ? ' disabled' : ''} aria-label="Mostrar ${c[0]} no cupom"></td><td><input type="checkbox" style="width:20px;height:20px" ${c[4] ? 'checked' : ''} aria-label="${c[0]} em negrito"></td>
+            <td><select aria-label="Tamanho da fonte de ${c[0]}" style="min-height:40px;border:1px solid var(--line-2);border-radius:8px;padding:0 6px">${['Pequena (9)', 'Normal (12)', 'Média (18)', 'Grande (24)', 'Enorme (36)'].map((t) => `<option${t === c[2] ? ' selected' : ''}>${t}</option>`).join('')}</select></td>
+            <td><select aria-label="Alinhamento de ${c[0]}" style="min-height:40px;border:1px solid var(--line-2);border-radius:8px;padding:0 6px">${['Esq', 'Centro', 'Dir'].map((t) => `<option${t === c[3] ? ' selected' : ''}>${t}</option>`).join('')}</select></td>
+            <td><div class="linha-acoes"><button type="button" class="ic" aria-label="Subir ${c[0]}"${i === 0 ? ' disabled' : ''}>↑</button><button type="button" class="ic" aria-label="Descer ${c[0]}"${i === CAMPOS.length - 1 ? ' disabled' : ''}>↓</button></div></td></tr>`).join('')}</tbody></table></div>
+          <div class="fichas" style="margin-top:8px"><button type="button" class="bt">＋ linha em branco</button><button type="button" class="bt">＋ linha divisória</button><button type="button" class="bt">＋ adicionar campo…</button></div></div>
+      </div>
+      <div style="border:1px solid var(--line);border-radius:12px;padding:14px;background:#FBFCFD"><b style="font-family:var(--display)">Prévia</b><pre style="font-family:var(--mono);font-size:12.5px;white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0 0">     CANTINA MODELO\n        SENHA 042\nCliente: Maria\n--------------------------------\n1x X-burger da casa\n   + bacon   · sem cebola\n1x Suco de laranja 400 ml\nObs: entregar na mesa 7\n--------------------------------\n                  TOTAL  R$ 46,90\n   Obrigado pela preferência!</pre><span class="ajuda">Dados de exemplo.</span></div></div>` });
+  aberto.addEventListener('input', () => { const n = $('#pendCupom'); if (n) n.textContent = 'alterações ainda não salvas'; });
+}
+
+// ── 8. Ordens de produção ──
+const ST_OP = { 'Planejada': 'neutro', 'Liberada': 'info', 'Em produção': 'warn', 'Concluída (total)': 'ok', 'Concluída (parcial)': 'ok', 'Não concluída': 'neutro', 'Aguardando lançamento': 'crit', 'Pendência crítica': 'crit', 'Cancelada': 'neutro' };
+const op = (nome, qtd, quando, setor, resp, st, rendeu = '', motivo = '') => ({ nome, qtd, quando, setor, resp, st, rendeu, motivo });
+const grupoOp = (r) => (['Planejada', 'Liberada'].includes(r.st) ? 0 : r.st === 'Em produção' ? 1 : ['Aguardando lançamento', 'Pendência crítica'].includes(r.st) ? 2 : 3);
+const ORDENS = [
+  op('Molho base de tomate', '20 porções', 'hoje, 10:00', 'Cozinha', 'Carlos', 'Planejada'), op('Massa fresca', '5 kg', 'hoje, 11:00', 'Cozinha', 'Marina', 'Liberada'),
+  op('Calda de chocolate', '2 L', 'hoje, 09:00', 'Sobremesas', 'Ana', 'Em produção'), op('Maionese verde', '30 porções', 'hoje, 08:00', 'Cozinha', 'Carlos', 'Em produção'),
+  op('Caldo de legumes', '10 L', 'ontem, 15:00', 'Cozinha', 'Marina', 'Aguardando lançamento'), op('Pão de hambúrguer', '80 unidades', 'há 2 dias, 07:00', 'Chapa', 'Carlos', 'Pendência crítica'),
+  op('Molho base de tomate', '20 porções', 'ontem, 10:00', 'Cozinha', 'Carlos', 'Concluída (total)', 'rendeu 20 de 20'), op('Massa fresca', '5 kg', 'ontem, 11:00', 'Cozinha', 'Marina', 'Concluída (parcial)', 'rendeu 3,5 de 5'),
+  op('Calda de caramelo', '1 L', 'há 3 dias, 09:00', 'Sobremesas', 'Ana', 'Não concluída', '', 'faltou açúcar'), op('Farofa de bacon', '2 kg', 'há 4 dias, 14:00', 'Cozinha', 'Marina', 'Cancelada', '', 'saiu do cardápio'),
+];
+TELAS.ordens = {
+  menu: 'Pedidos de produção', grupo: 'Tarefas', titulo: 'Ordens de produção',
+  hoje: ['<b>Decidido pelo dono:</b> a tela fica só no menu Tarefas ("Pedidos de produção"); sai do menu Configurações, onde aparecia de novo com outro nome.', 'Entra a lista com situações contadas (a fazer, em produção, pendências, encerradas), busca por ficha e filtros por situação, setor e responsável — hoje não há filtro nenhum.', 'As pendências passam a ser vistas junto com o resto: hoje "aguardando lançamento" e "pendência crítica" não aparecem no quadro.', 'O QUADRO de três colunas continua, como segunda parte da tela.', 'Nova ordem sai do modal (que fecha ao clicar fora e perde o que foi digitado) para a gaveta.', 'Cancelar deixa de usar a caixa de texto do navegador: o motivo é pedido num diálogo. "Cancelar" e "Repetir todo dia" só aparecem para quem o servidor aceita.', 'O relatório ganha escolha de período e não fica mais em "Carregando…" para sempre quando falha.'],
+  secoes: [
+    { nome: 'Ordens', tipo: 'lista', titulo: 'Ordens de produção', um: 'ordem', varios: 'ordens', novo: '＋ Nova ordem', buscar: 'Nome da ficha', rotulo: (r) => `${r.nome} (${r.quando})`,
+      dados: ORDENS,
+      texto: (r) => r.nome,
+      resumo: (l) => { const p = l.filter((r) => grupoOp(r) === 2).length; return p ? `${plural(p, 'pendência', 'pendências')} para lançar` : 'nenhuma pendência'; },
+      sits: [['A fazer', (r) => grupoOp(r) === 0], ['Em produção', (r) => grupoOp(r) === 1], ['Pendências', (r) => grupoOp(r) === 2, 'crit'], ['Encerradas', (r) => grupoOp(r) === 3]],
+      selects: [['Situação', 'Todas as situações', (r) => r.st], ['Setor', 'Todos os setores', (r) => r.setor], ['Responsável', 'Todas as pessoas', (r) => r.resp]],
+      colunas: [
+        ['Ficha', (r) => `<span class="nome">${r.nome}</span><div class="sub-t">${r.qtd}${r.rendeu ? ' · ' + r.rendeu : ''}${r.motivo ? ' · motivo: ' + r.motivo : ''}</div>`],
+        ['Data e hora', (r) => `<span class="num">${r.quando}</span>`], ['Setor', (r) => r.setor], ['Responsável', (r) => r.resp], ['Situação', (r) => selo(ST_OP[r.st], r.st.toLowerCase())],
+      ],
+      acoes: (r) => [
+        ...(r.st === 'Planejada' ? [['✓', 'Liberar', 'liberar']] : []), ...(['Planejada', 'Liberada'].includes(r.st) ? [['▶', 'Iniciar', 'iniciar']] : []),
+        ...(['Liberada', 'Em produção', 'Aguardando lançamento', 'Pendência crítica'].includes(r.st) ? [['✔', 'Concluir', 'concluir', 'pri']] : []),
+        ...(grupoOp(r) < 3 ? [['✕', 'Cancelar', 'cancelar', 'perigo']] : []),
+      ],
+      aoNovo() { formOrdem(); },
+      aoAcao(k, r) {
+        if (k === 'liberar') { r.st = 'Liberada'; desenhar(); return avisar('Ordem liberada.'); }
+        if (k === 'iniciar') { r.st = 'Em produção'; desenhar(); return avisar('Produção iniciada.'); }
+        if (k === 'concluir') return dialogoConcluir(r);
+        painel({ titulo: 'Cancelar ordem', alerta: true, corpo: `<p style="margin:0">Cancelar <b>${r.nome}</b> (${r.qtd}, ${r.quando})?</p>${campo('Motivo do cancelamento', '<input placeholder="Ex.: faltou insumo">')}`,
+          rodape: `<button class="bt" data-fechar>Manter a ordem</button><button class="bt perigo" id="bCanc">Cancelar a ordem</button>` });
+        $('#bCanc').onclick = () => { r.st = 'Cancelada'; $('#painel').innerHTML = ''; aberto = null; $('#fundo').hidden = true; desenhar(); avisar('Ordem cancelada.'); refocar('#tLista'); };
+      },
+    },
+    { nome: 'Quadro', tipo: 'livre', titulo: 'Quadro', conta: () => ORDENS.filter((r) => grupoOp(r) < 2).length, resumo: () => `${ORDENS.filter((r) => grupoOp(r) === 0).length} a fazer · ${ORDENS.filter((r) => grupoOp(r) === 1).length} em produção · ${ORDENS.filter((r) => grupoOp(r) === 3).length} encerradas`,
+      desenhar: () => `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">${[['A fazer', 0], ['Em produção', 1], ['Encerradas', 3]].map(([t, g]) => { const l = ORDENS.filter((r) => grupoOp(r) === g); return `<section class="grupo" style="margin:0"><header><h3>${t}</h3><span>${l.length}</span></header>${l.map((r) => `<div class="aj" style="grid-template-columns:minmax(0,1fr) auto"><div><b>${r.nome}</b><span class="ajuda" style="display:block">${r.qtd} · ${r.quando} · ${r.setor}</span></div>${selo(ST_OP[r.st], r.st.toLowerCase())}</div>`).join('') || '<div class="aj"><span class="ajuda">Nenhuma ordem aqui.</span></div>'}</section>`; }).join('')}</div>` },
+    { nome: 'Relatório', tipo: 'livre', titulo: 'Planejado × produzido', resumo: () => 'últimos 30 dias',
+      desenhar: () => `<div class="filtros" style="grid-template-columns:minmax(0,260px)">${campo('Período', sel(['Últimos 7 dias', 'Últimos 30 dias', 'Últimos 90 dias'], 'Últimos 30 dias'))}</div>
+        <div class="kpis">${[['Ordens', '18'], ['Planejado', '412'], ['Produzido', '389'], ['Aderência', '94%']].map((k) => `<div class="kpi"><span class="rot">${k[0]}</span><span class="v">${k[1]}</span></div>`).join('')}</div>
+        <div class="tabela"><table><caption class="sr">Planejado e produzido por ordem</caption><thead><tr><th>Ficha</th><th>Data</th><th>Planejado</th><th>Produzido</th><th>Quebra</th></tr></thead><tbody>
+        ${[['Molho base de tomate', 'ontem', '20', '20', '0'], ['Massa fresca', 'ontem', '5', '3,5', '1,5'], ['Calda de chocolate', 'há 2 dias', '2', '2', '0']].map((l) => `<tr><td><b>${l[0]}</b></td><td class="num">${l[1]}</td><td class="num">${l[2]}</td><td class="num">${l[3]}</td><td class="num">${l[4]}</td></tr>`).join('')}</tbody></table></div>` },
+  ],
+};
+function formOrdem() {
+  painel({ tipo: 'gaveta', titulo: 'Nova ordem de produção', rodape: rodapeSalvar('Criar ordem', 'Ordem criada.'),
+    corpo: campo('Ficha técnica', sel(['— escolha —', 'Molho base de tomate', 'Massa fresca', 'Calda de chocolate', 'Maionese verde']), '1 ficha rende 10 porções.')
+      + `<div class="duas">${campo('Quantidade', '<input type="number" min="0">')}${campo('Unidade', '<input placeholder="un / porção / kg">')}</div>`
+      + campo('Insumo de saída (entra no estoque)', sel(['— nenhum (só baixa insumos) —', 'Molho de tomate pronto', 'Massa fresca pronta']))
+      + `<div class="duas">${campo('Data', '<input type="date" value="2026-10-07">')}${campo('Hora início', '<input type="time" value="10:00">')}</div>`
+      + campo('Setor responsável', sel(['— sem setor —', ...SETORES]))
+      + `<div><span class="rot">Onde avisar</span><div class="fichas" style="margin-top:4px">${['App do colaborador', 'KDS/Quadro', 'Linha do tempo', 'Impressão'].map((x, i) => `<button type="button" class="ficha" aria-pressed="${i === 2}">${x}</button>`).join('')}</div></div>`
+      + chave('Repetir todo dia (recorrente)', false) });
+}
+function dialogoConcluir(r) {
+  painel({ titulo: `Concluir: ${r.nome}`, largo: false,
+    rodape: `<button class="bt" data-fechar>Cancelar</button><button class="bt" onclick="fechar();avisar('Via impressa para lançar depois.')">Só imprimir p/ lançar depois</button><button class="bt pri" onclick="fechar();avisar('Ordem concluída; estoque atualizado.')">Confirmar com PIN</button>`,
+    corpo: `<div><span class="rot">Como terminou</span><div class="seg" style="margin-top:4px"><button type="button" aria-pressed="true">Total</button><button type="button" aria-pressed="false">Parcial</button><button type="button" aria-pressed="false">Não concluída</button></div></div>
+      <div class="duas">${campo(`Quantidade produzida (menor que ${r.qtd})`, '<input type="number" min="0">', 'Só no parcial.')}${campo('Motivo', '<input>', 'Só no "não concluída".')}</div>
+      <div class="nota">Concluir dará baixa nos insumos e entrada do produzido no estoque.</div>
+      ${campo('PIN (assinatura de quem produziu)', '<input type="password" inputmode="numeric" autocomplete="off">')}` });
+}
+
+// ── 9. Config. por ramo (assistente) ──
+const RAMO = {
+  passo: 1,
+  setores: [['Cozinha', true], ['Chapa', true], ['Bar', true], ['Salão', true], ['Caixa', true], ['Expedição', true], ['Sobremesas', false], ['Limpeza', false]],
+  funcoes: [['Cozinheiro', true], ['Auxiliar de cozinha', true], ['Chapeiro', true], ['Barman', true], ['Garçom', true], ['Cumim', false], ['Operador de caixa', true], ['Expedidor', true], ['Gerente de salão', true], ['Confeiteiro', false]],
+  escalas: [['6×1 — almoço e jantar', false], ['5×2 — horário comercial', false], ['12×36 — noturno', false]],
+  insumos: true,
+};
+const marcados = (l) => l.filter((x) => x[1]).length;
+TELAS.ramo = {
+  menu: 'Config. por ramo', titulo: 'Configuração por ramo',
+  hoje: ['Continua sendo um assistente de 4 passos — não é lista. O que entra: cada passo mostra quantos itens estão marcados ("6 de 8").', 'A confirmação final sai da janela do navegador para um diálogo com o resumo do que será criado.', 'Aparece "carregando" (hoje o primeiro passo nasce vazio) e o erro com "Tentar de novo".', 'O assistente passa a dizer em QUAL unidade vai aplicar — hoje ele usa a primeira unidade da lista, sem mostrar.'],
+  secoes: [{
+    nome: 'Assistente', tipo: 'livre', titulo: 'Montar a estrutura pelo ramo', conta: () => null,
+    resumo: () => `passo ${RAMO.passo} de 4 · ${marcados(RAMO.setores)} setores, ${marcados(RAMO.funcoes)} funções e ${marcados(RAMO.escalas)} escalas marcados · aplica na unidade <b>Matriz Centro</b>`,
+    desenhar() {
+      const P = [['Ramo', '1 de 1'], ['Setores', `${marcados(RAMO.setores)} de ${RAMO.setores.length}`], ['Funções', `${marcados(RAMO.funcoes)} de ${RAMO.funcoes.length}`], ['Escalas', `${marcados(RAMO.escalas)} de ${RAMO.escalas.length}`]];
+      const fichas = (l, k) => `<div class="fichas">${l.map((x, i) => `<button type="button" class="ficha" data-ramo="${k}" data-i="${i}" aria-pressed="${x[1]}">${x[0]}</button>`).join('')}</div>`;
+      const corpo = RAMO.passo === 1 ? `<h3 style="margin:0 0 8px;font-family:var(--display)">Qual o ramo da empresa?</h3><div class="fichas"><button type="button" class="ficha" aria-pressed="true">🍽 Bares & restaurantes</button>${['Padaria', 'Mercado', 'Hotelaria'].map((x) => `<button type="button" class="ficha" disabled style="opacity:.6">${x} ${selo('neutro', 'em breve')}</button>`).join('')}</div><p class="ajuda">Por enquanto, só bares & restaurantes está completo.</p>`
+        : RAMO.passo === 2 ? `<h3 style="margin:0 0 4px;font-family:var(--display)">Setores sugeridos</h3><p class="ajuda" style="margin:0 0 8px">Toque para incluir ou remover.</p>${fichas(RAMO.setores, 'setores')}`
+        : RAMO.passo === 3 ? `<h3 style="margin:0 0 8px;font-family:var(--display)">Funções que mais se qualificam</h3>${fichas(RAMO.funcoes, 'funcoes')}`
+        : `<h3 style="margin:0 0 8px;font-family:var(--display)">Modelos de escala</h3>${fichas(RAMO.escalas, 'escalas')}<div style="margin-top:14px">${chave('Criar insumos básicos do ramo (24 itens)', RAMO.insumos, 'Já semeia o estoque (não duplica).')}</div>`;
+      return `<ol class="passos">${P.map((p, i) => `<li${i + 1 === RAMO.passo ? ' aria-current="step"' : ''} class="${i + 1 < RAMO.passo ? 'feito' : ''}">${i + 1}. ${p[0]} <b>${p[1]}</b></li>`).join('')}</ol>
+        <section class="grupo"><div style="padding:16px">${corpo}</div></section>
+        <div class="acoes" style="justify-content:space-between"><button class="bt" data-passo="-1"${RAMO.passo === 1 ? ' disabled' : ''}>← Voltar</button>${RAMO.passo < 4 ? '<button class="bt pri" data-passo="1">Avançar ▸</button>' : '<button class="bt pri" data-passo="fim">✓ Concluir</button>'}</div>`;
+    },
+    aoClicar(ev) {
+      const f = ev.target.closest('[data-ramo]'); if (f) { const x = RAMO[f.dataset.ramo][Number(f.dataset.i)]; x[1] = !x[1]; desenhar(); return refocar(`[data-ramo="${f.dataset.ramo}"][data-i="${f.dataset.i}"]`); }
+      const l = ev.target.closest('main button.liga'); if (l) { RAMO.insumos = !RAMO.insumos; desenhar(); return refocar('main button.liga'); }
+      const p = ev.target.closest('[data-passo]'); if (!p) return;
+      if (p.dataset.passo === 'fim') return confirmar('Aplicar a estrutura?', `<p style="margin:0">Serão criados na unidade <b>Matriz Centro</b>:</p><ul style="margin:0;padding-left:18px"><li>${plural(marcados(RAMO.setores), 'setor', 'setores')}</li><li>${plural(marcados(RAMO.funcoes), 'função', 'funções')}</li><li>${plural(marcados(RAMO.escalas), 'modelo de escala', 'modelos de escala')}</li>${RAMO.insumos ? '<li>24 insumos básicos</li>' : ''}</ul><div class="nota warn">O assistente não apaga o que já existe, mas mudanças na estrutura podem afetar dados já cadastrados. Confira o resumo.</div>`, 'Aplicar', () => avisar('Estrutura criada!'));
+      RAMO.passo += Number(p.dataset.passo); desenhar(); refocar('#tLista');
+    },
+  }],
+};
+
+// ── 10. Planos & assinatura ──
+const PLANO = { ciclo: 'Mensal', atual: 'Salão' };
+const PLANOS = [['Balcão', 'Para quem vende no balcão', ['PDV e caixa', 'Estoque', 'Fichas técnicas', 'Relatórios'], 100], ['Salão', 'Balcão + mesas e cozinha', ['Tudo do Balcão', 'Mesas e comandas', 'KDS', 'Escalas e ponto'], 200], ['Completo', 'Salão + delivery e marketing', ['Tudo do Salão', 'Delivery e cardápio digital', 'WhatsApp e campanhas', 'Fidelidade e cashback'], 300]];
+TELAS.planos = {
+  menu: 'Planos & assinatura',
+  hoje: ['O estado da assinatura sobe para o título (plano, ciclo e quando renova), com um texto próprio para cada situação — hoje "bloqueado", "assinatura vencida" e "teste terminado" mostram a mesma frase.', 'Cada plano mostra quantos módulos traz.', 'Assinar ou trocar de plano passa por um diálogo que avisa que você vai para a página de pagamento. O aviso "Fale com a distribuição" deixa de ser a janela do navegador.', 'No servidor da loja a tela explica que planos são vistos pela internet — hoje fica vazia, sem explicação. Erro de carga também passa a aparecer.', '<i>Os preços daqui são de exemplo.</i>'],
+  secoes: [{
+    nome: 'Planos', tipo: 'livre', titulo: 'Planos & assinatura', conta: () => PLANOS.length,
+    resumo: () => `${PLANOS.length} planos · seu plano: <b>${PLANO.atual}</b> · ciclo ${PLANO.ciclo.toLowerCase()} · teste grátis termina em 9 dias`,
+    desenhar: () => `<div class="nota warn" style="margin-bottom:12px">Seu teste grátis termina em 9 dias. Escolha um plano para continuar sem interrupção.</div>
+      <div style="max-width:420px;margin-bottom:12px"><span class="rot">Ciclo de cobrança</span><div class="seg" style="margin-top:4px">${['Mensal', 'Semestral', 'Anual'].map((c) => `<button type="button" data-ciclo="${c}" aria-pressed="${c === PLANO.ciclo}">${c}</button>`).join('')}</div></div>
+      <div class="cartoes-plano">${PLANOS.map((p) => { const at = p[0] === PLANO.atual; const f = PLANO.ciclo === 'Mensal' ? 1 : PLANO.ciclo === 'Semestral' ? 0.9 : 0.8;
+        return `<section class="plano${at ? ' atual' : ''}"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><h3>${p[0]}</h3>${at ? selo('ok', 'plano atual') : p[0] === 'Salão' ? selo('info', 'mais popular') : ''}</div>
+          <span class="ajuda">${p[1]}</span><div><span class="preco">${brl(p[3] * f)}</span> <span class="ajuda">/mês${PLANO.ciclo === 'Semestral' ? ' · cobrado a cada 6 meses' : PLANO.ciclo === 'Anual' ? ' · cobrado anualmente' : ''}</span></div>
+          <span class="rot">${p[2].length} módulos</span><ul>${p[2].map((m) => `<li>${m}</li>`).join('')}</ul>
+          <button class="bt${at ? '' : ' pri'}" data-plano="${p[0]}"${at ? ' disabled' : ''}>${at ? '✓ Plano atual' : `Trocar para ${p[0]}`}</button></section>`; }).join('')}</div>
+      <p class="ajuda">Dúvidas sobre qual plano escolher? <button class="bt" onclick="avisar('Abre a conversa no WhatsApp.')">Fale com a gente no WhatsApp</button></p>`,
+    aoClicar(ev) {
+      const c = ev.target.closest('[data-ciclo]'); if (c) { PLANO.ciclo = c.dataset.ciclo; desenhar(); return refocar(`[data-ciclo="${PLANO.ciclo}"]`); }
+      const p = ev.target.closest('[data-plano]'); if (p) confirmar(`Trocar para o plano ${p.dataset.plano}?`, `<p style="margin:0">Você vai para a página de pagamento, fora do Regem, para concluir no ciclo <b>${PLANO.ciclo.toLowerCase()}</b>.</p>`, 'Ir para o pagamento', () => avisar('Abrindo a página de pagamento…'));
+    },
+  }],
+};
+
+// ── 11. Acessos & perfis ──
+const GRUPOS_PERM = [['Operação', 4], ['Delivery', 7], ['Entregador (app)', 6], ['Rotina', 10], ['Financeiro / Fiscal', 6], ['Gestão', 17], ['Relatórios', 3], ['Diretoria', 2]];
+const PERFIS = [
+  { nome: 'Gerente', nivel: 'Gerência / ADM', web: true, perm: 41, pessoas: 2 }, { nome: 'Supervisor', nivel: 'Supervisão', web: true, perm: 28, pessoas: 3 },
+  { nome: 'Caixa', nivel: 'Execução', web: true, perm: 9, pessoas: 4 }, { nome: 'Cozinheiro', nivel: 'Execução', web: false, perm: 6, pessoas: 6 }, { nome: 'Entregador', nivel: 'Execução', web: false, perm: 5, pessoas: 0 },
+];
+const pessoa = (nome, email, perfil, app, nuvem, ativo) => ({ nome, email, perfil, app, nuvem, ativo });
+const SUP = { bloqueado: false, total: false };
+TELAS.acessos = {
+  menu: 'Acessos & perfis',
+  hoje: ['Hoje a tela é uma página longa: suporte, um cartão comprido por perfil (65 chaves cada) e a lista de pessoas. Vira três partes — Perfis, Pessoas e Suporte — cada uma com contagem.', 'Perfis em lista: nível, se entra pelo sistema, quantas permissões ligadas e <b>quantas pessoas usam</b>. As permissões abrem na gaveta, com busca, grupos contados e aviso de alteração não salva (hoje não avisa).', 'Pessoas com busca por nome ou e-mail, filtro por perfil e situações (ativas, bloqueadas, sem e-mail, com acesso pela internet).', 'Bloquear uma pessoa passa a pedir confirmação — hoje a chave grava na hora.', 'Remover perfil e dar acesso total ao suporte saem da janela do navegador para o diálogo, com o texto inteiro.', 'Aparece "carregando" (hoje a lista mostra "Nenhum colaborador." enquanto carrega).'],
+  secoes: [
+    { nome: 'Perfis', tipo: 'lista', titulo: 'Perfis de acesso', um: 'perfil', varios: 'perfis', novo: '＋ Novo perfil', buscar: 'Nome do perfil',
+      dados: PERFIS,
+      texto: (r) => r.nome,
+      resumo: () => 'o que cada perfil enxerga e faz · as mudanças valem no próximo login',
+      sits: [['Gerência / ADM', (r) => r.nivel === 'Gerência / ADM'], ['Supervisão', (r) => r.nivel === 'Supervisão'], ['Execução', (r) => r.nivel === 'Execução'], ['Sem ninguém', (r) => !r.pessoas, 'warn']],
+      selects: [['Entra pelo sistema', 'Todos', (r) => (r.web ? 'E-mail e senha' : 'Só PIN (ponto/app)')]],
+      colunas: [
+        ['Perfil', (r) => `<span class="nome">${r.nome}</span>`], ['Nível', (r) => r.nivel], ['Entra pelo sistema', (r) => (r.web ? selo('ok', 'e-mail e senha') : selo('neutro', 'só PIN'))],
+        ['Permissões ligadas', (r) => `<span class="num">${r.perm} de 65</span>`], ['Pessoas', (r) => `<span class="num">${r.pessoas}</span>`],
+      ],
+      acoes: () => [['🛡', 'Permissões', 'perm', 'pri'], ['🗑', 'Excluir', 'excluir', 'perigo']],
+      aoNovo() { painel({ tipo: 'gaveta', titulo: 'Novo perfil', rodape: rodapeSalvar('Adicionar perfil', 'Perfil criado.'), corpo: campo('Nome do novo perfil', '<input placeholder="Ex.: Caixa, Cozinheiro, Atendente">') + campo('Nível (hierarquia)', sel(['Gerência / ADM', 'Supervisão', 'Execução'], 'Execução')) }); },
+      aoAcao(k, r) {
+        if (k === 'perm') return gavetaPermissoes(r);
+        confirmarRetirar(r, { consequencia: `${r.pessoas ? `<b>${plural(r.pessoas, 'pessoa usa', 'pessoas usam')} este perfil.</b> ` : ''}<i>O texto final deste aviso (o que acontece com quem está no perfil) eu escrevo lendo o servidor, na implementação.</i>`, depois: 'Perfil removido.' });
+      },
+    },
+    { nome: 'Pessoas', tipo: 'lista', titulo: 'Colaboradores & acesso', um: 'pessoa', varios: 'pessoas', buscar: 'Nome ou e-mail',
+      dados: [
+        pessoa('Carlos Exemplo', 'carlos@exemplo.com', 'Presidente · C&O (fixo)', true, true, true), pessoa('Ana Modelo', 'ana@exemplo.com', 'Gerente', true, true, true),
+        pessoa('Bruno Amostra', 'bruno@exemplo.com', 'Supervisor', true, false, true), pessoa('Marina Teste', 'marina@exemplo.com', 'Caixa', false, false, true),
+        pessoa('Diego Padrão', '', 'Cozinheiro', true, false, true), pessoa('Elaine Ficha', '', 'Cozinheiro', false, false, true),
+        pessoa('Fábio Rascunho', 'fabio@exemplo.com', 'Caixa', true, false, false), pessoa('Gabriela Prova', 'gabriela@exemplo.com', 'Supervisor', true, true, true),
+      ],
+      texto: (r) => r.nome + ' ' + r.email,
+      resumo: () => 'as mudanças valem no próximo login do colaborador',
+      sits: [['Ativas', (r) => r.ativo], ['Bloqueadas', (r) => !r.ativo, 'crit'], ['Sem e-mail', (r) => !r.email, 'warn'], ['Com acesso pela internet', (r) => r.nuvem]],
+      selects: [['Perfil', 'Todos os perfis', (r) => r.perfil]],
+      colunas: [
+        ['Colaborador', (r) => `<span class="nome">${r.nome}</span><div class="sub-t">${r.email || 'sem e-mail'}</div>`], ['Perfil', (r) => r.perfil],
+        ['App', (r) => (r.app ? selo('ok', 'ligado') : selo('neutro', 'desligado'))], ['Internet', (r) => (r.nuvem ? selo('ok', 'liberado') : selo('neutro', 'só na loja'))], ['Situação', (r) => (r.ativo ? selo('ok', 'ativo') : selo('crit', 'bloqueado'))],
+      ],
+      acoes: (r) => (r.perfil.startsWith('Presidente') ? [] : [['✎', 'Acesso', 'acesso', 'pri'], r.ativo ? ['⛔', 'Bloquear', 'bloquear', 'perigo'] : ['✓', 'Desbloquear', 'desbloquear']]),
+      aoAcao(k, r) {
+        if (k === 'acesso') return painel({ tipo: 'gaveta', titulo: `Acesso de ${r.nome}`, rodape: rodapeSalvar('Salvar', 'Acesso atualizado.'),
+          corpo: campo('Perfil', sel(PERFIS.map((p) => p.nome), r.perfil)) + chave('App do colaborador', r.app) + chave('Acesso pela internet (nuvem)', r.nuvem, 'Desligado, a pessoa só entra na rede da loja.') + chave('Ativo', r.ativo) + '<p class="ajuda" style="margin:0">As mudanças valem no próximo login do colaborador.</p>' });
+        if (k === 'desbloquear') { r.ativo = true; desenhar(); return avisar(`${r.nome} desbloqueado.`); }
+        confirmar(`Bloquear ${r.nome}?`, '<p style="margin:0">A pessoa deixa de entrar no sistema. Você desbloqueia por aqui quando quiser.</p>', 'Bloquear', () => { r.ativo = false; desenhar(); avisar(`${r.nome} bloqueado.`); }, 'Cancelar', true);
+      },
+    },
+    { nome: 'Suporte', tipo: 'lista', titulo: 'Acesso de suporte', um: 'sessão', varios: 'sessões', buscar: 'Nome do técnico', todas: 'Todas',
+      antes: () => `<section class="grupo"><header><h3>O que o suporte pode fazer na sua loja</h3><span>${SUP.bloqueado ? 'bloqueado' : SUP.total ? 'acesso total' : 'acesso padrão'}</span></header>
+        <div class="aj"><div><span class="rot-aj">Bloquear acesso de suporte</span><span class="ajuda">Fecha a entrada do suporte da distribuição nesta empresa.</span></div><div class="ctrl"><span class="liga-txt">${SUP.bloqueado ? 'Ligado' : 'Desligado'}</span><button class="liga" role="switch" aria-checked="${SUP.bloqueado}" data-sup="bloqueado" aria-label="Bloquear acesso de suporte"></button></div></div>
+        <div class="aj"><div><span class="rot-aj">Dar acesso total ao suporte</span><span class="ajuda">Inclui o que o acesso padrão não mostra. Não dá para ligar com o suporte bloqueado.</span></div><div class="ctrl"><span class="liga-txt">${SUP.total ? 'Ligado' : 'Desligado'}</span><button class="liga" role="switch" aria-checked="${SUP.total}" data-sup="total" aria-label="Dar acesso total ao suporte"${SUP.bloqueado ? ' disabled style="opacity:.5"' : ''}></button></div></div></section>`,
+      dados: [
+        { nome: 'Técnico Exemplo', ini: 'hoje, 09:10', fim: '', motivo: 'Impressora da cozinha sem responder' }, { nome: 'Técnica Modelo', ini: 'ontem, 14:02', fim: 'ontem, 14:40', motivo: 'Dúvida no fechamento de caixa' },
+        { nome: 'Técnico Exemplo', ini: 'há 6 dias, 10:15', fim: 'há 6 dias, 10:31', motivo: 'Atualização do servidor' },
+      ],
+      texto: (r) => r.nome + ' ' + r.motivo,
+      resumo: () => 'as 10 sessões mais recentes',
+      sits: [['Ativas agora', (r) => !r.fim, 'warn'], ['Encerradas', (r) => !!r.fim]],
+      colunas: [['Técnico', (r) => `<span class="nome">${r.nome}</span>`], ['Início', (r) => `<span class="num">${r.ini}</span>`], ['Fim', (r) => (r.fim ? `<span class="num">${r.fim}</span>` : selo('warn', 'ativo'))], ['Motivo', (r) => r.motivo]],
+      aoClicar(ev) {
+        const l = ev.target.closest('[data-sup]'); if (!l || l.disabled) return;
+        const k = l.dataset.sup;
+        if (k === 'total' && !SUP.total) return confirmar('Dar acesso total ao suporte?', '<div class="nota warn">Aqui entra, inteiro, o aviso que hoje aparece na janela do navegador (ele cita financeiro em R$, vendas e clientes).</div>', 'Dar acesso total', () => { SUP.total = true; desenhar(); avisar('Acesso total concedido.'); }, 'Cancelar', true);
+        SUP[k] = !SUP[k]; if (k === 'bloqueado' && SUP.bloqueado) SUP.total = false;
+        desenhar(); avisar(k === 'bloqueado' ? (SUP.bloqueado ? 'Suporte bloqueado.' : 'Suporte liberado.') : 'Acesso total retirado.'); refocar(`[data-sup="${k}"]`);
+      },
+    },
+  ],
+};
+function gavetaPermissoes(r) {
+  const linha = (rot, on) => `<div class="aj" data-perm>${`<div><span class="rot-aj">${rot}</span></div><div class="ctrl"><span class="liga-txt">${on ? 'Ligado' : 'Desligado'}</span><button type="button" class="liga" role="switch" aria-checked="${on}" aria-label="${rot}"></button></div>`}</div>`;
+  const EX = { 'Operação': ['PDV · Balcão', 'Mesas e comandas', 'Cupons', 'Pedidos · produção'], 'Relatórios': ['Turnos', 'Relatórios de vendas', 'Cancelamentos de itens'], 'Diretoria': ['Visão C&O', 'Auditoria'] };
+  painel({ tipo: 'gaveta', largo: true, titulo: `Permissões — ${r.nome}`,
+    rodape: `<span class="ajuda" style="margin-right:auto" role="status" id="pendPerm">nenhuma alteração</span><button class="bt" data-fechar>Cancelar</button><button class="bt pri" onclick="fechar();avisar('Perfil salvo. Vale no próximo login.')">Salvar perfil</button>`,
+    corpo: `<p class="ajuda" style="margin:0">Nível: <b>${r.nivel}</b> · ${r.perm} de 65 permissões ligadas · ${plural(r.pessoas, 'pessoa usa', 'pessoas usam')} este perfil.</p>
+      ${chave('Entrar pelo sistema (e-mail + senha)', r.web, 'Desligado = só PIN (ponto/app).')}
+      ${campo('Buscar permissão', '<input type="search" data-busca-perm placeholder="Ex.: estoque, caixa, relatório" autocomplete="off">')}
+      ${GRUPOS_PERM.map(([g, n]) => `<section class="grupo" style="margin:0" data-grupo-perm><header><h3>${g}</h3><span>${Math.min(n, Math.round((r.perm / 65) * n))} de ${n} ligadas</span></header>
+        ${(EX[g] || [`${n} permissões deste grupo — na tela de verdade, as ${n} aparecem aqui`]).map((x, i) => (EX[g] ? linha(x, i < 2 || r.perm > 30) : `<div class="aj" style="grid-template-columns:minmax(0,1fr)"><span class="ajuda">${x}.</span></div>`)).join('')}</section>`).join('')}
+      <section class="grupo" style="margin:0"><header><h3>Com ver, criar, editar e excluir</h3><span>Escalas · Estoque · Ponto (ações)</span></header>
+        <div class="tabela" style="border:none"><table class="matriz"><caption class="sr">Permissões por ação</caption><thead><tr><th>Módulo</th><th>Ver</th><th>Criar</th><th>Editar</th><th>Excluir</th></tr></thead><tbody>
+        ${['Escalas', 'Estoque', 'Ponto (ações)'].map((m) => `<tr><td><b>${m}</b></td>${['ver', 'criar', 'editar', 'excluir'].map((a, i) => `<td><input type="checkbox" ${i < 3 && r.perm > 8 ? 'checked' : i === 0 ? 'checked' : ''} aria-label="${m}: ${a}"></td>`).join('')}</tr>`).join('')}</tbody></table></div></section>` });
+  const pend = () => { const n = $('#pendPerm'); if (n) n.textContent = 'alterações ainda não salvas'; };
+  aberto.addEventListener('click', (ev) => { if (ev.target.closest('.liga')) pend(); });
+  aberto.addEventListener('change', pend);
+  aberto.addEventListener('input', (ev) => { if (!ev.target.matches('[data-busca-perm]')) return; const b = sem(ev.target.value); $$('[data-grupo-perm]', aberto).forEach((g) => { let v = 0; $$('[data-perm]', g).forEach((l) => { l.hidden = !!b && !sem(l.textContent).includes(b); if (!l.hidden) v++; }); g.hidden = !!b && !v && !sem($('h3', g).textContent).includes(b); }); });
+}
+
+// ── 12. Aplicativos conectados ──
+const acesso = (nome, desc, loja, recebe, por, visto, ativo, fim = '') => ({ nome, desc, loja, recebe, por, visto, ativo, fim });
+TELAS.aplicativos = {
+  menu: 'Aplicativos conectados',
+  hoje: ['Esta tela é recente (mockup aprovado em 01/10) e já usa diálogo próprio para revogar — é a que menos muda.', 'Ganha o título com a contagem de acessos ativos, as situações (ativos, revogados, ainda não acessaram), busca por loja e filtros por aplicativo e loja.', 'A lista vira cartões no celular; o botão "Revogar" sobe para 40 px.', 'Os textos do diálogo de revogar continuam os de hoje.'],
+  secoes: [{
+    nome: 'Acessos', tipo: 'lista', titulo: 'Aplicativos conectados', um: 'acesso', varios: 'acessos', buscar: 'Loja ou aplicativo', rotulo: (r) => `${r.nome} em ${r.loja}`,
+    botoes: [['Revogar todas as lojas de um aplicativo…', () => painel({ titulo: 'Revogar em todas as lojas', alerta: true, foco: 'footer button', corpo: `${campo('Aplicativo', sel(['Liame', 'RegemCast']))}<div class="nota crit">O aplicativo para de ler os dados de todas as lojas agora. O que ele já leu segue o prazo de guarda de lá. Para voltar, é preciso autorizar de novo pelo aplicativo.</div>`, rodape: `<button class="bt" data-fechar>Manter</button><button class="bt perigo" onclick="fechar();avisar('Revogado. O aplicativo não lê mais nenhuma loja.')">Revogar</button>` })]],
+    dados: [
+      acesso('Liame', 'Marketing e tráfego pago', 'Matriz Centro', 'Pedidos e clientes · cria cupom, com aprovação', 'Carlos Exemplo', 'há 2 horas', true),
+      acesso('Liame', 'Marketing e tráfego pago', 'Filial Praia', 'Pedidos e clientes · sem criar cupom', 'Carlos Exemplo', '', true),
+      acesso('RegemCast', 'Painéis e TV da loja', 'todas as lojas', 'Cardápio e preços', 'Carlos Exemplo', 'ontem', true),
+      acesso('Liame', 'Marketing e tráfego pago', 'Filial Shopping', 'Pedidos e clientes', 'Carlos Exemplo', '', false, 'Revogado por Carlos Exemplo, em 28/09/2026'),
+    ],
+    texto: (r) => r.nome + ' ' + r.loja,
+    resumo: () => 'ferramentas que leem dados das suas lojas com a sua autorização · você revoga quando quiser',
+    sits: [['Ativos', (r) => r.ativo], ['Ainda não acessaram', (r) => r.ativo && !r.visto, 'warn'], ['Revogados', (r) => !r.ativo]],
+    selects: [['Aplicativo', 'Todos os aplicativos', (r) => r.nome], ['Loja', 'Todas as lojas', (r) => r.loja]],
+    colunas: [
+      ['Aplicativo', (r) => `<span class="nome">${r.nome}</span><div class="sub-t">${r.desc}</div>`], ['Loja', (r) => r.loja], ['Recebe', (r) => r.recebe], ['Autorizado por', (r) => r.por],
+      ['Último acesso', (r) => (r.ativo ? r.visto || 'Ainda não acessou' : r.fim)], ['Situação', (r) => (r.ativo ? selo('ok', 'ativo') : selo('neutro', 'revogado'))],
+    ],
+    acoes: (r) => (r.ativo ? [['⛔', 'Revogar', 'revogar', 'perigo']] : []),
+    aoAcao(k, r) {
+      painel({ titulo: `Revogar o ${r.nome} ${r.loja === 'todas as lojas' ? 'em todas as lojas' : 'na ' + r.loja}?`, alerta: true, foco: 'footer button',
+        corpo: `<p style="margin:0">O ${r.nome} para de ler os dados ${r.loja === 'todas as lojas' ? 'de todas as lojas' : 'desta loja'} agora. O que ele já leu segue o prazo de guarda de lá. Para voltar, é preciso autorizar de novo pelo ${r.nome}.</p>`,
+        rodape: `<button class="bt" data-fechar>Manter</button><button class="bt perigo" id="bRev">Revogar</button>` });
+      $('#bRev').onclick = () => { r.ativo = false; r.fim = 'Revogado por você, agora'; $('#painel').innerHTML = ''; aberto = null; $('#fundo').hidden = true; desenhar(); avisar(`Revogado. O ${r.nome} não lê mais ${r.loja === 'todas as lojas' ? 'nenhuma loja' : 'a ' + r.loja}.`); refocar('#tLista'); };
+    },
+  }],
+};
+
+// ── 13. Servidor local ──
+const SRV = { filtro: -1 };
+const ITENS_SRV = [
+  ['Servidor', 'online', true, 'O servidor da loja está respondendo.', ''],
+  ['Último backup', 'hoje às 03:10', true, 'Cópia de 412 MB.', ''],
+  ['Espaço livre no computador', '38,2 GB', true, 'Aviso quando ficar abaixo de 2 GB.', ''],
+  ['Atualização do servidor', 'versão 1.30.2 · nova disponível: 1.30.3', false, 'O que muda: correções na impressão e no estoque.', 'atualizar'],
+  ['App autenticador (anti-clone)', 'trava ligada (app)', true, 'App já cadastrado.', 'autenticador'],
+  ['Restaurar do estado da nuvem', 'última restauração: nunca', true, 'Refaz os dados da loja a partir da nuvem. Faça com a loja parada.', 'restaurar'],
+];
+TELAS.servidor = {
+  menu: 'Servidor local',
+  hoje: ['Não é lista: continua sendo o painel de saúde. O que entra é o resumo no título ("5 de 6 em dia · 1 pede atenção") e as fichas que filtram o que pede atenção.', 'Instalar, reverter e restaurar saem da janela do navegador para diálogos, com o aviso inteiro que hoje aparece nela.', 'As mensagens de cada cartão, hoje em texto cinza no rodapé, viram avisos visíveis.', 'O painel mostra "carregando" e o erro de carga — hoje o cartão de saúde simplesmente some.', 'Tudo o mais continua: progresso da atualização com os 12 estágios, "não feche esta tela", agendar, QR do autenticador, instalador.'],
+  secoes: [{
+    nome: 'Servidor', tipo: 'livre', titulo: 'Servidor da loja', conta: () => ITENS_SRV.filter((x) => !x[2]).length || null,
+    resumo: () => { const ok = ITENS_SRV.filter((x) => x[2]).length; return `${ok} de ${ITENS_SRV.length} em dia · ${plural(ITENS_SRV.length - ok, 'item pede atenção', 'itens pedem atenção')}`; },
+    desenhar() {
+      const lista = ITENS_SRV.filter((x) => SRV.filtro < 0 || (SRV.filtro === 0 ? !x[2] : x[2]));
+      const BT = { atualizar: `<button class="bt" data-srv="verificar">Verificar atualização</button><button class="bt pri" data-srv="instalar">Instalar agora</button><button class="bt" data-srv="agendar">Agendar</button><button class="bt" data-srv="reverter">Reverter atualização</button>`,
+        autenticador: `<button class="bt" data-srv="qr">Gerar novo QR</button>`, restaurar: `<button class="bt perigo" data-srv="restaurar">Restaurar agora</button>` };
+      return `<div class="sits" role="group" aria-label="Situação"><button class="sit" data-fsrv="-1" aria-pressed="${SRV.filtro < 0}">Tudo <b>${ITENS_SRV.length}</b></button><button class="sit warn" data-fsrv="0" aria-pressed="${SRV.filtro === 0}">Pede atenção <b>${ITENS_SRV.filter((x) => !x[2]).length}</b></button><button class="sit" data-fsrv="1" aria-pressed="${SRV.filtro === 1}">Em dia <b>${ITENS_SRV.filter((x) => x[2]).length}</b></button></div>
+        ${lista.map((x) => `<section class="grupo"><header><h3>${x[0]}</h3>${selo(x[2] ? 'ok' : 'warn', x[2] ? 'em dia' : 'pede atenção')}</header><div class="aj" style="grid-template-columns:minmax(0,1fr)"><div><span class="num" style="font-size:15px;font-weight:700;white-space:normal">${x[1]}</span><span class="ajuda">${x[3]}</span></div>${x[4] ? `<div class="acoes">${BT[x[4]]}</div>` : ''}</div></section>`).join('')}
+        <section class="grupo"><header><h3>Suporte / diagnóstico</h3></header><div class="aj" style="grid-template-columns:minmax(0,1fr) auto"><span class="ajuda">Manda os registros do servidor para a equipe de suporte analisar.</span><button class="bt" data-srv="logs">Enviar logs pro suporte</button></div></section>
+        <section class="grupo"><header><h3>Instale o Regem na sua loja</h3></header><div class="aj" style="grid-template-columns:minmax(0,1fr) auto"><span class="ajuda">Instalador para Windows, com os 3 passos e o "Antes de começar" de hoje.</span><button class="bt" data-srv="baixar">Baixar o instalador (Windows)</button></div></section>`;
+    },
+    aoClicar(ev) {
+      const f = ev.target.closest('[data-fsrv]'); if (f) { SRV.filtro = Number(f.dataset.fsrv); desenhar(); return refocar(`[data-fsrv="${SRV.filtro}"]`); }
+      const b = ev.target.closest('[data-srv]'); if (!b) return;
+      const k = b.dataset.srv, aviso = '<div class="nota warn">Aqui entra, inteiro, o aviso que hoje aparece na janela do navegador.</div>';
+      if (k === 'instalar') return confirmar('Instalar a versão 1.30.3 agora?', `<p style="margin:0">Agora: <b>2 caixas abertos e 3 pedidos em produção</b>. Os serviços ficam fora por 1 a 2 minutos.</p>${aviso}`, 'Instalar agora mesmo assim', () => avisar('Instalação iniciada. Não feche esta tela.'), 'Agendar para depois do fechamento', true);
+      if (k === 'reverter') return confirmar('Reverter a última atualização?', aviso, 'Reverter', () => avisar('Reversão iniciada. Não feche esta tela.'), 'Cancelar', true);
+      if (k === 'restaurar') return confirmar('Restaurar do estado da nuvem?', `<p style="margin:0">Faça com a loja parada.</p>${aviso}`, 'Restaurar agora', () => avisar('Restauração na fila.'), 'Cancelar', true);
+      if (k === 'agendar') return painel({ titulo: 'Agendar a instalação', rodape: rodapeSalvar('Confirmar agendamento', 'Instalação agendada para hoje, 23:30.'), corpo: campo('Instalar em', '<input type="datetime-local" value="2026-10-07T23:30">') });
+      avisar({ verificar: 'Você já está com a versão mais recente liberada para esta loja.', qr: 'Aqui aparecem o QR, a chave em texto e o campo "Código do app".', logs: 'Logs enviados para o suporte.', baixar: 'Download do instalador iniciado.' }[k]);
+    },
+  }],
+};
+
+// ── partida ──
+(function iniciar() {
+  const [t, p] = location.hash.slice(1).split('/');
+  if (TELAS[t]) { atual = t; sec = Math.min(Number(p) || 0, TELAS[t].secoes.length - 1); }
+  desenhar();
+})();
+
+</script>
+</body>
+</html>

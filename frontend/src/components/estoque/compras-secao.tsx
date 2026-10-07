@@ -14,7 +14,7 @@ import { EscolhaProdutos, type Escolha } from './escolha-produtos';
 import {
   FiltroBusca, FiltroSelect, Filtros, ListaDados, NomeComApoio, PERIODOS, PERIODO_PADRAO, Selo, Situacoes, TituloLista, Vazio,
   brl, consultaDoPeriodo, dataBr, diasAte, distintos, num, semAcento, texto2, type Situacao,
-} from './lista';
+} from '@/components/ui/lista';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Conferência: o que de fato chegou, por linha da compra.
