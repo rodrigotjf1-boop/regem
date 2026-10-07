@@ -188,10 +188,10 @@ export default function EstoquePage() {
         )}
 
         {/* ---------- CONTAGEM (E2) ---------- */}
-        {secao === 'contagem' && <ContagemSecao itens={itens} />}
+        {secao === 'contagem' && <ContagemSecao itens={itens} aoMudarEstoque={reload} />}
 
         {/* ---------- COMPRAS (E3) ---------- */}
-        {secao === 'compras' && <ComprasSecao itens={itens} fornecedores={fornecedores} />}
+        {secao === 'compras' && <ComprasSecao itens={itens} fornecedores={fornecedores} aoMudarEstoque={reload} />}
 
         {/* ---------- RECEBIMENTO ---------- */}
         {secao === 'recebimento' && <RecebimentoSecao itens={itens} fornecedores={fornecedores} aoMudarEstoque={reload} />}

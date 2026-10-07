@@ -100,16 +100,26 @@ export class ContagemService {
       .from(contagemLista)
       .where(and(eq(contagemLista.tenantId, tenantId), condUnidade(contagemLista.unidadeId, atual), isNull(contagemLista.deletedAt)))
       .orderBy(contagemLista.nome);
-    // contagem de itens + última execução por lista (em memória).
+    // produtos de cada lista + última execução por lista (em memória). Os ids vão junto: a tela
+    // de edição abre com os produtos da lista já marcados.
     const ids = listas.map((l) => l.id);
-    const cnt = ids.length
+    const linhas = ids.length
       ? await this.db
-          .select({ listaId: contagemListaItem.listaId, n: sql<number>`count(*)` })
+          .select({ listaId: contagemListaItem.listaId, itemId: contagemListaItem.itemId })
           .from(contagemListaItem)
           .where(inArray(contagemListaItem.listaId, ids))
-          .groupBy(contagemListaItem.listaId)
       : [];
-    const nItens = new Map(cnt.map((c: any) => [c.listaId, Number(c.n)]));
+    const itensDe = new Map<string, string[]>();
+    for (const x of linhas) itensDe.set(x.listaId, [...(itensDe.get(x.listaId) ?? []), x.itemId]);
+    // Nome do responsável (do MESMO tenant).
+    const delegados = [...new Set(listas.map((l) => l.delegadoId).filter((d): d is string => !!d))];
+    const nomes = delegados.length
+      ? await this.db
+          .select({ id: colaborador.id, nome: colaborador.nome })
+          .from(colaborador)
+          .where(and(eq(colaborador.tenantId, tenantId), inArray(colaborador.id, delegados)))
+      : [];
+    const nomeDe = new Map(nomes.map((c) => [c.id, c.nome]));
     const execs = ids.length
       ? await this.db
           .select({
@@ -125,10 +135,85 @@ export class ContagemService {
     for (const e of execs) if (!ultima.has(e.listaId)) ultima.set(e.listaId, e);
     return listas.map((l) => ({
       ...l,
-      itens: nItens.get(l.id) ?? 0,
+      itens: (itensDe.get(l.id) ?? []).length,
+      itemIds: itensDe.get(l.id) ?? [],
+      delegadoNome: l.delegadoId ? (nomeDe.get(l.delegadoId) ?? null) : null,
       ultimaContagem: ultima.get(l.id)?.data ?? null,
       pendenteHoje: this.dueHoje(l),
     }));
+  }
+
+  // Edita a lista: nome, recorrência, horário, responsável, avisos e os produtos (troca o
+  // conjunto). As contagens já feitas não mudam — guardam os produtos que tinham na hora.
+  async updateLista(tenantId: string, id: string, dto: CreateContagemListaDto, atual: string | null = null) {
+    const daLista = and(
+      eq(contagemLista.id, id),
+      eq(contagemLista.tenantId, tenantId),
+      condUnidade(contagemLista.unidadeId, atual),
+      isNull(contagemLista.deletedAt),
+    );
+    const [antes] = await this.db.select({ unidadeId: contagemLista.unidadeId }).from(contagemLista).where(daLista);
+    if (!antes) throw new NotFoundException('Lista não encontrada');
+    // Só produtos do tenant, da loja DA LISTA ou compartilhados (a mesma regra da criação).
+    const validos = (
+      await this.db
+        .select({ id: itemEstoque.id })
+        .from(itemEstoque)
+        .where(
+          and(
+            eq(itemEstoque.tenantId, tenantId),
+            condUnidadeOuRede(itemEstoque.unidadeId, antes.unidadeId),
+            inArray(itemEstoque.id, dto.itemIds),
+            isNull(itemEstoque.deletedAt),
+          ),
+        )
+    ).map((i) => i.id);
+    if (!validos.length) throw new BadRequestException('Escolha ao menos um produto desta loja.');
+    return this.db.transaction(async (tx) => {
+      const [lista] = await tx
+        .update(contagemLista)
+        .set({
+          nome: dto.nome,
+          recorrencia: dto.recorrencia ?? 'semanal',
+          // dia que não é da recorrência escolhida não fica guardado (o aviso é por ele)
+          diaSemana: dto.recorrencia === 'semanal' ? (dto.diaSemana ?? null) : null,
+          diaMes: dto.recorrencia === 'mensal' ? (dto.diaMes ?? null) : null,
+          hora: dto.hora ?? null,
+          delegadoId: dto.delegadoId ?? null,
+          enviarKds: dto.enviarKds ?? true,
+          enviarDashboard: dto.enviarDashboard ?? true,
+          updatedAt: new Date(),
+        })
+        .where(daLista)
+        .returning();
+      if (!lista) throw new NotFoundException('Lista não encontrada');
+      await tx.delete(contagemListaItem).where(and(eq(contagemListaItem.tenantId, tenantId), eq(contagemListaItem.listaId, id)));
+      await tx.insert(contagemListaItem).values(validos.map((itemId) => ({ tenantId, listaId: id, itemId })));
+      return { ...lista, itens: validos.length };
+    });
+  }
+
+  // Histórico da lista: as contagens feitas, da mais nova para a mais antiga (últimas 30), com
+  // quantos produtos foram contados e quantos deram diferença contra o saldo da abertura.
+  async historico(tenantId: string, listaId: string, atual: string | null = null) {
+    const [lista] = await this.db
+      .select({ id: contagemLista.id })
+      .from(contagemLista)
+      .where(and(eq(contagemLista.id, listaId), eq(contagemLista.tenantId, tenantId), condUnidade(contagemLista.unidadeId, atual)));
+    if (!lista) throw new NotFoundException('Lista não encontrada');
+    const r: any = await this.db.execute(sql`
+      select e.id, e.data, e.status, e.concluida_em as "concluidaEm", c.nome as "quemNome",
+             (select count(*)::int from contagem_item ci where ci.execucao_id = e.id) as itens,
+             (select count(*)::int from contagem_item ci where ci.execucao_id = e.id and ci.contado is not null) as contados,
+             (select count(*)::int from contagem_item ci
+               where ci.execucao_id = e.id and ci.contado is not null and ci.contado <> ci.saldo_sistema) as "comDiferenca"
+        from contagem_execucao e
+        left join colaborador c on c.id = e.criada_por_id and c.tenant_id = e.tenant_id
+       where e.tenant_id = ${tenantId} and e.lista_id = ${listaId}
+       order by e.created_at desc
+       limit 30
+    `);
+    return r.rows ?? r;
   }
 
   // A lista deve ser contada hoje? (recorrência × dia atual no fuso SP)

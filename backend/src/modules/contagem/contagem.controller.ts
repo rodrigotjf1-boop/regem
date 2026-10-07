@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -40,6 +41,26 @@ export class ContagemController {
     @Body() dto: CreateContagemListaDto,
   ) {
     return this.service.createLista(user.tenantId, dto, atual);
+  }
+
+  // Editar a lista (nome, recorrência, responsável, produtos): a mesma gestão que cria.
+  @Patch('listas/:id')
+  @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('estoque', 'editar')
+  updateLista(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
+    @Param('id') id: string,
+    @Body() dto: CreateContagemListaDto,
+  ) {
+    return this.service.updateLista(user.tenantId, id, dto, atual);
+  }
+
+  // Histórico: as contagens já feitas desta lista.
+  @Get('listas/:id/execucoes')
+  @RequirePerm('estoque', 'ver')
+  historico(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Param('id') id: string) {
+    return this.service.historico(user.tenantId, id, atual);
   }
 
   @Delete('listas/:id')

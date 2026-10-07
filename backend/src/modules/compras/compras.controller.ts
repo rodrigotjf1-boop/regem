@@ -5,8 +5,10 @@ import {
   Get,
   Param,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
+import { periodoDaConsulta } from '../../common/periodo';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
@@ -26,10 +28,17 @@ import { ReceberCompraDto } from './dto/receber-compra.dto';
 export class ComprasController {
   constructor(private readonly service: ComprasService) {}
 
+  // `?inicio=AAAA-MM-DD&fim=AAAA-MM-DD` corta as listas JÁ RECEBIDAS pela data do recebimento;
+  // as que aguardam vêm sempre. Sem período, tudo.
   @Get('listas')
   @RequirePerm('estoque', 'ver')
-  listListas(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
-    return this.service.listListas(user.tenantId, atual);
+  listListas(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
+    @Query('inicio') inicio?: string,
+    @Query('fim') fim?: string,
+  ) {
+    return this.service.listListas(user.tenantId, atual, periodoDaConsulta(inicio, fim), !!user.permissoes?.ver_financeiro);
   }
 
   @Get('sugestao')
@@ -45,7 +54,7 @@ export class ComprasController {
     @UnidadeAtual() atual: string | null,
     @Param('id') id: string,
   ) {
-    return this.service.getLista(user.tenantId, id, atual);
+    return this.service.getLista(user.tenantId, id, atual, !!user.permissoes?.ver_financeiro);
   }
 
   @Post('listas')

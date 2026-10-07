@@ -615,6 +615,9 @@ export const api = {
   escalaPeriodo: (de: string, ate: string) =>
     req(`/escala/periodo?de=${de}&ate=${ate}`),
   contagemListas: () => req('/contagem/listas'),
+  atualizarContagemLista: (id: string, body: Record<string, unknown>) =>
+    req(`/contagem/listas/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  contagemHistorico: (id: string) => req(`/contagem/listas/${id}/execucoes`),
   criarContagemLista: (body: Record<string, unknown>) =>
     req('/contagem/listas', { method: 'POST', body: JSON.stringify(body) }),
   removerContagemLista: (id: string) =>

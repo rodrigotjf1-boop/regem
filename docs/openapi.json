@@ -1228,6 +1228,34 @@
       }
     },
     "/api/v1/contagem/listas/{id}": {
+      "patch": {
+        "operationId": "ContagemController_updateLista",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateContagemListaDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
       "delete": {
         "operationId": "ContagemController_removerLista",
         "parameters": [
@@ -1243,6 +1271,33 @@
         "responses": {
           "200": {
             "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/contagem/listas/{id}/execucoes": {
+      "get": {
+        "operationId": "ContagemController_historico",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -1320,7 +1375,24 @@
     "/api/v1/compras/listas": {
       "get": {
         "operationId": "ComprasController_listListas",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "inicio",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fim",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": ""
