@@ -151,8 +151,8 @@ descrever('listas de histórico do estoque (Postgres real)', () => {
     const t = await empresa();
     const [forn] = await q(`insert into fornecedor (tenant_id, nome) values ($1, 'Atacado de teste') returning id`, [t]);
     const [it] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida) values ($1, 'Farinha de teste', 'kg') returning id`, [t]);
-    const receb = async (dias: number, nota: string, linhas: string[]) => {
-      const [r] = await q(`insert into recebimento (tenant_id, fornecedor_id, data, nota_ref) values ($1, $2, $3, $4) returning id`, [t, forn.id, ha(dias), nota]);
+    const receb = async (dias: number, nota: string, linhas: string[], status = 'conferido') => {
+      const [r] = await q(`insert into recebimento (tenant_id, fornecedor_id, data, nota_ref, status) values ($1, $2, $3, $4, $5) returning id`, [t, forn.id, ha(dias), nota, status]);
       for (const divergencia of linhas)
         await q(`insert into recebimento_item (tenant_id, recebimento_id, item_id, qtd_esperada, qtd_recebida, divergencia) values ($1, $2, $3, 5, 5, $4)`, [t, r.id, it.id, divergencia]);
     };
@@ -170,6 +170,11 @@ descrever('listas de histórico do estoque (Postgres real)', () => {
     expect((await resumo(periodo(30))).map((r) => r[0])).toEqual(['NF de hoje', 'NF do mês']);
     expect((await resumo(periodo(7))).map((r) => r[0])).toEqual(['NF de hoje']);
     expect((await resumo(periodoDaConsulta(ha(60), ha(9)))).map((r) => r[0])).toEqual(['NF do mês', 'NF antiga']);
+
+    // o que ainda FALTA conferir aparece sempre: o rascunho esquecido há 80 dias não some do período de 7
+    await receb(80, 'NF esquecida', ['ok'], 'aberto');
+    expect((await resumo(periodo(7))).map((r) => r[0])).toEqual(['NF de hoje', 'NF esquecida']);
+    expect((await resumo(periodoDaConsulta(ha(60), ha(9)))).map((r) => r[0])).toEqual(['NF do mês', 'NF antiga', 'NF esquecida']);
   });
 
   // ── lotes (Validades) ──────────────────────────────────────────────────────────────────
