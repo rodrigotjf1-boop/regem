@@ -779,7 +779,7 @@ TELAS.impressao = {
       aoAcao(k, r) {
         if (k === 'teste') return avisar('Página de teste enviada.');
         if (k === 'editar') return formImpressora(r);
-        confirmarRetirar(r, { consequencia: 'A impressora sai da lista. <i>O texto final deste aviso (o que acontece com os setores e perfis de cupom que apontam para ela) eu escrevo lendo o servidor, na implementação.</i>', depois: 'Impressora removida.' });
+        confirmarRetirar(r, { consequencia: 'A impressora é apagada do cadastro, e os produtos, complementos e setores direcionados a ela perdem esse destino. O perfil de cupom ou o terminal que apontava para ela volta a usar as impressoras de cupom padrão. Para só parar de imprimir, desligue a chave “Ativa”. Não dá para desfazer.', depois: 'Impressora removida.' });
       },
     },
     { nome: 'Perfis de cupom', tipo: 'lista', titulo: 'Perfis de cupom', um: 'perfil', varios: 'perfis', novo: '＋ Novo perfil', buscar: 'Nome do perfil',
@@ -803,7 +803,7 @@ TELAS.impressao = {
       aoAcao(k, r) {
         if (k === 'duplicar') return avisar(`"${r.nome}" duplicado — abra a cópia para ajustar.`);
         if (k === 'editar') return editorPerfilCupom(r);
-        confirmarRetirar(r, { consequencia: 'O perfil personalizado é apagado. <i>O texto final deste aviso eu escrevo lendo o servidor, na implementação.</i>', depois: 'Perfil excluído.' });
+        confirmarRetirar(r, { consequencia: 'O perfil sai da lista com os campos e as impressoras que estavam marcados nele. Não dá para desfazer.', depois: 'Perfil excluído.' });
       },
     },
     { nome: 'Cabeçalho e rodapé', tipo: 'ajustes', titulo: 'Cabeçalho e rodapé do cupom', salvou: 'Cabeçalho e rodapé salvos.',
@@ -813,7 +813,7 @@ TELAS.impressao = {
 function formImpressora(r) {
   painel({ tipo: 'gaveta', titulo: r ? `Editar ${r.nome}` : 'Nova impressora', rodape: rodapeSalvar('Salvar', 'Impressora salva.'),
     corpo: campo('Nome da impressora', `<input value="${r ? esc(r.nome) : ''}">`) + chave('Ativa', r ? r.ativa : true)
-      + campo('Direcionamento', sel(['Caixa (cupom)', 'Cozinha (produção)', 'Etiqueta (validade)'], r ? r.dir : 'Caixa (cupom)'))
+      + campo('Direcionamento', sel(['Caixa (cupom)', 'Cozinha (produção)', 'Caixa e cozinha (cupom + produção)', 'Etiqueta (validade)'], r ? r.dir : 'Caixa (cupom)'))
       + campo('Setor', sel(['Todos / geral', ...SETORES], r && r.setor ? r.setor : 'Todos / geral'), 'Só para a impressora de produção.')
       + campo('Modelo da etiquetadora', sel(['Etiquetadora ZPL (Zebra · Elgin L42 · Argox)', 'Etiquetadora EPL / PPLB', 'Térmica de bobina (58/80mm)']), 'Só para etiqueta. O tamanho vem do modelo (aba Etiquetas → Modelo). Elgin L42Pro: ZPL (ou EPL).')
       + `<div><span class="rot">Conexão</span><div class="seg" style="margin-top:4px"><button type="button" aria-pressed="${!r || r.con.startsWith('Rede')}">Rede (IP)</button><button type="button" aria-pressed="${!!r && r.con.startsWith('Local')}">Local (USB/Windows)</button></div></div>`
@@ -898,14 +898,15 @@ function formOrdem() {
       + `<div class="duas">${campo('Data', '<input type="date" value="2026-10-07">')}${campo('Hora início', '<input type="time" value="10:00">')}</div>`
       + campo('Setor responsável', sel(['— sem setor —', ...SETORES]))
       + `<div><span class="rot">Onde avisar</span><div class="fichas" style="margin-top:4px">${['App do colaborador', 'KDS/Quadro', 'Linha do tempo', 'Impressão'].map((x, i) => `<button type="button" class="ficha" aria-pressed="${i === 2}">${x}</button>`).join('')}</div></div>`
+      + campo('Impressora da ordem', sel(['— escolha —', 'Impressora Cozinha', 'Impressora Bar']), 'Só com “Impressão” marcada: a ordem sai em papel nesta impressora ao ser criada. A ordem que se repete não sai em papel.')
       + chave('Repetir todo dia (recorrente)', false) });
 }
 function dialogoConcluir(r) {
   painel({ titulo: `Concluir: ${r.nome}`, largo: false,
-    rodape: `<button class="bt" data-fechar>Cancelar</button><button class="bt" onclick="fechar();avisar('Via impressa para lançar depois.')">Só imprimir p/ lançar depois</button><button class="bt pri" onclick="fechar();avisar('Ordem concluída; estoque atualizado.')">Confirmar com PIN</button>`,
+    rodape: `<button class="bt" data-fechar>Cancelar</button><button class="bt" onclick="fechar();avisar('Ordem em “Aguardando lançamento”.')">Lançar depois</button><button class="bt pri" onclick="fechar();avisar('Ordem concluída; estoque atualizado.')">Confirmar com PIN</button>`,
     corpo: `<div><span class="rot">Como terminou</span><div class="seg" style="margin-top:4px"><button type="button" aria-pressed="true">Total</button><button type="button" aria-pressed="false">Parcial</button><button type="button" aria-pressed="false">Não concluída</button></div></div>
       <div class="duas">${campo(`Quantidade produzida (menor que ${r.qtd})`, '<input type="number" min="0">', 'Só no parcial.')}${campo('Motivo', '<input>', 'Só no "não concluída".')}</div>
-      <div class="nota">Concluir dará baixa nos insumos e entrada do produzido no estoque.</div>
+      <div class="nota">Total e parcial dão baixa nos insumos da ficha; se a ordem tem insumo de saída, o produzido entra no estoque. “Lançar depois” manda a ordem para as pendências, sem PIN e sem mexer no estoque — e não imprime nada.</div>
       ${campo('PIN (assinatura de quem produziu)', '<input type="password" inputmode="numeric" autocomplete="off">')}` });
 }
 

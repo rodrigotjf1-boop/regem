@@ -25,7 +25,9 @@ function useSobreposto(aoFechar: () => void, voltarPara?: string) {
     const quemAbriu = document.activeElement as HTMLElement | null;
     const p = painel.current;
     // Foco inicial: o que o conteúdo marcou com `data-foco-inicial`, senão o 1º campo, senão o painel.
-    (p?.querySelector<HTMLElement>('[data-foco-inicial]') ?? (p ? focaveis(p)[0] : null) ?? p)?.focus();
+    // Campo marcado mas DESLIGADO (uma lista que ainda carrega) não recebe foco — e o foco ficaria
+    // do lado de fora, no botão que abriu: aí vale o 1º campo ligado.
+    (p?.querySelector<HTMLElement>('[data-foco-inicial]:not([disabled])') ?? (p ? focaveis(p)[0] : null) ?? p)?.focus();
     const tecla = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();

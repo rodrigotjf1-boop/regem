@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, notInArray, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   complemento,
@@ -17,6 +17,7 @@ import {
   complementoDestinoProducao,
   opcaoDestinoProducao,
   produtoDestinoProducao,
+  equipamento,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { EdgeFlashSyncService } from '../sync/edge-flash-sync.service';
@@ -513,48 +514,75 @@ export class ProdutoService {
 
   // Grava o direcionamento de VÁRIOS produtos de uma vez.
   //  modo 'substituir' = troca os destinos; 'adicionar' = soma aos existentes.
+  //
+  // Uma transação e duas consultas, qualquer que seja a quantidade de produtos. Antes era um laço
+  // (apagar, ler e inserir POR produto, sem transação): "marcar todos" virava centenas de idas ao
+  // banco e, se uma falhasse no meio, parte dos produtos ficava sem destino nenhum. Só entra o que
+  // é DESTA empresa: o produto pelo `tenant_id` e o destino tem de ser KDS ou impressora dela.
   async setDirecionamentoLote(
     tenantId: string,
     produtoIds: string[],
     equipamentoIds: string[],
     modo: 'substituir' | 'adicionar' = 'substituir',
+    ator?: { id: string | null; perfil: string | null },
   ) {
-    const produtos = [...new Set((produtoIds ?? []).filter(Boolean))];
-    const equipamentos = [...new Set((equipamentoIds ?? []).filter(Boolean))];
+    const lista = (v: unknown): string[] => [...new Set((Array.isArray(v) ? v : []).filter((x): x is string => typeof x === 'string' && !!x))];
+    const produtos = lista(produtoIds);
+    const equipamentos = lista(equipamentoIds);
     if (!produtos.length) throw new BadRequestException('Selecione ao menos um produto.');
-    for (const produtoId of produtos) {
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (![...produtos, ...equipamentos].every((x) => UUID.test(x))) throw new BadRequestException('Produto ou destino inválido.');
+
+    const destinos = equipamentos.length
+      ? await this.db
+          .select({ id: equipamento.id, nome: equipamento.nome })
+          .from(equipamento)
+          .where(and(eq(equipamento.tenantId, tenantId), inArray(equipamento.id, equipamentos), inArray(equipamento.tipo, ['kds', 'impressora'])))
+      : [];
+    if (destinos.length !== equipamentos.length) throw new BadRequestException('Destino não encontrado. Atualize a tela e tente de novo.');
+
+    const alterados = await this.db.transaction(async (tx) => {
       if (modo === 'substituir') {
-        await this.db
+        // Sai só o destino que não continua: a linha que fica não é regravada.
+        await tx
           .delete(produtoDestinoProducao)
           .where(
             and(
               eq(produtoDestinoProducao.tenantId, tenantId),
-              eq(produtoDestinoProducao.produtoId, produtoId),
+              inArray(produtoDestinoProducao.produtoId, produtos),
+              equipamentos.length ? notInArray(produtoDestinoProducao.equipamentoId, equipamentos) : undefined,
             ),
           );
       }
-      const atuais =
-        modo === 'adicionar'
-          ? (
-              await this.db
-                .select({ equipamentoId: produtoDestinoProducao.equipamentoId })
-                .from(produtoDestinoProducao)
-                .where(
-                  and(
-                    eq(produtoDestinoProducao.tenantId, tenantId),
-                    eq(produtoDestinoProducao.produtoId, produtoId),
-                  ),
-                )
-            ).map((r) => r.equipamentoId)
-          : [];
-      const novos = equipamentos.filter((e) => !atuais.includes(e));
-      if (novos.length) {
-        await this.db.insert(produtoDestinoProducao).values(
-          novos.map((equipamentoId) => ({ tenantId, produtoId, equipamentoId })),
-        );
+      const doTenant: any = await tx.execute(sql`
+        select count(*)::int as n from produto p
+         where p.tenant_id = ${tenantId} and p.id in (${sql.join(produtos.map((id) => sql`${id}::uuid`), sql`, `)})`);
+      if (equipamentos.length) {
+        // Produto × destino que ainda não existe; o índice único (produto, destino) segura a corrida.
+        await tx.execute(sql`
+          insert into produto_destino_producao (tenant_id, produto_id, equipamento_id)
+          select p.tenant_id, p.id, e.id
+            from produto p
+            join equipamento e on e.tenant_id = p.tenant_id
+           where p.tenant_id = ${tenantId}
+             and p.id in (${sql.join(produtos.map((id) => sql`${id}::uuid`), sql`, `)})
+             and e.id in (${sql.join(equipamentos.map((id) => sql`${id}::uuid`), sql`, `)})
+          on conflict (produto_id, equipamento_id) do nothing`);
       }
-    }
-    return { ok: true, produtos: produtos.length, destinos: equipamentos.length };
+      return Number((doTenant.rows ?? doTenant)[0]?.n ?? 0);
+    });
+
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: ator?.id ?? null,
+      atorPerfil: ator?.perfil ?? '',
+      tipo: 'cadastro',
+      acao: 'direcionou_produtos',
+      entidadeTipo: 'produto',
+      entidadeId: null,
+      detalhe: { produtos: alterados, modo, destinos: destinos.map((d) => d.nome) },
+    });
+    return { ok: true, produtos: alterados, destinos: equipamentos.length };
   }
 
   // ----- Destinos próprios de COMPLEMENTO e OPÇÃO (mig 127) -----

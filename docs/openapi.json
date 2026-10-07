@@ -5484,6 +5484,19 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "situacao",
+            "required": false,
+            "in": "query",
+            "description": "abertas = o que ainda pede ação (sem período); encerradas = o que já teve desfecho.",
+            "schema": {
+              "enum": [
+                "abertas",
+                "encerradas"
+              ],
+              "type": "string"
+            }
           }
         ],
         "responses": {

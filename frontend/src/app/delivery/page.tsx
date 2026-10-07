@@ -236,7 +236,10 @@ export default function DeliveryPage() {
 
   async function toggleCfg(patch: any) {
     try {
-      const c = await api.setDeliveryConfig({ ...cfg, ...patch });
+      // Só o que mudou: o servidor mantém o campo que não vem. Mandar a configuração inteira, lida
+      // quando a tela abriu, regravava por cima o que outra tela salvou depois — os perfis e o texto
+      // do cupom (Impressoras e cupons), o momento da impressão (Produção & KDS) e a pausa da loja.
+      const c = await api.setDeliveryConfig(patch);
       setCfg(c);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
@@ -261,7 +264,9 @@ export default function DeliveryPage() {
 
   async function salvarTipo(patch: any) {
     try {
-      const c = await api.setCardapioConfig({ ...(lojaCfg ?? {}), ...patch });
+      // Só o que mudou, pelo mesmo motivo do `toggleCfg`: a configuração do cardápio é editada
+      // também em Configurações → Loja, e esta tela fica aberta o dia todo.
+      const c = await api.setCardapioConfig(patch);
       setLojaCfg(c);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
