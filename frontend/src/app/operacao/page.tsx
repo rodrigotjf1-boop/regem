@@ -2,14 +2,14 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Pencil, ArrowRight } from 'lucide-react';
+import { Plus, ArrowRight } from 'lucide-react';
 import { api, getToken, podeVerFinanceiro } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { SkeletonList } from '@/components/ui/skeleton';
 import { EntityForm, type FieldDef } from '@/components/cadastros/entity-form';
-import { InsumoForm } from '@/components/estoque/insumo-form';
+import { ProdutosSecao } from '@/components/estoque/produtos-secao';
 import { PainelSecao } from '@/components/estoque/painel-secao';
 import { ContagemSecao } from '@/components/estoque/contagem-secao';
 import { ComprasSecao } from '@/components/estoque/compras-secao';
@@ -38,7 +38,7 @@ const brl = (n: number) =>
 
 type Secao =
   | 'painel'
-  | 'insumos'
+  | 'produtos'
   | 'contagem'
   | 'compras'
   | 'recebimento'
@@ -49,16 +49,16 @@ type Secao =
 
 // `href` = seção que vive em outra rota (abre a página em vez de trocar a aba).
 const SECOES: { key: Secao | 'fichas'; label: string; href?: string }[] = [
-  { key: 'painel', label: '📊 Painel' },
-  { key: 'insumos', label: '📦 Insumos' },
-  { key: 'fichas', label: '🧾 Fichas técnicas', href: '/fichas' },
-  { key: 'contagem', label: '🧮 Contagem' },
-  { key: 'compras', label: '🛒 Compras' },
-  { key: 'recebimento', label: '🚚 Recebimento' },
-  { key: 'validades', label: '🗓️ Validades' },
-  { key: 'etiquetas', label: '🏷️ Etiquetas' },
-  { key: 'desperdicio', label: '♻️ Desperdício' },
-  { key: 'vistorias', label: '✔️ Vistorias' },
+  { key: 'painel', label: 'Painel' },
+  { key: 'produtos', label: 'Produtos' },
+  { key: 'fichas', label: 'Fichas técnicas', href: '/fichas' },
+  { key: 'contagem', label: 'Contagem' },
+  { key: 'compras', label: 'Compras' },
+  { key: 'recebimento', label: 'Recebimento' },
+  { key: 'validades', label: 'Validades' },
+  { key: 'etiquetas', label: 'Etiquetas' },
+  { key: 'desperdicio', label: 'Desperdício' },
+  { key: 'vistorias', label: 'Vistorias' },
 ];
 
 export default function EstoquePage() {
@@ -72,9 +72,6 @@ export default function EstoquePage() {
   const [recebimentos, setRecebimentos] = useState<any[]>([]);
   const [lotes, setLotes] = useState<any[]>([]);
   const [showReceb, setShowReceb] = useState(false);
-  const [novoInsumo, setNovoInsumo] = useState(false);
-  const [editItem, setEditItem] = useState<any>(null);
-  const [movItem, setMovItem] = useState(false);
   const [pronto, setPronto] = useState(false);
   const [erro, setErro] = useState('');
   const [ver, setVer] = useState(0);
@@ -158,13 +155,7 @@ export default function EstoquePage() {
 
   const optCat: { id: string; nome: string }[] = categorias.map((c: any) => ({ id: c.id, nome: c.nome }));
   const optForn: { id: string; nome: string }[] = fornecedores.map((f: any) => ({ id: f.id, nome: f.nome }));
-  const optItens = itens.map((i: any) => ({ value: i.id, label: `${i.nome} (${i.saldo} ${i.unidadeMedida})` }));
   const hoje = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
-  const TIPO_MOV = [
-    { value: 'entrada', label: 'Entrada' },
-    { value: 'saida', label: 'Saída' },
-    { value: 'ajuste', label: 'Ajuste' },
-  ];
   const TIPO_VIST = [
     { value: 'abertura', label: 'Abertura' },
     { value: 'fechamento', label: 'Fechamento' },
@@ -172,7 +163,6 @@ export default function EstoquePage() {
   ];
 
   const verFin = podeVerFinanceiro(); // valor do estoque (R$) conforme permissão do perfil
-  const valorTotal = itens.reduce((s, i) => s + Number(i.valorEstoque ?? 0), 0);
 
   return (
     <Shell
@@ -180,7 +170,7 @@ export default function EstoquePage() {
       title="Estoque"
       actions={
         <div className="flex flex-wrap gap-2">
-          {/* Fichas técnicas desceu para a linha de seções (entre Insumos e Contagem). */}
+          {/* Fichas técnicas desceu para a linha de seções (entre Produtos e Contagem). */}
           {/* Inteligência de estoque = motor de custo (financeiro) → só presidente/C&O */}
           {verFin && (
             <Button size="sm" variant="outline" onClick={() => router.push('/estoque')}>
@@ -196,7 +186,7 @@ export default function EstoquePage() {
           <label className="flex items-center justify-between gap-3">
             <span className="text-sm">
               <span className="font-semibold">Pausar no cardápio ao esgotar o estoque</span>
-              <span className="block text-xs text-muted-foreground">
+              <span className="block text-xs text-secondary-foreground">
                 Produto com estoque controlado vira &quot;Esgotado&quot; no cardápio quando o insumo acaba; volta sozinho ao repor.
               </span>
             </span>
@@ -229,10 +219,10 @@ export default function EstoquePage() {
                 type="button"
                 onClick={() => (s.href ? router.push(s.href) : setSecao(s.key as Secao))}
                 aria-pressed={ativo ? 'true' : 'false'}
-                className={`shrink-0 whitespace-nowrap rounded-md border px-3 py-1.5 text-sm font-medium ${
+                className={`min-h-10 shrink-0 whitespace-nowrap rounded-md border px-3.5 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
                   ativo
-                    ? 'border-primary bg-primary/15 text-primary'
-                    : 'border-border text-muted-foreground hover:border-primary/50'
+                    ? 'border-primary bg-primary font-bold text-primary-foreground'
+                    : 'border-input bg-card font-semibold text-secondary-foreground hover:border-secondary-foreground hover:text-foreground'
                 }`}
               >
                 {s.label}
@@ -246,104 +236,9 @@ export default function EstoquePage() {
         {/* ---------- PAINEL (E4) ---------- */}
         {secao === 'painel' && <PainelSecao itens={itens} />}
 
-        {/* ---------- INSUMOS ---------- */}
-        {secao === 'insumos' && (
-          <section className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="font-display font-semibold">Insumos</h2>
-                <p className="text-xs text-muted-foreground">
-                  {itens.length} itens{verFin ? ` · valor em estoque ${brl(valorTotal)}` : ''}
-                </p>
-              </div>
-              {!novoInsumo && !editItem && (
-                <Button size="sm" onClick={() => setNovoInsumo(true)}>
-                  <Plus className="h-4 w-4" /> Novo insumo
-                </Button>
-              )}
-            </div>
-
-            {(novoInsumo || editItem) && (
-              <InsumoForm
-                item={editItem ?? undefined}
-                categorias={optCat}
-                fornecedores={optForn}
-                onCancel={() => { setNovoInsumo(false); setEditItem(null); }}
-                onReload={reload}
-                onSaved={() => { setNovoInsumo(false); setEditItem(null); reload(); }}
-              />
-            )}
-
-            {/* Registrar movimento */}
-            {optItens.length > 0 && (
-              <Card className="p-4">
-                <button type="button" className="mb-2 text-sm font-medium text-primary hover:underline"
-                  onClick={() => setMovItem((v) => !v)}>
-                  {movItem ? 'Fechar movimento' : '↕ Registrar movimento (entrada/saída/ajuste)'}
-                </button>
-                {movItem && (
-                  <EntityForm
-                    key={`mov-${ver}`}
-                    submitLabel="Registrar movimento"
-                    fields={[
-                      { name: 'itemId', label: 'Item', type: 'select', required: true, options: optItens, defaultValue: optItens[0]?.value },
-                      { name: 'tipo', label: 'Tipo', type: 'select', options: TIPO_MOV, defaultValue: 'entrada' },
-                      { name: 'quantidade', label: 'Quantidade', type: 'text', required: true, placeholder: '0' },
-                      { name: 'data', label: 'Data', type: 'date', defaultValue: hoje },
-                    ] as FieldDef[]}
-                    onSubmit={async (v) => {
-                      await api.post('/estoque/movimentos', { itemId: v.itemId, tipo: v.tipo, quantidade: Number(v.quantidade), data: v.data || undefined });
-                      await reload();
-                    }}
-                  />
-                )}
-              </Card>
-            )}
-
-            {itens.length === 0 && !novoInsumo && (
-              <Card className="p-6 text-center text-sm text-muted-foreground">
-                Nenhum insumo cadastrado. Cadastre os produtos de ficha técnica, embalagens e limpeza.
-              </Card>
-            )}
-            {itens.map((i: any) => {
-              // Abaixo do mínimo vem do servidor, loja por loja: em "todas", o saldo somado
-              // pode cobrir a soma dos mínimos com uma loja em falta.
-              const abaixo = i.abaixoMinimo ?? Number(i.saldo) < Number(i.estoqueMinimo);
-              return (
-                <Card key={i.id} className="flex items-center justify-between gap-3 p-4">
-                  <div className="min-w-0">
-                    <p className="flex items-center gap-1.5 font-medium">
-                      {i.categoriaCor && (
-                        <span className="h-2.5 w-2.5 flex-none rounded-full" style={{ background: i.categoriaCor }} />
-                      )}
-                      {i.nome}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {i.categoriaNome ? `${i.categoriaNome} · ` : ''}
-                      {i.fornecedorNome ? `${i.fornecedorNome} · ` : ''}
-                      mín. {i.estoqueMinimo} {i.unidadeMedida}
-                      {Number(i.custoMedio) > 0 ? ` · custo méd. ${brl(Number(i.custoMedio))}` : ''}
-                      {i.conversoes?.length ? ` · ${i.conversoes.length} conversão(ões)` : ''}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="text-right">
-                      <Badge className={abaixo ? 'bg-destructive/10 text-destructive' : 'bg-ok/10 text-ok'}>
-                        {i.saldo} {i.unidadeMedida}
-                      </Badge>
-                      {Number(i.valorEstoque) > 0 && (
-                        <p className="mt-1 font-mono text-xs text-muted-foreground">{brl(Number(i.valorEstoque))}</p>
-                      )}
-                    </div>
-                    <Button type="button" variant="ghost" size="icon" aria-label="Editar insumo"
-                      onClick={() => { setEditItem(i); setNovoInsumo(false); }}>
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </Card>
-              );
-            })}
-          </section>
+        {/* ---------- PRODUTOS (o cadastro do estoque) ---------- */}
+        {secao === 'produtos' && (
+          <ProdutosSecao itens={itens} categorias={optCat} fornecedores={optForn} verFin={verFin} reload={reload} />
         )}
 
         {/* ---------- CONTAGEM (E2) ---------- */}

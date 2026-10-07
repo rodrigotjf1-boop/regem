@@ -47,7 +47,7 @@ export function PainelSecao({ itens }: { itens: any[] }) {
     <section className="space-y-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {verFin && <KPI label="Valor em estoque" valor={brl(valorTotal)} />}
-        <KPI label="Insumos" valor={String(itens.length)} />
+        <KPI label="Produtos" valor={String(itens.length)} />
         <KPI label="Abaixo do mínimo" valor={String(criticos)} tom={criticos ? 'text-warn' : ''} />
         <KPI label="Zerados" valor={String(zerados)} tom={zerados ? 'text-destructive' : ''} />
       </div>
@@ -81,9 +81,9 @@ export function PainelSecao({ itens }: { itens: any[] }) {
 
       {/* Insumos por categoria — valor (presidente) ou quantidade (gerente) */}
       <Card className="p-4">
-        <p className="mb-3 font-display text-sm font-bold">{verFin ? 'Valor por categoria' : 'Insumos por categoria'}</p>
+        <p className="mb-3 font-display text-sm font-bold">{verFin ? 'Valor por categoria' : 'Produtos por categoria'}</p>
         {categorias.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nenhum insumo cadastrado.</p>
+          <p className="text-sm text-muted-foreground">Nenhum produto cadastrado.</p>
         ) : (
           <div className="space-y-2">
             {categorias.map((c) => (

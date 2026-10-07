@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regem — Estoque › Produtos (mockup)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* MOCKUP da tela Estoque › Produtos (ex-"Insumos") — aprovado pelo dono em 07/10/2026.
+   Dados inventados; nada aqui fala com o Regem. Tokens do Regem (.app-light).
+   O que ele define: (1) criar/editar abre numa GAVETA lateral, com a lista à vista — não mais um
+   formulário no topo da página; (2) movimentar e excluir abrem em diálogo; (3) importar é um
+   assistente de três passos (arquivo → unidades e opções → conferência) e nada é gravado antes do
+   último botão; (4) unidade de medida é LISTA FECHADA, inclusive nas conversões; (5) abas e
+   rótulos em tinta legível (o texto cinza claro saiu).
+   Onde a tela real difere, de propósito:
+   - a gaveta mantém o que o formulário antigo já tinha e o mockup não mostra: "＋ nova categoria",
+     "＋ novo fornecedor", data de validade e "imprimir etiquetas ao salvar";
+   - a tabela vira cartões abaixo de 1280 px (aqui, abaixo de 760), porque o menu lateral ocupa
+     240 px; o texto dos botões da linha aparece a partir de 1536 px (antes disso, só o ícone);
+   - "Observação" do movimento se chama "Motivo" (o nome do campo que já existia);
+   - a conferência da importação tem filtro por situação e botões para marcar os parecidos;
+   - ícones do sistema (lucide) no lugar dos caracteres. */
+:root{
+  --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --ink-3:#5F7286; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E8A845; --on-gold:#281B06; --navy:#0F2230; --ok:#157F5A; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9;
+  --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8; --radius:12px;
+  --display:'Archivo',sans-serif; --body:'Figtree',sans-serif; --mono:'JetBrains Mono',monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:var(--body);background:var(--bg);color:var(--ink);font-size:15px;line-height:1.45}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid #3A7FB8;outline-offset:2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+[hidden]{display:none!important}
+
+.app{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh}
+.lado{background:var(--navy);color:#C9D6E2;padding:16px 10px}
+.lado .marca{display:flex;align-items:center;gap:10px;padding:4px 8px 16px;color:#fff;font-family:var(--display);font-weight:700;font-size:18px}
+.lado .marca svg{width:30px;height:30px}
+.lado a{display:block;padding:9px 12px;border-radius:10px;color:inherit;text-decoration:none;font-weight:600;font-size:14px}
+.lado a[aria-current]{background:rgba(232,168,69,.18);color:#fff;box-shadow:inset 3px 0 0 var(--gold)}
+main{min-width:0;padding:20px 24px 80px}
+.trilha{font-family:var(--display);font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#9A6A12}
+h1{font-family:var(--display);font-size:26px;margin:2px 0 14px}
+
+/* abas: o texto apagado saiu — inativa em tinta sobre branco, ativa em dourado cheio */
+.abas{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;margin-bottom:16px}
+.aba{flex:none;min-height:40px;padding:8px 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);color:var(--ink-2);font-weight:600;font-size:14px;white-space:nowrap}
+.aba:hover{border-color:var(--ink-3);color:var(--ink)}
+.aba[aria-selected="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+
+.barra{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:12px}
+.barra h2{font-family:var(--display);font-size:20px;margin:0}
+.barra .resumo{color:var(--ink-2);font-size:13.5px;margin:2px 0 0}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+.bt{display:inline-flex;align-items:center;gap:7px;min-height:40px;padding:0 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);font-weight:600;font-size:14px}
+.bt:hover{border-color:var(--ink-3)}
+.bt.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.bt.perigo{background:var(--crit);border-color:var(--crit);color:#fff}
+.bt.fantasma{border-color:transparent;background:transparent}
+.bt[disabled]{opacity:.5;cursor:not-allowed}
+
+.filtros{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr) minmax(0,1fr) auto;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin-bottom:12px}
+.campo{display:flex;flex-direction:column;gap:4px;min-width:0}
+.campo label,.rot{font-size:12.5px;font-weight:700;color:var(--ink-2)}
+.campo input,.campo select,.campo textarea{min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 12px;background:#fff;width:100%}
+.campo textarea{padding:8px 12px;min-height:64px}
+.campo .ajuda{font-size:12.5px;color:var(--ink-2)}
+.alternar{align-self:end;min-height:40px;display:flex;align-items:center;gap:8px;padding:0 12px;border:1px solid var(--line-2);border-radius:10px;background:#fff;font-weight:600;font-size:14px;white-space:nowrap}
+.alternar[aria-pressed="true"]{background:var(--crit-bg);border-color:var(--crit);color:var(--crit)}
+
+.tabela{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow-x:auto}
+table{width:100%;border-collapse:collapse;min-width:860px}
+th{font-size:12px;letter-spacing:.06em;text-transform:uppercase;text-align:left;color:var(--ink-2);background:#F7F9FB;padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tbody tr:hover{background:#FAFBFD}
+.nome{font-weight:700}
+.sub{font-size:12.5px;color:var(--ink-2)}
+.ponto{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px}
+.num{font-family:var(--mono);font-size:13.5px;white-space:nowrap}
+.selo{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;font-weight:700;font-size:12.5px;white-space:nowrap}
+.selo.ok{background:var(--ok-bg);color:var(--ok)} .selo.crit{background:var(--crit-bg);color:var(--crit)}
+.selo.info{background:var(--info-bg);color:var(--info)} .selo.warn{background:var(--warn-bg);color:var(--warn)} .selo.neutro{background:#EEF2F6;color:var(--ink-2)}
+.linha-acoes{display:flex;gap:4px;justify-content:flex-end}
+.ic{display:inline-flex;align-items:center;gap:6px;min-width:40px;min-height:40px;justify-content:center;border-radius:10px;border:1px solid transparent;background:transparent;padding:0 8px;font-weight:600;font-size:13px;color:var(--ink-2);white-space:nowrap}
+.ic .tx{display:none}
+@media (min-width:1280px){ .ic .tx{display:inline} }
+.ic:hover{background:#EEF2F6;border-color:var(--line-2);color:var(--ink)}
+.ic.perigo:hover{background:var(--crit-bg);border-color:var(--crit);color:var(--crit)}
+.vazio{padding:36px 16px;text-align:center;color:var(--ink-2)}
+
+/* sobrepostos */
+.fundo{position:fixed;inset:0;background:rgba(15,34,48,.45);z-index:40}
+.gaveta{position:fixed;top:0;right:0;bottom:0;width:min(560px,100%);background:var(--card);z-index:50;display:flex;flex-direction:column;box-shadow:-12px 0 32px rgba(15,34,48,.18)}
+.gaveta header,.dialogo header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line)}
+.gaveta h3,.dialogo h3{font-family:var(--display);font-size:19px;margin:0}
+.gaveta .corpo{flex:1;overflow-y:auto;padding:16px 20px;display:grid;gap:14px;align-content:start}
+.gaveta footer,.dialogo footer{display:flex;gap:8px;justify-content:flex-end;padding:14px 20px;border-top:1px solid var(--line);background:#F7F9FB}
+.duas{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.fichas{display:flex;flex-wrap:wrap;gap:6px}
+.ficha{padding:6px 11px;border-radius:999px;border:1px solid var(--line-2);background:#fff;font-weight:600;font-size:13px;color:var(--ink-2)}
+.ficha[aria-pressed="true"]{background:#FFF4DF;border-color:var(--gold);color:#6B4505}
+.conv{display:grid;grid-template-columns:auto minmax(0,1fr) auto 84px minmax(0,1fr) auto;gap:6px;align-items:center}
+.conv select,.conv input,.dialogo td select{min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 10px;background:#fff;width:100%;min-width:0}
+.conta{background:var(--info-bg);color:var(--info);border-radius:10px;padding:8px 12px;font-weight:600;font-size:13.5px}
+.dialogo{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(520px,calc(100% - 24px));max-height:calc(100% - 24px);background:var(--card);z-index:50;border-radius:16px;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(15,34,48,.3)}
+.dialogo.largo{width:min(940px,calc(100% - 24px))}
+.dialogo .corpo{padding:16px 20px;overflow-y:auto;display:grid;gap:12px}
+.seg{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line-2);border-radius:10px;overflow:hidden}
+.seg button{min-height:40px;border:none;background:#fff;font-weight:600;border-right:1px solid var(--line-2)}
+.seg button:last-child{border-right:none}
+.seg button[aria-pressed="true"]{background:var(--navy);color:#fff}
+.aviso{border-left:4px solid var(--crit);background:var(--crit-bg);padding:10px 12px;border-radius:8px;font-size:14px}
+.aviso.neutro{border-color:var(--info);background:var(--info-bg)}
+.passos{display:flex;gap:8px;flex-wrap:wrap;margin:0;padding:0;list-style:none}
+.passos li{padding:5px 11px;border-radius:999px;border:1px solid var(--line-2);font-weight:600;font-size:13px;color:var(--ink-2)}
+.passos li[aria-current]{background:var(--navy);border-color:var(--navy);color:#fff}
+.menu{position:relative}
+.menu ul{position:absolute;right:0;top:44px;margin:0;padding:6px;list-style:none;background:#fff;border:1px solid var(--line-2);border-radius:12px;box-shadow:0 12px 28px rgba(15,34,48,.16);min-width:210px;z-index:30}
+.menu li button{display:block;width:100%;text-align:left;padding:9px 12px;border:none;background:none;border-radius:8px;font-weight:600}
+.menu li button:hover{background:#EEF2F6}
+#toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--navy);color:#fff;padding:11px 18px;border-radius:12px;font-weight:600;z-index:60;box-shadow:0 10px 26px rgba(0,0,0,.25)}
+
+@media (max-width:1000px){ .app{grid-template-columns:1fr} .lado{display:none} main{padding:16px 16px 80px} }
+@media (max-width:760px){
+  .filtros{grid-template-columns:1fr 1fr} .filtros .campo:first-child{grid-column:1 / -1}
+  main .tabela{border:none;background:none;overflow:visible} main table{min-width:0} main thead{display:none}
+  main tbody tr{display:block;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin-bottom:10px}
+  main td{display:flex;justify-content:space-between;align-items:baseline;gap:12px;border:none;padding:4px 0}
+  main td::before{content:attr(data-rot);flex:none;font-size:12.5px;font-weight:700;color:var(--ink-2)}
+  main td .v{text-align:right;min-width:0}
+  main td.c-nome{display:block} main td.c-nome::before,main td.c-acoes::before{content:none}
+  main td.c-acoes{justify-content:stretch;margin-top:8px} .linha-acoes{width:100%;justify-content:space-between} .linha-acoes .ic{flex:1;border-color:var(--line-2)} .linha-acoes .ic .tx{display:inline}
+  .duas{grid-template-columns:1fr} .conv{grid-template-columns:auto 1fr auto 72px 1fr auto}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="lado" aria-label="Menu principal">
+    <div class="marca"><svg viewBox="0 0 80 80" aria-hidden="true"><circle cx="40" cy="40" r="29" fill="none" stroke="#E2A340" stroke-width="4.5"/><path d="M33 28V54M33 28H42A7.5 7 0 0 1 42 42H33M36 42L49 54" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="60.5" cy="19.5" r="5.5" fill="#F2C277"/></svg>Regem</div>
+    <a href="#">Dashboard</a><a href="#">PDV · Balcão</a><a href="#">Delivery</a><a href="#">Tarefas</a><a href="#">Escalas</a>
+    <a href="#" aria-current="page">Estoque</a><a href="#">Ponto de baixa (QR)</a><a href="#">Checklist &amp; registros</a><a href="#">Financeiro</a><a href="#">Cadastros</a><a href="#">Configurações</a>
+  </nav>
+
+  <main>
+    <div class="trilha">Insumos &amp; produção</div>
+    <h1>Estoque</h1>
+    <div class="abas" role="tablist" aria-label="Seções do estoque">
+      <button class="aba" role="tab" aria-selected="false">Painel</button>
+      <button class="aba" role="tab" aria-selected="true">Produtos</button>
+      <button class="aba" role="tab" aria-selected="false">Fichas técnicas</button>
+      <button class="aba" role="tab" aria-selected="false">Contagem</button>
+      <button class="aba" role="tab" aria-selected="false">Compras</button>
+      <button class="aba" role="tab" aria-selected="false">Recebimento</button>
+      <button class="aba" role="tab" aria-selected="false">Validades</button>
+      <button class="aba" role="tab" aria-selected="false">Etiquetas</button>
+      <button class="aba" role="tab" aria-selected="false">Desperdício</button>
+      <button class="aba" role="tab" aria-selected="false">Vistorias</button>
+    </div>
+
+    <div class="barra">
+      <div>
+        <h2>Produtos</h2>
+        <p class="resumo" id="resumo" role="status" aria-live="polite"></p>
+      </div>
+      <div class="acoes">
+        <button class="bt" id="bImportar">Importar</button>
+        <div class="menu">
+          <button class="bt" id="bExportar" aria-haspopup="true" aria-expanded="false">Exportar ▾</button>
+          <ul id="mExportar" hidden>
+            <li><button data-exp="Excel (.xlsx)">Excel (.xlsx)</button></li>
+            <li><button data-exp="CSV">CSV (planilha simples)</button></li>
+          </ul>
+        </div>
+        <button class="bt pri" id="bNovo">＋ Novo produto</button>
+      </div>
+    </div>
+
+    <div class="filtros">
+      <div class="campo"><label for="fBusca">Buscar por nome</label><input id="fBusca" type="search" placeholder="Ex.: refrigerante, queijo, embalagem" autocomplete="off"></div>
+      <div class="campo"><label for="fCat">Categoria</label><select id="fCat"></select></div>
+      <div class="campo"><label for="fForn">Fornecedor</label><select id="fForn"></select></div>
+      <button class="alternar" id="fMin" aria-pressed="false">Abaixo do mínimo <span class="num" id="nMin"></span></button>
+    </div>
+
+    <div class="tabela">
+      <table>
+        <caption class="sr">Produtos do estoque, com saldo, estoque mínimo e ações</caption>
+        <thead><tr><th>Produto</th><th>Fornecedores</th><th>Setores</th><th>Saldo</th><th>Mínimo</th><th>Custo médio</th><th><span class="sr">Ações</span></th></tr></thead>
+        <tbody id="linhas"></tbody>
+      </table>
+      <div class="vazio" id="vazio" hidden></div>
+    </div>
+  </main>
+</div>
+
+<div class="fundo" id="fundo" hidden></div>
+
+<!-- GAVETA: criar / editar -->
+<aside class="gaveta" id="gaveta" role="dialog" aria-modal="true" aria-labelledby="gTitulo" hidden>
+  <header><h3 id="gTitulo">Novo produto</h3><button class="ic" data-fechar aria-label="Fechar">✕</button></header>
+  <div class="corpo">
+    <div class="campo"><label for="pNome">Nome do produto</label><input id="pNome" placeholder="Ex.: Pão brioche"><span class="ajuda" id="pNomeAviso" role="alert"></span></div>
+    <div class="duas">
+      <div class="campo"><label for="pCat">Categoria</label><select id="pCat"></select></div>
+      <div class="campo"><label for="pUn">Unidade principal</label><select id="pUn"></select><span class="ajuda">É nela que o saldo e o mínimo são contados.</span></div>
+    </div>
+    <div><div class="rot">Fornecedores</div><p class="sub" style="margin:2px 0 6px">Marque um ou mais. O primeiro é o principal.</p><div class="fichas" id="pForn"></div></div>
+    <div><div class="rot">Setores de estoque</div><p class="sub" style="margin:2px 0 6px">Onde o produto fica guardado. Pode ser mais de um.</p><div class="fichas" id="pSet"></div></div>
+    <div class="duas">
+      <div class="campo"><label for="pMin">Estoque mínimo, em <span id="pMinUn">unidade</span></label><input id="pMin" type="number" inputmode="decimal" min="0" placeholder="0"></div>
+      <div class="campo"><label for="pVal">Validade após aberto (dias)</label><input id="pVal" type="number" inputmode="numeric" min="0" placeholder="ex.: 3"></div>
+    </div>
+    <div class="conta" id="pConta" hidden></div>
+    <div>
+      <div style="display:flex;justify-content:space-between;align-items:center"><div class="rot">Conversões</div><button class="bt" id="bConv" type="button">＋ Conversão</button></div>
+      <p class="sub" style="margin:2px 0 8px">Quanto cabe em cada embalagem. As unidades são escolhidas na lista, não digitadas.</p>
+      <div id="pConvs" style="display:grid;gap:8px"></div>
+    </div>
+  </div>
+  <footer><button class="bt" data-fechar>Cancelar</button><button class="bt pri" id="bSalvar">Cadastrar produto</button></footer>
+</aside>
+
+<!-- DIÁLOGO: movimentar -->
+<div class="dialogo" id="dMov" role="dialog" aria-modal="true" aria-labelledby="mTitulo" hidden>
+  <header><h3 id="mTitulo">Movimentar</h3><button class="ic" data-fechar aria-label="Fechar">✕</button></header>
+  <div class="corpo">
+    <p class="sub" id="mSaldo" style="margin:0"></p>
+    <div><div class="rot" style="margin-bottom:4px">Tipo</div><div class="seg" id="mTipo"><button aria-pressed="true" data-t="entrada">Entrada</button><button aria-pressed="false" data-t="saida">Saída</button><button aria-pressed="false" data-t="ajuste">Ajuste</button></div></div>
+    <div class="duas">
+      <div class="campo"><label for="mQtd" id="mQtdRot">Quantidade</label><input id="mQtd" type="number" inputmode="decimal" placeholder="0"></div>
+      <div class="campo"><label for="mData">Data</label><input id="mData" type="date" value="2026-10-07"></div>
+    </div>
+    <div class="campo"><label for="mObs">Observação (opcional)</label><input id="mObs" placeholder="Ex.: compra no atacado, conferência do estoque"></div>
+    <div class="conta" id="mDepois"></div>
+  </div>
+  <footer><button class="bt" data-fechar>Cancelar</button><button class="bt pri" id="bMov">Registrar movimento</button></footer>
+</div>
+
+<!-- DIÁLOGO: excluir -->
+<div class="dialogo" id="dExc" role="alertdialog" aria-modal="true" aria-labelledby="eTitulo" aria-describedby="eTexto" hidden>
+  <header><h3 id="eTitulo">Excluir produto</h3><button class="ic" data-fechar aria-label="Fechar">✕</button></header>
+  <div class="corpo" id="eTexto"></div>
+  <footer id="eRodape"></footer>
+</div>
+
+<!-- DIÁLOGO: importar (assistente) -->
+<div class="dialogo largo" id="dImp" role="dialog" aria-modal="true" aria-labelledby="iTitulo" hidden>
+  <header><h3 id="iTitulo">Importar produtos</h3><button class="ic" data-fechar aria-label="Fechar">✕</button></header>
+  <div class="corpo" id="iCorpo"></div>
+  <footer id="iRodape"></footer>
+</div>
+
+<div id="toast" role="status" aria-live="polite" hidden></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const UNIDADES = ['unidade','caixa','fardo','pacote','saco','lata','garrafa','pote','bisnaga','bandeja','galão','balde','rolo','fita','peça','dúzia','maço','cartela','porção','kg','grama','litro','ml'];
+const CATS = [['Bebidas','#3A7FB8'],['Laticínios','#E8A845'],['Congelados','#5B8DEF'],['Embalagens','#8A6FD1'],['Insumos','#1FA875'],['Limpeza','#7E90A2']];
+const FORNS = ['Atacado Central','Distribuidora Boa Vista','Hortifruti da Serra','Verdes do Sítio','Frios & Cia'];
+const SETORES = ['Depósito 1','Câmara fria','Bar','Cozinha'];
+let itens = [
+  { id:1, nome:'Refrigerante cola lata 350 ml', cat:'Bebidas', forn:['Atacado Central','Distribuidora Boa Vista'], set:['Depósito 1','Bar'], un:'fardo', saldo:3, min:5, custo:39.9, conv:[['fardo',12,'unidade']], ficha:false },
+  { id:2, nome:'Refrigerante uva lata 350 ml', cat:'Bebidas', forn:['Distribuidora Boa Vista'], set:['Depósito 1'], un:'fardo', saldo:16, min:5, custo:37.99, conv:[['fardo',12,'unidade']], ficha:false },
+  { id:3, nome:'Queijo muçarela peça', cat:'Laticínios', forn:['Hortifruti da Serra'], set:['Câmara fria'], un:'kg', saldo:11.6, min:5, custo:23.06, conv:[], ficha:true },
+  { id:4, nome:'Guaraná copo 290 ml', cat:'Bebidas', forn:['Distribuidora Boa Vista','Hortifruti da Serra'], set:['Depósito 1'], un:'caixa', saldo:19, min:5, custo:24.99, conv:[['caixa',24,'unidade']], ficha:false },
+  { id:5, nome:'Alface', cat:'Insumos', forn:['Verdes do Sítio'], set:['Câmara fria','Cozinha'], un:'saco', saldo:8, min:8, custo:11.12, conv:[], ficha:true },
+  { id:6, nome:'Embalagem hambúrguer kraft', cat:'Embalagens', forn:['Atacado Central'], set:['Depósito 1'], un:'pacote', saldo:0, min:4, custo:18.5, conv:[['pacote',100,'unidade']], ficha:true },
+  { id:7, nome:'Detergente neutro 5 L', cat:'Limpeza', forn:['Atacado Central'], set:['Depósito 1'], un:'galão', saldo:2, min:1, custo:21.9, conv:[], ficha:false },
+  { id:8, nome:'Batata palito congelada', cat:'Congelados', forn:['Frios & Cia'], set:['Câmara fria'], un:'pacote', saldo:0, min:6, custo:32.4, conv:[['pacote',2.5,'kg']], ficha:false },
+];
+const brl = (n) => n.toLocaleString('pt-BR', { style:'currency', currency:'BRL' });
+const num = (n) => Number(n).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+const semAcento = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
+const equivalente = (i, q) => { const c = i.conv.find((x) => x[0] === i.un); return c && q > 0 ? `${num(q * c[1])} ${c[2]}` : ''; };
+function avisar(t) { const x = $('#toast'); x.textContent = t; x.hidden = false; clearTimeout(avisar.t); avisar.t = setTimeout(() => (x.hidden = true), 2600); }
+
+// ── lista + filtros ──
+function opcoes(sel, lista, todos) { sel.innerHTML = (todos ? `<option value="">${todos}</option>` : '') + lista.map((v) => `<option>${v}</option>`).join(''); }
+opcoes($('#fCat'), CATS.map((c) => c[0]), 'Todas as categorias');
+opcoes($('#fForn'), FORNS, 'Todos os fornecedores');
+function filtrados() {
+  const b = semAcento($('#fBusca').value), c = $('#fCat').value, f = $('#fForn').value, m = $('#fMin').getAttribute('aria-pressed') === 'true';
+  return itens.filter((i) => (!b || semAcento(i.nome).includes(b)) && (!c || i.cat === c) && (!f || i.forn.includes(f)) && (!m || i.saldo < i.min));
+}
+function desenhar() {
+  const l = filtrados();
+  const baixo = itens.filter((i) => i.saldo < i.min).length;
+  $('#nMin').textContent = baixo;
+  $('#resumo').textContent = `${l.length} de ${itens.length} produtos · valor em estoque ${brl(l.reduce((s, i) => s + i.saldo * i.custo, 0))}`;
+  $('#linhas').innerHTML = l.map((i) => {
+    const cor = (CATS.find((c) => c[0] === i.cat) || [])[1] || '#999', eq = equivalente(i, i.min), eqS = equivalente(i, i.saldo);
+    return `<tr>
+      <td class="c-nome"><div class="nome"><span class="ponto" style="background:${cor}"></span>${i.nome}</div><div class="sub">${i.cat}${i.ficha ? ' · usado em ficha técnica' : ''}</div></td>
+      <td data-rot="Fornecedores"><div class="v sub">${i.forn.join(', ') || '—'}</div></td>
+      <td data-rot="Setores"><div class="v sub">${i.set.join(', ') || '—'}</div></td>
+      <td data-rot="Saldo"><div class="v"><span class="selo ${i.saldo < i.min ? 'crit' : 'ok'}"><span class="num">${num(i.saldo)}</span> ${i.un}</span>${eqS ? `<div class="sub num">${eqS}</div>` : ''}</div></td>
+      <td data-rot="Mínimo"><div class="v"><span class="num">${num(i.min)}</span> ${i.un}${eq ? `<div class="sub num">= ${eq}</div>` : ''}</div></td>
+      <td data-rot="Custo médio"><div class="v num">${brl(i.custo)}</div></td>
+      <td class="c-acoes"><div class="linha-acoes">
+        <button class="ic" data-mov="${i.id}" aria-label="Movimentar ${i.nome}" title="Movimentar">↕<span class="tx">Movimentar</span></button>
+        <button class="ic" data-edit="${i.id}" aria-label="Editar ${i.nome}" title="Editar">✎<span class="tx">Editar</span></button>
+        <button class="ic perigo" data-exc="${i.id}" aria-label="Excluir ${i.nome}" title="Excluir">🗑<span class="tx">Excluir</span></button>
+      </div></td></tr>`;
+  }).join('');
+  const v = $('#vazio');
+  v.hidden = l.length > 0;
+  v.innerHTML = itens.length === 0 ? 'Nenhum produto cadastrado. Cadastre o primeiro ou importe uma planilha.' : 'Nenhum produto com esses filtros. <button class="bt" id="bLimpar" style="margin-left:8px">Limpar filtros</button>';
+}
+['#fBusca','#fCat','#fForn'].forEach((s) => $(s).addEventListener('input', desenhar));
+$('#fMin').onclick = (e) => { const b = e.currentTarget; b.setAttribute('aria-pressed', String(b.getAttribute('aria-pressed') !== 'true')); desenhar(); };
+
+// ── sobrepostos: foco entra, fica preso, Esc fecha, foco volta a quem abriu ──
+let aberto = null, quemAbriu = null;
+function abrir(el, foco) {
+  quemAbriu = document.activeElement; aberto = el; el.hidden = false; $('#fundo').hidden = false;
+  (foco ? el.querySelector(foco) : el.querySelector('input,select,button:not([data-fechar])'))?.focus();
+}
+function fechar() { if (!aberto) return; aberto.hidden = true; $('#fundo').hidden = true; aberto = null; quemAbriu?.focus(); }
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { if (!$('#mExportar').hidden) { $('#mExportar').hidden = true; $('#bExportar').setAttribute('aria-expanded','false'); $('#bExportar').focus(); return; } fechar(); }
+  if (e.key === 'Tab' && aberto) {
+    const f = [...aberto.querySelectorAll('button,input,select,textarea,[href]')].filter((x) => !x.disabled && x.offsetParent !== null);
+    if (!f.length) return;
+    if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f[f.length - 1].focus(); }
+    else if (!e.shiftKey && document.activeElement === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
+  }
+});
+$('#fundo').onclick = fechar;
+
+// ── gaveta: criar / editar ──
+let ed = null, convs = [];
+const selUn = (v, id) => `<select aria-label="${id}">${UNIDADES.map((u) => `<option${u === v ? ' selected' : ''}>${u}</option>`).join('')}</select>`;
+function desenharConvs() {
+  $('#pConvs').innerHTML = convs.map((c, k) => `<div class="conv" data-k="${k}"><span>1</span>${selUn(c[0], 'Embalagem')}<span>=</span><input type="number" inputmode="decimal" min="0" value="${c[1]}" aria-label="Quanto cabe">${selUn(c[2], 'Unidade de dentro')}<button class="ic perigo" data-tirar aria-label="Remover conversão">🗑</button></div>`).join('') || '<p class="sub" style="margin:0">Nenhuma conversão. Ex.: 1 fardo = 12 unidade.</p>';
+  conta();
+}
+function conta() {
+  const un = $('#pUn').value, min = Number($('#pMin').value), c = convs.find((x) => x[0] === un && Number(x[1]) > 0);
+  $('#pMinUn').textContent = un;
+  const el = $('#pConta');
+  el.hidden = !(c && min > 0);
+  if (c && min > 0) el.textContent = `Mínimo de ${num(min)} ${un} = ${num(min * c[1])} ${c[2]} (1 ${un} = ${num(c[1])} ${c[2]}).`;
+}
+function fichas(el, lista, marcados) { el.innerHTML = lista.map((n) => `<button type="button" class="ficha" aria-pressed="${marcados.includes(n)}">${n}</button>`).join(''); }
+function abrirGaveta(i) {
+  ed = i || null;
+  $('#gTitulo').textContent = i ? 'Editar produto' : 'Novo produto';
+  $('#bSalvar').textContent = i ? 'Salvar alterações' : 'Cadastrar produto';
+  $('#pNome').value = i?.nome || ''; $('#pNomeAviso').textContent = '';
+  opcoes($('#pCat'), CATS.map((c) => c[0]), '— sem categoria —'); $('#pCat').value = i?.cat || '';
+  opcoes($('#pUn'), UNIDADES); $('#pUn').value = i?.un || 'unidade';
+  fichas($('#pForn'), FORNS, i?.forn || []); fichas($('#pSet'), SETORES, i?.set || []);
+  $('#pMin').value = i?.min ?? ''; $('#pVal').value = '';
+  convs = (i?.conv || []).map((c) => [...c]); desenharConvs();
+  abrir($('#gaveta'), '#pNome');
+}
+$('#gaveta').addEventListener('click', (e) => {
+  const f = e.target.closest('.ficha'); if (f) f.setAttribute('aria-pressed', String(f.getAttribute('aria-pressed') !== 'true'));
+  if (e.target.closest('[data-tirar]')) { convs.splice(Number(e.target.closest('.conv').dataset.k), 1); desenharConvs(); }
+});
+$('#gaveta').addEventListener('input', (e) => {
+  const linha = e.target.closest('.conv');
+  if (linha) { const k = Number(linha.dataset.k), [a, q, b] = linha.querySelectorAll('select,input'); convs[k] = [a.value, Number(q.value), b.value]; }
+  conta();
+});
+$('#bConv').onclick = () => { convs.push([$('#pUn').value, '', 'unidade']); desenharConvs(); };
+$('#bNovo').onclick = () => abrirGaveta(null);
+$('#bSalvar').onclick = () => {
+  const nome = $('#pNome').value.trim();
+  if (!nome) { $('#pNomeAviso').textContent = 'Dê um nome ao produto.'; return $('#pNome').focus(); }
+  const igual = itens.find((x) => x !== ed && semAcento(x.nome) === semAcento(nome));
+  if (igual) { $('#pNomeAviso').textContent = `Já existe um produto com este nome: "${igual.nome}".`; return $('#pNome').focus(); }
+  const marcados = (s) => [...$(s).querySelectorAll('[aria-pressed="true"]')].map((b) => b.textContent);
+  const dados = { nome, cat: $('#pCat').value || 'Insumos', un: $('#pUn').value, forn: marcados('#pForn'), set: marcados('#pSet'), min: Number($('#pMin').value) || 0, conv: convs.filter((c) => Number(c[1]) > 0) };
+  if (ed) Object.assign(ed, dados); else itens.push({ id: Date.now(), saldo: 0, custo: 0, ficha: false, ...dados });
+  fechar(); desenhar(); avisar(ed ? 'Produto atualizado.' : 'Produto cadastrado.');
+};
+
+// ── movimentar ──
+let mv = null;
+function depois() {
+  const t = $('#mTipo [aria-pressed="true"]').dataset.t, q = Number($('#mQtd').value) || 0;
+  const novo = t === 'entrada' ? mv.saldo + q : t === 'saida' ? mv.saldo - q : q;
+  $('#mQtdRot').textContent = t === 'ajuste' ? `Saldo contado, em ${mv.un}` : `Quantidade, em ${mv.un}`;
+  $('#mDepois').textContent = `Saldo depois: ${num(novo)} ${mv.un}` + (t === 'ajuste' ? ` (diferença de ${num(novo - mv.saldo)})` : '');
+  return novo;
+}
+$('#mTipo').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; $('#mTipo').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); depois(); };
+$('#mQtd').oninput = depois;
+$('#bMov').onclick = () => { if (!$('#mQtd').value) return $('#mQtd').focus(); mv.saldo = depois(); fechar(); desenhar(); avisar('Movimento registrado.'); };
+
+// ── excluir ──
+function abrirExcluir(i) {
+  const motivos = [];
+  if (i.saldo !== 0) motivos.push(`tem <b>${num(i.saldo)} ${i.un}</b> em estoque`);
+  if (i.ficha) motivos.push('é ingrediente de <b>ficha técnica</b> (a venda deixaria de dar baixa nele)');
+  if (motivos.length) {
+    $('#eTitulo').textContent = 'Este produto não pode ser excluído agora';
+    $('#eTexto').innerHTML = `<p style="margin:0"><b>${i.nome}</b> ${motivos.join(' e ')}.</p><div class="aviso neutro">${i.saldo !== 0 ? 'Zere o saldo com um ajuste. ' : ''}${i.ficha ? 'Troque o ingrediente nas fichas que o usam. ' : ''}Depois disso a exclusão é liberada.</div>`;
+    $('#eRodape').innerHTML = '<button class="bt pri" data-fechar>Entendi</button>';
+  } else {
+    $('#eTitulo').textContent = 'Excluir produto';
+    $('#eTexto').innerHTML = `<p style="margin:0">Excluir <b>${i.nome}</b>?</p><div class="aviso">Ele sai das listas, das contagens e das sugestões de compra. O histórico (movimentos, perdas e etiquetas) continua guardado. Não dá para desfazer por aqui.</div>`;
+    $('#eRodape').innerHTML = `<button class="bt" data-fechar>Cancelar</button><button class="bt perigo" id="bExcluir">Excluir produto</button>`;
+    $('#bExcluir').onclick = () => { itens = itens.filter((x) => x !== i); fechar(); desenhar(); avisar('Produto excluído.'); };
+  }
+  abrir($('#dExc'), '#eRodape button');
+}
+
+// ── importar: arquivo → unidades e opções → conferência ──
+const IMP = { total: 48, iguais: 3, parecidos: 5, novos: 40 };
+const UN_ARQ = [['und','unidade',14],['cx','caixa',10],['pct','pacote',9],['kg','kg',8],['gl','galão',3],['rl','rolo',2],['pt','pote',1],['lt','',1]];
+const AMOSTRA = [['cebolinha picada','unidade','Insumos da produção','novo',''],['alface crespa','saco','Resfriados','novo',''],['tomate','kg','Insumos','igual','Tomate'],['refrigerante uva lata','pacote','Bebidas','parecido','Refrigerante uva lata 350 ml'],['refrigerante cola zero','pacote','Bebidas','parecido','Refrigerante cola zero lata 350 ml'],['queijo cheddar fatiado barra','peça','Resfriados','novo',''],['paçoca','unidade','Complementos de sobremesa','igual','Paçoca'],['margarina 1 kg','unidade','Insumos da produção','novo','']];
+function passo(n) {
+  const lista = `<ol class="passos"><li${n === 1 ? ' aria-current="step"' : ''}>1 · Arquivo</li><li${n === 2 ? ' aria-current="step"' : ''}>2 · Unidades e opções</li><li${n === 3 ? ' aria-current="step"' : ''}>3 · Conferência</li></ol>`;
+  if (n === 1) {
+    $('#iCorpo').innerHTML = lista + `<p style="margin:0">Escolha a planilha com os seus produtos. Aceita <b>Excel (.xlsx)</b> e <b>CSV</b>. O Regem reconhece a exportação do Alô Chefia e a do próprio Regem; em outra planilha, você indica qual coluna é o nome, a unidade e a categoria.</p>
+      <div class="campo"><label for="iArq">Arquivo</label><input id="iArq" type="file" accept=".xlsx,.csv" style="padding:8px"></div>
+      <div class="aviso neutro">Nada é gravado antes da conferência do passo 3. Produto que já existe no Regem não é importado de novo.</div>`;
+    $('#iRodape').innerHTML = '<button class="bt" data-fechar>Cancelar</button><button class="bt pri" id="iProx">Usar o arquivo de exemplo →</button>';
+  } else if (n === 2) {
+    $('#iCorpo').innerHTML = lista + `<p style="margin:0"><b>relatorio-de-estoque.xlsx</b> — reconhecido como <b>Alô Chefia · Relatório de Estoque</b>: ${IMP.total} produtos.</p>
+      <div><div class="rot" style="margin-bottom:6px">Unidades do arquivo → unidade do Regem</div><div class="tabela"><table style="min-width:420px"><caption class="sr">Unidades encontradas no arquivo</caption><thead><tr><th>No arquivo</th><th>Produtos</th><th>Vira</th></tr></thead><tbody>${UN_ARQ.map((u) => `<tr><td class="num">${u[0]}</td><td class="num">${u[2]}</td><td>${selUn(u[1] || 'unidade', 'Unidade do Regem para ' + u[0])}</td></tr>`).join('')}</tbody></table></div></div>
+      <div style="display:grid;gap:8px">
+        <label><input type="checkbox" checked> Padronizar os nomes (primeira letra maiúscula)</label>
+        <label><input type="checkbox" checked> Trazer o estoque mínimo</label>
+        <label><input type="checkbox" checked> Trazer o custo (coluna "Preço médio")</label>
+        <label><input type="checkbox"> Trazer a quantidade em estoque como saldo inicial</label>
+        <span class="sub">Quando o produto tem mais de uma categoria na planilha, o Regem usa a primeira. Categoria que não existe é criada. A coluna ID é ignorada.</span>
+      </div>`;
+    $('#iRodape').innerHTML = '<button class="bt" id="iVolta">← Voltar</button><button class="bt pri" id="iProx">Conferir →</button>';
+  } else {
+    const selo = { novo: '<span class="selo ok">Novo</span>', igual: '<span class="selo neutro">Já existe · não importa</span>', parecido: '<span class="selo warn">Parecido</span>' };
+    $('#iCorpo').innerHTML = lista + `<div class="fichas"><span class="selo ok">${IMP.novos} novos</span><span class="selo warn">${IMP.parecidos} parecidos — você decide</span><span class="selo neutro">${IMP.iguais} já existem — ficam de fora</span></div>
+      <div class="tabela"><table style="min-width:640px"><caption class="sr">Conferência dos produtos do arquivo</caption><thead><tr><th>Importar</th><th>Produto no arquivo</th><th>Unidade</th><th>Categoria</th><th>Situação</th></tr></thead><tbody>${AMOSTRA.map((a, k) => `<tr><td><input type="checkbox" aria-label="Importar ${a[0]}" ${a[3] === 'novo' ? 'checked' : ''} ${a[3] === 'igual' ? 'disabled' : ''}></td><td class="nome">${a[0]}</td><td>${a[1]}</td><td class="sub">${a[2]}</td><td>${selo[a[3]]}${a[4] ? `<div class="sub">no Regem: ${a[4]}</div>` : ''}</td></tr>`).join('')}</tbody></table></div>
+      <p class="sub" style="margin:0">Mostrando 8 de ${IMP.total}. Os parecidos vêm desmarcados: marque só os que forem produtos diferentes.</p>`;
+    $('#iRodape').innerHTML = `<button class="bt" id="iVolta">← Voltar</button><button class="bt pri" id="iFim">Importar ${IMP.novos} produtos</button>`;
+  }
+  const p = $('#iProx'), v = $('#iVolta'), f = $('#iFim');
+  if (p) p.onclick = () => passo(n + 1);
+  if (v) v.onclick = () => passo(n - 1);
+  if (f) f.onclick = () => { fechar(); avisar(`${IMP.novos} produtos importados. ${IMP.iguais} já existiam e ficaram de fora.`); };
+  $('#iRodape button:last-child').focus();
+}
+$('#bImportar').onclick = () => { abrir($('#dImp')); passo(1); };
+
+// ── exportar ──
+$('#bExportar').onclick = (e) => { const m = $('#mExportar'); m.hidden = !m.hidden; e.currentTarget.setAttribute('aria-expanded', String(!m.hidden)); };
+$('#mExportar').onclick = (e) => { const b = e.target.closest('[data-exp]'); if (!b) return; $('#mExportar').hidden = true; $('#bExportar').setAttribute('aria-expanded','false'); avisar(`Arquivo ${b.dataset.exp} gerado com ${filtrados().length} produtos (os da lista filtrada).`); };
+
+document.addEventListener('click', (e) => {
+  if (e.target.closest('[data-fechar]')) return fechar();
+  if (e.target.id === 'bLimpar') { $('#fBusca').value = ''; $('#fCat').value = ''; $('#fForn').value = ''; $('#fMin').setAttribute('aria-pressed','false'); return desenhar(); }
+  const b = e.target.closest('[data-mov],[data-edit],[data-exc]'); if (!b) return;
+  const i = itens.find((x) => String(x.id) === (b.dataset.mov || b.dataset.edit || b.dataset.exc));
+  if (b.dataset.edit) return abrirGaveta(i);
+  if (b.dataset.exc) return abrirExcluir(i);
+  mv = i; $('#mTitulo').textContent = `Movimentar ${i.nome}`; $('#mSaldo').textContent = `Saldo atual: ${num(i.saldo)} ${i.un}` + (equivalente(i, i.saldo) ? ` (${equivalente(i, i.saldo)})` : '');
+  $('#mQtd').value = ''; $('#mObs').value = ''; $('#mTipo').querySelectorAll('button').forEach((x, k) => x.setAttribute('aria-pressed', String(k === 0)));
+  abrir($('#dMov'), '#mQtd'); depois();
+});
+desenhar();
+</script>
+</body>
+</html>

@@ -1,10 +1,11 @@
 import {
   BadRequestException,
+  ConflictException,
   Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, eq, isNull, desc, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, desc, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   itemEstoque,
@@ -13,7 +14,11 @@ import {
   alertaEstoque,
   categoriaItem,
   itemConversao,
+  fornecedor,
+  setor,
 } from '../../db/schema';
+import { chaveNome, limparNome } from './produto-nome';
+import { exigirUnidade, normalizarUnidade, UNIDADES_ESTOQUE } from './unidades';
 import { CreateItemDto } from './dto/create-item.dto';
 import { CreateMovimentoDto } from './dto/create-movimento.dto';
 import { furoCmv } from '../../common/regras-negocio';
@@ -46,29 +51,43 @@ export class EstoqueService {
     atual: string | null = null,
     ator?: Ator,
   ) {
+    const nome = limparNome(dto.nome);
+    if (!nome) throw new BadRequestException('Dê um nome ao produto.');
+    // Unidade da LISTA (unidades.ts): "L" vira litro, texto fora dela é recusado.
+    const unidadeMedida =
+      dto.unidadeMedida === undefined ? 'unidade' : exigirUnidade(dto.unidadeMedida, 'Unidade principal');
+    const conversoes = this.validarConversoes(dto.conversoes);
+    // Usuário de loja (ou presidente com filial escolhida) grava sempre na
+    // unidade atual; o dto só vale quando não há unidade no contexto.
+    const unidadeId = atual ?? dto.unidadeId ?? null;
     // Fornecedor principal: 1º da lista N:N, ou o campo legado.
     const principal = dto.fornecedorIds?.length ? dto.fornecedorIds[0] : dto.fornecedorId;
-    const [row] = await this.db
-      .insert(itemEstoque)
-      .values({
-        tenantId,
-        // Usuário de loja (ou presidente com filial escolhida) grava sempre na
-        // unidade atual; o dto só vale quando não há unidade no contexto.
-        unidadeId: atual ?? dto.unidadeId,
-        nome: dto.nome,
-        unidadeMedida: dto.unidadeMedida ?? 'un',
-        estoqueMinimo:
-          dto.estoqueMinimo != null ? String(dto.estoqueMinimo) : undefined,
-        categoria: dto.categoria,
-        fornecedorId: principal,
-        categoriaItemId: dto.categoriaItemId,
-        setorId: dto.setorId || undefined,
-        validade: dto.validade || undefined,
-        validadeAbertoDias: dto.validadeAbertoDias ?? undefined,
-      })
-      .returning();
-    await this.gravarConversoes(tenantId, row.id, dto.conversoes);
-    await this.gravarFornecedores(tenantId, row.id, dto.fornecedorIds, dto.fornecedorId);
+    const row = await this.db.transaction(async (tx) => {
+      await this.travarNomes(tx, tenantId);
+      await this.exigirNomeLivre(tx, tenantId, nome, unidadeId);
+      const setores = await this.resolverSetores(tx, tenantId, dto);
+      const [novo] = await tx
+        .insert(itemEstoque)
+        .values({
+          tenantId,
+          unidadeId: unidadeId ?? undefined,
+          nome,
+          unidadeMedida,
+          estoqueMinimo:
+            dto.estoqueMinimo != null ? String(dto.estoqueMinimo) : undefined,
+          categoria: dto.categoria,
+          fornecedorId: principal,
+          categoriaItemId: dto.categoriaItemId,
+          setorId: setores?.setorId ?? undefined,
+          setoresExtras: setores?.setoresExtras ?? [],
+          validade: dto.validade || undefined,
+          validadeAbertoDias: dto.validadeAbertoDias ?? undefined,
+        })
+        .returning();
+      await this.gravarConversoes(tx, tenantId, novo.id, conversoes);
+      await this.gravarFornecedores(tx, tenantId, novo.id, dto.fornecedorIds, dto.fornecedorId);
+      return novo;
+    });
     // Auditoria: insumo criado.
     await this.auditoria.registrar({
       tenantId,
@@ -83,9 +102,72 @@ export class EstoqueService {
     return row;
   }
 
+  // Nome de produto não se repete. Não há índice único no banco de propósito: o cadastro
+  // sincroniza nos dois sentidos, e um índice faria o sync recusar para sempre o produto criado
+  // com o mesmo nome na loja e na nuvem. A trava é da TRANSAÇÃO e por empresa (mesma técnica da
+  // auditoria; chave 1 = cadastro de produto): sem ela, duas gravações simultâneas passariam as
+  // duas pela conferência. Some sozinha no commit ou no rollback. (Pública: a importação de
+  // planilha grava produtos por outro caminho e usa a mesma trava.)
+  async travarNomes(tx: any, tenantId: string) {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${tenantId}), 1)`);
+  }
+
+  // Recusa (409) o nome que já existe — sem diferenciar maiúscula, acento, espaço e pontuação.
+  // Produto exclusivo de uma loja só esbarra nos da própria loja e nos compartilhados; o
+  // compartilhado esbarra em todos (é o cadastro que as lojas enxergam).
+  private async exigirNomeLivre(
+    tx: any,
+    tenantId: string,
+    nome: string,
+    unidadeId: string | null,
+    ignorarId?: string,
+  ) {
+    const outros: { id: string; nome: string; unidadeId: string | null }[] = await tx
+      .select({ id: itemEstoque.id, nome: itemEstoque.nome, unidadeId: itemEstoque.unidadeId })
+      .from(itemEstoque)
+      .where(and(eq(itemEstoque.tenantId, tenantId), isNull(itemEstoque.deletedAt)));
+    const chave = chaveNome(nome);
+    const igual = outros.find(
+      (o) =>
+        o.id !== ignorarId &&
+        chaveNome(o.nome) === chave &&
+        (o.unidadeId == null || unidadeId == null || o.unidadeId === unidadeId),
+    );
+    if (igual) throw new ConflictException(`Já existe um produto com este nome: "${igual.nome}".`);
+  }
+
+  // Setores de estoque do produto (mig 307). `setorIds` (lista: o 1º é o principal) ou, na
+  // ausência, o campo legado `setorId` — que mexe só no principal e mantém os demais.
+  // Nenhum dos dois = não mexe (null). Setor de outra empresa ou excluído é recusado.
+  private async resolverSetores(
+    tx: any,
+    tenantId: string,
+    dto: { setorId?: string; setorIds?: string[] },
+  ): Promise<{ setorId: string | null; setoresExtras?: string[] } | null> {
+    if (dto.setorIds === undefined && dto.setorId === undefined) return null;
+    const ids =
+      dto.setorIds !== undefined
+        ? [...new Set(dto.setorIds.filter(Boolean))]
+        : dto.setorId
+          ? [dto.setorId]
+          : [];
+    if (ids.length) {
+      const achados = await tx
+        .select({ id: setor.id })
+        .from(setor)
+        .where(and(eq(setor.tenantId, tenantId), inArray(setor.id, ids), isNull(setor.deletedAt)));
+      if (achados.length !== ids.length)
+        throw new BadRequestException('Setor de estoque não encontrado. Atualize a tela e escolha de novo.');
+    }
+    return dto.setorIds !== undefined
+      ? { setorId: ids[0] ?? null, setoresExtras: ids.slice(1) }
+      : { setorId: ids[0] ?? null };
+  }
+
   // Replace-all dos fornecedores (N:N) de um insumo. Aceita a lista nova (fornecedorIds)
   // ou, na ausência, o campo legado (fornecedorId). Só grava quando algum é informado.
   private async gravarFornecedores(
+    tx: any,
     tenantId: string,
     itemId: string,
     fornecedorIds?: string[],
@@ -93,11 +175,11 @@ export class EstoqueService {
   ) {
     if (fornecedorIds === undefined && legado === undefined) return; // nada a mexer
     const ids = [...new Set((fornecedorIds ?? (legado ? [legado] : [])).filter(Boolean))];
-    await this.db
+    await tx
       .delete(itemFornecedor)
       .where(and(eq(itemFornecedor.tenantId, tenantId), eq(itemFornecedor.itemId, itemId)));
     if (ids.length)
-      await this.db
+      await tx
         .insert(itemFornecedor)
         .values(ids.map((fornecedorId) => ({ tenantId, itemId, fornecedorId })))
         .onConflictDoNothing();
@@ -151,8 +233,14 @@ export class EstoqueService {
     }
 
     const patch: Record<string, unknown> = { updatedAt: new Date() };
-    if (dto.nome !== undefined) patch.nome = dto.nome;
-    if (dto.unidadeMedida !== undefined) patch.unidadeMedida = dto.unidadeMedida;
+    const nome = dto.nome !== undefined ? limparNome(dto.nome) : undefined;
+    if (nome !== undefined) {
+      if (!nome) throw new BadRequestException('Dê um nome ao produto.');
+      patch.nome = nome;
+    }
+    if (dto.unidadeMedida !== undefined)
+      patch.unidadeMedida = exigirUnidade(dto.unidadeMedida, 'Unidade principal');
+    const conversoes = this.validarConversoes(dto.conversoes);
     if (dto.estoqueMinimo != null && lojas <= 1) patch.estoqueMinimo = String(dto.estoqueMinimo);
     if (dto.categoria !== undefined) patch.categoria = dto.categoria;
     // Fornecedor principal segue o 1º da lista N:N (quando enviada); senão o campo legado.
@@ -160,25 +248,39 @@ export class EstoqueService {
     else if (dto.fornecedorId !== undefined) patch.fornecedorId = dto.fornecedorId || null;
     if (dto.categoriaItemId !== undefined)
       patch.categoriaItemId = dto.categoriaItemId || null;
-    if (dto.setorId !== undefined) patch.setorId = dto.setorId || null;
     if (dto.validade !== undefined) patch.validade = dto.validade || null;
     if (dto.validadeAbertoDias !== undefined) patch.validadeAbertoDias = dto.validadeAbertoDias ?? null;
-    const [row] = await this.db
-      .update(itemEstoque)
-      .set(patch)
-      .where(
-        and(
-          eq(itemEstoque.id, id),
-          eq(itemEstoque.tenantId, tenantId),
-          condUnidade(itemEstoque.unidadeId, atual), // só edita item da própria unidade
-          isNull(itemEstoque.deletedAt),
-        ),
-      )
-      .returning();
-    if (!row) throw new NotFoundException('Item não encontrado');
-    if (dto.conversoes) await this.gravarConversoes(tenantId, id, dto.conversoes);
-    if (dto.fornecedorIds !== undefined || dto.fornecedorId !== undefined)
-      await this.gravarFornecedores(tenantId, id, dto.fornecedorIds, dto.fornecedorId);
+    const doItem = and(
+      eq(itemEstoque.id, id),
+      eq(itemEstoque.tenantId, tenantId),
+      condUnidade(itemEstoque.unidadeId, atual), // só edita item da própria unidade
+      isNull(itemEstoque.deletedAt),
+    );
+    const row = await this.db.transaction(async (tx) => {
+      if (nome !== undefined) {
+        // Só confere o nome quando ele MUDA: produto que já estava repetido antes desta regra
+        // continua editável (para o dono poder arrumar), mas ninguém vira repetido por edição.
+        await this.travarNomes(tx, tenantId);
+        const [antes] = await tx
+          .select({ nome: itemEstoque.nome, unidadeId: itemEstoque.unidadeId })
+          .from(itemEstoque)
+          .where(doItem);
+        if (!antes) throw new NotFoundException('Item não encontrado');
+        if (chaveNome(antes.nome) !== chaveNome(nome))
+          await this.exigirNomeLivre(tx, tenantId, nome, antes.unidadeId, id);
+      }
+      const setores = await this.resolverSetores(tx, tenantId, dto);
+      if (setores) {
+        patch.setorId = setores.setorId;
+        if (setores.setoresExtras !== undefined) patch.setoresExtras = setores.setoresExtras;
+      }
+      const [salvo] = await tx.update(itemEstoque).set(patch).where(doItem).returning();
+      if (!salvo) throw new NotFoundException('Item não encontrado');
+      if (conversoes) await this.gravarConversoes(tx, tenantId, id, conversoes);
+      if (dto.fornecedorIds !== undefined || dto.fornecedorId !== undefined)
+        await this.gravarFornecedores(tx, tenantId, id, dto.fornecedorIds, dto.fornecedorId);
+      return salvo;
+    });
     // Auditoria: insumo editado.
     await this.auditoria.registrar({
       tenantId,
@@ -193,14 +295,33 @@ export class EstoqueService {
     return row;
   }
 
-  // Replace-all das conversões do item (só as válidas: fator > 0 e unidades).
+  // Conversões como vão ser gravadas: fica só a linha preenchida (unidades e fator > 0), e as
+  // duas unidades têm de ser da LISTA — o texto livre aqui é o que criava "pacotes" ao lado de
+  // "pacote". Roda ANTES de abrir a transação: recusa sem ter apagado nada.
+  private validarConversoes(
+    conversoes?: { unidadeDe: string; fator: number; unidadePara: string }[],
+  ): { unidadeDe: string; fator: number; unidadePara: string }[] | undefined {
+    if (!conversoes) return undefined;
+    return conversoes
+      .filter((c) => c.unidadeDe?.trim() && c.unidadePara?.trim() && Number(c.fator) > 0)
+      .map((c) => {
+        const unidadeDe = exigirUnidade(c.unidadeDe, 'Conversão');
+        const unidadePara = exigirUnidade(c.unidadePara, 'Conversão');
+        if (unidadeDe === unidadePara)
+          throw new BadRequestException(`Conversão: as duas unidades são "${unidadeDe}". Escolha unidades diferentes.`);
+        return { unidadeDe, fator: Number(c.fator), unidadePara };
+      });
+  }
+
+  // Replace-all das conversões do item (já validadas por `validarConversoes`).
   private async gravarConversoes(
+    tx: any,
     tenantId: string,
     itemId: string,
     conversoes?: { unidadeDe: string; fator: number; unidadePara: string }[],
   ) {
     if (!conversoes) return;
-    await this.db
+    await tx
       .delete(itemConversao)
       .where(
         and(
@@ -208,19 +329,122 @@ export class EstoqueService {
           eq(itemConversao.itemId, itemId),
         ),
       );
-    const validas = conversoes.filter(
-      (c) => c.unidadeDe?.trim() && c.unidadePara?.trim() && Number(c.fator) > 0,
-    );
-    if (validas.length)
-      await this.db.insert(itemConversao).values(
-        validas.map((c) => ({
+    if (conversoes.length)
+      await tx.insert(itemConversao).values(
+        conversoes.map((c) => ({
           tenantId,
           itemId,
-          unidadeDe: c.unidadeDe.trim(),
+          unidadeDe: c.unidadeDe,
           fator: String(c.fator),
-          unidadePara: c.unidadePara.trim(),
+          unidadePara: c.unidadePara,
         })),
       );
+  }
+
+  // ----- Exclusão de produto -----
+  //
+  // O produto não some do banco: recebe `deleted_at` (o histórico de movimentos, perdas,
+  // compras e etiquetas aponta para ele, e o sync leva a marca para a loja). O que a exclusão
+  // quebraria em silêncio é recusado ANTES, com o motivo: saldo que deixaria de aparecer, ficha
+  // técnica que deixaria de dar baixa e item do cardápio que deixaria de ter custo e baixa.
+  async exclusaoDoItem(tenantId: string, id: string, atual: string | null = null) {
+    const [alvo] = await this.db
+      .select({ id: itemEstoque.id, nome: itemEstoque.nome, unidadeId: itemEstoque.unidadeId, unidadeMedida: itemEstoque.unidadeMedida })
+      .from(itemEstoque)
+      .where(
+        and(
+          eq(itemEstoque.id, id),
+          eq(itemEstoque.tenantId, tenantId),
+          condUnidadeOuRede(itemEstoque.unidadeId, atual),
+          isNull(itemEstoque.deletedAt),
+        ),
+      );
+    if (!alvo) throw new NotFoundException('Produto não encontrado');
+    const motivos: string[] = [];
+    const comoResolver: string[] = [];
+    // Cadastro compartilhado entre as lojas, visto de dentro de UMA loja: a exclusão tiraria o
+    // produto das outras. Mesma fronteira da edição (a loja só edita o que é dela).
+    if (atual && alvo.unidadeId == null) {
+      motivos.push('é um cadastro compartilhado entre as lojas');
+      comoResolver.push('Escolha "todas as lojas" para excluir.');
+    }
+    const res: any = await this.db.execute(sql`
+      select
+        (select count(*)::int from (
+           select 1 from movimento_estoque m
+            where m.tenant_id = ${tenantId} and m.item_id = ${id}
+            group by m.unidade_id
+           having sum(case m.tipo when 'entrada' then m.quantidade
+                                  when 'saida'   then -m.quantidade
+                                  else m.quantidade end) <> 0) x) as "lojasComSaldo",
+        (select coalesce(sum(case m.tipo when 'entrada' then m.quantidade
+                                         when 'saida'   then -m.quantidade
+                                         else m.quantidade end), 0)::float8
+           from movimento_estoque m
+          where m.tenant_id = ${tenantId} and m.item_id = ${id}) as saldo,
+        (select coalesce(array_agg(distinct ft.nome), '{}')
+           from ficha_ingrediente fi join ficha_tecnica ft on ft.id = fi.ficha_id
+          where fi.tenant_id = ${tenantId} and fi.item_id = ${id} and ft.deleted_at is null) as fichas,
+        (select coalesce(array_agg(distinct p.nome), '{}')
+           from produto p
+          where p.tenant_id = ${tenantId} and p.item_id = ${id} and p.deleted_at is null) as produtos,
+        (select coalesce(array_agg(distinct o.nome), '{}')
+           from (select nome from opcao
+                  where tenant_id = ${tenantId} and item_id = ${id} and deleted_at is null
+                 union all
+                 select nome from complemento_opcao
+                  where tenant_id = ${tenantId} and item_id = ${id} and deleted_at is null) o) as complementos
+    `);
+    const r = (res.rows ?? res)[0] ?? {};
+    const lista = (nomes: string[]) =>
+      nomes.slice(0, 3).join(', ') + (nomes.length > 3 ? ` e mais ${nomes.length - 3}` : '');
+    const num = (n: number) => Number(n).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+    if (Number(r.lojasComSaldo) > 0) {
+      motivos.push(
+        Number(r.lojasComSaldo) > 1
+          ? `tem saldo em ${r.lojasComSaldo} lojas (${num(r.saldo)} ${alvo.unidadeMedida} no total)`
+          : `tem ${num(r.saldo)} ${alvo.unidadeMedida} em estoque`,
+      );
+      comoResolver.push('Zere o saldo com um ajuste.');
+    }
+    const fichas: string[] = r.fichas ?? [];
+    if (fichas.length) {
+      motivos.push(`é ingrediente de ${fichas.length === 1 ? 'uma ficha técnica' : `${fichas.length} fichas técnicas`} (${lista(fichas)})`);
+      comoResolver.push('Troque ou tire o ingrediente nas fichas.');
+    }
+    const cardapio: string[] = [...(r.produtos ?? []), ...(r.complementos ?? [])];
+    if (cardapio.length) {
+      motivos.push(`está ligado ao cardápio (${lista(cardapio)})`);
+      comoResolver.push('Desligue o produto do cardápio deste item de estoque.');
+    }
+    return { id: alvo.id, nome: alvo.nome, pode: motivos.length === 0, motivos, comoResolver };
+  }
+
+  async removerItem(tenantId: string, id: string, atual: string | null = null, ator?: Ator) {
+    const exame = await this.exclusaoDoItem(tenantId, id, atual);
+    if (!exame.pode)
+      throw new ConflictException(
+        `"${exame.nome}" não pode ser excluído agora: ${exame.motivos.join('; ')}. ${exame.comoResolver.join(' ')}`,
+      );
+    const [row] = await this.db
+      .update(itemEstoque)
+      // `updated_at` junto: é por ele que o sync leva a exclusão para a loja (e para a nuvem).
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(itemEstoque.id, id), eq(itemEstoque.tenantId, tenantId), isNull(itemEstoque.deletedAt)))
+      .returning({ id: itemEstoque.id });
+    if (!row) throw new NotFoundException('Produto não encontrado');
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: ator?.colaboradorId,
+      atorPerfil: ator?.categoria,
+      tipo: 'estoque',
+      acao: 'item_excluido',
+      entidadeTipo: 'item_estoque',
+      entidadeId: id,
+      detalhe: { nome: exame.nome },
+      origem: 'web',
+    });
+    return { ok: true };
   }
 
   // ----- Categorias de insumo (cadastro próprio) -----
@@ -270,7 +494,7 @@ export class EstoqueService {
              coalesce(bool_or(not u.orfao and mv.saldo < ${sqlMinimoDaLoja}), false) as "abaixoMinimo",
              i.categoria_item_id as "categoriaItemId",
              i.fornecedor_id as "fornecedorId",
-             i.setor_id as "setorId",
+             i.setor_id as "setorId", i.setores_extras as "setoresExtras",
              i.validade, i.validade_aberto_dias as "validadeAbertoDias",
              cat.nome as "categoriaNome", cat.cor as "categoriaCor",
              f.nome as "fornecedorNome",
@@ -303,7 +527,15 @@ export class EstoqueService {
     const porItem = new Map<string, any[]>();
     for (const c of convs) {
       const arr = porItem.get(c.itemId) ?? [];
-      arr.push({ unidadeDe: c.unidadeDe, fator: Number(c.fator), unidadePara: c.unidadePara });
+      arr.push({
+        unidadeDe: c.unidadeDe,
+        fator: Number(c.fator),
+        unidadePara: c.unidadePara,
+        // A unidade da LISTA que corresponde ao que está gravado (conversão antiga em texto
+        // livre: "pacotes" → pacote). A tela abre o campo já nela; salvar corrige o gravado.
+        unidadeDeLista: normalizarUnidade(c.unidadeDe),
+        unidadeParaLista: normalizarUnidade(c.unidadePara),
+      });
       porItem.set(c.itemId, arr);
     }
     // Fornecedores (N:N) por item (anexados em memória).
@@ -317,21 +549,59 @@ export class EstoqueService {
       arr.push(x.fornecedorId);
       fornPorItem.set(x.itemId, arr);
     }
+    // Nomes de fornecedor e de setor (a lista mostra TODOS os do produto, não só o principal).
+    const nomeForn = new Map<string, string>(
+      (
+        await this.db
+          .select({ id: fornecedor.id, nome: fornecedor.nome })
+          .from(fornecedor)
+          .where(and(eq(fornecedor.tenantId, tenantId), isNull(fornecedor.deletedAt)))
+      ).map((f) => [f.id, f.nome]),
+    );
+    const nomeSetor = new Map<string, string>(
+      (
+        await this.db
+          .select({ id: setor.id, nome: setor.nome })
+          .from(setor)
+          .where(and(eq(setor.tenantId, tenantId), isNull(setor.deletedAt)))
+      ).map((s) => [s.id, s.nome]),
+    );
+    // Setores do produto: o principal primeiro, depois os extras (mig 307) — sem repetir e sem
+    // setor que já foi excluído.
+    const setoresDe = (r: any): string[] => {
+      const extras: string[] = Array.isArray(r.setoresExtras) ? r.setoresExtras : [];
+      return [...new Set([r.setorId, ...extras].filter((s): s is string => !!s && nomeSetor.has(s)))];
+    };
     // Em "todas" numa empresa de duas lojas o mínimo mostrado é a SOMA das lojas: não é um
     // valor editável (cada loja tem o seu). A tela trava o campo e pede a loja.
     const lojas = await contarLojas(this.db, tenantId);
     // Valor em estoque = Σ saldo × custo médio de cada loja (derivado, nunca armazenado).
     // Valores em R$ (custo médio e valor) são financeiros → só presidente/C&O.
-    return rows.map((r: any) => ({
-      ...r,
-      custoMedio: verFin ? r.custoMedio : null,
-      valorEstoque: verFin ? Number(r.valorEstoque ?? 0) : null,
-      minimoPorLoja: lojas > 1 && !atual,
-      minimoDaLoja: lojas > 1 && !!atual,
-      conversoes: porItem.get(r.id) ?? [],
-      // Lista completa de fornecedores; cai no principal quando ainda não há N:N.
-      fornecedorIds: fornPorItem.get(r.id) ?? (r.fornecedorId ? [r.fornecedorId] : []),
-    }));
+    return rows.map((r: any) => {
+      // Lista completa de fornecedores, o principal primeiro; cai nele quando ainda não há N:N.
+      const fornecedorIds = [
+        ...new Set([r.fornecedorId, ...(fornPorItem.get(r.id) ?? [])].filter((f): f is string => !!f)),
+      ];
+      const setorIds = setoresDe(r);
+      return {
+        ...r,
+        unidadeLista: normalizarUnidade(r.unidadeMedida), // idem conversões: "L" → litro
+        custoMedio: verFin ? r.custoMedio : null,
+        valorEstoque: verFin ? Number(r.valorEstoque ?? 0) : null,
+        minimoPorLoja: lojas > 1 && !atual,
+        minimoDaLoja: lojas > 1 && !!atual,
+        conversoes: porItem.get(r.id) ?? [],
+        fornecedorIds,
+        fornecedorNomes: fornecedorIds.map((f) => nomeForn.get(f)).filter(Boolean),
+        setorIds,
+        setorNomes: setorIds.map((s) => nomeSetor.get(s)),
+      };
+    });
+  }
+
+  /** Lista fechada de unidades de medida (a tela não guarda cópia). */
+  listUnidades() {
+    return { unidades: [...UNIDADES_ESTOQUE] };
   }
 
   async createMovimento(
@@ -361,6 +631,31 @@ export class EstoqueService {
     // loja é o saldo.
     const unidadeId = await exigirLojaParaLancar(this.db, tenantId, atual ?? it.unidadeId);
 
+    // Quantidade do lançamento. No ajuste com `saldoContado`, é a diferença para o saldo da
+    // loja NESTE instante (conta feita no banco, em numeric — não com o saldo que a tela tinha).
+    let quantidade: string;
+    if (dto.tipo === 'ajuste' && dto.saldoContado !== undefined) {
+      const res: any = await this.db.execute(sql`
+        select (${String(dto.saldoContado)}::numeric
+                - coalesce(sum(case m.tipo when 'entrada' then m.quantidade
+                                           when 'saida'   then -m.quantidade
+                                           else m.quantidade end), 0))::text as diferenca
+          from movimento_estoque m
+         where m.tenant_id = ${tenantId} and m.item_id = ${dto.itemId}
+           ${unidadeId ? sql`and m.unidade_id = ${unidadeId}` : sql``}`);
+      quantidade = String((res.rows ?? res)[0]?.diferenca ?? '0');
+      // Contou e bateu: não há o que lançar (um movimento de zero só sujaria o histórico).
+      if (Number(quantidade) === 0) return { id: null, semMudanca: true };
+    } else {
+      const q = Number(dto.quantidade);
+      if (!Number.isFinite(q)) throw new BadRequestException('Informe a quantidade.');
+      if (dto.tipo !== 'ajuste' && q <= 0)
+        throw new BadRequestException('A quantidade da entrada ou da saída tem de ser maior que zero.');
+      if (dto.tipo === 'ajuste' && q === 0)
+        throw new BadRequestException('O ajuste precisa de uma diferença (ou do saldo contado).');
+      quantidade = String(q);
+    }
+
     const [row] = await this.db
       .insert(movimentoEstoque)
       .values({
@@ -368,7 +663,7 @@ export class EstoqueService {
         unidadeId: unidadeId ?? undefined,
         itemId: dto.itemId,
         tipo: dto.tipo,
-        quantidade: String(dto.quantidade),
+        quantidade,
         motivo: dto.motivo,
         data: dto.data,
       })
@@ -382,7 +677,12 @@ export class EstoqueService {
       acao: 'movimento_manual',
       entidadeTipo: 'item_estoque',
       entidadeId: dto.itemId,
-      detalhe: { tipo: dto.tipo, quantidade: dto.quantidade, motivo: dto.motivo },
+      detalhe: {
+        tipo: dto.tipo,
+        quantidade: Number(quantidade),
+        ...(dto.saldoContado !== undefined ? { saldoContado: dto.saldoContado } : {}),
+        motivo: dto.motivo,
+      },
       origem: 'web',
     });
     return row;

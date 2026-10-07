@@ -592,7 +592,9 @@ export const itemEstoque = pgTable('item_estoque', {
   // Fornecedor PRINCIPAL (compat). A lista completa fica em item_fornecedor (mig 178).
   fornecedorId: uuid('fornecedor_id').references(() => fornecedor.id),
   categoriaItemId: uuid('categoria_item_id').references(() => categoriaItem.id),
-  setorId: uuid('setor_id'), // setor de estoque onde o insumo fica guardado (mig 178)
+  setorId: uuid('setor_id'), // setor de estoque PRINCIPAL onde o insumo fica guardado (mig 178)
+  // Demais setores onde ele também fica (mig 307): [setor_id, ...]. Sem o principal.
+  setoresExtras: jsonb('setores_extras').$type<string[]>().notNull().default([]),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
