@@ -9,8 +9,14 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { SkeletonList } from '@/components/ui/skeleton';
+import { Dialogo } from '@/components/ui/sobreposto';
+import { Situacoes, type Situacao } from '@/components/ui/lista';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+// A mensagem de cada cartão (resultado de uma ação): à vista, e não em cinza no rodapé.
+const AVISO = 'mt-3 rounded-md bg-secondary px-3 py-2 text-sm font-medium';
 
 // Restauração do estado da nuvem — só no edge e só para o presidente/C&O. Usada
 // ao voltar pro modo local depois de ter operado na nuvem (queda do edge/PC): faz
@@ -19,6 +25,7 @@ function RestaurarServidor() {
   const [status, setStatus] = useState<any>(null);
   const [enviando, setEnviando] = useState(false);
   const [msg, setMsg] = useState('');
+  const [confirmando, setConfirmando] = useState(false);
   // Resolve o perfil no cliente (evita divergência de hidratação SSR/cliente).
   const [presidente, setPresidente] = useState(false);
 
@@ -39,12 +46,7 @@ function RestaurarServidor() {
   if (!presidente) return null; // restaurar é só do presidente/C&O
 
   async function restaurar() {
-    if (
-      !confirm(
-        'Restaurar do estado da nuvem? Primeiro sobem as vendas locais pendentes, depois o sistema puxa o que foi feito na nuvem. É aditivo (não apaga o que é só local). Faça com a loja parada.',
-      )
-    )
-      return;
+    setConfirmando(false);
     setEnviando(true);
     setMsg('');
     try {
@@ -64,12 +66,12 @@ function RestaurarServidor() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="font-display text-lg font-bold">Restaurar do estado da nuvem</h2>
-          <p className="max-w-prose text-sm text-muted-foreground">
+          <p className="max-w-prose text-sm text-secondary-foreground">
             Use ao voltar para o modo local depois de ter operado na nuvem (ex.: o servidor
             local caiu). Traz para cá o que foi feito na nuvem, sem apagar o que é local.
           </p>
         </div>
-        <Button type="button" onClick={restaurar} disabled={enviando || emAndamento}>
+        <Button type="button" onClick={() => setConfirmando(true)} disabled={enviando || emAndamento}>
           {status?.restaurando
             ? 'Restaurando…'
             : status?.solicitado
@@ -82,7 +84,7 @@ function RestaurarServidor() {
       {/* Andamento AO VIVO — some a caixa-preta: barra + contagem de linhas aplicadas. */}
       {status?.restaurando && (
         <div className="mt-3">
-          <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+          <div className="mb-1 flex items-center justify-between text-xs text-secondary-foreground">
             <span>Baixando o estado da nuvem…</span>
             <span className="font-mono">{Number(status.progresso || 0).toLocaleString('pt-BR')} linha(s)</span>
           </div>
@@ -92,25 +94,39 @@ function RestaurarServidor() {
         </div>
       )}
       {status?.solicitado && !status?.restaurando && (
-        <p className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+        <p className="mt-3 flex items-center gap-2 text-sm text-secondary-foreground">
           <span className="h-2 w-2 animate-pulse rounded-full bg-warn" aria-hidden /> Na fila — começa no próximo ciclo de sync…
         </p>
       )}
       {/* ERRO da última restauração (antes era invisível — parecia que "não fazia nada"). */}
       {status?.erro && !status?.restaurando && !status?.solicitado && (
-        <div className="mt-3 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive" role="alert">
-          <p className="font-medium">A última restauração falhou.</p>
+        <div className="mt-3 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm" role="alert">
+          <p className="font-semibold">A última restauração falhou.</p>
           <p className="mt-1 break-words font-mono text-xs">{status.erro}</p>
-          <p className="mt-1 text-xs text-destructive/80">Clique em “Restaurar agora” para tentar de novo; se persistir, envie o log ao suporte.</p>
+          <p className="mt-1 text-xs">Clique em “Restaurar agora” para tentar de novo; se persistir, envie o log ao suporte.</p>
         </div>
       )}
       {status?.restauradoEm && !status?.restaurando && (
-        <p className="mt-2 text-xs text-muted-foreground">
+        <p className="mt-2 text-xs text-secondary-foreground">
           Última restauração: {new Date(status.restauradoEm).toLocaleString('pt-BR')}
           {status?.progresso ? ` · ${Number(status.progresso).toLocaleString('pt-BR')} linha(s)` : ''}
         </p>
       )}
-      {msg && <p className="mt-3 text-sm text-muted-foreground">{msg}</p>}
+      {msg && <p className={AVISO} role="status">{msg}</p>}
+      {confirmando && (
+        <Dialogo alerta titulo="Restaurar do estado da nuvem?" aoFechar={() => setConfirmando(false)}
+          rodape={
+            <>
+              <Button type="button" variant="outline" data-foco-inicial onClick={() => setConfirmando(false)}>Cancelar</Button>
+              <Button type="button" variant="destructive" onClick={restaurar}>Restaurar agora</Button>
+            </>
+          }>
+          <p className="text-sm">
+            Primeiro sobem as vendas locais pendentes, depois o sistema puxa o que foi feito na nuvem. É aditivo (não apaga o que é só local).{' '}
+            <b>Faça com a loja parada.</b>
+          </p>
+        </Dialogo>
+      )}
     </Card>
   );
 }
@@ -142,18 +158,34 @@ function quandoBackup(iso?: string | null) {
 function SaudeServidor() {
   const [srv, setSrv] = useState<any>(null);
   const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState('');
 
-  useEffect(() => {
-    let vivo = true;
-    api
-      .meuServidor()
-      .then((r) => { if (vivo) setSrv(r); })
-      .catch(() => { if (vivo) setSrv(null); })
-      .finally(() => { if (vivo) setCarregando(false); });
-    return () => { vivo = false; };
+  const carregar = useCallback(async () => {
+    setCarregando(true);
+    setErro('');
+    try {
+      setSrv(await api.meuServidor());
+    } catch (e) {
+      setSrv(null);
+      setErro(e instanceof Error ? e.message : 'Erro ao consultar o servidor');
+    } finally {
+      setCarregando(false);
+    }
   }, []);
+  useEffect(() => {
+    void carregar();
+  }, [carregar]);
 
-  if (carregando || !srv?.instalado) return null; // sem servidor local não há o que mostrar
+  if (carregando) return <Card className="p-6 lg:col-span-3"><SkeletonList rows={2} /></Card>;
+  // Falha de leitura não é "sem servidor": antes o cartão sumia nos dois casos.
+  if (erro)
+    return (
+      <Card className="flex flex-wrap items-center justify-between gap-3 p-6 lg:col-span-3">
+        <p className="text-sm" role="alert"><b>Não deu para ver a saúde do servidor agora.</b> {erro}</p>
+        <Button type="button" variant="outline" onClick={() => void carregar()}>Tentar de novo</Button>
+      </Card>
+    );
+  if (!srv?.instalado) return null; // sem servidor local não há o que mostrar
 
   const b = srv.backup ?? null;
   const horas = Number(b?.horas);
@@ -167,44 +199,44 @@ function SaudeServidor() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="font-display text-lg font-bold">Saúde do servidor</h2>
-          <p className="max-w-prose text-sm text-muted-foreground">
+          <p className="max-w-prose text-sm text-secondary-foreground">
             O computador da loja guarda uma cópia dos seus dados todo dia. Aqui você confere se está tudo em dia.
           </p>
         </div>
-        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${srv.online ? 'bg-ok/15 text-ok' : 'bg-secondary text-muted-foreground'}`}>
+        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${srv.online ? 'bg-ok/15' : 'bg-secondary text-secondary-foreground'}`}>
           {srv.online ? '● servidor online' : '○ servidor offline'}
         </span>
       </div>
 
       <dl className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <div className="rounded-lg border border-border p-3">
-          <dt className="text-xs uppercase tracking-wide text-muted-foreground">Último backup</dt>
-          <dd className={`mt-1 font-semibold ${backupAtrasado ? 'text-destructive' : ''}`}>
+          <dt className="text-xs uppercase tracking-wide text-secondary-foreground">Último backup</dt>
+          <dd className="mt-1 font-semibold">
             {!b ? 'Nunca foi feito' : b.ok === false ? 'Não foi concluído' : (quandoTxt ?? 'Concluído')}
           </dd>
           {b?.ok !== false && b?.mb ? (
-            <p className="mt-1 text-xs text-muted-foreground">Cópia de {espaco(b.mb)}</p>
+            <p className="mt-1 text-xs text-secondary-foreground">Cópia de {espaco(b.mb)}</p>
           ) : null}
         </div>
 
         <div className="rounded-lg border border-border p-3">
-          <dt className="text-xs uppercase tracking-wide text-muted-foreground">Espaço livre no computador</dt>
-          <dd className={`mt-1 font-semibold ${discoBaixo ? 'text-destructive' : ''}`}>
+          <dt className="text-xs uppercase tracking-wide text-secondary-foreground">Espaço livre no computador</dt>
+          <dd className="mt-1 font-semibold">
             {espaco(srv.discoLivreMb) ?? '—'}
           </dd>
-          {discoBaixo && <p className="mt-1 text-xs text-destructive">Está acabando o espaço.</p>}
+          {discoBaixo && <p className="mt-1 text-xs font-semibold">Está acabando o espaço.</p>}
         </div>
 
         <div className="rounded-lg border border-border p-3">
-          <dt className="text-xs uppercase tracking-wide text-muted-foreground">Tamanho dos seus dados</dt>
+          <dt className="text-xs uppercase tracking-wide text-secondary-foreground">Tamanho dos seus dados</dt>
           <dd className="mt-1 font-semibold">{espaco(srv.bancoMb) ?? '—'}</dd>
         </div>
       </dl>
 
       {backupAtrasado && (
         <div className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm" role="alert">
-          <p className="font-semibold text-destructive">O backup do seu servidor não está em dia.</p>
-          <p className="mt-1 text-muted-foreground">
+          <p className="font-semibold">O backup do seu servidor não está em dia.</p>
+          <p className="mt-1 text-secondary-foreground">
             {!b
               ? 'Ainda não recebemos nenhuma cópia de segurança deste computador.'
               : b.ok === false
@@ -216,9 +248,9 @@ function SaudeServidor() {
       )}
 
       {discoBaixo && (
-        <div className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm" role="alert">
+        <div className="mt-3 rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm" role="alert">
           <p className="font-semibold">Falta espaço no computador da loja ({espaco(srv.discoLivreMb)} livres).</p>
-          <p className="mt-1 text-muted-foreground">
+          <p className="mt-1 text-secondary-foreground">
             Sem espaço, o servidor para de gravar vendas e de fazer backup. Apague arquivos que não usa
             (fotos, vídeos, downloads) ou acione o suporte.
           </p>
@@ -226,13 +258,13 @@ function SaudeServidor() {
       )}
 
       {srv.precisaManutencao && (
-        <p className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm font-medium" role="alert">
+        <p className="mt-3 rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm font-medium" role="alert">
           O servidor precisa de manutenção — acione o suporte.
         </p>
       )}
 
       {!backupAtrasado && !discoBaixo && !srv.precisaManutencao && (
-        <p className="mt-4 text-sm text-ok">✓ Está tudo em dia com o servidor da sua loja.</p>
+        <p className="mt-4 text-sm font-medium"><span className="text-ok" aria-hidden="true">✓</span> Está tudo em dia com o servidor da sua loja.</p>
       )}
     </Card>
   );
@@ -260,7 +292,7 @@ function SuporteServidor() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="font-display text-lg font-bold">Suporte / diagnóstico</h2>
-          <p className="max-w-prose text-sm text-muted-foreground">
+          <p className="max-w-prose text-sm text-secondary-foreground">
             Se pedirem, envie o <strong>log recente do servidor</strong> para a equipe do Regem
             diagnosticar um problema. Nenhum dado pessoal do cliente é enviado (é redigido).
           </p>
@@ -269,7 +301,7 @@ function SuporteServidor() {
           {enviando ? 'Enviando…' : 'Enviar logs pro suporte'}
         </Button>
       </div>
-      {msg && <p className="mt-3 text-sm text-muted-foreground">{msg}</p>}
+      {msg && <p className={AVISO} role="status">{msg}</p>}
     </Card>
   );
 }
@@ -324,6 +356,7 @@ function AtualizacaoServidor() {
   const [bloqueio, setBloqueio] = useState<Bloqueio | null>(null);
   const [agendarAberto, setAgendarAberto] = useState(false);
   const [horaAgenda, setHoraAgenda] = useState(() => hojeAs(23, 30));
+  const [pedindo, setPedindo] = useState<'instalar' | 'reverter' | null>(null);
 
   const carregar = useCallback(async () => {
     try {
@@ -377,14 +410,9 @@ function AtualizacaoServidor() {
     }
   }
 
+  // `forcar` = "mesmo assim" (loja em operação ou versão revertida): já veio de um aviso, não pergunta de novo.
   async function instalar(forcar: boolean) {
-    if (
-      !forcar &&
-      !confirm(
-        'Instalar a atualização agora? Os serviços do servidor reiniciam por 1–2 minutos (KDS, PDV e ponto ficam indisponíveis nesse intervalo). A versão nova é montada antes, com a loja operando; se algo falhar, a anterior volta sozinha.',
-      )
-    )
-      return;
+    setPedindo(null);
     setAplicando(true);
     setMsg('');
     try {
@@ -432,12 +460,7 @@ function AtualizacaoServidor() {
   }
 
   async function reverter() {
-    if (
-      !confirm(
-        'Reverter para a versão anterior?\n\nIsto desfaz a ÚLTIMA atualização e volta o servidor à versão que estava antes dela (código, app e dependências; o banco é mantido). Os serviços reiniciam por 1–2 minutos.\n\nSó confirme se algo passou a dar problema DEPOIS da última atualização.',
-      )
-    )
-      return;
+    setPedindo(null);
     setRevertendo(true);
     setMsg('');
     try {
@@ -458,12 +481,12 @@ function AtualizacaoServidor() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="font-display text-lg font-bold">Atualização do servidor</h2>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-secondary-foreground">
             Versão instalada: <strong className="font-mono">{status?.atual ?? '—'}</strong>
             {status?.disponivel && status?.ultima ? (
               <>
                 {' '}· nova disponível:{' '}
-                <strong className="font-mono text-primary">{status.ultima}</strong>
+                <strong className="font-mono">{status.ultima}</strong>
               </>
             ) : null}
           </p>
@@ -474,7 +497,7 @@ function AtualizacaoServidor() {
           </Button>
           {status?.disponivel && (
             <>
-              <Button type="button" onClick={() => instalar(false)} disabled={aplicando || !!emAndamento}>
+              <Button type="button" onClick={() => setPedindo('instalar')} disabled={aplicando || !!emAndamento}>
                 {aplicando ? 'Iniciando…' : 'Instalar agora'}
               </Button>
               <Button
@@ -488,25 +511,19 @@ function AtualizacaoServidor() {
               </Button>
             </>
           )}
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={reverter}
-            disabled={revertendo || !!emAndamento}
-            className="text-muted-foreground"
-          >
+          <Button type="button" variant="outline" onClick={() => setPedindo('reverter')} disabled={revertendo || !!emAndamento}>
             {revertendo ? 'Revertendo…' : 'Reverter atualização'}
           </Button>
         </div>
       </div>
-      <p className="mt-2 text-[11px] text-muted-foreground">
+      <p className="mt-2 text-xs text-secondary-foreground">
         <strong>Reverter atualização</strong> volta o servidor à versão anterior à última atualização (código, app e dependências; o banco é mantido). Use só se algo passou a dar problema depois de atualizar.
       </p>
 
       {status?.versaoAtualRecolhida && (
         <div className="mt-3 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
-          <p className="font-semibold text-destructive">A versão instalada ({status.atual}) foi recolhida pela distribuição.</p>
-          <p className="mt-1 text-muted-foreground">
+          <p className="font-semibold">A versão instalada ({status.atual}) foi recolhida pela distribuição.</p>
+          <p className="mt-1 text-secondary-foreground">
             {status?.disponivel
               ? 'Instale a versão nova assim que possível.'
               : 'Se algo não estiver funcionando, use "Reverter atualização" e fale com o suporte.'}
@@ -519,7 +536,7 @@ function AtualizacaoServidor() {
           <span>
             Instalação agendada para <strong className="font-mono">{formatarHora(status.agendadaPara)}</strong> — começa só com a loja parada.
           </span>
-          <Button type="button" variant="ghost" onClick={cancelarAgenda} className="text-muted-foreground">
+          <Button type="button" variant="outline" onClick={cancelarAgenda}>
             Cancelar agendamento
           </Button>
         </div>
@@ -537,17 +554,17 @@ function AtualizacaoServidor() {
             />
           </div>
           <Button type="button" onClick={agendar}>Confirmar agendamento</Button>
-          <p className="w-full text-[11px] text-muted-foreground">
+          <p className="w-full text-xs text-secondary-foreground">
             No horário, a instalação espera não haver caixa aberto nem pedido em produção (por até 12 h).
           </p>
         </div>
       )}
 
       {bloqueio && (
-        <div className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm" role="alert">
+        <div className="mt-3 rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm" role="alert">
           <p className="font-semibold">{bloqueio.mensagem}</p>
           {bloqueio.tipo === 'operacao' && (
-            <p className="mt-1 text-muted-foreground">
+            <p className="mt-1 text-secondary-foreground">
               Agora: {bloqueio.caixasAbertos} caixa(s) aberto(s) e {bloqueio.pedidosEmProducao} pedido(s) em produção.
             </p>
           )}
@@ -557,7 +574,7 @@ function AtualizacaoServidor() {
                 Agendar para depois do fechamento
               </Button>
             )}
-            <Button type="button" variant="ghost" onClick={() => instalar(true)} disabled={aplicando}>
+            <Button type="button" variant="outline" onClick={() => instalar(true)} disabled={aplicando}>
               {bloqueio.tipo === 'revertida' ? 'Instalar de novo mesmo assim' : 'Instalar agora mesmo assim'}
             </Button>
           </div>
@@ -566,8 +583,8 @@ function AtualizacaoServidor() {
 
       {status?.disponivel && status?.notas && !emAndamento && (
         <div className="mt-3 rounded-lg border border-border bg-secondary/40 p-3 text-sm">
-          <p className="mb-1 text-xs font-bold uppercase text-muted-foreground">O que muda</p>
-          <p className="whitespace-pre-line text-muted-foreground">{status.notas}</p>
+          <p className="mb-1 text-xs font-bold uppercase text-secondary-foreground">O que muda</p>
+          <p className="whitespace-pre-line text-secondary-foreground">{status.notas}</p>
         </div>
       )}
 
@@ -579,7 +596,7 @@ function AtualizacaoServidor() {
               {ESTAGIO_LABEL[progresso.estagio] ?? progresso.estagio}
               {reconectando && ' · reconectando…'}
             </span>
-            <span className="font-mono text-muted-foreground">{progresso.pct}%</span>
+            <span className="font-mono text-secondary-foreground">{progresso.pct}%</span>
           </div>
           <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
             <div
@@ -587,7 +604,7 @@ function AtualizacaoServidor() {
               style={{ width: `${Math.min(100, Math.max(0, progresso.pct))}%` }}
             />
           </div>
-          <p className="mt-2 text-[11px] text-muted-foreground">
+          <p className="mt-2 text-xs text-secondary-foreground">
             Os serviços (KDS, PDV, ponto) reiniciam por 1–2 minutos só na troca. Não feche esta tela — ela reconecta sozinha ao terminar.
           </p>
         </div>
@@ -596,14 +613,45 @@ function AtualizacaoServidor() {
       {/* Falhou: mostra o erro e o que o script fez (voltou sozinho ou não) */}
       {progresso?.fase === 'erro' && !monitorando && (
         <div className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
-          <p className="font-semibold text-destructive">A última atualização falhou.</p>
-          <p className="mt-1 text-muted-foreground">{progresso.erro || 'Erro desconhecido.'}</p>
-          {progresso.acaoFinal && <p className="mt-1 text-[12px] text-muted-foreground">{progresso.acaoFinal}</p>}
-          <p className="mt-1 text-[12px] text-muted-foreground">A distribuição do Regem já foi avisada do erro.</p>
+          <p className="font-semibold">A última atualização falhou.</p>
+          <p className="mt-1 text-secondary-foreground">{progresso.erro || 'Erro desconhecido.'}</p>
+          {progresso.acaoFinal && <p className="mt-1 text-xs text-secondary-foreground">{progresso.acaoFinal}</p>}
+          <p className="mt-1 text-xs text-secondary-foreground">A distribuição do Regem já foi avisada do erro.</p>
         </div>
       )}
 
-      {msg && <p className="mt-3 text-sm text-muted-foreground">{msg}</p>}
+      {msg && <p className={AVISO} role="status">{msg}</p>}
+      {pedindo === 'instalar' && (
+        <Dialogo alerta titulo="Instalar a atualização agora?" aoFechar={() => setPedindo(null)}
+          rodape={
+            <>
+              <Button type="button" variant="outline" data-foco-inicial onClick={() => setPedindo(null)}>Cancelar</Button>
+              <Button type="button" onClick={() => void instalar(false)}>Instalar agora</Button>
+            </>
+          }>
+          <p className="text-sm">
+            Os serviços do servidor reiniciam por 1–2 minutos (KDS, PDV e ponto ficam indisponíveis nesse intervalo). A versão nova é montada
+            antes, com a loja operando; se algo falhar, a anterior volta sozinha.
+          </p>
+        </Dialogo>
+      )}
+      {pedindo === 'reverter' && (
+        <Dialogo alerta titulo="Reverter para a versão anterior?" aoFechar={() => setPedindo(null)}
+          rodape={
+            <>
+              <Button type="button" variant="outline" data-foco-inicial onClick={() => setPedindo(null)}>Cancelar</Button>
+              <Button type="button" variant="destructive" onClick={() => void reverter()}>Reverter</Button>
+            </>
+          }>
+          <div className="space-y-2 text-sm">
+            <p>
+              Isto desfaz a ÚLTIMA atualização e volta o servidor à versão que estava antes dela (código, app e dependências; o banco é
+              mantido). Os serviços reiniciam por 1–2 minutos.
+            </p>
+            <p><b>Só confirme se algo passou a dar problema DEPOIS da última atualização.</b></p>
+          </div>
+        </Dialogo>
+      )}
     </Card>
   );
 }
@@ -636,7 +684,7 @@ function BotaoInstalador() {
         {buscando ? 'Procurando…' : '⬇ Baixar o instalador (Windows)'}
       </Button>
       {aviso && (
-        <p className="mt-2 rounded-lg border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
+        <p className="mt-2 rounded-lg border border-dashed border-border px-4 py-3 text-sm text-secondary-foreground">
           {aviso}
         </p>
       )}
@@ -694,34 +742,34 @@ function AutenticadorAntiClone() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="font-display text-lg font-bold">App autenticador (anti-clone)</h2>
-          <p className="max-w-prose text-sm text-muted-foreground">
+          <p className="max-w-prose text-sm text-secondary-foreground">
             Cadastre um <strong>app autenticador</strong> (Google Authenticator, Authy…) como 2º fator.
             Assim, se precisar mover o servidor para outro computador, você libera pelo <strong>código do app</strong>,
             sem depender de e-mail nem da distribuição. Ligar/desligar a trava continua com a distribuição.
           </p>
         </div>
         {!carregando && srv?.instalado && (
-          <div className="flex flex-none flex-col items-end gap-1 text-xs text-muted-foreground">
-            <span className={`rounded-full px-2 py-0.5 font-medium ${srv.online ? 'bg-ok/15 text-ok' : 'bg-secondary'}`}>
+          <div className="flex flex-none flex-col items-end gap-1 text-xs text-secondary-foreground">
+            <span className={`rounded-full px-2 py-0.5 font-medium ${srv.online ? 'bg-ok/15 text-foreground' : 'bg-secondary'}`}>
               {srv.online ? '● servidor online' : '○ servidor offline'}
             </span>
             {srv.versao && <span className="font-mono">v{srv.versao}</span>}
             <span>Trava: {srv.travaAtiva ? `ligada (${srv.metodo === 'totp' ? 'app' : 'e-mail'})` : 'desligada'}</span>
-            {srv.temTotp && <span className="text-ok">✓ app já cadastrado</span>}
+            {srv.temTotp && <span><span className="text-ok" aria-hidden="true">✓</span> app já cadastrado</span>}
           </div>
         )}
       </div>
 
       {carregando ? (
-        <p className="mt-3 text-sm text-muted-foreground">Carregando…</p>
+        <p className="mt-3 text-sm text-secondary-foreground">Carregando…</p>
       ) : !srv?.instalado ? (
-        <p className="mt-3 rounded-lg border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
+        <p className="mt-3 rounded-lg border border-dashed border-border px-4 py-3 text-sm text-secondary-foreground">
           Instale o servidor local primeiro (abaixo). Depois volte aqui para cadastrar o app autenticador.
         </p>
       ) : (
         <div className="mt-4 rounded-lg border border-dashed border-border p-4">
           {srv.temTotp && !qr && (
-            <p className="mb-2 text-xs text-ok">App já configurado. Para trocar de aparelho, gere um novo QR.</p>
+            <p className="mb-2 text-xs font-medium">App já configurado. Para trocar de aparelho, gere um novo QR.</p>
           )}
           {!qr ? (
             <Button type="button" variant="outline" onClick={iniciar} disabled={busy}>
@@ -729,10 +777,10 @@ function AutenticadorAntiClone() {
             </Button>
           ) : (
             <div className="space-y-2">
-              <p className="text-xs text-muted-foreground">Escaneie no app autenticador (ou digite a chave manualmente):</p>
+              <p className="text-xs text-secondary-foreground">Escaneie no app autenticador (ou digite a chave manualmente):</p>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={qr} alt="QR do app autenticador" className="rounded border border-border" width={200} height={200} />
-              <p className="break-all font-mono text-[11px] text-muted-foreground">{secret}</p>
+              <p className="break-all font-mono text-xs text-secondary-foreground">{secret}</p>
               <div className="flex flex-wrap items-end gap-2">
                 <div>
                   <Label className="text-xs">Código do app</Label>
@@ -744,7 +792,7 @@ function AutenticadorAntiClone() {
               </div>
             </div>
           )}
-          {msg && <p className="mt-3 text-sm text-muted-foreground">{msg}</p>}
+          {msg && <p className={AVISO} role="status">{msg}</p>}
         </div>
       )}
     </Card>
@@ -766,25 +814,88 @@ const PASSOS = [
   },
 ];
 
+const NO_EDGE = process.env.NEXT_PUBLIC_EDGE === '1';
+type Verificacao = { nome: string; cartao: 'saude' | 'atualizacao' | 'restaurar'; atencao: boolean };
+const SITUACOES: Situacao<Verificacao>[] = [
+  { rotulo: 'Pede atenção', filtro: (v) => v.atencao, tom: 'aviso' },
+  { rotulo: 'Em dia', filtro: (v) => !v.atencao },
+];
+
+// O que o resumo do topo confere: as mesmas leituras dos cartões, uma vez, ao abrir a tela. Cada
+// cartão continua lendo (e acompanhando) o seu estado; isto aqui só conta e filtra.
+function useVerificacoes(): Verificacao[] | null {
+  const [lista, setLista] = useState<Verificacao[] | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const presidente = getCategoria() === 'presidente';
+      const [srv, atu, rest]: any[] = await Promise.all([
+        api.meuServidor().catch(() => null),
+        NO_EDGE ? api.edgeAtualizacaoStatus().catch(() => null) : null,
+        NO_EDGE && presidente ? api.edgeRestaurarStatus().catch(() => null) : null,
+      ]);
+      const v: Verificacao[] = [];
+      if (srv?.instalado) {
+        const b = srv.backup ?? null;
+        const horas = Number(b?.horas);
+        const disco = Number(srv.discoLivreMb);
+        v.push({ nome: 'Servidor online', cartao: 'saude', atencao: !srv.online });
+        v.push({ nome: 'Backup', cartao: 'saude', atencao: !b || b.ok === false || (Number.isFinite(horas) && horas > 48) });
+        v.push({ nome: 'Espaço livre', cartao: 'saude', atencao: Number.isFinite(disco) && disco < 2048 });
+        if (srv.precisaManutencao) v.push({ nome: 'Manutenção', cartao: 'saude', atencao: true });
+      }
+      if (atu) v.push({ nome: 'Versão do servidor', cartao: 'atualizacao', atencao: !!atu.disponivel || !!atu.versaoAtualRecolhida || atu.progresso?.fase === 'erro' });
+      if (rest) v.push({ nome: 'Restauração', cartao: 'restaurar', atencao: !!rest.erro && !rest.restaurando && !rest.solicitado });
+      if (vivo) setLista(v);
+    })();
+    return () => { vivo = false; };
+  }, []);
+  return lista;
+}
+
 export default function ServidorPage() {
   const router = useRouter();
+  const [sit, setSit] = useState(-1);
   useEffect(() => {
     if (!getToken()) router.replace('/entrar');
   }, [router]);
+  const verificacoes = useVerificacoes();
+
+  // Com uma ficha ligada, ficam à vista só os cartões que têm verificação naquela situação. O cartão
+  // é escondido, não desmontado: a atualização em andamento continua sendo acompanhada.
+  const base = verificacoes ?? [];
+  const noFiltro = sit < 0 ? null : new Set(base.filter(SITUACOES[sit].filtro).map((v) => v.cartao));
+  const cartao = (id: Verificacao['cartao'] | 'outros') => (noFiltro === null || (id !== 'outros' && noFiltro.has(id)) ? 'contents' : 'hidden');
+  const atencao = base.filter((v) => v.atencao);
 
   return (
-    <Shell eyebrow="Instalação" title="Servidor local">
+    <Shell eyebrow="Configurações" title="Servidor local">
+      <section className="mb-4 space-y-3" aria-labelledby="servidor-titulo">
+        <div>
+          <h2 id="servidor-titulo" tabIndex={-1} className="font-display text-xl font-bold outline-none">Servidor da loja</h2>
+          <p className="text-sm text-secondary-foreground" role="status" aria-live="polite">
+            {verificacoes === null
+              ? 'Conferindo o servidor…'
+              : base.length === 0
+                ? 'Nenhum servidor local instalado nesta empresa.'
+                : `${base.length - atencao.length} de ${base.length} verificações em dia${atencao.length ? ` · pede atenção: ${atencao.map((v) => v.nome).join(', ')}` : ''}`}
+          </p>
+        </div>
+        {base.length > 0 && <Situacoes base={base} opcoes={SITUACOES} valor={sit} aoMudar={setSit} />}
+      </section>
+
       <div className="grid gap-4 lg:grid-cols-3">
         {/* Saúde do servidor (backup/disco) — vale na nuvem e no edge; some se não há servidor. */}
-        <SaudeServidor />
-        {process.env.NEXT_PUBLIC_EDGE === '1' && <AtualizacaoServidor />}
-        {process.env.NEXT_PUBLIC_EDGE === '1' && <RestaurarServidor />}
-        {process.env.NEXT_PUBLIC_EDGE === '1' && <SuporteServidor />}
+        <div className={cartao('saude')}><SaudeServidor /></div>
+        {NO_EDGE && <div className={cartao('atualizacao')}><AtualizacaoServidor /></div>}
+        {NO_EDGE && <div className={cartao('restaurar')}><RestaurarServidor /></div>}
+        {NO_EDGE && <div className={cartao('outros')}><SuporteServidor /></div>}
         {/* App autenticador (anti-clone) — só na NUVEM (app.dmsregem): ativação/segredo moram lá. */}
-        {process.env.NEXT_PUBLIC_EDGE !== '1' && <AutenticadorAntiClone />}
+        {!NO_EDGE && <div className={cartao('outros')}><AutenticadorAntiClone /></div>}
+        <div className={cartao('outros')}>
         <Card className="p-6 lg:col-span-2">
           <h2 className="font-display text-xl font-bold">Instale o Regem na sua loja</h2>
-          <p className="mt-2 max-w-prose text-sm text-muted-foreground">
+          <p className="mt-2 max-w-prose text-sm text-secondary-foreground">
             O servidor local deixa o <strong>KDS, o PDV e o ponto</strong> funcionando na sua rede
             <strong> mesmo sem internet</strong> — os pedidos sobem para a nuvem quando reconecta. É opcional,
             mas recomendado para o dia a dia da operação.
@@ -795,18 +906,18 @@ export default function ServidorPage() {
           <ol className="mt-6 flex flex-col gap-4">
             {PASSOS.map((p, i) => (
               <li key={p.t} className="flex gap-3">
-                <span className="grid h-7 w-7 flex-none place-items-center rounded-full bg-primary/15 font-mono text-sm font-bold text-primary">
+                <span className="grid h-7 w-7 flex-none place-items-center rounded-full bg-primary/15 font-mono text-sm font-bold">
                   {i + 1}
                 </span>
                 <div>
                   <p className="font-semibold">{p.t}</p>
-                  <p className="text-sm text-muted-foreground">{p.d}</p>
+                  <p className="text-sm text-secondary-foreground">{p.d}</p>
                 </div>
               </li>
             ))}
           </ol>
 
-          <p className="mt-6 text-xs text-muted-foreground">
+          <p className="mt-6 text-xs text-secondary-foreground">
             Ao final, o instalador mostra o <strong>endereço do servidor</strong> (ex.: <code>https://regem.local:3001</code>).
             Aponte os aparelhos da loja para esse endereço.
           </p>
@@ -814,17 +925,18 @@ export default function ServidorPage() {
 
         <Card className="h-fit p-6">
           <h3 className="font-display text-base font-bold">Antes de começar</h3>
-          <ul className="mt-3 flex flex-col gap-2 text-sm text-muted-foreground">
-            <li className="flex gap-2"><span className="text-ok">✓</span> Um PC com <strong>Windows</strong> na loja (fica ligado no horário de funcionamento).</li>
-            <li className="flex gap-2"><span className="text-ok">✓</span> Na <strong>mesma rede</strong> (WiFi ou cabo) dos aparelhos.</li>
-            <li className="flex gap-2"><span className="text-ok">✓</span> Cerca de <strong>2 GB livres</strong>.</li>
-            <li className="flex gap-2"><span className="text-ok">✓</span> <strong>Internet só na instalação</strong> (para baixar e ativar). Depois, o servidor funciona <strong>sem internet</strong>.</li>
+          <ul className="mt-3 flex flex-col gap-2 text-sm text-secondary-foreground">
+            <li className="flex gap-2"><span className="text-ok" aria-hidden="true">✓</span> Um PC com <strong>Windows</strong> na loja (fica ligado no horário de funcionamento).</li>
+            <li className="flex gap-2"><span className="text-ok" aria-hidden="true">✓</span> Na <strong>mesma rede</strong> (WiFi ou cabo) dos aparelhos.</li>
+            <li className="flex gap-2"><span className="text-ok" aria-hidden="true">✓</span> Cerca de <strong>2 GB livres</strong>.</li>
+            <li className="flex gap-2"><span className="text-ok" aria-hidden="true">✓</span> <strong>Internet só na instalação</strong> (para baixar e ativar). Depois, o servidor funciona <strong>sem internet</strong>.</li>
           </ul>
-          <p className="mt-4 text-xs text-muted-foreground">
+          <p className="mt-4 text-xs text-secondary-foreground">
             A instalação leva alguns minutos e é automática — você só entra com a conta. Depois de pronta,
             a loja opera offline e sincroniza com a nuvem quando reconecta.
           </p>
         </Card>
+        </div>
       </div>
     </Shell>
   );
