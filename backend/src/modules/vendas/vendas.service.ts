@@ -229,8 +229,13 @@ export class VendasService {
     const [ficha] = await tx
       .select({ rendimento: fichaTecnica.rendimento })
       .from(fichaTecnica)
-      .where(eq(fichaTecnica.id, fichaId));
-    const rendimento = Number(ficha?.rendimento) || 1;
+      .where(and(eq(fichaTecnica.id, fichaId), eq(fichaTecnica.tenantId, tenantId), isNull(fichaTecnica.deletedAt)));
+    // Ficha EXCLUÍDA não baixa estoque (decisão do dono, 07/10/2026) — nem como ficha do
+    // produto, nem como sub-receita de outra. A exclusão só marca `deleted_at` e o produto
+    // segue apontando para ela: sem este corte a receita apagada continuava consumindo insumo
+    // a cada venda, sem ninguém conseguir vê-la nem editá-la.
+    if (!ficha) return;
+    const rendimento = Number(ficha.rendimento) || 1;
     const ings = await tx
       .select()
       // Ingrediente removido (soft-delete da mig 242) não baixa estoque.

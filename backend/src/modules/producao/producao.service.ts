@@ -47,8 +47,14 @@ export class ProducaoService {
     const [ficha] = await tx
       .select()
       .from(fichaTecnica)
-      .where(and(eq(fichaTecnica.id, fichaId), eq(fichaTecnica.tenantId, tenantId)));
-    if (!ficha) throw new NotFoundException('Ficha não encontrada');
+      .where(and(eq(fichaTecnica.id, fichaId), eq(fichaTecnica.tenantId, tenantId), isNull(fichaTecnica.deletedAt)));
+    // Ficha EXCLUÍDA não baixa estoque (mesma regra da venda, `vendas.acumularFicha`): como
+    // sub-receita ela é pulada — não consome nem soma custo; como a ficha a produzir, não há
+    // o que produzir.
+    if (!ficha) {
+      if (visitados.size > 0) return 0;
+      throw new NotFoundException('Ficha não encontrada');
+    }
     const rendimento = Number(ficha.rendimento) || 1;
 
     const ings = await tx
