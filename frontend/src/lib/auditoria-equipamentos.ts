@@ -5,6 +5,7 @@
 
 export const ACOES_EQUIPAMENTO: Record<string, string> = {
   cadastrou_equipamento: 'Cadastrou equipamento',
+  editou_equipamento: 'Editou equipamento',
   revogou_equipamento: 'Revogou equipamento',
   terminal_codigo_gerado: 'Gerou código de pareamento',
   terminal_pareado: 'Pareou o terminal',
@@ -28,7 +29,14 @@ const TIPO: Record<string, string> = {
   servidor_local: 'Servidor local',
 };
 const ETAPA: Record<string, string> = { recebido: 'Recebido', preparo: 'Em preparo', pronto: 'Pronto', entregue: 'Entregue' };
+const ESCOPO: Record<string, string> = { producao: 'produção', entrega: 'entrega', avisos: 'só avisos' };
 const ligado = (v: unknown) => (v ? 'ligado' : 'desligado');
+/** "antes → depois" de um campo editado (`mudou.campo = { de, para }`). */
+const troca = (rotulo: string, m: any, nomes?: Record<string, string>, vazio = 'nenhum') => {
+  if (!m) return '';
+  const v = (x: unknown) => (x == null || x === '' ? vazio : (nomes?.[String(x)] ?? String(x)));
+  return `${rotulo}: ${v(m.de)} → ${v(m.para)}`;
+};
 
 /** Resumo de uma linha do que mudou, a partir do `detalhe` gravado na auditoria. */
 export function resumoEquipamento(acao: string, d: any): string {
@@ -37,6 +45,10 @@ export function resumoEquipamento(acao: string, d: any): string {
   switch (acao) {
     case 'cadastrou_equipamento':
       return d.tipo ? `${nome} · ${TIPO[d.tipo] ?? d.tipo}` : nome;
+    case 'editou_equipamento': {
+      const m = d.mudou ?? {};
+      return [nome, troca('nome', m.nome), troca('setor', m.setor, undefined, 'sem setor'), troca('escopo', m.escopo, ESCOPO), troca('PDV principal', m.pdvPrincipal)].filter(Boolean).join(' · ');
+    }
     case 'revogou_equipamento':
       return d.motivo ? `${nome} · ${d.motivo}` : nome;
     case 'terminal_pareado':
