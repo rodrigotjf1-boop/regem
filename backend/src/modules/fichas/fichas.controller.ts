@@ -15,7 +15,9 @@ import { PermissoesGuard } from '../../auth/permissoes.guard';
 import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
+import { podeAcessar } from '../../auth/permissoes';
 import { FichasService } from './fichas.service';
+import { fichaSemCusto } from './ficha-sem-custo';
 import { CreateFichaDto } from './dto/create-ficha.dto';
 import { UpdateFichaDto } from './dto/update-ficha.dto';
 import { CreateIngredienteDto } from './dto/create-ingrediente.dto';
@@ -25,14 +27,24 @@ import { CreateIngredienteDto } from './dto/create-ingrediente.dto';
 export class FichasController {
   constructor(private readonly service: FichasService) {}
 
+  // A LEITURA das fichas é aberta a quem está logado: as telas de produto e de ordem de produção
+  // escolhem a ficha por esta lista. O CUSTO, não: só vai para quem tem a permissão "Fichas
+  // técnicas" (decisão do dono, 07/10/2026) — a mesma regra do `PermissoesGuard`, presidente
+  // incluído. Para os outros o custo é cortado aqui, no servidor.
+  private veCusto(user: AuthUser) {
+    return user.categoria === 'presidente' || podeAcessar(user.permissoes, 'fichas');
+  }
+
   @Get()
-  list(@CurrentUser() user: AuthUser) {
-    return this.service.list(user.tenantId);
+  async list(@CurrentUser() user: AuthUser) {
+    const fichas = await this.service.list(user.tenantId);
+    return this.veCusto(user) ? fichas : fichas.map(fichaSemCusto);
   }
 
   @Get(':id')
-  getOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.getOne(user.tenantId, id);
+  async getOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const ficha = await this.service.getOne(user.tenantId, id);
+    return this.veCusto(user) ? ficha : fichaSemCusto(ficha);
   }
 
   @Post()
