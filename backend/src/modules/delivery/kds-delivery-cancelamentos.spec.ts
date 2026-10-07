@@ -55,8 +55,20 @@ descrever('KDS × delivery: cancelamentos, pronto parcial, voltar e perda (Postg
   const q = (s: string, p: any[] = []) => pool.query(s, p).then((r) => r.rows);
   let senha = 500;
 
-  beforeAll(() => {
-    delete process.env.EDGE_MODE;
+  beforeAll(async () => {
+    delete process.env.EDGE_MODE; // como NUVEM: é lá que os canais avisam o cancelamento
+    // O banco do CI é montado como o de uma loja e não tem as tabelas só-nuvem que o card consulta
+    // ao nascer ("o servidor da loja está no ar?"). `create table if not exists` não é seguro
+    // entre specs em paralelo (ERR-128): quem perde a corrida recebe 23505/42P07 — é "já existe".
+    for (const t of ['edge_status', 'edge_heartbeat'])
+      await pool
+        .query(
+          `create table if not exists ${t} (id uuid primary key default gen_random_uuid(),
+             tenant_id uuid, unidade_id uuid, recebido_em timestamptz not null default now())`,
+        )
+        .catch((e: any) => {
+          if (!['23505', '42P07'].includes(e?.code)) throw e;
+        });
   });
   beforeEach(() => {
     auditado.length = 0;
