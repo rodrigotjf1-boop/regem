@@ -74,6 +74,7 @@ export class ProdutoController {
       dto?.produtoIds ?? [],
       dto?.equipamentoIds ?? [],
       dto?.modo === 'adicionar' ? 'adicionar' : 'substituir',
+      { id: user.colaboradorId ?? null, perfil: user.categoria ?? null },
     );
   }
 

@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, desc, eq, gte, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNotNull, isNull, lte, notInArray, or, sql } from 'drizzle-orm';
 import * as bcrypt from 'bcryptjs';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { uuidDeChave } from '../../common/id-deterministico';
@@ -58,11 +58,11 @@ export class OrdemProducaoService {
     return u.id;
   }
 
+  /** Situações com desfecho: a ordem não pede mais nenhuma ação. */
+  static readonly ENCERRADAS = ['concluida_total', 'concluida_parcial', 'nao_concluida', 'cancelada'];
+
   private encerrada(o: any): boolean {
-    return (
-      o.status === 'cancelada' ||
-      ['concluida_total', 'concluida_parcial', 'nao_concluida'].includes(o.status)
-    );
+    return OrdemProducaoService.ENCERRADAS.includes(o.status);
   }
 
   // Carrega a ordem COM TRAVA de linha e roda `fn` no mesmo commit. Ler o status e
@@ -241,14 +241,20 @@ export class OrdemProducaoService {
     return linhas.join('\n');
   }
 
+  // `situacao` corta no SERVIDOR, antes do limite: 'abertas' = tudo que ainda pede ação (a fazer,
+  // em produção e as pendências de lançamento), sem período; 'encerradas' = o que já teve desfecho,
+  // que a tela pede por período. Sem ele a lista são as 500 mais recentes de QUALQUER situação —
+  // e uma pendência antiga some atrás de 500 ordens concluídas depois dela.
   async listar(
     tenantId: string,
-    filtro: { status?: string; setorId?: string; de?: string; ate?: string; pendentes?: boolean } = {},
+    filtro: { status?: string; setorId?: string; de?: string; ate?: string; pendentes?: boolean; situacao?: 'abertas' | 'encerradas' } = {},
     escopoUnidadeId: string | null = null,
   ) {
     const cond: any[] = [eq(ordemProducao.tenantId, tenantId), isNull(ordemProducao.deletedAt)];
     const esc = this.escopoUnidade(escopoUnidadeId);
     if (esc) cond.push(esc);
+    if (filtro.situacao === 'encerradas') cond.push(inArray(ordemProducao.status, OrdemProducaoService.ENCERRADAS));
+    if (filtro.situacao === 'abertas') cond.push(notInArray(ordemProducao.status, OrdemProducaoService.ENCERRADAS));
     if (filtro.status) cond.push(eq(ordemProducao.status, filtro.status));
     if (filtro.setorId) cond.push(eq(ordemProducao.setorId, filtro.setorId));
     if (filtro.de) cond.push(gte(ordemProducao.dataProducao, filtro.de));
@@ -498,14 +504,25 @@ export class OrdemProducaoService {
   // ── Fase 3 — Recorrência (reaproveita tarefa_def) ─────────────────────────────
   // Cria uma definição recorrente que carrega a config da produção no jsonb. O job
   // diário materializa a ordem do dia a partir dela (idempotente pelo índice único).
-  async criarRecorrencia(tenantId: string, atorId: string, dto: any) {
-    if (!dto?.fichaId || !dto?.unidadeId)
+  //
+  // A loja, a ficha e a impressora passam pelas mesmas conferências do `criar`: a loja é a do
+  // escopo de quem pede (ou é conferida contra a empresa) — nunca aceita crua do pedido —, a ficha
+  // tem de ser da empresa e a impressora, da loja.
+  async criarRecorrencia(tenantId: string, atorId: string, dto: any, escopoUnidadeId: string | null = null) {
+    const unidadeId = escopoUnidadeId ?? (await this.unidadeDoTenant(tenantId, dto?.unidadeId ?? null));
+    if (!dto?.fichaId || !unidadeId)
       throw new BadRequestException('Recorrência exige ficha e unidade.');
+    const [ficha] = await this.db
+      .select({ id: fichaTecnica.id })
+      .from(fichaTecnica)
+      .where(and(eq(fichaTecnica.id, dto.fichaId), eq(fichaTecnica.tenantId, tenantId)));
+    if (!ficha) throw new NotFoundException('Ficha técnica não encontrada.');
+    await garantirImpressoraDaLoja(this.db, tenantId, dto?.impressoraId ?? null, unidadeId);
     const [def] = await this.db
       .insert(tarefaDef)
       .values({
         tenantId,
-        unidadeId: dto.unidadeId,
+        unidadeId,
         setorId: dto?.setorId ?? null,
         funcaoId: dto?.funcaoId ?? null,
         origem: 'recorrente',
@@ -612,17 +629,27 @@ export class OrdemProducaoService {
       .where(and(...cond))
       .orderBy(desc(ordemProducao.dataProducao))
       .limit(1000);
-    let totPlan = 0, totProd = 0;
     const itens = rows.map((r) => {
       const p = Number(r.planejada) || 0;
       const q = Number(r.produzida) || 0;
-      totPlan += p; totProd += q;
       return { ...r, planejada: p, produzida: q, quebra: Number((p - q).toFixed(3)), aderencia: p ? Number(((q / p) * 100).toFixed(1)) : null };
     });
+    // Os totais saem do banco, sobre o período INTEIRO: somados na lista, paravam nas 1000 linhas
+    // dela e o resumo encolhia sem aviso. `itens` continua limitado; `ordens` diz quantas são.
+    const [tot] = await this.db
+      .select({
+        ordens: sql<number>`count(*)::int`,
+        planejado: sql<string>`coalesce(sum(${ordemProducao.quantidadePlanejada}), 0)`,
+        produzido: sql<string>`coalesce(sum(${ordemProducao.quantidadeProduzida}), 0)`,
+      })
+      .from(ordemProducao)
+      .where(and(...cond));
+    const totPlan = Number(tot?.planejado) || 0;
+    const totProd = Number(tot?.produzido) || 0;
     return {
       itens,
       resumo: {
-        ordens: itens.length,
+        ordens: Number(tot?.ordens) || 0,
         planejadoTotal: Number(totPlan.toFixed(3)),
         produzidoTotal: Number(totProd.toFixed(3)),
         quebraTotal: Number((totPlan - totProd).toFixed(3)),

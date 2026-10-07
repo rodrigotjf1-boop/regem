@@ -743,42 +743,71 @@ export class EquipamentoService {
   }
 
   // Cria ou edita uma impressora. papel: 'cupom' (caixa) | 'producao' (cozinha).
+  //
+  // Na EDIÇÃO, campo AUSENTE mantém o que está gravado (V16). Duas telas editam a mesma impressora
+  // com campos diferentes: "Equipamentos" (acentos, papel, setores atendidos, padrão, o que
+  // imprime) e "Impressoras e cupons" (direcionamento, conexão, vias). Antes cada salvar regravava
+  // TODOS os campos — o de uma tela zerava, com os valores padrão, o que a outra tinha configurado.
   async salvarImpressora(tenantId: string, dto: any, ator?: AtorEquipamento) {
     await this.garantirConfigLocal(tenantId);
-    const local = dto.conexao === 'local';
-    // Papel múltiplo (mig 167/179): usa os flags; se não vierem, deriva do papel legado.
-    // 'etiqueta' (mig 179) é exclusivo — a impressora de etiqueta não faz cupom/produção.
-    const isEtiq = dto.fazEtiqueta != null ? !!dto.fazEtiqueta : dto.papel === 'etiqueta';
+    let atual: any = null;
+    if (dto.id) {
+      [atual] = await this.db
+        .select()
+        .from(equipamento)
+        .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, dto.id), eq(equipamento.tipo, 'impressora')));
+      if (!atual) throw new NotFoundException('Impressora não encontrada');
+    }
+    const veio = (k: string) => dto[k] !== undefined;
+    /** O valor do pedido quando o campo veio; senão o gravado (edição) ou o padrão (cadastro). */
+    const ou = <T>(k: string, doPedido: () => T, padrao: T): T => (veio(k) ? doPedido() : atual ? (atual[k] as T) : padrao);
+
+    const conexao: 'local' | 'rede' = ou('conexao', () => (dto.conexao === 'local' ? 'local' : 'rede'), 'rede');
+    const local = conexao === 'local';
+    // Papel múltiplo (mig 167/179): usa os flags; se não vierem, deriva do papel legado; sem nenhum
+    // dos dois, fica como está. 'etiqueta' (mig 179) é exclusivo — não faz cupom nem produção.
+    const temPapel = veio('papel');
+    const isEtiq = dto.fazEtiqueta != null ? !!dto.fazEtiqueta : temPapel ? dto.papel === 'etiqueta' : !!atual?.fazEtiqueta;
     const fazEtiqueta = isEtiq;
-    const fazCupom = dto.fazCupom != null ? !!dto.fazCupom : !isEtiq && dto.papel !== 'producao';
-    const fazProducao = dto.fazProducao != null ? !!dto.fazProducao : !isEtiq && dto.papel === 'producao';
+    const fazCupom = isEtiq
+      ? false
+      : dto.fazCupom != null
+        ? !!dto.fazCupom
+        : temPapel || !atual
+          ? dto.papel !== 'producao'
+          : !!atual.fazCupom;
+    const fazProducao = isEtiq
+      ? false
+      : dto.fazProducao != null
+        ? !!dto.fazProducao
+        : temPapel || !atual
+          ? dto.papel === 'producao'
+          : !!atual.fazProducao;
     const vals = {
-      nome: (dto.nome ?? '').trim() || 'Impressora',
+      nome: ou('nome', () => String(dto.nome ?? '').trim(), '') || atual?.nome || 'Impressora',
       // `papel` só por compat/exibição; o roteamento lê os flags faz*.
       papel: fazEtiqueta ? 'etiqueta' : fazProducao && !fazCupom ? 'producao' : 'cupom',
       fazCupom,
       fazProducao,
       fazEtiqueta,
       // Modelo/linguagem da etiquetadora (mig 180). Só relevante quando fazEtiqueta.
-      linguagemEtiqueta: ['zpl', 'epl', 'escpos'].includes(dto.linguagemEtiqueta)
-        ? dto.linguagemEtiqueta
-        : 'escpos',
+      linguagemEtiqueta: ou('linguagemEtiqueta', () => (['zpl', 'epl', 'escpos'].includes(dto.linguagemEtiqueta) ? dto.linguagemEtiqueta : 'escpos'), 'escpos'),
       // Acentos (mig 269): página de código da impressora; vazio = sem acento (seguro).
-      codepage: ['cp860', 'cp850'].includes(dto.codepage) ? dto.codepage : null,
-      setorId: dto.setorId || null,
-      conexao: local ? 'local' : 'rede',
+      codepage: ou<string | null>('codepage', () => (['cp860', 'cp850'].includes(dto.codepage) ? dto.codepage : null), null),
+      setorId: ou<string | null>('setorId', () => dto.setorId || null, null),
+      conexao,
       // Rede → host:porta; Local → nome da impressora no Windows (limpa o outro par).
-      host: local ? null : dto.host?.trim() || null,
-      porta: local ? null : dto.porta != null ? Number(dto.porta) || null : null,
-      dispositivo: local ? dto.dispositivo?.trim() || null : null,
-      largura: Number(dto.largura) === 58 ? 58 : 80,
-      setoresAtendidos: Array.isArray(dto.setoresAtendidos) ? dto.setoresAtendidos : [],
-      padrao: !!dto.padrao,
-      vias: Math.max(1, Number(dto.vias) || 1),
+      host: local ? null : ou<string | null>('host', () => dto.host?.trim() || null, null),
+      porta: local ? null : ou<number | null>('porta', () => (dto.porta != null ? Number(dto.porta) || null : null), null),
+      dispositivo: local ? ou<string | null>('dispositivo', () => dto.dispositivo?.trim() || null, null) : null,
+      largura: ou('largura', () => (Number(dto.largura) === 58 ? 58 : 80), 80),
+      setoresAtendidos: ou<string[]>('setoresAtendidos', () => (Array.isArray(dto.setoresAtendidos) ? dto.setoresAtendidos : []), []),
+      padrao: ou('padrao', () => !!dto.padrao, false),
+      vias: ou('vias', () => Math.max(1, Number(dto.vias) || 1), 1),
       // Vias por tipo (mig 168): null = herda `vias`. Só grava se veio número > 0.
-      viasCliente: dto.viasCliente != null && Number(dto.viasCliente) > 0 ? Number(dto.viasCliente) : null,
-      viasProducao: dto.viasProducao != null && Number(dto.viasProducao) > 0 ? Number(dto.viasProducao) : null,
-      ativo: dto.ativo != null ? !!dto.ativo : true,
+      viasCliente: ou<number | null>('viasCliente', () => (dto.viasCliente != null && Number(dto.viasCliente) > 0 ? Number(dto.viasCliente) : null), null),
+      viasProducao: ou<number | null>('viasProducao', () => (dto.viasProducao != null && Number(dto.viasProducao) > 0 ? Number(dto.viasProducao) : null), null),
+      ativo: ou('ativo', () => (dto.ativo != null ? !!dto.ativo : true), true),
     };
     if (dto.id) {
       const [row] = await this.db

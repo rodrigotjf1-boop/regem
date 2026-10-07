@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { PermissoesGuard } from '../../auth/permissoes.guard';
@@ -18,6 +19,7 @@ export class OrdemProducaoController {
   constructor(private readonly service: OrdemProducaoService) {}
 
   @Get()
+  @ApiQuery({ name: 'situacao', required: false, enum: ['abertas', 'encerradas'], description: 'abertas = o que ainda pede ação (sem período); encerradas = o que já teve desfecho.' })
   listar(
     @CurrentUser() user: AuthUser,
     @Query('status') status?: string,
@@ -25,10 +27,11 @@ export class OrdemProducaoController {
     @Query('de') de?: string,
     @Query('ate') ate?: string,
     @Query('pendentes') pendentes?: string,
+    @Query('situacao') situacao?: string,
   ) {
     return this.service.listar(
       user.tenantId,
-      { status, setorId, de, ate, pendentes: pendentes === 'true' },
+      { status, setorId, de, ate, pendentes: pendentes === 'true', situacao: situacao === 'abertas' || situacao === 'encerradas' ? situacao : undefined },
       user.unidadeId ?? null,
     );
   }
@@ -47,7 +50,7 @@ export class OrdemProducaoController {
   @Post('recorrencia')
   @Roles('presidente', 'gerente', 'supervisao')
   criarRecorrencia(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.service.criarRecorrencia(user.tenantId, user.colaboradorId, dto);
+    return this.service.criarRecorrencia(user.tenantId, user.colaboradorId, dto, user.unidadeId ?? null);
   }
 
   @Post(':id/liberar')

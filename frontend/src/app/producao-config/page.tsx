@@ -36,7 +36,8 @@ export default function ProducaoConfigPage() {
   const [parte, setParte] = useState<Parte>('ajustes');
   const [setores, setSetores] = useState<any[] | null>(null);
   const [equipamentos, setEquipamentos] = useState<any[]>([]);
-  const [destinosPorSetor, setDestinosPorSetor] = useState<Record<string, string[]>>({});
+  const [destinosPorSetor, setDestinosPorSetor] = useState<Record<string, string[] | null>>({});
+  const [erroEquipamentos, setErroEquipamentos] = useState('');
   const [salvos, setSalvos] = useState<Valores>({});
   const [valores, setValores] = useState<Valores>({});
   const [erroCarga, setErroCarga] = useState('');
@@ -56,9 +57,15 @@ export default function ProducaoConfigPage() {
       // do que está gravado. O grupo dela simplesmente não aparece (ver `fontes`).
       const naoVeio = Symbol('nao veio');
       const ler = (x: Promise<unknown>) => x.catch(() => naoVeio);
+      // Os KDS e as impressoras têm rota e permissão próprias: se não vierem, a tela DIZ que não
+      // vieram — não vira "nenhum equipamento cadastrado" nem "setor sem destino".
+      let semEq = '';
       const [ss, eq, cor, sc, dc] = await Promise.all([
         api.setores(),
-        api.equipamentos().catch(() => []),
+        api.equipamentos().catch((e) => {
+          semEq = e instanceof Error && e.message ? e.message : 'não carregou';
+          return [];
+        }),
         ler(api.kdsCores()),
         ler(api.senhaConfig()),
         ler(api.deliveryConfig()),
@@ -76,11 +83,13 @@ export default function ProducaoConfigPage() {
       setSalvos(r);
       setValores(r);
       setEquipamentos((eq as any[]).filter((e) => e.tipo === 'kds' || e.tipo === 'impressora'));
-      const mapa: Record<string, string[]> = {};
+      setErroEquipamentos(semEq);
+      const mapa: Record<string, string[] | null> = {};
       await Promise.all(
         (ss as any[]).map(async (s) => {
-          const d: any = await api.destinosSetor(s.id).catch(() => []);
-          mapa[s.id] = (d as any[]).map((x) => x.equipamentoId);
+          // `null` = os destinos deste setor não carregaram (diferente de "não tem destino").
+          const d: any = await api.destinosSetor(s.id).catch(() => null);
+          mapa[s.id] = Array.isArray(d) ? d.map((x: any) => x.equipamentoId) : null;
         }),
       );
       setDestinosPorSetor(mapa);
@@ -206,9 +215,11 @@ export default function ProducaoConfigPage() {
   // ── parte "Destino por setor" ──
   const nomeDe = (id: string) => equipamentos.find((e) => e.id === id);
   const destinosDe = (s: any) => (destinosPorSetor[s.id] ?? []).map(nomeDe).filter(Boolean) as any[];
+  /** Os destinos gravados do setor (`null` = não carregaram), sem depender da lista de equipamentos. */
+  const idsDe = (s: any): string[] | null => (s.id in destinosPorSetor ? destinosPorSetor[s.id] : []);
   const SITUACOES: Situacao<any>[] = [
-    { rotulo: 'Com destino', filtro: (s) => destinosDe(s).length > 0 },
-    { rotulo: 'Sem destino', filtro: (s) => destinosDe(s).length === 0, tom: 'aviso' },
+    { rotulo: 'Com destino', filtro: (s) => (idsDe(s)?.length ?? 0) > 0 },
+    { rotulo: 'Sem destino', filtro: (s) => idsDe(s)?.length === 0, tom: 'aviso' },
   ];
   const b = semAcento(busca);
   const base = setores.filter((s) => (!b || semAcento(s.nome).includes(b)) && (!filtroTipo || destinosDe(s).some((e) => tipoDe(e) === filtroTipo)));
@@ -263,10 +274,17 @@ export default function ProducaoConfigPage() {
               Para onde vai a produção de cada setor: um <strong>KDS</strong> (tela) ou uma <strong>impressora</strong> (via automática,
               cadastrada pelo servidor edge). A venda continua com <strong>1 senha</strong>; os itens do setor aparecem no destino escolhido.
             </p>
-            {equipamentos.length === 0 && setores.length > 0 && (
-              <p className="rounded-md border-l-4 border-warn bg-warn/10 px-3 py-2 text-sm">
-                Nenhum KDS/impressora. Cadastre em Configurações → Equipamentos (as impressoras do sistema são registradas pelo servidor edge).
+            {erroEquipamentos ? (
+              <p className="rounded-md border-l-4 border-warn bg-warn/10 px-3 py-2 text-sm" role="status">
+                Não deu para carregar os KDS e as impressoras: <b>{erroEquipamentos}</b>. Sem eles a lista mostra só quantos destinos cada setor tem, e
+                não dá para escolher destino (seu perfil pode não ter acesso aos equipamentos).
               </p>
+            ) : (
+              equipamentos.length === 0 && setores.length > 0 && (
+                <p className="rounded-md border-l-4 border-warn bg-warn/10 px-3 py-2 text-sm">
+                  Nenhum KDS/impressora. Cadastre em Configurações → Equipamentos (as impressoras do sistema são registradas pelo servidor edge).
+                </p>
+              )
             )}
             <Situacoes base={base} opcoes={SITUACOES} valor={sit} aoMudar={setSit} />
             <Filtros>
@@ -287,16 +305,19 @@ export default function ProducaoConfigPage() {
                   { titulo: 'Setor', celula: (s) => <span className="font-bold">{s.nome}</span> },
                   {
                     titulo: 'Destinos',
-                    celula: (s) =>
-                      destinosDe(s).length ? (
-                        <span className="flex flex-wrap justify-end gap-1.5 xl:justify-start">{destinosDe(s).map((e) => <Selo key={e.id} tom="info">{e.nome}</Selo>)}</span>
-                      ) : (
-                        <Selo tom="aviso">sem destino</Selo>
-                      ),
+                    celula: (s) => {
+                      const ids = idsDe(s);
+                      if (ids === null) return <Selo>não carregou</Selo>;
+                      if (!ids.length) return <Selo tom="aviso">sem destino</Selo>;
+                      // Sem a lista de equipamentos não há nomes: mostra a quantidade, que é o que se sabe.
+                      if (erroEquipamentos) return <Selo>{ids.length === 1 ? '1 destino' : `${ids.length} destinos`}</Selo>;
+                      return <span className="flex flex-wrap justify-end gap-1.5 xl:justify-start">{destinosDe(s).map((e) => <Selo key={e.id} tom="info">{e.nome}</Selo>)}</span>;
+                    },
                   },
-                  { titulo: 'Quantidade', celula: (s) => <span className="font-mono">{destinosDe(s).length}</span> },
+                  { titulo: 'Quantidade', celula: (s) => <span className="font-mono">{idsDe(s)?.length ?? '—'}</span> },
                 ]}
-                acoes={() => (equipamentos.length ? [{ rotulo: 'Destinos', icone: Pencil, aoClicar: setEditando, tom: 'primaria' as const }] : [])}
+                // Setor cujos destinos não carregaram não se edita: a gaveta abriria vazia e salvaria por cima.
+                acoes={(s) => (equipamentos.length && idsDe(s) !== null ? [{ rotulo: 'Destinos', icone: Pencil, aoClicar: setEditando, tom: 'primaria' as const }] : [])}
               />
             )}
             {filtrando && linhas.length > 0 && (
