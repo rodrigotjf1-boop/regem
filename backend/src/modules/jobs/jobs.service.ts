@@ -141,6 +141,20 @@ export class JobsService {
     }
   }
 
+  // A via em papel das ordens recorrentes de HOJE que pedem impressão — uma vez por ordem.
+  // De 10 em 10 minutos, nos dois lados: a ordem do dia pode ter nascido no outro lado e chegado
+  // pelo sincronismo, e o servidor da loja costuma estar desligado às 05:30. Uma consulta para
+  // todas as empresas; quem imprime e como não repete está em `imprimirRecorrentesDoDia`.
+  @Cron('*/10 * * * *')
+  async imprimirOrdensRecorrentes() {
+    try {
+      const n = await this.ordemProducao.imprimirRecorrentesDoDia();
+      if (n) this.log.log(`ordens recorrentes: ${n} via(s) para impressão`);
+    } catch (e: any) {
+      this.log.error(`imprimirOrdensRecorrentes: ${e?.message ?? e}`);
+    }
+  }
+
   // Para quem calcular o alerta de estoque (auditoria #45, mig 249).
   //  • Rede de UMA loja (ou nenhuma cadastrada): um alerta só, de unidade nula — igual
   //    a antes. O `UnidadeUnicaInterceptor` zera o filtro nesses tenants, então a tela

@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { and, desc, eq, gte, inArray, isNotNull, isNull, lte, notInArray, or, sql } from 'drizzle-orm';
@@ -24,13 +25,19 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { dataNoFuso, hojeISO } from '../../common/data';
 import { garantirImpressoraDaLoja } from '../../common/impressora-da-loja';
 import { gravarOuEncaminharImpressao } from '../../common/impressao-destino';
+import { ehServidorLocal } from '../../common/modo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+/** A ordem do dia de uma recorrência: a definição + o dia (o mesmo id na nuvem e no servidor da loja). */
+export const idOrdemRecorrente = (tarefaDefId: string, data: string) => uuidDeChave(tarefaDefId, data);
 
 // Ordem de produção: o PLANO (o que/quanto/quando/quem). A execução (baixa insumos
 // + entrada do produzido) é o `produzir()`, disparado na CONCLUSÃO com a qtd REAL.
 @Injectable()
 export class OrdemProducaoService {
+  private readonly log = new Logger(OrdemProducaoService.name);
+
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly producao: ProducaoService,
@@ -573,8 +580,11 @@ export class OrdemProducaoService {
       if (!op?.fichaId) continue; // não é uma def de produção
       if (Array.isArray(cfg?.dias) && cfg.dias.length && !cfg.dias.includes(diaSemana)) continue;
       try {
-        // Índice único (tenant, tarefa_def_id, data) evita duplicar.
+        // O id sai da chave de negócio (a definição + o dia): esta rotina roda na nuvem E no
+        // servidor da loja, e o sincronismo casa linha por id. Com id aleatório cada lado criava
+        // a SUA ordem do dia — e a segunda a chegar batia no índice único (tenant, def, data).
         await this.db.insert(ordemProducao).values({
+          id: idOrdemRecorrente(d.id, data),
           tenantId,
           unidadeId: d.unidadeId,
           fichaId: op.fichaId,
@@ -595,7 +605,65 @@ export class OrdemProducaoService {
         criadas++;
       } catch { /* já existe (índice único) — ok */ }
     }
+    // A via em papel das de hoje (quem pediu "Impressão"): não espera a próxima passada da rotina.
+    // Se falhar aqui a ordem fica criada e a rotina de 10 em 10 minutos tenta de novo.
+    if (data === hojeISO())
+      await this.imprimirRecorrentesDoDia(tenantId).catch((e: any) =>
+        this.log.warn(`via da ordem recorrente não gravada agora (a rotina tenta de novo): ${e?.message ?? e}`),
+      );
     return criadas;
+  }
+
+  // A VIA EM PAPEL DA ORDEM QUE SE REPETE — uma vez por ordem, na impressora escolhida.
+  //
+  // A ordem do dia pode nascer na nuvem ou no servidor da loja (e chegar ao outro lado pelo
+  // sincronismo), então "imprimir quando criar" imprimiria duas vezes ou nenhuma. Em vez disso
+  // esta rotina (de 10 em 10 minutos, e logo depois de gerar) olha as ordens recorrentes de HOJE
+  // que pedem impressão e ainda não foram iniciadas, e grava a via com um id que sai da própria
+  // ordem — a fila de impressão do lado que imprime serve de registro de "já saiu".
+  //  • No servidor da loja: imprime ele (a fila dele é lida pelo worker da loja).
+  //  • Na nuvem: só para loja SEM servidor local cadastrado (fila lida pelo agente dos caixas);
+  //    a loja que tem servidor é ele quem imprime, quando estiver ligado.
+  // Só entram as ordens criadas pela recorrência (o id delas diz): a ordem avulsa imprime na
+  // criação, pelo `despacharCanais`. Devolve quantas vias gravou.
+  async imprimirRecorrentesDoDia(soTenant?: string): Promise<number> {
+    const hoje = hojeISO();
+    const r: any = await this.db.execute(sql`
+      select o.id, o.tenant_id as "tenantId", o.unidade_id as "unidadeId", o.impressora_id as "impressoraId",
+             o.quantidade_planejada::text as "quantidadePlanejada", o.unidade,
+             o.data_producao::text as "dataProducao", o.hora_inicio::text as "horaInicio", f.nome as "fichaNome"
+        from ordem_producao o
+        join equipamento e on e.id = o.impressora_id and e.tenant_id = o.tenant_id and e.tipo = 'impressora' and e.ativo
+        left join ficha_tecnica f on f.id = o.ficha_id
+       where o.data_producao = ${hoje}::date
+         and o.tarefa_def_id is not null
+         and o.id = md5(o.tarefa_def_id::text || o.data_producao::text)::uuid
+         and o.canais @> '["impressao"]'::jsonb
+         and o.status in ('planejada', 'liberada')
+         and o.deleted_at is null
+         ${soTenant ? sql`and o.tenant_id = ${soTenant}` : sql``}
+         ${
+           ehServidorLocal()
+             ? sql``
+             : sql`and not exists (
+                     select 1 from equipamento s
+                      where s.tenant_id = o.tenant_id and s.tipo = 'servidor_local' and s.ativo and s.integrador is null
+                        and (o.unidade_id is null or s.unidade_id is null or s.unidade_id = o.unidade_id))`
+         }
+         and not exists (select 1 from impressao_job j where j.id = md5(o.id::text || 'impressao')::uuid)`);
+    const ordens = (r.rows ?? r) as any[];
+    if (!ordens.length) return 0;
+    // Uma gravação para todas as vias (o texto é montado aqui; o id repetido não entra de novo).
+    const vias = ordens.map(
+      (o) => sql`(${uuidDeChave(o.id, 'impressao')}::uuid, ${o.tenantId}::uuid, ${o.unidadeId}::uuid, ${o.impressoraId}::uuid, 'producao',
+                  ${this.renderOrdemTicket({ ...o, horaInicio: o.horaInicio ? String(o.horaInicio).slice(0, 5) : null }, { nome: o.fichaNome })}::text)`,
+    );
+    const feito: any = await this.db.execute(sql`
+      insert into impressao_job (id, tenant_id, unidade_id, equipamento_id, via, conteudo)
+      values ${sql.join(vias, sql`, `)}
+      on conflict (id) do nothing
+      returning id`);
+    return ((feito.rows ?? feito) as any[]).length;
   }
 
   // ── Fase 3 — Relatório planejado × produzido (onde a quebra aparece) ──────────
