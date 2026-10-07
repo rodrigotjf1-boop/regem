@@ -49,9 +49,9 @@ export function NovaOrdem({ gestao, voltarPara, aoFechar, aoSalvar }: { gestao: 
 
   const ficha = fichas?.itens.find((x) => x.id === f.fichaId);
   const comPorcao = Number(ficha?.porcaoTamanho) > 0;
-  // A via em papel sai quando a ordem é criada AQUI. A ordem que se repete nasce pelo serviço
-  // diário, que não imprime — então "Impressão" não vale para ela.
-  const imprime = f.canais.includes('impressao') && !f.recorrente;
+  // Imprimir ou não, e em qual impressora, vale para a ordem avulsa (a via sai ao criar) e para a
+  // que se repete (a via de cada dia sai sozinha, uma vez — o servidor cuida de não repetir).
+  const imprime = f.canais.includes('impressao');
   const alternarCanal = (c: string) => muda({ canais: f.canais.includes(c) ? f.canais.filter((x) => x !== c) : [...f.canais, c] });
 
   const falta = (msg: string, id: string) => {
@@ -77,7 +77,7 @@ export function NovaOrdem({ gestao, voltarPara, aoFechar, aoSalvar }: { gestao: 
         dataProducao: f.dataProducao,
         horaInicio: f.horaInicio || undefined,
         setorId: f.setorId || undefined,
-        canais: f.recorrente ? f.canais.filter((c) => c !== 'impressao') : f.canais,
+        canais: f.canais,
         impressoraId: imprime ? f.impressoraId : undefined,
         liberar: true,
         titulo: ficha?.nome,
@@ -170,9 +170,8 @@ export function NovaOrdem({ gestao, voltarPara, aoFechar, aoSalvar }: { gestao: 
           <span className="mb-1 block text-sm font-medium">Onde avisar</span>
           <div className="flex flex-wrap gap-1.5" role="group" aria-label="Onde avisar">
             {CANAIS.map((c) => {
-              const papel = c.v === 'impressao';
-              const ligado = f.canais.includes(c.v) && !(papel && f.recorrente);
-              const semImpressoras = papel && (f.recorrente || semLista(impressoras) || impressoras?.itens.length === 0);
+              const ligado = f.canais.includes(c.v);
+              const semImpressoras = c.v === 'impressao' && (semLista(impressoras) || impressoras?.itens.length === 0);
               return (
                 <button key={c.v} type="button" aria-pressed={ligado} disabled={semImpressoras && !ligado} onClick={() => alternarCanal(c.v)}
                   className={`inline-flex min-h-10 items-center gap-1 rounded-md border px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${
@@ -194,7 +193,11 @@ export function NovaOrdem({ gestao, voltarPara, aoFechar, aoSalvar }: { gestao: 
               <option value="">— escolha —</option>
               {impressoras?.itens.map((i) => <option key={i.id} value={i.id}>{i.nome}</option>)}
             </Select>
-            <p className={`text-xs ${texto2}`}>A ordem sai em papel nesta impressora ao ser criada, com espaço para a assinatura.</p>
+            <p className={`text-xs ${texto2}`}>
+              {f.recorrente
+                ? 'A via de cada dia sai sozinha nesta impressora, uma vez, com espaço para a assinatura. Se a loja estiver fechada quando a ordem do dia nascer, a via sai quando o computador da loja ligar.'
+                : 'A ordem sai em papel nesta impressora ao ser criada, com espaço para a assinatura.'}
+            </p>
           </div>
         )}
         {gestao && (
@@ -205,8 +208,8 @@ export function NovaOrdem({ gestao, voltarPara, aoFechar, aoSalvar }: { gestao: 
             </div>
             {f.recorrente && (
               <p className={`mt-1 text-xs ${texto2}`}>
-                A ordem de hoje é criada agora e a de cada dia nasce no próprio dia, na loja em uso. A data acima não é usada, e a ordem que se
-                repete não sai em papel.
+                A ordem de hoje é criada agora e a de cada dia nasce no próprio dia, na loja em uso. A data acima não é usada. Para sair em papel
+                todo dia, marque “Impressão” em “Onde avisar” e escolha a impressora.
               </p>
             )}
           </div>

@@ -898,7 +898,7 @@ function formOrdem() {
       + `<div class="duas">${campo('Data', '<input type="date" value="2026-10-07">')}${campo('Hora início', '<input type="time" value="10:00">')}</div>`
       + campo('Setor responsável', sel(['— sem setor —', ...SETORES]))
       + `<div><span class="rot">Onde avisar</span><div class="fichas" style="margin-top:4px">${['App do colaborador', 'KDS/Quadro', 'Linha do tempo', 'Impressão'].map((x, i) => `<button type="button" class="ficha" aria-pressed="${i === 2}">${x}</button>`).join('')}</div></div>`
-      + campo('Impressora da ordem', sel(['— escolha —', 'Impressora Cozinha', 'Impressora Bar']), 'Só com “Impressão” marcada: a ordem sai em papel nesta impressora ao ser criada. A ordem que se repete não sai em papel.')
+      + campo('Impressora da ordem', sel(['— escolha —', 'Impressora Cozinha', 'Impressora Bar']), 'Só com “Impressão” marcada: a ordem sai em papel nesta impressora ao ser criada. Na ordem que se repete, a via de cada dia sai sozinha, uma vez.')
       + chave('Repetir todo dia (recorrente)', false) });
 }
 function dialogoConcluir(r) {
