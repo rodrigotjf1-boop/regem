@@ -105,6 +105,9 @@
   ⚠️ **Loja com servidor local ainda na 1.30.x: a via da ordem que se repete NÃO sai até o `.zip`.** A ordem do dia aparece normalmente na tela; só o papel espera o pacote (nessa loja quem imprime é o servidor dela, e o servidor antigo não tem a rotina). A ordem avulsa imprime como antes.
   ⚠️ **Enquanto a loja estiver na 1.30.x**, a rotina antiga dela ainda cria a ordem do dia com id aleatório; se a nuvem e a loja criarem a mesma ordem antes de sincronizar, a segunda é recusada pelo índice único (`uq_ordem_prod_def_dia`). Defeito anterior a este item; some com o `.zip`. Em 07/10 não havia nenhuma recorrência de produção cadastrada na nuvem.
   ⚠️ **Ordem de deploy:** nenhuma migration.
+- **Custo da ficha técnica só para quem tem a permissão "Fichas técnicas" — sem migration; MUDA O SERVIDOR (fichas) — entra no próximo `.zip` (não toca `backend/edge/` nem o sync).** Decisão do dono em 07/10. `GET /fichas` e `GET /fichas/:id` continuam abertas a quem está logado (produtos e ordens de produção escolhem a ficha por elas), mas o custo, o CMV, o preço sugerido, o markup, a margem e o custo de cada ingrediente só vão para quem tem a permissão (o presidente sempre). Para os outros a ficha vem com `custoOculto: true` e esses campos vazios; a aba Estoque → Fichas técnicas esconde as colunas de custo e de CMV e diz por quê. "Ver valores em R$" não libera o custo da ficha.
+  ⚠️ **Servidor da loja ainda na 1.30.x:** na loja o custo continua indo para qualquer perfil logado até o `.zip`.
+  ⚠️ **Ordem de deploy:** nenhuma migration.
 
 ## Última release: `1.30.2` — gerada em 30/09/2026 da `origin/main` `3e81449`, **.exe COMPILADO** e publicado (`instaladores/RegemEdgeSetup.exe`, 92.720.473 bytes, SHA-256 `91fdd1fd8b6b442c820222512f3d2ac0ae3f2e9ddad9e4ad84a03e7091ae90ad`, download público conferido); sem `.zip`
 

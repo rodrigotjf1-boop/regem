@@ -370,6 +370,10 @@ export default function FichasPage() {
   const papel = getCategoria() ?? '';
   const podeEditar = ['presidente', 'gerente', 'supervisao', 'suporte'].includes(papel) && podePerm('fichas');
   const podeExcluir = ['presidente', 'gerente', 'suporte'].includes(papel) && podePerm('fichas');
+  // O custo só vem para quem tem a permissão "Fichas técnicas": o servidor corta e avisa em cada
+  // ficha (`custoOculto`). Sem custo não há CMV — a coluna, o selo e as situações saem da tela,
+  // em vez de dizerem "R$ 0,00" e "sem preço".
+  const semCusto = fichas.some((f) => f.custoOculto);
   const b = semAcento(busca);
   const base = fichas.filter(
     (f) =>
@@ -377,8 +381,8 @@ export default function FichasPage() {
       (!filtroCategoria || categoriaDe(f) === filtroCategoria) &&
       (!filtroSub || (filtroSub === 'sim') === usaSub(f)),
   );
-  const linhas = sit < 0 ? base : base.filter(SITUACOES[sit].filtro);
-  const filtrando = !!(busca.trim() || filtroCategoria || filtroSub || sit >= 0);
+  const linhas = sit < 0 || semCusto ? base : base.filter(SITUACOES[sit].filtro);
+  const filtrando = !!(busca.trim() || filtroCategoria || filtroSub || (sit >= 0 && !semCusto));
   const limpar = () => { setBusca(''); setFiltroCategoria(''); setFiltroSub(''); setSit(-1); };
 
   return (
@@ -393,10 +397,10 @@ export default function FichasPage() {
         ) : (
           <section className="space-y-3" aria-labelledby={ID_TITULO}>
             <TituloLista id={ID_TITULO} titulo="Fichas técnicas" total={fichas.length} mostrando={linhas.length} um="ficha" varios="fichas"
-              extra={`meta de CMV padrão ${String(META_CMV).replace('.', ',')}%`}>
+              extra={semCusto ? 'o custo e o CMV aparecem para quem tem a permissão “Fichas técnicas”' : `meta de CMV padrão ${String(META_CMV).replace('.', ',')}%`}>
               {podeEditar && <Button type="button" onClick={nova}><Plus className="h-4 w-4" aria-hidden="true" /> Nova ficha</Button>}
             </TituloLista>
-            <Situacoes base={base} opcoes={SITUACOES} valor={sit} aoMudar={setSit} />
+            {!semCusto && <Situacoes base={base} opcoes={SITUACOES} valor={sit} aoMudar={setSit} />}
             <Filtros>
               <FiltroBusca id="fichas-busca" valor={busca} aoMudar={setBusca} placeholder="Nome da ficha" />
               <FiltroSelect id="fichas-categoria" rotulo="Categoria" todos="Todas as categorias" opcoes={CATEGORIAS.map((c) => c.label)} valor={filtroCategoria} aoMudar={setFiltroCategoria} />
@@ -416,13 +420,15 @@ export default function FichasPage() {
                 colunas={[
                   { titulo: 'Ficha', celula: (f) => <NomeComApoio nome={f.nome} apoio={`${categoriaDe(f)}${usaSub(f) ? ' · usa sub-receita' : ''}`} /> },
                   { titulo: 'Rendimento', celula: (f) => <span className="whitespace-nowrap">{num(f.rendimento ?? 1)} {f.rendimentoUnidade ?? 'porções'}</span> },
-                  { titulo: 'Custo por porção', celula: (f) => <span className="whitespace-nowrap font-mono">{brl(Number(f.custoPorcao ?? 0))}</span> },
+                  ...(semCusto ? [] : [{ titulo: 'Custo por porção', celula: (f: any) => <span className="whitespace-nowrap font-mono">{brl(Number(f.custoPorcao ?? 0))}</span> }]),
                   { titulo: 'Preço de venda', celula: (f) => (Number(f.precoVenda) > 0 ? <span className="whitespace-nowrap font-mono">{brl(Number(f.precoVenda))}</span> : '—') },
-                  {
-                    titulo: 'CMV',
-                    celula: (f) =>
-                      f.cmv == null ? <Selo tom="aviso">sem preço</Selo> : <Selo tom={dentroDaMeta(f) ? 'ok' : 'critico'}><span className="font-mono">{String(f.cmv).replace('.', ',')}%</span></Selo>,
-                  },
+                  ...(semCusto
+                    ? []
+                    : [{
+                        titulo: 'CMV',
+                        celula: (f: any) =>
+                          f.cmv == null ? <Selo tom="aviso">sem preço</Selo> : <Selo tom={dentroDaMeta(f) ? 'ok' : 'critico'}><span className="font-mono">{String(f.cmv).replace('.', ',')}%</span></Selo>,
+                      }]),
                 ]}
                 acoes={() => [
                   ...(podeEditar

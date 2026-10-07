@@ -69,7 +69,7 @@ SaaS de gestão operacional com hierarquia completa do proprietário à ponta. R
 ## O que NÃO fazer
 
 - Não inventar telas/fluxos sem mockup — pergunte.
-- Não alterar paleta/tokens/tipografia sem aprovação.
+- Não alterar paleta/tokens/tipografia **por gosto** sem aprovação. A paleta é **guia, não regra de prioridade 1** (dono, 07/10/2026): quando um tom conflita com legibilidade/acessibilidade (contraste mínimo), ajusta-se o mínimo necessário, mede-se antes e depois e registra-se em `docs/decisoes-design.md` §6.
 - Não implementar RBAC só no front. Não guardar segredos em código.
 - Não usar `localStorage` para dado de negócio (camada offline = IndexedDB).
 
