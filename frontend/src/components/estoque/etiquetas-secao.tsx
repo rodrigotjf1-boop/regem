@@ -1,12 +1,19 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { api } from '@/lib/api';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { Check, PackageOpen, Plus, Recycle } from 'lucide-react';
+import { api, getCategoria, podePerm } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { SkeletonList } from '@/components/ui/skeleton';
+import { Dialogo, Gaveta } from '@/components/ui/sobreposto';
+import {
+  FiltroBusca, Filtros, ListaDados, NomeComApoio, Selo, Situacoes, TituloLista, Vazio,
+  dataBr, hojeIso, semAcento, texto2, type Situacao,
+} from './lista';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const selectCls = 'flex h-11 w-full rounded-md border border-input bg-card px-3 text-sm';
@@ -14,78 +21,226 @@ const CAMPO_LABEL: Record<string, string> = {
   loja: 'Nome da loja', produto: 'Produto', unidade: 'Unidade', fabricacao: 'Fabricação',
   compra: 'Data da compra', status: 'Status (fechado/uso)', validade: 'Validade', responsavel: 'Responsável',
 };
-const brDate = (iso?: string) => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '—');
-const STATUS_LABEL: Record<string, { txt: string; cls: string }> = {
-  fechado: { txt: 'Fechado', cls: 'bg-info/10 text-info' },
-  em_uso: { txt: 'Em uso', cls: 'bg-warn/10 text-warn' },
-  baixado: { txt: 'Baixado', cls: 'bg-muted text-muted-foreground' },
-  vencido: { txt: 'Vencido/perda', cls: 'bg-danger/10 text-danger' },
-};
+type Fontes = { produtos: any[]; fichas: any[]; itens: any[]; lotes: any[] };
+const SEM_FONTES: Fontes = { produtos: [], fichas: [], itens: [], lotes: [] };
 
-export function EtiquetasSecao() {
-  const [aba, setAba] = useState<'gerar' | 'ativas' | 'template'>('gerar');
-  const [fontes, setFontes] = useState<{ produtos: any[]; fichas: any[]; itens: any[]; lotes: any[] }>({ produtos: [], fichas: [], itens: [], lotes: [] });
-  const [lista, setLista] = useState<any[]>([]);
+// Só a etiqueta VIVA (fechada ou em uso) entra na lista e oferece "usei"/"perda". As já
+// baixadas e as que viraram perda saem — antes a vencida aparecia de novo e o botão estava lá
+// para gerar a segunda perda. O servidor já manda só as vivas, na ordem da validade; o filtro
+// e a ordem daqui valem para o servidor de loja de versão anterior, que ignora o pedido.
+const viva = (e: any) => e.status === 'fechado' || e.status === 'em_uso';
+const SITUACOES: Situacao<any>[] = [
+  { rotulo: 'Vencidas', filtro: (e) => !!e.vencida, tom: 'critico' },
+  { rotulo: 'Vencem até amanhã', filtro: (e) => !e.vencida && Number(e.diasRestantes) <= 1, tom: 'aviso' },
+  { rotulo: 'Em uso', filtro: (e) => e.status === 'em_uso' },
+  { rotulo: 'Fechadas', filtro: (e) => e.status === 'fechado' },
+];
+const ID_TITULO = 'etiquetas-titulo';
+function prazo(e: any): string {
+  const d = Number(e.diasRestantes);
+  if (e.vencida || d < 0) return d < 0 ? `venceu há ${-d} dia(s)` : 'vencida';
+  return d === 0 ? 'vence hoje' : `${d} dia(s)`;
+}
+
+// Aba Etiquetas de validade: as etiquetas vivas numa lista só (vencidas, as que vencem até
+// amanhã, em uso e fechadas), o campo do leitor, e as ações na linha — abrir, baixar e perda.
+// Gerar etiqueta abre na gaveta. O desenho da etiqueta fica em "Modelo".
+// `gerarPara` = fonte já escolhida por outra aba ("lote:<id>", vinda de Validades).
+export function EtiquetasSecao({
+  gerarPara,
+  aoAbrirGerar,
+  aoMudarEstoque,
+}: {
+  gerarPara?: string | null;
+  /** Avisa que a fonte pedida já foi usada (a aba que pediu pode esquecer). */
+  aoAbrirGerar?: () => void;
+  aoMudarEstoque?: () => void;
+}) {
+  const [aba, setAba] = useState<'lista' | 'modelo'>('lista');
+  const [fontes, setFontes] = useState<Fontes>(SEM_FONTES);
+  const [lista, setLista] = useState<any[] | null>(null);
   const [template, setTemplate] = useState<any>(null);
+  const [busca, setBusca] = useState('');
+  const [sit, setSit] = useState(-1);
+  const [codigo, setCodigo] = useState('');
+  const [gerar, setGerar] = useState<{ fonte: string } | null>(null);
+  const [perda, setPerda] = useState<any>(null);
 
   const reload = useCallback(async () => {
     const [f, l, t] = await Promise.all([
-      api.etiquetaFontes().catch(() => ({ produtos: [], fichas: [], itens: [], lotes: [] })),
-      api.etiquetasValidade().catch(() => []),
+      api.etiquetaFontes().catch(() => SEM_FONTES),
+      api.etiquetasValidade(true).catch(() => []),
       api.etiquetaTemplate().catch(() => null),
     ]);
     setFontes(f as any);
     setLista(Array.isArray(l) ? l : []);
     setTemplate(t);
   }, []);
-
+  useEffect(() => { reload(); }, [reload]);
+  // Outra aba pediu "gerar etiqueta deste lote": abre a gaveta já com ele escolhido.
   useEffect(() => {
-    reload();
-  }, [reload]);
+    if (!gerarPara || lista === null) return;
+    setAba('lista');
+    setGerar({ fonte: gerarPara });
+    aoAbrirGerar?.();
+  }, [gerarPara, lista, aoAbrirGerar]);
+
+  async function ler(e: React.FormEvent) {
+    e.preventDefault();
+    if (!codigo.trim()) return;
+    try {
+      const r: any = await api.lerEtiqueta(codigo.trim());
+      toast.success(r?.acao === 'aberto' ? 'Etiqueta aberta (em uso).' : 'Etiqueta baixada.');
+      setCodigo('');
+      reload();
+    } catch (err: any) {
+      toast.error(err?.message || 'Código não encontrado.');
+    }
+  }
+  async function abrir(e: any) {
+    try {
+      const r: any = await api.abrirEtiqueta(e.id);
+      toast.success(r?.reimpresso ? 'Aberta — nova via impressa (validade encurtou).' : 'Aberta (em uso).');
+      reload();
+    } catch (err: any) {
+      toast.error(err?.message || 'Falha ao abrir.');
+    }
+  }
+  async function baixar(e: any) {
+    try {
+      await api.finalizarEtiqueta(e.id);
+      toast.success('Baixada (usada).');
+      await reload();
+      document.getElementById(ID_TITULO)?.focus(); // a linha (e o botão clicado) saiu da lista
+    } catch (err: any) {
+      toast.error(err?.message || 'Falha na operação.');
+    }
+  }
+
+  const vivas = (lista ?? []).filter(viva).sort((a, b) => String(a.validade).localeCompare(String(b.validade)));
+  const b = semAcento(busca);
+  const base = vivas.filter((e) => !b || semAcento(`${e.descricao} ${e.codigo}`).includes(b));
+  const linhas = sit < 0 ? base : base.filter(SITUACOES[sit].filtro);
+  const filtrando = !!(busca.trim() || sit >= 0);
+  const limpar = () => { setBusca(''); setSit(-1); };
+  // O servidor é quem autoriza; aqui só não se oferece o que ele recusaria. Gerar é da gestão
+  // com "editar estoque"; ler, abrir, baixar e perda são do ponto de baixa (permissão "desperdício").
+  const podeGerar = ['presidente', 'gerente', 'supervisao', 'suporte'].includes(getCategoria() ?? '') && podePerm('estoque', 'editar');
+  const podeBaixar = podePerm('desperdicio');
+  const ficha = (ligada: boolean) =>
+    `min-h-10 whitespace-nowrap rounded-md border px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+      ligada ? 'border-foreground bg-foreground text-background' : `border-input bg-card ${texto2} hover:text-foreground`
+    }`;
 
   return (
-    <section className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="font-display font-semibold">Etiquetas de validade</h2>
-        <div className="flex gap-1 overflow-x-auto">
-          {(['gerar', 'ativas', 'template'] as const).map((a) => (
-            <button
-              key={a}
-              onClick={() => setAba(a)}
-              className={`whitespace-nowrap rounded-md border px-3 py-1 text-xs font-medium ${aba === a ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground'}`}
-            >
-              {a === 'gerar' ? 'Gerar' : a === 'ativas' ? `Ativas (${lista.filter((e) => e.status === 'fechado' || e.status === 'em_uso').length})` : 'Modelo'}
-            </button>
-          ))}
+    <section className="space-y-3" aria-labelledby={ID_TITULO}>
+      <TituloLista id={ID_TITULO} titulo="Etiquetas de validade" total={vivas.length} mostrando={aba === 'lista' ? linhas.length : vivas.length}
+        um="etiqueta viva" varios="etiquetas vivas" extra="as baixadas saem da lista">
+        <div className="flex gap-1" role="group" aria-label="O que ver">
+          <button type="button" aria-pressed={aba === 'lista'} className={ficha(aba === 'lista')} onClick={() => setAba('lista')}>Etiquetas</button>
+          <button type="button" aria-pressed={aba === 'modelo'} className={ficha(aba === 'modelo')} onClick={() => setAba('modelo')}>Modelo</button>
         </div>
-      </div>
+        {aba === 'lista' && podeGerar && (
+          <Button type="button" onClick={() => setGerar({ fonte: '' })}><Plus className="h-4 w-4" aria-hidden="true" /> Gerar etiqueta</Button>
+        )}
+      </TituloLista>
 
-      {aba === 'gerar' && <GerarEtiqueta fontes={fontes} onDone={reload} />}
-      {aba === 'ativas' && <Ativas lista={lista} onChange={reload} />}
-      {aba === 'template' && template && <TemplateEditor template={template} onSaved={reload} />}
+      {aba === 'modelo' && (template ? <TemplateEditor template={template} onSaved={reload} /> : <SkeletonList rows={3} />)}
+
+      {aba === 'lista' && lista === null && <SkeletonList rows={4} />}
+      {aba === 'lista' && lista !== null && (
+        <>
+          {podeBaixar && (
+            <Card className="p-3">
+              <form onSubmit={ler} className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
+                <div className="space-y-1">
+                  <Label htmlFor="etiquetas-leitor">Ler o código da etiqueta (abre ou baixa)</Label>
+                  <Input id="etiquetas-leitor" value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="Aponte o leitor ou digite o código" inputMode="numeric" autoComplete="off" />
+                </div>
+                <Button type="submit" variant="outline">Ler</Button>
+              </form>
+            </Card>
+          )}
+          <Situacoes base={base} opcoes={SITUACOES} valor={sit} aoMudar={setSit} />
+          <Filtros>
+            <FiltroBusca id="etiquetas-busca" valor={busca} aoMudar={setBusca} placeholder="Produto ou código da etiqueta" />
+          </Filtros>
+
+          {vivas.length === 0 ? (
+            <Vazio>Nenhuma etiqueta viva. Gere a etiqueta de um produto, de uma ficha ou de um lote recebido.</Vazio>
+          ) : linhas.length === 0 ? (
+            <Vazio aoLimpar={limpar} />
+          ) : (
+            <ListaDados
+              legenda="Etiquetas de validade vivas"
+              linhas={linhas}
+              chave={(e) => e.id}
+              nome={(e) => e.descricao}
+              colunas={[
+                { titulo: 'Produto', celula: (e) => <NomeComApoio nome={e.descricao} apoio={<span className="font-mono">#{e.codigo}</span>} /> },
+                { titulo: 'Validade', celula: (e) => <><span className="font-mono">{dataBr(e.validade)}</span><span className={`block text-xs ${texto2}`}>{prazo(e)}</span></> },
+                { titulo: 'Situação', celula: (e) => (e.vencida ? <Selo tom="critico">vencida</Selo> : e.status === 'em_uso' ? <Selo tom="aviso">em uso</Selo> : <Selo tom="info">fechada</Selo>) },
+              ]}
+              acoes={(e) =>
+                !podeBaixar
+                  ? []
+                  : [
+                      // E2 — escolher: Abrir (depois baixar) ou Baixar direto (usou já).
+                      ...(e.status === 'fechado' ? [{ rotulo: 'Abrir', icone: PackageOpen, aoClicar: abrir }] : []),
+                      { rotulo: 'Baixar (usei)', icone: Check, aoClicar: baixar },
+                      ...(e.vencida ? [{ rotulo: 'Perda', icone: Recycle, aoClicar: setPerda, tom: 'perigo' as const }] : []),
+                    ]
+              }
+            />
+          )}
+          {filtrando && linhas.length > 0 && (
+            <p><Button type="button" variant="outline" size="sm" onClick={limpar}>Limpar filtros</Button></p>
+          )}
+        </>
+      )}
+
+      {gerar && (
+        <GerarEtiqueta fontes={fontes} fonteInicial={gerar.fonte} aoFechar={() => setGerar(null)} aoGerar={() => { setGerar(null); reload(); }} />
+      )}
+      {perda && (
+        <PerdaDialogo etiqueta={perda} aoFechar={() => setPerda(null)}
+          aoRegistrar={async () => {
+            setPerda(null);
+            await reload();
+            document.getElementById(ID_TITULO)?.focus(); // a etiqueta vencida saiu da lista
+            aoMudarEstoque?.();
+          }} />
+      )}
     </section>
   );
 }
 
-function GerarEtiqueta({ fontes, onDone }: { fontes: any; onDone: () => void }) {
-  const [fonteKey, setFonteKey] = useState('');
+// ── gerar etiqueta (gaveta) ─────────────────────────────────────────────────────────────────
+function GerarEtiqueta({ fontes, fonteInicial, aoFechar, aoGerar }: { fontes: Fontes; fonteInicial: string; aoFechar: () => void; aoGerar: () => void }) {
+  const formId = useId();
+  const chaves = useMemo(
+    () => [
+      ...(fontes.produtos ?? []).map((x: any) => `produto:${x.id}`),
+      ...(fontes.fichas ?? []).map((x: any) => `ficha:${x.id}`),
+      ...(fontes.itens ?? []).map((x: any) => `item:${x.id}`),
+      ...(fontes.lotes ?? []).map((x: any) => `lote:${x.id}`),
+    ],
+    [fontes],
+  );
+  // A fonte pedida por outra aba só vale se existir aqui (lote sem validade não é fonte).
+  const [fonteKey, setFonteKey] = useState(() => (chaves.includes(fonteInicial) ? fonteInicial : ''));
   const [tipoUso, setTipoUso] = useState<'novo' | 'usado'>('novo');
   const [quantidade, setQuantidade] = useState('1');
-  const [fabricacao, setFabricacao] = useState(() => new Date().toISOString().slice(0, 10));
+  const [fabricacao, setFabricacao] = useState(hojeIso);
   const [busy, setBusy] = useState(false);
-
-  const opcoes = useMemo(() => {
-    const p = (fontes.produtos ?? []).map((x: any) => ({ ...x, key: `produto:${x.id}` }));
-    const f = (fontes.fichas ?? []).map((x: any) => ({ ...x, key: `ficha:${x.id}` }));
-    const it = (fontes.itens ?? []).map((x: any) => ({ ...x, key: `item:${x.id}` }));
-    const lo = (fontes.lotes ?? []).map((x: any) => ({ ...x, key: `lote:${x.id}` }));
-    return [...p, ...f, ...it, ...lo];
-  }, [fontes]);
+  const [erro, setErro] = useState('');
 
   async function gerar(e: React.FormEvent) {
     e.preventDefault();
-    if (!fonteKey) return toast.error('Escolha o produto, ficha, insumo ou lote.');
+    if (busy) return;
+    if (!fonteKey) { setErro('Escolha o produto, a ficha, o insumo ou o lote.'); return; }
     const [tipo, id] = fonteKey.split(':');
+    setErro('');
     setBusy(true);
     try {
       const r: any = await api.criarEtiqueta({
@@ -98,114 +253,102 @@ function GerarEtiqueta({ fontes, onDone }: { fontes: any; onDone: () => void }) 
         fabricacao,
       });
       toast.success(`${r?.criadas ?? 1} etiqueta(s) gerada(s) e enviada(s) à impressão.`);
-      onDone();
+      aoGerar();
     } catch (err: any) {
-      toast.error(err?.message || 'Falha ao gerar etiqueta.');
-    } finally {
+      setErro(err?.message || 'Falha ao gerar etiqueta.');
       setBusy(false);
     }
   }
-
-  if (opcoes.length === 0)
-    return (
-      <Card className="p-6 text-center text-sm text-muted-foreground">
-        Nenhuma fonte com validade. Ative “Controla validade” num produto, informe a validade numa ficha, cadastre a validade num insumo — ou confira uma compra, que cada lote recebido vira uma fonte aqui.
-      </Card>
-    );
+  const semFontes = chaves.length === 0;
+  const opcao = (ligada: boolean) =>
+    `min-h-11 border-r border-input text-sm font-semibold last:border-r-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
+      ligada ? 'bg-foreground text-background' : 'bg-card text-foreground hover:bg-secondary'
+    }`;
 
   return (
-    <Card className="p-4">
-      <form onSubmit={gerar} className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-1.5 sm:col-span-2">
-          <Label>Produto / ficha / lote</Label>
-          <select className={selectCls} value={fonteKey} onChange={(e) => setFonteKey(e.target.value)} required>
-            <option value="">— escolha —</option>
-            <optgroup label="Produtos">
-              {(fontes.produtos ?? []).map((p: any) => (
-                <option key={p.id} value={`produto:${p.id}`}>{p.nome}</option>
-              ))}
-            </optgroup>
-            <optgroup label="Fichas técnicas">
-              {(fontes.fichas ?? []).map((f: any) => (
-                <option key={f.id} value={`ficha:${f.id}`}>{f.nome}</option>
-              ))}
-            </optgroup>
-            <optgroup label="Insumos">
-              {(fontes.itens ?? []).map((i: any) => (
-                <option key={i.id} value={`item:${i.id}`}>{i.nome}</option>
-              ))}
-            </optgroup>
-            {/* Lote da compra conferida: a validade é a DAQUELA entrega, não uma data
-                fixa do cadastro — e a etiqueta guarda o vínculo, então um recall
-                alcança até o que já foi aberto. */}
-            <optgroup label="Lotes recebidos">
-              {(fontes.lotes ?? []).map((l: any) => (
-                <option key={l.id} value={`lote:${l.id}`}>
-                  {l.nome}{l.codigo ? ` · lote ${l.codigo}` : ''} · vence {String(l.validade).slice(0, 10).split('-').reverse().join('/')}
-                </option>
-              ))}
-            </optgroup>
-          </select>
-        </div>
-        <div className="space-y-1.5">
-          <Label>Produto novo ou usado?</Label>
-          <div className="grid grid-cols-2 gap-2">
-            <button type="button" aria-pressed={tipoUso === 'novo'} onClick={() => setTipoUso('novo')}
-              className={`rounded-lg border p-2 text-xs font-semibold ${tipoUso === 'novo' ? 'border-primary bg-primary/10 text-primary' : 'border-border'}`}>
-              Novo (fechado)
-            </button>
-            <button type="button" aria-pressed={tipoUso === 'usado'} onClick={() => setTipoUso('usado')}
-              className={`rounded-lg border p-2 text-xs font-semibold ${tipoUso === 'usado' ? 'border-primary bg-primary/10 text-primary' : 'border-border'}`}>
-              Usado (aberto)
-            </button>
-          </div>
-        </div>
-        <div className="space-y-1.5">
-          <Label>Quantidade</Label>
-          <Input type="number" min={1} max={50} value={quantidade} onChange={(e) => setQuantidade(e.target.value)} />
-        </div>
-        {tipoUso === 'novo' && (
+    <Gaveta
+      titulo="Gerar etiqueta de validade"
+      aoFechar={aoFechar}
+      rodape={
+        <>
+          <Button type="button" variant="outline" onClick={aoFechar}>{semFontes ? 'Fechar' : 'Cancelar'}</Button>
+          {!semFontes && <Button type="submit" form={formId} disabled={busy}>{busy ? 'Gerando…' : 'Gerar e imprimir'}</Button>}
+        </>
+      }
+    >
+      {semFontes ? (
+        <p className={`text-sm ${texto2}`}>
+          Nenhuma fonte com validade. Ative “Controla validade” num produto, informe a validade numa ficha, cadastre a validade num insumo — ou confira uma compra, que cada lote recebido vira uma fonte aqui.
+        </p>
+      ) : (
+        <form id={formId} onSubmit={gerar} className="space-y-4">
           <div className="space-y-1.5">
-            <Label>Data de fabricação</Label>
-            <Input type="date" value={fabricacao} onChange={(e) => setFabricacao(e.target.value)} />
+            <Label htmlFor="etq-fonte">Produto / ficha / lote</Label>
+            <select id="etq-fonte" data-foco-inicial className={selectCls} value={fonteKey} onChange={(e) => setFonteKey(e.target.value)} required>
+              <option value="">— escolha —</option>
+              <optgroup label="Produtos">
+                {(fontes.produtos ?? []).map((p: any) => <option key={p.id} value={`produto:${p.id}`}>{p.nome}</option>)}
+              </optgroup>
+              <optgroup label="Fichas técnicas">
+                {(fontes.fichas ?? []).map((f: any) => <option key={f.id} value={`ficha:${f.id}`}>{f.nome}</option>)}
+              </optgroup>
+              <optgroup label="Insumos">
+                {(fontes.itens ?? []).map((i: any) => <option key={i.id} value={`item:${i.id}`}>{i.nome}</option>)}
+              </optgroup>
+              {/* Lote da compra conferida: a validade é a DAQUELA entrega, não uma data fixa do
+                  cadastro — e a etiqueta guarda o vínculo, então um recall alcança até o que já
+                  foi aberto. */}
+              <optgroup label="Lotes recebidos">
+                {(fontes.lotes ?? []).map((l: any) => (
+                  <option key={l.id} value={`lote:${l.id}`}>
+                    {l.nome}{l.codigo ? ` · lote ${l.codigo}` : ''} · vence {String(l.validade).slice(0, 10).split('-').reverse().join('/')}
+                  </option>
+                ))}
+              </optgroup>
+            </select>
           </div>
-        )}
-        <div className="sm:col-span-2">
-          <Button type="submit" disabled={busy}>{busy ? 'Gerando…' : 'Gerar e imprimir'}</Button>
-        </div>
-      </form>
-    </Card>
+          <div>
+            <span className="mb-1 block text-sm font-medium">Produto novo ou usado?</span>
+            <div className="grid grid-cols-2 overflow-hidden rounded-md border border-input" role="group" aria-label="Produto novo ou usado">
+              <button type="button" aria-pressed={tipoUso === 'novo'} className={opcao(tipoUso === 'novo')} onClick={() => setTipoUso('novo')}>Novo (fechado)</button>
+              <button type="button" aria-pressed={tipoUso === 'usado'} className={opcao(tipoUso === 'usado')} onClick={() => setTipoUso('usado')}>Usado (aberto)</button>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="etq-qtd">Quantidade de etiquetas</Label>
+              <Input id="etq-qtd" type="number" min={1} max={50} inputMode="numeric" value={quantidade} onChange={(e) => setQuantidade(e.target.value)} />
+            </div>
+            {tipoUso === 'novo' && (
+              <div className="space-y-1.5">
+                <Label htmlFor="etq-fab">Data de fabricação</Label>
+                <Input id="etq-fab" type="date" value={fabricacao} onChange={(e) => setFabricacao(e.target.value)} />
+              </div>
+            )}
+          </div>
+          <p className={`text-xs ${texto2}`}>A validade sai da fonte escolhida e o desenho, do modelo salvo em “Modelo”.</p>
+          {erro && <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm font-medium">{erro}</p>}
+        </form>
+      )}
+    </Gaveta>
   );
 }
 
-function Ativas({ lista, onChange }: { lista: any[]; onChange: () => void }) {
-  const [codigo, setCodigo] = useState('');
-  const ativas = lista.filter((e) => e.status === 'fechado' || e.status === 'em_uso');
-  // Só a etiqueta VIVA oferece "usei"/"perda". Antes a lista incluía as já `vencido`
-  // (que já tinham virado perda), e o botão estava lá para gerar a segunda.
-  const vencidas = lista.filter((e) => e.vencida && (e.status === 'fechado' || e.status === 'em_uso'));
-  const [perdendo, setPerdendo] = useState<string | null>(null);
-  const [qtdPerda, setQtdPerda] = useState('');
+// ── perda da etiqueta vencida (diálogo) ─────────────────────────────────────────────────────
+// A etiqueta não sabe quanto representa (um pote de 500 g ou de 2 kg): quem registra a perda
+// informa. Com quantidade, a perda baixa o estoque pelo mesmo caminho do desperdício manual;
+// sem ela, fica só o registro — e a pessoa é avisada disso.
+function PerdaDialogo({ etiqueta: e, aoFechar, aoRegistrar }: { etiqueta: any; aoFechar: () => void; aoRegistrar: () => void }) {
+  const [qtd, setQtd] = useState('');
+  const [erro, setErro] = useState('');
+  const [salvando, setSalvando] = useState(false);
 
-  async function ler(e: React.FormEvent) {
-    e.preventDefault();
-    if (!codigo.trim()) return;
-    try {
-      const r: any = await api.lerEtiqueta(codigo.trim());
-      toast.success(r?.acao === 'aberto' ? 'Etiqueta aberta (em uso).' : 'Etiqueta baixada.');
-      setCodigo('');
-      onChange();
-    } catch (err: any) {
-      toast.error(err?.message || 'Código não encontrado.');
-    }
-  }
-
-  // A etiqueta não sabe quanto representa (um pote de 500 g ou de 2 kg): quem registra
-  // a perda informa. Com quantidade, a perda baixa o estoque pelo mesmo caminho do
-  // desperdício manual; sem ela, fica só o registro — e a pessoa é avisada disso.
-  async function confirmarPerda(e: any) {
-    const q = qtdPerda.trim() ? Number(qtdPerda.replace(',', '.')) : undefined;
-    if (q !== undefined && !(q > 0)) return toast.error('Informe uma quantidade maior que zero, ou deixe em branco.');
+  async function confirmar() {
+    if (salvando) return;
+    const q = qtd.trim() ? Number(qtd.replace(',', '.')) : undefined;
+    if (q !== undefined && !(q > 0)) { setErro('Informe uma quantidade maior que zero, ou deixe em branco.'); return; }
+    setErro('');
+    setSalvando(true);
     try {
       const r: any = await api.perdaEtiqueta(e.id, q);
       toast.success(
@@ -213,134 +356,35 @@ function Ativas({ lista, onChange }: { lista: any[]; onChange: () => void }) {
           ? `Perda registrada e ${q} ${e.unidadeMedida ?? ''} baixado(s) do estoque.`
           : 'Perda registrada sem baixa de estoque (sem quantidade informada).',
       );
-      setPerdendo(null);
-      setQtdPerda('');
-      onChange();
+      aoRegistrar();
     } catch (err: any) {
-      toast.error(err?.message || 'Falha ao registrar a perda.');
-    }
-  }
-
-  async function acao(fn: () => Promise<any>, msg: string) {
-    try {
-      await fn();
-      toast.success(msg);
-      onChange();
-    } catch (err: any) {
-      toast.error(err?.message || 'Falha na operação.');
+      setErro(err?.message || 'Falha ao registrar a perda.');
+      setSalvando(false);
     }
   }
 
   return (
-    <div className="space-y-3">
-      <Card className="p-3">
-        <form onSubmit={ler} className="flex gap-2">
-          <Input value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="Ler código da etiqueta (abrir / baixar)" />
-          <Button type="submit" variant="outline">Ler</Button>
-        </form>
-      </Card>
-
-      {vencidas.length > 0 && (
-        <Card className="border-danger/40 bg-danger/5 p-3">
-          <p className="mb-2 text-sm font-semibold text-danger">⚠️ {vencidas.length} etiqueta(s) vencida(s)</p>
+    <Dialogo alerta titulo={`Perda: ${e.descricao}`} aoFechar={aoFechar} fecharNoFundo={false}
+      rodape={
+        <>
+          <Button type="button" variant="outline" onClick={aoFechar} disabled={salvando}>Cancelar</Button>
+          <Button type="button" variant="destructive" onClick={confirmar} disabled={salvando}>{salvando ? 'Registrando…' : 'Registrar perda'}</Button>
+        </>
+      }>
+      <div className="space-y-3 text-sm">
+        <p>A etiqueta <span className="font-mono">#{e.codigo}</span> venceu em {dataBr(e.validade)}.</p>
+        {e.itemId ? (
           <div className="space-y-1.5">
-            {vencidas.map((e) => (
-              <div key={e.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                <span className="min-w-0 truncate">{e.descricao} · venceu {brDate(e.validade)}</span>
-                <span className="flex gap-1.5">
-                  <button className="text-xs font-semibold text-ok" onClick={() => acao(() => api.finalizarEtiqueta(e.id), 'Finalizado (usado).')}>usei → finalizar</button>
-                  <button
-                    className="text-xs font-semibold text-danger"
-                    aria-expanded={perdendo === e.id}
-                    onClick={() => { setPerdendo(perdendo === e.id ? null : e.id); setQtdPerda(''); }}
-                  >
-                    venceu → perda
-                  </button>
-                </span>
-                {perdendo === e.id && (
-                  <div className="flex w-full flex-wrap items-center gap-2 rounded-md bg-card p-2">
-                    {e.itemId ? (
-                      <label className="flex items-center gap-1.5 text-xs">
-                        Quanto foi perdido?
-                        <Input
-                          type="number"
-                          inputMode="decimal"
-                          className="h-8 w-24"
-                          value={qtdPerda}
-                          placeholder="opcional"
-                          aria-label={`Quantidade perdida de ${e.descricao}`}
-                          onChange={(ev) => setQtdPerda(ev.target.value)}
-                        />
-                        <span className="text-muted-foreground">{e.unidadeMedida ?? ''}</span>
-                      </label>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">
-                        Etiqueta sem insumo vinculado: a perda fica registrada, sem baixa de estoque.
-                      </span>
-                    )}
-                    <Button type="button" size="sm" variant="outline" className="h-8 text-danger" onClick={() => confirmarPerda(e)}>
-                      Confirmar perda
-                    </Button>
-                  </div>
-                )}
-              </div>
-            ))}
+            <Label htmlFor="perda-qtd">Quanto foi perdido{e.unidadeMedida ? `, em ${e.unidadeMedida}` : ''}? (opcional)</Label>
+            <Input id="perda-qtd" data-foco-inicial type="number" min={0} step="any" inputMode="decimal" value={qtd} onChange={(ev) => setQtd(ev.target.value)} placeholder="ex.: 0,5" aria-describedby="perda-qtd-ajuda" />
+            <p id="perda-qtd-ajuda" className={`text-xs ${texto2}`}>Com a quantidade, a perda baixa o estoque. Sem ela, fica só o registro.</p>
           </div>
-        </Card>
-      )}
-
-      {ativas.length === 0 ? (
-        <Card className="p-6 text-center text-sm text-muted-foreground">Nenhuma etiqueta ativa.</Card>
-      ) : (
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-          {ativas.map((e) => {
-            const st = STATUS_LABEL[e.status] ?? { txt: e.status, cls: 'bg-muted' };
-            const alerta = e.diasRestantes <= 1;
-            return (
-              <Card key={e.id} className={`p-3 ${alerta ? 'border-danger/40' : ''}`}>
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="truncate font-medium">{e.descricao}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Validade {brDate(e.validade)} · {e.diasRestantes < 0 ? 'vencida' : `${e.diasRestantes} dia(s)`}
-                    </p>
-                    <p className="font-mono text-[11px] text-muted-foreground">#{e.codigo}</p>
-                  </div>
-                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${st.cls}`}>{st.txt}</span>
-                </div>
-                {/* E2 — escolher: Abrir (depois fechar) ou Baixar direto (usou já). */}
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {e.status === 'fechado' && (
-                    <button
-                      type="button"
-                      className="rounded border border-border px-2.5 py-1 text-xs font-semibold hover:bg-secondary"
-                      onClick={async () => {
-                        try {
-                          const r: any = await api.abrirEtiqueta(e.id);
-                          toast.success(r?.reimpresso ? 'Aberta — nova via impressa (validade encurtou).' : 'Aberta (em uso).');
-                          onChange();
-                        } catch (err: any) {
-                          toast.error(err?.message || 'Falha ao abrir.');
-                        }
-                      }}
-                    >
-                      Abrir
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="rounded border border-border px-2.5 py-1 text-xs font-semibold text-ok hover:bg-secondary"
-                    onClick={() => acao(() => api.finalizarEtiqueta(e.id), 'Baixada (usada).')}
-                  >
-                    Baixar
-                  </button>
-                </div>
-              </Card>
-            );
-          })}
-        </div>
-      )}
-    </div>
+        ) : (
+          <p className="rounded-md border-l-4 border-info bg-info/10 px-3 py-2">Etiqueta sem insumo vinculado: a perda fica registrada, sem baixa de estoque.</p>
+        )}
+        {erro && <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 font-medium">{erro}</p>}
+      </div>
+    </Dialogo>
   );
 }
 

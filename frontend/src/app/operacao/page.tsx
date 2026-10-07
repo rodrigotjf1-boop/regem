@@ -7,6 +7,7 @@ import { api, getToken, podeVerFinanceiro } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { SkeletonList } from '@/components/ui/skeleton';
+import { AbasEstoque, ehAbaEstoque, type AbaEstoque } from '@/components/estoque/abas-estoque';
 import { ProdutosSecao } from '@/components/estoque/produtos-secao';
 import { PainelSecao } from '@/components/estoque/painel-secao';
 import { ContagemSecao } from '@/components/estoque/contagem-secao';
@@ -20,34 +21,15 @@ import { Shell } from '@/components/app-shell/shell';
 import { toast } from '@/lib/toast';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-type Secao =
-  | 'painel'
-  | 'produtos'
-  | 'contagem'
-  | 'compras'
-  | 'recebimento'
-  | 'validades'
-  | 'etiquetas'
-  | 'desperdicio'
-  | 'vistorias';
-
-// `href` = seção que vive em outra rota (abre a página em vez de trocar a aba).
-const SECOES: { key: Secao | 'fichas'; label: string; href?: string }[] = [
-  { key: 'painel', label: 'Painel' },
-  { key: 'produtos', label: 'Produtos' },
-  { key: 'fichas', label: 'Fichas técnicas', href: '/fichas' },
-  { key: 'contagem', label: 'Contagem' },
-  { key: 'compras', label: 'Compras' },
-  { key: 'recebimento', label: 'Recebimento' },
-  { key: 'validades', label: 'Validades' },
-  { key: 'etiquetas', label: 'Etiquetas' },
-  { key: 'desperdicio', label: 'Desperdício' },
-  { key: 'vistorias', label: 'Vistorias' },
-];
+// As abas que vivem nesta rota. "Fichas técnicas" é aba do Estoque, mas mora em `/fichas`.
+type Secao = Exclude<AbaEstoque, 'fichas'>;
 
 export default function EstoquePage() {
   const router = useRouter();
   const [secao, setSecao] = useState<Secao>('painel');
+  // Lote escolhido em Validades para virar etiqueta: a aba Etiquetas abre a gaveta com ele.
+  const [gerarPara, setGerarPara] = useState<string | null>(null);
+  const esquecerGerarPara = useCallback(() => setGerarPara(null), []);
   const [itens, setItens] = useState<any[]>([]);
   const [categorias, setCategorias] = useState<any[]>([]);
   const [fornecedores, setFornecedores] = useState<any[]>([]);
@@ -91,6 +73,9 @@ export default function EstoquePage() {
       router.replace('/entrar');
       return;
     }
+    // Quem vem de `/fichas` (ou de um link) chega com a aba na URL: `/operacao?aba=validades`.
+    const pedida = new URLSearchParams(window.location.search).get('aba');
+    if (ehAbaEstoque(pedida) && pedida !== 'fichas') setSecao(pedida);
     reload();
     api.autoPausaCardapio().then((r: any) => r && setAutoPausa(!!r.ativo)).catch(() => {});
   }, [reload, router]);
@@ -155,27 +140,7 @@ export default function EstoquePage() {
           </label>
         </Card>
 
-        {/* Navegação por seção (hub) — rola na horizontal no mobile, quebra no desktop */}
-        <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
-          {SECOES.map((s) => {
-            const ativo = !s.href && secao === s.key;
-            return (
-              <button
-                key={s.key}
-                type="button"
-                onClick={() => (s.href ? router.push(s.href) : setSecao(s.key as Secao))}
-                aria-pressed={ativo ? 'true' : 'false'}
-                className={`min-h-10 shrink-0 whitespace-nowrap rounded-md border px-3.5 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
-                  ativo
-                    ? 'border-primary bg-primary font-bold text-primary-foreground'
-                    : 'border-input bg-card font-semibold text-secondary-foreground hover:border-secondary-foreground hover:text-foreground'
-                }`}
-              >
-                {s.label}
-              </button>
-            );
-          })}
-        </div>
+        <AbasEstoque ativa={secao} aoEscolher={(a) => (a === 'fichas' ? router.push('/fichas') : setSecao(a))} />
 
         {erro && <p role="alert" className="text-destructive">{erro}</p>}
 
@@ -197,10 +162,19 @@ export default function EstoquePage() {
         {secao === 'recebimento' && <RecebimentoSecao itens={itens} fornecedores={fornecedores} aoMudarEstoque={reload} />}
 
         {/* ---------- VALIDADES ---------- */}
-        {secao === 'validades' && <ValidadesSecao itens={itens} aoMudarEstoque={reload} />}
+        {secao === 'validades' && (
+          <ValidadesSecao
+            itens={itens}
+            aoMudarEstoque={reload}
+            aoEtiquetar={(l) => {
+              setGerarPara(`lote:${l.id}`);
+              setSecao('etiquetas');
+            }}
+          />
+        )}
 
         {/* ---------- ETIQUETAS DE VALIDADE ---------- */}
-        {secao === 'etiquetas' && <EtiquetasSecao />}
+        {secao === 'etiquetas' && <EtiquetasSecao gerarPara={gerarPara} aoAbrirGerar={esquecerGerarPara} aoMudarEstoque={reload} />}
 
         {/* ---------- DESPERDÍCIO ---------- */}
         {secao === 'desperdicio' && <DesperdicioSecao itens={itens} aoMudarEstoque={reload} />}

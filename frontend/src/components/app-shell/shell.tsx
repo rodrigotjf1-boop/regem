@@ -77,6 +77,8 @@ type NavNode = {
   perm?: string;
   modulo?: string;
   children?: NavSub[];
+  // Outras rotas que são a MESMA tela do menu (ex.: `/fichas` é uma aba do Estoque).
+  tambem?: string[];
 };
 
 // Menu por PERMISSÃO (catálogo do perfil_acesso). Cada item aparece se o perfil
@@ -118,7 +120,7 @@ const NAV: NavNode[] = [
     ],
   },
   { href: '/escala', label: 'Escalas', icon: CalendarDays, perm: 'escalas' },
-  { href: '/operacao', label: 'Estoque', icon: Boxes, perm: 'estoque' },
+  { href: '/operacao', label: 'Estoque', icon: Boxes, perm: 'estoque', tambem: ['/fichas'] },
   // Permissão própria (não `estoque`): ligada na gestão; na execução, só quando o presidente
   // libera no perfil — mesma regra das rotas do ponto de baixa e do registro de desperdício.
   { href: '/ponto-baixa', label: 'Ponto de baixa (QR)', icon: ScanLine, perm: 'desperdicio' },
@@ -347,7 +349,7 @@ export function Shell({
             const isPres = cat === 'presidente';
             const Item = (it: NavSub | NavNode, sub?: boolean) => {
               const href = (it as NavSub).href;
-              const active = path === href;
+              const active = path === href || !!(it as NavNode).tambem?.includes(path ?? '');
               return (
                 <Link
                   key={href}
