@@ -202,7 +202,7 @@ const ABAS = {
     ],
     acoes: () => [['⧉', 'Duplicar', 'duplicar'], ['✎', 'Editar', 'editar'], ['🗑', 'Excluir', 'excluir', 'perigo']],
     aoNovo: () => editorFicha(null),
-    aoAcao: (k, r) => (k === 'editar' ? editorFicha(r) : k === 'duplicar' ? (avisar(`"${r.nome}" duplicada — abra a cópia para ajustar.`)) : confirmarExcluir(r, 'A ficha sai desta lista e deixa de ser opção de sub-receita e de etiqueta. O produto do cardápio que já usa esta ficha continua ligado a ela — confira o produto antes de excluir.')),
+    aoAcao: (k, r) => (k === 'editar' ? editorFicha(r) : k === 'duplicar' ? (avisar(`"${r.nome}" duplicada — abra a cópia para ajustar.`)) : confirmarExcluir(r, 'A ficha sai desta lista e deixa de ser opção de sub-receita e de etiqueta. O produto do cardápio que a usa continua à venda, mas deixa de dar baixa nos ingredientes dela; as fichas que a usam como sub-receita também deixam de consumi-los.')),
   },
   contagem: {
     aba: 'Contagem', titulo: 'Contagem', um: 'lista', varios: 'listas', novo: '＋ Nova lista',

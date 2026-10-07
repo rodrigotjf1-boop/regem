@@ -607,7 +607,7 @@ export default function FichasPage() {
           <div className="space-y-3 text-sm">
             <p>Excluir <b>{excluindo.nome}</b>?</p>
             <p className="rounded-md border-l-4 border-destructive bg-destructive/10 px-3 py-2">
-              A ficha sai desta lista e deixa de ser opção de sub-receita e de etiqueta. O produto do cardápio que já usa esta ficha continua ligado a ela — confira o produto antes de excluir. Não dá para desfazer por aqui.
+              A ficha sai desta lista e deixa de ser opção de sub-receita e de etiqueta. O produto do cardápio que a usa continua à venda, mas deixa de dar baixa nos ingredientes dela; as fichas que a usam como sub-receita também deixam de consumi-los. Não dá para desfazer por aqui.
             </p>
           </div>
         </Dialogo>

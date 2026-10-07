@@ -857,13 +857,18 @@ export class CardapioService {
           ${unidadeId ? sql`and unidade_id = ${unidadeId}` : sql``}
         group by item_id
       `),
-      // Mapa de ingredientes por ficha (carregado uma vez para o tenant).
+      // Mapa de ingredientes por ficha (carregado uma vez para o tenant). Só o que a VENDA
+      // consome (`vendas.acumularFicha`): ingrediente removido da ficha (soft-delete da mig
+      // 242 — toda edição da ficha deixa as linhas antigas marcadas) e ficha excluída ficam
+      // de fora. Sem isso o produto aparecia "Esgotado" por um insumo que já não sai mais.
       this.db.execute(sql`
         select fi.ficha_id as "fichaId", fi.item_id as "itemId",
                fi.sub_ficha_id as "subFichaId"
         from ficha_ingrediente fi
         join ficha_tecnica ft on ft.id = fi.ficha_id
         where ft.tenant_id = ${tenantId}
+          and ft.deleted_at is null
+          and fi.deleted_at is null
       `),
       // Itens de combo -> componentes. Traz TAMBÉM o item de revenda e o
       // `controla_estoque` do componente, para espelhar exatamente o que a venda
