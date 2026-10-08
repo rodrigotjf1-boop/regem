@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { textosDasEscolhas } from '@/lib/adicionais';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { GrupoDeOpcoes } from '@/components/pdv/grupo-de-opcoes';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -75,9 +77,6 @@ export function SeletorProduto({
     setPicker({ produto: p, variacoes, complementos });
   }
 
-  function toggleOpc(id: string) {
-    setPickOpc((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
-  }
 
   function confirmar() {
     const { produto, variacoes, complementos } = picker;
@@ -86,10 +85,7 @@ export function SeletorProduto({
     const todas = (complementos as any[]).flatMap((g) =>
       (g.opcoes ?? []).map((o: any) => ({ ...o, tipo: g.tipo })),
     );
-    const partes = pickOpc
-      .map((id) => todas.find((o) => o.id === id))
-      .filter(Boolean)
-      .map((o: any) => (o.tipo === 'remover' ? `sem ${o.nome}` : `+ ${o.nome}`));
+    const partes = textosDasEscolhas(pickOpc, todas); // repetida vira "+ 2x Bacon"
     const obs = pickObs.trim() || undefined;
     if (partes.length) label += ` (${partes.join(' · ')})`;
     if (obs) label += ` · obs: ${obs}`;
@@ -228,25 +224,7 @@ export function SeletorProduto({
                 </div>
               )}
               {(picker.complementos as any[]).map((g) => (
-                <div key={g.id} className="mb-3">
-                  <p className="mb-1.5 text-xs font-semibold text-muted-foreground">
-                    {g.nome} <span className="font-normal">({g.tipo === 'remover' ? 'retirar' : 'adicionar'})</span>
-                  </p>
-                  <div className="space-y-1">
-                    {(g.opcoes ?? []).map((o: any) => (
-                      <label
-                        key={o.id}
-                        className={`flex cursor-pointer items-center gap-2 rounded-lg border p-2.5 ${pickOpc.includes(o.id) ? 'border-primary bg-primary/10' : 'border-border'}`}
-                      >
-                        <input type="checkbox" checked={pickOpc.includes(o.id)} onChange={() => toggleOpc(o.id)} className="h-4 w-4 accent-primary" />
-                        <span className="flex-1 text-sm">{o.nome}</span>
-                        {Number(o.precoDelta) > 0 && (
-                          <span className="font-mono text-xs text-primary">+ {brl(Number(o.precoDelta))}</span>
-                        )}
-                      </label>
-                    ))}
-                  </div>
-                </div>
+                <GrupoDeOpcoes key={g.id} grupo={g} escolhidas={pickOpc} onMudar={setPickOpc} />
               ))}
               <div className="mt-1">
                 <p className="mb-1 text-xs font-semibold text-muted-foreground">Observação (opcional)</p>

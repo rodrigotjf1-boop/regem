@@ -335,6 +335,19 @@ descrever('adicional ligado a ficha técnica: baixa de estoque, custo e repetiç
     expect((await saidas(l, r.comandaId)).get(l.bacon)!.quantidade).toBeCloseTo(4 * FATIA, 9);
   });
 
+  it('o produto devolve a regra de cada etapa — é por ela que o balcão e a mesa deixam repetir', async () => {
+    const com = await loja({ max: 3 });
+    const sem = await loja({ regra: 'varias_sem_repeticao' });
+    const etapaDe = async (l: Loja) => ((await produtos.getOne(l.t, l.lanche)) as any).complementos[0];
+    expect(await etapaDe(com)).toMatchObject({ regra: 'varias_com_repeticao', max: 3 });
+    expect(await etapaDe(sem)).toMatchObject({ regra: 'varias_sem_repeticao' });
+    // grupo criado à mão (sem complemento do catálogo por trás): não repete
+    await q(`insert into complemento_grupo (tenant_id, produto_id, nome, tipo, max, ordem) values ($1,$2,'Manual de teste','adicionar',1,9), ($1,$2,'Manual livre de teste','adicionar',null,10)`, [com.t, com.lanche]);
+    const todas: any[] = ((await produtos.getOne(com.t, com.lanche)) as any).complementos;
+    expect(todas.find((g) => g.nome === 'Manual de teste')).toMatchObject({ regra: 'uma' });
+    expect(todas.find((g) => g.nome === 'Manual livre de teste')).toMatchObject({ regra: 'varias_sem_repeticao' });
+  });
+
   // ── o que não mudou ─────────────────────────────────────────────────────────────────────────
   it('adicional ligado direto ao insumo segue como era: 1 unidade do estoque por escolha', async () => {
     const l = await loja();

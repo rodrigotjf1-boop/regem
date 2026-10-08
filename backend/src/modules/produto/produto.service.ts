@@ -1320,8 +1320,22 @@ export class ProdutoService {
         ),
       )
       .orderBy(complementoOpcao.ordem);
+    // A regra da etapa ("pode repetir a mesma opção?") mora no complemento reutilizável de
+    // origem — o grupo do produto não a guarda. É por ela que o balcão e a mesa mostram − n +
+    // (a venda só conta a repetição onde a regra permite). Grupo sem origem: não repete.
+    const origens = [...new Set(grupos.map((g) => g.origemComplementoId).filter(Boolean))] as string[];
+    const regras = origens.length
+      ? await this.db
+          .select({ id: complemento.id, regra: complemento.regra })
+          .from(complemento)
+          .where(and(eq(complemento.tenantId, tenantId), inArray(complemento.id, origens)))
+      : [];
+    const regraDaOrigem = new Map(regras.map((c) => [c.id, c.regra]));
     return grupos.map((g) => ({
       ...g,
+      regra:
+        (g.origemComplementoId && regraDaOrigem.get(g.origemComplementoId)) ||
+        (g.max === 1 ? 'uma' : 'varias_sem_repeticao'),
       opcoes: opcoes.filter((o) => o.grupoId === g.id),
     }));
   }
