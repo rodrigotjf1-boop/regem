@@ -32,6 +32,7 @@
   --ok: 157 61% 46%;   /* #2EBD85 operação saudável */
   --warn: 17 73% 56%;  /* #E06A3C atenção (NÃO é mais o âmbar) */
   --info: 202 71% 58%; /* #4AA8E0 informativo */
+  --dado: 36 78% 59%;  /* barras de gráfico: no escuro o âmbar da marca já tem contraste */
 }
 
 /* Tema claro do app (modelo: tela de Cadastros) — escopado no Shell */
@@ -58,6 +59,9 @@
   --ok: 157 69% 39%;   /* #1FA875 */
   --warn: 17 73% 56%;  /* #E06A3C */
   --info: 207 52% 47%; /* #3A7FB8 */
+  /* Barras de gráfico e de proporção. O âmbar da marca (#E8A845) sobre o claro dá 2,1:1 — abaixo
+     dos 3:1 pedidos para desenho que carrega informação; este âmbar escuro (#B9791A) dá 3,6:1. */
+  --dado: 36 75% 41%;
 }
 
 @layer base {
@@ -117,6 +121,21 @@
 }
 .scroll-fino::-webkit-scrollbar-track {
   background: transparent;
+}
+/* Faixa de abas na tela estreita (celular, ou computador com muito zoom): desliza para o lado SEM
+   barra de rolagem à mostra, com a borda direita esmaecida para indicar que há mais. Acima de
+   640 px a faixa quebra a linha e nada rola. (Pedido do dono, 07/10/2026: sem barra de rolagem
+   horizontal quando se dá zoom.) */
+@media (max-width: 639px) {
+  .faixa-abas {
+    scrollbar-width: none;
+    padding-right: 28px;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  }
+  .faixa-abas::-webkit-scrollbar {
+    display: none;
+  }
 }
 .shell[data-collapsed='true'] {
   --sb-w: 72px;

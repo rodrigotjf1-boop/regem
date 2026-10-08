@@ -116,6 +116,9 @@
   ⚠️ **Registros antigos não mudam.** Nos 90 dias até 07/10 a nuvem não tinha nenhuma vistoria, contagem, desperdício, recebimento nem ocorrência gravados — nada a corrigir neles.
   ⚠️ **Servidor da loja:** o defeito depende do fuso do banco; o da loja não foi conferido. Com o `.zip`, nuvem e loja passam a gravar pela mesma regra, qualquer que seja o fuso do banco.
   ⚠️ **Ordem de deploy:** nenhuma migration.
+- **Relatórios no modelo novo — entrega 1: Turnos, Cancelamentos de itens e Mapa de calor + listas e abas SEM barra de rolagem horizontal — sem migration, SÓ TELA (o servidor não mudou) — entra no próximo `.zip` (não toca `backend/edge/` nem o sync).** As três telas passam ao modelo de lista: nome igual ao do menu, período com atalhos (e a tela escreve de quando a quando, de qual loja e a que horas atualizou), contagem, situações, busca, filtros, "Exportar CSV" e erro de leitura com "Tentar de novo". Turnos: fechamento numa gaveta (diferença por forma de pagamento e observação) e "Reconciliar" com explicação antes e resultado por forma. **Vale para o app inteiro:** a lista do modelo novo (Estoque, Configurações, Relatórios) vira cartões quando a tabela não cabe no espaço, e a faixa de abas quebra a linha — nenhuma barra de rolagem horizontal ao dar zoom.
+  ⚠️ **Servidor da loja ainda na 1.30.x:** a loja continua com as telas antigas até o `.zip`.
+  ⚠️ **Ordem de deploy:** nenhuma migration.
 
 ## Última release: `1.30.2` — gerada em 30/09/2026 da `origin/main` `3e81449`, **.exe COMPILADO** e publicado (`instaladores/RegemEdgeSetup.exe`, 92.720.473 bytes, SHA-256 `91fdd1fd8b6b442c820222512f3d2ac0ae3f2e9ddad9e4ad84a03e7091ae90ad`, download público conferido); sem `.zip`
 

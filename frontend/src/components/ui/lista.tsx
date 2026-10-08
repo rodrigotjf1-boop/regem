@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -14,7 +14,8 @@ import { cn } from '@/lib/utils';
 //   TituloLista  → o título com a CONTAGEM ("3 de 12 fichas") e as ações da aba
 //   Situacoes    → as situações com a quantidade de cada uma; clicar filtra
 //   Filtros      → busca, período e os filtros próprios
-//   ListaDados   → tabela a partir de 1280 px, cartões abaixo, com as ações na linha
+//   ListaDados   → tabela a partir de 1280 px, cartões abaixo, com as ações na linha; a tabela que
+//                  não cabe no espaço também vira cartões — a lista nunca rola para o lado
 // Criar/editar vai na Gaveta e confirmar/conferir no Dialogo (`ui/sobreposto.tsx`).
 
 /** Texto de apoio legível (o `muted-foreground` é claro demais para ler). */
@@ -208,7 +209,50 @@ export function distintos<T>(linhas: T[], campo: (r: T) => string | null | undef
   return [...new Set(linhas.map(campo).filter((v): v is string => !!v))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
 }
 
-// ── a lista: tabela (≥ 1280 px) ou cartões ──────────────────────────────────────────────────
+// ── a tabela que não cabe vira cartões: a lista nunca rola para o lado ──────────────────────
+// Pedido do dono (07/10/2026): "não gostei da barra de rolamento horizontal quando dão zoom".
+// Dar zoom estreita o espaço sem tirar a tela de "larga" (`useTelaLarga`); por isso mede-se a
+// própria tabela, no espaço que ela tem:
+//   0 = tabela como sempre · 1 = tabela com as ações só em ícone · 2 = cartões.
+// `forma` identifica as colunas e as ações: mudou, a tabela pede outra largura e mede-se do começo.
+const useEfeitoDeLayout = typeof window === 'undefined' ? useEffect : useLayoutEffect;
+export function useModoDaLista(forma: string): { caixa: React.RefObject<HTMLDivElement>; modo: 0 | 1 | 2 } {
+  const caixa = useRef<HTMLDivElement>(null);
+  const pede = useRef<[number, number]>([0, 0]); // a largura que a tabela pediu em cada modo
+  const atual = useRef<0 | 1 | 2>(0);
+  const [modo, setModo] = useState<0 | 1 | 2>(0);
+  const medir = useRef(() => {});
+  medir.current = () => {
+    const el = caixa.current;
+    if (!el) return;
+    const tabela = el.querySelector('table');
+    const m = atual.current;
+    if (tabela && m !== 2) pede.current[m] = tabela.offsetWidth;
+    const cabe = (largura: number) => largura <= el.clientWidth + 1;
+    const novo: 0 | 1 | 2 = cabe(pede.current[0]) ? 0 : pede.current[1] === 0 || cabe(pede.current[1]) ? 1 : 2;
+    if (novo !== atual.current) {
+      atual.current = novo;
+      setModo(novo);
+    }
+  };
+  useEfeitoDeLayout(() => {
+    pede.current = [0, 0];
+    atual.current = 0;
+    setModo(0);
+  }, [forma]);
+  // Depois de cada desenho, antes de pintar: quem passou da largura já sai no modo certo.
+  useEfeitoDeLayout(() => medir.current());
+  useEffect(() => {
+    const el = caixa.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => medir.current());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return { caixa, modo };
+}
+
+// ── a lista: tabela (≥ 1280 px, se couber) ou cartões ───────────────────────────────────────
 export type Coluna<T> = { titulo: string; celula: (r: T) => React.ReactNode; classe?: string };
 export type Acao<T> = {
   rotulo: string;
@@ -238,6 +282,7 @@ export function ListaDados<T>({
   acoes?: (r: T) => Acao<T>[];
 }) {
   const larga = useTelaLarga();
+  const { caixa, modo } = useModoDaLista(`${colunas.map((c) => c.titulo).join('|')}${acoes ? '|ações' : ''}`);
   const botoes = (r: T, noCartao: boolean) => {
     const lista = acoes?.(r) ?? [];
     if (!lista.length) return null;
@@ -256,8 +301,9 @@ export function ListaDados<T>({
             <button key={a.rotulo} type="button" title={a.rotulo} aria-label={`${a.rotulo}: ${nome(r)}`} disabled={a.ocupada?.(r)}
               className={cn(base, cor, noCartao && 'flex-1')} onClick={() => a.aoClicar(r)}>
               <Icone className="h-4 w-4" aria-hidden="true" />
-              {/* Na tabela, a ação secundária mostra o texto só na tela bem larga; a primária, sempre. */}
-              <span className={noCartao || a.tom === 'primaria' ? '' : 'hidden 2xl:inline'}>{a.rotulo}</span>
+              {/* Na tabela, a ação secundária mostra o texto só na tela bem larga — e some antes de a
+                  tabela precisar virar cartões (modo 1); a primária mostra sempre. */}
+              <span className={noCartao || a.tom === 'primaria' ? '' : modo === 1 ? 'hidden' : 'hidden 2xl:inline'}>{a.rotulo}</span>
             </button>
           );
         })}
@@ -265,49 +311,55 @@ export function ListaDados<T>({
     );
   };
 
-  if (larga)
+  if (larga && modo < 2)
     return (
-      // `relative`: a legenda e o cabeçalho só para leitor de tela (sr-only, absolutos) ficam presos à
-      // área com rolagem — sem ele, numa tabela mais larga que o cartão, escapam e a página rola de lado.
-      <Card className="relative overflow-x-auto">
-        <table className="w-full border-collapse text-sm">
-          <caption className="sr-only">{legenda}</caption>
-          <thead>
-            <tr className={`border-b border-border bg-secondary text-left text-xs uppercase tracking-wide ${texto2}`}>
-              {colunas.map((c) => <th key={c.titulo} scope="col" className="px-3 py-2.5 font-bold">{c.titulo}</th>)}
-              {acoes && <th scope="col" className="px-3 py-2.5"><span className="sr-only">Ações</span></th>}
-            </tr>
-          </thead>
-          <tbody>
-            {linhas.map((r) => (
-              <tr key={chave(r)} className="border-b border-border last:border-b-0 hover:bg-secondary/60">
-                {colunas.map((c, i) => <td key={c.titulo} className={cn('px-3 py-2.5 align-middle', i === 0 && 'max-w-80', c.classe)}>{c.celula(r)}</td>)}
-                {acoes && <td className="px-2 py-1.5">{botoes(r, false)}</td>}
+      <div ref={caixa} className="min-w-0">
+        {/* `relative`: a legenda e o cabeçalho só para leitor de tela (sr-only, absolutos) ficam presos à
+            área com rolagem — sem ele, numa tabela mais larga que o cartão, escapam e a página rola de lado.
+            A rolagem é só a rede de segurança do instante antes da medida: a tabela que não cabe vira cartões. */}
+        <Card className="relative overflow-x-auto">
+          <table className="w-full border-collapse text-sm">
+            <caption className="sr-only">{legenda}</caption>
+            <thead>
+              <tr className={`border-b border-border bg-secondary text-left text-xs uppercase tracking-wide ${texto2}`}>
+                {colunas.map((c) => <th key={c.titulo} scope="col" className="px-3 py-2.5 font-bold">{c.titulo}</th>)}
+                {acoes && <th scope="col" className="px-3 py-2.5"><span className="sr-only">Ações</span></th>}
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </Card>
+            </thead>
+            <tbody>
+              {linhas.map((r) => (
+                <tr key={chave(r)} className="border-b border-border last:border-b-0 hover:bg-secondary/60">
+                  {colunas.map((c, i) => <td key={c.titulo} className={cn('px-3 py-2.5 align-middle', i === 0 && 'max-w-80', c.classe)}>{c.celula(r)}</td>)}
+                  {acoes && <td className="px-2 py-1.5">{botoes(r, false)}</td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      </div>
     );
   return (
-    <ul className="grid grid-cols-1 gap-3 md:grid-cols-2" aria-label={legenda}>
-      {linhas.map((r) => (
-        <li key={chave(r)}>
-          <Card className="space-y-2 p-3">
-            <div>{colunas[0].celula(r)}</div>
-            <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm">
-              {colunas.slice(1).map((c) => (
-                <div key={c.titulo} className="contents">
-                  <dt className={`text-xs font-bold ${texto2}`}>{c.titulo}</dt>
-                  <dd className="text-right">{c.celula(r)}</dd>
-                </div>
-              ))}
-            </dl>
-            {botoes(r, true)}
-          </Card>
-        </li>
-      ))}
-    </ul>
+    <div ref={caixa} className="min-w-0">
+      {/* Tela larga em que a tabela não coube (zoom): quantas colunas de cartões couberem. */}
+      <ul className={cn('grid gap-3', larga ? 'grid-cols-[repeat(auto-fill,minmax(min(100%,300px),1fr))]' : 'grid-cols-1 md:grid-cols-2')} aria-label={legenda}>
+        {linhas.map((r) => (
+          <li key={chave(r)}>
+            <Card className="space-y-2 p-3">
+              <div>{colunas[0].celula(r)}</div>
+              <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm">
+                {colunas.slice(1).map((c) => (
+                  <div key={c.titulo} className="contents">
+                    <dt className={`text-xs font-bold ${texto2}`}>{c.titulo}</dt>
+                    <dd className="text-right">{c.celula(r)}</dd>
+                  </div>
+                ))}
+              </dl>
+              {botoes(r, true)}
+            </Card>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

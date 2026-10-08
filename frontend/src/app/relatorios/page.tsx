@@ -207,6 +207,13 @@ export default function RelatoriosPage() {
     reload();
   }, [reload, router]);
 
+  // Quem volta do Mapa de calor (ou chega por um link) cai na aba pedida: `/relatorios?aba=delivery`.
+  useEffect(() => {
+    const pedida = new URLSearchParams(window.location.search).get('aba');
+    if (pedida && ['vendas', 'balcao', 'delivery', 'conferencia', 'turnos', 'caixa', 'estoque', 'producao', 'fidelidade', 'cashback'].includes(pedida))
+      setAba(pedida as typeof aba);
+  }, []);
+
   useEffect(() => {
     if (!getToken()) return;
     if (aba === 'financeiro') reloadFin();

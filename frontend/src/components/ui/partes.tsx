@@ -2,7 +2,8 @@
 
 // Faixa de PARTES de uma tela que tem mais de uma lista ou grupo de ajustes (ex.: Produção & KDS →
 // "Ajustes do KDS" e "Destino por setor"). Cada parte mostra a quantidade do que ela tem. Mesmo
-// desenho da faixa de abas do Estoque: rola na horizontal no celular, quebra a linha no computador.
+// desenho da faixa de abas do Estoque: quebra a linha no computador; na tela estreita desliza para
+// o lado sem barra de rolagem à mostra (`.faixa-abas`, em globals.css).
 export function Partes<K extends string>({
   partes,
   ativa,
@@ -16,7 +17,7 @@ export function Partes<K extends string>({
   rotulo: string;
 }) {
   return (
-    <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0" role="group" aria-label={rotulo}>
+    <div className="faixa-abas -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0" role="group" aria-label={rotulo}>
       {partes.map((p) => {
         const ligada = p.key === ativa;
         return (

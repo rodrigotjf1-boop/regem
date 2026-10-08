@@ -68,6 +68,8 @@ type NavSub = {
   modulo?: string;
   // Tela que só existe na nuvem: no servidor da loja o item nem aparece.
   soNuvem?: boolean;
+  // Outras rotas que fazem parte desta tela (ex.: o Mapa de calor abre de dentro dos relatórios).
+  tambem?: string[];
 };
 // Nó de 1º nível: pode ser um link direto (href) e/ou um grupo com `children`.
 type NavNode = {
@@ -162,7 +164,7 @@ const NAV: NavNode[] = [
     label: 'Relatórios', icon: BarChart3,
     children: [
       { href: '/caixa/fechamentos', label: 'Turnos', icon: Wallet, perm: 'turnos' },
-      { href: '/relatorios', label: 'Relatórios de vendas', icon: BarChart3, perm: 'relatorios_vendas' },
+      { href: '/relatorios', label: 'Relatórios de vendas', icon: BarChart3, perm: 'relatorios_vendas', tambem: ['/relatorios/delivery'] },
       { href: '/vendas/remocoes', label: 'Cancelamentos de itens', icon: FileText, perm: 'cancelamentos' },
     ],
   },
@@ -385,7 +387,7 @@ export function Shell({
                   (!c.soNuvem || process.env.NEXT_PUBLIC_EDGE !== '1'),
               );
               if (kids.length === 0) return null;
-              const temAtivo = kids.some((c) => c.href === path);
+              const temAtivo = kids.some((c) => c.href === path || !!c.tambem?.includes(path ?? ''));
               const aberto = gruposAbertos[node.label] ?? temAtivo; // abre sozinho na tela ativa
               return (
                 <div key={node.label}>
