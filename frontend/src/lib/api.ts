@@ -329,6 +329,10 @@ export function handleApiError(e: unknown, fallback = 'Não foi possível conclu
   return fallback;
 }
 
+// Relatório pedindo o TOTAL de todas as lojas em vez da loja em uso (a opção "Somar todas as
+// lojas"). Só vale para quem vê a rede: o servidor ignora o cabeçalho para quem é de uma loja.
+const daRede = (todas?: boolean): RequestInit => (todas ? { headers: { 'X-Unidade-Id': 'todas' } } : {});
+
 async function req(path: string, options: RequestInit = {}) {
   const token = getJwt(); // Bearer só quando há JWT real; no modo cookie vai o cookie
   let res: Response;
@@ -1043,7 +1047,7 @@ export const api = {
   itensDelivery: (id: string) => req(`/delivery/pedidos/${id}/itens`),
   entregadoresDelivery: () => req('/delivery/entregadores'),
   bairrosDelivery: () => req('/delivery/bairros'),
-  deliveryMapaCalor: (dias: number) => req(`/delivery/mapa-calor?dias=${dias}`),
+  deliveryMapaCalor: (dias: number, todas?: boolean) => req(`/delivery/mapa-calor?dias=${dias}`, daRede(todas)),
   // Atualização do servidor local (só no edge; gestão)
   edgeAtualizacaoStatus: () => req('/edge/atualizacao/status'),
   edgeVerificarAtualizacao: () => req('/edge/atualizacao/verificar', { method: 'POST', body: '{}' }),
@@ -1265,93 +1269,93 @@ export const api = {
   setAutoPausaCardapio: (ativo: boolean) =>
     req('/cardapio/auto-pausa', { method: 'POST', body: JSON.stringify({ ativo }) }),
   // Relatórios de venda (Fase K)
-  relatorioVendas: (inicio?: string, fim?: string) => {
+  relatorioVendas: (inicio?: string, fim?: string, todas?: boolean) => {
     const p = new URLSearchParams();
     if (inicio) p.set('inicio', inicio);
     if (fim) p.set('fim', fim);
     const q = p.toString();
-    return req(`/relatorios/vendas${q ? `?${q}` : ''}`);
+    return req(`/relatorios/vendas${q ? `?${q}` : ''}`, daRede(todas));
   },
-  relatorioProdutos: (inicio?: string, fim?: string) => {
+  relatorioProdutos: (inicio?: string, fim?: string, todas?: boolean) => {
     const p = new URLSearchParams();
     if (inicio) p.set('inicio', inicio);
     if (fim) p.set('fim', fim);
     const q = p.toString();
-    return req(`/relatorios/produtos${q ? `?${q}` : ''}`);
+    return req(`/relatorios/produtos${q ? `?${q}` : ''}`, daRede(todas));
   },
-  relatorioAtendentes: (inicio?: string, fim?: string) => {
+  relatorioAtendentes: (inicio?: string, fim?: string, todas?: boolean) => {
     const p = new URLSearchParams();
     if (inicio) p.set('inicio', inicio);
     if (fim) p.set('fim', fim);
     const q = p.toString();
-    return req(`/relatorios/atendentes${q ? `?${q}` : ''}`);
+    return req(`/relatorios/atendentes${q ? `?${q}` : ''}`, daRede(todas));
   },
-  relatorioOperacoesCaixa: (inicio?: string, fim?: string) => {
+  relatorioOperacoesCaixa: (inicio?: string, fim?: string, todas?: boolean) => {
     const p = new URLSearchParams();
     if (inicio) p.set('inicio', inicio);
     if (fim) p.set('fim', fim);
     const q = p.toString();
-    return req(`/relatorios/operacoes-caixa${q ? `?${q}` : ''}`);
+    return req(`/relatorios/operacoes-caixa${q ? `?${q}` : ''}`, daRede(todas));
   },
-  relatorioBalcao: (inicio?: string, fim?: string) => {
+  relatorioBalcao: (inicio?: string, fim?: string, todas?: boolean) => {
     const p = new URLSearchParams();
     if (inicio) p.set('inicio', inicio);
     if (fim) p.set('fim', fim);
     const q = p.toString();
-    return req(`/relatorios/balcao${q ? `?${q}` : ''}`);
+    return req(`/relatorios/balcao${q ? `?${q}` : ''}`, daRede(todas));
   },
-  relatorioDelivery: (inicio?: string, fim?: string) => {
+  relatorioDelivery: (inicio?: string, fim?: string, todas?: boolean) => {
     const p = new URLSearchParams();
     if (inicio) p.set('inicio', inicio);
     if (fim) p.set('fim', fim);
     const q = p.toString();
-    return req(`/relatorios/delivery${q ? `?${q}` : ''}`);
+    return req(`/relatorios/delivery${q ? `?${q}` : ''}`, daRede(todas));
   },
   // Conferência de valores por canal: venda bruta, desconto por quem banca, taxas
   // e faturamento. Lê só as colunas separadas por origem (mig 241).
-  relatorioConferencia: (inicio?: string, fim?: string) => {
+  relatorioConferencia: (inicio?: string, fim?: string, todas?: boolean) => {
     const p = new URLSearchParams();
     if (inicio) p.set('inicio', inicio);
     if (fim) p.set('fim', fim);
     const q = p.toString();
-    return req(`/relatorios/conferencia-valores${q ? `?${q}` : ''}`);
+    return req(`/relatorios/conferencia-valores${q ? `?${q}` : ''}`, daRede(todas));
   },
-  relatorioRanking: (inicio?: string, fim?: string) => {
+  relatorioRanking: (inicio?: string, fim?: string, todas?: boolean) => {
     const p = new URLSearchParams();
     if (inicio) p.set('inicio', inicio);
     if (fim) p.set('fim', fim);
     const q = p.toString();
-    return req(`/relatorios/ranking-produtos${q ? `?${q}` : ''}`);
+    return req(`/relatorios/ranking-produtos${q ? `?${q}` : ''}`, daRede(todas));
   },
-  relatorioTurnos: (inicio?: string, fim?: string) => {
+  relatorioTurnos: (inicio?: string, fim?: string, todas?: boolean) => {
     const p = new URLSearchParams();
     if (inicio) p.set('inicio', inicio);
     if (fim) p.set('fim', fim);
     const q = p.toString();
-    return req(`/relatorios/turnos${q ? `?${q}` : ''}`);
+    return req(`/relatorios/turnos${q ? `?${q}` : ''}`, daRede(todas));
   },
-  relatorioTurnoDetalhe: (id: string) => req(`/relatorios/turnos/${id}`),
-  relatorioFaturamento: (inicio?: string, fim?: string) => {
+  relatorioTurnoDetalhe: (id: string, todas?: boolean) => req(`/relatorios/turnos/${id}`, daRede(todas)),
+  relatorioFaturamento: (inicio?: string, fim?: string, todas?: boolean) => {
     const p = new URLSearchParams();
     if (inicio) p.set('inicio', inicio);
     if (fim) p.set('fim', fim);
     const q = p.toString();
-    return req(`/relatorios/faturamento${q ? `?${q}` : ''}`);
+    return req(`/relatorios/faturamento${q ? `?${q}` : ''}`, daRede(todas));
   },
-  relatorioFaturamentoDelivery: (inicio?: string, fim?: string) => {
+  relatorioFaturamentoDelivery: (inicio?: string, fim?: string, todas?: boolean) => {
     const p = new URLSearchParams();
     if (inicio) p.set('inicio', inicio);
     if (fim) p.set('fim', fim);
     const q = p.toString();
-    return req(`/relatorios/faturamento-delivery${q ? `?${q}` : ''}`);
+    return req(`/relatorios/faturamento-delivery${q ? `?${q}` : ''}`, daRede(todas));
   },
-  relatorioProducao: (inicio?: string, fim?: string, agrupamento?: string) => {
+  relatorioProducao: (inicio?: string, fim?: string, agrupamento?: string, todas?: boolean) => {
     const p = new URLSearchParams();
     if (inicio) p.set('inicio', inicio);
     if (fim) p.set('fim', fim);
     if (agrupamento) p.set('agrupamento', agrupamento);
     const q = p.toString();
-    return req(`/relatorios/producao${q ? `?${q}` : ''}`);
+    return req(`/relatorios/producao${q ? `?${q}` : ''}`, daRede(todas));
   },
   // `previaEvento` (ex.: "natal") mostra o cardápio como fica naquele evento sazonal — a prévia do painel.
   cardapioMenu: (token: string, previaEvento?: string | null) =>
@@ -1600,12 +1604,12 @@ export const api = {
   removerComandaItem: (itemId: string, justificativa: string) =>
     req(`/vendas/comandas/itens/${itemId}`, { method: 'DELETE', body: JSON.stringify({ justificativa }) }),
   excluirMesa: (id: string) => req(`/vendas/mesas/${id}`, { method: 'DELETE' }),
-  remocoesItens: (inicio?: string, fim?: string) => {
+  remocoesItens: (inicio?: string, fim?: string, todas?: boolean) => {
     const p = new URLSearchParams();
     if (inicio) p.set('inicio', inicio);
     if (fim) p.set('fim', fim);
     const q = p.toString();
-    return req(`/vendas/remocoes${q ? `?${q}` : ''}`);
+    return req(`/vendas/remocoes${q ? `?${q}` : ''}`, daRede(todas));
   },
   fecharComanda: (id: string, body: Record<string, unknown>) =>
     req(`/vendas/comandas/${id}/fechar`, {
@@ -1719,12 +1723,12 @@ export const api = {
     req('/financeiro/caixa/pendencias/baixar-antigas', { method: 'POST', body: JSON.stringify({ origem }) }),
   fecharCaixa: (body: Record<string, unknown>) =>
     req('/financeiro/caixa/fechar', { method: 'POST', body: JSON.stringify(body) }),
-  fechamentosCaixa: (inicio?: string, fim?: string) => {
+  fechamentosCaixa: (inicio?: string, fim?: string, todas?: boolean) => {
     const p = new URLSearchParams();
     if (inicio) p.set('inicio', inicio);
     if (fim) p.set('fim', fim);
     const q = p.toString();
-    return req(`/financeiro/caixa/fechamentos${q ? `?${q}` : ''}`);
+    return req(`/financeiro/caixa/fechamentos${q ? `?${q}` : ''}`, daRede(todas));
   },
   // P3: recomputa o esperado do ledger imutável e compara com o gravado (verificador).
   reconciliarCaixa: (id: string) =>
@@ -1749,12 +1753,12 @@ export const api = {
     }),
   estornarTitulo: (id: string) =>
     req(`/financeiro/titulos/${id}/estornar`, { method: 'POST' }),
-  estoqueInteligencia: (inicio?: string, fim?: string) => {
+  estoqueInteligencia: (inicio?: string, fim?: string, todas?: boolean) => {
     const p = new URLSearchParams();
     if (inicio) p.set('inicio', inicio);
     if (fim) p.set('fim', fim);
     const q = p.toString();
-    return req(`/estoque/inteligencia${q ? `?${q}` : ''}`);
+    return req(`/estoque/inteligencia${q ? `?${q}` : ''}`, daRede(todas));
   },
   estoqueValidades: () => req('/estoque/validades'),
   estoqueCmv: (inicio?: string, fim?: string) => {

@@ -107,10 +107,13 @@ export function BarraPeriodo({
   carregando = false,
   aoAtualizar,
   atalhos = ATALHOS,
+  total,
 }: {
   periodo: Periodo;
-  /** De qual loja são os números — o que o SERVIDOR faz nesta tela ("todas as lojas da empresa"). */
+  /** De qual loja são os números — o que o SERVIDOR faz nesta tela ("loja Matriz", "todas as lojas somadas"). */
   escopo: string;
+  /** Opção de somar todas as lojas. Só é passada a quem vê a rede, em empresa com mais de uma loja. */
+  total?: { ligado: boolean; aoMudar: (v: boolean) => void };
   /** A tela aceita filtrar por faixa de horário. */
   comHorario?: boolean;
   /** Quando a última leitura chegou (nulo = ainda não leu). */
@@ -159,6 +162,12 @@ export function BarraPeriodo({
         <label className="col-span-2 flex min-h-10 items-center gap-2 text-sm font-semibold md:col-span-1">
           <input type="checkbox" className="h-5 w-5 flex-none accent-[hsl(var(--ok))]" checked={p.comHora} onChange={(e) => p.mudar({ comHora: e.target.checked })} />
           Só uma faixa de horário
+        </label>
+      )}
+      {total && (
+        <label className="col-span-2 flex min-h-10 items-center gap-2 text-sm font-semibold md:col-span-1">
+          <input id="periodo-total" type="checkbox" className="h-5 w-5 flex-none accent-[hsl(var(--ok))]" checked={total.ligado} onChange={(e) => total.aoMudar(e.target.checked)} />
+          Somar todas as lojas
         </label>
       )}
       <div className="col-span-2 md:col-span-1">

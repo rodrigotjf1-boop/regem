@@ -345,8 +345,8 @@ export class DeliveryController {
   @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente')
   @RequirePerm('delivery')
-  mapaCalor(@CurrentUser() user: AuthUser, @Query('dias') dias?: string) {
-    return this.service.mapaCalorBairros(user.tenantId, Number(dias) || 30);
+  mapaCalor(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Query('dias') dias?: string) {
+    return this.service.mapaCalorBairros(user.tenantId, Number(dias) || 30, atual);
   }
 
   // Integrações (credenciais) — secrets nunca voltam no GET.

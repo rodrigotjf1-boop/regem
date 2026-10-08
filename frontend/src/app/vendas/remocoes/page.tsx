@@ -12,6 +12,7 @@ import {
   FiltroBusca, FiltroSelect, Filtros, ListaDados, Selo, Situacoes, TituloLista, Vazio, distintos, semAcento, texto2, type Situacao,
 } from '@/components/ui/lista';
 import { BarraPeriodo, usePeriodo } from '@/components/relatorios/periodo';
+import { useEscopoDeLoja } from '@/components/relatorios/escopo';
 import { AvisoDeLimite, ErroDeLeitura } from '@/components/relatorios/pecas';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -20,8 +21,8 @@ import { AvisoDeLimite, ErroDeLeitura } from '@/components/relatorios/pecas';
 // retirou e a justificativa. Mockup `mockups/regem-relatorios.html` (aprovado em 07/10/2026).
 // A lista vem de `GET /vendas/remocoes` (presidente, gerente e supervisão, permissão
 // "Cancelamentos"): são os registros da auditoria, que guardam o item, quem e a justificativa —
-// NÃO a mesa, a quantidade nem o valor. A rota devolve as 300 retiradas mais recentes do período e
-// hoje não separa por loja (soma a empresa inteira); a tela escreve isso.
+// NÃO a mesa, a quantidade nem o valor. A rota devolve as 300 retiradas mais recentes do período,
+// da loja em uso (a loja é a da comanda de onde o item saiu).
 
 const LIMITE = 300;
 const ID_TITULO = 'itens-titulo';
@@ -35,6 +36,7 @@ const SITUACOES: Situacao<any>[] = [
 export default function CancelamentosDeItensPage() {
   const router = useRouter();
   const periodo = usePeriodo('30');
+  const loja = useEscopoDeLoja();
   const [rows, setRows] = useState<any[] | null>(null);
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(false);
@@ -49,7 +51,7 @@ export default function CancelamentosDeItensPage() {
     setCarregando(true);
     setErro('');
     try {
-      const r: any = await api.remocoesItens(de, ate);
+      const r: any = await api.remocoesItens(de, ate, loja.total);
       setRows(Array.isArray(r) ? r : []);
       setAtualizadoEm(new Date());
     } catch (e) {
@@ -57,7 +59,7 @@ export default function CancelamentosDeItensPage() {
     } finally {
       setCarregando(false);
     }
-  }, [de, ate, pronto]);
+  }, [de, ate, pronto, loja.total]);
 
   useEffect(() => {
     if (!getToken()) {
@@ -87,7 +89,7 @@ export default function CancelamentosDeItensPage() {
     <Shell eyebrow="Relatórios" title="Cancelamentos de itens">
       <div className="space-y-4">
         <p className={`text-sm ${texto2}`}>Itens retirados de comandas de mesa depois de lançados, com quem retirou e a justificativa.</p>
-        <BarraPeriodo periodo={periodo} escopo="todas as lojas da empresa" atualizadoEm={atualizadoEm} carregando={carregando} aoAtualizar={() => void carregar()} />
+        <BarraPeriodo periodo={periodo} escopo={loja.texto} total={loja.opcao} atualizadoEm={atualizadoEm} carregando={carregando} aoAtualizar={() => void carregar()} />
 
         {erro ? (
           <ErroDeLeitura oQue="os itens retirados" motivo={erro} aoTentar={() => void carregar()} ocupado={carregando} />

@@ -12,6 +12,7 @@ import { Card } from '@/components/ui/card';
 import { SkeletonList } from '@/components/ui/skeleton';
 import { FiltroBusca, Filtros, ListaDados, TituloLista, Vazio, brl, semAcento, texto2 } from '@/components/ui/lista';
 import { ErroDeLeitura, Indicadores } from '@/components/relatorios/pecas';
+import { useEscopoDeLoja } from '@/components/relatorios/escopo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -30,6 +31,7 @@ const ID_TITULO = 'calor-titulo';
 export default function MapaCalorDeliveryPage() {
   const router = useRouter();
   const [dias, setDias] = useState(30);
+  const loja = useEscopoDeLoja();
   const [dados, setDados] = useState<any | null>(null);
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(false);
@@ -39,13 +41,13 @@ export default function MapaCalorDeliveryPage() {
     setCarregando(true);
     setErro('');
     try {
-      setDados(await api.deliveryMapaCalor(dias));
+      setDados(await api.deliveryMapaCalor(dias, loja.total));
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Tente de novo em instantes.');
     } finally {
       setCarregando(false);
     }
-  }, [dias]);
+  }, [dias, loja.total]);
 
   useEffect(() => {
     if (!getToken()) {
@@ -96,7 +98,13 @@ export default function MapaCalorDeliveryPage() {
               </button>
             ))}
           </div>
-          <p className={`text-sm ${texto2}`} role="status" aria-live="polite">últimos {dias} dias · todas as lojas da empresa{carregando ? ' · carregando…' : ''}</p>
+          {loja.opcao && (
+            <label className="flex min-h-10 items-center gap-2 text-sm font-semibold">
+              <input id="calor-total" type="checkbox" className="h-5 w-5 flex-none accent-[hsl(var(--ok))]" checked={loja.opcao.ligado} onChange={(e) => loja.opcao?.aoMudar(e.target.checked)} />
+              Somar todas as lojas
+            </label>
+          )}
+          <p className={`text-sm ${texto2}`} role="status" aria-live="polite">últimos {dias} dias · {loja.texto}{carregando ? ' · carregando…' : ''}</p>
         </Card>
 
         {erro ? (

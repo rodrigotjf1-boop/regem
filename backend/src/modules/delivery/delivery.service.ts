@@ -52,7 +52,7 @@ import {
   produto,
   produtoVariacao,
 } from '../../db/schema';
-import { condUnidadeOuRede } from '../../common/filtro-unidade';
+import { condUnidadeOuRede, sqlUnidade } from '../../common/filtro-unidade';
 import { edgeAtivo } from '../../common/edge-ativo';
 import { normalizarFormaPagamento } from '../../common/formas-pagamento-normaliza';
 import { urlPublicaSegura } from '../../common/ssrf-guard';
@@ -2340,7 +2340,7 @@ export class DeliveryService {
   // Mapa de calor de entregas por bairro (todos os canais). Agrega pedidos de
   // ENTREGA não cancelados no período. Sem lat/lng no pedido → visão por bairro
   // (o pedido só guarda `endereco_bairro`). Financeiro/receita: gestão apenas.
-  async mapaCalorBairros(tenantId: string, dias: number) {
+  async mapaCalorBairros(tenantId: string, dias: number, atual: string | null = null) {
     const d = Math.max(1, Math.min(365, Math.floor(dias) || 30));
     const r: any = await this.db.execute(sql`
       select
@@ -2349,7 +2349,7 @@ export class DeliveryService {
         coalesce(sum(total), 0) as receita,
         coalesce(round(avg(taxa_entrega), 2), 0) as taxa_media
       from pedido_externo
-      where tenant_id = ${tenantId}
+      where tenant_id = ${tenantId} ${sqlUnidade('unidade_id', atual)}
         and tipo = 'entrega'
         and status <> 'cancelado'
         and criado_em >= now() - (${d} * interval '1 day')

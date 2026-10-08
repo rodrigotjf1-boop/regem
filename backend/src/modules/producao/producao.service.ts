@@ -211,6 +211,8 @@ export class ProducaoService {
         atorPerfil,
         tipo: 'estoque',
         acao: 'produziu_ficha',
+        // A loja da produção fica no registro: é por ela que o relatório separa (ERR-187).
+        unidadeId: unidadeId ?? undefined,
         entidadeTipo: 'ficha_tecnica',
         entidadeId: dto.fichaId,
         detalhe: { refId, quantidade: qtd, custoTotal: res.custoTotal },

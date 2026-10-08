@@ -3,6 +3,9 @@ import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { normalizarFormaPagamento } from '../../common/formas-pagamento-normaliza';
 import { ProdutoService } from '../produto/produto.service';
+import { sqlUnidade } from '../../common/filtro-unidade';
+import { hojeISO, somarDias } from '../../common/data';
+import { noFuso, noPeriodo } from '../../common/fuso-sql';
 import {
   brutoPedido,
   comandaDePedidoVale,
@@ -39,6 +42,11 @@ function agruparPorForma(rows: any[]): { forma: string; qtd: number; total: numb
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Relatórios de venda — camada de LEITURA sobre comanda/comanda_item (vendas
 // fechadas). Canal é derivado (mesa / delivery-app / balcão) sem coluna nova.
+//
+// LOJA (ERR-187, decisão do dono em 08/10/2026): todo relatório é da LOJA EM USO. `atual` vem do
+// `@UnidadeAtual()` da rota — quem é de uma loja recebe sempre a dele; o presidente recebe a loja
+// escolhida ou, se pedir o total, `null` = a soma de todas. Empresa de uma loja só: `null` também.
+// DIA E HORA (ERR-120): os da operação, com o fuso escrito na consulta — ver `common/fuso-sql.ts`.
 @Injectable()
 export class RelatoriosService {
   constructor(
@@ -51,14 +59,14 @@ export class RelatoriosService {
     // então o filtro honra hora inicial/final vinda do front (ex.: "2026-08-05 14:30:00").
     // Se vier só a data (sem hora) ou nada, completamos o dia inteiro para não excluir
     // o próprio dia — mantendo o comportamento antigo de filtro só-por-data.
-    const hoje = new Date().toISOString().slice(0, 10);
+    const hoje = hojeISO();
     const comHoraIni = (d?: string) =>
       !d ? null : d.length <= 10 ? `${d} 00:00:00` : d;
     const comHoraFim = (d?: string) =>
       !d ? null : d.length <= 10 ? `${d} 23:59:59` : d;
     const ini =
       comHoraIni(inicio) ||
-      `${new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10)} 00:00:00`;
+      `${somarDias(hoje, -29)} 00:00:00`;
     return { ini, fim: comHoraFim(fim) || `${hoje} 23:59:59` };
   }
   private async rows(q: any): Promise<any[]> {
@@ -72,13 +80,13 @@ export class RelatoriosService {
   }
 
   // Resumo + quebras (forma, canal, dia, hora).
-  async vendas(tenantId: string, inicio?: string, fim?: string, verFin = false) {
+  async vendas(tenantId: string, inicio?: string, fim?: string, verFin = false, atual: string | null = null) {
     const { ini, fim: f } = this.periodo(inicio, fim);
     const m = (v: any) => this.oc(v, verFin);
     const base = sql`from comanda c
-      where c.tenant_id = ${tenantId}
+      where c.tenant_id = ${tenantId} ${sqlUnidade('c.unidade_id', atual)}
         and c.status = 'fechada'
-        and c.fechada_em between ${ini} and ${f}`;
+        and ${noPeriodo('c.fechada_em', ini, f)}`;
 
     // FATURAMENTO = total da comanda SEM a taxa de serviço. `comanda.total` é gravado
     // como subtotal × (1 + taxa_servico_pct/100), então somá-lo cru contava a gorjeta
@@ -94,8 +102,8 @@ export class RelatoriosService {
       ${base}`);
     const [{ canceladas }] = await this.rows(sql`
       select count(*)::int as canceladas from comanda c
-      where c.tenant_id = ${tenantId} and c.status='cancelada'
-        and c.cancelada_em between ${ini} and ${f}`);
+      where c.tenant_id = ${tenantId} ${sqlUnidade('c.unidade_id', atual)} and c.status='cancelada'
+        and ${noPeriodo('c.cancelada_em', ini, f)}`);
 
     const porForma = await this.rows(sql`
       select coalesce(c.forma,'—') as forma, count(*)::int as qtd, coalesce(sum(${fat}),0) as total
@@ -107,10 +115,10 @@ export class RelatoriosService {
              count(*)::int as qtd, coalesce(sum(${fat}),0) as total
       ${base} group by 1 order by 3 desc`);
     const porDia = await this.rows(sql`
-      select c.fechada_em::date as dia, count(*)::int as qtd, coalesce(sum(${fat}),0) as total
+      select ${noFuso('c.fechada_em')}::date as dia, count(*)::int as qtd, coalesce(sum(${fat}),0) as total
       ${base} group by 1 order by 1`);
     const porHora = await this.rows(sql`
-      select extract(hour from c.fechada_em)::int as hora, count(*)::int as qtd, coalesce(sum(${fat}),0) as total
+      select extract(hour from ${noFuso('c.fechada_em')})::int as hora, count(*)::int as qtd, coalesce(sum(${fat}),0) as total
       ${base} group by 1 order by 1`);
 
     return {
@@ -133,14 +141,15 @@ export class RelatoriosService {
     };
   }
 
-  // Curva ABC dos produtos por faturamento (A<=80%, B<=95%, C resto).
+  // Curva ABC dos produtos por faturamento: A = os que formam os primeiros 80%, B = os 15%
+  // seguintes, C = o resto. O produto que CRUZA o limite pertence à classe de cima.
   //
   // O desconto do pedido é RATEADO nos itens (proporcional ao valor da linha). Sem isso
   // a margem mentia: o item entrava a preço cheio, o desconto bancado pela loja não
   // aparecia em lugar nenhum, e produto vendido só em promoção parecia o mais lucrativo
   // do cardápio. Só o desconto da LOJA rateia — o do marketplace volta no repasse, então
   // a loja de fato recebeu o preço cheio por aquele item.
-  async produtos(tenantId: string, inicio?: string, fim?: string, verFin = false) {
+  async produtos(tenantId: string, inicio?: string, fim?: string, verFin = false, atual: string | null = null) {
     const { ini, fim: f } = this.periodo(inicio, fim);
     const m = (v: any) => this.oc(v, verFin);
     const rows = await this.rows(sql`
@@ -160,8 +169,8 @@ export class RelatoriosService {
           from comanda_item ci
           join comanda c on c.id = ci.comanda_id
           left join pedido_desc pd on pd.comanda_id = c.id
-         where c.tenant_id = ${tenantId} and c.status = 'fechada'
-           and c.fechada_em between ${ini} and ${f}
+         where c.tenant_id = ${tenantId} ${sqlUnidade('c.unidade_id', atual)} and c.status = 'fechada'
+           and ${noPeriodo('c.fechada_em', ini, f)}
       )
       select descricao,
              max(produto_id::text) as produto_id,
@@ -186,9 +195,12 @@ export class RelatoriosService {
       total: m(total.toFixed(2)),
       itens: rows.map((r) => {
         const fat = Number(r.faturamento);
+        // Vale o acumulado ANTES do item. Pelo acumulado depois dele, o campeão que sozinho
+        // passa de 80% das vendas caía na classe C e a curva ficava sem nenhum A (ERR-193).
+        const antes = (acum / total) * 100;
         acum += fat;
         const pctAcum = (acum / total) * 100;
-        const classe = pctAcum <= 80 ? 'A' : pctAcum <= 95 ? 'B' : 'C';
+        const classe = antes < 80 ? 'A' : antes < 95 ? 'B' : 'C';
         const pid = r.produto_id as string | null;
         const custoUnit = pid && custoMapa[pid] != null ? custoMapa[pid] : null;
         const custoTotal = custoUnit != null ? custoUnit * Number(r.qtd) : null;
@@ -213,7 +225,7 @@ export class RelatoriosService {
   }
 
   // Desempenho por atendente (quem abriu a venda).
-  async atendentes(tenantId: string, inicio?: string, fim?: string, verFin = false) {
+  async atendentes(tenantId: string, inicio?: string, fim?: string, verFin = false, atual: string | null = null) {
     const { ini, fim: f } = this.periodo(inicio, fim);
     const m = (v: any) => this.oc(v, verFin);
     // Faturamento sem a gorjeta (ver `vendas`): comparar atendentes por um número que
@@ -226,8 +238,8 @@ export class RelatoriosService {
              coalesce(avg(${faturamentoComanda('c')}),0) as ticket_medio
       from comanda c
       left join colaborador col on col.id = c.aberta_por_id
-      where c.tenant_id = ${tenantId} and c.status = 'fechada'
-        and c.fechada_em between ${ini} and ${f}
+      where c.tenant_id = ${tenantId} ${sqlUnidade('c.unidade_id', atual)} and c.status = 'fechada'
+        and ${noPeriodo('c.fechada_em', ini, f)}
       group by col.nome
       order by total desc`);
     return {
@@ -246,7 +258,7 @@ export class RelatoriosService {
 
   // Operações de caixa no período: cancelamentos (quem cancelou + motivo) e
   // sangrias/suprimentos por operador. Base para auditoria de caixa.
-  async operacoesCaixa(tenantId: string, inicio?: string, fim?: string, verFin = false) {
+  async operacoesCaixa(tenantId: string, inicio?: string, fim?: string, verFin = false, atual: string | null = null) {
     const { ini, fim: f } = this.periodo(inicio, fim);
     const m = (v: any) => this.oc(v, verFin);
 
@@ -257,8 +269,8 @@ export class RelatoriosService {
              coalesce(sum(c.total),0) as valor
       from comanda c
       left join colaborador col on col.id = c.cancelada_por_id
-      where c.tenant_id = ${tenantId} and c.status = 'cancelada'
-        and c.created_at between ${ini} and ${f}
+      where c.tenant_id = ${tenantId} ${sqlUnidade('c.unidade_id', atual)} and c.status = 'cancelada'
+        and ${noPeriodo('c.created_at', ini, f)}
       group by col.nome order by qtd desc`);
 
     // Sangrias e suprimentos: lançamentos de caixa por operador.
@@ -270,7 +282,7 @@ export class RelatoriosService {
              count(*) filter (where l.categoria='suprimento')::int as qtd_suprimentos
       from lancamento_caixa l
       left join colaborador col on col.id = l.criado_por_id
-      where l.tenant_id = ${tenantId} and l.categoria in ('sangria','suprimento')
+      where l.tenant_id = ${tenantId} ${sqlUnidade('l.unidade_id', atual)} and l.categoria in ('sangria','suprimento')
         and l.data between ${ini} and ${f}
       group by col.nome order by operador`);
 
@@ -301,19 +313,19 @@ export class RelatoriosService {
   }
 
   // Faturamento por mês e por trimestre DENTRO do período (respeita De/Até).
-  async faturamentoPeriodo(tenantId: string, inicio?: string, fim?: string) {
+  async faturamentoPeriodo(tenantId: string, inicio?: string, fim?: string, atual: string | null = null) {
     const { ini, fim: f } = this.periodo(inicio, fim);
     // Série histórica de faturamento, também sem a gorjeta. A recomposição é retroativa
     // e vem de `taxa_servico_pct`, que é gravado em cada comanda — a série inteira desce
     // junto, sem degrau artificial no meio do gráfico.
     const rows = await this.rows(sql`
-      select to_char(c.fechada_em, 'YYYY-MM') as ym,
+      select to_char(${noFuso('c.fechada_em')}, 'YYYY-MM') as ym,
              coalesce(sum(${faturamentoComanda('c')}),0) as total,
              coalesce(sum(${gorjetaComanda('c')}),0) as gorjeta,
              count(*)::int as vendas
       from comanda c
-      where c.tenant_id = ${tenantId} and c.status = 'fechada'
-        and c.fechada_em between ${ini} and ${f}
+      where c.tenant_id = ${tenantId} ${sqlUnidade('c.unidade_id', atual)} and c.status = 'fechada'
+        and ${noPeriodo('c.fechada_em', ini, f)}
       group by 1 order by 1`);
     const porMes = rows.map((r) => ({
       ym: r.ym as string,
@@ -355,39 +367,40 @@ export class RelatoriosService {
     inicio?: string,
     fim?: string,
     verFin = false,
+    atual: string | null = null,
   ) {
     const { ini, fim: f } = this.periodo(inicio, fim);
     const m = (v: any) => this.oc(v, verFin);
     const deliv = canal === 'delivery';
     const cond = deliv ? sql`and ${comandaDePedidoVale('c')}` : sql`and not ${comandaEhDeCanal('c')}`;
     const base = sql`from comanda c
-      where c.tenant_id = ${tenantId} and c.status = 'fechada'
-        and c.fechada_em between ${ini} and ${f} ${cond}`;
+      where c.tenant_id = ${tenantId} ${sqlUnidade('c.unidade_id', atual)} and c.status = 'fechada'
+        and ${noPeriodo('c.fechada_em', ini, f)} ${cond}`;
     const fat = faturamentoComanda('c'); // sem gorjeta — mesma base do relatório de Vendas
     const [resumo] = await this.rows(sql`
       select count(*)::int as vendas, coalesce(sum(${fat}),0) as faturado,
              coalesce(sum(${gorjetaComanda('c')}),0) as gorjeta,
              coalesce(avg(${fat}),0) as ticket_medio ${base}`);
     const porDia = await this.rows(sql`
-      select c.fechada_em::date as dia, count(*)::int as qtd, coalesce(sum(${fat}),0) as total
+      select ${noFuso('c.fechada_em')}::date as dia, count(*)::int as qtd, coalesce(sum(${fat}),0) as total
       ${base} group by 1 order by 1`);
     const porHora = await this.rows(sql`
-      select extract(hour from c.fechada_em)::int as hora, count(*)::int as qtd, coalesce(sum(${fat}),0) as total
+      select extract(hour from ${noFuso('c.fechada_em')})::int as hora, count(*)::int as qtd, coalesce(sum(${fat}),0) as total
       ${base} group by 1 order by 1`);
     const maisVendidos = await this.rows(sql`
       select ci.descricao, coalesce(sum(ci.quantidade),0) as qtd,
              coalesce(sum(ci.quantidade * ci.preco_unitario),0) as fat
       from comanda_item ci join comanda c on c.id = ci.comanda_id
-      where c.tenant_id = ${tenantId} and c.status = 'fechada'
-        and c.fechada_em between ${ini} and ${f} ${cond}
+      where c.tenant_id = ${tenantId} ${sqlUnidade('c.unidade_id', atual)} and c.status = 'fechada'
+        and ${noPeriodo('c.fechada_em', ini, f)} ${cond}
       group by ci.descricao order by qtd desc limit 20`);
     let porRegiao: any[] = [];
     let porPlataforma: any[] = [];
     if (deliv) {
       const baseD = sql`from comanda c
         join pedido_externo pe on pe.comanda_id = c.id
-        where c.tenant_id = ${tenantId} and c.status = 'fechada'
-          and c.fechada_em between ${ini} and ${f}
+        where c.tenant_id = ${tenantId} ${sqlUnidade('c.unidade_id', atual)} and c.status = 'fechada'
+          and ${noPeriodo('c.fechada_em', ini, f)}
           and pe.status not in ('novo','cancelado')`;
       porRegiao = await this.rows(sql`
         select coalesce(nullif(pe.endereco_bairro,''),'—') as regiao,
@@ -416,7 +429,7 @@ export class RelatoriosService {
   }
 
   // Ranking global de produtos (balcão + delivery), com a quebra por canal.
-  async rankingProdutos(tenantId: string, inicio?: string, fim?: string, verFin = false) {
+  async rankingProdutos(tenantId: string, inicio?: string, fim?: string, verFin = false, atual: string | null = null) {
     const { ini, fim: f } = this.periodo(inicio, fim);
     const m = (v: any) => this.oc(v, verFin);
     // Faturamento por produto já LÍQUIDO do desconto rateado (mesma base da curva ABC).
@@ -439,8 +452,8 @@ export class RelatoriosService {
           from comanda_item ci
           join comanda c on c.id = ci.comanda_id
           left join pedido_desc pd on pd.comanda_id = c.id
-         where c.tenant_id = ${tenantId} and c.status = 'fechada'
-           and c.fechada_em between ${ini} and ${f}
+         where c.tenant_id = ${tenantId} ${sqlUnidade('c.unidade_id', atual)} and c.status = 'fechada'
+           and ${noPeriodo('c.fechada_em', ini, f)}
       )
       select descricao,
              coalesce(sum(quantidade),0) as qtd,
@@ -465,7 +478,7 @@ export class RelatoriosService {
   }
 
   // Turnos = sessões de caixa no período (lista com totais por sessão).
-  async turnos(tenantId: string, inicio?: string, fim?: string, verFin = false) {
+  async turnos(tenantId: string, inicio?: string, fim?: string, verFin = false, atual: string | null = null) {
     const { ini, fim: f } = this.periodo(inicio, fim);
     const m = (v: any) => this.oc(v, verFin);
     const rows = await this.rows(sql`
@@ -483,7 +496,7 @@ export class RelatoriosService {
       from caixa_sessao s
       left join colaborador ab on ab.id = s.aberta_por_id
       left join colaborador fe on fe.id = s.fechada_por_id
-      where s.tenant_id = ${tenantId} and s.aberta_em between ${ini} and ${f}
+      where s.tenant_id = ${tenantId} ${sqlUnidade('s.unidade_id', atual)} and ${noPeriodo('s.aberta_em', ini, f)}
       order by s.aberta_em desc`);
     return {
       periodo: { inicio: ini, fim: f },
@@ -508,7 +521,7 @@ export class RelatoriosService {
   }
 
   // Cupom de fechamento de um turno: vendas por forma + sangrias/suprimentos.
-  async turnoDetalhe(tenantId: string, sessaoId: string, verFin = false) {
+  async turnoDetalhe(tenantId: string, sessaoId: string, verFin = false, atual: string | null = null) {
     const m = (v: any) => this.oc(v, verFin);
     const [s] = await this.rows(sql`
       select s.id, s.origem, s.status, s.aberta_em as "abertaEm", s.fechada_em as "fechadaEm",
@@ -518,7 +531,7 @@ export class RelatoriosService {
       from caixa_sessao s
       left join colaborador ab on ab.id = s.aberta_por_id
       left join colaborador fe on fe.id = s.fechada_por_id
-      where s.tenant_id = ${tenantId} and s.id = ${sessaoId}`);
+      where s.tenant_id = ${tenantId} ${sqlUnidade('s.unidade_id', atual)} and s.id = ${sessaoId}`);
     if (!s) return null;
     const porForma = await this.rows(sql`
       select coalesce(forma,'—') as forma, count(*)::int as qtd,
@@ -534,7 +547,7 @@ export class RelatoriosService {
       select coalesce(sum(${gorjetaComanda('c')}), 0) as gorjeta,
              coalesce(sum(${faturamentoComanda('c')}), 0) as faturamento
         from comanda c
-       where c.tenant_id = ${tenantId}
+       where c.tenant_id = ${tenantId} ${sqlUnidade('c.unidade_id', atual)}
          and c.id in (select distinct l.comanda_id from lancamento_caixa l
                        where l.tenant_id = ${tenantId} and l.sessao_id = ${sessaoId}
                          and l.comanda_id is not null and l.estorno_de is null)`);
@@ -584,11 +597,11 @@ export class RelatoriosService {
   // Além do total por canal, devolve duas coisas que antes faltavam para conferir sem
   // adivinhar: a COBERTURA (quantos pedidos já têm o detalhe por origem) e as TAXAS POR
   // TIPO (qual código de taxa de cada canal está entrando como serviço da loja).
-  async conferenciaValores(tenantId: string, inicio?: string, fim?: string) {
+  async conferenciaValores(tenantId: string, inicio?: string, fim?: string, atual: string | null = null) {
     const { ini, fim: f } = this.periodo(inicio, fim);
-    const janela = sql`pe.tenant_id = ${tenantId}
+    const janela = sql`pe.tenant_id = ${tenantId} ${sqlUnidade('pe.unidade_id', atual)}
         and ${pedidoVale('pe')}
-        and pe.criado_em between ${ini} and ${f}`;
+        and ${noPeriodo('pe.criado_em', ini, f)}`;
     const linhas = await this.rows(sql`
       with base as (
         select pe.canal,
@@ -687,16 +700,16 @@ export class RelatoriosService {
     };
   }
 
-  async faturamentoDelivery(tenantId: string, inicio?: string, fim?: string) {
+  async faturamentoDelivery(tenantId: string, inicio?: string, fim?: string, atual: string | null = null) {
     const { ini, fim: f } = this.periodo(inicio, fim);
     // Faturado = pedidos aceitos (exclui 'novo' pendente e 'cancelado').
     // Passou a usar a MESMA fórmula da Conferência de valores: somar `pe.total` misturava
     // o que o cliente pagou (já com desconto do marketplace e taxa de terceiro dentro)
     // com o que a loja faturou — dois números diferentes com o mesmo rótulo.
     const base = sql`from pedido_externo pe
-      where pe.tenant_id = ${tenantId}
+      where pe.tenant_id = ${tenantId} ${sqlUnidade('pe.unidade_id', atual)}
         and ${pedidoVale('pe')}
-        and pe.criado_em between ${ini} and ${f}`;
+        and ${noPeriodo('pe.criado_em', ini, f)}`;
     const fat = faturamentoPedido('pe');
     const porPlataforma = await this.rows(sql`
       select pe.canal as plataforma, count(*)::int as pedidos,
@@ -706,7 +719,7 @@ export class RelatoriosService {
              count(*) filter (where ${pedidoDetalhado('pe')})::int as detalhados
       ${base} group by pe.canal order by total desc`);
     const porDia = await this.rows(sql`
-      select pe.criado_em::date as dia, count(*)::int as pedidos,
+      select ${noFuso('pe.criado_em')}::date as dia, count(*)::int as pedidos,
              coalesce(sum(${fat}),0) as total
       ${base} group by 1 order by 1`);
     const total = porPlataforma.reduce((s, r) => s + Number(r.total), 0);
@@ -747,22 +760,33 @@ export class RelatoriosService {
     fim?: string,
     agrupamento: 'dia' | 'semana' | 'mes' = 'dia',
     verFin = false,
+    atual: string | null = null,
   ) {
     const { ini, fim: f } = this.periodo(inicio, fim);
     const m = (v: any) => this.oc(v, verFin);
     const g = agrupamento === 'semana' ? 'semana' : agrupamento === 'mes' ? 'mes' : 'dia';
     const chave =
       g === 'mes'
-        ? sql`to_char(a.created_at, 'YYYY-MM')`
+        ? sql`to_char(${noFuso('a.created_at')}, 'YYYY-MM')`
         : g === 'semana'
-        ? sql`to_char(date_trunc('week', a.created_at), 'YYYY-MM-DD')`
-        : sql`a.created_at::date::text`;
+        ? sql`to_char(date_trunc('week', ${noFuso('a.created_at')}), 'YYYY-MM-DD')`
+        : sql`${noFuso('a.created_at')}::date::text`;
 
+    // Loja da produção: a que o registro guarda; nos registros de antes (sem loja), a loja das
+    // movimentações de estoque que aquela produção gerou (mesmo `refId`).
+    const daLoja = atual
+      ? sql`and (a.unidade_id = ${atual} or (a.unidade_id is null and exists (
+              select 1 from movimento_estoque me
+               where me.tenant_id = a.tenant_id and me.ref_tipo = 'producao'
+                 and me.ref_id = case when a.detalhe->>'refId' ~ '^[0-9a-fA-F-]{36}$' then (a.detalhe->>'refId')::uuid end
+                 and me.unidade_id = ${atual})))`
+      : sql``;
     const base = sql`from audit_log a
       left join ficha_tecnica ft on ft.id = a.entidade_id
       where a.tenant_id = ${tenantId}
         and a.acao = 'produziu_ficha'
-        and a.created_at between ${ini} and ${f}`;
+        ${daLoja}
+        and ${noPeriodo('a.created_at', ini, f)}`;
     const qtd = sql`coalesce((a.detalhe->>'quantidade')::numeric, 0)`;
     const custo = sql`coalesce((a.detalhe->>'custoTotal')::numeric, 0)`;
 

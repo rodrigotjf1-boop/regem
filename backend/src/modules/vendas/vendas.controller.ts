@@ -175,10 +175,11 @@ export class VendasController {
   @RequirePerm('cancelamentos')
   remocoes(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Query('inicio') inicio?: string,
     @Query('fim') fim?: string,
   ) {
-    return this.service.remocoesItens(user.tenantId, inicio, fim);
+    return this.service.remocoesItens(user.tenantId, inicio, fim, atual);
   }
 
   @Post('comandas/:id/fechar')
