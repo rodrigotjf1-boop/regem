@@ -14,9 +14,11 @@ import {
   alertaEstoque,
   categoriaItem,
   itemConversao,
+  fichaIngrediente,
   fornecedor,
   setor,
 } from '../../db/schema';
+import { CASAS_INFORMADO, chaveUnidade, fatorParaEstoque, type Conversao } from '../../common/conversao-unidade';
 import { chaveNome, limparNome } from './produto-nome';
 import { exigirUnidade, normalizarUnidade, UNIDADES_ESTOQUE } from './unidades';
 import { CreateItemDto } from './dto/create-item.dto';
@@ -256,7 +258,20 @@ export class EstoqueService {
       condUnidade(itemEstoque.unidadeId, atual), // só edita item da própria unidade
       isNull(itemEstoque.deletedAt),
     );
+    let fichasAjustadas = 0;
     const row = await this.db.transaction(async (tx) => {
+      // Como o produto estava antes (unidade e conversões): as linhas de ficha que usam uma
+      // unidade convertida dele dependem disso — ver `reconverterFichas`.
+      const mexeNaUnidade = !!conversoes || patch.unidadeMedida !== undefined;
+      const [velho] = mexeNaUnidade
+        ? await tx.select({ unidade: itemEstoque.unidadeMedida }).from(itemEstoque).where(doItem)
+        : [];
+      const conversoesVelhas: Conversao[] = velho
+        ? await tx
+            .select({ unidadeDe: itemConversao.unidadeDe, fator: itemConversao.fator, unidadePara: itemConversao.unidadePara })
+            .from(itemConversao)
+            .where(and(eq(itemConversao.tenantId, tenantId), eq(itemConversao.itemId, id)))
+        : [];
       if (nome !== undefined) {
         // Só confere o nome quando ele MUDA: produto que já estava repetido antes desta regra
         // continua editável (para o dono poder arrumar), mas ninguém vira repetido por edição.
@@ -277,6 +292,12 @@ export class EstoqueService {
       const [salvo] = await tx.update(itemEstoque).set(patch).where(doItem).returning();
       if (!salvo) throw new NotFoundException('Item não encontrado');
       if (conversoes) await this.gravarConversoes(tx, tenantId, id, conversoes);
+      if (velho)
+        fichasAjustadas = await this.reconverterFichas(
+          tx, tenantId, id,
+          { unidade: velho.unidade, conversoes: conversoesVelhas },
+          { unidade: salvo.unidadeMedida, conversoes: conversoes ?? conversoesVelhas },
+        );
       if (dto.fornecedorIds !== undefined || dto.fornecedorId !== undefined)
         await this.gravarFornecedores(tx, tenantId, id, dto.fornecedorIds, dto.fornecedorId);
       return salvo;
@@ -292,7 +313,61 @@ export class EstoqueService {
       entidadeId: id,
       origem: 'web',
     });
-    return row;
+    return { ...row, fichasAjustadas };
+  }
+
+  // A linha de ficha guarda a quantidade JÁ na unidade do estoque (2 fatias de um bacon em kg
+  // = 0,02778 kg) e, ao lado, a unidade que a pessoa escolheu. Se a conversão do produto muda
+  // (1 kg passa a ser 60 fatias), o que a pessoa informou — "2 fatias" — tem de continuar
+  // valendo: a quantidade gravada é refeita pelo fator novo. O custo gravado é o da unidade do
+  // estoque (o kg custa o mesmo) e não é tocado — a linha fica mais cara porque as mesmas 2
+  // fatias passaram a pesar mais, que é a verdade. Se a unidade da linha deixou
+  // de existir no produto, a quantidade gravada continua certa: a linha só passa a ser mostrada
+  // na unidade do estoque. Devolve quantas linhas foram regravadas.
+  private async reconverterFichas(
+    tx: any,
+    tenantId: string,
+    itemId: string,
+    antes: { unidade: string; conversoes: Conversao[] },
+    depois: { unidade: string; conversoes: Conversao[] },
+  ): Promise<number> {
+    const linhas = await tx
+      .select({ id: fichaIngrediente.id, unidade: fichaIngrediente.unidade })
+      .from(fichaIngrediente)
+      .where(
+        and(
+          eq(fichaIngrediente.tenantId, tenantId),
+          eq(fichaIngrediente.itemId, itemId),
+          isNull(fichaIngrediente.deletedAt),
+        ),
+      );
+    // Um UPDATE por unidade usada (são poucas), não um por linha.
+    const porUnidade = new Map<string, { unidade: string | null; ids: string[] }>();
+    for (const l of linhas) {
+      const g = porUnidade.get(chaveUnidade(l.unidade)) ?? { unidade: l.unidade as string | null, ids: [] as string[] };
+      g.ids.push(l.id);
+      porUnidade.set(chaveUnidade(l.unidade), g);
+    }
+    let ajustadas = 0;
+    for (const g of porUnidade.values()) {
+      const fAntes = fatorParaEstoque(g.unidade, antes.unidade, antes.conversoes) ?? 1;
+      const fDepois = fatorParaEstoque(g.unidade, depois.unidade, depois.conversoes);
+      if (fDepois == null) {
+        await tx.update(fichaIngrediente).set({ unidade: depois.unidade }).where(inArray(fichaIngrediente.id, g.ids));
+        ajustadas += g.ids.length;
+        continue;
+      }
+      if (Math.abs(fDepois / fAntes - 1) < 1e-12) continue;
+      // Volta ao que a pessoa informou (÷ fator antigo, com o mesmo corte da tela) e converte de novo.
+      await tx
+        .update(fichaIngrediente)
+        .set({
+          quantidade: sql`round(round(${fichaIngrediente.quantidade} / ${String(fAntes)}::numeric, ${CASAS_INFORMADO}) * ${String(fDepois)}::numeric, 15)`,
+        })
+        .where(inArray(fichaIngrediente.id, g.ids));
+      ajustadas += g.ids.length;
+    }
+    return ajustadas;
   }
 
   // Conversões como vão ser gravadas: fica só a linha preenchida (unidades e fator > 0), e as

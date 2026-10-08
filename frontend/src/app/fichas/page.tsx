@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Plus, Trash2, Pencil, Copy } from 'lucide-react';
 import { api, getCategoria, getToken, podePerm } from '@/lib/api';
 import { toast } from '@/lib/toast';
+import { arredondarInformado, chaveUnidade, fatorParaEstoque, unidadesDoProduto } from '@/lib/conversao-unidade';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -135,6 +136,20 @@ export default function FichasPage() {
           };
         }
         return { ...i, itemId: undefined, subFichaId: undefined, insumoNome: '', custoUnitario: '' };
+      }),
+    );
+  }
+
+  // Unidade em que a quantidade da linha é informada: a do estoque ou uma das conversões do
+  // produto ("unidade" de um bacon em kg, 1 kg = 72). O custo unitário acompanha a escolha —
+  // R$ 36,00 o kg vira R$ 0,50 a unidade. O servidor grava a linha na unidade do estoque.
+  function escolherUnidade(idx: number, unidade: string) {
+    setIngs((arr) =>
+      arr.map((i, n) => {
+        if (n !== idx) return i;
+        const item = insumos.find((x) => x.id === i.itemId);
+        const fator = item ? fatorParaEstoque(unidade, item.unidadeMedida ?? 'un', item.conversoes ?? []) ?? 1 : 1;
+        return { ...i, unidade, custoUnitario: String(arredondarInformado(Number(item?.custoMedio ?? 0) * fator)) };
       }),
     );
   }
@@ -276,7 +291,14 @@ export default function FichasPage() {
 
   // Uma linha de insumo (usada tanto na seção balcão quanto na de delivery). O
   // `idx` é o índice REAL em `ings` — os handlers operam sobre o array inteiro.
-  const renderLinha = (ing: Ing, idx: number) => (
+  const renderLinha = (ing: Ing, idx: number) => {
+    // Produto do estoque com conversão cadastrada: a pessoa escolhe em qual unidade informa.
+    const item = ing.itemId ? insumos.find((x) => x.id === ing.itemId) : null;
+    const unEstoque: string = item?.unidadeMedida ?? 'un';
+    const unidades = item ? unidadesDoProduto(unEstoque, item.conversoes ?? []) : [];
+    const escolhida = unidades.find((u) => chaveUnidade(u.unidade) === chaveUnidade(ing.unidade)) ?? unidades[0];
+    const convertida = !!escolhida && escolhida.fator !== 1;
+    return (
     <div key={idx} className="space-y-2 rounded-lg border border-border p-2">
       <div className="flex items-center gap-2">
         <Select
@@ -348,13 +370,33 @@ export default function FichasPage() {
           })()}
         </div>
         <Input type="number" min={0} step="any" inputMode="decimal" placeholder="Qtd" aria-label="Quantidade" value={ing.quantidade} onChange={(e) => setIng(idx, 'quantidade', e.target.value)} />
-        <Input placeholder="un" aria-label="Unidade" value={ing.unidade} disabled={!!ing.itemId} onChange={(e) => setIng(idx, 'unidade', e.target.value)} />
+        {unidades.length > 1 ? (
+          <Select aria-label="Unidade em que a quantidade é informada" value={escolhida.unidade} onChange={(e) => escolherUnidade(idx, e.target.value)}>
+            {unidades.map((u) => (
+              <option key={u.unidade} value={u.unidade}>{u.unidade}</option>
+            ))}
+          </Select>
+        ) : (
+          <Input placeholder="un" aria-label="Unidade" value={ing.unidade} disabled={!!ing.itemId} onChange={(e) => setIng(idx, 'unidade', e.target.value)} />
+        )}
         <Input type="number" min={0} step="any" inputMode="decimal" placeholder="FC" aria-label="Fator de correção" value={ing.fatorCorrecao} onChange={(e) => setIng(idx, 'fatorCorrecao', e.target.value)} />
         <Input type="number" min={0} step="any" inputMode="decimal" placeholder="R$/un" aria-label="Custo unitário" value={ing.custoUnitario} disabled={!!ing.subFichaId || !!ing.itemId} onChange={(e) => setIng(idx, 'custoUnitario', e.target.value)} />
       </div>
       {ing.itemId && (
         <p className="text-xs text-secondary-foreground">
           📦 Insumo do estoque — custo pelo custo médio; <b>baixa o estoque</b> ao produzir.
+          {convertida && (
+            <>
+              {' '}Informado em <b>{escolhida.unidade}</b>
+              {Number(ing.quantidade) > 0 && (
+                <>: {num(Number(ing.quantidade))} {escolhida.unidade} = <b>{num(arredondarInformado(Number(ing.quantidade) * escolhida.fator))} {unEstoque}</b> no estoque</>
+              )}
+              {' '}({escolhida.fator < 1
+                ? `1 ${unEstoque} = ${num(arredondarInformado(1 / escolhida.fator))} ${escolhida.unidade}`
+                : `1 ${escolhida.unidade} = ${num(arredondarInformado(escolhida.fator))} ${unEstoque}`}).
+            </>
+          )}
+          {!convertida && unidades.length > 1 && <> Este produto tem conversão: escolha a unidade em que vai informar a quantidade.</>}
         </p>
       )}
       {ing.subFichaId && (
@@ -363,7 +405,8 @@ export default function FichasPage() {
         </p>
       )}
     </div>
-  );
+    );
+  };
 
   // ── a lista, com os filtros ──
   // O servidor é quem autoriza; aqui só não se oferece o que ele recusaria.

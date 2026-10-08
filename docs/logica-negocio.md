@@ -36,6 +36,7 @@ qtd_baixa(ingrediente) = qtd_liquida × fc × qtd_vendida ÷ rendimento_da_ficha
 - **Fichas aninhadas** (ficha que usa outra ficha como ingrediente): explosão recursiva com limite de profundidade 3 e detecção de ciclo (A usa B que usa A → rejeitar no cadastro).
 - **Idempotência:** a explosão de uma mesma venda (`ref_id`) só pode ocorrer uma vez — índice único `(tenant_id, ref_tipo, ref_id, item_id)` no movimento ou verificação prévia na transação.
 - Estorno/cancelamento de venda = movimentos **inversos** (`entrada`, motivo `estorno_venda`, mesma `ref`).
+- **Unidade convertida** (08/10/2026): o produto do estoque tem UMA unidade (kg, fardo) e conversões (`1 kg = 72 unidade`). A linha da ficha pode ser informada na unidade convertida, mas é **gravada na unidade do estoque**: `qtd_liquida = qtd_informada × fator`, com `fator` = unidades de estoque por 1 unidade informada (1/72). O custo unitário gravado é o da unidade do estoque (`custo_informado ÷ fator`). A fórmula acima não muda. Custo por unidade convertida = `custo_medio × fator` (R$ 36 o fardo de 12 → R$ 3 a unidade).
 
 ### 1.3 CMV teórico × CMV real (o KPI diferencial)
 

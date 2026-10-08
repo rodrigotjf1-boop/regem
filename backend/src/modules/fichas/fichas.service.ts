@@ -6,7 +6,8 @@ import {
 } from '@nestjs/common';
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { fichaIngrediente, fichaTecnica } from '../../db/schema';
+import { fichaIngrediente, fichaTecnica, itemConversao, itemEstoque } from '../../db/schema';
+import { arredondarEstoque, arredondarInformado, fatorParaEstoque, type Conversao } from '../../common/conversao-unidade';
 import {
   custoTotalFicha,
   fichaAlcancavel,
@@ -113,8 +114,9 @@ export class FichasService {
           }
         }
       }
+      const linhas = await this.linhasParaGravar(tenantId, dto.ingredientes);
       await this.db.insert(fichaIngrediente).values(
-        dto.ingredientes.map((i, idx) => ({
+        linhas.map((i, idx) => ({
           tenantId,
           fichaId: f.id,
           itemId: i.subFichaId ? undefined : i.itemId,
@@ -163,12 +165,72 @@ export class FichasService {
     return { fichas, ings, mapa, nome };
   }
 
-  // Anexa o nome da sub-ficha a cada ingrediente que a referencia (p/ exibição).
-  private enriquecer(ings: any[], nome: Record<string, string>) {
-    return ings.map((i) => ({
-      ...i,
-      subFichaNome: i.subFichaId ? nome[i.subFichaId] ?? null : null,
-    }));
+  // Unidade de estoque e conversões dos produtos ligados às linhas (para converter a quantidade).
+  private async unidadesDosItens(tenantId: string, itemIds: (string | null | undefined)[]) {
+    const ids = [...new Set(itemIds.filter((x): x is string => !!x))];
+    const mapa = new Map<string, { unidade: string; conversoes: Conversao[] }>();
+    if (!ids.length) return mapa;
+    const itens = await this.db
+      .select({ id: itemEstoque.id, unidade: itemEstoque.unidadeMedida })
+      .from(itemEstoque)
+      .where(and(eq(itemEstoque.tenantId, tenantId), inArray(itemEstoque.id, ids)));
+    for (const i of itens) mapa.set(i.id, { unidade: i.unidade, conversoes: [] });
+    const convs = await this.db
+      .select({
+        itemId: itemConversao.itemId,
+        unidadeDe: itemConversao.unidadeDe,
+        fator: itemConversao.fator,
+        unidadePara: itemConversao.unidadePara,
+      })
+      .from(itemConversao)
+      .where(and(eq(itemConversao.tenantId, tenantId), inArray(itemConversao.itemId, ids)));
+    for (const c of convs) mapa.get(c.itemId)?.conversoes.push(c);
+    return mapa;
+  }
+
+  // A linha chega com a quantidade e o custo NA UNIDADE ESCOLHIDA ("2 unidade" de um bacon em
+  // kg, a R$ 0,50 a fatia) e é GRAVADA na unidade do estoque (0,02778 kg, a R$ 36 o kg) — a mesma
+  // em que a venda e a produção baixam e em que o custo da ficha é somado. É por isso que nenhuma
+  // rotina de baixa precisou mudar. Linha sem produto ligado (ou sub-receita), ou com unidade que
+  // o produto não tem, fica como veio.
+  private async linhasParaGravar<T extends CreateIngredienteDto>(tenantId: string, linhas: T[]): Promise<T[]> {
+    const unidades = await this.unidadesDosItens(
+      tenantId,
+      linhas.map((i) => (i.subFichaId ? null : i.itemId)),
+    );
+    return linhas.map((i) => {
+      const u = !i.subFichaId && i.itemId ? unidades.get(i.itemId) : undefined;
+      const fator = u ? fatorParaEstoque(i.unidade, u.unidade, u.conversoes) ?? 1 : 1;
+      if (fator === 1) return i;
+      return {
+        ...i,
+        quantidade: i.quantidade != null ? arredondarEstoque(Number(i.quantidade) * fator) : i.quantidade,
+        custoUnitario: i.custoUnitario != null ? arredondarEstoque(Number(i.custoUnitario) / fator) : i.custoUnitario,
+      };
+    });
+  }
+
+  // Devolve cada linha como a pessoa a informou (quantidade e custo na unidade escolhida) e,
+  // ao lado, o que está gravado: a quantidade na unidade do estoque. Anexa o nome da sub-ficha.
+  private async enriquecer(tenantId: string, ings: any[], nome: Record<string, string>) {
+    const unidades = await this.unidadesDosItens(tenantId, ings.map((i) => (i.subFichaId ? null : i.itemId)));
+    return ings.map((i) => {
+      const u = !i.subFichaId && i.itemId ? unidades.get(i.itemId) : undefined;
+      const fator = u ? fatorParaEstoque(i.unidade, u.unidade, u.conversoes) ?? 1 : 1;
+      return {
+        ...i,
+        ...(fator === 1
+          ? {}
+          : {
+              quantidade: String(arredondarInformado(Number(i.quantidade) / fator)),
+              custoUnitario: String(arredondarInformado(Number(i.custoUnitario) * fator)),
+            }),
+        quantidadeEstoque: Number(i.quantidade),
+        unidadeEstoque: u?.unidade ?? null,
+        fatorUnidade: fator,
+        subFichaNome: i.subFichaId ? nome[i.subFichaId] ?? null : null,
+      };
+    });
   }
 
   // Mapa fichaId → custo por porção (balcão e delivery). Usado por outros módulos
@@ -190,15 +252,16 @@ export class FichasService {
 
   async list(tenantId: string) {
     const { fichas, ings, mapa, nome } = await this.carregarTudo(tenantId);
+    const linhas = await this.enriquecer(tenantId, ings, nome);
     return fichas.map((f) => {
-      const fi = ings
+      const fi = linhas
         .filter((i) => i.fichaId === f.id)
         .sort((a, b) => Number(a.ordem) - Number(b.ordem));
       const custoBalcao = custoTotalFicha(f.id, mapa);
       const custoDelivery = custoTotalFicha(f.id, mapa, true);
       return {
         ...f,
-        ingredientes: this.enriquecer(fi, nome),
+        ingredientes: fi,
         ...computarDois(f, custoBalcao, custoDelivery),
       };
     });
@@ -215,7 +278,7 @@ export class FichasService {
     const custoDelivery = custoTotalFicha(id, mapa, true);
     return {
       ...f,
-      ingredientes: this.enriquecer(fi, nome),
+      ingredientes: await this.enriquecer(tenantId, fi, nome),
       ...computarDois(f, custoBalcao, custoDelivery),
     };
   }
@@ -267,9 +330,10 @@ export class FichasService {
             isNull(fichaIngrediente.deletedAt),
           ),
         );
-      if (dto.ingredientes.length)
+      const linhas = await this.linhasParaGravar(tenantId, dto.ingredientes);
+      if (linhas.length)
         await this.db.insert(fichaIngrediente).values(
-          dto.ingredientes.map((i, idx) => ({
+          linhas.map((i, idx) => ({
             tenantId,
             fichaId: id,
             itemId: i.subFichaId ? undefined : i.itemId,
@@ -328,16 +392,17 @@ export class FichasService {
   ) {
     await this.getOne(tenantId, fichaId);
     if (dto.subFichaId) await this.validarSubFicha(tenantId, fichaId, dto.subFichaId);
+    const [linha] = await this.linhasParaGravar(tenantId, [dto]);
     await this.db.insert(fichaIngrediente).values({
       tenantId,
       fichaId,
       itemId: dto.subFichaId ? undefined : dto.itemId,
       subFichaId: dto.subFichaId,
       insumoNome: dto.insumoNome,
-      quantidade: dto.quantidade != null ? String(dto.quantidade) : '0',
+      quantidade: linha.quantidade != null ? String(linha.quantidade) : '0',
       unidade: dto.unidade,
       fatorCorrecao: dto.fatorCorrecao != null ? String(dto.fatorCorrecao) : '1',
-      custoUnitario: dto.custoUnitario != null ? String(dto.custoUnitario) : '0',
+      custoUnitario: linha.custoUnitario != null ? String(linha.custoUnitario) : '0',
       somenteDelivery: dto.somenteDelivery ?? false,
       ordem: dto.ordem ?? 0,
     });
