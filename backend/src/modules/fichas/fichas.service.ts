@@ -166,7 +166,7 @@ export class FichasService {
   }
 
   // Unidade de estoque e conversões dos produtos ligados às linhas (para converter a quantidade).
-  private async unidadesDosItens(tenantId: string, itemIds: (string | null | undefined)[]) {
+  async unidadesDosItens(tenantId: string, itemIds: (string | null | undefined)[]) {
     const ids = [...new Set(itemIds.filter((x): x is string => !!x))];
     const mapa = new Map<string, { unidade: string; conversoes: Conversao[] }>();
     if (!ids.length) return mapa;

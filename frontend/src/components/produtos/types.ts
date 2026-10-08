@@ -35,6 +35,7 @@ export const vazio = () => ({
   categoriaId: '',
   fichaId: '',
   itemId: '',
+  itemUnidade: '', // unidade em que cada venda baixa o item do estoque ('' = a do estoque)
   tipo: 'simples',
   unidadeMedida: 'un',
   precoVenda: '',

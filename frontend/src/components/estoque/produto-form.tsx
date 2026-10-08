@@ -193,6 +193,9 @@ export function ProdutoForm({
       // gravada para a ficha continuar com o que foi informado ("2 unidade").
       if (Number(salvo?.fichasAjustadas) > 0)
         toast.success(`${salvo.fichasAjustadas} linha(s) de ficha técnica acompanharam a nova conversão.`);
+      // Produto de revenda e adicional ligados direto a este produto por uma unidade convertida.
+      if (Number(salvo?.vinculosAjustados) > 0)
+        toast.success(`${salvo.vinculosAjustados} ligação(ões) do cardápio (produto de revenda ou adicional) acompanharam a nova conversão.`);
       // Imprime as etiquetas de validade do produto, se pedido (best-effort).
       const produtoId = salvo?.id ?? item?.id;
       if (imprimirEtiq && validade && produtoId) {

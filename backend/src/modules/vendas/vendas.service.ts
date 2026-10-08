@@ -374,6 +374,8 @@ export class VendasService {
         const comps = await tx
           .select({
             fichaId: produto.fichaId,
+            itemId: produto.itemId,
+            itemFator: produto.itemFator,
             controla: produto.controlaEstoque,
             q: produtoComboItem.quantidade,
           })
@@ -396,6 +398,12 @@ export class VendasService {
               new Set(), // remoção não se aplica a itens de combo
               incluirDelivery,
             );
+          // Componente de REVENDA (a lata do combo): baixa direta do item, como quando é vendido
+          // sozinho. Antes só o componente com ficha baixava — a lata do combo não saía do estoque.
+          else if (c.itemId && c.controla) {
+            const q = quantidade * fatorFicha * (Number(c.q) || 1) * (Number(c.itemFator) || 1);
+            if (q > 0) consumo.set(c.itemId, (consumo.get(c.itemId) ?? 0) + q);
+          }
         }
       } else if (p.fichaId) {
         await this.acumularFicha(
@@ -408,8 +416,9 @@ export class VendasService {
           incluirDelivery,
         );
       } else if (p.itemId) {
-        // Revenda (industrializado): baixa direta do item de estoque vinculado.
-        const q = quantidade * fatorFicha;
+        // Revenda (industrializado): baixa direta do item de estoque vinculado, na unidade
+        // escolhida na ligação (mig 309): fardo de 12 vendido por unidade → 1/12 de fardo.
+        const q = quantidade * fatorFicha * (Number(p.itemFator) || 1);
         if (q > 0) consumo.set(p.itemId, (consumo.get(p.itemId) ?? 0) + q);
       }
     }
@@ -439,6 +448,7 @@ export class VendasService {
           tipo: produto.tipo,
           fichaId: produto.fichaId,
           itemId: produto.itemId,
+          itemFator: produto.itemFator,
           controlaEstoque: produto.controlaEstoque,
         })
         .from(produto)
@@ -579,6 +589,7 @@ export class VendasService {
         produtoRefId: complementoOpcao.produtoRefId,
         quantidade: complementoOpcao.quantidade,
         codigoPdv: complementoOpcao.codigoPdv,
+        controlaEstoque: complementoOpcao.controlaEstoque,
         tipo: complementoGrupo.tipo,
       })
       .from(complementoOpcao)
@@ -590,6 +601,11 @@ export class VendasService {
           // produto não pode baixar o insumo errado.
           eq(complementoGrupo.produtoId, produtoId),
           inArray(complementoOpcao.codigoPdv, codigos),
+          // Só a opção VIVA: salvar o catálogo recria as opções do produto e deixa as antigas
+          // marcadas como apagadas, com o MESMO código — o pedido que chega agora vale pelo
+          // cadastro de agora (vínculo, "Controlar estoque", quantidade).
+          isNull(complementoOpcao.deletedAt),
+          isNull(complementoGrupo.deletedAt),
         ),
       );
     const porCodigo = new Map(opcoes.map((o: any) => [String(o.codigoPdv), o]));
@@ -609,7 +625,9 @@ export class VendasService {
         nome: o.nome,
         precoDelta: Number(o.precoDelta) || 0,
         fichaIngredienteId: o.fichaIngredienteId,
-        itemId: o.itemId,
+        // O insumo do adicional só baixa com "Controlar estoque desta opção" ligado — a regra do
+        // balcão (`resolverComplementos`). Antes o canal baixava mesmo com o controle desligado.
+        itemId: o.controlaEstoque ? o.itemId : null,
         produtoRefId: o.produtoRefId,
         // Quantidade do CANAL × a quantidade configurada na opção (ex.: "2x bacon"
         // numa opção que já vale 2 fatias = 4 fatias).

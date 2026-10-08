@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { selectCls, SELOS } from '@/components/produtos/types';
+import { chaveUnidade, unidadesDoProduto } from '@/lib/conversao-unidade';
 import { VariacoesEditor } from '@/components/produtos/variacoes-editor';
 import { ComboEditor } from '@/components/produtos/combo-editor';
 import { FiscalFields } from '@/components/produtos/fiscal-fields';
@@ -211,12 +212,31 @@ export function ProdutoForm({
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Item de estoque (revenda)</Label>
-                <select className={selectCls} value={f.itemId || ''} onChange={(e) => set({ itemId: e.target.value, fichaId: e.target.value ? '' : f.fichaId })}>
+                <select className={selectCls} aria-label="Item de estoque (revenda)" value={f.itemId || ''} onChange={(e) => set({ itemId: e.target.value, itemUnidade: '', fichaId: e.target.value ? '' : f.fichaId })}>
                   <option value="">— não é revenda —</option>
                   {insumos.map((it) => (
                     <option key={it.id} value={it.id}>{it.nome}</option>
                   ))}
                 </select>
+                {/* O item tem conversão no cadastro do estoque (1 fardo = 12 unidade): pergunta em
+                    que unidade a venda baixa — é ela que dá o custo de cada unidade vendida. */}
+                {(() => {
+                  const item = insumos.find((it) => it.id === f.itemId);
+                  const unEstoque: string = item?.unidadeMedida ?? 'un';
+                  const unidades = item ? unidadesDoProduto(unEstoque, item.conversoes ?? []) : [];
+                  if (unidades.length < 2) return null;
+                  const escolhida = unidades.find((u) => chaveUnidade(u.unidade) === chaveUnidade(f.itemUnidade)) ?? unidades[0];
+                  const custo = (fator: number) => (verFin && item?.custoMedio != null ? ` · ${brl(Number(item.custoMedio) * fator)}` : '');
+                  return (
+                    <select className={selectCls} aria-label="Unidade que cada venda baixa do estoque" value={escolhida.unidade} onChange={(e) => set({ itemUnidade: e.target.value })}>
+                      {unidades.map((u) => (
+                        <option key={u.unidade} value={u.unidade}>
+                          Cada venda baixa 1 {u.unidade}{custo(u.fator)}
+                        </option>
+                      ))}
+                    </select>
+                  );
+                })()}
                 <p className="text-[11px] text-muted-foreground">Industrializado (ex.: lata): custo e baixa vêm do estoque.</p>
               </div>
               <div className="space-y-1">

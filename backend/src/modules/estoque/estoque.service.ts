@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, eq, inArray, isNull, desc, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, desc, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   itemEstoque,
@@ -17,8 +17,11 @@ import {
   fichaIngrediente,
   fornecedor,
   setor,
+  produto,
+  opcao,
+  complementoOpcao,
 } from '../../db/schema';
-import { CASAS_INFORMADO, chaveUnidade, fatorParaEstoque, type Conversao } from '../../common/conversao-unidade';
+import { arredondarEstoque, CASAS_INFORMADO, chaveUnidade, fatorParaEstoque, type Conversao } from '../../common/conversao-unidade';
 import { chaveNome, limparNome } from './produto-nome';
 import { exigirUnidade, normalizarUnidade, UNIDADES_ESTOQUE } from './unidades';
 import { CreateItemDto } from './dto/create-item.dto';
@@ -259,6 +262,7 @@ export class EstoqueService {
       isNull(itemEstoque.deletedAt),
     );
     let fichasAjustadas = 0;
+    let vinculosAjustados = 0;
     const row = await this.db.transaction(async (tx) => {
       // Como o produto estava antes (unidade e conversões): as linhas de ficha que usam uma
       // unidade convertida dele dependem disso — ver `reconverterFichas`.
@@ -298,6 +302,11 @@ export class EstoqueService {
           { unidade: velho.unidade, conversoes: conversoesVelhas },
           { unidade: salvo.unidadeMedida, conversoes: conversoes ?? conversoesVelhas },
         );
+      if (velho)
+        vinculosAjustados = await this.reconverterVinculos(tx, tenantId, id, {
+          unidade: salvo.unidadeMedida,
+          conversoes: conversoes ?? conversoesVelhas,
+        });
       if (dto.fornecedorIds !== undefined || dto.fornecedorId !== undefined)
         await this.gravarFornecedores(tx, tenantId, id, dto.fornecedorIds, dto.fornecedorId);
       return salvo;
@@ -313,7 +322,7 @@ export class EstoqueService {
       entidadeId: id,
       origem: 'web',
     });
-    return { ...row, fichasAjustadas };
+    return { ...row, fichasAjustadas, vinculosAjustados };
   }
 
   // A linha de ficha guarda a quantidade JÁ na unidade do estoque (2 fatias de um bacon em kg
@@ -368,6 +377,77 @@ export class EstoqueService {
       ajustadas += g.ids.length;
     }
     return ajustadas;
+  }
+
+  // Ligações DIRETAS com este produto do estoque por uma unidade convertida (mig 309): o produto
+  // de revenda guarda o fator em `produto.item_fator` e o adicional, na quantidade das opções já
+  // copiadas para os produtos (`complemento_opcao.quantidade`) — é o que a venda baixa. Mudou a
+  // conversão (1 fardo passa a ter 6) → o fator é refeito e a ligação continua valendo "1
+  // unidade". A unidade escolhida deixou de existir no produto → a ligação volta para a unidade
+  // do estoque (fator 1), como era antes de existir a escolha. Devolve quantas mudaram.
+  private async reconverterVinculos(
+    tx: any,
+    tenantId: string,
+    itemId: string,
+    depois: { unidade: string; conversoes: Conversao[] },
+  ): Promise<number> {
+    let ajustados = 0;
+    const novoFator = (unidade: string | null) => {
+      const f = fatorParaEstoque(unidade, depois.unidade, depois.conversoes);
+      return f == null || f === 1 ? null : arredondarEstoque(f); // null = volta para a unidade do estoque
+    };
+    const revendas = await tx
+      .select({ id: produto.id, unidade: produto.itemUnidade, fator: produto.itemFator })
+      .from(produto)
+      .where(
+        and(
+          eq(produto.tenantId, tenantId),
+          eq(produto.itemId, itemId),
+          isNotNull(produto.itemUnidade),
+          isNull(produto.deletedAt),
+        ),
+      );
+    for (const p of revendas) {
+      const f = novoFator(p.unidade);
+      if (f != null && Math.abs(f / (Number(p.fator) || 1) - 1) < 1e-12) continue;
+      await tx
+        .update(produto)
+        .set(f == null ? { itemUnidade: null, itemFator: '1' } : { itemFator: String(f) })
+        .where(eq(produto.id, p.id));
+      ajustados++;
+    }
+    const adicionais = await tx
+      .select({ id: opcao.id, unidade: opcao.itemUnidade })
+      .from(opcao)
+      .where(
+        and(
+          eq(opcao.tenantId, tenantId),
+          eq(opcao.itemId, itemId),
+          eq(opcao.tipo, 'insumo'),
+          isNotNull(opcao.itemUnidade),
+          isNull(opcao.deletedAt),
+        ),
+      );
+    for (const o of adicionais) {
+      const f = novoFator(o.unidade);
+      if (f == null) await tx.update(opcao).set({ itemUnidade: null }).where(eq(opcao.id, o.id));
+      const quantidade = String(f ?? 1);
+      const mudadas = await tx
+        .update(complementoOpcao)
+        .set({ quantidade })
+        .where(
+          and(
+            eq(complementoOpcao.tenantId, tenantId),
+            eq(complementoOpcao.origemOpcaoId, o.id),
+            eq(complementoOpcao.itemId, itemId),
+            isNull(complementoOpcao.deletedAt),
+            sql`${complementoOpcao.quantidade} <> ${quantidade}::numeric`,
+          ),
+        )
+        .returning({ id: complementoOpcao.id });
+      if (f == null || mudadas.length) ajustados++;
+    }
+    return ajustados;
   }
 
   // Conversões como vão ser gravadas: fica só a linha preenchida (unidades e fator > 0), e as

@@ -23,6 +23,7 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { EdgeFlashSyncService } from '../sync/edge-flash-sync.service';
 import { lojasAtivas, pausasPorProduto } from '../../common/pausa-loja';
 import { FichasService } from '../fichas/fichas.service';
+import { arredondarEstoque, fatorParaEstoque, unidadesDoProduto } from '../../common/conversao-unidade';
 import { CreateCategoriaDto } from './dto/create-categoria.dto';
 import { CreateProdutoDto } from './dto/create-produto.dto';
 
@@ -35,6 +36,31 @@ export class ProdutoService {
     private readonly flash: EdgeFlashSyncService,
     private readonly fichas: FichasService,
   ) {}
+
+  // ----- Ligação direta com um produto do estoque (mig 309) -----
+  // "Na hora de ligar é só perguntar se vai calcular valor unitário ou do fardo" (dono,
+  // 08/10/2026). A unidade escolhida tem de ser a do estoque ou uma das conversões do cadastro
+  // dele; devolve o que GRAVAR: a unidade (null = a do estoque) e o fator — quanto da unidade do
+  // estoque vale 1 da escolhida (fardo de 12, por unidade → 1/12).
+  private async vinculoComEstoque(
+    tenantId: string,
+    itemId: string | null | undefined,
+    unidade: string | null | undefined,
+  ): Promise<{ unidade: string | null; fator: number }> {
+    const escolhida = String(unidade ?? '').trim();
+    if (!itemId || !escolhida) return { unidade: null, fator: 1 };
+    const u = (await this.fichas.unidadesDosItens(tenantId, [itemId])).get(itemId);
+    if (!u) throw new BadRequestException('Produto do estoque não encontrado.');
+    const fator = fatorParaEstoque(escolhida, u.unidade, u.conversoes);
+    if (fator == null) {
+      const validas = unidadesDoProduto(u.unidade, u.conversoes).map((x) => x.unidade).join(' ou ');
+      throw new BadRequestException(
+        `"${escolhida}" não é uma unidade deste produto do estoque. Escolha ${validas}.`,
+      );
+    }
+    if (fator === 1) return { unidade: null, fator: 1 }; // a própria unidade do estoque
+    return { unidade: escolhida, fator: arredondarEstoque(fator) };
+  }
 
   // ----- Categorias (hierárquicas) -----
   listarCategorias(tenantId: string) {
@@ -123,13 +149,16 @@ export class ProdutoService {
 
   // ----- Opções (catálogo reutilizável, Fase 2) -----
   // veCustoDaFicha: quem pede pode ver custo de ficha técnica (a mesma regra de GET /fichas).
-  async listarOpcoes(tenantId: string, veCustoDaFicha = false) {
+  // veFinanceiro: quem pede pode ver custo de estoque (a mesma regra do custo do produto).
+  async listarOpcoes(tenantId: string, veCustoDaFicha = false, veFinanceiro = false) {
     // Traz a opção + nome da ficha/insumo ligado (para exibir o tipo com clareza).
     const res: any = await this.db.execute(sql`
       select o.id, o.nome, o.codigo_pdv as "codigoPdv", o.descricao,
              o.imagem_ref as "imagemRef", o.tipo, o.preco_custo as "precoCusto",
              o.controla_estoque as "controlaEstoque", o.ficha_id as "fichaId",
              o.item_id as "itemId", o.produto_ref_id as "produtoRefId",
+             o.item_unidade as "itemUnidade", i.unidade_medida as "itemUnidadeEstoque",
+             i.custo_medio as "itemCustoMedio",
              o.padrao_marcada as "padraoMarcada", o.ativo, o.esgotado,
              f.nome as "fichaNome", i.nome as "itemNome",
              (select count(*)::int from complemento_item ci where ci.opcao_id = o.id and ci.deleted_at is null) as "usado"
@@ -147,11 +176,28 @@ export class ProdutoService {
     // custo" digitado segue valendo para as opções sem ficha.
     const temFicha = rows.some((o) => o.tipo === 'ficha' && o.fichaNome);
     const custoDaFicha = veCustoDaFicha && temFicha ? await this.fichas.custoPorPorcao(tenantId) : {};
+    // Adicional ligado DIRETO a um insumo: o que sai do estoque a cada escolha é 1 da unidade
+    // escolhida na ligação (`itemFator` unidades de estoque) e o custo é o custo médio × o fator.
+    const insumos = rows.filter((o) => o.tipo === 'insumo' && o.itemId);
+    const unidades = insumos.length
+      ? await this.fichas.unidadesDosItens(tenantId, insumos.map((o) => o.itemId))
+      : new Map<string, { unidade: string; conversoes: any[] }>();
     return rows.map((o) => {
       const c = o.tipo === 'ficha' && o.fichaNome ? custoDaFicha[o.fichaId] : undefined;
-      // null = sem ficha ligada, ou quem pede não vê custo de ficha. Em centavos, como o
-      // "custo por porção" da tela de fichas — o mesmo número nos dois lugares.
-      return { ...o, custoFicha: c ? Number(c.balcao.toFixed(2)) : null };
+      const u = o.tipo === 'insumo' && o.itemId ? unidades.get(o.itemId) : undefined;
+      const itemFator = u ? fatorParaEstoque(o.itemUnidade, u.unidade, u.conversoes) ?? 1 : null;
+      const medio = o.itemCustoMedio != null ? Number(o.itemCustoMedio) : null;
+      const { itemCustoMedio: _fora, ...resto } = o; // o custo médio cru não sai daqui
+      void _fora;
+      return {
+        ...resto,
+        // null = sem ficha ligada, ou quem pede não vê custo de ficha. Em centavos, como o
+        // "custo por porção" da tela de fichas — o mesmo número nos dois lugares.
+        custoFicha: c ? Number(c.balcao.toFixed(2)) : null,
+        itemFator,
+        // null = sem insumo ligado, ou quem pede não vê valores.
+        custoItem: veFinanceiro && itemFator != null && medio != null ? Number((medio * itemFator).toFixed(4)) : null,
+      };
     });
   }
 
@@ -461,6 +507,7 @@ export class ProdutoService {
           tipo: opcao.tipo,
           fichaId: opcao.fichaId,
           itemId: opcao.itemId,
+          itemUnidade: opcao.itemUnidade,
           produtoRefId: opcao.produtoRefId,
           codigoPdv: opcao.codigoPdv,
           controlaEstoque: opcao.controlaEstoque,
@@ -470,6 +517,12 @@ export class ProdutoService {
         .innerJoin(opcao, eq(opcao.id, complementoItem.opcaoId))
         .where(and(eq(complementoItem.complementoId, comp.id), isNull(complementoItem.deletedAt), isNull(opcao.deletedAt)))
         .orderBy(complementoItem.ordem);
+      // Unidade e conversões dos insumos ligados: a quantidade que sai do estoque é gravada na
+      // unidade DELE (mig 309) — 1 unidade de um bacon em kg (1 kg = 72) = 0,01389 kg.
+      const unidadesDosInsumos = await this.fichas.unidadesDosItens(
+        tenantId,
+        itens.map((it) => (it.tipo === 'insumo' ? it.itemId : null)),
+      );
       for (const [j, it] of itens.entries()) {
         // mig 126 — discriminador: SEM código PDV a opção é INFORMATIVA (observação:
         // "ponto de carne", "talheres"): não baixa estoque, não soma preço e não
@@ -483,7 +536,7 @@ export class ProdutoService {
           // Link de baixa por tipo de opção: insumo→item; simples/ficha→produto (se houver).
           itemId: informativa ? null : it.tipo === 'insumo' ? it.itemId ?? null : null,
           produtoRefId: informativa ? null : it.tipo !== 'insumo' ? it.produtoRefId ?? null : null,
-          quantidade: '1',
+          quantidade: String(this.quantidadeDoInsumo(it, unidadesDosInsumos)),
           codigoPdv: informativa ? null : it.codigoPdv,
           controlaEstoque: informativa ? false : !!it.controlaEstoque,
           // Pré-marcada: o item da etapa manda; se não, o padrão da própria opção.
@@ -494,6 +547,18 @@ export class ProdutoService {
       }
     }
     return { ok: true };
+  }
+
+  // Quanto da unidade do ESTOQUE sai a cada vez que a opção é escolhida. Sem insumo ligado, sem
+  // unidade escolhida ou com unidade que o insumo não tem mais: 1 (o comportamento de sempre).
+  private quantidadeDoInsumo(
+    it: { tipo: string; itemId: string | null; itemUnidade: string | null },
+    unidades: Map<string, { unidade: string; conversoes: any[] }>,
+  ): number {
+    if (it.tipo !== 'insumo' || !it.itemId || !it.itemUnidade) return 1;
+    const u = unidades.get(it.itemId);
+    const fator = u ? fatorParaEstoque(it.itemUnidade, u.unidade, u.conversoes) : null;
+    return fator == null ? 1 : arredondarEstoque(fator);
   }
 
   // ----- Direcionamento do catálogo (tela em massa: produto → KDS/impressora) -----
@@ -729,15 +794,27 @@ export class ProdutoService {
   async criarOpcaoCatalogo(tenantId: string, dto: any) {
     const vals = this.opcaoVals(dto);
     if (!vals.nome) throw new NotFoundException('Informe o nome da opção.');
-    const [row] = await this.db.insert(opcao).values({ tenantId, ...vals }).returning();
+    const { unidade: itemUnidade } = await this.vinculoComEstoque(tenantId, vals.itemId, dto?.itemUnidade);
+    const [row] = await this.db.insert(opcao).values({ tenantId, ...vals, itemUnidade }).returning();
     return row;
   }
 
   async atualizarOpcao(tenantId: string, id: string, dto: any) {
     const vals = this.opcaoVals(dto);
+    // Unidade da ligação com o insumo: quem não manda o campo (telas que regravam a opção
+    // inteira para mudar "esgotado", por exemplo) mantém a que estava — se o insumo é o mesmo.
+    let unidadePedida = dto?.itemUnidade;
+    if (unidadePedida === undefined && vals.itemId) {
+      const [atual] = await this.db
+        .select({ itemId: opcao.itemId, itemUnidade: opcao.itemUnidade })
+        .from(opcao)
+        .where(and(eq(opcao.id, id), eq(opcao.tenantId, tenantId)));
+      if (atual?.itemId === vals.itemId) unidadePedida = atual.itemUnidade;
+    }
+    const { unidade: itemUnidade } = await this.vinculoComEstoque(tenantId, vals.itemId, unidadePedida);
     const [row] = await this.db
       .update(opcao)
-      .set({ ...vals, updatedAt: new Date() })
+      .set({ ...vals, itemUnidade, updatedAt: new Date() })
       .where(and(eq(opcao.id, id), eq(opcao.tenantId, tenantId)))
       .returning();
     if (!row) throw new NotFoundException('Opção não encontrada');
@@ -814,10 +891,10 @@ export class ProdutoService {
              p.disponivel_balcao as "disponivelBalcao",
              p.canais_pausados as "canaisPausados",
              p.ativo, p.categoria_id as "categoriaId", p.ficha_id as "fichaId",
-             p.item_id as "itemId",
+             p.item_id as "itemId", p.item_unidade as "itemUnidade", p.item_fator as "itemFator",
              p.setor_producao_id as "setorProducaoId", p.imagem_ref as "imagemRef",
              c.nome as "categoriaNome", f.nome as "fichaNome",
-             ie.nome as "itemNome", ie.custo_medio as "itemCustoMedio"
+             ie.nome as "itemNome", ie.custo_medio as "itemCustoMedio", ie.unidade_medida as "itemUnidadeEstoque"
       from produto p
       left join categoria_produto c on c.id = p.categoria_id
       left join ficha_tecnica f on f.id = p.ficha_id
@@ -854,7 +931,8 @@ export class ProdutoService {
     return rows.map((p) => {
       const override = p.precoCusto != null && p.precoCusto !== '' ? Number(p.precoCusto) : null;
       const fc = p.fichaId ? fichaCusto[p.fichaId] : null;
-      const itemMedio = p.itemCustoMedio != null ? Number(p.itemCustoMedio) : null;
+      // Custo de UMA unidade vendida: o custo médio do item × quanto dele sai por venda (mig 309).
+      const itemMedio = p.itemCustoMedio != null ? Number(p.itemCustoMedio) * (Number(p.itemFator) || 1) : null;
       // Prioridade: override manual → custo da ficha → custo médio do item de estoque.
       let custo: number | null = null;
       let custoDelivery: number | null = null;
@@ -887,7 +965,7 @@ export class ProdutoService {
   async custoEfetivoMapa(tenantId: string): Promise<Record<string, number>> {
     const res: any = await this.db.execute(sql`
       select p.id, p.preco_custo as "precoCusto", p.ficha_id as "fichaId",
-             ie.custo_medio as "itemCustoMedio"
+             ie.custo_medio * p.item_fator as "itemCustoMedio"
       from produto p
       left join item_estoque ie on ie.id = p.item_id
       where p.tenant_id = ${tenantId} and p.deleted_at is null
@@ -1355,6 +1433,7 @@ export class ProdutoService {
     dto: CreateProdutoDto,
   ) {
     this.exigirCategoria(dto.categoriaId);
+    const vinculo = await this.vinculoComEstoque(tenantId, dto.itemId, dto.itemUnidade);
     const row = await this.db.transaction(async (tx) => {
       const [p] = await tx
         .insert(produto)
@@ -1367,6 +1446,8 @@ export class ProdutoService {
           categoriaId: dto.categoriaId,
           fichaId: dto.fichaId,
           itemId: dto.itemId, // item de estoque de revenda (fonte de custo)
+          itemUnidade: vinculo.unidade,
+          itemFator: String(vinculo.fator),
           tipo: dto.tipo ?? 'simples',
           unidadeMedida: dto.unidadeMedida ?? 'un',
           precoVenda: String(dto.precoVenda),
@@ -1459,6 +1540,21 @@ export class ProdutoService {
     set('categoriaId', dto.categoriaId);
     set('fichaId', dto.fichaId);
     set('itemId', dto.itemId); // item de estoque de revenda (fonte de custo)
+    // Unidade da ligação com o estoque (mig 309). Mexeu no item ou na unidade → o fator é
+    // refeito; trocou só o item, a unidade volta para a do estoque dele.
+    if (dto.itemId !== undefined || dto.itemUnidade !== undefined) {
+      const [atual] = await this.db
+        .select({ itemId: produto.itemId, itemUnidade: produto.itemUnidade })
+        .from(produto)
+        .where(and(eq(produto.id, id), eq(produto.tenantId, tenantId)));
+      if (!atual) throw new NotFoundException('Produto não encontrado');
+      const itemId = dto.itemId !== undefined ? dto.itemId : atual.itemId;
+      const mudouItem = dto.itemId !== undefined && (dto.itemId ?? null) !== (atual.itemId ?? null);
+      const unidade = dto.itemUnidade !== undefined ? dto.itemUnidade : mudouItem ? null : atual.itemUnidade;
+      const vinculo = await this.vinculoComEstoque(tenantId, itemId, unidade);
+      patch.itemUnidade = vinculo.unidade;
+      patch.itemFator = String(vinculo.fator);
+    }
     set('tipo', dto.tipo);
     set('unidadeMedida', dto.unidadeMedida);
     if (dto.precoVenda !== undefined) patch.precoVenda = String(dto.precoVenda);

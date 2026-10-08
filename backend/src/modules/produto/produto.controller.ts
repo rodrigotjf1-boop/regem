@@ -85,7 +85,8 @@ export class ProdutoController {
     // O custo que vem da ficha segue a regra da própria ficha (GET /fichas): presidente ou
     // quem tem a permissão "Fichas técnicas".
     const veCustoDaFicha = user.categoria === 'presidente' || podeAcessar(user.permissoes, 'fichas');
-    return this.service.listarOpcoes(user.tenantId, veCustoDaFicha);
+    // O custo que vem do estoque segue a regra do custo do produto (ver_financeiro).
+    return this.service.listarOpcoes(user.tenantId, veCustoDaFicha, !!user.permissoes?.ver_financeiro);
   }
 
   @Post('opcoes')
