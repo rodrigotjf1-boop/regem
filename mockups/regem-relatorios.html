@@ -1,0 +1,1022 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regem — Relatórios no modelo novo (mockup)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* MOCKUP das telas do menu Relatórios — Turnos, Relatórios de vendas (as 11 abas) e Cancelamentos de
+   itens, mais o Mapa de calor de entregas (aberto pela aba Delivery) — no mesmo modelo aprovado no
+   Estoque e em Configurações. Pedido do dono em 07/10/2026 ("aplicar as mesmas melhorias no menu
+   relatório, em todas as páginas… traga o protótipo"). APROVADO pelo dono em 07/10/2026 ("sem a barra
+   ficou ok e aprovado"), com um ajuste já feito aqui: nenhuma barra de rolagem horizontal quando se dá zoom.
+   Nada aqui fala com o Regem e os dados são inventados (a data do protótipo é fixa: 07/10/2026).
+   O estilo e o motor (listas, gaveta, diálogo) são os mesmos de mockups/regem-configuracoes.html.
+   O que toda tela passa a ter:
+   (1) o nome da tela igual ao do menu, com uma linha dizendo o que ela mostra;
+   (2) PERÍODO com atalhos (hoje, ontem, 7 e 30 dias, este mês…), escrito de quando a quando, de qual
+       loja são os números e a que horas foram atualizados;
+   (3) nas listas: contagem, situações com a quantidade, busca e filtros, ações na linha;
+   (4) detalhe numa GAVETA (fechamento do turno, cupom do turno) e confirmação num diálogo;
+   (5) cada bloco carrega e falha sozinho, com "Tentar de novo" — falha nunca vira "sem vendas";
+   (6) os gráficos têm os números escritos (o maior valor e "Ver em tabela");
+   (7) "Exportar CSV" em toda tabela;
+   (8) NENHUMA barra de rolagem horizontal, em qualquer zoom: as abas quebram a linha e a tabela que
+       não cabe na largura vira cartões (não rola para o lado).
+   A faixa "Só no protótipo" (no topo) troca o perfil e o estado dos dados — inclusive o de CONTA NOVA,
+   sem nenhuma venda, que é o primeiro estado que toda loja vê. Ela não existe no aplicativo.
+   Onde a tela real difere, de propósito:
+   - no celular o menu lateral some e aparece o seletor "Tela" no topo — no aplicativo é o menu ☰;
+   - as listas viram cartões abaixo de 1280 px;
+   - "Exportar CSV" e "Atualizar" só avisam o que fariam. */
+:root{
+  --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E8A845; --on-gold:#281B06; --navy:#0F2230; --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9;
+  --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8; --radius:12px;
+  --display:'Archivo',sans-serif; --body:'Figtree',sans-serif; --mono:'JetBrains Mono',monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:var(--body);background:var(--bg);color:var(--ink);font-size:15px;line-height:1.45}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid #3A7FB8;outline-offset:2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+[hidden]{display:none!important}
+.app{display:grid;grid-template-columns:248px minmax(0,1fr);min-height:100vh}
+.lado{background:var(--navy);color:#C9D6E2;padding:16px 10px;position:sticky;top:0;height:100vh;overflow-y:auto}
+.lado .marca{display:flex;align-items:center;gap:10px;padding:4px 8px 14px;color:#fff;font-family:var(--display);font-weight:700;font-size:18px}
+.lado .marca svg{width:30px;height:30px}
+.lado .item{display:block;padding:8px 12px;border-radius:10px;color:inherit;font-weight:600;font-size:14px}
+.lado .grupo-menu{margin-top:2px;padding:8px 12px 4px;color:#fff;font-weight:700;font-size:14px}
+.lado button.sub{display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;min-height:36px;text-align:left;border:none;background:transparent;color:inherit;padding:6px 10px 6px 26px;border-radius:10px;font-weight:600;font-size:13.5px}
+.lado button.sub:hover{background:rgba(255,255,255,.06);color:#fff}
+.lado button.sub[aria-current="page"]{background:rgba(232,168,69,.18);color:#fff;box-shadow:inset 3px 0 0 var(--gold)}
+.lado button.sub i{font-style:normal;font-family:var(--mono);font-size:11.5px;color:#9FB2C4}
+main{min-width:0;padding:20px 24px 110px}
+.trilha{font-family:var(--display);font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#7A5209}
+h1{font-family:var(--display);font-size:26px;margin:2px 0 14px}
+.campo.so-celular{display:none;margin-bottom:14px}
+.abas{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;margin-bottom:16px}
+.aba{flex:none;display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:8px 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);color:var(--ink-2);font-weight:600;font-size:14px;white-space:nowrap}
+.aba:hover{border-color:var(--ink-2);color:var(--ink)}
+.aba b{font-family:var(--mono);font-size:12.5px;background:#EEF2F6;color:var(--ink);border-radius:999px;padding:1px 8px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.aba[aria-pressed="true"] b{background:rgba(40,27,6,.14);color:var(--on-gold)}
+.barra{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:12px}
+.barra h2{font-family:var(--display);font-size:20px;margin:0}
+.resumo{color:var(--ink-2);font-size:13.5px;margin:2px 0 0}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+.bt{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:40px;padding:0 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);font-weight:600;font-size:14px;white-space:nowrap}
+.bt:hover{border-color:var(--ink-2)}
+.bt.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.bt.perigo{background:var(--crit);border-color:var(--crit);color:#fff}
+.bt[disabled]{opacity:.5;cursor:not-allowed}
+.sits{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.sit{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0 12px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);font-weight:600;font-size:14px;color:var(--ink-2)}
+.sit b{font-family:var(--mono);font-size:13px;background:#EEF2F6;color:var(--ink);border-radius:999px;padding:1px 8px}
+.sit[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.sit[aria-pressed="true"] b{background:rgba(255,255,255,.18);color:#fff}
+.sit.crit b{background:var(--crit-bg);color:var(--crit)} .sit.warn b{background:var(--warn-bg);color:var(--warn)}
+.sit[aria-pressed="true"].crit b,.sit[aria-pressed="true"].warn b{background:rgba(255,255,255,.18);color:#fff}
+.filtros{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin-bottom:12px}
+.filtros .larga{grid-column:span 2}
+.campo{display:flex;flex-direction:column;gap:4px;min-width:0}
+.campo label,.rot{font-size:12.5px;font-weight:700;color:var(--ink-2)}
+.campo input,.campo select,.campo textarea{min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 12px;background:#fff;width:100%}
+.campo textarea{padding:8px 12px;min-height:64px}
+.ajuda{font-size:12.5px;color:var(--ink-2)}
+.tabela{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+th{font-size:12px;letter-spacing:.06em;text-transform:uppercase;text-align:left;color:var(--ink-2);background:#F7F9FB;padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tbody tr:hover{background:#FAFBFD}
+.nome{font-weight:700}
+.sub-t{font-size:12.5px;color:var(--ink-2)}
+.num{font-family:var(--mono);font-size:13.5px;white-space:nowrap}
+.selo{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;font-weight:700;font-size:12.5px;white-space:nowrap}
+.selo.ok{background:var(--ok-bg);color:var(--ok)} .selo.crit{background:var(--crit-bg);color:var(--crit)}
+.selo.info{background:var(--info-bg);color:var(--info)} .selo.warn{background:var(--warn-bg);color:var(--warn)} .selo.neutro{background:#EEF2F6;color:var(--ink-2)}
+.linha-acoes{display:flex;gap:4px;justify-content:flex-end}
+.ic{display:inline-flex;align-items:center;gap:6px;min-width:40px;min-height:40px;justify-content:center;border-radius:10px;border:1px solid transparent;background:transparent;padding:0 9px;font-weight:600;font-size:13px;color:var(--ink-2);white-space:nowrap}
+.ic:hover{background:#EEF2F6;border-color:var(--line-2);color:var(--ink)}
+.ic.pri{background:var(--gold);color:var(--on-gold);border-color:var(--gold);font-weight:700}
+.ic.perigo:hover{background:var(--crit-bg);border-color:var(--crit);color:var(--crit)}
+.vazio{padding:36px 16px;text-align:center;color:var(--ink-2)}
+.nota{border-left:4px solid var(--info);background:var(--info-bg);padding:10px 12px;border-radius:8px;font-size:14px}
+.nota.crit{border-color:var(--crit);background:var(--crit-bg)} .nota.warn{border-color:var(--warn);background:var(--warn-bg)} .nota.ok{border-color:var(--ok);background:var(--ok-bg)}
+/* telas de ajuste: grupos, linha de ajuste, chave liga/desliga, barra de salvar */
+.grupo{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);margin-bottom:12px}
+.grupo > header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.grupo > header h3{font-family:var(--display);font-size:16px;margin:0}
+.grupo > header span{font-size:12.5px;color:var(--ink-2)}
+.aj{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,280px);gap:6px 16px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)}
+.aj:last-child{border-bottom:none}
+.aj .rot-aj{font-weight:600}
+.aj .ajuda{display:block;margin-top:1px}
+.aj.mudou{background:#FFF9EC;box-shadow:inset 3px 0 0 var(--gold)}
+.aj .ctrl{display:flex;justify-content:flex-end;align-items:center;gap:8px;min-width:0}
+.aj .ctrl input,.aj .ctrl select{min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 12px;background:#fff;width:100%;min-width:0}
+.aj .ctrl .suf{font-size:13px;color:var(--ink-2);white-space:nowrap}
+.liga{position:relative;flex:none;width:52px;height:40px;border:none;background:transparent;padding:0}
+.liga::before{content:"";position:absolute;left:2px;right:2px;top:8px;bottom:8px;border-radius:999px;background:#B4C0CC;transition:background .15s}
+.liga::after{content:"";position:absolute;left:5px;top:11px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .15s}
+.liga[aria-checked="true"]::before{background:var(--ok)}
+.liga[aria-checked="true"]::after{transform:translateX(24px)}
+.liga-txt{font-size:13px;font-weight:700;color:var(--ink-2);min-width:68px;text-align:right}
+.barra-salvar{position:fixed;left:248px;right:0;bottom:0;z-index:30;display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;align-items:center;padding:12px 24px;background:var(--navy);color:#fff;box-shadow:0 -8px 24px rgba(15,34,48,.2)}
+.barra-salvar .bt{border-color:rgba(255,255,255,.35);background:transparent;color:#fff}
+.barra-salvar .bt.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.cartoes-plano{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-bottom:12px}
+.plano{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px;display:grid;gap:8px;align-content:start}
+.plano.atual{border:2px solid var(--gold)}
+.plano h3{font-family:var(--display);margin:0;font-size:17px}
+.plano .preco{font-family:var(--mono);font-size:22px;font-weight:700}
+.plano ul{margin:0;padding-left:18px;font-size:14px;color:var(--ink-2)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:12px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px}
+.kpi .rot{display:block}
+.kpi .v{font-family:var(--mono);font-size:19px;font-weight:700}
+.passos{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;padding:0;list-style:none}
+.passos li{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0 12px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);font-weight:600;font-size:14px;color:var(--ink-2)}
+.passos li b{font-family:var(--mono);font-size:12.5px;background:#EEF2F6;border-radius:999px;padding:1px 8px;color:var(--ink)}
+.passos li[aria-current]{background:var(--navy);border-color:var(--navy);color:#fff} .passos li[aria-current] b{background:rgba(255,255,255,.18);color:#fff}
+.passos li.feito b{background:var(--ok-bg);color:var(--ok)}
+.matriz td,.matriz th{padding:8px 10px;text-align:center} .matriz td:first-child,.matriz th:first-child{text-align:left}
+.matriz input[type=checkbox]{width:20px;height:20px;accent-color:#0F6647}
+.fundo{position:fixed;inset:0;background:rgba(15,34,48,.45);z-index:40}
+.gaveta{position:fixed;top:0;right:0;bottom:0;width:min(560px,100%);background:var(--card);z-index:50;display:flex;flex-direction:column;box-shadow:-12px 0 32px rgba(15,34,48,.18)}
+.gaveta.larga{width:min(1080px,100%)}
+.painel header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line)}
+.painel h3{font-family:var(--display);font-size:19px;margin:0}
+.painel .corpo{flex:1;overflow-y:auto;padding:16px 20px;display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-content:start;min-height:0}
+.painel .corpo > *{min-width:0}
+.painel footer{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;padding:14px 20px;border-top:1px solid var(--line);background:#F7F9FB}
+.dialogo{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(520px,calc(100% - 24px));max-height:calc(100% - 24px);background:var(--card);z-index:50;border-radius:16px;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(15,34,48,.3)}
+.dialogo.largo{width:min(940px,calc(100% - 24px))}
+.dialogo footer{border-radius:0 0 16px 16px}
+.duas{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+.fichas{display:flex;flex-wrap:wrap;gap:6px}
+.ficha{min-height:40px;padding:6px 12px;border-radius:999px;border:1px solid var(--line-2);background:#fff;font-weight:600;font-size:13px;color:var(--ink-2)}
+.ficha[aria-pressed="true"]{background:#FFF4DF;border-color:var(--gold);color:#6B4505}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;border:1px solid var(--line-2);border-radius:10px;overflow:hidden}
+.seg{grid-auto-columns:minmax(0,1fr)}
+.seg button{min-height:40px;border:none;background:#fff;font-weight:600;border-right:1px solid var(--line-2);padding:6px 8px;line-height:1.2}
+.seg button:last-child{border-right:none}
+.seg button[aria-pressed="true"]{background:var(--navy);color:#fff}
+.mini td,.mini th{padding:7px 10px}
+.codigo{font-family:var(--mono);font-size:22px;font-weight:700;letter-spacing:.18em;background:#F7F9FB;border:1px dashed var(--line-2);border-radius:10px;padding:10px 14px;text-align:center}
+#toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--navy);color:#fff;padding:11px 18px;border-radius:12px;font-weight:600;z-index:60;box-shadow:0 10px 26px rgba(0,0,0,.25);max-width:calc(100% - 24px)}
+@media (max-width:1000px){ .app{grid-template-columns:1fr} .lado{display:none} main{padding:16px 16px 120px} .campo.so-celular{display:flex} .barra-salvar{left:0;padding:10px 16px} }
+@media (max-width:1279px){
+  main .tabela.cartoes{border:none;background:none;overflow:visible} main .cartoes thead{display:none}
+  main .cartoes tbody tr{display:block;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin-bottom:10px}
+  main .cartoes td{display:flex;justify-content:space-between;align-items:baseline;gap:12px;border:none;padding:4px 0}
+  main .cartoes td::before{content:attr(data-rot);flex:none;font-size:12.5px;font-weight:700;color:var(--ink-2)}
+  main .cartoes td .v{text-align:right;min-width:0}
+  main .cartoes td.c-nome{display:block} main .cartoes td.c-nome .v{text-align:left} main .cartoes td.c-nome::before,main .cartoes td.c-acoes::before{content:none}
+  main .cartoes td.c-acoes{margin-top:8px} main .linha-acoes{width:100%;flex-wrap:wrap;justify-content:stretch} main .linha-acoes .ic{flex:1;border-color:var(--line-2)}
+}
+@media (min-width:1280px) and (max-width:1535px){ main .cartoes .ic:not(.pri) .rt{display:none} }
+@media (min-width:700px) and (max-width:1279px){
+  main .cartoes table,main .cartoes tbody{display:block} main .cartoes tbody{display:grid;grid-template-columns:1fr 1fr;gap:10px} main .cartoes tbody tr{margin:0}
+}
+@media (max-width:820px){
+  .filtros{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))} .filtros .larga{grid-column:1 / -1} .duas{grid-template-columns:minmax(0,1fr)}
+  .aj{grid-template-columns:minmax(0,1fr)!important} .aj .ctrl{justify-content:flex-start} .gaveta.larga .dois-lados{grid-template-columns:minmax(0,1fr)!important}
+  .filtros[style]{grid-template-columns:minmax(0,1fr)!important}
+}
+
+/* ── só do protótipo de Relatórios ── */
+:root{--barra:#B9791A}
+h1{margin-bottom:4px}
+.sub-tela{color:var(--ink-2);font-size:14.5px;margin:0 0 14px}
+.prot{display:grid;grid-template-columns:auto repeat(2,minmax(0,300px));gap:8px 14px;align-items:end;border:2px dashed var(--line-2);border-radius:var(--radius);padding:10px 12px;margin-bottom:16px;background:#FBFCFD}
+.prot strong{font-family:var(--display);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-2);align-self:center}
+.periodo{grid-template-columns:repeat(auto-fit,minmax(170px,1fr));align-items:end}
+.periodo .linha{grid-column:1 / -1;margin:0}
+.marcar{display:inline-flex;align-items:center;gap:8px;min-height:40px;font-weight:600;font-size:14px;color:var(--ink)}
+.campo .marcar input{width:20px;height:20px;min-height:0;flex:none;padding:0}
+.bloco-corpo{padding:12px 16px}
+.bloco-corpo > .vazio{padding:22px 8px}
+.grupo > header{align-items:center}
+.grupo > header > div:first-child{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;min-width:0}
+.dois{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:0 12px;align-items:start}
+.barras th{background:transparent;text-transform:none;letter-spacing:0;font-size:14px;color:var(--ink);font-weight:600;white-space:normal;border-bottom:1px solid var(--line)}
+.barras tr:last-child th{border-bottom:none}
+.barras td.b{width:38%}
+.trilho{height:10px;border-radius:999px;background:#E6EBF1;overflow:hidden}
+.trilho i{display:block;height:100%;border-radius:999px;background:var(--barra)}
+.colunas{display:flex;align-items:flex-end;gap:4px;height:150px;padding-top:6px}
+.colunas .c{flex:1;min-width:0;height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center}
+.colunas .c i{display:block;width:100%;min-height:2px;border-radius:4px 4px 0 0;background:var(--barra)}
+.colunas .c span{margin-top:4px;font-size:10.5px;color:var(--ink-2);white-space:nowrap}
+.ver-tab{margin-top:8px}
+.ver-tab summary{cursor:pointer;font-weight:600;font-size:13.5px;color:var(--info);min-height:40px;display:inline-flex;align-items:center}
+.ver-tab .tabela{margin-top:6px;max-height:260px;overflow-y:auto}
+.abc{display:inline-flex;width:24px;height:24px;align-items:center;justify-content:center;border-radius:6px;font-weight:800;font-size:12.5px;font-family:var(--display);vertical-align:middle}
+.abc.A{background:var(--ok-bg);color:var(--ok)} .abc.B{background:var(--warn-bg);color:var(--warn)} .abc.C{background:#EEF2F6;color:var(--ink-2)}
+button.link{border:none;background:none;padding:0;font:inherit;letter-spacing:inherit;text-transform:inherit;color:#7A5209;text-decoration:underline;min-height:24px}
+.kpi .v .selo{font-family:var(--body)}
+details.nota p{margin:8px 0}
+.periodo .fim{align-items:flex-start}
+#conteudo > .nota{margin-bottom:12px}
+.compacta th,.compacta td{padding:9px 8px}
+.compacta .num{font-size:12.5px}
+/* SEM BARRA DE ROLAGEM HORIZONTAL, em qualquer zoom (pedido do dono na aprovação).
+   Abas: quebram a linha; na tela estreita (celular) deslizam com o dedo, sem barra à mostra. */
+.abas{flex-wrap:wrap;overflow:visible;padding-bottom:0}
+@media (max-width:639px){ .abas{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-right:28px;-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 28px),transparent)} .abas::-webkit-scrollbar{display:none} }
+/* Tabela que não cabe na largura vira cartões (classe posta pelo script, que mede a tabela). */
+.tabela.cartoes.vira{border:none;background:none;overflow:visible}
+.cartoes.vira thead{display:none}
+.cartoes.vira table{display:block}
+.cartoes.vira tbody{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:10px}
+.cartoes.vira tbody tr{display:block;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin:0}
+.cartoes.vira td{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:2px 12px;border:none;padding:4px 0}
+.cartoes.vira td::before{content:attr(data-rot);flex:none;font-size:12.5px;font-weight:700;color:var(--ink-2)}
+.cartoes.vira td .v{text-align:right;min-width:0;margin-left:auto}
+.cartoes.vira td.c-nome{display:block} .cartoes.vira td.c-nome .v{text-align:left} .cartoes.vira td.c-nome::before,.cartoes.vira td.c-acoes::before{content:none}
+.cartoes.vira td.c-acoes{margin-top:8px} .cartoes.vira .linha-acoes{width:100%;flex-wrap:wrap;justify-content:stretch} .cartoes.vira .linha-acoes .ic{flex:1;border-color:var(--line-2)} .cartoes.vira .ic .rt{display:inline!important}
+main .cartoes td{flex-wrap:wrap} main .cartoes td .v{margin-left:auto}
+.num{white-space:normal} .selo{white-space:normal}
+@media (max-width:820px){ .prot{grid-template-columns:minmax(0,1fr)} .colunas{gap:2px} .colunas .c span{font-size:9px} .barras td.b{width:28%} }
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="lado" aria-label="Menu principal">
+    <div class="marca"><svg viewBox="0 0 80 80" aria-hidden="true"><circle cx="40" cy="40" r="29" fill="none" stroke="#E2A340" stroke-width="4.5"/><path d="M33 28V54M33 28H42A7.5 7 0 0 1 42 42H33M36 42L49 54" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="60.5" cy="19.5" r="5.5" fill="#F2C277"/></svg>Regem</div>
+    <span class="item">Dashboard</span><span class="item">PDV · Balcão</span><span class="item">Delivery</span><span class="item">Tarefas</span>
+    <span class="item">Estoque</span><span class="item">Financeiro</span><span class="item">Cadastros</span><span class="item">Configurações</span>
+    <div class="grupo-menu">Relatórios</div>
+    <div id="menu"></div>
+    <span class="item" style="margin-top:6px">Auditoria</span>
+  </nav>
+  <main>
+    <div class="prot" role="group" aria-label="Só no protótipo: ver como">
+      <strong>Só no protótipo</strong>
+      <div class="campo"><label for="vPerfil">Ver como</label><select id="vPerfil"><option value="pres">Presidente — vê valores em R$</option><option value="ger">Gerente sem “Ver valores em R$”</option><option value="sup">Supervisão</option></select></div>
+      <div class="campo"><label for="vDados">Com que dados</label><select id="vDados"><option value="mov">Loja em movimento</option><option value="novo">Conta nova — nenhuma venda ainda</option><option value="falha">Falha ao carregar</option></select></div>
+    </div>
+    <div class="trilha" id="trilha">Relatórios</div>
+    <h1 id="tituloTela"></h1>
+    <p class="sub-tela" id="subTela"></p>
+    <div class="campo so-celular"><label for="irPara">Tela (no aplicativo: menu ☰)</label><select id="irPara"></select></div>
+    <div class="abas" id="secoes" role="group" aria-label="Partes desta tela" hidden></div>
+    <div id="conteudo"></div>
+  </main>
+</div>
+<div class="barra-salvar" id="barraSalvar" hidden></div>
+<div class="fundo" id="fundo" hidden></div>
+<div id="painel"></div>
+<div id="toast" role="status" aria-live="polite" hidden></div>
+
+<script>
+// ══ motor do protótipo ══════════════════════════════════════════════════════════════════════
+// Cada tela do menu tem uma ou mais PARTES; cada parte é de um destes tipos:
+//   lista   — título com contagem, situações com quantidade, busca e filtros, ações na linha;
+//   ajustes — ajustes em grupos, com busca, contagem e a barra "N alterações ainda não salvas";
+//   livre   — telas que não são lista nem ajuste (planos, assistente, saúde do servidor).
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const sem = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+const selo = (cls, t) => `<span class="selo ${cls}">${t}</span>`;
+const brl = (n) => Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const num = (n) => Number(n).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
+function avisar(t) { const x = $('#toast'); x.textContent = t; x.hidden = false; clearTimeout(avisar.t); avisar.t = setTimeout(() => (x.hidden = true), 3200); }
+
+const TELAS = {};
+const estado = {};
+const est = () => (estado[atual + '/' + sec] ||= { busca: '', sit: -1, sel: {}, vals: {}, marc: new Set() });
+const S = () => TELAS[atual].secoes[sec];
+const itensAj = (s) => s.grupos.flatMap((g) => g.itens);
+const valorAj = (it, e) => (it.id in e.vals ? e.vals[it.id] : it.v);
+const mudouAj = (it, e) => it.id in e.vals && e.vals[it.id] !== it.v;
+const pendentes = () => (S().tipo === 'ajustes' ? itensAj(S()).filter((it) => mudouAj(it, est())).length : 0);
+const contaDe = (s) => (typeof s.conta === 'function' ? s.conta() : s.tipo === 'lista' ? s.dados.length : s.tipo === 'ajustes' ? itensAj(s).length : null);
+const valores = (f, r) => { const v = f[2](r); return (Array.isArray(v) ? v : [v]).filter((x) => x !== '' && x != null); };
+
+function irPara(tela, parte, semPerguntar) {
+  const n = pendentes();
+  if (n && !semPerguntar && (tela !== atual || parte !== sec)) {
+    return confirmar('Sair sem salvar?', `<p style="margin:0">Há <b>${plural(n, 'alteração', 'alterações')}</b> nesta tela que ainda não ${n === 1 ? 'foi salva' : 'foram salvas'}.</p>`, 'Descartar e sair', () => { est().vals = {}; irPara(tela, parte, true); }, 'Continuar editando');
+  }
+  atual = tela; sec = parte;
+  history.replaceState(null, '', '#' + tela + (parte ? '/' + parte : ''));
+  desenhar();
+  window.scrollTo(0, 0);
+}
+
+// ── parte do tipo LISTA ──
+function filtrar(s, e, semSit) {
+  const b = sem(e.busca);
+  return s.dados.filter((r) => (!b || sem(s.texto(r)).includes(b)) && (s.selects || []).every((f, i) => !e.sel[i] || valores(f, r).includes(e.sel[i])) && (semSit || e.sit < 0 || s.sits[e.sit][1](r)));
+}
+function htmlLista(s) {
+  const e = est();
+  const base = filtrar(s, e, true), lista = filtrar(s, e, false), total = s.dados.length;
+  const qtd = (n) => plural(n, s.um, s.varios);
+  const filtrando = e.busca || e.sit >= 0 || Object.values(e.sel).some(Boolean);
+  const extra = s.resumo ? s.resumo(lista) : '';
+  const fora = s.selecao ? [...e.marc].filter((r) => !lista.includes(r)).length : 0;
+  return `
+    <div class="barra">
+      <div><h2 id="tLista" tabindex="-1">${s.titulo}</h2>
+        <p class="resumo" role="status" aria-live="polite">${lista.length === total ? qtd(total) : `${lista.length} de ${qtd(total)}`}${extra ? ' · ' + extra : ''}</p></div>
+      <div class="acoes">${(s.botoes || []).map((b, i) => `<button class="bt" data-botao="${i}">${b[0]}</button>`).join('')}${s.novo ? `<button class="bt pri" id="bNovo">${s.novo}</button>` : ''}</div>
+    </div>
+    ${typeof s.antes === 'function' ? s.antes() : s.antes || ''}
+    ${s.sits.length ? `<div class="sits" role="group" aria-label="Situação">
+      <button class="sit" data-sit="-1" aria-pressed="${e.sit < 0}">${s.todas || 'Todas'} <b>${base.length}</b></button>
+      ${s.sits.map((x, i) => `<button class="sit ${x[2] || ''}" data-sit="${i}" aria-pressed="${e.sit === i}">${x[0]} <b>${base.filter(x[1]).length}</b></button>`).join('')}
+    </div>` : ''}
+    <div class="filtros">
+      <div class="campo larga"><label for="fBusca">Buscar</label><input id="fBusca" type="search" value="${esc(e.busca)}" placeholder="${s.buscar || 'Digite parte do nome'}" autocomplete="off"></div>
+      ${(s.selects || []).map((f, i) => `<div class="campo"><label for="fSel${i}">${f[0]}</label><select id="fSel${i}" data-sel="${i}"><option value="">${f[1]}</option>${[...new Set(s.dados.flatMap((r) => valores(f, r)))].sort((x, y) => String(x).localeCompare(String(y), 'pt-BR')).map((v) => `<option${e.sel[i] === v ? ' selected' : ''}>${v}</option>`).join('')}</select></div>`).join('')}
+    </div>
+    ${s.selecao ? `<div class="filtros" style="grid-template-columns:minmax(0,1fr) auto;align-items:center">
+        <div><label style="display:inline-flex;align-items:center;gap:8px;min-height:40px;font-weight:600"><input type="checkbox" id="mTodos" style="width:20px;height:20px"${lista.length && lista.every((r) => e.marc.has(r)) ? ' checked' : ''}> Marcar ${lista.length === 1 ? 'o 1 da lista' : `os ${lista.length} da lista`}</label>
+          <span class="ajuda" role="status"> · ${plural(e.marc.size, 'marcado', 'marcados')}${fora ? ` (${fora} fora do filtro atual)` : ''}</span>${e.marc.size ? ' <button class="bt" id="mNada">Desmarcar todos</button>' : ''}</div>
+        <button class="bt pri" id="bSel"${e.marc.size ? '' : ' disabled'}>${s.selecao.rotulo}</button></div>` : ''}
+    <div class="tabela cartoes">${lista.length ? `<table><caption class="sr">${s.titulo}</caption>
+      <thead><tr>${s.colunas.map((c) => `<th scope="col">${c[0]}</th>`).join('')}<th scope="col"><span class="sr">Ações</span></th></tr></thead>
+      <tbody>${lista.map((r) => { const i = s.dados.indexOf(r); const ac = s.acoes ? s.acoes(r) : []; return `<tr>${s.colunas.map((c, k) => `<td ${k === 0 ? 'class="c-nome"' : `data-rot="${c[0]}"`}><div class="v">${k === 0 && s.selecao ? `<label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" data-marc="${i}" style="width:20px;height:20px;flex:none;margin-top:2px"${e.marc.has(r) ? ' checked' : ''} aria-label="Marcar ${esc(s.rotulo ? s.rotulo(r) : r.nome)}"><span>${c[1](r, i)}</span></label>` : c[1](r, i)}</div></td>`).join('')}
+        <td class="c-acoes">${ac.length ? `<div class="linha-acoes">${ac.map((x) => `<button class="ic ${x[3] || ''}" data-acao="${x[2]}" data-i="${i}" title="${x[1]}" aria-label="${x[1]}: ${esc(s.rotulo ? s.rotulo(r) : r.nome)}">${x[0]} <span class="rt">${x[1]}</span></button>`).join('')}</div>` : ''}</td></tr>`; }).join('')}</tbody></table>`
+      : `<div class="vazio">${total === 0 ? s.vazio || 'Nenhum registro ainda.' : 'Nada com esses filtros. <button class="bt" id="bLimpar" style="margin-left:8px">Limpar filtros</button>'}</div>`}</div>
+    ${filtrando && lista.length ? '<p style="margin:8px 2px 0"><button class="bt" id="bLimpar">Limpar filtros</button></p>' : ''}
+    ${typeof s.depois === 'function' ? s.depois() : s.depois || ''}`;
+}
+// chave liga/desliga dentro de uma linha da lista (grava na hora, com retorno)
+const ligaLinha = (r, i, campo, rot) => `<span style="display:inline-flex;align-items:center;gap:6px"><span class="liga-txt">${r[campo] ? 'Ligado' : 'Desligado'}</span><button class="liga" role="switch" aria-checked="${!!r[campo]}" data-liga="${campo}" data-i="${i}" aria-label="${esc(rot)}"></button></span>`;
+
+// ── parte do tipo AJUSTES ──
+const emBranco = (it, e) => it.tipo !== 'liga' && !it.opcional && String(valorAj(it, e)).trim() === '';
+// [rótulo, filtro, classe, aparece só se a tela tiver: 'liga' = chaves · 'campo' = campos de texto]
+const SITS_AJ = [['Ligados', (it, e) => it.tipo === 'liga' && valorAj(it, e) === true, '', 'liga'], ['Desligados', (it, e) => it.tipo === 'liga' && valorAj(it, e) === false, '', 'liga'], ['Em branco', emBranco, 'warn', 'campo'], ['Alterados, sem salvar', (it, e) => mudouAj(it, e), 'warn', '']];
+function controle(it, e) {
+  const v = valorAj(it, e), a = `data-aj="${it.id}" aria-labelledby="r-${it.id}"`;
+  if (it.tipo === 'liga') return `<span class="liga-txt">${v ? 'Ligado' : 'Desligado'}</span><button class="liga" role="switch" aria-checked="${v}" ${a}></button>`;
+  if (it.tipo === 'sel') return `<select ${a}>${it.ops.map((o) => `<option${o === v ? ' selected' : ''}>${o}</option>`).join('')}</select>`;
+  return `<input ${a} type="${it.tipo === 'num' ? 'number' : it.tipo === 'hora' ? 'time' : 'text'}" value="${esc(v)}"${it.tipo === 'num' ? ' min="0" inputmode="decimal"' : ''}>${it.suf ? `<span class="suf">${it.suf}</span>` : ''}`;
+}
+function htmlAjustes(s) {
+  const e = est(), todos = itensAj(s), b = sem(e.busca);
+  const casa = (it) => !b || sem(it.rot + ' ' + (it.ajuda || '')).includes(b);
+  const base = todos.filter(casa);
+  const ve = (it) => casa(it) && (e.sit < 0 || SITS_AJ[e.sit][1](it, e));
+  const vis = todos.filter(ve).length, alt = todos.filter((it) => mudouAj(it, e)).length;
+  const tem = { liga: todos.some((it) => it.tipo === 'liga'), campo: todos.some((it) => it.tipo !== 'liga' && !it.opcional), '': true };
+  return `
+    <div class="barra"><div><h2 id="tLista" tabindex="-1">${s.titulo}</h2>
+      <p class="resumo" role="status" aria-live="polite" id="resumoAj">${vis === todos.length ? plural(todos.length, 'ajuste', 'ajustes') : `${vis} de ${plural(todos.length, 'ajuste', 'ajustes')}`} em ${plural(s.grupos.length, 'grupo', 'grupos')}${alt ? ` · ${plural(alt, 'alteração ainda não salva', 'alterações ainda não salvas')}` : ''}</p></div>
+      <div class="acoes">${(s.botoes || []).map((x, i) => `<button class="bt" data-botao="${i}">${x[0]}</button>`).join('')}</div></div>
+    ${typeof s.antes === 'function' ? s.antes() : s.antes || ''}
+    <div class="sits" role="group" aria-label="Situação">
+      <button class="sit" data-sit="-1" aria-pressed="${e.sit < 0}">Todos <b>${base.length}</b></button>
+      ${SITS_AJ.map((x, i) => (!tem[x[3]] ? '' : `<button class="sit ${x[2]}" data-sit="${i}" aria-pressed="${e.sit === i}">${x[0]} <b data-conta="${i}">${base.filter((it) => x[1](it, e)).length}</b></button>`)).join('')}
+    </div>
+    <div class="filtros"><div class="campo larga"><label for="fBusca">Buscar ajuste</label><input id="fBusca" type="search" value="${esc(e.busca)}" placeholder="${s.buscar || 'Digite parte do nome do ajuste'}" autocomplete="off"></div></div>
+    ${vis ? s.grupos.map((g) => { const its = g.itens.filter(ve); if (!its.length) return ''; const lg = g.itens.filter((it) => it.tipo === 'liga');
+      return `<section class="grupo"><header><h3>${g.titulo}</h3><span>${lg.length ? `${lg.filter((it) => valorAj(it, e) === true).length} de ${lg.length} ligados` : plural(g.itens.length, 'ajuste', 'ajustes')}</span></header>
+        ${g.nota ? `<div class="aj" style="grid-template-columns:minmax(0,1fr)"><span class="ajuda">${g.nota}</span></div>` : ''}
+        ${its.map((it) => `<div class="aj${mudouAj(it, e) ? ' mudou' : ''}"><div><span class="rot-aj" id="r-${it.id}">${it.rot}</span>${it.ajuda ? `<span class="ajuda">${it.ajuda}</span>` : ''}</div><div class="ctrl">${controle(it, e)}</div></div>`).join('')}
+        ${g.html ? `<div class="aj" style="grid-template-columns:minmax(0,1fr)">${typeof g.html === 'function' ? g.html(e) : g.html}</div>` : ''}</section>`; }).join('')
+      : '<div class="tabela vazio">Nenhum ajuste com esses filtros. <button class="bt" id="bLimpar" style="margin-left:8px">Limpar filtros</button></div>'}
+    ${typeof s.depois === 'function' ? s.depois() : s.depois || ''}`;
+}
+function barraSalvar() {
+  const bar = $('#barraSalvar'), n = pendentes();
+  bar.hidden = !n;
+  bar.innerHTML = n ? `<span role="status" style="font-weight:700">${plural(n, 'alteração ainda não salva', 'alterações ainda não salvas')}</span><span class="acoes"><button class="bt" id="bDescartar">Descartar</button><button class="bt pri" id="bSalvar">Salvar alterações</button></span>` : '';
+}
+
+// ── parte do tipo LIVRE ──
+function htmlLivre(s) {
+  return `<div class="barra"><div><h2 id="tLista" tabindex="-1">${s.titulo}</h2><p class="resumo" role="status" aria-live="polite">${typeof s.resumo === 'function' ? s.resumo() : s.resumo || ''}</p></div>
+    <div class="acoes">${(s.botoes || []).map((x, i) => `<button class="bt${x[2] ? ' ' + x[2] : ''}" data-botao="${i}">${x[0]}</button>`).join('')}</div></div>${s.desenhar()}`;
+}
+
+// ── cliques e digitação ──
+function refocar(sel) { const n = $(sel); if (n) n.focus(); }
+document.addEventListener('click', (ev) => {
+  const t = ev.target;
+  if (t.closest('[data-fechar]')) return fechar();
+  if (aberto && aberto.contains(t)) { // dentro de gaveta ou diálogo: só os controles genéricos
+    const l = t.closest('button.liga'); if (l) { const v = l.getAttribute('aria-checked') !== 'true'; l.setAttribute('aria-checked', String(v)); const x = l.previousElementSibling; if (x && x.classList.contains('liga-txt')) x.textContent = v ? 'Ligado' : 'Desligado'; }
+    const f = t.closest('.ficha, .seg button'); if (f) { if (f.parentElement.classList.contains('seg')) $$('button', f.parentElement).forEach((x) => x.setAttribute('aria-pressed', String(x === f))); else f.setAttribute('aria-pressed', String(f.getAttribute('aria-pressed') !== 'true')); }
+    return;
+  }
+  const tela = t.closest('[data-tela]'); if (tela) return irPara(tela.dataset.tela, 0);
+  const parte = t.closest('[data-secao]'); if (parte) return irPara(atual, Number(parte.dataset.secao));
+  const sit = t.closest('[data-sit]'); if (sit) { const e = est(), n = Number(sit.dataset.sit); e.sit = e.sit === n ? -1 : n; desenhar(); return refocar(`[data-sit="${e.sit}"]`); }
+  if (t.id === 'bLimpar') { const e = est(); e.busca = ''; e.sit = -1; e.sel = {}; desenhar(); return refocar('#fBusca'); }
+  if (t.id === 'bNovo') return S().aoNovo();
+  if (t.id === 'bSel') return S().selecao.ao([...est().marc]);
+  if (t.id === 'mNada') { est().marc.clear(); return desenhar(); }
+  if (t.id === 'bDescartar') { est().vals = {}; desenhar(); avisar('Alterações descartadas.'); return refocar('#tLista'); }
+  if (t.id === 'bSalvar') { const e = est(), s = S(); for (const it of itensAj(s)) if (it.id in e.vals) it.v = e.vals[it.id]; e.vals = {}; desenhar(); avisar(s.salvou || 'Ajustes salvos.'); return refocar('#tLista'); }
+  const bo = t.closest('[data-botao]'); if (bo) return S().botoes[Number(bo.dataset.botao)][1]();
+  const ac = t.closest('[data-acao]'); if (ac) return S().aoAcao(ac.dataset.acao, S().dados[Number(ac.dataset.i)]);
+  const lg = t.closest('[data-liga]'); if (lg) { const s = S(), r = s.dados[Number(lg.dataset.i)], c = lg.dataset.liga; r[c] = !r[c]; desenhar(); avisar(s.aoLigar ? s.aoLigar(r, c) : 'Salvo.'); return refocar(`[data-liga="${c}"][data-i="${lg.dataset.i}"]`); }
+  const aj = t.closest('button.liga[data-aj]'); if (aj) { const e = est(); const it = itensAj(S()).find((x) => x.id === aj.dataset.aj); e.vals[it.id] = !valorAj(it, e); desenhar(); return refocar(`button.liga[data-aj="${it.id}"]`); }
+  S().aoClicar?.(ev);
+});
+document.addEventListener('change', (ev) => {
+  const t = ev.target;
+  if (t.id === 'irPara') return irPara(t.value, 0);
+  if (t.id === 'mTodos') { const e = est(), s = S(), lista = filtrar(s, e, false); lista.forEach((r) => (t.checked ? e.marc.add(r) : e.marc.delete(r))); desenhar(); return refocar('#mTodos'); }
+  if (t.dataset.marc !== undefined && !aberto) { const e = est(), r = S().dados[Number(t.dataset.marc)]; t.checked ? e.marc.add(r) : e.marc.delete(r); desenhar(); return refocar(`[data-marc="${t.dataset.marc}"]`); }
+});
+document.addEventListener('input', (ev) => {
+  const t = ev.target;
+  if (aberto && aberto.contains(t)) return S().aoDigitarNoPainel?.(ev);
+  if (t.id === 'fBusca') { est().busca = t.value; desenhar(); const n = $('#fBusca'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); return; }
+  if (t.dataset.sel !== undefined) { est().sel[t.dataset.sel] = t.value; desenhar(); return refocar(`#fSel${t.dataset.sel}`); }
+  if (t.dataset.aj !== undefined && t.tagName !== 'BUTTON') { // campo de ajuste: não redesenha (a pessoa está digitando)
+    const e = est(), s = S(), it = itensAj(s).find((x) => x.id === t.dataset.aj);
+    e.vals[it.id] = it.tipo === 'num' ? (t.value === '' ? '' : Number(t.value)) : t.value;
+    t.closest('.aj').classList.toggle('mudou', mudouAj(it, e));
+    SITS_AJ.forEach((x, i) => { const b = $(`[data-conta="${i}"]`); if (b) b.textContent = itensAj(s).filter((y) => x[1](y, e)).length; });
+    const alt = itensAj(s).filter((x) => mudouAj(x, e)).length, rs = $('#resumoAj'); if (rs) rs.textContent = rs.textContent.replace(/ · \d+ alteraç.*$/, '') + (alt ? ` · ${plural(alt, 'alteração ainda não salva', 'alterações ainda não salvas')}` : '');
+    barraSalvar(); s.aoAjustar?.(e);
+  }
+});
+
+// ── painéis (gaveta e diálogo): o foco entra, fica preso, Esc fecha, o foco volta ──
+let aberto = null, quemAbriu = null;
+function painel({ titulo, corpo, rodape, tipo = 'dialogo', largo = false, alerta = false, foco }) {
+  const volta = aberto ? quemAbriu : document.activeElement;
+  if (aberto) { $('#painel').innerHTML = ''; aberto = null; }
+  quemAbriu = volta;
+  $('#painel').innerHTML = `<div class="painel ${tipo === 'gaveta' ? 'gaveta' + (largo ? ' larga' : '') : 'dialogo' + (largo ? ' largo' : '')}" role="${alerta ? 'alertdialog' : 'dialog'}" aria-modal="true" aria-labelledby="pTit">
+    <header><h3 id="pTit">${titulo}</h3><button class="ic" data-fechar aria-label="Fechar">✕</button></header><div class="corpo">${corpo}</div><footer>${rodape}</footer></div>`;
+  aberto = $('#painel').firstElementChild; $('#fundo').hidden = false;
+  (foco ? $(foco, aberto) : $$('.corpo input, .corpo select, .corpo textarea', aberto).find((x) => !x.disabled) || $('footer button', aberto))?.focus();
+}
+function fechar() { if (!aberto) return; $('#painel').innerHTML = ''; aberto = null; $('#fundo').hidden = true; if (quemAbriu && document.contains(quemAbriu)) quemAbriu.focus(); else refocar('#tLista'); }
+document.addEventListener('keydown', (e) => {
+  if (!aberto) return;
+  if (e.key === 'Escape') return fechar();
+  if (e.key !== 'Tab') return;
+  const f = $$('button,input,select,textarea', aberto).filter((x) => !x.disabled && x.offsetParent !== null);
+  if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f[f.length - 1].focus(); }
+  else if (!e.shiftKey && document.activeElement === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
+});
+let nCampo = 0;
+const campo = (rot, html, ajuda = '') => { const id = 'c' + ++nCampo; return `<div class="campo"><label for="${id}">${rot}</label>${html.replace(/^<(input|select|textarea)/, `<$1 id="${id}"`)}${ajuda ? `<span class="ajuda">${ajuda}</span>` : ''}</div>`; };
+const sel = (ops, v = '') => `<select>${ops.map((o) => `<option${o === v ? ' selected' : ''}>${o}</option>`).join('')}</select>`;
+const chave = (rot, ligado, ajuda = '') => `<div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center"><div><span class="rot-aj" style="font-weight:600">${rot}</span>${ajuda ? `<span class="ajuda" style="display:block">${ajuda}</span>` : ''}</div><span style="display:inline-flex;align-items:center;gap:6px"><span class="liga-txt">${ligado ? 'Ligado' : 'Desligado'}</span><button type="button" class="liga" role="switch" aria-checked="${!!ligado}" aria-label="${esc(rot)}"></button></span></div>`;
+const rodapeSalvar = (t, msg) => `<button class="bt" data-fechar>Cancelar</button><button class="bt pri" onclick="fechar();avisar('${msg}')">${t}</button>`;
+function confirmar(titulo, corpo, botao, fn, cancelar = 'Cancelar', perigo = false) {
+  painel({ titulo, corpo, alerta: true, rodape: `<button class="bt" data-fechar>${cancelar}</button><button class="bt ${perigo ? 'perigo' : 'pri'}" id="bOk">${botao}</button>`, foco: 'footer button' });
+  $('#bOk').onclick = () => { fechar(); fn(); };
+}
+// excluir/revogar: diz a consequência e, depois, o foco vai para o título (a linha saiu da lista)
+function confirmarRetirar(r, { titulo = 'Excluir', verbo = 'Excluir', nome = r.nome, consequencia, depois = 'Excluído.', fazer }) {
+  painel({ titulo, alerta: true, foco: 'footer button', corpo: `<p style="margin:0">${verbo} <b>${nome}</b>?</p><div class="nota crit">${consequencia}</div>`,
+    rodape: `<button class="bt" data-fechar>Cancelar</button><button class="bt perigo" id="bExc">${verbo}</button>` });
+  $('#bExc').onclick = () => { const s = S(); fazer ? fazer() : (s.dados = s.dados.filter((x) => x !== r)); $('#painel').innerHTML = ''; aberto = null; $('#fundo').hidden = true; desenhar(); avisar(depois); refocar('#tLista'); };
+}
+
+// ══ as telas do menu Relatórios (dados inventados) ══════════════════════════════════════════
+const ORDEM = ['turnos', 'vendas', 'itens'];
+let atual = 'vendas', sec = 0;
+
+// O protótipo tem data fixa (07/10/2026) para os números não mudarem de um dia para o outro.
+const HOJE = new Date(2026, 9, 7);
+const dia = (d) => { const x = new Date(HOJE); x.setDate(x.getDate() - d); return x; };
+const dd = (d) => dia(d).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+const hm = (h, m = 0) => `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+const dh = (d, h, m = 0) => `${dd(d)} ${hm(h, m)}`;
+
+// ── "Ver como" (só no protótipo): perfil e estado dos dados ──
+const VER = { perfil: 'pres', dados: 'mov' };
+const fin = () => VER.perfil === 'pres';                 // tem "Ver valores em R$"
+const gestor = () => VER.perfil !== 'sup';               // presidente ou gerente
+const R = (v) => (fin() ? brl(v) : '—');
+const novo = () => VER.dados === 'novo';                 // conta nova: nada vendido ainda
+const FALHAM = new Set(['abc', 'plataforma', 'taxas', 'sangrias', 'fatDelivery', 'maisVendidos']);
+const falhou = (id) => VER.dados === 'falha' && FALHAM.has(id);
+
+// ── período ──
+// [chave, rótulo, de quantos dias atrás, até quantos dias atrás]
+const PRESETS = [['hoje', 'Hoje', 0, 0], ['ontem', 'Ontem', 1, 1], ['7', 'Últimos 7 dias', 0, 6], ['30', 'Últimos 30 dias', 0, 29], ['mes', 'Este mês', 0, 6], ['mesp', 'Mês passado', 7, 36], ['ano', 'Este ano', 0, 279], ['outro', 'Personalizado', 0, 29]];
+const PER = { k: '30', hora: false };
+const faixa = () => { const p = PRESETS.find((x) => x[0] === PER.k); return [p[2], p[3]]; };
+const noPeriodo = (r) => { const [a, b] = faixa(); return r.d >= a && r.d <= b; };
+const nDias = () => faixa()[1] - faixa()[0] + 1;
+const E = (n) => (novo() ? 0 : Math.round((n * nDias()) / 30));          // total de 30 dias → período escolhido
+const Ev = (n) => (novo() ? 0 : Math.round(n * nDias() * 100 / 30) / 100); // idem, em R$
+const textoPeriodo = () => (nDias() === 1 ? dd(faixa()[0]) : `${dd(faixa()[1])} a ${dd(faixa()[0])}`);
+const ESCOPO = { empresa: 'todas as lojas da empresa', loja: 'loja em uso: Matriz Centro' };
+
+function barraPeriodo(escopo, comHora) {
+  const outro = PER.k === 'outro';
+  return `<div class="filtros periodo" role="group" aria-label="Período">
+    <div class="campo"><label for="pPreset">Período</label><select id="pPreset">${PRESETS.map((p) => `<option value="${p[0]}"${p[0] === PER.k ? ' selected' : ''}>${p[1]}</option>`).join('')}</select></div>
+    ${outro ? `<div class="campo"><label for="pDe">De</label><input id="pDe" type="date" value="2026-09-08"></div><div class="campo"><label for="pAte">Até</label><input id="pAte" type="date" value="2026-10-07"></div>` : ''}
+    ${comHora && PER.hora ? `<div class="campo"><label for="pHi">Das</label><input id="pHi" type="time" value="18:00"></div><div class="campo"><label for="pHf">Às</label><input id="pHf" type="time" value="23:59"></div>` : ''}
+    ${comHora ? `<div class="campo"><span class="rot">Horário</span><label class="marcar"><input type="checkbox" id="pHora"${PER.hora ? ' checked' : ''}> Só uma faixa de horário</label></div>` : ''}
+    <div class="campo fim"><button class="bt" id="pAtualizar">Atualizar</button></div>
+    <p class="ajuda linha" role="status">${textoPeriodo()}${comHora && PER.hora ? ', das 18:00 às 23:59' : ''} · ${ESCOPO[escopo]} · atualizado às 14:32</p>
+  </div>`;
+}
+
+// ── peças das partes "livres" ──
+const kpis = (arr) => `<div class="kpis">${arr.filter(Boolean).map(([rot, v, sub]) => `<div class="kpi"><span class="rot">${rot}</span><span class="v">${v}</span>${sub ? `<span class="ajuda" style="display:block">${sub}</span>` : ''}</div>`).join('')}</div>`;
+const falha = (oque, id) => `<div class="nota crit" role="alert">Não foi possível carregar ${oque}. O resto da tela não depende disto. <button class="bt" data-denovo="${id}" style="margin-left:8px">Tentar de novo</button></div>`;
+const semDados = (t) => `<div class="vazio">${t}</div>`;
+const csv = (nome, n) => (n ? `<button class="bt" data-csv="${nome}" data-n="${n}">Exportar CSV</button>` : '');
+// tabela longa dentro de um bloco: mostra as primeiras e diz quantas são
+const MAIS = new Set();
+const cortar = (id, linhas, n = 10) => (MAIS.has(id) ? linhas : linhas.slice(0, n));
+const rodapeMais = (id, total, oque, n = 10) => (total > n ? `<p style="margin:10px 0 0"><span class="ajuda">Mostrando ${MAIS.has(id) ? `os ${total}` : `${n} de ${total}`} ${oque}.</span> <button class="bt" data-mais="${id}" style="margin-left:8px">${MAIS.has(id) ? `Mostrar só os ${n} primeiros` : `Mostrar os ${total}`}</button></p>` : '');
+function bloco(id, titulo, corpo, o = {}) {
+  const f = falhou(id);
+  return `<section class="grupo" aria-labelledby="b-${id}"><header><div><h3 id="b-${id}">${titulo}</h3>${o.sub ? `<span>${o.sub}</span>` : ''}</div>${!f && o.acoes ? `<div class="acoes">${o.acoes}</div>` : ''}</header><div class="bloco-corpo">${f ? falha(o.oque || titulo.toLowerCase(), id) : corpo}</div></section>`;
+}
+// tabela simples; no celular vira cartões (mesma regra das listas)
+const tab = (cols, linhas, legenda, cls = '') => `<div class="tabela cartoes ${cls}"><table><caption class="sr">${legenda}</caption><thead><tr>${cols.map((c) => `<th scope="col">${c}</th>`).join('')}</tr></thead><tbody>${linhas.map((l) => `<tr>${l.map((c, i) => `<td${i ? ` data-rot="${cols[i]}"` : ' class="c-nome"'}><div class="v">${c}</div></td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+// barras horizontais: nome, barra e o número escrito (o número não depende do mouse)
+function barras(linhas, legenda) {
+  const mx = Math.max(1, ...linhas.map((l) => l[1]));
+  return `<div class="tabela"><table class="barras"><caption class="sr">${legenda}</caption><tbody>${linhas.map((l) => `<tr><th scope="row">${l[0]}</th><td class="b"><div class="trilho" aria-hidden="true"><i style="width:${Math.max(2, Math.round((l[1] / mx) * 100))}%"></i></div></td><td class="num">${l[2]}</td></tr>`).join('')}</tbody></table></div>`;
+}
+// colunas (por dia, por hora, por mês) + os mesmos números em tabela
+function colunasG(pontos, legenda, cab) {
+  const mx = Math.max(1, ...pontos.map((p) => p[1])), pico = pontos.reduce((a, b) => (b[1] > a[1] ? b : a), pontos[0]);
+  const pula = pontos.length > 16 ? Math.ceil(pontos.length / 10) : 1;
+  return `<div class="colunas" role="img" aria-label="${legenda}. Maior valor: ${pico[0]}, ${pico[2]}.">${pontos.map((p, i) => `<div class="c" title="${p[0]} · ${p[2]}"><i style="height:${Math.max(1, Math.round((p[1] / mx) * 100))}%"></i><span>${i % pula === 0 ? p[0] : '&nbsp;'}</span></div>`).join('')}</div>
+    <p class="ajuda" style="margin:6px 0 0">Maior: <b>${pico[0]}</b> — ${pico[2]}.</p>
+    <details class="ver-tab"><summary>Ver em tabela</summary>${tab(cab, pontos.map((p) => [p[0], p[2]]), legenda)}</details>`;
+}
+const avisoSemValor = () => (fin() ? '' : '<div class="nota">Seu perfil não tem a permissão “Ver valores em R$”: aparecem as quantidades; os valores ficam ocultos.</div>');
+
+// ── dados ──
+const OPER = ['Ana Operadora', 'Bruno Caixa', 'Carla Gerente'];
+const tn = (n, origem, oper, d, hA, hF, abertura, vendas, sang, supr, dif, porForma, obs = '', aberto = false) => ({ n, origem, oper, d, hA, hF, abertura, vendas, sang, supr, dif, porForma, obs, aberto, esperado: abertura + vendas - sang + supr });
+const TURNOS = [
+  tn(41, 'PDV', OPER[0], 0, 10, null, 150, 1284.5, 0, 0, null, {}, '', true),
+  tn(40, 'Delivery', OPER[1], 0, 11, null, 0, 642, 0, 0, null, {}, '', true),
+  tn(39, 'PDV', OPER[1], 1, 17, 23, 150, 2310.4, 300, 0, 0, {}),
+  tn(38, 'PDV', OPER[0], 1, 10, 17, 150, 1876, 200, 50, -12.5, { dinheiro: -12.5 }, 'Faltou troco no fechamento; conferido duas vezes.'),
+  tn(37, 'Delivery', OPER[1], 1, 11, 23, 0, 1420.9, 0, 0, 0, {}),
+  tn(36, 'PDV', OPER[0], 2, 10, 23, 150, 3120, 500, 0, 4, { dinheiro: 4 }),
+  tn(35, 'PDV', OPER[2], 3, 10, 23, 150, 2890.75, 400, 0, 0, {}),
+  tn(34, 'Delivery', OPER[1], 3, 11, 23, 0, 980, 0, 0, -30, { dinheiro: -20, pix: -10 }, 'Pedido pago em dinheiro e lançado como PIX.'),
+  tn(33, 'PDV', OPER[0], 5, 10, 23, 150, 2644.1, 300, 100, 0, {}),
+  tn(32, 'PDV', OPER[1], 6, 10, 23, 150, 3310, 600, 0, 0, {}),
+  tn(31, 'PDV', OPER[2], 9, 10, 23, 150, 2105.3, 200, 0, 1.5, { dinheiro: 1.5 }),
+  tn(30, 'Delivery', OPER[1], 12, 11, 23, 0, 1190, 0, 0, 0, {}),
+  tn(29, 'PDV', OPER[0], 18, 10, 23, 150, 2760, 300, 0, -5, { débito: -5 }),
+  tn(28, 'PDV', OPER[2], 26, 10, 23, 150, 2499.9, 250, 0, 0, {}),
+  tn(27, 'PDV', OPER[0], 33, 10, 23, 150, 2380, 300, 0, 0, {}),
+];
+// A diferença em R$ aparece para quem vê valores; para os outros, só "faltou" ou "sobrou".
+const seloDif = (v, mostra = fin()) => (v == null ? selo('info', 'aberto') : v === 0 ? selo('ok', 'bateu') : selo(v < 0 ? 'crit' : 'warn', mostra ? (v > 0 ? '+' : '−') + brl(Math.abs(v)) : v < 0 ? 'faltou' : 'sobrou'));
+const formasDoTurno = (t) => [['dinheiro', Math.round(t.vendas * 0.22 * 100) / 100, 14], ['pix', Math.round(t.vendas * 0.31 * 100) / 100, 19], ['crédito', Math.round(t.vendas * 0.29 * 100) / 100, 16], ['débito', Math.round(t.vendas * 0.18 * 100) / 100, 11]];
+
+const IT = (d, h, m, ator, item, just) => ({ d, h, m, ator, item, just });
+const ITENS = [
+  IT(0, 13, 12, OPER[0], '1× Suco de laranja', 'Cliente trocou por refrigerante'), IT(0, 12, 40, OPER[1], '2× Batata média', ''),
+  IT(1, 21, 5, OPER[1], '1× X-Burger', 'Lançado na mesa errada'), IT(1, 20, 18, OPER[0], '1× Sobremesa do dia', 'Cliente desistiu'),
+  IT(2, 19, 50, OPER[2], '3× Refrigerante lata', 'Lançado em dobro'), IT(4, 22, 2, OPER[1], '1× Pizza calabresa', ''),
+  IT(6, 14, 30, OPER[0], '1× Combo família', 'Erro de digitação'), IT(9, 20, 44, OPER[1], '2× Água sem gás', 'Cliente desistiu'),
+  IT(15, 21, 15, OPER[2], '1× Açaí 500 ml', ''), IT(22, 13, 3, OPER[0], '1× X-Salada', 'Lançado na mesa errada'), IT(31, 12, 20, OPER[1], '1× Café', 'Cortesia da casa'),
+];
+
+const NOMES = ['X-Burger', 'Combo família', 'Pizza calabresa', 'Batata média', 'Refrigerante lata', 'Suco de laranja', 'X-Salada', 'Açaí 500 ml', 'Pizza marguerita', 'Porção de fritas', 'Água sem gás', 'Sobremesa do dia', 'X-Bacon', 'Milk-shake', 'Café', 'Salada da casa', 'Prato do dia', 'Cerveja long neck', 'Pastel de queijo', 'Coxinha', 'Suco verde', 'Tapioca', 'Omelete', 'Sanduíche natural', 'Brownie', 'Pudim', 'Chá gelado', 'Caldo do dia', 'Empada', 'Torta salgada', 'Água com gás', 'Pão de queijo', 'Vitamina', 'Bolo do dia', 'Molho extra', 'Embalagem para viagem'];
+const PRODS = (() => {
+  const base = NOMES.map((nome, i) => { const fat = Math.round(5200 * Math.pow(0.86, i)) + 40, preco = 8 + ((i * 7) % 31), qtd = Math.max(3, Math.round(fat / preco)); return { nome, qtd, bruto: fat + (i % 4 === 0 ? Math.round(fat * 0.05) : 0), desc: i % 4 === 0 ? Math.round(fat * 0.05) : 0, fat, custo: i % 9 === 8 ? null : Math.round(fat * (0.28 + (i % 5) * 0.03)) }; });
+  const total = base.reduce((s, p) => s + p.fat, 0); let ac = 0;
+  return base.map((p) => { ac += p.fat; const cum = ac / total; return { ...p, classe: cum <= 0.8 ? 'A' : cum <= 0.95 ? 'B' : 'C', pct: Math.round((p.fat / total) * 1000) / 10 }; });
+})();
+const FORMAS = [['Dinheiro', 6120, 214], ['PIX', 9840, 301], ['Crédito', 8910, 232], ['Débito', 5230, 188], ['Online (canal)', 7450, 196], ['Vale-refeição', 1310, 44]];
+const CANAIS = [['Balcão', 14210, 512], ['Mesa', 9980, 268], ['Cardápio Regem', 5120, 141], ['iFood', 6340, 163], ['99Food', 2110, 58], ['Anota AI', 1100, 33]];
+const ATEND = [[OPER[0], 412, 15930, 620], [OPER[1], 388, 14480, 0], [OPER[2], 190, 7250, 340], ['Davi Garçom', 185, 6800, 910]];
+const HORAS = [[10, 14], [11, 52], [12, 131], [13, 148], [14, 77], [15, 31], [16, 26], [17, 38], [18, 84], [19, 139], [20, 166], [21, 151], [22, 88], [23, 30]];
+const DIAS = Array.from({ length: 280 }, (_, d) => ({ d, qtd: 26 + ((d * 7) % 19) + (dia(d).getDay() % 6 === 0 ? 14 : 0), total: 980 + ((d * 53) % 610) + (dia(d).getDay() % 6 === 0 ? 420 : 0) }));
+const PLATAF = [['Cardápio Regem', 141, 5120], ['iFood', 163, 6340], ['99Food', 58, 2110], ['Anota AI', 33, 1100]];
+const BAIRROS = [['Centro', 96, 3890, 5], ['Jardim das Flores', 71, 2940, 6], ['Vila Nova', 64, 2410, 6], ['Praia Azul', 48, 2150, 9], ['Parque das Águas', 41, 1560, 8], ['Alto da Serra', 33, 1210, 12], ['Bela Vista', 24, 930, 7], ['Distrito Industrial', 18, 580, 14]];
+const CONF = [
+  { canal: 'iFood', pedidos: 163, bruta: 7010, descLoja: 420, descMkt: 250, entrega: 0, taxas: 0, gorjeta: 0, fat: 6590, pagou: 6340 },
+  { canal: '99Food', pedidos: 58, bruta: 2380, descLoja: 190, descMkt: 80, entrega: 0, taxas: 0, gorjeta: 0, fat: 2190, pagou: 2110 },
+  { canal: 'Anota AI', pedidos: 33, bruta: 1010, descLoja: 30, descMkt: 0, entrega: 120, taxas: 0, gorjeta: 0, fat: 1100, pagou: 1100 },
+  { canal: 'Cardápio Regem', pedidos: 141, bruta: 4690, descLoja: 260, descMkt: 0, entrega: 610, taxas: 80, gorjeta: 95, fat: 5120, pagou: 5215 },
+];
+const TAXAS = [['Cardápio Regem', 'Taxa de serviço', 'SERVICE_FEE', 38, 80, false], ['Cardápio Regem', 'Gorjeta', 'TIP', 21, 95, true], ['iFood', 'Taxa de pedido pequeno', 'SMALL_ORDER_FEE', 6, 18, false]];
+const CANC = [[OPER[1], 7, 318.5], [OPER[0], 4, 142], [OPER[2], 1, 39.9]];
+const MOVS = [[OPER[0], 1900, 6, 150, 2], [OPER[1], 900, 3, 0, 0], [OPER[2], 850, 3, 0, 0]];
+const ESTOQUE = [['Pão de hambúrguer', 180, 'un', 162, 22, 594, 8, 'A', false], ['Carne moída', 12, 'kg', 384, 3.4, 3264, 3, 'A', true], ['Queijo prato', 9, 'kg', 315, 1.1, 1155, 8, 'A', false], ['Batata congelada', 40, 'kg', 360, 4.2, 1134, 9, 'A', false], ['Refrigerante lata', 96, 'un', 240, 21, 1575, 4, 'B', true], ['Laranja', 30, 'kg', 105, 5, 525, 6, 'B', false], ['Embalagem delivery', 420, 'un', 252, 14, 252, 30, 'B', false], ['Molho da casa', 6, 'L', 90, 0.4, 180, 15, 'C', false], ['Guardanapo', 2000, 'un', 80, 60, 72, 33, 'C', false], ['Açaí', 0, 'kg', 0, 0.8, 432, 0, 'B', true], ['Canela em pó', 1, 'kg', 38, 0, 0, null, 'C', false]].map(([nome, saldo, un, valor, consumo, consumido, cobertura, abc, baixo]) => ({ nome, saldo, un, valor, consumo, consumido, cobertura, abc, baixo }));
+const PRODUCAO = [['Molho da casa', 12, 36, 540], ['Massa de pizza', 18, 270, 486], ['Hambúrguer moldado', 22, 660, 1848], ['Caldo do dia', 9, 45, 270], ['Brownie', 6, 96, 211]].map(([nome, producoes, qtd, custo]) => ({ nome, producoes, qtd, custo }));
+const tel = (n) => `(00) 90000-${String(n).padStart(4, '0')}`;
+const FIDEL = [[0, 12, 30, tel(1), 'Sobremesa grátis', '10 selos'], [1, 20, 5, tel(2), 'X-Burger grátis', '12 selos'], [3, 13, 44, tel(3), 'Sobremesa grátis', '10 selos'], [8, 21, 12, tel(1), 'Refrigerante grátis', '5 selos'], [19, 19, 0, tel(4), 'X-Burger grátis', '12 selos'], [35, 12, 0, tel(5), 'Sobremesa grátis', '10 selos']].map(([d, h, m, t, premio, detalhe]) => ({ d, h, m, tel: t, premio, detalhe }));
+const CASHB = [[0, 19, 22, tel(2), 'valor', 12.5], [2, 20, 40, tel(6), 'valor', 8], [2, 13, 10, tel(3), 'pontos', 150], [5, 21, 1, tel(7), 'valor', 21.9], [11, 12, 55, tel(1), 'valor', 5], [24, 20, 30, tel(8), 'pontos', 300]].map(([d, h, m, t, tipo, valor]) => ({ d, h, m, tel: t, tipo, valor }));
+const MESES = [['Jan/26', 61200, 1810], ['Fev/26', 58400, 1722], ['Mar/26', 66900, 1960], ['Abr/26', 64100, 1893], ['Mai/26', 69800, 2040], ['Jun/26', 72300, 2110], ['Jul/26', 75600, 2204], ['Ago/26', 71900, 2101], ['Set/26', 74200, 2166], ['Out/26', 17300, 498]];
+
+// ── estados locais das partes ──
+const ABC = { sit: -1, busca: '', ord: 'valor' };
+const PARTE = { ordEstoque: 'mais', agrup: 'dia', calor: 30 };
+
+// ══ 1. TURNOS ═══════════════════════════════════════════════════════════════════════════════
+const fechados = () => (novo() ? [] : TURNOS.filter((t) => !t.aberto && noPeriodo(t)));
+function gavetaFechamento(t) {
+  const formas = Object.entries(t.porForma);
+  painel({
+    tipo: 'gaveta', titulo: `Fechamento do turno ${String(t.n).padStart(2, '0')}`, foco: '[data-fechar]',
+    rodape: `${VER.perfil === 'pres' ? `<button class="bt" id="gRec">Reconciliar</button>` : ''}<button class="bt pri" data-fechar>Fechar</button>`,
+    corpo: `<p class="ajuda" style="margin:0">${t.origem} · aberto em ${dh(t.d, t.hA)} · fechado em ${dh(t.d, t.hF, 12)} por <b>${t.oper}</b></p>
+      ${kpis([['Abertura', brl(t.abertura)], ['Esperado', brl(t.esperado)], ['Contado', brl(t.esperado + t.dif)], ['Diferença', seloDif(t.dif, true)]])}
+      <div><span class="rot">Diferença por forma de pagamento</span>
+      ${formas.length ? tab(['Forma', 'Diferença'], formas.map(([f, v]) => [f, `<span class="num">${v > 0 ? '+' : '−'}${brl(Math.abs(v))}</span>`]), 'Diferença por forma de pagamento') : '<p class="ajuda" style="margin:4px 0 0">Todas as formas bateram com o esperado.</p>'}</div>
+      ${t.obs ? `<div><span class="rot">Observação de quem fechou</span><p style="margin:4px 0 0">${t.obs}</p></div>` : ''}`,
+  });
+  const b = $('#gRec'); if (b) b.onclick = () => dialogoReconciliar(t);
+}
+function dialogoReconciliar(t) {
+  confirmar(`Reconciliar o turno ${String(t.n).padStart(2, '0')}?`, `<p style="margin:0">O esperado é recalculado pelo histórico do dinheiro (cada lançamento do turno) e comparado com o que ficou gravado no fechamento.</p><div class="nota">Só confere — não altera o fechamento. Se houver divergência, fica registrado na Auditoria.</div>`, 'Reconciliar', () => {
+    const diverge = t.n === 34;
+    painel({
+      titulo: diverge ? 'Divergência encontrada' : 'Reconciliação conferida', alerta: diverge, largo: diverge, foco: 'footer button', rodape: '<button class="bt pri" data-fechar>Fechar</button>',
+      corpo: diverge
+        ? `<div class="nota crit">O histórico do dinheiro e o fechamento diferem em <b>${brl(10)}</b>. Ficou registrado na Auditoria.</div>${tab(['Forma', 'Gravado no fechamento', 'Recalculado', 'Divergência'], [['dinheiro', `<span class="num">${brl(410)}</span>`, `<span class="num">${brl(410)}</span>`, selo('ok', 'bate')], ['pix', `<span class="num">${brl(570)}</span>`, `<span class="num">${brl(580)}</span>`, selo('crit', '+' + brl(10))]], 'Reconciliação por forma')}`
+        : `<div class="nota ok">O caixa bate com o histórico do dinheiro em todas as formas de pagamento.</div>`,
+    });
+  });
+}
+TELAS.turnos = {
+  menu: 'Turnos', titulo: 'Turnos', contaMenu: true,
+  sub: () => 'Fechamentos de caixa do PDV e do delivery, com o que foi contado e a diferença.',
+  antes: () => barraPeriodo('loja', false),
+  hoje: [
+    'O nome da tela passa a ser o do menu. Hoje o menu diz “Turnos”, a tela diz “Fechamentos de caixa” e o cabeçalho, “Financeiro”.',
+    'Entram a contagem, as situações (bateu, faltou, sobrou) e a busca por operador. Hoje há só “De” e “Até”.',
+    'O período ganha atalhos (hoje, ontem, 7 dias, 30 dias, este mês). Hoje a tela abre sem período e mostra os 300 fechamentos mais recentes.',
+    '“Ver fechamento” abre numa gaveta, com a diferença por forma de pagamento e a observação de quem fechou. Hoje a diferença por forma só aparece passando o mouse em cima do número, e a observação não aparece.',
+    '“Reconciliar” explica o que faz antes e mostra o resultado por forma de pagamento. Hoje é um aviso que some em segundos.',
+    'Se a lista não carregar, aparece o erro com “Tentar de novo”. Hoje aparece “Nenhum fechamento no período”, como se não houvesse turno.',
+    'Quando o período tem mais de 300 fechamentos, a tela avisa que mostrou os 300 mais recentes. Hoje corta sem dizer.',
+    'Entra “Exportar CSV”. Hoje não tem.',
+  ],
+  secoes: [{
+    nome: 'Fechados', tipo: 'lista', titulo: 'Turnos fechados', um: 'turno', varios: 'turnos', oque: 'os turnos fechados',
+    get dados() { return fechados(); },
+    rotulo: (t) => `turno ${t.n}`,
+    texto: (t) => `${t.n} ${t.oper} ${t.origem} ${t.obs}`,
+    buscar: 'Operador, número do turno ou observação',
+    todas: 'Todos',
+    sits: [['Bateu', (t) => t.dif === 0], ['Faltou dinheiro', (t) => t.dif < 0, 'crit'], ['Sobrou dinheiro', (t) => t.dif > 0, 'warn']],
+    selects: [['Origem', 'PDV e delivery', (t) => t.origem], ['Operador', 'Todos os operadores', (t) => t.oper]],
+    acesso: gestor, semAcesso: 'ela é liberada para presidência e gerência, com a permissão “Turnos”',
+    resumo: (l) => (l.length ? `diferença somada ${brl(l.reduce((s, t) => s + t.dif, 0))}` : ''),
+    botoes: [['Exportar CSV', () => avisar(`Baixaria “turnos.csv” com ${plural(fechados().length, 'turno', 'turnos')}.`)]],
+    vazio: 'Nenhum turno fechado neste período. O turno aparece aqui quando o caixa é fechado no PDV ou no delivery.',
+    colunas: [
+      ['Turno', (t) => `<span class="nome">Turno ${String(t.n).padStart(2, '0')}</span> ${selo('neutro', t.origem)}<div class="sub-t">fechado em ${dh(t.d, t.hF, 12)}</div>`],
+      ['Operador', (t) => t.oper],
+      ['Esperado', (t) => `<span class="num">${brl(t.esperado)}</span>`],
+      ['Contado', (t) => `<span class="num">${brl(t.esperado + t.dif)}</span>`],
+      ['Diferença', (t) => seloDif(t.dif, true) + (Object.keys(t.porForma).length ? `<div class="sub-t">${Object.entries(t.porForma).map(([f, v]) => `${f} ${v > 0 ? '+' : '−'}${brl(Math.abs(v))}`).join(' · ')}</div>` : '')],
+    ],
+    acoes: (t) => [['▤', 'Ver fechamento', 'ver'], ...(VER.perfil === 'pres' ? [['⇄', 'Reconciliar', 'rec']] : [])],
+    aoAcao: (a, t) => (a === 'ver' ? gavetaFechamento(t) : dialogoReconciliar(t)),
+  }],
+};
+
+// ══ 2. RELATÓRIOS DE VENDAS ═════════════════════════════════════════════════════════════════
+const somaDias = () => DIAS.filter(noPeriodo).reduce((s, x) => ({ qtd: s.qtd + x.qtd, total: s.total + x.total }), { qtd: 0, total: 0 });
+// k = fatia do canal (balcão ou delivery) sobre o total do dia
+const porDia = (k = 1) => DIAS.filter(noPeriodo).slice(0, 31).reverse().map((x) => { const t = Math.round(x.total * k), q = Math.round(x.qtd * k); return [dd(x.d), fin() ? t : q, `${fin() ? brl(t) + ' · ' : ''}${q} vendas`]; });
+const porHora = () => HORAS.map(([h, q]) => [`${h}h`, E(q), `${E(q)} vendas`]);
+
+function blocoAbc() {
+  const itens = novo() ? [] : PRODS.map((p) => ({ ...p, qtd: E(p.qtd), bruto: Ev(p.bruto), desc: Ev(p.desc), fat: Ev(p.fat), custo: p.custo == null ? null : Ev(p.custo) })).filter((p) => p.qtd > 0);
+  const b = sem(ABC.busca), base = itens.filter((p) => !b || sem(p.nome).includes(b));
+  let lista = base.filter((p) => ABC.sit < 0 || p.classe === 'ABC'[ABC.sit]);
+  lista.sort((x, y) => (ABC.ord === 'qtd' ? y.qtd - x.qtd : ABC.ord === 'produto' ? x.nome.localeCompare(y.nome, 'pt-BR') : y.fat - x.fat));
+  const total = lista.length; lista = cortar('abc', lista);
+  const corpo = !itens.length ? semDados('Sem vendas neste período. A curva ABC aparece com a primeira venda.') : `
+    <div class="sits" role="group" aria-label="Classe">
+      <button class="sit" data-abc="-1" aria-pressed="${ABC.sit < 0}">Todas <b>${base.length}</b></button>
+      ${['A — 80% do faturamento', 'B — os 15% seguintes', 'C — os 5% finais'].map((t, i) => `<button class="sit" data-abc="${i}" aria-pressed="${ABC.sit === i}">${t} <b>${base.filter((p) => p.classe === 'ABC'[i]).length}</b></button>`).join('')}
+    </div>
+    <div class="filtros"><div class="campo larga"><label for="abcBusca">Buscar produto</label><input id="abcBusca" type="search" value="${esc(ABC.busca)}" placeholder="Digite parte do nome" autocomplete="off"></div>
+      <div class="campo"><label for="abcOrd">Ordenar por</label><select id="abcOrd">${[['valor', 'Faturamento'], ['qtd', 'Quantidade'], ['produto', 'Nome do produto']].map(([v, t]) => `<option value="${v}"${ABC.ord === v ? ' selected' : ''}>${t}</option>`).join('')}</select></div></div>
+    ${lista.length ? tab(['Produto', 'Qtd', 'Preço cheio', 'Desconto', 'Faturamento', 'Custo', 'Lucro', '% do total'], lista.map((p) => [
+      `<span class="abc ${p.classe}" aria-label="classe ${p.classe}">${p.classe}</span> <span class="nome">${p.nome}</span>`, `<span class="num">${p.qtd}×</span>`, `<span class="num">${R(p.bruto)}</span>`,
+      p.desc > 0 ? `<span class="num" style="color:var(--crit)">−${R(p.desc)}</span>` : '—', `<span class="num"><b>${R(p.fat)}</b></span>`, p.custo == null ? '<span class="sub-t">sem custo cadastrado</span>' : `<span class="num">${R(p.custo)}</span>`,
+      p.custo == null ? '—' : `<span class="num">${R(p.fat - p.custo)}</span>${fin() ? ` <span class="sub-t">${Math.round(((p.fat - p.custo) / p.fat) * 100)}%</span>` : ''}`, `<span class="num">${String(p.pct).replace('.', ',')}%</span>`,
+    ]), 'Curva ABC de produtos') : semDados('Nenhum produto com esses filtros. <button class="bt" data-abclimpa style="margin-left:8px">Limpar filtros</button>')}
+    ${rodapeMais('abc', total, 'produtos')}`;
+  return bloco('abc', 'Curva ABC de produtos', corpo, { sub: itens.length ? plural(itens.length, 'produto vendido', 'produtos vendidos') : '', acoes: csv('curva-abc', itens.length), oque: 'a curva ABC' });
+}
+function parteVendas() {
+  const s = somaDias(), fat = novo() ? 0 : s.total, vendas = novo() ? 0 : s.qtd, gorjeta = Ev(1870);
+  if (!vendas) return `${kpis([fin() && ['Faturado', brl(0), 'sem a taxa de serviço'], ['Vendas', 0], ['Canceladas', 0]])}<div class="tabela vazio">Nenhuma venda neste período.<br>Os números aparecem aqui quando a primeira venda for fechada no PDV, na mesa ou no delivery.</div>`;
+  return `${avisoSemValor()}
+    ${kpis([fin() && ['Faturado', brl(fat), 'sem a taxa de serviço'], ['Vendas', vendas], fin() && ['Ticket médio', vendas ? brl(fat / vendas) : '—'], fin() && gorjeta > 0 ? ['Gorjeta', brl(gorjeta), 'repasse ao funcionário'] : ['Canceladas', E(12)]])}
+    ${fin() && gorjeta > 0 ? `<p class="ajuda" style="margin:-4px 0 12px">O faturado de <b>${brl(fat)}</b> não inclui a gorjeta de <b>${brl(gorjeta)}</b> — ela é repasse ao funcionário. Entrou no caixa <b>${brl(fat + gorjeta)}</b>.</p>` : ''}
+    ${fin() ? `<div class="dois">
+      ${bloco('forma', 'Por forma de pagamento', vendas ? barras(FORMAS.map(([n, v, q]) => [n, Ev(v), `${brl(Ev(v))} · ${E(q)}`]), 'Vendas por forma de pagamento') : semDados('Sem vendas neste período.'), { acoes: csv('vendas-por-forma', vendas ? FORMAS.length : 0) })}
+      ${bloco('canal', 'Por canal', vendas ? barras(CANAIS.map(([n, v, q]) => [n, Ev(v), `${brl(Ev(v))} · ${E(q)}`]), 'Vendas por canal') : semDados('Sem vendas neste período.'), { acoes: csv('vendas-por-canal', vendas ? CANAIS.length : 0) })}
+    </div>` : ''}
+    ${blocoAbc()}
+    <div class="dois">
+      ${bloco('atend', 'Por atendente', vendas ? tab(['Atendente', 'Vendas', 'Total', 'Gorjeta', 'Ticket médio'], ATEND.map(([n, q, t, g]) => [`<span class="nome">${n}</span>`, `<span class="num">${E(q)}</span>`, `<span class="num">${R(Ev(t))}</span>`, g ? `<span class="num">${R(Ev(g))}</span>` : '—', `<span class="num">${R(t / q)}</span>`]), 'Vendas por atendente', 'compacta') : semDados('Sem vendas neste período.'), { acoes: csv('vendas-por-atendente', vendas ? ATEND.length : 0) })}
+      ${bloco('hora', 'Vendas por hora', vendas ? colunasG(porHora(), 'Vendas por hora do dia', ['Hora', 'Vendas']) : semDados('Sem vendas neste período.'))}
+    </div>`;
+}
+function detalheCanal(nome, delivery) {
+  const k = delivery ? 0.36 : 0.64, s = somaDias(), fat = novo() ? 0 : Math.round(s.total * k), vendas = novo() ? 0 : Math.round(s.qtd * k), vazio = semDados('Sem vendas neste período.');
+  const mais = PRODS.slice(0, 20).map((p) => ({ nome: p.nome, qtd: Math.round(E(p.qtd) * k), fat: Math.round(Ev(p.fat) * k) })).filter((p) => p.qtd > 0);
+  if (!vendas) return `${kpis([fin() && ['Faturado', brl(0)], ['Vendas', 0]])}<div class="tabela vazio">${delivery ? 'Nenhum pedido de delivery neste período.<br>Os pedidos aparecem aqui quando são aceitos no painel do Delivery.' : 'Nenhuma venda de balcão ou de mesa neste período.<br>As vendas aparecem aqui quando são fechadas no PDV ou nas mesas.'}</div>`;
+  return `${avisoSemValor()}
+    ${kpis([fin() && ['Faturado', brl(fat)], ['Vendas', vendas], fin() && ['Ticket médio', vendas ? brl(fat / vendas) : '—'], fin() && !delivery && vendas ? ['Gorjeta', brl(Ev(1870)), 'fora do faturamento'] : null])}
+    <div class="dois">
+      ${bloco('dia', fin() ? 'Vendas por dia (R$)' : 'Vendas por dia', vendas ? colunasG(porDia(k), 'Vendas por dia', ['Dia', fin() ? 'Valor e vendas' : 'Vendas']) : vazio)}
+      ${bloco('hora', 'Vendas por hora', vendas ? colunasG(porHora().map((p) => [p[0], Math.round(p[1] * k), `${Math.round(p[1] * k)} vendas`]), 'Vendas por hora', ['Hora', 'Vendas']) : vazio)}
+    </div>
+    ${delivery ? `<div class="dois">
+      ${bloco('plataforma', 'Por plataforma', vendas ? tab(['Plataforma', 'Pedidos', 'Total'], PLATAF.map(([n, q, t]) => [`<span class="nome">${n}</span>`, `<span class="num">${E(q)}</span>`, `<span class="num">${R(Ev(t))}</span>`]), 'Delivery por plataforma') : semDados('Sem pedidos de delivery neste período.'), { acoes: csv('delivery-plataforma', vendas ? PLATAF.length : 0), oque: 'os pedidos por plataforma' })}
+      ${bloco('regiao', 'Por região (bairro)', vendas ? tab(['Bairro', 'Pedidos', 'Total'], BAIRROS.map(([n, q, t]) => [`<span class="nome">${n}</span>`, `<span class="num">${E(q)}</span>`, `<span class="num">${R(Ev(t))}</span>`]), 'Delivery por bairro') : semDados('Sem entregas com bairro neste período.'), { acoes: (gestor() ? '<button class="bt" data-ir="calor">Mapa de calor por bairro</button>' : '') + csv('delivery-regiao', vendas ? BAIRROS.length : 0) })}
+    </div>` : ''}
+    ${bloco('maisVendidos', 'Mais vendidos', mais.length ? tab(['Produto', 'Quantidade', 'Faturamento'], cortar('mv', mais).map((p, i) => [`<span class="sub-t">${i + 1}º</span> <span class="nome">${p.nome}</span>`, `<span class="num">${p.qtd}×</span>`, `<span class="num">${R(p.fat)}</span>`]), 'Mais vendidos') + rodapeMais('mv', mais.length, 'produtos') : vazio, { sub: mais.length ? 'os 20 primeiros em quantidade' : '', acoes: csv(`mais-vendidos-${nome}`, mais.length), oque: 'os mais vendidos' })}`;
+}
+function rankingGlobal() {
+  const itens = novo() ? [] : PRODS.slice(0, 30).map((p) => ({ nome: p.nome, b: Math.round(E(p.qtd) * 0.64), dl: Math.round(E(p.qtd) * 0.36), fat: Ev(p.fat) })).filter((p) => p.b + p.dl > 0);
+  if (!itens.length) return ''; // sem venda nenhuma, a aba já mostra o estado vazio dela
+  return bloco('ranking', 'Ranking de produtos — balcão + delivery', itens.length ? tab(['Produto', 'Balcão', 'Delivery', 'Total', 'Faturamento'], cortar('rk', itens).map((p, i) => [`<span class="sub-t">${i + 1}º</span> <span class="nome">${p.nome}</span>`, `<span class="num">${p.b}×</span>`, `<span class="num">${p.dl}×</span>`, `<span class="num"><b>${p.b + p.dl}×</b></span>`, `<span class="num">${R(p.fat)}</span>`]), 'Ranking de produtos') + rodapeMais('rk', itens.length, 'produtos') : semDados('Sem vendas neste período.'), { sub: itens.length ? 'os 30 primeiros em quantidade' : '', acoes: csv('ranking-global', itens.length) });
+}
+function parteConferencia() {
+  if (novo()) return semDados('Nenhum pedido com valores detalhados neste período. A conferência aparece com o primeiro pedido de delivery.');
+  const t = CONF.reduce((s, c) => ({ fat: s.fat + c.fat, descLoja: s.descLoja + c.descLoja, descMkt: s.descMkt + c.descMkt, pagou: s.pagou + c.pagou, pedidos: s.pedidos + c.pedidos, gorjeta: s.gorjeta + c.gorjeta }), { fat: 0, descLoja: 0, descMkt: 0, pagou: 0, pedidos: 0, gorjeta: 0 });
+  const n = (v) => `<span class="num">${R(Ev(v))}</span>`;
+  return `${avisoSemValor()}
+    ${kpis([['Faturamento', R(Ev(t.fat)), 'produtos + serviços da loja'], ['Você bancou em desconto', R(Ev(t.descLoja)), 'sai do seu bolso'], ['Marketplace bancou', R(Ev(t.descMkt)), 'volta no repasse — confira no extrato'], ['Cliente pagou', R(Ev(t.pagou)), plural(E(t.pedidos), 'pedido', 'pedidos')]])}
+    <div class="nota warn">${E(372)} de ${E(395)} pedidos do período têm o valor separado por origem (94%). Os outros entram pelo valor total, sem separar quem bancou o desconto.</div>
+    ${bloco('porCanal', 'Por canal', tab(['Canal', 'Pedidos', 'Venda bruta', 'Você bancou', 'Eles bancaram', 'Entrega (sua)', 'Taxas serviço', 'Gorjeta', 'Faturamento', 'Cliente pagou'], CONF.map((c) => [`<span class="nome">${c.canal}</span>`, `<span class="num">${E(c.pedidos)}</span>`, n(c.bruta), n(c.descLoja), n(c.descMkt), n(c.entrega), n(c.taxas), n(c.gorjeta), `<b>${n(c.fat)}</b>`, n(c.pagou)]), 'Conferência de valores por canal', 'compacta'), { acoes: csv('conferencia-valores', CONF.length) })}
+    <details class="nota"><summary style="cursor:pointer;font-weight:700;min-height:40px;display:flex;align-items:center">▸ Como ler estes números</summary>
+      <p><b>Faturamento</b> = venda de produtos (já descontado o que <b>você</b> bancou) + taxa de entrega quando a logística é sua + taxas de serviço. Desconto bancado pelo marketplace <b>não reduz</b> o faturamento: o cliente pagou menos, mas você recebe cheio.</p>
+      <p><b>Eles bancaram</b> é o que deve voltar no repasse do período — compare com o extrato da plataforma. A comissão contratual não entra aqui: ela está no extrato deles.</p>
+      <p style="margin-bottom:0"><b>Gorjeta (${R(Ev(t.gorjeta))})</b> fica fora do faturamento — é repasse ao funcionário, não receita da loja.</p></details>
+    ${bloco('taxas', 'Taxas cobradas no pedido, por tipo', tab(['Canal', 'Taxa', 'Código do canal', 'Pedidos', 'Valor', 'Entra no faturamento?'], TAXAS.map(([c, r, cod, o, v, g]) => [`<span class="nome">${c}</span>`, r, `<span class="num sub-t">${cod}</span>`, `<span class="num">${E(o)}</span>`, n(v), g ? selo('neutro', 'não — gorjeta') : selo('ok', 'sim — serviço')]), 'Taxas extras por tipo e canal'), { sub: 'serviço entra no faturamento; gorjeta fica fora', acoes: csv('taxas-por-tipo', TAXAS.length), oque: 'as taxas por tipo' })}`;
+}
+const turnosNoPeriodo = () => (novo() ? [] : TURNOS.filter(noPeriodo));
+function gavetaCupom(t) {
+  const f = formasDoTurno(t), gorj = t.origem === 'PDV' ? Math.round(t.vendas * 0.04) : 0;
+  painel({
+    tipo: 'gaveta', titulo: 'Cupom de fechamento de turno', foco: '[data-fechar]',
+    rodape: `<button class="bt" data-csv="turno-${t.n}-formas" data-n="${f.length}">Exportar CSV</button><button class="bt pri" data-fechar>Fechar</button>`,
+    corpo: `<p class="ajuda" style="margin:0">${t.origem} · abriu ${t.oper} em ${dh(t.d, t.hA)}${t.aberto ? ' · <b>turno ainda aberto</b>' : ` · fechou ${t.oper} em ${dh(t.d, t.hF, 12)}`}</p>
+      ${kpis([['Abertura', R(t.abertura)], ['Esperado', t.aberto ? '—' : R(t.esperado)], ['Informado', t.aberto ? '—' : R(t.esperado + t.dif)], ['Diferença', seloDif(t.dif)]])}
+      ${gorj && fin() ? `<div class="nota">Do que entrou no turno, <b>${brl(t.vendas - gorj)}</b> é venda e <b>${brl(gorj)}</b> é taxa de serviço (repasse ao funcionário). O caixa fecha pelo valor cheio.</div>` : ''}
+      <div><span class="rot">Vendas por forma</span>${tab(['Forma', 'Vendas', 'Total'], f.map(([n, v, q]) => [n, `<span class="num">${q}</span>`, `<span class="num">${R(v)}</span>`]), 'Vendas por forma de pagamento')}</div>
+      ${t.sang || t.supr ? `<div><span class="rot">Sangrias e suprimentos</span>${tab(['Tipo', 'Descrição', 'Valor'], [...(t.sang ? [[selo('crit', 'sangria'), 'Depósito no cofre', `<span class="num">${R(t.sang)}</span>`]] : []), ...(t.supr ? [[selo('ok', 'suprimento'), 'Troco', `<span class="num">${R(t.supr)}</span>`]] : [])], 'Sangrias e suprimentos')}</div>` : ''}`,
+  });
+}
+function parteOperacoes() {
+  if (novo()) return semDados('Nenhum cancelamento, sangria ou suprimento neste período.');
+  return `${avisoSemValor()}
+    ${bloco('canc', 'Cancelamentos por operador', tab(['Operador', 'Cancelamentos', 'Valor'], CANC.map(([o, q, v]) => [`<span class="nome">${o}</span>`, `<span class="num">${E(q)}</span>`, `<span class="num">${R(Ev(v))}</span>`]), 'Cancelamentos por operador'), { sub: `${plural(E(12), 'cancelamento', 'cancelamentos')} · ${R(Ev(500.4))}`, acoes: csv('cancelamentos-por-operador', CANC.length) })}
+    ${bloco('sangrias', 'Sangrias e suprimentos por operador', tab(['Operador', 'Sangrias', 'Suprimentos'], MOVS.map(([o, s, qs, p, qp]) => [`<span class="nome">${o}</span>`, `<span class="num">${R(Ev(s))}</span> <span class="sub-t">(${E(qs)})</span>`, `<span class="num">${R(Ev(p))}</span> <span class="sub-t">(${E(qp)})</span>`]), 'Sangrias e suprimentos por operador'), { sub: `sangrias ${R(Ev(3650))} · suprimentos ${R(Ev(150))}`, acoes: csv('sangrias-suprimentos', MOVS.length), oque: 'as sangrias e os suprimentos' })}`;
+}
+const estoqueItens = () => (novo() ? [] : [...ESTOQUE].sort((a, b) => (PARTE.ordEstoque === 'mais' ? b.consumo - a.consumo : a.consumo - b.consumo)));
+const prodItens = () => (novo() ? [] : PRODUCAO.map((p) => ({ ...p, producoes: E(p.producoes), qtd: E(p.qtd), custo: Ev(p.custo) })).filter((p) => p.producoes > 0));
+const resgates = (base) => (novo() ? [] : base.filter(noPeriodo));
+function parteFinanceiro() {
+  const meses = novo() ? [] : nDias() > 60 ? MESES : MESES.slice(-2).map(([m, t, v], i) => (i === 0 ? [m, Math.round(t * 23 / 30), Math.round(v * 23 / 30)] : [m, t, v]));
+  const total = meses.reduce((s, m) => s + m[1], 0), tri = meses.length > 3 ? [['1º trimestre', 186500, 5492], ['2º trimestre', 206200, 6043], ['3º trimestre', 221700, 6471], ['4º trimestre', 17300, 498]] : [];
+  const fd = PLATAF.map(([n, q, t]) => [n, E(q), Ev(t)]), totalD = fd.reduce((s, p) => s + p[2], 0), pedD = fd.reduce((s, p) => s + p[1], 0);
+  return `${bloco('fatMes', 'Faturamento por mês', meses.length ? `${colunasG(meses.map(([m, t, v]) => [m, t, `${brl(t)} · ${v} vendas`]), 'Faturamento por mês', ['Mês', 'Faturamento e vendas'])}
+      ${tri.length ? kpis(tri.map(([n, t, v]) => [n, brl(t), `${v} vendas`])) : ''}<p style="margin:10px 0 0;text-align:right">Total do período: <b class="num">${brl(total)}</b></p>` : semDados('Sem vendas neste período.'),
+    { sub: 'os meses dentro do período escolhido', acoes: `<span class="campo" style="flex-direction:row;align-items:center;gap:8px"><label for="finMes">Ir para o mês</label><input id="finMes" type="month" value="2026-10" style="width:auto"></span>${csv('faturamento-mes', meses.length)}` })}
+    ${bloco('fatDelivery', 'Faturamento por delivery (plataforma)', pedD ? `${kpis([['Total do delivery', brl(totalD)], ['Pedidos', pedD], ['Ticket médio', brl(totalD / pedD)]])}
+      <p class="ajuda" style="margin:-4px 0 10px">Fora pendentes e cancelados. Produto menos o desconto que você bancou, mais a entrega que é sua. Sem gorjeta.</p>
+      ${tab(['Plataforma', 'Pedidos', 'Total', 'Ticket médio'], fd.map(([n, q, t]) => [`<span class="nome">${n}</span>`, `<span class="num">${q}</span>`, `<span class="num">${brl(t)}</span>`, `<span class="num">${q ? brl(t / q) : '—'}</span>`]), 'Faturamento por plataforma de delivery')}` : semDados('Sem pedidos de delivery neste período.'),
+    { acoes: csv('faturamento-delivery', pedD ? fd.length : 0), oque: 'o faturamento do delivery' })}`;
+}
+const listaResgates = (o) => ({
+  nome: o.nome, tipo: 'lista', titulo: o.titulo, um: 'resgate', varios: 'resgates', oque: o.oque,
+  acesso: gestor, semAcesso: o.semAcesso,
+  get dados() { return resgates(o.base); },
+  rotulo: (r) => `resgate de ${r.tel}`,
+  texto: (r) => `${r.tel} ${o.item(r)} ${o.detalhe(r)}`,
+  buscar: 'Telefone do cliente ou prêmio',
+  todas: 'Todos', sits: o.sits, selects: o.selects,
+  botoes: [['Exportar CSV', () => avisar(`Baixaria “${o.arquivo}.csv” com ${plural(resgates(o.base).length, 'resgate', 'resgates')}.`)]],
+  vazio: o.vazio,
+  colunas: [['Cliente', (r) => `<span class="nome num">${r.tel}</span>`], ['Quando', (r) => `<span class="num">${dh(r.d, r.h, r.m)}</span>`], [o.coluna, o.item], ['Detalhe', (r) => `<b>${o.detalhe(r)}</b>`]],
+});
+TELAS.vendas = {
+  menu: 'Relatórios de vendas', titulo: 'Relatórios de vendas',
+  sub: () => 'Vendas, caixa, estoque e produção no período escolhido.',
+  // a aba Estoque já obedece a loja em uso; as outras somam a empresa inteira (é o que o servidor faz hoje)
+  antes: () => barraPeriodo(S().escopo || 'empresa', true),
+  hoje: [
+    'As 11 abas continuam, na mesma ordem. As que são lista mostram a quantidade (turnos, resgates).',
+    'O período ganha atalhos (hoje, ontem, 7 dias, 30 dias, este mês, mês passado, este ano). Data e horário continuam, e a tela escreve de quando a quando são os números e a que horas foram atualizados.',
+    'Fidelidades e Cashbacks passam a usar o período da tela. Hoje cada uma tem um período próprio, que não acompanha o de cima.',
+    'Cada bloco carrega e falha sozinho: o que veio aparece; o que falhou diz que falhou, com “Tentar de novo”. Hoje há um erro só no topo, e o bloco que não veio diz “Sem vendas”.',
+    'Curva ABC: classes A, B e C com a contagem e busca por produto. A lista mostra os 10 primeiros e diz quantos são, com “Mostrar todos” — vale também para “Mais vendidos” e para o ranking. Hoje aparecem os 30 primeiros sem avisar que há mais.',
+    'Turnos / Caixa: o cupom do turno abre numa gaveta. Hoje abre no meio da lista e, se não carrega, fica em “Carregando cupom…” para sempre.',
+    'Os gráficos passam a ter os números escritos (o maior valor e “Ver em tabela”). Hoje o número só aparece passando o mouse.',
+    'Quem não tem “Ver valores em R$” vê as quantidades e um aviso de que os valores estão ocultos. Hoje aparecem traços sem explicação.',
+    'Quem não tem acesso a Fidelidade ou Cashback vê “sem acesso”. Hoje vê “0 resgates no período”.',
+    '“Exportar CSV” em todas as tabelas. Hoje só algumas têm.',
+    'A tela diz de qual loja são os números. Hoje os relatórios de vendas somam a empresa inteira, mesmo com uma loja escolhida no topo — é uma das perguntas para você.',
+  ],
+  secoes: [
+    { nome: 'Vendas', tipo: 'livre', titulo: 'Vendas', resumo: () => (novo() ? 'nenhuma venda no período' : plural(somaDias().qtd, 'venda', 'vendas')), desenhar: parteVendas },
+    { nome: 'Balcão / Salão', tipo: 'livre', titulo: 'Balcão / Salão', resumo: () => 'vendas do balcão e das mesas', desenhar: () => detalheCanal('balcao', false) + rankingGlobal() },
+    { nome: 'Delivery', tipo: 'livre', titulo: 'Delivery', resumo: () => 'pedidos de entrega e de retirada dos canais', desenhar: () => detalheCanal('delivery', true) },
+    { nome: 'Conferência de valores', tipo: 'livre', titulo: 'Conferência de valores', resumo: () => 'quem bancou cada desconto e o que entra no faturamento', desenhar: parteConferencia },
+    {
+      nome: 'Turnos / Caixa', tipo: 'lista', titulo: 'Turnos do período', um: 'turno', varios: 'turnos', oque: 'os turnos',
+      get dados() { return turnosNoPeriodo(); },
+      rotulo: (t) => `turno ${t.n}`, texto: (t) => `${t.n} ${t.oper} ${t.origem}`, buscar: 'Operador ou número do turno', todas: 'Todos',
+      sits: [['Abertos', (t) => t.aberto, 'warn'], ['Fechados', (t) => !t.aberto], ['Com diferença', (t) => !t.aberto && t.dif !== 0, 'crit']],
+      selects: [['Origem', 'PDV e delivery', (t) => t.origem], ['Operador', 'Todos os operadores', (t) => t.oper]],
+      resumo: (l) => (l.length && fin() ? `vendas ${brl(l.reduce((s, t) => s + t.vendas, 0))}` : ''),
+      botoes: [['Exportar CSV', () => avisar(`Baixaria “turnos-do-periodo.csv” com ${plural(turnosNoPeriodo().length, 'turno', 'turnos')}.`)]],
+      vazio: 'Nenhum turno aberto neste período.',
+      colunas: [
+        ['Turno', (t) => `<span class="nome">Turno ${String(t.n).padStart(2, '0')}</span> ${selo('neutro', t.origem)}<div class="sub-t">${dh(t.d, t.hA)} → ${t.aberto ? 'aberto' : dh(t.d, t.hF, 12)}</div>`],
+        ['Operador', (t) => t.oper], ['Vendas', (t) => `<span class="num">${R(t.vendas)}</span>`],
+        ['Sangrias', (t) => (t.sang ? `<span class="num">${R(t.sang)}</span>` : '—')], ['Suprimentos', (t) => (t.supr ? `<span class="num">${R(t.supr)}</span>` : '—')], ['Diferença', (t) => seloDif(t.dif)],
+      ],
+      acoes: () => [['▤', 'Ver cupom', 'cupom']], aoAcao: (a, t) => gavetaCupom(t),
+    },
+    { nome: 'Operações de caixa', tipo: 'livre', titulo: 'Operações de caixa', resumo: () => 'cancelamentos, sangrias e suprimentos por operador', desenhar: parteOperacoes },
+    {
+      nome: 'Estoque', tipo: 'lista', titulo: 'Posição e giro por produto', um: 'insumo', varios: 'insumos', oque: 'a posição do estoque', escopo: 'loja',
+      get dados() { return estoqueItens(); },
+      rotulo: (i) => i.nome, texto: (i) => i.nome, buscar: 'Nome do insumo', todas: 'Todos',
+      sits: [['Abaixo do mínimo', (i) => i.baixo, 'crit'], ['Sem saída no período', (i) => i.consumo === 0, 'warn']],
+      selects: [['Curva ABC', 'A, B e C', (i) => `Classe ${i.abc}`]],
+      botoes: [['Exportar CSV', () => avisar(`Baixaria “estoque-giro.csv” com ${plural(estoqueItens().length, 'insumo', 'insumos')}.`)]],
+      vazio: 'Nenhum insumo cadastrado. Cadastre em Estoque → Produtos.',
+      antes: () => `${avisoSemValor()}${kpis([fin() && ['Valor em estoque', brl(novo() ? 0 : 2026)], fin() && ['Consumido no período', brl(Ev(9183))], ['Abaixo do mínimo', novo() ? 0 : ESTOQUE.filter((i) => i.baixo).length], ['A repor', novo() ? 0 : 4]])}
+        <div class="filtros" style="grid-template-columns:minmax(0,320px)"><div class="campo"><label for="ordEstoque">Ordenar por</label><select id="ordEstoque"><option value="mais"${PARTE.ordEstoque === 'mais' ? ' selected' : ''}>Mais giram primeiro</option><option value="menos"${PARTE.ordEstoque === 'menos' ? ' selected' : ''}>Menos giram primeiro</option></select></div></div>`,
+      colunas: [
+        ['Insumo', (i) => `<span class="nome">${i.nome}</span> ${i.baixo ? selo('crit', 'abaixo do mínimo') : ''}<div class="sub-t">classe ${i.abc}</div>`],
+        ['Saldo', (i) => `<span class="num">${num(i.saldo)} ${i.un}</span>`], ['Valor em estoque', (i) => `<span class="num">${R(i.valor)}</span>`],
+        ['Consumo por dia', (i) => `<span class="num">${num(i.consumo)} ${i.un}</span>`], ['Cobertura', (i) => (i.cobertura == null ? '<span class="sub-t">sem saída</span>' : `<span class="num">${i.cobertura} ${i.cobertura === 1 ? 'dia' : 'dias'}</span>`)],
+      ],
+    },
+    {
+      nome: 'Produção', tipo: 'lista', titulo: 'Produção por produto', um: 'ficha produzida', varios: 'fichas produzidas', oque: 'a produção',
+      get dados() { return prodItens(); },
+      rotulo: (p) => p.nome, texto: (p) => p.nome, buscar: 'Nome da ficha', todas: 'Todas', sits: [],
+      botoes: [['Exportar CSV', () => avisar(`Baixaria “producao-produto.csv” com ${plural(prodItens().length, 'linha', 'linhas')}.`)]],
+      vazio: 'Nenhuma produção neste período. As produções aparecem quando uma ordem de produção é concluída.',
+      antes: () => { const l = prodItens(), q = l.reduce((s, p) => s + p.qtd, 0), pr = l.reduce((s, p) => s + p.producoes, 0), pts = PARTE.agrup === 'mes' ? MESES.slice(-3).map(([m], i) => [m, [310, 420, 96][i], `${[310, 420, 96][i]} un`]) : PARTE.agrup === 'semana' ? [['08/09', 240, '240 un'], ['15/09', 265, '265 un'], ['22/09', 251, '251 un'], ['29/09', 255, '255 un'], ['06/10', 96, '96 un']] : DIAS.filter(noPeriodo).slice(0, 31).reverse().map((x) => [dd(x.d), (x.qtd % 9) * 6, `${(x.qtd % 9) * 6} un`]);
+        return `${avisoSemValor()}${kpis([['Produções', pr], ['Unidades produzidas', q], fin() && ['Custo teórico', brl(l.reduce((s, p) => s + p.custo, 0))]])}
+          <div class="filtros" style="grid-template-columns:minmax(0,320px)"><div class="campo"><span class="rot" id="rAgrup">Agrupar o gráfico por</span><div class="seg" role="group" aria-labelledby="rAgrup">${[['dia', 'Dia'], ['semana', 'Semana'], ['mes', 'Mês']].map(([v, t]) => `<button type="button" data-agrup="${v}" aria-pressed="${PARTE.agrup === v}">${t}</button>`).join('')}</div></div></div>
+          ${l.length ? bloco('prodGraf', `Produção por ${PARTE.agrup === 'mes' ? 'mês' : PARTE.agrup}`, colunasG(pts, 'Unidades produzidas', [PARTE.agrup === 'mes' ? 'Mês' : PARTE.agrup === 'semana' ? 'Semana de' : 'Dia', 'Unidades'])) : ''}`; },
+      colunas: [['Ficha', (p) => `<span class="nome">${p.nome}</span>`], ['Produções', (p) => `<span class="num">${p.producoes}×</span>`], ['Quantidade', (p) => `<span class="num"><b>${num(p.qtd)} un</b></span>`], ['Custo teórico', (p) => `<span class="num">${R(p.custo)}</span>`]],
+    },
+    listaResgates({ nome: 'Fidelidades', titulo: 'Prêmios de fidelidade resgatados', base: FIDEL, arquivo: 'premios-fidelidade', oque: 'os prêmios resgatados', semAcesso: 'ela pede a permissão “Fidelidade” e o nível de gerência',
+      coluna: 'Prêmio', item: (r) => r.premio, detalhe: (r) => r.detalhe, sits: [], selects: [['Prêmio', 'Todos os prêmios', (r) => r.premio]], vazio: 'Nenhum prêmio resgatado neste período.' }),
+    listaResgates({ nome: 'Cashbacks', titulo: 'Cashbacks resgatados', base: CASHB, arquivo: 'cashbacks', oque: 'os cashbacks resgatados', semAcesso: 'ela pede a permissão “Cashback” e o nível de gerência',
+      coluna: 'Uso', item: (r) => (r.tipo === 'valor' ? 'Saldo (R$)' : 'Pontos'), detalhe: (r) => (r.tipo === 'valor' ? brl(r.valor) : `${r.valor} pts`), sits: [['Saldo em R$', (r) => r.tipo === 'valor'], ['Pontos', (r) => r.tipo === 'pontos']], selects: [], vazio: 'Nenhum cashback resgatado neste período.' }),
+    { nome: 'Financeiro', tipo: 'livre', titulo: 'Financeiro', so: fin, resumo: () => 'faturamento por mês e por plataforma de delivery', desenhar: parteFinanceiro },
+  ],
+};
+
+// ── Mapa de calor (aberto pelo botão da aba Delivery; não está no menu) ──
+const calorDados = () => (novo() ? [] : BAIRROS.map(([bairro, ped, receita, taxa]) => { const f = PARTE.calor / 30, p = Math.round(ped * f); return { bairro, pedidos: p, receita: Math.round(receita * f), taxa }; }));
+TELAS.calor = {
+  menu: 'Mapa de calor de entregas', titulo: 'Mapa de calor de entregas', dentroDe: 'vendas',
+  trilha: 'Relatórios › <button class="link" data-ir="vendas/2">Relatórios de vendas › Delivery</button>',
+  sub: () => 'Entregas de todos os canais, fora os pedidos cancelados, somadas por bairro.',
+  hoje: [
+    'Entra o caminho de volta para Relatórios de vendas › Delivery. Hoje só o “voltar” do navegador.',
+    'Entram a contagem de bairros, a busca e “Exportar CSV”.',
+    'Se a leitura falhar, aparece o erro com “Tentar de novo”. Hoje a tela fica com os quatro cartões zerados.',
+    'O período continua com os atalhos de 7, 30 e 90 dias (é o que o servidor aceita aqui).',
+  ],
+  secoes: [{
+    nome: 'Bairros', tipo: 'lista', titulo: 'Entregas por bairro', um: 'bairro', varios: 'bairros', oque: 'as entregas por bairro',
+    acesso: gestor, semAcesso: 'ela é liberada para presidência e gerência, com a permissão “Delivery”',
+    get dados() { return calorDados(); },
+    rotulo: (b) => b.bairro, texto: (b) => b.bairro, buscar: 'Nome do bairro', todas: 'Todos', sits: [],
+    botoes: [['Exportar CSV', () => avisar(`Baixaria “entregas-por-bairro.csv” com ${plural(calorDados().length, 'bairro', 'bairros')}.`)]],
+    vazio: 'Nenhuma entrega neste período.',
+    antes: () => { const l = calorDados(), ped = l.reduce((s, b) => s + b.pedidos, 0), rec = l.reduce((s, b) => s + b.receita, 0), top = l[0];
+      return `<div class="filtros" style="grid-template-columns:minmax(0,420px)"><div class="campo"><span class="rot" id="rCalor">Período</span><div class="seg" role="group" aria-labelledby="rCalor">${[[7, '7 dias'], [30, '30 dias'], [90, '90 dias']].map(([v, t]) => `<button type="button" data-calor="${v}" aria-pressed="${PARTE.calor === v}">${t}</button>`).join('')}</div><span class="ajuda">${ESCOPO.empresa}</span></div></div>
+        ${kpis([['Bairro campeão', top ? top.bairro : '—', top ? `${top.pedidos} pedidos · ${Math.round((top.pedidos / ped) * 100)}%` : 'sem entregas'], ['Pedidos no período', ped, plural(l.length, 'bairro', 'bairros')], ['Ticket médio', ped ? brl(rec / ped) : '—', 'por pedido'], ['Taxa média', ped ? brl(l.reduce((s, b) => s + b.taxa * b.pedidos, 0) / ped) : '—', 'frete cobrado']])}`; },
+    colunas: [
+      ['Bairro', (b) => { const mx = Math.max(1, ...calorDados().map((x) => x.pedidos)); return `<span class="nome">${b.bairro}</span><div class="trilho" aria-hidden="true" style="margin-top:5px;max-width:260px"><i style="width:${Math.max(3, Math.round((b.pedidos / mx) * 100))}%"></i></div>`; }],
+      ['Pedidos', (b) => { const t = calorDados().reduce((s, x) => s + x.pedidos, 0); return `<span class="num">${b.pedidos}</span> <span class="sub-t">${Math.round((b.pedidos / t) * 100)}%</span>`; }],
+      ['Receita', (b) => `<span class="num">${brl(b.receita)}</span>`], ['Ticket médio', (b) => `<span class="num">${b.pedidos ? brl(b.receita / b.pedidos) : '—'}</span>`], ['Taxa média', (b) => `<span class="num">${brl(b.taxa)}</span>`],
+    ],
+  }],
+};
+
+// ══ 3. CANCELAMENTOS DE ITENS ═══════════════════════════════════════════════════════════════
+const itensNoPeriodo = () => (novo() ? [] : ITENS.filter(noPeriodo));
+TELAS.itens = {
+  menu: 'Cancelamentos de itens', titulo: 'Cancelamentos de itens', contaMenu: true,
+  sub: () => 'Itens retirados de comandas de mesa depois de lançados, com quem retirou e a justificativa.',
+  antes: () => barraPeriodo('empresa', false),
+  hoje: [
+    'O nome da tela passa a ser o do menu. Hoje o menu diz “Cancelamentos de itens” e a tela, “Retiradas de item (mesas)”.',
+    'Entram a contagem, a situação “Sem justificativa”, a busca e o filtro por quem retirou. Hoje há só “De” e “Até”.',
+    'O período ganha atalhos. Hoje a tela abre sem período e mostra as 300 retiradas mais recentes.',
+    'Se a lista não carregar, aparece o erro com “Tentar de novo”. Hoje aparece “Nenhuma remoção no período”.',
+    'Quando o período tem mais de 300 retiradas, a tela avisa. Hoje corta sem dizer.',
+    'Entra “Exportar CSV”. Hoje não tem.',
+    'A tela mostra só o que o servidor guarda hoje (item, quem e justificativa). Mesa, quantidade e valor do item não são guardados na retirada — se você quiser essas colunas, é um ajuste no servidor.',
+  ],
+  secoes: [{
+    nome: 'Itens', tipo: 'lista', titulo: 'Itens retirados', um: 'item retirado', varios: 'itens retirados', oque: 'os itens retirados',
+    get dados() { return itensNoPeriodo(); },
+    rotulo: (r) => r.item, texto: (r) => `${r.item} ${r.ator} ${r.just}`, buscar: 'Item, quem retirou ou justificativa', todas: 'Todos',
+    sits: [['Sem justificativa', (r) => !r.just, 'warn'], ['Com justificativa', (r) => !!r.just]],
+    selects: [['Quem retirou', 'Todos', (r) => r.ator]],
+    botoes: [['Exportar CSV', () => avisar(`Baixaria “itens-retirados.csv” com ${plural(itensNoPeriodo().length, 'item', 'itens')}.`)]],
+    vazio: 'Nenhum item retirado neste período. Um item aparece aqui quando é tirado de uma comanda de mesa depois de lançado.',
+    colunas: [['Item', (r) => `<span class="nome">${r.item}</span>`], ['Quando', (r) => `<span class="num">${dh(r.d, r.h, r.m)}</span>`], ['Quem retirou', (r) => r.ator], ['Justificativa', (r) => r.just || selo('warn', 'sem justificativa')]],
+  }],
+};
+
+// ── sem barra de rolagem horizontal: a tabela que não cabe vira cartões ──
+// (no aplicativo a lista faz isto sozinha, medindo o espaço que tem — não por largura fixa de tela)
+function ajustarTabelas() {
+  for (const t of $$('.tabela.cartoes')) { t.classList.remove('vira'); if (t.scrollWidth > t.clientWidth + 1) t.classList.add('vira'); }
+}
+const painelDoMotor = painel;
+painel = function (o) { painelDoMotor(o); ajustarTabelas(); };
+let aoRedimensionar = 0;
+window.addEventListener('resize', () => { cancelAnimationFrame(aoRedimensionar); aoRedimensionar = requestAnimationFrame(ajustarTabelas); });
+document.addEventListener('toggle', (ev) => { if (ev.target.open) ajustarTabelas(); }, true);
+
+// ══ desenho da tela e cliques próprios deste protótipo ══════════════════════════════════════
+const cabecalho = (s) => `<div class="barra"><div><h2 id="tLista" tabindex="-1">${s.titulo}</h2></div></div>`;
+function corpoDaParte(s) {
+  if (s.acesso && !s.acesso()) return cabecalho(s) + `<div class="nota warn">Seu perfil não tem acesso a esta parte: ${s.semAcesso}.</div>`;
+  if (VER.dados === 'falha' && s.tipo === 'lista') return cabecalho(s) + falha(s.oque, 'parte');
+  return s.tipo === 'lista' ? htmlLista(s) : htmlLivre(s);
+}
+function desenhar() {
+  const T = TELAS[atual];
+  if (T.secoes[sec].so && !T.secoes[sec].so()) sec = 0;
+  const s = S(), noMenu = T.dentroDe || atual;
+  $('#menu').innerHTML = ORDEM.map((k) => { const p = TELAS[k].secoes[0], n = TELAS[k].contaMenu && VER.dados !== 'falha' ? contaDe(p) : null; return `<button class="sub" data-tela="${k}"${k === noMenu ? ' aria-current="page"' : ''}><span>${TELAS[k].menu}</span>${n != null ? `<i aria-hidden="true">${n}</i>` : ''}</button>`; }).join('');
+  $('#trilha').innerHTML = T.trilha || 'Relatórios';
+  $('#irPara').innerHTML = ORDEM.map((k) => `<option value="${k}"${k === noMenu ? ' selected' : ''}>Relatórios › ${TELAS[k].menu}</option>`).join('');
+  $('#tituloTela').textContent = T.titulo || T.menu;
+  $('#subTela').textContent = T.sub ? T.sub() : '';
+  const ss = $('#secoes'), partes = T.secoes.map((p, i) => [p, i]).filter(([p]) => !p.so || p.so());
+  ss.hidden = partes.length < 2;
+  ss.innerHTML = partes.map(([p, i]) => { const n = VER.dados === 'falha' || (p.acesso && !p.acesso()) ? null : contaDe(p); return `<button class="aba" data-secao="${i}" aria-pressed="${i === sec}">${p.nome}${n != null ? ` <b>${n}</b>` : ''}</button>`; }).join('');
+  $('#conteudo').innerHTML = (T.antes ? T.antes() : '') + corpoDaParte(s)
+    + (T.hoje ? `<details class="nota" style="margin-top:16px"><summary style="cursor:pointer;font-weight:700;min-height:40px;display:flex;align-items:center">▸ O que muda nesta tela em relação a hoje</summary><ul style="margin:8px 0 0;padding-left:18px">${T.hoje.map((x) => `<li>${x}</li>`).join('')}</ul></details>` : '');
+  $('#vPerfil').value = VER.perfil; $('#vDados').value = VER.dados;
+  barraSalvar();
+  ajustarTabelas();
+}
+document.addEventListener('click', (ev) => {
+  const t = ev.target;
+  const c = t.closest('[data-csv]'); if (c) return avisar(`Baixaria “${c.dataset.csv}.csv” com ${plural(Number(c.dataset.n), 'linha', 'linhas')}.`);
+  if (aberto && aberto.contains(t)) return;
+  const ir = t.closest('[data-ir]'); if (ir) { const [tela, parte] = ir.dataset.ir.split('/'); return irPara(tela, Number(parte) || 0); }
+  const dn = t.closest('[data-denovo]'); if (dn) { VER.dados = 'mov'; desenhar(); avisar('Carregado.'); return refocar('#tLista'); }
+  if (t.id === 'pAtualizar') { desenhar(); avisar('Números atualizados agora.'); return refocar('#pAtualizar'); }
+  const a = t.closest('[data-abc]'); if (a) { const n = Number(a.dataset.abc); ABC.sit = ABC.sit === n ? -1 : n; desenhar(); return refocar(`[data-abc="${ABC.sit}"]`); }
+  const ma = t.closest('[data-mais]'); if (ma) { const id = ma.dataset.mais; if (MAIS.has(id)) MAIS.delete(id); else MAIS.add(id); desenhar(); return refocar(`[data-mais="${id}"]`); }
+  if (t.closest('[data-abclimpa]')) { ABC.sit = -1; ABC.busca = ''; desenhar(); return refocar('#abcBusca'); }
+  const ag = t.closest('[data-agrup]'); if (ag) { PARTE.agrup = ag.dataset.agrup; desenhar(); return refocar(`[data-agrup="${PARTE.agrup}"]`); }
+  const ca = t.closest('[data-calor]'); if (ca) { PARTE.calor = Number(ca.dataset.calor); desenhar(); return refocar(`[data-calor="${PARTE.calor}"]`); }
+});
+document.addEventListener('change', (ev) => {
+  const t = ev.target;
+  if (t.id === 'vPerfil') { VER.perfil = t.value; desenhar(); return refocar('#vPerfil'); }
+  if (t.id === 'vDados') { VER.dados = t.value; desenhar(); return refocar('#vDados'); }
+  if (t.id === 'pPreset') { PER.k = t.value; desenhar(); return refocar('#pPreset'); }
+  if (t.id === 'pHora') { PER.hora = t.checked; desenhar(); return refocar('#pHora'); }
+  if (t.id === 'abcOrd') { ABC.ord = t.value; desenhar(); return refocar('#abcOrd'); }
+  if (t.id === 'ordEstoque') { PARTE.ordEstoque = t.value; desenhar(); return refocar('#ordEstoque'); }
+  if (t.id === 'finMes') return avisar('O período passaria a ser o mês escolhido, do dia 1 ao último dia.');
+});
+document.addEventListener('input', (ev) => {
+  const t = ev.target;
+  if (t.id === 'abcBusca') { ABC.busca = t.value; desenhar(); const n = $('#abcBusca'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }
+});
+
+// ── partida ──
+(function iniciar() {
+  const [t, p] = location.hash.slice(1).split('/');
+  if (TELAS[t]) { atual = t; sec = Math.min(Number(p) || 0, TELAS[t].secoes.length - 1); }
+  desenhar();
+})();
+
+</script>
+</body>
+</html>

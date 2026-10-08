@@ -36,8 +36,8 @@ export function AbasEstoque({ ativa, aoEscolher }: { ativa: AbaEstoque; aoEscolh
   }, [ativa]);
 
   return (
-    // Rola na horizontal no celular, quebra a linha no computador.
-    <div ref={faixa} className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0" role="group" aria-label="Seções do estoque">
+    // Quebra a linha no computador; na tela estreita desliza para o lado, sem barra de rolagem à mostra.
+    <div ref={faixa} className="faixa-abas -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0" role="group" aria-label="Seções do estoque">
       {ABAS_ESTOQUE.map((a) => {
         const ligada = a.key === ativa;
         return (
