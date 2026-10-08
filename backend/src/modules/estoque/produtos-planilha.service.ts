@@ -164,6 +164,7 @@ export class ProdutosPlanilhaService {
           custoUnitario: it.custo != null ? String(it.custo) : null,
           motivo: 'Saldo inicial (importação de planilha)',
           refTipo: 'ajuste',
+          data: hojeISO(),
         }));
       if (saldos.length) await tx.insert(movimentoEstoque).values(saldos);
       return { criados: criados.length, jaExistiam, categoriasCriadas, comSaldo: saldos.length };

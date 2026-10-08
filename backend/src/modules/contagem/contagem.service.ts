@@ -19,6 +19,7 @@ import {
   SalvarContagemDto,
 } from './dto/create-contagem-lista.dto';
 import { condUnidade, condUnidadeOuRede } from '../../common/filtro-unidade';
+import { hojeISO } from '../../common/data';
 
 @Injectable()
 export class ContagemService {
@@ -266,7 +267,7 @@ export class ContagemService {
     const saldos = await this.saldos(tenantId, itemIds, lista.unidadeId ?? null);
     const [exec] = await this.db
       .insert(contagemExecucao)
-      .values({ tenantId, listaId, delegadoId: lista.delegadoId, criadaPorId: atorId })
+      .values({ tenantId, listaId, delegadoId: lista.delegadoId, criadaPorId: atorId, data: hojeISO() })
       .returning();
     if (itemIds.length)
       await this.db.insert(contagemItem).values(
