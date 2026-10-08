@@ -17,6 +17,13 @@ const brl = (n: number) =>
   Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const hora = (d?: string) =>
   d ? new Date(d).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+// Texto dos adicionais de um item. O servidor manda pronto em `complementosTexto` (repetido vira
+// "+ 2x Bacon"; null = a descrição já traz as escolhas). Sem o campo, monta como sempre montou.
+function textoDosAdicionais(it: any): string | null {
+  if (it?.complementosTexto !== undefined) return it.complementosTexto || null;
+  const lista = (it?.complementos ?? []) as any[];
+  return lista.length ? lista.map((cp) => (cp.tipo === 'remover' ? `sem ${cp.nome}` : `+ ${cp.nome}`)).join(' · ') : null;
+}
 
 export default function CuponsPage() {
   const router = useRouter();
@@ -240,10 +247,10 @@ export default function CuponsPage() {
                     <span>{it.quantidade}× {it.descricao ?? it.nome}</span>
                     <span className="font-mono">{brl(Number(it.precoUnitario ?? it.preco ?? 0) * Number(it.quantidade))}</span>
                   </div>
-                  {(it.complementos ?? []).length > 0 && (
-                    <p className="pl-4 text-[11px] text-muted-foreground">
-                      {it.complementos.map((cp: any) => (cp.tipo === 'remover' ? `sem ${cp.nome}` : `+ ${cp.nome}`)).join(' · ')}
-                    </p>
+                  {/* O servidor manda o texto pronto ("+ 2x Bacon · sem Cebola"); null = a descrição
+                      do item já traz as escolhas (pedido do cardápio). */}
+                  {textoDosAdicionais(it) && (
+                    <p className="pl-4 text-[11px] text-muted-foreground">{textoDosAdicionais(it)}</p>
                   )}
                 </div>
               ))}

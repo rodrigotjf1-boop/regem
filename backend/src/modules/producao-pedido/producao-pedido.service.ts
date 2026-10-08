@@ -11,6 +11,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { and, desc, eq, inArray, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { PREFIXO_BALCAO, rotuloSenha } from '../../common/senha-origem';
+import { textoDasEscolhas } from '../../common/adicionais';
 import {
   equipamento,
   produtoDestinoProducao,
@@ -556,8 +557,7 @@ export class ProducaoPedidoService {
         })
         .from(comandaItemComplemento)
         .where(eq(comandaItemComplemento.comandaItemId, ci.id));
-      const compTexto =
-        comps.map((s) => `${s.tipo === 'remover' ? 'sem' : '+'} ${s.nome}`).join(' · ') || null;
+      const compTexto = textoDasEscolhas(comps, ci.descricao);
       daProducao.push({
         produto: p,
         descricao: ci.descricao,

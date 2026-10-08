@@ -12,6 +12,7 @@ import { documentoUtilizavel } from '../fiscal/destinatario';
 import { verificarCliente, assinarCliente } from '../cliente/cliente-token';
 import { paraCentavos, paraReais, somarCentavos } from '../../util/dinheiro';
 import { ratearCentavos } from '../../common/rateio';
+import { REGRA_COM_REPETICAO, rotuloDaEscolha, vezesPorOpcao } from '../../common/adicionais';
 import { geocode, montarEndereco } from '../../common/geocode';
 import { formasNoCadastro, telefoneCadastro } from '../../common/telefone-chave';
 
@@ -2550,11 +2551,8 @@ export class CardapioService {
 
     // Quantidade por opção (conta repetições). Fora de 'varias_com_repeticao' a
     // quantidade é travada em 1 — repetição só vale onde a loja liberou.
-    const qtdPorOpcao = new Map<string, number>();
-    for (const id of brutas) qtdPorOpcao.set(id, (qtdPorOpcao.get(id) ?? 0) + 1);
-    for (const [id, q] of qtdPorOpcao) {
-      if (q > 1 && regraDe(id) !== 'varias_com_repeticao') qtdPorOpcao.set(id, 1);
-    }
+    // A regra é a de `common/adicionais`: a mesma que a venda usa para baixar o estoque.
+    const qtdPorOpcao = vezesPorOpcao(brutas, (id) => regraDe(id) === REGRA_COM_REPETICAO);
 
     // 2) Obrigatoriedade por etapa (min/max = SOMA das quantidades no grupo).
     for (const g of grupos) {
@@ -2578,7 +2576,8 @@ export class CardapioService {
       const o = porId.get(id)!;
       // Informativa (sem código PDV) não altera o preço.
       if ((o.codigoPdv ?? '').trim()) precoDelta += Number(o.precoDelta) * q;
-      labels.push(q > 1 ? `${q}x ${o.nome}` : o.nome);
+      // Mesmo rótulo que o cupom reconhece na descrição do item (`descricaoTrazEscolhas`).
+      labels.push(rotuloDaEscolha(o.nome, q));
     }
     return { precoDelta, labels };
   }

@@ -21,6 +21,13 @@ const TIPO_LABEL: Record<string, string> = {
 };
 const brl = (v: any) => Number(v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
+// "A ficha é o custo": a opção ligada a uma ficha técnica custa uma porção dela. `custoFicha`
+// vem do servidor só para quem pode ver custo de ficha; sem ele, a linha diz de onde o custo vem.
+function custoDaOpcao(o: any): string {
+  if (o.tipo === 'ficha' && o.fichaNome) return o.custoFicha != null ? `custo ${brl(o.custoFicha)} (da ficha)` : 'custo pela ficha';
+  return `custo ${brl(o.precoCusto)}`;
+}
+
 // Opções reutilizáveis do catálogo (Fase 2): produto simples / preparado c/ ficha /
 // insumo. Reaproveitadas pelos complementos (ligação vem na Fase 3).
 export function OpcoesCard() {
@@ -164,11 +171,11 @@ export function OpcoesCard() {
           <input type="checkbox" className="h-3.5 w-3.5 accent-primary" checked={todasSel} onChange={toggleTodas} />
           Selecionar todas ({filtradas.length})
         </label>
-        <ul className="grid gap-1.5 sm:grid-cols-2">
+        <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
           {filtradas.map((o) => {
             const usos = usosDe(o);
             return (
-              <li key={o.id} className={`flex items-center gap-2.5 rounded-lg border bg-card p-2 ${o.ativo === false ? 'opacity-50' : ''} ${sel.has(o.id) ? 'border-primary bg-primary/5' : 'border-border'}`}>
+              <li key={o.id} className={`flex min-w-0 items-center gap-2.5 rounded-lg border bg-card p-2 ${o.ativo === false ? 'opacity-50' : ''} ${sel.has(o.id) ? 'border-primary bg-primary/5' : 'border-border'}`}>
                 <input type="checkbox" className="h-4 w-4 flex-none accent-primary" checked={sel.has(o.id)} onChange={() => toggleSel(o.id)} aria-label={`Selecionar ${o.nome}`} />
                 {o.imagemRef ? (
                   <img src={o.imagemRef} alt={o.nome} className="h-9 w-9 flex-none rounded-md object-cover" />
@@ -177,7 +184,7 @@ export function OpcoesCard() {
                 )}
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{o.nome} {o.esgotado && <span className="rounded bg-destructive/10 px-1 text-[10px] font-bold text-destructive">esgotado</span>}</p>
-                  <p className="truncate text-[11px] text-muted-foreground">{TIPO_LABEL[o.tipo] ?? o.tipo}{o.fichaNome ? ` · ${o.fichaNome}` : o.itemNome ? ` · ${o.itemNome}` : ''} · custo {brl(o.precoCusto)}</p>
+                  <p className="truncate text-[11px] text-muted-foreground">{TIPO_LABEL[o.tipo] ?? o.tipo}{o.fichaNome ? ` · ${o.fichaNome}` : o.itemNome ? ` · ${o.itemNome}` : ''} · {custoDaOpcao(o)}</p>
                   {usos.length > 0 && (
                     <p className="truncate text-[10px] text-muted-foreground">Usado {usos.length}×: {usos.join(', ')}</p>
                   )}
@@ -247,6 +254,9 @@ function OpcaoModal({ opcao, fichas, itens, onFechar, onSalvo }: { opcao: any; f
     finally { setBusy(false); }
   }
 
+  const fichaEscolhida = f.tipo === 'ficha' ? fichas.find((x) => x.id === f.fichaId) : null;
+  const temCodigo = !!(f.codigoPdv ?? '').trim();
+
   const Toggle = ({ label, on, set }: { label: string; on: boolean; set: (v: boolean) => void }) => (
     <label className="flex items-center justify-between rounded-lg border border-border p-2.5 text-sm">
       <span>{label}</span>
@@ -264,13 +274,26 @@ function OpcaoModal({ opcao, fichas, itens, onFechar, onSalvo }: { opcao: any; f
           <button type="button" onClick={onFechar} className="ml-auto text-sm text-muted-foreground hover:underline">Fechar ✕</button>
         </div>
 
-        <div className="flex gap-3">
-          <ImageUpload value={f.imagemRef} onChange={(url) => up({ imagemRef: url })} id={`opcao-${opcao.id ?? 'novo'}`} alt="Opção" maxDim={512} accept="image/png,image/jpeg" />
+        {/* A foto ocupa a coluna dela (o texto de ajuda quebra embaixo); em celular fica em cima
+            dos campos. Sem isso a foto espremia os campos e a janela rolava para o lado. */}
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <div className="sm:w-28 sm:flex-none">
+            <ImageUpload value={f.imagemRef} onChange={(url) => up({ imagemRef: url })} id={`opcao-${opcao.id ?? 'novo'}`} alt="Opção" maxDim={512} accept="image/png,image/jpeg" />
+          </div>
           <div className="min-w-0 flex-1 space-y-2">
             <div className="space-y-1"><Label className="text-xs">Nome</Label><Input value={f.nome} onChange={(e) => up({ nome: e.target.value })} placeholder="Ex.: Coca-Cola Lata" /></div>
-            <div className="flex gap-2">
-              <div className="flex-1 space-y-1"><Label className="text-xs">Código PDV</Label><Input value={f.codigoPdv} onChange={(e) => up({ codigoPdv: e.target.value })} placeholder="opcional" /></div>
-              <div className="flex-1 space-y-1"><Label className="text-xs">Preço de custo</Label><Input type="number" value={f.precoCusto} onChange={(e) => up({ precoCusto: e.target.value })} placeholder="0,00" /></div>
+            <div className="flex flex-wrap gap-2">
+              <div className="min-w-[6.5rem] flex-1 space-y-1"><Label className="text-xs">Código PDV</Label><Input value={f.codigoPdv} onChange={(e) => up({ codigoPdv: e.target.value })} placeholder="opcional" /></div>
+              {f.tipo === 'ficha' ? (
+                <div className="min-w-[6.5rem] flex-1 space-y-1">
+                  <Label className="text-xs">Custo</Label>
+                  <p id="opcao-custo-da-ficha" className="flex h-11 items-center rounded-md border border-dashed border-border px-3 font-mono text-sm">
+                    {fichaEscolhida?.custoPorcao != null ? brl(fichaEscolhida.custoPorcao) : '—'}
+                  </p>
+                </div>
+              ) : (
+                <div className="min-w-[6.5rem] flex-1 space-y-1"><Label className="text-xs">Preço de custo</Label><Input type="number" value={f.precoCusto} onChange={(e) => up({ precoCusto: e.target.value })} placeholder="0,00" /></div>
+              )}
             </div>
           </div>
         </div>
@@ -296,6 +319,18 @@ function OpcaoModal({ opcao, fichas, itens, onFechar, onSalvo }: { opcao: any; f
               <option value="">Escolha a ficha…</option>
               {fichas.map((x) => <option key={x.id} value={x.id}>{x.nome}</option>)}
             </select>
+            <p id="opcao-ficha-explica" className="text-[11px] leading-snug text-muted-foreground">
+              {!f.fichaId ? (
+                <>A ficha diz o que sai do estoque e quanto o adicional custa. O preço de venda fica no complemento do produto.</>
+              ) : temCodigo && f.controlaEstoque ? (
+                <>Cada vez que este adicional é vendido, <strong>uma porção</strong> da ficha sai do estoque (escolhido duas vezes, duas porções). O custo é o da ficha.</>
+              ) : (
+                <>
+                  O custo é o da ficha. <strong>Ainda não baixa estoque:</strong>{' '}
+                  {!temCodigo && !f.controlaEstoque ? 'informe o código PDV e ligue “Controlar estoque desta opção”.' : !temCodigo ? 'informe o código PDV.' : 'ligue “Controlar estoque desta opção”.'}
+                </>
+              )}
+            </p>
           </div>
         )}
         {f.tipo === 'insumo' && (
