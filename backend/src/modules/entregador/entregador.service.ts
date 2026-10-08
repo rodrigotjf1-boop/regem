@@ -15,6 +15,7 @@ import { DeliveryService } from '../delivery/delivery.service';
 import { ClienteService } from '../cliente/cliente.service';
 import { geocode, montarEndereco } from '../../common/geocode';
 import { calcularCobranca } from './cobranca';
+import { hojeISO } from '../../common/data';
 import {
   SEM_LOGISTICA_DO_CANAL,
   ehCanalComCodigo,
@@ -1139,9 +1140,9 @@ export class EntregadorService {
 
     // 2) Sangria no caixa de entregas (saída em dinheiro).
     const lc: any = await this.db.execute(sql`
-      insert into lancamento_caixa (tenant_id, tipo, valor, categoria, forma, descricao, sessao_id, criado_por_id)
+      insert into lancamento_caixa (tenant_id, tipo, valor, categoria, forma, descricao, sessao_id, criado_por_id, data)
       values (${tenantId}, 'saida', ${(v.total / 100).toFixed(2)}, 'pagamento_entregador', 'dinheiro',
-              ${descr}, ${sessaoId}, ${atorId})
+              ${descr}, ${sessaoId}, ${atorId}, ${hojeISO()})
       returning id`);
     const lancamentoId = (lc.rows ?? lc)[0].id;
     await this.db.execute(sql`update entregador_fechamento set lancamento_caixa_id = ${lancamentoId} where id = ${fechamentoId}`);

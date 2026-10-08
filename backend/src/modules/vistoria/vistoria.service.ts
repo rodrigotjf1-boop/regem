@@ -3,6 +3,7 @@ import { and, eq, gte, isNull, lte, desc, getTableColumns } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { colaborador, vistoria } from '../../db/schema';
 import { condUnidade } from '../../common/filtro-unidade';
+import { hojeISO } from '../../common/data';
 import type { Periodo } from '../../common/periodo';
 import { CreateVistoriaDto } from './dto/create-vistoria.dto';
 
@@ -23,7 +24,7 @@ export class VistoriaService {
         tipo: dto.tipo,
         observacao: dto.observacao,
         fotoRef: dto.fotoRef,
-        data: dto.data,
+        data: dto.data ?? hojeISO(),
       })
       .returning();
     return row;

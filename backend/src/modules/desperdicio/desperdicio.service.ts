@@ -10,6 +10,7 @@ import { consumirLotes } from '../../common/lotes';
 import { colaborador, desperdicio, equipamento, itemEstoque, movimentoEstoque } from '../../db/schema';
 import { AuthUser } from '../../auth/auth-user';
 import { condUnidade, condUnidadeOuRede } from '../../common/filtro-unidade';
+import { hojeISO } from '../../common/data';
 import { custoMedioDaSaida } from '../../common/custo-loja';
 import type { Periodo } from '../../common/periodo';
 import { CreateDesperdicioDto } from './dto/create-desperdicio.dto';
@@ -72,7 +73,7 @@ export class DesperdicioService {
           unidadeMedida: dto.unidadeMedida,
           motivo: dto.motivo,
           fotoRef: dto.fotoRef,
-          data: dto.data,
+          data: dto.data ?? hojeISO(),
           ...rastro,
         })
         .returning();
@@ -120,7 +121,7 @@ export class DesperdicioService {
           unidadeMedida: dto.unidadeMedida ?? item.unidadeMedida,
           motivo: dto.motivo,
           fotoRef: dto.fotoRef,
-          data: dto.data,
+          data: dto.data ?? hojeISO(),
           ...rastro,
         })
         .returning();
@@ -136,7 +137,7 @@ export class DesperdicioService {
           motivo: 'desperdicio',
           refTipo: 'desperdicio',
           refId: row.id,
-          data: dto.data ?? undefined,
+          data: dto.data ?? hojeISO(),
         })
         .returning({ id: movimentoEstoque.id });
       // PVPS/FEFO (mig 248): tira do lote que vence primeiro. Sobra sem lote não
