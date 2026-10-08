@@ -14,8 +14,8 @@ import { plural, rs, type PropsDaAba } from '@/components/relatorios/formatos';
 
 const valor = { classe: 'whitespace-nowrap font-mono' };
 
-export function AbaConferencia({ inicio, fim, chave, versao, verFin, acompanhar }: PropsDaAba) {
-  const conferencia = useLeitura<any>(() => api.relatorioConferencia(inicio, fim), chave, true, versao, acompanhar);
+export function AbaConferencia({ inicio, fim, todas, chave, versao, verFin, acompanhar }: PropsDaAba) {
+  const conferencia = useLeitura<any>(() => api.relatorioConferencia(inicio, fim, todas), chave, true, versao, acompanhar);
 
   return (
     <div className="space-y-5">

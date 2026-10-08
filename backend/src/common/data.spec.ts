@@ -108,7 +108,6 @@ describe('nenhuma cópia local de hojeISO', () => {
     // data de expurgo de foto, dia do job de ordens recorrentes). Nenhum deles decide dinheiro
     // ou numeração. A lista existe para que NENHUM caso NOVO entre — não para abençoar estes.
     const dividaConhecida = [
-      'src/modules/relatorios/relatorios.service.ts',
       'src/modules/estoque/estoque.controller.ts',
       'src/modules/escala/escala.controller.ts',
       'src/modules/cliente/cliente.service.ts',

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Download, Eye, Scale } from 'lucide-react';
-import { api, getCategoria, getToken, getUnidadeAtual } from '@/lib/api';
+import { api, getCategoria, getToken } from '@/lib/api';
 import { baixarCsv } from '@/lib/csv';
 import { Shell } from '@/components/app-shell/shell';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,7 @@ import {
   brl, distintos, semAcento, texto2, type Situacao,
 } from '@/components/ui/lista';
 import { BarraPeriodo, usePeriodo } from '@/components/relatorios/periodo';
+import { useEscopoDeLoja } from '@/components/relatorios/escopo';
 import { AvisoDeLimite, ErroDeLeitura, Indicadores } from '@/components/relatorios/pecas';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -52,12 +53,12 @@ function SeloDiferenca({ valor }: { valor: number }) {
 export default function TurnosPage() {
   const router = useRouter();
   const periodo = usePeriodo('30');
+  const loja = useEscopoDeLoja();
   const [rows, setRows] = useState<any[] | null>(null);
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(false);
   const [atualizadoEm, setAtualizadoEm] = useState<Date | null>(null);
   const [papel, setPapel] = useState('');
-  const [escopo, setEscopo] = useState('');
   const [busca, setBusca] = useState('');
   const [sit, setSit] = useState(-1);
   const [origem, setOrigem] = useState('');
@@ -74,7 +75,7 @@ export default function TurnosPage() {
     setCarregando(true);
     setErro('');
     try {
-      const r: any = await api.fechamentosCaixa(de, ate);
+      const r: any = await api.fechamentosCaixa(de, ate, loja.total);
       setRows(Array.isArray(r) ? r : []);
       setAtualizadoEm(new Date());
     } catch (e) {
@@ -82,7 +83,7 @@ export default function TurnosPage() {
     } finally {
       setCarregando(false);
     }
-  }, [de, ate, pronto]);
+  }, [de, ate, pronto, loja.total]);
 
   useEffect(() => {
     if (!getToken()) {
@@ -96,7 +97,6 @@ export default function TurnosPage() {
       return;
     }
     setPapel(cat);
-    setEscopo(getUnidadeAtual() ? 'loja em uso' : 'todas as lojas');
     void carregar();
   }, [router, carregar]);
 
@@ -136,7 +136,7 @@ export default function TurnosPage() {
     <Shell eyebrow="Relatórios" title="Turnos">
       <div className="space-y-4">
         <p className={`text-sm ${texto2}`}>Fechamentos de caixa do PDV e do delivery, com o que foi contado e a diferença.</p>
-        <BarraPeriodo periodo={periodo} escopo={escopo} atualizadoEm={atualizadoEm} carregando={carregando} aoAtualizar={() => void carregar()} />
+        <BarraPeriodo periodo={periodo} escopo={loja.texto} total={loja.opcao} atualizadoEm={atualizadoEm} carregando={carregando} aoAtualizar={() => void carregar()} />
 
         {erro ? (
           <ErroDeLeitura oQue="os turnos fechados" motivo={erro} aoTentar={() => void carregar()} ocupado={carregando} />

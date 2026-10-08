@@ -11,8 +11,8 @@ import { plural, rs, type PropsDaAba } from '@/components/relatorios/formatos';
 // ABA OPERAÇÕES DE CAIXA — `/relatorios/operacoes-caixa`: cancelamentos e sangrias/suprimentos,
 // somados por operador.
 
-export function AbaOperacoes({ inicio, fim, chave, versao, verFin, acompanhar }: PropsDaAba) {
-  const operacoes = useLeitura<any>(() => api.relatorioOperacoesCaixa(inicio, fim), chave, true, versao, acompanhar);
+export function AbaOperacoes({ inicio, fim, todas, chave, versao, verFin, acompanhar }: PropsDaAba) {
+  const operacoes = useLeitura<any>(() => api.relatorioOperacoesCaixa(inicio, fim, todas), chave, true, versao, acompanhar);
 
   return (
     <div className="space-y-5">

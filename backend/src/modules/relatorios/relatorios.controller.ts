@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, NotFoundException, Param, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
@@ -6,6 +6,7 @@ import { PermissoesGuard } from '../../auth/permissoes.guard';
 import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
+import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { RelatoriosService } from './relatorios.service';
 
 // Relatórios de venda — gestão (presidente/gerente/supervisão).
@@ -25,55 +26,61 @@ export class RelatoriosController {
   @Get('vendas')
   vendas(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Query('inicio') inicio?: string,
     @Query('fim') fim?: string,
   ) {
-    return this.service.vendas(user.tenantId, inicio, fim, this.verFin(user));
+    return this.service.vendas(user.tenantId, inicio, fim, this.verFin(user), atual);
   }
 
   @Get('produtos')
   produtos(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Query('inicio') inicio?: string,
     @Query('fim') fim?: string,
   ) {
-    return this.service.produtos(user.tenantId, inicio, fim, this.verFin(user));
+    return this.service.produtos(user.tenantId, inicio, fim, this.verFin(user), atual);
   }
 
   @Get('atendentes')
   atendentes(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Query('inicio') inicio?: string,
     @Query('fim') fim?: string,
   ) {
-    return this.service.atendentes(user.tenantId, inicio, fim, this.verFin(user));
+    return this.service.atendentes(user.tenantId, inicio, fim, this.verFin(user), atual);
   }
 
   @Get('operacoes-caixa')
   operacoesCaixa(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Query('inicio') inicio?: string,
     @Query('fim') fim?: string,
   ) {
-    return this.service.operacoesCaixa(user.tenantId, inicio, fim, this.verFin(user));
+    return this.service.operacoesCaixa(user.tenantId, inicio, fim, this.verFin(user), atual);
   }
 
   @Get('balcao')
   balcao(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Query('inicio') inicio?: string,
     @Query('fim') fim?: string,
   ) {
-    return this.service.detalheCanal(user.tenantId, 'balcao', inicio, fim, this.verFin(user));
+    return this.service.detalheCanal(user.tenantId, 'balcao', inicio, fim, this.verFin(user), atual);
   }
 
   @Get('delivery')
   delivery(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Query('inicio') inicio?: string,
     @Query('fim') fim?: string,
   ) {
-    return this.service.detalheCanal(user.tenantId, 'delivery', inicio, fim, this.verFin(user));
+    return this.service.detalheCanal(user.tenantId, 'delivery', inicio, fim, this.verFin(user), atual);
   }
 
   // Conferência de valores por canal (mig 241): venda bruta, desconto por quem banca,
@@ -81,33 +88,39 @@ export class RelatoriosController {
   @Get('conferencia-valores')
   conferenciaValores(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Query('inicio') inicio?: string,
     @Query('fim') fim?: string,
   ) {
-    return this.service.conferenciaValores(user.tenantId, inicio, fim);
+    return this.service.conferenciaValores(user.tenantId, inicio, fim, atual);
   }
 
   @Get('ranking-produtos')
   ranking(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Query('inicio') inicio?: string,
     @Query('fim') fim?: string,
   ) {
-    return this.service.rankingProdutos(user.tenantId, inicio, fim, this.verFin(user));
+    return this.service.rankingProdutos(user.tenantId, inicio, fim, this.verFin(user), atual);
   }
 
   @Get('turnos')
   turnos(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Query('inicio') inicio?: string,
     @Query('fim') fim?: string,
   ) {
-    return this.service.turnos(user.tenantId, inicio, fim, this.verFin(user));
+    return this.service.turnos(user.tenantId, inicio, fim, this.verFin(user), atual);
   }
 
   @Get('turnos/:id')
-  turnoDetalhe(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.turnoDetalhe(user.tenantId, id, this.verFin(user));
+  async turnoDetalhe(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Param('id') id: string) {
+    const cupom = await this.service.turnoDetalhe(user.tenantId, id, this.verFin(user), atual);
+    // Turno de outra loja (ou que não existe): não é entregue — e a tela diz isso em vez de esperar.
+    if (!cupom) throw new NotFoundException('Turno não encontrado nesta loja.');
+    return cupom;
   }
 
   // Relatórios puramente financeiros — presidente/C&O apenas.
@@ -115,29 +128,32 @@ export class RelatoriosController {
   @RequirePerm('ver_financeiro')
   faturamento(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Query('inicio') inicio?: string,
     @Query('fim') fim?: string,
   ) {
-    return this.service.faturamentoPeriodo(user.tenantId, inicio, fim);
+    return this.service.faturamentoPeriodo(user.tenantId, inicio, fim, atual);
   }
 
   @Get('faturamento-delivery')
   @RequirePerm('ver_financeiro')
   faturamentoDelivery(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Query('inicio') inicio?: string,
     @Query('fim') fim?: string,
   ) {
-    return this.service.faturamentoDelivery(user.tenantId, inicio, fim);
+    return this.service.faturamentoDelivery(user.tenantId, inicio, fim, atual);
   }
 
   @Get('producao')
   producao(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Query('inicio') inicio?: string,
     @Query('fim') fim?: string,
     @Query('agrupamento') agrupamento?: 'dia' | 'semana' | 'mes',
   ) {
-    return this.service.producao(user.tenantId, inicio, fim, agrupamento, this.verFin(user));
+    return this.service.producao(user.tenantId, inicio, fim, agrupamento, this.verFin(user), atual);
   }
 }

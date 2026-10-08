@@ -18,10 +18,10 @@ import { diaCurto, plural, rs, type PropsDaAba } from '@/components/relatorios/f
 
 const dinheiro = (verFin: boolean, titulo: string, celula: Coluna<any>['celula']): Coluna<any>[] => (verFin ? [{ titulo, celula, classe: 'whitespace-nowrap font-mono' }] : []);
 
-export function AbaCanal({ canal, podeMapa, inicio, fim, chave, versao, verFin, acompanhar }: PropsDaAba & { canal: 'balcao' | 'delivery'; podeMapa?: boolean }) {
+export function AbaCanal({ canal, podeMapa, inicio, fim, todas, chave, versao, verFin, acompanhar }: PropsDaAba & { canal: 'balcao' | 'delivery'; podeMapa?: boolean }) {
   const delivery = canal === 'delivery';
-  const detalhe = useLeitura<any>(() => (delivery ? api.relatorioDelivery(inicio, fim) : api.relatorioBalcao(inicio, fim)), chave, true, versao, acompanhar);
-  const ranking = useLeitura<any>(() => api.relatorioRanking(inicio, fim), chave, !delivery, versao, acompanhar);
+  const detalhe = useLeitura<any>(() => (delivery ? api.relatorioDelivery(inicio, fim, todas) : api.relatorioBalcao(inicio, fim, todas)), chave, true, versao, acompanhar);
+  const ranking = useLeitura<any>(() => api.relatorioRanking(inicio, fim, todas), chave, !delivery, versao, acompanhar);
   const semVendas = !!detalhe.dados && Number(detalhe.dados.resumo?.vendas) === 0;
 
   return (

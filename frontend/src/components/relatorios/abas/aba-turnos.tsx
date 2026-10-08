@@ -17,8 +17,8 @@ import { dataHora, rs } from '@/components/relatorios/formatos';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// ABA TURNOS / CAIXA — `/relatorios/turnos`: os turnos ABERTOS no período (PDV e delivery), ainda
-// abertos ou já fechados. O cupom de fechamento (`/relatorios/turnos/:id`) abre numa gaveta.
+// ABA TURNOS / CAIXA — `/relatorios/turnos`: os turnos ABERTOS no período (PDV e delivery) na
+// loja em uso, ainda abertos ou já fechados. O cupom de fechamento (`/relatorios/turnos/:id`) abre numa gaveta.
 // (O menu "Turnos" é outra tela: só os fechados, da loja em uso, com a reconciliação.)
 
 const ID_TITULO = 'turnos-aba-titulo';
@@ -34,8 +34,8 @@ function DiferencaDoTurno({ turno }: { turno: any }) {
   return <Selo tom={d < 0 ? 'critico' : 'aviso'}>{d > 0 ? '+' : '−'}{rs(Math.abs(d))}</Selo>;
 }
 
-function CupomDoTurno({ turno, aoFechar }: { turno: any; aoFechar: () => void }) {
-  const cupom = useLeitura<any>(() => api.relatorioTurnoDetalhe(turno.id), String(turno.id));
+function CupomDoTurno({ turno, todas, aoFechar }: { turno: any; todas: boolean; aoFechar: () => void }) {
+  const cupom = useLeitura<any>(() => api.relatorioTurnoDetalhe(turno.id, todas), String(turno.id));
   const d = cupom.dados;
   const formas: any[] = d?.porForma ?? [];
   const movimentos: any[] = d?.movimentos ?? [];
@@ -117,7 +117,7 @@ function CupomDoTurno({ turno, aoFechar }: { turno: any; aoFechar: () => void })
   );
 }
 
-export function AbaTurnos({ leitura, verFin }: { leitura: Leitura<any>; verFin: boolean }) {
+export function AbaTurnos({ leitura, verFin, todas }: { leitura: Leitura<any>; verFin: boolean; todas: boolean }) {
   const [busca, setBusca] = useState('');
   const [sit, setSit] = useState(-1);
   const [origem, setOrigem] = useState('');
@@ -192,7 +192,7 @@ export function AbaTurnos({ leitura, verFin }: { leitura: Leitura<any>; verFin: 
       {filtrando && linhas.length > 0 && (
         <p><Button type="button" variant="outline" size="sm" onClick={limpar}>Limpar filtros</Button></p>
       )}
-      {vendo && <CupomDoTurno turno={vendo} aoFechar={() => setVendo(null)} />}
+      {vendo && <CupomDoTurno turno={vendo} todas={todas} aoFechar={() => setVendo(null)} />}
     </section>
   );
 }

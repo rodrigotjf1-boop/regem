@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api, getCategoria, getToken, getUnidadeAtual, podePerm, podeVerFinanceiro } from '@/lib/api';
+import { api, getCategoria, getToken, podePerm, podeVerFinanceiro } from '@/lib/api';
 import { Shell } from '@/components/app-shell/shell';
 import { Partes } from '@/components/ui/partes';
 import { SkeletonList } from '@/components/ui/skeleton';
 import { texto2 } from '@/components/ui/lista';
 import { BarraPeriodo, usePeriodo } from '@/components/relatorios/periodo';
+import { useEscopoDeLoja } from '@/components/relatorios/escopo';
 import { useLeitura, type Acompanhar } from '@/components/relatorios/leitura';
 import type { PropsDaAba } from '@/components/relatorios/formatos';
 import { AbaVendas } from '@/components/relatorios/abas/aba-vendas';
@@ -29,8 +30,9 @@ import { AbaFinanceiro } from '@/components/relatorios/abas/aba-financeiro';
 //  · cada parte lê e falha sozinha (`useLeitura`): a que não veio diz que não veio;
 //  · as abas que são lista mostram a quantidade — turnos e resgates já na abertura da tela;
 //    estoque e produção, depois de abertas.
-// As rotas de venda somam a EMPRESA INTEIRA (não olham a loja em uso); só a aba Estoque obedece
-// a loja — a tela escreve isso.
+// Todo relatório é da LOJA EM USO (decisão do dono, 08/10/2026); o presidente, em empresa com mais
+// de uma loja, pode marcar "Somar todas as lojas" (`useEscopoDeLoja`). Fidelidades e Cashbacks são
+// programas da empresa: não têm loja. A tela escreve de qual loja são os números.
 
 const ABAS = [
   { key: 'vendas', label: 'Vendas' },
@@ -47,11 +49,12 @@ const ABAS = [
 ] as const;
 type Aba = (typeof ABAS)[number]['key'];
 
-type Perfil = { gestor: boolean; gerencia: boolean; verFin: boolean; fidelidade: boolean; cashback: boolean; lojaEmUso: boolean };
+type Perfil = { gestor: boolean; gerencia: boolean; verFin: boolean; fidelidade: boolean; cashback: boolean };
 
 export default function RelatoriosDeVendasPage() {
   const router = useRouter();
   const periodo = usePeriodo('30');
+  const loja = useEscopoDeLoja();
   // Quem é o usuário só se sabe no navegador: até lá a tela não desenha nada que dependa disso.
   const [perfil, setPerfil] = useState<Perfil | null>(null);
   const [aba, setAba] = useState<Aba>('vendas');
@@ -73,7 +76,6 @@ export default function RelatoriosDeVendasPage() {
       verFin: podeVerFinanceiro(),
       fidelidade: gerencia && (categoria === 'presidente' || podePerm('fidelidade')),
       cashback: gerencia && (categoria === 'presidente' || podePerm('cashback')),
-      lojaEmUso: !!getUnidadeAtual(),
     });
     // Quem volta do Mapa de calor (ou chega por um link) cai na aba pedida: `/relatorios?aba=delivery`.
     const pedida = new URLSearchParams(window.location.search).get('aba');
@@ -93,11 +95,11 @@ export default function RelatoriosDeVendasPage() {
 
   const gestor = !!perfil?.gestor;
   const verFin = !!perfil?.verFin;
-  const chave = gestor && periodo.pronto ? `${periodo.inicioTs}|${periodo.fimTs}` : '';
+  const chave = gestor && periodo.pronto ? `${periodo.inicioTs}|${periodo.fimTs}|${loja.total ? 'total' : 'loja'}` : '';
   const { inicioTs, fimTs, de, ate } = periodo;
 
   // As três listas que mostram a quantidade na aba são lidas com a tela.
-  const turnos = useLeitura<any>(() => api.relatorioTurnos(inicioTs, fimTs), chave, gestor, versao, acompanhar);
+  const turnos = useLeitura<any>(() => api.relatorioTurnos(inicioTs, fimTs, loja.total), chave, gestor, versao, acompanhar);
   const fidelidade = useLeitura<any[]>(() => api.fidelidadeRelatorioPeriodo(de, ate) as Promise<any[]>, chave, !!perfil?.fidelidade, versao, acompanhar);
   const cashback = useLeitura<any[]>(() => api.cashbackRelatorio(de, ate) as Promise<any[]>, chave, !!perfil?.cashback, versao, acompanhar);
 
@@ -143,14 +145,15 @@ export default function RelatoriosDeVendasPage() {
   };
   const partes = ABAS.filter((a) => verFin || a.key !== 'financeiro').map((a) => ({ key: a.key, label: a.label, conta: contaDaAba[a.key] ?? null }));
   const ativa: Aba = partes.some((p) => p.key === aba) ? aba : 'vendas';
-  const props: PropsDaAba = { inicio: inicioTs, fim: fimTs, chave, versao, verFin, acompanhar };
-  const escopo = ativa === 'estoque' ? (perfil.lojaEmUso ? 'loja em uso' : 'todas as lojas') : 'todas as lojas da empresa';
+  const props: PropsDaAba = { inicio: inicioTs, fim: fimTs, todas: loja.total, chave, versao, verFin, acompanhar };
+  const semLoja = ativa === 'fidelidade' || ativa === 'cashback'; // programas da empresa
+  const escopo = semLoja ? 'programa da empresa (todas as lojas)' : loja.texto;
 
   return (
     <Shell eyebrow="Relatórios" title="Relatórios de vendas">
       <div className="space-y-4">
         <p className={`text-sm ${texto2}`}>Vendas, caixa, estoque e produção no período escolhido.</p>
-        <BarraPeriodo periodo={periodo} escopo={escopo} comHorario atualizadoEm={atualizadoEm} carregando={pendentes > 0} aoAtualizar={() => setVersao((v) => v + 1)} />
+        <BarraPeriodo periodo={periodo} escopo={escopo} comHorario total={semLoja ? undefined : loja.opcao} atualizadoEm={atualizadoEm} carregando={pendentes > 0} aoAtualizar={() => setVersao((v) => v + 1)} />
         <Partes partes={partes} ativa={ativa} aoEscolher={escolherAba} rotulo="Abas de Relatórios de vendas" />
 
         {!periodo.pronto ? null : ativa === 'vendas' ? (
@@ -162,7 +165,7 @@ export default function RelatoriosDeVendasPage() {
         ) : ativa === 'conferencia' ? (
           <AbaConferencia {...props} />
         ) : ativa === 'turnos' ? (
-          <AbaTurnos leitura={turnos} verFin={verFin} />
+          <AbaTurnos leitura={turnos} verFin={verFin} todas={loja.total} />
         ) : ativa === 'caixa' ? (
           <AbaOperacoes {...props} />
         ) : ativa === 'estoque' ? (

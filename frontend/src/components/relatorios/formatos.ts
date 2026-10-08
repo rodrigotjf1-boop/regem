@@ -21,6 +21,8 @@ export type PropsDaAba = {
   /** Começo e fim do período, com hora ("2026-10-01 00:00:00"), como o servidor recebe. */
   inicio: string;
   fim: string;
+  /** Pede o TOTAL de todas as lojas (só quem vê a rede); falso = a loja em uso. */
+  todas: boolean;
   /** Identifica o período: muda → as leituras refazem. '' = período inválido, não lê. */
   chave: string;
   /** Sobe a cada "Atualizar". */

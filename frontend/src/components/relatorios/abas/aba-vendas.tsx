@@ -14,10 +14,10 @@ import { plural, rs, type PropsDaAba } from '@/components/relatorios/formatos';
 // ABA VENDAS — três leituras, cada uma por si: o resumo (`/relatorios/vendas`), a curva ABC
 // (`/relatorios/produtos`) e os atendentes (`/relatorios/atendentes`).
 
-export function AbaVendas({ inicio, fim, chave, versao, verFin, acompanhar }: PropsDaAba) {
-  const vendas = useLeitura<any>(() => api.relatorioVendas(inicio, fim), chave, true, versao, acompanhar);
-  const produtos = useLeitura<any>(() => api.relatorioProdutos(inicio, fim), chave, true, versao, acompanhar);
-  const atendentes = useLeitura<any>(() => api.relatorioAtendentes(inicio, fim), chave, true, versao, acompanhar);
+export function AbaVendas({ inicio, fim, todas, chave, versao, verFin, acompanhar }: PropsDaAba) {
+  const vendas = useLeitura<any>(() => api.relatorioVendas(inicio, fim, todas), chave, true, versao, acompanhar);
+  const produtos = useLeitura<any>(() => api.relatorioProdutos(inicio, fim, todas), chave, true, versao, acompanhar);
+  const atendentes = useLeitura<any>(() => api.relatorioAtendentes(inicio, fim, todas), chave, true, versao, acompanhar);
   // Sem venda nenhuma, a aba mostra um estado vazio só — não cinco blocos dizendo "sem vendas".
   const semVendas = !!vendas.dados && Number(vendas.dados.resumo?.vendas) === 0;
 

@@ -16,7 +16,7 @@ import { rs, type PropsDaAba } from '@/components/relatorios/formatos';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // ABA ESTOQUE — `/estoque/inteligencia`: saldo, valor, consumo por dia e cobertura de cada insumo.
-// É a única aba que obedece a LOJA EM USO (as de venda somam a empresa inteira).
+// Como as outras abas, é da LOJA EM USO; no total, o servidor soma loja a loja.
 
 const ID_TITULO = 'estoque-aba-titulo';
 const SITUACOES: Situacao<any>[] = [
@@ -107,8 +107,8 @@ function ListaDoEstoque({ dados, verFin, aoContar }: { dados: any; verFin: boole
   );
 }
 
-export function AbaEstoque({ inicio, fim, chave, versao, verFin, acompanhar, aoContar }: PropsDaAba & { aoContar: (n: number) => void }) {
-  const estoque = useLeitura<any>(() => api.estoqueInteligencia(inicio, fim), chave, true, versao, acompanhar);
+export function AbaEstoque({ inicio, fim, todas, chave, versao, verFin, acompanhar, aoContar }: PropsDaAba & { aoContar: (n: number) => void }) {
+  const estoque = useLeitura<any>(() => api.estoqueInteligencia(inicio, fim, todas), chave, true, versao, acompanhar);
   return (
     <div className="space-y-4">
       {!verFin && <AvisoSemValores />}

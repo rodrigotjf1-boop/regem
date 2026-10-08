@@ -91,9 +91,9 @@ function ListaDaProducao({ dados, verFin, agrup, aoContar }: { dados: any; verFi
   );
 }
 
-export function AbaProducao({ inicio, fim, chave, versao, verFin, acompanhar, aoContar }: PropsDaAba & { aoContar: (n: number) => void }) {
+export function AbaProducao({ inicio, fim, todas, chave, versao, verFin, acompanhar, aoContar }: PropsDaAba & { aoContar: (n: number) => void }) {
   const [agrup, setAgrup] = useState<Agrup>('dia');
-  const producao = useLeitura<any>(() => api.relatorioProducao(inicio, fim, agrup), chave ? `${chave}|${agrup}` : '', true, versao, acompanhar);
+  const producao = useLeitura<any>(() => api.relatorioProducao(inicio, fim, agrup, todas), chave ? `${chave}|${agrup}` : '', true, versao, acompanhar);
   return (
     <div className="space-y-4">
       {!verFin && <AvisoSemValores />}

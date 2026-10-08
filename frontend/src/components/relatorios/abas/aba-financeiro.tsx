@@ -16,9 +16,9 @@ import { mesCurto, plural, type PropsDaAba } from '@/components/relatorios/forma
 // faturamento por mês (`/relatorios/faturamento`) e por plataforma de delivery
 // (`/relatorios/faturamento-delivery`), cada um por si.
 
-export function AbaFinanceiro({ inicio, fim, chave, versao, acompanhar, mes, aoEscolherMes }: PropsDaAba & { mes: string; aoEscolherMes: (ym: string) => void }) {
-  const fat = useLeitura<any>(() => api.relatorioFaturamento(inicio, fim), chave, true, versao, acompanhar);
-  const fatDelivery = useLeitura<any>(() => api.relatorioFaturamentoDelivery(inicio, fim), chave, true, versao, acompanhar);
+export function AbaFinanceiro({ inicio, fim, todas, chave, versao, acompanhar, mes, aoEscolherMes }: PropsDaAba & { mes: string; aoEscolherMes: (ym: string) => void }) {
+  const fat = useLeitura<any>(() => api.relatorioFaturamento(inicio, fim, todas), chave, true, versao, acompanhar);
+  const fatDelivery = useLeitura<any>(() => api.relatorioFaturamentoDelivery(inicio, fim, todas), chave, true, versao, acompanhar);
 
   return (
     <div className="space-y-5">

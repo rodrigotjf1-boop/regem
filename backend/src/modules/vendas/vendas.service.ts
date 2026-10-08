@@ -61,6 +61,7 @@ import { VendaBalcaoDto } from './dto/venda-balcao.dto';
 import { VendaExternaPdvDto } from './dto/venda-externa-pdv.dto';
 import { VendaExternaFalhaDto } from './dto/venda-externa-falha.dto';
 import { hojeISO } from '../../common/data';
+import { instanteDe } from '../../common/fuso-sql';
 import { consumirLotes, devolverLotes } from '../../common/lotes';
 import { custoMedioDaSaida } from '../../common/custo-loja';
 
@@ -3060,10 +3061,19 @@ export class VendasService {
   }
 
   // D2: relatório de retiradas de item (com justificativa), lido da auditoria.
-  async remocoesItens(tenantId: string, inicio?: string, fim?: string) {
+  async remocoesItens(tenantId: string, inicio?: string, fim?: string, atual: string | null = null) {
     const cond = [eq(auditLog.tenantId, tenantId), eq(auditLog.acao, 'removeu_item_comanda')];
-    if (inicio) cond.push(sql`${auditLog.createdAt} >= ${inicio}`);
-    if (fim) cond.push(sql`${auditLog.createdAt} <= ${fim + ' 23:59:59'}`);
+    // O período é dia da operação, não da sessão do banco (ERR-120).
+    if (inicio) cond.push(sql`${auditLog.createdAt} >= ${instanteDe(inicio)}`);
+    if (fim) cond.push(sql`${auditLog.createdAt} <= ${instanteDe(fim + ' 23:59:59')}`);
+    // Loja em uso (ERR-187): o registro da auditoria não guarda a loja — vale a da comanda de
+    // onde o item saiu. Sem loja (presidente pedindo o total, ou empresa de uma loja), vem tudo.
+    if (atual)
+      cond.push(
+        sql`exists (select 1 from comanda c
+                     where c.tenant_id = ${tenantId} and c.unidade_id = ${atual}
+                       and c.id = case when ${auditLog.detalhe}->>'comandaId' ~ '^[0-9a-fA-F-]{36}$' then (${auditLog.detalhe}->>'comandaId')::uuid end)`,
+      );
     const rows = await this.db
       .select({
         id: auditLog.id,
