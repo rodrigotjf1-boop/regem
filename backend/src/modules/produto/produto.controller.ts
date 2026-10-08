@@ -18,6 +18,7 @@ import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { ProdutoService } from './produto.service';
 import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
+import { podeAcessar } from '../../auth/permissoes';
 import { CreateProdutoDto } from './dto/create-produto.dto';
 import { CreateCategoriaDto } from './dto/create-categoria.dto';
 
@@ -81,7 +82,10 @@ export class ProdutoController {
   // ----- Opções (catálogo reutilizável, Fase 2) -----
   @Get('opcoes')
   listarOpcoes(@CurrentUser() user: AuthUser) {
-    return this.service.listarOpcoes(user.tenantId);
+    // O custo que vem da ficha segue a regra da própria ficha (GET /fichas): presidente ou
+    // quem tem a permissão "Fichas técnicas".
+    const veCustoDaFicha = user.categoria === 'presidente' || podeAcessar(user.permissoes, 'fichas');
+    return this.service.listarOpcoes(user.tenantId, veCustoDaFicha);
   }
 
   @Post('opcoes')

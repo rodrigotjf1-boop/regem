@@ -21,7 +21,7 @@ import { ehVendaDoTotem, gravarAvisoCancelamentoTotem, resultadoDoAviso } from '
 import { GogemAvisoService } from '../gogem/gogem-aviso.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ehGestor } from '../../auth/niveis';
-import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { perfilEfetivo } from '../delivery/cupom-perfis';
 import {
@@ -30,8 +30,10 @@ import {
   comandaItem,
   comandaPagamento,
   comandaItemComplemento,
+  complemento,
   complementoGrupo,
   complementoOpcao,
+  opcao,
   produto,
   produtoVariacao,
   produtoComboItem,
@@ -50,6 +52,7 @@ import {
   producaoPedido,
 } from '../../db/schema';
 import { precoComAtacado } from '../../common/preco-atacado';
+import { REGRA_COM_REPETICAO, textoDasEscolhas, vezesPorOpcao } from '../../common/adicionais';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import {
   ProducaoPedidoService,
@@ -66,6 +69,9 @@ import { consumirLotes, devolverLotes } from '../../common/lotes';
 import { custoMedioDaSaida } from '../../common/custo-loja';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+// Etapa sem máximo: até quantas vezes a mesma opção pode ser repetida num item.
+const MAX_REPETICAO_SEM_LIMITE = 99;
 
 @Injectable()
 export class VendasService {
@@ -412,6 +418,18 @@ export class VendasService {
       const q = (Number(c.quantidade) || 1) * quantidade;
       if (q > 0) consumo.set(c.itemId, (consumo.get(c.itemId) ?? 0) + q);
     }
+    // Adicional ligado a uma FICHA TÉCNICA (opção do catálogo "preparado na loja"): a ficha da
+    // opção é explodida como a de um produto — é ela que diz o que sai do estoque e, pelo custo
+    // médio de cada insumo, quanto o adicional custou (dono, 08/10/2026: "a ficha é o custo").
+    // Cada escolha vale UMA porção da ficha; repetida, uma porção por vez.
+    const fichaDoAdicional = await this.fichasDosAdicionais(tx, tenantId, complementos);
+    for (const c of complementos) {
+      const fichaId = c.opcaoId ? fichaDoAdicional.get(c.opcaoId) : undefined;
+      if (!fichaId) continue;
+      const q = (Number(c.quantidade) || 1) * quantidade;
+      if (q > 0)
+        await this.acumularFicha(tx, tenantId, fichaId, q, consumo, new Set(), incluirDelivery);
+    }
     // Combo por etapa (L5): opção 'escolha' vinculada a um produto real (ex.: a
     // bebida escolhida) → explode a ficha/estoque do produto referenciado.
     for (const c of complementos.filter((x) => x.produtoRefId)) {
@@ -429,6 +447,49 @@ export class VendasService {
       const q = (Number(c.quantidade) || 1) * quantidade;
       await this.acumularProduto(tx, tenantId, ref, 1, q, [], consumo, incluirDelivery);
     }
+  }
+
+  // Ficha técnica de cada adicional escolhido: opção do item (`complemento_opcao.id`) → ficha.
+  //
+  // O vínculo mora na opção REUTILIZÁVEL do catálogo (`opcao.ficha_id`, tipo "ficha"); a opção
+  // do produto aponta para ela por `origem_opcao_id`. Baixa pela MESMA regra do adicional ligado
+  // a insumo: opção real (com código PDV) e com "Controlar estoque" ligado.
+  //
+  // Sem filtro de `deleted_at` de propósito: o catálogo, ao ser salvo, recria as opções do
+  // produto e marca as anteriores como apagadas — a comanda aberta antes disso aponta para a
+  // linha antiga, e o que foi vendido precisa sair do estoque do mesmo jeito. A ficha excluída,
+  // essa sim, não baixa (`acumularFicha`).
+  private async fichasDosAdicionais(
+    tx: any,
+    tenantId: string,
+    complementos: any[],
+  ): Promise<Map<string, string>> {
+    const ids = [
+      ...new Set(
+        complementos
+          .filter((c) => c.tipo !== 'remover' && c.opcaoId)
+          .map((c) => String(c.opcaoId)),
+      ),
+    ];
+    if (!ids.length) return new Map();
+    const rows = await tx
+      .select({ id: complementoOpcao.id, fichaId: opcao.fichaId })
+      .from(complementoOpcao)
+      .innerJoin(
+        opcao,
+        and(eq(opcao.id, complementoOpcao.origemOpcaoId), eq(opcao.tenantId, tenantId)),
+      )
+      .where(
+        and(
+          eq(complementoOpcao.tenantId, tenantId),
+          inArray(complementoOpcao.id, ids),
+          eq(opcao.tipo, 'ficha'),
+          isNotNull(opcao.fichaId),
+          eq(complementoOpcao.controlaEstoque, true),
+          sql`btrim(coalesce(${complementoOpcao.codigoPdv}, '')) <> ''`,
+        ),
+      );
+    return new Map(rows.map((r: any) => [String(r.id), String(r.fichaId)]));
   }
 
   // Insere um movimento de saída por item agregado (ref = venda/comanda → reversível).
@@ -580,39 +641,66 @@ export class VendasService {
         controlaEstoque: complementoOpcao.controlaEstoque,
         tipo: complementoGrupo.tipo,
         gProduto: complementoGrupo.produtoId,
+        gMax: complementoGrupo.max,
+        // A regra da etapa vem do complemento reutilizável de origem (o grupo não a guarda).
+        regra: complemento.regra,
       })
       .from(complementoOpcao)
       .innerJoin(
         complementoGrupo,
         eq(complementoGrupo.id, complementoOpcao.grupoId),
       )
+      .leftJoin(
+        complemento,
+        and(
+          eq(complemento.id, complementoGrupo.origemComplementoId),
+          eq(complemento.tenantId, tenantId),
+        ),
+      )
       .where(
         and(
           eq(complementoOpcao.tenantId, tenantId),
-          inArray(complementoOpcao.id, opcaoIds),
+          inArray(complementoOpcao.id, [...new Set(opcaoIds.filter(Boolean))]),
         ),
       );
+    const porId = new Map<string, any>(opcoes.map((o: any) => [String(o.id), o]));
+    // A MESMA opção pode vir N vezes ("+1 fatia de bacon" duas vezes): N preços e N baixas —
+    // só onde a etapa permite repetir (a mesma regra do cardápio). Antes, a repetição era
+    // engolida aqui (`inArray`): o cliente da mesa escolhia 3 e a comanda cobrava e baixava 1.
+    const vezes = vezesPorOpcao(
+      opcaoIds,
+      (id) => porId.get(id)?.regra === REGRA_COM_REPETICAO,
+    );
     const snapshots: any[] = [];
     let precoDelta = 0;
-    for (const o of opcoes) {
+    // Na ordem em que a pessoa escolheu (a do banco não é garantida).
+    for (const [id, pedidas] of vezes) {
+      const o = porId.get(id);
+      if (!o) continue; // id que não existe → ignora
+      // Teto: o máximo da etapa, ou 99 — cada vez vira uma linha gravada, e este caminho também
+      // recebe o pedido do cliente na mesa (QR), que não passa pela validação do cardápio.
+      const n = Math.min(pedidas, o.gMax != null ? Math.max(1, Number(o.gMax) || 1) : MAX_REPETICAO_SEM_LIMITE);
       if (o.gProduto !== produtoId) continue; // não é deste produto → ignora
       // mig 126 — SEM código PDV a opção é INFORMATIVA (observação de preparo:
       // "ponto de carne", "talheres"): não soma preço nem baixa estoque; entra só
       // como snapshot/nota na comanda e no ticket de produção.
       const informativa = !(o.codigoPdv ?? '').trim();
-      if (!informativa) precoDelta += Number(o.precoDelta) || 0;
-      snapshots.push({
-        opcaoId: o.id,
-        tipo: o.tipo,
-        nome: o.nome,
-        precoDelta: informativa ? '0' : o.precoDelta,
-        informativa,
-        // Links de baixa só valem para opção real COM controle de estoque.
-        fichaIngredienteId: o.fichaIngredienteId, // 'remover' vale mesmo informativa
-        itemId: informativa || !o.controlaEstoque ? null : o.itemId,
-        produtoRefId: informativa ? null : o.produtoRefId,
-        quantidade: o.quantidade,
-      });
+      if (!informativa) precoDelta += (Number(o.precoDelta) || 0) * n;
+      // Uma linha por vez escolhida: quem soma preço ou baixa estoque lendo as linhas da
+      // comanda chega ao total certo sem saber de repetição.
+      for (let i = 0; i < n; i++)
+        snapshots.push({
+          opcaoId: o.id,
+          tipo: o.tipo,
+          nome: o.nome,
+          precoDelta: informativa ? '0' : o.precoDelta,
+          informativa,
+          // Links de baixa só valem para opção real COM controle de estoque.
+          fichaIngredienteId: o.fichaIngredienteId, // 'remover' vale mesmo informativa
+          itemId: informativa || !o.controlaEstoque ? null : o.itemId,
+          produtoRefId: informativa ? null : o.produtoRefId,
+          quantidade: o.quantidade,
+        });
     }
     return { snapshots, precoDelta };
   }
@@ -803,10 +891,7 @@ export class VendasService {
 
         await this.acumularProduto(tx, tenantId, p, fatorFicha, qtdVenda, snapshots, consumo);
 
-        const compTexto =
-          snapshots
-            .map((s: any) => `${s.tipo === 'remover' ? 'sem' : '+'} ${s.nome}`)
-            .join(' · ') || null;
+        const compTexto = textoDasEscolhas(snapshots);
         viaClienteItens.push({
           quantidade: qtdVenda,
           descricao,
@@ -1088,8 +1173,8 @@ export class VendasService {
         .select({ tipo: comandaItemComplemento.tipo, nome: comandaItemComplemento.nome })
         .from(comandaItemComplemento)
         .where(eq(comandaItemComplemento.comandaItemId, it.id));
-      const compTexto =
-        comps.map((s) => `${s.tipo === 'remover' ? 'sem' : '+'} ${s.nome}`).join(' · ') || null;
+      // Pedido do nosso cardápio já traz as escolhas na descrição do item: não repete.
+      const compTexto = textoDasEscolhas(comps, it.descricao);
       viaClienteItens.push({
         quantidade: Number(it.quantidade),
         descricao: it.descricao,
@@ -1156,8 +1241,8 @@ export class VendasService {
         .select({ tipo: comandaItemComplemento.tipo, nome: comandaItemComplemento.nome })
         .from(comandaItemComplemento)
         .where(eq(comandaItemComplemento.comandaItemId, it.id));
-      const compTexto =
-        comps.map((s) => `${s.tipo === 'remover' ? 'sem' : '+'} ${s.nome}`).join(' · ') || null;
+      // Pedido do nosso cardápio já traz as escolhas na descrição do item: não repete.
+      const compTexto = textoDasEscolhas(comps, it.descricao);
       viaClienteItens.push({
         quantidade: Number(it.quantidade),
         descricao: it.descricao,
@@ -1297,6 +1382,26 @@ export class VendasService {
               `${dto.plataforma ?? 'canal'}: adicional sem vínculo de código PDV em ` +
                 `"${it.descricao}" — não baixou estoque: ${naoLigados.join(', ')}`,
             );
+        } else if (p && it.complementos?.length) {
+          // Escolhas feitas no NOSSO cardápio (ids das opções). Antes só serviam para rotear a
+          // cozinha: nada era gravado, e a conclusão do pedido — que relê daqui — baixava o
+          // produto sem o adicional e sem respeitar o "sem cebola". Gravadas como as do balcão,
+          // pela mesma regra (código PDV, "Controlar estoque", repetição onde a etapa permite).
+          // O preço não muda: o cardápio já mandou o unitário com os adicionais somados.
+          const { snapshots } = await this.resolverComplementos(tx, tenantId, p.id, it.complementos);
+          for (const sn of snapshots)
+            await tx.insert(comandaItemComplemento).values({
+              tenantId,
+              comandaItemId: ci.id,
+              opcaoId: sn.opcaoId,
+              tipo: sn.tipo,
+              nome: sn.nome,
+              precoDelta: String(sn.precoDelta),
+              fichaIngredienteId: sn.fichaIngredienteId,
+              itemId: sn.itemId,
+              produtoRefId: sn.produtoRefId,
+              quantidade: String(sn.quantidade),
+            });
         }
         if (p) {
           if (p.vaiParaProducao)
@@ -2423,10 +2528,16 @@ export class VendasService {
             ),
           )
       : [];
-    const itensCom = itens.map((i) => ({
-      ...i,
-      complementos: comps.filter((x) => x.comandaItemId === i.id),
-    }));
+    const itensCom = itens.map((i) => {
+      const complementos = comps.filter((x) => x.comandaItemId === i.id);
+      return {
+        ...i,
+        complementos,
+        // O texto pronto ("+ 2x Bacon · sem Cebola"); null quando a descrição já traz as
+        // escolhas (pedido do nosso cardápio). A tela usa este campo em vez de montar o dela.
+        complementosTexto: textoDasEscolhas(complementos, i.descricao),
+      };
+    });
     return { ...c, itens: itensCom };
   }
 
@@ -2535,10 +2646,7 @@ export class VendasService {
             produto: p,
             descricao,
             quantidade: qtd,
-            complementosTexto:
-              snapshots
-                .map((s: any) => `${s.tipo === 'remover' ? 'sem' : '+'} ${s.nome}`)
-                .join(' · ') || null,
+            complementosTexto: textoDasEscolhas(snapshots),
             observacao: obs,
             comandaItemId: item.id,
             opcaoIds: snapshots.map((s: any) => s.opcaoId), // roteamento por opção/etapa (Fase 1)

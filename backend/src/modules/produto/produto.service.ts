@@ -122,7 +122,8 @@ export class ProdutoService {
   }
 
   // ----- Opções (catálogo reutilizável, Fase 2) -----
-  async listarOpcoes(tenantId: string) {
+  // veCustoDaFicha: quem pede pode ver custo de ficha técnica (a mesma regra de GET /fichas).
+  async listarOpcoes(tenantId: string, veCustoDaFicha = false) {
     // Traz a opção + nome da ficha/insumo ligado (para exibir o tipo com clareza).
     const res: any = await this.db.execute(sql`
       select o.id, o.nome, o.codigo_pdv as "codigoPdv", o.descricao,
@@ -133,12 +134,25 @@ export class ProdutoService {
              f.nome as "fichaNome", i.nome as "itemNome",
              (select count(*)::int from complemento_item ci where ci.opcao_id = o.id and ci.deleted_at is null) as "usado"
       from opcao o
-      left join ficha_tecnica f on f.id = o.ficha_id
+      -- Ficha EXCLUÍDA não conta como vínculo: ela não baixa estoque na venda (acumularFicha),
+      -- então a tela não pode mostrar o adicional como ligado a ela.
+      left join ficha_tecnica f on f.id = o.ficha_id and f.deleted_at is null
       left join item_estoque i on i.id = o.item_id
       where o.tenant_id = ${tenantId} and o.deleted_at is null
       order by o.nome
     `);
-    return res.rows ?? res;
+    const rows = (res.rows ?? res) as any[];
+    // "A ficha é o custo" (dono, 08/10/2026): o adicional ligado a uma ficha técnica custa o
+    // que UMA porção dela custa — é essa porção que a venda baixa do estoque. O "preço de
+    // custo" digitado segue valendo para as opções sem ficha.
+    const temFicha = rows.some((o) => o.tipo === 'ficha' && o.fichaNome);
+    const custoDaFicha = veCustoDaFicha && temFicha ? await this.fichas.custoPorPorcao(tenantId) : {};
+    return rows.map((o) => {
+      const c = o.tipo === 'ficha' && o.fichaNome ? custoDaFicha[o.fichaId] : undefined;
+      // null = sem ficha ligada, ou quem pede não vê custo de ficha. Em centavos, como o
+      // "custo por porção" da tela de fichas — o mesmo número nos dois lugares.
+      return { ...o, custoFicha: c ? Number(c.balcao.toFixed(2)) : null };
+    });
   }
 
   // ----- Complementos (etapas reutilizáveis, Fase 3) -----
