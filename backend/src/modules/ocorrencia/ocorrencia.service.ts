@@ -7,6 +7,7 @@ import {
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { tipoOcorrencia, ocorrencia } from '../../db/schema';
+import { hojeISO } from '../../common/data';
 import { CreateTipoOcorrenciaDto } from './dto/create-tipo.dto';
 import { CreateOcorrenciaDto } from './dto/create-ocorrencia.dto';
 
@@ -70,7 +71,7 @@ export class OcorrenciaService {
         gravidade: dto.gravidade ?? 'leve',
         descricao: dto.descricao,
         setorId: dto.setorId,
-        data: dto.data,
+        data: dto.data ?? hojeISO(),
       })
       .returning();
     return row;

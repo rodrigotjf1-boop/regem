@@ -19,6 +19,7 @@ import {
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ponderarCustoDaEntrada } from '../../common/custo-loja';
+import { hojeISO } from '../../common/data';
 import { sqlUnidade, condUnidade, condUnidadeOuRede } from '../../common/filtro-unidade';
 import type { Periodo } from '../../common/periodo';
 import { CreateRecebimentoDto } from './dto/create-recebimento.dto';
@@ -96,7 +97,7 @@ export class RecebimentoService {
           tenantId,
           unidadeId: unidadeIdRec ?? undefined,
           fornecedorId: dto.fornecedorId,
-          data: dto.data ?? undefined,
+          data: dto.data ?? hojeISO(),
           vencimento: dto.vencimento ?? undefined,
           notaRef: dto.notaRef,
           notaFotoRef: dto.notaFotoRef,

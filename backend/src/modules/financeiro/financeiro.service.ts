@@ -992,6 +992,7 @@ export class FinanceiroService {
     await this.db.insert(ocorrencia).values({
       tenantId,
       colaboradorId: atorId,
+      data: hojeISO(),
       tipoId: tipo.id,
       autorId: atorId,
       sinal: 'negativo',

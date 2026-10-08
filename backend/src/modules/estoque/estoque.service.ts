@@ -665,7 +665,7 @@ export class EstoqueService {
         tipo: dto.tipo,
         quantidade,
         motivo: dto.motivo,
-        data: dto.data,
+        data: dto.data ?? hojeISO(),
       })
       .returning();
     // Auditoria: movimento manual de estoque (entrada/saída/ajuste).
