@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, getToken } from '@/lib/api';
 import { rotuloSenha } from '@/lib/senha';
+import { textosDasEscolhas } from '@/lib/adicionais';
 import { toast } from '@/lib/toast';
 import { uuid } from '@/lib/uuid';
 import { Shell } from '@/components/app-shell/shell';
@@ -15,6 +16,7 @@ import { CaixaPanel } from '@/components/pdv/caixa-panel';
 import { AcertosSalao } from '@/components/pdv/acertos-salao';
 import { TerminalGate } from '@/components/pdv/terminal-gate';
 import { BuscarCupom } from '@/components/pdv/buscar-cupom';
+import { GrupoDeOpcoes } from '@/components/pdv/grupo-de-opcoes';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -170,9 +172,9 @@ export default function PdvPage() {
     for (const id of pickOpc) {
       const o = todasOpcoes.find((x) => x.id === id);
       if (!o) continue;
-      preco += Number(o.precoDelta) || 0;
-      partes.push(o.tipo === 'remover' ? `sem ${o.nome}` : `+ ${o.nome}`);
+      preco += Number(o.precoDelta) || 0; // opção repetida soma uma vez por escolha
     }
+    partes.push(...textosDasEscolhas(pickOpc, todasOpcoes)); // "+ 2x Bacon"
     const obs = pickObs.trim() || undefined;
     const subPartes = [...partes];
     if (obs) subPartes.push(`obs: ${obs}`);
@@ -188,9 +190,6 @@ export default function PdvPage() {
     setPicker(null);
   }
 
-  function toggleOpc(id: string) {
-    setPickOpc((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
-  }
 
   const subtotal = carrinho.reduce((s, i) => s + i.preco * i.qtd, 0);
   const total = subtotal * (taxa ? 1.1 : 1);
@@ -673,35 +672,7 @@ export default function PdvPage() {
               )}
 
               {(picker.complementos as any[]).map((g) => (
-                <div key={g.id} className="mb-3">
-                  <p className="mb-1.5 text-xs font-semibold text-muted-foreground">
-                    {g.nome}{' '}
-                    <span className="font-normal">
-                      ({g.tipo === 'remover' ? 'retirar' : 'adicionar'})
-                    </span>
-                  </p>
-                  <div className="space-y-1">
-                    {(g.opcoes ?? []).map((o: any) => (
-                      <label
-                        key={o.id}
-                        className={`flex cursor-pointer items-center gap-2 rounded-lg border p-2.5 ${pickOpc.includes(o.id) ? 'border-primary bg-primary/10' : 'border-border'}`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={pickOpc.includes(o.id)}
-                          onChange={() => toggleOpc(o.id)}
-                          className="h-4 w-4 accent-primary"
-                        />
-                        <span className="flex-1 text-sm">{o.nome}</span>
-                        {Number(o.precoDelta) > 0 && (
-                          <span className="font-mono text-xs text-primary">
-                            + {brl(Number(o.precoDelta))}
-                          </span>
-                        )}
-                      </label>
-                    ))}
-                  </div>
-                </div>
+                <GrupoDeOpcoes key={g.id} grupo={g} escolhidas={pickOpc} onMudar={setPickOpc} />
               ))}
 
               <div className="mt-1">
