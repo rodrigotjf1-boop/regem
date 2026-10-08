@@ -17,9 +17,13 @@ import { lerCookieSessao } from './cookie-sessao';
 const CACHE_MS = 30_000;
 
 // Valida o Bearer token e injeta req.user. Além de conferir a assinatura do JWT,
-// REVALIDA o colaborador no banco (com cache curto): se foi bloqueado ou teve o
+// REVALIDA o colaborador no banco (com cache curto): se foi bloqueado, EXCLUÍDO ou teve o
 // perfil/permissões alterados, vale na hora — sem esperar o token expirar (12h).
 // Efeito colateral bom: mudança de permissão NÃO exige relogar.
+//
+// Excluir em Cadastros é exclusão lógica (`deleted_at`): a linha continua lá, com `status`
+// "ativo". Olhando só o status, quem era excluído e já estava logado seguia com acesso até o
+// token vencer — o login recusava, a sessão aberta não (ERR-192).
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   constructor(
@@ -29,7 +33,7 @@ export class JwtAuthGuard implements CanActivate {
 
   private cache = new Map<
     string,
-    { exp: number; status: string; categoria: string; permissoes?: Permissoes }
+    { exp: number; status: string; excluido: boolean; categoria: string; permissoes?: Permissoes }
   >();
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -93,6 +97,9 @@ export class JwtAuthGuard implements CanActivate {
     try {
       const fresh = await this.estado(payload.sub);
       if (fresh) {
+        if (fresh.excluido) {
+          throw new UnauthorizedException('Acesso encerrado. Fale com o presidente/C&O.');
+        }
         if (fresh.status === 'bloqueado') {
           throw new UnauthorizedException('Acesso bloqueado. Fale com o presidente/C&O.');
         }
@@ -100,7 +107,7 @@ export class JwtAuthGuard implements CanActivate {
         req.user.permissoes = fresh.permissoes;
       }
     } catch (e) {
-      // Bloqueio é decisão de segurança — propaga. Erro de banco (indisponível)
+      // Bloqueio e exclusão são decisão de segurança — propagam. Erro de banco (indisponível)
       // não derruba a sessão: segue com os dados do token.
       if (e instanceof UnauthorizedException) throw e;
     }
@@ -137,6 +144,7 @@ export class JwtAuthGuard implements CanActivate {
     const [row] = await this.db
       .select({
         status: colaborador.status,
+        deletedAt: colaborador.deletedAt,
         perfilNivel: perfilAcesso.nivel,
         funcaoCategoria: funcao.categoria,
         permissoes: perfilAcesso.permissoes,
@@ -150,6 +158,7 @@ export class JwtAuthGuard implements CanActivate {
     const val = {
       exp: Date.now() + CACHE_MS,
       status: (row.status ?? 'ativo') as string,
+      excluido: !!row.deletedAt,
       categoria,
       // Sem perfil associado (ex.: colaborador sem função ainda), usa o padrão do
       // nível — MESMO fallback do login. Sem isto a revalidação zerava as

@@ -463,6 +463,8 @@ export class AuthService {
         and(
           eq(colaborador.tenantId, uni.tenantId),
           isNotNull(colaborador.pinHash),
+          // Excluído não entra por PIN (o login por senha já recusava — ERR-192).
+          isNull(colaborador.deletedAt),
         ),
       );
 

@@ -123,6 +123,9 @@
   ⚠️ **O recorte por loja não mudou:** os relatórios de venda continuam somando a empresa inteira e só a aba Estoque obedece a loja em uso — agora a tela escreve isso (ERR-187, decisão do dono em aberto).
   ⚠️ **Servidor da loja ainda na 1.30.x:** a loja continua com a tela antiga até o `.zip`.
   ⚠️ **Ordem de deploy:** nenhuma migration.
+- **Colaborador excluído perde a sessão e não entra por PIN (segurança) — sem migration; MUDA O SERVIDOR (login e verificação de sessão) — entra no próximo `.zip` (não toca `backend/edge/` nem o sync).** Excluir em Cadastros é exclusão lógica (`deleted_at`) e deixa o `status` em "ativo". A verificação de sessão revalidava só o status: quem era excluído e já estava logado seguia com acesso no mesmo aparelho até o token vencer (12 h), e ainda entrava pelo PIN do terminal. Agora a sessão do excluído é recusada em até 30 segundos (a mesma janela do bloqueio) e o PIN dele é recusado. O login por senha já recusava.
+  ⚠️ **Servidor da loja ainda na 1.30.x:** na loja o defeito continua até o `.zip` — até lá, para tirar o acesso de alguém na hora, **bloquear** a pessoa antes de excluir.
+  ⚠️ **Ordem de deploy:** nenhuma migration.
 
 ## Última release: `1.30.2` — gerada em 30/09/2026 da `origin/main` `3e81449`, **.exe COMPILADO** e publicado (`instaladores/RegemEdgeSetup.exe`, 92.720.473 bytes, SHA-256 `91fdd1fd8b6b442c820222512f3d2ac0ae3f2e9ddad9e4ad84a03e7091ae90ad`, download público conferido); sem `.zip`
 
