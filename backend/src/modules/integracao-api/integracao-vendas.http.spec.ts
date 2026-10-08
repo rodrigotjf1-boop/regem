@@ -9,6 +9,7 @@ import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { DRIZZLE } from '../../db/drizzle.module';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { CfThrottlerGuard } from '../../common/cf-throttler.guard';
 import { CloudOnlyGuard } from '../../common/cloud-only.guard';
 import { DashboardService } from '../dashboard/dashboard.service';
@@ -314,7 +315,7 @@ descrever('API de integração — vendas (GET /pedidos e /clientes/anonimizados
     delete process.env.EDGE_MODE; // a API é da NUVEM
     await pool.query(`create schema ${SCHEMA}`);
     for (const t of FONTES) await pool.query(`create table ${SCHEMA}.${t} (like public.${t} including all)`);
-    await pool.query(semFkCompartilhada(mig('295_integracao_token_loja.sql')));
+    await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(mig('295_integracao_token_loja.sql'))));
     await pool.query(mig('296_integracao_versao_vendas.sql'));
     await pool.query(mig('297_pedido_externo_comanda_idx.sql'));
     const conf299 = (await pool.query(mig('299_pedido_origem.sql')) as any) as any[];
