@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
+import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { registrarSaida } from '../../common/consentimento-marketing';
 import { CampanhaService } from '../campanha/campanha.service';
 import { fichaDoContrato, sqlFichasContato } from '../integracao-api/contato-integracao';
@@ -105,7 +106,7 @@ descrever('promoções pelo WhatsApp no cardápio (Postgres real)', () => {
         id uuid primary key default gen_random_uuid(), tenant_id uuid not null, unidade_id uuid,
         papel text not null, provedor text not null default 'evolution', numero text,
         status text not null default 'desconectado');`);
-    await pool.query(semFkCompartilhada(mig('295_integracao_token_loja.sql')));
+    await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(mig('295_integracao_token_loja.sql'))));
     await pool.query(mig('296_integracao_versao_vendas.sql'));
     for (const n of ['300_marketing_consentimento.sql', '302_integracao_regemcast.sql']) {
       const conf: any = await pool.query(semFkCompartilhada(mig(n)));

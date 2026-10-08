@@ -10,6 +10,7 @@ import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { DRIZZLE } from '../../db/drizzle.module';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { CfThrottlerGuard } from '../../common/cf-throttler.guard';
 import { CloudOnlyGuard } from '../../common/cloud-only.guard';
 import { IntegracaoApiModule } from './integracao-api.module';
@@ -228,7 +229,7 @@ descrever('API de integração — avisos (PUT/GET/DELETE /integracao/webhook e 
       `alter table ${SCHEMA}.cupom_uso add constraint fk_teste_cupom_uso_cupom foreign key (cupom_id) references ${SCHEMA}.cupom (id) on delete cascade`,
     );
     await pool.query(`create trigger trg_bump_updated_at before update on ${SCHEMA}.cupom for each row execute function public.bump_updated_at()`);
-    await pool.query(semFkCompartilhada(mig('295_integracao_token_loja.sql')));
+    await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(mig('295_integracao_token_loja.sql'))));
     await pool.query(mig('296_integracao_versao_vendas.sql'));
     await pool.query(mig('297_pedido_externo_comanda_idx.sql'));
     await pool.query(mig('298_integracao_cupons.sql'));

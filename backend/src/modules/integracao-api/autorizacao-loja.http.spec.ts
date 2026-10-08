@@ -12,6 +12,7 @@ import { DRIZZLE } from '../../db/drizzle.module';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
+import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { CfThrottlerGuard } from '../../common/cf-throttler.guard';
 import { CloudOnlyGuard } from '../../common/cloud-only.guard';
 import { AutorizacaoLojaModule } from './autorizacao-loja.module';
@@ -185,7 +186,7 @@ descrever('autorização pela loja — página, troca do código e aplicativos c
     guardar(CFG.envRedirect, VOLTA);
     await pool.query(`create schema ${SCHEMA}`);
     for (const m of ['295_integracao_token_loja.sql', '303_integracao_autorizacao.sql']) {
-      await pool.query(semFkCompartilhada(readFileSync(join(MIGS, m), 'utf8')));
+      await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(readFileSync(join(MIGS, m), 'utf8'))));
     }
     const [fk] = await q(
       `select count(*)::int n from pg_constraint c join pg_namespace s on s.oid = c.connamespace

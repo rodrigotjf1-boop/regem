@@ -9,6 +9,7 @@ import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { DRIZZLE } from '../../db/drizzle.module';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { CfThrottlerGuard } from '../../common/cf-throttler.guard';
 import { CloudOnlyGuard } from '../../common/cloud-only.guard';
 import { ProdutoService } from '../produto/produto.service';
@@ -297,7 +298,7 @@ descrever('API de integração — RegemCast (token da empresa, GET /clientes e 
         id uuid primary key default gen_random_uuid(), tenant_id uuid not null, telefone text not null,
         cliente_id uuid, motivo text, criado_em timestamptz not null default now());
       create unique index on ${SCHEMA}.marketing_optout (tenant_id, telefone);`);
-    await pool.query(semFkCompartilhada(mig('295_integracao_token_loja.sql')));
+    await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(mig('295_integracao_token_loja.sql'))));
     await pool.query(mig('296_integracao_versao_vendas.sql'));
     await pool.query(mig('297_pedido_externo_comanda_idx.sql'));
     for (const n of ['299_pedido_origem.sql', '300_marketing_consentimento.sql', '302_integracao_regemcast.sql']) {

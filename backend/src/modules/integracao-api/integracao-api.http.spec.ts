@@ -9,6 +9,7 @@ import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { DRIZZLE } from '../../db/drizzle.module';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { CfThrottlerGuard } from '../../common/cf-throttler.guard';
 import { CloudOnlyGuard } from '../../common/cloud-only.guard';
 import { IntegracaoApiModule } from './integracao-api.module';
@@ -152,7 +153,7 @@ descrever('API de integração — token por loja', () => {
     delete process.env.EDGE_MODE; // a API é da NUVEM
     process.env.CARDAPIO_PUBLIC_URL = 'https://cardapio.teste';
     await pool.query(`create schema ${SCHEMA}`);
-    await pool.query(semFkCompartilhada(readFileSync(MIG, 'utf8')));
+    await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(readFileSync(MIG, 'utf8'))));
     const [fk] = await q(
       `select count(*)::int n from pg_constraint c join pg_namespace s on s.oid = c.connamespace
         where s.nspname = $1 and c.contype = 'f'
