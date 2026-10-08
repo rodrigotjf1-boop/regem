@@ -8,6 +8,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  MaxLength,
   MinLength,
   ValidateNested,
 } from 'class-validator';
@@ -66,6 +67,13 @@ export class CreateProdutoDto {
   @IsOptional()
   @IsUUID()
   itemId?: string;
+
+  // Unidade em que cada venda baixa o item do estoque (mig 309): a do estoque (fardo) ou uma
+  // convertida do cadastro dele (unidade). Vazio = a do estoque.
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  itemUnidade?: string | null;
 
   @IsOptional()
   @IsIn(['simples', 'variavel', 'combo'])

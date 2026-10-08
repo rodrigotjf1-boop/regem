@@ -1332,6 +1332,10 @@ export const produto = pgTable('produto', {
   // Item de estoque de revenda (industrializado): fonte de custo (custo médio) e
   // baixa direta na venda. null = não é revenda vinculada (mig 148).
   itemId: uuid('item_id'),
+  // Unidade escolhida na ligação (mig 309): null = a do estoque. `itemFator` = quanto da unidade
+  // do ESTOQUE sai a cada unidade vendida (fardo de 12 vendido por unidade → 1/12).
+  itemUnidade: text('item_unidade'),
+  itemFator: numeric('item_fator').notNull().default('1'),
   tipo: text('tipo').notNull().default('simples'), // simples | variavel | combo
   unidadeMedida: text('unidade_medida').notNull().default('un'),
   precoVenda: numeric('preco_venda').notNull().default('0'),
@@ -1735,6 +1739,9 @@ export const opcao = pgTable('opcao', {
   controlaEstoque: boolean('controla_estoque').notNull().default(false),
   fichaId: uuid('ficha_id'),
   itemId: uuid('item_id'),
+  // Unidade escolhida na ligação com o insumo (mig 309): null = a do estoque. A quantidade que
+  // sai do estoque vai para `complemento_opcao.quantidade` na materialização.
+  itemUnidade: text('item_unidade'),
   produtoRefId: uuid('produto_ref_id'),
   padraoMarcada: boolean('padrao_marcada').notNull().default(false), // pré-selecionada (ex.: Talheres? Sim) — mig 126
   ativo: boolean('ativo').notNull().default(true), // invisível = false

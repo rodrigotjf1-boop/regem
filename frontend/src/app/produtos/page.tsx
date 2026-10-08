@@ -97,6 +97,9 @@ export default function ProdutosPage() {
     novo();
     setModalAba('info');
     setFormAberto(true);
+    // Os itens de estoque só eram carregados ao EDITAR (junto dos complementos): no produto novo
+    // a lista "Item de estoque (revenda)" vinha vazia e não dava para ligar na criação.
+    api.estoqueItens().then((its) => setInsumos(its as any[])).catch(() => {});
   }
   function fecharForm() {
     setFormAberto(false);
@@ -170,6 +173,9 @@ export default function ProdutosPage() {
   async function editar(id: string) {
     try {
       const p: any = await api.produto(id);
+      // O custo calculado só vem na LISTA (a rota de um produto não o calcula): sem isto o campo
+      // "Custo (calculado)" ficava sempre em "Calculado ao salvar" ao editar.
+      const daLista: any = (produtos as any[]).find((x) => x.id === id);
       setEditId(id);
       setModalAba('info');
       setFormAberto(true);
@@ -181,14 +187,15 @@ export default function ProdutosPage() {
         categoriaId: p.categoriaId ?? '',
         fichaId: p.fichaId ?? '',
         itemId: p.itemId ?? '',
+        itemUnidade: p.itemUnidade ?? '',
         tipo: p.tipo ?? 'simples',
         unidadeMedida: p.unidadeMedida ?? 'un',
         precoVenda: p.precoVenda ?? '',
         precoCusto: p.precoCusto ?? '',
         // Custo derivado (read-only, gateado no servidor por ver_financeiro).
-        custoEfetivo: p.custoEfetivo ?? null,
-        custoEfetivoDelivery: p.custoEfetivoDelivery ?? null,
-        custoFonte: p.custoFonte ?? null,
+        custoEfetivo: p.custoEfetivo ?? daLista?.custoEfetivo ?? null,
+        custoEfetivoDelivery: p.custoEfetivoDelivery ?? daLista?.custoEfetivoDelivery ?? null,
+        custoFonte: p.custoFonte ?? daLista?.custoFonte ?? null,
         itemNome: p.itemNome ?? null,
         controlaEstoque: p.controlaEstoque ?? true,
         validadeDias: p.validadeDias ?? '',
@@ -256,8 +263,11 @@ export default function ProdutosPage() {
         nome: f.nome,
         descricao: f.descricao || undefined,
         categoriaId: f.categoriaId || undefined,
-        fichaId: f.fichaId || undefined,
-        itemId: f.itemId || undefined,
+        // null (e não "ausente"): tirar a ficha ou o item precisa CHEGAR ao servidor — ausente
+        // mantém o que estava, e o produto trocado de ficha para revenda seguia baixando a ficha.
+        fichaId: f.fichaId || null,
+        itemId: f.itemId || null,
+        itemUnidade: f.itemId ? f.itemUnidade || null : null,
         tipo: f.tipo,
         unidadeMedida: f.unidadeMedida || 'un',
         precoVenda: Number(String(f.precoVenda).replace(',', '.')) || 0,
