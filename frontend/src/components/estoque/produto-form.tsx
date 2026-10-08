@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Gaveta } from '@/components/ui/sobreposto';
+import { arredondarInformado, unidadesDoProduto } from '@/lib/conversao-unidade';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Opt = { id: string; nome: string };
@@ -188,6 +189,10 @@ export function ProdutoForm({
         ? await api.atualizarItem(item.id, body)
         : await api.post('/estoque/itens', body);
       toast.success(item?.id ? 'Produto atualizado.' : 'Produto cadastrado.');
+      // A conversão mudou e havia ficha usando a unidade convertida: o servidor refez a quantidade
+      // gravada para a ficha continuar com o que foi informado ("2 unidade").
+      if (Number(salvo?.fichasAjustadas) > 0)
+        toast.success(`${salvo.fichasAjustadas} linha(s) de ficha técnica acompanharam a nova conversão.`);
       // Imprime as etiquetas de validade do produto, se pedido (best-effort).
       const produtoId = salvo?.id ?? item?.id;
       if (imprimirEtiq && validade && produtoId) {
@@ -213,6 +218,17 @@ export function ProdutoForm({
   const ajuda = 'text-xs text-secondary-foreground';
   const conta = equivalencia(Number(estoqueMinimo), unidade, conversoes);
   const fatorDaUnidade = conversoes.find((c) => c.unidadeDe === unidade && Number(c.fator) > 0);
+  // Custo por unidade convertida (decisão do dono, 08/10/2026): o custo do cadastro é o da
+  // unidade principal (o do fardo); com "1 fardo = 12 unidade", a unidade custa o do fardo ÷ 12.
+  // Só aparece para quem recebe o custo do servidor (sem "ver valores em R$" ele não vem).
+  const custoPrincipal = Number(item?.custoMedio);
+  const custosConvertidos =
+    custoPrincipal > 0
+      ? unidadesDoProduto(unidade, conversoes)
+          .filter((u) => u.fator !== 1)
+          .map((u) => ({ unidade: u.unidade, custo: arredondarInformado(custoPrincipal * u.fator) }))
+      : [];
+  const reais = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: v < 1 ? 4 : 2 });
 
   return (
     <Gaveta
@@ -372,6 +388,15 @@ export function ProdutoForm({
               </Button>
             </div>
           ))}
+          {custosConvertidos.length > 0 && (
+            <p className={ajuda} role="status" id="produto-custo-convertido">
+              Custo: <b>{reais(custoPrincipal)}</b> por {unidade}
+              {custosConvertidos.map((c) => (
+                <span key={c.unidade}> · <b>{reais(c.custo)}</b> por {c.unidade}</span>
+              ))}
+              . Na ficha técnica você escolhe em qual unidade informa a quantidade.
+            </p>
+          )}
         </div>
 
         {erro && <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">{erro}</p>}
