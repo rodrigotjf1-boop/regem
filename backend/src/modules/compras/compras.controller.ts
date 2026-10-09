@@ -20,6 +20,7 @@ import { AuthUser } from '../../auth/auth-user';
 import { ComprasService } from './compras.service';
 import { CreateCompraListaDto } from './dto/create-compra-lista.dto';
 import { ReceberCompraDto } from './dto/receber-compra.dto';
+import { GerarFaltanteDto } from './dto/gerar-faltante.dto';
 
 // Lista de compras — listar/receber = autenticado (o delegado pode receber);
 // criar/remover = gestão.
@@ -88,5 +89,18 @@ export class ComprasController {
     @Body() dto: ReceberCompraDto,
   ) {
     return this.service.receber(user.tenantId, id, user.colaboradorId, dto, atual);
+  }
+
+  // Lista nova só com o que faltou de uma compra já recebida. É criar lista: mesma porta de `POST listas`.
+  @Post('listas/:id/faltante')
+  @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('estoque', 'criar')
+  gerarListaDoQueFaltou(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
+    @Param('id') id: string,
+    @Body() dto: GerarFaltanteDto,
+  ) {
+    return this.service.gerarListaDoQueFaltou(user.tenantId, id, dto, atual, user.colaboradorId);
   }
 }

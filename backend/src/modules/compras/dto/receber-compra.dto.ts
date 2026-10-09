@@ -9,6 +9,7 @@ import {
   IsString,
   IsUUID,
   Matches,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -18,8 +19,9 @@ export class ConferenciaItemDto {
   @IsUUID()
   compraItemId!: string;
 
-  // 0 é válido — é o "não veio". O que não pode é entrar no estoque a quantidade
-  // PEDIDA quando chegou outra coisa, que é o comportamento de hoje.
+  // 0 é válido — é o "não veio": é o que a tela manda para o item que ficou SEM o marcador de
+  // recebido (aí validade e lote não são pedidos). O que não pode é entrar no estoque a
+  // quantidade PEDIDA quando chegou outra coisa.
   @IsNumber()
   @Min(0)
   qtdRecebida!: number;
@@ -40,6 +42,13 @@ export class ConferenciaItemDto {
   @IsOptional()
   @IsString()
   loteCodigo?: string;
+
+  // A marca que de fato veio (mig 312): a pedida, a 2ª opção ou outra do cadastro do produto.
+  // Em branco, vale a pedida. O estoque continua um só — a marca fica no registro da compra.
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  marcaRecebida?: string;
 
   // Opcional: o servidor deduz de qtdRecebida × quantidade pedida. Vem do cliente
   // só para o caso que a conta não enxerga (chegou tudo, mas danificado).

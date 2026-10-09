@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { Check, List, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { Check, List, ListPlus, Plus, Sparkles, Trash2 } from 'lucide-react';
 import { api, getCategoria, podePerm, podeVerFinanceiro } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
@@ -10,39 +10,33 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { SkeletonList } from '@/components/ui/skeleton';
 import { Dialogo, Gaveta } from '@/components/ui/sobreposto';
-import { faltaMarca, marcaDaLinha, marcasDe, nomeDeApoio, nomeDeCompra } from '@/lib/produto-compra';
+import { faltaMarca, marcaDaLinha, marcasDe, segundaMarcaDaLinha } from '@/lib/produto-compra';
+import { ConferirCompra } from './compra-conferir';
+import { GerarListaDoQueFaltou, VerItensDaCompra } from './compra-itens';
 import { EscolhaProdutos, type Escolha } from './escolha-produtos';
 import {
   FiltroBusca, FiltroSelect, Filtros, ListaDados, NomeComApoio, PERIODOS, PERIODO_PADRAO, Selo, Situacoes, TituloLista, Vazio,
-  brl, consultaDoPeriodo, dataBr, diasAte, distintos, num, semAcento, texto2, type Situacao,
+  brl, consultaDoPeriodo, dataBr, diasAte, distintos, semAcento, texto2, type Situacao,
 } from '@/components/ui/lista';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// Conferência: o que de fato chegou, por linha da compra.
-type Conf = { qtdRecebida: string; validade: string; indefinida: boolean; loteCodigo: string };
-
 const recebida = (l: any) => l.status === 'recebida';
 const atrasada = (l: any) => !recebida(l) && !!l.dataRecebimento && diasAte(l.dataRecebimento) < 0;
+// Itens da lista RECEBIDA que vieram a menos do que o pedido (uma parte, ou nada).
+const comFalta = (l: any) => (recebida(l) ? Number(l.itensComFalta) || 0 : 0);
 const SITUACOES: Situacao<any>[] = [
   { rotulo: 'Aguardando', filtro: (l) => !recebida(l), tom: 'aviso' },
   { rotulo: 'Atrasadas', filtro: atrasada, tom: 'critico' },
   { rotulo: 'Recebidas', filtro: recebida },
+  { rotulo: 'Com falta', filtro: (l) => comFalta(l) > 0, tom: 'aviso' },
 ];
 const ID_TITULO = 'compras-titulo';
 
-// Nos diálogos, a tabela de itens vira blocos em tela estreita (nada rola para o lado) e o
-// cabeçalho some: o título da coluna vai escrito junto do valor. Em cima do campo, na
-// conferência (some a partir de 1024 px); na mesma linha, em "Ver itens" (some a partir de 640 px).
-function RotuloDaColuna({ children }: { children: React.ReactNode }) {
-  return <span className={`block font-sans text-xs font-bold uppercase tracking-wide lg:hidden ${texto2}`}>{children}</span>;
-}
-function RotuloNaLinha({ children }: { children: React.ReactNode }) {
-  return <><span className={`font-sans text-xs font-bold sm:hidden ${texto2}`}>{children}:</span>{' '}</>;
-}
 
 // Aba Compras: as listas de compra — as que aguardam (sempre à vista, com as atrasadas) e as
-// recebidas no período. Gerar a lista abre na gaveta; conferir e receber, ver os itens e
-// excluir, em diálogo.
+// recebidas no período, com a falta de cada uma à vista. Gerar a lista abre na gaveta; conferir e
+// receber (`compra-conferir.tsx`), ver os itens, gerar a lista do que faltou (`compra-itens.tsx`)
+// e excluir, em diálogo.
 export function ComprasSecao({ itens, fornecedores, aoMudarEstoque }: { itens: any[]; fornecedores: any[]; aoMudarEstoque?: () => void }) {
   const [listas, setListas] = useState<any[] | null>(null);
   const [colabs, setColabs] = useState<any[]>([]);
@@ -55,6 +49,8 @@ export function ComprasSecao({ itens, fornecedores, aoMudarEstoque }: { itens: a
   const [novo, setNovo] = useState(false);
   const [conferindo, setConferindo] = useState<any>(null);
   const [vendo, setVendo] = useState<any>(null);
+  // Lista recebida com falta, aberta no diálogo "gerar lista com o que faltou".
+  const [faltou, setFaltou] = useState<any>(null);
   const [excluir, setExcluir] = useState<any>(null);
   const [excluindo, setExcluindo] = useState(false);
   const pedido = useRef(0);
@@ -76,10 +72,11 @@ export function ComprasSecao({ itens, fornecedores, aoMudarEstoque }: { itens: a
   }, [periodo]);
   useEffect(() => { carregar(); }, [carregar]);
 
-  async function abrir(l: any, para: 'conferir' | 'ver') {
+  async function abrir(l: any, para: 'conferir' | 'ver' | 'faltou') {
     try {
       const det: any = await api.compraLista(l.id);
       if (para === 'conferir') setConferindo(det);
+      else if (para === 'faltou') setFaltou(det);
       else setVendo(det);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao abrir a lista');
@@ -174,10 +171,23 @@ export function ComprasSecao({ itens, fornecedores, aoMudarEstoque }: { itens: a
                   ),
                 }]
               : []),
-            { titulo: 'Situação', celula: (l) => (recebida(l) ? <Selo tom="ok">recebida</Selo> : atrasada(l) ? <Selo tom="critico">atrasada</Selo> : <Selo tom="aviso">aguardando</Selo>) },
+            {
+              titulo: 'Situação',
+              celula: (l) => (
+                <>
+                  {recebida(l) ? <Selo tom="ok">recebida</Selo> : atrasada(l) ? <Selo tom="critico">atrasada</Selo> : <Selo tom="aviso">aguardando</Selo>}
+                  {comFalta(l) > 0 && (
+                    <span className="mt-0.5 block text-xs font-semibold">
+                      {comFalta(l)} {comFalta(l) === 1 ? 'item' : 'itens'} com falta{l.temListaDoQueFaltou ? ' · já pedido de novo' : ''}
+                    </span>
+                  )}
+                </>
+              ),
+            },
           ]}
           acoes={(l) => [
             ...(!recebida(l) && podeReceber ? [{ rotulo: 'Conferir e receber', icone: Check, aoClicar: (x: any) => abrir(x, 'conferir'), tom: 'primaria' as const }] : []),
+            ...(comFalta(l) > 0 && !l.temListaDoQueFaltou && podeCriar ? [{ rotulo: 'Gerar lista com o que faltou', icone: ListPlus, aoClicar: (x: any) => abrir(x, 'faltou') }] : []),
             { rotulo: 'Ver itens', icone: List, aoClicar: (x: any) => abrir(x, 'ver') },
             ...(podeExcluir ? [{ rotulo: 'Excluir', icone: Trash2, aoClicar: setExcluir, tom: 'perigo' as const }] : []),
           ]}
@@ -192,15 +202,25 @@ export function ComprasSecao({ itens, fornecedores, aoMudarEstoque }: { itens: a
           aoFechar={() => setNovo(false)} aoSalvar={() => { setNovo(false); carregar(); }} />
       )}
       {conferindo && (
-        <ConferirDialogo lista={conferindo} aoFechar={() => setConferindo(null)}
-          aoReceber={async () => {
+        <ConferirCompra lista={conferindo} aoFechar={() => setConferindo(null)}
+          aoReceber={async (itensComFalta) => {
+            const recebidaAgora = conferindo;
             setConferindo(null);
             await carregar();
             document.getElementById(ID_TITULO)?.focus(); // o botão "Conferir e receber" da linha deixou de existir
             aoMudarEstoque?.();
+            // Veio a menos: a falta fica na lista e a tela já oferece pedir de novo.
+            if (itensComFalta > 0 && podeCriar) abrir(recebidaAgora, 'faltou');
           }} />
       )}
-      {vendo && <VerItensDialogo lista={vendo} verFin={verFin} aoFechar={() => setVendo(null)} />}
+      {vendo && (
+        <VerItensDaCompra lista={vendo} verFin={verFin} podeGerar={podeCriar} aoFechar={() => setVendo(null)}
+          aoGerar={() => { setFaltou(vendo); setVendo(null); }} />
+      )}
+      {faltou && (
+        <GerarListaDoQueFaltou lista={faltou} voltarPara={ID_TITULO} aoFechar={() => setFaltou(null)}
+          aoGerar={async () => { setFaltou(null); await carregar(); document.getElementById(ID_TITULO)?.focus(); }} />
+      )}
       {excluir && (
         <Dialogo alerta titulo="Excluir lista de compras" aoFechar={() => setExcluir(null)} voltarPara={ID_TITULO}
           rodape={
@@ -277,6 +297,7 @@ function NovaListaForm({ itens, fornecedores, colabs, verFin, aoFechar, aoSalvar
           quantidade: Number(l.quantidade),
           custoUnitario: l.custoUnitario ? Number(l.custoUnitario) : undefined,
           marca: marcaDaLinha(marcasDe(porId.get(itemId)), l.marca) || undefined,
+          marcaAlternativa: segundaMarcaDaLinha(marcasDe(porId.get(itemId)), l.marca, l.marcaAlternativa) || undefined,
         })),
       });
       toast.success('Lista de compras criada.');
@@ -348,194 +369,5 @@ function NovaListaForm({ itens, fornecedores, colabs, verFin, aoFechar, aoSalvar
         {erro && <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm font-medium">{erro}</p>}
       </form>
     </Gaveta>
-  );
-}
-
-// ── conferir e receber (diálogo largo) ──────────────────────────────────────────────────────
-// Receber deixou de ser um `confirm()`: a quantidade PEDIDA entrava no estoque mesmo quando
-// chegava outra coisa. Aqui se confere o que chegou; só a quantidade recebida entra.
-function ConferirDialogo({ lista, aoFechar, aoReceber }: { lista: any; aoFechar: () => void; aoReceber: () => void }) {
-  const itens: any[] = lista.itens ?? [];
-  const [conf, setConf] = useState<Record<string, Conf>>(() =>
-    Object.fromEntries(
-      itens.map((it) => [
-        it.id,
-        {
-          qtdRecebida: String(it.quantidade ?? ''), // parte-se do pedido; corrige quem confere
-          validade: '',
-          // Memória por insumo: como ele foi conferido da última vez. A decisão continua na
-          // tela para ser confirmada — só não se redigita.
-          indefinida: !!it.sugestao?.validadeIndefinida,
-          loteCodigo: '',
-        },
-      ]),
-    ),
-  );
-  const [vencimento, setVencimento] = useState(lista.vencimento ? String(lista.vencimento).slice(0, 10) : '');
-  const [erro, setErro] = useState('');
-  const [salvando, setSalvando] = useState(false);
-  const mudar = (id: string, patch: Partial<Conf>) => setConf((c) => ({ ...c, [id]: { ...c[id], ...patch } }));
-  const diferentes = itens.filter((it) => conf[it.id]?.qtdRecebida !== '' && Number(conf[it.id]?.qtdRecebida) !== Number(it.quantidade)).length;
-
-  async function confirmar() {
-    if (salvando) return;
-    const pendente = itens.find((it) => {
-      const c = conf[it.id];
-      return !c || c.qtdRecebida === '' || !(Number(c.qtdRecebida) >= 0) || (!c.validade && !c.indefinida);
-    });
-    if (pendente) {
-      setErro(`Confira "${nomeDeCompra(pendente)}": a quantidade recebida e a validade (ou marque "sem validade").`);
-      return;
-    }
-    setErro('');
-    setSalvando(true);
-    try {
-      await api.receberCompra(lista.id, {
-        vencimento: vencimento || undefined,
-        itens: itens.map((it) => ({
-          compraItemId: it.id,
-          qtdRecebida: Number(conf[it.id].qtdRecebida),
-          validade: conf[it.id].indefinida ? undefined : conf[it.id].validade,
-          validadeIndefinida: conf[it.id].indefinida || undefined,
-          loteCodigo: conf[it.id].loteCodigo.trim() || undefined,
-        })),
-      });
-      toast.success('Compra conferida e recebida — estoque atualizado.');
-      aoReceber();
-    } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro ao receber');
-      setSalvando(false);
-    }
-  }
-
-  return (
-    <Dialogo largura="lg" titulo={`Conferir e receber: ${lista.nome}`} aoFechar={aoFechar} fecharNoFundo={false}
-      rodape={
-        <>
-          <span className={`mr-auto self-center text-sm ${texto2}`} role="status" aria-live="polite">
-            {itens.length} {itens.length === 1 ? 'item' : 'itens'} · {diferentes} com diferença do pedido
-          </span>
-          <Button type="button" variant="outline" onClick={aoFechar} disabled={salvando}>Cancelar</Button>
-          <Button type="button" onClick={confirmar} disabled={salvando}>{salvando ? 'Recebendo…' : 'Confirmar recebimento'}</Button>
-        </>
-      }>
-      <div className="space-y-3 text-sm">
-        <p className={texto2}>Confira o que realmente chegou. Só a quantidade recebida entra no estoque.</p>
-        <div className="overflow-x-auto rounded-lg border border-border">
-          {/* Abaixo de 1024 px a tabela vira blocos — um por item, com o título de cada coluna em
-              cima do campo: nada rola para o lado. */}
-          <table className="block w-full border-collapse lg:table lg:min-w-[680px]">
-            <caption className="sr-only">Conferência dos itens da compra</caption>
-            <thead className="hidden lg:table-header-group">
-              <tr className={`border-b border-border bg-secondary text-left text-xs uppercase tracking-wide ${texto2}`}>
-                <th scope="col" className="px-3 py-2">Item</th>
-                <th scope="col" className="px-3 py-2">Pedido</th>
-                <th scope="col" className="px-3 py-2">Recebido *</th>
-                <th scope="col" className="px-3 py-2">Validade *</th>
-                <th scope="col" className="px-3 py-2">Lote</th>
-              </tr>
-            </thead>
-            <tbody className="block lg:table-row-group">
-              {itens.map((it, n) => {
-                const c = conf[it.id];
-                const pedida = Number(it.quantidade);
-                const rec = Number(c.qtdRecebida);
-                const difere = c.qtdRecebida !== '' && rec !== pedida;
-                const titulo = nomeDeCompra(it); // o que vem escrito na caixa e na nota
-                return (
-                  <tr key={it.id} className="grid grid-cols-2 gap-x-3 gap-y-2 border-b border-border p-3 align-top last:border-b-0 lg:table-row lg:p-0">
-                    <td className="col-span-2 lg:px-3 lg:py-2">
-                      <span className="break-words font-semibold">{titulo}</span>
-                      {it.marca && <span className="block text-xs font-semibold">Marca: {it.marca}</span>}
-                      <span className={`block break-words text-xs ${texto2}`}>{nomeDeApoio(it) ? `No estoque: ${nomeDeApoio(it)} · ` : ''}{it.unidadeMedida}</span>
-                    </td>
-                    <td className="font-mono lg:px-3 lg:py-2"><RotuloDaColuna>Pedido</RotuloDaColuna>{num(pedida)}</td>
-                    <td className="lg:px-3 lg:py-2">
-                      <RotuloDaColuna>Recebido *</RotuloDaColuna>
-                      <Input type="number" min={0} step="any" inputMode="decimal" className={`w-full lg:w-28 ${difere ? 'border-warn' : ''}`} value={c.qtdRecebida}
-                        {...(n === 0 ? { 'data-foco-inicial': true } : {})}
-                        aria-label={`Quantidade recebida de ${titulo}`} onChange={(e) => mudar(it.id, { qtdRecebida: e.target.value })} />
-                      {difere && <span className="mt-0.5 block text-xs font-semibold">{rec === 0 ? 'não veio' : rec < pedida ? 'veio menos' : 'veio mais'}</span>}
-                    </td>
-                    <td className="col-span-2 sm:col-span-1 lg:px-3 lg:py-2">
-                      <RotuloDaColuna>Validade *</RotuloDaColuna>
-                      <Input type="date" className="w-full lg:w-44" value={c.validade} disabled={c.indefinida} aria-label={`Validade de ${titulo}`} onChange={(e) => mudar(it.id, { validade: e.target.value })} />
-                      <label className={`mt-1 flex min-h-8 items-center gap-1.5 text-xs ${texto2}`}>
-                        <input type="checkbox" className="h-4 w-4 accent-primary" checked={c.indefinida} onChange={(e) => mudar(it.id, { indefinida: e.target.checked, validade: '' })} />
-                        sem validade
-                      </label>
-                    </td>
-                    <td className="col-span-2 sm:col-span-1 lg:px-3 lg:py-2">
-                      <RotuloDaColuna>Lote</RotuloDaColuna>
-                      <Input className="w-full lg:w-36" value={c.loteCodigo} placeholder="opcional" aria-label={`Código do lote de ${titulo}`} onChange={(e) => mudar(it.id, { loteCodigo: e.target.value })} />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        <p className={`text-xs ${texto2}`}>O código do lote é opcional, mas é ele que permite separar a mercadoria numa troca ou num recall sem abrir embalagem.</p>
-        <div className="space-y-1.5 sm:max-w-xs">
-          <Label htmlFor="conf-venc">Data de pagamento</Label>
-          <Input id="conf-venc" type="date" value={vencimento} onChange={(e) => setVencimento(e.target.value)} aria-describedby="conf-venc-ajuda" />
-          <p id="conf-venc-ajuda" className={`text-xs ${texto2}`}>Gera a conta a pagar do fornecedor pelo valor CONFERIDO. Em branco, usa o prazo cadastrado do fornecedor.</p>
-        </div>
-        {erro && <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 font-medium">{erro}</p>}
-      </div>
-    </Dialogo>
-  );
-}
-
-// ── ver os itens da lista ───────────────────────────────────────────────────────────────────
-function VerItensDialogo({ lista, verFin, aoFechar }: { lista: any; verFin: boolean; aoFechar: () => void }) {
-  const itens: any[] = lista.itens ?? [];
-  const foiRecebida = recebida(lista);
-  return (
-    <Dialogo largura="lg" titulo={`${lista.nome} · ${itens.length} ${itens.length === 1 ? 'item' : 'itens'}`} aoFechar={aoFechar}
-      rodape={<Button type="button" data-foco-inicial onClick={aoFechar}>Fechar</Button>}>
-      <div className="overflow-x-auto rounded-lg border border-border text-sm">
-        {/* Abaixo de 640 px cada item vira um bloco, com o título da coluna antes do valor. */}
-        <table className="block w-full border-collapse sm:table sm:min-w-[520px]">
-          <caption className="sr-only">Itens da lista de compras</caption>
-          <thead className="hidden sm:table-header-group">
-            <tr className={`border-b border-border bg-secondary text-left text-xs uppercase tracking-wide ${texto2}`}>
-              <th scope="col" className="px-3 py-2">Produto</th>
-              <th scope="col" className="px-3 py-2">Pedido</th>
-              {foiRecebida && <th scope="col" className="px-3 py-2">Recebido</th>}
-              {verFin && <th scope="col" className="px-3 py-2">Custo unitário</th>}
-              {foiRecebida && <th scope="col" className="px-3 py-2">Validade · lote</th>}
-            </tr>
-          </thead>
-          <tbody className="block sm:table-row-group">
-            {itens.map((it) => (
-              <tr key={it.id} className="block space-y-1 border-b border-border p-3 last:border-b-0 sm:table-row sm:space-y-0 sm:p-0">
-                <td className="block sm:table-cell sm:px-3 sm:py-2">
-                  <span className="break-words font-semibold">{nomeDeCompra(it)}</span>
-                  {it.marca && <span className="block text-xs font-semibold">Marca: {it.marca}</span>}
-                  {nomeDeApoio(it) && <span className={`block break-words text-xs ${texto2}`}>No estoque: {nomeDeApoio(it)}</span>}
-                </td>
-                <td className="block font-mono sm:table-cell sm:whitespace-nowrap sm:px-3 sm:py-2"><RotuloNaLinha>Pedido</RotuloNaLinha>{num(it.quantidade)} {it.unidadeMedida}</td>
-                {foiRecebida && (
-                  <td className="block font-mono sm:table-cell sm:whitespace-nowrap sm:px-3 sm:py-2">
-                    <RotuloNaLinha>Recebido</RotuloNaLinha>
-                    {it.qtdRecebida != null ? `${num(it.qtdRecebida)} ${it.unidadeMedida}` : '—'}
-                    {it.qtdRecebida != null && Number(it.qtdRecebida) !== Number(it.quantidade) && <span className="ml-2"><Selo tom="aviso">diferente do pedido</Selo></span>}
-                  </td>
-                )}
-                {verFin && <td className="block font-mono sm:table-cell sm:px-3 sm:py-2"><RotuloNaLinha>Custo unitário</RotuloNaLinha>{it.custoUnitario != null ? brl(it.custoUnitario) : '—'}</td>}
-                {foiRecebida && (
-                  <td className="block sm:table-cell sm:px-3 sm:py-2">
-                    <RotuloNaLinha>Validade · lote</RotuloNaLinha>
-                    {it.validadeIndefinida ? 'sem validade' : it.validade ? dataBr(it.validade) : '—'}{it.loteCodigo ? ` · ${it.loteCodigo}` : ''}
-                  </td>
-                )}
-              </tr>
-            ))}
-            {itens.length === 0 && <tr className="block sm:table-row"><td colSpan={5} className={`block px-3 py-6 text-center sm:table-cell ${texto2}`}>Lista sem itens.</td></tr>}
-          </tbody>
-        </table>
-      </div>
-    </Dialogo>
   );
 }

@@ -78,3 +78,32 @@ export function marcasConhecidas(itens: ComMarcas[]): string[] {
   for (const i of itens) for (const m of marcasDe(i)) if (!vistas.has(chaveDaMarca(m))) vistas.set(chaveDaMarca(m), m);
   return [...vistas.values()].sort((a, b) => a.localeCompare(b, 'pt-BR'));
 }
+
+/** As marcas que podem ser a 2ª opção do pedido: as do produto, menos a 1ª. */
+export function outrasMarcas(marcas: string[], primeira?: string | null): string[] {
+  const chave = chaveDaMarca(primeira);
+  return marcas.filter((m) => chaveDaMarca(m) !== chave);
+}
+
+/**
+ * A 2ª opção de marca que vale para a linha da compra ("se faltar a 1ª, pode vir esta"): só em
+ * produto com duas ou mais marcas, com a 1ª já escolhida, e diferente dela. '' = sem 2ª opção.
+ */
+export function segundaMarcaDaLinha(marcas: string[], primeira?: string | null, segunda?: string | null): string {
+  if (marcas.length < 2 || !marcaDaLinha(marcas, primeira)) return '';
+  const chave = chaveDaMarca(segunda);
+  return (chave && outrasMarcas(marcas, primeira).find((m) => chaveDaMarca(m) === chave)) || '';
+}
+
+/** Quanto faltou do pedido: 0 quando veio tudo ou a mais. Tira a sujeira da conta (10 − 9,7 = 0,3). */
+export function quantoFaltou(pedida: unknown, recebida: unknown): number {
+  const falta = Math.round(((Number(pedida) || 0) - (Number(recebida) || 0)) * 1e6) / 1e6;
+  return falta > 0 ? falta : 0;
+}
+
+/** O que foi pedido, em texto: "Marca: Alfa · 2ª opção: Beta". '' quando o item não tem marca. */
+export function textoDaMarcaPedida(i: { marca?: string | null; marcaAlternativa?: string | null } | null | undefined): string {
+  const marca = limpo(i?.marca);
+  const segunda = limpo(i?.marcaAlternativa);
+  return [marca ? `Marca: ${marca}` : '', segunda ? `2ª opção: ${segunda}` : ''].filter(Boolean).join(' · ');
+}

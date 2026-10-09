@@ -29,6 +29,13 @@ export class CompraItemDto {
   @IsString()
   @MaxLength(60)
   marca?: string;
+
+  // 2ª opção de marca, caso a 1ª falte (mig 312). Só vale em produto com duas ou mais marcas e
+  // tem de ser diferente da 1ª.
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  marcaAlternativa?: string;
 }
 
 export class CreateCompraListaDto {

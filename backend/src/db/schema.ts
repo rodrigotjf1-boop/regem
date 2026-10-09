@@ -757,6 +757,8 @@ export const compraLista = pgTable('compra_lista', {
   enviarDashboard: boolean('enviar_dashboard').notNull().default(true),
   status: text('status').notNull().default('aberta'), // aberta|recebida|cancelada
   recebidaEm: timestamp('recebida_em', { withTimezone: true }),
+  // A lista de onde esta nasceu — "gerar lista com o que faltou" (mig 312). Sem FK: sincroniza nos dois sentidos.
+  origemListaId: uuid('origem_lista_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -783,6 +785,8 @@ export const compraItem = pgTable('compra_item', {
   validadeIndefinida: boolean('validade_indefinida').notNull().default(false),
   loteCodigo: text('lote_codigo'), // código do lote do fabricante
   marca: text('marca'), // marca escolhida para este item da lista (mig 311); texto como estava na compra
+  marcaAlternativa: text('marca_alternativa'), // 2ª opção de marca, se a 1ª faltar (mig 312)
+  marcaRecebida: text('marca_recebida'), // a marca que de fato veio, dita na conferência (mig 312)
   divergencia: text('divergencia').notNull().default('ok'), // ok|parcial|nao_veio|danificado|excedente
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), // mig 243
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // cursor do sync (mig 243)

@@ -27,9 +27,10 @@ import {
 import { condUnidadeOuRede, sqlUnidade, sqlUnidadeOuRede } from '../../common/filtro-unidade';
 import { hojeISO } from '../../common/data';
 import type { Periodo } from '../../common/periodo';
-import { chaveNome, limparNome } from '../estoque/produto-nome';
+import { acharMarca, limparNome } from '../estoque/produto-nome';
 import { CreateCompraListaDto } from './dto/create-compra-lista.dto';
 import { ReceberCompraDto, ConferenciaItemDto } from './dto/receber-compra.dto';
+import { GerarFaltanteDto } from './dto/gerar-faltante.dto';
 
 @Injectable()
 export class ComprasService {
@@ -82,21 +83,30 @@ export class ComprasService {
       );
     // Marca (mig 311): o estoque é um só, mas o PEDIDO diz a marca. Produto com duas ou mais marcas
     // exige a escolha (pedido ambíguo não sai); com uma só, vale ela; sem marca cadastrada, nenhuma.
+    // 2ª opção (mig 312): outra marca do mesmo produto, para o caso de a 1ª faltar — opcional.
     const porId = new Map(produtos.map((p) => [p.id, p]));
     const linhas = dto.itens.map((i) => {
       const p = porId.get(i.itemId)!;
       const marcas: string[] = Array.isArray(p.marcas) ? p.marcas : [];
       const rotulo = p.nomeComercial || p.nome;
       const pedida = limparNome(i.marca);
-      if (!marcas.length) return { ...i, marca: null as string | null };
+      const semSegunda = null as string | null;
+      if (!marcas.length) return { ...i, marca: null as string | null, marcaAlternativa: semSegunda };
       if (!pedida) {
-        if (marcas.length === 1) return { ...i, marca: marcas[0] };
+        if (marcas.length === 1) return { ...i, marca: marcas[0], marcaAlternativa: semSegunda };
         throw new BadRequestException(`Escolha a marca de "${rotulo}": ${marcas.join(', ')}.`);
       }
-      const achada = marcas.find((m) => chaveNome(m) === chaveNome(pedida));
+      const achada = acharMarca(marcas, pedida);
       if (!achada)
         throw new BadRequestException(`"${pedida}" não é marca cadastrada de "${rotulo}". Marcas: ${marcas.join(', ')}.`);
-      return { ...i, marca: achada };
+      const segunda = limparNome(i.marcaAlternativa);
+      if (!segunda || marcas.length < 2) return { ...i, marca: achada, marcaAlternativa: semSegunda };
+      const alternativa = acharMarca(marcas, segunda);
+      if (!alternativa)
+        throw new BadRequestException(`"${segunda}" não é marca cadastrada de "${rotulo}". Marcas: ${marcas.join(', ')}.`);
+      if (alternativa === achada)
+        throw new BadRequestException(`A 2ª opção de "${rotulo}" tem de ser uma marca diferente da 1ª (${achada}).`);
+      return { ...i, marca: achada, marcaAlternativa: alternativa };
     });
 
 
@@ -122,6 +132,7 @@ export class ComprasService {
         quantidade: String(i.quantidade),
         custoUnitario: i.custoUnitario != null ? String(i.custoUnitario) : undefined,
         marca: i.marca,
+        marcaAlternativa: i.marcaAlternativa,
       })),
     );
     return { ...lista, itens: linhas.length };
@@ -150,6 +161,7 @@ export class ComprasService {
         delegadoId: compraLista.delegadoId,
         fornecedorNome: fornecedor.nome,
         delegadoNome: colaborador.nome,
+        origemListaId: compraLista.origemListaId,
       })
       .from(compraLista)
       .leftJoin(fornecedor, eq(compraLista.fornecedorId, fornecedor.id))
@@ -176,17 +188,32 @@ export class ComprasService {
             n: sql<number>`count(*)`,
             valor: sql<string>`coalesce(sum(${compraItem.quantidade} * ${compraItem.custoUnitario}), 0)`,
             semCusto: sql<number>`count(*) filter (where ${compraItem.custoUnitario} is null)`,
+            // Veio menos do que o pedido (uma parte, ou nada): é a falta que a tela mostra na lista recebida.
+            comFalta: sql<number>`count(*) filter (where ${compraItem.qtdRecebida} is not null and ${compraItem.qtdRecebida} < ${compraItem.quantidade})`,
           })
           .from(compraItem)
           .where(inArray(compraItem.listaId, ids))
           .groupBy(compraItem.listaId)
       : [];
     const por = new Map(cnt.map((c: any) => [c.listaId, c]));
+    // Listas que já têm a "lista do que faltou" gerada (uma por origem) — a tela não oferece de novo.
+    const comListaDoQueFaltou = new Set(
+      ids.length
+        ? (
+            await this.db
+              .select({ origem: compraLista.origemListaId })
+              .from(compraLista)
+              .where(and(eq(compraLista.tenantId, tenantId), inArray(compraLista.origemListaId, ids), isNull(compraLista.deletedAt)))
+          ).map((r) => r.origem)
+        : [],
+    );
     return listas.map((l) => ({
       ...l,
       itens: Number(por.get(l.id)?.n ?? 0),
       valorEstimado: verFinanceiro ? Number(por.get(l.id)?.valor ?? 0) : null,
       itensSemCusto: Number(por.get(l.id)?.semCusto ?? 0),
+      itensComFalta: l.status === 'recebida' ? Number(por.get(l.id)?.comFalta ?? 0) : 0,
+      temListaDoQueFaltou: comListaDoQueFaltou.has(l.id),
     }));
   }
 
@@ -211,6 +238,9 @@ export class ComprasService {
         nome: itemEstoque.nome,
         nomeComercial: itemEstoque.nomeComercial, // o que aparece na compra (mig 311); null = usa o nome
         marca: compraItem.marca,
+        marcaAlternativa: compraItem.marcaAlternativa, // 2ª opção, se a 1ª faltar (mig 312)
+        marcaRecebida: compraItem.marcaRecebida, // a que veio de fato
+        marcas: itemEstoque.marcas, // as do cadastro: a conferência escolhe entre elas a que veio
         unidadeMedida: itemEstoque.unidadeMedida,
         quantidade: compraItem.quantidade,
         custoUnitario: compraItem.custoUnitario,
@@ -233,8 +263,23 @@ export class ComprasService {
       tenantId,
       itens.map((i) => i.itemId),
     );
+    // "Lista do que faltou": a que nasceu desta (a mais recente, se houver mais de uma) e a de onde esta nasceu.
+    const [listaDoQueFaltou] = await this.db
+      .select({ id: compraLista.id, nome: compraLista.nome })
+      .from(compraLista)
+      .where(and(eq(compraLista.tenantId, tenantId), eq(compraLista.origemListaId, id), isNull(compraLista.deletedAt)))
+      .orderBy(desc(compraLista.createdAt))
+      .limit(1);
+    const [origem] = lista.origemListaId
+      ? await this.db
+          .select({ id: compraLista.id, nome: compraLista.nome })
+          .from(compraLista)
+          .where(and(eq(compraLista.id, lista.origemListaId), eq(compraLista.tenantId, tenantId)))
+      : [];
     return {
       ...lista,
+      listaDoQueFaltou: listaDoQueFaltou ?? null,
+      origem: origem ?? null,
       itens: itens.map((i) => ({
         ...i,
         custoUnitario: verFinanceiro ? i.custoUnitario : null,
@@ -255,7 +300,7 @@ export class ComprasService {
       from compra_item ci
       where ci.tenant_id = ${tenantId}
         and ci.item_id in ${itemIds}
-        and ci.qtd_recebida is not null
+        and ci.qtd_recebida > 0 -- o que NÃO VEIO não ensina nada sobre a validade do produto
       order by ci.item_id, ci.updated_at desc
     `);
     for (const x of r.rows ?? r)
@@ -370,6 +415,7 @@ export class ComprasService {
       // deixaria linha entrando pela quantidade pedida — exatamente o que este
       // conserto tira do caminho.
       let valorConferido = 0;
+      let comFalta = 0; // linhas em que veio menos do que o pedido (uma parte, ou nada)
       const conf = new Map<string, ConferenciaItemDto>();
       for (const c of dto?.itens ?? []) conf.set(c.compraItemId, c);
       const semConferencia = itens.filter((it) => !conf.has(it.id));
@@ -377,6 +423,20 @@ export class ComprasService {
         throw new BadRequestException(
           `Confira todas as linhas antes de receber (${semConferencia.length} pendente(s)).`,
         );
+      // MARCADOR DE RECEBIMENTO (decisão do dono, 09/10/2026): o item que ficou SEM o marcador na
+      // tela chega aqui com quantidade 0 — "não veio". Se nada veio, não há o que receber: a lista
+      // segue aguardando (fechá-la como recebida esconderia a entrega que ainda vai chegar).
+      if (!itens.some((it) => Number(conf.get(it.id)!.qtdRecebida) > 0))
+        throw new BadRequestException(
+          'Nenhum item foi marcado como recebido. Se a entrega ainda não veio, a lista continua aguardando.',
+        );
+      // Marcas de cada produto: a conferência diz QUAL veio (a pedida, a 2ª opção ou outra do
+      // cadastro). O estoque continua um só — a marca fica só no registro da compra.
+      const produtos = await tx
+        .select({ id: itemEstoque.id, nome: itemEstoque.nome, nomeComercial: itemEstoque.nomeComercial, marcas: itemEstoque.marcas })
+        .from(itemEstoque)
+        .where(and(eq(itemEstoque.tenantId, tenantId), inArray(itemEstoque.id, itens.map((i) => i.itemId))));
+      const produtoDe = new Map(produtos.map((p) => [p.id, p]));
 
       for (const it of itens) {
         const c = conf.get(it.id)!;
@@ -384,6 +444,24 @@ export class ComprasService {
         const qtd = Number(c.qtdRecebida);
         if (!(qtd >= 0))
           throw new BadRequestException('Informe a quantidade recebida de cada linha.');
+        if (qtd < pedida) comFalta++;
+        // NÃO VEIO: a conferência fica registrada e mais nada é pedido — validade e lote são da
+        // mercadoria que a pessoa tem na mão, e aqui não há mercadoria. O estoque fica intocado.
+        if (qtd === 0) {
+          await tx
+            .update(compraItem)
+            .set({
+              qtdRecebida: '0',
+              validade: null,
+              validadeIndefinida: false,
+              loteCodigo: null,
+              marcaRecebida: null,
+              divergencia: 'nao_veio',
+              updatedAt: new Date(),
+            })
+            .where(and(eq(compraItem.id, it.id), eq(compraItem.tenantId, tenantId)));
+          continue;
+        }
         // Os três estados da validade. "Nenhum dos dois" é recusado de propósito:
         // campo em branco é o estado de hoje, em que ninguém preenche.
         if (!c.validade && !c.validadeIndefinida)
@@ -394,6 +472,21 @@ export class ComprasService {
           throw new BadRequestException(
             'Ou a validade tem data, ou é indefinida — não os dois.',
           );
+
+        // A marca que veio: a informada tem de ser do cadastro do produto; em branco, vale a pedida.
+        const produto = produtoDe.get(it.itemId);
+        const marcas: string[] = Array.isArray(produto?.marcas) ? (produto!.marcas as string[]) : [];
+        const informada = limparNome(c.marcaRecebida);
+        let marcaRecebida: string | null = null;
+        if (marcas.length) {
+          if (informada) {
+            marcaRecebida = acharMarca(marcas, informada);
+            if (!marcaRecebida)
+              throw new BadRequestException(
+                `"${informada}" não é marca cadastrada de "${produto?.nomeComercial || produto?.nome}". Marcas: ${marcas.join(', ')}.`,
+              );
+          } else marcaRecebida = it.marca ?? (marcas.length === 1 ? marcas[0] : null);
+        }
 
         const custo = it.custoUnitario != null ? Number(it.custoUnitario) : null;
 
@@ -406,12 +499,12 @@ export class ComprasService {
             validade: c.validade ?? null,
             validadeIndefinida: !!c.validadeIndefinida,
             loteCodigo: c.loteCodigo?.trim() || null,
+            marcaRecebida,
             divergencia: c.divergencia ?? this.divergenciaDe(pedida, qtd),
             updatedAt: new Date(),
           })
           .where(and(eq(compraItem.id, it.id), eq(compraItem.tenantId, tenantId)));
 
-        if (qtd <= 0) continue; // não veio: conferência registrada, estoque intocado
         const [mov] = await tx.insert(movimentoEstoque).values({
           tenantId,
           itemId: it.itemId,
@@ -494,7 +587,7 @@ export class ComprasService {
         .update(compraLista)
         .set({ status: 'recebida', recebidaEm: new Date() })
         .where(and(eq(compraLista.id, id), eq(compraLista.tenantId, tenantId)));
-      return { ...lista, itens: itens.length };
+      return { ...lista, itens: itens.length, comFalta };
     });
 
     // Mexeu em saldo e em custo — tem de deixar rastro (regra do projeto).
@@ -506,7 +599,7 @@ export class ComprasService {
       acao: 'recebeu_compra',
       entidadeTipo: 'compra_lista',
       entidadeId: id,
-      detalhe: { nome: lista.nome, itens: lista.itens },
+      detalhe: { nome: lista.nome, itens: lista.itens, itensComFalta: lista.comFalta },
     });
 
     if (lista.enviarKds)
@@ -516,6 +609,110 @@ export class ComprasService {
         detalhe: 'Itens entraram no estoque.',
         prioridade: 'baixa',
       });
-    return { ok: true };
+    // `itensComFalta`: a tela oferece na hora "gerar lista com o que faltou".
+    return { ok: true, itensComFalta: lista.comFalta };
+  }
+
+  // "Gerar lista com o que faltou" (decisão do dono, 09/10/2026). A lista recebida fecha como
+  // está; o que não veio — a linha inteira ou só uma parte — vira uma lista NOVA, com o mesmo
+  // fornecedor, o mesmo responsável e as mesmas marcas (1ª e 2ª opção). Uma só por lista de
+  // origem: a tabela sincroniza nos dois sentidos e por isso não leva índice único (ERR-159) —
+  // a origem é travada na transação e o segundo pedido devolve a lista que já existe.
+  async gerarListaDoQueFaltou(
+    tenantId: string,
+    id: string,
+    dto: GerarFaltanteDto | undefined,
+    atual: string | null = null,
+    atorId?: string | null,
+  ) {
+    const r = await this.db.transaction(async (tx) => {
+      const [origem] = await tx
+        .select()
+        .from(compraLista)
+        .where(
+          and(
+            eq(compraLista.id, id),
+            eq(compraLista.tenantId, tenantId),
+            isNull(compraLista.deletedAt),
+            condUnidadeOuRede(compraLista.unidadeId, atual),
+          ),
+        )
+        .for('update');
+      if (!origem) throw new NotFoundException('Lista não encontrada');
+      if (origem.status !== 'recebida')
+        throw new BadRequestException('A lista do que faltou só existe depois de conferir e receber a compra.');
+
+      // A mais recente, se por acaso houver mais de uma (criada igual na loja e na nuvem).
+      const [existente] = await tx
+        .select({ id: compraLista.id, nome: compraLista.nome })
+        .from(compraLista)
+        .where(and(eq(compraLista.tenantId, tenantId), eq(compraLista.origemListaId, id), isNull(compraLista.deletedAt)))
+        .orderBy(desc(compraLista.createdAt))
+        .limit(1);
+      if (existente) return { ...existente, itens: 0, jaExistia: true, semProduto: 0 };
+
+      // A falta sai da conta feita no banco (numeric): 10 − 9,7 não vira 0,30000000000000004.
+      const linhas = await tx
+        .select({
+          itemId: compraItem.itemId,
+          falta: sql<string>`(${compraItem.quantidade} - coalesce(${compraItem.qtdRecebida}, 0))`,
+          custoUnitario: compraItem.custoUnitario,
+          marca: compraItem.marca,
+          marcaAlternativa: compraItem.marcaAlternativa,
+          produtoVivo: sql<boolean>`(${itemEstoque.id} is not null and ${itemEstoque.deletedAt} is null)`,
+        })
+        .from(compraItem)
+        .leftJoin(itemEstoque, eq(compraItem.itemId, itemEstoque.id))
+        .where(and(eq(compraItem.listaId, id), eq(compraItem.tenantId, tenantId)));
+      const faltas = linhas.filter((l) => Number(l.falta) > 0);
+      if (!faltas.length)
+        throw new BadRequestException('Não faltou nada nesta lista: tudo o que foi pedido chegou.');
+      // Produto excluído do estoque depois da compra não volta para uma lista nova.
+      const vivas = faltas.filter((l) => l.produtoVivo);
+      if (!vivas.length)
+        throw new BadRequestException('Os produtos que faltaram foram excluídos do estoque: não há o que pedir de novo.');
+
+      const PREFIXO = 'Faltou de: ';
+      const nome = (origem.nome.startsWith(PREFIXO) ? origem.nome : PREFIXO + origem.nome).slice(0, 160);
+      const [nova] = await tx
+        .insert(compraLista)
+        .values({
+          tenantId,
+          unidadeId: origem.unidadeId,
+          nome,
+          fornecedorId: origem.fornecedorId,
+          dataRecebimento: dto?.dataRecebimento || null,
+          delegadoId: origem.delegadoId,
+          enviarKds: origem.enviarKds,
+          enviarDashboard: origem.enviarDashboard,
+          origemListaId: origem.id,
+        })
+        .returning();
+      await tx.insert(compraItem).values(
+        vivas.map((l) => ({
+          tenantId,
+          listaId: nova.id,
+          itemId: l.itemId,
+          quantidade: String(l.falta),
+          custoUnitario: l.custoUnitario ?? undefined,
+          marca: l.marca,
+          marcaAlternativa: l.marcaAlternativa,
+        })),
+      );
+      return { id: nova.id, nome: nova.nome, itens: vivas.length, jaExistia: false, semProduto: faltas.length - vivas.length };
+    });
+
+    if (!r.jaExistia)
+      await this.auditoria.registrar({
+        tenantId,
+        atorId: atorId ?? null,
+        atorPerfil: '',
+        tipo: 'estoque',
+        acao: 'gerou_lista_do_que_faltou',
+        entidadeTipo: 'compra_lista',
+        entidadeId: r.id,
+        detalhe: { nome: r.nome, origem: id, itens: r.itens },
+      });
+    return r;
   }
 }
