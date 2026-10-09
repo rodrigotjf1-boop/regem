@@ -10,7 +10,8 @@
     "check:etapas": "node scripts/check-etapas.mjs",
     "check:eventos": "node scripts/check-eventos.mjs",
     "check:kds": "node scripts/check-kds.mjs",
-    "test": "npm run check:etapas && npm run check:eventos && npm run check:kds"
+    "check:balcao": "node scripts/check-balcao.mjs",
+    "test": "npm run check:etapas && npm run check:eventos && npm run check:kds && npm run check:balcao"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.0",

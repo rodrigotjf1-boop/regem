@@ -11,6 +11,8 @@ import {
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { PermissoesGuard } from '../../auth/permissoes.guard';
+import { ModuloGuard } from '../../auth/modulo.guard';
+import { RequireModulo } from '../../auth/require-modulo.decorator';
 import { Roles } from '../../auth/roles.decorator';
 import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
@@ -24,8 +26,11 @@ import { exigirBooleano } from '../../common/exigir';
 // PDV — operador de balcão. Guarda de perfil no servidor: as áreas pdv/mesas/cupons
 // exigem a permissão do perfil (@RequirePerm). Sem @RequirePerm/@Roles no método,
 // segue liberado a qualquer autenticado (config/leituras auxiliares do PDV).
+// Módulo "Mesas e comandas" (@RequireModulo('mesas')): desligado, ninguém LISTA nem ABRE mesa ou
+// comanda. Fechar, cancelar e o acerto do salão seguem de fora de propósito: `comandas/:id/cancelar`
+// é a rota que cancela QUALQUER venda (tela de cupons), e o que já estava aberto precisa poder fechar.
 @Controller('vendas')
-@UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard, ModuloGuard)
 export class VendasController {
   constructor(private readonly service: VendasService) {}
 
@@ -64,6 +69,7 @@ export class VendasController {
   // ----- Mesas (Fase F2) -----
   @Get('mesas')
   @RequirePerm('mesas')
+  @RequireModulo('mesas')
   listarMesas(
     @CurrentUser() user: AuthUser,
     @UnidadeAtual() unidadeAtual: string | null,
@@ -77,6 +83,7 @@ export class VendasController {
 
   @Post('mesas')
   @RequirePerm('mesas')
+  @RequireModulo('mesas')
   abrirMesa(
     @CurrentUser() user: AuthUser,
     @Body() dto: any,
@@ -86,12 +93,14 @@ export class VendasController {
   }
 
   @Get('mesas/:id')
+  @RequireModulo('mesas')
   getMesa(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.getMesa(user.tenantId, id);
   }
 
   @Post('mesas/:id/comandas')
   @RequirePerm('mesas')
+  @RequireModulo('mesas')
   abrirComandaNaMesa(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -121,12 +130,14 @@ export class VendasController {
   // ----- Mesas & comandas -----
   @Get('comandas')
   @RequirePerm('mesas')
+  @RequireModulo('mesas')
   listarComandas(@CurrentUser() user: AuthUser) {
     return this.service.listarComandas(user.tenantId);
   }
 
   @Post('comandas')
   @RequirePerm('mesas')
+  @RequireModulo('mesas')
   abrir(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Body() dto: any) {
     // Sem loja no corpo → a loja atual do usuário. Comanda SEM loja é "da rede": desce para os
     // servidores de TODAS as lojas e fica fora do CMV por loja (reproduzido set/2026).
