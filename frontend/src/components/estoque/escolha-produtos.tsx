@@ -5,11 +5,11 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { distintos, num, semAcento, texto2 } from '@/components/ui/lista';
-import { faltaMarca, marcaDaLinha, marcasDe, nomeDeApoio, nomeDeCompra, textoDeBusca } from '@/lib/produto-compra';
+import { faltaMarca, marcaDaLinha, marcasDe, nomeDeApoio, nomeDeCompra, outrasMarcas, segundaMarcaDaLinha, textoDeBusca } from '@/lib/produto-compra';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /** Um produto marcado. Em Compras leva a quantidade, o custo e a marca; em Contagem, fica vazio. */
-export type LinhaEscolhida = { quantidade: string; custoUnitario: string; marca?: string };
+export type LinhaEscolhida = { quantidade: string; custoUnitario: string; marca?: string; marcaAlternativa?: string };
 export type Escolha = Record<string, LinhaEscolhida>;
 
 const unidadeDe = (i: any): string => i.unidadeLista ?? i.unidadeMedida ?? '';
@@ -19,7 +19,8 @@ const abaixo = (i: any) => i.abaixoMinimo ?? Number(i.saldo) < Number(i.estoqueM
 // que estão à vista e a contagem dos marcados. Usada pela lista de Contagem (só marca) e pela
 // lista de Compras (cada marcado pede a quantidade e, opcional, o custo). Na compra (`deCompra`)
 // o produto aparece pelo nome comercial, com o nome do estoque embaixo, e quem tem duas ou mais
-// marcas pede a marca — o estoque é um só, a marca só acompanha o pedido (mig 311).
+// marcas pede a marca e oferece uma 2ª opção, para o caso de a 1ª faltar (mig 312) — o estoque é
+// um só, a marca só acompanha o pedido (mig 311).
 export function EscolhaProdutos({
   itens,
   valor,
@@ -101,6 +102,7 @@ export function EscolhaProdutos({
           const doEstoque = deCompra ? nomeDeApoio(i) : '';
           const marcas = deCompra ? marcasDe(i) : [];
           const semMarca = !!l && faltaMarca(marcas, l.marca);
+          const primeira = l ? marcaDaLinha(marcas, l.marca) : '';
           return (
             <li key={i.id} className="flex flex-wrap items-center gap-2 px-3 py-2">
               <label className="flex min-h-10 min-w-0 flex-1 basis-56 items-center gap-2.5 text-sm">
@@ -118,13 +120,21 @@ export function EscolhaProdutos({
                 <span className="flex flex-wrap gap-2">
                   {marcas.length >= 2 && (
                     <span className="block">
-                      <Select className="w-44 max-w-full" value={marcaDaLinha(marcas, l.marca)} aria-label={`Marca de ${titulo} (obrigatória)`} aria-invalid={semMarca || undefined}
-                        onChange={(e) => aoMudar({ ...valor, [i.id]: { ...l, marca: e.target.value } })}>
+                      {/* Trocar a 1ª para a que estava como 2ª opção tira a 2ª: não podem ser a mesma. */}
+                      <Select className="w-44 max-w-full" value={primeira} aria-label={`Marca de ${titulo} (obrigatória)`} aria-invalid={semMarca || undefined}
+                        onChange={(e) => aoMudar({ ...valor, [i.id]: { ...l, marca: e.target.value, marcaAlternativa: segundaMarcaDaLinha(marcas, e.target.value, l.marcaAlternativa) } })}>
                         <option value="">Escolha a marca</option>
                         {marcas.map((m) => <option key={m} value={m}>{m}</option>)}
                       </Select>
                       {semMarca && <span className="mt-0.5 block text-xs font-semibold">Falta a marca</span>}
                     </span>
+                  )}
+                  {marcas.length >= 2 && primeira && (
+                    <Select className="w-60 max-w-full" value={segundaMarcaDaLinha(marcas, primeira, l.marcaAlternativa)} aria-label={`2ª opção de marca de ${titulo}, se faltar ${primeira}`}
+                      onChange={(e) => aoMudar({ ...valor, [i.id]: { ...l, marcaAlternativa: e.target.value } })}>
+                      <option value="">Sem 2ª opção</option>
+                      {outrasMarcas(marcas, primeira).map((m) => <option key={m} value={m}>2ª opção: {m}</option>)}
+                    </Select>
                   )}
                   <Input type="number" min={0} step="any" inputMode="decimal" className="w-24" value={l.quantidade} placeholder="qtd"
                     aria-label={`Quantidade de ${titulo}, em ${unidadeDe(i)}`} onChange={(e) => aoMudar({ ...valor, [i.id]: { ...l, quantidade: e.target.value } })} />

@@ -30,6 +30,12 @@ export function limparMarcas(marcas: unknown): string[] {
   return limpas;
 }
 
+/** A marca do cadastro que corresponde ao texto informado ("marca alfa" → "Marca Alfa"), ou `null`. */
+export function acharMarca(marcas: string[], texto: unknown): string | null {
+  const chave = chaveNome(limparNome(texto));
+  return (chave && marcas.find((m) => chaveNome(m) === chave)) || null;
+}
+
 /** Chave de comparação: sem acento, minúscula, pontuação vira espaço. "Coca-Cola" = "coca cola". */
 export function chaveNome(nome: string): string {
   return nome

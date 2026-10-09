@@ -92,6 +92,37 @@ try {
     assert.deepEqual(p.marcasDe({ marcas: ['Marca Alfa', '', 7, null] }), ['Marca Alfa']);
   });
 
+  caso('2ª opção de marca: outra marca do mesmo produto, só depois de escolhida a 1ª', () => {
+    const TRES = ['Marca Alfa', 'Marca Beta', 'Marca Gama'];
+    assert.deepEqual(p.outrasMarcas(TRES, 'marca alfa'), ['Marca Beta', 'Marca Gama']);
+    assert.deepEqual(p.outrasMarcas(TRES, ''), TRES);
+    assert.equal(p.segundaMarcaDaLinha(TRES, 'Marca Alfa', 'marca beta'), 'Marca Beta'); // grafia do cadastro
+    assert.equal(p.segundaMarcaDaLinha(TRES, 'Marca Alfa', 'Marca Alfa'), ''); // igual à 1ª não vale
+    assert.equal(p.segundaMarcaDaLinha(TRES, 'Marca Alfa', 'Marca Delta'), ''); // não é do produto
+    assert.equal(p.segundaMarcaDaLinha(TRES, '', 'Marca Beta'), ''); // sem a 1ª não há 2ª
+    assert.equal(p.segundaMarcaDaLinha(TRES, 'Marca Alfa', ''), '');
+    assert.equal(p.segundaMarcaDaLinha(['Marca Gama'], 'Marca Gama', 'Marca Gama'), ''); // uma marca só
+    assert.equal(p.segundaMarcaDaLinha([], '', 'Marca Beta'), '');
+  });
+
+  caso('quanto faltou do pedido: a parte que não veio, nunca negativo, sem sujeira de conta', () => {
+    assert.equal(p.quantoFaltou(10, 5), 5);
+    assert.equal(p.quantoFaltou('10', '0'), 10);
+    assert.equal(p.quantoFaltou(10, 10), 0);
+    assert.equal(p.quantoFaltou(10, 12), 0); // veio a mais não é falta
+    assert.equal(p.quantoFaltou(10, 9.7), 0.3);
+    assert.equal(p.quantoFaltou(1, 0.9), 0.1);
+    assert.equal(p.quantoFaltou(10, ''), 10);
+    assert.equal(p.quantoFaltou(undefined, 3), 0);
+  });
+
+  caso('o que foi pedido, em texto: marca e 2ª opção', () => {
+    assert.equal(p.textoDaMarcaPedida({ marca: 'Marca Alfa', marcaAlternativa: 'Marca Beta' }), 'Marca: Marca Alfa · 2ª opção: Marca Beta');
+    assert.equal(p.textoDaMarcaPedida({ marca: 'Marca Alfa', marcaAlternativa: null }), 'Marca: Marca Alfa');
+    assert.equal(p.textoDaMarcaPedida({ marca: null }), '');
+    assert.equal(p.textoDaMarcaPedida(null), '');
+  });
+
   console.log(`\ncheck:marcas — ${n} grupos de casos, todos certos.`);
 } finally {
   rmSync(tmp, { recursive: true, force: true });

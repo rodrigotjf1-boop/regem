@@ -639,6 +639,9 @@ export const api = {
   receberCompra: (id: string, body: unknown) =>
     req(`/compras/listas/${id}/receber`, { method: 'POST', body: JSON.stringify(body) }),
   compraLista: (id: string) => req(`/compras/listas/${id}`),
+  // Lista nova só com o que faltou de uma compra já recebida (uma por lista de origem).
+  gerarListaDoQueFaltou: (id: string, body?: { dataRecebimento?: string }) =>
+    req(`/compras/listas/${id}/faltante`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
   diasEspeciais: (de?: string, ate?: string) => {
     const p = new URLSearchParams();
     if (de) p.set('de', de);
