@@ -1939,6 +1939,9 @@ export const producaoPedido = pgTable('producao_pedido', {
   senhaPrefixo: text('senha_prefixo'),
   senhaPlataforma: text('senha_plataforma'), // senha/nº do pedido na plataforma
   mesa: text('mesa'),
+  // 'local' (comer aqui) | 'viagem' — copiada da comanda quando o pedido nasce (mig 310): é daqui
+  // que o cartão da cozinha e a via impressa leem. NULL = não informado.
+  consumo: text('consumo'),
   status: text('status').notNull().default('recebido'), // recebido|preparo|pronto|entregue|cancelado
   tempoPreparoMin: integer('tempo_preparo_min'),
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),

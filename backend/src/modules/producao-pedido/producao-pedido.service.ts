@@ -76,6 +76,9 @@ function lojaOuRede(unidadeId: string | null | undefined) {
 // Status válidos, em ordem de avanço.
 const JANELA_ACAO_MIN = 30; // atendente pode agir até 30min após "pronto"
 
+// Linha que abre a via de produção de um pedido para viagem (texto aprovado pelo dono em 09/10/2026).
+export const MARCA_VIAGEM = '*** VIAGEM ***';
+
 @Injectable()
 export class ProducaoPedidoService {
   constructor(
@@ -370,6 +373,7 @@ export class ProducaoPedidoService {
       senhaPlataforma?: string | null;
       setorId?: string | null; // setor do card (ex.: setor do delivery)
       emitidoDe?: string | null; // ponto de salão que emitiu (cabeçalho cozinha, mig 133)
+      consumo?: string | null; // 'local' | 'viagem' (mig 310) — cartão da cozinha e alto da via
     },
     itens: ItemProducao[],
   ): Promise<any[]> {
@@ -405,6 +409,7 @@ export class ProducaoPedidoService {
         plataforma: ctx.plataforma ?? null,
         senhaPlataforma: ctx.senhaPlataforma ?? null,
         mesa: ctx.mesa ?? null,
+        consumo: ctx.consumo ?? null,
         status: 'recebido',
         tempoPreparoMin: tempo || null,
       })
@@ -581,6 +586,7 @@ export class ProducaoPedidoService {
       plataforma: ped.plataforma ?? null,
       senhaPlataforma: ped.senhaPlataforma ?? null,
       setorId: ped.setorId ?? null,
+      consumo: ped.consumo ?? null,
     };
     const numero = ped.numero ?? null;
     const db = this.db;
@@ -742,9 +748,13 @@ export class ProducaoPedidoService {
     numero?: number | null,
     pp?: { perfil: any; cabecalho?: string; rodape?: string } | null,
   ): string {
+    // Para viagem (mig 310): a cozinha embala diferente — a marca vai no ALTO da via, antes de tudo.
+    const viagem = ctx.consumo === 'viagem';
     // Fase 3b — via de produção por PERFIL (quando a loja customizou). Sem valores.
     if (pp?.perfil) {
-      return this.renderCupomPerfil(
+      // O perfil escolhe e ordena os campos; a marca de viagem não é campo de perfil (não pode ser
+      // desligada sem querer): entra por cima, centralizada, em negrito e em tamanho dobrado.
+      return (viagem ? `@CBD ${MARCA_VIAGEM}\n` : '') + this.renderCupomPerfil(
         pp.perfil,
         {
           senha: ctx.senha,
@@ -767,6 +777,7 @@ export class ProducaoPedidoService {
     const linha = '--------------------------------';
     const cab = ctx.mesa ? `MESA ${ctx.mesa}` : 'BALCAO';
     const l: string[] = ['*** PRODUCAO ***'];
+    if (viagem) l.push(MARCA_VIAGEM);
     if (ctx.senha) l.push(`>>> SENHA ${rotuloSenha(ctx.senha, ctx.senhaPrefixo)} <<<`);
     l.push(`${cab}${numero ? ` · #${numero}` : ''}`);
     // Sub-PDV salão (mig 133): cabeçalho de onde o pedido foi emitido.
@@ -2229,6 +2240,7 @@ export class ProducaoPedidoService {
       plataforma: p.plataforma,
       senhaPlataforma: p.senhaPlataforma,
       mesa: p.mesa,
+      consumo: p.consumo,
     };
     const ppEtapa = await this.carregarPerfilProducao(this.db, tenantId, p.unidadeId, p.origem);
     const conteudo = this.renderTicket(

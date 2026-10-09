@@ -101,6 +101,8 @@ export function KdsCartaoPedido({
         </span>
         <span className="flex basis-full flex-wrap items-center gap-x-2 gap-y-1 font-bold" style={{ fontSize: Math.round(13.5 * esc) }}>
           {linha && <span>{linha}</span>}
+          {/* Para viagem (mig 310): etiqueta NEUTRA ao lado do canal — a cor continua sendo só o status. */}
+          {p.consumo === 'viagem' && <EtiquetaKds esc={esc}>Viagem</EtiquetaKds>}
           {cancelado && <EtiquetaKds cheia={invCab} esc={esc}>Cancelado</EtiquetaKds>}
           {atrasado && <EtiquetaKds cheia={invCab} esc={esc}>Atrasado</EtiquetaKds>}
           {alterado && <EtiquetaKds esc={esc}>Alterado</EtiquetaKds>}

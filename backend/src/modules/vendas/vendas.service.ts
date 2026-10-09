@@ -954,6 +954,7 @@ export class VendasService {
           tenantId,
           unidadeId: dto.unidadeId,
           mesa: dto.mesa,
+          consumo: dto.consumo ?? null, // comer aqui / viagem (mig 310): a cozinha lê do pedido de produção
           senha,
           senhaPrefixo: dto.mesa ? null : PREFIXO_BALCAO,
           status: 'fechada',
@@ -1099,6 +1100,7 @@ export class VendasService {
           senhaPrefixo: dto.mesa ? null : PREFIXO_BALCAO,
           origem: dto.mesa ? 'mesa' : 'balcao',
           mesa: dto.mesa ?? null,
+          consumo: dto.consumo ?? null,
         },
         itensProducao,
       );
@@ -1778,6 +1780,7 @@ export class VendasService {
                 senhaPrefixo: PREFIXO_BALCAO,
                 plataforma: dto.plataforma ?? 'Totem',
                 senhaPlataforma: dto.senhaPlataforma ?? null,
+                consumo: dto.consumo ?? null,
               },
               itensProducao,
             );
@@ -1980,6 +1983,7 @@ export class VendasService {
           senhaPrefixo: c.senhaPrefixo ?? PREFIXO_BALCAO,
           plataforma: producao?.plataforma ?? 'Totem',
           senhaPlataforma: producao?.senhaPlataforma ?? null,
+          consumo: c.consumo ?? null,
         },
         itens,
       );
