@@ -189,7 +189,7 @@ export default function ProdutosPage() {
         itemId: p.itemId ?? '',
         itemUnidade: p.itemUnidade ?? '',
         tipo: p.tipo ?? 'simples',
-        unidadeMedida: p.unidadeMedida ?? 'un',
+        unidadeMedida: p.unidadeMedida ?? 'unidade',
         precoVenda: p.precoVenda ?? '',
         precoCusto: p.precoCusto ?? '',
         // Custo derivado (read-only, gateado no servidor por ver_financeiro).
@@ -269,7 +269,7 @@ export default function ProdutosPage() {
         itemId: f.itemId || null,
         itemUnidade: f.itemId ? f.itemUnidade || null : null,
         tipo: f.tipo,
-        unidadeMedida: f.unidadeMedida || 'un',
+        unidadeMedida: f.unidadeMedida || 'unidade',
         precoVenda: Number(String(f.precoVenda).replace(',', '.')) || 0,
         precoCusto:
           f.precoCusto !== '' ? Number(String(f.precoCusto).replace(',', '.')) : undefined,

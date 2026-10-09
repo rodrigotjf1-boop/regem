@@ -8,6 +8,7 @@ import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { fichaIngrediente, fichaTecnica, itemConversao, itemEstoque } from '../../db/schema';
 import { arredondarEstoque, arredondarInformado, fatorParaEstoque, type Conversao } from '../../common/conversao-unidade';
+import { unidadeOuPadrao } from '../estoque/unidades';
 import {
   custoTotalFicha,
   fichaAlcancavel,
@@ -80,7 +81,15 @@ function fichaCustoDe(f: any, ings: any[]): FichaCusto {
 export class FichasService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
 
+  // Unidade do insumo escrito à mão (sem produto do estoque nem sub-receita): tem de ser da lista.
+  // Conferida ANTES de gravar qualquer coisa — a recusa (400) não pode deixar ficha sem ingredientes.
+  private conferirUnidadesLivres(linhas: CreateIngredienteDto[] | undefined) {
+    for (const i of linhas ?? [])
+      if (!i.subFichaId && !i.itemId) unidadeOuPadrao(i.unidade, `Unidade de "${String(i.insumoNome ?? '').slice(0, 40)}"`);
+  }
+
   async create(tenantId: string, dto: CreateFichaDto) {
+    this.conferirUnidadesLivres(dto.ingredientes);
     const [f] = await this.db
       .insert(fichaTecnica)
       .values({
@@ -88,7 +97,7 @@ export class FichasService {
         nome: dto.nome,
         categoria: dto.categoria ?? 'base',
         rendimento: dto.rendimento != null ? String(dto.rendimento) : '1',
-        rendimentoUnidade: dto.rendimentoUnidade,
+        rendimentoUnidade: dto.rendimentoUnidade === undefined ? undefined : unidadeOuPadrao(dto.rendimentoUnidade, 'Unidade do rendimento', 'porção'),
         porcaoTamanho: dto.porcaoTamanho != null ? String(dto.porcaoTamanho) : undefined,
         porcaoUnidade: dto.porcaoUnidade,
         validade: dto.validade,
@@ -199,6 +208,10 @@ export class FichasService {
       linhas.map((i) => (i.subFichaId ? null : i.itemId)),
     );
     return linhas.map((i) => {
+      // Insumo escrito à mão (sem produto do estoque nem sub-receita): a unidade é só rótulo, mas
+      // sai da MESMA lista do estoque — "un" vira "unidade"; o que não existe é recusado (400).
+      if (!i.subFichaId && !i.itemId)
+        return { ...i, unidade: unidadeOuPadrao(i.unidade, `Unidade de "${String(i.insumoNome ?? '').slice(0, 40)}"`) };
       const u = !i.subFichaId && i.itemId ? unidades.get(i.itemId) : undefined;
       const fator = u ? fatorParaEstoque(i.unidade, u.unidade, u.conversoes) ?? 1 : 1;
       if (fator === 1) return i;
@@ -285,12 +298,14 @@ export class FichasService {
 
   async update(tenantId: string, id: string, dto: UpdateFichaDto) {
     await this.getOne(tenantId, id);
+    this.conferirUnidadesLivres(dto.ingredientes);
+    if (dto.rendimentoUnidade !== undefined) unidadeOuPadrao(dto.rendimentoUnidade, 'Unidade do rendimento', 'porção');
     const patch: any = {};
     if (dto.nome !== undefined) patch.nome = dto.nome;
     if (dto.categoria !== undefined) patch.categoria = dto.categoria;
     if (dto.rendimento !== undefined) patch.rendimento = String(dto.rendimento);
     if (dto.rendimentoUnidade !== undefined)
-      patch.rendimentoUnidade = dto.rendimentoUnidade;
+      patch.rendimentoUnidade = unidadeOuPadrao(dto.rendimentoUnidade, 'Unidade do rendimento', 'porção');
     // Tamanho da porção (mig 130): converte porções (un) ↔ rendimento na ordem de produção.
     if (dto.porcaoTamanho !== undefined)
       patch.porcaoTamanho = dto.porcaoTamanho != null ? String(dto.porcaoTamanho) : null;

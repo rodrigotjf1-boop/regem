@@ -23,7 +23,7 @@ import {
 } from '../../db/schema';
 import { arredondarEstoque, CASAS_INFORMADO, chaveUnidade, fatorParaEstoque, type Conversao } from '../../common/conversao-unidade';
 import { chaveNome, limparNome } from './produto-nome';
-import { exigirUnidade, normalizarUnidade, UNIDADES_ESTOQUE } from './unidades';
+import { apelidosDeUnidade, exigirUnidade, normalizarUnidade, UNIDADES_ESTOQUE } from './unidades';
 import { CreateItemDto } from './dto/create-item.dto';
 import { CreateMovimentoDto } from './dto/create-movimento.dto';
 import { furoCmv } from '../../common/regras-negocio';
@@ -754,9 +754,10 @@ export class EstoqueService {
     });
   }
 
-  /** Lista fechada de unidades de medida (a tela não guarda cópia). */
+  /** Lista fechada de unidades de medida (a tela não guarda cópia) e as outras formas de escrever
+   *  cada uma — para a tela abrir "un" já como "unidade". */
   listUnidades() {
-    return { unidades: [...UNIDADES_ESTOQUE] };
+    return { unidades: [...UNIDADES_ESTOQUE], apelidos: apelidosDeUnidade() };
   }
 
   async createMovimento(

@@ -2,6 +2,7 @@
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { SeletorDeUnidade } from '@/components/ui/seletor-de-unidade';
 import { Label } from '@/components/ui/label';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { selectCls, SELOS } from '@/components/produtos/types';
@@ -249,7 +250,7 @@ export function ProdutoForm({
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Unidade</Label>
-                <Input value={f.unidadeMedida} onChange={(e) => set({ unidadeMedida: e.target.value })} placeholder="un" />
+                <SeletorDeUnidade ariaLabel="Unidade" value={f.unidadeMedida} onChange={(u) => set({ unidadeMedida: u })} />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Setor de produção (KDS)</Label>

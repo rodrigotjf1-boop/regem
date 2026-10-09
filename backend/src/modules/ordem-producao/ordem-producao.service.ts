@@ -26,6 +26,7 @@ import { dataNoFuso, hojeISO } from '../../common/data';
 import { garantirImpressoraDaLoja } from '../../common/impressora-da-loja';
 import { gravarOuEncaminharImpressao } from '../../common/impressao-destino';
 import { ehServidorLocal } from '../../common/modo';
+import { normalizarUnidade, unidadeOuPadrao } from '../estoque/unidades';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -150,7 +151,7 @@ export class OrdemProducaoService {
         fichaId: dto.fichaId,
         itemSaidaId: dto?.itemSaidaId ?? null,
         quantidadePlanejada: String(qtd),
-        unidade: dto?.unidade ?? 'un',
+        unidade: unidadeOuPadrao(dto?.unidade, 'Unidade da ordem'),
         dataProducao: dto.dataProducao,
         horaInicio: dto?.horaInicio ?? null,
         horaFim: dto?.horaFim ?? null,
@@ -540,7 +541,7 @@ export class OrdemProducaoService {
             fichaId: dto.fichaId,
             itemSaidaId: dto?.itemSaidaId ?? null,
             quantidade: Number(dto?.quantidadePlanejada) || 1,
-            unidade: dto?.unidade ?? 'un',
+            unidade: unidadeOuPadrao(dto?.unidade, 'Unidade da ordem'),
             setorId: dto?.setorId ?? null,
             funcaoId: dto?.funcaoId ?? null,
             colaboradorId: dto?.colaboradorId ?? null,
@@ -590,7 +591,7 @@ export class OrdemProducaoService {
           fichaId: op.fichaId,
           itemSaidaId: op.itemSaidaId ?? null,
           quantidadePlanejada: String(op.quantidade ?? 1),
-          unidade: op.unidade ?? 'un',
+          unidade: normalizarUnidade(op.unidade) ?? op.unidade ?? 'unidade',
           dataProducao: data,
           horaInicio: op.horaInicio ?? null,
           setorId: op.setorId ?? d.setorId ?? null,

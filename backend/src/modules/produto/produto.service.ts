@@ -23,6 +23,7 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { EdgeFlashSyncService } from '../sync/edge-flash-sync.service';
 import { lojasAtivas, pausasPorProduto } from '../../common/pausa-loja';
 import { FichasService } from '../fichas/fichas.service';
+import { exigirUnidade, unidadeOuPadrao } from '../estoque/unidades';
 import { arredondarEstoque, fatorParaEstoque, unidadesDoProduto } from '../../common/conversao-unidade';
 import { CreateCategoriaDto } from './dto/create-categoria.dto';
 import { CreateProdutoDto } from './dto/create-produto.dto';
@@ -1473,7 +1474,7 @@ export class ProdutoService {
           itemUnidade: vinculo.unidade,
           itemFator: String(vinculo.fator),
           tipo: dto.tipo ?? 'simples',
-          unidadeMedida: dto.unidadeMedida ?? 'un',
+          unidadeMedida: unidadeOuPadrao(dto.unidadeMedida, 'Unidade do produto'),
           precoVenda: String(dto.precoVenda),
           precoCusto: dto.precoCusto != null ? String(dto.precoCusto) : undefined,
           controlaEstoque: dto.controlaEstoque ?? true,
@@ -1580,7 +1581,7 @@ export class ProdutoService {
       patch.itemFator = String(vinculo.fator);
     }
     set('tipo', dto.tipo);
-    set('unidadeMedida', dto.unidadeMedida);
+    if (dto.unidadeMedida !== undefined) patch.unidadeMedida = exigirUnidade(dto.unidadeMedida, 'Unidade do produto');
     if (dto.precoVenda !== undefined) patch.precoVenda = String(dto.precoVenda);
     if (dto.precoCusto !== undefined)
       patch.precoCusto = dto.precoCusto != null ? String(dto.precoCusto) : null;

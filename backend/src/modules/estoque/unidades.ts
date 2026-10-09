@@ -80,6 +80,18 @@ export function normalizarUnidade(texto: unknown): UnidadeEstoque | null {
   return POR_CHAVE.get(chave(texto)) ?? null;
 }
 
+/** Outras formas de escrever → a unidade da lista (chave sem acento, minúscula, sem ponto). A tela
+ *  usa para reconhecer o que já está gravado ("un", "porções") sem guardar cópia da regra. */
+export function apelidosDeUnidade(): Record<string, UnidadeEstoque> {
+  return Object.fromEntries(POR_CHAVE);
+}
+
+/** Campo que tem padrão: vazio vira `padrao`; o que veio preenchido tem de ser da lista (400). */
+export function unidadeOuPadrao(texto: unknown, campo: string, padrao: UnidadeEstoque = 'unidade'): UnidadeEstoque {
+  if (texto == null || (typeof texto === 'string' && !texto.trim())) return padrao;
+  return exigirUnidade(texto, campo);
+}
+
 /** Idem, recusando (400) o que não é da lista — `campo` entra na frase do erro. */
 export function exigirUnidade(texto: unknown, campo: string): UnidadeEstoque {
   const u = normalizarUnidade(texto);

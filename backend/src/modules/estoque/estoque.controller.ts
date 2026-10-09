@@ -34,8 +34,9 @@ export class EstoqueController {
   ) {}
 
   // Lista FECHADA de unidades de medida (cadastro, conversões e importação escolhem daqui).
+  // Sem @RequirePerm de propósito: a lista é fixa, não é dado da loja, e quem edita ficha técnica,
+  // ordem de produção ou produto do catálogo (sem a permissão de estoque) também escolhe dela.
   @Get('unidades-medida')
-  @RequirePerm('estoque', 'ver')
   listUnidades() {
     return this.service.listUnidades();
   }
