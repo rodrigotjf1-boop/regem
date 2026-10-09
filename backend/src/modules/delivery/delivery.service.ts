@@ -15,6 +15,7 @@ import { and, desc, eq, gte, ilike, inArray, isNotNull, isNull, notInArray, or, 
 import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { PREFIXO_BALCAO } from '../../common/senha-origem';
+import { textoDasEscolhas } from '../../common/adicionais';
 import { serieDaSenha } from './serie-da-senha';
 import { retidosVencidos } from './totem-retido.query';
 import { MINUTOS_ALERTA_TOTEM, totemDinheiroSemPagar } from './totem-a-pagar.query';
@@ -1249,7 +1250,8 @@ export class DeliveryService {
             (it.codigo ? porCodigo.get(it.codigo) : undefined) ??
             porNome.get(String(it.descricao).trim().toLowerCase()) ??
             null,
-          variacaoId: varia?.id ?? null,
+          // Origem interna (nosso cardápio, pedido manual) já traz a variação escolhida.
+          variacaoId: (it as any).variacaoId ?? varia?.id ?? null,
           descricao: it.descricao,
           quantidade: Number(it.quantidade) || 1,
           precoUnitario: Number(it.precoUnitario) || 0,
@@ -2419,7 +2421,13 @@ export class DeliveryService {
     atorId: string,
     id: string,
     dto: {
-      adicionar?: { produtoId: string; quantidade?: number; observacao?: string }[];
+      adicionar?: {
+        produtoId: string;
+        quantidade?: number;
+        observacao?: string;
+        variacaoId?: string | null;
+        complementos?: string[] | null;
+      }[];
       remover?: string[];
       endereco?: {
         rua?: string;
@@ -3212,32 +3220,36 @@ export class DeliveryService {
       enderecoReferencia?: string;
       formaPagamento?: string;
       trocoPara?: number;
-      itens?: { produtoId: string; quantidade?: number; observacao?: string }[];
+      itens?: {
+        produtoId: string;
+        quantidade?: number;
+        observacao?: string;
+        variacaoId?: string | null; // variação escolhida no seletor
+        complementos?: string[] | null; // ids das opções escolhidas (repetida = mais de uma vez)
+      }[];
     },
   ) {
     const linhas = dto.itens ?? [];
     if (linhas.length === 0)
       throw new BadRequestException('Inclua ao menos um item.');
-    const ids = [...new Set(linhas.map((i) => i.produtoId).filter(Boolean))];
-    const prods = ids.length
-      ? await this.db
-          .select({ id: produto.id, nome: produto.nome, preco: produto.precoVenda, codigo: produto.codigo })
-          .from(produto)
-          .where(and(eq(produto.tenantId, tenantId), inArray(produto.id, ids)))
-      : [];
-    const mapa = new Map(prods.map((p) => [p.id, p]));
-    const itens = linhas.map((l) => {
-      const p = mapa.get(l.produtoId);
-      if (!p) throw new BadRequestException('Produto inválido no pedido.');
-      return {
-        produtoId: p.id,
-        codigo: p.codigo ?? undefined,
-        descricao: p.nome,
+    // O operador escolhe variação e adicionais no seletor e vê o preço somado. Antes só o
+    // produto e a quantidade chegavam aqui: o pedido nascia com o preço-base e o nome do
+    // produto. Agora preço, descrição e escolhas saem do banco (o servidor manda no preço).
+    const itens: any[] = [];
+    for (const l of linhas) {
+      const escolhido = l.produtoId ? await this.vendas.itemDeOrigemInterna(this.db, tenantId, l) : null;
+      if (!escolhido) throw new BadRequestException('Produto inválido no pedido.');
+      itens.push({
+        produtoId: escolhido.produto.id,
+        variacaoId: escolhido.variacaoId ?? undefined,
+        codigo: escolhido.produto.codigo ?? undefined,
+        descricao: escolhido.descricao,
         quantidade: Number(l.quantidade) || 1,
-        precoUnitario: Number(p.preco) || 0, // servidor manda no preço
+        precoUnitario: escolhido.precoUnitario,
         observacao: l.observacao,
-      };
-    });
+        opcaoIds: escolhido.opcaoIds, // gravadas na venda no aceite (baixa de estoque)
+      });
+    }
     const total = itens.reduce((s, i) => s + i.precoUnitario * i.quantidade, 0);
     const tipo = dto.tipo === 'retirada' ? 'retirada' : 'entrega';
     const enderecoStr = [dto.enderecoRua, dto.enderecoNumero, dto.enderecoBairro]
@@ -3290,28 +3302,19 @@ export class DeliveryService {
   ) {
     if (!dto.idempotencyKey?.trim())
       throw new BadRequestException('idempotencyKey é obrigatória.');
-    const codigos = [
-      ...new Set((dto.itens ?? []).map((i) => (i.codigoPdv ?? '').trim()).filter(Boolean)),
-    ];
-    if (!codigos.length) throw new BadRequestException('Itens sem codigoPdv.');
-    const prods = await this.db
-      .select({ id: produto.id, nome: produto.nome, preco: produto.precoVenda, codigo: produto.codigo })
-      .from(produto)
-      .where(and(eq(produto.tenantId, tenantId), inArray(produto.codigo, codigos), isNull(produto.deletedAt)));
-    const porCodigo = new Map(prods.filter((p) => p.codigo).map((p) => [p.codigo as string, p]));
-    const faltando = codigos.filter((c) => !porCodigo.has(c));
-    if (faltando.length)
-      throw new BadRequestException(`Código(s) PDV não encontrado(s): ${faltando.join(', ')}`);
-    const itens = (dto.itens ?? []).map((it) => {
-      const p = porCodigo.get((it.codigoPdv ?? '').trim())!;
-      return {
-        produtoId: p.id,
-        codigo: p.codigo ?? undefined,
-        descricao: p.nome,
-        quantidade: Number(it.quantidade) || 1,
-        precoUnitario: Number(p.preco) || 0, // preço do servidor (nunca do cliente)
-      };
-    });
+    // As linhas do totem viram itens com os adicionais dentro (a opção com código vem como uma
+    // linha depois do produto — ver `VendasService.itensDoTotem`). Os adicionais ficam no pedido
+    // por CÓDIGO: é por eles que a liberação do pagamento e o aceite no balcão os gravam na venda.
+    const itens = (await this.vendas.itensDoTotem(this.db, tenantId, dto.itens ?? [])).map((it) => ({
+      produtoId: it.produto.id,
+      codigo: it.produto.codigo ?? undefined,
+      descricao: it.produto.nome,
+      quantidade: it.quantidade,
+      precoUnitario: it.precoUnitario, // preço do servidor (nunca do cliente): produto + adicionais
+      observacao: it.observacao ?? undefined,
+      complementos: textoDasEscolhas(it.escolhas) ?? undefined, // para a cozinha
+      complementosItens: it.escolhidos.length ? it.escolhidos : undefined,
+    }));
     const total = itens.reduce((s, i) => s + i.precoUnitario * i.quantidade, 0);
     // No modo "após pagamento", o pedido NÃO vai pra produção na chegada — fica
     // aguardando o "Receber pagamento" no balcão. Por isso pula o auto-aceitar
@@ -3398,10 +3401,18 @@ export class DeliveryService {
     if (!pagamentos?.length)
       throw new BadRequestException('Informe o pagamento aprovado.');
 
-    const itens = (ped.itens as any[]).map((i) => ({
-      codigoPdv: String(i.codigo ?? ''),
-      quantidade: Number(i.quantidade) || 1,
-    }));
+    // De volta ao formato do totem: o produto e, em seguida, uma linha por adicional (com a
+    // quantidade do item × as vezes escolhidas) — é assim que `venderTotem` os reconhece.
+    const itens = (ped.itens as any[]).flatMap((i) => {
+      const quantidade = Number(i.quantidade) || 1;
+      return [
+        { codigoPdv: String(i.codigo ?? ''), quantidade, observacao: i.observacao ?? undefined },
+        ...((i.complementosItens ?? []) as any[]).map((c) => ({
+          codigoPdv: String(c.codigo ?? ''),
+          quantidade: quantidade * (Number(c.quantidade) || 1),
+        })),
+      ];
+    });
     const venda: any = await this.vendas.venderTotem(
       tenantId,
       { unidadeId: ped.unidadeId ?? ctx.unidadeId, equipamentoId: ctx.equipamentoId },

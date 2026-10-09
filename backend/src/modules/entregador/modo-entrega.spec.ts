@@ -92,7 +92,9 @@ descrever('fila do entregador: tira o pedido da logística do canal (Postgres)',
       await pool.query('delete from empresa where id = $1', [tenant]);
     }
     await pool.end();
-  });
+    // Apagar a empresa percorre todas as tabelas filhas: com a suíte inteira rodando, passa dos
+    // 5 s padrão do gancho (visto em 09/10/2026 — os 5 testes passam, a limpeza estourava).
+  }, 60_000);
 
   it('só os pedidos que a loja entrega ficam na fila — igual à regra do app', async () => {
     const r: any = await db.execute(sql`

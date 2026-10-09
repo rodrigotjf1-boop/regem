@@ -57,7 +57,7 @@ export function PedidoDetalhe({
   // alterar — itens
   const [itens, setItens] = useState<any[] | null>(null);
   const [remover, setRemover] = useState<Set<string>>(new Set());
-  const [adicionar, setAdicionar] = useState<{ produtoId: string; label: string; observacao?: string }[]>([]);
+  const [adicionar, setAdicionar] = useState<{ produtoId: string; label: string; observacao?: string; variacaoId?: string; complementos?: string[] }[]>([]);
   // alterar — endereço
   const [bairros, setBairros] = useState<any[]>([]);
   // Endereço no editar: canais integrados (Anota Aí / Cardápio Web) guardam só o
@@ -138,7 +138,7 @@ export function PedidoDetalhe({
   }
 
   function addProduto(s: SelecaoProduto) {
-    setAdicionar((a) => [...a, { produtoId: s.produtoId, label: s.label, observacao: s.observacao }]);
+    setAdicionar((a) => [...a, { produtoId: s.produtoId, label: s.label, observacao: s.observacao, variacaoId: s.variacaoId, complementos: s.complementos }]);
   }
 
   async function salvarAlteracao() {
@@ -148,7 +148,7 @@ export function PedidoDetalhe({
     try {
       await api.alterarDelivery(p.id, {
         remover: [...remover],
-        adicionar: adicionar.map((a) => ({ produtoId: a.produtoId, quantidade: 1, observacao: a.observacao })),
+        adicionar: adicionar.map((a) => ({ produtoId: a.produtoId, quantidade: 1, observacao: a.observacao, variacaoId: a.variacaoId, complementos: a.complementos })),
         endereco: endEditado
           ? { rua: endRua.trim(), numero: endNum.trim(), bairro: endBairro.trim(), bairroId: endBairroId || undefined, referencia: endRef.trim() }
           : undefined,
