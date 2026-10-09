@@ -113,7 +113,7 @@ descrever('ficha técnica com unidade convertida (Postgres real)', () => {
       ingredientes: [
         { insumoNome: 'Bacon de teste', itemId: bacon, quantidade: 0.05, unidade: 'kg', custoUnitario: 36 },
         { insumoNome: 'Queijo de teste', itemId: queijo, quantidade: 0.03, unidade: 'fatia', custoUnitario: 40 }, // "fatia" não é unidade do queijo
-        { insumoNome: 'Tempero avulso', quantidade: 1, unidade: 'pitada', custoUnitario: 0.1 },
+        { insumoNome: 'Tempero avulso', quantidade: 1, unidade: 'grama', custoUnitario: 0.1 }, // escrito à mão: a unidade vem da lista (09/10/2026)
       ],
     } as any);
     expect((await linhaGravada(f.id, bacon)).quantidade).toBe(0.05);

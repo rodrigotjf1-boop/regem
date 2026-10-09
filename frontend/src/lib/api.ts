@@ -797,7 +797,7 @@ export const api = {
   atualizarItem: (id: string, body: Record<string, unknown>) =>
     req(`/estoque/itens/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   // Produtos do estoque: lista fechada de unidades, exclusão (com o exame antes) e planilha.
-  estoqueUnidades: () => req('/estoque/unidades-medida') as Promise<{ unidades: string[] }>,
+  estoqueUnidades: () => req('/estoque/unidades-medida') as Promise<{ unidades: string[]; apelidos?: Record<string, string> }>,
   exclusaoDoItem: (id: string) =>
     req(`/estoque/itens/${id}/exclusao`) as Promise<{ id: string; nome: string; pode: boolean; motivos: string[]; comoResolver: string[] }>,
   excluirItem: (id: string) => req(`/estoque/itens/${id}`, { method: 'DELETE' }),

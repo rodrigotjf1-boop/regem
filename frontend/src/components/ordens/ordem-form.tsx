@@ -6,6 +6,7 @@ import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { Chave } from '@/components/ui/chave';
 import { Input } from '@/components/ui/input';
+import { SeletorDeUnidade } from '@/components/ui/seletor-de-unidade';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Gaveta } from '@/components/ui/sobreposto';
@@ -31,7 +32,7 @@ export function NovaOrdem({ gestao, voltarPara, aoFechar, aoSalvar }: { gestao: 
   const [insumos, setInsumos] = useState<Lista>(null);
   const [impressoras, setImpressoras] = useState<Lista>(null);
   const [f, setF] = useState({
-    fichaId: '', itemSaidaId: '', quantidadePlanejada: '1', unidade: 'un', dataProducao: hojeIso(), horaInicio: '', setorId: '',
+    fichaId: '', itemSaidaId: '', quantidadePlanejada: '1', unidade: 'unidade', dataProducao: hojeIso(), horaInicio: '', setorId: '',
     canais: ['linha_tempo'] as string[], impressoraId: '', recorrente: false,
   });
   const [salvando, setSalvando] = useState(false);
@@ -73,7 +74,7 @@ export function NovaOrdem({ gestao, voltarPara, aoFechar, aoSalvar }: { gestao: 
         fichaId: f.fichaId,
         itemSaidaId: f.itemSaidaId || undefined,
         quantidadePlanejada: Number(f.quantidadePlanejada),
-        unidade: f.unidade.trim() || 'un',
+        unidade: f.unidade.trim() || 'unidade',
         dataProducao: f.dataProducao,
         horaInicio: f.horaInicio || undefined,
         setorId: f.setorId || undefined,
@@ -131,7 +132,7 @@ export function NovaOrdem({ gestao, voltarPara, aoFechar, aoSalvar }: { gestao: 
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="ordem-unidade">Unidade</Label>
-            <Input id="ordem-unidade" value={f.unidade} onChange={(e) => muda({ unidade: e.target.value })} placeholder="un / porção / kg" autoComplete="off" />
+            <SeletorDeUnidade id="ordem-unidade" value={f.unidade} onChange={(u) => muda({ unidade: u })} />
           </div>
         </div>
         {!semLista(insumos) ? (

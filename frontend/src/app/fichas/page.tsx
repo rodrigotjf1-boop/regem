@@ -10,6 +10,7 @@ import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { SeletorDeUnidade } from '@/components/ui/seletor-de-unidade';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { SkeletonList } from '@/components/ui/skeleton';
@@ -68,7 +69,7 @@ export default function FichasPage() {
   const [nome, setNome] = useState('');
   const [categoria, setCategoria] = useState('base');
   const [rendimento, setRendimento] = useState('10');
-  const [rendUnidade, setRendUnidade] = useState('porções');
+  const [rendUnidade, setRendUnidade] = useState('porção');
   const [precoVenda, setPrecoVenda] = useState('');
   const [metaCmvInput, setMetaCmvInput] = useState(String(META_CMV));
   const [ings, setIngs] = useState<Ing[]>([linhaVazia()]);
@@ -180,7 +181,7 @@ export default function FichasPage() {
     setNome('');
     setCategoria('base');
     setRendimento('10');
-    setRendUnidade('porções');
+    setRendUnidade('porção');
     setPrecoVenda('');
     setMetaCmvInput(String(META_CMV));
     setIngs([linhaVazia()]);
@@ -191,7 +192,7 @@ export default function FichasPage() {
     setNome(f.nome ?? '');
     setCategoria(f.categoria ?? 'base');
     setRendimento(String(f.rendimento ?? 1));
-    setRendUnidade(f.rendimentoUnidade ?? 'porções');
+    setRendUnidade(f.rendimentoUnidade ?? 'porção');
     setPrecoVenda(f.precoVenda != null ? String(f.precoVenda) : '');
     setMetaCmvInput(String(f.metaCmv ?? META_CMV));
     setIngs(
@@ -377,7 +378,11 @@ export default function FichasPage() {
             ))}
           </Select>
         ) : (
-          <Input placeholder="un" aria-label="Unidade" value={ing.unidade} disabled={!!ing.itemId} onChange={(e) => setIng(idx, 'unidade', e.target.value)} />
+          ing.itemId ? (
+            <Input aria-label="Unidade" value={ing.unidade} disabled readOnly />
+          ) : (
+            <SeletorDeUnidade ariaLabel="Unidade" value={ing.unidade} onChange={(u) => setIng(idx, 'unidade', u)} />
+          )
         )}
         <Input type="number" min={0} step="any" inputMode="decimal" placeholder="FC" aria-label="Fator de correção" value={ing.fatorCorrecao} onChange={(e) => setIng(idx, 'fatorCorrecao', e.target.value)} />
         <Input type="number" min={0} step="any" inputMode="decimal" placeholder="R$/un" aria-label="Custo unitário" value={ing.custoUnitario} disabled={!!ing.subFichaId || !!ing.itemId} onChange={(e) => setIng(idx, 'custoUnitario', e.target.value)} />
@@ -527,7 +532,7 @@ export default function FichasPage() {
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="ru">Unidade</Label>
-                    <Input id="ru" value={rendUnidade} onChange={(e) => setRendUnidade(e.target.value)} placeholder="porções" />
+                    <SeletorDeUnidade id="ru" value={rendUnidade} onChange={setRendUnidade} />
                   </div>
                 </div>
               </div>
