@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { KebabMenu } from '@/components/ui/kebab-menu';
 import { selectCls } from '@/components/produtos/types';
-import { api } from '@/lib/api';
+import { api, podeVerFinanceiro } from '@/lib/api';
 import { chaveUnidade, unidadesDoProduto } from '@/lib/conversao-unidade';
 import { toast } from '@/lib/toast';
 
@@ -27,7 +27,8 @@ const brl = (v: any) => Number(v ?? 0).toLocaleString('pt-BR', { style: 'currenc
 function custoDaOpcao(o: any): string {
   if (o.tipo === 'ficha' && o.fichaNome) return o.custoFicha != null ? `custo ${brl(o.custoFicha)} (da ficha)` : 'custo pela ficha';
   if (o.tipo === 'insumo' && o.itemNome) return o.custoItem != null ? `custo ${brl(o.custoItem)} (do estoque)` : 'custo pelo estoque';
-  return `custo ${brl(o.precoCusto)}`;
+  // Sem a permissão de ver valores o servidor manda o custo nulo: a linha não escreve custo.
+  return o.precoCusto != null ? `custo ${brl(o.precoCusto)}` : '';
 }
 
 // Opções reutilizáveis do catálogo (Fase 2): produto simples / preparado c/ ficha /
@@ -43,6 +44,9 @@ export function OpcoesCard() {
   const [sel, setSel] = useState<Set<string>>(new Set()); // seleção em massa
   const [bulkValor, setBulkValor] = useState(''); // novo preço de custo em massa
   const [aplicando, setAplicando] = useState(false);
+  // Valores em R$ (custo): só para quem tem a permissão. Lida depois de montar (vem do token).
+  const [verFin, setVerFin] = useState(false);
+  useEffect(() => { setVerFin(podeVerFinanceiro()); }, []);
 
   const carregar = useCallback(async () => {
     const [o, f, i, c] = await Promise.all([
@@ -147,7 +151,7 @@ export function OpcoesCard() {
           <option value="todas">Todas</option>
           <option value="em_uso">Em uso (algum complemento)</option>
           <option value="sem_uso">Sem uso</option>
-          <option value="valor">Ordenar por valor</option>
+          {verFin && <option value="valor">Ordenar por valor</option>}
         </select>
         <Button type="button" size="sm" className="ml-auto" onClick={() => setEditar({})}>＋ Nova opção</Button>
       </div>
@@ -159,8 +163,12 @@ export function OpcoesCard() {
           <span className="font-semibold">{sel.size} selecionada(s)</span>
           <button type="button" onClick={limparSel} className="text-muted-foreground underline">limpar</button>
           <div className="ml-auto flex flex-wrap items-center gap-1.5">
-            <Input type="number" inputMode="decimal" value={bulkValor} onChange={(e) => setBulkValor(e.target.value)} placeholder="preço de custo" className="h-8 w-28" />
-            <Button type="button" size="sm" variant="outline" disabled={aplicando} onClick={aplicarValorSel}>Aplicar preço</Button>
+            {verFin && (
+              <>
+                <Input type="number" inputMode="decimal" value={bulkValor} onChange={(e) => setBulkValor(e.target.value)} placeholder="preço de custo" className="h-8 w-28" />
+                <Button type="button" size="sm" variant="outline" disabled={aplicando} onClick={aplicarValorSel}>Aplicar preço</Button>
+              </>
+            )}
             <button type="button" disabled={aplicando} onClick={excluirSel} className="rounded-md border border-destructive/50 px-2.5 py-1.5 font-semibold text-destructive disabled:opacity-40">Excluir</button>
           </div>
         </div>
@@ -187,7 +195,7 @@ export function OpcoesCard() {
                 )}
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{o.nome} {o.esgotado && <span className="rounded bg-destructive/10 px-1 text-[10px] font-bold text-destructive">esgotado</span>}</p>
-                  <p className="truncate text-[11px] text-muted-foreground">{TIPO_LABEL[o.tipo] ?? o.tipo}{o.fichaNome ? ` · ${o.fichaNome}` : o.itemNome ? ` · ${o.itemNome}${o.tipo === 'insumo' ? ` (1 ${o.itemUnidade || o.itemUnidadeEstoque || 'un'})` : ''}` : ''} · {custoDaOpcao(o)}</p>
+                  <p className="truncate text-[11px] text-muted-foreground">{TIPO_LABEL[o.tipo] ?? o.tipo}{o.fichaNome ? ` · ${o.fichaNome}` : o.itemNome ? ` · ${o.itemNome}${o.tipo === 'insumo' ? ` (1 ${o.itemUnidade || o.itemUnidadeEstoque || 'un'})` : ''}` : ''}{custoDaOpcao(o) ? ` · ${custoDaOpcao(o)}` : ''}</p>
                   {usos.length > 0 && (
                     <p className="truncate text-[10px] text-muted-foreground">Usado {usos.length}×: {usos.join(', ')}</p>
                   )}
@@ -212,13 +220,13 @@ export function OpcoesCard() {
       )}
 
       {editar && (
-        <OpcaoModal opcao={editar} fichas={fichas} itens={itens} onFechar={() => setEditar(null)} onSalvo={async () => { setEditar(null); await carregar(); }} />
+        <OpcaoModal opcao={editar} fichas={fichas} itens={itens} verFin={verFin} onFechar={() => setEditar(null)} onSalvo={async () => { setEditar(null); await carregar(); }} />
       )}
     </Card>
   );
 }
 
-function OpcaoModal({ opcao, fichas, itens, onFechar, onSalvo }: { opcao: any; fichas: any[]; itens: any[]; onFechar: () => void; onSalvo: () => void }) {
+function OpcaoModal({ opcao, fichas, itens, verFin, onFechar, onSalvo }: { opcao: any; fichas: any[]; itens: any[]; verFin: boolean; onFechar: () => void; onSalvo: () => void }) {
   const novo = !opcao?.id;
   const [f, setF] = useState<any>({
     nome: opcao.nome ?? '',
@@ -296,16 +304,16 @@ function OpcaoModal({ opcao, fichas, itens, onFechar, onSalvo }: { opcao: any; f
             <div className="space-y-1"><Label className="text-xs">Nome</Label><Input value={f.nome} onChange={(e) => up({ nome: e.target.value })} placeholder="Ex.: Coca-Cola Lata" /></div>
             <div className="flex flex-wrap gap-2">
               <div className="min-w-[6.5rem] flex-1 space-y-1"><Label className="text-xs">Código PDV</Label><Input value={f.codigoPdv} onChange={(e) => up({ codigoPdv: e.target.value })} placeholder="opcional" /></div>
-              {f.tipo === 'ficha' || f.tipo === 'insumo' ? (
+              {(f.tipo === 'ficha' || f.tipo === 'insumo') && !verFin && custoDerivado == null ? null : f.tipo === 'ficha' || f.tipo === 'insumo' ? (
                 <div className="min-w-[6.5rem] flex-1 space-y-1">
                   <Label className="text-xs">Custo</Label>
                   <p id={f.tipo === 'ficha' ? 'opcao-custo-da-ficha' : 'opcao-custo-do-insumo'} className="flex h-11 items-center rounded-md border border-dashed border-border px-3 font-mono text-sm">
                     {custoDerivado != null ? brl(custoDerivado) : '—'}
                   </p>
                 </div>
-              ) : (
+              ) : verFin ? (
                 <div className="min-w-[6.5rem] flex-1 space-y-1"><Label className="text-xs">Preço de custo</Label><Input type="number" value={f.precoCusto} onChange={(e) => up({ precoCusto: e.target.value })} placeholder="0,00" /></div>
-              )}
+              ) : null}
             </div>
           </div>
         </div>

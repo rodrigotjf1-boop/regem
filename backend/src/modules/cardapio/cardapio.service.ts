@@ -2859,6 +2859,14 @@ export class CardapioService {
     // Modo MESA (QR na mesa): itens vão para a comanda (adicionarItem resolve
     // preço, variação e complementos internamente).
     if (cfg.modo === 'mesa' && dto.mesa) {
+      // Confere TUDO antes de lançar qualquer item — a mesma conferência do pedido de entrega:
+      // a opção é deste produto, a etapa obrigatória foi escolhida, o máximo foi respeitado e a
+      // variação é do produto. Antes a mesa ia direto para a comanda; e, como cada item é
+      // lançado sozinho, um item inválido no meio deixava os anteriores na comanda.
+      for (const it of dto.itens) {
+        await this.vendas.variacaoDoProduto(this.db, cfg.tenantId, it.produtoId, it.variacaoId);
+        await this.resolverOpcoes(cfg.tenantId, it.produtoId, it.complementos ?? []);
+      }
       const comandaId = await this.comandaDaMesa(cfg.tenantId, cfg.unidadeId, dto.mesa);
       for (const it of dto.itens) {
         await this.vendas.adicionarItem(cfg.tenantId, null as any, comandaId, {
@@ -2879,15 +2887,10 @@ export class CardapioService {
       const p = porId.get(it.produtoId)!;
       let base = p.precoPromocional != null ? Number(p.precoPromocional) : Number(p.precoVenda);
       let desc = p.nome;
-      if (it.variacaoId) {
-        const [v] = await this.db
-          .select()
-          .from(produtoVariacao)
-          .where(eq(produtoVariacao.id, it.variacaoId));
-        if (v) {
-          base = Number(v.precoVenda);
-          desc = `${p.nome} · ${v.nome}`;
-        }
+      const v = await this.vendas.variacaoDoProduto(this.db, cfg.tenantId, p.id, it.variacaoId);
+      if (v) {
+        base = Number(v.precoVenda);
+        desc = `${p.nome} · ${v.nome}`;
       }
       const { precoDelta, labels } = await this.resolverOpcoes(
         cfg.tenantId,

@@ -191,6 +191,8 @@ export class ProdutoService {
       void _fora;
       return {
         ...resto,
+        // O "preço de custo" digitado é valor em R$: só para quem vê valores (ERR-162).
+        precoCusto: veFinanceiro ? resto.precoCusto : null,
         // null = sem ficha ligada, ou quem pede não vê custo de ficha. Em centavos, como o
         // "custo por porção" da tela de fichas — o mesmo número nos dois lugares.
         custoFicha: c ? Number(c.balcao.toFixed(2)) : null,
@@ -791,16 +793,24 @@ export class ProdutoService {
     };
   }
 
-  async criarOpcaoCatalogo(tenantId: string, dto: any) {
+  // podeCusto: quem chama pode ver/alterar valores em R$ (a rota passa `ver_financeiro`). Sem
+  // isso o custo digitado é ignorado ao gravar e não volta na resposta.
+  async criarOpcaoCatalogo(tenantId: string, dto: any, podeCusto = true) {
     const vals = this.opcaoVals(dto);
     if (!vals.nome) throw new NotFoundException('Informe o nome da opção.');
+    if (!podeCusto) vals.precoCusto = '0';
     const { unidade: itemUnidade } = await this.vinculoComEstoque(tenantId, vals.itemId, dto?.itemUnidade);
     const [row] = await this.db.insert(opcao).values({ tenantId, ...vals, itemUnidade }).returning();
-    return row;
+    return podeCusto ? row : { ...row, precoCusto: null };
   }
 
-  async atualizarOpcao(tenantId: string, id: string, dto: any) {
-    const vals = this.opcaoVals(dto);
+  async atualizarOpcao(tenantId: string, id: string, dto: any, podeCusto = true) {
+    const vals: Record<string, any> = this.opcaoVals(dto);
+    // O custo só muda quando quem salva pode ver valores E mandou o campo. Ausente (ou vazio)
+    // mantém o que estava: a tela de quem não vê o custo recebe nulo e devolve nulo — pausar a
+    // opção por ela zerava o custo.
+    const mandouCusto = dto?.precoCusto != null && dto.precoCusto !== '';
+    if (!podeCusto || !mandouCusto) delete vals.precoCusto;
     // Unidade da ligação com o insumo: quem não manda o campo (telas que regravam a opção
     // inteira para mudar "esgotado", por exemplo) mantém a que estava — se o insumo é o mesmo.
     let unidadePedida = dto?.itemUnidade;
@@ -820,7 +830,7 @@ export class ProdutoService {
     if (!row) throw new NotFoundException('Opção não encontrada');
     // Nome/preço-custo/estoque da opção mudou → repropaga aos produtos afetados.
     await this.reMaterializarPorOpcao(tenantId, id);
-    return row;
+    return podeCusto ? row : { ...row, precoCusto: null };
   }
 
   async excluirOpcao(tenantId: string, id: string) {

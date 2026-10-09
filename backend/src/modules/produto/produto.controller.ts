@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -92,13 +93,13 @@ export class ProdutoController {
   @Post('opcoes')
   @Roles(...GESTOR)
   criarOpcaoCatalogo(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.service.criarOpcaoCatalogo(user.tenantId, dto);
+    return this.service.criarOpcaoCatalogo(user.tenantId, dto, !!user.permissoes?.ver_financeiro);
   }
 
   @Patch('opcoes/:id')
   @Roles(...GESTOR)
   atualizarOpcao(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
-    return this.service.atualizarOpcao(user.tenantId, id, dto);
+    return this.service.atualizarOpcao(user.tenantId, id, dto, !!user.permissoes?.ver_financeiro);
   }
 
   @Delete('opcoes/:id')
@@ -117,6 +118,9 @@ export class ProdutoController {
   @Patch('opcoes/massa/preco')
   @Roles(...GESTOR)
   precoCustoOpcoesMassa(@CurrentUser() user: AuthUser, @Body() dto: { ids?: string[]; precoCusto?: number }) {
+    // Custo é valor em R$: só altera quem pode vê-lo.
+    if (!user.permissoes?.ver_financeiro)
+      throw new ForbiddenException('Seu perfil não pode alterar valores de custo. Fale com o presidente/C&O.');
     return this.service.precoCustoOpcoesMassa(user.tenantId, dto?.ids ?? [], Number(dto?.precoCusto) || 0);
   }
 

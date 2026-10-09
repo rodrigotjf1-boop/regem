@@ -52,7 +52,7 @@ import {
   producaoPedido,
 } from '../../db/schema';
 import { precoComAtacado } from '../../common/preco-atacado';
-import { REGRA_COM_REPETICAO, textoDasEscolhas, vezesPorOpcao } from '../../common/adicionais';
+import { agruparEscolhas, REGRA_COM_REPETICAO, rotuloDaEscolha, textoDasEscolhas, vezesPorOpcao } from '../../common/adicionais';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import {
   ProducaoPedidoService,
@@ -557,6 +557,72 @@ export class VendasService {
     if (consumo.size) this.events.emit('estoque.baixado', { tenantId });
   }
 
+  // Item escolhido pelo OPERADOR no seletor compartilhado (pedido manual do delivery, item
+  // acrescentado a um pedido): preço e descrição saem do BANCO — produto, variação e escolhas —,
+  // no formato do nosso cardápio: "Suco · Grande (2x Bacon, Sem gelo)". As escolhas voltam como
+  // ids (já com a repetição que a etapa permite) para quem cria a venda gravá-las.
+  // null = o produto não é desta empresa.
+  async itemDeOrigemInterna(
+    tx: any,
+    tenantId: string,
+    pedido: { produtoId: string; variacaoId?: string | null; complementos?: string[] | null },
+  ): Promise<{
+    produto: any;
+    variacaoId: string | null;
+    descricao: string;
+    precoUnitario: number;
+    opcaoIds: string[];
+    snapshots: any[];
+  } | null> {
+    const [p] = await tx
+      .select()
+      .from(produto)
+      .where(and(eq(produto.id, pedido.produtoId), eq(produto.tenantId, tenantId)));
+    if (!p) return null;
+    const v = await this.variacaoDoProduto(tx, tenantId, p.id, pedido.variacaoId);
+    const { snapshots, precoDelta } = await this.resolverComplementos(
+      tx,
+      tenantId,
+      p.id,
+      (pedido.complementos ?? []).filter(Boolean),
+    );
+    const base = v ? `${p.nome} · ${v.nome}` : p.nome;
+    const rotulos = agruparEscolhas(snapshots).map((g) => rotuloDaEscolha(g.nome, g.vezes));
+    return {
+      produto: p,
+      variacaoId: v?.id ?? null,
+      descricao: rotulos.length ? `${base} (${rotulos.join(', ')})` : base,
+      precoUnitario: (v ? Number(v.precoVenda) : Number(p.precoVenda) || 0) + precoDelta,
+      opcaoIds: snapshots.map((s: any) => String(s.opcaoId)),
+      snapshots,
+    };
+  }
+
+  // A variação escolhida tem de ser DESTE produto, desta empresa e não apagada. Era lida só pelo
+  // id — no balcão, na mesa e no cardápio do cliente: a variação de OUTRO produto (mais barata),
+  // ou de outra empresa, era aceita com o preço e o fator de baixa dela.
+  async variacaoDoProduto(
+    tx: any,
+    tenantId: string,
+    produtoId: string,
+    variacaoId: string | null | undefined,
+  ) {
+    if (!variacaoId) return null;
+    const [v] = await tx
+      .select()
+      .from(produtoVariacao)
+      .where(
+        and(
+          eq(produtoVariacao.id, variacaoId),
+          eq(produtoVariacao.tenantId, tenantId),
+          eq(produtoVariacao.produtoId, produtoId),
+          isNull(produtoVariacao.deletedAt),
+        ),
+      );
+    if (!v) throw new BadRequestException('Variação inválida para este produto.');
+    return v;
+  }
+
   // Resolve os complementos de um pedido de canal EXTERNO pelo CÓDIGO PDV.
   //
   // Irmão do `resolverComplementos` (que casa por opcaoId, nosso id interno). Marketplace
@@ -621,6 +687,7 @@ export class VendasService {
       }
       snapshots.push({
         opcaoId: o.id,
+        codigoPdv: o.codigoPdv,
         tipo: o.tipo === 'remover' ? 'remover' : 'adicionar',
         nome: o.nome,
         precoDelta: Number(o.precoDelta) || 0,
@@ -629,12 +696,99 @@ export class VendasService {
         // balcão (`resolverComplementos`). Antes o canal baixava mesmo com o controle desligado.
         itemId: o.controlaEstoque ? o.itemId : null,
         produtoRefId: o.produtoRefId,
+        // Quantas vezes o canal pediu a opção, e quanto do estoque sai a cada vez — é com isso
+        // que a venda grava UMA LINHA POR VEZ (`linhasPorVez`), como no balcão.
+        vezes: Number(esc.quantidade) || 1,
+        quantidadePorVez: Number(o.quantidade) || 1,
         // Quantidade do CANAL × a quantidade configurada na opção (ex.: "2x bacon"
         // numa opção que já vale 2 fatias = 4 fatias).
         quantidade: (Number(o.quantidade) || 1) * (Number(esc.quantidade) || 1),
       });
     }
     return { snapshots, naoLigados };
+  }
+
+  // Escolhas resolvidas por CÓDIGO → as linhas a gravar na venda: uma por vez escolhida (quem
+  // soma preço, escreve "+ 2x Bacon" ou baixa estoque lendo as linhas chega ao total certo).
+  // Quantidade quebrada (o canal mandou 1,5) não se parte em linhas: fica uma só, com o total.
+  private linhasPorVez(snapshots: any[]): any[] {
+    const linhas: any[] = [];
+    for (const sn of snapshots) {
+      const vezes = Number(sn.vezes) || 1;
+      if (!Number.isInteger(vezes) || vezes < 1 || vezes > MAX_REPETICAO_SEM_LIMITE) {
+        linhas.push(sn);
+        continue;
+      }
+      for (let i = 0; i < vezes; i++) linhas.push({ ...sn, quantidade: sn.quantidadePorVez ?? sn.quantidade });
+    }
+    return linhas;
+  }
+
+  // AS LINHAS QUE O TOTEM MANDA → itens de venda, com os adicionais dentro.
+  //
+  // O totem (GoGeM) manda cada opção COM código PDV como uma linha própria, logo depois do
+  // produto dela e com a quantidade do item — `[{LT1, 2}, {AD1, 2}]` = 2 lanches, cada um com 1
+  // bacon. O código da opção não é de produto: todo código era procurado entre os produtos e a
+  // venda INTEIRA era recusada ("Código(s) PDV não encontrado(s)") — no cartão, depois de o
+  // cliente pagar. Regra: código de produto abre um item; código que não é de produto vale como
+  // adicional do item ANTERIOR, se for opção viva dele. O que não é nem um nem outro continua
+  // recusado, dizendo qual. Preço sempre do banco: produto + adicionais.
+  async itensDoTotem(
+    tx: any,
+    tenantId: string,
+    linhas: { codigoPdv?: string; quantidade?: number; observacao?: string | null }[],
+  ): Promise<{
+    produto: any;
+    quantidade: number;
+    observacao: string | null;
+    precoUnitario: number;
+    escolhidos: { nome: string; codigo: string; quantidade: number }[];
+    escolhas: any[]; // linhas para `comanda_item_complemento`
+  }[]> {
+    const codigos = [...new Set((linhas ?? []).map((i) => (i.codigoPdv ?? '').trim()).filter(Boolean))];
+    if (!codigos.length) throw new BadRequestException('Itens sem codigoPdv.');
+    const prods = await tx
+      .select()
+      .from(produto)
+      .where(and(eq(produto.tenantId, tenantId), inArray(produto.codigo, codigos), isNull(produto.deletedAt)));
+    const porCodigo = new Map<string, any>(prods.filter((p: any) => p.codigo).map((p: any) => [p.codigo as string, p]));
+
+    const itens: any[] = [];
+    const semDono: string[] = []; // código que não é produto e veio antes de qualquer produto
+    for (const l of linhas ?? []) {
+      const codigo = (l.codigoPdv ?? '').trim();
+      if (!codigo) continue;
+      const p = porCodigo.get(codigo);
+      if (p) {
+        itens.push({ produto: p, quantidade: Number(l.quantidade) || 1, observacao: l.observacao ?? null, escolhidos: [] });
+        continue;
+      }
+      const dono = itens[itens.length - 1];
+      if (!dono) {
+        semDono.push(codigo);
+        continue;
+      }
+      // O totem manda a opção com a quantidade do ITEM: vezes por unidade = uma coisa pela outra.
+      const porUnidade = (Number(l.quantidade) || dono.quantidade) / dono.quantidade;
+      dono.escolhidos.push({ nome: codigo, codigo, quantidade: porUnidade > 0 ? porUnidade : 1 });
+    }
+
+    const faltando = [...semDono];
+    for (const it of itens) {
+      const { snapshots, naoLigados } = await this.resolverComplementosPorCodigo(tx, tenantId, it.produto.id, it.escolhidos);
+      // `naoLigados` vem como "nome (código)"; aqui o nome É o código.
+      faltando.push(...naoLigados.map((n) => n.replace(/ \(.*\)$/, '')));
+      it.escolhas = this.linhasPorVez(snapshots);
+      it.escolhidos = snapshots.map((sn: any) => ({ nome: sn.nome, codigo: String(sn.codigoPdv), quantidade: sn.vezes }));
+      it.precoUnitario =
+        (Number(it.produto.precoVenda) || 0) +
+        snapshots.reduce((s: number, sn: any) => s + (Number(sn.precoDelta) || 0) * (Number(sn.vezes) || 1), 0);
+    }
+    if (faltando.length)
+      throw new BadRequestException(
+        `Código(s) PDV não encontrado(s) neste tenant: ${[...new Set(faltando)].join(', ')}`,
+      );
+    return itens;
   }
 
   // Resolve os complementos escolhidos (por opcaoId) validando que pertencem ao
@@ -846,16 +1000,11 @@ export class VendasService {
         let preco = Number(p.precoVenda);
         let descricao = p.nome;
         let fatorFicha = 1;
-        if (it.variacaoId) {
-          const [v] = await tx
-            .select()
-            .from(produtoVariacao)
-            .where(eq(produtoVariacao.id, it.variacaoId));
-          if (v) {
-            preco = Number(v.precoVenda);
-            descricao = `${p.nome} · ${v.nome}`;
-            fatorFicha = Number(v.fatorFicha) || 1;
-          }
+        const v = await this.variacaoDoProduto(tx, tenantId, p.id, it.variacaoId);
+        if (v) {
+          preco = Number(v.precoVenda);
+          descricao = `${p.nome} · ${v.nome}`;
+          fatorFicha = Number(v.fatorFicha) || 1;
         }
 
         // Complementos escolhidos (opcionais/adicionais) — preço vem do banco.
@@ -1380,7 +1529,8 @@ export class VendasService {
           const { snapshots, naoLigados } = await this.resolverComplementosPorCodigo(
             tx, tenantId, p.id, it.complementosCanal,
           );
-          for (const sn of snapshots)
+          // Uma linha por vez pedida ("2x bacon" = duas linhas), como no balcão.
+          for (const sn of this.linhasPorVez(snapshots))
             await tx.insert(comandaItemComplemento).values({
               tenantId,
               comandaItemId: ci.id,
@@ -1509,29 +1659,9 @@ export class VendasService {
       );
     if (existente) return this.retomarVendaTotem(tenantId, existente.id, ctx, unidadeId);
 
-    // De-para: resolve produtos por codigo_pdv. Preço vem do banco (nunca do cliente).
-    const codigos = [
-      ...new Set(dto.itens.map((i) => (i.codigoPdv ?? '').trim()).filter(Boolean)),
-    ];
-    if (!codigos.length) throw new BadRequestException('Itens sem codigoPdv.');
-    const prods = await this.db
-      .select()
-      .from(produto)
-      .where(
-        and(
-          eq(produto.tenantId, tenantId),
-          inArray(produto.codigo, codigos),
-          isNull(produto.deletedAt),
-        ),
-      );
-    const porCodigo = new Map<string, any>(
-      prods.filter((p) => p.codigo).map((p) => [p.codigo as string, p]),
-    );
-    const faltando = codigos.filter((c) => !porCodigo.has(c));
-    if (faltando.length)
-      throw new BadRequestException(
-        `Código(s) PDV não encontrado(s) neste tenant: ${faltando.join(', ')}`,
-      );
+    // De-para: resolve produtos — e os adicionais de cada um — por codigo_pdv. Preço vem do
+    // banco (nunca do cliente). Ver `itensDoTotem`.
+    const itensTotem = await this.itensDoTotem(this.db, tenantId, dto.itens);
 
     // COM NFC-e, A COZINHA SÓ RECEBE DEPOIS DA NOTA. No totem a compra só termina com o cupom
     // fiscal na mão do cliente: se a nota não sair, a venda é desfeita e o pagamento estornado —
@@ -1574,10 +1704,10 @@ export class VendasService {
         const itensProducao: ItemProducao[] = [];
         const consumo = new Map<string, number>(); // baixa agregada por item
 
-        for (const it of dto.itens) {
-          const p = porCodigo.get((it.codigoPdv ?? '').trim());
-          const qtd = Number(it.quantidade) || 1;
-          const preco = Number(p.precoVenda);
+        for (const it of itensTotem) {
+          const p = it.produto;
+          const qtd = it.quantidade;
+          const preco = it.precoUnitario; // produto + adicionais
           total += preco * qtd;
           const obs = it.observacao ?? null;
           const [ci] = await tx
@@ -1593,16 +1723,31 @@ export class VendasService {
               observacao: obs,
             })
             .returning();
-          // v1: itens simples (sem complementos). Complementos por codigoPdv das
-          // opções são follow-up (L-VEN-1 v2).
-          await this.acumularProduto(tx, tenantId, p, 1, qtd, [], consumo);
+          // Os adicionais do item (linhas de opção que o totem mandou depois do produto):
+          // gravados na venda, baixam o estoque e vão para a cozinha junto do item.
+          for (const sn of it.escolhas)
+            await tx.insert(comandaItemComplemento).values({
+              tenantId,
+              comandaItemId: ci.id,
+              opcaoId: sn.opcaoId,
+              tipo: sn.tipo,
+              nome: sn.nome,
+              precoDelta: String(sn.precoDelta),
+              fichaIngredienteId: sn.fichaIngredienteId,
+              itemId: sn.itemId,
+              produtoRefId: sn.produtoRefId,
+              quantidade: String(sn.quantidade),
+            });
+          await this.acumularProduto(tx, tenantId, p, 1, qtd, it.escolhas, consumo);
           if (p.vaiParaProducao)
             itensProducao.push({
               produto: p,
               descricao: p.nome,
               quantidade: qtd,
+              complementosTexto: textoDasEscolhas(it.escolhas),
               observacao: obs,
               comandaItemId: ci.id,
+              opcaoIds: it.escolhas.map((s: any) => s.opcaoId), // roteamento por opção/etapa
             });
         }
 
@@ -2186,7 +2331,13 @@ export class VendasService {
     atorId: string,
     comandaId: string,
     dto: {
-      adicionar?: { produtoId: string; quantidade?: number; observacao?: string }[];
+      adicionar?: {
+        produtoId: string;
+        quantidade?: number;
+        observacao?: string;
+        variacaoId?: string | null;
+        complementos?: string[] | null;
+      }[];
       remover?: string[];
     },
   ) {
@@ -2209,27 +2360,41 @@ export class VendasService {
     }
 
     for (const add of dto.adicionar ?? []) {
-      const [p] = await this.db
-        .select()
-        .from(produto)
-        .where(and(eq(produto.id, add.produtoId), eq(produto.tenantId, tenantId)));
-      if (!p) continue;
+      // A variação e os adicionais escolhidos no seletor entram no item: preço, descrição,
+      // escolhas gravadas (é delas que a conclusão do pedido baixa o estoque). Antes só o
+      // produto e o preço-base entravam.
+      const escolhido = await this.itemDeOrigemInterna(this.db, tenantId, add);
+      if (!escolhido) continue;
+      const p = escolhido.produto;
       const qtd = Number(add.quantidade) || 1;
-      const preco = Number(p.precoVenda) || 0;
       const [item] = await this.db
         .insert(comandaItem)
         .values({
           tenantId,
           comandaId,
           produtoId: p.id,
+          variacaoId: escolhido.variacaoId,
           fichaId: p.fichaId,
-          descricao: p.nome,
+          descricao: escolhido.descricao,
           quantidade: String(qtd),
-          precoUnitario: String(preco),
+          precoUnitario: String(escolhido.precoUnitario),
           observacao: add.observacao || null,
           criadoPorId: atorId,
         })
         .returning();
+      for (const sn of escolhido.snapshots)
+        await this.db.insert(comandaItemComplemento).values({
+          tenantId,
+          comandaItemId: item.id,
+          opcaoId: sn.opcaoId,
+          tipo: sn.tipo,
+          nome: sn.nome,
+          precoDelta: String(sn.precoDelta),
+          fichaIngredienteId: sn.fichaIngredienteId,
+          itemId: sn.itemId,
+          produtoRefId: sn.produtoRefId,
+          quantidade: String(sn.quantidade),
+        });
       if (p.vaiParaProducao) {
         const payloads = await this.producao.criarPedidos(
           this.db,
@@ -2244,10 +2409,11 @@ export class VendasService {
           [
             {
               produto: p,
-              descricao: p.nome,
+              descricao: escolhido.descricao,
               quantidade: qtd,
               observacao: add.observacao || null,
               comandaItemId: item.id,
+              opcaoIds: escolhido.opcaoIds, // roteamento por opção/etapa
             },
           ],
         );
@@ -2590,15 +2756,10 @@ export class VendasService {
 
     let preco = Number(p.precoVenda);
     let descricao = p.nome;
-    if (dto.variacaoId) {
-      const [v] = await this.db
-        .select()
-        .from(produtoVariacao)
-        .where(eq(produtoVariacao.id, dto.variacaoId));
-      if (v) {
-        preco = Number(v.precoVenda);
-        descricao = `${p.nome} · ${v.nome}`;
-      }
+    const v = await this.variacaoDoProduto(this.db, tenantId, p.id, dto.variacaoId);
+    if (v) {
+      preco = Number(v.precoVenda);
+      descricao = `${p.nome} · ${v.nome}`;
     }
     const { snapshots, precoDelta } = await this.resolverComplementos(
       this.db,

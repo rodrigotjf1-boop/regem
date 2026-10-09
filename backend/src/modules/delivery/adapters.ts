@@ -12,6 +12,9 @@ export interface PedidoNormalizado {
   endereco?: string;
   itens: {
     produtoId?: string; // quando a origem já conhece o produto (ex.: cardápio)
+    // Variação escolhida (só origem interna: nosso cardápio, pedido manual). O canal externo
+    // resolve a variação pelo código PDV no aceite.
+    variacaoId?: string;
     codigo?: string;
     descricao: string;
     quantidade: number;
@@ -389,12 +392,19 @@ export function adaptarGenerico(raw: any): PedidoNormalizado {
     endereco: raw?.endereco,
     itens: (raw?.itens ?? []).map((it: any) => ({
       produtoId: it.produtoId,
+      // Sem isto a variação escolhida no nosso cardápio não chegava à venda: o Suco Grande
+      // baixava a ficha do pequeno (o preço vinha certo, calculado pelo cardápio).
+      variacaoId: typeof it.variacaoId === 'string' && it.variacaoId ? it.variacaoId : undefined,
       codigo: it.codigo,
       descricao: it.descricao ?? it.nome ?? 'Item',
       quantidade: Number(it.quantidade) || 1,
       precoUnitario: Number(it.precoUnitario ?? it.preco) || 0,
       observacao: it.observacao,
       opcaoIds: Array.isArray(it.opcaoIds) ? it.opcaoIds : undefined, // origem interna (cardápio/totem)
+      // Totem: os adicionais vêm por CÓDIGO PDV (o totem não conhece os nossos ids) e o texto
+      // deles vai para a cozinha. Sem estes dois campos o pedido retido perdia os adicionais.
+      complementos: typeof it.complementos === 'string' && it.complementos ? it.complementos : undefined,
+      complementosItens: Array.isArray(it.complementosItens) && it.complementosItens.length ? it.complementosItens : undefined,
     })),
     total: Number(raw?.total) || 0,
     formaPagamento: formaPtBr(raw?.formaPagamento ?? (raw?.pago ? 'online' : 'money')),

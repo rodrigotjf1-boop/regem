@@ -14,7 +14,12 @@ import { SeletorProduto, type SelecaoProduto } from '@/components/pdv/seletor-pr
 const brl = (n: number) =>
   Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-type ItemNovo = { produtoId: string; label: string; preco: number; quantidade: number; observacao?: string };
+// `variacaoId` e `complementos` (ids das opções; repetida = mais de uma vez) vão para o servidor:
+// é ele que calcula o preço e a descrição do item — o `label` e o `preco` daqui são só a prévia.
+type ItemNovo = { produtoId: string; label: string; preco: number; quantidade: number; observacao?: string; variacaoId?: string; complementos?: string[] };
+// Dois toques no MESMO item (produto, variação, adicionais e observação iguais) somam a quantidade.
+const chaveDoItem = (x: { produtoId: string; variacaoId?: string; complementos?: string[]; observacao?: string }) =>
+  `${x.produtoId}:${x.variacaoId ?? ''}:${[...(x.complementos ?? [])].sort().join(',')}:${x.observacao ?? ''}`;
 
 // Novo pedido manual: entrega (com endereço) ou retirada no balcão.
 export function NovoPedido({ onFechar, onCriado }: { onFechar: () => void; onCriado: () => void }) {
@@ -84,13 +89,14 @@ export function NovoPedido({ onFechar, onCriado }: { onFechar: () => void; onCri
 
   function addItem(s: SelecaoProduto) {
     setItens((a) => {
-      const i = a.findIndex((x) => x.produtoId === s.produtoId && !x.observacao && !s.observacao);
+      // Antes juntava pelo produto: "X-Burger + bacon" e "X-Burger sem cebola" viravam 2× o primeiro.
+      const i = a.findIndex((x) => chaveDoItem(x) === chaveDoItem(s));
       if (i >= 0) {
         const cp = [...a];
         cp[i] = { ...cp[i], quantidade: cp[i].quantidade + 1 };
         return cp;
       }
-      return [...a, { produtoId: s.produtoId, label: s.label, preco: s.preco ?? 0, quantidade: 1, observacao: s.observacao }];
+      return [...a, { produtoId: s.produtoId, label: s.label, preco: s.preco ?? 0, quantidade: 1, observacao: s.observacao, variacaoId: s.variacaoId, complementos: s.complementos }];
     });
   }
 
@@ -112,7 +118,7 @@ export function NovoPedido({ onFechar, onCriado }: { onFechar: () => void; onCri
         enderecoReferencia: tipo === 'entrega' ? ref.trim() : undefined,
         formaPagamento: forma,
         trocoPara: ehDinheiro && trocoPara ? Number(trocoPara.replace(',', '.')) : undefined,
-        itens: itens.map((i) => ({ produtoId: i.produtoId, quantidade: i.quantidade, observacao: i.observacao })),
+        itens: itens.map((i) => ({ produtoId: i.produtoId, quantidade: i.quantidade, observacao: i.observacao, variacaoId: i.variacaoId, complementos: i.complementos })),
       });
       toast.success('Pedido lançado no quadro.');
       onCriado();
