@@ -1,4 +1,5 @@
 import {
+  ArrayMaxSize,
   ArrayNotEmpty,
   IsArray,
   IsBoolean,
@@ -11,6 +12,7 @@ import {
   IsUUID,
   Matches,
   Max,
+  MaxLength,
   Min,
   MinLength,
   ValidateNested,
@@ -60,6 +62,17 @@ export class CreateContagemListaDto {
   itemIds!: string[];
 }
 
+// Quanto foi contado de UMA marca do produto (mig 312).
+export class ContadoPorMarcaDto {
+  @IsString()
+  @MaxLength(60)
+  marca!: string;
+
+  @IsNumber()
+  @Min(0)
+  quantidade!: number;
+}
+
 export class SalvarContagemItemDto {
   @IsUUID()
   itemId!: string;
@@ -72,6 +85,15 @@ export class SalvarContagemItemDto {
   @IsOptional()
   @IsDateString()
   contadoEm?: string;
+
+  // Produto com duas ou mais marcas: quanto há de cada uma. A soma tem de bater com `contado` —
+  // é ela que ajusta o estoque, que continua um só por produto.
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => ContadoPorMarcaDto)
+  porMarca?: ContadoPorMarcaDto[];
 }
 
 export class SalvarContagemDto {

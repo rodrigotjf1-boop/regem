@@ -20,6 +20,7 @@ import {
 } from './dto/create-contagem-lista.dto';
 import { condUnidade, condUnidadeOuRede } from '../../common/filtro-unidade';
 import { hojeISO } from '../../common/data';
+import { acharMarca } from '../estoque/produto-nome';
 
 @Injectable()
 export class ContagemService {
@@ -214,7 +215,27 @@ export class ContagemService {
        order by e.created_at desc
        limit 30
     `);
-    return r.rows ?? r;
+    const execucoes: any[] = r.rows ?? r;
+    // O detalhe por marca (mig 312): só os produtos contados marca a marca, por contagem.
+    const ids = execucoes.map((e) => e.id);
+    const d: any = ids.length
+      ? await this.db.execute(sql`
+          select ci.execucao_id as "execucaoId", i.nome, i.unidade_medida as "unidadeMedida",
+                 ci.contado::float8 as contado, ci.por_marca as "porMarca"
+            from contagem_item ci
+            join item_estoque i on i.id = ci.item_id
+           where ci.tenant_id = ${tenantId} and ci.por_marca is not null
+             and ci.execucao_id in (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})
+           order by i.nome
+        `)
+      : [];
+    const porExecucao = new Map<string, any[]>();
+    for (const x of d.rows ?? d) {
+      const lista = porExecucao.get(x.execucaoId) ?? [];
+      lista.push({ nome: x.nome, unidadeMedida: x.unidadeMedida, contado: x.contado, porMarca: x.porMarca });
+      porExecucao.set(x.execucaoId, lista);
+    }
+    return execucoes.map((e) => ({ ...e, porMarca: porExecucao.get(e.id) ?? [] }));
   }
 
   // A lista deve ser contada hoje? (recorrência × dia atual no fuso SP)
@@ -362,6 +383,9 @@ export class ContagemService {
         unidadeMedida: itemEstoque.unidadeMedida,
         saldoSistema: contagemItem.saldoSistema,
         contado: contagemItem.contado,
+        // Produto com duas ou mais marcas é contado marca a marca (mig 312); o estoque é um só.
+        marcas: itemEstoque.marcas,
+        porMarca: contagemItem.porMarca,
       })
       .from(contagemItem)
       .leftJoin(itemEstoque, eq(contagemItem.itemId, itemEstoque.id))
@@ -412,6 +436,38 @@ export class ContagemService {
         .from(contagemItem)
         .where(and(eq(contagemItem.execucaoId, execId), eq(contagemItem.tenantId, tenantId)));
       const linhaDe = new Map(atuais.map((a) => [a.itemId, a]));
+      // CONTAGEM POR MARCA (decisão do dono, 09/10/2026): o produto com duas ou mais marcas é
+      // contado marca a marca. O que conta para o estoque é a SOMA — o estoque é um só por
+      // produto; o detalhe fica guardado na contagem. Tudo é conferido ANTES de gravar.
+      const produtos = atuais.length
+        ? await tx
+            .select({ id: itemEstoque.id, nome: itemEstoque.nome, marcas: itemEstoque.marcas })
+            .from(itemEstoque)
+            .where(and(eq(itemEstoque.tenantId, tenantId), inArray(itemEstoque.id, atuais.map((a) => a.itemId))))
+        : [];
+      const produtoDe = new Map(produtos.map((p) => [p.id, p]));
+      const porMarcaDe = new Map<string, Record<string, number> | null>();
+      for (const it of dto.itens) {
+        if (!linhaDe.has(it.itemId)) continue;
+        const produto = produtoDe.get(it.itemId);
+        const marcas: string[] = Array.isArray(produto?.marcas) ? (produto!.marcas as string[]) : [];
+        // Com uma marca só (ou nenhuma) não há o que separar: vale o contado.
+        if (!it.porMarca?.length || marcas.length < 2) {
+          porMarcaDe.set(it.itemId, null);
+          continue;
+        }
+        const detalhe: Record<string, number> = {};
+        for (const m of it.porMarca) {
+          const marca = acharMarca(marcas, m.marca);
+          if (!marca)
+            throw new BadRequestException(`"${m.marca}" não é marca cadastrada de "${produto?.nome}". Marcas: ${marcas.join(', ')}.`);
+          detalhe[marca] = Math.round(((detalhe[marca] ?? 0) + Number(m.quantidade)) * 1e6) / 1e6;
+        }
+        const soma = Math.round(Object.values(detalhe).reduce((s, v) => s + v, 0) * 1e6) / 1e6;
+        if (Math.abs(soma - Number(it.contado)) > 1e-6)
+          throw new BadRequestException(`"${produto?.nome}": a soma das marcas (${soma}) não bate com o total contado (${it.contado}).`);
+        porMarcaDe.set(it.itemId, detalhe);
+      }
       // Quais itens se moveram DURANTE a contagem. O ajuste segue sendo lançado contra o
       // snapshot da abertura (é a base que o operador viu na tela), mas o que se moveu
       // fica REGISTRADO: sem isso, um ajuste possivelmente errado some sem deixar pista.
@@ -441,7 +497,7 @@ export class ContagemService {
         const quando = instantes.get(it.itemId) ?? agora;
         await tx
           .update(contagemItem)
-          .set({ contado: String(it.contado), contadoEm: quando })
+          .set({ contado: String(it.contado), contadoEm: quando, porMarca: porMarcaDe.get(it.itemId) ?? null })
           .where(
             and(eq(contagemItem.execucaoId, execId), eq(contagemItem.itemId, it.itemId)),
           );

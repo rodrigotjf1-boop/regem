@@ -32,7 +32,11 @@
    lote e, quando há mais de uma marca, a marca que veio; SEM marcar é "não veio" e nada entra no
    estoque. A lista recebida mostra quantos itens ficaram com falta (situação "Com falta") e oferece
    "Gerar lista com o que faltou": uma lista nova só com as quantidades faltantes, mesmo fornecedor e
-   mesmas marcas — uma só por lista. */
+   mesmas marcas — uma só por lista.
+   CONTAGEM, de 09/10/2026 (mig 312): o produto com duas ou mais marcas é contado MARCA A MARCA — um
+   campo por marca e o total embaixo. A soma é o contado do produto e é ela que ajusta o estoque, que
+   continua um só; o detalhe por marca fica guardado na contagem e aparece no histórico. Entre uma
+   contagem e outra o sistema não sabe quanto resta de cada marca (a venda baixa do produto). */
 :root{
   --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
   --gold:#E8A845; --on-gold:#281B06; --navy:#0F2230; --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9;
@@ -566,16 +570,25 @@ function dialogoContar(r) {
       <div class="duas"><div class="campo"><label for="cBusca">Buscar produto</label><input id="cBusca" type="search" placeholder="Digite parte do nome"></div><div class="conta" id="cProg" style="align-self:end"></div></div>
       <div class="fichas"><button type="button" class="ficha" id="cFalta" aria-pressed="false">Só os que faltam contar</button><button type="button" class="ficha" id="cDif" aria-pressed="false">Só com diferença</button></div>
       <div class="tabela"><table class="mini"><caption class="sr">Produtos desta contagem</caption><thead><tr><th>Produto</th><th>No sistema</th><th>Contado</th><th>Diferença</th></tr></thead><tbody>
-      ${itens.map((p, i) => `<tr data-c="${i}"><td><b>${p[0]}</b><div class="sub">${p[1]}</div></td><td class="num">${num(p[3])} ${p[2]}</td><td><input type="number" min="0" step="any" inputmode="decimal" aria-label="Contado de ${p[0]}" placeholder="contado"></td><td class="num" data-d>—</td></tr>`).join('')}</tbody></table></div>
-      <p class="ajuda" style="margin:0">O saldo "no sistema" é o da abertura da contagem. Se o produto teve venda ou produção depois, a linha avisa.</p></div>` });
+      ${itens.map((p, i) => `<tr data-c="${i}"><td><b>${p[0]}</b><div class="sub">${p[1]}</div></td><td class="num">${num(p[3])} ${p[2]}</td><td>${p[6]?.length > 1 ? `<div style="display:grid;grid-template-columns:minmax(0,1fr) 84px;gap:6px;align-items:center">${p[6].map((m) => `<label class="sub" style="font-weight:700">${m}</label><input type="number" min="0" step="any" inputmode="decimal" data-marca aria-label="Contado de ${p[0]}, marca ${m}" placeholder="0">`).join('')}</div><div class="sub" data-total style="font-weight:700;margin-top:4px"></div>` : `<input type="number" min="0" step="any" inputmode="decimal" aria-label="Contado de ${p[0]}" placeholder="contado">`}</td><td class="num" data-d>—</td></tr>`).join('')}</tbody></table></div>
+      <p class="ajuda" style="margin:0">O saldo "no sistema" é o da abertura da contagem. Se o produto teve venda ou produção depois, a linha avisa. Produto com mais de uma marca é contado marca a marca: a soma é o contado do produto — o estoque continua um só.</p></div>` });
   progresso();
   $('#cFalta').onclick = $('#cDif').onclick = () => setTimeout(progresso);
+}
+// O contado da linha: o campo único — ou, no produto contado por marca, a SOMA das marcas ('' = nenhuma preenchida).
+function contadoDaLinha(l) {
+  const marcas = [...l.querySelectorAll('[data-marca]')];
+  if (!marcas.length) return $('input', l).value;
+  const algum = marcas.some((x) => x.value !== '');
+  const soma = Math.round(marcas.reduce((t, x) => t + Math.max(0, Number(x.value) || 0), 0) * 1e6) / 1e6;
+  $('[data-total]', l).textContent = algum ? `Total: ${num(soma)} ${PRODUTOS[l.dataset.c][2]}` : 'Informe ao menos uma marca.';
+  return algum ? String(soma) : '';
 }
 function progresso() {
   const raiz = $('#contando'); if (!raiz) return;
   const b = sem($('#cBusca').value), falta = $('#cFalta').getAttribute('aria-pressed') === 'true', soDif = $('#cDif').getAttribute('aria-pressed') === 'true';
   let contados = 0, difs = 0; const linhas = [...raiz.querySelectorAll('tr[data-c]')];
-  linhas.forEach((l) => { const p = PRODUTOS[l.dataset.c], v = $('input', l).value; const d = v === '' ? null : Number(v) - p[3];
+  linhas.forEach((l) => { const p = PRODUTOS[l.dataset.c], v = contadoDaLinha(l); const d = v === '' ? null : Number(v) - p[3];
     if (v !== '') contados++; if (d) difs++;
     $('[data-d]', l).innerHTML = d == null ? '—' : d === 0 ? selo('ok', 'confere') : selo(d < 0 ? 'crit' : 'warn', (d > 0 ? '+' : '') + num(d));
     l.hidden = !((!b || sem(p[0]).includes(b)) && (!falta || v === '') && (!soDif || !!d)); });
@@ -584,7 +597,7 @@ function progresso() {
 function dialogoHistorico(r) {
   painel({ largo: true, titulo: `Histórico: ${r.nome}`, rodape: '<button class="bt pri" data-fechar>Fechar</button>',
     corpo: r.ultima ? `<div class="tabela"><table><caption class="sr">Contagens feitas</caption><thead><tr><th>Data</th><th>Quem contou</th><th>Produtos contados</th><th>Com diferença</th><th>Ajustou o estoque</th></tr></thead><tbody>
-      ${[[r.ultima, r.resp || 'Ana', r.itens, 3, 'sim'], ['2026-09-23', 'Carlos', r.itens, 0, 'sim'], ['2026-09-16', 'Ana', r.itens - 2, 5, 'não']].map((h) => `<tr><td class="num">${br(h[0])}</td><td>${h[1]}</td><td class="num">${h[2]}</td><td>${h[3] ? selo('warn', h[3] + ' produto(s)') : selo('ok', 'tudo conferiu')}</td><td>${h[4]}</td></tr>`).join('')}</tbody></table></div>` : '<div class="vazio">Esta lista ainda não foi contada.</div>' });
+      ${[[r.ultima, r.resp || 'Ana', r.itens, 3, 'sim'], ['2026-09-23', 'Carlos', r.itens, 0, 'sim'], ['2026-09-16', 'Ana', r.itens - 2, 5, 'não']].map((h, k) => `<tr><td class="num">${br(h[0])}</td><td>${h[1]}</td><td class="num">${h[2]}</td><td>${h[3] ? selo('warn', h[3] + ' produto(s)') : selo('ok', 'tudo conferiu')}</td><td>${h[4]}</td></tr>${k === 0 ? '<tr><td colspan="5"><div class="sub"><b>Contado por marca</b> — Queijo muçarela peça: Marca Alfa 7 · Marca Beta 4,6 (total 11,6 kg)</div></td></tr>' : ''}`).join('')}</tbody></table></div>` : '<div class="vazio">Esta lista ainda não foi contada.</div>' });
 }
 function formCompra() {
   painel({ tipo: 'gaveta', largo: true, titulo: 'Gerar lista de compras', rodape: rodapeSalvar('Criar lista', 'Lista de compras criada.'),
