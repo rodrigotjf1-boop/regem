@@ -11,18 +11,30 @@ export const MODULOS = [
   { chave: 'kds', label: 'KDS de Alertas', emoji: '🖥️' },
   { chave: 'terminal_ponto', label: 'Terminal de Ponto', emoji: '🕐' },
   { chave: 'bot', label: 'Bot de Suporte', emoji: '🤖' },
+  // Mesas e comandas (09/10/2026): a loja que só vende no balcão desliga — some o menu, as rotas de
+  // mesa recusam e a venda do balcão não aceita mesa. Corte do garçom e do QR da mesa: PR seguinte.
+  { chave: 'mesas', label: 'Mesas e comandas', emoji: '🍽️' },
 ];
 const CHAVES = new Set(MODULOS.map((m) => m.chave));
 
 // Ponte entre o nome do módulo aqui e o do PLANO contratado (`ativacao.modulos`),
 // que usa 'ponto' onde aqui é 'terminal_ponto'. Sem isso o Terminal de Ponto
 // pareceria fora do plano em toda empresa.
-const NO_PLANO: Record<string, string> = {
+// `null` = módulo que NÃO é vendido à parte (faz parte do produto): o plano não o limita. Sem isso,
+// toda empresa com plano registrado veria 'mesas' como "fora do plano" — a lista do plano não o cita.
+const NO_PLANO: Record<string, string | null> = {
   app_colaborador: 'app_colaborador',
   kds: 'kds',
   terminal_ponto: 'ponto',
   bot: 'bot',
+  mesas: null,
 };
+// O plano contratado deixa este módulo de fora?
+function foraDoPlano(plano: Set<string> | null, modulo: string): boolean {
+  if (!plano) return false;
+  const noPlano = modulo in NO_PLANO ? NO_PLANO[modulo] : modulo;
+  return noPlano !== null && !plano.has(noPlano);
+}
 
 @Injectable()
 export class ModuloService {
@@ -56,7 +68,7 @@ export class ModuloService {
   // Trava real de acesso.
   async ativo(tenantId: string, unidadeId: string | null, modulo: string): Promise<boolean> {
     const plano = await this.doPlano(tenantId);
-    if (plano && !plano.has(NO_PLANO[modulo] ?? modulo)) return false;
+    if (foraDoPlano(plano, modulo)) return false;
     if (unidadeId) {
       const [loja] = await this.db
         .select({ ativo: moduloAtivacao.ativo })
@@ -123,7 +135,7 @@ export class ModuloService {
     // plano. Desligar é sempre permitido.
     if (dto.ativo) {
       const plano = await this.doPlano(ator.tenantId);
-      if (plano && !plano.has(NO_PLANO[dto.modulo] ?? dto.modulo)) {
+      if (foraDoPlano(plano, dto.modulo)) {
         throw new BadRequestException(
           'Este módulo não faz parte do plano contratado. Fale com o seu consultor para incluí-lo.',
         );

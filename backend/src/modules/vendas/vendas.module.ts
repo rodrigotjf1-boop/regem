@@ -9,9 +9,10 @@ import { EquipamentoModule } from '../equipamento/equipamento.module';
 import { OrdemProducaoModule } from '../ordem-producao/ordem-producao.module';
 import { SyncTokenGuard } from '../sync/sync-token.guard';
 import { GogemModule } from '../gogem/gogem.module';
+import { ModuloModule } from '../modulo/modulo.module';
 
 @Module({
-  imports: [ProducaoPedidoModule, FiscalModule, EquipamentoModule, OrdemProducaoModule, GogemModule],
+  imports: [ProducaoPedidoModule, FiscalModule, EquipamentoModule, OrdemProducaoModule, GogemModule, ModuloModule],
   controllers: [VendasController, VendasExternaController],
   providers: [VendasService, SyncTokenGuard, EdgeImpressaoProcessor],
   exports: [VendasService],

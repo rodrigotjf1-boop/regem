@@ -93,7 +93,7 @@ const NAV: NavNode[] = [
     children: [
       { href: '/pdv', label: 'Balcão', icon: ShoppingCart, perm: 'pdv' },
       { href: '/pdv/retirada', label: 'Retirada / Encomendas', icon: PackageCheck, perm: 'pedidos' },
-      { href: '/mesas', label: 'Mesas e comandas', icon: ClipboardList, perm: 'mesas' },
+      { href: '/mesas', label: 'Mesas e comandas', icon: ClipboardList, perm: 'mesas', modulo: 'mesas' },
       { href: '/cupons', label: 'Cupons', icon: ReceiptText, perm: 'cupons' },
     ],
   },
@@ -377,12 +377,14 @@ export function Shell({
             return NAV.map((node) => {
               // Folha: link direto.
               if (node.href) {
-                return temPerm(node.perm, perms, isPres) ? Item(node) : null;
+                return temPerm(node.perm, perms, isPres) && temModulo(node.modulo, modulos) ? Item(node) : null;
               }
               // Grupo: acordeão (clica no pai → expande/recolhe a lista).
               const kids = (node.children ?? []).filter(
                 (c) =>
                   temPerm(c.perm, perms, isPres) &&
+                  // módulo desligado (ou fora do plano) some do menu — o filtro existia e não era chamado
+                  temModulo(c.modulo, modulos) &&
                   (!c.soPres || isPres) &&
                   (!c.soNuvem || process.env.NEXT_PUBLIC_EDGE !== '1'),
               );

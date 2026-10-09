@@ -56,7 +56,7 @@ SaaS de gestão operacional com hierarquia completa do proprietário à ponta. R
 - **Offline-first:** fila local de mutações com **ID idempotente** no cliente; conflito = **last-write-wins com log**; sincroniza ao reconectar; indicador visual de offline.
 - **Ponto (Portaria 671/2021):** NSR sequencial por equipamento, comprovante, exportação AFD/AEJ; foto com `consentimento_lgpd` + `data_expurgo`. Modelar assim desde já.
 - **LGPD:** consentimento + retenção para fotos (ponto/desperdício/vistoria); pesquisa de clima anônima; diretoria vê só o consolidado.
-- **Módulos ativáveis** (KDS, Terminal de Ponto, App do Colaborador, Bot/IA): `presidente` liga/desliga por rede ou loja; desativar corta acesso na hora + audita.
+- **Módulos ativáveis** (KDS, Terminal de Ponto, App do Colaborador, Bot/IA, Mesas e comandas): `presidente` liga/desliga por rede ou loja; desativar corta acesso na hora + audita.
 - **KDS e Ponto são apps INDEPENDENTES** que falam com o app principal por **WebSocket na rede local** (descoberta mDNS/MAC não roda em navegador → app nativo/empacotado: Tauri/Electron Win, ou Android). Alertas entram no topo da fila com som. O mockup é referência de UI, não de arquitetura de rede.
 
 ## Convenções de código

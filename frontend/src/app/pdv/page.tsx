@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { PauseCircle, Search, SlidersHorizontal, Users } from 'lucide-react';
 import { api, getToken } from '@/lib/api';
 import { rotuloSenha } from '@/lib/senha';
 import { textosDasEscolhas } from '@/lib/adicionais';
+import { buscarProdutos, centavos, chaveDoItem, notasSugeridas, valorDigitado } from '@/lib/balcao';
 import { toast } from '@/lib/toast';
 import { uuid } from '@/lib/uuid';
 import { Shell } from '@/components/app-shell/shell';
@@ -12,49 +14,49 @@ import { Card } from '@/components/ui/card';
 import { ServidorStatus } from '@/components/ui/servidor-status';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
+import { InputMoeda } from '@/components/ui/input-moeda';
+import { Dialogo } from '@/components/ui/sobreposto';
 import { CaixaPanel } from '@/components/pdv/caixa-panel';
 import { AcertosSalao } from '@/components/pdv/acertos-salao';
 import { TerminalGate } from '@/components/pdv/terminal-gate';
 import { BuscarCupom } from '@/components/pdv/buscar-cupom';
-import { GrupoDeOpcoes } from '@/components/pdv/grupo-de-opcoes';
+import { DividirConta, type PagamentoDaVenda } from '@/components/pdv/balcao/dividir-conta';
+import { EditorDoItem, type EscolhaDoItem } from '@/components/pdv/balcao/editor-do-item';
+import { LinhaDoPedido, type ItemDoPedido } from '@/components/pdv/balcao/linha-do-pedido';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
   Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const itensTxt = (n: number) => `${n} ${n === 1 ? 'item' : 'itens'}`;
 
-type ItemCarrinho = {
-  key: string;
-  produtoId: string;
-  variacaoId?: string;
-  complementos?: string[]; // ids das opções escolhidas
-  observacao?: string;
-  nome: string;
-  sub?: string; // "sem alface · + bacon"
-  preco: number;
-  qtd: number;
-};
+// Pedido guardado ("em espera"): o atendente atende o próximo e volta a este depois. Vive só na
+// tela — recarregar a página perde os pedidos guardados, como já perdia o pedido em andamento.
+type PedidoGuardado = { id: string; carrinho: ItemDoPedido[]; taxa: boolean; naMesa: boolean; mesa: string; chave: string | null };
+// Janela de escolhas aberta: produto novo, ou a linha `editando` do pedido.
+type Seletor = { produto: any; variacoes: any[]; complementos: any[]; editando?: ItemDoPedido };
 
+// Balcão (modelo novo, 09/10/2026 — mockups/regem-balcao.html): cardápio com busca à esquerda e o
+// pedido à direita, numa tela só, sem topbar (Shell `fill`), pensada para ficar aberta o expediente
+// todo. A lista de itens ocupa a altura que sobrar; valores e formas de pagamento ficam compactos.
 export default function PdvPage() {
   const router = useRouter();
   const [produtos, setProdutos] = useState<any[]>([]);
   const [carregado, setCarregado] = useState(false);
   const [categorias, setCategorias] = useState<any[]>([]);
   const [catAtiva, setCatAtiva] = useState('');
+  const [busca, setBusca] = useState('');
   // Ordem PESSOAL das categorias no PDV (por usuário, salva em uiPrefs.pdvOrdemCategorias).
   // NÃO altera o catálogo. `organizando` liga o modo arrastar; `dragCat` = índice arrastado.
   const [ordemPdv, setOrdemPdv] = useState<string[]>([]);
   const [organizando, setOrganizando] = useState(false);
   const [dragCat, setDragCat] = useState<number | null>(null);
-  const [carrinho, setCarrinho] = useState<ItemCarrinho[]>([]);
+  const [carrinho, setCarrinho] = useState<ItemDoPedido[]>([]);
+  const [destaque, setDestaque] = useState<string | null>(null); // linha que acabou de entrar/mudar
   const [taxa, setTaxa] = useState(false);
   const [formas, setFormas] = useState<any[]>([]); // formas de pagamento (cadastro)
   const [formaId, setFormaId] = useState(''); // forma selecionada (pgto único)
-  const [dividir, setDividir] = useState(false); // dividir conta / multi-pagamento
-  const [pagamentos, setPagamentos] = useState<{ forma: string; valor: string }[]>([]);
-  const [picker, setPicker] = useState<any>(null); // produto com variação/complementos
-  const [pickVar, setPickVar] = useState<string | undefined>(undefined);
-  const [pickOpc, setPickOpc] = useState<string[]>([]);
-  const [pickObs, setPickObs] = useState('');
+  const [dividindo, setDividindo] = useState(false); // janela "Dividir conta"
+  const [seletor, setSeletor] = useState<Seletor | null>(null);
   const [comprovante, setComprovante] = useState<any>(null);
   const [erro, setErro] = useState('');
   const [enviando, setEnviando] = useState(false);
@@ -65,6 +67,15 @@ export default function PdvPage() {
   const [encomendaAtiva, setEncomendaAtiva] = useState(false); // agendar excedente de atacado
   const [encomendaData, setEncomendaData] = useState(''); // data combinada (YYYY-MM-DD)
   const [previewEnc, setPreviewEnc] = useState<any[] | null>(null); // split por item (preview)
+  // Mesa na venda do balcão: só com o módulo "Mesas e comandas" ligado na loja (a trava é do
+  // servidor; aqui a opção nem aparece). Enquanto a resposta não chega, fica escondida.
+  const [mesasAtivo, setMesasAtivo] = useState(false);
+  const [naMesa, setNaMesa] = useState(false);
+  const [mesa, setMesa] = useState('');
+  const [espera, setEspera] = useState<PedidoGuardado[]>([]);
+  const [descartando, setDescartando] = useState(false);
+  const buscaRef = useRef<HTMLInputElement>(null);
+  const mesaRef = useRef<HTMLInputElement>(null);
 
   const reloadCaixa = useCallback(async () => {
     const cx: any = await api.caixaAberta().catch(() => null);
@@ -74,13 +85,14 @@ export default function PdvPage() {
 
   const reload = useCallback(async () => {
     try {
-      const [ps, cs, tc, cx, fp, pr] = await Promise.all([
+      const [ps, cs, tc, cx, fp, pr, mods] = await Promise.all([
         api.produtos(),
         api.produtoCategorias(),
         api.tefConfig().catch(() => ({ ativo: false })),
         api.caixaAberta().catch(() => null),
         api.formasPagamento().catch(() => []),
         api.getPrefs().catch(() => ({})),
+        api.modulosMeus().catch(() => null),
       ]);
       setOrdemPdv(Array.isArray((pr as any)?.pdvOrdemCategorias) ? (pr as any).pdvOrdemCategorias : []);
       // PDV = canal balcão: só produtos ativos e marcados para o balcão.
@@ -95,6 +107,9 @@ export default function PdvPage() {
       const ativas = (fp as any[]).filter((f) => f.ativo);
       setFormas(ativas);
       setFormaId((id) => id || ativas[0]?.id || '');
+      // Sem resposta dos módulos (rede), a mesa fica escondida. Servidor que ainda não conhece o
+      // módulo (loja antes da atualização) não manda a chave — e lá a mesa segue valendo.
+      setMesasAtivo(!!mods && (mods as any).mesas !== false);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     } finally {
@@ -110,16 +125,20 @@ export default function PdvPage() {
     reload();
   }, [reload, router]);
 
-  function addItem(item: Omit<ItemCarrinho, 'key' | 'qtd'>) {
-    const key = `${item.produtoId}:${item.variacaoId ?? ''}:${(item.complementos ?? [])
-      .slice()
-      .sort()
-      .join(',')}:${item.observacao ?? ''}`;
-    setCarrinho((c) => {
-      const ex = c.find((i) => i.key === key);
-      if (ex) return c.map((i) => (i.key === key ? { ...i, qtd: i.qtd + 1 } : i));
-      return [...c, { ...item, key, qtd: 1 }];
-    });
+  // Marca a linha por um instante (o item que entrou pode estar fora da vista: rola até ele).
+  const marcar = useCallback((key: string) => {
+    setDestaque(key);
+    setTimeout(() => {
+      document.querySelector(`[data-linha="${CSS.escape(key)}"]`)?.scrollIntoView({ block: 'nearest' });
+    }, 0);
+    setTimeout(() => setDestaque((d) => (d === key ? null : d)), 900);
+  }, []);
+
+  // Põe o item no pedido; linha igual (mesmo produto, tamanho, escolhas e observação) soma.
+  function addItem(item: Omit<ItemDoPedido, 'key' | 'qtd'>, qtd = 1) {
+    const key = chaveDoItem(item);
+    setCarrinho((c) => (c.some((i) => i.key === key) ? c.map((i) => (i.key === key ? { ...i, qtd: i.qtd + qtd } : i)) : [...c, { ...item, key, qtd }]));
+    marcar(key);
   }
 
   async function tap(p: any) {
@@ -134,86 +153,88 @@ export default function PdvPage() {
     const complementos = full.complementos ?? [];
     // Produto simples (sem variação/complemento) entra em 1 toque — balcão rápido.
     if (variacoes.length === 0 && complementos.length === 0) {
-      addItem({
-        produtoId: p.id,
-        variacaoId: undefined,
-        complementos: [],
-        observacao: undefined,
-        nome: p.nome,
-        sub: undefined,
-        preco: Number(p.precoVenda),
-      });
+      addItem({ produtoId: p.id, variacaoId: undefined, complementos: [], observacao: undefined, nome: p.nome, escolhas: [], preco: Number(p.precoVenda) });
       return;
     }
-    setPickVar(undefined);
-    setPickOpc([]);
-    setPickObs('');
-    setPicker({ produto: p, variacoes, complementos });
+    setSeletor({ produto: p, variacoes, complementos });
+  }
+
+  // Abre uma linha do pedido para mudar tamanho, escolhas, observação ou quantidade.
+  async function editar(item: ItemDoPedido) {
+    const resumo = produtos.find((p) => p.id === item.produtoId) ?? { id: item.produtoId, nome: item.nome, precoVenda: item.preco };
+    let full: any = resumo;
+    try {
+      full = await api.produto(item.produtoId);
+    } catch {
+      /* sem o detalhe, a janela ainda deixa mudar observação e quantidade */
+    }
+    setSeletor({ produto: resumo, variacoes: full.variacoes ?? [], complementos: full.complementos ?? [], editando: item });
   }
 
   function mudarQtd(key: string, d: number) {
-    setCarrinho((c) =>
-      c
-        .map((i) => (i.key === key ? { ...i, qtd: i.qtd + d } : i))
-        .filter((i) => i.qtd > 0),
-    );
+    setCarrinho((c) => c.map((i) => (i.key === key ? { ...i, qtd: Math.max(1, i.qtd + d) } : i)));
+  }
+  function tirar(item: ItemDoPedido) {
+    setCarrinho((c) => c.filter((i) => i.key !== item.key));
+    toast.success(`${item.nome} saiu do pedido.`);
   }
 
-  // Confirma a escolha do seletor (variação + opcionais/adicionais) → carrinho.
-  function confirmarPicker() {
-    const { produto, variacoes, complementos } = picker;
-    const v = variacoes.find((x: any) => x.id === pickVar);
+  // Confirma a janela de escolhas (variação + opcionais/adicionais + observação) → pedido.
+  function confirmarSeletor(e: EscolhaDoItem) {
+    if (!seletor) return;
+    const { produto, variacoes, complementos, editando } = seletor;
+    const v = variacoes.find((x: any) => x.id === e.variacaoId);
     let preco = v ? Number(v.precoVenda) : Number(produto.precoVenda);
-    let nome = v ? `${produto.nome} · ${v.nome}` : produto.nome;
-    const partes: string[] = [];
+    const nome = v ? `${produto.nome} · ${v.nome}` : produto.nome;
     const todasOpcoes = (complementos as any[]).flatMap((g) =>
       (g.opcoes ?? []).map((o: any) => ({ ...o, tipo: g.tipo })),
     );
-    for (const id of pickOpc) {
+    for (const id of e.complementos) {
       const o = todasOpcoes.find((x) => x.id === id);
-      if (!o) continue;
-      preco += Number(o.precoDelta) || 0; // opção repetida soma uma vez por escolha
+      if (o) preco += Number(o.precoDelta) || 0; // opção repetida soma uma vez por escolha
     }
-    partes.push(...textosDasEscolhas(pickOpc, todasOpcoes)); // "+ 2x Bacon"
-    const obs = pickObs.trim() || undefined;
-    const subPartes = [...partes];
-    if (obs) subPartes.push(`obs: ${obs}`);
-    addItem({
+    const item = {
       produtoId: produto.id,
-      variacaoId: pickVar,
-      complementos: pickOpc,
-      observacao: obs,
+      variacaoId: e.variacaoId,
+      complementos: e.complementos,
+      observacao: e.observacao,
       nome,
-      sub: subPartes.join(' · ') || undefined,
+      escolhas: textosDasEscolhas(e.complementos, todasOpcoes), // "+ 2x Bacon"
       preco,
+    };
+    setSeletor(null);
+    if (!editando) return addItem(item, e.qtd);
+    // Editar: a linha muda no lugar; se ficou igual a outra, as duas viram uma.
+    const key = chaveDoItem(item);
+    setCarrinho((c) => {
+      const outra = c.find((i) => i.key === key && i.key !== editando.key);
+      if (outra) return c.filter((i) => i.key !== editando.key).map((i) => (i.key === key ? { ...i, qtd: i.qtd + e.qtd } : i));
+      return c.map((i) => (i.key === editando.key ? { ...item, key, qtd: e.qtd } : i));
     });
-    setPicker(null);
+    marcar(key);
   }
-
 
   const subtotal = carrinho.reduce((s, i) => s + i.preco * i.qtd, 0);
   const total = subtotal * (taxa ? 1.1 : 1);
-  const troco = (Number(String(recebido).replace(',', '.')) || 0) - total;
+  const pecas = carrinho.reduce((s, i) => s + i.qtd, 0);
   const formaSel = formas.find((f) => f.id === formaId);
   const ehDinheiro = formaSel?.tipo === 'dinheiro';
-  const somaPag = pagamentos.reduce((s, p) => s + (Number(String(p.valor).replace(',', '.')) || 0), 0);
-  const restante = Number((total - somaPag).toFixed(2));
-  const pagamentoOk = !dividir || Math.abs(restante) < 0.05;
+  const valorRecebido = recebido === '' ? null : valorDigitado(recebido);
+  const troco = valorRecebido == null ? 0 : valorRecebido - Number(total.toFixed(2));
+  const mesaInformada = naMesa && mesasAtivo ? mesa.trim() : '';
 
-  // Monta o payload de pagamentos (sempre via `pagamentos`, uni ou multi).
-  function montarPagamentos() {
-    if (dividir)
-      return pagamentos
-        .filter((p) => Number(String(p.valor).replace(',', '.')) > 0)
-        .map((p) => ({
-          forma: p.forma,
-          valor: Number(String(p.valor).replace(',', '.')),
-          // Também vincula o id da forma (o split guarda só o nome) — mantém
-          // consistência com o pagamento único e preenche comanda_pagamento.
-          formaPagamentoId: formas.find((f) => f.nome === p.forma)?.id,
-        }));
-    return [{ forma: formaSel?.nome ?? 'Dinheiro', valor: Number(total.toFixed(2)), formaPagamentoId: formaSel?.id }];
-  }
+  // O que impede de cobrar — antes de escolher a forma (vale também para "Dividir conta").
+  const motivoBase = !caixa
+    ? 'Abra o caixa para vender'
+    : carrinho.length === 0
+      ? 'Adicione itens para receber'
+      : naMesa && mesasAtivo && !mesaInformada
+        ? 'Informe o número da mesa'
+        : '';
+  const motivo =
+    motivoBase ||
+    (!formaSel ? (formas.length ? 'Escolha a forma de pagamento' : 'Cadastre formas de pagamento em Financeiro') : '') ||
+    (ehDinheiro && valorRecebido != null && centavos(valorRecebido) < centavos(total) ? 'O recebido é menor que o total' : '');
 
   // Cobrança TEF na maquininha (pré-venda): cria a cobrança e aguarda o agente do
   // edge/pinpad. Devolve o pagamento aprovado, ou null se negado/cancelado.
@@ -240,7 +261,20 @@ export default function PdvPage() {
     return null;
   }
 
-  async function enviarVenda(tefPagId?: string) {
+  function limparPedido() {
+    setCarrinho([]);
+    setTaxa(false);
+    setRecebido('');
+    setNaMesa(false);
+    setMesa('');
+    setEncomendaAtiva(false);
+    setEncomendaData('');
+    setPreviewEnc(null);
+    chaveRef.current = null;
+  }
+
+  // Sempre via `pagamentos` (uma forma ou várias) — o servidor já recebia a lista.
+  async function enviarVenda(pagamentos: PagamentoDaVenda[], tefPagId?: string) {
     if (!chaveRef.current) chaveRef.current = uuid();
     const r: any = await api.vendaBalcao({
       itens: carrinho.map((i) => ({
@@ -250,41 +284,41 @@ export default function PdvPage() {
         observacao: i.observacao,
         quantidade: i.qtd,
       })),
-      pagamentos: montarPagamentos(),
+      pagamentos,
       taxaServicoPct: taxa ? 10 : 0,
+      mesa: mesaInformada || undefined,
       idempotencyKey: chaveRef.current,
       // Atacado: agenda o excedente que passar do estoque como encomenda.
       encomendaDataEntrega: encomendaAtiva && encomendaData ? encomendaData : undefined,
     });
     if (tefPagId && r?.comandaId) await api.tefVincular(tefPagId, r.comandaId).catch(() => {});
-    setComprovante(r);
-    setCarrinho([]);
-    setTaxa(false);
-    setRecebido('');
-    setDividir(false);
-    setPagamentos([]);
-    setEncomendaAtiva(false);
-    setEncomendaData('');
-    setPreviewEnc(null);
-    chaveRef.current = null;
+    setComprovante({ ...r, mesaInformada, trocoInformado: ehDinheiro && pagamentos.length === 1 && troco > 0 ? troco : 0 });
+    setDividindo(false);
+    limparPedido();
     if (r?.encomendas?.length)
       toast.success(`Venda registrada. ${r.encomendas.length} encomenda(s) agendada(s).`);
     else toast.success(r?.idempotente ? 'Venda já registrada.' : 'Venda registrada.');
   }
 
-  async function finalizar() {
-    if (carrinho.length === 0) return;
+  // Recebe: sem argumento, a forma única escolhida na tela; com `pagamentos`, a conta dividida.
+  async function finalizar(pagamentos?: PagamentoDaVenda[]) {
+    const impede = pagamentos ? motivoBase : motivo;
+    if (impede) {
+      toast.error(impede);
+      return;
+    }
+    if (enviando) return;
     setErro('');
     setEnviando(true);
     try {
       // TEF (só pagamento único por cartão/pix): cobra na maquininha antes.
       const tipoTef = formaSel?.tipo;
-      if (!dividir && tefAtivo && (tipoTef === 'credito' || tipoTef === 'debito' || tipoTef === 'pix')) {
+      if (!pagamentos && tefAtivo && (tipoTef === 'credito' || tipoTef === 'debito' || tipoTef === 'pix')) {
         const pago = await cobrarTef();
         if (!pago) return; // negado/cancelado → não finaliza a venda
-        await enviarVenda(pago.id);
+        await enviarVenda([{ forma: formaSel.nome, valor: Number(total.toFixed(2)), formaPagamentoId: formaSel.id }], pago.id);
       } else {
-        await enviarVenda();
+        await enviarVenda(pagamentos ?? [{ forma: formaSel.nome, valor: Number(total.toFixed(2)), formaPagamentoId: formaSel.id }]);
       }
     } catch (e) {
       const m = e instanceof Error ? e.message : 'Erro ao finalizar';
@@ -294,6 +328,40 @@ export default function PdvPage() {
       setEnviando(false);
       setTefStatus(null);
     }
+  }
+
+  // Fecha o comprovante e deixa a tela pronta para o próximo cliente: cursor na busca. (O diálogo
+  // devolve o foco a quem o abriu — aqui, o botão de receber —, por isso o foco vai depois dele.)
+  function novaVenda() {
+    setComprovante(null);
+    setTimeout(() => buscaRef.current?.focus(), 0);
+  }
+
+  // ── pedidos em espera ──
+  const guardado = (): PedidoGuardado => ({ id: uuid(), carrinho, taxa, naMesa, mesa, chave: chaveRef.current });
+  function emEspera() {
+    if (carrinho.length === 0) {
+      toast.error('Este pedido está vazio: não há o que guardar.');
+      return;
+    }
+    setEspera((e) => [...e, guardado()]);
+    limparPedido();
+    toast.success('Pedido guardado. Para voltar a ele, toque em “Em espera” no alto do pedido.');
+    buscaRef.current?.focus();
+  }
+  function voltarAo(p: PedidoGuardado) {
+    // O pedido em andamento (se tiver itens) troca de lugar com o guardado.
+    const atual = carrinho.length ? guardado() : null;
+    setEspera((e) => [...e.filter((x) => x.id !== p.id), ...(atual ? [atual] : [])]);
+    setCarrinho(p.carrinho);
+    setTaxa(p.taxa);
+    setNaMesa(p.naMesa);
+    setMesa(p.mesa);
+    setRecebido('');
+    setEncomendaAtiva(false);
+    setEncomendaData('');
+    setPreviewEnc(null);
+    chaveRef.current = p.chave;
   }
 
   // Preview do split de atacado (imediato/encomenda) enquanto a encomenda está
@@ -317,6 +385,33 @@ export default function PdvPage() {
       cancel = true;
     };
   }, [encomendaAtiva, carrinho]);
+
+  // Atalhos: F2 busca · F8 guarda o pedido · F9 recebe. Digitar de qualquer lugar da tela cai na
+  // busca. Com uma janela aberta (escolhas, dividir, cupom, caixa) os atalhos ficam com ela.
+  const acoes = useRef({ finalizar, emEspera });
+  acoes.current = { finalizar, emEspera };
+  useEffect(() => {
+    const tecla = (ev: KeyboardEvent) => {
+      if (document.querySelector('[role="dialog"]')) return;
+      if (ev.key === 'F2') {
+        ev.preventDefault();
+        buscaRef.current?.focus();
+        buscaRef.current?.select();
+      } else if (ev.key === 'F8') {
+        ev.preventDefault();
+        acoes.current.emEspera();
+      } else if (ev.key === 'F9') {
+        ev.preventDefault();
+        acoes.current.finalizar();
+      } else if (!ev.ctrlKey && !ev.altKey && !ev.metaKey && ev.key.length === 1 && /[\p{L}\p{N}]/u.test(ev.key)) {
+        const alvo = ev.target as HTMLElement | null;
+        if (alvo && (/^(INPUT|TEXTAREA|SELECT)$/.test(alvo.tagName) || alvo.isContentEditable)) return;
+        buscaRef.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', tecla);
+    return () => document.removeEventListener('keydown', tecla);
+  }, []);
 
   // Categorias de topo na ORDEM PESSOAL do usuário (ordemPdv). As que não estão na
   // lista salva vão para o fim, preservando a ordem do catálogo. Não altera o catálogo.
@@ -343,12 +438,16 @@ export default function PdvPage() {
     }
   }
 
+  // Com texto na busca, o resultado vale para o cardápio inteiro (a categoria deixa de filtrar).
+  const textoBusca = busca.trim();
+  const achados = textoBusca ? buscarProdutos(produtos, textoBusca) : null;
   const visiveis = catAtiva
     ? produtos.filter((p) => p.categoriaId === catAtiva)
     : produtos;
 
   // Agrupa por categoria (com cabeçalho), preservando a ordem dos produtos.
   const grupos = (() => {
+    if (achados) return [{ nome: `Resultado da busca`, itens: achados }];
     const nomePorId = new Map(categorias.map((c: any) => [c.id, c.nome]));
     const m = new Map<string, { nome: string; itens: any[] }>();
     for (const p of visiveis) {
@@ -362,155 +461,264 @@ export default function PdvPage() {
     }
     return [...m.values()];
   })();
+  const noPedido = new Map<string, number>();
+  for (const i of carrinho) noPedido.set(i.produtoId, (noPedido.get(i.produtoId) ?? 0) + i.qtd);
+
+  function teclaNaBusca(ev: React.KeyboardEvent<HTMLInputElement>) {
+    if (ev.key === 'Escape' && busca) {
+      ev.stopPropagation();
+      setBusca('');
+      return;
+    }
+    if (ev.key !== 'Enter') return;
+    ev.preventDefault();
+    if (!textoBusca) return;
+    const primeiro = achados?.[0];
+    if (!primeiro) {
+      toast.error(`Nada encontrado para “${textoBusca}”.`);
+      return;
+    }
+    setBusca('');
+    tap(primeiro);
+  }
+
+  const pilula = (ligado: boolean) =>
+    `min-h-10 rounded-full border px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${ligado ? 'border-primary bg-primary/15 text-foreground' : 'border-border bg-card text-muted-foreground hover:text-foreground'}`;
+  const gradeDeProdutos = 'grid grid-cols-[repeat(auto-fill,minmax(8.75rem,1fr))] gap-2';
 
   return (
-    <Shell eyebrow="PDV · balcão" title="Venda rápida">
+    <Shell fill>
+      {/* No celular o Shell `fill` põe o botão do menu flutuando no canto: este espaço evita que ele
+          cubra a faixa do terminal e o título (o botão some de 860 px para cima). */}
+      <div className="h-10 min-[860px]:hidden" aria-hidden="true" />
       <TerminalGate>
-      {/* Topo compacto: caixa (fino) + status/busca, com as categorias coladas abaixo */}
-      <div className="mb-3 space-y-2">
+      {/* Abaixo de lg a tela vira uma coluna só e rola inteira; de lg para cima são dois painéis,
+          cada um com a sua rolagem (o `main` do Shell fill não rola). */}
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto lg:overflow-hidden">
+        {/* Faixa do topo: título, caixa/turno, servidor e busca de cupom */}
         <div className="flex flex-wrap items-center gap-2">
+          <h1 className="font-display text-lg font-bold">Balcão</h1>
           {carregado && <CaixaPanel caixa={caixa} onChange={reloadCaixa} embedded />}
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
             <ServidorStatus />
             <BuscarCupom />
           </div>
         </div>
-        {/* A receber do salão (mig 143): some sozinho quando não há pendência. */}
-        <AcertosSalao />
-        <div className="flex flex-wrap gap-1.5">
-          <button
-            type="button"
-            onClick={() => setCatAtiva('')}
-            className={`rounded-full border px-3 py-1 text-sm font-semibold ${!catAtiva ? 'border-primary bg-primary/15 text-primary' : 'border-border bg-card text-muted-foreground'}`}
-          >
-            Todos
-          </button>
-          {catsTop.map((c, i) => (
-            <button
-              key={c.id}
-              type="button"
-              draggable={organizando}
-              onDragStart={organizando ? () => setDragCat(i) : undefined}
-              onDragOver={organizando ? (e) => e.preventDefault() : undefined}
-              onDrop={organizando ? () => soltarCat(i) : undefined}
-              onClick={() => { if (!organizando) setCatAtiva(c.id); }}
-              className={`rounded-full border px-3 py-1 text-sm font-semibold ${organizando ? 'cursor-grab' : ''} ${dragCat === i ? 'opacity-50' : ''} ${catAtiva === c.id ? 'border-primary bg-primary/15 text-primary' : 'border-border bg-card text-muted-foreground'}`}
-            >
-              {organizando && <span className="mr-1 text-muted-foreground/60" aria-hidden>⠿</span>}{c.nome}
-            </button>
-          ))}
-          {/* Organizar: reordenar as categorias arrastando — a ordem é PESSOAL (por usuário),
-              não altera o catálogo. Salva em uiPrefs.pdvOrdemCategorias. */}
-          <button
-            type="button"
-            onClick={() => setOrganizando((v) => !v)}
-            aria-pressed={organizando}
-            title="Reordene as categorias arrastando — a ordem é só sua (não muda o catálogo)."
-            className={`ml-auto rounded-full border px-3 py-1 text-xs font-semibold ${organizando ? 'border-primary bg-primary/15 text-primary' : 'border-border bg-card text-muted-foreground'}`}
-          >
-            {organizando ? '✓ Concluir' : '↕ Organizar'}
-          </button>
-        </div>
-      </div>
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_420px]">
-        {/* Produtos */}
-        <div className="space-y-3">
-          {erro && <p className="text-destructive">{erro}</p>}
+        {/* A receber do salão (mig 143): some sozinho quando não há pendência. Sem o módulo
+            "Mesas e comandas" não há salão — nem se consulta. */}
+        {mesasAtivo && <AcertosSalao />}
+        {erro && <p className="text-sm text-destructive">{erro}</p>}
 
-          {!carregado && (
-            <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-5 md:grid-cols-6 xl:grid-cols-8">
-              {Array.from({ length: 9 }).map((_, i) => (
-                <div key={i} className="rounded-xl border border-border bg-card p-3">
-                  <Skeleton className="h-4 w-3/4" />
-                  <Skeleton className="mt-2 h-4 w-1/3" />
+        <div className="grid grid-cols-1 gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_23.5rem] lg:grid-rows-[minmax(0,1fr)] xl:grid-cols-[minmax(0,1fr)_27.5rem]">
+          {/* Cardápio */}
+          <section aria-label="Cardápio" className="flex min-w-0 flex-col gap-2 lg:min-h-0">
+            <label className="flex h-12 items-center gap-2 rounded-xl border border-input bg-card px-3 text-muted-foreground focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/30">
+              <Search className="h-5 w-5 flex-none" aria-hidden="true" />
+              <input
+                id="busca-balcao"
+                ref={buscaRef}
+                type="search"
+                autoComplete="off"
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                onKeyDown={teclaNaBusca}
+                placeholder="Buscar por nome ou código"
+                aria-label="Buscar produto por nome ou código; Enter adiciona o primeiro resultado"
+                className="h-full min-w-0 flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:hidden"
+              />
+              <kbd className="rounded border border-border bg-secondary px-1.5 py-0.5 font-mono text-[11px] font-semibold">F2</kbd>
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              <button type="button" aria-pressed={!catAtiva && !achados} onClick={() => { setCatAtiva(''); setBusca(''); }} className={pilula(!catAtiva && !achados)}>
+                Todos
+              </button>
+              {catsTop.map((c, i) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  aria-pressed={catAtiva === c.id && !achados}
+                  draggable={organizando}
+                  onDragStart={organizando ? () => setDragCat(i) : undefined}
+                  onDragOver={organizando ? (e) => e.preventDefault() : undefined}
+                  onDrop={organizando ? () => soltarCat(i) : undefined}
+                  onClick={() => { if (!organizando) { setCatAtiva(c.id); setBusca(''); } }}
+                  className={`${pilula(catAtiva === c.id && !achados)} ${organizando ? 'cursor-grab' : ''} ${dragCat === i ? 'opacity-50' : ''}`}
+                >
+                  {organizando && <span className="mr-1 text-muted-foreground" aria-hidden>⠿</span>}{c.nome}
+                </button>
+              ))}
+              {/* Organizar: reordenar as categorias arrastando — a ordem é PESSOAL (por usuário),
+                  não altera o catálogo. Salva em uiPrefs.pdvOrdemCategorias. */}
+              <button
+                type="button"
+                onClick={() => setOrganizando((v) => !v)}
+                aria-pressed={organizando}
+                title="Reordene as categorias arrastando — a ordem é só sua (não muda o catálogo)."
+                className={`ml-auto ${pilula(organizando)} text-xs`}
+              >
+                {organizando ? '✓ Concluir' : '↕ Organizar'}
+              </button>
+            </div>
+
+            <div className="space-y-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
+              {!carregado && (
+                <div className={gradeDeProdutos}>
+                  {Array.from({ length: 10 }).map((_, i) => (
+                    <div key={i} className="min-h-[5.5rem] rounded-xl border border-border bg-card p-3">
+                      <Skeleton className="h-4 w-3/4" />
+                      <Skeleton className="mt-3 h-4 w-1/3" />
+                    </div>
+                  ))}
                 </div>
+              )}
+              {carregado && produtos.length === 0 && (
+                <Card className="p-8 text-center text-sm text-muted-foreground">
+                  Nenhum produto. Cadastre em Cadastros → Produtos & Catálogo.
+                </Card>
+              )}
+              {carregado && achados && achados.length === 0 && (
+                <Card className="p-8 text-center text-sm text-muted-foreground">
+                  <b className="block text-base text-foreground">Nada encontrado para “{textoBusca}”</b>
+                  Confira o nome ou o código do produto.
+                </Card>
+              )}
+              {carregado && grupos.map((g) => g.itens.length > 0 && (
+                <section key={g.nome} className="space-y-2">
+                  <h3 className="font-display text-xs font-bold uppercase tracking-[.12em] text-muted-foreground">
+                    {g.nome} <span className="font-mono font-normal">· {g.itens.length}</span>
+                  </h3>
+                  <div className={gradeDeProdutos}>
+                    {g.itens.map((p) => {
+                      const qtd = noPedido.get(p.id) ?? 0;
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          data-produto={p.id}
+                          onClick={() => tap(p)}
+                          aria-label={`${p.nome}, ${brl(Number(p.precoVenda))}${qtd ? `, ${qtd} no pedido` : ''}`}
+                          className="relative flex min-h-[5.5rem] flex-col gap-1 rounded-xl border border-border bg-card p-2.5 text-left transition hover:border-primary hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:scale-[.98]"
+                        >
+                          <span className="flex items-start gap-2">
+                            {p.imagemRef && (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={p.imagemRef} alt="" className="h-10 w-10 flex-none rounded-lg object-cover" />
+                            )}
+                            <span className="min-w-0 flex-1">
+                              {p.codigo && <span className="block font-mono text-[11px] leading-tight text-muted-foreground">{p.codigo}</span>}
+                              <span className={`line-clamp-2 break-words text-sm font-bold leading-tight ${qtd ? 'pr-6' : ''}`}>{p.nome}</span>
+                            </span>
+                          </span>
+                          <span className="mt-auto flex items-end justify-between gap-2">
+                            <span className="font-mono text-sm font-bold leading-tight">
+                              {p.tipo === 'variavel' && <span className="block font-sans text-[10.5px] font-medium text-muted-foreground">a partir de</span>}
+                              {brl(Number(p.precoVenda))}
+                            </span>
+                            {p.tipo === 'variavel' && (
+                              <span title="Tem tamanhos para escolher" className="grid h-6 w-6 flex-none place-items-center rounded-md border border-border bg-secondary text-muted-foreground">
+                                <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+                              </span>
+                            )}
+                          </span>
+                          {qtd > 0 && (
+                            <span className="absolute right-1.5 top-1.5 grid h-6 min-w-6 place-items-center rounded-full bg-primary px-1.5 font-mono text-xs font-bold text-primary-foreground">{qtd}</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
               ))}
             </div>
-          )}
-          {carregado && produtos.length === 0 && (
-            <Card className="p-8 text-center text-sm text-muted-foreground">
-              Nenhum produto. Cadastre em Cadastros → Produtos & Catálogo.
-            </Card>
-          )}
-          {carregado && grupos.map((g) => (
-            <section key={g.nome} className="space-y-2">
-              <h3 className="font-display text-xs font-bold uppercase tracking-[.12em] text-muted-foreground">
-                {g.nome} <span className="font-mono font-normal">· {g.itens.length}</span>
-              </h3>
-              <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-5 md:grid-cols-6 xl:grid-cols-8">
-                {g.itens.map((p) => (
+          </section>
+
+          {/* Pedido: a lista ocupa a altura que sobrar; valores e pagamento ficam compactos embaixo */}
+          <Card id="pedido-balcao" aria-label="Pedido" className="flex min-w-0 flex-col gap-2 p-3 lg:min-h-0">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <h2 className="font-display text-lg font-bold">Pedido</h2>
+              <span className="text-xs text-muted-foreground">{carrinho.length ? itensTxt(pecas) : 'vazio'}</span>
+              {mesasAtivo && (
+                <>
                   <button
-                    key={p.id}
                     type="button"
-                    onClick={() => tap(p)}
-                    className="flex flex-col overflow-hidden rounded-xl border border-border bg-card text-left transition hover:border-primary/50 active:scale-95"
+                    aria-pressed={naMesa}
+                    onClick={() => { const liga = !naMesa; setNaMesa(liga); if (liga) setTimeout(() => mesaRef.current?.focus(), 0); }}
+                    title="Com mesa, o pedido sai com o número da mesa no lugar da senha."
+                    className={`${pilula(naMesa)} !min-h-9 text-xs`}
                   >
-                    <div className="grid aspect-square w-full place-items-center overflow-hidden bg-muted/40 text-xl">
-                      {p.imagemRef ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={p.imagemRef} alt={p.nome} className="h-full w-full object-cover" />
-                      ) : (
-                        <span aria-hidden>🍽️</span>
-                      )}
-                    </div>
-                    <div className="flex flex-1 flex-col gap-0.5 p-1.5">
-                      <span className="line-clamp-2 text-[11px] font-bold leading-tight">{p.nome}</span>
-                      <span className="mt-auto font-mono text-xs font-bold text-primary">{brl(Number(p.precoVenda))}</span>
-                      {p.tipo === 'variavel' && (
-                        <span className="text-[10px] text-muted-foreground">escolher tamanho</span>
-                      )}
-                    </div>
+                    Mesa
                   </button>
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
-
-        {/* Carrinho */}
-        <Card className="flex flex-col gap-3 p-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-5.5rem)]">
-          <h2 className="font-display font-semibold">Comanda</h2>
-          {/* Card com max-h encolhe pro conteúdo: poucos itens → sem vão, rodapé logo abaixo.
-              A lista NÃO leva flex-1 de propósito — flex-1 a esticava e empurrava o rodapé
-              pra baixo da dobra. Ela só ROLA quando o card bate no teto da viewport (min-h-0
-              permite encolher). O rodapé fica em <div shrink-0> pra nunca ser comprimido. */}
-          <div className="min-h-0 space-y-2 overflow-y-auto">
-            {carrinho.length === 0 && (
-              <p className="py-10 text-center text-sm text-muted-foreground">Toque nos produtos para adicionar.</p>
-            )}
-            {carrinho.map((i) => (
-              <div key={i.key} className="flex items-center gap-2 text-sm">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium">{i.nome}</p>
-                  {i.sub && (
-                    <p className="truncate text-[11px] text-muted-foreground">{i.sub}</p>
+                  {naMesa && (
+                    <input
+                      ref={mesaRef}
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={4}
+                      value={mesa}
+                      onChange={(e) => setMesa(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                      placeholder="nº"
+                      aria-label="Número da mesa"
+                      className="h-9 w-14 rounded-md border border-input bg-card text-center font-mono text-base font-bold"
+                    />
                   )}
-                  <p className="font-mono text-xs text-muted-foreground">{brl(i.preco)}</p>
-                </div>
-                <button type="button" onClick={() => mudarQtd(i.key, -1)} className="grid h-7 w-7 place-items-center rounded border border-border">−</button>
-                <span className="w-5 text-center font-mono">{i.qtd}</span>
-                <button type="button" onClick={() => mudarQtd(i.key, 1)} className="grid h-7 w-7 place-items-center rounded border border-border">＋</button>
-              </div>
-            ))}
-          </div>
+                </>
+              )}
+              <span className="ml-auto flex items-center gap-1">
+                <Button type="button" variant="outline" size="sm" className="h-9" onClick={emEspera} disabled={carrinho.length === 0}>
+                  <PauseCircle className="h-4 w-4" aria-hidden="true" />
+                  Em espera
+                  <kbd className="rounded border border-border bg-secondary px-1 font-mono text-[10px]">F8</kbd>
+                </Button>
+                {carrinho.length > 0 && (
+                  <Button type="button" variant="ghost" size="sm" className="h-9 text-destructive" onClick={() => setDescartando(true)}>
+                    Descartar
+                  </Button>
+                )}
+              </span>
+            </div>
 
-          {carrinho.length > 0 && (
-            <div className="shrink-0 space-y-3">
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={taxa} onChange={(e) => setTaxa(e.target.checked)} className="h-4 w-4 accent-primary" />
-                Taxa de serviço 10%
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={encomendaAtiva}
-                  onChange={(e) => setEncomendaAtiva(e.target.checked)}
-                  className="h-4 w-4 accent-primary"
-                  aria-pressed={encomendaAtiva}
-                />
-                Agendar encomenda do que faltar (atacado)
-              </label>
-              {encomendaAtiva && (
+            {espera.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5" data-teste="em-espera">
+                <span className="text-xs text-muted-foreground">Em espera</span>
+                {espera.map((p) => {
+                  const t = p.carrinho.reduce((s, i) => s + i.preco * i.qtd, 0) * (p.taxa ? 1.1 : 1);
+                  const n = p.carrinho.reduce((s, i) => s + i.qtd, 0);
+                  return (
+                    <button key={p.id} type="button" onClick={() => voltarAo(p)} title="Voltar para este pedido" className="min-h-9 rounded-full border border-border bg-card px-3 text-xs font-semibold hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                      {p.naMesa && p.mesa ? `Mesa ${p.mesa}` : 'Balcão'} · {itensTxt(n)} · <span className="font-mono">{brl(t)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* A lista leva a altura livre do cartão e rola por dentro (de lg para cima). */}
+            <ul aria-label="Itens do pedido" className="-mx-1 border-y border-border px-1 lg:min-h-[7rem] lg:flex-1 lg:overflow-y-auto">
+              {carrinho.length === 0 && (
+                <li className="py-10 text-center text-sm text-muted-foreground">
+                  <b className="block text-base text-foreground">Nenhum item ainda</b>
+                  Toque num produto, ou digite o nome e aperte Enter.
+                </li>
+              )}
+              {carrinho.map((i) => (
+                <LinhaDoPedido key={i.key} item={i} destaque={destaque === i.key} onQtd={(d) => mudarQtd(i.key, d)} onEditar={() => editar(i)} onTirar={() => tirar(i)} />
+              ))}
+            </ul>
+
+            <div className="shrink-0 space-y-2">
+              <div className="flex flex-wrap items-center gap-x-4">
+                <label className="flex min-h-9 items-center gap-2 text-sm">
+                  <input type="checkbox" checked={taxa} onChange={(e) => setTaxa(e.target.checked)} className="h-4 w-4 accent-primary" />
+                  Taxa de serviço 10%
+                </label>
+                {carrinho.length > 0 && (
+                  <label className="flex min-h-9 items-center gap-2 text-sm" title="Atacado: o que passar do estoque vira encomenda para a data combinada.">
+                    <input type="checkbox" checked={encomendaAtiva} onChange={(e) => setEncomendaAtiva(e.target.checked)} className="h-4 w-4 accent-primary" />
+                    Encomendar o que faltar
+                  </label>
+                )}
+              </div>
+              {encomendaAtiva && carrinho.length > 0 && (
                 <div className="rounded-md border border-border bg-muted/40 p-2 text-xs">
                   <label className="block">
                     <span className="text-muted-foreground">Data de entrega/retirada</span>
@@ -542,177 +750,108 @@ export default function PdvPage() {
                   </p>
                 </div>
               )}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">Pagamento</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const nd = !dividir;
-                      setDividir(nd);
-                      setPagamentos(nd ? [{ forma: formaSel?.nome ?? formas[0]?.nome ?? 'Dinheiro', valor: total.toFixed(2) }] : []);
-                    }}
-                    className={`rounded-md border px-2 py-0.5 text-[11px] font-semibold ${dividir ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground'}`}
-                  >
-                    Dividir conta
+
+              <div role="group" aria-label="Forma de pagamento" className="flex flex-wrap gap-1.5">
+                {formas.map((f) => (
+                  <button key={f.id} type="button" aria-pressed={formaId === f.id} onClick={() => setFormaId(f.id)} className={`min-h-10 flex-[1_1_5rem] rounded-md border px-1.5 text-[13px] font-semibold leading-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${formaId === f.id ? 'border-primary bg-primary/15 text-foreground' : 'border-border bg-card hover:bg-secondary'}`}>
+                    {f.nome}
                   </button>
-                </div>
-
-                {!dividir ? (
-                  <>
-                    <div className="flex flex-wrap gap-1.5">
-                      {formas.map((f) => (
-                        <button
-                          key={f.id}
-                          type="button"
-                          onClick={() => setFormaId(f.id)}
-                          className={`rounded-md border px-2.5 py-1 text-xs font-medium ${formaId === f.id ? 'border-primary bg-primary/15 text-primary' : 'border-border'}`}
-                        >
-                          {f.nome}
-                        </button>
-                      ))}
-                      {formas.length === 0 && <span className="text-xs text-muted-foreground">Cadastre formas em Financeiro.</span>}
-                    </div>
-                    {ehDinheiro && (
-                      <div className="space-y-1 pt-1">
-                        <span className="text-xs text-muted-foreground">Valor recebido</span>
-                        <input type="number" inputMode="decimal" value={recebido} onChange={(e) => setRecebido(e.target.value)} placeholder={brl(total)} className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm" />
-                        {recebido !== '' && (
-                          <p className={`text-xs font-semibold ${troco < 0 ? 'text-destructive' : 'text-ok'}`}>
-                            {troco < 0 ? `Faltam ${brl(-troco)}` : `Troco ${brl(troco)}`}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="space-y-2">
-                    {pagamentos.map((p, i) => (
-                      <div key={i} className="flex gap-1.5">
-                        <select
-                          aria-label="Forma"
-                          value={p.forma}
-                          onChange={(e) => setPagamentos((s) => s.map((x, j) => (j === i ? { ...x, forma: e.target.value } : x)))}
-                          className="min-w-0 flex-1 rounded-md border border-input bg-card px-2 text-xs"
-                        >
-                          {formas.map((f) => <option key={f.id} value={f.nome}>{f.nome}</option>)}
-                        </select>
-                        <input
-                          type="number"
-                          inputMode="decimal"
-                          value={p.valor}
-                          onChange={(e) => setPagamentos((s) => s.map((x, j) => (j === i ? { ...x, valor: e.target.value } : x)))}
-                          placeholder="0,00"
-                          className="w-24 rounded-md border border-input bg-card px-2 py-1.5 text-xs"
-                        />
-                        <button type="button" onClick={() => setPagamentos((s) => s.filter((_, j) => j !== i))} className="grid h-8 w-8 place-items-center rounded border border-border text-destructive">×</button>
-                      </div>
-                    ))}
-                    <div className="flex items-center justify-between">
-                      <button
-                        type="button"
-                        onClick={() => setPagamentos((s) => [...s, { forma: formas[0]?.nome ?? 'Dinheiro', valor: (restante > 0 ? restante : 0).toFixed(2) }])}
-                        className="rounded-md border border-border px-2 py-1 text-[11px] font-semibold"
-                      >
-                        ＋ pagamento
-                      </button>
-                      <span className={`text-xs font-semibold ${Math.abs(restante) < 0.05 ? 'text-ok' : 'text-destructive'}`}>
-                        {Math.abs(restante) < 0.05 ? '✓ fecha o total' : restante > 0 ? `Falta ${brl(restante)}` : `Excede ${brl(-restante)}`}
-                      </span>
-                    </div>
-                  </div>
-                )}
+                ))}
+                {formas.length === 0 && <span className="text-xs text-muted-foreground">Cadastre formas em Financeiro.</span>}
+                <button
+                  type="button"
+                  onClick={() => (motivoBase ? toast.error(motivoBase) : setDividindo(true))}
+                  className="flex min-h-10 flex-[1_1_5rem] items-center justify-center gap-1.5 rounded-md border border-dashed border-border bg-card px-1.5 text-[13px] font-semibold leading-tight hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Users className="h-4 w-4" aria-hidden="true" />
+                  Dividir conta
+                </button>
               </div>
-              <div className="flex items-baseline justify-between border-t border-border pt-2">
-                <span className="font-semibold">Total</span>
-                <span className="font-mono text-xl font-bold">{brl(total)}</span>
-              </div>
-              <Button type="button" size="lg" onClick={finalizar} disabled={enviando || !caixa || !pagamentoOk}>
-                {enviando ? 'Finalizando…' : !caixa ? 'Abra o caixa para vender' : !pagamentoOk ? 'Pagamentos não fecham o total' : 'Receber e enviar à produção'}
-              </Button>
-            </div>
-          )}
-        </Card>
-      </div>
 
-      {/* Seletor: variação + opcionais (remover) + adicionais (extra) */}
-      {picker && (() => {
-        const v = picker.variacoes.find((x: any) => x.id === pickVar);
-        const base = v ? Number(v.precoVenda) : Number(picker.produto.precoVenda);
-        const todas = (picker.complementos as any[]).flatMap((g) =>
-          (g.opcoes ?? []).map((o: any) => ({ ...o, tipo: g.tipo })),
-        );
-        const extra = pickOpc.reduce(
-          (s, id) => s + (Number(todas.find((o) => o.id === id)?.precoDelta) || 0),
-          0,
-        );
-        const variacaoObrig = picker.variacoes.length > 0 && !pickVar;
-        return (
-          <div className="fixed inset-0 z-30 grid place-items-center overflow-y-auto bg-black/50 p-4" onClick={() => setPicker(null)}>
-            <Card className="w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
-              <h3 className="mb-3 font-display font-semibold">{picker.produto.nome}</h3>
-
-              {picker.variacoes.length > 0 && (
-                <div className="mb-3">
-                  <p className="mb-1.5 text-xs font-semibold text-muted-foreground">Escolha</p>
-                  <div className="space-y-1.5">
-                    {picker.variacoes.map((vr: any) => (
-                      <button
-                        key={vr.id}
-                        type="button"
-                        onClick={() => setPickVar(vr.id)}
-                        className={`flex w-full items-center justify-between rounded-lg border p-2.5 text-left ${pickVar === vr.id ? 'border-primary bg-primary/10' : 'border-border'}`}
-                      >
-                        <span className="font-medium">{vr.nome}</span>
-                        <span className="font-mono text-primary">{brl(Number(vr.precoVenda))}</span>
-                      </button>
-                    ))}
-                  </div>
+              {ehDinheiro && carrinho.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <InputMoeda ariaLabel="Valor recebido em dinheiro" value={recebido} onChange={setRecebido} placeholder="recebido" className="w-28" />
+                  {notasSugeridas(Number(total.toFixed(2))).slice(0, 3).map((nota) => (
+                    <button key={nota} type="button" onClick={() => setRecebido(nota.toFixed(2))} className="min-h-10 rounded-full border border-border bg-card px-2 font-mono text-xs font-semibold hover:bg-secondary">
+                      {brl(nota)}
+                    </button>
+                  ))}
                 </div>
               )}
 
-              {(picker.complementos as any[]).map((g) => (
-                <GrupoDeOpcoes key={g.id} grupo={g} escolhidas={pickOpc} onMudar={setPickOpc} />
-              ))}
-
-              <div className="mt-1">
-                <p className="mb-1 text-xs font-semibold text-muted-foreground">Observação (opcional)</p>
-                <input
-                  type="text"
-                  value={pickObs}
-                  onChange={(e) => setPickObs(e.target.value)}
-                  placeholder="Ex.: sem sal, bem passado"
-                  className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm"
-                />
+              <div className="flex items-stretch gap-3 border-t border-border pt-2">
+                <div className="flex flex-none flex-col justify-center">
+                  <span className="text-xs font-semibold text-muted-foreground">Total</span>
+                  <span className="font-mono text-2xl font-bold leading-none" data-teste="total">{brl(total)}</span>
+                  {ehDinheiro && valorRecebido != null && carrinho.length > 0 && (
+                    <span className="mt-1 text-xs font-semibold" aria-live="polite" data-teste="troco">
+                      {troco < 0 ? <>Faltam <b className="font-mono text-destructive">{brl(-troco)}</b></> : <>Troco <b className="font-mono text-ok">{brl(troco)}</b></>}
+                    </span>
+                  )}
+                </div>
+                <Button type="button" size="lg" className={`h-auto min-h-12 min-w-0 flex-1 whitespace-normal px-3 text-center leading-tight ${motivo ? 'opacity-60' : ''}`} onClick={() => finalizar()} disabled={enviando} aria-disabled={!!motivo} data-teste="receber">
+                  {enviando ? 'Finalizando…' : motivo || 'Receber'}
+                  <kbd className="rounded border border-current px-1 font-mono text-[10px] opacity-70">F9</kbd>
+                </Button>
               </div>
+            </div>
+          </Card>
+        </div>
+      </div>
 
-              <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
-                <span className="text-sm text-muted-foreground">Total do item</span>
-                <span className="font-mono text-lg font-bold">{brl(base + extra)}</span>
-              </div>
-              <Button
-                type="button"
-                className="mt-3 w-full"
-                disabled={variacaoObrig}
-                onClick={confirmarPicker}
-              >
-                {variacaoObrig ? 'Escolha uma opção' : 'Adicionar'}
-              </Button>
-            </Card>
-          </div>
-        );
-      })()}
+      {seletor && (
+        <EditorDoItem
+          produto={seletor.produto}
+          variacoes={seletor.variacoes}
+          complementos={seletor.complementos}
+          editando={!!seletor.editando}
+          inicial={seletor.editando ? { variacaoId: seletor.editando.variacaoId, complementos: seletor.editando.complementos, observacao: seletor.editando.observacao, qtd: seletor.editando.qtd } : undefined}
+          aoConfirmar={confirmarSeletor}
+          aoTirar={seletor.editando ? () => { const it = seletor.editando!; setSeletor(null); tirar(it); } : undefined}
+          aoFechar={() => setSeletor(null)}
+        />
+      )}
+
+      {dividindo && (
+        <DividirConta
+          total={Number(total.toFixed(2))}
+          servico={Number((total - subtotal).toFixed(2))}
+          itens={carrinho.map((i) => ({ key: i.key, rotulo: `${i.qtd}× ${i.nome}`, valor: Number((i.preco * i.qtd).toFixed(2)) }))}
+          formas={formas}
+          enviando={enviando}
+          aoReceber={(pags) => finalizar(pags)}
+          aoFechar={() => setDividindo(false)}
+        />
+      )}
+
+      {descartando && (
+        <Dialogo
+          titulo="Descartar este pedido?"
+          aoFechar={() => setDescartando(false)}
+          largura="sm"
+          alerta
+          voltarPara="busca-balcao"
+          rodape={
+            <>
+              <Button type="button" variant="outline" onClick={() => setDescartando(false)}>Voltar</Button>
+              <Button type="button" variant="destructive" onClick={() => { setDescartando(false); limparPedido(); }}>Descartar pedido</Button>
+            </>
+          }
+        >
+          <p className="text-sm text-muted-foreground">{itensTxt(pecas)} saem da tela. Nada foi cobrado.</p>
+        </Dialogo>
+      )}
 
       {/* Aguardando maquininha (TEF) */}
       {tefStatus && (
-        <div className="fixed inset-0 z-40 grid place-items-center bg-black/60 p-4">
+        <div className="fixed inset-0 z-[60] grid place-items-center bg-black/60 p-4">
           <Card className="w-full max-w-sm p-6 text-center">
             <p className="font-display text-lg font-bold">Aguardando pagamento</p>
             <p className="mt-2 text-sm text-muted-foreground">
               Peça ao cliente para inserir ou aproximar o cartão na maquininha.
             </p>
             <p className="mt-4 font-mono text-2xl font-bold">{brl(total)}</p>
-            <p className="mt-3 animate-pulse text-xs uppercase tracking-wide text-primary">
+            <p className="mt-3 animate-pulse text-xs uppercase tracking-wide text-foreground">
               processando…
             </p>
           </Card>
@@ -721,18 +860,31 @@ export default function PdvPage() {
 
       {/* Comprovante */}
       {comprovante && (
-        <div className="fixed inset-0 z-30 grid place-items-center bg-black/50 p-4" onClick={() => setComprovante(null)}>
-          <Card className="w-full max-w-sm p-6 text-center" onClick={(e) => e.stopPropagation()}>
-            <p className="font-display text-lg font-bold text-ok">Venda concluída ✓</p>
-            {comprovante.senha != null && (
-              <div className="mt-3 rounded-xl border border-primary/40 bg-primary/10 py-3">
+        <Dialogo
+          titulo="Venda concluída"
+          aoFechar={novaVenda}
+          largura="sm"
+          voltarPara="busca-balcao"
+          rodape={<Button type="button" className="w-full" data-foco-inicial="" onClick={novaVenda}>Nova venda</Button>}
+        >
+          <div className="text-center">
+            {comprovante.senha != null ? (
+              <div className="rounded-xl border border-primary/50 bg-primary/10 py-3">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Senha</p>
-                <p className="font-mono text-4xl font-bold text-primary">{rotuloSenha(comprovante.senha, comprovante.senhaPrefixo)}</p>
+                <p className="font-mono text-4xl font-bold">{rotuloSenha(comprovante.senha, comprovante.senhaPrefixo)}</p>
               </div>
-            )}
+            ) : comprovante.mesaInformada ? (
+              <div className="rounded-xl border border-primary/50 bg-primary/10 py-3">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Mesa</p>
+                <p className="font-mono text-4xl font-bold">{comprovante.mesaInformada}</p>
+              </div>
+            ) : null}
             <p className="mt-3 font-mono text-3xl font-bold">{brl(comprovante.total)}</p>
             {comprovante.taxaServicoPct > 0 && (
               <p className="mt-1 text-xs text-muted-foreground">inclui {comprovante.taxaServicoPct}% de serviço</p>
+            )}
+            {comprovante.trocoInformado > 0 && (
+              <p className="mt-1 text-sm font-semibold">Troco <span className="font-mono text-ok">{brl(comprovante.trocoInformado)}</span></p>
             )}
             {comprovante.nfce && (
               <p className="mt-2 text-xs text-muted-foreground">
@@ -743,8 +895,8 @@ export default function PdvPage() {
               </p>
             )}
             {comprovante.encomendas?.length > 0 && (
-              <div className="mt-3 rounded-lg border border-primary/40 bg-primary/5 p-2 text-left text-xs">
-                <p className="font-semibold text-primary">📅 Encomendas agendadas</p>
+              <div className="mt-3 rounded-lg border border-primary/50 bg-primary/5 p-2 text-left text-xs">
+                <p className="font-semibold">📅 Encomendas agendadas</p>
                 <ul className="mt-1 space-y-0.5">
                   {comprovante.encomendas.map((e: any, i: number) => (
                     <li key={i} className="flex justify-between gap-2">
@@ -755,11 +907,8 @@ export default function PdvPage() {
                 </ul>
               </div>
             )}
-            <Button type="button" className="mt-4 w-full" onClick={() => setComprovante(null)}>
-              Nova venda
-            </Button>
-          </Card>
-        </div>
+          </div>
+        </Dialogo>
       )}
       </TerminalGate>
     </Shell>

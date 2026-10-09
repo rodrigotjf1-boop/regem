@@ -19,6 +19,7 @@ import {
 } from '@nestjs/common';
 import { ehVendaDoTotem, gravarAvisoCancelamentoTotem, resultadoDoAviso } from '../gogem/aviso-gogem';
 import { GogemAvisoService } from '../gogem/gogem-aviso.service';
+import { ModuloService } from '../modulo/modulo.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ehGestor } from '../../auth/niveis';
 import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
@@ -86,6 +87,8 @@ export class VendasService {
     // Aviso de venda do totem cancelada ao GoGeM (quem estorna o cartão/PIX). Opcional: sem ele
     // o aviso é gravado do mesmo jeito e sai pelo job da fila.
     @Optional() private readonly gogemAviso?: GogemAvisoService,
+    // Módulos ativáveis: a venda do balcão só aceita mesa com "Mesas e comandas" ligado na loja.
+    @Optional() private readonly modulos?: ModuloService,
   ) {}
 
   // ===== Atacado: disponibilidade + encomenda (mig 184/185) =====
@@ -905,6 +908,12 @@ export class VendasService {
       if (!t) throw new BadRequestException('Terminal de PDV inválido ou inativo.');
       if (t.unidadeId) dto.unidadeId = t.unidadeId;
     }
+
+    // Mesa na venda do balcão só com o módulo "Mesas e comandas" ligado NA LOJA DA VENDA (a do
+    // terminal). A tela esconde o botão; a trava é aqui. Texto em branco conta como "sem mesa".
+    dto.mesa = dto.mesa?.trim() || undefined;
+    if (dto.mesa && this.modulos && !(await this.modulos.ativo(tenantId, dto.unidadeId ?? null, 'mesas')))
+      throw new ForbiddenException('Mesas e comandas está desligado nesta loja: a venda do balcão não aceita mesa.');
 
     // Idempotência (offline-first): mesma chave → não reprocessa (não duplica baixa/caixa).
     if (dto.idempotencyKey) {
