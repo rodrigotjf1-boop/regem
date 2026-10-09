@@ -13,7 +13,11 @@
    formulário no topo da página; (2) movimentar e excluir abrem em diálogo; (3) importar é um
    assistente de três passos (arquivo → unidades e opções → conferência) e nada é gravado antes do
    último botão; (4) unidade de medida é LISTA FECHADA, inclusive nas conversões; (5) abas e
-   rótulos em tinta legível (o texto cinza claro saiu).
+   rótulos em tinta legível (o texto cinza claro saiu); (6) desde 09/10/2026 o produto tem o NOME
+   (o que entra na ficha técnica, na contagem e nos relatórios), o NOME COMERCIAL (como é comprado:
+   aparece na lista de compras e no recebimento) e as MARCAS — com duas ou mais, quem gera a lista
+   de compras escolhe a marca; o estoque e o custo continuam um só. A busca acha pelos dois nomes
+   e pela marca.
    Onde a tela real difere, de propósito:
    - a gaveta mantém o que o formulário antigo já tinha e o mockup não mostra: "＋ nova categoria",
      "＋ novo fornecedor", data de validade e "imprimir etiquetas ao salvar";
@@ -105,6 +109,11 @@ tbody tr:hover{background:#FAFBFD}
 .fichas{display:flex;flex-wrap:wrap;gap:6px}
 .ficha{padding:6px 11px;border-radius:999px;border:1px solid var(--line-2);background:#fff;font-weight:600;font-size:13px;color:var(--ink-2)}
 .ficha[aria-pressed="true"]{background:#FFF4DF;border-color:var(--gold);color:#6B4505}
+.marca{display:inline-flex;align-items:center;gap:2px;max-width:100%;padding:3px 3px 3px 11px;border-radius:999px;border:1px solid var(--gold);background:#FFF4DF;font-weight:600;font-size:13px;color:#6B4505}
+.marca button{width:32px;height:32px;border:0;border-radius:999px;background:transparent;color:inherit;font-size:14px;cursor:pointer}
+.marca button:hover{background:#FBE3B4}
+.nova-marca{display:flex;gap:6px;margin-top:6px}
+.nova-marca input{flex:1;min-width:0;min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 12px}
 .conv{display:grid;grid-template-columns:auto minmax(0,1fr) auto 84px minmax(0,1fr) auto;gap:6px;align-items:center}
 .conv select,.conv input,.dialogo td select{min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 10px;background:#fff;width:100%;min-width:0}
 .conta{background:var(--info-bg);color:var(--info);border-radius:10px;padding:8px 12px;font-weight:600;font-size:13.5px}
@@ -183,7 +192,7 @@ tbody tr:hover{background:#FAFBFD}
     </div>
 
     <div class="filtros">
-      <div class="campo"><label for="fBusca">Buscar por nome</label><input id="fBusca" type="search" placeholder="Ex.: refrigerante, queijo, embalagem" autocomplete="off"></div>
+      <div class="campo"><label for="fBusca">Buscar por nome ou marca</label><input id="fBusca" type="search" placeholder="Ex.: refrigerante, queijo, embalagem" autocomplete="off"></div>
       <div class="campo"><label for="fCat">Categoria</label><select id="fCat"></select></div>
       <div class="campo"><label for="fForn">Fornecedor</label><select id="fForn"></select></div>
       <button class="alternar" id="fMin" aria-pressed="false">Abaixo do mínimo <span class="num" id="nMin"></span></button>
@@ -206,7 +215,9 @@ tbody tr:hover{background:#FAFBFD}
 <aside class="gaveta" id="gaveta" role="dialog" aria-modal="true" aria-labelledby="gTitulo" hidden>
   <header><h3 id="gTitulo">Novo produto</h3><button class="ic" data-fechar aria-label="Fechar">✕</button></header>
   <div class="corpo">
-    <div class="campo"><label for="pNome">Nome do produto</label><input id="pNome" placeholder="Ex.: Pão brioche"><span class="ajuda" id="pNomeAviso" role="alert"></span></div>
+    <div class="campo"><label for="pNome">Nome do produto</label><input id="pNome" placeholder="Ex.: Pão brioche"><span class="ajuda">É o nome que entra nas fichas técnicas, na contagem e nos relatórios.</span><span class="ajuda" id="pNomeAviso" role="alert"></span></div>
+    <div class="campo"><label for="pComercial">Nome comercial (opcional)</label><input id="pComercial" maxlength="120" placeholder="Ex.: Caixa de pão brioche com 12"><span class="ajuda">Como o produto é comprado. É o nome que aparece na lista de compras e no recebimento; em branco, vale o nome do produto.</span></div>
+    <div><div class="rot"><label for="pMarcaNova">Marcas (opcional)</label></div><p class="sub" style="margin:2px 0 6px">Com duas ou mais marcas, quem gera a lista de compras escolhe qual comprar. O estoque e o custo continuam um só.</p><div class="fichas" id="pMarcas" aria-label="Marcas do produto"></div><div class="nova-marca"><input id="pMarcaNova" maxlength="60" placeholder="＋ nova marca" autocomplete="off"><button class="bt" id="bMarca" type="button">Adicionar</button></div></div>
     <div class="duas">
       <div class="campo"><label for="pCat">Categoria</label><select id="pCat"></select></div>
       <div class="campo"><label for="pUn">Unidade principal</label><select id="pUn"></select><span class="ajuda">É nela que o saldo e o mínimo são contados.</span></div>
@@ -268,12 +279,12 @@ const SETORES = ['Depósito 1','Câmara fria','Bar','Cozinha'];
 let itens = [
   { id:1, nome:'Refrigerante cola lata 350 ml', cat:'Bebidas', forn:['Atacado Central','Distribuidora Boa Vista'], set:['Depósito 1','Bar'], un:'fardo', saldo:3, min:5, custo:39.9, conv:[['fardo',12,'unidade']], ficha:false },
   { id:2, nome:'Refrigerante uva lata 350 ml', cat:'Bebidas', forn:['Distribuidora Boa Vista'], set:['Depósito 1'], un:'fardo', saldo:16, min:5, custo:37.99, conv:[['fardo',12,'unidade']], ficha:false },
-  { id:3, nome:'Queijo muçarela peça', cat:'Laticínios', forn:['Hortifruti da Serra'], set:['Câmara fria'], un:'kg', saldo:11.6, min:5, custo:23.06, conv:[], ficha:true },
+  { id:3, nome:'Queijo muçarela peça', comercial:'Barra de muçarela 4 kg', marcas:['Marca Alfa','Marca Beta'], cat:'Laticínios', forn:['Hortifruti da Serra'], set:['Câmara fria'], un:'kg', saldo:11.6, min:5, custo:23.06, conv:[], ficha:true },
   { id:4, nome:'Guaraná copo 290 ml', cat:'Bebidas', forn:['Distribuidora Boa Vista','Hortifruti da Serra'], set:['Depósito 1'], un:'caixa', saldo:19, min:5, custo:24.99, conv:[['caixa',24,'unidade']], ficha:false },
   { id:5, nome:'Alface', cat:'Insumos', forn:['Verdes do Sítio'], set:['Câmara fria','Cozinha'], un:'saco', saldo:8, min:8, custo:11.12, conv:[], ficha:true },
   { id:6, nome:'Embalagem hambúrguer kraft', cat:'Embalagens', forn:['Atacado Central'], set:['Depósito 1'], un:'pacote', saldo:0, min:4, custo:18.5, conv:[['pacote',100,'unidade']], ficha:true },
   { id:7, nome:'Detergente neutro 5 L', cat:'Limpeza', forn:['Atacado Central'], set:['Depósito 1'], un:'galão', saldo:2, min:1, custo:21.9, conv:[], ficha:false },
-  { id:8, nome:'Batata palito congelada', cat:'Congelados', forn:['Frios & Cia'], set:['Câmara fria'], un:'pacote', saldo:0, min:6, custo:32.4, conv:[['pacote',2.5,'kg']], ficha:false },
+  { id:8, nome:'Batata palito congelada', comercial:'Caixa de batata palito 10 kg', marcas:['Marca Gama'], cat:'Congelados', forn:['Frios & Cia'], set:['Câmara fria'], un:'pacote', saldo:0, min:6, custo:32.4, conv:[['pacote',2.5,'kg']], ficha:false },
 ];
 const brl = (n) => n.toLocaleString('pt-BR', { style:'currency', currency:'BRL' });
 const num = (n) => Number(n).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
@@ -287,7 +298,7 @@ opcoes($('#fCat'), CATS.map((c) => c[0]), 'Todas as categorias');
 opcoes($('#fForn'), FORNS, 'Todos os fornecedores');
 function filtrados() {
   const b = semAcento($('#fBusca').value), c = $('#fCat').value, f = $('#fForn').value, m = $('#fMin').getAttribute('aria-pressed') === 'true';
-  return itens.filter((i) => (!b || semAcento(i.nome).includes(b)) && (!c || i.cat === c) && (!f || i.forn.includes(f)) && (!m || i.saldo < i.min));
+  return itens.filter((i) => (!b || semAcento([i.nome, i.comercial || '', ...(i.marcas || [])].join(' ')).includes(b)) && (!c || i.cat === c) && (!f || i.forn.includes(f)) && (!m || i.saldo < i.min));
 }
 function desenhar() {
   const l = filtrados();
@@ -297,7 +308,7 @@ function desenhar() {
   $('#linhas').innerHTML = l.map((i) => {
     const cor = (CATS.find((c) => c[0] === i.cat) || [])[1] || '#999', eq = equivalente(i, i.min), eqS = equivalente(i, i.saldo);
     return `<tr>
-      <td class="c-nome"><div class="nome"><span class="ponto" style="background:${cor}"></span>${i.nome}</div><div class="sub">${i.cat}${i.ficha ? ' · usado em ficha técnica' : ''}</div></td>
+      <td class="c-nome"><div class="nome"><span class="ponto" style="background:${cor}"></span>${i.nome}</div><div class="sub">${i.cat}${i.ficha ? ' · usado em ficha técnica' : ''}</div>${i.comercial ? `<div class="sub">Na compra: ${i.comercial}</div>` : ''}${i.marcas?.length ? `<div class="sub">${i.marcas.length === 1 ? 'Marca' : 'Marcas'}: ${i.marcas.join(', ')}</div>` : ''}</td>
       <td data-rot="Fornecedores"><div class="v sub">${i.forn.join(', ') || '—'}</div></td>
       <td data-rot="Setores"><div class="v sub">${i.set.join(', ') || '—'}</div></td>
       <td data-rot="Saldo"><div class="v"><span class="selo ${i.saldo < i.min ? 'crit' : 'ok'}"><span class="num">${num(i.saldo)}</span> ${i.un}</span>${eqS ? `<div class="sub num">${eqS}</div>` : ''}</div></td>
@@ -335,7 +346,13 @@ document.addEventListener('keydown', (e) => {
 $('#fundo').onclick = fechar;
 
 // ── gaveta: criar / editar ──
-let ed = null, convs = [];
+let ed = null, convs = [], marcas = [];
+function desenharMarcas() { $('#pMarcas').innerHTML = marcas.map((m, k) => `<span class="marca">${m}<button type="button" data-tirar-marca="${k}" aria-label="Remover a marca ${m}">✕</button></span>`).join(''); }
+function juntarMarca() {
+  const m = $('#pMarcaNova').value.replace(/\s+/g, ' ').trim();
+  if (m && !marcas.some((x) => semAcento(x) === semAcento(m))) marcas.push(m); // sem vazia e sem repetida
+  $('#pMarcaNova').value = ''; desenharMarcas();
+}
 const selUn = (v, id) => `<select aria-label="${id}">${UNIDADES.map((u) => `<option${u === v ? ' selected' : ''}>${u}</option>`).join('')}</select>`;
 function desenharConvs() {
   $('#pConvs').innerHTML = convs.map((c, k) => `<div class="conv" data-k="${k}"><span>1</span>${selUn(c[0], 'Embalagem')}<span>=</span><input type="number" inputmode="decimal" min="0" value="${c[1]}" aria-label="Quanto cabe">${selUn(c[2], 'Unidade de dentro')}<button class="ic perigo" data-tirar aria-label="Remover conversão">🗑</button></div>`).join('') || '<p class="sub" style="margin:0">Nenhuma conversão. Ex.: 1 fardo = 12 unidade.</p>';
@@ -354,6 +371,7 @@ function abrirGaveta(i) {
   $('#gTitulo').textContent = i ? 'Editar produto' : 'Novo produto';
   $('#bSalvar').textContent = i ? 'Salvar alterações' : 'Cadastrar produto';
   $('#pNome').value = i?.nome || ''; $('#pNomeAviso').textContent = '';
+  $('#pComercial').value = i?.comercial || ''; marcas = [...(i?.marcas || [])]; $('#pMarcaNova').value = ''; desenharMarcas();
   opcoes($('#pCat'), CATS.map((c) => c[0]), '— sem categoria —'); $('#pCat').value = i?.cat || '';
   opcoes($('#pUn'), UNIDADES); $('#pUn').value = i?.un || 'unidade';
   fichas($('#pForn'), FORNS, i?.forn || []); fichas($('#pSet'), SETORES, i?.set || []);
@@ -364,7 +382,10 @@ function abrirGaveta(i) {
 $('#gaveta').addEventListener('click', (e) => {
   const f = e.target.closest('.ficha'); if (f) f.setAttribute('aria-pressed', String(f.getAttribute('aria-pressed') !== 'true'));
   if (e.target.closest('[data-tirar]')) { convs.splice(Number(e.target.closest('.conv').dataset.k), 1); desenharConvs(); }
+  const tm = e.target.closest('[data-tirar-marca]'); if (tm) { marcas.splice(Number(tm.dataset.tirarMarca), 1); desenharMarcas(); }
 });
+$('#bMarca').onclick = juntarMarca;
+$('#pMarcaNova').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); juntarMarca(); } });
 $('#gaveta').addEventListener('input', (e) => {
   const linha = e.target.closest('.conv');
   if (linha) { const k = Number(linha.dataset.k), [a, q, b] = linha.querySelectorAll('select,input'); convs[k] = [a.value, Number(q.value), b.value]; }
@@ -378,7 +399,8 @@ $('#bSalvar').onclick = () => {
   const igual = itens.find((x) => x !== ed && semAcento(x.nome) === semAcento(nome));
   if (igual) { $('#pNomeAviso').textContent = `Já existe um produto com este nome: "${igual.nome}".`; return $('#pNome').focus(); }
   const marcados = (s) => [...$(s).querySelectorAll('[aria-pressed="true"]')].map((b) => b.textContent);
-  const dados = { nome, cat: $('#pCat').value || 'Insumos', un: $('#pUn').value, forn: marcados('#pForn'), set: marcados('#pSet'), min: Number($('#pMin').value) || 0, conv: convs.filter((c) => Number(c[1]) > 0) };
+  juntarMarca(); // a marca digitada e ainda não adicionada entra junto
+  const dados = { nome, comercial: $('#pComercial').value.replace(/\s+/g, ' ').trim(), marcas: [...marcas], cat: $('#pCat').value || 'Insumos', un: $('#pUn').value, forn: marcados('#pForn'), set: marcados('#pSet'), min: Number($('#pMin').value) || 0, conv: convs.filter((c) => Number(c[1]) > 0) };
   if (ed) Object.assign(ed, dados); else itens.push({ id: Date.now(), saldo: 0, custo: 0, ficha: false, ...dados });
   fechar(); desenhar(); avisar(ed ? 'Produto atualizado.' : 'Produto cadastrado.');
 };

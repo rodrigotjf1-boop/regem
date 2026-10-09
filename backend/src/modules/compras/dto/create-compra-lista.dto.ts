@@ -8,6 +8,7 @@ import {
   IsString,
   IsUUID,
   Matches,
+  MaxLength,
   MinLength,
   ValidateNested,
 } from 'class-validator';
@@ -22,6 +23,12 @@ export class CompraItemDto {
   @IsOptional()
   @IsNumber()
   custoUnitario?: number;
+
+  // Marca do item (mig 311). Obrigatória quando o produto tem duas ou mais marcas cadastradas.
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  marca?: string;
 }
 
 export class CreateCompraListaDto {

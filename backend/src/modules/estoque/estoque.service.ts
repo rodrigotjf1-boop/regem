@@ -22,7 +22,7 @@ import {
   complementoOpcao,
 } from '../../db/schema';
 import { arredondarEstoque, CASAS_INFORMADO, chaveUnidade, fatorParaEstoque, type Conversao } from '../../common/conversao-unidade';
-import { chaveNome, limparNome } from './produto-nome';
+import { chaveNome, limparMarcas, limparNome } from './produto-nome';
 import { apelidosDeUnidade, exigirUnidade, normalizarUnidade, UNIDADES_ESTOQUE } from './unidades';
 import { CreateItemDto } from './dto/create-item.dto';
 import { CreateMovimentoDto } from './dto/create-movimento.dto';
@@ -77,6 +77,8 @@ export class EstoqueService {
           tenantId,
           unidadeId: unidadeId ?? undefined,
           nome,
+          nomeComercial: limparNome(dto.nomeComercial) || null,
+          marcas: limparMarcas(dto.marcas),
           unidadeMedida,
           estoqueMinimo:
             dto.estoqueMinimo != null ? String(dto.estoqueMinimo) : undefined,
@@ -243,6 +245,9 @@ export class EstoqueService {
       if (!nome) throw new BadRequestException('Dê um nome ao produto.');
       patch.nome = nome;
     }
+    // Nome comercial e marcas (mig 311): ausente mantém; vazio limpa.
+    if (dto.nomeComercial !== undefined) patch.nomeComercial = limparNome(dto.nomeComercial) || null;
+    if (dto.marcas !== undefined) patch.marcas = limparMarcas(dto.marcas);
     if (dto.unidadeMedida !== undefined)
       patch.unidadeMedida = exigirUnidade(dto.unidadeMedida, 'Unidade principal');
     const conversoes = this.validarConversoes(dto.conversoes);
@@ -641,6 +646,8 @@ export class EstoqueService {
       -- em "todas", o valor é a soma de saldo × custo de CADA loja (nunca o saldo total vezes
       -- um custo único) e o mínimo é a soma dos mínimos.
       select i.id, i.nome, i.unidade_medida as "unidadeMedida", i.unidade_id as "unidadeId",
+             -- Como o produto é comprado e as marcas dele (mig 311); o nome continua o da ficha.
+             i.nome_comercial as "nomeComercial", i.marcas,
              sum(${sqlMinimoDaLoja}) as "estoqueMinimo",
              case when sum(greatest(mv.saldo, 0)) > 0
                   then sum(greatest(mv.saldo, 0) * ${sqlCustoDaLoja}) / sum(greatest(mv.saldo, 0))

@@ -9,9 +9,10 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Gaveta } from '@/components/ui/sobreposto';
 import { ImageUpload } from '@/components/ui/image-upload';
+import { nomeDeApoio, nomeDeCompra } from '@/lib/produto-compra';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-type Item = { id: string; nome: string; unidadeMedida?: string };
+type Item = { id: string; nome: string; nomeComercial?: string | null; unidadeMedida?: string };
 type Fornecedor = { id: string; nome: string };
 type Linha = {
   itemId: string;
@@ -212,6 +213,8 @@ export function RecebimentoForm({
                   {itens.map((it) => (
                     <option key={it.id} value={it.id}>
                       {it.nome}
+                      {/* O nome que vem na nota (mig 311), quando o cadastro tem. */}
+                      {nomeDeApoio(it) ? ` — na compra: ${nomeDeCompra(it)}` : ''}
                       {it.unidadeMedida ? ` (${it.unidadeMedida})` : ''}
                     </option>
                   ))}

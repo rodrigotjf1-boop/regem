@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Dialogo } from '@/components/ui/sobreposto';
+import { marcasConhecidas, marcasDe, nomeDeApoio, nomeDeCompra, textoDeBusca } from '@/lib/produto-compra';
 import { ProdutoForm, equivalencia } from './produto-form';
 import { ImportarProdutos } from './importar-produtos';
 
@@ -98,13 +99,14 @@ export function ProdutosSecao({
     const b = semAcento(busca);
     return itens.filter(
       (i) =>
-        (!b || semAcento(i.nome).includes(b)) &&
+        (!b || semAcento(textoDeBusca(i)).includes(b)) && // nome do produto, nome comercial e marcas
         (!categoria || i.categoriaItemId === categoria) &&
         (!fornecedor || (i.fornecedorIds ?? []).includes(fornecedor)) &&
         (!soAbaixo || (i.abaixoMinimo ?? Number(i.saldo) < Number(i.estoqueMinimo))),
     );
   }, [itens, busca, categoria, fornecedor, soAbaixo]);
   const filtrando = !!(busca.trim() || categoria || fornecedor || soAbaixo);
+  const sugestoesDeMarca = useMemo(() => marcasConhecidas(itens), [itens]);
   const nAbaixo = itens.filter(abaixo).length;
   const valor = lista.reduce((s, i) => s + Number(i.valorEstoque ?? 0), 0);
   const limpar = () => { setBusca(''); setCategoria(''); setFornecedor(''); setSoAbaixo(false); };
@@ -163,6 +165,11 @@ export function ProdutosSecao({
         <span className="min-w-0 break-words">{i.nome}</span>
       </span>
       <span className={`block text-xs ${texto2}`}>{i.categoriaNome ?? 'Sem categoria'}</span>
+      {/* Como o produto é comprado e de que marcas (mig 311) — só quando o cadastro tem. */}
+      {nomeDeApoio(i) && <span className={`block break-words text-xs ${texto2}`}>Na compra: {nomeDeCompra(i)}</span>}
+      {marcasDe(i).length > 0 && (
+        <span className={`block break-words text-xs ${texto2}`}>{marcasDe(i).length === 1 ? 'Marca' : 'Marcas'}: {marcasDe(i).join(', ')}</span>
+      )}
     </>
   );
   // `rotulo`: no cartão o botão mostra o texto; na tabela, só a partir da tela bem larga.
@@ -233,7 +240,7 @@ export function ProdutosSecao({
       {itens.length > 0 && (
         <Card className="grid grid-cols-1 gap-3 p-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
           <div className="space-y-1 sm:col-span-2 lg:col-span-1">
-            <Label htmlFor={ID_BUSCA}>Buscar por nome</Label>
+            <Label htmlFor={ID_BUSCA}>Buscar por nome ou marca</Label>
             <Input id={ID_BUSCA} type="search" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Ex.: coca, queijo, embalagem" autoComplete="off" />
           </div>
           <div className="space-y-1">
@@ -328,6 +335,7 @@ export function ProdutosSecao({
           fornecedores={fornecedores}
           setores={setores}
           unidades={unidades}
+          marcasConhecidas={sugestoesDeMarca}
           voltarPara={ID_BUSCA}
           onCancel={() => setForm(null)}
           onReload={reload}

@@ -39,7 +39,7 @@ describe('planilha de produtos — leitura e classificação', () => {
     const p = previaDe(ALO_CHEFIA);
     expect(p.formato).toBe('alochefia');
     expect(p.colunas).toEqual({
-      nome: 'Produto', unidade: 'Unidade', categoria: 'Categorias',
+      nome: 'Produto', comercial: null, marcas: null, unidade: 'Unidade', categoria: 'Categorias',
       minimo: 'Estoque mínimo', custo: 'Preço médio', quantidade: 'Quantidade',
     });
     expect(p.linhas).toHaveLength(7);
@@ -180,9 +180,9 @@ describe('planilha de produtos — exportação', () => {
 
   it('com financeiro: custo e valor entram; sem financeiro: as colunas nem existem', () => {
     const com = tabelaDeExportacao(ITENS, true);
-    expect(com.linhas[0]).toEqual(['Produto', 'Categoria', 'Unidade', 'Estoque mínimo', 'Saldo', 'Custo médio', 'Valor em estoque', 'Fornecedores', 'Setores', 'Conversões', 'Validade após aberto (dias)']);
-    expect(com.linhas[1]).toEqual(['Refri Zeta lata 350 ml', 'Bebidas', 'fardo', 5, 3, 39.9, 119.7, 'Atacado de teste, Distribuidora de teste', 'Depósito, Bar', '1 fardo = 12 unidade', null]);
-    expect(com.linhas[2]).toEqual(['Queijo de teste', '', 'kg', 5, 11.6, 23.0603, 267.5, '', '', '1 peça = 2,5 kg', 3]);
+    expect(com.linhas[0]).toEqual(['Produto', 'Nome comercial', 'Marcas', 'Categoria', 'Unidade', 'Estoque mínimo', 'Saldo', 'Custo médio', 'Valor em estoque', 'Fornecedores', 'Setores', 'Conversões', 'Validade após aberto (dias)']);
+    expect(com.linhas[1]).toEqual(['Refri Zeta lata 350 ml', '', '', 'Bebidas', 'fardo', 5, 3, 39.9, 119.7, 'Atacado de teste, Distribuidora de teste', 'Depósito, Bar', '1 fardo = 12 unidade', null]);
+    expect(com.linhas[2]).toEqual(['Queijo de teste', '', '', '', 'kg', 5, 11.6, 23.0603, 267.5, '', '', '1 peça = 2,5 kg', 3]);
     expect(com.larguras).toHaveLength(com.linhas[0].length);
 
     const sem = tabelaDeExportacao(ITENS.map((i) => ({ ...i, custoMedio: null, valorEstoque: null })), false);
