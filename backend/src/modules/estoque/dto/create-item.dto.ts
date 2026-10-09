@@ -1,10 +1,12 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   IsArray,
   IsNumber,
   IsOptional,
   IsString,
   IsUUID,
+  MaxLength,
   MinLength,
   ValidateNested,
 } from 'class-validator';
@@ -24,6 +26,19 @@ export class CreateItemDto {
   @IsString()
   @MinLength(1)
   nome!: string;
+  // Nome comercial (mig 311): como o produto é COMPRADO — lista de compras, pedido e conferência.
+  // Vazio = usa o nome do produto (que é o da ficha técnica).
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  nomeComercial?: string;
+  // Marcas (mig 311). Quando enviado, substitui a lista. O estoque continua um só.
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @MaxLength(60, { each: true })
+  marcas?: string[];
 
   @IsOptional()
   @IsString()

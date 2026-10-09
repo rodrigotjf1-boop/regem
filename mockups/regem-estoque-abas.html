@@ -19,7 +19,13 @@
      ficha técnica, por exemplo: custos de delivery, CMV de delivery, preço sugerido, markup e margem;
    - a lista vira cartões abaixo de 1280 px, e a ação secundária da linha mostra só o ícone (com o
      nome ao passar o mouse) abaixo de 1536 px; a ação principal mostra o texto sempre;
-   - o período (7/30/90 dias, todo o período) é cortado no SERVIDOR; aqui é só um filtro da amostra. */
+   - o período (7/30/90 dias, todo o período) é cortado no SERVIDOR; aqui é só um filtro da amostra;
+   - nos diálogos de Compras ("Conferir e receber" e "Ver itens") a tabela de itens vira blocos em
+     tela estreita — um por item, com o título da coluna junto do valor: nada rola para o lado.
+   COMPRAS, desde 09/10/2026: o produto aparece pelo NOME COMERCIAL (como é comprado), com o nome do
+   estoque embaixo; produto com duas ou mais marcas pede a MARCA na hora de gerar a lista (sem ela a
+   lista não sai) e, com uma só, vale ela. A marca acompanha o pedido até a conferência; o estoque
+   continua um só. Em Contagem o produto segue pelo nome do estoque. */
 :root{
   --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
   --gold:#E8A845; --on-gold:#281B06; --navy:#0F2230; --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9;
@@ -113,6 +119,8 @@ tbody tr:hover{background:#FAFBFD}
 .escolha label{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);min-height:44px}
 .escolha label:last-child{border-bottom:none}
 .escolha input[type=number]{width:84px;min-height:36px;border:1px solid var(--line-2);border-radius:8px;padding:0 8px}
+.escolha select{max-width:100%;min-height:36px;border:1px solid var(--line-2);border-radius:8px;padding:0 8px;background:#fff}
+.escolha .lado{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
 .mini td,.mini th{padding:7px 10px}
 .mini input,.mini select{min-height:38px;border:1px solid var(--line-2);border-radius:8px;padding:0 8px;width:100%;min-width:64px;background:#fff}
 .conta{background:var(--info-bg);color:var(--info);border-radius:10px;padding:8px 12px;font-weight:600;font-size:13.5px}
@@ -172,7 +180,7 @@ const PERIODOS = [['7', 'Últimos 7 dias'], ['30', 'Últimos 30 dias'], ['90', '
 const noPeriodo = (data, p) => !p || dias(data) >= -Number(p);
 const FORN = ['Atacado Central', 'Distribuidora Boa Vista', 'Hortifruti da Serra', 'Verdes do Sítio', 'Frios & Cia'];
 const PESSOAS = ['Ana', 'Carlos', 'Marina'];
-const PRODUTOS = [['Refrigerante cola lata 350 ml', 'Bebidas', 'fardo', 3, 5], ['Refrigerante uva lata 350 ml', 'Bebidas', 'fardo', 16, 5], ['Guaraná copo 290 ml', 'Bebidas', 'caixa', 19, 5], ['Queijo muçarela peça', 'Laticínios', 'kg', 11.6, 5], ['Presunto fatiado', 'Laticínios', 'kg', 2, 3], ['Alface', 'Hortifruti', 'saco', 3, 8], ['Tomate', 'Hortifruti', 'kg', 6, 4], ['Pão brioche', 'Padaria', 'unidade', 40, 60], ['Batata palito congelada', 'Congelados', 'pacote', 0, 6], ['Embalagem hambúrguer kraft', 'Embalagens', 'pacote', 0, 4], ['Molho de tomate', 'Mercearia', 'lata', 12, 6], ['Detergente neutro 5 L', 'Limpeza', 'galão', 2, 1]];
+const PRODUTOS = [['Refrigerante cola lata 350 ml', 'Bebidas', 'fardo', 3, 5], ['Refrigerante uva lata 350 ml', 'Bebidas', 'fardo', 16, 5], ['Guaraná copo 290 ml', 'Bebidas', 'caixa', 19, 5], ['Queijo muçarela peça', 'Laticínios', 'kg', 11.6, 5, 'Barra de muçarela 4 kg', ['Marca Alfa', 'Marca Beta']], ['Presunto fatiado', 'Laticínios', 'kg', 2, 3, 'Peça de presunto cozido', ['Marca Gama']], ['Alface', 'Hortifruti', 'saco', 3, 8], ['Tomate', 'Hortifruti', 'kg', 6, 4], ['Pão brioche', 'Padaria', 'unidade', 40, 60, 'Caixa de pão brioche com 12'], ['Batata palito congelada', 'Congelados', 'pacote', 0, 6], ['Embalagem hambúrguer kraft', 'Embalagens', 'pacote', 0, 4], ['Molho de tomate', 'Mercearia', 'lata', 12, 6], ['Detergente neutro 5 L', 'Limpeza', 'galão', 2, 1]];
 const META = 31.5;
 
 // ══ as 8 abas ═══════════════════════════════════════════════════════════════════════════════
@@ -478,19 +486,21 @@ function confirmarExcluir(r, consequencia) {
     rodape: `<button class="bt" data-fechar>Cancelar</button><button class="bt perigo" id="bExc">Excluir</button>` });
   $('#bExc').onclick = () => { ABAS[atual].dados = ABAS[atual].dados.filter((x) => x !== r); fechar(); desenhar(); avisar('Excluído.'); $('#fBusca')?.focus(); };
 }
-// escolha de produtos com busca, categoria e contagem — usada por Contagem e Compras
+// escolha de produtos com busca, categoria e contagem — usada por Contagem e Compras.
+// PRODUTOS: [nome, categoria, unidade, saldo, mínimo, nome comercial?, marcas?]. Na compra (comQtd) o
+// produto aparece pelo nome comercial e, com duas ou mais marcas, pede a marca.
 function escolhaProdutos(comQtd, marcados = []) {
   const cats = [...new Set(PRODUTOS.map((p) => p[1]))];
   return `<div data-escolha="${comQtd ? 'qtd' : ''}">
     <div class="rot" style="display:flex;justify-content:space-between;gap:8px"><span>Produtos</span><span data-conta></span></div>
-    <div class="duas" style="margin:6px 0"><input data-eb placeholder="Buscar produto" style="min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 12px"><select data-ec style="min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 12px"><option value="">Todas as categorias</option>${cats.map((c) => `<option>${c}</option>`).join('')}</select></div>
+    <div class="duas" style="margin:6px 0"><input data-eb placeholder="Buscar produto ou marca" style="min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 12px"><select data-ec style="min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 12px"><option value="">Todas as categorias</option>${cats.map((c) => `<option>${c}</option>`).join('')}</select></div>
     <div class="fichas" style="margin-bottom:6px"><button type="button" class="ficha" data-ebaixo aria-pressed="false">Só abaixo do mínimo</button><button type="button" class="bt" data-etodos>Marcar os da lista</button><button type="button" class="bt" data-enada>Desmarcar todos</button></div>
-    <div class="escolha">${PRODUTOS.map((p, i) => `<label data-p="${i}"><input type="checkbox" ${marcados.includes(i) ? 'checked' : ''}><span><b>${p[0]}</b><span class="sub"> · ${p[1]} · saldo ${num(p[3])} ${p[2]}${p[3] < p[4] ? ' · abaixo do mínimo' : ''}</span></span>${comQtd ? `<input type="number" min="0" placeholder="qtd" aria-label="Quantidade de ${p[0]}">` : '<span></span>'}</label>`).join('')}</div></div>`;
+    <div class="escolha">${PRODUTOS.map((p, i) => `<label data-p="${i}"><input type="checkbox" ${marcados.includes(i) ? 'checked' : ''}><span><b>${comQtd && p[5] ? p[5] : p[0]}</b>${comQtd && p[5] ? `<span class="sub" style="display:block">No estoque: ${p[0]}</span>` : ''}<span class="sub"> · ${p[1]} · saldo ${num(p[3])} ${p[2]}${p[3] < p[4] ? ' · abaixo do mínimo' : ''}${comQtd && p[6]?.length === 1 ? ` · marca ${p[6][0]}` : ''}</span></span>${comQtd ? `<span class="lado">${p[6]?.length > 1 ? `<select aria-label="Marca de ${p[5] || p[0]} (obrigatória)"><option value="">Escolha a marca</option>${p[6].map((m) => `<option>${m}</option>`).join('')}</select>` : ''}<input type="number" min="0" placeholder="qtd" aria-label="Quantidade de ${p[5] || p[0]}"></span>` : '<span></span>'}</label>`).join('')}</div></div>`;
 }
 function contarEscolha(raiz) {
   const b = sem($('[data-eb]', raiz).value), c = $('[data-ec]', raiz).value, baixo = $('[data-ebaixo]', raiz).getAttribute('aria-pressed') === 'true';
   let n = 0;
-  raiz.querySelectorAll('.escolha label').forEach((l) => { const p = PRODUTOS[l.dataset.p]; l.hidden = !((!b || sem(p[0]).includes(b)) && (!c || p[1] === c) && (!baixo || p[3] < p[4])); if ($('input[type=checkbox]', l).checked) n++; });
+  raiz.querySelectorAll('.escolha label').forEach((l) => { const p = PRODUTOS[l.dataset.p]; l.hidden = !((!b || sem([p[0], p[5] || '', ...(p[6] || [])].join(' ')).includes(b)) && (!c || p[1] === c) && (!baixo || p[3] < p[4])); if ($('input[type=checkbox]', l).checked) n++; });
   $('[data-conta]', raiz).textContent = `${n} de ${PRODUTOS.length} marcados`;
 }
 document.addEventListener('click', (ev) => {
@@ -572,14 +582,14 @@ function dialogoConferir(r) {
   painel({ largo: true, titulo: `Conferir e receber: ${r.nome}`, rodape: `<button class="bt" data-fechar>Cancelar</button><button class="bt pri" id="bRec">Confirmar recebimento</button>`,
     corpo: `<p class="ajuda" style="margin:0">Confira o que realmente chegou. Só a quantidade recebida entra no estoque.</p>
       <div class="tabela"><table class="mini" style="min-width:680px"><caption class="sr">Conferência dos itens da compra</caption><thead><tr><th>Item</th><th>Pedido</th><th>Recebido</th><th>Validade</th><th>Lote</th></tr></thead><tbody>
-      ${PRODUTOS.slice(4, 8).map((p, i) => `<tr><td><b>${p[0]}</b><div class="sub">${p[2]}</div></td><td class="num">${p[4]}</td><td><input type="number" value="${i === 1 ? p[4] - 2 : p[4]}" aria-label="Recebido de ${p[0]}">${i === 1 ? '<div class="sub" style="color:var(--warn)">veio menos</div>' : ''}</td><td><input type="date" aria-label="Validade de ${p[0]}" value="2026-10-2${i}"><label class="sub" style="display:block;margin-top:2px"><input type="checkbox"> sem validade</label></td><td><input placeholder="opcional" aria-label="Lote de ${p[0]}"></td></tr>`).join('')}</tbody></table></div>
+      ${PRODUTOS.slice(4, 8).map((p, i) => `<tr><td><b>${p[5] || p[0]}</b>${p[6]?.length ? `<div class="sub"><b>Marca: ${p[6][0]}</b></div>` : ''}<div class="sub">${p[5] ? `No estoque: ${p[0]} · ` : ''}${p[2]}</div></td><td class="num">${p[4]}</td><td><input type="number" value="${i === 1 ? p[4] - 2 : p[4]}" aria-label="Recebido de ${p[0]}">${i === 1 ? '<div class="sub" style="color:var(--warn)">veio menos</div>' : ''}</td><td><input type="date" aria-label="Validade de ${p[0]}" value="2026-10-2${i}"><label class="sub" style="display:block;margin-top:2px"><input type="checkbox"> sem validade</label></td><td><input placeholder="opcional" aria-label="Lote de ${p[0]}"></td></tr>`).join('')}</tbody></table></div>
       <div class="duas">${campo('Data de pagamento', '<input type="date">', 'Gera a conta a pagar pelo valor CONFERIDO.')}<div class="conta" style="align-self:start">4 itens · 1 com diferença do pedido</div></div>` });
   $('#bRec').onclick = () => { r.st = 'recebida'; fechar(); desenhar(); avisar('Compra conferida e recebida — estoque atualizado.'); };
 }
 function dialogoItens(r) {
   painel({ largo: true, titulo: `${r.nome || r.forn} · ${r.itens} itens`, rodape: '<button class="bt pri" data-fechar>Fechar</button>',
     corpo: `<div class="tabela"><table><caption class="sr">Itens</caption><thead><tr><th>Produto</th><th>Quantidade</th><th>Custo unitário</th><th>Situação</th></tr></thead><tbody>
-      ${PRODUTOS.slice(3, 7).map((p, i) => `<tr><td><b>${p[0]}</b></td><td class="num">${p[4]} ${p[2]}</td><td class="num">${brl(4.5 + i * 3.2)}</td><td>${i === 1 && r.div ? selo('crit', 'veio menos') : selo('ok', 'ok')}</td></tr>`).join('')}</tbody></table></div><p class="sub" style="margin:0">Mostrando 4 de ${r.itens}.</p>` });
+      ${PRODUTOS.slice(3, 7).map((p, i) => `<tr><td><b>${p[5] || p[0]}</b>${p[6]?.length ? `<div class="sub"><b>Marca: ${p[6][0]}</b></div>` : ''}${p[5] ? `<div class="sub">No estoque: ${p[0]}</div>` : ''}</td><td class="num">${p[4]} ${p[2]}</td><td class="num">${brl(4.5 + i * 3.2)}</td><td>${i === 1 && r.div ? selo('crit', 'veio menos') : selo('ok', 'ok')}</td></tr>`).join('')}</tbody></table></div><p class="sub" style="margin:0">Mostrando 4 de ${r.itens}.</p>` });
 }
 function formRecebimento() {
   painel({ tipo: 'gaveta', largo: true, titulo: 'Novo recebimento', rodape: rodapeSalvar('Registrar recebimento', 'Recebimento registrado — falta confirmar.'),

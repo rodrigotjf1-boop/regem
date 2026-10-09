@@ -1,7 +1,7 @@
 'use client';
 
 import { useId, useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Gaveta } from '@/components/ui/sobreposto';
 import { arredondarInformado, unidadesDoProduto } from '@/lib/conversao-unidade';
+import { MARCAS_MAX, MARCA_MAX, chaveDaMarca, juntarMarca, marcasDe } from '@/lib/produto-compra';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Opt = { id: string; nome: string };
@@ -64,15 +65,17 @@ function Fichas({ opcoes, marcados, alternar }: { opcoes: Opt[]; marcados: strin
   );
 }
 
-// Cadastro de produto do estoque, numa gaveta lateral (a lista continua à vista): categoria,
-// fornecedores e setores (um ou mais), unidade e conversões pela lista fechada, estoque mínimo
-// com a equivalência, validade e etiquetas. Serve para criar e para editar.
+// Cadastro de produto do estoque, numa gaveta lateral (a lista continua à vista): nome (o da
+// ficha técnica), nome comercial (o da compra) e marcas, categoria, fornecedores e setores (um ou
+// mais), unidade e conversões pela lista fechada, estoque mínimo com a equivalência, validade e
+// etiquetas. Serve para criar e para editar.
 export function ProdutoForm({
   item,
   categorias,
   fornecedores,
   setores,
   unidades,
+  marcasConhecidas = [],
   onSaved,
   onCancel,
   onReload,
@@ -83,6 +86,8 @@ export function ProdutoForm({
   fornecedores: Opt[];
   setores: Opt[];
   unidades: string[];
+  /** Marcas já usadas em outros produtos: viram sugestão ao digitar. */
+  marcasConhecidas?: string[];
   onSaved: () => void;
   onCancel: () => void;
   onReload: () => void;
@@ -90,6 +95,10 @@ export function ProdutoForm({
 }) {
   const formId = useId();
   const [nome, setNome] = useState(item?.nome ?? '');
+  // Como o produto é COMPRADO (mig 311). O nome acima continua o da ficha técnica.
+  const [nomeComercial, setNomeComercial] = useState<string>(item?.nomeComercial ?? '');
+  const [marcas, setMarcas] = useState<string[]>(() => marcasDe(item));
+  const [novaMarca, setNovaMarca] = useState('');
   const [categoriaItemId, setCategoriaItemId] = useState(item?.categoriaItemId ?? '');
   // Múltiplos fornecedores (N:N). Prefere a lista; cai no legado quando só há 1.
   const [fornecedorIds, setFornecedorIds] = useState<string[]>(
@@ -159,6 +168,11 @@ export function ProdutoForm({
     }
   }
 
+  function adicionarMarca() {
+    setMarcas((l) => juntarMarca(l, novaMarca));
+    setNovaMarca('');
+  }
+
   const setConv = (i: number, patch: Partial<Conversao>) =>
     setConversoes((cs) => cs.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
 
@@ -169,6 +183,8 @@ export function ProdutoForm({
     setSaving(true);
     const body = {
       nome: nome.trim(),
+      nomeComercial: nomeComercial.trim(), // vazio limpa: a compra volta a usar o nome do produto
+      marcas: juntarMarca(marcas, novaMarca), // a marca digitada e ainda não adicionada entra junto
       unidadeMedida: unidade || undefined,
       estoqueMinimo: estoqueMinimo ? Number(estoqueMinimo) : undefined,
       validade: validade || undefined,
@@ -250,7 +266,45 @@ export function ProdutoForm({
       <form id={formId} onSubmit={salvar} className="space-y-4">
         <div className="space-y-1.5">
           <Label htmlFor="nome">Nome do produto</Label>
-          <Input id="nome" data-foco-inicial value={nome} onChange={(e) => setNome(e.target.value)} required placeholder="Ex.: Pão brioche" autoComplete="off" />
+          <Input id="nome" data-foco-inicial value={nome} onChange={(e) => setNome(e.target.value)} required placeholder="Ex.: Pão brioche" autoComplete="off" aria-describedby="nome-ajuda" />
+          <p id="nome-ajuda" className={ajuda}>É o nome que entra nas fichas técnicas, na contagem e nos relatórios.</p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="nome-comercial">Nome comercial (opcional)</Label>
+          <Input id="nome-comercial" value={nomeComercial} onChange={(e) => setNomeComercial(e.target.value)} maxLength={120} placeholder="Ex.: Caixa de pão brioche com 12" autoComplete="off" aria-describedby="nome-comercial-ajuda" />
+          <p id="nome-comercial-ajuda" className={ajuda}>Como o produto é comprado. É o nome que aparece na lista de compras e no recebimento; em branco, vale o nome do produto.</p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="marca-nova">Marcas (opcional)</Label>
+          <p id="marcas-ajuda" className={ajuda}>Com duas ou mais marcas, quem gera a lista de compras escolhe qual comprar. O estoque e o custo continuam um só.</p>
+          {marcas.length > 0 && (
+            <ul className="flex flex-wrap gap-1.5" aria-label="Marcas do produto">
+              {marcas.map((m) => (
+                <li key={m} className="inline-flex min-h-10 max-w-full items-center gap-0.5 rounded-full border border-primary bg-primary/15 pl-3 pr-0.5 text-sm font-semibold text-foreground">
+                  <span className="min-w-0 break-words">{m}</span>
+                  <button type="button" aria-label={`Remover a marca ${m}`} title="Remover"
+                    className="inline-flex h-9 w-9 flex-none items-center justify-center rounded-full hover:bg-primary/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => setMarcas((l) => l.filter((x) => x !== m))}>
+                    <X className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {marcas.length < MARCAS_MAX ? (
+            <div className="flex gap-1.5">
+              <Input id="marca-nova" list="marcas-conhecidas" value={novaMarca} onChange={(e) => setNovaMarca(e.target.value)} maxLength={MARCA_MAX} placeholder="＋ nova marca" className="text-sm" autoComplete="off" aria-describedby="marcas-ajuda"
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); adicionarMarca(); } }} />
+              <Button type="button" variant="outline" size="sm" onClick={adicionarMarca} disabled={!novaMarca.trim()}>Adicionar</Button>
+              <datalist id="marcas-conhecidas">
+                {marcasConhecidas.filter((m) => !marcas.some((x) => chaveDaMarca(x) === chaveDaMarca(m))).map((m) => <option key={m} value={m} />)}
+              </datalist>
+            </div>
+          ) : (
+            <p className={ajuda}>Limite de {MARCAS_MAX} marcas por produto.</p>
+          )}
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

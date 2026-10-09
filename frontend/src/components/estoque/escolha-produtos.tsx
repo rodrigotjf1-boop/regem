@@ -5,10 +5,11 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { distintos, num, semAcento, texto2 } from '@/components/ui/lista';
+import { faltaMarca, marcaDaLinha, marcasDe, nomeDeApoio, nomeDeCompra, textoDeBusca } from '@/lib/produto-compra';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-/** Um produto marcado. Em Compras leva a quantidade e o custo; em Contagem, fica vazio. */
-export type LinhaEscolhida = { quantidade: string; custoUnitario: string };
+/** Um produto marcado. Em Compras leva a quantidade, o custo e a marca; em Contagem, fica vazio. */
+export type LinhaEscolhida = { quantidade: string; custoUnitario: string; marca?: string };
 export type Escolha = Record<string, LinhaEscolhida>;
 
 const unidadeDe = (i: any): string => i.unidadeLista ?? i.unidadeMedida ?? '';
@@ -16,12 +17,15 @@ const abaixo = (i: any) => i.abaixoMinimo ?? Number(i.saldo) < Number(i.estoqueM
 
 // Escolher produtos numa lista longa: busca, categoria, "só abaixo do mínimo", marcar todos os
 // que estão à vista e a contagem dos marcados. Usada pela lista de Contagem (só marca) e pela
-// lista de Compras (cada marcado pede a quantidade e, opcional, o custo).
+// lista de Compras (cada marcado pede a quantidade e, opcional, o custo). Na compra (`deCompra`)
+// o produto aparece pelo nome comercial, com o nome do estoque embaixo, e quem tem duas ou mais
+// marcas pede a marca — o estoque é um só, a marca só acompanha o pedido (mig 311).
 export function EscolhaProdutos({
   itens,
   valor,
   aoMudar,
   comQuantidade = false,
+  deCompra = false,
   rotulo = 'Produtos',
 }: {
   itens: any[];
@@ -29,6 +33,8 @@ export function EscolhaProdutos({
   valor: Escolha;
   aoMudar: (v: Escolha) => void;
   comQuantidade?: boolean;
+  /** Lista de compras: mostra o nome comercial e pede a marca. */
+  deCompra?: boolean;
   rotulo?: string;
 }) {
   const [busca, setBusca] = useState('');
@@ -38,14 +44,16 @@ export function EscolhaProdutos({
 
   const visiveis = useMemo(() => {
     const b = semAcento(busca);
-    return itens.filter(
+    const filtrados = itens.filter(
       (i) =>
-        (!b || semAcento(i.nome).includes(b)) &&
+        (!b || semAcento(textoDeBusca(i)).includes(b)) && // nome do produto, nome comercial e marcas
         (!categoria || (i.categoriaNome ?? 'Sem categoria') === categoria) &&
         (!soAbaixo || abaixo(i)) &&
         (!soMarcados || !!valor[i.id]),
     );
-  }, [itens, busca, categoria, soAbaixo, soMarcados, valor]);
+    // Na compra a lista segue a ordem do nome que aparece (o comercial); a de fora vem pelo nome do estoque.
+    return deCompra ? [...filtrados].sort((x, y) => nomeDeCompra(x).localeCompare(nomeDeCompra(y), 'pt-BR')) : filtrados;
+  }, [itens, busca, categoria, soAbaixo, soMarcados, valor, deCompra]);
   const marcados = Object.keys(valor).filter((id) => itens.some((i) => i.id === id)).length;
 
   const alternar = (id: string) => {
@@ -71,7 +79,7 @@ export function EscolhaProdutos({
         <span className={`text-sm ${texto2}`} role="status" aria-live="polite">{marcados} de {itens.length} marcados</span>
       </div>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <Input type="search" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar produto" aria-label="Buscar produto" autoComplete="off" />
+        <Input type="search" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar produto ou marca" aria-label="Buscar produto ou marca" autoComplete="off" />
         <Select value={categoria} onChange={(e) => setCategoria(e.target.value)} aria-label="Categoria">
           <option value="">Todas as categorias</option>
           {distintos(itens, (i) => i.categoriaNome ?? 'Sem categoria').map((c) => <option key={c} value={c}>{c}</option>)}
@@ -88,23 +96,40 @@ export function EscolhaProdutos({
         {itens.length > 0 && visiveis.length === 0 && <li className={`p-3 text-sm ${texto2}`}>Nenhum produto com esses filtros.</li>}
         {visiveis.map((i) => {
           const l = valor[i.id];
+          // Na compra o produto se chama como é comprado; na contagem, como está no estoque.
+          const titulo = deCompra ? nomeDeCompra(i) : i.nome;
+          const doEstoque = deCompra ? nomeDeApoio(i) : '';
+          const marcas = deCompra ? marcasDe(i) : [];
+          const semMarca = !!l && faltaMarca(marcas, l.marca);
           return (
             <li key={i.id} className="flex flex-wrap items-center gap-2 px-3 py-2">
               <label className="flex min-h-10 min-w-0 flex-1 basis-56 items-center gap-2.5 text-sm">
                 <input type="checkbox" className="h-5 w-5 flex-none accent-primary" checked={!!l} onChange={() => alternar(i.id)} />
                 <span className="min-w-0">
-                  <span className="font-semibold">{i.nome}</span>
+                  <span className="break-words font-semibold">{titulo}</span>
+                  {doEstoque && <span className={`block break-words text-xs ${texto2}`}>No estoque: {doEstoque}</span>}
                   <span className={`block text-xs ${texto2}`}>
                     {i.categoriaNome ?? 'Sem categoria'} · saldo {num(i.saldo)} {unidadeDe(i)}{abaixo(i) ? ' · abaixo do mínimo' : ''}
+                    {marcas.length === 1 ? ` · marca ${marcas[0]}` : ''}
                   </span>
                 </span>
               </label>
               {comQuantidade && l && (
-                <span className="flex gap-2">
+                <span className="flex flex-wrap gap-2">
+                  {marcas.length >= 2 && (
+                    <span className="block">
+                      <Select className="w-44 max-w-full" value={marcaDaLinha(marcas, l.marca)} aria-label={`Marca de ${titulo} (obrigatória)`} aria-invalid={semMarca || undefined}
+                        onChange={(e) => aoMudar({ ...valor, [i.id]: { ...l, marca: e.target.value } })}>
+                        <option value="">Escolha a marca</option>
+                        {marcas.map((m) => <option key={m} value={m}>{m}</option>)}
+                      </Select>
+                      {semMarca && <span className="mt-0.5 block text-xs font-semibold">Falta a marca</span>}
+                    </span>
+                  )}
                   <Input type="number" min={0} step="any" inputMode="decimal" className="w-24" value={l.quantidade} placeholder="qtd"
-                    aria-label={`Quantidade de ${i.nome}, em ${unidadeDe(i)}`} onChange={(e) => aoMudar({ ...valor, [i.id]: { ...l, quantidade: e.target.value } })} />
+                    aria-label={`Quantidade de ${titulo}, em ${unidadeDe(i)}`} onChange={(e) => aoMudar({ ...valor, [i.id]: { ...l, quantidade: e.target.value } })} />
                   <Input type="number" min={0} step="any" inputMode="decimal" className="w-28" value={l.custoUnitario} placeholder="R$ / un."
-                    aria-label={`Custo unitário de ${i.nome}`} onChange={(e) => aoMudar({ ...valor, [i.id]: { ...l, custoUnitario: e.target.value } })} />
+                    aria-label={`Custo unitário de ${titulo}`} onChange={(e) => aoMudar({ ...valor, [i.id]: { ...l, custoUnitario: e.target.value } })} />
                 </span>
               )}
             </li>

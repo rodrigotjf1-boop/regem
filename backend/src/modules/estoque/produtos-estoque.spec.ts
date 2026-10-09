@@ -448,12 +448,12 @@ descrever('produtos do estoque (Postgres real)', () => {
     expect(x).toMatchObject({ mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', produtos: 2 });
     expect(x.filename).toMatch(/^produtos-estoque-\d{4}-\d{2}-\d{2}\.xlsx$/);
     const tabela = lerXlsx(Buffer.from(x.base64, 'base64'));
-    expect(tabela[0].slice(0, 7)).toEqual(['Produto', 'Categoria', 'Unidade', 'Estoque mínimo', 'Saldo', 'Custo médio', 'Valor em estoque']);
-    expect(tabela.slice(1).map((l) => l.slice(0, 7))).toEqual([
-      ['Queijo de teste', '', 'kg', '2', '0', '0', '0'],
-      ['Refri de teste', '', 'fardo', '5', '3', '39.9', '119.7'],
+    expect(tabela[0].slice(0, 9)).toEqual(['Produto', 'Nome comercial', 'Marcas', 'Categoria', 'Unidade', 'Estoque mínimo', 'Saldo', 'Custo médio', 'Valor em estoque']);
+    expect(tabela.slice(1).map((l) => l.slice(0, 9))).toEqual([
+      ['Queijo de teste', '', '', '', 'kg', '2', '0', '0', '0'],
+      ['Refri de teste', '', '', '', 'fardo', '5', '3', '39.9', '119.7'],
     ]);
-    expect(tabela[2][9]).toBe('1 fardo = 12 unidade');
+    expect(tabela[2][11]).toBe('1 fardo = 12 unidade');
 
     const semFinanceiro = lerXlsx(Buffer.from((await p.exportar(t, false, null, 'xlsx')).base64, 'base64'));
     expect(semFinanceiro[0]).not.toContain('Custo médio');
@@ -462,7 +462,7 @@ descrever('produtos do estoque (Postgres real)', () => {
     const csv = await p.exportar(t, true, null, 'csv', [b.id, 'id-que-nao-existe']);
     expect(csv).toMatchObject({ produtos: 1, mime: 'text/csv;charset=utf-8' });
     const texto = Buffer.from(csv.base64, 'base64').toString('utf8');
-    expect(texto.split('\r\n')[1]).toMatch(/^Queijo de teste;;kg;2;0;/);
+    expect(texto.split('\r\n')[1]).toMatch(/^Queijo de teste;;;;kg;2;0;/);
 
     await expect(p.exportar(t, true, null, 'pdf')).rejects.toThrow(/Formato de arquivo desconhecido/);
     await expect(p.exportar(t, true, null, 'xlsx', [])).rejects.toThrow(/Nenhum produto/);

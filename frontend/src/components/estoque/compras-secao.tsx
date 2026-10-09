@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { SkeletonList } from '@/components/ui/skeleton';
 import { Dialogo, Gaveta } from '@/components/ui/sobreposto';
+import { faltaMarca, marcaDaLinha, marcasDe, nomeDeApoio, nomeDeCompra } from '@/lib/produto-compra';
 import { EscolhaProdutos, type Escolha } from './escolha-produtos';
 import {
   FiltroBusca, FiltroSelect, Filtros, ListaDados, NomeComApoio, PERIODOS, PERIODO_PADRAO, Selo, Situacoes, TituloLista, Vazio,
@@ -28,6 +29,16 @@ const SITUACOES: Situacao<any>[] = [
   { rotulo: 'Recebidas', filtro: recebida },
 ];
 const ID_TITULO = 'compras-titulo';
+
+// Nos diálogos, a tabela de itens vira blocos em tela estreita (nada rola para o lado) e o
+// cabeçalho some: o título da coluna vai escrito junto do valor. Em cima do campo, na
+// conferência (some a partir de 1024 px); na mesma linha, em "Ver itens" (some a partir de 640 px).
+function RotuloDaColuna({ children }: { children: React.ReactNode }) {
+  return <span className={`block font-sans text-xs font-bold uppercase tracking-wide lg:hidden ${texto2}`}>{children}</span>;
+}
+function RotuloNaLinha({ children }: { children: React.ReactNode }) {
+  return <><span className={`font-sans text-xs font-bold sm:hidden ${texto2}`}>{children}:</span>{' '}</>;
+}
 
 // Aba Compras: as listas de compra — as que aguardam (sempre à vista, com as atrasadas) e as
 // recebidas no período. Gerar a lista abre na gaveta; conferir e receber, ver os itens e
@@ -229,14 +240,18 @@ function NovaListaForm({ itens, fornecedores, colabs, verFin, aoFechar, aoSalvar
 
   const comQtd = Object.entries(escolha).filter(([id, l]) => Number(l.quantidade) > 0 && itens.some((i) => i.id === id));
   const total = comQtd.reduce((s, [, l]) => s + Number(l.quantidade) * (Number(l.custoUnitario) || 0), 0);
-  const falta = nome.trim().length < 2 || comQtd.length === 0;
+  // Produto com duas ou mais marcas: a lista só sai com a marca escolhida (o servidor recusa sem).
+  const porId = new Map<string, any>(itens.map((i) => [i.id, i]));
+  const semMarca = comQtd.filter(([id, l]) => faltaMarca(marcasDe(porId.get(id)), l.marca));
+  const falta = nome.trim().length < 2 || comQtd.length === 0 || semMarca.length > 0;
 
   async function sugerir() {
     try {
       const s: any[] = await api.comprasSugestao();
       if (!s.length) { toast.info('Nenhum produto abaixo do mínimo.'); return; }
       const n: Escolha = { ...escolha };
-      for (const r of s) n[r.itemId] = { quantidade: String(r.sugerido), custoUnitario: n[r.itemId]?.custoUnitario ?? '' };
+      // Mantém o custo e a marca que a pessoa já tinha informado para o produto.
+      for (const r of s) n[r.itemId] = { ...n[r.itemId], quantidade: String(r.sugerido), custoUnitario: n[r.itemId]?.custoUnitario ?? '' };
       setEscolha(n);
       toast.success(`${s.length} produto(s) abaixo do mínimo marcados, com a quantidade sugerida.`);
     } catch (e) {
@@ -257,7 +272,12 @@ function NovaListaForm({ itens, fornecedores, colabs, verFin, aoFechar, aoSalvar
         delegadoId: delegadoId || undefined,
         enviarKds,
         enviarDashboard,
-        itens: comQtd.map(([itemId, l]) => ({ itemId, quantidade: Number(l.quantidade), custoUnitario: l.custoUnitario ? Number(l.custoUnitario) : undefined })),
+        itens: comQtd.map(([itemId, l]) => ({
+          itemId,
+          quantidade: Number(l.quantidade),
+          custoUnitario: l.custoUnitario ? Number(l.custoUnitario) : undefined,
+          marca: marcaDaLinha(marcasDe(porId.get(itemId)), l.marca) || undefined,
+        })),
       });
       toast.success('Lista de compras criada.');
       aoSalvar();
@@ -276,6 +296,7 @@ function NovaListaForm({ itens, fornecedores, colabs, verFin, aoFechar, aoSalvar
         <>
           <span className={`mr-auto self-center text-sm ${texto2}`} role="status" aria-live="polite">
             {comQtd.length} produto(s) com quantidade{verFin && total > 0 ? ` · ${brl(total)} estimado` : ''}
+            {semMarca.length > 0 && <b className="block text-foreground">Falta escolher a marca de {semMarca.length} produto(s).</b>}
           </span>
           <Button type="button" variant="outline" onClick={aoFechar}>Cancelar</Button>
           <Button type="submit" form={formId} disabled={falta || salvando}>{salvando ? 'Criando…' : 'Criar lista'}</Button>
@@ -315,7 +336,7 @@ function NovaListaForm({ itens, fornecedores, colabs, verFin, aoFechar, aoSalvar
         <div>
           <Button type="button" variant="outline" onClick={sugerir}><Sparkles className="h-4 w-4" aria-hidden="true" /> Sugerir do estoque baixo</Button>
         </div>
-        <EscolhaProdutos itens={itens} valor={escolha} aoMudar={setEscolha} comQuantidade rotulo="Produtos e quantidades" />
+        <EscolhaProdutos itens={itens} valor={escolha} aoMudar={setEscolha} comQuantidade deCompra rotulo="Produtos e quantidades" />
         <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
           <label className="flex min-h-10 items-center gap-2">
             <input type="checkbox" className="h-5 w-5 accent-primary" checked={enviarKds} onChange={(e) => setEnviarKds(e.target.checked)} /> Avisar no KDS ao receber
@@ -363,7 +384,7 @@ function ConferirDialogo({ lista, aoFechar, aoReceber }: { lista: any; aoFechar:
       return !c || c.qtdRecebida === '' || !(Number(c.qtdRecebida) >= 0) || (!c.validade && !c.indefinida);
     });
     if (pendente) {
-      setErro(`Confira "${pendente.nome}": a quantidade recebida e a validade (ou marque "sem validade").`);
+      setErro(`Confira "${nomeDeCompra(pendente)}": a quantidade recebida e a validade (ou marque "sem validade").`);
       return;
     }
     setErro('');
@@ -401,9 +422,11 @@ function ConferirDialogo({ lista, aoFechar, aoReceber }: { lista: any; aoFechar:
       <div className="space-y-3 text-sm">
         <p className={texto2}>Confira o que realmente chegou. Só a quantidade recebida entra no estoque.</p>
         <div className="overflow-x-auto rounded-lg border border-border">
-          <table className="w-full min-w-[680px] border-collapse">
+          {/* Abaixo de 1024 px a tabela vira blocos — um por item, com o título de cada coluna em
+              cima do campo: nada rola para o lado. */}
+          <table className="block w-full border-collapse lg:table lg:min-w-[680px]">
             <caption className="sr-only">Conferência dos itens da compra</caption>
-            <thead>
+            <thead className="hidden lg:table-header-group">
               <tr className={`border-b border-border bg-secondary text-left text-xs uppercase tracking-wide ${texto2}`}>
                 <th scope="col" className="px-3 py-2">Item</th>
                 <th scope="col" className="px-3 py-2">Pedido</th>
@@ -412,31 +435,39 @@ function ConferirDialogo({ lista, aoFechar, aoReceber }: { lista: any; aoFechar:
                 <th scope="col" className="px-3 py-2">Lote</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="block lg:table-row-group">
               {itens.map((it, n) => {
                 const c = conf[it.id];
                 const pedida = Number(it.quantidade);
                 const rec = Number(c.qtdRecebida);
                 const difere = c.qtdRecebida !== '' && rec !== pedida;
+                const titulo = nomeDeCompra(it); // o que vem escrito na caixa e na nota
                 return (
-                  <tr key={it.id} className="border-b border-border align-top last:border-b-0">
-                    <td className="px-3 py-2"><span className="font-semibold">{it.nome}</span><span className={`block text-xs ${texto2}`}>{it.unidadeMedida}</span></td>
-                    <td className="px-3 py-2 font-mono">{num(pedida)}</td>
-                    <td className="px-3 py-2">
-                      <Input type="number" min={0} step="any" inputMode="decimal" className={`w-28 ${difere ? 'border-warn' : ''}`} value={c.qtdRecebida}
+                  <tr key={it.id} className="grid grid-cols-2 gap-x-3 gap-y-2 border-b border-border p-3 align-top last:border-b-0 lg:table-row lg:p-0">
+                    <td className="col-span-2 lg:px-3 lg:py-2">
+                      <span className="break-words font-semibold">{titulo}</span>
+                      {it.marca && <span className="block text-xs font-semibold">Marca: {it.marca}</span>}
+                      <span className={`block break-words text-xs ${texto2}`}>{nomeDeApoio(it) ? `No estoque: ${nomeDeApoio(it)} · ` : ''}{it.unidadeMedida}</span>
+                    </td>
+                    <td className="font-mono lg:px-3 lg:py-2"><RotuloDaColuna>Pedido</RotuloDaColuna>{num(pedida)}</td>
+                    <td className="lg:px-3 lg:py-2">
+                      <RotuloDaColuna>Recebido *</RotuloDaColuna>
+                      <Input type="number" min={0} step="any" inputMode="decimal" className={`w-full lg:w-28 ${difere ? 'border-warn' : ''}`} value={c.qtdRecebida}
                         {...(n === 0 ? { 'data-foco-inicial': true } : {})}
-                        aria-label={`Quantidade recebida de ${it.nome}`} onChange={(e) => mudar(it.id, { qtdRecebida: e.target.value })} />
+                        aria-label={`Quantidade recebida de ${titulo}`} onChange={(e) => mudar(it.id, { qtdRecebida: e.target.value })} />
                       {difere && <span className="mt-0.5 block text-xs font-semibold">{rec === 0 ? 'não veio' : rec < pedida ? 'veio menos' : 'veio mais'}</span>}
                     </td>
-                    <td className="px-3 py-2">
-                      <Input type="date" className="w-44" value={c.validade} disabled={c.indefinida} aria-label={`Validade de ${it.nome}`} onChange={(e) => mudar(it.id, { validade: e.target.value })} />
+                    <td className="col-span-2 sm:col-span-1 lg:px-3 lg:py-2">
+                      <RotuloDaColuna>Validade *</RotuloDaColuna>
+                      <Input type="date" className="w-full lg:w-44" value={c.validade} disabled={c.indefinida} aria-label={`Validade de ${titulo}`} onChange={(e) => mudar(it.id, { validade: e.target.value })} />
                       <label className={`mt-1 flex min-h-8 items-center gap-1.5 text-xs ${texto2}`}>
                         <input type="checkbox" className="h-4 w-4 accent-primary" checked={c.indefinida} onChange={(e) => mudar(it.id, { indefinida: e.target.checked, validade: '' })} />
                         sem validade
                       </label>
                     </td>
-                    <td className="px-3 py-2">
-                      <Input className="w-36" value={c.loteCodigo} placeholder="opcional" aria-label={`Código do lote de ${it.nome}`} onChange={(e) => mudar(it.id, { loteCodigo: e.target.value })} />
+                    <td className="col-span-2 sm:col-span-1 lg:px-3 lg:py-2">
+                      <RotuloDaColuna>Lote</RotuloDaColuna>
+                      <Input className="w-full lg:w-36" value={c.loteCodigo} placeholder="opcional" aria-label={`Código do lote de ${titulo}`} onChange={(e) => mudar(it.id, { loteCodigo: e.target.value })} />
                     </td>
                   </tr>
                 );
@@ -464,9 +495,10 @@ function VerItensDialogo({ lista, verFin, aoFechar }: { lista: any; verFin: bool
     <Dialogo largura="lg" titulo={`${lista.nome} · ${itens.length} ${itens.length === 1 ? 'item' : 'itens'}`} aoFechar={aoFechar}
       rodape={<Button type="button" data-foco-inicial onClick={aoFechar}>Fechar</Button>}>
       <div className="overflow-x-auto rounded-lg border border-border text-sm">
-        <table className="w-full min-w-[520px] border-collapse">
+        {/* Abaixo de 640 px cada item vira um bloco, com o título da coluna antes do valor. */}
+        <table className="block w-full border-collapse sm:table sm:min-w-[520px]">
           <caption className="sr-only">Itens da lista de compras</caption>
-          <thead>
+          <thead className="hidden sm:table-header-group">
             <tr className={`border-b border-border bg-secondary text-left text-xs uppercase tracking-wide ${texto2}`}>
               <th scope="col" className="px-3 py-2">Produto</th>
               <th scope="col" className="px-3 py-2">Pedido</th>
@@ -475,22 +507,32 @@ function VerItensDialogo({ lista, verFin, aoFechar }: { lista: any; verFin: bool
               {foiRecebida && <th scope="col" className="px-3 py-2">Validade · lote</th>}
             </tr>
           </thead>
-          <tbody>
+          <tbody className="block sm:table-row-group">
             {itens.map((it) => (
-              <tr key={it.id} className="border-b border-border last:border-b-0">
-                <td className="px-3 py-2 font-semibold">{it.nome}</td>
-                <td className="whitespace-nowrap px-3 py-2 font-mono">{num(it.quantidade)} {it.unidadeMedida}</td>
+              <tr key={it.id} className="block space-y-1 border-b border-border p-3 last:border-b-0 sm:table-row sm:space-y-0 sm:p-0">
+                <td className="block sm:table-cell sm:px-3 sm:py-2">
+                  <span className="break-words font-semibold">{nomeDeCompra(it)}</span>
+                  {it.marca && <span className="block text-xs font-semibold">Marca: {it.marca}</span>}
+                  {nomeDeApoio(it) && <span className={`block break-words text-xs ${texto2}`}>No estoque: {nomeDeApoio(it)}</span>}
+                </td>
+                <td className="block font-mono sm:table-cell sm:whitespace-nowrap sm:px-3 sm:py-2"><RotuloNaLinha>Pedido</RotuloNaLinha>{num(it.quantidade)} {it.unidadeMedida}</td>
                 {foiRecebida && (
-                  <td className="whitespace-nowrap px-3 py-2 font-mono">
+                  <td className="block font-mono sm:table-cell sm:whitespace-nowrap sm:px-3 sm:py-2">
+                    <RotuloNaLinha>Recebido</RotuloNaLinha>
                     {it.qtdRecebida != null ? `${num(it.qtdRecebida)} ${it.unidadeMedida}` : '—'}
                     {it.qtdRecebida != null && Number(it.qtdRecebida) !== Number(it.quantidade) && <span className="ml-2"><Selo tom="aviso">diferente do pedido</Selo></span>}
                   </td>
                 )}
-                {verFin && <td className="px-3 py-2 font-mono">{it.custoUnitario != null ? brl(it.custoUnitario) : '—'}</td>}
-                {foiRecebida && <td className="px-3 py-2">{it.validadeIndefinida ? 'sem validade' : it.validade ? dataBr(it.validade) : '—'}{it.loteCodigo ? ` · ${it.loteCodigo}` : ''}</td>}
+                {verFin && <td className="block font-mono sm:table-cell sm:px-3 sm:py-2"><RotuloNaLinha>Custo unitário</RotuloNaLinha>{it.custoUnitario != null ? brl(it.custoUnitario) : '—'}</td>}
+                {foiRecebida && (
+                  <td className="block sm:table-cell sm:px-3 sm:py-2">
+                    <RotuloNaLinha>Validade · lote</RotuloNaLinha>
+                    {it.validadeIndefinida ? 'sem validade' : it.validade ? dataBr(it.validade) : '—'}{it.loteCodigo ? ` · ${it.loteCodigo}` : ''}
+                  </td>
+                )}
               </tr>
             ))}
-            {itens.length === 0 && <tr><td colSpan={5} className={`px-3 py-6 text-center ${texto2}`}>Lista sem itens.</td></tr>}
+            {itens.length === 0 && <tr className="block sm:table-row"><td colSpan={5} className={`block px-3 py-6 text-center sm:table-cell ${texto2}`}>Lista sem itens.</td></tr>}
           </tbody>
         </table>
       </div>

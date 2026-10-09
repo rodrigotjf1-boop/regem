@@ -27,6 +27,7 @@ import {
 import { condUnidadeOuRede, sqlUnidade, sqlUnidadeOuRede } from '../../common/filtro-unidade';
 import { hojeISO } from '../../common/data';
 import type { Periodo } from '../../common/periodo';
+import { chaveNome, limparNome } from '../estoque/produto-nome';
 import { CreateCompraListaDto } from './dto/create-compra-lista.dto';
 import { ReceberCompraDto, ConferenciaItemDto } from './dto/receber-compra.dto';
 
@@ -57,10 +58,9 @@ export class ComprasService {
     }
 
     const ids = dto.itens.map((i) => i.itemId);
-    const validos = new Set(
-      (
+    const produtos = (
         await this.db
-          .select({ id: itemEstoque.id })
+          .select({ id: itemEstoque.id, nome: itemEstoque.nome, nomeComercial: itemEstoque.nomeComercial, marcas: itemEstoque.marcas })
           .from(itemEstoque)
           .where(
             and(
@@ -71,8 +71,8 @@ export class ComprasService {
               condUnidadeOuRede(itemEstoque.unidadeId, unidadeIdLista),
             ),
           )
-      ).map((i) => i.id),
     );
+    const validos = new Set(produtos.map((i) => i.id));
     // Antes, item inválido era DESCARTADO em silêncio (`filter`) e a lista saía menor
     // do que o comprador montou: ele não compra o que sumiu e ninguém sabe por quê.
     const invalidos = dto.itens.filter((i) => !validos.has(i.itemId));
@@ -80,7 +80,24 @@ export class ComprasService {
       throw new BadRequestException(
         `${invalidos.length} item(ns) não pertencem a esta loja ou não existem mais.`,
       );
-    const linhas = dto.itens;
+    // Marca (mig 311): o estoque é um só, mas o PEDIDO diz a marca. Produto com duas ou mais marcas
+    // exige a escolha (pedido ambíguo não sai); com uma só, vale ela; sem marca cadastrada, nenhuma.
+    const porId = new Map(produtos.map((p) => [p.id, p]));
+    const linhas = dto.itens.map((i) => {
+      const p = porId.get(i.itemId)!;
+      const marcas: string[] = Array.isArray(p.marcas) ? p.marcas : [];
+      const rotulo = p.nomeComercial || p.nome;
+      const pedida = limparNome(i.marca);
+      if (!marcas.length) return { ...i, marca: null as string | null };
+      if (!pedida) {
+        if (marcas.length === 1) return { ...i, marca: marcas[0] };
+        throw new BadRequestException(`Escolha a marca de "${rotulo}": ${marcas.join(', ')}.`);
+      }
+      const achada = marcas.find((m) => chaveNome(m) === chaveNome(pedida));
+      if (!achada)
+        throw new BadRequestException(`"${pedida}" não é marca cadastrada de "${rotulo}". Marcas: ${marcas.join(', ')}.`);
+      return { ...i, marca: achada };
+    });
 
 
     const [lista] = await this.db
@@ -104,6 +121,7 @@ export class ComprasService {
         itemId: i.itemId,
         quantidade: String(i.quantidade),
         custoUnitario: i.custoUnitario != null ? String(i.custoUnitario) : undefined,
+        marca: i.marca,
       })),
     );
     return { ...lista, itens: linhas.length };
@@ -191,6 +209,8 @@ export class ComprasService {
         id: compraItem.id,
         itemId: compraItem.itemId,
         nome: itemEstoque.nome,
+        nomeComercial: itemEstoque.nomeComercial, // o que aparece na compra (mig 311); null = usa o nome
+        marca: compraItem.marca,
         unidadeMedida: itemEstoque.unidadeMedida,
         quantidade: compraItem.quantidade,
         custoUnitario: compraItem.custoUnitario,
@@ -248,7 +268,7 @@ export class ComprasService {
     const res: any = await this.db.execute(sql`
       -- Saldo e mínimo DA LOJA (migs 253 e 257): a sugestão de compra é do estoque dela. Em
       -- "todas", soma o que falta em cada loja — a sobra de uma não cobre a falta da outra.
-      select i.id as "itemId", i.nome, i.unidade_medida as "unidadeMedida",
+      select i.id as "itemId", i.nome, i.nome_comercial as "nomeComercial", i.marcas, i.unidade_medida as "unidadeMedida",
              sum(${sqlMinimoDaLoja}) as "estoqueMinimo",
              sum(mv.saldo) as saldo,
              sum(case when u.orfao then 0 else greatest(0, ${sqlMinimoDaLoja} - mv.saldo) end) as falta

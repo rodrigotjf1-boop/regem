@@ -595,6 +595,11 @@ export const itemEstoque = pgTable('item_estoque', {
   setorId: uuid('setor_id'), // setor de estoque PRINCIPAL onde o insumo fica guardado (mig 178)
   // Demais setores onde ele também fica (mig 307): [setor_id, ...]. Sem o principal.
   setoresExtras: jsonb('setores_extras').$type<string[]>().notNull().default([]),
+  // Como o produto é COMPRADO (mig 311): entra na lista de compras, no pedido e na conferência.
+  // NULL = usa `nome` (que segue sendo o da ficha técnica, da contagem e dos relatórios).
+  nomeComercial: text('nome_comercial'),
+  // Marcas do produto (mig 311): ["Marca Alfa", "Marca Beta"]. O estoque continua um só.
+  marcas: jsonb('marcas').$type<string[]>().notNull().default([]),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -777,6 +782,7 @@ export const compraItem = pgTable('compra_item', {
   // Escolha explícita de "não tem validade" — diferente de campo em branco.
   validadeIndefinida: boolean('validade_indefinida').notNull().default(false),
   loteCodigo: text('lote_codigo'), // código do lote do fabricante
+  marca: text('marca'), // marca escolhida para este item da lista (mig 311); texto como estava na compra
   divergencia: text('divergencia').notNull().default('ok'), // ok|parcial|nao_veio|danificado|excedente
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), // mig 243
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // cursor do sync (mig 243)

@@ -1,5 +1,5 @@
 import { lerXlsx } from '../cliente/ler-xlsx';
-import { chaveNome, limparNome, maisParecido } from './produto-nome';
+import { chaveNome, limparMarcas, limparNome, maisParecido } from './produto-nome';
 import { normalizarUnidade, type UnidadeEstoque } from './unidades';
 
 // Importação e exportação do cadastro de produtos do estoque por planilha (Excel .xlsx ou CSV).
@@ -24,6 +24,9 @@ export type LinhaProduto = {
   nome: string;
   /** Nome com a primeira letra maiúscula, quando veio todo em maiúsculas ou todo em minúsculas. */
   nomeFormatado: string;
+  /** Nome comercial (como é comprado) e marcas, quando a planilha traz as colunas (mig 311). */
+  nomeComercial: string;
+  marcas: string[];
   unidadeArquivo: string;
   /** Unidade da lista do Regem que corresponde; `null` = a pessoa escolhe. */
   unidade: UnidadeEstoque | null;
@@ -46,8 +49,10 @@ const semAcento = (s: string) =>
     .trim();
 
 // Títulos aceitos por coluna, em ordem de preferência (o primeiro que existir no arquivo vale).
-const TITULOS: Record<'nome' | 'unidade' | 'categoria' | 'minimo' | 'custo' | 'quantidade', string[]> = {
+const TITULOS: Record<'nome' | 'comercial' | 'marcas' | 'unidade' | 'categoria' | 'minimo' | 'custo' | 'quantidade', string[]> = {
   nome: ['produto', 'nome do produto', 'nome', 'insumo', 'item', 'descricao'],
+  comercial: ['nome comercial', 'nome fantasia', 'nome de compra', 'nome na compra'],
+  marcas: ['marcas', 'marca'],
   unidade: ['unidade', 'unidade de medida', 'unidade principal', 'medida', 'und', 'unid', 'un'],
   categoria: ['categoria', 'categorias', 'grupo'],
   minimo: ['estoque minimo', 'minimo', 'estoque min', 'est minimo'],
@@ -178,7 +183,7 @@ export function montarPrevia(
     return -1;
   };
   const idx = {
-    nome: achar('nome'), unidade: achar('unidade'), categoria: achar('categoria'),
+    nome: achar('nome'), comercial: achar('comercial'), marcas: achar('marcas'), unidade: achar('unidade'), categoria: achar('categoria'),
     minimo: achar('minimo'), custo: achar('custo'), quantidade: achar('quantidade'),
   };
   const titulo = (i: number) => (i >= 0 ? (tabela[iCab][i] ?? '').trim() : null);
@@ -229,6 +234,8 @@ export function montarPrevia(
       linha: iCab + 2 + i,
       nome,
       nomeFormatado: formatarTexto(nome),
+      nomeComercial: limparNome(cel(idx.comercial)), // como está na planilha (a padronização é só do nome)
+      marcas: limparMarcas(cel(idx.marcas)),
       unidadeArquivo,
       unidade: normalizarUnidade(unidadeArquivo),
       categoria,
@@ -246,7 +253,7 @@ export function montarPrevia(
   return {
     formato,
     colunas: {
-      nome: titulo(idx.nome), unidade: titulo(idx.unidade), categoria: titulo(idx.categoria),
+      nome: titulo(idx.nome), comercial: titulo(idx.comercial), marcas: titulo(idx.marcas), unidade: titulo(idx.unidade), categoria: titulo(idx.categoria),
       minimo: titulo(idx.minimo), custo: titulo(idx.custo), quantidade: titulo(idx.quantidade),
     },
     linhas,
@@ -268,8 +275,8 @@ export function montarPrevia(
 // ── Exportação ────────────────────────────────────────────────────────────────────────────
 // Os títulos são os mesmos que a importação reconhece: o arquivo exportado entra de volta.
 export function tabelaDeExportacao(itens: any[], verFinanceiro: boolean): { linhas: (string | number | null)[][]; larguras: number[] } {
-  const cab = ['Produto', 'Categoria', 'Unidade', 'Estoque mínimo', 'Saldo'];
-  const larguras = [38, 24, 12, 16, 12];
+  const cab = ['Produto', 'Nome comercial', 'Marcas', 'Categoria', 'Unidade', 'Estoque mínimo', 'Saldo'];
+  const larguras = [38, 34, 26, 24, 12, 16, 12];
   if (verFinanceiro) { cab.push('Custo médio', 'Valor em estoque'); larguras.push(14, 18); }
   cab.push('Fornecedores', 'Setores', 'Conversões', 'Validade após aberto (dias)');
   larguras.push(34, 26, 30, 26);
@@ -277,7 +284,8 @@ export function tabelaDeExportacao(itens: any[], verFinanceiro: boolean): { linh
   const linhas: (string | number | null)[][] = [cab];
   for (const i of itens) {
     const l: (string | number | null)[] = [
-      i.nome, i.categoriaNome ?? '', i.unidadeLista ?? i.unidadeMedida, n(i.estoqueMinimo), n(i.saldo),
+      i.nome, i.nomeComercial ?? '', (Array.isArray(i.marcas) ? i.marcas : []).join('; '),
+      i.categoriaNome ?? '', i.unidadeLista ?? i.unidadeMedida, n(i.estoqueMinimo), n(i.saldo),
     ];
     if (verFinanceiro) l.push(n(i.custoMedio), n(i.valorEstoque));
     l.push(

@@ -8,7 +8,7 @@ import { hojeISO } from '../../common/data';
 import { escreverCsv, escreverXlsx } from '../../common/escrever-planilha';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { EstoqueService } from './estoque.service';
-import { chaveNome, limparNome } from './produto-nome';
+import { chaveNome, limparMarcas, limparNome } from './produto-nome';
 import { exigirUnidade } from './unidades';
 import { PLANILHA_MAX_LINHAS, lerTabela, montarPrevia, tabelaDeExportacao } from './produtos-planilha';
 
@@ -77,6 +77,8 @@ export class ProdutosPlanilhaService {
       };
       return {
         nome,
+        nomeComercial: limparNome(b?.nomeComercial).slice(0, 120) || null,
+        marcas: limparMarcas(b?.marcas),
         unidadeMedida: exigirUnidade(b?.unidadeMedida, `Produto "${nome}"`),
         categoria: limparNome(b?.categoria),
         estoqueMinimo: numero(b?.estoqueMinimo, 'estoque mínimo'),
@@ -143,6 +145,8 @@ export class ProdutosPlanilhaService {
             tenantId,
             unidadeId,
             nome: it.nome,
+            nomeComercial: it.nomeComercial,
+            marcas: it.marcas,
             unidadeMedida: it.unidadeMedida,
             estoqueMinimo: String(it.estoqueMinimo ?? 0),
             custoMedio: String(it.custo ?? 0),

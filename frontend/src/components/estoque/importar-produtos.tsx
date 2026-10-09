@@ -14,6 +14,8 @@ type Linha = {
   linha: number;
   nome: string;
   nomeFormatado: string;
+  nomeComercial?: string;
+  marcas?: string[];
   unidadeArquivo: string;
   unidade: string | null;
   categoria: string;
@@ -26,7 +28,7 @@ type Linha = {
 type Previa = {
   arquivo: string;
   formato: 'alochefia' | 'regem' | 'generico';
-  colunas: Record<'nome' | 'unidade' | 'categoria' | 'minimo' | 'custo' | 'quantidade', string | null>;
+  colunas: Record<'nome' | 'comercial' | 'marcas' | 'unidade' | 'categoria' | 'minimo' | 'custo' | 'quantidade', string | null>;
   linhas: Linha[];
   unidades: { noArquivo: string; sugestao: string | null; produtos: number }[];
   categoriasNovas: string[];
@@ -132,6 +134,8 @@ export function ImportarProdutos({
         arquivo: previa.arquivo,
         itens: escolhidos.map((l) => ({
           nome: padronizar ? l.nomeFormatado : l.nome,
+          nomeComercial: l.nomeComercial || undefined,
+          marcas: l.marcas?.length ? l.marcas : undefined,
           unidadeMedida: mapa[l.unidadeArquivo],
           categoria: l.categoria || undefined,
           estoqueMinimo: trazerMinimo ? (l.estoqueMinimo ?? undefined) : undefined,
@@ -203,7 +207,7 @@ export function ImportarProdutos({
             <p>
               Escolha a planilha com os seus produtos. Aceita <b>Excel (.xlsx)</b> e <b>CSV</b>. O Regem reconhece o relatório de
               estoque do Alô Chefia e a exportação do próprio Regem; em outra planilha, basta a primeira linha ter os títulos
-              (Produto, Unidade, Categoria, Estoque mínimo…).
+              (Produto, Nome comercial, Marcas, Unidade, Categoria, Estoque mínimo…).
             </p>
             <div className="space-y-1">
               <Label htmlFor="imp-arquivo">Arquivo</Label>
@@ -288,6 +292,16 @@ export function ImportarProdutos({
                 : 'Nenhuma categoria nova. '}
               Quando o produto tem mais de uma categoria na planilha, o Regem usa a primeira. Colunas que o Regem não usa (como ID) são ignoradas.
             </p>
+            {(previa.colunas.comercial || previa.colunas.marcas) && (
+              <p className={texto2}>
+                A planilha também traz{' '}
+                {[
+                  previa.colunas.comercial ? `o nome comercial (coluna "${previa.colunas.comercial}")` : '',
+                  previa.colunas.marcas ? `as marcas (coluna "${previa.colunas.marcas}", separadas por ponto e vírgula)` : '',
+                ].filter(Boolean).join(' e ')}
+                . Eles entram junto com o produto.
+              </p>
+            )}
           </>
         )}
 
@@ -342,6 +356,11 @@ export function ImportarProdutos({
                         </td>
                         <td className="px-3 py-1.5">
                           <span className="font-semibold">{nome}</span>
+                          {(l.nomeComercial || !!l.marcas?.length) && (
+                            <span className={`block break-words text-xs ${texto2}`}>
+                              {[l.nomeComercial ? `Na compra: ${l.nomeComercial}` : '', l.marcas?.length ? `${l.marcas.length === 1 ? 'Marca' : 'Marcas'}: ${l.marcas.join(', ')}` : ''].filter(Boolean).join(' · ')}
+                            </span>
+                          )}
                           {/* No celular, o que seriam as outras colunas vem aqui embaixo. */}
                           <span className={`block text-xs sm:hidden ${texto2}`}>{mapa[l.unidadeArquivo]}{l.categoria ? ` · ${l.categoria}` : ''}</span>
                           <span className="mt-1 block sm:hidden">{situacao}</span>

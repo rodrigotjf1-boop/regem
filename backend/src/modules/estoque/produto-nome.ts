@@ -7,6 +7,29 @@ export function limparNome(nome: unknown): string {
   return typeof nome === 'string' ? nome.replace(/\s+/g, ' ').trim() : '';
 }
 
+/** Marcas de um produto (mig 311): no máximo este tanto, cada uma com até MARCA_MAX letras. */
+export const MARCAS_MAX = 20;
+export const MARCA_MAX = 60;
+
+/**
+ * Lista de marcas limpa: sem vazia e sem repetida ("Marca Alfa" = "marca alfa" — fica a 1ª grafia).
+ * Aceita a lista ou o texto de uma célula de planilha ("Marca Alfa; Marca Beta").
+ */
+export function limparMarcas(marcas: unknown): string[] {
+  const lista: unknown[] = Array.isArray(marcas) ? marcas : typeof marcas === 'string' ? marcas.split(/[;,|]/) : [];
+  const vistas = new Set<string>();
+  const limpas: string[] = [];
+  for (const m of lista) {
+    const nome = limparNome(m).slice(0, MARCA_MAX).trim();
+    const chave = chaveNome(nome);
+    if (!chave || vistas.has(chave)) continue;
+    vistas.add(chave);
+    limpas.push(nome);
+    if (limpas.length >= MARCAS_MAX) break;
+  }
+  return limpas;
+}
+
 /** Chave de comparação: sem acento, minúscula, pontuação vira espaço. "Coca-Cola" = "coca cola". */
 export function chaveNome(nome: string): string {
   return nome
