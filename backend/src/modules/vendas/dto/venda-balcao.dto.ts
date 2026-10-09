@@ -68,6 +68,11 @@ export class VendaBalcaoDto {
   @IsString()
   mesa?: string;
 
+  // 'local' (comer aqui) | 'viagem' — vai para a cozinha: cartão e alto da via impressa (mig 310).
+  @IsOptional()
+  @IsIn(['local', 'viagem'])
+  consumo?: string;
+
   @IsOptional()
   @IsUUID()
   unidadeId?: string;

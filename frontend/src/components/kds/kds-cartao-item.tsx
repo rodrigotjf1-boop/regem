@@ -51,6 +51,7 @@ export function KdsCartaoItem({ g, limites, T, esc, cor }: { g: GrupoDeItem; lim
               <span className="whitespace-nowrap font-semibold" style={{ fontSize: Math.round(13 * esc), color: inteiro ? 'inherit' : T.muted }}>
                 {l.min} min · {rotuloEtapa(l.pedido.status)}
               </span>
+              {l.pedido.consumo === 'viagem' && <> <EtiquetaKds esc={esc}>Viagem</EtiquetaKds></>}
               {l.item.complementosTexto && (
                 <div className="mt-0.5 font-semibold" style={{ fontSize: Math.round(13.5 * esc), color: inteiro ? 'inherit' : T.muted }}>
                   + {l.item.complementosTexto}

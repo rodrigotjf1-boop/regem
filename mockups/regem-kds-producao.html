@@ -270,7 +270,7 @@ let pedidos = [
   { id:'p2', mesa:'7', origem:'mesa', status:'preparo', em:ha(9), itens:[{q:1,d:'Filé à parmegiana',o:'Sem queijo — alergia a lactose'},{q:1,d:'Arroz branco'},{q:1,d:'Batata frita grande'}] },
   { id:'p3', senha:12, prefixo:'D', origem:'delivery', plataforma:'iFood', senhaPlat:'4821', status:'preparo', em:ha(7), itens:[{q:3,d:'X-Burger'},{q:1,d:'X-Salada',c:'Adicional: bacon'},{q:2,d:'Batata frita grande'}] },
   { id:'p4', senha:13, prefixo:'D', origem:'delivery', plataforma:'99Food', senhaPlat:'77102', status:'pronto', em:ha(14), chegou:true, cod:'5519', itens:[{q:1,d:'Combo família'},{q:1,d:'Refrigerante 2 L'}] },
-  { id:'p5', senha:42, origem:'totem', plataforma:'Totem', status:'recebido', em:ha(3), itens:[{q:1,d:'X-Salada'},{q:1,d:'Suco de laranja 400 ml',o:'Sem açúcar'}] },
+  { id:'p5', senha:42, origem:'totem', plataforma:'Totem', viagem:true, status:'recebido', em:ha(3), itens:[{q:1,d:'X-Salada'},{q:1,d:'Suco de laranja 400 ml',o:'Sem açúcar'}] },
   { id:'p6', senha:43, origem:'balcao', status:'recebido', em:ha(2), alterado:true, itens:[{q:1,d:'X-Burger'},{q:1,d:'Milk-shake de chocolate'}] },
   { id:'p7', senha:14, prefixo:'D', origem:'delivery', plataforma:'Anota AI', status:'recebido', em:ha(1), itens:[{q:2,d:'Pizza calabresa grande',c:'Borda recheada com catupiry'},{q:1,d:'Refrigerante 2 L'}] },
   { id:'p8', mesa:'3', origem:'mesa', status:'preparo', em:ha(5), cancelado:true, itens:[{q:2,d:'Porção de fritas com cheddar e bacon'}] },
@@ -325,6 +325,8 @@ function desenharGrade() {
     const cls = ['card', faixa(m), p.cancelado ? 'cancelado' : '', itemSel ? (tem ? 'destaque' : 'apagado') : ''].join(' ');
     const linha = [p.cancelado ? '' : ETAPA[p.status], p.plataforma ? esc(p.plataforma) + (p.senhaPlat ? ' #' + esc(p.senhaPlat) : '') : ''].filter(Boolean).join(' · ');
     const tags = [
+      /* Para viagem (balcão ou totem): etiqueta NEUTRA, de contorno — a cor do cartão é só o status. */
+      p.viagem ? '<span class="tag">Viagem</span>' : '',
       p.cancelado ? '<span class="tag cheia">Cancelado</span>' : '',
       atrasado(p) ? '<span class="tag cheia">Atrasado</span>' : '',
       p.alterado ? '<span class="tag">Alterado</span>' : '',

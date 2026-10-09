@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { PauseCircle, Search, SlidersHorizontal, Users } from 'lucide-react';
+import { ListX, PauseCircle, Search, SlidersHorizontal, Users } from 'lucide-react';
 import { api, getToken } from '@/lib/api';
 import { rotuloSenha } from '@/lib/senha';
 import { textosDasEscolhas } from '@/lib/adicionais';
@@ -31,7 +31,7 @@ const itensTxt = (n: number) => `${n} ${n === 1 ? 'item' : 'itens'}`;
 
 // Pedido guardado ("em espera"): o atendente atende o próximo e volta a este depois. Vive só na
 // tela — recarregar a página perde os pedidos guardados, como já perdia o pedido em andamento.
-type PedidoGuardado = { id: string; carrinho: ItemDoPedido[]; taxa: boolean; naMesa: boolean; mesa: string; chave: string | null };
+type PedidoGuardado = { id: string; carrinho: ItemDoPedido[]; taxa: boolean; naMesa: boolean; mesa: string; viagem: boolean; chave: string | null };
 // Janela de escolhas aberta: produto novo, ou a linha `editando` do pedido.
 type Seletor = { produto: any; variacoes: any[]; complementos: any[]; editando?: ItemDoPedido };
 
@@ -72,6 +72,8 @@ export default function PdvPage() {
   const [mesasAtivo, setMesasAtivo] = useState(false);
   const [naMesa, setNaMesa] = useState(false);
   const [mesa, setMesa] = useState('');
+  // Para viagem: a marca vai na venda e a cozinha a vê no cartão e no alto da via (mig 310).
+  const [viagem, setViagem] = useState(false);
   const [espera, setEspera] = useState<PedidoGuardado[]>([]);
   const [descartando, setDescartando] = useState(false);
   const buscaRef = useRef<HTMLInputElement>(null);
@@ -267,6 +269,7 @@ export default function PdvPage() {
     setRecebido('');
     setNaMesa(false);
     setMesa('');
+    setViagem(false);
     setEncomendaAtiva(false);
     setEncomendaData('');
     setPreviewEnc(null);
@@ -287,12 +290,13 @@ export default function PdvPage() {
       pagamentos,
       taxaServicoPct: taxa ? 10 : 0,
       mesa: mesaInformada || undefined,
+      consumo: viagem ? 'viagem' : undefined,
       idempotencyKey: chaveRef.current,
       // Atacado: agenda o excedente que passar do estoque como encomenda.
       encomendaDataEntrega: encomendaAtiva && encomendaData ? encomendaData : undefined,
     });
     if (tefPagId && r?.comandaId) await api.tefVincular(tefPagId, r.comandaId).catch(() => {});
-    setComprovante({ ...r, mesaInformada, trocoInformado: ehDinheiro && pagamentos.length === 1 && troco > 0 ? troco : 0 });
+    setComprovante({ ...r, mesaInformada, viagem, trocoInformado: ehDinheiro && pagamentos.length === 1 && troco > 0 ? troco : 0 });
     setDividindo(false);
     limparPedido();
     if (r?.encomendas?.length)
@@ -338,7 +342,7 @@ export default function PdvPage() {
   }
 
   // ── pedidos em espera ──
-  const guardado = (): PedidoGuardado => ({ id: uuid(), carrinho, taxa, naMesa, mesa, chave: chaveRef.current });
+  const guardado = (): PedidoGuardado => ({ id: uuid(), carrinho, taxa, naMesa, mesa, viagem, chave: chaveRef.current });
   function emEspera() {
     if (carrinho.length === 0) {
       toast.error('Este pedido está vazio: não há o que guardar.');
@@ -357,6 +361,7 @@ export default function PdvPage() {
     setTaxa(p.taxa);
     setNaMesa(p.naMesa);
     setMesa(p.mesa);
+    setViagem(!!p.viagem);
     setRecebido('');
     setEncomendaAtiva(false);
     setEncomendaData('');
@@ -636,13 +641,12 @@ export default function PdvPage() {
           <Card id="pedido-balcao" aria-label="Pedido" className="flex min-w-0 flex-col gap-2 p-3 lg:min-h-0">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <h2 className="font-display text-lg font-bold">Pedido</h2>
-              <span className="text-xs text-muted-foreground">{carrinho.length ? itensTxt(pecas) : 'vazio'}</span>
               {mesasAtivo && (
                 <>
                   <button
                     type="button"
                     aria-pressed={naMesa}
-                    onClick={() => { const liga = !naMesa; setNaMesa(liga); if (liga) setTimeout(() => mesaRef.current?.focus(), 0); }}
+                    onClick={() => { const liga = !naMesa; setNaMesa(liga); if (liga) { setViagem(false); setTimeout(() => mesaRef.current?.focus(), 0); } }}
                     title="Com mesa, o pedido sai com o número da mesa no lugar da senha."
                     className={`${pilula(naMesa)} !min-h-9 text-xs`}
                   >
@@ -658,20 +662,28 @@ export default function PdvPage() {
                       onChange={(e) => setMesa(e.target.value.replace(/\D/g, '').slice(0, 4))}
                       placeholder="nº"
                       aria-label="Número da mesa"
-                      className="h-9 w-14 rounded-md border border-input bg-card text-center font-mono text-base font-bold"
+                      className="h-9 w-12 rounded-md border border-input bg-card text-center font-mono text-base font-bold"
                     />
                   )}
                 </>
               )}
+              <button
+                type="button"
+                aria-pressed={viagem}
+                onClick={() => { const liga = !viagem; setViagem(liga); if (liga) setNaMesa(false); }}
+                title="Para viagem: a cozinha vê a marca no cartão e no alto da via impressa."
+                className={`${pilula(viagem)} !min-h-9 text-xs`}
+              >
+                Viagem
+              </button>
               <span className="ml-auto flex items-center gap-1">
-                <Button type="button" variant="outline" size="sm" className="h-9" onClick={emEspera} disabled={carrinho.length === 0}>
+                <Button type="button" variant="outline" size="sm" className="h-9 px-2.5" onClick={emEspera} disabled={carrinho.length === 0} title="Guardar este pedido e atender o próximo (F8)">
                   <PauseCircle className="h-4 w-4" aria-hidden="true" />
                   Em espera
-                  <kbd className="rounded border border-border bg-secondary px-1 font-mono text-[10px]">F8</kbd>
                 </Button>
                 {carrinho.length > 0 && (
-                  <Button type="button" variant="ghost" size="sm" className="h-9 text-destructive" onClick={() => setDescartando(true)}>
-                    Descartar
+                  <Button type="button" variant="ghost" size="sm" className="h-9 w-9 px-0 text-destructive" onClick={() => setDescartando(true)} aria-label="Descartar o pedido" title="Descartar o pedido">
+                    <ListX className="h-5 w-5" aria-hidden="true" />
                   </Button>
                 )}
               </span>
@@ -685,7 +697,7 @@ export default function PdvPage() {
                   const n = p.carrinho.reduce((s, i) => s + i.qtd, 0);
                   return (
                     <button key={p.id} type="button" onClick={() => voltarAo(p)} title="Voltar para este pedido" className="min-h-9 rounded-full border border-border bg-card px-3 text-xs font-semibold hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                      {p.naMesa && p.mesa ? `Mesa ${p.mesa}` : 'Balcão'} · {itensTxt(n)} · <span className="font-mono">{brl(t)}</span>
+                      {p.naMesa && p.mesa ? `Mesa ${p.mesa}` : p.viagem ? 'Viagem' : 'Balcão'} · {itensTxt(n)} · <span className="font-mono">{brl(t)}</span>
                     </button>
                   );
                 })}
@@ -781,7 +793,7 @@ export default function PdvPage() {
 
               <div className="flex items-stretch gap-3 border-t border-border pt-2">
                 <div className="flex flex-none flex-col justify-center">
-                  <span className="text-xs font-semibold text-muted-foreground">Total</span>
+                  <span className="text-xs font-semibold text-muted-foreground">Total{carrinho.length > 0 ? ` · ${itensTxt(pecas)}` : ''}</span>
                   <span className="font-mono text-2xl font-bold leading-none" data-teste="total">{brl(total)}</span>
                   {ehDinheiro && valorRecebido != null && carrinho.length > 0 && (
                     <span className="mt-1 text-xs font-semibold" aria-live="polite" data-teste="troco">
@@ -879,6 +891,7 @@ export default function PdvPage() {
                 <p className="font-mono text-4xl font-bold">{comprovante.mesaInformada}</p>
               </div>
             ) : null}
+            {comprovante.viagem && <p className="mt-2 text-sm font-bold uppercase tracking-wide">Para viagem</p>}
             <p className="mt-3 font-mono text-3xl font-bold">{brl(comprovante.total)}</p>
             {comprovante.taxaServicoPct > 0 && (
               <p className="mt-1 text-xs text-muted-foreground">inclui {comprovante.taxaServicoPct}% de serviço</p>
