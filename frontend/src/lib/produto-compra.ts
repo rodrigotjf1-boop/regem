@@ -107,3 +107,25 @@ export function textoDaMarcaPedida(i: { marca?: string | null; marcaAlternativa?
   const segunda = limpo(i?.marcaAlternativa);
   return [marca ? `Marca: ${marca}` : '', segunda ? `2ª opção: ${segunda}` : ''].filter(Boolean).join(' · ');
 }
+
+// ── Contagem por marca (mig 312) ────────────────────────────────────────────────────────────
+// O produto com duas ou mais marcas é contado marca a marca; a SOMA é o contado do produto e é ela
+// que ajusta o estoque, que continua um só. O servidor confere a mesma soma.
+
+const quantidade = (v: unknown): number => Math.max(0, Number(v) || 0);
+
+/** A soma do que foi digitado nas marcas; `null` enquanto nenhuma foi preenchida (produto não contado). */
+export function somaPorMarca(marcas: string[], valores: Record<string, string> | null | undefined): number | null {
+  if (!valores || !marcas.some((m) => (valores[m] ?? '') !== '')) return null;
+  return Math.round(marcas.reduce((s, m) => s + quantidade(valores[m]), 0) * 1e6) / 1e6;
+}
+
+/** O detalhe que vai para o servidor: todas as marcas do produto — a que ficou em branco conta 0. */
+export function porMarcaParaEnviar(marcas: string[], valores: Record<string, string> | null | undefined): { marca: string; quantidade: number }[] {
+  return marcas.map((m) => ({ marca: m, quantidade: quantidade(valores?.[m]) }));
+}
+
+/** O detalhe gravado, em texto: "Marca Alfa 4 · Marca Beta 2". */
+export function textoPorMarca(porMarca: Record<string, number> | null | undefined, formato: (n: number) => string = String): string {
+  return Object.entries(porMarca ?? {}).map(([m, q]) => `${m} ${formato(Number(q))}`).join(' · ');
+}

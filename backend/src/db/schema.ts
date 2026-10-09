@@ -733,6 +733,9 @@ export const contagemItem = pgTable('contagem_item', {
     .references(() => itemEstoque.id, { onDelete: 'cascade' }),
   saldoSistema: numeric('saldo_sistema').notNull().default('0'),
   contado: numeric('contado'),
+  // Quanto foi contado de CADA marca do produto (mig 312): {"Marca Alfa": 3, "Marca Beta": 2}.
+  // `contado` é a soma e é ele que ajusta o estoque — que continua um só por produto.
+  porMarca: jsonb('por_marca').$type<Record<string, number> | null>(),
   // QUANDO este item foi contado (mig 244). O ajuste usa o saldo deste instante, não o
   // da abertura — o inventário roda durante o expediente e item que vende muda no meio.
   contadoEm: timestamp('contado_em', { withTimezone: true }),

@@ -10,10 +10,11 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { SkeletonList } from '@/components/ui/skeleton';
 import { Dialogo, Gaveta } from '@/components/ui/sobreposto';
+import { ContarContagem, HistoricoDaContagem } from './contagem-contar';
 import { EscolhaProdutos, type Escolha } from './escolha-produtos';
 import {
   FiltroBusca, FiltroSelect, Filtros, ListaDados, NomeComApoio, Selo, Situacoes, TituloLista, Vazio,
-  dataBr, diasAte, distintos, num, semAcento, texto2, type Situacao,
+  dataBr, diasAte, distintos, semAcento, texto2, type Situacao,
 } from '@/components/ui/lista';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -162,10 +163,10 @@ export function ContagemSecao({ itens, aoMudarEstoque }: { itens: any[]; aoMudar
           aoFechar={() => setForm(null)} aoSalvar={() => { setForm(null); carregar(); }} />
       )}
       {contando && (
-        <ContarDialogo lista={contando.lista} exec={contando.exec} aoFechar={() => setContando(null)}
+        <ContarContagem lista={contando.lista} exec={contando.exec} aoFechar={() => setContando(null)}
           aoSalvar={() => { setContando(null); carregar(); aoMudarEstoque?.(); }} />
       )}
-      {historico && <HistoricoDialogo lista={historico} aoFechar={() => setHistorico(null)} />}
+      {historico && <HistoricoDaContagem lista={historico} aoFechar={() => setHistorico(null)} />}
       {excluir && (
         <Dialogo alerta titulo="Excluir lista de contagem" aoFechar={() => setExcluir(null)} voltarPara={ID_TITULO}
           rodape={
@@ -293,194 +294,5 @@ function ListaForm({ lista, itens, colabs, aoFechar, aoSalvar }: { lista?: any; 
         {erro && <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm font-medium">{erro}</p>}
       </form>
     </Gaveta>
-  );
-}
-
-// ── contar (diálogo largo): contado × sistema, com progresso ────────────────────────────────
-function ContarDialogo({ lista, exec, aoFechar, aoSalvar }: { lista: any; exec: any; aoFechar: () => void; aoSalvar: () => void }) {
-  const itens: any[] = exec.itens ?? [];
-  const [contado, setContado] = useState<Record<string, string>>({});
-  // Hora em que CADA item foi informado. É o que permite o servidor usar o saldo do instante
-  // certo: o inventário roda durante o expediente e o operador conta item a item, andando
-  // entre câmara e freezer, enquanto a venda consome.
-  const [contadoEm, setContadoEm] = useState<Record<string, string>>({});
-  const [ajuste, setAjuste] = useState(true);
-  const [busca, setBusca] = useState('');
-  const [soFaltam, setSoFaltam] = useState(false);
-  const [soDiferenca, setSoDiferenca] = useState(false);
-  const [salvando, setSalvando] = useState(false);
-
-  const informado = (i: any) => contado[i.itemId] !== undefined && contado[i.itemId] !== '';
-  // O ajuste é calculado contra o saldo do INSTANTE da contagem, não o da abertura. Aqui a
-  // melhor aproximação é abertura + o que já se moveu — senão a tela mostraria um número e o
-  // servidor lançaria outro.
-  const diferenca = (i: any): number | null =>
-    informado(i) ? Number(contado[i.itemId]) - (Number(i.saldoSistema) + (Number(i.movimentoDesdeAbertura) || 0)) : null;
-  const temDiferenca = (i: any) => { const d = diferenca(i); return d !== null && Math.abs(d) > 1e-9; };
-  const contados = itens.filter(informado).length;
-  const b = semAcento(busca);
-  const visiveis = itens.filter((i) => (!b || semAcento(i.nome).includes(b)) && (!soFaltam || !informado(i)) && (!soDiferenca || temDiferenca(i)));
-
-  async function salvar() {
-    if (salvando) return;
-    setSalvando(true);
-    try {
-      const r: any = await api.salvarContagem(exec.id, {
-        itens: itens.filter(informado).map((i) => ({ itemId: i.itemId, contado: Number(contado[i.itemId]), contadoEm: contadoEm[i.itemId] })),
-        aplicarAjuste: ajuste,
-      });
-      const moveram = Number(r?.itensComMovimento) || 0;
-      if (ajuste && moveram > 0) {
-        // O ajuste foi lançado contra o saldo da ABERTURA. Se o item se moveu no meio da
-        // contagem, esse ajuste pode estar errado — e este é o único momento em que alguém
-        // ainda lembra o que contou.
-        toast.info(`Contagem salva, mas ${moveram} item(ns) tiveram venda ou produção durante a contagem. O ajuste desses pode estar errado — confira o saldo.`);
-      } else {
-        toast.success(ajuste ? 'Contagem salva e estoque ajustado.' : 'Contagem salva.');
-      }
-      aoSalvar();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
-      setSalvando(false);
-    }
-  }
-  const ficha = (ligada: boolean) =>
-    `inline-flex min-h-10 items-center rounded-full border px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-      ligada ? 'border-primary bg-primary/15 text-foreground' : `border-input bg-card ${texto2}`
-    }`;
-
-  return (
-    <Dialogo largura="lg" titulo={`Contar: ${lista.nome}`} aoFechar={aoFechar} fecharNoFundo={false}
-      rodape={
-        <>
-          <label className="mr-auto flex min-h-10 items-center gap-2 text-sm">
-            <input type="checkbox" className="h-5 w-5 accent-primary" checked={ajuste} onChange={(e) => setAjuste(e.target.checked)} />
-            Ajustar o estoque pela contagem (lança a diferença)
-          </label>
-          <Button type="button" variant="outline" onClick={aoFechar} disabled={salvando}>Cancelar</Button>
-          <Button type="button" onClick={salvar} disabled={salvando || contados === 0}>{salvando ? 'Salvando…' : 'Salvar contagem'}</Button>
-        </>
-      }>
-      <div className="space-y-3 text-sm">
-        {Number(exec.itensComMovimento) > 0 && (
-          <p className="rounded-md border-l-4 border-warn bg-warn/10 px-3 py-2">
-            {Number(exec.itensComMovimento)} item(ns) tiveram venda ou produção desde que esta contagem abriu. O saldo do sistema abaixo é o da abertura — confira esses itens.
-          </p>
-        )}
-        <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-          <div className="space-y-1">
-            <Label htmlFor="contar-busca">Buscar produto</Label>
-            <Input id="contar-busca" data-foco-inicial type="search" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Digite parte do nome" autoComplete="off" />
-          </div>
-          <p className="rounded-md bg-info/10 px-3 py-2.5 font-semibold" role="status" aria-live="polite">
-            {contados} de {itens.length} contados · {itens.filter(temDiferenca).length} com diferença
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" aria-pressed={soFaltam} className={ficha(soFaltam)} onClick={() => setSoFaltam((v) => !v)}>Só os que faltam contar</button>
-          <button type="button" aria-pressed={soDiferenca} className={ficha(soDiferenca)} onClick={() => setSoDiferenca((v) => !v)}>Só com diferença</button>
-        </div>
-        <div className="max-h-[46vh] overflow-auto rounded-lg border border-border">
-          <table className="w-full border-collapse">
-            <caption className="sr-only">Produtos desta contagem</caption>
-            <thead className="sticky top-0">
-              <tr className={`border-b border-border bg-secondary text-left text-xs uppercase tracking-wide ${texto2}`}>
-                <th scope="col" className="px-3 py-2">Produto</th>
-                <th scope="col" className="hidden px-3 py-2 sm:table-cell">No sistema</th>
-                <th scope="col" className="px-3 py-2">Contado</th>
-                <th scope="col" className="px-3 py-2">Diferença</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visiveis.map((i) => {
-                const d = diferenca(i);
-                return (
-                  <tr key={i.itemId} className="border-b border-border last:border-b-0">
-                    <td className="px-3 py-1.5">
-                      <span className="font-semibold">{i.nome}</span>
-                      <span className={`block text-xs sm:hidden ${texto2}`}>sistema: {num(i.saldoSistema)} {i.unidadeMedida}</span>
-                      {/* O saldo mostrado é o da ABERTURA da contagem. Se o item saiu ou entrou
-                          depois, quem está contando precisa saber — é ele quem sabe se contou
-                          antes ou depois do movimento. */}
-                      {Number(i.movimentosDesdeAbertura) > 0 && (
-                        <span className="block text-xs font-semibold">
-                          ⚠ {Number(i.movimentoDesdeAbertura) > 0 ? '+' : ''}{num(i.movimentoDesdeAbertura)} desde que a contagem abriu
-                        </span>
-                      )}
-                    </td>
-                    <td className="hidden whitespace-nowrap px-3 py-1.5 font-mono sm:table-cell">{num(i.saldoSistema)} {i.unidadeMedida}</td>
-                    <td className="px-3 py-1.5">
-                      <Input type="number" min={0} step="any" inputMode="decimal" className="w-28" value={contado[i.itemId] ?? ''} placeholder="contado"
-                        aria-label={`Contado de ${i.nome}, em ${i.unidadeMedida}`}
-                        onChange={(e) => {
-                          setContado((s) => ({ ...s, [i.itemId]: e.target.value }));
-                          // Recarimba a cada digitação: se o operador voltar e recontar o item
-                          // depois do aviso de movimento, a base acompanha.
-                          setContadoEm((s) => ({ ...s, [i.itemId]: new Date().toISOString() }));
-                        }} />
-                    </td>
-                    <td className="px-3 py-1.5">
-                      {d === null ? '—' : Math.abs(d) <= 1e-9 ? <Selo tom="ok">confere</Selo> : <Selo tom={d < 0 ? 'critico' : 'aviso'}>{d > 0 ? '+' : ''}{num(d)}</Selo>}
-                    </td>
-                  </tr>
-                );
-              })}
-              {visiveis.length === 0 && <tr><td colSpan={4} className={`px-3 py-6 text-center ${texto2}`}>Nenhum produto com esses filtros.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </Dialogo>
-  );
-}
-
-// ── histórico das contagens feitas ──────────────────────────────────────────────────────────
-function HistoricoDialogo({ lista, aoFechar }: { lista: any; aoFechar: () => void }) {
-  const [linhas, setLinhas] = useState<any[] | null>(null);
-  const [erro, setErro] = useState('');
-  useEffect(() => {
-    let vivo = true;
-    api.contagemHistorico(lista.id)
-      .then((r: any) => { if (vivo) setLinhas(Array.isArray(r) ? r : []); })
-      .catch((e: unknown) => { if (vivo) { setLinhas([]); setErro(e instanceof Error ? e.message : 'Não consegui abrir o histórico.'); } });
-    return () => { vivo = false; };
-  }, [lista.id]);
-  return (
-    <Dialogo largura="lg" titulo={`Histórico: ${lista.nome}`} aoFechar={aoFechar}
-      rodape={<Button type="button" data-foco-inicial onClick={aoFechar}>Fechar</Button>}>
-      <div className="space-y-3 text-sm">
-        {erro && <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 font-medium">{erro}</p>}
-        {linhas === null && <p className={texto2}>Abrindo o histórico…</p>}
-        {linhas && linhas.length === 0 && !erro && <p className={`py-6 text-center ${texto2}`}>Esta lista ainda não foi contada.</p>}
-        {linhas && linhas.length > 0 && (
-          <div className="overflow-x-auto rounded-lg border border-border">
-            <table className="w-full min-w-[520px] border-collapse">
-              <caption className="sr-only">Contagens feitas desta lista</caption>
-              <thead>
-                <tr className={`border-b border-border bg-secondary text-left text-xs uppercase tracking-wide ${texto2}`}>
-                  <th scope="col" className="px-3 py-2">Data</th>
-                  <th scope="col" className="px-3 py-2">Quem abriu</th>
-                  <th scope="col" className="px-3 py-2">Contados</th>
-                  <th scope="col" className="px-3 py-2">Diferença</th>
-                  <th scope="col" className="px-3 py-2">Situação</th>
-                </tr>
-              </thead>
-              <tbody>
-                {linhas.map((h) => (
-                  <tr key={h.id} className="border-b border-border last:border-b-0">
-                    <td className="px-3 py-2 font-mono">{dataBr(h.data)}</td>
-                    <td className="px-3 py-2">{h.quemNome ?? <span className={texto2}>não identificado</span>}</td>
-                    <td className="px-3 py-2 font-mono">{h.contados} de {h.itens}</td>
-                    <td className="px-3 py-2">{Number(h.comDiferenca) > 0 ? <Selo tom="aviso">{h.comDiferenca} produto(s)</Selo> : Number(h.contados) > 0 ? <Selo tom="ok">tudo conferiu</Selo> : '—'}</td>
-                    <td className="px-3 py-2">{h.status === 'concluida' ? <Selo tom="ok">concluída</Selo> : <Selo tom="aviso">aberta</Selo>}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <p className={texto2}>A diferença é contra o saldo que o sistema tinha quando a contagem abriu. Mostra as 30 contagens mais recentes.</p>
-      </div>
-    </Dialogo>
   );
 }
