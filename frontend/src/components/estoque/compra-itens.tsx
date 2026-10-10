@@ -36,23 +36,23 @@ export function VerItensDaCompra({ lista, verFin, podeGerar, aoFechar, aoGerar }
       rodape={
         <>
           {faltas.length > 0 && !lista.listaDoQueFaltou && podeGerar && (
-            <Button type="button" variant="outline" className="mr-auto" onClick={aoGerar}>Gerar lista com o que faltou</Button>
+            <Button type="button" variant="outline" className="mr-auto" onClick={aoGerar}>Gerar pedido com o que faltou</Button>
           )}
           <Button type="button" data-foco-inicial onClick={aoFechar}>Fechar</Button>
         </>
       }>
       <div className="space-y-3 text-sm">
-        {lista.origem && <p className={texto2}>Lista gerada com o que faltou de <b className="text-foreground">{lista.origem.nome}</b>.</p>}
+        {lista.origem && <p className={texto2}>Pedido gerado com o que faltou de <b className="text-foreground">{lista.origem.nome}</b>.</p>}
         {faltas.length > 0 && (
           <p className="rounded-md border-l-4 border-warn bg-warn/10 px-3 py-2" role="status">
             <b>{faltas.length} {faltas.length === 1 ? 'item veio' : 'itens vieram'} a menos do que o pedido.</b>{' '}
-            {lista.listaDoQueFaltou ? <>A lista do que faltou já foi gerada: <b>{lista.listaDoQueFaltou.nome}</b>.</> : 'Só o que chegou entrou no estoque.'}
+            {lista.listaDoQueFaltou ? <>O pedido do que faltou já foi gerado: <b>{lista.listaDoQueFaltou.nome}</b>.</> : 'Só o que chegou entrou no estoque.'}
           </p>
         )}
         <div className="overflow-x-auto rounded-lg border border-border">
           {/* Abaixo de 640 px cada item vira um bloco, com o título da coluna antes do valor. */}
           <table className="block w-full border-collapse sm:table sm:min-w-[520px]">
-            <caption className="sr-only">Itens da lista de compras</caption>
+            <caption className="sr-only">Itens do pedido de compra</caption>
             <thead className="hidden sm:table-header-group">
               <tr className={`border-b border-border bg-secondary text-left text-xs uppercase tracking-wide ${texto2}`}>
                 <th scope="col" className="px-3 py-2">Produto</th>
@@ -96,7 +96,7 @@ export function VerItensDaCompra({ lista, verFin, podeGerar, aoFechar, aoGerar }
                   </tr>
                 );
               })}
-              {itens.length === 0 && <tr className="block sm:table-row"><td colSpan={5} className={`block px-3 py-6 text-center sm:table-cell ${texto2}`}>Lista sem itens.</td></tr>}
+              {itens.length === 0 && <tr className="block sm:table-row"><td colSpan={5} className={`block px-3 py-6 text-center sm:table-cell ${texto2}`}>Pedido sem itens.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -120,28 +120,28 @@ export function GerarListaDoQueFaltou({ lista, voltarPara, aoFechar, aoGerar }: 
     setGerando(true);
     try {
       const r: any = await api.gerarListaDoQueFaltou(lista.id, { dataRecebimento: dataRecebimento || undefined });
-      if (r?.jaExistia) toast.info(`A lista do que faltou já tinha sido gerada: ${r.nome}.`);
-      else toast.success(`Lista "${r?.nome}" criada com ${r?.itens} ${Number(r?.itens) === 1 ? 'item' : 'itens'}.`);
-      if (Number(r?.semProduto) > 0) toast.info(`${r.semProduto} produto(s) excluído(s) do estoque ficaram de fora da lista nova.`);
+      if (r?.jaExistia) toast.info(`O pedido do que faltou já tinha sido gerado: ${r.nome}.`);
+      else toast.success(`Pedido "${r?.nome}" criado com ${r?.itens} ${Number(r?.itens) === 1 ? 'item' : 'itens'}.`);
+      if (Number(r?.semProduto) > 0) toast.info(`${r.semProduto} produto(s) excluído(s) do estoque ficaram de fora do pedido novo.`);
       aoGerar();
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro ao gerar a lista');
+      setErro(e instanceof Error ? e.message : 'Erro ao gerar o pedido');
       setGerando(false);
     }
   }
 
   return (
-    <Dialogo largura="md" titulo="Gerar lista com o que faltou" aoFechar={aoFechar} voltarPara={voltarPara} fecharNoFundo={false}
+    <Dialogo largura="md" titulo="Gerar pedido com o que faltou" aoFechar={aoFechar} voltarPara={voltarPara} fecharNoFundo={false}
       rodape={
         <>
           <Button type="button" variant="outline" onClick={aoFechar} disabled={gerando}>Agora não</Button>
-          <Button type="button" data-foco-inicial onClick={gerar} disabled={gerando || faltas.length === 0}>{gerando ? 'Gerando…' : 'Gerar lista'}</Button>
+          <Button type="button" data-foco-inicial onClick={gerar} disabled={gerando || faltas.length === 0}>{gerando ? 'Gerando…' : 'Gerar pedido'}</Button>
         </>
       }>
       <div className="space-y-3 text-sm">
         <p>
-          Em <b>{lista.nome}</b>, {faltas.length === 1 ? 'um item veio' : `${faltas.length} itens vieram`} a menos do que o pedido. A lista nova leva{' '}
-          <b>só o que faltou</b>, com o mesmo fornecedor e as mesmas marcas. A lista recebida continua como está.
+          Em <b>{lista.nome}</b>, {faltas.length === 1 ? 'um item veio' : `${faltas.length} itens vieram`} a menos do que o pedido. O pedido novo leva{' '}
+          <b>só o que faltou</b>, com o mesmo fornecedor e as mesmas marcas. O pedido recebido continua como está.
         </p>
         <ul className="divide-y divide-border rounded-lg border border-border" aria-label="O que faltou">
           {faltas.map(({ item, faltou }) => (
@@ -156,7 +156,7 @@ export function GerarListaDoQueFaltou({ lista, voltarPara, aoFechar, aoGerar }: 
               </span>
             </li>
           ))}
-          {faltas.length === 0 && <li className={`px-3 py-4 text-center ${texto2}`}>Não faltou nada nesta lista.</li>}
+          {faltas.length === 0 && <li className={`px-3 py-4 text-center ${texto2}`}>Não faltou nada neste pedido.</li>}
         </ul>
         <div className="space-y-1.5 sm:max-w-xs">
           <Label htmlFor="faltou-data">Data de recebimento (opcional)</Label>

@@ -21,6 +21,7 @@ import { ComprasService } from './compras.service';
 import { CreateCompraListaDto } from './dto/create-compra-lista.dto';
 import { ReceberCompraDto } from './dto/receber-compra.dto';
 import { GerarFaltanteDto } from './dto/gerar-faltante.dto';
+import { MarcarEnviadoDto } from './dto/marcar-enviado.dto';
 
 // Lista de compras — listar/receber = autenticado (o delegado pode receber);
 // criar/remover = gestão.
@@ -102,5 +103,26 @@ export class ComprasController {
     @Body() dto: GerarFaltanteDto,
   ) {
     return this.service.gerarListaDoQueFaltou(user.tenantId, id, dto, atual, user.colaboradorId);
+  }
+
+  // O pedido em texto e os links que abrem o WhatsApp e o e-mail de quem está usando. Traz o
+  // contato do fornecedor: mesma porta de quem cria o pedido.
+  @Get('listas/:id/envio')
+  @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('estoque', 'criar')
+  pedidoParaEnviar(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Param('id') id: string) {
+    return this.service.pedidoParaEnviar(user.tenantId, id, atual);
+  }
+
+  @Post('listas/:id/enviado')
+  @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('estoque', 'criar')
+  marcarEnviado(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
+    @Param('id') id: string,
+    @Body() dto: MarcarEnviadoDto,
+  ) {
+    return this.service.marcarEnviado(user.tenantId, id, dto.canal, atual, user.colaboradorId);
   }
 }

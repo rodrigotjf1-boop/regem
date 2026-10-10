@@ -129,3 +129,48 @@ export function porMarcaParaEnviar(marcas: string[], valores: Record<string, str
 export function textoPorMarca(porMarca: Record<string, number> | null | undefined, formato: (n: number) => string = String): string {
   return Object.entries(porMarca ?? {}).map(([m, q]) => `${m} ${formato(Number(q))}`).join(' · ');
 }
+
+// ── A prévia do pedido (10/10/2026) ─────────────────────────────────────────────────────────
+// O que a pessoa já marcou ao montar o pedido, na ordem em que marcou — é o que a prévia ao lado
+// mostra, com a quantidade, a marca, a 2ª opção e o valor estimado de cada linha.
+
+export type LinhaDoPedido = {
+  id: string;
+  /** O nome que aparece na compra (o comercial, quando há). */
+  titulo: string;
+  quantidade: number;
+  unidade: string;
+  marca: string;
+  segunda: string;
+  /** Produto com duas ou mais marcas e nenhuma escolhida ainda. */
+  faltaMarca: boolean;
+  /** Quantidade × custo informado (0 quando falta um dos dois). */
+  valor: number;
+};
+type LinhaMarcada = { quantidade?: string; custoUnitario?: string; marca?: string; marcaAlternativa?: string };
+
+export function linhasDoPedido(
+  itens: ({ id: string; unidadeLista?: string | null; unidadeMedida?: string | null } & ComNome & ComMarcas)[],
+  escolha: Record<string, LinhaMarcada>,
+): LinhaDoPedido[] {
+  const porId = new Map(itens.map((i) => [i.id, i]));
+  const linhas: LinhaDoPedido[] = [];
+  for (const [id, l] of Object.entries(escolha)) {
+    const i = porId.get(id);
+    if (!i) continue; // produto que saiu da lista (excluído em outra aba) não entra no pedido
+    const marcas = marcasDe(i);
+    const marca = marcaDaLinha(marcas, l.marca);
+    const quantidade = Math.max(0, Number(l.quantidade) || 0);
+    linhas.push({
+      id,
+      titulo: nomeDeCompra(i),
+      quantidade,
+      unidade: limpo(i?.unidadeLista) || limpo(i?.unidadeMedida),
+      marca,
+      segunda: segundaMarcaDaLinha(marcas, marca, l.marcaAlternativa),
+      faltaMarca: faltaMarca(marcas, l.marca),
+      valor: Math.round(quantidade * Math.max(0, Number(l.custoUnitario) || 0) * 100) / 100,
+    });
+  }
+  return linhas;
+}

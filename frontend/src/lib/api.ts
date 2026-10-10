@@ -639,6 +639,11 @@ export const api = {
   receberCompra: (id: string, body: unknown) =>
     req(`/compras/listas/${id}/receber`, { method: 'POST', body: JSON.stringify(body) }),
   compraLista: (id: string) => req(`/compras/listas/${id}`),
+  // O pedido em texto e os links que abrem o WhatsApp e o e-mail de quem está usando; e o registro
+  // de que a pessoa enviou (é ela quem diz — o sistema só abre o aplicativo).
+  pedidoParaEnviar: (id: string) => req(`/compras/listas/${id}/envio`),
+  marcarPedidoEnviado: (id: string, canal: 'whatsapp' | 'email') =>
+    req(`/compras/listas/${id}/enviado`, { method: 'POST', body: JSON.stringify({ canal }) }),
   // Lista nova só com o que faltou de uma compra já recebida (uma por lista de origem).
   gerarListaDoQueFaltou: (id: string, body?: { dataRecebimento?: string }) =>
     req(`/compras/listas/${id}/faltante`, { method: 'POST', body: JSON.stringify(body ?? {}) }),

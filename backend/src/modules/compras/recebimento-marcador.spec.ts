@@ -235,7 +235,7 @@ descrever('compras: marcador de recebimento, falta, 2ª opção de marca e lista
     const x = await cenario();
     const tudo = await listaDeDez(x, 'Veio tudo de teste');
     await x.c.receber(x.t, tudo.id, null, { itens: [tudo.queijo, tudo.carne, tudo.sal].map((id) => ({ compraItemId: id, qtdRecebida: 10, validadeIndefinida: true })) } as any, x.u);
-    await expect(x.c.gerarListaDoQueFaltou(x.t, tudo.id, undefined, x.u)).rejects.toThrow(/Não faltou nada nesta lista/);
+    await expect(x.c.gerarListaDoQueFaltou(x.t, tudo.id, undefined, x.u)).rejects.toThrow(/Não faltou nada neste pedido/);
 
     const l = await listaDeDez(x, 'Faltou de teste');
     await x.c.receber(x.t, l.id, null, { itens: [{ compraItemId: l.queijo, qtdRecebida: 4, validadeIndefinida: true }, { compraItemId: l.carne, qtdRecebida: 0 }, { compraItemId: l.sal, qtdRecebida: 10, validadeIndefinida: true }] } as any, x.u);
@@ -245,6 +245,6 @@ descrever('compras: marcador de recebimento, falta, 2ª opção de marca e lista
     expect((await linhas(nova.id)).map((r: any) => [r.nome, r.pedido])).toEqual([['Fatia de queijo de teste', 6]]);
     // de outra loja não se gera nem se vê
     const outraLoja = (await q(`insert into unidade (tenant_id, nome) values ($1, 'Outra loja de teste') returning id`, [x.t]))[0].id as string;
-    await expect(x.c.gerarListaDoQueFaltou(x.t, tudo.id, undefined, outraLoja)).rejects.toThrow(/Lista não encontrada/);
+    await expect(x.c.gerarListaDoQueFaltou(x.t, tudo.id, undefined, outraLoja)).rejects.toThrow(/Pedido não encontrado/);
   });
 });

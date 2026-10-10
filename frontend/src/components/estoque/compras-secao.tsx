@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { Check, List, ListPlus, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { Check, List, ListPlus, Plus, Send, Sparkles, Trash2 } from 'lucide-react';
 import { api, getCategoria, podePerm, podeVerFinanceiro } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
@@ -10,10 +10,12 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { SkeletonList } from '@/components/ui/skeleton';
 import { Dialogo, Gaveta } from '@/components/ui/sobreposto';
-import { faltaMarca, marcaDaLinha, marcasDe, segundaMarcaDaLinha } from '@/lib/produto-compra';
+import { faltaMarca, linhasDoPedido, marcaDaLinha, marcasDe, segundaMarcaDaLinha } from '@/lib/produto-compra';
 import { ConferirCompra } from './compra-conferir';
 import { GerarListaDoQueFaltou, VerItensDaCompra } from './compra-itens';
 import { EscolhaProdutos, type Escolha } from './escolha-produtos';
+import { EnviarPedido, textoDoEnvio } from './pedido-enviar';
+import { PreviaDoPedido } from './pedido-previa';
 import {
   FiltroBusca, FiltroSelect, Filtros, ListaDados, NomeComApoio, PERIODOS, PERIODO_PADRAO, Selo, Situacoes, TituloLista, Vazio,
   brl, consultaDoPeriodo, dataBr, diasAte, distintos, semAcento, texto2, type Situacao,
@@ -26,17 +28,17 @@ const atrasada = (l: any) => !recebida(l) && !!l.dataRecebimento && diasAte(l.da
 const comFalta = (l: any) => (recebida(l) ? Number(l.itensComFalta) || 0 : 0);
 const SITUACOES: Situacao<any>[] = [
   { rotulo: 'Aguardando', filtro: (l) => !recebida(l), tom: 'aviso' },
-  { rotulo: 'Atrasadas', filtro: atrasada, tom: 'critico' },
-  { rotulo: 'Recebidas', filtro: recebida },
+  { rotulo: 'Atrasados', filtro: atrasada, tom: 'critico' },
+  { rotulo: 'Recebidos', filtro: recebida },
   { rotulo: 'Com falta', filtro: (l) => comFalta(l) > 0, tom: 'aviso' },
 ];
 const ID_TITULO = 'compras-titulo';
 
-
-// Aba Compras: as listas de compra — as que aguardam (sempre à vista, com as atrasadas) e as
-// recebidas no período, com a falta de cada uma à vista. Gerar a lista abre na gaveta; conferir e
-// receber (`compra-conferir.tsx`), ver os itens, gerar a lista do que faltou (`compra-itens.tsx`)
-// e excluir, em diálogo.
+// Aba Pedidos (até 10/10/2026 se chamava "Compras"; a chave e as rotas continuam `compras`): os
+// pedidos de compra — os que aguardam (sempre à vista, com os atrasados) e os recebidos no período,
+// com a falta de cada um à vista. O novo pedido abre na gaveta, com a prévia ao lado; enviar ao
+// fornecedor (`pedido-enviar.tsx`), conferir e receber (`compra-conferir.tsx`), ver os itens,
+// gerar o pedido do que faltou (`compra-itens.tsx`) e excluir, em diálogo.
 export function ComprasSecao({ itens, fornecedores, aoMudarEstoque }: { itens: any[]; fornecedores: any[]; aoMudarEstoque?: () => void }) {
   const [listas, setListas] = useState<any[] | null>(null);
   const [colabs, setColabs] = useState<any[]>([]);
@@ -49,8 +51,10 @@ export function ComprasSecao({ itens, fornecedores, aoMudarEstoque }: { itens: a
   const [novo, setNovo] = useState(false);
   const [conferindo, setConferindo] = useState<any>(null);
   const [vendo, setVendo] = useState<any>(null);
-  // Lista recebida com falta, aberta no diálogo "gerar lista com o que faltou".
+  // Pedido recebido com falta, aberto no diálogo "gerar pedido com o que faltou".
   const [faltou, setFaltou] = useState<any>(null);
+  // Pedido aberto no diálogo "enviar ao fornecedor".
+  const [enviando, setEnviando] = useState<any>(null);
   const [excluir, setExcluir] = useState<any>(null);
   const [excluindo, setExcluindo] = useState(false);
   const pedido = useRef(0);
@@ -67,7 +71,7 @@ export function ComprasSecao({ itens, fornecedores, aoMudarEstoque }: { itens: a
     } catch (e) {
       if (meu !== pedido.current) return;
       setListas([]);
-      setErro(e instanceof Error ? e.message : 'Erro ao carregar as compras');
+      setErro(e instanceof Error ? e.message : 'Erro ao carregar os pedidos');
     }
   }, [periodo]);
   useEffect(() => { carregar(); }, [carregar]);
@@ -79,7 +83,7 @@ export function ComprasSecao({ itens, fornecedores, aoMudarEstoque }: { itens: a
       else if (para === 'faltou') setFaltou(det);
       else setVendo(det);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Erro ao abrir a lista');
+      toast.error(e instanceof Error ? e.message : 'Erro ao abrir o pedido');
     }
   }
   async function confirmarExclusao() {
@@ -87,7 +91,7 @@ export function ComprasSecao({ itens, fornecedores, aoMudarEstoque }: { itens: a
     setExcluindo(true);
     try {
       await api.removerCompraLista(excluir.id);
-      toast.success('Lista excluída.');
+      toast.success('Pedido excluído.');
       setExcluir(null);
       await carregar();
       document.getElementById(ID_TITULO)?.focus(); // a linha (e o botão que abriu) saiu da tela
@@ -107,7 +111,7 @@ export function ComprasSecao({ itens, fornecedores, aoMudarEstoque }: { itens: a
   const podeReceber = podePerm('estoque', 'editar');
 
   const nomeForn = (l: any) => l.fornecedorNome ?? 'Sem fornecedor';
-  const nomeResp = (l: any) => l.delegadoNome ?? 'Sem responsável';
+  const nomeResp = (l: any) => l.delegadoNome ?? 'Sem conferente';
   const b = semAcento(busca);
   const base = listas.filter(
     (l) => (!b || semAcento(`${l.nome} ${nomeForn(l)}`).includes(b)) && (!fornecedor || nomeForn(l) === fornecedor) && (!responsavel || nomeResp(l) === responsavel),
@@ -119,36 +123,36 @@ export function ComprasSecao({ itens, fornecedores, aoMudarEstoque }: { itens: a
   const prazo = (l: any) => {
     if (!l.dataRecebimento) return 'sem data marcada';
     const d = diasAte(l.dataRecebimento);
-    return d === 0 ? 'hoje' : d > 0 ? `em ${d} dia(s)` : `atrasada ${-d} dia(s)`;
+    return d === 0 ? 'hoje' : d > 0 ? `em ${d} dia(s)` : `atrasado ${-d} dia(s)`;
   };
 
   return (
     <section className="space-y-3" aria-labelledby={ID_TITULO}>
-      <TituloLista id={ID_TITULO} titulo="Compras" total={listas.length} mostrando={linhas.length} um="lista" varios="listas"
-        extra={[periodo ? `recebidas nos ${PERIODOS.find((p) => p.v === periodo)?.rotulo.toLowerCase()}` : 'todo o período', verFin ? `${brl(aReceber)} a receber` : ''].filter(Boolean).join(' · ')}>
-        {podeCriar && <Button type="button" onClick={() => setNovo(true)}><Plus className="h-4 w-4" aria-hidden="true" /> Gerar lista</Button>}
+      <TituloLista id={ID_TITULO} titulo="Pedidos" total={listas.length} mostrando={linhas.length} um="pedido" varios="pedidos"
+        extra={[periodo ? `recebidos nos ${PERIODOS.find((p) => p.v === periodo)?.rotulo.toLowerCase()}` : 'todo o período', verFin ? `${brl(aReceber)} a receber` : ''].filter(Boolean).join(' · ')}>
+        {podeCriar && <Button type="button" onClick={() => setNovo(true)}><Plus className="h-4 w-4" aria-hidden="true" /> Novo pedido</Button>}
       </TituloLista>
       {erro && <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm font-medium">{erro}</p>}
       <Situacoes base={base} opcoes={SITUACOES} valor={sit} aoMudar={setSit} />
       <Filtros>
-        <FiltroBusca id="compras-busca" valor={busca} aoMudar={setBusca} placeholder="Nome da lista ou fornecedor" />
-        <FiltroSelect id="compras-periodo" rotulo="Recebidas no período" opcoes={PERIODOS} valor={periodo} aoMudar={setPeriodo} />
+        <FiltroBusca id="compras-busca" valor={busca} aoMudar={setBusca} placeholder="Nome do pedido ou fornecedor" />
+        <FiltroSelect id="compras-periodo" rotulo="Recebidos no período" opcoes={PERIODOS} valor={periodo} aoMudar={setPeriodo} />
         <FiltroSelect id="compras-fornecedor" rotulo="Fornecedor" todos="Todos os fornecedores" opcoes={distintos(listas, nomeForn)} valor={fornecedor} aoMudar={setFornecedor} />
-        <FiltroSelect id="compras-responsavel" rotulo="Responsável" todos="Todos os responsáveis" opcoes={distintos(listas, nomeResp)} valor={responsavel} aoMudar={setResponsavel} />
+        <FiltroSelect id="compras-responsavel" rotulo="Conferente" todos="Todos os conferentes" opcoes={distintos(listas, nomeResp)} valor={responsavel} aoMudar={setResponsavel} />
       </Filtros>
 
       {listas.length === 0 ? (
-        <Vazio>Nenhuma lista de compras. Gere uma com os produtos e as quantidades — o que está abaixo do mínimo já vem sugerido.</Vazio>
+        <Vazio>Nenhum pedido de compra. Faça um com os produtos e as quantidades — o que está abaixo do mínimo já vem sugerido.</Vazio>
       ) : linhas.length === 0 ? (
         <Vazio aoLimpar={limpar} />
       ) : (
         <ListaDados
-          legenda="Listas de compras"
+          legenda="Pedidos de compra"
           linhas={linhas}
           chave={(l) => l.id}
           nome={(l) => l.nome}
           colunas={[
-            { titulo: 'Lista', celula: (l) => <NomeComApoio nome={l.nome} apoio={nomeForn(l)} /> },
+            { titulo: 'Pedido', celula: (l) => <NomeComApoio nome={l.nome} apoio={[nomeForn(l), textoDoEnvio(l)].filter(Boolean).join(' · ')} /> },
             { titulo: 'Itens', celula: (l) => <span className="font-mono">{l.itens}</span> },
             {
               titulo: 'Receber em',
@@ -159,7 +163,7 @@ export function ComprasSecao({ itens, fornecedores, aoMudarEstoque }: { itens: a
                 </>
               ),
             },
-            { titulo: 'Responsável', celula: (l) => l.delegadoNome ?? '—' },
+            { titulo: 'Conferente', celula: (l) => l.delegadoNome ?? '—' },
             ...(verFin
               ? [{
                   titulo: 'Valor estimado',
@@ -175,7 +179,7 @@ export function ComprasSecao({ itens, fornecedores, aoMudarEstoque }: { itens: a
               titulo: 'Situação',
               celula: (l) => (
                 <>
-                  {recebida(l) ? <Selo tom="ok">recebida</Selo> : atrasada(l) ? <Selo tom="critico">atrasada</Selo> : <Selo tom="aviso">aguardando</Selo>}
+                  {recebida(l) ? <Selo tom="ok">recebido</Selo> : atrasada(l) ? <Selo tom="critico">atrasado</Selo> : <Selo tom="aviso">aguardando</Selo>}
                   {comFalta(l) > 0 && (
                     <span className="mt-0.5 block text-xs font-semibold">
                       {comFalta(l)} {comFalta(l) === 1 ? 'item' : 'itens'} com falta{l.temListaDoQueFaltou ? ' · já pedido de novo' : ''}
@@ -187,7 +191,8 @@ export function ComprasSecao({ itens, fornecedores, aoMudarEstoque }: { itens: a
           ]}
           acoes={(l) => [
             ...(!recebida(l) && podeReceber ? [{ rotulo: 'Conferir e receber', icone: Check, aoClicar: (x: any) => abrir(x, 'conferir'), tom: 'primaria' as const }] : []),
-            ...(comFalta(l) > 0 && !l.temListaDoQueFaltou && podeCriar ? [{ rotulo: 'Gerar lista com o que faltou', icone: ListPlus, aoClicar: (x: any) => abrir(x, 'faltou') }] : []),
+            ...(comFalta(l) > 0 && !l.temListaDoQueFaltou && podeCriar ? [{ rotulo: 'Gerar pedido com o que faltou', icone: ListPlus, aoClicar: (x: any) => abrir(x, 'faltou') }] : []),
+            ...(!recebida(l) && podeCriar ? [{ rotulo: 'Enviar ao fornecedor', icone: Send, aoClicar: setEnviando }] : []),
             { rotulo: 'Ver itens', icone: List, aoClicar: (x: any) => abrir(x, 'ver') },
             ...(podeExcluir ? [{ rotulo: 'Excluir', icone: Trash2, aoClicar: setExcluir, tom: 'perigo' as const }] : []),
           ]}
@@ -199,7 +204,13 @@ export function ComprasSecao({ itens, fornecedores, aoMudarEstoque }: { itens: a
 
       {novo && (
         <NovaListaForm itens={itens} fornecedores={fornecedores} colabs={colabs} verFin={verFin}
-          aoFechar={() => setNovo(false)} aoSalvar={() => { setNovo(false); carregar(); }} />
+          aoFechar={() => setNovo(false)}
+          aoSalvar={(criado) => {
+            setNovo(false);
+            carregar();
+            // Pedido com fornecedor: a tela já oferece enviar a ele (não é obrigatório).
+            if (criado?.id && criado.fornecedorId) setEnviando(criado);
+          }} />
       )}
       {conferindo && (
         <ConferirCompra lista={conferindo} aoFechar={() => setConferindo(null)}
@@ -221,20 +232,24 @@ export function ComprasSecao({ itens, fornecedores, aoMudarEstoque }: { itens: a
         <GerarListaDoQueFaltou lista={faltou} voltarPara={ID_TITULO} aoFechar={() => setFaltou(null)}
           aoGerar={async () => { setFaltou(null); await carregar(); document.getElementById(ID_TITULO)?.focus(); }} />
       )}
+      {enviando && (
+        <EnviarPedido pedido={enviando} voltarPara={ID_TITULO} aoFechar={() => setEnviando(null)}
+          aoMarcar={async () => { setEnviando(null); await carregar(); document.getElementById(ID_TITULO)?.focus(); }} />
+      )}
       {excluir && (
-        <Dialogo alerta titulo="Excluir lista de compras" aoFechar={() => setExcluir(null)} voltarPara={ID_TITULO}
+        <Dialogo alerta titulo="Excluir pedido de compra" aoFechar={() => setExcluir(null)} voltarPara={ID_TITULO}
           rodape={
             <>
               <Button type="button" variant="outline" data-foco-inicial onClick={() => setExcluir(null)} disabled={excluindo}>Cancelar</Button>
-              <Button type="button" variant="destructive" onClick={confirmarExclusao} disabled={excluindo}>{excluindo ? 'Excluindo…' : 'Excluir lista'}</Button>
+              <Button type="button" variant="destructive" onClick={confirmarExclusao} disabled={excluindo}>{excluindo ? 'Excluindo…' : 'Excluir pedido'}</Button>
             </>
           }>
           <div className="space-y-3 text-sm">
             <p>Excluir <b>{excluir.nome}</b>?</p>
             <p className="rounded-md border-l-4 border-destructive bg-destructive/10 px-3 py-2">
               {recebida(excluir)
-                ? 'A lista sai da tela. O que entrou no estoque por ela e a conta a pagar continuam valendo.'
-                : 'A lista sai da tela e ninguém mais é avisado do recebimento. Nada entrou no estoque por ela.'}{' '}
+                ? 'O pedido sai da tela. O que entrou no estoque por ele e a conta a pagar continuam valendo.'
+                : 'O pedido sai da tela e ninguém mais é avisado do recebimento. Nada entrou no estoque por ele.'}{' '}
               Não dá para desfazer por aqui.
             </p>
           </div>
@@ -244,8 +259,8 @@ export function ComprasSecao({ itens, fornecedores, aoMudarEstoque }: { itens: a
   );
 }
 
-// ── gerar lista (gaveta larga) ──────────────────────────────────────────────────────────────
-function NovaListaForm({ itens, fornecedores, colabs, verFin, aoFechar, aoSalvar }: { itens: any[]; fornecedores: any[]; colabs: any[]; verFin: boolean; aoFechar: () => void; aoSalvar: () => void }) {
+// ── novo pedido (gaveta larga, com a prévia ao lado) ────────────────────────────────────────
+function NovaListaForm({ itens, fornecedores, colabs, verFin, aoFechar, aoSalvar }: { itens: any[]; fornecedores: any[]; colabs: any[]; verFin: boolean; aoFechar: () => void; aoSalvar: (criado: any) => void }) {
   const formId = useId();
   const [nome, setNome] = useState('');
   const [fornecedorId, setFornecedorId] = useState('');
@@ -260,7 +275,7 @@ function NovaListaForm({ itens, fornecedores, colabs, verFin, aoFechar, aoSalvar
 
   const comQtd = Object.entries(escolha).filter(([id, l]) => Number(l.quantidade) > 0 && itens.some((i) => i.id === id));
   const total = comQtd.reduce((s, [, l]) => s + Number(l.quantidade) * (Number(l.custoUnitario) || 0), 0);
-  // Produto com duas ou mais marcas: a lista só sai com a marca escolhida (o servidor recusa sem).
+  // Produto com duas ou mais marcas: o pedido só sai com a marca escolhida (o servidor recusa sem).
   const porId = new Map<string, any>(itens.map((i) => [i.id, i]));
   const semMarca = comQtd.filter(([id, l]) => faltaMarca(marcasDe(porId.get(id)), l.marca));
   const falta = nome.trim().length < 2 || comQtd.length === 0 || semMarca.length > 0;
@@ -284,7 +299,7 @@ function NovaListaForm({ itens, fornecedores, colabs, verFin, aoFechar, aoSalvar
     setErro('');
     setSalvando(true);
     try {
-      await api.criarCompraLista({
+      const criado: any = await api.criarCompraLista({
         nome: nome.trim(),
         fornecedorId: fornecedorId || undefined,
         dataRecebimento: dataRecebimento || undefined,
@@ -300,8 +315,8 @@ function NovaListaForm({ itens, fornecedores, colabs, verFin, aoFechar, aoSalvar
           marcaAlternativa: segundaMarcaDaLinha(marcasDe(porId.get(itemId)), l.marca, l.marcaAlternativa) || undefined,
         })),
       });
-      toast.success('Lista de compras criada.');
-      aoSalvar();
+      toast.success('Pedido criado.');
+      aoSalvar(criado);
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao criar');
       setSalvando(false);
@@ -311,7 +326,7 @@ function NovaListaForm({ itens, fornecedores, colabs, verFin, aoFechar, aoSalvar
   return (
     <Gaveta
       larga
-      titulo="Gerar lista de compras"
+      titulo="Novo pedido de compra"
       aoFechar={aoFechar}
       rodape={
         <>
@@ -320,29 +335,31 @@ function NovaListaForm({ itens, fornecedores, colabs, verFin, aoFechar, aoSalvar
             {semMarca.length > 0 && <b className="block text-foreground">Falta escolher a marca de {semMarca.length} produto(s).</b>}
           </span>
           <Button type="button" variant="outline" onClick={aoFechar}>Cancelar</Button>
-          <Button type="submit" form={formId} disabled={falta || salvando}>{salvando ? 'Criando…' : 'Criar lista'}</Button>
+          <Button type="submit" form={formId} disabled={falta || salvando}>{salvando ? 'Criando…' : 'Criar pedido'}</Button>
         </>
       }
     >
       <form id={formId} onSubmit={salvar} className="space-y-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1.5 sm:col-span-2">
-            <Label htmlFor="compra-nome">Nome da lista</Label>
+            <Label htmlFor="compra-nome">Nome do pedido</Label>
             <Input id="compra-nome" data-foco-inicial value={nome} onChange={(e) => setNome(e.target.value)} required minLength={2} placeholder="Ex.: Compra da semana" autoComplete="off" />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="compra-forn">Fornecedor</Label>
-            <Select id="compra-forn" value={fornecedorId} onChange={(e) => setFornecedorId(e.target.value)}>
+            <Label htmlFor="compra-forn">Fornecedor (opcional)</Label>
+            <Select id="compra-forn" value={fornecedorId} onChange={(e) => setFornecedorId(e.target.value)} aria-describedby="compra-forn-ajuda">
               <option value="">— sem fornecedor —</option>
               {fornecedores.map((f) => <option key={f.id} value={f.id}>{f.nome}</option>)}
             </Select>
+            <p id="compra-forn-ajuda" className={`text-xs ${texto2}`}>Com fornecedor, ao criar o pedido a tela oferece enviar a ele por WhatsApp ou e-mail.</p>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="compra-resp">Responsável pelo recebimento (opcional)</Label>
-            <Select id="compra-resp" value={delegadoId} onChange={(e) => setDelegadoId(e.target.value)}>
+            <Label htmlFor="compra-resp">Conferente (opcional)</Label>
+            <Select id="compra-resp" value={delegadoId} onChange={(e) => setDelegadoId(e.target.value)} aria-describedby="compra-resp-ajuda">
               <option value="">— ninguém —</option>
               {colabs.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
             </Select>
+            <p id="compra-resp-ajuda" className={`text-xs ${texto2}`}>Quem confere o pedido quando ele chegar na loja.</p>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="compra-data">Data de recebimento</Label>
@@ -357,7 +374,12 @@ function NovaListaForm({ itens, fornecedores, colabs, verFin, aoFechar, aoSalvar
         <div>
           <Button type="button" variant="outline" onClick={sugerir}><Sparkles className="h-4 w-4" aria-hidden="true" /> Sugerir do estoque baixo</Button>
         </div>
-        <EscolhaProdutos itens={itens} valor={escolha} aoMudar={setEscolha} comQuantidade deCompra rotulo="Produtos e quantidades" />
+        {/* A escolha dos produtos e, ao lado, a prévia do pedido (abaixo dela no celular). */}
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_19rem]">
+          <EscolhaProdutos itens={itens} valor={escolha} aoMudar={setEscolha} comQuantidade deCompra rotulo="Produtos e quantidades" />
+          <PreviaDoPedido linhas={linhasDoPedido(itens, escolha)} verFin={verFin}
+            aoTirar={(id) => setEscolha((e) => { const n = { ...e }; delete n[id]; return n; })} />
+        </div>
         <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
           <label className="flex min-h-10 items-center gap-2">
             <input type="checkbox" className="h-5 w-5 accent-primary" checked={enviarKds} onChange={(e) => setEnviarKds(e.target.checked)} /> Avisar no KDS ao receber

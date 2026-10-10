@@ -762,6 +762,9 @@ export const compraLista = pgTable('compra_lista', {
   recebidaEm: timestamp('recebida_em', { withTimezone: true }),
   // A lista de onde esta nasceu — "gerar lista com o que faltou" (mig 312). Sem FK: sincroniza nos dois sentidos.
   origemListaId: uuid('origem_lista_id'),
+  // Quando e por onde (whatsapp | email) a pessoa marcou o pedido como enviado ao fornecedor (mig 313).
+  enviadoEm: timestamp('enviado_em', { withTimezone: true }),
+  enviadoCanal: text('enviado_canal'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
