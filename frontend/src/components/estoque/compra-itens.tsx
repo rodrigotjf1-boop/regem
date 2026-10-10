@@ -43,6 +43,7 @@ export function VerItensDaCompra({ lista, verFin, podeGerar, aoFechar, aoGerar }
       }>
       <div className="space-y-3 text-sm">
         {lista.origem && <p className={texto2}>Pedido gerado com o que faltou de <b className="text-foreground">{lista.origem.nome}</b>.</p>}
+        {lista.notaRef && <p className={texto2}>Nota que veio com a entrega: <b className="text-foreground">{lista.notaRef}</b>.</p>}
         {faltas.length > 0 && (
           <p className="rounded-md border-l-4 border-warn bg-warn/10 px-3 py-2" role="status">
             <b>{faltas.length} {faltas.length === 1 ? 'item veio' : 'itens vieram'} a menos do que o pedido.</b>{' '}
@@ -86,7 +87,13 @@ export function VerItensDaCompra({ lista, verFin, podeGerar, aoFechar, aoGerar }
                         {conferido && rec > Number(it.quantidade) && <span className="ml-2 font-sans"><Selo>veio a mais</Selo></span>}
                       </td>
                     )}
-                    {verFin && <td className="block font-mono sm:table-cell sm:px-3 sm:py-2"><RotuloNaLinha>Custo unitário</RotuloNaLinha>{it.custoUnitario != null ? brl(it.custoUnitario) : '—'}</td>}
+                    {verFin && (
+                      <td className="block font-mono sm:table-cell sm:px-3 sm:py-2">
+                        <RotuloNaLinha>Custo unitário</RotuloNaLinha>{it.custoUnitario != null ? brl(it.custoUnitario) : '—'}
+                        {/* A nota veio com outro valor: o do pedido fica à vista para comparar. */}
+                        {it.custoPedido != null && <span className={`block font-sans text-xs ${texto2}`}>no pedido: {brl(it.custoPedido)}</span>}
+                      </td>
+                    )}
                     {foiRecebida && (
                       <td className="block sm:table-cell sm:px-3 sm:py-2">
                         <RotuloNaLinha>Validade · lote</RotuloNaLinha>

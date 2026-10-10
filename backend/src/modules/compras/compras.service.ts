@@ -166,6 +166,7 @@ export class ComprasService {
         origemListaId: compraLista.origemListaId,
         enviadoEm: compraLista.enviadoEm,
         enviadoCanal: compraLista.enviadoCanal,
+        notaRef: compraLista.notaRef,
       })
       .from(compraLista)
       .leftJoin(fornecedor, eq(compraLista.fornecedorId, fornecedor.id))
@@ -190,7 +191,9 @@ export class ComprasService {
           .select({
             listaId: compraItem.listaId,
             n: sql<number>`count(*)`,
-            valor: sql<string>`coalesce(sum(${compraItem.quantidade} * ${compraItem.custoUnitario}), 0)`,
+            // Antes de receber: pedido × valor informado (estimativa). Depois: o que CHEGOU × o valor
+            // da nota — pedir 10 e receber 5 não deixa o pedido valendo 10.
+            valor: sql<string>`coalesce(sum(coalesce(${compraItem.qtdRecebida}, ${compraItem.quantidade}) * ${compraItem.custoUnitario}), 0)`,
             semCusto: sql<number>`count(*) filter (where ${compraItem.custoUnitario} is null)`,
             // Veio menos do que o pedido (uma parte, ou nada): é a falta que a tela mostra na lista recebida.
             comFalta: sql<number>`count(*) filter (where ${compraItem.qtdRecebida} is not null and ${compraItem.qtdRecebida} < ${compraItem.quantidade})`,
@@ -253,6 +256,7 @@ export class ComprasService {
         validadeIndefinida: compraItem.validadeIndefinida,
         loteCodigo: compraItem.loteCodigo,
         divergencia: compraItem.divergencia,
+        custoPedido: compraItem.custoPedido, // o valor do pedido, quando a nota veio com outro (mig 313)
       })
       .from(compraItem)
       .leftJoin(itemEstoque, eq(compraItem.itemId, itemEstoque.id))
@@ -287,6 +291,7 @@ export class ComprasService {
       itens: itens.map((i) => ({
         ...i,
         custoUnitario: verFinanceiro ? i.custoUnitario : null,
+        custoPedido: verFinanceiro ? i.custoPedido : null,
         sugestao: memoria.get(i.itemId) ?? null,
       })),
     };
@@ -420,6 +425,7 @@ export class ComprasService {
       // conserto tira do caminho.
       let valorConferido = 0;
       let comFalta = 0; // linhas em que veio menos do que o pedido (uma parte, ou nada)
+      const notaRef = limparNome(dto?.notaRef) || null; // a nota que veio com a entrega
       const conf = new Map<string, ConferenciaItemDto>();
       for (const c of dto?.itens ?? []) conf.set(c.compraItemId, c);
       const semConferencia = itens.filter((it) => !conf.has(it.id));
@@ -492,7 +498,14 @@ export class ComprasService {
           } else marcaRecebida = it.marca ?? (marcas.length === 1 ? marcas[0] : null);
         }
 
-        const custo = it.custoUnitario != null ? Number(it.custoUnitario) : null;
+        // VALOR DA NOTA (decisão do dono, 10/10/2026): a conferência informa o valor unitário que veio
+        // na nota. Ele passa a ser o custo da linha — é o que entra no estoque, no custo médio e na
+        // conta a pagar — e o que estava no pedido fica guardado ao lado, para comparação. Em
+        // branco, vale o do pedido.
+        const custoDoPedido = it.custoUnitario != null ? Number(it.custoUnitario) : null;
+        const custoDaNota = c.custoUnitario != null ? Number(c.custoUnitario) : null;
+        const custo = custoDaNota ?? custoDoPedido;
+        const mudou = custoDaNota != null && custoDoPedido != null && Math.abs(custoDaNota - custoDoPedido) > 1e-9;
 
         // A conferência fica gravada na linha: é o histórico do que chegou (e a
         // memória que pré-preenche a próxima compra deste insumo).
@@ -504,6 +517,7 @@ export class ComprasService {
             validadeIndefinida: !!c.validadeIndefinida,
             loteCodigo: c.loteCodigo?.trim() || null,
             marcaRecebida,
+            ...(custoDaNota != null ? { custoUnitario: String(custoDaNota), custoPedido: mudou ? String(custoDoPedido) : null } : {}),
             divergencia: c.divergencia ?? this.divergenciaDe(pedida, qtd),
             updatedAt: new Date(),
           })
@@ -576,7 +590,7 @@ export class ComprasService {
           tenantId,
           unidadeId: lista.unidadeId,
           tipo: 'pagar',
-          descricao: `Compra: ${lista.nome}`,
+          descricao: `Compra: ${lista.nome}${notaRef ? ` · nota ${notaRef}` : ''}`,
           categoria: 'fornecedor',
           fornecedorId: lista.fornecedorId,
           valor: String(valorConferido.toFixed(2)),
@@ -589,7 +603,7 @@ export class ComprasService {
 
       await tx
         .update(compraLista)
-        .set({ status: 'recebida', recebidaEm: new Date() })
+        .set({ status: 'recebida', recebidaEm: new Date(), notaRef })
         .where(and(eq(compraLista.id, id), eq(compraLista.tenantId, tenantId)));
       return { ...lista, itens: itens.length, comFalta };
     });

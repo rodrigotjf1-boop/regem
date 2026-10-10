@@ -50,6 +50,14 @@ export class ConferenciaItemDto {
   @MaxLength(60)
   marcaRecebida?: string;
 
+  // O valor unitário que veio na NOTA (mig 313). Informado, vira o custo da linha — é o que entra
+  // no custo médio e na conta a pagar; em branco, vale o valor do pedido. Qualquer conferente
+  // pode informar (decisão do dono): quem não vê valores em R$ digita o que está na nota.
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  custoUnitario?: number;
+
   // Opcional: o servidor deduz de qtdRecebida × quantidade pedida. Vem do cliente
   // só para o caso que a conta não enxerga (chegou tudo, mas danificado).
   @IsOptional()
@@ -58,6 +66,12 @@ export class ConferenciaItemDto {
 }
 
 export class ReceberCompraDto {
+  // Número ou identificação da nota que veio com a entrega.
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  notaRef?: string;
+
   // Data de pagamento acertada na hora de receber — vence a que veio da criação.
   @IsOptional()
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'vencimento deve ser YYYY-MM-DD' })
