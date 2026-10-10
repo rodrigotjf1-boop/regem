@@ -166,10 +166,12 @@ export function ComprasSecao({ itens, fornecedores, aoMudarEstoque }: { itens: a
             { titulo: 'Conferente', celula: (l) => l.delegadoNome ?? '—' },
             ...(verFin
               ? [{
-                  titulo: 'Valor estimado',
+                  titulo: 'Valor',
                   celula: (l: any) => (
                     <>
                       <span className="whitespace-nowrap font-mono">{Number(l.valorEstimado) > 0 ? brl(l.valorEstimado) : '—'}</span>
+                      {/* Antes de receber é estimativa (pedido × valor informado); depois, o que chegou × o valor da nota. */}
+                      {Number(l.valorEstimado) > 0 && <span className={`block text-xs ${texto2}`}>{recebida(l) ? 'conferido' : 'estimado'}{l.notaRef ? ` · nota ${l.notaRef}` : ''}</span>}
                       {Number(l.itensSemCusto) > 0 && <span className={`block text-xs ${texto2}`}>{l.itensSemCusto} sem custo</span>}
                     </>
                   ),

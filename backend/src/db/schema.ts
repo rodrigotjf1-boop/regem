@@ -765,6 +765,7 @@ export const compraLista = pgTable('compra_lista', {
   // Quando e por onde (whatsapp | email) a pessoa marcou o pedido como enviado ao fornecedor (mig 313).
   enviadoEm: timestamp('enviado_em', { withTimezone: true }),
   enviadoCanal: text('enviado_canal'),
+  notaRef: text('nota_ref'), // número/identificação da nota que veio com a entrega (mig 313)
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -793,6 +794,9 @@ export const compraItem = pgTable('compra_item', {
   marca: text('marca'), // marca escolhida para este item da lista (mig 311); texto como estava na compra
   marcaAlternativa: text('marca_alternativa'), // 2ª opção de marca, se a 1ª faltar (mig 312)
   marcaRecebida: text('marca_recebida'), // a marca que de fato veio, dita na conferência (mig 312)
+  // O valor unitário que estava no PEDIDO, guardado quando a conferência informa outro pela nota
+  // (mig 313): `custoUnitario` passa a ser o da nota. NULL = o valor não mudou na conferência.
+  custoPedido: numeric('custo_pedido'),
   divergencia: text('divergencia').notNull().default('ok'), // ok|parcial|nao_veio|danificado|excedente
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), // mig 243
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // cursor do sync (mig 243)
