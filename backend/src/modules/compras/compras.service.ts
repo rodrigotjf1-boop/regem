@@ -14,6 +14,7 @@ import {
   itemEstoque,
   lote,
   unidade,
+  empresa,
   tituloFinanceiro,
   movimentoEstoque,
   fornecedor,
@@ -31,6 +32,7 @@ import { acharMarca, limparNome } from '../estoque/produto-nome';
 import { CreateCompraListaDto } from './dto/create-compra-lista.dto';
 import { ReceberCompraDto, ConferenciaItemDto } from './dto/receber-compra.dto';
 import { GerarFaltanteDto } from './dto/gerar-faltante.dto';
+import { assuntoDoPedido, emailParaEnvio, linkDoEmail, linkDoWhatsapp, telefoneParaWhatsapp, textoDoPedido } from './pedido-texto';
 
 @Injectable()
 export class ComprasService {
@@ -162,6 +164,8 @@ export class ComprasService {
         fornecedorNome: fornecedor.nome,
         delegadoNome: colaborador.nome,
         origemListaId: compraLista.origemListaId,
+        enviadoEm: compraLista.enviadoEm,
+        enviadoCanal: compraLista.enviadoCanal,
       })
       .from(compraLista)
       .leftJoin(fornecedor, eq(compraLista.fornecedorId, fornecedor.id))
@@ -230,7 +234,7 @@ export class ComprasService {
           condUnidadeOuRede(compraLista.unidadeId, atual),
         ),
       );
-    if (!lista) throw new NotFoundException('Lista não encontrada');
+    if (!lista) throw new NotFoundException('Pedido não encontrado');
     const itens = await this.db
       .select({
         id: compraItem.id,
@@ -354,7 +358,7 @@ export class ComprasService {
         ),
       )
       .returning();
-    if (!row) throw new NotFoundException('Lista não encontrada');
+    if (!row) throw new NotFoundException('Pedido não encontrado');
     return { ok: true };
   }
 
@@ -401,7 +405,7 @@ export class ComprasService {
           ),
         )
         .for('update');
-      if (!lista) throw new NotFoundException('Lista não encontrada');
+      if (!lista) throw new NotFoundException('Pedido não encontrado');
       if (lista.status === 'recebida')
         throw new BadRequestException('Compra já recebida.');
 
@@ -428,7 +432,7 @@ export class ComprasService {
       // segue aguardando (fechá-la como recebida esconderia a entrega que ainda vai chegar).
       if (!itens.some((it) => Number(conf.get(it.id)!.qtdRecebida) > 0))
         throw new BadRequestException(
-          'Nenhum item foi marcado como recebido. Se a entrega ainda não veio, a lista continua aguardando.',
+          'Nenhum item foi marcado como recebido. Se a entrega ainda não veio, o pedido continua aguardando.',
         );
       // Marcas de cada produto: a conferência diz QUAL veio (a pedida, a 2ª opção ou outra do
       // cadastro). O estoque continua um só — a marca fica só no registro da compra.
@@ -638,9 +642,9 @@ export class ComprasService {
           ),
         )
         .for('update');
-      if (!origem) throw new NotFoundException('Lista não encontrada');
+      if (!origem) throw new NotFoundException('Pedido não encontrado');
       if (origem.status !== 'recebida')
-        throw new BadRequestException('A lista do que faltou só existe depois de conferir e receber a compra.');
+        throw new BadRequestException('O pedido do que faltou só existe depois de conferir e receber a compra.');
 
       // A mais recente, se por acaso houver mais de uma (criada igual na loja e na nuvem).
       const [existente] = await tx
@@ -666,7 +670,7 @@ export class ComprasService {
         .where(and(eq(compraItem.listaId, id), eq(compraItem.tenantId, tenantId)));
       const faltas = linhas.filter((l) => Number(l.falta) > 0);
       if (!faltas.length)
-        throw new BadRequestException('Não faltou nada nesta lista: tudo o que foi pedido chegou.');
+        throw new BadRequestException('Não faltou nada neste pedido: tudo o que foi pedido chegou.');
       // Produto excluído do estoque depois da compra não volta para uma lista nova.
       const vivas = faltas.filter((l) => l.produtoVivo);
       if (!vivas.length)
@@ -714,5 +718,82 @@ export class ComprasService {
         detalhe: { nome: r.nome, origem: id, itens: r.itens },
       });
     return r;
+  }
+
+  // ENVIAR AO FORNECEDOR (decisão do dono, 10/10/2026). O sistema NÃO envia sozinho: devolve o
+  // pedido em texto e os links que abrem o WhatsApp e o e-mail de quem está usando, já escritos —
+  // a pessoa confere e toca em enviar. Sem fornecedor (não é obrigatório direcionar o pedido) ou
+  // sem contato no cadastro, vem só o texto, para copiar e mandar por onde preferir.
+  async pedidoParaEnviar(tenantId: string, id: string, atual: string | null = null) {
+    const lista: any = await this.getLista(tenantId, id, atual, false);
+    const [f] = lista.fornecedorId
+      ? await this.db
+          .select({ nome: fornecedor.nome, contato: fornecedor.contato, telefone: fornecedor.telefone, email: fornecedor.email })
+          .from(fornecedor)
+          .where(and(eq(fornecedor.id, lista.fornecedorId), eq(fornecedor.tenantId, tenantId)))
+      : [];
+    // Quem assina o pedido: a loja da lista; na empresa de uma loja só (lista sem loja), a empresa.
+    const [loja] = lista.unidadeId
+      ? await this.db.select({ nome: unidade.nome }).from(unidade).where(and(eq(unidade.id, lista.unidadeId), eq(unidade.tenantId, tenantId)))
+      : await this.db.select({ nome: empresa.nome }).from(empresa).where(eq(empresa.id, tenantId));
+    const dados = {
+      loja: loja?.nome ?? '',
+      pedido: lista.nome,
+      fornecedor: f?.nome ?? null,
+      contato: f?.contato ?? null,
+      entrega: lista.dataRecebimento ?? null,
+      itens: lista.itens,
+    };
+    const texto = textoDoPedido(dados);
+    const assunto = assuntoDoPedido(dados);
+    const numero = telefoneParaWhatsapp(f?.telefone);
+    const email = emailParaEnvio(f?.email);
+    return {
+      id: lista.id,
+      nome: lista.nome,
+      status: lista.status,
+      texto,
+      assunto,
+      fornecedor: f ? { nome: f.nome, contato: f.contato ?? null, telefone: f.telefone ?? null, email: f.email ?? null } : null,
+      whatsapp: numero ? linkDoWhatsapp(numero, texto) : null,
+      email: email ? linkDoEmail(email, assunto, textoDoPedido(dados, false)) : null,
+      enviadoEm: lista.enviadoEm ?? null,
+      enviadoCanal: lista.enviadoCanal ?? null,
+    };
+  }
+
+  // "Marcar como enviado": é a PESSOA quem diz que enviou (o sistema só abriu o aplicativo dela —
+  // não tem como saber se a mensagem saiu). Fica no pedido quando e por onde, e na auditoria quem.
+  async marcarEnviado(tenantId: string, id: string, canal: string, atual: string | null = null, atorId?: string | null) {
+    if (canal !== 'whatsapp' && canal !== 'email') throw new BadRequestException('Canal de envio desconhecido.');
+    const [antes] = await this.db
+      .select({ id: compraLista.id, status: compraLista.status, nome: compraLista.nome })
+      .from(compraLista)
+      .where(
+        and(
+          eq(compraLista.id, id),
+          eq(compraLista.tenantId, tenantId),
+          isNull(compraLista.deletedAt),
+          condUnidadeOuRede(compraLista.unidadeId, atual),
+        ),
+      );
+    if (!antes) throw new NotFoundException('Pedido não encontrado');
+    if (antes.status === 'recebida') throw new BadRequestException('Este pedido já foi recebido: não há o que enviar.');
+    const agora = new Date();
+    await this.db
+      .update(compraLista)
+      .set({ enviadoEm: agora, enviadoCanal: canal, updatedAt: agora })
+      .where(and(eq(compraLista.id, id), eq(compraLista.tenantId, tenantId)));
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: atorId ?? null,
+      atorPerfil: '',
+      tipo: 'estoque',
+      acao: 'marcou_pedido_enviado',
+      entidadeTipo: 'compra_lista',
+      entidadeId: id,
+      detalhe: { nome: antes.nome, canal },
+    });
+    return { ok: true, enviadoEm: agora.toISOString(), enviadoCanal: canal };
   }
 }

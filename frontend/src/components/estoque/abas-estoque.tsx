@@ -10,7 +10,7 @@ export const ABAS_ESTOQUE = [
   { key: 'produtos', label: 'Produtos' },
   { key: 'fichas', label: 'Fichas técnicas' },
   { key: 'contagem', label: 'Contagem' },
-  { key: 'compras', label: 'Compras' },
+  { key: 'compras', label: 'Pedidos' }, // pedidos de compra (a chave continua `compras`: links e `?aba=`)
   { key: 'recebimento', label: 'Recebimento' },
   { key: 'validades', label: 'Validades' },
   { key: 'etiquetas', label: 'Etiquetas' },

@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <style>
-/* MOCKUP das 8 abas do Estoque depois de "Produtos" — Fichas técnicas, Contagem, Compras, Recebimento,
+/* MOCKUP das 8 abas do Estoque depois de "Produtos" — Fichas técnicas, Contagem, Pedidos (ex-Compras), Recebimento,
    Validades, Etiquetas, Desperdício e Vistorias — no mesmo modelo aprovado em Produtos. Aprovado pelo dono
    em 07/10/2026 ("implementar as sugestões, protótipos aprovados").
    Dados inventados; nada aqui fala com o Regem. O que toda aba passa a ter:
@@ -36,7 +36,14 @@
    CONTAGEM, de 09/10/2026 (mig 312): o produto com duas ou mais marcas é contado MARCA A MARCA — um
    campo por marca e o total embaixo. A soma é o contado do produto e é ela que ajusta o estoque, que
    continua um só; o detalhe por marca fica guardado na contagem e aparece no histórico. Entre uma
-   contagem e outra o sistema não sabe quanto resta de cada marca (a venda baixa do produto). */
+   contagem e outra o sistema não sabe quanto resta de cada marca (a venda baixa do produto).
+   PEDIDOS, de 10/10/2026 (mig 313): a aba "Compras" passou a se chamar "Pedidos" (o endereço continua
+   `?aba=compras`). O novo pedido abre com a PRÉVIA ao lado da escolha dos produtos ("Seu pedido": o que
+   já foi marcado, quantidade, marca, 2ª opção e total; o ✕ tira o produto) — no celular a prévia vem
+   abaixo da lista. O responsável pelo recebimento chama-se CONFERENTE. "Enviar ao fornecedor" (ao criar
+   um pedido com fornecedor e na linha do pedido) NÃO envia sozinho: mostra o pedido em texto, sem
+   valores, e abre o WhatsApp ou o e-mail de quem está usando; quem diz que enviou é a pessoa ("Marcar
+   como enviado"). Sem fornecedor — não é obrigatório — ou sem contato no cadastro, fica "Copiar texto". */
 :root{
   --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
   --gold:#E8A845; --on-gold:#281B06; --navy:#0F2230; --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9;
@@ -133,6 +140,10 @@ tbody tr:hover{background:#FAFBFD}
 .escolha select{max-width:100%;min-height:36px;border:1px solid var(--line-2);border-radius:8px;padding:0 8px;background:#fff}
 .escolha .lado{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
 .conferir .so-rec{display:none} .conferir tr.rec .so-rec{display:block} .conferir tr.rec .traco{display:none} .conferir tr.rec{background:var(--ok-bg)}
+.com-previa{display:grid;grid-template-columns:minmax(0,1fr) 290px;gap:14px;align-items:start}
+.previa{border:1px solid var(--line);border-radius:10px;background:var(--bg);padding:10px 12px;position:sticky;top:0}
+.previa-linha{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding:8px 0;border-top:1px solid var(--line);margin-top:8px}
+@media (max-width:900px){.com-previa{grid-template-columns:1fr}.previa{position:static}}
 .marcador{display:flex;gap:10px;align-items:flex-start;cursor:pointer}
 .conferir input[type=checkbox]{width:auto;min-width:0;min-height:0} .conferir .marcador input{width:22px;height:22px;flex:none;margin-top:2px}
 @media (max-width:760px){.conferir,.conferir tbody,.conferir tr,.conferir td{display:block}.conferir thead{display:none}.conferir tr{padding:10px 12px;border-bottom:1px solid var(--line)}.conferir td{padding:4px 0;border:0}.conferir td[data-rot]::before{content:attr(data-rot);display:block;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--ink-2)}.conferir tr:not(.rec) td[data-rot]:not([data-rot="Pedido"]){display:none}}
@@ -251,7 +262,7 @@ const ABAS = {
     aoAcao: (k, r) => (k === 'contar' ? dialogoContar(r) : k === 'hist' ? dialogoHistorico(r) : k === 'editar' ? formContagem(r) : confirmarExcluir(r, 'A lista sai da tela e os avisos dela param. As contagens já feitas continuam no histórico do estoque.')),
   },
   compras: {
-    aba: 'Compras', titulo: 'Compras', um: 'lista', varios: 'listas', novo: '＋ Gerar lista', periodo: 'receber',
+    aba: 'Pedidos', titulo: 'Pedidos', um: 'pedido', varios: 'pedidos', novo: '＋ Novo pedido', periodo: 'receber',
     dados: [
       { nome: 'Hortifruti de quarta', forn: 'Hortifruti da Serra', itens: 8, receber: '2026-10-07', resp: 'Carlos', st: 'aguardando', total: 312 },
       { nome: 'Compra da semana', forn: 'Atacado Central', itens: 14, receber: '2026-10-08', resp: 'Ana', st: 'aguardando', total: 1284.5 },
@@ -261,20 +272,20 @@ const ABAS = {
       { nome: 'Frios da quinzena', forn: 'Frios & Cia', itens: 6, receber: '2026-09-25', resp: 'Ana', st: 'recebida', total: 954.8 },
     ],
     texto: (r) => r.nome + ' ' + r.forn,
-    sits: [['Aguardando', (r) => r.st === 'aguardando', 'warn'], ['Atrasadas', (r) => r.st === 'aguardando' && dias(r.receber) < 0, 'crit'], ['Recebidas', (r) => r.st === 'recebida', ''], ['Com falta', (r) => r.st === 'recebida' && r.falta > 0, 'warn']],
-    selects: [['Fornecedor', 'Todos os fornecedores', (r) => r.forn || 'Sem fornecedor'], ['Responsável', 'Todos os responsáveis', (r) => r.resp || 'Sem responsável']],
+    sits: [['Aguardando', (r) => r.st === 'aguardando', 'warn'], ['Atrasados', (r) => r.st === 'aguardando' && dias(r.receber) < 0, 'crit'], ['Recebidos', (r) => r.st === 'recebida', ''], ['Com falta', (r) => r.st === 'recebida' && r.falta > 0, 'warn']],
+    selects: [['Fornecedor', 'Todos os fornecedores', (r) => r.forn || 'Sem fornecedor'], ['Conferente', 'Todos os conferentes', (r) => r.resp || 'Sem conferente']],
     resumo: (l) => `${brl(l.filter((r) => r.st === 'aguardando').reduce((s, r) => s + r.total, 0))} a receber`,
     colunas: [
-      ['Lista', (r) => `<div class="nome">${r.nome}</div><div class="sub">${r.forn || 'Sem fornecedor'}</div>`],
+      ['Pedido', (r) => `<div class="nome">${r.nome}</div><div class="sub">${r.forn || 'Sem fornecedor'}${r.enviado ? ` · enviado por ${r.enviado}` : ''}</div>`],
       ['Itens', (r) => `<span class="num">${r.itens}</span>`],
-      ['Receber em', (r) => `${br(r.receber)}${r.st === 'aguardando' ? `<div class="sub">${dias(r.receber) === 0 ? 'hoje' : dias(r.receber) > 0 ? `em ${dias(r.receber)} dia(s)` : `atrasada ${-dias(r.receber)} dia(s)`}</div>` : ''}`],
-      ['Responsável', (r) => r.resp || '—'],
+      ['Receber em', (r) => `${br(r.receber)}${r.st === 'aguardando' ? `<div class="sub">${dias(r.receber) === 0 ? 'hoje' : dias(r.receber) > 0 ? `em ${dias(r.receber)} dia(s)` : `atrasado ${-dias(r.receber)} dia(s)`}</div>` : ''}`],
+      ['Conferente', (r) => r.resp || '—'],
       ['Valor estimado', (r) => `<span class="num">${brl(r.total)}</span>`],
       ['Situação', (r) => selo(r.st === 'recebida' ? 'ok' : 'warn', r.st) + (r.st === 'recebida' && r.falta ? `<div class="sub"><b>${r.falta} itens com falta${r.pedidoDeNovo ? ' · já pedido de novo' : ''}</b></div>` : '')],
     ],
-    acoes: (r) => [...(r.st === 'aguardando' ? [['✓', 'Conferir e receber', 'receber', 'pri']] : []), ...(r.st === 'recebida' && r.falta && !r.pedidoDeNovo ? [['＋', 'Gerar lista com o que faltou', 'faltou']] : []), ['☰', 'Ver itens', 'ver'], ['🗑', 'Excluir', 'excluir', 'perigo']],
+    acoes: (r) => [...(r.st === 'aguardando' ? [['✓', 'Conferir e receber', 'receber', 'pri']] : []), ...(r.st === 'recebida' && r.falta && !r.pedidoDeNovo ? [['＋', 'Gerar pedido com o que faltou', 'faltou']] : []), ...(r.st === 'aguardando' ? [['➤', 'Enviar ao fornecedor', 'enviar']] : []), ['☰', 'Ver itens', 'ver'], ['🗑', 'Excluir', 'excluir', 'perigo']],
     aoNovo: () => formCompra(),
-    aoAcao: (k, r) => (k === 'receber' ? dialogoConferir(r) : k === 'faltou' ? dialogoFaltou(r) : k === 'ver' ? dialogoItens(r) : confirmarExcluir(r, r.st === 'recebida' ? 'A lista sai da tela. O que entrou no estoque e a conta a pagar continuam.' : 'A lista sai da tela e ninguém mais é avisado do recebimento. Nada entrou no estoque por ela.')),
+    aoAcao: (k, r) => (k === 'receber' ? dialogoConferir(r) : k === 'faltou' ? dialogoFaltou(r) : k === 'enviar' ? dialogoEnviar(r) : k === 'ver' ? dialogoItens(r) : confirmarExcluir(r, r.st === 'recebida' ? 'O pedido sai da tela. O que entrou no estoque e a conta a pagar continuam.' : 'O pedido sai da tela e ninguém mais é avisado do recebimento. Nada entrou no estoque por ele.')),
   },
   recebimento: {
     aba: 'Recebimento', titulo: 'Recebimento', um: 'recebimento', varios: 'recebimentos', novo: '＋ Novo recebimento', periodo: 'data',
@@ -599,17 +610,66 @@ function dialogoHistorico(r) {
     corpo: r.ultima ? `<div class="tabela"><table><caption class="sr">Contagens feitas</caption><thead><tr><th>Data</th><th>Quem contou</th><th>Produtos contados</th><th>Com diferença</th><th>Ajustou o estoque</th></tr></thead><tbody>
       ${[[r.ultima, r.resp || 'Ana', r.itens, 3, 'sim'], ['2026-09-23', 'Carlos', r.itens, 0, 'sim'], ['2026-09-16', 'Ana', r.itens - 2, 5, 'não']].map((h, k) => `<tr><td class="num">${br(h[0])}</td><td>${h[1]}</td><td class="num">${h[2]}</td><td>${h[3] ? selo('warn', h[3] + ' produto(s)') : selo('ok', 'tudo conferiu')}</td><td>${h[4]}</td></tr>${k === 0 ? '<tr><td colspan="5"><div class="sub"><b>Contado por marca</b> — Queijo muçarela peça: Marca Alfa 7 · Marca Beta 4,6 (total 11,6 kg)</div></td></tr>' : ''}`).join('')}</tbody></table></div>` : '<div class="vazio">Esta lista ainda não foi contada.</div>' });
 }
-function formCompra() {
-  painel({ tipo: 'gaveta', largo: true, titulo: 'Gerar lista de compras', rodape: rodapeSalvar('Criar lista', 'Lista de compras criada.'),
-    corpo: `${campo('Nome da lista', '<input placeholder="Ex.: Compra da semana">')}
-      <div class="duas">${campo('Fornecedor', sel(['— sem fornecedor —', ...FORN]))}${campo('Responsável pelo recebimento (opcional)', sel(['— ninguém —', ...PESSOAS]))}</div>
-      <div class="duas">${campo('Data de recebimento', '<input type="date" value="2026-10-09">')}${campo('Data de pagamento', '<input type="date">', 'Pode ficar para a conferência. Em branco, usa o prazo do fornecedor.')}</div>
-      <div><button class="bt" type="button" onclick="document.querySelectorAll('[data-escolha] label').forEach(l=>{const p=PRODUTOS[l.dataset.p];if(p[3]<p[4]){l.querySelector('input[type=checkbox]').checked=true;l.querySelector('input[type=number]').value=p[4]*2-p[3]}});contarEscolha(document.querySelector('[data-escolha]'));avisar('Produtos abaixo do mínimo marcados, com a quantidade sugerida.')">✨ Sugerir do estoque baixo</button></div>
-      ${escolhaProdutos(true)}
-      <div style="display:grid;gap:6px"><label><input type="checkbox" checked> Avisar no KDS ao receber</label><label><input type="checkbox" checked> Avisar no painel</label></div>` });
-  contarEscolha($('[data-escolha]'));
+// ── Novo pedido, com a PRÉVIA ao lado (10/10/2026) ──
+// A prévia mostra o que já foi marcado, na ordem da lista, com quantidade, marca e 2ª opção; o ✕ tira
+// o produto do pedido. No celular ela vem abaixo da lista de produtos.
+function atualizarPrevia() {
+  const alvo = $('#previa'); if (!alvo) return;
+  const marcados = [...document.querySelectorAll('#painel [data-escolha] label')].filter((l) => $('input[type=checkbox]', l).checked);
+  $('#previaConta').textContent = marcados.length ? `${marcados.length} produto(s)` : 'Nenhum produto ainda.';
+  alvo.innerHTML = marcados.length ? marcados.map((l) => {
+    const p = PRODUTOS[l.dataset.p], q = $('input[type=number]', l).value, m1 = $('[data-marca1]', l)?.value, m2 = $('[data-marca2]', l)?.value;
+    const marca = p[6]?.length === 1 ? p[6][0] : m1;
+    return `<div class="previa-linha"><span><b>${p[5] || p[0]}</b><span class="sub" style="display:block">${q ? `${num(Number(q))} ${p[2]}` : '<b>sem quantidade</b>'}${marca ? ` · ${marca}` : ''}${m2 ? ` · 2ª opção: ${m2}` : ''}${p[6]?.length > 1 && !m1 ? ' · <b>falta a marca</b>' : ''}</span></span><button type="button" class="ic" data-tirar-previa="${l.dataset.p}" aria-label="Tirar ${p[5] || p[0]} do pedido">✕</button></div>`;
+  }).join('') : '<p class="sub" style="margin:0">Marque os produtos na lista: eles aparecem aqui, com a quantidade e a marca.</p>';
 }
-// ── Compras: conferir com MARCADOR, falta e "lista do que faltou" (09/10/2026) ──
+document.addEventListener('input', () => setTimeout(atualizarPrevia));
+document.addEventListener('change', () => setTimeout(atualizarPrevia));
+document.addEventListener('click', (ev) => {
+  const t = ev.target.closest('[data-tirar-previa]');
+  if (t) { const l = $(`#painel [data-escolha] label[data-p="${t.dataset.tirarPrevia}"]`); $('input[type=checkbox]', l).checked = false; contarEscolha($('#painel [data-escolha]')); }
+  setTimeout(atualizarPrevia);
+});
+function formCompra() {
+  painel({ tipo: 'gaveta', largo: true, titulo: 'Novo pedido de compra',
+    rodape: `<button class="bt" data-fechar>Cancelar</button><button class="bt pri" id="bCriarPedido">Criar pedido</button>`,
+    corpo: `${campo('Nome do pedido', '<input id="pedNome" placeholder="Ex.: Compra da semana">')}
+      <div class="duas">${campo('Fornecedor (opcional)', sel(['— sem fornecedor —', ...FORN]).replace('<select>', '<select id="pedForn">'), 'Com fornecedor, ao criar o pedido a tela oferece enviar a ele por WhatsApp ou e-mail.')}${campo('Conferente (opcional)', sel(['— ninguém —', ...PESSOAS]), 'Quem confere o pedido quando ele chegar na loja.')}</div>
+      <div class="duas">${campo('Data de recebimento', '<input type="date" value="2026-10-14">')}${campo('Data de pagamento', '<input type="date">', 'Pode ficar para a conferência. Em branco, usa o prazo do fornecedor.')}</div>
+      <div><button class="bt" type="button" onclick="document.querySelectorAll('[data-escolha] label').forEach(l=>{const p=PRODUTOS[l.dataset.p];if(p[3]<p[4]){l.querySelector('input[type=checkbox]').checked=true;l.querySelector('input[type=number]').value=p[4]*2-p[3]}});contarEscolha(document.querySelector('[data-escolha]'));atualizarPrevia();avisar('Produtos abaixo do mínimo marcados, com a quantidade sugerida.')">✨ Sugerir do estoque baixo</button></div>
+      <div class="com-previa">${escolhaProdutos(true)}
+        <aside class="previa" aria-labelledby="previaTitulo"><b id="previaTitulo" style="font-family:var(--display);font-size:16px">Seu pedido</b><div class="sub" id="previaConta" role="status"></div><div id="previa"></div></aside></div>
+      <div style="display:grid;gap:6px"><label><input type="checkbox" checked> Avisar no KDS ao receber</label><label><input type="checkbox" checked> Avisar no painel</label></div>` });
+  contarEscolha($('[data-escolha]')); atualizarPrevia();
+  $('#bCriarPedido').onclick = () => {
+    const forn = $('#pedForn').selectedIndex > 0 ? $('#pedForn').value : '';
+    const novo = { nome: $('#pedNome').value.trim() || 'Compra da semana', forn, itens: Math.max(1, document.querySelectorAll('#painel [data-escolha] input[type=checkbox]:checked').length), receber: '2026-10-14', resp: '', st: 'aguardando', total: 0 };
+    ABAS.compras.dados.unshift(novo); fechar(); desenhar(); avisar('Pedido criado.');
+    if (forn) dialogoEnviar(novo); // com fornecedor, a tela já oferece enviar (não é obrigatório)
+  };
+}
+// ── Enviar ao fornecedor (10/10/2026): o Regem NÃO envia sozinho ──
+// O botão abre o WhatsApp ou o e-mail de quem está usando, com o pedido já escrito (sem valores). Quem
+// diz que enviou é a pessoa: "Marcar como enviado". Sem fornecedor ou sem contato, só "Copiar texto".
+function dialogoEnviar(r) {
+  const tem = !!r.forn, comContato = tem && r.forn !== 'Verdes do Sítio'; // amostra: um fornecedor sem contato no cadastro
+  const texto = `*Pedido de compra — Loja Centro*\nPedido: ${r.nome}${tem ? `\nFornecedor: ${r.forn} (a/c Marcos)` : ''}\nEntrega desejada: ${br(r.receber)}/2026\n\n• 10 kg — Barra de muçarela 4 kg · marca Marca Alfa (2ª opção: Marca Beta)\n• 3 kg — Peça de presunto cozido · marca Marca Gama\n• 8 saco — Alface\n\nPor favor, confirme o recebimento deste pedido.`;
+  painel({ titulo: 'Enviar ao fornecedor',
+    rodape: `<button class="bt" data-fechar>Agora não</button>${comContato ? '<button class="bt" data-abrir="e-mail">✉ Abrir e-mail</button><button class="bt pri" data-abrir="WhatsApp">Abrir WhatsApp</button>' : ''}`,
+    corpo: `${tem ? `<p style="margin:0">Para <b>${r.forn}</b> (a/c Marcos)<span class="sub" style="display:block">${comContato ? '(21) 99999-0000 · compras@fornecedor.exemplo' : 'sem telefone nem e-mail no cadastro'}</span></p>` : '<p class="sub" style="margin:0">Este pedido não tem fornecedor. Copie o texto e envie por onde preferir.</p>'}
+      ${tem && !comContato ? `<div class="conta">O cadastro de <b>${r.forn}</b> não tem um telefone com DDD nem um e-mail que sirvam para abrir o envio. Complete em Cadastros › Fornecedores — ou copie o texto abaixo.</div>` : ''}
+      ${comContato ? '<p class="ajuda" style="margin:0">O botão abre o seu WhatsApp ou o seu e-mail com o pedido já escrito: é você quem toca em enviar. Os valores não vão no texto.</p>' : ''}
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>Texto do pedido</b><button class="bt" type="button" onclick="avisar('Texto do pedido copiado.')">Copiar texto</button></div>
+      <pre style="margin:0;white-space:pre-wrap;word-break:break-word;font-family:inherit;border:1px solid var(--line);border-radius:10px;background:var(--bg);padding:8px 12px;max-height:38vh;overflow-y:auto">${texto}</pre>
+      <div id="enviouBarra" hidden class="conta" style="display:none;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><span id="enviouTexto"></span><button class="bt pri" id="bMarcarEnviado" type="button">Marcar como enviado</button></div>
+      ${r.enviado ? `<p style="margin:0"><b>Este pedido já foi marcado como enviado por ${r.enviado}.</b></p>` : ''}` });
+  $('#painel').querySelectorAll('[data-abrir]').forEach((b) => (b.onclick = () => {
+    const barra = $('#enviouBarra'); barra.hidden = false; barra.style.display = 'flex'; barra.dataset.canal = b.dataset.abrir;
+    $('#enviouTexto').textContent = `Enviou o pedido pelo ${b.dataset.abrir}? Marque para ficar registrado no pedido.`;
+  }));
+  $('#bMarcarEnviado').onclick = () => { r.enviado = $('#enviouBarra').dataset.canal; fechar(); desenhar(); avisar(`Pedido marcado como enviado por ${r.enviado}.`); };
+}
+// ── Pedidos: conferir com MARCADOR, falta e "pedido do que faltou" (09/10/2026) ──
 // Cada item começa SEM o marcador. Marcado, mostra quantidade (vem a pedida), validade e lote — e,
 // com duas ou mais marcas, "Marca que veio". Sem marcar, é "não veio" e nada entra no estoque.
 function contarConferencia() {
@@ -645,17 +705,17 @@ function dialogoConferir(r) {
   $('#cTodos').onclick = () => { const todos = !$('#painel .conferir tr:not(.rec)'); $('#painel').querySelectorAll('[data-rec]').forEach((x) => (x.checked = !todos)); contarConferencia(); };
   $('#bRec').onclick = () => { r.st = 'recebida'; r.falta = Number($('#bRec').dataset.falta) || 0; fechar(); desenhar(); avisar('Compra conferida e recebida — estoque atualizado.'); if (r.falta) dialogoFaltou(r); };
 }
-// A lista recebida fecha como está; o que veio a menos vira uma lista NOVA, só com a falta.
+// O pedido recebido fecha como está; o que veio a menos vira um pedido NOVO, só com a falta.
 function dialogoFaltou(r) {
   const faltas = [[PRODUTOS[3], 5, 'pedido 10, vieram 5'], [PRODUTOS[4], 3, 'não veio (pedido: 3)']];
-  painel({ titulo: 'Gerar lista com o que faltou', rodape: `<button class="bt" data-fechar>Agora não</button><button class="bt pri" id="bFaltou">Gerar lista</button>`,
-    corpo: `<p style="margin:0">Em <b>${r.nome}</b>, ${faltas.length} itens vieram a menos do que o pedido. A lista nova leva <b>só o que faltou</b>, com o mesmo fornecedor e as mesmas marcas. A lista recebida continua como está.</p>
+  painel({ titulo: 'Gerar pedido com o que faltou', rodape: `<button class="bt" data-fechar>Agora não</button><button class="bt pri" id="bFaltou">Gerar pedido</button>`,
+    corpo: `<p style="margin:0">Em <b>${r.nome}</b>, ${faltas.length} itens vieram a menos do que o pedido. O pedido novo leva <b>só o que faltou</b>, com o mesmo fornecedor e as mesmas marcas. O pedido recebido continua como está.</p>
       <div style="border:1px solid var(--line);border-radius:10px">${faltas.map(([p, n, t], k) => `<div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 12px;padding:8px 12px;${k ? 'border-top:1px solid var(--line)' : ''}"><span><b>${p[5] || p[0]}</b>${p[6]?.length ? `<span class="sub" style="display:block">Marca: ${p[6][0]}${p[6][1] ? ` · 2ª opção: ${p[6][1]}` : ''}</span>` : ''}</span><span style="text-align:right"><b class="num">${n}</b> ${p[2]}<span class="sub" style="display:block">${t}</span></span></div>`).join('')}</div>
       ${campo('Data de recebimento (opcional)', '<input type="date">')}` });
   $('#bFaltou').onclick = () => {
     r.pedidoDeNovo = true;
     ABAS.compras.dados.unshift({ nome: `Faltou de: ${r.nome}`, forn: r.forn, itens: faltas.length, receber: '2026-10-14', resp: r.resp, st: 'aguardando', total: 0 });
-    fechar(); desenhar(); avisar(`Lista "Faltou de: ${r.nome}" criada com ${faltas.length} itens.`);
+    fechar(); desenhar(); avisar(`Pedido "Faltou de: ${r.nome}" criado com ${faltas.length} itens.`);
   };
 }
 function dialogoItens(r) {
@@ -663,8 +723,8 @@ function dialogoItens(r) {
   // amostra: na lista com falta, o 1º item veio em parte (com a 2ª opção de marca) e o 2º não veio
   const falta = (i) => (rec && r.falta ? (i === 0 ? selo('warn', 'faltaram 5') : i === 1 ? selo('crit', 'não veio') : '') : '');
   painel({ largo: true, titulo: `${r.nome || r.forn} · ${r.itens} itens`,
-    rodape: `${rec && r.falta && !r.pedidoDeNovo ? '<button class="bt" id="bItensFaltou" style="margin-right:auto">Gerar lista com o que faltou</button>' : ''}<button class="bt pri" data-fechar>Fechar</button>`,
-    corpo: `${rec && r.falta ? `<div class="conta"><b>${r.falta} itens vieram a menos do que o pedido.</b> ${r.pedidoDeNovo ? 'A lista do que faltou já foi gerada.' : 'Só o que chegou entrou no estoque.'}</div>` : ''}
+    rodape: `${rec && r.falta && !r.pedidoDeNovo ? '<button class="bt" id="bItensFaltou" style="margin-right:auto">Gerar pedido com o que faltou</button>' : ''}<button class="bt pri" data-fechar>Fechar</button>`,
+    corpo: `${rec && r.falta ? `<div class="conta"><b>${r.falta} itens vieram a menos do que o pedido.</b> ${r.pedidoDeNovo ? 'O pedido do que faltou já foi gerado.' : 'Só o que chegou entrou no estoque.'}</div>` : ''}
       <div class="tabela"><table><caption class="sr">Itens</caption><thead><tr><th>Produto</th><th>Pedido</th>${rec ? '<th>Recebido</th>' : ''}<th>Custo unitário</th></tr></thead><tbody>
       ${PRODUTOS.slice(3, 7).map((p, i) => `<tr><td><b>${p[5] || p[0]}</b>${p[6]?.length ? `<div class="sub"><b>Marca: ${p[6][0]}${p[6][1] ? ` · 2ª opção: ${p[6][1]}` : ''}</b></div>` : ''}${rec && r.falta && i === 0 && p[6]?.[1] ? `<div class="sub"><b>Veio: ${p[6][1]}</b></div>` : ''}${p[5] ? `<div class="sub">No estoque: ${p[0]}</div>` : ''}</td><td class="num">${p[4] * 2} ${p[2]}</td>${rec ? `<td><span class="num">${r.falta ? (i === 0 ? p[4] : i === 1 ? 0 : p[4] * 2) : p[4] * 2} ${p[2]}</span> ${falta(i)}</td>` : ''}<td class="num">${brl(4.5 + i * 3.2)}</td></tr>`).join('')}</tbody></table></div><p class="sub" style="margin:0">Mostrando 4 de ${r.itens}.</p>` });
   const b = $('#bItensFaltou'); if (b) b.onclick = () => dialogoFaltou(r);

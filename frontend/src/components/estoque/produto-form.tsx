@@ -273,12 +273,12 @@ export function ProdutoForm({
         <div className="space-y-1.5">
           <Label htmlFor="nome-comercial">Nome comercial (opcional)</Label>
           <Input id="nome-comercial" value={nomeComercial} onChange={(e) => setNomeComercial(e.target.value)} maxLength={120} placeholder="Ex.: Caixa de pão brioche com 12" autoComplete="off" aria-describedby="nome-comercial-ajuda" />
-          <p id="nome-comercial-ajuda" className={ajuda}>Como o produto é comprado. É o nome que aparece na lista de compras e no recebimento; em branco, vale o nome do produto.</p>
+          <p id="nome-comercial-ajuda" className={ajuda}>Como o produto é comprado. É o nome que aparece no pedido de compra e no recebimento; em branco, vale o nome do produto.</p>
         </div>
 
         <div className="space-y-1.5">
           <Label htmlFor="marca-nova">Marcas (opcional)</Label>
-          <p id="marcas-ajuda" className={ajuda}>Com duas ou mais marcas, quem gera a lista de compras escolhe qual comprar. O estoque e o custo continuam um só.</p>
+          <p id="marcas-ajuda" className={ajuda}>Com duas ou mais marcas, quem faz o pedido de compra escolhe qual comprar. O estoque e o custo continuam um só.</p>
           {marcas.length > 0 && (
             <ul className="flex flex-wrap gap-1.5" aria-label="Marcas do produto">
               {marcas.map((m) => (

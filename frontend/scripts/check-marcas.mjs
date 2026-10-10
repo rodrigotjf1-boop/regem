@@ -148,6 +148,27 @@ try {
     assert.equal(p.textoPorMarca(null), '');
   });
 
+  caso('prévia do pedido: os marcados na ordem em que foram marcados, com quantidade, marca e valor', () => {
+    const itens = [
+      { id: 'q', ...QUEIJO, unidadeMedida: 'un', unidadeLista: 'unidade' },
+      { id: 'c', ...CARNE, unidadeMedida: 'unidade' },
+      { id: 's', ...SAL, unidadeMedida: 'kg' },
+    ];
+    const linhas = p.linhasDoPedido(itens, {
+      s: { quantidade: '2', custoUnitario: '3.5' },
+      q: { quantidade: '10', custoUnitario: '4', marca: 'marca alfa', marcaAlternativa: 'Marca Beta' },
+      c: { quantidade: '', custoUnitario: '9' },
+      x: { quantidade: '1' }, // produto que não existe mais: fica de fora
+    });
+    assert.deepEqual(linhas.map((l) => l.id), ['s', 'q', 'c']); // a ordem é a da marcação
+    assert.deepEqual(linhas[0], { id: 's', titulo: 'Sal de teste', quantidade: 2, unidade: 'kg', marca: '', segunda: '', faltaMarca: false, valor: 7 });
+    assert.deepEqual(linhas[1], { id: 'q', titulo: 'Barra de queijo cheddar fatiado', quantidade: 10, unidade: 'unidade', marca: 'Marca Alfa', segunda: 'Marca Beta', faltaMarca: false, valor: 40 });
+    assert.deepEqual(linhas[2], { id: 'c', titulo: 'Caixa de hambúrguer de teste', quantidade: 0, unidade: 'unidade', marca: 'Marca Gama', segunda: '', faltaMarca: false, valor: 0 }); // marcado, ainda sem quantidade
+    assert.equal(p.linhasDoPedido(itens, { q: { quantidade: '1' } })[0].faltaMarca, true); // duas marcas e nenhuma escolhida
+    assert.deepEqual(p.linhasDoPedido(itens, {}), []);
+    assert.equal(p.linhasDoPedido(itens, { s: { quantidade: '3', custoUnitario: '0.33' } })[0].valor, 0.99); // em centavos, sem sujeira de conta
+  });
+
   console.log(`\ncheck:marcas — ${n} grupos de casos, todos certos.`);
 } finally {
   rmSync(tmp, { recursive: true, force: true });
