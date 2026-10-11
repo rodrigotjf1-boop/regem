@@ -269,9 +269,9 @@ descrever('API de integração — cupons (GET /cupons, GET /cupons/usos, POST /
     for (const t of FONTES) await pool.query(`create table ${SCHEMA}.${t} (like public.${t} including all)`);
     // O índice único do código com o NOME de produção (o `like` gera outro nome), a cascata
     // cupom_uso → cupom e o carimbo do cupom — tudo dentro do schema do teste.
-    for (const x of await q(
-      `select indexname from pg_indexes where schemaname = $1 and tablename = 'cupom' and indexdef ilike '%upper(codigo)%'`,
-      [SCHEMA],
+    // (a leitura de `indexdef` e cada migration abaixo passam pelo ajudante da corrida de catálogo — ERR-194)
+    for (const x of await repetirNaCorridaDeCatalogo(() =>
+      q(`select indexname from pg_indexes where schemaname = $1 and tablename = 'cupom' and indexdef ilike '%upper(codigo)%'`, [SCHEMA]),
     )) {
       await pool.query(`drop index ${SCHEMA}.${x.indexname}`);
     }
@@ -281,14 +281,14 @@ descrever('API de integração — cupons (GET /cupons, GET /cupons/usos, POST /
     );
     await pool.query(`create trigger trg_bump_updated_at before update on ${SCHEMA}.cupom for each row execute function public.bump_updated_at()`);
     await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(mig('295_integracao_token_loja.sql'))));
-    await pool.query(mig('296_integracao_versao_vendas.sql'));
-    await pool.query(mig('297_pedido_externo_comanda_idx.sql'));
-    const conferencia = (await pool.query(mig('298_integracao_cupons.sql')) as any) as any[];
+    await repetirNaCorridaDeCatalogo(() => pool.query(mig('296_integracao_versao_vendas.sql')));
+    await repetirNaCorridaDeCatalogo(() => pool.query(mig('297_pedido_externo_comanda_idx.sql')));
+    const conferencia = (await repetirNaCorridaDeCatalogo(() => pool.query(mig('298_integracao_cupons.sql'))) as any) as any[];
     const ultima = Array.isArray(conferencia) ? conferencia[conferencia.length - 1] : conferencia;
     const falhas = ultima.rows.filter((r: any) => r.ok !== true).map((r: any) => r.objeto);
     if (falhas.length) throw new Error(`conferência da 298 falhou: ${falhas.join(', ')}`);
     // A 299 (origem do pedido do cardápio): o carimbador lê `pedido_origem` ao montar as vendas.
-    const conf299 = (await pool.query(mig('299_pedido_origem.sql')) as any) as any[];
+    const conf299 = (await repetirNaCorridaDeCatalogo(() => pool.query(mig('299_pedido_origem.sql'))) as any) as any[];
     const falhas299 = conf299[conf299.length - 1].rows.filter((r: any) => r.ok !== true).map((r: any) => r.objeto);
     if (falhas299.length) throw new Error(`conferência da 299 falhou: ${falhas299.join(', ')}`);
     // Só a FK interna cupom_uso → cupom, as duas no schema do teste (o `regclass` omite o schema do

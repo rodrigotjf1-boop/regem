@@ -1,6 +1,9 @@
 // Textos da autorização pela loja e de "Aplicativos conectados" (trilha C, C1b — mockup
 // `mockups/regem-autorizar-liame.html`, aprovado em 01/10/2026). O servidor manda as chaves dos
 // escopos; o que a pessoa lê sai daqui. Escopo sem texto próprio cai no rótulo do servidor.
+//
+// A página é a mesma para todo aplicativo; o que muda de um para outro está em `TEXTO_APP`. Os
+// textos do Farol (o que ele recebe e o que não vai) foram aprovados pelo dono em 10/10/2026.
 
 export const TEXTO_ESCOPO: Record<string, { rotulo: string; texto: string }> = {
   'pedidos.ler': {
@@ -21,6 +24,16 @@ export const TEXTO_ESCOPO: Record<string, { rotulo: string; texto: string }> = {
     rotulo: 'Criar cupom de campanha',
     texto: 'O Liame cria e desativa cupons de campanha na loja. Cada cupom passa pela aprovação de alguém da sua empresa antes de existir.',
   },
+  // Farol (mig 315) — nenhum dos três leva preço, custo ou cliente.
+  'catalogo.ler': {
+    rotulo: 'Produtos e adicionais',
+    texto: 'Os produtos da loja, com categoria, variações, setor de produção, tempo de preparo e os adicionais de cada um. Sem preço.',
+  },
+  'fichas.ler': { rotulo: 'Fichas técnicas', texto: 'Os ingredientes de cada ficha, com quantidade e unidade. Sem custo.' },
+  'producao.ler': {
+    rotulo: 'Pedidos em produção',
+    texto: 'O que está na fila da cozinha: produto, quantidade, adicionais, observação e horários. Sem o cliente e sem valores.',
+  },
 };
 
 /** O que a página diz quando a chave do custo está travada (presidente sem "Ver valores em R$"). */
@@ -32,6 +45,50 @@ export const NAO_VAI: { titulo: string; texto: string }[] = [
   { titulo: 'O resto da operação', texto: 'Equipe, escala, ponto, estoque e caixa não fazem parte.' },
   { titulo: 'A sua conta', texto: 'O Liame não recebe senha nem entra no seu Regem.' },
 ];
+
+/** O que muda de um aplicativo para outro nas frases da autorização e de "Aplicativos conectados". */
+export type TextoApp = {
+  /** O nome do aplicativo, para a tela que ainda não tem a resposta do servidor (o pedido que não vale). */
+  nome: string;
+  /** O que o aplicativo lê, como a frase diz: "O Liame quer <ler as vendas> da sua loja". */
+  le: string;
+  /** O que ele faz com o que lê, e o limite: a frase depois de "O <aplicativo> ". */
+  faz: string;
+  /** Onde, no aplicativo, a pessoa recomeça a conexão. `null` = a tela diz só "comece por lá". */
+  ondeConectar: string | null;
+  /** O que o aplicativo deixa de ler quando é revogado ("os pedidos"). */
+  leitura: string;
+  naoVai: { titulo: string; texto: string }[];
+};
+
+const TEXTO_LIAME: TextoApp = {
+  nome: 'Liame',
+  le: 'ler as vendas',
+  faz: 'mede quais anúncios viraram pedido no caixa. Ele só lê o que estiver marcado aqui; não muda pedido, preço nem cardápio.',
+  ondeConectar: 'Contas conectadas → Conectar o Regem',
+  leitura: 'os pedidos',
+  naoVai: NAO_VAI,
+};
+
+export const TEXTO_APP: Record<string, TextoApp> = {
+  liame: TEXTO_LIAME,
+  farol: {
+    nome: 'Farol',
+    le: 'ler o cardápio, as fichas e a fila da cozinha',
+    faz: 'confere pela câmera se o pedido foi montado como a ficha manda. Ele só lê o que está listado aqui; não muda pedido, preço nem cardápio.',
+    ondeConectar: null,
+    leitura: 'o cardápio, as fichas e a fila da cozinha',
+    naoVai: [
+      { titulo: 'Preços e custos', texto: 'Preço de venda, custo, margem e CMV ficam no Regem.' },
+      { titulo: 'Quem é o cliente', texto: 'Nome, telefone e endereço não fazem parte.' },
+      { titulo: 'O resto da operação', texto: 'Vendas, caixa, estoque, equipe e ponto não fazem parte.' },
+      { titulo: 'A sua conta', texto: 'O Farol não recebe senha nem entra no seu Regem.' },
+    ],
+  },
+};
+
+/** Os textos do aplicativo. O que ainda não tem os seus usa os do primeiro que a página teve (o Liame). */
+export const textoDoApp = (cliente: string | null | undefined): TextoApp => (cliente && TEXTO_APP[cliente]) || TEXTO_LIAME;
 
 export const NIVEL: Record<string, string> = {
   presidente: 'presidente',
@@ -53,6 +110,9 @@ export function resumoDoAcesso(escopos: string[], cliente: string): { recebe: st
   if (tem('custos.ler')) partes.push('custo');
   if (tem('clientes.telefone.ler')) partes.push('telefone do cliente');
   if (tem('vendas.99food.ler')) partes.push('vendas da 99Food');
+  if (tem('catalogo.ler')) partes.push('produtos e adicionais');
+  if (tem('fichas.ler')) partes.push('fichas técnicas');
+  if (tem('producao.ler')) partes.push('pedidos em produção');
   const texto = partes.join(', ');
   const recebe = texto ? texto[0].toUpperCase() + texto.slice(1) : '—';
   if (cliente !== 'liame') return { recebe, nota: null };
@@ -99,6 +159,16 @@ export type Aplicativo = {
   ativos: number;
   acessos: Acesso[];
 };
+
+/** O recado de "Aplicativos conectados": como incluir outra loja ou religar o aplicativo. */
+export function comoMudar(a: Pick<Aplicativo, 'cliente' | 'rotulo' | 'abrangencia'>): string {
+  if (a.abrangencia === 'empresa') {
+    return 'este acesso é emitido pela distribuição DMS a pedido do presidente. Para ligar de novo depois de revogar, fale com o suporte.';
+  }
+  // O Farol recebe sempre as mesmas três leituras: só há loja para incluir.
+  if (a.cliente === 'farol') return `para incluir outra loja, comece pelo ${a.rotulo}.`;
+  return `para incluir outra loja ou mudar o que o ${a.rotulo} recebe, comece pelo ${a.rotulo}, em Contas conectadas.`;
+}
 
 /** Quem autorizou e quando; o que veio pelo console aparece como da distribuição. */
 export function autorizadoPor(a: Acesso): string {

@@ -3,10 +3,33 @@ import { ehCorridaDeCatalogo, repetirNaCorridaDeCatalogo } from './corrida-de-ca
 describe('corrida de catálogo nas specs (ERR-194)', () => {
   const corrida = () => new Error('could not open relation with OID 21779');
 
+  // O impasse entre duas specs no meio da mesma migration: vale o CÓDIGO (a mensagem muda com o idioma do servidor).
+  const impasse = (mensagem: string) => Object.assign(new Error(mensagem), { code: '40P01' });
+
   it('reconhece só o erro da corrida', () => {
     expect(ehCorridaDeCatalogo(corrida())).toBe(true);
     expect(ehCorridaDeCatalogo(new Error('relation "cupom" does not exist'))).toBe(false);
     expect(ehCorridaDeCatalogo(undefined)).toBe(false);
+  });
+
+  it('reconhece o impasse pelo código, em qualquer idioma — e nenhum outro código', () => {
+    expect(ehCorridaDeCatalogo(impasse('deadlock detected'))).toBe(true);
+    expect(ehCorridaDeCatalogo(impasse('impasse detectado'))).toBe(true);
+    // a mensagem sozinha não basta, nem outro erro de concorrência (trava que venceu, linha duplicada)
+    expect(ehCorridaDeCatalogo(new Error('deadlock detected'))).toBe(false);
+    expect(ehCorridaDeCatalogo(Object.assign(new Error('canceling statement due to lock timeout'), { code: '55P03' }))).toBe(false);
+    expect(ehCorridaDeCatalogo(Object.assign(new Error('duplicate key value'), { code: '23505' }))).toBe(false);
+  });
+
+  it('roda de novo depois do impasse', async () => {
+    let vezes = 0;
+    const r = await repetirNaCorridaDeCatalogo(async () => {
+      vezes++;
+      if (vezes === 1) throw impasse('impasse detectado');
+      return 'ok';
+    }, 4, 1);
+    expect(r).toBe('ok');
+    expect(vezes).toBe(2);
   });
 
   it('roda de novo quando a corrida acontece e devolve o resultado da vez que deu certo', async () => {

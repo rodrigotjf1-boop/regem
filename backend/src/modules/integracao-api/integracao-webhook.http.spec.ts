@@ -218,9 +218,9 @@ descrever('API de integração — avisos (PUT/GET/DELETE /integracao/webhook e 
 
     await pool.query(`create schema ${SCHEMA}`);
     for (const t of FONTES) await pool.query(`create table ${SCHEMA}.${t} (like public.${t} including all)`);
-    for (const x of await q(
-      `select indexname from pg_indexes where schemaname = $1 and tablename = 'cupom' and indexdef ilike '%upper(codigo)%'`,
-      [SCHEMA],
+    // (a leitura de `indexdef` e cada migration abaixo passam pelo ajudante da corrida de catálogo — ERR-194)
+    for (const x of await repetirNaCorridaDeCatalogo(() =>
+      q(`select indexname from pg_indexes where schemaname = $1 and tablename = 'cupom' and indexdef ilike '%upper(codigo)%'`, [SCHEMA]),
     )) {
       await pool.query(`drop index ${SCHEMA}.${x.indexname}`);
     }
@@ -230,12 +230,12 @@ descrever('API de integração — avisos (PUT/GET/DELETE /integracao/webhook e 
     );
     await pool.query(`create trigger trg_bump_updated_at before update on ${SCHEMA}.cupom for each row execute function public.bump_updated_at()`);
     await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(mig('295_integracao_token_loja.sql'))));
-    await pool.query(mig('296_integracao_versao_vendas.sql'));
-    await pool.query(mig('297_pedido_externo_comanda_idx.sql'));
-    await pool.query(mig('298_integracao_cupons.sql'));
+    await repetirNaCorridaDeCatalogo(() => pool.query(mig('296_integracao_versao_vendas.sql')));
+    await repetirNaCorridaDeCatalogo(() => pool.query(mig('297_pedido_externo_comanda_idx.sql')));
+    await repetirNaCorridaDeCatalogo(() => pool.query(mig('298_integracao_cupons.sql')));
     // A 304 de verdade, duas vezes (idempotente), com a conferência dela.
     for (let i = 0; i < 2; i++) {
-      const r = (await pool.query(mig('304_integracao_webhook.sql'))) as any;
+      const r = (await repetirNaCorridaDeCatalogo(() => pool.query(mig('304_integracao_webhook.sql')))) as any;
       const ultima = Array.isArray(r) ? r[r.length - 1] : r;
       expect(ultima.rows).toHaveLength(5);
       const falhas = ultima.rows.filter((x: any) => x.ok !== true).map((x: any) => x.objeto);

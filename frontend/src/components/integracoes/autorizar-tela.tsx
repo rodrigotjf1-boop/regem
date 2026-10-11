@@ -8,7 +8,7 @@ import { guardarVoltaAutorizacao, limparVoltaAutorizacao } from '@/lib/volta-aut
 import { Button } from '@/components/ui/button';
 import { AutorizarFormulario, type PedidoOk } from './autorizar-formulario';
 import { AutorizarMoldura, CartaoCurto, Disco, ParDeSelos } from './autorizar-moldura';
-import { NIVEL, plural } from './textos';
+import { NIVEL, TEXTO_APP, plural, textoDoApp } from './textos';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -23,7 +23,7 @@ type NaoPresidente = {
 type Estado =
   | { fase: 'carregando' }
   | { fase: 'so_nuvem' }
-  | { fase: 'invalido' }
+  | { fase: 'invalido'; cliente: string | null }
   | { fase: 'indisponivel'; mensagem: string }
   | { fase: 'erro'; mensagem: string }
   | { fase: 'nao_presidente'; pedido: NaoPresidente }
@@ -57,7 +57,7 @@ export function AutorizarTela() {
       const status = e instanceof ApiError ? e.status : -1;
       if (status === 401) return; // o cliente de API já está levando ao login
       limparVoltaAutorizacao();
-      if (status === 400 || status === 404) setEstado({ fase: 'invalido' });
+      if (status === 400 || status === 404) setEstado({ fase: 'invalido', cliente: new URLSearchParams(consulta).get('cliente') });
       else if (status === 503) setEstado({ fase: 'indisponivel', mensagem: (e as Error).message });
       else setEstado({ fase: 'erro', mensagem: e instanceof Error ? e.message : 'Não foi possível abrir a autorização.' });
     }
@@ -127,6 +127,10 @@ export function AutorizarTela() {
   }
 
   if (estado.fase === 'invalido') {
+    // O caminho dentro do aplicativo só é dito quando se sabe qual é (o link sem aplicativo
+    // reconhecido segue com o do Liame, o primeiro que a página teve).
+    const veioDe = TEXTO_APP[estado.cliente && TEXTO_APP[estado.cliente] ? estado.cliente : 'liame'];
+    const onde = veioDe.ondeConectar;
     return (
       <AutorizarMoldura>
         <CartaoCurto papel="alert">
@@ -140,7 +144,13 @@ export function AutorizarTela() {
           <p className="flex gap-2.5 rounded-[11px] border border-border bg-secondary px-3.5 py-3 text-left text-[13px] text-secondary-foreground">
             <Info className="mt-px h-[18px] w-[18px] flex-none text-muted-foreground" aria-hidden="true" />
             <span>
-              Para tentar de novo, volte ao aplicativo e comece por lá. No Liame, é em <b className="text-foreground">Contas conectadas → Conectar o Regem</b>.
+              Para tentar de novo, volte ao aplicativo e comece por lá.
+              {onde && (
+                <>
+                  {' '}
+                  No {veioDe.nome}, é em <b className="text-foreground">{onde}</b>.
+                </>
+              )}
             </span>
           </p>
           <Button type="button" variant="outline" className="font-bold" onClick={() => router.replace('/painel')}>
@@ -181,8 +191,8 @@ export function AutorizarTela() {
           </Disco>
           <h1 className={titulo}>Só o presidente autoriza o {pedido.cliente.rotulo}</h1>
           <p className="text-secondary-foreground">
-            Você entrou como {pedido.quem.nome ?? 'outra pessoa'}, {nivel}. Deixar outra ferramenta ler as vendas é decisão do presidente da empresa.
-            Nada foi compartilhado.
+            Você entrou como {pedido.quem.nome ?? 'outra pessoa'}, {nivel}. Deixar outra ferramenta {textoDoApp(pedido.cliente.chave).le} é decisão do
+            presidente da empresa. Nada foi compartilhado.
           </p>
           <div className="flex flex-wrap justify-center gap-2.5">
             <Button type="button" variant="outline" className="font-bold" onClick={() => cancelar(pedido.cliente.rotulo, pedido.empresa, quem, pedido.cancelarUrl)}>

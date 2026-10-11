@@ -316,9 +316,10 @@ descrever('API de integração — vendas (GET /pedidos e /clientes/anonimizados
     await pool.query(`create schema ${SCHEMA}`);
     for (const t of FONTES) await pool.query(`create table ${SCHEMA}.${t} (like public.${t} including all)`);
     await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(mig('295_integracao_token_loja.sql'))));
-    await pool.query(mig('296_integracao_versao_vendas.sql'));
-    await pool.query(mig('297_pedido_externo_comanda_idx.sql'));
-    const conf299 = (await pool.query(mig('299_pedido_origem.sql')) as any) as any[];
+    // (cada migration passa pelo ajudante da corrida de catálogo — ERR-194)
+    await repetirNaCorridaDeCatalogo(() => pool.query(mig('296_integracao_versao_vendas.sql')));
+    await repetirNaCorridaDeCatalogo(() => pool.query(mig('297_pedido_externo_comanda_idx.sql')));
+    const conf299 = (await repetirNaCorridaDeCatalogo(() => pool.query(mig('299_pedido_origem.sql'))) as any) as any[];
     const linhas299 = conf299[conf299.length - 1].rows;
     if (linhas299.some((l: any) => !l.ok)) throw new Error(`conferência da 299: ${JSON.stringify(linhas299)}`);
     const [fk] = await q(

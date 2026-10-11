@@ -1,9 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Reflector } from '@nestjs/core';
 import { BadRequestException, HttpException, NotFoundException } from '@nestjs/common';
 import { ThrottlerException } from '@nestjs/throttler';
 import {
+  CLIENTES_INTEGRACAO,
+  ESCOPOS_COM_CARIMBO,
   ESCOPOS_INTEGRACAO,
+  ESCOPOS_SEM_CARIMBO,
   validarEscopos,
 } from './escopos';
 import {
@@ -68,7 +73,7 @@ describe('escopos', () => {
     expect(validarEscopos(['cupons.ler', 'pedidos.ler', 'cupons.ler'])).toEqual(['pedidos.ler', 'cupons.ler']);
   });
 
-  it('são os 7 do contrato do Liame + os 2 do RegemCast — a mesma lista do check da mig 302', () => {
+  it('são os 7 do contrato do Liame + os 2 do RegemCast + os 3 do Farol', () => {
     expect([...ESCOPOS_INTEGRACAO]).toEqual([
       'pedidos.ler',
       'clientes.telefone.ler',
@@ -79,7 +84,42 @@ describe('escopos', () => {
       'cupons.criar',
       'clientes.ler',
       'vendas.99food.ler',
+      'catalogo.ler',
+      'fichas.ler',
+      'producao.ler',
     ]);
+  });
+
+  it('a lista do código é a do `check` das duas tabelas na migration 315 (escopo fora dela nem é gravado)', () => {
+    const mig = readFileSync(
+      join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '315_integracao_farol.sql'),
+      'utf8',
+    );
+    const listas = [...mig.matchAll(/escopos <@ array\[([^\]]+)\]::text\[\]/g)].map((m) =>
+      [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]),
+    );
+    expect(listas).toHaveLength(2); // integracao_token_loja e integracao_autorizacao
+    for (const lista of listas) expect(lista).toEqual([...ESCOPOS_INTEGRACAO]);
+  });
+
+  it('os escopos de leitura na hora (Farol) não ligam o carimbador; todos os outros ligam', () => {
+    expect([...ESCOPOS_SEM_CARIMBO]).toEqual(['catalogo.ler', 'fichas.ler', 'producao.ler']);
+    expect([...ESCOPOS_COM_CARIMBO]).toEqual([
+      'pedidos.ler',
+      'clientes.telefone.ler',
+      'custos.ler',
+      'clientes.anonimizacao.ler',
+      'cupons.ler',
+      'cupons.uso.ler',
+      'cupons.criar',
+      'clientes.ler',
+      'vendas.99food.ler',
+    ]);
+    // O cliente que lê vendas, clientes ou cupons liga o carimbador; o do Farol é o único que não liga.
+    for (const [chave, c] of Object.entries(CLIENTES_INTEGRACAO)) {
+      const liga = c.escopos.some((e) => ESCOPOS_COM_CARIMBO.includes(e));
+      expect([chave, liga]).toEqual([chave, chave !== 'farol']);
+    }
   });
 });
 

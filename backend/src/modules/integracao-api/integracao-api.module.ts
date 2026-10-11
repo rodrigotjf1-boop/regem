@@ -7,6 +7,7 @@ import { CarimbadorIntegracaoService } from './carimbador-integracao.service';
 import { CuponsIntegracaoService } from './cupons-integracao.service';
 import { ClientesIntegracaoService } from './clientes-integracao.service';
 import { WebhookIntegracaoService } from './webhook-integracao.service';
+import { CatalogoIntegracaoService } from './catalogo-integracao.service';
 
 // API de integração por token de loja (trilha C) — SÓ NUVEM: está em `CLOUD_ONLY_IMPORTS`
 // (app.module) e em `CLOUD_ONLY_MODULES` (edge-manifest), e o controller é `@CloudOnly()`.
@@ -30,6 +31,8 @@ import { WebhookIntegracaoService } from './webhook-integracao.service';
     ClientesIntegracaoService,
     // Avisos assinados para o sistema conectado (mig 304): registro pelas rotas + job de 15 s.
     WebhookIntegracaoService,
+    // Farol (mig 315): o catálogo e as fichas, lidos na hora — sem versão, sem carimbador.
+    CatalogoIntegracaoService,
   ],
   exports: [IntegracaoTokenService],
 })

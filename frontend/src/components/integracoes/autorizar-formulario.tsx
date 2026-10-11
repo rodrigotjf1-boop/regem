@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Chave } from './chave';
 import { ParDeSelos } from './autorizar-moldura';
-import { CUSTO_SEM_PERMISSAO, NAO_VAI, TEXTO_ESCOPO, dia, plural } from './textos';
+import { CUSTO_SEM_PERMISSAO, TEXTO_ESCOPO, dia, plural, textoDoApp } from './textos';
 
 export type PedidoOk = {
   situacao: 'ok';
@@ -83,6 +83,7 @@ export function AutorizarFormulario({
   aoCancelar: () => void;
 }) {
   const app = pedido.cliente.rotulo;
+  const textos = textoDoApp(pedido.cliente.chave);
   const umaLoja = pedido.lojas.length === 1;
   const [marcadas, setMarcadas] = useState<Record<string, boolean>>(() => Object.fromEntries(pedido.lojas.map((l) => [l.id, true])));
   const [chaves, setChaves] = useState<Record<string, boolean>>(() => Object.fromEntries(pedido.opcionais.map((o) => [o.campo, o.padrao])));
@@ -108,10 +109,10 @@ export function AutorizarFormulario({
       <div className="grid gap-2">
         <ParDeSelos cliente={pedido.cliente.chave} rotulo={app} />
         <h1 className="font-display text-[19px] font-extrabold leading-tight sm:text-[22px]">
-          O {app} quer ler as vendas {umaLoja ? 'da sua loja' : 'das suas lojas'}
+          O {app} quer {textos.le} {umaLoja ? 'da sua loja' : 'das suas lojas'}
         </h1>
         <p className="text-secondary-foreground">
-          O {app} mede quais anúncios viraram pedido no caixa. Ele só lê o que estiver marcado aqui; não muda pedido, preço nem cardápio.
+          O {app} {textos.faz}{' '}
           Você veio de <span className="font-mono text-[13px]">{pedido.cliente.site}</span> e volta para lá ao terminar.
         </p>
       </div>
@@ -201,7 +202,7 @@ export function AutorizarFormulario({
 
       <Secao n={3} titulo="O que não vai" id="aut-nao-vai">
         <ul className="overflow-hidden rounded-[11px] border border-border">
-          {NAO_VAI.map((n) => (
+          {textos.naoVai.map((n) => (
             <Item key={n.titulo} icone="cadeado" titulo={n.titulo} texto={n.texto.replaceAll('Liame', app)} />
           ))}
         </ul>

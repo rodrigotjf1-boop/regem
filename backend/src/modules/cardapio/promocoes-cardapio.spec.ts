@@ -107,9 +107,10 @@ descrever('promoções pelo WhatsApp no cardápio (Postgres real)', () => {
         papel text not null, provedor text not null default 'evolution', numero text,
         status text not null default 'desconectado');`);
     await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(mig('295_integracao_token_loja.sql'))));
-    await pool.query(mig('296_integracao_versao_vendas.sql'));
+    // (cada migration passa pelo ajudante da corrida de catálogo — ERR-194)
+    await repetirNaCorridaDeCatalogo(() => pool.query(mig('296_integracao_versao_vendas.sql')));
     for (const n of ['300_marketing_consentimento.sql', '302_integracao_regemcast.sql']) {
-      const conf: any = await pool.query(semFkCompartilhada(mig(n)));
+      const conf: any = await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(mig(n))));
       const linhas = (Array.isArray(conf) ? conf[conf.length - 1] : conf).rows;
       if (!linhas.length || linhas.some((l: any) => !l.ok)) throw new Error(`conferência da ${n}: ${JSON.stringify(linhas)}`);
     }

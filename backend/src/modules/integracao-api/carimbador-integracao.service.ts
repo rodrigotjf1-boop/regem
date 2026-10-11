@@ -14,9 +14,16 @@ import {
 } from './venda-integracao';
 import { decidirCupom, sqlCupons, sqlUsosCupom } from './cupom-integracao';
 import { fichaDoContrato, fotoDoContato, sqlFichasContato } from './contato-integracao';
-import { CLIENTES_INTEGRACAO } from './escopos';
+import { CLIENTES_INTEGRACAO, ESCOPOS_COM_CARIMBO } from './escopos';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+// QUEM LIGA O CARIMBADOR (mig 315): só o token com algum escopo que depende das versões (vendas,
+// clientes, cupons). O token de leitura na hora — o do Farol: catálogo, fichas, fila de produção —
+// não liga carga, reconciliação nem carimbo: a empresa que só tem esse acesso não ganha cópia das
+// vendas dela. A lista vai como UM parâmetro (`{a,b}`), nunca como array do JS (V31). Em toda
+// consulta daqui o token é a tabela `t`.
+const TOKEN_COM_CARIMBO = sql`t.escopos && ${`{${ESCOPOS_COM_CARIMBO.join(',')}}`}::text[]`;
 
 // CARIMBADOR da API de integração (trilha C, C1c — mig 296). Job SÓ DA NUVEM.
 //
@@ -173,6 +180,8 @@ export class CarimbadorIntegracaoService {
       if (err?.code === '42P01') throw err;
       this.log.error(`carga inicial falhou: ${err?.code ? `[${err.code}] ` : ''}${err?.message ?? err}`, err?.stack);
     }
+    // Antes de consumir a fila: o que os gatilhos anotaram de empresa que só tem leitura na hora sai sem virar versão.
+    const descartadas = await this.descartarSemCarimbo(e);
     // Carga dos cupons: à parte e SEM derrubar o ciclo (sem a mig 298 as vendas seguem).
     cargas += await this.fazerCargasCupons(e);
     // Carga do RegemCast (3 anos + clientes, mig 302): em fatias, só com a fila folgada; nunca lança.
@@ -193,19 +202,45 @@ export class CarimbadorIntegracaoService {
       carimbadas += k;
       if ((!c && !k) || Date.now() > fim) break;
     }
-    return { cargas, consumidas, carimbadas };
+    return { cargas, consumidas, carimbadas, descartadas };
+  }
+
+  /**
+   * Os gatilhos das vendas (migs 296, 298 e 299) anotam a mudança de toda empresa com token ativo —
+   * eles não olham o escopo. A empresa que tem token ativo mas NENHUM que dependa das versões (só o
+   * do Farol) não tem quem leia isso: a anotação sai da fila aqui, sem virar versão nem cópia da
+   * venda. A empresa SEM token ativo fica como sempre foi (o que sobrou da fila é carimbado).
+   * Uma instrução por ciclo; nunca lança (sem a mig 296, quem avisa é o resto do ciclo).
+   */
+  async descartarSemCarimbo(e?: EscopoCarimbo): Promise<number> {
+    try {
+      const r: any = await this.db.execute(sql`
+        delete from integracao_mudanca m
+         where exists (select 1 from integracao_token_loja t
+                        where t.tenant_id = m.tenant_id and t.revogado_em is null)
+           and not exists (select 1 from integracao_token_loja t
+                            where t.tenant_id = m.tenant_id and t.revogado_em is null and ${TOKEN_COM_CARIMBO})
+           ${this.escopo(sql`m.tenant_id`, e)}`);
+      return Number(r?.rowCount ?? 0);
+    } catch (err: any) {
+      if (err?.code !== '42P01') {
+        this.log.error(`descarte da fila sem leitor falhou: ${err?.code ? `[${err.code}] ` : ''}${err?.message ?? err}`);
+      }
+      return 0;
+    }
   }
 
   // ───────────────────────────── carga inicial ─────────────────────────────
 
-  /** Empresas com token ativo emitido depois da última carga (a primeira conexão ou uma nova). */
+  /** Empresas com token ativo (dos que dependem das versões) emitido depois da última carga. */
   async fazerCargas(e?: EscopoCarimbo): Promise<number> {
     const pendentes = this.rows(
       await this.db.execute(sql`
         select t.tenant_id::text as tenant_id
           from integracao_token_loja t
           left join integracao_carga c on c.tenant_id = t.tenant_id
-         where t.revogado_em is null and (c.feita_em is null or t.criado_em > c.feita_em)
+         where t.revogado_em is null and ${TOKEN_COM_CARIMBO}
+           and (c.feita_em is null or t.criado_em > c.feita_em)
            ${this.escopo(sql`t.tenant_id`, e)}
          group by t.tenant_id
          limit 10`),
@@ -235,7 +270,7 @@ export class CarimbadorIntegracaoService {
       const [c] = this.rows(
         await tx.execute(sql`
           select exists (select 1 from integracao_token_loja t
-                          where t.tenant_id = c.tenant_id and t.revogado_em is null
+                          where t.tenant_id = c.tenant_id and t.revogado_em is null and ${TOKEN_COM_CARIMBO}
                             and t.criado_em > c.feita_em) as falta
             from integracao_carga c
            where c.tenant_id = ${tenantId}::uuid
@@ -282,7 +317,8 @@ export class CarimbadorIntegracaoService {
           select t.tenant_id::text as tenant_id
             from integracao_token_loja t
             left join integracao_carga_cupom c on c.tenant_id = t.tenant_id
-           where t.revogado_em is null and (c.feita_em is null or t.criado_em > c.feita_em)
+           where t.revogado_em is null and ${TOKEN_COM_CARIMBO}
+             and (c.feita_em is null or t.criado_em > c.feita_em)
              ${this.escopo(sql`t.tenant_id`, e)}
            group by t.tenant_id
            limit 10`),
@@ -313,7 +349,7 @@ export class CarimbadorIntegracaoService {
       const [c] = this.rows(
         await tx.execute(sql`
           select exists (select 1 from integracao_token_loja t
-                          where t.tenant_id = c.tenant_id and t.revogado_em is null
+                          where t.tenant_id = c.tenant_id and t.revogado_em is null and ${TOKEN_COM_CARIMBO}
                             and t.criado_em > c.feita_em) as falta
             from integracao_carga_cupom c
            where c.tenant_id = ${tenantId}::uuid
@@ -846,7 +882,7 @@ export class CarimbadorIntegracaoService {
 
   async reconciliar(e?: EscopoCarimbo, dias = RECONCILIACAO_DIAS) {
     const conectadas = sql`(select distinct t.tenant_id from integracao_token_loja t
-                             where t.revogado_em is null ${this.escopo(sql`t.tenant_id`, e)})`;
+                             where t.revogado_em is null and ${TOKEN_COM_CARIMBO} ${this.escopo(sql`t.tenant_id`, e)})`;
     const r: any = await this.db.execute(sql`
       insert into integracao_mudanca (tenant_id, recurso, recurso_id, carga)
       select pe.tenant_id, 'pedido', pe.id, true
@@ -884,7 +920,7 @@ export class CarimbadorIntegracaoService {
   async reconciliarCupons(e?: EscopoCarimbo, dias = RECONCILIACAO_DIAS) {
     try {
       const conectadas = sql`(select distinct t.tenant_id from integracao_token_loja t
-                               where t.revogado_em is null ${this.escopo(sql`t.tenant_id`, e)})`;
+                               where t.revogado_em is null and ${TOKEN_COM_CARIMBO} ${this.escopo(sql`t.tenant_id`, e)})`;
       const r: any = await this.db.execute(sql`
         insert into integracao_mudanca (tenant_id, recurso, recurso_id, carga)
         select c.tenant_id, 'cupom', c.id, true
