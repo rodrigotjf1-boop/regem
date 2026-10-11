@@ -160,6 +160,12 @@ export const WEBHOOK_INTEGRACAO: Record<string, { envUrls: string; padrao: reado
     envUrls: 'INTEGRACAO_LIAME_WEBHOOK_URLS',
     padrao: ['https://api.agencialiame.com/v1/inbox/regem/'],
   },
+  // Farol (mig 316): o cardápio e as fichas avisam quando mudam. O que vem depois da base é o id da
+  // conexão no Farol (um trecho só). A variável é só para teste e desenvolvimento.
+  farol: {
+    envUrls: 'INTEGRACAO_FAROL_WEBHOOK_URLS',
+    padrao: ['https://api.monitorfarol.com.br/v1/regem/avisos/'],
+  },
 };
 
 /** O que cada aplicativo é, para a tela "Aplicativos conectados" (o do Liame vem de cima). */

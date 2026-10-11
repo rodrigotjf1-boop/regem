@@ -27,6 +27,21 @@ export const EVENTO_DO_RECURSO = {
 
 export type RecursoAvisado = keyof typeof EVENTO_DO_RECURSO;
 
+/**
+ * Os RETRATOS lidos na hora (catálogo e fichas — migs 315 e 316): não têm versão publicada. O que
+ * diz que mudaram é a marca que o job carimba a partir dos gatilhos (`integracao_retrato_marca`).
+ * Ficam fora de `EVENTO_DO_RECURSO` de propósito: aquele é o que o carimbador das vendas publica, e
+ * o token que só lê retrato não liga o carimbador (ERR-220, V51).
+ */
+export const EVENTO_DO_RETRATO = {
+  catalogo: { tipo: 'catalogo.alterado', escopo: 'catalogo.ler' },
+  fichas: { tipo: 'fichas.alterado', escopo: 'fichas.ler' },
+} as const satisfies Record<string, { tipo: string; escopo: EscopoIntegracao }>;
+
+export type RetratoAvisado = keyof typeof EVENTO_DO_RETRATO;
+
+export const ehRetrato = (r: string): r is RetratoAvisado => Object.prototype.hasOwnProperty.call(EVENTO_DO_RETRATO, r);
+
 /** Os endereços-base para onde o cliente pode pedir aviso (lista vazia = cliente sem avisos). */
 export function basesDoWebhook(cliente: string, env: NodeJS.ProcessEnv = process.env): string[] {
   if (!Object.prototype.hasOwnProperty.call(WEBHOOK_INTEGRACAO, cliente)) return [];
@@ -118,8 +133,9 @@ export function cabecalhosDoAviso(chave: Buffer, id: string, corpo: string, agor
 }
 
 export type Novidade = {
-  recurso: RecursoAvisado;
-  id: string;
+  recurso: RecursoAvisado | RetratoAvisado;
+  /** O recurso que mudou. No retrato (catálogo, fichas) não há: o aviso vale pela loja inteira. */
+  id: string | null;
   versao: number | null;
   /** Só no uso de cupom: o cupom e o pedido (o contrato de cupons §4 pede os dois). */
   cupom_id?: string | null;
@@ -133,8 +149,11 @@ export type Novidade = {
  * que o cliente sabe qual reler. Token da empresa inteira não manda o campo.
  */
 export function corpoDoAviso(n: Novidade, lojaId: string | null = null): Record<string, unknown> {
-  const tipo = EVENTO_DO_RECURSO[n.recurso].tipo;
   const loja = lojaId ? { loja_id: lojaId } : {};
+  // Retrato (contrato do Farol, `docs/integracao-farol.md` §9): só o tipo e a loja — quem recebe lê
+  // a rota inteira com `?versao=`; não há id nem versão de um recurso para mandar.
+  if (ehRetrato(n.recurso)) return { tipo: EVENTO_DO_RETRATO[n.recurso].tipo, ...loja };
+  const tipo = EVENTO_DO_RECURSO[n.recurso].tipo;
   if (n.recurso === 'cliente') return { tipo, id: n.id, ...loja };
   if (n.recurso === 'cupom_uso') return { tipo, id: n.id, cupom_id: n.cupom_id ?? null, pedido_id: n.pedido_id ?? null, ...loja };
   return { tipo, id: n.id, versao: n.versao, ...loja };

@@ -97,10 +97,12 @@ export class IntegracaoApiController {
     summary: 'Registra (ou troca) o endereço e o segredo do aviso deste token. Registrar de novo religa o que estava pausado.',
     description:
       'O Regem manda um POST assinado (Standard Webhooks: webhook-id, webhook-timestamp, webhook-signature) quando há ' +
-      'venda, cupom, uso de cupom ou cliente anonimizado novo para a loja do token — só do que o escopo libera, no máximo ' +
+      'venda, cupom, uso de cupom ou cliente anonimizado novo para a loja do token, ou quando o catálogo ou as fichas ' +
+      'dela mudam — só do que o escopo libera, no máximo ' +
       'um por minuto por loja, e um aviso pode valer por várias mudanças (o id é o da mais recente). Corpo: ' +
       '{ "tipo": "pedido.alterado" | "cupom.alterado", "id", "versao" }, { "tipo": "cupom.usado", "id", "cupom_id", ' +
-      '"pedido_id" } ou { "tipo": "cliente.anonimizado", "id" } — todos com "loja_id" (a loja do token; o token da ' +
+      '"pedido_id" }, { "tipo": "cliente.anonimizado", "id" } ou { "tipo": "catalogo.alterado" | "fichas.alterado" } ' +
+      '(sem id: releia a rota com ?versao=) — todos com "loja_id" (a loja do token; o token da ' +
       'empresa inteira não manda). É só gatilho: aviso perdido ou repetido não muda nada. ' +
       '422 endereco-nao-permitido: endereço fora da lista da integração; 503 aviso-indisponivel: tente de novo mais tarde.',
   })
