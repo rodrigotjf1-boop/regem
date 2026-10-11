@@ -102,6 +102,9 @@ export type IngredienteCusto = {
   fatorCorrecao: number;
   custoUnitario: number;
   subFichaId?: string | null;
+  // A linha usa um produto do estoque FEITO NA LOJA (mig 314): a ficha que o produz. O custo da
+  // linha vem dela (custo total ÷ rendimento) — a ligação exige que ela renda na unidade do produto.
+  fichaDoItemId?: string | null;
   // Linha de custo só contabilizada em pedido externo (delivery) — ex.: embalagem.
   somenteDelivery?: boolean;
 };
@@ -138,6 +141,14 @@ export function custoTotalFicha(
       const sub = mapa[ing.subFichaId];
       const rendSub = sub && Number(sub.rendimento) > 0 ? Number(sub.rendimento) : 1;
       custoUnit = custoTotalFicha(ing.subFichaId, mapa, incluirDelivery, proximos) / rendSub;
+    } else if (ing.fichaDoItemId) {
+      // Produto feito na loja: o custo é o da ficha dele, sempre atualizado com o preço dos
+      // ingredientes (o custo de balcão — embalagem de delivery não é custo do insumo). Se a
+      // ficha dele ainda não tem custo, fica o que está gravado na linha.
+      const feita = mapa[ing.fichaDoItemId];
+      const rendFeita = feita && Number(feita.rendimento) > 0 ? Number(feita.rendimento) : 1;
+      const pelaFicha = custoTotalFicha(ing.fichaDoItemId, mapa, false, proximos) / rendFeita;
+      if (pelaFicha > 0) custoUnit = pelaFicha;
     }
     total += Number(ing.quantidade) * Number(ing.fatorCorrecao) * custoUnit;
   }

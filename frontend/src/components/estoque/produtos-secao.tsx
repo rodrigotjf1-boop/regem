@@ -12,7 +12,8 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Dialogo } from '@/components/ui/sobreposto';
 import { marcasConhecidas, marcasDe, nomeDeApoio, nomeDeCompra, textoDeBusca } from '@/lib/produto-compra';
-import { ProdutoForm, equivalencia } from './produto-form';
+import type { ListaDeUnidades } from '@/lib/unidade-da-lista';
+import { ProdutoForm, equivalencia, type FichaDoProduto } from './produto-form';
 import { ImportarProdutos } from './importar-produtos';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -58,6 +59,9 @@ export function ProdutosSecao({
   const [soAbaixo, setSoAbaixo] = useState(false);
   const [setores, setSetores] = useState<Opt[]>([]);
   const [unidades, setUnidades] = useState<string[]>([]);
+  const [listaDeUnidades, setListaDeUnidades] = useState<ListaDeUnidades | null>(null);
+  // Fichas técnicas, para o campo "feito na loja" do cadastro; `null` = não carregou.
+  const [fichas, setFichas] = useState<FichaDoProduto[] | null>(null);
   const [form, setForm] = useState<{ item?: any } | null>(null);
   const [movimentar, setMovimentar] = useState<any>(null);
   const [excluir, setExcluir] = useState<any>(null);
@@ -71,7 +75,11 @@ export function ProdutosSecao({
 
   useEffect(() => {
     api.setores().then((s: any) => setSetores(Array.isArray(s) ? s : [])).catch(() => {});
-    api.estoqueUnidades().then((r) => setUnidades(r?.unidades ?? [])).catch(() => {});
+    api.estoqueUnidades().then((r: any) => {
+      setUnidades(r?.unidades ?? []);
+      setListaDeUnidades(Array.isArray(r?.unidades) ? { unidades: r.unidades, apelidos: r.apelidos ?? {} } : null);
+    }).catch(() => {});
+    api.fichasLista().then((r: any) => setFichas(Array.isArray(r) ? r : null)).catch(() => setFichas(null));
     const mq = window.matchMedia(LARGA);
     const ouvir = () => setLarga(mq.matches);
     mq.addEventListener('change', ouvir);
@@ -152,12 +160,21 @@ export function ProdutosSecao({
       </>
     );
   };
-  const celCusto = (i: any) => (
-    <>
-      <span className="whitespace-nowrap font-mono">{Number(i.custoMedio) > 0 ? brl(Number(i.custoMedio)) : '—'}</span>
-      {Number(i.valorEstoque) > 0 && <span className={`block whitespace-nowrap font-mono text-xs ${texto2}`}>{brl(Number(i.valorEstoque))} em estoque</span>}
-    </>
-  );
+  // Produto FEITO NA LOJA (mig 314): tem o custo pela ficha que o produz — é o que ele leva para as
+  // outras fichas. Sem custo médio (nunca comprado nem produzido), é esse o custo mostrado.
+  const celCusto = (i: any) => {
+    const medio = Number(i.custoMedio);
+    const pelaFicha = Number(i.custoFicha);
+    return (
+      <>
+        <span className="whitespace-nowrap font-mono">{medio > 0 ? brl(medio) : pelaFicha > 0 ? brl(pelaFicha) : '—'}</span>
+        {pelaFicha > 0 && (
+          <span className={`block whitespace-nowrap text-xs ${texto2}`}>{medio > 0 ? <>pela ficha: <span className="font-mono">{brl(pelaFicha)}</span></> : 'pela ficha'}</span>
+        )}
+        {Number(i.valorEstoque) > 0 && <span className={`block whitespace-nowrap font-mono text-xs ${texto2}`}>{brl(Number(i.valorEstoque))} em estoque</span>}
+      </>
+    );
+  };
   const celNome = (i: any) => (
     <>
       <span className="flex items-center gap-1.5 font-bold">
@@ -165,6 +182,7 @@ export function ProdutosSecao({
         <span className="min-w-0 break-words">{i.nome}</span>
       </span>
       <span className={`block text-xs ${texto2}`}>{i.categoriaNome ?? 'Sem categoria'}</span>
+      {i.fichaNome && <span className={`block break-words text-xs ${texto2}`}>Feito na loja · ficha {i.fichaNome}</span>}
       {/* Como o produto é comprado e de que marcas (mig 311) — só quando o cadastro tem. */}
       {nomeDeApoio(i) && <span className={`block break-words text-xs ${texto2}`}>Na compra: {nomeDeCompra(i)}</span>}
       {marcasDe(i).length > 0 && (
@@ -335,6 +353,8 @@ export function ProdutosSecao({
           fornecedores={fornecedores}
           setores={setores}
           unidades={unidades}
+          listaDeUnidades={listaDeUnidades}
+          fichas={fichas}
           marcasConhecidas={sugestoesDeMarca}
           voltarPara={ID_BUSCA}
           onCancel={() => setForm(null)}

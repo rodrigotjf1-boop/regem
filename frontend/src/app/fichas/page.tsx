@@ -46,6 +46,9 @@ const brl = (v: number) =>
 const META_CMV = 31.5;
 const categoriaDe = (f: any) => CATEGORIAS.find((c) => c.value === f.categoria)?.label ?? f.categoria ?? '—';
 const usaSub = (f: any) => !!f.ingredientes?.some((i: any) => i.subFichaId);
+// Custo do insumo do estoque na ficha: o do produto FEITO NA LOJA vem da ficha que o produz (mig 314);
+// o dos demais, do custo médio.
+const custoDoInsumo = (it: any): number => (Number(it?.custoFicha) > 0 ? Number(it.custoFicha) : Number(it?.custoMedio ?? 0));
 const dentroDaMeta = (f: any) => f.cmv != null && Number(f.cmv) <= Number(f.metaCmv ?? META_CMV);
 const SITUACOES: Situacao<any>[] = [
   { rotulo: 'Dentro da meta', filtro: dentroDaMeta },
@@ -123,7 +126,7 @@ export default function FichasPage() {
             subFichaId: undefined,
             insumoNome: item?.nome ?? '',
             unidade: item?.unidadeMedida ?? i.unidade,
-            custoUnitario: String(item?.custoMedio ?? 0),
+            custoUnitario: String(custoDoInsumo(item)),
           };
         }
         if (value.startsWith('sub:')) {
@@ -150,7 +153,7 @@ export default function FichasPage() {
         if (n !== idx) return i;
         const item = insumos.find((x) => x.id === i.itemId);
         const fator = item ? fatorParaEstoque(unidade, item.unidadeMedida ?? 'un', item.conversoes ?? []) ?? 1 : 1;
-        return { ...i, unidade, custoUnitario: String(arredondarInformado(Number(item?.custoMedio ?? 0) * fator)) };
+        return { ...i, unidade, custoUnitario: String(arredondarInformado(custoDoInsumo(item) * fator)) };
       }),
     );
   }
@@ -312,7 +315,7 @@ export default function FichasPage() {
           {insumos.length > 0 && (
             <optgroup label="Insumo do estoque">
               {insumos.map((it) => (
-                <option key={it.id} value={`item:${it.id}`}>{it.nome}</option>
+                <option key={it.id} value={`item:${it.id}`}>{it.nome}{it.fichaNome ? ' · feito na loja' : ''}</option>
               ))}
             </optgroup>
           )}
@@ -362,7 +365,7 @@ export default function FichasPage() {
                       onMouseDown={(e) => { e.preventDefault(); escolherTipo(idx, `item:${it.id}`); setAcAberto(null); }}
                     >
                       <span className="truncate">{it.nome}</span>
-                      <span className="flex-none font-mono text-xs text-secondary-foreground">{brl(Number(it.custoMedio ?? 0))}/{it.unidadeMedida ?? 'un'}</span>
+                      <span className="flex-none font-mono text-xs text-secondary-foreground">{brl(custoDoInsumo(it))}/{it.unidadeMedida ?? 'un'}{it.fichaNome ? ' · feito na loja' : ''}</span>
                     </button>
                   </li>
                 ))}
@@ -389,7 +392,7 @@ export default function FichasPage() {
       </div>
       {ing.itemId && (
         <p className="text-xs text-secondary-foreground">
-          📦 Insumo do estoque — custo pelo custo médio; <b>baixa o estoque</b> ao produzir.
+          📦 Insumo do estoque — {insumos.find((x) => x.id === ing.itemId)?.fichaNome ? '' : 'custo pelo custo médio; '}<b>baixa o estoque</b> ao produzir.
           {convertida && (
             <>
               {' '}Informado em <b>{escolhida.unidade}</b>
@@ -407,6 +410,11 @@ export default function FichasPage() {
       {ing.subFichaId && (
         <p className="text-xs text-secondary-foreground">
           🧩 Custo da sub-receita entra automático (por porção) e é recalculado ao produzir.
+        </p>
+      )}
+      {!ing.subFichaId && ing.itemId && insumos.find((x) => x.id === ing.itemId)?.fichaNome && (
+        <p className="text-xs text-secondary-foreground">
+          🏭 Feito na loja: o custo vem da ficha &quot;{insumos.find((x) => x.id === ing.itemId)?.fichaNome}&quot; e acompanha o preço dos ingredientes dela. A venda baixa o saldo deste produto; o pedido de produção repõe.
         </p>
       )}
     </div>
@@ -466,7 +474,7 @@ export default function FichasPage() {
                 chave={(f) => f.id}
                 nome={(f) => f.nome}
                 colunas={[
-                  { titulo: 'Ficha', celula: (f) => <NomeComApoio nome={f.nome} apoio={`${categoriaDe(f)}${usaSub(f) ? ' · usa sub-receita' : ''}`} /> },
+                  { titulo: 'Ficha', celula: (f) => <NomeComApoio nome={f.nome} apoio={`${categoriaDe(f)}${usaSub(f) ? ' · usa sub-receita' : ''}${f.produtosFeitos?.length ? ` · produz ${f.produtosFeitos.map((p: any) => p.nome).join(', ')}` : ''}`} /> },
                   { titulo: 'Rendimento', celula: (f) => <span className="whitespace-nowrap">{num(f.rendimento ?? 1)} {f.rendimentoUnidade ?? 'porções'}</span> },
                   ...(semCusto ? [] : [{ titulo: 'Custo por porção', celula: (f: any) => <span className="whitespace-nowrap font-mono">{brl(Number(f.custoPorcao ?? 0))}</span> }]),
                   { titulo: 'Preço de venda', celula: (f) => (Number(f.precoVenda) > 0 ? <span className="whitespace-nowrap font-mono">{brl(Number(f.precoVenda))}</span> : '—') },
@@ -661,7 +669,7 @@ export default function FichasPage() {
           <div className="space-y-3 text-sm">
             <p>Excluir <b>{excluindo.nome}</b>?</p>
             <p className="rounded-md border-l-4 border-destructive bg-destructive/10 px-3 py-2">
-              A ficha sai desta lista e deixa de ser opção de sub-receita e de etiqueta. O produto do cardápio que a usa continua à venda, mas deixa de dar baixa nos ingredientes dela; as fichas que a usam como sub-receita também deixam de consumi-los. Não dá para desfazer por aqui.
+              A ficha sai desta lista e deixa de ser opção de sub-receita e de etiqueta. O produto do cardápio que a usa continua à venda, mas deixa de dar baixa nos ingredientes dela; as fichas que a usam como sub-receita também deixam de consumi-los. O produto do estoque feito por ela volta a ser um insumo comum, sem o custo pela ficha. Não dá para desfazer por aqui.
             </p>
           </div>
         </Dialogo>

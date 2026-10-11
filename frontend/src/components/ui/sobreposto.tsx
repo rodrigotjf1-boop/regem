@@ -96,8 +96,11 @@ function Cabecalho({ id, titulo, aoFechar }: { id: string; titulo: string; aoFec
   );
 }
 
-/** Gaveta lateral (direita). No celular ocupa a tela inteira. `larga` = formulário com tabela dentro. */
-export function Gaveta({ titulo, aoFechar, children, rodape, fecharNoFundo = false, voltarPara, larga = false }: Base & { larga?: boolean }) {
+/**
+ * Gaveta lateral (direita). No celular ocupa a tela inteira. `media` = cadastro com muitos campos
+ * (cabem duas colunas); `larga` = formulário com tabela dentro.
+ */
+export function Gaveta({ titulo, aoFechar, children, rodape, fecharNoFundo = false, voltarPara, larga = false, media = false }: Base & { larga?: boolean; media?: boolean }) {
   const id = useId();
   const painel = useSobreposto(aoFechar, voltarPara);
   return (
@@ -111,7 +114,7 @@ export function Gaveta({ titulo, aoFechar, children, rodape, fecharNoFundo = fal
         tabIndex={-1}
         className={cn(
           'absolute inset-y-0 right-0 flex w-full flex-col bg-card text-foreground shadow-2xl outline-none',
-          larga ? 'max-w-[980px]' : 'max-w-[560px]',
+          larga ? 'max-w-[980px]' : media ? 'max-w-[760px]' : 'max-w-[560px]',
         )}
       >
         <Cabecalho id={id} titulo={titulo} aoFechar={aoFechar} />

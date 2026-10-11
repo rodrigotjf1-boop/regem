@@ -116,7 +116,12 @@ export function NovaOrdem({ gestao, voltarPara, aoFechar, aoSalvar }: { gestao: 
         )}
         <div className="space-y-1.5">
           <Label htmlFor="ordem-ficha">Ficha técnica</Label>
-          <Select id="ordem-ficha" data-foco-inicial value={f.fichaId} onChange={(e) => muda({ fichaId: e.target.value })} disabled={semLista(fichas)} aria-busy={!fichas}>
+          <Select id="ordem-ficha" data-foco-inicial value={f.fichaId} onChange={(e) => {
+            const fichaId = e.target.value;
+            // O produto do estoque feito por esta ficha (cadastro do produto — mig 314) já entra como insumo de saída.
+            const feitos = (insumos?.itens ?? []).filter((x) => x.fichaId === fichaId);
+            muda({ fichaId, ...(fichaId && feitos.length === 1 ? { itemSaidaId: feitos[0].id } : {}) });
+          }} disabled={semLista(fichas)} aria-busy={!fichas}>
             <option value="">{fichas ? '— escolha —' : 'Carregando…'}</option>
             {fichas?.itens.map((x) => <option key={x.id} value={x.id}>{x.nome}</option>)}
           </Select>
@@ -142,6 +147,9 @@ export function NovaOrdem({ gestao, voltarPara, aoFechar, aoSalvar }: { gestao: 
               <option value="">{insumos ? '— nenhum (só baixa insumos) —' : 'Carregando…'}</option>
               {insumos?.itens.map((x) => <option key={x.id} value={x.id}>{x.nome}</option>)}
             </Select>
+            {f.fichaId && f.itemSaidaId && insumos?.itens.find((x) => x.id === f.itemSaidaId)?.fichaId === f.fichaId && (
+              <p className={`text-xs ${texto2}`}>Esta ficha produz este produto (ligação do cadastro do estoque).</p>
+            )}
           </div>
         ) : (
           <p className={`text-xs ${texto2}`}>Insumo de saída: a lista do estoque não carregou ({insumos?.erro}). A ordem será criada sem ele — só baixa os insumos.</p>

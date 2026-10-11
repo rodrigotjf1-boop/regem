@@ -11,10 +11,13 @@ import { Select } from '@/components/ui/select';
 import { Gaveta } from '@/components/ui/sobreposto';
 import { arredondarInformado, unidadesDoProduto } from '@/lib/conversao-unidade';
 import { MARCAS_MAX, MARCA_MAX, chaveDaMarca, juntarMarca, marcasDe } from '@/lib/produto-compra';
+import { unidadeDaLista, type ListaDeUnidades } from '@/lib/unidade-da-lista';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Opt = { id: string; nome: string };
 type Conversao = { unidadeDe: string; fator: string; unidadePara: string };
+/** Ficha técnica como opção de "feito na loja": o que importa é em que unidade ela rende. */
+export type FichaDoProduto = { id: string; nome: string; rendimentoUnidade?: string | null };
 
 const num = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
 
@@ -75,6 +78,8 @@ export function ProdutoForm({
   fornecedores,
   setores,
   unidades,
+  listaDeUnidades = null,
+  fichas = null,
   marcasConhecidas = [],
   onSaved,
   onCancel,
@@ -86,6 +91,10 @@ export function ProdutoForm({
   fornecedores: Opt[];
   setores: Opt[];
   unidades: string[];
+  /** A lista de unidades com os apelidos ("Kg" → kg): para comparar com a unidade em que a ficha rende. */
+  listaDeUnidades?: ListaDeUnidades | null;
+  /** Fichas técnicas (campo "feito na loja"); `null` = não carregou. */
+  fichas?: FichaDoProduto[] | null;
   /** Marcas já usadas em outros produtos: viram sugestão ao digitar. */
   marcasConhecidas?: string[];
   onSaved: () => void;
@@ -99,6 +108,8 @@ export function ProdutoForm({
   const [nomeComercial, setNomeComercial] = useState<string>(item?.nomeComercial ?? '');
   const [marcas, setMarcas] = useState<string[]>(() => marcasDe(item));
   const [novaMarca, setNovaMarca] = useState('');
+  // FEITO NA LOJA (mig 314): a ficha técnica que produz este produto ('' = produto comprado).
+  const [fichaId, setFichaId] = useState<string>(item?.fichaId ?? '');
   const [categoriaItemId, setCategoriaItemId] = useState(item?.categoriaItemId ?? '');
   // Múltiplos fornecedores (N:N). Prefere a lista; cai no legado quando só há 1.
   const [fornecedorIds, setFornecedorIds] = useState<string[]>(
@@ -185,6 +196,7 @@ export function ProdutoForm({
       nome: nome.trim(),
       nomeComercial: nomeComercial.trim(), // vazio limpa: a compra volta a usar o nome do produto
       marcas: juntarMarca(marcas, novaMarca), // a marca digitada e ainda não adicionada entra junto
+      fichaId: fichaId || null, // null desfaz a ligação
       unidadeMedida: unidade || undefined,
       estoqueMinimo: estoqueMinimo ? Number(estoqueMinimo) : undefined,
       validade: validade || undefined,
@@ -235,6 +247,10 @@ export function ProdutoForm({
   }
 
   const ajuda = 'text-xs text-secondary-foreground';
+  // Em que unidade a ficha rende, na grafia da lista ("Kg" → kg): é contra ela que a unidade do produto é comparada.
+  const rendeEm = (f: FichaDoProduto) => unidadeDaLista(f.rendimentoUnidade, listaDeUnidades) ?? f.rendimentoUnidade ?? '';
+  const fichaEscolhida = fichas?.find((f) => f.id === fichaId);
+  const fichaNaoCombina = !!fichaEscolhida && rendeEm(fichaEscolhida) !== unidade;
   const conta = equivalencia(Number(estoqueMinimo), unidade, conversoes);
   const fatorDaUnidade = conversoes.find((c) => c.unidadeDe === unidade && Number(c.fator) > 0);
   // Custo por unidade convertida (decisão do dono, 08/10/2026): o custo do cadastro é o da
@@ -250,7 +266,9 @@ export function ProdutoForm({
   const reais = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: v < 1 ? 4 : 2 });
 
   return (
+    // Gaveta MÉDIA (760 px): o cadastro ganhou campos e passa a ter duas colunas (pedido do dono, 10/10/2026).
     <Gaveta
+      media
       titulo={item?.id ? 'Editar produto' : 'Novo produto'}
       aoFechar={onCancel}
       voltarPara={voltarPara}
@@ -263,7 +281,8 @@ export function ProdutoForm({
         </>
       }
     >
-      <form id={formId} onSubmit={salvar} className="space-y-4">
+      <form id={formId} onSubmit={salvar} className="space-y-5">
+        <div className="grid grid-cols-1 gap-x-4 gap-y-5 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label htmlFor="nome">Nome do produto</Label>
           <Input id="nome" data-foco-inicial value={nome} onChange={(e) => setNome(e.target.value)} required placeholder="Ex.: Pão brioche" autoComplete="off" aria-describedby="nome-ajuda" />
@@ -274,6 +293,8 @@ export function ProdutoForm({
           <Label htmlFor="nome-comercial">Nome comercial (opcional)</Label>
           <Input id="nome-comercial" value={nomeComercial} onChange={(e) => setNomeComercial(e.target.value)} maxLength={120} placeholder="Ex.: Caixa de pão brioche com 12" autoComplete="off" aria-describedby="nome-comercial-ajuda" />
           <p id="nome-comercial-ajuda" className={ajuda}>Como o produto é comprado. É o nome que aparece no pedido de compra e no recebimento; em branco, vale o nome do produto.</p>
+        </div>
+
         </div>
 
         <div className="space-y-1.5">
@@ -307,7 +328,7 @@ export function ProdutoForm({
           )}
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-x-4 gap-y-5 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor="cat">Categoria</Label>
             <Select id="cat" value={categoriaItemId} onChange={(e) => setCategoriaItemId(e.target.value)}>
@@ -334,6 +355,37 @@ export function ProdutoForm({
           </div>
         </div>
 
+        {/* FEITO NA LOJA (mig 314): a ficha que produz este produto. O servidor exige que ela renda na
+            unidade principal do produto — a opção que não combina fica desligada. */}
+        <div className="space-y-1.5">
+          <Label htmlFor="ficha-produto">Feito na loja — ficha técnica (opcional)</Label>
+          <Select id="ficha-produto" value={fichaId} onChange={(e) => setFichaId(e.target.value)} disabled={!fichas} aria-describedby="ficha-produto-ajuda">
+            <option value="">{fichas ? '— não é feito na loja (produto comprado) —' : 'Não consegui carregar as fichas técnicas'}</option>
+            {/* a ligação que já existe aparece mesmo quando a lista não veio */}
+            {!fichas && fichaId && <option value={fichaId}>{item?.fichaNome ?? 'Ficha ligada'}</option>}
+            {fichas?.map((f) => {
+              const combina = rendeEm(f) === unidade;
+              return (
+                <option key={f.id} value={f.id} disabled={!combina && f.id !== fichaId}>
+                  {f.nome} · rende em {rendeEm(f) || 'unidade não informada'}{combina ? '' : ' (não combina com a unidade do produto)'}
+                </option>
+              );
+            })}
+          </Select>
+          <p id="ficha-produto-ajuda" className={ajuda}>
+            Para o que é produzido na loja, como um molho ou uma cebola crispy. O custo deste produto dentro das outras fichas passa a vir desta ficha, sempre atualizado. A ficha precisa render na unidade principal do produto ({unidade || 'unidade'}).
+          </p>
+          {fichaEscolhida && fichaNaoCombina && (
+            <p role="alert" className="rounded-md bg-warn/10 px-2.5 py-1.5 text-sm font-semibold">
+              Esta ficha rende em {rendeEm(fichaEscolhida) || 'unidade não informada'} e o produto é contado em {unidade}: acerte um dos dois, ou o cadastro não salva.
+            </p>
+          )}
+          {fichaEscolhida && !fichaNaoCombina && item?.fichaId === fichaId && Number(item?.custoFicha) > 0 && (
+            <p className={ajuda} role="status">Custo pela ficha: <b>{reais(Number(item.custoFicha))}</b> por {unidade}.</p>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 gap-x-4 gap-y-5 md:grid-cols-2">
         <div className="space-y-1.5">
           <Label>Fornecedores</Label>
           <p className={ajuda}>Marque um ou mais. O 1º marcado é o principal.</p>
@@ -359,7 +411,9 @@ export function ProdutoForm({
           )}
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        </div>
+
+        <div className="grid grid-cols-1 gap-x-4 gap-y-5 sm:grid-cols-2 md:grid-cols-3">
           <div className="space-y-1.5">
             <Label htmlFor="min">Estoque mínimo, em {unidade || 'unidade'}</Label>
             <Input id="min" type="number" min={0} step="any" inputMode="decimal" value={estoqueMinimo} onChange={(e) => setEstoqueMinimo(e.target.value)} placeholder="0"
