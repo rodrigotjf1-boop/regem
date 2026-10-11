@@ -600,6 +600,9 @@ export const itemEstoque = pgTable('item_estoque', {
   nomeComercial: text('nome_comercial'),
   // Marcas do produto (mig 311): ["Marca Alfa", "Marca Beta"]. O estoque continua um só.
   marcas: jsonb('marcas').$type<string[]>().notNull().default([]),
+  // FEITO NA LOJA (mig 314): a ficha técnica que produz este produto. O custo dele dentro das outras
+  // fichas vem dela. Sem FK (sincroniza nos dois sentidos); ficha excluída = sem ligação.
+  fichaId: uuid('ficha_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),

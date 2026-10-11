@@ -4,16 +4,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { fichaIngrediente, fichaTecnica, itemConversao, itemEstoque } from '../../db/schema';
 import { arredondarEstoque, arredondarInformado, fatorParaEstoque, type Conversao } from '../../common/conversao-unidade';
 import { unidadeOuPadrao } from '../estoque/unidades';
-import {
-  custoTotalFicha,
-  fichaAlcancavel,
-  type FichaCusto,
-} from '../../common/regras-negocio';
+import { custoTotalFicha, fichaAlcancavel, type FichaCusto } from '../../common/regras-negocio';
+import { carregarFichas, custoPorUnidadeDaFicha, dependenciasDasFichas } from './fichas-carga';
 import { CreateFichaDto } from './dto/create-ficha.dto';
 import { CreateIngredienteDto } from './dto/create-ingrediente.dto';
 import { UpdateFichaDto } from './dto/update-ficha.dto';
@@ -60,20 +57,6 @@ function computarDois(f: any, custoBalcao: number, custoDelivery: number) {
     cmvDelivery: deliv.cmv,
     margemDelivery: deliv.margem,
     temCustoDelivery: custoDelivery > custoBalcao + 0.0001,
-  };
-}
-
-// Insumo de custo (pro cálculo recursivo) a partir da ficha + suas linhas.
-function fichaCustoDe(f: any, ings: any[]): FichaCusto {
-  return {
-    rendimento: Number(f.rendimento) || 1,
-    ingredientes: ings.map((i) => ({
-      quantidade: Number(i.quantidade),
-      fatorCorrecao: Number(i.fatorCorrecao),
-      custoUnitario: Number(i.custoUnitario),
-      subFichaId: i.subFichaId ?? null,
-      somenteDelivery: !!i.somenteDelivery,
-    })),
   };
 }
 
@@ -145,33 +128,10 @@ export class FichasService {
     return this.getOne(tenantId, f.id);
   }
 
-  // Carrega todas as fichas do tenant + ingredientes → mapa p/ custo recursivo.
-  private async carregarTudo(tenantId: string) {
-    const fichas = await this.db
-      .select()
-      .from(fichaTecnica)
-      .where(
-        and(eq(fichaTecnica.tenantId, tenantId), isNull(fichaTecnica.deletedAt)),
-      )
-      .orderBy(asc(fichaTecnica.nome));
-    const ings = fichas.length
-      ? await this.db
-          .select()
-          .from(fichaIngrediente)
-          .where(
-            and(
-              inArray(fichaIngrediente.fichaId, fichas.map((f) => f.id)),
-              isNull(fichaIngrediente.deletedAt), // ingrediente removido não entra no custo
-            ),
-          )
-      : [];
-    const mapa: Record<string, FichaCusto> = {};
-    const nome: Record<string, string> = {};
-    for (const f of fichas) {
-      nome[f.id] = f.nome;
-      mapa[f.id] = fichaCustoDe(f, ings.filter((i) => i.fichaId === f.id));
-    }
-    return { fichas, ings, mapa, nome };
+  // Carrega todas as fichas do tenant + ingredientes → mapa p/ custo recursivo, e os produtos do
+  // estoque feitos na loja (a mesma carga que o cadastro do estoque usa — `fichas-carga.ts`).
+  private carregarTudo(tenantId: string) {
+    return carregarFichas(this.db, tenantId);
   }
 
   // Unidade de estoque e conversões dos produtos ligados às linhas (para converter a quantidade).
@@ -225,19 +185,33 @@ export class FichasService {
 
   // Devolve cada linha como a pessoa a informou (quantidade e custo na unidade escolhida) e,
   // ao lado, o que está gravado: a quantidade na unidade do estoque. Anexa o nome da sub-ficha.
-  private async enriquecer(tenantId: string, ings: any[], nome: Record<string, string>) {
+  private async enriquecer(
+    tenantId: string,
+    ings: any[],
+    nome: Record<string, string>,
+    mapa: Record<string, FichaCusto>,
+    fichaDoItem: Map<string, string>,
+  ) {
     const unidades = await this.unidadesDosItens(tenantId, ings.map((i) => (i.subFichaId ? null : i.itemId)));
     return ings.map((i) => {
       const u = !i.subFichaId && i.itemId ? unidades.get(i.itemId) : undefined;
       const fator = u ? fatorParaEstoque(i.unidade, u.unidade, u.conversoes) ?? 1 : 1;
+      // Produto FEITO NA LOJA (mig 314): o custo da linha é o da ficha que o produz — calculado
+      // agora, não o que ficou gravado quando a linha foi salva.
+      const fichaDoItemId = !i.subFichaId && i.itemId ? fichaDoItem.get(i.itemId) ?? null : null;
+      const pelaFicha = fichaDoItemId ? custoPorUnidadeDaFicha(fichaDoItemId, mapa) : 0;
+      const custoNoEstoque = pelaFicha > 0 ? pelaFicha : Number(i.custoUnitario);
       return {
         ...i,
+        ...(pelaFicha > 0 ? { custoUnitario: String(arredondarInformado(pelaFicha)) } : {}),
         ...(fator === 1
           ? {}
           : {
               quantidade: String(arredondarInformado(Number(i.quantidade) / fator)),
-              custoUnitario: String(arredondarInformado(Number(i.custoUnitario) * fator)),
+              custoUnitario: String(arredondarInformado(custoNoEstoque * fator)),
             }),
+        fichaDoItemId,
+        fichaDoItemNome: fichaDoItemId ? nome[fichaDoItemId] ?? null : null,
         quantidadeEstoque: Number(i.quantidade),
         unidadeEstoque: u?.unidade ?? null,
         fatorUnidade: fator,
@@ -264,8 +238,8 @@ export class FichasService {
   }
 
   async list(tenantId: string) {
-    const { fichas, ings, mapa, nome } = await this.carregarTudo(tenantId);
-    const linhas = await this.enriquecer(tenantId, ings, nome);
+    const { fichas, ings, mapa, nome, feitos, fichaDoItem } = await this.carregarTudo(tenantId);
+    const linhas = await this.enriquecer(tenantId, ings, nome, mapa, fichaDoItem);
     return fichas.map((f) => {
       const fi = linhas
         .filter((i) => i.fichaId === f.id)
@@ -275,13 +249,15 @@ export class FichasService {
       return {
         ...f,
         ingredientes: fi,
+        // Os produtos do estoque que esta ficha PRODUZ (feitos na loja — mig 314).
+        produtosFeitos: feitos.filter((p) => p.fichaId === f.id).map((p) => ({ id: p.itemId, nome: p.nome })),
         ...computarDois(f, custoBalcao, custoDelivery),
       };
     });
   }
 
   async getOne(tenantId: string, id: string) {
-    const { fichas, ings, mapa, nome } = await this.carregarTudo(tenantId);
+    const { fichas, ings, mapa, nome, feitos, fichaDoItem } = await this.carregarTudo(tenantId);
     const f = fichas.find((x) => x.id === id);
     if (!f) throw new NotFoundException('Ficha não encontrada');
     const fi = ings
@@ -291,7 +267,8 @@ export class FichasService {
     const custoDelivery = custoTotalFicha(id, mapa, true);
     return {
       ...f,
-      ingredientes: await this.enriquecer(tenantId, fi, nome),
+      ingredientes: await this.enriquecer(tenantId, fi, nome, mapa, fichaDoItem),
+      produtosFeitos: feitos.filter((p) => p.fichaId === id).map((p) => ({ id: p.itemId, nome: p.nome })),
       ...computarDois(f, custoBalcao, custoDelivery),
     };
   }
@@ -332,6 +309,11 @@ export class FichasService {
         .filter((x): x is string => !!x)) {
         await this.validarSubFicha(tenantId, id, s);
       }
+      await this.validarProdutosFeitos(
+        tenantId,
+        id,
+        dto.ingredientes.filter((i) => !i.subFichaId && i.itemId).map((i) => i.itemId as string),
+      );
       // SOFT-delete (mig 242), não delete físico: a tabela sincroniza para o servidor
       // local por delta de linha. Apagar de verdade some da nuvem mas NÃO some do edge
       // — ele ficaria com o ingrediente antigo somado ao novo e baixaria insumo a mais.
@@ -375,6 +357,23 @@ export class FichasService {
     return { ok: true };
   }
 
+  // Ingrediente que é um produto FEITO NA LOJA (mig 314): a ficha que o produz não pode depender
+  // desta — o custo de uma entraria no da outra, em círculo.
+  private async validarProdutosFeitos(tenantId: string, fichaId: string, itemIds: string[]) {
+    if (!itemIds.length) return;
+    const { ings, feitos, fichaDoItem, nome } = await this.carregarTudo(tenantId);
+    const dependencias = dependenciasDasFichas(ings, fichaDoItem);
+    for (const itemId of new Set(itemIds)) {
+      const feitaPor = fichaDoItem.get(itemId);
+      if (!feitaPor) continue;
+      const produto = feitos.find((p) => p.itemId === itemId)?.nome ?? 'O produto';
+      if (feitaPor === fichaId)
+        throw new BadRequestException(`"${produto}" é feito por esta ficha: ele não pode ser ingrediente dela mesma.`);
+      if (fichaAlcancavel(feitaPor, fichaId, dependencias))
+        throw new BadRequestException(`"${produto}" é feito pela ficha "${nome[feitaPor]}", que depende desta: usá-lo aqui criaria um ciclo de fichas.`);
+    }
+  }
+
   // Garante que a sub-ficha existe no tenant e que a ligação não cria ciclo.
   private async validarSubFicha(
     tenantId: string,
@@ -384,14 +383,12 @@ export class FichasService {
     if (subFichaId === fichaId) {
       throw new BadRequestException('Uma ficha não pode ser sub-receita dela mesma.');
     }
-    const { fichas, ings } = await this.carregarTudo(tenantId);
+    const { fichas, ings, fichaDoItem } = await this.carregarTudo(tenantId);
     if (!fichas.some((f) => f.id === subFichaId)) {
       throw new BadRequestException('Sub-ficha inválida para este tenant.');
     }
-    const arestas: Record<string, string[]> = {};
-    for (const i of ings) {
-      if (i.subFichaId) (arestas[i.fichaId] ??= []).push(i.subFichaId);
-    }
+    // Dependências: as sub-receitas E as fichas dos produtos feitos na loja que cada ficha usa.
+    const arestas = dependenciasDasFichas(ings, fichaDoItem);
     // Adicionar pai→sub cria ciclo se a sub-ficha já alcança o pai.
     if (fichaAlcancavel(subFichaId, fichaId, arestas)) {
       throw new BadRequestException(
@@ -407,6 +404,7 @@ export class FichasService {
   ) {
     await this.getOne(tenantId, fichaId);
     if (dto.subFichaId) await this.validarSubFicha(tenantId, fichaId, dto.subFichaId);
+    else if (dto.itemId) await this.validarProdutosFeitos(tenantId, fichaId, [dto.itemId]);
     const [linha] = await this.linhasParaGravar(tenantId, [dto]);
     await this.db.insert(fichaIngrediente).values({
       tenantId,

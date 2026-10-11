@@ -73,7 +73,7 @@ button{cursor:pointer}
 main{min-width:0;padding:20px 24px 80px}
 .trilha{font-family:var(--display);font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#9A6A12}
 h1{font-family:var(--display);font-size:26px;margin:2px 0 14px}
-.abas{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;margin-bottom:16px}
+.abas{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
 .aba{flex:none;min-height:40px;padding:8px 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);color:var(--ink-2);font-weight:600;font-size:14px;white-space:nowrap}
 .aba:hover{border-color:var(--ink-2);color:var(--ink)}
 .aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
@@ -174,6 +174,21 @@ tbody tr:hover{background:#FAFBFD}
 @media (min-width:700px) and (max-width:1279px){
   main .cartoes table,main .cartoes tbody{display:block} main .cartoes tbody{display:grid;grid-template-columns:1fr 1fr;gap:10px} main .cartoes tbody tr{margin:0}
 }
+/* A lista de Pedidos tem mais colunas e precisa de ~1130 px: vira cartões pelo ESPAÇO que ela tem (com o
+   menu lateral aberto não cabe em janelas de 1280 a ~1410 px) — nada pode rolar para o lado. */
+main{container-type:inline-size}
+@container (max-width:1139px){
+  main .tabela.cartoes.ampla{border:none;background:none;overflow:visible} main .cartoes.ampla thead{display:none}
+  main .cartoes.ampla tbody tr{display:block;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin-bottom:10px}
+  main .cartoes.ampla td{display:flex;justify-content:space-between;align-items:baseline;gap:12px;border:none;padding:4px 0}
+  main .cartoes.ampla td::before{content:attr(data-rot);flex:none;font-size:12.5px;font-weight:700;color:var(--ink-2)}
+  main .cartoes.ampla td .v{text-align:right;min-width:0}
+  main .cartoes.ampla td.c-nome{display:block} main .cartoes.ampla td.c-nome .v{text-align:left} main .cartoes.ampla td.c-nome::before,main .cartoes.ampla td.c-acoes::before{content:none}
+  main .cartoes.ampla td.c-acoes{margin-top:8px} main .cartoes.ampla .linha-acoes{width:100%;flex-wrap:wrap;justify-content:stretch} main .cartoes.ampla .linha-acoes{gap:6px} main .cartoes.ampla .linha-acoes .ic{flex:1 1 auto;border-color:var(--line-2)}
+}
+@container (min-width:668px) and (max-width:1139px){
+  main .cartoes.ampla table,main .cartoes.ampla tbody{display:block} main .cartoes.ampla tbody{display:grid;grid-template-columns:1fr 1fr;gap:10px} main .cartoes.ampla tbody tr{margin:0}
+}
 @media (max-width:820px){
   .filtros{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))} .filtros .larga{grid-column:1 / -1} .duas{grid-template-columns:1fr} .gaveta.larga .dois-lados{grid-template-columns:1fr!important}
 }
@@ -268,7 +283,7 @@ const ABAS = {
     aoAcao: (k, r) => (k === 'contar' ? dialogoContar(r) : k === 'hist' ? dialogoHistorico(r) : k === 'editar' ? formContagem(r) : confirmarExcluir(r, 'A lista sai da tela e os avisos dela param. As contagens já feitas continuam no histórico do estoque.')),
   },
   compras: {
-    aba: 'Pedidos', titulo: 'Pedidos', um: 'pedido', varios: 'pedidos', novo: '＋ Novo pedido', periodo: 'receber',
+    aba: 'Pedidos', titulo: 'Pedidos', ampla: true, um: 'pedido', varios: 'pedidos', novo: '＋ Novo pedido', periodo: 'receber',
     dados: [
       { nome: 'Hortifruti de quarta', forn: 'Hortifruti da Serra', itens: 8, receber: '2026-10-07', resp: 'Carlos', st: 'aguardando', total: 312 },
       { nome: 'Compra da semana', forn: 'Atacado Central', itens: 14, receber: '2026-10-08', resp: 'Ana', st: 'aguardando', total: 1284.5 },
@@ -464,7 +479,7 @@ function desenhar() {
       ${a.periodo ? `<div class="campo"><label for="fPer">Período</label><select id="fPer">${PERIODOS.map((p) => `<option value="${p[0]}"${p[0] === e.periodo ? ' selected' : ''}>${p[1]}</option>`).join('')}</select></div>` : ''}
       ${a.selects.map((s, i) => `<div class="campo"><label for="fSel${i}">${s[0]}</label><select id="fSel${i}" data-sel="${i}"><option value="">${s[1]}</option>${[...new Set(a.dados.map(s[2]))].sort((x, y) => x.localeCompare(y, 'pt-BR')).map((v) => `<option${e.sel[i] === v ? ' selected' : ''}>${v}</option>`).join('')}</select></div>`).join('')}
     </div>
-    <div class="tabela cartoes">${lista.length ? `<table><caption class="sr">${a.titulo}</caption>
+    <div class="tabela cartoes${a.ampla ? ' ampla' : ''}">${lista.length ? `<table><caption class="sr">${a.titulo}</caption>
       <thead><tr>${a.colunas.map((c) => `<th scope="col">${c[0]}</th>`).join('')}<th scope="col"><span class="sr">Ações</span></th></tr></thead>
       <tbody>${lista.map((r) => `<tr>${a.colunas.map((c, i) => `<td ${i === 0 ? 'class="c-nome"' : `data-rot="${c[0]}"`}><div class="v">${c[1](r)}</div></td>`).join('')}
         <td class="c-acoes"><div class="linha-acoes">${a.acoes(r).map((x) => `<button class="ic ${x[3] || ''}" data-acao="${x[2]}" data-i="${a.dados.indexOf(r)}" aria-label="${x[1]}: ${r.nome || r.forn}">${x[0]} ${x[1]}</button>`).join('')}</div></td></tr>`).join('')}</tbody></table>`

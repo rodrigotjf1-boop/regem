@@ -39,6 +39,7 @@ import {
 } from '../../common/custo-loja';
 import { sqlUnidade, sqlUnidadeOuRede, condUnidade, condUnidadeOuRede } from '../../common/filtro-unidade';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { conferirFichaDoProduto, custoDosProdutosFeitos, fichaExiste } from '../fichas/fichas-carga';
 
 // Ator da operação (para auditoria) — vem do @CurrentUser do controller.
 type Ator = { colaboradorId?: string; categoria?: string };
@@ -71,6 +72,10 @@ export class EstoqueService {
       await this.travarNomes(tx, tenantId);
       await this.exigirNomeLivre(tx, tenantId, nome, unidadeId);
       const setores = await this.resolverSetores(tx, tenantId, dto);
+      // FEITO NA LOJA (mig 314): a ficha tem de existir e render na unidade do produto.
+      const fichaId = dto.fichaId
+        ? (await conferirFichaDoProduto(tx, tenantId, { fichaId: dto.fichaId, unidade: unidadeMedida, nome })).id
+        : null;
       const [novo] = await tx
         .insert(itemEstoque)
         .values({
@@ -79,6 +84,7 @@ export class EstoqueService {
           nome,
           nomeComercial: limparNome(dto.nomeComercial) || null,
           marcas: limparMarcas(dto.marcas),
+          fichaId,
           unidadeMedida,
           estoqueMinimo:
             dto.estoqueMinimo != null ? String(dto.estoqueMinimo) : undefined,
@@ -292,6 +298,26 @@ export class EstoqueService {
         if (!antes) throw new NotFoundException('Item não encontrado');
         if (chaveNome(antes.nome) !== chaveNome(nome))
           await this.exigirNomeLivre(tx, tenantId, nome, antes.unidadeId, id);
+      }
+      // FEITO NA LOJA (mig 314): ligar, trocar ou desfazer a ligação com a ficha. E quando a UNIDADE
+      // do produto muda, a ligação que já existe é conferida de novo (a ficha rende na unidade
+      // antiga) — menos a que aponta para ficha já excluída, que só é desfeita.
+      if (dto.fichaId !== undefined || patch.unidadeMedida !== undefined) {
+        const [agora] = await tx
+          .select({ nome: itemEstoque.nome, unidade: itemEstoque.unidadeMedida, fichaId: itemEstoque.fichaId })
+          .from(itemEstoque)
+          .where(doItem);
+        if (!agora) throw new NotFoundException('Item não encontrado');
+        const alvo = dto.fichaId !== undefined ? dto.fichaId || null : agora.fichaId;
+        if (dto.fichaId !== undefined) patch.fichaId = alvo;
+        if (alvo && dto.fichaId === undefined && !(await fichaExiste(tx, tenantId, alvo))) patch.fichaId = null;
+        else if (alvo)
+          await conferirFichaDoProduto(tx, tenantId, {
+            itemId: id,
+            fichaId: alvo,
+            unidade: (patch.unidadeMedida as string | undefined) ?? agora.unidade,
+            nome: (patch.nome as string | undefined) ?? agora.nome,
+          });
       }
       const setores = await this.resolverSetores(tx, tenantId, dto);
       if (setores) {
@@ -648,6 +674,8 @@ export class EstoqueService {
       select i.id, i.nome, i.unidade_medida as "unidadeMedida", i.unidade_id as "unidadeId",
              -- Como o produto é comprado e as marcas dele (mig 311); o nome continua o da ficha.
              i.nome_comercial as "nomeComercial", i.marcas,
+             -- Feito na loja (mig 314): a ficha que o produz — só a que ainda existe.
+             ft.id as "fichaId", ft.nome as "fichaNome",
              sum(${sqlMinimoDaLoja}) as "estoqueMinimo",
              case when sum(greatest(mv.saldo, 0)) > 0
                   then sum(greatest(mv.saldo, 0) * ${sqlCustoDaLoja}) / sum(greatest(mv.saldo, 0))
@@ -674,13 +702,18 @@ export class EstoqueService {
       left join categoria_item cat on cat.id = i.categoria_item_id
       left join fornecedor f on f.id = i.fornecedor_id
       left join setor st on st.id = i.setor_id
+      left join ficha_tecnica ft on ft.id = i.ficha_id and ft.tenant_id = i.tenant_id and ft.deleted_at is null
       -- Insumo da loja OU de cadastro compartilhado: o cadastro pode servir às duas lojas,
       -- o saldo é que é de cada uma.
       where i.tenant_id = ${tenantId} and i.deleted_at is null ${sqlUnidadeOuRede('i.unidade_id', atual)}
-      group by i.id, cat.nome, cat.cor, f.nome, st.nome
+      group by i.id, cat.nome, cat.cor, f.nome, st.nome, ft.id, ft.nome
       order by i.nome
     `);
     const rows = res.rows ?? res;
+    // FEITO NA LOJA (mig 314): o custo pela ficha que produz o produto — é o que ele leva para as
+    // outras fichas. Só é calculado quando há produto ligado, e só sai para quem vê valores em R$.
+    const custoPelaFicha =
+      verFin && rows.some((r: any) => r.fichaId) ? await custoDosProdutosFeitos(this.db, tenantId) : new Map<string, number>();
     // Conversões por item (anexadas em memória).
     const convs = await this.db
       .select()
@@ -748,6 +781,7 @@ export class EstoqueService {
       return {
         ...r,
         unidadeLista: normalizarUnidade(r.unidadeMedida), // idem conversões: "L" → litro
+        custoFicha: custoPelaFicha.get(r.id) ?? null,
         custoMedio: verFin ? r.custoMedio : null,
         valorEstoque: verFin ? Number(r.valorEstoque ?? 0) : null,
         minimoPorLoja: lojas > 1 && !atual,

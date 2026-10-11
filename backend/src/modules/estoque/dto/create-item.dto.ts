@@ -40,6 +40,12 @@ export class CreateItemDto {
   @MaxLength(60, { each: true })
   marcas?: string[];
 
+  // FEITO NA LOJA (mig 314): a ficha técnica que produz este produto. `null` desfaz a ligação;
+  // ausente mantém. A ficha tem de render na unidade principal do produto.
+  @IsOptional()
+  @IsUUID()
+  fichaId?: string | null;
+
   @IsOptional()
   @IsString()
   unidadeMedida?: string;
