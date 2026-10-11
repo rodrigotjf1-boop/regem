@@ -299,15 +299,16 @@ descrever('API de integração — RegemCast (token da empresa, GET /clientes e 
         cliente_id uuid, motivo text, criado_em timestamptz not null default now());
       create unique index on ${SCHEMA}.marketing_optout (tenant_id, telefone);`);
     await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(mig('295_integracao_token_loja.sql'))));
-    await pool.query(mig('296_integracao_versao_vendas.sql'));
-    await pool.query(mig('297_pedido_externo_comanda_idx.sql'));
+    // (cada migration passa pelo ajudante da corrida de catálogo — ERR-194)
+    await repetirNaCorridaDeCatalogo(() => pool.query(mig('296_integracao_versao_vendas.sql')));
+    await repetirNaCorridaDeCatalogo(() => pool.query(mig('297_pedido_externo_comanda_idx.sql')));
     for (const n of ['299_pedido_origem.sql', '300_marketing_consentimento.sql', '302_integracao_regemcast.sql']) {
-      const conf: any = await pool.query(semFkCompartilhada(mig(n)));
+      const conf: any = await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(mig(n))));
       const linhas = (Array.isArray(conf) ? conf[conf.length - 1] : conf).rows;
       if (!linhas.length || linhas.some((l: any) => !l.ok)) throw new Error(`conferência da ${n}: ${JSON.stringify(linhas)}`);
     }
     // A 302 de novo: idempotente (a conferência continua toda verde).
-    const de_novo: any = await pool.query(mig('302_integracao_regemcast.sql'));
+    const de_novo: any = await repetirNaCorridaDeCatalogo(() => pool.query(mig('302_integracao_regemcast.sql')));
     expect((de_novo[de_novo.length - 1].rows as any[]).every((l) => l.ok)).toBe(true);
     const [fk] = await q(
       `select count(*)::int n from pg_constraint c join pg_namespace s on s.oid = c.connamespace
@@ -409,7 +410,7 @@ descrever('API de integração — RegemCast (token da empresa, GET /clientes e 
           escopos: ['clientes.ler'], evidencia }, dist),
       ).rejects.toThrow(/não vale para o Liame: clientes\.ler/);
       await expect(
-        tokensSvc.emitir({ tenantId: O.tenant, cliente: 'farol', autorizadoPor: O.presidente, escopos: ['pedidos.ler'], evidencia }, dist),
+        tokensSvc.emitir({ tenantId: O.tenant, cliente: 'outro-sistema', autorizadoPor: O.presidente, escopos: ['pedidos.ler'], evidencia }, dist),
       ).rejects.toThrow(/desconhecido/);
       await q(`update integracao_token_loja set revogado_em = now() where tenant_id = $1 and escopos = '{pedidos.ler}'`, [O.tenant]);
     });

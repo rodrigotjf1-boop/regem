@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/lista';
 import { DialogoRevogar } from '@/components/integracoes/dialogo-revogar';
 import { SeloApp } from '@/components/integracoes/selo-app';
-import { type Acesso, type Aplicativo, autorizadoPor, comoSaiu, haQuanto, resumoDoAcesso } from '@/components/integracoes/textos';
+import { TEXTO_APP, type Acesso, type Aplicativo, autorizadoPor, comoMudar, comoSaiu, haQuanto, resumoDoAcesso } from '@/components/integracoes/textos';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -197,10 +197,7 @@ export default function AplicativosConectadosPage() {
             <Card className={`space-y-1.5 p-3 text-sm ${texto2}`}>
               {apps.map((a) => (
                 <p key={a.cliente}>
-                  <b className="text-foreground">{a.rotulo}:</b>{' '}
-                  {a.abrangencia === 'empresa'
-                    ? 'este acesso é emitido pela distribuição DMS a pedido do presidente. Para ligar de novo depois de revogar, fale com o suporte.'
-                    : `para incluir outra loja ou mudar o que o ${a.rotulo} recebe, comece pelo ${a.rotulo}, em Contas conectadas.`}
+                  <b className="text-foreground">{a.rotulo}:</b> {comoMudar(a)}
                 </p>
               ))}
             </Card>
@@ -211,7 +208,7 @@ export default function AplicativosConectadosPage() {
       {pedido && (
         <DialogoRevogar
           app={pedido.app.rotulo}
-          leitura={pedido.app.cliente === 'liame' ? 'os pedidos' : 'os dados'}
+          leitura={TEXTO_APP[pedido.app.cliente]?.leitura ?? 'os dados'}
           loja={pedido.acesso?.lojaNome ?? null}
           revogando={revogando}
           aoManter={() => setPedido(null)}

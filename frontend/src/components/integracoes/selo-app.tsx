@@ -5,6 +5,8 @@ import { cn } from '@/lib/utils';
 const SELOS: Record<string, { letra: string; classe: string }> = {
   liame: { letra: 'L', classe: 'bg-[#7B61FF] text-white' },
   regemcast: { letra: 'C', classe: 'bg-foreground text-primary' },
+  // Farol: o âmbar do "facho" com a tinta escura que o próprio Farol usa por cima dele.
+  farol: { letra: 'F', classe: 'bg-[#F2B03C] text-[#1A1204]' },
 };
 
 export function SeloApp({ cliente, rotulo, pequeno = false }: { cliente: string; rotulo: string; pequeno?: boolean }) {

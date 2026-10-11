@@ -1,9 +1,9 @@
 import { BadRequestException } from '@nestjs/common';
 
 // Escopos do token de integração por loja (contrato Regem → Liame v1, `docs/integracoes/regem.md`
-// do Liame; contrato Regem → RegemCast em `docs/integracao-regemcast.md`). Cada rota confere o
-// seu; o que o token não tem volta 403. A lista é a MESMA do `check` da tabela (migs 295 e 302):
-// escopo fora dela nem chega a ser gravado.
+// do Liame; contrato Regem → RegemCast em `docs/integracao-regemcast.md`; contrato Regem → Farol em
+// `docs/integracao-farol.md`). Cada rota confere o seu; o que o token não tem volta 403. A lista é
+// a MESMA do `check` das tabelas (migs 295, 302, 303 e 315): escopo fora dela nem chega a ser gravado.
 export const ESCOPOS_INTEGRACAO = [
   'pedidos.ler',
   'clientes.telefone.ler',
@@ -15,9 +15,25 @@ export const ESCOPOS_INTEGRACAO = [
   // RegemCast (mig 302): a lista de clientes e a exceção da 99 (autorização do dono no RegemCast).
   'clientes.ler',
   'vendas.99food.ler',
+  // Farol (mig 315): o catálogo, as fichas e a fila de produção — lidos NA HORA, sem preço nem custo.
+  'catalogo.ler',
+  'fichas.ler',
+  'producao.ler',
 ] as const;
 
 export type EscopoIntegracao = (typeof ESCOPOS_INTEGRACAO)[number];
+
+/**
+ * Escopos de LEITURA NA HORA (Farol, mig 315): o que eles liberam sai direto das tabelas, sem
+ * versão nem cursor. O token que só tem estes NÃO liga o carimbador das vendas — a carga de 91
+ * dias, a fila de mudanças, a reconciliação diária: para isso a empresa não está "conectada".
+ */
+export const ESCOPOS_SEM_CARIMBO: readonly EscopoIntegracao[] = ['catalogo.ler', 'fichas.ler', 'producao.ler'];
+
+/** Os escopos cuja leitura depende do carimbador (todos os outros). */
+export const ESCOPOS_COM_CARIMBO: readonly EscopoIntegracao[] = ESCOPOS_INTEGRACAO.filter(
+  (e) => !ESCOPOS_SEM_CARIMBO.includes(e),
+);
 
 /** O que cada escopo libera, em pt-BR (tela do console). */
 export const ROTULO_ESCOPO: Record<EscopoIntegracao, string> = {
@@ -30,6 +46,9 @@ export const ROTULO_ESCOPO: Record<EscopoIntegracao, string> = {
   'cupons.criar': 'Criar e desativar cupom (só pelo Action Service do Liame)',
   'clientes.ler': 'Clientes da empresa: nome, telefone, canais, bairro, opt-out e aceite (nunca só de marketplace)',
   'vendas.99food.ler': 'Vendas e clientes da 99Food (só com a autorização do dono)',
+  'catalogo.ler': 'Produtos, variações, combos e adicionais da loja (sem preço)',
+  'fichas.ler': 'Fichas técnicas e ingredientes (sem custo)',
+  'producao.ler': 'Pedidos na fila de produção (sem o cliente e sem valores)',
 };
 
 /**
@@ -54,6 +73,13 @@ export const CLIENTES_INTEGRACAO: Record<
     abrangencia: 'empresa',
     escopos: ['pedidos.ler', 'clientes.telefone.ler', 'clientes.ler', 'vendas.99food.ler'],
     cargaDias: 1096,
+  },
+  // Farol (mig 315): um token por loja, só com leitura na hora — nada de vendas, clientes ou custo.
+  farol: {
+    rotulo: 'Farol',
+    abrangencia: 'loja',
+    escopos: ['catalogo.ler', 'fichas.ler', 'producao.ler'],
+    cargaDias: null,
   },
 };
 
@@ -106,6 +132,17 @@ export const AUTORIZACAO_LOJA: Record<
     envRedirect: 'INTEGRACAO_LIAME_REDIRECT_URIS',
     redirectPadrao: ['https://api.agencialiame.com/v1/oauth/callback'],
   },
+  // Farol (decisões do dono, 10/10/2026): a loja autoriza as três leituras de uma vez — não há o
+  // que ligar ou desligar, porque nenhuma delas leva preço, custo ou cliente.
+  farol: {
+    descricao: 'Auditoria da operação por câmera · lê o cardápio, as fichas e a fila da cozinha',
+    site: 'app.monitorfarol.com.br',
+    sempre: ['catalogo.ler', 'fichas.ler', 'producao.ler'],
+    opcionais: [],
+    envSegredo: 'INTEGRACAO_FAROL_CLIENT_SECRET',
+    envRedirect: 'INTEGRACAO_FAROL_REDIRECT_URIS',
+    redirectPadrao: ['https://api.monitorfarol.com.br/v1/regem/retorno'],
+  },
 };
 
 /**
@@ -127,6 +164,7 @@ export const WEBHOOK_INTEGRACAO: Record<string, { envUrls: string; padrao: reado
 export const DESCRICAO_CLIENTE: Record<string, string> = {
   liame: AUTORIZACAO_LOJA.liame.descricao,
   regemcast: 'Campanhas de WhatsApp · lê os clientes e as vendas da empresa',
+  farol: AUTORIZACAO_LOJA.farol.descricao,
 };
 
 export function ehEscopoIntegracao(v: unknown): v is EscopoIntegracao {

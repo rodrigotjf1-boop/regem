@@ -1294,7 +1294,10 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
                 }
               }
             }
@@ -1494,6 +1497,86 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ReceberCompraDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/compras/listas/{id}/faltante": {
+      "post": {
+        "operationId": "ComprasController_gerarListaDoQueFaltou",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GerarFaltanteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/compras/listas/{id}/envio": {
+      "get": {
+        "operationId": "ComprasController_pedidoParaEnviar",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/compras/listas/{id}/enviado": {
+      "post": {
+        "operationId": "ComprasController_marcarEnviado",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarcarEnviadoDto"
               }
             }
           }
@@ -2692,7 +2775,10 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
                 }
               }
             }
@@ -2714,7 +2800,14 @@
         },
         "responses": {
           "201": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -2769,7 +2862,14 @@
         },
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       },
@@ -2817,7 +2917,14 @@
         },
         "responses": {
           "201": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -15919,6 +16026,82 @@
         ]
       }
     },
+    "/api/v1/integracao/catalogo": {
+      "get": {
+        "operationId": "IntegracaoApiController_catalogo",
+        "summary": "Catálogo da loja: categorias, setores, produtos, variações, combos e adicionais — sem preço.",
+        "description": "Retrato inteiro, com a `versao` dele. Mande a versão que você tem em `?versao=`: se nada mudou, a resposta é só { versao, atualizado: false }. Os produtos são os da loja do token e os cadastrados sem loja (empresa de uma loja: todos); os apagados não saem, os inativos saem com ativo: false. Os ids do produto, da ficha, da etapa (`etapa_id`) e da opção reutilizável (`opcao_id`) são fixos; os da variação, do grupo e da opção do produto mudam a cada salvamento do catálogo.",
+        "parameters": [
+          {
+            "name": "versao",
+            "required": false,
+            "in": "query",
+            "description": "A `versao` da última resposta que você guardou.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogoIntegracao"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Integração (token por loja)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/integracao/fichas": {
+      "get": {
+        "operationId": "IntegracaoApiController_fichas",
+        "summary": "Fichas técnicas da loja, com os ingredientes de cada uma — sem custo.",
+        "description": "Retrato inteiro, com a `versao` dele; com `?versao=` igual à atual, a resposta é só { versao, atualizado: false }. As fichas são as da loja do token e as cadastradas sem loja (empresa de uma loja: todas). Cada ingrediente traz a quantidade como foi informada (`quantidade`, `unidade`) e na unidade do estoque (`quantidade_estoque`, `unidade_estoque`). O ingrediente não tem id: salvar a ficha regrava as linhas.",
+        "parameters": [
+          {
+            "name": "versao",
+            "required": false,
+            "in": "query",
+            "description": "A `versao` da última resposta que você guardou.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FichasIntegracao"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Integração (token por loja)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/integracao/cupons": {
       "get": {
         "operationId": "IntegracaoApiController_cuponsDaLoja",
@@ -16947,6 +17130,23 @@
           "itemIds"
         ]
       },
+      "ContadoPorMarcaDto": {
+        "type": "object",
+        "properties": {
+          "marca": {
+            "type": "string",
+            "maxLength": 60
+          },
+          "quantidade": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "marca",
+          "quantidade"
+        ]
+      },
       "SalvarContagemItemDto": {
         "type": "object",
         "properties": {
@@ -16958,6 +17158,12 @@
           },
           "contadoEm": {
             "type": "string"
+          },
+          "porMarca": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ContadoPorMarcaDto"
+            }
           }
         },
         "required": [
@@ -16993,6 +17199,14 @@
           },
           "custoUnitario": {
             "type": "number"
+          },
+          "marca": {
+            "type": "string",
+            "maxLength": 60
+          },
+          "marcaAlternativa": {
+            "type": "string",
+            "maxLength": 60
           }
         },
         "required": [
@@ -17062,6 +17276,14 @@
           "loteCodigo": {
             "type": "string"
           },
+          "marcaRecebida": {
+            "type": "string",
+            "maxLength": 60
+          },
+          "custoUnitario": {
+            "type": "number",
+            "minimum": 0
+          },
           "divergencia": {
             "type": "string",
             "enum": [
@@ -17081,6 +17303,10 @@
       "ReceberCompraDto": {
         "type": "object",
         "properties": {
+          "notaRef": {
+            "type": "string",
+            "maxLength": 60
+          },
           "vencimento": {
             "type": "string",
             "pattern": "/^\\d{4}-\\d{2}-\\d{2}$/"
@@ -17094,6 +17320,30 @@
         },
         "required": [
           "itens"
+        ]
+      },
+      "GerarFaltanteDto": {
+        "type": "object",
+        "properties": {
+          "dataRecebimento": {
+            "type": "string",
+            "pattern": "/^\\d{4}-\\d{2}-\\d{2}$/"
+          }
+        }
+      },
+      "MarcarEnviadoDto": {
+        "type": "object",
+        "properties": {
+          "canal": {
+            "type": "string",
+            "enum": [
+              "whatsapp",
+              "email"
+            ]
+          }
+        },
+        "required": [
+          "canal"
         ]
       },
       "CreateTarefaDefDto": {
@@ -17404,6 +17654,21 @@
           "nome": {
             "type": "string",
             "minLength": 1
+          },
+          "nomeComercial": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "marcas": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 60
+            }
+          },
+          "fichaId": {
+            "type": "string",
+            "nullable": true
           },
           "unidadeMedida": {
             "type": "string"
@@ -18592,6 +18857,13 @@
           "mesa": {
             "type": "string"
           },
+          "consumo": {
+            "type": "string",
+            "enum": [
+              "local",
+              "viagem"
+            ]
+          },
           "unidadeId": {
             "type": "string"
           },
@@ -19296,6 +19568,558 @@
           "itens",
           "proximo_cursor",
           "tem_mais"
+        ]
+      },
+      "CategoriaCatalogoIntegracao": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "nome": {
+            "type": "string"
+          },
+          "categoria_pai_id": {
+            "type": "string",
+            "nullable": true,
+            "description": "A categoria de cima (null = categoria principal)."
+          },
+          "ordem": {
+            "type": "number"
+          },
+          "ativo": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "nome",
+          "categoria_pai_id",
+          "ordem",
+          "ativo"
+        ]
+      },
+      "SetorCatalogoIntegracao": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "nome": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "nome"
+        ]
+      },
+      "VariacaoCatalogoIntegracao": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Muda quando o produto é salvo de novo: case a variação pelo produto e pelo código (ou nome)."
+          },
+          "nome": {
+            "type": "string"
+          },
+          "codigo": {
+            "type": "string",
+            "nullable": true
+          },
+          "fator_ficha": {
+            "type": "number",
+            "description": "Quanto da ficha do produto esta variação usa (1 = a ficha inteira)."
+          },
+          "ativo": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "nome",
+          "codigo",
+          "fator_ficha",
+          "ativo"
+        ]
+      },
+      "ItemComboIntegracao": {
+        "type": "object",
+        "properties": {
+          "produto_id": {
+            "type": "string",
+            "description": "O produto que faz parte do combo."
+          },
+          "quantidade": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "produto_id",
+          "quantidade"
+        ]
+      },
+      "AcrescentaOpcaoIntegracao": {
+        "type": "object",
+        "properties": {
+          "tipo": {
+            "type": "string",
+            "enum": [
+              "insumo",
+              "ficha",
+              "produto"
+            ]
+          },
+          "insumo_id": {
+            "type": "string",
+            "description": "tipo insumo: o item do estoque."
+          },
+          "nome": {
+            "type": "string",
+            "nullable": true,
+            "description": "tipo insumo: o nome do item."
+          },
+          "quantidade_estoque": {
+            "type": "number",
+            "description": "tipo insumo: quanto sai a cada vez que a opção é escolhida, na unidade do estoque."
+          },
+          "unidade_estoque": {
+            "type": "string",
+            "nullable": true,
+            "description": "tipo insumo: a unidade do estoque do item."
+          },
+          "ficha_id": {
+            "type": "string",
+            "description": "tipo ficha: a ficha técnica da opção (uma porção por escolha)."
+          },
+          "produto_id": {
+            "type": "string",
+            "description": "tipo produto: o produto que a opção é (a bebida do combo)."
+          }
+        },
+        "required": [
+          "tipo"
+        ]
+      },
+      "RetiraOpcaoIntegracao": {
+        "type": "object",
+        "properties": {
+          "insumo_id": {
+            "type": "string",
+            "nullable": true,
+            "description": "O item do estoque que deixa de entrar."
+          },
+          "sub_ficha_id": {
+            "type": "string",
+            "nullable": true,
+            "description": "A sub-receita que deixa de entrar."
+          },
+          "nome": {
+            "type": "string",
+            "nullable": true,
+            "description": "O nome do ingrediente na ficha."
+          }
+        },
+        "required": [
+          "insumo_id",
+          "sub_ficha_id",
+          "nome"
+        ]
+      },
+      "OpcaoAdicionalIntegracao": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "O id que a venda grava. Muda quando o catálogo é salvo de novo."
+          },
+          "opcao_id": {
+            "type": "string",
+            "nullable": true,
+            "description": "O id FIXO da opção reutilizável (null = opção criada só neste produto)."
+          },
+          "nome": {
+            "type": "string"
+          },
+          "codigo": {
+            "type": "string",
+            "nullable": true,
+            "description": "Código PDV."
+          },
+          "ordem": {
+            "type": "number"
+          },
+          "informativa": {
+            "type": "boolean",
+            "description": "Sem código PDV: é só uma observação (\"ponto da carne\") — não acrescenta nem retira nada."
+          },
+          "acrescenta": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AcrescentaOpcaoIntegracao"
+              }
+            ]
+          },
+          "retira": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/RetiraOpcaoIntegracao"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "opcao_id",
+          "nome",
+          "codigo",
+          "ordem",
+          "informativa",
+          "acrescenta",
+          "retira"
+        ]
+      },
+      "AdicionalIntegracao": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Muda quando o catálogo é salvo de novo."
+          },
+          "etapa_id": {
+            "type": "string",
+            "nullable": true,
+            "description": "O id FIXO da etapa reutilizável (null = grupo criado só neste produto)."
+          },
+          "nome": {
+            "type": "string"
+          },
+          "tipo": {
+            "type": "string",
+            "enum": [
+              "adicionar",
+              "remover"
+            ]
+          },
+          "min": {
+            "type": "number"
+          },
+          "max": {
+            "type": "number",
+            "nullable": true,
+            "description": "null = sem limite."
+          },
+          "obrigatorio": {
+            "type": "boolean"
+          },
+          "ordem": {
+            "type": "number"
+          },
+          "opcoes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OpcaoAdicionalIntegracao"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "etapa_id",
+          "nome",
+          "tipo",
+          "min",
+          "max",
+          "obrigatorio",
+          "ordem",
+          "opcoes"
+        ]
+      },
+      "ProdutoCatalogoIntegracao": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Id fixo do produto."
+          },
+          "codigo": {
+            "type": "string",
+            "nullable": true,
+            "description": "Código PDV."
+          },
+          "nome": {
+            "type": "string"
+          },
+          "descricao": {
+            "type": "string",
+            "nullable": true
+          },
+          "tipo": {
+            "type": "string",
+            "enum": [
+              "simples",
+              "variavel",
+              "combo"
+            ]
+          },
+          "unidade_medida": {
+            "type": "string",
+            "nullable": true
+          },
+          "categoria_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "vai_para_producao": {
+            "type": "boolean",
+            "description": "O produto passa pela cozinha (gera pedido de produção)."
+          },
+          "setor_producao_id": {
+            "type": "string",
+            "nullable": true,
+            "description": "O setor de produção do cadastro (pode ser de outra loja da empresa)."
+          },
+          "tempo_preparo_min": {
+            "type": "number",
+            "nullable": true
+          },
+          "ficha_id": {
+            "type": "string",
+            "nullable": true,
+            "description": "A ficha técnica do produto (ver GET /integracao/fichas)."
+          },
+          "ativo": {
+            "type": "boolean"
+          },
+          "variacoes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VariacaoCatalogoIntegracao"
+            }
+          },
+          "combo": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ItemComboIntegracao"
+            }
+          },
+          "adicionais": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdicionalIntegracao"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "codigo",
+          "nome",
+          "descricao",
+          "tipo",
+          "unidade_medida",
+          "categoria_id",
+          "vai_para_producao",
+          "setor_producao_id",
+          "tempo_preparo_min",
+          "ficha_id",
+          "ativo",
+          "variacoes",
+          "combo",
+          "adicionais"
+        ]
+      },
+      "CatalogoIntegracao": {
+        "type": "object",
+        "properties": {
+          "versao": {
+            "type": "string",
+            "description": "A impressão deste retrato (32 caracteres). Mande de volta em `?versao=`."
+          },
+          "atualizado": {
+            "type": "boolean",
+            "description": "false = nada mudou desde a versão informada: os outros campos não vêm."
+          },
+          "gerado_em": {
+            "type": "string",
+            "description": "Quando o retrato foi montado (ISO 8601, UTC)."
+          },
+          "loja_id": {
+            "type": "string",
+            "nullable": true,
+            "description": "A loja do token."
+          },
+          "categorias": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CategoriaCatalogoIntegracao"
+            }
+          },
+          "setores": {
+            "description": "Os setores da loja do token.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SetorCatalogoIntegracao"
+            }
+          },
+          "produtos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProdutoCatalogoIntegracao"
+            }
+          }
+        },
+        "required": [
+          "versao",
+          "atualizado"
+        ]
+      },
+      "IngredienteFichaIntegracao": {
+        "type": "object",
+        "properties": {
+          "ordem": {
+            "type": "number"
+          },
+          "insumo_id": {
+            "type": "string",
+            "nullable": true,
+            "description": "O item do estoque (null = sub-receita ou insumo escrito à mão)."
+          },
+          "sub_ficha_id": {
+            "type": "string",
+            "nullable": true,
+            "description": "A outra ficha que entra como ingrediente (sub-receita)."
+          },
+          "nome": {
+            "type": "string"
+          },
+          "quantidade": {
+            "type": "number",
+            "description": "A quantidade como foi informada na ficha, na `unidade`."
+          },
+          "unidade": {
+            "type": "string",
+            "nullable": true
+          },
+          "quantidade_estoque": {
+            "type": "number",
+            "description": "A mesma quantidade na unidade do estoque do insumo (é a que a venda baixa)."
+          },
+          "unidade_estoque": {
+            "type": "string",
+            "nullable": true,
+            "description": "A unidade do estoque do insumo (null = sem item do estoque)."
+          },
+          "fator_correcao": {
+            "type": "number",
+            "description": "Fator de correção (perda no preparo): 1 = sem perda."
+          },
+          "so_delivery": {
+            "type": "boolean",
+            "description": "A linha só entra em pedido que sai da loja (a embalagem)."
+          }
+        },
+        "required": [
+          "ordem",
+          "insumo_id",
+          "sub_ficha_id",
+          "nome",
+          "quantidade",
+          "unidade",
+          "quantidade_estoque",
+          "unidade_estoque",
+          "fator_correcao",
+          "so_delivery"
+        ]
+      },
+      "FichaIntegracao": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Id fixo da ficha."
+          },
+          "nome": {
+            "type": "string"
+          },
+          "categoria": {
+            "type": "string",
+            "nullable": true
+          },
+          "rendimento": {
+            "type": "number",
+            "description": "Quanto a ficha rende."
+          },
+          "rendimento_unidade": {
+            "type": "string",
+            "nullable": true
+          },
+          "porcao_tamanho": {
+            "type": "number",
+            "nullable": true
+          },
+          "porcao_unidade": {
+            "type": "string",
+            "nullable": true
+          },
+          "setor_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "ativo": {
+            "type": "boolean"
+          },
+          "ingredientes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IngredienteFichaIntegracao"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "nome",
+          "categoria",
+          "rendimento",
+          "rendimento_unidade",
+          "porcao_tamanho",
+          "porcao_unidade",
+          "setor_id",
+          "ativo",
+          "ingredientes"
+        ]
+      },
+      "FichasIntegracao": {
+        "type": "object",
+        "properties": {
+          "versao": {
+            "type": "string",
+            "description": "A impressão deste retrato (32 caracteres). Mande de volta em `?versao=`."
+          },
+          "atualizado": {
+            "type": "boolean",
+            "description": "false = nada mudou desde a versão informada: os outros campos não vêm."
+          },
+          "gerado_em": {
+            "type": "string",
+            "description": "Quando o retrato foi montado (ISO 8601, UTC)."
+          },
+          "loja_id": {
+            "type": "string",
+            "nullable": true,
+            "description": "A loja do token."
+          },
+          "fichas": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FichaIntegracao"
+            }
+          }
+        },
+        "required": [
+          "versao",
+          "atualizado"
         ]
       },
       "CondicoesCupomIntegracao": {

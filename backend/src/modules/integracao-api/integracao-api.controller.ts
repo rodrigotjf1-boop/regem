@@ -27,6 +27,8 @@ import {
 } from './dto/cupons-integracao.dto';
 import { WebhookIntegracaoService } from './webhook-integracao.service';
 import { RegistrarWebhookIntegracao, WebhookIntegracao } from './dto/webhook-integracao.dto';
+import { CatalogoIntegracaoService } from './catalogo-integracao.service';
+import { CatalogoIntegracao, FichasIntegracao } from './dto/catalogo-integracao.dto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -64,6 +66,7 @@ export class IntegracaoApiController {
     private readonly cupons: CuponsIntegracaoService,
     private readonly clientesSvc: ClientesIntegracaoService,
     private readonly webhooks: WebhookIntegracaoService,
+    private readonly catalogoSvc: CatalogoIntegracaoService,
   ) {}
 
   // Quem é a loja do token — qualquer escopo.
@@ -180,6 +183,43 @@ export class IntegracaoApiController {
     @Query('limite') limite?: string,
   ) {
     return this.clientesSvc.clientes(ctx, { cursor, limite });
+  }
+
+  // ───────────────────────────── catálogo e fichas (Farol — mig 315) ─────────────────────────────
+
+  // O catálogo da loja do token, lido na hora: retrato inteiro com versão. Sem preço.
+  @Get('catalogo')
+  @Escopos('catalogo.ler')
+  @ApiOperation({
+    summary: 'Catálogo da loja: categorias, setores, produtos, variações, combos e adicionais — sem preço.',
+    description:
+      'Retrato inteiro, com a `versao` dele. Mande a versão que você tem em `?versao=`: se nada mudou, a resposta é só ' +
+      '{ versao, atualizado: false }. Os produtos são os da loja do token e os cadastrados sem loja (empresa de uma loja: ' +
+      'todos); os apagados não saem, os inativos saem com ativo: false. Os ids do produto, da ficha, da etapa (`etapa_id`) ' +
+      'e da opção reutilizável (`opcao_id`) são fixos; os da variação, do grupo e da opção do produto mudam a cada ' +
+      'salvamento do catálogo.',
+  })
+  @ApiQuery({ name: 'versao', required: false, description: 'A `versao` da última resposta que você guardou.' })
+  @ApiOkResponse({ type: CatalogoIntegracao })
+  catalogo(@IntegracaoCtx() ctx: IntegracaoCtxData, @Query('versao') versao?: string) {
+    return this.catalogoSvc.catalogo(ctx, { versao });
+  }
+
+  // As fichas técnicas da loja do token, lidas na hora: retrato inteiro com versão. Sem custo.
+  @Get('fichas')
+  @Escopos('fichas.ler')
+  @ApiOperation({
+    summary: 'Fichas técnicas da loja, com os ingredientes de cada uma — sem custo.',
+    description:
+      'Retrato inteiro, com a `versao` dele; com `?versao=` igual à atual, a resposta é só { versao, atualizado: false }. ' +
+      'As fichas são as da loja do token e as cadastradas sem loja (empresa de uma loja: todas). Cada ingrediente traz a ' +
+      'quantidade como foi informada (`quantidade`, `unidade`) e na unidade do estoque (`quantidade_estoque`, ' +
+      '`unidade_estoque`). O ingrediente não tem id: salvar a ficha regrava as linhas.',
+  })
+  @ApiQuery({ name: 'versao', required: false, description: 'A `versao` da última resposta que você guardou.' })
+  @ApiOkResponse({ type: FichasIntegracao })
+  fichas(@IntegracaoCtx() ctx: IntegracaoCtxData, @Query('versao') versao?: string) {
+    return this.catalogoSvc.fichas(ctx, { versao });
   }
 
   // ───────────────────────────── cupons (contrato de cupons v1) ─────────────────────────────
