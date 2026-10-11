@@ -1,12 +1,14 @@
-# Integração Regem → Farol (API de integração) — contrato v1
+# Integração Regem → Farol (API de integração) — contrato v2
 
 > Fonte da verdade do lado do Regem. O Farol (auditoria da operação por câmera, da DMS) consome
 > exatamente isto. Mudou aqui → avisar o Farol antes do merge.
 > Decisões do dono de 10/10/2026 (ver `docs/decisoes-design.md` §6).
+> **v1** (11/10/2026): o catálogo e as fichas. **v2** (11/10/2026): a fila de produção (§6) — só
+> acrescenta; nada da v1 mudou.
 
 O Farol confere, pela câmera da bancada, se o lanche foi montado como a ficha manda. Para isso ele
-precisa saber **o que a loja vende e do que cada produto é feito**. Ele só LÊ — e nunca recebe
-preço, custo, margem, CMV, cliente ou venda.
+precisa saber **o que a loja vende, do que cada produto é feito e o que a cozinha tem para fazer
+agora**. Ele só LÊ — e nunca recebe preço, custo, margem, CMV, cliente ou venda.
 
 ## 1. Acesso
 
@@ -33,7 +35,7 @@ preço, custo, margem, CMV, cliente ou venda.
   |---|---|
   | `catalogo.ler` | `GET /integracao/catalogo` |
   | `fichas.ler` | `GET /integracao/fichas` |
-  | `producao.ler` | a fila de produção — a rota entra na próxima versão deste contrato; o escopo já vai na autorização, para a loja autorizar uma vez só |
+  | `producao.ler` | `GET /integracao/producao` |
 
 - **Limite:** 60 chamadas/min por token → `429` com `Retry-After` em **segundos**.
 - **Erros:** `application/problem+json` (`type`, `title`, `status`, `detail`). `401` = token ausente,
@@ -57,9 +59,10 @@ preço, custo, margem, CMV, cliente ou venda.
 }
 ```
 
-## 3. O retrato e a versão (as duas leituras)
+## 3. O retrato e a versão (as três leituras)
 
-- Cada rota devolve o **retrato inteiro** da loja, com a `versao` dele (32 caracteres).
+- Cada rota devolve o **retrato inteiro** da loja (na fila de produção, o da janela — §6), com a
+  `versao` dele (32 caracteres).
 - Mande a versão que você guardou em `?versao=`. Se nada mudou, a resposta é só
   `{ "versao": "…", "atualizado": false }`.
 - A versão é a **impressão do conteúdo**, não uma data: muda quando qualquer campo do retrato muda,
@@ -71,7 +74,9 @@ preço, custo, margem, CMV, cliente ou venda.
   opção reutilizável (`opcao_id`). **Mudam a cada salvamento:** a variação, o grupo de adicionais e
   a opção do produto (`id`). O ingrediente da ficha não tem id. Trate cada resposta como retrato
   inteiro e case a variação pelo produto e pelo código (ou nome).
-- Sugestão de leitura: uma vez a cada 5 a 10 minutos por loja, sempre com `?versao=`.
+- Sugestão de leitura do catálogo e das fichas: uma vez a cada 5 a 10 minutos por loja, sempre com
+  `?versao=`. A fila de produção pode ser lida de 15 em 15 segundos (o limite de 60 chamadas por
+  minuto é do token, somando as três rotas).
 
 ## 4. `GET /integracao/catalogo` (`catalogo.ler`)
 
@@ -185,24 +190,110 @@ preço, custo, margem, CMV, cliente ou venda.
 - `rendimento`: quanto a ficha rende; o consumo de uma venda é
   `quantidade_estoque × fator_correcao ÷ rendimento`, vezes o `fator_ficha` da variação.
 
-## 6. O que NÃO sai, e por quê
+## 6. `GET /integracao/producao` (`producao.ler`)
+
+A fila da cozinha da loja do token — o que o KDS mostra, sem o histórico.
+
+```json
+{
+  "versao": "c07d5e…",
+  "atualizado": true,
+  "gerado_em": "2026-10-11T12:40:05.000Z",
+  "loja_id": "l1…",
+  "pedidos": [
+    {
+      "id": "pp1…",
+      "numero": 41,
+      "origem": "mesa",
+      "canal": null,
+      "consumo": "local",
+      "status": "preparo",
+      "setor_id": "s1…",
+      "tempo_preparo_min": 12,
+      "alterado": false,
+      "criado_em": "2026-10-11T12:30:00.000Z",
+      "iniciado_em": "2026-10-11T12:32:00.000Z",
+      "pronto_em": null,
+      "entregue_em": null,
+      "cancelado_em": null,
+      "itens": [
+        {
+          "id": "ppi1…",
+          "produto_id": "p1…",
+          "ficha_id": "f1…",
+          "variacao": { "id": "v1…", "nome": "Duplo", "codigo": "XB-D", "fator_ficha": 2 },
+          "descricao": "X-Burger · Duplo",
+          "quantidade": 2,
+          "observacao": "bem passado",
+          "removido": false,
+          "adicionais_texto": "+ 2x Bacon · sem Cebola",
+          "adicionais": [
+            {
+              "tipo": "adicionar",
+              "opcao_id": "r1…",
+              "nome": "Bacon",
+              "vezes": 2,
+              "acrescenta": { "tipo": "insumo", "insumo_id": "i9…", "nome": "Bacon fatiado", "quantidade_estoque": 0.02, "unidade_estoque": "kg" },
+              "retira": null
+            },
+            {
+              "tipo": "remover",
+              "opcao_id": null,
+              "nome": "Sem cebola",
+              "vezes": 1,
+              "acrescenta": null,
+              "retira": { "insumo_id": "i3…", "sub_ficha_id": null, "nome": "Cebola roxa" }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+- **A janela:** os pedidos **em produção** (`recebido` ou `preparo`) criados nas últimas 24 horas, e
+  os **concluídos** (`pronto` ou `entregue`) ou **cancelados** nas últimas 2 horas. Vêm na ordem em
+  que entraram na fila. Pedido que sai da janela some do retrato — e a versão muda.
+- `status`: `recebido`, `preparo`, `pronto`, `entregue` ou `cancelado`. Cada loja usa as etapas que
+  quiser: há loja que vai de `recebido` direto a `pronto`, e loja que não usa `entregue`. Quem avança
+  é o **pedido inteiro**; o item não tem etapa.
+- `origem`: `balcao`, `mesa`, `comanda`, `delivery` ou `totem`. `canal`: de onde veio o pedido de
+  fora ("iFood", "Cardápio", "Totem"…), ou `null`. `consumo`: `local`, `viagem` ou `null`.
+- `numero`: o número do pedido na fila da loja, no dia.
+- `alterado`: o pedido mudou depois de entrar na fila (item acrescentado ou retirado).
+- `itens[].produto_id`, `ficha_id` e `variacao`: como ficaram **na venda**. A `variacao.id` muda
+  quando o produto é salvo de novo — case pelo `codigo` (ou nome). Item que foi retirado da venda
+  sai com `removido: true` e sem produto; item de canal que não casou com produto do catálogo sai
+  só com a `descricao`.
+- `itens[].descricao` é o texto que a cozinha lê. No pedido feito pelo cardápio do Regem ele já
+  traz as escolhas entre parênteses, e aí `adicionais_texto` vem `null`.
+- `itens[].adicionais`: as escolhas do item, com o mesmo formato de `acrescenta` e `retira` do
+  catálogo (§4) e o mesmo `opcao_id` (fixo). `vezes` = quantas vezes a escolha foi feita naquele
+  item; `quantidade_estoque` é de **uma** vez. `opcao_id: null` = opção criada só naquele produto.
+- `itens[].observacao`: o que foi escrito para a cozinha, como veio.
+- **Atraso:** na loja que tem servidor próprio, a fila chega à nuvem pelo sincronismo — até um
+  minuto depois. Na loja que roda só na nuvem, é na hora.
+- **Não sai:** quem é o cliente (nome, telefone, CPF), a mesa, a senha de retirada, o motivo do
+  cancelamento e qualquer valor.
+
+## 7. O que NÃO sai, e por quê
 
 | Não sai | Onde fica |
 |---|---|
 | Preço de venda, preço do adicional, preço promocional | no Regem |
 | Custo do produto, do insumo e do ingrediente; margem; CMV e meta de CMV | no Regem |
-| Cliente, venda, caixa, estoque (saldo), equipe, ponto | no Regem |
+| Cliente (nome, telefone, CPF), mesa, senha de retirada, motivo do cancelamento | no Regem |
+| Venda, caixa, estoque (saldo), equipe, ponto | no Regem |
 
-O teste `integracao-farol.http.spec.ts` monta um cadastro cheio de preço e custo e varre as duas
-respostas atrás de qualquer campo com nome de dinheiro e de qualquer um daqueles valores.
+O teste `integracao-farol.http.spec.ts` monta um cadastro e uma venda cheios de preço, custo e dado
+do cliente e varre as três respostas atrás de qualquer campo com nome de dinheiro ou de cliente e
+de qualquer um daqueles valores. A leitura da fila nem toca a tabela da venda onde eles estão.
 
 O token do Farol **não liga a cópia das vendas** que serve ao Liame e ao RegemCast (o carimbador):
 a empresa que só tem o Farol conectado não ganha carga de vendas, fila nem reconciliação.
 
-## 7. O que vem depois
+## 8. O que vem depois
 
-- **`GET /integracao/producao`** (`producao.ler`): a fila de produção da loja — os pedidos em
-  produção e os concluídos das últimas 2 horas, com o produto de cada item, os adicionais, a
-  observação e os horários; sem o cliente e sem valores. Entra na versão 2 deste contrato.
 - **O aviso do Farol para a cozinha** (o KDS por produto com baixa automática, e os alertas) vai
   pela **rede da loja** — decisão do dono em 10/10/2026 — e tem plano próprio, apresentado antes.

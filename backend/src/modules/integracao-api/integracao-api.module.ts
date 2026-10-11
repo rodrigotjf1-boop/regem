@@ -8,6 +8,7 @@ import { CuponsIntegracaoService } from './cupons-integracao.service';
 import { ClientesIntegracaoService } from './clientes-integracao.service';
 import { WebhookIntegracaoService } from './webhook-integracao.service';
 import { CatalogoIntegracaoService } from './catalogo-integracao.service';
+import { ProducaoIntegracaoService } from './producao-integracao.service';
 
 // API de integração por token de loja (trilha C) — SÓ NUVEM: está em `CLOUD_ONLY_IMPORTS`
 // (app.module) e em `CLOUD_ONLY_MODULES` (edge-manifest), e o controller é `@CloudOnly()`.
@@ -33,6 +34,8 @@ import { CatalogoIntegracaoService } from './catalogo-integracao.service';
     WebhookIntegracaoService,
     // Farol (mig 315): o catálogo e as fichas, lidos na hora — sem versão, sem carimbador.
     CatalogoIntegracaoService,
+    // Farol: a fila de produção, lida na hora (escopo `producao.ler`, aceito desde a mig 315).
+    ProducaoIntegracaoService,
   ],
   exports: [IntegracaoTokenService],
 })
