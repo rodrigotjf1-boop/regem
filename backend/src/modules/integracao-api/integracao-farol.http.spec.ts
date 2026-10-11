@@ -764,19 +764,31 @@ descrever('API de integração — Farol (catálogo e fichas, sem preço nem cus
     };
     const presidente = (e: Emp) => ({ colaboradorId: e.presidente, tenantId: e.tenant, categoria: 'presidente', nome: 'Presidente' }) as any;
 
-    it('sem o segredo no ambiente a página diz que ainda não está disponível; o endereço de volta padrão é o do Farol', async () => {
+    // Pelo console (`app.`), que repassa ao servidor do Farol: é onde a sessão de quem começou existe.
+    const VOLTA_PADRAO = 'https://app.monitorfarol.com.br/api/regem/retorno';
+
+    it('sem o segredo no ambiente a página diz que ainda não está disponível; o endereço de volta padrão é o do CONSOLE do Farol', async () => {
       delete process.env.INTEGRACAO_FAROL_CLIENT_SECRET;
       delete process.env.INTEGRACAO_FAROL_REDIRECT_URIS;
       expect(clienteAutorizacao('farol', {})).toEqual({
         chave: 'farol',
         rotulo: 'Farol',
-        redirectUris: ['https://api.monitorfarol.com.br/v1/regem/retorno'],
+        redirectUris: [VOLTA_PADRAO],
         segredo: null,
       });
       const { pedido } = novoPedido();
+      await expect(autorizacao.pedido(presidente(A), { ...pedido, redirect_uri: VOLTA_PADRAO })).rejects.toThrow(/ainda não está disponível/);
+    });
+
+    it('o endereço antigo, direto no servidor do Farol, deixou de valer: o pedido que o traz é recusado', async () => {
+      process.env.INTEGRACAO_FAROL_CLIENT_SECRET = SEGREDO;
+      delete process.env.INTEGRACAO_FAROL_REDIRECT_URIS;
+      const { pedido } = novoPedido();
       await expect(
         autorizacao.pedido(presidente(A), { ...pedido, redirect_uri: 'https://api.monitorfarol.com.br/v1/regem/retorno' }),
-      ).rejects.toThrow(/ainda não está disponível/);
+      ).rejects.toThrow(/não vale/);
+      const peloConsole: any = await autorizacao.pedido(presidente(A), { ...pedido, redirect_uri: VOLTA_PADRAO });
+      expect(peloConsole.situacao).toBe('ok');
     });
 
     it('o presidente autoriza as três leituras de uma vez — não há o que ligar ou desligar — e o Farol troca o código pelo token da loja', async () => {

@@ -141,7 +141,9 @@ export const AUTORIZACAO_LOJA: Record<
     opcionais: [],
     envSegredo: 'INTEGRACAO_FAROL_CLIENT_SECRET',
     envRedirect: 'INTEGRACAO_FAROL_REDIRECT_URIS',
-    redirectPadrao: ['https://api.monitorfarol.com.br/v1/regem/retorno'],
+    // O endereço do CONSOLE do Farol (que repassa ao servidor dele), e não o do servidor: a sessão
+    // de quem pediu a conexão só existe no console, e é ela que prende a volta a quem começou.
+    redirectPadrao: ['https://app.monitorfarol.com.br/api/regem/retorno'],
   },
 };
 

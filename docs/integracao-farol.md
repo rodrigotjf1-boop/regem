@@ -28,7 +28,9 @@ agora**. Ele só LÊ — e nunca recebe preço, custo, margem, CMV, cliente ou v
   `INTEGRACAO_FAROL_CLIENT_SECRET` (32 caracteres ou mais; sem ele a página responde "ainda não
   disponível" e a troca recusa todo mundo) e, se o endereço de volta não for o padrão,
   `INTEGRACAO_FAROL_REDIRECT_URIS` (lista separada por vírgula). Padrão:
-  `https://api.monitorfarol.com.br/v1/regem/retorno`.
+  `https://app.monitorfarol.com.br/api/regem/retorno` — o endereço do **console** do Farol, que
+  repassa ao servidor dele. É pelo console porque a sessão de quem pediu a conexão só existe lá, e
+  é ela que garante que quem volta do Regem é quem começou.
 - **Escopos do Farol:**
 
   | Escopo | Libera |
