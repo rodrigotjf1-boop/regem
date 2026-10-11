@@ -16102,6 +16102,44 @@
         ]
       }
     },
+    "/api/v1/integracao/producao": {
+      "get": {
+        "operationId": "IntegracaoApiController_producao",
+        "summary": "Fila de produção da loja: os pedidos em produção e os concluídos das últimas 2 horas — sem o cliente e sem valores.",
+        "description": "Retrato inteiro da janela, com a `versao` dele; com `?versao=` igual à atual, a resposta é só { versao, atualizado: false }. Entram os pedidos em produção (recebido ou em preparo) criados nas últimas 24 horas e os concluídos (pronto ou entregue) ou cancelados nas últimas 2 horas, da loja do token. Cada item traz o produto, a variação, as escolhas (adicionais e retiradas, com o mesmo `opcao_id` do catálogo) e a observação. Não saem o cliente, a mesa, a senha de retirada, o motivo do cancelamento nem preço. Na loja com servidor próprio, a fila chega à nuvem com até um minuto de atraso.",
+        "parameters": [
+          {
+            "name": "versao",
+            "required": false,
+            "in": "query",
+            "description": "A `versao` da última resposta que você guardou.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducaoIntegracao"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Integração (token por loja)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/integracao/cupons": {
       "get": {
         "operationId": "IntegracaoApiController_cuponsDaLoja",
@@ -20114,6 +20152,290 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/FichaIntegracao"
+            }
+          }
+        },
+        "required": [
+          "versao",
+          "atualizado"
+        ]
+      },
+      "VariacaoDoItemIntegracao": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "A variação escolhida na venda. O id muda quando o produto é salvo de novo: use o nome ou o código."
+          },
+          "nome": {
+            "type": "string",
+            "nullable": true
+          },
+          "codigo": {
+            "type": "string",
+            "nullable": true
+          },
+          "fator_ficha": {
+            "type": "number",
+            "nullable": true,
+            "description": "Quanto da ficha do produto a variação usa (1 = a ficha inteira)."
+          }
+        },
+        "required": [
+          "id",
+          "nome",
+          "codigo",
+          "fator_ficha"
+        ]
+      },
+      "EscolhaDoItemIntegracao": {
+        "type": "object",
+        "properties": {
+          "tipo": {
+            "type": "string",
+            "enum": [
+              "adicionar",
+              "remover"
+            ]
+          },
+          "opcao_id": {
+            "type": "string",
+            "nullable": true,
+            "description": "A opção reutilizável de onde a escolha saiu — id fixo, o mesmo `opcao_id` do catálogo. null = opção criada só naquele produto."
+          },
+          "nome": {
+            "type": "string",
+            "description": "O nome da escolha como foi vendida."
+          },
+          "vezes": {
+            "type": "number",
+            "description": "Quantas vezes a escolha foi feita neste item (\"+1 bacon\" duas vezes = 2)."
+          },
+          "acrescenta": {
+            "nullable": true,
+            "description": "O que cada vez acrescentou, como ficou gravado na venda.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AcrescentaOpcaoIntegracao"
+              }
+            ]
+          },
+          "retira": {
+            "nullable": true,
+            "description": "O ingrediente da ficha que a escolha tirou.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/RetiraOpcaoIntegracao"
+              }
+            ]
+          }
+        },
+        "required": [
+          "tipo",
+          "opcao_id",
+          "nome",
+          "vezes",
+          "acrescenta",
+          "retira"
+        ]
+      },
+      "ItemProducaoIntegracao": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "produto_id": {
+            "type": "string",
+            "nullable": true,
+            "description": "O produto do catálogo. null = item retirado da venda depois de pedido."
+          },
+          "ficha_id": {
+            "type": "string",
+            "nullable": true,
+            "description": "A ficha técnica do produto no momento da venda."
+          },
+          "variacao": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/VariacaoDoItemIntegracao"
+              }
+            ]
+          },
+          "descricao": {
+            "type": "string",
+            "description": "O texto que a cozinha lê: o produto, ou \"Produto · Variação\"."
+          },
+          "quantidade": {
+            "type": "number"
+          },
+          "observacao": {
+            "type": "string",
+            "nullable": true,
+            "description": "A observação do item, como foi escrita (\"sem cebola\", \"bem passado\")."
+          },
+          "removido": {
+            "type": "boolean",
+            "description": "O item foi retirado do pedido depois de entrar na fila."
+          },
+          "adicionais_texto": {
+            "type": "string",
+            "nullable": true,
+            "description": "As escolhas em texto, como a cozinha lê: \"+ 2x Bacon · sem Cebola\"."
+          },
+          "adicionais": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EscolhaDoItemIntegracao"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "produto_id",
+          "ficha_id",
+          "variacao",
+          "descricao",
+          "quantidade",
+          "observacao",
+          "removido",
+          "adicionais_texto",
+          "adicionais"
+        ]
+      },
+      "PedidoProducaoIntegracao": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "numero": {
+            "type": "number",
+            "nullable": true,
+            "description": "O número do pedido na fila da loja, no dia."
+          },
+          "origem": {
+            "type": "string",
+            "enum": [
+              "balcao",
+              "mesa",
+              "comanda",
+              "delivery",
+              "totem"
+            ]
+          },
+          "canal": {
+            "type": "string",
+            "nullable": true,
+            "description": "O canal de onde o pedido veio, quando veio de fora: \"iFood\", \"Cardápio\", \"Totem\"…"
+          },
+          "consumo": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "local",
+              "viagem"
+            ],
+            "description": "Comer na loja ou levar. null = não informado."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "recebido",
+              "preparo",
+              "pronto",
+              "entregue",
+              "cancelado"
+            ]
+          },
+          "setor_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "tempo_preparo_min": {
+            "type": "number",
+            "nullable": true,
+            "description": "O maior tempo de preparo entre os produtos do pedido."
+          },
+          "alterado": {
+            "type": "boolean",
+            "description": "O pedido foi alterado depois de entrar na fila."
+          },
+          "criado_em": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "iniciado_em": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "pronto_em": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "entregue_em": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "cancelado_em": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "itens": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ItemProducaoIntegracao"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "numero",
+          "origem",
+          "canal",
+          "consumo",
+          "status",
+          "setor_id",
+          "tempo_preparo_min",
+          "alterado",
+          "criado_em",
+          "iniciado_em",
+          "pronto_em",
+          "entregue_em",
+          "cancelado_em",
+          "itens"
+        ]
+      },
+      "ProducaoIntegracao": {
+        "type": "object",
+        "properties": {
+          "versao": {
+            "type": "string",
+            "description": "A impressão deste retrato (32 caracteres). Mande de volta em `?versao=`."
+          },
+          "atualizado": {
+            "type": "boolean",
+            "description": "false = nada mudou desde a versão informada: os outros campos não vêm."
+          },
+          "gerado_em": {
+            "type": "string",
+            "description": "Quando o retrato foi montado (ISO 8601, UTC)."
+          },
+          "loja_id": {
+            "type": "string",
+            "nullable": true,
+            "description": "A loja do token."
+          },
+          "pedidos": {
+            "description": "Os pedidos em produção (até 24 h de criados) e os concluídos ou cancelados nas últimas 2 horas, na ordem em que entraram.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PedidoProducaoIntegracao"
             }
           }
         },

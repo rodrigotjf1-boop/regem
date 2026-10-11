@@ -29,6 +29,8 @@ import { WebhookIntegracaoService } from './webhook-integracao.service';
 import { RegistrarWebhookIntegracao, WebhookIntegracao } from './dto/webhook-integracao.dto';
 import { CatalogoIntegracaoService } from './catalogo-integracao.service';
 import { CatalogoIntegracao, FichasIntegracao } from './dto/catalogo-integracao.dto';
+import { ProducaoIntegracaoService } from './producao-integracao.service';
+import { ProducaoIntegracao } from './dto/producao-integracao.dto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -67,6 +69,7 @@ export class IntegracaoApiController {
     private readonly clientesSvc: ClientesIntegracaoService,
     private readonly webhooks: WebhookIntegracaoService,
     private readonly catalogoSvc: CatalogoIntegracaoService,
+    private readonly producaoSvc: ProducaoIntegracaoService,
   ) {}
 
   // Quem é a loja do token — qualquer escopo.
@@ -220,6 +223,24 @@ export class IntegracaoApiController {
   @ApiOkResponse({ type: FichasIntegracao })
   fichas(@IntegracaoCtx() ctx: IntegracaoCtxData, @Query('versao') versao?: string) {
     return this.catalogoSvc.fichas(ctx, { versao });
+  }
+
+  // A fila da cozinha da loja do token, lida na hora: retrato da janela com versão. Sem o cliente e sem valores.
+  @Get('producao')
+  @Escopos('producao.ler')
+  @ApiOperation({
+    summary: 'Fila de produção da loja: os pedidos em produção e os concluídos das últimas 2 horas — sem o cliente e sem valores.',
+    description:
+      'Retrato inteiro da janela, com a `versao` dele; com `?versao=` igual à atual, a resposta é só { versao, atualizado: false }. ' +
+      'Entram os pedidos em produção (recebido ou em preparo) criados nas últimas 24 horas e os concluídos (pronto ou entregue) ou ' +
+      'cancelados nas últimas 2 horas, da loja do token. Cada item traz o produto, a variação, as escolhas (adicionais e ' +
+      'retiradas, com o mesmo `opcao_id` do catálogo) e a observação. Não saem o cliente, a mesa, a senha de retirada, o motivo ' +
+      'do cancelamento nem preço. Na loja com servidor próprio, a fila chega à nuvem com até um minuto de atraso.',
+  })
+  @ApiQuery({ name: 'versao', required: false, description: 'A `versao` da última resposta que você guardou.' })
+  @ApiOkResponse({ type: ProducaoIntegracao })
+  producao(@IntegracaoCtx() ctx: IntegracaoCtxData, @Query('versao') versao?: string) {
+    return this.producaoSvc.producao(ctx, { versao });
   }
 
   // ───────────────────────────── cupons (contrato de cupons v1) ─────────────────────────────

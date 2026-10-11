@@ -2,7 +2,8 @@ import { Inject, Injectable } from '@nestjs/common';
 import { sql, SQL } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import type { IntegracaoCtxData } from './integracao-token.guard';
-import { montarCatalogo, montarFichas, versaoDoRetrato, versaoInformada } from './catalogo-integracao';
+import { montarCatalogo, montarFichas } from './catalogo-integracao';
+import { ConsultaComVersao, daLojaDoToken, responderComVersao } from './leitura-na-hora';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -16,11 +17,9 @@ import { montarCatalogo, montarFichas, versaoDoRetrato, versaoInformada } from '
 // cada tabela é lida uma vez, já recortada pela loja com `join`, nunca uma consulta por produto.
 //
 // LOJA: vem do token. Produto e ficha são da loja OU da rede (sem loja — V4); a empresa de uma
-// loja só lê tudo, como nas vendas e nos cupons. Setor é sempre de uma loja: só os dela.
+// loja só lê tudo, como nas vendas e nos cupons (`daLojaDoToken`). Setor é sempre de uma loja: só os dela.
 //
 // DINHEIRO: nenhuma consulta daqui seleciona preço, custo, margem ou CMV (ERR-166).
-
-type Consulta = { versao?: unknown };
 
 @Injectable()
 export class CatalogoIntegracaoService {
@@ -31,22 +30,10 @@ export class CatalogoIntegracaoService {
     return r?.rows ?? r ?? [];
   }
 
-  /** Da loja do token OU da rede. Empresa de uma loja só (ou token da empresa inteira): tudo. */
-  private daLoja(coluna: SQL, ctx: IntegracaoCtxData): SQL {
-    if (!ctx.unidadeId || ctx.lojaUnica) return sql`true`;
-    return sql`(${coluna} = ${ctx.unidadeId}::uuid or ${coluna} is null)`;
-  }
-
-  private responder<T extends object>(retrato: T, q: Consulta) {
-    const versao = versaoDoRetrato(retrato);
-    if (versaoInformada(q.versao) === versao) return { versao, atualizado: false as const };
-    return { versao, atualizado: true as const, gerado_em: new Date().toISOString(), ...retrato };
-  }
-
   /** `GET /integracao/catalogo`: categorias, setores, produtos, variações, combos e adicionais. */
-  async catalogo(ctx: IntegracaoCtxData, q: Consulta = {}) {
+  async catalogo(ctx: IntegracaoCtxData, q: ConsultaComVersao = {}) {
     const tenant = sql`${ctx.tenantId}::uuid`;
-    const produtoDaLoja = this.daLoja(sql`p.unidade_id`, ctx);
+    const produtoDaLoja = daLojaDoToken(sql`p.unidade_id`, ctx);
 
     const categorias = await this.rows(sql`
       select c.id::text as id, c.nome, c.parent_id::text as categoria_pai_id, c.ordem, c.ativo
@@ -117,16 +104,16 @@ export class CatalogoIntegracaoService {
          and p.deleted_at is null and ${produtoDaLoja}
        order by o.grupo_id, o.ordem, o.nome, o.id`);
 
-    return this.responder(
+    return responderComVersao(
       montarCatalogo(ctx.unidadeId, { categorias, setores, produtos, variacoes, combos, grupos, opcoes }),
       q,
     );
   }
 
   /** `GET /integracao/fichas`: as fichas técnicas e os ingredientes de cada uma. */
-  async fichas(ctx: IntegracaoCtxData, q: Consulta = {}) {
+  async fichas(ctx: IntegracaoCtxData, q: ConsultaComVersao = {}) {
     const tenant = sql`${ctx.tenantId}::uuid`;
-    const fichaDaLoja = this.daLoja(sql`f.unidade_id`, ctx);
+    const fichaDaLoja = daLojaDoToken(sql`f.unidade_id`, ctx);
 
     const fichas = await this.rows(sql`
       select f.id::text as id, f.nome, f.categoria, f.rendimento::float8 as rendimento, f.rendimento_unidade,
@@ -160,6 +147,6 @@ export class CatalogoIntegracaoService {
               and f.deleted_at is null and ${fichaDaLoja})
        order by c.item_id, c.unidade_de, c.unidade_para, c.id`);
 
-    return this.responder(montarFichas(ctx.unidadeId, { fichas, ingredientes, conversoes }), q);
+    return responderComVersao(montarFichas(ctx.unidadeId, { fichas, ingredientes, conversoes }), q);
   }
 }

@@ -18,6 +18,7 @@ import { AutorizacaoLojaService } from './autorizacao-loja.service';
 import { clienteAutorizacao } from './autorizacao-loja';
 import { CarimbadorIntegracaoService } from './carimbador-integracao.service';
 import { CatalogoIntegracaoService } from './catalogo-integracao.service';
+import { ProducaoIntegracaoService } from './producao-integracao.service';
 import type { IntegracaoCtxData } from './integracao-token.guard';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -40,7 +41,10 @@ import type { IntegracaoCtxData } from './integracao-token.guard';
 //   • a versão: igual → "nada mudou"; preço mudou → a mesma; conteúdo mudou → outra;
 //   • o mesmo número de consultas com 4 produtos e com 500 produtos e 2.000 opções;
 //   • a autorização pela loja do Farol: as três leituras de uma vez, sem nada para ligar ou desligar;
-//   • o token do Farol NÃO liga o carimbador das vendas (carga, fila, reconciliação).
+//   • o token do Farol NÃO liga o carimbador das vendas (carga, fila, reconciliação);
+//   • a fila de produção (fase 2): a janela, o pedido e o item campo a campo, as escolhas com o id
+//     fixo da opção, SEM o cliente, a mesa, a senha, o motivo do cancelamento e sem valores; a loja
+//     do token; a versão; e três consultas com 5 pedidos ou com 300.
 
 const URL_PG = process.env.TEST_PG_URL;
 const descrever = URL_PG ? describe : describe.skip;
@@ -52,7 +56,9 @@ const MIGS = join(__dirname, '..', '..', '..', '..', 'database', 'migrations');
 const mig = (n: string) => readFileSync(join(MIGS, n), 'utf8');
 const semFkCompartilhada = (s: string) =>
   s.replace(/\s+references\s+(empresa|unidade)\s*\(\s*id\s*\)(\s+on\s+delete\s+cascade)?/gi, '');
-const FONTES = ['pedido_externo', 'comanda', 'comanda_item', 'cliente', 'cupom', 'cupom_uso'];
+// (`comanda_item_complemento` não tem gatilho: é cópia porque, no banco, aponta para `comanda_item` —
+// e a fila de produção lê as escolhas do item da venda, que aqui é a cópia.)
+const FONTES = ['pedido_externo', 'comanda', 'comanda_item', 'comanda_item_complemento', 'cliente', 'cupom', 'cupom_uso'];
 const ESCOPOS_FAROL = ['catalogo.ler', 'fichas.ler', 'producao.ler'];
 
 // Valores de dinheiro do cadastro deste teste: nenhum pode aparecer em resposta nenhuma.
@@ -958,6 +964,306 @@ descrever('API de integração — Farol (catálogo e fichas, sem preço nem cus
       await q(`update integracao_token_loja set revogado_em = now() where id = $1`, [t.id]);
       const ciclo = await carimbador.ciclo({ tenantIds: [S.tenant] }, 30_000);
       expect([ciclo.descartadas, ciclo.consumidas]).toEqual([0, 1]);
+    });
+  });
+
+  // ───────────────────────────── a fila de produção (fase 2) ─────────────────────────────
+
+  describe('GET /integracao/producao', () => {
+    const ha = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+    // Do cliente e de quem cancelou: nada disto pode aparecer na resposta.
+    const DO_CLIENTE = ['Maria Cliente', '12345678901', 'Mesa 12', 'IF-8842', 'desistiu'];
+    const NOME_DO_CLIENTE = /cliente|cpf|telefone|email|endere|mesa|senha|motivo|^obs$/i;
+    const semHoras = (corpo: unknown) => JSON.stringify(corpo).replace(/\d{4}-\d\d-\d\dT[\d:.]+Z/g, '');
+    const pp: Record<string, string> = {};
+    let ci1 = '';
+    let kA2 = ''; // o token da filial emitido AQUI: o do começo da spec foi trocado pelo teste da página de autorização
+
+    /** Um pedido de produção com os itens (cada item: a linha da fila e, se houver, o item da venda). */
+    async function pedido(tenant: string, loja: string | null, linha: Record<string, unknown>, itens: Record<string, unknown>[] = []) {
+      const idPedido = await ins('producao_pedido', {
+        tenant_id: tenant, unidade_id: loja, destino_tipo: 'kds', origem: 'balcao', status: 'recebido', criado_em: ha(5), updated_at: ha(5), ...linha,
+      });
+      for (const i of itens) {
+        await ins('producao_pedido_item', { tenant_id: tenant, pedido_id: idPedido, descricao: 'Item', quantidade: '1', status: 'ok', ...i });
+      }
+      return idPedido;
+    }
+
+    beforeAll(async () => {
+      const t = A.tenant;
+      const [a1, a2] = A.lojas;
+      kA2 = (await emitir(A, a2, 'farol', ESCOPOS_FAROL)).token;
+      // A venda (a comanda fica com o cliente, a mesa e o total: nada disso é lido pela rota).
+      const comanda = await ins('comanda', {
+        tenant_id: t, unidade_id: a1, status: 'aberta', mesa: 'Mesa 12', cliente: 'Maria Cliente', cpf: '12345678901', total: '123.45',
+      });
+      ci1 = await ins('comanda_item', {
+        tenant_id: t, comanda_id: comanda, produto_id: id.pXb, variacao_id: id.vDuplo, ficha_id: id.fichaXb,
+        descricao: 'X-Burger · Duplo', quantidade: '2', preco_unitario: '67.89', observacao: 'bem passado', created_at: ha(10),
+      });
+      const ci2 = await ins('comanda_item', {
+        tenant_id: t, comanda_id: comanda, produto_id: id.pSoA1, descricao: 'Só da matriz', quantidade: '1', preco_unitario: '67.89', created_at: ha(9),
+      });
+      // As escolhas, uma linha por escolha: o bacon foi pedido duas vezes.
+      const escolha = (ordem: number, linha: Record<string, unknown>) =>
+        ins('comanda_item_complemento', { tenant_id: t, comanda_item_id: ci1, tipo: 'adicionar', preco_delta: '9.87', created_at: ha(10 - ordem / 100), ...linha });
+      await escolha(0, { opcao_id: id.coBacon, nome: 'Bacon', item_id: id.itemBacon, quantidade: '0.02' });
+      await escolha(1, { opcao_id: id.coBacon, nome: 'Bacon', item_id: id.itemBacon, quantidade: '0.02' });
+      await escolha(2, { opcao_id: id.coOvo, nome: 'Ovo' });
+      await escolha(3, { opcao_id: id.coRefri, nome: 'Refrigerante', produto_ref_id: id.pRefri });
+      await escolha(4, { opcao_id: id.coPonto, nome: 'Ponto da carne' });
+      await escolha(5, { opcao_id: id.coSemCebola, tipo: 'remover', nome: 'Sem cebola', ficha_ingrediente_id: id.ingCebola, preco_delta: '0' });
+
+      pp.preparo = await pedido(
+        t, a1,
+        {
+          // (sem `comanda_id`: no banco ele aponta para a `comanda` de verdade, e a deste teste é a cópia; a rota não o lê)
+          numero: 41, origem: 'mesa', mesa: 'Mesa 12', senha: 7, consumo: 'local', status: 'preparo', setor_id: id.setorMontagem,
+          tempo_preparo_min: 12, criado_em: ha(10), iniciado_em: ha(8), updated_at: ha(8),
+        },
+        [
+          { comanda_item_id: ci1, descricao: 'X-Burger · Duplo', quantidade: '2', complementos_texto: '+ 2x Bacon · + Ovo · sem Sem cebola', observacao: 'bem passado' },
+          { comanda_item_id: ci2, descricao: 'Só da matriz', quantidade: '1' },
+        ],
+      );
+      // Do canal, pronto há meia hora, alterado depois de entrar: um item saiu da venda (a linha da venda foi apagada).
+      pp.pronto = await pedido(
+        t, a1,
+        {
+          numero: 42, origem: 'delivery', plataforma: 'iFood', senha_plataforma: 'IF-8842', consumo: 'viagem', status: 'pronto', obs: 'ALTERADO',
+          criado_em: ha(50), iniciado_em: ha(45), pronto_em: ha(30), updated_at: ha(30),
+        },
+        [
+          { comanda_item_id: randomUUID(), descricao: 'Batata média', quantidade: '1', status: 'removido' },
+          { descricao: 'Milk-shake do canal', quantidade: '3', observacao: 'sem chantilly' },
+        ],
+      );
+      pp.cancelado = await pedido(t, a1, {
+        numero: 43, status: 'cancelado', obs: 'cliente desistiu', criado_em: ha(40), cancelado_em: ha(15), updated_at: ha(15),
+      });
+      // Fora da janela: entregue há 3 h; pronto há 3 h (loja que não usa "entregue"); parado em "recebido" há 30 h; e o que foi para a impressora.
+      pp.entregueAntigo = await pedido(t, a1, { numero: 30, status: 'entregue', criado_em: ha(240), pronto_em: ha(200), entregue_em: ha(180), updated_at: ha(180) });
+      pp.prontoAntigo = await pedido(t, a1, { numero: 31, status: 'pronto', criado_em: ha(240), pronto_em: ha(190), updated_at: ha(190) });
+      pp.paradoAntigo = await pedido(t, a1, { numero: 5, status: 'recebido', criado_em: ha(30 * 60), updated_at: ha(30 * 60) });
+      // …e outro parado há 30 h que foi mexido há 1 h (o sincronismo o trouxe de novo): continua fora — a conta é pela criação.
+      pp.paradoMexido = await pedido(t, a1, { numero: 6, status: 'recebido', criado_em: ha(30 * 60), updated_at: ha(60) });
+      pp.impressora = await pedido(t, a1, { numero: 44, destino_tipo: 'impressora' });
+      // Ficou pronto há 3 h e foi cancelado há 20 min (ninguém veio buscar): ENTRA — vale o que aconteceu por último.
+      pp.canceladoTarde = await pedido(t, a1, {
+        numero: 29, status: 'cancelado', criado_em: ha(250), pronto_em: ha(185), cancelado_em: ha(20), updated_at: ha(20),
+      });
+      // Da filial, e um sem loja (da rede).
+      pp.filial = await pedido(t, a2, { numero: 1, criado_em: ha(4), updated_at: ha(4) }, [{ descricao: 'Só da filial', quantidade: '1' }]);
+      pp.semLoja = await pedido(t, null, { numero: 2, criado_em: ha(3), updated_at: ha(3) });
+      // A empresa de uma loja só: um pedido com loja e um sem.
+      pp.dComLoja = await pedido(D.tenant, D.lojas[0], { numero: 1, criado_em: ha(6), updated_at: ha(6) });
+      pp.dSemLoja = await pedido(D.tenant, null, { numero: 2, criado_em: ha(5), updated_at: ha(5) });
+    });
+
+    it('a fila da loja: os pedidos em produção e os concluídos ou cancelados das últimas 2 horas, na ordem em que entraram', async () => {
+      const { status, corpo } = await ler('/integracao/producao', tA1);
+      expect(status).toBe(200);
+      expect(corpo.versao).toMatch(/^[0-9a-f]{32}$/);
+      expect([corpo.atualizado, corpo.loja_id]).toEqual([true, A.lojas[0]]);
+      // entraram: o cancelado há pouco (mesmo pronto há 3 h), o pronto, o cancelado, o da matriz em preparo e o da
+      // rede — nesta ordem (a de chegada)
+      expect(corpo.pedidos.map((p: any) => [p.id, p.numero, p.status])).toEqual([
+        [pp.canceladoTarde, 29, 'cancelado'],
+        [pp.pronto, 42, 'pronto'],
+        [pp.cancelado, 43, 'cancelado'],
+        [pp.preparo, 41, 'preparo'],
+        [pp.semLoja, 2, 'recebido'],
+      ]);
+      const ids = corpo.pedidos.map((p: any) => p.id);
+      for (const fora of [pp.entregueAntigo, pp.prontoAntigo, pp.paradoAntigo, pp.paradoMexido, pp.impressora, pp.filial]) {
+        expect(ids).not.toContain(fora);
+      }
+    });
+
+    it('o pedido e os itens, campo a campo: produto, variação, escolhas (com o id fixo da opção) e observação', async () => {
+      const corpo = (await ler('/integracao/producao', tA1)).corpo;
+      const p = corpo.pedidos.find((x: any) => x.id === pp.preparo);
+      expect({ ...p, itens: undefined, criado_em: typeof p.criado_em, iniciado_em: typeof p.iniciado_em }).toEqual({
+        id: pp.preparo, numero: 41, origem: 'mesa', canal: null, consumo: 'local', status: 'preparo', setor_id: id.setorMontagem,
+        tempo_preparo_min: 12, alterado: false, criado_em: 'string', iniciado_em: 'string', pronto_em: null, entregue_em: null,
+        cancelado_em: null, itens: undefined,
+      });
+      expect(new Date(p.iniciado_em).getTime()).toBeGreaterThan(new Date(p.criado_em).getTime());
+      expect(p.itens).toHaveLength(2);
+      const [xb, simples] = p.itens;
+      expect({ ...xb, id: typeof xb.id, adicionais: undefined }).toEqual({
+        id: 'string', produto_id: id.pXb, ficha_id: id.fichaXb,
+        variacao: { id: id.vDuplo, nome: 'Duplo', codigo: 'XB-D', fator_ficha: 2 },
+        descricao: 'X-Burger · Duplo', quantidade: 2, observacao: 'bem passado', removido: false,
+        adicionais_texto: '+ 2x Bacon · + Ovo · sem Sem cebola', adicionais: undefined,
+      });
+      // Uma linha por escolha na venda; aqui as repetições viram `vezes`.
+      expect(xb.adicionais).toEqual([
+        {
+          tipo: 'adicionar', opcao_id: id.opBacon, nome: 'Bacon', vezes: 2,
+          acrescenta: { tipo: 'insumo', insumo_id: id.itemBacon, nome: 'Bacon fatiado', quantidade_estoque: 0.02, unidade_estoque: 'kg' },
+          retira: null,
+        },
+        { tipo: 'adicionar', opcao_id: id.opOvo, nome: 'Ovo', vezes: 1, acrescenta: { tipo: 'ficha', ficha_id: id.fichaOvo }, retira: null },
+        { tipo: 'adicionar', opcao_id: id.opRefri, nome: 'Refrigerante', vezes: 1, acrescenta: { tipo: 'produto', produto_id: id.pRefri }, retira: null },
+        { tipo: 'adicionar', opcao_id: id.opPonto, nome: 'Ponto da carne', vezes: 1, acrescenta: null, retira: null },
+        {
+          tipo: 'remover', opcao_id: null, nome: 'Sem cebola', vezes: 1, acrescenta: null,
+          retira: { insumo_id: id.itemCebola, sub_ficha_id: null, nome: 'Cebola roxa' },
+        },
+      ]);
+      expect({ ...simples, id: 'x' }).toEqual({
+        id: 'x', produto_id: id.pSoA1, ficha_id: null, variacao: null, descricao: 'Só da matriz', quantidade: 1, observacao: null,
+        removido: false, adicionais_texto: null, adicionais: [],
+      });
+    });
+
+    it('pedido do canal, alterado: o item que saiu da venda fica dito como removido; o item sem par na venda sai só com o texto', async () => {
+      const corpo = (await ler('/integracao/producao', tA1)).corpo;
+      const p = corpo.pedidos.find((x: any) => x.id === pp.pronto);
+      expect([p.origem, p.canal, p.consumo, p.alterado, p.pronto_em === null, p.entregue_em]).toEqual(['delivery', 'iFood', 'viagem', true, false, null]);
+      expect(p.itens.map((i: any) => [i.descricao, i.quantidade, i.removido, i.produto_id, i.variacao, i.observacao, i.adicionais])).toEqual(
+        expect.arrayContaining([
+          ['Batata média', 1, true, null, null, null, []],
+          ['Milk-shake do canal', 3, false, null, null, 'sem chantilly', []],
+        ]),
+      );
+      const c = corpo.pedidos.find((x: any) => x.id === pp.cancelado);
+      expect([c.status, c.cancelado_em === null, c.alterado, c.itens]).toEqual(['cancelado', false, false, []]);
+    });
+
+    it('sem o cliente, a mesa, a senha, o motivo do cancelamento e sem valores — nem com outro nome', async () => {
+      // O teste só vale se isso tudo está mesmo no banco.
+      const [banco] = await q(
+        `select (select count(*) from comanda where tenant_id = $1 and cliente is not null and cpf is not null and total > 0)::int as comandas,
+                (select count(*) from comanda_item where tenant_id = $1 and preco_unitario > 0)::int as precos,
+                (select count(*) from comanda_item_complemento where tenant_id = $1 and preco_delta > 0)::int as deltas,
+                (select count(*) from producao_pedido where tenant_id = $1 and (mesa is not null or senha is not null or senha_plataforma is not null))::int as senhas,
+                (select count(*) from producao_pedido where tenant_id = $1 and status = 'cancelado' and obs is not null)::int as motivos`,
+        [A.tenant],
+      );
+      expect(Object.values(banco).every((n) => Number(n) > 0)).toBe(true);
+
+      for (const token of [tA1, kA2]) {
+        const { status, corpo } = await ler('/integracao/producao', token);
+        expect(status).toBe(200);
+        const campos = [...nomesDosCampos(corpo)];
+        expect(campos.length).toBeGreaterThan(20);
+        expect(campos.filter((c) => NOME_DE_DINHEIRO.test(c) || NOME_DO_CLIENTE.test(c))).toEqual([]);
+        // (sem as horas: os milésimos delas podem coincidir com um dos valores)
+        const texto = semHoras(corpo);
+        expect([...DINHEIRO, ...DO_CLIENTE].filter((v) => texto.includes(v))).toEqual([]);
+      }
+    });
+
+    it('a loja vem do token: a filial vê os dela e os da rede; outra empresa, nada; a empresa de uma loja só, todos', async () => {
+      const filial = (await ler('/integracao/producao', kA2)).corpo;
+      expect([filial.loja_id, filial.pedidos.map((p: any) => p.id)]).toEqual([A.lojas[1], [pp.filial, pp.semLoja]]);
+      expect(filial.pedidos[0].itens.map((i: any) => i.descricao)).toEqual(['Só da filial']);
+
+      for (const rota of ['/integracao/producao', `/integracao/producao?unidade_id=${A.lojas[0]}&loja_id=${A.lojas[0]}&tenant_id=${A.tenant}`]) {
+        const { status, corpo } = await ler(rota, tB1);
+        expect([status, corpo.loja_id, corpo.pedidos]).toEqual([200, B.lojas[0], []]);
+      }
+      const unica = (await ler('/integracao/producao', tD1)).corpo;
+      expect(unica.pedidos.map((p: any) => p.id)).toEqual([pp.dComLoja, pp.dSemLoja]);
+    });
+
+    it('pede o escopo dela: quem tem só o catálogo e as fichas não lê a fila; o Liame também não; sem token, 401', async () => {
+      const semFila = await emitir(B, B.lojas[0], 'farol', ['catalogo.ler', 'fichas.ler']);
+      const negado = await ler('/integracao/producao', semFila.token);
+      expect([negado.status, negado.corpo.detail]).toEqual([403, 'Este token não tem o escopo producao.ler.']);
+      const liame = await ler('/integracao/producao', tLiameA1);
+      expect([liame.status, JSON.stringify(liame.corpo).includes('X-Burger')]).toEqual([403, false]);
+      expect((await fetch(`${base}/integracao/producao`)).status).toBe(401);
+      // e o contrário: quem tem só a fila não lê o catálogo
+      const soFila = await emitir(B, B.lojas[0], 'farol', ['producao.ler']);
+      expect((await ler('/integracao/producao', soFila.token)).status).toBe(200);
+      expect((await ler('/integracao/catalogo', soFila.token)).status).toBe(403);
+      await q(`update integracao_token_loja set revogado_em = now() where id = any($1::uuid[])`, [[semFila.id, soFila.id]]);
+    });
+
+    it('a versão: em dia, só "nada mudou"; mudou o preço do item, a mesma; o pedido avançou, outra', async () => {
+      const primeiro = (await ler('/integracao/producao', tA1)).corpo;
+      expect((await ler(`/integracao/producao?versao=${primeiro.versao}`, tA1)).corpo).toEqual({ versao: primeiro.versao, atualizado: false });
+
+      // Preço não está no retrato: mudá-lo não é mudança para quem lê.
+      await q(`update comanda_item set preco_unitario = 88.88 where id = $1`, [ci1]);
+      await q(`update comanda_item_complemento set preco_delta = 88.88 where comanda_item_id = $1 and nome = 'Bacon'`, [ci1]);
+      expect((await ler(`/integracao/producao?versao=${primeiro.versao}`, tA1)).corpo).toEqual({ versao: primeiro.versao, atualizado: false });
+
+      // A cozinha deu o pedido como pronto: versão nova, e o retrato inteiro.
+      await q(`update producao_pedido set status = 'pronto', pronto_em = now() where id = $1`, [pp.preparo]);
+      try {
+        const depois = (await ler(`/integracao/producao?versao=${primeiro.versao}`, tA1)).corpo;
+        expect([depois.atualizado, depois.versao === primeiro.versao]).toEqual([true, false]);
+        const p = depois.pedidos.find((x: any) => x.id === pp.preparo);
+        expect([p.status, typeof p.pronto_em]).toEqual(['pronto', 'string']);
+      } finally {
+        await q(`update producao_pedido set status = 'preparo', pronto_em = null where id = $1`, [pp.preparo]);
+        await q(`update comanda_item set preco_unitario = 67.89 where id = $1`, [ci1]);
+        await q(`update comanda_item_complemento set preco_delta = 9.87 where comanda_item_id = $1 and nome = 'Bacon'`, [ci1]);
+      }
+      expect((await ler('/integracao/producao', tA1)).corpo.versao).toBe(primeiro.versao);
+      // A versão do catálogo não serve aqui, nem a de outra loja.
+      for (const v of ['lixo', (await ler('/integracao/catalogo', tA1)).corpo.versao, (await ler('/integracao/producao', kA2)).corpo.versao]) {
+        expect((await ler(`/integracao/producao?versao=${v}`, tA1)).corpo.atualizado).toBe(true);
+      }
+    });
+
+    it('o produto foi salvo de novo depois da venda: a variação e a escolha continuam ditas, com o id fixo da opção', async () => {
+      // Salvar o produto regrava variações e opções: as linhas antigas ficam, apagadas.
+      await q(`update produto_variacao set deleted_at = now() where id = $1`, [id.vDuplo]);
+      await q(`update complemento_opcao set deleted_at = now() where id = $1`, [id.coBacon]);
+      try {
+        const corpo = (await ler('/integracao/producao', tA1)).corpo;
+        const xb = corpo.pedidos.find((x: any) => x.id === pp.preparo).itens[0];
+        expect(xb.variacao).toEqual({ id: id.vDuplo, nome: 'Duplo', codigo: 'XB-D', fator_ficha: 2 });
+        expect([xb.adicionais[0].opcao_id, xb.adicionais[0].vezes]).toEqual([id.opBacon, 2]);
+      } finally {
+        await q(`update produto_variacao set deleted_at = null where id = $1`, [id.vDuplo]);
+        await q(`update complemento_opcao set deleted_at = null where id = $1`, [id.coBacon]);
+      }
+    });
+
+    it('escala: três consultas — com 5 pedidos ou com 300 pedidos, 1.200 itens e 2.400 escolhas', async () => {
+      let consultas = 0;
+      const contador = { execute: (x: any) => (consultas++, db.execute(x)) };
+      const svc = new ProducaoIntegracaoService(contador as any);
+      const pequeno: any = await svc.producao(ctxDe(A, A.lojas[0]));
+      expect([pequeno.pedidos.length, consultas]).toEqual([5, 3]);
+
+      const F = await empresa('Empresa F', ['F1']);
+      const comanda = await ins('comanda', { tenant_id: F.tenant, unidade_id: F.lojas[0], status: 'aberta' });
+      await q(
+        `insert into producao_pedido (tenant_id, unidade_id, destino_tipo, origem, status, numero, criado_em, updated_at)
+         select $1, $2, 'kds', 'balcao', 'recebido', g, now() - make_interval(secs => 3000 - g), now() - make_interval(secs => 3000 - g)
+           from generate_series(1, 300) g`,
+        [F.tenant, F.lojas[0]],
+      );
+      await q(
+        `insert into comanda_item (tenant_id, comanda_id, descricao, quantidade, preco_unitario)
+         select $1, $2, 'Item ' || g, 1, 67.89 from generate_series(1, 1200) g`,
+        [F.tenant, comanda],
+      );
+      await q(
+        `insert into producao_pedido_item (tenant_id, pedido_id, comanda_item_id, descricao, quantidade, status)
+         select p.tenant_id, p.id, c.id, c.descricao, 1, 'ok'
+           from (select id, tenant_id, row_number() over (order by numero) as n from producao_pedido where tenant_id = $1) p
+           join (select id, descricao, ((row_number() over (order by descricao) - 1) / 4 + 1) as n from comanda_item where tenant_id = $1) c on c.n = p.n`,
+        [F.tenant],
+      );
+      await q(
+        `insert into comanda_item_complemento (tenant_id, comanda_item_id, tipo, nome, preco_delta, quantidade)
+         select c.tenant_id, c.id, 'adicionar', 'Escolha ' || n, 9.87, 1 from comanda_item c cross join generate_series(1, 2) n where c.tenant_id = $1`,
+        [F.tenant],
+      );
+      consultas = 0;
+      const grande: any = await svc.producao(ctxDe(F, F.lojas[0], true));
+      const itens = grande.pedidos.reduce((n: number, p: any) => n + p.itens.length, 0);
+      const escolhas = grande.pedidos.reduce((n: number, p: any) => n + p.itens.reduce((m: number, i: any) => m + i.adicionais.length, 0), 0);
+      expect([grande.pedidos.length, itens, escolhas, consultas]).toEqual([300, 1200, 2400, 3]);
     });
   });
 });
