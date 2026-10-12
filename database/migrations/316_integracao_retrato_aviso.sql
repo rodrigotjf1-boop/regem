@@ -42,7 +42,8 @@
 -- ⚠️ DEPENDE da 295 (tokens), da 304 (avisos) e da 315 (escopos do Farol). Aplicar na NUVEM ANTES do
 --    merge, FORA DO PICO: criar gatilho pede uma trava rápida em cada uma das 12 tabelas — o
 --    `lock_timeout` faz a migration desistir (sem mudar nada) em vez de segurar uma venda.
--- Idempotente (if not exists / create or replace / drop trigger if exists).
+-- Idempotente (if not exists / create or replace — inclusive nos gatilhos: `create or replace trigger`,
+-- Postgres 14 ou mais novo; a nuvem é 17). O arquivo não apaga nada.
 set local lock_timeout = '5s';
 
 do $$
@@ -203,19 +204,16 @@ begin
     if to_regclass(current_schema() || '.' || r.tabela) is null then
       raise exception 'A 316 esperava a tabela % neste banco.', r.tabela;
     end if;
-    execute format('drop trigger if exists trg_integracao_retrato_ins on %I', r.tabela);
-    execute format('drop trigger if exists trg_integracao_retrato_upd on %I', r.tabela);
-    execute format('drop trigger if exists trg_integracao_retrato_del on %I', r.tabela);
     execute format(
-      'create trigger trg_integracao_retrato_ins after insert on %I referencing new table as novas '
+      'create or replace trigger trg_integracao_retrato_ins after insert on %I referencing new table as novas '
       'for each statement execute function integracao_retrato_mudou(%L, %L, %L, %L)',
       r.tabela, r.tipo, r.modo, r.pai, r.ignorar);
     execute format(
-      'create trigger trg_integracao_retrato_upd after update on %I referencing old table as antigas new table as novas '
+      'create or replace trigger trg_integracao_retrato_upd after update on %I referencing old table as antigas new table as novas '
       'for each statement execute function integracao_retrato_mudou(%L, %L, %L, %L)',
       r.tabela, r.tipo, r.modo, r.pai, r.ignorar);
     execute format(
-      'create trigger trg_integracao_retrato_del after delete on %I referencing old table as antigas '
+      'create or replace trigger trg_integracao_retrato_del after delete on %I referencing old table as antigas '
       'for each statement execute function integracao_retrato_mudou(%L, %L, %L, %L)',
       r.tabela, r.tipo, r.modo, r.pai, r.ignorar);
   end loop;
