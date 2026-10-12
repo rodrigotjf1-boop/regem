@@ -88,6 +88,13 @@ descrever('produtos do estoque (Postgres real)', () => {
     await expect(
       s.createItem(t, { nome: 'Outro de teste', unidadeMedida: 'kg', conversoes: [{ unidadeDe: 'kg', fator: 2, unidadePara: 'quilo' }] } as any),
     ).rejects.toThrow(/duas unidades são "kg"/);
+    // medida fixa (kg e grama, litro e ml o sistema converte sozinho): a linha que a CONTRADIZ é recusada
+    await expect(
+      s.createItem(t, { nome: 'Outro de teste', unidadeMedida: 'kg', conversoes: [{ unidadeDe: 'grama', fator: 1000, unidadePara: 'kg' }] } as any),
+    ).rejects.toThrow('Conversão: 1 grama = 0,001 kg, e o sistema já faz essa conta sozinho. Tire esta linha.');
+    await expect(
+      s.createItem(t, { nome: 'Outro de teste', unidadeMedida: 'litro', conversoes: [{ unidadeDe: 'L', fator: 500, unidadePara: 'ml' }] } as any),
+    ).rejects.toThrow(/1 litro = 1000 ml/);
     expect((await item(t)).map((i) => i.nome).sort()).toEqual(['Sal de teste', 'Suco de teste']); // nada do recusado ficou
 
     // editar com unidade inventada: recusa e mantém a conversão que existia
@@ -97,6 +104,13 @@ descrever('produtos do estoque (Postgres real)', () => {
     expect(await q(`select count(*)::int as n from item_conversao where item_id = $1`, [a.id])).toEqual([{ n: 1 }]);
     const editado = await s.updateItem(t, a.id, { nome: 'Suco de teste', unidadeMedida: 'cx' } as any);
     expect(editado.unidadeMedida).toBe('caixa');
+
+    // repetir a medida fixa certa ("1 kg = 1000 g") não atrapalha: passa, e grava a unidade da lista
+    const farinha = await s.createItem(t, { nome: 'Farinha de teste', unidadeMedida: 'k', conversoes: [{ unidadeDe: 'kg', fator: 1000, unidadePara: 'g' }] } as any);
+    expect(farinha.unidadeMedida).toBe('kg'); // "k" é quilo
+    expect(await q(`select unidade_de, unidade_para, fator::float8 as fator from item_conversao where item_id = $1`, [farinha.id])).toEqual([
+      { unidade_de: 'kg', unidade_para: 'grama', fator: 1000 },
+    ]);
   });
 
   // ── nome repetido ──────────────────────────────────────────────────────────────────────

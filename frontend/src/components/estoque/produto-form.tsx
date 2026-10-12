@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Gaveta } from '@/components/ui/sobreposto';
-import { arredondarInformado, unidadesDoProduto } from '@/lib/conversao-unidade';
+import { arredondarInformado, conversoesSoltas, proporcaoFixa, unidadesDoProduto } from '@/lib/conversao-unidade';
 import { MARCAS_MAX, MARCA_MAX, chaveDaMarca, juntarMarca, marcasDe } from '@/lib/produto-compra';
 import { unidadeDaLista, type ListaDeUnidades } from '@/lib/unidade-da-lista';
 
@@ -264,6 +264,24 @@ export function ProdutoForm({
           .map((u) => ({ unidade: u.unidade, custo: arredondarInformado(custoPrincipal * u.fator) }))
       : [];
   const reais = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: v < 1 ? 4 : 2 });
+  // O que há de errado (ou sobrando) em cada conversão, dito na própria linha antes de salvar:
+  //  • quilo e grama, litro e ml o sistema converte sozinho — a linha que repete a medida não é
+  //    necessária, e a que a contradiz (unidades trocadas) o servidor recusa;
+  //  • a que não chega à unidade principal por caminho nenhum não é usada em lugar nenhum.
+  const soltas = new Set(conversoesSoltas(unidade, conversoes));
+  const avisoDaConversao = (c: Conversao, i: number): { tom: 'erro' | 'aviso' | 'info'; texto: string } | null => {
+    const fixa = c.unidadeDe && c.unidadePara && c.unidadeDe !== c.unidadePara ? proporcaoFixa(c.unidadeDe, c.unidadePara) : null;
+    if (fixa != null) {
+      const conta = `1 ${c.unidadeDe} = ${num(fixa)} ${c.unidadePara}`;
+      return Number(c.fator) > 0 && Math.abs(Number(c.fator) / fixa - 1) > 1e-9
+        ? { tom: 'erro', texto: `${conta}, e o sistema já faz essa conta sozinho. Remova esta linha.` }
+        : { tom: 'info', texto: `O sistema já sabe que ${conta}. Esta linha não é necessária.` };
+    }
+    return soltas.has(i)
+      ? { tom: 'aviso', texto: `Esta conversão não se liga a ${unidade || 'unidade'}, a unidade principal, e não vai ser usada. Ligue uma das duas unidades à principal em outra linha.` }
+      : null;
+  };
+  const tomDoAviso = { erro: 'bg-destructive/10 font-medium text-destructive', aviso: 'border-l-4 border-warn bg-warn/10 text-foreground', info: 'bg-info/10 text-foreground' };
 
   return (
     // Gaveta MÉDIA (760 px): o cadastro ganhou campos e passa a ter duas colunas (pedido do dono, 10/10/2026).
@@ -481,9 +499,15 @@ export function ProdutoForm({
               <Plus className="h-4 w-4" /> Conversão
             </Button>
           </div>
-          <p className={ajuda}>Quanto cabe em cada embalagem. Ex.: 1 <b>fardo</b> = 12 <b>unidade</b>. As unidades são escolhidas na lista.</p>
-          {conversoes.map((c, i) => (
-            <div key={i} className="grid grid-cols-[auto_minmax(0,1fr)_auto_5rem_minmax(0,1fr)_auto] items-center gap-1.5 text-sm">
+          <p className={ajuda}>
+            Quanto cabe em cada embalagem. Ex.: 1 <b>fardo</b> = 12 <b>unidade</b>. As unidades são escolhidas na lista.
+            {' '}Quilo e grama, litro e ml o sistema converte sozinho: não precisa cadastrar.
+          </p>
+          {conversoes.map((c, i) => {
+            const aviso = avisoDaConversao(c, i);
+            return (
+            <div key={i} className="space-y-1">
+            <div className="grid grid-cols-[auto_minmax(0,1fr)_auto_5rem_minmax(0,1fr)_auto] items-center gap-1.5 text-sm">
               <span>1</span>
               <Select value={c.unidadeDe} onChange={(e) => setConv(i, { unidadeDe: e.target.value })} aria-label={`Conversão ${i + 1}: embalagem`}>
                 <OpcoesUnidade unidades={unidades} atual={c.unidadeDe} />
@@ -498,7 +522,14 @@ export function ProdutoForm({
                 <Trash2 className="h-4 w-4" />
               </Button>
             </div>
-          ))}
+            {aviso && (
+              <p role={aviso.tom === 'erro' ? 'alert' : 'status'} data-aviso-conversao={aviso.tom} className={`rounded-md px-2.5 py-1.5 text-sm ${tomDoAviso[aviso.tom]}`}>
+                {aviso.texto}
+              </p>
+            )}
+            </div>
+            );
+          })}
           {custosConvertidos.length > 0 && (
             <p className={ajuda} role="status" id="produto-custo-convertido">
               Custo: <b>{reais(custoPrincipal)}</b> por {unidade}

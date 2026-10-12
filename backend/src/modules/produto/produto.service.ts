@@ -54,7 +54,8 @@ export class ProdutoService {
     if (!u) throw new BadRequestException('Produto do estoque não encontrado.');
     const fator = fatorParaEstoque(escolhida, u.unidade, u.conversoes);
     if (fator == null) {
-      const validas = unidadesDoProduto(u.unidade, u.conversoes).map((x) => x.unidade).join(' ou ');
+      const nomes = unidadesDoProduto(u.unidade, u.conversoes).map((x) => x.unidade);
+      const validas = nomes.length > 1 ? `${nomes.slice(0, -1).join(', ')} ou ${nomes[nomes.length - 1]}` : nomes[0];
       throw new BadRequestException(
         `"${escolhida}" não é uma unidade deste produto do estoque. Escolha ${validas}.`,
       );

@@ -296,7 +296,8 @@ export default function FichasPage() {
   // Uma linha de insumo (usada tanto na seção balcão quanto na de delivery). O
   // `idx` é o índice REAL em `ings` — os handlers operam sobre o array inteiro.
   const renderLinha = (ing: Ing, idx: number) => {
-    // Produto do estoque com conversão cadastrada: a pessoa escolhe em qual unidade informa.
+    // Produto do estoque: a pessoa escolhe em qual unidade informa — a do estoque, as conversões do
+    // cadastro e as medidas que o sistema converte sozinho (kg e grama, litro e ml).
     const item = ing.itemId ? insumos.find((x) => x.id === ing.itemId) : null;
     const unEstoque: string = item?.unidadeMedida ?? 'un';
     const unidades = item ? unidadesDoProduto(unEstoque, item.conversoes ?? []) : [];
@@ -337,7 +338,8 @@ export default function FichasPage() {
           <Trash2 className="h-4 w-4" />
         </Button>
       </div>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-[1.6fr_.8fr_.7fr_.7fr_1fr]">
+      {/* A coluna da unidade tem largura mínima: "porção" e "unidade" têm de caber inteiros no seletor. */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1.5fr)_minmax(0,.7fr)_minmax(7.5rem,.9fr)_minmax(0,.6fr)_minmax(0,.9fr)]">
         {/* Autocomplete: ao digitar, filtra os insumos do estoque; escolher um
             vincula o item (baixa estoque) e puxa o custo médio automaticamente. */}
         <div className="relative">
@@ -404,7 +406,7 @@ export default function FichasPage() {
                 : `1 ${escolhida.unidade} = ${num(arredondarInformado(escolhida.fator))} ${unEstoque}`}).
             </>
           )}
-          {!convertida && unidades.length > 1 && <> Este produto tem conversão: escolha a unidade em que vai informar a quantidade.</>}
+          {!convertida && unidades.length > 1 && <> Escolha a unidade em que vai informar a quantidade: o sistema converte para {unEstoque}.</>}
         </p>
       )}
       {ing.subFichaId && (

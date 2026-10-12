@@ -10,7 +10,7 @@ import { ImageUpload } from '@/components/ui/image-upload';
 import { KebabMenu } from '@/components/ui/kebab-menu';
 import { selectCls } from '@/components/produtos/types';
 import { api, podeVerFinanceiro } from '@/lib/api';
-import { chaveUnidade, unidadesDoProduto } from '@/lib/conversao-unidade';
+import { chaveUnidade, unidadesDoCadastro } from '@/lib/conversao-unidade';
 import { toast } from '@/lib/toast';
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @next/next/no-img-element */
@@ -268,10 +268,11 @@ function OpcaoModal({ opcao, fichas, itens, verFin, onFechar, onSalvo }: { opcao
 
   const fichaEscolhida = f.tipo === 'ficha' ? fichas.find((x) => x.id === f.fichaId) : null;
   const temCodigo = !!(f.codigoPdv ?? '').trim();
-  // Ligação direta com o insumo: a unidade do estoque e as convertidas do cadastro dele.
+  // Ligação direta com o insumo: a unidade do estoque e as convertidas do cadastro dele (cada escolha
+  // baixa 1 — por isso a grama e o ml que o sistema converte sozinho só entram se o cadastro os cita).
   const insumoEscolhido = f.tipo === 'insumo' ? itens.find((x) => x.id === f.itemId) : null;
   const unEstoque: string = insumoEscolhido?.unidadeMedida ?? 'un';
-  const unidadesDoInsumo = insumoEscolhido ? unidadesDoProduto(unEstoque, insumoEscolhido.conversoes ?? []) : [];
+  const unidadesDoInsumo = insumoEscolhido ? unidadesDoCadastro(unEstoque, insumoEscolhido.conversoes ?? [], f.itemUnidade) : [];
   const vinculo = unidadesDoInsumo.find((u) => chaveUnidade(u.unidade) === chaveUnidade(f.itemUnidade)) ?? unidadesDoInsumo[0] ?? { unidade: unEstoque, fator: 1 };
   const custoDoInsumo = insumoEscolhido?.custoMedio != null ? Number(insumoEscolhido.custoMedio) * vinculo.fator : null;
   const custoDerivado = f.tipo === 'ficha' ? fichaEscolhida?.custoPorcao ?? null : custoDoInsumo;

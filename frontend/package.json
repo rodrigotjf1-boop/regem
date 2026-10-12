@@ -13,7 +13,8 @@
     "check:balcao": "node scripts/check-balcao.mjs",
     "check:unidades": "node scripts/check-unidades.mjs",
     "check:marcas": "node scripts/check-marcas.mjs",
-    "test": "npm run check:etapas && npm run check:eventos && npm run check:kds && npm run check:balcao && npm run check:unidades && npm run check:marcas"
+    "check:conversao": "node scripts/check-conversao.mjs",
+    "test": "npm run check:etapas && npm run check:eventos && npm run check:kds && npm run check:balcao && npm run check:unidades && npm run check:marcas && npm run check:conversao"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.0",

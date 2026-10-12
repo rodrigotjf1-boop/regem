@@ -198,6 +198,73 @@ descrever('ficha técnica com unidade convertida (Postgres real)', () => {
     expect(depois.custoTotal).toBe(1); // o custo da ficha também não mudou
   });
 
+  // MEDIDAS FIXAS (pedido do dono, 12/10/2026): kg e grama, litro e ml o sistema converte sozinho.
+  it('produto em kg SEM conversão: 30 grama na ficha gravam 0,03 kg, custam o do kg ÷ 1000 e a venda baixa 0,03 kg', async () => {
+    const t = await empresa();
+    const queijo = await produto(t, 'Queijo de teste', 'kg', 40);
+    const oleo = await produto(t, 'Óleo de teste', 'litro', 10);
+    const f: any = await fichas.create(t, {
+      nome: 'Em grama de teste',
+      rendimento: 1,
+      ingredientes: [
+        { insumoNome: 'Queijo de teste', itemId: queijo, quantidade: 30, unidade: 'grama', custoUnitario: 0.04 },
+        { insumoNome: 'Óleo de teste', itemId: oleo, quantidade: 50, unidade: 'ml', custoUnitario: 0.01 },
+      ],
+    } as any);
+
+    const gravada = await linhaGravada(f.id, queijo);
+    expect(gravada.quantidade).toBeCloseTo(0.03, 12); // unidade do estoque
+    expect(gravada.custo).toBeCloseTo(40, 8); // custo por kg
+    expect(gravada.unidade).toBe('grama'); // a escolha da pessoa
+    expect((await linhaGravada(f.id, oleo)).quantidade).toBeCloseTo(0.05, 12);
+
+    const linha = f.ingredientes.find((l: any) => l.itemId === queijo);
+    expect(Number(linha.quantidade)).toBe(30);
+    expect(Number(linha.custoUnitario)).toBe(0.04);
+    expect(linha).toMatchObject({ unidade: 'grama', unidadeEstoque: 'kg', fatorUnidade: 0.001 });
+    expect(f.custoTotal).toBe(1.7); // 30 g × R$ 0,04 + 50 ml × R$ 0,01
+
+    const baixa = await baixaDaVenda(t, f.id, 100); // 100 vendas = 3 kg de queijo e 5 litros de óleo
+    expect(baixa.get(queijo)).toBeCloseTo(3, 9);
+    expect(baixa.get(oleo)).toBeCloseTo(5, 9);
+
+    // salvar o produto (a tela manda as conversões de novo, vazias) não regrava a linha nem troca a unidade
+    const r: any = await estoque.updateItem(t, queijo, { conversoes: [] } as any);
+    expect(r.fichasAjustadas).toBe(0);
+    expect(await linhaGravada(f.id, queijo)).toMatchObject({ unidade: 'grama' });
+  });
+
+  it('guardado em caixa, "1 caixa = 6 kg" e "1 porção = 30 grama": 2 porções gravam 0,01 caixa; a caixa passa a ter 12 kg e a linha acompanha', async () => {
+    const t = await empresa();
+    const molho = await produto(t, 'Molho de teste', 'caixa', 120, [['caixa', 6, 'kg'], ['porção', 30, 'grama']]);
+    const f: any = await fichas.create(t, {
+      nome: 'Em porção de teste',
+      rendimento: 1,
+      ingredientes: [{ insumoNome: 'Molho de teste', itemId: molho, quantidade: 2, unidade: 'porção', custoUnitario: 0.6 }],
+    } as any);
+
+    const gravada = await linhaGravada(f.id, molho);
+    expect(gravada.quantidade).toBeCloseTo(0.01, 12); // 2 × 30 g = 0,06 kg = 0,01 caixa
+    expect(gravada.custo).toBeCloseTo(120, 8); // custo por caixa
+    expect(gravada.unidade).toBe('porção');
+    const [linha] = f.ingredientes;
+    expect(Number(linha.quantidade)).toBe(2);
+    expect(Number(linha.custoUnitario)).toBe(0.6); // R$ 120 a caixa de 200 porções
+    expect(linha.fatorUnidade).toBeCloseTo(0.005, 12);
+    expect(f.custoTotal).toBe(1.2);
+    expect((await baixaDaVenda(t, f.id, 100)).get(molho)).toBeCloseTo(1, 9); // 100 vendas = 200 porções = 1 caixa
+
+    // a caixa passa a ter 12 kg: as mesmas 2 porções (60 g) viram 0,005 caixa
+    const r: any = await estoque.updateItem(t, molho, {
+      conversoes: [{ unidadeDe: 'caixa', fator: 12, unidadePara: 'kg' }, { unidadeDe: 'porção', fator: 30, unidadePara: 'grama' }],
+    } as any);
+    expect(r.fichasAjustadas).toBe(1);
+    expect((await linhaGravada(f.id, molho)).quantidade).toBeCloseTo(0.005, 12);
+    const depois: any = await fichas.getOne(t, f.id);
+    expect(Number(depois.ingredientes[0].quantidade)).toBe(2);
+    expect(Number(depois.ingredientes[0].custoUnitario)).toBeCloseTo(0.3, 9); // R$ 120 a caixa de 400 porções
+  });
+
   it('linha de sub-receita não é convertida', async () => {
     const t = await empresa();
     const bacon = await produto(t, 'Bacon de teste', 'kg', 36, [['kg', 72, 'unidade']]);

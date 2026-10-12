@@ -17,7 +17,10 @@
    (o que entra na ficha técnica, na contagem e nos relatórios), o NOME COMERCIAL (como é comprado:
    aparece na lista de compras e no recebimento) e as MARCAS — com duas ou mais, quem gera a lista
    de compras escolhe a marca; o estoque e o custo continuam um só. A busca acha pelos dois nomes
-   e pela marca.
+   e pela marca; (7) desde 12/10/2026 quilo e grama, litro e ml o sistema converte SOZINHO — não
+   se cadastra que 1 kg tem 1000 gramas. A conversão do cadastro que repete a medida ganha o
+   recado "não é necessária"; a que a contradiz (unidades trocadas) é recusada; e a que não se
+   liga à unidade principal por caminho nenhum é avisada na própria linha.
    Onde a tela real difere, de propósito:
    - a gaveta mantém o que o formulário antigo já tinha e o mockup não mostra: "＋ nova categoria",
      "＋ novo fornecedor", data de validade e "imprimir etiquetas ao salvar";
@@ -117,6 +120,9 @@ tbody tr:hover{background:#FAFBFD}
 .conv{display:grid;grid-template-columns:auto minmax(0,1fr) auto 84px minmax(0,1fr) auto;gap:6px;align-items:center}
 .conv select,.conv input,.dialogo td select{min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 10px;background:#fff;width:100%;min-width:0}
 .conta{background:var(--info-bg);color:var(--info);border-radius:10px;padding:8px 12px;font-weight:600;font-size:13.5px}
+.conv-aviso{margin:-2px 0 0;border-radius:8px;padding:7px 10px;font-size:13.5px;background:var(--info-bg);color:var(--ink)}
+.conv-aviso.erro{background:var(--crit-bg);color:var(--crit);font-weight:600}
+.conv-aviso.aviso{background:var(--warn-bg);border-left:4px solid var(--warn)}
 .dialogo{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(520px,calc(100% - 24px));max-height:calc(100% - 24px);background:var(--card);z-index:50;border-radius:16px;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(15,34,48,.3)}
 .dialogo.largo{width:min(940px,calc(100% - 24px))}
 .dialogo .corpo{padding:16px 20px;overflow-y:auto;display:grid;gap:12px}
@@ -241,7 +247,7 @@ main{container-type:inline-size}
     <div class="conta" id="pConta" hidden></div>
     <div>
       <div style="display:flex;justify-content:space-between;align-items:center"><div class="rot">Conversões</div><button class="bt" id="bConv" type="button">＋ Conversão</button></div>
-      <p class="sub" style="margin:2px 0 8px">Quanto cabe em cada embalagem. As unidades são escolhidas na lista, não digitadas.</p>
+      <p class="sub" style="margin:2px 0 8px">Quanto cabe em cada embalagem. As unidades são escolhidas na lista, não digitadas. Quilo e grama, litro e ml o sistema converte sozinho: não precisa cadastrar.</p>
       <div id="pConvs" style="display:grid;gap:8px"></div>
     </div>
   </div>
@@ -369,8 +375,35 @@ function juntarMarca() {
 }
 const selUn = (v, id) => `<select aria-label="${id}">${UNIDADES.map((u) => `<option${u === v ? ' selected' : ''}>${u}</option>`).join('')}</select>`;
 function desenharConvs() {
-  $('#pConvs').innerHTML = convs.map((c, k) => `<div class="conv" data-k="${k}"><span>1</span>${selUn(c[0], 'Embalagem')}<span>=</span><input type="number" inputmode="decimal" min="0" value="${c[1]}" aria-label="Quanto cabe">${selUn(c[2], 'Unidade de dentro')}<button class="ic perigo" data-tirar aria-label="Remover conversão">🗑</button></div>`).join('') || '<p class="sub" style="margin:0">Nenhuma conversão. Ex.: 1 fardo = 12 unidade.</p>';
+  $('#pConvs').innerHTML = convs.map((c, k) => `<div class="conv" data-k="${k}"><span>1</span>${selUn(c[0], 'Embalagem')}<span>=</span><input type="number" inputmode="decimal" min="0" value="${c[1]}" aria-label="Quanto cabe">${selUn(c[2], 'Unidade de dentro')}<button class="ic perigo" data-tirar aria-label="Remover conversão">🗑</button></div><p class="conv-aviso" data-aviso="${k}" role="status" hidden></p>`).join('') || '<p class="sub" style="margin:0">Nenhuma conversão. Ex.: 1 fardo = 12 unidade.</p>';
   conta();
+}
+// Medidas que o sistema converte sozinho, e o recado de cada conversão (na própria linha).
+const FIXA = { kg: ['peso', 1000], grama: ['peso', 1], litro: ['volume', 1000], ml: ['volume', 1] };
+const fixaEntre = (a, b) => (FIXA[a] && FIXA[b] && FIXA[a][0] === FIXA[b][0] ? FIXA[a][1] / FIXA[b][1] : null);
+function ligadas(un) { // as unidades que chegam à principal: pelas conversões e pelas medidas fixas
+  const tem = new Set([un]);
+  for (let mudou = true; mudou;) {
+    mudou = false;
+    for (const [a, f, b] of convs) if (Number(f) > 0 && a !== b && tem.has(a) !== tem.has(b)) { tem.add(a); tem.add(b); mudou = true; }
+    for (const u of [...tem]) if (FIXA[u]) for (const v in FIXA) if (FIXA[v][0] === FIXA[u][0] && !tem.has(v)) { tem.add(v); mudou = true; }
+  }
+  return tem;
+}
+function avisosDasConvs() {
+  const un = $('#pUn').value, tem = ligadas(un);
+  convs.forEach(([a, f, b], k) => {
+    const el = $(`[data-aviso="${k}"]`); if (!el) return;
+    const fixa = a !== b ? fixaEntre(a, b) : null;
+    const [tom, texto] = fixa != null
+      ? (Number(f) > 0 && Math.abs(Number(f) / fixa - 1) > 1e-9
+          ? ['erro', `1 ${a} = ${fixa.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} ${b}, e o sistema já faz essa conta sozinho. Remova esta linha.`]
+          : ['info', `O sistema já sabe que 1 ${a} = ${fixa.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} ${b}. Esta linha não é necessária.`])
+      : Number(f) > 0 && a !== b && !tem.has(a) && !tem.has(b)
+        ? ['aviso', `Esta conversão não se liga a ${un}, a unidade principal, e não vai ser usada. Ligue uma das duas unidades à principal em outra linha.`]
+        : ['', ''];
+    el.hidden = !texto; el.className = `conv-aviso ${tom}`; el.textContent = texto;
+  });
 }
 function conta() {
   const un = $('#pUn').value, min = Number($('#pMin').value), c = convs.find((x) => x[0] === un && Number(x[1]) > 0);
@@ -378,6 +411,7 @@ function conta() {
   const el = $('#pConta');
   el.hidden = !(c && min > 0);
   if (c && min > 0) el.textContent = `Mínimo de ${num(min)} ${un} = ${num(min * c[1])} ${c[2]} (1 ${un} = ${num(c[1])} ${c[2]}).`;
+  avisosDasConvs();
 }
 // Feito na loja: a ficha tem de render na unidade principal do produto — a que não combina fica desligada.
 function desenharFicha(escolhida) {

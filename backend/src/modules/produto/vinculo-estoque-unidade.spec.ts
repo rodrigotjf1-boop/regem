@@ -140,7 +140,25 @@ descrever('ligação direta ao estoque com a unidade escolhida (Postgres real)',
     const l = await loja();
     await expect(revenda(l, { itemUnidade: 'litro' })).rejects.toThrow('"litro" não é uma unidade deste produto do estoque. Escolha fardo ou unidade.');
     await expect(produtos.criarOpcaoCatalogo(l.t, { nome: 'Opção de teste', tipo: 'insumo', itemId: l.bacon, itemUnidade: 'fatia' }))
-      .rejects.toThrow('"fatia" não é uma unidade deste produto do estoque. Escolha kg ou unidade.');
+      .rejects.toThrow('"fatia" não é uma unidade deste produto do estoque. Escolha kg, unidade ou grama.');
+  });
+
+  // MEDIDAS FIXAS (12/10/2026): kg e grama o sistema converte sozinho, sem conversão no cadastro.
+  it('adicional de um insumo em caixa, com "1 caixa = 6 kg" e "1 porção = 30 grama": cada escolha baixa 1 porção = 0,005 caixa', async () => {
+    const l = await loja();
+    const molho = (await q(`insert into item_estoque (tenant_id, nome, unidade_medida, custo_medio) values ($1,'Molho de teste','caixa',120) returning id`, [l.t]))[0].id as string;
+    await q(`insert into movimento_estoque (tenant_id, item_id, tipo, quantidade, custo_unitario) values ($1,$2,'entrada',4,120)`, [l.t, molho]);
+    for (const [de, fator, para] of [['caixa', 6, 'kg'], ['porção', 30, 'grama']] as [string, number, string][])
+      await q(`insert into item_conversao (tenant_id, item_id, unidade_de, fator, unidade_para) values ($1,$2,$3,$4,$5)`, [l.t, molho, de, fator, para]);
+    const op: any = await produtos.criarOpcaoCatalogo(l.t, { nome: 'Molho extra de teste', tipo: 'insumo', itemId: molho, itemUnidade: 'porção' });
+    const naLista = ((await produtos.listarOpcoes(l.t, false, true)) as any[]).find((o) => o.id === op.id);
+    expect(naLista).toMatchObject({ itemUnidade: 'porção', itemUnidadeEstoque: 'caixa' });
+    expect(naLista.itemFator).toBeCloseTo(0.005, 12); // 30 g = 0,03 kg = 0,005 caixa
+    expect(naLista.custoItem).toBeCloseTo(0.6, 9); // R$ 120 a caixa × 0,005
+    // a grama, que o cadastro cita, também vale; o litro continua de fora (peso não vira volume)
+    await expect(produtos.criarOpcaoCatalogo(l.t, { nome: 'Molho em grama de teste', tipo: 'insumo', itemId: molho, itemUnidade: 'grama' })).resolves.toBeTruthy();
+    await expect(produtos.criarOpcaoCatalogo(l.t, { nome: 'Molho em litro de teste', tipo: 'insumo', itemId: molho, itemUnidade: 'litro' }))
+      .rejects.toThrow('"litro" não é uma unidade deste produto do estoque. Escolha caixa, kg, grama ou porção.');
   });
 
   it('editar o produto: mudar a unidade refaz o fator; trocar o item sem dizer a unidade volta para a do estoque; desligar zera', async () => {
