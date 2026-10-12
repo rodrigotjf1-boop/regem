@@ -8,11 +8,12 @@ import {
   desfechoDoEnvio,
   enderecoPermitido,
   EVENTO_DO_RECURSO,
+  EVENTO_DO_RETRATO,
   PAUSA_APOS_FALHA_SEG,
   PAUSA_APOS_SUMICO_SEG,
   recuoSeg,
 } from './webhook-integracao';
-import { CLIENTES_INTEGRACAO, ESCOPOS_INTEGRACAO } from './escopos';
+import { CLIENTES_INTEGRACAO, ESCOPOS_INTEGRACAO, ESCOPOS_SEM_CARIMBO } from './escopos';
 
 // AVISOS (webhooks) da API de integração — as regras puras (mig 304).
 
@@ -26,6 +27,19 @@ describe('para onde o Regem pode avisar', () => {
       'http://127.0.0.1:3101/v1/inbox/regem/',
       'https://b.exemplo/x/',
     ]);
+  });
+
+  it('o Farol também tem endereço de produção (mig 316), e só o dele', () => {
+    const baseFarol = 'https://api.monitorfarol.com.br/v1/regem/avisos/';
+    expect(basesDoWebhook('farol', {})).toEqual([baseFarol]);
+    expect(basesDoWebhook('farol', { INTEGRACAO_FAROL_WEBHOOK_URLS: 'http://127.0.0.1:3201/v1/regem/avisos/' })).toEqual([
+      'http://127.0.0.1:3201/v1/regem/avisos/',
+    ]);
+    // A variável de um cliente não muda a lista do outro.
+    expect(basesDoWebhook('farol', { INTEGRACAO_LIAME_WEBHOOK_URLS: 'https://b.exemplo/x/' })).toEqual([baseFarol]);
+    expect(enderecoPermitido(`${baseFarol}${ID}`, basesDoWebhook('farol', {}))).toBe(`${baseFarol}${ID}`);
+    expect(enderecoPermitido(`${BASE}${ID}`, basesDoWebhook('farol', {}))).toBeNull(); // o endereço do Liame não serve ao Farol
+    expect(enderecoPermitido(`${baseFarol}${ID}/outro`, basesDoWebhook('farol', {}))).toBeNull();
   });
 
   it('cliente sem lista (o RegemCast, um desconhecido) não registra aviso', () => {
@@ -154,6 +168,23 @@ describe('o corpo do aviso (contrato do Liame)', () => {
     });
     // Token da empresa inteira: sem o campo.
     expect(corpoDoAviso({ recurso: 'cupom', id: ID, versao: 2 }, null)).toEqual({ tipo: 'cupom.alterado', id: ID, versao: 2 });
+  });
+
+  it('retrato (catálogo e fichas): só o tipo e a loja — sem id nem versão (contrato do Farol)', () => {
+    const loja = '0199c0de-0000-7000-8000-000000000001';
+    expect(corpoDoAviso({ recurso: 'catalogo', id: null, versao: null }, loja)).toEqual({ tipo: 'catalogo.alterado', loja_id: loja });
+    expect(corpoDoAviso({ recurso: 'fichas', id: null, versao: null }, loja)).toEqual({ tipo: 'fichas.alterado', loja_id: loja });
+    expect(corpoDoAviso({ recurso: 'catalogo', id: null, versao: null }, null)).toEqual({ tipo: 'catalogo.alterado' });
+  });
+
+  it('todo retrato avisado pede um escopo de leitura na hora, que o Farol pode ter — e nenhum é do carimbador', () => {
+    for (const r of Object.values(EVENTO_DO_RETRATO)) {
+      expect(ESCOPOS_INTEGRACAO).toContain(r.escopo);
+      expect(ESCOPOS_SEM_CARIMBO).toContain(r.escopo);
+      expect(CLIENTES_INTEGRACAO.farol.escopos).toContain(r.escopo);
+    }
+    // Os nomes não se confundem com os dos recursos publicados (a busca do job junta os dois).
+    for (const r of Object.keys(EVENTO_DO_RETRATO)) expect(Object.keys(EVENTO_DO_RECURSO)).not.toContain(r);
   });
 
   it('todo recurso avisado pede um escopo que existe e que o Liame pode ter', () => {

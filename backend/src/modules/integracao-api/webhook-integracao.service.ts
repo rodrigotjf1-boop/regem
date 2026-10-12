@@ -19,7 +19,9 @@ import {
   desfechoDoEnvio,
   enderecoPermitido,
   EVENTO_DO_RECURSO,
+  EVENTO_DO_RETRATO,
   RecursoAvisado,
+  RetratoAvisado,
 } from './webhook-integracao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -32,7 +34,14 @@ import {
 // manda UM aviso assinado por loja, no máximo um por minuto. Não há fila de eventos: o aviso é só
 // gatilho ("leia de novo"), e a posição fica na própria linha do registro.
 //
-// Escala: parado (nada novo) custa UMA consulta e nenhuma gravação; só a loja com novidade é
+// RETRATOS (catálogo e fichas, lidos na hora — mig 316): não têm versão publicada. Os gatilhos das
+// tabelas do cardápio anotam a mudança numa fila; no começo de cada ciclo o job esvazia a fila e
+// carimba a marca (`integracao_retrato_marca`), e a busca de novidade olha a marca junto das versões.
+// Só o job grava a marca, depois de a escrita de quem salvou estar confirmada — por isso a hora dela
+// nunca fica atrás de um aviso já mandado.
+//
+// Escala: parado (nada novo) custa DUAS consultas (a fila dos retratos, vazia, e a busca) e nenhuma
+// gravação; nenhum retrato é relido para comparar. Só a loja com novidade é
 // reservada (a reserva é a `proxima_verificacao_em` empurrada — duas réplicas não mandam o mesmo
 // aviso) e ganha uma gravação com o resultado. O destino fora do ar não segura ninguém: prazo
 // curto, recuo por loja, e o lote para quando ninguém respondeu.
@@ -47,6 +56,8 @@ const LOTE = 40;
 const EM_PARALELO = 8;
 const ORCAMENTO_CICLO_MS = 10_000;
 const ESPERA_SEM_TABELA_MS = 10 * 60_000;
+/** Depois de um erro ao esvaziar a fila dos retratos, quanto esperar para tentar de novo. */
+const ESPERA_ERRO_RETRATO_MS = 60_000;
 const LIMPEZA_INTERVALO_MS = 10 * 60_000;
 
 export type EscopoAviso = { tenantIds?: string[] };
@@ -60,8 +71,9 @@ type Devido = {
   segredo_cifrado: string;
   falhas_seguidas: number;
   falhando_ha: number | null;
-  recurso: RecursoAvisado;
-  recurso_id: string;
+  recurso: RecursoAvisado | RetratoAvisado;
+  /** Nulo no retrato (catálogo, fichas): o aviso vale pela loja, não por um recurso. */
+  recurso_id: string | null;
   versao: string | null;
   ate: string;
   cupom_id: string | null;
@@ -74,6 +86,8 @@ export class WebhookIntegracaoService {
   private rodando = false;
   private pausadoAte = 0;
   private limpezaEm = 0;
+  /** Sem as tabelas da 316 (ou com erro na fila dos retratos): os avisos de venda e de cupom seguem sozinhos. */
+  private retratosParadosAte = 0;
   /** Atraso sobre o carimbo, o mesmo da leitura (os testes encurtam). */
   atrasoSeg = ATRASO_LEITURA_SEG;
   /** Intervalo entre avisos da mesma loja (os testes encurtam). */
@@ -289,6 +303,7 @@ export class WebhookIntegracaoService {
   /** Um ciclo: reserva as lojas com novidade e manda os avisos, até acabar ou o tempo do ciclo. */
   async ciclo(e?: EscopoAviso, orcamentoMs = ORCAMENTO_CICLO_MS) {
     const fim = Date.now() + orcamentoMs;
+    await this.carimbarRetratos(e);
     let enviados = 0;
     let entregues = 0;
     for (;;) {
@@ -308,17 +323,77 @@ export class WebhookIntegracaoService {
   }
 
   /**
+   * Esvazia a fila que os gatilhos do cardápio e das fichas escrevem (mig 316) e carimba a marca de
+   * cada empresa × loja × tipo que mudou — num comando só. A hora da marca é a DESTE job, e não a da
+   * escrita: ele só enxerga o que já foi confirmado, então a marca nunca nasce "no passado" de um aviso
+   * já mandado. Duas réplicas não se atrapalham (cada linha da fila sai por uma só).
+   * Nunca rejeita: sem as tabelas da 316, ou com erro, os avisos de venda e de cupom seguem valendo.
+   */
+  async carimbarRetratos(e?: EscopoAviso): Promise<number> {
+    if (Date.now() < this.retratosParadosAte) return 0;
+    try {
+      const r: any = await this.db.execute(sql`
+        with lidas as (
+          delete from integracao_retrato_mudanca m
+           where true ${this.escopo(sql`m.tenant_id`, e)}
+          returning m.tenant_id, m.recurso, m.unidade_id
+        )
+        insert into integracao_retrato_marca as k (tenant_id, recurso, unidade_id, atualizado_em)
+        select d.tenant_id, d.recurso, d.unidade_id, clock_timestamp()
+          from (select distinct l.tenant_id, l.recurso, l.unidade_id from lidas l) d
+        on conflict (tenant_id, recurso, (coalesce(unidade_id, '00000000-0000-0000-0000-000000000000'::uuid)))
+        do update set atualizado_em = excluded.atualizado_em`);
+      return Number(r?.rowCount ?? 0);
+    } catch (erro: any) {
+      if (erro?.code === '42P01') {
+        this.retratosParadosAte = Date.now() + ESPERA_SEM_TABELA_MS;
+        this.log.warn(
+          `avisos do cardápio e das fichas parados por 10 min: ${erro?.message ?? erro} — aplique a migration 316 na nuvem (os avisos de venda e de cupom seguem)`,
+        );
+      } else {
+        this.retratosParadosAte = Date.now() + ESPERA_ERRO_RETRATO_MS;
+        this.log.error(
+          `fila dos retratos não esvaziada: ${erro?.code ? `[${erro.code}] ` : ''}${erro?.message ?? erro} — tento de novo em 1 min`,
+          erro?.stack,
+        );
+      }
+      return 0;
+    }
+  }
+
+  /**
    * As lojas com registro ativo, na vez delas, que têm versão publicada mais nova do que o último
    * aviso — e a reserva delas, no MESMO comando. O que conta como novidade segue a leitura com
    * cursor: só o recurso que o escopo do token libera, só o carimbado há mais de 15 s, e a loja do
    * token (empresa de uma loja, ou token da empresa: tudo; cupom sem loja vale para todas; cliente
-   * anonimizado é da empresa).
+   * anonimizado é da empresa). O retrato (catálogo, fichas) entra pela marca, com a mesma regra: a
+   * marca sem loja é da rede e vale para todas as lojas da empresa.
    */
   private async reservar(e: EscopoAviso | undefined, lote: number): Promise<Devido[]> {
     const pares = sql.join(
       (Object.keys(EVENTO_DO_RECURSO) as RecursoAvisado[]).map((r) => sql`(${r}, ${EVENTO_DO_RECURSO[r].escopo})`),
       sql`, `,
     );
+    const paresRetrato = sql.join(
+      (Object.keys(EVENTO_DO_RETRATO) as RetratoAvisado[]).map((r) => sql`(${r}, ${EVENTO_DO_RETRATO[r].escopo})`),
+      sql`, `,
+    );
+    // Sem as tabelas da 316 a busca segue só com as versões (os avisos de antes não param).
+    const marcas =
+      Date.now() < this.retratosParadosAte
+        ? sql``
+        : sql`
+                  union all
+                  (select m.recurso, null::uuid as recurso_id, null::bigint as versao, m.atualizado_em,
+                          null::text as cupom_id, null::text as pedido_id
+                     from integracao_retrato_marca m
+                    where m.tenant_id = w.tenant_id
+                      and m.recurso = any(p.retratos)
+                      and m.atualizado_em > w.avisado_ate
+                      and m.atualizado_em <= now() - make_interval(secs => ${this.atrasoSeg})
+                      and (p.loja_unica or w.unidade_id is null or m.unidade_id is null or m.unidade_id = w.unidade_id)
+                    order by m.atualizado_em desc
+                    limit 1)`;
     return this.rows(
       await this.db.execute(sql`
         with nov as materialized (
@@ -328,22 +403,29 @@ export class WebhookIntegracaoService {
            cross join lateral (
                   select array(select r.recurso from (values ${pares}) as r(recurso, escopo)
                                 where r.escopo = any(t.escopos)) as recursos,
+                         array(select r.recurso from (values ${paresRetrato}) as r(recurso, escopo)
+                                where r.escopo = any(t.escopos)) as retratos,
                          (select count(*) from unidade u
                            where u.tenant_id = w.tenant_id and u.deleted_at is null) = 1 as loja_unica
                  ) p
            cross join lateral (
-                  select v.recurso, v.recurso_id, v.versao, v.atualizado_em,
-                         case when v.recurso = 'cupom_uso' then v.foto->>'cupom_id' end as cupom_id,
-                         case when v.recurso = 'cupom_uso' then v.foto->>'pedido_id' end as pedido_id
-                    from integracao_versao v
-                   where v.tenant_id = w.tenant_id
-                     and v.recurso = any(p.recursos)
-                     and v.atualizado_em > w.avisado_ate
-                     and v.atualizado_em <= now() - make_interval(secs => ${this.atrasoSeg})
-                     and (p.loja_unica or w.unidade_id is null or v.recurso = 'cliente'
-                          or v.unidade_id = w.unidade_id
-                          or (v.recurso = 'cupom' and v.unidade_id is null))
-                   order by v.atualizado_em desc, v.recurso_id desc
+                  select x.recurso, x.recurso_id, x.versao, x.atualizado_em, x.cupom_id, x.pedido_id
+                    from (
+                  (select v.recurso, v.recurso_id, v.versao, v.atualizado_em,
+                          case when v.recurso = 'cupom_uso' then v.foto->>'cupom_id' end as cupom_id,
+                          case when v.recurso = 'cupom_uso' then v.foto->>'pedido_id' end as pedido_id
+                     from integracao_versao v
+                    where v.tenant_id = w.tenant_id
+                      and v.recurso = any(p.recursos)
+                      and v.atualizado_em > w.avisado_ate
+                      and v.atualizado_em <= now() - make_interval(secs => ${this.atrasoSeg})
+                      and (p.loja_unica or w.unidade_id is null or v.recurso = 'cliente'
+                           or v.unidade_id = w.unidade_id
+                           or (v.recurso = 'cupom' and v.unidade_id is null))
+                    order by v.atualizado_em desc, v.recurso_id desc
+                    limit 1)${marcas}
+                         ) x
+                   order by x.atualizado_em desc
                    limit 1
                  ) n
            where w.pausado_em is null
@@ -393,8 +475,8 @@ export class WebhookIntegracaoService {
         corpoDoAviso(
           {
             recurso: l.recurso,
-            id: l.recurso_id,
-            versao: l.versao === null ? null : Number(l.versao),
+            id: l.recurso_id ?? null,
+            versao: l.versao === null || l.versao === undefined ? null : Number(l.versao),
             cupom_id: l.cupom_id,
             pedido_id: l.pedido_id,
           },

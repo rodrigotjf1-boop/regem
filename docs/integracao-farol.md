@@ -76,9 +76,10 @@ agora**. Ele só LÊ — e nunca recebe preço, custo, margem, CMV, cliente ou v
   opção reutilizável (`opcao_id`). **Mudam a cada salvamento:** a variação, o grupo de adicionais e
   a opção do produto (`id`). O ingrediente da ficha não tem id. Trate cada resposta como retrato
   inteiro e case a variação pelo produto e pelo código (ou nome).
-- Sugestão de leitura do catálogo e das fichas: uma vez a cada 5 a 10 minutos por loja, sempre com
-  `?versao=`. A fila de produção pode ser lida de 15 em 15 segundos (o limite de 60 chamadas por
-  minuto é do token, somando as três rotas).
+- Sugestão de leitura do catálogo e das fichas: registre o **aviso** (§9) e leia quando ele chegar,
+  mais uma vez por dia como rede de segurança — sempre com `?versao=`. Sem o aviso, uma vez a cada 5
+  a 10 minutos por loja. A fila de produção pode ser lida de 15 em 15 segundos (o limite de 60
+  chamadas por minuto é do token, somando as três rotas).
 
 ## 4. `GET /integracao/catalogo` (`catalogo.ler`)
 
@@ -299,3 +300,52 @@ a empresa que só tem o Farol conectado não ganha carga de vendas, fila nem rec
 
 - **O aviso do Farol para a cozinha** (o KDS por produto com baixa automática, e os alertas) vai
   pela **rede da loja** — decisão do dono em 10/10/2026 — e tem plano próprio, apresentado antes.
+
+## 9. Avisos: o Regem avisa quando o catálogo ou as fichas mudam (mig 316)
+
+Pedido do dono em 11/10/2026: a mudança chega sozinha, em vez de o Farol ficar buscando. O aviso é
+**só gatilho** — não leva dado nenhum: quem recebe lê as duas rotas com `?versao=`. Perdido,
+repetido ou a mais, não muda nada (a leitura diária cobre).
+
+**Registrar** — `PUT /integracao/webhook`, com o token da loja (qualquer escopo):
+
+```json
+{ "url": "https://api.monitorfarol.com.br/v1/regem/avisos/<id da conexão>", "segredo": "whsec_<base64 de 24 a 64 bytes>" }
+```
+
+- A `url` tem de ficar dentro do endereço do Farol registrado no Regem, com **um trecho só** depois
+  dele (letras, números, `-` e `_`). Fora disso: `422 endereco-nao-permitido`.
+- Registrar de novo com o mesmo endereço e o mesmo segredo é o normal do dia a dia (religa o que
+  estiver pausado e não vira auditoria). `GET` devolve a situação (nunca o segredo); `DELETE` para.
+- Token revogado: o Regem apaga o registro e não avisa mais.
+
+**O aviso** — `POST` na `url`, assinado no padrão Standard Webhooks (`webhook-id`,
+`webhook-timestamp`, `webhook-signature`: `v1,` + HMAC-SHA256 em base64 de `id.timestamp.corpo`),
+com `user-agent: Regem-Integracao/1`:
+
+```json
+{ "tipo": "catalogo.alterado", "loja_id": "<a loja do token>" }
+```
+
+| `tipo` | escopo que libera | quando |
+|---|---|---|
+| `catalogo.alterado` | `catalogo.ler` | mudou algo que `GET /integracao/catalogo` devolve |
+| `fichas.alterado` | `fichas.ler` | mudou algo que `GET /integracao/fichas` devolve |
+
+- **Um aviso por loja por minuto, no máximo**, e ele vale por tudo o que mudou até ali: dez
+  salvamentos seguidos são um aviso. Como ingrediente e insumo mudam as duas leituras, o `tipo` é o
+  da mudança mais recente — **leia as duas rotas a cada aviso**, qualquer que seja o tipo.
+- **Quanto demora:** de 15 a 45 segundos depois do salvamento (o job roda a cada 15 s e espera 15 s
+  de segurança antes de avisar); com um aviso mandado há menos de um minuto, sai quando o minuto
+  fechar.
+- **A loja:** produto ou ficha da rede (sem loja) avisa todas as lojas conectadas da empresa; de uma
+  loja, só a dela; empresa de uma loja só, sempre. Categoria, opção reutilizável, insumo e conversão
+  de unidade valem para todas.
+- **O que não avisa:** o que nenhuma das duas rotas devolve — preço, custo, pausa por estoque e
+  custo médio. Pode chegar aviso sem que a versão mude (a resposta é `atualizado: false`); o
+  contrário não acontece.
+- **O que vem do servidor da loja** (cadastro feito lá, que sobe pelo sincronismo) avisa igual.
+- **Resposta esperada:** `2xx` = entregue. `404`/`410` por mais de uma hora = a conexão não existe
+  mais: o Regem pausa o aviso até um registro novo. Qualquer outra coisa: tenta de novo em 1, 2, 5,
+  15, 30 minutos e daí de hora em hora; três dias falhando, pausa.
+- A fila de produção (`/integracao/producao`) **não** tem aviso: continue lendo.
