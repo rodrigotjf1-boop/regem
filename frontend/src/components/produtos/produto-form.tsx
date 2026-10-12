@@ -6,7 +6,7 @@ import { SeletorDeUnidade } from '@/components/ui/seletor-de-unidade';
 import { Label } from '@/components/ui/label';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { selectCls, SELOS } from '@/components/produtos/types';
-import { chaveUnidade, unidadesDoProduto } from '@/lib/conversao-unidade';
+import { chaveUnidade, unidadesDoCadastro } from '@/lib/conversao-unidade';
 import { VariacoesEditor } from '@/components/produtos/variacoes-editor';
 import { ComboEditor } from '@/components/produtos/combo-editor';
 import { FiscalFields } from '@/components/produtos/fiscal-fields';
@@ -220,11 +220,12 @@ export function ProdutoForm({
                   ))}
                 </select>
                 {/* O item tem conversão no cadastro do estoque (1 fardo = 12 unidade): pergunta em
-                    que unidade a venda baixa — é ela que dá o custo de cada unidade vendida. */}
+                    que unidade a venda baixa — é ela que dá o custo de cada unidade vendida. Cada venda
+                    baixa 1: a grama e o ml que o sistema converte sozinho só entram se o cadastro os cita. */}
                 {(() => {
                   const item = insumos.find((it) => it.id === f.itemId);
                   const unEstoque: string = item?.unidadeMedida ?? 'un';
-                  const unidades = item ? unidadesDoProduto(unEstoque, item.conversoes ?? []) : [];
+                  const unidades = item ? unidadesDoCadastro(unEstoque, item.conversoes ?? [], f.itemUnidade) : [];
                   if (unidades.length < 2) return null;
                   const escolhida = unidades.find((u) => chaveUnidade(u.unidade) === chaveUnidade(f.itemUnidade)) ?? unidades[0];
                   const custo = (fator: number) => (verFin && item?.custoMedio != null ? ` · ${brl(Number(item.custoMedio) * fator)}` : '');

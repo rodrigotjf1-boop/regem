@@ -18,6 +18,13 @@ describe('unidades de medida do estoque', () => {
     expect(normalizarUnidade('g')).toBe('grama');
   });
 
+  it('quilo, grama, litro e ml escritos de todo jeito ("k", "Kilos", "grs", "Mililitros")', () => {
+    for (const texto of ['k', 'K', 'kg.', 'Kgs', 'kilo', 'Kilos', 'quilo', 'quilos', 'kilograma', 'Quilogramas']) expect([texto, normalizarUnidade(texto)]).toEqual([texto, 'kg']);
+    for (const texto of ['g', 'gr', 'grs', 'Gramas']) expect([texto, normalizarUnidade(texto)]).toEqual([texto, 'grama']);
+    for (const texto of ['l', 'L', 'Litros']) expect([texto, normalizarUnidade(texto)]).toEqual([texto, 'litro']);
+    for (const texto of ['ML', 'mililitro', 'Mililitros']) expect([texto, normalizarUnidade(texto)]).toEqual([texto, 'ml']);
+  });
+
   it('reconhece as abreviações de planilha, com ou sem ponto e acento', () => {
     const pares: [string, string][] = [
       ['und', 'unidade'], ['cx', 'caixa'], ['pct', 'pacote'], ['Pct.', 'pacote'], ['gl', 'galão'],
