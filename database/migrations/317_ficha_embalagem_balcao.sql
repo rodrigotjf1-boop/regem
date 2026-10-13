@@ -10,6 +10,10 @@
 --
 -- NÃO é só nuvem: a venda de balcão baixa o estoque no servidor da loja. Sem efeito no que já existe:
 -- a coluna nasce `false` em todas as linhas (acréscimo só de catálogo, sem regravar a tabela).
+--
+-- A venda lê esta tabela a cada item: a trava do `alter` dura um instante, e o `lock_timeout` faz a
+-- migration desistir (sem mudar nada) em vez de segurar uma venda. Idempotente; o arquivo não apaga nada.
+set local lock_timeout = '5s';
 
 alter table ficha_ingrediente
   add column if not exists somente_balcao boolean not null default false;
