@@ -18,6 +18,7 @@ import { AuthUser } from '../../auth/auth-user';
 import { podeAcessar } from '../../auth/permissoes';
 import { FichasService } from './fichas.service';
 import { fichaSemCusto } from './ficha-sem-custo';
+import { exigirBooleano } from '../../common/exigir';
 import { CreateFichaDto } from './dto/create-ficha.dto';
 import { UpdateFichaDto } from './dto/update-ficha.dto';
 import { CreateIngredienteDto } from './dto/create-ingrediente.dto';
@@ -39,6 +40,21 @@ export class FichasController {
   async list(@CurrentUser() user: AuthUser) {
     const fichas = await this.service.list(user.tenantId);
     return this.veCusto(user) ? fichas : fichas.map(fichaSemCusto);
+  }
+
+  // A empresa usa a MESMA embalagem no balcão e no delivery? Uma chave só, da empresa inteira: com
+  // ela ligada, a embalagem cadastrada no delivery vale para as duas vendas (custo e baixa de
+  // estoque de TODAS as fichas) — por isso só gerente e presidente mudam. Fica ANTES de `:id`.
+  @Get('embalagem')
+  embalagem(@CurrentUser() user: AuthUser) {
+    return this.service.embalagemConfig(user.tenantId);
+  }
+
+  @Post('embalagem')
+  @Roles('presidente', 'gerente')
+  @RequirePerm('fichas')
+  setEmbalagem(@CurrentUser() user: AuthUser, @Body() dto: { mesmaEmbalagem?: boolean }) {
+    return this.service.setEmbalagemConfig(user.tenantId, exigirBooleano(dto?.mesmaEmbalagem, 'mesmaEmbalagem'), user);
   }
 
   @Get(':id')

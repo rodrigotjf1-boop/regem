@@ -5,6 +5,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { CardapioService } from '../cardapio/cardapio.service';
 import { ProducaoService } from '../producao/producao.service';
+import { PEDIDO_EXTERNO, SO_INGREDIENTES } from '../../common/embalagem-da-ficha';
 import { VendasService } from '../vendas/vendas.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -29,7 +30,7 @@ descrever('ficha excluída e ingrediente removido não baixam estoque (Postgres 
   // transação. Nenhum deles usa outra dependência do serviço.
   const consumoDaVenda = async (t: string, fichaId: string, delivery = false) => {
     const consumo = new Map<string, number>();
-    await (VendasService.prototype as any).acumularFicha.call(VendasService.prototype, db, t, fichaId, 1, consumo, new Set(), delivery);
+    await (VendasService.prototype as any).acumularFicha.call(VendasService.prototype, db, t, fichaId, 1, consumo, new Set(), delivery ? PEDIDO_EXTERNO : SO_INGREDIENTES);
     return Object.fromEntries(consumo);
   };
   const consumoDaProducao = async (t: string, fichaId: string) => {

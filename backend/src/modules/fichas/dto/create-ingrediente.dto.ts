@@ -44,4 +44,10 @@ export class CreateIngredienteDto {
   @IsOptional()
   @IsBoolean()
   somenteDelivery?: boolean;
+
+  // Linha só contabilizada na venda de balcão, mesa e totem — a embalagem do balcão (mig 317).
+  // Não pode vir junto com `somenteDelivery` (400).
+  @IsOptional()
+  @IsBoolean()
+  somenteBalcao?: boolean;
 }

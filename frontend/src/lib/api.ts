@@ -1274,6 +1274,10 @@ export const api = {
   produtoPermiteNegativo: (id: string, ativo: boolean) =>
     req(`/produtos/${id}/permite-negativo`, { method: 'POST', body: JSON.stringify({ ativo }) }),
   autoPausaCardapio: () => req('/cardapio/auto-pausa'),
+  // A empresa usa a mesma embalagem no balcão e no delivery? (chave única; só gerente e presidente mudam)
+  fichasEmbalagem: () => req('/fichas/embalagem'),
+  setFichasEmbalagem: (mesmaEmbalagem: boolean) =>
+    req('/fichas/embalagem', { method: 'POST', body: JSON.stringify({ mesmaEmbalagem }) }),
   setAutoPausaCardapio: (ativo: boolean) =>
     req('/cardapio/auto-pausa', { method: 'POST', body: JSON.stringify({ ativo }) }),
   // Relatórios de venda (Fase K)

@@ -161,6 +161,7 @@ agora**. Ele só LÊ — e nunca recebe preço, custo, margem, CMV, cliente ou v
   "atualizado": true,
   "gerado_em": "2026-10-10T23:10:00.000Z",
   "loja_id": "l1…",
+  "mesma_embalagem": false,
   "fichas": [
     {
       "id": "f1…",
@@ -173,9 +174,9 @@ agora**. Ele só LÊ — e nunca recebe preço, custo, margem, CMV, cliente ou v
       "setor_id": "s1…",
       "ativo": true,
       "ingredientes": [
-        { "ordem": 0, "insumo_id": "i1…", "sub_ficha_id": null, "nome": "Pão brioche", "quantidade": 1, "unidade": "unidade", "quantidade_estoque": 1, "unidade_estoque": "unidade", "fator_correcao": 1, "so_delivery": false },
-        { "ordem": 1, "insumo_id": null, "sub_ficha_id": "f7…", "nome": "Blend da casa", "quantidade": 0.12, "unidade": "kg", "quantidade_estoque": 0.12, "unidade_estoque": null, "fator_correcao": 1, "so_delivery": false },
-        { "ordem": 2, "insumo_id": "i2…", "sub_ficha_id": null, "nome": "Queijo prato", "quantidade": 2, "unidade": "fatia", "quantidade_estoque": 0.04, "unidade_estoque": "kg", "fator_correcao": 1, "so_delivery": false }
+        { "ordem": 0, "insumo_id": "i1…", "sub_ficha_id": null, "nome": "Pão brioche", "quantidade": 1, "unidade": "unidade", "quantidade_estoque": 1, "unidade_estoque": "unidade", "fator_correcao": 1, "so_delivery": false, "so_balcao": false },
+        { "ordem": 1, "insumo_id": null, "sub_ficha_id": "f7…", "nome": "Blend da casa", "quantidade": 0.12, "unidade": "kg", "quantidade_estoque": 0.12, "unidade_estoque": null, "fator_correcao": 1, "so_delivery": false, "so_balcao": false },
+        { "ordem": 2, "insumo_id": "i2…", "sub_ficha_id": null, "nome": "Queijo prato", "quantidade": 2, "unidade": "fatia", "quantidade_estoque": 0.04, "unidade_estoque": "kg", "fator_correcao": 1, "so_delivery": false, "so_balcao": false }
       ]
     }
   ]
@@ -188,7 +189,13 @@ agora**. Ele só LÊ — e nunca recebe preço, custo, margem, CMV, cliente ou v
   baixa. Sem item do estoque (sub-receita ou insumo escrito à mão), as duas quantidades são iguais
   e `unidade_estoque` é `null`.
 - `sub_ficha_id`: o ingrediente é outra ficha (sub-receita) — ela vem na mesma lista.
-- `so_delivery`: a linha só entra em pedido que sai da loja (a embalagem).
+- `so_delivery`: a linha só entra em pedido que sai da loja (a embalagem do delivery).
+- `so_balcao` (desde 12/10/2026): a linha só entra na venda feita na loja — balcão, mesa e totem (a
+  embalagem do balcão). Nunca vem junto com `so_delivery`.
+- `mesma_embalagem` (no topo, desde 12/10/2026): a empresa usa a MESMA embalagem no balcão e no
+  delivery. Com `true`, as linhas `so_delivery` valem para as DUAS vendas e as `so_balcao` não contam em
+  nenhuma (ficam guardadas). Com `false`, cada venda usa a sua. Mudar a chave muda a `versao` das
+  fichas, mas NÃO dispara o aviso `fichas.alterado` — chega na próxima leitura.
 - `fator_correcao`: a perda no preparo (1 = sem perda).
 - `rendimento`: quanto a ficha rende; o consumo de uma venda é
   `quantidade_estoque × fator_correcao ÷ rendimento`, vezes o `fator_ficha` da variação.

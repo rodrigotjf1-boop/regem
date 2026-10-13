@@ -2812,6 +2812,26 @@
         }
       }
     },
+    "/api/v1/fichas/embalagem": {
+      "get": {
+        "operationId": "FichasController_embalagem",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "operationId": "FichasController_setEmbalagem",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/fichas/{id}": {
       "get": {
         "operationId": "FichasController_getOne",
@@ -17874,6 +17894,9 @@
             "type": "number"
           },
           "somenteDelivery": {
+            "type": "boolean"
+          },
+          "somenteBalcao": {
             "type": "boolean"
           }
         },

@@ -870,6 +870,9 @@ export class CardapioService {
         where ft.tenant_id = ${tenantId}
           and ft.deleted_at is null
           and fi.deleted_at is null
+          -- A embalagem do BALCÃO (mig 317) não sai no pedido do cardápio online: a falta dela
+          -- não pode marcar o produto como "Esgotado" aqui.
+          and fi.somente_balcao = false
       `),
       // Itens de combo -> componentes. Traz TAMBÉM o item de revenda e o
       // `controla_estoque` do componente, para espelhar exatamente o que a venda

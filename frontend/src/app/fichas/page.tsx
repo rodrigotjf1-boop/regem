@@ -1,11 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, Trash2, Pencil, Copy } from 'lucide-react';
 import { api, getCategoria, getToken, podePerm } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { arredondarInformado, chaveUnidade, fatorParaEstoque, unidadesDoProduto } from '@/lib/conversao-unidade';
+import { linhaEntra, semZerosFinais, type CanalDaFicha } from '@/lib/embalagem-da-ficha';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -31,7 +32,10 @@ type Ing = {
   itemId?: string; // ingrediente = insumo do Estoque (baixa na produção)
   subFichaId?: string; // ingrediente = sub-receita (outra ficha)
   somenteDelivery?: boolean; // linha de custo só contabilizada em pedido externo (delivery)
+  somenteBalcao?: boolean; // embalagem do balcão: só na venda de balcão, mesa e totem (mig 317)
 };
+// A chave da empresa "mesma embalagem no balcão e no delivery" e quantas fichas ela alcança.
+type EmbalagemDaLoja = { mesmaEmbalagem: boolean; fichasComEmbalagemDoDelivery: number; fichasComEmbalagemDoBalcao: number };
 
 const CATEGORIAS = [
   { value: 'base', label: 'Base / pré-preparo' },
@@ -58,8 +62,19 @@ const SITUACOES: Situacao<any>[] = [
 const ID_TITULO = 'fichas-titulo';
 const ID_ERRO = 'ficha-erro';
 
-function linhaVazia(somenteDelivery = false): Ing {
-  return { insumoNome: '', quantidade: '', unidade: '', fatorCorrecao: '1', custoUnitario: '', somenteDelivery };
+function linhaVazia(de: 'ingrediente' | 'balcao' | 'delivery' = 'ingrediente'): Ing {
+  return { insumoNome: '', quantidade: '', unidade: '', fatorCorrecao: '1', custoUnitario: '', somenteDelivery: de === 'delivery', somenteBalcao: de === 'balcao' };
+}
+
+// Rótulo visível em cima de cada campo da linha: o nome que ficava só no campo vazio sumia ao
+// preencher, e quantidade e fator de correção ficavam lado a lado sem dizer quem era quem.
+function Campo({ rotulo, children, className }: { rotulo: string; children: ReactNode; className?: string }) {
+  return (
+    <div className={className}>
+      <span aria-hidden="true" className="mb-0.5 block truncate text-xs font-semibold text-secondary-foreground">{rotulo}</span>
+      {children}
+    </div>
+  );
 }
 
 export default function FichasPage() {
@@ -87,12 +102,18 @@ export default function FichasPage() {
   const [sit, setSit] = useState(-1);
   const [filtroCategoria, setFiltroCategoria] = useState('');
   const [filtroSub, setFiltroSub] = useState('');
+  // A chave da empresa (mesma embalagem no balcão e no delivery). `null` = o servidor ainda não tem a
+  // rota (versão anterior): a tela fica como era, só com o custo do delivery.
+  const [embalagem, setEmbalagem] = useState<EmbalagemDaLoja | null>(null);
+  const [mudarEmbalagem, setMudarEmbalagem] = useState<boolean | null>(null); // o que a pessoa pediu, à espera da confirmação
+  const [salvandoEmbalagem, setSalvandoEmbalagem] = useState(false);
 
   const carregar = useCallback(async () => {
     try {
-      const [fs, ins] = await Promise.all([api.get('/fichas'), api.estoqueItens()]);
+      const [fs, ins, emb] = await Promise.all([api.get('/fichas'), api.estoqueItens(), api.fichasEmbalagem().catch(() => null)]);
       setFichas(fs);
       setInsumos(ins as any[]);
+      setEmbalagem(emb && typeof (emb as any).mesmaEmbalagem === 'boolean' ? (emb as EmbalagemDaLoja) : null);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     } finally {
@@ -160,11 +181,22 @@ export default function FichasPage() {
 
   const custoLinha = (i: Ing) =>
     (Number(i.quantidade) || 0) * (Number(i.fatorCorrecao) || 1) * (Number(i.custoUnitario) || 0);
-  // Balcão = linhas normais; delivery = balcão + linhas somente_delivery (embalagens).
-  const custoTotal = ings.filter((i) => !i.somenteDelivery).reduce((s, i) => s + custoLinha(i), 0);
-  const custoDeliveryExtra = ings.filter((i) => i.somenteDelivery).reduce((s, i) => s + custoLinha(i), 0);
-  const custoTotalDelivery = custoTotal + custoDeliveryExtra;
+  // Custo por venda (`lib/embalagem-da-ficha.ts`, a mesma regra do servidor): os ingredientes entram
+  // sempre; a embalagem do balcão, na venda de balcão; a do delivery, no pedido externo — ou nas
+  // duas, quando a empresa usa a mesma embalagem.
+  const mesmaEmbalagem = !!embalagem?.mesmaEmbalagem;
+  const custoDe = (canal: CanalDaFicha) => ings.filter((i) => linhaEntra(i, canal, mesmaEmbalagem)).reduce((s, i) => s + custoLinha(i), 0);
+  const custoInsumos = custoDe('nenhum');
+  const custoTotal = custoDe('balcao');
+  const custoTotalDelivery = custoDe('delivery');
+  const custoBalcaoExtra = custoTotal - custoInsumos;
+  const custoDeliveryExtra = custoTotalDelivery - custoInsumos;
   const temDelivery = ings.some((i) => i.somenteDelivery);
+  const temBalcao = !mesmaEmbalagem && ings.some((i) => i.somenteBalcao);
+  // Com a mesma embalagem nos dois, a do balcão que já estava cadastrada fica guardada, sem contar.
+  const guardadasDoBalcao = mesmaEmbalagem ? ings.filter((i) => i.somenteBalcao).length : 0;
+  // Dois custos na tela quando o balcão e o delivery levam embalagens diferentes.
+  const doisCustos = !mesmaEmbalagem && (temDelivery || temBalcao);
   const rend = Number(rendimento) || 1;
   const custoPorcao = custoTotal / rend;
   const custoPorcaoDelivery = custoTotalDelivery / rend;
@@ -194,7 +226,7 @@ export default function FichasPage() {
     setEditId(f.id);
     setNome(f.nome ?? '');
     setCategoria(f.categoria ?? 'base');
-    setRendimento(String(f.rendimento ?? 1));
+    setRendimento(semZerosFinais(f.rendimento, '1'));
     setRendUnidade(f.rendimentoUnidade ?? 'porção');
     setPrecoVenda(f.precoVenda != null ? String(f.precoVenda) : '');
     setMetaCmvInput(String(f.metaCmv ?? META_CMV));
@@ -204,16 +236,35 @@ export default function FichasPage() {
             insumoNome: i.insumoNome ?? '',
             quantidade: String(i.quantidade ?? ''),
             unidade: i.unidade ?? '',
-            fatorCorrecao: String(i.fatorCorrecao ?? '1'),
+            // sem os zeros do banco: "2.000" não cabia no campo e aparecia cortado ("2,0")
+            fatorCorrecao: semZerosFinais(i.fatorCorrecao, '1'),
             custoUnitario: String(i.custoUnitario ?? ''),
             itemId: i.itemId ?? undefined,
             subFichaId: i.subFichaId ?? undefined,
             somenteDelivery: !!i.somenteDelivery,
+            somenteBalcao: !!i.somenteBalcao,
           }))
         : [linhaVazia()],
     );
     setErro('');
     setEditor(true);
+  }
+
+  // Liga ou desliga a chave da empresa (depois da confirmação) e recarrega: o custo de todas as fichas muda.
+  async function confirmarEmbalagem() {
+    if (mudarEmbalagem === null) return;
+    setSalvandoEmbalagem(true);
+    try {
+      const r: any = await api.setFichasEmbalagem(mudarEmbalagem);
+      setEmbalagem(r as EmbalagemDaLoja);
+      toast.success(r?.mesmaEmbalagem ? 'A mesma embalagem passa a valer no balcão e no delivery.' : 'Cada venda volta a usar a sua embalagem.');
+      setMudarEmbalagem(null);
+      await carregar();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
+    } finally {
+      setSalvandoEmbalagem(false);
+    }
   }
 
   function nova() {
@@ -253,6 +304,7 @@ export default function FichasPage() {
           itemId: i.itemId || undefined,
           subFichaId: i.subFichaId || undefined,
           somenteDelivery: !!i.somenteDelivery,
+          somenteBalcao: i.somenteBalcao || undefined,
         })),
     };
     try {
@@ -342,7 +394,7 @@ export default function FichasPage() {
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1.5fr)_minmax(0,.7fr)_minmax(7.5rem,.9fr)_minmax(0,.6fr)_minmax(0,.9fr)]">
         {/* Autocomplete: ao digitar, filtra os insumos do estoque; escolher um
             vincula o item (baixa estoque) e puxa o custo médio automaticamente. */}
-        <div className="relative">
+        <Campo rotulo="Insumo" className="relative">
           <Input
             placeholder="Insumo (digite p/ buscar)"
             aria-label="Nome do ingrediente"
@@ -374,8 +426,9 @@ export default function FichasPage() {
               </ul>
             );
           })()}
-        </div>
-        <Input type="number" min={0} step="any" inputMode="decimal" placeholder="Qtd" aria-label="Quantidade" value={ing.quantidade} onChange={(e) => setIng(idx, 'quantidade', e.target.value)} />
+        </Campo>
+        <Campo rotulo="Quantidade"><Input type="number" min={0} step="any" inputMode="decimal" placeholder="Qtd" aria-label="Quantidade" value={ing.quantidade} onChange={(e) => setIng(idx, 'quantidade', e.target.value)} /></Campo>
+        <Campo rotulo="Unidade">
         {unidades.length > 1 ? (
           <Select aria-label="Unidade em que a quantidade é informada" value={escolhida.unidade} onChange={(e) => escolherUnidade(idx, e.target.value)}>
             {unidades.map((u) => (
@@ -389,8 +442,9 @@ export default function FichasPage() {
             <SeletorDeUnidade ariaLabel="Unidade" value={ing.unidade} onChange={(u) => setIng(idx, 'unidade', u)} />
           )
         )}
-        <Input type="number" min={0} step="any" inputMode="decimal" placeholder="FC" aria-label="Fator de correção" value={ing.fatorCorrecao} onChange={(e) => setIng(idx, 'fatorCorrecao', e.target.value)} />
-        <Input type="number" min={0} step="any" inputMode="decimal" placeholder="R$/un" aria-label="Custo unitário" value={ing.custoUnitario} disabled={!!ing.subFichaId || !!ing.itemId} onChange={(e) => setIng(idx, 'custoUnitario', e.target.value)} />
+        </Campo>
+        <Campo rotulo="FC"><Input type="number" min={0} step="any" inputMode="decimal" placeholder="FC" aria-label="Fator de correção" value={ing.fatorCorrecao} onChange={(e) => setIng(idx, 'fatorCorrecao', e.target.value)} /></Campo>
+        <Campo rotulo="Custo (R$)"><Input type="number" min={0} step="any" inputMode="decimal" placeholder="R$/un" aria-label="Custo unitário" value={ing.custoUnitario} disabled={!!ing.subFichaId || !!ing.itemId} onChange={(e) => setIng(idx, 'custoUnitario', e.target.value)} /></Campo>
       </div>
       {ing.itemId && (
         <p className="text-xs text-secondary-foreground">
@@ -428,6 +482,8 @@ export default function FichasPage() {
   const papel = getCategoria() ?? '';
   const podeEditar = ['presidente', 'gerente', 'supervisao', 'suporte'].includes(papel) && podePerm('fichas');
   const podeExcluir = ['presidente', 'gerente', 'suporte'].includes(papel) && podePerm('fichas');
+  // A chave da embalagem muda o custo de balcão e a baixa de estoque de TODAS as fichas: só o gestor.
+  const podeMudarEmbalagem = podeExcluir;
   // O custo só vem para quem tem a permissão "Fichas técnicas": o servidor corta e avisa em cada
   // ficha (`custoOculto`). Sem custo não há CMV — a coluna, o selo e as situações saem da tela,
   // em vez de dizerem "R$ 0,00" e "sem preço".
@@ -449,6 +505,33 @@ export default function FichasPage() {
         {/* A mesma faixa de abas do Estoque: as fichas moram em rota própria, mas são uma aba dele. */}
         <AbasEstoque ativa="fichas" aoEscolher={(a) => { if (a !== 'fichas') router.push(`/operacao?aba=${a}`); }} />
         {erro && !editor && <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm font-medium">{erro}</p>}
+
+        {/* Chave da empresa: a mesma embalagem no balcão e no delivery? Vale para todas as fichas (custo
+            de balcão e baixa de estoque) — por isso pede confirmação. Some para quem não vê custo. */}
+        {carregou && embalagem && !semCusto && (
+          <Card className="p-3">
+            <label className="flex items-center justify-between gap-3">
+              <span className="text-sm">
+                <span className="font-semibold">Mesma embalagem no balcão e no delivery</span>
+                <span id="embalagem-explica" className="block text-xs text-secondary-foreground">
+                  {mesmaEmbalagem
+                    ? 'Ligado: a embalagem cadastrada em cada ficha vale para as duas vendas — entra no custo e sai do estoque no balcão, na mesa, no totem e no delivery.'
+                    : 'Desligado: cada ficha tem a embalagem do balcão e a do delivery, e cada venda usa a sua.'}
+                  {!podeMudarEmbalagem && ' Só gerente e presidente mudam.'}
+                </span>
+              </span>
+              <input
+                type="checkbox"
+                id="embalagem-mesma"
+                className="h-5 w-5 flex-none accent-primary"
+                aria-describedby="embalagem-explica"
+                checked={mesmaEmbalagem}
+                disabled={!podeMudarEmbalagem || salvandoEmbalagem}
+                onChange={(e) => setMudarEmbalagem(e.target.checked)}
+              />
+            </label>
+          </Card>
+        )}
 
         {!carregou ? (
           <SkeletonList rows={4} />
@@ -553,31 +636,60 @@ export default function FichasPage() {
                   <span className="font-mono text-xs text-secondary-foreground">FC = fator de correção</span>
                 </div>
                 <div className="space-y-2">
-                  {ings.map((ing, idx) => (ing.somenteDelivery ? null : renderLinha(ing, idx)))}
+                  {ings.map((ing, idx) => (ing.somenteDelivery || ing.somenteBalcao ? null : renderLinha(ing, idx)))}
                 </div>
-                <Button type="button" variant="outline" className="mt-2" onClick={() => setIngs((a) => [...a, linhaVazia(false)])}>
+                <Button type="button" variant="outline" className="mt-2" onClick={() => setIngs((a) => [...a, linhaVazia()])}>
                   <Plus className="h-4 w-4" /> Adicionar insumo
                 </Button>
               </div>
 
-              {/* Custos delivery — insumos/itens (ex.: embalagens) contabilizados SÓ em
-                  pedido externo (cardápio digital próprio/integrado + marketplaces). */}
-              <div className="mt-5 rounded-xl border border-dashed border-info/40 bg-info/5 p-3">
-                <div className="mb-1 flex items-center justify-between">
-                  <h3 className="font-display text-sm font-bold">🛵 Custos delivery</h3>
-                  <span className="font-mono text-[10px] text-secondary-foreground">só em pedido externo</span>
+              {/* Embalagem do BALCÃO — só na venda de balcão, mesa e totem (mig 317). Some quando a empresa
+                  usa a mesma embalagem nos dois; as linhas continuam em `ings` (guardadas, sem contar). */}
+              {embalagem && !mesmaEmbalagem && (
+                <div className="mt-5 rounded-xl border border-dashed border-primary/50 bg-primary/5 p-3" data-bloco="embalagem-balcao">
+                  <div className="mb-1 flex flex-wrap items-center justify-between gap-x-2">
+                    <h3 className="font-display text-sm font-bold">🛍️ Embalagem do balcão</h3>
+                    <span className="font-mono text-xs text-secondary-foreground">só em venda de balcão, mesa e totem</span>
+                  </div>
+                  <p className="mb-2 text-xs text-secondary-foreground">
+                    Papel, saco ou caixa que a loja usa quando vende no balcão. Entra no custo e sai do estoque na venda feita na loja; o pedido de delivery não conta esses. Se o balcão não usa embalagem, deixe em branco.
+                  </p>
+                  <div className="space-y-2">
+                    {ings.map((ing, idx) => (ing.somenteBalcao ? renderLinha(ing, idx) : null))}
+                    {!temBalcao && <p className="py-1 text-xs text-secondary-foreground">Nenhuma embalagem do balcão.</p>}
+                  </div>
+                  <Button type="button" variant="outline" className="mt-2" onClick={() => setIngs((a) => [...a, linhaVazia('balcao')])}>
+                    <Plus className="h-4 w-4" /> Adicionar embalagem do balcão
+                  </Button>
+                </div>
+              )}
+
+              {/* Custos delivery — insumos/itens (ex.: embalagens) contabilizados SÓ em pedido externo
+                  (cardápio digital próprio/integrado + marketplaces). Com a MESMA embalagem nos dois, é o
+                  único cadastro e vale para as duas vendas. */}
+              <div className="mt-5 rounded-xl border border-dashed border-info/40 bg-info/5 p-3" data-bloco="embalagem-delivery">
+                <div className="mb-1 flex flex-wrap items-center justify-between gap-x-2">
+                  <h3 className="font-display text-sm font-bold">{mesmaEmbalagem ? '📦 Embalagem (balcão e delivery)' : '🛵 Custos delivery'}</h3>
+                  <span className="font-mono text-xs text-secondary-foreground">{mesmaEmbalagem ? 'em toda venda' : 'só em pedido externo'}</span>
                 </div>
                 <p className="mb-2 text-xs text-secondary-foreground">
-                  Embalagens e itens que só entram no custo de pedidos de delivery/retirada externa (iFood, 99food, cardápio digital). O balcão/mesa não conta esses.
+                  {mesmaEmbalagem
+                    ? 'Esta loja usa a mesma embalagem no balcão e no delivery: o que está aqui entra no custo e sai do estoque nas duas vendas.'
+                    : 'Embalagens e itens que só entram no custo de pedidos de delivery/retirada externa (iFood, 99food, cardápio digital). O balcão/mesa não conta esses.'}
                 </p>
+                {guardadasDoBalcao > 0 && (
+                  <p role="status" className="mb-2 rounded-md bg-info/10 px-2.5 py-1.5 text-xs">
+                    Esta ficha tem {guardadasDoBalcao} linha(s) de embalagem do balcão guardada(s): não contam enquanto a loja usar a mesma embalagem nos dois, e voltam se a chave for desligada.
+                  </p>
+                )}
                 <div className="space-y-2">
                   {ings.map((ing, idx) => (ing.somenteDelivery ? renderLinha(ing, idx) : null))}
                   {!temDelivery && (
-                    <p className="py-1 text-xs text-secondary-foreground">Nenhum custo de delivery. Adicione a embalagem, por exemplo.</p>
+                    <p className="py-1 text-xs text-secondary-foreground">{mesmaEmbalagem ? 'Nenhuma embalagem cadastrada.' : 'Nenhum custo de delivery. Adicione a embalagem, por exemplo.'}</p>
                   )}
                 </div>
-                <Button type="button" variant="outline" className="mt-2" onClick={() => setIngs((a) => [...a, linhaVazia(true)])}>
-                  <Plus className="h-4 w-4" /> Adicionar custo de delivery
+                <Button type="button" variant="outline" className="mt-2" onClick={() => setIngs((a) => [...a, linhaVazia('delivery')])}>
+                  <Plus className="h-4 w-4" /> {mesmaEmbalagem ? 'Adicionar embalagem' : 'Adicionar custo de delivery'}
                 </Button>
               </div>
             </div>
@@ -585,12 +697,14 @@ export default function FichasPage() {
             <Card className="h-fit border-t-4 border-t-primary p-4">
               <h2 className="mb-3 font-display text-lg font-bold">Custo calculado</h2>
               <div className="space-y-2 text-sm">
-                <Row label="Custo total dos insumos" value={brl(custoTotal)} />
+                <Row label="Custo total dos insumos" value={brl(custoInsumos)} />
                 <Row label="Rendimento" value={`${rend} ${rendUnidade}`} />
-                <Row label={temDelivery ? 'Custo por porção (balcão)' : 'Custo por porção'} value={brl(custoPorcao)} strong />
-                {temDelivery && (
+                {mesmaEmbalagem && temDelivery && <Row label="+ Embalagem (balcão e delivery)" value={brl(custoDeliveryExtra)} />}
+                {temBalcao && <Row label="+ Embalagem do balcão" value={brl(custoBalcaoExtra)} />}
+                <Row label={doisCustos ? 'Custo por porção (balcão)' : 'Custo por porção'} value={brl(custoPorcao)} strong />
+                {doisCustos && (
                   <>
-                    <Row label="+ Custos delivery" value={brl(custoDeliveryExtra)} />
+                    {temDelivery && <Row label="+ Custos delivery" value={brl(custoDeliveryExtra)} />}
                     <Row label="Custo por porção (delivery)" value={brl(custoPorcaoDelivery)} strong />
                   </>
                 )}
@@ -621,7 +735,7 @@ export default function FichasPage() {
                 <Input id="meta" type="number" min={0} step="any" inputMode="decimal" value={metaCmvInput} onChange={(e) => setMetaCmvInput(e.target.value)} className="h-10 w-24" />
               </div>
 
-              {temDelivery && (
+              {doisCustos && (
                 <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-info/30 bg-info/5 px-3 py-2">
                   <span className="text-xs text-secondary-foreground">CMV delivery (com embalagem)</span>
                   <Selo tom={cmvDelivery == null ? 'neutro' : cmvDeliveryOk ? 'ok' : 'critico'}>
@@ -658,6 +772,48 @@ export default function FichasPage() {
           </div>
           {erro && <p id={ID_ERRO} role="alert" className="mt-3 rounded-md bg-destructive/10 px-3 py-2 text-sm font-medium">{erro}</p>}
         </Gaveta>
+      )}
+
+      {mudarEmbalagem !== null && embalagem && (
+        <Dialogo
+          titulo={mudarEmbalagem ? 'Usar a mesma embalagem no balcão e no delivery?' : 'Voltar a ter embalagens diferentes?'}
+          aoFechar={() => setMudarEmbalagem(null)}
+          voltarPara="embalagem-mesma"
+          rodape={
+            <>
+              <Button type="button" variant="outline" data-foco-inicial onClick={() => setMudarEmbalagem(null)} disabled={salvandoEmbalagem}>Cancelar</Button>
+              <Button type="button" onClick={confirmarEmbalagem} disabled={salvandoEmbalagem}>
+                {salvandoEmbalagem ? 'Salvando…' : mudarEmbalagem ? 'Usar a mesma embalagem' : 'Usar embalagens diferentes'}
+              </Button>
+            </>
+          }>
+          {/* Cada frase diz o que `linhaEntra` passa a fazer; os números vêm do servidor (`/fichas/embalagem`). */}
+          <div className="space-y-2 text-sm">
+            <p>Vale para a empresa inteira, em todas as fichas técnicas.</p>
+            {mudarEmbalagem ? (
+              <>
+                <p>
+                  Fica um cadastro de embalagem só — o que hoje é o do delivery — e ele passa a entrar no custo e a sair do estoque também na venda de balcão, mesa e totem.
+                  {' '}{embalagem.fichasComEmbalagemDoDelivery === 0 ? 'Nenhuma ficha tem embalagem de delivery cadastrada ainda.' : `${embalagem.fichasComEmbalagemDoDelivery} ficha(s) têm embalagem de delivery cadastrada.`}
+                </p>
+                {embalagem.fichasComEmbalagemDoBalcao > 0 && (
+                  <p className="rounded-md border-l-4 border-info bg-info/10 px-3 py-2">
+                    {embalagem.fichasComEmbalagemDoBalcao} ficha(s) têm embalagem do balcão cadastrada: ela fica guardada, deixa de contar e volta se você desligar.
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                <p>A embalagem do delivery volta a contar só no pedido de delivery, e cada ficha volta a ter o bloco da embalagem do balcão.</p>
+                <p className="rounded-md border-l-4 border-info bg-info/10 px-3 py-2">
+                  {embalagem.fichasComEmbalagemDoBalcao > 0
+                    ? `${embalagem.fichasComEmbalagemDoBalcao} ficha(s) têm embalagem do balcão guardada: ela volta a contar na venda de balcão, mesa e totem.`
+                    : 'Nenhuma ficha tem embalagem do balcão cadastrada: a venda de balcão fica sem embalagem até você cadastrar a de cada ficha.'}
+                </p>
+              </>
+            )}
+          </div>
+        </Dialogo>
       )}
 
       {excluindo && (

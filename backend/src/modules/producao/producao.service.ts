@@ -73,7 +73,8 @@ export class ProducaoService {
       // então produzir uma ficha com caixa de delivery baixava caixa do estoque e ainda
       // somava o custo dela no custo do item produzido. Vale para sub-fichas também,
       // porque a recursão passa por aqui.
-      if (ing.somenteDelivery) continue;
+      // A embalagem do BALCÃO (mig 317) é igual: só a venda de balcão a consome.
+      if (ing.somenteDelivery || ing.somenteBalcao) continue;
       const baixa = qtdBaixaExplosao(
         Number(ing.quantidade),
         Number(ing.fatorCorrecao),
