@@ -25,6 +25,8 @@ export type RetratoCatalogo = {
 
 export type RetratoFichas = {
   loja_id: string | null;
+  // A empresa usa a MESMA embalagem no balcão e no delivery: as linhas `so_delivery` valem para as duas vendas.
+  mesma_embalagem: boolean;
   fichas: any[];
 };
 
@@ -150,12 +152,13 @@ export function montarCatalogo(
  */
 export function montarFichas(
   lojaId: string | null,
-  linhas: { fichas: any[]; ingredientes: any[]; conversoes: any[] },
+  linhas: { fichas: any[]; ingredientes: any[]; conversoes: any[]; mesmaEmbalagem?: boolean },
 ): RetratoFichas {
   const ingredientes = agrupar(linhas.ingredientes, 'ficha_id');
   const conversoes = agrupar(linhas.conversoes, 'item_id');
   return {
     loja_id: lojaId,
+    mesma_embalagem: linhas.mesmaEmbalagem === true,
     fichas: linhas.fichas.map((f) => ({
       id: f.id,
       nome: f.nome,
@@ -182,6 +185,7 @@ export function montarFichas(
           unidade_estoque: doItem,
           fator_correcao: Number(i.fator_correcao),
           so_delivery: i.somente_delivery === true,
+          so_balcao: i.somente_balcao === true,
         };
       }),
     })),

@@ -3,6 +3,7 @@ import { sql, SQL } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import type { IntegracaoCtxData } from './integracao-token.guard';
 import { montarCatalogo, montarFichas } from './catalogo-integracao';
+import { MODULO_MESMA_EMBALAGEM } from '../../common/embalagem-da-ficha';
 import { ConsultaComVersao, daLojaDoToken, responderComVersao } from './leitura-na-hora';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -125,7 +126,7 @@ export class CatalogoIntegracaoService {
     const ingredientes = await this.rows(sql`
       select fi.ficha_id::text as ficha_id, fi.item_id::text as item_id, fi.sub_ficha_id::text as sub_ficha_id,
              fi.insumo_nome, fi.quantidade::float8 as quantidade, fi.unidade,
-             fi.fator_correcao::float8 as fator_correcao, fi.somente_delivery, fi.ordem,
+             fi.fator_correcao::float8 as fator_correcao, fi.somente_delivery, fi.somente_balcao, fi.ordem,
              i.unidade_medida as item_unidade
         from ficha_ingrediente fi
         join ficha_tecnica f on f.id = fi.ficha_id and f.tenant_id = fi.tenant_id
@@ -147,6 +148,11 @@ export class CatalogoIntegracaoService {
               and f.deleted_at is null and ${fichaDaLoja})
        order by c.item_id, c.unidade_de, c.unidade_para, c.id`);
 
-    return responderComVersao(montarFichas(ctx.unidadeId, { fichas, ingredientes, conversoes }), q);
+    // A chave da empresa: com ela, a embalagem do delivery (`so_delivery`) vale também para o balcão.
+    const [chave] = await this.rows(sql`
+      select e.ativo from entitlement e
+       where e.tenant_id = ${tenant} and e.modulo = ${MODULO_MESMA_EMBALAGEM}`);
+    const mesmaEmbalagem = chave?.ativo === true;
+    return responderComVersao(montarFichas(ctx.unidadeId, { fichas, ingredientes, conversoes, mesmaEmbalagem }), q);
   }
 }

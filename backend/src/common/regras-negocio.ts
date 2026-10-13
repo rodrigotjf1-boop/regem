@@ -1,5 +1,6 @@
 // Regras de negócio críticas do Regem, isoladas como funções puras para teste.
 // Os services importam daqui — os testes cobrem o código realmente usado.
+import { linhaEntra, type CanalDaFicha } from './embalagem-da-ficha';
 
 /**
  * Custo médio ponderado móvel (recebimento de estoque).
@@ -107,6 +108,8 @@ export type IngredienteCusto = {
   fichaDoItemId?: string | null;
   // Linha de custo só contabilizada em pedido externo (delivery) — ex.: embalagem.
   somenteDelivery?: boolean;
+  // Linha de custo só contabilizada na venda de balcão, mesa e totem — a embalagem do balcão (mig 317).
+  somenteBalcao?: boolean;
 };
 export type FichaCusto = {
   rendimento: number;
@@ -122,8 +125,11 @@ export type FichaCusto = {
 export function custoTotalFicha(
   fichaId: string,
   mapa: Record<string, FichaCusto>,
-  // Inclui as linhas `somenteDelivery`? false = custo balcão; true = custo delivery.
-  incluirDelivery = false,
+  // Para que venda: `nenhum` = só os ingredientes; `balcao` e `delivery` somam a embalagem de cada
+  // um. `mesmaEmbalagem` = a chave da empresa (a do delivery vale para as duas vendas).
+  // A regra de quem entra: `common/embalagem-da-ficha.ts`.
+  canal: CanalDaFicha = 'nenhum',
+  mesmaEmbalagem = false,
   visitados: Set<string> = new Set(),
 ): number {
   if (visitados.has(fichaId)) return 0;
@@ -134,20 +140,20 @@ export function custoTotalFicha(
 
   let total = 0;
   for (const ing of ficha.ingredientes) {
-    // Linha só de delivery é ignorada no custo balcão.
-    if (ing.somenteDelivery && !incluirDelivery) continue;
+    // Embalagem de outro canal não entra neste custo.
+    if (!linhaEntra(ing, canal, mesmaEmbalagem)) continue;
     let custoUnit = Number(ing.custoUnitario) || 0;
     if (ing.subFichaId) {
       const sub = mapa[ing.subFichaId];
       const rendSub = sub && Number(sub.rendimento) > 0 ? Number(sub.rendimento) : 1;
-      custoUnit = custoTotalFicha(ing.subFichaId, mapa, incluirDelivery, proximos) / rendSub;
+      custoUnit = custoTotalFicha(ing.subFichaId, mapa, canal, mesmaEmbalagem, proximos) / rendSub;
     } else if (ing.fichaDoItemId) {
       // Produto feito na loja: o custo é o da ficha dele, sempre atualizado com o preço dos
-      // ingredientes (o custo de balcão — embalagem de delivery não é custo do insumo). Se a
+      // ingredientes (só os ingredientes — embalagem, de balcão ou de delivery, não é custo do insumo). Se a
       // ficha dele ainda não tem custo, fica o que está gravado na linha.
       const feita = mapa[ing.fichaDoItemId];
       const rendFeita = feita && Number(feita.rendimento) > 0 ? Number(feita.rendimento) : 1;
-      const pelaFicha = custoTotalFicha(ing.fichaDoItemId, mapa, false, proximos) / rendFeita;
+      const pelaFicha = custoTotalFicha(ing.fichaDoItemId, mapa, 'nenhum', false, proximos) / rendFeita;
       if (pelaFicha > 0) custoUnit = pelaFicha;
     }
     total += Number(ing.quantidade) * Number(ing.fatorCorrecao) * custoUnit;

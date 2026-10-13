@@ -1,7 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
 import { and, asc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { custoTotalFicha, fichaAlcancavel, type FichaCusto } from '../../common/regras-negocio';
-import { fichaIngrediente, fichaTecnica, itemEstoque } from '../../db/schema';
+import { MODULO_MESMA_EMBALAGEM } from '../../common/embalagem-da-ficha';
+import { entitlement, fichaIngrediente, fichaTecnica, itemEstoque } from '../../db/schema';
 import { normalizarUnidade } from '../estoque/unidades';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -26,6 +27,18 @@ export async function produtosFeitosNaLoja(db: any, tenantId: string): Promise<P
     .orderBy(asc(itemEstoque.nome));
 }
 
+/**
+ * A empresa usa a MESMA embalagem no balcão e no delivery? É uma chave só, da empresa inteira
+ * (`entitlement`, que já sincroniza com o servidor da loja). Sem registro = não: a conta de sempre.
+ */
+export async function mesmaEmbalagemDaEmpresa(db: any, tenantId: string): Promise<boolean> {
+  const [e] = await db
+    .select({ ativo: entitlement.ativo })
+    .from(entitlement)
+    .where(and(eq(entitlement.tenantId, tenantId), eq(entitlement.modulo, MODULO_MESMA_EMBALAGEM)));
+  return !!e?.ativo;
+}
+
 /** A ficha existe e não foi excluída? */
 export async function fichaExiste(db: any, tenantId: string, fichaId: string): Promise<boolean> {
   const [f] = await db
@@ -47,6 +60,7 @@ export function fichaCustoDe(f: any, ings: any[], fichaDoItem: Map<string, strin
       subFichaId: i.subFichaId ?? null,
       fichaDoItemId: !i.subFichaId && i.itemId ? fichaDoItem.get(i.itemId) ?? null : null,
       somenteDelivery: !!i.somenteDelivery,
+      somenteBalcao: !!i.somenteBalcao,
     })),
   };
 }
@@ -77,7 +91,8 @@ export async function carregarFichas(db: any, tenantId: string) {
     nome[f.id] = f.nome;
     mapa[f.id] = fichaCustoDe(f, ings.filter((i) => i.fichaId === f.id), fichaDoItem);
   }
-  return { fichas, ings, mapa, nome, feitos, fichaDoItem };
+  const mesmaEmbalagem = fichas.length ? await mesmaEmbalagemDaEmpresa(db, tenantId) : false;
+  return { fichas, ings, mapa, nome, feitos, fichaDoItem, mesmaEmbalagem };
 }
 
 /** Custo por unidade de rendimento de uma ficha (custo total ÷ rendimento). 0 = a ficha não tem custo. */

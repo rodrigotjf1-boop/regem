@@ -1267,6 +1267,9 @@ export const fichaIngrediente = pgTable('ficha_ingrediente', {
   custoUnitario: numeric('custo_unitario').notNull().default('0'),
   // Linha só contabilizada em pedido EXTERNO (delivery): embalagens etc. (mig 147).
   somenteDelivery: boolean('somente_delivery').notNull().default(false),
+  // Linha só contabilizada na venda de BALCÃO, mesa e totem: a embalagem do balcão (mig 317).
+  // Nunca junto com `somenteDelivery` — a regra de quem entra em qual venda: `common/embalagem-da-ficha.ts`.
+  somenteBalcao: boolean('somente_balcao').notNull().default(false),
   ordem: integer('ordem').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   // Cursor do sync + exclusão que PROPAGA para o edge (mig 242). A ficha é salva por

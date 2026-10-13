@@ -3,14 +3,17 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { fichaIngrediente, fichaTecnica, itemConversao, itemEstoque } from '../../db/schema';
+import { entitlement, fichaIngrediente, fichaTecnica, itemConversao, itemEstoque } from '../../db/schema';
+import { MODULO_MESMA_EMBALAGEM } from '../../common/embalagem-da-ficha';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 import { arredondarEstoque, arredondarInformado, fatorParaEstoque, type Conversao } from '../../common/conversao-unidade';
 import { unidadeOuPadrao } from '../estoque/unidades';
 import { custoTotalFicha, fichaAlcancavel, type FichaCusto } from '../../common/regras-negocio';
-import { carregarFichas, custoPorUnidadeDaFicha, dependenciasDasFichas } from './fichas-carga';
+import { carregarFichas, custoPorUnidadeDaFicha, dependenciasDasFichas, mesmaEmbalagemDaEmpresa } from './fichas-carga';
 import { CreateFichaDto } from './dto/create-ficha.dto';
 import { CreateIngredienteDto } from './dto/create-ingrediente.dto';
 import { UpdateFichaDto } from './dto/update-ficha.dto';
@@ -44,9 +47,9 @@ function computar(f: any, custoTotal: number) {
   };
 }
 
-// Custo/CMV nos dois contextos: balcão (padrão, mantém os nomes atuais) e delivery
-// (balcão + linhas somente_delivery). `temCustoDelivery` = a ficha tem extras de
-// delivery (a UI mostra os dois valores quando true).
+// Custo/CMV nos dois contextos: balcão (padrão, mantém os nomes atuais; ingredientes + embalagem
+// do balcão) e delivery (ingredientes + embalagem do delivery). `temCustoDelivery` = os dois custos
+// diferem (a UI mostra os dois valores quando true).
 function computarDois(f: any, custoBalcao: number, custoDelivery: number) {
   const balcao = computar(f, custoBalcao);
   const deliv = computar(f, custoDelivery);
@@ -56,13 +59,16 @@ function computarDois(f: any, custoBalcao: number, custoDelivery: number) {
     custoPorcaoDelivery: deliv.custoPorcao,
     cmvDelivery: deliv.cmv,
     margemDelivery: deliv.margem,
-    temCustoDelivery: custoDelivery > custoBalcao + 0.0001,
+    temCustoDelivery: Math.abs(custoDelivery - custoBalcao) > 0.0001,
   };
 }
 
 @Injectable()
 export class FichasService {
-  constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
+  constructor(
+    @Inject(DRIZZLE) private readonly db: DrizzleDB,
+    @Optional() private readonly auditoria?: AuditoriaService,
+  ) {}
 
   // Unidade do insumo escrito à mão (sem produto do estoque nem sub-receita): tem de ser da lista.
   // Conferida ANTES de gravar qualquer coisa — a recusa (400) não pode deixar ficha sem ingredientes.
@@ -71,8 +77,62 @@ export class FichasService {
       if (!i.subFichaId && !i.itemId) unidadeOuPadrao(i.unidade, `Unidade de "${String(i.insumoNome ?? '').slice(0, 40)}"`);
   }
 
+  // A linha de embalagem é de um canal só: balcão OU delivery. Conferida antes de gravar (400).
+  private conferirCanais(linhas: CreateIngredienteDto[] | undefined) {
+    for (const i of linhas ?? [])
+      if (i.somenteDelivery && i.somenteBalcao)
+        throw new BadRequestException(
+          `"${String(i.insumoNome ?? '').slice(0, 40)}" está como embalagem do balcão e do delivery ao mesmo tempo. Escolha um dos dois.`,
+        );
+  }
+
+  // ----- Embalagem: a mesma no balcão e no delivery? (chave da empresa inteira) -----
+  // Além da chave, devolve quantas fichas têm cada tipo de embalagem: é o que a tela usa para
+  // dizer, antes de a pessoa confirmar, o que muda de conta.
+  async embalagemConfig(tenantId: string) {
+    const [n] = await this.db
+      .select({
+        delivery: sql<number>`count(distinct ${fichaIngrediente.fichaId}) filter (where ${fichaIngrediente.somenteDelivery})::int`,
+        balcao: sql<number>`count(distinct ${fichaIngrediente.fichaId}) filter (where ${fichaIngrediente.somenteBalcao})::int`,
+      })
+      .from(fichaIngrediente)
+      .innerJoin(fichaTecnica, and(eq(fichaTecnica.id, fichaIngrediente.fichaId), isNull(fichaTecnica.deletedAt)))
+      .where(and(eq(fichaIngrediente.tenantId, tenantId), isNull(fichaIngrediente.deletedAt)));
+    return {
+      mesmaEmbalagem: await mesmaEmbalagemDaEmpresa(this.db, tenantId),
+      fichasComEmbalagemDoDelivery: Number(n?.delivery) || 0,
+      fichasComEmbalagemDoBalcao: Number(n?.balcao) || 0,
+    };
+  }
+
+  async setEmbalagemConfig(tenantId: string, mesmaEmbalagem: boolean, ator?: { colaboradorId?: string; categoria?: string } | null) {
+    const antes = await mesmaEmbalagemDaEmpresa(this.db, tenantId);
+    await this.db
+      .insert(entitlement)
+      .values({ tenantId, modulo: MODULO_MESMA_EMBALAGEM, ativo: mesmaEmbalagem })
+      .onConflictDoUpdate({
+        target: [entitlement.tenantId, entitlement.modulo],
+        set: { ativo: mesmaEmbalagem, updatedAt: new Date() },
+      });
+    // Muda o custo de balcão e a baixa de estoque de todas as fichas: fica no registro de auditoria.
+    if (antes !== mesmaEmbalagem)
+      await this.auditoria?.registrar({
+        tenantId,
+        atorId: ator?.colaboradorId,
+        atorPerfil: ator?.categoria,
+        tipo: 'estoque',
+        acao: 'ficha_mesma_embalagem',
+        entidadeTipo: 'empresa',
+        entidadeId: tenantId,
+        detalhe: { de: antes, para: mesmaEmbalagem },
+        origem: 'web',
+      });
+    return this.embalagemConfig(tenantId);
+  }
+
   async create(tenantId: string, dto: CreateFichaDto) {
     this.conferirUnidadesLivres(dto.ingredientes);
+    this.conferirCanais(dto.ingredientes);
     const [f] = await this.db
       .insert(fichaTecnica)
       .values({
@@ -121,6 +181,7 @@ export class FichasService {
           custoUnitario:
             i.custoUnitario != null ? String(i.custoUnitario) : '0',
           somenteDelivery: i.somenteDelivery ?? false,
+          somenteBalcao: i.somenteBalcao ?? false,
           ordem: i.ordem ?? idx,
         })),
       );
@@ -225,27 +286,27 @@ export class FichasService {
   async custoPorPorcao(
     tenantId: string,
   ): Promise<Record<string, { balcao: number; delivery: number }>> {
-    const { fichas, mapa } = await this.carregarTudo(tenantId);
+    const { fichas, mapa, mesmaEmbalagem } = await this.carregarTudo(tenantId);
     const out: Record<string, { balcao: number; delivery: number }> = {};
     for (const f of fichas) {
       const rend = Number(f.rendimento) || 1;
       out[f.id] = {
-        balcao: custoTotalFicha(f.id, mapa) / rend,
-        delivery: custoTotalFicha(f.id, mapa, true) / rend,
+        balcao: custoTotalFicha(f.id, mapa, 'balcao', mesmaEmbalagem) / rend,
+        delivery: custoTotalFicha(f.id, mapa, 'delivery', mesmaEmbalagem) / rend,
       };
     }
     return out;
   }
 
   async list(tenantId: string) {
-    const { fichas, ings, mapa, nome, feitos, fichaDoItem } = await this.carregarTudo(tenantId);
+    const { fichas, ings, mapa, nome, feitos, fichaDoItem, mesmaEmbalagem } = await this.carregarTudo(tenantId);
     const linhas = await this.enriquecer(tenantId, ings, nome, mapa, fichaDoItem);
     return fichas.map((f) => {
       const fi = linhas
         .filter((i) => i.fichaId === f.id)
         .sort((a, b) => Number(a.ordem) - Number(b.ordem));
-      const custoBalcao = custoTotalFicha(f.id, mapa);
-      const custoDelivery = custoTotalFicha(f.id, mapa, true);
+      const custoBalcao = custoTotalFicha(f.id, mapa, 'balcao', mesmaEmbalagem);
+      const custoDelivery = custoTotalFicha(f.id, mapa, 'delivery', mesmaEmbalagem);
       return {
         ...f,
         ingredientes: fi,
@@ -257,14 +318,14 @@ export class FichasService {
   }
 
   async getOne(tenantId: string, id: string) {
-    const { fichas, ings, mapa, nome, feitos, fichaDoItem } = await this.carregarTudo(tenantId);
+    const { fichas, ings, mapa, nome, feitos, fichaDoItem, mesmaEmbalagem } = await this.carregarTudo(tenantId);
     const f = fichas.find((x) => x.id === id);
     if (!f) throw new NotFoundException('Ficha não encontrada');
     const fi = ings
       .filter((i) => i.fichaId === id)
       .sort((a, b) => Number(a.ordem) - Number(b.ordem));
-    const custoBalcao = custoTotalFicha(id, mapa);
-    const custoDelivery = custoTotalFicha(id, mapa, true);
+    const custoBalcao = custoTotalFicha(id, mapa, 'balcao', mesmaEmbalagem);
+    const custoDelivery = custoTotalFicha(id, mapa, 'delivery', mesmaEmbalagem);
     return {
       ...f,
       ingredientes: await this.enriquecer(tenantId, fi, nome, mapa, fichaDoItem),
@@ -276,6 +337,7 @@ export class FichasService {
   async update(tenantId: string, id: string, dto: UpdateFichaDto) {
     await this.getOne(tenantId, id);
     this.conferirUnidadesLivres(dto.ingredientes);
+    this.conferirCanais(dto.ingredientes);
     if (dto.rendimentoUnidade !== undefined) unidadeOuPadrao(dto.rendimentoUnidade, 'Unidade do rendimento', 'porção');
     const patch: any = {};
     if (dto.nome !== undefined) patch.nome = dto.nome;
@@ -341,6 +403,7 @@ export class FichasService {
             fatorCorrecao: i.fatorCorrecao != null ? String(i.fatorCorrecao) : '1',
             custoUnitario: i.custoUnitario != null ? String(i.custoUnitario) : '0',
             somenteDelivery: i.somenteDelivery ?? false,
+            somenteBalcao: i.somenteBalcao ?? false,
             ordem: i.ordem ?? idx,
           })),
         );
@@ -403,6 +466,7 @@ export class FichasService {
     dto: CreateIngredienteDto,
   ) {
     await this.getOne(tenantId, fichaId);
+    this.conferirCanais([dto]);
     if (dto.subFichaId) await this.validarSubFicha(tenantId, fichaId, dto.subFichaId);
     else if (dto.itemId) await this.validarProdutosFeitos(tenantId, fichaId, [dto.itemId]);
     const [linha] = await this.linhasParaGravar(tenantId, [dto]);
@@ -417,6 +481,7 @@ export class FichasService {
       fatorCorrecao: dto.fatorCorrecao != null ? String(dto.fatorCorrecao) : '1',
       custoUnitario: linha.custoUnitario != null ? String(linha.custoUnitario) : '0',
       somenteDelivery: dto.somenteDelivery ?? false,
+      somenteBalcao: dto.somenteBalcao ?? false,
       ordem: dto.ordem ?? 0,
     });
     return this.getOne(tenantId, fichaId);

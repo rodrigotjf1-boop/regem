@@ -150,8 +150,45 @@ describe('custoTotalFicha (ficha aninhada, custo recursivo)', () => {
         ],
       },
     };
-    expect(custoTotalFicha('burger', comEmbalagem)).toBe(8); // balcão: ignora embalagem
-    expect(custoTotalFicha('burger', comEmbalagem, true)).toBe(9.5); // delivery: 8 + 1,5
+    expect(custoTotalFicha('burger', comEmbalagem)).toBe(8); // só os ingredientes
+    expect(custoTotalFicha('burger', comEmbalagem, 'balcao')).toBe(8); // balcão: ignora a embalagem do delivery
+    expect(custoTotalFicha('burger', comEmbalagem, 'delivery')).toBe(9.5); // delivery: 8 + 1,5
+  });
+  // Embalagem do balcão (mig 317) e a chave da empresa "mesma embalagem no balcão e no delivery".
+  describe('embalagem do balcão e do delivery', () => {
+    // burger (rend 1) = 8 de carne + papel do balcão a 0,30 + caixa do delivery a 1,50
+    const doisCadastros = {
+      burger: {
+        rendimento: 1,
+        ingredientes: [
+          { quantidade: 8, fatorCorrecao: 1, custoUnitario: 1 },
+          { quantidade: 1, fatorCorrecao: 1, custoUnitario: 0.3, somenteBalcao: true },
+          { quantidade: 1, fatorCorrecao: 1, custoUnitario: 1.5, somenteDelivery: true },
+        ],
+      },
+    };
+    it('dois cadastros: a venda de balcão soma a embalagem do balcão; a de delivery, a do delivery', () => {
+      expect(custoTotalFicha('burger', doisCadastros, 'balcao')).toBeCloseTo(8.3, 10);
+      expect(custoTotalFicha('burger', doisCadastros, 'delivery')).toBeCloseTo(9.5, 10);
+      expect(custoTotalFicha('burger', doisCadastros)).toBe(8); // produção, feito na loja: nenhuma das duas
+    });
+    it('mesma embalagem: a do delivery vale para as duas vendas; a do balcão fica guardada e não conta', () => {
+      expect(custoTotalFicha('burger', doisCadastros, 'balcao', true)).toBeCloseTo(9.5, 10);
+      expect(custoTotalFicha('burger', doisCadastros, 'delivery', true)).toBeCloseTo(9.5, 10);
+      expect(custoTotalFicha('burger', doisCadastros, 'nenhum', true)).toBe(8);
+    });
+    it('a sub-receita segue a mesma venda; o produto feito na loja entra só com os ingredientes', () => {
+      const mapa = {
+        ...doisCadastros,
+        combo: { rendimento: 1, ingredientes: [{ quantidade: 2, fatorCorrecao: 1, custoUnitario: 0, subFichaId: 'burger' }] },
+        prato: { rendimento: 1, ingredientes: [{ quantidade: 2, fatorCorrecao: 1, custoUnitario: 99, fichaDoItemId: 'burger' }] },
+      };
+      expect(custoTotalFicha('combo', mapa, 'balcao')).toBeCloseTo(16.6, 10); // 2 × 8,30
+      expect(custoTotalFicha('combo', mapa, 'delivery')).toBeCloseTo(19, 10); // 2 × 9,50
+      expect(custoTotalFicha('combo', mapa, 'balcao', true)).toBeCloseTo(19, 10);
+      expect(custoTotalFicha('prato', mapa, 'balcao')).toBe(16); // 2 × 8: embalagem não é custo do insumo
+      expect(custoTotalFicha('prato', mapa, 'delivery', true)).toBe(16);
+    });
   });
 });
 

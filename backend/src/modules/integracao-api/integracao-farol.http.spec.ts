@@ -544,7 +544,8 @@ descrever('API de integração — Farol (catálogo e fichas, sem preço nem cus
     it('as fichas da loja e da rede, com os ingredientes na ordem — a quantidade como foi informada e a do estoque', async () => {
       const { status, corpo } = await ler('/integracao/fichas', tA1);
       expect(status).toBe(200);
-      expect(Object.keys(corpo).sort()).toEqual(['atualizado', 'fichas', 'gerado_em', 'loja_id', 'versao']);
+      expect(Object.keys(corpo).sort()).toEqual(['atualizado', 'fichas', 'gerado_em', 'loja_id', 'mesma_embalagem', 'versao']);
+      expect(corpo.mesma_embalagem).toBe(false); // a empresa não ligou a chave: cada venda usa a sua embalagem
       // por nome; a apagada e a da outra loja não saem; a inativa sai marcada
       expect(corpo.fichas.map((f: any) => [f.nome, f.ativo])).toEqual([
         ['Blend da casa', true],
@@ -564,35 +565,64 @@ descrever('API de integração — Farol (catálogo e fichas, sem preço nem cus
         ingredientes: [
           {
             ordem: 0, insumo_id: id.itemPao, sub_ficha_id: null, nome: 'Pão brioche',
-            quantidade: 1, unidade: 'unidade', quantidade_estoque: 1, unidade_estoque: 'unidade', fator_correcao: 1, so_delivery: false,
+            quantidade: 1, unidade: 'unidade', quantidade_estoque: 1, unidade_estoque: 'unidade', fator_correcao: 1, so_delivery: false, so_balcao: false,
           },
           // sub-receita: sem item do estoque, a quantidade sai como está
           {
             ordem: 1, insumo_id: null, sub_ficha_id: id.fichaBlend, nome: 'Blend da casa',
-            quantidade: 0.12, unidade: 'kg', quantidade_estoque: 0.12, unidade_estoque: null, fator_correcao: 1, so_delivery: false,
+            quantidade: 0.12, unidade: 'kg', quantidade_estoque: 0.12, unidade_estoque: null, fator_correcao: 1, so_delivery: false, so_balcao: false,
           },
           // 0,04 kg no banco = 2 fatias (1 kg = 50 fatias)
           {
             ordem: 2, insumo_id: id.itemQueijo, sub_ficha_id: null, nome: 'Queijo prato',
-            quantidade: 2, unidade: 'fatia', quantidade_estoque: 0.04, unidade_estoque: 'kg', fator_correcao: 1, so_delivery: false,
+            quantidade: 2, unidade: 'fatia', quantidade_estoque: 0.04, unidade_estoque: 'kg', fator_correcao: 1, so_delivery: false, so_balcao: false,
           },
           {
             ordem: 3, insumo_id: id.itemCebola, sub_ficha_id: null, nome: 'Cebola roxa',
-            quantidade: 0.01, unidade: 'kg', quantidade_estoque: 0.01, unidade_estoque: 'kg', fator_correcao: 1.2, so_delivery: false,
+            quantidade: 0.01, unidade: 'kg', quantidade_estoque: 0.01, unidade_estoque: 'kg', fator_correcao: 1.2, so_delivery: false, so_balcao: false,
           },
           // a embalagem: só no pedido que sai da loja
           {
             ordem: 4, insumo_id: id.itemCaixa, sub_ficha_id: null, nome: 'Caixa de lanche',
-            quantidade: 1, unidade: 'unidade', quantidade_estoque: 1, unidade_estoque: 'unidade', fator_correcao: 1, so_delivery: true,
+            quantidade: 1, unidade: 'unidade', quantidade_estoque: 1, unidade_estoque: 'unidade', fator_correcao: 1, so_delivery: true, so_balcao: false,
           },
           // insumo escrito à mão
           {
             ordem: 5, insumo_id: null, sub_ficha_id: null, nome: 'Sal',
-            quantidade: 2, unidade: 'g', quantidade_estoque: 2, unidade_estoque: null, fator_correcao: 1, so_delivery: false,
+            quantidade: 2, unidade: 'g', quantidade_estoque: 2, unidade_estoque: null, fator_correcao: 1, so_delivery: false, so_balcao: false,
           },
         ],
       });
       expect(corpo.fichas.find((f: any) => f.id === id.fichaBlend).rendimento).toBe(10);
+    });
+
+    // Embalagem do balcão (mig 317): a linha sai marcada, e a chave da empresa vai no topo do retrato.
+    it('a embalagem do balcão sai como `so_balcao`; a chave "mesma embalagem" muda o topo do retrato e a versão', async () => {
+      const antes = (await ler('/integracao/fichas', tA1)).corpo;
+      const [papel] = await q(
+        `insert into ficha_ingrediente (tenant_id, ficha_id, insumo_nome, quantidade, unidade, somente_balcao, ordem)
+         values ($1,$2,'Papel do balcão','1','unidade',true,99) returning id`,
+        [A.tenant, id.fichaXb],
+      );
+      try {
+        const comPapel = (await ler('/integracao/fichas', tA1)).corpo;
+        const linhas = comPapel.fichas.find((f: any) => f.id === id.fichaXb).ingredientes;
+        expect(linhas[linhas.length - 1]).toMatchObject({ nome: 'Papel do balcão', so_balcao: true, so_delivery: false });
+        expect(linhas.filter((i: any) => i.so_balcao)).toHaveLength(1);
+        expect(comPapel.mesma_embalagem).toBe(false);
+        expect(comPapel.versao).not.toBe(antes.versao);
+
+        await q(`insert into entitlement (tenant_id, modulo, ativo) values ($1,'ficha_mesma_embalagem',true)`, [A.tenant]);
+        const comChave = (await ler('/integracao/fichas', tA1)).corpo;
+        expect(comChave.mesma_embalagem).toBe(true);
+        expect(comChave.versao).not.toBe(comPapel.versao); // quem lê fica sabendo na próxima leitura
+        // a chave é da empresa A: a B continua com dois cadastros
+        expect((await ler('/integracao/fichas', tB1)).corpo.mesma_embalagem).toBe(false);
+      } finally {
+        await q(`delete from entitlement where tenant_id = $1 and modulo = 'ficha_mesma_embalagem'`, [A.tenant]);
+        await q(`delete from ficha_ingrediente where id = $1`, [papel.id]);
+      }
+      expect((await ler('/integracao/fichas', tA1)).corpo.versao).toBe(antes.versao);
     });
   });
 
@@ -713,7 +743,7 @@ descrever('API de integração — Farol (catálogo e fichas, sem preço nem cus
   // ───────────────────────────── escala ─────────────────────────────
 
   describe('escala', () => {
-    it('sete consultas no catálogo e três nas fichas — com 5 produtos ou com 500 produtos e 2.000 opções', async () => {
+    it('sete consultas no catálogo e quatro nas fichas — com 5 produtos ou com 500 produtos e 2.000 opções', async () => {
       let consultas = 0;
       const contador = { execute: (x: any) => (consultas++, db.execute(x)) };
       const svc = new CatalogoIntegracaoService(contador as any);
@@ -722,7 +752,7 @@ descrever('API de integração — Farol (catálogo e fichas, sem preço nem cus
       expect([pequeno.produtos.length, consultas]).toEqual([5, 7]);
       consultas = 0;
       await svc.fichas(ctxDe(A, A.lojas[0]));
-      expect(consultas).toBe(3);
+      expect(consultas).toBe(4);
 
       const E = await empresa('Empresa E', ['E1']);
       await q(`insert into produto (tenant_id, nome, preco_venda) select $1, 'Produto ' || lpad(g::text, 3, '0'), 123.45 from generate_series(1, 500) g`, [E.tenant]);

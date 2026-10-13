@@ -65,6 +65,8 @@ import { VendaBalcaoDto } from './dto/venda-balcao.dto';
 import { VendaExternaPdvDto } from './dto/venda-externa-pdv.dto';
 import { VendaExternaFalhaDto } from './dto/venda-externa-falha.dto';
 import { hojeISO } from '../../common/data';
+import { linhaEntra, PEDIDO_EXTERNO, SO_INGREDIENTES, type VendaDaFicha } from '../../common/embalagem-da-ficha';
+import { mesmaEmbalagemDaEmpresa } from '../fichas/fichas-carga';
 import { instanteDe } from '../../common/fuso-sql';
 import { consumirLotes, devolverLotes } from '../../common/lotes';
 import { custoMedioDaSaida } from '../../common/custo-loja';
@@ -230,9 +232,9 @@ export class VendasService {
     multiplicador: number,
     consumo: Map<string, number>,
     remover: Set<string>,
-    // incluirDelivery: pedido externo (delivery) baixa também as linhas
-    // `somente_delivery` (embalagens); balcão/mesa/kiosk as ignora.
-    incluirDelivery = false,
+    // Em que venda: o pedido externo baixa também a embalagem do delivery; balcão, mesa e totem,
+    // a do balcão (ou a do delivery, se a empresa usa a mesma nos dois) — `common/embalagem-da-ficha.ts`.
+    venda: VendaDaFicha = SO_INGREDIENTES,
     visitados: Set<string> = new Set(),
   ) {
     if (visitados.has(fichaId)) return;
@@ -255,14 +257,14 @@ export class VendasService {
     proximos.add(fichaId);
     for (const ing of ings) {
       if (remover.has(ing.id)) continue; // opcional removido ("sem alface")
-      if (ing.somenteDelivery && !incluirDelivery) continue; // custo só de delivery
+      if (!linhaEntra(ing, venda.canal, venda.mesmaEmbalagem)) continue; // embalagem de outro canal
       const c =
         ((Number(ing.quantidade) * Number(ing.fatorCorrecao)) / rendimento) *
         multiplicador;
       if (c <= 0) continue;
       if (ing.subFichaId) {
         // Sub-receita: remoção só vale no nível do produto → set vazio na recursão.
-        await this.acumularFicha(tx, tenantId, ing.subFichaId, c, consumo, new Set(), incluirDelivery, proximos);
+        await this.acumularFicha(tx, tenantId, ing.subFichaId, c, consumo, new Set(), venda, proximos);
         continue;
       }
       if (!ing.itemId) continue;
@@ -354,6 +356,12 @@ export class VendasService {
     }
   }
 
+  // Venda de balcão, mesa ou totem: a ficha baixa os ingredientes e a embalagem do BALCÃO — ou a
+  // do delivery, se a empresa usa a mesma nos dois. Uma leitura da chave por venda.
+  private async vendaDeBalcao(tx: any, tenantId: string): Promise<VendaDaFicha> {
+    return { canal: 'balcao', mesmaEmbalagem: await mesmaEmbalagemDaEmpresa(tx, tenantId) };
+  }
+
   // ACUMULA o consumo por item de um produto vendido (simples/variável/combo)
   // + complementos: opcionais 'remover' suprimem ingredientes; 'adicionar' baixam
   // itens extras. Respeita controla_estoque para a ficha; adicionais sempre baixam.
@@ -365,7 +373,7 @@ export class VendasService {
     quantidade: number,
     complementos: any[],
     consumo: Map<string, number>,
-    incluirDelivery = false, // pedido externo (delivery) — baixa linhas somente_delivery
+    venda: VendaDaFicha = SO_INGREDIENTES, // balcão, pedido externo ou só os ingredientes
   ) {
     const remover = new Set<string>(
       complementos
@@ -399,7 +407,7 @@ export class VendasService {
               quantidade * fatorFicha * (Number(c.q) || 1),
               consumo,
               new Set(), // remoção não se aplica a itens de combo
-              incluirDelivery,
+              venda,
             );
           // Componente de REVENDA (a lata do combo): baixa direta do item, como quando é vendido
           // sozinho. Antes só o componente com ficha baixava — a lata do combo não saía do estoque.
@@ -416,7 +424,7 @@ export class VendasService {
           quantidade * fatorFicha,
           consumo,
           remover,
-          incluirDelivery,
+          venda,
         );
       } else if (p.itemId) {
         // Revenda (industrializado): baixa direta do item de estoque vinculado, na unidade
@@ -440,7 +448,7 @@ export class VendasService {
       if (!fichaId) continue;
       const q = (Number(c.quantidade) || 1) * quantidade;
       if (q > 0)
-        await this.acumularFicha(tx, tenantId, fichaId, q, consumo, new Set(), incluirDelivery);
+        await this.acumularFicha(tx, tenantId, fichaId, q, consumo, new Set(), venda);
     }
     // Combo por etapa (L5): opção 'escolha' vinculada a um produto real (ex.: a
     // bebida escolhida) → explode a ficha/estoque do produto referenciado.
@@ -458,7 +466,7 @@ export class VendasService {
         .where(and(eq(produto.tenantId, tenantId), eq(produto.id, c.produtoRefId)));
       if (!ref) continue;
       const q = (Number(c.quantidade) || 1) * quantidade;
-      await this.acumularProduto(tx, tenantId, ref, 1, q, [], consumo, incluirDelivery);
+      await this.acumularProduto(tx, tenantId, ref, 1, q, [], consumo, venda);
     }
   }
 
@@ -975,6 +983,7 @@ export class VendasService {
       const itensProducao: ItemProducao[] = [];
       const viaClienteItens: any[] = []; // p/ cupom do cliente
       const consumo = new Map<string, number>(); // baixa agregada por item
+      const vendaDaFicha = await this.vendaDeBalcao(tx, tenantId); // embalagem do balcão
 
       for (const it of dto.itens) {
         const [p] = await tx
@@ -1066,7 +1075,7 @@ export class VendasService {
           });
         }
 
-        await this.acumularProduto(tx, tenantId, p, fatorFicha, qtdVenda, snapshots, consumo);
+        await this.acumularProduto(tx, tenantId, p, fatorFicha, qtdVenda, snapshots, consumo, vendaDaFicha);
 
         const compTexto = textoDasEscolhas(snapshots);
         viaClienteItens.push({
@@ -1714,6 +1723,7 @@ export class VendasService {
         let total = 0;
         const itensProducao: ItemProducao[] = [];
         const consumo = new Map<string, number>(); // baixa agregada por item
+        const vendaDaFicha = await this.vendaDeBalcao(tx, tenantId); // embalagem do balcão
 
         for (const it of itensTotem) {
           const p = it.produto;
@@ -1749,7 +1759,7 @@ export class VendasService {
               produtoRefId: sn.produtoRefId,
               quantidade: String(sn.quantidade),
             });
-          await this.acumularProduto(tx, tenantId, p, 1, qtd, it.escolhas, consumo);
+          await this.acumularProduto(tx, tenantId, p, 1, qtd, it.escolhas, consumo, vendaDaFicha);
           if (p.vaiParaProducao)
             itensProducao.push({
               produto: p,
@@ -2276,7 +2286,7 @@ export class VendasService {
           Number(it.quantidade) || 1,
           comps,
           consumo,
-          comEmbalagem, // pedido externo → baixa também os custos/embalagens de delivery
+          comEmbalagem ? PEDIDO_EXTERNO : SO_INGREDIENTES, // pedido externo → baixa também a embalagem do delivery
         );
       }
       await this.lancarSaidas(tx, tenantId, consumo, comandaId);
@@ -3055,6 +3065,7 @@ export class VendasService {
 
       let total = 0;
       const consumo = new Map<string, number>();
+      const vendaDaFicha = await this.vendaDeBalcao(tx, tenantId); // comanda/mesa: embalagem do balcão
       for (const it of itens) {
         total += Number(it.precoUnitario) * Number(it.quantidade);
         const [p] = await tx
@@ -3082,6 +3093,7 @@ export class VendasService {
             Number(it.quantidade),
             comps,
             consumo,
+            vendaDaFicha,
           );
         }
       }
