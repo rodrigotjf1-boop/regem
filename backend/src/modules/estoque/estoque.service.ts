@@ -21,9 +21,9 @@ import {
   opcao,
   complementoOpcao,
 } from '../../db/schema';
-import { arredondarEstoque, CASAS_INFORMADO, chaveUnidade, fatorParaEstoque, proporcaoFixa, type Conversao } from '../../common/conversao-unidade';
+import { arredondarEstoque, CASAS_INFORMADO, chaveUnidade, fatorParaEstoque, type Conversao } from '../../common/conversao-unidade';
 import { chaveNome, limparMarcas, limparNome } from './produto-nome';
-import { apelidosDeUnidade, exigirUnidade, normalizarUnidade, UNIDADES_ESTOQUE } from './unidades';
+import { apelidosDeUnidade, conferirConversoes, exigirUnidade, normalizarUnidade, UNIDADES_ESTOQUE } from './unidades';
 import { CreateItemDto } from './dto/create-item.dto';
 import { CreateMovimentoDto } from './dto/create-movimento.dto';
 import { furoCmv } from '../../common/regras-negocio';
@@ -481,30 +481,12 @@ export class EstoqueService {
     return ajustados;
   }
 
-  // Conversões como vão ser gravadas: fica só a linha preenchida (unidades e fator > 0), e as
-  // duas unidades têm de ser da LISTA — o texto livre aqui é o que criava "pacotes" ao lado de
-  // "pacote". Roda ANTES de abrir a transação: recusa sem ter apagado nada.
-  // Quilo e grama, litro e ml o sistema converte sozinho (`conversao-unidade.ts`): a linha que
-  // repete a medida passa (não atrapalha); a que a CONTRADIZ — "1 grama = 1000 kg", unidades
-  // trocadas — é recusada, porque valeria no lugar da medida e erraria toda baixa do produto.
+  // Conversões como vão ser gravadas — a regra é a mesma da ficha técnica (`conferirConversoes`,
+  // em `unidades.ts`). Roda ANTES de abrir a transação: recusa sem ter apagado nada.
   private validarConversoes(
     conversoes?: { unidadeDe: string; fator: number; unidadePara: string }[],
   ): { unidadeDe: string; fator: number; unidadePara: string }[] | undefined {
-    if (!conversoes) return undefined;
-    return conversoes
-      .filter((c) => c.unidadeDe?.trim() && c.unidadePara?.trim() && Number(c.fator) > 0)
-      .map((c) => {
-        const unidadeDe = exigirUnidade(c.unidadeDe, 'Conversão');
-        const unidadePara = exigirUnidade(c.unidadePara, 'Conversão');
-        if (unidadeDe === unidadePara)
-          throw new BadRequestException(`Conversão: as duas unidades são "${unidadeDe}". Escolha unidades diferentes.`);
-        const fixa = proporcaoFixa(unidadeDe, unidadePara);
-        if (fixa != null && Math.abs(Number(c.fator) / fixa - 1) > 1e-9)
-          throw new BadRequestException(
-            `Conversão: 1 ${unidadeDe} = ${String(fixa).replace('.', ',')} ${unidadePara}, e o sistema já faz essa conta sozinho. Tire esta linha.`,
-          );
-        return { unidadeDe, fator: Number(c.fator), unidadePara };
-      });
+    return conferirConversoes(conversoes);
   }
 
   // Replace-all das conversões do item (já validadas por `validarConversoes`).

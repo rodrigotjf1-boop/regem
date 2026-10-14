@@ -12,6 +12,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SeletorDeUnidade } from '@/components/ui/seletor-de-unidade';
+import { ConversoesDoRendimento, conversoesParaSalvar, type ConversaoDaFicha } from '@/components/fichas/conversoes-do-rendimento';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { SkeletonList } from '@/components/ui/skeleton';
@@ -88,6 +89,7 @@ export default function FichasPage() {
   const [categoria, setCategoria] = useState('base');
   const [rendimento, setRendimento] = useState('10');
   const [rendUnidade, setRendUnidade] = useState('porção');
+  const [conversoes, setConversoes] = useState<ConversaoDaFicha[]>([]); // conversões do rendimento (mig 319)
   const [precoVenda, setPrecoVenda] = useState('');
   const [metaCmvInput, setMetaCmvInput] = useState(String(META_CMV));
   const [margemPerdaInput, setMargemPerdaInput] = useState(''); // margem de perda em % (mig 318); vazio = sem
@@ -158,6 +160,8 @@ export default function FichasPage() {
             subFichaId: f?.id,
             itemId: undefined,
             insumoNome: f?.nome ?? 'Sub-receita',
+            // A quantidade começa na unidade em que a sub-receita rende; o custo é o de 1 dessa unidade.
+            unidade: f?.rendimentoUnidade || 'porção',
             custoUnitario: String(f?.custoPorcao ?? 0),
           };
         }
@@ -169,10 +173,16 @@ export default function FichasPage() {
   // Unidade em que a quantidade da linha é informada: a do estoque ou uma das conversões do
   // produto ("unidade" de um bacon em kg, 1 kg = 72). O custo unitário acompanha a escolha —
   // R$ 36,00 o kg vira R$ 0,50 a unidade. O servidor grava a linha na unidade do estoque.
+  // Sub-receita idem, pelas conversões do rendimento dela (mig 319): grava na unidade em que ela rende.
   function escolherUnidade(idx: number, unidade: string) {
     setIngs((arr) =>
       arr.map((i, n) => {
         if (n !== idx) return i;
+        const sub = i.subFichaId ? fichas.find((x) => x.id === i.subFichaId) : null;
+        if (sub) {
+          const fator = fatorParaEstoque(unidade, sub.rendimentoUnidade || 'porção', sub.conversoes ?? []) ?? 1;
+          return { ...i, unidade, custoUnitario: String(arredondarInformado(Number(sub.custoPorcao ?? 0) * fator)) };
+        }
         const item = insumos.find((x) => x.id === i.itemId);
         const fator = item ? fatorParaEstoque(unidade, item.unidadeMedida ?? 'un', item.conversoes ?? []) ?? 1 : 1;
         return { ...i, unidade, custoUnitario: String(arredondarInformado(custoDoInsumo(item) * fator)) };
@@ -227,6 +237,7 @@ export default function FichasPage() {
     setCategoria('base');
     setRendimento('10');
     setRendUnidade('porção');
+    setConversoes([]);
     setPrecoVenda('');
     setMetaCmvInput(String(META_CMV));
     setMargemPerdaInput('');
@@ -239,6 +250,7 @@ export default function FichasPage() {
     setCategoria(f.categoria ?? 'base');
     setRendimento(semZerosFinais(f.rendimento, '1'));
     setRendUnidade(f.rendimentoUnidade ?? 'porção');
+    setConversoes((f.conversoes ?? []).map((c: any) => ({ unidadeDe: c.unidadeDe, fator: String(c.fator), unidadePara: c.unidadePara })));
     setPrecoVenda(f.precoVenda != null ? String(f.precoVenda) : '');
     setMetaCmvInput(String(f.metaCmv ?? META_CMV));
     setMargemPerdaInput(semZerosFinais(f.margemPerda, ''));
@@ -303,6 +315,7 @@ export default function FichasPage() {
       categoria,
       rendimento: rend,
       rendimentoUnidade: rendUnidade || undefined,
+      conversoes: conversoesParaSalvar(conversoes),
       precoVenda: pv || undefined,
       metaCmv: meta,
       // vazio ou 0 = sem margem (o servidor grava vazio)
@@ -322,9 +335,14 @@ export default function FichasPage() {
         })),
     };
     try {
-      if (editId) await api.patch(`/fichas/${editId}`, body);
-      else await api.post('/fichas', body);
-      toast.success(editId ? 'Ficha atualizada.' : 'Ficha salva.');
+      // Mudou a unidade do rendimento ou uma conversão: o servidor refaz as linhas das fichas que usam esta.
+      const salva: any = editId ? await api.patch(`/fichas/${editId}`, body) : await api.post('/fichas', body);
+      const refeitas = Number(salva?.subReceitasAjustadas) || 0;
+      toast.success(
+        !editId ? 'Ficha salva.'
+          : refeitas > 0 ? `Ficha atualizada. ${refeitas === 1 ? '1 linha de outra ficha que usa esta foi refeita' : `${refeitas} linhas de outras fichas que usam esta foram refeitas`} na unidade nova.`
+          : 'Ficha atualizada.',
+      );
       setEditor(false);
       resetForm();
       await carregar();
@@ -365,10 +383,17 @@ export default function FichasPage() {
     // Produto do estoque: a pessoa escolhe em qual unidade informa — a do estoque, as conversões do
     // cadastro e as medidas que o sistema converte sozinho (kg e grama, litro e ml).
     const item = ing.itemId ? insumos.find((x) => x.id === ing.itemId) : null;
+    // Sub-receita (mig 319): as unidades vêm do rendimento dela e das conversões dela.
+    const sub = ing.subFichaId ? fichas.find((x) => x.id === ing.subFichaId) : null;
+    const rendeSub: string = sub?.rendimentoUnidade || 'porção';
     const unEstoque: string = item?.unidadeMedida ?? 'un';
-    const unidades = item ? unidadesDoProduto(unEstoque, item.conversoes ?? []) : [];
-    const escolhida = unidades.find((u) => chaveUnidade(u.unidade) === chaveUnidade(ing.unidade)) ?? unidades[0];
-    const convertida = !!escolhida && escolhida.fator !== 1;
+    const unidades = item ? unidadesDoProduto(unEstoque, item.conversoes ?? []) : sub ? unidadesDoProduto(rendeSub, sub.conversoes ?? []) : [];
+    const alcancada = unidades.find((u) => chaveUnidade(u.unidade) === chaveUnidade(ing.unidade));
+    // Linha antiga de sub-receita numa unidade que ela não alcança ("1 porção" de um molho que rende em
+    // saco): a quantidade conta na unidade do rendimento — a tela mostra e avisa, não troca sozinha.
+    const semConversao = !!sub && !!String(ing.unidade ?? '').trim() && !alcancada;
+    const escolhida = alcancada ?? unidades[0];
+    const convertida = !!escolhida && !semConversao && escolhida.fator !== 1;
     return (
     <div key={idx} className="space-y-2 rounded-lg border border-border p-2">
       <div className="flex items-center gap-2">
@@ -443,15 +468,16 @@ export default function FichasPage() {
         </Campo>
         <Campo rotulo="Quantidade"><Input type="number" min={0} step="any" inputMode="decimal" placeholder="Qtd" aria-label="Quantidade" value={ing.quantidade} onChange={(e) => setIng(idx, 'quantidade', e.target.value)} /></Campo>
         <Campo rotulo="Unidade">
-        {unidades.length > 1 ? (
-          <Select aria-label="Unidade em que a quantidade é informada" value={escolhida.unidade} onChange={(e) => escolherUnidade(idx, e.target.value)}>
+        {unidades.length > 1 || semConversao ? (
+          <Select aria-label="Unidade em que a quantidade é informada" value={semConversao ? ing.unidade : escolhida.unidade} onChange={(e) => escolherUnidade(idx, e.target.value)}>
+            {semConversao && <option value={ing.unidade}>{ing.unidade} ⚠</option>}
             {unidades.map((u) => (
               <option key={u.unidade} value={u.unidade}>{u.unidade}</option>
             ))}
           </Select>
         ) : (
-          ing.itemId ? (
-            <Input aria-label="Unidade" value={ing.unidade} disabled readOnly />
+          ing.itemId || ing.subFichaId ? (
+            <Input aria-label="Unidade" value={ing.unidade || escolhida?.unidade || rendeSub} disabled readOnly />
           ) : (
             <SeletorDeUnidade ariaLabel="Unidade" value={ing.unidade} onChange={(u) => setIng(idx, 'unidade', u)} />
           )
@@ -479,7 +505,17 @@ export default function FichasPage() {
       )}
       {ing.subFichaId && (
         <p className="text-xs text-secondary-foreground">
-          🧩 Custo da sub-receita entra automático (por porção) e é recalculado ao produzir.
+          🧩 Sub-receita{sub ? <> — rende {num(Number(sub.rendimento) || 1)} {rendeSub}</> : null}: o custo entra automático e é recalculado ao produzir.
+          {convertida && Number(ing.quantidade) > 0 && (
+            <> {num(Number(ing.quantidade))} {escolhida.unidade} = <b>{num(arredondarInformado(Number(ing.quantidade) * escolhida.fator))} {rendeSub}</b> da sub-receita.</>
+          )}
+          {!convertida && !semConversao && unidades.length > 1 && <> Escolha a unidade em que vai informar a quantidade: o sistema converte para {rendeSub}.</>}
+        </p>
+      )}
+      {semConversao && sub && (
+        <p role="status" data-aviso-subreceita="sem-conversao" className="rounded-md border-l-4 border-warn bg-warn/10 px-2.5 py-1.5 text-xs text-foreground">
+          &quot;{sub.nome}&quot; rende em {rendeSub} e não tem conversão para {ing.unidade}: esta linha conta {num(Number(ing.quantidade) || 0)} {rendeSub}.
+          {' '}Cadastre a conversão na ficha &quot;{sub.nome}&quot; (logo abaixo do rendimento) ou escolha outra unidade.
         </p>
       )}
       {!ing.subFichaId && ing.itemId && insumos.find((x) => x.id === ing.itemId)?.fichaNome && (
@@ -641,6 +677,16 @@ export default function FichasPage() {
                     <Label htmlFor="ru">Unidade</Label>
                     <SeletorDeUnidade id="ru" value={rendUnidade} onChange={setRendUnidade} />
                   </div>
+                </div>
+                {/* Conversões do rendimento (mig 319) logo abaixo da unidade — antes dos ingredientes. */}
+                <div className="sm:col-span-2">
+                  <ConversoesDoRendimento
+                    unidade={rendUnidade}
+                    rendimento={rend}
+                    conversoes={conversoes}
+                    onChange={setConversoes}
+                    usadaEm={editId ? fichas.filter((f) => f.id !== editId && (f.ingredientes ?? []).some((i: any) => i.subFichaId === editId)).length : 0}
+                  />
                 </div>
               </div>
 

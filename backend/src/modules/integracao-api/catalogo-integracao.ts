@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import { arredondarInformado, fatorParaEstoque, type Conversao } from '../../common/conversao-unidade';
+import { rendeEm } from '../fichas/fichas-carga';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -147,8 +148,9 @@ export function montarCatalogo(
 /**
  * Monta o retrato das fichas. O Regem GRAVA a quantidade na unidade do estoque do insumo e guarda
  * ao lado a unidade em que a pessoa a informou ("2 fatia" de um queijo em kg = 0,04 kg): saem as
- * duas — a informada, que é como a cozinha fala, e a do estoque, que é a da baixa. Insumo escrito
- * à mão e sub-receita não têm conversão: a quantidade sai como está.
+ * duas — a informada, que é como a cozinha fala, e a do estoque, que é a da baixa. A SUB-RECEITA
+ * idem, na unidade em que ela rende (mig 319): "35 grama" de um molho que rende 1 kg sai com
+ * `quantidade_estoque` 0,035 e `unidade_estoque` "kg". Insumo escrito à mão: a quantidade sai como está.
  */
 export function montarFichas(
   lojaId: string | null,
@@ -171,8 +173,11 @@ export function montarFichas(
       ativo: f.ativo === true,
       ingredientes: (ingredientes.get(f.id) ?? []).map((i) => {
         const noEstoque = Number(i.quantidade);
-        const doItem = !i.sub_ficha_id && i.item_id && i.item_unidade ? (i.item_unidade as string) : null;
-        const conv = (doItem ? conversoes.get(i.item_id) ?? [] : []) as Conversao[];
+        const sub = i.sub_ficha_id && i.sub_unidade !== undefined
+          ? rendeEm({ rendimentoUnidade: i.sub_unidade, conversoes: i.sub_conversoes })
+          : null;
+        const doItem = sub ? sub.unidade : !i.sub_ficha_id && i.item_id && i.item_unidade ? (i.item_unidade as string) : null;
+        const conv = (sub ? sub.conversoes : doItem ? conversoes.get(i.item_id) ?? [] : []) as Conversao[];
         const fator = doItem ? fatorParaEstoque(i.unidade, doItem, conv) ?? 1 : 1;
         return {
           ordem: Number(i.ordem),

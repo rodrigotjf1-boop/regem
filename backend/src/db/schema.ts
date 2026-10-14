@@ -1247,6 +1247,9 @@ export const fichaTecnica = pgTable('ficha_tecnica', {
   // Margem de perda em % (mig 318), somada ao custo INTEIRO da ficha (balcão e delivery). Vazio = sem
   // margem. Só custo: a baixa de estoque não muda (a perda na quantidade é o fator de correção).
   margemPerda: numeric('margem_perda'),
+  // Conversões do RENDIMENTO (mig 319): [{ unidadeDe: 'saco', fator: 1.5, unidadePara: 'kg' }]. A linha de
+  // outra ficha que usa esta como sub-receita é gravada na unidade do rendimento (`fichas.service`).
+  conversoes: jsonb('conversoes').$type<{ unidadeDe: string; fator: number; unidadePara: string }[]>().notNull().default([]),
   ativo: boolean('ativo').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

@@ -265,7 +265,7 @@ descrever('ficha técnica com unidade convertida (Postgres real)', () => {
     expect(Number(depois.ingredientes[0].custoUnitario)).toBeCloseTo(0.3, 9); // R$ 120 a caixa de 400 porções
   });
 
-  it('linha de sub-receita não é convertida', async () => {
+  it('linha de sub-receita em unidade que a sub-receita não alcança fica como veio', async () => {
     const t = await empresa();
     const bacon = await produto(t, 'Bacon de teste', 'kg', 36, [['kg', 72, 'unidade']]);
     const sub: any = await fichas.create(t, {

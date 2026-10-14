@@ -17950,6 +17950,12 @@
           "popId": {
             "type": "string"
           },
+          "conversoes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConversaoDto"
+            }
+          },
           "ingredientes": {
             "type": "array",
             "items": {
@@ -18005,6 +18011,12 @@
           },
           "ativo": {
             "type": "boolean"
+          },
+          "conversoes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConversaoDto"
+            }
           },
           "ingredientes": {
             "type": "array",
