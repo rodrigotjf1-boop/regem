@@ -10,7 +10,18 @@
 - **Como cortar (OBRIGATÓRIO):** `powershell -File backend\edge\build-release.ps1 -Versao X.Y.Z` → só compilar no Inno / rodar `publicar.ps1` no **"TUDO OK"** do preflight. Nunca de árvore atrás do `origin/main`, nunca de `regem-edge-dist` reaproveitado.
 - **Publicar `.zip`:** `edge/publicar.ps1 -Versao X.Y.Z` → sobe no Supabase Storage (bucket `edge-updates`, nome exato `regem-edge-X.Y.Z.zip`) → `edge/publicar.ps1 -Versao X.Y.Z -SoAssinar -Url <url>` (assina o MESMO arquivo, v1 + v2 com validade) → cola versão, URL, SHA e as assinaturas no console de distribuição, **começando pelas lojas piloto / percentual baixo**. O console recusa release sem as duas assinaturas válidas.
 
-## Acumulado (NÃO empacotado) — próxima release (1.30.3)
+## Acumulado (NÃO empacotado) — próxima release (1.30.4)
+
+- _(nada ainda)_
+
+## Última release: `1.30.3` — gerada em 13/10/2026 da `origin/main` `707f37d1`, **`.zip` GERADO, conferido e assinado** (`regem-edge-1.30.3.zip`, 31.629.413 bytes, SHA-256 `6361d5124ea10eeb02be7d0834e4facd928a6115c4b3e2567e3e703d7d709bde`); publicação no console e `.exe` PENDENTES
+
+- **Corte:** `build-release.ps1 -Versao 1.30.3` → PREFLIGHT OK (único aviso: o `.iss` carimbado e não commitado, como sempre); `publicar.ps1 -Versao 1.30.3` (conteúdo do `.zip` conferido) e `-SoAssinar` com a URL definitiva `https://baglkwaahkjgwvnfabic.supabase.co/storage/v1/object/public/edge-updates/regem-edge-1.30.3.zip` — assinaturas v1 e v2 (validade até 12/04/2027) conferidas com `edge/update-pub.pem`. Os valores para o console estão em `DADOS PARA PUBLICAR.txt`, ao lado do `.zip` entregue ao dono.
+- **Provado na loja simulada** (`C:\regem-e2e`: instalação marcada como 1.30.2, com os scripts `atualizar.ps1`/`reverter.ps1`/`saude-local.mjs`/`sync-daemon.mjs` da 1.30.2 de verdade, `3e81449` — são eles que rodam na loja, e os de atualização não mudaram desde então; o código que estava instalado lá era um pacote de teste de setembro, e o banco estava sem as migrations de setembro para cá): assinatura v2 e SHA-256 conferidos, versão nova montada ao lado, backup cifrado do banco, troca do conjunto, migrations sem erro (as `@cloud-only` puladas; nenhuma tabela só da nuvem criada), serviços de pé e `/ping` respondendo `1.30.3` em 2 min 30 s; a API subiu sem erro no log.
+- **Para a loja:** servidor na 1.30.x recebe pelo `.zip` (Configurações → Servidor local → "Verificar atualização" → "Instalar agora"). Publicar no console começando pela loja piloto (0% + a loja marcada como piloto).
+- **`.exe` 1.30.3: PENDENTE (o dono compila no Inno).** Este corte tocou `backend/edge/` (`escpos.mjs` — etiqueta de validade; `sync-daemon.mjs`), então instalação NOVA pede `.exe` novo; o servidor que já está na 1.30.x recebe os mesmos scripts pelo `.zip`. O `.iss` está carimbado (`AppVer 1.30.3`, UTF-8 com BOM, diff de 2 linhas — ERR-113 continua pendente no `build-release.ps1`) na worktree `C:\regem-wt-1303`, com a junção do `bundle`.
+
+Mudanças que entraram na 1.30.3:
 
 - **De onde veio o pedido do cardápio — Liame (trilha C, C3a/PR4, migration 299 `@cloud-only`): sem efeito na loja — nada a empacotar por isto.** O cardápio online guarda, só enquanto a aba estiver aberta, o link de anúncio pelo qual o cliente chegou (UTM, `lk`, ids de campanha/anúncio e código do clique) e o manda com o pedido; o aviso de privacidade aprovado aparece acima do botão, com "Saiba mais" e "Não registrar". Só na loja com ferramenta conectada (token ativo com `pedidos.ler`) e nunca no pedido da mesa. A tabela `pedido_origem` e o gatilho dela só existem na NUVEM (o servidor da loja pula a migration; o `CardapioModule` não sobe lá); a API devolve o campo `origem` em `GET /integracao/pedidos`; um job da nuvem (04:40) apaga os códigos de clique aos 90 dias, sem versão nova. A política de privacidade do Regem (`/privacidade`) ganhou a origem do pedido, as integrações autorizadas pela empresa e o armazenamento no navegador. Não toca `edge/` nem `sync-config`/`sync-daemon`. O código vai junto no próximo `.zip`, inerte na loja.
   ⚠️ **Ordem de deploy:** mig **299 na NUVEM antes do merge**, depois da 295 e da 296 (a 299 recusa rodar sem elas). Sem a 299, o carimbador para (aviso a cada 10 min), `/pedidos` responde 500 e o pedido do cardápio entra normalmente, sem a origem (o motivo vai para o log).
@@ -176,7 +187,7 @@
   ⚠️ **Ordem de deploy:** mig **317 na NUVEM antes do merge** (o cardápio e a leitura da integração citam a coluna nova em SQL; sem ela, `/fichas`, a venda e o cardápio respondem 500). No servidor da loja ela vem no próprio `.zip`.
   ⚠️ **Servidor da loja ainda na 1.30.x:** ele não conhece a coluna — a embalagem de balcão cadastrada na nuvem desce como ingrediente comum e seria baixada também no pedido externo concluído na loja; e a chave "mesma embalagem" não tem efeito lá. O certo é **atualizar a loja antes de cadastrar embalagem de balcão ou ligar a chave**.
 
-## Última release: `1.30.2` — gerada em 30/09/2026 da `origin/main` `3e81449`, **.exe COMPILADO** e publicado (`instaladores/RegemEdgeSetup.exe`, 92.720.473 bytes, SHA-256 `91fdd1fd8b6b442c820222512f3d2ac0ae3f2e9ddad9e4ad84a03e7091ae90ad`, download público conferido); sem `.zip`
+## Release anterior: `1.30.2` — gerada em 30/09/2026 da `origin/main` `3e81449`, **.exe COMPILADO** e publicado (`instaladores/RegemEdgeSetup.exe`, 92.720.473 bytes, SHA-256 `91fdd1fd8b6b442c820222512f3d2ac0ae3f2e9ddad9e4ad84a03e7091ae90ad`, download público conferido); sem `.zip`
 
 - **Sem `.zip`:** nenhuma loja na 1.30.x além da piloto, que vai pelo `.exe`.
 - **Para a loja piloto:** instalar na máquina NOVA (a primeira carga da 1.30.1 entrou em laço — ERR-132).
