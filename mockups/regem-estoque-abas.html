@@ -19,7 +19,8 @@
    de cada venda. No alto da aba fica a chave da EMPRESA "Mesma embalagem no balcão e no delivery":
    ligada (com confirmação, porque muda o custo e a baixa de todas as fichas), resta um cadastro só —
    o do delivery —, valendo para as duas vendas, e o bloco do balcão some (o que estava nele fica
-   guardado e volta se desligar).
+   guardado e volta se desligar). Desde 14/10/2026 a ficha tem também a "Margem de perda (%)", opcional:
+   somada ao custo inteiro da ficha (com a embalagem), no balcão e no delivery; não muda a baixa de estoque.
    Onde a tela real difere, de propósito:
    - os FORMULÁRIOS daqui são resumidos. Os de verdade mantêm todos os campos que já existiam — na
      ficha técnica, por exemplo: fator de correção, CMV de delivery, markup e margem;
@@ -634,6 +635,7 @@ function editorFicha(r) {
         ${campo('Preço de venda (R$)', `<input type="number" value="${r && r.preco ? r.preco : ''}" placeholder="0,00">`)}
         <div class="cmv"><div class="rot">CMV do item</div><div class="v" style="color:${r && r.cmv != null && r.cmv <= META ? 'var(--ok)' : 'var(--crit)'}">${r && r.cmv != null ? String(r.cmv).replace('.', ',') + '%' : '—'}</div>${r && r.cmv != null ? selo(r.cmv <= META ? 'ok' : 'crit', r.cmv <= META ? 'Dentro da meta' : 'Acima da meta') : selo('warn', 'Informe o preço')}</div>
         <div class="l"><span>Meta de CMV</span><span class="num">${String(META).replace('.', ',')}%</span></div>
+        ${campo('Margem de perda (%)', '<input type="number" min="0" max="100" step="any" inputmode="decimal" placeholder="0" aria-label="Margem de perda (%)">', 'Opcional. Somada ao custo inteiro da ficha (com a embalagem), no balcão e no delivery. Não muda a baixa de estoque.')}
         <div class="l"><span>Preço sugerido para a meta</span><b class="num">${brl((r ? r.custo : 8.38) / (META / 100))}</b></div>
       </div></div>` });
 }

@@ -13,6 +13,8 @@ const CAMPOS_DE_CUSTO = [
   'custoPorcaoDelivery',
   'cmvDelivery',
   'margemDelivery',
+  // A margem de perda é parâmetro de custo: com ela e o CMV, o custo volta na conta.
+  'margemPerda',
 ] as const;
 
 /**

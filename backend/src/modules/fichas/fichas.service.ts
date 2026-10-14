@@ -19,6 +19,13 @@ import { CreateIngredienteDto } from './dto/create-ingrediente.dto';
 import { UpdateFichaDto } from './dto/update-ficha.dto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+// Margem de perda como vai para o banco: de 0 a 100 (fora disso, 400); 0 ou vazio = sem margem (null).
+function margemOuNada(v: number | null | undefined): string | null {
+  if (v == null) return null;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0 || n > 100) throw new BadRequestException('Margem de perda: informe de 0 a 100%.');
+  return n === 0 ? null : String(Math.round(n * 100) / 100);
+}
 // custoTotal já resolvido (recursivo, com sub-fichas) → deriva porção, CMV, preço.
 function computar(f: any, custoTotal: number) {
   const rendimento = Number(f.rendimento) || 1;
@@ -146,6 +153,7 @@ export class FichasService {
         validade: dto.validade,
         precoVenda: dto.precoVenda != null ? String(dto.precoVenda) : undefined,
         metaCmv: dto.metaCmv != null ? String(dto.metaCmv) : undefined,
+        margemPerda: margemOuNada(dto.margemPerda),
         setorId: dto.setorId,
         unidadeId: dto.unidadeId,
         popId: dto.popId,
@@ -353,6 +361,8 @@ export class FichasService {
     if (dto.precoVenda !== undefined)
       patch.precoVenda = dto.precoVenda != null ? String(dto.precoVenda) : null;
     if (dto.metaCmv !== undefined) patch.metaCmv = String(dto.metaCmv);
+    // Margem de perda (mig 318): ausente mantém; `null` (ou 0) tira.
+    if (dto.margemPerda !== undefined) patch.margemPerda = margemOuNada(dto.margemPerda);
     if (dto.setorId !== undefined) patch.setorId = dto.setorId;
     if (dto.popId !== undefined) patch.popId = dto.popId;
     if (dto.ativo !== undefined) patch.ativo = dto.ativo;

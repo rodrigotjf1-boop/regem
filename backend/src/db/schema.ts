@@ -1244,6 +1244,9 @@ export const fichaTecnica = pgTable('ficha_tecnica', {
   validadeAbertoDias: integer('validade_aberto_dias'), // etiqueta: validade após aberto (mig 136)
   precoVenda: numeric('preco_venda'),
   metaCmv: numeric('meta_cmv').notNull().default('31.5'),
+  // Margem de perda em % (mig 318), somada ao custo INTEIRO da ficha (balcão e delivery). Vazio = sem
+  // margem. Só custo: a baixa de estoque não muda (a perda na quantidade é o fator de correção).
+  margemPerda: numeric('margem_perda'),
   ativo: boolean('ativo').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

@@ -6,6 +6,8 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Max,
+  Min,
   ValidateNested,
 } from 'class-validator';
 import { CreateIngredienteDto } from './create-ingrediente.dto';
@@ -46,6 +48,13 @@ export class UpdateFichaDto {
   @IsOptional()
   @IsNumber()
   metaCmv?: number;
+
+  // Margem de perda em % (mig 318). Ausente mantém; `null` tira a margem.
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  margemPerda?: number | null;
 
   @IsOptional()
   @IsUUID()

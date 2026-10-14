@@ -90,6 +90,7 @@ export default function FichasPage() {
   const [rendUnidade, setRendUnidade] = useState('porção');
   const [precoVenda, setPrecoVenda] = useState('');
   const [metaCmvInput, setMetaCmvInput] = useState(String(META_CMV));
+  const [margemPerdaInput, setMargemPerdaInput] = useState(''); // margem de perda em % (mig 318); vazio = sem
   const [ings, setIngs] = useState<Ing[]>([linhaVazia()]);
   const [editId, setEditId] = useState<string | null>(null);
   const [carregou, setCarregou] = useState(false);
@@ -187,10 +188,19 @@ export default function FichasPage() {
   const mesmaEmbalagem = !!embalagem?.mesmaEmbalagem;
   const custoDe = (canal: CanalDaFicha) => ings.filter((i) => linhaEntra(i, canal, mesmaEmbalagem)).reduce((s, i) => s + custoLinha(i), 0);
   const custoInsumos = custoDe('nenhum');
-  const custoTotal = custoDe('balcao');
-  const custoTotalDelivery = custoDe('delivery');
-  const custoBalcaoExtra = custoTotal - custoInsumos;
-  const custoDeliveryExtra = custoTotalDelivery - custoInsumos;
+  // Margem de perda (mig 318): somada ao custo INTEIRO da ficha, no balcão e no delivery — a mesma conta
+  // do servidor (`custoTotalFicha`). Não muda a baixa de estoque.
+  const margemPerda = Math.min(100, Math.max(0, Number(margemPerdaInput.replace(',', '.')) || 0));
+  const comMargem = (v: number) => v * (1 + margemPerda / 100);
+  const baseBalcao = custoDe('balcao');
+  const baseDelivery = custoDe('delivery');
+  const custoTotal = comMargem(baseBalcao);
+  const custoTotalDelivery = comMargem(baseDelivery);
+  const valorMargem = custoTotal - baseBalcao;
+  const custoBalcaoExtra = baseBalcao - custoInsumos;
+  const custoDeliveryExtra = baseDelivery - custoInsumos;
+  // FC e margem juntos contam a perda duas vezes no custo: a tela avisa.
+  const linhasComFc = ings.filter((i) => (i.insumoNome.trim() || i.itemId || i.subFichaId) && Number(i.fatorCorrecao) > 0 && Number(i.fatorCorrecao) !== 1).length;
   const temDelivery = ings.some((i) => i.somenteDelivery);
   const temBalcao = !mesmaEmbalagem && ings.some((i) => i.somenteBalcao);
   // Com a mesma embalagem nos dois, a do balcão que já estava cadastrada fica guardada, sem contar.
@@ -219,6 +229,7 @@ export default function FichasPage() {
     setRendUnidade('porção');
     setPrecoVenda('');
     setMetaCmvInput(String(META_CMV));
+    setMargemPerdaInput('');
     setIngs([linhaVazia()]);
   }
 
@@ -230,6 +241,7 @@ export default function FichasPage() {
     setRendUnidade(f.rendimentoUnidade ?? 'porção');
     setPrecoVenda(f.precoVenda != null ? String(f.precoVenda) : '');
     setMetaCmvInput(String(f.metaCmv ?? META_CMV));
+    setMargemPerdaInput(semZerosFinais(f.margemPerda, ''));
     setIngs(
       (f.ingredientes ?? []).length
         ? f.ingredientes.map((i: any) => ({
@@ -293,6 +305,8 @@ export default function FichasPage() {
       rendimentoUnidade: rendUnidade || undefined,
       precoVenda: pv || undefined,
       metaCmv: meta,
+      // vazio ou 0 = sem margem (o servidor grava vazio)
+      margemPerda: margemPerda > 0 ? margemPerda : null,
       ingredientes: ings
         .filter((i) => i.insumoNome.trim() || i.subFichaId || i.itemId)
         .map((i) => ({
@@ -701,11 +715,12 @@ export default function FichasPage() {
                 <Row label="Rendimento" value={`${rend} ${rendUnidade}`} />
                 {mesmaEmbalagem && temDelivery && <Row label="+ Embalagem (balcão e delivery)" value={brl(custoDeliveryExtra)} />}
                 {temBalcao && <Row label="+ Embalagem do balcão" value={brl(custoBalcaoExtra)} />}
+                {margemPerda > 0 && <Row label={`+ Margem de perda (${String(margemPerda).replace('.', ',')}%)`} value={brl(valorMargem)} />}
                 <Row label={doisCustos ? 'Custo por porção (balcão)' : 'Custo por porção'} value={brl(custoPorcao)} strong />
                 {doisCustos && (
                   <>
                     {temDelivery && <Row label="+ Custos delivery" value={brl(custoDeliveryExtra)} />}
-                    <Row label="Custo por porção (delivery)" value={brl(custoPorcaoDelivery)} strong />
+                    <Row label={margemPerda > 0 ? 'Custo por porção (delivery, com a margem)' : 'Custo por porção (delivery)'} value={brl(custoPorcaoDelivery)} strong />
                   </>
                 )}
               </div>
@@ -733,6 +748,21 @@ export default function FichasPage() {
               <div className="mt-3 flex items-center justify-between gap-2">
                 <Label htmlFor="meta" className="text-xs text-secondary-foreground">Meta de CMV (%)</Label>
                 <Input id="meta" type="number" min={0} step="any" inputMode="decimal" value={metaCmvInput} onChange={(e) => setMetaCmvInput(e.target.value)} className="h-10 w-24" />
+              </div>
+              {/* Margem de perda (mig 318): opcional, somada ao custo inteiro da ficha. */}
+              <div className="mt-3 space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="margem-perda" className="text-xs text-secondary-foreground">Margem de perda (%)</Label>
+                  <Input id="margem-perda" type="number" min={0} max={100} step="any" inputMode="decimal" value={margemPerdaInput} onChange={(e) => setMargemPerdaInput(e.target.value)} placeholder="0" className="h-10 w-24" aria-describedby="margem-perda-ajuda" />
+                </div>
+                <p id="margem-perda-ajuda" className="text-xs text-secondary-foreground">
+                  Opcional. Somada ao custo inteiro da ficha (com a embalagem), no balcão e no delivery. Não muda a baixa de estoque.
+                </p>
+                {margemPerda > 0 && linhasComFc > 0 && (
+                  <p role="status" data-aviso="margem-e-fc" className="rounded-md border-l-4 border-warn bg-warn/10 px-2.5 py-1.5 text-xs text-foreground">
+                    {linhasComFc === 1 ? '1 linha desta ficha tem' : `${linhasComFc} linhas desta ficha têm`} fator de correção diferente de 1: com a margem, a perda pode estar sendo contada duas vezes no custo.
+                  </p>
+                )}
               </div>
 
               {doisCustos && (
