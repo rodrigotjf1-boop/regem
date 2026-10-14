@@ -3,7 +3,8 @@
 // escopos; o que a pessoa lê sai daqui. Escopo sem texto próprio cai no rótulo do servidor.
 //
 // A página é a mesma para todo aplicativo; o que muda de um para outro está em `TEXTO_APP`. Os
-// textos do Farol (o que ele recebe e o que não vai) foram aprovados pelo dono em 10/10/2026.
+// textos do Farol (o que ele recebe e o que não vai) foram aprovados pelo dono em 10/10/2026. Os do GoGeM
+// (14/10/2026, mig 323) descrevem a credencial própria do totem: ele LANÇA as vendas do totem, não as lê.
 
 export const TEXTO_ESCOPO: Record<string, { rotulo: string; texto: string }> = {
   'pedidos.ler': {
@@ -34,6 +35,19 @@ export const TEXTO_ESCOPO: Record<string, { rotulo: string; texto: string }> = {
     rotulo: 'Pedidos em produção',
     texto: 'O que está na fila da cozinha: produto, quantidade, adicionais, observação e horários. Sem o cliente e sem valores.',
   },
+  // GoGeM (mig 323) — o totem de autoatendimento da loja.
+  'totem.catalogo.ler': {
+    rotulo: 'Cardápio do totem',
+    texto: 'Os produtos, preços, categorias e adicionais que o totem mostra ao cliente.',
+  },
+  'totem.produtos.pausar': {
+    rotulo: 'Pausar item no totem',
+    texto: 'Pausar e despausar um item só no totem. Os outros canais de venda não mudam.',
+  },
+  'totem.vendas.lancar': {
+    rotulo: 'Lançar as vendas do totem',
+    texto: 'As vendas feitas no totem entram no Regem: as pagas, as em dinheiro (pagas no balcão) e as que falharam no pagamento.',
+  },
 };
 
 /** O que a página diz quando a chave do custo está travada (presidente sem "Ver valores em R$"). */
@@ -58,6 +72,8 @@ export type TextoApp = {
   ondeConectar: string | null;
   /** O que o aplicativo deixa de ler quando é revogado ("os pedidos"). */
   leitura: string;
+  /** A frase do diálogo de revogar, quando revogar faz mais do que parar uma leitura (o GoGeM). */
+  aoRevogar?: string;
   naoVai: { titulo: string; texto: string }[];
 };
 
@@ -83,6 +99,20 @@ export const TEXTO_APP: Record<string, TextoApp> = {
       { titulo: 'Quem é o cliente', texto: 'Nome, telefone e endereço não fazem parte.' },
       { titulo: 'O resto da operação', texto: 'Vendas, caixa, estoque, equipe e ponto não fazem parte.' },
       { titulo: 'A sua conta', texto: 'O Farol não recebe senha nem entra no seu Regem.' },
+    ],
+  },
+  gogem: {
+    nome: 'GoGeM',
+    le: 'receber o cardápio e lançar as vendas do totem',
+    faz: 'mostra o cardápio no totem de autoatendimento e lança no Regem as vendas feitas nele. Ele não lê as vendas do balcão, da mesa nem do delivery.',
+    ondeConectar: null,
+    leitura: 'o cardápio do totem',
+    aoRevogar: 'O GoGeM deixa de receber o cardápio e as vendas feitas no totem deixam de chegar ao Regem, a partir de agora. Para voltar, a distribuição Regem emite um token novo.',
+    naoVai: [
+      { titulo: 'As outras vendas', texto: 'Balcão, mesa, delivery e caixa não fazem parte.' },
+      { titulo: 'Quem é o cliente', texto: 'Nome, telefone e endereço dos clientes ficam no Regem.' },
+      { titulo: 'O resto da operação', texto: 'Estoque, equipe, escala e ponto não fazem parte.' },
+      { titulo: 'A sua conta', texto: 'O GoGeM não recebe senha nem entra no seu Regem.' },
     ],
   },
 };
@@ -113,8 +143,11 @@ export function resumoDoAcesso(escopos: string[], cliente: string): { recebe: st
   if (tem('catalogo.ler')) partes.push('produtos e adicionais');
   if (tem('fichas.ler')) partes.push('fichas técnicas');
   if (tem('producao.ler')) partes.push('pedidos em produção');
+  if (tem('totem.catalogo.ler')) partes.push('cardápio do totem');
+  if (tem('totem.produtos.pausar')) partes.push('pausa de item no totem');
   const texto = partes.join(', ');
   const recebe = texto ? texto[0].toUpperCase() + texto.slice(1) : '—';
+  if (cliente === 'gogem') return { recebe, nota: tem('totem.vendas.lancar') ? 'Lança as vendas do totem' : null };
   if (cliente !== 'liame') return { recebe, nota: null };
   return { recebe, nota: tem('cupons.criar') ? 'Cria cupom, com aprovação' : 'Sem criar cupom' };
 }

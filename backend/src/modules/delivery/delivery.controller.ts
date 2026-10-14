@@ -20,6 +20,8 @@ import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
 import { AceitaIntegrador } from '../sync/aceita-integrador.decorator';
+import { CredencialDoTotemGuard, type CtxDoTotem } from '../integracao-api/credencial-totem.guard';
+import { Escopos } from '../integracao-api/integracao-token.guard';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { TerminalAtual } from '../../auth/terminal-atual.decorator';
 import { DeliveryService } from './delivery.service';
@@ -51,9 +53,10 @@ export class DeliveryController {
   // Totem GoGeM: pedido pago em DINHEIRO (paga no balcão). Auth = token do dispositivo
   // (servidor_local/totem). Entra no hub de Retirada, coluna "Totem GoGeM", como "A pagar".
   @Post('totem-dinheiro')
-  @UseGuards(SyncTokenGuard)
+  @UseGuards(CredencialDoTotemGuard)
   @AceitaIntegrador()
-  totemDinheiro(@SyncCtx() ctx: SyncCtxData, @Body() dto: any) {
+  @Escopos('totem.vendas.lancar')
+  totemDinheiro(@SyncCtx() ctx: CtxDoTotem, @Body() dto: any) {
     return this.service.criarPedidoTotemDinheiro(ctx.tenantId, ctx, dto);
   }
 

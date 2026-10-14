@@ -1,5 +1,7 @@
 import { Body, Controller, Post, UseGuards } from '@nestjs/common';
-import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
+import { SyncCtx } from '../sync/sync-token.guard';
+import { CredencialDoTotemGuard, type CtxDoTotem } from '../integracao-api/credencial-totem.guard';
+import { Escopos } from '../integracao-api/integracao-token.guard';
 import { AceitaIntegrador } from '../sync/aceita-integrador.decorator';
 import { VendasService } from './vendas.service';
 import { VendaExternaPdvDto } from './dto/venda-externa-pdv.dto';
@@ -14,9 +16,10 @@ export class VendasExternaController {
   constructor(private readonly service: VendasService) {}
 
   @Post('externa-pdv')
-  @UseGuards(SyncTokenGuard)
+  @UseGuards(CredencialDoTotemGuard)
   @AceitaIntegrador()
-  venderTotem(@SyncCtx() ctx: SyncCtxData, @Body() dto: VendaExternaPdvDto) {
+  @Escopos('totem.vendas.lancar')
+  venderTotem(@SyncCtx() ctx: CtxDoTotem, @Body() dto: VendaExternaPdvDto) {
     return this.service.venderTotem(ctx.tenantId, ctx, dto);
   }
 
@@ -24,9 +27,10 @@ export class VendasExternaController {
   // para nunca virar venda/caixa: registra 'falha' + motivo (informativo, sem
   // estoque). O GoGeM relaya best-effort — 404 aqui é ignorado do lado do totem.
   @Post('externa-pdv/falha')
-  @UseGuards(SyncTokenGuard)
+  @UseGuards(CredencialDoTotemGuard)
   @AceitaIntegrador()
-  falhaTotem(@SyncCtx() ctx: SyncCtxData, @Body() dto: VendaExternaFalhaDto) {
+  @Escopos('totem.vendas.lancar')
+  falhaTotem(@SyncCtx() ctx: CtxDoTotem, @Body() dto: VendaExternaFalhaDto) {
     return this.service.registrarFalhaTotem(ctx.tenantId, ctx, dto);
   }
 }

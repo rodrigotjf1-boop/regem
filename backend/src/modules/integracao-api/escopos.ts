@@ -2,8 +2,9 @@ import { BadRequestException } from '@nestjs/common';
 
 // Escopos do token de integração por loja (contrato Regem → Liame v1, `docs/integracoes/regem.md`
 // do Liame; contrato Regem → RegemCast em `docs/integracao-regemcast.md`; contrato Regem → Farol em
-// `docs/integracao-farol.md`). Cada rota confere o seu; o que o token não tem volta 403. A lista é
-// a MESMA do `check` das tabelas (migs 295, 302, 303 e 315): escopo fora dela nem chega a ser gravado.
+// `docs/integracao-farol.md`; contrato Regem → GoGeM em `docs/integracao-gogem/ENDPOINTS.md`). Cada rota
+// confere o seu; o que o token não tem volta 403. A lista é a MESMA do `check` das tabelas (migs 295,
+// 302, 303, 315 e 323): escopo fora dela nem chega a ser gravado.
 export const ESCOPOS_INTEGRACAO = [
   'pedidos.ler',
   'clientes.telefone.ler',
@@ -19,6 +20,11 @@ export const ESCOPOS_INTEGRACAO = [
   'catalogo.ler',
   'fichas.ler',
   'producao.ler',
+  // GoGeM (mig 323): as cinco rotas que a nuvem do totem chama — o catálogo COM preço, a pausa de
+  // item e o lançamento da venda (paga, falha e dinheiro). Não leem a API de integração.
+  'totem.catalogo.ler',
+  'totem.produtos.pausar',
+  'totem.vendas.lancar',
 ] as const;
 
 export type EscopoIntegracao = (typeof ESCOPOS_INTEGRACAO)[number];
@@ -28,7 +34,15 @@ export type EscopoIntegracao = (typeof ESCOPOS_INTEGRACAO)[number];
  * versão nem cursor. O token que só tem estes NÃO liga o carimbador das vendas — a carga de 91
  * dias, a fila de mudanças, a reconciliação diária: para isso a empresa não está "conectada".
  */
-export const ESCOPOS_SEM_CARIMBO: readonly EscopoIntegracao[] = ['catalogo.ler', 'fichas.ler', 'producao.ler'];
+export const ESCOPOS_SEM_CARIMBO: readonly EscopoIntegracao[] = [
+  'catalogo.ler',
+  'fichas.ler',
+  'producao.ler',
+  // GoGeM (mig 323): ele LANÇA a venda do totem, não lê vendas — a empresa não fica "conectada".
+  'totem.catalogo.ler',
+  'totem.produtos.pausar',
+  'totem.vendas.lancar',
+];
 
 /** Os escopos cuja leitura depende do carimbador (todos os outros). */
 export const ESCOPOS_COM_CARIMBO: readonly EscopoIntegracao[] = ESCOPOS_INTEGRACAO.filter(
@@ -49,6 +63,9 @@ export const ROTULO_ESCOPO: Record<EscopoIntegracao, string> = {
   'catalogo.ler': 'Produtos, variações, combos e adicionais da loja (sem preço)',
   'fichas.ler': 'Fichas técnicas e ingredientes (sem custo)',
   'producao.ler': 'Pedidos na fila de produção (sem o cliente e sem valores)',
+  'totem.catalogo.ler': 'Catálogo do totem, com preço (GET /sync/catalogo)',
+  'totem.produtos.pausar': 'Pausar e despausar item no canal do totem (POST /sync/produtos/pausa)',
+  'totem.vendas.lancar': 'Lançar a venda do totem: paga, falha e dinheiro (POST /vendas/externa-pdv e /delivery/totem-dinheiro)',
 };
 
 /**
@@ -79,6 +96,14 @@ export const CLIENTES_INTEGRACAO: Record<
     rotulo: 'Farol',
     abrangencia: 'loja',
     escopos: ['catalogo.ler', 'fichas.ler', 'producao.ler'],
+    cargaDias: null,
+  },
+  // GoGeM (mig 323): um token por loja para a nuvem do totem — substitui o token de equipamento
+  // `servidor_local` marcado pelo `X-Integrador` (mig 290), que segue valendo na transição.
+  gogem: {
+    rotulo: 'GoGeM',
+    abrangencia: 'loja',
+    escopos: ['totem.catalogo.ler', 'totem.produtos.pausar', 'totem.vendas.lancar'],
     cargaDias: null,
   },
 };
