@@ -19,6 +19,7 @@ import { CurrentUser } from '../../auth/current-user.decorator';
 import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
+import { AceitaIntegrador } from '../sync/aceita-integrador.decorator';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { TerminalAtual } from '../../auth/terminal-atual.decorator';
 import { DeliveryService } from './delivery.service';
@@ -51,6 +52,7 @@ export class DeliveryController {
   // (servidor_local/totem). Entra no hub de Retirada, coluna "Totem GoGeM", como "A pagar".
   @Post('totem-dinheiro')
   @UseGuards(SyncTokenGuard)
+  @AceitaIntegrador()
   totemDinheiro(@SyncCtx() ctx: SyncCtxData, @Body() dto: any) {
     return this.service.criarPedidoTotemDinheiro(ctx.tenantId, ctx, dto);
   }

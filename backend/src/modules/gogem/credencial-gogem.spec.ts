@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { EquipamentoService } from '../equipamento/equipamento.service';
 import { SyncTokenGuard } from '../sync/sync-token.guard';
+import { CatalogoSyncController } from '../produto/catalogo-sync.controller';
 import { CLOUD_ONLY } from '../../common/cloud-only.decorator';
 import { GogemAvisoService } from './gogem-aviso.service';
 import { GogemPublishService } from './gogem-publish.service';
@@ -102,7 +103,12 @@ descrever('a credencial do GoGeM (Postgres real)', () => {
 
   const chamarGuard = (headers: Record<string, string>) => {
     const req: any = { headers, originalUrl: '/api/v1/sync/catalogo' };
-    return guard.canActivate({ switchToHttp: () => ({ getRequest: () => req }) } as any);
+    // A rota de verdade (o catálogo): a credencial de integrador só passa nas rotas dela (@AceitaIntegrador).
+    return guard.canActivate({
+      switchToHttp: () => ({ getRequest: () => req }),
+      getHandler: () => CatalogoSyncController.prototype.catalogo,
+      getClass: () => CatalogoSyncController,
+    } as any);
   };
   const equipamentoDe = async (id: string) => (await q(`select * from equipamento where id = $1`, [id]))[0];
   const aviso = async (t: string, u: string | null) => {

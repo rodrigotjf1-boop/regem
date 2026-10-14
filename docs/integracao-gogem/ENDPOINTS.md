@@ -36,6 +36,8 @@
 | **Escopo** | Nível-dispositivo, revogável. `req.sync = { tenantId, unidadeId, equipamentoId }` — **tenant derivado do dispositivo, não spoofável pelo body**. Injeta via `@SyncCtx()`. |
 | **Onde já é usado** | Telemetria/comandos do edge (`edge.controller.ts:83,109`), ingest de pedidos (`delivery.controller.ts:29`), resultado de TEF (`tef.controller.ts:86`), handshake do Socket.IO. |
 
+**A credencial do GoGeM só abre as rotas dele (desde 14/10/2026 — fase 0 da credencial própria, pedido do Hub DMS).** Ela é o token de um `servidor_local` marcado pelo `X-Integrador: gogem` (mig 290) e passava pelo mesmo `SyncTokenGuard` do servidor da loja — abria também o sincronismo inteiro da empresa (`/sync/pull`, `/sync/snapshot`, `/sync/restore`, `/sync/push`) e o tempo real. Agora, NA NUVEM, a credencial de integrador (marcada, ou que chega com `X-Integrador` conhecido) passa só nas rotas com `@AceitaIntegrador()` — `GET /sync/catalogo`, `POST /sync/produtos/pausa`, `POST /vendas/externa-pdv`, `POST /vendas/externa-pdv/falha` e `POST /delivery/totem-dinheiro` —; o resto responde **403** e o handshake do Socket.IO é recusado. O servidor da loja não muda. Próximas fases: token `rgm_it_` próprio com escopos (API de integração) e aviso Regem → GoGeM assinado.
+
 **Bootstrap (pareamento por código) — PÚBLICO ✅**
 - `POST /api/v1/publico/terminal/parear` (`pareamento.controller.ts:9`, `@Throttle 10/60s`). Body `{ codigo }` (6 dígitos, uso único, expira 15 min). Retorna **uma vez** um segredo hex de 32 bytes (`equipamento.service.ts:74`). É o enrolamento que gera o segredo do terminal.
 
@@ -237,7 +239,7 @@ NFC-e (modelo 65) **totalmente modelada**, pipeline roda ponta a ponta, mas **a 
 - **Barramento externo / assinatura: AUSENTE.** Não há produto de webhook de saída que um terceiro registre; URLs de webhook das plataformas são configuradas manualmente em cada portal.
 - **Entrada (externo → Regem):** 99food (`POST /api/v1/integracoes/99food/webhook`, **público, sem assinatura** ⚠️, tenant por `app_shop_id` no body) e Cardápio Web (`.../cardapio-web/webhook`, valida `X-Webhook-Token` mas **cai para loja única** se não bater ⚠️). iFood e Anota Aí são **polling** (`*.poller.ts`), sem controller de entrada.
 - **Bus interno (in-process, não assinável):** `@nestjs/event-emitter` (`app.module.ts:81`) — `ponto.marcado`, `estoque.baixado`, `producao.evento`, `kds.alerta.*` etc. Memória, processo único.
-- **Tempo real (assinável com credencial):** **Socket.IO** `realtime.gateway.ts:34`. Handshake aceita `auth.token` (sync token de dispositivo) **ou** `auth.jwt` (JWT humano); salas escopadas `tenant:<id>`, `unidade:<id>`. Um sistema externo **pode** consumir eventos ao vivo **se receber um sync token/JWT** — canal privado (KDS/PDV), não feed público.
+- **Tempo real (assinável com credencial):** **Socket.IO** `realtime.gateway.ts:34`. Handshake aceita `auth.token` (sync token de dispositivo) **ou** `auth.jwt` (JWT humano); salas escopadas `tenant:<id>`, `unidade:<id>`. Um sistema externo **pode** consumir eventos ao vivo **se receber um sync token/JWT** — canal privado (KDS/PDV), não feed público. **Exceção (14/10/2026):** a credencial de integrador (GoGeM) é recusada no handshake da nuvem.
 - **LISTEN/NOTIFY no backend NestJS: AUSENTE** (o uso de LISTEN/NOTIFY é do worker de impressão do edge, não deste backend).
 - Saída per-integração: Regem **empurra status de pedido de volta** às plataformas via API delas (ex. 99food `refletirStatusExterno`), hardcoded por plataforma — não é webhook genérico.
 

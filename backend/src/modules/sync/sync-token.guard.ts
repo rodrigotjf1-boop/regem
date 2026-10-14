@@ -1,14 +1,18 @@
 import {
   CanActivate,
   ExecutionContext,
+  ForbiddenException,
   HttpException,
   HttpStatus,
   Injectable,
+  Logger,
   UnauthorizedException,
   createParamDecorator,
 } from '@nestjs/common';
-import { EquipamentoService } from '../equipamento/equipamento.service';
+import { Reflector } from '@nestjs/core';
+import { EquipamentoService, INTEGRADORES } from '../equipamento/equipamento.service';
 import { ehServidorLocal } from '../../common/modo';
+import { ACEITA_INTEGRADOR } from './aceita-integrador.decorator';
 import {
   dentroDoLimite,
   registrarTokenValidado,
@@ -49,6 +53,38 @@ export function conferirDispositivo(dev: any): asserts dev {
   }
 }
 
+/** Lê o `@AceitaIntegrador()` da rota (metadado do Nest; não precisa de injeção). */
+const reflector = new Reflector();
+const log = new Logger('SyncTokenGuard');
+/** Recusa de integrador já registrada no log, por equipamento e rota (uma vez por hora). */
+const recusaLogada = new Map<string, number>();
+
+/**
+ * A credencial de um INTEGRADOR (GoGeM) só passa nas rotas marcadas com `@AceitaIntegrador()`.
+ * É integrador o equipamento já marcado (`integrador`, mig 290) ou quem se identifica pelo
+ * `X-Integrador` — o servidor da loja nunca manda esse cabeçalho, e a marca nunca cai num
+ * servidor que já sincronizou (`notarIntegrador`). Só na NUVEM: no servidor da loja a credencial
+ * do GoGeM nem existe (`servidor_local` não desce) e o cabeçalho não significa nada.
+ * Sem o metadado (contexto sem rota) = recusa: a lista é do que pode.
+ */
+export function conferirRotaDoIntegrador(dev: any, cabecalhoIntegrador: unknown, context: ExecutionContext, rota: string): void {
+  if (ehServidorLocal()) return;
+  const cab = String(cabecalhoIntegrador ?? '').trim().toLowerCase();
+  const integrador = dev?.integrador ?? (INTEGRADORES.has(cab) ? cab : null);
+  if (!integrador) return;
+  const handler = typeof context.getHandler === 'function' ? context.getHandler() : undefined;
+  const classe = typeof context.getClass === 'function' ? context.getClass() : undefined;
+  const alvos = [handler, classe].filter((x): x is any => !!x);
+  if (alvos.length && reflector.getAllAndOverride<boolean>(ACEITA_INTEGRADOR, alvos)) return;
+  const chave = `${dev?.id}|${rota}`;
+  if (Date.now() - (recusaLogada.get(chave) ?? 0) > 3_600_000) {
+    recusaLogada.set(chave, Date.now());
+    if (recusaLogada.size > 5_000) recusaLogada.clear();
+    log.warn(`credencial de integrador (${integrador}, equipamento ${dev?.id}, empresa ${dev?.tenantId}) recusada em ${rota}: rota fora das do integrador`);
+  }
+  throw new ForbiddenException('Esta credencial de integração não acessa esta rota.');
+}
+
 @Injectable()
 export class SyncTokenGuard implements CanActivate {
   constructor(private readonly equipamentos: EquipamentoService) {}
@@ -71,10 +107,13 @@ export class SyncTokenGuard implements CanActivate {
     // como a credencial daquela integração — é por essa marca que o aviso de cancelamento e o
     // "Publicar no GoGeM" escolhem o token (ERR-108). Só grava quando muda (ou de hora em hora) e
     // nunca lança: não derruba a chamada. No servidor da loja o cabeçalho não significa nada.
-    const integrador = req.headers['x-integrador'];
+    const integradorRaw = req.headers['x-integrador'];
+    const integrador = Array.isArray(integradorRaw) ? integradorRaw[0] : integradorRaw;
     if (integrador && !ehServidorLocal()) {
-      await this.equipamentos.notarIntegrador(dev, Array.isArray(integrador) ? integrador[0] : integrador);
+      await this.equipamentos.notarIntegrador(dev, integrador);
     }
+    // A credencial do integrador só abre as rotas dele — nunca o sincronismo da empresa inteira.
+    conferirRotaDoIntegrador(dev, integrador, context, String(req.originalUrl ?? req.url ?? '').split('?')[0]);
     req.sync = {
       tenantId: dev.tenantId,
       unidadeId: dev.unidadeId ?? null,

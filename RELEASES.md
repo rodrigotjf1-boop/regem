@@ -21,6 +21,7 @@
 - **Ficha técnica: a linha acompanha o nome do produto e da sub-receita — migration 321 (NÃO é `@cloud-only`, índices) e 322 (`@cloud-only`: gatilhos e correção de dados); MUDA O SERVIDOR (salvar a ficha) — pede `.zip` (não toca `backend/edge/` nem o sync).** Pedido do dono em 14/10 (ERR-231). Salvar a ficha grava o nome atual do produto ou da sub-receita; na nuvem, renomear leva o nome às linhas.
   ⚠️ **Ordem de deploy:** migs **321 e 322 na NUVEM antes do merge** (o código não depende delas, mas a correção e o gatilho têm de estar lá quando o servidor novo entrar). A 322 só roda na nuvem: as linhas descem para a loja pelo sincronismo.
   ⚠️ **Servidor da loja na 1.30.3:** o produto renomeado NA LOJA sobe para a nuvem, o gatilho de lá atualiza as linhas e elas descem; nada a fazer antes do `.zip`.
+- **Credencial do GoGeM restrita às rotas dele (fase 0) — sem migration; muda o SERVIDOR, mas a regra só vale NA NUVEM.** Na loja não muda nada (lá a credencial do GoGeM não existe); entra no `.zip` só por tabela.
 
 ## Última release: `1.30.3` — gerada em 13/10/2026 da `origin/main` `707f37d1`, **`.zip` GERADO, conferido e assinado** (`regem-edge-1.30.3.zip`, 31.629.413 bytes, SHA-256 `6361d5124ea10eeb02be7d0834e4facd928a6115c4b3e2567e3e703d7d709bde`); publicação no console e `.exe` PENDENTES
 

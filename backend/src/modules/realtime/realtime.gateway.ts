@@ -14,6 +14,7 @@ import { randomUUID } from 'crypto';
 import { Server, Socket } from 'socket.io';
 import { EquipamentoService } from '../equipamento/equipamento.service';
 import { lerCookieSessao } from '../../auth/cookie-sessao';
+import { ehServidorLocal } from '../../common/modo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -58,6 +59,10 @@ export class RealtimeGateway
       if (auth.token) {
         const eq = await this.equipamentos.validarToken(auth.token);
         if (!eq) return this.recusar(socket, 'device inválido ou revogado');
+        // A credencial de um integrador (GoGeM, mig 290) é token de `servidor_local`, mas não é
+        // aparelho da loja: na nuvem ela não entra nas salas da empresa (pedidos, cozinha, aparelhos)
+        // — só nas rotas dela (`@AceitaIntegrador`). No servidor da loja ela nem existe.
+        if (eq.integrador && !ehServidorLocal()) return this.recusar(socket, 'credencial de integração não abre o tempo real');
         const ctx: SockCtx = {
           tenantId: eq.tenantId,
           unidadeId: eq.unidadeId,
