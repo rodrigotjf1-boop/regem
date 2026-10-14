@@ -139,6 +139,36 @@ describe('custoTotalFicha (ficha aninhada, custo recursivo)', () => {
     };
     expect(custoTotalFicha('a', ciclico)).toBe(0);
   });
+  // Margem de perda (mig 318): somada ao custo INTEIRO da ficha, com a embalagem da venda (dono, 14/10/2026).
+  it('margem de perda: soma a % sobre o custo inteiro, em cada venda; sem margem, igual a antes', () => {
+    const ficha = (margemPerda?: number) => ({
+      burger: {
+        rendimento: 1,
+        margemPerda,
+        ingredientes: [
+          { quantidade: 8, fatorCorrecao: 1, custoUnitario: 1 },
+          { quantidade: 1, fatorCorrecao: 1, custoUnitario: 0.5, somenteBalcao: true },
+          { quantidade: 1, fatorCorrecao: 1, custoUnitario: 1.5, somenteDelivery: true },
+        ],
+      },
+    });
+    expect(custoTotalFicha('burger', ficha(), 'balcao')).toBe(8.5);
+    expect(custoTotalFicha('burger', ficha(0), 'balcao')).toBe(8.5);
+    expect(custoTotalFicha('burger', ficha(10), 'balcao')).toBeCloseTo(9.35, 10); // (8 + 0,50) × 1,10
+    expect(custoTotalFicha('burger', ficha(10), 'delivery')).toBeCloseTo(10.45, 10); // (8 + 1,50) × 1,10
+    expect(custoTotalFicha('burger', ficha(10), 'nenhum')).toBeCloseTo(8.8, 10); // só os ingredientes, × 1,10
+    expect(custoTotalFicha('burger', ficha(10), 'balcao', true)).toBeCloseTo(10.45, 10); // mesma embalagem
+  });
+  it('margem de perda: a sub-receita traz a dela; a da ficha vale sobre o total', () => {
+    const mapa = {
+      molho: { rendimento: 2, margemPerda: 25, ingredientes: [{ quantidade: 1, fatorCorrecao: 1, custoUnitario: 4 }] },
+      prato: { rendimento: 1, margemPerda: 10, ingredientes: [{ quantidade: 1, fatorCorrecao: 1, custoUnitario: 0, subFichaId: 'molho' }] },
+      feito: { rendimento: 1, ingredientes: [{ quantidade: 2, fatorCorrecao: 1, custoUnitario: 99, fichaDoItemId: 'molho' }] },
+    };
+    expect(custoTotalFicha('molho', mapa)).toBe(5); // 4 × 1,25
+    expect(custoTotalFicha('prato', mapa)).toBeCloseTo(2.75, 10); // 5 ÷ 2 = 2,50 × 1,10
+    expect(custoTotalFicha('feito', mapa)).toBe(5); // 2 × (5 ÷ 2), sem margem própria
+  });
   it('custo delivery inclui a linha somenteDelivery; balcão a ignora', () => {
     // burger (rend 1) = 8 de carne a 1 (balcão) + 1 embalagem a 1,5 (só delivery)
     const comEmbalagem = {

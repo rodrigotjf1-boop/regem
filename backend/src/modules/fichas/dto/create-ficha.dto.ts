@@ -4,6 +4,8 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Max,
+  Min,
   MinLength,
 } from 'class-validator';
 import { CreateIngredienteDto } from './create-ingrediente.dto';
@@ -44,6 +46,13 @@ export class CreateFichaDto {
   @IsOptional()
   @IsNumber()
   metaCmv?: number;
+
+  // Margem de perda em % (mig 318), somada ao custo inteiro da ficha. Vazio/`null` = sem margem.
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  margemPerda?: number | null;
 
   @IsOptional()
   @IsUUID()

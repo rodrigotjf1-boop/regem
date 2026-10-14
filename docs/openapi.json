@@ -17935,6 +17935,12 @@
           "metaCmv": {
             "type": "number"
           },
+          "margemPerda": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100
+          },
           "setorId": {
             "type": "string"
           },
@@ -17984,6 +17990,12 @@
           },
           "metaCmv": {
             "type": "number"
+          },
+          "margemPerda": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100
           },
           "setorId": {
             "type": "string"

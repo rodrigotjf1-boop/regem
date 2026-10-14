@@ -114,6 +114,9 @@ export type IngredienteCusto = {
 export type FichaCusto = {
   rendimento: number;
   ingredientes: IngredienteCusto[];
+  // Margem de perda em % (mig 318): somada ao custo INTEIRO da ficha — ingredientes, sub-receitas e a
+  // embalagem da venda. Sem margem = 0.
+  margemPerda?: number;
 };
 
 /**
@@ -158,7 +161,10 @@ export function custoTotalFicha(
     }
     total += Number(ing.quantidade) * Number(ing.fatorCorrecao) * custoUnit;
   }
-  return total;
+  // Margem de perda da ficha (pedido do dono, 14/10/2026: "levar em consideração a ficha completa").
+  // A sub-receita já entrou acima com a margem DELA; esta vale sobre o total desta ficha.
+  const margem = Number(ficha.margemPerda) || 0;
+  return margem > 0 ? total * (1 + margem / 100) : total;
 }
 
 /**

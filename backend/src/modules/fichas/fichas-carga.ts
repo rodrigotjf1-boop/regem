@@ -53,6 +53,7 @@ export async function fichaExiste(db: any, tenantId: string, fichaId: string): P
 export function fichaCustoDe(f: any, ings: any[], fichaDoItem: Map<string, string> = new Map()): FichaCusto {
   return {
     rendimento: Number(f.rendimento) || 1,
+    margemPerda: Number(f.margemPerda) || 0,
     ingredientes: ings.map((i) => ({
       quantidade: Number(i.quantidade),
       fatorCorrecao: Number(i.fatorCorrecao),
