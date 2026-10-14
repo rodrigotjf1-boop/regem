@@ -191,6 +191,8 @@ agora**. Ele só LÊ — e nunca recebe preço, custo, margem, CMV, cliente ou v
   (antes vinha `null` e a quantidade como foi digitada). Insumo escrito à mão: as duas quantidades são
   iguais e `unidade_estoque` é `null`.
 - `sub_ficha_id`: o ingrediente é outra ficha (sub-receita) — ela vem na mesma lista.
+- `nome`: o nome ATUAL do produto do estoque ou da sub-receita (desde 14/10/2026: renomear o produto ou a ficha leva o nome
+  às linhas, e a mudança chega pelo aviso `fichas.alterado`). Insumo escrito à mão: o texto como foi digitado.
 - `so_delivery`: a linha só entra em pedido que sai da loja (a embalagem do delivery).
 - `so_balcao` (desde 12/10/2026): a linha só entra na venda feita na loja — balcão, mesa e totem (a
   embalagem do balcão). Nunca vem junto com `so_delivery`.
