@@ -204,16 +204,17 @@ export class FichasService {
     return carregarFichas(this.db, tenantId);
   }
 
-  // Unidade de estoque e conversões dos produtos ligados às linhas (para converter a quantidade).
+  // Unidade de estoque e conversões dos produtos ligados às linhas (para converter a quantidade), e o
+  // nome atual (o que a linha grava).
   async unidadesDosItens(tenantId: string, itemIds: (string | null | undefined)[]) {
     const ids = [...new Set(itemIds.filter((x): x is string => !!x))];
-    const mapa = new Map<string, { unidade: string; conversoes: Conversao[] }>();
+    const mapa = new Map<string, { unidade: string; conversoes: Conversao[]; nome: string }>();
     if (!ids.length) return mapa;
     const itens = await this.db
-      .select({ id: itemEstoque.id, unidade: itemEstoque.unidadeMedida })
+      .select({ id: itemEstoque.id, unidade: itemEstoque.unidadeMedida, nome: itemEstoque.nome })
       .from(itemEstoque)
       .where(and(eq(itemEstoque.tenantId, tenantId), inArray(itemEstoque.id, ids)));
-    for (const i of itens) mapa.set(i.id, { unidade: i.unidade, conversoes: [] });
+    for (const i of itens) mapa.set(i.id, { unidade: i.unidade, conversoes: [], nome: i.nome });
     const convs = await this.db
       .select({
         itemId: itemConversao.itemId,
@@ -228,21 +229,22 @@ export class FichasService {
   }
 
   // Unidade do rendimento, conversões e rendimento das fichas usadas como SUB-RECEITA: a linha que
-  // usa uma delas é gravada na unidade em que ela rende (mig 319).
+  // usa uma delas é gravada na unidade em que ela rende (mig 319). E o nome atual (o que a linha grava).
   async unidadesDasFichas(tenantId: string, fichaIds: (string | null | undefined)[]) {
     const ids = [...new Set(fichaIds.filter((x): x is string => !!x))];
-    const mapa = new Map<string, Rendimento>();
+    const mapa = new Map<string, Rendimento & { nome: string }>();
     if (!ids.length) return mapa;
     const fichas = await this.db
       .select({
         id: fichaTecnica.id,
+        nome: fichaTecnica.nome,
         rendimentoUnidade: fichaTecnica.rendimentoUnidade,
         conversoes: fichaTecnica.conversoes,
         rendimento: fichaTecnica.rendimento,
       })
       .from(fichaTecnica)
       .where(and(eq(fichaTecnica.tenantId, tenantId), inArray(fichaTecnica.id, ids)));
-    for (const f of fichas) mapa.set(f.id, rendeEm(f));
+    for (const f of fichas) mapa.set(f.id, { ...rendeEm(f), nome: f.nome });
     return mapa;
   }
 
@@ -252,6 +254,9 @@ export class FichasService {
   // rotina de baixa precisou mudar. A SUB-RECEITA idem, na unidade em que ela rende (mig 319): "35
   // grama" de um molho que rende 1 kg é gravado 0,035 — antes ficava 35 e contava 35 kg (ERR-229).
   // Linha sem produto ligado, ou com unidade que o produto (ou a sub-receita) não alcança, fica como veio.
+  // O NOME gravado na linha ligada é o atual do produto (ou da sub-receita), não o texto que a tela
+  // mandou: a ficha aberta antes de alguém renomear o produto mandaria o nome antigo (ERR-231). Quem
+  // renomeia depois é coberto pelo gatilho da mig 322, na nuvem.
   private async linhasParaGravar<T extends CreateIngredienteDto>(tenantId: string, linhas: T[]): Promise<T[]> {
     const unidades = await this.unidadesDosItens(
       tenantId,
@@ -264,9 +269,12 @@ export class FichasService {
       if (!i.subFichaId && !i.itemId)
         return { ...i, unidade: unidadeOuPadrao(i.unidade, `Unidade de "${String(i.insumoNome ?? '').slice(0, 40)}"`) };
       const sub = i.subFichaId ? subs.get(i.subFichaId) : undefined;
+      const item = !i.subFichaId && i.itemId ? unidades.get(i.itemId) : undefined;
+      const nomeAtual = sub?.nome ?? item?.nome;
+      if (nomeAtual && nomeAtual !== i.insumoNome) i = { ...i, insumoNome: nomeAtual };
       // Sub-receita sem unidade informada: a do rendimento dela.
       if (sub && !String(i.unidade ?? '').trim()) i = { ...i, unidade: sub.unidade };
-      const u = sub ?? (!i.subFichaId && i.itemId ? unidades.get(i.itemId) : undefined);
+      const u = sub ?? item;
       const fator = u ? fatorParaEstoque(i.unidade, u.unidade, u.conversoes) ?? 1 : 1;
       if (fator === 1) return i;
       return {
@@ -576,7 +584,7 @@ export class FichasService {
       fichaId,
       itemId: dto.subFichaId ? undefined : dto.itemId,
       subFichaId: dto.subFichaId,
-      insumoNome: dto.insumoNome,
+      insumoNome: linha.insumoNome,
       quantidade: linha.quantidade != null ? String(linha.quantidade) : '0',
       unidade: linha.unidade,
       fatorCorrecao: dto.fatorCorrecao != null ? String(dto.fatorCorrecao) : '1',
