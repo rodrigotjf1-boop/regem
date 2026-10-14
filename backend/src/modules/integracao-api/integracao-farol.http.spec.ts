@@ -218,7 +218,7 @@ descrever('API de integração — Farol (catálogo e fichas, sem preço nem cus
     const ing = (ordem: number, linha: Record<string, unknown>) =>
       ins('ficha_ingrediente', { tenant_id: t, ficha_id: id.fichaXb, ordem, custo_unitario: '45.67', ...linha });
     await ing(0, { item_id: id.itemPao, insumo_nome: 'Pão brioche', quantidade: '1', unidade: 'unidade' });
-    await ing(1, { sub_ficha_id: id.fichaBlend, insumo_nome: 'Blend da casa', quantidade: '0.12', unidade: 'kg' });
+    await ing(1, { sub_ficha_id: id.fichaBlend, insumo_nome: 'Blend da casa', quantidade: '0.12', unidade: 'grama' }); // 120 grama de um blend que rende em kg (mig 319)
     // 2 fatias gravadas como 0,04 kg (a unidade do estoque).
     await ing(2, { item_id: id.itemQueijo, insumo_nome: 'Queijo prato', quantidade: '0.04', unidade: 'fatia' });
     id.ingCebola = await ing(3, { item_id: id.itemCebola, insumo_nome: 'Cebola roxa', quantidade: '0.01', unidade: 'kg', fator_correcao: '1.2' });
@@ -570,7 +570,7 @@ descrever('API de integração — Farol (catálogo e fichas, sem preço nem cus
           // sub-receita: sem item do estoque, a quantidade sai como está
           {
             ordem: 1, insumo_id: null, sub_ficha_id: id.fichaBlend, nome: 'Blend da casa',
-            quantidade: 0.12, unidade: 'kg', quantidade_estoque: 0.12, unidade_estoque: null, fator_correcao: 1, so_delivery: false, so_balcao: false,
+            quantidade: 120, unidade: 'grama', quantidade_estoque: 0.12, unidade_estoque: 'kg', fator_correcao: 1, so_delivery: false, so_balcao: false,
           },
           // 0,04 kg no banco = 2 fatias (1 kg = 50 fatias)
           {

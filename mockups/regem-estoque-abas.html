@@ -21,6 +21,9 @@
    o do delivery —, valendo para as duas vendas, e o bloco do balcão some (o que estava nele fica
    guardado e volta se desligar). Desde 14/10/2026 a ficha tem também a "Margem de perda (%)", opcional:
    somada ao custo inteiro da ficha (com a embalagem), no balcão e no delivery; não muda a baixa de estoque.
+   E as "Conversões do rendimento" (mig 319), logo abaixo de Rendimento e Unidade — antes dos ingredientes, a
+   pedido do dono: "1 saco = 1,5 kg". A ficha que usa outra como sub-receita escolhe a unidade da lista DELA
+   (rendimento + conversões) e a quantidade é gravada na unidade em que ela rende.
    Onde a tela real difere, de propósito:
    - os FORMULÁRIOS daqui são resumidos. Os de verdade mantêm todos os campos que já existiam — na
      ficha técnica, por exemplo: fator de correção, CMV de delivery, markup e margem;
@@ -173,6 +176,11 @@ tbody tr:hover{background:#FAFBFD}
 .linha-emb{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:14px}
 .linha-emb input{min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 10px;background:#fff;min-width:0;flex:1 1 150px}
 .linha-emb input[type=number]{flex:0 0 72px}
+.emb.conv{border-style:solid;border-color:var(--line);background:var(--card)}
+.linha-conv{display:grid;grid-template-columns:auto minmax(0,1fr) auto 5.5rem minmax(0,1fr) auto;gap:6px;align-items:center;font-size:14px}
+.linha-conv input,.linha-conv select{min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 10px;background:#fff;min-width:0;width:100%}
+.aviso-conv{border-left:4px solid var(--warn);background:var(--warn-bg);border-radius:8px;padding:6px 10px;font-size:12.5px;margin:0}
+@media (max-width:560px){.linha-conv{grid-template-columns:5.5rem minmax(0,1fr) 40px}.linha-conv>span:first-child{text-align:right}.linha-conv>span:nth-child(3){text-align:center}}
 .cmv{background:#F7F9FB;border-radius:10px;padding:12px;text-align:center}
 .cmv .v{font-family:var(--mono);font-size:30px;font-weight:700;color:var(--crit)}
 #toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--navy);color:#fff;padding:11px 18px;border-radius:12px;font-weight:600;z-index:60;box-shadow:0 10px 26px rgba(0,0,0,.25);max-width:calc(100% - 24px)}
@@ -612,11 +620,18 @@ function editorFicha(r) {
     corpo: `<div class="dois-lados" style="display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:16px;align-items:start">
       <div style="display:grid;gap:14px">
         ${campo('Nome da receita / produção', `<input value="${r ? r.nome : ''}" placeholder="Ex.: Molho base de tomate">`)}
-        <div class="duas">${campo('Categoria', sel(['Base / pré-preparo', 'Prato do cardápio', 'Drink / coquetel', 'Sobremesa'], r ? r.cat : ''))}${campo('Rendimento', `<input value="${r ? r.rend : '10 porções'}">`)}</div>
+        <div class="duas">${campo('Categoria', sel(['Base / pré-preparo', 'Prato do cardápio', 'Drink / coquetel', 'Sobremesa'], r ? r.cat : ''))}<div class="duas">${campo('Rendimento', `<input type="number" step="any" inputmode="decimal" value="${r ? parseFloat(String(r.rend).replace(',', '.')) || 10 : 10}">`)}${campo('Unidade', sel(['porção', 'saco', 'kg', 'grama', 'litro', 'ml', 'unidade', 'pote'], 'saco'))}</div></div>
+        <div class="emb conv" data-bloco="conversoes-rendimento"><div class="cab"><span class="rot">Conversões do rendimento</span><button class="bt" type="button">＋ Conversão</button></div>
+          <p class="ajuda" style="margin:0">Quanto pesa ou em quanto se divide o que a ficha rende. Ex.: 1 <b>saco</b> = 1,5 <b>kg</b>; 1 <b>saco</b> = 10 <b>porção</b>. A ficha que usar esta como sub-receita escolhe em qual dessas unidades informa a quantidade. Quilo e grama, litro e ml o sistema converte sozinho.</p>
+          <div class="linha-conv"><span>1</span><select aria-label="Conversão 1: unidade"><option selected>saco</option><option>kg</option><option>porção</option></select><span>=</span><input type="number" step="any" value="1.5" aria-label="Conversão 1: quanto vale"><select aria-label="Conversão 1: em que unidade"><option>saco</option><option selected>kg</option><option>porção</option></select><button class="ic perigo" aria-label="Remover a conversão 1">🗑</button></div>
+          <p class="ajuda" style="margin:0" role="status">Rende <b>10 saco</b> = 15 kg = 15.000 grama.</p>
+          <p class="ajuda" style="margin:0">Usada como sub-receita em 2 fichas: ao mudar a unidade ou as conversões, as quantidades de lá são refeitas para continuar valendo o que foi informado.</p></div>
         <div><div class="rot" style="display:flex;justify-content:space-between;align-items:center">Ingredientes e custo <button class="bt" type="button">＋ Ingrediente</button></div>
           <div class="tabela" style="margin-top:6px"><table class="mini ings"><caption class="sr">Ingredientes da ficha</caption><thead><tr><th>Ingrediente</th><th>Qtd</th><th>Unidade</th><th>Custo</th><th><span class="sr">Remover</span></th></tr></thead><tbody>
-          ${[['Pão brioche', 1, 'unidade', 1.2], ['Carne moída', 0.15, 'kg', 5.4], ['Queijo muçarela peça', 0.04, 'kg', 0.92], ['Maionese verde (sub-receita)', 1, 'porção', 0.86]].map((i) => `<tr><td><input value="${i[0]}" aria-label="Ingrediente"></td><td><input type="number" value="${i[1]}" aria-label="Quantidade"></td><td>${i[2]}</td><td class="num">${brl(i[3])}</td><td><button class="ic perigo" aria-label="Remover ${i[0]}">🗑</button></td></tr>`).join('')}</tbody></table></div>
-          <p class="ajuda" style="margin:6px 0 0">O ingrediente é escolhido entre os Produtos do estoque (ou outra ficha, como sub-receita); a unidade e o custo vêm de lá.</p></div>
+          ${[['Pão brioche', 1, 'unidade', 1.2], ['Carne moída', 0.15, 'kg', 5.4], ['Queijo muçarela peça', 0.04, 'kg', 0.92], ['Maionese verde (sub-receita)', 30, 'grama', 0.86, ['kg', 'grama']]].map((i) => `<tr><td><input value="${i[0]}" aria-label="Ingrediente"></td><td><input type="number" value="${i[1]}" aria-label="Quantidade"></td><td>${i[4] ? `<select aria-label="Unidade de ${i[0]}">${i[4].map((u) => `<option${u === i[2] ? ' selected' : ''}>${u}</option>`).join('')}</select>` : i[2]}</td><td class="num">${brl(i[3])}</td><td><button class="ic perigo" aria-label="Remover ${i[0]}">🗑</button></td></tr>`).join('')}</tbody></table></div>
+          <p class="ajuda" style="margin:6px 0 0">O ingrediente é escolhido entre os Produtos do estoque (ou outra ficha, como sub-receita); a unidade e o custo vêm de lá.</p>
+          <p class="ajuda" style="margin:4px 0 0">🧩 Maionese verde — rende 1 kg: 30 grama = <b>0,03 kg</b> da sub-receita. A unidade sai da lista dela (o rendimento e as conversões).</p>
+          <p class="aviso-conv" style="margin-top:6px">Linha antiga numa unidade que a sub-receita não alcança: "Molho cheddar" rende em saco e não tem conversão para porção: esta linha conta 1 saco. Cadastre a conversão na ficha "Molho cheddar" (logo abaixo do rendimento) ou escolha outra unidade.</p></div>
         ${mesmaEmb ? '' : `<div class="emb balcao"><div class="cab"><span class="rot">🛍️ Embalagem do balcão</span><span class="ajuda">só em venda de balcão, mesa e totem</span></div>
           <p class="ajuda" style="margin:0">Papel, saco ou caixa que a loja usa quando vende no balcão. O pedido de delivery não conta esses. Se o balcão não usa embalagem, deixe em branco.</p>
           <div class="linha-emb"><input value="Papel acoplado" aria-label="Embalagem do balcão"><input type="number" value="1" aria-label="Quantidade"><span>unidade</span><span class="num">${brl(0.3)}</span><button class="ic perigo" aria-label="Remover Papel acoplado">🗑</button></div>

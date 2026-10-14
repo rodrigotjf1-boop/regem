@@ -10,10 +10,10 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { entitlement, fichaIngrediente, fichaTecnica, itemConversao, itemEstoque } from '../../db/schema';
 import { MODULO_MESMA_EMBALAGEM } from '../../common/embalagem-da-ficha';
 import { AuditoriaService } from '../auditoria/auditoria.service';
-import { arredondarEstoque, arredondarInformado, fatorParaEstoque, type Conversao } from '../../common/conversao-unidade';
-import { unidadeOuPadrao } from '../estoque/unidades';
+import { arredondarEstoque, arredondarInformado, CASAS_INFORMADO, chaveUnidade, fatorParaEstoque, type Conversao } from '../../common/conversao-unidade';
+import { conferirConversoes, unidadeOuPadrao } from '../estoque/unidades';
 import { custoTotalFicha, fichaAlcancavel, type FichaCusto } from '../../common/regras-negocio';
-import { carregarFichas, custoPorUnidadeDaFicha, dependenciasDasFichas, mesmaEmbalagemDaEmpresa } from './fichas-carga';
+import { carregarFichas, custoPorUnidadeDaFicha, dependenciasDasFichas, mesmaEmbalagemDaEmpresa, rendeEm, type Rendimento } from './fichas-carga';
 import { CreateFichaDto } from './dto/create-ficha.dto';
 import { CreateIngredienteDto } from './dto/create-ingrediente.dto';
 import { UpdateFichaDto } from './dto/update-ficha.dto';
@@ -154,6 +154,7 @@ export class FichasService {
         precoVenda: dto.precoVenda != null ? String(dto.precoVenda) : undefined,
         metaCmv: dto.metaCmv != null ? String(dto.metaCmv) : undefined,
         margemPerda: margemOuNada(dto.margemPerda),
+        conversoes: conferirConversoes(dto.conversoes) ?? [],
         setorId: dto.setorId,
         unidadeId: dto.unidadeId,
         popId: dto.popId,
@@ -226,22 +227,46 @@ export class FichasService {
     return mapa;
   }
 
+  // Unidade do rendimento, conversões e rendimento das fichas usadas como SUB-RECEITA: a linha que
+  // usa uma delas é gravada na unidade em que ela rende (mig 319).
+  async unidadesDasFichas(tenantId: string, fichaIds: (string | null | undefined)[]) {
+    const ids = [...new Set(fichaIds.filter((x): x is string => !!x))];
+    const mapa = new Map<string, Rendimento>();
+    if (!ids.length) return mapa;
+    const fichas = await this.db
+      .select({
+        id: fichaTecnica.id,
+        rendimentoUnidade: fichaTecnica.rendimentoUnidade,
+        conversoes: fichaTecnica.conversoes,
+        rendimento: fichaTecnica.rendimento,
+      })
+      .from(fichaTecnica)
+      .where(and(eq(fichaTecnica.tenantId, tenantId), inArray(fichaTecnica.id, ids)));
+    for (const f of fichas) mapa.set(f.id, rendeEm(f));
+    return mapa;
+  }
+
   // A linha chega com a quantidade e o custo NA UNIDADE ESCOLHIDA ("2 unidade" de um bacon em
   // kg, a R$ 0,50 a fatia) e é GRAVADA na unidade do estoque (0,02778 kg, a R$ 36 o kg) — a mesma
   // em que a venda e a produção baixam e em que o custo da ficha é somado. É por isso que nenhuma
-  // rotina de baixa precisou mudar. Linha sem produto ligado (ou sub-receita), ou com unidade que
-  // o produto não tem, fica como veio.
+  // rotina de baixa precisou mudar. A SUB-RECEITA idem, na unidade em que ela rende (mig 319): "35
+  // grama" de um molho que rende 1 kg é gravado 0,035 — antes ficava 35 e contava 35 kg (ERR-229).
+  // Linha sem produto ligado, ou com unidade que o produto (ou a sub-receita) não alcança, fica como veio.
   private async linhasParaGravar<T extends CreateIngredienteDto>(tenantId: string, linhas: T[]): Promise<T[]> {
     const unidades = await this.unidadesDosItens(
       tenantId,
       linhas.map((i) => (i.subFichaId ? null : i.itemId)),
     );
+    const subs = await this.unidadesDasFichas(tenantId, linhas.map((i) => i.subFichaId));
     return linhas.map((i) => {
       // Insumo escrito à mão (sem produto do estoque nem sub-receita): a unidade é só rótulo, mas
       // sai da MESMA lista do estoque — "un" vira "unidade"; o que não existe é recusado (400).
       if (!i.subFichaId && !i.itemId)
         return { ...i, unidade: unidadeOuPadrao(i.unidade, `Unidade de "${String(i.insumoNome ?? '').slice(0, 40)}"`) };
-      const u = !i.subFichaId && i.itemId ? unidades.get(i.itemId) : undefined;
+      const sub = i.subFichaId ? subs.get(i.subFichaId) : undefined;
+      // Sub-receita sem unidade informada: a do rendimento dela.
+      if (sub && !String(i.unidade ?? '').trim()) i = { ...i, unidade: sub.unidade };
+      const u = sub ?? (!i.subFichaId && i.itemId ? unidades.get(i.itemId) : undefined);
       const fator = u ? fatorParaEstoque(i.unidade, u.unidade, u.conversoes) ?? 1 : 1;
       if (fator === 1) return i;
       return {
@@ -253,22 +278,27 @@ export class FichasService {
   }
 
   // Devolve cada linha como a pessoa a informou (quantidade e custo na unidade escolhida) e,
-  // ao lado, o que está gravado: a quantidade na unidade do estoque. Anexa o nome da sub-ficha.
+  // ao lado, o que está gravado: a quantidade na unidade do estoque (ou do rendimento da
+  // sub-receita). Anexa o nome da sub-ficha.
   private async enriquecer(
     tenantId: string,
     ings: any[],
     nome: Record<string, string>,
     mapa: Record<string, FichaCusto>,
     fichaDoItem: Map<string, string>,
+    fichas: any[],
   ) {
     const unidades = await this.unidadesDosItens(tenantId, ings.map((i) => (i.subFichaId ? null : i.itemId)));
+    const subs = new Map(fichas.map((f) => [f.id as string, rendeEm(f)]));
     return ings.map((i) => {
-      const u = !i.subFichaId && i.itemId ? unidades.get(i.itemId) : undefined;
+      const sub = i.subFichaId ? subs.get(i.subFichaId) : undefined;
+      const u = sub ?? (!i.subFichaId && i.itemId ? unidades.get(i.itemId) : undefined);
       const fator = u ? fatorParaEstoque(i.unidade, u.unidade, u.conversoes) ?? 1 : 1;
       // Produto FEITO NA LOJA (mig 314): o custo da linha é o da ficha que o produz — calculado
-      // agora, não o que ficou gravado quando a linha foi salva.
+      // agora, não o que ficou gravado quando a linha foi salva. A sub-receita idem: o custo de uma
+      // unidade do rendimento dela, agora.
       const fichaDoItemId = !i.subFichaId && i.itemId ? fichaDoItem.get(i.itemId) ?? null : null;
-      const pelaFicha = fichaDoItemId ? custoPorUnidadeDaFicha(fichaDoItemId, mapa) : 0;
+      const pelaFicha = i.subFichaId ? custoPorUnidadeDaFicha(i.subFichaId, mapa) : fichaDoItemId ? custoPorUnidadeDaFicha(fichaDoItemId, mapa) : 0;
       const custoNoEstoque = pelaFicha > 0 ? pelaFicha : Number(i.custoUnitario);
       return {
         ...i,
@@ -308,7 +338,7 @@ export class FichasService {
 
   async list(tenantId: string) {
     const { fichas, ings, mapa, nome, feitos, fichaDoItem, mesmaEmbalagem } = await this.carregarTudo(tenantId);
-    const linhas = await this.enriquecer(tenantId, ings, nome, mapa, fichaDoItem);
+    const linhas = await this.enriquecer(tenantId, ings, nome, mapa, fichaDoItem, fichas);
     return fichas.map((f) => {
       const fi = linhas
         .filter((i) => i.fichaId === f.id)
@@ -336,7 +366,7 @@ export class FichasService {
     const custoDelivery = custoTotalFicha(id, mapa, 'delivery', mesmaEmbalagem);
     return {
       ...f,
-      ingredientes: await this.enriquecer(tenantId, fi, nome, mapa, fichaDoItem),
+      ingredientes: await this.enriquecer(tenantId, fi, nome, mapa, fichaDoItem, fichas),
       produtosFeitos: feitos.filter((p) => p.fichaId === id).map((p) => ({ id: p.itemId, nome: p.nome })),
       ...computarDois(f, custoBalcao, custoDelivery),
     };
@@ -347,6 +377,8 @@ export class FichasService {
     this.conferirUnidadesLivres(dto.ingredientes);
     this.conferirCanais(dto.ingredientes);
     if (dto.rendimentoUnidade !== undefined) unidadeOuPadrao(dto.rendimentoUnidade, 'Unidade do rendimento', 'porção');
+    // Conferidas antes de gravar qualquer coisa: a recusa (400) não deixa a ficha pela metade.
+    const conversoes = conferirConversoes(dto.conversoes);
     const patch: any = {};
     if (dto.nome !== undefined) patch.nome = dto.nome;
     if (dto.categoria !== undefined) patch.categoria = dto.categoria;
@@ -366,13 +398,21 @@ export class FichasService {
     if (dto.setorId !== undefined) patch.setorId = dto.setorId;
     if (dto.popId !== undefined) patch.popId = dto.popId;
     if (dto.ativo !== undefined) patch.ativo = dto.ativo;
+    // Conversões do rendimento (mig 319): ausente mantém; [] tira.
+    if (conversoes !== undefined) patch.conversoes = conversoes;
+    let subReceitasAjustadas = 0;
     if (Object.keys(patch).length) {
-      await this.db
-        .update(fichaTecnica)
-        .set(patch)
-        .where(
-          and(eq(fichaTecnica.id, id), eq(fichaTecnica.tenantId, tenantId)),
-        );
+      const doRegistro = and(eq(fichaTecnica.id, id), eq(fichaTecnica.tenantId, tenantId));
+      const colunas = { rendimentoUnidade: fichaTecnica.rendimentoUnidade, conversoes: fichaTecnica.conversoes, rendimento: fichaTecnica.rendimento };
+      const mexeNaUnidade = patch.rendimentoUnidade !== undefined || patch.conversoes !== undefined;
+      // A unidade do rendimento ou as conversões mudaram: as linhas das fichas que usam esta como
+      // sub-receita são refeitas na MESMA transação (`reconverterSubReceitas`). A trava na linha da
+      // ficha impede que duas edições ao mesmo tempo partam do mesmo "antes".
+      subReceitasAjustadas = await this.db.transaction(async (tx) => {
+        const [antes] = mexeNaUnidade ? await tx.select(colunas).from(fichaTecnica).where(doRegistro).for('update') : [];
+        const [depois] = await tx.update(fichaTecnica).set(patch).where(doRegistro).returning(colunas);
+        return antes && depois ? this.reconverterSubReceitas(tx, tenantId, id, rendeEm(antes), rendeEm(depois)) : 0;
+      });
     }
     // Ingredientes (replace-all) quando enviados — valida ciclo das sub-fichas.
     if (dto.ingredientes) {
@@ -418,7 +458,58 @@ export class FichasService {
           })),
         );
     }
-    return this.getOne(tenantId, id);
+    return { ...(await this.getOne(tenantId, id)), subReceitasAjustadas };
+  }
+
+  // A linha de outra ficha que usa ESTA como sub-receita guarda a quantidade na unidade em que esta
+  // rende (35 grama de um molho que rende 1 kg = 0,035) e, ao lado, a unidade que a pessoa escolheu.
+  // Mudou a unidade do rendimento ou uma conversão (1 saco passa a ser 2 kg): o que a pessoa
+  // informou — "35 grama" — continua valendo e a quantidade gravada é refeita. A unidade da linha
+  // que deixou de ser alcançada passa a ser a do rendimento, com a MESMA parte da receita (a conta
+  // de custo e de baixa não muda). Mesma regra de `estoque.service › reconverterFichas`, para o
+  // produto do estoque. Devolve quantas linhas foram regravadas.
+  private async reconverterSubReceitas(tx: any, tenantId: string, fichaId: string, antes: Rendimento, depois: Rendimento): Promise<number> {
+    const assinatura = (r: Rendimento) =>
+      JSON.stringify([chaveUnidade(r.unidade), r.conversoes.map((c) => [chaveUnidade(c.unidadeDe), Number(c.fator), chaveUnidade(c.unidadePara)])]);
+    if (assinatura(antes) === assinatura(depois)) return 0; // salvou sem mexer na unidade nem nas conversões
+    const linhas = await tx
+      .select({ id: fichaIngrediente.id, unidade: fichaIngrediente.unidade })
+      .from(fichaIngrediente)
+      .where(and(eq(fichaIngrediente.tenantId, tenantId), eq(fichaIngrediente.subFichaId, fichaId), isNull(fichaIngrediente.deletedAt)));
+    // Um UPDATE por unidade usada (são poucas), não um por linha.
+    const porUnidade = new Map<string, { unidade: string | null; ids: string[] }>();
+    for (const l of linhas) {
+      const g = porUnidade.get(chaveUnidade(l.unidade)) ?? { unidade: l.unidade as string | null, ids: [] as string[] };
+      g.ids.push(l.id);
+      porUnidade.set(chaveUnidade(l.unidade), g);
+    }
+    let ajustadas = 0;
+    for (const g of porUnidade.values()) {
+      const fAntes = fatorParaEstoque(g.unidade, antes.unidade, antes.conversoes) ?? 1;
+      const fDepois = fatorParaEstoque(g.unidade, depois.unidade, depois.conversoes);
+      if (fDepois == null) {
+        const escala = depois.rendimento / antes.rendimento;
+        await tx
+          .update(fichaIngrediente)
+          .set({
+            unidade: depois.unidade,
+            ...(Math.abs(escala - 1) < 1e-12 ? {} : { quantidade: sql`round(${fichaIngrediente.quantidade} * ${String(escala)}::numeric, 15)` }),
+          })
+          .where(inArray(fichaIngrediente.id, g.ids));
+        ajustadas += g.ids.length;
+        continue;
+      }
+      if (Math.abs(fDepois / fAntes - 1) < 1e-12) continue;
+      // Volta ao que a pessoa informou (÷ fator antigo, com o mesmo corte da tela) e converte de novo.
+      await tx
+        .update(fichaIngrediente)
+        .set({
+          quantidade: sql`round(round(${fichaIngrediente.quantidade} / ${String(fAntes)}::numeric, ${CASAS_INFORMADO}) * ${String(fDepois)}::numeric, 15)`,
+        })
+        .where(inArray(fichaIngrediente.id, g.ids));
+      ajustadas += g.ids.length;
+    }
+    return ajustadas;
   }
 
   async remove(tenantId: string, id: string) {
@@ -487,7 +578,7 @@ export class FichasService {
       subFichaId: dto.subFichaId,
       insumoNome: dto.insumoNome,
       quantidade: linha.quantidade != null ? String(linha.quantidade) : '0',
-      unidade: dto.unidade,
+      unidade: linha.unidade,
       fatorCorrecao: dto.fatorCorrecao != null ? String(dto.fatorCorrecao) : '1',
       custoUnitario: linha.custoUnitario != null ? String(linha.custoUnitario) : '0',
       somenteDelivery: dto.somenteDelivery ?? false,

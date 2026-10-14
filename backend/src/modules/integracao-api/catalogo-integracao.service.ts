@@ -127,10 +127,13 @@ export class CatalogoIntegracaoService {
       select fi.ficha_id::text as ficha_id, fi.item_id::text as item_id, fi.sub_ficha_id::text as sub_ficha_id,
              fi.insumo_nome, fi.quantidade::float8 as quantidade, fi.unidade,
              fi.fator_correcao::float8 as fator_correcao, fi.somente_delivery, fi.somente_balcao, fi.ordem,
-             i.unidade_medida as item_unidade
+             i.unidade_medida as item_unidade,
+             s.rendimento_unidade as sub_unidade, s.conversoes as sub_conversoes
         from ficha_ingrediente fi
         join ficha_tecnica f on f.id = fi.ficha_id and f.tenant_id = fi.tenant_id
         left join item_estoque i on i.id = fi.item_id and i.tenant_id = fi.tenant_id
+        -- A sub-receita: em que unidade rende e as conversões dela (mig 319) — a linha é gravada nela.
+        left join ficha_tecnica s on s.id = fi.sub_ficha_id and s.tenant_id = fi.tenant_id
        where fi.tenant_id = ${tenant} and fi.deleted_at is null and f.deleted_at is null and ${fichaDaLoja}
        order by fi.ficha_id, fi.ordem, fi.insumo_nome, fi.id`);
 

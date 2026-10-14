@@ -4,6 +4,7 @@ import { custoTotalFicha, fichaAlcancavel, type FichaCusto } from '../../common/
 import { MODULO_MESMA_EMBALAGEM } from '../../common/embalagem-da-ficha';
 import { entitlement, fichaIngrediente, fichaTecnica, itemEstoque } from '../../db/schema';
 import { normalizarUnidade } from '../estoque/unidades';
+import type { Conversao } from '../../common/conversao-unidade';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -37,6 +38,17 @@ export async function mesmaEmbalagemDaEmpresa(db: any, tenantId: string): Promis
     .from(entitlement)
     .where(and(eq(entitlement.tenantId, tenantId), eq(entitlement.modulo, MODULO_MESMA_EMBALAGEM)));
   return !!e?.ativo;
+}
+
+// Em que unidade a ficha rende, as conversões dela e quanto rende (mig 319). É contra isso que a linha
+// de outra ficha que a usa como sub-receita é convertida. Ficha sem unidade rende em "porção".
+export type Rendimento = { unidade: string; conversoes: Conversao[]; rendimento: number };
+export function rendeEm(f: { rendimentoUnidade?: string | null; conversoes?: unknown; rendimento?: unknown }): Rendimento {
+  return {
+    unidade: normalizarUnidade(f.rendimentoUnidade) ?? (String(f.rendimentoUnidade ?? '').trim() || 'porção'),
+    conversoes: Array.isArray(f.conversoes) ? (f.conversoes as Conversao[]) : [],
+    rendimento: Number(f.rendimento) > 0 ? Number(f.rendimento) : 1,
+  };
 }
 
 /** A ficha existe e não foi excluída? */

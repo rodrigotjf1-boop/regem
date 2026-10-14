@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { proporcaoFixa } from '../../common/conversao-unidade';
 
 // Unidades de medida do estoque — LISTA FECHADA. O cadastro de produto, as conversões e a
 // importação de planilha só aceitam o que está aqui: com texto livre, cada loja escrevia de um
@@ -101,4 +102,32 @@ export function exigirUnidade(texto: unknown, campo: string): UnidadeEstoque {
     throw new BadRequestException(`${campo}: unidade de medida ${visto} não existe. Escolha uma da lista.`);
   }
   return u;
+}
+
+/**
+ * Conversões como vão ser gravadas (cadastro do estoque e rendimento da ficha técnica): fica só a
+ * linha preenchida (unidades e fator > 0) e as duas unidades têm de ser da LISTA — o texto livre
+ * aqui é o que criava "pacotes" ao lado de "pacote". Quilo e grama, litro e ml o sistema converte
+ * sozinho (`common/conversao-unidade.ts`): a linha que repete a medida passa (não atrapalha); a que
+ * a CONTRADIZ — "1 grama = 1000 kg", unidades trocadas — é recusada (400), porque valeria no lugar
+ * da medida e erraria toda conta. Ausente = `undefined` (quem chama mantém o que está gravado).
+ */
+export function conferirConversoes(
+  conversoes?: { unidadeDe: string; fator: number; unidadePara: string }[] | null,
+): { unidadeDe: string; fator: number; unidadePara: string }[] | undefined {
+  if (!conversoes) return undefined;
+  return conversoes
+    .filter((c) => c.unidadeDe?.trim() && c.unidadePara?.trim() && Number(c.fator) > 0)
+    .map((c) => {
+      const unidadeDe = exigirUnidade(c.unidadeDe, 'Conversão');
+      const unidadePara = exigirUnidade(c.unidadePara, 'Conversão');
+      if (unidadeDe === unidadePara)
+        throw new BadRequestException(`Conversão: as duas unidades são "${unidadeDe}". Escolha unidades diferentes.`);
+      const fixa = proporcaoFixa(unidadeDe, unidadePara);
+      if (fixa != null && Math.abs(Number(c.fator) / fixa - 1) > 1e-9)
+        throw new BadRequestException(
+          `Conversão: 1 ${unidadeDe} = ${String(fixa).replace('.', ',')} ${unidadePara}, e o sistema já faz essa conta sozinho. Tire esta linha.`,
+        );
+      return { unidadeDe, fator: Number(c.fator), unidadePara };
+    });
 }
