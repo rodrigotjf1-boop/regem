@@ -16,7 +16,7 @@ import { DIAS_SEM_SINAL_PARA_REVOGAR, revogarServidoresSubstituidos } from '../l
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 /** Quem se identifica pelo `X-Integrador` hoje. Valor fora da lista é ignorado. */
-const INTEGRADORES = new Set(['gogem']);
+export const INTEGRADORES = new Set(['gogem']);
 /** O "visto" do integrador é regravado no máximo de hora em hora — o GoGeM chama a cada poucos minutos. */
 const INTEGRADOR_VISTO_MINUTOS = 60;
 

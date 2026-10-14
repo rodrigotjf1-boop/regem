@@ -1,5 +1,6 @@
 import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
+import { AceitaIntegrador } from '../sync/aceita-integrador.decorator';
 import { VendasService } from './vendas.service';
 import { VendaExternaPdvDto } from './dto/venda-externa-pdv.dto';
 import { VendaExternaFalhaDto } from './dto/venda-externa-falha.dto';
@@ -14,6 +15,7 @@ export class VendasExternaController {
 
   @Post('externa-pdv')
   @UseGuards(SyncTokenGuard)
+  @AceitaIntegrador()
   venderTotem(@SyncCtx() ctx: SyncCtxData, @Body() dto: VendaExternaPdvDto) {
     return this.service.venderTotem(ctx.tenantId, ctx, dto);
   }
@@ -23,6 +25,7 @@ export class VendasExternaController {
   // estoque). O GoGeM relaya best-effort — 404 aqui é ignorado do lado do totem.
   @Post('externa-pdv/falha')
   @UseGuards(SyncTokenGuard)
+  @AceitaIntegrador()
   falhaTotem(@SyncCtx() ctx: SyncCtxData, @Body() dto: VendaExternaFalhaDto) {
     return this.service.registrarFalhaTotem(ctx.tenantId, ctx, dto);
   }
