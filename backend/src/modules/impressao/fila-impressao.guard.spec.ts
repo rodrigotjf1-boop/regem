@@ -1,6 +1,8 @@
 import 'reflect-metadata';
-import { readdirSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { rotaDaFilaDeImpressao } from '../../common/dispositivo-limite';
+import { MARCA_REIMPRESSAO } from '../../common/impressao-marca';
 import { UnauthorizedException } from '@nestjs/common';
 import { GUARDS_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { FilaImpressaoGuard } from './fila-impressao.guard';
@@ -86,7 +88,7 @@ describe('lista fechada: a guarda da estação só existe nas rotas da fila', ()
     expect(arquivos.length).toBeGreaterThan(40);
   });
 
-  it('só as 5 rotas da fila de impressão usam a FilaImpressaoGuard', () => {
+  it('só as 7 rotas da fila de impressão usam a FilaImpressaoGuard', () => {
     const usos: string[] = [];
     for (const arq of arquivos) {
       const mod = require(arq);
@@ -103,11 +105,25 @@ describe('lista fechada: a guarda da estação só existe nas rotas da fila', ()
       }
     }
     expect(usos.sort()).toEqual([
+      'ImpressaoController#batida',
       'ImpressaoController#devolver',
       'ImpressaoController#erro',
       'ImpressaoController#impresso',
+      'ImpressaoController#interrompido',
       'ImpressaoController#pendentes',
       'ImpressaoController#pendentesEspera',
     ]);
+  });
+
+  it('as rotas da estação saem do limite por IP e entram no limite por dispositivo', () => {
+    const id = '0b6f3a1e-1c2d-4e5f-8a9b-0c1d2e3f4a5b';
+    expect(rotaDaFilaDeImpressao('/api/v1/impressao/estacao/batida')).toBe(true);
+    expect(rotaDaFilaDeImpressao(`/api/v1/impressao/${id}/interrompido`)).toBe(true);
+    expect(rotaDaFilaDeImpressao(`/api/v1/impressao/${id}/reimprimir`)).toBe(false); // gestão: JWT
+  });
+
+  it('a marca de reimpressão da API é a mesma do servidor da loja', () => {
+    const fonte = readFileSync(join(__dirname, '..', '..', '..', 'edge', 'impressao-fila.mjs'), 'utf8');
+    expect(fonte).toContain(`export const MARCA_REIMPRESSAO = '${MARCA_REIMPRESSAO}';`);
   });
 });

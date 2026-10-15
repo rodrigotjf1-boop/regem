@@ -159,6 +159,17 @@ export const SQL_IMPRESSORAS_COM_AVISO = `
    order by s.estado_em desc
    limit 20`;
 
+// Estações de impressão desta loja e o último sinal de cada uma (mig 325): vai na saúde do
+// servidor — o console vê "Estação Delivery fora há 3 min". Sem sinal = nunca bateu.
+//  $1 = loja deste servidor (ou null).
+export const SQL_ESTACOES = `
+  select e.id, e.nome, s.versao, s.maquina, s.visto_em as "vistoEm"
+    from equipamento e left join estacao_status s on s.equipamento_id = e.id
+   where e.tipo = 'estacao_impressao' and e.ativo and e.revogado_em is null
+     and ($1::uuid is null or e.unidade_id is null or e.unidade_id = $1::uuid)
+   order by e.nome
+   limit 20`;
+
 // DANFE mandada pela nuvem (comando 'imprimir_danfe', mig 269) — mesma regra da nuvem para a
 // impressora: a que imprimiu o cupom desta venda; senão uma de cupom da loja (padrão primeiro).
 export const SQL_DANFE_JA_NA_FILA = `

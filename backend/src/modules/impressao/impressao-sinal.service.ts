@@ -21,7 +21,8 @@ import { DRIZZLE, DrizzleDB, resolverSsl } from '../../db/drizzle.module';
  *
  * Sem LISTEN (conexão por pooler em modo transação, queda do banco) nada quebra: a espera
  * reconsulta a fila a cada 5 s por conta própria — pior caso, 5 s de atraso.
- * No servidor local (EDGE_MODE) não sobe: lá quem imprime é o impressao-daemon.
+ * No servidor da loja também sobe (fase 1 da central de impressão): as ESTAÇÕES de impressão dos
+ * PCs esperam a fila na API do servidor, e sem o aviso cada cupom novo levava até 5 s para sair.
  */
 @Injectable()
 export class ImpressaoSinalService implements OnModuleInit, OnModuleDestroy {
@@ -47,7 +48,6 @@ export class ImpressaoSinalService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit() {
-    if (String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true') return;
     if (process.env.NODE_ENV === 'test') return;
     void this.conectar();
   }

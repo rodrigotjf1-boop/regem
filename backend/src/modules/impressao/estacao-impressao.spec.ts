@@ -89,6 +89,7 @@ descrever('estação de impressão (Postgres)', () => {
     if (!pool) return;
     await q('delete from impressao_job where tenant_id = $1', [T]).catch(() => undefined);
     await q('delete from impressora_status where tenant_id = $1', [T]).catch(() => undefined);
+    await q('delete from estacao_status where tenant_id = $1', [T]).catch(() => undefined);
     await q('delete from equipamento where tenant_id = $1', [T]).catch(() => undefined);
     await q('delete from unidade where tenant_id = $1', [T]).catch(() => undefined);
     await q('delete from empresa where id = $1', [T]).catch(() => undefined);
@@ -203,5 +204,54 @@ descrever('estação de impressão (Postgres)', () => {
     const par: any = await equip.parearPorCodigo(codigo);
     expect(par.terminalId).toBe(nova);
     expect((await equip.validarEstacao(nova, par.segredo))?.id).toBe(nova);
+  });
+
+  // PR 3: o serviço da estação avisa "parou no meio" e bate a cada minuto.
+  describe('cupom interrompido e batida da estação (mig 325)', () => {
+    const conteudo = async (id: string) =>
+      (await q(`select status, erro, conteudo, tentativas from impressao_job where id = $1`, [id])).rows[0];
+
+    it('interrompido: só a estação que reservou; volta sem gastar tentativa, com a marca uma vez', async () => {
+      const id = (await q(
+        `insert into impressao_job (tenant_id, unidade_id, equipamento_id, via, conteudo) values ($1,$2,$3,'cliente','PEDIDO 452') returning id`,
+        [T, LOJA_1, IMP_S1],
+      )).rows[0].id as string;
+      await fila.jobsPendentes(T, LOJA_1, { estacaoId: S1 });
+      await expect(fila.marcarInterrompido(T, id, 'sem papel', S2)).rejects.toThrow(/desta estação/);
+      await fila.marcarInterrompido(T, id, 'sem papel', S1);
+      const j = await conteudo(id);
+      expect(j).toMatchObject({ status: 'pendente', erro: 'interrompido: sem papel', tentativas: 0 });
+      expect(j.conteudo).toBe('@CB *** REIMPRESSÃO ***\n@C cupom interrompido (sem papel)\nPEDIDO 452');
+      // Parou de novo: a marca não se repete. Fora da reserva (já pendente): recusa.
+      await expect(fila.marcarInterrompido(T, id, 'tampa aberta', S1)).rejects.toThrow(/desta estação/);
+      await fila.jobsPendentes(T, LOJA_1, { estacaoId: S1 });
+      await fila.marcarInterrompido(T, id, 'tampa aberta', S1);
+      expect((await conteudo(id)).conteudo.split('REIMPRESS').length - 1).toBe(1);
+    });
+
+    it('batida: grava o sinal e os estados SÓ das impressoras desta estação; "desde quando" muda só na mudança', async () => {
+      await fila.batidaEstacao(T, LOJA_1, S1, {
+        versao: '1.30.4', maquina: 'PC-DELIVERY', impressoras: ['MP-4200 TH', 'Microsoft Print to PDF'],
+        estados: [
+          { equipamentoId: IMP_S1, estado: 'sem_papel', detalhe: 'sem papel' },
+          { equipamentoId: IMP_S2, estado: 'erro', detalhe: 'de outra estação: ignorado' },
+          { equipamentoId: IMP_SERVIDOR, estado: 'tampa_aberta' }, // do servidor: ignorado
+          { equipamentoId: IMP_S1, estado: 'inventado' }, // estado que não existe: ignorado
+        ],
+      });
+      const sinal = (await q(`select versao, maquina, impressoras, visto_em from estacao_status where equipamento_id = $1`, [S1])).rows[0];
+      expect(sinal).toMatchObject({ versao: '1.30.4', maquina: 'PC-DELIVERY', impressoras: ['MP-4200 TH', 'Microsoft Print to PDF'] });
+      const estado = async (id: string) =>
+        (await q(`select estado, estado_em from impressora_status where equipamento_id = $1`, [id])).rows[0];
+      const a = await estado(IMP_S1);
+      expect(a.estado).toBe('sem_papel');
+      expect(await estado(IMP_S2)).toBeUndefined();
+      expect(await estado(IMP_SERVIDOR)).toBeUndefined();
+      await new Promise((r) => setTimeout(r, 20));
+      await fila.batidaEstacao(T, LOJA_1, S1, { estados: [{ equipamentoId: IMP_S1, estado: 'sem_papel', detalhe: 'sem papel' }] });
+      expect(new Date((await estado(IMP_S1)).estado_em).getTime()).toBe(new Date(a.estado_em).getTime());
+      await fila.batidaEstacao(T, LOJA_1, S1, { estados: [{ equipamentoId: IMP_S1, estado: 'pronta' }] });
+      expect(new Date((await estado(IMP_S1)).estado_em).getTime()).toBeGreaterThan(new Date(a.estado_em).getTime());
+    });
   });
 });
