@@ -131,6 +131,7 @@ export class SyncService {
     desde?: string,
     cursores?: Record<string, string>,
     unidadeId?: string | null,
+    equipamentoId?: string | null,
   ) {
     const saida: any = await this.deltas(
       tenantId, TABELAS_PULL, desde, cursores, await this.lojaDoEdge(tenantId, unidadeId),
@@ -142,8 +143,42 @@ export class SyncService {
     // como desatualizado e manda reprovisionar, e o AppSync cai na consulta base. Aqui pedimos
     // a restauração por arquivo, que é o nosso "recomeçar limpo" (e não perde o que é local:
     // o push sobe antes).
-    if (atrasadoDemais(desde, cursores)) saida.reinicializar = true;
+    if (await this.precisaReinicializar(desde, cursores, equipamentoId)) saida.reinicializar = true;
     return saida;
+  }
+
+  // Cursor velho não é servidor parado: tabela de cadastro que ninguém mexe há 30 dias fica com
+  // o cursor na última mudança dela, e o servidor que sincroniza todo minuto recebia
+  // "reinicializar" a cada pull — restauração em laço, batida atrasada e a nuvem assumindo os
+  // pedidos da loja (ERR-233). O cursor só levanta a suspeita; quem decide é o status do
+  // servidor (`edge_status`): parado ou falhando há mais que a janela. Sem status (servidor
+  // que nunca bateu, ou banco sem a tabela), vale a regra antiga.
+  private async precisaReinicializar(
+    desde?: string,
+    cursores?: Record<string, string>,
+    equipamentoId?: string | null,
+  ): Promise<boolean> {
+    if (!atrasadoDemais(desde, cursores)) return false;
+    if (!equipamentoId) return true;
+    let status: any;
+    try {
+      const r: any = await this.db.execute(sql`
+        select recebido_em, saude->>'fimDeCicloEm' as fim_de_ciclo_em,
+               saude->>'syncFalhandoDesde' as sync_falhando_desde
+          from edge_status where equipamento_id = ${equipamentoId}`);
+      status = (r.rows ?? r)[0];
+    } catch {
+      return true;
+    }
+    if (!status) return true;
+    return ausenteDemais(
+      {
+        recebidoEm: status.recebido_em,
+        fimDeCicloEm: status.fim_de_ciclo_em,
+        syncFalhandoDesde: status.sync_falhando_desde,
+      },
+      desde,
+    );
   }
 
   // A loja pela qual filtrar o pull: a do servidor local, e SÓ quando a empresa tem mais de
@@ -595,6 +630,31 @@ export function atrasadoDemais(desde?: string, cursores?: Record<string, string>
   // A época (1970) é o edge NOVO pedindo tudo desde o começo — não é atraso.
   const maisVelha = Math.min(...marcas);
   return maisVelha > new Date('1971-01-01').getTime() && maisVelha < limite;
+}
+
+// O servidor ficou fora da janela de retenção? Pelo status dele, não pela data dos dados:
+//  • o último ciclo completo (`fimDeCicloEm`, carimbado pela nuvem na batida do fim do ciclo;
+//    sem ele, o `recebido_em`) é mais velho que a janela → esteve desligado ou sem internet;
+//  • o sync falha há mais que a janela E o dado mais novo que ele tem (`desde`, o cursor que
+//    só avança) é de antes da falha → o pull não trouxe nada nesse tempo. Se só o envio falha,
+//    o pull segue trazendo dado e o `desde` passa da falha — recomeçar não resolveria nada.
+export function ausenteDemais(
+  status: { recebidoEm?: unknown; fimDeCicloEm?: unknown; syncFalhandoDesde?: unknown },
+  desde?: string,
+  agora = Date.now(),
+): boolean {
+  const limite = agora - RETENCAO_EXCLUSAO_DIAS * 86400000;
+  const quando = (v: unknown) => {
+    if (v == null || v === '') return null;
+    const t = (v instanceof Date ? v : new Date(String(v))).getTime();
+    return Number.isFinite(t) ? t : null;
+  };
+  const ultimoCiclo = quando(status.fimDeCicloEm) ?? quando(status.recebidoEm);
+  if (ultimoCiclo == null || ultimoCiclo < limite) return true;
+  const falhando = quando(status.syncFalhandoDesde);
+  if (falhando == null || falhando >= limite) return false;
+  const maisNovo = quando(String(desde ?? '').split('|')[0]);
+  return maisNovo == null || maisNovo < falhando;
 }
 
 // Aplica exclusões recebidas (sync_exclusao). Em savepoint por linha: apagar o pai antes do
