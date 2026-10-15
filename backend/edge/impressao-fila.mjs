@@ -148,6 +148,17 @@ export const SQL_SEM_RESPONDER = `
    order by s.ultima_falha_em desc
    limit 20`;
 
+// Impressoras que RESPONDERAM um problema (mig 324): sem papel, papel acabando, tampa aberta,
+// erro, parada — e desde quando. Vai na saúde do servidor para o painel e o console.
+//  $1 = loja deste servidor (ou null).
+export const SQL_IMPRESSORAS_COM_AVISO = `
+  select e.id, e.nome, s.estado, s.estado_detalhe as detalhe, s.estado_em as desde
+    from impressora_status s join equipamento e on e.id = s.equipamento_id
+   where s.estado is not null and s.estado <> 'pronta'
+     and ($1::uuid is null or e.unidade_id is null or e.unidade_id = $1::uuid)
+   order by s.estado_em desc
+   limit 20`;
+
 // DANFE mandada pela nuvem (comando 'imprimir_danfe', mig 269) — mesma regra da nuvem para a
 // impressora: a que imprimiu o cupom desta venda; senão uma de cupom da loja (padrão primeiro).
 export const SQL_DANFE_JA_NA_FILA = `
@@ -194,3 +205,37 @@ export const SQL_FILA_POR_IMPRESSORA = `
    group by j.equipamento_id
    order by min(j.criado_em)
    limit 50`;
+
+// CUPOM INTERROMPIDO (fase 1 da central de impressão): a impressora parou no meio (sem papel,
+// tampa aberta, papel preso) ou parou antes de todas as vias saírem. Volta para a fila SEM gastar
+// tentativa e com a marca de reimpressão no topo — decisão do dono (15/10/2026): o cupom sai de
+// novo INTEIRO, marcado, para ninguém fazer o pedido duas vezes. A marca entra uma vez só, por
+// mais que pare de novo; etiqueta não leva marca (o conteúdo dela começa com @ETIQUETA, que define
+// o formato da etiqueta).
+//  $1 = job; $2 = id deste worker; $3 = motivo (ex.: 'sem papel').
+export const MARCA_REIMPRESSAO = '@CB *** REIMPRESSÃO ***';
+export const SQL_INTERROMPIDO = `
+  update impressao_job set
+     status = 'pendente', claim_por = null, claim_ate = null,
+     erro = 'interrompido: ' || $3::text,
+     conteudo = case
+       when conteudo like '@ETIQUETA%' or conteudo like '@CB *** REIMPRESS%' then conteudo
+       else '${MARCA_REIMPRESSAO}' || E'\n' || '@C cupom interrompido (' || $3::text || ')' || E'\n' || conteudo
+     end
+   where id = $1 and claim_por = $2
+  returning id`;
+
+// O que a impressora RESPONDEU da última vez (mig 324): pronta, papel acabando, sem papel, tampa
+// aberta, erro, parada, sem resposta — e desde quando está assim. Só é chamado quando o estado
+// muda (o daemon guarda o último em memória): uma gravação por mudança, não por cupom.
+//  $1 = impressora; $2 = estado; $3 = detalhe (texto ou null).
+export const SQL_ESTADO = `
+  insert into impressora_status as s
+         (equipamento_id, tenant_id, unidade_id, estado, estado_em, estado_detalhe, atualizado_em)
+  select e.id, e.tenant_id, e.unidade_id, $2::text, now(), $3::text, now()
+    from equipamento e where e.id = $1::uuid
+  on conflict (equipamento_id) do update set
+     estado_em      = case when s.estado is distinct from excluded.estado then now() else s.estado_em end,
+     estado         = excluded.estado,
+     estado_detalhe = excluded.estado_detalhe,
+     atualizado_em  = now()`;

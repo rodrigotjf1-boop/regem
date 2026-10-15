@@ -46,7 +46,7 @@ import { carregarEnvLocal } from './decifrar-env.mjs';
 import { criarReconciliacao } from './sync-reconciliacao.mjs';
 import {
   SQL_SEM_RESPONDER, SQL_DANFE_JA_NA_FILA, SQL_DANFE_ALVO, SQL_DANFE_INSERIR, SQL_JOB_DO_COMANDO,
-  SQL_FILA_POR_IMPRESSORA,
+  SQL_FILA_POR_IMPRESSORA, SQL_IMPRESSORAS_COM_AVISO,
 } from './impressao-fila.mjs';
 carregarEnvLocal(import.meta.url);
 
@@ -1368,6 +1368,14 @@ async function coletarSaude() {
     const f = await pool.query(SQL_FILA_POR_IMPRESSORA, [minha]);
     saude.filaPorImpressora = f.rows;
   } catch { /* banco sem a mig 269 */ }
+  try {
+    // O que as impressoras de rede RESPONDERAM (mig 324): sem papel, tampa aberta, papel preso…
+    const minha = (process.env.EDGE_UNIDADE_ID || '').trim() || null;
+    const r = await pool.query(SQL_IMPRESSORAS_COM_AVISO, [minha]);
+    saude.impressorasComAviso = r.rows.map((x) => ({
+      id: x.id, nome: x.nome, estado: x.estado, detalhe: x.detalhe ? String(x.detalhe).slice(0, 120) : null, desde: x.desde,
+    }));
+  } catch { /* banco sem a mig 324 */ }
   // ── SAÚDE DO BANCO LOCAL ────────────────────────────────────────────────────
   // Três números que ninguém enxergava e que explicam as duas formas de a loja parar:
   //  • tamanho do banco — cresce para sempre (nada é expurgado) até encher o disco;

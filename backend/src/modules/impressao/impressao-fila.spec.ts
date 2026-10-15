@@ -421,4 +421,55 @@ descrever('fila de impressão (Postgres real)', () => {
       expect((await status(id)).status).toBe('erro');
     });
   });
+
+  // Fase 1 da central de impressão (mig 324): o servidor pergunta o estado à impressora de rede.
+  describe('estado da impressora e cupom interrompido (servidor local)', () => {
+    const linha = async (id: string) =>
+      (await q(`select status, claim_por, erro, conteudo, tentativas from impressao_job where id = $1`, [id])).rows[0];
+
+    it('interrompido: volta para a fila sem gastar tentativa, com a marca de reimpressão UMA vez', async () => {
+      const id = await job(LOJA_A, IMP_A, 'PEDIDO 27\nX-BURGER');
+      await q(edge.SQL_RESERVAR, ['w1', LOJA_A, []]);
+      expect((await q(edge.SQL_INTERROMPIDO, [id, 'w1', 'sem papel'])).rowCount).toBe(1);
+      let j = await linha(id);
+      expect(j).toMatchObject({ status: 'pendente', claim_por: null, erro: 'interrompido: sem papel', tentativas: 0 });
+      expect(j.conteudo).toBe(`${edge.MARCA_REIMPRESSAO}\n@C cupom interrompido (sem papel)\nPEDIDO 27\nX-BURGER`);
+      // Parou de novo: a marca não se repete.
+      await q(edge.SQL_RESERVAR, ['w1', LOJA_A, []]);
+      await q(edge.SQL_INTERROMPIDO, [id, 'w1', 'tampa aberta']);
+      j = await linha(id);
+      expect(j.conteudo.split('REIMPRESS').length - 1).toBe(1);
+      expect(j.erro).toBe('interrompido: tampa aberta');
+    });
+
+    it('interrompido: só quem reservou marca; etiqueta não leva a marca (o formato dela vem do começo)', async () => {
+      const outro = await job(LOJA_A, IMP_A, 'cupom');
+      await q(edge.SQL_RESERVAR, ['w1', LOJA_A, []]);
+      expect((await q(edge.SQL_INTERROMPIDO, [outro, 'w2', 'sem papel'])).rowCount).toBe(0);
+      await q(`delete from impressao_job`);
+      const etiqueta = await job(LOJA_A, IMP_A, '@ETIQUETA:40x40\n@BPRODUTO');
+      await q(edge.SQL_RESERVAR, ['w1', LOJA_A, []]);
+      await q(edge.SQL_INTERROMPIDO, [etiqueta, 'w1', 'sem papel']);
+      expect((await linha(etiqueta)).conteudo).toBe('@ETIQUETA:40x40\n@BPRODUTO');
+    });
+
+    it('estado: "desde quando" só muda quando o estado muda; a saúde lista só o que não está pronta', async () => {
+      const desde = async () => {
+        const r = (await q(`select estado, estado_em from impressora_status where equipamento_id = $1`, [IMP_A])).rows[0];
+        return { estado: r.estado, estado_em: new Date(r.estado_em) }; // o driver pode devolver texto
+      };
+      await q(edge.SQL_ESTADO, [IMP_A, 'sem_papel', 'sem papel']);
+      const a = await desde();
+      expect(a.estado).toBe('sem_papel');
+      await new Promise((r) => setTimeout(r, 20));
+      await q(edge.SQL_ESTADO, [IMP_A, 'sem_papel', 'sem papel']);
+      expect((await desde()).estado_em.getTime()).toBe(a.estado_em.getTime());
+      let aviso = await q(edge.SQL_IMPRESSORAS_COM_AVISO, [LOJA_A]);
+      expect(aviso.rows.map((x) => [x.id, x.estado])).toContainEqual([IMP_A, 'sem_papel']);
+      await q(edge.SQL_ESTADO, [IMP_A, 'pronta', null]);
+      expect((await desde()).estado_em.getTime()).toBeGreaterThan(a.estado_em.getTime());
+      aviso = await q(edge.SQL_IMPRESSORAS_COM_AVISO, [LOJA_A]);
+      expect(aviso.rows.map((x) => x.id)).not.toContain(IMP_A);
+    });
+  });
 });
