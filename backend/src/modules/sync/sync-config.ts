@@ -45,7 +45,10 @@ export const TABELAS_SYNC: TabelaSync[] = [
     // `totem` (R2): o aparelho é cadastrado e pareado na NUVEM, mas quem valida o token
     // dele é o EDGE (o totem só fala com a LAN). Sem descer a linha, o `SyncTokenGuard`
     // do edge não acha o aparelho e devolve 401 em tudo.
-    filtroSql: "tipo in ('impressora','pdv','salao','ponto_baixa','kds','totem')",
+    // `estacao_impressao` (mig 324): o PC que imprime as impressoras ligadas nele. Pareada no
+    // servidor da loja (a tela da nuvem fica só leitura com ele ativo) e validada por ele: a linha
+    // sobe (backup, volta num banco novo) e desce (pareada na nuvem numa loja sem servidor).
+    filtroSql: "tipo in ('impressora','pdv','salao','ponto_baixa','kds','totem','estacao_impressao')",
   },
   { tabela: 'delivery_config', direcao: 'ambos', cursor: 'updated_at' },
   // Template da etiqueta de validade (mig 245): config espelhada como as de cima —

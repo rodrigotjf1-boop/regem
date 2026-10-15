@@ -27,6 +27,9 @@ export class CfThrottlerGuard extends ThrottlerGuard {
     if (rotaDaFilaDeImpressao(req?.originalUrl ?? req?.url)) {
       const raw = req?.headers?.['x-sync-token'];
       if (tokenJaValidado(Array.isArray(raw) ? raw[0] : raw)) return true;
+      // Estação de impressão (mig 324): o segredo dela, validado pela FilaImpressaoGuard.
+      const est = req?.headers?.['x-estacao-segredo'];
+      if (tokenJaValidado(Array.isArray(est) ? est[0] : est)) return true;
     }
     // API de integração (trilha C) com token de integração JÁ validado pelo
     // `IntegracaoTokenGuard`: o limite passa a ser o do token (60/min,

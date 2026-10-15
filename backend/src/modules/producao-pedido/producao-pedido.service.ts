@@ -73,6 +73,13 @@ function lojaOuRede(unidadeId: string | null | undefined) {
   return unidadeId ? or(eq(equipamento.unidadeId, unidadeId), isNull(equipamento.unidadeId))! : undefined;
 }
 
+// A impressão é de uma impressora ligada nesta ESTAÇÃO de impressão (mig 324). A estação só
+// confirma, devolve ou dá erro no que é dela: uma estação com defeito não solta a fila da outra.
+function daEstacao(estacaoId: string, tenantId: string): SQL {
+  return sql`impressao_job.equipamento_id in (select id from equipamento
+                where estacao_id = ${estacaoId}::uuid and tenant_id = ${tenantId})`;
+}
+
 // Status válidos, em ordem de avanço.
 const JANELA_ACAO_MIN = 30; // atendente pode agir até 30min após "pronto"
 
@@ -1220,13 +1227,25 @@ export class ProducaoPedidoService {
   async jobsPendentes(
     tenantId: string,
     unidadeId: string | null = null,
-    agente: { maquina?: string | null; dispositivos?: string[] | null; excluir?: string[] | null } = {},
+    agente: {
+      maquina?: string | null;
+      dispositivos?: string[] | null;
+      excluir?: string[] | null;
+      estacaoId?: string | null;
+    } = {},
     limite = 5,
   ) {
     const filtro = unidadeId
       ? sql`and (j.unidade_id = ${unidadeId} or j.unidade_id is null)`
       : sql``;
-    const maquina = agente.maquina?.trim() || null;
+    // ESTAÇÃO de impressão (mig 324): pega SÓ as impressoras ligadas nela — quem decide é o
+    // cadastro (`estacao_id`), não o nome no Windows. Todo o resto (agente antigo, servidor da
+    // loja) deixa de pegar as impressoras que têm estação: sairiam no Windows errado.
+    const estacaoId = agente.estacaoId || null;
+    const filtroEstacao = estacaoId
+      ? sql`and e.estacao_id = ${estacaoId}::uuid`
+      : sql`and e.estacao_id is null`;
+    const maquina = estacaoId ? `estacao:${estacaoId}` : agente.maquina?.trim() || null;
     const dispositivos = Array.isArray(agente.dispositivos)
       ? agente.dispositivos.map((d) => String(d)).filter(Boolean).slice(0, 100)
       : null;
@@ -1234,7 +1253,7 @@ export class ProducaoPedidoService {
     const instalada = dispositivos?.length
       ? sql`e.dispositivo in (${sql.join(dispositivos.map((d) => sql`${d}`), sql`, `)})`
       : sql`false`;
-    const filtroMaquina = !maquina
+    const filtroMaquina = !maquina || estacaoId
       ? sql``
       : dispositivos
         ? sql`and (e.conexao is distinct from 'local'
@@ -1260,6 +1279,7 @@ export class ProducaoPedidoService {
           and ((j.status = 'pendente' and (j.claim_ate is null or j.claim_ate < now()))
                or (j.status = 'enviando' and j.claim_ate < now()))
           ${filtro}
+          ${filtroEstacao}
           ${filtroMaquina}
           ${filtroExcluir}
         order by j.criado_em asc
@@ -1318,18 +1338,24 @@ export class ProducaoPedidoService {
     return false;
   }
 
-  async marcarImpresso(tenantId: string, jobId: string, maquina?: string | null) {
+  async marcarImpresso(tenantId: string, jobId: string, maquina?: string | null, estacaoId?: string | null) {
     const [job] = await this.db
       .update(impressaoJob)
       .set({ status: 'impresso', impressoEm: new Date(), claimPor: null, claimAte: null })
       .where(
-        and(eq(impressaoJob.id, jobId), eq(impressaoJob.tenantId, tenantId)),
+        and(
+          eq(impressaoJob.id, jobId),
+          eq(impressaoJob.tenantId, tenantId),
+          estacaoId ? daEstacao(estacaoId, tenantId) : undefined,
+        ),
       )
       .returning({ equipamentoId: impressaoJob.equipamentoId });
+    if (estacaoId && !job) throw new NotFoundException('Impressão não encontrada nas impressoras desta estação.');
     // Aprende a máquina dona da impressora USB na primeira impressão CONFIRMADA (mig 267) —
     // a loja não configura nada. Não aprende quando outra máquina tem o mesmo nome instalado.
+    // A estação não aprende: a impressora dela já está no cadastro (`estacao_id`).
     await this.registrarEstadoImpressora(job?.equipamentoId ?? null, true, null);
-    const m = maquina?.trim();
+    const m = estacaoId ? undefined : maquina?.trim();
     if (m && job?.equipamentoId) {
       const [imp] = await this.db
         .select({ conexao: equipamento.conexao, dispositivo: equipamento.dispositivo, agenteMaquina: equipamento.agenteMaquina })
@@ -1359,14 +1385,16 @@ export class ProducaoPedidoService {
 
   // `definitivo` = erro de CONFIGURAÇÃO (sem IP, sem nome no Windows): não adianta tentar de
   // novo — antes eram 5 rodadas em ~5 min até cair em 'erro'.
-  async marcarErro(tenantId: string, jobId: string, erro?: string, definitivo = false) {
+  async marcarErro(tenantId: string, jobId: string, erro?: string, definitivo = false, estacaoId?: string | null) {
     const motivo = (erro ?? 'falha').slice(0, 400);
+    // A estação só dá erro em impressão das impressoras dela.
+    const dono = estacaoId ? sql` and ${daEstacao(estacaoId, tenantId)}` : sql``;
     let r: any;
     if (definitivo) {
       r = await this.db.execute(sql`
         update impressao_job set tentativas = tentativas + 1, erro = ${motivo}, status = 'erro',
                claim_por = null, claim_ate = null
-         where id = ${jobId} and tenant_id = ${tenantId}
+         where id = ${jobId} and tenant_id = ${tenantId}${dono}
         returning equipamento_id`);
     } else {
       // Auto-retry (P2): re-enfileira 'pendente' com backoff crescente (reusa claim_ate como "não
@@ -1378,10 +1406,12 @@ export class ProducaoPedidoService {
           claim_por = null,
           status = case when tentativas + 1 < 5 then 'pendente' else 'erro' end,
           claim_ate = case when tentativas + 1 < 5 then now() + (interval '30 seconds' * (tentativas + 1)) else null end
-        where id = ${jobId} and tenant_id = ${tenantId}
+        where id = ${jobId} and tenant_id = ${tenantId}${dono}
         returning equipamento_id`);
     }
-    await this.registrarEstadoImpressora((r.rows ?? r)[0]?.equipamento_id ?? null, false, motivo);
+    const linha = (r.rows ?? r)[0];
+    if (estacaoId && !linha) throw new NotFoundException('Impressão não encontrada nas impressoras desta estação.');
+    await this.registrarEstadoImpressora(linha?.equipamento_id ?? null, false, motivo);
     return { ok: true };
   }
 
@@ -1389,11 +1419,13 @@ export class ProducaoPedidoService {
   // estes esperavam a vez dela. Só um job que está reservado ('enviando').
   // Só quem RESERVOU devolve (claim_por = máquina do agente): um agente com defeito não pode
   // soltar o job que outro está imprimindo — ele seria repegado e sairia em dobro.
-  async devolverJob(tenantId: string, jobId: string, maquina?: string | null) {
+  async devolverJob(tenantId: string, jobId: string, maquina?: string | null, estacaoId?: string | null) {
+    // A estação reserva como `estacao:<id>` (jobsPendentes): só ela devolve o que reservou.
+    const quem = estacaoId ? `estacao:${estacaoId}` : maquina?.trim() || 'cloud';
     await this.db.execute(sql`
       update impressao_job set status = 'pendente', claim_por = null, claim_ate = null
        where id = ${jobId} and tenant_id = ${tenantId} and status = 'enviando'
-         and claim_por = ${maquina?.trim() || 'cloud'}`);
+         and claim_por = ${quem}`);
     return { ok: true };
   }
 
