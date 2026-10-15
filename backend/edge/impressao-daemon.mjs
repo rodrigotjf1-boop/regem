@@ -11,7 +11,6 @@
 //   PRINT_POLL_MS       intervalo do poll de seguranca (default 3000)
 //   PRINT_PORTA_PADRAO  porta TCP padrao das impressoras (default 9100)
 import pg from 'pg';
-import net from 'net';
 import { spawn } from 'child_process';
 import { readFileSync, existsSync, writeFileSync, unlinkSync } from 'fs';
 import { tmpdir } from 'os';
@@ -21,8 +20,9 @@ import { fileURLToPath } from 'url';
 import { renderEscpos } from './escpos.mjs';
 import {
   SQL_RESERVAR, SQL_OUTRA_LOJA, SQL_RENOVAR, SQL_IMPRESSO, SQL_ERRO, SQL_ERRO_DEFINITIVO,
-  SQL_DEVOLVER, SQL_STATUS,
+  SQL_DEVOLVER, SQL_STATUS, SQL_INTERROMPIDO, SQL_ESTADO,
 } from './impressao-fila.mjs';
+import { imprimirRedeComEstado } from './impressora-estado.mjs';
 
 // Servico do Windows nao tem shell que exporte envs: carrega o .env.local na mao
 // e DECIFRA os enc: DPAPI (senao a EDGE_DATABASE_URL fica cifrada -> pg 28P01).
@@ -62,33 +62,11 @@ process.on('uncaughtException', (e) => {
   process.exit(1);
 });
 
-// Envia bytes crus por TCP para host:porta (protocolo RAW/9100 das termicas).
+// Impressora de REDE (TCP RAW 9100): envio com o estado antes e depois, em impressora-estado.mjs.
 // Duas esperas: CONECTAR (3 s — impressora desligada/IP errado não responde nada, e esperar 8 s
-// por tentativa travava a fila dela por ~25 s por job) e ENVIAR (8 s depois de conectada — uma
-// impressora ligada e lenta, ou sem papel segurando o buffer, ainda tem folga).
+// por tentativa travava a fila dela por ~25 s por job) e ENVIAR (8 s parada no meio da conexão —
+// uma impressora ligada e lenta, ou sem papel segurando o buffer, ainda tem folga).
 const CONECTAR_MS = Number(process.env.PRINT_CONECTAR_MS || 3000);
-function enviarTcp(host, porta, buffer) {
-  return new Promise((resolve, reject) => {
-    const sock = net.createConnection({ host, port: porta || PORTA_PADRAO });
-    let feito = false;
-    const fim = (err) => {
-      if (feito) return;
-      feito = true;
-      clearTimeout(tConectar);
-      sock.destroy();
-      err ? reject(err) : resolve();
-    };
-    const tConectar = setTimeout(() => fim(new Error(`impressora não respondeu (sem conexão em ${CONECTAR_MS / 1000} s)`)), CONECTAR_MS);
-    sock.setTimeout(8000);
-    sock.on('connect', () => {
-      clearTimeout(tConectar);
-      sock.write(buffer, () => sock.end());
-    });
-    sock.on('close', () => fim());
-    sock.on('timeout', () => fim(new Error('timeout na conexao com a impressora')));
-    sock.on('error', (e) => fim(e));
-  });
-}
 
 // Imprime bytes crus numa impressora instalada no WINDOWS (USB/local) pelo NOME.
 // Usa o spooler em modo RAW (via raw-print.ps1 → winspool WritePrinter), que NÃO
@@ -167,9 +145,34 @@ async function registrarEstado(equipamentoId, saiu, erro) {
   } catch { /* sem a mig 269: segue sem o estado */ }
 }
 
+// O que a impressora respondeu (mig 324): só grava quando MUDA — uma gravação por mudança de
+// estado, não por cupom. Best-effort: banco sem a 324 segue imprimindo.
+const estadoAnotado = new Map(); // equipamento_id → 'estado|detalhe'
+async function anotarEstado(equipamentoId, estado, detalhe) {
+  if (!equipamentoId || !estado) return;
+  const chave = `${estado}|${detalhe ?? ''}`;
+  if (estadoAnotado.get(equipamentoId) === chave) return;
+  try {
+    await pool.query(SQL_ESTADO, [equipamentoId, estado, detalhe ? String(detalhe).slice(0, 200) : null]);
+    estadoAnotado.set(equipamentoId, chave);
+    if (estado !== 'pronta') console.error(`  impressora ${String(equipamentoId).slice(0, 8)}: ${detalhe || estado}`);
+  } catch { /* sem a mig 324: segue sem o estado */ }
+}
+
+// Cupom que parou no meio: volta para a fila inteiro, com a marca de reimpressão, sem gastar
+// tentativa (SQL_INTERROMPIDO). Nunca estoura: no pior caso a reserva vence e ele volta sem marca.
+async function marcarInterrompido(id, motivo) {
+  try {
+    await pool.query(SQL_INTERROMPIDO, [id, WORKER_ID, String(motivo || 'parou no meio').slice(0, 80)]);
+  } catch (e) {
+    console.error(`  ! não marquei o job ${id.slice(0, 8)} como interrompido: ${e.message} (a reserva vence e ele volta)`);
+  }
+}
+
 // Imprime um job com retry/backoff. Devolve 'ok' (saiu), 'config' (erro de cadastro — não é
-// a impressora que caiu), 'falha' (a impressora não recebeu) ou 'perdida' (a reserva não é mais
-// deste worker; não imprimiu).
+// a impressora que caiu), 'falha' (a impressora não recebeu), 'parada' (a impressora respondeu
+// que não está pronta, ou parou no meio — sem papel, tampa aberta, erro) ou 'perdida' (a reserva
+// não é mais deste worker; não imprimiu).
 async function imprimirJob(job) {
   const local = job.conexao === 'local';
   // Erro de CONFIGURAÇÃO não melhora tentando de novo: vai direto para 'erro' com o motivo.
@@ -208,22 +211,46 @@ async function imprimirJob(job) {
   }
   const vias = Math.max(1, Number(job.vias) || 1);
   const buffer = renderEscpos(job.conteudo, job.largura || 80, job.linguagem, job.codepage);
-  const enviar = local
-    ? () => enviarWindows(job.dispositivo, buffer)
-    : () => enviarTcp(job.host, job.porta, buffer);
   const alvo = local ? `win:${job.dispositivo}` : `${job.impressora || job.host}:${job.porta || PORTA_PADRAO}`;
   let ultimoErro = null;
   let enviadas = 0; // via-a-via: uma via que já saiu NÃO é reimpressa no retry
-  for (let t = 1; t <= TENTATIVAS && enviadas < vias; t++) {
+  // REDE: pergunta o estado antes de cada via e confere depois (impressora-estado.mjs). Impressora
+  // que não informa estado imprime como sempre. `parada` = não estava pronta ou parou no meio.
+  let parada = null;
+  for (let t = 1; t <= TENTATIVAS && enviadas < vias && !parada; t++) {
     try {
       while (enviadas < vias) {
-        await enviar();
+        if (local) {
+          await enviarWindows(job.dispositivo, buffer);
+        } else {
+          const r = await imprimirRedeComEstado({
+            host: job.host, porta: job.porta || PORTA_PADRAO, buffer, conectarMs: CONECTAR_MS,
+          });
+          if (r.informa !== false) await anotarEstado(job.equipamento_id, r.estado, r.detalhe);
+          if (!r.saiu) {
+            parada = r;
+            break;
+          }
+        }
         enviadas++;
       }
     } catch (e) {
       ultimoErro = e.message;
       if (t < TENTATIVAS) await sleep(500 * t); // backoff 0.5s, 1s
     }
+  }
+  if (parada) {
+    // Parou no meio do cupom, ou depois de uma das vias: o cupom volta INTEIRO, com a marca de
+    // reimpressão (decisão do dono). Não estava pronta antes de começar: volta como estava — nada
+    // saiu. Nos dois casos sem gastar tentativa; a fila desta impressora pausa até ela voltar.
+    if (parada.motivo === 'interrompido' || enviadas > 0) {
+      await marcarInterrompido(job.id, parada.detalhe || parada.estado);
+      console.error(`  ⏸ job ${job.id.slice(0, 8)} interrompido em ${alvo} (${parada.detalhe}) — volta inteiro, com a marca de reimpressão`);
+    } else {
+      // Sem log aqui: a cada 5 s a fila confere de novo, e o estado já é anotado quando muda.
+      await pool.query(SQL_DEVOLVER, [job.id, WORKER_ID]).catch(() => {});
+    }
+    return 'parada';
   }
   if (enviadas >= vias) {
     // Fora do laço de envio: falha AO GRAVAR não pode virar reenvio do papel.
@@ -234,6 +261,7 @@ async function imprimirJob(job) {
   }
   await marcarErro(job.id, ultimoErro);
   await registrarEstado(job.equipamento_id, false, ultimoErro);
+  if (!local) await anotarEstado(job.equipamento_id, 'sem_resposta', ultimoErro);
   console.error(`  ✗ job ${job.id.slice(0, 8)} falhou apos ${TENTATIVAS} tentativas (${enviadas}/${vias} vias): ${ultimoErro}`);
   return 'falha';
 }
@@ -275,8 +303,18 @@ function foraDaReserva() {
   return ids;
 }
 
-function abrirDisjuntor(id) {
+// Impressora que RESPONDEU que não está pronta (sem papel, tampa aberta, papel preso): a pausa é
+// curta e fixa — ela está ligada, e o operador pode trocar a bobina a qualquer momento; esperar até
+// 5 min (o disjuntor de quem não responde) deixaria a fila parada depois do conserto.
+const PAUSA_PARADA_MS = Number(process.env.PRINT_PAUSA_PARADA_MS || 5000);
+
+function abrirDisjuntor(id, parada = false) {
   const d = disjuntor.get(id) ?? { falhas: 0, ate: 0 };
+  if (parada) {
+    d.ate = Date.now() + PAUSA_PARADA_MS;
+    disjuntor.set(id, d);
+    return;
+  }
   d.falhas++;
   const ms = Math.min(DISJUNTOR_MAX_MS, DISJUNTOR_MIN_MS * 2 ** (d.falhas - 1));
   d.ate = Date.now() + ms;
@@ -300,8 +338,8 @@ async function rodarFila(chave) {
         continue;
       }
       if (r === 'ok') disjuntor.delete(chave);
-      if (r === 'falha' && chave !== '-') {
-        abrirDisjuntor(chave);
+      if ((r === 'falha' || r === 'parada') && chave !== '-') {
+        abrirDisjuntor(chave, r === 'parada');
         // Os que esperavam a vez nesta impressora voltam para o banco sem gastar tentativa.
         for (const resto of f.jobs.splice(0)) {
           await pool.query(SQL_DEVOLVER, [resto.id, WORKER_ID]).catch(() => {});
