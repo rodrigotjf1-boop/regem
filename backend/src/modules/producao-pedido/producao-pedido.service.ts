@@ -38,6 +38,7 @@ import { perfilEfetivo } from '../delivery/cupom-perfis';
 import { edgeAtivo } from '../../common/edge-ativo';
 import { enfileirarComandoEdge } from '../../common/edge-comando';
 import { garantirImpressoraDaLoja } from '../../common/impressora-da-loja';
+import { ESTADOS_IMPRESSORA, MARCA_REIMPRESSAO } from '../../common/impressao-marca';
 import { gravarOuEncaminharImpressao } from '../../common/impressao-destino';
 import { hojeISO } from '../../common/data';
 import { logisticaDasComandas } from '../delivery/logistica-canal';
@@ -1426,6 +1427,67 @@ export class ProducaoPedidoService {
       update impressao_job set status = 'pendente', claim_por = null, claim_ate = null
        where id = ${jobId} and tenant_id = ${tenantId} and status = 'enviando'
          and claim_por = ${quem}`);
+    return { ok: true };
+  }
+
+  // ESTAÇÃO (mig 324): o cupom PAROU NO MEIO (sem papel, tampa aberta, papel preso). Volta para a
+  // fila sem gastar tentativa e com a marca de reimpressão no topo, uma vez só — a mesma regra do
+  // servidor da loja (edge/impressao-fila.mjs › SQL_INTERROMPIDO). Etiqueta não leva marca (o
+  // conteúdo dela começa com @ETIQUETA, que define o formato). Só a estação que reservou.
+  async marcarInterrompido(tenantId: string, jobId: string, motivo: unknown, estacaoId: string) {
+    const m = String(motivo ?? '').trim().slice(0, 80) || 'parou no meio';
+    const r: any = await this.db.execute(sql`
+      update impressao_job set
+         status = 'pendente', claim_por = null, claim_ate = null,
+         erro = 'interrompido: ' || ${m}::text,
+         conteudo = case
+           when conteudo like '@ETIQUETA%' or conteudo like '@CB *** REIMPRESS%' then conteudo
+           else ${MARCA_REIMPRESSAO}::text || E'\\n' || '@C cupom interrompido (' || ${m}::text || ')' || E'\\n' || conteudo
+         end
+       where id = ${jobId} and tenant_id = ${tenantId} and status = 'enviando'
+         and claim_por = ${`estacao:${estacaoId}`} and ${daEstacao(estacaoId, tenantId)}
+      returning id`);
+    if (!(r.rows ?? r).length) throw new NotFoundException('Impressão não encontrada nas impressoras desta estação.');
+    return { ok: true };
+  }
+
+  // ESTAÇÃO (mig 325): a batida de cada minuto — versão, nome do PC, as impressoras que o Windows
+  // dele tem, e o que cada impressora DESTA estação respondeu (sem papel, tampa aberta…). Uma
+  // gravação do sinal + UMA consulta para os estados (só das impressoras ligadas nela; o "desde
+  // quando" só muda quando o estado muda). Nada disso sincroniza: é estado de operação.
+  async batidaEstacao(tenantId: string, unidadeId: string | null, estacaoId: string, dto: any) {
+    const texto = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null);
+    const impressoras = Array.isArray(dto?.impressoras)
+      ? dto.impressoras.filter((s: unknown) => typeof s === 'string' && s.trim()).map((s: string) => s.trim().slice(0, 200)).slice(0, 50)
+      : [];
+    await this.db.execute(sql`
+      insert into estacao_status (equipamento_id, tenant_id, unidade_id, versao, maquina, impressoras, visto_em)
+      values (${estacaoId}, ${tenantId}, ${unidadeId}, ${texto(dto?.versao, 40)}, ${texto(dto?.maquina, 120)},
+              ${JSON.stringify(impressoras)}::jsonb, now())
+      on conflict (equipamento_id) do update set
+         tenant_id = excluded.tenant_id, unidade_id = excluded.unidade_id, versao = excluded.versao,
+         maquina = excluded.maquina, impressoras = excluded.impressoras, visto_em = now()`);
+    const validos = (Array.isArray(dto?.estados) ? dto.estados : [])
+      .filter(
+        (x: any) =>
+          x && typeof x.equipamentoId === 'string' && /^[0-9a-f-]{36}$/i.test(x.equipamentoId) &&
+          (ESTADOS_IMPRESSORA as readonly string[]).includes(x.estado),
+      )
+      .slice(0, 50)
+      .map((x: any) => ({ equipamento_id: x.equipamentoId, estado: x.estado, detalhe: texto(x.detalhe, 200) }));
+    if (validos.length) {
+      await this.db.execute(sql`
+        insert into impressora_status as s (equipamento_id, tenant_id, unidade_id, estado, estado_em, estado_detalhe, atualizado_em)
+        select e.id, e.tenant_id, e.unidade_id, x.estado, now(), x.detalhe, now()
+          from jsonb_to_recordset(${JSON.stringify(validos)}::jsonb) as x(equipamento_id uuid, estado text, detalhe text)
+          join equipamento e on e.id = x.equipamento_id
+         where e.tenant_id = ${tenantId} and e.estacao_id = ${estacaoId}::uuid
+        on conflict (equipamento_id) do update set
+           estado_em      = case when s.estado is distinct from excluded.estado then now() else s.estado_em end,
+           estado         = excluded.estado,
+           estado_detalhe = excluded.estado_detalhe,
+           atualizado_em  = now()`);
+    }
     return { ok: true };
   }
 

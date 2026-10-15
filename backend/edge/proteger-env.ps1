@@ -9,7 +9,7 @@ $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Security
 
 # Só estes valores são cifrados (o resto é config não sensível: portas, flags, versão).
-$SENSIVEIS = @('DATABASE_URL', 'EDGE_DATABASE_URL', 'JWT_SECRET', 'SYNC_TOKEN')
+$SENSIVEIS = @('DATABASE_URL', 'EDGE_DATABASE_URL', 'JWT_SECRET', 'SYNC_TOKEN', 'ESTACAO_SEGREDO')
 
 if (-not (Test-Path $EnvFile)) { throw ".env nao encontrado: $EnvFile" }
 $linhas = Get-Content -Path $EnvFile

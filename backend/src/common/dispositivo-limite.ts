@@ -52,7 +52,9 @@ function limparVencidos() {
   for (const [k, c] of contagem) if (agora - c.inicio >= JANELA_MS) contagem.delete(k);
 }
 
-// Rotas cobertas: a fila de impressão consumida pelo agente (não as rotas de gestão).
+// Rotas cobertas: a fila de impressão consumida pelo agente e pela estação (não as rotas de gestão).
 export function rotaDaFilaDeImpressao(url: string | undefined): boolean {
-  return /\/impressao\/(pendentes|[0-9a-f-]{36}\/(impresso|erro|devolver))(\?|$)/i.test(String(url ?? ''));
+  return /\/impressao\/(pendentes|estacao\/batida|[0-9a-f-]{36}\/(impresso|erro|devolver|interrompido))(\?|$)/i.test(
+    String(url ?? ''),
+  );
 }

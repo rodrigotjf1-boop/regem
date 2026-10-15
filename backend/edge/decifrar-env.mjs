@@ -12,7 +12,12 @@ import { randomUUID } from 'node:crypto';
 
 // metaUrl = import.meta.url do daemon (fica em backend/edge/*.mjs → .env.local em ../).
 export function carregarEnvLocal(metaUrl) {
-  const arq = fileURLToPath(new URL('../.env.local', metaUrl));
+  carregarEnvArquivo(fileURLToPath(new URL('../.env.local', metaUrl)));
+}
+
+// O mesmo, para um arquivo qualquer (a estação de impressão guarda o dela na pasta de instalação).
+// O decifrador fica em <pasta do arquivo>/edge/decrypt-dpapi.ps1, como no servidor.
+export function carregarEnvArquivo(arq) {
   if (!existsSync(arq)) return;
   const linhas = readFileSync(arq, 'utf8').split(/\r?\n/);
 

@@ -46,7 +46,7 @@ import { carregarEnvLocal } from './decifrar-env.mjs';
 import { criarReconciliacao } from './sync-reconciliacao.mjs';
 import {
   SQL_SEM_RESPONDER, SQL_DANFE_JA_NA_FILA, SQL_DANFE_ALVO, SQL_DANFE_INSERIR, SQL_JOB_DO_COMANDO,
-  SQL_FILA_POR_IMPRESSORA, SQL_IMPRESSORAS_COM_AVISO,
+  SQL_FILA_POR_IMPRESSORA, SQL_IMPRESSORAS_COM_AVISO, SQL_ESTACOES,
 } from './impressao-fila.mjs';
 carregarEnvLocal(import.meta.url);
 
@@ -1376,6 +1376,12 @@ async function coletarSaude() {
       id: x.id, nome: x.nome, estado: x.estado, detalhe: x.detalhe ? String(x.detalhe).slice(0, 120) : null, desde: x.desde,
     }));
   } catch { /* banco sem a mig 324 */ }
+  try {
+    // Estações de impressão da loja e o último sinal de cada uma (mig 325).
+    const minha = (process.env.EDGE_UNIDADE_ID || '').trim() || null;
+    const r = await pool.query(SQL_ESTACOES, [minha]);
+    if (r.rows.length) saude.estacoes = r.rows;
+  } catch { /* banco sem a mig 325 */ }
   // ── SAÚDE DO BANCO LOCAL ────────────────────────────────────────────────────
   // Três números que ninguém enxergava e que explicam as duas formas de a loja parar:
   //  • tamanho do banco — cresce para sempre (nada é expurgado) até encher o disco;
@@ -1939,6 +1945,8 @@ const DESCARTAVEL = new Set([
   'impressao_job', 'impressao_edge_feito',
   // Infraestrutura do próprio sincronismo e estado da máquina (mig 264 e 269).
   'sync_exclusao', 'sync_fila', 'sync_dead_letter', 'sync_marcador', 'edge_status', 'impressora_status',
+  // Último sinal de cada estação de impressão (mig 325): estado de operação, refeito na batida.
+  'estacao_status',
   // Fotografia diária do estoque: é SOMA de `movimento_estoque` + custo do insumo, e as
   // duas sincronizam. Recalculável pela rotina diária (o custo histórico pode divergir —
   // decisão registrada em docs/paridade-sync-tabelas.md §4).

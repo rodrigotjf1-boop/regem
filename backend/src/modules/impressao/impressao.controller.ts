@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   Post,
@@ -106,6 +107,24 @@ export class ImpressaoController {
     @Body() dto: any,
   ) {
     return this.service.marcarErro(ctx.tenantId, id, dto?.erro, dto?.definitivo === true, ctx.estacaoId);
+  }
+
+  // ESTAÇÃO: o cupom parou no meio (sem papel, tampa aberta, papel preso) — volta inteiro, marcado.
+  //  corpo: { motivo }
+  @Post(':id/interrompido')
+  @UseGuards(FilaImpressaoGuard)
+  interrompido(@FilaCtx() ctx: FilaCtxData, @Param('id') id: string, @Body() dto: any) {
+    if (!ctx.estacaoId) throw new ForbiddenException('Só a estação de impressão usa esta rota.');
+    return this.service.marcarInterrompido(ctx.tenantId, id, dto?.motivo, ctx.estacaoId);
+  }
+
+  // ESTAÇÃO: a batida de cada minuto — o painel sabe que ela está viva e o que as impressoras dela
+  // responderam.  corpo: { versao, maquina, impressoras: [nomes no Windows], estados: [{ equipamentoId, estado, detalhe }] }
+  @Post('estacao/batida')
+  @UseGuards(FilaImpressaoGuard)
+  batida(@FilaCtx() ctx: FilaCtxData, @Body() dto: any) {
+    if (!ctx.estacaoId) throw new ForbiddenException('Só a estação de impressão usa esta rota.');
+    return this.service.batidaEstacao(ctx.tenantId, ctx.unidadeId ?? null, ctx.estacaoId, dto ?? {});
   }
 
   // Fila recente para o painel (status + impressora). Gestor logado; usuário com loja vê a dela.
