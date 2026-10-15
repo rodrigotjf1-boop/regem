@@ -38,6 +38,7 @@ const MIGRATIONS = [
   '267_impressao_agente_maquina_fila.sql',
   '268_impressao_aviso_reimpressao.sql',
   '269_impressora_status_codepage_comando_destino.sql',
+  '324_estacao_impressao.sql', // a estação de impressão (a fila filtra por equipamento.estacao_id)
 ];
 
 // edge/impressao-fila.mjs é ESM puro (só constantes); o jest roda em CommonJS. Avalia o
@@ -137,6 +138,20 @@ descrever('fila de impressão (Postgres real)', () => {
       expect(await status(redeNaImpDeB)).toMatchObject({ status: 'erro' });
       expect((await status(redeNaImpDeB)).erro).toMatch(/outra loja/);
       expect((await status(deB)).status).toBe('pendente'); // o da loja B continua para o servidor dela
+    });
+
+    it('não pega impressora ligada numa estação de impressão (mig 324): é do PC dela', async () => {
+      const estacao = randomUUID();
+      await q(`update equipamento set estacao_id = $1 where id = $2`, [estacao, USB_LIVRE]);
+      try {
+        const daEstacao = await job(LOJA_A, USB_LIVRE);
+        const doServidor = await job(LOJA_A, IMP_A);
+        const r = await q(edge.SQL_RESERVAR, ['w1', LOJA_A, []]);
+        expect(r.rows.map((x) => x.id)).toEqual([doServidor]);
+        expect((await status(daEstacao)).status).toBe('pendente');
+      } finally {
+        await q(`update equipamento set estacao_id = null where id = $1`, [USB_LIVRE]);
+      }
     });
 
     it('sem loja definida (1 loja / servidor antigo) pega tudo', async () => {

@@ -1,6 +1,6 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { createHash, randomBytes, randomInt } from 'crypto';
+import { createHash, randomBytes, randomInt, timingSafeEqual } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { equipamento } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
@@ -266,6 +266,33 @@ export class EquipamentoService {
       .update(equipamento)
       .set({ ultimoUsoEm: new Date() })
       .where(eq(equipamento.id, row.id));
+    return row;
+  }
+
+  /**
+   * Estação de impressão (mig 324): confere o segredo do PC que imprime as impressoras ligadas
+   * nele. Só o tipo `estacao_impressao`, ativo, não revogado e COM segredo — não existe estação de
+   * antes do pareamento, então não há a tolerância do `validarSegredo` para PC sem segredo.
+   * Não grava "último uso" a cada chamada: a estação consulta a fila a cada ~25 s e cada gravação
+   * renovaria o `updated_at` de uma linha que sincroniza (o mesmo vaivém do ERR-235).
+   * Devolve o equipamento ou null.
+   */
+  async validarEstacao(estacaoId: string, segredo?: string | null) {
+    if (!estacaoId || !/^[0-9a-f-]{36}$/i.test(estacaoId) || !segredo) return null;
+    const [row] = await this.db
+      .select()
+      .from(equipamento)
+      .where(
+        and(
+          eq(equipamento.id, estacaoId),
+          eq(equipamento.tipo, 'estacao_impressao'),
+          eq(equipamento.ativo, true),
+        ),
+      );
+    if (!row || row.revogadoEm || !row.segredoHash) return null;
+    const recebido = Buffer.from(this.hash(String(segredo)), 'hex');
+    const guardado = Buffer.from(row.segredoHash, 'hex');
+    if (recebido.length !== guardado.length || !timingSafeEqual(recebido, guardado)) return null;
     return row;
   }
 
@@ -783,6 +810,7 @@ export class EquipamentoService {
       porta: r.porta,
       dispositivo: r.dispositivo ?? null,
       agenteMaquina: r.agenteMaquina ?? null, // máquina do agente dona da USB (mig 267)
+      estacaoId: r.estacaoId ?? null, // estação de impressão que imprime esta impressora (mig 324)
       codepage: r.codepage ?? null, // acentos: cp860 | cp850 | null (mig 269)
       setorId: r.setorId,
       largura: r.largura,
@@ -884,7 +912,13 @@ export class EquipamentoService {
       viasCliente: ou<number | null>('viasCliente', () => (dto.viasCliente != null && Number(dto.viasCliente) > 0 ? Number(dto.viasCliente) : null), null),
       viasProducao: ou<number | null>('viasProducao', () => (dto.viasProducao != null && Number(dto.viasProducao) > 0 ? Number(dto.viasProducao) : null), null),
       ativo: ou('ativo', () => (dto.ativo != null ? !!dto.ativo : true), true),
+      // "Ligada em" (mig 324): a estação de impressão que imprime esta impressora; null = o
+      // servidor da loja. Ausente na edição mantém o gravado (V16).
+      estacaoId: ou<string | null>('estacaoId', () => (dto.estacaoId ? String(dto.estacaoId) : null), null),
     };
+    if (veio('estacaoId') && vals.estacaoId) {
+      await this.conferirEstacao(tenantId, vals.estacaoId, dto.id ? atual?.unidadeId : dto.unidadeId ?? null);
+    }
     if (dto.id) {
       const [row] = await this.db
         .update(equipamento)
@@ -908,6 +942,21 @@ export class EquipamentoService {
     return this.publico(row);
   }
 
+  // A estação escolhida em "Ligada em" tem de existir nesta empresa, estar ativa e ser da mesma
+  // loja da impressora (ou de nenhuma): a impressão sairia num PC que a fila dessa loja não alcança.
+  private async conferirEstacao(tenantId: string, estacaoId: string, unidadeDaImpressora: string | null) {
+    if (!/^[0-9a-f-]{36}$/i.test(estacaoId)) throw new BadRequestException('Estação de impressão inválida.');
+    const [est] = await this.db
+      .select({ id: equipamento.id, unidadeId: equipamento.unidadeId, ativo: equipamento.ativo, revogadoEm: equipamento.revogadoEm })
+      .from(equipamento)
+      .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, estacaoId), eq(equipamento.tipo, 'estacao_impressao')));
+    if (!est) throw new BadRequestException('Estação de impressão não encontrada.');
+    if (!est.ativo || est.revogadoEm) throw new BadRequestException('Esta estação de impressão foi desativada ou revogada.');
+    if (est.unidadeId && unidadeDaImpressora && est.unidadeId !== unidadeDaImpressora) {
+      throw new BadRequestException('A estação de impressão é de outra loja.');
+    }
+  }
+
   /** O que a auditoria guarda de uma impressora: como ela ficou depois da mudança. */
   private resumoImpressora(r: any) {
     return {
@@ -915,6 +964,7 @@ export class EquipamentoService {
       papel: r.papel,
       conexao: r.conexao ?? 'rede',
       destino: this.destinoImpressora(r),
+      estacaoId: r.estacaoId ?? null,
       largura: r.largura,
       vias: r.vias,
       padrao: !!r.padrao,

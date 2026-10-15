@@ -899,6 +899,9 @@ export const equipamento = pgTable('equipamento', {
   // Máquina do agente de impressão dona desta impressora USB (mig 267). Aprendida na 1ª
   // impressão confirmada; a fila só entrega o job USB para ela.
   agenteMaquina: text('agente_maquina'),
+  // Estação de impressão que imprime esta impressora (mig 324). NULL = o servidor da loja (ou, sem
+  // servidor, o agente de sempre). Sem FK: equipamento sincroniza nos dois sentidos.
+  estacaoId: uuid('estacao_id'),
   // Página de código da impressora para sair COM acento (mig 269): cp860 | cp850; null = sem acento.
   codepage: text('codepage'),
   largura: integer('largura').notNull().default(80), // 58 | 80 (mm) — impressora

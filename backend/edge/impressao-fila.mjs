@@ -26,6 +26,9 @@ export const LEASE_SEG = 120;
 // impressora tem a sua fila, uma de cada vez) e as "fora do ar" (disjuntor aberto). Assim uma
 // impressora desligada não segura as outras — medido antes: via da cozinha 77 s atrás de três
 // cupons de um caixa desligado.
+//
+// Impressora ligada numa ESTAÇÃO de impressão (mig 324, `estacao_id`) é da estação daquele PC:
+// o servidor não a pega — no Windows dele ela não existe ("OpenPrinter falhou" em laço).
 export const SQL_RESERVAR = `
   with alvo as (
     select j.id from impressao_job j
@@ -35,6 +38,7 @@ export const SQL_RESERVAR = `
       and ($2::uuid is null or j.unidade_id = $2::uuid or j.unidade_id is null)
       and ($2::uuid is null or e.unidade_id is null or e.unidade_id = $2::uuid)
       and (j.equipamento_id is null or not (j.equipamento_id = any($3::uuid[])))
+      and e.estacao_id is null
     order by j.criado_em asc
     limit 20
     for update of j skip locked

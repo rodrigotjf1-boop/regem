@@ -535,6 +535,17 @@ export class SyncService {
         const nomes = ['tenant_id', ...cols];
         const setCols = cols.filter((c) => c !== 'id');
         const lwwCol = modo === 'lww' ? colunaLWW(lote.tabela) : 'updated_at';
+        // REVOGAÇÃO é absorvente (ERR-235): o equipamento revogado aqui não volta a ativo por uma
+        // cópia da loja, mesmo "mais nova" — o terminal em uso renova o updated_at local a cada
+        // requisição, e o LWW sozinho desfazia a revogação sem ninguém clicar. Só um pareamento
+        // novo depois da revogação (Trocar máquina → código → o PC pareia) reativa. Coluna que a
+        // loja não mandou chega NULL em `excluded`: conta como "ativa", o lado seguro.
+        const naoDesfazRevogacao =
+          lote.tabela === 'equipamento' && colunas.has('revogado_em')
+            ? sql` and not (equipamento.revogado_em is not null and excluded.revogado_em is null
+                      and excluded.pareamento_codigo is null
+                      and (excluded.pareado_em is null or excluded.pareado_em <= equipamento.revogado_em))`
+            : sql``;
         // LWW (update-se-mais-nova) p/ tabela com updated_at; senão do-nothing (append imutável).
         const conflito =
           (modo === 'lww' || colunas.has('updated_at')) && setCols.length && colunas.has(lwwCol)
@@ -543,7 +554,7 @@ export class SyncService {
                 sql`, `,
               )}
               where ${sql.identifier(lote.tabela)}.tenant_id = excluded.tenant_id
-                and ${sql.identifier(lote.tabela)}.${sql.identifier(lwwCol)} < excluded.${sql.identifier(lwwCol)}`
+                and ${sql.identifier(lote.tabela)}.${sql.identifier(lwwCol)} < excluded.${sql.identifier(lwwCol)}${naoDesfazRevogacao}`
             : sql`on conflict (id) do nothing`;
         const linhaVals = (linha: any) =>
           sql`(${sql.join([tenantId, ...cols.map((c) => coagir(linha[c]))].map((v) => sql`${v}`), sql`, `)})`;

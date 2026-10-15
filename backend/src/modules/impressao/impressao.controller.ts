@@ -14,9 +14,9 @@ import { PermissoesGuard } from '../../auth/permissoes.guard';
 import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
-import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
 import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
 import { ImpressaoSinalService } from './impressao-sinal.service';
+import { FilaCtx, FilaCtxData, FilaImpressaoGuard } from './fila-impressao.guard';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -26,8 +26,9 @@ const ESPERA_MAX_SEG = 25;
 // Sem aviso do banco (LISTEN fora), a espera reconsulta a fila neste intervalo.
 const RECONSULTA_MS = 5000;
 
-// Fila de impressão térmica. O agente/worker autentica por token 'servidor_local'
-// (x-sync-token) — nunca JWT de usuário; tenant é forçado pelo token.
+// Fila de impressão térmica. Quem consome autentica pela FilaImpressaoGuard: a estação de
+// impressão (x-estacao-id + x-estacao-segredo, mig 324) ou o token 'servidor_local'
+// (x-sync-token) do agente antigo — nunca JWT de usuário; a empresa vem da credencial.
 @Controller('impressao')
 export class ImpressaoController {
   constructor(
@@ -37,10 +38,10 @@ export class ImpressaoController {
 
   // Agente ANTIGO (consulta a cada 3 s, sem se identificar). Mantido para compatibilidade.
   @Get('pendentes')
-  @UseGuards(SyncTokenGuard)
-  pendentes(@SyncCtx() ctx: SyncCtxData) {
+  @UseGuards(FilaImpressaoGuard)
+  pendentes(@FilaCtx() ctx: FilaCtxData) {
     // F2: canal de impressão POR LOJA — a unidade vem do token (não-spoofável).
-    return this.service.jobsPendentes(ctx.tenantId, ctx.unidadeId ?? null);
+    return this.service.jobsPendentes(ctx.tenantId, ctx.unidadeId ?? null, { estacaoId: ctx.estacaoId });
   }
 
   // Agente NOVO: ESPERA LONGA + identificação da máquina.
@@ -49,16 +50,19 @@ export class ImpressaoController {
   // (aviso do banco via ImpressaoSinalService). Antes: 20 consultas/min por agente; agora ~2,4
   // quando a fila está parada. `maquina`/`dispositivos` fazem o job de impressora USB ir só
   // para a máquina onde ela está instalada.
+  // ESTAÇÃO de impressão (mig 324): pega só as impressoras ligadas nela (`estacao_id`), sem
+  // `maquina`/`dispositivos` — quem decide é o cadastro, não o nome no Windows.
   @Post('pendentes')
-  @UseGuards(SyncTokenGuard)
-  async pendentesEspera(@SyncCtx() ctx: SyncCtxData, @Body() dto: any, @Req() req: any) {
-    const maquina = typeof dto?.maquina === 'string' ? dto.maquina.slice(0, 120) : null;
-    const dispositivos = Array.isArray(dto?.dispositivos)
+  @UseGuards(FilaImpressaoGuard)
+  async pendentesEspera(@FilaCtx() ctx: FilaCtxData, @Body() dto: any, @Req() req: any) {
+    const estacaoId = ctx.estacaoId;
+    const maquina = !estacaoId && typeof dto?.maquina === 'string' ? dto.maquina.slice(0, 120) : null;
+    const dispositivos = !estacaoId && Array.isArray(dto?.dispositivos)
       ? dto.dispositivos.filter((d: any) => typeof d === 'string').map((d: string) => d.slice(0, 200))
       : null;
     // Impressoras ocupadas/fora do ar no agente (fila por impressora + disjuntor lá).
     const excluir = Array.isArray(dto?.excluir) ? dto.excluir : null;
-    this.service.registrarAgente(ctx.tenantId, maquina, dispositivos);
+    if (!estacaoId) this.service.registrarAgente(ctx.tenantId, maquina, dispositivos);
     const esperaMs = Math.max(0, Math.min(ESPERA_MAX_SEG, Number(dto?.espera) || 0)) * 1000;
     const fim = Date.now() + esperaMs;
     // Se o agente desistir (rede caiu, serviço parou) não reservamos mais nada para ele — senão
@@ -68,7 +72,7 @@ export class ImpressaoController {
     for (;;) {
       if (foi()) return [];
       const marca = this.sinal.marca(ctx.tenantId); // antes da consulta (ver ImpressaoSinalService)
-      const jobs = await this.service.jobsPendentes(ctx.tenantId, ctx.unidadeId ?? null, { maquina, dispositivos, excluir });
+      const jobs = await this.service.jobsPendentes(ctx.tenantId, ctx.unidadeId ?? null, { maquina, dispositivos, excluir, estacaoId });
       const resta = fim - Date.now();
       if (jobs.length || resta <= 0) return jobs;
       // Com o aviso do banco de pé, espera o tempo que resta (acorda na hora se entrar job — ou
@@ -78,29 +82,30 @@ export class ImpressaoController {
     }
   }
 
+  // A estação só confirma, devolve ou dá erro em impressão das impressoras DELA.
   @Post(':id/impresso')
-  @UseGuards(SyncTokenGuard)
-  impresso(@SyncCtx() ctx: SyncCtxData, @Param('id') id: string, @Body() dto: any) {
-    const maquina = typeof dto?.maquina === 'string' ? dto.maquina.slice(0, 120) : null;
-    return this.service.marcarImpresso(ctx.tenantId, id, maquina);
+  @UseGuards(FilaImpressaoGuard)
+  impresso(@FilaCtx() ctx: FilaCtxData, @Param('id') id: string, @Body() dto: any) {
+    const maquina = !ctx.estacaoId && typeof dto?.maquina === 'string' ? dto.maquina.slice(0, 120) : null;
+    return this.service.marcarImpresso(ctx.tenantId, id, maquina, ctx.estacaoId);
   }
 
   // Devolve sem gastar tentativa (o agente pausou a impressora — disjuntor).
   @Post(':id/devolver')
-  @UseGuards(SyncTokenGuard)
-  devolver(@SyncCtx() ctx: SyncCtxData, @Param('id') id: string, @Body() dto: any) {
+  @UseGuards(FilaImpressaoGuard)
+  devolver(@FilaCtx() ctx: FilaCtxData, @Param('id') id: string, @Body() dto: any) {
     const maquina = typeof dto?.maquina === 'string' ? dto.maquina.slice(0, 120) : null;
-    return this.service.devolverJob(ctx.tenantId, id, maquina);
+    return this.service.devolverJob(ctx.tenantId, id, maquina, ctx.estacaoId);
   }
 
   @Post(':id/erro')
-  @UseGuards(SyncTokenGuard)
+  @UseGuards(FilaImpressaoGuard)
   erro(
-    @SyncCtx() ctx: SyncCtxData,
+    @FilaCtx() ctx: FilaCtxData,
     @Param('id') id: string,
     @Body() dto: any,
   ) {
-    return this.service.marcarErro(ctx.tenantId, id, dto?.erro, dto?.definitivo === true);
+    return this.service.marcarErro(ctx.tenantId, id, dto?.erro, dto?.definitivo === true, ctx.estacaoId);
   }
 
   // Fila recente para o painel (status + impressora). Gestor logado; usuário com loja vê a dela.

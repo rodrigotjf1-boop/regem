@@ -168,7 +168,8 @@ const PUSH_TABLES = [
   { tabela: 'cardapio_config', cursor: 'updated_at' },
   // Configs espelhadas (P1, mig 181): impressoras/terminais e cupom/perfis sobem
   // (backup + volta num banco novo). equipamento FILTRADO: nunca 'servidor_local'.
-  { tabela: 'equipamento', cursor: 'updated_at', filtro: "tipo in ('impressora','pdv','salao','ponto_baixa','kds')" },
+  // `estacao_impressao` (mig 324): pareada aqui, sobe como as impressoras.
+  { tabela: 'equipamento', cursor: 'updated_at', filtro: "tipo in ('impressora','pdv','salao','ponto_baixa','kds','estacao_impressao')" },
   { tabela: 'delivery_config', cursor: 'updated_at' },
   { tabela: 'etiqueta_template', cursor: 'updated_at' },
   { tabela: 'opcao', cursor: 'updated_at' },
@@ -395,6 +396,40 @@ async function setState(k, v) {
 // edge não volta pra 'aberta' por um delta atrasado/materialização tardia da nuvem.
 const ESTADOS_TERMINAIS = { comanda: ['fechada', 'cancelada'] };
 
+// Quando a linha da nuvem sobrescreve a local (pull e restore, linha a linha e em lote):
+//  • LWW: só se a da nuvem for ESTRITAMENTE mais nova (updated_at);
+//  • estado terminal local (comanda fechada/cancelada) não reabre;
+//  • REVOGAÇÃO é absorvente (ERR-235): equipamento revogado na nuvem entra aqui mesmo que a cópia
+//    local pareça mais nova — o terminal em uso renova o updated_at local a cada requisição, e o
+//    LWW sozinho deixava a revogação sem descer (e a loja a devolvia "ativa" para a nuvem).
+//    E o contrário: equipamento revogado aqui não volta a ativo por uma cópia antiga — só por um
+//    pareamento novo depois da revogação ("Trocar máquina" gera código; o PC pareia de novo).
+function condicaoSobrescrever(tabela, cols) {
+  const cond = [];
+  const revogacao = tabela === 'equipamento' && cols.has('revogado_em');
+  if (cols.has('updated_at')) {
+    const maisNova = `${q(tabela)}.updated_at < excluded.updated_at`;
+    cond.push(
+      revogacao
+        ? `(${maisNova} or (excluded.revogado_em is not null and ${q(tabela)}.revogado_em is null))`
+        : maisNova,
+    );
+  }
+  if (revogacao && cols.has('pareamento_codigo') && cols.has('pareado_em')) {
+    cond.push(
+      `not (${q(tabela)}.revogado_em is not null and excluded.revogado_em is null` +
+        ` and excluded.pareamento_codigo is null` +
+        ` and (excluded.pareado_em is null or excluded.pareado_em <= ${q(tabela)}.revogado_em))`,
+    );
+  }
+  const terminais = ESTADOS_TERMINAIS[tabela];
+  if (terminais && cols.has('status')) {
+    const lst = terminais.map((s) => `'${s}'`).join(',');
+    cond.push(`not (${q(tabela)}.status in (${lst}) and excluded.status not in (${lst}))`);
+  }
+  return cond.length ? ` where ${cond.join(' and ')}` : '';
+}
+
 // exec = executor da query: `pool` no pull/restore normal; um CLIENT de transação no
 // restore por snapshot (carga atômica com FK desligada). Default = pool (retrocompatível).
 async function upsertLocal(tabela, row, exec = pool) {
@@ -417,17 +452,8 @@ async function upsertLocal(tabela, row, exec = pool) {
   // LWW no PULL: só sobrescreve o local se a linha da nuvem for ESTRITAMENTE mais
   // nova (updated_at). Antes o update era incondicional → uma linha velha da nuvem
   // apagava um estado mais recente do edge (causa do dashboard/espelho inconsistente).
-  const cond = [];
-  if (cols.has('updated_at')) {
-    cond.push(`${q(tabela)}.updated_at < excluded.updated_at`);
-  }
-  // Exceção: não reabrir comanda em estado terminal local por linha da nuvem não-terminal.
-  const terminais = ESTADOS_TERMINAIS[tabela];
-  if (terminais && cols.has('status')) {
-    const lst = terminais.map((s) => `'${s}'`).join(',');
-    cond.push(`not (${q(tabela)}.status in (${lst}) and excluded.status not in (${lst}))`);
-  }
-  const whereSql = cond.length ? ` where ${cond.join(' and ')}` : '';
+  // Exceções (estado terminal, revogação) em `condicaoSobrescrever`.
+  const whereSql = condicaoSobrescrever(tabela, cols);
   await exec.query(
     `insert into ${q(tabela)} (${keys.map(q).join(',')}) values (${ph.join(',')})
      on conflict (id) ${setSql}${whereSql}`,
@@ -456,15 +482,7 @@ async function upsertLote(tabela, rows, exec = pool) {
   if (!setCols.length) {
     setSql = 'do nothing';
   } else {
-    const cond = [];
-    if (cols.has('updated_at')) cond.push(`${q(tabela)}.updated_at < excluded.updated_at`);
-    const terminais = ESTADOS_TERMINAIS[tabela];
-    if (terminais && cols.has('status')) {
-      const lst = terminais.map((s) => `'${s}'`).join(',');
-      cond.push(`not (${q(tabela)}.status in (${lst}) and excluded.status not in (${lst}))`);
-    }
-    const whereSql = cond.length ? ` where ${cond.join(' and ')}` : '';
-    setSql = `do update set ${setCols.map((k) => `${q(k)}=excluded.${q(k)}`).join(',')}${whereSql}`;
+    setSql = `do update set ${setCols.map((k) => `${q(k)}=excluded.${q(k)}`).join(',')}${condicaoSobrescrever(tabela, cols)}`;
   }
   await exec.query(
     `insert into ${q(tabela)} (${keys.map(q).join(',')}) values ${ph.join(',')} on conflict (id) ${setSql}`,
