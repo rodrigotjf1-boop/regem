@@ -936,12 +936,22 @@ export class LicencaService {
     }
 
     if (equipamentoId) {
+      // A saúde só vem na batida do FIM do ciclo; a hora em que ela chegou (`fimDeCicloEm`) diz
+      // quando o servidor completou um ciclo pela última vez. A batida antecipada (sem saúde)
+      // mantém a anterior — depois de semanas sem internet, ela chega antes do pull e o
+      // `recebido_em` sozinho faria a nuvem achar que o servidor nunca sumiu (ver o pull).
+      const saude =
+        estado.saude && typeof estado.saude === 'object' && !Array.isArray(estado.saude)
+          ? JSON.stringify({ ...estado.saude, fimDeCicloEm: new Date().toISOString() })
+          : estado.saude
+            ? JSON.stringify(estado.saude)
+            : null;
       await this.db.execute(sql`
         insert into edge_status (equipamento_id, tenant_id, unidade_id, versao, estado, ultimo_sync,
           disco_livre_mb, clientes, fingerprint, saude, erro, recebido_em)
         values (${equipamentoId}, ${tenantId}, ${unidadeId ?? dto?.unidadeId ?? null}, ${estado.versao},
           ${estado.estado}, ${estado.ultimoSync}, ${estado.discoLivreMb}, ${estado.clientes},
-          ${estado.fingerprint}, ${estado.saude ? JSON.stringify(estado.saude) : null}, ${estado.erro}, now())
+          ${estado.fingerprint}, ${saude}, ${estado.erro}, now())
         on conflict (equipamento_id) do update set
           tenant_id = excluded.tenant_id, unidade_id = excluded.unidade_id, versao = excluded.versao,
           estado = excluded.estado, ultimo_sync = excluded.ultimo_sync,

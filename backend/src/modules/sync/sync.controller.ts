@@ -17,7 +17,7 @@ export class SyncController {
     @Query('desde') desde?: string,
     @Query('cursores') cursores?: string,
   ) {
-    return this.service.pull(ctx.tenantId, desde, parseCursores(cursores), ctx.unidadeId);
+    return this.service.pull(ctx.tenantId, desde, parseCursores(cursores), ctx.unidadeId, ctx.equipamentoId);
   }
 
   // Restauração sob demanda: deltas das tabelas transacionais (nuvem → edge).
