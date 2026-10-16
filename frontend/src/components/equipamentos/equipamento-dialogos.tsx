@@ -99,7 +99,11 @@ export function CodigoDePareamento({ equipamento, voltarPara, aoFechar }: { equi
           <p className={texto2} role="status">Gerando o código…</p>
         ) : (
           <>
-            <p>No computador do caixa, abra o PDV e digite este código:</p>
+            <p>
+              {equipamento.tipo === 'estacao_impressao'
+                ? 'No instalador do Regem, no PC onde a impressora está, marque “Este PC tem impressora” e digite este código:'
+                : 'No computador do caixa, abra o PDV e digite este código:'}
+            </p>
             <p data-codigo aria-label={`Código ${codigo.codigo.split('').join(' ')}`} className={`rounded-md bg-secondary px-4 py-3 text-center font-mono text-3xl font-semibold tracking-[0.3em] ${vencido ? 'line-through opacity-60' : ''}`}>
               {codigo.codigo.slice(0, 3)} {codigo.codigo.slice(3)}
             </p>
@@ -116,7 +120,9 @@ export function CodigoDePareamento({ equipamento, voltarPara, aoFechar }: { equi
 }
 
 /** Revogar: o que acontece depende do tipo — e a credencial do totem tem o aviso dela. */
-export function RevogarEquipamento({ equipamento, voltarPara, aoFechar, aoRevogar }: { equipamento: any; voltarPara: string; aoFechar: () => void; aoRevogar: () => void }) {
+export function RevogarEquipamento({
+  equipamento, todos = [], voltarPara, aoFechar, aoRevogar,
+}: { equipamento: any; todos?: any[]; voltarPara: string; aoFechar: () => void; aoRevogar: () => void }) {
   const [gravando, setGravando] = useState(false);
   const [erro, setErro] = useState('');
   async function confirmar() {
@@ -133,6 +139,11 @@ export function RevogarEquipamento({ equipamento, voltarPara, aoFechar, aoRevoga
     }
   }
   const impressora = equipamento.tipo === 'impressora';
+  // Impressoras ligadas nesta estação: só ela as imprime (o servidor da loja deixa de lado as que têm
+  // estação — `SQL_RESERVAR`), e estação revogada não entra mais (`validarEstacao`).
+  const ligadas = equipamento.tipo === 'estacao_impressao'
+    ? todos.filter((x) => x.tipo === 'impressora' && x.ativo && x.estacaoId === equipamento.id).map((x) => x.nome)
+    : [];
   return (
     <Dialogo alerta titulo="Revogar equipamento" aoFechar={aoFechar} voltarPara={voltarPara}
       rodape={
@@ -145,6 +156,15 @@ export function RevogarEquipamento({ equipamento, voltarPara, aoFechar, aoRevoga
         <p>Revogar <b>{equipamento.nome}</b> ({tipoDe(equipamento)})?</p>
         {ehGogem(equipamento) && (
           <p className="rounded-md border-l-4 border-destructive bg-destructive/10 px-3 py-2 font-medium">Esta é a credencial do totem (GoGeM): a venda pelo totem para.</p>
+        )}
+        {equipamento.tipo === 'estacao_impressao' && (
+          <p className="rounded-md border-l-4 border-destructive bg-destructive/10 px-3 py-2 font-medium">
+            {ligadas.length
+              ? `A estação deixa de imprimir. ${
+                  ligadas.length === 1 ? `A impressora ${ligadas[0]} fica sem quem a imprima` : `As impressoras ${ligadas.join(', ')} ficam sem quem as imprima`
+                } até você escolher outro “Ligada em” em Configurar.`
+              : 'A estação deixa de imprimir. Nenhuma impressora está ligada nela.'}
+          </p>
         )}
         <p className="rounded-md border-l-4 border-destructive bg-destructive/10 px-3 py-2">
           {impressora

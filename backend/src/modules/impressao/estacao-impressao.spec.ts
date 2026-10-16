@@ -254,4 +254,96 @@ descrever('estação de impressão (Postgres)', () => {
       expect(new Date((await estado(IMP_S1)).estado_em).getTime()).toBeGreaterThan(new Date(a.estado_em).getTime());
     });
   });
+
+  // PR 5: a tela de Equipamentos mostra a estação (no ar / fora / nunca pareou), o "Ligada em" e o
+  // que cada impressora respondeu.
+  describe('o que a tela de Equipamentos recebe', () => {
+    const daLista = async (id: string) => ((await equip.listar(T)) as any[]).find((e) => e.id === id);
+    const modoAntes = process.env.EDGE_MODE;
+    afterEach(() => {
+      if (modoAntes === undefined) delete process.env.EDGE_MODE;
+      else process.env.EDGE_MODE = modoAntes;
+    });
+
+    it('a estação vem com o último sinal e "pareado"; a que nunca pareou, sem sinal', async () => {
+      await fila.batidaEstacao(T, LOJA_1, S1, { versao: '1.30.4', maquina: 'PC-DELIVERY', impressoras: ['MP-4200 TH'] });
+      const s1 = await daLista(S1);
+      expect(s1).toMatchObject({ pareado: true, estacao: { versao: '1.30.4', maquina: 'PC-DELIVERY', impressoras: ['MP-4200 TH'] } });
+      expect(Date.now() - new Date(s1.estacao.vistoEm).getTime()).toBeLessThan(60_000);
+      const nunca = randomUUID();
+      await equipamento(nunca, 'estacao_impressao');
+      expect(await daLista(nunca)).toMatchObject({ pareado: false, estacao: null });
+      // Só a estação leva o "pareado": o resto da lista sai como antes.
+      expect(await daLista(PDV)).not.toHaveProperty('pareado');
+      expect((await daLista(IMP_S1)).estacaoId).toBe(S1);
+    });
+
+    it('na nuvem, a estação que bate no servidor da loja aparece pela saúde dele', async () => {
+      process.env.EDGE_MODE = 'false';
+      const SRV = randomUUID();
+      const visto = new Date().toISOString();
+      await q(
+        `insert into edge_status (equipamento_id, tenant_id, unidade_id, saude, recebido_em) values ($1,$2,$3,$4::jsonb, now())`,
+        [SRV, T, LOJA_1, JSON.stringify({ estacoes: [{ id: S2, nome: 'Estação PDV', versao: '1.30.4', maquina: 'PC-CAIXA1', vistoEm: visto }] })],
+      );
+      try {
+        expect((await daLista(S2)).estacao).toMatchObject({ maquina: 'PC-CAIXA1', versao: '1.30.4', vistoEm: visto });
+      } finally {
+        await q('delete from edge_status where equipamento_id = $1', [SRV]);
+      }
+    });
+
+    it('com servidor da loja ativo, a nuvem não cria estação nem gera o código dela (o pareamento é lá)', async () => {
+      process.env.EDGE_MODE = 'false';
+      const SRV = randomUUID();
+      await q(`insert into edge_status (equipamento_id, tenant_id, unidade_id, recebido_em) values ($1,$2,$3, now())`, [SRV, T, LOJA_1]);
+      try {
+        await expect(equip.criar(T, randomUUID(), 'presidente', { tipo: 'estacao_impressao', nome: 'Estação X', unidadeId: LOJA_1 } as any))
+          .rejects.toThrow(/servidor local/);
+        await expect(equip.gerarCodigo(T, S1, randomUUID(), 'presidente')).rejects.toThrow(/servidor local/);
+      } finally {
+        await q('delete from edge_status where equipamento_id = $1', [SRV]);
+      }
+      // Sem servidor ativo (ou no próprio servidor da loja): cria e gera.
+      process.env.EDGE_MODE = 'true';
+      const nova: any = await equip.criar(T, randomUUID(), 'presidente', { tipo: 'estacao_impressao', nome: 'Estação Y', unidadeId: LOJA_1 } as any);
+      expect(nova.tipo).toBe('estacao_impressao');
+      expect((await equip.gerarCodigo(T, nova.id, randomUUID(), 'presidente')).codigo).toMatch(/^\d{6}$/);
+    });
+
+    it('criar impressora já "Ligada em" uma estação; a estação é conferida', async () => {
+      process.env.EDGE_MODE = 'true';
+      const imp: any = await equip.criar(T, randomUUID(), 'presidente', {
+        tipo: 'impressora', nome: 'Delivery', unidadeId: LOJA_1, conexao: 'local', dispositivo: 'MP-4200 TH', estacaoId: S1, fazCupom: true,
+      } as any);
+      expect(imp.estacaoId).toBe(S1);
+      await expect(equip.criar(T, randomUUID(), 'presidente', {
+        tipo: 'impressora', nome: 'Errada', unidadeId: LOJA_1, conexao: 'local', dispositivo: 'X', estacaoId: S_REVOGADA,
+      } as any)).rejects.toThrow(/revogada/);
+      // O "Ligada em" é só da impressora: outro tipo não grava estação.
+      const kds: any = await equip.criar(T, randomUUID(), 'presidente', { tipo: 'kds', nome: 'KDS', unidadeId: LOJA_1, estacaoId: S1 } as any);
+      expect(kds.estacaoId).toBeNull();
+    });
+
+    it('estado das impressoras: o que a impressora respondeu, e na nuvem o que o servidor da loja mandou', async () => {
+      process.env.EDGE_MODE = 'true';
+      await fila.batidaEstacao(T, LOJA_1, S1, { versao: '1.30.4', estados: [{ equipamentoId: IMP_S1, estado: 'sem_papel', detalhe: 'sem papel' }] });
+      const local = ((await fila.estadoImpressoras(T, LOJA_1)) as any[]).find((x) => x.id === IMP_S1);
+      expect(local).toMatchObject({ estado: 'sem_papel', estadoDetalhe: 'sem papel', estacaoId: S1 });
+      expect(local.estadoEm).toBeTruthy();
+
+      process.env.EDGE_MODE = 'false';
+      const SRV = randomUUID();
+      await q(
+        `insert into edge_status (equipamento_id, tenant_id, unidade_id, saude, recebido_em) values ($1,$2,$3,$4::jsonb, now())`,
+        [SRV, T, LOJA_1, JSON.stringify({ impressorasComAviso: [{ id: IMP_REDE, nome: 'Cozinha', estado: 'papel_acabando', detalhe: null, desde: '2026-10-15T21:12:00.000Z' }] })],
+      );
+      try {
+        const nuvem = ((await fila.estadoImpressoras(T, LOJA_1)) as any[]).find((x) => x.id === IMP_REDE);
+        expect(nuvem).toMatchObject({ estado: 'papel_acabando', estadoEm: '2026-10-15T21:12:00.000Z', origem: 'servidor_local' });
+      } finally {
+        await q('delete from edge_status where equipamento_id = $1', [SRV]);
+      }
+    });
+  });
 });

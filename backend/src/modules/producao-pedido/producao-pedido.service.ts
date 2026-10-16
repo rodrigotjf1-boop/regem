@@ -1554,6 +1554,7 @@ export class ProducaoPedidoService {
                s.ultima_falha_em as "ultimaFalhaEm", s.ultimo_erro as "ultimoErro",
                coalesce(s.falhas_seguidas, 0) as "falhasSeguidas",
                (s.falhas_seguidas > 0 and (s.ultimo_ok_em is null or s.ultima_falha_em > s.ultimo_ok_em)) as "semResponder",
+               s.estado, s.estado_detalhe as "estadoDetalhe", s.estado_em as "estadoEm", e.estacao_id as "estacaoId",
                f.pendentes, f.mais_antigo as "maisAntigoEm"
           from equipamento e
           left join impressora_status s on s.equipamento_id = e.id
@@ -1596,6 +1597,11 @@ export class ProducaoPedidoService {
       for (const m of Array.isArray(sd.impressorasSemResponder) ? sd.impressorasSemResponder : []) {
         const x = m.id ? porId.get(m.id) : base.find((b) => b.nome === m.nome);
         if (x) Object.assign(x, { semResponder: true, ultimaFalhaEm: m.desde ?? null, ultimoErro: m.erro ?? null, origem: 'servidor_local' });
+      }
+      // O que a impressora RESPONDEU (mig 324): sem papel, tampa aberta, papel preso…
+      for (const a of Array.isArray(sd.impressorasComAviso) ? sd.impressorasComAviso : []) {
+        const x = a.id ? porId.get(a.id) : null;
+        if (x) Object.assign(x, { estado: a.estado ?? null, estadoDetalhe: a.detalhe ?? null, estadoEm: a.desde ?? null, origem: 'servidor_local' });
       }
     }
     return base;

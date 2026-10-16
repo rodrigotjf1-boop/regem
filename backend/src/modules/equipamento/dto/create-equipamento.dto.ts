@@ -107,4 +107,10 @@ export class CreateEquipamentoDto {
   @IsOptional()
   @IsUUID()
   pdvMainId?: string;
+
+  // Impressora: "Ligada em" (mig 324) — a estação de impressão do PC onde ela está. Vazio = o
+  // servidor da loja.
+  @IsOptional()
+  @IsUUID()
+  estacaoId?: string;
 }
