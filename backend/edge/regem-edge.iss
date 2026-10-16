@@ -63,9 +63,26 @@ Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; \
 ;    do PowerShell gravaria a senha no log) — vao num arquivo temporario que o
 ;    [Code] escreve antes e o script le e apaga. So o CAMINHO aparece aqui.
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; \
-  Parameters: "-ExecutionPolicy Bypass -NoProfile -File ""{app}\backend\edge\instalar-tudo.ps1"" -Raiz ""{app}\backend"" -Modo ""{code:GetModo}"" -ServidorHost ""{code:GetServidorHost}"" -CredFile ""{tmp}\regem-cred.txt"" -LicensePublicKey ""{#MyLicensePubKey}"" -CloudApi ""{#MyCloudApi}"" -Limpar"; \
+  Parameters: "-ExecutionPolicy Bypass -NoProfile -File ""{app}\backend\edge\instalar-tudo.ps1"" -Raiz ""{app}\backend"" -Modo ""{code:GetModo}"" -ServidorHost ""{code:GetServidorHost}"" -CredFile ""{tmp}\regem-cred.txt"" -LicensePublicKey ""{#MyLicensePubKey}"" -CloudApi ""{#MyCloudApi}"" -Limpar {code:GetEstacaoParams}"; \
   StatusMsg: "Instalando o Regem Edge…"; \
   Flags: waituntilterminated
+
+; Estacao de impressao (modo cliente, "Este PC tem impressora"): o icone ao lado do relogio, aberto
+; como o usuario que instalou (nao como administrador). Depois, abre sozinho em todo login (Registry).
+Filename: "{app}\backend\edge\bandeja\RegemEstacao.exe"; Parameters: "--raiz ""{app}\estacao"""; \
+  Description: "Mostrar o icone da estacao de impressao"; \
+  Flags: nowait postinstall runasoriginaluser skipifdoesntexist; Check: TemEstacao
+
+[Registry]
+; O icone da estacao abre em todo login, para qualquer usuario do PC. Sai ao desinstalar.
+Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "RegemEstacao"; \
+  ValueData: """{app}\backend\edge\bandeja\RegemEstacao.exe"" --raiz ""{app}\estacao"""; Flags: uninsdeletevalue; Check: TemEstacao
+
+[UninstallRun]
+; Desinstalar: fecha o icone e remove o servico da estacao (se existirem).
+Filename: "{sys}\taskkill.exe"; Parameters: "/IM RegemEstacao.exe /F"; Flags: runhidden; RunOnceId: "FecharIconeEstacao"
+Filename: "{app}\nssm\nssm.exe"; Parameters: "stop RegemEstacaoImpressao"; Flags: runhidden skipifdoesntexist; RunOnceId: "PararEstacao"
+Filename: "{app}\nssm\nssm.exe"; Parameters: "remove RegemEstacaoImpressao confirm"; Flags: runhidden skipifdoesntexist; RunOnceId: "RemoverEstacao"
 
 [Messages]
 WelcomeLabel2=Este assistente instala o Regem local e configura tudo automaticamente. Na proxima tela voce escolhe se este PC e o Servidor (cerebro da loja) ou um Cliente (so abre o app apontando pro Servidor).
@@ -79,6 +96,8 @@ var
   PgLoja: TInputOptionWizardPage;     // loja deste servidor (so empresa com mais de uma)
   PgCodigo: TInputQueryWizardPage;    // codigo da trava (so loja com servidor em OUTRO computador)
   PgServidor: TInputQueryWizardPage;  // IP do Servidor (so no Cliente)
+  PgEstacao: TInputQueryWizardPage;   // "Este PC tem impressora" + codigo da estacao (so no Cliente)
+  ChkEstacao: TNewCheckBox;
   LblCodigo: TNewStaticText;
   BtnReenviar: TNewButton;
   ChkTotp: TNewCheckBox;
@@ -128,6 +147,12 @@ end;
 procedure TotpClick(Sender: TObject);
 begin
   PedirCodigoNaTela;
+end;
+
+// "Este PC tem impressora": libera o campo do codigo.
+procedure EstacaoClick(Sender: TObject);
+begin
+  PgEstacao.Edits[0].Enabled := ChkEstacao.Checked;
 end;
 
 procedure InitializeWizard;
@@ -206,6 +231,26 @@ begin
     'Padrao "regem.local" (o Servidor se anuncia na rede). Se a rede nao encontrar por esse nome, troque pelo IP do PC Servidor (ex.: 192.168.0.10).');
   PgServidor.Add('Servidor (nome ou IP):', False);
   PgServidor.Values[0] := 'regem.local';
+
+  // Estacao de impressao (central de impressao, fase 1) - so no Cliente: o servico que imprime as
+  // impressoras DESTE PC e o icone ao lado do relogio. O codigo e gerado no Regem.
+  PgEstacao := CreateInputQueryPage(PgServidor.ID,
+    'Impressora neste PC',
+    'Este PC tem impressora que deve imprimir os cupons?',
+    'No Regem, em Configuracoes > Equipamentos, cadastre a "Estacao de impressao" deste PC e clique em Gerar codigo. ' +
+    'Digite o codigo abaixo (vale 15 minutos e uma vez so). Numa reinstalacao, deixe em branco para manter o pareamento atual.');
+  PgEstacao.Add('Codigo da estacao (6 numeros):', False);
+  ChkEstacao := TNewCheckBox.Create(PgEstacao);
+  ChkEstacao.Parent := PgEstacao.Surface;
+  ChkEstacao.Caption := 'Este PC tem impressora (instalar a estacao de impressao)';
+  ChkEstacao.Top := 0;
+  ChkEstacao.Width := PgEstacao.SurfaceWidth;
+  ChkEstacao.Height := ScaleY(17);
+  ChkEstacao.OnClick := @EstacaoClick;
+  PgEstacao.PromptLabels[0].Top := PgEstacao.PromptLabels[0].Top + ScaleY(30);
+  PgEstacao.Edits[0].Top := PgEstacao.Edits[0].Top + ScaleY(30);
+  PgEstacao.Edits[0].MaxLength := 6;
+  PgEstacao.Edits[0].Enabled := False;
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
@@ -216,6 +261,7 @@ begin
   if PageID = PgLoja.ID then Result := EhCliente or (GetArrayLength(gUnidadesIds) = 0);
   if PageID = PgCodigo.ID then Result := EhCliente or (not gPrecisaCodigo) or gCodigoConferido;
   if PageID = PgServidor.ID then Result := not EhCliente;
+  if PageID = PgEstacao.ID then Result := not EhCliente;
 end;
 
 // Depois de cada consulta: a nuvem pediu o codigo e ele ainda nao foi conferido?
@@ -237,6 +283,15 @@ begin
     PgLoja.Add(nome);
   end;
   if GetArrayLength(gUnidadesIds) > 0 then PgLoja.SelectedValueIndex := 0;
+end;
+
+function CodigoDeSeisNumeros(const c: string): Boolean;
+var i: Integer;
+begin
+  Result := Length(c) = 6;
+  if not Result then Exit;
+  for i := 1 to 6 do
+    if (c[i] < '0') or (c[i] > '9') then begin Result := False; Exit; end;
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -317,6 +372,28 @@ begin
       MsgBox('Informe o IP do Servidor Regem na rede.', mbError, MB_OK); Result := False; Exit;
     end;
   end;
+  if (CurPageID = PgEstacao.ID) and EhCliente and ChkEstacao.Checked then
+  begin
+    if (Trim(PgEstacao.Values[0]) = '') and FileExists(AddBackslash(WizardDirValue) + 'estacao\.env.local') then Exit;
+    if not CodigoDeSeisNumeros(Trim(PgEstacao.Values[0])) then
+    begin
+      MsgBox('O codigo da estacao tem 6 numeros. Gere no Regem: Configuracoes > Equipamentos > Gerar codigo.', mbError, MB_OK); Result := False; Exit;
+    end;
+  end;
+end;
+
+function TemEstacao: Boolean;
+begin
+  Result := EhCliente and ChkEstacao.Checked;
+end;
+// Parametros da estacao para o orquestrador: o codigo vai num ARQUIVO (escrito no ssInstall).
+function GetEstacaoParams(Param: string): string;
+begin
+  Result := '';
+  if not TemEstacao then Exit;
+  Result := '-Estacao';
+  if Trim(PgEstacao.Values[0]) <> '' then
+    Result := Result + ' -EstacaoArq "' + ExpandConstant('{tmp}\regem-estacao.txt') + '"';
 end;
 
 function GetModo(Param: string): string;
@@ -339,12 +416,14 @@ begin Result := gUnidadeId; end;
 // executaveis/scripts em uso (RegemEdgeApi/Web/Sync/Pg...) travam a substituicao e a
 // instalacao fica incompleta (arquivos faltando). net stop de servico inexistente e no-op.
 procedure PararServicosRegem;
-var rc, i: Integer; nomes: array[0..4] of string;
+var rc, i: Integer; nomes: array[0..5] of string;
 begin
   nomes[0] := 'RegemEdgeWeb'; nomes[1] := 'RegemEdgeApi'; nomes[2] := 'RegemEdgeSync';
-  nomes[3] := 'RegemEdgeImpressao'; nomes[4] := 'RegemEdgePg';
-  for i := 0 to 4 do
+  nomes[3] := 'RegemEdgeImpressao'; nomes[4] := 'RegemEdgePg'; nomes[5] := 'RegemEstacaoImpressao';
+  for i := 0 to 5 do
     Exec(ExpandConstant('{sys}\net.exe'), 'stop ' + nomes[i] + ' /y', '', SW_HIDE, ewWaitUntilTerminated, rc);
+  // O icone da estacao segura o RegemEstacao.exe aberto: fecha antes de copiar o novo.
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM RegemEstacao.exe /F', '', SW_HIDE, ewWaitUntilTerminated, rc);
 end;
 
 // O motivo que o script deixou em ULTIMO-ERRO.txt (UTF-8: a frase da nuvem vem com acento).
@@ -375,6 +454,9 @@ begin
       s := EmailConta + #13#10 + SenhaConta + #13#10 + gUnidadeId + #13#10 + gFingerprint;
       SaveStringToFile(ExpandConstant('{tmp}\regem-cred.txt'), s, False);
     end;
+    // Estacao de impressao: o codigo num arquivo temporario - o script le e apaga na hora.
+    if TemEstacao and (Trim(PgEstacao.Values[0]) <> '') then
+      SaveStringToFile(ExpandConstant('{tmp}\regem-estacao.txt'), Trim(PgEstacao.Values[0]), False);
   end;
   // Depois do script: SEM o flag de sucesso = falhou (login errado, sem internet,
   // Postgres, migrations...). Avisa claro e marca para a tela final refletir.

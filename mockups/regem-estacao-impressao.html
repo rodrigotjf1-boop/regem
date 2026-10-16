@@ -173,7 +173,12 @@ caption{text-align:left;color:var(--ink-2);font-size:13px;padding-bottom:6px}
       </div>
       <div class="aviso-faixa aviso" id="f-antiga" hidden>
         <p><b>5 cupons esperam há mais de 10 minutos</b> (a impressora ficou desligada das 20:40 às 21:05). Imprimir agora pode repetir um pedido que já foi feito à mão.</p>
-        <div class="acoes"><button class="btn pri" type="button">Imprimir todos</button><button class="btn" type="button">Escolher quais</button><button class="btn perigo" type="button">Descartar</button></div>
+        <div class="lista" role="group" aria-label="Cupons que esperam (marque os que devem sair)">
+          <label class="linha"><span><input type="checkbox"> <span class="mono">20:41</span> SENHA 440 · iFood</span><span class="meta">MP-4200 TH</span></label>
+          <label class="linha"><span><input type="checkbox"> <span class="mono">20:44</span> SENHA 441 · Anota Aí</span><span class="meta">MP-4200 TH</span></label>
+        </div>
+        <div class="acoes"><button class="btn pri" type="button">Imprimir todos</button><button class="btn" type="button">Imprimir os marcados</button><button class="btn perigo" type="button">Descartar os marcados</button><button class="btn perigo" type="button">Descartar todos</button></div>
+        <p>"Escolher quais" é marcar na lista. Descartar pede confirmação; o descartado não sai mais e aparece no Regem como "descartado na estação".</p>
       </div>
       <div class="lista">
         <div class="linha"><div><div class="nome">MP-4200 TH (Delivery)</div><div class="meta">USB · papel 80 mm · imprime: cupom do delivery</div></div><span class="pill ok" id="p-pill">pronta</span></div>

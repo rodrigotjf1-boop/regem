@@ -89,7 +89,12 @@ async function parear(codigo, { servidor, api }) {
     base = `https://${servidor}:${portaApi}/api/v1`;
     // Confiança no primeiro uso, como o instalador do PC cliente: o servidor entrega o certificado
     // da loja em /ca.pem; daqui em diante a estação só aceita o servidor assinado por ele.
-    const r = await chamar('GET', `https://${servidor}:${portaWeb}/ca.pem`, undefined, { inseguro: true });
+    let r;
+    try {
+      r = await chamar('GET', `https://${servidor}:${portaWeb}/ca.pem`, undefined, { inseguro: true, timeoutMs: 10000 });
+    } catch (e) {
+      throw new Error(`não consegui falar com o servidor da loja em ${servidor} (${e?.code || e?.message || e}). Confira o endereço e se ele está ligado.`);
+    }
     ca = r.status === 200 && /BEGIN CERTIFICATE/.test(r.texto) ? r.texto : null;
     if (!ca) throw new Error(`O servidor ${servidor} não entregou o certificado da loja. Confira o endereço e se ele está ligado.`);
   } else {
