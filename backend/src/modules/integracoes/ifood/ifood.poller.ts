@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
+import { FalhasDoPoller } from '../../../common/falhas-do-poller';
 import { DeliveryService } from '../../delivery/delivery.service';
 import { agendamentoIfood } from '../../delivery/adapters';
 import { IfoodService, IntegIfood } from './ifood.service';
@@ -11,6 +12,8 @@ import { IfoodService, IntegIfood } from './ifood.service';
 @Injectable()
 export class IfoodPoller {
   private readonly logger = new Logger('IfoodPoller');
+  // Falha de rede passageira = aviso; erro só se a loja ficar 5 min sem resposta (ERR-244).
+  private readonly falhas = new FalhasDoPoller(this.logger);
   private rodando = false;
   constructor(
     private readonly ifood: IfoodService,
@@ -27,8 +30,9 @@ export class IfoodPoller {
       for (const ig of integs) {
         try {
           await this.processar(ig);
+          this.falhas.funcionou(ig.id, `poller iFood loja ${ig.tenantId}`);
         } catch (e: any) {
-          this.logger.error(`poller iFood loja ${ig.tenantId}: ${e?.message ?? e}`, e?.stack);
+          this.falhas.falhou(ig.id, `poller iFood loja ${ig.tenantId}`, e);
         }
         // Blindagem: reenvia cancelamentos que não chegaram ao iFood (não perde o cancel).
         try {

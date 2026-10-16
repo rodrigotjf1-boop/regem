@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
+import { FalhasDoPoller } from '../../../common/falhas-do-poller';
 import { AnotaAiService } from './anotaai.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -10,6 +11,8 @@ import { AnotaAiService } from './anotaai.service';
 @Injectable()
 export class AnotaAiPoller {
   private readonly logger = new Logger('AnotaAiPoller');
+  // Falha de rede passageira = aviso; erro só se a loja ficar 5 min sem resposta (ERR-244).
+  private readonly falhas = new FalhasDoPoller(this.logger);
   private rodando = false;
   constructor(private readonly anota: AnotaAiService) {}
 
@@ -23,8 +26,9 @@ export class AnotaAiPoller {
       for (const ig of integs) {
         try {
           await this.anota.sincronizar(ig.tenantId);
+          this.falhas.funcionou(ig.tenantId, `poller Anota Aí tenant ${ig.tenantId}`);
         } catch (e: any) {
-          this.logger.error(`poller Anota Aí tenant ${ig.tenantId}: ${e?.message ?? e}`, e?.stack);
+          this.falhas.falhou(ig.tenantId, `poller Anota Aí tenant ${ig.tenantId}`, e);
         }
       }
     } finally {

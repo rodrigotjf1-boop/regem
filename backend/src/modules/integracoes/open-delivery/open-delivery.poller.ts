@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ehServidorLocal } from '../../../common/modo';
+import { FalhasDoPoller } from '../../../common/falhas-do-poller';
 import { Interval } from '@nestjs/schedule';
 import { DeliveryService } from '../../delivery/delivery.service';
 import { adaptarOpenDelivery } from '../../delivery/adapters';
@@ -11,6 +12,8 @@ import { IntegOD, OpenDeliveryService } from './open-delivery.service';
 @Injectable()
 export class OpenDeliveryPoller {
   private readonly logger = new Logger('OpenDeliveryPoller');
+  // Falha de rede passageira = aviso; erro só se a loja ficar 5 min sem resposta (ERR-244).
+  private readonly falhas = new FalhasDoPoller(this.logger);
   private rodando = false;
 
   constructor(
@@ -29,8 +32,9 @@ export class OpenDeliveryPoller {
       for (const ig of integs) {
         try {
           await this.processar(ig);
+          this.falhas.funcionou(ig.id, `poller Open Delivery loja ${ig.tenantId}`);
         } catch (e: any) {
-          this.logger.error(`poller Open Delivery loja ${ig.tenantId}: ${e?.message ?? e}`, e?.stack);
+          this.falhas.falhou(ig.id, `poller Open Delivery loja ${ig.tenantId}`, e);
         }
       }
     } finally {
