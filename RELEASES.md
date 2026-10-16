@@ -12,6 +12,7 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.4)
 
+- **Falha de rede com o porquê nas chamadas ao GoGeM (ERR-239) — sem migration; MUDA O SERVIDOR (`gogem-publish`, `gogem-aviso`, `totem/gogem-proxy`, novo `common/causa-de-rede.ts`) — pede `.zip` (o aviso de cancelamento e o repasse do totem rodam também no servidor da loja; não toca `backend/edge/` nem o sync).** Em vez de só "fetch failed", o log, a mensagem do "Publicar no GoGeM", o `ultimo_erro` do aviso e o campo `motivo` do 503 do totem trazem a causa ("ENOTFOUND api-stg.gogem.com.br"). Nunca o token.
 - **Revogar com o sinal real e "Reativar" (ERR-236) — sem migration; MUDA O SERVIDOR (lista de equipamentos, rota nova `PATCH /equipamento/:id/reativar`) e a TELA (Equipamentos) — pede `.zip` (não toca `backend/edge/` nem o sync).** Na loja: reativar impressora/KDS/estação é no servidor da loja; o PDV reativado na nuvem desce com o código novo pelo sincronismo.
 - **Equipamento revogado sai do caminho — sem migration; MUDA O SERVIDOR (as 5 rotas que gravam destino de produção) e a TELA (Equipamentos, Direcionamento, Produção & KDS, destinos do produto e das opções, perfis do cupom) — pede `.zip` (não toca `backend/edge/` nem o sync).** Equipamentos abre em "Em uso"; destino de produção só KDS/impressora desta empresa e em uso, conferido antes de apagar os atuais (ERR-241).
 
