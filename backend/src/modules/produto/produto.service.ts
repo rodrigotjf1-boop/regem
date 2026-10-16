@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, eq, inArray, isNotNull, isNull, notInArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   complemento,
@@ -28,6 +28,9 @@ import { exigirUnidade, unidadeOuPadrao } from '../estoque/unidades';
 import { arredondarEstoque, fatorParaEstoque, unidadesDoProduto } from '../../common/conversao-unidade';
 import { CreateCategoriaDto } from './dto/create-categoria.dto';
 import { CreateProdutoDto } from './dto/create-produto.dto';
+
+// Linhas por INSERT na materialização (o Postgres aceita até 65.535 parâmetros por comando).
+const LOTE_MATERIALIZAR = 1000;
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 @Injectable()
@@ -445,7 +448,7 @@ export class ProdutoService {
       .update(complemento)
       .set({ deletedAt: agora, updatedAt: agora })
       .where(and(eq(complemento.id, id), eq(complemento.tenantId, tenantId)));
-    for (const a of alvos) await this.materializarProduto(tenantId, a.produtoId);
+    await this.materializarProdutos(tenantId, alvos.map((a) => a.produtoId));
     return { ok: true };
   }
 
@@ -454,63 +457,59 @@ export class ProdutoService {
   // a partir dos complementos reutilizáveis ligados ao produto. Só mexe nos grupos
   // com `origem_complemento_id` (os manuais do editor antigo ficam intactos).
   async materializarProduto(tenantId: string, produtoId: string) {
-    // 1) Soft-delete dos grupos materializados anteriores (e opções) — soft para a
-    //    remoção/regeração propagar ao EDGE pelo sync (deleted_at). Recriados abaixo.
-    const agora = new Date();
-    const antigos = await this.db
-      .select({ id: complementoGrupo.id })
-      .from(complementoGrupo)
-      .where(
-        and(
-          eq(complementoGrupo.tenantId, tenantId),
-          eq(complementoGrupo.produtoId, produtoId),
-          isNotNull(complementoGrupo.origemComplementoId),
-          isNull(complementoGrupo.deletedAt),
-        ),
-      );
-    for (const g of antigos) {
-      // updatedAt junto: o push edge→nuvem usa updated_at como cursor (P3).
-      await this.db.update(complementoOpcao).set({ deletedAt: agora, updatedAt: agora }).where(eq(complementoOpcao.grupoId, g.id));
-      await this.db.update(complementoGrupo).set({ deletedAt: agora, updatedAt: agora }).where(eq(complementoGrupo.id, g.id));
-    }
+    await this.materializarProdutos(tenantId, [produtoId]);
+    return { ok: true };
+  }
 
-    // 2) Recria a partir dos complementos ligados (na ordem definida).
-    const ligados = await this.db
-      .select({ complementoId: produtoComplemento.complementoId, ordem: produtoComplemento.ordem })
-      .from(produtoComplemento)
-      .where(and(eq(produtoComplemento.tenantId, tenantId), eq(produtoComplemento.produtoId, produtoId), isNull(produtoComplemento.deletedAt)))
-      .orderBy(produtoComplemento.ordem);
+  // A mesma regeração para VÁRIOS produtos de uma vez: uma transação e ~10 idas ao banco, qualquer
+  // que seja a quantidade de produtos, etapas e opções. Antes era um produto por vez e uma linha por
+  // vez — salvar a opção "Carne 120 gr" (9 produtos, 19 etapas, 108 linhas) dava ~250 idas ao banco,
+  // uns 40 s com o banco em Oregon (ERR-245). O que se grava é o mesmo.
+  async materializarProdutos(tenantId: string, produtoIds: string[]) {
+    const ids = [...new Set((produtoIds ?? []).filter(Boolean))];
+    if (!ids.length) return;
+    const idsSql = sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `);
+    await this.db.transaction(async (tx) => {
+      // Trava os produtos: duas gravações ao mesmo tempo (a opção e a etapa, dois gestores) não
+      // recriam os grupos duas vezes — a segunda espera e regera sobre o que a primeira deixou.
+      await tx.execute(sql`select id from produto where tenant_id = ${tenantId} and id in (${idsSql}) order by id for update`);
 
-    for (const [i, lig] of ligados.entries()) {
-      const [comp] = await this.db
+      // 1) Soft-delete dos grupos materializados anteriores e das opções deles — soft para a
+      //    remoção/regeração propagar ao EDGE pelo sync; updated_at junto (cursor do push, P3).
+      const agora = new Date();
+      await tx.execute(sql`
+        with grupos as (
+          update complemento_grupo set deleted_at = ${agora}, updated_at = ${agora}
+           where tenant_id = ${tenantId} and produto_id in (${idsSql})
+             and origem_complemento_id is not null and deleted_at is null
+          returning id)
+        update complemento_opcao set deleted_at = ${agora}, updated_at = ${agora}
+         where grupo_id in (select id from grupos) and deleted_at is null`);
+
+      // 2) Os complementos ligados (na ordem definida), os complementos e as opções deles.
+      const ligados = await tx
+        .select({ produtoId: produtoComplemento.produtoId, complementoId: produtoComplemento.complementoId })
+        .from(produtoComplemento)
+        .where(and(eq(produtoComplemento.tenantId, tenantId), inArray(produtoComplemento.produtoId, ids), isNull(produtoComplemento.deletedAt)))
+        .orderBy(produtoComplemento.produtoId, produtoComplemento.ordem, produtoComplemento.id);
+      const compIds = [...new Set(ligados.map((l) => l.complementoId))];
+      if (!compIds.length) return;
+      const comps = await tx
         .select()
         .from(complemento)
-        .where(and(eq(complemento.id, lig.complementoId), eq(complemento.tenantId, tenantId), isNull(complemento.deletedAt)));
-      if (!comp || comp.ativo === false) continue;
-      const [g] = await this.db
-        .insert(complementoGrupo)
-        .values({
-          tenantId,
-          produtoId,
-          nome: comp.nome,
-          tipo: 'adicionar', // etapa de escolha/adição (motor)
-          min: comp.min ?? 0,
-          max: comp.max ?? null,
-          obrigatorio: comp.obrigatorio ?? false,
-          ordem: i,
-          origemComplementoId: comp.id,
-        })
-        .returning();
+        .where(and(eq(complemento.tenantId, tenantId), inArray(complemento.id, compIds), isNull(complemento.deletedAt)));
+      const compPorId = new Map(comps.map((c) => [c.id, c]));
+      const ativos = comps.filter((c) => c.ativo !== false).map((c) => c.id);
+      if (!ativos.length) return;
       // Opções ligadas ao complemento → opções do grupo (com o link de estoque da opção).
-      const itens = await this.db
+      const itens = await tx
         .select({
+          complementoId: complementoItem.complementoId,
           preco: complementoItem.preco,
-          ordem: complementoItem.ordem,
           padraoItem: complementoItem.padraoMarcada,
           opcaoId: opcao.id,
           nome: opcao.nome,
           tipo: opcao.tipo,
-          fichaId: opcao.fichaId,
           itemId: opcao.itemId,
           itemUnidade: opcao.itemUnidade,
           produtoRefId: opcao.produtoRefId,
@@ -520,38 +519,84 @@ export class ProdutoService {
         })
         .from(complementoItem)
         .innerJoin(opcao, eq(opcao.id, complementoItem.opcaoId))
-        .where(and(eq(complementoItem.complementoId, comp.id), isNull(complementoItem.deletedAt), isNull(opcao.deletedAt)))
-        .orderBy(complementoItem.ordem);
+        .where(and(eq(complementoItem.tenantId, tenantId), inArray(complementoItem.complementoId, ativos), isNull(complementoItem.deletedAt), isNull(opcao.deletedAt)))
+        .orderBy(complementoItem.complementoId, complementoItem.ordem, complementoItem.id);
+      const itensPorComp = new Map<string, typeof itens>();
+      for (const it of itens) itensPorComp.set(it.complementoId, [...(itensPorComp.get(it.complementoId) ?? []), it]);
       // Unidade e conversões dos insumos ligados: a quantidade que sai do estoque é gravada na
       // unidade DELE (mig 309) — 1 unidade de um bacon em kg (1 kg = 72) = 0,01389 kg.
       const unidadesDosInsumos = await this.fichas.unidadesDosItens(
         tenantId,
         itens.map((it) => (it.tipo === 'insumo' ? it.itemId : null)),
       );
-      for (const [j, it] of itens.entries()) {
-        // mig 126 — discriminador: SEM código PDV a opção é INFORMATIVA (observação:
-        // "ponto de carne", "talheres"): não baixa estoque, não soma preço e não
-        // carrega link de estoque. COM código PDV é item real.
-        const informativa = !(it.codigoPdv ?? '').trim();
-        await this.db.insert(complementoOpcao).values({
+
+      // 3) Um grupo por etapa ativa (a ordem conta as etapas puladas, como sempre) e as opções dele.
+      const grupos: (typeof complementoGrupo.$inferInsert)[] = [];
+      const ordemNoProduto = new Map<string, number>();
+      for (const lig of ligados) {
+        const i = ordemNoProduto.get(lig.produtoId) ?? 0;
+        ordemNoProduto.set(lig.produtoId, i + 1);
+        const comp = compPorId.get(lig.complementoId);
+        if (!comp || comp.ativo === false) continue;
+        grupos.push({
           tenantId,
-          grupoId: g.id,
-          nome: it.nome,
-          precoDelta: informativa ? '0' : it.preco != null ? String(it.preco) : '0',
-          // Link de baixa por tipo de opção: insumo→item; simples/ficha→produto (se houver).
-          itemId: informativa ? null : it.tipo === 'insumo' ? it.itemId ?? null : null,
-          produtoRefId: informativa ? null : it.tipo !== 'insumo' ? it.produtoRefId ?? null : null,
-          quantidade: String(this.quantidadeDoInsumo(it, unidadesDosInsumos)),
-          codigoPdv: informativa ? null : it.codigoPdv,
-          controlaEstoque: informativa ? false : !!it.controlaEstoque,
-          // Pré-marcada: o item da etapa manda; se não, o padrão da própria opção.
-          padraoMarcada: !!(it.padraoItem || it.padraoOpcao),
-          ordem: j,
-          origemOpcaoId: it.opcaoId,
+          produtoId: lig.produtoId,
+          nome: comp.nome,
+          tipo: 'adicionar', // etapa de escolha/adição (motor)
+          min: comp.min ?? 0,
+          max: comp.max ?? null,
+          obrigatorio: comp.obrigatorio ?? false,
+          ordem: i,
+          origemComplementoId: comp.id,
         });
       }
-    }
-    return { ok: true };
+      const grupoDe = new Map<string, string>();
+      for (let k = 0; k < grupos.length; k += LOTE_MATERIALIZAR) {
+        const criados = await tx
+          .insert(complementoGrupo)
+          .values(grupos.slice(k, k + LOTE_MATERIALIZAR))
+          .returning({ id: complementoGrupo.id, produtoId: complementoGrupo.produtoId, ordem: complementoGrupo.ordem });
+        for (const g of criados) grupoDe.set(`${g.produtoId}:${g.ordem}`, g.id);
+      }
+      const opcoes: (typeof complementoOpcao.$inferInsert)[] = [];
+      for (const g of grupos) {
+        const grupoId = grupoDe.get(`${g.produtoId}:${g.ordem}`) as string;
+        for (const [j, it] of (itensPorComp.get(g.origemComplementoId as string) ?? []).entries()) {
+          // mig 126 — discriminador: SEM código PDV a opção é INFORMATIVA (observação:
+          // "ponto de carne", "talheres"): não baixa estoque, não soma preço e não
+          // carrega link de estoque. COM código PDV é item real.
+          const informativa = !(it.codigoPdv ?? '').trim();
+          opcoes.push({
+            tenantId,
+            grupoId,
+            nome: it.nome,
+            precoDelta: informativa ? '0' : it.preco != null ? String(it.preco) : '0',
+            // Link de baixa por tipo de opção: insumo→item; simples/ficha→produto (se houver).
+            itemId: informativa ? null : it.tipo === 'insumo' ? it.itemId ?? null : null,
+            produtoRefId: informativa ? null : it.tipo !== 'insumo' ? it.produtoRefId ?? null : null,
+            quantidade: String(this.quantidadeDoInsumo(it, unidadesDosInsumos)),
+            codigoPdv: informativa ? null : it.codigoPdv,
+            controlaEstoque: informativa ? false : !!it.controlaEstoque,
+            // Pré-marcada: o item da etapa manda; se não, o padrão da própria opção.
+            padraoMarcada: !!(it.padraoItem || it.padraoOpcao),
+            ordem: j,
+            origemOpcaoId: it.opcaoId,
+          });
+        }
+      }
+      for (let k = 0; k < opcoes.length; k += LOTE_MATERIALIZAR) await tx.insert(complementoOpcao).values(opcoes.slice(k, k + LOTE_MATERIALIZAR));
+    });
+  }
+
+  // Os produtos que usam algum destes complementos (uma consulta).
+  private async produtosDosComplementos(tenantId: string, complementoIds: string[]): Promise<string[]> {
+    const ids = [...new Set(complementoIds.filter(Boolean))];
+    if (!ids.length) return [];
+    const alvos = await this.db
+      .select({ produtoId: produtoComplemento.produtoId })
+      .from(produtoComplemento)
+      .where(and(eq(produtoComplemento.tenantId, tenantId), inArray(produtoComplemento.complementoId, ids), isNull(produtoComplemento.deletedAt)));
+    return [...new Set(alvos.map((a) => a.produtoId))];
   }
 
   // Quanto da unidade do ESTOQUE sai a cada vez que a opção é escolhida. Sem insumo ligado, sem
@@ -748,27 +793,27 @@ export class ProdutoService {
     return { ok: true };
   }
 
-  // Reaplica a materialização em todos os produtos que usam um complemento.
+  // Reaplica a materialização em todos os produtos que usam um complemento (de uma vez).
   private async reMaterializarPorComplemento(tenantId: string, complementoId: string) {
-    const alvos = await this.db
-      .select({ produtoId: produtoComplemento.produtoId })
-      .from(produtoComplemento)
-      .where(and(eq(produtoComplemento.tenantId, tenantId), eq(produtoComplemento.complementoId, complementoId), isNull(produtoComplemento.deletedAt)));
-    for (const a of alvos) await this.materializarProduto(tenantId, a.produtoId);
+    await this.materializarProdutos(tenantId, await this.produtosDosComplementos(tenantId, [complementoId]));
   }
 
-  // Reaplica em todos os produtos cujos complementos usam uma opção.
+  // Reaplica em todos os produtos cujos complementos usam uma opção — cada produto UMA vez, mesmo
+  // que duas etapas dele tenham a opção (antes era refeito uma vez por etapa).
   private async reMaterializarPorOpcao(tenantId: string, opcaoId: string) {
-    const comps = await this.db
-      .select({ complementoId: complementoItem.complementoId })
-      .from(complementoItem)
-      .where(and(eq(complementoItem.tenantId, tenantId), eq(complementoItem.opcaoId, opcaoId), isNull(complementoItem.deletedAt)));
-    const vistos = new Set<string>();
-    for (const c of comps) {
-      if (vistos.has(c.complementoId)) continue;
-      vistos.add(c.complementoId);
-      await this.reMaterializarPorComplemento(tenantId, c.complementoId);
-    }
+    await this.materializarProdutos(tenantId, await this.produtosDasOpcoes(tenantId, [opcaoId]));
+  }
+
+  // Os produtos que têm alguma destas opções numa etapa ligada (uma consulta).
+  private async produtosDasOpcoes(tenantId: string, opcaoIds: string[]): Promise<string[]> {
+    const ids = [...new Set(opcaoIds.filter(Boolean))];
+    if (!ids.length) return [];
+    const alvos = await this.db
+      .selectDistinct({ produtoId: produtoComplemento.produtoId })
+      .from(produtoComplemento)
+      .innerJoin(complementoItem, and(eq(complementoItem.complementoId, produtoComplemento.complementoId), eq(complementoItem.tenantId, produtoComplemento.tenantId)))
+      .where(and(eq(produtoComplemento.tenantId, tenantId), inArray(complementoItem.opcaoId, ids), isNull(complementoItem.deletedAt), isNull(produtoComplemento.deletedAt)));
+    return alvos.map((a) => a.produtoId);
   }
 
   private opcaoVals(dto: any) {
@@ -865,7 +910,7 @@ export class ProdutoService {
       .set({ deletedAt: new Date(), updatedAt: new Date() })
       .where(and(eq(opcao.tenantId, tenantId), inArray(opcao.id, alvo), isNull(opcao.deletedAt)))
       .returning({ id: opcao.id });
-    for (const cid of comps) await this.reMaterializarPorComplemento(tenantId, cid);
+    await this.materializarProdutos(tenantId, await this.produtosDosComplementos(tenantId, comps));
     return { ok: true, excluidas: res.length };
   }
 
@@ -879,7 +924,7 @@ export class ProdutoService {
       .set({ precoCusto: valor, updatedAt: new Date() })
       .where(and(eq(opcao.tenantId, tenantId), inArray(opcao.id, alvo), isNull(opcao.deletedAt)))
       .returning({ id: opcao.id });
-    for (const cid of await this.complementosDeOpcoes(tenantId, alvo)) await this.reMaterializarPorComplemento(tenantId, cid);
+    await this.materializarProdutos(tenantId, await this.produtosDasOpcoes(tenantId, alvo));
     return { ok: true, atualizadas: res.length };
   }
 
