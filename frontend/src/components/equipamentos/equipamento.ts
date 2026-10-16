@@ -92,8 +92,30 @@ export function situacaoDe(e: any, estado: Record<string, any>, todos: any[] = [
     if (e.estacaoId && !estacaoNoAr(estacaoDe(e.estacaoId, todos))) return 'atencao';
     return 'ativo';
   }
-  return e.ultimoPing || e.integradorVistoEm ? 'ativo' : 'nunca';
+  // Servidor da loja: pela saúde que ele manda (`e.servidor`, só na nuvem). Antes ele saía sempre
+  // "nunca conectou" — e o dono revogou um servidor em uso achando que estava parado (ERR-236).
+  if (e.tipo === 'servidor_local' && !ehGogem(e) && e.servidor?.vistoEm) return minutosDesde(e.servidor.vistoEm) < SERVIDOR_FORA_MIN ? 'ativo' : 'mudo';
+  return ultimoSinal(e) ? 'ativo' : 'nunca';
 }
+
+/**
+ * O sinal mais recente do equipamento, venha de onde vier: a conexão do app (`ultimoPing`), o uso
+ * da credencial do PC (`ultimoUsoEm` — o PDV que só usa o modo local grava no servidor da loja, e
+ * sobe), o GoGeM, a saúde do servidor da loja, a batida da estação. ERR-236: só o `ultimoPing`
+ * contava e o PDV em uso aparecia "nunca conectou".
+ */
+export function ultimoSinal(e: any): string | null {
+  const t = [e.ultimoPing, e.ultimoUsoEm, e.integradorVistoEm, e.servidor?.vistoEm, e.estacao?.vistoEm]
+    .filter(Boolean)
+    .map((x: string) => new Date(x).getTime())
+    .filter((n: number) => !Number.isNaN(n));
+  return t.length ? new Date(Math.max(...t)).toISOString() : null;
+}
+/** O servidor da loja manda a saúde a cada ciclo; sem ela há 3 min, está sem responder (a janela da nuvem, `EDGE_JANELA_MIN`). */
+export const SERVIDOR_FORA_MIN = 3;
+/** "Reativar" vale até 30 dias depois da revogação — o mesmo número do servidor (`DIAS_PARA_REATIVAR`). */
+export const DIAS_PARA_REATIVAR = 30;
+export const podeReativar = (e: any) => !e.ativo && (!e.revogadoEm || minutosDesde(e.revogadoEm) <= DIAS_PARA_REATIVAR * 1440);
 
 /** O selo da coluna "Situação": o estado que a impressora respondeu, ou a estação no ar / fora. */
 export function seloDe(e: any, estado: Record<string, any>, todos: any[] = []): { tom: Tom; rotulo: string } {
@@ -102,6 +124,7 @@ export function seloDe(e: any, estado: Record<string, any>, todos: any[] = []): 
     if (sit === 'ativo') return { tom: 'ok', rotulo: 'no ar' };
     if (sit === 'mudo') return { tom: 'critico', rotulo: e.estacao?.vistoEm ? `fora · há ${tempoDesde(e.estacao.vistoEm)}` : 'fora' };
   }
+  if (e.tipo === 'servidor_local' && sit === 'mudo' && e.servidor?.vistoEm) return { tom: 'critico', rotulo: `sem responder · há ${tempoDesde(e.servidor.vistoEm)}` };
   if (e.tipo === 'impressora' && sit === 'atencao') {
     const s = estado[e.id];
     if (s?.estado && ESTADO_IMPRESSORA[s.estado]) return ESTADO_IMPRESSORA[s.estado];
@@ -127,9 +150,12 @@ export function vistoDe(e: any, estado: Record<string, any>): string {
     if (s.semResponder && s.ultimaFalhaEm) return `sem responder desde ${dataHora(s.ultimaFalhaEm)}`;
     return s.ultimoOkEm ? `última impressão ${dataHora(s.ultimoOkEm)}` : '—';
   }
-  const visto = e.ultimoPing ?? e.integradorVistoEm;
+  const visto = ultimoSinal(e);
   return visto ? dataHora(visto) : '—';
 }
+
+/** "há 6 min", "há 3 h", "há 2 dias" — para a frase do diálogo de revogar. */
+export const haQuanto = (iso: string) => `há ${tempoDesde(iso)}`;
 
 /** A coluna "Ligação": a que o equipamento está preso (impressora do caixa, PDV principal, IP…). */
 export function ligacaoDe(e: any, todos: any[]): string {

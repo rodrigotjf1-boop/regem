@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Ban, KeyRound, Plus, Printer, Settings2 } from 'lucide-react';
+import { Ban, KeyRound, Plus, Printer, RotateCcw, Settings2 } from 'lucide-react';
 import { api, getCategoria, getToken } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
@@ -14,11 +14,11 @@ import { Dialogo } from '@/components/ui/sobreposto';
 import {
   FiltroBusca, FiltroSelect, Filtros, ListaDados, NomeComApoio, Selo, Situacoes, TituloLista, Vazio, distintos, semAcento, texto2, type Acao, type Situacao,
 } from '@/components/ui/lista';
-import { CodigoDePareamento, RevogarEquipamento, TokenDoEquipamento } from '@/components/equipamentos/equipamento-dialogos';
+import { CodigoDePareamento, ReativarEquipamento, RevogarEquipamento, TokenDoEquipamento } from '@/components/equipamentos/equipamento-dialogos';
 import { EquipamentoForm } from '@/components/equipamentos/equipamento-form';
 import { FilaDeImpressao } from '@/components/equipamentos/fila-impressao';
 import { HistoricoEquipamentos } from '@/components/equipamentos/historico-equipamentos';
-import { ehGogem, ligacaoDe, seloDe, situacaoDe, tipoDe, vistoDe } from '@/components/equipamentos/equipamento';
+import { ehGogem, ligacaoDe, podeReativar, seloDe, situacaoDe, tipoDe, vistoDe } from '@/components/equipamentos/equipamento';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Parte = 'equipamentos' | 'fila' | 'historico';
@@ -54,6 +54,7 @@ export default function EquipamentosPage() {
   const [tokenNovo, setTokenNovo] = useState<{ nome: string; token: string; aviso: string } | null>(null);
   const [codigoDe, setCodigoDe] = useState<any | null>(null);
   const [revogando, setRevogando] = useState<any | null>(null);
+  const [reativando, setReativando] = useState<any | null>(null);
   const [verAvisos, setVerAvisos] = useState(false);
   const [testando, setTestando] = useState<string | null>(null);
   const [publicando, setPublicando] = useState(false);
@@ -177,17 +178,20 @@ export default function EquipamentosPage() {
   // então nem oferece (a estação pareia no servidor da loja — o código também sai lá).
   const doServidorLocal = (e: any) => peloServidorLocal && ['impressora', 'kds', 'estacao_impressao'].includes(e.tipo);
   const configuravel = (e: any) => !doServidorLocal(e);
-  const acoesDe = (e: any): Acao<any>[] =>
-    !pode || !e.ativo
-      ? []
-      : [
-          ...(e.tipo === 'impressora' ? [{ rotulo: 'Imprimir teste', icone: Printer, aoClicar: (x: any) => void imprimirTeste(x), ocupada: (x: any) => testando === x.id }] : []),
-          ...((['pdv', 'salao'].includes(e.tipo) && !ehGogem(e)) || (e.tipo === 'estacao_impressao' && !doServidorLocal(e))
-            ? [{ rotulo: 'Gerar código', icone: KeyRound, aoClicar: setCodigoDe }]
-            : []),
-          ...(configuravel(e) ? [{ rotulo: 'Configurar', icone: Settings2, aoClicar: (x: any) => setForm({ item: x }) }] : []),
-          ...(e.padrao ? [] : [{ rotulo: 'Revogar', icone: Ban, aoClicar: setRevogando, tom: 'perigo' as const }]),
-        ];
+  const acoesDe = (e: any): Acao<any>[] => {
+    if (!pode) return [];
+    // Revogado há até 30 dias: dá para desfazer (ERR-236). Impressora/KDS/estação de loja com
+    // servidor local se reativam nele, como se configuram.
+    if (!e.ativo) return podeReativar(e) && !doServidorLocal(e) ? [{ rotulo: 'Reativar', icone: RotateCcw, aoClicar: setReativando }] : [];
+    return [
+      ...(e.tipo === 'impressora' ? [{ rotulo: 'Imprimir teste', icone: Printer, aoClicar: (x: any) => void imprimirTeste(x), ocupada: (x: any) => testando === x.id }] : []),
+      ...((['pdv', 'salao'].includes(e.tipo) && !ehGogem(e)) || (e.tipo === 'estacao_impressao' && !doServidorLocal(e))
+        ? [{ rotulo: 'Gerar código', icone: KeyRound, aoClicar: setCodigoDe }]
+        : []),
+      ...(configuravel(e) ? [{ rotulo: 'Configurar', icone: Settings2, aoClicar: (x: any) => setForm({ item: x }) }] : []),
+      ...(e.padrao ? [] : [{ rotulo: 'Revogar', icone: Ban, aoClicar: setRevogando, tom: 'perigo' as const }]),
+    ];
+  };
 
   return (
     <Shell eyebrow="Configurações" title="Equipamentos & apps">
@@ -312,7 +316,16 @@ export default function EquipamentosPage() {
         />
       )}
       {tokenNovo && <TokenDoEquipamento nome={tokenNovo.nome} token={tokenNovo.token} aviso={tokenNovo.aviso} voltarPara={ID_TITULO} aoFechar={() => setTokenNovo(null)} />}
-      {codigoDe && <CodigoDePareamento equipamento={codigoDe} voltarPara={ID_TITULO} aoFechar={() => setCodigoDe(null)} />}
+      {codigoDe && <CodigoDePareamento equipamento={codigoDe} inicial={codigoDe.inicial} voltarPara={ID_TITULO} aoFechar={() => setCodigoDe(null)} />}
+      {reativando && (
+        <ReativarEquipamento equipamento={reativando} voltarPara={ID_TITULO} aoFechar={() => setReativando(null)}
+          aoReativar={(r) => {
+            setReativando(null);
+            // PDV, salão e estação voltam com código novo: o PC pareia de novo.
+            if (r?.codigo) setCodigoDe({ ...r, inicial: { codigo: String(r.codigo), expiraEm: r.expiraEm } });
+            void reload();
+          }} />
+      )}
       {revogando && <RevogarEquipamento equipamento={revogando} todos={lista} voltarPara={ID_TITULO} aoFechar={() => setRevogando(null)} aoRevogar={() => { setRevogando(null); void reload(); }} />}
       {verAvisos && (
         <Dialogo titulo="Produtos com setor que não existe na loja" aoFechar={() => setVerAvisos(false)} voltarPara={ID_TITULO} largura="lg"

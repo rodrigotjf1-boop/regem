@@ -187,4 +187,13 @@ export class EquipamentoController {
       user.categoria,
     );
   }
+
+  // Desfaz uma revogação recente (até 30 dias; ERR-236). PDV/salão/estação voltam com código novo.
+  @Patch(':id/reativar')
+  @UseGuards(PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('servidor')
+  reativar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.reativar(user.tenantId, id, user.colaboradorId, user.categoria);
+  }
 }

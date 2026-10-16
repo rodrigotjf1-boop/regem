@@ -6,7 +6,8 @@ import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { Dialogo } from '@/components/ui/sobreposto';
 import { texto2 } from '@/components/ui/lista';
-import { ehGogem, tipoDe } from './equipamento';
+import { Input } from '@/components/ui/input';
+import { DIAS_PARA_REATIVAR, ehGogem, haQuanto, minutosDesde, tipoDe, ultimoSinal } from './equipamento';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -52,8 +53,16 @@ export function TokenDoEquipamento({ nome, token, aviso, voltarPara, aoFechar }:
 const relogio = (seg: number) => `${String(Math.floor(seg / 60)).padStart(2, '0')}:${String(seg % 60).padStart(2, '0')}`;
 
 /** Gera o código de 6 dígitos do terminal e mostra quanto tempo ele ainda vale. */
-export function CodigoDePareamento({ equipamento, voltarPara, aoFechar }: { equipamento: any; voltarPara: string; aoFechar: () => void }) {
-  const [codigo, setCodigo] = useState<{ codigo: string; expiraEm: string } | null>(null);
+export function CodigoDePareamento({
+  equipamento, inicial, voltarPara, aoFechar,
+}: {
+  equipamento: any;
+  /** Código já gerado pelo servidor (a reativação devolve um): mostra este, sem gerar outro. */
+  inicial?: { codigo: string; expiraEm: string } | null;
+  voltarPara: string;
+  aoFechar: () => void;
+}) {
+  const [codigo, setCodigo] = useState<{ codigo: string; expiraEm: string } | null>(inicial ?? null);
   const [erro, setErro] = useState('');
   const [resta, setResta] = useState(0);
   const [gerando, setGerando] = useState(false);
@@ -71,6 +80,7 @@ export function CodigoDePareamento({ equipamento, voltarPara, aoFechar }: { equi
     }
   }
   useEffect(() => {
+    if (inicial) return;
     void gerar();
     // Uma vez, ao abrir: gerar de novo é pelo botão (cada código gerado invalida o anterior).
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -125,8 +135,16 @@ export function RevogarEquipamento({
 }: { equipamento: any; todos?: any[]; voltarPara: string; aoFechar: () => void; aoRevogar: () => void }) {
   const [gravando, setGravando] = useState(false);
   const [erro, setErro] = useState('');
+  const [digitado, setDigitado] = useState('');
+  // Servidor da loja: revogar tira a loja inteira da sincronização — confirma digitando o nome
+  // (ERR-236: em 14/10/2026 o servidor em uso foi revogado com um clique).
+  const servidor = equipamento.tipo === 'servidor_local' && !ehGogem(equipamento);
+  const normal = (t: string) => t.trim().replace(/\s+/g, ' ').toLowerCase();
+  const nomeOk = !servidor || normal(digitado) === normal(equipamento.nome);
+  const sinal = ultimoSinal(equipamento);
+  const emUso = !!sinal && minutosDesde(sinal) < 60 && equipamento.tipo !== 'impressora';
   async function confirmar() {
-    if (gravando) return;
+    if (gravando || !nomeOk) return;
     setErro('');
     setGravando(true);
     try {
@@ -149,11 +167,29 @@ export function RevogarEquipamento({
       rodape={
         <>
           <Button type="button" variant="outline" data-foco-inicial onClick={aoFechar} disabled={gravando}>Cancelar</Button>
-          <Button type="button" variant="destructive" onClick={confirmar} disabled={gravando}>{gravando ? 'Revogando…' : 'Revogar'}</Button>
+          <Button type="button" variant="destructive" onClick={confirmar} disabled={gravando || !nomeOk}>{gravando ? 'Revogando…' : 'Revogar'}</Button>
         </>
       }>
       <div className="space-y-3 text-sm">
         <p>Revogar <b>{equipamento.nome}</b> ({tipoDe(equipamento)})?</p>
+        {equipamento.tipo !== 'impressora' && (
+          <p className={texto2}>
+            Último sinal:{' '}
+            {sinal ? (
+              <b className="font-mono text-foreground">
+                {new Date(sinal).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} ({haQuanto(sinal)})
+              </b>
+            ) : (
+              'nenhum registrado'
+            )}
+            .
+          </p>
+        )}
+        {emUso && (
+          <p role="alert" className="rounded-md border-l-4 border-destructive bg-destructive/10 px-3 py-2 font-semibold">
+            Este equipamento deu sinal {haQuanto(sinal!)}: ele está em uso agora.
+          </p>
+        )}
         {ehGogem(equipamento) && (
           <p className="rounded-md border-l-4 border-destructive bg-destructive/10 px-3 py-2 font-medium">Esta é a credencial do totem (GoGeM): a venda pelo totem para.</p>
         )}
@@ -168,10 +204,69 @@ export function RevogarEquipamento({
         )}
         <p className="rounded-md border-l-4 border-destructive bg-destructive/10 px-3 py-2">
           {impressora
-            ? 'A impressora fica inativa e deixa de receber impressões; o que estava direcionado a ela segue os outros destinos ou o padrão do setor. Dá para reativar em Configurações → Impressoras e cupons.'
-            : `O aparelho perde o acesso na hora: o token deixa de valer e o pareamento é desfeito.${
-                equipamento.tipo === 'kds' ? ' A produção direcionada a ele segue os outros destinos ou o padrão do setor.' : ''
-              } Não dá para reativar por esta tela — para voltar a usar, cadastre o equipamento de novo.`}
+            ? 'A impressora fica inativa e deixa de receber impressões; o que estava direcionado a ela segue os outros destinos ou o padrão do setor.'
+            : servidor
+              ? // SyncTokenGuard recusa a chave inativa (401): o sincronismo para nos dois sentidos; a licença local
+                // não muda com o 401 (`licenca()` do sync-daemon só mexe com resposta ok) — a loja segue vendendo.
+                'A chave dele deixa de valer: o servidor da loja para de sincronizar com a nuvem. O que vem da nuvem (pedidos que entram por ela, mudanças de cadastro) para de chegar a ele, e o que for vendido nele para de subir. A loja continua vendendo pelo servidor.'
+              : `O aparelho perde o acesso na hora: o token deixa de valer e o pareamento é desfeito.${
+                  equipamento.tipo === 'kds' ? ' A produção direcionada a ele segue os outros destinos ou o padrão do setor.' : ''
+                }`}{' '}
+          Dá para desfazer em até {DIAS_PARA_REATIVAR} dias, em “Revogados” → Reativar.
+        </p>
+        {servidor && (
+          <div className="space-y-1.5">
+            <label htmlFor="revogar-nome" className="block font-medium">
+              Para confirmar, digite o nome do servidor: <b className="break-words">{equipamento.nome}</b>
+            </label>
+            <Input id="revogar-nome" value={digitado} onChange={(e) => setDigitado(e.target.value)} autoComplete="off" />
+          </div>
+        )}
+        {erro && <p role="alert" className="font-medium">{erro}</p>}
+      </div>
+    </Dialogo>
+  );
+}
+
+/**
+ * Reativar (ERR-236): desfaz uma revogação de até 30 dias. O que acontece depende do tipo — o servidor
+ * (`EquipamentoService.reativar`) decide e devolve o código quando o PC tem de parear de novo.
+ */
+export function ReativarEquipamento({
+  equipamento, voltarPara, aoFechar, aoReativar,
+}: { equipamento: any; voltarPara: string; aoFechar: () => void; aoReativar: (r: any) => void }) {
+  const [gravando, setGravando] = useState(false);
+  const [erro, setErro] = useState('');
+  const comCodigo = ['pdv', 'salao', 'estacao_impressao'].includes(equipamento.tipo);
+  async function confirmar() {
+    if (gravando) return;
+    setErro('');
+    setGravando(true);
+    try {
+      const r: any = await api.reativarEquipamento(equipamento.id);
+      toast.success(`${equipamento.nome} reativado.`);
+      aoReativar(r);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao reativar');
+      setGravando(false);
+    }
+  }
+  return (
+    <Dialogo titulo="Reativar equipamento" aoFechar={aoFechar} voltarPara={voltarPara}
+      rodape={
+        <>
+          <Button type="button" variant="outline" onClick={aoFechar} disabled={gravando}>Cancelar</Button>
+          <Button type="button" data-foco-inicial onClick={confirmar} disabled={gravando}>{gravando ? 'Reativando…' : 'Reativar'}</Button>
+        </>
+      }>
+      <div className="space-y-3 text-sm">
+        <p>Reativar <b>{equipamento.nome}</b> ({tipoDe(equipamento)})?</p>
+        <p className="rounded-md border-l-4 border-input bg-secondary px-3 py-2">
+          {equipamento.tipo === 'servidor_local' && !ehGogem(equipamento)
+            ? 'O servidor da loja volta a sincronizar com a mesma chave, no próximo ciclo dele: não precisa reinstalar. Se a loja já tem outro servidor dando sinal, a reativação é recusada — ficariam dois.'
+            : comCodigo
+              ? 'Sai um código novo de 6 dígitos (vale 15 minutos): digite-o no PC para ele voltar — o pareamento foi desfeito na revogação.'
+              : 'Ele volta com a mesma configuração que tinha.'}
         </p>
         {erro && <p role="alert" className="font-medium">{erro}</p>}
       </div>

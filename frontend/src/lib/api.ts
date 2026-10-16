@@ -1870,6 +1870,9 @@ export const api = {
     }),
   revogarEquipamento: (id: string) =>
     req(`/equipamento/${id}/revogar`, { method: 'PATCH' }),
+  // Desfaz uma revogação recente (até 30 dias, ERR-236). PDV/salão/estação voltam com `codigo` novo.
+  reativarEquipamento: (id: string) =>
+    req(`/equipamento/${id}/reativar`, { method: 'PATCH' }),
   // "Configurar": nome de qualquer equipamento; setor e escopo do KDS; PDV principal do salão.
   // Só as chaves enviadas mudam.
   atualizarEquipamento: (id: string, body: Record<string, unknown>) =>

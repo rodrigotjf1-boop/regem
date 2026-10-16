@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -17,6 +17,8 @@ import { DIAS_SEM_SINAL_PARA_REVOGAR, revogarServidoresSubstituidos } from '../l
 
 /** Quem se identifica pelo `X-Integrador` hoje. Valor fora da lista é ignorado. */
 export const INTEGRADORES = new Set(['gogem']);
+/** "Reativar" vale até quantos dias depois da revogação (ERR-236). A tela usa o mesmo número. */
+export const DIAS_PARA_REATIVAR = 30;
 /** O "visto" do integrador é regravado no máximo de hora em hora — o GoGeM chama a cada poucos minutos. */
 const INTEGRADOR_VISTO_MINUTOS = 60;
 
@@ -384,10 +386,36 @@ export class EquipamentoService {
       .from(equipamento)
       .where(eq(equipamento.tenantId, tenantId))
       .orderBy(desc(equipamento.createdAt));
-    const lista = rows.map((r) => this.publico(r));
-    if (!rows.some((r) => r.tipo === 'estacao_impressao')) return lista;
-    const sinais = await this.sinaisDasEstacoes(tenantId);
-    return lista.map((e: any) => (e.tipo === 'estacao_impressao' ? { ...e, estacao: sinais.get(e.id) ?? null } : e));
+    let lista: any[] = rows.map((r) => this.publico(r));
+    if (rows.some((r) => r.tipo === 'estacao_impressao')) {
+      const sinais = await this.sinaisDasEstacoes(tenantId);
+      lista = lista.map((e: any) => (e.tipo === 'estacao_impressao' ? { ...e, estacao: sinais.get(e.id) ?? null } : e));
+    }
+    if (!ehServidorLocal() && rows.some((r) => r.tipo === 'servidor_local')) {
+      const sinais = await this.sinaisDosServidores(tenantId);
+      lista = lista.map((e: any) => (e.tipo === 'servidor_local' ? { ...e, servidor: sinais.get(e.id) ?? null } : e));
+    }
+    return lista;
+  }
+
+  // O sinal real de cada servidor da loja: a última saúde que ele mandou (`edge_status`, uma linha por
+  // servidor). `ultimo_ping` do servidor nunca é gravado — a lista o dava como "nunca conectou",
+  // mesmo o servidor em uso (ERR-236). Só na nuvem (a tabela é dela). Best-effort.
+  private async sinaisDosServidores(tenantId: string) {
+    const sinais = new Map<string, { vistoEm: string | null; versao: string | null; estado: string | null }>();
+    try {
+      const r: any = await this.db.execute(sql`
+        select equipamento_id as id, recebido_em as "vistoEm", versao, estado
+          from edge_status where tenant_id = ${tenantId}`);
+      for (const x of r.rows ?? r) {
+        sinais.set(String(x.id), {
+          vistoEm: x.vistoEm ? new Date(x.vistoEm).toISOString() : null,
+          versao: x.versao ?? null,
+          estado: x.estado ?? null,
+        });
+      }
+    } catch { /* sem edge_status */ }
+    return sinais;
   }
 
   // O último sinal de cada estação de impressão (mig 325): o desta base (a estação bate aqui) e, na
@@ -555,6 +583,78 @@ export class EquipamentoService {
       detalhe: { nome: row.nome },
     });
     return this.publico(row);
+  }
+
+  /**
+   * "Reativar" (ERR-236): desfaz uma revogação RECENTE. Em 14/10/2026 o dono revogou o servidor da loja
+   * e o terminal em uso com um clique cada, e só voltaram por SQL. Vale até 30 dias depois da
+   * revogação; auditado. A volta precisa passar pela regra que protege a revogação no servidor da
+   * loja (ERR-235: só um pareamento posterior desfaz a revogação), então:
+   *  • servidor da loja: volta na hora — a chave dele é a mesma. Recusa se a loja já tem outro
+   *    servidor da loja dando sinal (ficariam dois). Ele não desce para a loja; a regra não se aplica.
+   *  • PDV, salão e estação de impressão: o segredo foi apagado ao revogar → volta com um código novo
+   *    (15 min) para o PC parear de novo; o código é o que deixa a volta passar no servidor da loja.
+   *  • impressora, KDS e os demais: voltam com `pareado_em = agora` (a volta é uma decisão posterior à
+   *    revogação). Com servidor da loja ativo, impressora, KDS e estação se reativam nele (F10).
+   */
+  async reativar(tenantId: string, id: string, atorId: string, atorPerfil: string) {
+    const [row] = await this.db
+      .select()
+      .from(equipamento)
+      .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, id)));
+    if (!row) throw new NotFoundException('Equipamento não encontrado');
+    if (row.ativo) throw new BadRequestException('Este equipamento já está em uso.');
+    if (row.revogadoEm && Date.now() - new Date(row.revogadoEm).getTime() > DIAS_PARA_REATIVAR * 86400000)
+      throw new BadRequestException(`Revogado há mais de ${DIAS_PARA_REATIVAR} dias: cadastre o equipamento de novo.`);
+    if (['impressora', 'kds', 'estacao_impressao'].includes(row.tipo)) await this.garantirConfigLocal(tenantId);
+    if (row.tipo === 'servidor_local' && !row.integrador) {
+      let outro: { nome: string } | undefined;
+      try {
+        const r: any = await this.db.execute(sql`
+          select e.nome from equipamento e join edge_status s on s.equipamento_id = e.id
+           where e.tenant_id = ${tenantId} and e.tipo = 'servidor_local' and e.ativo and e.integrador is null
+             and e.id <> ${id}
+             and (${row.unidadeId}::uuid is null or e.unidade_id is null or e.unidade_id = ${row.unidadeId}::uuid)
+             and s.recebido_em >= now() - interval '10 minutes'
+           limit 1`);
+        outro = (r.rows ?? r)[0];
+      } catch { /* sem edge_status: não há como saber de outro servidor vivo */ }
+      if (outro) throw new ConflictException(`A loja já tem outro servidor da loja em uso ("${outro.nome}"). Reativar este deixaria dois.`);
+    }
+
+    const comCodigo = ['pdv', 'salao', 'estacao_impressao'].includes(row.tipo);
+    let codigo: string | null = null;
+    if (comCodigo) {
+      for (let i = 0; i < 5 && !codigo; i++) {
+        const c = String(100000 + Math.floor(randomInt(900000)));
+        const [existe] = await this.db.select({ id: equipamento.id }).from(equipamento).where(eq(equipamento.pareamentoCodigo, c));
+        if (!existe) codigo = c;
+      }
+      if (!codigo) throw new BadRequestException('Não consegui gerar um código agora. Tente de novo.');
+    }
+    const expiraEm = codigo ? new Date(Date.now() + 15 * 60 * 1000) : null;
+    const [volta] = await this.db
+      .update(equipamento)
+      .set({
+        ativo: true,
+        revogadoEm: null,
+        ...(codigo ? { pareamentoCodigo: codigo, pareamentoExpiraEm: expiraEm } : row.tipo !== 'servidor_local' ? { pareadoEm: new Date() } : {}),
+      })
+      // Só o que continua revogado: dois cliques ao mesmo tempo reativam uma vez.
+      .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, id), eq(equipamento.ativo, false)))
+      .returning();
+    if (!volta) throw new ConflictException('Este equipamento acabou de ser reativado. Atualize a tela.');
+    await this.auditoria.registrar({
+      tenantId,
+      atorId,
+      atorPerfil,
+      tipo: 'modulos',
+      acao: 'reativou_equipamento',
+      entidadeTipo: 'equipamento',
+      entidadeId: volta.id,
+      detalhe: { nome: volta.nome, tipo: volta.tipo, revogadoEm: row.revogadoEm ?? null, comCodigo },
+    });
+    return { ...this.publico(volta), codigo, expiraEm };
   }
 
   /**
@@ -883,6 +983,10 @@ export class EquipamentoService {
       integradorVistoEm: r.integradorVistoEm ?? null,
       ativo: r.ativo,
       ultimoPing: r.ultimoPing,
+      // Último uso real do terminal (cada pedido com a credencial do PC; mig 142). A lista não o
+      // mostrava e o PDV em uso aparecia "nunca conectou" — ERR-236.
+      ultimoUsoEm: r.ultimoUsoEm ?? null,
+      revogadoEm: r.revogadoEm ?? null, // "Reativar" vale por 30 dias depois da revogação
       createdAt: r.createdAt,
     };
   }
