@@ -42,7 +42,7 @@ export const Escopos = (...escopos: EscopoIntegracao[]) => SetMetadata(ESCOPOS_K
 const TOKEN_INVALIDO = 'Token de integração ausente, inválido, vencido ou revogado.';
 
 /** IP de quem chamou — o mesmo critério do limite por IP (`cf-throttler.guard`). */
-function ipDe(req: any): string | null {
+export function ipDe(req: any): string | null {
   if (process.env.TRUST_CLOUDFLARE === 'true') {
     const cf = req?.headers?.['cf-connecting-ip'];
     if (typeof cf === 'string' && cf.trim()) return cf.trim();

@@ -30,3 +30,22 @@ export async function tokenDoGogem(db: any, tenantId: string, unidadeId?: string
      limit 1`);
   return ((r.rows ?? r)[0]?.token as string | undefined) ?? null;
 }
+
+/**
+ * O equipamento que REPRESENTA o GoGeM na loja (fase 1 da credencial própria, mig 323): a venda feita
+ * com o token de integração novo segue com a mesma origem e a mesma regra de NFC-e da feita com o token
+ * antigo. É o marcado pelo `X-Integrador`, da loja do token ou da rede (sem loja) — nunca o de outra
+ * loja. Ativo ou não: revogar o token antigo depois da troca não pode mudar a origem das vendas.
+ * Sem marcado: `null` (a venda fica sem origem de equipamento, como uma venda sem ponto de salão).
+ */
+export async function equipamentoDoGogem(db: any, tenantId: string, unidadeId: string): Promise<string | null> {
+  const r: any = await db.execute(sql`
+    select id from equipamento
+     where tenant_id = ${tenantId}::uuid and tipo = 'servidor_local'
+       and integrador = ${DESTINO_GOGEM}
+       and (unidade_id = ${unidadeId}::uuid or unidade_id is null)
+     order by case when unidade_id = ${unidadeId}::uuid then 0 else 1 end, ativo desc,
+              integrador_visto_em desc nulls last, created_at desc
+     limit 1`);
+  return ((r.rows ?? r)[0]?.id as string | undefined) ?? null;
+}

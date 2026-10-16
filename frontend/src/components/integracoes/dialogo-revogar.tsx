@@ -9,6 +9,7 @@ import { Dialogo } from '@/components/ui/sobreposto';
 export function DialogoRevogar({
   app,
   leitura = 'os dados',
+  frase,
   loja,
   revogando,
   aoManter,
@@ -18,6 +19,8 @@ export function DialogoRevogar({
   app: string;
   /** O que o aplicativo lê, como a frase diz ("os pedidos", "os dados"). */
   leitura?: string;
+  /** A frase inteira, quando revogar faz mais do que parar uma leitura (o GoGeM: as vendas do totem param de chegar). */
+  frase?: string;
   /** Nome da loja; `null` = todas as lojas (ou a empresa inteira). */
   loja: string | null;
   revogando: boolean;
@@ -43,8 +46,12 @@ export function DialogoRevogar({
       }
     >
       <p className="text-sm text-secondary-foreground">
-        O {app} para de ler {leitura} {loja ? 'desta loja' : 'de todas as lojas'} agora. O que ele já leu segue o prazo de
-        guarda de lá. Para voltar, é preciso autorizar de novo pelo {app}.
+        {frase ?? (
+          <>
+            O {app} para de ler {leitura} {loja ? 'desta loja' : 'de todas as lojas'} agora. O que ele já leu segue o prazo de
+            guarda de lá. Para voltar, é preciso autorizar de novo pelo {app}.
+          </>
+        )}
       </p>
     </Dialogo>
   );

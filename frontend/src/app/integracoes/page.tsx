@@ -209,6 +209,7 @@ export default function AplicativosConectadosPage() {
         <DialogoRevogar
           app={pedido.app.rotulo}
           leitura={TEXTO_APP[pedido.app.cliente]?.leitura ?? 'os dados'}
+          frase={TEXTO_APP[pedido.app.cliente]?.aoRevogar}
           loja={pedido.acesso?.lojaNome ?? null}
           revogando={revogando}
           aoManter={() => setPedido(null)}

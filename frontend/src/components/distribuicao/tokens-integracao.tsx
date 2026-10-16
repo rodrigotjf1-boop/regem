@@ -158,6 +158,8 @@ export function TokensIntegracao({ empresas }: { empresas: Empresa[] }) {
         <h2 className="text-sm font-semibold text-slate-100">Tokens de integração</h2>
         <p className="mt-1 max-w-3xl text-xs text-slate-400">
           Liame: token por loja para ler as vendas. RegemCast: token da empresa inteira para ler clientes e vendas.
+          Farol: token por loja para ler o cardápio, as fichas e a fila da cozinha. GoGeM: token por loja para o totem
+          (cardápio, pausa de item e lançamento das vendas) — no lugar do token de equipamento usado até aqui.
           Emita só com a autorização do presidente da empresa e grave o token direto no cofre do cliente de
           integração — ele aparece uma vez só.
         </p>

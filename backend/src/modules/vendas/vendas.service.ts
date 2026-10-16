@@ -1655,7 +1655,7 @@ export class VendasService {
   //  • idempotência pela chave do totem (reenvio nunca duplica venda/baixa/caixa).
   async venderTotem(
     tenantId: string,
-    ctx: { unidadeId: string | null; equipamentoId: string },
+    ctx: { unidadeId: string | null; equipamentoId: string | null },
     dto: VendaExternaPdvDto,
   ) {
     if (!dto.itens?.length) throw new BadRequestException('Pedido sem itens.');
