@@ -12,6 +12,7 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.5)
 
+- **Falha passageira dos canais vira aviso, não erro (ERR-244) — sem migration; MUDA O SERVIDOR (os 5 pollers: iFood, 99Food, Anota AI, Cardápio Web, Open Delivery; novo `common/falhas-do-poller.ts`) — sem efeito na loja (os pollers só rodam na nuvem); entra no `.zip` por tabela.** Falha de rede de uma volta = aviso com o motivo ("tempo esgotado", "ECONNREFUSED host"); a mesma integração 5 min sem resposta = erro no console (repetido a cada 30 min enquanto durar); voltou = uma linha no log.
 - **A conversão aparece como foi cadastrada — sem migration; MUDA SÓ A TELA (Opções, produto do cardápio, ficha técnica) — pede `.zip` (não toca o servidor, `backend/edge/` nem o sync).** Pedido do dono (16/10): com "1 porção = 30 ml" num molho em galão, a tela diz "1 porção (30 ml)" e não "1 porção (0,0086 galão)", em todo lugar que lista as unidades do produto do estoque. O que se grava e se baixa não muda.
 
 ## Última release: `1.30.4` — gerada em 16/10/2026 da `origin/main` `e457d199`, **`.exe` COMPILADO** (`RegemEdgeSetup.exe`, 93.475.555 bytes, SHA-256 `5885bc94af083ca6d90b02bdeead98948159e3aae0bc58c835afc65dc5b29c57`) e entregue ao dono para o teste de impressão na loja; NÃO publicado (nem Storage, nem console); sem `.zip`

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
+import { FalhasDoPoller } from '../../../common/falhas-do-poller';
 import { Food99Service } from './food99.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -13,6 +14,8 @@ import { Food99Service } from './food99.service';
 @Injectable()
 export class Food99Poller {
   private readonly logger = new Logger('Food99Poller');
+  // Falha de rede passageira = aviso; erro só se a loja ficar 5 min sem resposta (ERR-244).
+  private readonly falhas = new FalhasDoPoller(this.logger);
   private rodando = false;
   constructor(private readonly food99: Food99Service) {}
 
@@ -29,8 +32,9 @@ export class Food99Poller {
           if (n) this.logger.log(`loja ${ig.appShopId}: ${n} cancelamento(s) reconciliado(s)`);
           const d = await this.food99.reconciliarDespachos(ig);
           if (d) this.logger.log(`loja ${ig.appShopId}: ${d} saída(s) para entrega avisada(s) à 99`);
+          this.falhas.funcionou(String(ig.appShopId), `poller 99food loja ${ig.appShopId}`);
         } catch (e: any) {
-          this.logger.error(`poller 99food loja ${ig.appShopId}: ${e?.message ?? e}`, e?.stack);
+          this.falhas.falhou(String(ig.appShopId), `poller 99food loja ${ig.appShopId}`, e);
         }
       }
     } finally {

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
+import { FalhasDoPoller } from '../../../common/falhas-do-poller';
 import { CardapioWebService } from './cardapio-web.service';
 
 // Poller da nuvem: a cada 30s puxa os pedidos novos de cada loja com integração
@@ -10,6 +11,8 @@ import { CardapioWebService } from './cardapio-web.service';
 @Injectable()
 export class CardapioWebPoller {
   private readonly logger = new Logger('CardapioWebPoller');
+  // Falha de rede passageira = aviso; erro só se a loja ficar 5 min sem resposta (ERR-244).
+  private readonly falhas = new FalhasDoPoller(this.logger);
   private rodando = false;
   constructor(private readonly cw: CardapioWebService) {}
 
@@ -24,8 +27,9 @@ export class CardapioWebPoller {
         try {
           const n = await this.cw.sincronizar(ig.tenantId);
           if (n) this.logger.log(`tenant ${ig.tenantId}: ${n} pedido(s) novo(s)`);
+          this.falhas.funcionou(ig.tenantId, `poller Cardápio Web tenant ${ig.tenantId}`);
         } catch (e: any) {
-          this.logger.error(`poller Cardápio Web tenant ${ig.tenantId}: ${e?.message ?? e}`, e?.stack);
+          this.falhas.falhou(ig.tenantId, `poller Cardápio Web tenant ${ig.tenantId}`, e);
         }
       }
     } finally {
