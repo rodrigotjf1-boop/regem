@@ -22,6 +22,10 @@ param(
   #   cliente  = magro (so aponta pro Servidor na LAN; sem Postgres/sync/servicos).
   [ValidateSet('servidor','cliente')][string]$Modo = 'servidor',
   [string]$ServidorHost = "",   # (modo cliente) IP/host do Servidor Regem na LAN
+  # (modo cliente) "Este PC tem impressora": instala a estacao de impressao. O codigo de 6 digitos
+  # vem neste arquivo temporario (nunca na linha de comando); vazio = sem estacao neste PC.
+  [string]$EstacaoArq = "",
+  [switch]$Estacao,
   [string]$Raiz = "C:\regem-edge\backend",
   [string]$UnidadeId = "",
   # Self-service (recomendado): a conta C&O provisiona sozinha.
@@ -648,6 +652,28 @@ if ($Modo -eq 'cliente') {
     Diga "Aviso: Edge/Chrome nao encontrado. Instale um navegador e crie o atalho manualmente para $urlApp"
   }
 
+  # 3) "Este PC tem impressora": a ESTACAO DE IMPRESSAO (central de impressao, fase 1). Instala o
+  #    servico que imprime as impressoras deste PC e pareia pelo codigo; falhar o codigo NAO para a
+  #    instalacao do PC (o icone ao lado do relogio tem "Parear com codigo...") - vira aviso no fim.
+  if ($Estacao -or ($EstacaoArq -and (Test-Path $EstacaoArq))) {
+    try {
+      $verFile = Join-Path $root 'version.txt'
+      $verEst = if (Test-Path $verFile) { (Get-Content $verFile -Raw).Trim() } else { '' }
+      $saidaEst = & (Join-Path $PSScriptRoot 'instalar-estacao-impressao.ps1') -Raiz $Raiz -ServidorHost $ServidorHost -CodigoArq $EstacaoArq -Versao $verEst
+      $fimEst = (@($saidaEst) | Select-Object -Last 1)
+      Diga ("Estacao de impressao: {0}" -f $fimEst)
+      if ("$fimEst" -like 'SEM-PAREAMENTO*') {
+        $avisoEst = "A estacao de impressao foi instalada, mas ainda NAO esta pareada (" + ("$fimEst" -replace '^SEM-PAREAMENTO:\s*', '') + "). " +
+          "Gere um codigo novo no Regem (Configuracoes > Equipamentos > Gerar codigo da estacao) e use 'Parear com codigo...' no icone ao lado do relogio."
+        Set-Content -Path (Join-Path $logDir 'INSTALOU-AVISO.txt') -Value $avisoEst -Encoding UTF8 -ErrorAction SilentlyContinue
+      }
+    } catch {
+      $avisoEst = "A estacao de impressao NAO foi instalada: " + $_.Exception.Message + ". O resto deste PC esta pronto; rode o instalador de novo para tentar."
+      Diga $avisoEst
+      Set-Content -Path (Join-Path $logDir 'INSTALOU-AVISO.txt') -Value $avisoEst -Encoding UTF8 -ErrorAction SilentlyContinue
+    }
+  }
+
   Diga "=== Cliente configurado. Abra o atalho 'Regem'. O pareamento e feito na 1a abertura (codigo de 6 digitos gerado no Servidor). ==="
   Set-Content -Path (Join-Path $logDir 'INSTALOU-OK.flag') -Value 'ok' -Encoding ascii -ErrorAction SilentlyContinue
   Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
@@ -668,7 +694,9 @@ if ($CredFile -and (Test-Path $CredFile)) {
     # so para ela. Conferida mais abaixo contra a deste script (ERR-124).
     if ($cred.Count -ge 4) { $fingerprintAssistente = ([string]$cred[3]).Trim() }
   } finally {
-    Remove-Item -Path $CredFile -Force -ErrorAction SilentlyContinue
+    # .NET e nao Remove-Item: no PowerShell 5.1 o Remove-Item falha com o caminho curto do TEMP
+    # (C:\Users\USUARI~1\..., usuario com acento) e o arquivo com a senha ficava no disco (ERR-243).
+    try { [System.IO.File]::Delete($CredFile) } catch { }
   }
   Diga "Credenciais do C&O carregadas (arquivo temporario removido)."
 }

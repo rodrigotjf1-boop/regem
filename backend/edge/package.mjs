@@ -2,8 +2,8 @@
 // Uso (na pasta backend/): npm run build && node edge/package.mjs
 // Saída: ../regem-edge-dist/  → copie para o PC da loja e siga edge/INSTALL-WINDOWS.md
 import { cpSync, mkdirSync, rmSync, existsSync, readdirSync, statSync, readFileSync, writeFileSync } from 'fs';
-import { execSync } from 'child_process';
-import { join, relative } from 'path';
+import { execSync, execFileSync } from 'child_process';
+import { dirname, join, relative } from 'path';
 import { createHash } from 'node:crypto';
 
 const raiz = process.cwd(); // backend/
@@ -22,8 +22,9 @@ mkdirSync(out, { recursive: true });
 // PROTEÇÃO DE PROPRIEDADE (Fase 1): também barra o que vaza o FONTE/lógica na loja:
 //   - .map (sourcemaps reconstroem o TS original com comentários),
 //   - .d.ts (declarações revelam a estrutura interna),
-//   - .md (docs de instalação/build; nada de documentação fica no PC da loja).
-const VAZA_LOGICA = /\.map$|\.d\.ts$|\.md$/i;
+//   - .md (docs de instalação/build; nada de documentação fica no PC da loja),
+//   - .cs (o fonte do ícone da estação de impressão: vai só o .exe compilado, abaixo).
+const VAZA_LOGICA = /\.map$|\.d\.ts$|\.md$|\.cs$/i;
 // Chaves PRIVADAS nunca vão para a loja (só a pública update-pub.pem vai, p/ o
 // verify-update.mjs conferir a assinatura). Barra update-priv.pem e qualquer .pfx.
 const SEGREDO = /(^|[\\/])update-priv\.pem$|\.pfx$/i;
@@ -69,12 +70,32 @@ function gerarManifesto() {
   console.log(`  + dist-manifest.json (${Object.keys(man).length} arquivos)`);
 }
 
+// Ícone da ESTAÇÃO DE IMPRESSÃO na bandeja (central de impressão, PR 4b): compilado aqui do
+// edge/bandeja/RegemEstacao.cs com o compilador do próprio Windows (.NET Framework 4.8, que já vem
+// em todo Windows 10/11) — nenhum binário no repositório, e o fonte não vai para a loja. O pacote
+// é montado no Windows (build-release.ps1); sem o compilador, a montagem PARA: um instalador sem o
+// ícone deixaria a estação sem painel e sem "Parear com código".
+function compilarIconeDaEstacao() {
+  const fonte = join(raiz, 'edge', 'bandeja', 'RegemEstacao.cs');
+  const csc = process.env.SystemRoot ? join(process.env.SystemRoot, 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe') : '';
+  const destino = join(out, 'edge', 'bandeja', 'RegemEstacao.exe');
+  if (!csc || !existsSync(csc)) {
+    console.error('\n✗ Ícone da estação: csc.exe (.NET Framework 4.8) não encontrado — monte o pacote no Windows.');
+    process.exit(1);
+  }
+  mkdirSync(dirname(destino), { recursive: true });
+  execFileSync(csc, ['-nologo', '-optimize+', '-target:winexe', `-out:${destino}`,
+    '-r:System.Web.Extensions.dll', '-r:System.Windows.Forms.dll', '-r:System.Drawing.dll', fonte], { stdio: 'inherit' });
+  console.log('  + edge/bandeja/RegemEstacao.exe (ícone da estação, compilado)');
+}
+
 console.log('Montando regem-edge-dist/…');
 copiar('dist');                 // backend compilado (rode `npm run build` antes)
 gerarManifesto();               // manifesto de integridade do dist recém-copiado
 copiar('package.json');
 copiar('package-lock.json');
 copiar('edge');                 // daemon, gen-cert, scripts de serviço, .env.example
+compilarIconeDaEstacao();       // edge/bandeja/RegemEstacao.exe (o .cs não vai)
 copiar('scripts');              // apply-all-local.mjs, etc.
 copiar('drizzle.config.ts');
 // migrations ficam em database/migrations (fora de backend/) → copiamos também
@@ -141,7 +162,7 @@ function varrer(dir, achados = []) {
     const p = join(dir, nome);
     const st = statSync(p);
     if (st.isDirectory()) varrer(p, achados);
-    else if (/\.map$|\.d\.ts$|\.md$/i.test(nome) || /^CLAUDE\.md$/i.test(nome) || /^update-priv\.pem$/i.test(nome) || /\.pfx$/i.test(nome)) achados.push(p);
+    else if (/\.map$|\.d\.ts$|\.md$|\.cs$/i.test(nome) || /^CLAUDE\.md$/i.test(nome) || /^update-priv\.pem$/i.test(nome) || /\.pfx$/i.test(nome)) achados.push(p);
   }
   return achados;
 }
