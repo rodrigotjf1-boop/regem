@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Plus, Trash2, Pencil, Copy } from 'lucide-react';
 import { api, getCategoria, getToken, podePerm } from '@/lib/api';
 import { toast } from '@/lib/toast';
-import { arredondarInformado, chaveUnidade, fatorParaEstoque, unidadesDoProduto } from '@/lib/conversao-unidade';
+import { arredondarInformado, chaveUnidade, comoFoiCadastrada, fatorParaEstoque, unidadesDoProduto } from '@/lib/conversao-unidade';
 import { linhaEntra, semZerosFinais, type CanalDaFicha } from '@/lib/embalagem-da-ficha';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
@@ -394,6 +394,14 @@ export default function FichasPage() {
     const semConversao = !!sub && !!String(ing.unidade ?? '').trim() && !alcancada;
     const escolhida = alcancada ?? unidades[0];
     const convertida = !!escolhida && !semConversao && escolhida.fator !== 1;
+    // A conversão como foi cadastrada ("1 porção = 30 ml"), não a conta na unidade do estoque (pedido do dono, 16/10/2026).
+    const cadastrada = !convertida
+      ? null
+      : item
+        ? comoFoiCadastrada(escolhida.unidade, unEstoque, item.conversoes ?? [])
+        : sub
+          ? comoFoiCadastrada(escolhida.unidade, rendeSub, sub.conversoes ?? [])
+          : null;
     return (
     <div key={idx} className="space-y-2 rounded-lg border border-border p-2">
       <div className="flex items-center gap-2">
@@ -495,9 +503,9 @@ export default function FichasPage() {
               {Number(ing.quantidade) > 0 && (
                 <>: {num(Number(ing.quantidade))} {escolhida.unidade} = <b>{num(arredondarInformado(Number(ing.quantidade) * escolhida.fator))} {unEstoque}</b> no estoque</>
               )}
-              {' '}({escolhida.fator < 1
+              {' '}({cadastrada?.frase ?? (escolhida.fator < 1
                 ? `1 ${unEstoque} = ${num(arredondarInformado(1 / escolhida.fator))} ${escolhida.unidade}`
-                : `1 ${escolhida.unidade} = ${num(arredondarInformado(escolhida.fator))} ${unEstoque}`}).
+                : `1 ${escolhida.unidade} = ${num(arredondarInformado(escolhida.fator))} ${unEstoque}`)}).
             </>
           )}
           {!convertida && unidades.length > 1 && <> Escolha a unidade em que vai informar a quantidade: o sistema converte para {unEstoque}.</>}
@@ -507,7 +515,7 @@ export default function FichasPage() {
         <p className="text-xs text-secondary-foreground">
           🧩 Sub-receita{sub ? <> — rende {num(Number(sub.rendimento) || 1)} {rendeSub}</> : null}: o custo entra automático e é recalculado ao produzir.
           {convertida && Number(ing.quantidade) > 0 && (
-            <> {num(Number(ing.quantidade))} {escolhida.unidade} = <b>{num(arredondarInformado(Number(ing.quantidade) * escolhida.fator))} {rendeSub}</b> da sub-receita.</>
+            <> {num(Number(ing.quantidade))} {escolhida.unidade} = <b>{num(arredondarInformado(Number(ing.quantidade) * escolhida.fator))} {rendeSub}</b> da sub-receita{cadastrada ? ` (${cadastrada.frase})` : ''}.</>
           )}
           {!convertida && !semConversao && unidades.length > 1 && <> Escolha a unidade em que vai informar a quantidade: o sistema converte para {rendeSub}.</>}
         </p>

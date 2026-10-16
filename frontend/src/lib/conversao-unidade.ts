@@ -164,3 +164,57 @@ export function conversoesSoltas(unidadeDoEstoque: string, conversoes: Conversao
 export function arredondarInformado(n: number): number {
   return Number.isFinite(n) ? Number(n.toFixed(9)) : 0;
 }
+
+// ─── Só para MOSTRAR (o servidor não tem: não entra na comparação do `check:conversao`) ───
+
+/** Número como se digita no cadastro: vírgula e sem zeros sobrando (3,5 · 30 · 1.000). */
+function numeroDoCadastro(n: number): string {
+  return n.toLocaleString('pt-BR', { maximumFractionDigits: 6 });
+}
+
+/**
+ * A unidade dita como foi CADASTRADA (pedido do dono, 16/10/2026). Num molho em galão com
+ * "1 porção = 30 ml", a porção aparece como "30 ml", e não como "0,0086 galão", que é a conta na
+ * unidade do estoque. Essa conta continua sendo a que se grava e se baixa (`fatorParaEstoque`):
+ * aqui é só o texto da tela.
+ *  - a unidade é o lado esquerdo de uma conversão ("1 porção = 30 ml") → equivale "30 ml";
+ *  - é medida fixa e o produto usa uma maior da mesma medida (ml com litro) → "1 litro = 1.000 ml";
+ *  - é o lado direito de uma conversão ("1 galão = 3,5 litro") → "1 galão = 3,5 litro";
+ *  - nada disso → null (a tela mostra a conta na unidade do estoque, como antes).
+ * `frase` é sempre "1 A = N B"; `equivale` ("30 ml") só existe no primeiro caso.
+ */
+export function comoFoiCadastrada(
+  unidade: unknown,
+  unidadeDoEstoque: string,
+  conversoes: Conversao[],
+): { frase: string; equivale: string | null } | null {
+  const u = chaveUnidade(unidade);
+  if (!u) return null;
+  const doProduto = unidadesDoProduto(unidadeDoEstoque, conversoes);
+  const usa = (nome: string) => doProduto.some((x) => chaveUnidade(x.unidade) === chaveUnidade(nome));
+  if (!usa(u)) return null;
+  const nome = doProduto.find((x) => chaveUnidade(x.unidade) === u)?.unidade ?? String(unidade).trim();
+  const linhas = conversoes
+    .map((c) => ({ de: String(c.unidadeDe ?? '').trim(), para: String(c.unidadePara ?? '').trim(), fator: Number(c.fator) }))
+    .filter((c) => chaveUnidade(c.de) && chaveUnidade(c.para) && chaveUnidade(c.de) !== chaveUnidade(c.para) && Number.isFinite(c.fator) && c.fator > 0);
+
+  const esquerda = linhas.find((c) => chaveUnidade(c.de) === u && usa(c.para));
+  if (esquerda) {
+    const equivale = `${numeroDoCadastro(esquerda.fator)} ${esquerda.para}`;
+    return { frase: `1 ${nome} = ${equivale}`, equivale };
+  }
+  const medida = MEDIDA_FIXA[u];
+  const maior = medida
+    ? doProduto.find((x) => {
+        const m = MEDIDA_FIXA[chaveUnidade(x.unidade)];
+        return !!m && m.familia === medida.familia && m.base > medida.base;
+      })
+    : undefined;
+  if (maior && medida) {
+    const vezes = MEDIDA_FIXA[chaveUnidade(maior.unidade)].base / medida.base;
+    return { frase: `1 ${maior.unidade} = ${numeroDoCadastro(vezes)} ${nome}`, equivale: null };
+  }
+  const direita = linhas.find((c) => chaveUnidade(c.para) === u && usa(c.de));
+  if (direita) return { frase: `1 ${direita.de} = ${numeroDoCadastro(direita.fator)} ${direita.para}`, equivale: null };
+  return null;
+}

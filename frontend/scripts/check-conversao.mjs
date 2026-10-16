@@ -81,7 +81,7 @@ try {
       assert.ok(comparados > 300);
     });
 
-  const { unidadesDoProduto, unidadesDoCadastro, fatorParaEstoque, conversoesSoltas, proporcaoFixa } = tela;
+  const { unidadesDoProduto, unidadesDoCadastro, fatorParaEstoque, conversoesSoltas, proporcaoFixa, comoFoiCadastrada } = tela;
   const nomes = (lista) => lista.map((u) => u.unidade);
   const perto = (a, b) => assert.ok(Math.abs(a - b) < 1e-15, `${a} ≠ ${b}`);
 
@@ -120,6 +120,25 @@ try {
     assert.deepEqual(nomes(unidadesDoCadastro('caixa', [c('caixa', 6, 'kg'), c('porção', 30, 'grama')])), ['caixa', 'kg', 'grama', 'porção']);
     assert.deepEqual(nomes(unidadesDoCadastro('kg', [], 'grama')), ['kg', 'grama']); // já estava gravada: continua na lista
     assert.deepEqual(nomes(unidadesDoCadastro('kg', [], '')), ['kg']);
+  });
+
+  caso('a unidade dita como foi cadastrada: "1 porção (30 ml)", não "0,0086 galão" (só a tela)', () => {
+    // O molho do pedido do dono (16/10/2026): estoque em galão, "1 galão = 3,5 litro" e "1 porção = 30 ml".
+    const barbecue = [c('porção', 30, 'ml'), c('galão', 3.5, 'litro')];
+    assert.deepEqual(comoFoiCadastrada('porção', 'galão', barbecue), { frase: '1 porção = 30 ml', equivale: '30 ml' });
+    assert.deepEqual(comoFoiCadastrada('galão', 'galão', barbecue), { frase: '1 galão = 3,5 litro', equivale: '3,5 litro' });
+    assert.deepEqual(comoFoiCadastrada('litro', 'galão', barbecue), { frase: '1 galão = 3,5 litro', equivale: null });
+    assert.deepEqual(comoFoiCadastrada('ml', 'galão', barbecue), { frase: '1 litro = 1.000 ml', equivale: null });
+    assert.equal(comoFoiCadastrada('PORCAO', 'galão', barbecue)?.frase, '1 porção = 30 ml'); // outra grafia, o nome do cadastro
+    assert.equal(comoFoiCadastrada('kg', 'galão', barbecue), null); // o produto não tem essa unidade
+    assert.equal(comoFoiCadastrada('', 'galão', barbecue), null);
+    // O fardo de 12, o kg sem cadastro e a linha solta.
+    assert.deepEqual(comoFoiCadastrada('unidade', 'fardo', [c('fardo', 12, 'unidade')]), { frase: '1 fardo = 12 unidade', equivale: null });
+    assert.deepEqual(comoFoiCadastrada('grama', 'kg', []), { frase: '1 kg = 1.000 grama', equivale: null });
+    assert.equal(comoFoiCadastrada('kg', 'kg', []), null);
+    assert.equal(comoFoiCadastrada('pacote', 'caixa', [c('caixa', 6, 'kg'), c('pacote', 10, 'bisnaga')]), null);
+    // Número como foi digitado: sem o resto da conta e sem zeros sobrando.
+    assert.equal(comoFoiCadastrada('porção', 'caixa', [c('caixa', 6, 'kg'), c('porção', 0.125, 'kg')])?.equivale, '0,125 kg');
   });
 
   console.log(`\ncheck:conversao — ${n} grupos de casos, todos certos.`);

@@ -6,7 +6,7 @@ import { SeletorDeUnidade } from '@/components/ui/seletor-de-unidade';
 import { Label } from '@/components/ui/label';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { selectCls, SELOS } from '@/components/produtos/types';
-import { chaveUnidade, unidadesDoCadastro } from '@/lib/conversao-unidade';
+import { chaveUnidade, comoFoiCadastrada, unidadesDoCadastro } from '@/lib/conversao-unidade';
 import { VariacoesEditor } from '@/components/produtos/variacoes-editor';
 import { ComboEditor } from '@/components/produtos/combo-editor';
 import { FiscalFields } from '@/components/produtos/fiscal-fields';
@@ -229,11 +229,17 @@ export function ProdutoForm({
                   if (unidades.length < 2) return null;
                   const escolhida = unidades.find((u) => chaveUnidade(u.unidade) === chaveUnidade(f.itemUnidade)) ?? unidades[0];
                   const custo = (fator: number) => (verFin && item?.custoMedio != null ? ` · ${brl(Number(item.custoMedio) * fator)}` : '');
+                  // A unidade como foi cadastrada no estoque: "1 porção (30 ml)" (pedido do dono, 16/10/2026).
+                  const cadastrada = (unidade: string) => {
+                    const cad = comoFoiCadastrada(unidade, unEstoque, item?.conversoes ?? []);
+                    const texto = cad && (cad.equivale ?? (chaveUnidade(unidade) === chaveUnidade(unEstoque) ? null : cad.frase));
+                    return texto ? ` (${texto})` : '';
+                  };
                   return (
                     <select className={selectCls} aria-label="Unidade que cada venda baixa do estoque" value={escolhida.unidade} onChange={(e) => set({ itemUnidade: e.target.value })}>
                       {unidades.map((u) => (
                         <option key={u.unidade} value={u.unidade}>
-                          Cada venda baixa 1 {u.unidade}{custo(u.fator)}
+                          Cada venda baixa 1 {u.unidade}{cadastrada(u.unidade)}{custo(u.fator)}
                         </option>
                       ))}
                     </select>
