@@ -12,6 +12,7 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.5)
 
+- **Salvar opção/etapa do cardápio em ~2 s, não ~40 s (ERR-245) — sem migration; MUDA O SERVIDOR (`produto.service` — materialização em lote numa transação; `fichas.service` — `unidadesDosItens` com as 2 leituras juntas) — pede `.zip` (na loja o banco é local e a lentidão era pequena; entra por tabela). Não toca `backend/edge/` nem o sync.** Salvar uma opção regerava os grupos de cada produto que a usa, um produto e uma linha por vez (~250 idas ao banco para a "Carne 120 gr"); agora são 15 consultas, quantos forem os produtos. O que se grava é o mesmo.
 - **Falha passageira dos canais vira aviso, não erro (ERR-244) — sem migration; MUDA O SERVIDOR (os 5 pollers: iFood, 99Food, Anota AI, Cardápio Web, Open Delivery; novo `common/falhas-do-poller.ts`) — sem efeito na loja (os pollers só rodam na nuvem); entra no `.zip` por tabela.** Falha de rede de uma volta = aviso com o motivo ("tempo esgotado", "ECONNREFUSED host"); a mesma integração 5 min sem resposta = erro no console (repetido a cada 30 min enquanto durar); voltou = uma linha no log.
 - **A conversão aparece como foi cadastrada — sem migration; MUDA SÓ A TELA (Opções, produto do cardápio, ficha técnica) — pede `.zip` (não toca o servidor, `backend/edge/` nem o sync).** Pedido do dono (16/10): com "1 porção = 30 ml" num molho em galão, a tela diz "1 porção (30 ml)" e não "1 porção (0,0086 galão)", em todo lugar que lista as unidades do produto do estoque. O que se grava e se baixa não muda.
 

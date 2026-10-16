@@ -157,7 +157,10 @@ descrever('venda do totem com adicional (Postgres real)', () => {
     expect((await escolhasDoItem(itens[0].id)).map((e: any) => e.nome)).toEqual(['Bacon de teste', 'Bacon de teste', 'Queijo de teste']);
     expect((await escolhasDoItem(itens[1].id)).map((e: any) => e.nome)).toEqual(['Gelo de teste']);
     expect((await saidas(l, r.comandaId)).get(l.bacon)).toBeCloseTo(4 * FATIA, 9); // 2 da ficha + 2 do adicional
-    expect(((await vendas.getComanda(l.t, r.comandaId)) as any).itens[0].complementosTexto).toBe('+ 2x Bacon de teste · + Queijo de teste');
+    // Pelo nome, não por `itens[0]`: o `getComanda` não ordena os itens, e os dois nascem na mesma
+    // transação — de vez em quando o suco vinha primeiro (ERR-246).
+    const lanche = ((await vendas.getComanda(l.t, r.comandaId)) as any).itens.find((i: any) => i.descricao === 'Lanche de teste');
+    expect(lanche?.complementosTexto).toBe('+ 2x Bacon de teste · + Queijo de teste');
   });
 
   it('venda sem adicional segue como sempre', async () => {

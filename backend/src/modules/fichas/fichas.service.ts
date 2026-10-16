@@ -210,20 +210,23 @@ export class FichasService {
     const ids = [...new Set(itemIds.filter((x): x is string => !!x))];
     const mapa = new Map<string, { unidade: string; conversoes: Conversao[]; nome: string }>();
     if (!ids.length) return mapa;
-    const itens = await this.db
-      .select({ id: itemEstoque.id, unidade: itemEstoque.unidadeMedida, nome: itemEstoque.nome })
-      .from(itemEstoque)
-      .where(and(eq(itemEstoque.tenantId, tenantId), inArray(itemEstoque.id, ids)));
+    // As duas leituras ao mesmo tempo: uma ida ao banco a menos (cada uma custa ~115 ms — ERR-245).
+    const [itens, convs] = await Promise.all([
+      this.db
+        .select({ id: itemEstoque.id, unidade: itemEstoque.unidadeMedida, nome: itemEstoque.nome })
+        .from(itemEstoque)
+        .where(and(eq(itemEstoque.tenantId, tenantId), inArray(itemEstoque.id, ids))),
+      this.db
+        .select({
+          itemId: itemConversao.itemId,
+          unidadeDe: itemConversao.unidadeDe,
+          fator: itemConversao.fator,
+          unidadePara: itemConversao.unidadePara,
+        })
+        .from(itemConversao)
+        .where(and(eq(itemConversao.tenantId, tenantId), inArray(itemConversao.itemId, ids))),
+    ]);
     for (const i of itens) mapa.set(i.id, { unidade: i.unidade, conversoes: [], nome: i.nome });
-    const convs = await this.db
-      .select({
-        itemId: itemConversao.itemId,
-        unidadeDe: itemConversao.unidadeDe,
-        fator: itemConversao.fator,
-        unidadePara: itemConversao.unidadePara,
-      })
-      .from(itemConversao)
-      .where(and(eq(itemConversao.tenantId, tenantId), inArray(itemConversao.itemId, ids)));
     for (const c of convs) mapa.get(c.itemId)?.conversoes.push(c);
     return mapa;
   }
