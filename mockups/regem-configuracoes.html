@@ -668,7 +668,7 @@ TELAS.equipamentos = {
         eq('Impressora Cozinha', TIPOS_EQ[4], 'Matriz Centro', 'USB: TERMICA-COZINHA · 80 mm · produção', '3 tickets esperando há 12 min', 'mudo', { setor: 'Cozinha' }),
         eq('Servidor da loja', TIPOS_EQ[5], 'Matriz Centro', 'servidor local', 'hoje, 09:41', 'ativo'),
         eq('Totem da entrada', TIPOS_EQ[0], 'Filial Praia', 'Integração GoGeM', 'hoje, 09:15', 'ativo', { gogem: true }),
-        eq('Caixa antigo', TIPOS_EQ[0], 'Filial Praia', '—', 'há 40 dias', 'revogado'),
+        eq('Caixa antigo', TIPOS_EQ[0], 'Filial Praia', '—', 'há 40 dias', 'revogado', { revDias: 3 }),
       ],
       texto: (r) => r.nome,
       resumo: (l, s, e) => {
@@ -684,7 +684,8 @@ TELAS.equipamentos = {
         ['Equipamento', (r) => `<span class="nome">${r.nome}</span>${r.gogem ? ' ' + selo('info', 'Integração GoGeM') : ''}${r.padrao ? ' ' + selo('neutro', 'padrão') : ''}<div class="sub-t">${r.un}${r.setor ? ' · ' + r.setor : ''}</div>`],
         ['Tipo', (r) => r.tipo], ['Ligação', (r) => r.liga], ['Último acesso', (r) => r.visto], ['Situação', (r) => selo(...SIT_EQ[r.sit])],
       ],
-      acoes: (r) => (r.sit === 'revogado' ? [] : [
+      // Revogado há até 30 dias: "Reativar" (ERR-236, dono 16/10/2026).
+      acoes: (r) => (r.sit === 'revogado' ? ((r.revDias ?? 99) <= 30 ? [['↺', 'Reativar', 'reativar']] : []) : [
         ...(r.tipo === TIPOS_EQ[4] ? [['🖨', 'Imprimir teste', 'teste']] : []),
         ...([TIPOS_EQ[0], TIPOS_EQ[1]].includes(r.tipo) && !r.gogem ? [['⌗', 'Gerar código', 'codigo']] : []),
         ['⚙', 'Configurar', 'config'],
@@ -695,8 +696,28 @@ TELAS.equipamentos = {
         if (k === 'teste') return avisar('Página de teste enviada. Se o servidor local estiver ativo, sai em segundos.');
         if (k === 'config') return formEquip(r);
         if (k === 'codigo') return dialogoCodigo(r);
-        confirmarRetirar(r, { titulo: 'Revogar equipamento', verbo: 'Revogar', depois: 'Equipamento revogado.', fazer: () => { r.sit = 'revogado'; r.visto = 'agora'; },
-          consequencia: (r.gogem ? '<b>Esta é a credencial do totem (GoGeM): a venda pelo totem para.</b> ' : '') + (r.tipo === TIPOS_EQ[4] ? 'A impressora fica inativa e deixa de receber impressões; o que estava direcionado a ela segue os outros destinos ou o padrão do setor. Dá para reativar em Configurações → Impressoras e cupons.' : 'O aparelho perde o acesso na hora: o token deixa de valer e o pareamento é desfeito. Não dá para reativar por esta tela — para voltar a usar, cadastre o equipamento de novo.') });
+        const servidor = r.tipo === TIPOS_EQ[5] && !r.gogem;
+        const comCodigo = [TIPOS_EQ[0], TIPOS_EQ[1]].includes(r.tipo);
+        if (k === 'reativar')
+          return confirmar('Reativar equipamento', `<p style="margin:0">Reativar <b>${r.nome}</b>?</p><div class="nota">${servidor ? 'O servidor da loja volta a sincronizar com a mesma chave, no próximo ciclo dele: não precisa reinstalar. Se a loja já tem outro servidor dando sinal, a reativação é recusada — ficariam dois.' : comCodigo ? 'Sai um código novo de 6 dígitos (vale 15 minutos): digite-o no PC para ele voltar — o pareamento foi desfeito na revogação.' : 'Ele volta com a mesma configuração que tinha.'}</div>`,
+            'Reativar', () => { r.sit = 'ativo'; r.visto = 'agora'; desenhar(); avisar(`${r.nome} reativado.`); if (comCodigo) dialogoCodigo(r); });
+        // Revogar (ERR-236): o último sinal, o "em uso agora", o que para e — no servidor da loja — o nome digitado.
+        const emUso = r.visto && /^hoje/.test(r.visto) && r.tipo !== TIPOS_EQ[4];
+        confirmarRetirar(r, { titulo: 'Revogar equipamento', verbo: 'Revogar', depois: 'Equipamento revogado.', fazer: () => { r.sit = 'revogado'; r.revDias = 0; },
+          consequencia: (r.tipo !== TIPOS_EQ[4] ? `Último sinal: <b>${r.visto && r.visto !== '—' ? r.visto : 'nenhum registrado'}</b>.<br>` : '')
+            + (emUso ? '<b>Este equipamento deu sinal hoje: ele está em uso agora.</b><br>' : '')
+            + (r.gogem ? '<b>Esta é a credencial do totem (GoGeM): a venda pelo totem para.</b> ' : '')
+            + (r.tipo === TIPOS_EQ[4] ? 'A impressora fica inativa e deixa de receber impressões; o que estava direcionado a ela segue os outros destinos ou o padrão do setor.'
+              : servidor ? 'A chave dele deixa de valer: o servidor da loja para de sincronizar com a nuvem. O que vem da nuvem (pedidos que entram por ela, mudanças de cadastro) para de chegar a ele, e o que for vendido nele para de subir. A loja continua vendendo pelo servidor.'
+              : 'O aparelho perde o acesso na hora: o token deixa de valer e o pareamento é desfeito.')
+            + ' Dá para desfazer em até 30 dias, em “Revogados” → Reativar.'
+            + (servidor ? `<div class="campo" style="margin-top:10px"><label for="cNomeSrv">Para confirmar, digite o nome do servidor: <b>${r.nome}</b></label><input id="cNomeSrv" autocomplete="off"></div>` : '') });
+        if (servidor) {
+          const b = $('#bExc');
+          const norm = (t) => t.trim().replace(/\s+/g, ' ').toLowerCase();
+          b.disabled = true;
+          $('#cNomeSrv').oninput = (ev) => { b.disabled = norm(ev.target.value) !== norm(r.nome); };
+        }
       },
     },
     { nome: 'Fila de impressão', tipo: 'lista', titulo: 'Fila de impressão', um: 'impressão', varios: 'impressões', buscar: 'Impressora ou via', botoes: [['↻ Atualizar', () => avisar('Fila atualizada.')]],

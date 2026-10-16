@@ -12,6 +12,7 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.4)
 
+- **Revogar com o sinal real e "Reativar" (ERR-236) — sem migration; MUDA O SERVIDOR (lista de equipamentos, rota nova `PATCH /equipamento/:id/reativar`) e a TELA (Equipamentos) — pede `.zip` (não toca `backend/edge/` nem o sync).** Na loja: reativar impressora/KDS/estação é no servidor da loja; o PDV reativado na nuvem desce com o código novo pelo sincronismo.
 - **Equipamento revogado sai do caminho — sem migration; MUDA O SERVIDOR (as 5 rotas que gravam destino de produção) e a TELA (Equipamentos, Direcionamento, Produção & KDS, destinos do produto e das opções, perfis do cupom) — pede `.zip` (não toca `backend/edge/` nem o sync).** Equipamentos abre em "Em uso"; destino de produção só KDS/impressora desta empresa e em uso, conferido antes de apagar os atuais (ERR-241).
 
 - **Estação de impressão, PR 5: a estação na tela de Equipamentos — sem migration (usa a 324 e a 325); MUDA O SERVIDOR (lista de equipamentos, estado das impressoras, criar/gerar código) e a TELA (Equipamentos) — pede `.zip` (não toca `backend/edge/` nem o sync).** É no servidor da loja que o dono cria a estação, gera o código e escolhe o "Ligada em" (com servidor local ativo, a nuvem mostra a estação só para leitura). Lista: estação "no ar" / "fora · há N min" / "nunca conectou"; impressora com o que respondeu (sem papel, tampa aberta…) e "esperando a estação".
