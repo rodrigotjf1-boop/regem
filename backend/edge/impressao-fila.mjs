@@ -225,6 +225,26 @@ export const SQL_FILA_POR_IMPRESSORA = `
 // o formato da etiqueta).
 //  $1 = job; $2 = id deste worker; $3 = motivo (ex.: 'sem papel').
 export const MARCA_REIMPRESSAO = '@CB *** REIMPRESSÃO ***';
+
+// As duas primeiras linhas que dizem algo do cupom, sem a marcação de impressão — o painel da
+// estação mostra QUAL pedido é. A MESMA regra de `resumoDoCupom` da API (producao-pedido.service.ts);
+// o teste confere as duas com os mesmos cupons.
+export function resumoDoCupom(conteudo) {
+  const uteis = [];
+  for (const bruta of String(conteudo ?? '').split(/\r?\n/)) {
+    if (/^@(QR:|BARCODE:|ETIQUETA|GAVETA)/.test(bruta)) continue;
+    const t = bruta
+      .replace(/^@LR/, '')
+      .replace(/^@((?:[CRBS]|D[2-4]?)+)(?: |\b)/, '')
+      .replace(/\|/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!t || /^[-=_*.\s]+$/.test(t)) continue;
+    uteis.push(t);
+    if (uteis.length === 2) break;
+  }
+  return uteis.join(' · ').slice(0, 90);
+}
 export const SQL_INTERROMPIDO = `
   update impressao_job set
      status = 'pendente', claim_por = null, claim_ate = null,

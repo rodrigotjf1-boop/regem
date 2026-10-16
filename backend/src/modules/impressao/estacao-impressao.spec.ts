@@ -1,9 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { EquipamentoService } from '../equipamento/equipamento.service';
-import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
+import { ProducaoPedidoService, resumoDoCupom } from '../producao-pedido/producao-pedido.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -343,6 +345,84 @@ descrever('estação de impressão (Postgres)', () => {
         expect(nuvem).toMatchObject({ estado: 'papel_acabando', estadoEm: '2026-10-15T21:12:00.000Z', origem: 'servidor_local' });
       } finally {
         await q('delete from edge_status where equipamento_id = $1', [SRV]);
+      }
+    });
+  });
+
+  // PR 4a: a fila ANTIGA (mig 326, decisão do dono) e o que o painel do PC recebe.
+  describe('fila antiga da estação (mig 326)', () => {
+    const auditados: any[] = [];
+    beforeAll(() => {
+      (fila as any).auditoria = { registrar: async (a: any) => void auditados.push(a) };
+    });
+    const antigo = async (equipamentoId: string, minutos: number, conteudo = '@CB SENHA 452\n@LRX-burger|1\n---') =>
+      (await q(
+        `insert into impressao_job (tenant_id, unidade_id, equipamento_id, via, conteudo, criado_em)
+         values ($1,$2,$3,'cliente',$4, now() - make_interval(mins => $5)) returning id`,
+        [T, LOJA_1, equipamentoId, conteudo, minutos],
+      )).rows[0].id as string;
+
+    it('o cupom com mais de 10 min NÃO sai sozinho para a estação; o novo sai; o do servidor da loja não muda', async () => {
+      const novo = await antigo(IMP_S1, 2);
+      const velho = await antigo(IMP_S1, 15);
+      const doServidor = await antigo(IMP_SERVIDOR, 15);
+      const pegos = (await fila.jobsPendentes(T, LOJA_1, { estacaoId: S1 })).map((x: any) => x.id);
+      expect(pegos).toEqual([novo]);
+      expect((await situacao(velho)).status).toBe('pendente');
+      // O servidor da loja (sem estação) não tem painel para perguntar: imprime como sempre.
+      expect((await fila.jobsPendentes(T, LOJA_1, { maquina: 'SERVIDOR' })).map((x: any) => x.id)).toContain(doServidor);
+    });
+
+    it('o painel lista os retidos (só desta estação), com o resumo do cupom', async () => {
+      const velho = await antigo(IMP_S1, 20);
+      await antigo(IMP_S2, 20); // de outra estação
+      const lista: any[] = await fila.retidosDaEstacao(T, S1);
+      expect(lista.map((x) => x.id)).toEqual([velho]);
+      expect(lista[0]).toMatchObject({ equipamentoId: IMP_S1, resumo: 'SENHA 452 · X-burger 1' });
+    });
+
+    it('imprimir: libera os escolhidos (saem na hora); descartar: tira da fila; tudo auditado', async () => {
+      const a = await antigo(IMP_S1, 30);
+      const b = await antigo(IMP_S1, 30);
+      expect(await fila.decidirRetidos(T, S1, { acao: 'imprimir', ids: [a] })).toEqual({ feitos: 1 });
+      expect((await fila.jobsPendentes(T, LOJA_1, { estacaoId: S1 })).map((x: any) => x.id)).toEqual([a]);
+      expect(await fila.decidirRetidos(T, S1, { acao: 'descartar' })).toEqual({ feitos: 1 }); // sem ids: todos os retidos (o b)
+      const d = (await q(`select status, erro from impressao_job where id = $1`, [b])).rows[0];
+      expect(d).toEqual({ status: 'descartado', erro: 'descartado na estação (fila antiga)' });
+      expect(await fila.retidosDaEstacao(T, S1)).toEqual([]);
+      expect(auditados.map((x) => x.acao)).toEqual(['liberou_fila_antiga', 'descartou_fila_antiga']);
+      // Decidir de novo não mexe em nada (já liberado / já descartado).
+      expect(await fila.decidirRetidos(T, S1, { acao: 'descartar', ids: [a, b] })).toEqual({ feitos: 0 });
+    });
+
+    it('uma estação não decide a fila de outra; ação desconhecida é recusada', async () => {
+      const daS1 = await antigo(IMP_S1, 30);
+      expect(await fila.decidirRetidos(T, S2, { acao: 'descartar', ids: [daS1] })).toEqual({ feitos: 0 });
+      expect((await situacao(daS1)).status).toBe('pendente');
+      await expect(fila.decidirRetidos(T, S1, { acao: 'apagar' })).rejects.toThrow('Ação inválida');
+    });
+
+    it('a batida devolve as impressoras ligadas na estação (o painel mostra cada uma)', async () => {
+      const r: any = await fila.batidaEstacao(T, LOJA_1, S1, { versao: 'teste' });
+      expect(r.ok).toBe(true);
+      const ids = r.impressoras.map((x: any) => x.id);
+      expect(ids).toContain(IMP_S1);
+      for (const deFora of [IMP_S2, IMP_SERVIDOR, IMP_REDE, IMP_LOJA2]) expect(ids).not.toContain(deFora);
+      expect(r.impressoras.find((x: any) => x.id === IMP_S1)).toMatchObject({ conexao: 'local', dispositivo: 'MP-4200 TH' });
+      expect(JSON.stringify(r)).not.toMatch(/token|segredo/i);
+    });
+
+    it('o resumo do cupom é o mesmo na API e no serviço da estação', () => {
+      const fonte = readFileSync(join(__dirname, '..', '..', '..', 'edge', 'impressao-fila.mjs'), 'utf8').replace(/\r\n/g, '\n');
+      const i = fonte.indexOf('export function resumoDoCupom(');
+      const doServico = new Function(`${fonte.slice(i, fonte.indexOf('\n}\n', i) + 3).replace('export ', '')}\nreturn resumoDoCupom;`)();
+      for (const c of [
+        '@CB SENHA 452\n@LRX-burger|1\n---',
+        '@CB *** REIMPRESSÃO ***\n@C cupom interrompido (sem papel)\nPEDIDO 452',
+        '@QR:https://x\n@BARCODE:code128|123\n====\n\n@D2 MESA 4\nCoca',
+        '',
+      ]) {
+        expect(doServico(c)).toBe(resumoDoCupom(c));
       }
     });
   });

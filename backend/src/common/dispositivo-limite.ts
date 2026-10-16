@@ -54,7 +54,7 @@ function limparVencidos() {
 
 // Rotas cobertas: a fila de impressão consumida pelo agente e pela estação (não as rotas de gestão).
 export function rotaDaFilaDeImpressao(url: string | undefined): boolean {
-  return /\/impressao\/(pendentes|estacao\/batida|[0-9a-f-]{36}\/(impresso|erro|devolver|interrompido))(\?|$)/i.test(
+  return /\/impressao\/(pendentes|estacao\/(batida|retidos)|[0-9a-f-]{36}\/(impresso|erro|devolver|interrompido))(\?|$)/i.test(
     String(url ?? ''),
   );
 }

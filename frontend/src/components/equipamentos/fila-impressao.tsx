@@ -10,13 +10,15 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Dialogo } from '@/components/ui/sobreposto';
 import {
-  FiltroBusca, FiltroSelect, Filtros, ListaDados, NomeComApoio, Selo, Situacoes, TituloLista, Vazio, distintos, semAcento, texto2, type Situacao,
+  FiltroBusca, FiltroSelect, Filtros, ListaDados, NomeComApoio, Selo, Situacoes, TituloLista, Vazio, distintos, semAcento, texto2, type Situacao, type Tom,
 } from '@/components/ui/lista';
 import { alvoValido, daLoja } from './equipamento';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const ID_TITULO = 'fila-titulo';
-const naFila = (j: any) => j.status !== 'impresso' && j.status !== 'erro';
+// `descartado` (mig 326): o cupom antigo que quem estava no PC da estação mandou descartar.
+const naFila = (j: any) => j.status !== 'impresso' && j.status !== 'erro' && j.status !== 'descartado';
+const SELO: Record<string, [Tom, string]> = { erro: ['critico', 'falhou'], impresso: ['ok', 'impresso'], descartado: ['neutro', 'descartado na estação'] };
 const SITUACOES: Situacao<any>[] = [
   { rotulo: 'Na fila', filtro: naFila, tom: 'aviso' },
   { rotulo: 'Falharam', filtro: (j) => j.status === 'erro', tom: 'critico' },
@@ -95,7 +97,7 @@ export function FilaDeImpressao({
             { titulo: 'Impressora', celula: (j) => <NomeComApoio nome={impressoraDe(j)} apoio={j.status === 'erro' ? `falhou (${j.tentativas}×)${j.erro ? `: ${j.erro}` : ''}` : undefined} /> },
             { titulo: 'Via', celula: (j) => j.via },
             { titulo: 'Quando', celula: (j) => <span className="whitespace-nowrap font-mono">{quando(j.criadoEm)}</span> },
-            { titulo: 'Situação', celula: (j) => <Selo tom={j.status === 'erro' ? 'critico' : j.status === 'impresso' ? 'ok' : 'aviso'}>{j.status === 'erro' ? 'falhou' : j.status === 'impresso' ? 'impresso' : 'na fila'}</Selo> },
+            { titulo: 'Situação', celula: (j) => { const [tom, rotulo] = SELO[j.status] ?? ['aviso', 'na fila']; return <Selo tom={tom}>{rotulo}</Selo>; } },
           ]}
           acoes={(j) => (podeReimprimir && j.status === 'erro' ? [{ rotulo: 'Reimprimir', icone: RotateCw, aoClicar: setReimprimindo, tom: 'primaria' as const }] : [])}
         />
