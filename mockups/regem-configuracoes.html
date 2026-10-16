@@ -272,14 +272,16 @@ function desenhar() {
 // ── parte do tipo LISTA ──
 function filtrar(s, e, semSit) {
   const b = sem(e.busca);
-  return s.dados.filter((r) => (!b || sem(s.texto(r)).includes(b)) && (s.selects || []).every((f, i) => !e.sel[i] || valores(f, r).includes(e.sel[i])) && (semSit || e.sit < 0 || s.sits[e.sit][1](r)));
+  return s.dados.filter((r) => (!b || sem(s.texto(r)).includes(b)) && (s.selects || []).every((f, i) => !e.sel[i] || valores(f, r).includes(e.sel[i])) && (semSit || (e.sit < 0 ? !s.todasFiltro || s.todasFiltro(r) : s.sits[e.sit][1](r))));
 }
 function htmlLista(s) {
   const e = est();
-  const base = filtrar(s, e, true), lista = filtrar(s, e, false), total = s.dados.length;
+  const base = filtrar(s, e, true), lista = filtrar(s, e, false);
+  // Com `todasFiltro` (Equipamentos): o total é o dos em uso; na última ficha (Revogados), o dos revogados.
+  const total = !s.todasFiltro ? s.dados.length : e.sit === s.sits.length - 1 ? s.dados.filter(s.sits[e.sit][1]).length : s.dados.filter(s.todasFiltro).length;
   const qtd = (n) => plural(n, s.um, s.varios);
   const filtrando = e.busca || e.sit >= 0 || Object.values(e.sel).some(Boolean);
-  const extra = s.resumo ? s.resumo(lista) : '';
+  const extra = s.resumo ? s.resumo(lista, s, e) : '';
   const fora = s.selecao ? [...e.marc].filter((r) => !lista.includes(r)).length : 0;
   return `
     <div class="barra">
@@ -289,7 +291,7 @@ function htmlLista(s) {
     </div>
     ${typeof s.antes === 'function' ? s.antes() : s.antes || ''}
     <div class="sits" role="group" aria-label="Situação">
-      <button class="sit" data-sit="-1" aria-pressed="${e.sit < 0}">${s.todas || 'Todas'} <b>${base.length}</b></button>
+      <button class="sit" data-sit="-1" aria-pressed="${e.sit < 0}">${s.todas || 'Todas'} <b>${s.todasFiltro ? base.filter(s.todasFiltro).length : base.length}</b></button>
       ${s.sits.map((x, i) => `<button class="sit ${x[2] || ''}" data-sit="${i}" aria-pressed="${e.sit === i}">${x[0]} <b>${base.filter(x[1]).length}</b></button>`).join('')}
     </div>
     <div class="filtros">
@@ -669,7 +671,13 @@ TELAS.equipamentos = {
         eq('Caixa antigo', TIPOS_EQ[0], 'Filial Praia', '—', 'há 40 dias', 'revogado'),
       ],
       texto: (r) => r.nome,
-      resumo: (l) => { const m = l.filter((r) => r.sit === 'mudo').length; return m ? `${plural(m, 'impressora sem responder', 'impressoras sem responder')}` : 'tudo respondendo'; },
+      resumo: (l, s, e) => {
+        const m = l.filter((r) => r.sit === 'mudo').length;
+        const g = s.dados.filter((r) => r.sit === 'revogado').length;
+        return [m ? plural(m, 'equipamento sem responder', 'equipamentos sem responder') : 'tudo respondendo', e.sit !== 3 && g ? `${plural(g, 'revogado guardado', 'revogados guardados')} — veja em “Revogados”` : ''].filter(Boolean).join(' · ');
+      },
+      // Revogado não sai do banco (ponto, vendas, auditoria apontam para ele), mas sai do caminho (dono, 16/10/2026).
+      todas: 'Em uso', todasFiltro: (r) => r.sit !== 'revogado',
       sits: [['Ativos', (r) => r.sit === 'ativo'], ['Nunca conectaram', (r) => r.sit === 'nunca', 'warn'], ['Sem responder', (r) => r.sit === 'mudo', 'crit'], ['Revogados', (r) => r.sit === 'revogado']],
       selects: [['Tipo', 'Todos os tipos', (r) => r.tipo], ['Unidade', 'Todas as unidades', (r) => r.un], ['Setor', 'Todos os setores', (r) => r.setor]],
       colunas: [

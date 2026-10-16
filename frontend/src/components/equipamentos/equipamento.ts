@@ -38,6 +38,15 @@ export const ETAPAS = [
 export const ehGogem = (e: any) => e.integrador === 'gogem';
 /** Uma impressora só tem para onde imprimir se: rede → tem IP; local → tem nome no Windows. */
 export const alvoValido = (e: any) => (e.conexao === 'local' ? !!e.dispositivo : !!e.host);
+/**
+ * Os KDS e impressoras para escolher como DESTINO DE PRODUÇÃO (setor, produto, opção,
+ * direcionamento): só os em uso. Um destino já marcado que saiu de uso continua na lista para ser
+ * desmarcado — o servidor recusa salvar com ele (`common/destino-producao.ts`).
+ */
+export const destinosParaEscolher = (todos: any[], marcados: string[] = []) =>
+  todos.filter((e) => (e.tipo === 'kds' || e.tipo === 'impressora') && (e.ativo !== false || marcados.includes(e.id)));
+/** Fora de uso = revogado (Equipamentos) ou desligado (Impressoras e cupons): os dois gravam `ativo = false`. */
+export const foraDeUso = (e: any) => e?.ativo === false;
 /** Só as impressoras desta loja (ou sem loja) — o servidor recusa a de outra loja. */
 export const daLoja = (unidadeId: string | null | undefined) => (e: any) => !unidadeId || !e.unidadeId || e.unidadeId === unidadeId;
 

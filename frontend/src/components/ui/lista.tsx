@@ -134,6 +134,7 @@ export function Situacoes<T>({
   opcoes,
   valor,
   aoMudar,
+  todas,
 }: {
   /** Linhas já passadas pela busca e pelos outros filtros — é sobre elas que cada situação conta. */
   base: T[];
@@ -141,6 +142,8 @@ export function Situacoes<T>({
   /** Índice da situação ligada; -1 = todas. */
   valor: number;
   aoMudar: (i: number) => void;
+  /** A 1ª ficha quando ela não é "todas" (ex.: Equipamentos → "Em uso", sem os revogados). */
+  todas?: { rotulo: string; filtro: (r: T) => boolean };
 }) {
   const ficha = (ligada: boolean) =>
     cn(
@@ -155,7 +158,7 @@ export function Situacoes<T>({
   return (
     <div className="flex flex-wrap gap-2" role="group" aria-label="Situação">
       <button type="button" aria-pressed={valor < 0} className={ficha(valor < 0)} onClick={() => aoMudar(-1)}>
-        Todas <span className={conta(valor < 0)}>{base.length}</span>
+        {todas?.rotulo ?? 'Todas'} <span className={conta(valor < 0)}>{todas ? base.filter(todas.filtro).length : base.length}</span>
       </button>
       {opcoes.map((o, i) => (
         <button key={o.rotulo} type="button" aria-pressed={valor === i} className={ficha(valor === i)} onClick={() => aoMudar(valor === i ? -1 : i)}>

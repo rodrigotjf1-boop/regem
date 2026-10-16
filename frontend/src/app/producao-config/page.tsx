@@ -15,6 +15,7 @@ import { Gaveta } from '@/components/ui/sobreposto';
 import {
   FiltroBusca, FiltroSelect, Filtros, ListaDados, Selo, Situacoes, TituloLista, Vazio, semAcento, texto2, type Situacao,
 } from '@/components/ui/lista';
+import { destinosParaEscolher, foraDeUso } from '@/components/equipamentos/equipamento';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Parte = 'ajustes' | 'setores';
@@ -214,6 +215,8 @@ export default function ProducaoConfigPage() {
 
   // ── parte "Destino por setor" ──
   const nomeDe = (id: string) => equipamentos.find((e) => e.id === id);
+  // Só os KDS e impressoras em uso contam como destino possível; o revogado fica fora do caminho.
+  const emUso = destinosParaEscolher(equipamentos);
   const destinosDe = (s: any) => (destinosPorSetor[s.id] ?? []).map(nomeDe).filter(Boolean) as any[];
   /** Os destinos gravados do setor (`null` = não carregaram), sem depender da lista de equipamentos. */
   const idsDe = (s: any): string[] | null => (s.id in destinosPorSetor ? destinosPorSetor[s.id] : []);
@@ -280,9 +283,9 @@ export default function ProducaoConfigPage() {
                 não dá para escolher destino (seu perfil pode não ter acesso aos equipamentos).
               </p>
             ) : (
-              equipamentos.length === 0 && setores.length > 0 && (
+              emUso.length === 0 && setores.length > 0 && (
                 <p className="rounded-md border-l-4 border-warn bg-warn/10 px-3 py-2 text-sm">
-                  Nenhum KDS/impressora. Cadastre em Configurações → Equipamentos (as impressoras do sistema são registradas pelo servidor edge).
+                  Nenhum KDS/impressora em uso. Cadastre em Configurações → Equipamentos (as impressoras do sistema são registradas pelo servidor edge).
                 </p>
               )
             )}
@@ -311,13 +314,13 @@ export default function ProducaoConfigPage() {
                       if (!ids.length) return <Selo tom="aviso">sem destino</Selo>;
                       // Sem a lista de equipamentos não há nomes: mostra a quantidade, que é o que se sabe.
                       if (erroEquipamentos) return <Selo>{ids.length === 1 ? '1 destino' : `${ids.length} destinos`}</Selo>;
-                      return <span className="flex flex-wrap justify-end gap-1.5 xl:justify-start">{destinosDe(s).map((e) => <Selo key={e.id} tom="info">{e.nome}</Selo>)}</span>;
+                      return <span className="flex flex-wrap justify-end gap-1.5 xl:justify-start">{destinosDe(s).map((e) => (foraDeUso(e) ? <Selo key={e.id} tom="aviso">{e.nome} (fora de uso)</Selo> : <Selo key={e.id} tom="info">{e.nome}</Selo>))}</span>;
                     },
                   },
                   { titulo: 'Quantidade', celula: (s) => <span className="font-mono">{idsDe(s)?.length ?? '—'}</span> },
                 ]}
                 // Setor cujos destinos não carregaram não se edita: a gaveta abriria vazia e salvaria por cima.
-                acoes={(s) => (equipamentos.length && idsDe(s) !== null ? [{ rotulo: 'Destinos', icone: Pencil, aoClicar: setEditando, tom: 'primaria' as const }] : [])}
+                acoes={(s) => (emUso.length && idsDe(s) !== null ? [{ rotulo: 'Destinos', icone: Pencil, aoClicar: setEditando, tom: 'primaria' as const }] : [])}
               />
             )}
             {filtrando && linhas.length > 0 && (
@@ -346,6 +349,7 @@ export default function ProducaoConfigPage() {
 function DestinosDoSetor({ setor, equipamentos, marcados, aoFechar, aoSalvar }: { setor: any; equipamentos: any[]; marcados: string[]; aoFechar: () => void; aoSalvar: (ids: string[]) => void }) {
   const formId = useId();
   const [ids, setIds] = useState<string[]>(marcados);
+  const opcoes = destinosParaEscolher(equipamentos, marcados);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
   const trocar = (id: string) => setIds((a) => (a.includes(id) ? a.filter((x) => x !== id) : [...a, id]));
@@ -379,15 +383,15 @@ function DestinosDoSetor({ setor, equipamentos, marcados, aoFechar, aoSalvar }: 
     >
       <form id={formId} onSubmit={salvar} className="space-y-3">
         <p className={`text-sm ${texto2}`} role="status">
-          Marque os KDS e as impressoras que recebem a produção deste setor. {ids.length} de {equipamentos.length} marcados.
+          Marque os KDS e as impressoras que recebem a produção deste setor. {ids.length} de {opcoes.length} marcados.
         </p>
         <ul className="overflow-hidden rounded-md border border-border">
-          {equipamentos.map((e, i) => (
+          {opcoes.map((e, i) => (
             <li key={e.id} className="border-b border-border last:border-b-0">
               <label className="flex min-h-11 cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-secondary/60">
                 <input type="checkbox" className="h-5 w-5 flex-none accent-primary" checked={ids.includes(e.id)} onChange={() => trocar(e.id)} data-foco-inicial={i === 0 ? '' : undefined} />
                 <span className="min-w-0 flex-1 font-semibold">{e.nome}</span>
-                <Selo tom="neutro">{tipoDe(e)}</Selo>
+                {foraDeUso(e) ? <Selo tom="aviso">fora de uso — desmarque</Selo> : <Selo tom="neutro">{tipoDe(e)}</Selo>}
               </label>
             </li>
           ))}
