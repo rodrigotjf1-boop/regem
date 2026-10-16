@@ -4,6 +4,7 @@ import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { fetchExterno } from '../../common/fetch-externo';
+import { causaDeRede } from '../../common/causa-de-rede';
 import { ehServidorLocal } from '../../common/modo';
 import { SyncCtxData } from '../sync/sync-token.guard';
 import {
@@ -311,7 +312,9 @@ export class GogemAvisoService {
         lido = { texto: texto.slice(0, 500) };
       }
     } catch (e: any) {
-      erro = String(e?.message ?? e);
+      // Com a causa de rede (ERR-239): o `ultimo_erro` e a auditoria do aviso dizem o porquê.
+      const causa = causaDeRede(e);
+      erro = `${String(e?.message ?? e)}${causa ? ` (${causa})` : ''}`;
     }
     return { http, corpo: lido, erro, retryAfterS };
   }

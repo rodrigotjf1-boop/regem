@@ -1,5 +1,6 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { fetchExterno } from '../../common/fetch-externo';
+import { causaDeRede } from '../../common/causa-de-rede';
 
 // R3c — repasse das rotas que continuam sendo da NUVEM do GoGeM.
 //
@@ -63,10 +64,16 @@ export class GogemProxyService {
         ...(temCorpo ? { body: JSON.stringify(req.body ?? {}) } : {}),
       });
     } catch (e: any) {
-      this.logger.warn(`repasse ${metodo} ${caminho} falhou: ${e?.message ?? e}`);
-      throw new ServiceUnavailableException(
-        'Sem conexão com a nuvem agora — tente de novo em instantes.',
-      );
+      // A causa de rede (ERR-239) vai para o log e para um campo à parte (`motivo`): o texto da tela
+      // do totem é para o cliente e continua o mesmo.
+      const causa = causaDeRede(e);
+      this.logger.warn(`repasse ${metodo} ${caminho} falhou: ${e?.message ?? e}${causa ? ` — ${causa}` : ''}`);
+      throw new ServiceUnavailableException({
+        statusCode: 503,
+        error: 'Service Unavailable',
+        message: 'Sem conexão com a nuvem agora — tente de novo em instantes.',
+        ...(causa ? { motivo: causa } : {}),
+      });
     }
 
     const texto = await res.text().catch(() => '');

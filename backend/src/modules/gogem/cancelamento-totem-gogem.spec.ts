@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import * as bcrypt from 'bcryptjs';
+import { Logger } from '@nestjs/common';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
@@ -269,6 +270,26 @@ descrever('venda do totem cancelada no Regem → aviso ao GoGeM (Postgres real)'
   });
 
   // ── 2. o dinheiro do cliente não depende da rede naquela hora ───────────────────────────
+
+  it('GoGeM fora: o `ultimo_erro` do aviso e o log dizem o PORQUÊ, não só "fetch failed" (ERR-239)', async () => {
+    const log = jest.spyOn(Logger.prototype, 'warn');
+    responder = async () => {
+      const e: any = new TypeError('fetch failed');
+      e.cause = { code: 'ENOTFOUND', message: 'getaddrinfo ENOTFOUND api-stg.gogem.com.br' };
+      throw e;
+    };
+    try {
+      const v = await vendaDoTotem();
+      await cancelarCupom(v.comandaId);
+      const [a] = await avisosDa(v.chave);
+      expect(a.status).toBe('pendente');
+      expect(a.ultimo_erro).toContain('ENOTFOUND api-stg.gogem.com.br');
+      const linhas = log.mock.calls.map((c) => String(c[0])).join('\n');
+      expect(linhas).toContain('ENOTFOUND api-stg.gogem.com.br');
+    } finally {
+      log.mockRestore();
+    }
+  });
 
   it('GoGeM fora: o aviso fica gravado, o job reenvia com recuo — e entrega UMA vez só', async () => {
     responder = async () => Promise.reject(new TypeError('fetch failed'));

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { tokenDoGogem } from './credencial-gogem';
+import { causaDeRede } from '../../common/causa-de-rede';
 
 // A API do GoGeM é multi-tenant numa URL só; o tenant é identificado pelo
 // X-Sync-Token (o da integração dele). Configurável por env se mudar.
@@ -65,8 +66,10 @@ export class GogemPublishService {
     } catch (err) {
       if (err instanceof BadRequestException) throw err;
       const msg = err instanceof Error ? err.message : String(err);
-      this.logger.warn(`Publicar no GoGeM falhou (tenant ${tenantId}): ${msg}`);
-      throw new BadRequestException(`Falha ao publicar no GoGeM: ${msg}`);
+      // O "fetch failed" sozinho não diz o porquê (ERR-239): a causa vai para o log e para a tela.
+      const causa = causaDeRede(err);
+      this.logger.warn(`Publicar no GoGeM falhou (tenant ${tenantId}): ${msg}${causa ? ` — ${causa}` : ''}`);
+      throw new BadRequestException(causa ? `Não foi possível conectar ao GoGeM (${causa}).` : `Falha ao publicar no GoGeM: ${msg}`);
     } finally {
       clearTimeout(timer);
     }

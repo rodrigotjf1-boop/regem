@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
+import { Logger } from '@nestjs/common';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { EquipamentoService } from '../equipamento/equipamento.service';
@@ -232,6 +233,26 @@ descrever('a credencial do GoGeM (Postgres real)', () => {
     expect(await publicar.publicar(p.t)).toEqual({ ok: true, alterados: 3 });
     expect(chamadas).toHaveLength(1);
     expect(chamadas[0].token).toBe(p.s.gogem.token);
+  });
+
+  it('"Publicar no GoGeM" sem conexão: a mensagem e o log trazem a causa, nunca o token (ERR-239)', async () => {
+    const p = await piloto();
+    await q(`update equipamento set integrador = 'gogem', integrador_visto_em = now() where id = $1`, [p.s.gogem.id]);
+    const log = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    espiao.mockImplementationOnce(() => {
+      const e: any = new TypeError('fetch failed');
+      e.cause = { code: 'ENOTFOUND', message: 'getaddrinfo ENOTFOUND api-stg.gogem.com.br' };
+      return Promise.reject(e);
+    });
+    try {
+      const erro: any = await publicar.publicar(p.t).catch((e) => e);
+      expect(erro.message).toBe('Não foi possível conectar ao GoGeM (ENOTFOUND api-stg.gogem.com.br).');
+      const linhas = log.mock.calls.map((c) => String(c[0])).join('\n');
+      expect(linhas).toContain('ENOTFOUND api-stg.gogem.com.br');
+      expect(linhas + erro.message).not.toContain(p.s.gogem.token);
+    } finally {
+      log.mockRestore();
+    }
   });
 
   // ── o aviso que vem do servidor da loja ──────────────────────────────────────────────────
