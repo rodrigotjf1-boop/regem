@@ -10,7 +10,7 @@ import { ImageUpload } from '@/components/ui/image-upload';
 import { KebabMenu } from '@/components/ui/kebab-menu';
 import { selectCls } from '@/components/produtos/types';
 import { api, podeVerFinanceiro } from '@/lib/api';
-import { chaveUnidade, unidadesDoCadastro } from '@/lib/conversao-unidade';
+import { chaveUnidade, comoFoiCadastrada, unidadesDoCadastro } from '@/lib/conversao-unidade';
 import { toast } from '@/lib/toast';
 import { destinosParaEscolher, foraDeUso } from '@/components/equipamentos/equipamento';
 
@@ -186,6 +186,11 @@ export function OpcoesCard() {
         <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
           {filtradas.map((o) => {
             const usos = usosDe(o);
+            // "Bacon (1 porção = 30 ml)": a unidade da baixa como foi cadastrada no estoque.
+            const unidadeDaBaixa = o.itemUnidade || o.itemUnidadeEstoque || 'un';
+            const insumo = o.tipo === 'insumo' ? itens.find((x) => x.id === o.itemId) : null;
+            const cadastrada = insumo ? comoFoiCadastrada(unidadeDaBaixa, insumo.unidadeMedida ?? 'un', insumo.conversoes ?? []) : null;
+            const textoDaBaixa = cadastrada?.equivale ? `1 ${unidadeDaBaixa} = ${cadastrada.equivale}` : `1 ${unidadeDaBaixa}`;
             return (
               <li key={o.id} className={`flex min-w-0 items-center gap-2.5 rounded-lg border bg-card p-2 ${o.ativo === false ? 'opacity-50' : ''} ${sel.has(o.id) ? 'border-primary bg-primary/5' : 'border-border'}`}>
                 <input type="checkbox" className="h-4 w-4 flex-none accent-primary" checked={sel.has(o.id)} onChange={() => toggleSel(o.id)} aria-label={`Selecionar ${o.nome}`} />
@@ -196,7 +201,7 @@ export function OpcoesCard() {
                 )}
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{o.nome} {o.esgotado && <span className="rounded bg-destructive/10 px-1 text-[10px] font-bold text-destructive">esgotado</span>}</p>
-                  <p className="truncate text-[11px] text-muted-foreground">{TIPO_LABEL[o.tipo] ?? o.tipo}{o.fichaNome ? ` · ${o.fichaNome}` : o.itemNome ? ` · ${o.itemNome}${o.tipo === 'insumo' ? ` (1 ${o.itemUnidade || o.itemUnidadeEstoque || 'un'})` : ''}` : ''}{custoDaOpcao(o) ? ` · ${custoDaOpcao(o)}` : ''}</p>
+                  <p className="truncate text-[11px] text-muted-foreground">{TIPO_LABEL[o.tipo] ?? o.tipo}{o.fichaNome ? ` · ${o.fichaNome}` : o.itemNome ? ` · ${o.itemNome}${o.tipo === 'insumo' ? ` (${textoDaBaixa})` : ''}` : ''}{custoDaOpcao(o) ? ` · ${custoDaOpcao(o)}` : ''}</p>
                   {usos.length > 0 && (
                     <p className="truncate text-[10px] text-muted-foreground">Usado {usos.length}×: {usos.join(', ')}</p>
                   )}
@@ -281,6 +286,16 @@ function OpcaoModal({ opcao, fichas, itens, verFin, onFechar, onSalvo }: { opcao
   const custoDoInsumo = insumoEscolhido?.custoMedio != null ? Number(insumoEscolhido.custoMedio) * vinculo.fator : null;
   const custoDerivado = f.tipo === 'ficha' ? fichaEscolhida?.custoPorcao ?? null : custoDoInsumo;
   const qtdEstoque = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 4 });
+  // Cada unidade dita como foi cadastrada no estoque ("1 porção (30 ml)", pedido do dono, 16/10/2026);
+  // sem conversão própria, a conta na unidade do estoque, como antes.
+  const ehDoEstoque = (unidade: string) => chaveUnidade(unidade) === chaveUnidade(unEstoque);
+  const cadastradaDe = (unidade: string) => comoFoiCadastrada(unidade, unEstoque, insumoEscolhido?.conversoes ?? []);
+  const rotuloDaUnidade = (u: { unidade: string; fator: number }) => {
+    const cad = cadastradaDe(u.unidade);
+    if (ehDoEstoque(u.unidade)) return `1 ${u.unidade}${cad?.equivale ? ` (${cad.equivale})` : ''} — a unidade do estoque`;
+    return `1 ${u.unidade} (${cad ? cad.equivale ?? cad.frase : `${qtdEstoque(u.fator)} ${unEstoque}`})`;
+  };
+  const vinculoCadastrado = cadastradaDe(vinculo.unidade);
 
   const Toggle = ({ label, on, set }: { label: string; on: boolean; set: (v: boolean) => void }) => (
     <label className="flex items-center justify-between rounded-lg border border-border p-2.5 text-sm">
@@ -371,9 +386,7 @@ function OpcaoModal({ opcao, fichas, itens, verFin, onFechar, onSalvo }: { opcao
                 <Label className="text-xs">Cada escolha baixa do estoque</Label>
                 <select className={selectCls} aria-label="Unidade que cada escolha baixa do estoque" value={vinculo.unidade} onChange={(e) => up({ itemUnidade: e.target.value })}>
                   {unidadesDoInsumo.map((u) => (
-                    <option key={u.unidade} value={u.unidade}>
-                      1 {u.unidade}{u.fator !== 1 ? ` (${qtdEstoque(u.fator)} ${unEstoque})` : ' — a unidade do estoque'}
-                    </option>
+                    <option key={u.unidade} value={u.unidade}>{rotuloDaUnidade(u)}</option>
                   ))}
                 </select>
               </div>
@@ -382,7 +395,11 @@ function OpcaoModal({ opcao, fichas, itens, verFin, onFechar, onSalvo }: { opcao
               {!insumoEscolhido ? (
                 <>O insumo é o que sai do estoque e dá o custo do adicional. O preço de venda fica no complemento do produto.</>
               ) : temCodigo && f.controlaEstoque ? (
-                <>Cada vez que este adicional é vendido, <strong>1 {vinculo.unidade}</strong>{vinculo.fator !== 1 ? ` (${qtdEstoque(vinculo.fator)} ${unEstoque})` : ''} sai do estoque. O custo é o do estoque.</>
+                <>
+                  Cada vez que este adicional é vendido, <strong>1 {vinculo.unidade}</strong>
+                  {vinculoCadastrado?.equivale ? ` (${vinculoCadastrado.equivale})` : ''} sai do estoque
+                  {ehDoEstoque(vinculo.unidade) ? '' : `, que conta em ${unEstoque}: ${qtdEstoque(vinculo.fator)} ${unEstoque}`}. O custo é o do estoque.
+                </>
               ) : (
                 <>
                   O custo é o do estoque. <strong>Ainda não baixa estoque:</strong>{' '}
