@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Estação de impressão</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Mockup da ESTAÇÃO DE IMPRESSÃO (central de impressão, fase 1). Protótipo aprovado pelo dono em 15/10/2026
+   ("prototipos ativados"); peças: ícone na bandeja, painel da estação, Equipamentos (estação e "Ligada em") e o
+   passo do instalador. Tokens do mockup de Configurações (aprovado em 07/10/2026). Os dados são de exemplo. */
+:root{
+  --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E8A845; --on-gold:#281B06; --navy:#0F2230; --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9;
+  --warn:#8A5A00; --warn-bg:#FFF2D9; --win:#202020; --win-2:#2C2C2C; --win-ink:#F2F2F2; --win-mute:#B9B9B9;
+  --display:'Archivo',system-ui,sans-serif; --body:'Figtree',system-ui,sans-serif; --mono:'JetBrains Mono',ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0D1822; --card:#132330; --ink:#E6ECF2; --ink-2:#A3B3C2; --line:#24384A; --line-2:#2F465A;
+  --ok:#4CC49E; --ok-bg:#11302A; --crit:#F08A80; --crit-bg:#3A1B19; --warn:#EFC264; --warn-bg:#33290F; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0D1822; --card:#132330; --ink:#E6ECF2; --ink-2:#A3B3C2; --line:#24384A; --line-2:#2F465A;
+  --ok:#4CC49E; --ok-bg:#11302A; --crit:#F08A80; --crit-bg:#3A1B19; --warn:#EFC264; --warn-bg:#33290F; color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5}
+button{font:inherit;cursor:pointer}
+:focus-visible{outline:3px solid #3A7FB8;outline-offset:2px}
+.wrap{max-width:1120px;margin:0 auto;padding-inline:18px;padding-block:28px 72px;display:grid;gap:40px}
+header.topo{display:grid;gap:8px}
+.trilha{font-family:var(--display);font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#7A5209}
+:root[data-theme="dark"] .trilha{color:var(--gold)}
+h1{font-family:var(--display);font-size:clamp(26px,4vw,34px);margin:0;text-wrap:balance}
+h2{font-family:var(--display);font-size:22px;margin:0}
+h3{font-family:var(--display);font-size:16px;margin:0}
+p{margin:0}
+.nota{color:var(--ink-2);max-width:72ch}
+.peca{display:grid;gap:14px}
+.estados{display:flex;flex-wrap:wrap;gap:8px}
+.estados button{border:1px solid var(--line-2);background:var(--card);color:var(--ink);border-radius:999px;padding:6px 14px;font-weight:600;font-size:14px}
+.estados button[aria-pressed="true"]{background:var(--gold);color:var(--on-gold);border-color:var(--gold)}
+.palco{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr));gap:18px;align-items:start}
+/* ---- Windows: bandeja ---- */
+.desk{background:linear-gradient(160deg,#2B5B84,#163651);border-radius:14px;padding:18px;min-height:380px;display:flex;flex-direction:column;justify-content:flex-end;gap:10px;position:relative;overflow:hidden}
+.balao{align-self:flex-end;width:min(330px,100%);background:var(--win);color:var(--win-ink);border-radius:10px;padding:12px 14px;box-shadow:0 10px 30px rgba(0,0,0,.4);display:grid;gap:4px;font-size:13.5px}
+.balao b{font-family:var(--display);font-size:14px}
+.balao .de{color:var(--win-mute);font-size:12px}
+.menu{align-self:flex-end;width:min(300px,100%);background:var(--win-2);color:var(--win-ink);border-radius:10px;padding:6px;box-shadow:0 10px 30px rgba(0,0,0,.45);font-size:13.5px}
+.menu .cab{padding:8px 10px 6px;display:grid;gap:2px;border-bottom:1px solid #3d3d3d;margin-bottom:4px}
+.menu .cab b{font-family:var(--display)}
+.menu .cab span{color:var(--win-mute);font-size:12px}
+.menu .imp{display:flex;justify-content:space-between;gap:10px;padding:6px 10px}
+.menu .item{display:flex;justify-content:space-between;width:100%;text-align:left;background:none;border:none;color:inherit;padding:7px 10px;border-radius:6px}
+.menu .item:hover{background:#3a3a3a}
+.menu hr{border:none;border-top:1px solid #3d3d3d;margin:4px 0}
+.barra{display:flex;justify-content:flex-end;align-items:center;gap:10px;background:rgba(10,14,20,.88);margin:0 -18px -18px;padding:8px 14px;color:#e5e5e5;font-size:12px}
+.icone{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;font-family:var(--display);font-weight:800;font-size:12px;color:#fff;position:relative}
+.icone::after{content:"";position:absolute;right:-3px;bottom:-3px;width:11px;height:11px;border-radius:50%;border:2px solid #0b0f15}
+.icone.ok{background:#0F2230}.icone.ok::after{background:#2FBF7F}
+.icone.aviso{background:#0F2230}.icone.aviso::after{background:#F2B63C}
+.icone.erro{background:#0F2230}.icone.erro::after{background:#E5484D}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;padding:2px 10px;border-radius:999px;white-space:nowrap}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}
+.pill.aviso{background:var(--warn-bg);color:var(--warn)}
+.pill.erro{background:var(--crit-bg);color:var(--crit)}
+.menu .pill.ok{background:#1d3a2e;color:#7fe0b3}.menu .pill.aviso{background:#3d3112;color:#f5cd73}.menu .pill.erro{background:#45201f;color:#ff9a95}
+/* ---- painel da estação ---- */
+.janela{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;min-width:0}
+.janela .tit{display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--navy);color:#fff;padding:10px 14px;font-family:var(--display);font-size:14px}
+.janela .tit span{font-family:var(--body);font-size:12px;color:#c9d6e2}
+.janela .corpo{padding:14px;display:grid;gap:14px}
+.aviso-faixa{border-radius:10px;padding:12px 14px;display:grid;gap:10px}
+.aviso-faixa.erro{background:var(--crit-bg);color:var(--crit)}
+.aviso-faixa.aviso{background:var(--warn-bg);color:var(--warn)}
+.aviso-faixa p{color:inherit}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+.btn{border-radius:10px;padding:8px 14px;font-weight:700;font-size:14px;border:1px solid var(--line-2);background:var(--card);color:var(--ink)}
+.btn.pri{background:var(--gold);color:var(--on-gold);border-color:var(--gold)}
+.btn.perigo{color:var(--crit);border-color:var(--crit)}
+.lista{display:grid;gap:8px}
+.linha{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.linha .meta{color:var(--ink-2);font-size:13px}
+.linha .nome{font-weight:700}
+.mono{font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums}
+.largo{container-type:inline-size}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--display);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+caption{text-align:left;color:var(--ink-2);font-size:13px;padding-bottom:6px}
+@container (max-width:520px){table,tbody,tr,td,caption{display:block;width:100%}thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}tr{border:1px solid var(--line);border-radius:10px;padding:6px 10px;margin-bottom:8px}td{border:none;padding:3px 0}td[data-r]::before{content:attr(data-r) " · ";color:var(--ink-2);font-size:12px;font-weight:700}}
+/* ---- Regem: gaveta ---- */
+.regem{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,380px);gap:0;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--card)}
+@media (max-width:860px){.regem{grid-template-columns:1fr}}
+.regem .lista-eq{padding:16px;display:grid;gap:12px;min-width:0}
+.gaveta{border-left:1px solid var(--line);background:var(--bg);padding:16px;display:grid;gap:12px;align-content:start;min-width:0}
+@media (max-width:860px){.gaveta{border-left:none;border-top:1px solid var(--line)}}
+.campo{display:grid;gap:5px}
+.campo label{font-weight:700;font-size:13.5px}
+.campo .ajuda{color:var(--ink-2);font-size:12.5px}
+.campo select,.campo input{border:1px solid var(--line-2);border-radius:10px;padding:9px 10px;background:var(--card);color:var(--ink);font-size:14.5px;width:100%}
+.codigo{font-family:var(--mono);font-size:30px;font-weight:700;letter-spacing:.2em;background:var(--card);border:1px dashed var(--line-2);border-radius:10px;padding:10px;text-align:center}
+.encontradas{display:flex;flex-wrap:wrap;gap:6px}
+.encontradas span{background:var(--card);border:1px solid var(--line-2);border-radius:999px;padding:2px 10px;font-size:13px}
+/* ---- instalador ---- */
+.inst{max-width:560px;background:#F3F3F3;color:#1b1b1b;border:1px solid #c9c9c9;border-radius:8px;overflow:hidden;font-family:"Segoe UI",var(--body);font-size:13.5px}
+.inst .barra-t{background:#fff;border-bottom:1px solid #d9d9d9;padding:12px 16px;display:grid;gap:2px}
+.inst .barra-t b{font-size:14px}
+.inst .meio{padding:16px;display:grid;gap:12px;background:#fff}
+.inst .rodape{display:flex;justify-content:flex-end;gap:8px;padding:10px 16px;border-top:1px solid #d9d9d9}
+.inst .rodape span{border:1px solid #adadad;background:#e1e1e1;padding:4px 18px;border-radius:3px}
+.inst input[type="text"]{border:1px solid #8a8a8a;padding:5px 7px;font-family:var(--mono);width:160px}
+.decisoes{background:var(--gold);color:var(--on-gold);border-radius:12px;padding:16px 18px;display:grid;gap:10px}
+.decisoes ol{margin:0;padding-left:20px;display:grid;gap:6px}
+@media (prefers-reduced-motion:no-preference){.balao{animation:entra .35s ease-out}@keyframes entra{from{transform:translateY(8px);opacity:.4}to{transform:none;opacity:1}}}
+</style>
+
+<div class="wrap">
+<header class="topo">
+  <span class="trilha">Regem · central de impressão · fase 1 · aprovado em 15/10/2026</span>
+  <h1>Estação de impressão</h1>
+  <p class="nota">As peças que a estação traz: o ícone na bandeja do Windows, o painel da estação, a tela Equipamentos com a estação e o "Ligada em", e o passo do instalador. Os botões de estado trocam o que cada peça mostra. Os dados são de exemplo.</p>
+  <div class="estados" role="group" aria-label="Estado da impressora do exemplo">
+    <button type="button" data-estado="ok" aria-pressed="true">Tudo pronto</button>
+    <button type="button" data-estado="aviso" aria-pressed="false">Papel acabando</button>
+    <button type="button" data-estado="erro" aria-pressed="false">Sem papel no meio do cupom</button>
+    <button type="button" data-estado="antiga" aria-pressed="false">Fila antiga ao religar</button>
+  </div>
+</header>
+
+<section class="peca" aria-labelledby="t1">
+  <h2 id="t1">1. Ícone na bandeja</h2>
+  <p class="nota">Fica ao lado do relógio, em todo PC com estação. A bolinha diz o estado de todas as impressoras do PC (verde, amarelo ou vermelho). Clique no ícone e o menu abre. Quando algo para, aparece o aviso do Windows, com som.</p>
+  <div class="palco">
+    <div class="desk" aria-label="Área de trabalho do Windows (exemplo)">
+      <div class="balao" id="balao" hidden>
+        <span class="de">Regem · Estação Delivery</span>
+        <b id="balao-tit">Sem papel: Delivery</b>
+        <span id="balao-txt">3 cupons esperando. O cupom do pedido 452 parou no meio e sai de novo inteiro, marcado como reimpressão.</span>
+      </div>
+      <div class="menu" role="menu" aria-label="Menu da estação">
+        <div class="cab"><b>Estação Delivery</b><span>PC-DELIVERY · ligada ao servidor da loja</span></div>
+        <div class="imp"><span>MP-4200 TH (Delivery)</span><span class="pill ok" id="m-pill">pronta</span></div>
+        <div class="imp"><span>Fila</span><span class="mono" id="m-fila">0 cupons</span></div>
+        <hr>
+        <button class="item" type="button" role="menuitem">Abrir o painel da estação</button>
+        <button class="item" type="button" role="menuitem">Imprimir página de teste</button>
+        <button class="item" type="button" role="menuitem">Reimprimir o último cupom</button>
+        <button class="item" type="button" role="menuitem" id="m-pausar">Pausar esta impressora</button>
+        <hr>
+        <button class="item" type="button" role="menuitem">Esconder o ícone (a impressão continua)</button>
+      </div>
+      <div class="barra"><span>POR</span><span>21:14</span><span class="icone ok" id="icone" title="Estação de impressão Regem">R</span></div>
+    </div>
+    <div class="peca">
+      <h3>O que fica de fora do ícone</h3>
+      <p class="nota">O ícone só mostra o que acontece neste PC e faz ações dele: teste, reimprimir, pausar. Mudar qual impressora imprime o quê é no Regem (Configurações), com permissão de gerente ou presidente. Esconder o ícone não para a impressão: o serviço continua ligado, mesmo sem ninguém logado.</p>
+      <p class="nota"><b>"Mandar esta impressão para outro PC"</b> fica para a fase 3, junto com a tela única de "o que imprime onde".</p>
+    </div>
+  </div>
+</section>
+
+<section class="peca" aria-labelledby="t2">
+  <h2 id="t2">2. Painel da estação</h2>
+  <p class="nota">Abre pelo ícone. Mostra as impressoras deste PC, o estado de cada uma e a fila. Quando o PC ou a impressora volta depois de muito tempo, os cupons com mais de 10 minutos esperam uma decisão de quem está no PC (decisão do dono, 15/10).</p>
+  <div class="janela">
+    <div class="tit">Estação Delivery <span>PC-DELIVERY · versão 1.30.4 · último contato agora</span></div>
+    <div class="corpo">
+      <div class="aviso-faixa erro" id="f-erro" hidden>
+        <p><b>Sem papel na MP-4200 TH (Delivery)</b> desde 21:12. Troque a bobina: a fila volta sozinha em até 5 segundos. O cupom do pedido 452 parou no meio e sai de novo inteiro, marcado como reimpressão.</p>
+      </div>
+      <div class="aviso-faixa aviso" id="f-aviso" hidden>
+        <p><b>Papel acabando na MP-4200 TH (Delivery).</b> Ela continua imprimindo; deixe uma bobina nova à mão.</p>
+      </div>
+      <div class="aviso-faixa aviso" id="f-antiga" hidden>
+        <p><b>5 cupons esperam há mais de 10 minutos</b> (a impressora ficou desligada das 20:40 às 21:05). Imprimir agora pode repetir um pedido que já foi feito à mão.</p>
+        <div class="acoes"><button class="btn pri" type="button">Imprimir todos</button><button class="btn" type="button">Escolher quais</button><button class="btn perigo" type="button">Descartar</button></div>
+      </div>
+      <div class="lista">
+        <div class="linha"><div><div class="nome">MP-4200 TH (Delivery)</div><div class="meta">USB · papel 80 mm · imprime: cupom do delivery</div></div><span class="pill ok" id="p-pill">pronta</span></div>
+      </div>
+      <div class="largo">
+        <table>
+          <caption>Fila desta estação (últimos cupons)</caption>
+          <thead><tr><th>Hora</th><th>Pedido</th><th>Impressora</th><th>Situação</th></tr></thead>
+          <tbody id="fila">
+            <tr><td class="mono" data-r="Hora">21:10</td><td data-r="Pedido">#451 · Anota Aí</td><td data-r="Impressora">MP-4200 TH</td><td data-r="Situação"><span class="pill ok">impresso</span></td></tr>
+            <tr><td class="mono" data-r="Hora">21:08</td><td data-r="Pedido">#450 · iFood</td><td data-r="Impressora">MP-4200 TH</td><td data-r="Situação"><span class="pill ok">impresso</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="peca" aria-labelledby="t3">
+  <h2 id="t3">3. Regem › Configurações › Equipamentos</h2>
+  <p class="nota">A estação aparece na lista como um tipo novo de equipamento. A impressora USB ganha "Ligada em". Criar e editar acontece na gaveta lateral, como nas outras telas do modelo novo.</p>
+  <div class="regem">
+    <div class="lista-eq">
+      <div class="largo">
+        <table>
+          <caption>4 equipamentos de impressão nesta loja</caption>
+          <thead><tr><th>Nome</th><th>Tipo</th><th>Ligada em</th><th>Situação</th></tr></thead>
+          <tbody>
+            <tr><td data-r="Nome"><b>Estação Delivery</b><br><span class="mono">PC-DELIVERY</span></td><td data-r="Tipo">Estação de impressão</td><td data-r="Ligada em">—</td><td data-r="Situação"><span class="pill ok">no ar</span></td></tr>
+            <tr><td data-r="Nome"><b>Delivery</b><br><span class="mono">MP-4200 TH</span></td><td data-r="Tipo">Impressora USB</td><td data-r="Ligada em">Estação Delivery</td><td data-r="Situação"><span class="pill ok" id="r-pill">pronta</span></td></tr>
+            <tr><td data-r="Nome"><b>Caixa Regem</b><br><span class="mono">EPSON CAIXA 2</span></td><td data-r="Tipo">Impressora USB</td><td data-r="Ligada em">Servidor da loja</td><td data-r="Situação"><span class="pill ok">pronta</span></td></tr>
+            <tr><td data-r="Nome"><b>Cozinha</b><br><span class="mono">192.168.0.40</span></td><td data-r="Tipo">Impressora de rede</td><td data-r="Ligada em">Servidor da loja</td><td data-r="Situação"><span class="pill aviso">papel acabando</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="nota">A estação bate a cada minuto. Sem batida há 3 minutos: <span class="pill erro">fora · há 6 min</span>, e as impressoras dela mostram <span class="pill aviso">esperando a estação</span>. A que nunca pareou: <span class="pill aviso">nunca conectou</span>. Na nuvem de uma loja com servidor local, a estação aparece pelo que o servidor manda; criar a estação e gerar o código é no servidor da loja (é nele que ela pareia).</p>
+    </div>
+    <div class="gaveta" aria-label="Gaveta: impressora Delivery">
+      <h3>Impressora · Delivery</h3>
+      <div class="campo">
+        <label for="ligada">Ligada em</label>
+        <select id="ligada"><option>Estação Delivery (PC-DELIVERY)</option><option>Servidor da loja</option><option>Estação PDV 1 (PC-CAIXA1)</option></select>
+        <span class="ajuda">O PC onde o cabo USB desta impressora está. Quem imprime é a estação desse PC.</span>
+      </div>
+      <div class="campo">
+        <label for="nomewin">Nome no Windows</label>
+        <select id="nomewin"><option>MP-4200 TH</option><option>Microsoft Print to PDF</option></select>
+        <span class="ajuda">Impressoras encontradas no PC-DELIVERY (pela estação):</span>
+        <div class="encontradas"><span>MP-4200 TH</span><span>Microsoft Print to PDF</span></div>
+      </div>
+      <h3>Estação · Estação Delivery</h3>
+      <div class="campo">
+        <label>Código para parear</label>
+        <div class="codigo" aria-label="Código de 6 dígitos">482 913</div>
+        <span class="ajuda">Abre num diálogo logo depois de cadastrar a estação (e pelo "Gerar código" da linha). Vale 15 minutos e uma vez só. No instalador do PC, marque "Este PC tem impressora" e digite o código.</span>
+      </div>
+      <div class="acoes"><button class="btn pri" type="button">Gerar código</button><button class="btn perigo" type="button">Revogar estação</button></div>
+      <p class="nota">O teste de impressão é por impressora ("Imprimir teste" na linha dela): sai pela estação em que ela está ligada.</p>
+      <p class="nota">Revogar pede confirmação e diz o que para: "a Estação Delivery deixa de imprimir; a impressora Delivery fica sem quem a imprima até você escolher outro 'Ligada em'".</p>
+    </div>
+  </div>
+</section>
+
+<section class="peca" aria-labelledby="t4">
+  <h2 id="t4">4. O passo novo do instalador</h2>
+  <p class="nota">No mesmo instalador do PC da loja (modo cliente). Um passo a mais, e só se a caixa for marcada.</p>
+  <div class="inst" role="img" aria-label="Janela do instalador com a opção Este PC tem impressora e o campo do código">
+    <div class="barra-t"><b>Regem: este computador</b><span>Configurar o PC da loja</span></div>
+    <div class="meio">
+      <label><input type="checkbox" checked disabled> Este PC tem impressora (instalar a estação de impressão)</label>
+      <div>Código da estação (gere no Regem, em Configurações › Equipamentos):<br><input type="text" value="482913" disabled aria-label="Código da estação"></div>
+      <div style="color:#555">O Regem vai instalar o serviço de impressão (fica ligado mesmo sem ninguém logado) e o ícone ao lado do relógio.</div>
+    </div>
+    <div class="rodape"><span>&lt; Voltar</span><span>Avançar &gt;</span><span>Cancelar</span></div>
+  </div>
+</section>
+
+<section class="peca" aria-labelledby="t5">
+  <h2 id="t5">Decisões do dono (15/10/2026)</h2>
+  <div class="decisoes">
+    <ol>
+      <li>Cupom que parou no meio sai de novo <b>inteiro</b>, com "*** REIMPRESSÃO ***" no topo.</li>
+      <li>Fila antiga ao religar: imprime sozinha até 10 minutos; acima disso, pergunta no painel da estação.</li>
+      <li>Instalador: a caixa "Este PC tem impressora" no modo cliente.</li>
+      <li>Protótipo aprovado ("prototipos ativados"). As peças 3 (Equipamentos) e 4/1/2 (instalador, ícone e painel) entram em PRs separados.</li>
+    </ol>
+  </div>
+</section>
+</div>
+
+<script>
+(function(){
+  var botoes = document.querySelectorAll('[data-estado]');
+  var mapa = {
+    ok:{icone:'ok',pill:['ok','pronta'],fila:'0 cupons',balao:false,faixa:null,tabela:null},
+    aviso:{icone:'aviso',pill:['aviso','papel acabando'],fila:'1 cupom',balao:true,faixa:'f-aviso',
+      tit:'Papel acabando: Delivery',txt:'Ela continua imprimindo. Deixe uma bobina nova à mão.',tabela:null},
+    erro:{icone:'erro',pill:['erro','sem papel'],fila:'3 cupons esperando',balao:true,faixa:'f-erro',
+      tit:'Sem papel: Delivery',txt:'3 cupons esperando. O cupom do pedido 452 parou no meio e sai de novo inteiro, marcado como reimpressão.',
+      tabela:'<tr><td class="mono" data-r="Hora">21:12</td><td data-r="Pedido">#452 · Anota Aí</td><td data-r="Impressora">MP-4200 TH</td><td data-r="Situação"><span class="pill erro">interrompido · sai de novo</span></td></tr><tr><td class="mono" data-r="Hora">21:12</td><td data-r="Pedido">#453 · Anota Aí</td><td data-r="Impressora">MP-4200 TH</td><td data-r="Situação"><span class="pill aviso">esperando papel</span></td></tr>'},
+    antiga:{icone:'aviso',pill:['ok','pronta'],fila:'5 cupons antigos',balao:true,faixa:'f-antiga',
+      tit:'5 cupons esperam há mais de 10 min',txt:'A impressora voltou. Abra o painel para decidir: imprimir todos, escolher ou descartar.',
+      tabela:'<tr><td class="mono" data-r="Hora">20:41</td><td data-r="Pedido">#440 · iFood</td><td data-r="Impressora">MP-4200 TH</td><td data-r="Situação"><span class="pill aviso">esperando decisão</span></td></tr>'}
+  };
+  var filaBase = document.getElementById('fila').innerHTML;
+  function aplicar(nome){
+    var e = mapa[nome];
+    botoes.forEach(function(b){ b.setAttribute('aria-pressed', String(b.dataset.estado === nome)); });
+    document.getElementById('icone').className = 'icone ' + e.icone;
+    ['m-pill','p-pill','r-pill'].forEach(function(id){ var p=document.getElementById(id); p.className='pill '+e.pill[0]; p.textContent=e.pill[1]; });
+    document.getElementById('m-fila').textContent = e.fila;
+    var balao = document.getElementById('balao');
+    balao.hidden = !e.balao;
+    if (e.balao){ document.getElementById('balao-tit').textContent = e.tit; document.getElementById('balao-txt').textContent = e.txt; }
+    ['f-erro','f-aviso','f-antiga'].forEach(function(id){ document.getElementById(id).hidden = id !== e.faixa; });
+    document.getElementById('fila').innerHTML = (e.tabela || '') + filaBase;
+  }
+  botoes.forEach(function(b){ b.addEventListener('click', function(){ aplicar(b.dataset.estado); }); });
+})();
+</script>

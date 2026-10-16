@@ -115,10 +115,12 @@ export class EquipamentoService {
   // Código de 6 dígitos, fácil de ditar por telefone no suporte.
   async gerarCodigo(tenantId: string, id: string, atorId: string, atorPerfil: string) {
     const [alvo] = await this.db
-      .select({ id: equipamento.id, nome: equipamento.nome })
+      .select({ id: equipamento.id, nome: equipamento.nome, tipo: equipamento.tipo })
       .from(equipamento)
       .where(and(eq(equipamento.id, id), eq(equipamento.tenantId, tenantId)));
     if (!alvo) throw new NotFoundException('Equipamento não encontrado.');
+    // A estação pareia no servidor da loja: o código gerado na nuvem não chega a ele a tempo.
+    if (alvo.tipo === 'estacao_impressao') await this.garantirConfigLocal(tenantId);
 
     // Evita 0 à esquerda sumindo e colisão com código já pendente de outro PC.
     let codigo = '';
@@ -304,15 +306,19 @@ export class EquipamentoService {
     atorPerfil: string,
     dto: CreateEquipamentoDto,
   ) {
-    // F10 — impressora/KDS são config de impressão: com edge ativo, cria no edge.
-    if (dto.tipo === 'impressora' || dto.tipo === 'kds') await this.garantirConfigLocal(tenantId);
+    // F10 — impressora/KDS são config de impressão: com edge ativo, cria no edge. A estação de
+    // impressão também: ela pareia e imprime pelo servidor da loja (mig 324).
+    if (dto.tipo === 'impressora' || dto.tipo === 'kds' || dto.tipo === 'estacao_impressao') await this.garantirConfigLocal(tenantId);
     if (dto.tipo === 'pdv')
       await garantirImpressoraDaLoja(this.db, tenantId, dto.impressoraPadraoId ?? null, dto.unidadeId ?? null);
+    // "Ligada em" (mig 324): a mesma conferência do salvar impressora.
+    if (dto.tipo === 'impressora' && dto.estacaoId) await this.conferirEstacao(tenantId, dto.estacaoId, dto.unidadeId ?? null);
     const token = this.novoToken();
     const [row] = await this.db
       .insert(equipamento)
       .values({
         tenantId,
+        estacaoId: dto.tipo === 'impressora' ? dto.estacaoId ?? null : undefined,
         unidadeId: dto.unidadeId,
         tipo: dto.tipo,
         nome: dto.nome,
@@ -378,7 +384,50 @@ export class EquipamentoService {
       .from(equipamento)
       .where(eq(equipamento.tenantId, tenantId))
       .orderBy(desc(equipamento.createdAt));
-    return rows.map((r) => this.publico(r));
+    const lista = rows.map((r) => this.publico(r));
+    if (!rows.some((r) => r.tipo === 'estacao_impressao')) return lista;
+    const sinais = await this.sinaisDasEstacoes(tenantId);
+    return lista.map((e: any) => (e.tipo === 'estacao_impressao' ? { ...e, estacao: sinais.get(e.id) ?? null } : e));
+  }
+
+  // O último sinal de cada estação de impressão (mig 325): o desta base (a estação bate aqui) e, na
+  // nuvem de uma loja com servidor local, o que o servidor manda na saúde (a estação bate nele). Vale
+  // o mais recente. Best-effort: sem a tabela, a lista sai sem o sinal.
+  private async sinaisDasEstacoes(tenantId: string) {
+    type Sinal = { vistoEm: string | null; versao: string | null; maquina: string | null; impressoras: string[] };
+    const sinais = new Map<string, Sinal>();
+    const guardar = (id: string, s: Sinal) => {
+      const atual = sinais.get(id);
+      if (!atual || (s.vistoEm && (!atual.vistoEm || new Date(s.vistoEm) > new Date(atual.vistoEm)))) {
+        sinais.set(id, { ...s, impressoras: s.impressoras.length ? s.impressoras : atual?.impressoras ?? [] });
+      }
+    };
+    try {
+      const r: any = await this.db.execute(sql`
+        select equipamento_id as id, versao, maquina, impressoras, visto_em as "vistoEm"
+          from estacao_status where tenant_id = ${tenantId}`);
+      for (const x of r.rows ?? r) {
+        guardar(String(x.id), {
+          vistoEm: x.vistoEm ? new Date(x.vistoEm).toISOString() : null,
+          versao: x.versao ?? null,
+          maquina: x.maquina ?? null,
+          impressoras: Array.isArray(x.impressoras) ? x.impressoras : [],
+        });
+      }
+    } catch { /* banco sem a mig 325 */ }
+    if (!ehServidorLocal()) {
+      try {
+        const r: any = await this.db.execute(sql`
+          select saude from edge_status where tenant_id = ${tenantId} and recebido_em >= now() - interval '10 minutes'`);
+        for (const x of r.rows ?? r) {
+          const sd = typeof x.saude === 'string' ? JSON.parse(x.saude) : x.saude;
+          for (const e of Array.isArray(sd?.estacoes) ? sd.estacoes : []) {
+            if (e?.id) guardar(String(e.id), { vistoEm: e.vistoEm ?? null, versao: e.versao ?? null, maquina: e.maquina ?? null, impressoras: [] });
+          }
+        }
+      } catch { /* sem edge_status */ }
+    }
+    return sinais;
   }
 
   // Define/limpa a impressora de cupom amarrada a um terminal de PDV.
@@ -811,6 +860,8 @@ export class EquipamentoService {
       dispositivo: r.dispositivo ?? null,
       agenteMaquina: r.agenteMaquina ?? null, // máquina do agente dona da USB (mig 267)
       estacaoId: r.estacaoId ?? null, // estação de impressão que imprime esta impressora (mig 324)
+      // Estação: já trocou o código pelo segredo? Separa "nunca pareou" de "pareou e está fora".
+      ...(r.tipo === 'estacao_impressao' ? { pareado: !!r.segredoHash } : {}),
       codepage: r.codepage ?? null, // acentos: cp860 | cp850 | null (mig 269)
       setorId: r.setorId,
       largura: r.largura,

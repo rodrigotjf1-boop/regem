@@ -30,7 +30,7 @@ export function EquipamentoForm({
   peloServidorLocal: boolean;
   voltarPara: string;
   aoFechar: () => void;
-  aoCadastrar: (novo: { nome: string; token: string }, aviso: string) => void;
+  aoCadastrar: (novo: { id: string; tipo: string; nome: string; token: string }, aviso: string) => void;
   /** `algo` = alguma parte foi gravada (mesmo que outra tenha falhado). */
   aoSalvar: () => void;
 }) {
@@ -54,6 +54,7 @@ export function EquipamentoForm({
     host: (item?.host ?? '') as string,
     porta: (item ? (item.porta != null ? String(item.porta) : '') : '9100') as string,
     dispositivo: (item?.dispositivo ?? '') as string,
+    estacaoId: (item?.estacaoId ?? '') as string,
     largura: String(item?.largura ?? 80),
     codepage: (item?.codepage ?? '') as string,
     setoresAtendidos: (item?.setoresAtendidos ?? []) as string[],
@@ -66,11 +67,17 @@ export function EquipamentoForm({
   const mudou = (k: keyof typeof inicial) => JSON.stringify(f[k]) !== JSON.stringify(inicial[k]);
 
   const [pdv, salao, kds, imp] = [f.tipo === 'pdv', f.tipo === 'salao', f.tipo === 'kds', f.tipo === 'impressora'];
+  const estacao = f.tipo === 'estacao_impressao';
   const local = f.conexao === 'local';
   const etiqueta = !!item?.fazEtiqueta;
-  const travadoPeloServidor = novo && peloServidorLocal && (kds || imp);
+  const travadoPeloServidor = novo && peloServidorLocal && (kds || imp || estacao);
   const ativos = todos.filter((e) => e.ativo && e.id !== item?.id);
   const daUnidade = daLoja(f.unidadeId || null);
+  // "Ligada em" (mig 324): as estações da mesma loja. O servidor confere a loja de novo ao salvar.
+  const estacoes = ativos.filter((e) => e.tipo === 'estacao_impressao' && daUnidade(e));
+  const estacaoEscolhida = estacoes.find((e) => e.id === f.estacaoId);
+  // O que a estação achou no Windows do PC dela (na batida) — ajuda a digitar o nome exato.
+  const doWindows: string[] = Array.isArray(estacaoEscolhida?.estacao?.impressoras) ? estacaoEscolhida.estacao.impressoras : [];
   const impressorasDeCupom = ativos.filter((e) => e.tipo === 'impressora' && e.fazCupom && daUnidade(e));
   const pdvs = ativos.filter((e) => e.tipo === 'pdv' && !ehGogem(e) && daUnidade(e));
   const impressoras = ativos.filter((e) => e.tipo === 'impressora');
@@ -101,6 +108,7 @@ export function EquipamentoForm({
       host: imp && !local && f.host.trim() ? f.host.trim() : undefined,
       porta: imp && !local && f.porta ? Number(f.porta) : undefined,
       dispositivo: imp && local && f.dispositivo.trim() ? f.dispositivo.trim() : undefined,
+      estacaoId: imp && f.estacaoId ? f.estacaoId : undefined,
       largura: imp ? Number(f.largura) : undefined,
       codepage: imp && f.codepage ? f.codepage : undefined,
       setoresAtendidos: imp && f.setoresAtendidos.length ? f.setoresAtendidos : undefined,
@@ -117,7 +125,7 @@ export function EquipamentoForm({
         aviso = `O KDS foi cadastrado, mas o próximo KDS não foi salvo: ${e instanceof Error ? e.message : 'erro'}. Ajuste em Configurar.`;
       }
     }
-    aoCadastrar({ nome: criado.nome, token: criado.token }, aviso);
+    aoCadastrar({ id: criado.id, tipo: criado.tipo, nome: criado.nome, token: criado.token }, aviso);
   }
 
   /** As rotas a chamar, cada uma só com o que mudou no seu grupo de campos. */
@@ -129,6 +137,7 @@ export function EquipamentoForm({
       if (!etiqueta && (mudou('fazCupom') || mudou('fazProducao'))) Object.assign(c, { fazCupom: f.fazCupom, fazProducao: f.fazProducao });
       if (mudou('setorId')) c.setorId = f.setorId || null;
       if (mudou('conexao') || mudou('host') || mudou('porta') || mudou('dispositivo')) Object.assign(c, conexaoParaSalvar());
+      if (mudou('estacaoId')) c.estacaoId = f.estacaoId || null;
       if (mudou('largura')) c.largura = Number(f.largura);
       if (mudou('codepage')) c.codepage = f.codepage || null;
       if (mudou('setoresAtendidos')) c.setoresAtendidos = f.setoresAtendidos;
@@ -211,12 +220,12 @@ export function EquipamentoForm({
         </div>
         {travadoPeloServidor && (
           <p role="alert" className="rounded-md border-l-4 border-warn bg-warn/10 px-3 py-2 text-sm">
-            Esta loja tem servidor local ativo: impressora e KDS são cadastrados nele, não aqui na nuvem.
+            Esta loja tem servidor local ativo: impressora, KDS e estação de impressão são cadastrados nele, não aqui na nuvem.
           </p>
         )}
         <div className="space-y-1.5">
           <Label htmlFor="eq-nome">Nome</Label>
-          <Input id="eq-nome" data-foco-inicial value={f.nome} maxLength={80} onChange={(e) => muda({ nome: e.target.value })} placeholder="Ex.: Terminal do balcão" autoComplete="off" />
+          <Input id="eq-nome" data-foco-inicial value={f.nome} maxLength={80} onChange={(e) => muda({ nome: e.target.value })} placeholder={estacao ? 'Ex.: Estação Delivery' : 'Ex.: Terminal do balcão'} autoComplete="off" />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="eq-unidade">Unidade</Label>
@@ -227,6 +236,13 @@ export function EquipamentoForm({
           </Select>
           {!novo && <p className={ajuda}>A unidade não muda depois do cadastro.</p>}
         </div>
+
+        {estacao && (
+          <p className={`rounded-md bg-secondary px-3 py-2 text-sm ${texto2}`}>
+            A estação é o serviço que imprime nas impressoras <b>deste PC</b> (a USB do delivery, da cozinha…). Depois de cadastrar, aparece o código: no
+            instalador do Regem desse PC, marque “Este PC tem impressora” e digite o código. Depois, em cada impressora do PC, escolha esta estação em “Ligada em”.
+          </p>
+        )}
 
         {pdv && (!item || !ehGogem(item)) && (
           <div className="space-y-1.5">
@@ -333,13 +349,48 @@ export function EquipamentoForm({
                 <button type="button" aria-pressed={local} className={opcao(local)} onClick={() => muda({ conexao: 'local' })}>Local (USB / instalada no Windows)</button>
               </div>
               <p className={`mt-1 ${ajuda}`}>
-                {local ? 'A impressão local roda no servidor local (edge) ou no agente de impressão da máquina do caixa.' : 'Impressora de rede com IP fixo, alcançável na LAN da loja.'}
+                {!local
+                  ? 'Impressora de rede com IP fixo, alcançável na LAN da loja.'
+                  : estacaoEscolhida
+                    ? `Quem imprime é a ${estacaoEscolhida.nome}, pelo Windows do PC dela.`
+                    : 'Sem estação, quem imprime é o servidor da loja: a impressora tem de estar instalada no Windows dele. Se o cabo está em outro PC, escolha a estação desse PC em “Ligada em”.'}
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="eq-estacao">Ligada em</Label>
+              <Select id="eq-estacao" value={f.estacaoId} onChange={(e) => muda({ estacaoId: e.target.value })}>
+                <option value="">Servidor da loja (padrão)</option>
+                {estacoes.map((s) => <option key={s.id} value={s.id}>{s.nome}{s.estacao?.maquina ? ` (${s.estacao.maquina})` : ''}</option>)}
+                {foraDaLista(f.estacaoId, estacoes, 'estação atual (fora da lista)')}
+              </Select>
+              <p className={ajuda}>
+                {local
+                  ? 'O PC onde o cabo USB desta impressora está. Quem imprime é a estação desse PC.'
+                  : 'Quem manda os cupons para ela. Deixe no servidor da loja, a não ser que ele não alcance esta impressora na rede.'}
+                {estacoes.length === 0 && ' Nenhuma estação cadastrada nesta loja ainda (tipo “Estação de impressão”).'}
               </p>
             </div>
             {local ? (
               <div className="space-y-1.5">
                 <Label htmlFor="eq-dispositivo">Nome no Windows</Label>
-                <Input id="eq-dispositivo" value={f.dispositivo} onChange={(e) => muda({ dispositivo: e.target.value })} placeholder="Ex.: EPSON TM-T20" autoComplete="off" />
+                <Input id="eq-dispositivo" value={f.dispositivo} onChange={(e) => muda({ dispositivo: e.target.value })} placeholder="Ex.: MP-4200 TH" autoComplete="off" />
+                {doWindows.length > 0 && (
+                  <div>
+                    <p className={ajuda}>Impressoras encontradas no {estacaoEscolhida?.estacao?.maquina || 'PC da estação'} (toque para usar):</p>
+                    <div className="mt-1 flex flex-wrap gap-1.5" role="group" aria-label="Impressoras encontradas no Windows da estação">
+                      {doWindows.map((n) => (
+                        <button key={n} type="button" aria-pressed={f.dispositivo === n} className={ficha(f.dispositivo === n)} onClick={() => muda({ dispositivo: n })}>
+                          {f.dispositivo === n && <span aria-hidden="true">✓</span>}<span className="break-all">{n}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {estacaoEscolhida && doWindows.length > 0 && f.dispositivo.trim() && !doWindows.includes(f.dispositivo.trim()) && (
+                  <p role="status" className="rounded-md border-l-4 border-warn bg-warn/10 px-3 py-1.5 text-sm">
+                    Este nome não está entre as impressoras do Windows do {estacaoEscolhida.estacao?.maquina || 'PC da estação'}. Confira: o nome tem de ser exato.
+                  </p>
+                )}
               </div>
             ) : (
               <div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-3">

@@ -18,7 +18,7 @@ import { CodigoDePareamento, RevogarEquipamento, TokenDoEquipamento } from '@/co
 import { EquipamentoForm } from '@/components/equipamentos/equipamento-form';
 import { FilaDeImpressao } from '@/components/equipamentos/fila-impressao';
 import { HistoricoEquipamentos } from '@/components/equipamentos/historico-equipamentos';
-import { SITUACAO, ehGogem, ligacaoDe, situacaoDe, tipoDe, vistoDe } from '@/components/equipamentos/equipamento';
+import { ehGogem, ligacaoDe, seloDe, situacaoDe, tipoDe, vistoDe } from '@/components/equipamentos/equipamento';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Parte = 'equipamentos' | 'fila' | 'historico';
@@ -143,10 +143,11 @@ export default function EquipamentosPage() {
   const unidadeDe = (e: any) => (e.unidadeId ? unidades.find((u) => u.id === e.unidadeId)?.nome ?? 'Unidade fora da lista' : 'Sem unidade');
   const setorDe = (e: any) => (e.setorId ? setores.find((s) => s.id === e.setorId)?.nome ?? 'Setor fora da lista' : '');
   const SITUACOES: Situacao<any>[] = [
-    { rotulo: 'Ativos', filtro: (e) => situacaoDe(e, est) === 'ativo' },
-    { rotulo: 'Nunca conectaram', filtro: (e) => situacaoDe(e, est) === 'nunca', tom: 'aviso' },
-    { rotulo: 'Sem responder', filtro: (e) => situacaoDe(e, est) === 'mudo', tom: 'critico' },
-    { rotulo: 'Revogados', filtro: (e) => situacaoDe(e, est) === 'revogado' },
+    { rotulo: 'Ativos', filtro: (e) => situacaoDe(e, est, lista) === 'ativo' },
+    { rotulo: 'Precisam de atenção', filtro: (e) => situacaoDe(e, est, lista) === 'atencao', tom: 'aviso' },
+    { rotulo: 'Nunca conectaram', filtro: (e) => situacaoDe(e, est, lista) === 'nunca', tom: 'aviso' },
+    { rotulo: 'Sem responder', filtro: (e) => situacaoDe(e, est, lista) === 'mudo', tom: 'critico' },
+    { rotulo: 'Revogados', filtro: (e) => situacaoDe(e, est, lista) === 'revogado' },
   ];
   const b = semAcento(busca);
   const base = lista.filter(
@@ -159,15 +160,19 @@ export default function EquipamentosPage() {
   const linhas = sit < 0 ? base : base.filter(SITUACOES[sit].filtro);
   const filtrando = !!(busca.trim() || filtroTipo || filtroUnidade || filtroSetor || sit >= 0);
   const limpar = () => { setBusca(''); setFiltroTipo(''); setFiltroUnidade(''); setFiltroSetor(''); setSit(-1); };
-  const mudos = lista.filter((e) => situacaoDe(e, est) === 'mudo').length;
-  // Com servidor local, impressora e KDS são configurados nele: a nuvem recusa, então nem oferece.
-  const configuravel = (e: any) => !(peloServidorLocal && (e.tipo === 'impressora' || e.tipo === 'kds'));
+  const mudos = lista.filter((e) => situacaoDe(e, est, lista) === 'mudo').length;
+  // Com servidor local, impressora, KDS e estação de impressão são configurados nele: a nuvem recusa,
+  // então nem oferece (a estação pareia no servidor da loja — o código também sai lá).
+  const doServidorLocal = (e: any) => peloServidorLocal && ['impressora', 'kds', 'estacao_impressao'].includes(e.tipo);
+  const configuravel = (e: any) => !doServidorLocal(e);
   const acoesDe = (e: any): Acao<any>[] =>
     !pode || !e.ativo
       ? []
       : [
           ...(e.tipo === 'impressora' ? [{ rotulo: 'Imprimir teste', icone: Printer, aoClicar: (x: any) => void imprimirTeste(x), ocupada: (x: any) => testando === x.id }] : []),
-          ...(['pdv', 'salao'].includes(e.tipo) && !ehGogem(e) ? [{ rotulo: 'Gerar código', icone: KeyRound, aoClicar: setCodigoDe }] : []),
+          ...((['pdv', 'salao'].includes(e.tipo) && !ehGogem(e)) || (e.tipo === 'estacao_impressao' && !doServidorLocal(e))
+            ? [{ rotulo: 'Gerar código', icone: KeyRound, aoClicar: setCodigoDe }]
+            : []),
           ...(configuravel(e) ? [{ rotulo: 'Configurar', icone: Settings2, aoClicar: (x: any) => setForm({ item: x }) }] : []),
           ...(e.padrao ? [] : [{ rotulo: 'Revogar', icone: Ban, aoClicar: setRevogando, tom: 'perigo' as const }]),
         ];
@@ -189,7 +194,7 @@ export default function EquipamentosPage() {
         {parte === 'equipamentos' && (
           <section className="space-y-3" aria-labelledby={ID_TITULO}>
             <TituloLista id={ID_TITULO} titulo="Equipamentos" total={lista.length} mostrando={linhas.length} um="equipamento" varios="equipamentos"
-              extra={mudos ? `${mudos} ${mudos === 1 ? 'impressora sem responder' : 'impressoras sem responder'}` : estado ? 'nenhuma impressora sem responder' : undefined}>
+              extra={mudos ? `${mudos} ${mudos === 1 ? 'equipamento sem responder' : 'equipamentos sem responder'}` : estado ? 'nenhuma impressora sem responder' : undefined}>
               {pode && <Button type="button" onClick={() => setForm({ item: null })}><Plus className="h-4 w-4" aria-hidden="true" /> Novo equipamento</Button>}
             </TituloLista>
             <p className={`max-w-3xl text-sm ${texto2}`}>
@@ -255,7 +260,7 @@ export default function EquipamentosPage() {
                   { titulo: 'Tipo', celula: tipoDe },
                   { titulo: 'Ligação', celula: (e) => <span className="break-words">{ligacaoDe(e, lista)}</span> },
                   { titulo: 'Último acesso', celula: (e) => <span className="font-mono text-xs">{vistoDe(e, est)}</span> },
-                  { titulo: 'Situação', celula: (e) => { const s = SITUACAO[situacaoDe(e, est)]; return <Selo tom={s.tom}>{s.rotulo}</Selo>; } },
+                  { titulo: 'Situação', celula: (e) => { const s = seloDe(e, est, lista); return <Selo tom={s.tom}>{s.rotulo}</Selo>; } },
                 ]}
                 acoes={acoesDe}
               />
@@ -281,13 +286,19 @@ export default function EquipamentosPage() {
           peloServidorLocal={peloServidorLocal}
           voltarPara={ID_TITULO}
           aoFechar={() => setForm(null)}
-          aoCadastrar={(novo, aviso) => { setForm(null); setTokenNovo({ ...novo, aviso }); void reload(); }}
+          aoCadastrar={(novo, aviso) => {
+            setForm(null);
+            // A estação não usa token: pareia pelo código, digitado no instalador do PC.
+            if (novo.tipo === 'estacao_impressao') setCodigoDe(novo);
+            else setTokenNovo({ nome: novo.nome, token: novo.token, aviso });
+            void reload();
+          }}
           aoSalvar={() => { setForm(null); toast.success('Equipamento atualizado.'); void reload(); }}
         />
       )}
       {tokenNovo && <TokenDoEquipamento nome={tokenNovo.nome} token={tokenNovo.token} aviso={tokenNovo.aviso} voltarPara={ID_TITULO} aoFechar={() => setTokenNovo(null)} />}
       {codigoDe && <CodigoDePareamento equipamento={codigoDe} voltarPara={ID_TITULO} aoFechar={() => setCodigoDe(null)} />}
-      {revogando && <RevogarEquipamento equipamento={revogando} voltarPara={ID_TITULO} aoFechar={() => setRevogando(null)} aoRevogar={() => { setRevogando(null); void reload(); }} />}
+      {revogando && <RevogarEquipamento equipamento={revogando} todos={lista} voltarPara={ID_TITULO} aoFechar={() => setRevogando(null)} aoRevogar={() => { setRevogando(null); void reload(); }} />}
       {verAvisos && (
         <Dialogo titulo="Produtos com setor que não existe na loja" aoFechar={() => setVerAvisos(false)} voltarPara={ID_TITULO} largura="lg"
           rodape={<Button type="button" data-foco-inicial onClick={() => setVerAvisos(false)}>Fechar</Button>}>

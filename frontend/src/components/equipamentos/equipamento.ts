@@ -11,6 +11,7 @@ export const TIPOS = [
   { value: 'terminal_ponto', label: 'Terminal de Ponto' },
   { value: 'kds', label: 'KDS (cozinha)' },
   { value: 'impressora', label: 'Impressora térmica' },
+  { value: 'estacao_impressao', label: 'Estação de impressão (PC com impressora)' },
   { value: 'servidor_local', label: 'Servidor local (edge)' },
 ];
 const TIPO_LABEL: Record<string, string> = {
@@ -19,6 +20,7 @@ const TIPO_LABEL: Record<string, string> = {
   terminal_ponto: 'Terminal de Ponto',
   kds: 'KDS',
   impressora: 'Impressora',
+  estacao_impressao: 'Estação de impressão',
   servidor_local: 'Servidor local',
   ponto_baixa: 'Ponto de baixa',
 };
@@ -39,28 +41,76 @@ export const alvoValido = (e: any) => (e.conexao === 'local' ? !!e.dispositivo :
 /** Só as impressoras desta loja (ou sem loja) — o servidor recusa a de outra loja. */
 export const daLoja = (unidadeId: string | null | undefined) => (e: any) => !unidadeId || !e.unidadeId || e.unidadeId === unidadeId;
 
-export type SituacaoEq = 'ativo' | 'nunca' | 'mudo' | 'revogado';
+export type SituacaoEq = 'ativo' | 'atencao' | 'nunca' | 'mudo' | 'revogado';
 export const SITUACAO: Record<SituacaoEq, { tom: Tom; rotulo: string }> = {
   ativo: { tom: 'ok', rotulo: 'ativo' },
+  atencao: { tom: 'aviso', rotulo: 'precisa de atenção' },
   nunca: { tom: 'aviso', rotulo: 'nunca conectou' },
   mudo: { tom: 'critico', rotulo: 'sem responder' },
   revogado: { tom: 'neutro', rotulo: 'revogado' },
 };
+
+// O que a impressora RESPONDEU (mig 324; `ESTADOS_IMPRESSORA` do servidor). "pronta" não vira selo.
+export const ESTADO_IMPRESSORA: Record<string, { tom: Tom; rotulo: string }> = {
+  papel_acabando: { tom: 'aviso', rotulo: 'papel acabando' },
+  sem_papel: { tom: 'critico', rotulo: 'sem papel' },
+  tampa_aberta: { tom: 'critico', rotulo: 'tampa aberta' },
+  erro: { tom: 'critico', rotulo: 'erro na impressora' },
+  parada: { tom: 'critico', rotulo: 'parada' },
+  sem_resposta: { tom: 'critico', rotulo: 'sem resposta' },
+};
+
+/** A estação bate a cada minuto (`ESTACAO_BATIDA_MS`); sem batida por 3 min, está fora. */
+export const ESTACAO_FORA_MIN = 3;
+const estacaoDe = (id: string | null | undefined, todos: any[]) => (id ? todos.find((x) => x.id === id) : undefined);
+const estacaoNoAr = (s: any) => !!s?.ativo && !!s.estacao?.vistoEm && minutosDesde(s.estacao.vistoEm) < ESTACAO_FORA_MIN;
+
 /**
- * A situação do equipamento. A impressora não "conecta" (quem fala com ela é o servidor): vale o
- * estado da última impressão — `estado` vem de `/impressao/impressoras/estado`, por id.
+ * A situação do equipamento. A impressora não "conecta" (quem fala com ela é o servidor ou a
+ * estação): vale o estado da última impressão e o que ela respondeu — `estado` vem de
+ * `/impressao/impressoras/estado`, por id. A estação, pela última batida (`e.estacao`).
  */
-export function situacaoDe(e: any, estado: Record<string, any>): SituacaoEq {
+export function situacaoDe(e: any, estado: Record<string, any>, todos: any[] = []): SituacaoEq {
   if (!e.ativo) return 'revogado';
-  if (e.tipo === 'impressora') return estado[e.id]?.semResponder ? 'mudo' : 'ativo';
+  if (e.tipo === 'estacao_impressao') {
+    if (estacaoNoAr(e)) return 'ativo';
+    return e.estacao?.vistoEm || e.pareado ? 'mudo' : 'nunca';
+  }
+  if (e.tipo === 'impressora') {
+    const s = estado[e.id];
+    if (s?.semResponder) return 'mudo';
+    if (s?.estado && ESTADO_IMPRESSORA[s.estado]) return 'atencao';
+    if (e.estacaoId && !estacaoNoAr(estacaoDe(e.estacaoId, todos))) return 'atencao';
+    return 'ativo';
+  }
   return e.ultimoPing || e.integradorVistoEm ? 'ativo' : 'nunca';
+}
+
+/** O selo da coluna "Situação": o estado que a impressora respondeu, ou a estação no ar / fora. */
+export function seloDe(e: any, estado: Record<string, any>, todos: any[] = []): { tom: Tom; rotulo: string } {
+  const sit = situacaoDe(e, estado, todos);
+  if (e.tipo === 'estacao_impressao') {
+    if (sit === 'ativo') return { tom: 'ok', rotulo: 'no ar' };
+    if (sit === 'mudo') return { tom: 'critico', rotulo: e.estacao?.vistoEm ? `fora · há ${tempoDesde(e.estacao.vistoEm)}` : 'fora' };
+  }
+  if (e.tipo === 'impressora' && sit === 'atencao') {
+    const s = estado[e.id];
+    if (s?.estado && ESTADO_IMPRESSORA[s.estado]) return ESTADO_IMPRESSORA[s.estado];
+    return { tom: 'aviso', rotulo: 'esperando a estação' };
+  }
+  return SITUACAO[sit];
 }
 
 const dataHora = (iso: string) => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 export const minutosDesde = (iso?: string | null) => (iso ? Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000)) : 0);
+const tempoDesde = (iso: string) => {
+  const m = minutosDesde(iso);
+  return m < 60 ? `${m} min` : m < 48 * 60 ? `${Math.floor(m / 60)} h` : `${Math.floor(m / 1440)} dias`;
+};
 
 /** A coluna "Último acesso": para a impressora, a última impressão ou a fila parada. */
 export function vistoDe(e: any, estado: Record<string, any>): string {
+  if (e.tipo === 'estacao_impressao') return e.estacao?.vistoEm ? dataHora(e.estacao.vistoEm) : '—';
   if (e.tipo === 'impressora') {
     const s = estado[e.id];
     if (!s) return '—';
@@ -89,8 +139,17 @@ export function ligacaoDe(e: any, todos: any[]): string {
         e.imprimeAoAvancar ? `imprime ${ETAPAS.find((x) => x.v === (e.imprimeNoStatus ?? 'pronto'))?.rotulo ?? 'ao avançar'}` : '',
         e.proximoKdsId ? `próximo: ${nome(e.proximoKdsId) ?? 'KDS fora da lista'}` : '',
       ].filter(Boolean).join(' · ');
+    case 'estacao_impressao': {
+      const ligadas = todos.filter((x) => x.tipo === 'impressora' && x.ativo && x.estacaoId === e.id).length;
+      return [
+        e.estacao?.maquina ? `PC: ${e.estacao.maquina}` : e.pareado ? '' : 'falta parear',
+        ligadas ? `${ligadas} ${ligadas === 1 ? 'impressora ligada' : 'impressoras ligadas'}` : 'nenhuma impressora ligada',
+        e.estacao?.versao ? `versão ${e.estacao.versao}` : '',
+      ].filter(Boolean).join(' · ');
+    }
     case 'impressora':
       return [
+        e.estacaoId ? `ligada em ${estacaoDe(e.estacaoId, todos)?.nome ?? 'estação fora da lista'}` : '',
         e.conexao === 'local' ? `USB: ${e.dispositivo || '(sem nome)'}` : e.host ? `${e.host}:${e.porta ?? 9100}` : 'sem destino',
         `${e.largura ?? 80} mm`,
         e.fazEtiqueta ? 'etiqueta' : [e.fazCupom ? 'cupom' : '', e.fazProducao ? 'produção' : ''].filter(Boolean).join(' + ') || 'não imprime nada',
