@@ -17,7 +17,7 @@ import { fileURLToPath } from 'url';
 import { join } from 'path';
 import { createHash, createHmac } from 'node:crypto';
 import zlib from 'node:zlib';
-import { Readable } from 'node:stream';
+import { Readable, pipeline } from 'node:stream';
 import dns from 'node:dns';
 // Preferir IPv4 nas resoluções DNS. Num SERVIÇO do Windows o IPv6 costuma NÃO rotear
 // (o processo do USUÁRIO conecta por IPv6 e dá 200; o do serviço falha) → o daemon
@@ -1501,7 +1501,11 @@ async function restaurarSnapshot() {
     const res = await fetchT(`${CLOUD}/sync/snapshot`, { headers: { 'x-sync-token': TOKEN } }, SNAPSHOT_TIMEOUT_MS);
     if (!res.ok) throw new Error(`snapshot HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
     const gunzip = zlib.createGunzip();
-    Readable.fromWeb(res.body).pipe(gunzip);
+    // `pipeline`, nunca `.pipe()` (ERR-234): se o download cai no meio (conexão resetada, ou o
+    // prazo de 5 min vence durante o corpo), o erro chega ao `for await` abaixo e a carga volta.
+    // Com `.pipe()` o erro da origem não passava ao descompactador, o pega-tudo do processo o
+    // engolia, e o `for await` esperava para sempre — o servidor ficou mudo por 2 h (14/10/2026).
+    pipeline(Readable.fromWeb(res.body), gunzip, () => { /* o erro sai pelo for await */ });
     const client = await pool.connect();
     let total = 0, fimOk = false, tabelaAtual = null, fresco = false;
     try {
@@ -2186,6 +2190,16 @@ async function agendar() {
 
 try { await ensureState(); } catch (e) { console.error(`ensureState falhou no boot (segue): ${e?.message ?? e}`); }
 await lerFalhandoDesde();
+// Nenhuma restauração está em andamento quando o processo começa: a marca `restaurando` que ficou
+// de uma restauração interrompida (o serviço caiu, o PC reiniciou) prendia o botão "Restaurar
+// agora" em "já em andamento" e a saúde em "restaurando" para sempre (ERR-234).
+try {
+  if ((await getState('restaurando', '0')) === '1') {
+    await setState('restaurando', '0');
+    await setState('restore_erro', 'a restauração anterior foi interrompida (o serviço reiniciou no meio) — peça de novo se precisar');
+    console.warn('Restauração anterior interrompida: marca "restaurando" limpa no início.');
+  }
+} catch { /* banco fora agora: o ciclo segue e tenta de novo depois */ }
 // Primeiro ciclo com atraso aleatório curto: 5.000 lojas voltando juntas depois de uma queda
 // não podem bater no mesmo segundo.
 setTimeout(agendar, Math.round(Math.random() * Math.min(INTERVAL, 15000)));
