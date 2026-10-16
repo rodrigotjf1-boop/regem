@@ -157,10 +157,22 @@ export default function EquipamentosPage() {
       (!filtroUnidade || unidadeDe(e) === filtroUnidade) &&
       (!filtroSetor || setorDe(e) === filtroSetor),
   );
-  const linhas = sit < 0 ? base : base.filter(SITUACOES[sit].filtro);
+  // Revogado não sai do banco (o NSR do ponto, as vendas, a auditoria e a fila apontam para ele), mas
+  // sai do caminho: a 1ª ficha é "Em uso" e os revogados ficam só na ficha "Revogados" — a cada
+  // reinstalação do servidor da loja sobra um, e a lista só crescia (pedido do dono, 16/10/2026).
+  const emUso = (e: any) => situacaoDe(e, est, lista) !== 'revogado';
+  const iRevogados = SITUACOES.length - 1;
+  const vendoRevogados = sit === iRevogados;
+  const linhas = sit < 0 ? base.filter(emUso) : base.filter(SITUACOES[sit].filtro);
   const filtrando = !!(busca.trim() || filtroTipo || filtroUnidade || filtroSetor || sit >= 0);
   const limpar = () => { setBusca(''); setFiltroTipo(''); setFiltroUnidade(''); setFiltroSetor(''); setSit(-1); };
   const mudos = lista.filter((e) => situacaoDe(e, est, lista) === 'mudo').length;
+  const totalEmUso = lista.filter(emUso).length;
+  const guardados = lista.length - totalEmUso;
+  const resumo = [
+    mudos ? `${mudos} ${mudos === 1 ? 'equipamento sem responder' : 'equipamentos sem responder'}` : estado ? 'nenhuma impressora sem responder' : '',
+    !vendoRevogados && guardados ? `${guardados} ${guardados === 1 ? 'revogado guardado' : 'revogados guardados'} — veja em “Revogados”` : '',
+  ].filter(Boolean).join(' · ');
   // Com servidor local, impressora, KDS e estação de impressão são configurados nele: a nuvem recusa,
   // então nem oferece (a estação pareia no servidor da loja — o código também sai lá).
   const doServidorLocal = (e: any) => peloServidorLocal && ['impressora', 'kds', 'estacao_impressao'].includes(e.tipo);
@@ -185,7 +197,7 @@ export default function EquipamentosPage() {
           ativa={parte}
           aoEscolher={setParte}
           partes={[
-            { key: 'equipamentos', label: 'Equipamentos', conta: lista.length },
+            { key: 'equipamentos', label: 'Equipamentos', conta: totalEmUso },
             { key: 'fila', label: 'Fila de impressão', conta: fila?.length ?? null },
             { key: 'historico', label: 'Histórico' },
           ]}
@@ -193,8 +205,9 @@ export default function EquipamentosPage() {
 
         {parte === 'equipamentos' && (
           <section className="space-y-3" aria-labelledby={ID_TITULO}>
-            <TituloLista id={ID_TITULO} titulo="Equipamentos" total={lista.length} mostrando={linhas.length} um="equipamento" varios="equipamentos"
-              extra={mudos ? `${mudos} ${mudos === 1 ? 'equipamento sem responder' : 'equipamentos sem responder'}` : estado ? 'nenhuma impressora sem responder' : undefined}>
+            <TituloLista id={ID_TITULO} titulo="Equipamentos" total={vendoRevogados ? guardados : totalEmUso} mostrando={linhas.length}
+              um={vendoRevogados ? 'equipamento revogado' : 'equipamento em uso'} varios={vendoRevogados ? 'equipamentos revogados' : 'equipamentos em uso'}
+              extra={resumo || undefined}>
               {pode && <Button type="button" onClick={() => setForm({ item: null })}><Plus className="h-4 w-4" aria-hidden="true" /> Novo equipamento</Button>}
             </TituloLista>
             <p className={`max-w-3xl text-sm ${texto2}`}>
@@ -229,7 +242,7 @@ export default function EquipamentosPage() {
               </Card>
             )}
 
-            <Situacoes base={base} opcoes={SITUACOES} valor={sit} aoMudar={setSit} />
+            <Situacoes base={base} opcoes={SITUACOES} valor={sit} aoMudar={setSit} todas={{ rotulo: 'Em uso', filtro: emUso }} />
             <Filtros>
               <FiltroBusca id="equipamentos-busca" valor={busca} aoMudar={setBusca} placeholder="Nome do equipamento" />
               <FiltroSelect id="equipamentos-tipo" rotulo="Tipo" todos="Todos os tipos" opcoes={distintos(lista, tipoDe)} valor={filtroTipo} aoMudar={setFiltroTipo} />
@@ -239,6 +252,8 @@ export default function EquipamentosPage() {
 
             {lista.length === 0 ? (
               <Vazio>Nenhum equipamento cadastrado ainda.</Vazio>
+            ) : linhas.length === 0 && !filtrando ? (
+              <Vazio>Nenhum equipamento em uso. Os revogados ficam guardados em “Revogados”, acima.</Vazio>
             ) : linhas.length === 0 ? (
               <Vazio aoLimpar={limpar} />
             ) : (

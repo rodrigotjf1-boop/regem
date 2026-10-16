@@ -12,6 +12,7 @@ import { Chave } from '@/components/ui/chave';
 import { Partes } from '@/components/ui/partes';
 import { SkeletonList } from '@/components/ui/skeleton';
 import { Dialogo, Gaveta } from '@/components/ui/sobreposto';
+import { destinosParaEscolher, foraDeUso } from '@/components/equipamentos/equipamento';
 import {
   FiltroBusca, FiltroSelect, Filtros, ListaDados, NomeComApoio, Selo, Situacoes, TituloLista, Vazio, distintos, semAcento, texto2, type Situacao,
 } from '@/components/ui/lista';
@@ -100,6 +101,8 @@ export default function DirecionamentoPage() {
   const equip = useMemo(() => new Map((equipamentos ?? []).map((e) => [e.id, e])), [equipamentos]);
   const nomeDestino = useCallback((id: string) => equip.get(id)?.nome ?? 'Destino fora da lista', [equip]);
   const lista = useMemo(() => produtos ?? [], [produtos]);
+  // Só os KDS e impressoras em uso contam como destino possível; o revogado fica fora do caminho.
+  const emUso = destinosParaEscolher(equipamentos ?? []);
 
   // ── parte "Produtos" ──
   const SITUACOES: Situacao<any>[] = [
@@ -142,7 +145,7 @@ export default function DirecionamentoPage() {
     });
 
   // ── parte "Cupom do cliente" ──
-  const impressoras = (equipamentos ?? []).filter((e) => e.tipo === 'impressora');
+  const impressoras = (equipamentos ?? []).filter((e) => e.tipo === 'impressora' && !foraDeUso(e));
   const SITUACOES_CUPOM: Situacao<any>[] = [
     { rotulo: 'Imprimem o cupom', filtro: (e) => !!e.fazCupom },
     { rotulo: 'Não imprimem', filtro: (e) => !e.fazCupom },
@@ -206,8 +209,8 @@ export default function DirecionamentoPage() {
                   para escolher destino. <button type="button" className="font-semibold underline" onClick={() => void lerEquipamentos()}>Tentar de novo</button>
                 </p>
               )}
-              {equipamentos?.length === 0 && (
-                <p className="rounded-md border-l-4 border-warn bg-warn/10 px-3 py-2 text-sm">Nenhum KDS/impressora cadastrado. Cadastre em Configurações → Equipamentos.</p>
+              {equipamentos && emUso.length === 0 && (
+                <p className="rounded-md border-l-4 border-warn bg-warn/10 px-3 py-2 text-sm">Nenhum KDS/impressora em uso. Cadastre em Configurações → Equipamentos.</p>
               )}
               <Situacoes base={base} opcoes={SITUACOES} valor={sit} aoMudar={setSit} />
               <Filtros>
@@ -231,7 +234,7 @@ export default function DirecionamentoPage() {
                   </span>
                   <span className="ml-auto flex flex-wrap gap-2">
                     {marcadosDaLista.length > 0 && <Button type="button" variant="outline" size="sm" onClick={() => setMarcados(new Set())}>Limpar marcação</Button>}
-                    <Button type="button" size="sm" disabled={!marcadosDaLista.length || !equipamentos?.length} onClick={() => setDirecionando(marcadosDaLista)}>Direcionar marcados</Button>
+                    <Button type="button" size="sm" disabled={!marcadosDaLista.length || !emUso.length} onClick={() => setDirecionando(marcadosDaLista)}>Direcionar marcados</Button>
                   </span>
                 </div>
               )}
@@ -266,14 +269,14 @@ export default function DirecionamentoPage() {
                         const ds: string[] = p.destinos ?? [];
                         if (!ds.length) return <span className={`text-xs ${texto2}`}>padrão do setor</span>;
                         if (!equipamentos) return <Selo>{plural(ds.length, 'destino', 'destinos')}</Selo>;
-                        return <span className="inline-flex flex-wrap justify-end gap-1 xl:justify-start">{ds.map((d) => <Selo key={d} tom="info">{nomeDestino(d)}</Selo>)}</span>;
+                        return <span className="inline-flex flex-wrap justify-end gap-1 xl:justify-start">{ds.map((d) => (foraDeUso(equip.get(d)) ? <Selo key={d} tom="aviso">{nomeDestino(d)} (fora de uso)</Selo> : <Selo key={d} tom="info">{nomeDestino(d)}</Selo>))}</span>;
                       },
                     },
                   ]}
                   acoes={(p) =>
                     podeDirecionar
                       ? [
-                          ...(equipamentos?.length ? [{ rotulo: 'Destinos', icone: Pencil, aoClicar: (x: any) => setDirecionando([x]) }] : []),
+                          ...(emUso.length ? [{ rotulo: 'Destinos', icone: Pencil, aoClicar: (x: any) => setDirecionando([x]) }] : []),
                           ...((p.destinos ?? []).length ? [{ rotulo: 'Voltar ao padrão', icone: RotateCcw, aoClicar: setVoltando }] : []),
                         ]
                       : []
@@ -360,6 +363,9 @@ function GavetaDestinos({ produtos, equipamentos, aoFechar, aoSalvar }: { produt
   const um = produtos.length === 1;
   // Um produto: abre com os destinos dele marcados. Vários: começa em branco.
   const [ids, setIds] = useState<string[]>(() => (um ? (produtos[0].destinos ?? []).filter((d: string) => equipamentos.some((e) => e.id === d)) : []));
+  // Os marcados ao abrir: o revogado entre eles continua na lista depois de desmarcado.
+  const [marcadosAoAbrir] = useState(ids);
+  const opcoes = destinosParaEscolher(equipamentos, marcadosAoAbrir);
   const [modo, setModo] = useState<'substituir' | 'adicionar'>('substituir');
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
@@ -416,12 +422,12 @@ function GavetaDestinos({ produtos, equipamentos, aoFechar, aoSalvar }: { produt
         <fieldset>
           <legend className="text-sm font-medium">Destinos</legend>
           <ul className="mt-1 space-y-1.5">
-            {equipamentos.map((e, i) => (
+            {opcoes.map((e, i) => (
               <li key={e.id}>
                 <label className={`flex min-h-11 cursor-pointer items-center gap-3 rounded-md border px-3 py-1.5 text-sm ${ids.includes(e.id) ? 'border-foreground bg-secondary' : 'border-input'}`}>
                   <input type="checkbox" className="h-5 w-5 flex-none accent-primary" checked={ids.includes(e.id)} onChange={() => alternar(e.id)} {...(i === 0 ? { 'data-foco-inicial': true } : {})} />
                   <span className="min-w-0 flex-1 break-words font-semibold">{e.nome}</span>
-                  <Selo>{tipoEquip(e)}</Selo>
+                  {foraDeUso(e) ? <Selo tom="aviso">fora de uso — desmarque</Selo> : <Selo>{tipoEquip(e)}</Selo>}
                 </label>
               </li>
             ))}

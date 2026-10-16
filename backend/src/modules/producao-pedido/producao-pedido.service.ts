@@ -38,6 +38,7 @@ import { perfilEfetivo } from '../delivery/cupom-perfis';
 import { edgeAtivo } from '../../common/edge-ativo';
 import { enfileirarComandoEdge } from '../../common/edge-comando';
 import { garantirImpressoraDaLoja } from '../../common/impressora-da-loja';
+import { conferirDestinosDeProducao } from '../../common/destino-producao';
 import { ESTADOS_IMPRESSORA, MARCA_REIMPRESSAO } from '../../common/impressao-marca';
 import { gravarOuEncaminharImpressao } from '../../common/impressao-destino';
 import { hojeISO } from '../../common/data';
@@ -2635,6 +2636,8 @@ export class ProducaoPedidoService {
     equipamentoIds: string[],
     ator?: AtorKds,
   ) {
+    // Conferido ANTES de apagar: a recusa (revogado, de outra empresa) não deixa o produto sem destino.
+    const lista = await conferirDestinosDeProducao(this.db, tenantId, equipamentoIds);
     const antes = (await this.destinosDoProduto(tenantId, produtoId)).map((d) => d.equipamentoId);
     await this.db
       .delete(produtoDestinoProducao)
@@ -2644,10 +2647,9 @@ export class ProducaoPedidoService {
           eq(produtoDestinoProducao.produtoId, produtoId),
         ),
       );
-    if (equipamentoIds?.length) {
-      await this.validarEquipamentos(tenantId, equipamentoIds);
+    if (lista.length) {
       await this.db.insert(produtoDestinoProducao).values(
-        equipamentoIds.map((equipamentoId) => ({
+        lista.map((equipamentoId) => ({
           tenantId,
           produtoId,
           equipamentoId,
@@ -2655,7 +2657,7 @@ export class ProducaoPedidoService {
       );
     }
     const [prod] = await this.db.select({ nome: produto.nome }).from(produto).where(and(eq(produto.tenantId, tenantId), eq(produto.id, produtoId)));
-    await this.auditarDestinos(tenantId, ator, 'produto', produtoId, prod?.nome ?? null, antes, equipamentoIds ?? []);
+    await this.auditarDestinos(tenantId, ator, 'produto', produtoId, prod?.nome ?? null, antes, lista);
     return this.destinosDoProduto(tenantId, produtoId);
   }
 
@@ -2706,6 +2708,8 @@ export class ProducaoPedidoService {
     equipamentoIds: string[],
     ator?: AtorKds,
   ) {
+    // Conferido ANTES de apagar: a recusa (revogado, de outra empresa) não deixa o setor sem destino.
+    const lista = await conferirDestinosDeProducao(this.db, tenantId, equipamentoIds);
     const antes = (await this.destinosDoSetor(tenantId, setorId)).map((d) => d.equipamentoId);
     await this.db
       .delete(setorDestinoProducao)
@@ -2715,30 +2719,17 @@ export class ProducaoPedidoService {
           eq(setorDestinoProducao.setorId, setorId),
         ),
       );
-    if (equipamentoIds?.length) {
-      await this.validarEquipamentos(tenantId, equipamentoIds);
+    if (lista.length) {
       await this.db.insert(setorDestinoProducao).values(
-        equipamentoIds.map((equipamentoId) => ({
+        lista.map((equipamentoId) => ({
           tenantId,
           setorId,
           equipamentoId,
         })),
       );
     }
-    await this.auditarDestinos(tenantId, ator, 'setor', setorId, await this.nomeDoSetor(tenantId, setorId), antes, equipamentoIds ?? []);
+    await this.auditarDestinos(tenantId, ator, 'setor', setorId, await this.nomeDoSetor(tenantId, setorId), antes, lista);
     return this.destinosDoSetor(tenantId, setorId);
-  }
-
-  // Segurança: equipamentos precisam ser do tenant (evita vincular device de outro).
-  private async validarEquipamentos(tenantId: string, ids: string[]) {
-    const rows = await this.db
-      .select({ id: equipamento.id })
-      .from(equipamento)
-      .where(
-        and(eq(equipamento.tenantId, tenantId), inArray(equipamento.id, ids)),
-      );
-    if (rows.length !== new Set(ids).size)
-      throw new ForbiddenException('Equipamento inválido para este tenant.');
   }
 
   async getCores(tenantId: string, unidadeId?: string | null) {

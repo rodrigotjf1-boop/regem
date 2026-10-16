@@ -12,6 +12,7 @@ import { selectCls } from '@/components/produtos/types';
 import { api, podeVerFinanceiro } from '@/lib/api';
 import { chaveUnidade, unidadesDoCadastro } from '@/lib/conversao-unidade';
 import { toast } from '@/lib/toast';
+import { destinosParaEscolher, foraDeUso } from '@/components/equipamentos/equipamento';
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @next/next/no-img-element */
 
@@ -248,6 +249,9 @@ function OpcaoModal({ opcao, fichas, itens, verFin, onFechar, onSalvo }: { opcao
   // Destino de produção próprio (mig 127). Vazio = herda do produto.
   const [equipamentos, setEquipamentos] = useState<any[]>([]);
   const [destinos, setDestinos] = useState<string[]>([]);
+  // Só KDS e impressoras em uso (antes vinha TODO equipamento: PDV, ponto, servidor da loja); o
+  // revogado ainda marcado aparece para ser desmarcado — o servidor recusa salvar com ele.
+  const opcoesDeDestino = destinosParaEscolher(equipamentos, destinos);
   useEffect(() => {
     api.equipamentos().then((e: any) => setEquipamentos(Array.isArray(e) ? e : [])).catch(() => setEquipamentos([]));
     if (!novo) api.opcaoDestinos(opcao.id).then((d: any) => setDestinos(Array.isArray(d) ? d : [])).catch(() => {});
@@ -406,14 +410,14 @@ function OpcaoModal({ opcao, fichas, itens, verFin, onFechar, onSalvo }: { opcao
         </div>
 
         {/* Destino de produção próprio — vazio herda o do produto (mig 127). */}
-        {equipamentos.length > 0 && (
+        {opcoesDeDestino.length > 0 && (
           <div className="mt-3 space-y-1.5">
             <Label className="text-xs">Destino de produção desta opção</Label>
             <p className="text-[11px] text-muted-foreground">
               Sem seleção, herda o destino do produto. Marque para mandar esta opção a um KDS/impressora específico.
             </p>
             <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-              {equipamentos.map((e: any) => (
+              {opcoesDeDestino.map((e: any) => (
                 <label key={e.id} className={`flex cursor-pointer items-center gap-2 rounded-lg border p-2 text-xs ${destinos.includes(e.id) ? 'border-primary bg-primary/10' : 'border-border'}`}>
                   <input
                     type="checkbox"
@@ -423,7 +427,7 @@ function OpcaoModal({ opcao, fichas, itens, verFin, onFechar, onSalvo }: { opcao
                   />
                   <span className="flex-1">{e.nome}</span>
                   <span className="rounded bg-secondary px-1 py-0.5 text-[10px] text-muted-foreground">
-                    {e.tipo === 'impressora' ? 'impressora' : 'KDS'}
+                    {foraDeUso(e) ? 'fora de uso — desmarque' : e.tipo === 'impressora' ? 'impressora' : 'KDS'}
                   </span>
                 </label>
               ))}

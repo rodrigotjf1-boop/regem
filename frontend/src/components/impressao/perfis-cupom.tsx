@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Dialogo, Gaveta } from '@/components/ui/sobreposto';
+import { foraDeUso } from '@/components/equipamentos/equipamento';
 import {
   FiltroBusca, FiltroSelect, Filtros, ListaDados, NomeComApoio, Selo, Situacoes, TituloLista, Vazio, distintos, semAcento, texto2, type Situacao,
 } from '@/components/ui/lista';
@@ -287,6 +288,8 @@ function EditorPerfil({
   const remover = (idx: number) => mudar((x) => ({ ...x, campos: x.campos.filter((_: any, i: number) => i !== idx) }));
   const alternarImpressora = (id: string) => mudar((x) => ({ ...x, impressoras: x.impressoras.includes(id) ? x.impressoras.filter((y: string) => y !== id) : [...x.impressoras, id] }));
   const disponiveis = catalogo.filter((c) => !p.campos.some((x: any) => x.key === c.key));
+  // Só impressora em uso; a que saiu de uso e ainda está marcada aparece para ser desmarcada.
+  const impressorasDoPerfil = impressoras.filter((i: any) => !foraDeUso(i) || p.impressoras.includes(i.id));
 
   // Fechar com alteração pendente pede uma segunda confirmação, no rodapé da própria gaveta.
   const pedirFechar = () => (sujo && !saindo && !salvando ? setSaindo(true) : aoFechar());
@@ -389,11 +392,11 @@ function EditorPerfil({
             <p className={`text-sm ${texto2}`}>{p.descricao ? `${String(p.descricao).replace(/\.\s*$/, '')}. ` : ''}Perfil padrão: o nome e o grupo não mudam.</p>
           )}
 
-          {impressoras.length > 0 && (
+          {impressorasDoPerfil.length > 0 && (
             <div>
               <span className="text-sm font-medium">Impressoras deste cupom</span>
               <div className="mt-1 flex flex-wrap gap-1.5" role="group" aria-label="Impressoras deste cupom">
-                {impressoras.map((imp) => {
+                {impressorasDoPerfil.map((imp) => {
                   const marcada = p.impressoras.includes(imp.id);
                   const vias = imp.viasCliente ?? imp.vias;
                   return (
@@ -403,7 +406,7 @@ function EditorPerfil({
                       }`}>
                       {marcada && <span aria-hidden="true">✓</span>}
                       {imp.nome}
-                      {vias ? <span className="font-mono text-xs">({vias}×)</span> : null}
+                      {foraDeUso(imp) ? <span className="text-xs font-normal">(fora de uso — desmarque)</span> : vias ? <span className="font-mono text-xs">({vias}×)</span> : null}
                     </button>
                   );
                 })}

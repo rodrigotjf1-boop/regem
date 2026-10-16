@@ -22,6 +22,7 @@ import {
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { EdgeFlashSyncService } from '../sync/edge-flash-sync.service';
 import { lojasAtivas, pausasPorProduto } from '../../common/pausa-loja';
+import { conferirDestinosDeProducao, destinosDeProducaoConferidos } from '../../common/destino-producao';
 import { FichasService } from '../fichas/fichas.service';
 import { exigirUnidade, unidadeOuPadrao } from '../estoque/unidades';
 import { arredondarEstoque, fatorParaEstoque, unidadesDoProduto } from '../../common/conversao-unidade';
@@ -615,14 +616,9 @@ export class ProdutoService {
     if (!produtos.length) throw new BadRequestException('Selecione ao menos um produto.');
     const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (![...produtos, ...equipamentos].every((x) => UUID.test(x))) throw new BadRequestException('Produto ou destino inválido.');
-
-    const destinos = equipamentos.length
-      ? await this.db
-          .select({ id: equipamento.id, nome: equipamento.nome })
-          .from(equipamento)
-          .where(and(eq(equipamento.tenantId, tenantId), inArray(equipamento.id, equipamentos), inArray(equipamento.tipo, ['kds', 'impressora'])))
-      : [];
-    if (destinos.length !== equipamentos.length) throw new BadRequestException('Destino não encontrado. Atualize a tela e tente de novo.');
+    // KDS ou impressora desta empresa e em uso (o fora de uso é recusado pelo nome); os nomes vão
+    // para a auditoria — uma consulta só.
+    const destinos = await destinosDeProducaoConferidos(this.db, tenantId, equipamentos);
 
     const alterados = await this.db.transaction(async (tx) => {
       if (modo === 'substituir') {
@@ -684,6 +680,8 @@ export class ProdutoService {
   }
 
   async setComplementoDestinos(tenantId: string, complementoId: string, ids: string[]) {
+    // Conferido ANTES de apagar: a recusa não deixa o complemento sem destino.
+    const lista = await conferirDestinosDeProducao(this.db, tenantId, ids);
     await this.db
       .delete(complementoDestinoProducao)
       .where(
@@ -692,7 +690,6 @@ export class ProdutoService {
           eq(complementoDestinoProducao.complementoId, complementoId),
         ),
       );
-    const lista = [...new Set((ids ?? []).filter(Boolean))];
     if (lista.length) {
       await this.db.insert(complementoDestinoProducao).values(
         lista.map((equipamentoId) => ({ tenantId, complementoId, equipamentoId })),
@@ -712,12 +709,13 @@ export class ProdutoService {
   }
 
   async setOpcaoDestinos(tenantId: string, opcaoId: string, ids: string[]) {
+    // Conferido ANTES de apagar (antes não conferia nada: aceitava PDV, revogado, de outra empresa).
+    const lista = await conferirDestinosDeProducao(this.db, tenantId, ids);
     await this.db
       .delete(opcaoDestinoProducao)
       .where(
         and(eq(opcaoDestinoProducao.tenantId, tenantId), eq(opcaoDestinoProducao.opcaoId, opcaoId)),
       );
-    const lista = [...new Set((ids ?? []).filter(Boolean))];
     if (lista.length) {
       await this.db.insert(opcaoDestinoProducao).values(
         lista.map((equipamentoId) => ({ tenantId, opcaoId, equipamentoId })),
