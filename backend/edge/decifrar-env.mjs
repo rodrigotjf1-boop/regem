@@ -15,8 +15,10 @@ export function carregarEnvLocal(metaUrl) {
   carregarEnvArquivo(fileURLToPath(new URL('../.env.local', metaUrl)));
 }
 
-// O mesmo, para um arquivo qualquer (a estação de impressão guarda o dela na pasta de instalação).
-// O decifrador fica em <pasta do arquivo>/edge/decrypt-dpapi.ps1, como no servidor.
+// O mesmo, para um arquivo qualquer (a estação de impressão guarda o dela numa pasta própria).
+// O decifrador é o `decrypt-dpapi.ps1` AO LADO DESTE ARQUIVO (backend/edge/) — antes era procurado
+// ao lado do .env, e a pasta de dados da estação não tem `edge/` (o segredo não decifraria).
+const DECIFRADOR = join(dirname(fileURLToPath(import.meta.url)), 'decrypt-dpapi.ps1');
 export function carregarEnvArquivo(arq) {
   if (!existsSync(arq)) return;
   const linhas = readFileSync(arq, 'utf8').split(/\r?\n/);
@@ -37,7 +39,7 @@ export function carregarEnvArquivo(arq) {
   }
   if (!encs.length) return;
 
-  const ps1 = join(dirname(arq), 'edge', 'decrypt-dpapi.ps1');
+  const ps1 = DECIFRADOR;
   const tmp = join(tmpdir(), `regem-dpapi-${randomUUID().slice(0, 8)}.txt`);
   try {
     writeFileSync(tmp, encs.map((e) => e.blob).join('\n'), 'utf8');

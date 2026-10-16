@@ -88,6 +88,32 @@ const JANELA_ACAO_MIN = 30; // atendente pode agir até 30min após "pronto"
 // Linha que abre a via de produção de um pedido para viagem (texto aprovado pelo dono em 09/10/2026).
 export const MARCA_VIAGEM = '*** VIAGEM ***';
 
+// Fila ANTIGA da estação de impressão (mig 326, decisão do dono 15/10/2026): acima disto o cupom
+// espera a decisão no painel do PC em vez de sair sozinho.
+export const MINUTOS_FILA_ANTIGA = 10;
+
+/**
+ * As duas primeiras linhas que dizem algo do cupom, sem a marcação de impressão (`@CB`, `@LR…|…`,
+ * QR, código de barras, gaveta, linhas só de traço) — para o painel da estação mostrar QUAL pedido
+ * está esperando decisão.
+ */
+export function resumoDoCupom(conteudo: unknown): string {
+  const uteis: string[] = [];
+  for (const bruta of String(conteudo ?? '').split(/\r?\n/)) {
+    if (/^@(QR:|BARCODE:|ETIQUETA|GAVETA)/.test(bruta)) continue;
+    const t = bruta
+      .replace(/^@LR/, '')
+      .replace(/^@((?:[CRBS]|D[2-4]?)+)(?: |\b)/, '')
+      .replace(/\|/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!t || /^[-=_*.\s]+$/.test(t)) continue;
+    uteis.push(t);
+    if (uteis.length === 2) break;
+  }
+  return uteis.join(' · ').slice(0, 90);
+}
+
 @Injectable()
 export class ProducaoPedidoService {
   constructor(
@@ -1244,8 +1270,11 @@ export class ProducaoPedidoService {
     // cadastro (`estacao_id`), não o nome no Windows. Todo o resto (agente antigo, servidor da
     // loja) deixa de pegar as impressoras que têm estação: sairiam no Windows errado.
     const estacaoId = agente.estacaoId || null;
+    // Fila ANTIGA (mig 326, decisão do dono): para a estação, o cupom com mais de 10 min só sai
+    // liberado por quem está no PC — imprimir sozinho um pedido que já foi feito à mão o repete.
     const filtroEstacao = estacaoId
-      ? sql`and e.estacao_id = ${estacaoId}::uuid`
+      ? sql`and e.estacao_id = ${estacaoId}::uuid
+            and (j.criado_em >= now() - make_interval(mins => ${MINUTOS_FILA_ANTIGA}) or j.liberado_em is not null)`
       : sql`and e.estacao_id is null`;
     const maquina = estacaoId ? `estacao:${estacaoId}` : agente.maquina?.trim() || null;
     const dispositivos = Array.isArray(agente.dispositivos)
@@ -1489,7 +1518,86 @@ export class ProducaoPedidoService {
            estado_detalhe = excluded.estado_detalhe,
            atualizado_em  = now()`);
     }
-    return { ok: true };
+    // As impressoras ligadas nesta estação — o painel do PC mostra cada uma, mesmo antes do
+    // primeiro cupom (teste, pausar). Só o que a estação precisa para imprimir; nada de token.
+    const r: any = await this.db.execute(sql`
+      select e.id, e.nome, e.conexao, e.host, e.porta, e.dispositivo, e.largura, e.codepage,
+             e.linguagem_etiqueta as linguagem
+        from equipamento e
+       where e.tenant_id = ${tenantId} and e.estacao_id = ${estacaoId}::uuid
+         and e.tipo = 'impressora' and e.ativo
+       order by e.nome`);
+    return { ok: true, impressoras: r.rows ?? r };
+  }
+
+  // ===== Fila ANTIGA da estação (mig 326, decisão do dono 15/10/2026) =====
+  // Cupom com mais de 10 min (a impressora ou o PC ficou fora) não sai sozinho: o painel da estação
+  // mostra a lista e quem está no PC decide — imprimir (todos ou os escolhidos) ou descartar.
+  async retidosDaEstacao(tenantId: string, estacaoId: string) {
+    const r: any = await this.db.execute(sql`
+      select j.id, j.equipamento_id as "equipamentoId", e.nome as impressora, j.via,
+             j.criado_em as "criadoEm", left(j.conteudo, 600) as conteudo
+        from impressao_job j join equipamento e on e.id = j.equipamento_id
+       where j.tenant_id = ${tenantId} and e.estacao_id = ${estacaoId}::uuid
+         and j.liberado_em is null
+         and j.criado_em < now() - make_interval(mins => ${MINUTOS_FILA_ANTIGA})
+         and (j.status = 'pendente' or (j.status = 'enviando' and j.claim_ate < now()))
+       order by j.criado_em asc
+       limit 100`);
+    return (r.rows ?? r).map((x: any) => ({
+      id: x.id,
+      equipamentoId: x.equipamentoId,
+      impressora: x.impressora,
+      via: x.via,
+      criadoEm: x.criadoEm,
+      resumo: resumoDoCupom(x.conteudo),
+    }));
+  }
+
+  /** `imprimir` libera (sai na hora); `descartar` tira da fila (situação `descartado`). Sem `ids`: todos. */
+  async decidirRetidos(tenantId: string, estacaoId: string, dto: any) {
+    const acao = dto?.acao;
+    if (acao !== 'imprimir' && acao !== 'descartar') throw new BadRequestException('Ação inválida: imprimir ou descartar.');
+    const ids = Array.isArray(dto?.ids)
+      ? dto.ids.filter((x: unknown) => typeof x === 'string' && /^[0-9a-f-]{36}$/i.test(x)).slice(0, 200)
+      : null;
+    if (ids && !ids.length) return { feitos: 0 };
+    const soEstes = ids ? sql`and j.id in (${sql.join(ids.map((x: string) => sql`${x}::uuid`), sql`, `)})` : sql``;
+    const efeito =
+      acao === 'imprimir'
+        ? sql`liberado_em = now(), status = 'pendente', claim_ate = null, claim_por = null`
+        : sql`status = 'descartado', erro = 'descartado na estação (fila antiga)', claim_ate = null, claim_por = null`;
+    const r: any = await this.db.execute(sql`
+      update impressao_job j set ${efeito}
+        from equipamento e
+       where e.id = j.equipamento_id and j.tenant_id = ${tenantId} and e.estacao_id = ${estacaoId}::uuid
+         and j.liberado_em is null
+         and j.criado_em < now() - make_interval(mins => ${MINUTOS_FILA_ANTIGA})
+         and (j.status = 'pendente' or (j.status = 'enviando' and j.claim_ate < now()))
+         ${soEstes}
+      returning j.id`);
+    const feitos: string[] = (r.rows ?? r).map((x: any) => String(x.id));
+    // Liberado continua 'pendente' (o gatilho só avisa quando a situação MUDA): acorda a espera da
+    // estação na hora, em vez de no fim dela (até 25 s).
+    if (acao === 'imprimir' && feitos.length) {
+      await this.db.execute(sql`select pg_notify('impressao_nova', ${feitos[0]})`).catch(() => undefined);
+    }
+    if (feitos.length) {
+      await this.auditoria
+        .registrar({
+          tenantId,
+          atorId: null,
+          atorPerfil: 'estacao',
+          tipo: 'config',
+          acao: acao === 'imprimir' ? 'liberou_fila_antiga' : 'descartou_fila_antiga',
+          entidadeTipo: 'equipamento',
+          entidadeId: estacaoId,
+          origem: 'terminal',
+          detalhe: { quantos: feitos.length, ids: feitos.slice(0, 50) },
+        })
+        .catch((e: any) => logImpressao.warn(`auditoria da fila antiga falhou: ${e?.message ?? e}`));
+    }
+    return { feitos: feitos.length };
   }
 
   // Estado da impressora (mig 269) — última impressão certa, última falha, falhas seguidas. É o
@@ -1649,14 +1757,15 @@ export class ProducaoPedidoService {
 
   // P4 — expurgo da fila de impressão (não cresce pra sempre). Roda no backend da NUVEM E no do
   // EDGE — cada um limpa a SUA fila local (impressao_job é por-banco). Mantém 'impresso' 3 dias
-  // (histórico do painel), 'erro' 14 dias (diagnóstico) e órfãos 'pendente'/'enviando' 2 dias.
+  // (histórico do painel), 'erro' e 'descartado' (fila antiga, mig 326) 14 dias (diagnóstico) e
+  // órfãos 'pendente'/'enviando' 2 dias.
   @Cron('17 4 * * *')
   async expurgarFilaImpressao() {
     try {
       const r: any = await this.db.execute(sql`
         delete from impressao_job
         where (status = 'impresso' and impresso_em < now() - interval '3 days')
-           or (status = 'erro' and criado_em < now() - interval '14 days')
+           or (status in ('erro', 'descartado') and criado_em < now() - interval '14 days')
            or (status in ('pendente', 'enviando') and criado_em < now() - interval '2 days')`);
       const n = Number(r.rowCount ?? r.rows?.length ?? 0);
       if (n) logImpressao.log(`expurgo: ${n} jobs antigos removidos da fila`);

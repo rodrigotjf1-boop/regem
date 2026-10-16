@@ -17,20 +17,29 @@
 //   REGEM_CA         ca.pem do servidor da loja (o certificado é da própria loja)
 //   ESTACAO_ID, ESTACAO_SEGREDO, ESTACAO_NOME
 // Uso:
-//   node edge/estacao-impressao.mjs --parear <codigo> --servidor <ip>   (instalador, loja com servidor)
+//   node edge/estacao-impressao.mjs --parear <codigo> --servidor <ip>   (loja com servidor)
 //   node edge/estacao-impressao.mjs --parear <codigo> [--api <url>]     (loja sem servidor: a nuvem)
+//   node edge/estacao-impressao.mjs --parear --servidor <ip>            (o código vem em ESTACAO_CODIGO:
+//                                                                        o instalador não o põe na linha)
 //   node edge/estacao-impressao.mjs                                     (serviço)
+//
+// PAINEL LOCAL (PR 4): o ícone na bandeja fala com o serviço por HTTP só em 127.0.0.1
+// (ESTACAO_PAINEL_PORTA, 17311), com a chave de `painel.key` na pasta de dados — estado das
+// impressoras, os últimos cupons, a fila ANTIGA (mig 326: mais de 10 min espera a decisão),
+// imprimir teste, reimprimir o último, pausar, e parear com um código novo (ESTACAO_SERVIDOR /
+// ESTACAO_API_PAREAR, gravados pelo instalador no serviço).
 import { spawn, execFileSync } from 'node:child_process';
 import http from 'node:http';
 import https from 'node:https';
 import { readFileSync, writeFileSync, unlinkSync, appendFileSync, mkdirSync, existsSync } from 'node:fs';
 import { tmpdir, hostname } from 'node:os';
 import { join, dirname } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { renderEscpos } from './escpos.mjs';
 import { imprimirRedeComEstado } from './impressora-estado.mjs';
 import { carregarEnvArquivo } from './decifrar-env.mjs';
+import { MARCA_REIMPRESSAO, resumoDoCupom } from './impressao-fila.mjs';
 
 const EDGE_DIR = dirname(fileURLToPath(import.meta.url));
 const RAIZ = process.env.ESTACAO_RAIZ || dirname(EDGE_DIR); // pasta de instalação
@@ -213,6 +222,25 @@ function anotar(id, estado, detalhe) {
   if (id && estado) estados.set(id, { estado, detalhe: detalhe ?? null });
 }
 
+// ===== O QUE O PAINEL DO PC MOSTRA (o ícone na bandeja) =====
+let impressorasDaEstacao = []; // vem na resposta da batida: as impressoras ligadas nesta estação
+const ultimoDe = new Map(); // equipamentoId → o último cupom que saiu nela ("Reimprimir o último")
+const recentes = []; // os últimos 30 cupons desta estação, o mais novo primeiro
+let retidos = []; // fila ANTIGA (mig 326): mais de 10 min, esperando a decisão de quem está no PC
+let retidosEm = null;
+const contato = { ok: false, em: null, erro: null }; // a última conversa com o servidor
+const pausaManual = new Set(); // "Pausar esta impressora" no ícone
+function registrar(job, situacao) {
+  recentes.unshift({
+    id: job.id,
+    em: new Date().toISOString(),
+    impressora: job.impressora || job.dispositivo || job.host || '',
+    resumo: resumoDoCupom(job.conteudo),
+    situacao, // impresso | interrompido | esperando | falhou | teste | reimpresso
+  });
+  recentes.splice(30);
+}
+
 const TENTATIVAS = 3;
 const RESERVA_UTIL_MS = 100_000; // a reserva é de 120 s: depois disto pode ter ido para outra
 
@@ -221,13 +249,14 @@ async function imprimirJob(job, recebidoEm) {
   if (impressos.has(job.id)) { await avisar(`/impressao/${job.id}/impresso`, {}); return 'ok'; }
   if (Date.now() - recebidoEm > RESERVA_UTIL_MS) return 'pulado';
   const local = job.conexao === 'local';
-  const definitivo = (motivo) => avisar(`/impressao/${job.id}/erro`, { erro: motivo, definitivo: true });
+  const definitivo = (motivo) => { registrar(job, 'falhou'); return avisar(`/impressao/${job.id}/erro`, { erro: motivo, definitivo: true }); };
   if (job.ativo === false) { await definitivo('impressora desativada — use "Imprimir em…" para outra'); return 'config'; }
   if (local && !job.dispositivo) { await definitivo('impressora USB sem o nome do Windows no cadastro'); return 'config'; }
   if (!local && !job.host) { await definitivo('impressora de rede sem IP'); return 'config'; }
   if (local && impressorasDoWindows.length && !impressorasDoWindows.includes(job.dispositivo)) {
     await avisar(`/impressao/${job.id}/erro`, { erro: `a impressora "${job.dispositivo}" não está instalada no PC ${MAQUINA}` });
     anotar(job.equipamentoId, 'erro', 'não está instalada neste PC');
+    registrar(job, 'falhou');
     return 'falha';
   }
   const vias = Math.max(1, Number(job.vias) || 1);
@@ -256,8 +285,10 @@ async function imprimirJob(job, recebidoEm) {
     if (parada.motivo === 'interrompido' || enviadas > 0) {
       await avisar(`/impressao/${job.id}/interrompido`, { motivo: parada.detalhe || parada.estado });
       console.error(`  ⏸ ${String(job.id).slice(0, 8)} interrompido (${parada.detalhe}) — volta inteiro, marcado`);
+      registrar(job, 'interrompido');
     } else {
       await avisar(`/impressao/${job.id}/devolver`, {});
+      registrar(job, 'esperando');
     }
     return 'parada';
   }
@@ -265,11 +296,19 @@ async function imprimirJob(job, recebidoEm) {
     lembrarImpresso(job.id); // ANTES da confirmação
     await avisar(`/impressao/${job.id}/impresso`, {});
     if (local) anotar(job.equipamentoId, 'pronta', null);
+    registrar(job, 'impresso');
+    if (job.equipamentoId) {
+      ultimoDe.set(job.equipamentoId, {
+        conteudo: job.conteudo, largura: job.largura, linguagem: job.linguagem, codepage: job.codepage,
+        conexao: job.conexao, dispositivo: job.dispositivo, host: job.host, porta: job.porta, impressora: job.impressora,
+      });
+    }
     console.log(`  ✓ ${String(job.id).slice(0, 8)} -> ${local ? 'usb:' + job.dispositivo : job.impressora || job.host}` + (vias > 1 ? ` (${vias} vias)` : ''));
     return 'ok';
   }
   await avisar(`/impressao/${job.id}/erro`, { erro: ultimoErro });
   anotar(job.equipamentoId, local ? 'erro' : 'sem_resposta', ultimoErro);
+  registrar(job, 'falhou');
   console.error(`  ✗ ${String(job.id).slice(0, 8)} não saiu (${enviadas}/${vias} vias): ${ultimoErro}`);
   return 'falha';
 }
@@ -286,7 +325,7 @@ const pausa = new Map();
 // para o segundo cupom da mesma impressora.
 function foraDaReserva() {
   const agora = Date.now();
-  const ids = [];
+  const ids = [...pausaManual]; // pausada no ícone: fica de fora até alguém retomar
   for (const [id, p] of pausa) if (p.ate > agora) ids.push(id);
   return ids;
 }
@@ -296,6 +335,11 @@ async function rodarFila(chave) {
   f.rodando = true;
   try {
     while (f.jobs.length) {
+      // Pausada no ícone enquanto o cupom chegava: devolve (sai quando retomarem).
+      if (pausaManual.has(chave)) {
+        for (const resto of f.jobs.splice(0)) await avisar(`/impressao/${resto.job.id}/devolver`, {});
+        break;
+      }
       const { job, recebidoEm } = f.jobs.shift();
       let r;
       try { r = await imprimirJob(job, recebidoEm); } catch (e) { console.error(`  ${String(job.id).slice(0, 8)} — erro inesperado: ${e?.message ?? e}`); continue; }
@@ -319,8 +363,22 @@ async function bater() {
   await atualizarImpressorasWindows();
   const lista = [...estados].map(([equipamentoId, e]) => ({ equipamentoId, ...e }));
   try {
-    await api('POST', '/impressao/estacao/batida', { versao: VERSAO, maquina: MAQUINA, impressoras: impressorasDoWindows, estados: lista }, 15000);
+    const r = await api('POST', '/impressao/estacao/batida', { versao: VERSAO, maquina: MAQUINA, impressoras: impressorasDoWindows, estados: lista }, 15000);
+    // As impressoras ligadas nesta estação (o painel mostra cada uma, mesmo antes do primeiro cupom).
+    if (r.status < 300 && Array.isArray(r.json?.impressoras)) impressorasDaEstacao = r.json.impressoras;
   } catch { /* rede: a próxima batida tenta */ }
+}
+
+// A fila ANTIGA (mig 326): o servidor guarda; o painel pergunta a cada 30 s e depois de cada decisão.
+async function lerRetidos() {
+  if (!API) return;
+  try {
+    const r = await api('GET', '/impressao/estacao/retidos', undefined, 15000);
+    if (r.status === 200 && Array.isArray(r.json)) {
+      retidos = r.json;
+      retidosEm = new Date().toISOString();
+    }
+  } catch { /* rede: a próxima leitura tenta */ }
 }
 
 // ===== CICLO: espera longa na fila =====
@@ -330,10 +388,12 @@ async function ciclo() {
     const r = await api('POST', '/impressao/pendentes', { espera: 25, excluir: foraDaReserva() }, 45_000);
     if (r.status === 401) {
       console.error('  a estação foi recusada (revogada ou não pareada) — gere um código no Regem e pareie de novo');
+      Object.assign(contato, { ok: false, em: new Date().toISOString(), erro: 'a estação foi recusada (revogada ou não pareada)' });
       await sleep(60_000);
       return;
     }
     if (r.status >= 400) throw new Error(`fila HTTP ${r.status}`);
+    Object.assign(contato, { ok: true, em: new Date().toISOString(), erro: null });
     const recebidoEm = Date.now();
     for (const j of Array.isArray(r.json) ? r.json : []) {
       const chave = j.equipamentoId || '-';
@@ -346,18 +406,216 @@ async function ciclo() {
   } catch (e) {
     falhasSeguidas++;
     console.error(`  sem contato com ${API} (${String(e?.message ?? e).slice(0, 120)})`);
+    Object.assign(contato, { ok: false, erro: String(e?.message ?? e).slice(0, 160) });
     await sleep(Math.min(60_000, 2000 * 2 ** Math.min(falhasSeguidas - 1, 5)));
   }
+}
+
+// ===== PAINEL LOCAL: o ícone na bandeja fala com o serviço por aqui =====
+// Só em 127.0.0.1 e com a chave de `painel.key` (gerada aqui; o ícone a lê da mesma pasta). Sem
+// cabeçalho de CORS: uma página aberta no navegador deste PC não consegue chamar (o cabeçalho da
+// chave dispara a pré-verificação, que não é respondida).
+const PAINEL_PORTA = Number(process.env.ESTACAO_PAINEL_PORTA || 17311);
+const CHAVE_ARQ = join(RAIZ, 'painel.key');
+function chaveDoPainel() {
+  try {
+    const k = readFileSync(CHAVE_ARQ, 'utf8').trim();
+    if (/^[0-9a-f]{32,}$/.test(k)) return k;
+  } catch { /* primeira vez */ }
+  const k = randomBytes(24).toString('hex');
+  mkdirSync(RAIZ, { recursive: true });
+  writeFileSync(CHAVE_ARQ, k);
+  return k;
+}
+const iguais = (a, b) => {
+  const x = Buffer.from(String(a));
+  const y = Buffer.from(String(b));
+  return x.length === y.length && timingSafeEqual(x, y);
+};
+const daEstacao = (id) => impressorasDaEstacao.find((i) => i.id === id);
+const alvoDe = (i) => (i.conexao === 'local' ? `USB: ${i.dispositivo || '(sem nome)'}` : `${i.host || '(sem IP)'}:${i.porta || 9100}`);
+
+function estadoDoPainel() {
+  const agora = Date.now();
+  return {
+    nome: process.env.ESTACAO_NOME || null,
+    maquina: MAQUINA,
+    versao: VERSAO,
+    pareada: !!API,
+    servidor: API ? new URL(API).host : process.env.ESTACAO_SERVIDOR || null,
+    contato: { ...contato },
+    impressoras: impressorasDaEstacao.map((i) => ({
+      id: i.id,
+      nome: i.nome,
+      conexao: i.conexao,
+      alvo: alvoDe(i),
+      estado: estados.get(i.id)?.estado ?? null,
+      detalhe: estados.get(i.id)?.detalhe ?? null,
+      pausada: pausaManual.has(i.id),
+      parada: (pausa.get(i.id)?.ate ?? 0) > agora,
+      naFila: filas.get(i.id)?.jobs.length ?? 0,
+      temUltimo: ultimoDe.has(i.id),
+    })),
+    recentes,
+    retidos,
+    retidosEm,
+  };
+}
+
+// Uma via só, direto na impressora (teste e reimpressão do ícone — não passam pela fila).
+async function enviarUma(alvo, equipamentoId, conteudo) {
+  if (filas.get(equipamentoId)?.rodando) throw new Error('A impressora está imprimindo agora. Tente de novo em instantes.');
+  const buffer = renderEscpos(conteudo, alvo.largura || 80, alvo.linguagem, alvo.codepage);
+  if (alvo.conexao === 'local') {
+    if (!alvo.dispositivo) throw new Error('A impressora USB está sem o nome do Windows no cadastro.');
+    await enviarWindows(alvo.dispositivo, buffer);
+    anotar(equipamentoId, 'pronta', null);
+    return;
+  }
+  if (!alvo.host) throw new Error('A impressora de rede está sem IP no cadastro.');
+  const r = await imprimirRedeComEstado({ host: alvo.host, porta: alvo.porta || 9100, buffer });
+  if (r.informa !== false) anotar(equipamentoId, r.estado, r.detalhe);
+  if (!r.saiu) throw new Error(`A impressora não imprimiu: ${r.detalhe || r.estado || 'sem resposta'}.`);
+}
+
+async function testarImpressora(id) {
+  const imp = daEstacao(id);
+  if (!imp) throw new Error('Esta impressora não está ligada nesta estação.');
+  const hora = new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const conteudo = [
+    '@CB TESTE DE IMPRESSAO',
+    `@C ${process.env.ESTACAO_NOME || 'Estacao de impressao'}`,
+    `Impressora: ${imp.nome}`,
+    `PC: ${MAQUINA}`,
+    `Hora: ${hora}`,
+    '',
+  ].join('\n');
+  await enviarUma(imp, id, conteudo);
+  registrar({ id: `teste-${Date.now()}`, impressora: imp.nome, conteudo: `Teste de impressão\n${imp.nome}` }, 'teste');
+  return { ok: true };
+}
+
+async function reimprimirUltimo(id) {
+  const u = ultimoDe.get(id);
+  if (!u) throw new Error('Nenhum cupom saiu nesta impressora desde que a estação ligou.');
+  // Marcada como reimpressão (decisão do dono): ninguém faz o pedido duas vezes.
+  const conteudo = String(u.conteudo).startsWith(MARCA_REIMPRESSAO) ? u.conteudo : `${MARCA_REIMPRESSAO}\n${u.conteudo}`;
+  await enviarUma(u, id, conteudo);
+  registrar({ id: `reimpresso-${Date.now()}`, impressora: u.impressora, conteudo: u.conteudo }, 'reimpresso');
+  return { ok: true };
+}
+
+async function pausarImpressora(id, pausar) {
+  if (!daEstacao(id)) throw new Error('Esta impressora não está ligada nesta estação.');
+  if (pausar) {
+    pausaManual.add(id);
+    // O que já estava na fila local volta para o servidor (sai quando retomarem).
+    const f = filas.get(id);
+    if (f && !f.rodando) for (const resto of f.jobs.splice(0)) await avisar(`/impressao/${resto.job.id}/devolver`, {});
+  } else {
+    pausaManual.delete(id);
+    pausa.delete(id);
+  }
+  return { ok: true, pausada: pausaManual.has(id) };
+}
+
+async function decidirFilaAntiga(corpo) {
+  if (!API) throw new Error('A estação ainda não foi pareada.');
+  const acao = corpo?.acao;
+  if (acao !== 'imprimir' && acao !== 'descartar') throw new Error('Ação inválida: imprimir ou descartar.');
+  const ids = Array.isArray(corpo?.ids) ? corpo.ids.filter((x) => typeof x === 'string').slice(0, 200) : undefined;
+  const r = await api('POST', '/impressao/estacao/retidos', { acao, ...(ids ? { ids } : {}) }, 15000);
+  if (r.status >= 400) throw new Error(r.json?.message || `o servidor recusou (HTTP ${r.status})`);
+  await lerRetidos();
+  return { ok: true, feitos: r.json?.feitos ?? 0 };
+}
+
+// Parear pelo ícone (o código venceu na instalação, ou a estação foi trocada de servidor).
+let acordarPareamento = null;
+async function parearPeloPainel(codigo) {
+  if (!/^\d{6}$/.test(String(codigo ?? ''))) throw new Error('O código tem 6 números.');
+  const servidor = process.env.ESTACAO_SERVIDOR || undefined;
+  const apiNuvem = process.env.ESTACAO_API_PAREAR || undefined;
+  if (!servidor && !apiNuvem) throw new Error('A estação não sabe o endereço do servidor da loja — reinstale pelo instalador do Regem.');
+  await parear(String(codigo), { servidor, api: apiNuvem });
+  // Lê o .env.local novo no lugar do antigo (as variáveis do arquivo anterior saem antes).
+  for (const k of ['REGEM_API', 'REGEM_CA', 'ESTACAO_ID', 'ESTACAO_SEGREDO', 'ESTACAO_NOME']) delete process.env[k];
+  carregarEnvArquivo(ENV_ARQ);
+  if (aplicarConfig()) {
+    void bater();
+    void lerRetidos();
+  }
+  acordarPareamento?.();
+  return { ok: true, nome: process.env.ESTACAO_NOME || null };
+}
+
+function lerCorpo(req) {
+  return new Promise((resolve, reject) => {
+    const partes = [];
+    let tam = 0;
+    req.on('data', (c) => {
+      tam += c.length;
+      if (tam > 16_384) { reject(new Error('corpo grande demais')); req.destroy(); return; }
+      partes.push(c);
+    });
+    req.on('end', () => {
+      const t = Buffer.concat(partes).toString('utf8');
+      try { resolve(t ? JSON.parse(t) : {}); } catch (e) { reject(e); }
+    });
+    req.on('error', reject);
+  });
+}
+
+function subirPainel() {
+  const chave = chaveDoPainel();
+  const srv = http.createServer(async (req, res) => {
+    const responder = (status, obj) => {
+      res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(obj));
+    };
+    if (!iguais(req.headers['x-painel-chave'] || '', chave)) return responder(401, { erro: 'chave do painel inválida' });
+    let corpo = {};
+    if (req.method === 'POST') {
+      try { corpo = await lerCorpo(req); } catch { return responder(400, { erro: 'corpo inválido' }); }
+    }
+    const rota = `${req.method} ${new URL(req.url || '/', 'http://127.0.0.1').pathname}`;
+    try {
+      if (rota === 'GET /estado') return responder(200, estadoDoPainel());
+      if (rota === 'POST /teste') return responder(200, await testarImpressora(corpo.equipamentoId));
+      if (rota === 'POST /reimprimir') return responder(200, await reimprimirUltimo(corpo.equipamentoId));
+      if (rota === 'POST /pausar') return responder(200, await pausarImpressora(corpo.equipamentoId, corpo.pausar !== false));
+      if (rota === 'POST /retidos') return responder(200, await decidirFilaAntiga(corpo));
+      if (rota === 'POST /parear') return responder(200, await parearPeloPainel(corpo.codigo));
+      return responder(404, { erro: 'rota desconhecida' });
+    } catch (e) {
+      return responder(400, { erro: String(e?.message ?? e).slice(0, 300) });
+    }
+  });
+  srv.on('error', (e) => console.error(`  painel local não subiu (${e?.message ?? e}) — o ícone fica sem dados; a impressão segue`));
+  srv.listen(PAINEL_PORTA, '127.0.0.1');
+}
+
+function aplicarConfig() {
+  if (!process.env.REGEM_API || !process.env.ESTACAO_ID || !process.env.ESTACAO_SEGREDO) return false;
+  API = process.env.REGEM_API.replace(/\/$/, '');
+  CA = process.env.REGEM_CA && existsSync(process.env.REGEM_CA) ? readFileSync(process.env.REGEM_CA, 'utf8') : null;
+  CRED = { 'x-estacao-id': process.env.ESTACAO_ID, 'x-estacao-segredo': process.env.ESTACAO_SEGREDO };
+  return true;
 }
 
 // ===== PARTIDA =====
 process.on('unhandledRejection', (e) => console.error(`[estacao][unhandledRejection] ${e?.stack ?? e?.message ?? e}`));
 const args = process.argv.slice(2);
-const arg = (nome) => { const i = args.indexOf(nome); return i >= 0 ? args[i + 1] : undefined; };
+const arg = (nome) => {
+  const i = args.indexOf(nome);
+  const v = i >= 0 ? args[i + 1] : undefined;
+  return v && !v.startsWith('--') ? v : undefined;
+};
 
 if (args.includes('--parear')) {
   try {
-    await parear(arg('--parear'), { servidor: arg('--servidor'), api: arg('--api') });
+    // O código vem na linha ou em ESTACAO_CODIGO (o instalador não o põe na linha: ficaria no log).
+    await parear(arg('--parear') || process.env.ESTACAO_CODIGO, { servidor: arg('--servidor'), api: arg('--api') });
     process.exit(0);
   } catch (e) {
     console.error(`Não pareou: ${e?.message ?? e}`);
@@ -370,17 +628,17 @@ process.on('uncaughtException', (e) => {
   process.exit(1); // o serviço do Windows sobe de novo, limpo
 });
 carregarEnvArquivo(ENV_ARQ);
-// Sem pareamento ainda: espera (o instalador pareia; o serviço não fica reiniciando em laço).
-while (!process.env.REGEM_API || !process.env.ESTACAO_ID || !process.env.ESTACAO_SEGREDO) {
+subirPainel(); // antes do pareamento: é por ele que o ícone pareia quando o código venceu
+// Sem pareamento ainda: espera (o instalador ou o ícone pareiam; o serviço não fica reiniciando em laço).
+while (!aplicarConfig()) {
   console.error(`Estação de impressão sem pareamento (${ENV_ARQ}) — aguardando`);
-  await sleep(60_000);
+  await new Promise((r) => { acordarPareamento = r; setTimeout(r, 60_000); });
   carregarEnvArquivo(ENV_ARQ);
 }
-API = process.env.REGEM_API.replace(/\/$/, '');
-CA = process.env.REGEM_CA && existsSync(process.env.REGEM_CA) ? readFileSync(process.env.REGEM_CA, 'utf8') : null;
-CRED = { 'x-estacao-id': process.env.ESTACAO_ID, 'x-estacao-segredo': process.env.ESTACAO_SEGREDO };
 carregarMemoria();
 console.log(`Estação de impressão Regem ${VERSAO} — ${process.env.ESTACAO_NOME || process.env.ESTACAO_ID} em ${MAQUINA} → ${API}`);
 await bater();
 setInterval(bater, Number(process.env.ESTACAO_BATIDA_MS || 60_000));
+void lerRetidos();
+setInterval(lerRetidos, Number(process.env.ESTACAO_RETIDOS_MS || 30_000));
 for (;;) await ciclo();

@@ -39,14 +39,15 @@ const MIGRATIONS = [
   '268_impressao_aviso_reimpressao.sql',
   '269_impressora_status_codepage_comando_destino.sql',
   '324_estacao_impressao.sql', // a estação de impressão (a fila filtra por equipamento.estacao_id)
+  '326_impressao_fila_antiga.sql', // a fila antiga da estação (impressao_job.liberado_em)
 ];
 
-// edge/impressao-fila.mjs é ESM puro (só constantes); o jest roda em CommonJS. Avalia o
-// arquivo como texto — é exatamente o SQL que o daemon usa.
+// edge/impressao-fila.mjs é ESM puro (constantes e funções sem import); o jest roda em CommonJS.
+// Avalia o arquivo como texto — é exatamente o SQL que o daemon usa.
 function carregarSqlDoEdge(): Record<string, string> {
   const fonte = readFileSync(join(RAIZ, 'edge', 'impressao-fila.mjs'), 'utf8');
-  const nomes = [...fonte.matchAll(/^export const (\w+)/gm)].map((m) => m[1]);
-  const corpo = fonte.replace(/^export const /gm, 'const ') + `\nreturn { ${nomes.join(', ')} };`;
+  const nomes = [...fonte.matchAll(/^export (?:const|function) (\w+)/gm)].map((m) => m[1]);
+  const corpo = fonte.replace(/^export (const|function) /gm, '$1 ') + `\nreturn { ${nomes.join(', ')} };`;
   return new Function(corpo)();
 }
 

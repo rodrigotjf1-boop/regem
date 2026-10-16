@@ -127,6 +127,22 @@ export class ImpressaoController {
     return this.service.batidaEstacao(ctx.tenantId, ctx.unidadeId ?? null, ctx.estacaoId, dto ?? {});
   }
 
+  // ESTAÇÃO: a fila ANTIGA (mig 326) — os cupons com mais de 10 min que esperam a decisão no painel
+  // do PC. GET lista; POST decide: { acao: 'imprimir' | 'descartar', ids?: [...] } (sem ids = todos).
+  @Get('estacao/retidos')
+  @UseGuards(FilaImpressaoGuard)
+  retidos(@FilaCtx() ctx: FilaCtxData) {
+    if (!ctx.estacaoId) throw new ForbiddenException('Só a estação de impressão usa esta rota.');
+    return this.service.retidosDaEstacao(ctx.tenantId, ctx.estacaoId);
+  }
+
+  @Post('estacao/retidos')
+  @UseGuards(FilaImpressaoGuard)
+  decidirRetidos(@FilaCtx() ctx: FilaCtxData, @Body() dto: any) {
+    if (!ctx.estacaoId) throw new ForbiddenException('Só a estação de impressão usa esta rota.');
+    return this.service.decidirRetidos(ctx.tenantId, ctx.estacaoId, dto ?? {});
+  }
+
   // Fila recente para o painel (status + impressora). Gestor logado; usuário com loja vê a dela.
   @Get('fila')
   @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
