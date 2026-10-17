@@ -2028,6 +2028,8 @@ export const impressaoJob = pgTable('impressao_job', {
   claimAte: timestamp('claim_ate', { withTimezone: true }),
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
   impressoEm: timestamp('impresso_em', { withTimezone: true }),
+  // Vias deste documento nesta impressora (mig 327, regra do documento); vazio = as da impressora.
+  vias: integer('vias'),
 });
 
 // Marcador edge-local (mig 177): comandas que o materializador de impressão do edge
@@ -2417,6 +2419,9 @@ export const deliveryConfig = pgTable('delivery_config', {
   // — { caixa: { campos: [{key,visivel,negrito,alinhamento}...] }, ... }. Vazio = padrão
   // (CUPOM_PERFIS_PADRAO). Cabeçalho/rodapé continuam livres (cupom_layout).
   cupomPerfis: jsonb('cupom_perfis').notNull().default('{}'),
+  // Onde cada documento sai (mig 327): { balcao, delivery, entregador } com as impressoras e as vias
+  // de cada uma. Documento sem regra = como sempre. Ver `common/regras-impressao.ts`.
+  impressaoRegras: jsonb('impressao_regras').notNull().default('{}'),
   // Adiar a via de produção até o pedido avançar no KDS (mig 169, Fase 6): em vez
   // de imprimir no registro, imprime só ao avançar num KDS com imprime_ao_avancar.
   adiarProducaoAteKds: boolean('adiar_producao_ate_kds').notNull().default(false),

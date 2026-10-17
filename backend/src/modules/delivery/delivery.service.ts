@@ -24,6 +24,7 @@ import { gravarAvisoCancelamentoTotem, resultadoDoAviso } from '../gogem/aviso-g
 import { GogemAvisoService } from '../gogem/gogem-aviso.service';
 import { ehServidorLocal } from '../../common/modo';
 import { exigirBooleano } from '../../common/exigir';
+import { conferirRegras } from '../../common/regras-impressao';
 import { logisticaDosPedidos } from './logistica-canal';
 
 // Documento do cliente: guardamos só os dígitos, como a NFC-e exige. Formato inválido não é
@@ -1334,10 +1335,13 @@ export class DeliveryService {
     return `${base}/e/${token}`;
   }
 
-  // Auto-impressão (EDGE) da 1ª via do caixa do pedido externo. Best-effort.
+  // Auto-impressão (EDGE) da 1ª via do caixa do pedido externo. Best-effort. O pedido de delivery
+  // (iFood, 99, cardápio, telefone) sai nas impressoras da "via do delivery" (mig 327); o do totem
+  // fica fora da regra (retirada no balcão), como sempre.
   private async imprimirCupomCaixaExterno(tenantId: string, ped: any) {
     const qrData = await this.qrDespacho(tenantId, ped);
-    await this.vendas.materializarCupomCaixa(tenantId, ped.comandaId, qrData);
+    const documento = DeliveryService.grupoCanal(ped.canal ?? '') === 'totem' ? undefined : 'delivery';
+    await this.vendas.materializarCupomCaixa(tenantId, ped.comandaId, qrData, documento);
   }
 
   async avancar(
@@ -3076,6 +3080,7 @@ export class DeliveryService {
         adiarProducaoAteKds: false,
         imprimirQrComanda: true,
         kdsMapaEntregadores: false,
+        impressaoRegras: {},
         pausadoAte: null,
         pausaMotivo: null,
       };
@@ -3177,8 +3182,10 @@ export class DeliveryService {
       undefined,
       typeof cfg?.cupomLayout?.rodape === 'string' ? cfg.cupomLayout.rodape : undefined,
     );
-    await this.producao.enfileirarViaCliente(tenantId, unidadeId, ped.comandaId, conteudo, terminalId);
-    return { ok: true, token };
+    // Comanda do entregador: as impressoras da regra (padrão: as mesmas da via do delivery, decisão
+    // 2A; mig 327). Sem regra, como sempre.
+    const res = await this.producao.enfileirarViaCliente(tenantId, unidadeId, ped.comandaId, conteudo, terminalId, null, 'cliente', null, { documento: 'entregador' });
+    return { ok: true, token, ...res };
   }
 
   // Perfis de cupom EFETIVOS (padrão + override salvo). Fase 1 — o editor (Fase 2)
@@ -3605,6 +3612,19 @@ export class DeliveryService {
     // Perfis de cupom (Fase 1): mescla por perfil (caixa/entregador/producao).
     if (dto.cupomPerfis && typeof dto.cupomPerfis === 'object') {
       vals.cupomPerfis = { ...((row?.cupomPerfis as any) ?? {}), ...dto.cupomPerfis };
+    }
+    // Onde cada documento sai (mig 327): ausente mantém (V16); mescla por documento; `null` num
+    // documento volta a "sem regra". As impressoras são conferidas (desta empresa, em uso).
+    if (dto.impressaoRegras !== undefined) {
+      const enviadas = dto.impressaoRegras;
+      if (!enviadas || typeof enviadas !== 'object' || Array.isArray(enviadas))
+        throw new BadRequestException('Regras de impressão inválidas.');
+      const juntas: Record<string, unknown> = { ...((row?.impressaoRegras as any) ?? {}) };
+      for (const [doc, regra] of Object.entries(enviadas)) {
+        if (regra === null) delete juntas[doc];
+        else juntas[doc] = regra;
+      }
+      vals.impressaoRegras = await conferirRegras(this.db, tenantId, juntas);
     }
     if (row) {
       await this.db

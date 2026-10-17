@@ -54,6 +54,7 @@ import {
 } from '../../db/schema';
 import { precoComAtacado } from '../../common/preco-atacado';
 import { agruparEscolhas, REGRA_COM_REPETICAO, rotuloDaEscolha, textoDasEscolhas, vezesPorOpcao } from '../../common/adicionais';
+import type { DocumentoImpressao } from '../../common/regras-impressao';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import {
   ProducaoPedidoService,
@@ -1260,6 +1261,9 @@ export class VendasService {
         forma: dto.forma ?? null,
       },
       terminalId,
+      null,
+      null,
+      { documento: 'balcao' }, // "onde cada documento sai" (mig 327); sem regra, como sempre
     );
 
     // NFC-e automática (se o fiscal estiver ativo na unidade E este terminal emitir — mig 288).
@@ -1288,7 +1292,7 @@ export class VendasService {
     terminalId?: string | null,
     alvoPreferido?: string | null,
     qrData?: string | null,
-    opcoes: { reimpressao?: boolean } = {},
+    opcoes: { reimpressao?: boolean; documento?: DocumentoImpressao; terminalDoPdv?: string | null } = {},
   ) {
     // atorId pode ser nulo (materialização no edge de uma venda que desceu) — sem
     // ator o cupom sai sem "atendente"; evita consultar colaborador com id inválido.
@@ -1373,8 +1377,8 @@ export class VendasService {
       });
     }
 
-    // Cupom (via do cliente) — sem terminal → resolve pela impressora de cupom
-    // (faz_cupom) da unidade/rede.
+    // Cupom (via do cliente) — sem terminal → a regra do balcão (as impressoras da lista); sem
+    // regra, a impressora de cupom (faz_cupom) da unidade/rede.
     const cupom = await this.imprimirViaCliente(
       tenantId,
       comandaId,
@@ -1389,6 +1393,9 @@ export class VendasService {
         forma: c.forma ?? null,
       },
       null,
+      null,
+      null,
+      { documento: 'balcao' },
     );
 
     // Vias de PRODUÇÃO (cozinha/setores) — best-effort, não derruba o cupom.
@@ -1409,10 +1416,13 @@ export class VendasService {
   // produção já saiu no aceitar (emitirNovos). Com `qrData`, a via leva o QR de
   // despacho (o entregador escaneia direto da comanda). Best-effort; silencioso se
   // não há impressora de cupom. Idempotência é de quem chama (aceitar roda 1x).
+  //  `documento` (mig 327): 'delivery' para o pedido de delivery (iFood, 99, cardápio, telefone) —
+  //  sai nas impressoras escolhidas para a via do delivery; ausente (totem) = como sempre.
   async materializarCupomCaixa(
     tenantId: string,
     comandaId: string,
     qrData?: string | null,
+    documento?: DocumentoImpressao,
   ): Promise<{ enfileirados: number; aviso: string | null }> {
     const [c] = await this.db
       .select()
@@ -1450,6 +1460,7 @@ export class VendasService {
       null,
       null,
       qrData,
+      { documento },
     );
   }
 
@@ -3190,15 +3201,26 @@ export class VendasService {
       detalhe: { total: res.total },
     });
 
-    // Via do cliente sai ao fechar a conta (mesa/comanda).
-    await this.imprimirViaCliente(tenantId, comandaId, res.unidadeId, atorId, {
-      senha: res.senha,
-      senhaPrefixo: res.senhaPrefixo ?? null,
-      mesa: res.mesa,
-      itens: res.viaClienteItens,
-      total: res.total,
-      forma: dto.forma ?? null,
-    });
+    // Via do cliente sai ao fechar a conta (mesa/comanda). Com a regra do balcão (mig 327), a
+    // "impressora do PDV" é a do caixa que fechou (no sub-PDV de salão, o PDV principal).
+    await this.imprimirViaCliente(
+      tenantId,
+      comandaId,
+      res.unidadeId,
+      atorId,
+      {
+        senha: res.senha,
+        senhaPrefixo: res.senhaPrefixo ?? null,
+        mesa: res.mesa,
+        itens: res.viaClienteItens,
+        total: res.total,
+        forma: dto.forma ?? null,
+      },
+      null,
+      null,
+      null,
+      { documento: 'balcao', terminalDoPdv: caixaTerminalId ?? terminalId ?? null },
+    );
     // NFC-e automática ao fechar a conta (se ativo na unidade).
     // O documento fiscal acompanha o CAIXA que recebe o dinheiro: no sub-PDV de salão, é o PDV
     // principal (`terminalCaixa`), não a maquininha do garçom.

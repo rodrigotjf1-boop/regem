@@ -36,6 +36,7 @@ import {
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { perfilEfetivo } from '../delivery/cupom-perfis';
 import { edgeAtivo } from '../../common/edge-ativo';
+import { alvosDoDocumento, regrasDaLoja, type DocumentoImpressao } from '../../common/regras-impressao';
 import { enfileirarComandoEdge } from '../../common/edge-comando';
 import { garantirImpressoraDaLoja } from '../../common/impressora-da-loja';
 import { conferirDestinosDeProducao } from '../../common/destino-producao';
@@ -1067,6 +1068,10 @@ export class ProducaoPedidoService {
   // a reimpressão pedida no PC do delivery caía em (2) e saía em TODAS as de cupom (a USB do PC e as
   // do servidor). Agora: a escolhida; senão a de cupom do PC que pediu (terminal pareado); senão onde
   // a via desta venda saiu antes; senão a regra de sempre — e dela, só a primeira.
+  //
+  // REGRA DO DOCUMENTO (`opcoes.documento`, mig 327 — "onde cada documento sai"): a via do balcão,
+  // a do delivery e a comanda do entregador saem nas impressoras escolhidas para elas, com as vias
+  // de cada uma (`impressao_job.vias`). Sem regra, o caminho de sempre (decisão 1A).
   async enfileirarViaCliente(
     tenantId: string,
     unidadeId: string | null,
@@ -1076,7 +1081,7 @@ export class ProducaoPedidoService {
     alvoPreferido?: string | null,
     via: string = 'cliente',
     impressorasPerfil?: string[] | null, // S5 — impressoras direcionadas ao perfil deste cupom
-    opcoes: { reimpressao?: boolean } = {},
+    opcoes: { reimpressao?: boolean; documento?: DocumentoImpressao; terminalDoPdv?: string | null } = {},
   ): Promise<{ enfileirados: number; aviso: string | null; impressoras: string[] }> {
     // Loja com servidor local ATIVO: a impressora está na rede dela e quem imprime é o worker
     // do servidor (a venda feita na nuvem desce e o EdgeImpressaoProcessor gera o cupom lá).
@@ -1122,14 +1127,16 @@ export class ProducaoPedidoService {
     if (alvoPreferido) printers = await impressoraAtiva(alvoPreferido);
 
     // A impressora de cupom do terminal de PDV (impressora_padrao_id), se ele é desta empresa e ativo.
-    const doTerminal = async (): Promise<Imp[]> => {
-      if (!terminalId) return [];
+    const doTerminal = async (id: string | null | undefined = terminalId): Promise<Imp[]> => {
+      if (!id) return [];
       const [term] = await this.db
         .select({ imp: equipamento.impressoraPadraoId })
         .from(equipamento)
-        .where(and(eq(equipamento.id, terminalId), eq(equipamento.tenantId, tenantId), eq(equipamento.tipo, 'pdv'), eq(equipamento.ativo, true)));
+        .where(and(eq(equipamento.id, id), eq(equipamento.tenantId, tenantId), eq(equipamento.tipo, 'pdv'), eq(equipamento.ativo, true)));
       return impressoraAtiva(term?.imp);
     };
+    // Vias por impressora quando a regra do documento escolheu (vazio = as da impressora).
+    const viasDaRegra = new Map<string, number>();
 
     // Reimpressão: o PC que pediu; senão onde a via desta venda saiu antes (a última IMPRESSA;
     // sem nenhuma impressa, a última enviada).
@@ -1143,6 +1150,23 @@ export class ProducaoPedidoService {
           .orderBy(sql`(${impressaoJob.status} = 'impresso') desc`, desc(impressaoJob.criadoEm), desc(impressaoJob.id))
           .limit(1);
         printers = await impressoraAtiva(antes?.equipamentoId);
+      }
+    }
+
+    // Regra do documento: as impressoras escolhidas (em uso, desta empresa), com as vias de cada uma.
+    // A impressora do PDV entra no balcão quando a regra pede ("Impressora do PDV que vendeu").
+    if (!printers.length && opcoes.documento && !opcoes.reimpressao) {
+      const regras = await regrasDaLoja(this.db, tenantId, unidadeId);
+      const doPdv = opcoes.documento === 'balcao' && regras.balcao?.pdv ? (await doTerminal(opcoes.terminalDoPdv ?? terminalId))[0]?.id ?? null : null;
+      const alvos = alvosDoDocumento(regras, opcoes.documento, doPdv);
+      if (alvos) {
+        const achadas: Imp[] = await this.db
+          .select(cols)
+          .from(equipamento)
+          .where(and(inArray(equipamento.id, alvos.map((a) => a.id)), eq(equipamento.tenantId, tenantId), eq(equipamento.tipo, 'impressora'), eq(equipamento.ativo, true)));
+        // Na ordem da regra; a que saiu de uso depois de escolhida fica de fora.
+        printers = alvos.map((a) => achadas.find((p) => p.id === a.id)).filter((p): p is Imp => !!p);
+        for (const a of alvos) viasDaRegra.set(a.id, a.vias);
       }
     }
 
@@ -1231,8 +1255,9 @@ export class ProducaoPedidoService {
       aviso = `Reimpressão enviada só para a ${validos[0].nome}. Para sair na impressora deste PC, pareie o PC como terminal de PDV e escolha a impressora de cupom dele.`;
     }
 
-    for (const p of validos) {
-      await this.db.insert(impressaoJob).values({
+    // Um comando para todas (a regra pode ter várias impressoras).
+    await this.db.insert(impressaoJob).values(
+      validos.map((p) => ({
         tenantId,
         unidadeId,
         equipamentoId: p.id,
@@ -1240,8 +1265,9 @@ export class ProducaoPedidoService {
         comandaId: comandaId ?? null, // liga à venda (idempotência do materializador do edge)
         via,
         conteudo,
-      });
-    }
+        vias: viasDaRegra.get(p.id) ?? null, // as da regra; vazio = as da impressora
+      })),
+    );
     return { enfileirados: validos.length, aviso, impressoras: validos.map((p) => p.nome) };
   }
 
@@ -1332,13 +1358,15 @@ export class ProducaoPedidoService {
         update impressao_job
         set status = 'enviando', claim_por = ${maquina ?? 'cloud'}, claim_ate = now() + interval '120 seconds'
         where id in (select id from alvo)
-        returning id, equipamento_id, pedido_id, via, conteudo, tentativas, criado_em
+        returning id, equipamento_id, pedido_id, via, conteudo, tentativas, criado_em, vias
       )
       select c.id, c.equipamento_id as "equipamentoId", c.pedido_id as "pedidoId",
              c.conteudo, c.tentativas, c.criado_em as "criadoEm",
              e.conexao, e.host, e.porta, e.dispositivo, e.largura, e.codepage,
              -- DANFE, etiqueta e teste: UMA via (antes seguiam as vias gerais da impressora).
+             -- As vias do JOB (regra do documento, mig 327) vencem as da impressora.
              case
+               when c.vias is not null then c.vias
                when c.via = 'cliente' then coalesce(e.vias_cliente, e.vias)
                when c.via = 'producao' then coalesce(e.vias_producao, e.vias)
                when c.via in ('fiscal', 'etiqueta', 'teste') then 1
