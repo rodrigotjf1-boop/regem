@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Ban, KeyRound, Plus, Printer, RotateCcw, Settings2 } from 'lucide-react';
-import { api, getCategoria, getToken } from '@/lib/api';
+import { api, getCategoria, getToken, getUnidadeAtual } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,7 @@ import { CodigoDePareamento, ReativarEquipamento, RevogarEquipamento, TokenDoEqu
 import { EquipamentoForm } from '@/components/equipamentos/equipamento-form';
 import { FilaDeImpressao } from '@/components/equipamentos/fila-impressao';
 import { HistoricoEquipamentos } from '@/components/equipamentos/historico-equipamentos';
+import { NovoPcComImpressora } from '@/components/equipamentos/novo-pc-impressora';
 import { ehGogem, ligacaoDe, podeReativar, seloDe, situacaoDe, tipoDe, vistoDe } from '@/components/equipamentos/equipamento';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -53,6 +54,8 @@ export default function EquipamentosPage() {
   const [form, setForm] = useState<{ item: any | null } | null>(null);
   const [tokenNovo, setTokenNovo] = useState<{ nome: string; token: string; aviso: string } | null>(null);
   const [codigoDe, setCodigoDe] = useState<any | null>(null);
+  // "Novo PC com impressora" (fase 2, 3A): estação + código + impressoras do Windows num fluxo só.
+  const [novoPc, setNovoPc] = useState(false);
   const [revogando, setRevogando] = useState<any | null>(null);
   const [reativando, setReativando] = useState<any | null>(null);
   const [verAvisos, setVerAvisos] = useState(false);
@@ -212,6 +215,7 @@ export default function EquipamentosPage() {
             <TituloLista id={ID_TITULO} titulo="Equipamentos" total={vendoRevogados ? guardados : totalEmUso} mostrando={linhas.length}
               um={vendoRevogados ? 'equipamento revogado' : 'equipamento em uso'} varios={vendoRevogados ? 'equipamentos revogados' : 'equipamentos em uso'}
               extra={resumo || undefined}>
+              {pode && <Button type="button" variant="outline" onClick={() => setNovoPc(true)}><Printer className="h-4 w-4" aria-hidden="true" /> Novo PC com impressora</Button>}
               {pode && <Button type="button" onClick={() => setForm({ item: null })}><Plus className="h-4 w-4" aria-hidden="true" /> Novo equipamento</Button>}
             </TituloLista>
             <p className={`max-w-3xl text-sm ${texto2}`}>
@@ -317,6 +321,10 @@ export default function EquipamentosPage() {
       )}
       {tokenNovo && <TokenDoEquipamento nome={tokenNovo.nome} token={tokenNovo.token} aviso={tokenNovo.aviso} voltarPara={ID_TITULO} aoFechar={() => setTokenNovo(null)} />}
       {codigoDe && <CodigoDePareamento equipamento={codigoDe} inicial={codigoDe.inicial} voltarPara={ID_TITULO} aoFechar={() => setCodigoDe(null)} />}
+      {novoPc && (
+        <NovoPcComImpressora unidades={unidades} unidadeAtual={getUnidadeAtual()} voltarPara={ID_TITULO}
+          aoFechar={() => { setNovoPc(false); void reload(); }} aoConcluir={() => void reload()} />
+      )}
       {reativando && (
         <ReativarEquipamento equipamento={reativando} voltarPara={ID_TITULO} aoFechar={() => setReativando(null)}
           aoReativar={(r) => {
