@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Mockup "Onde cada impressão sai" (central de impressão, fase 2). Protótipo aprovado pelo dono em 17/10/2026 ("1A 2A 3A"
+     + "mais de um local para sair"). Peças: Impressão › Onde cada documento sai (lista por documento, com vias), o simulador,
+     Equipamentos › Novo PC com impressora (3 passos) e as decisões. Os dados são da loja do dono (17/10). -->
+<title>Onde cada impressão sai</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Layout: página de protótipo em três peças empilhadas (regras, pareamento, decisões), cada uma com a tela do
+   Regem simulada e um painel que mostra o efeito. Tokens do mockup de Configurações / Estação (Regem). */
+:root{
+  --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E8A845; --on-gold:#281B06; --gold-ink:#7A5209; --navy:#0F2230; --on-navy:#FFFFFF; --navy-2:#C9D6E2;
+  --ok:#0F6647; --ok-bg:#E3F4EC; --warn:#8A5A00; --warn-bg:#FFF2D9; --crit:#B93232; --crit-bg:#FBE9E9; --focus:#3A7FB8;
+  --display:'Archivo',system-ui,sans-serif; --body:'Figtree',system-ui,sans-serif; --mono:'JetBrains Mono',ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0D1822; --card:#132330; --ink:#E6ECF2; --ink-2:#A3B3C2; --line:#24384A; --line-2:#2F465A; --gold-ink:#E8A845;
+  --navy:#0A1822; --navy-2:#A3B3C2; --ok:#4CC49E; --ok-bg:#11302A; --warn:#EFC264; --warn-bg:#33290F; --crit:#F08A80; --crit-bg:#3A1B19; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0D1822; --card:#132330; --ink:#E6ECF2; --ink-2:#A3B3C2; --line:#24384A; --line-2:#2F465A; --gold-ink:#E8A845;
+  --navy:#0A1822; --navy-2:#A3B3C2; --ok:#4CC49E; --ok-bg:#11302A; --warn:#EFC264; --warn-bg:#33290F; --crit:#F08A80; --crit-bg:#3A1B19; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5}
+button,select,input{font:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.wrap{max-width:1120px;margin:0 auto;padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));padding-block:28px 72px;display:grid;gap:44px}
+.topo{display:grid;gap:10px}
+.trilha{font-family:var(--display);font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--gold-ink)}
+h1{font-family:var(--display);font-size:clamp(26px,4vw,34px);margin:0;text-wrap:balance}
+h2{font-family:var(--display);font-size:22px;margin:0;text-wrap:balance}
+h3{font-family:var(--display);font-size:16px;margin:0}
+p{margin:0}
+.nota{color:var(--ink-2);max-width:72ch}
+.peca{display:grid;gap:14px;min-width:0}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.btn{border-radius:10px;padding:8px 14px;font-weight:700;font-size:14px;border:1px solid var(--line-2);background:var(--card);color:var(--ink)}
+.btn.pri{background:var(--gold);color:var(--on-gold);border-color:var(--gold)}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;padding:2px 10px;border-radius:999px;white-space:nowrap}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}
+.pill.aviso{background:var(--warn-bg);color:var(--warn)}
+.pill.info{background:var(--line);color:var(--ink)}
+/* ---- tela do Regem simulada ---- */
+.tela{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;min-width:0}
+.tela .cab{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;background:var(--navy);color:var(--on-navy);padding:10px 14px}
+.tela .cab b{font-family:var(--display);font-size:14px}
+.tela .cab span{font-size:12px;color:var(--navy-2)}
+.tela .corpo{padding:14px;display:grid;gap:12px;container-type:inline-size}
+.regras{width:100%;border-collapse:collapse;font-size:14px}
+.regras th,.regras td{text-align:left;padding:10px;border-bottom:1px solid var(--line);vertical-align:top}
+.regras th{font-family:var(--display);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+.regras caption{text-align:left;color:var(--ink-2);font-size:13px;padding-bottom:6px}
+.regras .doc{font-weight:700}
+.regras .doc small{display:block;font-weight:500;color:var(--ink-2);font-size:12.5px}
+.regras select{width:100%;max-width:280px;border:1px solid var(--line-2);border-radius:10px;padding:8px 10px;background:var(--card);color:var(--ink)}
+.regras .fixo{color:var(--ink-2);font-size:13.5px}
+.regras .falta{margin-top:6px}
+@container (max-width:640px){
+  .regras,.regras tbody,.regras tr,.regras td,.regras caption{display:block;width:100%}
+  .regras thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  .regras tr{border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:10px}
+  .regras td{border:none;padding:4px 0}
+  .regras td[data-r]::before{content:attr(data-r);display:block;color:var(--ink-2);font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+  .regras select{max-width:none}
+}
+/* ---- simulador ---- */
+.palco{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:18px;align-items:start}
+.sim{display:grid;gap:10px}
+.sim .botoes{display:flex;flex-wrap:wrap;gap:8px}
+.sim .botoes button{border:1px solid var(--line-2);background:var(--card);color:var(--ink);border-radius:999px;padding:6px 14px;font-weight:600;font-size:14px}
+.sim .botoes button[aria-pressed="true"]{background:var(--gold);color:var(--on-gold);border-color:var(--gold)}
+.trajeto{border:1px solid var(--line);border-radius:12px;background:var(--card);padding:14px;display:grid;gap:10px;min-height:150px}
+.trajeto .linha{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.trajeto .seta{color:var(--ink-2)}
+.trajeto .impr{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line-2);border-radius:10px;padding:6px 10px;font-weight:700}
+.trajeto .impr span{font-weight:500;color:var(--ink-2);font-size:12.5px}
+.trajeto .antes{color:var(--crit);font-size:13.5px}
+.trajeto .antes b{color:var(--crit)}
+/* ---- pareamento ---- */
+.passos{display:flex;flex-wrap:wrap;gap:8px;list-style:none;margin:0;padding:0}
+.passos li{display:flex;align-items:center;gap:8px;font-weight:700;font-size:13.5px;color:var(--ink-2)}
+.passos li .n{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--line-2);font-family:var(--mono);font-size:12px}
+.passos li[aria-current="step"]{color:var(--ink)}
+.passos li[aria-current="step"] .n{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.passos li.feito .n{background:var(--ok-bg);border-color:var(--ok);color:var(--ok)}
+.passos li+li::before{content:"";width:22px;height:1px;background:var(--line-2)}
+.campo{display:grid;gap:5px;max-width:420px}
+.campo label{font-weight:700;font-size:13.5px}
+.campo .ajuda{color:var(--ink-2);font-size:12.5px}
+.campo input,.campo select{border:1px solid var(--line-2);border-radius:10px;padding:9px 10px;background:var(--card);color:var(--ink);width:100%}
+.codigo{font-family:var(--mono);font-size:clamp(30px,8vw,44px);font-weight:700;letter-spacing:.18em;border:1px dashed var(--line-2);border-radius:12px;padding:12px;text-align:center}
+.instr{margin:0;padding-left:22px;display:grid;gap:6px}
+.espera{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.ponto{width:10px;height:10px;border-radius:50%;background:var(--warn)}
+@media (prefers-reduced-motion:no-preference){.ponto.pulsa{animation:pulsa 1.2s ease-in-out infinite}@keyframes pulsa{50%{opacity:.35}}}
+.achadas{display:grid;gap:8px}
+.achada{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:start;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.achada .meta{color:var(--ink-2);font-size:13px}
+.achada select{margin-top:6px;border:1px solid var(--line-2);border-radius:10px;padding:7px 9px;background:var(--card);color:var(--ink);max-width:100%}
+.pronto{border-radius:12px;background:var(--ok-bg);color:var(--ok);padding:12px 14px;display:grid;gap:4px}
+.pronto p{color:inherit}
+.compara{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:14px}
+.compara div{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--card);display:grid;gap:6px}
+.compara ol{margin:0;padding-left:20px;display:grid;gap:4px;color:var(--ink-2);font-size:14px}
+.multi{display:grid;gap:6px}
+.chip{display:flex;flex-wrap:wrap;align-items:center;gap:8px;border:1px solid var(--line-2);border-radius:10px;padding:6px 10px;background:var(--card)}
+.chip.on{border-color:var(--gold);box-shadow:inset 0 0 0 1px var(--gold)}
+.chip label{display:flex;align-items:center;gap:8px;font-weight:700;flex:1 1 auto;min-width:0}
+.chip label span{font-weight:500;color:var(--ink-2);font-size:12.5px}
+.chip .vias{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-2)}
+.chip .vias select{border:1px solid var(--line-2);border-radius:8px;padding:3px 6px;background:var(--card);color:var(--ink)}
+.mesma{display:flex;gap:8px;align-items:center;font-weight:600;margin-bottom:6px}
+.trajeto .impr b{font-family:var(--mono);font-weight:700}
+/* ---- decisões ---- */
+.decisoes{display:grid;gap:12px}
+.decisao{border:1px solid var(--line);border-radius:12px;background:var(--card);padding:14px;display:grid;gap:8px}
+.decisao .opcoes{display:grid;gap:6px}
+.decisao label{display:flex;gap:8px;align-items:flex-start;font-size:14.5px}
+.decisao .rec{font-family:var(--display);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--gold-ink);font-weight:700;margin-left:4px}
+.resposta{background:var(--gold);color:var(--on-gold);border-radius:12px;padding:14px 16px;display:grid;gap:8px}
+.resposta p{color:inherit}
+.resposta .mono{background:rgba(255,255,255,.55);border-radius:8px;padding:8px 10px;font-size:13px;overflow-wrap:anywhere}
+</style>
+
+<div class="wrap">
+<header class="topo">
+  <span class="trilha">Regem · central de impressão · fase 2 · decisões 1A 2A 3A (17/10) · versão 2</span>
+  <h1>Onde cada impressão sai</h1>
+  <p class="nota">No teste de 17/10, a reimpressão pedida no PC do delivery saiu na USB dele e também no servidor, e o pedido do iFood não tinha como saber em qual PC sair. Hoje, sem uma impressora escolhida, a via vai para todas as impressoras marcadas como "Cupom do cliente". Aqui cada documento ganha o seu lugar. A reimpressão sair só no PC que pediu já está pronta (sem tela nova); o resto espera a sua aprovação.</p>
+</header>
+
+<section class="peca" aria-labelledby="t1">
+  <h2 id="t1">Regem › Impressão › Onde cada documento sai</h2>
+  <p class="nota">Uma lista só, por documento. Em cada um você marca uma ou mais impressoras e quantas vias saem em cada — por exemplo, a via do delivery no PC do delivery e uma cópia no caixa. A impressora continua tendo "Cupom do cliente" e "Produção", mas isso passa a dizer só em qual lista ela aparece. A reimpressão é a exceção: sai num lugar só, no PC de quem pediu.</p>
+  <div class="palco">
+    <div class="tela">
+      <div class="cab"><b>Onde cada documento sai</b><span>Loja · servidor da loja</span></div>
+      <div class="corpo">
+        <table class="regras">
+          <caption>5 documentos · as impressoras de cupom da sua loja</caption>
+          <thead><tr><th scope="col">Documento</th><th scope="col">Quando sai</th><th scope="col">Sai em</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="doc" data-r="Documento">Via do cliente<small>Balcão e mesa</small></td>
+              <td data-r="Quando sai">Ao fechar a venda</td>
+              <td data-r="Sai em">
+                <div class="multi" id="m-balcao" role="group" aria-label="Via do cliente sai em"></div>
+              </td>
+            </tr>
+            <tr>
+              <td class="doc" data-r="Documento">Via do delivery<small>iFood, 99, cardápio e telefone · leva o QR do entregador</small></td>
+              <td data-r="Quando sai">Ao aceitar o pedido</td>
+              <td data-r="Sai em">
+                <div class="multi" id="m-delivery" role="group" aria-label="Via do delivery sai em"></div>
+                <p class="falta" id="falta-delivery" hidden><span class="pill aviso">Ainda não escolhida: sai em todas as de cupom, como hoje</span></p>
+              </td>
+            </tr>
+            <tr>
+              <td class="doc" data-r="Documento">Comanda do entregador<small>Botão "Cupom do entregador"</small></td>
+              <td data-r="Quando sai">Quando alguém pede</td>
+              <td data-r="Sai em">
+                <label class="mesma"><input type="checkbox" id="entregador-mesma" checked> Nas mesmas da via do delivery</label><div class="multi" id="m-entregador" role="group" aria-label="Comanda do entregador sai em" hidden></div>
+              </td>
+            </tr>
+            <tr>
+              <td class="doc" data-r="Documento">Produção<small>Cozinha, bar e montagem</small></td>
+              <td data-r="Quando sai">Ao vender ou aceitar</td>
+              <td data-r="Sai em"><span class="fixo">Pelo direcionamento de cada produto e setor (sem mudança)</span></td>
+            </tr>
+            <tr>
+              <td class="doc" data-r="Documento">Reimpressão<small>Qualquer via, pelo botão "Reimprimir"</small></td>
+              <td data-r="Quando sai">Quando alguém pede</td>
+              <td data-r="Sai em"><span class="fixo">Na impressora do PC que pediu · <span class="pill ok">pronto</span></span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="sim" aria-labelledby="t-sim">
+      <h3 id="t-sim">Simular: onde sai?</h3>
+      <div class="botoes" role="group" aria-label="Situação">
+        <button type="button" data-caso="ifood" aria-pressed="true">Chega um pedido do iFood</button>
+        <button type="button" data-caso="reimp" aria-pressed="false">Reimprimir no PC do delivery</button>
+        <button type="button" data-caso="pdv1" aria-pressed="false">Venda no PDV1</button>
+        <button type="button" data-caso="entregador" aria-pressed="false">Cupom do entregador</button>
+      </div>
+      <div class="trajeto" id="trajeto" aria-live="polite"></div>
+      <p class="nota">A estação só imprime o que o servidor manda para ela. Quem escolhe o lugar é a regra do documento, no servidor da loja.</p>
+    </div>
+  </div>
+</section>
+
+<section class="peca" aria-labelledby="t2">
+  <h2 id="t2">Regem › Equipamentos › Novo PC com impressora</h2>
+  <p class="nota">Hoje são quatro idas e vindas: criar a estação, digitar o código no instalador, criar a impressora e preencher "Ligada em" e "Nome no Windows". Aqui é um fluxo só: o código fica na tela até o PC conectar, e as impressoras que o Windows dele tem aparecem para escolher, sem digitar nome.</p>
+  <div class="palco">
+    <div class="tela" id="parear">
+      <div class="cab"><b>Novo PC com impressora</b><span>Equipamentos</span></div>
+      <div class="corpo">
+        <ol class="passos" aria-label="Passos">
+          <li data-p="1" aria-current="step"><span class="n">1</span>Nome do PC</li>
+          <li data-p="2"><span class="n">2</span>No PC</li>
+          <li data-p="3"><span class="n">3</span>Impressoras dele</li>
+        </ol>
+
+        <div data-passo="1">
+          <div class="campo">
+            <label for="nome-pc">Como chamar este PC</label>
+            <input id="nome-pc" value="PC do delivery" autocomplete="off">
+            <span class="ajuda">É o nome que aparece no ícone da bandeja e na lista de equipamentos.</span>
+          </div>
+          <p style="margin-top:12px"><button type="button" class="btn pri" id="ir-2">Mostrar o código</button></p>
+        </div>
+
+        <div data-passo="2" hidden>
+          <p><b>No <span id="nome-pc-2">PC do delivery</span>:</b></p>
+          <ol class="instr">
+            <li>Abra o <b>RegemEdgeSetup.exe</b> e escolha <b>Cliente</b>.</li>
+            <li>Na tela "Impressora neste PC", marque <b>Este PC tem impressora</b>.</li>
+            <li>Digite o código abaixo e siga até o fim.</li>
+          </ol>
+          <div class="codigo" aria-label="Código de pareamento">482 913</div>
+          <div class="espera"><span class="ponto pulsa" id="ponto"></span><span id="espera-txt">Esperando o PC conectar · o código vale até <span class="mono">14:35</span></span></div>
+          <p class="acoes" style="display:flex;flex-wrap:wrap;gap:8px"><button type="button" class="btn" id="simular-conexao">Simular: o PC conectou</button><button type="button" class="btn" id="outro-codigo">Gerar outro código</button></p>
+        </div>
+
+        <div data-passo="3" hidden>
+          <p><span class="pill ok">PC conectado</span> <span class="mono">PC-DELIVERY</span> · o Windows dele tem estas impressoras:</p>
+          <div class="achadas">
+            <div class="achada">
+              <input type="checkbox" id="usar-1" checked aria-describedby="m-1">
+              <div>
+                <label for="usar-1"><b>MP-4200 TH</b></label>
+                <div class="meta" id="m-1">USB · pronta</div>
+                <select id="papel-1" aria-label="Para quê">
+                  <option selected>Via do delivery e comanda do entregador</option>
+                  <option>Via do cliente deste PC (PDV)</option>
+                  <option>Produção (escolho no direcionamento)</option>
+                </select>
+              </div>
+            </div>
+            <div class="achada">
+              <input type="checkbox" id="usar-2" aria-describedby="m-2">
+              <div>
+                <label for="usar-2"><b>Microsoft Print to PDF</b></label>
+                <div class="meta" id="m-2">Do Windows · não é impressora de cupom</div>
+              </div>
+            </div>
+          </div>
+          <p style="margin-top:12px"><button type="button" class="btn pri" id="concluir">Concluir</button></p>
+        </div>
+
+        <div class="pronto" id="pronto" hidden>
+          <b>Pronto.</b>
+          <p id="pronto-txt">A MP-4200 TH, no PC do delivery, imprime a via do delivery e a comanda do entregador. O teste saiu nela.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="compara">
+      <div>
+        <h3>Hoje</h3>
+        <ol>
+          <li>Equipamentos › Novo › tipo estação › anotar o código</li>
+          <li>No PC: instalador, digitar o código (15 min)</li>
+          <li>Equipamentos › Nova impressora › Local</li>
+          <li>Escolher "Ligada em" e o "Nome no Windows"</li>
+          <li>Marcar para que ela serve</li>
+        </ol>
+      </div>
+      <div>
+        <h3>Com o fluxo novo</h3>
+        <ol>
+          <li>Novo PC com impressora › nome</li>
+          <li>No PC: instalador e o código que está na tela</li>
+          <li>Marcar a impressora que apareceu e para que ela serve</li>
+        </ol>
+        <p class="nota">A impressora é criada já ligada ao PC, com o nome exato do Windows, e entra na regra escolhida. Sai uma página de teste no fim.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="peca" aria-labelledby="t3">
+  <h2 id="t3">Decisões para você</h2>
+  <div class="decisoes">
+    <fieldset class="decisao">
+      <legend><h3>1. Delivery sem impressora escolhida</h3></legend>
+      <div class="opcoes">
+        <label><input type="radio" name="d1" value="A" checked>Sai em todas as de cupom, como hoje, com o aviso amarelo na lista até alguém escolher<span class="rec">recomendado</span></label>
+        <label><input type="radio" name="d1" value="B">Sai só numa (a primeira de cupom pelo nome)</label>
+      </div>
+      <p class="nota">Por que A: loja que ainda não configurou continua imprimindo como antes, e o aviso mostra o que falta.</p>
+    </fieldset>
+    <fieldset class="decisao">
+      <legend><h3>2. Comanda do entregador</h3></legend>
+      <div class="opcoes">
+        <label><input type="radio" name="d2" value="A" checked>Sai na mesma impressora da via do delivery<span class="rec">recomendado</span></label>
+        <label><input type="radio" name="d2" value="B">Tem impressora própria, escolhida na lista</label>
+      </div>
+      <p class="nota">Por que A: no delivery é o mesmo PC; quem quiser separar escolhe outra na linha dela.</p>
+    </fieldset>
+    <fieldset class="decisao">
+      <legend><h3>3. Novo PC com impressora</h3></legend>
+      <div class="opcoes">
+        <label><input type="radio" name="d3" value="A" checked>O fluxo de 3 passos acima, junto com as regras<span class="rec">recomendado</span></label>
+        <label><input type="radio" name="d3" value="B">Só as regras agora; o pareamento fica como está</label>
+      </div>
+    </fieldset>
+    <p><span class="pill ok">Respondido em 17/10/2026: 1A 2A 3A</span> · e "mais de um lugar por documento" entrou na lista acima.</p>
+    <div class="resposta" aria-live="polite">
+      <b>Para responder no chat</b>
+      <p>Copie e cole a linha abaixo (ou escreva do seu jeito).</p>
+      <p class="mono" id="linha-resposta">1A 2A 3A</p>
+      <p><button type="button" class="btn" id="copiar">Copiar</button> <span id="copiado" hidden>Copiado.</span></p>
+    </div>
+  </div>
+</section>
+</div>
+
+<script>
+(() => {
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const LUGAR = { 'Caixa delivery': 'estação delivery · USB', 'Caixa Regem': 'servidor da loja', pdv: 'a do PDV onde a venda fechou' };
+  const NOME = { pdv: 'Impressora do PDV que vendeu' };
+  const PDV = { PDV1: 'Caixa Regem', 'Pdv delivery': 'Caixa delivery' };
+  const regras = {
+    balcao: { pdv: { on: true, vias: 1 }, 'Caixa Regem': { on: false, vias: 1 }, 'Caixa delivery': { on: false, vias: 1 } },
+    delivery: { 'Caixa delivery': { on: true, vias: 1 }, 'Caixa Regem': { on: true, vias: 1 } },
+    entregador: { 'Caixa delivery': { on: true, vias: 1 }, 'Caixa Regem': { on: false, vias: 1 } },
+  };
+  let caso = 'ifood';
+
+  function montar(doc) {
+    const caixa = $('#m-' + doc);
+    caixa.innerHTML = '';
+    for (const [chave, r] of Object.entries(regras[doc])) {
+      const id = `c-${doc}-${chave.replace(/\W+/g, '-')}`;
+      const linha = document.createElement('div');
+      linha.className = 'chip' + (r.on ? ' on' : '');
+      linha.innerHTML =
+        `<label for="${id}"><input type="checkbox" id="${id}" ${r.on ? 'checked' : ''}>${NOME[chave] || chave}<span>${LUGAR[chave] || ''}</span></label>` +
+        (r.on ? `<span class="vias"><label for="${id}-v" style="font-weight:500">vias</label><select id="${id}-v">${[1, 2, 3].map((n) => `<option ${n === r.vias ? 'selected' : ''}>${n}</option>`).join('')}</select></span>` : '');
+      linha.querySelector('input').addEventListener('change', (e) => { r.on = e.target.checked; montar(doc); desenhar(); });
+      const v = linha.querySelector('select');
+      if (v) v.addEventListener('change', (e) => { r.vias = Number(e.target.value); desenhar(); });
+      caixa.appendChild(linha);
+    }
+  }
+  const marcadas = (doc) => Object.entries(regras[doc]).filter(([, r]) => r.on).map(([chave, r]) => ({ chave, vias: r.vias }));
+  const impr = (nome, vias) => `<span class="impr">${nome}<span>${LUGAR[nome] || ''}</span>${vias > 1 ? `<b>×${vias}</b>` : ''}</span>`;
+
+  function desenhar() {
+    const mesma = $('#entregador-mesma').checked;
+    $('#m-entregador').hidden = mesma;
+    const delivery = marcadas('delivery');
+    $('#falta-delivery').hidden = delivery.length > 0;
+    const todas = [{ chave: 'Caixa delivery', vias: 1 }, { chave: 'Caixa Regem', vias: 1 }];
+    let titulo = '', onde = [], antes = '';
+    if (caso === 'ifood') {
+      titulo = 'Pedido do iFood aceito → via do delivery';
+      onde = delivery.length ? delivery : todas;
+      antes = 'Hoje: <b>todas as de cupom</b> (4 na sua loja, inclusive a de etiquetas).';
+    } else if (caso === 'reimp') {
+      titulo = 'Reimprimir no PC do delivery (terminal "Pdv delivery")';
+      onde = [{ chave: PDV['Pdv delivery'], vias: 1 }];
+      antes = 'Sempre num lugar só. Antes: <b>todas as de cupom</b> — por isso saiu também no servidor.';
+    } else if (caso === 'pdv1') {
+      titulo = 'Venda fechada no PDV1 → via do cliente';
+      onde = marcadas('balcao').map((m) => (m.chave === 'pdv' ? { chave: PDV.PDV1, vias: m.vias } : m));
+      antes = 'Hoje: a impressora do PDV1 (Caixa Regem), uma via.';
+    } else {
+      titulo = 'Cupom do entregador';
+      const lista = mesma ? delivery : marcadas('entregador');
+      onde = lista.length ? lista : todas;
+      antes = 'Hoje: a impressora do PDV que pediu, ou todas as de cupom.';
+    }
+    // a mesma impressora marcada duas vezes (o PDV que vendeu é ela mesma) sai uma vez, com a soma das vias
+    const juntas = new Map();
+    for (const o of onde) juntas.set(o.chave, (juntas.get(o.chave) || 0) + o.vias);
+    const html = [...juntas].map(([nome, vias]) => impr(nome, vias)).join('');
+    $('#trajeto').innerHTML =
+      `<b>${titulo}</b>` +
+      `<div class="linha"><span class="seta" aria-hidden="true">→</span>${html || '<span class="pill aviso">Nenhuma marcada</span>'}</div>` +
+      `<p class="antes">${antes}</p>`;
+  }
+  $$('.botoes button').forEach((b) => b.addEventListener('click', () => {
+    caso = b.dataset.caso;
+    $$('.botoes button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    desenhar();
+  }));
+  $('#entregador-mesma').addEventListener('change', desenhar);
+  ['balcao', 'delivery', 'entregador'].forEach(montar);
+  desenhar();
+
+  // Pareamento em três passos
+  function passo(n) {
+    $$('[data-passo]').forEach((p) => { p.hidden = Number(p.dataset.passo) !== n; });
+    $$('.passos li').forEach((li) => {
+      const p = Number(li.dataset.p);
+      li.toggleAttribute('aria-current', p === n);
+      if (p === n) li.setAttribute('aria-current', 'step');
+      li.classList.toggle('feito', p < n);
+    });
+  }
+  $('#ir-2').addEventListener('click', () => {
+    const nome = $('#nome-pc').value.trim() || 'PC';
+    $('#nome-pc-2').textContent = nome;
+    passo(2);
+  });
+  $('#outro-codigo').addEventListener('click', () => {
+    const n = String(Math.floor(100000 + Math.random() * 900000));
+    $('.codigo').textContent = `${n.slice(0, 3)} ${n.slice(3)}`;
+  });
+  $('#simular-conexao').addEventListener('click', () => passo(3));
+  $('#concluir').addEventListener('click', () => {
+    const nome = $('#nome-pc-2').textContent;
+    const usa = $('#usar-1').checked;
+    $('#pronto-txt').textContent = usa
+      ? `A MP-4200 TH, no ${nome}, imprime: ${$('#papel-1').value.toLowerCase()}. A página de teste saiu nela.`
+      : 'Nenhuma impressora marcada: o PC fica pareado, e dá para escolher depois.';
+    $$('[data-passo]').forEach((p) => { p.hidden = true; });
+    $$('.passos li').forEach((li) => { li.removeAttribute('aria-current'); li.classList.add('feito'); });
+    $('#pronto').hidden = false;
+  });
+
+  // Decisões → linha para colar no chat
+  function linha() {
+    const v = (n) => (document.querySelector(`input[name="d${n}"]:checked`) || {}).value || '?';
+    $('#linha-resposta').textContent = `1${v(1)} 2${v(2)} 3${v(3)}`;
+  }
+  $$('.decisao input').forEach((i) => i.addEventListener('change', linha));
+  $('#copiar').addEventListener('click', () => {
+    const txt = $('#linha-resposta').textContent;
+    const ok = () => { $('#copiado').hidden = false; setTimeout(() => { $('#copiado').hidden = true; }, 2000); };
+    try {
+      navigator.clipboard.writeText(txt).then(ok, () => {
+        const r = document.createRange(); r.selectNodeContents($('#linha-resposta'));
+        const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+      });
+    } catch (e) { /* sem área de transferência: a linha continua selecionável */ }
+  });
+})();
+</script>
