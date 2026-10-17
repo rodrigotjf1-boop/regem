@@ -47,14 +47,16 @@ export const SQL_RESERVAR = `
     update impressao_job
     set status = 'enviando', claim_por = $1, claim_ate = now() + interval '${LEASE_SEG} seconds'
     where id in (select id from alvo)
-    returning id, conteudo, via, tentativas, equipamento_id, criado_em
+    returning id, conteudo, via, tentativas, equipamento_id, criado_em, vias
   )
   select c.id, c.conteudo, c.via, c.tentativas, c.equipamento_id,
          e.conexao, e.host, e.porta, e.dispositivo, e.largura, e.codepage,
          e.nome as impressora, e.linguagem_etiqueta as linguagem,
          -- Vias: cupom do cliente e produção têm número próprio; DANFE, etiqueta e página de
          -- teste saem UMA vez (medido: numa impressora de 3 vias, a DANFE saía 3 vezes).
+         -- As vias do JOB (regra do documento, mig 327) vencem as da impressora.
          case
+           when c.vias is not null then c.vias
            when c.via = 'cliente' then coalesce(e.vias_cliente, e.vias)
            when c.via = 'producao' then coalesce(e.vias_producao, e.vias)
            when c.via in ('fiscal', 'etiqueta', 'teste') then 1

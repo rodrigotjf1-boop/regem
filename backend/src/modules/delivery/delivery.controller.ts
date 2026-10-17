@@ -487,6 +487,20 @@ export class DeliveryController {
         detalhe: { unidadeId, kdsMapaEntregadores: !!depois.kdsMapaEntregadores },
       });
     }
+    // Onde cada documento sai (mig 327): mudar para onde a via vai muda o que sai em cada PC.
+    if (dto?.impressaoRegras !== undefined && JSON.stringify(antes?.impressaoRegras ?? {}) !== JSON.stringify(depois?.impressaoRegras ?? {})) {
+      await this.auditoria.registrar({
+        tenantId: user.tenantId,
+        atorId: user.colaboradorId,
+        atorPerfil: user.categoria ?? '',
+        tipo: 'delivery',
+        acao: 'alterou_regras_impressao',
+        unidadeId,
+        entidadeTipo: 'delivery_config',
+        entidadeId: null,
+        detalhe: { unidadeId, antes: antes?.impressaoRegras ?? {}, depois: depois?.impressaoRegras ?? {} },
+      });
+    }
     return depois;
   }
 

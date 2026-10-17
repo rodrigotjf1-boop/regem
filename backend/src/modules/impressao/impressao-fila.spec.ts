@@ -40,6 +40,7 @@ const MIGRATIONS = [
   '269_impressora_status_codepage_comando_destino.sql',
   '324_estacao_impressao.sql', // a estação de impressão (a fila filtra por equipamento.estacao_id)
   '326_impressao_fila_antiga.sql', // a fila antiga da estação (impressao_job.liberado_em)
+  '327_impressao_regras_documento.sql', // as vias do documento no job (impressao_job.vias)
 ];
 
 // edge/impressao-fila.mjs é ESM puro (constantes e funções sem import); o jest roda em CommonJS.
@@ -90,6 +91,7 @@ descrever('fila de impressão (Postgres real)', () => {
       id uuid primary key, tenant_id uuid not null, unidade_id uuid, nome text,
       tipo text not null, papel text, ativo boolean not null default true,
       padrao boolean not null default false, created_at timestamptz not null default now())`); // mig 015
+    await q(`create table delivery_config (id uuid primary key)`); // a 327 põe as regras nela
     for (const m of MIGRATIONS) {
       await q(readFileSync(join(RAIZ, '..', 'database', 'migrations', m), 'utf8'));
     }
@@ -258,6 +260,15 @@ descrever('fila de impressão (Postgres real)', () => {
       const r = await q(edge.SQL_RESERVAR, ['w1', LOJA_A, []]);
       const vias = Object.fromEntries(r.rows.map((x) => [x.via, x.vias]));
       expect(vias).toEqual({ cliente: 3, producao: 3, fiscal: 1, etiqueta: 1, teste: 1 });
+      await q(`update equipamento set vias = 1 where id = $1`, [IMP_A]);
+    });
+
+    it('as vias do documento (regra, mig 327) vencem as da impressora; sem elas, as da impressora', async () => {
+      await q(`update equipamento set vias = 3 where id = $1`, [IMP_A]);
+      await q(`insert into impressao_job (tenant_id, unidade_id, equipamento_id, via, conteudo, vias) values ($1,$2,$3,'cliente','regra',2), ($1,$2,$3,'cliente','sem regra',null)`, [T, LOJA_A, IMP_A]);
+      const r = await q(edge.SQL_RESERVAR, ['w1', LOJA_A, []]);
+      const porConteudo = Object.fromEntries(r.rows.map((x) => [x.conteudo, x.vias]));
+      expect(porConteudo).toEqual({ regra: 2, 'sem regra': 3 });
       await q(`update equipamento set vias = 1 where id = $1`, [IMP_A]);
     });
 
