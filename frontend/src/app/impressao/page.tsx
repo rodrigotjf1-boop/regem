@@ -13,9 +13,11 @@ import { SkeletonList } from '@/components/ui/skeleton';
 import { texto2 } from '@/components/ui/lista';
 import { ImpressorasLista } from '@/components/impressao/impressoras-lista';
 import { PerfisCupom } from '@/components/impressao/perfis-cupom';
+import { OndeCadaDocumento, regraDoValor, valorDaRegra } from '@/components/impressao/onde-cada-documento';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-type Parte = 'impressoras' | 'perfis' | 'texto';
+type Parte = 'impressoras' | 'onde' | 'perfis' | 'texto';
+const DOCUMENTOS = ['balcao', 'delivery', 'entregador'] as const;
 /** Uma leitura: o que veio, ou por que não veio. Leitura que falha NÃO vira lista vazia nem valor padrão. */
 type Fonte<T> = { dado: T; erro?: undefined } | { dado?: undefined; erro: string };
 const motivo = (e: unknown) => (e instanceof Error && e.message ? e.message : 'Não foi possível carregar.');
@@ -31,8 +33,10 @@ const GRUPOS_TEXTO: GrupoDeAjustes[] = [
   },
 ];
 
-// Configurações → Impressoras e cupons (mockup `mockups/regem-configuracoes.html`). Três partes:
+// Configurações → Impressoras e cupons (mockup `mockups/regem-configuracoes.html`). Quatro partes:
 //  • Impressoras — a lista, com ativar na linha, "Imprimir teste" e a edição na gaveta.
+//  • Onde cada documento sai — as impressoras (e vias) de cada documento (mockup
+//    `mockups/regem-impressao-onde-sai.html`; mig 327).
 //  • Perfis de cupom — o que cada cupom imprime; edição na gaveta larga, um perfil por vez.
 //  • Cabeçalho e rodapé — o texto livre do cupom.
 // Cada parte lê a sua rota, com a sua permissão: a que falha mostra o motivo, sem derrubar as outras.
@@ -49,6 +53,12 @@ export default function ImpressaoPage() {
   const [valores, setValores] = useState<Valores>({});
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
+  // Onde cada documento sai: vem da mesma configuração que o texto do cupom.
+  const [regrasSalvas, setRegrasSalvas] = useState<Valores>({});
+  const [regras, setRegras] = useState<Valores>({});
+  const [salvandoRegras, setSalvandoRegras] = useState(false);
+  const [erroRegras, setErroRegras] = useState('');
+  const [estacoes, setEstacoes] = useState<Map<string, string>>(new Map());
 
   const lerImpressoras = useCallback(async () => {
     try {
@@ -71,6 +81,9 @@ export default function ImpressaoPage() {
       const r: Valores = { cabecalho: c?.cupomLayout?.cabecalho ?? '', rodape: c?.cupomLayout?.rodape ?? '' };
       setSalvos(r);
       setValores(r);
+      const regrasLidas: Valores = Object.fromEntries(DOCUMENTOS.map((d) => [d, valorDaRegra(d, c?.impressaoRegras?.[d])]));
+      setRegrasSalvas(regrasLidas);
+      setRegras(regrasLidas);
       setTexto({ dado: true });
     } catch (e) {
       setTexto({ erro: motivo(e) });
@@ -89,6 +102,11 @@ export default function ImpressaoPage() {
     void lerTexto();
     // Os setores só dão nome à coluna "Setor": sem acesso a eles a lista continua de pé.
     api.setores().then((s) => setSetores((s as any[]) ?? [])).catch(() => setSetores([]));
+    // O nome da estação de cada impressora USB ("Onde cada documento sai"): sem ele, "num PC com estação".
+    api
+      .equipamentos()
+      .then((l) => setEstacoes(new Map(((l as any[]) ?? []).filter((e) => e.tipo === 'estacao_impressao').map((e) => [String(e.id), String(e.nome)]))))
+      .catch(() => setEstacoes(new Map()));
     // Loja com servidor local: a impressão é configurada nele (a nuvem recusa a edição). Sem
     // acesso a esta consulta, a tela segue editável e a recusa do servidor aparece ao salvar.
     api.edgeAtivo().then((r: any) => setPeloServidorLocal(!!r?.ativo)).catch(() => {});
@@ -111,6 +129,25 @@ export default function ImpressaoPage() {
     }
   }
 
+  async function salvarRegras() {
+    const mudou = DOCUMENTOS.filter((d) => regras[d] !== regrasSalvas[d]);
+    if (!mudou.length || salvandoRegras) return;
+    setErroRegras('');
+    setSalvandoRegras(true);
+    try {
+      // Só os documentos que mudaram; `null` volta o documento a "sem regra". O servidor confere as impressoras.
+      const c: any = await api.setDeliveryConfig({ impressaoRegras: Object.fromEntries(mudou.map((d) => [d, regraDoValor(regras[d])])) });
+      const gravadas: Valores = Object.fromEntries(DOCUMENTOS.map((d) => [d, valorDaRegra(d, c?.impressaoRegras?.[d])]));
+      setRegrasSalvas(gravadas);
+      setRegras(gravadas);
+      toast.success('Onde cada documento sai: salvo.');
+    } catch (e) {
+      setErroRegras(e instanceof Error ? e.message : 'Erro ao salvar');
+    } finally {
+      setSalvandoRegras(false);
+    }
+  }
+
   const falhou = (titulo: string, msg: string, tentar: () => void) => (
     <Card className="space-y-3 p-5 text-sm">
       <p className="font-display text-base font-bold">{titulo}</p>
@@ -128,6 +165,7 @@ export default function ImpressaoPage() {
           aoEscolher={setParte}
           partes={[
             { key: 'impressoras', label: 'Impressoras', conta: impressoras?.dado?.length ?? null },
+            { key: 'onde', label: 'Onde cada documento sai' },
             { key: 'perfis', label: 'Perfis de cupom', conta: perfis?.dado?.perfis.length ?? null },
             { key: 'texto', label: 'Cabeçalho e rodapé' },
           ]}
@@ -140,6 +178,28 @@ export default function ImpressaoPage() {
             falhou('Impressoras', impressoras.erro, () => { setImpressoras(null); void lerImpressoras(); })
           ) : (
             <ImpressorasLista impressoras={impressoras.dado} setores={setores} pode={pode} peloServidorLocal={peloServidorLocal} recarregar={lerImpressoras} />
+          ))}
+
+        {parte === 'onde' &&
+          (!texto || !impressoras ? (
+            <SkeletonList rows={3} />
+          ) : texto.erro !== undefined ? (
+            falhou('Onde cada documento sai', texto.erro, () => { setTexto(null); void lerTexto(); })
+          ) : impressoras.erro !== undefined ? (
+            falhou('Onde cada documento sai', impressoras.erro, () => { setImpressoras(null); void lerImpressoras(); })
+          ) : (
+            <OndeCadaDocumento
+              impressoras={impressoras.dado}
+              estacoes={estacoes}
+              valores={regras}
+              salvos={regrasSalvas}
+              aoMudar={(k: string, v: Valor) => setRegras((x) => ({ ...x, [k]: v }))}
+              aoSalvar={() => void salvarRegras()}
+              aoDescartar={() => { setRegras(regrasSalvas); setErroRegras(''); }}
+              salvando={salvandoRegras}
+              erro={erroRegras}
+              pode={pode}
+            />
           ))}
 
         {parte === 'perfis' &&
