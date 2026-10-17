@@ -1062,6 +1062,11 @@ export class ProducaoPedidoService {
   //  3) fallback: qualquer impressora ativa com alvo válido (nunca deixa sem sair).
   // Só enfileira em impressoras com ALVO VÁLIDO — nunca cria job fadado ao erro
   // (mig 167). Devolve { enfileirados, aviso } para o front sinalizar config faltando.
+  //
+  // REIMPRESSÃO (`opcoes.reimpressao`, ERR-247): sai num lugar SÓ. Antes, sem impressora escolhida,
+  // a reimpressão pedida no PC do delivery caía em (2) e saía em TODAS as de cupom (a USB do PC e as
+  // do servidor). Agora: a escolhida; senão a de cupom do PC que pediu (terminal pareado); senão onde
+  // a via desta venda saiu antes; senão a regra de sempre — e dela, só a primeira.
   async enfileirarViaCliente(
     tenantId: string,
     unidadeId: string | null,
@@ -1071,7 +1076,8 @@ export class ProducaoPedidoService {
     alvoPreferido?: string | null,
     via: string = 'cliente',
     impressorasPerfil?: string[] | null, // S5 — impressoras direcionadas ao perfil deste cupom
-  ): Promise<{ enfileirados: number; aviso: string | null }> {
+    opcoes: { reimpressao?: boolean } = {},
+  ): Promise<{ enfileirados: number; aviso: string | null; impressoras: string[] }> {
     // Loja com servidor local ATIVO: a impressora está na rede dela e quem imprime é o worker
     // do servidor (a venda feita na nuvem desce e o EdgeImpressaoProcessor gera o cupom lá).
     // O job da nuvem ficava 'pendente' até o expurgo de 2 dias sem ninguém consumir — e, se a
@@ -1081,10 +1087,12 @@ export class ProducaoPedidoService {
       return {
         enfileirados: 0,
         aviso: 'Esta loja imprime pelo servidor local — o cupom sai por ele (para reimprimir, use o app da loja).',
+        impressoras: [],
       };
     }
     const cols = {
       id: equipamento.id,
+      nome: equipamento.nome,
       conexao: equipamento.conexao,
       host: equipamento.host,
       dispositivo: equipamento.dispositivo,
@@ -1093,6 +1101,7 @@ export class ProducaoPedidoService {
     };
     type Imp = {
       id: string;
+      nome: string;
       conexao: string | null;
       host: string | null;
       dispositivo: string | null;
@@ -1100,21 +1109,41 @@ export class ProducaoPedidoService {
       fazCupom?: boolean | null;
     };
     let printers: Imp[] = [];
-
-    // (0) alvo preferido explícito (override do reimprimir).
-    if (alvoPreferido) {
-      const [imp] = await this.db
+    // Uma impressora desta empresa, ativa (as listas abaixo são do mesmo jeito).
+    const impressoraAtiva = async (id: string | null | undefined): Promise<Imp[]> => {
+      if (!id) return [];
+      return this.db
         .select(cols)
         .from(equipamento)
-        .where(
-          and(
-            eq(equipamento.id, alvoPreferido),
-            eq(equipamento.tenantId, tenantId),
-            eq(equipamento.tipo, 'impressora'),
-            eq(equipamento.ativo, true),
-          ),
-        );
-      if (imp) printers = [imp];
+        .where(and(eq(equipamento.id, id), eq(equipamento.tenantId, tenantId), eq(equipamento.tipo, 'impressora'), eq(equipamento.ativo, true)));
+    };
+
+    // (0) alvo preferido explícito (override do reimprimir).
+    if (alvoPreferido) printers = await impressoraAtiva(alvoPreferido);
+
+    // A impressora de cupom do terminal de PDV (impressora_padrao_id), se ele é desta empresa e ativo.
+    const doTerminal = async (): Promise<Imp[]> => {
+      if (!terminalId) return [];
+      const [term] = await this.db
+        .select({ imp: equipamento.impressoraPadraoId })
+        .from(equipamento)
+        .where(and(eq(equipamento.id, terminalId), eq(equipamento.tenantId, tenantId), eq(equipamento.tipo, 'pdv'), eq(equipamento.ativo, true)));
+      return impressoraAtiva(term?.imp);
+    };
+
+    // Reimpressão: o PC que pediu; senão onde a via desta venda saiu antes (a última IMPRESSA;
+    // sem nenhuma impressa, a última enviada).
+    if (!printers.length && opcoes.reimpressao) {
+      printers = await doTerminal();
+      if (!printers.length && comandaId) {
+        const [antes] = await this.db
+          .select({ equipamentoId: impressaoJob.equipamentoId })
+          .from(impressaoJob)
+          .where(and(eq(impressaoJob.tenantId, tenantId), eq(impressaoJob.comandaId, comandaId), eq(impressaoJob.via, via), sql`${impressaoJob.equipamentoId} is not null`))
+          .orderBy(sql`(${impressaoJob.status} = 'impresso') desc`, desc(impressaoJob.criadoEm), desc(impressaoJob.id))
+          .limit(1);
+        printers = await impressoraAtiva(antes?.equipamentoId);
+      }
     }
 
     // (0.5) impressoras DIRECIONADAS ao perfil deste cupom (S5). Quando o perfil tem
@@ -1136,33 +1165,7 @@ export class ProducaoPedidoService {
     }
 
     // (1) impressora do terminal, se configurada e válida.
-    if (!printers.length && terminalId) {
-      const [term] = await this.db
-        .select({ imp: equipamento.impressoraPadraoId })
-        .from(equipamento)
-        .where(
-          and(
-            eq(equipamento.id, terminalId),
-            eq(equipamento.tenantId, tenantId),
-            eq(equipamento.tipo, 'pdv'),
-            eq(equipamento.ativo, true),
-          ),
-        );
-      if (term?.imp) {
-        const [imp] = await this.db
-          .select(cols)
-          .from(equipamento)
-          .where(
-            and(
-              eq(equipamento.id, term.imp),
-              eq(equipamento.tenantId, tenantId),
-              eq(equipamento.tipo, 'impressora'),
-              eq(equipamento.ativo, true),
-            ),
-          );
-        if (imp) printers = [imp];
-      }
-    }
+    if (!printers.length && terminalId && !opcoes.reimpressao) printers = await doTerminal();
 
     // (2) impressoras de cupom (faz_cupom) da unidade (ou de rede, unidade nula).
     if (!printers.length) {
@@ -1216,8 +1219,16 @@ export class ProducaoPedidoService {
         return {
           enfileirados: 0,
           aviso: 'Nenhuma impressora com alvo válido — configure o IP (rede) ou o nome no Windows (local) da impressora de cupom.',
+          impressoras: [],
         };
       }
+    }
+
+    // Reimpressão que caiu na regra de sempre (o PC não é terminal e a via nunca saiu): uma só, pelo
+    // nome — e diz qual, e como fazer sair no PC certo.
+    if (opcoes.reimpressao && validos.length > 1) {
+      validos = [...validos].sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt-BR')).slice(0, 1);
+      aviso = `Reimpressão enviada só para a ${validos[0].nome}. Para sair na impressora deste PC, pareie o PC como terminal de PDV e escolha a impressora de cupom dele.`;
     }
 
     for (const p of validos) {
@@ -1231,7 +1242,7 @@ export class ProducaoPedidoService {
         conteudo,
       });
     }
-    return { enfileirados: validos.length, aviso };
+    return { enfileirados: validos.length, aviso, impressoras: validos.map((p) => p.nome) };
   }
 
   // ===== Fila de impressão (worker do edge; auth por token servidor_local) =====

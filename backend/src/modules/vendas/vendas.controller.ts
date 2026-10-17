@@ -280,8 +280,10 @@ export class VendasController {
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: any,
+    @TerminalAtual() terminalId: string | null,
   ) {
-    return this.service.reimprimirCupom(user.tenantId, user.colaboradorId, id, dto?.equipamentoId ?? null);
+    // Sem impressora escolhida: a de cupom do PC que pediu (terminal pareado) — ERR-247.
+    return this.service.reimprimirCupom(user.tenantId, user.colaboradorId, id, dto?.equipamentoId ?? null, terminalId);
   }
 
   @Post('comandas/:id/cancelar')
