@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { SeletorProduto, type SelecaoProduto } from '@/components/pdv/seletor-produto';
 import { DetalheEntregadorDoCanal } from '@/components/delivery/logistica-canal';
 import { LinhaDoTempoPedido } from '@/components/delivery/linha-do-tempo-pedido';
+import { ondeSaiu } from '@/lib/reimpressao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -104,7 +105,7 @@ export function PedidoDetalhe({
       } else if (res?.aviso) {
         toast.info(res.aviso);
       } else {
-        toast.success('Vias reenviadas para impressão.');
+        toast.success(`Via reenviada à impressão.${ondeSaiu(res)}`);
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao reimprimir');

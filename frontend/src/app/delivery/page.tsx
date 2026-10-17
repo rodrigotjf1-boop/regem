@@ -17,6 +17,7 @@ import { UnidadeSeletor } from '@/components/app-shell/unidade-seletor';
 import { ModoOperacao } from '@/components/ui/modo-operacao';
 import { Clock } from 'lucide-react';
 import { SeloEntregadorDoCanal, textoEntregadorDoCanal } from '@/components/delivery/logistica-canal';
+import { ondeSaiu } from '@/lib/reimpressao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -226,7 +227,7 @@ export default function DeliveryPage() {
       } else if (res && typeof res === 'object' && res.aviso) {
         toast.info(res.aviso);
       } else {
-        toast.success(ok);
+        toast.success(`${ok}${ondeSaiu(res)}`);
       }
       await reload();
     } catch (e) {
@@ -466,7 +467,7 @@ export default function DeliveryPage() {
     reimprimir: {
       show: true,
       enabled: !!sel && !!sel.comandaId,
-      onClick: () => sel && acao(api.reimprimirDelivery(sel.id), 'Vias reenviadas à impressão.'),
+      onClick: () => sel && acao(api.reimprimirDelivery(sel.id), 'Via reenviada à impressão.'),
     },
     // "Editar pedido" (antes "Cupom entregador"): abre o detalhe já em modo ALTERAR —
     // mesma função de detalhes → Alterar. 99food/iFood NÃO editam (marketplace controla).

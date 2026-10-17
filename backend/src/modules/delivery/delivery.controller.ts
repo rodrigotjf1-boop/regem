@@ -306,9 +306,11 @@ export class DeliveryController {
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: any,
+    @TerminalAtual() terminalId: string | null,
   ) {
-    // dto.equipamentoId (opcional): "Imprimir em…" — override da impressora.
-    return this.service.reimprimir(user.tenantId, user.colaboradorId, id, dto?.equipamentoId ?? null);
+    // dto.equipamentoId (opcional): "Imprimir em…" — override da impressora. Sem ele, sai na
+    // impressora de cupom do PC que pediu (terminal pareado, conferido pelo segredo) — ERR-247.
+    return this.service.reimprimir(user.tenantId, user.colaboradorId, id, dto?.equipamentoId ?? null, terminalId);
   }
 
   @Get('pedidos/:id/itens')

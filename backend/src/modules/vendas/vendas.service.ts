@@ -1288,6 +1288,7 @@ export class VendasService {
     terminalId?: string | null,
     alvoPreferido?: string | null,
     qrData?: string | null,
+    opcoes: { reimpressao?: boolean } = {},
   ) {
     // atorId pode ser nulo (materialização no edge de uma venda que desceu) — sem
     // ator o cupom sai sem "atendente"; evita consultar colaborador com id inválido.
@@ -1330,6 +1331,7 @@ export class VendasService {
       alvoPreferido,
       'cliente',
       perfilCaixa.impressoras, // S5 — impressoras direcionadas ao perfil "caixa"
+      opcoes,
     );
   }
 
@@ -2293,13 +2295,16 @@ export class VendasService {
     });
   }
 
-  // Reimprime as vias (via do cliente) a partir do estado atual da comanda.
+  // Reimprime as vias (via do cliente) a partir do estado atual da comanda. Sai num lugar SÓ
+  // (`reimpressao`, ERR-247): a impressora escolhida, a de cupom do PC que pediu (`terminalId`, o
+  // terminal pareado que o pedido trouxe) ou onde a via saiu antes.
   async reimprimirViasExterno(
     tenantId: string,
     atorId: string,
     comandaId: string,
     alvoPreferido?: string | null,
     qrData?: string | null,
+    terminalId?: string | null,
   ) {
     const [c] = await this.db
       .select()
@@ -2315,6 +2320,14 @@ export class VendasService {
           eq(comandaItem.comandaId, comandaId),
         ),
       );
+    // As escolhas de todos os itens numa consulta: a reimpressão saía sem os adicionais e sem a
+    // observação (`complementosTexto: null`), diferente da 1ª via.
+    const escolhas = itens.length
+      ? await this.db
+          .select({ itemId: comandaItemComplemento.comandaItemId, tipo: comandaItemComplemento.tipo, nome: comandaItemComplemento.nome })
+          .from(comandaItemComplemento)
+          .where(inArray(comandaItemComplemento.comandaItemId, itens.map((it) => it.id)))
+      : [];
     const res = await this.imprimirViaCliente(
       tenantId,
       comandaId,
@@ -2328,22 +2341,24 @@ export class VendasService {
           quantidade: Number(it.quantidade),
           descricao: it.descricao,
           precoUnitario: Number(it.precoUnitario),
-          complementosTexto: null,
+          complementosTexto: textoDasEscolhas(escolhas.filter((e) => e.itemId === it.id), it.descricao),
+          observacao: it.observacao,
         })),
         total: Number(c.total),
         forma: c.forma,
       },
-      null,
+      terminalId ?? null,
       alvoPreferido,
       qrData,
+      { reimpressao: true },
     );
     return { ok: (res?.enfileirados ?? 0) > 0, ...res };
   }
 
   // Reimprime a 2ª via do comprovante de um cupom (balcão/mesa/delivery).
   // Reaproveita a via do cliente a partir do estado atual da comanda.
-  reimprimirCupom(tenantId: string, atorId: string, comandaId: string, alvoPreferido?: string | null) {
-    return this.reimprimirViasExterno(tenantId, atorId, comandaId, alvoPreferido);
+  reimprimirCupom(tenantId: string, atorId: string, comandaId: string, alvoPreferido?: string | null, terminalId?: string | null) {
+    return this.reimprimirViasExterno(tenantId, atorId, comandaId, alvoPreferido, null, terminalId);
   }
 
   // Altera os itens de um delivery (comanda 'fechada'): adiciona/remove itens,

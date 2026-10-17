@@ -2511,14 +2511,15 @@ export class DeliveryService {
       );
   }
 
-  async reimprimir(tenantId: string, atorId: string, id: string, alvoPreferido?: string | null) {
+  async reimprimir(tenantId: string, atorId: string, id: string, alvoPreferido?: string | null, terminalId?: string | null) {
     const ped = await this.carregar(tenantId, id);
     if (!ped.comandaId)
       throw new BadRequestException('Pedido ainda não aceito (sem via para imprimir).');
     // Passa o MESMO QR de despacho da 1ª via ({base}/e/{token}) — senão a reimpressão sai
     // sem o QR e o entregador não tem o que escanear (bug relatado 01/09).
     const qrData = await this.qrDespacho(tenantId, ped);
-    return this.vendas.reimprimirViasExterno(tenantId, atorId, ped.comandaId, alvoPreferido, qrData);
+    // Sai num lugar só: a impressora escolhida, a do PC que pediu ou onde saiu antes (ERR-247).
+    return this.vendas.reimprimirViasExterno(tenantId, atorId, ped.comandaId, alvoPreferido, qrData, terminalId);
   }
 
   // ===== Integrações (credenciais de apps externos) =====

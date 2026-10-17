@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { imprimirCupomNavegador } from '@/lib/print-cupom';
+import { ondeSaiu } from '@/lib/reimpressao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -93,8 +94,10 @@ export default function CuponsPage() {
     if (!sel) return;
     setReimprimindo(true);
     try {
-      await api.reimprimirCupom(sel.id);
-      toast.success('2ª via enviada para a impressora.');
+      const res: any = await api.reimprimirCupom(sel.id);
+      if (res && typeof res === 'object' && res.enfileirados === 0) toast.error(res.aviso || 'Nenhuma impressora disponível.');
+      else if (res?.aviso) toast.info(res.aviso);
+      else toast.success(`2ª via enviada.${ondeSaiu(res)}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao reimprimir');
     } finally {
