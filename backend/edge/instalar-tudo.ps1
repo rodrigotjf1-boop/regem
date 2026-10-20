@@ -22,8 +22,9 @@ param(
   #   cliente  = magro (so aponta pro Servidor na LAN; sem Postgres/sync/servicos).
   [ValidateSet('servidor','cliente')][string]$Modo = 'servidor',
   [string]$ServidorHost = "",   # (modo cliente) IP/host do Servidor Regem na LAN
-  # (modo cliente) "Este PC tem impressora": instala a estacao de impressao. O codigo de 6 digitos
-  # vem neste arquivo temporario (nunca na linha de comando); vazio = sem estacao neste PC.
+  # (modo cliente) "Este PC tem impressora": o codigo de 6 digitos da estacao vem neste arquivo
+  # temporario (nunca na linha de comando); vazio = PC sem impressora (o "Regem neste PC" instala do
+  # mesmo jeito - D1). -Estacao fica aceito por compatibilidade (o .exe 1.30.4 o mandava).
   [string]$EstacaoArq = "",
   [switch]$Estacao,
   [string]$Raiz = "C:\regem-edge\backend",
@@ -616,12 +617,30 @@ if ($Modo -eq 'cliente') {
   $urlApp = "https://{0}:{1}" -f $ServidorHost, $PortaWeb
   Diga ("Servidor: {0}" -f $urlApp)
 
-  # 1) Confia o certificado do Servidor (o edge serve o ca.pem em /ca.pem).
+  # 1) Confia o certificado do Servidor (o edge serve o ca.pem em /ca.pem). Baixado pelo NODE do
+  #    pacote: este PowerShell 5.1 nao tem -SkipCertificateCheck e o Invoke-WebRequest falhava SEMPRE -
+  #    o PC cliente ficava sem confiar no Servidor e o atalho abria com "conexao nao segura" (ERR-249).
+  #    Fica tambem na pasta do "Regem neste PC" (estacao\certs): o servico confere o servidor com ele
+  #    mesmo sem impressora/pareamento (conexao PC <-> servidor, parte 2).
+  $appCli = Split-Path $Raiz -Parent
+  $dadosEst = Join-Path $appCli 'estacao'
   try {
-    $ca = Join-Path $env:TEMP "regem-ca.pem"
-    Invoke-WebRequest -Uri ("{0}/ca.pem" -f $urlApp) -OutFile $ca -SkipCertificateCheck -TimeoutSec 10 -UseBasicParsing
+    $nodeCli = Join-Path $appCli 'node\node.exe'
+    if (-not (Test-Path $nodeCli)) {
+      $c = Get-Command node -ErrorAction SilentlyContinue
+      if ($c) { $nodeCli = $c.Source } else { throw "Node nao encontrado em $appCli\node" }
+    }
+    $eapCa = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    $env:ESTACAO_RAIZ = $dadosEst
+    # Cada linha como TEXTO: no PowerShell 5.1 a saida de erro do node vem embrulhada (CategoryInfo...).
+    $saidaCa = (& $nodeCli (Join-Path $Raiz 'edge\estacao-impressao.mjs') '--baixar-ca' '--servidor' $ServidorHost 2>&1 | ForEach-Object { "$_" } | Out-String)
+    $okCa = ($LASTEXITCODE -eq 0)
+    Remove-Item Env:ESTACAO_RAIZ -ErrorAction SilentlyContinue
+    $ErrorActionPreference = $eapCa
+    $ca = Join-Path $dadosEst 'certs\servidor-ca.pem'
+    if (-not $okCa -or -not (Test-Path $ca)) { throw (($saidaCa.Trim() -split "`r?`n") | Select-Object -Last 1) }
     Import-Certificate -FilePath $ca -CertStoreLocation Cert:\LocalMachine\Root -ErrorAction Stop | Out-Null
-    Diga "Certificado do Servidor confiado (LocalMachine\Root)."
+    Diga "Certificado do Servidor confiado (LocalMachine\Root) e guardado para o Regem neste PC."
   } catch {
     Diga ("Aviso: nao consegui baixar/confiar o ca.pem do Servidor ({0}). Confie manualmente se o navegador reclamar." -f $_.Exception.Message)
   }
@@ -652,26 +671,28 @@ if ($Modo -eq 'cliente') {
     Diga "Aviso: Edge/Chrome nao encontrado. Instale um navegador e crie o atalho manualmente para $urlApp"
   }
 
-  # 3) "Este PC tem impressora": a ESTACAO DE IMPRESSAO (central de impressao, fase 1). Instala o
-  #    servico que imprime as impressoras deste PC e pareia pelo codigo; falhar o codigo NAO para a
-  #    instalacao do PC (o icone ao lado do relogio tem "Parear com codigo...") - vira aviso no fim.
-  if ($Estacao -or ($EstacaoArq -and (Test-Path $EstacaoArq))) {
-    try {
-      $verFile = Join-Path $root 'version.txt'
-      $verEst = if (Test-Path $verFile) { (Get-Content $verFile -Raw).Trim() } else { '' }
-      $saidaEst = & (Join-Path $PSScriptRoot 'instalar-estacao-impressao.ps1') -Raiz $Raiz -ServidorHost $ServidorHost -CodigoArq $EstacaoArq -Versao $verEst
-      $fimEst = (@($saidaEst) | Select-Object -Last 1)
-      Diga ("Estacao de impressao: {0}" -f $fimEst)
-      if ("$fimEst" -like 'SEM-PAREAMENTO*') {
-        $avisoEst = "A estacao de impressao foi instalada, mas ainda NAO esta pareada (" + ("$fimEst" -replace '^SEM-PAREAMENTO:\s*', '') + "). " +
-          "Gere um codigo novo no Regem (Configuracoes > Equipamentos > Gerar codigo da estacao) e use 'Parear com codigo...' no icone ao lado do relogio."
-        Set-Content -Path (Join-Path $logDir 'INSTALOU-AVISO.txt') -Value $avisoEst -Encoding UTF8 -ErrorAction SilentlyContinue
-      }
-    } catch {
-      $avisoEst = "A estacao de impressao NAO foi instalada: " + $_.Exception.Message + ". O resto deste PC esta pronto; rode o instalador de novo para tentar."
-      Diga $avisoEst
+  # 3) "Regem neste PC" (a estacao de impressao): o servico que mantem este PC ligado ao servidor da
+  #    loja - acha o servidor quando o roteador troca o IP dele - e, com impressora, imprime os cupons
+  #    dela. Vai em TODO PC cliente, mesmo sem impressora (decisao D1 do dono, 20/10/2026: -Estacao
+  #    nao e mais preciso); o codigo so pareia a impressora. Falhar o codigo NAO para a instalacao do
+  #    PC (o icone ao lado do relogio tem "Parear com codigo...") - vira aviso no fim.
+  $temCodigo = [bool]($EstacaoArq -and (Test-Path $EstacaoArq))
+  try {
+    $verFile = Join-Path $root 'version.txt'
+    $verEst = if (Test-Path $verFile) { (Get-Content $verFile -Raw).Trim() } else { '' }
+    $saidaEst = & (Join-Path $PSScriptRoot 'instalar-estacao-impressao.ps1') -Raiz $Raiz -ServidorHost $ServidorHost -CodigoArq $EstacaoArq -Versao $verEst
+    $fimEst = (@($saidaEst) | Select-Object -Last 1)
+    Diga ("Regem neste PC (estacao): {0}" -f $fimEst)
+    # Sem codigo e sem pareamento anterior = PC sem impressora: nada a avisar.
+    if ("$fimEst" -like 'SEM-PAREAMENTO*' -and $temCodigo) {
+      $avisoEst = "A estacao de impressao foi instalada, mas ainda NAO esta pareada (" + ("$fimEst" -replace '^SEM-PAREAMENTO:\s*', '') + "). " +
+        "Gere um codigo novo no Regem (Configuracoes > Equipamentos > Gerar codigo da estacao) e use 'Parear com codigo...' no icone ao lado do relogio."
       Set-Content -Path (Join-Path $logDir 'INSTALOU-AVISO.txt') -Value $avisoEst -Encoding UTF8 -ErrorAction SilentlyContinue
     }
+  } catch {
+    $avisoEst = "O Regem neste PC (estacao) NAO foi instalado: " + $_.Exception.Message + ". O atalho do Regem funciona; rode o instalador de novo para tentar."
+    Diga $avisoEst
+    Set-Content -Path (Join-Path $logDir 'INSTALOU-AVISO.txt') -Value $avisoEst -Encoding UTF8 -ErrorAction SilentlyContinue
   }
 
   Diga "=== Cliente configurado. Abra o atalho 'Regem'. O pareamento e feito na 1a abertura (codigo de 6 digitos gerado no Servidor). ==="

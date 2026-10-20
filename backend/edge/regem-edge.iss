@@ -67,10 +67,11 @@ Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; \
   StatusMsg: "Instalando o Regem Edge…"; \
   Flags: waituntilterminated
 
-; Estacao de impressao (modo cliente, "Este PC tem impressora"): o icone ao lado do relogio, aberto
-; como o usuario que instalou (nao como administrador). Depois, abre sozinho em todo login (Registry).
+; "Regem neste PC" (modo cliente; a estacao de impressao): o icone ao lado do relogio, aberto como o
+; usuario que instalou (nao como administrador). Depois, abre sozinho em todo login (Registry). Vai em
+; todo PC cliente, mesmo sem impressora (decisao D1 do dono, 20/10/2026).
 Filename: "{app}\backend\edge\bandeja\RegemEstacao.exe"; Parameters: "--raiz ""{app}\estacao"""; \
-  Description: "Mostrar o icone da estacao de impressao"; \
+  Description: "Mostrar o icone do Regem neste PC"; \
   Flags: nowait postinstall runasoriginaluser skipifdoesntexist; Check: TemEstacao
 
 [Registry]
@@ -232,17 +233,19 @@ begin
   PgServidor.Add('Servidor (nome ou IP):', False);
   PgServidor.Values[0] := 'regem.local';
 
-  // Estacao de impressao (central de impressao, fase 1) - so no Cliente: o servico que imprime as
-  // impressoras DESTE PC e o icone ao lado do relogio. O codigo e gerado no Regem.
+  // "Este PC" (prototipo da conexao PC <-> servidor, peca 5) - so no Cliente: o servico "Regem neste
+  // PC" instala SEMPRE (D1: mantem a ligacao com o servidor, mesmo se o IP dele mudar) e o icone ao lado
+  // do relogio; a impressora e o codigo (gerado no Regem) continuam opcionais.
   PgEstacao := CreateInputQueryPage(PgServidor.ID,
-    'Impressora neste PC',
-    'Este PC tem impressora que deve imprimir os cupons?',
-    'No Regem, em Configuracoes > Equipamentos, cadastre a "Estacao de impressao" deste PC e clique em Gerar codigo. ' +
-    'Digite o codigo abaixo (vale 15 minutos e uma vez so). Numa reinstalacao, deixe em branco para manter o pareamento atual.');
+    'Este PC',
+    'O Regem instala aqui o servico que mantem a ligacao com o servidor da loja (icone ao lado do relogio).',
+    'Com impressora: marque a caixa e digite o codigo da estacao. Gere o codigo no Regem: Configuracoes > Equipamentos > ' +
+    '(a estacao deste PC) > Gerar codigo. Vale 15 minutos e uma vez so. Numa reinstalacao, deixe em branco para manter o pareamento. ' +
+    'Sem impressora: deixe a caixa desmarcada. O servico instala do mesmo jeito, so para a ligacao com o servidor.');
   PgEstacao.Add('Codigo da estacao (6 numeros):', False);
   ChkEstacao := TNewCheckBox.Create(PgEstacao);
   ChkEstacao.Parent := PgEstacao.Surface;
-  ChkEstacao.Caption := 'Este PC tem impressora (instalar a estacao de impressao)';
+  ChkEstacao.Caption := 'Este PC tem impressora (a estacao imprime os cupons dela)';
   ChkEstacao.Top := 0;
   ChkEstacao.Width := PgEstacao.SurfaceWidth;
   ChkEstacao.Height := ScaleY(17);
@@ -382,9 +385,15 @@ begin
   end;
 end;
 
+// "Regem neste PC" em todo PC cliente (D1): o servico e o icone, com ou sem impressora.
 function TemEstacao: Boolean;
 begin
-  Result := EhCliente and ChkEstacao.Checked;
+  Result := EhCliente;
+end;
+// O codigo da estacao so com "Este PC tem impressora" marcado e digitado.
+function TemCodigoEstacao: Boolean;
+begin
+  Result := EhCliente and ChkEstacao.Checked and (Trim(PgEstacao.Values[0]) <> '');
 end;
 // Parametros da estacao para o orquestrador: o codigo vai num ARQUIVO (escrito no ssInstall).
 function GetEstacaoParams(Param: string): string;
@@ -392,7 +401,7 @@ begin
   Result := '';
   if not TemEstacao then Exit;
   Result := '-Estacao';
-  if Trim(PgEstacao.Values[0]) <> '' then
+  if TemCodigoEstacao then
     Result := Result + ' -EstacaoArq "' + ExpandConstant('{tmp}\regem-estacao.txt') + '"';
 end;
 
@@ -455,7 +464,7 @@ begin
       SaveStringToFile(ExpandConstant('{tmp}\regem-cred.txt'), s, False);
     end;
     // Estacao de impressao: o codigo num arquivo temporario - o script le e apaga na hora.
-    if TemEstacao and (Trim(PgEstacao.Values[0]) <> '') then
+    if TemCodigoEstacao then
       SaveStringToFile(ExpandConstant('{tmp}\regem-estacao.txt'), Trim(PgEstacao.Values[0]), False);
   end;
   // Depois do script: SEM o flag de sucesso = falhou (login errado, sem internet,

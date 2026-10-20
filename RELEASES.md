@@ -24,6 +24,19 @@
   Delivery, Garçom) e Equipamentos "Por PC" com "conectado agora". É tela: entra no `.zip` (o servidor da loja serve o
   app aos PCs — eles atualizam junto). Na loja, conferir: o PC do delivery mostra "Servidor da loja" verde e, em
   Equipamentos › Por PC, aparece com o terminal e a estação "conectado agora".
+- **Conexão PC ↔ servidor, parte 2 (sem migration): "Regem neste PC" acha o servidor quando o IP muda — PEDE `.exe`.**
+  Toca `backend/edge/` (`estacao-impressao.mjs`, novo `achar-servidor.mjs`, `bandeja/RegemEstacao.cs`, `instalar-tudo.ps1`,
+  `instalar-estacao-impressao.ps1`, `regem-edge.iss`) e o servidor (rota NOVA só na nuvem `GET /impressao/estacao/servidor`,
+  o IP do servidor para a estação). ⚠️ **No PC cliente o serviço roda o código copiado na instalação: a parte 2 só chega
+  ao PC do delivery reinstalando o `.exe` NOVO no modo cliente** (o `.zip` atualiza só o servidor da loja; o servidor e a
+  nuvem recebem a rota pelo `.zip`/deploy). O que muda no PC: a estação procura o servidor sozinha (configurado →
+  regem.local → último IP bom → IP que a nuvem informa → a rede /24) e só aceita o da loja (certificado pelo nome
+  `regem.local`, ERR-250); achou por IP e o nome não resolve → anota `IP regem.local` no hosts do Windows (D2); o ícone vira
+  "Regem neste PC" (linha da conexão, "Testar conexão", "Trocar endereço do servidor…", "Parear com código…" sempre, avisos
+  "O servidor mudou de endereço"/"Não acho o servidor"); o instalador instala o serviço em TODO PC cliente, mesmo sem
+  impressora (D1), e passa a confiar o certificado da loja de verdade (ERR-249: o PowerShell 5.1 não baixava o `ca.pem`).
+  Na loja, depois de instalar no PC do delivery: o ícone ao lado do relógio mostra "Ligado ao servidor - regem.local
+  (IP)"; em Equipamentos › Por PC a estação aparece "conectado agora".
 
 ## Última release: `1.30.5` — gerada em 17/10/2026 da `origin/main` `02d36210`, **`.zip` GERADO, conferido e assinado** (`regem-edge-1.30.5.zip`, 31.735.344 bytes, SHA-256 `46852d32e16e45bf944be4e8c8df7329d4b6b61bb02d0478e4b4f7d47e093838`); publicação no console PENDENTE (o dono); sem `.exe`
 

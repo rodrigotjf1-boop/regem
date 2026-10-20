@@ -104,6 +104,38 @@ descrever('Equipamentos: quem está conectado agora (Postgres real)', () => {
     await q('delete from equipamento where tenant_id = $1', [T]);
   });
 
+  // Parte 2: a estação que perdeu o servidor (o roteador trocou o IP) pergunta à nuvem o IP dele.
+  it('nuvem: o IP do servidor para a estação — o da loja dela, ativo, o visto por último; outra empresa não vê', async () => {
+    process.env.EDGE_MODE = 'false';
+    const svc = new EquipamentoService(db, auditoria);
+    const OUTRA = randomUUID();
+    await q(`insert into unidade (id, tenant_id, nome) values ($1, $2, 'Outra loja')`, [OUTRA, T]);
+    const revogado = await equip('servidor_local', 'Servidor antigo', { ativo: false, revogado_em: new Date() });
+    const daLoja = await equip('servidor_local', 'Servidor loja teste');
+    const daOutra = await equip('servidor_local', 'Servidor outra loja', { unidade_id: OUTRA });
+    const semRede = await equip('servidor_local', 'Servidor 1.30.4', { unidade_id: OUTRA });
+    const status = (id: string, unidade: string, rede: any, minutos: number) =>
+      q(
+        `insert into edge_status (equipamento_id, tenant_id, unidade_id, versao, estado, saude, recebido_em)
+         values ($1, $2, $3, '1.30.6', 'sync_ok', $4::jsonb, now() - make_interval(mins => $5))`,
+        [id, T, unidade, JSON.stringify(rede ? { rede } : {}), minutos],
+      );
+    await status(revogado, LOJA, { ip: '192.168.0.9', maquina: 'VELHO' }, 0); // o mais recente, mas revogado
+    await status(daLoja, LOJA, { ip: '192.168.0.31', maquina: 'SERVIDOR-MB' }, 3);
+    await status(daOutra, OUTRA, { ip: '192.168.1.40', maquina: 'SERVIDOR-2' }, 2);
+    await status(semRede, OUTRA, null, 1); // servidor antigo, sem a rede na saúde
+    expect(await svc.servidorParaEstacao(T, LOJA)).toMatchObject({ ip: '192.168.0.31', maquina: 'SERVIDOR-MB' });
+    expect(Date.now() - Date.parse((await svc.servidorParaEstacao(T, LOJA)).vistoEm!)).toBeLessThan(4 * 60_000);
+    // A outra loja: o visto por último é o sem rede → sem IP (a estação segue pela rede dela).
+    expect((await svc.servidorParaEstacao(T, OUTRA)).ip).toBeNull();
+    await q('delete from edge_status where equipamento_id = $1', [semRede]);
+    expect((await svc.servidorParaEstacao(T, OUTRA)).ip).toBe('192.168.1.40');
+    expect(await svc.servidorParaEstacao(randomUUID(), LOJA)).toEqual({ ip: null, maquina: null, vistoEm: null });
+    await q('delete from edge_status where tenant_id = $1', [T]);
+    await q('delete from equipamento where tenant_id = $1', [T]);
+    await q('delete from unidade where id = $1', [OUTRA]);
+  });
+
   it('o "último uso" do terminal é regravado no máximo a cada 5 min', async () => {
     process.env.EDGE_MODE = 'true';
     const svc = new EquipamentoService(db, auditoria);
