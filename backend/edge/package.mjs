@@ -84,7 +84,9 @@ function compilarIconeDaEstacao() {
     process.exit(1);
   }
   mkdirSync(dirname(destino), { recursive: true });
-  execFileSync(csc, ['-nologo', '-optimize+', '-target:winexe', `-out:${destino}`,
+  // O .exe leva o ícone do Regem (edge/regem.ico, o mesmo dos atalhos): é o que aparece no Gerenciador de
+  // Tarefas e em "Aplicativos de inicialização". O ícone ao lado do relógio segue desenhado no código, na cor da situação.
+  execFileSync(csc, ['-nologo', '-optimize+', '-target:winexe', `-out:${destino}`, `-win32icon:${join(raiz, 'edge', 'regem.ico')}`,
     '-r:System.Web.Extensions.dll', '-r:System.Windows.Forms.dll', '-r:System.Drawing.dll', fonte], { stdio: 'inherit' });
   console.log('  + edge/bandeja/RegemEstacao.exe (ícone da estação, compilado)');
 }

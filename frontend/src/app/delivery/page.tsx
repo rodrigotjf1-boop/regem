@@ -1251,7 +1251,7 @@ function AtendimentoPanel({ lista, onFechar, onResolver, onDecidir }: {
               </div>
               {c.tipo === 'cancelamento' && cancelId === c.id && (
                 <div className="mt-2 flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-2">
-                  <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="Senha do gestor" className="h-8 flex-1 rounded border border-border bg-background px-2 text-sm" />
+                  <input type="password" autoComplete="new-password" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="Senha do gestor" className="h-8 flex-1 rounded border border-border bg-background px-2 text-sm" />
                   <Button type="button" size="sm" className="h-8 bg-destructive text-xs text-white hover:bg-destructive/90" disabled={!senha} onClick={() => { onDecidir(c.id, true, senha); setCancelId(null); setSenha(''); }}>
                     Confirmar cancelamento
                   </Button>

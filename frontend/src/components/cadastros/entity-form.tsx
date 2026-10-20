@@ -255,6 +255,8 @@ export function EntityForm({
               className={erroCampo[f.name] ? 'border-destructive' : undefined}
               placeholder={f.placeholder}
               required={f.required}
+              // O usuário do colaborador novo não recebe o login salvo de quem cadastra (a senha, o Input já protege).
+              autoComplete={f.name === 'usuario' ? 'off' : undefined}
             />
           )}
           {erroCampo[f.name] && (

@@ -45,7 +45,8 @@ export default function TrocarSenhaPage() {
         <Card className="space-y-3 p-4">
           <div className="space-y-1">
             <Label className="text-xs">Senha atual</Label>
-            <Input type="password" value={atual} onChange={(e) => setAtual(e.target.value)} autoComplete="current-password" />
+            {/* Sem preencher a senha salva: num PC da loja, quem achasse a sessão aberta trocaria a senha sem sabê-la. */}
+            <Input type="password" value={atual} onChange={(e) => setAtual(e.target.value)} autoComplete="new-password" />
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Nova senha</Label>

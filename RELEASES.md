@@ -52,6 +52,22 @@
   servidor (`common/regras-impressao.ts`, o documento no aceite e no pedido que chega aceito) e a tela. Entra no `.zip`;
   na nuvem vale no deploy (a tela). Na loja: escolher a impressora do caixa em Impressoras e cupons › Onde cada documento
   sai › Via da retirada. Hoje o caixa não tem impressora no Regem (a "Caixa Regem" foi apagada em 18/10).
+- **Atalhos com o ícone do Regem e login sem preenchimento automático (sem migration) — os atalhos PEDEM `.exe`:**
+  - **Instalador (`.exe`):** todo atalho que ele cria sai com o ícone do Regem (`edge/regem.ico`, gerado da marca do app):
+    no servidor, "Regem (servidor local)", PDV, KDS, Ponto, Garçom e "Regem (nuvem)"; no PC cliente, "Regem", que passa a
+    abrir no login (`/entrar`) e não mais na página de apresentação (ERR-253). O instalador e "Aplicativos instalados"
+    mostram o ícone; o `.exe` do "Regem neste PC" também (Gerenciador de Tarefas). Toca `instalar-tudo.ps1`,
+    `regem-edge.iss` (`SetupIconFile`, `UninstallDisplayIcon`) e `package.mjs` (`-win32icon`).
+  - **Atualização (`.zip`):** o `atualizar.ps1` troca o ícone dos atalhos "Regem…" que a instalação já criou (só o ícone).
+    ⚠️ A tarefa roda o script da versão INSTALADA (LIC-401): no servidor da loja (1.30.5), os atalhos antigos ganham o
+    ícone na atualização SEGUINTE à 1.30.6, ou já na reinstalação pelo `.exe`.
+  - **Tela (`.zip` para o app local; na nuvem vale no deploy):** o navegador deixa de pôr sozinho o usuário e a senha
+    (ERR-252): login, pareamento do terminal de ponto, senha do gestor (delivery, PDV › retirada, detalhe do pedido), PIN
+    da ordem de produção, "senha atual" de Trocar senha, tokens das integrações e cadastro do colaborador. A senha que o
+    Edge do PC já guardou deixa de entrar sozinha, mas continua guardada: apagar em cada PC (Edge › Configurações ›
+    Senhas).
+  - Na loja, conferir: no PC cliente reinstalado, o atalho "Regem" com a marca e abrindo no login; ao abrir qualquer
+    atalho, usuário e senha em branco.
 
 ## Última release: `1.30.5` — gerada em 17/10/2026 da `origin/main` `02d36210`, **`.zip` GERADO, conferido e assinado** (`regem-edge-1.30.5.zip`, 31.735.344 bytes, SHA-256 `46852d32e16e45bf944be4e8c8df7329d4b6b61bb02d0478e4b4f7d47e093838`); publicação no console PENDENTE (o dono); sem `.exe`
 
