@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Dialogo } from '@/components/ui/sobreposto';
 import { texto2 } from '@/components/ui/lista';
 import { Input } from '@/components/ui/input';
-import { DIAS_PARA_REATIVAR, ehGogem, haQuanto, minutosDesde, tipoDe, ultimoSinal } from './equipamento';
+import { DIAS_PARA_REATIVAR, conectadoAgora, ehGogem, haQuanto, minutosDesde, tipoDe, ultimoSinal } from './equipamento';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -187,7 +187,20 @@ export function RevogarEquipamento({
         )}
         {emUso && (
           <p role="alert" className="rounded-md border-l-4 border-destructive bg-destructive/10 px-3 py-2 font-semibold">
-            Este equipamento deu sinal {haQuanto(sinal!)}: ele está em uso agora.
+            {conectadoAgora(equipamento) ? (
+              <>
+                Este PC está conectado agora
+                {equipamento.presenca?.maquina ? `: ${equipamento.presenca.maquina}` : ''}
+                {equipamento.presenca?.ip ? ` (${equipamento.presenca.ip})` : ''}, última resposta{' '}
+                {(() => {
+                  const s = Math.max(0, Math.round((Date.now() - Date.parse(equipamento.presenca.vistoEm)) / 1000));
+                  return s < 60 ? `há ${s} s` : haQuanto(equipamento.presenca.vistoEm);
+                })()}
+                . Revogar fecha o acesso dele na hora.
+              </>
+            ) : (
+              <>Este equipamento deu sinal {haQuanto(sinal!)}: ele está em uso agora.</>
+            )}
           </p>
         )}
         {ehGogem(equipamento) && (

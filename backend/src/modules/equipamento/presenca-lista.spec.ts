@@ -81,6 +81,7 @@ descrever('Equipamentos: quem está conectado agora (Postgres real)', () => {
     const est = await equip('estacao_impressao', 'estacao delivery');
     const agora = Date.now();
     const saude = {
+      rede: { ip: '192.168.0.10', maquina: 'SERVIDOR-MB', mac: '3C-52-82-4A-19-7E', medidoEm: new Date(agora).toISOString() },
       presenca: {
         em: new Date(agora).toISOString(),
         pcs: [
@@ -94,6 +95,7 @@ descrever('Equipamentos: quem está conectado agora (Postgres real)', () => {
     const de = (id: string) => lista.find((e: any) => e.id === id);
     expect(de(pdv).presenca).toMatchObject({ ip: '192.168.0.23', endereco: 'regem.local' });
     expect(de(est).presenca).toBeNull(); // visto há 20 min: fora da janela de 10 min
+    expect(de(srv).servidor.rede).toEqual({ ip: '192.168.0.10', maquina: 'SERVIDOR-MB' }); // o grupo "Servidor da loja"
     // Batida velha (servidor sem sinal há 30 min): a presença dela não vale mais.
     await q(`update edge_status set recebido_em = now() - interval '30 minutes' where equipamento_id = $1`, [srv]);
     lista = await svc.listar(T);
