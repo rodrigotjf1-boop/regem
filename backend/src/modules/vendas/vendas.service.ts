@@ -1412,6 +1412,27 @@ export class VendasService {
     };
   }
 
+  // Pedido de CANAL que chegou ao servidor da loja JÁ ACEITO (a nuvem aceitou — o servidor
+  // estava fora do ar, ou alguém aceitou no painel da nuvem): nem a via nem a produção saíram
+  // (a nuvem não alcança a térmica e não grava trabalho de impressão para a loja). Aqui, no
+  // servidor, saem as duas. A idempotência é de quem chama (ERR-251).
+  async materializarPedidoExternoLocal(
+    tenantId: string,
+    comandaId: string,
+    qrData?: string | null,
+    documento?: DocumentoImpressao,
+  ): Promise<{ enfileirados: number; aviso: string | null }> {
+    const cupom = await this.materializarCupomCaixa(tenantId, comandaId, qrData, documento);
+    let producao = 0;
+    try {
+      producao = await this.producao.materializarProducaoLocal(tenantId, comandaId);
+    } catch (e: any) {
+      // Não derruba a via, mas não passa em silêncio.
+      this.logger.warn(`pedido de canal: a produção da comanda ${comandaId} não saiu (${e?.message ?? e})`);
+    }
+    return { enfileirados: (cupom.enfileirados || 0) + producao, aviso: cupom.aviso };
+  }
+
   // P/ pedido EXTERNO no edge: imprime SÓ a via do caixa (cupom) da comanda — a
   // produção já saiu no aceitar (emitirNovos). Com `qrData`, a via leva o QR de
   // despacho (o entregador escaneia direto da comanda). Best-effort; silencioso se

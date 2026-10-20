@@ -24,7 +24,7 @@ import { gravarAvisoCancelamentoTotem, resultadoDoAviso } from '../gogem/aviso-g
 import { GogemAvisoService } from '../gogem/gogem-aviso.service';
 import { ehServidorLocal } from '../../common/modo';
 import { exigirBooleano } from '../../common/exigir';
-import { conferirRegras } from '../../common/regras-impressao';
+import { conferirRegras, DocumentoImpressao } from '../../common/regras-impressao';
 import { logisticaDosPedidos } from './logistica-canal';
 
 // Documento do cliente: guardamos só os dígitos, como a NFC-e exige. Formato inválido não é
@@ -386,12 +386,16 @@ export class DeliveryService {
   // evento já veio de lá. Idempotente e SÓ AVANÇA (não regride): usa a ordem do
   // fluxo pra impedir voltar um estado. `cancelado` é terminal (sempre aplica se
   // ainda não terminal). Usado pelos pollers (iFood/99food/Anota Aí).
+  // Devolve 'adiado' quando o pedido ainda é 'novo' e a loja tem servidor local ligado: quem o
+  // aceita é o servidor (venda, cozinha e a via na impressora da loja); avançá-lo aqui o tirava de
+  // 'novo' sem nunca virar venda (ERR-251). O poller com confirmação de leitura (iFood) não
+  // confirma o evento, e ele volta no próximo polling; o que relê a lista (Anota Aí) aplica depois.
   async refletirStatusExterno(
     tenantId: string,
     canal: string,
     externalId: string,
     novoStatus: 'pronto' | 'despachado' | 'concluido' | 'cancelado',
-  ): Promise<void> {
+  ): Promise<'aplicado' | 'adiado' | 'ignorado'> {
     const [row] = await this.db
       .select()
       .from(pedidoExterno)
@@ -404,7 +408,11 @@ export class DeliveryService {
       );
     if (!row) {
       this.logger.warn(`reflexo ${canal} → ${novoStatus}: pedido ${externalId.slice(0, 10)} não encontrado (externalId?)`);
-      return;
+      return 'ignorado';
+    }
+    if (row.status === 'novo' && novoStatus !== 'cancelado' && (await this.deferirParaEdge(tenantId, row.unidadeId ?? null))) {
+      this.logger.debug(`reflexo ${canal} ${externalId.slice(0, 8)} → ${novoStatus} adiado: o servidor da loja ainda vai aceitar`);
+      return 'adiado';
     }
     // Retirada não tem "em rota" (não há entregador). Um reflexo de 'despachado'
     // (ex.: "Prontos para entrega" da Anota, que acumula retirada pronta + delivery
@@ -418,13 +426,13 @@ export class DeliveryService {
     // 'cancelado' da plataforma continua encerrando (não é rebaixado).
     if (novoStatus === 'concluido' && row.tipo === 'retirada') novoStatus = 'pronto';
     // Idempotente: já está no estado alvo ou já é terminal (não regride).
-    if (row.status === novoStatus) return;
-    if (row.status === 'cancelado' || row.status === 'concluido') return;
+    if (row.status === novoStatus) return 'ignorado';
+    if (row.status === 'cancelado' || row.status === 'concluido') return 'ignorado';
     // Não regride: só reflete se o alvo estiver ADIANTE do atual no fluxo
     // (cancelado é exceção — sempre encerra). RANK: novo<confirmado<pronto<despachado<concluido.
     if (novoStatus !== 'cancelado') {
       const RANK: Record<string, number> = { novo: 0, confirmado: 1, pronto: 2, despachado: 3, entregue: 4, concluido: 5 };
-      if ((RANK[novoStatus] ?? 0) <= (RANK[row.status] ?? 0)) return;
+      if ((RANK[novoStatus] ?? 0) <= (RANK[row.status] ?? 0)) return 'ignorado';
     }
     const patch: any = { status: novoStatus };
     if (novoStatus === 'cancelado') {
@@ -448,7 +456,7 @@ export class DeliveryService {
           : eq(pedidoExterno.id, row.id),
       )
       .returning();
-    if (!upd) return;
+    if (!upd) return 'ignorado';
     // O canal cancelou: a venda é desfeita e o pedido sai da cozinha — como no cancelamento do
     // painel — e o cupom, o cashback e os pontos do pedido voltam.
     if (novoStatus === 'cancelado') {
@@ -471,6 +479,7 @@ export class DeliveryService {
     }
     this.logger.log(`reflexo ${canal} ${externalId.slice(0, 8)} → ${novoStatus}`);
     void this.dispararWebhook(tenantId, upd);
+    return 'aplicado';
   }
 
   // PEDIDO CANCELADO SEM PASSAR PELO PAINEL — o canal cancelou (iFood, 99Food, Anota AI,
@@ -526,9 +535,18 @@ export class DeliveryService {
   // Materializa (aceita) um pedido externo se ainda estiver 'novo'. Usado pelos pollers
   // (iFood/Anota) quando a plataforma CONFIRMA/avança o pedido por fora do kanban do
   // Regem — senão ele nunca vira produção e não aparece no KDS. Idempotente (só 'novo').
-  async materializarSeNovoExterno(tenantId: string, canal: string, externalId: string) {
+  // Loja com servidor local LIGADO: a nuvem NÃO aceita ('adiado') — o servidor aceita (é ele que
+  // imprime a via e a produção na loja). Antes a nuvem aceitava assim mesmo: o iFood em 1 s, a
+  // Anota Aí na consulta seguinte (~30 s); o pedido descia já aceito, o servidor o ignorava e nada
+  // saía no papel — e, quando o servidor tinha aceitado antes, a venda ficava em DOBRO (ERR-251).
+  // Servidor fora do ar: aceita aqui, como sempre, e o servidor imprime quando voltar.
+  async materializarSeNovoExterno(
+    tenantId: string,
+    canal: string,
+    externalId: string,
+  ): Promise<'aceito' | 'adiado' | 'ignorado' | 'nao-encontrado'> {
     const [row] = await this.db
-      .select({ id: pedidoExterno.id, status: pedidoExterno.status })
+      .select({ id: pedidoExterno.id, status: pedidoExterno.status, unidadeId: pedidoExterno.unidadeId })
       .from(pedidoExterno)
       .where(
         and(
@@ -537,12 +555,15 @@ export class DeliveryService {
           eq(pedidoExterno.externalId, externalId),
         ),
       );
-    if (row && row.status === 'novo') {
-      try {
-        await this.aceitar(tenantId, null, row.id);
-      } catch (e: any) {
-        this.logger.warn(`materializar ${canal} ${externalId.slice(0, 8)}: ${e?.message ?? e}`);
-      }
+    if (!row) return 'nao-encontrado';
+    if (row.status !== 'novo') return 'ignorado';
+    if (await this.deferirParaEdge(tenantId, row.unidadeId ?? null)) return 'adiado';
+    try {
+      await this.aceitar(tenantId, null, row.id);
+      return 'aceito';
+    } catch (e: any) {
+      this.logger.warn(`materializar ${canal} ${externalId.slice(0, 8)}: ${e?.message ?? e}`);
+      return 'ignorado';
     }
   }
 
@@ -1318,9 +1339,43 @@ export class DeliveryService {
     // impressora LOCAL (a nuvem não alcança a térmica). Delivery leva o QR de despacho
     // direto na comanda quando a loja mantém 'imprimir_qr_comanda' ligado.
     if (String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true' && row.comandaId) {
-      void this.imprimirCupomCaixaExterno(tenantId, row).catch(() => {});
+      // A falha da via não derruba o aceite, mas não passa em silêncio (antes: `catch(() => {})`).
+      void this.imprimirCupomCaixaExterno(tenantId, row).catch((e) =>
+        this.logger.warn(`pedido ${row.id}: a via do caixa não saiu (${e?.message ?? e})`),
+      );
+      // Este servidor aceitou: o processador de "aceito fora" nunca o imprime de novo, nem se o
+      // vínculo do pedido trocar de comanda (aceite em dobro com a nuvem, ERR-251).
+      void this.marcarImpressoNoServidor(row.id);
     }
     return row;
+  }
+
+  // Marca, no servidor da loja, o PEDIDO de canal que já teve a via tratada aqui. A tabela é o
+  // marcador local do materializador de impressão (`impressao_edge_feito`, mig 177): guarda o id
+  // da comanda (vendas da nuvem) e, daqui, o do pedido — ids distintos, sem chave estrangeira.
+  // Nunca rejeita (é chamado com `void`).
+  private async marcarImpressoNoServidor(id: string): Promise<void> {
+    try {
+      await this.db.execute(sql`insert into impressao_edge_feito (comanda_id) values (${id}) on conflict do nothing`);
+    } catch (e: any) {
+      this.logger.warn(`pedido ${id}: não marquei a via como tratada neste servidor (${e?.message ?? e})`);
+    }
+  }
+
+  // SERVIDOR DA LOJA: o pedido de canal chegou JÁ ACEITO — a nuvem aceitou enquanto o servidor
+  // estava fora do ar (o resgate dela), ou alguém aceitou no painel da nuvem. Nenhuma via saiu: a
+  // nuvem não alcança a térmica da loja e não grava trabalho de impressão para ela. Aqui saem a
+  // via (pela regra do documento) e a produção. Quem chama cuida de imprimir uma vez só.
+  async imprimirPedidoAceitoFora(tenantId: string, ped: any): Promise<{ enfileirados: number; aviso: string | null }> {
+    const qrData = await this.qrDespacho(tenantId, ped);
+    const res = await this.vendas.materializarPedidoExternoLocal(tenantId, ped.comandaId, qrData, this.documentoDoPedido(ped));
+    if (res.enfileirados > 0) await this.marcarImpressoNoServidor(ped.id);
+    return res;
+  }
+
+  // O documento da via de um pedido de canal (mig 327): o de delivery; o totem fica fora da regra.
+  private documentoDoPedido(ped: any): DocumentoImpressao | undefined {
+    return DeliveryService.grupoCanal(ped.canal ?? '') === 'totem' ? undefined : 'delivery';
   }
 
   // URL do QR de despacho ({base}/e/{token}) que vai na 1ª via da comanda em ENTREGA (não
@@ -1340,8 +1395,7 @@ export class DeliveryService {
   // fica fora da regra (retirada no balcão), como sempre.
   private async imprimirCupomCaixaExterno(tenantId: string, ped: any) {
     const qrData = await this.qrDespacho(tenantId, ped);
-    const documento = DeliveryService.grupoCanal(ped.canal ?? '') === 'totem' ? undefined : 'delivery';
-    await this.vendas.materializarCupomCaixa(tenantId, ped.comandaId, qrData, documento);
+    await this.vendas.materializarCupomCaixa(tenantId, ped.comandaId, qrData, this.documentoDoPedido(ped));
   }
 
   async avancar(

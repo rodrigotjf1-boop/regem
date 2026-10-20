@@ -53,3 +53,49 @@ describe('IfoodPoller — falha passageira do iFood', () => {
     expect(aviso).not.toHaveBeenCalled();
   });
 });
+
+// ERR-251: com o servidor da loja ligado, quem aceita o pedido é ele. O "pronto / despachado /
+// concluído" do iFood que chega antes disso não pode tirar o pedido de 'novo' sem venda: o
+// evento fica SEM confirmação de leitura e volta no próximo polling (o iFood guarda por 8 h).
+describe('IfoodPoller — evento de status antes de o servidor da loja aceitar', () => {
+  const ig = { id: 'ig-1', tenantId: 'loja-1', unidadeId: null, merchantId: 'm-1' };
+  const edge = process.env.EDGE_MODE;
+  beforeEach(() => {
+    delete process.env.EDGE_MODE;
+    jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    jest.restoreAllMocks();
+    if (edge === undefined) delete process.env.EDGE_MODE;
+    else process.env.EDGE_MODE = edge;
+  });
+
+  it('DSP adiado não é confirmado (volta); CFM e o DSP já aplicado são confirmados', async () => {
+    const eventos = [
+      { id: 'e1', code: 'CFM', orderId: 'o-novo' },
+      { id: 'e2', code: 'DSP', orderId: 'o-novo' },
+      { id: 'e3', code: 'DSP', orderId: 'o-aceito' },
+      { id: 'e4', code: 'CON', orderId: 'o-novo' },
+    ];
+    const reconhecidos: any[] = [];
+    const reflexos: string[] = [];
+    const poller = new IfoodPoller(
+      {
+        integracoesAtivas: async () => [ig],
+        polling: async () => eventos,
+        acknowledge: async (_ig: any, evs: any[]) => void reconhecidos.push(...evs),
+        reconciliarCancels: async () => 0,
+      } as any,
+      {
+        materializarSeNovoExterno: async () => 'adiado',
+        refletirStatusExterno: async (_t: string, _c: string, orderId: string, alvo: string) => {
+          reflexos.push(`${orderId}:${alvo}`);
+          return orderId === 'o-novo' ? 'adiado' : 'aplicado';
+        },
+      } as any,
+    );
+    await poller.tick();
+    expect(reflexos).toEqual(['o-novo:despachado', 'o-aceito:despachado', 'o-novo:concluido']);
+    expect(reconhecidos.map((e) => e.id)).toEqual(['e1', 'e3']);
+  });
+});

@@ -74,23 +74,21 @@ export class IfoodPoller {
           });
         } else if (code === 'CFM' || code === 'CONFIRMED') {
           // iFood confirmou (aceite feito no app/tablet do iFood, fora do kanban do
-          // Regem) → materializa localmente, senão o pedido não vira produção/KDS.
+          // Regem) → materializa localmente, senão o pedido não vira produção/KDS. Com o
+          // servidor da loja ligado, quem aceita é ele (o pedido segue 'novo' até lá).
           await this.delivery.materializarSeNovoExterno(ig.tenantId, 'ifood', String(ev.orderId));
-        } else if (code === 'RTP' || code === 'READY_TO_PICKUP') {
-          // iFood marcou pronto p/ retirada → garante produção e move pra "Pronto".
+        } else if (code === 'RTP' || code === 'READY_TO_PICKUP' || code === 'DSP' || code === 'DISPATCHED' || code === 'CON' || code === 'CONCLUDED') {
+          // iFood marcou pronto p/ retirada (RTP), despachou (DSP) ou concluiu (CON) → garante
+          // a produção e move o pedido. Pedido ainda 'novo' numa loja com servidor local ligado:
+          // o servidor ainda vai aceitá-lo — o evento fica SEM confirmação de leitura e volta no
+          // próximo polling (o iFood guarda por 8 h), até a venda existir (ERR-251).
+          const alvo = code.startsWith('R') ? 'pronto' : code.startsWith('D') ? 'despachado' : 'concluido';
           await this.delivery.materializarSeNovoExterno(ig.tenantId, 'ifood', String(ev.orderId));
-          await this.delivery.refletirStatusExterno(ig.tenantId, 'ifood', String(ev.orderId), 'pronto');
-        } else if (code === 'DSP' || code === 'DISPATCHED') {
-          // iFood despachou (saiu para entrega) → garante produção e move pra "Em rota".
-          await this.delivery.materializarSeNovoExterno(ig.tenantId, 'ifood', String(ev.orderId));
-          await this.delivery.refletirStatusExterno(ig.tenantId, 'ifood', String(ev.orderId), 'despachado');
+          const r = await this.delivery.refletirStatusExterno(ig.tenantId, 'ifood', String(ev.orderId), alvo);
+          if (r === 'adiado') continue;
         } else if (code === 'CAN' || code === 'CANCELLED') {
           // iFood cancelou o pedido → reflete localmente (sem status-back de volta).
           await this.delivery.refletirStatusExterno(ig.tenantId, 'ifood', String(ev.orderId), 'cancelado');
-        } else if (code === 'CON' || code === 'CONCLUDED') {
-          // iFood concluiu (ex.: envio imediato) → garante produção e reflete localmente.
-          await this.delivery.materializarSeNovoExterno(ig.tenantId, 'ifood', String(ev.orderId));
-          await this.delivery.refletirStatusExterno(ig.tenantId, 'ifood', String(ev.orderId), 'concluido');
         }
         // Demais códigos: nada a fazer — reconhecidos.
         processados.push(ev);

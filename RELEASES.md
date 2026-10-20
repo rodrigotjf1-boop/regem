@@ -37,6 +37,15 @@
   impressora (D1), e passa a confiar o certificado da loja de verdade (ERR-249: o PowerShell 5.1 não baixava o `ca.pem`).
   Na loja, depois de instalar no PC do delivery: o ícone ao lado do relógio mostra "Ligado ao servidor - regem.local
   (IP)"; em Equipamentos › Por PC a estação aparece "conectado agora".
+- **Pedido de canal aceito pela NUVEM com o servidor da loja ligado (ERR-251), sem migration:**
+  - **Nuvem (vale no deploy, sem esperar o `.zip`):** com o servidor da loja ligado, a nuvem não aceita e não avança
+    pedido 'novo'. Vale para o iFood (eventos CFM/RTP/DSP/CON; o evento adiado volta no polling), a Anota Aí e o
+    cardápio próprio (que conferia a `edge_heartbeat` de 30 min). Quem aceita é o servidor, que já imprime a via no
+    aceite: os pedidos do iFood e da Anota Aí voltam a sair no papel e param de virar venda em dobro.
+  - **Servidor da loja (`.zip`, sem `.exe`):** imprime, uma vez, a via e a produção do pedido que chega JÁ ACEITO (a
+    nuvem aceitou com a loja fora do ar). A falha da via no aceite passa a ficar no log.
+  - Na loja, conferir depois do deploy: os pedidos do iFood e da Anota Aí saem na "Caixa delivery"; nenhuma venda nova
+    em dobro (as 119 de 16 a 20/10 esperam a decisão do dono).
 
 ## Última release: `1.30.5` — gerada em 17/10/2026 da `origin/main` `02d36210`, **`.zip` GERADO, conferido e assinado** (`regem-edge-1.30.5.zip`, 31.735.344 bytes, SHA-256 `46852d32e16e45bf944be4e8c8df7329d4b6b61bb02d0478e4b4f7d47e093838`); publicação no console PENDENTE (o dono); sem `.exe`
 

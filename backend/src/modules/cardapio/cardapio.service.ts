@@ -51,7 +51,6 @@ import {
   cupom,
   cupomUso,
   pedidoExterno,
-  edgeHeartbeat,
   comandaItem,
   mesa,
   comanda,
@@ -2424,7 +2423,7 @@ export class CardapioService {
   private async aoConfirmarPagamento(tenantId: string, pedidoId: string) {
     try {
       const [row] = await this.db
-        .select({ status: pedidoExterno.status })
+        .select({ status: pedidoExterno.status, unidadeId: pedidoExterno.unidadeId })
         .from(pedidoExterno)
         .where(eq(pedidoExterno.id, pedidoId));
       if (!row || row.status !== 'novo') return; // já aceito/cancelado
@@ -2434,7 +2433,7 @@ export class CardapioService {
         .where(eq(cardapioConfig.tenantId, tenantId))
         .limit(1);
       if (cfg?.autoKds === false) return; // loja aceita manualmente
-      if (!ehEdge() && (await this.lojaComEdgeAtivo(tenantId))) return; // edge processa
+      if (!ehEdge() && (await this.lojaComEdgeAtivo(tenantId, row.unidadeId ?? null))) return; // edge processa
       await this.delivery.aceitar(tenantId, null, pedidoId);
     } catch {
       /* pagamento confirmado nunca falha por causa da produção */
@@ -2682,17 +2681,13 @@ export class CardapioService {
     };
   }
 
-  // A loja está operando em MODO LOCAL? = tem um servidor edge com heartbeat recente
-  // (últimos ~3 min). Usado pela nuvem para adiar a materialização e deixar o edge
-  // processar o pedido online localmente.
-  private async lojaComEdgeAtivo(tenantId: string): Promise<boolean> {
-    const limite = new Date(Date.now() - 3 * 60 * 1000);
-    const [hb] = await this.db
-      .select({ id: edgeHeartbeat.id })
-      .from(edgeHeartbeat)
-      .where(and(eq(edgeHeartbeat.tenantId, tenantId), gte(edgeHeartbeat.recebidoEm, limite)))
-      .limit(1);
-    return !!hb;
+  // A loja está operando em MODO LOCAL? = o servidor dela bateu nos últimos ~3 min. Usado pela
+  // nuvem para adiar a materialização e deixar o servidor processar o pedido online localmente.
+  // Fonte única (`common/edge-ativo.ts`: `edge_status`, uma linha por servidor a cada batida). Antes
+  // lia só `edge_heartbeat`, que recebe UMA linha a cada 30 min desde o #537: ~27 de cada 30 min a
+  // nuvem dava a loja por desligada e aceitava o pedido no lugar dela — sem via no papel (ERR-251).
+  private async lojaComEdgeAtivo(tenantId: string, unidadeId: string | null): Promise<boolean> {
+    return edgeAtivo(this.db, tenantId, unidadeId);
   }
 
   async receberPedido(
@@ -3287,7 +3282,7 @@ export class CardapioService {
     // Pagamento ONLINE (pix/cartão): NÃO entra em produção agora — fica 'novo'
     // aguardando a confirmação do pagamento (webhook). Sem isso, produzia antes de
     // pagar (desperdício). O webhook chama aoConfirmarPagamento() → aceita aí.
-    const deferirParaEdge = !ehEdge() && (await this.lojaComEdgeAtivo(cfg.tenantId));
+    const deferirParaEdge = !ehEdge() && (await this.lojaComEdgeAtivo(cfg.tenantId, (ped as any)?.unidadeId ?? null));
     if (cfg.autoKds !== false && !orcamento && !online && (ped as any)?.status === 'novo' && !deferirParaEdge) {
       try {
         await this.delivery.aceitar(cfg.tenantId, null, ped.id);
