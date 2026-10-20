@@ -217,17 +217,12 @@ export class AnotaAiService {
   // Materializa (aceita) o pedido localmente se ainda estiver 'novo' — o Anota Aí já
   // aceitou do lado dele, então aqui só criamos a venda + produção e movemos para
   // 'confirmado' (Produção). `aceitar` não manda status-back p/ Anota Aí (só CW/iFood/
-  // Food99), então não há risco de duplo-aceite. Idempotente (só age em 'novo').
+  // Food99). Idempotente (só age em 'novo'). Mesma regra do iFood: com o servidor da loja
+  // LIGADO, quem aceita é ele — antes a nuvem aceitava aqui ~30 s depois, o pedido descia já
+  // aceito e não saía no papel, ou os dois aceitavam e a venda ficava em DOBRO (ERR-251).
   private async materializarSeNovo(tenantId: string, orderId: string) {
-    const [ped] = await this.db
-      .select({ id: pedidoExterno.id, status: pedidoExterno.status })
-      .from(pedidoExterno)
-      .where(and(eq(pedidoExterno.tenantId, tenantId), eq(pedidoExterno.canal, CANAL), eq(pedidoExterno.externalId, orderId)));
-    if (!ped) {
-      this.logger.warn(`materializar: pedido ${orderId.slice(0, 8)} não encontrado (externalId?)`);
-      return;
-    }
-    if (ped.status === 'novo') await this.delivery.aceitar(tenantId, null, ped.id);
+    const r = await this.delivery.materializarSeNovoExterno(tenantId, CANAL, orderId);
+    if (r === 'nao-encontrado') this.logger.warn(`materializar: pedido ${orderId.slice(0, 8)} não encontrado (externalId?)`);
   }
 
   // Cliente pediu cancelamento na Anota Aí (check 6): abre um chamado no SINO

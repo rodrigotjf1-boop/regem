@@ -79,6 +79,8 @@ export class EdgePedidosProcessor {
         }
       }
 
+      await this.imprimirAceitosFora();
+
       // Reconciliação (SÓ observabilidade — NÃO re-materializa p/ não duplicar estoque/
       // avisos): pedido ONLINE que a NUVEM materializou (comanda_id preenchido) mas cuja
       // comanda NÃO desceu para o edge fica invisível no painel local. Isso é o sintoma
@@ -109,6 +111,58 @@ export class EdgePedidosProcessor {
       this.logger.warn(`ciclo falhou: ${e?.message ?? e}`);
     } finally {
       this.rodando = false;
+    }
+  }
+
+  /**
+   * Pedido de canal que chegou JÁ ACEITO (a nuvem aceitou enquanto este servidor estava fora do
+   * ar, ou alguém aceitou no painel da nuvem): o ciclo acima só pega 'novo', e o materializador
+   * de vendas da nuvem pula pedido de canal — nada saía no papel (ERR-251). Aqui sai a via e a
+   * produção, UMA vez:
+   *  • só 'confirmado' (em produção) e chegado há menos de 2 h: pronto, despachado ou concluído
+   *    já passou da cozinha; a loja que volta de uma queda longa não recebe pilha de pedido velho;
+   *  • folga de 30 s depois do aceite: o aceite feito AQUI enfileira na hora (e marca o pedido);
+   *  • a comanda já desceu e nenhuma via saiu para ela; nem o pedido nem a comanda marcados em
+   *    `impressao_edge_feito`;
+   *  • sem impressora: tenta por até 20 min (dá tempo de configurar) e desiste com aviso.
+   */
+  private async imprimirAceitosFora() {
+    const r: any = await this.db.execute(sql`
+      select pe.id, pe.tenant_id as "tenantId", pe.comanda_id as "comandaId", pe.canal, pe.tipo,
+             pe.unidade_id as "unidadeId", pe.criado_em as "criadoEm"
+        from pedido_externo pe
+       where pe.status = 'confirmado'
+         and pe.comanda_id is not null
+         and pe.deleted_at is null
+         and pe.canal is not null and pe.canal <> 'balcao'
+         ${this.unidadeId ? sql`and pe.unidade_id = ${this.unidadeId}` : sql``}
+         and pe.criado_em > now() - interval '2 hours'
+         and coalesce(pe.confirmado_em, pe.criado_em) < now() - interval '30 seconds'
+         and exists (select 1 from comanda c where c.id = pe.comanda_id and c.status = 'fechada')
+         and not exists (select 1 from impressao_job j where j.comanda_id = pe.comanda_id)
+         and not exists (select 1 from impressao_edge_feito f where f.comanda_id in (pe.id, pe.comanda_id))
+       order by pe.criado_em asc
+       limit 20
+    `);
+    const GRACA_MIN = 20;
+    for (const p of r.rows ?? r) {
+      let enfileirados = 0;
+      let erro = false;
+      try {
+        const res = await this.delivery.imprimirPedidoAceitoFora(p.tenantId, p);
+        enfileirados = res.enfileirados;
+        if (enfileirados > 0) this.logger.log(`pedido ${p.id} chegou já aceito: via e produção impressas aqui (${enfileirados})`);
+      } catch (e: any) {
+        erro = true; // falha passageira: tenta de novo no próximo ciclo
+        this.logger.warn(`pedido ${p.id} chegou já aceito, mas a impressão falhou: ${e?.message ?? e}`);
+      }
+      const idadeMin = (Date.now() - new Date(p.criadoEm).getTime()) / 60000;
+      if (!erro && enfileirados === 0 && idadeMin > GRACA_MIN) {
+        await this.db
+          .execute(sql`insert into impressao_edge_feito (comanda_id) values (${p.id}) on conflict do nothing`)
+          .catch(() => undefined);
+        this.logger.warn(`pedido ${p.id} chegou já aceito e NÃO foi impresso: sem impressora para ele (desisti após ${GRACA_MIN} min)`);
+      }
     }
   }
 }
