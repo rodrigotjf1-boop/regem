@@ -180,6 +180,36 @@ export type RepasseDaLoja = {
   referenciaId: string | null;
 };
 
+/**
+ * Versão do contrato dos avisos ASSINADOS ao GoGeM (fase 2 da credencial própria,
+ * `docs/integracao-gogem/AVISOS-ASSINADOS.md`). Muda só com o GoGeM avisado e as duas valendo juntas.
+ */
+export const CONTRATO_AVISO_ASSINADO = 1;
+
+/** Os dois avisos assinados, pelo `tipo` do corpo. */
+export const TIPO_ASSINADO = { cancelado: 'pedido.cancelado', publicar: 'catalogo.publicar' } as const;
+
+/**
+ * O `webhook-id` do cancelamento: o MESMO em todas as tentativas do mesmo aviso — o GoGeM reconhece
+ * a repetição, e mesmo assim refaz o cancelamento (idempotente), que é como o estorno que falhou no
+ * Mercado Pago é tentado de novo (§4 do contrato).
+ */
+export const idDoAvisoAssinado = (avisoId: string) => `aviso_${avisoId}`;
+
+/**
+ * O corpo do `pedido.cancelado` assinado (§4 do contrato): o corpo de hoje vai inteiro, sem mudança,
+ * em `pedido` (o GoGeM reaproveita o DTO dele). `loja_id` é a loja do registro — a da integração.
+ */
+export function corpoPedidoCancelado(linha: any, lojaId: string | null) {
+  return {
+    tipo: TIPO_ASSINADO.cancelado,
+    contrato: CONTRATO_AVISO_ASSINADO,
+    loja_id: lojaId,
+    cancelado_em: new Date(linha.created_at).toISOString(),
+    pedido: linha.corpo as CorpoCancelamentoGogem,
+  };
+}
+
 export function corpoRepasse(linha: any): RepasseDaLoja {
   return {
     avisoId: String(linha.id),
@@ -254,8 +284,13 @@ export async function soltarAvisosParados(db: any, tenantId: string, destino = D
  * O que a resposta do GoGeM quer dizer — para a fila e para o operador. `http` nulo = sem
  * resposta (rede, DNS, tempo esgotado): o aviso pode ou não ter chegado, e reenviar é seguro
  * porque o GoGeM é idempotente pela chave.
+ *
+ * `rotaAssinada`: a resposta veio do endereço que o GoGeM REGISTROU (aviso assinado). Lá, 404/410 e
+ * redirecionamento dizem que o endereço está errado ou sumiu — problema da integração (espera 6 h),
+ * nunca "recusado": o estorno não vira manual por um endereço mal registrado. Pedido que não existe,
+ * o contrato manda responder 422.
  */
-export function lerRespostaGogem(http: number | null, corpo: any): DesfechoAviso {
+export function lerRespostaGogem(http: number | null, corpo: any, rotaAssinada = false): DesfechoAviso {
   if (http == null)
     return { status: 'pendente', estorno: null, paraOperador: { situacao: 'pendente', mensagem: MSG_PENDENTE } };
 
@@ -312,6 +347,18 @@ export function lerRespostaGogem(http: number | null, corpo: any): DesfechoAviso
       },
     };
   }
+
+  if (rotaAssinada && (http === 401 || http === 403 || http === 404 || http === 410 || (http >= 300 && http < 400)))
+    return {
+      status: 'aguardando_integracao',
+      estorno: null,
+      paraOperador: {
+        situacao: 'integracao_recusou',
+        mensagem:
+          `O endereço de aviso que o GoGeM registrou não aceitou o pedido (HTTP ${http}) — o estorno NÃO foi ` +
+          'pedido. Confira a integração com o GoGeM; o Regem tenta de novo a cada 6 h.',
+      },
+    };
 
   if (http === 401 || http === 403)
     return {

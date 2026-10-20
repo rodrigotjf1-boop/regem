@@ -104,6 +104,8 @@ export class IntegracaoApiController {
       '"pedido_id" }, { "tipo": "cliente.anonimizado", "id" } ou { "tipo": "catalogo.alterado" | "fichas.alterado" } ' +
       '(sem id: releia a rota com ?versao=) — todos com "loja_id" (a loja do token; o token da ' +
       'empresa inteira não manda). É só gatilho: aviso perdido ou repetido não muda nada. ' +
+      'O GoGeM recebe só os dois avisos dele, que pedem resposta: { "tipo": "pedido.cancelado" } e ' +
+      '{ "tipo": "catalogo.publicar" } (contrato em docs/integracao-gogem/AVISOS-ASSINADOS.md). ' +
       '422 endereco-nao-permitido: endereço fora da lista da integração; 503 aviso-indisponivel: tente de novo mais tarde.',
   })
   @ApiBody({ type: RegistrarWebhookIntegracao })

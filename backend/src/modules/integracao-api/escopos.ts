@@ -191,6 +191,13 @@ export const WEBHOOK_INTEGRACAO: Record<string, { envUrls: string; padrao: reado
     envUrls: 'INTEGRACAO_FAROL_WEBHOOK_URLS',
     padrao: ['https://api.monitorfarol.com.br/v1/regem/avisos/'],
   },
+  // GoGeM (fase 2 da credencial própria, `docs/integracao-gogem/AVISOS-ASSINADOS.md`): o cancelamento
+  // de venda do totem e o "Publicar no GoGeM" saem assinados para cá — nenhum aviso de frescor, que os
+  // escopos dele não liberam. O trecho depois da base é o id da integração no GoGeM.
+  gogem: {
+    envUrls: 'INTEGRACAO_GOGEM_WEBHOOK_URLS',
+    padrao: ['https://api.gogem.com.br/api/v1/sync/regem/avisos/'],
+  },
 };
 
 /** O que cada aplicativo é, para a tela "Aplicativos conectados" (o do Liame vem de cima). */
