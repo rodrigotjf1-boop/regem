@@ -3,6 +3,7 @@ import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
+import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { GogemPublishService } from './gogem-publish.service';
 
@@ -20,7 +21,8 @@ export class GogemController {
 
   @Post('publicar')
   @Roles(...GESTOR)
-  publicar(@CurrentUser() user: AuthUser) {
-    return this.service.publicar(user.tenantId);
+  publicar(@CurrentUser() user: AuthUser, @UnidadeAtual() unidadeId: string | null) {
+    // A loja em uso escolhe o registro de aviso do GoGeM (fase 2); sem registro, nada muda.
+    return this.service.publicar(user.tenantId, unidadeId);
   }
 }

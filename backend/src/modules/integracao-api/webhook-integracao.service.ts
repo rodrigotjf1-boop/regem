@@ -7,6 +7,7 @@ import { ehServidorLocal } from '../../common/modo';
 import { ChaveSegredosAusente, cifrar, decifrar } from '../../common/cifra-segredo';
 import { fetchExterno } from '../../common/fetch-externo';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { DESTINO_GOGEM, soltarAvisosParados } from '../gogem/aviso-gogem';
 import type { IntegracaoCtxData } from './integracao-token.guard';
 import { ProblemaException } from './problema';
 import { sqlIso } from './venda-integracao';
@@ -223,6 +224,13 @@ export class WebhookIntegracaoService {
         entidadeId: ctx.tokenId,
         detalhe: { cliente: ctx.cliente, prefixo: ctx.prefixo, url, novo: !antes },
       });
+      // O GoGeM ligou (ou trocou) os avisos assinados: o cancelamento que esperava por ele — sem
+      // credencial, ou parado 6 h por recusa — sai agora, pelo endereço novo. Nunca derruba o registro.
+      if (ctx.cliente === DESTINO_GOGEM) {
+        await soltarAvisosParados(this.db, ctx.tenantId).catch((e: any) =>
+          this.log.warn(`avisos parados do GoGeM não soltos agora (saem no próximo recuo): ${e?.message ?? e}`),
+        );
+      }
     }
     return this.estado(l);
   }

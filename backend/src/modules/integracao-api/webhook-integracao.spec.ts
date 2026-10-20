@@ -42,6 +42,27 @@ describe('para onde o Regem pode avisar', () => {
     expect(enderecoPermitido(`${baseFarol}${ID}/outro`, basesDoWebhook('farol', {}))).toBeNull();
   });
 
+  it('o GoGeM tem o endereço dele (fase 2 da credencial própria), e só o dele', () => {
+    const baseGogem = 'https://api.gogem.com.br/api/v1/sync/regem/avisos/';
+    expect(basesDoWebhook('gogem', {})).toEqual([baseGogem]);
+    expect(basesDoWebhook('gogem', { INTEGRACAO_GOGEM_WEBHOOK_URLS: 'http://127.0.0.1:3301/api/v1/sync/regem/avisos/' })).toEqual([
+      'http://127.0.0.1:3301/api/v1/sync/regem/avisos/',
+    ]);
+    expect(basesDoWebhook('gogem', { INTEGRACAO_FAROL_WEBHOOK_URLS: 'https://b.exemplo/x/' })).toEqual([baseGogem]);
+    expect(enderecoPermitido(`${baseGogem}integ_42`, basesDoWebhook('gogem', {}))).toBe(`${baseGogem}integ_42`);
+    // As rotas de hoje do GoGeM não servem de endereço de aviso: só um trecho depois da base.
+    expect(enderecoPermitido('https://api.gogem.com.br/api/v1/sync/regem/pedido-cancelado', basesDoWebhook('gogem', {}))).toBeNull();
+    expect(enderecoPermitido(`${BASE}${ID}`, basesDoWebhook('gogem', {}))).toBeNull(); // o do Liame não serve ao GoGeM
+    expect(enderecoPermitido(`${baseGogem}${ID}`, basesDoWebhook('liame', {}))).toBeNull(); // nem o do GoGeM ao Liame
+  });
+
+  it('o GoGeM nunca recebe aviso de frescor: nenhum escopo dele libera um evento (lista fechada)', () => {
+    // O job dos avisos escolhe o que mandar pelo escopo do token. Se um escopo do GoGeM passar a
+    // liberar evento, o endereço dele começa a receber o que o contrato não prevê — decida antes.
+    const doFrescor = [...Object.values(EVENTO_DO_RECURSO), ...Object.values(EVENTO_DO_RETRATO)].map((e) => e.escopo as string);
+    expect(CLIENTES_INTEGRACAO.gogem.escopos.filter((e) => doFrescor.includes(e))).toEqual([]);
+  });
+
   it('cliente sem lista (o RegemCast, um desconhecido) não registra aviso', () => {
     expect(basesDoWebhook('regemcast', {})).toEqual([]);
     expect(basesDoWebhook('qualquer', {})).toEqual([]);

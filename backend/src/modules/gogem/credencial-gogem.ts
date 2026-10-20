@@ -1,7 +1,13 @@
+import { Logger } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
+import { decifrar } from '../../common/cifra-segredo';
+import { ehServidorLocal } from '../../common/modo';
+import { chaveDoSegredo } from '../integracao-api/webhook-integracao';
 import { DESTINO_GOGEM } from './aviso-gogem';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+const log = new Logger('CredencialGoGeM');
 
 // A CREDENCIAL DO GOGEM (mig 290, ERR-108).
 //
@@ -48,4 +54,66 @@ export async function equipamentoDoGogem(db: any, tenantId: string, unidadeId: s
               integrador_visto_em desc nulls last, created_at desc
      limit 1`);
   return ((r.rows ?? r)[0]?.id as string | undefined) ?? null;
+}
+
+/** Onde e com que segredo o aviso ASSINADO sai (fase 2, `docs/integracao-gogem/AVISOS-ASSINADOS.md`). */
+export type RegistroDoGogem = { tokenId: string; url: string; chave: Buffer; lojaId: string | null };
+
+/**
+ * O registro de aviso que o GoGeM fez com o token de integração da loja (`PUT /integracao/webhook`).
+ * Com ele, o cancelamento e o "Publicar" saem assinados para o endereço registrado; sem ele, pelo
+ * caminho de antes — é o GoGeM quem liga, loja por loja, e um `DELETE` dele desfaz na hora.
+ *
+ * SÓ NUVEM (a tabela da 304 não existe no servidor da loja — V1): lá devolve `null` sem consultar.
+ * A loja pedida, ou o registro da rede (sem loja); nunca o de outra loja, que pode ser outra conta
+ * no GoGeM. Sem loja pedida (aviso antigo, "todas as lojas"): só se a empresa tem UM registro — com
+ * dois, não se chuta (ERR-108). Token revogado ou vencido não vale. Nunca rejeita (V3): erro ou
+ * segredo que não abre mais vira `null` com o motivo no log — o caminho de antes segue valendo.
+ */
+export async function registroDoGogem(db: any, tenantId: string, unidadeId: string | null): Promise<RegistroDoGogem | null> {
+  if (ehServidorLocal()) return null;
+  try {
+    const r: any = await db.execute(sql`
+      select w.token_id::text as token_id, w.url, w.segredo_cifrado, w.unidade_id::text as unidade_id
+        from integracao_webhook w
+        join integracao_token_loja t on t.id = w.token_id
+       where w.tenant_id = ${tenantId}::uuid and w.cliente = ${DESTINO_GOGEM}
+         and t.revogado_em is null and (t.expira_em is null or t.expira_em > now())
+         and (${unidadeId}::uuid is null or w.unidade_id = ${unidadeId}::uuid or w.unidade_id is null)
+       order by case when w.unidade_id = ${unidadeId}::uuid then 0 when w.unidade_id is null then 1 else 2 end,
+                w.registrado_em desc
+       limit 2`);
+    const linhas = (r.rows ?? r) as any[];
+    if (!linhas.length || (!unidadeId && linhas.length > 1)) return null;
+    const l = linhas[0];
+    let chave: Buffer | null = null;
+    try {
+      chave = chaveDoSegredo(decifrar(l.segredo_cifrado));
+    } catch {
+      chave = null;
+    }
+    if (!chave) {
+      log.warn(`registro de aviso do GoGeM (empresa ${tenantId}) com segredo que não abre — sai pelo caminho de antes`);
+      return null;
+    }
+    return { tokenId: l.token_id, url: l.url, chave, lojaId: l.unidade_id ?? null };
+  } catch (e: any) {
+    log.warn(`registro de aviso do GoGeM não lido (empresa ${tenantId}): ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e} — sai pelo caminho de antes`);
+    return null;
+  }
+}
+
+/**
+ * Anota no registro o último envio assinado — o `GET /integracao/webhook` do GoGeM mostra quando o
+ * Regem mandou e o que ele respondeu. Nunca rejeita: é só a vitrine, o desfecho mora na fila.
+ */
+export async function notarEnvioAoGogem(db: any, tokenId: string, http: number | null): Promise<void> {
+  const entregue = http != null && http >= 200 && http < 300;
+  await db
+    .execute(sql`
+      update integracao_webhook
+         set ultimo_envio_em = now(), ultimo_status_http = ${http},
+             entregues = entregues + ${entregue ? 1 : 0}
+       where token_id = ${tokenId}::uuid`)
+    .catch((e: any) => log.warn(`último envio ao GoGeM não anotado: ${e?.message ?? e}`));
 }

@@ -1,17 +1,23 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
+  CONTRATO_AVISO_ASSINADO,
   MSG_LOJA_RECUSADA,
   MSG_NAO_GRAVADO,
   MSG_PENDENTE,
   RECUO_INTEGRACAO_MINUTOS,
   corpoCancelamento,
+  corpoPedidoCancelado,
   corpoRepasse,
   ehVendaDoTotem,
+  idDoAvisoAssinado,
   lerRespostaDaNuvem,
   lerRespostaGogem,
   lerRetryAfter,
   recuoMinutos,
   resultadoDoAviso,
 } from './aviso-gogem';
+import { assinarAviso, chaveDoSegredo } from '../integracao-api/webhook-integracao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -230,5 +236,55 @@ describe('o repasse do servidor da loja para a nuvem', () => {
     expect(d.status).toBe('recusado');
     expect(d.paraOperador.mensagem).toContain('Aviso sem a chave da venda.');
     expect(d.paraOperador.mensagem).toContain('manualmente');
+  });
+});
+
+// FASE 2 da credencial própria — o aviso ASSINADO (`docs/integracao-gogem/AVISOS-ASSINADOS.md`).
+describe('o aviso assinado ao GoGeM (contrato 1)', () => {
+  const CONTRATO = readFileSync(join(__dirname, '..', '..', '..', '..', 'docs', 'integracao-gogem', 'AVISOS-ASSINADOS.md'), 'utf8');
+
+  it('no endereço registrado, 404, 410, redirecionamento, 401 e 403 esperam 6 h — nunca viram estorno manual', () => {
+    for (const http of [301, 302, 307, 401, 403, 404, 410]) {
+      const d = lerRespostaGogem(http, { message: 'Not Found' }, true);
+      expect([http, d.status, d.paraOperador.situacao]).toEqual([http, 'aguardando_integracao', 'integracao_recusou']);
+      expect(d.paraOperador.mensagem).toContain('endereço de aviso que o GoGeM registrou');
+      expect(d.paraOperador.mensagem).toContain('NÃO foi pedido');
+    }
+  });
+
+  it('o resto se lê como no caminho de antes; e no caminho de antes o 404 segue "recusado"', () => {
+    expect(lerRespostaGogem(404, null).status).toBe('recusado');
+    expect(lerRespostaGogem(422, { code: 'pedido-nao-encontrado', message: 'Pedido não encontrado.' }, true).status).toBe('recusado');
+    expect(lerRespostaGogem(503, null, true).status).toBe('pendente');
+    expect(lerRespostaGogem(null, null, true).status).toBe('pendente');
+    const ok = lerRespostaGogem(200, { status: 'cancelado', estorno: { feito: true, meio: 'pix', valorCentavos: 1990, mensagem: '' } }, true);
+    expect([ok.status, ok.paraOperador.situacao]).toEqual(['entregue', 'solicitado']);
+    const falhou = lerRespostaGogem(200, { estorno: { feito: false, meio: 'credito', valorCentavos: 1990 } }, true);
+    expect(falhou.status).toBe('pendente'); // o Mercado Pago falhou agora: sai de novo, com o MESMO webhook-id
+  });
+
+  it('o corpo: o de hoje inteiro em "pedido", com tipo, contrato, loja e a hora do cancelamento', () => {
+    const corpo = { idempotencyKey: 'totem-1', regemComandaId: 'c-1', motivo: 'Cliente desistiu' };
+    expect(corpoPedidoCancelado({ created_at: new Date('2026-10-19T21:14:05Z'), corpo }, 'loja-1')).toEqual({
+      tipo: 'pedido.cancelado',
+      contrato: CONTRATO_AVISO_ASSINADO,
+      loja_id: 'loja-1',
+      cancelado_em: '2026-10-19T21:14:05.000Z',
+      pedido: corpo,
+    });
+    expect(idDoAvisoAssinado('5d9f')).toBe('aviso_5d9f');
+  });
+
+  it('o vetor de teste do contrato confere com o código (o documento não pode mentir para o GoGeM)', () => {
+    const linha = {
+      created_at: '2026-10-19T21:14:05.000Z',
+      corpo: { idempotencyKey: 'totem-7f3e9a', regemComandaId: '9b8c7d6e-5f4a-4b3c-2d1e-0f9a8b7c6d5e', motivo: 'Cliente desistiu' },
+    };
+    const texto = JSON.stringify(corpoPedidoCancelado(linha, '3f2a6b1c-0d4e-4f5a-8b9c-1d2e3f4a5b6c'));
+    const segredo = 'whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw';
+    const id = idDoAvisoAssinado('5d9f1c2e-7b3a-4c1d-9e8f-0a1b2c3d4e5f');
+    const assinatura = assinarAviso(chaveDoSegredo(segredo)!, id, 1792444445, texto);
+    expect(assinatura).toBe('v1,HCkTVm4dLgQ3u7I1gRWpJRTcGU2jcgTizQ7kZe1t/7U=');
+    for (const trecho of [segredo, id, '1792444445', texto, assinatura]) expect(CONTRATO).toContain(trecho);
   });
 });

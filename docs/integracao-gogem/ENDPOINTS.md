@@ -264,6 +264,13 @@ Com a integração ativa, **o cancelamento de uma venda do totem é feito no Reg
 - **Operador:** a resposta do cancelamento traz `estornoGogem: { situacao, mensagem }` e as telas (Cupons, buscar cupom no PDV, hub de Retirada, detalhe do delivery) mostram a mensagem.
 - **Servidor da loja:** a fila não sincroniza (quem grava é quem envia); aviso ainda não entregue **trava a reinstalação** (`FILA_DE_SAIDA` no `sync-daemon.mjs`).
 
+### 7.2 Avisos assinados (fase 2 da credencial própria, 20/10/2026) ✅ no Regem
+
+O cancelamento do §7.1 e o "Publicar no GoGeM" passam a sair **assinados (Standard Webhooks)** para o endereço que o
+GoGeM registrar com o token `rgm_it_` da loja (`PUT /api/v1/integracao/webhook`). Sem registro, tudo segue como acima.
+O contrato inteiro — eventos, corpo, `webhook-id`, tentativas, respostas, vetor de teste e a ordem das fases — está em
+**[`AVISOS-ASSINADOS.md`](AVISOS-ASSINADOS.md)**.
+
 **LACUNA/proposta mínima:** para o GoGeM ter atualizações ao vivo (ex. status de pedido, "sold out" de produto), o caminho barato é **conectar ao Socket.IO com o sync token do totem** e ouvir a sala `tenant:<id>`. Se for preciso push HTTP para o backend do GoGeM (SaaS), propor um **registro de webhook** (`order.registered`, `stock.low`, `cashclosing.done`) emitido a partir do bus interno — hoje inexistente. *(M/G)*
 
 ---

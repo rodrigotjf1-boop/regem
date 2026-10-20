@@ -21,13 +21,16 @@ import {
   RECUO_INTEGRACAO_MINUTOS,
   TIPO_PEDIDO_CANCELADO,
   corpoCancelamento,
+  corpoPedidoCancelado,
   corpoRepasse,
+  idDoAvisoAssinado,
   lerRespostaDaNuvem,
   lerRespostaGogem,
   lerRetryAfter,
   recuoMinutos,
 } from './aviso-gogem';
-import { tokenDoGogem } from './credencial-gogem';
+import { notarEnvioAoGogem, registroDoGogem, tokenDoGogem } from './credencial-gogem';
+import { cabecalhosDoAviso } from '../integracao-api/webhook-integracao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -237,14 +240,18 @@ export class GogemAvisoService {
       // Sem código HTTP = não chegou a sair: na nuvem, o GoGeM ainda não se identificou; na loja,
       // o servidor não tem a ligação com a nuvem.
       if (l.ultimo_status_http == null) return naLoja ? MSG_LOJA_SEM_NUVEM : MSG_GOGEM_NAO_IDENTIFICADO;
-      return ler(l.ultimo_status_http, l.ultima_resposta).paraOperador;
+      if (naLoja) return lerRespostaDaNuvem(l.ultimo_status_http, l.ultima_resposta).paraOperador;
+      // 404/410/redirecionamento só param o aviso quando vieram do endereço registrado (aviso assinado).
+      const h = Number(l.ultimo_status_http);
+      return lerRespostaGogem(h, l.ultima_resposta, h === 404 || h === 410 || (h >= 300 && h < 400)).paraOperador;
     }
     return { situacao: 'pendente', mensagem: MSG_PENDENTE };
   }
 
   /**
-   * Um envio. Na NUVEM: ao GoGeM, com o token que ele marcou. No servidor da LOJA: à nuvem do
-   * Regem, que envia por ele. Grava o desfecho e devolve o que o operador precisa saber.
+   * Um envio. Na NUVEM: ao GoGeM — assinado, no endereço que ele registrou, se registrou; senão
+   * com o token que ele marcou. No servidor da LOJA: à nuvem do Regem, que envia por ele. Grava o
+   * desfecho e devolve o que o operador precisa saber.
    */
   private async enviar(
     linha: any,
@@ -252,6 +259,18 @@ export class GogemAvisoService {
   ): Promise<{ desfecho: DesfechoAviso; http: number | null; retryAfterS: number | null }> {
     if (ehServidorLocal()) return this.enviarPelaNuvem(linha, prazoMs);
     const token = await tokenDoGogem(this.db, linha.tenant_id, linha.unidade_id ?? null);
+    const registro = await registroDoGogem(this.db, linha.tenant_id, linha.unidade_id ?? null);
+    if (registro) {
+      // Fase 2 (`docs/integracao-gogem/AVISOS-ASSINADOS.md`): o GoGeM registrou o endereço dele.
+      // Mesmas regras da fila; o `webhook-id` é o do aviso em todas as tentativas. O `X-Sync-Token`
+      // vai junto até a fase 4, quando houver — sem ele o aviso assinado sai do mesmo jeito.
+      const corpo = corpoPedidoCancelado(linha, registro.lojaId ?? linha.unidade_id ?? null);
+      const r = await this.postar(registro.url, token, corpo, prazoMs, { chave: registro.chave, id: idDoAvisoAssinado(linha.id) });
+      const d = lerRespostaGogem(r.http, r.corpo, true);
+      await notarEnvioAoGogem(this.db, registro.tokenId, r.http);
+      await this.registrar(linha, d, r.http, r.corpo, r.erro, r.retryAfterS, true);
+      return { desfecho: d, http: r.http, retryAfterS: r.retryAfterS };
+    }
     if (!token) {
       // Não se chuta um servidor_local qualquer (5 de 6 davam 401): o aviso espera o GoGeM se
       // identificar — a marca solta a fila na hora (`soltarAvisosParados`).
@@ -287,20 +306,31 @@ export class GogemAvisoService {
     return { desfecho: d, http: r.http, retryAfterS: r.retryAfterS };
   }
 
-  /** O POST com o `X-Sync-Token`: devolve o código, o corpo lido e o `Retry-After` (sem lançar). */
-  private async postar(url: string, token: string, corpo: unknown, prazoMs: number) {
+  /**
+   * O POST com o `X-Sync-Token` — ou ASSINADO (Standard Webhooks), quando vem `assinar`: aí o token
+   * vai junto só se houver, e redirecionamento não se segue (o endereço foi conferido no registro).
+   * Devolve o código, o corpo lido e o `Retry-After` (sem lançar).
+   */
+  private async postar(
+    url: string,
+    token: string | null,
+    corpo: unknown,
+    prazoMs: number,
+    assinar?: { chave: Buffer; id: string },
+  ) {
     let http: number | null = null;
     let lido: any = null;
     let erro: string | null = null;
     let retryAfterS: number | null = null;
+    // O texto assinado é exatamente o texto enviado.
+    const enviado = JSON.stringify(corpo);
+    const headers: Record<string, string> = assinar
+      ? { ...cabecalhosDoAviso(assinar.chave, assinar.id, enviado), Accept: 'application/json', ...(token ? { 'X-Sync-Token': token } : {}) }
+      : { 'X-Sync-Token': token ?? '', 'Content-Type': 'application/json', Accept: 'application/json' };
     try {
       const res = await fetchExterno(
         url,
-        {
-          method: 'POST',
-          headers: { 'X-Sync-Token': token, 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify(corpo),
-        },
+        { method: 'POST', headers, body: enviado, ...(assinar ? { redirect: 'manual' as const } : {}) },
         prazoMs,
       );
       http = res.status;
@@ -327,6 +357,7 @@ export class GogemAvisoService {
     corpo: any,
     erro: string | null,
     retryAfterS: number | null,
+    assinado = false,
   ) {
     const idadeDias = (Date.now() - new Date(linha.created_at).getTime()) / 86_400_000;
     let status: string = d.status;
@@ -360,6 +391,8 @@ export class GogemAvisoService {
       referencia: { tipo: linha.referencia_tipo, id: linha.referencia_id },
       tentativa: Number(linha.tentativas),
       http,
+      // Por qual caminho saiu: o assinado (endereço registrado pelo GoGeM) ou o do `X-Sync-Token`.
+      ...(assinado ? { assinado: true } : {}),
     };
     if (status === 'entregue' && ehServidorLocal()) {
       // Na loja, "entregue" é a nuvem ter aceitado: quem fala com o GoGeM (e audita o estorno) é ela.

@@ -51,8 +51,10 @@ Content-Type: application/json
   - Depois desse começo vem **um trecho só**, de até 64 caracteres, só com letras, números, `-` e `_`.
   - Esse trecho é o id da integração no GoGeM. É por ele que o GoGeM acha o segredo para conferir a assinatura.
   - Endereço fora disso → `422 endereco-nao-permitido`. Segredo fora do formato → `400`.
-- **Respostas:** `200` com a situação do registro. `GET` mostra a situação (nunca o segredo). `DELETE` para os
-  avisos e responde `204`.
+- **Respostas:** `200` com a situação do registro. `DELETE` para os avisos e responde `204`.
+  - `GET` mostra a situação, nunca o segredo: `url`, `registrado_em`, `ultimo_envio_em`, `ultimo_status_http` e
+    `entregues`. Serve para conferir a fase 3 sem olhar o Regem.
+- **Ao registrar,** o cancelamento que estava parado esperando pelo GoGeM sai na hora, já pelo endereço novo.
 - **Trocar o segredo:** `PUT` de novo com o segredo novo. A troca vale na hora; o GoGeM deve aceitar o segredo
   antigo por mais 10 minutos, por causa de um aviso que já estava saindo.
 - **O registro é preso ao token:** token novo (troca ou revogação) apaga o registro e o segredo.
@@ -136,7 +138,7 @@ assinatura         v1,HCkTVm4dLgQ3u7I1gRWpJRTcGU2jcgTizQ7kZe1t/7U=
 | `200` com `estorno.feito: false` e meio eletrônico | o Mercado Pago falhou agora | repete (abaixo) |
 | `200` sem `estorno` | cancelado sem detalhe | encerra; pede para conferir no painel do GoGeM |
 | `401` ou `403` | integração recusou | tenta de novo a cada 6 h e avisa o atendente |
-| `404` ou `410` **na rota nova** | endereço errado ou removido | trata como `401` (6 h), nunca como "recusado" |
+| `404`, `410` ou redirecionamento (`3xx`) **na rota nova** | endereço errado ou removido | trata como `401` (6 h), nunca como "recusado" |
 | `408`, `425`, `429`, `5xx`, sem resposta, mais de 5 s | falha passageira | repete (abaixo); respeita `Retry-After` de até 24 h |
 | outro `4xx` (`400`, `409`, `422`) | recusado de vez | encerra; o estorno vira manual. Mostra ao atendente o `message` ou `mensagem` do corpo (até 200 caracteres) |
 
@@ -160,7 +162,8 @@ assinatura         v1,HCkTVm4dLgQ3u7I1gRWpJRTcGU2jcgTizQ7kZe1t/7U=
   sincronizado(s)."
 - **Sem repetição.** Se falhar, o atendente vê o erro e clica de novo; o poller do GoGeM segue como rede de
   segurança.
-- **Qual registro:** o da loja em uso pelo atendente. Se a loja não tem registro, vale o caminho de hoje.
+- **Qual registro:** o da loja em uso pelo atendente; numa empresa de uma loja só, o dela. Se a loja não tem
+  registro, vale o caminho de hoje.
 
 ## 6. Ordem para ligar sem quebrar
 
