@@ -35,6 +35,7 @@ import { escolherServidorDaLoja, ligarServidorAMaquina } from './servidor-da-loj
 import { verificarTotp, gerarSegredoBase32, otpauthUri } from '../distribuicao/totp';
 import { enviarCodigoVerificacao } from '../../common/mailer';
 import { PLANOS } from './planos';
+import { pcsConectadosDaSaude, redeDaSaude } from '../edge/rede-local';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -295,6 +296,10 @@ export class LicencaService {
       discoLivreMb: num(discoLivreMb),
       backup,
       precisaManutencao: checksum > 0 || pctTransacoes > 50,
+      // O endereço do servidor na rede da loja e os PCs ligados a ele (conexão PC ↔ servidor): é da
+      // loja — o dono precisa do IP numa emergência e do MAC para fixar o IP no roteador.
+      rede: redeDaSaude(saude?.rede),
+      pcsConectados: pcsConectadosDaSaude(saude?.presenca),
     };
   }
 

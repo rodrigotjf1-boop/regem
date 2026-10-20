@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { SkeletonList } from '@/components/ui/skeleton';
 import { Dialogo } from '@/components/ui/sobreposto';
 import { Situacoes, type Situacao } from '@/components/ui/lista';
+import { EnderecoNaRede } from '@/components/servidor/endereco-na-rede';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -887,6 +888,8 @@ export default function ServidorPage() {
       <div className="grid gap-4 lg:grid-cols-3">
         {/* Saúde do servidor (backup/disco) — vale na nuvem e no edge; some se não há servidor. */}
         <div className={cartao('saude')}><SaudeServidor /></div>
+        {/* Endereço na rede (conexão PC ↔ servidor): o IP para emergência e o MAC para fixar no roteador. */}
+        <div className={cartao('saude')}><EnderecoNaRede /></div>
         {NO_EDGE && <div className={cartao('atualizacao')}><AtualizacaoServidor /></div>}
         {NO_EDGE && <div className={cartao('restaurar')}><RestaurarServidor /></div>}
         {NO_EDGE && <div className={cartao('outros')}><SuporteServidor /></div>}

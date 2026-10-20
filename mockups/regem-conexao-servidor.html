@@ -1,0 +1,562 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Mockup "Conexão com o servidor" (PCs da loja ↔ servidor local). Protótipo aprovado pelo dono em 20/10/2026 ("aprovado"; plano: "pode"
+     com D1 serviço em todo PC cliente, D2 anotar regem.local no PC quando a rede não resolve, D3 depois).
+     Peças: Servidor local › Endereço na rede · indicador no topo do app · Equipamentos por PC · o ícone do Regem no PC ·
+     instalador do PC cliente · o que entra em cada parte. Nomes da loja reais (20/10); IPs, MAC e nome do servidor: exemplos. -->
+<title>Conexão com o servidor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Layout: página de protótipo em seis peças empilhadas; cada peça tem botões de estado, a tela simulada e notas.
+   Tokens dos mockups do Regem (Configurações, Estação, "Onde cada impressão sai"). */
+:root{
+  --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E8A845; --on-gold:#281B06; --gold-ink:#7A5209; --navy:#0F2230; --on-navy:#FFFFFF; --navy-2:#C9D6E2;
+  --ok:#0F6647; --ok-bg:#E3F4EC; --warn:#8A5A00; --warn-bg:#FFF2D9; --crit:#B93232; --crit-bg:#FBE9E9; --focus:#3A7FB8;
+  --sombra:0 10px 30px rgba(15,34,48,.16);
+  --win:#202020; --win-2:#2C2C2C; --win-ink:#F2F2F2; --win-mute:#B9B9B9; --win-line:#3D3D3D;
+  --desk-1:#2B5B84; --desk-2:#163651;
+  --display:'Archivo',system-ui,sans-serif; --body:'Figtree',system-ui,sans-serif; --mono:'JetBrains Mono',ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0D1822; --card:#132330; --ink:#E6ECF2; --ink-2:#A3B3C2; --line:#24384A; --line-2:#2F465A; --gold-ink:#E8A845;
+  --navy:#0A1822; --navy-2:#A3B3C2; --ok:#4CC49E; --ok-bg:#11302A; --warn:#EFC264; --warn-bg:#33290F; --crit:#F08A80; --crit-bg:#3A1B19;
+  --sombra:0 10px 30px rgba(0,0,0,.45); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0D1822; --card:#132330; --ink:#E6ECF2; --ink-2:#A3B3C2; --line:#24384A; --line-2:#2F465A; --gold-ink:#E8A845;
+  --navy:#0A1822; --navy-2:#A3B3C2; --ok:#4CC49E; --ok-bg:#11302A; --warn:#EFC264; --warn-bg:#33290F; --crit:#F08A80; --crit-bg:#3A1B19;
+  --sombra:0 10px 30px rgba(0,0,0,.45); color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5}
+button,select,input{font:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.wrap{max-width:1120px;margin:0 auto;padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));padding-block:28px 72px;display:grid;gap:44px}
+.topo{display:grid;gap:10px}
+.trilha{font-family:var(--display);font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--gold-ink)}
+h1{font-family:var(--display);font-size:clamp(26px,4vw,34px);margin:0;text-wrap:balance}
+h2{font-family:var(--display);font-size:22px;margin:0;text-wrap:balance}
+h3{font-family:var(--display);font-size:16px;margin:0}
+p{margin:0}
+.nota{color:var(--ink-2);max-width:72ch}
+.indice{display:flex;flex-wrap:wrap;gap:8px}
+.indice a{color:var(--ink);text-decoration:none;border:1px solid var(--line-2);background:var(--card);border-radius:999px;padding:4px 12px;font-size:13.5px;font-weight:600}
+.indice a:hover{border-color:var(--gold)}
+.peca{display:grid;gap:14px;min-width:0}
+.peca .rotulo{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.parte{font-family:var(--display);font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;border:1px solid var(--line-2);border-radius:999px;padding:2px 10px;color:var(--ink-2)}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.btn{border-radius:10px;padding:8px 14px;font-weight:700;font-size:14px;border:1px solid var(--line-2);background:var(--card);color:var(--ink)}
+.btn.pri{background:var(--gold);color:var(--on-gold);border-color:var(--gold)}
+.btn.perigo{color:var(--crit);border-color:var(--crit)}
+.btn.mini{padding:4px 10px;font-size:13px;border-radius:8px}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;padding:2px 10px;border-radius:999px;white-space:nowrap}
+.pill::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}
+.pill.aviso{background:var(--warn-bg);color:var(--warn)}
+.pill.erro{background:var(--crit-bg);color:var(--crit)}
+.pill.info,.pill.neutro{background:var(--line);color:var(--ink)}
+.pill.neutro::before{display:none}
+.estados{display:flex;flex-wrap:wrap;gap:8px}
+.estados button{border:1px solid var(--line-2);background:var(--card);color:var(--ink);border-radius:999px;padding:6px 14px;font-weight:600;font-size:14px}
+.estados button[aria-pressed="true"]{background:var(--gold);color:var(--on-gold);border-color:var(--gold)}
+.palco{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:18px;align-items:start}
+.lado{display:grid;gap:10px;align-content:start}
+.lado ul{margin:0;padding-left:18px;display:grid;gap:6px;color:var(--ink-2)}
+/* ---- tela do Regem simulada ---- */
+.tela{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;min-width:0}
+.tela .cab{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;background:var(--navy);color:var(--on-navy);padding:10px 14px}
+.tela .cab b{font-family:var(--display);font-size:14px}
+.tela .cab span{font-size:12px;color:var(--navy-2)}
+.tela .corpo{padding:14px;display:grid;gap:14px;container-type:inline-size;min-width:0}
+.cartao{border:1px solid var(--line);border-radius:12px;padding:14px;display:grid;gap:12px;min-width:0}
+.cartao header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px}
+/* ---- endereço na rede ---- */
+.campos{display:grid;gap:0;border-top:1px solid var(--line)}
+.campo-l{display:grid;grid-template-columns:minmax(150px,210px) minmax(0,1fr) auto;gap:4px 14px;align-items:start;padding:10px 0;border-bottom:1px solid var(--line)}
+.campo-l dt{font-weight:700;font-size:13.5px;color:var(--ink-2)}
+.campo-l dd{margin:0;min-width:0;display:grid;gap:2px}
+.campo-l .valor{font-family:var(--mono);font-size:14.5px;font-weight:700;overflow-wrap:break-word}
+.campo-l .ajuda{color:var(--ink-2);font-size:13px}
+.campo-l .copiar{justify-self:end}
+@container (max-width:560px){
+  .campo-l{grid-template-columns:minmax(0,1fr) auto}
+  .campo-l dt{grid-column:1 / -1}
+}
+details.passo{border:1px solid var(--line-2);border-radius:10px;background:var(--bg)}
+details.passo summary{cursor:pointer;padding:10px 12px;font-weight:700;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+details.passo .dentro{padding:0 14px 12px;display:grid;gap:10px}
+details.passo ol{margin:0;padding-left:20px;display:grid;gap:6px}
+.chave{font-family:var(--mono);font-weight:700;background:var(--card);border:1px solid var(--line-2);border-radius:6px;padding:0 6px;white-space:nowrap}
+.faixa{border-radius:10px;padding:10px 12px;display:grid;gap:6px;font-size:14px}
+.faixa.aviso{background:var(--warn-bg);color:var(--warn)}
+.faixa.erro{background:var(--crit-bg);color:var(--crit)}
+.faixa.ok{background:var(--ok-bg);color:var(--ok)}
+.faixa p,.faixa li{color:inherit}
+.faixa ol{margin:0;padding-left:20px;display:grid;gap:4px}
+/* ---- topo do app ---- */
+.app-topo{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--bg)}
+.app-topo .loja{display:flex;align-items:center;gap:8px;font-weight:700;min-width:0}
+.app-topo .loja small{font-weight:500;color:var(--ink-2)}
+.app-topo .dir{display:flex;align-items:center;gap:8px}
+.chip-srv{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line-2);background:var(--card);color:var(--ink);border-radius:999px;padding:5px 12px;font-weight:700;font-size:13.5px}
+.chip-srv .bola{width:9px;height:9px;border-radius:50%}
+.chip-srv.ok .bola{background:var(--ok)} .chip-srv.aviso .bola{background:var(--warn)} .chip-srv.erro .bola{background:var(--crit)}
+.chip-srv.erro{border-color:var(--crit);color:var(--crit)}
+.avatar{width:30px;height:30px;border-radius:50%;background:var(--navy);color:var(--on-navy);display:grid;place-items:center;font-family:var(--display);font-size:12px;font-weight:800}
+.pop{justify-self:end;width:min(380px,100%);background:var(--card);border:1px solid var(--line-2);border-radius:12px;box-shadow:var(--sombra);padding:14px;display:grid;gap:10px}
+.pop h3{display:flex;align-items:center;gap:8px}
+.pop dl{margin:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 12px;font-size:14px}
+.pop dt{color:var(--ink-2)} .pop dd{margin:0;font-weight:600;overflow-wrap:anywhere}
+.banner{display:flex;flex-wrap:wrap;align-items:center;gap:10px;border:1px solid var(--warn);background:var(--warn-bg);color:var(--warn);border-radius:10px;padding:10px 12px}
+.banner span{flex:1 1 220px;font-weight:600}
+.resultado{font-size:13.5px;font-weight:700;color:var(--ok)}
+.chip-srv .txt-curto{display:none}
+@container (max-width:420px){ .chip-srv .txt-longo{display:none} .chip-srv .txt-curto{display:inline} }
+/* ---- equipamentos ---- */
+.sits{display:flex;flex-wrap:wrap;gap:6px}
+.sits span{border:1px solid var(--line-2);border-radius:999px;padding:3px 10px;font-size:13px;font-weight:600;background:var(--card)}
+.sits b{font-family:var(--mono)}
+.pcs{display:grid;gap:12px}
+.pc{border:1px solid var(--line);border-radius:12px;overflow:hidden;min-width:0}
+.pc>header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;background:var(--bg);border-bottom:1px solid var(--line)}
+.pc>header .quem{display:grid;gap:0;min-width:0}
+.pc>header .quem b{font-family:var(--display);font-size:15px}
+.pc>header .quem small{color:var(--ink-2);font-size:12.5px}
+.itens{display:grid}
+.it{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line)}
+.it:last-child{border-bottom:none}
+.it .t{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}
+.it .n{font-weight:700}
+.it .d{color:var(--ink-2);font-size:13px}
+.it .lado-d{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end}
+.it .dica{grid-column:1 / -1;font-size:13px;background:var(--warn-bg);color:var(--warn);border-radius:8px;padding:8px 10px}
+.it .dica.info{background:var(--bg);color:var(--ink-2);border:1px dashed var(--line-2)}
+@container (max-width:520px){ .it{grid-template-columns:minmax(0,1fr)} .it .lado-d{justify-content:flex-start} }
+table.eq{width:100%;border-collapse:collapse;font-size:14px}
+table.eq th,table.eq td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+table.eq th{font-family:var(--display);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+table.eq td .sub{display:block;color:var(--ink-2);font-size:12.5px}
+@container (max-width:640px){
+  table.eq,table.eq tbody,table.eq tr,table.eq td{display:block;width:100%}
+  table.eq thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  table.eq tr{border:1px solid var(--line);border-radius:10px;padding:6px 10px;margin-bottom:10px}
+  table.eq td{border:none;padding:3px 0}
+  table.eq td[data-r]::before{content:attr(data-r);display:block;color:var(--ink-2);font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+}
+.dialogo{border:1px solid var(--line-2);border-radius:12px;background:var(--card);box-shadow:var(--sombra);padding:16px;display:grid;gap:12px;max-width:560px}
+.dialogo h3{font-size:17px}
+.dialogo .rodape{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+/* ---- Windows: área de trabalho e ícone ---- */
+.desk{background:linear-gradient(160deg,var(--desk-1),var(--desk-2));border-radius:14px;padding:18px;min-height:420px;display:flex;flex-direction:column;justify-content:flex-end;gap:10px;position:relative;overflow:hidden;min-width:0}
+.balao{align-self:flex-end;width:min(340px,100%);background:var(--win);color:var(--win-ink);border-radius:10px;padding:12px 14px;box-shadow:0 10px 30px rgba(0,0,0,.4);display:grid;gap:4px;font-size:13.5px}
+.balao b{font-family:var(--display);font-size:14px}
+.balao .de{color:var(--win-mute);font-size:12px}
+.menu{align-self:flex-end;width:min(320px,100%);background:var(--win-2);color:var(--win-ink);border-radius:10px;padding:6px;box-shadow:0 10px 30px rgba(0,0,0,.45);font-size:13.5px}
+.menu .mcab{padding:8px 10px 8px;display:grid;gap:3px;border-bottom:1px solid var(--win-line);margin-bottom:4px}
+.menu .mcab b{font-family:var(--display)}
+.menu .mcab span{color:var(--win-mute);font-size:12px}
+.menu .estado{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--win-ink)}
+.menu .estado i{width:8px;height:8px;border-radius:50%;display:inline-block;background:#2FBF7F}
+.menu .estado.erro i{background:#E5484D}
+.menu .item{display:flex;justify-content:space-between;width:100%;text-align:left;background:none;border:none;color:inherit;padding:7px 10px;border-radius:6px}
+.menu .item:hover{background:#3a3a3a}
+.menu hr{border:none;border-top:1px solid var(--win-line);margin:4px 0}
+.barra{display:flex;justify-content:flex-end;align-items:center;gap:10px;background:rgba(10,14,20,.88);margin:0 -18px -18px;padding:8px 14px;color:#e5e5e5;font-size:12px}
+.icone{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;font-family:var(--display);font-weight:800;font-size:12px;color:#fff;position:relative;background:#0F2230}
+.icone::after{content:"";position:absolute;right:-3px;bottom:-3px;width:11px;height:11px;border-radius:50%;border:2px solid #0b0f15;background:#2FBF7F}
+.icone.erro::after{background:#E5484D}
+.icone.aviso::after{background:#F2B63C}
+.janela{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;min-width:0}
+.janela .tit{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;background:var(--navy);color:var(--on-navy);padding:10px 14px;font-family:var(--display);font-size:14px}
+.janela .tit span{font-family:var(--body);font-size:12px;color:var(--navy-2)}
+.janela .corpo{padding:14px;display:grid;gap:14px;min-width:0}
+.bloco{display:grid;gap:10px;border:1px solid var(--line);border-radius:10px;padding:12px;min-width:0}
+.bloco h3{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.pares{margin:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;font-size:14px}
+.pares dt{color:var(--ink-2)} .pares dd{margin:0;font-weight:600;overflow-wrap:anywhere}
+.busca{margin:0;padding:0;list-style:none;display:grid;gap:6px;font-size:14px}
+.busca li{display:grid;grid-template-columns:22px minmax(0,1fr);gap:6px;align-items:start}
+.busca .m{font-weight:800;text-align:center}
+.busca .sim .m{color:var(--ok)} .busca .nao .m{color:var(--crit)}
+.busca .nao{color:var(--ink-2)}
+.campo{display:grid;gap:5px}
+.campo label{font-weight:700;font-size:13.5px}
+.campo .ajuda{color:var(--ink-2);font-size:12.5px}
+.campo input{border:1px solid var(--line-2);border-radius:10px;padding:9px 10px;background:var(--card);color:var(--ink);font-size:14.5px;width:100%}
+.linha-campo{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.linha-campo input{flex:1 1 160px;width:auto;min-width:0}
+/* ---- instalador ---- */
+.inst{max-width:560px;width:100%;background:#F3F3F3;color:#1b1b1b;border:1px solid #c9c9c9;border-radius:8px;overflow:hidden;font-family:"Segoe UI",var(--body);font-size:13.5px}
+.inst .barra-t{background:#fff;border-bottom:1px solid #d9d9d9;padding:12px 16px;display:grid;gap:2px}
+.inst .barra-t b{font-size:14px}
+.inst .meio{padding:16px;display:grid;gap:12px;background:#fff}
+.inst .rodape-i{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;padding:10px 16px;border-top:1px solid #d9d9d9}
+.inst .rodape-i span{border:1px solid #adadad;background:#e1e1e1;padding:4px 18px;border-radius:3px}
+.inst .caixa{display:flex;gap:8px;align-items:flex-start}
+.inst .caixa i{width:14px;height:14px;border:1px solid #333;border-radius:2px;display:grid;place-items:center;font-style:normal;font-size:11px;line-height:1;flex:none;margin-top:2px}
+.inst .entrada{border:1px solid #8a8a8a;padding:5px 7px;font-family:var(--mono);width:160px;max-width:100%;background:#fff}
+.decisoes{background:var(--gold);color:var(--on-gold);border-radius:12px;padding:16px 18px;display:grid;gap:10px}
+.decisoes ul,.decisoes ol{margin:0;padding-left:20px;display:grid;gap:6px}
+.decisoes h2{color:var(--on-gold)}
+@media (prefers-reduced-motion:no-preference){.balao,.pop,.dialogo{animation:entra .3s ease-out}@keyframes entra{from{transform:translateY(6px);opacity:.5}to{transform:none;opacity:1}}}
+</style>
+
+<div class="wrap">
+<header class="topo">
+  <span class="trilha">Regem · PCs da loja e o servidor local · plano aprovado em 20/10/2026</span>
+  <h1>Conexão com o servidor</h1>
+  <p class="nota">As telas das duas partes do plano: <b>ver e provar</b> que cada PC está ligado ao servidor, e <b>achar e consertar no próprio PC</b> quando o roteador troca o IP do servidor. Os botões de estado mostram cada situação. Os nomes são os da sua loja (CX-DELIVERY, estacao delivery, Pdv delivery, PC do delivery, PDV1, Caixa delivery); os IPs, o MAC e o nome do PC servidor são exemplos.</p>
+  <nav class="indice" aria-label="Peças do protótipo">
+    <a href="#p1">1. Endereço na rede</a><a href="#p2">2. Topo do app</a><a href="#p3">3. Equipamentos por PC</a><a href="#p4">4. Ícone do Regem no PC</a><a href="#p5">5. Instalador</a><a href="#p6">O que entra</a>
+  </nav>
+</header>
+
+<!-- ============================ PEÇA 1 ============================ -->
+<section class="peca" id="p1" aria-labelledby="t1">
+  <div class="rotulo"><span class="parte">Parte 1 · só .zip</span><h2 id="t1">1. Servidor local: endereço na rede</h2></div>
+  <p class="nota">Configurações › Servidor local ganha um cartão com o endereço do servidor. Aberto no próprio servidor ele lê a máquina; na nuvem, mostra o que o servidor informou na última batida (serve para você ver o IP pelo celular numa emergência).</p>
+  <div class="estados" id="e1" role="group" aria-label="Onde a tela está aberta">
+    <button type="button" data-e="local" aria-pressed="true">Aberto no servidor da loja</button>
+    <button type="button" data-e="nuvem" aria-pressed="false">Aberto na nuvem</button>
+    <button type="button" data-e="mudo" aria-pressed="false">Servidor sem sinal (nuvem)</button>
+  </div>
+  <div class="tela">
+    <div class="cab"><b>Configurações › Servidor local</b><span id="p1-onde">https://regem.local:3001</span></div>
+    <div class="corpo" id="p1-corpo"></div>
+  </div>
+</section>
+
+<!-- ============================ PEÇA 2 ============================ -->
+<section class="peca" id="p2" aria-labelledby="t2">
+  <div class="rotulo"><span class="parte">Parte 1 · só .zip</span><h2 id="t2">2. O topo do app no modo local</h2></div>
+  <p class="nota">Ao lado do seu nome, no topo de toda tela do app do servidor, um indicador diz se este PC está falando com o servidor. Clicar abre o detalhe. Hoje só existe o aviso de queda; a prova de "conectado" é nova.</p>
+  <div class="estados" id="e2" role="group" aria-label="Situação da conexão">
+    <button type="button" data-e="ok" aria-pressed="true">Conectado</button>
+    <button type="button" data-e="lento" aria-pressed="false">Resposta lenta</button>
+    <button type="button" data-e="caiu" aria-pressed="false">Sem resposta</button>
+  </div>
+  <div class="tela">
+    <div class="cab"><b>PDV · delivery</b><span>app aberto no PC CX-DELIVERY</span></div>
+    <div class="corpo" id="p2-corpo"></div>
+  </div>
+</section>
+
+<!-- ============================ PEÇA 3 ============================ -->
+<section class="peca" id="p3" aria-labelledby="t3">
+  <div class="rotulo"><span class="parte">Parte 1 · só .zip</span><h2 id="t3">3. Equipamentos: quem está conectado, PC por PC</h2></div>
+  <p class="nota">O PC com o app aberto avisa o servidor a cada 30 segundos, então "conectado agora" é real, mesmo sem venda. Terminal, estação e impressoras do mesmo PC aparecem juntos (o servidor reconhece o PC pelo IP de onde cada um fala). A lista de sempre continua, com a coluna "Conexão".</p>
+  <div class="estados" id="e3" role="group" aria-label="Forma de ver">
+    <button type="button" data-e="pc" aria-pressed="true">Por PC</button>
+    <button type="button" data-e="lista" aria-pressed="false">Lista</button>
+    <button type="button" data-e="revogar" aria-pressed="false">Revogar um PC conectado</button>
+  </div>
+  <div class="tela">
+    <div class="cab"><b>Configurações › Equipamentos &amp; apps</b><span>Mister Burguer · loja</span></div>
+    <div class="corpo" id="p3-corpo"></div>
+  </div>
+</section>
+
+<!-- ============================ PEÇA 4 ============================ -->
+<section class="peca" id="p4" aria-labelledby="t4">
+  <div class="rotulo"><span class="parte">Parte 2 · .exe + .zip</span><h2 id="t4">4. O ícone do Regem no PC</h2></div>
+  <p class="nota">O serviço que hoje é a estação de impressão vira "Regem neste PC" e vai em todo PC da loja (D1). Ele fala com o servidor sem depender do navegador, então consegue procurar o servidor sozinho e consertar o endereço. À esquerda, o que aparece ao lado do relógio; à direita, a janela que abre ao clicar.</p>
+  <div class="estados" id="e4" role="group" aria-label="Situação no PC">
+    <button type="button" data-e="ok" aria-pressed="true">Tudo certo</button>
+    <button type="button" data-e="ip" aria-pressed="false">O roteador trocou o IP</button>
+    <button type="button" data-e="off" aria-pressed="false">Servidor desligado</button>
+    <button type="button" data-e="digitar" aria-pressed="false">Digitar o endereço</button>
+    <button type="button" data-e="parear" aria-pressed="false">Parear de novo</button>
+  </div>
+  <div class="palco">
+    <div class="desk" id="p4-desk" aria-label="Área de trabalho do Windows (simulada)"></div>
+    <div class="janela">
+      <div class="tit">Regem neste PC <span>CX-DELIVERY · estacao delivery</span></div>
+      <div class="corpo" id="p4-janela"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ PEÇA 5 ============================ -->
+<section class="peca" id="p5" aria-labelledby="t5">
+  <div class="rotulo"><span class="parte">Parte 2 · .exe</span><h2 id="t5">5. Instalador do PC cliente</h2></div>
+  <p class="nota">A página do endereço do servidor continua vindo com <span class="chave">regem.local</span>. A página da impressora vira "Este PC": o serviço instala sempre; a impressora e o código continuam opcionais.</p>
+  <div class="inst" role="group" aria-label="Página do instalador: Este PC">
+    <div class="barra-t"><b>Este PC</b><span>O Regem instala aqui o serviço que mantém a ligação com o servidor da loja (ícone ao lado do relógio).</span></div>
+    <div class="meio">
+      <div class="caixa"><i aria-hidden="true">✓</i><span><b>Este PC tem impressora</b> (a estação imprime os cupons dela)</span></div>
+      <div style="display:grid;gap:4px"><span>Código da estação (6 números):</span><span class="entrada">482 917</span>
+        <span style="color:#555">Gere o código no Regem: Configurações › Equipamentos › (a estação deste PC) › Gerar código. Vale 15 minutos e uma vez só. Numa reinstalação, deixe em branco para manter o pareamento.</span></div>
+      <div style="color:#555">Sem impressora: deixe a caixa desmarcada. O serviço instala do mesmo jeito, só para a ligação com o servidor.</div>
+    </div>
+    <div class="rodape-i"><span>&lt; Voltar</span><span>Avançar &gt;</span><span>Cancelar</span></div>
+  </div>
+</section>
+
+<!-- ============================ PEÇA 6 ============================ -->
+<section class="peca" id="p6" aria-labelledby="t6">
+  <div class="decisoes">
+    <h2 id="t6">O que entra em cada parte</h2>
+    <ul>
+      <li><b>Parte 1 (só .zip, sem migration):</b> peças 1, 2 e 3. O servidor mede os próprios endereços e os manda na batida; o app avisa o servidor a cada 30 s com o terminal do PC; Equipamentos junta tudo por PC.</li>
+      <li><b>Parte 2 (.exe novo + .zip):</b> peças 4 e 5. O serviço "Regem neste PC" procura o servidor sozinho, anota <b>regem.local</b> no PC quando a rede não resolve o nome (D2), aceita o endereço digitado e pareia de novo sem reinstalar.</li>
+      <li><b>Decidido em 20/10:</b> D1 o serviço vai em todo PC cliente · D2 anotar regem.local no PC · D3 o ícone no PC servidor fica para depois.</li>
+    </ul>
+    <p><b>Para aprovar:</b> as telas como estão, ou o que mudar em cada peça.</p>
+  </div>
+</section>
+</div>
+
+<script>
+(function () {
+  const $ = (s, r = document) => r.querySelector(s);
+
+  // Copiar: dentro do clique; se o navegador recusar, seleciona o texto para o Ctrl+C.
+  document.addEventListener('click', (ev) => {
+    const b = ev.target.closest('button[data-copiar]');
+    if (!b) return;
+    const alvo = document.getElementById(b.dataset.copiar);
+    const texto = alvo ? alvo.textContent.trim() : '';
+    const pronto = () => { const antes = b.textContent; b.textContent = 'Copiado'; setTimeout(() => { b.textContent = antes; }, 1400); };
+    const selecionar = () => { const r = document.createRange(); r.selectNodeContents(alvo); const s = getSelection(); s.removeAllRanges(); s.addRange(r); b.textContent = 'Ctrl+C'; };
+    try { navigator.clipboard.writeText(texto).then(pronto, selecionar); } catch (e) { selecionar(); }
+  });
+
+  function estados(id, aoMudar) {
+    const g = document.getElementById(id);
+    g.addEventListener('click', (ev) => {
+      const b = ev.target.closest('button[data-e]');
+      if (!b) return;
+      for (const x of g.querySelectorAll('button[data-e]')) x.setAttribute('aria-pressed', String(x === b));
+      aoMudar(b.dataset.e);
+    });
+  }
+  const marcar = (id, e) => { for (const x of document.querySelectorAll('#' + id + ' button[data-e]')) x.setAttribute('aria-pressed', String(x.dataset.e === e)); };
+
+  const linha = (rotulo, valorHtml, ajuda, copiarId) =>
+    `<div class="campo-l"><dt>${rotulo}</dt><dd>${valorHtml}${ajuda ? `<span class="ajuda">${ajuda}</span>` : ''}</dd>` +
+    (copiarId ? `<button type="button" class="btn mini copiar" data-copiar="${copiarId}" aria-label="Copiar ${rotulo.toLowerCase()}">Copiar</button>` : '<span></span>') + `</div>`;
+
+  // ------------------------------------------------------------ peça 1
+  function p1(e) {
+    $('#p1-onde').textContent = e === 'local' ? 'https://regem.local:3001 (no PC servidor)' : 'app.dmsregem.com';
+    const mudo = e === 'mudo';
+    const pill = e === 'local' ? '<span class="pill ok">respondendo</span>'
+      : mudo ? '<span class="pill erro">sem sinal há 2 h</span>' : '<span class="pill info">informado há 1 min</span>';
+    const ip = mudo
+      ? linha('Último IP informado', '<span class="valor" id="c-ip">192.168.0.10</span>', 'Informado pelo servidor hoje às 08h12. Se o servidor foi reiniciado depois disso, o IP pode ter mudado.', 'c-ip')
+      : linha('IP do servidor agora', '<span class="valor" id="c-ip">192.168.0.10</span>', 'Desde 17/10 às 19h02. Antes era <span class="mono">192.168.0.23</span>: o roteador trocou o IP quando o servidor reiniciou.', 'c-ip');
+    $('#p1-corpo').innerHTML = `
+      <div class="cartao">
+        <header><h3>Endereço na rede</h3>${pill}</header>
+        <p class="nota">Os PCs da loja encontram o servidor pelo nome. Se um PC não achar, use o IP numa emergência (no ícone do Regem do PC, "Trocar endereço do servidor").</p>
+        <dl class="campos">
+          ${linha('Endereço para os PCs', '<span class="valor" id="c-end">https://<wbr>regem.local<wbr>:3001</span>', 'O instalador já usa este nome. Ele não muda quando o roteador troca o IP.', 'c-end')}
+          ${ip}
+          ${linha('Roteador', '<span class="valor">192.168.0.1</span>', '', '')}
+          ${linha('Nome do PC servidor', '<span class="valor">SERVIDOR-MB</span>', '', '')}
+          ${linha('Placa de rede (MAC)', '<span class="valor" id="c-mac">3C-52-82-4A-19-7E</span>', 'É o que o roteador pede para fixar o IP.', 'c-mac')}
+          ${linha('Portas', '<span class="valor">3001 · 3002</span>', '3001 é o app; 3002 é por onde as estações, o ponto e o KDS falam.', '')}
+        </dl>
+        <p class="nota" style="font-size:13px">Outros endereços desta máquina: <span class="mono">192.168.56.1</span> (adaptador virtual; os PCs da loja não usam).</p>
+        ${mudo ? `<div class="faixa erro"><p><b>O servidor não manda sinal há 2 horas.</b> Confira se o PC servidor está ligado e com internet. A loja continua vendendo no servidor se ele estiver ligado; esta tela só não recebe as notícias dele.</p></div>` : `
+        <p><b>PCs conectados agora: 2</b> · <a href="#p3">ver em Equipamentos</a></p>`}
+        <details class="passo">
+          <summary>Fixar o IP no roteador <span class="pill ok">recomendado</span></summary>
+          <div class="dentro">
+            <ol>
+              <li>Num PC da loja, abra o navegador e digite <span class="chave">192.168.0.1</span> (o endereço do roteador).</li>
+              <li>Entre com o usuário e a senha do roteador. Costumam estar na etiqueta embaixo dele.</li>
+              <li>Procure a opção <b>DHCP</b> e, dentro dela, <b>Reserva de endereço</b>. Conforme a marca, ela aparece como "IP fixo", "Address Reservation" ou "Static Lease".</li>
+              <li>Adicione uma reserva com o MAC <span class="chave">3C-52-82-4A-19-7E</span> e o IP <span class="chave">192.168.0.10</span>.</li>
+              <li>Salve. O servidor passa a voltar sempre com o mesmo IP, mesmo depois de reiniciar.</li>
+            </ol>
+            <p class="nota" style="font-size:13.5px">Para conferir: reinicie o roteador; depois que a internet voltar, esta tela continua mostrando <span class="mono">192.168.0.10</span>.</p>
+          </div>
+        </details>
+      </div>`;
+  }
+
+  // ------------------------------------------------------------ peça 2
+  function p2(e) {
+    // [cor, texto curto (celular), texto completo]
+    const chip = { ok: ['ok', 'Servidor', 'Servidor da loja'], lento: ['aviso', 'Lento', 'Servidor lento'], caiu: ['erro', 'Sem servidor', 'Sem servidor'] }[e];
+    const pop = {
+      ok: `<h3><span class="pill ok">conectado</span> Servidor da loja</h3>
+           <dl><dt>Última resposta</dt><dd>há 3 s · 12 ms</dd><dt>Endereço</dt><dd><span class="mono">regem.local</span> → <span class="mono">192.168.0.10</span></dd>
+           <dt>Este PC</dt><dd>terminal Pdv delivery</dd><dt>Servidor</dt><dd>versão 1.30.5</dd></dl>
+           <div class="acoes"><button type="button" class="btn mini" id="bTestar">Testar agora</button><button type="button" class="btn mini">Ver no Servidor local</button></div>
+           <span class="resultado" id="rTeste" aria-live="polite"></span>`,
+      lento: `<h3><span class="pill aviso">lento</span> Servidor da loja</h3>
+           <dl><dt>Última resposta</dt><dd>há 2 s · demorou 4,2 s</dd><dt>Endereço</dt><dd><span class="mono">regem.local</span> → <span class="mono">192.168.0.10</span></dd><dt>Este PC</dt><dd>terminal Pdv delivery</dd></dl>
+           <p class="nota" style="font-size:13.5px">O app continua funcionando. Se ficar assim, confira o cabo ou o Wi-Fi deste PC e se o servidor está muito ocupado.</p>
+           <div class="acoes"><button type="button" class="btn mini" id="bTestar">Testar agora</button></div><span class="resultado" id="rTeste" aria-live="polite"></span>`,
+      caiu: `<h3><span class="pill erro">sem resposta</span> Servidor da loja</h3>
+           <dl><dt>Sem resposta há</dt><dd>40 s (4 tentativas)</dd><dt>Endereço</dt><dd><span class="mono">regem.local</span></dd></dl>
+           <div class="faixa erro"><b>O que fazer</b><ol><li>Confira se o PC servidor está ligado.</li><li>Clique no ícone do Regem ao lado do relógio e em <b>Testar conexão</b>: ele procura o servidor sozinho, mesmo se o IP mudou.</li><li>Para vender agora, abra o modo nuvem.</li></ol></div>`,
+    }[e];
+    $('#p2-corpo').innerHTML = `
+      ${e === 'caiu' ? `<div class="banner" role="status"><span>⚠️ Servidor local indisponível. Você pode continuar operando na nuvem enquanto ele volta.</span><button type="button" class="btn mini pri">☁️ Abrir modo nuvem</button><button type="button" class="btn mini">Continuar tentando o local</button></div>` : ''}
+      <div class="app-topo">
+        <div class="loja">Mister Burguer <small>· PDV delivery</small></div>
+        <div class="dir">
+          <button type="button" class="chip-srv ${chip[0]}" aria-expanded="true" aria-controls="popSrv"><span class="bola" aria-hidden="true"></span><span class="txt-curto">${chip[1]}</span><span class="txt-longo">${chip[2]}</span></button>
+          <span class="avatar" aria-hidden="true">RT</span>
+        </div>
+      </div>
+      <div class="pop" id="popSrv" role="dialog" aria-label="Conexão com o servidor da loja">${pop}</div>`;
+    const b = $('#bTestar');
+    if (b) b.onclick = () => { $('#rTeste').textContent = e === 'lento' ? 'Respondeu em 3,9 s.' : 'Respondeu em 11 ms.'; };
+  }
+
+  // ------------------------------------------------------------ peça 3
+  const pcs = `
+    <div class="pc">
+      <header><div class="quem"><b>SERVIDOR-MB</b><small>Servidor da loja · <span class="mono">192.168.0.10</span></small></div><span class="pill ok">no ar · versão 1.30.5</span></header>
+      <div class="itens">
+        <div class="it"><div><div class="t">Servidor local</div><div class="n">Servidor loja teste</div><div class="d">sincronizado há 1 min · PCs conectados agora: 2</div></div><div class="lado-d"><span class="pill ok">no ar</span></div></div>
+        <div class="it"><div><div class="t">Impressora</div><div class="n">Caixa deliv</div><div class="d">imprime pelo servidor</div></div><div class="lado-d"><span class="pill ok">pronta</span></div></div>
+        <div class="it"><div><div class="t">Impressora</div><div class="n">Etiquetas</div><div class="d">imprime pelo servidor</div></div><div class="lado-d"><span class="pill ok">pronta</span></div></div>
+      </div>
+    </div>
+    <div class="pc">
+      <header><div class="quem"><b>CX-DELIVERY</b><small>PC do delivery · <span class="mono">192.168.0.23</span></small></div><span class="pill ok">conectado agora</span></header>
+      <div class="itens">
+        <div class="it"><div><div class="t">Estação de impressão</div><div class="n">estacao delivery</div><div class="d">última batida há 40 s · ligada a regem.local · versão 1.30.4</div></div><div class="lado-d"><span class="pill ok">conectada</span></div></div>
+        <div class="it"><div><div class="t">Impressora</div><div class="n">Caixa delivery</div><div class="d">USB · ligada à estacao delivery</div></div><div class="lado-d"><span class="pill ok">pronta</span></div></div>
+        <div class="it"><div><div class="t">Terminal de PDV</div><div class="n">Pdv delivery</div><div class="d">revogado em 18/10 às 01h25</div></div><div class="lado-d"><span class="pill neutro">revogado</span><button type="button" class="btn mini pri">Reativar</button></div>
+          <div class="dica">Este PC está ligado e a estação dele imprime. Reativar devolve o caixa a ele: o Regem mostra um código, e você digita na tela do PDV deste PC.</div></div>
+      </div>
+    </div>
+    <div class="pc">
+      <header><div class="quem"><b>PDV1</b><small>caixa do balcão · <span class="mono">192.168.0.21</span></small></div><span class="pill ok">conectado há 3 min</span></header>
+      <div class="itens">
+        <div class="it"><div><div class="t">Terminal de PDV</div><div class="n">PDV1</div><div class="d">app aberto · última resposta há 3 min</div></div><div class="lado-d"><span class="pill ok">conectado</span></div></div>
+        <div class="it"><div><div class="t">Regem neste PC</div><div class="n">ainda não instalado</div><div class="d">vem no próximo instalador (D1); sem ele, este PC não procura o servidor sozinho</div></div><div class="lado-d"><span class="pill info">falta instalar</span></div></div>
+      </div>
+    </div>
+    <div class="pc">
+      <header><div class="quem"><b>Sem PC</b><small>cadastrados e nunca ligados</small></div><span class="pill aviso">1 para revisar</span></header>
+      <div class="itens">
+        <div class="it"><div><div class="t">Estação de impressão</div><div class="n">PC do delivery</div><div class="d">criada em 18/10 às 02h16 · nunca conectou</div></div><div class="lado-d"><span class="pill aviso">nunca conectou</span><button type="button" class="btn mini perigo">Excluir</button></div>
+          <div class="dica">O CX-DELIVERY já tem a estação "estacao delivery", ligada e imprimindo. Esta sobrou: pode excluir.</div></div>
+      </div>
+    </div>
+    <div class="pc">
+      <header><div class="quem"><b>Na nuvem</b><small>usados pelo app.dmsregem.com, fora do servidor da loja</small></div></header>
+      <div class="itens">
+        <div class="it"><div><div class="t">Terminal de PDV</div><div class="n">Caixa nuvem</div><div class="d">último uso em 04/09</div></div><div class="lado-d"><span class="pill neutro">sem uso há 46 dias</span></div></div>
+      </div>
+    </div>`;
+  const lista = `
+    <div style="overflow-x:auto"><table class="eq">
+      <caption class="sr">Equipamentos da loja com a conexão de cada um</caption>
+      <thead><tr><th>Equipamento</th><th>Tipo</th><th>PC</th><th>Conexão</th><th>Situação</th></tr></thead>
+      <tbody>
+        <tr><td data-r="Equipamento"><b>Servidor loja teste</b></td><td data-r="Tipo">Servidor local</td><td data-r="PC">SERVIDOR-MB <span class="sub mono">192.168.0.10</span></td><td data-r="Conexão"><span class="pill ok">no ar</span></td><td data-r="Situação">ativo</td></tr>
+        <tr><td data-r="Equipamento"><b>estacao delivery</b></td><td data-r="Tipo">Estação de impressão</td><td data-r="PC">CX-DELIVERY <span class="sub mono">192.168.0.23</span></td><td data-r="Conexão"><span class="pill ok">conectada agora</span></td><td data-r="Situação">ativo</td></tr>
+        <tr><td data-r="Equipamento"><b>Caixa delivery</b></td><td data-r="Tipo">Impressora (USB)</td><td data-r="PC">CX-DELIVERY</td><td data-r="Conexão"><span class="pill ok">pronta</span></td><td data-r="Situação">ativo</td></tr>
+        <tr><td data-r="Equipamento"><b>Caixa deliv</b></td><td data-r="Tipo">Impressora</td><td data-r="PC">SERVIDOR-MB</td><td data-r="Conexão"><span class="pill ok">pronta</span></td><td data-r="Situação">ativo</td></tr>
+        <tr><td data-r="Equipamento"><b>Etiquetas</b></td><td data-r="Tipo">Impressora</td><td data-r="PC">SERVIDOR-MB</td><td data-r="Conexão"><span class="pill ok">pronta</span></td><td data-r="Situação">ativo</td></tr>
+        <tr><td data-r="Equipamento"><b>PDV1</b></td><td data-r="Tipo">Terminal de PDV</td><td data-r="PC">PDV1 <span class="sub mono">192.168.0.21</span></td><td data-r="Conexão"><span class="pill ok">há 3 min</span></td><td data-r="Situação">ativo</td></tr>
+        <tr><td data-r="Equipamento"><b>PC do delivery</b></td><td data-r="Tipo">Estação de impressão</td><td data-r="PC">—</td><td data-r="Conexão"><span class="pill aviso">nunca conectou</span></td><td data-r="Situação">ativo</td></tr>
+        <tr><td data-r="Equipamento"><b>Caixa nuvem</b></td><td data-r="Tipo">Terminal de PDV</td><td data-r="PC">na nuvem</td><td data-r="Conexão"><span class="pill neutro">há 46 dias</span></td><td data-r="Situação">ativo</td></tr>
+      </tbody></table></div>`;
+  const revogar = `
+    <div class="dialogo" role="dialog" aria-labelledby="dRev">
+      <h3 id="dRev">Revogar PDV1?</h3>
+      <div class="faixa aviso"><p><b>Este terminal está conectado agora:</b> PC PDV1 (<span class="mono">192.168.0.21</span>), última resposta há 20 s.</p></div>
+      <p>Revogar fecha o acesso dele na hora: o caixa deste PC para de vender até ser pareado de novo. Dá para desfazer em até 30 dias, em Revogados › Reativar.</p>
+      <div class="rodape"><button type="button" class="btn">Cancelar</button><button type="button" class="btn perigo">Revogar mesmo assim</button></div>
+    </div>`;
+  function p3(e) {
+    $('#p3-corpo').innerHTML = `
+      <div class="cartao" style="gap:10px">
+        <header><h3>Equipamentos <span class="mono" style="font-weight:600;color:var(--ink-2)">· 8 em 3 PCs</span></h3><button type="button" class="btn mini pri">＋ Novo equipamento</button></header>
+        <div class="sits" aria-label="Situações"><span>Conectados agora <b>6</b></span><span>Sem sinal <b>0</b></span><span>Nunca conectaram <b>1</b></span><span>Sem uso há 30 dias <b>1</b></span><span>Revogados <b>1</b></span></div>
+      </div>
+      ${e === 'lista' ? lista : e === 'revogar' ? revogar : `<div class="pcs">${pcs}</div>`}`;
+  }
+
+  // ------------------------------------------------------------ peça 4
+  const menuItens = (extra) => `
+      <button type="button" class="item">Abrir painel</button>
+      <button type="button" class="item">Testar conexão com o servidor</button>
+      <hr><button type="button" class="item">Imprimir teste</button><button type="button" class="item">Reimprimir o último cupom</button>
+      <button type="button" class="item">Pausar uma impressora <span aria-hidden="true">›</span></button>
+      <hr><button type="button" class="item">Trocar endereço do servidor…</button><button type="button" class="item">Parear com código…</button>${extra || ''}
+      <hr><button type="button" class="item">Sair</button>`;
+  function desk(e) {
+    const icone = e === 'off' ? 'erro' : '';
+    let topo = '';
+    if (e === 'ok' || e === 'digitar' || e === 'parear')
+      topo = `<div class="menu" role="menu" aria-label="Menu do ícone do Regem"><div class="mcab"><b>Regem neste PC</b><span>CX-DELIVERY · estacao delivery</span>
+        <span class="estado"><i aria-hidden="true"></i>Ligado ao servidor · regem.local (192.168.0.10) · há 5 s</span></div>${menuItens()}</div>`;
+    else if (e === 'ip')
+      topo = `<div class="balao" role="status"><span class="de">Regem neste PC · agora</span><b>O servidor mudou de endereço</b><span>Achei o servidor em 192.168.0.31 e liguei de novo. Nada a fazer: o atalho do Regem continua igual.</span></div>`;
+    else
+      topo = `<div class="balao" role="status"><span class="de">Regem neste PC · agora</span><b>Não acho o servidor da loja</b><span>Confira se o PC servidor está ligado e na mesma rede. Os cupons esperam aqui e saem quando ele voltar.</span></div>
+        <div class="menu" role="menu" aria-label="Menu do ícone do Regem"><div class="mcab"><b>Regem neste PC</b><span>CX-DELIVERY · estacao delivery</span>
+        <span class="estado erro"><i aria-hidden="true"></i>Sem servidor há 3 min · procurando de novo em 30 s</span></div>${menuItens()}</div>`;
+    $('#p4-desk').innerHTML = `${topo}<div class="barra"><span class="icone ${icone}" title="Regem neste PC">R</span><span class="mono">14:32</span></div>`;
+  }
+  function janela(e) {
+    const busca = {
+      ip: `<ul class="busca" aria-label="Como o servidor foi achado">
+             <li class="nao"><span class="m">✗</span><span><b>regem.local</b> não respondeu (a rede deste PC não resolve o nome)</span></li>
+             <li class="nao"><span class="m">✗</span><span><b>192.168.0.10</b>, o último que funcionou, não respondeu</span></li>
+             <li class="sim"><span class="m">✓</span><span>A nuvem informou o endereço novo: <b>192.168.0.31</b></span></li>
+             <li class="sim"><span class="m">✓</span><span>Conferido: é o servidor da sua loja (certificado da loja)</span></li>
+             <li class="sim"><span class="m">✓</span><span>Anotado neste PC: <b>regem.local → 192.168.0.31</b>. O atalho do Regem continua igual.</span></li></ul>`,
+      off: `<ul class="busca" aria-label="Onde o servidor foi procurado">
+             <li class="nao"><span class="m">✗</span><span><b>regem.local</b> não respondeu</span></li>
+             <li class="nao"><span class="m">✗</span><span><b>192.168.0.10</b>, o último que funcionou, não respondeu</span></li>
+             <li class="nao"><span class="m">✗</span><span>A nuvem diz que o servidor não manda sinal há 3 min</span></li>
+             <li class="nao"><span class="m">✗</span><span>Procurei nos 254 endereços de 192.168.0.x: nenhum servidor desta loja</span></li></ul>`,
+    }[e];
+    const conexao = {
+      ok: `<h3>Conexão com o servidor <span class="pill ok">ligado</span></h3>
+           <dl class="pares"><dt>Endereço</dt><dd><span class="mono">regem.local</span></dd><dt>IP agora</dt><dd><span class="mono">192.168.0.10</span></dd>
+           <dt>Última resposta</dt><dd>há 5 s · 9 ms</dd><dt>Como achou</dt><dd>pelo nome, na rede da loja</dd></dl>`,
+      ip: `<h3>Conexão com o servidor <span class="pill ok">ligado de novo · há 2 s</span></h3>${busca}`,
+      off: `<h3>Conexão com o servidor <span class="pill erro">sem servidor há 3 min</span></h3>${busca}
+            <div class="faixa erro"><p><b>O que fazer:</b> ligue o PC servidor ou confira o cabo de rede dele. Se você sabe o IP novo (Configurações › Servidor local, pelo celular), use "Trocar endereço".</p></div>`,
+      digitar: `<h3>Trocar endereço do servidor</h3>
+           <div class="campo"><label for="cEnd">Endereço do servidor (IP ou nome)</label>
+             <div class="linha-campo"><input id="cEnd" value="192.168.0.31" autocomplete="off" inputmode="url"><button type="button" class="btn" id="bTesta">Testar</button></div>
+             <span class="ajuda">O IP aparece em Configurações › Servidor local (também na nuvem, pelo celular).</span></div>
+           <div class="faixa ok" id="rEnd" aria-live="polite"><p><b>✓ É o servidor da sua loja</b> · Mister Burguer · versão 1.30.5 · respondeu em 9 ms</p></div>
+           <p class="nota" style="font-size:13px">Outras respostas possíveis: "Não respondeu em 192.168.0.99: confira o número" e "Respondeu, mas é outro servidor (o certificado não é o da sua loja)". Nesses casos o botão abaixo fica desligado.</p>
+           <div class="acoes"><button type="button" class="btn pri">Usar este endereço</button><button type="button" class="btn">Cancelar</button></div>`,
+      parear: `<h3>Parear com código</h3>
+           <div class="faixa aviso"><p><b>Este PC já está pareado</b> como a estação "estacao delivery", ligada e imprimindo. Um código novo troca o cadastro: "estacao delivery" deixa de imprimir aqui.</p></div>
+           <div class="campo"><label for="cCod">Código (6 números)</label><input id="cCod" inputmode="numeric" maxlength="6" placeholder="000000" autocomplete="off">
+             <span class="ajuda">Gere em Configurações › Equipamentos › a estação › Gerar código. O código do caixa (terminal de PDV) não entra aqui: ele vai na tela do PDV.</span></div>
+           <div class="acoes"><button type="button" class="btn pri">Parear</button><button type="button" class="btn">Cancelar</button></div>`,
+    }[e];
+    const botoes = e === 'off'
+      ? `<div class="acoes"><button type="button" class="btn pri">Procurar de novo</button><button type="button" class="btn">Trocar endereço…</button></div>`
+      : e === 'ok' || e === 'ip'
+        ? `<div class="acoes"><button type="button" class="btn">Testar conexão</button><button type="button" class="btn">Trocar endereço…</button><button type="button" class="btn">Parear com código…</button></div>` : '';
+    $('#p4-janela').innerHTML = `
+      <div class="bloco">${conexao}${botoes}</div>
+      <div class="bloco"><h3>Impressoras deste PC <span class="pill ${e === 'off' ? 'aviso' : 'ok'}">${e === 'off' ? '2 cupons esperando' : 'tudo pronto'}</span></h3>
+        <dl class="pares"><dt>Caixa delivery</dt><dd>USB · ${e === 'off' ? 'esperando o servidor' : 'pronta'}</dd></dl></div>`;
+    const t = $('#bTesta');
+    if (t) t.onclick = () => { const v = $('#cEnd').value.trim(); $('#rEnd').innerHTML = /^192\.168\.0\.31$|^regem\.local$/.test(v) ? '<p><b>✓ É o servidor da sua loja</b> · Mister Burguer · versão 1.30.5 · respondeu em 9 ms</p>' : `<p><b>✗ Não respondeu em ${v.replace(/[<>&]/g, '')}</b>: confira o número.</p>`; $('#rEnd').className = 'faixa ' + (/^192\.168\.0\.31$|^regem\.local$/.test(v) ? 'ok' : 'erro'); };
+  }
+  function p4(e) { desk(e); janela(e); }
+
+  estados('e1', p1); estados('e2', p2); estados('e3', p3); estados('e4', p4);
+  p1('local'); p2('ok'); p3('pc'); p4('ok');
+
+  // Para conferir cada estado (roteiro de medição): window.cenario('p4', 'ip').
+  window.cenario = (peca, e) => { ({ p1, p2, p3, p4 })[peca](e); marcar('e' + peca.slice(1), e); };
+})();
+</script>
+</html>

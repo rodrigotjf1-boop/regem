@@ -1382,6 +1382,14 @@ async function coletarSaude() {
     const r = await pool.query(SQL_ESTACOES, [minha]);
     if (r.rows.length) saude.estacoes = r.rows;
   } catch { /* banco sem a mig 325 */ }
+  try {
+    // O endereço do servidor na rede e os PCs ligados a ele agora (conexão PC ↔ servidor): a API da
+    // loja mede/anota e guarda em sync_state; a nuvem mostra em "Servidor local" e em Equipamentos.
+    const rede = await getState('rede_info', '');
+    if (rede) saude.rede = JSON.parse(rede);
+    const presenca = await getState('presenca', '');
+    if (presenca) saude.presenca = JSON.parse(presenca);
+  } catch { /* API antiga, sem as chaves */ }
   // ── SAÚDE DO BANCO LOCAL ────────────────────────────────────────────────────
   // Três números que ninguém enxergava e que explicam as duas formas de a loja parar:
   //  • tamanho do banco — cresce para sempre (nada é expurgado) até encher o disco;

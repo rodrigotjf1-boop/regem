@@ -15,6 +15,11 @@
 - **GoGeM, avisos assinados (fase 2 da credencial própria, sem migration):** só NUVEM. O código entra no `.zip` por
   tabela, mas no servidor da loja nada muda: lá o cancelamento continua sendo repassado à nuvem, e o registro do
   GoGeM nem é consultado (a tabela é só da nuvem). Não pede `.exe`.
+- **Conexão PC ↔ servidor, parte 1 (sem migration):** o servidor da loja mede o próprio endereço na rede (IP da rota
+  padrão, roteador, MAC) e anota a presença dos PCs (app aberto a cada 30 s; estação na batida). Entra no `.zip`. Toca o
+  `edge/sync-daemon.mjs` (manda `rede` e `presenca` na saúde da batida): instalação NOVA pede o `.exe` do mesmo corte.
+  Na loja, conferir depois de instalar: Configurações › Servidor local mostra o IP e "PCs conectados agora"; na nuvem,
+  o mesmo cartão aparece em até 2 minutos.
 
 ## Última release: `1.30.5` — gerada em 17/10/2026 da `origin/main` `02d36210`, **`.zip` GERADO, conferido e assinado** (`regem-edge-1.30.5.zip`, 31.735.344 bytes, SHA-256 `46852d32e16e45bf944be4e8c8df7329d4b6b61bb02d0478e4b4f7d47e093838`); publicação no console PENDENTE (o dono); sem `.exe`
 

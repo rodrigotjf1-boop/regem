@@ -3,6 +3,7 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  Optional,
   Param,
   Post,
   Req,
@@ -18,6 +19,7 @@ import { AuthUser } from '../../auth/auth-user';
 import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
 import { ImpressaoSinalService } from './impressao-sinal.service';
 import { FilaCtx, FilaCtxData, FilaImpressaoGuard } from './fila-impressao.guard';
+import { PresencaService, enderecoDoHost, ipDoPc } from '../equipamento/presenca.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -35,6 +37,7 @@ export class ImpressaoController {
   constructor(
     private readonly service: ProducaoPedidoService,
     private readonly sinal: ImpressaoSinalService,
+    @Optional() private readonly presenca?: PresencaService,
   ) {}
 
   // Agente ANTIGO (consulta a cada 3 s, sem se identificar). Mantido para compatibilidade.
@@ -122,8 +125,18 @@ export class ImpressaoController {
   // responderam.  corpo: { versao, maquina, impressoras: [nomes no Windows], estados: [{ equipamentoId, estado, detalhe }] }
   @Post('estacao/batida')
   @UseGuards(FilaImpressaoGuard)
-  batida(@FilaCtx() ctx: FilaCtxData, @Body() dto: any) {
+  batida(@FilaCtx() ctx: FilaCtxData, @Body() dto: any, @Req() req: any) {
     if (!ctx.estacaoId) throw new ForbiddenException('Só a estação de impressão usa esta rota.');
+    // Presença (conexão PC ↔ servidor): o IP do PC e por onde ele chega (regem.local ou um IP).
+    this.presenca?.notar({
+      id: ctx.estacaoId,
+      tenantId: ctx.tenantId,
+      tipo: 'estacao_impressao',
+      ip: ipDoPc(req?.ip),
+      endereco: enderecoDoHost(req?.headers?.host),
+      maquina: typeof dto?.maquina === 'string' && dto.maquina.trim() ? dto.maquina.trim().slice(0, 120) : null,
+      versao: typeof dto?.versao === 'string' && dto.versao.trim() ? dto.versao.trim().slice(0, 40) : null,
+    });
     return this.service.batidaEstacao(ctx.tenantId, ctx.unidadeId ?? null, ctx.estacaoId, dto ?? {});
   }
 

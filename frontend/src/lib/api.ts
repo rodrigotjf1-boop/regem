@@ -1056,6 +1056,10 @@ export const api = {
   entregadoresDelivery: () => req('/delivery/entregadores'),
   bairrosDelivery: () => req('/delivery/bairros'),
   deliveryMapaCalor: (dias: number, todas?: boolean) => req(`/delivery/mapa-calor?dias=${dias}`, daRede(todas)),
+  // Conexão PC ↔ servidor (só no edge): o endereço do servidor na rede (gestão) e a presença do PC
+  // (o app aberto avisa a cada 30 s; com o terminal pareado, o PC fica "conectado agora").
+  edgeRede: () => req('/edge/rede'),
+  edgePresenca: () => req('/edge/presenca', { method: 'POST', body: '{}' }),
   // Atualização do servidor local (só no edge; gestão)
   edgeAtualizacaoStatus: () => req('/edge/atualizacao/status'),
   edgeVerificarAtualizacao: () => req('/edge/atualizacao/verificar', { method: 'POST', body: '{}' }),
