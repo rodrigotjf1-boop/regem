@@ -21,6 +21,21 @@ export async function pingServidor(): Promise<boolean> {
   }
 }
 
+// O mesmo ping, medindo: respondeu? em quanto tempo? qual versão do servidor? Nunca lança. É o que o
+// indicador "Servidor da loja" mostra (conexão PC ↔ servidor). Desiste em 8 s (o ciclo do indicador).
+export async function medirServidor(): Promise<{ ok: boolean; ms: number | null; versao: string | null }> {
+  const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  try {
+    const r = await fetch(`${apiBase()}/ping`, { cache: 'no-store', signal: AbortSignal.timeout(8000) });
+    const ms = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0);
+    if (!r.ok) return { ok: false, ms: null, versao: null };
+    const j = (await r.json().catch(() => null)) as { versao?: unknown } | null;
+    return { ok: true, ms, versao: typeof j?.versao === 'string' ? j.versao : null };
+  } catch {
+    return { ok: false, ms: null, versao: null };
+  }
+}
+
 const TOKEN_KEY = 'regen_token';
 const ME_KEY = 'regem_me';
 

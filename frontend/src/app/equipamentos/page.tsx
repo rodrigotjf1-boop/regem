@@ -19,7 +19,8 @@ import { EquipamentoForm } from '@/components/equipamentos/equipamento-form';
 import { FilaDeImpressao } from '@/components/equipamentos/fila-impressao';
 import { HistoricoEquipamentos } from '@/components/equipamentos/historico-equipamentos';
 import { NovoPcComImpressora } from '@/components/equipamentos/novo-pc-impressora';
-import { ehGogem, ligacaoDe, podeReativar, seloDe, situacaoDe, tipoDe, vistoDe } from '@/components/equipamentos/equipamento';
+import { EquipamentosPorPc } from '@/components/equipamentos/por-pc';
+import { agruparPorPc, conexaoDe, ehGogem, ligacaoDe, podeReativar, seloDe, situacaoDe, tipoDe } from '@/components/equipamentos/equipamento';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Parte = 'equipamentos' | 'fila' | 'historico';
@@ -61,6 +62,20 @@ export default function EquipamentosPage() {
   const [verAvisos, setVerAvisos] = useState(false);
   const [testando, setTestando] = useState<string | null>(null);
   const [publicando, setPublicando] = useState(false);
+  // "Lista | Por PC" (conexão PC ↔ servidor): a escolha fica neste navegador — é preferência de tela.
+  const [vista, setVista] = useState<'lista' | 'pc'>('lista');
+  const [servidorRede, setServidorRede] = useState<{ ip?: string | null; maquina?: string | null } | null>(null);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem('regem_equipamentos_vista') === 'pc') setVista('pc');
+    } catch { /* sem armazenamento: começa na lista */ }
+  }, []);
+  const escolherVista = (v: 'lista' | 'pc') => {
+    setVista(v);
+    try {
+      localStorage.setItem('regem_equipamentos_vista', v);
+    } catch { /* só não lembra */ }
+  };
 
   const lerFila = useCallback(async () => {
     setErroFila('');
@@ -86,6 +101,8 @@ export default function EquipamentosPage() {
     api.setores().then((s) => setSetores((s as any[]) ?? [])).catch(() => setSetores([]));
     api.edgeAtivo().then((r: any) => setPeloServidorLocal(!!r?.ativo)).catch(() => {});
     api.avisosRoteamento().then((r: any) => setAvisosRota((r as any[]) ?? [])).catch(() => setAvisosRota([]));
+    // No servidor da loja, o endereço dele para o grupo "Servidor da loja" (só gestão com a permissão).
+    if (process.env.NEXT_PUBLIC_EDGE === '1') api.edgeRede().then((r: any) => setServidorRede(r ?? null)).catch(() => setServidorRede(null));
     lerEstado();
     void lerFila();
   }, [lerEstado, lerFila]);
@@ -144,6 +161,8 @@ export default function EquipamentosPage() {
     );
 
   const est = estado ?? {};
+  // Na nuvem, o endereço do servidor da loja vem da saúde da batida (`servidor.rede` na linha dele).
+  const servidorDaLista = lista.find((e) => e.tipo === 'servidor_local' && e.ativo && !ehGogem(e) && e.servidor?.rede)?.servidor?.rede ?? null;
   const unidadeDe = (e: any) => (e.unidadeId ? unidades.find((u) => u.id === e.unidadeId)?.nome ?? 'Unidade fora da lista' : 'Sem unidade');
   const setorDe = (e: any) => (e.setorId ? setores.find((s) => s.id === e.setorId)?.nome ?? 'Setor fora da lista' : '');
   const SITUACOES: Situacao<any>[] = [
@@ -257,6 +276,22 @@ export default function EquipamentosPage() {
               <FiltroSelect id="equipamentos-unidade" rotulo="Unidade" todos="Todas as unidades" opcoes={distintos(lista, unidadeDe)} valor={filtroUnidade} aoMudar={setFiltroUnidade} />
               <FiltroSelect id="equipamentos-setor" rotulo="Setor" todos="Todos os setores" opcoes={distintos(lista, setorDe)} valor={filtroSetor} aoMudar={setFiltroSetor} />
             </Filtros>
+            <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Forma de ver os equipamentos">
+              <span className={`text-sm ${texto2}`}>Ver:</span>
+              {(['lista', 'pc'] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  aria-pressed={vista === v}
+                  onClick={() => escolherVista(v)}
+                  className={`rounded-full border px-3 py-1 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                    vista === v ? 'border-primary bg-primary text-primary-foreground' : 'border-input bg-card hover:bg-secondary'
+                  }`}
+                >
+                  {v === 'lista' ? 'Lista' : 'Por PC'}
+                </button>
+              ))}
+            </div>
 
             {lista.length === 0 ? (
               <Vazio>Nenhum equipamento cadastrado ainda.</Vazio>
@@ -264,6 +299,13 @@ export default function EquipamentosPage() {
               <Vazio>Nenhum equipamento em uso. Os revogados ficam guardados em “Revogados”, acima.</Vazio>
             ) : linhas.length === 0 ? (
               <Vazio aoLimpar={limpar} />
+            ) : vista === 'pc' ? (
+              <EquipamentosPorPc
+                grupos={agruparPorPc(linhas, lista, servidorDaLista ?? servidorRede)}
+                estado={est}
+                todos={lista}
+                acoes={acoesDe}
+              />
             ) : (
               <ListaDados
                 legenda="Equipamentos"
@@ -282,7 +324,7 @@ export default function EquipamentosPage() {
                   },
                   { titulo: 'Tipo', celula: tipoDe },
                   { titulo: 'Ligação', celula: (e) => <span className="break-words">{ligacaoDe(e, lista)}</span> },
-                  { titulo: 'Último acesso', celula: (e) => <span className="font-mono text-xs">{vistoDe(e, est)}</span> },
+                  { titulo: 'Conexão', celula: (e) => <span className="break-words font-mono text-xs">{conexaoDe(e, est)}</span> },
                   { titulo: 'Situação', celula: (e) => { const s = seloDe(e, est, lista); return <Selo tom={s.tom}>{s.rotulo}</Selo>; } },
                 ]}
                 acoes={acoesDe}

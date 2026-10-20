@@ -13,6 +13,7 @@ import { ehServidorLocal } from '../../common/modo';
 import { soltarAvisosParados } from '../gogem/aviso-gogem';
 import { DIAS_SEM_SINAL_PARA_REVOGAR, revogarServidoresSubstituidos } from '../licenca/servidor-da-loja';
 import { JANELA_PRESENCA_MS, PresencaService, TIPOS_PRESENTES } from './presenca.service';
+import { redeDaSaude } from '../edge/rede-local';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -470,16 +471,22 @@ export class EquipamentoService {
   // servidor). `ultimo_ping` do servidor nunca é gravado — a lista o dava como "nunca conectou",
   // mesmo o servidor em uso (ERR-236). Só na nuvem (a tabela é dela). Best-effort.
   private async sinaisDosServidores(tenantId: string) {
-    const sinais = new Map<string, { vistoEm: string | null; versao: string | null; estado: string | null }>();
+    const sinais = new Map<
+      string,
+      { vistoEm: string | null; versao: string | null; estado: string | null; rede: { ip: string | null; maquina: string | null } | null }
+    >();
     try {
       const r: any = await this.db.execute(sql`
-        select equipamento_id as id, recebido_em as "vistoEm", versao, estado
+        select equipamento_id as id, recebido_em as "vistoEm", versao, estado, saude -> 'rede' as rede
           from edge_status where tenant_id = ${tenantId}`);
       for (const x of r.rows ?? r) {
+        // O endereço do servidor na rede (conexão PC ↔ servidor): o grupo "Servidor da loja" em Equipamentos.
+        const rede = redeDaSaude(typeof x.rede === 'string' ? JSON.parse(x.rede) : x.rede);
         sinais.set(String(x.id), {
           vistoEm: x.vistoEm ? new Date(x.vistoEm).toISOString() : null,
           versao: x.versao ?? null,
           estado: x.estado ?? null,
+          rede: rede ? { ip: rede.ip, maquina: rede.maquina } : null,
         });
       }
     } catch { /* sem edge_status */ }

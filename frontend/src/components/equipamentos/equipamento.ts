@@ -75,6 +75,15 @@ const estacaoDe = (id: string | null | undefined, todos: any[]) => (id ? todos.f
 const estacaoNoAr = (s: any) => !!s?.ativo && !!s.estacao?.vistoEm && minutosDesde(s.estacao.vistoEm) < ESTACAO_FORA_MIN;
 
 /**
+ * Presença (conexão PC ↔ servidor, mig nenhuma — `e.presenca` vem da lista): o app aberto avisa o servidor
+ * da loja a cada 30 s e a estação, na batida de cada minuto. Visto há menos de 3 min = "conectado agora".
+ * O "último uso" só marcava operação: o PC ligado e parado parecia "nunca usado" e foi revogado (ERR-248).
+ */
+export const CONECTADO_MIN = 3;
+export const conectadoAgora = (e: any) => !!e?.presenca?.vistoEm && minutosDesde(e.presenca.vistoEm) < CONECTADO_MIN;
+const TEM_PRESENCA = ['pdv', 'salao', 'estacao_impressao'];
+
+/**
  * A situação do equipamento. A impressora não "conecta" (quem fala com ela é o servidor ou a
  * estação): vale o estado da última impressão e o que ela respondeu — `estado` vem de
  * `/impressao/impressoras/estado`, por id. A estação, pela última batida (`e.estacao`).
@@ -82,7 +91,7 @@ const estacaoNoAr = (s: any) => !!s?.ativo && !!s.estacao?.vistoEm && minutosDes
 export function situacaoDe(e: any, estado: Record<string, any>, todos: any[] = []): SituacaoEq {
   if (!e.ativo) return 'revogado';
   if (e.tipo === 'estacao_impressao') {
-    if (estacaoNoAr(e)) return 'ativo';
+    if (estacaoNoAr(e) || conectadoAgora(e)) return 'ativo';
     return e.estacao?.vistoEm || e.pareado ? 'mudo' : 'nunca';
   }
   if (e.tipo === 'impressora') {
@@ -105,7 +114,7 @@ export function situacaoDe(e: any, estado: Record<string, any>, todos: any[] = [
  * contava e o PDV em uso aparecia "nunca conectou".
  */
 export function ultimoSinal(e: any): string | null {
-  const t = [e.ultimoPing, e.ultimoUsoEm, e.integradorVistoEm, e.servidor?.vistoEm, e.estacao?.vistoEm]
+  const t = [e.ultimoPing, e.ultimoUsoEm, e.integradorVistoEm, e.servidor?.vistoEm, e.estacao?.vistoEm, e.presenca?.vistoEm]
     .filter(Boolean)
     .map((x: string) => new Date(x).getTime())
     .filter((n: number) => !Number.isNaN(n));
@@ -120,6 +129,7 @@ export const podeReativar = (e: any) => !e.ativo && (!e.revogadoEm || minutosDes
 /** O selo da coluna "Situação": o estado que a impressora respondeu, ou a estação no ar / fora. */
 export function seloDe(e: any, estado: Record<string, any>, todos: any[] = []): { tom: Tom; rotulo: string } {
   const sit = situacaoDe(e, estado, todos);
+  if (sit !== 'revogado' && TEM_PRESENCA.includes(e.tipo) && conectadoAgora(e)) return { tom: 'ok', rotulo: 'conectado agora' };
   if (e.tipo === 'estacao_impressao') {
     if (sit === 'ativo') return { tom: 'ok', rotulo: 'no ar' };
     if (sit === 'mudo') return { tom: 'critico', rotulo: e.estacao?.vistoEm ? `fora · há ${tempoDesde(e.estacao.vistoEm)}` : 'fora' };
@@ -152,6 +162,96 @@ export function vistoDe(e: any, estado: Record<string, any>): string {
   }
   const visto = ultimoSinal(e);
   return visto ? dataHora(visto) : '—';
+}
+
+/**
+ * A coluna "Conexão": para terminal e estação com presença, "agora" (ou "visto há N min"), o IP do PC e
+ * por onde ele chega ao servidor (regem.local ou um IP); o resto, o último acesso de sempre.
+ */
+export function conexaoDe(e: any, estado: Record<string, any>): string {
+  const p = e?.ativo !== false && TEM_PRESENCA.includes(e.tipo) ? e.presenca : null;
+  if (!p?.vistoEm) return vistoDe(e, estado);
+  const quando = conectadoAgora(e) ? 'agora' : `visto ${haQuanto(p.vistoEm)}`;
+  return [quando, p.ip, p.endereco ? `por ${p.endereco}` : ''].filter(Boolean).join(' · ');
+}
+
+/** Um PC da loja na visão "Por PC" de Equipamentos (protótipo de 20/10/2026, peça 3). */
+export type GrupoPc = {
+  chave: string;
+  titulo: string;
+  apoio: string;
+  selo: { tom: Tom; rotulo: string } | null;
+  itens: any[];
+};
+
+/**
+ * Junta o que é do mesmo PC: o terminal (app aberto) e a estação falam com o servidor do mesmo IP; a
+ * impressora vai junto da estação dela; impressora sem estação imprime pelo servidor da loja. Sem
+ * presença agora (ou nunca), o terminal e a estação vão para "Sem sinal agora". KDS, ponto e o resto
+ * ficam em "Outros aparelhos"; os revogados, num grupo à parte.
+ */
+export function agruparPorPc(linhas: any[], todos: any[], servidor?: { ip?: string | null; maquina?: string | null } | null): GrupoPc[] {
+  const porId = new Map(todos.map((x) => [x.id, x]));
+  const grupos = new Map<string, any[]>();
+  const pc = (e: any) => (e?.ativo !== false && TEM_PRESENCA.includes(e?.tipo) && e.presenca?.ip ? `pc:${e.presenca.ip}` : null);
+  for (const e of linhas) {
+    let chave: string;
+    if (e.ativo === false) chave = 'revogados';
+    else if (e.tipo === 'servidor_local' && !ehGogem(e)) chave = 'servidor';
+    else if (e.tipo === 'impressora') chave = e.estacaoId ? (pc(porId.get(e.estacaoId)) ?? 'sem-sinal') : 'servidor';
+    else if (TEM_PRESENCA.includes(e.tipo) && !ehGogem(e)) chave = pc(e) ?? 'sem-sinal';
+    else chave = 'outros';
+    if (!grupos.has(chave)) grupos.set(chave, []);
+    grupos.get(chave)!.push(e);
+  }
+  const mais = (itens: any[]) =>
+    itens.map((x) => x.presenca?.vistoEm).filter(Boolean).sort().pop() as string | undefined;
+  const out: GrupoPc[] = [];
+  const srv = grupos.get('servidor');
+  if (srv) {
+    out.push({
+      chave: 'servidor',
+      titulo: 'Servidor da loja',
+      apoio: [servidor?.maquina, servidor?.ip].filter(Boolean).join(' · ') || 'o servidor local e o que imprime por ele',
+      selo: null,
+      itens: srv,
+    });
+  }
+  const pcs = [...grupos.entries()].filter(([k]) => k.startsWith('pc:'));
+  pcs.sort((a, b) => String(mais(b[1]) ?? '').localeCompare(String(mais(a[1]) ?? '')));
+  for (const [chave, itens] of pcs) {
+    const ip = chave.slice(3);
+    const comPresenca = itens.filter((x) => x.presenca?.vistoEm);
+    const maquina = comPresenca.map((x) => x.presenca.maquina).find(Boolean);
+    const endereco = comPresenca.map((x) => x.presenca.endereco).find(Boolean);
+    const terminais = itens.filter((x) => x.tipo === 'pdv' || x.tipo === 'salao').map((x) => x.nome);
+    const visto = mais(itens);
+    const agora = !!visto && minutosDesde(visto) < CONECTADO_MIN;
+    out.push({
+      chave,
+      titulo: maquina || terminais[0] || `PC ${ip}`,
+      apoio: [ip, endereco ? `por ${endereco}` : ''].filter(Boolean).join(' · '),
+      selo: visto ? { tom: agora ? 'ok' : 'aviso', rotulo: agora ? 'conectado agora' : `visto ${haQuanto(visto)}` } : null,
+      itens,
+    });
+  }
+  const resto: Array<[string, string, string]> = [
+    ['sem-sinal', 'Sem sinal agora', 'terminais e estações que não falaram com o servidor nos últimos 10 min (ou nunca)'],
+    ['outros', 'Outros aparelhos', 'KDS, ponto e o que não abre o app num PC'],
+    ['revogados', 'Revogados', 'dá para reativar em até 30 dias'],
+  ];
+  for (const [chave, titulo, apoio] of resto) {
+    const itens = grupos.get(chave);
+    if (!itens) continue;
+    out.push({
+      chave,
+      titulo,
+      apoio,
+      selo: chave === 'sem-sinal' ? { tom: 'aviso', rotulo: `${itens.length} para revisar` } : null,
+      itens,
+    });
+  }
+  return out;
 }
 
 /** "há 6 min", "há 3 h", "há 2 dias" — para a frase do diálogo de revogar. */

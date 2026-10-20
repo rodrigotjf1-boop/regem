@@ -146,7 +146,8 @@ export default function GarcomPage() {
   return (
     <Shell eyebrow="Garçom · pedidos" title="Mesas">
       <div className="max-w-3xl space-y-4">
-        <div className="flex justify-end"><ServidorStatus /></div>
+        {/* No modo local o indicador "Servidor da loja" já está no topo (Shell): aqui só na nuvem. */}
+        {process.env.NEXT_PUBLIC_EDGE !== '1' && <div className="flex justify-end"><ServidorStatus /></div>}
         <Card className="p-4">
           <h2 className="mb-2 font-display text-sm font-bold">Abrir mesa</h2>
           <div className="flex items-end gap-2">

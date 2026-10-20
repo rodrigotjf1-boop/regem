@@ -20,6 +20,10 @@
   `edge/sync-daemon.mjs` (manda `rede` e `presenca` na saúde da batida): instalação NOVA pede o `.exe` do mesmo corte.
   Na loja, conferir depois de instalar: Configurações › Servidor local mostra o IP e "PCs conectados agora"; na nuvem,
   o mesmo cartão aparece em até 2 minutos.
+- **Conexão PC ↔ servidor, parte 1b (sem migration):** no modo local, o indicador "● Servidor da loja" (topo, Balcão,
+  Delivery, Garçom) e Equipamentos "Por PC" com "conectado agora". É tela: entra no `.zip` (o servidor da loja serve o
+  app aos PCs — eles atualizam junto). Na loja, conferir: o PC do delivery mostra "Servidor da loja" verde e, em
+  Equipamentos › Por PC, aparece com o terminal e a estação "conectado agora".
 
 ## Última release: `1.30.5` — gerada em 17/10/2026 da `origin/main` `02d36210`, **`.zip` GERADO, conferido e assinado** (`regem-edge-1.30.5.zip`, 31.735.344 bytes, SHA-256 `46852d32e16e45bf944be4e8c8df7329d4b6b61bb02d0478e4b4f7d47e093838`); publicação no console PENDENTE (o dono); sem `.exe`
 
