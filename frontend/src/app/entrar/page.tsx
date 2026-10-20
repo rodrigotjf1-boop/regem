@@ -469,10 +469,12 @@ export default function LoginPage() {
               <div className={`field${emailErr ? ' err' : ''}`}>
                 <label htmlFor="email">Usuário</label>
                 <div className="in-wrap">
+                  {/* PC compartilhado da loja: o navegador não sugere nem preenche usuário e senha de quem
+                      entrou antes (o atalho do Regem abre aqui). Em senha, só `new-password` ele respeita. */}
                   <input
                     id="email"
                     type="text"
-                    autoComplete="username"
+                    autoComplete="off"
                     autoCapitalize="none"
                     spellCheck={false}
                     placeholder="seu usuário (ou e-mail)"
@@ -491,7 +493,7 @@ export default function LoginPage() {
                   <input
                     id="pass"
                     type={showPass ? 'text' : 'password'}
-                    autoComplete="current-password"
+                    autoComplete="new-password"
                     placeholder="••••••••"
                     value={senha}
                     onChange={(e) => setSenha(e.target.value)}
@@ -600,6 +602,7 @@ export default function LoginPage() {
                     id="emailEmpresa"
                     type="text"
                     inputMode="email"
+                    autoComplete="off"
                     autoCapitalize="none"
                     spellCheck={false}
                     placeholder="e-mail cadastrado da empresa"

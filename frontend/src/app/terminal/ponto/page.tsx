@@ -295,9 +295,11 @@ export default function TerminalPontoPage() {
                 Um gestor faz login uma vez para vincular este dispositivo a uma
                 unidade.
               </p>
+              {/* Terminal compartilhado: o navegador não preenche o login do gestor. */}
               <input
                 type="email"
                 placeholder="E-mail do gestor"
+                autoComplete="off"
                 value={pEmail}
                 onChange={(e) => setPEmail(e.target.value)}
                 required
@@ -306,6 +308,7 @@ export default function TerminalPontoPage() {
               <input
                 type="password"
                 placeholder="Senha"
+                autoComplete="new-password"
                 value={pSenha}
                 onChange={(e) => setPSenha(e.target.value)}
                 required

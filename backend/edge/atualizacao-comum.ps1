@@ -200,3 +200,24 @@ function Enviar-Telemetria($cloud, $tipo, $msg, $extra) {
       -Body ($corpo | ConvertTo-Json -Compress) -ContentType "application/json" -TimeoutSec 15 | Out-Null
   } catch { Diga "(aviso) nao consegui enviar a telemetria: $($_.Exception.Message)" }
 }
+
+# ICONE DO REGEM nos atalhos que a instalacao ja criou ("Regem (servidor local)", PDV, KDS, Ponto,
+# Garcom, "Regem (nuvem)"). Ate a 1.30.5 o instalador punha o icone do navegador; atalho novo ja
+# nasce com o do Regem (instalar-tudo.ps1) e a loja instalada recebe aqui, na atualizacao. So troca o
+# icone - alvo e endereco ficam como estao - e so de atalho do navegador com nome "Regem...".
+# O edge\regem.ico fica mesmo se a versao voltar (a volta sobrepoe os scripts, nao apaga os novos).
+# Devolve quantos atalhos trocou.
+function Icone-Regem-Nos-Atalhos($icone, $pastas) {
+  if (-not (Test-Path -LiteralPath $icone)) { return 0 }
+  $wsh = New-Object -ComObject WScript.Shell
+  $n = 0
+  foreach ($lnk in @(Get-ChildItem -Path $pastas -Filter 'Regem*.lnk' -File -ErrorAction SilentlyContinue)) {
+    $sc = $wsh.CreateShortcut($lnk.FullName)
+    if ($sc.TargetPath -match '(msedge|chrome)\.exe$' -and $sc.IconLocation -ne "$icone,0") {
+      $sc.IconLocation = "$icone,0"
+      $sc.Save()
+      $n++
+    }
+  }
+  return $n
+}

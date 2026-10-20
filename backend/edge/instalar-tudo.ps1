@@ -662,11 +662,14 @@ if ($Modo -eq 'cliente') {
     $ws = New-Object -ComObject WScript.Shell
     $s = $ws.CreateShortcut($lnk)
     $s.TargetPath = $browser
-    $s.Arguments = ('--app="{0}" --start-fullscreen --no-first-run' -f $urlApp)
-    $s.IconLocation = $browser
+    # Direto no login (/entrar), como o atalho do servidor: a raiz "/" abria a pagina de apresentacao.
+    $s.Arguments = ('--app="{0}/entrar" --start-fullscreen --no-first-run' -f $urlApp)
+    # O icone do Regem (edge\regem.ico, gerado da marca do app); sem ele, o do navegador.
+    $iconeRegem = Join-Path $Raiz 'edge\regem.ico'
+    $s.IconLocation = if (Test-Path $iconeRegem) { "$iconeRegem,0" } else { $browser }
     $s.Description = "Regem (cliente) - $ServidorHost"
     $s.Save()
-    Diga ("Atalho 'Regem' criado na area de trabalho -> {0}" -f $urlApp)
+    Diga ("Atalho 'Regem' criado na area de trabalho -> {0}/entrar" -f $urlApp)
   } else {
     Diga "Aviso: Edge/Chrome nao encontrado. Instale um navegador e crie o atalho manualmente para $urlApp"
   }
@@ -1304,6 +1307,10 @@ try {
   # (assim aparece na busca/Iniciar do Windows, com cara de app instalado).
   $startDir = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'Regem'
   New-Item -ItemType Directory -Path $startDir -Force -ErrorAction SilentlyContinue | Out-Null
+  # O icone do Regem (edge\regem.ico, gerado da marca do app frontend/src/app/icon.svg) em todos os
+  # atalhos; sem o arquivo, o do navegador (como antes).
+  $iconeRegem = Join-Path $Raiz 'edge\regem.ico'
+  $temIcone = Test-Path $iconeRegem
   function Atalho($nome, $url) {
     foreach ($dir in @($desktop, $startDir)) {
       if ($navegador) {
@@ -1311,11 +1318,12 @@ try {
         $sc = $wshell.CreateShortcut($p)
         $sc.TargetPath = $navegador
         $sc.Arguments  = "--app=$url --start-fullscreen"
-        $sc.IconLocation = $navegador
+        $sc.IconLocation = if ($temIcone) { "$iconeRegem,0" } else { $navegador }
         $sc.Save()
       } else {
         $p = Join-Path $dir ($nome + ".url")
-        Set-Content -Path $p -Encoding ascii -Value "[InternetShortcut]`r`nURL=$url`r`nIconIndex=0"
+        $linhaIcone = if ($temIcone) { "IconFile=$iconeRegem`r`n" } else { '' }
+        Set-Content -Path $p -Encoding ascii -Value "[InternetShortcut]`r`nURL=$url`r`n${linhaIcone}IconIndex=0"
       }
     }
     Diga "Atalho: $nome -> $url (Area de trabalho + Menu Iniciar)"

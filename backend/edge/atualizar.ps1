@@ -327,6 +327,15 @@ try {
     }
   } catch { Diga "(aviso) nao registrei a tarefa RegemEdgeBackup: $($_.Exception.Message)" }
 
+  # ICONE DO REGEM nos atalhos que a instalacao ja criou (area de trabalho publica + pasta Regem do
+  # Menu Iniciar). So o icone; nao mexe no resto e nao para a atualizacao se falhar.
+  try {
+    $nIcone = Icone-Regem-Nos-Atalhos (Join-Path $Raiz 'edge\regem.ico') @(
+      [Environment]::GetFolderPath('CommonDesktopDirectory'),
+      (Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'Regem'))
+    if ($nIcone) { Diga "Icone do Regem em $nIcone atalho(s)." }
+  } catch { Diga "(aviso) nao troquei o icone dos atalhos: $($_.Exception.Message)" }
+
   Diga "Subindo servicos..."; Prog "subindo" 80
   Subir-Servicos
   Diga "Conferindo a saude (versao nova no ar + servicos de pe)..."; Prog "verificando" 90

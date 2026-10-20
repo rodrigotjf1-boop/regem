@@ -33,6 +33,10 @@ OutputBaseFilename=RegemEdgeSetup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+; Icone do Regem no instalador e em "Aplicativos instalados" - o mesmo dos atalhos (edge\regem.ico,
+; gerado da marca do app frontend/src/app/icon.svg).
+SetupIconFile=regem.ico
+UninstallDisplayIcon={app}\backend\edge\regem.ico
 ; So instala em Windows 64-bit (os binarios embutidos Postgres/Node sao x64) e roda o
 ; instalador em modo 64-bit (sem redirecionamento WOW64 -> {sys} = System32 real).
 ArchitecturesAllowed=x64compatible
