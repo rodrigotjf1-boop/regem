@@ -493,6 +493,35 @@ export class EquipamentoService {
     return sinais;
   }
 
+  /**
+   * O IP do servidor da loja na rede, para a estação de impressão que o perdeu (conexão PC ↔ servidor,
+   * parte 2): o roteador deu outro IP ao servidor e o nome regem.local não resolve naquele PC. A nuvem
+   * sabe o IP pela saúde que o servidor manda a cada minuto (`edge_status.saude.rede`). Vale o servidor
+   * da loja da estação (ou o sem loja — V4), ativo e não revogado; entre eles, o da própria loja e depois
+   * o visto por último. A estação só usa o IP depois de conferir ali o certificado DA LOJA: esta resposta
+   * sozinha não a faz confiar em ninguém. Só na nuvem (a tabela é dela). Sem sinal: `ip: null`.
+   */
+  async servidorParaEstacao(tenantId: string, unidadeId: string | null) {
+    const vazio = { ip: null as string | null, maquina: null as string | null, vistoEm: null as string | null };
+    try {
+      const r: any = await this.db.execute(sql`
+        select s.recebido_em as "vistoEm", s.saude -> 'rede' as rede
+          from edge_status s
+          join equipamento e on e.id = s.equipamento_id and e.tenant_id = s.tenant_id
+         where s.tenant_id = ${tenantId}
+           and e.tipo = 'servidor_local' and e.ativo and e.revogado_em is null
+           and (${unidadeId}::uuid is null or e.unidade_id is null or e.unidade_id = ${unidadeId}::uuid)
+         order by (e.unidade_id is not distinct from ${unidadeId}::uuid) desc, s.recebido_em desc
+         limit 1`);
+      const x = (r.rows ?? r)[0];
+      const rede = x ? redeDaSaude(typeof x.rede === 'string' ? JSON.parse(x.rede) : x.rede) : null;
+      if (!rede?.ip) return vazio;
+      return { ip: rede.ip, maquina: rede.maquina, vistoEm: x.vistoEm ? new Date(x.vistoEm).toISOString() : null };
+    } catch {
+      return vazio; // sem edge_status
+    }
+  }
+
   // O último sinal de cada estação de impressão (mig 325): o desta base (a estação bate aqui) e, na
   // nuvem de uma loja com servidor local, o que o servidor manda na saúde (a estação bate nele). Vale
   // o mais recente. Best-effort: sem a tabela, a lista sai sem o sinal.

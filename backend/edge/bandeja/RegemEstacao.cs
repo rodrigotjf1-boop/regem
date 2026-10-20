@@ -1,17 +1,21 @@
-// Regem - icone da ESTACAO DE IMPRESSAO na bandeja do Windows (central de impressao, fase 1, PR 4b).
+// Regem - icone "Regem neste PC" na bandeja do Windows (central de impressao, fase 1, PR 4b;
+// conexao PC <-> servidor da loja, parte 2 - prototipo aprovado pelo dono em 20/10/2026, peca 4).
 //
-// Fica ao lado do relogio em todo PC com estacao. A bolinha diz o estado de todas as impressoras
-// do PC (verde, amarelo, vermelho; cinza = o servico nao responde). O menu faz as acoes DESTE PC:
-// abrir o painel, imprimir teste, reimprimir o ultimo cupom, pausar uma impressora, parear com um
-// codigo novo. Quando algo para (sem papel, tampa aberta) ou a fila antiga precisa de decisao, o
-// aviso do Windows aparece, com som. Mudar o que imprime onde e no Regem, nao aqui.
+// Fica ao lado do relogio em todo PC da loja. A bolinha diz o estado da ligacao com o servidor e
+// das impressoras do PC (verde, amarelo, vermelho; cinza = o servico nao responde). O menu faz as
+// acoes DESTE PC: abrir o painel, testar a conexao com o servidor (procura sozinho se o IP mudou),
+// trocar o endereco do servidor numa emergencia, parear com um codigo novo a qualquer momento,
+// imprimir teste, reimprimir o ultimo cupom, pausar uma impressora. Quando algo para (sem papel,
+// tampa aberta, o servidor sumiu) ou a fila antiga precisa de decisao, o aviso do Windows aparece.
+// Mudar o que imprime onde e no Regem, nao aqui.
 //
-// Fala SO com o servico da estacao neste PC: http://127.0.0.1:<porta> com a chave de painel.key
-// (a pasta de dados da estacao). Esconder o icone nao para a impressao: quem imprime e o servico.
+// Fala SO com o servico deste PC: http://127.0.0.1:<porta> com a chave de painel.key (a pasta de
+// dados da estacao). Esconder o icone nao para a impressao: quem imprime e o servico.
 //
 // Compila com o compilador do proprio Windows (.NET Framework 4.8, C# 5), sem instalar nada:
 //   csc /target:winexe /out:RegemEstacao.exe /r:System.Web.Extensions.dll RegemEstacao.cs
-// Uso: RegemEstacao.exe --raiz "C:\regem-edge\estacao" [--porta 17311]
+// O arquivo e ASCII (sem acento): o csc le o fonte na pagina de codigo do Windows.
+// Uso: RegemEstacao.exe --raiz "C:\regem-edge\estacao" [--porta 17311] [--abrir painel|trocar|parear]
 //      RegemEstacao.exe --raiz ... --diagnostico <arquivo>   (le o estado uma vez, grava o que o
 //                                                            icone mostraria e sai - para teste)
 using System;
@@ -39,16 +43,22 @@ namespace Regem.Estacao
         string Chave()
         {
             string arq = Path.Combine(Raiz, "painel.key");
-            if (!File.Exists(arq)) throw new Exception("o servico da estacao ainda nao criou a chave do painel");
+            if (!File.Exists(arq)) throw new Exception("o servico deste PC ainda nao criou a chave do painel");
             return File.ReadAllText(arq).Trim();
         }
 
         public Dictionary<string, object> Chamar(string metodo, string caminho, object corpo)
         {
+            return Chamar(metodo, caminho, corpo, 20000);
+        }
+
+        // A busca do servidor pode levar ate ~30 s (varre a rede): quem a pede passa um prazo maior.
+        public Dictionary<string, object> Chamar(string metodo, string caminho, object corpo, int prazoMs)
+        {
             HttpWebRequest req = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:" + Porta + caminho);
             req.Method = metodo;
-            req.Timeout = 20000;
-            req.ReadWriteTimeout = 20000;
+            req.Timeout = prazoMs;
+            req.ReadWriteTimeout = prazoMs;
             req.Proxy = null;
             req.Headers["x-painel-chave"] = Chave();
             if (corpo != null)
@@ -66,7 +76,7 @@ namespace Regem.Estacao
             }
             catch (WebException we)
             {
-                if (we.Response == null) throw new Exception("o servico da estacao nao responde neste PC");
+                if (we.Response == null) throw new Exception("o servico do Regem neste PC nao responde");
                 using (StreamReader rd = new StreamReader(we.Response.GetResponseStream(), Encoding.UTF8))
                 {
                     Dictionary<string, object> d = null;
@@ -141,7 +151,7 @@ namespace Regem.Estacao
             if (!Sim(est, "pareada")) return 1;
             Dictionary<string, object> c = Obj(est, "contato");
             if (c != null && !Sim(c, "ok") && Txt(c, "erro") != "") return 2;
-            int n = 0;
+            int n = Sim(C.Conexao(est), "buscando") ? 1 : 0;
             foreach (Dictionary<string, object> i in Lista(est, "impressoras"))
             {
                 if (Critico(i)) return 2;
@@ -177,6 +187,103 @@ namespace Regem.Estacao
         }
     }
 
+    // ===== a conexao com o servidor da loja (parte 2): o bloco "conexao" do estado =====
+    public static class C
+    {
+        public static Dictionary<string, object> Conexao(Dictionary<string, object> est) { return E.Obj(est, "conexao"); }
+
+        // Segundos desde um horario ISO (-1 sem horario).
+        public static int Segundos(string iso)
+        {
+            DateTime t;
+            if (!DateTime.TryParse(iso, null, System.Globalization.DateTimeStyles.RoundtripKind, out t)) return -1;
+            return (int)Math.Max(0, (DateTime.UtcNow - t.ToUniversalTime()).TotalSeconds);
+        }
+        public static string Ha(int s)
+        {
+            if (s < 0) return "";
+            if (s < 2) return "agora";
+            if (s < 60) return "ha " + s + " s";
+            if (s < 3600) return "ha " + (s / 60) + " min";
+            return "ha " + (s / 3600) + " h";
+        }
+
+        // "regem.local (192.168.0.10)", ou so o endereco quando ele ja e o IP.
+        public static string Endereco(Dictionary<string, object> c)
+        {
+            string alvo = E.Txt(c, "alvo"), ip = E.Txt(c, "ip");
+            if (alvo == "") return "(sem endereco)";
+            return ip != "" && ip != alvo ? alvo + " (" + ip + ")" : alvo;
+        }
+
+        public static string Como(Dictionary<string, object> c)
+        {
+            string como = E.Txt(c, "como"), alvo = E.Txt(c, "alvo"), nome = E.Txt(c, "nome");
+            if (como == "configurado") return alvo == nome ? "pelo nome, na rede da loja" : "pelo endereco configurado";
+            if (como == "nome") return "pelo nome " + nome + ", na rede da loja";
+            if (como == "ultimo-ip") return "pelo ultimo IP que funcionou";
+            if (como == "nuvem") return "pelo endereco que a nuvem informou";
+            if (como == "varredura") return "procurando na rede deste PC";
+            if (como == "digitado") return "pelo endereco digitado";
+            return "";
+        }
+
+        static string Passo(Dictionary<string, object> p, string nome)
+        {
+            string como = E.Txt(p, "como"), host = E.Txt(p, "host");
+            bool ok = E.Sim(p, "ok");
+            if (como == "configurado") return host + " (o endereco configurado) " + (ok ? "respondeu" : "nao respondeu");
+            if (como == "nome") return ok ? nome + " respondeu" : nome + " nao respondeu (a rede deste PC nao resolve o nome)";
+            if (como == "ultimo-ip") return host + ", o ultimo que funcionou, " + (ok ? "respondeu" : "nao respondeu");
+            if (como == "nuvem")
+            {
+                if (host == "") return "A nuvem nao informou o endereco (sem internet, ou o servidor sem sinal)";
+                return ok ? "A nuvem informou o endereco novo: " + host : "A nuvem informou " + host + ", mas ele nao respondeu";
+            }
+            if (como == "varredura")
+                return ok ? "Achei o servidor na rede deste PC: " + host
+                          : string.Format("Procurei em {0} enderecos da rede deste PC: nenhum servidor desta loja", E.Num(p, "procurados"));
+            return host;
+        }
+
+        // Os passos de uma busca em texto, com o "conferido" e o "anotado" quando achou.
+        public static List<string> Passos(Dictionary<string, object> busca, Dictionary<string, object> c)
+        {
+            List<string> r = new List<string>();
+            if (busca == null) return r;
+            string nome = E.Txt(c, "nome") != "" ? E.Txt(c, "nome") : "regem.local";
+            foreach (Dictionary<string, object> p in E.Lista(busca, "passos")) r.Add((E.Sim(p, "ok") ? "[ok] " : "[x]  ") + Passo(p, nome));
+            if (E.Txt(busca, "achou") != "")
+            {
+                r.Add("[ok] Conferido: e o servidor da sua loja (certificado da loja)");
+                Dictionary<string, object> h = E.Obj(c, "hosts");
+                if (h != null && E.Txt(h, "ip") != "" && E.Txt(h, "ip") == E.Txt(c, "ip"))
+                    r.Add("[ok] Anotado neste PC: " + nome + " -> " + E.Txt(h, "ip") + ". O atalho do Regem continua igual.");
+            }
+            if (E.Txt(c, "hostsErro") != "") r.Add("[x]  Nao consegui anotar " + nome + " neste PC (" + E.Txt(c, "hostsErro") + "). Este PC segue pelo IP.");
+            return r;
+        }
+
+        // A situacao em uma linha (menu, painel e dica do icone).
+        public static string Linha(Dictionary<string, object> est)
+        {
+            Dictionary<string, object> c = Conexao(est), ct = E.Obj(est, "contato");
+            if (c == null) return E.Sim(est, "pareada") ? "ligada a " + E.Txt(est, "servidor") : "ainda nao pareada";
+            if (E.Sim(c, "buscando")) return "Procurando o servidor da loja...";
+            if (!E.Sim(est, "pareada"))
+                return "Ainda nao pareada - servidor: " + Endereco(c) + (E.Txt(c, "ultimaResposta") != "" ? " (respondeu " + Ha(Segundos(E.Txt(c, "ultimaResposta"))) + ")" : "");
+            // Sem contato = a fila falhou (o mesmo criterio da bolinha vermelha). Antes da primeira
+            // resposta da fila, a ultima resposta do teste da partida ja diz que o servidor esta la.
+            bool falhou = ct != null && !E.Sim(ct, "ok") && E.Txt(ct, "erro") != "";
+            if (!E.Sim(c, "local")) return falhou ? "Sem contato com a nuvem do Regem" : "Ligada a nuvem do Regem";
+            if (!falhou && (E.Sim(ct, "ok") || E.Txt(c, "ultimaResposta") != ""))
+                return "Ligado ao servidor - " + Endereco(c) + (E.Num(c, "latenciaMs") > 0 ? " - responde em " + E.Num(c, "latenciaMs") + " ms" : "");
+            if (!falhou) return "Conectando ao servidor - " + Endereco(c);
+            int s = Segundos(E.Txt(c, "ultimaResposta"));
+            return s >= 0 ? "Sem servidor " + Ha(s) + " - procurando de novo sozinho" : "Sem servidor - procurando de novo sozinho";
+        }
+    }
+
     // ===== o icone =====
     public class Bandeja : ApplicationContext
     {
@@ -192,14 +299,21 @@ namespace Regem.Estacao
         PainelForm janela;
         HashSet<string> criticosAvisados = new HashSet<string>();
         int retidosAvisados;
+        bool primeiraLeitura = true;
+        string buscaAvisada = ""; // a busca (pelo horario dela) que ja virou aviso
+        bool semServidorAvisado;
+        string abrirAoLer; // --abrir painel|trocar|parear: abre a tela depois da primeira leitura
 
-        public Bandeja(Painel p)
+        public Painel Servico { get { return painel; } }
+
+        public Bandeja(Painel p, string abrir)
         {
             painel = p;
+            abrirAoLer = abrir;
             ui.CreateControl();
             for (int i = 0; i < 4; i++) icones[i] = Desenhar(i);
             icone.Icon = icones[3];
-            icone.Text = "Regem - estacao de impressao";
+            icone.Text = "Regem neste PC";
             icone.ContextMenuStrip = menu;
             icone.Visible = true;
             icone.DoubleClick += delegate { AbrirPainel(); };
@@ -237,7 +351,7 @@ namespace Regem.Estacao
         }
 
         // Le o estado sem travar a tela (a chamada roda fora da thread da tela).
-        void Ler()
+        public void Ler()
         {
             if (Interlocked.Exchange(ref lendo, 1) == 1) return;
             ThreadPool.QueueUserWorkItem(delegate
@@ -256,15 +370,30 @@ namespace Regem.Estacao
             erroLeitura = erro;
             int nivel = E.Nivel(estado);
             icone.Icon = icones[nivel];
-            string dica = estado == null
-                ? "Regem: o servico da estacao nao responde"
-                : string.Format("Regem - {0}: {1}", E.Txt(estado, "nome") != "" ? E.Txt(estado, "nome") : "estacao", nivel == 0 ? "tudo pronto" : nivel == 1 ? "atencao" : "parada");
+            string dica = estado == null ? "Regem: o servico deste PC nao responde" : "Regem neste PC - " + C.Linha(estado);
             icone.Text = dica.Length > 63 ? dica.Substring(0, 63) : dica;
             Avisar();
             if (janela != null && !janela.IsDisposed) janela.Mostrar(estado, erroLeitura);
+            if (abrirAoLer != null && estado != null)
+            {
+                string tela = abrirAoLer;
+                abrirAoLer = null;
+                ui.BeginInvoke(new MethodInvoker(delegate
+                {
+                    if (tela == "trocar") TrocarEndereco();
+                    else if (tela == "parear") Parear();
+                    else AbrirPainel();
+                }));
+            }
         }
 
-        // O aviso do Windows quando uma impressora para, e quando a fila antiga pede decisao.
+        public void Balao(string titulo, string texto, ToolTipIcon tipo)
+        {
+            icone.ShowBalloonTip(8000, titulo, texto, tipo);
+        }
+
+        // O aviso do Windows quando uma impressora para, quando a fila antiga pede decisao e quando o
+        // servidor muda de endereco ou some (parte 2).
         void Avisar()
         {
             if (estado == null) return;
@@ -286,10 +415,35 @@ namespace Regem.Estacao
             if (retidos > 0 && retidosAvisados == 0)
             {
                 icone.ShowBalloonTip(15000, string.Format("{0} cupom(ns) esperam ha mais de 10 minutos", retidos),
-                    "Abra o painel da estacao para decidir: imprimir todos, escolher quais ou descartar.", ToolTipIcon.Info);
+                    "Abra o painel para decidir: imprimir todos, escolher quais ou descartar.", ToolTipIcon.Info);
                 SystemSounds.Asterisk.Play();
             }
             retidosAvisados = retidos;
+
+            // A busca do servidor que terminou desde a ultima leitura (a pedida pelo icone ja mostra o
+            // resultado na propria acao). A que ja tinha terminado antes do icone abrir nao vira aviso.
+            Dictionary<string, object> cx = C.Conexao(estado);
+            Dictionary<string, object> b = E.Obj(cx, "busca");
+            string fim = b != null && E.Txt(b, "duracaoMs") != "" ? E.Txt(b, "em") : "";
+            if (primeiraLeitura) { buscaAvisada = fim; primeiraLeitura = false; }
+            else if (fim != "" && fim != buscaAvisada)
+            {
+                buscaAvisada = fim;
+                if (!E.Sim(b, "peloIcone"))
+                {
+                    if (E.Txt(b, "achou") != "" && E.Txt(b, "como") != "configurado")
+                        Balao("O servidor mudou de endereco", "Achei o servidor em " + (E.Txt(cx, "ip") != "" ? E.Txt(cx, "ip") : E.Txt(b, "achou")) +
+                            " e liguei de novo. Nada a fazer: o atalho do Regem continua igual.", ToolTipIcon.Info);
+                    else if (E.Txt(b, "achou") == "" && !semServidorAvisado)
+                    {
+                        semServidorAvisado = true;
+                        icone.ShowBalloonTip(15000, "Nao acho o servidor da loja",
+                            "Confira se o PC servidor esta ligado e na mesma rede. Os cupons esperam aqui e saem quando ele voltar.", ToolTipIcon.Warning);
+                        SystemSounds.Exclamation.Play();
+                    }
+                }
+            }
+            if (E.Sim(E.Obj(estado, "contato"), "ok")) semServidorAvisado = false;
         }
 
         static string Capitalizar(string s) { return s.Length > 0 ? char.ToUpper(s[0]) + s.Substring(1) : s; }
@@ -299,20 +453,23 @@ namespace Regem.Estacao
             menu.Items.Clear();
             if (estado == null)
             {
-                Rotulo(string.IsNullOrEmpty(erroLeitura) ? "Lendo a estacao..." : "Estacao: " + erroLeitura);
+                Rotulo(string.IsNullOrEmpty(erroLeitura) ? "Lendo o servico deste PC..." : "Regem neste PC: " + erroLeitura);
             }
             else
             {
-                Rotulo(string.Format("Estacao {0}", E.Txt(estado, "nome") != "" ? E.Txt(estado, "nome") : "(sem pareamento)"), true);
-                Rotulo(string.Format("{0} - {1}", E.Txt(estado, "maquina"),
-                    E.Sim(estado, "pareada") ? "ligada a " + E.Txt(estado, "servidor") : "ainda nao pareada"));
+                Rotulo("Regem neste PC", true);
+                Rotulo(string.Format("{0} - {1}", E.Txt(estado, "maquina"), E.Txt(estado, "nome") != "" ? E.Txt(estado, "nome") : "sem pareamento"));
+                Rotulo(C.Linha(estado));
                 foreach (Dictionary<string, object> i in E.Lista(estado, "impressoras"))
                     Rotulo(string.Format("{0}: {1}", E.Txt(i, "nome"), E.Estado(i)));
                 int fila = E.NaFila(estado), retidos = E.Lista(estado, "retidos").Count;
-                Rotulo(string.Format("Fila: {0} cupom(ns){1}", fila, retidos > 0 ? string.Format(" - {0} esperando decisao", retidos) : ""));
+                if (E.Sim(estado, "pareada"))
+                    Rotulo(string.Format("Fila: {0} cupom(ns){1}", fila, retidos > 0 ? string.Format(" - {0} esperando decisao", retidos) : ""));
             }
             menu.Items.Add(new ToolStripSeparator());
-            Item("Abrir o painel da estacao", delegate { AbrirPainel(); });
+            Item("Abrir o painel", delegate { AbrirPainel(); });
+            Item("Testar conexao com o servidor", delegate { TestarConexao(); });
+            menu.Items.Add(new ToolStripSeparator());
             List<Dictionary<string, object>> imps = E.Lista(estado, "impressoras");
             PorImpressora("Imprimir pagina de teste", imps, null, delegate(Dictionary<string, object> i) { Acao("/teste", i, "Pagina de teste enviada."); });
             PorImpressora("Reimprimir o ultimo cupom", imps, "temUltimo", delegate(Dictionary<string, object> i) { Acao("/reimprimir", i, "Ultimo cupom reimpresso (marcado como reimpressao)."); });
@@ -327,7 +484,11 @@ namespace Regem.Estacao
             }
             pausar.Enabled = imps.Count > 0;
             menu.Items.Add(pausar);
-            if (estado != null && !E.Sim(estado, "pareada")) Item("Parear com codigo...", delegate { Parear(); });
+            menu.Items.Add(new ToolStripSeparator());
+            // Ligada a nuvem (loja sem servidor): nao ha endereco de servidor para trocar.
+            bool naNuvem = E.Sim(estado, "pareada") && C.Conexao(estado) != null && !E.Sim(C.Conexao(estado), "local");
+            if (!naNuvem) Item("Trocar endereco do servidor...", delegate { TrocarEndereco(); });
+            Item("Parear com codigo...", delegate { Parear(); }); // sempre (parte 2): com aviso se ja pareada
             menu.Items.Add(new ToolStripSeparator());
             Item("Esconder o icone (a impressao continua)", delegate { icone.Visible = false; ExitThread(); });
         }
@@ -380,9 +541,9 @@ namespace Regem.Estacao
         }
         public void Parear()
         {
-            string codigo = PedirCodigo();
+            string codigo = PedirCodigo(estado);
             if (codigo == null) return;
-            Executar(delegate { painel.Chamar("POST", "/parear", new Dictionary<string, object> { { "codigo", codigo } }); }, "Estacao pareada.");
+            Executar(delegate { painel.Chamar("POST", "/parear", new Dictionary<string, object> { { "codigo", codigo } }, 30000); }, "Pareado. Este PC ja fala com o servidor com o cadastro novo.");
         }
         public void Executar(ThreadStart chamada, string okTexto)
         {
@@ -395,7 +556,7 @@ namespace Regem.Estacao
                     ui.BeginInvoke(new MethodInvoker(delegate
                     {
                         if (erro == null) icone.ShowBalloonTip(5000, "Regem", okTexto, ToolTipIcon.Info);
-                        else MessageBox.Show(erro, "Estacao de impressao", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        else MessageBox.Show(erro, "Regem neste PC", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         Ler();
                     }));
                 }
@@ -403,25 +564,93 @@ namespace Regem.Estacao
             });
         }
 
-        static string PedirCodigo()
+        // "Testar conexao" (e "Procurar de novo"): sem resposta, o servico procura o servidor sozinho -
+        // pode levar ate ~30 s. Achou: aviso. Nao achou: o que foi tentado e o que fazer.
+        public void TestarConexao() { Conferir("/testar", "Testando a conexao com o servidor..."); }
+        public void Procurar() { Conferir("/procurar", "Procurando o servidor da loja..."); }
+        void Conferir(string caminho, string enquanto)
         {
+            icone.ShowBalloonTip(3000, "Regem neste PC", enquanto, ToolTipIcon.Info);
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                Dictionary<string, object> r = null;
+                string erro = null;
+                try { r = painel.Chamar("POST", caminho, new Dictionary<string, object>(), 90000); } catch (Exception e) { erro = e.Message; }
+                try { ui.BeginInvoke(new MethodInvoker(delegate { ResultadoDaConferencia(r, erro); Ler(); })); } catch { }
+            });
+        }
+        void ResultadoDaConferencia(Dictionary<string, object> r, string erro)
+        {
+            if (erro != null) { MessageBox.Show(erro, "Regem neste PC", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+            Dictionary<string, object> cx = C.Conexao(estado);
+            if (E.Sim(r, "ok"))
+            {
+                if (E.Sim(r, "nuvem"))
+                    Balao("Ligada a nuvem do Regem", string.Format("{0} respondeu em {1} ms.", E.Txt(r, "alvo"), E.Num(r, "ms")), ToolTipIcon.Info);
+                else
+                    Balao("Ligado ao servidor", string.Format("{0} respondeu em {1} ms{2}.", E.Txt(r, "alvo"), E.Num(r, "ms"),
+                        E.Sim(r, "conferido") ? " - e o servidor da sua loja" : ""), ToolTipIcon.Info);
+                return;
+            }
+            string achou = E.Txt(r, "achou");
+            if (achou != "")
+            {
+                Balao("O servidor mudou de endereco", "Achei o servidor em " + achou + " e liguei de novo. Nada a fazer: o atalho do Regem continua igual.", ToolTipIcon.Info);
+                return;
+            }
+            StringBuilder sb = new StringBuilder();
+            if (E.Txt(r, "alvo") != "") sb.AppendLine(string.Format("{0} nao respondeu: {1}.", E.Txt(r, "alvo"), E.Txt(r, "motivo")));
+            else if (E.Txt(r, "motivo") != "") sb.AppendLine(E.Txt(r, "motivo"));
+            List<string> passos = C.Passos(E.Obj(r, "busca"), cx);
+            if (passos.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("Onde procurei:");
+                foreach (string p in passos) sb.AppendLine(p);
+            }
+            sb.AppendLine();
+            sb.AppendLine("O que fazer:");
+            sb.AppendLine("1. Confira se o PC servidor esta ligado e no cabo de rede (ou no Wi-Fi da loja).");
+            sb.AppendLine("2. Se voce sabe o IP do servidor (Configuracoes > Servidor local, tambem pelo celular), use \"Trocar endereco do servidor\".");
+            sb.AppendLine("3. Para vender agora, abra o modo nuvem. Os cupons esperam aqui e saem quando o servidor voltar.");
+            MessageBox.Show(sb.ToString(), "Regem neste PC - nao acho o servidor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+
+        public void TrocarEndereco()
+        {
+            Dictionary<string, object> cx = C.Conexao(estado);
+            string atual = E.Txt(cx, "ip") != "" ? E.Txt(cx, "ip") : E.Txt(cx, "alvo");
+            using (TrocarEnderecoForm f = new TrocarEnderecoForm(this, atual)) f.ShowDialog();
+            Ler();
+        }
+
+        static string PedirCodigo(Dictionary<string, object> est)
+        {
+            bool pareada = E.Sim(est, "pareada");
+            string nome = E.Txt(est, "nome");
             using (Form f = new Form())
             {
-                f.Text = "Parear a estacao de impressao";
-                f.FormBorderStyle = FormBorderStyle.FixedDialog;
-                f.StartPosition = FormStartPosition.CenterScreen;
-                f.MaximizeBox = false; f.MinimizeBox = false;
-                f.ClientSize = new Size(380, 150);
-                f.Font = new Font("Segoe UI", 10);
-                Label l = new Label { Text = "Gere o codigo no Regem (Configuracoes > Equipamentos > Gerar codigo da estacao) e digite os 6 numeros:", Left = 14, Top = 12, Width = 350, Height = 44 };
-                TextBox t = new TextBox { Left = 14, Top = 62, Width = 140, MaxLength = 6 };
-                Button ok = new Button { Text = "Parear", Left = 190, Top = 104, Width = 80, DialogResult = DialogResult.OK };
-                Button cancelar = new Button { Text = "Cancelar", Left = 280, Top = 104, Width = 86, DialogResult = DialogResult.Cancel };
-                f.Controls.AddRange(new Control[] { l, t, ok, cancelar });
+                Montar.Dialogo(f, "Parear com codigo - Regem neste PC");
+                TableLayoutPanel col = Montar.Coluna();
+                if (pareada)
+                {
+                    // Prototipo (peca 4, "Parear de novo"): o codigo novo troca o cadastro deste PC.
+                    col.Controls.Add(Montar.Faixa(string.Format("Este PC ja esta pareado como a estacao \"{0}\". Um codigo novo troca o cadastro: \"{0}\" deixa de imprimir aqui.", nome), 1));
+                }
+                col.Controls.Add(Montar.Texto("Codigo (6 numeros):"));
+                TextBox t = new TextBox { Width = 140, MaxLength = 6, Margin = new Padding(0, 0, 0, 8) };
+                col.Controls.Add(t);
+                Label ajuda = Montar.Texto("Gere em Configuracoes > Equipamentos > a estacao > Gerar codigo. O codigo do caixa (terminal de PDV) nao entra aqui: ele vai na tela do PDV.");
+                ajuda.ForeColor = Color.FromArgb(85, 85, 85);
+                col.Controls.Add(ajuda);
+                Button ok = new Button { Text = "Parear", AutoSize = true, DialogResult = DialogResult.OK };
+                Button cancelar = new Button { Text = "Cancelar", AutoSize = true, DialogResult = DialogResult.Cancel };
+                col.Controls.Add(Montar.Botoes(ok, cancelar));
+                f.Controls.Add(col);
                 f.AcceptButton = ok; f.CancelButton = cancelar;
                 if (f.ShowDialog() != DialogResult.OK) return null;
                 string c = t.Text.Trim();
-                if (c.Length != 6) { MessageBox.Show("O codigo tem 6 numeros.", "Estacao de impressao"); return null; }
+                if (c.Length != 6) { MessageBox.Show("O codigo tem 6 numeros.", "Regem neste PC"); return null; }
                 return c;
             }
         }
@@ -445,17 +674,159 @@ namespace Regem.Estacao
         }
     }
 
-    // ===== o painel da estacao (abre pelo icone) =====
+    // ===== janelas pequenas que crescem com o texto (nada cortado com zoom de tela de 125% ou 150%) =====
+    static class Montar
+    {
+        public const int Largura = 420; // a largura do texto; a janela acompanha
+
+        public static void Dialogo(Form f, string titulo)
+        {
+            f.Text = titulo;
+            f.FormBorderStyle = FormBorderStyle.FixedDialog;
+            f.StartPosition = FormStartPosition.CenterScreen;
+            f.MaximizeBox = false; f.MinimizeBox = false;
+            f.Font = new Font("Segoe UI", 10);
+            f.AutoSize = true;
+            f.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            f.Padding = new Padding(0, 0, 14, 14);
+        }
+        public static TableLayoutPanel Coluna()
+        {
+            return new TableLayoutPanel { ColumnCount = 1, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Location = new Point(14, 14) };
+        }
+        public static Label Texto(string texto)
+        {
+            return new Label { Text = texto, AutoSize = true, MaximumSize = new Size(Largura, 0), Margin = new Padding(0, 0, 0, 8) };
+        }
+        // 0 = neutra, 1 = amarela (atencao), 2 = vermelha, 3 = verde
+        public static Label Faixa(string texto, int tipo)
+        {
+            Label l = Texto(texto);
+            l.Padding = new Padding(8);
+            l.MinimumSize = new Size(Largura, 0);
+            Pintar(l, tipo);
+            return l;
+        }
+        public static void Pintar(Label l, int tipo)
+        {
+            l.BackColor = tipo == 1 ? Color.FromArgb(255, 242, 217) : tipo == 2 ? Color.FromArgb(251, 233, 233) : tipo == 3 ? Color.FromArgb(228, 245, 236) : SystemColors.Control;
+            l.ForeColor = tipo == 1 ? Color.FromArgb(138, 90, 0) : tipo == 2 ? Color.FromArgb(185, 50, 50) : tipo == 3 ? Color.FromArgb(14, 100, 80) : SystemColors.ControlText;
+        }
+        // Os botoes do rodape, a direita.
+        public static FlowLayoutPanel Botoes(params Button[] botoes)
+        {
+            FlowLayoutPanel p = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, AutoSize = true, WrapContents = false, Dock = DockStyle.Fill, Margin = new Padding(0, 8, 0, 0) };
+            for (int i = botoes.Length - 1; i >= 0; i--) p.Controls.Add(botoes[i]);
+            return p;
+        }
+    }
+
+    // ===== "Trocar endereco do servidor" (emergencia): testa e so deixa usar o que respondeu =====
+    public class TrocarEnderecoForm : Form
+    {
+        readonly Bandeja dona;
+        readonly TextBox campo = new TextBox();
+        readonly Label resultado;
+        readonly Button testar = new Button(), usar = new Button(), cancelar = new Button();
+        string testado; // o texto que passou no teste: "Usar este endereco" vale so para ele
+
+        public TrocarEnderecoForm(Bandeja b, string atual)
+        {
+            dona = b;
+            Montar.Dialogo(this, "Trocar endereco do servidor - Regem neste PC");
+            TableLayoutPanel col = Montar.Coluna();
+            col.Controls.Add(Montar.Texto("Endereco do servidor (IP ou nome):"));
+            FlowLayoutPanel linha = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 0, 0, 8) };
+            campo.Width = 290;
+            campo.Text = atual;
+            campo.Margin = new Padding(0, 3, 8, 0);
+            testar.Text = "Testar"; testar.AutoSize = true; testar.Margin = new Padding(0);
+            linha.Controls.Add(campo); linha.Controls.Add(testar);
+            col.Controls.Add(linha);
+            Label ajuda = Montar.Texto("O IP aparece em Configuracoes > Servidor local (tambem na nuvem, pelo celular).");
+            ajuda.ForeColor = Color.FromArgb(85, 85, 85);
+            col.Controls.Add(ajuda);
+            resultado = Montar.Faixa("", 0);
+            resultado.Visible = false;
+            col.Controls.Add(resultado);
+            usar.Text = "Usar este endereco"; usar.AutoSize = true; usar.Enabled = false;
+            cancelar.Text = "Cancelar"; cancelar.AutoSize = true; cancelar.DialogResult = DialogResult.Cancel;
+            col.Controls.Add(Montar.Botoes(usar, cancelar));
+            Controls.Add(col);
+            AcceptButton = testar; CancelButton = cancelar;
+            testar.Click += delegate { Chamar(false); };
+            usar.Click += delegate { Chamar(true); };
+            campo.TextChanged += delegate { usar.Enabled = testado != null && campo.Text.Trim() == testado; };
+        }
+
+        void Chamar(bool usarEste)
+        {
+            string endereco = campo.Text.Trim();
+            if (endereco == "") return;
+            testar.Enabled = false; usar.Enabled = false;
+            Faixa(usarEste ? "Trocando o endereco..." : "Testando " + endereco + "...", 0);
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                Dictionary<string, object> r = null;
+                string erro = null;
+                try
+                {
+                    r = dona.Servico.Chamar("POST", "/servidor", new Dictionary<string, object> { { "endereco", endereco }, { "usar", usarEste } }, 30000);
+                }
+                catch (Exception e) { erro = e.Message; }
+                try { BeginInvoke(new MethodInvoker(delegate { Resultado(endereco, usarEste, r, erro); })); } catch { }
+            });
+        }
+
+        void Resultado(string endereco, bool usou, Dictionary<string, object> r, string erro)
+        {
+            testar.Enabled = true;
+            bool ok = erro == null && E.Sim(r, "ok");
+            if (ok && usou)
+            {
+                string agora = E.Txt(r, "agora") != "" ? E.Txt(r, "agora") : E.Txt(r, "endereco");
+                dona.Balao("Endereco do servidor trocado", "Este PC fala com o servidor em " + agora +
+                    (E.Txt(r, "hostsErro") != "" ? ". Nao consegui anotar o nome regem.local neste PC: " + E.Txt(r, "hostsErro") : "."), ToolTipIcon.Info);
+                DialogResult = DialogResult.OK;
+                Close();
+                return;
+            }
+            if (ok)
+            {
+                testado = endereco;
+                usar.Enabled = campo.Text.Trim() == testado;
+                Faixa(E.Sim(r, "conferido")
+                    ? string.Format("E o servidor da sua loja - versao {0} - respondeu em {1} ms.", E.Txt(r, "versao"), E.Num(r, "ms"))
+                    : string.Format("Um servidor Regem respondeu em {0} ms. O certificado da loja e conferido ao parear.", E.Num(r, "ms")), 1);
+                return;
+            }
+            testado = null;
+            Faixa(erro != null ? erro : string.Format("Nao deu certo em {0}: {1}. Confira o numero.", E.Txt(r, "endereco"), E.Txt(r, "motivo")), 2);
+        }
+
+        // 0 = neutro, 1 = verde, 2 = vermelho
+        void Faixa(string texto, int tipo)
+        {
+            resultado.Text = texto;
+            resultado.Visible = true;
+            Montar.Pintar(resultado, tipo == 1 ? 3 : tipo == 2 ? 2 : 0);
+        }
+    }
+
+    // ===== o painel (abre pelo icone) =====
     public class PainelForm : Form
     {
         readonly Bandeja dona;
         readonly Label cabecalho = new Label();
         readonly Label faixa = new Label();
+        readonly GroupBox grupoConexao = new GroupBox();
+        readonly Label conexao = new Label();
+        readonly Button bTestar = new Button(), bProcurar = new Button(), bTrocar = new Button(), bParear = new Button();
         readonly ListView impressoras = new ListView();
         readonly GroupBox grupoRetidos = new GroupBox();
         readonly CheckedListBox retidos = new CheckedListBox();
         readonly ListView recentes = new ListView();
-        readonly Button bTeste = new Button(), bReimprimir = new Button(), bPausar = new Button(), bParear = new Button();
+        readonly Button bTeste = new Button(), bReimprimir = new Button(), bPausar = new Button();
         List<Dictionary<string, object>> imps = new List<Dictionary<string, object>>();
         List<Dictionary<string, object>> listaRetidos = new List<Dictionary<string, object>>();
         string assinaturaRetidos = "";
@@ -463,26 +834,42 @@ namespace Regem.Estacao
         public PainelForm(Bandeja b)
         {
             dona = b;
-            Text = "Estacao de impressao - Regem";
+            Text = "Regem neste PC";
             Font = new Font("Segoe UI", 10);
-            ClientSize = new Size(760, 600);
-            MinimumSize = new Size(560, 480);
+            ClientSize = new Size(780, 720);
+            MinimumSize = new Size(580, 560);
             StartPosition = FormStartPosition.CenterScreen;
             FormClosing += delegate(object s, FormClosingEventArgs e) { if (e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; Hide(); } };
 
             TableLayoutPanel t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, Padding = new Padding(10) };
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            t.RowStyles.Add(new RowStyle(SizeType.Percent, 30));
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            t.RowStyles.Add(new RowStyle(SizeType.Percent, 35));
+            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // cabecalho
+            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // faixa
+            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // conexao com o servidor (parte 2)
+            t.RowStyles.Add(new RowStyle(SizeType.Percent, 30)); // impressoras
+            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // acoes das impressoras
+            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // fila antiga
+            t.RowStyles.Add(new RowStyle(SizeType.Percent, 35)); // ultimos cupons
             Controls.Add(t);
 
             cabecalho.AutoSize = true; cabecalho.Font = new Font("Segoe UI", 11, FontStyle.Bold);
             t.Controls.Add(cabecalho);
-            faixa.AutoSize = true; faixa.MaximumSize = new Size(720, 0); faixa.Padding = new Padding(8); faixa.Visible = false;
+            faixa.AutoSize = true; faixa.MaximumSize = new Size(740, 0); faixa.Padding = new Padding(8); faixa.Visible = false;
             t.Controls.Add(faixa);
+
+            // A conexao com o servidor: endereco, IP, ultima resposta, como achou e a ultima busca.
+            grupoConexao.Text = "Conexao com o servidor";
+            grupoConexao.Dock = DockStyle.Fill; grupoConexao.AutoSize = true;
+            TableLayoutPanel gc = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, AutoSize = true };
+            conexao.AutoSize = true; conexao.MaximumSize = new Size(720, 0); conexao.Padding = new Padding(2, 4, 2, 4);
+            FlowLayoutPanel bc = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = true };
+            Configurar(bTestar, "Testar conexao", delegate { dona.TestarConexao(); });
+            Configurar(bProcurar, "Procurar de novo", delegate { dona.Procurar(); });
+            Configurar(bTrocar, "Trocar endereco...", delegate { dona.TrocarEndereco(); });
+            Configurar(bParear, "Parear com codigo...", delegate { dona.Parear(); });
+            bc.Controls.AddRange(new Control[] { bTestar, bProcurar, bTrocar, bParear });
+            gc.Controls.Add(conexao); gc.Controls.Add(bc);
+            grupoConexao.Controls.Add(gc);
+            t.Controls.Add(grupoConexao);
 
             impressoras.View = View.Details; impressoras.FullRowSelect = true; impressoras.MultiSelect = false; impressoras.Dock = DockStyle.Fill; impressoras.HideSelection = false;
             impressoras.Columns.Add("Impressora", 200); impressoras.Columns.Add("Ligacao", 200); impressoras.Columns.Add("Situacao", 180); impressoras.Columns.Add("Fila", 60);
@@ -493,8 +880,7 @@ namespace Regem.Estacao
             Configurar(bTeste, "Imprimir teste", delegate { Sel(delegate(Dictionary<string, object> i) { dona.Acao("/teste", i, "Pagina de teste enviada."); }); });
             Configurar(bReimprimir, "Reimprimir o ultimo", delegate { Sel(delegate(Dictionary<string, object> i) { dona.Acao("/reimprimir", i, "Ultimo cupom reimpresso (marcado como reimpressao)."); }); });
             Configurar(bPausar, "Pausar", delegate { Sel(delegate(Dictionary<string, object> i) { dona.Pausar(i, !E.Sim(i, "pausada")); }); });
-            Configurar(bParear, "Parear com codigo...", delegate { dona.Parear(); });
-            acoes.Controls.AddRange(new Control[] { bTeste, bReimprimir, bPausar, bParear });
+            acoes.Controls.AddRange(new Control[] { bTeste, bReimprimir, bPausar });
             t.Controls.Add(acoes);
 
             // A fila antiga (mais de 10 min): quem esta no PC decide - decisao do dono, 15/10/2026.
@@ -530,19 +916,19 @@ namespace Regem.Estacao
         delegate void ComImpressora(Dictionary<string, object> imp);
         void Sel(ComImpressora f)
         {
-            if (impressoras.SelectedIndices.Count == 0) { MessageBox.Show("Escolha a impressora na lista.", "Estacao de impressao"); return; }
+            if (impressoras.SelectedIndices.Count == 0) { MessageBox.Show("Escolha a impressora na lista.", "Regem neste PC"); return; }
             f(imps[impressoras.SelectedIndices[0]]);
         }
         List<string> Marcados()
         {
             List<string> ids = new List<string>();
             foreach (int i in retidos.CheckedIndices) ids.Add(E.Txt(listaRetidos[i], "id"));
-            if (ids.Count == 0) MessageBox.Show("Marque os cupons na lista.", "Estacao de impressao");
+            if (ids.Count == 0) MessageBox.Show("Marque os cupons na lista.", "Regem neste PC");
             return ids;
         }
         static bool Confirmar(int n)
         {
-            return MessageBox.Show(string.Format("Descartar {0} cupom(ns)? Eles nao saem mais nesta impressora.", n), "Estacao de impressao",
+            return MessageBox.Show(string.Format("Descartar {0} cupom(ns)? Eles nao saem mais nesta impressora.", n), "Regem neste PC",
                 MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) == DialogResult.Yes;
         }
         void Botoes()
@@ -555,26 +941,67 @@ namespace Regem.Estacao
             bPausar.Text = tem && E.Sim(i, "pausada") ? "Retomar" : "Pausar";
         }
 
+        // O bloco "Conexao com o servidor" (prototipo, peca 4).
+        void MostrarConexao(Dictionary<string, object> est)
+        {
+            Dictionary<string, object> c = C.Conexao(est), ct = E.Obj(est, "contato");
+            List<string> linhas = new List<string>();
+            linhas.Add("Situacao: " + C.Linha(est));
+            if (c != null)
+            {
+                linhas.Add("Endereco: " + (E.Txt(c, "alvo") != "" ? E.Txt(c, "alvo") : "(sem endereco)") +
+                    (E.Txt(c, "configurado") != "" && E.Txt(c, "configurado") != E.Txt(c, "alvo") ? "   (configurado: " + E.Txt(c, "configurado") + ")" : ""));
+                if (E.Txt(c, "ip") != "") linhas.Add("IP agora: " + E.Txt(c, "ip"));
+                int s = C.Segundos(E.Txt(c, "ultimaResposta"));
+                if (s >= 0) linhas.Add("Ultima resposta: " + C.Ha(s) + (E.Num(c, "latenciaMs") > 0 ? " - " + E.Num(c, "latenciaMs") + " ms" : ""));
+                if (C.Como(c) != "") linhas.Add("Como achou: " + C.Como(c));
+                Dictionary<string, object> h = E.Obj(c, "hosts");
+                if (h != null && E.Txt(h, "ip") != "") linhas.Add("Anotado neste PC: " + E.Txt(c, "nome") + " -> " + E.Txt(h, "ip") + " (arquivo de nomes do Windows)");
+                // A ultima busca: quando o servidor foi achado em outro lugar ou nao foi achado.
+                Dictionary<string, object> b = E.Obj(c, "busca");
+                if (b != null && (E.Sim(c, "buscando") || E.Txt(b, "achou") == "" || E.Txt(b, "como") != "configurado"))
+                {
+                    linhas.Add("");
+                    linhas.Add(E.Sim(c, "buscando") ? "Procurando agora:" : "Ultima busca (" + E.Hora(E.Txt(b, "em")) + "):");
+                    linhas.AddRange(C.Passos(b, c));
+                }
+            }
+            conexao.Text = string.Join(Environment.NewLine, linhas.ToArray());
+            bool local = c != null && E.Sim(c, "local");
+            bool semServidor = E.Sim(est, "pareada") && ct != null && !E.Sim(ct, "ok") && E.Txt(ct, "erro") != "";
+            bProcurar.Visible = local && (semServidor || !E.Sim(est, "pareada"));
+            bProcurar.Enabled = c != null && !E.Sim(c, "buscando");
+            bTestar.Enabled = c != null && !E.Sim(c, "buscando");
+            bTrocar.Visible = c == null || local || !E.Sim(est, "pareada");
+        }
+
         public void Mostrar(Dictionary<string, object> est, string erro)
         {
             if (est == null)
             {
-                cabecalho.Text = "Estacao de impressao";
-                faixa.Text = "O servico da estacao nao responde neste PC" + (string.IsNullOrEmpty(erro) ? "." : ": " + erro + ".");
+                cabecalho.Text = "Regem neste PC";
+                faixa.Text = "O servico do Regem neste PC nao responde" + (string.IsNullOrEmpty(erro) ? "." : ": " + erro + ".");
                 faixa.BackColor = Color.FromArgb(251, 233, 233); faixa.ForeColor = Color.FromArgb(185, 50, 50); faixa.Visible = true;
                 return;
             }
             Dictionary<string, object> c = E.Obj(est, "contato");
-            cabecalho.Text = string.Format("Estacao {0}   {1} - versao {2} - {3}",
-                E.Txt(est, "nome"), E.Txt(est, "maquina"), E.Txt(est, "versao"),
-                !E.Sim(est, "pareada") ? "ainda nao pareada" : c != null && E.Sim(c, "ok") ? "ligada a " + E.Txt(est, "servidor") : "sem contato com " + E.Txt(est, "servidor"));
-            bParear.Visible = !E.Sim(est, "pareada");
+            cabecalho.Text = string.Format("{0} - {1} - versao {2}", E.Txt(est, "maquina"),
+                E.Txt(est, "nome") != "" ? E.Txt(est, "nome") : "sem pareamento", E.Txt(est, "versao"));
+            MostrarConexao(est);
 
             // A faixa: o que pede atencao agora.
             List<string> avisos = new List<string>();
             bool vermelho = false;
-            if (!E.Sim(est, "pareada")) avisos.Add("Esta estacao ainda nao foi pareada: clique em \"Parear com codigo...\".");
-            if (c != null && !E.Sim(c, "ok") && E.Txt(c, "erro") != "") { avisos.Add("Sem contato com o servidor: " + E.Txt(c, "erro")); vermelho = true; }
+            if (!E.Sim(est, "pareada")) avisos.Add("Este PC ainda nao foi pareado: clique em \"Parear com codigo...\".");
+            if (c != null && !E.Sim(c, "ok") && E.Txt(c, "erro") != "")
+            {
+                avisos.Add("Sem contato com o servidor: " + E.Txt(c, "erro") + ". O Regem procura o servidor sozinho; os cupons esperam aqui.");
+                vermelho = true;
+                // A ultima busca terminou sem achar: o que fazer (prototipo, peca 4, "Servidor desligado").
+                Dictionary<string, object> cx = C.Conexao(est), bx = E.Obj(cx, "busca");
+                if (bx != null && !E.Sim(cx, "buscando") && E.Txt(bx, "duracaoMs") != "" && E.Txt(bx, "achou") == "")
+                    avisos.Add("O que fazer: ligue o PC servidor ou confira o cabo de rede dele. Se voce sabe o IP do servidor (Configuracoes > Servidor local, tambem pelo celular), use \"Trocar endereco...\".");
+            }
             foreach (Dictionary<string, object> i in E.Lista(est, "impressoras"))
             {
                 if (E.Critico(i)) { avisos.Add(string.Format("{0}: {1}. Resolva na impressora - a fila volta sozinha em alguns segundos; o cupom que parou no meio sai de novo inteiro, marcado.", E.Txt(i, "nome"), E.Estado(i))); vermelho = true; }
@@ -629,12 +1056,13 @@ namespace Regem.Estacao
         static int Main(string[] args)
         {
             Painel p = new Painel();
-            string diagnostico = null;
+            string diagnostico = null, abrir = null;
             for (int i = 0; i < args.Length; i++)
             {
                 if (args[i] == "--raiz" && i + 1 < args.Length) p.Raiz = args[++i];
                 else if (args[i] == "--porta" && i + 1 < args.Length) p.Porta = int.Parse(args[++i]);
                 else if (args[i] == "--diagnostico" && i + 1 < args.Length) diagnostico = args[++i];
+                else if (args[i] == "--abrir" && i + 1 < args.Length) abrir = args[++i]; // painel | trocar | parear
             }
             if (string.IsNullOrEmpty(p.Raiz))
                 p.Raiz = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), @"..\..\..\estacao"));
@@ -648,7 +1076,7 @@ namespace Regem.Estacao
                 if (!novo) return 0;
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
-                Application.Run(new Bandeja(p));
+                Application.Run(new Bandeja(p, abrir));
             }
             return 0;
         }
@@ -663,6 +1091,13 @@ namespace Regem.Estacao
                 sb.AppendLine("nivel=" + E.Nivel(est));
                 sb.AppendLine("nome=" + E.Txt(est, "nome"));
                 sb.AppendLine("pareada=" + E.Sim(est, "pareada"));
+                sb.AppendLine("conexao=" + C.Linha(est));
+                Dictionary<string, object> c = C.Conexao(est);
+                if (c != null)
+                {
+                    sb.AppendLine(string.Format("alvo={0}|ip={1}|como={2}|local={3}", E.Txt(c, "alvo"), E.Txt(c, "ip"), C.Como(c), E.Sim(c, "local")));
+                    foreach (string passo in C.Passos(E.Obj(c, "busca"), c)) sb.AppendLine("busca=" + passo);
+                }
                 foreach (Dictionary<string, object> i in E.Lista(est, "impressoras"))
                     sb.AppendLine(string.Format("impressora={0}|{1}|{2}|fila={3}", E.Txt(i, "nome"), E.Txt(i, "alvo"), E.Estado(i), E.Num(i, "naFila")));
                 sb.AppendLine("retidos=" + E.Lista(est, "retidos").Count);

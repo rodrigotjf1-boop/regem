@@ -20,6 +20,8 @@ import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.servic
 import { ImpressaoSinalService } from './impressao-sinal.service';
 import { FilaCtx, FilaCtxData, FilaImpressaoGuard } from './fila-impressao.guard';
 import { PresencaService, enderecoDoHost, ipDoPc } from '../equipamento/presenca.service';
+import { EquipamentoService } from '../equipamento/equipamento.service';
+import { CloudOnly } from '../../common/cloud-only.decorator';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -38,6 +40,7 @@ export class ImpressaoController {
     private readonly service: ProducaoPedidoService,
     private readonly sinal: ImpressaoSinalService,
     @Optional() private readonly presenca?: PresencaService,
+    @Optional() private readonly equipamentos?: EquipamentoService,
   ) {}
 
   // Agente ANTIGO (consulta a cada 3 s, sem se identificar). Mantido para compatibilidade.
@@ -154,6 +157,19 @@ export class ImpressaoController {
   decidirRetidos(@FilaCtx() ctx: FilaCtxData, @Body() dto: any) {
     if (!ctx.estacaoId) throw new ForbiddenException('Só a estação de impressão usa esta rota.');
     return this.service.decidirRetidos(ctx.tenantId, ctx.estacaoId, dto ?? {});
+  }
+
+  // ESTAÇÃO (conexão PC ↔ servidor, parte 2): o IP do servidor da loja na rede, para a estação que o
+  // perdeu — o roteador deu outro IP ao servidor e o nome regem.local não resolve naquele PC. Só na
+  // nuvem, que sabe o IP pela saúde da batida do servidor. A estação confere ali o certificado da loja
+  // antes de usar o IP: a resposta sozinha não basta.
+  @Get('estacao/servidor')
+  @CloudOnly()
+  @UseGuards(FilaImpressaoGuard)
+  servidorDaLoja(@FilaCtx() ctx: FilaCtxData) {
+    if (!ctx.estacaoId) throw new ForbiddenException('Só a estação de impressão usa esta rota.');
+    if (!this.equipamentos) return { ip: null, maquina: null, vistoEm: null };
+    return this.equipamentos.servidorParaEstacao(ctx.tenantId, ctx.unidadeId ?? null);
   }
 
   // Fila recente para o painel (status + impressora). Gestor logado; usuário com loja vê a dela.

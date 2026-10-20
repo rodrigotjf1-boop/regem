@@ -1,7 +1,10 @@
-# Regem - instala a ESTACAO DE IMPRESSAO neste PC (modo cliente do instalador; central de impressao,
-# fase 1, PR 4b). Pareia pelo codigo de 6 digitos (gerado no Regem: Configuracoes > Equipamentos >
-# Estacao de impressao > Gerar codigo) e registra o servico RegemEstacaoImpressao, que imprime as
-# impressoras ligadas nesta estacao. O icone da bandeja e registrado pelo proprio instalador.
+# Regem - instala o "REGEM NESTE PC" (a estacao de impressao) neste PC (modo cliente do instalador;
+# central de impressao, fase 1, PR 4b; conexao PC <-> servidor, parte 2). Registra o servico
+# RegemEstacaoImpressao, que mantem o PC ligado ao servidor da loja (acha o servidor quando o roteador
+# troca o IP dele e anota regem.local no hosts) e imprime as impressoras ligadas nesta estacao. Vai em
+# todo PC cliente, mesmo sem impressora (decisao D1); o codigo de 6 digitos (Configuracoes >
+# Equipamentos > Estacao de impressao > Gerar codigo) so pareia a impressora. O icone da bandeja e
+# registrado pelo proprio instalador.
 #
 # O codigo vem num ARQUIVO temporario e e apagado na hora: nunca na linha de comando (ficaria no log).
 # Sem codigo (reinstalacao), mantem o pareamento que ja existe na pasta de dados.
@@ -77,8 +80,8 @@ if ($CodigoArq -and (Test-Path $CodigoArq)) {
 $ErrorActionPreference = "Stop"
 & $nssm install $servico $node $script | Out-Null
 & $nssm set $servico AppDirectory $Raiz | Out-Null
-& $nssm set $servico DisplayName 'Regem - estacao de impressao' | Out-Null
-& $nssm set $servico Description 'Imprime os cupons nas impressoras ligadas nesta estacao (Regem).' | Out-Null
+& $nssm set $servico DisplayName 'Regem neste PC (estacao de impressao)' | Out-Null
+& $nssm set $servico Description 'Mantem este PC ligado ao servidor da loja (acha o servidor se o IP dele mudar) e imprime os cupons nas impressoras ligadas nesta estacao (Regem).' | Out-Null
 $envs = @("ESTACAO_RAIZ=$dados")
 if ($Versao) { $envs += "APP_VERSION=$Versao" }
 if ($ServidorHost) { $envs += "ESTACAO_SERVIDOR=$ServidorHost" }

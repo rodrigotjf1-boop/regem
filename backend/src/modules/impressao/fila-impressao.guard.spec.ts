@@ -88,7 +88,9 @@ describe('lista fechada: a guarda da estação só existe nas rotas da fila', ()
     expect(arquivos.length).toBeGreaterThan(40);
   });
 
-  it('só as 9 rotas da fila de impressão usam a FilaImpressaoGuard', () => {
+  // A 10ª (conexão PC ↔ servidor, parte 2): `servidorDaLoja`, na nuvem, dá à estação só o IP do
+  // servidor da loja dela — a estação confere o certificado da loja antes de usá-lo.
+  it('só as 10 rotas da estação e da fila de impressão usam a FilaImpressaoGuard', () => {
     const usos: string[] = [];
     for (const arq of arquivos) {
       const mod = require(arq);
@@ -114,6 +116,7 @@ describe('lista fechada: a guarda da estação só existe nas rotas da fila', ()
       'ImpressaoController#pendentes',
       'ImpressaoController#pendentesEspera',
       'ImpressaoController#retidos',
+      'ImpressaoController#servidorDaLoja',
     ]);
   });
 
