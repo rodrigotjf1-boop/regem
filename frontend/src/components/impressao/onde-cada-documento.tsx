@@ -18,13 +18,15 @@ import { cn } from '@/lib/utils';
 export type Alvo = { id: string; vias: number };
 type Balcao = { pdv: boolean; pdvVias: number; impressoras: Alvo[] };
 type Delivery = { impressoras: Alvo[] };
-type Entregador = { mesmasDoDelivery: boolean; impressoras: Alvo[] };
+/** Retirada e comanda do entregador: nas mesmas do delivery (o padrão) ou numa lista própria. */
+type MesmasOuLista = { mesmasDoDelivery: boolean; impressoras: Alvo[] };
+export type Documento = 'balcao' | 'delivery' | 'retirada' | 'entregador';
 export const SEM = 'sem';
 const VIAS_MAX = 5;
 
 const lista = (v: any): Alvo[] => (Array.isArray(v) ? v : []).filter((a) => a && typeof a.id === 'string').map((a) => ({ id: a.id, vias: Math.min(VIAS_MAX, Math.max(1, Math.floor(Number(a.vias) || 1))) }));
 /** A regra salva → o valor do ajuste (o mesmo texto para a mesma regra: chaves sempre na mesma ordem). */
-export function valorDaRegra(doc: 'balcao' | 'delivery' | 'entregador', r: any): string {
+export function valorDaRegra(doc: Documento, r: any): string {
   if (!r || typeof r !== 'object') return SEM;
   if (doc === 'balcao') {
     const b: Balcao = { pdv: r.pdv !== false, pdvVias: lista([{ id: 'x', vias: r.pdvVias }])[0].vias, impressoras: lista(r.impressoras) };
@@ -34,8 +36,8 @@ export function valorDaRegra(doc: 'balcao' | 'delivery' | 'entregador', r: any):
     const d: Delivery = { impressoras: lista(r.impressoras) };
     return d.impressoras.length ? JSON.stringify(d) : SEM;
   }
-  const e: Entregador = { mesmasDoDelivery: r.mesmasDoDelivery !== false, impressoras: lista(r.impressoras) };
-  return e.mesmasDoDelivery ? SEM : JSON.stringify(e); // "nas mesmas do delivery" é o padrão (2A)
+  const e: MesmasOuLista = { mesmasDoDelivery: r.mesmasDoDelivery !== false, impressoras: lista(r.impressoras) };
+  return e.mesmasDoDelivery ? SEM : JSON.stringify(e); // "nas mesmas do delivery" é o padrão (2A; retirada, 20/10)
 }
 /** O valor do ajuste → o que vai para o servidor (`null` = volta a "sem regra"). */
 export function regraDoValor(v: Valor | undefined): any {
@@ -141,14 +143,17 @@ export function OndeCadaDocumento({
 
   const balcao = ler<Balcao>(valores.balcao, { pdv: false, pdvVias: 1, impressoras: [] });
   const delivery = ler<Delivery>(valores.delivery, { impressoras: [] });
-  const entregador = ler<Entregador>(valores.entregador, { mesmasDoDelivery: true, impressoras: [] });
-  const guardar = (doc: 'balcao' | 'delivery' | 'entregador', r: any) => aoMudar(doc, valorDaRegra(doc, r));
+  const retirada = ler<MesmasOuLista>(valores.retirada, { mesmasDoDelivery: true, impressoras: [] });
+  const entregador = ler<MesmasOuLista>(valores.entregador, { mesmasDoDelivery: true, impressoras: [] });
+  const guardar = (doc: Documento, r: any) => aoMudar(doc, valorDaRegra(doc, r));
 
   const resumoBalcao =
     valores.balcao === SEM
       ? 'Sem regra: no PDV sai na impressora dele; na conta da mesa, em todas as de cupom.'
       : `Sai em: ${[balcao.pdv ? `impressora do PDV que vendeu${balcao.pdvVias > 1 ? ` (${balcao.pdvVias} vias)` : ''}` : '', nomes(balcao.impressoras)].filter(Boolean).join(', ')}.`;
   const resumoDelivery = valores.delivery === SEM ? `Sem impressora escolhida: sai em todas as de cupom (${todasDeCupom}), como hoje.` : `Sai em: ${nomes(delivery.impressoras)}.`;
+  const resumoRetirada =
+    valores.retirada === SEM ? 'Nas mesmas da via do delivery.' : retirada.impressoras.length ? `Sai em: ${nomes(retirada.impressoras)}.` : `Sem impressora escolhida: sai em todas as de cupom (${todasDeCupom}).`;
   const resumoEntregador =
     valores.entregador === SEM ? 'Nas mesmas da via do delivery.' : entregador.impressoras.length ? `Sai em: ${nomes(entregador.impressoras)}.` : 'Sem impressora escolhida: sai no PDV que pediu ou em todas as de cupom.';
 
@@ -160,6 +165,7 @@ export function OndeCadaDocumento({
           <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-x-6">
             <dt className="font-bold">Via do cliente (balcão e mesa)</dt><dd>{resumoBalcao}</dd>
             <dt className="font-bold">Via do delivery</dt><dd>{resumoDelivery}</dd>
+            <dt className="font-bold">Via da retirada</dt><dd>{resumoRetirada}</dd>
             <dt className="font-bold">Comanda do entregador</dt><dd>{resumoEntregador}</dd>
           </dl>
         </Card>
@@ -223,6 +229,39 @@ export function OndeCadaDocumento({
                 marcadas={delivery.impressoras}
                 aoMudar={(l) => guardar('delivery', { impressoras: l })}
               />
+            </div>
+          ),
+        },
+        {
+          // Pedido do dono (20/10/2026): a retirada (pedido de canal que o cliente busca no balcão) à
+          // parte do delivery — ex.: na impressora do caixa, que entrega o pedido.
+          id: 'retirada',
+          rotulo: 'Via da retirada',
+          ajuda: <>Pedido de canal para o cliente buscar no balcão. Sai ao aceitar o pedido, sem o QR do entregador. {resumoRetirada}</>,
+          tipo: 'livre',
+          palavras: 'retirada retirar buscar balcão caixa viagem takeout encomenda',
+          desenhar: () => (
+            <div className="space-y-2">
+              <label htmlFor="onde-retirada-mesmas" className="flex items-center gap-2 text-sm font-semibold">
+                <input
+                  id="onde-retirada-mesmas"
+                  type="checkbox"
+                  className="h-4 w-4 accent-primary"
+                  checked={valores.retirada === SEM}
+                  onChange={(e) => guardar('retirada', e.target.checked ? null : { mesmasDoDelivery: false, impressoras: delivery.impressoras })}
+                />
+                Nas mesmas da via do delivery
+              </label>
+              {valores.retirada !== SEM && (
+                <Marcar
+                  id="onde-retirada"
+                  rotulo="Via da retirada sai em"
+                  impressoras={deCupom}
+                  estacoes={estacoes}
+                  marcadas={retirada.impressoras}
+                  aoMudar={(l) => guardar('retirada', { mesmasDoDelivery: false, impressoras: l })}
+                />
+              )}
             </div>
           ),
         },

@@ -17,7 +17,7 @@ import { OndeCadaDocumento, regraDoValor, valorDaRegra } from '@/components/impr
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Parte = 'impressoras' | 'onde' | 'perfis' | 'texto';
-const DOCUMENTOS = ['balcao', 'delivery', 'entregador'] as const;
+const DOCUMENTOS = ['balcao', 'delivery', 'retirada', 'entregador'] as const;
 /** Uma leitura: o que veio, ou por que não veio. Leitura que falha NÃO vira lista vazia nem valor padrão. */
 type Fonte<T> = { dado: T; erro?: undefined } | { dado?: undefined; erro: string };
 const motivo = (e: unknown) => (e instanceof Error && e.message ? e.message : 'Não foi possível carregar.');
