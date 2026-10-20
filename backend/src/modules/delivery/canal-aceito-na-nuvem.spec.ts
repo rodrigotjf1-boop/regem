@@ -205,9 +205,13 @@ descrever('pedido de canal aceito pela nuvem com o servidor da loja ligado (ERR-
     //    em dobro com a nuvem), o processador não imprime de novo.
     const aqui = await pedidoNovo(l.t, l.u);
     await delivery.aceitar(l.t, null, aqui.id);
-    for (let i = 0; i < 50 && !(await contar('select count(*) n from impressao_edge_feito where comanda_id = $1', [aqui.id])); i++) await espera(100);
-    const antes = await contar('select count(*) n from impressao_job where tenant_id = $1', [l.t]);
-    expect(antes).toBeGreaterThan(2); // via + produção do aceite daqui
+    // O aceite grava a marca e os 2 cupons (via + produção) em segundo plano: espera os três antes de medir. Medir com
+    // um cupom ainda a caminho fazia o teste falhar às vezes no CI (3 em vez de 4) sem reimpressão nenhuma (ERR-255).
+    const cupons = () => contar('select count(*) n from impressao_job where tenant_id = $1', [l.t]);
+    const marcado = () => contar('select count(*) n from impressao_edge_feito where comanda_id = $1', [aqui.id]);
+    for (let i = 0; i < 100 && !((await marcado()) === 1 && (await cupons()) >= 4); i++) await espera(100);
+    const antes = await cupons();
+    expect(antes).toBe(4); // os 2 de antes + via e produção do aceite daqui
     const [outra] = await q(
       `insert into comanda (tenant_id, unidade_id, status, total, fechada_em) values ($1,$2,'fechada',20, now()) returning id`,
       [l.t, l.u],
