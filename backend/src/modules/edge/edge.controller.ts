@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, HttpStatus, Param, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Optional, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { CloudOnly } from '../../common/cloud-only.decorator';
@@ -12,6 +12,9 @@ import { AuthUser } from '../../auth/auth-user';
 import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
 import { EdgeService } from './edge.service';
 import { EquipamentoService } from '../equipamento/equipamento.service';
+import { PresencaService, enderecoDoHost, ipDoPc } from '../equipamento/presenca.service';
+import { RedeLocalService } from './rede-local.service';
+import { NOME_NA_REDE } from './rede-local';
 
 // Rota pública de identificação: o cliente confirma que achou o servidor Regem
 // (na LAN via mDNS/IP, ou a nuvem). Sem auth — só diz "sou o Regem".
@@ -20,7 +23,44 @@ export class EdgeController {
   constructor(
     private readonly service: EdgeService,
     private readonly equipamentos: EquipamentoService,
+    // Opcionais: os testes montam o controller só com os dois de cima.
+    @Optional() private readonly redeLocal?: RedeLocalService,
+    @Optional() private readonly presenca?: PresencaService,
   ) {}
+
+  // ----- Conexão PC ↔ servidor da loja (parte 1, plano do dono de 20/10/2026) -----
+
+  // O endereço do servidor da loja na rede: nome, IP, roteador, MAC e o histórico do IP. Só no
+  // servidor da loja (na nuvem a tela lê o mesmo pela saúde da batida, em `minha-loja/servidor`).
+  @Get('edge/rede')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('servidor')
+  redeDoServidor(@CurrentUser() user: AuthUser) {
+    if (!this.redeLocal) return null;
+    return this.redeLocal.ler(user.tenantId);
+  }
+
+  // A presença do PC: o app aberto avisa a cada 30 s. Com o terminal pareado (o interceptor global
+  // confere o segredo e põe `req.terminal`), o servidor da loja anota o PC como "conectado agora".
+  // Devolve o que o indicador do topo mostra: o servidor (nome, IP, versão), o PC e o terminal.
+  @Post('edge/presenca')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
+  presencaDoPc(@CurrentUser() user: AuthUser, @Req() req: any) {
+    const tipo = req?.terminal?.tipo === 'pdv' || req?.terminal?.tipo === 'salao' ? (req.terminal.tipo as 'pdv' | 'salao') : null;
+    const terminal = tipo ? { id: String(req.terminal.id), nome: String(req.terminal.nome ?? ''), tipo } : null;
+    const pc = { ip: ipDoPc(req?.ip), endereco: enderecoDoHost(req?.headers?.host) };
+    if (terminal) {
+      this.presenca?.notar({ id: terminal.id, tenantId: user.tenantId, tipo: terminal.tipo, ip: pc.ip, endereco: pc.endereco, maquina: null, versao: null });
+    }
+    const rede = this.redeLocal?.atual ?? null;
+    return {
+      servidor: { nome: NOME_NA_REDE, ip: rede?.ip ?? null, maquina: rede?.maquina ?? null, versao: process.env.APP_VERSION ?? null },
+      pc,
+      terminal,
+    };
+  }
 
   // Heartbeat dos clientes (app da loja, KDS, PDV, Ponto) e health-check da atualização.
   // Responde o MESMO corpo sempre — só o status muda: banco fora → 503, para que

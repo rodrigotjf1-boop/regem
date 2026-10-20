@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -12,8 +12,25 @@ import { Cron } from '@nestjs/schedule';
 import { ehServidorLocal } from '../../common/modo';
 import { soltarAvisosParados } from '../gogem/aviso-gogem';
 import { DIAS_SEM_SINAL_PARA_REVOGAR, revogarServidoresSubstituidos } from '../licenca/servidor-da-loja';
+import { JANELA_PRESENCA_MS, PresencaService, TIPOS_PRESENTES } from './presenca.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+/**
+ * O "último uso" do terminal é regravado no máximo a cada 5 min. O app aberto avisa a presença a cada
+ * 30 s (`POST /edge/presenca`), com o terminal; gravar a cada chamada seria uma escrita — e uma linha
+ * de sincronismo — por requisição de cada caixa. O "agora" mora na presença; o uso, no banco.
+ */
+export const USO_GRAVAR_A_CADA_MS = 5 * 60_000;
+
+/** O que a lista leva de cada PC que falou com o servidor da loja (terminal e estação). */
+export type PresencaPublica = {
+  vistoEm: string;
+  ip: string | null;
+  endereco: string | null;
+  maquina: string | null;
+  versao: string | null;
+};
 
 /** Quem se identifica pelo `X-Integrador` hoje. Valor fora da lista é ignorado. */
 export const INTEGRADORES = new Set(['gogem']);
@@ -34,6 +51,8 @@ export class EquipamentoService {
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly auditoria: AuditoriaService,
+    // Opcional: os testes montam o serviço só com o banco e a auditoria.
+    @Optional() private readonly presenca?: PresencaService,
   ) {}
 
   // F10 — com edge ATIVO, o servidor local é a fonte da verdade da config de
@@ -266,10 +285,13 @@ export class EquipamentoService {
     // valendo até parear de novo, senão o cliente fica sem PDV no dia do deploy.
     if (!row.segredoHash) return row;
     if (!segredo || this.hash(segredo) !== row.segredoHash) return null;
-    await this.db
-      .update(equipamento)
-      .set({ ultimoUsoEm: new Date() })
-      .where(eq(equipamento.id, row.id));
+    const usadoEm = row.ultimoUsoEm ? new Date(row.ultimoUsoEm as any).getTime() : 0;
+    if (!usadoEm || Date.now() - usadoEm >= USO_GRAVAR_A_CADA_MS) {
+      await this.db
+        .update(equipamento)
+        .set({ ultimoUsoEm: new Date() })
+        .where(eq(equipamento.id, row.id));
+    }
     return row;
   }
 
@@ -395,7 +417,53 @@ export class EquipamentoService {
       const sinais = await this.sinaisDosServidores(tenantId);
       lista = lista.map((e: any) => (e.tipo === 'servidor_local' ? { ...e, servidor: sinais.get(e.id) ?? null } : e));
     }
+    // Quem está ligado AGORA (conexão PC ↔ servidor, parte 1): terminal com o app aberto e estação.
+    const temPresenca = (tipo: string) => (TIPOS_PRESENTES as readonly string[]).includes(tipo);
+    if (rows.some((r) => temPresenca(r.tipo))) {
+      const presentes = await this.presencas(tenantId);
+      lista = lista.map((e: any) => (temPresenca(e.tipo) ? { ...e, presenca: presentes.get(e.id) ?? null } : e));
+    }
     return lista;
+  }
+
+  /**
+   * A presença de cada terminal e estação: no servidor da loja, a da memória (eles falam com ele); na
+   * nuvem de uma loja com servidor, o resumo que o servidor manda na saúde da batida (só de batidas
+   * dos últimos 10 min). Vale a mais recente. Best-effort: sem nada, a lista sai sem presença.
+   */
+  private async presencas(tenantId: string): Promise<Map<string, PresencaPublica>> {
+    const mapa = new Map<string, PresencaPublica>();
+    const guardar = (id: string, p: PresencaPublica) => {
+      const atual = mapa.get(id);
+      if (!atual || Date.parse(p.vistoEm) > Date.parse(atual.vistoEm)) mapa.set(id, p);
+    };
+    const texto = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null);
+    if (ehServidorLocal()) {
+      for (const p of this.presenca?.doTenant(tenantId) ?? []) {
+        guardar(p.id, { vistoEm: p.vistoEm, ip: p.ip, endereco: p.endereco, maquina: p.maquina, versao: p.versao });
+      }
+      return mapa;
+    }
+    try {
+      const r: any = await this.db.execute(sql`
+        select saude from edge_status where tenant_id = ${tenantId} and recebido_em >= now() - interval '10 minutes'`);
+      const agora = Date.now();
+      for (const x of r.rows ?? r) {
+        const sd = typeof x.saude === 'string' ? JSON.parse(x.saude) : x.saude;
+        for (const p of Array.isArray(sd?.presenca?.pcs) ? sd.presenca.pcs : []) {
+          const visto = Date.parse(String(p?.vistoEm ?? ''));
+          if (!p?.id || !Number.isFinite(visto) || agora - visto > JANELA_PRESENCA_MS) continue;
+          guardar(String(p.id), {
+            vistoEm: new Date(visto).toISOString(),
+            ip: texto(p.ip, 64),
+            endereco: texto(p.endereco, 120),
+            maquina: texto(p.maquina, 120),
+            versao: texto(p.versao, 40),
+          });
+        }
+      }
+    } catch { /* sem edge_status */ }
+    return mapa;
   }
 
   // O sinal real de cada servidor da loja: a última saúde que ele mandou (`edge_status`, uma linha por
