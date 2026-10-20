@@ -301,7 +301,7 @@ function iniciarConexao() {
     try {
       const u = new URL(API);
       host = u.hostname;
-      if (u.port) portaApi = u.port;
+      portaApi = u.port || (u.protocol === 'https:' ? '443' : '80'); // a nuvem vem sem porta
     } catch { /* REGEM_API ilegível: fica sem endereço */ }
   } else {
     host = process.env.ESTACAO_SERVIDOR ? enderecoDigitado(process.env.ESTACAO_SERVIDOR) : null;
@@ -335,16 +335,18 @@ function motivoDaFalha(e) {
 /**
  * O servidor da loja responde em `host`? Com a CA da loja: só vale o certificado dela com o nome
  * regem.local (`conferido: true`). Sem a CA (estação nunca pareada): só diz se um servidor Regem
- * responde ali (`conferido: false`) — o pareamento confere depois. Nunca rejeita.
+ * responde ali (`conferido: false`) — o pareamento confere depois. Estação de loja SEM servidor
+ * (pareada na nuvem): testa a nuvem do Regem, com o certificado público (`nuvem: true`). Nunca rejeita.
  */
 async function testarHost(host, timeoutMs = 3000) {
   const inicio = Date.now();
+  const nuvem = !!API && !CA;
   try {
-    const opc = CA ? { ca: CA, servername: NOME_DO_SERVIDOR, timeoutMs } : { inseguro: true, timeoutMs };
+    const opc = CA ? { ca: CA, servername: NOME_DO_SERVIDOR, timeoutMs } : nuvem ? { timeoutMs } : { inseguro: true, timeoutMs };
     const r = await chamar('GET', `https://${host}:${portaApi}/api/v1/ping`, undefined, opc);
     // 503 = o servidor está de pé sem o banco: é ele, e a tela dele mostra o problema.
-    if (r.json?.regem !== true || r.json?.edge === false) return { ok: false, motivo: 'respondeu, mas não é o servidor Regem da loja' };
-    return { ok: true, conferido: !!CA, ms: Date.now() - inicio, ip: r.ip, versao: r.json?.versao ?? null, banco: r.json?.banco !== false };
+    if (r.json?.regem !== true || (!nuvem && r.json?.edge === false)) return { ok: false, motivo: 'respondeu, mas não é o servidor Regem da loja' };
+    return { ok: true, conferido: !!CA || nuvem, nuvem, ms: Date.now() - inicio, ip: r.ip, versao: r.json?.versao ?? null, banco: r.json?.banco !== false };
   } catch (e) {
     return { ok: false, motivo: motivoDaFalha(e) };
   }
@@ -500,6 +502,7 @@ async function procurarPeloPainel() {
 // "Trocar endereço do servidor" (emergência): testa o endereço digitado e, com `usar`, passa a usá-lo e
 // o grava como o configurado (fica depois de reiniciar).
 async function trocarServidor(endereco, usar) {
+  if (API && !CA) throw new Error('Esta estação fala com a nuvem do Regem (loja sem servidor): não há endereço de servidor para trocar.');
   const host = enderecoDigitado(endereco);
   if (!host) throw new Error('Digite o IP do servidor (ex.: 192.168.0.30) ou o nome dele na rede.');
   const t = await testarHost(host, 4000);

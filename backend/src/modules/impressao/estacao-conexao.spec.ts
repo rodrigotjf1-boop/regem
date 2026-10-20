@@ -51,7 +51,7 @@ function autoridade(nome: string) {
 }
 // Como o gen-cert.mjs: regem.local + o IP da instalação (aqui 127.0.0.1 — NÃO é o IP em que o
 // servidor responde no teste: só o nome regem.local faz o certificado valer).
-function certificadoDoServidor(ca: ReturnType<typeof autoridade>) {
+function certificadoDoServidor(ca: ReturnType<typeof autoridade>, altNames: any[] = [{ type: 2, value: 'regem.local' }, { type: 7, ip: '127.0.0.1' }]) {
   const k = chaves();
   const c = forge.pki.createCertificate();
   c.publicKey = k.publica;
@@ -60,13 +60,13 @@ function certificadoDoServidor(ca: ReturnType<typeof autoridade>) {
   c.validity.notAfter = new Date(Date.now() + 86_400_000);
   c.setSubject([{ name: 'commonName', value: 'regem.local' }]);
   c.setIssuer(ca.c.subject.attributes);
-  c.setExtensions([{ name: 'subjectAltName', altNames: [{ type: 2, value: 'regem.local' }, { type: 7, ip: '127.0.0.1' }] }]);
+  c.setExtensions([{ name: 'subjectAltName', altNames }]);
   c.sign(ca.k.privada, forge.md.sha256.create());
   return { key: k.privadaPem, cert: forge.pki.certificateToPem(c) };
 }
 
 type Pedido = { caminho: string; estacao: string | null; host: string | null };
-function servidorFalso(tls: { key: string; cert: string }, caPem: string) {
+function servidorFalso(tls: { key: string; cert: string }, caPem: string, edge = true) {
   const pedidos: Pedido[] = [];
   const srv = https.createServer(tls, async (req, res) => {
     const url = new URL(req.url || '/', 'https://x');
@@ -77,7 +77,7 @@ function servidorFalso(tls: { key: string; cert: string }, caPem: string) {
       res.end(JSON.stringify(o));
     };
     if (url.pathname === '/ca.pem') return res.end(caPem);
-    if (url.pathname === '/api/v1/ping') return json(200, { regem: true, edge: true, versao: 'teste', banco: true });
+    if (url.pathname === '/api/v1/ping') return json(200, { regem: true, edge, versao: 'teste', banco: true });
     if (url.pathname === '/api/v1/publico/terminal/parear') {
       return json(201, { tipo: 'estacao_impressao', terminalId: ID_NOVO, segredo: 'segredo-novo', nome: 'PC do delivery' });
     }
@@ -160,13 +160,15 @@ describe('estação de impressão: acha o servidor da loja quando o IP muda (pro
     for (const d of pastas) rmSync(d, { recursive: true, force: true });
   });
 
-  async function subirEstacao(pareada: boolean, extra: Record<string, string> = {}) {
+  // `envNuvem`: o .env.local de uma estação pareada na NUVEM (loja sem servidor: sem a CA da loja).
+  async function subirEstacao(pareada: boolean, extra: Record<string, string> = {}, envNuvem?: string) {
     const raiz = mkdtempSync(join(tmpdir(), 'regem-estacao-'));
     pastas.push(raiz);
     mkdirSync(join(raiz, 'certs'));
     const caArq = join(raiz, 'certs', 'servidor-ca.pem');
-    writeFileSync(caArq, caLoja.pem);
-    if (pareada) {
+    if (!envNuvem) writeFileSync(caArq, caLoja.pem);
+    if (envNuvem) writeFileSync(join(raiz, '.env.local'), envNuvem);
+    else if (pareada) {
       // Pareada com um IP que não responde mais (o roteador deu outro ao servidor).
       writeFileSync(
         join(raiz, '.env.local'),
@@ -328,6 +330,39 @@ describe('estação de impressão: acha o servidor da loja quando o IP muda (pro
     } catch (err) {
       console.error(e.log());
       throw err;
+    }
+  });
+
+  // Loja SEM servidor: a estação foi pareada na nuvem (sem a CA da loja). Não há servidor a procurar.
+  it('pareada na nuvem: testa a nuvem com o certificado público, não procura e não deixa trocar o endereço', async () => {
+    const tlsNuvem = certificadoDoServidor(caOutra, [{ type: 7, ip: '127.0.0.6' }]);
+    const api = servidorFalso(tlsNuvem, caOutra.pem, false); // a nuvem responde edge:false
+    await ouvir(api.srv, 0, '127.0.0.6');
+    const porta = (api.srv.address() as net.AddressInfo).port;
+    const pastaCa = mkdtempSync(join(tmpdir(), 'regem-ca-publica-'));
+    pastas.push(pastaCa);
+    const caPublica = join(pastaCa, 'ca.pem');
+    writeFileSync(caPublica, caOutra.pem); // faz o papel da CA pública que assina a nuvem
+    const envNuvem = [`REGEM_API=https://127.0.0.6:${porta}/api/v1`, `ESTACAO_ID=${ID_1}`, 'ESTACAO_SEGREDO=segredo-1', 'ESTACAO_NOME=estacao nuvem', ''].join('\r\n');
+    const e = await subirEstacao(true, { NODE_EXTRA_CA_CERTS: caPublica }, envNuvem);
+    try {
+      const s = await esperar('a batida chegar à nuvem', async () => {
+        const x = await e.estado();
+        return api.pedidos.some((p) => p.caminho === '/api/v1/impressao/estacao/batida') && x;
+      });
+      expect(s).toMatchObject({ pareada: true, conexao: { local: false, alvo: '127.0.0.6', porta: String(porta) } });
+      const t = await e.painelPedir('POST', '/testar');
+      expect(t).toMatchObject({ ok: true, nuvem: true, conferido: true, alvo: '127.0.0.6' });
+      const troca = await e.painelPedir('POST', '/servidor', { endereco: '127.0.0.3', usar: true });
+      expect(troca.status).toBe(400);
+      expect(troca.erro).toContain('nuvem do Regem');
+      expect((await e.painelPedir('POST', '/procurar')).status).toBe(400);
+      expect(readFileSync(join(e.raiz, '.env.local'), 'utf8')).toBe(envNuvem); // nada mudou
+    } catch (err) {
+      console.error(e.log());
+      throw err;
+    } finally {
+      await fechar(api.srv);
     }
   });
 

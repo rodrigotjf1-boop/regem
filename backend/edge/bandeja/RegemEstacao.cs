@@ -485,7 +485,9 @@ namespace Regem.Estacao
             pausar.Enabled = imps.Count > 0;
             menu.Items.Add(pausar);
             menu.Items.Add(new ToolStripSeparator());
-            Item("Trocar endereco do servidor...", delegate { TrocarEndereco(); });
+            // Ligada a nuvem (loja sem servidor): nao ha endereco de servidor para trocar.
+            bool naNuvem = E.Sim(estado, "pareada") && C.Conexao(estado) != null && !E.Sim(C.Conexao(estado), "local");
+            if (!naNuvem) Item("Trocar endereco do servidor...", delegate { TrocarEndereco(); });
             Item("Parear com codigo...", delegate { Parear(); }); // sempre (parte 2): com aviso se ja pareada
             menu.Items.Add(new ToolStripSeparator());
             Item("Esconder o icone (a impressao continua)", delegate { icone.Visible = false; ExitThread(); });
@@ -583,8 +585,11 @@ namespace Regem.Estacao
             Dictionary<string, object> cx = C.Conexao(estado);
             if (E.Sim(r, "ok"))
             {
-                Balao("Ligado ao servidor", string.Format("{0} respondeu em {1} ms{2}.", E.Txt(r, "alvo"), E.Num(r, "ms"),
-                    E.Sim(r, "conferido") ? " - e o servidor da sua loja" : ""), ToolTipIcon.Info);
+                if (E.Sim(r, "nuvem"))
+                    Balao("Ligada a nuvem do Regem", string.Format("{0} respondeu em {1} ms.", E.Txt(r, "alvo"), E.Num(r, "ms")), ToolTipIcon.Info);
+                else
+                    Balao("Ligado ao servidor", string.Format("{0} respondeu em {1} ms{2}.", E.Txt(r, "alvo"), E.Num(r, "ms"),
+                        E.Sim(r, "conferido") ? " - e o servidor da sua loja" : ""), ToolTipIcon.Info);
                 return;
             }
             string achou = E.Txt(r, "achou");
