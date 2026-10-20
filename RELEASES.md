@@ -46,6 +46,12 @@
     nuvem aceitou com a loja fora do ar). A falha da via no aceite passa a ficar no log.
   - Na loja, conferir depois do deploy: os pedidos do iFood e da Anota Aí saem na "Caixa delivery"; nenhuma venda nova
     em dobro (as 119 de 16 a 20/10 esperam a decisão do dono).
+- **Via da retirada à parte (sem migration):** "Onde cada documento sai" ganha a "Via da retirada": pedido de canal que o
+  cliente busca no balcão (Anota Aí, iFood, cardápio próprio, telefone; o totem fica fora). Sem escolha, sai nas mesmas
+  do delivery, então nada muda até a loja escolher. O "Novo PC com impressora" ganha o uso "Via da retirada". Muda o
+  servidor (`common/regras-impressao.ts`, o documento no aceite e no pedido que chega aceito) e a tela. Entra no `.zip`;
+  na nuvem vale no deploy (a tela). Na loja: escolher a impressora do caixa em Impressoras e cupons › Onde cada documento
+  sai › Via da retirada. Hoje o caixa não tem impressora no Regem (a "Caixa Regem" foi apagada em 18/10).
 
 ## Última release: `1.30.5` — gerada em 17/10/2026 da `origin/main` `02d36210`, **`.zip` GERADO, conferido e assinado** (`regem-edge-1.30.5.zip`, 31.735.344 bytes, SHA-256 `46852d32e16e45bf944be4e8c8df7329d4b6b61bb02d0478e4b4f7d47e093838`); publicação no console PENDENTE (o dono); sem `.exe`
 

@@ -11,15 +11,20 @@ import { sql } from 'drizzle-orm';
 //  • balcao     — via do cliente da venda de balcão e da conta da mesa: a impressora do PDV que
 //                 vendeu (`pdv`, com `pdvVias`) e/ou as impressoras da lista.
 //  • delivery   — via do caixa do pedido externo (iFood, 99, cardápio, telefone; o totem não).
+//  • retirada   — via do pedido de canal PARA RETIRAR no balcão (o cliente busca no caixa): as
+//                 mesmas do delivery (padrão — nada muda até a loja escolher) ou a sua lista.
+//                 Pedido do dono (20/10/2026): "direcionar a impressão desse à parte e não tratar
+//                 somente como delivery".
 //  • entregador — comanda do entregador: as mesmas do delivery (padrão, decisão 2A) ou a sua lista.
 //
 // A reimpressão NÃO passa por aqui: sai num lugar só (ERR-247).
 
-export type DocumentoImpressao = 'balcao' | 'delivery' | 'entregador';
+export type DocumentoImpressao = 'balcao' | 'delivery' | 'retirada' | 'entregador';
 export type AlvoDaRegra = { id: string; vias: number };
 export type RegrasDeImpressao = {
   balcao?: { pdv: boolean; pdvVias: number; impressoras: AlvoDaRegra[] };
   delivery?: { impressoras: AlvoDaRegra[] };
+  retirada?: { mesmasDoDelivery: boolean; impressoras: AlvoDaRegra[] };
   entregador?: { mesmasDoDelivery: boolean; impressoras: AlvoDaRegra[] };
 };
 
@@ -52,6 +57,8 @@ export function normalizarRegras(bruto: unknown): RegrasDeImpressao {
   if (b) saida.balcao = { pdv: b.pdv !== false, pdvVias: vias(b.pdvVias), impressoras: lista(b.impressoras) };
   const d = objeto(r.delivery);
   if (d) saida.delivery = { impressoras: lista(d.impressoras) };
+  const ret = objeto(r.retirada);
+  if (ret) saida.retirada = { mesmasDoDelivery: ret.mesmasDoDelivery !== false, impressoras: lista(ret.impressoras) };
   const e = objeto(r.entregador);
   if (e) saida.entregador = { mesmasDoDelivery: e.mesmasDoDelivery !== false, impressoras: lista(e.impressoras) };
   return saida;
@@ -63,7 +70,16 @@ export function normalizarRegras(bruto: unknown): RegrasDeImpressao {
  */
 export async function conferirRegras(db: any, tenantId: string, bruto: unknown): Promise<RegrasDeImpressao> {
   const regras = normalizarRegras(bruto);
-  const ids = [...new Set([...(regras.balcao?.impressoras ?? []), ...(regras.delivery?.impressoras ?? []), ...(regras.entregador?.impressoras ?? [])].map((a) => a.id))];
+  const ids = [
+    ...new Set(
+      [
+        ...(regras.balcao?.impressoras ?? []),
+        ...(regras.delivery?.impressoras ?? []),
+        ...(regras.retirada?.impressoras ?? []),
+        ...(regras.entregador?.impressoras ?? []),
+      ].map((a) => a.id),
+    ),
+  ];
   if (!ids.length) return regras;
   if (!ids.every((x) => UUID.test(x))) throw new BadRequestException('Impressora inválida.');
   const r: any = await db.execute(sql`
@@ -93,8 +109,8 @@ export async function regrasDaLoja(db: any, tenantId: string, unidadeId: string 
  * sempre). `impressoraDoPdv` = a impressora de cupom do terminal que vendeu (só o balcão usa).
  */
 export function alvosDoDocumento(regras: RegrasDeImpressao, documento: DocumentoImpressao, impressoraDoPdv: string | null): AlvoDaRegra[] | null {
-  if (documento === 'entregador') {
-    const e = regras.entregador;
+  if (documento === 'entregador' || documento === 'retirada') {
+    const e = regras[documento];
     if (!e || e.mesmasDoDelivery) return alvosDoDocumento(regras, 'delivery', null);
     return e.impressoras.length ? e.impressoras : null;
   }

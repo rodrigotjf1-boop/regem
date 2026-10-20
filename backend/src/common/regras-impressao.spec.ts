@@ -56,4 +56,20 @@ describe('alvosDoDocumento', () => {
     expect(alvosDoDocumento(normalizarRegras({ delivery, entregador: { mesmasDoDelivery: false, impressoras: [{ id: B, vias: 2 }] } }), 'entregador', null)).toEqual([{ id: B, vias: 2 }]);
     expect(alvosDoDocumento(normalizarRegras({ delivery, entregador: { mesmasDoDelivery: false } }), 'entregador', null)).toBeNull();
   });
+
+  // Pedido do dono (20/10/2026): a retirada no balcão (pedido de canal que o cliente busca no
+  // caixa) com a impressão À PARTE. Sem escolha, nada muda: sai nas mesmas do delivery.
+  it('retirada: nas mesmas do delivery (padrão e sem regra) ou na sua lista', () => {
+    const delivery = { impressoras: [{ id: A, vias: 1 }] };
+    expect(alvosDoDocumento(normalizarRegras({ delivery }), 'retirada', null)).toEqual([{ id: A, vias: 1 }]);
+    expect(alvosDoDocumento(normalizarRegras({ delivery, retirada: {} }), 'retirada', null)).toEqual([{ id: A, vias: 1 }]);
+    expect(alvosDoDocumento(normalizarRegras({ delivery, retirada: { mesmasDoDelivery: false, impressoras: [{ id: B, vias: 2 }] } }), 'retirada', null)).toEqual([{ id: B, vias: 2 }]);
+    expect(alvosDoDocumento(normalizarRegras({ delivery, retirada: { mesmasDoDelivery: false } }), 'retirada', null)).toBeNull();
+    expect(alvosDoDocumento({}, 'retirada', null)).toBeNull(); // sem regra nenhuma: o caminho de sempre
+    // A regra da retirada não mexe no delivery nem no entregador.
+    const r = normalizarRegras({ delivery, retirada: { mesmasDoDelivery: false, impressoras: [{ id: B, vias: 1 }] } });
+    expect(alvosDoDocumento(r, 'delivery', null)).toEqual([{ id: A, vias: 1 }]);
+    expect(alvosDoDocumento(r, 'entregador', null)).toEqual([{ id: A, vias: 1 }]);
+    expect(normalizarRegras({ retirada: {} })).toEqual({ retirada: { mesmasDoDelivery: true, impressoras: [] } });
+  });
 });

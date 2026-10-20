@@ -1373,9 +1373,12 @@ export class DeliveryService {
     return res;
   }
 
-  // O documento da via de um pedido de canal (mig 327): o de delivery; o totem fica fora da regra.
+  // O documento da via de um pedido de canal (mig 327): a retirada no balcão tem a sua (pedido do
+  // dono, 20/10/2026 — sem escolha, sai nas mesmas do delivery); o resto, a do delivery. O totem
+  // fica fora da regra, como sempre.
   private documentoDoPedido(ped: any): DocumentoImpressao | undefined {
-    return DeliveryService.grupoCanal(ped.canal ?? '') === 'totem' ? undefined : 'delivery';
+    if (DeliveryService.grupoCanal(ped.canal ?? '') === 'totem') return undefined;
+    return ped.tipo === 'retirada' ? 'retirada' : 'delivery';
   }
 
   // URL do QR de despacho ({base}/e/{token}) que vai na 1ª via da comanda em ENTREGA (não

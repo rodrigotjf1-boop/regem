@@ -142,7 +142,7 @@ p{margin:0}
       <div class="cab"><b>Onde cada documento sai</b><span>Loja · servidor da loja</span></div>
       <div class="corpo">
         <table class="regras">
-          <caption>5 documentos · as impressoras de cupom da sua loja</caption>
+          <caption>6 documentos · as impressoras de cupom da sua loja</caption>
           <thead><tr><th scope="col">Documento</th><th scope="col">Quando sai</th><th scope="col">Sai em</th></tr></thead>
           <tbody>
             <tr>
@@ -158,6 +158,14 @@ p{margin:0}
               <td data-r="Sai em">
                 <div class="multi" id="m-delivery" role="group" aria-label="Via do delivery sai em"></div>
                 <p class="falta" id="falta-delivery" hidden><span class="pill aviso">Ainda não escolhida: sai em todas as de cupom, como hoje</span></p>
+              </td>
+            </tr>
+            <tr>
+              <!-- Pedido do dono (20/10/2026): a retirada à parte do delivery (ex.: no caixa, que entrega o pedido). -->
+              <td class="doc" data-r="Documento">Via da retirada<small>Pedido de canal para o cliente buscar no balcão · sem o QR</small></td>
+              <td data-r="Quando sai">Ao aceitar o pedido</td>
+              <td data-r="Sai em">
+                <label class="mesma"><input type="checkbox" id="retirada-mesma"> Nas mesmas da via do delivery</label><div class="multi" id="m-retirada" role="group" aria-label="Via da retirada sai em"></div>
               </td>
             </tr>
             <tr>
@@ -186,6 +194,7 @@ p{margin:0}
       <h3 id="t-sim">Simular: onde sai?</h3>
       <div class="botoes" role="group" aria-label="Situação">
         <button type="button" data-caso="ifood" aria-pressed="true">Chega um pedido do iFood</button>
+        <button type="button" data-caso="retirada" aria-pressed="false">Chega um pedido para retirar</button>
         <button type="button" data-caso="reimp" aria-pressed="false">Reimprimir no PC do delivery</button>
         <button type="button" data-caso="pdv1" aria-pressed="false">Venda no PDV1</button>
         <button type="button" data-caso="entregador" aria-pressed="false">Cupom do entregador</button>
@@ -240,6 +249,7 @@ p{margin:0}
                 <div class="meta" id="m-1">USB · pronta</div>
                 <select id="papel-1" aria-label="Para quê">
                   <option selected>Via do delivery e comanda do entregador</option>
+                  <option>Via da retirada (o cliente busca no balcão)</option>
                   <option>Via do cliente deste PC (PDV)</option>
                   <option>Produção (escolho no direcionamento)</option>
                 </select>
@@ -334,6 +344,7 @@ p{margin:0}
   const regras = {
     balcao: { pdv: { on: true, vias: 1 }, 'Caixa Regem': { on: false, vias: 1 }, 'Caixa delivery': { on: false, vias: 1 } },
     delivery: { 'Caixa delivery': { on: true, vias: 1 }, 'Caixa Regem': { on: true, vias: 1 } },
+    retirada: { 'Caixa delivery': { on: false, vias: 1 }, 'Caixa Regem': { on: true, vias: 1 } },
     entregador: { 'Caixa delivery': { on: true, vias: 1 }, 'Caixa Regem': { on: false, vias: 1 } },
   };
   let caso = 'ifood';
@@ -360,6 +371,8 @@ p{margin:0}
   function desenhar() {
     const mesma = $('#entregador-mesma').checked;
     $('#m-entregador').hidden = mesma;
+    const retiradaMesma = $('#retirada-mesma').checked;
+    $('#m-retirada').hidden = retiradaMesma;
     const delivery = marcadas('delivery');
     $('#falta-delivery').hidden = delivery.length > 0;
     const todas = [{ chave: 'Caixa delivery', vias: 1 }, { chave: 'Caixa Regem', vias: 1 }];
@@ -368,6 +381,11 @@ p{margin:0}
       titulo = 'Pedido do iFood aceito → via do delivery';
       onde = delivery.length ? delivery : todas;
       antes = 'Hoje: <b>todas as de cupom</b> (4 na sua loja, inclusive a de etiquetas).';
+    } else if (caso === 'retirada') {
+      titulo = 'Pedido para retirar (Anota Aí) aceito → via da retirada';
+      const lista = retiradaMesma ? delivery : marcadas('retirada');
+      onde = lista.length ? lista : todas;
+      antes = 'Antes: saía na mesma da via do delivery (e sem o QR do entregador).';
     } else if (caso === 'reimp') {
       titulo = 'Reimprimir no PC do delivery (terminal "Pdv delivery")';
       onde = [{ chave: PDV['Pdv delivery'], vias: 1 }];
@@ -397,7 +415,8 @@ p{margin:0}
     desenhar();
   }));
   $('#entregador-mesma').addEventListener('change', desenhar);
-  ['balcao', 'delivery', 'entregador'].forEach(montar);
+  $('#retirada-mesma').addEventListener('change', desenhar);
+  ['balcao', 'delivery', 'retirada', 'entregador'].forEach(montar);
   desenhar();
 
   // Pareamento em três passos

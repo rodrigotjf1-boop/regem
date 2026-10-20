@@ -20,9 +20,10 @@ import { cn } from '@/lib/utils';
 // fluxo só: o código fica na tela até o PC conectar, e as impressoras que o Windows dele tem
 // aparecem para marcar. Usa as rotas de sempre (estação, código, impressora, regra, teste).
 
-type Uso = 'delivery' | 'balcao' | 'producao';
+type Uso = 'delivery' | 'retirada' | 'balcao' | 'producao';
 const USOS: { v: Uso; rotulo: string }[] = [
   { v: 'delivery', rotulo: 'Via do delivery e comanda do entregador' },
+  { v: 'retirada', rotulo: 'Via da retirada (o cliente busca no balcão)' },
   { v: 'balcao', rotulo: 'Via do cliente (balcão e mesa)' },
   { v: 'producao', rotulo: 'Produção (escolho no direcionamento)' },
 ];
@@ -142,6 +143,11 @@ export function NovoPcComImpressora({
       const enviar: Record<string, unknown> = {};
       for (const c of criadas) {
         if (c.uso === 'delivery') enviar.delivery = { impressoras: soma((enviar.delivery as any)?.impressoras ?? regras.delivery?.impressoras, c.id) };
+        // Retirada: passa a ter a lista própria (deixa de ser "nas mesmas do delivery").
+        if (c.uso === 'retirada') {
+          const antes = (enviar.retirada as any)?.impressoras ?? (regras.retirada?.mesmasDoDelivery === false ? regras.retirada?.impressoras : []);
+          enviar.retirada = { mesmasDoDelivery: false, impressoras: soma(antes, c.id) };
+        }
         if (c.uso === 'balcao') {
           const base: any = enviar.balcao ?? regras.balcao ?? { pdv: true, pdvVias: 1, impressoras: [] };
           enviar.balcao = { ...base, impressoras: soma(base.impressoras, c.id) };
