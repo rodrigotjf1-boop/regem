@@ -17,11 +17,17 @@ function focaveis(painel: HTMLElement): HTMLElement[] {
   return [...painel.querySelectorAll<HTMLElement>(FOCAVEIS)].filter((e) => e.offsetParent !== null);
 }
 
+// Os painéis abertos, do de baixo para o de cima. O teclado (Esc e Tab) é só do de CIMA: um diálogo aberto de dentro
+// de uma gaveta fecha sozinho com o Esc, e a gaveta continua. As duas escutas ficam no mesmo nó (o `document`), e o
+// `stopPropagation` não impede a outra de rodar — sem a pilha, um Esc fechava os dois.
+const pilha: React.RefObject<HTMLDivElement>[] = [];
+
 function useSobreposto(aoFechar: () => void, voltarPara?: string) {
   const painel = useRef<HTMLDivElement>(null);
   const fechar = useRef(aoFechar);
   fechar.current = aoFechar;
   useEffect(() => {
+    pilha.push(painel);
     const quemAbriu = document.activeElement as HTMLElement | null;
     const p = painel.current;
     // Foco inicial: o que o conteúdo marcou com `data-foco-inicial`, senão o 1º campo, senão o painel.
@@ -29,6 +35,7 @@ function useSobreposto(aoFechar: () => void, voltarPara?: string) {
     // do lado de fora, no botão que abriu: aí vale o 1º campo ligado.
     (p?.querySelector<HTMLElement>('[data-foco-inicial]:not([disabled])') ?? (p ? focaveis(p)[0] : null) ?? p)?.focus();
     const tecla = (e: KeyboardEvent) => {
+      if (pilha[pilha.length - 1] !== painel) return;
       if (e.key === 'Escape') {
         e.stopPropagation();
         fechar.current();
@@ -54,6 +61,8 @@ function useSobreposto(aoFechar: () => void, voltarPara?: string) {
     const rolagem = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
+      const i = pilha.indexOf(painel);
+      if (i >= 0) pilha.splice(i, 1);
       document.removeEventListener('keydown', tecla, true);
       document.body.style.overflow = rolagem;
       // Devolve o foco a quem abriu; se ele sumiu (a linha foi excluída), ao ponto combinado.

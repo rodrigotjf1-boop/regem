@@ -451,7 +451,7 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
       expect(r.status).toBe(200);
       expect(r.headers.get('cache-control')).toBe('no-store');
       const c: any = await r.json();
-      expect(c).toMatchObject({ situacao: 'escolha', aplicativo: { nome: 'Liame', inicio: 'https://app.agencialiame.com' }, pessoa: { nome: 'Paulo Presidente' } });
+      expect(c).toMatchObject({ situacao: 'escolha', aplicativo: { cliente: 'liame', nome: 'Liame', inicio: 'https://app.agencialiame.com' }, pessoa: { nome: 'Paulo Presidente' } });
       expect(c.tela.titulo).toBe('O Liame quer ler as vendas das suas lojas');
       expect(c.tela.lojas.map((l: any) => [l.id, l.marcada, l.conectadaDesde])).toEqual([[A.lojas[0], false, null], [A.lojas[1], false, null]]);
       expect(c.tela.contaQuePede.outraEmpresa).toBe(false);
@@ -466,7 +466,7 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
       const p = await pedir();
       expect(await (await tela(gerenteA, p.numero)).json()).toEqual({
         situacao: 'nao_presidente',
-        aplicativo: { nome: 'Liame', inicio: 'https://app.agencialiame.com' },
+        aplicativo: { cliente: 'liame', nome: 'Liame', inicio: 'https://app.agencialiame.com' },
         pessoa: { nome: 'Bia Gerente', nivel: 'gerente' },
       });
       expect(await (await tela(presA, 'urn:ietf:params:oauth:request_uri:rgm_torto')).json()).toMatchObject({ situacao: 'invalido', aplicativo: { nome: 'Liame' } });

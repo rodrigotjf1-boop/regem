@@ -230,7 +230,7 @@ describe('autorização por clique — a tela', () => {
     expect(t.abertura).toBe(
       'O Liame já lê a Brasa Centro desde 30/09/2026 e agora pede também o telefone do cliente no pedido. Se você disser não, ele continua com o que já tinha.',
     );
-    expect(t.novas.map((p) => [p.id, p.opcional])).toEqual([['clientes.telefone.ler', true]]);
+    expect(t.novas.map((p) => [p.id, p.opcional, p.naFrase])).toEqual([['clientes.telefone.ler', true, 'o telefone do cliente']]);
     expect(t.jaLiberado?.permissoes.map((p) => p.rotulo)).toEqual(['Pedidos', 'Custo dos itens', 'Aviso de cliente anonimizado', 'Cupons', 'Usos dos cupons']);
     expect(t.necessarias).toEqual([]);
     expect(t.lojas[0].nota).toBe('O que já foi liberado continua valendo. Autorizar soma o que está em “O que muda”.');

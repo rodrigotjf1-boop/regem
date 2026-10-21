@@ -84,11 +84,11 @@ type PedidoGuardado = {
 
 export type SituacaoDaTela =
   | { situacao: 'indisponivel' }
-  | { situacao: 'invalido'; aplicativo: { nome: string; inicio: string } | null }
-  | { situacao: 'pausado'; aplicativo: { nome: string; inicio: string } }
-  | { situacao: 'nao_presidente'; aplicativo: { nome: string; inicio: string }; pessoa: { nome: string | null; nivel: string } }
-  | { situacao: 'travada'; aplicativo: { nome: string; inicio: string }; pessoa: { nome: string; nivel: string }; minutos: number }
-  | { situacao: 'escolha'; aplicativo: { nome: string; inicio: string }; pessoa: { nome: string; nivel: string }; tela: TelaDaAutorizacao };
+  | { situacao: 'invalido'; aplicativo: { cliente: string; nome: string; inicio: string } | null }
+  | { situacao: 'pausado'; aplicativo: { cliente: string; nome: string; inicio: string } }
+  | { situacao: 'nao_presidente'; aplicativo: { cliente: string; nome: string; inicio: string }; pessoa: { nome: string | null; nivel: string } }
+  | { situacao: 'travada'; aplicativo: { cliente: string; nome: string; inicio: string }; pessoa: { nome: string; nivel: string }; minutos: number }
+  | { situacao: 'escolha'; aplicativo: { cliente: string; nome: string; inicio: string }; pessoa: { nome: string; nivel: string }; tela: TelaDaAutorizacao };
 
 /** A loja e a ligação entregues na troca: o segredo da ligação aparece só aqui. */
 export type LojaLigada = Record<string, unknown> & {
@@ -178,8 +178,9 @@ export class AutorizacaoCliqueService {
     return c.ligado ? { ...params, iss: emissorDoRegem(c.recurso) } : params;
   }
 
-  private resumoDoApp(app: AplicativoDoClique) {
-    return { nome: app.nome, inicio: app.inicio };
+  /** O aplicativo nas situações da página: a chave (o selo dele), o nome e o início cadastrado (para "Voltar"). */
+  private resumoDoApp(cliente: string, app: AplicativoDoClique) {
+    return { cliente, nome: app.nome, inicio: app.inicio };
   }
 
   /** O pedido ainda valendo (não usado, não vencido, do aplicativo do token). `paraGastar` trava a linha. */
@@ -501,7 +502,7 @@ export class AutorizacaoCliqueService {
     if (!this.ligada) return { situacao: 'indisponivel' };
     const a = this.aplicativoDe(q?.client_id);
     if (!a) return { situacao: 'invalido', aplicativo: null };
-    const aplicativo = this.resumoDoApp(a.app);
+    const aplicativo = this.resumoDoApp(a.cliente, a.app);
     const pedido = await this.lerPedido(a.cliente, q.client_id, q?.request_uri);
     if (!pedido) return { situacao: 'invalido', aplicativo };
     if (this.parado(a.cliente, 'GET /integracoes/autorizacao')) return { situacao: 'pausado', aplicativo };
