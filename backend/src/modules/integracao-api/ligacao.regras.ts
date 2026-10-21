@@ -8,6 +8,7 @@ import {
   lerChave,
 } from '../../dms/integracao-dms';
 import { CLIENTES_INTEGRACAO, ESCOPOS_INTEGRACAO, type EscopoIntegracao } from './escopos';
+import { enderecoDeServico } from './hub.regras';
 import { ProblemaException } from './problema';
 
 // A VIA DO DMS ID na API de integração (Hub DMS, F3, parte A): regras puras, sem banco.
@@ -166,29 +167,15 @@ export type ConfigDmsId =
 
 const ID_DE_APLICATIVO = /^[A-Za-z0-9_-]{4,64}$/;
 
-/** Endereço aceito: `https:`; `http:` só na própria máquina (testes). Sem usuário, senha, consulta nem fragmento. */
-function enderecoAceito(texto: string): URL | null {
-  let u: URL;
-  try {
-    u = new URL(texto);
-  } catch {
-    return null;
-  }
-  const local = u.hostname === '127.0.0.1' || u.hostname === 'localhost' || u.hostname === '[::1]';
-  if (u.protocol !== 'https:' && !(u.protocol === 'http:' && local)) return null;
-  if (u.username || u.password || u.search || u.hash) return null;
-  return u;
-}
-
 export function lerConfigDmsId(env: Record<string, string | undefined> = process.env): ConfigDmsId {
   if (env.DMS_ID_LIGADO !== 'true') return { ligado: false, motivo: null };
   const desligada = (motivo: string): ConfigDmsId => ({ ligado: false, motivo });
 
   const emissorBruto = (env.DMS_ID_EMISSOR ?? '').trim().replace(/\/+$/, '');
-  if (!enderecoAceito(emissorBruto)) return desligada('DMS_ID_EMISSOR precisa ser o endereço https do DMS ID com /oidc');
+  if (!enderecoDeServico(emissorBruto)) return desligada('DMS_ID_EMISSOR precisa ser o endereço https do DMS ID com /oidc');
 
   const recurso = (env.DMS_ID_RECURSO ?? '').trim();
-  const u = enderecoAceito(recurso);
+  const u = enderecoDeServico(recurso);
   if (!u || u.pathname !== CAMINHO_DO_RECURSO) {
     return desligada(`DMS_ID_RECURSO precisa ser o endereço https da API terminado em ${CAMINHO_DO_RECURSO} (sem barra no fim)`);
   }

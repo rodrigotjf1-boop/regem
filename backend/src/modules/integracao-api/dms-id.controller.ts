@@ -3,8 +3,10 @@ import { ApiBody, ApiExcludeEndpoint, ApiOperation, ApiTags } from '@nestjs/swag
 import { Throttle } from '@nestjs/throttler';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { bearerDe } from '../../common/integracao-limite';
-import { ErroTokenDmsId } from '../../dms/integracao-dms';
+import { ErroTokenDmsId, problemaDaParada } from '../../dms/integracao-dms';
+import { anotarChamada } from './chamada-integracao';
 import { DmsIdService } from './dms-id.service';
+import { HubDmsService } from './hub-dms.service';
 import { LigacaoIntegracaoService, type LigacaoEntregue } from './ligacao-integracao.service';
 import { CAMINHO_DOS_METADADOS, desafioDaRecusa, VIA_DESLIGADA } from './ligacao.regras';
 import { ProblemaException, ProblemaFilter } from './problema';
@@ -29,6 +31,7 @@ export class DmsIdController {
   constructor(
     private readonly dmsId: DmsIdService,
     private readonly ligacoes: LigacaoIntegracaoService,
+    private readonly hub: HubDmsService,
   ) {}
 
   @Get(CAMINHO_DOS_METADADOS)
@@ -61,11 +64,19 @@ export class DmsIdController {
   })
   async trocar(@Req() req: any, @Res({ passthrough: true }) res: any, @Body() corpo: unknown): Promise<LigacaoEntregue> {
     if (!this.dmsId.ligado) throw new ProblemaException(404, 'nao-encontrado', VIA_DESLIGADA);
+    anotarChamada({ credencial: 'dms_id' });
+    // A chave própria (Padrão §10): antes de tudo, sem banco e sem hub.
+    if (!this.hub.aceitaIntegracoes) throw problemaDaParada();
     const bearer = bearerDe(req);
     try {
       const doToken = await this.dmsId.conferir(bearer);
+      // O aplicativo do token é o cliente cadastrado para ele (o nome que a lista de parada usa), quando é da lista.
+      const aplicativos = this.dmsId.aplicativos;
+      const cliente = Object.keys(aplicativos).find((c) => aplicativos[c] === doToken.aplicativo);
+      anotarChamada({ aplicativo: cliente });
+      if (this.hub.parado({ aplicativo: cliente ?? null, ferramenta: 'POST /integracao/dms-id/ligacao' })) throw problemaDaParada();
       const tokenIntegracao = corpo !== null && typeof corpo === 'object' ? (corpo as any).token_integracao : undefined;
-      return await this.ligacoes.trocar(tokenIntegracao, doToken.aplicativo, this.dmsId.aplicativos);
+      return await this.ligacoes.trocar(tokenIntegracao, doToken.aplicativo, aplicativos);
     } catch (erro) {
       if (erro instanceof ErroTokenDmsId && bearer !== null) this.log.warn(`token do DMS ID recusado na troca: ${erro.motivo}`);
       const desafio = desafioDaRecusa(erro, { veioToken: bearer !== null, metadadosRecurso: this.dmsId.enderecoDosMetadados() });

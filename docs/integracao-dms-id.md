@@ -108,3 +108,41 @@ O kit de testes do Padrão (`backend/test/dms/kit-conformidade.mts`, cópia igua
 `dms-id.http.spec.ts`, no modo do DMS ID: token sem assinatura, adulterado, vencido, de outro destino e sem
 permissão; ligação ausente, inexistente, revogada, de outro aplicativo e sem a permissão; o desafio em todo 401; o
 formato dos erros; o limite. Ele roda no Node 22.6 ou mais; o CI o roda num passo próprio com o Node 22.
+
+## 7. Registro no hub e parada (F3, parte A2)
+
+Vale para as duas vias (o `rgm_it_` e a ligação). Nasce desligado (`HUB_LIGADO`); a chave própria vale sem o hub.
+
+- **Registro central:** cada chamada de `/api/v1/integracao/*` vai ao hub da DMS, em lote: quem chamou (o cliente,
+  como `liame`), a credencial (`token_integracao` ou `dms_id`) e o prefixo visível dela, a loja e o nome comercial, a
+  rota (`GET /integracao/pedidos`, nunca a consulta), o resultado, o problema da recusa, o status e a duração. Nunca o
+  conteúdo nem o segredo. O código do registro é o `request_id` da resposta, quando tem a forma de código do hub.
+- **Erros:** o 5xx da API de integração vai também à lista de erros do hub, sem as credenciais do Regem e sem dado
+  pessoal.
+- **Parada:** 503 `integracao-parada`, com `Retry-After: 60`. Vem da chave própria `ACEITAR_INTEGRACOES` (antes de
+  qualquer conferência, sem banco e sem hub) ou da lista de parada do hub, depois de reconhecer quem chama:
+
+  | Nível na lista do hub | Alvo |
+  | --- | --- |
+  | `geral` | tudo |
+  | `aplicativo` | o cliente da integração: `liame`, `farol`, `regemcast`, `gogem` |
+  | `ligacao` | o prefixo visível da credencial: `rgm_it_xxxxx` ou `dms_lg_regem_xxxxx` |
+  | `ferramenta` | a rota, como `GET /integracao/loja` ou `POST /integracao/dms-id/ligacao` |
+
+  **Para quem integra:** 503 `integracao-parada` não é desconexão nem recusa da loja. Esperar o `Retry-After` e
+  tentar de novo, sem descartar a credencial.
+- **Hub fora do ar:** nada muda para quem chama. A fila espera na memória do processo (até 5.000 chamadas), e vale a
+  última lista de parada lida.
+- **Fora daqui:** as cinco rotas do totem (GoGeM), que também aceitam o `rgm_it_`, não passam pela parada nem pelo
+  registro: elas lançam a venda do totem na loja, e parar a integração não pode parar o totem de vender.
+
+| Variável | Valor |
+| --- | --- |
+| `HUB_LIGADO` | `true` liga o registro, os erros, a batida e a lista de parada |
+| `HUB_URL` | o endereço `https` do hub |
+| `HUB_RECURSO` | o identificador do recurso do hub no DMS ID (o destino do token) |
+| `HUB_APLICATIVO` e `HUB_SEGREDO` | o aplicativo do Regem no DMS ID (client_id e segredo), com a função de produto no hub |
+| `ACEITAR_INTEGRACOES` | ausente ou `true` aceita; qualquer outro valor para toda chamada de integração |
+
+O emissor é o mesmo `DMS_ID_EMISSOR` da via. Configuração torta não liga o hub e não derruba a API: o log diz o que
+corrigir ("hub desligado: …").

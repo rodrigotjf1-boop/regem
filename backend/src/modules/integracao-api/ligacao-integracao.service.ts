@@ -4,6 +4,7 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { gerarChave } from '../../dms/integracao-dms';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { avisarLigacaoNova } from './aviso-ligacao';
+import { anotarChamada } from './chamada-integracao';
 import type { EscopoIntegracao } from './escopos';
 import { podeTrocar, TROCA_RECUSADA } from './ligacao.regras';
 import { ProblemaException } from './problema';
@@ -61,6 +62,8 @@ export class LigacaoIntegracaoService {
     // Uma instrução só: cria a ligação com o id do token ou gira o segredo dela. A empresa sai do token (nunca do
     // corpo); token revogado entre a conferência e aqui, ou ligação revogada sozinha, não devolvem linha.
     const { chave, resumo, prefixo } = gerarChave('lg', 'regem');
+    // O registro do hub (F3 A2): a loja e o prefixo visível da ligação nova (nunca o segredo).
+    anotarChamada({ conta: t.unidadeId ?? t.tenantId, tenantId: t.tenantId, ligacaoPrefixo: prefixo });
     const [feita] = await this.rows(sql`
       with token as (
         select id, tenant_id, criado_em from integracao_token_loja

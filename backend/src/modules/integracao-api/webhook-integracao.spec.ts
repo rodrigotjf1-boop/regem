@@ -29,6 +29,13 @@ describe('para onde o Regem pode avisar', () => {
     ]);
   });
 
+  it('http só na própria máquina (Hub DMS, F3-8): base http de fora é descartada, nunca vira destino sem TLS', () => {
+    expect(
+      basesDoWebhook('liame', { INTEGRACAO_LIAME_WEBHOOK_URLS: 'http://liame.exemplo/v1/inbox/regem/,http://localhost:3101/v1/inbox/regem/' }),
+    ).toEqual(['http://localhost:3101/v1/inbox/regem/']);
+    expect(basesDoWebhook('liame', { INTEGRACAO_LIAME_WEBHOOK_URLS: 'http://10.0.0.5/v1/inbox/regem/' })).toEqual([]);
+  });
+
   it('o Farol também tem endereço de produção (mig 316), e só o dele', () => {
     const baseFarol = 'https://api.monitorfarol.com.br/v1/regem/avisos/';
     expect(basesDoWebhook('farol', {})).toEqual([baseFarol]);

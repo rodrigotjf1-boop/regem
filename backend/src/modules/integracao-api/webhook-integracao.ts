@@ -1,5 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { EscopoIntegracao, WEBHOOK_INTEGRACAO } from './escopos';
+import { enderecoDeServico } from './hub.regras';
 
 // AVISOS (webhooks) da API de integração — as regras puras (trilha C, C3b — mig 304).
 //
@@ -54,13 +55,10 @@ export function basesDoWebhook(cliente: string, env: NodeJS.ProcessEnv = process
 }
 
 function baseValida(base: string): boolean {
-  try {
-    const u = new URL(base);
-    // A base termina em "/": o que vem depois é UM trecho. `http` só em teste/dev (a lista é nossa).
-    return (u.protocol === 'https:' || u.protocol === 'http:') && !u.username && !u.password && !u.search && !u.hash && u.pathname.endsWith('/');
-  } catch {
-    return false;
-  }
+  // A base termina em "/": o que vem depois é UM trecho. `http:` só na própria máquina (teste e desenvolvimento): uma
+  // base `http:` de fora que escapasse para a variável da produção mandaria o aviso assinado sem TLS (Hub DMS, F3-8).
+  const u = enderecoDeServico(base);
+  return !!u && u.pathname.endsWith('/');
 }
 
 function trechoValido(t: string): boolean {
