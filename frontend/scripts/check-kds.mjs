@@ -11,13 +11,14 @@ import ts from 'typescript';
 
 const raiz = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'lib');
 const tmp = mkdtempSync(join(tmpdir(), 'check-kds-'));
-for (const nome of ['senha', 'kds-fila']) {
+for (const nome of ['senha', 'kds-fila', 'origem-api']) {
   const js = ts.transpileModule(readFileSync(join(raiz, `${nome}.ts`), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
   }).outputText.replace("'./senha'", "'./senha.mjs'");
   writeFileSync(join(tmp, `${nome}.mjs`), js);
 }
 const k = await import(pathToFileURL(join(tmp, 'kds-fila.mjs')).href);
+const o = await import(pathToFileURL(join(tmp, 'origem-api.mjs')).href);
 
 let n = 0;
 const caso = (nome, fn) => {
@@ -167,6 +168,52 @@ try {
     assert.equal(k.formaDeUso('', true), 'toque');
     assert.equal(k.formaDeUso(null, false), 'teclado');
     assert.equal(k.formaDeUso('qualquer', false), 'teclado');
+  });
+
+  // Auditoria do KDS (20/10/2026): o evento de produção vem para a empresa inteira — só o cartão DESTA tela apita e alerta.
+  caso('só o cartão desta tela apita e alerta (fila deste KDS + sub-filtro escolhido aqui)', () => {
+    const lista = [
+      { id: 'a', plataforma: 'iFood', origem: 'delivery' },
+      { id: 'b', plataforma: 'Anota AI', origem: 'delivery' },
+      { id: 'c', plataforma: null, origem: 'mesa' },
+    ];
+    assert.equal(k.cartaoNaTela(lista, 'x', 'todos', 'todos'), undefined); // outro KDS, outra loja: não é daqui
+    assert.equal(k.cartaoNaTela(lista, 'a', 'todos', 'todos')?.id, 'a');
+    assert.equal(k.cartaoNaTela(lista, 'a', 'delivery', 'todos')?.id, 'a');
+    assert.equal(k.cartaoNaTela(lista, 'a', 'delivery', 'marketplace')?.id, 'a');
+    assert.equal(k.cartaoNaTela(lista, 'b', 'delivery', 'marketplace'), undefined); // escondido pelo sub-filtro
+    assert.equal(k.cartaoNaTela(lista, 'b', 'delivery', 'digital')?.id, 'b');
+    assert.equal(k.cartaoNaTela(lista, 'c', 'balcao', 'mesa')?.id, 'c');
+    assert.equal(k.cartaoNaTela(lista, 'c', 'balcao', 'pdv'), undefined);
+    assert.equal(k.cartaoNaTela(null, 'a', 'todos', 'todos'), undefined); // a recarga falhou: sem som
+  });
+
+  caso('o sub-filtro de origem (o que a tela mostra) é a mesma regra do som', () => {
+    assert.equal(k.grupoPedido({ plataforma: '99Food' }, 'delivery'), 'marketplace');
+    assert.equal(k.grupoPedido({ plataforma: 'Cardápio Web' }, 'delivery'), 'digital');
+    assert.equal(k.grupoPedido({ plataforma: 'Totem GoGeM' }, 'balcao'), 'totem');
+    assert.equal(k.grupoPedido({ origem: 'comanda' }, 'balcao'), 'mesa');
+    assert.equal(k.grupoPedido({ origem: 'garcom' }, 'balcao'), 'garcom');
+    assert.equal(k.grupoPedido({}, 'balcao'), 'pdv');
+  });
+
+  // O KDS do servidor da loja nunca conectava ao tempo real: o socket tinha conta própria e, lá, ficava sem endereço.
+  caso('tempo real e API pela mesma regra: no servidor da loja, o host da página na porta da API', () => {
+    const pagina = { protocol: 'https:', hostname: '192.168.0.10' };
+    const loja = o.baseDaApi({ edge: '1', apiUrl: '', portaApi: '' }, pagina);
+    assert.equal(loja, 'https://192.168.0.10:3002/api/v1');
+    assert.equal(o.origemDoTempoReal(loja), 'https://192.168.0.10:3002'); // nunca vazio (era a porta do app → 404)
+    assert.equal(o.baseDaApi({ edge: '1', portaApi: '4002' }, { protocol: 'https:', hostname: 'regem.local' }), 'https://regem.local:4002/api/v1');
+    assert.equal(o.baseDaApi({ edge: '1', apiUrl: '' }, null), 'https://api.dmsregem.com/api/v1'); // fora do navegador
+    const nuvem = o.baseDaApi({ apiUrl: 'https://api.dmsregem.com/api/v1' }, pagina);
+    assert.equal(o.origemDoTempoReal(nuvem), 'https://api.dmsregem.com');
+    assert.equal(o.baseDaApi({ apiUrl: '' }, pagina), 'https://api.dmsregem.com/api/v1'); // vazio vale a nuvem
+  });
+
+  caso('o tempo real usa a regra da API (nada de endereço próprio no rt.ts)', () => {
+    const rt = readFileSync(join(raiz, 'rt.ts'), 'utf8');
+    assert.match(rt, /origemDoTempoReal\(apiBase\(\)\)/);
+    assert.doesNotMatch(rt, /process\.env\.NEXT_PUBLIC_API_URL/);
   });
 
   console.log(`\ncheck:kds — ${n} casos, tudo certo`);

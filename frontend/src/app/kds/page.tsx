@@ -14,10 +14,12 @@ import {
   COR_STATUS,
   FILTROS_ETAPA,
   agruparPorItem,
+  cartaoNaTela,
   contarEtapas,
   decidirTecla,
   filtrarEtapa,
   formaDeUso,
+  grupoPedido,
   identPedido,
   minutosDesde,
   pedidoTemItem,
@@ -78,19 +80,6 @@ const SUBFILTROS: Record<'delivery' | 'balcao', { key: string; label: string }[]
     { key: 'garcom', label: 'Garçom' },
   ],
 };
-function grupoPedido(p: any, canal: 'delivery' | 'balcao'): string {
-  const plat = String(p.plataforma ?? '').toLowerCase();
-  if (canal === 'delivery') {
-    if (/ifood|99\s*food|keeta|rappi|uber/.test(plat)) return 'marketplace';
-    return 'digital'; // anota aí, cardápio web, cardápio (regem), outros
-  }
-  if (/totem|kiosk|quiosque/.test(plat)) return 'totem';
-  const o = String(p.origem ?? 'balcao');
-  if (o === 'mesa' || o === 'comanda') return 'mesa';
-  if (o === 'garcom') return 'garcom';
-  return 'pdv';
-}
-
 // ── Preferências da tela (por aparelho, no localStorage — UI, não dado de negócio) ──────────
 type ViewCfg = {
   escala: number; // multiplicador de fonte/espaçamento (0.85 .. 1.5)
@@ -219,6 +208,9 @@ export default function KdsPage() {
   setorRef.current = setorSel;
   const canalRef = useRef(canal);
   canalRef.current = canal;
+  // Sub-filtro de origem em uso (o mesmo que filtra a tela, mais abaixo): o som e o alerta só valem para o que se vê.
+  const subAtivoRef = useRef('todos');
+  subAtivoRef.current = canal === 'delivery' ? subDelivery : canal === 'balcao' ? subBalcao : 'todos';
   const kdsRef = useRef(kdsSel);
   kdsRef.current = kdsSel;
   const usoRef = useRef(uso);
@@ -249,8 +241,9 @@ export default function KdsPage() {
     }
   }, []);
 
-  const carregarFila = useCallback(async () => {
-    if (!getToken()) return; // fila durável requer operador logado (JWT)
+  // Devolve a fila nova (ou null se falhou) — o som de pedido novo confere se o cartão entrou NESTA tela.
+  const carregarFila = useCallback(async (): Promise<any[] | null> => {
+    if (!getToken()) return null; // fila durável requer operador logado (JWT)
     try {
       const r: any = await api.producaoFila(
         setorRef.current || undefined,
@@ -258,10 +251,13 @@ export default function KdsPage() {
         canalRef.current,
         kdsRef.current || undefined,
       );
-      setPedidos(r.pedidos ?? []);
+      const lista = r.pedidos ?? [];
+      setPedidos(lista);
       if (r.cores) setCores(r.cores);
+      return lista;
     } catch {
       /* mantém a fila atual em caso de falha momentânea */
+      return null;
     }
   }, []);
 
@@ -384,11 +380,13 @@ export default function KdsPage() {
       if (a.som !== false) bip();
     });
 
-    // Nudge de produção → refaz o GET (fonte da verdade). Novo pedido = som.
+    // Nudge de produção → refaz o GET (fonte da verdade). Novo pedido = som. O evento vem para a empresa inteira: só
+    // apita e alerta o que é DESTA tela (cartaoNaTela — fila deste KDS + sub-filtro escolhido aqui).
     socket.on('producao:atualizado', (p: any) => {
-      // Cancelamento: avisa a cozinha ANTES de sumir da fila (som + alerta).
-      if (p?.tipo === 'cancelado') {
-        const alvo = pedidosRef.current.find((x) => x.id === p.pedidoId);
+      // Cancelamento: avisa a cozinha ANTES de sumir da fila (som + alerta) — se o cartão estava nesta tela.
+      const alvo =
+        p?.tipo === 'cancelado' ? cartaoNaTela(pedidosRef.current, p.pedidoId, canalRef.current, subAtivoRef.current) : undefined;
+      if (alvo) {
         const ref = alvo?.senha
           ? `Senha ${rotuloSenha(alvo.senha, alvo.senhaPrefixo)}`
           : alvo?.mesa
@@ -409,8 +407,9 @@ export default function KdsPage() {
         ]);
         bip();
       }
-      void carregarFila();
-      if (p?.tipo === 'novo') bip();
+      void carregarFila().then((lista) => {
+        if (p?.tipo === 'novo' && lista && cartaoNaTela(lista, p.pedidoId, canalRef.current, subAtivoRef.current)) bip();
+      });
     });
 
     return () => {

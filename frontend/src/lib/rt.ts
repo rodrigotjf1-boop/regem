@@ -1,10 +1,11 @@
 import { io, type Socket } from 'socket.io-client';
-import { getJwt } from './api';
+import { apiBase, getJwt } from './api';
+import { origemDoTempoReal } from './origem-api';
 
-// Origem do WebSocket = base da API sem o sufixo /api/v1.
-const API =
-  process.env.NEXT_PUBLIC_API_URL ?? 'https://api.dmsregem.com/api/v1';
-export const RT_URL = API.replace(/\/api\/v1\/?$/, '');
+// Origem do WebSocket = base da API sem o sufixo /api/v1, pela MESMA regra do `apiBase()` e resolvida na hora de
+// conectar (no navegador). Antes tinha conta própria (`NEXT_PUBLIC_API_URL ?? nuvem`), vazia no servidor da loja: o KDS
+// de lá nunca conectava ao tempo real (origem-api.ts, auditoria do KDS de 20/10/2026).
+const rtUrl = () => origemDoTempoReal(apiBase());
 
 // Edge (LAN/HTTP): sessão por JWT no handshake. Nuvem: cookie httpOnly (withCredentials).
 const EH_EDGE = process.env.NEXT_PUBLIC_EDGE === '1';
@@ -15,12 +16,12 @@ const EH_EDGE = process.env.NEXT_PUBLIC_EDGE === '1';
 // Painel/gestor (web): JWT da sessão (edge/Bearer) ou, na nuvem sem JWT, o cookie
 // httpOnly vai no handshake via withCredentials — o gateway lê os dois.
 export function connectAsGestor(): Socket {
-  return io(RT_URL, { auth: { jwt: getJwt() ?? undefined }, withCredentials: !EH_EDGE });
+  return io(rtUrl(), { auth: { jwt: getJwt() ?? undefined }, withCredentials: !EH_EDGE });
 }
 
 // Device (KDS / Terminal): autentica com o token do equipamento.
 export function connectAsDevice(token: string): Socket {
-  return io(RT_URL, { auth: { token } });
+  return io(rtUrl(), { auth: { token } });
 }
 
 export type { Socket };
