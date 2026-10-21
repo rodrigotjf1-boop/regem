@@ -101,11 +101,15 @@ function normalizarView(v: any): ViewCfg {
   };
 }
 
-// Temas do KDS: só tinta e cinza (a cor fica para o status do tempo).
+// Temas do KDS: só tinta e cinza (a cor fica para o status do tempo). O claro (padrão) nas cores do Regem — fundo base,
+// cartão branco, tinta navy (decisão do dono em 21/10/2026); o escuro segue como opção do aparelho. `erro` = texto de
+// falha sobre o painel: 5,47:1 no escuro e 4,83:1 no claro (o #FF5A4E do escuro dava 3,1:1 no branco).
 const TEMAS: Record<'escuro' | 'claro', TemaKds> = {
-  escuro: { bg: '#0B1117', panel: '#151E27', panel2: '#1D2833', border: '#2C3A47', text: '#F1F5F8', muted: '#A3B1BD' },
-  claro: { bg: '#E9EDF1', panel: '#FFFFFF', panel2: '#F2F4F7', border: '#CBD3DC', text: '#0F1B24', muted: '#55636F' },
+  escuro: { bg: '#0B1117', panel: '#151E27', panel2: '#1D2833', border: '#2C3A47', text: '#F1F5F8', muted: '#A3B1BD', erro: '#FF5A4E' },
+  claro: { bg: '#EDF0F4', panel: '#FFFFFF', panel2: '#F1F4F7', border: '#D5DCE4', text: '#0F2230', muted: '#4F6476', erro: '#D92D20' },
 };
+// A ação principal das telas de entrada (tela cheia, login): o dourado do Regem com tinta navy (7,4:1).
+const ACAO = { fundo: '#E2A340', texto: '#0F2230' };
 const FOCO = '#2F7FD8'; // anel de foco (teclado)
 const MONO = 'JetBrains Mono, monospace';
 const TITULO = 'Archivo, sans-serif';
@@ -1233,7 +1237,7 @@ export default function KdsPage() {
           className="fixed inset-0 z-40 grid place-items-center"
           style={{ background: 'rgba(11,17,23,.92)', color: '#fff' }}
         >
-          <span className="px-8 py-4 text-lg font-bold" style={{ background: '#FFFFFF', color: '#0F1B24' }}>
+          <span className="px-8 py-4 text-lg font-bold" style={{ background: ACAO.fundo, color: ACAO.texto }}>
             Toque para entrar em tela cheia
           </span>
         </button>
@@ -1249,7 +1253,7 @@ export default function KdsPage() {
             <Link
               href="/entrar"
               className="inline-block px-6 py-3 text-sm font-bold"
-              style={{ background: '#FFFFFF', color: '#0F1B24' }}
+              style={{ background: ACAO.fundo, color: ACAO.texto }}
             >
               Ir para o login
             </Link>

@@ -10,7 +10,7 @@ import { agregarItens, corDoPedido, estaAtrasado, identPedido, proximaAcao, rotu
 // Sem borda colorida e sem canto arredondado (decisão do dono, 02/10/2026). Mockup:
 // `mockups/regem-kds-producao.html`.
 
-export type TemaKds = { bg: string; panel: string; panel2: string; border: string; text: string; muted: string };
+export type TemaKds = { bg: string; panel: string; panel2: string; border: string; text: string; muted: string; erro: string };
 export type CorDoCartao = 'cabecalho' | 'inteiro';
 
 // Etiqueta curta (ATRASADO, ALTERADO, OBS…): contorno na cor do texto ou "cheia" (invertida).

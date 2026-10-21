@@ -10,7 +10,7 @@ import { ACOES_KDS, resumoKds } from '@/lib/auditoria-kds';
 // etapas/destinos ou mexeu nos alertas. Vem da auditoria (registro imutável) da loja.
 // Painel no mesmo lugar e no mesmo desenho do de configuração; as cores vêm do tema do KDS.
 
-type Tema = { panel: string; panel2: string; border: string; text: string; muted: string };
+type Tema = { panel: string; panel2: string; border: string; text: string; muted: string; erro: string };
 
 const PERFIL: Record<string, string> = { presidente: 'presidente', gerente: 'gerente', supervisao: 'supervisão', execucao: 'execução', suporte: 'suporte Regem' };
 const hora = (iso: string) => {
@@ -61,7 +61,7 @@ export function HistoricoKds({ T, onFechar }: { T: Tema; onFechar: () => void })
         </div>
       </div>
 
-      {erro && <p className="text-[13px]" style={{ color: '#FF5A4E' }}>{erro}</p>}
+      {erro && <p className="text-[13px]" style={{ color: T.erro }}>{erro}</p>}
       {!erro && rows === null && <p className="text-[13px]" style={{ color: T.muted }}>Carregando…</p>}
       {rows && rows.length === 0 && (
         <p className="text-[13px] leading-relaxed" style={{ color: T.muted }}>

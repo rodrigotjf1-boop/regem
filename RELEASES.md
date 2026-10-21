@@ -49,6 +49,11 @@
   aparelho lista as telas para quem tem o módulo (antes pedia gerente). Sem KDS com produtos, nada muda. Nuvem: no
   deploy. Loja: no `.zip` (o servidor imprime com a mesma regra), sem `.exe`. Na loja, conferir: escolher os produtos de
   um KDS e vender um item dele (aparece só nele, não sai em papel) e um de nenhum KDS (sai na impressora da cozinha).
+- **KDS no tema claro nas cores do Regem (sem migration, só tela):** o tema claro (o padrão do aparelho) passa à paleta
+  do Regem: fundo base, cartão branco, tinta navy; os tempos em verde do Regem, amarelo com texto navy e vermelho; "Toque
+  para entrar em tela cheia" e "Ir para o login" em dourado; o texto de falha do histórico fica legível no claro. O
+  escuro segue como opção do aparelho (⚙). Nuvem: no deploy. Loja: no `.zip` (o app vai no pacote), sem `.exe`. Na
+  loja, conferir: o KDS abre claro e as três cores de tempo se leem de longe.
 - **Registro no hub e parada da API de integração (Hub DMS, F3 parte A2; sem migration):** só NUVEM e desligado até a distribuição ligar (`HUB_LIGADO`). O código entra no `.zip` por tabela (o filtro de problemas e as regras do hub, usados também pelas rotas do totem), mas no servidor da loja nada muda: a API de integração e o cliente do hub não sobem lá. Não pede `.exe`. Nada a fazer na loja.
 - **KDS: item removido sai do cartão e os ajustes valem na loja (mig 332, auditoria do KDS):** o item tirado da comanda
   sai do cartão ativo e do resumo (o cartão mostra "Alterado"; no cancelado os itens ficam riscados); cores e etapas do
