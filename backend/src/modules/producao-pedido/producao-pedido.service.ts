@@ -64,6 +64,21 @@ export interface ItemProducao {
   opcaoIds?: string[]; // opções/complementos escolhidos (roteamento por opção/etapa — mig 127/Fase 1)
 }
 
+// Item da MESMA venda que sai em outro lugar: a via "pedido completo" o mostra em letra pequena, com o destino (forma da
+// impressora, mig 335 — Cozinha em estações, entrega 3).
+export interface OutroItemDaVia {
+  quantidade: number;
+  descricao: string;
+  destino: string; // os KDS e impressoras para onde ele vai ("Chapa, Bar"); vazio = sem destino conhecido
+}
+
+/** A linha de um item de outro lugar na via "pedido completo": "1x Refrigerante lata (Despacho)". */
+export function linhaDoOutroItem(o: OutroItemDaVia): string {
+  return `${Number(o.quantidade)}x ${o.descricao}${o.destino ? ` (${o.destino})` : ''}`;
+}
+/** O título do bloco dos itens de outro lugar (sem acento, como o resto da via sem perfil). */
+export const TITULO_OUTROS_ITENS = '--- TAMBEM NO PEDIDO ---';
+
 // Um destino resolvido para um produto.
 interface Destino {
   equipamentoId: string | null;
@@ -419,6 +434,58 @@ export class ProducaoPedidoService {
     return { impressoras, padraoId, kds };
   }
 
+  // As VIAS DE PRODUÇÃO da venda, uma por impressora, na FORMA de cada uma (mig 335, Cozinha em estações, entrega 3) —
+  // UMA implementação para a venda local (`criarPedidos`) e para a venda da nuvem no servidor da loja
+  // (`materializarProducaoLocal`). 'itens' = só os itens dela (como sempre); 'completo' = também os itens da venda que
+  // saem em outro lugar, com o destino de cada um (os KDS e as outras impressoras para onde ele vai, pelo roteamento).
+  // No lançamento da mesa/comanda, a "venda" é o que foi lançado agora (o resto já saiu antes).
+  private async viasDeProducao(
+    db: any,
+    tenantId: string,
+    daProducao: ItemProducao[],
+    rota: { impressoras: Map<string, Set<ItemProducao>>; kds: Map<string, ItemProducao[]> },
+    ctx: any,
+    numero: number | null,
+    pp: { perfil: any; cabecalho?: string; rodape?: string } | null,
+  ): Promise<{ equipamentoId: string; conteudo: string }[]> {
+    const ids = [...new Set([...rota.impressoras.keys(), ...rota.kds.keys()])];
+    const equips: { id: string; nome: string; forma: string }[] = ids.length
+      ? await db
+          .select({ id: equipamento.id, nome: equipamento.nome, forma: equipamento.formaProducao })
+          .from(equipamento)
+          .where(and(eq(equipamento.tenantId, tenantId), inArray(equipamento.id, ids)))
+      : [];
+    const nome = new Map(equips.map((e) => [e.id, e.nome]));
+    const forma = new Map(equips.map((e) => [e.id, e.forma]));
+    // Para onde vai cada item: os KDS (estações) e as impressoras, na ordem do roteamento.
+    const destinos = new Map<ItemProducao, string[]>();
+    const marcar = (id: string, it: ItemProducao) => destinos.set(it, [...(destinos.get(it) ?? []), id]);
+    for (const [id, its] of rota.kds) for (const it of its) marcar(id, it);
+    for (const [id, its] of rota.impressoras) for (const it of its) marcar(id, it);
+    const vias: { equipamentoId: string; conteudo: string }[] = [];
+    for (const [equipamentoId, its] of rota.impressoras) {
+      const outros: OutroItemDaVia[] =
+        forma.get(equipamentoId) === 'completo'
+          ? daProducao
+              .filter((it) => !its.has(it))
+              .map((it) => ({
+                quantidade: it.quantidade,
+                descricao: it.descricao,
+                destino: [
+                  ...new Set(
+                    (destinos.get(it) ?? [])
+                      .filter((id) => id !== equipamentoId)
+                      .map((id) => nome.get(id))
+                      .filter((n): n is string => !!n),
+                  ),
+                ].join(', '),
+              }))
+          : [];
+      vias.push({ equipamentoId, conteudo: this.renderTicket(ctx, Array.from(its), numero, pp, outros) });
+    }
+    return vias;
+  }
+
   private normalizaDestino = (d: any): Destino => ({
     equipamentoId: d.equipamentoId ?? null,
     tipo: d.tipo === 'impressora' ? 'impressora' : 'kds',
@@ -541,17 +608,17 @@ export class ProducaoPedidoService {
     // lê a fila da nuvem nessa loja) e, com um agente de impressão instalado junto, saía EM DOBRO.
     // No próprio servidor local `edgeAtivo` é sempre false.
     const imprimeNesteBanco = !(await edgeAtivo(this.db, ctx.tenantId, ctx.unidadeId ?? null));
-    // Vias de produção por impressora (uma por equipamento), quando houver.
+    // Vias de produção por impressora (uma por equipamento), quando houver — na forma de cada impressora (mig 335).
     if (emitirProducaoAgora && imprimeNesteBanco) {
-      for (const [equipamentoId, its] of impressoras) {
+      for (const via of await this.viasDeProducao(tx, ctx.tenantId, daProducao, { impressoras, kds }, ctx, numero, ppProd)) {
         await tx.insert(impressaoJob).values({
           tenantId: ctx.tenantId,
           unidadeId: ctx.unidadeId ?? null,
-          equipamentoId,
+          equipamentoId: via.equipamentoId,
           pedidoId: ped.id,
           comandaId: ctx.comandaId, // liga à venda (idempotência do materializador do edge)
           via: 'producao',
-          conteudo: this.renderTicket(ctx, Array.from(its), numero, ppProd),
+          conteudo: via.conteudo,
         });
       }
     }
@@ -675,7 +742,7 @@ export class ProducaoPedidoService {
     // Mesmo roteamento da venda local (uma implementação só), com a mesma regra das estações: o cartão de cada KDS já
     // desceu da nuvem; aqui sai só o papel.
     const estacoes = await this.modoEstacoes(db, tenantId, ctx.unidadeId ?? null);
-    const { impressoras, padraoId } = await this.rotearProducao(db, tenantId, ctx.unidadeId ?? null, daProducao, estacoes);
+    const { impressoras, padraoId, kds } = await this.rotearProducao(db, tenantId, ctx.unidadeId ?? null, daProducao, estacoes);
 
     const cfgCupom = await this.carregarConfigCupom(db, tenantId, ctx.unidadeId ?? null);
     const idProd = ctx.origem === 'delivery' ? 'producao_delivery' : 'producao_balcao';
@@ -705,15 +772,15 @@ export class ProducaoPedidoService {
 
     let enfileirados = 0;
     if (emitirProducaoAgora) {
-      for (const [equipamentoId, its] of impressoras) {
+      for (const via of await this.viasDeProducao(db, tenantId, daProducao, { impressoras, kds }, ctx, numero, ppProd)) {
         await db.insert(impressaoJob).values({
           tenantId,
           unidadeId: ctx.unidadeId ?? null,
-          equipamentoId,
+          equipamentoId: via.equipamentoId,
           pedidoId: ped.id,
           comandaId,
           via: 'producao',
-          conteudo: this.renderTicket(ctx, Array.from(its), numero, ppProd),
+          conteudo: via.conteudo,
         });
         enfileirados++;
       }
@@ -825,12 +892,16 @@ export class ProducaoPedidoService {
     return this.enfileirarViaCliente(tenantId, unidadeId, null, conteudo, terminalId, null, 'caixa', perfil.impressoras);
   }
 
+  // `outros` (impressora na forma "pedido completo", mig 335): os itens da mesma venda que saem em outro lugar. Com eles,
+  // os itens desta impressora saem em negrito e os outros em letra pequena, com o destino, depois de "TAMBEM NO PEDIDO".
   private renderTicket(
     ctx: any,
     its: any[],
     numero?: number | null,
     pp?: { perfil: any; cabecalho?: string; rodape?: string } | null,
+    outros?: OutroItemDaVia[],
   ): string {
+    const completo = !!outros?.length;
     // Para viagem (mig 310): a cozinha embala diferente — a marca vai no ALTO da via, antes de tudo.
     const viagem = ctx.consumo === 'viagem';
     // Fase 3b — via de produção por PERFIL (quando a loja customizou). Sem valores.
@@ -851,6 +922,7 @@ export class ProducaoPedidoService {
             : undefined,
           emitidoDe: ctx.emitidoDe ?? undefined,
           itens: its,
+          outros: completo ? outros : undefined,
           // Produção NÃO mostra valores (mostrarValoresItem fica desligado).
         },
         pp.cabecalho,
@@ -867,9 +939,15 @@ export class ProducaoPedidoService {
     if (ctx.emitidoDe) l.push(`EMITIDO: ${ctx.emitidoDe}`);
     l.push(linha);
     for (const it of its) {
-      l.push(`${Number(it.quantidade)}x ${it.descricao}`);
+      l.push(`${completo ? '@B ' : ''}${Number(it.quantidade)}x ${it.descricao}`);
       if (it.complementosTexto) l.push(`  >> ${it.complementosTexto}`);
       if (it.observacao) l.push(`  ** OBS: ${it.observacao}`);
+    }
+    // Pedido completo: o que sai em outro lugar, pequeno e só a linha do item (sem complemento nem observação — é para a
+    // cozinha saber o que mais vai no pedido, não para fazer).
+    if (completo) {
+      l.push(`@S ${TITULO_OUTROS_ITENS}`);
+      for (const o of outros!) l.push(`@S ${linhaDoOutroItem(o)}`);
     }
     l.push(linha);
     l.push(new Date().toLocaleString('pt-BR'));
@@ -1040,7 +1118,9 @@ export class ProducaoPedidoService {
       // maiores/negrito para não passarem batidos na cozinha (c.comp / c.obs).
       if (c.key === 'itens') {
         if (!(dados.itens ?? []).length) continue;
-        const fNome = flagStr(c.alinhamento, !!c.negrito, !!c.mini, escOf(c));
+        // Via "pedido completo" (mig 335): os itens desta impressora em negrito; os de outro lugar depois, pequenos.
+        const outros: OutroItemDaVia[] = Array.isArray(dados.outros) ? dados.outros : [];
+        const fNome = flagStr(c.alinhamento, !!c.negrito || outros.length > 0, !!c.mini, escOf(c));
         const fComp = c.comp ? flagStr(c.alinhamento, !!c.comp.negrito, !!c.comp.mini, escOf(c.comp)) : fNome;
         const fObs = c.obs ? flagStr(c.alinhamento, !!c.obs.negrito, !!c.obs.mini, escOf(c.obs)) : fNome;
         const put = (f: string, t: string) => out.push(f ? `@${f} ${t}` : t);
@@ -1050,6 +1130,11 @@ export class ProducaoPedidoService {
           if (it.complementosTexto) put(fComp, `   ${it.complementosTexto}`);
           if (it.observacao) put(fObs, `   OBS: ${it.observacao}`);
           if (dados.mostrarValoresItem) put(fNome, `   ${money(Number(it.precoUnitario) * Number(it.quantidade))}`);
+        }
+        if (outros.length) {
+          const fOutro = flagStr(c.alinhamento, false, true, 1);
+          put(fOutro, TITULO_OUTROS_ITENS);
+          for (const o of outros) put(fOutro, linhaDoOutroItem(o));
         }
         out.push(sep);
         prev = null;
@@ -2608,6 +2693,8 @@ export class ProducaoPedidoService {
       comandaId: p.comandaId,
       setorId: p.setorId,
       senha: p.senha,
+      // A origem da senha (B balcão, D delivery — mig 275): sem ela o ticket da etapa saía "SENHA 12" em vez de "B-12".
+      senhaPrefixo: p.senhaPrefixo ?? null,
       origem: p.origem,
       plataforma: p.plataforma,
       senhaPlataforma: p.senhaPlataforma,

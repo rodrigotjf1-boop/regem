@@ -44,6 +44,12 @@ const INTEGRADOR_VISTO_MINUTOS = 60;
 /** Quem fez a alteração, para a auditoria (vem do usuário logado, no controller). */
 export type AtorEquipamento = { id: string; perfil: string };
 
+/** A forma da via de produção de uma impressora (mig 335), conferida: só as duas que existem. */
+function formaDaVia(v: unknown): 'itens' | 'completo' {
+  if (v === 'itens' || v === 'completo') return v;
+  throw new BadRequestException('Forma de impressão inválida: escolha "só os itens desta impressora" ou "pedido completo".');
+}
+
 @Injectable()
 export class EquipamentoService {
   private readonly logger = new Logger('Equipamento');
@@ -375,6 +381,8 @@ export class EquipamentoService {
             ? dto.setoresAtendidos
             : undefined,
         padrao: dto.tipo === 'impressora' ? !!dto.padrao : undefined,
+        // Forma da via de produção (mig 335); o DTO já recusou o que não é 'itens' nem 'completo'.
+        formaProducao: dto.tipo === 'impressora' && dto.formaProducao ? formaDaVia(dto.formaProducao) : undefined,
         impressoraPadraoId:
           dto.tipo === 'pdv' ? dto.impressoraPadraoId ?? null : undefined,
         // Sub-PDV salão (mig 133): ponto de lançamento atrelado a um PDV main.
@@ -1090,6 +1098,7 @@ export class EquipamentoService {
       vias: r.vias,
       viasCliente: r.viasCliente ?? null, // vias por tipo (mig 168)
       viasProducao: r.viasProducao ?? null,
+      formaProducao: r.formaProducao ?? 'itens', // 'itens' | 'completo' (mig 335)
       padrao: r.padrao,
       impressoraPadraoId: r.impressoraPadraoId ?? null,
       // KDS — impressão guiada por etapa (mig 129).
@@ -1187,6 +1196,9 @@ export class EquipamentoService {
       // Vias por tipo (mig 168): null = herda `vias`. Só grava se veio número > 0.
       viasCliente: ou<number | null>('viasCliente', () => (dto.viasCliente != null && Number(dto.viasCliente) > 0 ? Number(dto.viasCliente) : null), null),
       viasProducao: ou<number | null>('viasProducao', () => (dto.viasProducao != null && Number(dto.viasProducao) > 0 ? Number(dto.viasProducao) : null), null),
+      // Forma da via de produção (mig 335): 'itens' (só os desta impressora) ou 'completo' (o pedido inteiro, os desta em
+      // destaque). Ausente mantém (V16); valor desconhecido é recusado — nunca vira o padrão em silêncio.
+      formaProducao: ou<string>('formaProducao', () => formaDaVia(dto.formaProducao), 'itens'),
       ativo: ou('ativo', () => (dto.ativo != null ? !!dto.ativo : true), true),
       // "Ligada em" (mig 324): a estação de impressão que imprime esta impressora; null = o
       // servidor da loja. Ausente na edição mantém o gravado (V16).
@@ -1245,6 +1257,7 @@ export class EquipamentoService {
       vias: r.vias,
       padrao: !!r.padrao,
       ativo: !!r.ativo,
+      formaProducao: r.formaProducao ?? 'itens',
     };
   }
 

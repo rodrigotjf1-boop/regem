@@ -909,6 +909,8 @@ export const equipamento = pgTable('equipamento', {
   vias: integer('vias').notNull().default(1), // nº de vias (impressora) — legado/fallback
   viasCliente: integer('vias_cliente'), // nº de vias do cupom do cliente (mig 168); null = herda `vias`
   viasProducao: integer('vias_producao'), // nº de vias da produção (mig 168); null = herda `vias`
+  // Forma da via de produção (mig 335): 'itens' (só os desta impressora) | 'completo' (o pedido inteiro, os desta em destaque).
+  formaProducao: text('forma_producao').notNull().default('itens'),
   impressoraPadraoId: uuid('impressora_padrao_id'), // terminal PDV: impressora de cupom amarrada
   // KDS — impressão guiada por etapa (mig 129): o ticket só sai quando o pedido
   // AVANÇA para `imprimeNoStatus` neste KDS, indo para `impressoraDestinoId`.

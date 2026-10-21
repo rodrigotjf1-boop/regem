@@ -65,6 +65,14 @@
   acesso. Sem KDS com "vai para" nem despacho, nada muda. Nuvem: migration antes do merge + deploy. Loja: no `.zip` (a
   mig 334 vai no pacote; o servidor da loja ignora o campo novo até lá), sem `.exe`. Na loja, conferir: Chapa → Montagem
   → Despacho com um pedido de lanche e bebida (o cartão anda no pronto, o despacho só libera no fim, sai um pronto só).
+- **Cozinha em estações, entrega 3 — a forma de cada impressora de produção (mig 335, nas duas pontas):** em
+  Configurações › Equipamentos › (impressora de produção) › "Como imprime a via de produção": "Só os itens desta
+  impressora" (o padrão, como sempre) ou "Pedido completo, os desta em destaque" — os itens dela em negrito e, depois de
+  "TAMBEM NO PEDIDO", os outros itens da venda em letra pequena, com o lugar para onde vão ("1x Refri (Despacho)"). Vale
+  na venda da nuvem e no servidor da loja, com e sem estações, e na via com perfil da loja. De carona: o ticket que o KDS
+  imprime na etapa sai com a origem da senha ("B-7", não "7"). Nuvem: migration antes do merge + deploy. Loja: no `.zip`
+  (a mig 335 vai no pacote), sem `.exe` (a letra pequena, `@S`, já existe no servidor da loja desde agosto, #277). Na loja, conferir:
+  pôr a impressora da cozinha em "pedido completo" e vender um lanche e uma bebida de outra impressora ou KDS.
 - **Registro no hub e parada da API de integração (Hub DMS, F3 parte A2; sem migration):** só NUVEM e desligado até a distribuição ligar (`HUB_LIGADO`). O código entra no `.zip` por tabela (o filtro de problemas e as regras do hub, usados também pelas rotas do totem), mas no servidor da loja nada muda: a API de integração e o cliente do hub não sobem lá. Não pede `.exe`. Nada a fazer na loja.
 - **KDS: item removido sai do cartão e os ajustes valem na loja (mig 332, auditoria do KDS):** o item tirado da comanda
   sai do cartão ativo e do resumo (o cartão mostra "Alterado"; no cancelado os itens ficam riscados); cores e etapas do

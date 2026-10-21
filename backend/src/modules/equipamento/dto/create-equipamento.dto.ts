@@ -84,6 +84,11 @@ export class CreateEquipamentoDto {
   @IsBoolean()
   padrao?: boolean;
 
+  // Forma da via de produção (mig 335): só os itens desta impressora, ou o pedido completo com os dela em destaque.
+  @IsOptional()
+  @IsIn(['itens', 'completo'])
+  formaProducao?: string;
+
   // Terminal de PDV: impressora de cupom (via do cliente) amarrada a este terminal.
   @IsOptional()
   @IsUUID()

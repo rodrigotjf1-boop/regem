@@ -13,6 +13,29 @@ import { ESCOPOS, ETAPAS, TIPOS, daLoja, ehGogem } from './equipamento';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+// A forma da via de produção de uma impressora (mig 335, Cozinha em estações — entrega 3), com o jeito do papel ao lado
+// de cada opção (nomes de exemplo). Sem "agrupado" na impressora (decisão do dono, 21/10): agrupar fica no KDS.
+type LinhaDeExemplo = { texto: string; estilo?: 'forte' | 'fraco' };
+const FORMAS_DA_VIA: { v: 'itens' | 'completo'; rotulo: string; exemplo: LinhaDeExemplo[] }[] = [
+  {
+    v: 'itens',
+    rotulo: 'Só os itens desta impressora',
+    exemplo: [{ texto: 'B-43 · 21:14', estilo: 'forte' }, { texto: '1x Duplo cheddar' }, { texto: '1x Anéis de cebola' }],
+  },
+  {
+    v: 'completo',
+    rotulo: 'Pedido completo, os desta em destaque',
+    exemplo: [
+      { texto: 'B-43 · 21:14', estilo: 'forte' },
+      { texto: '1x Duplo cheddar', estilo: 'forte' },
+      { texto: '1x Anéis de cebola', estilo: 'forte' },
+      { texto: '--- TAMBEM NO PEDIDO ---', estilo: 'fraco' }, // o que o papel imprime (sem acento, como a via)
+      { texto: '1x Molho da casa (Despacho)', estilo: 'fraco' },
+      { texto: '1x Refrigerante lata (Despacho)', estilo: 'fraco' },
+    ],
+  },
+];
+
 // Novo equipamento e "Configurar", na gaveta.
 //  • Novo: os campos do tipo escolhido; o servidor devolve o token, mostrado uma vez pela tela.
 //  • Configurar: o tipo e a unidade não mudam. Cada grupo de campos tem a sua rota no servidor (o
@@ -59,6 +82,7 @@ export function EquipamentoForm({
     codepage: (item?.codepage ?? '') as string,
     setoresAtendidos: (item?.setoresAtendidos ?? []) as string[],
     padrao: !!item?.padrao,
+    formaProducao: (item?.formaProducao === 'completo' ? 'completo' : 'itens') as string, // mig 335
   }));
   const [f, setF] = useState(inicial);
   const [salvando, setSalvando] = useState(false);
@@ -113,6 +137,7 @@ export function EquipamentoForm({
       codepage: imp && f.codepage ? f.codepage : undefined,
       setoresAtendidos: imp && f.setoresAtendidos.length ? f.setoresAtendidos : undefined,
       padrao: imp ? f.padrao : undefined,
+      formaProducao: imp && f.fazProducao ? f.formaProducao : undefined,
       impressoraPadraoId: pdv && f.impressoraPadraoId ? f.impressoraPadraoId : undefined,
       pdvMainId: salao && f.pdvMainId ? f.pdvMainId : undefined,
     });
@@ -142,6 +167,7 @@ export function EquipamentoForm({
       if (mudou('codepage')) c.codepage = f.codepage || null;
       if (mudou('setoresAtendidos')) c.setoresAtendidos = f.setoresAtendidos;
       if (mudou('padrao')) c.padrao = f.padrao;
+      if (mudou('formaProducao')) c.formaProducao = f.formaProducao;
       if (Object.keys(c).length) passos.push({ nome: 'a impressora', fazer: () => api.salvarImpressora({ id: item.id, ...c }) });
       return passos;
     }
@@ -449,6 +475,45 @@ export function EquipamentoForm({
                   <span className="text-sm font-medium">Impressora padrão da unidade <span className={`font-normal ${texto2}`}>(recebe itens sem setor)</span></span>
                   <Chave ligada={f.padrao} rotulo="Impressora padrão da unidade" aoMudar={(v) => muda({ padrao: v })} />
                 </div>
+                {/* Cozinha em estações, entrega 3 (mig 335): a forma da via de produção desta impressora. */}
+                <fieldset className="mt-3">
+                  <legend className="text-sm font-medium">Como imprime a via de produção</legend>
+                  <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {FORMAS_DA_VIA.map((o) => {
+                      const ligada = f.formaProducao === o.v;
+                      return (
+                        <label
+                          key={o.v}
+                          className={`flex min-w-0 cursor-pointer flex-col gap-1.5 rounded-md border p-2.5 text-sm ${
+                            ligada ? 'border-foreground bg-secondary' : 'border-input bg-card'
+                          }`}
+                        >
+                          <span className="flex items-start gap-2 font-semibold">
+                            <input
+                              type="radio"
+                              name="eq-forma-producao"
+                              checked={ligada}
+                              onChange={() => muda({ formaProducao: o.v })}
+                              className="mt-0.5 h-4 w-4 flex-none"
+                            />
+                            {o.rotulo}
+                          </span>
+                          {/* O jeito do papel, de exemplo (nomes de exemplo). */}
+                          <span aria-hidden="true" className="whitespace-pre-wrap break-words rounded border border-input bg-background px-2 py-1.5 font-mono text-xs leading-snug">
+                            {o.exemplo.map((l, i) => (
+                              <span key={i} className={`block ${l.estilo === 'forte' ? 'font-bold' : l.estilo === 'fraco' ? texto2 : ''}`}>
+                                {l.texto}
+                              </span>
+                            ))}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <p className={`mt-1 ${ajuda}`}>
+                    No pedido completo, os itens desta impressora saem em negrito e os outros em letra pequena, com o lugar para onde vão.
+                  </p>
+                </fieldset>
               </div>
             )}
           </>
