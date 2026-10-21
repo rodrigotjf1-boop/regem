@@ -27,7 +27,7 @@ export function ComplementosCard({
   produtos: any[];
   novoGrupo: { nome: string; tipo: string };
   setNovoGrupo: (fn: (s: { nome: string; tipo: string }) => { nome: string; tipo: string }) => void;
-  onAddOpcao: (grupo: any, dados: any) => void;
+  onAddOpcao: (grupo: any, dados: any) => Promise<boolean>;
   onDelGrupo: (id: string) => void;
   onDelOpcao: (id: string) => void;
   onAddGrupo: () => void;

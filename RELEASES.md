@@ -83,6 +83,13 @@
   gravava. Nuvem: ao aplicar a 332 e mesclar. Servidor da loja: `.zip` (a 332 roda lá também), sem `.exe`. Na loja,
   conferir: tirar um item de uma comanda com cartão no KDS → o item some e o cartão fica "Alterado".
 - **Limite de chamadas da API de integração no banco (Hub DMS F3-8; mig 333, `-- @cloud-only`):** só NUVEM. O código entra no `.zip` por tabela (a validação do token, usada também pelas rotas do totem), mas no servidor da loja nada muda: a 332 é pulada, e lá o token de integração nem é conferido (o totem fala com o servidor pelo token de sempre). Não pede `.exe`. Nada a fazer na loja.
+- **Código PDV na opção do complemento, na tela do produto (ERR-272; sem migration):** em Cadastros › Cardápio › produto ›
+  Complementos, o grupo que vem de uma etapa do catálogo só mostra (o código PDV e se controla estoque de cada opção, e onde
+  se edita: Cadastros › Cardápio › Opções); o servidor recusa criar/apagar opção e apagar o grupo dele (a próxima montagem
+  desfaria). No grupo próprio do produto, a opção nova leva código PDV e "Controlar estoque" (sem código ela é só
+  observação: não cobra nem baixa), um código por opção do produto, e a empresa do grupo e do produto é conferida. Nuvem: no
+  deploy. Loja: no `.zip` (servidor e tela), sem `.exe`. Na loja, conferir: abrir um produto com etapa do catálogo →
+  Complementos → o grupo dela mostra os códigos e não tem "＋ opção".
 
 ## Última release: `1.30.6` — gerada em 20/10/2026 da `origin/main` `3f4db2af`, **`.zip` GERADO, conferido e assinado** (`regem-edge-1.30.6.zip`, 31.838.658 bytes, SHA-256 `168c67acb2aff280ff44ef737374413ddf82804df4fa65b7c0fb7ddddb794f41`) e **`.exe` COMPILADO** (`RegemEdgeSetup.exe`, 93.547.959 bytes, SHA-256 `31186dc63d90d50710cc6a247bc071c7560cbe7992aa5443f97f5e1dfd546441`); publicação no console e instalação na loja PENDENTES (o dono)
 

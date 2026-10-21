@@ -14,8 +14,9 @@ const REGRA_LABEL: Record<string, string> = {
 };
 
 // Etapas do produto (Fase 4): anexa complementos reutilizáveis ao produto. Ao salvar,
-// o backend materializa nos grupos/opções do motor (cardápio/comanda/KDS).
-export function ProdutoEtapasCard({ produtoId }: { produtoId: string }) {
+// o backend materializa nos grupos/opções do motor (cardápio/comanda/KDS). `aoMudar`: a lista de grupos
+// ("Opcionais & adicionais", logo abaixo) se atualiza na hora — antes ficava com os grupos de antes.
+export function ProdutoEtapasCard({ produtoId, aoMudar }: { produtoId: string; aoMudar?: () => void }) {
   const [complementos, setComplementos] = useState<any[]>([]);
   const [ligados, setLigados] = useState<string[]>([]);
   const [salvando, setSalvando] = useState(false);
@@ -36,6 +37,7 @@ export function ProdutoEtapasCard({ produtoId }: { produtoId: string }) {
     setSalvando(true);
     try {
       await api.setProdutoEtapas(produtoId, novo);
+      aoMudar?.();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao salvar etapas');
       carregar();
