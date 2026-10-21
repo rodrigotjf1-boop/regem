@@ -48,6 +48,7 @@
   período da senha passa a morar no ajuste do KDS, que sincroniza — antes o servidor da loja nunca via o que a tela
   gravava. Nuvem: ao aplicar a 332 e mesclar. Servidor da loja: `.zip` (a 332 roda lá também), sem `.exe`. Na loja,
   conferir: tirar um item de uma comanda com cartão no KDS → o item some e o cartão fica "Alterado".
+- **Limite de chamadas da API de integração no banco (Hub DMS F3-8; mig 333, `-- @cloud-only`):** só NUVEM. O código entra no `.zip` por tabela (a validação do token, usada também pelas rotas do totem), mas no servidor da loja nada muda: a 332 é pulada, e lá o token de integração nem é conferido (o totem fala com o servidor pelo token de sempre). Não pede `.exe`. Nada a fazer na loja.
 
 ## Última release: `1.30.6` — gerada em 20/10/2026 da `origin/main` `3f4db2af`, **`.zip` GERADO, conferido e assinado** (`regem-edge-1.30.6.zip`, 31.838.658 bytes, SHA-256 `168c67acb2aff280ff44ef737374413ddf82804df4fa65b7c0fb7ddddb794f41`) e **`.exe` COMPILADO** (`RegemEdgeSetup.exe`, 93.547.959 bytes, SHA-256 `31186dc63d90d50710cc6a247bc071c7560cbe7992aa5443f97f5e1dfd546441`); publicação no console e instalação na loja PENDENTES (o dono)
 

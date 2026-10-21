@@ -25,6 +25,7 @@ import { CABECALHO_LIGACAO_NO_NODE, desafioDaRecusa, EscopoFaltando, LIGACAO_INV
 import { ProblemaException } from './problema';
 import { formatoTokenIntegracao } from './token-integracao';
 import { IntegracaoTokenService } from './integracao-token.service';
+import type { LimiteContado } from './validar-token-integracao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -121,17 +122,20 @@ export class IntegracaoTokenGuard implements CanActivate {
     // A chave própria: antes de tudo, sem banco e sem hub.
     if (!(this.hub ? this.hub.aceitaIntegracoes : aceitaIntegracoes())) throw problemaDaParada();
 
-    let t: IntegracaoCtxData;
+    let achado: IntegracaoCtxData & { limite?: LimiteContado };
     if (peloToken) {
-      t = await this.pelaViaDoToken(req, bearer as string, desafiar);
+      achado = await this.pelaViaDoToken(req, bearer as string, desafiar);
     } else if (this.dmsId.ligado) {
-      t = await this.pelaViaDoDmsId(req, bearer, desafiar);
+      achado = await this.pelaViaDoDmsId(req, bearer, desafiar);
     } else {
       return desafiar(new ProblemaException(401, 'token-invalido', TOKEN_INVALIDO));
     }
+    const { limite: contadoNoBanco, ...t } = achado;
     anotarChamada({ aplicativo: t.cliente, ligacaoPrefixo: t.prefixo, conta: t.unidadeId ?? t.tenantId, tenantId: t.tenantId });
 
-    const limite = contarChamadaIntegracao(t.tokenId);
+    // O limite do acesso: o contado no banco, na mesma ida da validação (mig 333, vale entre processos); sem a tabela,
+    // o da memória do processo.
+    const limite = contadoNoBanco ?? contarChamadaIntegracao(t.tokenId);
     if (!limite.ok) {
       throw new ProblemaException(
         429,
@@ -164,8 +168,12 @@ export class IntegracaoTokenGuard implements CanActivate {
   }
 
   /** O `rgm_it_`: o banco decide sozinho (inválido, revogado ou vencido = 401; nunca cai para a outra via). */
-  private async pelaViaDoToken(req: any, token: string, desafiar: (erro: unknown) => never): Promise<IntegracaoCtxData> {
-    const t = await this.tokens.validar(token);
+  private async pelaViaDoToken(
+    req: any,
+    token: string,
+    desafiar: (erro: unknown) => never,
+  ): Promise<IntegracaoCtxData & { limite?: LimiteContado }> {
+    const t = await this.tokens.validar(token, { contar: true });
     if (!t) {
       esquecerTokenIntegracao(credencialDaChamada(req));
       return desafiar(new ProblemaException(401, 'token-invalido', TOKEN_INVALIDO));
@@ -178,7 +186,11 @@ export class IntegracaoTokenGuard implements CanActivate {
    * O token do DMS ID primeiro (sem ele, ou com ele torto, nem se procura a ligação), depois a ligação. O motivo da
    * recusa do token vai só para o log local; a resposta é a mesma para todo motivo (Padrão §7).
    */
-  private async pelaViaDoDmsId(req: any, bearer: string | null, desafiar: (erro: unknown) => never): Promise<IntegracaoCtxData> {
+  private async pelaViaDoDmsId(
+    req: any,
+    bearer: string | null,
+    desafiar: (erro: unknown) => never,
+  ): Promise<IntegracaoCtxData & { limite?: LimiteContado }> {
     let doToken: TokenDmsIdDoRegem;
     try {
       doToken = await this.dmsId.conferir(bearer);
@@ -187,7 +199,7 @@ export class IntegracaoTokenGuard implements CanActivate {
       return desafiar(erro);
     }
     const segredo = ligacaoDoCabecalho(req?.headers?.[CABECALHO_LIGACAO_NO_NODE]);
-    const t = segredo ? await this.tokens.validarLigacao(segredo, doToken, this.dmsId.aplicativos) : null;
+    const t = segredo ? await this.tokens.validarLigacao(segredo, doToken, this.dmsId.aplicativos, { contar: true }) : null;
     if (!t) {
       esquecerTokenIntegracao(credencialDaChamada(req));
       return desafiar(new ProblemaException(401, 'ligacao-invalida', LIGACAO_INVALIDA));

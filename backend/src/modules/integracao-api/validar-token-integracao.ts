@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
-import { sql } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
+import { LIMITE_INTEGRACAO_POR_MINUTO } from '../../common/integracao-limite';
 import { resumoChave } from '../../dms/integracao-dms';
 import type { EscopoIntegracao } from './escopos';
 import type { IntegracaoCtxData } from './integracao-token.guard';
@@ -38,6 +39,83 @@ const COLUNAS_DO_TOKEN = sql`
            (select count(*)::int from unidade u2
              where u2.tenant_id = t.tenant_id and u2.deleted_at is null) as lojas`;
 
+// ───────────────────────────── o limite de chamadas no banco (Hub DMS, F3-8; mig 333) ─────────────────────────────
+//
+// A contagem por minuto vai NA MESMA instrução da validação (CTE de escrita): uma ida ao banco só, como antes. Conta só
+// o acesso que o banco aceita (não revogado, não vencido, loja e empresa vivas; pela ligação, também a ligação não
+// revogada), pelo id do token — as duas vias somam. Sem a tabela (42P01: migration não aplicada), a validação roda sem
+// contar e o guard cai no contador em memória (`common/integracao-limite.ts`), com aviso no log: o limite nunca derruba
+// a chamada.
+
+/** O que a contagem no banco devolve: passou do limite na janela, e quanto falta para ela virar. */
+export type LimiteContado = { ok: boolean; retryAfterSeg: number };
+
+/** Até quando a tabela do limite é dada como ausente (não tenta de novo a cada chamada) e a última limpeza. */
+let semTabelaDoLimiteAte = 0;
+let limpezaDoLimiteEm = 0;
+const AVISO_SEM_TABELA_MS = 5 * 60_000;
+const LIMPEZA_DO_LIMITE_MS = 60 * 60_000;
+
+const codigoPg = (e: any): string | undefined => e?.code ?? e?.cause?.code;
+
+/** A seleção do acesso (`achado`) com a contagem do minuto, quando `valido` (condição sobre `achado`). */
+function comContagem(selecao: SQL, valido: SQL): SQL {
+  return sql`
+    with achado as (${selecao}),
+    conta as (
+      insert into integracao_limite as lim (chave, inicio, chamadas)
+      select achado.id::text, now(), 1 from achado where ${valido}
+      on conflict (chave) do update
+         set inicio = case when lim.inicio <= now() - interval '1 minute' then now() else lim.inicio end,
+             chamadas = case when lim.inicio <= now() - interval '1 minute' then 1 else lim.chamadas + 1 end
+      returning lim.chamadas,
+                greatest(1, ceil(extract(epoch from (lim.inicio + interval '1 minute' - now()))))::int as resta
+    )
+    select achado.*, conta.chamadas as limite_chamadas, conta.resta as limite_resta
+      from achado left join conta on true`;
+}
+
+const TOKEN_VALE = sql`not achado.revogado and not achado.vencido and not achado.loja_apagada and not achado.empresa_apagada`;
+const LIGACAO_VALE = sql`${TOKEN_VALE} and not achado.ligacao_revogada`;
+
+/** Linha de acesso parado há mais de um dia sai (no máximo uma vez por hora por processo). Nunca rejeita (V3). */
+function limparLimitesVelhos(db: any): void {
+  const agora = Date.now();
+  if (agora - limpezaDoLimiteEm < LIMPEZA_DO_LIMITE_MS) return;
+  limpezaDoLimiteEm = agora;
+  db.execute(sql`delete from integracao_limite where inicio < now() - interval '1 day'`).catch((e: any) => {
+    if (codigoPg(e) !== '42P01') log.warn(`limpeza do limite de chamadas não rodou: ${e?.message ?? e}`);
+  });
+}
+
+/** Roda a seleção do acesso; com `contar`, já contando a chamada no banco (e, sem a tabela, sem contar). */
+async function acharAcesso(db: any, selecao: SQL, valido: SQL, contar: boolean): Promise<any | undefined> {
+  if (contar && Date.now() >= semTabelaDoLimiteAte) {
+    try {
+      const r: any = await db.execute(comContagem(selecao, valido));
+      limparLimitesVelhos(db);
+      return (r.rows ?? r)[0];
+    } catch (e: any) {
+      if (codigoPg(e) !== '42P01') throw e;
+      semTabelaDoLimiteAte = Date.now() + AVISO_SEM_TABELA_MS;
+      log.warn('limite de chamadas na memória: a tabela integracao_limite (mig 333) não existe neste banco');
+    }
+  }
+  const r: any = await db.execute(selecao);
+  return (r.rows ?? r)[0];
+}
+
+/** A contagem que veio do banco, ou nada (não contou: a tabela falta ou não se pediu). */
+function limiteDaLinha(t: any): { limite?: LimiteContado } {
+  if (t?.limite_chamadas === null || t?.limite_chamadas === undefined) return {};
+  return {
+    limite: {
+      ok: Number(t.limite_chamadas) <= LIMITE_INTEGRACAO_POR_MINUTO,
+      retryAfterSeg: Math.max(1, Number(t.limite_resta) || 1),
+    },
+  };
+}
+
 /** Por que o token não vale (`null` = vale). */
 function motivoDoToken(t: any): string | null {
   return t.revogado ? 'revogado' : t.vencido ? 'vencido' : t.loja_apagada ? 'loja apagada' : t.empresa_apagada ? 'empresa apagada' : null;
@@ -63,22 +141,26 @@ function contextoDoToken(t: any): IntegracaoCtxData {
  * DA empresa do token e as duas vivas. `null` = recusa (o motivo vai para o log só quando o token
  * existe — revogado, vencido, loja apagada —, nunca o token).
  */
-export async function validarTokenIntegracao(db: any, token: string): Promise<IntegracaoCtxData | null> {
-  const r: any = await db.execute(sql`
+export async function validarTokenIntegracao(
+  db: any,
+  token: string,
+  o: { contar?: boolean } = {},
+): Promise<(IntegracaoCtxData & { limite?: LimiteContado }) | null> {
+  const selecao = sql`
     select t.id, t.prefixo, ${COLUNAS_DO_TOKEN}
       from integracao_token_loja t
       left join unidade u on u.id = t.unidade_id and u.tenant_id = t.tenant_id
       join empresa e on e.id = t.tenant_id
      where t.token_hash = ${hashTokenIntegracao(token)}
-     limit 1`);
-  const t = (r.rows ?? r)[0];
+     limit 1`;
+  const t = await acharAcesso(db, selecao, TOKEN_VALE, !!o.contar);
   if (!t) return null;
   const motivo = motivoDoToken(t);
   if (motivo) {
     log.warn(`token ${t.prefixo}… (${t.cliente}) recusado: ${motivo}`);
     return null;
   }
-  return contextoDoToken(t);
+  return { ...contextoDoToken(t), ...limiteDaLinha(t) };
 }
 
 /**
@@ -93,16 +175,17 @@ export async function validarLigacaoIntegracao(
   segredo: string,
   doToken: { aplicativo: string; permissoes: readonly string[] },
   aplicativos: Readonly<Record<string, string>>,
-): Promise<IntegracaoCtxData | null> {
-  const r: any = await db.execute(sql`
+  o: { contar?: boolean } = {},
+): Promise<(IntegracaoCtxData & { limite?: LimiteContado }) | null> {
+  const selecao = sql`
     select l.id, l.prefixo, l.aplicativo, l.revogado_em is not null as ligacao_revogada, ${COLUNAS_DO_TOKEN}
       from integracao_ligacao l
       join integracao_token_loja t on t.id = l.id and t.tenant_id = l.tenant_id
       left join unidade u on u.id = t.unidade_id and u.tenant_id = t.tenant_id
       join empresa e on e.id = t.tenant_id
      where l.segredo_hash = ${resumoChave(segredo)}
-     limit 1`);
-  const l = (r.rows ?? r)[0];
+     limit 1`;
+  const l = await acharAcesso(db, selecao, LIGACAO_VALE, !!o.contar);
   const motivo = motivoDaRecusaDaLigacao(
     l ? { aplicativo: l.aplicativo, cliente: l.cliente, revogada: l.ligacao_revogada, motivoDoToken: motivoDoToken(l) } : null,
     doToken.aplicativo,
@@ -117,6 +200,7 @@ export async function validarLigacaoIntegracao(
     escopos: permissoesDaLigacao(l.escopos ?? [], doToken.permissoes),
     via: 'ligacao',
     aplicativo: doToken.aplicativo,
+    ...limiteDaLinha(l),
   };
 }
 

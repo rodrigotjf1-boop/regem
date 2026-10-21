@@ -97,8 +97,9 @@ de loja; a desativação desce pelo carimbo `updated_at`).
 
 `integracao_carga_janela` (mig 302, RegemCast), `integracao_autorizacao` (mig 303, autorização pela
 loja), `integracao_webhook` (mig 304, avisos), `integracao_retrato_mudanca` e `integracao_retrato_marca`
-(mig 316, avisos do Farol) e `integracao_ligacao` (mig 329, Hub DMS F3: a ligação do DMS ID, a mesma
-linha do token da loja): também `-- @cloud-only`, pelo mesmo motivo — a API de integração e a
+(mig 316, avisos do Farol), `integracao_ligacao` (mig 329, Hub DMS F3: a ligação do DMS ID, a mesma
+linha do token da loja) e `integracao_limite` (mig 333, Hub DMS F3-8: a contagem por minuto de cada acesso,
+UNLOGGED): também `-- @cloud-only`, pelo mesmo motivo — a API de integração e a
 autorização pela loja não sobem no servidor da loja. Não existem no banco da loja e não entram no
 `sync-config.ts` nem nas listas do `sync-daemon.mjs`.
 
