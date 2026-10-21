@@ -8,13 +8,15 @@ import { rotuloSenha } from './senha';
 
 // ── Cor: a ÚNICA cor da tela é o status do tempo (decisão do dono, 02/10/2026) ──────────────
 // Verde, amarelo e vermelho; cancelado é cinza (o vermelho fica só para atraso). Cada cor já
-// vem com o texto que se lê em cima dela (contraste AA medido no protótipo).
+// vem com o texto que se lê em cima dela (contraste AA medido no protótipo). Nas cores do Regem (dono, 21/10/2026):
+// verde do Regem 5,13:1 (era #08853A, 4,74), amarelo com tinta navy 10,2:1 (era #FFD60A com #111111, 13,4), vermelho
+// 4,83:1 (era #E60000, 4,81) — o check:kds confere ≥ 4,5 em todas.
 export type FaixaTempo = 'ok' | 'atencao' | 'atrasado';
 export type CorStatus = { fundo: string; texto: string };
 export const COR_STATUS: Record<FaixaTempo | 'cancelado', CorStatus> = {
-  ok: { fundo: '#08853A', texto: '#FFFFFF' },
-  atencao: { fundo: '#FFD60A', texto: '#111111' },
-  atrasado: { fundo: '#E60000', texto: '#FFFFFF' },
+  ok: { fundo: '#0E7C66', texto: '#FFFFFF' },
+  atencao: { fundo: '#F5C842', texto: '#0F2230' },
+  atrasado: { fundo: '#D92D20', texto: '#FFFFFF' },
   cancelado: { fundo: '#5F6B76', texto: '#FFFFFF' },
 };
 

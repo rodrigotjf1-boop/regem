@@ -9,16 +9,17 @@
 <style>
 /* PROTÓTIPO v2 — caminho B com a tela NEUTRA: a única cor é a do status do tempo
    (verde, amarelo, vermelho). Sem borda colorida. Duas formas, trocadas na faixa do topo:
-   data-cor="cabecalho" (só o cabeçalho do cartão) e data-cor="inteiro" (o cartão todo). */
+   data-cor="cabecalho" (só o cabeçalho do cartão) e data-cor="inteiro" (o cartão todo).
+   Cores do Regem (dono, 21/10/2026): o claro é o padrão; status nas cores da marca, todos ≥ 4,5:1. */
 :root{
-  --s-ok:#08853A;   --on-ok:#FFFFFF;      /* verde  — texto branco */
-  --s-warn:#FFD60A; --on-warn:#111111;    /* amarelo — texto preto */
-  --s-late:#E60000; --on-late:#FFFFFF;    /* vermelho puro — texto branco */
+  --s-ok:#0E7C66;   --on-ok:#FFFFFF;      /* verde do Regem — texto branco (5,13:1) */
+  --s-warn:#F5C842; --on-warn:#0F2230;    /* amarelo — tinta navy (10,24:1) */
+  --s-late:#D92D20; --on-late:#FFFFFF;    /* vermelho — texto branco (4,83:1) */
   --s-off:#5F6B76;  --on-off:#FFFFFF;     /* cancelado: cinza, não é cor de status */
   --font-display:'Archivo',sans-serif; --font-body:'Figtree',sans-serif; --font-mono:'JetBrains Mono',monospace;
   --esc:1;
 }
-[data-tema="claro"]{ --bg:#E9EDF1; --panel:#FFFFFF; --panel-2:#F2F4F7; --line:#CBD3DC; --ink:#0F1B24; --muted:#55636F }
+[data-tema="claro"]{ --bg:#EDF0F4; --panel:#FFFFFF; --panel-2:#F1F4F7; --line:#D5DCE4; --ink:#0F2230; --muted:#4F6476 }
 [data-tema="escuro"]{ --bg:#0B1117; --panel:#151E27; --panel-2:#1D2833; --line:#2C3A47; --ink:#F1F5F8; --muted:#A3B1BD }
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{height:100%}
