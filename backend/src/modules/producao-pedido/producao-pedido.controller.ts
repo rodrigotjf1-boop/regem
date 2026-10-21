@@ -114,6 +114,29 @@ export class ProducaoPedidoController {
     );
   }
 
+  // ----- Cozinha em estações (entrega 1): as telas de KDS da loja e os produtos de cada uma -----
+  // A lista das telas é de quem usa o KDS (a de equipamentos pede gerente): o "Este KDS" do aparelho da cozinha.
+  @Get('kds/telas')
+  @RequireModulo('kds')
+  telasKds(@CurrentUser() user: AuthUser, @UnidadeAtual() unidadeAtual: string | null) {
+    return this.service.telasDeKds(user.tenantId, unidadeAtual);
+  }
+
+  @Get('kds/:id/produtos')
+  @RequireModulo('kds')
+  produtosKds(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.produtosDoKds(user.tenantId, id);
+  }
+
+  // "Configurar este KDS": a lista inteira dos produtos que ele mostra (gerência, como os destinos do Direcionamento).
+  @Put('kds/:id/produtos')
+  @RequireModulo('kds')
+  @Roles(...GESTOR)
+  @RequirePerm('producao_kds')
+  setProdutosKds(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    return this.service.setProdutosDoKds(user.tenantId, id, dto?.produtoIds, ator(user));
+  }
+
   // ----- Config de roteamento e cores (gerência/presidente) -----
   @Get('produtos/:id/destinos')
   destinosProduto(@CurrentUser() user: AuthUser, @Param('id') id: string) {

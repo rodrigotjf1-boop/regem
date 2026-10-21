@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { api, getToken } from '@/lib/api';
+import { api, getToken, podePerm } from '@/lib/api';
 import { rotuloSenha, senhaCasa } from '@/lib/senha';
 import { connectAsGestor, connectAsDevice, type Socket } from '@/lib/rt';
 import { KdsMapaEntregadores } from '@/components/kds/kds-mapa-entregadores';
@@ -10,6 +10,7 @@ import { HistoricoKds } from '@/components/kds/historico-kds';
 import { KdsCartaoPedido, type CorDoCartao, type TemaKds } from '@/components/kds/kds-cartao-pedido';
 import { KdsCartaoItem } from '@/components/kds/kds-cartao-item';
 import { KdsResumoItens } from '@/components/kds/kds-resumo-itens';
+import { KdsProdutosGaveta } from '@/components/kds/kds-produtos-gaveta';
 import {
   COR_STATUS,
   FILTROS_ETAPA,
@@ -118,6 +119,7 @@ export default function KdsPage() {
   const [setores, setSetores] = useState<any[]>([]);
   const [setorSel, setSetorSel] = useState('');
   const [kdsList, setKdsList] = useState<any[]>([]); // Fase E — KDS da loja p/ o seletor
+  const [produtosAberto, setProdutosAberto] = useState(false); // "Configurar este KDS" (Cozinha em estações)
   const [kdsSel, setKdsSel] = useState(''); // qual KDS este aparelho opera (cadeia)
   const [canal, setCanal] = useState<'balcao' | 'delivery' | 'todos'>('balcao');
   // Fase C — filtros de sub-origem, um por canal (no modal de config).
@@ -273,9 +275,10 @@ export default function KdsPage() {
       api.entregadoresAoVivoKds()
         .then((r: any) => setMapaHabilitado(r?.habilitado === true))
         .catch(() => setMapaHabilitado(false));
-      // Fase E — KDS da loja (p/ o seletor de cadeia). Restaura a última escolha.
-      api.equipamentos()
-        .then((eqs: any) => setKdsList((eqs as any[]).filter((e) => e.tipo === 'kds' && e.ativo)))
+      // Fase E — KDS da loja (p/ o seletor de cadeia). Restaura a última escolha. Pela lista das telas de KDS (quem tem
+      // o módulo vê): a de equipamentos pede gerente, e o aparelho da cozinha ficava sem escolher qual KDS é.
+      api.kdsTelas()
+        .then((telas: any) => setKdsList(Array.isArray(telas) ? telas : []))
         .catch(() => {});
       try {
         const s = localStorage.getItem('kds-equip');
@@ -512,7 +515,7 @@ export default function KdsPage() {
   //    antes de chegar ao botão em foco (fase de captura) e o foco vai para o campo. Enter sem
   //    número só leva o foco para o campo.
   //  · forma de uso TOQUE — como sempre foi: número solto cai na senha; Enter num botão é do botão.
-  const painelAberto = cfgAberta || histAberto;
+  const painelAberto = cfgAberta || histAberto || produtosAberto;
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape' && painelAberto) {
@@ -902,6 +905,9 @@ export default function KdsPage() {
       </header>
 
       {histAberto && <HistoricoKds T={T} onFechar={() => setHistAberto(false)} />}
+      {produtosAberto && kdsAtual && (
+        <KdsProdutosGaveta kds={{ id: kdsAtual.id, nome: kdsAtual.nome }} T={T} onFechar={() => setProdutosAberto(false)} />
+      )}
 
       {/* Painel de configuração (forma de uso + exibição + filtros + atalho). */}
       {cfgAberta && (
@@ -915,6 +921,33 @@ export default function KdsPage() {
             <span className="text-[13px] font-bold uppercase tracking-wider" style={{ color: T.muted }}>Configuração</span>
             <button type="button" onClick={() => setCfgAberta(false)} aria-label="Fechar a configuração" className="grid h-11 w-11 place-items-center" style={{ color: T.muted }}>✕</button>
           </div>
+
+          {/* Cozinha em estações (entrega 1): os produtos que este KDS mostra — de quem configura a produção. */}
+          {podePerm('producao_kds') && (
+            <>
+              <div className="mb-3">
+                <span className="mb-1 block text-[12px] font-semibold" style={{ color: T.muted }}>Este KDS</span>
+                {kdsAtual ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCfgAberta(false);
+                      setProdutosAberto(true);
+                    }}
+                    className="min-h-[44px] w-full border px-3 text-[13px] font-bold"
+                    style={neutro}
+                  >
+                    Produtos deste KDS ({kdsAtual.nome})
+                  </button>
+                ) : (
+                  <p className="text-[11.5px]" style={{ color: T.muted }}>
+                    Escolha qual KDS é este aparelho (no alto da tela, &quot;KDS: …&quot;) para escolher os produtos que ele mostra.
+                  </p>
+                )}
+              </div>
+              <div className="my-3 border-t" style={{ borderColor: T.border }} />
+            </>
+          )}
 
           {/* Forma de uso deste aparelho: toque ou teclado. */}
           <div className="mb-3">

@@ -41,6 +41,14 @@
   cancelado só valem para o cartão desta tela (fila deste KDS + sub-filtro). Nuvem: no deploy. Loja: no `.zip` (o app
   vai no pacote). Na loja, conferir: o KDS sem a faixa "Sem conexão"; pedido novo apita na hora; um KDS de outro canal
   não apita.
+- **Cozinha em estações, entrega 1 — produtos por KDS e a reserva da cozinha (sem migration):** no KDS, ⚙ › "Este KDS"
+  › "Produtos deste KDS" (gerência) escolhe os produtos que a tela mostra. Com algum KDS da loja com produtos: cada venda
+  vira um cartão por KDS com os itens dele; o item de KDS não sai em papel (só numa impressora escolhida para ele); o
+  item que nenhum KDS marcou vai num cartão de papel (fora do KDS) e sai na impressora — sem impressora, na PADRÃO da
+  loja, mesmo com setor; o pedido do canal só fica pronto quando todos os cartões de KDS ficam prontos. O "Este KDS" do
+  aparelho lista as telas para quem tem o módulo (antes pedia gerente). Sem KDS com produtos, nada muda. Nuvem: no
+  deploy. Loja: no `.zip` (o servidor imprime com a mesma regra), sem `.exe`. Na loja, conferir: escolher os produtos de
+  um KDS e vender um item dele (aparece só nele, não sai em papel) e um de nenhum KDS (sai na impressora da cozinha).
 - **Registro no hub e parada da API de integração (Hub DMS, F3 parte A2; sem migration):** só NUVEM e desligado até a distribuição ligar (`HUB_LIGADO`). O código entra no `.zip` por tabela (o filtro de problemas e as regras do hub, usados também pelas rotas do totem), mas no servidor da loja nada muda: a API de integração e o cliente do hub não sobem lá. Não pede `.exe`. Nada a fazer na loja.
 - **KDS: item removido sai do cartão e os ajustes valem na loja (mig 332, auditoria do KDS):** o item tirado da comanda
   sai do cartão ativo e do resumo (o cartão mostra "Alterado"; no cancelado os itens ficam riscados); cores e etapas do
