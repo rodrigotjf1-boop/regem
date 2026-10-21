@@ -394,11 +394,14 @@ async function setState(k, v) {
 // Estados TERMINAIS que o pull NUNCA deve reverter por uma linha mais velha da
 // nuvem (exceção do LWW — prioridade LOCAL): uma comanda fechada/cancelada no
 // edge não volta pra 'aberta' por um delta atrasado/materialização tardia da nuvem.
-const ESTADOS_TERMINAIS = { comanda: ['fechada', 'cancelada'] };
+// O cartão do KDS também (auditoria do KDS, 20/10/2026): entregue ou cancelado não volta à fila.
+const ESTADOS_TERMINAIS = { comanda: ['fechada', 'cancelada'], producao_pedido: ['entregue', 'cancelado'] };
 
 // Quando a linha da nuvem sobrescreve a local (pull e restore, linha a linha e em lote):
 //  • LWW: só se a da nuvem for ESTRITAMENTE mais nova (updated_at);
-//  • estado terminal local (comanda fechada/cancelada) não reabre;
+//  • estado terminal local (comanda fechada/cancelada, cartão entregue/cancelado) não reabre; e o
+//    cartão CANCELADO vence o entregue: o canal cancelou enquanto a cozinha batia "entregue" — a venda
+//    foi desfeita, e o cartão diz isso (o mesmo vale no push: sync.service, `naoReabreCartao`);
 //  • REVOGAÇÃO é absorvente (ERR-235): equipamento revogado na nuvem entra aqui mesmo que a cópia
 //    local pareça mais nova — o terminal em uso renova o updated_at local a cada requisição, e o
 //    LWW sozinho deixava a revogação sem descer (e a loja a devolvia "ativa" para a nuvem).
@@ -426,6 +429,7 @@ function condicaoSobrescrever(tabela, cols) {
   if (terminais && cols.has('status')) {
     const lst = terminais.map((s) => `'${s}'`).join(',');
     cond.push(`not (${q(tabela)}.status in (${lst}) and excluded.status not in (${lst}))`);
+    if (tabela === 'producao_pedido') cond.push(`not (${q(tabela)}.status = 'cancelado' and excluded.status <> 'cancelado')`);
   }
   return cond.length ? ` where ${cond.join(' and ')}` : '';
 }
