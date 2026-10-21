@@ -847,6 +847,11 @@ export const api = {
     req('/estoque/categorias-item', { method: 'POST', body: JSON.stringify(body) }),
   removerEstoqueCategoria: (id: string) =>
     req(`/estoque/categorias-item/${id}`, { method: 'DELETE' }),
+  // Cozinha em estações (entrega 1): as telas de KDS da loja e os produtos que cada uma mostra.
+  kdsTelas: () => req('/producao/kds/telas'),
+  kdsProdutos: (id: string) => req(`/producao/kds/${id}/produtos`),
+  salvarKdsProdutos: (id: string, produtoIds: string[]) =>
+    req(`/producao/kds/${id}/produtos`, { method: 'PUT', body: JSON.stringify({ produtoIds }) }),
   // Produção (Fase F1)
   producaoFila: (setorId?: string, unidadeId?: string, canal?: string, equipamentoId?: string) => {
     const p = new URLSearchParams();

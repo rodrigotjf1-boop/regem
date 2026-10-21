@@ -85,6 +85,7 @@ function daEstacao(estacaoId: string, tenantId: string): SQL {
 
 // Status válidos, em ordem de avanço.
 const JANELA_ACAO_MIN = 30; // atendente pode agir até 30min após "pronto"
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // A fila do KDS mostra só os cartões abertos das últimas 12 horas (menos encomenda ainda por fazer): sem o corte, os
 // cartões esquecidos se acumulavam do mais antigo para o mais novo e o pedido de agora ia parar no fim de 900 cartões
 // (auditoria do KDS, 20/10/2026; o cartão também passou a fechar quando o pedido sai da loja — mig 330).
@@ -311,6 +312,21 @@ export class ProducaoPedidoService {
     return id;
   }
 
+  // COZINHA EM ESTAÇÕES (entrega 1, decisão do dono em 21/10/2026): a loja passa a ter um cartão por KDS quando algum
+  // KDS ativo dela (ou da rede) tem produtos ou setores escolhidos — no "Configurar este KDS" ou no Direcionamento. Sem
+  // isso, tudo segue como antes: um cartão por venda, sem destino, e as vias de sempre.
+  private async modoEstacoes(db: any, tenantId: string, unidadeId: string | null): Promise<boolean> {
+    const r: any = await db.execute(sql`
+      select exists (
+        select 1 from equipamento e
+         where e.tenant_id = ${tenantId} and e.tipo = 'kds' and e.ativo
+           ${unidadeId ? sql`and (e.unidade_id = ${unidadeId} or e.unidade_id is null)` : sql``}
+           and (exists (select 1 from produto_destino_producao d where d.tenant_id = e.tenant_id and d.equipamento_id = e.id)
+                or exists (select 1 from setor_destino_producao d where d.tenant_id = e.tenant_id and d.equipamento_id = e.id))
+      ) as sim`);
+    return (r.rows ?? r)[0]?.sim === true;
+  }
+
   // Roteamento das VIAS DE PRODUÇÃO de uma venda — UMA implementação para a venda local
   // (`criarPedidos`) e para a venda da nuvem materializada no servidor local
   // (`materializarProducaoLocal`); antes eram duas cópias "a manter em sincronia".
@@ -320,12 +336,16 @@ export class ProducaoPedidoService {
   //  (b) impressoras de produção da loja que atendem o setor (setores_atendidos);
   //  (c) item sem setor (ou sem setor equivalente nesta loja) e sem destino → padrão da loja.
   // Item com setor DESTA loja que só vai para KDS continua sem via (decisão da loja).
+  // Em ESTAÇÕES (`estacoes`): o item vai ao cartão de cada KDS que o marcou (produto, setor ou opção) e só sai em papel
+  // numa impressora escolhida para ele — o KDS substitui o papel; o item que nenhum KDS marcou sai como sempre e, sem
+  // impressora nenhuma, na PADRÃO da loja (a reserva da cozinha), mesmo com setor. `kds` = KDS → itens do cartão dele.
   private async rotearProducao(
     db: any,
     tenantId: string,
     unidadeId: string | null,
     daProducao: ItemProducao[],
-  ): Promise<{ impressoras: Map<string, Set<ItemProducao>>; padraoId: string | null }> {
+    estacoes = false,
+  ): Promise<{ impressoras: Map<string, Set<ItemProducao>>; padraoId: string | null; kds: Map<string, ItemProducao[]> }> {
     // Impressoras de PRODUÇÃO ativas da loja — para `setores_atendidos` e a PADRÃO (fallback).
     const printers: any[] = await db
       .select({
@@ -356,24 +376,28 @@ export class ProducaoPedidoService {
       s.add(it);
       impressoras.set(eqId, s);
     };
+    const kds = new Map<string, ItemProducao[]>();
     const setores = new Map<string, string | null>();
     for (const it of daProducao) {
       let roteado = false;
       const setor = await this.setorNaLoja(db, tenantId, it.produto?.setorProducaoId, unidadeId, setores);
-      // (a) destinos explícitos do produto/setor → equipamento
-      for (const d of await this.resolverDestinos(db, tenantId, it.produto, unidadeId, setor)) {
+      const destinos = [
+        // (a) destinos explícitos do produto/setor → equipamento
+        ...(await this.resolverDestinos(db, tenantId, it.produto, unidadeId, setor)),
+        // (a2) destinos próprios das OPÇÕES/COMPLEMENTOS escolhidos (mig 127/Fase 1): SOMAM ao
+        // destino do produto — um adicional direcionado (ex.: bebida → bar) também recebe a via.
+        ...(await this.destinosPorOpcoes(db, tenantId, it.opcaoIds, unidadeId)),
+      ];
+      for (const d of destinos) {
         if (d.tipo === 'impressora' && d.equipamentoId) {
           addImp(d.equipamentoId, it);
           roteado = true;
         }
       }
-      // (a2) destinos próprios das OPÇÕES/COMPLEMENTOS escolhidos (mig 127/Fase 1): SOMAM ao
-      // destino do produto — um adicional direcionado (ex.: bebida → bar) também recebe a via.
-      for (const d of await this.destinosPorOpcoes(db, tenantId, it.opcaoIds, unidadeId)) {
-        if (d.tipo === 'impressora' && d.equipamentoId) {
-          addImp(d.equipamentoId, it);
-          roteado = true;
-        }
+      if (estacoes) {
+        const telas = [...new Set(destinos.filter((d) => d.tipo === 'kds' && d.equipamentoId).map((d) => d.equipamentoId as string))];
+        for (const id of telas) kds.set(id, [...(kds.get(id) ?? []), it]);
+        if (telas.length) continue; // o KDS substitui o papel: sem setores_atendidos nem a padrão
       }
       // (b) impressoras que atendem o setor do produto (setores_atendidos)
       if (setor) {
@@ -385,10 +409,11 @@ export class ProducaoPedidoService {
           }
         }
       }
-      // (c) fallback: sem setor (ou sem equivalente nesta loja) e sem impressora → PADRÃO.
-      if (!roteado && !setor && padraoId) addImp(padraoId, it);
+      // (c) fallback: sem impressora → PADRÃO. Sem estações: só o item sem setor (ou sem equivalente nesta loja); em
+      // estações, todo item que nenhum KDS marcou (a reserva da cozinha).
+      if (!roteado && padraoId && (estacoes || !setor)) addImp(padraoId, it);
     }
-    return { impressoras, padraoId };
+    return { impressoras, padraoId, kds };
   }
 
   private normalizaDestino = (d: any): Destino => ({
@@ -420,51 +445,65 @@ export class ProducaoPedidoService {
     const daProducao = itens.filter((it) => it.produto?.vaiParaProducao);
     if (!daProducao.length) return [];
 
-    // Regra: 1 pedido de produção por venda (senha ÚNICA) — todos os itens de
-    // produção num único card de KDS, sem quebrar por setor. As impressoras
-    // configuradas continuam recebendo suas vias de produção.
-    // Impressoras de PRODUÇÃO ativas da unidade — para roteamento por
-    // `setores_atendidos` (upgrade) e para a impressora PADRÃO (fallback). NÃO
-    // remove o roteamento por produto/setor (`resolverDestinos`), só o complementa.
-    const { impressoras, padraoId } = await this.rotearProducao(tx, ctx.tenantId, ctx.unidadeId ?? null, daProducao);
+    // Cartões da venda. Sem estações (como sempre): 1 pedido de produção por venda (senha ÚNICA) — todos os itens de
+    // produção num único card de KDS sem destino, sem quebrar por setor; as impressoras configuradas recebem suas vias.
+    // EM ESTAÇÕES (entrega 1): um cartão por KDS, com os itens que aquele KDS marcou, e os itens que nenhum KDS marcou
+    // num cartão de PAPEL (`destino_tipo = 'impressora'`): não aparece em KDS nenhum, dá ao servidor da loja o cabeçalho
+    // das vias (materializarProducaoLocal) e aparece no painel de produção do PDV. Todos com o MESMO número da venda.
+    // Impressoras de PRODUÇÃO ativas da unidade — para roteamento por `setores_atendidos` (upgrade) e para a impressora
+    // PADRÃO (fallback). NÃO remove o roteamento por produto/setor (`resolverDestinos`), só o complementa.
+    const estacoes = await this.modoEstacoes(tx, ctx.tenantId, ctx.unidadeId ?? null);
+    const { impressoras, padraoId, kds } = await this.rotearProducao(tx, ctx.tenantId, ctx.unidadeId ?? null, daProducao, estacoes);
+    const grupos: { destino: string | null; tipo: 'kds' | 'impressora'; itens: ItemProducao[] }[] = [];
+    if (estacoes) {
+      for (const [destino, its] of kds) grupos.push({ destino, tipo: 'kds', itens: its });
+      const naTela = new Set([...kds.values()].flat());
+      const papel = daProducao.filter((it) => !naTela.has(it));
+      if (papel.length) grupos.push({ destino: null, tipo: 'impressora', itens: papel });
+    } else {
+      grupos.push({ destino: null, tipo: 'kds', itens: daProducao });
+    }
 
     const numero = await this.proximoNumero(tx, ctx.tenantId, ctx.unidadeId);
-    const tempo = daProducao.reduce(
-      (mx, it) => Math.max(mx, Number(it.produto?.tempoPreparoMin) || 0),
-      0,
-    );
-    const [ped] = await tx
-      .insert(producaoPedido)
-      .values({
-        tenantId: ctx.tenantId,
-        unidadeId: ctx.unidadeId ?? null,
-        comandaId: ctx.comandaId,
-        destinoEquipamentoId: null,
-        destinoTipo: 'kds',
-        setorId: ctx.setorId ?? null,
-        numero,
-        senha: ctx.senha ?? null,
-        senhaPrefixo: ctx.senhaPrefixo ?? null,
-        origem: ctx.origem,
-        plataforma: ctx.plataforma ?? null,
-        senhaPlataforma: ctx.senhaPlataforma ?? null,
-        mesa: ctx.mesa ?? null,
-        consumo: ctx.consumo ?? null,
-        status: 'recebido',
-        tempoPreparoMin: tempo || null,
-      })
-      .returning();
-    for (const it of daProducao) {
-      await tx.insert(producaoPedidoItem).values({
-        tenantId: ctx.tenantId,
-        pedidoId: ped.id,
-        comandaItemId: it.comandaItemId ?? null,
-        descricao: it.descricao,
-        quantidade: String(it.quantidade),
-        complementosTexto: it.complementosTexto ?? null,
-        observacao: it.observacao ?? null,
-      });
+    const cartoes: any[] = [];
+    for (const g of grupos) {
+      const tempo = g.itens.reduce((mx, it) => Math.max(mx, Number(it.produto?.tempoPreparoMin) || 0), 0);
+      const [cartao] = await tx
+        .insert(producaoPedido)
+        .values({
+          tenantId: ctx.tenantId,
+          unidadeId: ctx.unidadeId ?? null,
+          comandaId: ctx.comandaId,
+          destinoEquipamentoId: g.destino,
+          destinoTipo: g.tipo,
+          setorId: ctx.setorId ?? null,
+          numero,
+          senha: ctx.senha ?? null,
+          senhaPrefixo: ctx.senhaPrefixo ?? null,
+          origem: ctx.origem,
+          plataforma: ctx.plataforma ?? null,
+          senhaPlataforma: ctx.senhaPlataforma ?? null,
+          mesa: ctx.mesa ?? null,
+          consumo: ctx.consumo ?? null,
+          status: 'recebido',
+          tempoPreparoMin: tempo || null,
+        })
+        .returning();
+      await tx.insert(producaoPedidoItem).values(
+        g.itens.map((it) => ({
+          tenantId: ctx.tenantId,
+          pedidoId: cartao.id,
+          comandaItemId: it.comandaItemId ?? null,
+          descricao: it.descricao,
+          quantidade: String(it.quantidade),
+          complementosTexto: it.complementosTexto ?? null,
+          observacao: it.observacao ?? null,
+        })),
+      );
+      cartoes.push(cartao);
     }
+    // As vias e etiquetas ligam a um cartão da venda: o de papel, se houver; senão o primeiro.
+    const ped = cartoes.find((c) => c.destinoTipo === 'impressora') ?? cartoes[0];
     // Config de cupom da loja: perfil de produção (Fase 3b) + política de adiar (Fase 6).
     const cfgCupom = await this.carregarConfigCupom(tx, ctx.tenantId, ctx.unidadeId ?? null);
     const idProd = ctx.origem === 'delivery' ? 'producao_delivery' : 'producao_balcao';
@@ -473,8 +512,9 @@ export class ProducaoPedidoService {
       : null;
     // Fase 6 — adiar a via de produção até o KDS? Só adia se houver KDS "armado"
     // (imprime_ao_avancar) ativo na unidade — senão imprime no registro (não perde o ticket).
+    // Em estações não se adia: o item de KDS já não sai em papel, e o de papel não tem KDS que o imprima depois.
     let emitirProducaoAgora = true;
-    if (cfgCupom.adiarProducao) {
+    if (!estacoes && cfgCupom.adiarProducao) {
       const armados = await tx
         .select({ id: equipamento.id })
         .from(equipamento)
@@ -553,17 +593,15 @@ export class ProducaoPedidoService {
         });
       }
     }
-    return [
-      {
-        tenantId: ctx.tenantId,
-        unidadeId: ctx.unidadeId ?? null,
-        setorId: ctx.setorId ?? null,
-        destinoEquipamentoId: null,
-        destinoTipo: 'kds',
-        pedidoId: ped.id,
-        tipo: 'novo',
-      },
-    ];
+    return cartoes.map((c) => ({
+      tenantId: ctx.tenantId,
+      unidadeId: ctx.unidadeId ?? null,
+      setorId: ctx.setorId ?? null,
+      destinoEquipamentoId: c.destinoEquipamentoId ?? null,
+      destinoTipo: c.destinoTipo,
+      pedidoId: c.id,
+      tipo: 'novo',
+    }));
   }
 
   // ===== S3b — Materializa as VIAS DE PRODUÇÃO no EDGE =====
@@ -631,17 +669,19 @@ export class ProducaoPedidoService {
     const numero = ped.numero ?? null;
     const db = this.db;
 
-    // Mesmo roteamento da venda local (uma implementação só).
-    const { impressoras, padraoId } = await this.rotearProducao(db, tenantId, ctx.unidadeId ?? null, daProducao);
+    // Mesmo roteamento da venda local (uma implementação só), com a mesma regra das estações: o cartão de cada KDS já
+    // desceu da nuvem; aqui sai só o papel.
+    const estacoes = await this.modoEstacoes(db, tenantId, ctx.unidadeId ?? null);
+    const { impressoras, padraoId } = await this.rotearProducao(db, tenantId, ctx.unidadeId ?? null, daProducao, estacoes);
 
     const cfgCupom = await this.carregarConfigCupom(db, tenantId, ctx.unidadeId ?? null);
     const idProd = ctx.origem === 'delivery' ? 'producao_delivery' : 'producao_balcao';
     const ppProd = cfgCupom.override[idProd]
       ? { perfil: perfilEfetivo(idProd, cfgCupom.override[idProd]), cabecalho: cfgCupom.cabecalho, rodape: cfgCupom.rodape }
       : null;
-    // Adiar até o KDS? Só se houver KDS armado (imprime_ao_avancar) — igual a criarPedidos.
+    // Adiar até o KDS? Só se houver KDS armado (imprime_ao_avancar) — igual a criarPedidos (em estações, não se adia).
     let emitirProducaoAgora = true;
-    if (cfgCupom.adiarProducao) {
+    if (!estacoes && cfgCupom.adiarProducao) {
       const armados = await db
         .select({ id: equipamento.id })
         .from(equipamento)
@@ -2653,11 +2693,12 @@ export class ProducaoPedidoService {
 
   // A cozinha já começou algum card desta comanda? (decide se "perda" tem o que baixar.)
   // Sem card nenhum (loja sem KDS, ou produto sem destino de produção) o aceite é o início:
-  // a cozinha trabalha pela via impressa.
+  // a cozinha trabalha pela via impressa. Em estações, o cartão de PAPEL é a mesma coisa: começou no aceite.
   async producaoIniciada(tenantId: string, comandaId: string): Promise<boolean> {
     const r: any = await this.db.execute(sql`
-      select count(*) filter (where status <> 'cancelado')::int as cards,
-             count(*) filter (where status in ('preparo', 'pronto', 'entregue'))::int as iniciados
+      select count(*) filter (where destino_tipo = 'kds' and status <> 'cancelado')::int as cards,
+             count(*) filter (where status <> 'cancelado'
+                                and (destino_tipo <> 'kds' or status in ('preparo', 'pronto', 'entregue')))::int as iniciados
         from producao_pedido
        where tenant_id = ${tenantId} and comanda_id = ${comandaId}`);
     const linha = (r.rows ?? r)[0];
@@ -2665,12 +2706,13 @@ export class ProducaoPedidoService {
   }
 
   // Todos os cards da comanda (fora os cancelados) já estão prontos ou entregues?
-  // Pedido com item acrescentado depois do aceite tem mais de um card.
+  // Pedido com item acrescentado depois do aceite tem mais de um card — e, em estações, um por KDS. Só os de KDS
+  // contam: o cartão de PAPEL (`destino_tipo = 'impressora'`) não passa por tela nenhuma e seguraria o pedido.
   async comandaTodaPronta(tenantId: string, comandaId: string): Promise<boolean> {
     const r: any = await this.db.execute(sql`
       select count(*)::int as n
         from producao_pedido
-       where tenant_id = ${tenantId} and comanda_id = ${comandaId}
+       where tenant_id = ${tenantId} and comanda_id = ${comandaId} and destino_tipo = 'kds'
          and status not in ('cancelado', 'pronto', 'entregue')`);
     return Number((r.rows ?? r)[0]?.n ?? 0) === 0;
   }
@@ -2845,6 +2887,86 @@ export class ProducaoPedidoService {
     const [prod] = await this.db.select({ nome: produto.nome }).from(produto).where(and(eq(produto.tenantId, tenantId), eq(produto.id, produtoId)));
     await this.auditarDestinos(tenantId, ator, 'produto', produtoId, prod?.nome ?? null, antes, lista);
     return this.destinosDoProduto(tenantId, produtoId);
+  }
+
+  // ===== Cozinha em estações (entrega 1): as telas de KDS da loja e os produtos de cada uma =====
+  // As telas de KDS ativas da loja (e da rede) — para o "Este KDS" do aparelho da cozinha, de quem tem o módulo (a lista
+  // de equipamentos pede gerente: o cozinheiro ficava sem escolher a tela).
+  telasDeKds(tenantId: string, unidadeId: string | null) {
+    return this.db
+      .select({ id: equipamento.id, nome: equipamento.nome, escopo: equipamento.escopo, setorId: equipamento.setorId })
+      .from(equipamento)
+      .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.tipo, 'kds'), eq(equipamento.ativo, true), lojaOuRede(unidadeId)))
+      .orderBy(equipamento.nome);
+  }
+
+  private async kdsDaEmpresa(tenantId: string, equipamentoId: string) {
+    if (!UUID_RE.test(String(equipamentoId))) throw new NotFoundException('KDS não encontrado.');
+    const [k] = await this.db
+      .select({ id: equipamento.id, nome: equipamento.nome, tipo: equipamento.tipo, ativo: equipamento.ativo })
+      .from(equipamento)
+      .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, equipamentoId)));
+    if (!k || k.tipo !== 'kds') throw new NotFoundException('KDS não encontrado.');
+    return k;
+  }
+
+  // Os produtos que este KDS mostra (= os destinos de produção que apontam para ele — os mesmos do Direcionamento).
+  async produtosDoKds(tenantId: string, equipamentoId: string) {
+    await this.kdsDaEmpresa(tenantId, equipamentoId);
+    const rows = await this.db
+      .select({ produtoId: produtoDestinoProducao.produtoId })
+      .from(produtoDestinoProducao)
+      .where(and(eq(produtoDestinoProducao.tenantId, tenantId), eq(produtoDestinoProducao.equipamentoId, equipamentoId)));
+    return { produtoIds: rows.map((r) => r.produtoId) };
+  }
+
+  // Grava a lista inteira de produtos do KDS ("Configurar este KDS"): entra o marcado, sai o desmarcado — numa transação
+  // só, sem tocar nos outros destinos de cada produto (a impressora do bar continua). Os destinos sincronizam nos dois
+  // sentidos (o apagado vai por `sync_exclusao`).
+  async setProdutosDoKds(tenantId: string, equipamentoId: string, produtoIds: unknown, ator?: AtorKds) {
+    const k = await this.kdsDaEmpresa(tenantId, equipamentoId);
+    if (!k.ativo) throw new BadRequestException('Este KDS está desligado. Ligue-o em Configurações › Equipamentos antes de escolher os produtos.');
+    if (!Array.isArray(produtoIds)) throw new BadRequestException('Mande a lista de produtos deste KDS.');
+    const filtrados = produtoIds.filter((x): x is string => typeof x === 'string' && UUID_RE.test(x));
+    if (filtrados.length !== produtoIds.length) throw new BadRequestException('A lista de produtos tem um item que não é produto.');
+    const ids = [...new Set(filtrados)];
+    const validos = ids.length
+      ? (
+          await this.db
+            .select({ id: produto.id })
+            .from(produto)
+            .where(and(eq(produto.tenantId, tenantId), inArray(produto.id, ids), isNull(produto.deletedAt)))
+        ).map((p) => p.id)
+      : [];
+    if (validos.length !== ids.length) throw new BadRequestException('Algum produto da lista não é desta empresa ou foi excluído.');
+    const mudou = await this.db.transaction(async (tx: any) => {
+      const deste = and(eq(produtoDestinoProducao.tenantId, tenantId), eq(produtoDestinoProducao.equipamentoId, equipamentoId));
+      const antes: string[] = (await tx.select({ produtoId: produtoDestinoProducao.produtoId }).from(produtoDestinoProducao).where(deste)).map(
+        (r: any) => r.produtoId,
+      );
+      const sair = antes.filter((id) => !validos.includes(id));
+      const entrar = validos.filter((id) => !antes.includes(id));
+      if (sair.length) await tx.delete(produtoDestinoProducao).where(and(deste, inArray(produtoDestinoProducao.produtoId, sair)));
+      if (entrar.length)
+        await tx
+          .insert(produtoDestinoProducao)
+          .values(entrar.map((produtoId) => ({ tenantId, produtoId, equipamentoId })))
+          .onConflictDoNothing();
+      return { entraram: entrar.length, sairam: sair.length };
+    });
+    if (mudou.entraram || mudou.sairam) {
+      await this.auditoria.registrar({
+        tenantId,
+        atorId: ator?.id ?? null,
+        atorPerfil: ator?.perfil ?? null,
+        tipo: 'config',
+        acao: 'configurou_produtos_kds',
+        entidadeTipo: 'kds',
+        entidadeId: equipamentoId,
+        detalhe: { kds: k.nome, produtos: validos.length, ...mudou },
+      });
+    }
+    return { produtoIds: validos, ...mudou };
   }
 
   /** Registro único de "mudou para onde este produto/setor manda a produção" — só se mudou. */
