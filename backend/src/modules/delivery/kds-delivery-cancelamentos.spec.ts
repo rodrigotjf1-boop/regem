@@ -206,7 +206,8 @@ descrever('KDS × delivery: cancelamentos, pronto parcial, voltar e perda (Postg
       await delivery.refletirStatusExterno(l.t, 'ifood', p.externalId, 'cancelado');
       expect((await pedido(p.id)).status).toBe('concluido');
       expect((await comanda(p.comandaId)).status).toBe('fechada');
-      expect((await cards(p.comandaId)).map((c) => c.status)).toEqual(['recebido']);
+      // O cartão fechou quando o pedido saiu da loja (gatilho da mig 330) — e o cancelamento tardio não o cancela.
+      expect((await cards(p.comandaId)).map((c) => c.status)).toEqual(['entregue']);
       expect((await lancamentos(p.comandaId)).filter((x) => x.categoria === 'estorno')).toHaveLength(0);
     });
 
@@ -218,14 +219,16 @@ descrever('KDS × delivery: cancelamentos, pronto parcial, voltar e perda (Postg
       expect(auditado).toEqual([]);
     });
 
-    it('os outros reflexos do canal (pronto, despachado) não mexem na venda nem na cozinha', async () => {
+    it('os outros reflexos do canal não desfazem a venda: pronto não mexe na cozinha; despachado fecha o cartão (mig 330)', async () => {
       const l = await loja();
       const p = await aceito(l);
       await delivery.refletirStatusExterno(l.t, 'ifood', p.externalId, 'pronto');
+      expect((await cards(p.comandaId)).map((c) => c.status)).toEqual(['recebido']);
       await delivery.refletirStatusExterno(l.t, 'ifood', p.externalId, 'despachado');
       expect((await pedido(p.id)).status).toBe('despachado');
       expect((await comanda(p.comandaId)).status).toBe('fechada');
-      expect((await cards(p.comandaId)).map((c) => c.status)).toEqual(['recebido']);
+      expect((await cards(p.comandaId)).map((c) => c.status)).toEqual(['entregue']); // saiu da loja: fechado, não cancelado
+      expect(cancelouNaCozinha()).toBe(0);
     });
 
     it('encomenda que o cliente cancela depois de aceita (cancelamento do sistema): mesma coisa', async () => {

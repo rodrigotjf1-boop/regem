@@ -14,6 +14,16 @@
 
 - **Vendas em dobro desfeitas (mig 328, `-- @cloud-only`, #687):** só NUVEM, já aplicada (20/10): 178 comandas que sobraram dos pedidos aceitos pelos dois lados (07 a 20/10, R$ 8.365,96) canceladas, com estorno na data da venda e auditoria. O `.zip` leva o arquivo e o servidor da loja o pula; a loja recebe a correção pela sincronização. Nada a fazer na loja.
 - **A via do DMS ID na API de integração (Hub DMS, F3 parte A; mig 329, `-- @cloud-only`):** só NUVEM e desligada até a distribuição ligar (`DMS_ID_LIGADO`). O código entra no `.zip` por tabela (o guard da API, o pacote comum do Padrão e o `main.ts`), mas no servidor da loja nada muda: a API de integração não sobe lá e a 329 é pulada. Não pede `.exe`. Nada a fazer na loja.
+- **O cartão da cozinha fecha quando o pedido sai da loja; a fila do KDS mostra as últimas 12 horas (mig 330, auditoria do
+  KDS de 20/10):**
+  - **Nuvem (vale ao aplicar a 330, sem esperar o `.zip`):** gatilho no `pedido_externo` — despachado, entregue ou
+    concluído fecha os cartões abertos da comanda (menos o totem); como a situação que o servidor da loja manda passa
+    pela nuvem, o cartão fechado desce para a loja pela sincronização. Uma vez: os cartões abertos de pedido que já saiu
+    e os com mais de um dia são fechados, com auditoria.
+  - **Servidor da loja (`.zip`, sem `.exe`):** a 330 cria o mesmo gatilho no banco da loja (o fechamento único só roda na
+    nuvem) e a fila do KDS passa a mostrar só os cartões abertos das últimas 12 horas (encomenda por fazer continua).
+  - Na loja, conferir: a tela do KDS sem os cartões antigos; um pedido concluído na tela de delivery some do KDS em até
+    30 segundos.
 
 ## Última release: `1.30.6` — gerada em 20/10/2026 da `origin/main` `3f4db2af`, **`.zip` GERADO, conferido e assinado** (`regem-edge-1.30.6.zip`, 31.838.658 bytes, SHA-256 `168c67acb2aff280ff44ef737374413ddf82804df4fa65b7c0fb7ddddb794f41`) e **`.exe` COMPILADO** (`RegemEdgeSetup.exe`, 93.547.959 bytes, SHA-256 `31186dc63d90d50710cc6a247bc071c7560cbe7992aa5443f97f5e1dfd546441`); publicação no console e instalação na loja PENDENTES (o dono)
 

@@ -85,6 +85,10 @@ function daEstacao(estacaoId: string, tenantId: string): SQL {
 
 // Status válidos, em ordem de avanço.
 const JANELA_ACAO_MIN = 30; // atendente pode agir até 30min após "pronto"
+// A fila do KDS mostra só os cartões abertos das últimas 12 horas (menos encomenda ainda por fazer): sem o corte, os
+// cartões esquecidos se acumulavam do mais antigo para o mais novo e o pedido de agora ia parar no fim de 900 cartões
+// (auditoria do KDS, 20/10/2026; o cartão também passou a fechar quando o pedido sai da loja — mig 330).
+const JANELA_FILA_HORAS = 12;
 
 // Linha que abre a via de produção de um pedido para viagem (texto aprovado pelo dono em 09/10/2026).
 export const MARCA_VIAGEM = '*** VIAGEM ***';
@@ -2203,9 +2207,13 @@ export class ProducaoPedidoService {
     } else if (opts.setorId) {
       conds.push(eq(producaoPedido.setorId, opts.setorId));
     }
-    // Ativos + cancelados recentes.
+    // Ativos das últimas 12 horas (encomenda cujo horário ainda não passou fica, como antes) + cancelados recentes.
     conds.push(
-      sql`(status in ('recebido','preparo','pronto')
+      sql`((status in ('recebido','preparo','pronto')
+            and (criado_em > now() - interval '${sql.raw(String(JANELA_FILA_HORAS))} hours'
+                 or exists (select 1 from pedido_externo pe
+                             where pe.tenant_id = producao_pedido.tenant_id and pe.comanda_id = producao_pedido.comanda_id
+                               and pe.agendamento > now() - interval '${sql.raw(String(JANELA_FILA_HORAS))} hours')))
            or (status = 'cancelado'
                and coalesce(cancelado_em, criado_em) > now() - interval '${sql.raw(
                  String(JANELA_ACAO_MIN),
