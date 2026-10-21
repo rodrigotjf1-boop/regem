@@ -15,9 +15,12 @@ import {
   esquecerTokenIntegracao,
   registrarTokenIntegracaoValidado,
 } from '../../common/integracao-limite';
-import { ErroTokenDmsId } from '../../dms/integracao-dms';
+import { ErroTokenDmsId, problemaDaParada } from '../../dms/integracao-dms';
+import { anotarChamada } from './chamada-integracao';
 import { DmsIdService, type TokenDmsIdDoRegem } from './dms-id.service';
 import { EscopoIntegracao } from './escopos';
+import { aceitaIntegracoes, ferramentaDaRota } from './hub.regras';
+import { HubDmsService } from './hub-dms.service';
 import { CABECALHO_LIGACAO_NO_NODE, desafioDaRecusa, EscopoFaltando, LIGACAO_INVALIDA, ligacaoDoCabecalho } from './ligacao.regras';
 import { ProblemaException } from './problema';
 import { formatoTokenIntegracao } from './token-integracao';
@@ -72,8 +75,14 @@ export function ipDe(req: any): string | null {
  *   `token-invalido` se não vale; 403 se não tem permissão nenhuma do Regem) e o segredo da ligação no `DMS-Ligacao`
  *   (401 `ligacao-invalida`, a mesma resposta para todo motivo). Valem as permissões que a loja autorizou E o token tem.
  *
- * Depois, nas duas: limite da credencial (429) → escopos da rota (403, com todos os que faltam) → contexto. Todo 401
- * leva o desafio `WWW-Authenticate` (com a via ligada, também o endereço dos metadados do recurso, RFC 9728).
+ * Depois, nas duas: limite da credencial (429) → lista de parada do hub (503) → escopos da rota (403, com todos os que
+ * faltam) → contexto. Todo 401 leva o desafio `WWW-Authenticate` (com a via ligada, também o endereço dos metadados do
+ * recurso, RFC 9728).
+ *
+ * A parada (Padrão §10; Hub DMS F3, A2), nas duas vias, com 503 `integracao-parada`: a chave própria
+ * `ACEITAR_INTEGRACOES` recusa antes de tudo, sem ir ao banco e sem depender do hub; a lista do hub (só com
+ * `HUB_LIGADO`) vale depois de reconhecer quem chama — a geral, a do aplicativo (o cliente: `liame`, `farol`…), a da
+ * credencial (pelo prefixo visível) e a da rota. O que o guard fica sabendo vai anotado na chamada, para o registro.
  *
  * Sem cache de validação: revogar vale na chamada seguinte. O limite conta TODA chamada da credencial válida,
  * inclusive a que cai no 403 — é ele que substitui o limite por IP. A credencial que o banco recusa perde a isenção do
@@ -83,13 +92,16 @@ export function ipDe(req: any): string | null {
 export class IntegracaoTokenGuard implements CanActivate {
   private readonly log = new Logger('IntegracaoToken');
   private readonly dmsId: DmsIdService;
+  private readonly hub: HubDmsService | null;
 
   constructor(
     private readonly tokens: IntegracaoTokenService,
     private readonly reflector: Reflector,
     @Optional() dmsId?: DmsIdService,
+    @Optional() hub?: HubDmsService,
   ) {
     this.dmsId = dmsId ?? new DmsIdService();
+    this.hub = hub ?? null;
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -104,15 +116,20 @@ export class IntegracaoTokenGuard implements CanActivate {
       if (desafio && res?.setHeader && !res.headersSent) res.setHeader('WWW-Authenticate', desafio);
       throw erro;
     };
+    const peloToken = formatoTokenIntegracao(bearer);
+    anotarChamada({ credencial: peloToken || !this.dmsId.ligado ? 'token_integracao' : 'dms_id' });
+    // A chave própria: antes de tudo, sem banco e sem hub.
+    if (!(this.hub ? this.hub.aceitaIntegracoes : aceitaIntegracoes())) throw problemaDaParada();
 
     let t: IntegracaoCtxData;
-    if (formatoTokenIntegracao(bearer)) {
-      t = await this.pelaViaDoToken(req, bearer, desafiar);
+    if (peloToken) {
+      t = await this.pelaViaDoToken(req, bearer as string, desafiar);
     } else if (this.dmsId.ligado) {
       t = await this.pelaViaDoDmsId(req, bearer, desafiar);
     } else {
       return desafiar(new ProblemaException(401, 'token-invalido', TOKEN_INVALIDO));
     }
+    anotarChamada({ aplicativo: t.cliente, ligacaoPrefixo: t.prefixo, conta: t.unidadeId ?? t.tenantId, tenantId: t.tenantId });
 
     const limite = contarChamadaIntegracao(t.tokenId);
     if (!limite.ok) {
@@ -124,6 +141,11 @@ export class IntegracaoTokenGuard implements CanActivate {
           : 'Muitas chamadas com este token — aguarde e tente de novo.',
         limite.retryAfterSeg,
       );
+    }
+
+    // A lista de parada do hub: a geral, a do aplicativo, a da credencial e a da rota (hub desligado: nada para).
+    if (this.hub?.parado({ aplicativo: t.cliente, ligacaoPrefixo: t.prefixo, ferramenta: ferramentaDaRota(req?.method, req?.route?.path) })) {
+      throw problemaDaParada();
     }
 
     const exigidos =

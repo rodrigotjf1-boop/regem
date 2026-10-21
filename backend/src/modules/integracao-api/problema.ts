@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ErroProblema } from '../../dms/integracao-dms';
+import { anotarChamada } from './chamada-integracao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -38,6 +39,8 @@ export type TipoProblema =
   | 'aviso-indisponivel'
   // Via do DMS ID (Hub DMS, F3, mig 329): o segredo da ligação ausente, inexistente ou revogado.
   | 'ligacao-invalida'
+  // A parada (Hub DMS, F3 A2): a lista do hub ou a chave própria `ACEITAR_INTEGRACOES` — 503 com `Retry-After`.
+  | 'integracao-parada'
   | 'erro-interno';
 
 const TITULO: Record<TipoProblema, string> = {
@@ -57,6 +60,7 @@ const TITULO: Record<TipoProblema, string> = {
   'endereco-nao-permitido': 'Endereço não permitido',
   'aviso-indisponivel': 'Avisos indisponíveis',
   'ligacao-invalida': 'Ligação inválida',
+  'integracao-parada': 'Integração parada',
   'erro-interno': 'Erro interno',
 };
 
@@ -116,11 +120,13 @@ export function problemaDe(exception: unknown, requestId?: string | null) {
   const status = exception instanceof HttpException ? exception.getStatus() : doPacote ? doPacote.status : HttpStatus.INTERNAL_SERVER_ERROR;
   const tipo = exception instanceof ProblemaException ? exception.tipo : doPacote ? tipoDoPacote(doPacote) : tipoPeloStatus(status);
   let detalhe = 'Erro interno. Tente de novo em instantes.';
-  if (status < 500 && exception instanceof HttpException) {
+  // A parada (503) é recusa esperada, com a frase do pacote — não é erro a mascarar.
+  const esperado = status < 500 || tipo === 'integracao-parada';
+  if (esperado && exception instanceof HttpException) {
     const raw: any = exception.getResponse();
     const msg = typeof raw === 'string' ? raw : raw?.message;
     detalhe = Array.isArray(msg) ? msg.join('; ') : String(msg ?? TITULO[tipo]);
-  } else if (status < 500 && doPacote) {
+  } else if (esperado && doPacote) {
     detalhe = doPacote.detalhe;
   }
   return {
@@ -143,13 +149,23 @@ export class ProblemaFilter implements ExceptionFilter {
     const res: any = http.getResponse();
     const requestId: string | undefined = req?.requestId;
     const { status, corpo } = problemaDe(exception, requestId);
-    if (status >= 500) {
+    const tipo = corpo.type.slice(BASE_TIPO_PROBLEMA.length);
+    // O registro do hub (Hub DMS, F3 A2): o problema de toda recusa e, no erro inesperado, o motivo. A limpeza (credencial
+    // do Regem e dado pessoal) é na porta de saída para o hub (`HubDmsService.erro`), um lugar só.
+    anotarChamada({ problema: tipo });
+    if (status >= 500 && tipo !== 'integracao-parada') {
       const err = exception as any;
       log.error(
         `${req?.method ?? '?'} ${req?.originalUrl ?? req?.url ?? '?'} → ${status}` +
           `${requestId ? ` [${requestId}]` : ''}: ${err?.code ? `[${err.code}] ` : ''}${err?.message ?? err}`,
         err?.stack,
       );
+      anotarChamada({
+        erro: {
+          tipo: err instanceof Error ? err.name : `HTTP ${status}`,
+          mensagem: String(err?.message ?? err),
+        },
+      });
     }
     if (res?.headersSent) return;
     const retryAfterSeg =
