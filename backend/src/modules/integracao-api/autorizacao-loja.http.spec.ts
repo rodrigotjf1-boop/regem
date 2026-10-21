@@ -185,7 +185,8 @@ descrever('autorização pela loja — página, troca do código e aplicativos c
     guardar(CFG.envSegredo, SEGREDO);
     guardar(CFG.envRedirect, VOLTA);
     await pool.query(`create schema ${SCHEMA}`);
-    for (const m of ['295_integracao_token_loja.sql', '303_integracao_autorizacao.sql']) {
+    // A 329 e a 336 (a autorização por clique, Hub DMS F3 C): "Aplicativos conectados" lê de onde o acesso veio.
+    for (const m of ['295_integracao_token_loja.sql', '303_integracao_autorizacao.sql', '329_integracao_ligacao.sql', '336_integracao_autorizacao_clique.sql']) {
       await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(readFileSync(join(MIGS, m), 'utf8'))));
     }
     const [fk] = await q(

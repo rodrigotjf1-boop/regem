@@ -301,6 +301,9 @@ descrever('API de integração — Farol (catálogo e fichas, sem preço nem cus
     if (falhas298.length) throw new Error(`conferência da 298 falhou: ${falhas298.join(', ')}`);
     await aplicar(mig('299_pedido_origem.sql'));
     await aplicar(semFkCompartilhada(mig('303_integracao_autorizacao.sql')));
+    // A 329 e a 336 (a autorização por clique, Hub DMS F3 C): "Aplicativos conectados" lê de onde o acesso veio.
+    await aplicar(semFkCompartilhada(mig('329_integracao_ligacao.sql')));
+    await aplicar(semFkCompartilhada(mig('336_integracao_autorizacao_clique.sql')));
     // A 315, como vai para a nuvem — e a conferência dela, linha a linha.
     const r315 = (await aplicar(mig('315_integracao_farol.sql'))) as unknown as any[];
     const conferencia = r315[r315.length - 1].rows;

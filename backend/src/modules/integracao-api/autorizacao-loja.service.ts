@@ -203,9 +203,10 @@ export class AutorizacaoLojaService {
     }
     const escopos = validarEscopos(pedidos);
 
-    // Códigos vencidos há mais de um dia saem aqui (não há job para isso). Nunca derruba a autorização.
+    // Códigos vencidos há mais de um dia saem aqui (não há job para isso). Nunca derruba a autorização. A linha com
+    // texto é a prova da autorização por clique (mig 336): fica.
     await this.db
-      .execute(sql`delete from integracao_autorizacao where expira_em < now() - interval '1 day'`)
+      .execute(sql`delete from integracao_autorizacao where expira_em < now() - interval '1 day' and texto is null`)
       .catch((e: any) => this.log.warn(`limpeza dos códigos vencidos falhou: ${e?.message ?? e}`));
 
     const gerado = gerarCodigoAutorizacao();
@@ -386,13 +387,17 @@ export class AutorizacaoLojaService {
     const linhas = await this.rows(sql`
       select t.id, t.cliente, t.unidade_id as "lojaId", u.nome as "lojaNome", t.escopos,
              t.autorizado_por_nome as "autorizadoPor", t.autorizado_via as via, t.criado_em as "criadoEm",
-             t.ultimo_uso_em as "ultimoUsoEm", t.revogado_em as "revogadoEm", t.revogado_por
+             t.ultimo_uso_em as "ultimoUsoEm", t.revogado_em as "revogadoEm", t.revogado_por,
+             a.id as "autorizacaoId", a.criado_em as "autorizadoEm", a.autorizado_por_nome as "autorizadoNoClique",
+             a.texto_versao as "textoVersao", a.texto, a.conta_que_pede as "contaQuePede", a.outra_empresa as "outraEmpresa"
         from integracao_token_loja t
         left join unidade u on u.id = t.unidade_id
+        left join integracao_autorizacao a on a.id = t.autorizacao_id and a.texto is not null
        where t.tenant_id = ${user.tenantId}::uuid
        order by (t.revogado_em is null) desc, t.revogado_em desc nulls first,
                 (u.tipo = 'matriz') desc nulls last, u.nome, t.criado_em desc
        limit 500`);
+    const historicos = await this.historicos(user.tenantId, linhas);
     const porCliente = new Map<string, any[]>();
     for (const l of linhas) {
       const lista = porCliente.get(l.cliente) ?? [];
@@ -406,11 +411,23 @@ export class AutorizacaoLojaService {
         lojaNome: l.lojaNome ?? null,
         escopos: l.escopos ?? [],
         autorizadoPor: l.autorizadoPor,
-        via: l.via === 'autorizacao_loja' ? 'loja' : 'distribuicao',
+        // A autorização por clique (Hub DMS, F3, parte C) guarda o texto que o presidente viu: aparece em "Detalhes".
+        via: l.autorizacaoId ? 'clique' : l.via === 'autorizacao_loja' ? 'loja' : 'distribuicao',
         criadoEm: l.criadoEm,
         ultimoUsoEm: l.ultimoUsoEm ?? null,
         revogadoEm: l.revogadoEm ?? null,
         revogadoPor: this.porQuem(l.revogado_por ?? null),
+        autorizacao: l.autorizacaoId
+          ? {
+              em: l.autorizadoEm,
+              por: l.autorizadoNoClique,
+              versao: l.textoVersao,
+              texto: l.texto,
+              contaQuePede: l.contaQuePede ?? null,
+              outraEmpresa: Boolean(l.outraEmpresa),
+            }
+          : null,
+        historico: historicos.get(l.id) ?? [],
       });
     }
     return {
@@ -423,6 +440,67 @@ export class AutorizacaoLojaService {
         acessos,
       })),
     };
+  }
+
+  /**
+   * O histórico de cada acesso, da auditoria (uma consulta para a lista inteira): quem autorizou, quando a ligação foi
+   * entregue, trocada ou desligada, e por quem. Frases para o presidente, nunca o detalhe cru.
+   */
+  private async historicos(tenantId: string, linhas: any[]): Promise<Map<string, { em: string; texto: string }[]>> {
+    const porAcesso = new Map<string, { em: string; texto: string }[]>();
+    const doAcesso = new Map<string, string[]>(); // id na auditoria → acessos
+    for (const l of linhas) {
+      for (const id of [l.id, l.autorizacaoId].filter(Boolean) as string[]) doAcesso.set(id, [...(doAcesso.get(id) ?? []), l.id]);
+    }
+    if (!doAcesso.size) return porAcesso;
+    let eventos: any[] = [];
+    try {
+      eventos = await this.rows(sql`
+        select entidade_id, acao, detalhe, created_at from audit_log
+         where tenant_id = ${tenantId}::uuid and entidade_id in (${this.lista([...doAcesso.keys()])})
+           and acao in ('integracao.autorizacao_concedida', 'integracao.token_emitido', 'integracao.ligacao_criada',
+                        'integracao.ligacao_girada', 'integracao.token_revogado', 'integracao.ligacao_revogada')
+         order by created_at
+         limit 2000`);
+    } catch (e: any) {
+      this.log.warn(`histórico dos aplicativos conectados não lido: ${e?.message ?? e}`);
+      return porAcesso;
+    }
+    for (const ev of eventos) {
+      const texto = this.fraseDoHistorico(ev.acao, ev.detalhe ?? {});
+      if (!texto) continue;
+      for (const acesso of doAcesso.get(ev.entidade_id) ?? []) {
+        const lista = porAcesso.get(acesso) ?? [];
+        lista.push({ em: new Date(ev.created_at).toISOString(), texto });
+        porAcesso.set(acesso, lista.slice(-20));
+      }
+    }
+    return porAcesso;
+  }
+
+  private fraseDoHistorico(acao: string, d: any): string | null {
+    const app = CLIENTES_INTEGRACAO[d.cliente]?.rotulo ?? 'aplicativo';
+    switch (acao) {
+      case 'integracao.autorizacao_concedida':
+        return d.textoVersao
+          ? `${d.autorizadoPor ?? 'O presidente'} autorizou com a senha (texto versão ${d.textoVersao}).`
+          : `${d.autorizadoPor ?? 'O presidente'} autorizou na página de autorização.`;
+      case 'integracao.token_emitido':
+        return d.via === 'autorizacao_loja' ? 'Acesso entregue pela autorização da loja.' : 'Acesso emitido pela distribuição.';
+      case 'integracao.ligacao_criada':
+        return `A ligação foi entregue ao ${app}.`;
+      case 'integracao.ligacao_girada':
+        return 'A ligação ganhou um segredo novo.';
+      case 'integracao.ligacao_revogada':
+        return d.motivo === 'codigo_reutilizado' ? 'Desligado: o código de autorização foi usado duas vezes.' : 'Ligação desligada.';
+      case 'integracao.token_revogado':
+        if (d.por === 'loja') return `Revogado por ${d.quem ?? 'um presidente'}.`;
+        if (d.por === 'autorizacao') return 'Trocado por uma autorização nova.';
+        if (d.por === 'integracao') return `Desligado pelo próprio ${app}.`;
+        return 'Revogado pela distribuição.';
+      default:
+        return null;
+    }
   }
 
   private async auditarRevogacao(user: AuthUser, t: any) {
