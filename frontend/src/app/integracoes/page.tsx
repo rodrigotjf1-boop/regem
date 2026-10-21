@@ -154,7 +154,8 @@ export default function AplicativosConectadosPage() {
           />
         ) : (
           <>
-            <Situacoes base={base} opcoes={SITUACOES} valor={sit} aoMudar={setSit} />
+            {/* "Todos" (os acessos), como no protótipo aprovado em 21/10/2026; a contagem é a de sempre. */}
+            <Situacoes base={base} opcoes={SITUACOES} valor={sit} aoMudar={setSit} todas={{ rotulo: 'Todos', filtro: () => true }} />
             <Filtros>
               <FiltroBusca id="aplicativos-busca" valor={busca} aoMudar={setBusca} placeholder="Loja ou aplicativo" />
               <FiltroSelect id="aplicativos-app" rotulo="Aplicativo" todos="Todos os aplicativos" opcoes={distintos(todas, (l) => l.app.rotulo)} valor={filtroApp} aoMudar={setFiltroApp} />
