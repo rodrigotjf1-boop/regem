@@ -15,6 +15,7 @@ import { soltarAvisosParados } from '../gogem/aviso-gogem';
 import { DIAS_SEM_SINAL_PARA_REVOGAR, revogarServidoresSubstituidos } from '../licenca/servidor-da-loja';
 import { JANELA_PRESENCA_MS, PresencaService, TIPOS_PRESENTES } from './presenca.service';
 import { redeDaSaude } from '../edge/rede-local';
+import { tamanhosDaTela } from '../tela-senhas/tela-senhas.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -65,11 +66,11 @@ export class EquipamentoService {
 
   // F10 — com edge ATIVO, o servidor local é a fonte da verdade da config de
   // impressão: a nuvem não sobrescreve (impressora/roteamento/KDS). Edite no edge.
-  private async garantirConfigLocal(tenantId: string) {
+  private async garantirConfigLocal(tenantId: string, tipo?: string) {
     if (await edgeAtivo(this.db, tenantId)) {
-      throw new ForbiddenException(
-        'Configuração de impressão gerenciada pelo servidor local (edge) desta loja. Edite direto no servidor local.',
-      );
+      // A tela de senhas segue a mesma regra (ela mostra a cozinha do servidor da loja), com o nome dela no aviso.
+      const oQue = tipo === 'tela_senhas' ? 'A tela de senhas desta loja é configurada' : 'Configuração de impressão gerenciada';
+      throw new ForbiddenException(`${oQue} pelo servidor local (edge) desta loja. Edite direto no servidor local.`);
     }
   }
 
@@ -148,8 +149,8 @@ export class EquipamentoService {
       .from(equipamento)
       .where(and(eq(equipamento.id, id), eq(equipamento.tenantId, tenantId)));
     if (!alvo) throw new NotFoundException('Equipamento não encontrado.');
-    // A estação pareia no servidor da loja: o código gerado na nuvem não chega a ele a tempo.
-    if (alvo.tipo === 'estacao_impressao') await this.garantirConfigLocal(tenantId);
+    // A estação e a tela de senhas pareiam no servidor da loja: o código gerado na nuvem não chega a ele a tempo.
+    if (alvo.tipo === 'estacao_impressao' || alvo.tipo === 'tela_senhas') await this.garantirConfigLocal(tenantId, alvo.tipo);
 
     // Evita 0 à esquerda sumindo e colisão com código já pendente de outro PC.
     let codigo = '';
@@ -231,7 +232,10 @@ export class EquipamentoService {
     return { ok: true, codigo, nome: alvo.nome };
   }
 
-  async parearPorCodigo(codigo: string, fingerprint?: string) {
+  // `tipo` (opcional): o aparelho diz o que ele é. Código de OUTRO tipo é recusado SEM ser gasto — o código do PDV
+  // digitado por engano na TV não pode trocar o segredo do PDV (ele ficaria sem pareamento). Quem não manda, como
+  // sempre.
+  async parearPorCodigo(codigo: string, fingerprint?: string, tipo?: string) {
     const c = String(codigo ?? '').replace(/\D/g, '');
     if (!/^\d{6}$/.test(c)) throw new BadRequestException('Código inválido.');
     const [row] = await this.db
@@ -242,6 +246,12 @@ export class EquipamentoService {
     if (row.pareamentoExpiraEm && row.pareamentoExpiraEm.getTime() < Date.now())
       throw new BadRequestException('Código expirado. Gere um novo no Regem.');
     if (row.revogadoEm) throw new BadRequestException('Este equipamento foi revogado.');
+    if (tipo && row.tipo !== tipo)
+      throw new BadRequestException(
+        tipo === 'tela_senhas'
+          ? 'Este código é de outro equipamento, não de uma tela de senhas. Gere o código na tela de senhas, em Equipamentos.'
+          : 'Este código é de outro tipo de equipamento. Gere o código no equipamento certo.',
+      );
 
     const segredo = randomBytes(32).toString('hex');
     await this.db
@@ -330,6 +340,25 @@ export class EquipamentoService {
     return row;
   }
 
+  /**
+   * Tela de senhas (mig 337): a TV se identifica pelo id + o segredo que recebeu no pareamento, sem login. Só o tipo
+   * `tela_senhas`, ativo, não revogado e COM segredo. Como a estação, não grava "último uso" a cada leitura: a TV lê
+   * a cada aviso e a cada 30 s, e cada gravação renovaria o `updated_at` de uma linha que sincroniza (ERR-235).
+   * Devolve o equipamento ou null.
+   */
+  async validarTela(telaId: string, segredo?: string | null) {
+    if (!telaId || !/^[0-9a-f-]{36}$/i.test(telaId) || !segredo) return null;
+    const [row] = await this.db
+      .select()
+      .from(equipamento)
+      .where(and(eq(equipamento.id, telaId), eq(equipamento.tipo, 'tela_senhas'), eq(equipamento.ativo, true)));
+    if (!row || row.revogadoEm || !row.segredoHash) return null;
+    const recebido = Buffer.from(this.hash(String(segredo)), 'hex');
+    const guardado = Buffer.from(row.segredoHash, 'hex');
+    if (recebido.length !== guardado.length || !timingSafeEqual(recebido, guardado)) return null;
+    return row;
+  }
+
 
   // Cadastra um device. O token é exibido UMA vez (não volta em listagens).
   async criar(
@@ -340,7 +369,8 @@ export class EquipamentoService {
   ) {
     // F10 — impressora/KDS são config de impressão: com edge ativo, cria no edge. A estação de
     // impressão também: ela pareia e imprime pelo servidor da loja (mig 324).
-    if (dto.tipo === 'impressora' || dto.tipo === 'kds' || dto.tipo === 'estacao_impressao') await this.garantirConfigLocal(tenantId);
+    // A tela de senhas também (mig 337): ela mostra a cozinha do servidor da loja e pareia nele.
+    if (['impressora', 'kds', 'estacao_impressao', 'tela_senhas'].includes(dto.tipo)) await this.garantirConfigLocal(tenantId, dto.tipo);
     if (dto.tipo === 'pdv')
       await garantirImpressoraDaLoja(this.db, tenantId, dto.impressoraPadraoId ?? null, dto.unidadeId ?? null);
     // "Ligada em" (mig 324): a mesma conferência do salvar impressora.
@@ -619,8 +649,8 @@ export class EquipamentoService {
       .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, id)));
     if (!atual) throw new NotFoundException('Equipamento não encontrado');
     if (!atual.ativo) throw new BadRequestException('Equipamento revogado não é editado.');
-    // Com servidor local ativo, impressora e KDS são configurados nele (mesma trava do cadastro).
-    if (atual.tipo === 'impressora' || atual.tipo === 'kds') await this.garantirConfigLocal(tenantId);
+    // Com servidor local ativo, impressora, KDS e tela de senhas são configurados nele (mesma trava do cadastro).
+    if (atual.tipo === 'impressora' || atual.tipo === 'kds' || atual.tipo === 'tela_senhas') await this.garantirConfigLocal(tenantId, atual.tipo);
 
     const set: { nome?: string; escopo?: string; setorId?: string | null; pdvMainId?: string; proximoKdsId?: null } = {};
     const mudou: Record<string, { de: unknown; para: unknown }> = {};
@@ -724,7 +754,7 @@ export class EquipamentoService {
     if (row.ativo) throw new BadRequestException('Este equipamento já está em uso.');
     if (row.revogadoEm && Date.now() - new Date(row.revogadoEm).getTime() > DIAS_PARA_REATIVAR * 86400000)
       throw new BadRequestException(`Revogado há mais de ${DIAS_PARA_REATIVAR} dias: cadastre o equipamento de novo.`);
-    if (['impressora', 'kds', 'estacao_impressao'].includes(row.tipo)) await this.garantirConfigLocal(tenantId);
+    if (['impressora', 'kds', 'estacao_impressao', 'tela_senhas'].includes(row.tipo)) await this.garantirConfigLocal(tenantId, row.tipo);
     if (row.tipo === 'servidor_local' && !row.integrador) {
       let outro: { nome: string } | undefined;
       try {
@@ -740,7 +770,7 @@ export class EquipamentoService {
       if (outro) throw new ConflictException(`A loja já tem outro servidor da loja em uso ("${outro.nome}"). Reativar este deixaria dois.`);
     }
 
-    const comCodigo = ['pdv', 'salao', 'estacao_impressao'].includes(row.tipo);
+    const comCodigo = ['pdv', 'salao', 'estacao_impressao', 'tela_senhas'].includes(row.tipo);
     let codigo: string | null = null;
     if (comCodigo) {
       for (let i = 0; i < 5 && !codigo; i++) {
@@ -1089,8 +1119,10 @@ export class EquipamentoService {
       dispositivo: r.dispositivo ?? null,
       agenteMaquina: r.agenteMaquina ?? null, // máquina do agente dona da USB (mig 267)
       estacaoId: r.estacaoId ?? null, // estação de impressão que imprime esta impressora (mig 324)
-      // Estação: já trocou o código pelo segredo? Separa "nunca pareou" de "pareou e está fora".
-      ...(r.tipo === 'estacao_impressao' ? { pareado: !!r.segredoHash } : {}),
+      // Estação e tela de senhas: já trocaram o código pelo segredo? Separa "nunca pareou" de "pareou e está fora".
+      ...(r.tipo === 'estacao_impressao' || r.tipo === 'tela_senhas' ? { pareado: !!r.segredoHash } : {}),
+      // Tela de senhas (mig 337): o tamanho das letras desta TV, com o padrão no que falta.
+      ...(r.tipo === 'tela_senhas' ? { telaTamanhos: tamanhosDaTela(r.telaTamanhos) } : {}),
       codepage: r.codepage ?? null, // acentos: cp860 | cp850 | null (mig 269)
       setorId: r.setorId,
       largura: r.largura,

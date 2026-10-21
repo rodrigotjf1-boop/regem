@@ -10,7 +10,8 @@ import {
 } from 'class-validator';
 
 export class CreateEquipamentoDto {
-  @IsIn(['kds', 'terminal_ponto', 'servidor_local', 'impressora', 'pdv', 'salao', 'ponto_baixa', 'estacao_impressao'])
+  // 'tela_senhas' (mig 337): a TV do balcão com Preparando e Pronto, pareada por código, sem login.
+  @IsIn(['kds', 'terminal_ponto', 'servidor_local', 'impressora', 'pdv', 'salao', 'ponto_baixa', 'estacao_impressao', 'tela_senhas'])
   tipo!: string;
 
   @IsString()

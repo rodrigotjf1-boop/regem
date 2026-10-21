@@ -12,7 +12,9 @@ export class PareamentoController {
 
   @Post('parear')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
-  parear(@Body() dto: { codigo?: string; fingerprint?: string }) {
-    return this.service.parearPorCodigo(dto?.codigo ?? '', dto?.fingerprint);
+  parear(@Body() dto: { codigo?: string; fingerprint?: string; tipo?: string }) {
+    // `tipo`: o aparelho diz o que ele é (a tela de senhas manda 'tela_senhas') — código de outro tipo não é gasto.
+    const tipo = typeof dto?.tipo === 'string' && /^[a-z_]{2,30}$/.test(dto.tipo) ? dto.tipo : undefined;
+    return this.service.parearPorCodigo(dto?.codigo ?? '', dto?.fingerprint, tipo);
   }
 }

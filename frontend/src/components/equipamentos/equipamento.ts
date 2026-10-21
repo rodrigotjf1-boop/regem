@@ -10,6 +10,7 @@ export const TIPOS = [
   { value: 'salao', label: 'Sub-PDV Salão (garçom)' },
   { value: 'terminal_ponto', label: 'Terminal de Ponto' },
   { value: 'kds', label: 'KDS (cozinha)' },
+  { value: 'tela_senhas', label: 'Tela de senhas (TV)' },
   { value: 'impressora', label: 'Impressora térmica' },
   { value: 'estacao_impressao', label: 'Estação de impressão (PC com impressora)' },
   { value: 'servidor_local', label: 'Servidor local (edge)' },
@@ -19,6 +20,7 @@ const TIPO_LABEL: Record<string, string> = {
   salao: 'Sub-PDV Salão',
   terminal_ponto: 'Terminal de Ponto',
   kds: 'KDS',
+  tela_senhas: 'Tela de senhas',
   impressora: 'Impressora',
   estacao_impressao: 'Estação de impressão',
   servidor_local: 'Servidor local',
@@ -91,6 +93,8 @@ const TEM_PRESENCA = ['pdv', 'salao', 'estacao_impressao'];
  */
 export function situacaoDe(e: any, estado: Record<string, any>, todos: any[] = []): SituacaoEq {
   if (!e.ativo) return 'revogado';
+  // Tela de senhas (mig 337): não grava presença (ERR-235) — vale se já trocou o código pelo segredo.
+  if (e.tipo === 'tela_senhas') return e.pareado ? 'ativo' : 'nunca';
   if (e.tipo === 'estacao_impressao') {
     if (estacaoNoAr(e) || conectadoAgora(e)) return 'ativo';
     return e.estacao?.vistoEm || e.pareado ? 'mudo' : 'nunca';
@@ -131,6 +135,7 @@ export const podeReativar = (e: any) => !e.ativo && (!e.revogadoEm || minutosDes
 export function seloDe(e: any, estado: Record<string, any>, todos: any[] = []): { tom: Tom; rotulo: string } {
   const sit = situacaoDe(e, estado, todos);
   if (sit !== 'revogado' && TEM_PRESENCA.includes(e.tipo) && conectadoAgora(e)) return { tom: 'ok', rotulo: 'conectado agora' };
+  if (e.tipo === 'tela_senhas' && sit !== 'revogado') return sit === 'ativo' ? { tom: 'ok', rotulo: 'pareada' } : { tom: 'aviso', rotulo: 'falta parear' };
   if (e.tipo === 'estacao_impressao') {
     if (sit === 'ativo') return { tom: 'ok', rotulo: 'no ar' };
     if (sit === 'mudo') return { tom: 'critico', rotulo: e.estacao?.vistoEm ? `fora · há ${tempoDesde(e.estacao.vistoEm)}` : 'fora' };
@@ -300,6 +305,14 @@ export function ligacaoDe(e: any, todos: any[]): string {
       ].filter(Boolean).join(' · ');
     case 'servidor_local':
       return ehGogem(e) ? 'credencial do totem' : 'servidor da loja';
+    case 'tela_senhas': {
+      // Onde abrir e, se mexeram, os tamanhos desta TV (mig 337).
+      const t = e.telaTamanhos ?? {};
+      const fora = [['pronto', 'Pronto'], ['preparando', 'Preparando'], ['titulos', 'títulos']]
+        .filter(([k]) => t[k] != null && t[k] !== 100)
+        .map(([k, rotulo]) => `${rotulo} ${t[k]}%`);
+      return [e.pareado ? 'abre em /senhas' : 'falta parear em /senhas', ...fora].join(' · ');
+    }
     default:
       return '—';
   }
