@@ -24,6 +24,11 @@
     nuvem) e a fila do KDS passa a mostrar só os cartões abertos das últimas 12 horas (encomenda por fazer continua).
   - Na loja, conferir: a tela do KDS sem os cartões antigos; um pedido concluído na tela de delivery some do KDS em até
     30 segundos.
+- **Código PDV dos canais nos produtos (mig 331, `-- @cloud-only`, ERR-257):** só NUVEM. Os 63 produtos da lista
+  conferida pelo dono passam a ter o código PDV que a Anota Aí, o iFood e a 99 mandam (o item do iFood e da 99 chega à
+  cozinha e baixa estoque; bebidas e molhos deixam de entrar como outro produto). O `.zip` leva o arquivo e o servidor
+  da loja o pula; a loja recebe os códigos pela sincronização do cadastro. Nada a fazer na loja além de, se o cardápio
+  estiver no totem (GoGeM), publicar de novo.
 
 ## Última release: `1.30.6` — gerada em 20/10/2026 da `origin/main` `3f4db2af`, **`.zip` GERADO, conferido e assinado** (`regem-edge-1.30.6.zip`, 31.838.658 bytes, SHA-256 `168c67acb2aff280ff44ef737374413ddf82804df4fa65b7c0fb7ddddb794f41`) e **`.exe` COMPILADO** (`RegemEdgeSetup.exe`, 93.547.959 bytes, SHA-256 `31186dc63d90d50710cc6a247bc071c7560cbe7992aa5443f97f5e1dfd546441`); publicação no console e instalação na loja PENDENTES (o dono)
 
