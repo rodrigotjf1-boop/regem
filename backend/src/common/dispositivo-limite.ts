@@ -58,3 +58,8 @@ export function rotaDaFilaDeImpressao(url: string | undefined): boolean {
     String(url ?? ''),
   );
 }
+
+// A leitura da tela de senhas (mig 337), pela TV pareada: o segredo dela, validado pela `TelaSenhasGuard`.
+export function rotaDaTelaDeSenhas(url: string | undefined): boolean {
+  return /\/publico\/senhas(\?|$)/i.test(String(url ?? ''));
+}

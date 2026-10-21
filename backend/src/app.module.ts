@@ -55,6 +55,7 @@ import { PedidoManutencaoModule } from './modules/pedido-manutencao/pedido-manut
 import { DesligamentoModule } from './modules/desligamento/desligamento.module';
 import { EtiquetaValidadeModule } from './modules/etiqueta-validade/etiqueta-validade.module';
 import { ProducaoPedidoModule } from './modules/producao-pedido/producao-pedido.module';
+import { TelaSenhasModule } from './modules/tela-senhas/tela-senhas.module';
 import { ImpressaoModule } from './modules/impressao/impressao.module';
 import { FiscalModule } from './modules/fiscal/fiscal.module';
 import { IbptModule } from './modules/fiscal/ibpt/ibpt.module';
@@ -165,6 +166,7 @@ const CLOUD_ONLY_IMPORTS = IS_EDGE
     DesligamentoModule,
     EtiquetaValidadeModule,
     ProducaoPedidoModule,
+    TelaSenhasModule, // a TV de senhas (Cozinha em estações, entrega 4; mig 337)
     ImpressaoModule,
     FiscalModule,
     // Tabela do IBPT (Lei 12.741): nos dois lados — a nuvem recebe e verifica, a loja baixa.

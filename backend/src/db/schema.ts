@@ -911,6 +911,8 @@ export const equipamento = pgTable('equipamento', {
   viasProducao: integer('vias_producao'), // nº de vias da produção (mig 168); null = herda `vias`
   // Forma da via de produção (mig 335): 'itens' (só os desta impressora) | 'completo' (o pedido inteiro, os desta em destaque).
   formaProducao: text('forma_producao').notNull().default('itens'),
+  // Tela de senhas (mig 337): o tamanho das letras DESTA TV, em % — { pronto, preparando, titulos } (60–160; vazio = 100).
+  telaTamanhos: jsonb('tela_tamanhos'),
   impressoraPadraoId: uuid('impressora_padrao_id'), // terminal PDV: impressora de cupom amarrada
   // KDS — impressão guiada por etapa (mig 129): o ticket só sai quando o pedido
   // AVANÇA para `imprimeNoStatus` neste KDS, indo para `impressoraDestinoId`.
@@ -2057,6 +2059,10 @@ export const kdsCorConfig = pgTable('kds_cor_config', {
   // Período da senha (diario | semanal | nunca; mig 332). Mora aqui porque este ajuste sincroniza: o contador
   // (`senha_contador`) é de cada máquina e não sincroniza. Vazio = o período do próprio contador.
   senhaPeriodo: text('senha_periodo'),
+  // Tela de senhas (mig 337), da loja: minutos da senha em Pronto (0 = até o balcão entregar) e o aviso sonoro.
+  // Vazio = herda (loja → empresa → padrão 10 min e aviso ligado), campo a campo.
+  telaProntoMin: integer('tela_pronto_min'),
+  telaSom: boolean('tela_som'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

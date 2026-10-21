@@ -455,7 +455,7 @@ td.escolha { font-weight: 700; color: var(--ok); white-space: nowrap; }
                   <div class="tv-col prep"><h3>Preparando</h3><div class="senhas" id="tv-prep"></div></div>
                   <div class="tv-col pronto"><h3>Pronto</h3><div class="senhas" id="tv-pronto" aria-live="polite"></div></div>
                 </div>
-                <div class="tv-pe"><span>Retire no balcão quando o seu número aparecer em <b>PRONTO</b></span><span>B balcão · D retirada · T totem</span></div>
+                <div class="tv-pe"><span>Retire no balcão quando o seu número aparecer em <b>PRONTO</b></span><span>B balcão · D retirada</span></div>
               </div>
               <div class="demo">
                 <button class="btn prim" type="button" id="tv-chamar">Simular: a próxima fica pronta</button>
@@ -464,7 +464,7 @@ td.escolha { font-weight: 700; color: var(--ok); white-space: nowrap; }
               <p class="nota" id="tv-nota" style="margin-top:8px"></p>
             </div>
             <aside class="gaveta" aria-label="Ajustes da tela de senhas">
-              <div class="gaveta-cab"><h3>Ajustes da tela de senhas</h3><p class="nota">O tamanho das letras é desta TV (cada TV tem um tamanho); o tempo e o aviso valem para a loja.</p></div>
+              <div class="gaveta-cab"><h3>Ajustes da tela de senhas</h3><p class="nota">O tamanho das letras é desta TV (cada TV tem um tamanho); o tempo e o aviso valem para todas as telas de senhas.</p></div>
               <div class="gaveta-corpo">
                 <div class="grupo-aj">
                   <b>Logo e nome</b>
@@ -741,7 +741,7 @@ td.escolha { font-weight: 700; color: var(--ok); white-space: nowrap; }
 
   // TV de senhas: as senhas, os ajustes aplicados na hora e o tempo em Pronto (no protótipo, 1 minuto = 1 segundo).
   const tv = document.getElementById('tv');
-  const prep = ['B118', 'D251', 'B119', 'T042', 'D252', 'B120', 'D253'];
+  const prep = ['B118', 'D251', 'B119', 'B121', 'D252', 'B120', 'D253']; // o totem também é B (common/senha-origem.ts)
   const pronto = [{ s: 'D247' }, { s: 'B115' }, { s: 'D249' }];
   const elPrep = document.getElementById('tv-prep');
   const elPronto = document.getElementById('tv-pronto');

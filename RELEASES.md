@@ -91,6 +91,14 @@
   observação: não cobra nem baixa), um código por opção do produto, e a empresa do grupo e do produto é conferida. Nuvem: no
   deploy. Loja: no `.zip` (servidor e tela), sem `.exe`. Na loja, conferir: abrir um produto com etapa do catálogo →
   Complementos → o grupo dela mostra os códigos e não tem "＋ opção".
+- **Tela de senhas — a TV do balcão (Cozinha em estações, entrega 4; mig 337):** em Configurações › Equipamentos, o tipo
+  "Tela de senhas (TV)": cadastrar → código de 6 dígitos → na TV, abrir `<endereço do Regem>/senhas` e digitar (sem
+  login). Preparando e Pronto só com números, fundo branco com a logo e o nome da loja; "Ajustes da tela" com a prévia:
+  tamanhos de cada TV, tempo em Pronto (padrão 10 min, ou "até o balcão entregar") e aviso sonoro de todas as telas. A TV
+  recebe pelo tempo real só "as senhas mudaram" (sala própria, sem dado de pedido) e relê o quadro; desligar o KDS para a
+  TV também. Nasce desligado: sem TV cadastrada, nada muda. Nuvem: migration antes do merge + deploy. Loja: no `.zip` (a
+  337 vai no pacote; com o servidor da loja ligado, a TV se cadastra e pareia NELE, como o KDS), sem `.exe`. Na loja,
+  conferir: cadastrar a TV no servidor da loja, parear, e ver uma senha com KDS passar de Preparando a Pronto.
 
 ## Última release: `1.30.6` — gerada em 20/10/2026 da `origin/main` `3f4db2af`, **`.zip` GERADO, conferido e assinado** (`regem-edge-1.30.6.zip`, 31.838.658 bytes, SHA-256 `168c67acb2aff280ff44ef737374413ddf82804df4fa65b7c0fb7ddddb794f41`) e **`.exe` COMPILADO** (`RegemEdgeSetup.exe`, 93.547.959 bytes, SHA-256 `31186dc63d90d50710cc6a247bc071c7560cbe7992aa5443f97f5e1dfd546441`); publicação no console e instalação na loja PENDENTES (o dono)
 

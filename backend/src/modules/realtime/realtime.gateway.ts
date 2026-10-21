@@ -22,7 +22,9 @@ import { ehServidorLocal } from '../../common/modo';
 interface SockCtx {
   tenantId: string;
   unidadeId?: string | null;
-  role: 'gestor' | 'device';
+  // 'tela' = a tela de senhas (mig 337): entra SÓ na sala `senhas:<empresa>` e recebe só "mudou" — nunca a sala da
+  // empresa, que leva pedido, cliente e alerta. Ela relê o quadro (só números) pela rota com o segredo dela.
+  role: 'gestor' | 'device' | 'tela';
   tipo?: string; // kds | terminal_ponto (quando device)
   equipamentoId?: string;
   colaboradorId?: string; // PDV logado (dono de mesa) — para roteio garçom → PDV
@@ -56,6 +58,15 @@ export class RealtimeGateway
   async handleConnection(socket: Socket) {
     try {
       const auth: any = socket.handshake.auth ?? {};
+      if (auth.tela && typeof auth.tela === 'object') {
+        // Tela de senhas: id + segredo do pareamento. Não grava presença nem avisa "device:status" (ela não é aparelho
+        // de operação, e cada gravação renovaria uma linha que sincroniza — ERR-235).
+        const tela = await this.equipamentos.validarTela(String(auth.tela.id ?? ''), auth.tela.segredo ? String(auth.tela.segredo) : null);
+        if (!tela) return this.recusar(socket, 'tela de senhas inválida ou revogada');
+        socket.data.ctx = { tenantId: tela.tenantId, unidadeId: tela.unidadeId, role: 'tela', tipo: 'tela_senhas', equipamentoId: tela.id } satisfies SockCtx;
+        socket.join(`senhas:${tela.tenantId}`);
+        return;
+      }
       if (auth.token) {
         const eq = await this.equipamentos.validarToken(auth.token);
         if (!eq) return this.recusar(socket, 'device inválido ou revogado');
@@ -203,6 +214,15 @@ export class RealtimeGateway
       ...p,
       em: new Date().toISOString(),
     });
+    // A tela de senhas relê o quadro: só o aviso, sem o conteúdo (ela não está na sala da empresa).
+    this.server.to(`senhas:${p.tenantId}`).emit('senhas:mudou', { em: new Date().toISOString() });
+  }
+
+  // Ajuste da tela de senhas salvo (tamanho, tempo em Pronto, aviso): as TVs relêem e se redesenham na hora.
+  @OnEvent('tela.senhas.mudou')
+  onTelaSenhasMudou(p: { tenantId: string }) {
+    if (!this.server) return;
+    this.server.to(`senhas:${p.tenantId}`).emit('senhas:mudou', { em: new Date().toISOString(), ajustes: true });
   }
 
   // Chamado de atendimento aberto (handoff do robô) → sino no app do tenant.
@@ -261,7 +281,8 @@ export class RealtimeGateway
     const ctx: SockCtx | undefined = socket.data?.ctx;
     // Rate-limit (W1): o ping GRAVA no banco → no máx. 1 escrita/10s por socket (um device não
     // pode floodar escrita). O ACK volta sempre; só a persistência é limitada.
-    if (ctx?.equipamentoId && this.permitido(socket, 'ping', 10000)) {
+    // A tela de senhas não grava ping: a linha dela sincroniza e o ajuste não pode ser desfeito pelo uso (ERR-235).
+    if (ctx?.equipamentoId && ctx.role !== 'tela' && this.permitido(socket, 'ping', 10000)) {
       await this.equipamentos.registrarPing(ctx.equipamentoId);
     }
     return { ok: true };

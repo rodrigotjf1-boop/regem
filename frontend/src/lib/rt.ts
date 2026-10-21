@@ -24,4 +24,10 @@ export function connectAsDevice(token: string): Socket {
   return io(rtUrl(), { auth: { token } });
 }
 
+// Tela de senhas (mig 337): o id e o segredo do pareamento. O servidor a põe só na sala dela, que recebe só
+// "senhas:mudou" — a TV relê o quadro pela rota com o segredo. Sem cookie: ela não tem sessão.
+export function connectAsTela(id: string, segredo: string): Socket {
+  return io(rtUrl(), { auth: { tela: { id, segredo } }, withCredentials: false });
+}
+
 export type { Socket };

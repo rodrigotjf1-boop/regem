@@ -110,9 +110,16 @@ export function CodigoDePareamento({
         ) : (
           <>
             <p>
-              {equipamento.tipo === 'estacao_impressao'
-                ? 'No instalador do Regem, no PC onde a impressora está, marque “Este PC tem impressora” e digite este código:'
-                : 'No computador do caixa, abra o PDV e digite este código:'}
+              {equipamento.tipo === 'estacao_impressao' ? (
+                'No instalador do Regem, no PC onde a impressora está, marque “Este PC tem impressora” e digite este código:'
+              ) : equipamento.tipo === 'tela_senhas' ? (
+                <>
+                  No navegador da TV, abra <strong className="break-all font-mono">{typeof window !== 'undefined' ? `${window.location.origin}/senhas` : '/senhas'}</strong>{' '}
+                  e digite este código:
+                </>
+              ) : (
+                'No computador do caixa, abra o PDV e digite este código:'
+              )}
             </p>
             <p data-codigo aria-label={`Código ${codigo.codigo.split('').join(' ')}`} className={`rounded-md bg-secondary px-4 py-3 text-center font-mono text-3xl font-semibold tracking-[0.3em] ${vencido ? 'line-through opacity-60' : ''}`}>
               {codigo.codigo.slice(0, 3)} {codigo.codigo.slice(3)}

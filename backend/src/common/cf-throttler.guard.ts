@@ -1,6 +1,6 @@
 import { ExecutionContext, Injectable } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
-import { rotaDaFilaDeImpressao, tokenJaValidado } from './dispositivo-limite';
+import { rotaDaFilaDeImpressao, rotaDaTelaDeSenhas, tokenJaValidado } from './dispositivo-limite';
 import { credencialDaChamada, rotaDaIntegracao, tokenIntegracaoJaValidado } from './integracao-limite';
 
 /**
@@ -30,6 +30,12 @@ export class CfThrottlerGuard extends ThrottlerGuard {
       // Estação de impressão (mig 324): o segredo dela, validado pela FilaImpressaoGuard.
       const est = req?.headers?.['x-estacao-segredo'];
       if (tokenJaValidado(Array.isArray(est) ? est[0] : est)) return true;
+    }
+    // Tela de senhas (mig 337): a TV lê a cada aviso e a cada 30 s; com o segredo já validado pela TelaSenhasGuard,
+    // fica no limite por aparelho, fora do balde do IP da loja.
+    if (rotaDaTelaDeSenhas(req?.originalUrl ?? req?.url)) {
+      const seg = req?.headers?.['x-tela-segredo'];
+      if (tokenJaValidado(Array.isArray(seg) ? seg[0] : seg)) return true;
     }
     // API de integração (trilha C) com credencial JÁ validada pelo `IntegracaoTokenGuard` (o
     // token de integração, ou o token do DMS ID com o segredo da ligação): o limite passa a ser o

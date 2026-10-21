@@ -32,6 +32,7 @@ export const EDGE_CORE_MODULES = [
   'GuiasModule', 'VistoriaModule', 'OcorrenciaModule', 'PicoModule', 'TurnoModule',
   'EquipamentoModule', 'DashboardModule', 'MuralModule', 'PedidoManutencaoModule',
   'DesligamentoModule', 'EtiquetaModule', 'EtiquetaValidadeModule',
+  'TelaSenhasModule', // a TV de senhas (mig 337): mostra a cozinha do servidor da loja, na hora
   'DeliveryModule', // PAINEL de delivery (aceitar/pronto/despachar) roda no edge;
                     // a INGESTÃO de integração é da nuvem → endpoints @CloudOnly pontuais.
 ] as const;

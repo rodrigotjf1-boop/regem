@@ -1901,6 +1901,17 @@ export const api = {
     req(`/equipamento/${id}/trocar-maquina`, { method: 'POST' }),
   parearPorCodigo: (codigo: string) =>
     req('/publico/terminal/parear', { method: 'POST', body: JSON.stringify({ codigo }) }),
+  // Tela de senhas (mig 337): a TV troca o código pelo segredo SEM login (`pub`) e diz que é uma tela de senhas — o
+  // código de outro equipamento é recusado sem ser gasto.
+  parearTelaSenhas: (codigo: string) =>
+    pub('/publico/terminal/parear', { method: 'POST', body: JSON.stringify({ codigo, tipo: 'tela_senhas' }) }),
+  // O quadro da TV (só números), com o id e o segredo do pareamento; nada de sessão, cookie ou redirecionar no 401.
+  quadroDaTelaSenhas: (id: string, segredo: string) =>
+    pub('/publico/senhas', { cache: 'no-store', credentials: 'omit', headers: { 'X-Tela-Id': id, 'X-Tela-Segredo': segredo } }),
+  // Os ajustes de uma TV, na gaveta de Configurações › Equipamentos (tamanhos desta TV; tempo e aviso de todas).
+  ajustesDaTelaSenhas: (id: string) => req(`/tela-senhas/${id}/ajustes`),
+  salvarAjustesDaTelaSenhas: (id: string, body: { tamanhos?: Record<string, number>; prontoMin?: number; som?: boolean }) =>
+    req(`/tela-senhas/${id}/ajustes`, { method: 'PUT', body: JSON.stringify(body) }),
   setTerminalImpressora: (id: string, impressoraId: string | null) =>
     req(`/equipamento/${id}/impressora`, {
       method: 'PATCH',

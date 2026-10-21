@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Ban, KeyRound, Plus, Printer, RotateCcw, Settings2 } from 'lucide-react';
+import { Ban, KeyRound, Plus, Printer, RotateCcw, Settings2, Tv } from 'lucide-react';
 import { api, getCategoria, getToken, getUnidadeAtual } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
@@ -20,6 +20,7 @@ import { FilaDeImpressao } from '@/components/equipamentos/fila-impressao';
 import { HistoricoEquipamentos } from '@/components/equipamentos/historico-equipamentos';
 import { NovoPcComImpressora } from '@/components/equipamentos/novo-pc-impressora';
 import { EquipamentosPorPc } from '@/components/equipamentos/por-pc';
+import { TelaSenhasGaveta } from '@/components/senhas/tela-senhas-gaveta';
 import { agruparPorPc, conexaoDe, ehGogem, ligacaoDe, podeReativar, seloDe, situacaoDe, tipoDe } from '@/components/equipamentos/equipamento';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -55,6 +56,7 @@ export default function EquipamentosPage() {
   const [form, setForm] = useState<{ item: any | null } | null>(null);
   const [tokenNovo, setTokenNovo] = useState<{ nome: string; token: string; aviso: string } | null>(null);
   const [codigoDe, setCodigoDe] = useState<any | null>(null);
+  const [telaAjustes, setTelaAjustes] = useState<any | null>(null); // tela de senhas: a gaveta "Ajustes da tela" (mig 337)
   // "Novo PC com impressora" (fase 2, 3A): estação + código + impressoras do Windows num fluxo só.
   const [novoPc, setNovoPc] = useState(false);
   const [revogando, setRevogando] = useState<any | null>(null);
@@ -198,7 +200,7 @@ export default function EquipamentosPage() {
   ].filter(Boolean).join(' · ');
   // Com servidor local, impressora, KDS e estação de impressão são configurados nele: a nuvem recusa,
   // então nem oferece (a estação pareia no servidor da loja — o código também sai lá).
-  const doServidorLocal = (e: any) => peloServidorLocal && ['impressora', 'kds', 'estacao_impressao'].includes(e.tipo);
+  const doServidorLocal = (e: any) => peloServidorLocal && ['impressora', 'kds', 'estacao_impressao', 'tela_senhas'].includes(e.tipo);
   const configuravel = (e: any) => !doServidorLocal(e);
   const acoesDe = (e: any): Acao<any>[] => {
     if (!pode) return [];
@@ -207,7 +209,8 @@ export default function EquipamentosPage() {
     if (!e.ativo) return podeReativar(e) && !doServidorLocal(e) ? [{ rotulo: 'Reativar', icone: RotateCcw, aoClicar: setReativando }] : [];
     return [
       ...(e.tipo === 'impressora' ? [{ rotulo: 'Imprimir teste', icone: Printer, aoClicar: (x: any) => void imprimirTeste(x), ocupada: (x: any) => testando === x.id }] : []),
-      ...((['pdv', 'salao'].includes(e.tipo) && !ehGogem(e)) || (e.tipo === 'estacao_impressao' && !doServidorLocal(e))
+      ...(e.tipo === 'tela_senhas' && configuravel(e) ? [{ rotulo: 'Ajustes da tela', icone: Tv, aoClicar: setTelaAjustes }] : []),
+      ...((['pdv', 'salao'].includes(e.tipo) && !ehGogem(e)) || (['estacao_impressao', 'tela_senhas'].includes(e.tipo) && !doServidorLocal(e))
         ? [{ rotulo: 'Gerar código', icone: KeyRound, aoClicar: setCodigoDe }]
         : []),
       ...(configuravel(e) ? [{ rotulo: 'Configurar', icone: Settings2, aoClicar: (x: any) => setForm({ item: x }) }] : []),
@@ -353,8 +356,8 @@ export default function EquipamentosPage() {
           aoFechar={() => setForm(null)}
           aoCadastrar={(novo, aviso) => {
             setForm(null);
-            // A estação não usa token: pareia pelo código, digitado no instalador do PC.
-            if (novo.tipo === 'estacao_impressao') setCodigoDe(novo);
+            // A estação e a tela de senhas não usam token: pareiam pelo código (no instalador do PC; na TV, em /senhas).
+            if (novo.tipo === 'estacao_impressao' || novo.tipo === 'tela_senhas') setCodigoDe(novo);
             else setTokenNovo({ nome: novo.nome, token: novo.token, aviso });
             void reload();
           }}
@@ -363,6 +366,9 @@ export default function EquipamentosPage() {
       )}
       {tokenNovo && <TokenDoEquipamento nome={tokenNovo.nome} token={tokenNovo.token} aviso={tokenNovo.aviso} voltarPara={ID_TITULO} aoFechar={() => setTokenNovo(null)} />}
       {codigoDe && <CodigoDePareamento equipamento={codigoDe} inicial={codigoDe.inicial} voltarPara={ID_TITULO} aoFechar={() => setCodigoDe(null)} />}
+      {telaAjustes && (
+        <TelaSenhasGaveta equipamento={telaAjustes} voltarPara={ID_TITULO} aoFechar={() => setTelaAjustes(null)} aoSalvar={() => void reload()} />
+      )}
       {novoPc && (
         <NovoPcComImpressora unidades={unidades} unidadeAtual={getUnidadeAtual()} voltarPara={ID_TITULO}
           aoFechar={() => { setNovoPc(false); void reload(); }} aoConcluir={() => void reload()} />
