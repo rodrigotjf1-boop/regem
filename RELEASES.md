@@ -29,6 +29,11 @@
   cozinha e baixa estoque; bebidas e molhos deixam de entrar como outro produto). O `.zip` leva o arquivo e o servidor
   da loja o pula; a loja recebe os códigos pela sincronização do cadastro. Nada a fazer na loja além de, se o cardápio
   estiver no totem (GoGeM), publicar de novo.
+- **Cartão do KDS entregue ou cancelado não reabre pela sincronização (sem migration, auditoria do KDS):** nos dois
+  sentidos — na nuvem ao receber da loja (`sync.service`) e no servidor da loja ao receber da nuvem (`sync-daemon`):
+  cartão entregue/cancelado não volta à fila por uma cópia "mais nova" da outra ponta, e cancelado vence entregue. A parte
+  da nuvem vale no deploy; a da loja, no `.zip`. Toca o `edge/sync-daemon.mjs`: instalação NOVA pede o `.exe` do mesmo
+  corte.
 - **Registro no hub e parada da API de integração (Hub DMS, F3 parte A2; sem migration):** só NUVEM e desligado até a distribuição ligar (`HUB_LIGADO`). O código entra no `.zip` por tabela (o filtro de problemas e as regras do hub, usados também pelas rotas do totem), mas no servidor da loja nada muda: a API de integração e o cliente do hub não sobem lá. Não pede `.exe`. Nada a fazer na loja.
 - **KDS: item removido sai do cartão e os ajustes valem na loja (mig 332, auditoria do KDS):** o item tirado da comanda
   sai do cartão ativo e do resumo (o cartão mostra "Alterado"; no cancelado os itens ficam riscados); cores e etapas do

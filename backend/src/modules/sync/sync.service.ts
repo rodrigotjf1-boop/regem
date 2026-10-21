@@ -546,6 +546,15 @@ export class SyncService {
                       and excluded.pareamento_codigo is null
                       and (excluded.pareado_em is null or excluded.pareado_em <= equipamento.revogado_em))`
             : sql``;
+        // CARTÃO DO KDS em estado final não reabre (auditoria do KDS, 20/10/2026): a cópia "mais nova" da loja com o
+        // cartão ainda na fila (a cozinha tocou nele antes de o fechamento descer) não desfaz o entregue nem o
+        // cancelado daqui; e cancelado vence entregue — o canal cancelou, a venda foi desfeita. Mesma regra no pull
+        // do servidor da loja (sync-daemon, `ESTADOS_TERMINAIS`).
+        const naoReabreCartao =
+          lote.tabela === 'producao_pedido' && colunas.has('status')
+            ? sql` and not (producao_pedido.status in ('entregue', 'cancelado') and excluded.status not in ('entregue', 'cancelado'))
+                   and not (producao_pedido.status = 'cancelado' and excluded.status <> 'cancelado')`
+            : sql``;
         // LWW (update-se-mais-nova) p/ tabela com updated_at; senão do-nothing (append imutável).
         const conflito =
           (modo === 'lww' || colunas.has('updated_at')) && setCols.length && colunas.has(lwwCol)
@@ -554,7 +563,7 @@ export class SyncService {
                 sql`, `,
               )}
               where ${sql.identifier(lote.tabela)}.tenant_id = excluded.tenant_id
-                and ${sql.identifier(lote.tabela)}.${sql.identifier(lwwCol)} < excluded.${sql.identifier(lwwCol)}${naoDesfazRevogacao}`
+                and ${sql.identifier(lote.tabela)}.${sql.identifier(lwwCol)} < excluded.${sql.identifier(lwwCol)}${naoDesfazRevogacao}${naoReabreCartao}`
             : sql`on conflict (id) do nothing`;
         const linhaVals = (linha: any) =>
           sql`(${sql.join([tenantId, ...cols.map((c) => coagir(linha[c]))].map((v) => sql`${v}`), sql`, `)})`;
