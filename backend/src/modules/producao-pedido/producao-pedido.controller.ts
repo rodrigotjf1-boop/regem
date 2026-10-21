@@ -137,6 +137,46 @@ export class ProducaoPedidoController {
     return this.service.setProdutosDoKds(user.tenantId, id, dto?.produtoIds, ator(user));
   }
 
+  // ----- Cozinha em estações (entrega 2): o lugar no fluxo e o KDS de despacho -----
+  // "Configurar este KDS" › Lugar no fluxo: estação (com "vai para") ou despacho. Gerência, como os produtos.
+  @Put('kds/:id/fluxo')
+  @RequireModulo('kds')
+  @Roles(...GESTOR)
+  @RequirePerm('producao_kds')
+  setFluxoKds(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    return this.service.setFluxoDoKds(user.tenantId, id, dto, ator(user));
+  }
+
+  // A fila do despacho: um cartão por pedido, com o andamento de cada estação. Mesmo acesso da fila do KDS; a loja de quem
+  // consulta (só o presidente escolhe outra).
+  @Get('kds/:id/despacho')
+  @RequireModulo('kds')
+  filaDespacho(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() unidadeAtual: string | null,
+    @Param('id') id: string,
+    @Query('canal') canal?: string,
+    @Query('unidadeId') unidadeId?: string,
+  ) {
+    return this.service.filaDespacho(user.tenantId, id, {
+      unidadeId: (user.categoria === 'presidente' ? unidadeId || unidadeAtual : unidadeAtual) || undefined,
+      canal: canal || undefined,
+    });
+  }
+
+  // "Despachar" / "Pronto: chamar a senha" (acao 'pronto') e "Entregue" (acao 'entregue') do pedido inteiro, numa
+  // requisição. Com estação faltando, só com `forcar` e a senha de um gestor.
+  @Post('kds/:id/despacho')
+  @RequireModulo('kds')
+  acaoDespacho(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() unidadeAtual: string | null,
+    @Param('id') id: string,
+    @Body() dto: any,
+  ) {
+    return this.service.acaoDespacho(user.tenantId, ator(user), id, dto, unidadeAtual);
+  }
+
   // ----- Config de roteamento e cores (gerência/presidente) -----
   @Get('produtos/:id/destinos')
   destinosProduto(@CurrentUser() user: AuthUser, @Param('id') id: string) {

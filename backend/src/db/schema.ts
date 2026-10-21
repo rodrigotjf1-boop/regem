@@ -1986,6 +1986,8 @@ export const producaoPedido = pgTable('producao_pedido', {
   canceladoEm: timestamp('cancelado_em', { withTimezone: true }),
   canceladoPorId: uuid('cancelado_por_id'),
   obs: text('obs'),
+  // Por quais estações (KDS) o cartão já passou: [{ kds, pronto, forcado? }] (mig 334, Cozinha em estações, entrega 2).
+  estacoes: jsonb('estacoes').default('[]'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // sync v2 (LWW)
 });

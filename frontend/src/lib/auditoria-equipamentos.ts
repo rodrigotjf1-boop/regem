@@ -29,7 +29,7 @@ const TIPO: Record<string, string> = {
   servidor_local: 'Servidor local',
 };
 const ETAPA: Record<string, string> = { recebido: 'Recebido', preparo: 'Em preparo', pronto: 'Pronto', entregue: 'Entregue' };
-const ESCOPO: Record<string, string> = { producao: 'produção', entrega: 'entrega', avisos: 'só avisos' };
+const ESCOPO: Record<string, string> = { producao: 'produção', entrega: 'entrega', avisos: 'só avisos', despacho: 'despacho' };
 const ligado = (v: unknown) => (v ? 'ligado' : 'desligado');
 /** "antes → depois" de um campo editado (`mudou.campo = { de, para }`). */
 const troca = (rotulo: string, m: any, nomes?: Record<string, string>, vazio = 'nenhum') => {

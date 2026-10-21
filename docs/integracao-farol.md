@@ -4,7 +4,8 @@
 > exatamente isto. Mudou aqui → avisar o Farol antes do merge.
 > Decisões do dono de 10/10/2026 (ver `docs/decisoes-design.md` §6).
 > **v1** (11/10/2026): o catálogo e as fichas. **v2** (11/10/2026): a fila de produção (§6) — só
-> acrescenta; nada da v1 mudou.
+> acrescenta; nada da v1 mudou. **v2.1** (21/10/2026): §6 — na loja em estações, um pedido por KDS
+> (mesmo `numero`) e, entre KDS, o `status` volta a `recebido`; os campos não mudaram.
 
 O Farol confere, pela câmera da bancada, se o lanche foi montado como a ficha manda. Para isso ele
 precisa saber **o que a loja vende, do que cada produto é feito e o que a cozinha tem para fazer
@@ -271,7 +272,14 @@ A fila da cozinha da loja do token — o que o KDS mostra, sem o histórico.
   que entraram na fila. Pedido que sai da janela some do retrato — e a versão muda.
 - `status`: `recebido`, `preparo`, `pronto`, `entregue` ou `cancelado`. Cada loja usa as etapas que
   quiser: há loja que vai de `recebido` direto a `pronto`, e loja que não usa `entregue`. Quem avança
-  é o **pedido inteiro**; o item não tem etapa.
+  é o **pedido inteiro** (em estações, o pedido de cada KDS); o item não tem etapa.
+- **Cozinha em estações** (a loja escolhe os produtos de cada tela de KDS, desde 21/10/2026): uma venda
+  vira **um pedido por KDS**, cada um com os itens daquele KDS e o **mesmo `numero`** — agrupe pelo
+  `numero` do dia para ver a venda inteira. O item que nenhum KDS mostra (sai só em papel) não vem aqui.
+  Com "vai para" entre KDS (Chapa → Montagem → Despacho), o pedido passa ao KDS seguinte quando fica
+  pronto no anterior, e o `status` **volta a `recebido`** lá; `iniciado_em` continua o do primeiro KDS
+  e `pronto_em` só chega quando ele termina no último (ou é liberado no despacho). Sem estações, nada
+  disso muda: um pedido por venda, que só avança.
 - `origem`: `balcao`, `mesa`, `comanda`, `delivery` ou `totem`. `canal`: de onde veio o pedido de
   fora ("iFood", "Cardápio", "Totem"…), ou `null`. `consumo`: `local`, `viagem` ou `null`.
 - `numero`: o número do pedido na fila da loja, no dia.

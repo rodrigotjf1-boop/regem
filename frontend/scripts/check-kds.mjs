@@ -11,7 +11,7 @@ import ts from 'typescript';
 
 const raiz = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'lib');
 const tmp = mkdtempSync(join(tmpdir(), 'check-kds-'));
-for (const nome of ['senha', 'kds-fila', 'origem-api']) {
+for (const nome of ['senha', 'kds-fila', 'origem-api', 'kds-tema']) {
   const js = ts.transpileModule(readFileSync(join(raiz, `${nome}.ts`), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
   }).outputText.replace("'./senha'", "'./senha.mjs'");
@@ -19,6 +19,7 @@ for (const nome of ['senha', 'kds-fila', 'origem-api']) {
 }
 const k = await import(pathToFileURL(join(tmp, 'kds-fila.mjs')).href);
 const o = await import(pathToFileURL(join(tmp, 'origem-api.mjs')).href);
+const tema = await import(pathToFileURL(join(tmp, 'kds-tema.mjs')).href);
 
 let n = 0;
 const caso = (nome, fn) => {
@@ -214,6 +215,63 @@ try {
     const rt = readFileSync(join(raiz, 'rt.ts'), 'utf8');
     assert.match(rt, /origemDoTempoReal\(apiBase\(\)\)/);
     assert.doesNotMatch(rt, /process\.env\.NEXT_PUBLIC_API_URL/);
+  });
+
+  // ERR-264: cor fixa escolhida num tema reprovava no outro ("Marcar todos" 3,3:1 no claro, "salvo" 2,4:1 no escuro).
+  caso('tema do KDS: todo texto se lê nos DOIS temas (≥ 4,5:1), e a ação dourada também', () => {
+    for (const [nomeTema, t] of Object.entries(tema.TEMAS_KDS)) {
+      const pares = [
+        ['texto', t.text, [t.bg, t.panel, t.panel2]],
+        ['secundário', t.muted, [t.bg, t.panel, t.panel2]],
+        ['erro', t.erro, [t.bg, t.panel, t.panel2]],
+        ['feito', t.feito, [t.bg, t.panel, t.panel2]],
+        ['link', t.link, [t.bg, t.panel, t.panel2]],
+      ];
+      for (const [quem, cor, fundos] of pares)
+        for (const fundo of fundos)
+          assert.ok(contraste(cor, fundo) >= 4.5, `${nomeTema}: ${quem} ${cor} sobre ${fundo} = ${contraste(cor, fundo).toFixed(2)}`);
+    }
+    assert.ok(contraste(tema.ACAO_KDS.texto, tema.ACAO_KDS.fundo) >= 4.5, 'ação dourada');
+  });
+
+  caso('estação com "vai para": o botão diz para onde o cartão vai', () => {
+    assert.equal(k.proximaAcaoNaEstacao('preparo', 'Montagem'), 'Pronto → Montagem');
+    assert.equal(k.proximaAcaoNaEstacao('preparo', null), 'Pronto');
+    assert.equal(k.proximaAcaoNaEstacao('recebido', 'Montagem'), 'Iniciar');
+  });
+
+  caso('despacho: Despachar / chamar a senha só com as estações prontas; o gestor libera antes; depois, Entregue', () => {
+    const delivery = { origem: 'delivery' };
+    const balcao = { origem: 'balcao' };
+    assert.deepEqual(k.acoesDoDespacho({ ...delivery, situacao: 'preparando' }), {
+      principal: { acao: 'pronto', rotulo: 'Despachar', liberada: false },
+      forcar: true,
+    });
+    assert.deepEqual(k.acoesDoDespacho({ ...balcao, situacao: 'pronto_para_despachar' }), {
+      principal: { acao: 'pronto', rotulo: 'Pronto: chamar a senha', liberada: true },
+      forcar: false,
+    });
+    assert.deepEqual(k.acoesDoDespacho({ ...balcao, situacao: 'pronto' }).principal, { acao: 'entregue', rotulo: 'Entregue (o cliente buscou)', liberada: true });
+    assert.equal(k.acoesDoDespacho({ ...delivery, situacao: 'pronto' }).principal.rotulo, 'Entregue ao entregador');
+    for (const s of ['cancelado', 'entregue', undefined]) assert.deepEqual(k.acoesDoDespacho({ ...delivery, situacao: s }), { principal: null, forcar: false });
+  });
+
+  caso('despacho: o andamento de cada estação, em palavras', () => {
+    assert.equal(k.rotuloDaEstacao({ nome: 'Chapa', estado: 'feito' }, AGORA), 'Chapa ✓');
+    assert.equal(k.rotuloDaEstacao({ nome: 'Chapa', estado: 'feito', forcado: true }, AGORA), 'Chapa ✓ (liberado pelo gestor)');
+    assert.equal(k.rotuloDaEstacao({ nome: 'Chapa', estado: 'na_fila', desde: ha(7) }, AGORA), 'Chapa · na fila');
+    assert.equal(k.rotuloDaEstacao({ nome: 'Montagem', estado: 'preparando', desde: ha(2) }, AGORA), 'Montagem · 2 min');
+  });
+
+  caso('despacho: o evento vem por cartão e acha o pedido inteiro (com o sub-filtro desta tela)', () => {
+    const lista = [
+      { comandaId: 'c1', origem: 'delivery', plataforma: 'iFood', cartoes: [{ id: 'k1' }, { id: 'k2' }] },
+      { comandaId: 'c2', origem: 'delivery', plataforma: 'Anota Aí', cartoes: [{ id: 'k3' }] },
+    ];
+    assert.equal(k.pedidoDoDespachoNaTela(lista, 'k2', 'delivery', 'todos')?.comandaId, 'c1');
+    assert.equal(k.pedidoDoDespachoNaTela(lista, 'k2', 'delivery', 'marketplace')?.comandaId, 'c1');
+    assert.equal(k.pedidoDoDespachoNaTela(lista, 'k2', 'delivery', 'digital'), undefined);
+    assert.equal(k.pedidoDoDespachoNaTela(lista, 'k9', 'todos', 'todos'), undefined);
   });
 
   console.log(`\ncheck:kds — ${n} casos, tudo certo`);

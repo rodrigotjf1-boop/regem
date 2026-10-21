@@ -29,6 +29,7 @@ export const ESCOPOS = [
   { v: 'producao', rotulo: 'Produção (pedidos)' },
   { v: 'entrega', rotulo: 'Entrega (retirada por senha)' },
   { v: 'avisos', rotulo: 'Só avisos (tarefas/picos)' },
+  { v: 'despacho', rotulo: 'Despacho (vê o pedido inteiro)' },
 ];
 export const ETAPAS = [
   { v: 'preparo', rotulo: 'ao iniciar preparo' },
@@ -270,9 +271,15 @@ export function ligacaoDe(e: any, todos: any[]): string {
       return e.padrao ? 'REP-Software' : '—';
     case 'kds':
       return [
-        e.escopo === 'avisos' ? 'só avisos' : e.escopo === 'entrega' ? 'entrega (retirada por senha)' : 'produção',
+        e.escopo === 'avisos'
+          ? 'só avisos'
+          : e.escopo === 'entrega'
+            ? 'entrega (retirada por senha)'
+            : e.escopo === 'despacho'
+              ? 'despacho (pedido inteiro)'
+              : 'produção',
         e.imprimeAoAvancar ? `imprime ${ETAPAS.find((x) => x.v === (e.imprimeNoStatus ?? 'pronto'))?.rotulo ?? 'ao avançar'}` : '',
-        e.proximoKdsId ? `próximo: ${nome(e.proximoKdsId) ?? 'KDS fora da lista'}` : '',
+        e.proximoKdsId ? `pronto vai para: ${nome(e.proximoKdsId) ?? 'KDS fora da lista'}` : '',
       ].filter(Boolean).join(' · ');
     case 'estacao_impressao': {
       const ligadas = todos.filter((x) => x.tipo === 'impressora' && x.ativo && x.estacaoId === e.id).length;

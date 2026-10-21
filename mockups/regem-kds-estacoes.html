@@ -1,0 +1,931 @@
+<title>Cozinha em estações</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Plano para o dono aprovar + protótipo navegável. Identidade Regem (dourado de ação, navy de tinta, verde só para
+   "ok"); as telas da cozinha seguem o KDS de produção: tela neutra, cor só no status do tempo. */
+:root {
+  --bg: #EDF0F4; --surface: #FFFFFF; --surface-2: #F4F6F9; --ink: #0F2230; --muted: #4F6476; --line: #D5DCE4;
+  --gold: #B57A12; --gold-fill: #E2A340; --gold-soft: #FBF1DD; --on-gold: #0F2230;
+  --ok: #0E7C66; --ok-soft: #E2F3EE; --warn: #B4471F; --warn-soft: #FBE7DF; --info: #1E6FA8;
+  /* Telas da cozinha (KDS): tema claro nas cores do Regem — fundo base, cartões brancos, tinta navy, ação dourada; a cor
+     forte fica só no status do tempo (verde, amarelo, vermelho). Sempre claras, em qualquer tema desta página. */
+  --k-bg: #EDF0F4; --k-panel: #FFFFFF; --k-panel-2: #F1F4F7; --k-line: #D5DCE4; --k-ink: #0F2230; --k-muted: #4F6476;
+  --k-ok-soft: #E2F3EE; --k-ok-ink: #0B6654; --k-warn-soft: #FDF3D0; --k-warn-ink: #6B4E00;
+  --s-ok: #0E7C66; --s-warn: #F5C842; --s-late: #D92D20; --on-warn: #0F2230;
+  --font-display: 'Archivo', 'Segoe UI', system-ui, sans-serif;
+  --font-body: 'Figtree', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0B1822; --surface: #13263A; --surface-2: #182E44; --ink: #E8EEF3; --muted: #9DB0C0; --line: #26405A;
+    --gold: #E2A340; --gold-fill: #E2A340; --gold-soft: #3A2E17; --on-gold: #0F2230;
+    --ok: #4CC3A6; --ok-soft: #12332C; --warn: #F08A64; --warn-soft: #3A2019; --info: #6BB4E8;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0B1822; --surface: #13263A; --surface-2: #182E44; --ink: #E8EEF3; --muted: #9DB0C0; --line: #26405A;
+  --gold: #E2A340; --gold-fill: #E2A340; --gold-soft: #3A2E17; --on-gold: #0F2230;
+  --ok: #4CC3A6; --ok-soft: #12332C; --warn: #F08A64; --warn-soft: #3A2019; --info: #6BB4E8;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15.5px; line-height: 1.55; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-block: 28px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; }
+h1 { font-weight: 800; font-size: clamp(26px, 4.4vw, 38px); line-height: 1.12; }
+h2 { font-weight: 700; font-size: 21px; margin-bottom: 10px; }
+h3 { font-weight: 700; font-size: 16px; }
+p { margin: 0; }
+.eyebrow { font-family: var(--font-display); font-weight: 600; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--gold); }
+.lead { max-width: 70ch; color: var(--muted); margin-top: 10px; }
+.lead strong, .muted strong { color: var(--ink); }
+.muted { color: var(--muted); }
+section { margin-top: 40px; }
+.pedidos { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 10px; margin-top: 14px; }
+.pedido { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+.pedido b { display: block; font-family: var(--font-display); font-size: 14px; margin-bottom: 2px; }
+.pedido span { color: var(--muted); font-size: 14px; }
+:focus-visible { outline: 3px solid var(--gold-fill); outline-offset: 2px; border-radius: 6px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* ── Abas do protótipo ── */
+.abas { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 0; }
+.aba { font: 600 14px/1 var(--font-body); padding: 10px 14px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--ink); cursor: pointer; }
+.aba[aria-selected="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.palco { margin-top: 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); overflow: hidden; }
+.palco-cab { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; padding: 12px 16px;
+  border-bottom: 1px solid var(--line); background: var(--surface-2); font-size: 14px; }
+.palco-cab b { font-family: var(--font-display); }
+.palco-corpo { padding: 16px; container-type: inline-size; }
+.tela { display: block; }
+.tela[hidden] { display: none !important; }
+
+/* ── Tela 1: fluxo ── */
+.fluxo { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: stretch; }
+.estacao { position: relative; border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--surface); min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.estacao .tipo { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+.estacao h3 { font-size: 17px; }
+.estacao .n { font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.estacao .vai { margin-top: auto; font-size: 13px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.estacao.despacho { border-color: var(--gold-fill); background: var(--gold-soft); }
+.estacao.reserva { border-style: dashed; }
+.coluna-est { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.seta { color: var(--gold); font-weight: 800; }
+@container (max-width: 760px) { .fluxo { grid-template-columns: minmax(0, 1fr); } }
+.sim { margin-top: 18px; display: grid; gap: 10px; padding: 14px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); }
+.sim label { font-weight: 600; }
+.sim select { font: 500 15px var(--font-body); padding: 9px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); max-width: 100%; }
+.caminho { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 34px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; font-size: 13.5px; font-weight: 600;
+  border: 1px solid var(--line); background: var(--surface); }
+.chip.gold { border-color: var(--gold-fill); background: var(--gold-soft); }
+.chip.tracejado { border-style: dashed; }
+.nota { font-size: 13.5px; color: var(--muted); }
+
+/* ── Telas da cozinha (escuras) ── */
+.kds { background: var(--k-bg); color: var(--k-ink); border: 1px solid var(--k-line); border-radius: 12px; position: relative; overflow: hidden; }
+.kds > :not(.kds-top) { margin: 12px; }
+.kds-top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; justify-content: space-between; padding: 10px 14px; background: var(--k-panel); border-bottom: 1px solid var(--k-line); }
+.kds-top b { font-family: var(--font-display); font-size: 17px; }
+.kds-top .k-muted { color: var(--k-muted); font-size: 13px; }
+.kds-marca { display: inline-grid; place-items: center; width: 26px; height: 26px; margin-right: 8px; vertical-align: middle; border-radius: 7px; background: #0F2230; color: #E2A340; font: 800 13px var(--font-display); }
+.engrenagem { font: 700 13.5px var(--font-body); color: var(--k-ink); background: var(--k-panel); border: 1px solid var(--k-line); border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); gap: 10px; }
+.card { background: var(--k-panel); border: 1px solid var(--k-line); border-radius: 10px; overflow: hidden; min-width: 0; box-shadow: 0 1px 2px rgba(15, 34, 48, .06); }
+.card-cab { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 8px 10px; font-weight: 800; }
+.card-cab .id { font-family: var(--font-display); font-size: 19px; }
+.card-cab .min { font-family: var(--font-mono); font-size: 16px; }
+.c-ok .card-cab { background: var(--s-ok); color: #FFFFFF; }
+.c-warn .card-cab { background: var(--s-warn); color: var(--on-warn); }
+.c-late .card-cab { background: var(--s-late); color: #FFFFFF; }
+.card ul { list-style: none; margin: 0; padding: 8px 10px 10px; display: grid; gap: 4px; font-size: 14.5px; }
+.card li b { font-family: var(--font-mono); margin-right: 4px; }
+.card .estacoes { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 10px 10px; }
+.est { font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--k-line); color: var(--k-muted); }
+.est.pronto { color: var(--k-ok-ink); background: var(--k-ok-soft); border-color: transparent; }
+.est.fazendo { color: var(--k-warn-ink); background: var(--k-warn-soft); border-color: transparent; }
+.est.chamada { color: var(--k-panel); background: var(--k-ink); border-color: var(--k-ink); }
+.card .acoes { display: grid; gap: 6px; padding: 0 10px 10px; }
+.btn-k { font: 700 14px var(--font-body); padding: 9px 10px; border-radius: 8px; border: 0; cursor: pointer; }
+.btn-k.prim { background: var(--gold-fill); color: var(--on-gold); }
+.btn-k.prim[disabled] { background: var(--k-panel-2); color: var(--k-muted); cursor: not-allowed; }
+.btn-k.sec { background: transparent; color: var(--k-ink); border: 1px solid var(--k-line); }
+.falta { font-size: 12.5px; color: var(--k-muted); padding: 0 10px 8px; }
+
+/* Gaveta "Configurar este KDS" (clara, como as gavetas do app) */
+.com-gaveta { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 380px); gap: 12px; }
+@container (max-width: 760px) { .com-gaveta { grid-template-columns: minmax(0, 1fr); } }
+.gaveta { background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; display: flex; flex-direction: column; min-width: 0; }
+.gaveta-cab { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.gaveta-cab h3 { font-size: 18px; }
+.gaveta-corpo { padding: 14px 16px; display: grid; gap: 16px; }
+.grupo-aj { display: grid; gap: 8px; }
+.grupo-aj > b { font-family: var(--font-display); font-size: 14px; }
+.busca { font: 500 15px var(--font-body); padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); width: 100%; }
+.cat { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.cat-cab { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px; background: var(--surface-2); font-weight: 700; font-size: 14px; }
+.cat-cab button { font: 600 13px var(--font-body); background: none; border: 0; color: var(--gold); cursor: pointer; padding: 4px; }
+.prod { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-top: 1px solid var(--line); font-size: 14.5px; cursor: pointer; }
+.prod input { width: 18px; height: 18px; accent-color: var(--gold-fill); }
+.contagem { font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.radio { display: flex; align-items: flex-start; gap: 10px; font-size: 14.5px; cursor: pointer; }
+.radio input { margin-top: 3px; accent-color: var(--gold-fill); }
+.seletor { font: 500 14.5px var(--font-body); padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); max-width: 100%; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.seg button { font: 600 14px var(--font-body); padding: 8px 12px; background: var(--surface-2); color: var(--muted); border: 0; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.gaveta-pe { margin-top: auto; padding: 12px 16px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.btn { font: 700 14.5px var(--font-body); padding: 10px 14px; border-radius: 9px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+.btn.prim { background: var(--gold-fill); border-color: var(--gold-fill); color: var(--on-gold); }
+.aviso { font-size: 13.5px; padding: 8px 10px; border-radius: 8px; background: var(--surface-2); color: var(--muted); }
+.toast { font-size: 14px; font-weight: 600; color: var(--ok); min-height: 20px; }
+
+/* ── Impressoras ── */
+.formas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+@container (max-width: 760px) { .formas { grid-template-columns: minmax(0, 1fr); } }
+.forma { border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: grid; gap: 8px; cursor: pointer; background: var(--surface); min-width: 0; }
+.forma:has(input:checked) { border-color: var(--gold-fill); box-shadow: inset 0 0 0 1px var(--gold-fill); background: var(--gold-soft); }
+.forma .titulo { display: flex; gap: 8px; align-items: flex-start; font-weight: 700; font-size: 14.5px; }
+.forma input { margin-top: 3px; accent-color: var(--gold-fill); }
+.ticket { font-family: var(--font-mono); font-size: 12px; line-height: 1.45; background: #FFFFFF; color: #111111; border: 1px dashed #9AA6B2;
+  border-radius: 4px; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ticket .apagado { color: #8A939C; }
+.ticket .forte { font-weight: 700; }
+.lista-imp { display: grid; gap: 8px; margin-bottom: 14px; }
+.imp { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; align-items: center; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--surface); }
+.imp b { font-family: var(--font-display); }
+
+/* ── Tela de senhas (TV do balcão): sempre de fundo branco, com a logo e o nome da loja; os tamanhos vêm dos ajustes
+   (--tam-*: 1 = 100%) e as medidas acompanham a largura da TV (cqi). ── */
+:root { --tv-bg: #FFFFFF; --tv-ink: #0F2230; --tv-muted: #5B6B79; --tv-line: #E1E6EC; --tv-chip: #F1F4F7; --tv-ok: #0B7A3E; --tv-ok-soft: #E3F4EA;
+  --loja-cor: #C8102E; --tam-prep: 1; --tam-pronto: 1; --tam-titulos: 1; }
+.tv-area { min-width: 0; container-type: inline-size; }
+.tv { background: var(--tv-bg); color: var(--tv-ink); border: 1px solid var(--tv-line); border-radius: 12px; overflow: hidden;
+  display: grid; grid-template-rows: auto 1fr auto; aspect-ratio: 16 / 9; width: 100%; box-shadow: 0 10px 30px rgba(15, 34, 48, .12); }
+.tv-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 1.6cqi 2.4cqi; border-bottom: 1px solid var(--tv-line); }
+.loja { display: flex; align-items: center; gap: 1.4cqi; min-width: 0; }
+.loja-logo { flex: none; width: calc(6cqi * var(--tam-titulos)); height: calc(6cqi * var(--tam-titulos)); border-radius: 50%; background: var(--loja-cor); color: #FFFFFF;
+  display: grid; place-items: center; font-family: var(--font-display); font-weight: 800; font-size: calc(2.2cqi * var(--tam-titulos)); }
+.loja-nome { font-family: var(--font-display); font-weight: 800; font-size: calc(3cqi * var(--tam-titulos)); line-height: 1.1; overflow-wrap: anywhere; }
+.relogio { font-family: var(--font-mono); font-weight: 700; font-size: calc(2.4cqi * var(--tam-titulos)); color: var(--tv-muted); font-variant-numeric: tabular-nums; }
+.tv-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); min-height: 0; }
+.tv-col { padding: 1.8cqi 2.4cqi; min-width: 0; display: flex; flex-direction: column; gap: 1.4cqi; overflow: hidden; }
+.tv-col + .tv-col { border-left: 1px solid var(--tv-line); }
+.tv-col h3 { font-size: calc(2.6cqi * var(--tam-titulos)); letter-spacing: .1em; text-transform: uppercase; }
+.tv-col.prep h3 { color: var(--tv-muted); }
+.tv-col.pronto { background: linear-gradient(180deg, var(--tv-ok-soft), var(--tv-bg) 60%); }
+.tv-col.pronto h3 { color: var(--tv-ok); }
+.senhas { display: flex; flex-wrap: wrap; gap: 1.2cqi; align-content: flex-start; }
+.senha { display: inline-flex; align-items: baseline; gap: .3em; border-radius: .25em; padding: .1em .38em; font-family: var(--font-mono); font-weight: 700; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.senha small { font-size: .5em; font-weight: 700; opacity: .8; }
+.tv-col.prep .senha { font-size: calc(3.4cqi * var(--tam-prep)); background: var(--tv-chip); color: var(--tv-muted); }
+.tv-col.pronto .senha { font-size: calc(5.2cqi * var(--tam-pronto)); color: var(--tv-ink); border: 2px solid var(--tv-line); background: var(--tv-bg); }
+.tv-col.pronto .senha.nova { background: var(--tv-ok); color: #FFFFFF; border-color: var(--tv-ok); animation: chama 1s ease-in-out 3; }
+@keyframes chama { 50% { transform: scale(1.06); box-shadow: 0 0 0 .25em rgba(11, 122, 62, .25); } }
+.tv-pe { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; padding: 1.1cqi 2.4cqi; border-top: 1px solid var(--tv-line);
+  font-size: calc(1.8cqi * var(--tam-titulos)); color: var(--tv-muted); }
+.tv-pe b { color: var(--tv-ink); }
+.demo { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.faixa { display: grid; gap: 4px; }
+.faixa label { display: flex; justify-content: space-between; gap: 8px; font-size: 14.5px; }
+.faixa output { font-family: var(--font-mono); color: var(--muted); }
+.faixa input[type="range"] { width: 100%; accent-color: var(--gold-fill); }
+.loja-cad { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+.loja-cad .loja-logo { width: 34px; height: 34px; font-size: 13px; }
+.chave { display: flex; align-items: flex-start; gap: 10px; font-size: 14.5px; cursor: pointer; }
+.chave input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--gold-fill); }
+
+/* ── Mapa ao vivo num KDS (o mapa é sempre claro, como os mapas de rua) ── */
+:root { --mapa-fundo: #EEF1EA; --mapa-rua: #FFFFFF; --mapa-via: #F3D48C; --pino: #0F2230; --pino-texto: #FFFFFF; }
+.palco-rel { position: relative; }
+.cab-mapa { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 10px 16px; margin-bottom: 12px; }
+.cab-mapa .eyebrow-app { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.cab-mapa h3 { font-size: 22px; }
+.btn-ico { display: inline-flex; align-items: center; gap: 8px; }
+.btn-ico svg { width: 18px; height: 18px; flex: none; }
+.faixa-kds { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 10px 12px; margin-bottom: 12px;
+  border-radius: 10px; border: 1px solid var(--gold-fill); background: var(--gold-soft); }
+.faixa-kds .acoes-faixa { display: flex; flex-wrap: wrap; gap: 8px; }
+.mapa-grade { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 12px; }
+@container (max-width: 700px) { .mapa-grade { grid-template-columns: minmax(0, 1fr); } }
+.mapa { position: relative; min-height: 260px; border-radius: 10px; border: 1px solid var(--line); overflow: hidden; background-color: var(--mapa-fundo);
+  background-image: linear-gradient(115deg, transparent 47%, var(--mapa-via) 47% 50%, transparent 50%),
+    repeating-linear-gradient(0deg, transparent 0 44px, var(--mapa-rua) 44px 50px),
+    repeating-linear-gradient(90deg, transparent 0 68px, var(--mapa-rua) 68px 74px); }
+.kds .mapa { min-height: 200px; border-color: var(--k-line); }
+.pino { position: absolute; transform: translate(-50%, -100%); display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px;
+  font: 700 12px var(--font-body); background: var(--pino); color: var(--pino-texto); white-space: nowrap; box-shadow: 0 2px 6px rgba(15, 34, 48, .25); }
+.pino.moto { background: var(--gold-fill); color: var(--on-gold); }
+.rota { display: grid; gap: 8px; align-content: start; }
+.entregador { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); font-size: 14px; }
+.entregador b { font-family: var(--font-display); }
+.kds-rotulo { font-size: 12.5px; color: var(--k-muted); }
+.camada { position: absolute; inset: 0; z-index: 5; display: grid; place-items: start center; padding: 72px 16px 16px; background: rgba(15, 34, 48, .45); }
+.camada[hidden] { display: none !important; }
+.dialogo { width: min(100%, 460px); background: var(--surface); color: var(--ink); border-radius: 14px; border: 1px solid var(--line); box-shadow: 0 18px 40px rgba(0, 0, 0, .3); display: grid; }
+.dialogo-cab { padding: 14px 16px; border-bottom: 1px solid var(--line); display: grid; gap: 4px; }
+.dialogo-corpo { padding: 12px 16px; display: grid; gap: 8px; max-height: 340px; overflow-y: auto; }
+.opcao-kds { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; align-items: start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+.opcao-kds:has(input:checked) { border-color: var(--gold-fill); background: var(--gold-soft); }
+.opcao-kds input { grid-row: span 2; margin-top: 3px; accent-color: var(--gold-fill); }
+.opcao-kds .det { font-size: 13px; color: var(--muted); }
+.ponto { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; background: var(--ok); }
+.ponto.off { background: var(--muted); }
+.dialogo-pe { padding: 12px 16px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.proto-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; font-size: 13.5px; color: var(--muted); }
+
+/* ── Texto do plano ── */
+.regras { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 12px; }
+.regra { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; min-width: 0; }
+.regra h3 { margin-bottom: 6px; }
+.regra ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; color: var(--muted); font-size: 14.5px; }
+.regra ul strong { color: var(--ink); }
+.tabela { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+th { font-family: var(--font-display); font-size: 13px; letter-spacing: .04em; color: var(--muted); background: var(--surface-2); }
+tr:last-child td { border-bottom: 0; }
+td.escolha { font-weight: 700; color: var(--ok); white-space: nowrap; }
+.fases { display: grid; gap: 10px; counter-reset: fase; }
+.fase { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.fase::before { counter-increment: fase; content: counter(fase); grid-row: span 3; font-family: var(--font-display); font-weight: 800; font-size: 22px; color: var(--gold); }
+.fase .mig { font-size: 13px; font-weight: 600; color: var(--warn); }
+.fase .mig.sem { color: var(--ok); }
+.perguntas { display: grid; gap: 10px; }
+.pergunta { background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--gold-fill); border-radius: 0 12px 12px 0; padding: 12px 14px; }
+.pergunta ol { margin: 6px 0 0; padding-left: 20px; display: grid; gap: 3px; font-size: 14.5px; color: var(--muted); }
+.pergunta ol strong { color: var(--ink); }
+.fontes { font-size: 13.5px; color: var(--muted); }
+.fontes a { color: var(--info); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+</style>
+
+<div class="wrap">
+  <div class="eyebrow">Regem · plano para aprovar · decisão 4 da auditoria do KDS</div>
+  <h1>Cozinha em estações</h1>
+  <p class="lead">Cada KDS passa a mostrar <strong>só os produtos dele</strong>, sabe <strong>para onde o pedido vai depois</strong>, e o despacho só libera quando todas as estações terminam. O que não tem KDS sai na <strong>impressora da cozinha</strong> que você escolher, cada impressora tem a sua forma de imprimir, e uma <strong>TV no balcão</strong> mostra as senhas em Preparando e Pronto. Nada disto muda a cozinha de hoje até você configurar.</p>
+
+  <section aria-labelledby="t-pedido">
+    <h2 id="t-pedido">O que você pediu</h2>
+    <div class="pedidos">
+      <div class="pedido"><b>KDS com os seus produtos</b><span>Botão de ajuste em cada KDS para escolher o que ele mostra e como.</span></div>
+      <div class="pedido"><b>Fluxo entre KDS</b><span>Se é o primeiro, se passa para outro KDS, e o KDS de despacho no fim.</span></div>
+      <div class="pedido"><b>Impressora como reserva</b><span>Sem KDS configurado, sai a via padrão na impressora da cozinha escolhida.</span></div>
+      <div class="pedido"><b>Cada impressora com a sua forma</b><span>Quais itens imprime e se é pedido completo ou agrupado.</span></div>
+      <div class="pedido"><b>Tela de senhas no balcão</b><span>Preparando e Pronto; o número passa para Pronto quando a cozinha avisa.</span></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="t-proto">
+    <h2 id="t-proto">Protótipo</h2>
+    <p class="muted">Exemplo com quatro KDS: <strong>Chapa</strong> e <strong>Fritadeira</strong> preparam, <strong>Montagem</strong> recebe da Chapa, e o <strong>Despacho</strong> confere e entrega. As telas da cozinha estão no <strong>tema claro, nas cores do Regem</strong> (o escuro continua como opção de cada aparelho). Os produtos são exemplos.</p>
+    <div class="abas" role="tablist" aria-label="Telas do protótipo">
+      <button class="aba" role="tab" id="aba-fluxo" aria-controls="tela-fluxo" aria-selected="true">Fluxo da cozinha</button>
+      <button class="aba" role="tab" id="aba-config" aria-controls="tela-config" aria-selected="false" tabindex="-1">Configurar um KDS</button>
+      <button class="aba" role="tab" id="aba-despacho" aria-controls="tela-despacho" aria-selected="false" tabindex="-1">Despacho</button>
+      <button class="aba" role="tab" id="aba-imp" aria-controls="tela-imp" aria-selected="false" tabindex="-1">Impressoras</button>
+      <button class="aba" role="tab" id="aba-senhas" aria-controls="tela-senhas" aria-selected="false" tabindex="-1">Tela de senhas</button>
+      <button class="aba" role="tab" id="aba-mapa" aria-controls="tela-mapa" aria-selected="false" tabindex="-1">Mapa num KDS</button>
+    </div>
+
+    <div class="palco">
+      <!-- 1. Fluxo -->
+      <div class="tela" id="tela-fluxo" role="tabpanel" aria-labelledby="aba-fluxo">
+        <div class="palco-cab"><b>Configurações › Cozinha › Fluxo da cozinha</b><span class="muted">Visão geral · lê o que cada KDS escolheu</span></div>
+        <div class="palco-corpo">
+          <div class="fluxo">
+            <div class="coluna-est">
+              <div class="estacao"><span class="tipo">Primeira estação</span><h3>Chapa</h3><span class="n">14 produtos · lanches</span><span class="vai">Pronto → <span class="seta">Montagem</span></span></div>
+              <div class="estacao"><span class="tipo">Primeira estação</span><h3>Fritadeira</h3><span class="n">6 produtos · porções</span><span class="vai">Pronto → <span class="seta">Despacho</span></span></div>
+            </div>
+            <div class="estacao"><span class="tipo">Recebe da Chapa</span><h3>Montagem</h3><span class="n">monta o lanche e embala</span><span class="vai">Pronto → <span class="seta">Despacho</span></span></div>
+            <div class="estacao despacho"><span class="tipo">KDS de despacho</span><h3>Despacho</h3><span class="n">vê o pedido inteiro</span><span class="vai">Libera quando todas as estações terminam · bebidas e molhos vêm direto para cá · Pronto → <span class="seta">tela de senhas</span>, se a loja usa uma</span></div>
+            <div class="estacao reserva"><span class="tipo">Reserva</span><h3>Impressora da cozinha</h3><span class="n">o que nenhum KDS mostra</span><span class="vai">Sai a via de produção padrão, como hoje</span></div>
+          </div>
+          <div class="sim" aria-live="polite">
+            <label for="sim-prod">Onde cada item vai?</label>
+            <select id="sim-prod">
+              <option value="xbacon">X-Bacon</option>
+              <option value="batata">Batata frita G</option>
+              <option value="lata">Refrigerante lata</option>
+              <option value="molho">Molho da casa</option>
+              <option value="sobremesa">Petit gâteau (nenhum KDS marcou)</option>
+            </select>
+            <div class="caminho" id="sim-caminho"></div>
+            <p class="nota" id="sim-nota"></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Configurar um KDS -->
+      <div class="tela" id="tela-config" role="tabpanel" aria-labelledby="aba-config" hidden>
+        <div class="palco-cab"><b>KDS Chapa › ⚙ Configurar este KDS</b><span class="muted">Gaveta lateral sobre a própria tela do KDS</span></div>
+        <div class="palco-corpo">
+          <div class="com-gaveta">
+            <div class="kds" aria-label="Tela do KDS Chapa ao fundo">
+              <div class="kds-top"><div><span class="kds-marca" aria-hidden="true">R</span><b>Chapa</b> <span class="k-muted">· 3 pedidos</span></div><button class="engrenagem" type="button" aria-expanded="true" aria-controls="gaveta-kds">⚙ Configurar este KDS</button></div>
+              <div class="cards">
+                <article class="card c-ok"><div class="card-cab"><span class="id">D 247</span><span class="min">3 min</span></div><ul><li><b>2×</b>X-Bacon</li><li><b>1×</b>X-Salada</li></ul></article>
+                <article class="card c-warn"><div class="card-cab"><span class="id">B 112</span><span class="min">7 min</span></div><ul><li><b>1×</b>Duplo cheddar</li></ul></article>
+                <article class="card c-late"><div class="card-cab"><span class="id">D 244</span><span class="min">12 min</span></div><ul><li><b>3×</b>X-Bacon</li></ul></article>
+              </div>
+            </div>
+            <aside class="gaveta" id="gaveta-kds" aria-label="Configurar este KDS">
+              <div class="gaveta-cab"><h3>Configurar este KDS · Chapa</h3><p class="nota">Fica guardado no servidor: trocar o aparelho não perde nada.</p></div>
+              <div class="gaveta-corpo">
+                <div class="grupo-aj">
+                  <b>Produtos que aparecem aqui <span class="contagem" id="cont-prod"></span></b>
+                  <input class="busca" id="busca-prod" type="search" placeholder="Buscar produto" aria-label="Buscar produto">
+                  <div class="cat" data-cat="lanches">
+                    <div class="cat-cab"><span>Lanches</span><button type="button" data-marcar="lanches">Marcar todos</button></div>
+                    <label class="prod"><input type="checkbox" checked> X-Bacon</label>
+                    <label class="prod"><input type="checkbox" checked> X-Salada</label>
+                    <label class="prod"><input type="checkbox" checked> Duplo cheddar</label>
+                    <label class="prod"><input type="checkbox" checked> X-Burger</label>
+                  </div>
+                  <div class="cat" data-cat="porcoes">
+                    <div class="cat-cab"><span>Porções</span><button type="button" data-marcar="porcoes">Marcar todos</button></div>
+                    <label class="prod"><input type="checkbox"> Batata frita G</label>
+                    <label class="prod"><input type="checkbox"> Anéis de cebola</label>
+                  </div>
+                  <div class="cat" data-cat="bebidas">
+                    <div class="cat-cab"><span>Bebidas</span><button type="button" data-marcar="bebidas">Marcar todos</button></div>
+                    <label class="prod"><input type="checkbox"> Refrigerante lata</label>
+                    <label class="prod"><input type="checkbox"> Suco 500 ml</label>
+                  </div>
+                </div>
+                <div class="grupo-aj" role="radiogroup" aria-labelledby="t-lugar">
+                  <b id="t-lugar">Lugar no fluxo</b>
+                  <label class="radio"><input type="radio" name="lugar" checked> Estação de preparo: recebe os pedidos dos produtos marcados acima</label>
+                  <p class="nota">Recebe de: nenhum KDS (é a primeira estação). Quem manda para ela aparece aqui, pelo "vai para" dos outros.</p>
+                  <label class="radio"><input type="radio" name="lugar"> KDS de despacho: vê o pedido inteiro e só libera quando todas as estações terminam (o gestor pode liberar antes, com a senha)</label>
+                  <label class="radio" for="vai-para" style="margin-top:4px">Quando ficar pronto, vai para:</label>
+                  <select class="seletor" id="vai-para"><option value="montagem">Montagem</option><option value="despacho">Despacho (despacho)</option><option value="fim">Termina aqui (a senha vai para a tela de senhas, se a loja usa uma)</option></select>
+                  <p class="nota" id="vai-para-nota" aria-live="polite"></p>
+                </div>
+                <div class="grupo-aj">
+                  <b>Como mostra</b>
+                  <div class="seg" role="group" aria-label="Visão"><button type="button" aria-pressed="true">Por pedido</button><button type="button" aria-pressed="false">Por item</button></div>
+                  <p class="aviso">O tema claro é o padrão. O tema escuro, o tamanho da letra e a forma de uso (toque ou teclado) continuam como opção do aparelho, como hoje.</p>
+                </div>
+              </div>
+              <div class="gaveta-pe"><span class="toast" id="toast-kds" role="status"></span><button class="btn" type="button">Cancelar</button><button class="btn prim" type="button" id="salvar-kds">Salvar ajustes deste KDS</button></div>
+            </aside>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Despacho -->
+      <div class="tela" id="tela-despacho" role="tabpanel" aria-labelledby="aba-despacho" hidden>
+        <div class="palco-cab"><b>KDS Despacho</b><span class="muted">O pedido inteiro, com o andamento de cada estação</span></div>
+        <div class="palco-corpo">
+          <div class="kds">
+            <div class="kds-top"><div><span class="kds-marca" aria-hidden="true">R</span><b>Despacho</b> <span class="k-muted">· 4 pedidos</span></div><span class="k-muted">Só libera com todas as estações prontas</span></div>
+            <div class="cards">
+              <article class="card c-ok"><div class="card-cab"><span class="id">D 241</span><span class="min">9 min</span></div>
+                <div class="estacoes"><span class="est pronto">Chapa ✓</span><span class="est pronto">Montagem ✓</span><span class="est pronto">Fritadeira ✓</span></div>
+                <ul><li><b>2×</b>X-Bacon</li><li><b>1×</b>Batata frita G</li><li><b>2×</b>Refrigerante lata</li></ul>
+                <div class="acoes"><button class="btn-k prim" type="button">Despachar</button></div></article>
+              <article class="card c-warn"><div class="card-cab"><span class="id">D 243</span><span class="min">8 min</span></div>
+                <div class="estacoes"><span class="est pronto">Chapa ✓</span><span class="est fazendo">Montagem · 2 min</span><span class="est pronto">Fritadeira ✓</span></div>
+                <ul><li><b>1×</b>Duplo cheddar</li><li><b>1×</b>Anéis de cebola</li><li><b>1×</b>Molho da casa</li></ul>
+                <p class="falta">Falta: Montagem</p>
+                <div class="acoes"><button class="btn-k prim" type="button" disabled>Despachar</button><button class="btn-k sec" type="button">Despachar assim mesmo (gestor)</button></div></article>
+              <article class="card c-ok"><div class="card-cab"><span class="id">B 115</span><span class="min">2 min</span></div>
+                <div class="estacoes"><span class="est">Chapa · na fila</span></div>
+                <ul><li><b>1×</b>X-Salada</li><li><b>1×</b>Suco 500 ml</li></ul>
+                <p class="falta">Falta: Chapa</p>
+                <div class="acoes"><button class="btn-k prim" type="button" disabled>Pronto: chamar a senha</button><button class="btn-k sec" type="button">Chamar assim mesmo (gestor)</button></div></article>
+              <article class="card c-ok"><div class="card-cab"><span class="id">B 112</span><span class="min">6 min</span></div>
+                <div class="estacoes"><span class="est pronto">Chapa ✓</span><span class="est chamada">Na tela de senhas · Pronto</span></div>
+                <ul><li><b>1×</b>Duplo cheddar</li></ul>
+                <p class="falta">O cliente vê a senha B 112 em Pronto na TV do balcão.</p>
+                <div class="acoes"><button class="btn-k prim" type="button">Entregue (o cliente buscou)</button></div></article>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. Impressoras -->
+      <div class="tela" id="tela-imp" role="tabpanel" aria-labelledby="aba-imp" hidden>
+        <div class="palco-cab"><b>Configurações › Impressão › Produção</b><span class="muted">Cada impressora com o que imprime e como</span></div>
+        <div class="palco-corpo">
+          <div class="lista-imp">
+            <div class="imp"><div><b>Impressora da cozinha</b> <span class="chip gold">Reserva da cozinha</span></div><span class="muted">Imprime o que nenhum KDS mostra · Pedido completo</span></div>
+            <div class="imp"><div><b>Bar</b></div><span class="muted">Só bebidas · Só os itens desta impressora</span></div>
+          </div>
+          <div class="grupo-aj">
+            <b>Impressora da cozinha — como imprime</b>
+            <div class="formas" role="radiogroup" aria-label="Como imprime">
+              <label class="forma"><span class="titulo"><input type="radio" name="forma"> Só os itens desta impressora</span>
+                <span class="ticket"><span class="forte">D 243 · 21:14</span>
+1x Duplo cheddar
+1x Aneis de cebola</span></label>
+              <label class="forma"><span class="titulo"><input type="radio" name="forma" checked> Pedido completo, os desta em destaque</span>
+                <span class="ticket"><span class="forte">D 243 · 21:14</span>
+<span class="forte">1x Duplo cheddar</span>
+<span class="forte">1x Aneis de cebola</span>
+<span class="apagado">1x Molho da casa  (despacho)
+1x Refrigerante lata (despacho)</span></span></label>
+            </div>
+            <p class="nota">Sem "agrupado" na impressora (decisão de 21/10): agrupar fica no KDS, na visão Por item, que soma os itens iguais dos pedidos.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5. Tela de senhas -->
+      <div class="tela" id="tela-senhas" role="tabpanel" aria-labelledby="aba-senhas" hidden>
+        <div class="palco-cab"><b>TV do balcão · /senhas</b><span class="muted">Fundo branco, logo e nome da loja · ajustes ao lado, aplicados na hora</span></div>
+        <div class="palco-corpo">
+          <div class="com-gaveta">
+            <div class="tv-area">
+              <div class="tv" id="tv" aria-label="Tela de senhas">
+                <div class="tv-top">
+                  <span class="loja"><span class="loja-logo" aria-hidden="true">BE</span><span class="loja-nome">Burger da Esquina</span></span>
+                  <span class="relogio" id="tv-hora">21:14</span>
+                </div>
+                <div class="tv-cols">
+                  <div class="tv-col prep"><h3>Preparando</h3><div class="senhas" id="tv-prep"></div></div>
+                  <div class="tv-col pronto"><h3>Pronto</h3><div class="senhas" id="tv-pronto" aria-live="polite"></div></div>
+                </div>
+                <div class="tv-pe"><span>Retire no balcão quando o seu número aparecer em <b>PRONTO</b></span><span>B balcão · D retirada · T totem</span></div>
+              </div>
+              <div class="demo">
+                <button class="btn prim" type="button" id="tv-chamar">Simular: a próxima fica pronta</button>
+                <button class="btn" type="button" id="tv-entregar">Simular: o balcão entregou a mais antiga</button>
+              </div>
+              <p class="nota" id="tv-nota" style="margin-top:8px"></p>
+            </div>
+            <aside class="gaveta" aria-label="Ajustes da tela de senhas">
+              <div class="gaveta-cab"><h3>Ajustes da tela de senhas</h3><p class="nota">O tamanho das letras é desta TV (cada TV tem um tamanho); o tempo e o aviso valem para a loja.</p></div>
+              <div class="gaveta-corpo">
+                <div class="grupo-aj">
+                  <b>Logo e nome</b>
+                  <div class="loja-cad"><span class="loja-logo" aria-hidden="true">BE</span><span><strong>Burger da Esquina</strong><br><span class="nota">Vêm de Configurações › Loja: a logo e o nome público, os mesmos do cardápio online.</span></span></div>
+                </div>
+                <div class="grupo-aj">
+                  <b>Tamanho das letras</b>
+                  <div class="faixa"><label for="tam-pronto">Senhas em Pronto <output id="o-pronto" for="tam-pronto">100%</output></label><input type="range" id="tam-pronto" min="60" max="160" step="10" value="100"></div>
+                  <div class="faixa"><label for="tam-prep">Senhas em Preparando <output id="o-prep" for="tam-prep">100%</output></label><input type="range" id="tam-prep" min="60" max="160" step="10" value="100"></div>
+                  <div class="faixa"><label for="tam-titulos">Nome da loja e títulos <output id="o-titulos" for="tam-titulos">100%</output></label><input type="range" id="tam-titulos" min="60" max="160" step="10" value="100"></div>
+                </div>
+                <div class="grupo-aj">
+                  <label for="tempo-pronto"><b>Tempo da senha em Pronto</b></label>
+                  <select class="seletor" id="tempo-pronto">
+                    <option value="2">2 minutos</option>
+                    <option value="5">5 minutos</option>
+                    <option value="10" selected>10 minutos</option>
+                    <option value="15">15 minutos</option>
+                    <option value="20">20 minutos</option>
+                    <option value="30">30 minutos</option>
+                    <option value="0">Até o balcão entregar</option>
+                  </select>
+                  <p class="nota">A senha sai antes se o balcão marcar entregue.</p>
+                </div>
+                <div class="grupo-aj">
+                  <b>Aviso</b>
+                  <label class="chave"><input type="checkbox" id="som-pronto" checked> Tocar um aviso curto quando uma senha ficar pronta</label>
+                </div>
+              </div>
+              <div class="gaveta-pe"><span class="toast" id="toast-tv" role="status"></span><button class="btn" type="button" id="tv-padrao">Voltar ao padrão</button><button class="btn prim" type="button" id="salvar-tv">Salvar ajustes da tela</button></div>
+            </aside>
+          </div>
+        </div>
+      </div>
+      <!-- 6. Mapa ao vivo num KDS -->
+      <div class="tela palco-rel" id="tela-mapa" role="tabpanel" aria-labelledby="aba-mapa" hidden>
+        <div class="palco-cab"><b>Delivery › Mapa ao vivo</b><span class="muted">Botão novo: mandar o mapa dos entregadores para a tela de um KDS</span></div>
+        <div class="palco-corpo">
+          <div class="cab-mapa">
+            <div><span class="eyebrow-app">Delivery</span><h3>Mapa ao vivo</h3><p class="nota">Entregadores em rota, última posição dos últimos 15 minutos.</p></div>
+            <button class="btn prim btn-ico" type="button" id="abrir-kds" aria-haspopup="dialog">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M8 20h8M12 16v4"></path></svg>
+              <span id="abrir-kds-texto">Mostrar num KDS</span>
+            </button>
+          </div>
+          <div class="faixa-kds" id="faixa-kds" hidden>
+            <span id="faixa-texto">O mapa está na tela do KDS Expedição.</span>
+            <span class="acoes-faixa"><button class="btn" type="button" id="trocar-kds">Escolher os KDS</button><button class="btn" type="button" id="tirar-kds">Tirar de todos</button></span>
+          </div>
+          <div class="mapa-grade">
+            <div class="mapa" role="img" aria-label="Mapa com a loja e dois entregadores em rota">
+              <span class="pino" style="left:46%;top:48%">Loja</span>
+              <span class="pino moto" style="left:26%;top:30%">Carlos · 4 min</span>
+              <span class="pino moto" style="left:70%;top:72%">Bruno · chegando</span>
+            </div>
+            <div class="rota">
+              <b>Em rota agora</b>
+              <div class="entregador"><b>Carlos</b><span class="muted">2 pedidos · D 247 e D 249 · posição há 20 s</span></div>
+              <div class="entregador"><b>Bruno</b><span class="muted">1 pedido · D 244 · chegando ao cliente</span></div>
+            </div>
+          </div>
+          <div class="grupo-aj" id="preview-kds" hidden style="margin-top:16px">
+            <b id="preview-titulo">Como fica no KDS Expedição</b>
+            <div class="kds">
+              <div class="kds-top"><div><span class="kds-marca" aria-hidden="true">R</span><b id="preview-nome">Expedição</b> <span class="k-muted">· Entregadores ao vivo</span></div><span class="kds-rotulo">Mapa enviado pelo painel · os pedidos voltam quando tirar do KDS</span></div>
+              <div class="mapa" aria-hidden="true"><span class="pino" style="left:46%;top:50%">Loja</span><span class="pino moto" style="left:26%;top:32%">Carlos</span><span class="pino moto" style="left:70%;top:72%">Bruno</span></div>
+            </div>
+          </div>
+          <span class="toast" id="toast-mapa" role="status"></span>
+          <div class="proto-ctl"><label class="chave"><input type="checkbox" id="sem-kds"> Ver como fica numa loja sem KDS cadastrado</label></div>
+        </div>
+        <div class="camada" id="camada-kds" hidden>
+          <div class="dialogo" role="dialog" aria-modal="true" aria-labelledby="dialogo-titulo">
+            <div class="dialogo-cab"><h3 id="dialogo-titulo">Mostrar o mapa nos KDS</h3><p class="nota">Marque as telas que vão trocar os pedidos pelo mapa dos entregadores. Pode ser mais de uma; a desmarcada volta aos pedidos.</p></div>
+            <div class="dialogo-corpo" id="lista-kds" role="group" aria-label="Telas de KDS da loja"></div>
+            <div class="dialogo-pe"><button class="btn" type="button" id="cancelar-kds">Cancelar</button><button class="btn prim" type="button" id="confirmar-kds">Mostrar o mapa nos KDS marcados</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="t-regras">
+    <h2 id="t-regras">Como fica</h2>
+    <div class="regras">
+      <div class="regra"><h3>O pedido entra</h3><ul>
+        <li>Cada item vai para o KDS que <strong>marcou aquele produto</strong>. Um pedido com lanche e batata vira um cartão na Chapa e outro na Fritadeira.</li>
+        <li>Item que nenhum KDS marcou sai na <strong>impressora da cozinha</strong> (a reserva).</li>
+        <li>Bebida e molho podem ir <strong>direto ao despacho</strong>, sem estação.</li>
+        <li>Sem nenhum KDS configurado, tudo segue <strong>como hoje</strong>.</li></ul></div>
+      <div class="regra"><h3>Entre as estações</h3><ul>
+        <li>Quando a estação marca <strong>pronto</strong>, o cartão passa para o KDS seguinte (Chapa → Montagem) e começa lá como recebido.</li>
+        <li>O despacho mostra o pedido inteiro e o andamento de cada estação, e o botão <strong>Despachar</strong> só libera com todas prontas (o gerente pode forçar).</li>
+        <li>Quando o último KDS do pedido termina ("Termina aqui", ou o despacho), a senha vai para <strong>Pronto</strong> na tela de senhas. Sem tela de senhas, o pedido só sai do KDS.</li>
+        <li>As telas da cozinha ficam no <strong>tema claro, nas cores do Regem</strong>; o escuro segue como opção de cada aparelho.</li></ul></div>
+      <div class="regra"><h3>Impressoras</h3><ul>
+        <li>Cada impressora diz <strong>o que imprime</strong>: a reserva da cozinha, certos produtos ou certos setores.</li>
+        <li>E <strong>como imprime</strong>: só os itens dela, ou o pedido completo com os dela em destaque. Agrupar fica no KDS (visão Por item).</li>
+        <li>A impressora que imprime "ao passar de etapa" continua existindo.</li></ul></div>
+      <div class="regra"><h3>Tela de senhas</h3><ul>
+        <li>Abre numa TV pelo endereço <strong>/senhas</strong>, pareada como os outros equipamentos, <strong>sem login</strong>.</li>
+        <li><strong>Fundo branco</strong>, com a <strong>logo e o nome da loja</strong> (os de Configurações › Loja) no lugar do Regem.</li>
+        <li>Ajustes: <strong>tamanho das letras</strong> de cada TV, e o <strong>tempo da senha em Pronto</strong> e o aviso sonoro da loja.</li>
+        <li>Mostra <strong>só números</strong> (nada de nome do cliente, por causa da LGPD), no servidor da loja e na nuvem, na hora.</li></ul></div>
+      <div class="regra"><h3>Mapa num KDS</h3><ul>
+        <li>Em <strong>Delivery › Mapa ao vivo</strong>, o botão <strong>Mostrar num KDS</strong> abre a lista das telas de KDS da loja.</li>
+        <li>A tela escolhida troca os pedidos pelo <strong>mapa dos entregadores</strong>. O KDS já tem esse modo hoje, mas só escolhido no próprio aparelho.</li>
+        <li>Pode ser <strong>mais de um KDS</strong> ao mesmo tempo. Na mesma tela do mapa: <strong>Escolher os KDS</strong> (o desmarcado volta aos pedidos) ou <strong>Tirar de todos</strong>.</li>
+        <li>Painel e KDS no mesmo servidor: troca na hora. Do painel na nuvem para um KDS no servidor da loja: em até 1 minuto, pela sincronização.</li></ul></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="t-mercado">
+    <h2 id="t-mercado">Como o mercado faz</h2>
+    <div class="tabela">
+      <table>
+        <caption class="sr">Três caminhos para dividir a cozinha, com a recomendação</caption>
+        <thead><tr><th scope="col">Caminho</th><th scope="col">Como funciona</th><th scope="col">Ganha</th><th scope="col">Perde</th><th scope="col"></th></tr></thead>
+        <tbody>
+          <tr><td><b>Estações por produto, com despacho</b><br><span class="muted">padrão do Toast</span></td><td>Cada produto vai para uma ou mais estações; o despacho vê tudo e só libera quando todas terminam; um item pode passar de uma estação para a seguinte.</td><td>Cozinha de qualquer tamanho; um produto pode estar em duas estações.</td><td>Mais coisa para configurar na primeira vez.</td><td class="escolha">Recomendo</td></tr>
+          <tr><td><b>KDS por setor</b><br><span class="muted">o que o Regem tem pela metade</span></td><td>O produto pertence a um setor e o KDS mostra o setor.</td><td>Poucos cliques.</td><td>Rígido: a batata não fica na fritadeira e na montagem ao mesmo tempo. E você pediu "escolher os produtos".</td><td></td></tr>
+          <tr><td><b>Filtro só no aparelho</b></td><td>Cada tela esconde o que não quer ver; o servidor não sabe de nada.</td><td>Rápido de fazer.</td><td>Não alimenta o despacho nem a TV, e perde tudo ao trocar o aparelho.</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="fontes" style="margin-top:10px">Referências (verificado em 21/10/2026):
+      <a href="https://support.toasttab.com/en/article/Prep-Stations-Basics">Toast, estações de preparo e despacho</a> ·
+      <a href="https://doc.toasttab.com/doc/platformguide/platformKDSRoutingUsingAssemblyLines.html">Toast, linha de montagem</a> ·
+      <a href="https://files.support.epson.com/pdf/pos/kds/111-56-qum-001_r3.36_trueorder_kds_customer_facing_display-quick_user_manual.pdf">Epson TrueOrder, tela Preparando/Pronto</a> ·
+      <a href="https://kmee.com.br/en/products/order-display/">KMEE Order Display</a> ·
+      <a href="https://ajuda.alterdata.com.br/sld/funcoes-administrativas-spice-simples/outras-funcoes-spice-simples/configurador-spice-simples/painel-de-senhas-configuracoes-do-spice-light">Alterdata, painel de senhas</a> ·
+      <a href="https://community.squareup.com/t5/Square-for-Restaurants/Pickup-Display-Screen/m-p/657488">Square não tem essa tela</a></p>
+  </section>
+
+  <section aria-labelledby="t-existe">
+    <h2 id="t-existe">O que já existe e será aproveitado</h2>
+    <div class="regras">
+      <div class="regra"><h3>No Regem hoje</h3><ul>
+        <li>KDS cadastrado como equipamento, com setor, "próximo KDS" e o modo despacho.</li>
+        <li>Destino por produto (produto → KDS ou impressora) já é gravado, mas o cartão o ignora.</li>
+        <li>Impressoras com setores atendidos e a "padrão".</li>
+        <li>O quadro Preparando/Pronto da equipe dentro do KDS de despacho.</li>
+        <li>O modo Mapa dos entregadores no KDS, escolhido hoje no próprio aparelho.</li></ul></div>
+      <div class="regra"><h3>O que falta construir</h3><ul>
+        <li>Um cartão por estação, com os itens daquela estação.</li>
+        <li>A passagem no "pronto" (hoje o cartão pula no primeiro toque) e o despacho que espera todas.</li>
+        <li>Os ajustes do KDS no servidor (hoje ficam só no aparelho).</li>
+        <li>A forma de imprimir por impressora e a reserva da cozinha.</li>
+        <li>A TV de senhas, com aviso por loja.</li></ul></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="t-fases">
+    <h2 id="t-fases">Em cinco entregas</h2>
+    <div class="fases">
+      <div class="fase"><h3>Produtos por KDS e a reserva da cozinha <span class="chip gold">começa agora</span></h3><p class="muted">Botão de ajuste em cada KDS (produtos, como mostra), cartão por estação, item sem KDS na impressora da cozinha.</p><span class="mig">Migration: produto no item do cartão e ajustes do KDS no servidor</span></div>
+      <div class="fase"><h3>Fluxo e despacho</h3><p class="muted">"Quando ficar pronto, vai para", a passagem entre KDS e o despacho que espera todas as estações.</p><span class="mig">Migration pequena: a etapa do cartão em cada estação</span></div>
+      <div class="fase"><h3>Impressoras com a sua forma</h3><p class="muted">O que cada impressora imprime e como (só os itens, pedido completo, agrupado).</p><span class="mig">Migration: a forma de impressão de cada impressora</span></div>
+      <div class="fase"><h3>Tela de senhas</h3><p class="muted">A TV do balcão com Preparando e Pronto, fundo branco com a logo e o nome da loja, tamanhos das letras e tempo em Pronto ajustáveis, pareada sem login, com aviso na hora.</p><span class="mig">Migration pequena: os ajustes da tela (tempo e aviso da loja; tamanhos de cada TV)</span></div>
+      <div class="fase"><h3>Mapa dos entregadores num KDS</h3><p class="muted">O botão no Mapa ao vivo, a lista das telas de KDS, trocar e tirar. Pequena e independente: pode vir antes das outras.</p><span class="mig">Migration pequena: a tela escolhida para cada KDS, numa tabela própria (o cadastro do equipamento muda a cada uso, e a sincronização desfaria a escolha — ERR-235)</span></div>
+    </div>
+    <p class="nota" style="margin-top:10px">Cada entrega nasce desligada: a cozinha continua igual até alguém configurar. Tudo chega à loja pelo <code>.zip</code>, e cada entrega é testada na loja simulada antes.</p>
+  </section>
+
+  <section aria-labelledby="t-perguntas">
+    <h2 id="t-perguntas">Suas decisões (21/10)</h2>
+    <div class="perguntas">
+      <div class="pergunta"><h3>1. Impressora sem "agrupado"</h3><p class="muted">Cada impressora imprime só os itens dela ou o pedido completo. Agrupar fica no KDS, na visão Por item.</p></div>
+      <div class="pergunta"><h3>2. O despacho espera todas as estações</h3><p class="muted">O botão Despachar só libera com todas prontas; o gerente pode forçar.</p></div>
+      <div class="pergunta"><h3>3. A senha sai da TV pelo tempo ajustado</h3><p class="muted">Padrão de 10 minutos em Pronto, ou "até o balcão entregar"; sai antes quando o balcão marca entregue.</p></div>
+      <div class="pergunta"><h3>4. Bebidas e molhos vão direto ao despacho</h3><p class="muted">Sem passar por estação.</p></div>
+      <div class="pergunta"><h3>5. Começo pela entrega 1</h3><p class="muted">Produtos por KDS e a reserva da cozinha.</p></div>
+      <div class="pergunta"><h3>6. O mapa pode ficar em mais de um KDS</h3><p class="muted">Vários ao mesmo tempo; o KDS desmarcado volta aos pedidos.</p></div>
+      <div class="pergunta"><h3>Também decidido</h3><p class="muted">"Termina aqui" leva a senha para Pronto na tela de senhas (sem tela de senhas, o pedido só sai do KDS); a TV de senhas é branca, com a logo e o nome da loja; as telas da cozinha ficam no tema claro, nas cores do Regem.</p></div>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+  // Abas (teclado: setas e Home/End).
+  const abas = [...document.querySelectorAll('[role="tab"]')];
+  function abrir(aba, foco) {
+    for (const a of abas) {
+      const sel = a === aba;
+      a.setAttribute('aria-selected', String(sel));
+      a.tabIndex = sel ? 0 : -1;
+      document.getElementById(a.getAttribute('aria-controls')).hidden = !sel;
+    }
+    if (foco) aba.focus();
+    try { localStorage.setItem('cozinha-aba', aba.id); } catch (e) {}
+  }
+  abas.forEach((a, i) => {
+    a.addEventListener('click', () => abrir(a));
+    a.addEventListener('keydown', (ev) => {
+      const k = ev.key;
+      if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(k)) return;
+      ev.preventDefault();
+      const j = k === 'Home' ? 0 : k === 'End' ? abas.length - 1 : (i + (k === 'ArrowRight' ? 1 : -1) + abas.length) % abas.length;
+      abrir(abas[j], true);
+    });
+  });
+  const hash = (location.hash || '').slice(1);
+  let inicial = abas[0];
+  try { inicial = document.getElementById(localStorage.getItem('cozinha-aba')) || inicial; } catch (e) {}
+  if (hash) inicial = document.getElementById('aba-' + hash) || inicial;
+  abrir(inicial);
+
+  // Simulador "onde cada item vai".
+  const rotas = {
+    xbacon: { passos: ['Chapa', 'Montagem', 'Despacho'], nota: 'A Chapa faz a carne; quando marca pronto, o cartão passa para a Montagem; o despacho libera quando todas as estações do pedido terminam, e a senha vai para Pronto na tela de senhas, se a loja usa uma.' },
+    batata: { passos: ['Fritadeira', 'Despacho'], nota: 'A Fritadeira marcou as porções. Pronta, a batata espera no despacho o resto do pedido.' },
+    lata: { passos: ['Despacho'], nota: 'Bebida não passa por estação: aparece no despacho para conferir e pôr na sacola.' },
+    molho: { passos: ['Despacho'], nota: 'Molho pronto: vai direto ao despacho, como a bebida.' },
+    sobremesa: { passos: ['Impressora da cozinha'], reserva: true, nota: 'Nenhum KDS marcou este produto: sai a via de produção na impressora da cozinha, como hoje.' },
+  };
+  const sel = document.getElementById('sim-prod');
+  const cam = document.getElementById('sim-caminho');
+  const nota = document.getElementById('sim-nota');
+  function simular() {
+    const r = rotas[sel.value];
+    cam.replaceChildren();
+    r.passos.forEach((p, i) => {
+      if (i) { const s = document.createElement('span'); s.className = 'seta'; s.textContent = '→'; s.setAttribute('aria-hidden', 'true'); cam.append(s); }
+      const c = document.createElement('span');
+      c.className = 'chip' + (p === 'Despacho' ? ' gold' : '') + (r.reserva ? ' tracejado' : '');
+      c.textContent = p;
+      cam.append(c);
+    });
+    nota.textContent = r.nota;
+  }
+  sel.addEventListener('change', simular);
+  simular();
+
+  // Gaveta do KDS: contagem, busca, marcar a categoria e salvar.
+  const caixas = () => [...document.querySelectorAll('#gaveta-kds .prod input')];
+  const cont = document.getElementById('cont-prod');
+  const contar = () => { const c = caixas(); cont.textContent = `· ${c.filter((x) => x.checked).length} de ${c.length}`; };
+  document.getElementById('gaveta-kds').addEventListener('change', contar);
+  document.querySelectorAll('[data-marcar]').forEach((b) => b.addEventListener('click', () => {
+    const cat = document.querySelector(`.cat[data-cat="${b.dataset.marcar}"]`);
+    const itens = [...cat.querySelectorAll('input')];
+    const todos = itens.every((x) => x.checked);
+    itens.forEach((x) => { x.checked = !todos; });
+    b.textContent = todos ? 'Marcar todos' : 'Desmarcar';
+    contar();
+  }));
+  document.getElementById('busca-prod').addEventListener('input', (ev) => {
+    const t = ev.target.value.trim().toLowerCase();
+    document.querySelectorAll('#gaveta-kds .prod').forEach((l) => { l.hidden = !!t && !l.textContent.toLowerCase().includes(t); });
+  });
+  document.querySelectorAll('.seg button').forEach((b) => b.addEventListener('click', () => {
+    b.parentElement.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  }));
+  const toast = document.getElementById('toast-kds');
+  document.getElementById('salvar-kds').addEventListener('click', () => {
+    toast.textContent = 'Ajustes da Chapa salvos';
+    setTimeout(() => { toast.textContent = ''; }, 2600);
+  });
+  contar();
+
+  // "Quando ficar pronto, vai para": o que acontece em cada escolha.
+  const vaiPara = document.getElementById('vai-para');
+  const vaiParaNota = document.getElementById('vai-para-nota');
+  const explicarVaiPara = () => {
+    vaiParaNota.textContent = {
+      montagem: 'Quando a Chapa marca pronto, o cartão passa para a Montagem e começa lá como recebido.',
+      despacho: 'Quando a Chapa marca pronto, o cartão espera no despacho o resto do pedido.',
+      fim: 'Quando o pedido todo terminar, a senha vai para Pronto na tela de senhas, se a loja usa uma. Sem tela de senhas, o pedido só sai do KDS.',
+    }[vaiPara.value];
+  };
+  vaiPara.addEventListener('change', explicarVaiPara);
+  explicarVaiPara();
+
+  // TV de senhas: as senhas, os ajustes aplicados na hora e o tempo em Pronto (no protótipo, 1 minuto = 1 segundo).
+  const tv = document.getElementById('tv');
+  const prep = ['B118', 'D251', 'B119', 'T042', 'D252', 'B120', 'D253'];
+  const pronto = [{ s: 'D247' }, { s: 'B115' }, { s: 'D249' }];
+  const elPrep = document.getElementById('tv-prep');
+  const elPronto = document.getElementById('tv-pronto');
+  const notaTv = document.getElementById('tv-nota');
+  const tempoSel = document.getElementById('tempo-pronto');
+  const senhaEl = (s, nova) => {
+    const el = document.createElement('span');
+    el.className = 'senha' + (nova ? ' nova' : '');
+    el.setAttribute('aria-label', `Senha ${s[0]} ${s.slice(1)}`);
+    const pre = document.createElement('small');
+    pre.textContent = s[0];
+    el.append(pre, document.createTextNode(s.slice(1)));
+    return el;
+  };
+  function desenhar(nova) {
+    elPrep.replaceChildren(...prep.map((s) => senhaEl(s)));
+    elPronto.replaceChildren(...pronto.map((x) => senhaEl(x.s, x.s === nova)));
+  }
+  function explicarTempo() {
+    const m = Number(tempoSel.value);
+    notaTv.textContent = m
+      ? `No protótipo cada minuto vale 1 segundo: a senha que fica pronta sai da tela em ${m} s, ou antes, se o balcão entregar.`
+      : 'Com "até o balcão entregar", a senha só sai da tela quando o balcão marca entregue.';
+  }
+  function agendarSaida(item) {
+    clearTimeout(item.t);
+    const m = Number(tempoSel.value);
+    if (!m) return;
+    item.t = setTimeout(() => {
+      const i = pronto.indexOf(item);
+      if (i >= 0) { pronto.splice(i, 1); desenhar(); }
+    }, m * 1000);
+  }
+  document.getElementById('tv-chamar').addEventListener('click', () => {
+    if (!prep.length) return;
+    const item = { s: prep.shift() };
+    pronto.unshift(item);
+    agendarSaida(item);
+    desenhar(item.s);
+  });
+  document.getElementById('tv-entregar').addEventListener('click', () => {
+    const item = pronto.pop();
+    if (item) clearTimeout(item.t);
+    desenhar();
+  });
+  tempoSel.addEventListener('change', () => {
+    explicarTempo();
+    pronto.forEach(agendarSaida);
+  });
+  // Tamanhos: aplicados na hora na TV ao lado.
+  const faixas = [['tam-pronto', '--tam-pronto', 'o-pronto'], ['tam-prep', '--tam-prep', 'o-prep'], ['tam-titulos', '--tam-titulos', 'o-titulos']];
+  for (const [id, variavel, saida] of faixas) {
+    const r = document.getElementById(id);
+    const o = document.getElementById(saida);
+    const aplicar = () => { tv.style.setProperty(variavel, String(Number(r.value) / 100)); o.textContent = `${r.value}%`; };
+    r.addEventListener('input', aplicar);
+    aplicar();
+  }
+  document.getElementById('tv-padrao').addEventListener('click', () => {
+    for (const [id] of faixas) {
+      const r = document.getElementById(id);
+      r.value = '100';
+      r.dispatchEvent(new Event('input'));
+    }
+    tempoSel.value = '10';
+    explicarTempo();
+    document.getElementById('som-pronto').checked = true;
+  });
+  const toastTv = document.getElementById('toast-tv');
+  document.getElementById('salvar-tv').addEventListener('click', () => {
+    toastTv.textContent = 'Ajustes da tela salvos';
+    setTimeout(() => { toastTv.textContent = ''; }, 2600);
+  });
+  // Relógio da TV.
+  const hora = document.getElementById('tv-hora');
+  const tic = () => {
+    const d = new Date();
+    hora.textContent = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+  tic();
+  setInterval(tic, 15000);
+  explicarTempo();
+  desenhar();
+
+  // Mapa ao vivo num KDS: marcar as telas (pode ser mais de uma) e tirar de todas.
+  const telasKds = [
+    { id: 'chapa', nome: 'Chapa', ligado: true, setor: 'Cozinha' },
+    { id: 'expedicao', nome: 'Expedição', ligado: true, setor: 'Despacho' },
+    { id: 'balcao', nome: 'Balcão', ligado: false, sinal: 'sem sinal há 3 h', setor: 'Salão' },
+  ];
+  const noMapa = new Set();
+  let voltarFoco = null;
+  const nomesDe = (ids) => telasKds.filter((k) => ids.has(k.id)).map((k) => k.nome);
+  const juntar = (l) => (l.length <= 1 ? (l[0] ?? '') : `${l.slice(0, -1).join(', ')} e ${l[l.length - 1]}`);
+  const camada = document.getElementById('camada-kds');
+  const listaKds = document.getElementById('lista-kds');
+  const semKds = document.getElementById('sem-kds');
+  const confirmarKds = document.getElementById('confirmar-kds');
+  const toastMapa = document.getElementById('toast-mapa');
+  const avisar = (t) => {
+    toastMapa.textContent = t;
+    setTimeout(() => { if (toastMapa.textContent === t) toastMapa.textContent = ''; }, 3200);
+  };
+  function montarLista() {
+    listaKds.replaceChildren();
+    if (semKds.checked) {
+      const p = document.createElement('p');
+      p.className = 'aviso';
+      p.textContent = 'Nenhum KDS cadastrado nesta loja. Cadastre a tela em Configurações › Equipamentos (tipo KDS) e ela aparece aqui.';
+      listaKds.append(p);
+      confirmarKds.hidden = true;
+      return;
+    }
+    confirmarKds.hidden = false;
+    for (const k of telasKds) {
+      const l = document.createElement('label');
+      l.className = 'opcao-kds';
+      const c = document.createElement('input');
+      c.type = 'checkbox';
+      c.value = k.id;
+      c.checked = noMapa.has(k.id);
+      const nome = document.createElement('b');
+      nome.textContent = k.nome;
+      const det = document.createElement('span');
+      det.className = 'det';
+      const ponto = document.createElement('span');
+      ponto.className = 'ponto' + (k.ligado ? '' : ' off');
+      det.append(ponto, `${k.ligado ? 'Ligado' : k.sinal} · ${k.setor} · agora mostra ${noMapa.has(k.id) ? 'o mapa' : 'os pedidos'}`);
+      l.append(c, nome, det);
+      listaKds.append(l);
+    }
+  }
+  function abrirDialogo() {
+    voltarFoco = document.activeElement;
+    montarLista();
+    camada.hidden = false;
+    (listaKds.querySelector('input') || document.getElementById('cancelar-kds')).focus();
+  }
+  function fecharDialogo() {
+    camada.hidden = true;
+    if (voltarFoco && voltarFoco.isConnected && !voltarFoco.closest('[hidden]')) voltarFoco.focus();
+    else document.getElementById('abrir-kds').focus();
+  }
+  function mostrarEstado() {
+    const lista = nomesDe(noMapa);
+    const tem = lista.length > 0;
+    document.getElementById('faixa-kds').hidden = !tem;
+    document.getElementById('preview-kds').hidden = !tem;
+    document.getElementById('abrir-kds-texto').textContent = tem ? 'Escolher os KDS' : 'Mostrar num KDS';
+    if (!tem) return;
+    document.getElementById('faixa-texto').textContent =
+      lista.length === 1 ? `O mapa está na tela do KDS ${lista[0]}.` : `O mapa está em ${lista.length} KDS: ${juntar(lista)}.`;
+    document.getElementById('preview-titulo').textContent =
+      lista.length === 1 ? `Como fica no KDS ${lista[0]}` : `Como fica no KDS ${lista[0]} (e nos outros marcados)`;
+    document.getElementById('preview-nome').textContent = lista[0];
+  }
+  document.getElementById('abrir-kds').addEventListener('click', abrirDialogo);
+  document.getElementById('trocar-kds').addEventListener('click', abrirDialogo);
+  document.getElementById('cancelar-kds').addEventListener('click', fecharDialogo);
+  camada.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') fecharDialogo(); });
+  camada.addEventListener('click', (ev) => { if (ev.target === camada) fecharDialogo(); });
+  confirmarKds.addEventListener('click', () => {
+    const marcados = new Set([...listaKds.querySelectorAll('input:checked')].map((c) => c.value));
+    const entraram = nomesDe(new Set([...marcados].filter((id) => !noMapa.has(id))));
+    const sairam = nomesDe(new Set([...noMapa].filter((id) => !marcados.has(id))));
+    noMapa.clear();
+    marcados.forEach((id) => noMapa.add(id));
+    fecharDialogo();
+    mostrarEstado();
+    const partes = [];
+    if (entraram.length) partes.push(`${juntar(entraram)} ${entraram.length > 1 ? 'passaram' : 'passou'} a mostrar o mapa`);
+    if (sairam.length) partes.push(`${juntar(sairam)} ${sairam.length > 1 ? 'voltaram' : 'voltou'} aos pedidos`);
+    const desligado = telasKds.some((k) => marcados.has(k.id) && !k.ligado) ? ' (o desligado mostra quando ligar)' : '';
+    avisar(partes.length ? `${partes.join('; ')}${desligado}.` : 'Nada mudou.');
+  });
+  document.getElementById('tirar-kds').addEventListener('click', () => {
+    const lista = nomesDe(noMapa);
+    noMapa.clear();
+    mostrarEstado();
+    document.getElementById('abrir-kds').focus();
+    if (lista.length) avisar(`${juntar(lista)} ${lista.length > 1 ? 'voltaram' : 'voltou'} aos pedidos.`);
+  });
+  semKds.addEventListener('change', () => {
+    if (semKds.checked) { noMapa.clear(); mostrarEstado(); }
+  });
+  mostrarEstado();
+})();
+</script>

@@ -1,7 +1,8 @@
 'use client';
 
 import { textoEntregadorDoCanal } from '@/components/delivery/logistica-canal';
-import { agregarItens, corDoPedido, estaAtrasado, identPedido, proximaAcao, rotuloEtapa, type LimitesTempo } from '@/lib/kds-fila';
+import { agregarItens, corDoPedido, estaAtrasado, identPedido, proximaAcaoNaEstacao, rotuloEtapa, type LimitesTempo } from '@/lib/kds-fila';
+import type { TemaKds } from '@/lib/kds-tema';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -10,7 +11,8 @@ import { agregarItens, corDoPedido, estaAtrasado, identPedido, proximaAcao, rotu
 // Sem borda colorida e sem canto arredondado (decisão do dono, 02/10/2026). Mockup:
 // `mockups/regem-kds-producao.html`.
 
-export type TemaKds = { bg: string; panel: string; panel2: string; border: string; text: string; muted: string; erro: string };
+// O tema mora em `lib/kds-tema` (medido nos dois temas pelo check:kds); o tipo segue exportado daqui para quem já usa.
+export type { TemaKds };
 export type CorDoCartao = 'cabecalho' | 'inteiro';
 
 // Etiqueta curta (ATRASADO, ALTERADO, OBS…): contorno na cor do texto ou "cheia" (invertida).
@@ -41,6 +43,8 @@ export function KdsCartaoPedido({
   realce,
   itemEmDestaque,
   onAvancar,
+  proximoNome,
+  veioDe,
 }: {
   p: any;
   min: number;
@@ -52,6 +56,8 @@ export function KdsCartaoPedido({
   realce: 'nenhum' | 'destaque' | 'apagado'; // item escolhido no resumo: destaca quem o leva
   itemEmDestaque: string;
   onAvancar: (id: string) => void;
+  proximoNome?: string | null; // o "vai para" da estação: o botão diz "Pronto → Montagem" (entrega 2)
+  veioDe?: string | null; // a estação de onde o cartão veio ("Veio da Chapa")
 }) {
   const st = corDoPedido(p, min, limites);
   const inteiro = cor === 'inteiro';
@@ -106,6 +112,7 @@ export function KdsCartaoPedido({
           {cancelado && <EtiquetaKds cheia={invCab} esc={esc}>Cancelado</EtiquetaKds>}
           {atrasado && <EtiquetaKds cheia={invCab} esc={esc}>Atrasado</EtiquetaKds>}
           {alterado && <EtiquetaKds esc={esc}>Alterado</EtiquetaKds>}
+          {veioDe && !cancelado && <EtiquetaKds esc={esc}>Veio de {veioDe}</EtiquetaKds>}
         </span>
       </div>
 
@@ -163,7 +170,7 @@ export function KdsCartaoPedido({
               color: inteiro ? st.fundo : st.texto,
             }}
           >
-            {proximaAcao(p.status)}
+            {proximaAcaoNaEstacao(p.status, proximoNome)}
           </button>
         )}
       </div>
