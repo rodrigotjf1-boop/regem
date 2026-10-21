@@ -63,3 +63,19 @@ jobs:
         run: npm test --if-present
         env:
           TEST_PG_URL: postgresql://postgres:postgres@localhost:5432/regem_ci
+
+      # Kit de conformidade do Padrão DMS (Hub DMS): roda direto no Node 22.6+ (TypeScript sem compilar), e no
+      # Node 20 da produção o teste dele fica pulado. Só este passo troca de versão; o build e os testes de
+      # cima seguem no 20. Com KIT_DMS_OBRIGATORIO, pular vira falha.
+      - uses: actions/setup-node@v4
+        if: matrix.dir == 'backend'
+        with:
+          node-version: 22
+
+      - name: Kit de conformidade do Padrão DMS (via do DMS ID)
+        if: matrix.dir == 'backend'
+        working-directory: backend
+        run: npx jest src/modules/integracao-api/dms-id.http.spec.ts
+        env:
+          TEST_PG_URL: postgresql://postgres:postgres@localhost:5432/regem_ci
+          KIT_DMS_OBRIGATORIO: 'true'

@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
+import { ErroProblema } from '../../dms/integracao-dms';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -35,6 +36,8 @@ export type TipoProblema =
   // Avisos (webhooks, mig 304).
   | 'endereco-nao-permitido'
   | 'aviso-indisponivel'
+  // Via do DMS ID (Hub DMS, F3, mig 329): o segredo da ligação ausente, inexistente ou revogado.
+  | 'ligacao-invalida'
   | 'erro-interno';
 
 const TITULO: Record<TipoProblema, string> = {
@@ -53,6 +56,7 @@ const TITULO: Record<TipoProblema, string> = {
   'autorizacao-invalida': 'Autorização inválida',
   'endereco-nao-permitido': 'Endereço não permitido',
   'aviso-indisponivel': 'Avisos indisponíveis',
+  'ligacao-invalida': 'Ligação inválida',
   'erro-interno': 'Erro interno',
 };
 
@@ -101,15 +105,23 @@ function tipoPeloStatus(status: number): TipoProblema {
 
 const log = new Logger('Integracao 5xx');
 
+/** O nome do problema do pacote comum (`ErroProblema`, Hub DMS) que o Regem conhece; o resto, pelo status. */
+function tipoDoPacote(e: ErroProblema): TipoProblema {
+  return Object.prototype.hasOwnProperty.call(TITULO, e.tipo) ? (e.tipo as TipoProblema) : tipoPeloStatus(e.status);
+}
+
 /** O corpo `problem+json` de uma exceção (exportado para o teste). */
 export function problemaDe(exception: unknown, requestId?: string | null) {
-  const status = exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
-  const tipo = exception instanceof ProblemaException ? exception.tipo : tipoPeloStatus(status);
+  const doPacote = exception instanceof ErroProblema ? exception : null;
+  const status = exception instanceof HttpException ? exception.getStatus() : doPacote ? doPacote.status : HttpStatus.INTERNAL_SERVER_ERROR;
+  const tipo = exception instanceof ProblemaException ? exception.tipo : doPacote ? tipoDoPacote(doPacote) : tipoPeloStatus(status);
   let detalhe = 'Erro interno. Tente de novo em instantes.';
   if (status < 500 && exception instanceof HttpException) {
     const raw: any = exception.getResponse();
     const msg = typeof raw === 'string' ? raw : raw?.message;
     detalhe = Array.isArray(msg) ? msg.join('; ') : String(msg ?? TITULO[tipo]);
+  } else if (status < 500 && doPacote) {
+    detalhe = doPacote.detalhe;
   }
   return {
     status,
@@ -140,9 +152,9 @@ export class ProblemaFilter implements ExceptionFilter {
       );
     }
     if (res?.headersSent) return;
-    if (exception instanceof ProblemaException && exception.retryAfterSeg) {
-      res.setHeader('Retry-After', String(exception.retryAfterSeg));
-    }
+    const retryAfterSeg =
+      exception instanceof ProblemaException || exception instanceof ErroProblema ? exception.retryAfterSeg : undefined;
+    if (retryAfterSeg) res.setHeader('Retry-After', String(retryAfterSeg));
     res.status(status).type('application/problem+json').send(JSON.stringify(corpo));
   }
 }
