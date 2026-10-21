@@ -43,8 +43,10 @@ export function emailDaLigacaoNova(d: {
   const assunto = `O acesso do ${d.aplicativo} ${onde} mudou de forma`;
   const paragrafos = [
     `${primeiroNome}, desde ${d.desde} o ${d.aplicativo} lê ${d.loja ? `a loja ${d.loja}` : 'a sua empresa'} no Regem por uma ligação nova, conferida pelo DMS ID da DMS Tecnologias. Ele continua vendo só o que foi liberado em ${d.liberadoEm}.`,
-    'Você não precisa fazer nada. O acesso continua em Integrações › Aplicativos conectados, onde você vê o que ele recebe e desliga quando quiser.',
-    'Não reconhece este acesso? Desligue-o nessa mesma tela.',
+    // O caminho e o verbo são os do menu e do botão do Regem (Configurações › Aplicativos conectados, "Revogar"),
+    // não os do RegemCast, de onde o texto veio (ERR-269).
+    'Você não precisa fazer nada. O acesso continua em Configurações › Aplicativos conectados, onde você vê o que ele recebe e revoga quando quiser.',
+    'Não reconhece este acesso? Revogue-o nessa mesma tela.',
   ];
   const texto = `${paragrafos.join('\n\n')}\n\nAplicativos conectados: ${d.link}`;
   const html = `
