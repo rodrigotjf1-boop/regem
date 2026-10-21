@@ -1,13 +1,20 @@
+import { baseDaApi } from './origem-api';
+
 // Base da API. Nuvem: NEXT_PUBLIC_API_URL (fixado no build). Edge
 // (NEXT_PUBLIC_EDGE=1): cada loja tem IP proprio, entao a API fica no MESMO host
 // que serviu o app (o que o cliente digitou: localhost / IP / regem.local), na
-// porta do edge (default 3002). Resolve em runtime, no navegador.
-function apiBase(): string {
-  if (process.env.NEXT_PUBLIC_EDGE === '1' && typeof window !== 'undefined') {
-    const porta = process.env.NEXT_PUBLIC_EDGE_API_PORT || '3002';
-    return `${window.location.protocol}//${window.location.hostname}:${porta}/api/v1`;
-  }
-  return process.env.NEXT_PUBLIC_API_URL || 'https://api.dmsregem.com/api/v1';
+// porta do edge (default 3002). Resolve em runtime, no navegador. A regra mora em
+// `origem-api.ts` — o tempo real (rt.ts) usa a mesma. As variáveis vão escritas por
+// extenso: o Next só fixa no build o `process.env.NEXT_PUBLIC_…` literal.
+export function apiBase(): string {
+  return baseDaApi(
+    {
+      edge: process.env.NEXT_PUBLIC_EDGE,
+      apiUrl: process.env.NEXT_PUBLIC_API_URL,
+      portaApi: process.env.NEXT_PUBLIC_EDGE_API_PORT,
+    },
+    typeof window !== 'undefined' ? window.location : null,
+  );
 }
 
 // Ping leve do servidor (status online/offline nos apps clientes). Público, sem

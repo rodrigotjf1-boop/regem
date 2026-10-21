@@ -84,6 +84,31 @@ export function identPedido(p: any): string {
   return 'Balcão';
 }
 
+// ── Sub-filtro de origem e "o cartão é desta tela?" ───────────────────────────────────────────
+// Delivery agrupa a plataforma (marketplace × cardápio digital); Balcão/Salão agrupa origem + plataforma (Totem).
+export function grupoPedido(p: any, canal: 'delivery' | 'balcao'): string {
+  const plat = String(p.plataforma ?? '').toLowerCase();
+  if (canal === 'delivery') {
+    if (/ifood|99\s*food|keeta|rappi|uber/.test(plat)) return 'marketplace';
+    return 'digital'; // anota aí, cardápio web, cardápio (regem), outros
+  }
+  if (/totem|kiosk|quiosque/.test(plat)) return 'totem';
+  const o = String(p.origem ?? 'balcao');
+  if (o === 'mesa' || o === 'comanda') return 'mesa';
+  if (o === 'garcom') return 'garcom';
+  return 'pdv';
+}
+
+// O cartão é desta tela? Está na fila que o servidor devolveu para ESTE KDS (loja, canal, setor ou KDS da cadeia) e
+// passa no sub-filtro de origem escolhido aqui. Só ele apita e alerta: antes, todo KDS da empresa apitava por todo pedido
+// novo e mostrava "CANCELADO" de pedido que não era dele (auditoria do KDS, 20/10/2026). Devolve o cartão (ou nada).
+export function cartaoNaTela(lista: any[], pedidoId: string, canal: string, sub: string): any | undefined {
+  const p = (lista ?? []).find((x) => x.id === pedidoId);
+  if (!p) return undefined;
+  if (canal === 'todos' || sub === 'todos') return p;
+  return grupoPedido(p, canal as 'delivery' | 'balcao') === sub ? p : undefined;
+}
+
 // ── Itens ─────────────────────────────────────────────────────────────────────────────────
 // Dentro de UM pedido: agrega itens iguais (mesma descrição + complementos + obs) somando.
 export function agregarItens(itens: any[]): any[] {

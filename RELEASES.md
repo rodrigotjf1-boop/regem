@@ -34,6 +34,13 @@
   cartão entregue/cancelado não volta à fila por uma cópia "mais nova" da outra ponta, e cancelado vence entregue. A parte
   da nuvem vale no deploy; a da loja, no `.zip`. Toca o `edge/sync-daemon.mjs`: instalação NOVA pede o `.exe` do mesmo
   corte.
+- **KDS do servidor da loja conecta ao tempo real; cada KDS só apita pelos pedidos da própria fila (sem migration,
+  auditoria do KDS):** só tela. O tempo real usa a mesma regra de endereço da API (`lib/origem-api.ts`) — no servidor
+  da loja ele ficava sem endereço e batia na porta do app (404): o KDS de lá nunca conectava (sem som de pedido novo, até
+  30 s de atraso, faixa "Sem conexão" fixa); a tela de mesas ganha o mesmo conserto. O som de pedido novo e o alerta de
+  cancelado só valem para o cartão desta tela (fila deste KDS + sub-filtro). Nuvem: no deploy. Loja: no `.zip` (o app
+  vai no pacote). Na loja, conferir: o KDS sem a faixa "Sem conexão"; pedido novo apita na hora; um KDS de outro canal
+  não apita.
 - **Registro no hub e parada da API de integração (Hub DMS, F3 parte A2; sem migration):** só NUVEM e desligado até a distribuição ligar (`HUB_LIGADO`). O código entra no `.zip` por tabela (o filtro de problemas e as regras do hub, usados também pelas rotas do totem), mas no servidor da loja nada muda: a API de integração e o cliente do hub não sobem lá. Não pede `.exe`. Nada a fazer na loja.
 - **KDS: item removido sai do cartão e os ajustes valem na loja (mig 332, auditoria do KDS):** o item tirado da comanda
   sai do cartão ativo e do resumo (o cartão mostra "Alterado"; no cancelado os itens ficam riscados); cores e etapas do
