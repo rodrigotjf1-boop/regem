@@ -11,11 +11,15 @@ import { KdsCartaoPedido, type CorDoCartao, type TemaKds } from '@/components/kd
 import { KdsCartaoItem } from '@/components/kds/kds-cartao-item';
 import { KdsResumoItens } from '@/components/kds/kds-resumo-itens';
 import { KdsProdutosGaveta } from '@/components/kds/kds-produtos-gaveta';
+import { KdsDespacho } from '@/components/kds/kds-despacho';
+import { ACAO_KDS, TEMAS_KDS } from '@/lib/kds-tema';
 import {
   COR_STATUS,
   FILTROS_ETAPA,
+  acoesDoDespacho,
   agruparPorItem,
   cartaoNaTela,
+  pedidoDoDespachoNaTela,
   contarEtapas,
   decidirTecla,
   filtrarEtapa,
@@ -101,15 +105,10 @@ function normalizarView(v: any): ViewCfg {
   };
 }
 
-// Temas do KDS: só tinta e cinza (a cor fica para o status do tempo). O claro (padrão) nas cores do Regem — fundo base,
-// cartão branco, tinta navy (decisão do dono em 21/10/2026); o escuro segue como opção do aparelho. `erro` = texto de
-// falha sobre o painel: 5,47:1 no escuro e 4,83:1 no claro (o #FF5A4E do escuro dava 3,1:1 no branco).
-const TEMAS: Record<'escuro' | 'claro', TemaKds> = {
-  escuro: { bg: '#0B1117', panel: '#151E27', panel2: '#1D2833', border: '#2C3A47', text: '#F1F5F8', muted: '#A3B1BD', erro: '#FF5A4E' },
-  claro: { bg: '#EDF0F4', panel: '#FFFFFF', panel2: '#F1F4F7', border: '#D5DCE4', text: '#0F2230', muted: '#4F6476', erro: '#D92D20' },
-};
-// A ação principal das telas de entrada (tela cheia, login): o dourado do Regem com tinta navy (7,4:1).
-const ACAO = { fundo: '#E2A340', texto: '#0F2230' };
+// Temas do KDS (claro, o padrão, nas cores do Regem; escuro, opção do aparelho) e a ação dourada: em `lib/kds-tema`,
+// medidos nos dois temas pelo check:kds.
+const TEMAS: Record<'escuro' | 'claro', TemaKds> = TEMAS_KDS;
+const ACAO = ACAO_KDS;
 const FOCO = '#2F7FD8'; // anel de foco (teclado)
 const MONO = 'JetBrains Mono, monospace';
 const TITULO = 'Archivo, sans-serif';
@@ -119,6 +118,11 @@ export default function KdsPage() {
   const [temSessao, setTemSessao] = useState<boolean | null>(null);
   const [alertas, setAlertas] = useState<Alerta[]>([]);
   const [pedidos, setPedidos] = useState<any[]>([]);
+  // O despacho tem a lista dele (o pedido inteiro, com o andamento): nunca se mistura com a fila de cartões. Com uma lista
+  // só, a tela que virava despacho desenhava por um instante os cartões da fila antiga como pedidos — chaves repetidas, e
+  // sobrava um cartão "fantasma" (medido na tela de verdade, 21/10/2026).
+  const [pedidosDespacho, setPedidosDespacho] = useState<any[]>([]);
+  const [dialogoDespacho, setDialogoDespacho] = useState(false); // "… assim mesmo (gestor)" aberto: o teclado é dele
   const [cores, setCores] = useState({ verdeAteMin: 5, amareloAteMin: 10 });
   const [setores, setSetores] = useState<any[]>([]);
   const [setorSel, setSetorSel] = useState('');
@@ -208,8 +212,8 @@ export default function KdsPage() {
   const socketRef = useRef<Socket | null>(null);
   const mudoRef = useRef(mudo);
   mudoRef.current = mudo;
-  const pedidosRef = useRef<any[]>([]);
-  pedidosRef.current = pedidos;
+  const pedidosRef = useRef<any[]>([]); // a lista desta tela (cartões ou, no despacho, pedidos) — atribuída abaixo
+  const filaSeq = useRef(0); // número da leitura mais nova da fila: resposta de leitura velha que chega depois não vale
   const setorRef = useRef(setorSel);
   setorRef.current = setorSel;
   const canalRef = useRef(canal);
@@ -219,6 +223,7 @@ export default function KdsPage() {
   subAtivoRef.current = canal === 'delivery' ? subDelivery : canal === 'balcao' ? subBalcao : 'todos';
   const kdsRef = useRef(kdsSel);
   kdsRef.current = kdsSel;
+  const despachoRef = useRef(false); // este aparelho é o KDS de despacho (Cozinha em estações, entrega 2)
   const usoRef = useRef(uso);
   usoRef.current = uso;
   const senhaRef = useRef<HTMLInputElement | null>(null); // Fase F — campo de senha (foco)
@@ -250,15 +255,19 @@ export default function KdsPage() {
   // Devolve a fila nova (ou null se falhou) — o som de pedido novo confere se o cartão entrou NESTA tela.
   const carregarFila = useCallback(async (): Promise<any[] | null> => {
     if (!getToken()) return null; // fila durável requer operador logado (JWT)
+    const seq = ++filaSeq.current;
+    const despacho = despachoRef.current && !!kdsRef.current;
     try {
-      const r: any = await api.producaoFila(
-        setorRef.current || undefined,
-        undefined,
-        canalRef.current,
-        kdsRef.current || undefined,
-      );
+      // O despacho lê o pedido inteiro, com o andamento de cada estação; os outros KDS, os cartões deles.
+      const r: any = despacho
+        ? await api.kdsDespacho(kdsRef.current, canalRef.current)
+        : await api.producaoFila(setorRef.current || undefined, undefined, canalRef.current, kdsRef.current || undefined);
+      // Uma leitura mais nova já saiu (trocou o KDS, o canal ou chegou outro aviso): esta resposta atrasada não vale —
+      // senão a fila de antes podia cobrir a de agora.
+      if (seq !== filaSeq.current) return null;
       const lista = r.pedidos ?? [];
-      setPedidos(lista);
+      if (despacho) setPedidosDespacho(lista);
+      else setPedidos(lista);
       if (r.cores) setCores(r.cores);
       return lista;
     } catch {
@@ -338,11 +347,27 @@ export default function KdsPage() {
   }, []);
   const kdsAtual = kdsList.find((k) => k.id === kdsSel) || null;
   const modoEntrega = kdsAtual?.escopo === 'entrega'; // Fase E3 — board só-senha
+  const modoDespacho = kdsAtual?.escopo === 'despacho'; // o pedido inteiro, com o andamento das estações
+  despachoRef.current = modoDespacho;
+  // A lista desta tela: no despacho, os pedidos inteiros; nos outros KDS, os cartões.
+  const lista = modoDespacho ? pedidosDespacho : pedidos;
+  pedidosRef.current = lista;
+  // No fluxo entre KDS: o botão diz para onde o cartão vai ("Pronto → Montagem") e o cartão, de onde veio.
+  const nomeKds = (id?: string | null) => (id ? kdsList.find((k) => k.id === id)?.nome ?? null : null);
+  const proximoDoCartao = (p: any) => nomeKds(kdsList.find((k) => k.id === (p.destinoEquipamentoId ?? kdsSel))?.proximoKdsId);
+  const veioDoCartao = (p: any) => {
+    const passagens = Array.isArray(p.estacoes) ? p.estacoes : [];
+    return passagens.length ? nomeKds(passagens[passagens.length - 1]?.kds) : null;
+  };
 
-  // Recarrega quando muda o setor, o canal ou o KDS operado.
+  // Recarrega quando muda o setor, o canal ou o KDS operado (e quando o aparelho vira, ou deixa de ser, despacho). Trocou
+  // de KDS: os pedidos do despacho anterior saem da tela antes da leitura nova.
+  useEffect(() => {
+    setPedidosDespacho([]);
+  }, [kdsSel]);
   useEffect(() => {
     carregarFila();
-  }, [setorSel, canal, kdsSel, carregarFila]);
+  }, [setorSel, canal, kdsSel, modoDespacho, carregarFila]);
 
   // A situação do entregador da 99 (mig 294) chega ao servidor da loja pelo sync, sem evento de
   // tela: uma recarga leve a cada 30 s mantém o "chegou na loja" em dia.
@@ -389,10 +414,14 @@ export default function KdsPage() {
 
     // Nudge de produção → refaz o GET (fonte da verdade). Novo pedido = som. O evento vem para a empresa inteira: só
     // apita e alerta o que é DESTA tela (cartaoNaTela — fila deste KDS + sub-filtro escolhido aqui).
+    // O evento vem por CARTÃO; no despacho a tela mostra o pedido inteiro (o cartão é um dos dele).
+    const naTela = (lista: any[], cartaoId: string) =>
+      despachoRef.current
+        ? pedidoDoDespachoNaTela(lista, cartaoId, canalRef.current, subAtivoRef.current)
+        : cartaoNaTela(lista, cartaoId, canalRef.current, subAtivoRef.current);
     socket.on('producao:atualizado', (p: any) => {
       // Cancelamento: avisa a cozinha ANTES de sumir da fila (som + alerta) — se o cartão estava nesta tela.
-      const alvo =
-        p?.tipo === 'cancelado' ? cartaoNaTela(pedidosRef.current, p.pedidoId, canalRef.current, subAtivoRef.current) : undefined;
+      const alvo = p?.tipo === 'cancelado' ? naTela(pedidosRef.current, p.pedidoId) : undefined;
       if (alvo) {
         const ref = alvo?.senha
           ? `Senha ${rotuloSenha(alvo.senha, alvo.senhaPrefixo)}`
@@ -415,7 +444,7 @@ export default function KdsPage() {
         bip();
       }
       void carregarFila().then((lista) => {
-        if (p?.tipo === 'novo' && lista && cartaoNaTela(lista, p.pedidoId, canalRef.current, subAtivoRef.current)) bip();
+        if (p?.tipo === 'novo' && lista && naTela(lista, p.pedidoId)) bip();
       });
     });
 
@@ -449,6 +478,20 @@ export default function KdsPage() {
     }
   }
 
+  // Despacho: a ação vale para o PEDIDO inteiro (todos os cartões, numa requisição). Devolve o motivo da recusa (ex.:
+  // "Falta: Montagem.", "Senha de gestor inválida.") para a tela mostrar, ou null.
+  async function acaoDespacho(p: any, acao: 'pronto' | 'entregue', senha?: string): Promise<string | null> {
+    if (!kdsSel) return 'Escolha este KDS em "Este KDS".';
+    try {
+      await api.kdsDespachoAcao(kdsSel, { comandaId: p.comandaId, acao, ...(senha ? { forcar: true, senha } : {}) });
+      await carregarFila();
+      return null;
+    } catch (e: any) {
+      void carregarFila();
+      return e?.message || 'Não consegui agora. Tente de novo.';
+    }
+  }
+
   // Ticker do rodapé: só o alerta EXIBIDO conta o tempo; ao zerar, sai e o próximo
   // (por prioridade/recência) assume — se um urgente entrou, o longo "congelou" e
   // volta a contar de onde parou.
@@ -473,14 +516,14 @@ export default function KdsPage() {
   const subAtivo = canal === 'delivery' ? subDelivery : canal === 'balcao' ? subBalcao : 'todos';
   const pedidosOrigem =
     canal === 'todos' || subAtivo === 'todos'
-      ? pedidos
-      : pedidos.filter((p) => grupoPedido(p, canal as 'delivery' | 'balcao') === subAtivo);
+      ? lista
+      : lista.filter((p) => grupoPedido(p, canal as 'delivery' | 'balcao') === subAtivo);
   // Etapas: os contadores valem para a fila inteira; o filtro escolhe o que aparece.
   const contagem = contarEtapas(pedidosOrigem, nowMs, cores);
   const pedidosVisiveis = filtrarEtapa(pedidosOrigem, etapaSel, nowMs, cores);
   const grupos = ver === 'item' ? agruparPorItem(pedidosVisiveis, nowMs) : [];
   // O resumo ao lado só existe na visão por pedido (na visão por item seria a mesma soma duas vezes).
-  const resumoVisivel = resumoAberto && ver === 'pedido' && !modoEntrega && !mostrarMapa;
+  const resumoVisivel = resumoAberto && ver === 'pedido' && !modoEntrega && !modoDespacho && !mostrarMapa;
   const itensResumo = resumoVisivel ? somarItens(pedidosOrigem) : [];
   const itemAtivo = resumoVisivel && itensResumo.some((i) => i.descricao === itemSel) ? itemSel : '';
 
@@ -508,6 +551,21 @@ export default function KdsPage() {
       avisarSenha(`Senha ${s} não está na fila`, true);
       return;
     }
+    // No despacho, o Enter faz a ação do PEDIDO (despachar, chamar a senha ou entregar) — e só quando está liberada.
+    if (despachoRef.current) {
+      const { principal } = acoesDoDespacho(alvo);
+      if (!principal?.liberada) {
+        setSenhaErro(true);
+        avisarSenha(`${identPedido(alvo)}: falta ${(alvo.falta ?? []).join(', ') || 'estação'}`, true);
+        return;
+      }
+      setSenhaDigitada('');
+      void acaoDespacho(alvo, principal.acao).then((erro) =>
+        erro ? avisarSenha(`${identPedido(alvo)}: ${erro}`, true) : avisarSenha(`${identPedido(alvo)}: ${principal.rotulo.toLowerCase()}`, false),
+      );
+      if (usoRef.current === 'teclado') senhaRef.current?.focus({ preventScroll: true });
+      return;
+    }
     setSenhaDigitada('');
     avisarSenha(`${identPedido(alvo)} avançou`, false);
     void avancar(alvo.id);
@@ -519,7 +577,7 @@ export default function KdsPage() {
   //    antes de chegar ao botão em foco (fase de captura) e o foco vai para o campo. Enter sem
   //    número só leva o foco para o campo.
   //  · forma de uso TOQUE — como sempre foi: número solto cai na senha; Enter num botão é do botão.
-  const painelAberto = cfgAberta || histAberto || produtosAberto;
+  const painelAberto = cfgAberta || histAberto || produtosAberto || dialogoDespacho;
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape' && painelAberto) {
@@ -782,7 +840,7 @@ export default function KdsPage() {
 
         {!mostrarMapa && (
           <div className="flex flex-wrap items-center gap-2 border-t px-4 pb-2.5 pt-2 sm:px-5" style={{ borderColor: T.border }}>
-            {!modoEntrega && (<>
+            {!modoEntrega && !modoDespacho && (<>
               {/* A fila por pedido (um cartão por pedido) ou por item (um cartão por item, somado). */}
               <div role="group" aria-label="Ver a fila" className="flex flex-none border" style={{ borderColor: T.border }}>
                 {([
@@ -802,7 +860,8 @@ export default function KdsPage() {
                 ))}
               </div>
 
-              <div role="group" aria-label="Filtrar por etapa" className="flex max-w-full gap-2 overflow-x-auto">
+              {/* Quebra a linha no estreito (nada de rolagem para o lado — V45; medido a 320–375 px em 21/10/2026). */}
+              <div role="group" aria-label="Filtrar por etapa" className="flex max-w-full flex-wrap gap-2">
                 {FILTROS_ETAPA.map((f) => {
                   const n = contagem[f.key];
                   const sel = etapaSel === f.key;
@@ -861,14 +920,17 @@ export default function KdsPage() {
               >
                 <option value="">KDS: todos (por setor)</option>
                 {kdsList.map((k) => (
-                  <option key={k.id} value={k.id}>KDS: {k.nome}{k.escopo === 'entrega' ? ' (entrega)' : ''}</option>
+                  <option key={k.id} value={k.id}>
+                    KDS: {k.nome}
+                    {k.escopo === 'entrega' ? ' (entrega)' : k.escopo === 'despacho' ? ' (despacho)' : ''}
+                  </option>
                 ))}
               </select>
             )}
 
             <div className="hidden min-w-0 flex-1 md:block" />
 
-            {!modoEntrega && ver === 'pedido' && (
+            {!modoEntrega && !modoDespacho && ver === 'pedido' && (
               <button
                 type="button"
                 onClick={() => abrirResumo(!resumoAberto)}
@@ -884,16 +946,19 @@ export default function KdsPage() {
               </button>
             )}
 
-            <button
-              type="button"
-              onClick={limparCards}
-              aria-label="Finalizar todos os pedidos da tela"
-              className="flex min-h-[44px] min-w-[44px] items-center justify-center gap-2 border px-3.5 text-[13px] font-bold"
-              style={{ ...neutro, color: T.muted }}
-              title="Finalizar/avançar todos os cards da tela"
-            >
-              🧹 <span className="hidden min-[1560px]:inline">Finalizar todos</span>
-            </button>
+            {/* No despacho não há "finalizar todos": cada pedido sai só com as estações prontas (ou com o gestor). */}
+            {!modoDespacho && (
+              <button
+                type="button"
+                onClick={limparCards}
+                aria-label="Finalizar todos os pedidos da tela"
+                className="flex min-h-[44px] min-w-[44px] items-center justify-center gap-2 border px-3.5 text-[13px] font-bold"
+                style={{ ...neutro, color: T.muted }}
+                title="Finalizar/avançar todos os cards da tela"
+              >
+                🧹 <span className="hidden min-[1560px]:inline">Finalizar todos</span>
+              </button>
+            )}
           </div>
         )}
 
@@ -910,7 +975,18 @@ export default function KdsPage() {
 
       {histAberto && <HistoricoKds T={T} onFechar={() => setHistAberto(false)} />}
       {produtosAberto && kdsAtual && (
-        <KdsProdutosGaveta kds={{ id: kdsAtual.id, nome: kdsAtual.nome }} T={T} onFechar={() => setProdutosAberto(false)} />
+        <KdsProdutosGaveta
+          kds={{ id: kdsAtual.id, nome: kdsAtual.nome, escopo: kdsAtual.escopo, proximoKdsId: kdsAtual.proximoKdsId ?? null }}
+          telas={kdsList}
+          T={T}
+          onFechar={() => setProdutosAberto(false)}
+          // O lugar no fluxo mudou: relê as telas (o "Pronto → …" dos cartões e o modo despacho vêm delas).
+          onFluxoSalvo={() => {
+            api.kdsTelas()
+              .then((telas: any) => setKdsList(Array.isArray(telas) ? telas : []))
+              .catch(() => {});
+          }}
+        />
       )}
 
       {/* Painel de configuração (forma de uso + exibição + filtros + atalho). */}
@@ -926,7 +1002,7 @@ export default function KdsPage() {
             <button type="button" onClick={() => setCfgAberta(false)} aria-label="Fechar a configuração" className="grid h-11 w-11 place-items-center" style={{ color: T.muted }}>✕</button>
           </div>
 
-          {/* Cozinha em estações (entrega 1): os produtos que este KDS mostra — de quem configura a produção. */}
+          {/* Cozinha em estações: os produtos que este KDS mostra e o lugar dele no fluxo — de quem configura a produção. */}
           {podePerm('producao_kds') && (
             <>
               <div className="mb-3">
@@ -941,11 +1017,12 @@ export default function KdsPage() {
                     className="min-h-[44px] w-full border px-3 text-[13px] font-bold"
                     style={neutro}
                   >
-                    Produtos deste KDS ({kdsAtual.nome})
+                    Configurar este KDS ({kdsAtual.nome})
                   </button>
                 ) : (
-                  <p className="text-[11.5px]" style={{ color: T.muted }}>
-                    Escolha qual KDS é este aparelho (no alto da tela, &quot;KDS: …&quot;) para escolher os produtos que ele mostra.
+                  <p className="text-[13px]" style={{ color: T.muted }}>
+                    Escolha qual KDS é este aparelho (no alto da tela, &quot;KDS: …&quot;) para escolher os produtos que ele mostra e o lugar
+                    dele no fluxo.
                   </p>
                 )}
               </div>
@@ -1105,6 +1182,17 @@ export default function KdsPage() {
         <div className="min-w-0">
         {mostrarMapa ? (
           <KdsMapaEntregadores T={T} escuro={!claro} esc={esc} onDesligado={mapaDesligado} />
+        ) : modoDespacho ? (
+          <KdsDespacho
+            pedidos={pedidosOrigem}
+            limites={cores}
+            agoraMs={nowMs}
+            T={T}
+            esc={esc}
+            carregando={temSessao === null}
+            onAcao={acaoDespacho}
+            onDialogo={setDialogoDespacho}
+          />
         ) : modoEntrega ? (
           <EntregaBoard pedidos={pedidosOrigem} onEntregar={avancar} T={T} esc={esc} />
         ) : (
@@ -1151,6 +1239,8 @@ export default function KdsPage() {
                     realce={!itemAtivo ? 'nenhum' : pedidoTemItem(p, itemAtivo) ? 'destaque' : 'apagado'}
                     itemEmDestaque={itemAtivo}
                     onAvancar={avancar}
+                    proximoNome={proximoDoCartao(p)}
+                    veioDe={veioDoCartao(p)}
                   />
                 ))}
           </div>

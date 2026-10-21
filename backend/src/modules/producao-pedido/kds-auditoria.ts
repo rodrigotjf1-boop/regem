@@ -21,4 +21,8 @@ export const ACOES_KDS = [
   'editou_alerta_kds',
   'excluiu_alerta_kds',
   'disparou_alerta_kds',
+  // Cozinha em estações: os produtos de cada KDS (entrega 1), o lugar no fluxo e o despacho forçado pelo gestor (entrega 2).
+  'configurou_produtos_kds',
+  'configurou_fluxo_kds',
+  'forcou_despacho_kds',
 ] as const;

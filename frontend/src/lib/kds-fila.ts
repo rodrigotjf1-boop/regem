@@ -111,6 +111,52 @@ export function cartaoNaTela(lista: any[], pedidoId: string, canal: string, sub:
   return grupoPedido(p, canal as 'delivery' | 'balcao') === sub ? p : undefined;
 }
 
+// ── Cozinha em estações, entrega 2: o "vai para" e o KDS de despacho ─────────────────────────────
+// O botão de avanço numa estação que manda o pedido para outro KDS diz para onde: "Pronto → Montagem".
+export function proximaAcaoNaEstacao(status: string, proximoNome?: string | null): string {
+  return status === 'preparo' && proximoNome ? `Pronto → ${proximoNome}` : proximaAcao(status);
+}
+
+// O pedido do despacho que tem este cartão (o evento do tempo real vem por cartão; o despacho mostra o pedido inteiro) e
+// que passa no sub-filtro de origem escolhido aqui — só ele apita e alerta nesta tela.
+export function pedidoDoDespachoNaTela(lista: any[], cartaoId: string, canal: string, sub: string): any | undefined {
+  const p = (lista ?? []).find((x) => (x.cartoes ?? []).some((c: any) => c.id === cartaoId));
+  if (!p) return undefined;
+  if (canal === 'todos' || sub === 'todos') return p;
+  return grupoPedido(p, canal as 'delivery' | 'balcao') === sub ? p : undefined;
+}
+
+// O delivery "despacha" (sai com o entregador); o balcão, a mesa e o totem chamam a senha.
+const ehDelivery = (p: any) => p?.origem === 'delivery';
+export type AcaoDoDespacho = { acao: 'pronto' | 'entregue'; rotulo: string; liberada: boolean };
+
+// O que o cartão do despacho oferece agora, pela situação que o servidor calculou: "Despachar" / "Pronto: chamar a
+// senha" só com todas as estações prontas (antes disso aparece travado, com o "Despachar assim mesmo" do gestor);
+// depois do pronto, "Entregue".
+export function acoesDoDespacho(p: any): { principal: AcaoDoDespacho | null; forcar: boolean } {
+  const pronto = ehDelivery(p) ? 'Despachar' : 'Pronto: chamar a senha';
+  switch (p?.situacao) {
+    case 'preparando':
+      return { principal: { acao: 'pronto', rotulo: pronto, liberada: false }, forcar: true };
+    case 'pronto_para_despachar':
+      return { principal: { acao: 'pronto', rotulo: pronto, liberada: true }, forcar: false };
+    case 'pronto':
+      return {
+        principal: { acao: 'entregue', rotulo: ehDelivery(p) ? 'Entregue ao entregador' : 'Entregue (o cliente buscou)', liberada: true },
+        forcar: false,
+      };
+    default:
+      return { principal: null, forcar: false };
+  }
+}
+
+// Uma estação no andamento do pedido: "Chapa ✓", "Montagem · 2 min" (fazendo) ou "Chapa · na fila".
+export function rotuloDaEstacao(e: { nome: string; estado: string; desde?: string | null; forcado?: boolean }, agoraMs: number): string {
+  if (e.estado === 'feito') return `${e.nome} ✓${e.forcado ? ' (liberado pelo gestor)' : ''}`;
+  if (e.estado === 'na_fila') return `${e.nome} · na fila`;
+  return `${e.nome} · ${e.desde ? minutosDesde(e.desde, agoraMs) : 0} min`;
+}
+
 // ── Itens ─────────────────────────────────────────────────────────────────────────────────
 // Dentro de UM pedido: agrega itens iguais (mesma descrição + complementos + obs) somando.
 export function agregarItens(itens: any[]): any[] {

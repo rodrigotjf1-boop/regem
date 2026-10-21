@@ -54,6 +54,17 @@
   para entrar em tela cheia" e "Ir para o login" em dourado; o texto de falha do histórico fica legível no claro. O
   escuro segue como opção do aparelho (⚙). Nuvem: no deploy. Loja: no `.zip` (o app vai no pacote), sem `.exe`. Na
   loja, conferir: o KDS abre claro e as três cores de tempo se leem de longe.
+- **Cozinha em estações, entrega 2 — fluxo entre KDS e despacho (mig 334, nas duas pontas):** no KDS, ⚙ › "Configurar
+  este KDS" ganha "Lugar no fluxo": estação de preparo (com "quando ficar pronto, vai para" outro KDS ou "termina
+  aqui") ou KDS de DESPACHO. O cartão passa de estação no PRONTO (antes pulava no primeiro toque) e começa no seguinte
+  como recebido; o botão diz "Pronto → Montagem" e o cartão, "Veio de Chapa". O despacho mostra o pedido inteiro com o
+  andamento de cada estação e só libera "Despachar" / "Pronto: chamar a senha" com todas prontas — antes disso, só com
+  a senha de um gestor ("… assim mesmo", fica no histórico); bebida e molho vêm direto para ele (marcados como produtos
+  do despacho). O pronto do pedido (canal, painel de delivery) sai no despacho, uma vez. A senha de gestor (também a do
+  cancelamento e da reabertura do delivery) passa a recusar quem foi excluído, bloqueado ou desligado, e segue o nível de
+  acesso. Sem KDS com "vai para" nem despacho, nada muda. Nuvem: migration antes do merge + deploy. Loja: no `.zip` (a
+  mig 334 vai no pacote; o servidor da loja ignora o campo novo até lá), sem `.exe`. Na loja, conferir: Chapa → Montagem
+  → Despacho com um pedido de lanche e bebida (o cartão anda no pronto, o despacho só libera no fim, sai um pronto só).
 - **Registro no hub e parada da API de integração (Hub DMS, F3 parte A2; sem migration):** só NUVEM e desligado até a distribuição ligar (`HUB_LIGADO`). O código entra no `.zip` por tabela (o filtro de problemas e as regras do hub, usados também pelas rotas do totem), mas no servidor da loja nada muda: a API de integração e o cliente do hub não sobem lá. Não pede `.exe`. Nada a fazer na loja.
 - **KDS: item removido sai do cartão e os ajustes valem na loja (mig 332, auditoria do KDS):** o item tirado da comanda
   sai do cartão ativo e do resumo (o cartão mostra "Alterado"; no cancelado os itens ficam riscados); cores e etapas do

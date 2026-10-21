@@ -26,7 +26,7 @@ export class CreateEquipamentoDto {
   mac?: string;
 
   @IsOptional()
-  @IsIn(['producao', 'avisos', 'entrega'])
+  @IsIn(['producao', 'avisos', 'entrega', 'despacho'])
   escopo?: string;
 
   @IsOptional()

@@ -283,7 +283,12 @@ export function EquipamentoForm({
           <>
             <div className="space-y-1.5">
               <Label htmlFor="eq-escopo">Escopo do KDS</Label>
-              <Select id="eq-escopo" value={f.escopo} onChange={(e) => muda({ escopo: e.target.value })}>
+              {/* O despacho é a última etapa: escolhê-lo tira o "vai para" (o servidor também tira — Cozinha em estações). */}
+              <Select
+                id="eq-escopo"
+                value={f.escopo}
+                onChange={(e) => muda(e.target.value === 'despacho' ? { escopo: e.target.value, proximoKdsId: '' } : { escopo: e.target.value })}
+              >
                 {ESCOPOS.map((x) => <option key={x.v} value={x.v}>{x.rotulo}</option>)}
               </Select>
             </div>
@@ -313,14 +318,17 @@ export function EquipamentoForm({
                 </div>
               </div>
             )}
-            <div className="space-y-1.5">
-              <Label htmlFor="eq-proximo">Próximo KDS ao avançar</Label>
-              <Select id="eq-proximo" value={f.proximoKdsId} onChange={(e) => muda({ proximoKdsId: e.target.value })}>
-                <option value="">— nenhum (etapa final) —</option>
-                {outrosKds.map((k) => <option key={k.id} value={k.id}>{k.nome}</option>)}
-                {foraDaLista(f.proximoKdsId, outrosKds, 'KDS atual (fora da lista)')}
-              </Select>
-            </div>
+            {f.escopo !== 'despacho' && (
+              <div className="space-y-1.5">
+                <Label htmlFor="eq-proximo">Quando ficar pronto, vai para</Label>
+                <Select id="eq-proximo" value={f.proximoKdsId} onChange={(e) => muda({ proximoKdsId: e.target.value })}>
+                  <option value="">— termina aqui —</option>
+                  {outrosKds.map((k) => <option key={k.id} value={k.id}>{k.nome}</option>)}
+                  {foraDaLista(f.proximoKdsId, outrosKds, 'KDS atual (fora da lista)')}
+                </Select>
+                <p className={ajuda}>Quando este KDS marca pronto, o cartão passa para o escolhido e começa lá como recebido.</p>
+              </div>
+            )}
           </>
         )}
 

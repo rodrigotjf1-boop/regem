@@ -852,6 +852,13 @@ export const api = {
   kdsProdutos: (id: string) => req(`/producao/kds/${id}/produtos`),
   salvarKdsProdutos: (id: string, produtoIds: string[]) =>
     req(`/producao/kds/${id}/produtos`, { method: 'PUT', body: JSON.stringify({ produtoIds }) }),
+  // Cozinha em estações (entrega 2): o lugar do KDS no fluxo e o KDS de despacho.
+  salvarKdsFluxo: (id: string, body: { papel: 'estacao' | 'despacho'; proximoKdsId: string | null }) =>
+    req(`/producao/kds/${id}/fluxo`, { method: 'PUT', body: JSON.stringify(body) }),
+  kdsDespacho: (id: string, canal?: string) =>
+    req(`/producao/kds/${id}/despacho${canal && canal !== 'todos' ? `?canal=${encodeURIComponent(canal)}` : ''}`),
+  kdsDespachoAcao: (id: string, body: { comandaId: string; acao: 'pronto' | 'entregue'; forcar?: boolean; senha?: string }) =>
+    req(`/producao/kds/${id}/despacho`, { method: 'POST', body: JSON.stringify(body) }),
   // Produção (Fase F1)
   producaoFila: (setorId?: string, unidadeId?: string, canal?: string, equipamentoId?: string) => {
     const p = new URLSearchParams();

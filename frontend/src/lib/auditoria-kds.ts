@@ -13,7 +13,13 @@ export const ACOES_KDS: Record<string, string> = {
   editou_alerta_kds: 'Editou alerta do KDS',
   excluiu_alerta_kds: 'Excluiu alerta do KDS',
   disparou_alerta_kds: 'Disparou alerta no KDS',
+  configurou_produtos_kds: 'Escolheu os produtos do KDS',
+  configurou_fluxo_kds: 'Mudou o lugar do KDS no fluxo',
+  forcou_despacho_kds: 'Liberou pedido no despacho sem todas as estações',
 };
+// O lugar no fluxo, em palavras: "despacho", "estação que termina ali" ou "estação que manda para Montagem".
+const lugar = (l: any) =>
+  !l ? '?' : l.papel === 'despacho' ? 'despacho' : l.vaiPara ? `estação que manda para ${l.vaiPara}` : 'estação que termina ali';
 
 const CANAL: Record<string, string> = { balcao: 'balcão / salão', delivery: 'delivery', todos: 'tudo' };
 const PERIODO: Record<string, string> = { diario: 'todo dia', semanal: 'toda semana', nunca: 'nunca zera' };
@@ -62,6 +68,18 @@ export function resumoKds(acao: string, d: any): string {
       return [d.titulo ? `“${d.titulo}”` : '', Array.isArray(d.campos) && d.campos.length ? d.campos.map((c: string) => CAMPO[c] ?? c).join(', ') : ''].filter(Boolean).join(' · ');
     case 'disparou_alerta_kds':
       return [d.titulo ? `“${d.titulo}”` : '', d.duracaoSeg ? `${d.duracaoSeg} s` : ''].filter(Boolean).join(' · ');
+    case 'configurou_produtos_kds':
+      return `${d.kds ?? 'KDS'}: ${d.produtos ?? 0} produto(s)${d.entraram ? ` · +${d.entraram}` : ''}${d.sairam ? ` · −${d.sairam}` : ''}`;
+    case 'configurou_fluxo_kds':
+      return `${d.kds ?? 'KDS'}: era ${lugar(d.antes)}; agora ${lugar(d.depois)}`;
+    case 'forcou_despacho_kds':
+      return [
+        d.pedido,
+        Array.isArray(d.faltavam) && d.faltavam.length ? `faltava ${d.faltavam.join(', ')}` : '',
+        d.autorizadoPor ? `liberado por ${d.autorizadoPor}` : '',
+      ]
+        .filter(Boolean)
+        .join(' · ');
     default:
       return '';
   }

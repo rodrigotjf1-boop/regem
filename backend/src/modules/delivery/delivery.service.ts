@@ -9,7 +9,6 @@ import {
   Optional,
   forwardRef,
 } from '@nestjs/common';
-import * as bcrypt from 'bcryptjs';
 import { createHmac, randomBytes } from 'crypto';
 import { and, desc, eq, gte, ilike, inArray, isNotNull, isNull, notInArray, or, sql } from 'drizzle-orm';
 import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
@@ -24,6 +23,7 @@ import { gravarAvisoCancelamentoTotem, resultadoDoAviso } from '../gogem/aviso-g
 import { GogemAvisoService } from '../gogem/gogem-aviso.service';
 import { ehServidorLocal } from '../../common/modo';
 import { exigirBooleano } from '../../common/exigir';
+import { autorizarPorSenhaDeGestor } from '../../common/autorizacao-gestor';
 import { conferirRegras, DocumentoImpressao } from '../../common/regras-impressao';
 import { logisticaDosPedidos } from './logistica-canal';
 
@@ -2146,26 +2146,10 @@ export class DeliveryService {
       );
   }
 
-  // Valida a senha de login de um gestor (presidente/gerente) do tenant.
-  // Retorna o colaborador que autorizou (para auditoria).
-  private async autorizarPorSenha(tenantId: string, senha?: string) {
-    if (!senha) throw new BadRequestException('Informe a senha de autorização.');
-    const gestores = await this.db
-      .select({ id: colaborador.id, nome: colaborador.nome, senhaHash: colaborador.senhaHash })
-      .from(colaborador)
-      .innerJoin(funcao, eq(funcao.id, colaborador.funcaoId))
-      .where(
-        and(
-          eq(colaborador.tenantId, tenantId),
-          isNotNull(colaborador.senhaHash),
-          inArray(funcao.categoria, ['presidente', 'gerente']),
-        ),
-      );
-    for (const g of gestores) {
-      if (g.senhaHash && (await bcrypt.compare(senha, g.senhaHash)))
-        return { id: g.id, nome: g.nome };
-    }
-    throw new ForbiddenException('Senha de gestor inválida.');
+  // Valida a senha de login de um gestor (presidente/gerente) do tenant — a regra única de `common/autorizacao-gestor`
+  // (nível de acesso como no login; excluído, bloqueado ou desligado não libera). Retorna quem autorizou (auditoria).
+  private autorizarPorSenha(tenantId: string, senha?: string) {
+    return autorizarPorSenhaDeGestor(this.db, tenantId, senha);
   }
 
   // `reaproveitado` (mig 128): quando o pedido JÁ produziu (baixou insumo), diz se o

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -8,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { and, desc, eq, inArray, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { PREFIXO_BALCAO, rotuloSenha } from '../../common/senha-origem';
 import { textoDasEscolhas } from '../../common/adicionais';
@@ -44,6 +45,8 @@ import { ESTADOS_IMPRESSORA, MARCA_REIMPRESSAO } from '../../common/impressao-ma
 import { gravarOuEncaminharImpressao } from '../../common/impressao-destino';
 import { hojeISO } from '../../common/data';
 import { logisticaDasComandas } from '../delivery/logistica-canal';
+import { autorizarPorSenhaDeGestor } from '../../common/autorizacao-gestor';
+import { conferirProximoKds, kdsQueChegamA, lerEstacoes } from '../../common/fluxo-kds';
 import { ACOES_KDS, type AtorKds } from './kds-auditoria';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -2271,17 +2274,7 @@ export class ProducaoPedidoService {
       conds.push(eq(producaoPedido.setorId, opts.setorId));
     }
     // Ativos das últimas 12 horas (encomenda cujo horário ainda não passou fica, como antes) + cancelados recentes.
-    conds.push(
-      sql`((status in ('recebido','preparo','pronto')
-            and (criado_em > now() - interval '${sql.raw(String(JANELA_FILA_HORAS))} hours'
-                 or exists (select 1 from pedido_externo pe
-                             where pe.tenant_id = producao_pedido.tenant_id and pe.comanda_id = producao_pedido.comanda_id
-                               and pe.agendamento > now() - interval '${sql.raw(String(JANELA_FILA_HORAS))} hours')))
-           or (status = 'cancelado'
-               and coalesce(cancelado_em, criado_em) > now() - interval '${sql.raw(
-                 String(JANELA_ACAO_MIN),
-               )} minutes'))` as any,
-    );
+    conds.push(this.janelaDaFila() as any);
     const pedidos = await this.db
       .select()
       .from(producaoPedido)
@@ -2384,6 +2377,10 @@ export class ProducaoPedidoService {
         throw new BadRequestException('Pedido cancelado: o card saiu da fila.');
       }
     }
+    // A tela estava velha: o cartão já passou para outro KDS. Não mexe — senão o toque atrasado do KDS anterior avançaria
+    // o cartão no KDS seguinte (Cozinha em estações, entrega 2).
+    if (equipamentoId && p.destinoEquipamentoId && p.destinoEquipamentoId !== equipamentoId)
+      throw new ConflictException('Este cartão já passou para outro KDS.');
     const { fluxo } = await this.etapasDe(tenantId, p.unidadeId);
     const idx = fluxo.indexOf(p.status);
     if (idx < 0 || idx >= fluxo.length - 1)
@@ -2396,23 +2393,26 @@ export class ProducaoPedidoService {
     ) {
       throw new BadRequestException('A entrega é concluída no KDS de entrega.');
     }
+    // PASSAGEM NO PRONTO (Cozinha em estações, entrega 2; decisão do dono em 21/10/2026): a estação onde o cartão está (o
+    // destino dele; no cartão sem destino, o KDS que tocou) manda o cartão para o "próximo KDS" quando ele fica PRONTO
+    // ali, e ele começa lá como recebido. Antes pulava no primeiro toque (Iniciar) e chegava ao seguinte já em preparo.
+    const estacao = p.destinoEquipamentoId ?? equipamentoId ?? null;
+    if (novo === 'pronto' && estacao) {
+      const proximo = await this.proximoDaEstacao(tenantId, estacao);
+      if (proximo) return this.passarAdiante(tenantId, p, estacao, proximo);
+    }
     const patch: any = { status: novo };
-    if (novo === 'preparo') patch.iniciadoEm = new Date();
+    // O começo do preparo é o PRIMEIRO: o cartão que passou de estação não perde a hora em que a cozinha começou.
+    if (novo === 'preparo' && !p.iniciadoEm) patch.iniciadoEm = new Date();
     if (novo === 'pronto') patch.prontoEm = new Date();
     if (novo === 'entregue') patch.entregueEm = new Date();
-    // Fase E — roteamento entre KDS: se o KDS que avançou tem "próximo KDS", o card
-    // migra para lá (aparece na fila do próximo). Opt-in: sem proximo_kds, nada muda.
-    if (equipamentoId && novo !== 'entregue') {
-      const [ekds] = await this.db
-        .select({ proximo: equipamento.proximoKdsId })
-        .from(equipamento)
-        .where(and(eq(equipamento.id, equipamentoId), eq(equipamento.tenantId, tenantId)));
-      if (ekds?.proximo) patch.destinoEquipamentoId = ekds.proximo;
-    }
-    await this.db
+    // Gravação condicional: dois toques ao mesmo tempo (duas telas, ou o duplo toque) não avançam duas etapas.
+    const feito = await this.db
       .update(producaoPedido)
       .set(patch)
-      .where(eq(producaoPedido.id, pedidoId));
+      .where(and(eq(producaoPedido.id, pedidoId), eq(producaoPedido.status, p.status)))
+      .returning({ id: producaoPedido.id });
+    if (!feito.length) throw new ConflictException('O cartão já mudou de etapa.');
     // Impressão guiada por etapa (mig 129): se o KDS deste pedido está configurado
     // para imprimir ao chegar nesta etapa, o ticket sai agora (e não no PDV).
     await this.imprimirNaEtapa(tenantId, p, novo).catch(() => {});
@@ -2432,6 +2432,50 @@ export class ProducaoPedidoService {
       this.events?.emit('producao.pronto', { tenantId, comandaId: p.comandaId });
     }
     return { ok: true, status: novo };
+  }
+
+  // O "quando ficar pronto, vai para" da estação — só se o seguinte for um KDS ligado (o desligado ou revogado vale como
+  // "termina aqui": o cartão não vai para uma tela que ninguém vê).
+  private async proximoDaEstacao(tenantId: string, estacaoId: string): Promise<string | null> {
+    if (!UUID_RE.test(String(estacaoId))) return null;
+    const r: any = await this.db.execute(sql`
+      select prox.id
+        from equipamento e
+        join equipamento prox on prox.id = e.proximo_kds_id and prox.tenant_id = e.tenant_id
+       where e.tenant_id = ${tenantId} and e.id = ${estacaoId} and e.tipo = 'kds'
+         and prox.tipo = 'kds' and prox.ativo and prox.revogado_em is null`);
+    return ((r.rows ?? r)[0]?.id as string | undefined) ?? null;
+  }
+
+  // A estação marcou PRONTO e tem "próximo KDS": o cartão passa para lá e começa como recebido, e a passagem fica no
+  // cartão (`estacoes`, mig 334) para o despacho mostrar o andamento. Não é o pronto do PEDIDO: nada vai ao canal nem ao
+  // painel de delivery — o aviso de pronto sai quando o pedido termina (no último KDS ou no despacho).
+  private async passarAdiante(tenantId: string, p: any, estacao: string, proximo: string) {
+    const passagens = [...lerEstacoes(p.estacoes), { kds: estacao, pronto: new Date().toISOString() }];
+    const feito = await this.db
+      .update(producaoPedido)
+      .set({ status: 'recebido', destinoEquipamentoId: proximo, estacoes: passagens })
+      .where(
+        and(
+          eq(producaoPedido.id, p.id),
+          eq(producaoPedido.status, p.status),
+          p.destinoEquipamentoId ? eq(producaoPedido.destinoEquipamentoId, p.destinoEquipamentoId) : isNull(producaoPedido.destinoEquipamentoId),
+        ),
+      )
+      .returning({ id: producaoPedido.id });
+    if (!feito.length) throw new ConflictException('O cartão já mudou de etapa.');
+    // A estação imprime ao marcar pronto, se o ajuste DELA pede (a etapa é dela).
+    await this.imprimirNaEtapa(tenantId, { ...p, destinoEquipamentoId: estacao }, 'pronto').catch(() => {});
+    // Para o KDS seguinte é um cartão novo: ele apita (cada tela confere se o cartão é dela).
+    this.events?.emit('producao.evento', {
+      tenantId,
+      unidadeId: p.unidadeId,
+      setorId: p.setorId,
+      destinoEquipamentoId: proximo,
+      pedidoId: p.id,
+      tipo: 'novo',
+    });
+    return { ok: true, status: 'recebido', passouPara: proximo };
   }
 
   // Limpa a fila do KDS: avança TODOS os cards ativos até saírem (concluir ou migrar
@@ -2526,8 +2570,9 @@ export class ProducaoPedidoService {
 
   // Enfileira o ticket quando o pedido AVANÇA para a etapa configurada no KDS.
   // O KDS pode ser o destino explícito do pedido ou, no legado (sem equipamento),
-  // qualquer KDS ativo do mesmo setor com a regra ligada.
-  private async imprimirNaEtapa(tenantId: string, p: any, novoStatus: string) {
+  // qualquer KDS ativo do mesmo setor com a regra ligada. `cartoes`: os cartões cujos itens vão no ticket (o despacho
+  // imprime o pedido inteiro num ticket só); sem ele, só os do próprio cartão.
+  private async imprimirNaEtapa(tenantId: string, p: any, novoStatus: string, cartoes?: string[]) {
     const cond = [
       eq(equipamento.tenantId, tenantId),
       eq(equipamento.tipo, 'kds'),
@@ -2546,10 +2591,17 @@ export class ProducaoPedidoService {
       .where(and(...cond));
     if (!kdss.length) return;
 
+    // O item tirado da comanda não sai no ticket (como já não aparece no cartão — ERR-260).
     const itens = await this.db
       .select()
       .from(producaoPedidoItem)
-      .where(eq(producaoPedidoItem.pedidoId, p.id));
+      .where(
+        and(
+          cartoes?.length ? inArray(producaoPedidoItem.pedidoId, cartoes) : eq(producaoPedidoItem.pedidoId, p.id),
+          ne(producaoPedidoItem.status, 'removido'),
+        ),
+      );
+    if (!itens.length) return;
     const ctx: any = {
       tenantId,
       unidadeId: p.unidadeId,
@@ -2892,9 +2944,17 @@ export class ProducaoPedidoService {
   // ===== Cozinha em estações (entrega 1): as telas de KDS da loja e os produtos de cada uma =====
   // As telas de KDS ativas da loja (e da rede) — para o "Este KDS" do aparelho da cozinha, de quem tem o módulo (a lista
   // de equipamentos pede gerente: o cozinheiro ficava sem escolher a tela).
+  // `proximoKdsId` = o "quando ficar pronto, vai para" de cada uma (entrega 2): a tela mostra "Pronto → Montagem" e de quem
+  // cada KDS recebe.
   telasDeKds(tenantId: string, unidadeId: string | null) {
     return this.db
-      .select({ id: equipamento.id, nome: equipamento.nome, escopo: equipamento.escopo, setorId: equipamento.setorId })
+      .select({
+        id: equipamento.id,
+        nome: equipamento.nome,
+        escopo: equipamento.escopo,
+        setorId: equipamento.setorId,
+        proximoKdsId: equipamento.proximoKdsId,
+      })
       .from(equipamento)
       .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.tipo, 'kds'), eq(equipamento.ativo, true), lojaOuRede(unidadeId)))
       .orderBy(equipamento.nome);
@@ -2903,7 +2963,15 @@ export class ProducaoPedidoService {
   private async kdsDaEmpresa(tenantId: string, equipamentoId: string) {
     if (!UUID_RE.test(String(equipamentoId))) throw new NotFoundException('KDS não encontrado.');
     const [k] = await this.db
-      .select({ id: equipamento.id, nome: equipamento.nome, tipo: equipamento.tipo, ativo: equipamento.ativo })
+      .select({
+        id: equipamento.id,
+        nome: equipamento.nome,
+        tipo: equipamento.tipo,
+        ativo: equipamento.ativo,
+        escopo: equipamento.escopo,
+        unidadeId: equipamento.unidadeId,
+        proximoKdsId: equipamento.proximoKdsId,
+      })
       .from(equipamento)
       .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, equipamentoId)));
     if (!k || k.tipo !== 'kds') throw new NotFoundException('KDS não encontrado.');
@@ -2967,6 +3035,300 @@ export class ProducaoPedidoService {
       });
     }
     return { produtoIds: validos, ...mudou };
+  }
+
+  // ===== Cozinha em estações (entrega 2): o lugar do KDS no fluxo e o KDS de despacho =====
+  // "Configurar este KDS" › Lugar no fluxo: ESTAÇÃO de preparo (com "quando ficar pronto, vai para": outro KDS ou termina
+  // aqui) ou KDS de DESPACHO (vê o pedido inteiro; é a última etapa). Campo ausente mantém (V16). Com o servidor da loja
+  // ligado, o ajuste se faz nele — a nuvem recusa, como os outros ajustes de equipamento (o cadastro sincroniza nos dois
+  // sentidos por data, e a cópia da loja venceria).
+  async setFluxoDoKds(tenantId: string, equipamentoId: string, dto: any, ator?: AtorKds) {
+    const k = await this.kdsDaEmpresa(tenantId, equipamentoId);
+    if (!k.ativo) throw new BadRequestException('Este KDS está desligado. Ligue-o em Configurações › Equipamentos antes de ajustar o fluxo.');
+    if (await edgeAtivo(this.db, tenantId)) {
+      throw new ForbiddenException(
+        'Com o servidor da loja ligado, o lugar do KDS no fluxo se ajusta no próprio servidor (abra este KDS pela rede da loja).',
+      );
+    }
+    const papelAntes = k.escopo === 'despacho' ? 'despacho' : 'estacao';
+    const papel = dto?.papel === undefined ? papelAntes : dto.papel;
+    if (papel !== 'estacao' && papel !== 'despacho') throw new BadRequestException('Escolha: estação de preparo ou KDS de despacho.');
+    let proximo: string | null = dto?.proximoKdsId === undefined ? k.proximoKdsId ?? null : dto.proximoKdsId || null;
+    if (papel === 'despacho') {
+      if (dto?.proximoKdsId) throw new BadRequestException('O KDS de despacho é a última etapa: ele não manda o pedido para outro KDS.');
+      proximo = null;
+    }
+    if (proximo) await conferirProximoKds(this.db, tenantId, { id: k.id, unidadeId: k.unidadeId ?? null }, proximo);
+    // Estação: o despacho volta a ser de produção; os outros escopos (entrega, avisos) ficam como estão.
+    const escopo = papel === 'despacho' ? 'despacho' : k.escopo === 'despacho' ? 'producao' : k.escopo;
+    if (escopo === k.escopo && proximo === (k.proximoKdsId ?? null)) return { papel, proximoKdsId: proximo, mudou: false };
+    await this.db
+      .update(equipamento)
+      .set({ escopo, proximoKdsId: proximo })
+      .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, k.id)));
+    const [vaiAntes, vaiDepois] = await Promise.all([
+      this.nomesDeEquipamentos(tenantId, k.proximoKdsId ? [k.proximoKdsId] : []),
+      this.nomesDeEquipamentos(tenantId, proximo ? [proximo] : []),
+    ]);
+    await this.auditoria.registrar({
+      tenantId,
+      unidadeId: k.unidadeId ?? null,
+      atorId: ator?.id ?? null,
+      atorPerfil: ator?.perfil ?? null,
+      tipo: 'config',
+      acao: 'configurou_fluxo_kds',
+      origem: 'kds',
+      entidadeTipo: 'kds',
+      entidadeId: k.id,
+      detalhe: {
+        kds: k.nome,
+        antes: { papel: papelAntes, vaiPara: vaiAntes[0] ?? null },
+        depois: { papel, vaiPara: vaiDepois[0] ?? null },
+      },
+    });
+    return { papel, proximoKdsId: proximo, mudou: true };
+  }
+
+  // Cartão que a fila do KDS mostra: os abertos das últimas 12 horas (a encomenda cujo horário ainda não passou fica) e os
+  // cancelados recentes (riscados por um tempo). A MESMA janela na fila de cada KDS e na do despacho.
+  private janelaDaFila(): SQL {
+    return sql`((status in ('recebido','preparo','pronto')
+            and (criado_em > now() - interval '${sql.raw(String(JANELA_FILA_HORAS))} hours'
+                 or exists (select 1 from pedido_externo pe
+                             where pe.tenant_id = producao_pedido.tenant_id and pe.comanda_id = producao_pedido.comanda_id
+                               and pe.agendamento > now() - interval '${sql.raw(String(JANELA_FILA_HORAS))} hours')))
+           or (status = 'cancelado'
+               and coalesce(cancelado_em, criado_em) > now() - interval '${sql.raw(String(JANELA_ACAO_MIN))} minutes'))`;
+  }
+
+  // KDS DE DESPACHO: um cartão por PEDIDO (comanda), com o andamento de cada estação e os itens de todas. Entra o pedido
+  // que tem cartão a caminho deste despacho (a estação dele, seguindo o "vai para", chega aqui) ou já nele; os outros
+  // cartões do mesmo pedido entram no andamento — o que termina noutra estação ("termina aqui") conta quando fica pronto.
+  async filaDespacho(tenantId: string, equipamentoId: string, opts: { unidadeId?: string; canal?: string } = {}) {
+    const k = await this.kdsDaEmpresa(tenantId, equipamentoId);
+    if (k.escopo !== 'despacho') throw new BadRequestException('Este KDS não é de despacho.');
+    if (opts.unidadeId && k.unidadeId && k.unidadeId !== opts.unidadeId) throw new NotFoundException('KDS não encontrado.');
+    const unidadeId = opts.unidadeId ?? k.unidadeId ?? null;
+    const cores = await this.getCores(tenantId, unidadeId ?? undefined);
+    // Todos os KDS da empresa: o nome de cada estação (até a desligada, que ainda tem cartão) e o caminho até aqui.
+    const telas = await this.db
+      .select({ id: equipamento.id, nome: equipamento.nome, proximoKdsId: equipamento.proximoKdsId })
+      .from(equipamento)
+      .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.tipo, 'kds')));
+    const nomes = new Map<string, string>(telas.map((t) => [t.id, t.nome]));
+    const rota = [...kdsQueChegamA(k.id, new Map(telas.map((t) => [t.id, t.proximoKdsId ?? null])))];
+    const conds: any[] = [
+      eq(producaoPedido.tenantId, tenantId),
+      eq(producaoPedido.destinoTipo, 'kds'),
+      inArray(producaoPedido.destinoEquipamentoId, rota),
+      isNotNull(producaoPedido.comandaId),
+      this.janelaDaFila(),
+    ];
+    if (unidadeId) conds.push(eq(producaoPedido.unidadeId, unidadeId));
+    if (opts.canal === 'delivery') conds.push(eq(producaoPedido.origem, 'delivery'));
+    else if (opts.canal === 'balcao') conds.push(sql`origem <> 'delivery'`);
+    const base = await this.db.selectDistinct({ comandaId: producaoPedido.comandaId }).from(producaoPedido).where(and(...conds));
+    const comandaIds = base.map((b) => b.comandaId).filter((x): x is string => !!x);
+    if (!comandaIds.length) return { cores, pedidos: [] };
+    const cartoes = await this.db
+      .select()
+      .from(producaoPedido)
+      .where(and(eq(producaoPedido.tenantId, tenantId), eq(producaoPedido.destinoTipo, 'kds'), inArray(producaoPedido.comandaId, comandaIds)));
+    const comItens = await this.comItens(tenantId, cartoes);
+    const porComanda = new Map<string, any[]>();
+    for (const c of comItens) porComanda.set(c.comandaId, [...(porComanda.get(c.comandaId) ?? []), c]);
+    const pedidos = [...porComanda.values()]
+      .map((grupo) => this.pedidoDoDespacho(grupo, k.id, nomes))
+      .sort((a, b) => new Date(a.criadoEm).getTime() - new Date(b.criadoEm).getTime());
+    // Pedido da 99 com entregador da plataforma (mig 294): o despacho também mostra quem vem buscar. Nunca derruba a fila.
+    const logistica = await logisticaDasComandas(
+      this.db,
+      tenantId,
+      pedidos.filter((p) => /99/.test(String(p.plataforma ?? ''))).map((p) => p.comandaId as string),
+    ).catch((e: any) => {
+      new Logger('KDS').warn(`logística do canal no despacho: ${e?.message ?? e}`);
+      return new Map();
+    });
+    return { cores, pedidos: pedidos.map((p) => ({ ...p, logistica: logistica.get(p.comandaId) ?? null })) };
+  }
+
+  // Monta o pedido do despacho a partir dos cartões de KDS da comanda.
+  //  situacao: 'preparando' (falta estação) | 'pronto_para_despachar' (tudo no despacho, esperando) | 'pronto' (despachado
+  //  ou chamado, esperando a entrega) | 'entregue' | 'cancelado' (todos os cartões cancelados).
+  //  estacoes: cada estação do pedido uma vez, na ordem em que aparece — 'feito', 'na_fila' (recebido) ou 'preparando';
+  //  `desde` = quando o cartão chegou nela (para os minutos). `falta` = as que ainda têm cartão aberto.
+  private pedidoDoDespacho(cartoes: any[], despachoId: string, nomes: Map<string, string>) {
+    const ordem = [...cartoes].sort((a, b) => new Date(a.criadoEm).getTime() - new Date(b.criadoEm).getTime());
+    const ref = ordem[0];
+    const vivos = ordem.filter((c) => c.status !== 'cancelado');
+    const aberto = (c: any) => c.status === 'recebido' || c.status === 'preparo';
+    const pendentes = vivos.filter((c) => c.destinoEquipamentoId !== despachoId && aberto(c));
+    const esperando = vivos.filter((c) => c.destinoEquipamentoId === despachoId && aberto(c));
+    const situacao = !vivos.length
+      ? 'cancelado'
+      : pendentes.length
+        ? 'preparando'
+        : esperando.length
+          ? 'pronto_para_despachar'
+          : vivos.some((c) => c.status === 'pronto')
+            ? 'pronto'
+            : 'entregue';
+    type Passo = { kds: string; nome: string; estado: 'feito' | 'preparando' | 'na_fila'; desde: string | null; forcado: boolean };
+    const peso = { feito: 0, preparando: 1, na_fila: 2 } as const;
+    const passos = new Map<string, Passo>();
+    const marcar = (kds: string, estado: Passo['estado'], desde: string | null, forcado = false) => {
+      const atual = passos.get(kds);
+      if (!atual) passos.set(kds, { kds, nome: nomes.get(kds) ?? 'KDS', estado, desde, forcado });
+      else if (peso[estado] > peso[atual.estado]) passos.set(kds, { ...atual, estado, desde });
+      else if (forcado) atual.forcado = true;
+    };
+    const iso = (d: any) => (d ? new Date(d).toISOString() : null);
+    for (const c of vivos) {
+      const feitas = lerEstacoes(c.estacoes);
+      for (const ps of feitas) marcar(ps.kds, 'feito', ps.pronto, ps.forcado === true);
+      if (c.destinoEquipamentoId && c.destinoEquipamentoId !== despachoId) {
+        const desde = feitas.length ? feitas[feitas.length - 1].pronto : iso(c.criadoEm);
+        marcar(c.destinoEquipamentoId, c.status === 'recebido' ? 'na_fila' : c.status === 'preparo' ? 'preparando' : 'feito', desde);
+      }
+    }
+    const estacoes = [...passos.values()];
+    return {
+      id: ref.id,
+      comandaId: ref.comandaId,
+      numero: ref.numero,
+      senha: ref.senha,
+      senhaPrefixo: ref.senhaPrefixo,
+      mesa: ref.mesa,
+      origem: ref.origem,
+      plataforma: ref.plataforma,
+      senhaPlataforma: ref.senhaPlataforma,
+      consumo: ref.consumo,
+      criadoEm: ref.criadoEm,
+      status: situacao === 'cancelado' ? 'cancelado' : situacao === 'preparando' || situacao === 'pronto_para_despachar' ? 'preparo' : 'pronto',
+      tempoPreparoMin: vivos.reduce((mx, c) => Math.max(mx, Number(c.tempoPreparoMin) || 0), 0) || null,
+      alterado: vivos.some((c) => c.obs === 'ALTERADO'),
+      situacao,
+      estacoes,
+      falta: estacoes.filter((e) => e.estado !== 'feito').map((e) => e.nome),
+      // No cancelado, os itens ficam (riscados na tela): é o que diz ao despacho o que não pôr na sacola.
+      itens: (vivos.length ? vivos : ordem).flatMap((c) => c.itens ?? []),
+      cartoes: ordem.map((c) => ({ id: c.id, status: c.status, destinoEquipamentoId: c.destinoEquipamentoId })),
+    };
+  }
+
+  // Ação do despacho sobre o PEDIDO inteiro (uma requisição para todos os cartões):
+  //  · 'pronto' = "Despachar" (delivery) / "Pronto: chamar a senha" (balcão): os cartões que esperam no despacho ficam
+  //    prontos — e aí sai o pronto do pedido (canal, painel de delivery, totem). Só com todas as estações prontas; com
+  //    estação faltando, só com `forcar` e a SENHA de um gestor ("Despachar assim mesmo"), que fica na auditoria.
+  //  · 'entregue' = "Entregue": o pedido pronto sai do despacho.
+  async acaoDespacho(tenantId: string, ator: AtorKds, equipamentoId: string, dto: any, unidadeAtual?: string | null) {
+    const k = await this.kdsDaEmpresa(tenantId, equipamentoId);
+    if (k.escopo !== 'despacho') throw new BadRequestException('Este KDS não é de despacho.');
+    const comandaId = dto?.comandaId;
+    if (typeof comandaId !== 'string' || !UUID_RE.test(comandaId)) throw new BadRequestException('Pedido inválido.');
+    const acao = dto?.acao;
+    if (acao !== 'pronto' && acao !== 'entregue') throw new BadRequestException('Ação inválida: pronto ou entregue.');
+    const loja = ator?.perfil === 'presidente' ? null : unidadeAtual ?? null;
+    const cartoes = (
+      await this.db
+        .select()
+        .from(producaoPedido)
+        .where(and(eq(producaoPedido.tenantId, tenantId), eq(producaoPedido.comandaId, comandaId), eq(producaoPedido.destinoTipo, 'kds')))
+    ).filter((c) => (!k.unidadeId || c.unidadeId === k.unidadeId) && (!loja || !c.unidadeId || c.unidadeId === loja));
+    if (!cartoes.length) throw new NotFoundException('Pedido não encontrado neste despacho.');
+    const venda = await this.situacaoDaVenda(tenantId, comandaId);
+    if (venda && (venda.comandaCancelada || venda.pedidoCancelado)) {
+      await this.cancelarPorComanda(tenantId, null, comandaId, 'pedido cancelado');
+      throw new BadRequestException('Pedido cancelado: saiu da fila.');
+    }
+    const vivos = cartoes.filter((c) => c.status !== 'cancelado');
+    if (!vivos.length) throw new BadRequestException('Pedido cancelado: saiu da fila.');
+    const aberto = (c: any) => c.status === 'recebido' || c.status === 'preparo';
+    const agora = new Date();
+
+    if (acao === 'entregue') {
+      if (vivos.some(aberto)) throw new ConflictException('Despache o pedido antes de entregar.');
+      const prontos = vivos.filter((c) => c.status === 'pronto');
+      if (!prontos.length) throw new ConflictException('O pedido já foi entregue.');
+      await this.db.transaction(async (tx: any) => {
+        for (const c of prontos) {
+          const r = await tx
+            .update(producaoPedido)
+            .set({ status: 'entregue', entregueEm: agora })
+            .where(and(eq(producaoPedido.id, c.id), eq(producaoPedido.status, 'pronto')))
+            .returning({ id: producaoPedido.id });
+          if (!r.length) throw new ConflictException('O pedido mudou enquanto você entregava. A tela vai atualizar.');
+        }
+      });
+      for (const c of prontos) {
+        this.events?.emit('producao.evento', {
+          tenantId, unidadeId: c.unidadeId, setorId: c.setorId, destinoEquipamentoId: c.destinoEquipamentoId, pedidoId: c.id, tipo: 'status', status: 'entregue',
+        });
+      }
+      return { ok: true, situacao: 'entregue', cartoes: prontos.length };
+    }
+
+    const esperando = vivos.filter((c) => c.destinoEquipamentoId === k.id && aberto(c));
+    const pendentes = vivos.filter((c) => c.destinoEquipamentoId !== k.id && aberto(c));
+    if (!esperando.length && !pendentes.length) throw new ConflictException('O pedido já está pronto.');
+    const nomesFaltando = pendentes.length
+      ? [...new Set(await this.nomesDeEquipamentos(tenantId, [...new Set(pendentes.map((c) => c.destinoEquipamentoId).filter(Boolean))] as string[]))]
+      : [];
+    let liberou: { id: string; nome: string } | null = null;
+    if (pendentes.length) {
+      if (dto?.forcar !== true) throw new ConflictException(`Falta: ${nomesFaltando.join(', ') || 'uma estação'}.`);
+      liberou = await autorizarPorSenhaDeGestor(this.db, tenantId, dto?.senha);
+    }
+    const mover = [...esperando, ...pendentes];
+    await this.db.transaction(async (tx: any) => {
+      for (const c of mover) {
+        const set: any = { status: 'pronto', prontoEm: agora };
+        if (c.destinoEquipamentoId !== k.id) {
+          // Forçado: o cartão que estava numa estação vem para o despacho, e a passagem fica marcada como forçada.
+          set.destinoEquipamentoId = k.id;
+          set.estacoes = c.destinoEquipamentoId
+            ? [...lerEstacoes(c.estacoes), { kds: c.destinoEquipamentoId, pronto: agora.toISOString(), forcado: true }]
+            : lerEstacoes(c.estacoes);
+        }
+        const r = await tx
+          .update(producaoPedido)
+          .set(set)
+          .where(and(eq(producaoPedido.id, c.id), eq(producaoPedido.status, c.status)))
+          .returning({ id: producaoPedido.id });
+        if (!r.length) throw new ConflictException('O pedido mudou enquanto você despachava. A tela vai atualizar.');
+      }
+    });
+    // O despacho imprime ao ficar pronto, se o ajuste dele pede — o pedido inteiro num ticket só.
+    await this.imprimirNaEtapa(tenantId, { ...mover[0], destinoEquipamentoId: k.id }, 'pronto', mover.map((c) => c.id)).catch(() => {});
+    for (const c of mover) {
+      this.events?.emit('producao.evento', {
+        tenantId, unidadeId: c.unidadeId, setorId: c.setorId, destinoEquipamentoId: k.id, pedidoId: c.id, tipo: 'status', status: 'pronto',
+      });
+    }
+    // O pronto do PEDIDO: um aviso só para a comanda (o ouvinte confere a comanda inteira — ERR-148). Vários avisos ao
+    // mesmo tempo fariam o pedido do canal subir para pronto em dobro.
+    this.events?.emit('producao.pronto', { tenantId, comandaId });
+    if (liberou) {
+      const ref = cartoes[0];
+      await this.auditoria.registrar({
+        tenantId,
+        unidadeId: ref.unidadeId ?? null,
+        atorId: ator?.id ?? null,
+        atorPerfil: ator?.perfil ?? null,
+        tipo: 'producao',
+        acao: 'forcou_despacho_kds',
+        origem: 'kds',
+        entidadeTipo: 'kds',
+        entidadeId: k.id,
+        detalhe: {
+          kds: k.nome,
+          pedido: rotuloSenha(ref.senha, ref.senhaPrefixo) || (ref.mesa ? `mesa ${ref.mesa}` : `nº ${ref.numero ?? '?'}`),
+          faltavam: nomesFaltando,
+          autorizadoPor: liberou.nome,
+        },
+      });
+    }
+    return { ok: true, situacao: 'pronto', cartoes: mover.length, forcado: !!liberou };
   }
 
   /** Registro único de "mudou para onde este produto/setor manda a produção" — só se mudou. */

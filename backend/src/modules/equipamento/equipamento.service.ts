@@ -6,6 +6,7 @@ import { equipamento } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { CreateEquipamentoDto } from './dto/create-equipamento.dto';
 import { edgeAtivo } from '../../common/edge-ativo';
+import { conferirProximoKds } from '../../common/fluxo-kds';
 import { garantirImpressoraDaLoja } from '../../common/impressora-da-loja';
 import { ForbiddenException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
@@ -613,7 +614,7 @@ export class EquipamentoService {
     // Com servidor local ativo, impressora e KDS são configurados nele (mesma trava do cadastro).
     if (atual.tipo === 'impressora' || atual.tipo === 'kds') await this.garantirConfigLocal(tenantId);
 
-    const set: { nome?: string; escopo?: string; setorId?: string | null; pdvMainId?: string } = {};
+    const set: { nome?: string; escopo?: string; setorId?: string | null; pdvMainId?: string; proximoKdsId?: null } = {};
     const mudou: Record<string, { de: unknown; para: unknown }> = {};
     if (dto?.nome !== undefined) {
       const nome = String(dto.nome ?? '').trim();
@@ -625,10 +626,15 @@ export class EquipamentoService {
       }
     }
     if (atual.tipo === 'kds' && dto?.escopo !== undefined) {
-      if (!['producao', 'entrega', 'avisos'].includes(dto.escopo)) throw new BadRequestException('Escopo do KDS inválido.');
+      if (!['producao', 'entrega', 'avisos', 'despacho'].includes(dto.escopo)) throw new BadRequestException('Escopo do KDS inválido.');
       if (dto.escopo !== atual.escopo) {
         set.escopo = dto.escopo;
         mudou.escopo = { de: atual.escopo, para: dto.escopo };
+        // O despacho é a última etapa (Cozinha em estações, entrega 2): não manda o pedido para outro KDS.
+        if (dto.escopo === 'despacho' && atual.proximoKdsId) {
+          set.proximoKdsId = null;
+          mudou.proximoKds = { de: await this.nomeDe(tenantId, atual.proximoKdsId), para: null };
+        }
       }
     }
     if (atual.tipo === 'kds' && dto?.setorId !== undefined) {
@@ -999,10 +1005,21 @@ export class EquipamentoService {
     return this.publico(row);
   }
 
-  // Fase E — próximo KDS da cadeia (ao avançar o card migra para ele). null = fim.
+  // Fase E — próximo KDS da cadeia: quando o cartão fica PRONTO, passa para ele (Cozinha em estações, entrega 2). null =
+  // termina aqui. As mesmas regras da gaveta "Configurar este KDS" (`common/fluxo-kds`): KDS ligado da mesma loja, sem
+  // círculo, e o despacho não manda para outro KDS. Antes só se recusava o "aponta para si mesmo".
   async setProximoKds(tenantId: string, id: string, proximoKdsId: string | null, ator?: AtorEquipamento) {
     await this.garantirConfigLocal(tenantId);
     if (proximoKdsId === id) throw new BadRequestException('Um KDS não pode apontar para si mesmo.');
+    if (proximoKdsId) {
+      const [kds] = await this.db
+        .select({ id: equipamento.id, unidadeId: equipamento.unidadeId, escopo: equipamento.escopo })
+        .from(equipamento)
+        .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, id), eq(equipamento.tipo, 'kds')));
+      if (!kds) throw new NotFoundException('KDS não encontrado.');
+      if (kds.escopo === 'despacho') throw new BadRequestException('O KDS de despacho é a última etapa: ele não manda o pedido para outro KDS.');
+      await conferirProximoKds(this.db, tenantId, { id: kds.id, unidadeId: kds.unidadeId ?? null }, proximoKdsId);
+    }
     const [row] = await this.db
       .update(equipamento)
       .set({ proximoKdsId: proximoKdsId || null })
