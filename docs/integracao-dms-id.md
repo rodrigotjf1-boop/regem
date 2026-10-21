@@ -182,3 +182,56 @@ sempre.
   com o estorno que não saiu volta para a fila e no hub vale `falhou`, com o 200. O servidor da loja só repassa à
   nuvem e não registra nada; quem registra é a nuvem, no envio dela. No console do hub, a lista de ferramentas da
   parada pode oferecer `aviso pedido.cancelado`: parar por ali não segura o estorno.
+
+## 9. A autorização por clique (F3, parte C; migration 336)
+
+Padrão DMS §3, com as decisões do dono de 21/10/2026 (C-1 a C-5, todas na opção recomendada; protótipo aprovado no
+hub, `prototipos/autorizacao-no-regem.html`). O contrato é o da B1 do RegemCast (`docs/mcp.md` de lá): os mesmos
+campos, as mesmas frases de recusa para quem programa e o mesmo `iss` na volta, para o Liame usar o mesmo código nos
+dois produtos. **Nasce desligada**: `AUTORIZACAO_POR_CLIQUE=true` liga, junto com `AUTORIZACAO_DMS_RAZAO_SOCIAL` e
+`AUTORIZACAO_DMS_CNPJ` (a empresa dona dos aplicativos, que a tela mostra) e com a via do DMS ID ligada; configuração
+torta deixa a autorização indisponível, com o motivo no log, sem derrubar a API. Só o Liame usa o clique (F3-1): o
+Farol segue na página de 01/10, e a página e a troca de 01/10 continuam valendo para quem não usa o clique.
+
+**O caminho:**
+
+1. O servidor do Liame empurra o pedido (RFC 9126): `POST /api/v1/integracao/autorizacao/pedido`, com
+   `Authorization: Bearer <token do DMS ID>`, em formulário ou JSON: `response_type=code`, `client_id` (opcional; o
+   do token), `redirect_uri` (um dos cadastrados, `INTEGRACAO_LIAME_REDIRECT_URIS`), `scope` (separado por espaço;
+   pode pedir menos), `state` (16 a 200 visíveis), `code_challenge` (S256, 43) e a conta que pede: `conta_nome`,
+   `conta_cnpj` (opcional), `conta_email`, `conta_marca` (opcional). Resposta **201** `{ request_uri, expires_in: 600 }`
+   (`urn:ietf:params:oauth:request_uri:rgm_…`; uso único; só o resumo fica gravado).
+2. A pessoa abre `https://app.dmsregem.com/integracoes/autorizar?client_id=…&request_uri=…`. A página lê
+   `GET /api/v1/integracoes/autorizacao` (sessão do Regem) e recebe uma situação: `indisponivel`, `invalido` (vencido,
+   usado, de outro aplicativo ou torto), `pausado` (o Liame na lista de parada do hub, ou a chave própria desligada),
+   `nao_presidente`, `travada` (com os minutos) ou `escolha`, com a **tela montada no servidor** (os textos aprovados:
+   quem pede, a conta que pede, as lojas, as necessárias, as opcionais nascendo desligadas — o custo também, C-1 —, o
+   telefone num bloco próprio, o que o Liame não pode, a nota e o rodapé; com mais de uma loja, nenhuma vem marcada,
+   C-2; a loja já conectada soma, e com todas conectadas e permissão nova a tela "pede mais").
+3. O presidente autoriza: `POST /api/v1/integracoes/autorizacao` com `{ clientId, requestUri, senha, lojas,
+   opcionais, confirmoOutraEmpresa }`. A **senha do Regem** de quem clicou (nunca o PIN), conferida ANTES da validade
+   do pedido: errada → 422 com quantas faltam; 5 erradas em 15 minutos travam a autorização por 15 minutos (423; a
+   entrada no Regem não muda). A conta de outra empresa — pela **raiz do CNPJ**, os 8 primeiros números (C-3); sem
+   CNPJ conta como outra — exige a confirmação (400 sem ela). Opcional não pedida e custo sem "Ver valores em R$": 400.
+   Pedido vencido ou usado: 410. Grava a prova (o texto mostrado, versão 1, com a decisão), gasta o pedido e devolve
+   `{ redirect }`: o endereço cadastrado com `code`, `state` e `iss` (a origem da API do Regem). Recusar
+   (`POST …/recusar`, qualquer nível) gasta o pedido e volta com `error=access_denied`, `state` e `iss`.
+4. O servidor do Liame troca o código: `POST /api/v1/integracao/autorizacao/token` **com o token do DMS ID** (sem ele,
+   é a troca de 01/10), `grant_type=authorization_code`, `code`, `code_verifier`, `redirect_uri`. O código é gasto
+   antes de qualquer conferência (o PKCE errado ou o endereço diferente também gastam), e o código usado de novo
+   desliga o que ele criou. Resposta `{ lojas: [{ loja_id, loja_nome, empresa_nome, fuso, moeda, escopos,
+   cardapio_url, ligacao, prefixo, permissoes, segredo_em }] }`: **uma ligação por loja** (F3-4), o segredo só aqui.
+   Por dentro, cada loja ganha uma linha de token com o segredo descartado (a 329 pede o mesmo id) e a ligação no mesmo
+   id; o acesso ativo da loja com o Liame (o do console, o da página de 01/10, a ligação da troca automática ou um
+   clique anterior) é trocado na mesma transação, e o que ele liberava continua (soma). Duas trocas da mesma loja ao
+   mesmo tempo: o índice único decide, e a segunda recebe 400 ("terminou agora mesmo").
+
+**Depois:** os presidentes da empresa recebem e-mail depois da troca ("foi autorizado" para loja nova; "passou a
+receber" para a permissão a mais; renovar com o mesmo não manda nada). Em Aplicativos conectados, o acesso do clique
+aparece com `via: 'clique'`, a autorização (quem, quando, a versão, o texto guardado, a conta que pede) e o histórico,
+da auditoria. A limpeza dos códigos vencidos da página de 01/10 não apaga a prova do clique.
+
+**A migration 336 (só nuvem, sem `drop`):** `integracao_pedido`; a prova na `integracao_autorizacao` (pedido, conta que
+pede, outra empresa, opcionais desligadas, texto e versão); `integracao_token_loja.autorizacao_id` com o índice único
+de um acesso ativo do clique por loja e aplicativo; e `integracao_autorizacao_trava` (as senhas erradas, fora do
+`colaborador`, que sincroniza com a loja).
