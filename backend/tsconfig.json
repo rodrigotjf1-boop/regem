@@ -16,5 +16,5 @@
     "forceConsistentCasingInFileNames": true,
     "noImplicitAny": false
   },
-  "exclude": ["edge/bundle"]
+  "exclude": ["edge/bundle", "test/dms"]
 }

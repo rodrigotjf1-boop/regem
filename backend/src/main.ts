@@ -13,6 +13,7 @@ import { carregarEnvSeguro } from './secure-env';
 import { verificarIntegridade } from './integridade';
 import { TelemetriaLogger } from './common/telemetria-logger';
 import { TelemetriaExceptionFilter } from './common/telemetria-exception.filter';
+import { ROTAS_FORA_DO_PREFIXO } from './modules/integracao-api/ligacao.regras';
 import { setDefaultResultOrder } from 'node:dns';
 
 // Edge (serviço Windows): o IPv6 costuma NÃO rotear no contexto do serviço → a resolução IPv6-first
@@ -139,8 +140,9 @@ async function bootstrap() {
         : { origin: corsOrigin.split(',').map((o) => o.trim()), credentials: true }, // nuvem: cookie httpOnly (app.→api.)
   );
 
-  // Prefixo versionado da API: /api/v1/*
-  app.setGlobalPrefix('api/v1');
+  // Prefixo versionado da API: /api/v1/* — menos os metadados do recurso protegido do Hub DMS
+  // (RFC 9728: `/.well-known/oauth-protected-resource/api/v1/integracao`, na raiz do domínio).
+  app.setGlobalPrefix('api/v1', { exclude: ROTAS_FORA_DO_PREFIXO });
 
   // Validação/whitelist automática dos DTOs.
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));

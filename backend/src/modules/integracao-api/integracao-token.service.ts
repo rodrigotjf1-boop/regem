@@ -12,7 +12,12 @@ import {
   validarEscopos,
 } from './escopos';
 import { gerarTokenIntegracao, hashTokenIntegracao } from './token-integracao';
-import { marcarUsoTokenIntegracao, validarTokenIntegracao } from './validar-token-integracao';
+import {
+  marcarUsoLigacaoIntegracao,
+  marcarUsoTokenIntegracao,
+  validarLigacaoIntegracao,
+  validarTokenIntegracao,
+} from './validar-token-integracao';
 import type { IntegracaoCtxData } from './integracao-token.guard';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -54,6 +59,23 @@ export class IntegracaoTokenService {
   /** Grava o último uso (no máximo 1×/min por token). Nunca rejeita (V3): não derruba a chamada. */
   marcarUso(tokenId: string, ip: string | null): void {
     marcarUsoTokenIntegracao(this.db, tokenId, ip);
+  }
+
+  /**
+   * A ligação do Hub DMS (F3, mig 329) vale para o aplicativo do token do DMS ID? A regra mora em
+   * `validar-token-integracao.ts`, junto da do token: a ligação lê o token de onde veio.
+   */
+  async validarLigacao(
+    segredo: string,
+    doToken: { aplicativo: string; permissoes: readonly string[] },
+    aplicativos: Readonly<Record<string, string>>,
+  ): Promise<IntegracaoCtxData | null> {
+    return validarLigacaoIntegracao(this.db, segredo, doToken, aplicativos);
+  }
+
+  /** O último uso pela ligação (na ligação e no token), no máximo 1×/min. Nunca rejeita (V3). */
+  marcarUsoLigacao(ligacaoId: string, ip: string | null): void {
+    marcarUsoLigacaoIntegracao(this.db, ligacaoId, ip);
   }
 
   /**

@@ -16,6 +16,9 @@ import { createHash } from 'crypto';
 //    marca vencer, cada chamada indo ao banco.
 // Em memória por processo: é proteção de carga, não de segurança (a autenticação é o guard, no
 // banco, a cada chamada — revogar vale na chamada seguinte).
+//
+// Pela via do DMS ID (Hub DMS, F3) a credencial são DUAS coisas — o token do aplicativo e o segredo
+// da ligação (`credencialDaChamada`): um token válido com uma ligação inventada não fica isento.
 
 const VALIDADE_MS = 10 * 60 * 1000;
 const JANELA_MS = 60 * 1000;
@@ -26,13 +29,15 @@ const contagem = new Map<string, { inicio: number; n: number }>();
 
 const hash = (t: string) => createHash('sha256').update(t).digest('hex').slice(0, 32);
 
-export function registrarTokenIntegracaoValidado(token: string) {
+export function registrarTokenIntegracaoValidado(token: string | null) {
+  if (!token) return;
   validados.set(hash(token), Date.now() + VALIDADE_MS);
   if (validados.size > 50_000) limparVencidos();
 }
 
 /** O token deixou de valer: a próxima chamada com ele volta ao limite por IP. */
-export function esquecerTokenIntegracao(token: string) {
+export function esquecerTokenIntegracao(token: string | null) {
+  if (!token) return;
   validados.delete(hash(token));
 }
 
@@ -70,6 +75,18 @@ function limparVencidos() {
 /** A rota é da API de integração (`/api/v1/integracao/...`)? */
 export function rotaDaIntegracao(url: string | undefined): boolean {
   return /^\/api\/v1\/integracao(\/|\?|$)/.test(String(url ?? ''));
+}
+
+/**
+ * A credencial da chamada, como a isenção do limite por IP a reconhece: o token do `Authorization`
+ * e, quando vem, o segredo da ligação (`DMS-Ligacao`, via do DMS ID) junto. Sem token, `null`.
+ */
+export function credencialDaChamada(req: any): string | null {
+  const bearer = bearerDe(req);
+  if (!bearer) return null;
+  const raw = req?.headers?.['dms-ligacao'];
+  const ligacao = typeof raw === 'string' ? raw.trim() : '';
+  return ligacao ? `${bearer}\n${ligacao}` : bearer;
 }
 
 /** O token do cabeçalho `Authorization: Bearer …` (ou `null`). */

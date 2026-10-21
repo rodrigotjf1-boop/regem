@@ -95,6 +95,13 @@ sync grava. **O cupom criado pela API é um `cupom` como outro qualquer:** nasce
 nova, e DESCE para os servidores das lojas da empresa pelo sync de sempre (`cupom` desce, sem filtro
 de loja; a desativação desce pelo carimbo `updated_at`).
 
+`integracao_carga_janela` (mig 302, RegemCast), `integracao_autorizacao` (mig 303, autorização pela
+loja), `integracao_webhook` (mig 304, avisos), `integracao_retrato_mudanca` e `integracao_retrato_marca`
+(mig 316, avisos do Farol) e `integracao_ligacao` (mig 329, Hub DMS F3: a ligação do DMS ID, a mesma
+linha do token da loja): também `-- @cloud-only`, pelo mesmo motivo — a API de integração e a
+autorização pela loja não sobem no servidor da loja. Não existem no banco da loja e não entram no
+`sync-config.ts` nem nas listas do `sync-daemon.mjs`.
+
 ### 2.4 Entraram no sincronismo (migrations 272/273)
 
 Passaram a sincronizar, com a coluna de data e os gatilhos que faltavam: `nota_fiscal` (sobe), `tarefa_def`, `checklist`, `checklist_item`, `pop`, `documento_controlado`, `ciencia`, `vistoria`, `ocorrencia`, `ponto_ajuste`, `guia`, `guia_passo`, `comunicado`, `comunicado_leitura`, as três de clima, `escala_regra`, `dia_especial`, `entitlement`, `janela_pico`, `contador`, `funcao_setor`, `colaborador_funcao`, `modulo_ativacao`, `categoria_item`, `item_fornecedor`, `item_conversao`, `forma_pagamento`, `comanda_pagamento`, `ordem_producao`, `mesa`, `alerta_estoque`, `produto_sugestao`, `produto_faixa_preco`, as quatro de destino de produção, `kds_cor_config`, `tef_config`, `pagamento_tef` (sobe), `cupom`, `cupom_uso`, `encomenda_regra_sinal`, `encomenda_recorrencia`, `banner`, `acerto_subpdv`, `pedido_manutencao` e `atendimento_chamado`.

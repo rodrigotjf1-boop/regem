@@ -2,6 +2,8 @@ import {
   CanActivate,
   ExecutionContext,
   Injectable,
+  Logger,
+  Optional,
   SetMetadata,
   createParamDecorator,
 } from '@nestjs/common';
@@ -9,10 +11,14 @@ import { Reflector } from '@nestjs/core';
 import {
   bearerDe,
   contarChamadaIntegracao,
+  credencialDaChamada,
   esquecerTokenIntegracao,
   registrarTokenIntegracaoValidado,
 } from '../../common/integracao-limite';
+import { ErroTokenDmsId } from '../../dms/integracao-dms';
+import { DmsIdService, type TokenDmsIdDoRegem } from './dms-id.service';
 import { EscopoIntegracao } from './escopos';
+import { CABECALHO_LIGACAO_NO_NODE, desafioDaRecusa, EscopoFaltando, LIGACAO_INVALIDA, ligacaoDoCabecalho } from './ligacao.regras';
 import { ProblemaException } from './problema';
 import { formatoTokenIntegracao } from './token-integracao';
 import { IntegracaoTokenService } from './integracao-token.service';
@@ -21,6 +27,7 @@ import { IntegracaoTokenService } from './integracao-token.service';
 
 /** Quem está chamando a API de integração — montado pelo guard, lido por `@IntegracaoCtx()`. */
 export type IntegracaoCtxData = {
+  /** O id do token (`integracao_token_loja`). Pela ligação, é o MESMO id: limite, idempotência e aviso seguem a chave. */
   tokenId: string;
   tenantId: string;
   /** A loja do token; `null` = token da EMPRESA inteira (só o RegemCast — mig 302). */
@@ -32,7 +39,12 @@ export type IntegracaoCtxData = {
   escopos: EscopoIntegracao[];
   cliente: string;
   autorizadoPor: string;
+  /** O prefixo da credencial que chamou: `rgm_it_…` ou, pela ligação, `dms_lg_regem_…`. */
   prefixo: string;
+  /** `ligacao` = pela via do DMS ID (Hub DMS, F3, mig 329); ausente = pelo `rgm_it_`. */
+  via?: 'ligacao';
+  /** O aplicativo do DMS ID que chamou (só pela ligação). É da distribuição: nunca vai para a loja. */
+  aplicativo?: string;
 };
 
 export const ESCOPOS_KEY = 'integracao_escopos';
@@ -51,40 +63,65 @@ export function ipDe(req: any): string | null {
 }
 
 /**
- * Autentica a API de integração (`/api/v1/integracao/*`) pelo token POR LOJA, no padrão do
- * `SyncTokenGuard`: `Authorization: Bearer rgm_it_…` → formato (sem ir ao banco) → SHA-256 →
- * busca pelo hash com a loja e a empresa → 401 se não existe, revogado, vencido, loja apagada
- * ou de outra empresa → limite do token (429) → escopos da rota (403) → contexto.
+ * Autentica a API de integração (`/api/v1/integracao/*`). Duas vias, com o MESMO contexto no fim:
  *
- * Sem cache de validação: revogar vale na chamada seguinte. O limite conta TODA chamada do
- * token válido, inclusive a que cai no 403 — é ele que substitui o limite por IP. O token que o
- * banco recusa perde a isenção do limite por IP na mesma hora.
+ * - **o token por loja** (`Authorization: Bearer rgm_it_…`), no padrão do `SyncTokenGuard`: formato (sem ir ao banco)
+ *   → SHA-256 → busca pelo hash com a loja e a empresa → 401 se não existe, revogado, vencido, loja apagada ou de outra
+ *   empresa. Com ele no cabeçalho, nada muda, ligada ou não a outra via;
+ * - **o DMS ID** (Hub DMS, F3, mig 329), só com `DMS_ID_LIGADO`: o token do DMS ID no `Authorization` (401
+ *   `token-invalido` se não vale; 403 se não tem permissão nenhuma do Regem) e o segredo da ligação no `DMS-Ligacao`
+ *   (401 `ligacao-invalida`, a mesma resposta para todo motivo). Valem as permissões que a loja autorizou E o token tem.
+ *
+ * Depois, nas duas: limite da credencial (429) → escopos da rota (403, com todos os que faltam) → contexto. Todo 401
+ * leva o desafio `WWW-Authenticate` (com a via ligada, também o endereço dos metadados do recurso, RFC 9728).
+ *
+ * Sem cache de validação: revogar vale na chamada seguinte. O limite conta TODA chamada da credencial válida,
+ * inclusive a que cai no 403 — é ele que substitui o limite por IP. A credencial que o banco recusa perde a isenção do
+ * limite por IP na mesma hora.
  */
 @Injectable()
 export class IntegracaoTokenGuard implements CanActivate {
+  private readonly log = new Logger('IntegracaoToken');
+  private readonly dmsId: DmsIdService;
+
   constructor(
     private readonly tokens: IntegracaoTokenService,
     private readonly reflector: Reflector,
-  ) {}
+    @Optional() dmsId?: DmsIdService,
+  ) {
+    this.dmsId = dmsId ?? new DmsIdService();
+  }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const req = context.switchToHttp().getRequest();
-    const token = bearerDe(req);
-    if (!formatoTokenIntegracao(token)) throw new ProblemaException(401, 'token-invalido', TOKEN_INVALIDO);
+    const http = context.switchToHttp();
+    const req = http.getRequest();
+    // O guard também é montado à mão (rotas do totem, testes) com um contexto que só tem o pedido.
+    const res = typeof (http as any).getResponse === 'function' ? http.getResponse() : null;
+    const bearer = bearerDe(req);
+    const metadadosRecurso = this.dmsId.ligado ? this.dmsId.enderecoDosMetadados() : null;
+    const desafiar = (erro: unknown): never => {
+      const desafio = desafioDaRecusa(erro, { veioToken: bearer !== null, metadadosRecurso });
+      if (desafio && res?.setHeader && !res.headersSent) res.setHeader('WWW-Authenticate', desafio);
+      throw erro;
+    };
 
-    const t = await this.tokens.validar(token);
-    if (!t) {
-      esquecerTokenIntegracao(token);
-      throw new ProblemaException(401, 'token-invalido', TOKEN_INVALIDO);
+    let t: IntegracaoCtxData;
+    if (formatoTokenIntegracao(bearer)) {
+      t = await this.pelaViaDoToken(req, bearer, desafiar);
+    } else if (this.dmsId.ligado) {
+      t = await this.pelaViaDoDmsId(req, bearer, desafiar);
+    } else {
+      return desafiar(new ProblemaException(401, 'token-invalido', TOKEN_INVALIDO));
     }
 
-    registrarTokenIntegracaoValidado(token);
     const limite = contarChamadaIntegracao(t.tokenId);
     if (!limite.ok) {
       throw new ProblemaException(
         429,
         'limite-de-chamadas',
-        'Muitas chamadas com este token — aguarde e tente de novo.',
+        t.via === 'ligacao'
+          ? 'Muitas chamadas com esta ligação — aguarde e tente de novo.'
+          : 'Muitas chamadas com este token — aguarde e tente de novo.',
         limite.retryAfterSeg,
       );
     }
@@ -95,18 +132,46 @@ export class IntegracaoTokenGuard implements CanActivate {
         context.getClass(),
       ]) ?? [];
     const faltam = exigidos.filter((e) => !t.escopos.includes(e));
-    if (faltam.length) {
-      throw new ProblemaException(
-        403,
-        'escopo-insuficiente',
-        `Este token não tem o escopo ${faltam.join(', ')}.`,
-      );
-    }
+    if (faltam.length) desafiar(new EscopoFaltando(faltam, t.via === 'ligacao' ? 'ligacao' : 'token'));
 
     // Último uso: no máximo 1×/min, sem esperar e sem derrubar a chamada (V3).
-    this.tokens.marcarUso(t.tokenId, ipDe(req));
+    if (t.via === 'ligacao') this.tokens.marcarUsoLigacao(t.tokenId, ipDe(req));
+    else this.tokens.marcarUso(t.tokenId, ipDe(req));
     req.integracao = t satisfies IntegracaoCtxData;
     return true;
+  }
+
+  /** O `rgm_it_`: o banco decide sozinho (inválido, revogado ou vencido = 401; nunca cai para a outra via). */
+  private async pelaViaDoToken(req: any, token: string, desafiar: (erro: unknown) => never): Promise<IntegracaoCtxData> {
+    const t = await this.tokens.validar(token);
+    if (!t) {
+      esquecerTokenIntegracao(credencialDaChamada(req));
+      return desafiar(new ProblemaException(401, 'token-invalido', TOKEN_INVALIDO));
+    }
+    registrarTokenIntegracaoValidado(credencialDaChamada(req));
+    return t;
+  }
+
+  /**
+   * O token do DMS ID primeiro (sem ele, ou com ele torto, nem se procura a ligação), depois a ligação. O motivo da
+   * recusa do token vai só para o log local; a resposta é a mesma para todo motivo (Padrão §7).
+   */
+  private async pelaViaDoDmsId(req: any, bearer: string | null, desafiar: (erro: unknown) => never): Promise<IntegracaoCtxData> {
+    let doToken: TokenDmsIdDoRegem;
+    try {
+      doToken = await this.dmsId.conferir(bearer);
+    } catch (erro) {
+      if (erro instanceof ErroTokenDmsId && bearer !== null) this.log.warn(`token do DMS ID recusado: ${erro.motivo}`);
+      return desafiar(erro);
+    }
+    const segredo = ligacaoDoCabecalho(req?.headers?.[CABECALHO_LIGACAO_NO_NODE]);
+    const t = segredo ? await this.tokens.validarLigacao(segredo, doToken, this.dmsId.aplicativos) : null;
+    if (!t) {
+      esquecerTokenIntegracao(credencialDaChamada(req));
+      return desafiar(new ProblemaException(401, 'ligacao-invalida', LIGACAO_INVALIDA));
+    }
+    registrarTokenIntegracaoValidado(credencialDaChamada(req));
+    return t;
   }
 }
 
