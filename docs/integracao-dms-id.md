@@ -231,6 +231,14 @@ receber" para a permissão a mais; renovar com o mesmo não manda nada). Em Apli
 aparece com `via: 'clique'`, a autorização (quem, quando, a versão, o texto guardado, a conta que pede) e o histórico,
 da auditoria. A limpeza dos códigos vencidos da página de 01/10 não apaga a prova do clique.
 
+**As telas:** `/integracoes/autorizar` com `request_uri` abre a tela do clique; sem ele, a página de 01/10. A página não
+monta texto: desenha a `tela` que o servidor manda (os mesmos textos que ficam guardados como prova) e cada situação;
+depois de autorizar ou recusar, mostra "voltando ao Liame" e segue para o `redirect` (com o link para continuar se o
+navegador não for sozinho). Aberta dentro do Instagram ou do Facebook, avisa para abrir no navegador — a volta ao Liame
+pode cair no navegador de dentro do aplicativo. Antes do login, o aviso é genérico ("Entre para autorizar o
+aplicativo"): o `client_id` do link não diz o nome, e a página não pergunta à API sem sessão. Em Aplicativos
+conectados, **Detalhes** abre a gaveta do acesso, com "Ver o texto que você autorizou" para o acesso do clique.
+
 **A migration 336 (só nuvem, sem `drop`):** `integracao_pedido`; a prova na `integracao_autorizacao` (pedido, conta que
 pede, outra empresa, opcionais desligadas, texto e versão); `integracao_token_loja.autorizacao_id` com o índice único
 de um acesso ativo do clique por loja e aplicativo; e `integracao_autorizacao_trava` (as senhas erradas, fora do

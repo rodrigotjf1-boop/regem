@@ -5,6 +5,11 @@
 // A página é a mesma para todo aplicativo; o que muda de um para outro está em `TEXTO_APP`. Os
 // textos do Farol (o que ele recebe e o que não vai) foram aprovados pelo dono em 10/10/2026. Os do GoGeM
 // (14/10/2026, mig 323) descrevem a credencial própria do totem: ele LANÇA as vendas do totem, não as lê.
+//
+// A autorização POR CLIQUE (Hub DMS, F3, parte C) recebe a tela pronta do servidor (`clique-tipos.ts`); daqui saem
+// só os textos de "Aplicativos conectados" e da página de 01/10.
+
+import type { TextoGuardado } from './clique-tipos';
 
 export const TEXTO_ESCOPO: Record<string, { rotulo: string; texto: string }> = {
   'pedidos.ler': {
@@ -21,9 +26,17 @@ export const TEXTO_ESCOPO: Record<string, { rotulo: string; texto: string }> = {
     rotulo: 'Custo dos itens',
     texto: 'O custo de cada item, para o Liame calcular a margem. Sem ele, a margem fica desconhecida, nunca zero.',
   },
+  // O que o Regem garante (protótipo da parte C, 21/10/2026): ele só desativa os cupons que criou. A aprovação do
+  // cupom acontece no Liame, não no Regem — a frase antiga ("passa pela aprovação de alguém da sua empresa")
+  // prometia o que o servidor não confere.
   'cupons.criar': {
     rotulo: 'Criar cupom de campanha',
-    texto: 'O Liame cria e desativa cupons de campanha na loja. Cada cupom passa pela aprovação de alguém da sua empresa antes de existir.',
+    texto: 'Criar cupons de campanha na loja e desativar os que ele mesmo criou. Os cupons que a loja criou ficam como estão.',
+  },
+  'clientes.telefone.ler': {
+    rotulo: 'Telefone do cliente no pedido',
+    texto:
+      'O telefone de quem fez o pedido, um código do cliente no Regem e se é o primeiro pedido dele na loja. Sem nome, e-mail e endereço, e nunca de pedido de aplicativo de entrega.',
   },
   // Farol (mig 315) — nenhum dos três leva preço, custo ou cliente.
   'catalogo.ler': {
@@ -149,7 +162,7 @@ export function resumoDoAcesso(escopos: string[], cliente: string): { recebe: st
   const recebe = texto ? texto[0].toUpperCase() + texto.slice(1) : '—';
   if (cliente === 'gogem') return { recebe, nota: tem('totem.vendas.lancar') ? 'Lança as vendas do totem' : null };
   if (cliente !== 'liame') return { recebe, nota: null };
-  return { recebe, nota: tem('cupons.criar') ? 'Cria cupom, com aprovação' : 'Sem criar cupom' };
+  return { recebe, nota: tem('cupons.criar') ? 'Cria cupom de campanha' : 'Sem criar cupom' };
 }
 
 const dataCurta = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -177,11 +190,23 @@ export type Acesso = {
   lojaNome: string | null;
   escopos: string[];
   autorizadoPor: string;
-  via: 'loja' | 'distribuicao';
+  /** `clique` = a autorização por clique (Hub DMS, F3 C): guarda o texto que o presidente viu. */
+  via: 'loja' | 'distribuicao' | 'clique';
   criadoEm: string;
   ultimoUsoEm: string | null;
   revogadoEm: string | null;
   revogadoPor: { tipo: 'loja' | 'troca' | 'aplicativo' | 'distribuicao'; nome: string | null } | null;
+  /** A autorização por clique de onde o acesso veio (o texto guardado); nulo nos acessos de antes. */
+  autorizacao?: {
+    em: string;
+    por: string;
+    versao: number;
+    texto: TextoGuardado | null;
+    contaQuePede: { nome: string; cnpj: string | null; email: string; marca: string | null } | null;
+    outraEmpresa: boolean;
+  } | null;
+  /** O que aconteceu com o acesso, da auditoria (o mais antigo primeiro). */
+  historico?: { em: string; texto: string }[];
 };
 
 export type Aplicativo = {

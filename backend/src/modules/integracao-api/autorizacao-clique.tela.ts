@@ -6,6 +6,7 @@ import {
   cnpjComMascara,
   ehOutraEmpresa,
   naOrdemDoCatalogo,
+  noAssuntoDe,
   type AplicativoDoClique,
   type ContaQuePede,
 } from './autorizacao-clique.regras';
@@ -20,6 +21,8 @@ export type PermissaoNaTela = {
   frase: string;
   /** Por que o aplicativo pede. */
   motivo: string;
+  /** Como ela entra numa frase ("Pronto: o Liame passa a receber o telefone do cliente"). */
+  naFrase: string;
   /** Opcional: a pessoa liga ou desliga (nasce desligada). Necessária: vem sem chave. */
   opcional: boolean;
   dadoPessoal: boolean;
@@ -109,6 +112,7 @@ function permissao(app: AplicativoDoClique, id: EscopoIntegracao, o: { opcional:
     rotulo: c?.rotulo ?? id,
     frase: c?.frase ?? id,
     motivo: app.motivos[id] ?? '',
+    naFrase: noAssuntoDe(id),
     opcional: o.opcional,
     dadoPessoal: app.dadoPessoal.includes(id),
     semEla: o.opcional ? (app.semElas[id] ?? null) : null,

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plug, Unplug } from 'lucide-react';
+import { Eye, Plug, Unplug } from 'lucide-react';
 import { ApiError, api, getToken } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
@@ -15,6 +15,7 @@ import {
   type Situacao,
 } from '@/components/ui/lista';
 import { DialogoRevogar } from '@/components/integracoes/dialogo-revogar';
+import { GavetaDoAcesso } from '@/components/integracoes/gaveta-do-acesso';
 import { SeloApp } from '@/components/integracoes/selo-app';
 import { TEXTO_APP, type Acesso, type Aplicativo, autorizadoPor, comoMudar, comoSaiu, haQuanto, resumoDoAcesso } from '@/components/integracoes/textos';
 
@@ -48,6 +49,8 @@ export default function AplicativosConectadosPage() {
   const router = useRouter();
   const [estado, setEstado] = useState<Estado>({ fase: 'carregando' });
   const [pedido, setPedido] = useState<Pedido | null>(null);
+  // A gaveta de "Detalhes" guarda só o id: depois de revogar, ela mostra o acesso como a lista recarregada.
+  const [detalhe, setDetalhe] = useState<string | null>(null);
   const [revogando, setRevogando] = useState(false);
   const [agora, setAgora] = useState(() => new Date());
   const [busca, setBusca] = useState('');
@@ -93,8 +96,9 @@ export default function AplicativosConectadosPage() {
       );
       setPedido(null);
       await carregar();
-      // A linha deixou de ter o botão que abriu o diálogo: o foco vai para o título da lista.
-      document.getElementById(ID_TITULO)?.focus();
+      // A linha deixou de ter o botão que abriu o diálogo: o foco vai para o título da lista (com a gaveta aberta,
+      // o foco volta para ela, que agora mostra o acesso revogado).
+      if (!detalhe) document.getElementById(ID_TITULO)?.focus();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Não foi possível revogar. Tente de novo.');
     } finally {
@@ -187,7 +191,10 @@ export default function AplicativosConectadosPage() {
                   { titulo: 'Último acesso', celula: (l) => (l.acesso.ativo ? haQuanto(l.acesso.ultimoUsoEm, agora) : comoSaiu(l.acesso, l.app.rotulo)) },
                   { titulo: 'Situação', celula: (l) => <Selo tom={l.acesso.ativo ? 'ok' : 'neutro'}>{l.acesso.ativo ? 'ativo' : 'revogado'}</Selo> },
                 ]}
-                acoes={(l) => (l.acesso.ativo ? [{ rotulo: 'Revogar', icone: Unplug, aoClicar: (x: Linha) => setPedido({ app: x.app, acesso: x.acesso }), tom: 'perigo' as const }] : [])}
+                acoes={(l) => [
+                  { rotulo: 'Detalhes', icone: Eye, aoClicar: (x: Linha) => setDetalhe(x.acesso.id) },
+                  ...(l.acesso.ativo ? [{ rotulo: 'Revogar', icone: Unplug, aoClicar: (x: Linha) => setPedido({ app: x.app, acesso: x.acesso }), tom: 'perigo' as const }] : []),
+                ]}
               />
             )}
             {filtrando && linhas.length > 0 && (
@@ -204,6 +211,21 @@ export default function AplicativosConectadosPage() {
           </>
         )}
       </section>
+
+      {(() => {
+        const aberta = detalhe ? todas.find((l) => l.acesso.id === detalhe) : null;
+        if (!aberta) return null;
+        return (
+          <GavetaDoAcesso
+            app={aberta.app}
+            acesso={aberta.acesso}
+            agora={agora}
+            voltarPara={ID_TITULO}
+            aoFechar={() => setDetalhe(null)}
+            aoRevogar={() => setPedido({ app: aberta.app, acesso: aberta.acesso })}
+          />
+        );
+      })()}
 
       {pedido && (
         <DialogoRevogar
