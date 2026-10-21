@@ -73,6 +73,7 @@
   imprime na etapa sai com a origem da senha ("B-7", não "7"). Nuvem: migration antes do merge + deploy. Loja: no `.zip`
   (a mig 335 vai no pacote), sem `.exe` (a letra pequena, `@S`, já existe no servidor da loja desde agosto, #277). Na loja, conferir:
   pôr a impressora da cozinha em "pedido completo" e vender um lanche e uma bebida de outra impressora ou KDS.
+- **Avisos da integração no registro do hub e sob a parada (Hub DMS, F3 parte D; sem migration):** só NUVEM (o job dos avisos e o cliente do hub não sobem no servidor da loja), desligado até a distribuição ligar (`HUB_LIGADO`); a chave própria `ACEITAR_INTEGRACOES` desligada passa a segurar também os avisos. O código entra no `.zip` por tabela (a cópia do pacote comum 0.4.0), mas na loja nada muda. Não pede `.exe`. Nada a fazer na loja.
 - **Registro no hub e parada da API de integração (Hub DMS, F3 parte A2; sem migration):** só NUVEM e desligado até a distribuição ligar (`HUB_LIGADO`). O código entra no `.zip` por tabela (o filtro de problemas e as regras do hub, usados também pelas rotas do totem), mas no servidor da loja nada muda: a API de integração e o cliente do hub não sobem lá. Não pede `.exe`. Nada a fazer na loja.
 - **KDS: item removido sai do cartão e os ajustes valem na loja (mig 332, auditoria do KDS):** o item tirado da comanda
   sai do cartão ativo e do resumo (o cartão mostra "Alterado"; no cancelado os itens ficam riscados); cores e etapas do

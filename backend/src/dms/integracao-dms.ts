@@ -10,7 +10,7 @@
 import { createHash, createHmac, createPublicKey, randomBytes, randomUUID, timingSafeEqual, verify as conferirAssinatura, type JsonWebKey, type KeyObject } from 'node:crypto';
 import { isIP } from 'node:net';
 
-export const VERSAO_PACOTE = '0.3.0';
+export const VERSAO_PACOTE = '0.4.0';
 
 const DIA_MS = 86_400_000;
 
@@ -933,6 +933,62 @@ export type ChamadaRegistrada = {
   duracao_ms?: number;
 };
 
+/**
+ * O resultado de um aviso mandado (0.4.0): `entregue` (2xx), `recusado` (o destino respondeu 4xx, menos 408 e 429),
+ * `falhou` (sem resposta, 5xx, 408, 429 ou redirecionamento, que não se segue) e `pausado` (o produto parou de mandar
+ * para aquele destino depois de falhas seguidas).
+ */
+export type ResultadoAviso = 'entregue' | 'recusado' | 'falhou' | 'pausado';
+
+/** Um aviso que o produto mandou a um aplicativo (Padrão §9 e §10; F3, parte D): para quem, qual, quando e o resultado. Nunca o conteúdo. */
+export type AvisoRegistrado = {
+  /** O id do envio (o `webhook-id`, 6 a 100 caracteres): o mesmo código de novo não duplica no hub. */
+  codigo: string;
+  /** Instante ISO 8601 com fuso. */
+  ocorrido_em: string;
+  /** Quem recebe. */
+  aplicativo: string;
+  /** O prefixo visível da ligação ou da chave do acesso a que o aviso pertence, nunca o segredo. */
+  ligacao_prefixo?: string;
+  conta?: string;
+  /** O nome comercial da empresa ou da loja, nunca o de uma pessoa. */
+  conta_nome?: string;
+  /** O tipo do aviso, em minúsculas com ponto (`pedido.alterado`). */
+  tipo: string;
+  /** Só a origem do destino (`origemDoDestino`): sem caminho, sem parâmetro. */
+  destino?: string;
+  resultado: ResultadoAviso;
+  status_http?: number;
+  duracao_ms?: number;
+  /** 1 = a primeira tentativa. */
+  tentativa?: number;
+};
+
+/** O nome com que o aviso aparece na lista de parada (nível ferramenta) e no console: `aviso pedido.alterado`. */
+export function ferramentaDoAviso(tipo: string): string {
+  return `aviso ${tipo}`;
+}
+
+/** Só a origem de um endereço http(s) (`https://host[:porta]`), para o registro do aviso; outro formato: nada. */
+export function origemDoDestino(endereco: unknown): string | undefined {
+  try {
+    const u = new URL(String(endereco));
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return undefined;
+    const origem = u.origin;
+    return /^https?:\/\/[A-Za-z0-9.-]+(:\d{1,5})?$/.test(origem) && origem.length <= 200 ? origem : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** O resultado do aviso pelo status do destino (nulo = sem resposta) e por o produto ter pausado aquele destino. */
+export function resultadoDoAviso(status: number | null, pausado = false): ResultadoAviso {
+  if (pausado) return 'pausado';
+  if (status !== null && status >= 200 && status < 300) return 'entregue';
+  if (status !== null && status >= 400 && status < 500 && status !== 408 && status !== 429) return 'recusado';
+  return 'falhou';
+}
+
 export type OrigemErro = 'backend' | 'rotina' | 'tela' | 'servidor_loja' | 'app';
 /** Um erro do produto. A mensagem passa por `limparMensagem` antes de sair; o mesmo erro junto vira uma quantidade. */
 export type ErroDoProduto = { origem: OrigemErro; tipo: string; mensagem: string; lugar: string; codigo?: string; quando?: Date };
@@ -1035,6 +1091,9 @@ export type OpcoesClienteHub = {
 
 const LOTE_REGISTRO = 500;
 const LOTE_ERROS = 200;
+const LOTE_AVISOS = 500;
+/** O hub que ainda não tem a rota dos avisos (404): o cliente para de mandar avisos por este tempo, e as chamadas seguem. */
+export const PAUSA_AVISOS_SEM_ROTA_MS = 30 * 60_000;
 
 const motivoDe = (erro: unknown) => (erro instanceof ErroDmsId ? erro.message : erro instanceof Error ? `${erro.name}: ${erro.message}`.slice(0, 200) : String(erro).slice(0, 200));
 
@@ -1049,9 +1108,10 @@ function listaValida(v: unknown): v is ListaDeParada {
 }
 
 /**
- * O cliente do hub, um por processo do produto. `registrar` e `erro` só anotam (nunca esperam o hub nem falham a
- * chamada do produto); o envio sai em lote a cada 5 s. `parado` decide pela última lista recebida (lida a cada 15 s,
- * só quando muda): se o hub cair, vale a cópia. `iniciar` liga os relógios; `parar` os desliga e manda o que falta.
+ * O cliente do hub, um por processo do produto. `registrar`, `registrarAviso` e `erro` só anotam (nunca esperam o hub
+ * nem falham a chamada do produto); o envio sai em lote a cada 5 s. `parado` e `avisoParado` decidem pela última lista
+ * recebida (lida a cada 15 s, só quando muda): se o hub cair, vale a cópia. `iniciar` liga os relógios; `parar` os
+ * desliga e manda o que falta.
  */
 export class ClienteHub {
   private readonly url: string;
@@ -1069,6 +1129,8 @@ export class ClienteHub {
   private readonly teto: number;
   private readonly intervalos: { paradaMs: number; envioMs: number; batidaMs: number };
   private chamadas: ChamadaRegistrada[] = [];
+  private avisos: AvisoRegistrado[] = [];
+  private avisosParadosAte = 0;
   private readonly errosNovos = new Map<string, EventoErroHub>();
   private errosEmEspera: EventoErroHub[] = [];
   private lista: ListaDeParada | null;
@@ -1076,7 +1138,7 @@ export class ClienteHub {
   private descartadas = 0;
   private esperarAte = 0;
   private ultimaFalha: string | null = null;
-  private emEnvio: Promise<{ chamadas: number; erros: number }> | null = null;
+  private emEnvio: Promise<{ chamadas: number; erros: number; avisos: number }> | null = null;
   private readonly relogios: Array<ReturnType<typeof setInterval>> = [];
 
   constructor(o: OpcoesClienteHub) {
@@ -1105,6 +1167,38 @@ export class ClienteHub {
       this.chamadas.splice(0, sobra);
       this.descartadas += sobra;
     }
+  }
+
+  /**
+   * Anota um aviso mandado, para o registro do hub (0.4.0). Com o hub que ainda não recebe avisos (respondeu 404 na
+   * rota), o aviso é descartado, contando, até a pausa acabar: as chamadas e os erros seguem como sempre.
+   */
+  registrarAviso(a: AvisoRegistrado): void {
+    if (this.relogio() < this.avisosParadosAte) {
+      this.descartadas += 1;
+      return;
+    }
+    this.avisos.push(a);
+    if (this.avisos.length > this.teto) {
+      const sobra = this.avisos.length - this.teto;
+      this.avisos.splice(0, sobra);
+      this.descartadas += sobra;
+    }
+  }
+
+  /**
+   * A parada que vale para um aviso, pela última lista recebida (nula: pode mandar). Confere o aplicativo que recebe,
+   * cada prefixo do acesso (a chave e a ligação, quando as duas existem) e a ferramenta `aviso <tipo>`.
+   */
+  avisoParado(a: { aplicativo: string; ligacaoPrefixos?: readonly (string | null | undefined)[]; tipo: string }): ItemDeParada | null {
+    const ferramenta = ferramentaDoAviso(a.tipo);
+    const prefixos = (a.ligacaoPrefixos ?? []).filter((p): p is string => typeof p === 'string' && p.length > 0);
+    if (!prefixos.length) return paradaQueVale(this.lista, this.produto, { aplicativo: a.aplicativo, ferramenta });
+    for (const ligacaoPrefixo of prefixos) {
+      const p = paradaQueVale(this.lista, this.produto, { aplicativo: a.aplicativo, ligacaoPrefixo, ferramenta });
+      if (p) return p;
+    }
+    return null;
   }
 
   /** Anota um erro. A mensagem, o tipo e o lugar saem limpos; o mesmo erro antes do envio só soma a quantidade. */
@@ -1141,9 +1235,10 @@ export class ClienteHub {
     return paradaQueVale(this.lista, this.produto, c);
   }
 
-  get estado(): { fila: number; erros: number; descartadas: number; paradaVersao: number | null; paradaLidaEm: number | null; ultimaFalha: string | null } {
+  get estado(): { fila: number; avisos: number; erros: number; descartadas: number; paradaVersao: number | null; paradaLidaEm: number | null; ultimaFalha: string | null } {
     return {
       fila: this.chamadas.length,
+      avisos: this.avisos.length,
       erros: this.errosNovos.size + this.errosEmEspera.length,
       descartadas: this.descartadas,
       paradaVersao: this.lista ? this.lista.versao : null,
@@ -1175,8 +1270,11 @@ export class ClienteHub {
     return ultima as Response;
   }
 
-  /** Manda um lote. 'ok' tira da fila; 'descartar' (o hub recusou o formato) também tira, contando; o resto fica. */
-  private async mandar(caminho: string, corpo: unknown): Promise<'ok' | 'descartar' | 'depois'> {
+  /**
+   * Manda um lote. 'ok' tira da fila; 'descartar' (o hub recusou o formato) também tira, contando; 'sem_rota' (404) e
+   * o resto ficam. Só os avisos tratam o 404 de outro jeito (o hub de antes da 0.4.0 não tem a rota deles).
+   */
+  private async mandar(caminho: string, corpo: unknown): Promise<'ok' | 'descartar' | 'depois' | 'sem_rota'> {
     let r: Response;
     try {
       r = await this.pedir('POST', caminho, corpo);
@@ -1195,11 +1293,12 @@ export class ClienteHub {
       const seg = Number(r.headers.get('retry-after'));
       this.esperarAte = this.relogio() + (Number.isFinite(seg) && seg > 0 ? seg : 60) * 1000;
     }
+    if (r.status === 404) return 'sem_rota';
     return r.status === 400 || r.status === 413 ? 'descartar' : 'depois';
   }
 
-  /** Manda o que está na fila (registro e erros, em lotes). Dois envios ao mesmo tempo viram um. */
-  enviar(): Promise<{ chamadas: number; erros: number }> {
+  /** Manda o que está na fila (registro, avisos e erros, em lotes). Dois envios ao mesmo tempo viram um. */
+  enviar(): Promise<{ chamadas: number; erros: number; avisos: number }> {
     if (this.emEnvio) return this.emEnvio;
     this.emEnvio = this.enviarAgora().finally(() => {
       this.emEnvio = null;
@@ -1207,17 +1306,34 @@ export class ClienteHub {
     return this.emEnvio;
   }
 
-  private async enviarAgora(): Promise<{ chamadas: number; erros: number }> {
-    const feito = { chamadas: 0, erros: 0 };
+  private async enviarAgora(): Promise<{ chamadas: number; erros: number; avisos: number }> {
+    const feito = { chamadas: 0, erros: 0, avisos: 0 };
     if (this.relogio() < this.esperarAte) return feito;
     while (this.chamadas.length) {
       const lote = this.chamadas.slice(0, LOTE_REGISTRO);
       const r = await this.mandar('/api/v1/registro', { chamadas: lote });
-      if (r === 'depois') break;
+      if (r === 'depois' || r === 'sem_rota') break;
       // tira pelo próprio item: o que chegou durante o envio (ou saiu pelo teto) não se confunde com o lote
       const enviadas = new Set(lote);
       this.chamadas = this.chamadas.filter((c) => !enviadas.has(c));
       if (r === 'ok') feito.chamadas += lote.length;
+      else this.descartadas += lote.length;
+    }
+    // Os avisos vão por rota própria: o hub de antes responde 404 a ela, e o que estava na fila sai (contado) até a
+    // pausa acabar. As chamadas acima e os erros abaixo não dependem disso.
+    while (this.avisos.length && this.relogio() >= this.esperarAte && this.relogio() >= this.avisosParadosAte) {
+      const lote = this.avisos.slice(0, LOTE_AVISOS);
+      const r = await this.mandar('/api/v1/avisos', { avisos: lote });
+      if (r === 'depois') break;
+      if (r === 'sem_rota') {
+        this.avisosParadosAte = this.relogio() + PAUSA_AVISOS_SEM_ROTA_MS;
+        this.descartadas += this.avisos.length;
+        this.avisos = [];
+        break;
+      }
+      const enviados = new Set(lote);
+      this.avisos = this.avisos.filter((a) => !enviados.has(a));
+      if (r === 'ok') feito.avisos += lote.length;
       else this.descartadas += lote.length;
     }
     // o erro que sai num lote não soma mais: a repetição do envio leva o mesmo evento_id (o hub não conta duas vezes)
@@ -1228,7 +1344,7 @@ export class ClienteHub {
     while (this.errosEmEspera.length && this.relogio() >= this.esperarAte) {
       const lote = this.errosEmEspera.slice(0, LOTE_ERROS);
       const r = await this.mandar('/api/v1/erros', { erros: lote });
-      if (r === 'depois') break;
+      if (r === 'depois' || r === 'sem_rota') break;
       const enviados = new Set(lote);
       this.errosEmEspera = this.errosEmEspera.filter((e) => !enviados.has(e));
       if (r === 'ok') feito.erros += lote.length;

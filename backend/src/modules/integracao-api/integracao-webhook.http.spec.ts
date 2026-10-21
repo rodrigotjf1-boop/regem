@@ -13,6 +13,8 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { CfThrottlerGuard } from '../../common/cf-throttler.guard';
 import { CloudOnlyGuard } from '../../common/cloud-only.guard';
+import { ClienteDmsId, ClienteHub, type AvisoRegistrado, type ItemDeParada } from '../../dms/integracao-dms';
+import { HubDmsService } from './hub-dms.service';
 import { IntegracaoApiModule } from './integracao-api.module';
 import { IntegracaoTokenService } from './integracao-token.service';
 import { WebhookIntegracaoService } from './webhook-integracao.service';
@@ -729,6 +731,199 @@ descrever('API de integração — avisos (PUT/GET/DELETE /integracao/webhook e 
       expect(banco).not.toContain(s.slice(6));
       expect(audit).not.toContain(s.slice(6));
     }
+  });
+
+  // ───────────────────────────── o hub (F3, parte D) ─────────────────────────────
+
+  describe('o hub (F3, parte D): a parada vale para os avisos e cada envio vai ao registro', () => {
+    let E: Awaited<ReturnType<typeof empresa>>;
+    let tE1: { token: string; id: string };
+    let tE2: { token: string; id: string };
+    let prefixoE1 = '';
+    let hub: HubDmsService;
+    let anotados: AvisoRegistrado[] = [];
+    const LIGACAO_E1 = 'dms_lg_regem_Hz7qA';
+
+    /** Liga o hub com um cliente DE VERDADE do pacote (a regra da parada é a dele), sem relógio nem rede. */
+    function ligarHub(itens: ItemDeParada[] = []) {
+      const cliente = new ClienteHub({
+        url: 'https://hub.exemplo.test',
+        recurso: 'https://hub.exemplo.test/api/v1',
+        dmsId: new ClienteDmsId({ emissor: 'https://id.exemplo.test/oidc', aplicativo: 'app-regem-teste', segredo: 'segredo-de-teste-1234567' }),
+        produto: 'regem',
+        versao: 'teste',
+        listaInicial: { versao: 1, itens },
+      });
+      anotados = [];
+      jest.spyOn(cliente, 'registrarAviso').mockImplementation((a: AvisoRegistrado) => void anotados.push(a));
+      (hub as any).cliente = cliente;
+    }
+
+    beforeAll(async () => {
+      hub = app.get(HubDmsService);
+      // A 329 (a ligação do DMS ID, a mesma linha do token) neste schema: o job lê o prefixo dela com o hub ligado.
+      await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(mig('329_integracao_ligacao.sql'))));
+      E = await empresa('Empresa E', ['E1 centro', 'E2 praia']);
+      tE1 = await emitir(E, E.lojas[0]);
+      tE2 = await emitir(E, E.lojas[1]);
+      await registrar(tE1.token, 'e1');
+      await registrar(tE2.token, 'e2');
+      prefixoE1 = (await q(`select prefixo from integracao_token_loja where id = $1`, [tE1.id]))[0].prefixo;
+    });
+
+    beforeEach(async () => {
+      await q(
+        `update integracao_webhook set avisado_ate = clock_timestamp(), proxima_verificacao_em = now() - interval '1 second',
+                falhas_seguidas = 0, primeira_falha_em = null, pausado_em = null, motivo_pausa = null
+          where tenant_id = any($1::uuid[])`,
+        [empresas],
+      );
+      await q(`delete from integracao_ligacao where id = $1`, [tE1.id]);
+      anotados = [];
+    });
+
+    afterEach(() => {
+      (hub as any).cliente = null;
+      delete process.env.ACEITAR_INTEGRACOES;
+    });
+
+    it('cada envio vai ao registro: o MESMO webhook-id que o destino recebe, o tipo, o resultado e só a origem do destino', async () => {
+      ligarHub();
+      await publicar(E.tenant, { recurso: 'venda', loja: E.lojas[0] });
+      expect(await ciclo()).toEqual({ enviados: 1, entregues: 1 });
+      const r = doCaminho('e1');
+      expect(r).toHaveLength(1);
+      expect(anotados).toEqual([
+        {
+          codigo: String(r[0].cabecalhos['webhook-id']),
+          ocorrido_em: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
+          aplicativo: 'liame',
+          ligacao_prefixo: prefixoE1,
+          conta: E.lojas[0],
+          conta_nome: 'E1 centro',
+          tipo: 'pedido.alterado',
+          destino: new URL(baseReceptor).origin,
+          resultado: 'entregue',
+          status_http: 202,
+          duracao_ms: expect.any(Number),
+          tentativa: 1,
+        },
+      ]);
+      // nada do caminho do destino (o id da conexão) nem do segredo vai ao registro
+      expect(JSON.stringify(anotados)).not.toContain('/v1/inbox');
+    });
+
+    it('a falha e a recusa do destino entram com o status e a tentativa; com a ligação do DMS ID, vai o prefixo dela', async () => {
+      await q(
+        `insert into integracao_ligacao (id, tenant_id, aplicativo, prefixo, segredo_hash) values ($1, $2, 'app-liame-teste', $3, $4)`,
+        [tE1.id, E.tenant, LIGACAO_E1, 'a'.repeat(64)],
+      );
+      ligarHub();
+      responder = () => ({ status: 503 });
+      await publicar(E.tenant, { recurso: 'venda', loja: E.lojas[0] });
+      expect(await ciclo()).toEqual({ enviados: 1, entregues: 0 });
+      await naVez([tE1.id]);
+      responder = () => ({ status: 401 });
+      expect(await ciclo()).toEqual({ enviados: 1, entregues: 0 });
+      // a ligação revogada sozinha (o token continua): o registro volta ao prefixo do token
+      await q(`update integracao_ligacao set revogado_em = now() where id = $1`, [tE1.id]);
+      await naVez([tE1.id]);
+      responder = () => ({ status: 202 });
+      expect(await ciclo()).toEqual({ enviados: 1, entregues: 1 });
+      expect(anotados.map((a) => [a.resultado, a.status_http, a.tentativa, a.ligacao_prefixo])).toEqual([
+        ['falhou', 503, 1, LIGACAO_E1],
+        ['recusado', 401, 2, LIGACAO_E1],
+        ['entregue', 202, 3, prefixoE1],
+      ]);
+      expect(new Set(anotados.map((a) => a.codigo)).size).toBe(3);
+    });
+
+    it('a parada do aplicativo (ou a geral) tira o Liame da reserva: nada sai, a linha não muda, e o aviso sai quando ela acaba', async () => {
+      await publicar(E.tenant, { recurso: 'venda', loja: E.lojas[0] });
+      for (const parada of [
+        { nivel: 'aplicativo', produto: null, alvo: 'liame' },
+        { nivel: 'geral', produto: null, alvo: null },
+      ] as ItemDeParada[]) {
+        ligarHub([parada]);
+        const antes = await linha(tE1.id);
+        expect(await ciclo()).toEqual({ enviados: 0, entregues: 0 });
+        expect(doCaminho('e1')).toHaveLength(0);
+        expect(await linha(tE1.id)).toEqual(antes);
+        expect(anotados).toEqual([]);
+      }
+      ligarHub([]);
+      expect(await ciclo()).toEqual({ enviados: 1, entregues: 1 });
+      expect(doCaminho('e1')).toHaveLength(1);
+    });
+
+    it('a parada da ligação (o prefixo do token ou o da ligação do DMS ID) segura só aquela loja, sem falha, por 30 s', async () => {
+      await q(
+        `insert into integracao_ligacao (id, tenant_id, aplicativo, prefixo, segredo_hash) values ($1, $2, 'app-liame-teste', $3, $4)`,
+        [tE1.id, E.tenant, LIGACAO_E1, 'b'.repeat(64)],
+      );
+      for (const alvo of [prefixoE1, LIGACAO_E1]) {
+        await naVez([tE1.id, tE2.id]);
+        const antes = await linha(tE1.id);
+        await publicar(E.tenant, { recurso: 'venda', loja: E.lojas[0] });
+        await publicar(E.tenant, { recurso: 'venda', loja: E.lojas[1] });
+        recebidos.length = 0;
+        ligarHub([{ nivel: 'ligacao', produto: 'regem', alvo }]);
+        expect(await ciclo()).toEqual({ enviados: 1, entregues: 1 });
+        expect(doCaminho('e1')).toHaveLength(0);
+        expect(doCaminho('e2')).toHaveLength(1);
+        const depois = await linha(tE1.id);
+        expect(depois.falhas_seguidas).toBe(0);
+        expect(depois.avisado_ate).toEqual(antes.avisado_ate);
+        const volta = new Date(depois.proxima_verificacao_em).getTime() - Date.now();
+        expect(volta).toBeGreaterThan(20_000);
+        expect(volta).toBeLessThanOrEqual(31_000);
+        expect(anotados.map((a) => a.conta)).toEqual([E.lojas[1]]);
+      }
+    });
+
+    it('a parada de um tipo de aviso ("aviso pedido.alterado") segura esse tipo; o cupom alterado sai', async () => {
+      await publicar(E.tenant, { recurso: 'venda', loja: E.lojas[0] });
+      await publicar(E.tenant, { recurso: 'cupom', loja: E.lojas[1] });
+      ligarHub([{ nivel: 'ferramenta', produto: 'regem', alvo: 'aviso pedido.alterado' }]);
+      expect(await ciclo()).toEqual({ enviados: 1, entregues: 1 });
+      expect(doCaminho('e1')).toHaveLength(0);
+      expect(JSON.parse(doCaminho('e2')[0].corpo)).toMatchObject({ tipo: 'cupom.alterado' });
+      expect(anotados.map((a) => a.tipo)).toEqual(['cupom.alterado']);
+    });
+
+    it('a parada de ligação ou de tipo de OUTRO produto não segura nada aqui', async () => {
+      await publicar(E.tenant, { recurso: 'venda', loja: E.lojas[0] });
+      ligarHub([
+        { nivel: 'ligacao', produto: 'regemcast', alvo: prefixoE1 },
+        { nivel: 'ferramenta', produto: 'regemcast', alvo: 'aviso pedido.alterado' },
+      ]);
+      expect(await ciclo()).toEqual({ enviados: 1, entregues: 1 });
+      expect(doCaminho('e1')).toHaveLength(1);
+    });
+
+    it('a chave própria desligada segura os avisos, com ou sem o hub (D-2), e eles saem quando ela volta', async () => {
+      await publicar(E.tenant, { recurso: 'venda', loja: E.lojas[0] });
+      for (const comHub of [false, true]) {
+        if (comHub) ligarHub();
+        process.env.ACEITAR_INTEGRACOES = 'nao';
+        const antes = await linha(tE1.id);
+        expect(await ciclo()).toEqual({ enviados: 0, entregues: 0 });
+        expect(doCaminho('e1')).toHaveLength(0);
+        expect(await linha(tE1.id)).toEqual(antes);
+        expect(anotados).toEqual([]);
+      }
+      delete process.env.ACEITAR_INTEGRACOES;
+      expect(await ciclo()).toEqual({ enviados: 1, entregues: 1 });
+      expect(doCaminho('e1')).toHaveLength(1);
+    });
+
+    it('com o hub desligado, nada vai ao registro e nada é parado pela lista', async () => {
+      await publicar(E.tenant, { recurso: 'venda', loja: E.lojas[0] });
+      const espiao = jest.spyOn(hub, 'registrarAviso');
+      expect(await ciclo()).toEqual({ enviados: 1, entregues: 1 });
+      expect(espiao).not.toHaveBeenCalled();
+      espiao.mockRestore();
+    });
   });
 
   it('a busca da novidade cabe no índice das versões (mig 296), sem varrer a tabela', async () => {

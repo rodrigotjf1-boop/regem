@@ -5,6 +5,7 @@ import { ehServidorLocal } from '../../common/modo';
 import {
   ClienteDmsId,
   ClienteHub,
+  type AvisoRegistrado,
   type ChamadaAtendida,
   type ChamadaRegistrada,
   type ErroDoProduto,
@@ -22,6 +23,9 @@ import { aceitaIntegracoes, lerConfigHub, semCredencialDoRegem, versaoNoAr } fro
 // - Lista de parada: lida a cada 15 s, só quando muda; o guard recusa a chamada parada (503 `integracao-parada`). Se o
 //   hub cair, vale a última lista lida.
 // - Batida: a cada minuto, com a versão no ar e a chave própria.
+// - Avisos (F3, parte D; pacote 0.4.0): cada envio de aviso a um aplicativo vai ao registro do hub (rota própria; o
+//   hub de antes responde 404 e o pacote para de mandar avisos por 30 min, sem tocar nas chamadas), e a lista de
+//   parada vale para eles: o job dos avisos pergunta `avisoParado` antes de mandar.
 //
 // Nasce DESLIGADO (`HUB_LIGADO`): sem ele, nada sai daqui e nada é parado pelo hub. A chave própria
 // (`ACEITAR_INTEGRACOES`) vale com ou sem o hub. Nada aqui espera o hub nem falha a chamada de quem integra: o hub fora
@@ -105,6 +109,19 @@ export class HubDmsService implements OnModuleInit, OnApplicationShutdown {
   /** Anota uma chamada para o registro central. Desligado: nada. */
   registrar(chamada: ChamadaRegistrada): void {
     if (this.cliente) this.cliente.registrar(chamada);
+  }
+
+  /**
+   * A parada que vale para um aviso (o aplicativo que recebe, cada prefixo do acesso e o tipo do aviso), pela última
+   * lista lida. Nula: pode mandar. Desligado: nunca para (a chave própria é conferida à parte, por quem manda).
+   */
+  avisoParado(aviso: { aplicativo: string; ligacaoPrefixos?: readonly (string | null | undefined)[]; tipo: string }): ItemDeParada | null {
+    return this.cliente ? this.cliente.avisoParado(aviso) : null;
+  }
+
+  /** Anota um aviso mandado para o registro do hub. Desligado: nada. */
+  registrarAviso(aviso: AvisoRegistrado): void {
+    if (this.cliente) this.cliente.registrarAviso(aviso);
   }
 
   /** Anota um erro para a lista de erros do hub (sem as credenciais do Regem; o pacote limpa o resto). Desligado: nada. */

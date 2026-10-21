@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { sql, SQL } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -8,6 +8,9 @@ import { ChaveSegredosAusente, cifrar, decifrar } from '../../common/cifra-segre
 import { fetchExterno } from '../../common/fetch-externo';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { DESTINO_GOGEM, soltarAvisosParados } from '../gogem/aviso-gogem';
+import { CLIENTES_INTEGRACAO } from './escopos';
+import { HubDmsService } from './hub-dms.service';
+import { aceitaIntegracoes, montarAviso } from './hub.regras';
 import type { IntegracaoCtxData } from './integracao-token.guard';
 import { ProblemaException } from './problema';
 import { sqlIso } from './venda-integracao';
@@ -18,6 +21,7 @@ import {
   chaveDoSegredo,
   corpoDoAviso,
   desfechoDoEnvio,
+  ehRetrato,
   enderecoPermitido,
   EVENTO_DO_RECURSO,
   EVENTO_DO_RETRATO,
@@ -47,6 +51,15 @@ import {
 // aviso) e ganha uma gravação com o resultado. O destino fora do ar não segura ninguém: prazo
 // curto, recuo por loja, e o lote para quando ninguém respondeu.
 // Os métodos aceitam `{ tenantIds }` para os testes rodarem só nas empresas deles (V32).
+//
+// HUB DMS (F3, parte D; decisão F3-3: o hub vê e para, mas não entrega). Os avisos continuam saindo daqui, e:
+// - a chave própria (`ACEITAR_INTEGRACOES`, Padrão §10) desligada segura também os avisos (D-2, na recomendada): nada
+//   sai e nada se grava; saem quando ela voltar, pela posição da linha, que não andou;
+// - a parada do hub vale para eles: a geral e a de aplicativo tiram o aplicativo da reserva (nada se grava por loja); a
+//   de ligação (o prefixo do token ou o da ligação do DMS ID) e a de tipo de aviso (`aviso pedido.alterado`) soltam a
+//   reserva daquela loja em 30 s, sem contar falha nem andar a posição;
+// - cada envio vai ao registro do hub (o `webhook-id` daquele envio, o aplicativo, o tipo, o resultado, a tentativa e só
+//   a origem do destino; nunca o conteúdo). Com o hub desligado (`HUB_LIGADO`), nada disso muda o job.
 
 /** Intervalo mínimo entre dois avisos da mesma loja (segundos). */
 export const INTERVALO_AVISO_SEG = 60;
@@ -60,11 +73,18 @@ const ESPERA_SEM_TABELA_MS = 10 * 60_000;
 /** Depois de um erro ao esvaziar a fila dos retratos, quanto esperar para tentar de novo. */
 const ESPERA_ERRO_RETRATO_MS = 60_000;
 const LIMPEZA_INTERVALO_MS = 10 * 60_000;
+/** O aviso parado pelo hub (ligação ou tipo de aviso) volta a ser olhado depois disto: a lista é lida a cada 15 s. */
+export const ESPERA_PARADO_SEG = 30;
 
 export type EscopoAviso = { tenantIds?: string[] };
 
+/** O tipo do aviso de cada recurso (o mesmo que vai no corpo e no registro do hub). */
+export const tipoDoAviso = (r: RecursoAvisado | RetratoAvisado): string => (ehRetrato(r) ? EVENTO_DO_RETRATO[r].tipo : EVENTO_DO_RECURSO[r].tipo);
+
 type Devido = {
   token_id: string;
+  /** O prefixo visível do `rgm_it_` (a lista de parada reconhece a ligação por ele, e pelo da ligação do DMS ID). */
+  token_prefixo: string;
   tenant_id: string;
   unidade_id: string | null;
   cliente: string;
@@ -98,6 +118,8 @@ export class WebhookIntegracaoService {
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly auditoria: AuditoriaService,
+    // O cliente do hub (F3, A2 e D). Opcional: quem monta o serviço à mão (testes de outros módulos) segue sem hub.
+    @Optional() private readonly hub?: HubDmsService,
   ) {}
 
   private rows(r: any): any[] {
@@ -314,18 +336,32 @@ export class WebhookIntegracaoService {
     await this.carimbarRetratos(e);
     let enviados = 0;
     let entregues = 0;
+    // A chave própria desligada segura os avisos também (D-2): nada é reservado, e a posição de cada loja fica onde está.
+    if (!aceitaIntegracoes()) return { enviados, entregues };
+    // A parada geral e a de aplicativo, pela última lista do hub: esses aplicativos nem entram na reserva.
+    const fora = this.aplicativosParados();
     for (;;) {
-      const lote = await this.reservar(e, LOTE);
+      const lote = await this.reservar(e, LOTE, fora);
       if (!lote.length) break;
+      const ligacoes = await this.prefixosDasLigacoes(lote);
+      const mandar: Devido[] = [];
+      const parados: string[] = [];
+      for (const l of lote) {
+        const parada = this.hub?.avisoParado({ aplicativo: l.cliente, ligacaoPrefixos: [l.token_prefixo, ligacoes.get(l.token_id)], tipo: tipoDoAviso(l.recurso) });
+        if (parada) parados.push(l.token_id);
+        else mandar.push(l);
+      }
+      if (parados.length) await this.soltarParados(parados);
       let ok = 0;
-      for (let i = 0; i < lote.length; i += EM_PARALELO) {
-        const r = await Promise.all(lote.slice(i, i + EM_PARALELO).map((l) => this.enviar(l)));
+      for (let i = 0; i < mandar.length; i += EM_PARALELO) {
+        const r = await Promise.all(mandar.slice(i, i + EM_PARALELO).map((l) => this.enviar(l, ligacoes.get(l.token_id) ?? null)));
         ok += r.filter(Boolean).length;
       }
-      enviados += lote.length;
+      enviados += mandar.length;
       entregues += ok;
-      // Ninguém respondeu (destino fora do ar): o resto fica para o próximo ciclo.
-      if (!ok || lote.length < LOTE || Date.now() > fim) break;
+      // Ninguém respondeu (destino fora do ar): o resto fica para o próximo ciclo. O lote só de parados não conta: as
+      // lojas dele voltam daqui a 30 s, então a próxima reserva já não as pega.
+      if ((mandar.length && !ok) || lote.length < LOTE || Date.now() > fim) break;
     }
     return { enviados, entregues };
   }
@@ -377,7 +413,9 @@ export class WebhookIntegracaoService {
    * anonimizado é da empresa). O retrato (catálogo, fichas) entra pela marca, com a mesma regra: a
    * marca sem loja é da rede e vale para todas as lojas da empresa.
    */
-  private async reservar(e: EscopoAviso | undefined, lote: number): Promise<Devido[]> {
+  private async reservar(e: EscopoAviso | undefined, lote: number, foraDosAplicativos: string[] = []): Promise<Devido[]> {
+    // A parada geral ou de aplicativo (F3, parte D): o aplicativo parado nem entra na reserva.
+    const fora = foraDosAplicativos.length ? sql`and w.cliente not in (${sql.join(foraDosAplicativos.map((c) => sql`${c}`), sql`, `)})` : sql``;
     const pares = sql.join(
       (Object.keys(EVENTO_DO_RECURSO) as RecursoAvisado[]).map((r) => sql`(${r}, ${EVENTO_DO_RECURSO[r].escopo})`),
       sql`, `,
@@ -405,7 +443,7 @@ export class WebhookIntegracaoService {
     return this.rows(
       await this.db.execute(sql`
         with nov as materialized (
-          select w.token_id, n.recurso, n.recurso_id, n.versao, n.atualizado_em, n.cupom_id, n.pedido_id
+          select w.token_id, t.prefixo as token_prefixo, n.recurso, n.recurso_id, n.versao, n.atualizado_em, n.cupom_id, n.pedido_id
             from integracao_webhook w
             join integracao_token_loja t on t.id = w.token_id
            cross join lateral (
@@ -440,6 +478,7 @@ export class WebhookIntegracaoService {
              and w.proxima_verificacao_em <= now()
              and t.revogado_em is null
              and (t.expira_em is null or t.expira_em > now())
+             ${fora}
              ${this.escopo(sql`w.tenant_id`, e)}
            order by w.proxima_verificacao_em
            limit ${lote}
@@ -453,7 +492,7 @@ export class WebhookIntegracaoService {
           returning w.token_id, w.tenant_id, w.unidade_id, w.cliente, w.url, w.segredo_cifrado, w.falhas_seguidas,
                     extract(epoch from (now() - w.primeira_falha_em))::float8 as falhando_ha
         )
-        select res.token_id::text as token_id, res.tenant_id::text as tenant_id, res.unidade_id::text as unidade_id,
+        select res.token_id::text as token_id, nov.token_prefixo, res.tenant_id::text as tenant_id, res.unidade_id::text as unidade_id,
                res.cliente, res.url,
                res.segredo_cifrado, res.falhas_seguidas, res.falhando_ha,
                nov.recurso, nov.recurso_id::text as recurso_id, nov.versao::text as versao,
@@ -463,8 +502,14 @@ export class WebhookIntegracaoService {
     ) as Devido[];
   }
 
-  /** Manda um aviso e grava o resultado. Nunca rejeita (V3): devolve se foi entregue. */
-  private async enviar(l: Devido): Promise<boolean> {
+  /**
+   * Manda um aviso e grava o resultado. Nunca rejeita (V3): devolve se foi entregue. `ligacaoPrefixo`: o da ligação do
+   * DMS ID da mesma linha, quando há (vai ao registro do hub no lugar do prefixo do token).
+   */
+  private async enviar(l: Devido, ligacaoPrefixo: string | null = null): Promise<boolean> {
+    // O id deste envio (o `webhook-id` que o destino recebe) é o mesmo código do registro no hub.
+    const id = randomUUID();
+    const inicio = Date.now();
     try {
       let status: number | null = null;
       let erro: string | null = null;
@@ -476,6 +521,7 @@ export class WebhookIntegracaoService {
       }
       if (!chave) {
         // A chave de segredos desta nuvem mudou (ou o valor foi alterado): não é falha do destino.
+        await this.anotarNoHub(l, { id, inicio, status: null, pausado: true, ligacaoPrefixo });
         await this.gravarPausa(l, null, 'o segredo guardado não abre mais neste servidor — registre o aviso de novo');
         return false;
       }
@@ -496,7 +542,7 @@ export class WebhookIntegracaoService {
         // não leva o aviso (nem a assinatura) para outro lugar.
         const r = await fetchExterno(
           l.url,
-          { method: 'POST', headers: cabecalhosDoAviso(chave, randomUUID(), corpo), body: corpo, redirect: 'manual' },
+          { method: 'POST', headers: cabecalhosDoAviso(chave, id, corpo), body: corpo, redirect: 'manual' },
           this.prazoEnvioMs,
         );
         status = r.status;
@@ -507,6 +553,7 @@ export class WebhookIntegracaoService {
       }
 
       const d = desfechoDoEnvio({ status, falhasSeguidas: Number(l.falhas_seguidas ?? 0), falhandoHaSeg: l.falhando_ha });
+      await this.anotarNoHub(l, { id, inicio, status, pausado: d.resultado === 'pausa', ligacaoPrefixo });
       if (d.resultado === 'entregue') {
         await this.db.execute(sql`
           update integracao_webhook
@@ -537,6 +584,76 @@ export class WebhookIntegracaoService {
       // Falhou ao gravar o resultado: a reserva (2 min) devolve a loja à fila sozinha.
       this.log.error(`aviso do token ${l.token_id}: resultado não gravado — ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e}`);
       return false;
+    }
+  }
+
+  // ───────────────────────────── o hub (F3, parte D) ─────────────────────────────
+
+  /** Os aplicativos parados no geral ou pelo nome, pela última lista do hub. Hub desligado: nenhum. */
+  private aplicativosParados(): string[] {
+    const hub = this.hub;
+    if (!hub?.ligado) return [];
+    return Object.keys(CLIENTES_INTEGRACAO).filter((cliente) => hub.parado({ aplicativo: cliente }) !== null);
+  }
+
+  /**
+   * O prefixo da ligação do DMS ID de cada linha do lote que tem uma ativa (a ligação é a mesma linha do token: o mesmo
+   * id). Uma consulta por lote, e só com o hub ligado. Sem a tabela da 329 ou com erro: nenhum (a parada e o registro
+   * seguem pelo prefixo do token).
+   */
+  private async prefixosDasLigacoes(lote: Devido[]): Promise<Map<string, string>> {
+    const m = new Map<string, string>();
+    if (!this.hub?.ligado || !lote.length) return m;
+    try {
+      const ids = sql.join(
+        lote.map((l) => sql`${l.token_id}::uuid`),
+        sql`, `,
+      );
+      const r = await this.db.execute(sql`select id::text as id, prefixo from integracao_ligacao where revogado_em is null and id in (${ids})`);
+      for (const x of this.rows(r)) m.set(String(x.id), String(x.prefixo));
+    } catch (e: any) {
+      if (e?.code !== '42P01') this.log.warn(`prefixos das ligações para os avisos não lidos: ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e}`);
+    }
+    return m;
+  }
+
+  /** Solta a reserva das lojas paradas pelo hub: voltam em 30 s, sem contar falha e sem andar a posição. */
+  private async soltarParados(tokenIds: string[]): Promise<void> {
+    const ids = sql.join(
+      tokenIds.map((id) => sql`${id}::uuid`),
+      sql`, `,
+    );
+    await this.db.execute(sql`
+      update integracao_webhook
+         set proxima_verificacao_em = now() + make_interval(secs => ${ESPERA_PARADO_SEG})
+       where token_id in (${ids})`);
+  }
+
+  /** O envio no registro do hub. Nunca rejeita (V3); hub desligado: nada. */
+  private async anotarNoHub(
+    l: Devido,
+    a: { id: string; inicio: number; status: number | null; pausado: boolean; ligacaoPrefixo: string | null },
+  ): Promise<void> {
+    const hub = this.hub;
+    if (!hub?.ligado) return;
+    try {
+      const aviso = montarAviso({
+        codigo: a.id,
+        inicio: a.inicio,
+        agora: Date.now(),
+        aplicativo: l.cliente,
+        prefixo: a.ligacaoPrefixo ?? l.token_prefixo,
+        conta: l.unidade_id ?? l.tenant_id,
+        contaNome: await hub.nomeDaConta(l.tenant_id, l.unidade_id),
+        tipo: tipoDoAviso(l.recurso),
+        url: l.url,
+        status: a.status,
+        pausado: a.pausado,
+        tentativa: Number(l.falhas_seguidas ?? 0) + 1,
+      });
+      if (aviso) hub.registrarAviso(aviso);
+    } catch (e: any) {
+      this.log.warn(`aviso ao ${l.cliente}: o registro no hub não saiu (${e?.message ?? e})`);
     }
   }
 
