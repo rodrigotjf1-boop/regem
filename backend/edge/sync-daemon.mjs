@@ -193,6 +193,8 @@ const PUSH_TABLES = [
   { tabela: 'categoria_item', cursor: 'updated_at' },
   { tabela: 'forma_pagamento', cursor: 'updated_at' },
   { tabela: 'kds_cor_config', cursor: 'updated_at' },
+  // O mapa que o painel mandou para cada KDS (mig 338): marcado aqui, sobe. Depois de equipamento (FK).
+  { tabela: 'kds_tela_ajuste', cursor: 'updated_at' },
   { tabela: 'tef_config', cursor: 'updated_at' },
   { tabela: 'mesa', cursor: 'updated_at' },
   { tabela: 'documento_controlado', cursor: 'updated_at' },

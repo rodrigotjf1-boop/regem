@@ -85,6 +85,10 @@ export const TABELAS_SYNC: TabelaSync[] = [
   { tabela: 'categoria_item', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'forma_pagamento', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'kds_cor_config', direcao: 'ambos', cursor: 'updated_at' },
+  // O que o painel manda cada KDS mostrar (mig 338, o mapa dos entregadores): marcado na nuvem desce, marcado na loja
+  // sobe. Uma linha por KDS (o id é o do equipamento), então as duas pontas geram a mesma e o LWW resolve. Depois de
+  // `equipamento` (chave estrangeira).
+  { tabela: 'kds_tela_ajuste', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'tef_config', direcao: 'ambos', cursor: 'updated_at' },
   // `mesa` vem ANTES de `comanda` (a comanda aponta para a mesa).
   { tabela: 'mesa', direcao: 'ambos', cursor: 'updated_at' },
@@ -415,6 +419,8 @@ export const TABELAS_DESDE_ZERO = new Set<string>([
   // Endereço do cliente e frete por bairro (mig 276): o que já existe precisa descer uma
   // vez, senão a loja ficaria com a lista de bairros só do que mudar de hoje em diante.
   'cliente_endereco', 'cardapio_bairro', 'tarefa_instancia', 'escala_alocacao',
+  // O mapa marcado pelo painel (mig 338): o que a nuvem marcou antes de a loja receber o `.zip` precisa descer.
+  'kds_tela_ajuste',
 ]);
 
 // RESTAURAÇÃO (nuvem → edge, SÓ sob demanda): tabelas TRANSACIONAIS que podem ter

@@ -8,6 +8,7 @@ import { consultarAoVivo } from './entregadores-ao-vivo';
 import { EntregadoresAoVivoService } from './entregadores-ao-vivo.service';
 import { EntregadoresAoVivoController } from './entregadores-ao-vivo.controller';
 import { DeliveryService } from './delivery.service';
+import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -35,6 +36,11 @@ descrever('entregadores ao vivo por loja (Postgres)', () => {
     d.db = db;
     return d as DeliveryService;
   };
+  // O serviço inteiro. Produção, auditoria e aviso só servem ao "Mostrar num KDS" (entrega 5, outra spec).
+  const naoAudita: any = { registrar: async () => undefined };
+  const naoAvisa: any = { emit: () => true };
+  const servico = (d: DeliveryService = delivery()) =>
+    new EntregadoresAoVivoService(db, d, new ProducaoPedidoService(db, naoAudita, naoAvisa), naoAudita, naoAvisa);
 
   beforeAll(async () => {
     tenant = (await q(`insert into empresa (nome) values ('Teste mapa ao vivo') returning id`)).rows[0].id;
@@ -106,7 +112,7 @@ descrever('entregadores ao vivo por loja (Postgres)', () => {
 
   it('KDS: com a chave desligada não sai nenhuma posição; ligada, sai o mapa da loja', async () => {
     const d = delivery();
-    const svc = new EntregadoresAoVivoService(db, d);
+    const svc = servico(d);
     const ctl = new EntregadoresAoVivoController(svc, db);
     const operador: any = { tenantId: tenant, colaboradorId: ent.Ana, categoria: 'execucao' };
     await d.setConfig(tenant, lojaA, { kdsMapaEntregadores: false });
@@ -139,7 +145,7 @@ descrever('entregadores ao vivo por loja (Postgres)', () => {
       process.env.EDGE_MODE = 'true';
       process.env.CLOUD_API = `http://127.0.0.1:${(servidor.address() as AddressInfo).port}/api/v1`;
       process.env.SYNC_TOKEN = 'token-da-loja';
-      const svc = new EntregadoresAoVivoService(db, delivery());
+      const svc = servico();
       // Três telas pedindo juntas → uma chamada só à nuvem.
       const [a, b, c] = await Promise.all([1, 2, 3].map(() => svc.daLoja(tenant, lojaA)));
       expect(pedidos).toEqual(['/api/v1/delivery/entregadores-ao-vivo/loja token-da-loja']);
@@ -149,12 +155,12 @@ descrever('entregadores ao vivo por loja (Postgres)', () => {
 
       // Nuvem respondendo por OUTRA empresa: não mostra nada de ninguém.
       responder = 'outra-empresa';
-      const outra = await new EntregadoresAoVivoService(db, delivery()).daLoja(tenant, lojaA);
+      const outra = await servico().daLoja(tenant, lojaA);
       expect(outra).toEqual({ centro: { lat: -22.84, lng: -43.28 }, entregadores: [], semConexao: true });
 
       // Nuvem fora: mapa vazio, centrado na loja (do banco local), com o aviso.
       responder = 'fora';
-      const fora = await new EntregadoresAoVivoService(db, delivery()).daLoja(tenant, lojaA);
+      const fora = await servico().daLoja(tenant, lojaA);
       expect(fora).toEqual({ centro: { lat: -22.84, lng: -43.28 }, entregadores: [], semConexao: true });
     } finally {
       delete process.env.EDGE_MODE;

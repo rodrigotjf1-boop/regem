@@ -182,7 +182,31 @@ export default function KdsPage() {
   // O gestor desligou a chave com a tela no mapa: volta aos pedidos (sem apagar a escolha —
   // se ligarem de novo, a tela volta sozinha ao mapa na próxima abertura).
   const mapaDesligado = useCallback(() => setMapaHabilitado(false), []);
-  const mostrarMapa = tela === 'mapa' && mapaHabilitado === true;
+  // O painel do Delivery mandou ESTE KDS mostrar o mapa (entrega 5, mig 338): vale sobre a escolha do aparelho, e o ⚙ diz
+  // de onde veio. Tirado do KDS no painel, a tela volta aos pedidos (também se o aparelho tinha escolhido o mapa).
+  const mapaDoPainel = !!kdsSel && kdsList.some((k) => k.id === kdsSel && k.mapa === true);
+  const mostrarMapa = (tela === 'mapa' || mapaDoPainel) && mapaHabilitado === true;
+  const mapaDoPainelAntes = useRef(false);
+  useEffect(() => {
+    if (mapaDoPainelAntes.current && !mapaDoPainel) {
+      setTela('pedidos');
+      try { localStorage.setItem('kds-tela', 'pedidos'); } catch { /* ignora */ }
+    }
+    mapaDoPainelAntes.current = mapaDoPainel;
+  }, [mapaDoPainel]);
+  // Marcado pelo painel com a chave da loja desligada: confere a chave de novo a cada 30 s — ligada, a tela troca sozinha.
+  useEffect(() => {
+    if (!mapaDoPainel || mapaHabilitado === true) return;
+    const conferir = () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      api.entregadoresAoVivoKds()
+        .then((r: any) => setMapaHabilitado(r?.habilitado === true))
+        .catch(() => { /* mantém */ });
+    };
+    conferir();
+    const t = setInterval(conferir, 30000);
+    return () => clearInterval(t);
+  }, [mapaDoPainel, mapaHabilitado]);
   function setViewCfg(patch: Partial<ViewCfg>) {
     setView((v) => {
       const novo = { ...v, ...patch };
@@ -282,17 +306,38 @@ export default function KdsPage() {
     return () => clearInterval(t);
   }, []);
 
+  // Fase E — KDS da loja (p/ o seletor de cadeia). Pela lista das telas de KDS (quem tem o módulo vê): a de equipamentos
+  // pede gerente, e o aparelho da cozinha ficava sem escolher qual KDS é. Relida a cada 30 s e no aviso do painel
+  // (`kds:telas`): o mapa mandado pelo Delivery (entrega 5) chega sem recarregar — do painel na nuvem para o servidor da
+  // loja, pelo sync. Só a resposta da leitura mais nova vale (V64); lista igual não troca o estado.
+  const telasSeq = useRef(0);
+  const relerTelas = useCallback(() => {
+    if (!getToken()) return;
+    const seq = ++telasSeq.current;
+    api.kdsTelas()
+      .then((telas: any) => {
+        if (seq !== telasSeq.current) return;
+        const nova = Array.isArray(telas) ? telas : [];
+        setKdsList((antes) => (JSON.stringify(antes) === JSON.stringify(nova) ? antes : nova));
+      })
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      relerTelas();
+    }, 30000);
+    return () => clearInterval(t);
+  }, [relerTelas]);
+
   useEffect(() => {
     if (getToken()) {
       api.setores().then(setSetores).catch(() => {});
       api.entregadoresAoVivoKds()
         .then((r: any) => setMapaHabilitado(r?.habilitado === true))
         .catch(() => setMapaHabilitado(false));
-      // Fase E — KDS da loja (p/ o seletor de cadeia). Restaura a última escolha. Pela lista das telas de KDS (quem tem
-      // o módulo vê): a de equipamentos pede gerente, e o aparelho da cozinha ficava sem escolher qual KDS é.
-      api.kdsTelas()
-        .then((telas: any) => setKdsList(Array.isArray(telas) ? telas : []))
-        .catch(() => {});
+      relerTelas();
+      // Restaura a última escolha de "Este KDS" e do canal.
       try {
         const s = localStorage.getItem('kds-equip');
         if (s) setKdsSel(s);
@@ -300,7 +345,7 @@ export default function KdsPage() {
         if (c === 'balcao' || c === 'delivery' || c === 'todos') setCanal(c);
       } catch { /* ignora */ }
     }
-  }, []);
+  }, [relerTelas]);
 
   function escolherKds(id: string) {
     setKdsSel(id);
@@ -448,11 +493,14 @@ export default function KdsPage() {
       });
     });
 
+    // O painel do Delivery mandou o mapa para KDS (ou tirou): relê a lista das telas — a deste aparelho diz o que mostrar.
+    socket.on('kds:telas', () => relerTelas());
+
     return () => {
       socket.close();
       socketRef.current = null;
     };
-  }, [bip, carregarFila]);
+  }, [bip, carregarFila, relerTelas]);
 
   // Sem conexão: avisa em faixa larga (a fila na tela pode estar velha). Espera 4 s para não
   // piscar na abertura nem numa queda momentânea.
@@ -761,6 +809,13 @@ export default function KdsPage() {
           </div>
           </>)}
 
+          {mostrarMapa && mapaDoPainel && (
+            <p className="min-w-0 flex-1 basis-56 text-[13px] font-semibold" style={{ color: T.muted }}>
+              <span style={{ color: T.text }}>{kdsAtual?.nome ?? 'Este KDS'}</span> · Mapa enviado pelo painel · os pedidos
+              voltam quando tirar do KDS
+            </p>
+          )}
+
           <div className="hidden min-w-0 flex-1 md:block" />
 
           <div
@@ -1058,10 +1113,16 @@ export default function KdsPage() {
           </div>
           <div className="my-3 border-t" style={{ borderColor: T.border }} />
 
-          {/* O que esta tela mostra (mig 293). */}
+          {/* O que esta tela mostra (mig 293). Mandado pelo painel do Delivery (entrega 5): o painel decide. */}
           <div className="mb-3">
             <span className="mb-1 block text-[12px] font-semibold" style={{ color: T.muted }}>Esta tela mostra</span>
-            {mapaHabilitado ? (
+            {mapaDoPainel ? (
+              <p className="text-[11.5px]" style={{ color: T.muted }}>
+                {mapaHabilitado
+                  ? 'O mapa dos entregadores, mandado pelo painel em Delivery › Mapa ao vivo. Os pedidos voltam quando tirarem este KDS de lá.'
+                  : 'Pedidos. O painel mandou o mapa dos entregadores para este KDS; ele aparece quando o gestor ligar o mapa no KDS em Delivery › Configurações.'}
+              </p>
+            ) : mapaHabilitado ? (
               <div className="flex border" style={{ borderColor: T.border }}>
                 {([
                   ['pedidos', 'Pedidos'],

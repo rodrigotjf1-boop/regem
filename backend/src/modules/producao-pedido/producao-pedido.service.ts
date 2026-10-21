@@ -26,6 +26,7 @@ import {
   producaoPedidoItem,
   impressaoJob,
   kdsCorConfig,
+  kdsTelaAjuste,
   senhaContador,
   setor,
   comanda,
@@ -3032,7 +3033,7 @@ export class ProducaoPedidoService {
   // As telas de KDS ativas da loja (e da rede) — para o "Este KDS" do aparelho da cozinha, de quem tem o módulo (a lista
   // de equipamentos pede gerente: o cozinheiro ficava sem escolher a tela).
   // `proximoKdsId` = o "quando ficar pronto, vai para" de cada uma (entrega 2): a tela mostra "Pronto → Montagem" e de quem
-  // cada KDS recebe.
+  // cada KDS recebe. `mapa` = o painel do Delivery mandou esta tela mostrar o mapa dos entregadores (entrega 5, mig 338).
   telasDeKds(tenantId: string, unidadeId: string | null) {
     return this.db
       .select({
@@ -3041,8 +3042,10 @@ export class ProducaoPedidoService {
         escopo: equipamento.escopo,
         setorId: equipamento.setorId,
         proximoKdsId: equipamento.proximoKdsId,
+        mapa: sql<boolean>`coalesce(${kdsTelaAjuste.mostraMapa}, false)`,
       })
       .from(equipamento)
+      .leftJoin(kdsTelaAjuste, and(eq(kdsTelaAjuste.id, equipamento.id), eq(kdsTelaAjuste.tenantId, equipamento.tenantId)))
       .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.tipo, 'kds'), eq(equipamento.ativo, true), lojaOuRede(unidadeId)))
       .orderBy(equipamento.nome);
   }

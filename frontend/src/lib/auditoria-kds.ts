@@ -16,6 +16,7 @@ export const ACOES_KDS: Record<string, string> = {
   configurou_produtos_kds: 'Escolheu os produtos do KDS',
   configurou_fluxo_kds: 'Mudou o lugar do KDS no fluxo',
   forcou_despacho_kds: 'Liberou pedido no despacho sem todas as estações',
+  mostrou_mapa_nos_kds: 'Mandou o mapa dos entregadores para os KDS',
 };
 // O lugar no fluxo, em palavras: "despacho", "estação que termina ali" ou "estação que manda para Montagem".
 const lugar = (l: any) =>
@@ -77,6 +78,13 @@ export function resumoKds(acao: string, d: any): string {
         d.pedido,
         Array.isArray(d.faltavam) && d.faltavam.length ? `faltava ${d.faltavam.join(', ')}` : '',
         d.autorizadoPor ? `liberado por ${d.autorizadoPor}` : '',
+      ]
+        .filter(Boolean)
+        .join(' · ');
+    case 'mostrou_mapa_nos_kds':
+      return [
+        Array.isArray(d.entraram) && d.entraram.length ? `passou a mostrar o mapa: ${d.entraram.join(', ')}` : '',
+        Array.isArray(d.sairam) && d.sairam.length ? `voltou aos pedidos: ${d.sairam.join(', ')}` : '',
       ]
         .filter(Boolean)
         .join(' · ');
