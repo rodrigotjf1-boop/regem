@@ -441,30 +441,42 @@ export default function ProdutosPage() {
     }
   }
 
-  async function addOpcao(grupo: any, dados: any) {
+  // Devolve se salvou: o formulário da opção só se limpa quando ela entrou (recusada, o que foi digitado fica).
+  async function addOpcao(grupo: any, dados: any): Promise<boolean> {
     try {
       await api.criarOpcaoComplemento(grupo.id, dados);
+      toast.success(`Opção “${dados.nome || 'nova'}” adicionada.`);
       await carregarComplementos(editId!, f.fichaId || undefined);
+      return true;
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro ao criar opção');
+      const msg = e instanceof Error ? e.message : 'Erro ao criar opção';
+      setErro(msg);
+      toast.error(msg);
+      return false;
     }
   }
 
   async function delGrupo(id: string) {
     try {
       await api.removerGrupoComplemento(id);
+      toast.success('Grupo removido.');
       await carregarComplementos(editId!, f.fichaId || undefined);
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro ao remover grupo');
+      const msg = e instanceof Error ? e.message : 'Erro ao remover grupo';
+      setErro(msg);
+      toast.error(msg);
     }
   }
 
   async function delOpcao(id: string) {
     try {
       await api.removerOpcaoComplemento(id);
+      toast.success('Opção removida.');
       await carregarComplementos(editId!, f.fichaId || undefined);
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro ao remover opção');
+      const msg = e instanceof Error ? e.message : 'Erro ao remover opção';
+      setErro(msg);
+      toast.error(msg);
     }
   }
 
@@ -550,7 +562,7 @@ export default function ProdutosPage() {
 
               {modalAba === 'complementos' && editId && (
                 <div className="space-y-4">
-                  <ProdutoEtapasCard produtoId={editId} />
+                  <ProdutoEtapasCard produtoId={editId} aoMudar={() => void carregarComplementos(editId, f.fichaId || undefined)} />
                   <ComplementosCard
                     comps={comps}
                     fichaIngs={fichaIngs}

@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
@@ -1409,6 +1409,11 @@ export class ProdutoService {
     const tipo = ['remover', 'adicionar', 'escolha'].includes(dto.tipo)
       ? dto.tipo
       : 'adicionar';
+    const [dono] = await this.db
+      .select({ id: produto.id })
+      .from(produto)
+      .where(and(eq(produto.id, produtoId), eq(produto.tenantId, tenantId), isNull(produto.deletedAt)));
+    if (!dono) throw new NotFoundException('Produto não encontrado.');
     const [g] = await this.db
       .insert(complementoGrupo)
       .values({
@@ -1424,6 +1429,43 @@ export class ProdutoService {
     return g;
   }
 
+  // O grupo do produto que veio de uma ETAPA do catálogo ainda ligada a ele (`origem_complemento_id`). Ele é montado
+  // a partir do catálogo a cada mudança lá: opção criada ou apagada aqui seria desfeita na próxima montagem — e a
+  // opção criada aqui nasceria sem código PDV (informativa: não cobra nem baixa). Grupo de etapa que o produto não usa
+  // mais (sobra) conta como grupo do produto.
+  private async etapaLigadaDoGrupo(tenantId: string, g: { produtoId: string; origemComplementoId: string | null }) {
+    if (!g.origemComplementoId) return null;
+    const [ligada] = await this.db
+      .select({ nome: complemento.nome })
+      .from(produtoComplemento)
+      .innerJoin(complemento, eq(complemento.id, produtoComplemento.complementoId))
+      .where(
+        and(
+          eq(produtoComplemento.tenantId, tenantId),
+          eq(produtoComplemento.produtoId, g.produtoId),
+          eq(produtoComplemento.complementoId, g.origemComplementoId),
+          isNull(produtoComplemento.deletedAt),
+        ),
+      );
+    return ligada ? ligada.nome ?? 'do catálogo' : null;
+  }
+
+  private async grupoDaEmpresa(tenantId: string, grupoId: string) {
+    const [g] = await this.db
+      .select({ id: complementoGrupo.id, produtoId: complementoGrupo.produtoId, origemComplementoId: complementoGrupo.origemComplementoId })
+      .from(complementoGrupo)
+      .where(and(eq(complementoGrupo.id, grupoId), eq(complementoGrupo.tenantId, tenantId), isNull(complementoGrupo.deletedAt)));
+    if (!g) throw new NotFoundException('Grupo de complementos não encontrado.');
+    return g;
+  }
+
+  /**
+   * Opção num grupo PRÓPRIO do produto (aba Complementos › Opcionais & adicionais). Grupo de etapa do catálogo: 409 —
+   * a opção dele se edita em Cadastros › Cardápio › Opções. O CÓDIGO PDV é o que a venda do canal procura (o
+   * adicional do iFood/Anota Aí/99 casa por ele) e o que faz a opção valer: sem código ela é informativa (mig 126)
+   * e não cobra nem baixa estoque; "Controlar estoque" só vale com código. Um código liga a UMA opção do produto —
+   * a venda do canal casa por código dentro do produto, e dois iguais deixariam a baixa ao acaso.
+   */
   async criarOpcao(
     tenantId: string,
     grupoId: string,
@@ -1434,25 +1476,72 @@ export class ProdutoService {
       itemId?: string;
       produtoRefId?: string;
       quantidade?: number;
+      codigoPdv?: string | null;
+      controlaEstoque?: boolean;
     },
   ) {
-    const [o] = await this.db
-      .insert(complementoOpcao)
-      .values({
-        tenantId,
-        grupoId,
-        nome: dto.nome,
-        precoDelta: dto.precoDelta != null ? String(dto.precoDelta) : '0',
-        fichaIngredienteId: dto.fichaIngredienteId,
-        itemId: dto.itemId,
-        produtoRefId: dto.produtoRefId,
-        quantidade: dto.quantidade != null ? String(dto.quantidade) : '1',
-      })
-      .returning();
-    return o;
+    const g = await this.grupoDaEmpresa(tenantId, grupoId);
+    const etapa = await this.etapaLigadaDoGrupo(tenantId, g);
+    if (etapa)
+      throw new ConflictException(
+        `Este grupo vem da etapa "${etapa}" do catálogo: as opções dele se editam em Cadastros › Cardápio › Opções. Criada aqui, a opção seria desfeita na próxima atualização.`,
+      );
+    if (dto.codigoPdv != null && typeof dto.codigoPdv !== 'string') throw new BadRequestException('Código PDV inválido.');
+    const codigoPdv = (dto.codigoPdv ?? '').trim() || null;
+    if (codigoPdv && codigoPdv.length > 60) throw new BadRequestException('O código PDV vai até 60 caracteres.');
+    if (dto.controlaEstoque != null && typeof dto.controlaEstoque !== 'boolean')
+      throw new BadRequestException('"Controlar estoque" deve ser ligado ou desligado.');
+    return this.db.transaction(async (tx: any) => {
+      // Trava o PRODUTO (V24): duas opções novas com o mesmo código, em grupos do mesmo produto, esperam uma pela outra —
+      // a conferência abaixo vale para o produto inteiro, e o código não tem índice único (o produto está no grupo).
+      await tx.execute(sql`select 1 from produto where id = ${g.produtoId} for update`);
+      if (codigoPdv) {
+        const [repetida] = await tx
+          .select({ nome: complementoOpcao.nome })
+          .from(complementoOpcao)
+          .innerJoin(complementoGrupo, eq(complementoGrupo.id, complementoOpcao.grupoId))
+          .where(
+            and(
+              eq(complementoOpcao.tenantId, tenantId),
+              eq(complementoGrupo.produtoId, g.produtoId),
+              sql`btrim(${complementoOpcao.codigoPdv}) = ${codigoPdv}`,
+              isNull(complementoOpcao.deletedAt),
+              isNull(complementoGrupo.deletedAt),
+            ),
+          );
+        if (repetida)
+          throw new ConflictException(`O código PDV ${codigoPdv} já está na opção "${repetida.nome}" deste produto. Um código liga a uma opção só.`);
+      }
+      const [o] = await tx
+        .insert(complementoOpcao)
+        .values({
+          tenantId,
+          grupoId,
+          nome: dto.nome,
+          precoDelta: dto.precoDelta != null ? String(dto.precoDelta) : '0',
+          fichaIngredienteId: dto.fichaIngredienteId,
+          itemId: dto.itemId,
+          produtoRefId: dto.produtoRefId,
+          quantidade: dto.quantidade != null ? String(dto.quantidade) : '1',
+          codigoPdv,
+          controlaEstoque: !!codigoPdv && dto.controlaEstoque === true,
+        })
+        .returning();
+      return o;
+    });
   }
 
   async removerGrupo(tenantId: string, grupoId: string) {
+    // Grupo de etapa do catálogo ainda ligada: sai desmarcando a etapa (apagado aqui, voltaria na próxima montagem).
+    const [g] = await this.db
+      .select({ produtoId: complementoGrupo.produtoId, origemComplementoId: complementoGrupo.origemComplementoId })
+      .from(complementoGrupo)
+      .where(and(eq(complementoGrupo.id, grupoId), eq(complementoGrupo.tenantId, tenantId), isNull(complementoGrupo.deletedAt)));
+    const etapa = g ? await this.etapaLigadaDoGrupo(tenantId, g) : null;
+    if (etapa)
+      throw new ConflictException(
+        `Este grupo vem da etapa "${etapa}" do catálogo: para tirá-lo do produto, desmarque a etapa em "Etapas do produto (complementos)", nesta mesma aba.`,
+      );
     // Soft-delete (deleted_at) para a remoção propagar ao edge pelo sync (P2).
     const agora = new Date();
     await this.db
@@ -1472,6 +1561,17 @@ export class ProdutoService {
   }
 
   async removerOpcao(tenantId: string, opcaoId: string) {
+    // Opção de etapa do catálogo ainda ligada: se tira em Cadastros › Cardápio (apagada aqui, voltaria na próxima montagem).
+    const [o] = await this.db
+      .select({ produtoId: complementoGrupo.produtoId, origemComplementoId: complementoGrupo.origemComplementoId })
+      .from(complementoOpcao)
+      .innerJoin(complementoGrupo, eq(complementoGrupo.id, complementoOpcao.grupoId))
+      .where(and(eq(complementoOpcao.id, opcaoId), eq(complementoOpcao.tenantId, tenantId), isNull(complementoOpcao.deletedAt)));
+    const etapa = o ? await this.etapaLigadaDoGrupo(tenantId, o) : null;
+    if (etapa)
+      throw new ConflictException(
+        `Esta opção vem da etapa "${etapa}" do catálogo: ela se tira em Cadastros › Cardápio › Complementos (ou desmarque a etapa em "Etapas do produto (complementos)").`,
+      );
     await this.db
       .update(complementoOpcao)
       .set({ deletedAt: new Date() })
