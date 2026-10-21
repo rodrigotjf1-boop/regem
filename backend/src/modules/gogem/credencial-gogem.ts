@@ -56,8 +56,11 @@ export async function equipamentoDoGogem(db: any, tenantId: string, unidadeId: s
   return ((r.rows ?? r)[0]?.id as string | undefined) ?? null;
 }
 
-/** Onde e com que segredo o aviso ASSINADO sai (fase 2, `docs/integracao-gogem/AVISOS-ASSINADOS.md`). */
-export type RegistroDoGogem = { tokenId: string; url: string; chave: Buffer; lojaId: string | null };
+/**
+ * Onde e com que segredo o aviso ASSINADO sai (fase 2, `docs/integracao-gogem/AVISOS-ASSINADOS.md`). `prefixo`: o do
+ * token de integração do GoGeM, para o registro do hub (F3, D-1) — o mesmo prefixo público do registro das chamadas.
+ */
+export type RegistroDoGogem = { tokenId: string; url: string; chave: Buffer; lojaId: string | null; prefixo: string | null };
 
 /**
  * O registro de aviso que o GoGeM fez com o token de integração da loja (`PUT /integracao/webhook`).
@@ -74,7 +77,7 @@ export async function registroDoGogem(db: any, tenantId: string, unidadeId: stri
   if (ehServidorLocal()) return null;
   try {
     const r: any = await db.execute(sql`
-      select w.token_id::text as token_id, w.url, w.segredo_cifrado, w.unidade_id::text as unidade_id
+      select w.token_id::text as token_id, w.url, w.segredo_cifrado, w.unidade_id::text as unidade_id, t.prefixo
         from integracao_webhook w
         join integracao_token_loja t on t.id = w.token_id
        where w.tenant_id = ${tenantId}::uuid and w.cliente = ${DESTINO_GOGEM}
@@ -96,7 +99,7 @@ export async function registroDoGogem(db: any, tenantId: string, unidadeId: stri
       log.warn(`registro de aviso do GoGeM (empresa ${tenantId}) com segredo que não abre — sai pelo caminho de antes`);
       return null;
     }
-    return { tokenId: l.token_id, url: l.url, chave, lojaId: l.unidade_id ?? null };
+    return { tokenId: l.token_id, url: l.url, chave, lojaId: l.unidade_id ?? null, prefixo: l.prefixo ?? null };
   } catch (e: any) {
     log.warn(`registro de aviso do GoGeM não lido (empresa ${tenantId}): ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e} — sai pelo caminho de antes`);
     return null;

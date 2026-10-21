@@ -170,7 +170,15 @@ sempre.
 
   Parado, o aviso não sai, não conta como falha e não anda a posição (`avisado_ate`): sai quando a parada acaba, como
   um aviso atrasado. Para quem recebe, nada muda além do atraso: o aviso é só gatilho, e a leitura com cursor segue.
-- **Chave própria:** `ACEITAR_INTEGRACOES` desligada segura também os avisos (decisão D-2, na opção recomendada, à
-  espera da resposta do dono), com ou sem o hub, do mesmo jeito: nada sai e a posição de cada loja fica onde está.
-- **Fora daqui:** o aviso de estorno ao GoGeM (fila `aviso_integracao`) segue direto, sem a parada e sem o registro do
-  hub, como manda a F3-3, até a resposta da decisão D-1.
+- **Chave própria:** `ACEITAR_INTEGRACOES` desligada segura também os avisos (decisão D-2, confirmada pelo dono em
+  21/10/2026), com ou sem o hub, do mesmo jeito: nada sai e a posição de cada loja fica onde está.
+- **O estorno do GoGeM (decisão D-1, 21/10/2026):** o pedido de estorno ao GoGeM (fila `aviso_integracao`,
+  `gogem-aviso.service.ts`) aparece no registro do hub, e **nenhuma parada o segura**: nem a lista do hub nem a chave
+  própria atrasam a devolução do dinheiro do cliente. Cada tentativa da nuvem ao GoGeM vai ao registro, pelos dois
+  caminhos (o assinado, no endereço que o GoGeM registrou, e o do token de antes): o tipo `pedido.cancelado`, o código
+  `aviso_<id do aviso>:<tentativa>` (o `webhook-id` é o mesmo em todas as tentativas, e no hub cada tentativa é uma
+  linha), o prefixo do token de integração do GoGeM só no caminho assinado (o token do equipamento não tem prefixo
+  público), a loja, só a origem do destino, o status e a duração. O sucesso é o do estorno, não o do HTTP (V30): um 200
+  com o estorno que não saiu volta para a fila e no hub vale `falhou`, com o 200. O servidor da loja só repassa à
+  nuvem e não registra nada; quem registra é a nuvem, no envio dela. No console do hub, a lista de ferramentas da
+  parada pode oferecer `aviso pedido.cancelado`: parar por ali não segura o estorno.

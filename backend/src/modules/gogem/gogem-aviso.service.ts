@@ -1,4 +1,5 @@
-import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { Cron } from '@nestjs/schedule';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -19,6 +20,7 @@ import {
   MSG_LOJA_SEM_NUVEM,
   MSG_PENDENTE,
   RECUO_INTEGRACAO_MINUTOS,
+  TIPO_ASSINADO,
   TIPO_PEDIDO_CANCELADO,
   corpoCancelamento,
   corpoPedidoCancelado,
@@ -31,6 +33,8 @@ import {
 } from './aviso-gogem';
 import { notarEnvioAoGogem, registroDoGogem, tokenDoGogem } from './credencial-gogem';
 import { cabecalhosDoAviso } from '../integracao-api/webhook-integracao';
+import { HubDmsService } from '../integracao-api/hub-dms.service';
+import { montarAviso } from '../integracao-api/hub.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -57,6 +61,10 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * com o GoGeM — com o token do equipamento que o GoGeM marcou (ERR-108). O servidor da loja
  * repassa o aviso para a nuvem com o token de sync dele; para a loja, "entregue" é a nuvem ter
  * aceitado, e a nuvem segue com ele.
+ *
+ * Hub da DMS (F3, decisão D-1, 21/10/2026): cada envio da nuvem ao GoGeM vai ao registro do hub, e
+ * NENHUMA parada segura o estorno — nem a do hub nem a chave própria (`ACEITAR_INTEGRACOES`): é
+ * dinheiro do cliente. Desligado com o hub (`HUB_LIGADO`).
  */
 @Injectable()
 export class GogemAvisoService {
@@ -65,7 +73,58 @@ export class GogemAvisoService {
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly auditoria: AuditoriaService,
+    @Optional() private readonly moduleRef?: ModuleRef,
   ) {}
+
+  /**
+   * O cliente do hub. Ele mora no módulo da integração, que é só da nuvem e nem sobe no servidor da
+   * loja: daqui ele é pedido na hora, como o `ProdutoService` da integração, e sem ele nada se
+   * registra. Só o caminho da nuvem chama (o da loja repassa, e a nuvem registra o envio dela).
+   */
+  private hubDaNuvem(): HubDmsService | null {
+    if (!this.moduleRef) return null;
+    try {
+      return this.moduleRef.get(HubDmsService, { strict: false });
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * O pedido de estorno no registro do hub: saiu, para onde (só a origem), o que o GoGeM respondeu,
+   * quanto levou e a tentativa — nunca o conteúdo. O `webhook-id` do aviso é o mesmo em todas as
+   * tentativas (o GoGeM reconhece a repetição); no hub cada tentativa é uma linha, então o código
+   * leva o número dela. 2xx com o estorno que não saiu volta para a fila (V30): lá vale "falhou".
+   * Com o hub desligado, nada. Nunca rejeita.
+   */
+  private async anotarNoHub(
+    linha: any,
+    a: { inicio: number; url: string; http: number | null; prefixo: string | null; desfecho: DesfechoAviso },
+  ): Promise<void> {
+    const hub = this.hubDaNuvem();
+    if (!hub?.ligado) return;
+    try {
+      const tentativa = Number(linha.tentativas) || 1;
+      const aviso = montarAviso({
+        codigo: `${idDoAvisoAssinado(linha.id)}:${tentativa}`,
+        inicio: a.inicio,
+        agora: Date.now(),
+        aplicativo: DESTINO_GOGEM,
+        prefixo: a.prefixo,
+        conta: linha.unidade_id ?? linha.tenant_id,
+        contaNome: await hub.nomeDaConta(linha.tenant_id, linha.unidade_id ?? null),
+        tipo: TIPO_ASSINADO.cancelado,
+        url: a.url,
+        status: a.http,
+        pausado: false,
+        tentativa,
+        concluido: a.desfecho.status === 'entregue',
+      });
+      if (aviso) hub.registrarAviso(aviso);
+    } catch (e: any) {
+      this.log.warn(`aviso ${linha.id}: o registro no hub não saiu (${e?.message ?? e})`);
+    }
+  }
 
   private url(): string {
     return (process.env.GOGEM_CLOUD_URL || GOGEM_NUVEM_PADRAO).replace(/\/$/, '') + CAMINHO_PEDIDO_CANCELADO;
@@ -265,10 +324,12 @@ export class GogemAvisoService {
       // Mesmas regras da fila; o `webhook-id` é o do aviso em todas as tentativas. O `X-Sync-Token`
       // vai junto até a fase 4, quando houver — sem ele o aviso assinado sai do mesmo jeito.
       const corpo = corpoPedidoCancelado(linha, registro.lojaId ?? linha.unidade_id ?? null);
+      const inicio = Date.now();
       const r = await this.postar(registro.url, token, corpo, prazoMs, { chave: registro.chave, id: idDoAvisoAssinado(linha.id) });
       const d = lerRespostaGogem(r.http, r.corpo, true);
       await notarEnvioAoGogem(this.db, registro.tokenId, r.http);
       await this.registrar(linha, d, r.http, r.corpo, r.erro, r.retryAfterS, true);
+      await this.anotarNoHub(linha, { inicio, url: registro.url, http: r.http, prefixo: registro.prefixo, desfecho: d });
       return { desfecho: d, http: r.http, retryAfterS: r.retryAfterS };
     }
     if (!token) {
@@ -278,9 +339,12 @@ export class GogemAvisoService {
       await this.registrar(linha, d, null, null, 'o GoGeM ainda não se identificou para esta empresa', null);
       return { desfecho: d, http: null, retryAfterS: null };
     }
+    const inicio = Date.now();
     const r = await this.postar(this.url(), token, linha.corpo, prazoMs);
     const d = lerRespostaGogem(r.http, r.corpo);
     await this.registrar(linha, d, r.http, r.corpo, r.erro, r.retryAfterS);
+    // O token do equipamento não tem prefixo público: no hub o envio vai sem ele.
+    await this.anotarNoHub(linha, { inicio, url: this.url(), http: r.http, prefixo: null, desfecho: d });
     return { desfecho: d, http: r.http, retryAfterS: r.retryAfterS };
   }
 

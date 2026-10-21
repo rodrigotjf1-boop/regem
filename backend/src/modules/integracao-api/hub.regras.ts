@@ -159,7 +159,9 @@ const TIPO_VALIDO = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)*$/;
  * O aviso mandado, no contrato do hub (`POST /api/v1/avisos`; pacote 0.4.0): para quem, o tipo, quando, o resultado, a
  * tentativa e só a origem do destino. Nunca o conteúdo. Como na chamada, o que não cabe sai ou é cortado — o hub
  * recusaria o lote inteiro. `pausado` = o Regem parou de mandar para aquele destino (falhas seguidas ou o segredo que
- * não abre mais). O tipo fora da forma vira nulo, e quem chama não registra.
+ * não abre mais). `concluido: false` = o destino respondeu 2xx, mas o que o aviso pedia não aconteceu e ele sai de novo
+ * (o estorno do GoGeM que falhou dentro de um 200 — V30): no hub vale "falhou", com o código que veio. O tipo fora da
+ * forma vira nulo, e quem chama não registra.
  */
 export function montarAviso(a: {
   codigo: string;
@@ -174,17 +176,19 @@ export function montarAviso(a: {
   status: number | null;
   pausado: boolean;
   tentativa: number;
+  concluido?: boolean;
 }): AvisoRegistrado | null {
   const codigo = codigoDoHub(a.codigo);
   const aplicativo = texto(a.aplicativo, 80);
   if (!codigo || !aplicativo || a.tipo.length > 60 || !TIPO_VALIDO.test(a.tipo)) return null;
   const status = a.status !== null && Number.isInteger(a.status) && a.status >= 100 && a.status <= 599 ? a.status : null;
+  const resultado = resultadoDoAviso(status, a.pausado);
   const aviso: AvisoRegistrado = {
     codigo,
     ocorrido_em: new Date(a.inicio).toISOString(),
     aplicativo,
     tipo: a.tipo,
-    resultado: resultadoDoAviso(status, a.pausado),
+    resultado: resultado === 'entregue' && a.concluido === false ? 'falhou' : resultado,
     duracao_ms: Math.min(3_600_000, Math.max(0, Math.round(a.agora - a.inicio))),
     tentativa: Math.min(100_000, Math.max(1, Math.trunc(a.tentativa) || 1)),
   };

@@ -175,6 +175,16 @@ describe('hub da DMS — regras', () => {
       expect(montarAviso({ ...base, status: 410, pausado: true })).toMatchObject({ resultado: 'pausado', status_http: 410 });
     });
 
+    it('2xx que não concluiu (o estorno do GoGeM que falhou dentro de um 200) vale "falhou", com o código que veio (D-1)', () => {
+      expect(montarAviso({ ...base, status: 200, concluido: false })).toMatchObject({ resultado: 'falhou', status_http: 200 });
+      expect(montarAviso({ ...base, status: 200, concluido: true })).toMatchObject({ resultado: 'entregue' });
+      expect(montarAviso({ ...base, status: 200 })).toMatchObject({ resultado: 'entregue' });
+      // Fora do 2xx, o status manda, como sempre.
+      expect(montarAviso({ ...base, status: 401, concluido: false })).toMatchObject({ resultado: 'recusado' });
+      expect(montarAviso({ ...base, status: 503, concluido: false })).toMatchObject({ resultado: 'falhou' });
+      expect(montarAviso({ ...base, status: 200, pausado: true, concluido: false })).toMatchObject({ resultado: 'pausado' });
+    });
+
     it('o que não cabe no contrato sai ou é cortado; código, tipo ou aplicativo fora da forma não registram', () => {
       const r = montarAviso({ ...base, aplicativo: 'x'.repeat(90), contaNome: 'n'.repeat(130), prefixo: 'prefixo com espaço', conta: null, url: 'ftp://x', status: 700, tentativa: 0, agora: base.inicio - 5 });
       expect(r?.aplicativo).toHaveLength(80);
