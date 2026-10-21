@@ -65,7 +65,7 @@ Todas em `application/problem+json` (`type` = `https://api.dmsregem.com/problema
 | 403 `escopo-insuficiente` | falta permissão: o token não tem nenhuma do Regem, ou a rota exige uma que a loja não deu ou o token não tem | o `WWW-Authenticate` traz **todas** as que faltam (`scope="…"`) |
 | 401 `ligacao-invalida` | a ligação falta, não existe, foi revogada, é de outro aplicativo, ou o acesso da loja acabou (revogado, vencido, loja apagada) | a autorização **daquela loja** acabou: desconectar a loja (e, se ainda houver um `rgm_it_` válido, trocar de novo). A resposta é a mesma para todo motivo |
 | 401 `ligacao-invalida` na troca | o `rgm_it_` informado não vale para este aplicativo | conectar a loja de novo |
-| 429 `limite-de-chamadas` | 60 chamadas por minuto por acesso (as duas vias somam) | esperar o `Retry-After` (segundos) |
+| 429 `limite-de-chamadas` | 60 chamadas por minuto por acesso (as duas vias somam; contadas no banco, valem entre as cópias do serviço — mig 333) | esperar o `Retry-After` (segundos) |
 | 404 `nao-encontrado` | a via está desligada neste ambiente | seguir no `rgm_it_` |
 
 **Quem recusa decide pela via** (Liame, ERR-149): pela ligação, só `ligacao-invalida` é da loja; `token-invalido`

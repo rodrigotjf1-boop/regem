@@ -72,13 +72,15 @@ export class CredencialDoTotemGuard implements CanActivate {
     }
 
     const token = bearer as string;
-    const t = await validarTokenIntegracao(this.db, token);
-    if (!t) {
+    const achado = await validarTokenIntegracao(this.db, token, { contar: true });
+    if (!achado) {
       esquecerTokenIntegracao(token);
       throw new ProblemaException(401, 'token-invalido', TOKEN_INVALIDO);
     }
     registrarTokenIntegracaoValidado(token);
-    const limite = contarChamadaIntegracao(t.tokenId);
+    // O limite do acesso: o contado no banco na mesma ida (mig 333); sem a tabela, o da memória do processo.
+    const { limite: contadoNoBanco, ...t } = achado;
+    const limite = contadoNoBanco ?? contarChamadaIntegracao(t.tokenId);
     if (!limite.ok) {
       throw new ProblemaException(429, 'limite-de-chamadas', 'Muitas chamadas com este token — aguarde e tente de novo.', limite.retryAfterSeg);
     }

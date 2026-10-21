@@ -9,8 +9,11 @@ import { createHash } from 'crypto';
 //  • o `IntegracaoTokenGuard` registra aqui o token que ELE validou no banco;
 //  • o `CfThrottlerGuard` só isenta do limite por IP a rota de integração com token JÁ
 //    validado (desconhecido, formato errado ou inventado continua no limite por IP);
-//  • o token validado fica no limite próprio abaixo — contado em TODA chamada dele, inclusive a
-//    que termina em 403 por escopo (senão a isenção do IP viraria chamada sem limite);
+//  • o token validado fica no limite próprio — contado em TODA chamada dele, inclusive a que
+//    termina em 403 por escopo (senão a isenção do IP viraria chamada sem limite). Desde a mig 333
+//    (Hub DMS, F3-8) a contagem é a do BANCO (`integracao_limite`, na mesma ida da validação, em
+//    `validar-token-integracao.ts`): vale entre as cópias do serviço e atravessa o deploy. O
+//    contador em memória abaixo é a reserva para quando a tabela não existe;
 //  • o token que o banco deixa de reconhecer (revogado, vencido, loja apagada) sai da isenção na
 //    mesma chamada (`esquecerTokenIntegracao`) — senão ele seguiria fora dos dois limites até a
 //    marca vencer, cada chamada indo ao banco.

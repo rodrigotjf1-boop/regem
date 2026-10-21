@@ -17,6 +17,7 @@ import {
   marcarUsoTokenIntegracao,
   validarLigacaoIntegracao,
   validarTokenIntegracao,
+  type LimiteContado,
 } from './validar-token-integracao';
 import type { IntegracaoCtxData } from './integracao-token.guard';
 
@@ -50,10 +51,11 @@ export class IntegracaoTokenService {
 
   /**
    * O token (já com o formato conferido) vale? A regra mora em `validar-token-integracao.ts`, a
-   * mesma do guard das rotas do totem (GoGeM, mig 323), que roda também em módulos da loja.
+   * mesma do guard das rotas do totem (GoGeM, mig 323), que roda também em módulos da loja. Com
+   * `contar`, a chamada já entra no limite por minuto do banco (mig 333), na mesma ida.
    */
-  async validar(token: string): Promise<IntegracaoCtxData | null> {
-    return validarTokenIntegracao(this.db, token);
+  async validar(token: string, o: { contar?: boolean } = {}): Promise<(IntegracaoCtxData & { limite?: LimiteContado }) | null> {
+    return validarTokenIntegracao(this.db, token, o);
   }
 
   /** Grava o último uso (no máximo 1×/min por token). Nunca rejeita (V3): não derruba a chamada. */
@@ -69,8 +71,9 @@ export class IntegracaoTokenService {
     segredo: string,
     doToken: { aplicativo: string; permissoes: readonly string[] },
     aplicativos: Readonly<Record<string, string>>,
-  ): Promise<IntegracaoCtxData | null> {
-    return validarLigacaoIntegracao(this.db, segredo, doToken, aplicativos);
+    o: { contar?: boolean } = {},
+  ): Promise<(IntegracaoCtxData & { limite?: LimiteContado }) | null> {
+    return validarLigacaoIntegracao(this.db, segredo, doToken, aplicativos, o);
   }
 
   /** O último uso pela ligação (na ligação e no token), no máximo 1×/min. Nunca rejeita (V3). */
