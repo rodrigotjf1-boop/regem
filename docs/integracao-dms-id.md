@@ -146,3 +146,31 @@ Vale para as duas vias (o `rgm_it_` e a ligação). Nasce desligado (`HUB_LIGADO
 
 O emissor é o mesmo `DMS_ID_EMISSOR` da via. Configuração torta não liga o hub e não derruba a API: o log diz o que
 corrigir ("hub desligado: …").
+
+## 8. Os avisos no hub e a parada (F3, parte D)
+
+Decisão F3-3: o hub vê e para, mas não entrega. Os avisos (os webhooks registrados em `PUT /integracao/webhook`)
+continuam saindo do job do Regem; o que muda vale com o hub ligado (`HUB_LIGADO`), menos a chave própria, que vale
+sempre.
+
+- **Registro:** cada envio vai ao hub, por rota própria (`POST /api/v1/avisos`, pacote comum 0.4.0): o `webhook-id`
+  daquele envio (o mesmo que o destino recebe; um por tentativa), o cliente que recebe, o prefixo visível do acesso (o
+  da ligação do DMS ID, quando ativa; senão o do `rgm_it_`), a loja e o nome comercial, o tipo (`pedido.alterado`,
+  `cupom.usado`, `catalogo.alterado`…), o resultado (`entregue`; `recusado` = o destino respondeu 4xx, menos 408 e 429;
+  `falhou` = sem resposta, 5xx, 408, 429 ou redirecionamento; `pausado` = o Regem parou de mandar para aquele destino),
+  o status, a duração, a tentativa e só a origem do destino. Nunca o conteúdo, o caminho do destino nem o segredo. O
+  hub de antes responde 404 à rota, e o pacote para de mandar avisos por 30 minutos, sem mexer no registro das chamadas.
+- **Parada:** conferida antes de cada envio, pela última lista lida.
+
+  | Nível na lista do hub | O que acontece com o aviso |
+  | --- | --- |
+  | `geral` ou `aplicativo` (o cliente: `liame`, `farol`…) | nem entra na reserva: nada sai e nada se grava por loja |
+  | `ligacao` (o prefixo do `rgm_it_` ou o da ligação do DMS ID) | a reserva daquela loja é solta e ela volta em 30 s |
+  | `ferramenta` = `aviso <tipo>` (`aviso pedido.alterado`) | idem, só para aquele tipo |
+
+  Parado, o aviso não sai, não conta como falha e não anda a posição (`avisado_ate`): sai quando a parada acaba, como
+  um aviso atrasado. Para quem recebe, nada muda além do atraso: o aviso é só gatilho, e a leitura com cursor segue.
+- **Chave própria:** `ACEITAR_INTEGRACOES` desligada segura também os avisos (decisão D-2, na opção recomendada, à
+  espera da resposta do dono), com ou sem o hub, do mesmo jeito: nada sai e a posição de cada loja fica onde está.
+- **Fora daqui:** o aviso de estorno ao GoGeM (fila `aviso_integracao`) segue direto, sem a parada e sem o registro do
+  hub, como manda a F3-3, até a resposta da decisão D-1.

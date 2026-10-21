@@ -4,6 +4,7 @@ import {
   enderecoDeServico,
   ferramentaDaRota,
   lerConfigHub,
+  montarAviso,
   montarChamada,
   semCredencialDoRegem,
   versaoNoAr,
@@ -128,6 +129,67 @@ describe('hub da DMS — regras', () => {
       expect(r.ferramenta).toHaveLength(120);
       expect(r.status_http).toBeUndefined();
       expect(r.duracao_ms).toBe(0);
+    });
+  });
+
+  describe('o aviso no contrato do hub (F3, parte D)', () => {
+    const base = {
+      codigo: '7d1f3a52-9c0e-4b6a-8f21-3e5d7c9b1a04',
+      inicio: Date.parse('2026-10-21T08:20:11.002Z'),
+      agora: Date.parse('2026-10-21T08:20:11.065Z'),
+      aplicativo: 'liame',
+      prefixo: 'rgm_it_Ab1c2',
+      conta: '6f0c2a1e-4b7d-4e8a-9c3f-2d1e0b9a8c7d',
+      contaNome: 'Hamburgueria Exemplo',
+      tipo: 'pedido.alterado',
+      url: 'https://api.exemplo.test/v1/inbox/regem/conexao-1',
+      status: 202 as number | null,
+      pausado: false,
+      tentativa: 1,
+    };
+
+    it('o envio entregue: o código, o tipo, só a origem do destino, o status, a duração e a tentativa', () => {
+      expect(montarAviso(base)).toEqual({
+        codigo: base.codigo,
+        ocorrido_em: '2026-10-21T08:20:11.002Z',
+        aplicativo: 'liame',
+        ligacao_prefixo: 'rgm_it_Ab1c2',
+        conta: base.conta,
+        conta_nome: 'Hamburgueria Exemplo',
+        tipo: 'pedido.alterado',
+        destino: 'https://api.exemplo.test',
+        resultado: 'entregue',
+        status_http: 202,
+        duracao_ms: 63,
+        tentativa: 1,
+      });
+    });
+
+    it('o resultado pelo status (sem resposta, 4xx, 5xx, 408, 429) e o pausado pelo Regem', () => {
+      expect(montarAviso({ ...base, status: null })).toMatchObject({ resultado: 'falhou' });
+      expect(montarAviso({ ...base, status: null })).not.toHaveProperty('status_http');
+      expect(montarAviso({ ...base, status: 401 })).toMatchObject({ resultado: 'recusado', status_http: 401 });
+      expect(montarAviso({ ...base, status: 503 })).toMatchObject({ resultado: 'falhou', status_http: 503 });
+      expect(montarAviso({ ...base, status: 408 })).toMatchObject({ resultado: 'falhou' });
+      expect(montarAviso({ ...base, status: 429 })).toMatchObject({ resultado: 'falhou' });
+      expect(montarAviso({ ...base, status: 410, pausado: true })).toMatchObject({ resultado: 'pausado', status_http: 410 });
+    });
+
+    it('o que não cabe no contrato sai ou é cortado; código, tipo ou aplicativo fora da forma não registram', () => {
+      const r = montarAviso({ ...base, aplicativo: 'x'.repeat(90), contaNome: 'n'.repeat(130), prefixo: 'prefixo com espaço', conta: null, url: 'ftp://x', status: 700, tentativa: 0, agora: base.inicio - 5 });
+      expect(r?.aplicativo).toHaveLength(80);
+      expect(r?.conta_nome).toHaveLength(120);
+      expect(r).not.toHaveProperty('ligacao_prefixo');
+      expect(r).not.toHaveProperty('conta');
+      expect(r).not.toHaveProperty('destino');
+      expect(r).not.toHaveProperty('status_http');
+      expect(r?.resultado).toBe('falhou');
+      expect(r?.tentativa).toBe(1);
+      expect(r?.duracao_ms).toBe(0);
+      expect(montarAviso({ ...base, codigo: 'curto' })).toBeNull();
+      expect(montarAviso({ ...base, tipo: 'Pedido Alterado' })).toBeNull();
+      expect(montarAviso({ ...base, tipo: `p.${'x'.repeat(60)}` })).toBeNull();
+      expect(montarAviso({ ...base, aplicativo: '   ' })).toBeNull();
     });
   });
 

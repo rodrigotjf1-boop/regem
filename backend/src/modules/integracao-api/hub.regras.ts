@@ -1,4 +1,11 @@
-import type { ChamadaRegistrada, CredencialChamada, ResultadoChamada } from '../../dms/integracao-dms';
+import {
+  origemDoDestino,
+  resultadoDoAviso,
+  type AvisoRegistrado,
+  type ChamadaRegistrada,
+  type CredencialChamada,
+  type ResultadoChamada,
+} from '../../dms/integracao-dms';
 
 // O HUB DA DMS do lado do Regem (Hub DMS, F3, parte A2): regras puras — a configuração, a chave própria e o registro de
 // cada chamada no contrato do hub (`docs/console-hub.md` do hub). Um registro fora do contrato faz o hub recusar o LOTE
@@ -141,6 +148,55 @@ export function montarChamada(
   if (Number.isInteger(o.status) && o.status >= 100 && o.status <= 599) registro.status_http = o.status;
   registro.duracao_ms = Math.min(3_600_000, Math.max(0, Math.round(o.agora - c.inicio)));
   return registro;
+}
+
+// ───────────────────────────── o registro de cada aviso (F3, parte D) ─────────────────────────────
+
+/** O tipo do aviso no formato do hub (minúsculas com ponto, até 60), ou nulo. */
+const TIPO_VALIDO = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)*$/;
+
+/**
+ * O aviso mandado, no contrato do hub (`POST /api/v1/avisos`; pacote 0.4.0): para quem, o tipo, quando, o resultado, a
+ * tentativa e só a origem do destino. Nunca o conteúdo. Como na chamada, o que não cabe sai ou é cortado — o hub
+ * recusaria o lote inteiro. `pausado` = o Regem parou de mandar para aquele destino (falhas seguidas ou o segredo que
+ * não abre mais). O tipo fora da forma vira nulo, e quem chama não registra.
+ */
+export function montarAviso(a: {
+  codigo: string;
+  inicio: number;
+  agora: number;
+  aplicativo: string;
+  prefixo: string | null;
+  conta: string | null;
+  contaNome: string | null;
+  tipo: string;
+  url: string;
+  status: number | null;
+  pausado: boolean;
+  tentativa: number;
+}): AvisoRegistrado | null {
+  const codigo = codigoDoHub(a.codigo);
+  const aplicativo = texto(a.aplicativo, 80);
+  if (!codigo || !aplicativo || a.tipo.length > 60 || !TIPO_VALIDO.test(a.tipo)) return null;
+  const status = a.status !== null && Number.isInteger(a.status) && a.status >= 100 && a.status <= 599 ? a.status : null;
+  const aviso: AvisoRegistrado = {
+    codigo,
+    ocorrido_em: new Date(a.inicio).toISOString(),
+    aplicativo,
+    tipo: a.tipo,
+    resultado: resultadoDoAviso(status, a.pausado),
+    duracao_ms: Math.min(3_600_000, Math.max(0, Math.round(a.agora - a.inicio))),
+    tentativa: Math.min(100_000, Math.max(1, Math.trunc(a.tentativa) || 1)),
+  };
+  if (a.prefixo && PREFIXO_VALIDO.test(a.prefixo)) aviso.ligacao_prefixo = a.prefixo;
+  const conta = texto(a.conta ?? undefined, 80);
+  if (conta) aviso.conta = conta;
+  const contaNome = texto(a.contaNome ?? undefined, 120);
+  if (contaNome) aviso.conta_nome = contaNome;
+  const destino = origemDoDestino(a.url);
+  if (destino) aviso.destino = destino;
+  if (status !== null) aviso.status_http = status;
+  return aviso;
 }
 
 /**
