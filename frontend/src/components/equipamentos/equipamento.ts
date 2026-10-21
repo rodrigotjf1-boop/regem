@@ -296,6 +296,7 @@ export function ligacaoDe(e: any, todos: any[]): string {
         `${e.largura ?? 80} mm`,
         e.fazEtiqueta ? 'etiqueta' : [e.fazCupom ? 'cupom' : '', e.fazProducao ? 'produção' : ''].filter(Boolean).join(' + ') || 'não imprime nada',
         (e.setoresAtendidos?.length ?? 0) > 0 ? `${e.setoresAtendidos.length} ${e.setoresAtendidos.length === 1 ? 'setor' : 'setores'}` : '',
+        e.fazProducao && !e.fazEtiqueta && e.formaProducao === 'completo' ? 'pedido completo' : '', // mig 335
       ].filter(Boolean).join(' · ');
     case 'servidor_local':
       return ehGogem(e) ? 'credencial do totem' : 'servidor da loja';
