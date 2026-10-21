@@ -2050,6 +2050,9 @@ export const kdsCorConfig = pgTable('kds_cor_config', {
   amareloAteMin: integer('amarelo_ate_min').notNull().default(10),
   usaPreparo: boolean('usa_preparo').notNull().default(true), // etapa "preparo" opcional
   usaEntregue: boolean('usa_entregue').notNull().default(true), // etapa "entregue" opcional
+  // Período da senha (diario | semanal | nunca; mig 332). Mora aqui porque este ajuste sincroniza: o contador
+  // (`senha_contador`) é de cada máquina e não sincroniza. Vazio = o período do próprio contador.
+  senhaPeriodo: text('senha_periodo'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

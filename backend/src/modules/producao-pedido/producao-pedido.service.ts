@@ -2000,7 +2000,9 @@ export class ProducaoPedidoService {
     `);
     const row = (cur.rows ?? cur)[0];
     const hoje = hojeISO(); // dia da OPERAÇÃO (fuso da loja), nunca UTC
-    const reset = this.precisaReset(row.periodo, row.ultimoReset, hoje);
+    // O período vem do ajuste do KDS (loja → empresa; sincroniza, mig 332); o do contador só vale sem ajuste.
+    const periodo = await this.periodoSenhaDe(tx, tenantId, unidadeId ?? null, row.periodo);
+    const reset = this.precisaReset(periodo, row.ultimoReset, hoje);
     const valor = (reset ? 0 : Number(row.valor)) + 1;
     await tx.execute(sql`
       update senha_contador
@@ -2049,7 +2051,10 @@ export class ProducaoPedidoService {
             : sql`unidade_id is null`,
         ),
       );
-    return { periodo: row?.periodo ?? 'diario', atual: row?.valor ?? 0 };
+    return {
+      periodo: await this.periodoSenhaDe(this.db, tenantId, unidadeId ?? null, row?.periodo ?? null),
+      atual: row?.valor ?? 0,
+    };
   }
 
   async setSenhaPeriodo(
@@ -2059,28 +2064,16 @@ export class ProducaoPedidoService {
     ator?: AtorKds,
   ) {
     const p = ['diario', 'semanal', 'nunca'].includes(periodo) ? periodo : 'diario';
-    const [row] = await this.db
-      .select({ id: senhaContador.id, periodo: senhaContador.periodo })
-      .from(senhaContador)
-      .where(
-        and(
-          eq(senhaContador.tenantId, tenantId),
-          unidadeId
-            ? eq(senhaContador.unidadeId, unidadeId)
-            : sql`unidade_id is null`,
-        ),
-      );
-    if (row) {
-      await this.db
-        .update(senhaContador)
-        .set({ periodo: p, updatedAt: new Date() })
-        .where(eq(senhaContador.id, row.id));
-    } else {
-      await this.db
-        .insert(senhaContador)
-        .values({ tenantId, unidadeId, periodo: p });
-    }
-    const antes = row?.periodo ?? 'diario';
+    const antes = (await this.getSenhaConfig(tenantId, unidadeId)).periodo;
+    // Grava no ajuste do KDS da loja (ou da empresa, como a tela faz), que sincroniza: o contador de cada máquina — o do
+    // servidor da loja inclusive — lê o período dali (mig 332). Antes ia para uma linha do contador da nuvem, que o
+    // servidor da loja nunca via. Um comando só (índice único por empresa e loja): dois salvamentos juntos não duplicam.
+    await this.db.execute(sql`
+      insert into kds_cor_config (tenant_id, unidade_id, senha_periodo)
+      values (${tenantId}, ${unidadeId}, ${p})
+      on conflict (tenant_id, coalesce(unidade_id, '00000000-0000-0000-0000-000000000000'::uuid))
+      do update set senha_periodo = excluded.senha_periodo, updated_at = now()
+    `);
     if (antes !== p) {
       await this.auditoria.registrar({
         tenantId,
@@ -2096,10 +2089,15 @@ export class ProducaoPedidoService {
     return { periodo: p };
   }
 
-  // ===== Etapas do KDS por unidade (recebido e pronto sempre; preparo/entregue opcionais) =====
-  private async etapasDe(tenantId: string, unidadeId?: string | null) {
-    const [row] = await this.db
+  // Ajuste do KDS (cores e etapas) da LOJA; sem ajuste próprio, o da EMPRESA. A tela de ajustes grava sem loja, e a
+  // leitura exata pela loja caía no padrão — o "verde até 6 min" salvo virava 5 (auditoria do KDS, 20/10/2026). No
+  // máximo uma linha de cada (índice único por empresa e loja). Colunas nomeadas: a leitura não depende da mig 332.
+  private async ajusteKdsDe(tenantId: string, unidadeId?: string | null) {
+    const rows = await this.db
       .select({
+        unidadeId: kdsCorConfig.unidadeId,
+        verdeAteMin: kdsCorConfig.verdeAteMin,
+        amareloAteMin: kdsCorConfig.amareloAteMin,
         usaPreparo: kdsCorConfig.usaPreparo,
         usaEntregue: kdsCorConfig.usaEntregue,
       })
@@ -2107,11 +2105,33 @@ export class ProducaoPedidoService {
       .where(
         and(
           eq(kdsCorConfig.tenantId, tenantId),
-          unidadeId
-            ? eq(kdsCorConfig.unidadeId, unidadeId)
-            : sql`unidade_id is null`,
+          unidadeId ? sql`(unidade_id = ${unidadeId} or unidade_id is null)` : sql`unidade_id is null`,
         ),
       );
+    return (unidadeId ? rows.find((r) => r.unidadeId === unidadeId) : undefined) ?? rows.find((r) => r.unidadeId == null);
+  }
+
+  // Período da senha que vale para o contador: o da loja, senão o da empresa (ajuste do KDS, mig 332 — sincroniza), senão
+  // o do próprio contador. Lido por `to_jsonb` para não quebrar a venda num banco ainda sem a coluna.
+  private async periodoSenhaDe(q: any, tenantId: string, unidadeId: string | null, doContador: string | null) {
+    const r: any = await q.execute(sql`
+      select unidade_id is null as "daEmpresa", to_jsonb(k) ->> 'senha_periodo' as periodo
+        from kds_cor_config k
+       where k.tenant_id = ${tenantId}
+         and (k.unidade_id is null ${unidadeId ? sql`or k.unidade_id = ${unidadeId}` : sql``})
+    `);
+    const ajustes = ((r.rows ?? r) as any[]).filter((a) => ['diario', 'semanal', 'nunca'].includes(a.periodo));
+    return (
+      (unidadeId ? ajustes.find((a) => !a.daEmpresa)?.periodo : undefined) ??
+      ajustes.find((a) => a.daEmpresa)?.periodo ??
+      doContador ??
+      'diario'
+    );
+  }
+
+  // ===== Etapas do KDS por unidade (recebido e pronto sempre; preparo/entregue opcionais) =====
+  private async etapasDe(tenantId: string, unidadeId?: string | null) {
+    const row = await this.ajusteKdsDe(tenantId, unidadeId);
     const usaPreparo = row?.usaPreparo ?? true;
     const usaEntregue = row?.usaEntregue ?? true;
     const fluxo = [
@@ -2164,9 +2184,12 @@ export class ProducaoPedidoService {
           ),
         ),
       );
+    // Item tirado da comanda (`removido`) sai do cartão ativo e do resumo de itens: a cozinha não faz o que foi removido,
+    // e o cartão ganha a etiqueta "Alterado" (removerItemComanda). No cartão CANCELADO os itens ficam (riscados na tela):
+    // é o que diz à cozinha o que parar (auditoria do KDS, 20/10/2026).
     return pedidos.map((p) => ({
       ...p,
-      itens: itens.filter((i) => i.pedidoId === p.id),
+      itens: itens.filter((i) => i.pedidoId === p.id && (p.status === 'cancelado' || i.status !== 'removido')),
     }));
   }
 
@@ -2761,6 +2784,13 @@ export class ProducaoPedidoService {
           .update(producaoPedido)
           .set({ status: 'cancelado', canceladoEm: new Date() })
           .where(eq(producaoPedido.id, pedidoId));
+      } else if (n > 0 && !['cancelado', 'entregue'].includes(ped.status)) {
+        // Sobrou item: o removido sai da lista do cartão (comItens) e o cartão mostra "Alterado" — quem já começou a
+        // fazer precisa perceber a mudança. Mesma marca do delivery alterado (marcarAlteradoPorComanda).
+        await this.db
+          .update(producaoPedido)
+          .set({ obs: 'ALTERADO' })
+          .where(eq(producaoPedido.id, pedidoId));
       }
       this.events?.emit('producao.evento', {
         tenantId,
@@ -2889,17 +2919,7 @@ export class ProducaoPedidoService {
   }
 
   async getCores(tenantId: string, unidadeId?: string | null) {
-    const [row] = await this.db
-      .select()
-      .from(kdsCorConfig)
-      .where(
-        and(
-          eq(kdsCorConfig.tenantId, tenantId),
-          unidadeId
-            ? eq(kdsCorConfig.unidadeId, unidadeId)
-            : sql`unidade_id is null`,
-        ),
-      );
+    const row = await this.ajusteKdsDe(tenantId, unidadeId);
     return {
       verdeAteMin: row?.verdeAteMin ?? 5,
       amareloAteMin: row?.amareloAteMin ?? 10,
