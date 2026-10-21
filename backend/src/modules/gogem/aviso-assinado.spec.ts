@@ -5,9 +5,11 @@ import { join } from 'node:path';
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { Reflector } from '@nestjs/core';
+import { ModuleRef, Reflector } from '@nestjs/core';
 import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
+import { ClienteDmsId, ClienteHub, type AvisoRegistrado, type ItemDeParada } from '../../dms/integracao-dms';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { HubDmsService } from '../integracao-api/hub-dms.service';
 import { IntegracaoApiController } from '../integracao-api/integracao-api.controller';
 import { IntegracaoTokenGuard } from '../integracao-api/integracao-token.guard';
 import { IntegracaoTokenService } from '../integracao-api/integracao-token.service';
@@ -429,5 +431,149 @@ descrever('avisos assinados ao GoGeM — fase 2 (Postgres real + receptor)', () 
     await ligarAvisos(e, e.lojas[0]);
     await expect(publicar.publicar(e.tenant, e.lojas[0])).resolves.toEqual({ ok: true, alterados: 3 });
     expect(recebidos[0].cabecalhos['x-sync-token']).toBeUndefined();
+  });
+
+  // ───────────────────────────── o hub da DMS (F3, decisão D-1) ─────────────────────────────
+
+  describe('o hub (F3, D-1): o estorno vai ao registro, e nenhuma parada o segura', () => {
+    const hub = new HubDmsService(db);
+    const pedidos: unknown[] = [];
+    // O serviço do hub é pedido na hora (o módulo da integração é só da nuvem): aqui, o de verdade, com o cliente do pacote.
+    const moduleRef = {
+      get: (cls: unknown) => {
+        pedidos.push(cls);
+        if (cls === HubDmsService) return hub;
+        throw new Error('não registrado');
+      },
+    } as unknown as ModuleRef;
+    const comHub = new GogemAvisoService(db, auditoria, moduleRef);
+    let anotados: AvisoRegistrado[] = [];
+
+    /** Liga o hub com um cliente DE VERDADE do pacote (a lista de parada é a dele), sem relógio nem rede. */
+    function ligarHub(itens: ItemDeParada[] = []) {
+      const cliente = new ClienteHub({
+        url: 'https://hub.exemplo.test',
+        recurso: 'https://hub.exemplo.test/api/v1',
+        dmsId: new ClienteDmsId({ emissor: 'https://id.exemplo.test/oidc', aplicativo: 'app-regem-teste', segredo: 'segredo-de-teste-1234567' }),
+        produto: 'regem',
+        versao: 'teste',
+        listaInicial: { versao: 1, itens },
+      });
+      jest.spyOn(cliente, 'registrarAviso').mockImplementation((a: AvisoRegistrado) => void anotados.push(a));
+      (hub as any).cliente = cliente;
+      return cliente;
+    }
+
+    beforeEach(() => {
+      anotados = [];
+      pedidos.length = 0;
+    });
+
+    afterEach(() => {
+      (hub as any).cliente = null;
+      delete process.env.ACEITAR_INTEGRACOES;
+      delete process.env.EDGE_MODE;
+    });
+
+    it('assinado: o registro com a tentativa no código, o tipo do contrato, o prefixo do token, a loja e só a origem', async () => {
+      ligarHub();
+      const e = await empresa(['Brasa Centro', 'Brasa Praia']);
+      await credencialAntiga(e);
+      const lig = await ligarAvisos(e, e.lojas[0]);
+      const [{ prefixo }] = await q(`select prefixo from integracao_token_loja where id = $1`, [lig.tokenId]);
+      const a = await aviso(e, e.lojas[0]);
+      expect((await comHub.enviarAgora(a.id)).situacao).toBe('solicitado');
+      expect(recebidos).toHaveLength(1);
+      expect(recebidos[0].cabecalhos['webhook-id']).toBe(`aviso_${a.id}`);
+      expect(anotados).toEqual([
+        {
+          codigo: `aviso_${a.id}:1`,
+          ocorrido_em: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
+          aplicativo: 'gogem',
+          ligacao_prefixo: prefixo,
+          conta: e.lojas[0],
+          conta_nome: 'Brasa Centro',
+          tipo: 'pedido.cancelado',
+          destino: new URL(raiz).origin,
+          resultado: 'entregue',
+          status_http: 200,
+          duracao_ms: expect.any(Number),
+          tentativa: 1,
+        },
+      ]);
+    });
+
+    it('pelo token de antes: o registro sem prefixo (o token do equipamento não tem um público)', async () => {
+      ligarHub();
+      const e = await empresa();
+      await credencialAntiga(e);
+      const a = await aviso(e, e.lojas[0]);
+      await comHub.enviarAgora(a.id);
+      expect(recebidos.map((r) => r.caminho)).toEqual(['/api/v1/sync/regem/pedido-cancelado']);
+      expect(anotados).toHaveLength(1);
+      expect(anotados[0]).toMatchObject({ codigo: `aviso_${a.id}:1`, aplicativo: 'gogem', tipo: 'pedido.cancelado', resultado: 'entregue', status_http: 200 });
+      expect(anotados[0]).not.toHaveProperty('ligacao_prefixo');
+    });
+
+    it('o estorno que falhou dentro de um 200 vale "falhou" no hub, e a tentativa seguinte é outra linha', async () => {
+      ligarHub();
+      const e = await empresa();
+      await credencialAntiga(e);
+      await ligarAvisos(e, e.lojas[0]);
+      const a = await aviso(e, e.lojas[0]);
+      responder = () => ({ status: 200, corpo: { status: 'cancelado', estorno: { feito: false, meio: 'credito', valorCentavos: 1990, mensagem: 'MP fora' } } });
+      expect((await comHub.enviarAgora(a.id)).situacao).toBe('pendente');
+      responder = () => ({ status: 200, corpo: ESTORNO_FEITO });
+      await naVez(a.id);
+      await comHub.rodarFila(20, [e.tenant]);
+      expect(anotados.map((x) => [x.codigo, x.resultado, x.status_http, x.tentativa])).toEqual([
+        [`aviso_${a.id}:1`, 'falhou', 200, 1],
+        [`aviso_${a.id}:2`, 'entregue', 200, 2],
+      ]);
+    });
+
+    it('NENHUMA parada segura o estorno: com a geral, a do GoGeM, a da ligação, a do tipo e a chave própria desligada, ele sai', async () => {
+      const e = await empresa();
+      await credencialAntiga(e);
+      const lig = await ligarAvisos(e, e.lojas[0]);
+      const [{ prefixo }] = await q(`select prefixo from integracao_token_loja where id = $1`, [lig.tokenId]);
+      const cliente = ligarHub([
+        { nivel: 'geral', produto: null, alvo: null },
+        { nivel: 'aplicativo', produto: null, alvo: 'gogem' },
+        { nivel: 'ligacao', produto: 'regem', alvo: prefixo },
+        { nivel: 'ferramenta', produto: 'regem', alvo: 'aviso pedido.cancelado' },
+      ]);
+      // A lista vale de verdade: o mesmo aviso, pela regra dos outros avisos, estaria parado.
+      expect(cliente.avisoParado({ aplicativo: 'gogem', ligacaoPrefixos: [prefixo], tipo: 'pedido.cancelado' })).not.toBeNull();
+      process.env.ACEITAR_INTEGRACOES = 'false';
+      const a = await aviso(e, e.lojas[0]);
+      expect((await comHub.enviarAgora(a.id)).situacao).toBe('solicitado');
+      expect(recebidos).toHaveLength(1);
+      expect((await linhaDoAviso(a.id)).status).toBe('entregue');
+      expect(anotados).toHaveLength(1);
+      expect(anotados[0]).toMatchObject({ resultado: 'entregue', status_http: 200 });
+    });
+
+    it('com o hub desligado o estorno sai igual e nada se registra; no servidor da loja o hub nem é pedido', async () => {
+      const e = await empresa();
+      await credencialAntiga(e);
+      const a = await aviso(e, e.lojas[0]);
+      const nome = jest.spyOn(hub, 'nomeDaConta');
+      expect((await comHub.enviarAgora(a.id)).situacao).toBe('solicitado');
+      expect(recebidos).toHaveLength(1);
+      expect(anotados).toHaveLength(0);
+      expect(nome).not.toHaveBeenCalled(); // desligado, nem o nome da loja se lê
+      nome.mockRestore();
+
+      ligarHub();
+      pedidos.length = 0;
+      process.env.EDGE_MODE = 'true';
+      const daLoja = await aviso(e, e.lojas[0]);
+      // Sem CLOUD_API/SYNC_TOKEN neste teste: o servidor da loja não tem para onde repassar, e espera.
+      await comHub.enviarAgora(daLoja.id);
+      expect(recebidos).toHaveLength(1);
+      expect(pedidos).toHaveLength(0);
+      expect(anotados).toHaveLength(0);
+    });
   });
 });
