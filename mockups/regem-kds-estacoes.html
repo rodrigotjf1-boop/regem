@@ -534,7 +534,7 @@ td.escolha { font-weight: 700; color: var(--ok); white-space: nowrap; }
             </div>
           </div>
           <span class="toast" id="toast-mapa" role="status"></span>
-          <div class="proto-ctl"><label class="chave"><input type="checkbox" id="sem-kds"> Ver como fica numa loja sem KDS cadastrado</label></div>
+          <div class="proto-ctl"><label class="chave"><input type="checkbox" id="sem-kds"> Ver como fica numa loja sem KDS cadastrado</label><label class="chave"><input type="checkbox" id="chave-mapa" checked> Mapa no KDS ligado nesta loja (Delivery › ⚙)</label></div>
         </div>
         <div class="camada" id="camada-kds" hidden>
           <div class="dialogo" role="dialog" aria-modal="true" aria-labelledby="dialogo-titulo">
@@ -573,7 +573,8 @@ td.escolha { font-weight: 700; color: var(--ok); white-space: nowrap; }
         <li>Em <strong>Delivery › Mapa ao vivo</strong>, o botão <strong>Mostrar num KDS</strong> abre a lista das telas de KDS da loja.</li>
         <li>A tela escolhida troca os pedidos pelo <strong>mapa dos entregadores</strong>. O KDS já tem esse modo hoje, mas só escolhido no próprio aparelho.</li>
         <li>Pode ser <strong>mais de um KDS</strong> ao mesmo tempo. Na mesma tela do mapa: <strong>Escolher os KDS</strong> (o desmarcado volta aos pedidos) ou <strong>Tirar de todos</strong>.</li>
-        <li>Painel e KDS no mesmo servidor: troca na hora. Do painel na nuvem para um KDS no servidor da loja: em até 1 minuto, pela sincronização.</li></ul></div>
+        <li>Painel e KDS no mesmo servidor: troca na hora. Do painel na nuvem para um KDS no servidor da loja: em até 1 minuto, pela sincronização.</li>
+        <li>Com o <strong>mapa no KDS desligado</strong> na loja (Delivery › ⚙), dá para marcar, mas o KDS mostra os pedidos até o gestor ligar — é a localização de pessoas.</li></ul></div>
     </div>
   </section>
 
@@ -826,11 +827,12 @@ td.escolha { font-weight: 700; color: var(--ok); white-space: nowrap; }
   explicarTempo();
   desenhar();
 
-  // Mapa ao vivo num KDS: marcar as telas (pode ser mais de uma) e tirar de todas.
+  // Mapa ao vivo num KDS: marcar as telas (pode ser mais de uma) e tirar de todas. Cada tela diz o papel e o setor (como
+  // ficou no sistema): o "ligado / sem sinal" saiu — o KDS aberto com o login de uma pessoa não diz qual tela é (ERR-236).
   const telasKds = [
-    { id: 'chapa', nome: 'Chapa', ligado: true, setor: 'Cozinha' },
-    { id: 'expedicao', nome: 'Expedição', ligado: true, setor: 'Despacho' },
-    { id: 'balcao', nome: 'Balcão', ligado: false, sinal: 'sem sinal há 3 h', setor: 'Salão' },
+    { id: 'chapa', nome: 'Chapa', papel: 'Estação', setor: 'Cozinha' },
+    { id: 'expedicao', nome: 'Expedição', papel: 'Despacho', setor: '' },
+    { id: 'balcao', nome: 'Balcão', papel: 'Entrega (só senhas)', setor: 'Salão' },
   ];
   const noMapa = new Set();
   let voltarFoco = null;
@@ -839,6 +841,8 @@ td.escolha { font-weight: 700; color: var(--ok); white-space: nowrap; }
   const camada = document.getElementById('camada-kds');
   const listaKds = document.getElementById('lista-kds');
   const semKds = document.getElementById('sem-kds');
+  const chaveLigada = document.getElementById('chave-mapa');
+  const ONDE_LIGA = 'Delivery › ⚙ Configurações do delivery › “Mostrar o mapa dos entregadores no KDS”';
   const confirmarKds = document.getElementById('confirmar-kds');
   const toastMapa = document.getElementById('toast-mapa');
   const avisar = (t) => {
@@ -856,6 +860,12 @@ td.escolha { font-weight: 700; color: var(--ok); white-space: nowrap; }
       return;
     }
     confirmarKds.hidden = false;
+    if (!chaveLigada.checked) {
+      const p = document.createElement('p');
+      p.className = 'aviso';
+      p.textContent = `O mapa no KDS está desligado nesta loja: o KDS marcado mostra os pedidos até o gestor ligar em ${ONDE_LIGA}. É a localização de pessoas, por isso começa desligado.`;
+      listaKds.append(p);
+    }
     for (const k of telasKds) {
       const l = document.createElement('label');
       l.className = 'opcao-kds';
@@ -867,9 +877,8 @@ td.escolha { font-weight: 700; color: var(--ok); white-space: nowrap; }
       nome.textContent = k.nome;
       const det = document.createElement('span');
       det.className = 'det';
-      const ponto = document.createElement('span');
-      ponto.className = 'ponto' + (k.ligado ? '' : ' off');
-      det.append(ponto, `${k.ligado ? 'Ligado' : k.sinal} · ${k.setor} · agora mostra ${noMapa.has(k.id) ? 'o mapa' : 'os pedidos'}`);
+      det.append([k.papel, k.setor, noMapa.has(k.id) ? (chaveLigada.checked ? 'mostra o mapa agora' : 'marcado para o mapa') : '']
+        .filter(Boolean).join(' · '));
       l.append(c, nome, det);
       listaKds.append(l);
     }
@@ -893,7 +902,8 @@ td.escolha { font-weight: 700; color: var(--ok); white-space: nowrap; }
     document.getElementById('abrir-kds-texto').textContent = tem ? 'Escolher os KDS' : 'Mostrar num KDS';
     if (!tem) return;
     document.getElementById('faixa-texto').textContent =
-      lista.length === 1 ? `O mapa está na tela do KDS ${lista[0]}.` : `O mapa está em ${lista.length} KDS: ${juntar(lista)}.`;
+      (lista.length === 1 ? `O mapa está na tela do KDS ${lista[0]}.` : `O mapa está em ${lista.length} KDS: ${juntar(lista)}.`) +
+      (chaveLigada.checked ? '' : ` O mapa no KDS está desligado nesta loja: por enquanto ${lista.length > 1 ? 'eles mostram' : 'ele mostra'} os pedidos. Liga em ${ONDE_LIGA}.`);
     document.getElementById('preview-titulo').textContent =
       lista.length === 1 ? `Como fica no KDS ${lista[0]}` : `Como fica no KDS ${lista[0]} (e nos outros marcados)`;
     document.getElementById('preview-nome').textContent = lista[0];
@@ -914,8 +924,8 @@ td.escolha { font-weight: 700; color: var(--ok); white-space: nowrap; }
     const partes = [];
     if (entraram.length) partes.push(`${juntar(entraram)} ${entraram.length > 1 ? 'passaram' : 'passou'} a mostrar o mapa`);
     if (sairam.length) partes.push(`${juntar(sairam)} ${sairam.length > 1 ? 'voltaram' : 'voltou'} aos pedidos`);
-    const desligado = telasKds.some((k) => marcados.has(k.id) && !k.ligado) ? ' (o desligado mostra quando ligar)' : '';
-    avisar(partes.length ? `${partes.join('; ')}${desligado}.` : 'Nada mudou.');
+    const espera = entraram.length && !chaveLigada.checked ? ' (aparece quando o mapa no KDS for ligado)' : '';
+    avisar(partes.length ? `${partes.join('; ')}${espera}.` : 'Nada mudou.');
   });
   document.getElementById('tirar-kds').addEventListener('click', () => {
     const lista = nomesDe(noMapa);
@@ -927,6 +937,7 @@ td.escolha { font-weight: 700; color: var(--ok); white-space: nowrap; }
   semKds.addEventListener('change', () => {
     if (semKds.checked) { noMapa.clear(); mostrarEstado(); }
   });
+  chaveLigada.addEventListener('change', mostrarEstado);
   mostrarEstado();
 })();
 </script>

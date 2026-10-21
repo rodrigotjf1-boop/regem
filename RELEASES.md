@@ -100,6 +100,16 @@
   TV também. Nasce desligado: sem TV cadastrada, nada muda. Nuvem: migration antes do merge + deploy. Loja: no `.zip` (a
   337 vai no pacote; com o servidor da loja ligado, a TV se cadastra e pareia NELE, como o KDS), sem `.exe`. Na loja,
   conferir: cadastrar a TV no servidor da loja, parear, e ver uma senha com KDS passar de Preparando a Pronto.
+- **O mapa dos entregadores num KDS, mandado pelo painel (Cozinha em estações, entrega 5; mig 338):** em Delivery › Mapa
+  ao vivo, "Mostrar num KDS" abre a lista das telas de KDS da loja; a marcada troca os pedidos pelo mapa (pode ser mais de
+  uma; "Tirar de todos" volta tudo aos pedidos), com auditoria e no Histórico do KDS. A escolha mora numa tabela própria
+  (`kds_tela_ajuste`, uma linha por KDS), fora do `equipamento` (ERR-235), e sincroniza nos dois sentidos: painel e KDS no
+  mesmo servidor trocam na hora (aviso em tempo real); do painel na nuvem para o KDS no servidor da loja, em até ~1 min.
+  A chave da loja (mig 293) continua valendo: desligada, o KDS marcado mostra os pedidos até o gestor ligar. Nuvem:
+  migration antes do merge + deploy. Loja: no `.zip` (a 338 vai no pacote). **Toca o `edge/sync-daemon.mjs`** (a tabela
+  nova sobe da loja): instalação NOVA pede o `.exe` do mesmo corte. Junto: o mapa (Leaflet) deixa de cobrir o diálogo e a
+  barra de baixo do celular, no Mapa ao vivo e na área de entrega (ERR-277). Na loja, conferir: marcar um KDS no Mapa ao
+  vivo do servidor da loja e ver a tela dele trocar na hora; tirar e ver voltar aos pedidos.
 
 ## Última release: `1.30.6` — gerada em 20/10/2026 da `origin/main` `3f4db2af`, **`.zip` GERADO, conferido e assinado** (`regem-edge-1.30.6.zip`, 31.838.658 bytes, SHA-256 `168c67acb2aff280ff44ef737374413ddf82804df4fa65b7c0fb7ddddb794f41`) e **`.exe` COMPILADO** (`RegemEdgeSetup.exe`, 93.547.959 bytes, SHA-256 `31186dc63d90d50710cc6a247bc071c7560cbe7992aa5443f97f5e1dfd546441`); publicação no console e instalação na loja PENDENTES (o dono)
 

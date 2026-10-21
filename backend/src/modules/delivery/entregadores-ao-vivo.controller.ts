@@ -1,4 +1,4 @@
-import { Controller, Get, Inject, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Put, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
@@ -24,6 +24,9 @@ import { EntregadoresAoVivoService } from './entregadores-ao-vivo.service';
  *  • `GET /delivery/entregadores-ao-vivo/kds` — o mapa no KDS: quem opera o KDS (módulo KDS
  *    ativo), mas SÓ se o gestor ligou a chave da loja (mig 293). Desligada, responde
  *    `habilitado:false` sem nenhuma posição — a tela esconde a opção.
+ *  • `GET`/`PUT /delivery/entregadores-ao-vivo/telas-kds` — o "Mostrar num KDS" do Mapa ao vivo
+ *    (entrega 5, mig 338): quais telas de KDS o painel mandou mostrar o mapa. Mesma gestão do
+ *    painel, com o módulo KDS ligado.
  *  • `GET /delivery/entregadores-ao-vivo/loja` — o servidor da loja pedindo à nuvem (token de
  *    sync). A loja vem do token, nunca do pedido.
  */
@@ -50,6 +53,27 @@ export class EntregadoresAoVivoController {
     if (!(await this.aoVivo.mapaNoKdsLigado(user.tenantId, u)))
       return { habilitado: false, centro: null, entregadores: [] };
     return { habilitado: true, ...(await this.aoVivo.daLoja(user.tenantId, u)) };
+  }
+
+  // "Mostrar num KDS" (cozinha em estações, entrega 5): as telas de KDS da loja e as que o painel já mandou mostrar o
+  // mapa. Quem vê o Mapa ao vivo; com o módulo KDS desligado, 403 (a tela esconde o botão).
+  @Get('telas-kds')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard, ModuloGuard)
+  @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('delivery')
+  @RequireModulo('kds')
+  telasKds(@CurrentUser() user: AuthUser, @UnidadeAtual() unidadeId: string | null) {
+    return this.aoVivo.telasDoMapa(user.tenantId, unidadeId ?? null);
+  }
+
+  // Grava a lista inteira dos KDS que mostram o mapa (a desmarcada volta aos pedidos; vazia = tirar de todos). Auditado.
+  @Put('telas-kds')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard, ModuloGuard)
+  @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('delivery')
+  @RequireModulo('kds')
+  mostrarNosKds(@CurrentUser() user: AuthUser, @UnidadeAtual() unidadeId: string | null, @Body() dto: { kdsIds?: unknown }) {
+    return this.aoVivo.mostrarNosKds(user.tenantId, unidadeId ?? null, dto?.kdsIds, { id: user.colaboradorId, perfil: user.categoria });
   }
 
   @Get('loja')

@@ -148,5 +148,7 @@ export function MapaEntregadores({
     }
   }, [entregadores, pronto, centro, escala]);
 
-  return <div ref={mapEl} className={className} role="region" aria-label="Mapa dos entregadores" />;
+  // `isolate`: as camadas do Leaflet têm z-index de 400 a 1000 e, sem uma camada própria, o mapa cobria o diálogo, a gaveta
+  // e a barra de baixo do celular (z-index 50) — ERR-277.
+  return <div ref={mapEl} className={`isolate ${className}`} role="region" aria-label="Mapa dos entregadores" />;
 }

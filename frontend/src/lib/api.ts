@@ -1538,6 +1538,11 @@ export const api = {
   },
   // Mapa dos entregadores no KDS (mig 293): `habilitado:false` = a loja não ligou a chave.
   entregadoresAoVivoKds: () => req('/delivery/entregadores-ao-vivo/kds'),
+  // "Mostrar num KDS" do Mapa ao vivo (entrega 5, mig 338): as telas de KDS da loja e as que mostram o mapa; gravar
+  // manda a lista inteira dos marcados (vazia = tirar de todos).
+  telasKdsDoMapa: () => req('/delivery/entregadores-ao-vivo/telas-kds'),
+  mostrarMapaNosKds: (kdsIds: string[]) =>
+    req('/delivery/entregadores-ao-vivo/telas-kds', { method: 'PUT', body: JSON.stringify({ kdsIds }) }),
   // E5 — pagamento do entregador.
   entregadorPagamentoConfig: () => req('/entregador/pagamento/config'),
   entregadorPagamentoConfigSalvar: (body: {

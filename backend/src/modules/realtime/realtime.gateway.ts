@@ -225,6 +225,14 @@ export class RealtimeGateway
     this.server.to(`senhas:${p.tenantId}`).emit('senhas:mudou', { em: new Date().toISOString(), ajustes: true });
   }
 
+  // O painel do Delivery mandou o mapa para KDS (ou tirou) — entrega 5: as telas de KDS relêem a lista e trocam na hora.
+  // Só o aviso; o que cada tela mostra vem da lista (`GET /producao/kds/telas`).
+  @OnEvent('kds.telas.mudou')
+  onKdsTelasMudou(p: { tenantId: string }) {
+    if (!this.server) return;
+    this.server.to(`tenant:${p.tenantId}`).emit('kds:telas', { em: new Date().toISOString() });
+  }
+
   // Chamado de atendimento aberto (handoff do robô) → sino no app do tenant.
   @OnEvent('atendimento.novo')
   onAtendimentoNovo(p: { tenantId: string; chamado: any }) {

@@ -83,7 +83,8 @@ export function MapaAreaEntrega({
 
   return (
     <div>
-      <div ref={el} className="h-64 w-full rounded-lg border border-border" />
+      {/* `isolate`: sem camada própria, os z-index do Leaflet (400–1000) cobrem diálogo e barra de baixo (ERR-277). */}
+      <div ref={el} className="isolate h-64 w-full rounded-lg border border-border" />
       {!temCentro && (
         <p className="mt-1 text-[11px] text-warn">Cadastre a latitude/longitude da loja (aba Loja) para ver as faixas no mapa.</p>
       )}

@@ -2067,6 +2067,21 @@ export const kdsCorConfig = pgTable('kds_cor_config', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// O que o painel manda uma tela de KDS mostrar (mig 338): hoje, o mapa dos entregadores (Delivery › Mapa ao vivo).
+// Uma linha por KDS — o `id` É o do equipamento —, fora do `equipamento` porque o uso do aparelho grava lá e o sync
+// desfaria a escolha (ERR-235). Nunca se apaga: tirar do KDS grava `mostraMapa = false`.
+export const kdsTelaAjuste = pgTable('kds_tela_ajuste', {
+  id: uuid('id')
+    .primaryKey()
+    .references(() => equipamento.id, { onDelete: 'cascade' }),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  mostraMapa: boolean('mostra_mapa').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // Motor de alertas do KDS (mig 158) — cadastrados pelo presidente/C&O/gerente,
 // exibidos no RODAPÉ do KDS. tipo=agendado (horários+dias) | condicional (limiar).
 export const kdsAlertaConfig = pgTable('kds_alerta_config', {

@@ -1491,7 +1491,7 @@ function ConfigModal({ cfg, onToggle, loja, onTipo, pode, onClose }: { cfg: any;
           <input type="checkbox" className="mt-0.5 h-4 w-4 accent-primary" disabled={!pode} checked={cfg.kdsMapaEntregadores === true} onChange={(e) => onToggle({ kdsMapaEntregadores: e.target.checked })} />
           <span>
             Mostrar o mapa dos entregadores no KDS
-            <span className="block text-xs text-muted-foreground">Ligado: cada tela de KDS pode escolher, no ⚙, mostrar o mapa com a posição dos entregadores em vez dos pedidos. É a localização de pessoas — fica registrado quem liga e desliga.</span>
+            <span className="block text-xs text-muted-foreground">Ligado: o mapa com a posição dos entregadores pode aparecer no KDS no lugar dos pedidos — mandado em Delivery › Mapa ao vivo (&quot;Mostrar num KDS&quot;) ou escolhido no ⚙ da própria tela. É a localização de pessoas — fica registrado quem liga e desliga.</span>
           </span>
         </label>
 
