@@ -345,3 +345,194 @@ descrever('primeira carga do servidor da loja (ERR-132)', () => {
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// ENVIO ADIADO (ERR-278) — o daemon real contra uma nuvem que atrasa ou recusa o envio.
+//
+// Medido na loja em 21/10: o envio que passava do tempo era REPETIDO na hora e batia na trava do
+// primeiro (429 "Já há um push deste dispositivo em curso"); o ciclo inteiro contava como falha, o
+// intervalo esticava até 5 min e a nuvem deixava de ver o servidor como vivo — pedidos de canal
+// levando de 2 a 5 minutos para descer. Agora o envio que passou do tempo não se repete, o 429 e o
+// tempo esgotado deixam o lote para o próximo ciclo (sem falha) e o --descarregar NÃO apaga o banco
+// com um lote pendente. Mesmo arquivo dos blocos acima: todos mexem no `sync_state`.
+
+/** Nuvem falsa do envio: `push(n, lotes)` decide a n-ésima requisição de envio (status, corpo, atraso). */
+async function nuvemDoEnvio(push: (n: number, lotes: any[]) => { status: number; corpo?: any; atrasoMs?: number }) {
+  const envios: any[][] = [];
+  const srv: Server = createServer((req, res) => {
+    let b = '';
+    req.on('data', (c) => (b += c));
+    req.on('end', () => {
+      const u = req.url ?? '';
+      const responder = (status: number, corpo: any) => {
+        if (res.writableEnded || res.destroyed) return;
+        res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify(corpo));
+      };
+      if (u.startsWith('/api/v1/sync/push')) {
+        let lotes: any[] = [];
+        try {
+          lotes = JSON.parse(b || '{}').lotes ?? [];
+        } catch {
+          /* corpo não-JSON */
+        }
+        envios.push(lotes);
+        const r = push(envios.length, lotes);
+        if (r.atrasoMs) setTimeout(() => responder(r.status, r.corpo ?? {}), r.atrasoMs);
+        else responder(r.status, r.corpo ?? {});
+        return;
+      }
+      if (u.startsWith('/api/v1/sync/pull')) return responder(200, { tabelas: {}, cursores: {} });
+      if (u.startsWith('/api/v1/edge/comandos')) return responder(200, []);
+      return responder(200, {});
+    });
+  });
+  await new Promise<void>((ok) => srv.listen(0, '127.0.0.1', () => ok()));
+  return { srv, envios, url: `http://127.0.0.1:${(srv.address() as AddressInfo).port}/api/v1` };
+}
+
+/** Roda o daemon real (`--descarregar` ou `--um-ciclo`) com o ambiente dado. */
+function rodarDaemon(modo: '--descarregar' | '--um-ciclo', cloud: string, extra: Record<string, string>): Promise<{ codigo: number; saida: string }> {
+  return new Promise((resolve) => {
+    const p = spawn(process.execPath, [DAEMON, modo], {
+      env: {
+        ...process.env,
+        EDGE_DATABASE_URL: URL_PG,
+        DATABASE_URL: URL_PG,
+        CLOUD_API: cloud,
+        SYNC_TOKEN: 'token-do-servidor',
+        EDGE_UNIDADE_ID: '',
+        ...extra,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let saida = '';
+    p.stdout.on('data', (d) => (saida += d));
+    p.stderr.on('data', (d) => (saida += d));
+    const prazo = setTimeout(() => p.kill(), 100_000);
+    p.on('close', (codigo) => {
+      clearTimeout(prazo);
+      resolve({ codigo: codigo ?? -1, saida });
+    });
+  });
+}
+
+const EM_CURSO = { statusCode: 429, message: 'Já há um push deste dispositivo em curso.', error: 'Too Many Requests' };
+
+descrever('envio adiado: 429 "em curso" e envio que passou do tempo (ERR-278)', () => {
+  const pool = new Pool({ connectionString: URL_PG });
+  const q = (s: string, p: any[] = []) => pool.query(s, p).then((r) => r.rows);
+  let estadoAntes: { chave: string; valor: string }[] = [];
+  let tabelaExistia = false;
+  let empresa: string | null = null;
+  let cursor = '';
+  let linhaId = '';
+
+  beforeAll(async () => {
+    tabelaExistia = !!(await q(`select to_regclass('public.sync_state') t`))[0].t;
+    await q(`create table if not exists sync_state (chave text primary key, valor text)`);
+    estadoAntes = await q(`select chave, valor from sync_state`);
+    empresa = (await q(`insert into empresa (nome) values ('Teste envio adiado') returning id`))[0].id;
+    const [linha] = await q(
+      `insert into categoria_produto (tenant_id, nome, updated_at) values ($1, 'Porções', now()) returning id, updated_at::text as ts`,
+      [empresa],
+    );
+    linhaId = linha.id;
+    cursor = `${new Date(new Date(linha.ts).getTime() - 1000).toISOString()}|00000000-0000-0000-0000-000000000000`;
+  });
+
+  // Cada caso começa com a linha nova da categoria logo depois do cursor e sem marca de falha; as outras
+  // tabelas com o cursor no fim (nada delas sobe), para o 1º lote enviado ser o da categoria.
+  beforeEach(async () => {
+    await q(`delete from sync_state where chave like 'push\\_%' or chave in ('sync_falhando_desde', 'relogio_desvio_s')`);
+    const futuro = '2999-01-01T00:00:00Z|ffffffff-ffff-ffff-ffff-ffffffffffff';
+    const tabelas = (await q(`select distinct table_name from information_schema.columns
+                               where table_schema = current_schema() and column_name = 'tenant_id'`)).map((t: any) => t.table_name);
+    for (const t of tabelas) {
+      await q(`insert into sync_state (chave, valor) values ($1, $2) on conflict (chave) do update set valor = excluded.valor`, [`push_${t}`, futuro]);
+      await q(`insert into sync_state (chave, valor) values ($1, $2) on conflict (chave) do update set valor = excluded.valor`, [`push_${t}__id`, 'ffffffff-ffff-ffff-ffff-ffffffffffff']);
+    }
+    await q(`update sync_state set valor = $1 where chave = 'push_categoria_produto'`, [cursor]);
+  });
+
+  afterAll(async () => {
+    try {
+      if (empresa) {
+        await q(`delete from categoria_produto where tenant_id = $1`, [empresa]);
+        await q(`delete from empresa where id = $1`, [empresa]);
+      }
+      if (tabelaExistia) {
+        await q(`delete from sync_state`);
+        for (const l of estadoAntes) await q(`insert into sync_state (chave, valor) values ($1, $2)`, [l.chave, l.valor]);
+      } else {
+        await q(`drop table if exists sync_state`);
+      }
+    } finally {
+      await pool.end();
+    }
+  });
+
+  const estado = async (chave: string) =>
+    ((await q(`select valor from sync_state where chave = $1`, [chave]))[0]?.valor as string | undefined) ?? null;
+  const comLinhas = (envios: any[][]) => envios.filter((l) => l.length && l[0]?.linhas?.length);
+
+  it('--descarregar: o envio que passou do tempo NÃO se repete, sai 1 (o banco fica) e o cursor não anda', async () => {
+    // A conferência da credencial responde na hora; o 1º lote demora mais que o tempo do envio.
+    const nuvem = await nuvemDoEnvio((n) => (n === 1 ? { status: 201 } : { status: 201, atrasoMs: 2500 }));
+    try {
+      const r = await rodarDaemon('--descarregar', nuvem.url, { SYNC_PUSH_TIMEOUT_MS: '800', SYNC_FETCH_RETRIES: '3' });
+      expect(r.codigo).toBe(1);
+      expect(r.saida).toMatch(/ficou pendente \(o envio passou do tempo\) — NÃO apagar o banco/);
+      const lotes = comLinhas(nuvem.envios);
+      expect(lotes).toHaveLength(1); // antes: repetia na hora (até 3 vezes) em cima da própria trava
+      expect(lotes[0][0].tabela).toBe('categoria_produto');
+      expect(lotes[0][0].linhas.map((l: any) => l.id)).toContain(linhaId);
+      expect(await estado('push_categoria_produto')).toBe(cursor);
+    } finally {
+      nuvem.srv.close();
+    }
+  });
+
+  it('--descarregar: 429 "em curso" no lote sai 1 (o banco fica), sem "linha veneno" e sem andar o cursor', async () => {
+    const nuvem = await nuvemDoEnvio((n) => (n === 1 ? { status: 201 } : { status: 429, corpo: EM_CURSO }));
+    try {
+      const r = await rodarDaemon('--descarregar', nuvem.url, { SYNC_FETCH_RETRIES: '3' });
+      expect(r.codigo).toBe(1);
+      expect(r.saida).toMatch(/ficou pendente \(outro envio deste servidor ainda está na nuvem\) — NÃO apagar o banco/);
+      expect(r.saida).not.toMatch(/dead-letter/);
+      expect(comLinhas(nuvem.envios)).toHaveLength(1);
+      expect(await estado('push_categoria_produto')).toBe(cursor);
+    } finally {
+      nuvem.srv.close();
+    }
+  });
+
+  it('um ciclo: 429 "em curso" deixa o lote para o próximo ciclo — "sync ok", sem marca de falha', async () => {
+    const nuvem = await nuvemDoEnvio(() => ({ status: 429, corpo: EM_CURSO }));
+    try {
+      const r = await rodarDaemon('--um-ciclo', nuvem.url, { SYNC_FETCH_RETRIES: '3' });
+      expect(r.saida).toMatch(/sync ok — pull \d+ linha\(s\), push 0 linha\(s\) \(categoria_produto fica para o próximo ciclo: outro envio/);
+      expect(r.saida).not.toMatch(/sync FALHOU/);
+      expect(r.codigo).toBe(0); // o ciclo não contou falha (não estica o intervalo)
+      expect(await estado('sync_falhando_desde')).toBe('');
+      expect(await estado('push_categoria_produto')).toBe(cursor);
+    } finally {
+      nuvem.srv.close();
+    }
+  });
+
+  it('um ciclo: o envio que passou do tempo não se repete e não vira falha', async () => {
+    const nuvem = await nuvemDoEnvio(() => ({ status: 201, atrasoMs: 2500 }));
+    try {
+      const r = await rodarDaemon('--um-ciclo', nuvem.url, { SYNC_PUSH_TIMEOUT_MS: '800', SYNC_FETCH_RETRIES: '3' });
+      expect(r.saida).toMatch(/categoria_produto fica para o próximo ciclo \(o envio passou do tempo; lote de 200\)/);
+      expect(r.saida).toMatch(/sync ok/);
+      expect(r.saida).not.toMatch(/sync FALHOU/);
+      expect(r.codigo).toBe(0);
+      expect(comLinhas(nuvem.envios)).toHaveLength(1);
+      expect(await estado('sync_falhando_desde')).toBe('');
+    } finally {
+      nuvem.srv.close();
+    }
+  });
+});

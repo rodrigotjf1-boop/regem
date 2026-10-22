@@ -48,6 +48,9 @@ import {
   SQL_SEM_RESPONDER, SQL_DANFE_JA_NA_FILA, SQL_DANFE_ALVO, SQL_DANFE_INSERIR, SQL_JOB_DO_COMANDO,
   SQL_FILA_POR_IMPRESSORA, SQL_IMPRESSORAS_COM_AVISO, SQL_ESTACOES,
 } from './impressao-fila.mjs';
+import {
+  ehTempoEsgotado, motivoDoAdiamento, loteDepoisDoTempoEsgotado, loteDepoisDoSucesso, adiamentoViraFalha,
+} from './sync-push-ritmo.mjs';
 carregarEnvLocal(import.meta.url);
 
 const EDGE_DB = req('EDGE_DATABASE_URL');
@@ -69,6 +72,10 @@ const RESTORE_TIMEOUT_MS = Number(process.env.SYNC_RESTORE_TIMEOUT_MS || 120000)
 // Snapshot (Trilha A): download de UM arquivo (todo o transacional da janela) — janela
 // larga. Ajustável por SYNC_SNAPSHOT_TIMEOUT_MS.
 const SNAPSHOT_TIMEOUT_MS = Number(process.env.SYNC_SNAPSHOT_TIMEOUT_MS || 300000);
+// Envio (push) de um lote: até 90 s — o lote que cai no "linha a linha" na nuvem passava dos 45 s, a resposta não vinha a
+// tempo e o envio era repetido em cima da própria trava (ERR-278). Abaixo dos 100 s do proxy da nuvem e dos 120 s da trava.
+// Ajustável por SYNC_PUSH_TIMEOUT_MS.
+const PUSH_TIMEOUT_MS = Number(process.env.SYNC_PUSH_TIMEOUT_MS || 90000);
 const FETCH_TENTATIVAS = Number(process.env.SYNC_FETCH_RETRIES || 3);
 
 // Extrai a CAUSA real de um erro de fetch. O undici aninha o motivo em e.cause[.cause]
@@ -117,6 +124,9 @@ async function fetchT(url, opts = {}, ms = FETCH_TIMEOUT_MS) {
       return res;
     } catch (e) {
       ultimo = e;
+      // Envio (POST) que passou do tempo NÃO se repete: a nuvem provavelmente recebeu e ainda está aplicando — repetir só
+      // batia na trava dele (429) e o ciclo inteiro falhava (ERR-278). O lote volta no próximo ciclo.
+      if (!idempotente && ehTempoEsgotado(causaErro(e))) break;
       if (!ehTransitorio(e) || tent === FETCH_TENTATIVAS) break;
       await new Promise((r) => setTimeout(r, 600 * tent)); // backoff curto p/ pegar socket novo
     }
@@ -1028,7 +1038,7 @@ async function enviarLotes(lotes) {
       'x-sync-sig': sig,
     },
     body: JSON.stringify({ lotes: lotesN }),
-  });
+  }, PUSH_TIMEOUT_MS);
   if (!res.ok) {
     const err = new Error(`push HTTP ${res.status}: ${await res.text()}`);
     err.status = res.status; // p/ o push classificar definitivo (4xx) × transitório (5xx/429)
@@ -1072,6 +1082,11 @@ function motivoDaNuvem(e) {
 // a que ainda falhar 4xx é logada (DEAD-LETTER) e pulada; 5xx/rede/401 no meio → para (o cursor já
 // persistido reflete o progresso, retoma no próximo ciclo). Persiste o cursor por linha PROCESSADA.
 let deadLetters = 0; // linhas puladas por 4xx (o --descarregar não pode apagar o banco com isso)
+// O envio desta rodada ficou para o próximo ciclo (429 "em curso" ou passou do tempo — `sync-push-ritmo.mjs`, ERR-278):
+// { tabela, motivo } ou null. O ciclo não conta como falha; o --descarregar NÃO apaga o banco com isso.
+let envioAdiado = null;
+// Lote de cada tabela depois de um envio que passou do tempo (metade, até o piso); volta a crescer quando dá certo.
+const loteDaTabela = new Map();
 async function enviarLinhaALinha(t, linhas, enviadas, chave, cursorDe) {
   for (let i = 0; i < linhas.length; i++) {
     const linha = linhas[i];
@@ -1106,6 +1121,7 @@ async function relogioConfiavel() {
 }
 
 async function push(limiteMs = null) {
+  envioAdiado = null;
   if (!(await relogioConfiavel())) return 0;
   // Páginas pequenas: cada tabela sobe em blocos de PUSH_MAX linhas, UM request por
   // bloco. Menos chance de 413 e progresso persistido (o cursor só avança após o
@@ -1146,11 +1162,13 @@ async function push(limiteMs = null) {
     let cur = await getState(chave, porId ? '' : '1970-01-01T00:00:00Z');
     for (let pagina = 0; pagina < 10000; pagina++) {
       const filtro = t.filtro ? ` and (${t.filtro})` : ''; // constante do PUSH_TABLES, não é entrada de usuário
+      // O lote desta tabela: o de sempre, ou menor depois de um envio que passou do tempo (ERR-278).
+      const lim = Math.min(PUSH_MAX, loteDaTabela.get(t.tabela) ?? PUSH_MAX);
       let r;
       if (porId) {
         r = await pool.query(
           `select * from ${q(t.tabela)} where ${q('id')}::text > $1${filtro} order by ${q('id')}::text asc limit $2`,
-          [cur, PUSH_MAX],
+          [cur, lim],
         );
       } else {
         const { ts, id } = parseCursorPush(cur);
@@ -1163,26 +1181,43 @@ async function push(limiteMs = null) {
              where (${q(t.cursor)} > $1::timestamptz
                     or (${q(t.cursor)} = $1::timestamptz and ${q('id')} > $2))${filtro}
              order by ${q(t.cursor)} asc, ${q('id')} asc limit $3`,
-          [ts, id, PUSH_MAX],
+          [ts, id, lim],
         );
       }
       if (!r.rows.length) break;
       const enviadas = semColunas(r.rows);
+      // 429 "em curso" ou o envio passou do tempo: o lote fica para o próximo ciclo, com o cursor parado — não é falha
+      // (ERR-278). Passou do tempo: a próxima tentativa desta tabela vai com a metade das linhas.
+      const adiar = (e) => {
+        const motivo = motivoDoAdiamento(e?.status, causaErro(e));
+        if (!motivo) return false;
+        if (ehTempoEsgotado(causaErro(e))) loteDaTabela.set(t.tabela, loteDepoisDoTempoEsgotado(lim));
+        envioAdiado = { tabela: t.tabela, motivo };
+        console.warn(`  push: ${t.tabela} fica para o próximo ciclo (${motivo}; lote de ${lim}) — ${total} linha(s) já enviada(s)`);
+        return true;
+      };
       try {
         await enviarLote({ tabela: t.tabela, linhas: enviadas });
         const ultima = r.rows[r.rows.length - 1]; // ordenado pelo keyset → a última é o máximo
         cur = cursorDe(ultima);
         await setState(chave, cur);
+        if (lim < PUSH_MAX) loteDaTabela.set(t.tabela, loteDepoisDoSucesso(lim, PUSH_MAX));
       } catch (e) {
         const st = e?.status;
-        // 5xx/rede/429 (passageiro) ou 401 (credencial/requisição recusada): para e re-tenta o LOTE
-        // no próximo ciclo, sem mexer no cursor (ERR-123).
+        if (adiar(e)) return total;
+        // 5xx/rede ou 401 (credencial/requisição recusada): para e re-tenta o LOTE no próximo ciclo, sem mexer no
+        // cursor (ERR-123).
         if (!recusaDoConteudo(e)) throw e;
         // DEFINITIVO (4xx do conteúdo): o lote tem uma linha "veneno" que travava a tabela + as posteriores.
         // Isola linha a linha (as boas sobem; a veneno vira dead-letter e é pulada) — não bloqueia
         // o resto do sync (vendas de outras tabelas continuam subindo).
         console.warn(`  push: lote de ${t.tabela} rejeitado (HTTP ${st}) — reenviando linha a linha p/ isolar a veneno`);
-        await enviarLinhaALinha(t, r.rows, enviadas, chave, cursorDe);
+        try {
+          await enviarLinhaALinha(t, r.rows, enviadas, chave, cursorDe);
+        } catch (e2) {
+          if (adiar(e2)) return total;
+          throw e2;
+        }
         cur = await getState(chave, cur); // recarrega o cursor avançado pelo row-by-row
       }
       total += r.rows.length;
@@ -1190,7 +1225,7 @@ async function push(limiteMs = null) {
         console.log(`  push: fatia de ${PUSH_LIMITE_MS}ms atingida (${total} linha(s)) — libera o ciclo; continua no próximo`);
         return total;
       }
-      if (r.rows.length < PUSH_MAX) break; // última página desta tabela
+      if (r.rows.length < lim) break; // última página desta tabela
     }
   }
   return total;
@@ -1747,6 +1782,7 @@ async function verificarComandos(jaRecebidos) {
 let cicloRodando = false;
 let cicloAnteriorMs = 0;
 let falhasSeguidas = 0;
+let adiamentosSeguidos = 0; // ciclos seguidos com o envio adiado (ERR-278): muitos viram falha
 // Desde quando o sync está falhando sem parar (null = sincronizando). Vai na batida (saúde):
 // a nuvem deixa de contar como "vivo" o servidor que bate mas não sincroniza e resgata os
 // pedidos online dele (ERR-132 — o servidor em laço batia a cada ciclo e segurava os pedidos).
@@ -1802,8 +1838,18 @@ async function ciclo() {
     try {
       p = await pull();
       u = await push();
+      // Envio adiado (429 "em curso" ou passou do tempo, ERR-278): o pull rodou e o resto subiu — não é falha, não estica
+      // o intervalo nem tira o servidor de "vivo" para a nuvem. Adiado muitos ciclos seguidos vira falha.
+      if (envioAdiado) {
+        adiamentosSeguidos++;
+        if (adiamentoViraFalha(adiamentosSeguidos)) {
+          throw new Error(`envio adiado ${adiamentosSeguidos} ciclos seguidos — ${envioAdiado.tabela}: ${envioAdiado.motivo}`);
+        }
+      } else {
+        adiamentosSeguidos = 0;
+      }
       falhasSeguidas = 0;
-      console.log(`sync ok — pull ${p} linha(s), push ${u} linha(s)`);
+      console.log(`sync ok — pull ${p} linha(s), push ${u} linha(s)${envioAdiado ? ` (${envioAdiado.tabela} fica para o próximo ciclo: ${envioAdiado.motivo})` : ''}`);
       await marcarSync(true);
     } catch (e) {
       erro = e.message;
@@ -2089,7 +2135,8 @@ process.on('uncaughtException', (e) => console.error(`[uncaughtException] ${e?.m
 
 // --descarregar (usado pelo INSTALADOR antes de apagar o banco local numa reinstalação
 // limpa): sobe para a nuvem TUDO o que ainda não subiu e sai. Código de saída 0 = tudo na
-// nuvem; 1 = falha de rede/nuvem, ou envio suspenso pelo relógio; 2 = alguma linha foi
+// nuvem; 1 = falha de rede/nuvem, envio suspenso pelo relógio, ou o envio de uma tabela ficou
+// para depois (429 "em curso" ou passou do tempo — ERR-278); 2 = alguma linha foi
 // recusada (dead-letter); 3 = há dado que não vai para a nuvem; 4 = a nuvem recusou ESTE
 // servidor (401: credencial trocada/revogada, relógio). Qualquer coisa diferente de 0 → o
 // instalador NÃO apaga o banco.
@@ -2111,7 +2158,13 @@ if (process.argv.includes('--descarregar')) {
     // outra máquina) saía 0 e o banco era apagado com o que nunca chegou à nuvem.
     await enviarLotes([]);
     const n = await push(Number.POSITIVE_INFINITY);
-    if (deadLetters) {
+    if (envioAdiado) {
+      // O envio de uma tabela ficou para depois (429 "em curso" ou passou do tempo): nem tudo chegou — o banco fica.
+      console.error(
+        `descarregar: ${n} linha(s) enviadas, mas o envio de ${envioAdiado.tabela} ficou pendente (${envioAdiado.motivo}) — NÃO apagar o banco.`,
+      );
+      codigo = 1;
+    } else if (deadLetters) {
       console.error(`descarregar: ${n} linha(s) enviadas, mas ${deadLetters} recusada(s) pela nuvem — NÃO apagar o banco.`);
       codigo = 2;
     } else {

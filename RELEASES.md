@@ -18,6 +18,17 @@
   nuvem deixava de ver o servidor como vivo (pedidos de canal levando 2 a 5,5 min para descer, medido em 21/10). Agora o
   envio rápido não pega nem solta a trava; o ciclo segue com ela. Conferir: a telemetria `sync_erro` "push HTTP 429" para
   de subir e o `syncFalhandoDesde` do servidor volta a vazio.
+- **O envio do servidor da loja não repete em cima da própria trava, e o download da atualização retoma de onde
+  parou (ERR-278 parte B, ERR-279; sem migration):** só SERVIDOR DA LOJA — no `.zip` e no `.exe` (toca `backend/edge/`).
+  (B) `sync-daemon.mjs` + `edge/sync-push-ritmo.mjs` (novo): o envio (POST) que passou do tempo não se repete; o envio
+  tem 90 s (`SYNC_PUSH_TIMEOUT_MS`); 429 "em curso" e tempo esgotado deixam o lote para o próximo ciclo sem contar falha
+  (o log diz "sync ok … fica para o próximo ciclo"); o lote que passou do tempo volta com a metade das linhas; 10 ciclos
+  seguidos adiados viram falha; o `--descarregar` sai 1 com lote pendente (a reinstalação NÃO apaga o banco). (D)
+  `atualizar.ps1` + `Baixar-Pacote` no `atualizacao-comum.ps1`: 30 s sem nenhum byte → reconecta e pede só o que falta,
+  até 20 vezes, com "retomando" na tela do servidor. ⚠️ O download novo só vale a partir da atualização SEGUINTE à que
+  o instala (a tarefa roda o `atualizar.ps1` instalado — ERR-253): se a 1.30.8 parar em 2%, instalar pelo `.exe`.
+  Conferir na loja: o log do sync sem "sync FALHOU: push HTTP 429"; numa atualização futura, a barra passa por
+  "retomando" e termina.
 - **A corrigir no próximo corte** (sem PR ainda): o status do backup que o servidor da loja
   manda à nuvem chega ilegível — o `backup.ps1` grava `ultimo-backup.json` com BOM (`[Text.Encoding]::UTF8`) e o
   daemon faz `JSON.parse` sem tirar o BOM; a nuvem vê "backup falhou" em toda loja desde o #546, mesmo com o backup
