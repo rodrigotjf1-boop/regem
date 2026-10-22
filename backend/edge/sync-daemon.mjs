@@ -51,6 +51,10 @@ import {
 import {
   ehTempoEsgotado, motivoDoAdiamento, loteDepoisDoTempoEsgotado, loteDepoisDoSucesso, adiamentoViraFalha,
 } from './sync-push-ritmo.mjs';
+import {
+  PEDIDOS_INTERVALO_MS as PEDIDOS_INTERVALO_PADRAO_MS, PAUSA_SEM_ROTA_MS, LIMITE_POR_ID,
+  proximaConferencia, motivoParaEsperar, avisarFalha, listaDaNuvem,
+} from './sync-pedidos-rapido.mjs';
 carregarEnvLocal(import.meta.url);
 
 const EDGE_DB = req('EDGE_DATABASE_URL');
@@ -76,6 +80,10 @@ const SNAPSHOT_TIMEOUT_MS = Number(process.env.SYNC_SNAPSHOT_TIMEOUT_MS || 30000
 // tempo e o envio era repetido em cima da própria trava (ERR-278). Abaixo dos 100 s do proxy da nuvem e dos 120 s da trava.
 // Ajustável por SYNC_PUSH_TIMEOUT_MS.
 const PUSH_TIMEOUT_MS = Number(process.env.SYNC_PUSH_TIMEOUT_MS || 90000);
+// Conferência rápida dos pedidos (ERR-280): a cada ~30 s, pelo id. SYNC_PEDIDOS_INTERVALO_MS ajusta; 0 desliga (o pedido
+// volta a descer só pelo ciclo). Cada pergunta tem 20 s: uma nuvem lenta não segura a próxima.
+const PEDIDOS_INTERVALO_MS = Number(process.env.SYNC_PEDIDOS_INTERVALO_MS || PEDIDOS_INTERVALO_PADRAO_MS);
+const CONFERENCIA_TIMEOUT_MS = 20000;
 const FETCH_TENTATIVAS = Number(process.env.SYNC_FETCH_RETRIES || 3);
 
 // Extrai a CAUSA real de um erro de fetch. O undici aninha o motivo em e.cause[.cause]
@@ -437,6 +445,14 @@ function condicaoSobrescrever(tabela, cols) {
         ` and (excluded.pareado_em is null or excluded.pareado_em <= ${q(tabela)}.revogado_em))`,
     );
   }
+  // PEDIDO DE CANAL SÓ AVANÇA (`refletirStatusExterno`): o que a loja já tirou de "novo" (aceitou, cancelou) não volta a
+  // "novo" por uma cópia da nuvem. Com o relógio daqui atrasado, o aceite sai com data ANTERIOR a uma versão da nuvem que
+  // o pull ainda vai trazer (a conferência rápida grava sem andar o cursor — ERR-280): pela data a nuvem venceria, o
+  // pedido voltaria a "novo, sem venda" e o `EdgePedidosProcessor` aceitaria de novo — venda em dobro. O cancelamento
+  // desce (não é "novo"). Mesma regra no envio para a nuvem (sync.service, `naoVoltaANovo`).
+  if (tabela === 'pedido_externo' && cols.has('status')) {
+    cond.push(`not (${q(tabela)}.status <> 'novo' and excluded.status = 'novo')`);
+  }
   const terminais = ESTADOS_TERMINAIS[tabela];
   if (terminais && cols.has('status')) {
     const lst = terminais.map((s) => `'${s}'`).join(',');
@@ -448,7 +464,9 @@ function condicaoSobrescrever(tabela, cols) {
 
 // exec = executor da query: `pool` no pull/restore normal; um CLIENT de transação no
 // restore por snapshot (carga atômica com FK desligada). Default = pool (retrocompatível).
-async function upsertLocal(tabela, row, exec = pool) {
+// condicaoExtra = mais uma condição (SQL constante deste arquivo, nunca do usuário) para sobrescrever a linha que já
+// existe aqui — a conferência rápida dos pedidos só mexe no pedido que a loja ainda não tocou (ERR-280).
+async function upsertLocal(tabela, row, exec = pool, condicaoExtra = null) {
   const cols = await colunas(tabela);
   const keys = Object.keys(row).filter((k) => cols.has(k));
   if (!keys.includes('id')) return;
@@ -469,12 +487,29 @@ async function upsertLocal(tabela, row, exec = pool) {
   // nova (updated_at). Antes o update era incondicional → uma linha velha da nuvem
   // apagava um estado mais recente do edge (causa do dashboard/espelho inconsistente).
   // Exceções (estado terminal, revogação) em `condicaoSobrescrever`.
-  const whereSql = condicaoSobrescrever(tabela, cols);
-  await exec.query(
+  const base = condicaoSobrescrever(tabela, cols);
+  const whereSql = condicaoExtra ? (base ? `${base} and (${condicaoExtra})` : ` where ${condicaoExtra}`) : base;
+  const r = await exec.query(
     `insert into ${q(tabela)} (${keys.map(q).join(',')}) values (${ph.join(',')})
      on conflict (id) ${setSql}${whereSql}`,
     vals,
   );
+  return r?.rowCount ?? 0; // 0 = a cópia daqui era mais nova (ou terminal): nada mudou
+}
+
+// Só CRIA a linha que falta aqui; a que já existe fica como está (`on conflict do nothing`). Para o que a conferência
+// rápida dos pedidos traz junto (ERR-280): ela devolve a linha inteira a cada vez, e sobrescrever um cadastro de cliente
+// ou um pagamento desfaria o que a loja mudou e ainda não subiu — atualizar continua sendo do pull.
+async function inserirSeFaltar(tabela, row, exec = pool) {
+  const cols = await colunas(tabela);
+  const keys = Object.keys(row).filter((k) => cols.has(k));
+  if (!keys.includes('id')) return 0;
+  const r = await exec.query(
+    `insert into ${q(tabela)} (${keys.map(q).join(',')}) values (${keys.map((_, i) => `$${i + 1}`).join(',')})
+     on conflict (id) do nothing`,
+    keys.map((k) => coerce(row[k])),
+  );
+  return r?.rowCount ?? 0;
 }
 
 // Upsert em LOTE (INSERT multi-linha) — 1 request por bloco no lugar de 1 por linha.
@@ -1383,6 +1418,13 @@ async function coletarSaude() {
     const d = await getState('relogio_desvio_s', '');
     if (d !== '') saude.relogioDesvioS = Number(d); // + adiantado, − atrasado (segundos)
   } catch { /* */ }
+  // Conferência rápida dos pedidos (ERR-280): quando deu certo pela última vez e as falhas seguidas — o console vê se ela
+  // parou (o pedido então desce só pelo ciclo).
+  saude.conferenciaPedidos = {
+    okEm: conferenciaOkEm ? conferenciaOkEm.toISOString() : null,
+    falhas: conferenciaFalhasSeguidas,
+    intervaloMs: PEDIDOS_INTERVALO_MS,
+  };
   try {
     saude.restaurando = (await getState('restaurando', '0')) === '1';
     saude.restoreProgresso = Number(await getState('restore_progresso', '0')) || 0;
@@ -1775,6 +1817,204 @@ async function verificarComandos(jaRecebidos) {
   } catch { /* sem rede — tenta no próximo ciclo */ }
 }
 
+// ===== CONFERÊNCIA RÁPIDA DOS PEDIDOS (ERR-280) =====
+// A cada ~30 s, fora do ciclo: a nuvem diz quais pedidos desta loja este servidor precisa ter (os que esperam a loja e os
+// que mudaram nos últimos 5 min — id e versão); o que falta aqui, ou está mais velho, é pedido PELO ID e gravado com a
+// regra do pull. Não depende do cursor: um pedido com data anterior ao cursor (o eco do envio com o relógio daqui
+// adiantado, uma gravação que terminou tarde na nuvem) nunca desceria pelo pull. Depois de gravado, o
+// `EdgePedidosProcessor` aceita em até 15 s, como o que desce pelo ciclo.
+let gravandoDaNuvem = false; // pull ou restauração gravando aqui: a conferência espera a próxima vez
+let bancoPronto = false; // a empresa já está aqui (instalação nova: só depois da primeira carga)
+let conferenciaEmCurso = null; // a promessa da conferência em curso — o ciclo espera por ela antes do pull
+let conferenciaFalhasSeguidas = 0;
+let conferenciaPausadaAte = 0;
+let conferenciaOkEm = null;
+// O pedido que a LOJA já tocou (aceitou, cancelou) a conferência NUNCA sobrescreve — nem escolhe para pedir. Com o
+// relógio daqui atrasado (−11 s na loja em 22/10), o aceite sai com data ANTERIOR a uma mudança recente da nuvem
+// (pagamento aprovado, por exemplo): pela data, a versão da nuvem pareceria mais nova, a conferência a traria de volta
+// como "novo, sem venda" e o `EdgePedidosProcessor` aceitaria de novo — venda em dobro. O pull não faz isso (o cursor não
+// reaplica a versão que já trouxe). O que a loja já tocou segue só pelo pull, como antes.
+const PEDIDO_AINDA_NAO_TOCADO = "pedido_externo.status = 'novo' and pedido_externo.comanda_id is null";
+
+// Grava o que a conferência trouxe numa transação: o cliente e o pagamento que FALTAM (só cria — `inserirSeFaltar`) e o
+// pedido com a regra do pull (a mais nova vence, colunas em reconciliação). NUNCA mexe no cursor nem fecha
+// reconciliação: é um pedaço do que o pull traria, não o pull (fechar a tabela com uma resposta parcial a daria por
+// completa). Linha com erro do próprio dado é pulada e avisada; erro de recurso do banco derruba e tenta na próxima vez.
+async function gravarPedidosDaNuvem(tabelas) {
+  const pedidos = Array.isArray(tabelas?.pedido_externo) ? tabelas.pedido_externo : [];
+  if (!pedidos.length) return { gravados: 0, foraDoCursor: 0 };
+  let gravados = 0;
+  const falhas = [];
+  const cli = await pool.connect();
+  try {
+    await cli.query('begin');
+    const tx = transacaoDoPull(cli);
+    let fila = {};
+    try { fila = await recon.fila(); } catch { fila = {}; }
+    const criar = async (tabela, rows) => {
+      for (const row of Array.isArray(rows) ? rows : []) {
+        try {
+          await tx.tentar(() => inserirSeFaltar(tabela, row, cli));
+        } catch (e) {
+          if (ehErroDeRecurso(e)) throw e;
+          falhas.push([tabela, e]);
+        }
+      }
+    };
+    await criar('cliente', tabelas.cliente); // antes do pedido: a chave estrangeira cliente_id
+    for (const row of pedidos) {
+      try {
+        await tx.tentar(async () => {
+          // A trava vai NA gravação (atômica): o aceite pode ter acontecido entre a comparação e aqui.
+          const n = await upsertLocal('pedido_externo', row, cli, PEDIDO_AINDA_NAO_TOCADO);
+          gravados += n;
+          if (n) await recon.aplicarLinha(fila, 'pedido_externo', row, cli);
+        });
+      } catch (e) {
+        if (ehErroDeRecurso(e)) throw e;
+        if (e.code === '23503' && row.cliente_id) {
+          // O cliente não chegou (nem nesta resposta): entra sem ele, como no pull — nome e telefone vêm no pedido.
+          try {
+            await tx.tentar(async () => {
+              gravados += await upsertLocal('pedido_externo', { ...row, cliente_id: null }, cli, PEDIDO_AINDA_NAO_TOCADO);
+            });
+            continue;
+          } catch (e2) {
+            if (ehErroDeRecurso(e2)) throw e2;
+            falhas.push(['pedido_externo', e2]);
+            continue;
+          }
+        }
+        falhas.push(['pedido_externo', e]);
+      }
+    }
+    await criar('pedido_externo_pagamento', tabelas.pedido_externo_pagamento);
+    await cli.query('commit');
+  } catch (e) {
+    try { await cli.query('rollback'); } catch { /* ignore */ }
+    throw e;
+  } finally {
+    cli.release();
+  }
+  if (falhas.length) {
+    const amostra = falhas.slice(0, 3).map(([t, e]) => `${t}: ${e.code || ''} ${e.message}`).join(' | ');
+    console.error(`  ⚠ conferência de pedidos: ${falhas.length} linha(s) não gravada(s) — ${amostra}`);
+    await reportarTelemetria('sync', 'conferencia_pedidos_linha', `${falhas.length} linha(s): ${amostra}`);
+  }
+  return { gravados, foraDoCursor: await contarForaDoCursor(pedidos) };
+}
+
+// Quantos dos pedidos que a conferência trouxe estavam ATRÁS do cursor do pull — o pull já tinha passado da versão deles
+// e nunca os traria (o ERR-280 acontecendo). Vai para a telemetria: é a prova, ou não, de que isso ocorre na loja.
+// Comparação no Postgres, com a versão completa (`__v`, microssegundo) e a mesma ordem do keyset da nuvem.
+async function contarForaDoCursor(pedidos) {
+  try {
+    const cursores = JSON.parse(await getState('pull_cursores', '{}')) || {};
+    const cur = String(cursores.pedido_externo ?? '');
+    if (!cur) return 0;
+    const p = cur.indexOf('|');
+    const ts = p >= 0 ? cur.slice(0, p) : cur;
+    const cid = p >= 0 ? cur.slice(p + 1) : '';
+    const comVersao = pedidos.filter((x) => x?.__v && x?.id);
+    if (!comVersao.length) return 0;
+    const r = await pool.query(
+      `select count(*)::int as n from unnest($1::timestamptz[], $2::uuid[]) as x(v, id)
+        where x.v < $3::timestamptz or (x.v = $3::timestamptz and ($4 = '' or x.id <= nullif($4, '')::uuid))`,
+      [comVersao.map((x) => x.__v), comVersao.map((x) => x.id), ts, cid],
+    );
+    return r.rows[0]?.n ?? 0;
+  } catch {
+    return 0; // só observação: nunca derruba a conferência
+  }
+}
+
+// Uma conferência. Nunca rejeita (V3): o laço e o modo de teste só olham o resultado.
+async function conferirPedidos({ forcar = false } = {}) {
+  if (!bancoPronto && !gravandoDaNuvem) {
+    try {
+      bancoPronto = (await pool.query('select exists (select 1 from empresa) as ok')).rows[0]?.ok === true;
+    } catch { /* banco fora agora: espera a próxima */ }
+  }
+  const esperar = forcar
+    ? null
+    : motivoParaEsperar({ gravandoDaNuvem, bancoPronto, pausadoAte: conferenciaPausadaAte });
+  if (esperar) return { esperou: esperar };
+  try {
+    const res = await fetchT(`${CLOUD}/sync/pedidos-pendentes`, { headers: { 'x-sync-token': TOKEN } }, CONFERENCIA_TIMEOUT_MS);
+    if (res.status === 404) {
+      // Nuvem antes do deploy (ou servidor apontado para outra loja local): o pedido segue pelo ciclo.
+      conferenciaPausadaAte = Date.now() + PAUSA_SEM_ROTA_MS;
+      return { semRota: true };
+    }
+    if (!res.ok) throw new Error(`lista dos pedidos HTTP ${res.status}: ${String(await res.text()).slice(0, 200)}`);
+    const { ids, versoes } = listaDaNuvem(await res.json());
+    let gravados = 0;
+    let foraDoCursor = 0;
+    let faltavam = 0;
+    if (ids.length) {
+      // O que falta aqui ou está mais velho — no Postgres, com a versão inteira (a nuvem manda como o pull manda).
+      // Falta aqui, ou está mais velho E a loja ainda não tocou nele (`PEDIDO_AINDA_NAO_TOCADO`). Na ordem da lista: o que
+      // espera a loja vem primeiro (a nuvem ordena).
+      const r = await pool.query(
+        `select x.id::text as id
+           from unnest($1::uuid[], $2::timestamptz[]) with ordinality as x(id, v, ordem)
+           left join pedido_externo on pedido_externo.id = x.id
+          where pedido_externo.id is null
+             or (pedido_externo.updated_at < x.v and ${PEDIDO_AINDA_NAO_TOCADO})
+          order by x.ordem`,
+        [ids, versoes],
+      );
+      const faltam = r.rows.map((x) => x.id).slice(0, LIMITE_POR_ID);
+      faltavam = faltam.length;
+      if (faltam.length) {
+        const res2 = await fetchT(`${CLOUD}/sync/pedidos-pendentes`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-sync-token': TOKEN },
+          body: JSON.stringify({ ids: faltam }),
+        }, CONFERENCIA_TIMEOUT_MS);
+        if (!res2.ok) throw new Error(`pedidos pelo id HTTP ${res2.status}: ${String(await res2.text()).slice(0, 200)}`);
+        const data = await res2.json();
+        ({ gravados, foraDoCursor } = await gravarPedidosDaNuvem(data?.tabelas ?? {}));
+        console.log(
+          `pedidos: ${gravados} pedido(s) gravado(s) pela conferência rápida (faltavam ${faltam.length})` +
+            (foraDoCursor ? ` — ${foraDoCursor} estava(m) ATRÁS do cursor do pull (não desceria(m) por ele)` : ''),
+        );
+        if (foraDoCursor) {
+          await reportarTelemetria(
+            'sync', 'pedido_fora_do_cursor',
+            `${foraDoCursor} pedido(s) atrás do cursor do pull trazido(s) pela conferência rápida (ERR-280)`,
+          );
+        }
+      }
+    }
+    if (conferenciaFalhasSeguidas > 0) console.log(`pedidos: conferência rápida voltou (${conferenciaFalhasSeguidas} falha(s) antes)`);
+    conferenciaFalhasSeguidas = 0;
+    conferenciaOkEm = new Date();
+    return { lista: ids.length, faltavam, gravados, foraDoCursor };
+  } catch (e) {
+    conferenciaFalhasSeguidas++;
+    const causa = causaErro(e);
+    // Uma linha na 1ª falha e a cada 10 — o ciclo segue trazendo os pedidos; a conferência não enche o log a cada 30 s.
+    if (conferenciaFalhasSeguidas === 1 || conferenciaFalhasSeguidas % 10 === 0) {
+      console.warn(`pedidos: conferência rápida falhou (${conferenciaFalhasSeguidas}× seguida(s)): ${causa}`);
+    }
+    if (avisarFalha(conferenciaFalhasSeguidas)) {
+      await reportarTelemetria('sync', 'conferencia_pedidos_falhando', `${conferenciaFalhasSeguidas} falhas seguidas: ${causa}`);
+    }
+    return { erro: causa };
+  }
+}
+
+// O laço da conferência: setTimeout encadeado (nunca dois ao mesmo tempo) com espalhamento de ±20%.
+function agendarConferencia() {
+  if (!(PEDIDOS_INTERVALO_MS > 0)) return;
+  setTimeout(async () => {
+    conferenciaEmCurso = conferirPedidos().catch(() => undefined);
+    try { await conferenciaEmCurso; } finally { conferenciaEmCurso = null; }
+    agendarConferencia();
+  }, proximaConferencia(PEDIDOS_INTERVALO_MS));
+}
+
 // Trava de reentrância: se um ciclo demora mais que o intervalo (ex.: push preso em
 // timeout 524 da origem), o setInterval NÃO pode disparar outro por cima — senão viram
 // pushes CONCORRENTES (seq fora de ordem, dados duplicados) que sobrecarregam a nuvem
@@ -1836,7 +2076,14 @@ async function ciclo() {
     // Rodando depois do push, a loja chegaria a empurrar linhas que vai apagar na sequência.
     try { await limparEscopoDeOutrasLojas(); } catch (e) { console.warn(`limpeza de escopo: ${e.message}`); }
     try {
-      p = await pull();
+      // A conferência rápida dos pedidos em curso termina antes: as duas gravando as mesmas linhas se travariam (ERR-280).
+      if (conferenciaEmCurso) await conferenciaEmCurso;
+      gravandoDaNuvem = true;
+      try {
+        p = await pull();
+      } finally {
+        gravandoDaNuvem = false;
+      }
       u = await push();
       // Envio adiado (429 "em curso" ou passou do tempo, ERR-278): o pull rodou e o resto subiu — não é falha, não estica
       // o intervalo nem tira o servidor de "vivo" para a nuvem. Adiado muitos ciclos seguidos vira falha.
@@ -1865,6 +2112,8 @@ async function ciclo() {
       // 502-por-lote/FK/cursor, "não carregava local" — decisão do gestor 01/09). Baixa UM
       // arquivo da nuvem e carrega numa transação com FK desligada. Sem fallback pro
       // page-by-page: se falhar, loga/telemetra e o gestor re-dispara (a flag já foi consumida).
+      if (conferenciaEmCurso) await conferenciaEmCurso;
+      gravandoDaNuvem = true; // a conferência rápida dos pedidos espera a carga (ERR-280)
       try {
         await restaurarSnapshot();
       } catch (e) {
@@ -1872,6 +2121,8 @@ async function ciclo() {
         console.error(`Restore (snapshot) FALHOU: ${causa}`);
         try { await setState('restore_erro', String(causa).slice(0, 500)); } catch { /* best-effort */ }
         await reportarTelemetria('sync', 'snapshot_erro', causa);
+      } finally {
+        gravandoDaNuvem = false;
       }
     }
     await licenca();
@@ -2125,7 +2376,10 @@ async function updateCheckSeJanela() {
   }
 }
 
-console.log(`Daemon de sync — edge=${EDGE_DB.replace(/:[^:@/]*@/, ':****@')} cloud=${CLOUD} intervalo=${INTERVAL}ms`);
+console.log(
+  `Daemon de sync — edge=${EDGE_DB.replace(/:[^:@/]*@/, ':****@')} cloud=${CLOUD} intervalo=${INTERVAL}ms` +
+    ` conferência de pedidos=${PEDIDOS_INTERVALO_MS > 0 ? `${PEDIDOS_INTERVALO_MS}ms` : 'desligada'}`,
+);
 
 // BLINDAGEM GLOBAL: um erro assíncrono solto (ex.: Postgres ainda em recuperação no
 // boot → 57P03 no ensureState; rejeição sem catch) NÃO pode matar o processo. Sem isto,
@@ -2223,6 +2477,17 @@ if (process.argv.includes('--pendencias')) {
   process.exit(codigo);
 }
 
+// --conferir-pedidos: UMA conferência rápida dos pedidos (ERR-280) e sai — para teste e diagnóstico ("o pedido X está
+// na nuvem e não chegou aqui?"). Não espera nada (nem o banco ter a empresa): é pedido explícito.
+// 0 = conferiu (com ou sem pedido trazido); 1 = falhou (a causa vai na saída).
+if (process.argv.includes('--conferir-pedidos')) {
+  try { await ensureState(); } catch (e) { console.error(`ensureState: ${causaErro(e)}`); }
+  const r = await conferirPedidos({ forcar: true });
+  console.log(`conferir-pedidos: ${JSON.stringify(r)}`);
+  try { await pool.end(); } catch { /* ignore */ }
+  process.exit(r?.erro ? 1 : 0);
+}
+
 // --um-ciclo: roda UM ciclo completo (pull, push, restauração pedida, batida) e sai — para teste
 // e diagnóstico; o serviço segue no agendamento normal. 0 = sincronizou; 1 = o sync falhou.
 if (process.argv.includes('--um-ciclo')) {
@@ -2270,3 +2535,5 @@ try {
 // Primeiro ciclo com atraso aleatório curto: 5.000 lojas voltando juntas depois de uma queda
 // não podem bater no mesmo segundo.
 setTimeout(agendar, Math.round(Math.random() * Math.min(INTERVAL, 15000)));
+// A conferência rápida dos pedidos (ERR-280), no seu próprio ritmo (~30 s), ao lado do ciclo.
+agendarConferencia();

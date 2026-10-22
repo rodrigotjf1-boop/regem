@@ -3,6 +3,8 @@ import type { Response } from 'express';
 import { SyncService } from './sync.service';
 import { SyncCtx, SyncCtxData, SyncTokenGuard } from './sync-token.guard';
 import { SyncPushDto } from './dto/push.dto';
+import { PedidosPorIdDto } from './dto/pedidos-por-id.dto';
+import { CloudOnly } from '../../common/cloud-only.decorator';
 
 // API de sync consumida pelo SERVIDOR LOCAL (ver docs/arquitetura-edge.md).
 // Autenticada por TOKEN DE DISPOSITIVO ('servidor_local'), escopada ao tenant do token.
@@ -31,6 +33,21 @@ export class SyncController {
   @Get('snapshot')
   snapshot(@SyncCtx() ctx: SyncCtxData, @Res() res: Response) {
     return this.service.snapshot(ctx.tenantId, res, ctx.unidadeId);
+  }
+
+  // Conferência rápida dos pedidos (ERR-280): a cada ~30 s o servidor da loja pergunta quais pedidos desta loja ele
+  // precisa ter (id e versão) e pede pelo id o que falta — sem depender do cursor do pull. Só a nuvem responde: no
+  // servidor da loja é 404 (`@CloudOnly`).
+  @Get('pedidos-pendentes')
+  @CloudOnly()
+  pedidosPendentes(@SyncCtx() ctx: SyncCtxData) {
+    return this.service.pedidosPendentes(ctx.tenantId, ctx.unidadeId);
+  }
+
+  @Post('pedidos-pendentes')
+  @CloudOnly()
+  pedidosPorId(@SyncCtx() ctx: SyncCtxData, @Body() dto: PedidosPorIdDto) {
+    return this.service.pedidosPorId(ctx.tenantId, dto.ids, ctx.unidadeId);
   }
 
   @Post('push')

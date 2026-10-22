@@ -191,6 +191,73 @@ export class SyncService {
     return Number((r.rows ?? r)[0]?.n ?? 0) > 1 ? unidadeId : null;
   }
 
+  // ===== CONFERÊNCIA RÁPIDA DOS PEDIDOS (ERR-280) =====
+  // O servidor da loja pergunta a cada ~30 s quais pedidos desta loja ele precisa ter, e pede PELO ID o que falta lá ou
+  // está mais velho. Não depende do cursor do pull: o cursor anda pela data, e um pedido gravado com data anterior a ele
+  // (o eco do envio de um servidor com o relógio adiantado, uma gravação que termina tarde aqui) nunca desceria por ele.
+  // Dois grupos: o que ainda espera a loja (novo, sem venda, das últimas 24 h) e tudo o que mudou nos últimos 5 min (o
+  // cancelamento do canal, o pagamento aprovado). Mesmo escopo do pull: empresa do token, loja do servidor (empresa com
+  // mais de uma), janela de espelho. A versão é a própria `updated_at` da linha, do mesmo jeito que o pull e o pedido pelo
+  // id a entregam: é com ela que a cópia da loja foi gravada, e outra forma de escrever a mesma data (milissegundo, outro
+  // fuso) daria "mais velho" para sempre — o servidor pediria o mesmo pedido a cada conferência.
+  async pedidosPendentes(tenantId: string, unidadeId?: string | null) {
+    const colunas = await this.colunasDe('pedido_externo');
+    const porLoja = filtroLoja('pedido_externo', colunas, await this.lojaDoEdge(tenantId, unidadeId));
+    const dias = await this.mirrorDias(tenantId);
+    const r: any = await this.db.execute(sql`
+      select id, updated_at from pedido_externo
+       where tenant_id = ${tenantId}${porLoja}
+         and updated_at >= now() - (${dias} * interval '1 day')
+         and ((status = 'novo' and comanda_id is null and deleted_at is null and criado_em > now() - interval '24 hours')
+              or updated_at > now() - interval '5 minutes')
+       order by (status = 'novo' and comanda_id is null) desc, updated_at desc
+       limit ${LIMITE_PEDIDOS_PENDENTES}`);
+    return { pedidos: (r.rows ?? r).map((x: any) => ({ id: String(x.id), v: x.updated_at })) };
+  }
+
+  // As linhas que o servidor da loja pediu na conferência rápida: os pedidos (mesmo escopo da lista — id de outra empresa
+  // ou de outra loja não volta), os pagamentos deles e os clientes a que eles apontam (a chave estrangeira do pedido).
+  // `__v` = a versão completa, só para o servidor saber se o cursor do pull já tinha passado do pedido (telemetria).
+  async pedidosPorId(tenantId: string, ids: string[], unidadeId?: string | null) {
+    const validos = [...new Set((Array.isArray(ids) ? ids : []).map(String).filter((x) => UUID.test(x)))].slice(
+      0,
+      LIMITE_PEDIDOS_POR_ID,
+    );
+    const vazio = { tabelas: { cliente: [], pedido_externo: [], pedido_externo_pagamento: [] } };
+    if (!validos.length) return vazio;
+    const colunas = await this.colunasDe('pedido_externo');
+    const porLoja = filtroLoja('pedido_externo', colunas, await this.lojaDoEdge(tenantId, unidadeId));
+    const linhas = (r: any): any[] => r.rows ?? r;
+    const pedidos = linhas(
+      await this.db.execute(sql`
+        select *, updated_at::text as __v from pedido_externo
+         where tenant_id = ${tenantId}${porLoja}
+           and id in (${sql.join(validos.map((id) => sql`${id}::uuid`), sql`, `)})`),
+    );
+    if (!pedidos.length) return vazio;
+    const idsPedidos = pedidos.map((p) => sql`${String(p.id)}::uuid`);
+    const idsClientes = [...new Set(pedidos.map((p) => p.cliente_id).filter(Boolean).map(String))];
+    const pagamentos = linhas(
+      await this.db.execute(sql`
+        select * from pedido_externo_pagamento
+         where tenant_id = ${tenantId} and pedido_externo_id in (${sql.join(idsPedidos, sql`, `)})`),
+    );
+    const clientes = idsClientes.length
+      ? linhas(
+          await this.db.execute(sql`
+            select * from cliente
+             where tenant_id = ${tenantId} and id in (${sql.join(idsClientes.map((id) => sql`${id}::uuid`), sql`, `)})`),
+        )
+      : [];
+    return {
+      tabelas: {
+        cliente: semSegredos('cliente', clientes),
+        pedido_externo: semSegredos('pedido_externo', pedidos),
+        pedido_externo_pagamento: semSegredos('pedido_externo_pagamento', pagamentos),
+      },
+    };
+  }
+
   // RESTAURAÇÃO (nuvem → edge, sob demanda): deltas das tabelas TRANSACIONAIS.
   // Mesma mecânica do pull, outra whitelist (TABELAS_RESTORE). O edge faz UPSERT
   // por id (aditivo). Autenticado pelo mesmo sync token (tenant forçado).
@@ -559,6 +626,13 @@ export class SyncService {
             ? sql` and not (producao_pedido.status in ('entregue', 'cancelado') and excluded.status not in ('entregue', 'cancelado'))
                    and not (producao_pedido.status = 'cancelado' and excluded.status <> 'cancelado')`
             : sql``;
+        // PEDIDO DE CANAL SÓ AVANÇA (`refletirStatusExterno`): o que saiu de "novo" aqui (aceito, cancelado) não volta a
+        // "novo" por uma cópia da loja, mesmo "mais nova" pela data — os relógios são diferentes. Mesma regra no pull do
+        // servidor da loja (sync-daemon, `condicaoSobrescrever`), ERR-280.
+        const naoVoltaANovo =
+          lote.tabela === 'pedido_externo' && colunas.has('status')
+            ? sql` and not (pedido_externo.status <> 'novo' and excluded.status = 'novo')`
+            : sql``;
         // LWW (update-se-mais-nova) p/ tabela com updated_at; senão do-nothing (append imutável).
         const conflito =
           (modo === 'lww' || colunas.has('updated_at')) && setCols.length && colunas.has(lwwCol)
@@ -567,7 +641,7 @@ export class SyncService {
                 sql`, `,
               )}
               where ${sql.identifier(lote.tabela)}.tenant_id = excluded.tenant_id
-                and ${sql.identifier(lote.tabela)}.${sql.identifier(lwwCol)} < excluded.${sql.identifier(lwwCol)}${naoDesfazRevogacao}${naoReabreCartao}`
+                and ${sql.identifier(lote.tabela)}.${sql.identifier(lwwCol)} < excluded.${sql.identifier(lwwCol)}${naoDesfazRevogacao}${naoReabreCartao}${naoVoltaANovo}`
             : sql`on conflict (id) do nothing`;
         const linhaVals = (linha: any) =>
           sql`(${sql.join([tenantId, ...cols.map((c) => coagir(linha[c]))].map((v) => sql`${v}`), sql`, `)})`;
@@ -728,6 +802,23 @@ async function aplicarExclusoesTx(tx: any, tenantId: string, linhas: any[]): Pro
     if (resta.length === pendentes.length) break;
     pendentes = resta;
   }
+}
+
+// Conferência rápida dos pedidos (ERR-280): tetos da lista e do pedido pelo id. Uma loja não tem 500 pedidos esperando nem
+// mudando em 5 minutos; o teto só impede uma resposta sem fim.
+const LIMITE_PEDIDOS_PENDENTES = 500;
+const LIMITE_PEDIDOS_POR_ID = 200;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Colunas que nunca descem (REDIGIR), fora do pull: a mesma regra para quem devolve linha inteira.
+function semSegredos(tabela: string, rows: any[]): any[] {
+  const segredos = REDIGIR[tabela];
+  if (!segredos?.length) return rows;
+  return rows.map((row) => {
+    const c = { ...row };
+    for (const s of segredos) delete c[s];
+    return c;
+  });
 }
 
 // Exceção da janela: registro ainda aberto desce mesmo antigo (ver JANELA_ABERTOS).

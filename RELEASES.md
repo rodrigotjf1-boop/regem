@@ -29,6 +29,21 @@
   o instala (a tarefa roda o `atualizar.ps1` instalado — ERR-253): se a 1.30.8 parar em 2%, instalar pelo `.exe`.
   Conferir na loja: o log do sync sem "sync FALHOU: push HTTP 429"; numa atualização futura, a barra passa por
   "retomando" e termina.
+- **Pedido de canal na loja em até ~30 s, pelo id (conferência rápida, ERR-280; sem migration):** as duas pontas. A
+  NUVEM vale no deploy: `GET`/`POST /sync/pedidos-pendentes` (`@CloudOnly`) — a lista do que a loja precisa ter (novo
+  sem venda das últimas 24 h + o que mudou em 5 min, id e versão) e as linhas pelo id (pedido, pagamentos, cliente). O
+  SERVIDOR DA LOJA só no `.zip` e no `.exe` (toca `backend/edge/`): `sync-daemon.mjs` + `edge/sync-pedidos-rapido.mjs`
+  (novo) perguntam a cada ~30 s (±20%; `SYNC_PEDIDOS_INTERVALO_MS`, 0 desliga), comparam com o que têm e gravam o que
+  falta com a regra do pull — sem mexer no cursor; cliente e pagamento só são CRIADOS; o pedido que a loja já tocou
+  (aceitou, cancelou) NUNCA é sobrescrito nem pedido (com o relógio da loja atrasado, o aceite pareceria mais velho que
+  uma mudança da nuvem e voltaria a "novo" — venda em dobro). E o pedido SÓ AVANÇA nos dois sentidos do sync: o que saiu
+  de "novo" não volta a "novo" — no envio que chega à nuvem (vale no deploy) e no pull da loja (`condicaoSobrescrever`,
+  no `.zip`); o cancelamento continua descendo. Pedido que estava atrás do cursor
+  do pull (não desceria nunca) vai para a telemetria `pedido_fora_do_cursor`; a saúde do servidor ganha
+  `conferenciaPedidos` (última ok, falhas). Medido de ponta a ponta (nuvem e loja locais, ciclo em 10 min; duas
+  rodadas): o pedido chegou à loja em 6–31 s (médias 15 e 14 s) e virou venda em 14–35 s (médias 23 e 18 s); com a
+  "nuvem" mostrando um aceito como "novo" e mais novo, a loja manteve a venda. Conferir na loja: o log do sync com
+  "pedidos: N pedido(s) gravado(s) pela conferência rápida"; o tempo entre `pedido_externo.criado_em` e a comanda.
 - **A corrigir no próximo corte** (sem PR ainda): o status do backup que o servidor da loja
   manda à nuvem chega ilegível — o `backup.ps1` grava `ultimo-backup.json` com BOM (`[Text.Encoding]::UTF8`) e o
   daemon faz `JSON.parse` sem tirar o BOM; a nuvem vê "backup falhou" em toda loja desde o #546, mesmo com o backup
