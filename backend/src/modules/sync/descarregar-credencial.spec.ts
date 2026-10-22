@@ -392,7 +392,11 @@ async function nuvemDoEnvio(push: (n: number, lotes: any[]) => { status: number;
 }
 
 /** Roda o daemon real (`--descarregar` ou `--um-ciclo`) com o ambiente dado. */
-function rodarDaemon(modo: '--descarregar' | '--um-ciclo', cloud: string, extra: Record<string, string>): Promise<{ codigo: number; saida: string }> {
+function rodarDaemon(
+  modo: '--descarregar' | '--um-ciclo' | '--conferir-pedidos',
+  cloud: string,
+  extra: Record<string, string>,
+): Promise<{ codigo: number; saida: string }> {
   return new Promise((resolve) => {
     const p = spawn(process.execPath, [DAEMON, modo], {
       env: {
@@ -531,6 +535,347 @@ descrever('envio adiado: 429 "em curso" e envio que passou do tempo (ERR-278)', 
       expect(r.codigo).toBe(0);
       expect(comLinhas(nuvem.envios)).toHaveLength(1);
       expect(await estado('sync_falhando_desde')).toBe('');
+    } finally {
+      nuvem.srv.close();
+    }
+  });
+});
+
+// ===== CONFERÊNCIA RÁPIDA DOS PEDIDOS (ERR-280) =====
+// O pull anda por um cursor de data, e um pedido gravado com data anterior a ele nunca desceria (o eco do envio com o
+// relógio da loja adiantado, uma gravação que termina tarde na nuvem). A cada ~30 s o servidor da loja pergunta quais
+// pedidos ele precisa ter (id e versão) e pede PELO ID o que falta. Aqui, o daemon real (`--conferir-pedidos`) contra uma
+// nuvem falsa, com o banco do teste fazendo de banco da loja. Mesmo arquivo dos blocos acima: todos mexem no `sync_state`.
+
+/**
+ * Nuvem falsa da conferência: `lista()` responde a pergunta; `porId(ids)`, o pedido pelo id; `pull()`, o pull do ciclo.
+ * Guarda o que foi pedido. O resto (envio, batida, licença) responde 200 vazio.
+ */
+async function nuvemDaConferencia(o: {
+  lista: () => { status: number; corpo?: any };
+  porId?: (ids: string[]) => { status: number; corpo?: any };
+  pull?: () => any;
+}) {
+  const porIdPedidos: string[][] = [];
+  const telemetria: any[] = [];
+  const srv: Server = createServer((req, res) => {
+    let b = '';
+    req.on('data', (c) => (b += c));
+    req.on('end', () => {
+      const u = req.url ?? '';
+      const responder = (status: number, corpo: any) => {
+        res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify(corpo));
+      };
+      let corpo: any = {};
+      try {
+        corpo = JSON.parse(b || '{}');
+      } catch {
+        /* corpo não-JSON */
+      }
+      if (u.startsWith('/api/v1/sync/pedidos-pendentes') && req.method === 'GET') {
+        const r = o.lista();
+        return responder(r.status, r.corpo ?? {});
+      }
+      if (u.startsWith('/api/v1/sync/pedidos-pendentes') && req.method === 'POST') {
+        porIdPedidos.push(corpo.ids ?? []);
+        const r = o.porId ? o.porId(corpo.ids ?? []) : { status: 500, corpo: { message: 'sem resposta' } };
+        return responder(r.status, r.corpo ?? {});
+      }
+      if (u.startsWith('/api/v1/edge/telemetria')) {
+        telemetria.push(corpo);
+        return responder(201, {});
+      }
+      if (u.startsWith('/api/v1/sync/pull')) return responder(200, o.pull ? o.pull() : { tabelas: {}, cursores: {} });
+      if (u.startsWith('/api/v1/sync/push')) return responder(201, {});
+      if (u.startsWith('/api/v1/edge/comandos')) return responder(200, []);
+      return responder(200, {});
+    });
+  });
+  await new Promise<void>((ok) => srv.listen(0, '127.0.0.1', () => ok()));
+  return { srv, porIdPedidos, telemetria, url: `http://127.0.0.1:${(srv.address() as AddressInfo).port}/api/v1` };
+}
+
+descrever('conferência rápida dos pedidos (ERR-280)', () => {
+  const pool = new Pool({ connectionString: URL_PG });
+  const q = (s: string, p: any[] = []) => pool.query(s, p).then((r) => r.rows);
+  // Gravação como a do daemon (sessão marcada como sync): o carimbo não troca a versão e a exclusão não vira registro.
+  const comoSync = async (s: string, p: any[] = []) => {
+    const c = await pool.connect();
+    try {
+      await c.query('begin');
+      await c.query(`select set_config('regem.sync', 'on', true)`);
+      const r = await c.query(s, p);
+      await c.query('commit');
+      return r.rows;
+    } catch (e) {
+      await c.query('rollback');
+      throw e;
+    } finally {
+      c.release();
+    }
+  };
+  let estadoAntes: { chave: string; valor: string }[] = [];
+  let tabelaExistia = false;
+  let E = '';
+
+  // A linha como a nuvem a manda (as datas em texto completo) + `__v`, a versão inteira.
+  const naNuvem = async (id: string) =>
+    (await q(`select to_jsonb(p) || jsonb_build_object('__v', p.updated_at::text) as j from pedido_externo p where id = $1`, [id]))[0].j;
+  const clienteNaNuvem = async (id: string) => (await q(`select to_jsonb(c) as j from cliente c where id = $1`, [id]))[0].j;
+  const novoPedido = async (display: string, cliente: string | null = null) =>
+    (await q(`insert into pedido_externo (tenant_id, canal, status, cliente_id, display_id) values ($1, 'ifood', 'novo', $2, $3) returning id`, [
+      E,
+      cliente,
+      display,
+    ]))[0].id as string;
+  const novoCliente = async (nome: string) => (await q(`insert into cliente (tenant_id, nome) values ($1, $2) returning id`, [E, nome]))[0].id as string;
+  const daLista = (...js: any[]) => ({ status: 200, corpo: { pedidos: js.map((j) => ({ id: j.id, v: j.updated_at })) } });
+  const existe = async (id: string) => (await q(`select count(*)::int as n from pedido_externo where id = $1`, [id]))[0].n === 1;
+
+  beforeAll(async () => {
+    tabelaExistia = !!(await q(`select to_regclass('public.sync_state') t`))[0].t;
+    await q(`create table if not exists sync_state (chave text primary key, valor text)`);
+    estadoAntes = await q(`select chave, valor from sync_state`);
+    E = (await q(`insert into empresa (nome) values ('Teste conferência rápida') returning id`))[0].id;
+  });
+
+  beforeEach(async () => {
+    await q(`delete from sync_state where chave = 'pull_cursores'`);
+    await comoSync(`delete from pedido_externo where tenant_id = $1`, [E]);
+    await comoSync(`delete from cliente where tenant_id = $1`, [E]);
+  });
+
+  afterAll(async () => {
+    try {
+      if (E) {
+        await comoSync(`delete from pedido_externo where tenant_id = $1`, [E]);
+        await comoSync(`delete from cliente where tenant_id = $1`, [E]);
+        await q(`delete from sync_exclusao where tenant_id = $1`, [E]).catch(() => undefined);
+        await q(`delete from sync_marcador where tenant_id = $1`, [E]).catch(() => undefined);
+        await q(`delete from empresa where id = $1`, [E]);
+      }
+      if (tabelaExistia) {
+        await q(`delete from sync_state`);
+        for (const l of estadoAntes) await q(`insert into sync_state (chave, valor) values ($1, $2)`, [l.chave, l.valor]);
+      } else {
+        await q(`drop table if exists sync_state`);
+      }
+    } finally {
+      await pool.end();
+    }
+  });
+
+  it('traz pelo id o pedido que falta aqui, com os pagamentos e o cliente novo — e não pede o que está igual ou mais novo aqui', async () => {
+    const cli = await novoCliente('Cliente novo');
+    const novo = await novoPedido('#101', cli);
+    await q(`insert into pedido_externo_pagamento (tenant_id, pedido_externo_id, forma, valor) values ($1, $2, 'pix', 30), ($1, $2, 'dinheiro', 12.5)`, [
+      E,
+      novo,
+    ]);
+    const jNovo = await naNuvem(novo);
+    const jCli = await clienteNaNuvem(cli);
+    const jPags = (await q(`select to_jsonb(p) as j from pedido_externo_pagamento p where pedido_externo_id = $1`, [novo])).map((x: any) => x.j);
+    const jIgual = await naNuvem(await novoPedido('#102'));
+    const maisNovoAqui = await novoPedido('#103');
+    const jMaisNovo = await naNuvem(maisNovoAqui);
+    // A loja ainda não recebeu o #101 (nem o cliente dele); o #103 ela mudou depois da versão que a nuvem tem.
+    await comoSync(`delete from pedido_externo where id = $1`, [novo]);
+    await comoSync(`delete from cliente where id = $1`, [cli]);
+    await comoSync(`update pedido_externo set updated_at = updated_at + interval '1 minute' where id = $1`, [maisNovoAqui]);
+
+    const nuvem = await nuvemDaConferencia({
+      lista: () => daLista(jNovo, jIgual, jMaisNovo),
+      porId: (ids) => ({
+        status: 201,
+        corpo: { tabelas: { cliente: [jCli], pedido_externo: [jNovo].filter((j) => ids.includes(j.id)), pedido_externo_pagamento: jPags } },
+      }),
+    });
+    try {
+      const r = await rodarDaemon('--conferir-pedidos', nuvem.url, {});
+      expect(r.codigo).toBe(0);
+      expect(nuvem.porIdPedidos).toEqual([[novo]]); // só o que faltava
+      expect(r.saida).toMatch(/pedidos: 1 pedido\(s\) gravado\(s\) pela conferência rápida \(faltavam 1\)/);
+      const [aqui] = await q(`select status, cliente_id, updated_at = $2::timestamptz as mesma_versao from pedido_externo where id = $1`, [
+        novo,
+        jNovo.updated_at,
+      ]);
+      expect(aqui).toEqual({ status: 'novo', cliente_id: cli, mesma_versao: true });
+      const formas = (await q(`select forma from pedido_externo_pagamento where pedido_externo_id = $1 order by forma`, [novo])).map((x: any) => x.forma);
+      expect(formas).toEqual(['dinheiro', 'pix']);
+      // Gravado com a versão da nuvem, inteira: a próxima conferência não pede de novo (nada de laço a cada 30 s).
+      const r2 = await rodarDaemon('--conferir-pedidos', nuvem.url, {});
+      expect(r2.codigo).toBe(0);
+      expect(r2.saida).toMatch(/"faltavam":0/);
+      expect(nuvem.porIdPedidos).toHaveLength(1);
+    } finally {
+      nuvem.srv.close();
+    }
+  });
+
+  it('o pedido mais velho aqui é atualizado; o cliente que a loja já tem não é sobrescrito; sem o cliente, o pedido entra sem ele', async () => {
+    const daLoja = await novoCliente('Nome da loja');
+    const velho = await novoPedido('#201', daLoja);
+    // Na nuvem, o canal cancelou o #201 (versão mais nova) e o cliente tem outro nome.
+    await comoSync(`update pedido_externo set status = 'cancelado', updated_at = now() + interval '1 minute' where id = $1`, [velho]);
+    const jVelho = await naNuvem(velho);
+    const jClienteNuvem = { ...(await clienteNaNuvem(daLoja)), nome: 'Nome da nuvem' };
+    await comoSync(`update pedido_externo set status = 'novo', updated_at = now() where id = $1`, [velho]); // a loja ficou para trás
+    // O #202 aponta para um cliente que nem a nuvem manda.
+    const fantasma = await novoCliente('Cliente que não desce');
+    const semCliente = await novoPedido('#202', fantasma);
+    const jSem = await naNuvem(semCliente);
+    await comoSync(`delete from pedido_externo where id = $1`, [semCliente]);
+    await comoSync(`delete from cliente where id = $1`, [fantasma]);
+
+    const nuvem = await nuvemDaConferencia({
+      lista: () => daLista(jVelho, jSem),
+      porId: () => ({ status: 201, corpo: { tabelas: { cliente: [jClienteNuvem], pedido_externo: [jVelho, jSem] } } }),
+    });
+    try {
+      const r = await rodarDaemon('--conferir-pedidos', nuvem.url, {});
+      expect(r.codigo).toBe(0);
+      expect(nuvem.porIdPedidos).toEqual([[velho, semCliente]]);
+      expect((await q(`select status from pedido_externo where id = $1`, [velho]))[0].status).toBe('cancelado');
+      expect((await q(`select nome from cliente where id = $1`, [daLoja]))[0].nome).toBe('Nome da loja');
+      expect((await q(`select cliente_id from pedido_externo where id = $1`, [semCliente]))[0]).toEqual({ cliente_id: null });
+    } finally {
+      nuvem.srv.close();
+    }
+  });
+
+  it('o pedido ATRÁS do cursor do pull — que o pull nunca traria — vem pela conferência e vai para a telemetria; o cursor fica', async () => {
+    const atras = await novoPedido('#301');
+    const atras2 = await novoPedido('#302');
+    const jAtras = await naNuvem(atras);
+    const jAtras2 = await naNuvem(atras2);
+    const adiante = await novoPedido('#303');
+    await comoSync(`update pedido_externo set updated_at = now() + interval '1 minute' where id = $1`, [adiante]);
+    const jAdiante = await naNuvem(adiante);
+    await comoSync(`delete from pedido_externo where id = any($1::uuid[])`, [[atras, atras2, adiante]]);
+    // O pull já passou da versão do #301 e do #302 (o eco do envio com o relógio adiantado, ou uma gravação que terminou
+    // tarde na nuvem); o #303 está depois do cursor (o pull o traria no próximo ciclo). Dois atrás e um adiante: a conta
+    // ao contrário daria 1.
+    const [{ t }] = await q(`select (greatest($1::timestamptz, $2::timestamptz) + interval '5 seconds')::text as t`, [jAtras.__v, jAtras2.__v]);
+    const cursores = JSON.stringify({ pedido_externo: `${t}|00000000-0000-0000-0000-000000000000` });
+    await q(`insert into sync_state (chave, valor) values ('pull_cursores', $1) on conflict (chave) do update set valor = excluded.valor`, [cursores]);
+
+    const nuvem = await nuvemDaConferencia({
+      lista: () => daLista(jAtras, jAtras2, jAdiante),
+      porId: () => ({ status: 201, corpo: { tabelas: { pedido_externo: [jAtras, jAtras2, jAdiante] } } }),
+    });
+    try {
+      const r = await rodarDaemon('--conferir-pedidos', nuvem.url, {});
+      expect(r.codigo).toBe(0);
+      expect(r.saida).toMatch(/pedidos: 3 pedido\(s\) gravado\(s\) pela conferência rápida \(faltavam 3\) — 2 estava\(m\) ATRÁS do cursor do pull/);
+      expect(nuvem.telemetria.map((x) => x.tipo)).toEqual(['pedido_fora_do_cursor']);
+      expect(await existe(atras)).toBe(true);
+      expect(await existe(atras2)).toBe(true);
+      expect(await existe(adiante)).toBe(true);
+      expect((await q(`select valor from sync_state where chave = 'pull_cursores'`))[0].valor).toBe(cursores);
+    } finally {
+      nuvem.srv.close();
+    }
+  });
+
+  it('o pedido que a LOJA já tocou (aceitou, cancelou) nunca é pedido nem sobrescrito — nem com a versão da nuvem parecendo mais nova', async () => {
+    // Na nuvem: os dois ainda "novo", com uma mudança (o pagamento) DEPOIS do que a loja fez — o relógio daqui atrasado.
+    const aceito = await novoPedido('#501');
+    const cancelado = await novoPedido('#502');
+    await comoSync(`update pedido_externo set pago = true, updated_at = now() + interval '1 minute' where id = any($1::uuid[])`, [[aceito, cancelado]]);
+    const jAceito = await naNuvem(aceito);
+    const jCancelado = await naNuvem(cancelado);
+    // Na loja: um aceito (venda feita) e um cancelado, com a data do relógio daqui (antes da versão da nuvem).
+    const venda = randomUUID();
+    await comoSync(`update pedido_externo set status = 'confirmado', comanda_id = $2, updated_at = now() where id = $1`, [aceito, venda]);
+    await comoSync(`update pedido_externo set status = 'cancelado', updated_at = now() where id = $1`, [cancelado]);
+    // Um que falta, para a conferência pedir alguma coisa — e a "nuvem" devolve os dois tocados junto (a corrida: a loja
+    // agiu entre a comparação e a gravação; a trava tem de estar NA gravação).
+    const falta = await novoPedido('#503');
+    const jFalta = await naNuvem(falta);
+    await comoSync(`delete from pedido_externo where id = $1`, [falta]);
+    const nuvem = await nuvemDaConferencia({
+      lista: () => daLista(jAceito, jCancelado, jFalta),
+      porId: () => ({ status: 201, corpo: { tabelas: { pedido_externo: [jAceito, jCancelado, jFalta] } } }),
+    });
+    try {
+      const r = await rodarDaemon('--conferir-pedidos', nuvem.url, {});
+      expect(r.codigo).toBe(0);
+      expect(nuvem.porIdPedidos).toEqual([[falta]]); // os tocados nem são pedidos
+      expect(r.saida).toMatch(/pedidos: 1 pedido\(s\) gravado\(s\) pela conferência rápida \(faltavam 1\)/);
+      // E, mesmo vindo na resposta, não são sobrescritos — senão "novo" de novo, aceito de novo: venda em dobro.
+      const [a] = await q(`select status, comanda_id from pedido_externo where id = $1`, [aceito]);
+      expect(a).toEqual({ status: 'confirmado', comanda_id: venda });
+      expect((await q(`select status from pedido_externo where id = $1`, [cancelado]))[0].status).toBe('cancelado');
+      expect(await existe(falta)).toBe(true);
+    } finally {
+      nuvem.srv.close();
+    }
+  });
+
+  it('o PULL não devolve a "novo" o pedido que a loja já aceitou ou cancelou, mesmo com a data da nuvem "mais nova"; o cancelamento do canal desce', async () => {
+    const aceito = await novoPedido('#601');
+    const canceladoAqui = await novoPedido('#602');
+    const aceito2 = await novoPedido('#603');
+    // A nuvem: os três com versão 1 min depois do que a loja fez (o relógio daqui atrasado) — #601 e #602 ainda "novo" (a
+    // nuvem não soube do aceite nem do cancelamento da loja); #603 cancelado pelo canal.
+    await comoSync(`update pedido_externo set updated_at = now() + interval '1 minute' where id = any($1::uuid[])`, [[aceito, canceladoAqui, aceito2]]);
+    const jAceito = await naNuvem(aceito);
+    const jCanceladoAqui = await naNuvem(canceladoAqui);
+    const jCancelamento = { ...(await naNuvem(aceito2)), status: 'cancelado' };
+    const venda = randomUUID();
+    await comoSync(`update pedido_externo set status = 'confirmado', comanda_id = $2, updated_at = now() where id = $1`, [aceito, venda]);
+    await comoSync(`update pedido_externo set status = 'cancelado', updated_at = now() where id = $1`, [canceladoAqui]);
+    await comoSync(`update pedido_externo set status = 'confirmado', comanda_id = $2, updated_at = now() where id = $1`, [aceito2, randomUUID()]);
+    // Nada a enviar: o envio de toda tabela começa no fim (só o pull importa aqui).
+    const futuro = '2999-01-01T00:00:00Z|ffffffff-ffff-ffff-ffff-ffffffffffff';
+    const tabelas = (await q(`select distinct table_name from information_schema.columns
+                               where table_schema = current_schema() and column_name = 'tenant_id'`)).map((t: any) => t.table_name);
+    for (const t of tabelas) {
+      await q(`insert into sync_state (chave, valor) values ($1, $2) on conflict (chave) do update set valor = excluded.valor`, [`push_${t}`, futuro]);
+    }
+    const nuvem = await nuvemDaConferencia({
+      lista: () => ({ status: 200, corpo: { pedidos: [] } }),
+      pull: () => ({ tabelas: { pedido_externo: [jAceito, jCanceladoAqui, jCancelamento] }, cursores: {} }),
+    });
+    try {
+      const r = await rodarDaemon('--um-ciclo', nuvem.url, {});
+      expect(r.saida).toMatch(/sync ok/);
+      expect(r.codigo).toBe(0);
+      // Pela data a nuvem venceria; voltar a "novo, sem venda" faria a loja aceitar de novo — venda em dobro.
+      expect((await q(`select status, comanda_id from pedido_externo where id = $1`, [aceito]))[0]).toEqual({ status: 'confirmado', comanda_id: venda });
+      expect((await q(`select status from pedido_externo where id = $1`, [canceladoAqui]))[0].status).toBe('cancelado');
+      expect((await q(`select status from pedido_externo where id = $1`, [aceito2]))[0].status).toBe('cancelado'); // o canal cancelou: desce
+    } finally {
+      nuvem.srv.close();
+    }
+  });
+
+  it('nuvem sem a rota (404, antes do deploy): não é erro — o pedido segue descendo pelo ciclo', async () => {
+    const nuvem = await nuvemDaConferencia({ lista: () => ({ status: 404, corpo: { message: 'Cannot GET' } }) });
+    try {
+      const r = await rodarDaemon('--conferir-pedidos', nuvem.url, {});
+      expect(r.codigo).toBe(0);
+      expect(r.saida).toMatch(/"semRota":true/);
+      expect(nuvem.porIdPedidos).toEqual([]);
+    } finally {
+      nuvem.srv.close();
+    }
+  });
+
+  it('falha da nuvem no pedido pelo id: sai 1 com a causa e nada é gravado (a próxima conferência tenta de novo)', async () => {
+    const id = await novoPedido('#401');
+    const j = await naNuvem(id);
+    await comoSync(`delete from pedido_externo where id = $1`, [id]);
+    const nuvem = await nuvemDaConferencia({
+      lista: () => daLista(j),
+      porId: () => ({ status: 500, corpo: { message: 'erro interno' } }),
+    });
+    try {
+      const r = await rodarDaemon('--conferir-pedidos', nuvem.url, { SYNC_FETCH_RETRIES: '1' });
+      expect(r.codigo).toBe(1);
+      expect(r.saida).toMatch(/pedidos pelo id HTTP 500/);
+      expect(await existe(id)).toBe(false);
     } finally {
       nuvem.srv.close();
     }

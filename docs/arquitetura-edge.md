@@ -50,6 +50,9 @@ linhas novas desde um **cursor** — sem duplicar (upsert idempotente por PK).
 - **API de sync (na nuvem):**
   - `GET /sync/pull?desde=<ISO>` → devolve deltas das tabelas **desce/ambos** (tenant do token).
   - `POST /sync/push` → ingere deltas das tabelas **sobe/ambos** (upsert idempotente + LWW). *(slice 2)*
+  - `GET /sync/pedidos-pendentes` → os pedidos que a loja precisa ter (novo sem venda das últimas 24 h + o que mudou em
+    5 min), só id e versão; `POST /sync/pedidos-pendentes` `{ ids }` → as linhas pelo id (pedido, pagamentos, cliente).
+    O servidor da loja pergunta a cada ~30 s e grava o que falta sem mexer no cursor (conferência rápida, ERR-280).
 - **Conflito:** função pura `venceLWW(tsLocal, tsRemoto, idLocal, idRemoto)` — vence o `updated_at`
   mais novo; empate desempata por id (determinístico). Toda sobrescrita gera log.
 
@@ -57,6 +60,10 @@ linhas novas desde um **cursor** — sem duplicar (upsert idempotente por PK).
 
 - **Cursor por relógio** (`updated_at`): sujeito a *clock skew* e colisão no mesmo ms.
   **v2:** sequência monotônica atribuída pelo servidor (`bigserial`/outbox) — migration.
+  Para o **pedido de canal**, que não pode faltar, a conferência rápida pelo id (`/sync/pedidos-pendentes`, ERR-280)
+  cobre o pulo desde 22/10/2026: o pedido com data anterior ao cursor (eco do envio com o relógio da loja adiantado,
+  gravação que termina tarde na nuvem) desce assim mesmo, e a telemetria `pedido_fora_do_cursor` diz quando aconteceu.
+  As demais tabelas seguem só pelo cursor.
 - **Hard-deletes** (ex.: `ficha_ingrediente` apagado) não são capturados por cursor.
   **v2:** *tombstones* (soft-delete universal) ou change-log.
 - **Auth de serviço:** o servidor local precisa de um **token de serviço por tenant** para
@@ -78,3 +85,4 @@ linhas novas desde um **cursor** — sem duplicar (upsert idempotente por PK).
 | 2026-07-04 | Slice 2: `POST /sync/push` seguro (token de dispositivo `servidor_local`, tenant forçado, whitelist tabela+coluna, idempotente) + redação de segredos no pull. Slice 3: LWW-update para tabelas `ambos`. |
 | 2026-07-04 | Slice 4: **soft-deletes propagam no pull** (delta considera `deleted_at` por introspecção — sem trigger). **DECISÃO DE SEGURANÇA:** sequência monotônica + tombstones de **hard-delete** exigem **triggers nas tabelas centrais** — NÃO deployar sem ambiente de teste (uma trigger com erro derruba todos os writes). **Adiado para a Fase 2**, que terá Postgres local para validar o CDC antes. |
 | 2026-08-08 | **Sync espelhado + modos Local/Nuvem** (ver `sync-espelho-e-modos.md`): transacional vira `ambos`/desce, pull inicial completo, deltas bidirecionais a 60s, LWW com exceção (estado terminal local vence delta velho), RBAC de login por modo (`colaborador.pode_nuvem`), impressão nuvem→edge resolvida no edge. Prioridade LOCAL; nuvem = presidente. |
+| 2026-10-22 | **Conferência rápida dos pedidos (ERR-280):** a cada ~30 s o servidor da loja pergunta à nuvem quais pedidos de canal ele precisa ter (id e versão) e pede pelo id o que falta — o pedido chega em segundos e não depende do cursor (§4). Ver `decisoes-design.md` §6. |
