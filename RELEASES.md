@@ -12,7 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.8)
 
-- Nada mesclado ainda. **A corrigir no próximo corte** (sem PR ainda): o status do backup que o servidor da loja
+- **O envio rápido do servidor da loja fica fora da trava de push (ERR-278; sem migration):** só NUVEM — vale no
+  deploy, nada a fazer na loja. O envio rápido (flash: pedido que muda de situação, produto que esgota, pausa) e o ciclo
+  do daemon disputavam a mesma trava: no pico o ciclo levava 429, contava como falha, esticava o intervalo até 5 min e a
+  nuvem deixava de ver o servidor como vivo (pedidos de canal levando 2 a 5,5 min para descer, medido em 21/10). Agora o
+  envio rápido não pega nem solta a trava; o ciclo segue com ela. Conferir: a telemetria `sync_erro` "push HTTP 429" para
+  de subir e o `syncFalhandoDesde` do servidor volta a vazio.
+- **A corrigir no próximo corte** (sem PR ainda): o status do backup que o servidor da loja
   manda à nuvem chega ilegível — o `backup.ps1` grava `ultimo-backup.json` com BOM (`[Text.Encoding]::UTF8`) e o
   daemon faz `JSON.parse` sem tirar o BOM; a nuvem vê "backup falhou" em toda loja desde o #546, mesmo com o backup
   em dia. Correção: o daemon tira o BOM ao ler e o `backup.ps1` grava sem BOM. Toca `edge/` → `.exe` do corte.
