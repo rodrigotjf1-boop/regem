@@ -201,6 +201,76 @@ function Enviar-Telemetria($cloud, $tipo, $msg, $extra) {
   } catch { Diga "(aviso) nao consegui enviar a telemetria: $($_.Exception.Message)" }
 }
 
+# BAIXA O PACOTE retomando de onde parou (ERR-279). Na loja o download ficava parado em 2%: a conexao
+# parava de entregar bytes e a leitura esperava 10 min antes de desistir. Agora: $paradoSeg segundos sem
+# nenhum byte -> reconecta e pede so o que falta (cabecalho Range), ate $tentativas vezes; servidor que
+# responde o arquivo inteiro (200) -> recomeca do zero. HTTP 4xx (fora 408/429) e o teto param na hora.
+# $aoProgresso recebe (lidos, total, estagio), estagio = 'baixando' ou 'retomando'. Devolve os bytes.
+function Baixar-Pacote($url, $destino, $teto, $aoProgresso, $paradoSeg = 30, $tentativas = 20) {
+  $lidos = [int64]0
+  $total = [int64]-1
+  $tent = 0
+  while ($true) {
+    $tent++
+    $req = $null; $resp = $null; $rs = $null; $fs = $null
+    try {
+      $req = [System.Net.HttpWebRequest]::Create($url)
+      $req.Timeout = 60000
+      $req.ReadWriteTimeout = $paradoSeg * 1000
+      if ($lidos -gt 0) { $req.AddRange([int64]$lidos) }
+      $resp = $req.GetResponse()
+      if ([int]$resp.StatusCode -eq 206) {
+        $cr = [string]$resp.Headers['Content-Range']
+        if ($cr -match '/(\d+)\s*$') { $total = [int64]$Matches[1] }
+      } else {
+        # O arquivo inteiro: primeira tentativa, ou o servidor nao aceitou o Range -> do zero.
+        $lidos = [int64]0
+        $total = [int64]$resp.ContentLength
+      }
+      if ($total -gt $teto) { throw "TETO: pacote maior que o teto ($total bytes)." }
+      $rs = $resp.GetResponseStream()
+      $modo = if ($lidos -gt 0) { [System.IO.FileMode]::Append } else { [System.IO.FileMode]::Create }
+      $fs = New-Object System.IO.FileStream($destino, $modo, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+      $buf = New-Object byte[] 262144
+      $tick = 0
+      while (($n = $rs.Read($buf, 0, $buf.Length)) -gt 0) {
+        $fs.Write($buf, 0, $n)
+        $lidos += $n
+        if ($lidos -gt $teto) { throw "TETO: o download passou do teto de tamanho - abortado." }
+        $agora = [Environment]::TickCount
+        if (($agora - $tick) -ge 250) {
+          $tick = $agora
+          if ($aoProgresso) { & $aoProgresso $lidos $total 'baixando' }
+        }
+      }
+      if ($total -le 0 -or $lidos -ge $total) { return $lidos }
+      throw "a conexao fechou antes do fim ($lidos de $total bytes)"
+    } catch {
+      $msg = $_.Exception.Message
+      # Aborta a conexao parada: fechar a resposta pela metade esperaria o resto que nao vem.
+      try { if ($req) { $req.Abort() } } catch {}
+      if ($msg -like 'TETO:*') { throw ($msg -replace '^TETO:\s*', '') }
+      # O status HTTP vem numa WebException (o PowerShell embrulha a excecao da chamada .NET).
+      $ex = $_.Exception
+      while ($ex -and -not ($ex -is [System.Net.WebException])) { $ex = $ex.InnerException }
+      if ($ex -and $ex.Response) {
+        $cod = [int]$ex.Response.StatusCode
+        if ($cod -eq 416) { $lidos = [int64]0 }   # o pedaco pedido nao vale mais: recomeca do zero
+        elseif ($cod -ge 400 -and $cod -lt 500 -and $cod -ne 408 -and $cod -ne 429) { throw "HTTP $cod ao baixar o pacote: $msg" }
+      }
+      if ($tent -ge $tentativas) { throw "o download nao terminou depois de $tentativas tentativas: $msg" }
+      if ($aoProgresso) { & $aoProgresso $lidos $total 'retomando' }
+      Diga ("(aviso) download parado em {0} MB ({1}) - retomando de onde parou, tentativa {2} de {3}..." -f `
+        [math]::Round($lidos / 1MB, 1), $msg, ($tent + 1), $tentativas)
+      Start-Sleep -Seconds ([math]::Min(10, 2 * $tent))
+    } finally {
+      if ($fs) { $fs.Close() }
+      if ($rs) { $rs.Close() }
+      if ($resp) { $resp.Close() }
+    }
+  }
+}
+
 # ICONE DO REGEM nos atalhos que a instalacao ja criou ("Regem (servidor local)", PDV, KDS, Ponto,
 # Garcom, "Regem (nuvem)"). Ate a 1.30.5 o instalador punha o icone do navegador; atalho novo ja
 # nasce com o do Regem (instalar-tudo.ps1) e a loja instalada recebe aqui, na atualizacao. So troca o

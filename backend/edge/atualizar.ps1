@@ -116,7 +116,7 @@ try {
   elseif ($exigir) { throw "Release sem assinatura v2 valida e este servidor exige assinatura - recusando." }
   else { Diga "(aviso) assinatura nao verificada ($tipoSig; sem chave publica neste servidor) - tolerando." }
 
-  # ---- download (stream, barra real, teto de tamanho) ----
+  # ---- download (stream, barra real, teto de tamanho, RETOMA de onde parou - ERR-279) ----
   Diga "Nova versao: $($script:versaoNova). Baixando o pacote..."
   Prog "baixando" 0 'baixando'
   Get-ChildItem -LiteralPath $edgeBase -Directory -Filter 'atualizacao-*' -ErrorAction SilentlyContinue |
@@ -125,30 +125,14 @@ try {
   New-Item -ItemType Directory -Force $stage | Out-Null
   $zip = Join-Path $stage "pacote.zip"
   $TETO = [int64]800MB   # um "download sem fim" nao enche o disco da loja
-  $reqDl = [System.Net.HttpWebRequest]::Create($info.url)
-  $reqDl.Timeout = 600000; $reqDl.ReadWriteTimeout = 600000
-  $respDl = $reqDl.GetResponse()
-  $totalBytes = [int64]$respDl.ContentLength
-  if ($totalBytes -gt $TETO) { $respDl.Close(); throw "Pacote maior que o teto ($totalBytes bytes)." }
-  $script:totalMb = if ($totalBytes -gt 0) { [math]::Round($totalBytes / 1MB, 1) } else { $null }
-  $rs = $respDl.GetResponseStream()
-  $fs = [System.IO.File]::Create($zip)
-  try {
-    $buf = New-Object byte[] 262144
-    $lidos = [int64]0; $ultimoTick = 0
-    while (($n = $rs.Read($buf, 0, $buf.Length)) -gt 0) {
-      $fs.Write($buf, 0, $n)
-      $lidos += $n
-      if ($lidos -gt $TETO) { throw "Download passou do teto de tamanho - abortado." }
-      $agora = [Environment]::TickCount
-      if (($agora - $ultimoTick) -ge 250) {
-        $ultimoTick = $agora
-        $script:baixadoMb = [math]::Round($lidos / 1MB, 1)
-        $pctDl = if ($totalBytes -gt 0) { [int](($lidos * 100) / $totalBytes) } else { 50 }
-        Prog "baixando" $pctDl 'baixando'
-      }
-    }
-  } finally { $fs.Close(); $rs.Close(); $respDl.Close() }
+  # 30 s sem nenhum byte -> reconecta e pede so o que falta (a tela mostra "retomando").
+  $lidos = Baixar-Pacote $info.url $zip $TETO {
+    param($feitos, $total, $estagio)
+    $script:baixadoMb = [math]::Round($feitos / 1MB, 1)
+    $script:totalMb = if ($total -gt 0) { [math]::Round($total / 1MB, 1) } else { $null }
+    $pctDl = if ($total -gt 0) { [int](($feitos * 100) / $total) } else { 50 }
+    Prog $estagio $pctDl 'baixando'
+  }
   $script:baixadoMb = [math]::Round($lidos / 1MB, 1)
   Prog "baixando" 100 'baixando'
 

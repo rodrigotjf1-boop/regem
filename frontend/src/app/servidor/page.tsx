@@ -314,6 +314,8 @@ function SuporteServidor() {
 const ESTAGIO_LABEL: Record<string, string> = {
   iniciando: 'Iniciando…',
   baixando: 'Baixando a atualização…',
+  // O download parou (30 s sem dados): o atualizador reconecta e continua de onde estava (ERR-279).
+  retomando: 'Download parado — retomando de onde parou…',
   conferindo: 'Conferindo integridade…',
   preparando: 'Montando a versão nova (a loja segue operando)…',
   backup: 'Fazendo backup…',
