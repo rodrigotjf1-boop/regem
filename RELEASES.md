@@ -10,7 +10,33 @@
 - **Como cortar (OBRIGATÓRIO):** `powershell -File backend\edge\build-release.ps1 -Versao X.Y.Z` → só compilar no Inno / rodar `publicar.ps1` no **"TUDO OK"** do preflight. Nunca de árvore atrás do `origin/main`, nunca de `regem-edge-dist` reaproveitado.
 - **Publicar `.zip`:** `edge/publicar.ps1 -Versao X.Y.Z` → sobe no Supabase Storage (bucket `edge-updates`, nome exato `regem-edge-X.Y.Z.zip`) → `edge/publicar.ps1 -Versao X.Y.Z -SoAssinar -Url <url>` (assina o MESMO arquivo, v1 + v2 com validade) → cola versão, URL, SHA e as assinaturas no console de distribuição, **começando pelas lojas piloto / percentual baixo**. O console recusa release sem as duas assinaturas válidas.
 
-## Acumulado (NÃO empacotado) — próxima release (1.30.7)
+## Acumulado (NÃO empacotado) — próxima release (1.30.8)
+
+- Nada mesclado ainda. **A corrigir no próximo corte** (sem PR ainda): o status do backup que o servidor da loja
+  manda à nuvem chega ilegível — o `backup.ps1` grava `ultimo-backup.json` com BOM (`[Text.Encoding]::UTF8`) e o
+  daemon faz `JSON.parse` sem tirar o BOM; a nuvem vê "backup falhou" em toda loja desde o #546, mesmo com o backup
+  em dia. Correção: o daemon tira o BOM ao ler e o `backup.ps1` grava sem BOM. Toca `edge/` → `.exe` do corte.
+
+## Última release: `1.30.7` — gerada em 21/10/2026 da `origin/main` `fb4d9ca0`, **`.zip` GERADO, conferido e assinado** (`regem-edge-1.30.7.zip`, 32.002.041 bytes, SHA-256 `e9d5beb7e19700935cc1b2c96eaeea8fd8fedc0af0a3159f2697957519066785`) e **`.exe` COMPILADO** (`RegemEdgeSetup.exe`, 93.627.382 bytes, SHA-256 `dd510d41474ab49b00939b2405d530f6b7b3e29e00e3e01dc5c0814b14d75487`); publicação no console e instalação na loja PENDENTES (o dono)
+
+- **Pedido do dono (21/10):** "finalize a etapa 5 para criarmos um .exe novo e atualizado para instalar no servidor e
+  no pdv de delivery" — depois do #709 (entrega 5, mig 338).
+- **Corte:** `build-release.ps1 -Versao 1.30.7` na worktree `C:\regem-wt-1307` (branch `release/1.30.7`, junção do
+  `bundle`) → TUDO OK, PREFLIGHT OK (único aviso: o `.iss` carimbado, sem commit); `.iss` recarimbado com
+  `carimbar-iss.cjs` (BOM, acentos intactos — ERR-113) e compilado no Inno 7 (`ISCC /Q`); `publicar.ps1 -Versao 1.30.7
+  -SkipBuild` (conteúdo conferido) e `-SoAssinar` com a URL definitiva do arquivo no bucket `edge-updates` — v1 e v2
+  conferidas com a chave pública (validade da v2: 19/04/2027); a chave privada só por variável de ambiente.
+- **Provado:** loja simulada (`C:\regem-e2e`, instalação na 1.30.6, com o `atualizar.ps1` dela): assinatura v2 e
+  SHA-256 conferidos, versão nova montada ao lado, backup cifrado do banco, troca do conjunto, migrations sem erro (a
+  338 entrou: tabela, 5 gatilhos e RLS conferidos no banco dela), serviços de pé e `/ping` respondendo `1.30.7` em
+  3,5 min. O daemon do pacote leva a tabela nova e o cartão final que não reabre (#695). Desde a 1.30.6, só o
+  `sync-daemon.mjs` mudou em `backend/edge/` — a estação de impressão do pacote é a mesma provada na 1.30.6.
+- **Entregue ao dono** em `OneDrive\Documentos\Regem - release 1.30.7 (21-10)\`: o `.zip`, o `.exe`,
+  `DADOS PARA PUBLICAR.txt` (Storage, console com 0% + loja piloto, instalar no servidor pelo `.zip`) e `LEIA-ME.txt`
+  (PC do delivery no modo cliente; o `.exe` no servidor reinstala limpo — não hoje: a saúde do servidor dizia "sync
+  falhando desde 16h30" em 21/10, com 429 "push em curso" de vez em quando).
+
+Mudanças que entraram na 1.30.7:
 
 - **Vendas em dobro desfeitas (mig 328, `-- @cloud-only`, #687):** só NUVEM, já aplicada (20/10): 178 comandas que sobraram dos pedidos aceitos pelos dois lados (07 a 20/10, R$ 8.365,96) canceladas, com estorno na data da venda e auditoria. O `.zip` leva o arquivo e o servidor da loja o pula; a loja recebe a correção pela sincronização. Nada a fazer na loja.
 - **A via do DMS ID na API de integração (Hub DMS, F3 parte A; mig 329, `-- @cloud-only`):** só NUVEM e desligada até a distribuição ligar (`DMS_ID_LIGADO`). O código entra no `.zip` por tabela (o guard da API, o pacote comum do Padrão e o `main.ts`), mas no servidor da loja nada muda: a API de integração não sobe lá e a 329 é pulada. Não pede `.exe`. Nada a fazer na loja.
@@ -111,7 +137,7 @@
   barra de baixo do celular, no Mapa ao vivo e na área de entrega (ERR-277). Na loja, conferir: marcar um KDS no Mapa ao
   vivo do servidor da loja e ver a tela dele trocar na hora; tirar e ver voltar aos pedidos.
 
-## Última release: `1.30.6` — gerada em 20/10/2026 da `origin/main` `3f4db2af`, **`.zip` GERADO, conferido e assinado** (`regem-edge-1.30.6.zip`, 31.838.658 bytes, SHA-256 `168c67acb2aff280ff44ef737374413ddf82804df4fa65b7c0fb7ddddb794f41`) e **`.exe` COMPILADO** (`RegemEdgeSetup.exe`, 93.547.959 bytes, SHA-256 `31186dc63d90d50710cc6a247bc071c7560cbe7992aa5443f97f5e1dfd546441`); publicação no console e instalação na loja PENDENTES (o dono)
+## Release anterior: `1.30.6` — gerada em 20/10/2026 da `origin/main` `3f4db2af`, **`.zip` GERADO, conferido e assinado** (`regem-edge-1.30.6.zip`, 31.838.658 bytes, SHA-256 `168c67acb2aff280ff44ef737374413ddf82804df4fa65b7c0fb7ddddb794f41`) e **`.exe` COMPILADO** (`RegemEdgeSetup.exe`, 93.547.959 bytes, SHA-256 `31186dc63d90d50710cc6a247bc071c7560cbe7992aa5443f97f5e1dfd546441`); instalada na loja (o servidor informa `1.30.6` em 21/10/2026)
 
 - **Pedido do dono (20/10):** "Cortar agora" — o `.zip` para o servidor e o `.exe` para o PC cliente (depois dos PRs #684 a #686).
 - **Corte:** `build-release.ps1 -Versao 1.30.6` → TUDO OK, PREFLIGHT OK (único aviso: o `.iss` carimbado, sem commit); `.iss` recarimbado com `carimbar-iss.cjs` (BOM, acentos intactos — ERR-113) e compilado no Inno 7 (`ISCC /Q`); `publicar.ps1 -Versao 1.30.6 -SkipBuild` (conteúdo conferido) e `-SoAssinar` com a URL definitiva do arquivo no bucket `edge-updates` — v1 e v2 conferidas com `edge/update-pub.pem`; a chave privada só por variável de ambiente. Worktree da fonte: `C:\regem-wt-1306` (branch `release/1.30.6`, junção do `bundle`).
