@@ -480,13 +480,17 @@ export class SyncService {
     // trava é reentrante na mesma sessão) e o destravar podia cair noutra conexão, deixando a
     // trava presa. A linha resolve a disputa no banco, independe da conexão e expira sozinha
     // se a API morrer no meio do envio.
-    const travou: any = await this.db.execute(sql`
-      insert into sync_push_lock (equipamento_id, em) values (${ctx.equipamentoId}, now())
-      on conflict (equipamento_id) do update set em = now()
-       where sync_push_lock.em < now() - make_interval(secs => ${PUSH_LOCK_SEG})
-      returning 1 as ok`);
-    if (!((travou.rows ?? travou)[0]?.ok)) {
-      throw new HttpException('Já há um push deste dispositivo em curso.', HttpStatus.TOO_MANY_REQUESTS);
+    // O ENVIO RÁPIDO (flash) do servidor da loja fica FORA da trava — não a pega nem a solta (ERR-278).
+    const rapido = ehEnvioRapido(lotes, assin);
+    if (!rapido) {
+      const travou: any = await this.db.execute(sql`
+        insert into sync_push_lock (equipamento_id, em) values (${ctx.equipamentoId}, now())
+        on conflict (equipamento_id) do update set em = now()
+         where sync_push_lock.em < now() - make_interval(secs => ${PUSH_LOCK_SEG})
+        returning 1 as ok`);
+      if (!((travou.rows ?? travou)[0]?.ok)) {
+        throw new HttpException('Já há um push deste dispositivo em curso.', HttpStatus.TOO_MANY_REQUESTS);
+      }
     }
     try {
     await this.verificarAssinatura(ctx, lotes, assin);
@@ -622,11 +626,34 @@ export class SyncService {
     } finally {
       // Libera SEMPRE (sucesso ou erro). A conexão é do pool: sem o unlock explícito a trava
       // ficaria presa na sessão reaproveitada e o dispositivo não empurraria mais nada.
-      await this.db
-        .execute(sql`delete from sync_push_lock where equipamento_id = ${ctx.equipamentoId}`)
-        .catch(() => undefined);
+      // O envio rápido não pegou a trava e NÃO a solta: ela pode ser do ciclo que roda ao mesmo tempo.
+      if (!rapido) {
+        await this.db
+          .execute(sql`delete from sync_push_lock where equipamento_id = ${ctx.equipamentoId}`)
+          .catch(() => undefined);
+      }
     }
   }
+}
+
+// ENVIO RÁPIDO do servidor da loja (`EdgeFlashSyncService`): a cada mudança de situação de pedido, produto que esgota ou
+// pausa por estoque, ele manda NA HORA um lote só daquela tabela, sem assinatura. Ele não usa a trava do dispositivo: é
+// pequeno, idempotente (última escrita vence) e, no pico, dispara toda hora. Com a trava, ele e o ciclo do daemon se
+// atropelavam — o ciclo levava 429, contava como falha, alongava o intervalo (até 5 min) e a nuvem deixava de ver o
+// servidor como vivo: pedido de canal levando de 2 a 5 minutos para descer (ERR-278, medido em 21/10/2026). O ciclo do
+// daemon (assinado, muitos lotes) continua com a trava — é dele a proteção contra ciclos sobrepostos.
+const TABELAS_DO_ENVIO_RAPIDO = new Set(['produto', 'produto_pausa_estoque', 'pedido_externo']);
+const LINHAS_DO_ENVIO_RAPIDO = 200;
+export function ehEnvioRapido(lotes: unknown, assin: { seq?: string; ts?: string; sig?: string } = {}): boolean {
+  if (assin.sig || assin.seq) return false;
+  if (!Array.isArray(lotes) || lotes.length !== 1) return false;
+  const lote: any = lotes[0];
+  return (
+    !!lote &&
+    TABELAS_DO_ENVIO_RAPIDO.has(String(lote.tabela)) &&
+    Array.isArray(lote.linhas) &&
+    lote.linhas.length <= LINHAS_DO_ENVIO_RAPIDO
+  );
 }
 
 // O servidor local está mais atrasado que a janela de retenção das exclusões (mig 265)?
