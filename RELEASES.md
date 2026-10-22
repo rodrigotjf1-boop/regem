@@ -10,7 +10,39 @@
 - **Como cortar (OBRIGATÓRIO):** `powershell -File backend\edge\build-release.ps1 -Versao X.Y.Z` → só compilar no Inno / rodar `publicar.ps1` no **"TUDO OK"** do preflight. Nunca de árvore atrás do `origin/main`, nunca de `regem-edge-dist` reaproveitado.
 - **Publicar `.zip`:** `edge/publicar.ps1 -Versao X.Y.Z` → sobe no Supabase Storage (bucket `edge-updates`, nome exato `regem-edge-X.Y.Z.zip`) → `edge/publicar.ps1 -Versao X.Y.Z -SoAssinar -Url <url>` (assina o MESMO arquivo, v1 + v2 com validade) → cola versão, URL, SHA e as assinaturas no console de distribuição, **começando pelas lojas piloto / percentual baixo**. O console recusa release sem as duas assinaturas válidas.
 
-## Acumulado (NÃO empacotado) — próxima release (1.30.8)
+## Acumulado (NÃO empacotado) — próxima release (1.30.9)
+
+- **A corrigir no próximo corte** (sem PR ainda): o status do backup que o servidor da loja
+  manda à nuvem chega ilegível — o `backup.ps1` grava `ultimo-backup.json` com BOM (`[Text.Encoding]::UTF8`) e o
+  daemon faz `JSON.parse` sem tirar o BOM; a nuvem vê "backup falhou" em toda loja desde o #546, mesmo com o backup
+  em dia. Correção: o daemon tira o BOM ao ler e o `backup.ps1` grava sem BOM. Toca `edge/` → `.exe` do corte.
+- **A planejar (pedido do dono, 22/10):** parear de novo o PDV e a estação de impressão JÁ configurados sem
+  reinstalar o PC (o código gerado no servidor digitado no caixa ou no ícone "Regem neste PC"), e a reinstalação ou a
+  atualização não inutilizar os pareamentos e as impressoras. Toca `edge/` → `.exe` do corte.
+
+## Última release: `1.30.8` — gerada em 22/10/2026 da `origin/main` `46e21292`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 93.633.216 bytes, SHA-256 `332e7b44ae06d78bc0057aabb51ca2368db4f912807072064d94801fdf9540ba`) e entregue ao dono para reinstalar o servidor e o PC do delivery; **sem `.zip`** (pedido do dono) e nada publicado no console
+
+- **Pedido do dono (22/10):** "crie um .exe novo, não precisa do .zip, vou reinstalar o servidor e o pc do
+  delivery" — depois do #711 (envio rápido fora da trava), #712 (ritmo do envio + download que retoma) e #713
+  (conferência rápida dos pedidos).
+- **Corte:** `build-release.ps1 -Versao 1.30.8` na worktree `C:\regem-wt-1308` (branch `release/1.30.8`, junção do
+  `bundle`) → TUDO OK, PREFLIGHT OK (único aviso: o `.iss` carimbado, sem commit). O passo 2 do `build-release` estragou
+  de novo o travessão e as reticências do `.iss` (lê como ANSI no PowerShell 5.1 e grava UTF-8 com BOM — inclusive o
+  `StatusMsg` que o instalador mostra): `.iss` restaurado do git e recarimbado só na linha `AppVer` (`carimbar-iss.cjs`,
+  rascunho da sessão); compilado no Inno 7 (`C:\Program Files\Inno Setup 7\ISCC.exe`).
+- **Provado:** o pacote leva os módulos novos do daemon (`sync-push-ritmo.mjs`, `sync-pedidos-rapido.mjs`); o daemon
+  DO PACOTE com o Node embutido (v24.18.0), num banco de loja montado como o do CI: `--pendencias` → "Nada preso"
+  (código 0); `--conferir-pedidos` sem nuvem → falha tratada (código 1). Nenhum certificado da máquina de build no
+  pacote (`edge/certs` ausente). Desde a 1.30.7 só mudaram em `backend/edge/` o daemon, os dois módulos e os scripts
+  de atualização — o instalador é o mesmo que a loja instalou em 21/10.
+- **Entregue ao dono** em `OneDrive\Documentos\Regem - release 1.30.8 (22-10)\`: o `.exe` e `LEIA-ME.txt` (fechar o
+  Regem nos PCs durante a reinstalação do servidor; servidor; PC do delivery no modo Cliente com "Este PC tem
+  impressora" e o CÓDIGO EM BRANCO — mantém a estação e as impressoras; parear sem reinstalar: "Gerar código" no
+  equipamento que JÁ existe + "Parear com código..." no ícone ou "Código do terminal" no caixa).
+- **Próximo `.zip`:** a 1.30.9 leva tudo isto para quem atualiza pelo console (o servidor reinstalado na 1.30.8
+  ignora a 1.30.7 do console — anti-downgrade).
+
+Mudanças que entraram na 1.30.8:
 
 - **O envio rápido do servidor da loja fica fora da trava de push (ERR-278; sem migration):** só NUVEM — vale no
   deploy, nada a fazer na loja. O envio rápido (flash: pedido que muda de situação, produto que esgota, pausa) e o ciclo
@@ -44,12 +76,8 @@
   rodadas): o pedido chegou à loja em 6–31 s (médias 15 e 14 s) e virou venda em 14–35 s (médias 23 e 18 s); com a
   "nuvem" mostrando um aceito como "novo" e mais novo, a loja manteve a venda. Conferir na loja: o log do sync com
   "pedidos: N pedido(s) gravado(s) pela conferência rápida"; o tempo entre `pedido_externo.criado_em` e a comanda.
-- **A corrigir no próximo corte** (sem PR ainda): o status do backup que o servidor da loja
-  manda à nuvem chega ilegível — o `backup.ps1` grava `ultimo-backup.json` com BOM (`[Text.Encoding]::UTF8`) e o
-  daemon faz `JSON.parse` sem tirar o BOM; a nuvem vê "backup falhou" em toda loja desde o #546, mesmo com o backup
-  em dia. Correção: o daemon tira o BOM ao ler e o `backup.ps1` grava sem BOM. Toca `edge/` → `.exe` do corte.
 
-## Última release: `1.30.7` — gerada em 21/10/2026 da `origin/main` `fb4d9ca0`, **`.zip` GERADO, conferido e assinado** (`regem-edge-1.30.7.zip`, 32.002.041 bytes, SHA-256 `e9d5beb7e19700935cc1b2c96eaeea8fd8fedc0af0a3159f2697957519066785`) e **`.exe` COMPILADO** (`RegemEdgeSetup.exe`, 93.627.382 bytes, SHA-256 `dd510d41474ab49b00939b2405d530f6b7b3e29e00e3e01dc5c0814b14d75487`); publicação no console e instalação na loja PENDENTES (o dono)
+## Release anterior: `1.30.7` — gerada em 21/10/2026 da `origin/main` `fb4d9ca0`, **`.zip` GERADO, conferido e assinado** (`regem-edge-1.30.7.zip`, 32.002.041 bytes, SHA-256 `e9d5beb7e19700935cc1b2c96eaeea8fd8fedc0af0a3159f2697957519066785`) e **`.exe` COMPILADO** (`RegemEdgeSetup.exe`, 93.627.382 bytes, SHA-256 `dd510d41474ab49b00939b2405d530f6b7b3e29e00e3e01dc5c0814b14d75487`); PUBLICADA no console em 21/10/2026 (0% + loja piloto) e INSTALADA na loja (o servidor informa `1.30.7` desde ~22h16 de 21/10; o `.zip` chegou a parar em 2% no download — ERR-279)
 
 - **Pedido do dono (21/10):** "finalize a etapa 5 para criarmos um .exe novo e atualizado para instalar no servidor e
   no pdv de delivery" — depois do #709 (entrega 5, mig 338).
