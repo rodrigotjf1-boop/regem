@@ -28,7 +28,8 @@ import { ESCOPOS_INTEGRACAO } from './escopos';
 import { IntegracaoApiModule } from './integracao-api.module';
 import { IntegracaoTokenService } from './integracao-token.service';
 import { Escopos, IntegracaoTokenGuard } from './integracao-token.guard';
-import { CAMINHO_DOS_METADADOS, LIGACAO_INVALIDA, ROTAS_FORA_DO_PREFIXO, TROCA_RECUSADA } from './ligacao.regras';
+import { CAMINHO_DO_MANIFESTO, CAMINHO_DOS_METADADOS, LIGACAO_INVALIDA, ROTAS_FORA_DO_PREFIXO, TROCA_RECUSADA } from './ligacao.regras';
+import { manifestoDaPorta } from './manifesto-integracao';
 import { BASE_TIPO_PROBLEMA, ProblemaFilter } from './problema';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -58,6 +59,26 @@ const semFkCompartilhada = (s: string) =>
 
 const KIT = join(__dirname, '..', '..', '..', 'test', 'dms', 'kit-conformidade.mts');
 const COPIA_DO_PACOTE = join(__dirname, '..', '..', 'dms', 'integracao-dms.ts');
+const ARQUIVO_DO_MANIFESTO = join(__dirname, '..', '..', '..', '..', 'docs', 'dms-manifesto.json');
+
+/** Roda o kit do Padrão com uma config (num arquivo temporário) e as credenciais nas variáveis; devolve as linhas ✔ ✘ –. */
+async function rodarOKit(config: Record<string, unknown>, credenciais: Record<string, string> = {}) {
+  const pasta = mkdtempSync(join(tmpdir(), 'kit-dms-'));
+  const arquivo = join(pasta, 'config.json');
+  writeFileSync(arquivo, JSON.stringify(config));
+  try {
+    const { codigo, saida } = await new Promise<{ codigo: number | null; saida: string }>((pronto) => {
+      const filho = spawn(process.execPath, ['--experimental-strip-types', '--no-warnings', KIT, arquivo], { env: { ...process.env, ...credenciais } });
+      let s = '';
+      filho.stdout.on('data', (d) => (s += d));
+      filho.stderr.on('data', (d) => (s += d));
+      filho.on('close', (c) => pronto({ codigo: c, saida: s }));
+    });
+    return { codigo, saida, linhas: saida.split(/\r?\n/).filter((l) => /^[✔✘–] /.test(l)) };
+  } finally {
+    rmSync(pasta, { recursive: true, force: true });
+  }
+}
 const [NODE_MAIOR, NODE_MENOR] = process.versions.node.split('.').map(Number);
 const NODE_RODA_O_KIT = NODE_MAIOR > 22 || (NODE_MAIOR === 22 && NODE_MENOR >= 6);
 const itDoKit = NODE_RODA_O_KIT || process.env.KIT_DMS_OBRIGATORIO === 'true' ? it : it.skip;
@@ -345,6 +366,23 @@ descrever('API de integração — a via do DMS ID (Hub DMS, F3)', () => {
       bearer_methods_supported: ['header'],
       resource_name: 'Regem (API de integração)',
     });
+  });
+
+  it('o manifesto da porta (Padrão §13): sem credencial, fora do prefixo, o mesmo que o código monta; com a via desligada também', async () => {
+    const r = await chamar(`/${CAMINHO_DO_MANIFESTO}`);
+    expect(r.status).toBe(200);
+    expect(r.headers.get('content-type')).toContain('application/json');
+    expect(r.headers.get('cache-control')).toContain('max-age=300');
+    expect(await r.json()).toEqual(JSON.parse(JSON.stringify(manifestoDaPorta())));
+    // fora do prefixo: debaixo de /api/v1 ele não existe
+    expect((await chamar(`/api/v1/${CAMINHO_DO_MANIFESTO}`)).status).toBe(404);
+    // é a documentação da porta: com a via do DMS ID desligada, continua
+    process.env.DMS_ID_LIGADO = 'false';
+    try {
+      expect((await chamar(`/${CAMINHO_DO_MANIFESTO}`)).status).toBe(200);
+    } finally {
+      process.env.DMS_ID_LIGADO = 'true';
+    }
   });
 
   it('a troca: o rgm_it_ vira a ligação, o segredo sai uma vez, a auditoria registra e o presidente é avisado', async () => {
@@ -636,6 +674,8 @@ descrever('API de integração — a via do DMS ID (Hub DMS, F3)', () => {
     try {
       expect((await chamar(`/${CAMINHO_DOS_METADADOS}`, { em: edge.origem })).status).toBe(404);
       expect((await trocar(dmsId.emitir(), `rgm_it_${'x'.repeat(43)}`, edge.origem)).status).toBe(404);
+      // o manifesto é da porta, que só existe na nuvem
+      expect((await chamar(`/${CAMINHO_DO_MANIFESTO}`, { em: edge.origem })).status).toBe(404);
     } finally {
       await edge.app.close();
       delete process.env.EDGE_MODE;
@@ -708,8 +748,22 @@ descrever('API de integração — a via do DMS ID (Hub DMS, F3)', () => {
           falhas: [],
           saida: '',
         });
-        // Todas as conferências do modo, e só a dos metadados da MCP pulada (a porta é REST).
-        expect(linhas.filter((l) => l.startsWith('–')).map((l) => l.split(':')[0])).toEqual(['– dmsid-mcp-metadados']);
+        // Todas as conferências do modo; puladas, só as opcionais: as três da parte F da F4 (a classe, a ligação suspensa
+        // e a parada), as sete da conta, do cursor e da escrita, que pedem configuração própria (`recursoDaContaA`,
+        // `leitura.lista` e `escrita`, kit da parte J), e a dos metadados da MCP (a porta é REST).
+        expect(linhas.filter((l) => l.startsWith('–')).map((l) => l.split(':')[0])).toEqual([
+          '– dmsid-acima-da-classe',
+          '– dmsid-ligacao-suspensa',
+          '– dmsid-parada-ligada',
+          '– dmsid-mesma-conta-ve',
+          '– dmsid-outra-conta-nao-ve',
+          '– dmsid-cursor-invalido',
+          '– dmsid-cursor-de-outra-conta',
+          '– dmsid-escrita-sem-idempotencia',
+          '– dmsid-idempotencia-repete',
+          '– dmsid-idempotencia-outro-corpo',
+          '– dmsid-mcp-metadados',
+        ]);
         expect(linhas.length).toBeGreaterThanOrEqual(15);
       } finally {
         rmSync(pasta, { recursive: true, force: true });
@@ -717,6 +771,14 @@ descrever('API de integração — a via do DMS ID (Hub DMS, F3)', () => {
     } finally {
       process.env.DMS_ID_RECURSO = recurso;
       await kit.app.close();
+    }
+  });
+
+  itDoKit('passa no kit de conformidade do Padrão DMS, no modo do manifesto: pela porta, sem credencial, e pelo arquivo do repositório', async () => {
+    for (const fonte of [{ base: origem }, { arquivo: ARQUIVO_DO_MANIFESTO }]) {
+      const { codigo, saida, linhas } = await rodarOKit({ modo: 'manifesto', produto: 'regem', ...fonte, copiaDoPacote: COPIA_DO_PACOTE });
+      expect({ fonte, codigo, falhas: linhas.filter((l) => l.startsWith('✘')), saida: codigo === 0 ? '' : saida }).toEqual({ fonte, codigo: 0, falhas: [], saida: '' });
+      expect(linhas.map((l) => l.split(':')[0])).toEqual(['✔ copia-do-pacote', '✔ manifesto-chega', '✔ manifesto-formato', '✔ manifesto-do-produto']);
     }
   });
 

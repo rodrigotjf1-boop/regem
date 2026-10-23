@@ -2,6 +2,7 @@ import { RequestMethod } from '@nestjs/common';
 import {
   CABECALHO_LIGACAO,
   cabecalhoWwwAuthenticate,
+  CAMINHO_MANIFESTO,
   ErroPermissaoFaltando,
   ErroProblema,
   ErroTokenDmsId,
@@ -35,8 +36,14 @@ export const CAMINHO_DO_RECURSO = '/api/v1/integracao';
 /** O caminho dos metadados do recurso protegido (RFC 9728 §3.1), FORA do prefixo `/api/v1` (`main.ts`). */
 export const CAMINHO_DOS_METADADOS = '.well-known/oauth-protected-resource/api/v1/integracao';
 
+/** O caminho do manifesto da porta (Padrão §13), FORA do prefixo `/api/v1`: `.well-known/dms-manifesto`. */
+export const CAMINHO_DO_MANIFESTO = CAMINHO_MANIFESTO.replace(/^\//, '');
+
 /** As rotas que ficam fora do prefixo global `/api/v1` (o `main.ts` e os testes que sobem o app usam a mesma lista). */
-export const ROTAS_FORA_DO_PREFIXO = [{ path: CAMINHO_DOS_METADADOS, method: RequestMethod.GET }];
+export const ROTAS_FORA_DO_PREFIXO = [
+  { path: CAMINHO_DOS_METADADOS, method: RequestMethod.GET },
+  { path: CAMINHO_DO_MANIFESTO, method: RequestMethod.GET },
+];
 
 /** A frase de toda ligação que não vale — a mesma para todo motivo. */
 export const LIGACAO_INVALIDA =

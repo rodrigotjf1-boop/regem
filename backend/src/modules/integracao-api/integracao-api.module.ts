@@ -10,6 +10,7 @@ import { WebhookIntegracaoService } from './webhook-integracao.service';
 import { CatalogoIntegracaoService } from './catalogo-integracao.service';
 import { ProducaoIntegracaoService } from './producao-integracao.service';
 import { DmsIdController } from './dms-id.controller';
+import { ManifestoController } from './manifesto.controller';
 import { DmsIdService } from './dms-id.service';
 import { LigacaoIntegracaoService } from './ligacao-integracao.service';
 import { HubDmsService } from './hub-dms.service';
@@ -33,8 +34,11 @@ import { RegistroDaIntegracao } from './registro-da-integracao.middleware';
 // Hub DMS (F3, parte A2, sem migration): o cliente do hub (registro de cada chamada, erros, batida e lista de
 // parada; exportado para o guard) e o middleware que abre o registro de cada chamada de `/integracao/*`. Nasce
 // desligado (`HUB_LIGADO`); a chave própria `ACEITAR_INTEGRACOES` vale sem o hub.
+//
+// Hub DMS (F4, parte A, sem migration): o manifesto da porta (Padrão §13), sem credencial, em
+// `/.well-known/dms-manifesto` (`manifesto-integracao.ts`; o arquivo do repositório é `docs/dms-manifesto.json`).
 @Module({
-  controllers: [IntegracaoApiController, DmsIdController],
+  controllers: [IntegracaoApiController, DmsIdController, ManifestoController],
   providers: [
     IntegracaoTokenService,
     IntegracaoTokenGuard,

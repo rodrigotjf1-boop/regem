@@ -109,6 +109,20 @@ O kit de testes do Padrão (`backend/test/dms/kit-conformidade.mts`, cópia igua
 permissão; ligação ausente, inexistente, revogada, de outro aplicativo e sem a permissão; o desafio em todo 401; o
 formato dos erros; o limite. Ele roda no Node 22.6 ou mais; o CI o roda num passo próprio com o Node 22.
 
+Desde o pacote 0.7.1 (F4, parte A), o kit também roda no modo do **manifesto**, pela porta (sem credencial) e pelo
+arquivo do repositório. No modo do DMS ID, ficam puladas só as conferências opcionais: as três da parte F da F4 (a
+classe, a ligação suspensa e a parada) e as sete da conta, do cursor e da escrita, que pedem configuração própria
+(kit da parte J), além da dos metadados da MCP.
+
+**O manifesto da porta (Padrão §13):** `GET /.well-known/dms-manifesto`, sem credencial e fora do prefixo `/api/v1`, só
+na nuvem. É a documentação pública da porta de integração: OpenAPI 3.1 com os campos `x-dms`, montado do próprio código
+(`manifesto-integracao.ts`): os escopos (a frase da tela do clique; sem ela, o rótulo do console), a classe `dms` (o
+parceiro vem na parte F), o limite de 60 por minuto por ligação, as 15 rotas de `/integracao` com exemplos fictícios, os
+6 avisos (o corpo sai de `corpoDoAviso`) e a credencial do DMS ID. Fora dele, de propósito: a troca pela ligação e o
+OAuth (o ciclo da credencial), as rotas do totem e os avisos assinados ao GoGeM. O arquivo `docs/dms-manifesto.json` é o
+que o código monta; o teste `manifesto-integracao.spec.ts` confere, lê as rotas e as permissões dos decoradores do
+controller (nenhuma a mais nem a menos) e, com `ATUALIZAR_MANIFESTO=1`, regrava o arquivo.
+
 ## 7. Registro no hub e parada (F3, parte A2)
 
 Vale para as duas vias (o `rgm_it_` e a ligação). Nasce desligado (`HUB_LIGADO`); a chave própria vale sem o hub.

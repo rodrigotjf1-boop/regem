@@ -1,0 +1,984 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Porta de integração do Regem",
+    "version": "1.0.0",
+    "description": "A API que os aplicativos ligados à loja chamam: as vendas, os clientes, os cupons, o catálogo, as fichas e a fila de produção, com o que a loja autorizou. Credencial: o token do DMS ID com o segredo da ligação (DMS-Ligacao).",
+    "x-dms-produto": "regem",
+    "x-dms-pacote": "0.7.1"
+  },
+  "servers": [
+    {
+      "url": "https://api.dmsregem.com"
+    }
+  ],
+  "security": [
+    {
+      "dmsId": []
+    }
+  ],
+  "paths": {
+    "/api/v1/integracao/loja": {
+      "get": {
+        "operationId": "get_api_v1_integracao_loja",
+        "summary": "Loja do token: nome, fuso, moeda, escopos concedidos e o cardápio online.",
+        "x-dms-permissao": null,
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "example": {
+                  "loja_id": "1f0c2a3b-0000-4000-8000-000000000001",
+                  "loja_nome": "Centro",
+                  "empresa_nome": "Hamburgueria Exemplo",
+                  "fuso": "America/Sao_Paulo",
+                  "moeda": "BRL",
+                  "escopos": [
+                    "pedidos.ler",
+                    "cupons.ler"
+                  ],
+                  "cardapio_url": null
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro no formato do Padrão (§7)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integracao/autorizacao/revogar": {
+      "post": {
+        "operationId": "post_api_v1_integracao_autorizacao_revogar",
+        "summary": "Revoga a própria credencial. Idempotente por natureza: a chamada seguinte já volta 401.",
+        "x-dms-permissao": null,
+        "x-dms-escrita": "substituicao",
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "example": {
+                  "revogado": true,
+                  "revogado_em": "2026-10-23T12:00:00.000Z"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro no formato do Padrão (§7)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integracao/webhook": {
+      "put": {
+        "operationId": "put_api_v1_integracao_webhook",
+        "summary": "Registra (ou troca) o endereço e o segredo do aviso desta credencial. Registrar de novo religa o que estava pausado.",
+        "x-dms-permissao": null,
+        "x-dms-escrita": "substituicao",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "url": "https://app.exemplo.test/avisos/regem/conexao-1",
+                "segredo": "whsec_<o segredo, em base64>"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "example": {
+                  "url": "https://app.exemplo.test/avisos/regem/conexao-1",
+                  "registrado_em": "2026-10-23T12:00:00.000Z",
+                  "pausado": false,
+                  "pausado_em": null,
+                  "motivo_pausa": null,
+                  "ultimo_envio_em": null,
+                  "ultimo_status_http": null,
+                  "falhas_seguidas": 0,
+                  "entregues": 0
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro no formato do Padrão (§7)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "get_api_v1_integracao_webhook",
+        "summary": "Situação do aviso desta credencial (nunca o segredo). Sem registro, 404.",
+        "x-dms-permissao": null,
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "example": {
+                  "url": "https://app.exemplo.test/avisos/regem/conexao-1",
+                  "registrado_em": "2026-10-23T12:00:00.000Z",
+                  "pausado": false,
+                  "pausado_em": null,
+                  "motivo_pausa": null,
+                  "ultimo_envio_em": null,
+                  "ultimo_status_http": null,
+                  "falhas_seguidas": 0,
+                  "entregues": 0
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro no formato do Padrão (§7)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "delete_api_v1_integracao_webhook",
+        "summary": "Para de avisar (apaga o endereço e o segredo). Sem registro, responde 204 do mesmo jeito.",
+        "x-dms-permissao": null,
+        "x-dms-escrita": "substituicao",
+        "responses": {
+          "204": {
+            "description": "Sucesso, sem corpo"
+          },
+          "default": {
+            "description": "Erro no formato do Padrão (§7)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integracao/pedidos": {
+      "get": {
+        "operationId": "get_api_v1_integracao_pedidos",
+        "summary": "Vendas da loja com cursor (ordem por atualizado_em e id; só o carimbado há mais de 15 s).",
+        "x-dms-permissao": "pedidos.ler",
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "example": {
+                  "itens": [
+                    {
+                      "id": "1f0c2a3b-0000-4000-8000-000000000003",
+                      "versao": 2,
+                      "atualizado_em": "2026-10-23T12:00:00.000Z",
+                      "canal": "cardapio",
+                      "grupo_canal": "cardapio",
+                      "situacao": "confirmado",
+                      "receita_centavos": 6490,
+                      "criado_em": "2026-10-23T12:00:00.000Z",
+                      "confirmado_em": "2026-10-23T12:00:00.000Z",
+                      "cancelado_em": null,
+                      "itens": [
+                        {
+                          "id": "1f0c2a3b-0000-4000-8000-000000000012",
+                          "produto_id": "1f0c2a3b-0000-4000-8000-000000000007",
+                          "nome": "X-Burger",
+                          "quantidade": "1",
+                          "receita_centavos": 5990,
+                          "custo_centavos": null
+                        }
+                      ],
+                      "unidade_id": "1f0c2a3b-0000-4000-8000-000000000001",
+                      "unidade_nome": "Centro",
+                      "tipo": "entrega",
+                      "taxa_entrega_centavos": 500
+                    }
+                  ],
+                  "proximo_cursor": "cursor-opaco-da-proxima-pagina",
+                  "tem_mais": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro no formato do Padrão (§7)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integracao/clientes/anonimizados": {
+      "get": {
+        "operationId": "get_api_v1_integracao_clientes_anonimizados",
+        "summary": "Clientes anonimizados (excluídos) da empresa, com cursor: só o id.",
+        "x-dms-permissao": "clientes.anonimizacao.ler",
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "example": {
+                  "itens": [
+                    {
+                      "id": "1f0c2a3b-0000-4000-8000-000000000004",
+                      "anonimizado_em": "2026-10-23T12:00:00.000Z",
+                      "versao": 4,
+                      "atualizado_em": "2026-10-23T12:00:00.000Z"
+                    }
+                  ],
+                  "proximo_cursor": "cursor-opaco-da-proxima-pagina",
+                  "tem_mais": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro no formato do Padrão (§7)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integracao/clientes": {
+      "get": {
+        "operationId": "get_api_v1_integracao_clientes",
+        "summary": "Clientes da empresa com cursor (ordem por atualizado_em e id; só o carimbado há mais de 15 s).",
+        "x-dms-permissao": "clientes.ler",
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "example": {
+                  "itens": [
+                    {
+                      "id": "1f0c2a3b-0000-4000-8000-000000000004",
+                      "versao": 3,
+                      "atualizado_em": "2026-10-23T12:00:00.000Z",
+                      "nome": "Cliente Exemplo",
+                      "telefone": "+552133330000",
+                      "canais": [
+                        "cardapio"
+                      ],
+                      "bairro": "Centro",
+                      "cidade": "Rio de Janeiro",
+                      "opt_out": {
+                        "ativo": false,
+                        "em": null,
+                        "origem": null
+                      },
+                      "aceite_marketing": {
+                        "aceito": false,
+                        "em": null,
+                        "origem": null,
+                        "texto": null
+                      },
+                      "criado_em": "2026-10-23T12:00:00.000Z",
+                      "removido": false
+                    }
+                  ],
+                  "proximo_cursor": "cursor-opaco-da-proxima-pagina",
+                  "tem_mais": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro no formato do Padrão (§7)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integracao/catalogo": {
+      "get": {
+        "operationId": "get_api_v1_integracao_catalogo",
+        "summary": "Catálogo da loja: categorias, setores, produtos, variações, combos e adicionais, sem preço.",
+        "x-dms-permissao": "catalogo.ler",
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "example": {
+                  "versao": "9f2c1a0b7d6e5f4a3b2c1d0e9f8a7b6c",
+                  "atualizado": true,
+                  "gerado_em": "2026-10-23T12:00:00.000Z",
+                  "loja_id": "1f0c2a3b-0000-4000-8000-000000000001",
+                  "categorias": [
+                    {
+                      "id": "1f0c2a3b-0000-4000-8000-000000000010",
+                      "nome": "Burgers",
+                      "categoria_pai_id": null,
+                      "ordem": 1,
+                      "ativo": true
+                    }
+                  ],
+                  "setores": [
+                    {
+                      "id": "1f0c2a3b-0000-4000-8000-000000000009",
+                      "nome": "Montagem"
+                    }
+                  ],
+                  "produtos": [
+                    {
+                      "id": "1f0c2a3b-0000-4000-8000-000000000007",
+                      "codigo": "XB",
+                      "nome": "X-Burger",
+                      "descricao": "Pão, blend e queijo",
+                      "tipo": "simples",
+                      "unidade_medida": "un",
+                      "categoria_id": "1f0c2a3b-0000-4000-8000-000000000010",
+                      "vai_para_producao": true,
+                      "setor_producao_id": "1f0c2a3b-0000-4000-8000-000000000009",
+                      "tempo_preparo_min": 12,
+                      "ficha_id": "1f0c2a3b-0000-4000-8000-000000000008",
+                      "ativo": true,
+                      "variacoes": [],
+                      "combo": [],
+                      "adicionais": []
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro no formato do Padrão (§7)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integracao/fichas": {
+      "get": {
+        "operationId": "get_api_v1_integracao_fichas",
+        "summary": "Fichas técnicas da loja, com os ingredientes de cada uma, sem custo.",
+        "x-dms-permissao": "fichas.ler",
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "example": {
+                  "versao": "41b7e0c9d8a7b6c5d4e3f2a1b0c9d8e7",
+                  "atualizado": true,
+                  "gerado_em": "2026-10-23T12:00:00.000Z",
+                  "loja_id": "1f0c2a3b-0000-4000-8000-000000000001",
+                  "mesma_embalagem": false,
+                  "fichas": [
+                    {
+                      "id": "1f0c2a3b-0000-4000-8000-000000000008",
+                      "nome": "X-Burger",
+                      "categoria": "lanche",
+                      "rendimento": 1,
+                      "rendimento_unidade": "porção",
+                      "porcao_tamanho": 1,
+                      "porcao_unidade": "unidade",
+                      "setor_id": "1f0c2a3b-0000-4000-8000-000000000009",
+                      "ativo": true,
+                      "ingredientes": [
+                        {
+                          "ordem": 0,
+                          "insumo_id": "1f0c2a3b-0000-4000-8000-000000000011",
+                          "sub_ficha_id": null,
+                          "nome": "Pão brioche",
+                          "quantidade": 1,
+                          "unidade": "unidade",
+                          "quantidade_estoque": 1,
+                          "unidade_estoque": "unidade",
+                          "fator_correcao": 1,
+                          "so_delivery": false,
+                          "so_balcao": false
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro no formato do Padrão (§7)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integracao/producao": {
+      "get": {
+        "operationId": "get_api_v1_integracao_producao",
+        "summary": "Fila de produção da loja: os pedidos em produção e os concluídos das últimas 2 horas, sem o cliente e sem valores.",
+        "x-dms-permissao": "producao.ler",
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "example": {
+                  "versao": "c07d5e1f2a3b4c5d6e7f8a9b0c1d2e3f",
+                  "atualizado": true,
+                  "gerado_em": "2026-10-23T12:00:00.000Z",
+                  "loja_id": "1f0c2a3b-0000-4000-8000-000000000001",
+                  "pedidos": [
+                    {
+                      "id": "1f0c2a3b-0000-4000-8000-000000000013",
+                      "numero": 41,
+                      "origem": "mesa",
+                      "canal": null,
+                      "consumo": "local",
+                      "status": "preparo",
+                      "setor_id": "1f0c2a3b-0000-4000-8000-000000000009",
+                      "tempo_preparo_min": 12,
+                      "alterado": false,
+                      "criado_em": "2026-10-23T12:00:00.000Z",
+                      "iniciado_em": "2026-10-23T12:00:00.000Z",
+                      "pronto_em": null,
+                      "entregue_em": null,
+                      "cancelado_em": null,
+                      "itens": [
+                        {
+                          "id": "1f0c2a3b-0000-4000-8000-000000000014",
+                          "produto_id": "1f0c2a3b-0000-4000-8000-000000000007",
+                          "ficha_id": "1f0c2a3b-0000-4000-8000-000000000008",
+                          "descricao": "X-Burger",
+                          "quantidade": 1
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro no formato do Padrão (§7)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integracao/cupons": {
+      "get": {
+        "operationId": "get_api_v1_integracao_cupons",
+        "summary": "Cupons da loja com regra, validade e usos, com cursor (só o carimbado há mais de 15 s).",
+        "x-dms-permissao": "cupons.ler",
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "example": {
+                  "itens": [
+                    {
+                      "id": "1f0c2a3b-0000-4000-8000-000000000005",
+                      "versao": 1,
+                      "atualizado_em": "2026-10-23T12:00:00.000Z",
+                      "codigo": "COMBODASEXTA",
+                      "nome": "Combo de sexta",
+                      "tipo": "percentual",
+                      "percentual": "10.00",
+                      "valor_centavos": null,
+                      "teto_desconto_centavos": 1500,
+                      "pedido_minimo_centavos": 4000,
+                      "valido_de": "2026-10-23",
+                      "valido_ate": "2026-10-25",
+                      "fuso": "America/Sao_Paulo",
+                      "ativo": true,
+                      "max_usos": 200,
+                      "usos": 0,
+                      "condicoes": {
+                        "somente_novos": false,
+                        "max_por_cliente": 1,
+                        "min_dias_sem_compra": null
+                      },
+                      "todas_as_lojas": false,
+                      "removido": false
+                    }
+                  ],
+                  "proximo_cursor": "cursor-opaco-da-proxima-pagina",
+                  "tem_mais": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro no formato do Padrão (§7)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_integracao_cupons",
+        "summary": "Cria um cupom na loja da credencial (nunca atualiza cupom existente: código repetido, 409 codigo-em-uso).",
+        "x-dms-permissao": "cupons.criar",
+        "x-dms-escrita": "chave",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "codigo": "COMBODASEXTA",
+                "nome": "Combo de sexta",
+                "tipo": "percentual",
+                "percentual": "10.00",
+                "teto_desconto_centavos": 1500,
+                "pedido_minimo_centavos": 4000,
+                "valido_de": "2026-10-23",
+                "valido_ate": "2026-10-25",
+                "max_usos": 200,
+                "condicoes": {
+                  "max_por_cliente": 1
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "example": {
+                  "id": "1f0c2a3b-0000-4000-8000-000000000005",
+                  "versao": 1,
+                  "atualizado_em": "2026-10-23T12:00:00.000Z",
+                  "codigo": "COMBODASEXTA",
+                  "nome": "Combo de sexta",
+                  "tipo": "percentual",
+                  "percentual": "10.00",
+                  "valor_centavos": null,
+                  "teto_desconto_centavos": 1500,
+                  "pedido_minimo_centavos": 4000,
+                  "valido_de": "2026-10-23",
+                  "valido_ate": "2026-10-25",
+                  "fuso": "America/Sao_Paulo",
+                  "ativo": true,
+                  "max_usos": 200,
+                  "usos": 0,
+                  "condicoes": {
+                    "somente_novos": false,
+                    "max_por_cliente": 1,
+                    "min_dias_sem_compra": null
+                  },
+                  "todas_as_lojas": false,
+                  "removido": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro no formato do Padrão (§7)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integracao/cupons/usos": {
+      "get": {
+        "operationId": "get_api_v1_integracao_cupons_usos",
+        "summary": "Usos de cupom nos pedidos da loja, com cursor, sem dado do cliente.",
+        "x-dms-permissao": "cupons.uso.ler",
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "example": {
+                  "itens": [
+                    {
+                      "id": "1f0c2a3b-0000-4000-8000-000000000006",
+                      "versao": 1,
+                      "atualizado_em": "2026-10-23T12:00:00.000Z",
+                      "cupom_id": "1f0c2a3b-0000-4000-8000-000000000005",
+                      "codigo": "COMBODASEXTA",
+                      "pedido_id": "1f0c2a3b-0000-4000-8000-000000000003",
+                      "usado_em": "2026-10-23T12:00:00.000Z",
+                      "desconto_centavos": 649,
+                      "removido": false
+                    }
+                  ],
+                  "proximo_cursor": "cursor-opaco-da-proxima-pagina",
+                  "tem_mais": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro no formato do Padrão (§7)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integracao/cupons/{id}/desativar": {
+      "post": {
+        "operationId": "post_api_v1_integracao_cupons_id_desativar",
+        "summary": "Desativa um cupom criado pela integração. Já inativo, 200 sem mudança; cupom de outra origem, 404.",
+        "x-dms-permissao": "cupons.criar",
+        "x-dms-escrita": "chave",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sucesso",
+            "content": {
+              "application/json": {
+                "example": {
+                  "id": "1f0c2a3b-0000-4000-8000-000000000005",
+                  "versao": 2,
+                  "atualizado_em": "2026-10-23T12:00:00.000Z",
+                  "codigo": "COMBODASEXTA",
+                  "nome": "Combo de sexta",
+                  "tipo": "percentual",
+                  "percentual": "10.00",
+                  "valor_centavos": null,
+                  "teto_desconto_centavos": 1500,
+                  "pedido_minimo_centavos": 4000,
+                  "valido_de": "2026-10-23",
+                  "valido_ate": "2026-10-25",
+                  "fuso": "America/Sao_Paulo",
+                  "ativo": false,
+                  "max_usos": 200,
+                  "usos": 0,
+                  "condicoes": {
+                    "somente_novos": false,
+                    "max_por_cliente": 1,
+                    "min_dias_sem_compra": null
+                  },
+                  "todas_as_lojas": false,
+                  "removido": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro no formato do Padrão (§7)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "dmsId": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Token do DMS ID, com o segredo da ligação no cabeçalho DMS-Ligacao (Padrão §2.1)"
+      }
+    },
+    "schemas": {
+      "Problema": {
+        "type": "object",
+        "required": [
+          "type",
+          "title",
+          "status",
+          "detail"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "format": "uri"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "x-dms-permissoes": {
+    "pedidos.ler": {
+      "frase": "Pedidos confirmados e cancelados, com itens, canal, cupom usado e de qual anúncio ou link o cliente veio.",
+      "classes": [
+        "dms"
+      ],
+      "sensivel": false
+    },
+    "clientes.telefone.ler": {
+      "frase": "O telefone de quem fez o pedido, um código do cliente no Regem e se é o primeiro pedido dele na loja. Sem nome, e-mail e endereço, e nunca de pedido de aplicativo de entrega.",
+      "classes": [
+        "dms"
+      ],
+      "sensivel": true
+    },
+    "custos.ler": {
+      "frase": "O custo de cada item vendido, pela ficha técnica.",
+      "classes": [
+        "dms"
+      ],
+      "sensivel": true
+    },
+    "clientes.anonimizacao.ler": {
+      "frase": "Quando um cliente pede para ser esquecido no Regem, o aplicativo recebe o aviso para apagar o que tiver dele.",
+      "classes": [
+        "dms"
+      ],
+      "sensivel": false
+    },
+    "cupons.ler": {
+      "frase": "Os cupons da loja, com regra e validade.",
+      "classes": [
+        "dms"
+      ],
+      "sensivel": false
+    },
+    "cupons.uso.ler": {
+      "frase": "Em qual pedido cada cupom foi usado, quando e com que valor.",
+      "classes": [
+        "dms"
+      ],
+      "sensivel": false
+    },
+    "cupons.criar": {
+      "frase": "Criar cupons de campanha na loja e desativar os que ele mesmo criou. Os cupons que a loja criou ficam como estão.",
+      "classes": [
+        "dms"
+      ],
+      "sensivel": false
+    },
+    "clientes.ler": {
+      "frase": "Clientes da empresa: nome, telefone, canais, bairro, opt-out e aceite (nunca só de marketplace)",
+      "classes": [
+        "dms"
+      ],
+      "sensivel": true
+    },
+    "vendas.99food.ler": {
+      "frase": "Vendas e clientes da 99Food (só com a autorização do dono)",
+      "classes": [
+        "dms"
+      ],
+      "sensivel": true
+    },
+    "catalogo.ler": {
+      "frase": "Produtos, variações, combos e adicionais da loja (sem preço)",
+      "classes": [
+        "dms"
+      ],
+      "sensivel": false
+    },
+    "fichas.ler": {
+      "frase": "Fichas técnicas e ingredientes (sem custo)",
+      "classes": [
+        "dms"
+      ],
+      "sensivel": false
+    },
+    "producao.ler": {
+      "frase": "Pedidos na fila de produção (sem o cliente e sem valores)",
+      "classes": [
+        "dms"
+      ],
+      "sensivel": false
+    }
+  },
+  "x-dms-limite": {
+    "porMinuto": 60,
+    "por": "ligacao"
+  },
+  "x-dms-ferramentas": [],
+  "x-dms-avisos": [
+    {
+      "tipo": "pedido.alterado",
+      "permissao": "pedidos.ler",
+      "descricao": "Uma venda mudou: leia de novo pelo cursor de /pedidos.",
+      "exemplo": {
+        "tipo": "pedido.alterado",
+        "id": "1f0c2a3b-0000-4000-8000-000000000003",
+        "versao": 3,
+        "loja_id": "1f0c2a3b-0000-4000-8000-000000000001"
+      }
+    },
+    {
+      "tipo": "cliente.anonimizado",
+      "permissao": "clientes.anonimizacao.ler",
+      "descricao": "Um cliente pediu para ser esquecido: apague o que tiver dele.",
+      "exemplo": {
+        "tipo": "cliente.anonimizado",
+        "id": "1f0c2a3b-0000-4000-8000-000000000004",
+        "loja_id": "1f0c2a3b-0000-4000-8000-000000000001"
+      }
+    },
+    {
+      "tipo": "cupom.alterado",
+      "permissao": "cupons.ler",
+      "descricao": "Um cupom mudou: leia de novo pelo cursor de /cupons.",
+      "exemplo": {
+        "tipo": "cupom.alterado",
+        "id": "1f0c2a3b-0000-4000-8000-000000000005",
+        "versao": 2,
+        "loja_id": "1f0c2a3b-0000-4000-8000-000000000001"
+      }
+    },
+    {
+      "tipo": "cupom.usado",
+      "permissao": "cupons.uso.ler",
+      "descricao": "Um cupom foi usado num pedido: leia o uso em /cupons/usos.",
+      "exemplo": {
+        "tipo": "cupom.usado",
+        "id": "1f0c2a3b-0000-4000-8000-000000000006",
+        "cupom_id": "1f0c2a3b-0000-4000-8000-000000000005",
+        "pedido_id": "1f0c2a3b-0000-4000-8000-000000000003",
+        "loja_id": "1f0c2a3b-0000-4000-8000-000000000001"
+      }
+    },
+    {
+      "tipo": "catalogo.alterado",
+      "permissao": "catalogo.ler",
+      "descricao": "O catálogo da loja mudou: leia /catalogo com ?versao=.",
+      "exemplo": {
+        "tipo": "catalogo.alterado",
+        "loja_id": "1f0c2a3b-0000-4000-8000-000000000001"
+      }
+    },
+    {
+      "tipo": "fichas.alterado",
+      "permissao": "fichas.ler",
+      "descricao": "As fichas da loja mudaram: leia /fichas com ?versao=.",
+      "exemplo": {
+        "tipo": "fichas.alterado",
+        "loja_id": "1f0c2a3b-0000-4000-8000-000000000001"
+      }
+    }
+  ]
+}
