@@ -8,6 +8,7 @@ import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { EmpresaService } from './empresa.service';
 import { AtualizarConfigEmpresaDto } from './dto/atualizar-config-empresa.dto';
+import { CloudOnly } from '../../common/cloud-only.decorator';
 
 // Empresa é criada só via /auth/register. Aqui leitura da PRÓPRIA empresa + config.
 @Controller('empresas')
@@ -22,8 +23,10 @@ export class EmpresaController {
     return this.service.findOne(user.tenantId);
   }
 
-  // Config da empresa — só presidente (ex.: janela de espelho do servidor local).
+  // Config da empresa — só presidente (ex.: janela de espelho do servidor local). Só da NUVEM (fase 3B): a empresa só
+  // desce; gravada no servidor da loja, ficaria só nele (e a janela de espelho que vale é a lida na nuvem).
   @Patch('config')
+  @CloudOnly()
   @Roles('presidente')
   atualizarConfig(
     @CurrentUser() user: AuthUser,

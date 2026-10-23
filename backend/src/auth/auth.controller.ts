@@ -9,6 +9,7 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 import { CurrentUser } from './current-user.decorator';
 import { AuthUser } from './auth-user';
 import { setCookieSessao, limparCookieSessao } from './cookie-sessao';
+import { CloudOnly } from '../common/cloud-only.decorator';
 
 // Rotas públicas de autenticação — com rate limit agressivo (anti brute-force/spam).
 @Controller('auth')
@@ -17,7 +18,11 @@ export class AuthController {
 
   // Passo 1 do cadastro: valida (CNPJ+Receita+dedup), envia código por e-mail e
   // guarda o pendente. NÃO cria conta nem loga — a conta nasce na verificação.
+  // Criar conta é só da NUVEM: o cadastro pendente é tabela só-nuvem (no servidor da loja dava 500) e, desde a fase 3B
+  // (o cadastro da loja sobe), uma empresa criada no servidor da loja subiria os dados dela PARA DENTRO da empresa do
+  // token. No servidor da loja, 404.
   @Post('register')
+  @CloudOnly()
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   register(@Body() dto: RegisterDto) {
     return this.service.registrarInicio(dto);
@@ -25,6 +30,7 @@ export class AuthController {
 
   // Passo 2: confere o código de 6 dígitos → cria a conta e abre a sessão.
   @Post('verificar-cadastro')
+  @CloudOnly()
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   async verificarCadastro(
     @Body() dto: { email?: string; codigo?: string },

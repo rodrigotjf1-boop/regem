@@ -11,6 +11,7 @@ import { SkeletonList } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { EntityForm, type FieldDef } from '@/components/cadastros/entity-form';
 import { ResponsiveTable, type Column } from '@/components/ui/responsive-table';
+import { NO_SERVIDOR_DA_LOJA, SoPelaNuvem } from '@/components/ui/so-pela-nuvem';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -449,11 +450,12 @@ export default function FinanceiroPage() {
                 className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm sm:w-40"
               />
             </label>
-            <Button type="button" onClick={salvarSnapshotHora} disabled={savingSnap || !snapshotHora}>
+            <Button type="button" onClick={salvarSnapshotHora} disabled={savingSnap || !snapshotHora || NO_SERVIDOR_DA_LOJA}>
               {savingSnap ? 'Salvando…' : 'Salvar'}
             </Button>
             {snapMsg && <span className="text-sm text-muted-foreground">{snapMsg}</span>}
           </div>
+          <SoPelaNuvem className="mt-3" />
         </Card>
 
         {/* Sincronização com a nuvem — janela do servidor local (empresa.mirror_dias) */}
@@ -487,13 +489,14 @@ export default function FinanceiroPage() {
                 ))}
               </select>
             </label>
-            <Button type="button" onClick={salvarMirror} disabled={savingMirror}>
+            <Button type="button" onClick={salvarMirror} disabled={savingMirror || NO_SERVIDOR_DA_LOJA}>
               {savingMirror ? 'Salvando…' : 'Salvar'}
             </Button>
             {mirrorMsg && (
               <span className="text-sm text-muted-foreground">{mirrorMsg}</span>
             )}
           </div>
+          <SoPelaNuvem className="mt-3" />
         </Card>
         </>
         )}

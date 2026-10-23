@@ -6,6 +6,7 @@ import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { NO_SERVIDOR_DA_LOJA, SoPelaNuvem } from '@/components/ui/so-pela-nuvem';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -69,6 +70,11 @@ export default function DiretoriaPage() {
   }, [carregar]);
 
   async function toggleModulo(unidadeId: string | null, modulo: string, ativo: boolean) {
+    // Módulo é só da nuvem (fase 3B): no servidor da loja a gravação nem existe (`@CloudOnly`).
+    if (NO_SERVIDOR_DA_LOJA) {
+      toast.error('Módulo só muda pela nuvem: abra esta mesma tela no Regem na nuvem.');
+      return;
+    }
     try {
       await api.post('/modulos', { unidadeId, modulo, ativo });
       setMod((m: any) => {
@@ -233,6 +239,7 @@ export default function DiretoriaPage() {
               <p className="text-xs text-muted-foreground">
                 Ligar/desligar por rede (padrão) ou por loja (exceção). Desativar corta o acesso na hora.
               </p>
+              <SoPelaNuvem className="mt-2" />
             </div>
 
             <div className="grid gap-3 p-4 sm:grid-cols-2">

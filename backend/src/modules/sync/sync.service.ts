@@ -25,6 +25,7 @@ import {
   REDIGIR,
   TABELAS_EXCLUIVEIS,
   TABELAS_EXCLUIVEIS_PELA_LOJA,
+  TABELAS_CADASTRO_DA_LOJA,
 } from './sync-config';
 import { LoteSyncDto } from './dto/push.dto';
 import { assinarSync } from './sync-sig';
@@ -534,6 +535,129 @@ export class SyncService {
     return aplicarExclusoesTx(tx, tenantId, linhas);
   }
 
+  // TRAVAS DO CADASTRO (fase 3B, decisão do dono de 23/10/2026: "sobe também, com travas"). O cadastro editado no
+  // servidor da loja sobe, mas a nuvem NÃO aceita da loja:
+  //  1. nível de presidente — colaborador que passaria a presidente (pelo perfil ou pela função principal), perfil de
+  //     presidente, função que vira ou deixa de ser de presidente;
+  //  2. o acesso pela nuvem — `pode_nuvem` fica o daqui; colaborador novo vindo da loja nasce sem ele;
+  //  3. mudança no registro do presidente — nem senha, nem PIN, nem bloqueio, nem nada;
+  //  4. colaborador bloqueado ou desligado aqui de volta a ativo por uma cópia velha da loja (a linha velha apagaria
+  //     também os dados do desligamento) — reativar é daqui;
+  //  5. loja nova ou loja apagada — o plano contratado limita as lojas (a loja que existe pode ser editada).
+  // Vale também para a EXCLUSÃO que vem da loja. O PIOR caso que isto evita: alguém com acesso ao banco do PC da loja
+  // forjar um presidente, ou trocar a senha dele, e entrar pela nuvem. Devolve as linhas que passam (algumas ajustadas)
+  // e o motivo de cada recusada. O nível é o do `auth` (V5): `coalesce(perfil_acesso.nivel, funcao.categoria)`.
+  private async travasDoCadastro(
+    tenantId: string,
+    tabela: string,
+    linhas: any[],
+  ): Promise<{ linhas: any[]; recusadas: string[] }> {
+    const rows = (r: any): any[] => r.rows ?? r;
+    const lista = (ids: string[]) => sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `);
+    const recusadas: string[] = [];
+    const passam: any[] = [];
+    const recusar = (motivo: string) => recusadas.push(motivo);
+    const uuid = (v: any) => (UUID.test(String(v ?? '')) ? String(v) : null);
+
+    if (tabela === 'sync_exclusao') {
+      const protegidas = ['perfil_acesso', 'colaborador', 'funcao'];
+      const alvo = (t: string) => linhas.filter((l: any) => String(l.tabela) === t).map((l: any) => uuid(l.registro_id)).filter(Boolean) as string[];
+      const presidentes = new Set<string>();
+      const [perfis, colabs, funcoes] = protegidas.map(alvo);
+      if (perfis.length)
+        rows(await this.db.execute(sql`select id::text as id from perfil_acesso
+          where tenant_id = ${tenantId} and nivel = 'presidente' and id in (${lista(perfis)})`)).forEach((x) => presidentes.add(x.id));
+      if (colabs.length)
+        rows(await this.db.execute(sql`select c.id::text as id from colaborador c
+          left join perfil_acesso p on p.id = c.perfil_acesso_id left join funcao f on f.id = c.funcao_id
+          where c.tenant_id = ${tenantId} and coalesce(p.nivel, f.categoria::text) = 'presidente' and c.id in (${lista(colabs)})`)).forEach((x) => presidentes.add(x.id));
+      if (funcoes.length)
+        rows(await this.db.execute(sql`select id::text as id from funcao
+          where tenant_id = ${tenantId} and categoria::text = 'presidente' and id in (${lista(funcoes)})`)).forEach((x) => presidentes.add(x.id));
+      for (const l of linhas) {
+        const t = String(l.tabela);
+        if (t === 'unidade') recusar('loja apagada só pela nuvem');
+        else if (protegidas.includes(t) && presidentes.has(String(l.registro_id))) recusar(`exclusão de ${t} do presidente`);
+        else passam.push(l);
+      }
+      return { linhas: passam, recusadas };
+    }
+
+    const ids = linhas.map((l: any) => uuid(l.id)).filter(Boolean) as string[];
+    if (!ids.length) return { linhas, recusadas };
+
+    if (tabela === 'unidade') {
+      const existem = new Set(
+        rows(await this.db.execute(sql`select id::text as id from unidade where tenant_id = ${tenantId} and id in (${lista(ids)})`)).map((x) => x.id),
+      );
+      for (const l of linhas) {
+        if (!existem.has(String(l.id))) recusar('loja nova só pela nuvem');
+        else if (l.deleted_at) recusar('loja apagada só pela nuvem');
+        else passam.push(l);
+      }
+      return { linhas: passam, recusadas };
+    }
+
+    if (tabela === 'perfil_acesso') {
+      const nuvem = new Map(
+        rows(await this.db.execute(sql`select id::text as id, nivel from perfil_acesso where tenant_id = ${tenantId} and id in (${lista(ids)})`))
+          .map((x) => [x.id, x.nivel as string]),
+      );
+      for (const l of linhas) {
+        const daqui = nuvem.get(String(l.id));
+        if (daqui === 'presidente') recusar('perfil do presidente');
+        else if (l.nivel === 'presidente') recusar('perfil com nível de presidente');
+        else passam.push(daqui ? { ...l, nivel: daqui } : l); // o nível de um perfil não muda pela loja
+      }
+      return { linhas: passam, recusadas };
+    }
+
+    if (tabela === 'funcao') {
+      const nuvem = new Map(
+        rows(await this.db.execute(sql`select id::text as id, categoria::text as categoria from funcao where tenant_id = ${tenantId} and id in (${lista(ids)})`))
+          .map((x) => [x.id, x.categoria as string]),
+      );
+      for (const l of linhas) {
+        const daqui = nuvem.get(String(l.id));
+        const virou = String(l.categoria ?? '') === 'presidente';
+        if (daqui === 'presidente' && !virou) recusar('função do presidente perdendo o nível');
+        else if (virou && daqui !== 'presidente') recusar('função com nível de presidente');
+        else passam.push(l);
+      }
+      return { linhas: passam, recusadas };
+    }
+
+    if (tabela === 'colaborador') {
+      const nuvem = new Map(
+        rows(await this.db.execute(sql`select c.id::text as id, c.pode_nuvem, c.status, coalesce(p.nivel, f.categoria::text) as nivel
+          from colaborador c
+          left join perfil_acesso p on p.id = c.perfil_acesso_id
+          left join funcao f on f.id = c.funcao_id
+          where c.tenant_id = ${tenantId} and c.id in (${lista(ids)})`)).map((x) => [x.id, x]),
+      );
+      // O nível que a linha da loja daria — com os perfis e as funções DAQUI (os da loja que vieram neste mesmo envio já
+      // foram aplicados: perfil e função vêm antes do colaborador no push).
+      const perfis = new Map(
+        rows(await this.db.execute(sql`select id::text as id, nivel from perfil_acesso where tenant_id = ${tenantId}`)).map((x) => [x.id, x.nivel as string]),
+      );
+      const funcoes = new Map(
+        rows(await this.db.execute(sql`select id::text as id, categoria::text as categoria from funcao where tenant_id = ${tenantId}`)).map((x) => [x.id, x.categoria as string]),
+      );
+      const nivelDa = (l: any) =>
+        (l.perfil_acesso_id && perfis.get(String(l.perfil_acesso_id))) || (l.funcao_id && funcoes.get(String(l.funcao_id))) || null;
+      for (const l of linhas) {
+        const daqui: any = nuvem.get(String(l.id));
+        if (daqui?.nivel === 'presidente') recusar('registro do presidente');
+        else if (nivelDa(l) === 'presidente') recusar('colaborador com nível de presidente');
+        else if (daqui && daqui.status !== 'ativo' && String(l.status ?? 'ativo') === 'ativo') recusar('bloqueado ou desligado na nuvem');
+        else passam.push({ ...l, pode_nuvem: daqui ? !!daqui.pode_nuvem : false }); // o acesso pela nuvem é daqui
+      }
+      return { linhas: passam, recusadas };
+    }
+
+    return { linhas, recusadas };
+  }
+
   async push(
     ctx: SyncCtxData,
     lotes: LoteSyncDto[],
@@ -592,6 +716,18 @@ export class SyncService {
         }
       }
 
+      // TRAVAS DO CADASTRO (fase 3B): o cadastro que a loja manda — e a exclusão dele — passa pelas regras que
+      // protegem o acesso (nível de presidente, acesso pela nuvem, registro do presidente, bloqueio/desligamento, lojas).
+      if (linhas.length && (TABELAS_CADASTRO_DA_LOJA.has(lote.tabela) || lote.tabela === 'sync_exclusao')) {
+        const travas = await this.travasDoCadastro(tenantId, lote.tabela, linhas);
+        linhas = travas.linhas; // SEMPRE: as que passam podem ter vindo ajustadas (acesso pela nuvem, nível)
+        if (travas.recusadas.length) {
+          ignoradas += travas.recusadas.length;
+          const motivos = [...new Set(travas.recusadas)].join('; ');
+          this.logger.warn(`push ${lote.tabela}: ${travas.recusadas.length} linha(s) da loja recusada(s) pelas travas do cadastro — ${motivos}`);
+        }
+      }
+
       // EXCLUSÃO VENCE (reproduzido em teste): a nuvem apaga a linha, a loja edita a mesma
       // linha ANTES de receber a exclusão e o push a recria aqui — a linha apagada reaparece
       // e conta em relatório até a loja receber a exclusão e devolvê-la. É a regra "delete
@@ -646,6 +782,12 @@ export class SyncService {
           lote.tabela === 'pedido_externo' && colunas.has('status')
             ? sql` and not (pedido_externo.status <> 'novo' and excluded.status = 'novo')`
             : sql``;
+        // CADASTRO EXCLUÍDO AQUI NÃO RESSUSCITA (fase 3B): a cópia da loja sem `deleted_at` — mexida antes de a exclusão
+        // descer, ou com o relógio adiantado — não desfaz a exclusão lógica feita na nuvem. Restaurar é daqui.
+        const naoRessuscita =
+          TABELAS_CADASTRO_DA_LOJA.has(lote.tabela) && colunas.has('deleted_at')
+            ? sql` and not (${sql.identifier(lote.tabela)}.deleted_at is not null and excluded.deleted_at is null)`
+            : sql``;
         // LWW (update-se-mais-nova) p/ tabela com updated_at; senão do-nothing (append imutável).
         const conflito =
           (modo === 'lww' || colunas.has('updated_at')) && setCols.length && colunas.has(lwwCol)
@@ -654,7 +796,7 @@ export class SyncService {
                 sql`, `,
               )}
               where ${sql.identifier(lote.tabela)}.tenant_id = excluded.tenant_id
-                and ${sql.identifier(lote.tabela)}.${sql.identifier(lwwCol)} < excluded.${sql.identifier(lwwCol)}${naoDesfazRevogacao}${naoReabreCartao}${naoVoltaANovo}`
+                and ${sql.identifier(lote.tabela)}.${sql.identifier(lwwCol)} < excluded.${sql.identifier(lwwCol)}${naoDesfazRevogacao}${naoReabreCartao}${naoVoltaANovo}${naoRessuscita}`
             : sql`on conflict (id) do nothing`;
         const linhaVals = (linha: any) =>
           sql`(${sql.join([tenantId, ...cols.map((c) => coagir(linha[c]))].map((v) => sql`${v}`), sql`, `)})`;

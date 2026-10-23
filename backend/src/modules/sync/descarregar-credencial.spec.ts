@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { createServer, Server } from 'node:http';
 import { AddressInfo } from 'node:net';
 import { join } from 'node:path';
@@ -80,9 +81,16 @@ function descarregar(cloud: string): Promise<{ codigo: number; saida: string }> 
 descrever('--descarregar com a credencial recusada (ERR-123)', () => {
   const pool = new Pool({ connectionString: URL_PG });
   const q = (s: string, p: any[] = []) => pool.query(s, p).then((r) => r.rows);
-  // `sync_state` é a tabela de estado do daemon (no banco da loja). O teste mexe em três chaves;
+  // O que sobe ANTES de `categoria_produto` na lista do daemon (o cadastro da loja, fase 3B): no teste do envio, o cursor
+  // dessas vai para o futuro — o banco de teste tem linhas delas de outras specs, e o 1º lote tem de ser o desta linha.
+  const ANTES = (() => {
+    const fonte = readFileSync(DAEMON, 'utf8');
+    const bloco = fonte.slice(fonte.indexOf('const PUSH_TABLES = ['), fonte.indexOf("{ tabela: 'categoria_produto'"));
+    return [...bloco.matchAll(/tabela: '([a-z_]+)'/g)].map((m) => m[1]);
+  })();
+  // `sync_state` é a tabela de estado do daemon (no banco da loja). O teste mexe nestas chaves;
   // o que havia antes volta no fim.
-  const CHAVES = ['push_seq', 'push_categoria_produto', 'relogio_desvio_s'];
+  const CHAVES = ['push_seq', 'push_categoria_produto', 'relogio_desvio_s', ...ANTES.map((t) => `push_${t}`)];
   let estadoAntes: { chave: string; valor: string }[] = [];
   let tabelaExistia = false;
   let empresa: string | null = null;
@@ -137,6 +145,10 @@ descrever('--descarregar com a credencial recusada (ERR-123)', () => {
     const cursor = `${new Date(new Date(linha.ts).getTime() - 1000).toISOString()}|00000000-0000-0000-0000-000000000000`;
     await q(`insert into sync_state (chave, valor) values ('push_categoria_produto', $1)
              on conflict (chave) do update set valor = excluded.valor`, [cursor]);
+    expect(ANTES).toContain('unidade'); // a leitura da lista do daemon funcionou
+    for (const t of ANTES)
+      await q(`insert into sync_state (chave, valor) values ($1, '9999-12-31T00:00:00Z|ffffffff-ffff-ffff-ffff-ffffffffffff')
+               on conflict (chave) do update set valor = excluded.valor`, [`push_${t}`]);
     // A conferência passa (a credencial ainda valia) e a nuvem passa a recusar no meio.
     const nuvem = await nuvemFalsa((n) => (n === 1 ? { status: 201, corpo: {} } : { status: 401, corpo: RECUSA }));
     try {

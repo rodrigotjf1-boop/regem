@@ -59,10 +59,10 @@ describe('sync-config — cadeia da ficha', () => {
     expect(idx('produto_combo_item')).toBeGreaterThan(idx('produto'));
   });
 
-  it('catálogo é master na nuvem: as três só DESCEM', () => {
+  it('as três descem E sobem (fase 3B, 23/10/2026): a ficha, a variação e o combo editados na loja chegam à nuvem', () => {
     ['ficha_ingrediente', 'produto_variacao', 'produto_combo_item'].forEach((t) => {
-      expect(TABELAS_SYNC.find((x) => x.tabela === t)?.direcao).toBe('desce');
-      expect(modoPush(t)).toBeNull(); // não sobe: o edge não é dono do catálogo
+      expect(TABELAS_SYNC.find((x) => x.tabela === t)?.direcao).toBe('ambos');
+      expect(modoPush(t)).toBe('lww'); // a mais nova vence
     });
   });
 

@@ -22,11 +22,13 @@ jest.setTimeout(60_000);
 describe('exclusão aceita da loja — só tabela de mão dupla', () => {
   it('nenhuma tabela que só desce (nem empresa) aceita exclusão vinda da loja', () => {
     const soDesce = TABELAS_SYNC.filter((t) => t.direcao === 'desce').map((t) => t.tabela);
-    expect(soDesce.length).toBeGreaterThan(10);
+    expect(soDesce.length).toBeGreaterThan(5); // empresa, módulos, fiscal, cupom, banner… (o cadastro sobe desde a 3B)
     for (const t of soDesce) expect([t, TABELAS_EXCLUIVEIS_PELA_LOJA.has(t)]).toEqual([t, false]);
-    for (const t of ['perfil_acesso', 'colaborador', 'funcao_setor', 'colaborador_funcao', 'kds_alerta_config', 'empresa'])
+    for (const t of ['modulo_ativacao', 'fiscal_config', 'cupom', 'banner', 'empresa'])
       expect([t, TABELAS_EXCLUIVEIS_PELA_LOJA.has(t)]).toEqual([t, false]);
-    for (const t of ['categoria_item', 'mesa', 'delivery_config', 'produto']) expect([t, TABELAS_EXCLUIVEIS_PELA_LOJA.has(t)]).toEqual([t, true]);
+    // O cadastro que passou a subir na fase 3B aceita a exclusão da loja (o do presidente fica protegido pelas travas).
+    for (const t of ['categoria_item', 'mesa', 'delivery_config', 'produto', 'perfil_acesso', 'funcao_setor', 'colaborador_funcao'])
+      expect([t, TABELAS_EXCLUIVEIS_PELA_LOJA.has(t)]).toEqual([t, true]);
   });
 });
 
@@ -53,29 +55,29 @@ descrever('exclusão vinda da loja e linha recusada no envio (push na nuvem)', (
   afterAll(async () => {
     if (!pool) return;
     await q('delete from sync_push_lock where equipamento_id = $1', [SERVIDOR]).catch(() => undefined);
-    for (const t of ['sync_exclusao', 'delivery_config', 'categoria_item', 'perfil_acesso', 'equipamento'])
+    for (const t of ['sync_exclusao', 'delivery_config', 'categoria_item', 'modulo_ativacao', 'equipamento'])
       await q(`delete from ${t} where tenant_id = $1`, [T]).catch(() => undefined);
     await q('delete from empresa where id = $1', [T]).catch(() => undefined);
     await pool.end();
   });
 
-  it('perfil removido no servidor da loja não apaga o da nuvem nem fica gravado para descer às outras lojas', async () => {
-    const perfil = randomUUID();
+  it('exclusão de tabela que só desce (módulo) não apaga a da nuvem nem fica gravada para descer às outras lojas', async () => {
+    const modulo = randomUUID();
     const categoria = randomUUID();
-    await q(`insert into perfil_acesso (id, tenant_id, nome, nivel) values ($1,$2,'Caixa','execucao')`, [perfil, T]);
+    await q(`insert into modulo_ativacao (id, tenant_id, modulo) values ($1,$2,'kds')`, [modulo, T]);
     await q(`insert into categoria_item (id, tenant_id, nome) values ($1,$2,'Bebidas')`, [categoria, T]);
-    const doPerfil = exclusao('perfil_acesso', perfil);
+    const doModulo = exclusao('modulo_ativacao', modulo);
     const daCategoria = exclusao('categoria_item', categoria);
     jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => undefined);
 
-    const r: any = await enviar('sync_exclusao', [doPerfil, daCategoria]);
+    const r: any = await enviar('sync_exclusao', [doModulo, daCategoria]);
 
-    expect((await q('select 1 from perfil_acesso where id = $1', [perfil])).rowCount).toBe(1); // a nuvem é a dona
+    expect((await q('select 1 from modulo_ativacao where id = $1', [modulo])).rowCount).toBe(1); // a nuvem é a dona
     expect((await q('select 1 from categoria_item where id = $1', [categoria])).rowCount).toBe(0); // mão dupla: vale
     const gravadas = (await q('select id from sync_exclusao where tenant_id = $1', [T])).rows.map((x) => x.id);
-    expect(gravadas).toEqual([daCategoria.id]); // a do perfil não desce para as outras lojas
+    expect(gravadas).toEqual([daCategoria.id]); // a do módulo não desce para as outras lojas
     expect(r.resultado.sync_exclusao).toEqual({ aplicadas: 1, ignoradas: 1 });
-    expect((svc as any).logger.warn).toHaveBeenCalledWith(expect.stringMatching(/recusada.*perfil_acesso/));
+    expect((svc as any).logger.warn).toHaveBeenCalledWith(expect.stringMatching(/recusada.*modulo_ativacao/));
   });
 
   it('exclusão de tabela fora do sincronismo também é recusada', async () => {
