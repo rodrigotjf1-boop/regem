@@ -464,6 +464,14 @@ export const TABELAS_PUSH_LWW = new Set(
 export const TABELAS_EXCLUIVEIS = new Set(
   TABELAS_SYNC.filter((t) => t.direcao !== 'sobe' && t.tabela !== 'empresa').map((t) => t.tabela),
 );
+// Exclusão que a LOJA manda (o `sync_exclusao` do push): só nas tabelas que ela também escreve ('ambos').
+// Tabela que só desce tem a nuvem como dona — mas a exclusão feita no servidor da loja (cadastro mexido no
+// modo local, o apaga-e-insere dos vínculos de função e de colaborador, perfil removido) apagava a linha da
+// nuvem E ficava gravada aqui, descendo para as OUTRAS lojas da empresa (fase 3, 23/10/2026). A exclusão
+// feita na nuvem continua descendo para todas (`TABELAS_EXCLUIVEIS`).
+export const TABELAS_EXCLUIVEIS_PELA_LOJA = new Set(
+  TABELAS_SYNC.filter((t) => t.direcao === 'ambos').map((t) => t.tabela),
+);
 
 // ── ESCOPO POR LOJA NO PULL (decisão do dono, 17/09/2026) ──────────────────────────────────
 // "Ele só baixa os dados da unidade caso a empresa tenha mais de uma. Em casos de grande volume

@@ -24,6 +24,7 @@ import {
   colunaLWW,
   REDIGIR,
   TABELAS_EXCLUIVEIS,
+  TABELAS_EXCLUIVEIS_PELA_LOJA,
 } from './sync-config';
 import { LoteSyncDto } from './dto/push.dto';
 import { assinarSync } from './sync-sig';
@@ -579,6 +580,18 @@ export class SyncService {
       );
       ignoradas += (lote.linhas?.length ?? 0) - linhas.length;
 
+      // Exclusão mandada pela LOJA só vale em tabela que ela também escreve ('ambos'): numa tabela que só
+      // desce, a nuvem é a dona. Recusada aqui, ela nem é gravada — senão desceria para as outras lojas.
+      if (lote.tabela === 'sync_exclusao' && linhas.length) {
+        const recusadas = linhas.filter((l: any) => !TABELAS_EXCLUIVEIS_PELA_LOJA.has(String(l.tabela)));
+        if (recusadas.length) {
+          linhas = linhas.filter((l: any) => TABELAS_EXCLUIVEIS_PELA_LOJA.has(String(l.tabela)));
+          ignoradas += recusadas.length;
+          const quais = [...new Set(recusadas.map((l: any) => String(l.tabela)))].join(', ');
+          this.logger.warn(`push: ${recusadas.length} exclusão(ões) da loja recusada(s) — tabela só desce (${quais})`);
+        }
+      }
+
       // EXCLUSÃO VENCE (reproduzido em teste): a nuvem apaga a linha, a loja edita a mesma
       // linha ANTES de receber a exclusão e o push a recria aqui — a linha apagada reaparece
       // e conta em relatório até a loja receber a exclusão e devolvê-la. É a regra "delete
@@ -669,6 +682,10 @@ export class SyncService {
             aplicadas += r?.rowCount ?? 0;
             ignoradas += linhas.length - (r?.rowCount ?? 0);
           } catch {
+            // Recusadas pelo banco: 23505 (chave de negócio repetida — típico de linha única por loja criada com
+            // id diferente em cada lado) e 23503 (o pai não chegou). Eram contadas em silêncio e o servidor da
+            // loja anda o cursor sem reenviar — agora ficam no log, com a regra que recusou.
+            const recusadas: Record<string, { n: number; regra: string }> = {};
             for (const linha of linhas) {
               try {
                 const r: any = await tx.transaction((sp) =>
@@ -681,11 +698,15 @@ export class SyncService {
               } catch (e: any) {
                 if (e?.code === '23505' || e?.code === '23503') {
                   ignoradas++;
+                  const c = (recusadas[e.code] ??= { n: 0, regra: String(e?.constraint ?? e?.cause?.constraint ?? '') });
+                  c.n++;
                   continue;
                 }
                 throw e;
               }
             }
+            const resumo = Object.entries(recusadas).map(([cod, c]) => `${c.n}× ${cod}${c.regra ? ` (${c.regra})` : ''}`);
+            if (resumo.length) this.logger.warn(`push ${lote.tabela}: linha(s) recusada(s) pelo banco — ${resumo.join(', ')}`);
           }
           // Exclusões que vieram do edge (mig 262): apaga a mesma linha aqui, na MESMA
           // transação marcada — então não gera outro registro de exclusão (sem eco). Só em
@@ -782,8 +803,9 @@ export function ausenteDemais(
 // filho que não tem cascata dá 23503; as que falham são retentadas em mais passadas (a ordem
 // entre elas é arbitrária) e, se ainda falharem, ficam de fora sem derrubar o lote.
 async function aplicarExclusoesTx(tx: any, tenantId: string, linhas: any[]): Promise<void> {
+  // Só chamada pelo push (exclusões que vieram da LOJA): mesma trava do filtro do push, por garantia.
   let pendentes = linhas.filter(
-    (l: any) => l && TABELAS_EXCLUIVEIS.has(String(l.tabela)) && l.registro_id,
+    (l: any) => l && TABELAS_EXCLUIVEIS_PELA_LOJA.has(String(l.tabela)) && l.registro_id,
   );
   for (let passe = 0; passe < 3 && pendentes.length; passe++) {
     const resta: any[] = [];
