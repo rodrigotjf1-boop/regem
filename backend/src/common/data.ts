@@ -46,3 +46,12 @@ export function horaAgora(): string {
 export function horaNoFuso(d: Date): string {
   return d.toLocaleTimeString('en-GB', { timeZone: FUSO, hour12: false }).slice(0, 5);
 }
+
+/**
+ * Data e hora "dd/mm/aaaa, hh:mm:ss" no fuso da operação — para o que sai IMPRESSO (cupom, via de produção,
+ * comprovante). `new Date().toLocaleString('pt-BR')` sozinho usa o fuso do servidor: na nuvem (UTC) a via das 21h30
+ * saía com 00h30 do dia seguinte.
+ */
+export function dataHoraNoFuso(d: Date = new Date()): string {
+  return d.toLocaleString('pt-BR', { timeZone: FUSO });
+}

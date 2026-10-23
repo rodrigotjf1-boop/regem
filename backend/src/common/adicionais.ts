@@ -63,13 +63,35 @@ export function descricaoTrazEscolhas(descricao: string | null | undefined, comp
   return partes(texto.slice(inicio, texto.length - 1)) === partes(esperado);
 }
 
+// "+ 2x Bacon · sem Cebola" — o texto das escolhas agrupadas.
+function textoDosGrupos(grupos: { tipo: string; nome: string; vezes: number }[]): string {
+  return grupos.map((g) => `${g.tipo === 'remover' ? 'sem' : '+'} ${rotuloDaEscolha(g.nome, g.vezes)}`).join(' · ');
+}
+
 // Texto das escolhas para o cupom e para a cozinha: "+ 2x Bacon · sem Cebola".
 // Com `descricao`, devolve null quando ela já traz as escolhas (pedido do nosso cardápio).
 export function textoDasEscolhas(comps: Escolha[], descricao?: string | null): string | null {
   const grupos = agruparEscolhas(comps);
   if (!grupos.length) return null;
   if (descricao != null && descricaoTrazEscolhas(descricao, comps)) return null;
-  return grupos
-    .map((g) => `${g.tipo === 'remover' ? 'sem' : '+'} ${rotuloDaEscolha(g.nome, g.vezes)}`)
-    .join(' · ');
+  return textoDosGrupos(grupos);
+}
+
+// Para a via que DESTACA os adicionais (produção e via do delivery): a descrição SEM a lista de escolhas que o nosso
+// cardápio escreve no fim ("X-Burger (2x Bacon, Sem cebola)" → "X-Burger") e o texto das escolhas numa linha própria.
+// Quando a descrição não traz a lista (balcão, canal), ela volta inteira e as escolhas vêm à parte, como sempre.
+export function separarEscolhas(
+  descricao: string | null | undefined,
+  comps: Escolha[],
+): { descricao: string; escolhas: string | null } {
+  const desc = String(descricao ?? '');
+  const grupos = agruparEscolhas(comps);
+  if (!grupos.length) return { descricao: desc, escolhas: null };
+  const escolhas = textoDosGrupos(grupos);
+  if (!descricaoTrazEscolhas(desc, comps)) return { descricao: desc, escolhas };
+  // Mesma conta de `descricaoTrazEscolhas`: a lista ocupa o fim, logo depois de " (".
+  const texto = desc.trimEnd();
+  const lista = grupos.map((g) => rotuloDaEscolha(g.nome, g.vezes)).join(', ');
+  const inicio = texto.length - 1 - lista.length;
+  return { descricao: texto.slice(0, inicio - 2).trimEnd(), escolhas };
 }

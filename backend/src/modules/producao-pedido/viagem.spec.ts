@@ -153,13 +153,17 @@ descrever('comer aqui / viagem chega à cozinha: pedido de produção e via impr
       { key: 'itens', visivel: true, negrito: false, alinhamento: 'esquerda' },
     ] };
     const itens = [{ descricao: 'Lanche de teste', quantidade: 2 }];
-    const via = (consumo: string | null) => ((producao as any).renderTicket({ senha: 7, senhaPrefixo: 'B', consumo }, itens, 3, { perfil, cabecalho: 'Loja de teste' }) as string).split('\n');
+    const via = (consumo: string | null, p: any = perfil) =>
+      ((producao as any).renderTicket({ senha: 7, senhaPrefixo: 'B', consumo }, itens, 3, { perfil: p, cabecalho: 'Loja de teste' }) as string).split('\n');
     const viagem = via('viagem');
-    expect(viagem[0]).toBe(`@CBD ${MARCA_VIAGEM}`); // antes do cabeçalho da loja e de qualquer campo do perfil
-    expect(viagem[1]).toBe('@C Loja de teste');
+    expect(viagem[0]).toBe(`@CBD ${MARCA_VIAGEM}`); // antes de qualquer campo do perfil
+    expect(viagem[1]).toBe('@CB SENHA B-7');
     expect(viagem.join('\n')).toContain('2x Lanche de teste');
     for (const c of ['local', null]) expect(via(c).join('\n')).not.toContain('VIAGEM');
-    expect(via(null)[0]).toBe('@C Loja de teste');
+    // A via de produção leva só o que importa (dono, 23/10/2026): o cabeçalho da loja sai só pelo campo "Nome da loja".
+    expect(via(null).join('\n')).not.toContain('Loja de teste');
+    const comNome = { campos: [{ key: 'nomeLoja', visivel: true, negrito: false, alinhamento: 'centro' }, ...perfil.campos] };
+    expect(via('viagem', comNome).slice(0, 2)).toEqual([`@CBD ${MARCA_VIAGEM}`, '@C Loja de teste']);
   });
 
   it('via que só sai quando a cozinha avança o pedido (adiada): o contexto leva a marca gravada no pedido', async () => {

@@ -2,6 +2,7 @@ import {
   agruparEscolhas,
   descricaoTrazEscolhas,
   rotuloDaEscolha,
+  separarEscolhas,
   textoDasEscolhas,
   vezesPorOpcao,
 } from './adicionais';
@@ -115,6 +116,33 @@ describe('adicionais — repetição e texto das escolhas', () => {
     it('nome de opção com vírgula continua comparável', () => {
       const comps = [{ tipo: 'adicionar', nome: 'Alface, tomate' }, { tipo: 'adicionar', nome: 'Bacon' }];
       expect(descricaoTrazEscolhas('Lanche Fictício (Bacon, Alface, tomate)', comps)).toBe(true);
+    });
+  });
+
+  // A via que destaca os adicionais (produção e delivery): a lista sai da descrição e vira linha própria.
+  describe('separarEscolhas', () => {
+    const comps = [
+      { tipo: 'adicionar', nome: 'Bacon' },
+      { tipo: 'adicionar', nome: 'Bacon' },
+      { tipo: 'remover', nome: 'Cebola' },
+    ];
+
+    it('pedido do nosso cardápio: tira a lista do fim da descrição e devolve as escolhas à parte', () => {
+      expect(separarEscolhas('Lanche Fictício (2x Bacon, Cebola)', comps)).toEqual({
+        descricao: 'Lanche Fictício',
+        escolhas: '+ 2x Bacon · sem Cebola',
+      });
+    });
+
+    it('descrição sem a lista (balcão, canal): fica inteira, e as escolhas vêm à parte', () => {
+      expect(separarEscolhas('Lanche Fictício', comps)).toEqual({ descricao: 'Lanche Fictício', escolhas: '+ 2x Bacon · sem Cebola' });
+      // Lista diferente da gravada (uma fatia a menos): não mexe na descrição.
+      expect(separarEscolhas('Lanche Fictício (Bacon, Cebola)', comps).descricao).toBe('Lanche Fictício (Bacon, Cebola)');
+    });
+
+    it('sem escolha: a descrição como veio e nada à parte', () => {
+      expect(separarEscolhas('Refrigerante Fictício (lata)', [])).toEqual({ descricao: 'Refrigerante Fictício (lata)', escolhas: null });
+      expect(separarEscolhas(null, [])).toEqual({ descricao: '', escolhas: null });
     });
   });
 });

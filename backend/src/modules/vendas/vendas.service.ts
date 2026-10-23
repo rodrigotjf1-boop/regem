@@ -25,6 +25,8 @@ import { ehGestor } from '../../auth/niveis';
 import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { perfilEfetivo } from '../delivery/cupom-perfis';
+import { dadosDaViaDoDelivery } from '../delivery/via-do-delivery';
+import { ehDoTotem } from '../../common/via-do-pedido';
 import {
   mesa,
   comanda,
@@ -51,14 +53,23 @@ import {
   deliveryConfig,
   produtoFaixaPreco,
   producaoPedido,
+  pedidoExterno,
 } from '../../db/schema';
 import { precoComAtacado } from '../../common/preco-atacado';
-import { agruparEscolhas, REGRA_COM_REPETICAO, rotuloDaEscolha, textoDasEscolhas, vezesPorOpcao } from '../../common/adicionais';
+import {
+  agruparEscolhas,
+  REGRA_COM_REPETICAO,
+  rotuloDaEscolha,
+  textoDasEscolhas,
+  vezesPorOpcao,
+  type Escolha,
+} from '../../common/adicionais';
 import type { DocumentoImpressao } from '../../common/regras-impressao';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import {
   ProducaoPedidoService,
   ItemProducao,
+  type ItemForaDaProducao,
 } from '../producao-pedido/producao-pedido.service';
 import { FiscalService } from '../fiscal/fiscal.service';
 import { OrdemProducaoService } from '../ordem-producao/ordem-producao.service';
@@ -982,6 +993,7 @@ export class VendasService {
 
       let total = 0;
       const itensProducao: ItemProducao[] = [];
+      const foraDaProducao: ItemForaDaProducao[] = []; // o resto da venda — só na via completa da produção
       const viaClienteItens: any[] = []; // p/ cupom do cliente
       const consumo = new Map<string, number>(); // baixa agregada por item
       const vendaDaFicha = await this.vendaDeBalcao(tx, tenantId); // embalagem do balcão
@@ -1095,6 +1107,7 @@ export class VendasService {
             comandaItemId: ci.id,
             opcaoIds: snapshots.map((s: any) => s.opcaoId), // roteamento por opção/etapa (Fase 1)
           });
+        else foraDaProducao.push({ quantidade: qtdVenda, descricao });
       }
 
       await this.lancarSaidas(tx, tenantId, consumo, cmd.id);
@@ -1113,6 +1126,7 @@ export class VendasService {
           consumo: dto.consumo ?? null,
         },
         itensProducao,
+        foraDaProducao,
       );
 
       const totalComTaxa = total * (1 + taxa / 100);
@@ -1293,6 +1307,9 @@ export class VendasService {
     alvoPreferido?: string | null,
     qrData?: string | null,
     opcoes: { reimpressao?: boolean; documento?: DocumentoImpressao; terminalDoPdv?: string | null } = {},
+    // O pedido de CANAL da venda (`pedidoDeCanalDaComanda`): com ele, sai a via do DELIVERY — o perfil "Cliente —
+    // delivery", com os dados do pedido —, não a do balcão.
+    pedidoDeCanal?: any | null,
   ) {
     // atorId pode ser nulo (materialização no edge de uma venda que desceu) — sem
     // ator o cupom sai sem "atendente"; evita consultar colaborador com id inválido.
@@ -1316,16 +1333,28 @@ export class VendasService {
       );
     const linhaCfg = dcs.find((d) => d.unidadeId === unidadeId) ?? dcs.find((d) => d.unidadeId == null);
     const layout = (linhaCfg?.cupomLayout as any) ?? {};
-    // Fase 3 — perfil "caixa" efetivo (padrão + override) para o render por perfil.
-    const perfilCaixa = perfilEfetivo('caixa', ((linhaCfg?.cupomPerfis as any) ?? {})?.caixa);
-    let conteudo = this.producao.renderViaCliente(
-      { ...dados, atendente: ator?.nome ?? null },
-      layout,
-      perfilCaixa,
-    );
-    // Pedido externo (delivery) com QR de despacho na comanda: o entregador escaneia
-    // direto da via do caixa (aposenta o cupom do entregador separado). Centralizado.
-    if (qrData) conteudo += `\n@C\n@QR:${qrData}\n`;
+    const perfis = ((linhaCfg?.cupomPerfis as any) ?? {}) as Record<string, any>;
+    // Pedido de canal → perfil "Cliente — delivery"; o resto (balcão, mesa, totem) → "Cliente — balcão" (Fase 3).
+    const perfil = perfilEfetivo(pedidoDeCanal ? 'entregador' : 'caixa', pedidoDeCanal ? perfis.entregador : perfis.caixa);
+    let conteudo = pedidoDeCanal
+      ? this.producao.renderCupomPerfil(
+          perfil,
+          dadosDaViaDoDelivery(pedidoDeCanal, dados.itens, {
+            senha: dados.senha,
+            senhaPrefixo: dados.senhaPrefixo,
+            forma: dados.forma,
+            nomeLoja: (typeof layout.cabecalho === 'string' && layout.cabecalho.trim()) || undefined,
+            qrData,
+            mostrarValoresItem: layout.mostrarValoresItem !== false,
+          }),
+          undefined,
+          typeof layout.rodape === 'string' ? layout.rodape : undefined,
+        )
+      : this.producao.renderViaCliente({ ...dados, atendente: ator?.nome ?? null }, layout, perfil);
+    // Pedido externo (delivery) com QR de despacho na comanda: o entregador escaneia direto da via do caixa (aposenta o
+    // cupom do entregador separado). Na via do delivery o QR sai no lugar do campo dele; sem o campo no perfil, no fim.
+    const qrNoPerfil = !!pedidoDeCanal && perfil.campos.some((c) => c.key === 'qrcode' && c.visivel);
+    if (qrData && !qrNoPerfil) conteudo += `\n@C\n@QR:${qrData}\n`;
     return this.producao.enfileirarViaCliente(
       tenantId,
       unidadeId,
@@ -1334,7 +1363,7 @@ export class VendasService {
       terminalId,
       alvoPreferido,
       'cliente',
-      perfilCaixa.impressoras, // S5 — impressoras direcionadas ao perfil "caixa"
+      perfil.impressoras, // S5 — impressoras direcionadas ao perfil ("caixa" ou "entregador")
       opcoes,
     );
   }
@@ -1469,6 +1498,7 @@ export class VendasService {
         precoUnitario: Number(it.precoUnitario),
         complementosTexto: compTexto,
         observacao: it.observacao,
+        escolhas: comps, // a via tira da descrição e destaca numa linha própria
       });
     }
 
@@ -1482,7 +1512,21 @@ export class VendasService {
       null,
       qrData,
       { documento },
+      await this.pedidoDeCanalDaComanda(tenantId, comandaId),
     );
+  }
+
+  // O pedido de CANAL de uma venda (delivery, retirada, telefone, marketplaces), ou null. O do totem fica de fora: é venda
+  // de balcão, e a via dele segue o modelo do balcão, como sempre.
+  private async pedidoDeCanalDaComanda(tenantId: string, comandaId: string): Promise<any | null> {
+    // Uma venda é de um pedido só; se um aceite em dobro deixou dois apontando para ela (ERR-251), vale o mais novo.
+    const [ped] = await this.db
+      .select()
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.tenantId, tenantId), eq(pedidoExterno.comandaId, comandaId)))
+      .orderBy(desc(pedidoExterno.criadoEm), desc(pedidoExterno.id))
+      .limit(1);
+    return ped && !ehDoTotem(ped.canal) ? ped : null;
   }
 
   // Venda por canal externo (delivery). Sem caixa: baixa estoque, cria produção
@@ -1499,6 +1543,7 @@ export class VendasService {
       setorId?: string | null; // setor de produção (ex.: delivery)
       plataforma?: string | null; // ex.: "Cardápio", "iFood"
       senhaPlataforma?: string | null; // senha/nº do pedido na plataforma
+      tipoPedido?: string | null; // DELIVERY | RETIRADA | ENCOMENDA — a linha do tipo na via de produção
       // Série da senha (R6). Padrão D (delivery) — o comportamento de sempre. O TOTEM
       // manda B: é venda de BALCÃO, e balcão tem uma série só, sem número repetido.
       senhaPrefixo?: string | null;
@@ -1548,10 +1593,12 @@ export class VendasService {
 
       let total = 0;
       const itensProducao: ItemProducao[] = [];
+      const foraDaProducao: ItemForaDaProducao[] = []; // o resto do pedido — só na via completa da produção
       for (const it of dto.itens) {
         const qtd = Number(it.quantidade) || 1;
         const preco = Number(it.precoUnitario) || 0;
         total += preco * qtd;
+        let escolhasDaVia: Escolha[] | undefined; // as do nosso cardápio, para a via destacar
         let p: any = null;
         if (it.produtoId) {
           [p] = await tx
@@ -1624,19 +1671,20 @@ export class VendasService {
               produtoRefId: sn.produtoRefId,
               quantidade: String(sn.quantidade),
             });
+          escolhasDaVia = snapshots.map((sn: any) => ({ tipo: sn.tipo, nome: sn.nome }));
         }
-        if (p) {
-          if (p.vaiParaProducao)
-            itensProducao.push({
-              produto: p,
-              descricao: it.descricao,
-              quantidade: qtd,
-              observacao: it.observacao ?? null,
-              complementosTexto: (it as any).complementosTexto ?? null,
-              comandaItemId: ci.id,
-              opcaoIds: (it as any).complementos ?? [], // roteamento por opção/etapa (Fase 1)
-            });
-        }
+        if (p?.vaiParaProducao)
+          itensProducao.push({
+            produto: p,
+            descricao: it.descricao,
+            quantidade: qtd,
+            observacao: it.observacao ?? null,
+            complementosTexto: (it as any).complementosTexto ?? null,
+            comandaItemId: ci.id,
+            opcaoIds: (it as any).complementos ?? [], // roteamento por opção/etapa (Fase 1)
+            escolhas: escolhasDaVia,
+          });
+        else foraDaProducao.push({ quantidade: qtd, descricao: it.descricao });
       }
       // Delivery NÃO baixa estoque no aceite: a baixa ocorre só na CONCLUSÃO
       // (entrega). Pedido cancelado antes disso não movimenta estoque.
@@ -1653,8 +1701,11 @@ export class VendasService {
           senhaPrefixo,
           plataforma: dto.plataforma ?? null,
           senhaPlataforma: dto.senhaPlataforma ?? null,
+          cliente: dto.cliente ?? null,
+          tipoPedido: dto.tipoPedido ?? null,
         },
         itensProducao,
+        foraDaProducao,
       );
       await tx
         .update(comanda)
@@ -1756,6 +1807,7 @@ export class VendasService {
 
         let total = 0;
         const itensProducao: ItemProducao[] = [];
+        const foraDaProducao: ItemForaDaProducao[] = []; // o resto da venda — só na via completa da produção
         const consumo = new Map<string, number>(); // baixa agregada por item
         const vendaDaFicha = await this.vendaDeBalcao(tx, tenantId); // embalagem do balcão
 
@@ -1804,6 +1856,7 @@ export class VendasService {
               comandaItemId: ci.id,
               opcaoIds: it.escolhas.map((s: any) => s.opcaoId), // roteamento por opção/etapa
             });
+          else foraDaProducao.push({ quantidade: qtd, descricao: p.nome });
         }
 
         // Totem: venda concluída e paga → baixa estoque IMEDIATA (difere do delivery).
@@ -1825,8 +1878,10 @@ export class VendasService {
                 plataforma: dto.plataforma ?? 'Totem',
                 senhaPlataforma: dto.senhaPlataforma ?? null,
                 consumo: dto.consumo ?? null,
+                cliente: dto.cliente ?? null,
               },
               itensProducao,
+              foraDaProducao,
             );
 
         const totalComTaxa = total * (1 + taxa / 100);
@@ -1995,16 +2050,21 @@ export class VendasService {
         .where(and(eq(producaoPedido.tenantId, tenantId), eq(producaoPedido.comandaId, comandaId)))
         .limit(1);
       if (ja) return [];
+      // Os itens da venda: a produção (se a lista da primeira requisição se perdeu, é refeita daqui) e o resto, que só a
+      // via completa mostra.
+      const linhas = await tx
+        .select({ item: comandaItem, prod: produto })
+        .from(comandaItem)
+        .leftJoin(produto, eq(produto.id, comandaItem.produtoId))
+        .where(and(eq(comandaItem.tenantId, tenantId), eq(comandaItem.comandaId, comandaId)));
+      const foraDaProducao = linhas
+        .filter((l) => !l.prod?.vaiParaProducao)
+        .map((l) => ({ quantidade: Number(l.item.quantidade) || 1, descricao: l.item.descricao }));
       let itens = producao?.itens;
       if (!itens) {
         // Retomada (a lista da primeira requisição se perdeu): reconstrói dos itens da comanda.
-        const linhas = await tx
-          .select({ item: comandaItem, prod: produto })
-          .from(comandaItem)
-          .innerJoin(produto, eq(produto.id, comandaItem.produtoId))
-          .where(and(eq(comandaItem.tenantId, tenantId), eq(comandaItem.comandaId, comandaId)));
         itens = linhas
-          .filter((l) => l.prod.vaiParaProducao)
+          .filter((l) => l.prod?.vaiParaProducao)
           .map((l) => ({
             produto: l.prod,
             descricao: l.item.descricao,
@@ -2028,8 +2088,10 @@ export class VendasService {
           plataforma: producao?.plataforma ?? 'Totem',
           senhaPlataforma: producao?.senhaPlataforma ?? null,
           consumo: c.consumo ?? null,
+          cliente: c.cliente ?? null,
         },
         itens,
+        foraDaProducao,
       );
     });
     this.producao.emitirNovos(payloads);
@@ -2369,13 +2431,17 @@ export class VendasService {
         senha: c.senha,
         senhaPrefixo: c.senhaPrefixo ?? null,
         mesa: c.mesa,
-        itens: itens.map((it) => ({
-          quantidade: Number(it.quantidade),
-          descricao: it.descricao,
-          precoUnitario: Number(it.precoUnitario),
-          complementosTexto: textoDasEscolhas(escolhas.filter((e) => e.itemId === it.id), it.descricao),
-          observacao: it.observacao,
-        })),
+        itens: itens.map((it) => {
+          const doItem = escolhas.filter((e) => e.itemId === it.id);
+          return {
+            quantidade: Number(it.quantidade),
+            descricao: it.descricao,
+            precoUnitario: Number(it.precoUnitario),
+            complementosTexto: textoDasEscolhas(doItem, it.descricao),
+            observacao: it.observacao,
+            escolhas: doItem, // a via tira da descrição e destaca numa linha própria
+          };
+        }),
         total: Number(c.total),
         forma: c.forma,
       },
@@ -2383,6 +2449,8 @@ export class VendasService {
       alvoPreferido,
       qrData,
       { reimpressao: true },
+      // A 2ª via é o mesmo documento da 1ª (ERR-247): pedido de canal reimprime a via do delivery.
+      await this.pedidoDeCanalDaComanda(tenantId, comandaId),
     );
     return { ok: (res?.enfileirados ?? 0) > 0, ...res };
   }
@@ -2475,6 +2543,7 @@ export class VendasService {
             senha: c.senha,
             senhaPrefixo: c.senhaPrefixo ?? null,
             origem: 'delivery',
+            cliente: c.cliente ?? null, // a via identifica o pedido pelo nome também
           },
           [
             {
@@ -2889,6 +2958,7 @@ export class VendasService {
           origem: c.mesa ? 'mesa' : 'comanda',
           mesa: c.mesa,
           emitidoDe: salao ? salao.nome : null,
+          cliente: c.cliente ?? null, // nome de quem está na mesa/comanda, quando foi informado
         },
         [
           {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useId, useState } from 'react';
-import { ArrowDown, ArrowUp, Copy, Eye, GripVertical, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Copy, Eye, GripVertical, Pencil, Plus, RotateCcw, Trash2, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
@@ -36,23 +36,26 @@ function nivelDe(c: any): number {
 
 // Valores fictícios por campo, só para a prévia.
 const CUPOM_MOCK: Record<string, string[]> = {
-  senha: ['SENHA 12'],
+  senha: ['SENHA D-12'],
   tipoFiscal: ['*** NAO FISCAL ***'],
   nomeLoja: ['REGEM'],
   dataHora: ['02/08/2026 20:15'],
   ticket: ['Ticket #A1B2'],
   vendaBalcao: ['Venda balcao'],
+  tipoPedido: ['DELIVERY'],
   operador: ['Operador: Ana'],
-  itens: ['1x X-Burger', '   + bacon extra', '   OBS: sem cebola'],
+  // Adicionais e itens do combo em linha própria (estilo "Complementos"); a observação no estilo dela.
+  itens: ['2x X-Burger', '   + 2x Bacon · sem Cebola', '   OBS: bem passado', '1x Combo Smash', '   - 1x Batata frita', '   - 1x Refri lata'],
   subtotal: ['Subtotal: R$ 28,00'],
   desconto: ['Desconto: -R$ 2,00'],
   totalGeral: ['TOTAL: R$ 32,00'],
   pagamento: ['Pagamento: Dinheiro', 'Troco para R$ 50,00'],
+  troco: ['Troco para R$ 50,00', 'LEVAR TROCO: R$ 18,00'],
   avisoFiscal: ['Sem valor fiscal'],
-  plataforma: ['iFood - pedido #4521'],
+  plataforma: ['iFood #4521'],
   pedidoRegem: ['Pedido Regem #101'],
   cliente: ['Joao Silva'],
-  endereco: ['Rua X, 123 - Centro', 'Ap 42 - perto da praca'],
+  endereco: ['Rua X, 123', 'Centro - Cidade', 'Ref: perto da praca'],
   telefone: ['(11) 90000-0000'],
   taxaEntrega: ['Entrega: R$ 6,00'],
   cobrarCliente: ['COBRAR R$ 32,00'],
@@ -100,8 +103,18 @@ function camposParaSalvar(campos: any[]) {
 }
 // Impressoras do perfil: só vai quando há alguma marcada — sem nenhuma, o perfil volta ao
 // roteamento padrão (as impressoras de cupom).
-const padraoParaSalvar = (p: any) => ({ campos: camposParaSalvar(p.campos), ...(Array.isArray(p.impressoras) && p.impressoras.length ? { impressoras: p.impressoras } : {}) });
+const impressorasParaSalvar = (p: any) => (Array.isArray(p.impressoras) && p.impressoras.length ? { impressoras: p.impressoras } : {});
+const padraoParaSalvar = (p: any) => ({ campos: camposParaSalvar(p.campos), ...impressorasParaSalvar(p) });
+// Nos modelos de PRODUÇÃO, a impressora marcada recebe a via completa do pedido (uma via, o pedido inteiro); sem
+// nenhuma, só saem as vias direcionadas pelos produtos e setores. Nos outros, sem nenhuma vale a impressora de cupom.
+const ehProducao = (p: any) => p.grupo === 'producao';
 const customParaSalvar = (p: any) => ({ id: p.id, nome: p.nome, descricao: p.descricao, grupo: p.grupo, ...padraoParaSalvar(p) });
+
+// "Redefinir padrão" de um perfil do Regem: grava só as impressoras marcadas, sem campos — o servidor volta a usar o
+// padrão do Regem (campos, ordem, tamanhos), inclusive quando o padrão mudar. Só a chave deste perfil vai (ERR-175).
+async function redefinirPadrao(p: any) {
+  await api.setDeliveryConfig({ cupomPerfis: { [p.id]: impressorasParaSalvar(p) } });
+}
 
 // Grava UM perfil. O padrão tem a sua chave no servidor, que mescla por perfil — os outros não
 // são tocados. Os personalizados moram numa lista só (`_custom`): relê a lista do servidor na hora
@@ -196,7 +209,8 @@ export function PerfisCupom({
             {
               titulo: 'Impressoras',
               celula: (p) => {
-                if (!proprias(p)) return <span className={`text-xs ${texto2}`}>impressoras de cupom padrão</span>;
+                if (!proprias(p))
+                  return <span className={`text-xs ${texto2}`}>{ehProducao(p) ? 'só as vias direcionadas' : 'impressoras de cupom padrão'}</span>;
                 if (!impressoras) return <Selo>{proprias(p) === 1 ? '1 impressora' : `${proprias(p)} impressoras`}</Selo>;
                 return <span className="inline-flex flex-wrap justify-end gap-1 xl:justify-start">{nomesDe(p).map((n) => <Selo key={n}>{n}</Selo>)}</span>;
               },
@@ -255,13 +269,15 @@ function EditorPerfil({
   const [p, setP] = useState<any>(() => ({ ...perfil, campos: perfil.campos.map((c: any) => ({ ...c })), impressoras: [...(perfil.impressoras ?? [])] }));
   const [sujo, setSujo] = useState(false);
   const [saindo, setSaindo] = useState(false);
+  const [redefinindo, setRedefinindo] = useState(false); // confirmação do "Redefinir padrão", no rodapé
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
   const [arrastando, setArrastando] = useState<number | null>(null);
   const custom = !!p.custom;
   const novo = !!perfil._novo;
+  const producao = ehProducao(p);
 
-  const mudar = (fn: (x: any) => any) => { setP(fn); setSujo(true); setSaindo(false); };
+  const mudar = (fn: (x: any) => any) => { setP(fn); setSujo(true); setSaindo(false); setRedefinindo(false); };
   const mudarCampo = (idx: number, patch: any) => mudar((x) => ({ ...x, campos: x.campos.map((c: any, i: number) => (i === idx ? { ...c, ...patch } : c)) }));
   // Estilo da sublinha do campo "itens" (complementos/observação). Ao mexer pela 1ª vez, herda o
   // estilo do campo e aplica a mudança.
@@ -315,12 +331,33 @@ function EditorPerfil({
     }
   }
 
+  // Volta o perfil ao padrão do Regem: campos, ordem e tamanhos; as impressoras marcadas na tela continuam.
+  async function confirmarPadrao() {
+    if (salvando || !pode) return;
+    setErro('');
+    setSalvando(true);
+    try {
+      await redefinirPadrao(p);
+      toast.success('Perfil de volta ao padrão do Regem.');
+      aoSalvar();
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao redefinir o padrão');
+      setSalvando(false);
+      setRedefinindo(false);
+    }
+  }
+
+  // Com o campo "Troco" no cupom, o troco sai nele, não na linha do pagamento (como no servidor).
+  const trocoProprio = p.campos.some((c: any) => c.key === 'troco' && c.visivel);
   const previa = (() => {
     // Cada linha guarda o texto cru + estilo; alinhamento e quebra ficam no CSS da prévia.
     const out: { txt: string; bold: boolean; lvl: number; align: string; dir?: string }[] = [];
     for (const c of p.campos) {
       if (!c.visivel) continue;
-      const mock = c.key === '_espaco' ? [''] : c.key === '_tracejado' ? ['-'.repeat(24)] : CUPOM_MOCK[c.key] ?? [c.label];
+      const mock =
+        c.key === '_espaco' ? [''] : c.key === '_tracejado' ? ['-'.repeat(24)]
+          : c.key === 'pagamento' && trocoProprio ? CUPOM_MOCK.pagamento.slice(0, 1)
+            : CUPOM_MOCK[c.key] ?? [c.label];
       // Itens: complemento/observação podem ter estilo próprio (herdam o do campo se não tiverem).
       if (c.key === 'itens') {
         const proprio = { negrito: c.negrito, escala: c.escala, mini: c.mini };
@@ -357,6 +394,14 @@ function EditorPerfil({
       rodape={
         !pode ? (
           <Button type="button" variant="outline" onClick={aoFechar}>Fechar</Button>
+        ) : redefinindo ? (
+          <>
+            <span role="alert" className="mr-auto self-center text-sm font-medium">
+              Voltar ao padrão do Regem? Campos, ordem e tamanhos voltam ao padrão; as impressoras marcadas continuam.
+            </span>
+            <Button type="button" variant="outline" data-continuar onClick={() => setRedefinindo(false)} disabled={salvando}>Cancelar</Button>
+            <Button type="button" onClick={confirmarPadrao} disabled={salvando}>{salvando ? 'Redefinindo…' : 'Redefinir padrão'}</Button>
+          </>
         ) : saindo ? (
           <>
             <span role="alert" className="mr-auto self-center text-sm font-medium">Há alterações ainda não salvas neste perfil.</span>
@@ -394,8 +439,8 @@ function EditorPerfil({
 
           {impressorasDoPerfil.length > 0 && (
             <div>
-              <span className="text-sm font-medium">Impressoras deste cupom</span>
-              <div className="mt-1 flex flex-wrap gap-1.5" role="group" aria-label="Impressoras deste cupom">
+              <span className="text-sm font-medium">{producao ? 'Impressoras da via completa' : 'Impressoras deste cupom'}</span>
+              <div className="mt-1 flex flex-wrap gap-1.5" role="group" aria-label={producao ? 'Impressoras da via completa' : 'Impressoras deste cupom'}>
                 {impressorasDoPerfil.map((imp) => {
                   const marcada = p.impressoras.includes(imp.id);
                   const vias = imp.viasCliente ?? imp.vias;
@@ -412,14 +457,26 @@ function EditorPerfil({
                 })}
               </div>
               <p className={`mt-1 text-xs ${texto2}`}>
-                Marque em quais impressoras este cupom sai. Nenhuma marcada = usa as impressoras de cupom padrão. As vias saem da configuração de cada impressora.
+                {producao
+                  ? 'Marque onde sai a via de produção completa: o pedido inteiro numa via só, para a cozinha e para colar na embalagem. Nenhuma marcada = só as vias direcionadas pelos produtos e setores. A impressora marcada aqui não recebe também a via direcionada.'
+                  : 'Marque em quais impressoras este cupom sai. Nenhuma marcada = usa as impressoras de cupom padrão. As vias saem da configuração de cada impressora.'}
               </p>
             </div>
           )}
 
           <div>
-            <span className="text-sm font-medium">Campos do cupom, na ordem em que saem</span>
-            <p className={`text-xs ${texto2}`}>Suba e desça com as setas (ou arraste pela alça). O cabeçalho e o rodapé ficam na parte “Cabeçalho e rodapé”.</p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-sm font-medium">Campos do cupom, na ordem em que saem</span>
+              {pode && !custom && !novo && (
+                <Button type="button" variant="outline" size="sm" onClick={() => { setSaindo(false); setRedefinindo(true); }} disabled={salvando}>
+                  <RotateCcw className="h-4 w-4" aria-hidden="true" /> Redefinir padrão
+                </Button>
+              )}
+            </div>
+            <p className={`text-xs ${texto2}`}>
+              Suba e desça com as setas (ou arraste pela alça). O cabeçalho e o rodapé ficam na parte “Cabeçalho e rodapé”
+              {producao ? ' e não saem na via de produção (o campo “Nome da loja” traz o cabeçalho, se você quiser).' : '.'}
+            </p>
             {p.campos.length === 0 && <p className={`mt-2 rounded-md border border-dashed border-input px-3 py-4 text-center text-sm ${texto2}`}>Nenhum campo — adicione abaixo.</p>}
             <ol className="mt-2 space-y-1.5" aria-label="Campos do cupom">
               {p.campos.map((c: any, i: number) => {
