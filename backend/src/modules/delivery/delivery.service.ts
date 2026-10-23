@@ -2990,7 +2990,9 @@ export class DeliveryService {
         headers['X-Regem-Signature'] = createHmac('sha256', secret).update(body).digest('hex');
       // Telemetria: loga pra ONDE foi (host + fonte) e o que o n8n RESPONDEU, sem
       // bloquear o fluxo do pedido. Aparece no log do regem-api (EasyPanel).
-      fetch(url, { method: 'POST', headers, body })
+      // `redirect: 'manual'`: a trava confere só o endereço cadastrado — um redirecionamento do destino
+      // levaria o aviso para a rede interna sem passar por ela.
+      fetch(url, { method: 'POST', headers, body, redirect: 'manual' })
         .then(async (res) => {
           const txt = await res.text().catch(() => '');
           const linha = `[n8n-aviso] evento=${evento} fonte=${fonte} → ${host} status=${res.status} ${txt.slice(0, 200)}`;

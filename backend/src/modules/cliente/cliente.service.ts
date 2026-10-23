@@ -199,7 +199,9 @@ export class ClienteService {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (secret)
         headers['X-Regem-Signature'] = createHmac('sha256', secret).update(body).digest('hex');
-      const res = await fetch(url, { method: 'POST', headers, body, signal: ctrl.signal });
+      // `redirect: 'manual'`: a trava acima confere só o endereço cadastrado; um redirecionamento do
+      // destino levaria o aviso (e a assinatura) para a rede interna sem passar por ela.
+      const res = await fetch(url, { method: 'POST', headers, body, signal: ctrl.signal, redirect: 'manual' });
       clearTimeout(t);
       if (!res.ok) {
         const b = await res.text().catch(() => '');
@@ -258,6 +260,16 @@ export class ClienteService {
         configurado: false,
         msg: 'Nenhum webhook n8n configurado (integração da loja nem OTP_WEBHOOK_URL).',
       };
+    // A MESMA trava anti-SSRF do envio de verdade: este teste devolve o que o destino respondeu, então
+    // sem ela qualquer presidente lia a rede interna da nuvem cadastrando um endereço interno.
+    if (!(await urlPublicaSegura(wh.url))) {
+      this.logger.warn(`teste do webhook bloqueado (URL não-pública): ${String(wh.url).slice(0, 80)}`);
+      return {
+        configurado: true,
+        ok: false,
+        erro: 'O endereço do webhook foi bloqueado: ele não é um endereço público da internet.',
+      };
+    }
     const tel = telefoneCadastro(telefone) || '21999999999';
     const whats = tel.length <= 11 ? `55${tel}` : tel; // DDD 55 (RS) não é o código do país
     try {
@@ -273,7 +285,13 @@ export class ClienteService {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (wh.secret)
         headers['X-Regem-Signature'] = createHmac('sha256', wh.secret).update(body).digest('hex');
-      const res = await fetch(wh.url, { method: 'POST', headers, body });
+      const res = await fetch(wh.url, {
+        method: 'POST',
+        headers,
+        body,
+        signal: AbortSignal.timeout(8000),
+        redirect: 'manual', // ver dispararWebhook
+      });
       const resp = await res.text().catch(() => '');
       return {
         configurado: true,

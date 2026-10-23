@@ -54,3 +54,30 @@ export async function urlPublicaSegura(u?: string | null): Promise<boolean> {
     return false; // não resolveu → não arrisca
   }
 }
+
+// GET de um endereço que a LOJA informou (foto de produto, imagem de campanha), seguindo no máximo
+// `saltos` redirecionamentos — e conferindo CADA destino com a mesma trava. O `fetch` sozinho segue o
+// redirecionamento sem perguntar: um endereço público que responde 302 para 169.254.169.254 passava
+// pela conferência do primeiro endereço e lia a rede interna. Devolve null quando algum endereço do
+// caminho não é público ou os saltos acabam. (Webhook — POST — não segue redirecionamento nenhum:
+// `redirect: 'manual'` direto no fetch.)
+export async function buscarUrlPublica(
+  url: string,
+  init: RequestInit = {},
+  saltos = 3,
+): Promise<Response | null> {
+  let atual = url;
+  for (let i = 0; i <= saltos; i++) {
+    if (!(await urlPublicaSegura(atual))) return null;
+    const res = await fetch(atual, { ...init, method: 'GET', redirect: 'manual' });
+    const destino = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
+    if (!destino) return res;
+    await res.body?.cancel().catch(() => undefined); // libera a conexão do salto
+    try {
+      atual = new URL(destino, atual).toString();
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}

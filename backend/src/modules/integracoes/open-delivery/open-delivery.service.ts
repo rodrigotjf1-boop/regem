@@ -3,6 +3,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../../db/drizzle.module';
 import { integracao } from '../../../db/schema';
 import { fetchExterno } from '../../../common/fetch-externo';
+import { urlPublicaSegura } from '../../../common/ssrf-guard';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Cliente da Open Delivery API (padrão Abrasel). Várias PLATAFORMAS expõem a mesma
@@ -71,6 +72,7 @@ export class OpenDeliveryService {
     try {
       const res = await fetchExterno(`${ig.baseUrl}/oauth/token`, {
         method: 'POST',
+        redirect: 'manual', // ver `req`
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
           grant_type: 'client_credentials',
@@ -99,10 +101,18 @@ export class OpenDeliveryService {
   }
 
   private async req(ig: IntegOD, path: string, init: RequestInit = {}): Promise<any> {
+    // Anti-SSRF: a base URL é digitada pela loja (Delivery › Configurações). Sem a trava, a nuvem
+    // chamaria qualquer endereço da rede interna; e, sem `redirect: 'manual'`, um destino público
+    // redirecionaria para lá depois da trava. Cobre o token também (só `req` chama `token`).
+    if (!(await urlPublicaSegura(ig.baseUrl))) {
+      this.logger.warn(`Open Delivery bloqueado (URL não-pública): ${ig.baseUrl.slice(0, 80)}`);
+      throw new Error('endereço da plataforma bloqueado (não é público)');
+    }
     const tk = await this.token(ig);
     if (!tk) throw new Error('sem token');
     const res = await fetchExterno(`${ig.baseUrl}${path}`, {
       ...init,
+      redirect: 'manual',
       headers: {
         Authorization: `Bearer ${tk}`,
         'Content-Type': 'application/json',
