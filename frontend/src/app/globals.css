@@ -122,6 +122,11 @@
 .scroll-fino::-webkit-scrollbar-track {
   background: transparent;
 }
+/* Senha de autorização do gestor: campo de TEXTO com a máscara de pontos, para o navegador não oferecer "Salvar senha?"
+   no PC compartilhado da loja (lib/senha-sem-salvar.ts; o atributo só vai quando o navegador tem a máscara). */
+input[data-senha-sem-salvar] {
+  -webkit-text-security: disc;
+}
 /* Faixa de abas na tela estreita (celular, ou computador com muito zoom): desliza para o lado SEM
    barra de rolagem à mostra, com a borda direita esmaecida para indicar que há mais. Acima de
    640 px a faixa quebra a linha e nada rola. (Pedido do dono, 07/10/2026: sem barra de rolagem

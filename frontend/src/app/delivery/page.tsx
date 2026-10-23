@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api, getToken, getCategoria } from '@/lib/api';
@@ -18,6 +18,8 @@ import { ModoOperacao } from '@/components/ui/modo-operacao';
 import { Clock } from 'lucide-react';
 import { SeloEntregadorDoCanal, textoEntregadorDoCanal } from '@/components/delivery/logistica-canal';
 import { ondeSaiu } from '@/lib/reimpressao';
+import { useSenhaSemSalvar } from '@/lib/use-senha-sem-salvar';
+import { Dialogo } from '@/components/ui/sobreposto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -99,6 +101,7 @@ export default function DeliveryPage() {
   const [erro, setErro] = useState('');
   const [sel, setSel] = useState<any>(null); // pedido selecionado (preview + botões)
   const [despacho, setDespacho] = useState<any>(null);
+  const [reabrir, setReabrir] = useState<any>(null); // pedido finalizado que o gestor vai reabrir
   const [detalhe, setDetalhe] = useState<any>(null); // modal detalhe (alterar/cancelar)
   const [detalheModo, setDetalheModo] = useState<'view' | 'alterar'>('view'); // abre em edição pelo botão "Editar pedido"
   const [filaConferencia, setFilaConferencia] = useState<any[]>([]); // fila de conferência (abre o 1º)
@@ -307,11 +310,10 @@ export default function DeliveryPage() {
   function retornar(p: any) {
     acao(api.retornarDelivery(p.id), 'Pedido voltou para a produção.');
   }
+  // Reabrir pede a senha de um gestor num diálogo (`ReabrirModal`). Era `window.prompt`: a senha aparecia em texto
+  // aberto, e o diálogo fechava mesmo com a senha errada.
   function voltar(p: any) {
-    const senha = window.prompt('Reabrir este pedido exige senha de gestor (presidente/C&O):');
-    if (senha == null) return;
-    if (!senha.trim()) return toast.error('Informe a senha de autorização.');
-    acao(api.voltarDelivery(p.id, senha), 'Pedido reaberto.');
+    setReabrir(p);
   }
 
   // Finalizar: só a ENTREGA PRÓPRIA (loja entrega) valida o código de 4 dígitos do
@@ -821,6 +823,17 @@ export default function DeliveryPage() {
         </div>
       )}
 
+      {reabrir && (
+        <ReabrirModal
+          pedido={reabrir}
+          onFechar={() => setReabrir(null)}
+          onReaberto={() => {
+            setReabrir(null);
+            void reload();
+          }}
+        />
+      )}
+
       {novoPedido && <NovoPedido onFechar={() => setNovoPedido(false)} onCriado={reload} />}
 
       {atendAberto && (
@@ -1211,6 +1224,7 @@ function AtendimentoPanel({ lista, onFechar, onResolver, onDecidir }: {
 }) {
   const [cancelId, setCancelId] = useState<string | null>(null);
   const [senha, setSenha] = useState('');
+  const campoSenha = useSenhaSemSalvar(); // o navegador não oferece guardar a senha do gestor
   const inbox = (tel?: string) => {
     const d = String(tel ?? '').replace(/\D/g, '');
     const num = d.length === 10 || d.length === 11 ? `55${d}` : d;
@@ -1251,7 +1265,7 @@ function AtendimentoPanel({ lista, onFechar, onResolver, onDecidir }: {
               </div>
               {c.tipo === 'cancelamento' && cancelId === c.id && (
                 <div className="mt-2 flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-2">
-                  <input type="password" autoComplete="new-password" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="Senha do gestor" className="h-8 flex-1 rounded border border-border bg-background px-2 text-sm" />
+                  <input {...campoSenha} aria-label="Senha do gestor" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="Senha do gestor" className="h-8 min-w-0 flex-1 rounded border border-border bg-background px-2 text-sm" />
                   <Button type="button" size="sm" className="h-8 bg-destructive text-xs text-white hover:bg-destructive/90" disabled={!senha} onClick={() => { onDecidir(c.id, true, senha); setCancelId(null); setSenha(''); }}>
                     Confirmar cancelamento
                   </Button>
@@ -1262,6 +1276,58 @@ function AtendimentoPanel({ lista, onFechar, onResolver, onDecidir }: {
         </div>
       </Card>
     </div>
+  );
+}
+
+// ---- Reabrir pedido finalizado: senha de um gestor (presidente ou gerente) ----
+// O diálogo fica aberto até reabrir de fato: senha errada mostra o motivo ali mesmo. O campo é texto mascarado, para o
+// navegador não oferecer guardar a senha no PC da loja (`useSenhaSemSalvar`).
+function ReabrirModal({ pedido, onFechar, onReaberto }: { pedido: any; onFechar: () => void; onReaberto: () => void }) {
+  const formId = useId();
+  const campoId = useId();
+  const campoSenha = useSenhaSemSalvar();
+  const [senha, setSenha] = useState('');
+  const [erro, setErro] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  async function confirmar(e: React.FormEvent) {
+    e.preventDefault();
+    if (enviando) return;
+    if (!senha.trim()) {
+      setErro('Informe a senha de autorização.');
+      return;
+    }
+    setErro('');
+    setEnviando(true);
+    try {
+      await api.voltarDelivery(pedido.id, senha);
+      toast.success('Pedido reaberto.');
+      onReaberto();
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Não foi possível reabrir o pedido.');
+      setEnviando(false);
+    }
+  }
+  return (
+    <Dialogo
+      titulo={`Reabrir o pedido ${pedido.displayId ?? ''}`.trim()}
+      aoFechar={onFechar}
+      rodape={
+        <>
+          <Button type="button" variant="outline" onClick={onFechar} disabled={enviando}>Cancelar</Button>
+          <Button type="submit" form={formId} disabled={enviando}>{enviando ? 'Reabrindo…' : 'Reabrir pedido'}</Button>
+        </>
+      }
+    >
+      <form id={formId} onSubmit={confirmar} noValidate className="space-y-2 text-sm">
+        <p>
+          Reabrir exige a senha de um gestor (presidente ou gerente). O pedido volta para{' '}
+          {pedido.tipo === 'retirada' ? '"pronto"' : '"em rota"'}.
+        </p>
+        <label htmlFor={campoId} className="block font-medium">Senha do gestor</label>
+        <Input id={campoId} data-foco-inicial {...campoSenha} value={senha} onChange={(e) => setSenha(e.target.value)} />
+        {erro && <p role="alert" className="font-medium text-destructive">{erro}</p>}
+      </form>
+    </Dialogo>
   );
 }
 

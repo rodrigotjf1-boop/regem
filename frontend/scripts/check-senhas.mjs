@@ -3,7 +3,9 @@
 //   1) a regra pura `src/lib/senha-sem-preencher.ts`, que o <Input> aplica a todo campo de senha;
 //   2) em todo .tsx de src/, cada campo de senha: o <input> cru leva autoComplete="new-password" (ou
 //      "one-time-code") e o <Input> não pede outro valor;
-//   3) nenhuma tela pede ao navegador o login salvo ("username"/"current-password"), fora das listadas abaixo.
+//   3) nenhuma tela pede ao navegador o login salvo ("username"/"current-password"), fora das listadas abaixo;
+//   4) a senha do GESTOR (autorização na hora) nem é guardada: campo de texto com a máscara do navegador
+//      (`src/lib/senha-sem-salvar.ts`), nas telas que a pedem, e nunca por window.prompt (pedido do dono, 22/10/2026).
 // Uso: npm run check:senhas
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -26,6 +28,16 @@ writeFileSync(
   }).outputText,
 );
 const { autoCompleteDoCampo } = await import(pathToFileURL(join(tmp, 'senha-sem-preencher.mjs')).href);
+writeFileSync(
+  join(tmp, 'senha-sem-salvar.mjs'),
+  ts.transpileModule(readFileSync(join(src, 'lib', 'senha-sem-salvar.ts'), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
+  }).outputText,
+);
+const { camposDaSenhaSemSalvar } = await import(pathToFileURL(join(tmp, 'senha-sem-salvar.mjs')).href);
+// As telas que pedem a SENHA DO GESTOR na hora (o servidor confere em `common/autorizacao-gestor.ts`): cancelar e reabrir
+// pedido de delivery (painel, detalhe do pedido, retirada no PDV) e despachar sem todas as estações (KDS de despacho).
+const AUTORIZACAO = ['app/delivery/page.tsx', 'components/delivery/pedido-detalhe.tsx', 'app/pdv/retirada/page.tsx', 'components/kds/kds-despacho.tsx'];
 
 let n = 0;
 const caso = (nome, fn) => {
@@ -104,6 +116,34 @@ try {
     for (const arq of ['app/entrar/page.tsx', 'app/terminal/ponto/page.tsx']) assert.ok(crus.some((c) => c.arq === arq), `${arq}: campo de senha não encontrado`);
     assert.ok(senhas.filter((c) => c.tag === 'Input').length >= 10, 'campos de senha com <Input> não encontrados');
     console.log(`    (${crus.length} <input> e ${senhas.length - crus.length} <Input> de senha conferidos)`);
+  });
+
+  // Pedido do dono (22/10/2026): ao cancelar com motivo e senha, o Edge oferecia "Salvar senha?" — a senha de LOGIN do
+  // gerente ficaria guardada no PC do caixa. O navegador só guarda campo type="password"; new-password só impede preencher.
+  caso('senha do gestor: texto com a máscara de pontos do navegador (nada a guardar); sem a máscara, senha que não se preenche', () => {
+    const m = camposDaSenhaSemSalvar(true);
+    assert.equal(m.type, 'text');
+    assert.equal(m.autoComplete, 'off');
+    assert.equal(m['data-senha-sem-salvar'], '');
+    const s = camposDaSenhaSemSalvar(false);
+    assert.equal(s.type, 'password');
+    assert.equal(s.autoComplete, 'new-password');
+    assert.equal(s['data-senha-sem-salvar'], undefined);
+    assert.match(readFileSync(join(src, 'app', 'globals.css'), 'utf8'), /input\[data-senha-sem-salvar\]\s*\{\s*-webkit-text-security:\s*disc;/);
+  });
+
+  caso('as telas da senha do gestor usam o campo sem "salvar senha"; nenhum window.prompt pede senha', () => {
+    for (const arq of AUTORIZACAO) {
+      assert.match(readFileSync(join(src, arq), 'utf8'), /useSenhaSemSalvar\(\)/, `${arq}: sem useSenhaSemSalvar`);
+      assert.deepEqual(todos.filter((c) => c.arq === arq && c.senha).map(onde), [], `${arq}: ainda tem campo type="password"`);
+    }
+    // window.prompt mostra o que se digita e não tem como evitar o "salvar": senha nunca vai por ele.
+    const pedemSenha = tsxDe(src).flatMap((arq) =>
+      [...readFileSync(arq, 'utf8').matchAll(/window\.prompt\(([\s\S]*?)\);/g)]
+        .filter((p) => /senha/i.test(p[1]))
+        .map(() => relative(src, arq).split('\\').join('/')),
+    );
+    assert.deepEqual(pedemSenha, []);
   });
 
   console.log(`\ncheck:senhas — ${n} grupos de casos, todos certos.`);
