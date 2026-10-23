@@ -4,10 +4,12 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { ehGestor } from '../../auth/niveis';
+import { autorizarPorSenhaDeGestor } from '../../common/autorizacao-gestor';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   tituloFinanceiro,
@@ -41,6 +43,8 @@ const gerenteOuPresidente = (perfil?: string | null) => perfil === 'gerente' || 
 
 @Injectable()
 export class FinanceiroService {
+  private readonly logger = new Logger('Financeiro');
+
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly auditoria: AuditoriaService,
@@ -655,6 +659,17 @@ export class FinanceiroService {
     return row;
   }
 
+  // A sangria de quem tem este perfil pede a senha de quem libera? (`sangria_pede_senha`, ligada pelo presidente em
+  // Acessos & perfis). Lida do perfil ATUAL — desligar ou ligar a chave vale na próxima sangria, sem novo login.
+  private async sangriaPedeSenha(tenantId: string, atorId: string): Promise<boolean> {
+    const r: any = await this.db.execute(sql`
+      select (p.permissoes ->> 'sangria_pede_senha') = 'true' as pede
+        from colaborador c
+        join perfil_acesso p on p.id = c.perfil_acesso_id
+       where c.tenant_id = ${tenantId} and c.id = ${atorId}`);
+    return (r.rows ?? r)[0]?.pede === true;
+  }
+
   // Sangria (retira dinheiro) / suprimento (coloca dinheiro) — sempre em dinheiro.
   async movimentarCaixa(
     tenantId: string,
@@ -666,10 +681,17 @@ export class FinanceiroService {
       descricao?: string;
       origem?: string;
       terminalId?: string | null;
+      senhaAutorizacao?: string | null; // a de quem libera, quando o perfil pede (sangria)
     },
   ) {
-    // Autorização: atendente só sangra/supre se o presidente liberou.
-    if (!ehGestor(atorPerfil) && !(await this.caixaLivre(tenantId))) {
+    // SANGRIA DO PERFIL QUE PEDE SENHA (decisão do dono, 23/10/2026): só com a senha de quem libera (presidente, gerente
+    // ou supervisão, com acesso), e quem liberou vai para o comprovante e a auditoria. Sem a chave no perfil, como sempre:
+    // o gestor, ou o caixa quando o presidente deixou o caixa livre. O presidente nunca é travado pela chave.
+    let liberou: { id: string; nome: string } | null = null;
+    if (dto.tipo === 'sangria' && atorPerfil !== 'presidente' && (await this.sangriaPedeSenha(tenantId, atorId))) {
+      liberou = await autorizarPorSenhaDeGestor(this.db, tenantId, dto.senhaAutorizacao);
+    } else if (!ehGestor(atorPerfil) && !(await this.caixaLivre(tenantId))) {
+      // Autorização: atendente só sangra/supre se o presidente liberou.
       throw new ForbiddenException(
         'Sangria/suprimento requer autorização de um gerente.',
       );
@@ -695,21 +717,42 @@ export class FinanceiroService {
       descricao: dto.descricao,
       criadoPorId: atorId,
     });
-    // Cupom de sangria/suprimento (Fase 3) — best-effort: não quebra a operação.
+    // Toda sangria e suprimento na auditoria, com quem liberou quando o perfil pediu a senha.
+    await this.auditoria.registrar({
+      tenantId,
+      unidadeId: s.unidadeId ?? null,
+      atorId,
+      atorPerfil,
+      tipo: 'caixa',
+      acao: dto.tipo,
+      entidadeTipo: 'caixa_sessao',
+      entidadeId: s.id,
+      detalhe: {
+        valor: Number(dto.valor),
+        motivo: dto.descricao ?? null,
+        ...(liberou ? { autorizadoPor: liberou.nome, autorizadoPorId: liberou.id } : {}),
+      },
+      origem: 'web',
+    });
+    // Comprovante de sangria/suprimento (Fase 3). A falha não desfaz a operação, mas volta na resposta (antes era
+    // engolida em silêncio): a tela avisa que o papel não saiu.
+    let comprovante: { enfileirados: number; aviso: string | null };
     try {
       const { operador, terminal } = await this.dadosOperadorTerminal(atorId, dto.terminalId);
-      await this.producao.imprimirCupomCaixa(tenantId, s.unidadeId, dto.terminalId ?? null, dto.tipo, {
+      comprovante = await this.producao.imprimirCupomCaixa(tenantId, s.unidadeId, dto.terminalId ?? null, dto.tipo, {
         tipoMovimento: dto.tipo === 'sangria' ? 'SANGRIA' : 'SUPRIMENTO',
         valorMovimento: Number(dto.valor),
         motivo: dto.descricao,
         operador,
         terminal,
         turno: (s as any).turnoNumero,
+        autorizadoPor: liberou?.nome,
       });
-    } catch {
-      /* impressão é best-effort */
+    } catch (e: any) {
+      this.logger.warn(`caixa ${s.id}: o comprovante de ${dto.tipo} não saiu (${e?.message ?? e})`);
+      comprovante = { enfileirados: 0, aviso: `O comprovante de ${dto.tipo} não foi impresso.` };
     }
-    return { ok: true };
+    return { ok: true, comprovante };
   }
 
   // Turno é do operador que abriu: só ele fecha/movimenta (gerente+ faz override).

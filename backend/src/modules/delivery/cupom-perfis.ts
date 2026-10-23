@@ -295,10 +295,11 @@ const PRODUCAO: PerfilCupom = {
 };
 
 // ── CAIXA — sangria (retirada de dinheiro) ────────────────────────────────────
+// Pedido do dono (22/10/2026): motivo, valor, data e hora, responsável e — quando o perfil pede a senha — quem liberou.
 const SANGRIA: PerfilCupom = {
   id: 'sangria',
   nome: 'Caixa — sangria',
-  descricao: 'Comprovante de retirada de dinheiro do caixa.',
+  descricao: 'Comprovante de retirada de dinheiro do caixa: valor, motivo, quem fez e quem liberou (quando o perfil pede senha).',
   grupo: 'caixa',
   campos: [
     C('nomeLoja', 'Nome da loja', { negrito: true, alinhamento: 'centro' }),
@@ -309,28 +310,29 @@ const SANGRIA: PerfilCupom = {
     C('operador', 'Operador'),
     C('valorMovimento', 'Valor retirado', { negrito: true }),
     C('motivo', 'Motivo'),
-    C('autorizadoPor', 'Autorizado por'),
+    C('autorizadoPor', 'Autorizado por', { negrito: true }),
     C('assinatura', 'Linha de assinatura', { alinhamento: 'centro' }),
   ],
 };
 
 // ── CAIXA — suprimento (entrada de dinheiro) ──────────────────────────────────
+// Pedido do dono (22/10/2026): "no suprimento somente valor, horário e quem fez". O resto fica disponível, desligado.
 const SUPRIMENTO: PerfilCupom = {
   id: 'suprimento',
   nome: 'Caixa — suprimento',
-  descricao: 'Comprovante de entrada de dinheiro no caixa.',
+  descricao: 'Comprovante de entrada de dinheiro no caixa: valor, horário e quem fez.',
   grupo: 'caixa',
   campos: [
     C('nomeLoja', 'Nome da loja', { negrito: true, alinhamento: 'centro' }),
     C('tipoMovimento', 'SUPRIMENTO', { negrito: true, alinhamento: 'centro' }),
     C('dataHora', 'Data e hora'),
-    C('terminal', 'Terminal / PDV'),
-    C('turno', 'Turno'),
+    C('terminal', 'Terminal / PDV', { visivel: false }),
+    C('turno', 'Turno', { visivel: false }),
     C('operador', 'Operador'),
     C('valorMovimento', 'Valor adicionado', { negrito: true }),
-    C('motivo', 'Motivo'),
-    C('autorizadoPor', 'Autorizado por'),
-    C('assinatura', 'Linha de assinatura', { alinhamento: 'centro' }),
+    C('motivo', 'Motivo', { visivel: false }),
+    C('autorizadoPor', 'Autorizado por', { visivel: false }),
+    C('assinatura', 'Linha de assinatura', { visivel: false, alinhamento: 'centro' }),
   ],
 };
 

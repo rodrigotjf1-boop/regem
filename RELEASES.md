@@ -26,6 +26,10 @@
   retirada no PDV, cancelamento pedido pelo cliente) e venda do balcão imprime o comprovante (perfil "Caixa —
   cancelamento") na impressora do PC que cancelou; a senha da SUPERVISÃO também libera (decisão do dono); reabrir pedido
   vai para a auditoria com quem liberou; hora dos impressos no fuso da loja. Sem migration → **só `.zip`**.
+- **Sangria pede senha por perfil (#719, 23/10):** chave "Sangria pede a senha de quem libera" em Acessos & perfis
+  (nasce desligada); com ela, a sangria só sai com a senha de presidente, gerente ou supervisão, e o comprovante diz quem
+  liberou; sangria e suprimento vão para a auditoria; comprovante do suprimento só com valor, horário e quem fez; a tela
+  avisa quando o papel não sai. Sem migration → **só `.zip`**.
 - **A corrigir no próximo corte** (sem PR ainda): o status do backup que o servidor da loja
   manda à nuvem chega ilegível — o `backup.ps1` grava `ultimo-backup.json` com BOM (`[Text.Encoding]::UTF8`) e o
   daemon faz `JSON.parse` sem tirar o BOM; a nuvem vê "backup falhou" em toda loja desde o #546, mesmo com o backup

@@ -18,6 +18,11 @@ export interface Permissoes {
   pdv?: boolean;
   mesas?: boolean;
   cupons?: boolean;
+  // REGRA, não acesso (decisão do dono, 23/10/2026): ligada no perfil, a SANGRIA de quem tem o perfil só sai com a senha
+  // de quem libera (presidente, gerente ou supervisão), e o comprovante diz quem liberou. Nasce desligada. Lida do perfil
+  // ATUAL na hora da sangria (`financeiro.service` › `sangriaPedeSenha`), nunca por `podeAcessar` — o presidente, que
+  // "tem tudo", não teria a sua sangria travada por uma chave que existe para os outros perfis.
+  sangria_pede_senha?: boolean;
   // Delivery
   delivery?: boolean;
   pedidos?: boolean;
@@ -195,6 +200,7 @@ export const CATALOGO_PERMISSOES: CatalogoItem[] = [
   { chave: 'pdv', rotulo: 'PDV · Balcão', grupo: 'Operação', tipo: 'bool' },
   { chave: 'mesas', rotulo: 'Mesas e comandas', grupo: 'Operação', tipo: 'bool' },
   { chave: 'cupons', rotulo: 'Cupons', grupo: 'Operação', tipo: 'bool' },
+  { chave: 'sangria_pede_senha', rotulo: 'Sangria pede a senha de quem libera', grupo: 'Operação', tipo: 'bool' },
   { chave: 'delivery', rotulo: 'Delivery', grupo: 'Delivery', tipo: 'bool' },
   { chave: 'clientes_exportar', rotulo: 'Exportar base de clientes (LGPD)', grupo: 'Delivery', tipo: 'bool' },
   { chave: 'clientes_importar', rotulo: 'Importar contatos (.vcf)', grupo: 'Delivery', tipo: 'bool' },
@@ -271,7 +277,8 @@ export const PERFIS_PADRAO: {
     nome: 'Presidente',
     nivel: 'presidente',
     loginWeb: true,
-    permissoes: { ...bools(TODAS_BOOL), ponto: CRUD_ALL, estoque: CRUD_ALL, escalas: CRUD_ALL },
+    // Tudo, menos a REGRA que trava a sangria (`sangria_pede_senha` não é acesso).
+    permissoes: { ...bools(TODAS_BOOL), sangria_pede_senha: false, ponto: CRUD_ALL, estoque: CRUD_ALL, escalas: CRUD_ALL },
   },
   {
     nome: 'Gerente',
