@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.9)
 
+- **As vias do pedido (#715, 23/10; ERR-281, ERR-282, ERR-283):** a via do caixa do pedido de canal passa a ser a VIA DO DELIVERY (nome,
+  telefone, endereço, nº do pedido no canal, total com taxa e desconto, troco, sem "Venda balcão") e a VIA DE PRODUÇÃO
+  COMPLETA sai nas impressoras marcadas no modelo de produção; "Redefinir padrão" nos perfis de cupom. Sem migration e
+  sem tocar `edge/` → **só `.zip`**. Na nuvem vale com o merge; **na loja, só com o `.zip`** (é o servidor da loja que
+  aceita o pedido e imprime). Depois de atualizar: na loja, Configurações › Impressoras e cupons › Perfis de cupom →
+  "Redefinir padrão" em "Cliente — delivery", "Produção — delivery" e "Produção — balcão" (os da loja estão editados e
+  seguem com o estilo antigo até redefinir) e marcar a impressora da via completa nos de produção.
 - **A corrigir no próximo corte** (sem PR ainda): o status do backup que o servidor da loja
   manda à nuvem chega ilegível — o `backup.ps1` grava `ultimo-backup.json` com BOM (`[Text.Encoding]::UTF8`) e o
   daemon faz `JSON.parse` sem tirar o BOM; a nuvem vê "backup falhou" em toda loja desde o #546, mesmo com o backup

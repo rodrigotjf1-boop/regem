@@ -102,6 +102,7 @@ export const CAMPOS_CATALOGO: { key: string; label: string; grupo: GrupoPerfil }
   { key: 'operador', label: 'Operador', grupo: 'cliente' },
   { key: 'vendaBalcao', label: 'Venda balcão', grupo: 'cliente' },
   { key: 'origemPedido', label: 'Origem (balcão/mesa/totem)', grupo: 'cliente' },
+  { key: 'tipoPedido', label: 'Tipo do pedido (DELIVERY / RETIRADA)', grupo: 'producao' },
   { key: 'mesa', label: 'Mesa / balcão', grupo: 'producao' },
   { key: 'emitidoDe', label: 'Emitido de (sub-PDV salão)', grupo: 'producao' },
   { key: 'plataforma', label: 'Plataforma (nº do pedido na plataforma)', grupo: 'cliente' },
@@ -119,6 +120,7 @@ export const CAMPOS_CATALOGO: { key: string; label: string; grupo: GrupoPerfil }
   { key: 'totalGeral', label: 'Total geral', grupo: 'cliente' },
   { key: 'cobrarCliente', label: 'COBRAR DO CLIENTE', grupo: 'cliente' },
   { key: 'pagamento', label: 'Forma de pagamento (troco se dinheiro)', grupo: 'cliente' },
+  { key: 'troco', label: 'Troco (dinheiro: valor e quanto levar)', grupo: 'cliente' },
   { key: 'bandeiras', label: 'Bandeiras', grupo: 'cliente' },
   { key: 'avisoFiscal', label: 'Aviso fiscal / dados fiscais', grupo: 'cliente' },
   { key: 'qrcode', label: 'QR code (entregador/pesquisa/link)', grupo: 'cliente' },
@@ -183,69 +185,93 @@ const CLIENTE_TOTEM: PerfilCupom = {
   ],
 };
 
-// ── DELIVERY — cupom do entregador (via do cliente na entrega) ─────────────────
+// ── DELIVERY — via geral do pedido de canal (sai no caixa e vai com o entregador) ─────────────────────────────────────
+// Padrão do Regem (pedido do dono, 22/10/2026): número do pedido e nome do cliente em destaque, endereço em destaque
+// intermediário, total do tamanho da senha, troco em negrito. Também é o modelo da retirada pedida num canal.
 const ENTREGADOR: PerfilCupom = {
   id: 'entregador',
-  nome: 'Cliente — delivery (entregador)',
-  descricao: 'Vai com o entregador: dados do cliente, endereço, valor a cobrar e QR.',
+  nome: 'Cliente — delivery',
+  descricao:
+    'Via geral do pedido de delivery e de retirada (sai no caixa e vai com o entregador): cliente, endereço, valores, pagamento e troco.',
   grupo: 'cliente',
   campos: [
     C('nomeLoja', 'Nome da loja', { negrito: true, alinhamento: 'centro' }),
-    C('dataHora', 'Data e hora do pedido'),
-    C('ticket', 'Nº do ticket (controle)'),
-    C('plataforma', 'Plataforma (nº do pedido na plataforma)'),
-    C('pedidoRegem', 'Nº do pedido no Regem'),
-    C('cliente', 'Nome do cliente', { negrito: true }),
-    C('endereco', 'Endereço completo + complemento/referência'),
+    C('senha', 'Senha', { negrito: true, alinhamento: 'centro', escala: 2 }),
+    C('tipoPedido', 'Tipo do pedido (DELIVERY / RETIRADA)', { negrito: true, alinhamento: 'centro' }),
+    C('plataforma', 'Canal e nº do pedido', { negrito: true, alinhamento: 'centro', escala: 2 }),
+    C('pedidoRegem', 'Nº do pedido no Regem', { alinhamento: 'centro' }),
+    C('dataHora', 'Data e hora do pedido', { alinhamento: 'centro' }),
+    C('ticket', 'Nº do ticket (controle)', { visivel: false }),
+    C('cliente', 'Nome do cliente', { negrito: true, escala: 2 }),
     C('telefone', 'Telefone', { negrito: true }),
-    C('itens', 'Itens (qtd + descrição)', { fixo: true }),
+    C('endereco', 'Endereço completo + complemento/referência', { negrito: true, mini: true, escala: 2 }),
+    C('itens', 'Itens (qtd + descrição + adicionais + obs.)', { fixo: true, comp: { negrito: true }, obs: { negrito: true } }),
     C('subtotal', 'Subtotal'),
     C('taxaEntrega', 'Taxa de entrega'),
     C('desconto', 'Descontos'),
-    C('totalGeral', 'Total geral', { negrito: true }),
+    C('totalGeral', 'Total geral', { negrito: true, escala: 2 }),
     C('cobrarCliente', 'COBRAR DO CLIENTE', { negrito: true, alinhamento: 'centro' }),
     C('pagamento', 'Forma de pagamento'),
+    C('troco', 'Troco (dinheiro: valor e quanto levar)', { negrito: true }),
     C('bandeiras', 'Bandeiras'),
+    C('avisoFiscal', 'Aviso fiscal / dados fiscais', { alinhamento: 'centro' }),
     C('qrcode', 'QR do entregador (avança p/ em rota)', { alinhamento: 'centro' }),
   ],
 };
 
-// Campos comuns da via de produção (cozinha) — sem valores/endereço/pagamento.
+// Itens da VIA DE PRODUÇÃO no padrão do Regem: quantidade e produto grandes e em negrito, adicionais e itens de combo em
+// negrito (letra média), observação em negrito — para não passarem batidos na cozinha e na embalagem.
+const ITENS_PRODUCAO = (): CampoCupom =>
+  C('itens', 'Itens (qtd + descrição + adicionais + combo + obs.)', {
+    fixo: true,
+    negrito: true,
+    escala: 2,
+    comp: { negrito: true, mini: true, escala: 2 },
+    obs: { negrito: true },
+  });
+
+// Campos comuns da via de produção (cozinha) — sem valores/endereço/pagamento. O nome do cliente aparece quando o pedido
+// tem um (o totem costuma pedir; a venda do PDV não tem e só sai a senha).
 const CAMPOS_PRODUCAO = (): CampoCupom[] => [
-  C('senha', 'Senha', { negrito: true, alinhamento: 'centro' }),
-  C('mesa', 'Mesa / balcão', { negrito: true }),
+  C('senha', 'Senha', { negrito: true, alinhamento: 'centro', escala: 2 }),
+  C('mesa', 'Mesa / balcão', { negrito: true, alinhamento: 'centro' }),
+  C('cliente', 'Nome do cliente', { negrito: true, alinhamento: 'centro', escala: 2 }),
   C('nomeLoja', 'Nome da loja', { visivel: false, alinhamento: 'centro' }),
   C('dataHora', 'Data e hora do pedido'),
-  C('ticket', 'Nº do ticket (controle)'),
+  C('ticket', 'Nº do ticket (controle)', { visivel: false }),
   C('emitidoDe', 'Emitido de (sub-PDV salão)'),
-  C('cliente', 'Nome do cliente', { visivel: false }),
-  C('itens', 'Itens (qtd + descrição + complementos + obs.)', { fixo: true }),
+  ITENS_PRODUCAO(),
 ];
 
 // ── PRODUÇÃO — balcão (cozinha, pedidos de balcão/mesa) ────────────────────────
 const PRODUCAO_BALCAO: PerfilCupom = {
   id: 'producao_balcao',
   nome: 'Produção — balcão',
-  descricao: 'Para a cozinha nos pedidos de balcão/mesa: sem valores.',
+  descricao: 'Via de produção do balcão/mesa: o pedido inteiro, só com o que importa — sem valores e sem pagamento.',
   grupo: 'producao',
   campos: CAMPOS_PRODUCAO(),
 };
 
-// ── PRODUÇÃO — delivery (cozinha, pedidos de entrega/plataformas) ──────────────
+// ── PRODUÇÃO — delivery (pedidos de canal: entrega e retirada) ─────────────────────────────────────────────────────
+// Vai colada na embalagem: o entregador associa pelo número do pedido e pelo nome — o cabeçalho de identificação.
 const PRODUCAO_DELIVERY: PerfilCupom = {
   id: 'producao_delivery',
   nome: 'Produção — delivery',
-  descricao: 'Para a cozinha nos pedidos de delivery/plataformas: sem valores, com plataforma.',
+  descricao:
+    'Via de produção do pedido de canal: o pedido inteiro com a identificação (senha, nº do pedido, nome) para anexar à embalagem — sem endereço, valores e pagamento.',
   grupo: 'producao',
   campos: [
-    C('senha', 'Senha', { negrito: true, alinhamento: 'centro' }),
+    C('senha', 'Senha', { negrito: true, alinhamento: 'centro', escala: 2 }),
+    C('tipoPedido', 'Tipo do pedido (DELIVERY / RETIRADA)', { negrito: true, alinhamento: 'centro' }),
+    C('plataforma', 'Canal e nº do pedido', { negrito: true, alinhamento: 'centro', escala: 2 }),
+    // Na via de produção o nº do Regem é o da COZINHA (outro contador que o "#284" do painel): ligado, a embalagem e a
+    // via do delivery mostrariam números diferentes. Fica disponível, desligado.
+    C('pedidoRegem', 'Nº do pedido no Regem', { visivel: false, alinhamento: 'centro' }),
+    C('cliente', 'Nome do cliente', { negrito: true, alinhamento: 'centro', escala: 2 }),
     C('nomeLoja', 'Nome da loja', { visivel: false, alinhamento: 'centro' }),
     C('dataHora', 'Data e hora do pedido'),
-    C('ticket', 'Nº do ticket (controle)'),
-    C('plataforma', 'Plataforma (nº do pedido na plataforma)'),
-    C('pedidoRegem', 'Nº do pedido no Regem'),
-    C('cliente', 'Nome do cliente', { negrito: true }),
-    C('itens', 'Itens (qtd + descrição + complementos + obs.)', { fixo: true }),
+    C('ticket', 'Nº do ticket (controle)', { visivel: false }),
+    ITENS_PRODUCAO(),
   ],
 };
 
@@ -344,9 +370,14 @@ export const CUPOM_PERFIS_PADRAO: Record<string, PerfilCupom> = {
 
 const KEYS_VALIDAS = new Set(CAMPOS_CATALOGO.map((c) => c.key));
 
-// Funde o perfil PADRÃO com o override salvo da loja (por campo: visivel/negrito/
-// alinhamento; a ORDEM segue o override quando presente). Campos desconhecidos no
-// override são ignorados; campos novos do padrão entram no fim.
+// Funde o perfil PADRÃO com o override salvo da loja; a ORDEM segue o override quando presente. Campos desconhecidos no
+// override são ignorados.
+//  - Campo que a loja GRAVOU vale como gravado. O editor manda o campo inteiro e omite o tamanho "Normal" e as sublinhas
+//    sem estilo: ausente = normal. (Antes, ausente caía no padrão — inofensivo enquanto todo padrão era normal; com a
+//    senha e os itens grandes no padrão do Regem, quem escolhesse "Normal" voltaria ao grande sem poder diminuir.)
+//  - Campo novo do padrão, que a loja ainda não viu, entra com o estilo do padrão LOGO DEPOIS do campo que o precede no
+//    padrão (antes ia para o fim: o troco saía depois do QR).
+//  - Perfil sem campos gravados (nunca editado, ou "Redefinir padrão") = o padrão do Regem inteiro.
 export function perfilEfetivo(
   id: string,
   override?: { campos?: Partial<CampoCupom>[]; impressoras?: string[] } | null,
@@ -377,26 +408,36 @@ export function perfilEfetivo(
       continue;
     }
     const b = o.key ? porKey.get(o.key) : undefined;
-    if (!b) continue; // override de campo inexistente — ignora
+    if (!b || vistos.has(b.key)) continue; // campo inexistente (ou repetido) no override — ignora
     vistos.add(b.key);
-    const escM = escalaFonte(o) ?? escalaFonte(b); // override vence; senão base
-    const miniM = o.mini != null ? !!o.mini : !!b.mini; // override vence; senão base
-    const compM = subEstilo(o.comp) ?? subEstilo(b.comp); // override vence; senão base
-    const obsM = subEstilo(o.obs) ?? subEstilo(b.obs);
+    // O tamanho e as sublinhas valem como gravados (ausente = normal) — ver o comentário da função.
+    const escM = escalaFonte(o);
+    const compM = subEstilo(o.comp);
+    const obsM = subEstilo(o.obs);
     campos.push({
-      ...b,
+      key: b.key,
+      label: b.label,
+      ...(b.fixo ? { fixo: true } : {}),
       visivel: b.fixo ? true : o.visivel ?? b.visivel, // itens não somem
       negrito: o.negrito ?? b.negrito,
       alinhamento: o.alinhamento ?? b.alinhamento,
-      tamanho: undefined, // normaliza p/ escala (source of truth)
       ...(escM ? { escala: escM } : {}),
-      ...(miniM ? { mini: true } : {}),
+      ...(o.mini ? { mini: true } : {}),
       ...(compM ? { comp: compM } : {}),
       ...(obsM ? { obs: obsM } : {}),
       ...(o.agrupado != null ? { agrupado: !!o.agrupado } : b.agrupado ? { agrupado: true } : {}),
     });
   }
-  for (const b of base.campos) if (!vistos.has(b.key)) campos.push(b);
+  // Campo novo do padrão: logo depois do campo que o precede no padrão — e das linhas de layout (branco/divisória) que a
+  // loja pôs logo depois dele; sem nenhum anterior, no começo.
+  base.campos.forEach((b, i) => {
+    if (vistos.has(b.key)) return;
+    let pos = -1;
+    for (let j = i - 1; j >= 0 && pos < 0; j--) pos = campos.findIndex((c) => c.key === base.campos[j].key);
+    if (pos >= 0) while (pos + 1 < campos.length && PSEUDO_CAMPOS[campos[pos + 1].key]) pos++;
+    campos.splice(pos + 1, 0, b);
+    vistos.add(b.key);
+  });
   return { ...base, campos, ...(imprs ? { impressoras: imprs } : {}) };
 }
 

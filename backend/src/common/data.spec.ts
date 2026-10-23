@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
-import { hojeISO, dataNoFuso, somarDias, horaAgora } from './data';
+import { hojeISO, dataNoFuso, dataHoraNoFuso, somarDias, horaAgora } from './data';
 
 // Data de REGISTRO em UTC é o erro que já aconteceu duas vezes neste projeto: foi
 // corrigido só no ponto.controller e as outras três cópias seguiram erradas.
@@ -25,6 +25,12 @@ describe('data — hoje no fuso da operação', () => {
   it('meia-noite e meia em SP é o dia novo', () => {
     const d = new Date('2026-03-10T03:30:00Z'); // 00:30 em SP
     expect(dataNoFuso(d)).toBe('2026-03-10');
+  });
+
+  // A via impressa na nuvem (UTC) saía com 00h30 do dia seguinte para o pedido das 21h30.
+  it('data e hora do que sai impresso: a de São Paulo', () => {
+    expect(dataHoraNoFuso(new Date('2026-10-23T00:30:00Z'))).toBe('22/10/2026, 21:30:00');
+    expect(dataHoraNoFuso()).toMatch(/^\d{2}\/\d{2}\/\d{4}, \d{2}:\d{2}:\d{2}$/);
   });
 });
 

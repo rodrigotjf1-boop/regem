@@ -61,6 +61,8 @@ import { urlPublicaSegura } from '../../common/ssrf-guard';
 import { validarTokenMP } from '../../common/mercadopago';
 import { validarTokenPagBank } from '../../common/pagbank';
 import { perfilEfetivo, listarPerfis, CAMPOS_CATALOGO, type PerfilCupom } from './cupom-perfis';
+import { dadosDaViaDoDelivery } from './via-do-delivery';
+import { tipoDoPedido } from '../../common/via-do-pedido';
 import { VendasService } from '../vendas/vendas.service';
 import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
 import { CashbackService } from '../cashback/cashback.service';
@@ -1259,6 +1261,7 @@ export class DeliveryService {
       setorId: (cfg as any)?.setorId ?? null,
       plataforma: PLAT[ped.canal] ?? ped.canal,
       senhaPlataforma: ped.displayId ?? null,
+      tipoPedido: tipoDoPedido(ped), // DELIVERY/RETIRADA/ENCOMENDA na via de produção
       // R6 — totem sai na série do BALCÃO e reaproveita a senha já impressa no cupom
       // do cliente. Regra em `serie-da-senha.ts` (com teste).
       ...serieDaSenha(ped.canal, ped.displayId),
@@ -3197,29 +3200,36 @@ export class DeliveryService {
     const cfg: any = await this.getConfig(tenantId, unidadeId);
     const perfil = perfilEfetivo('entregador', (cfg?.cupomPerfis ?? {})?.entregador);
     const base = (process.env.CARDAPIO_PUBLIC_URL || process.env.APP_URL || 'https://app.dmsregem.com').replace(/\/$/, '');
-    const endereco = [ped.endereco, ped.enderecoNumero, ped.enderecoBairro, ped.enderecoReferencia].filter(Boolean).join('\n');
-    const total = Number(ped.total) || 0;
+    // A senha é a da venda (a do KDS); o pedido ainda sem venda sai sem ela.
+    const [venda] = ped.comandaId
+      ? await this.db
+          .select({ senha: comanda.senha, senhaPrefixo: comanda.senhaPrefixo })
+          .from(comanda)
+          .where(and(eq(comanda.tenantId, tenantId), eq(comanda.id, ped.comandaId)))
+      : [];
+    // Os mesmos dados da via do delivery (`via-do-delivery.ts`): endereço sem repetição, total com a taxa e o desconto,
+    // valor a cobrar e troco pela conta do app do entregador. Antes o endereço repetia número e bairro (o texto inteiro
+    // mais os campos separados) e o subtotal era o total do pedido.
     const conteudo = this.producao.renderCupomPerfil(
       perfil,
-      {
-        nomeLoja: (typeof cfg?.cupomLayout?.cabecalho === 'string' && cfg.cupomLayout.cabecalho.trim()) || undefined,
-        dataHora: new Date().toLocaleString('pt-BR'),
-        ticket: ped.numero != null ? String(ped.numero) : undefined,
-        plataforma: `${ped.canal}${ped.displayId ? ' #' + ped.displayId : ''}`,
-        pedidoRegem: ped.numero != null ? `#${ped.numero}` : undefined,
-        cliente: ped.clienteNome,
-        endereco: endereco || undefined,
-        telefone: ped.clienteTelefone,
-        itens: ped.itens ?? [],
-        subtotal: total,
-        taxaEntrega: ped.taxaEntrega != null ? Number(ped.taxaEntrega) : undefined,
-        desconto: ped.desconto != null ? Number(ped.desconto) : undefined,
-        totalGeral: total,
-        cobrarCliente: ped.pago ? 0 : total, // pago online = cobrar 0
-        pagamento: ped.formaPagamento,
-        bandeiras: (ped as any).bandeira ?? undefined,
-        qrData: `${base}/e/${token}`,
-      },
+      dadosDaViaDoDelivery(
+        ped,
+        ((ped.itens as any[]) ?? []).map((it: any) => ({
+          quantidade: Number(it.quantidade) || 1,
+          descricao: String(it.descricao ?? ''),
+          precoUnitario: Number(it.precoUnitario) || 0,
+          complementosTexto: typeof it.complementos === 'string' ? it.complementos : null,
+          observacao: it.observacao ?? null,
+        })),
+        {
+          senha: venda?.senha ?? null,
+          senhaPrefixo: venda?.senhaPrefixo ?? null,
+          forma: normalizarFormaPagamento(ped.formaPagamento, ped.raw).label,
+          nomeLoja: (typeof cfg?.cupomLayout?.cabecalho === 'string' && cfg.cupomLayout.cabecalho.trim()) || undefined,
+          qrData: `${base}/e/${token}`,
+          mostrarValoresItem: cfg?.cupomLayout?.mostrarValoresItem !== false,
+        },
+      ),
       undefined,
       typeof cfg?.cupomLayout?.rodape === 'string' ? cfg.cupomLayout.rodape : undefined,
     );

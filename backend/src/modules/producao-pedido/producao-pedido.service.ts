@@ -12,7 +12,8 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { and, desc, eq, inArray, isNotNull, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { PREFIXO_BALCAO, rotuloSenha } from '../../common/senha-origem';
-import { textoDasEscolhas } from '../../common/adicionais';
+import { separarEscolhas, textoDasEscolhas, type Escolha } from '../../common/adicionais';
+import { pedidoNoCanal, perfilDeProducao, tipoNaProducao } from '../../common/via-do-pedido';
 import {
   equipamento,
   produtoDestinoProducao,
@@ -33,6 +34,7 @@ import {
   comandaItem,
   comandaItemComplemento,
   produto,
+  produtoComboItem,
   deliveryConfig,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
@@ -44,7 +46,7 @@ import { garantirImpressoraDaLoja } from '../../common/impressora-da-loja';
 import { conferirDestinosDeProducao } from '../../common/destino-producao';
 import { ESTADOS_IMPRESSORA, MARCA_REIMPRESSAO } from '../../common/impressao-marca';
 import { gravarOuEncaminharImpressao } from '../../common/impressao-destino';
-import { hojeISO } from '../../common/data';
+import { dataHoraNoFuso, hojeISO } from '../../common/data';
 import { logisticaDasComandas } from '../delivery/logistica-canal';
 import { autorizarPorSenhaDeGestor } from '../../common/autorizacao-gestor';
 import { conferirProximoKds, kdsQueChegamA, lerEstacoes } from '../../common/fluxo-kds';
@@ -63,6 +65,26 @@ export interface ItemProducao {
   observacao?: string | null;
   comandaItemId?: string | null;
   opcaoIds?: string[]; // opções/complementos escolhidos (roteamento por opção/etapa — mig 127/Fase 1)
+  // As escolhas gravadas (tipo + nome). Com elas, a via tira da descrição a lista que o nosso cardápio escreve no fim
+  // ("X-Burger (2x Bacon)") e destaca as escolhas numa linha própria. Só para o papel: o cartão do KDS não muda.
+  escolhas?: Escolha[];
+  combo?: string[]; // itens do combo na via ("2x Batata frita") — preenchido na hora da via (`marcarCombos`)
+}
+
+// Item da venda que NÃO vai para a produção (a lata, o item sem produto ligado): a via completa o lista em letra pequena,
+// depois de "TAMBEM NO PEDIDO", para quem embala conferir o pedido inteiro.
+export interface ItemForaDaProducao {
+  quantidade: number;
+  descricao: string;
+}
+
+/** A descrição e as escolhas de um item NA VIA: com as escolhas gravadas, a lista do fim da descrição vira linha própria. */
+export function itemNaVia(it: { descricao?: string | null; complementosTexto?: string | null; escolhas?: Escolha[] | null }): {
+  descricao: string;
+  escolhas: string | null;
+} {
+  if (Array.isArray(it.escolhas) && it.escolhas.length) return separarEscolhas(it.descricao, it.escolhas);
+  return { descricao: String(it.descricao ?? ''), escolhas: it.complementosTexto ?? null };
 }
 
 // Item da MESMA venda que sai em outro lugar: a via "pedido completo" o mostra em letra pequena, com o destino (forma da
@@ -487,6 +509,71 @@ export class ProducaoPedidoService {
     return vias;
   }
 
+  // VIA COMPLETA da venda (pedido do dono, 23/10/2026: "a via de produção é uma só e completa com o pedido"): o pedido
+  // inteiro numa via — os itens da produção, com adicionais e itens do combo em destaque, e, em letra pequena, o resto da
+  // venda — nas impressoras marcadas no modelo de produção (Configurações › Impressoras e cupons › Perfis de cupom). É a
+  // via que vai colada na embalagem: o cabeçalho (senha, nº do pedido no canal, nome) liga o pacote ao pedido. Sai na
+  // hora, como a via do caixa — o "adiar até o KDS" vale para as vias direcionadas. Sem impressora marcada (ou só as que
+  // saíram de uso), não sai, como antes. Quem chama grava e tira estas impressoras das vias direcionadas.
+  private async viasCompletas(
+    db: any,
+    tenantId: string,
+    unidadeId: string | null,
+    daProducao: ItemProducao[],
+    resto: ItemForaDaProducao[],
+    ctx: any,
+    numero: number | null,
+    pp: { perfil: any; cabecalho?: string; rodape?: string } | null,
+  ): Promise<{ equipamentoId: string; conteudo: string }[]> {
+    const marcadas = [...new Set<string>((pp?.perfil?.impressoras ?? []).filter((id: unknown) => typeof id === 'string' && UUID_RE.test(id)))];
+    if (!pp || !marcadas.length) return [];
+    // Em uso e desta loja (ou da rede): a marcada que saiu de uso, ou é de outra loja, fica de fora.
+    const emUso: { id: string }[] = await db
+      .select({ id: equipamento.id })
+      .from(equipamento)
+      .where(
+        and(
+          eq(equipamento.tenantId, tenantId),
+          eq(equipamento.tipo, 'impressora'),
+          eq(equipamento.ativo, true),
+          inArray(equipamento.id, marcadas),
+          lojaOuRede(unidadeId),
+        ),
+      );
+    const ids = marcadas.filter((id) => emUso.some((e) => e.id === id));
+    if (!ids.length) return [];
+    const outros: OutroItemDaVia[] = resto.map((o) => ({ quantidade: Number(o.quantidade), descricao: o.descricao, destino: '' }));
+    const conteudo = this.renderTicket(ctx, daProducao, numero, pp, outros);
+    return ids.map((equipamentoId) => ({ equipamentoId, conteudo }));
+  }
+
+  // Itens de COMBO na via (pedido do dono, 23/10/2026: "produtos e subprodutos quando combos"): uma consulta para todos
+  // os combos da venda; cada item de combo ganha as linhas dos componentes, já multiplicadas pela quantidade do item
+  // ("2x Combo" → "2x Batata frita"). Só o papel: o cartão do KDS não muda.
+  private async marcarCombos(db: any, tenantId: string, itens: ItemProducao[]): Promise<void> {
+    const ids = [...new Set(itens.filter((it) => it.produto?.tipo === 'combo' && it.produto?.id).map((it) => String(it.produto.id)))];
+    if (!ids.length) return;
+    const comps: { combo: string; nome: string; q: string | number }[] = await db
+      .select({ combo: produtoComboItem.comboProdutoId, nome: produto.nome, q: produtoComboItem.quantidade })
+      .from(produtoComboItem)
+      .innerJoin(produto, eq(produto.id, produtoComboItem.componenteProdutoId))
+      .where(
+        and(
+          eq(produtoComboItem.tenantId, tenantId),
+          inArray(produtoComboItem.comboProdutoId, ids),
+          isNull(produtoComboItem.deletedAt), // componente retirado do combo (mig 242)
+        ),
+      )
+      .orderBy(produtoComboItem.createdAt, produtoComboItem.id);
+    for (const it of itens) {
+      if (it.produto?.tipo !== 'combo') continue;
+      const linhas = comps
+        .filter((c) => c.combo === it.produto.id)
+        .map((c) => `${Number(((Number(c.q) || 1) * (Number(it.quantidade) || 1)).toFixed(3))}x ${c.nome}`);
+      if (linhas.length) it.combo = linhas;
+    }
+  }
+
   private normalizaDestino = (d: any): Destino => ({
     equipamentoId: d.equipamentoId ?? null,
     tipo: d.tipo === 'impressora' ? 'impressora' : 'kds',
@@ -510,11 +597,20 @@ export class ProducaoPedidoService {
       setorId?: string | null; // setor do card (ex.: setor do delivery)
       emitidoDe?: string | null; // ponto de salão que emitiu (cabeçalho cozinha, mig 133)
       consumo?: string | null; // 'local' | 'viagem' (mig 310) — cartão da cozinha e alto da via
+      cliente?: string | null; // nome do cliente (canal, totem) — só na via impressa
+      tipoPedido?: string | null; // DELIVERY | RETIRADA | ENCOMENDA (pedido de canal) — só na via impressa
     },
     itens: ItemProducao[],
+    // O resto da venda (o que não vai para a produção): só a via completa o mostra. Ver `viasCompletas`.
+    foraDaProducao: ItemForaDaProducao[] = [],
   ): Promise<any[]> {
     const daProducao = itens.filter((it) => it.produto?.vaiParaProducao);
     if (!daProducao.length) return [];
+    // O que veio na lista mas não vai para a produção também é "resto da venda".
+    const resto = [
+      ...itens.filter((it) => !it.produto?.vaiParaProducao).map((it) => ({ quantidade: it.quantidade, descricao: it.descricao })),
+      ...foraDaProducao,
+    ];
 
     // Cartões da venda. Sem estações (como sempre): 1 pedido de produção por venda (senha ÚNICA) — todos os itens de
     // produção num único card de KDS sem destino, sem quebrar por setor; as impressoras configuradas recebem suas vias.
@@ -577,7 +673,8 @@ export class ProducaoPedidoService {
     const ped = cartoes.find((c) => c.destinoTipo === 'impressora') ?? cartoes[0];
     // Config de cupom da loja: perfil de produção (Fase 3b) + política de adiar (Fase 6).
     const cfgCupom = await this.carregarConfigCupom(tx, ctx.tenantId, ctx.unidadeId ?? null);
-    const idProd = ctx.origem === 'delivery' ? 'producao_delivery' : 'producao_balcao';
+    // Pedido de canal (entrega ou retirada) usa o modelo do delivery; balcão, mesa e totem, o do balcão.
+    const idProd = perfilDeProducao(ctx.origem, ctx.plataforma);
     const ppProd = cfgCupom.override[idProd]
       ? { perfil: perfilEfetivo(idProd, cfgCupom.override[idProd]), cabecalho: cfgCupom.cabecalho, rodape: cfgCupom.rodape }
       : null;
@@ -609,9 +706,26 @@ export class ProducaoPedidoService {
     // lê a fila da nuvem nessa loja) e, com um agente de impressão instalado junto, saía EM DOBRO.
     // No próprio servidor local `edgeAtivo` é sempre false.
     const imprimeNesteBanco = !(await edgeAtivo(this.db, ctx.tenantId, ctx.unidadeId ?? null));
-    // Vias de produção por impressora (uma por equipamento), quando houver — na forma de cada impressora (mig 335).
+    if (imprimeNesteBanco) await this.marcarCombos(tx, ctx.tenantId, daProducao);
+    // A via completa sai na hora, nas impressoras marcadas no modelo de produção.
+    const completas = imprimeNesteBanco
+      ? await this.viasCompletas(tx, ctx.tenantId, ctx.unidadeId ?? null, daProducao, resto, ctx, numero, ppProd)
+      : [];
+    for (const via of completas)
+      await tx.insert(impressaoJob).values({
+        tenantId: ctx.tenantId,
+        unidadeId: ctx.unidadeId ?? null,
+        equipamentoId: via.equipamentoId,
+        pedidoId: ped.id,
+        comandaId: ctx.comandaId, // liga à venda (idempotência do materializador do edge)
+        via: 'producao',
+        conteudo: via.conteudo,
+      });
+    // Vias de produção por impressora (uma por equipamento), quando houver — na forma de cada impressora (mig 335). A
+    // impressora que já recebeu a via completa não recebe a direcionada: seria o mesmo pedido duas vezes.
     if (emitirProducaoAgora && imprimeNesteBanco) {
       for (const via of await this.viasDeProducao(tx, ctx.tenantId, daProducao, { impressoras, kds }, ctx, numero, ppProd)) {
+        if (completas.some((c) => c.equipamentoId === via.equipamentoId)) continue;
         await tx.insert(impressaoJob).values({
           tenantId: ctx.tenantId,
           unidadeId: ctx.unidadeId ?? null,
@@ -690,19 +804,25 @@ export class ProducaoPedidoService {
       .limit(1);
     if (!ped) return 0;
 
-    // Reconstrói os ItemProducao a partir da comanda (produto + complementos que desceram).
+    // Reconstrói os ItemProducao a partir da comanda (produto + complementos que desceram). O resto da venda (sem
+    // produto, ou que não vai para a produção) só aparece na via completa.
     const cis = await this.db
       .select()
       .from(comandaItem)
       .where(eq(comandaItem.comandaId, comandaId));
     const daProducao: ItemProducao[] = [];
+    const resto: ItemForaDaProducao[] = [];
     for (const ci of cis) {
-      if (!ci.produtoId) continue;
-      const [p] = await this.db
-        .select()
-        .from(produto)
-        .where(and(eq(produto.id, ci.produtoId), eq(produto.tenantId, tenantId)));
-      if (!p || !p.vaiParaProducao) continue;
+      const [p] = ci.produtoId
+        ? await this.db
+            .select()
+            .from(produto)
+            .where(and(eq(produto.id, ci.produtoId), eq(produto.tenantId, tenantId)))
+        : [];
+      if (!p || !p.vaiParaProducao) {
+        resto.push({ quantidade: Number(ci.quantidade), descricao: ci.descricao });
+        continue;
+      }
       const comps = await this.db
         .select({
           opcaoId: comandaItemComplemento.opcaoId,
@@ -720,9 +840,15 @@ export class ProducaoPedidoService {
         observacao: ci.observacao,
         comandaItemId: ci.id,
         opcaoIds: comps.map((s) => s.opcaoId).filter(Boolean) as string[],
+        escolhas: comps.map((s) => ({ tipo: s.tipo, nome: s.nome })),
       });
     }
     if (!daProducao.length) return 0;
+    // O nome do cliente vem da venda (o canal e o totem gravam; a venda do PDV não tem).
+    const [venda] = await this.db
+      .select({ cliente: comanda.cliente })
+      .from(comanda)
+      .where(and(eq(comanda.id, comandaId), eq(comanda.tenantId, tenantId)));
 
     const ctx: any = {
       tenantId,
@@ -736,6 +862,7 @@ export class ProducaoPedidoService {
       senhaPlataforma: ped.senhaPlataforma ?? null,
       setorId: ped.setorId ?? null,
       consumo: ped.consumo ?? null,
+      cliente: venda?.cliente ?? null,
     };
     const numero = ped.numero ?? null;
     const db = this.db;
@@ -746,7 +873,7 @@ export class ProducaoPedidoService {
     const { impressoras, padraoId, kds } = await this.rotearProducao(db, tenantId, ctx.unidadeId ?? null, daProducao, estacoes);
 
     const cfgCupom = await this.carregarConfigCupom(db, tenantId, ctx.unidadeId ?? null);
-    const idProd = ctx.origem === 'delivery' ? 'producao_delivery' : 'producao_balcao';
+    const idProd = perfilDeProducao(ctx.origem, ctx.plataforma); // o mesmo modelo da venda local
     const ppProd = cfgCupom.override[idProd]
       ? { perfil: perfilEfetivo(idProd, cfgCupom.override[idProd]), cabecalho: cfgCupom.cabecalho, rodape: cfgCupom.rodape }
       : null;
@@ -772,8 +899,24 @@ export class ProducaoPedidoService {
     }
 
     let enfileirados = 0;
+    // A via completa (na hora) e as direcionadas — a impressora da completa não recebe a direcionada (igual a criarPedidos).
+    await this.marcarCombos(db, tenantId, daProducao);
+    const completas = await this.viasCompletas(db, tenantId, ctx.unidadeId ?? null, daProducao, resto, ctx, numero, ppProd);
+    for (const via of completas) {
+      await db.insert(impressaoJob).values({
+        tenantId,
+        unidadeId: ctx.unidadeId ?? null,
+        equipamentoId: via.equipamentoId,
+        pedidoId: ped.id,
+        comandaId,
+        via: 'producao',
+        conteudo: via.conteudo,
+      });
+      enfileirados++;
+    }
     if (emitirProducaoAgora) {
       for (const via of await this.viasDeProducao(db, tenantId, daProducao, { impressoras, kds }, ctx, numero, ppProd)) {
+        if (completas.some((c) => c.equipamentoId === via.equipamentoId)) continue;
         await db.insert(impressaoJob).values({
           tenantId,
           unidadeId: ctx.unidadeId ?? null,
@@ -869,8 +1012,9 @@ export class ProducaoPedidoService {
     tenantId: string,
     unidadeId: string | null,
     origem?: string | null,
+    plataforma?: string | null,
   ): Promise<{ perfil: any; cabecalho?: string; rodape?: string } | null> {
-    const id = origem === 'delivery' ? 'producao_delivery' : 'producao_balcao';
+    const id = perfilDeProducao(origem, plataforma);
     const cfg = await this.carregarConfigCupom(db, tenantId, unidadeId);
     if (!cfg.override[id]) return null; // não customizado → mantém o legado
     return { perfil: perfilEfetivo(id, cfg.override[id]), cabecalho: cfg.cabecalho, rodape: cfg.rodape };
@@ -905,6 +1049,9 @@ export class ProducaoPedidoService {
     const completo = !!outros?.length;
     // Para viagem (mig 310): a cozinha embala diferente — a marca vai no ALTO da via, antes de tudo.
     const viagem = ctx.consumo === 'viagem';
+    // Pedido de canal: DELIVERY/RETIRADA no lugar de "BALCAO", e o nº do pedido no canal ("iFood #8F2A").
+    const tipo = tipoNaProducao(ctx);
+    const canal = pedidoNoCanal(ctx.plataforma, ctx.senhaPlataforma);
     // Fase 3b — via de produção por PERFIL (quando a loja customizou). Sem valores.
     if (pp?.perfil) {
       // O perfil escolhe e ordena os campos; a marca de viagem não é campo de perfil (não pode ser
@@ -915,33 +1062,38 @@ export class ProducaoPedidoService {
           senha: ctx.senha,
           senhaPrefixo: ctx.senhaPrefixo ?? null,
           mesa: ctx.mesa,
-          dataHora: new Date().toLocaleString('pt-BR'),
+          tipoPedido: tipo,
+          cliente: ctx.cliente || undefined,
+          // A via de produção leva só o que a cozinha e a embalagem usam (pedido do dono, 23/10/2026): o texto do
+          // cabeçalho só sai pelo campo "Nome da loja" (desligado no padrão), e o rodapé não sai.
+          nomeLoja: pp.cabecalho,
+          dataHora: dataHoraNoFuso(),
           ticket: numero ? `#${numero}` : undefined,
           pedidoRegem: numero || undefined,
-          plataforma: ctx.plataforma
-            ? `${ctx.plataforma}${ctx.senhaPlataforma ? ` #${ctx.senhaPlataforma}` : ''}`
-            : undefined,
+          plataforma: canal,
           emitidoDe: ctx.emitidoDe ?? undefined,
           itens: its,
           outros: completo ? outros : undefined,
           // Produção NÃO mostra valores (mostrarValoresItem fica desligado).
         },
-        pp.cabecalho,
-        pp.rodape,
       );
     }
     const linha = '--------------------------------';
-    const cab = ctx.mesa ? `MESA ${ctx.mesa}` : 'BALCAO';
+    const cab = ctx.mesa ? `MESA ${ctx.mesa}` : tipo ?? 'BALCAO';
     const l: string[] = ['*** PRODUCAO ***'];
     if (viagem) l.push(MARCA_VIAGEM);
     if (ctx.senha) l.push(`>>> SENHA ${rotuloSenha(ctx.senha, ctx.senhaPrefixo)} <<<`);
     l.push(`${cab}${numero ? ` · #${numero}` : ''}`);
+    if (tipo && canal) l.push(`@B ${canal}`);
+    if (ctx.cliente) l.push(`@B ${ctx.cliente}`);
     // Sub-PDV salão (mig 133): cabeçalho de onde o pedido foi emitido.
     if (ctx.emitidoDe) l.push(`EMITIDO: ${ctx.emitidoDe}`);
     l.push(linha);
     for (const it of its) {
-      l.push(`${completo ? '@B ' : ''}${Number(it.quantidade)}x ${it.descricao}`);
-      if (it.complementosTexto) l.push(`  >> ${it.complementosTexto}`);
+      const { descricao, escolhas } = itemNaVia(it);
+      l.push(`${completo ? '@B ' : ''}${Number(it.quantidade)}x ${descricao}`);
+      for (const c of it.combo ?? []) l.push(`  - ${c}`);
+      if (escolhas) l.push(`  >> ${escolhas}`);
       if (it.observacao) l.push(`  ** OBS: ${it.observacao}`);
     }
     // Pedido completo: o que sai em outro lugar, pequeno e só a linha do item (sem complemento nem observação — é para a
@@ -951,7 +1103,7 @@ export class ProducaoPedidoService {
       for (const o of outros!) l.push(`@S ${linhaDoOutroItem(o)}`);
     }
     l.push(linha);
-    l.push(new Date().toLocaleString('pt-BR'));
+    l.push(dataHoraNoFuso());
     return l.join('\n');
   }
 
@@ -1048,14 +1200,19 @@ export class ProducaoPedidoService {
     const money = (n: any) =>
       Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     const sep = '--------------------------------';
+    const mostra = (key: string) => perfil.campos.some((c) => c.key === key && c.visivel);
+    // Texto em várias linhas (cabeçalho e rodapé são caixas de texto): cada linha leva o estilo do campo.
+    const linhasDe = (t: unknown) => String(t ?? '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
     // Texto (uma ou mais linhas) de cada campo a partir dos dados. [] = não imprime.
     const CAMPO: Record<string, () => string[]> = {
       senha: () => (dados.senha != null ? [`SENHA ${rotuloSenha(dados.senha, dados.senhaPrefixo)}`] : []),
       tipoFiscal: () => [dados.fiscal ? 'CUPOM FISCAL' : 'CUPOM NAO FISCAL'],
-      nomeLoja: () => (dados.nomeLoja ? [String(dados.nomeLoja)] : []),
-      dataHora: () => [dados.dataHora ?? new Date().toLocaleString('pt-BR')],
+      nomeLoja: () => linhasDe(dados.nomeLoja),
+      dataHora: () => [dados.dataHora ?? dataHoraNoFuso()],
       ticket: () => (dados.ticket ? [`Ticket ${dados.ticket}`] : []),
-      vendaBalcao: () => ['Venda balcao'],
+      // Pedido de canal não é "venda balcão" (a via do delivery saía assim): diz o tipo, se o perfil já não o mostra.
+      vendaBalcao: () => (!dados.tipoPedido ? ['Venda balcao'] : mostra('tipoPedido') ? [] : [String(dados.tipoPedido)]),
+      tipoPedido: () => (dados.tipoPedido ? [String(dados.tipoPedido)] : []),
       operador: () => (dados.operador ? [`Operador: ${dados.operador}`] : []),
       // itens é tratado à parte no loop (estilo por linha: nome/complemento/obs/valor).
       subtotal: () => (dados.subtotal != null ? [`Subtotal: ${money(dados.subtotal)}`] : []),
@@ -1064,9 +1221,15 @@ export class ProducaoPedidoService {
       pagamento: () => {
         const ls: string[] = [];
         if (dados.pagamento) ls.push(`Pagamento: ${dados.pagamento}`);
-        if (dados.troco) ls.push(`Troco para ${money(dados.troco)}`);
+        // O troco tem campo próprio (em destaque); sem ele no perfil, sai aqui, como sempre.
+        if (dados.troco && !mostra('troco')) ls.push(`Troco para ${money(dados.troco)}`);
         return ls;
       },
+      // Dinheiro na entrega: com quanto o cliente paga e quanto troco o entregador leva (a conta do app do entregador).
+      troco: () =>
+        dados.troco
+          ? [`Troco para ${money(dados.troco)}`, ...(dados.trocoLevar ? [`LEVAR TROCO: ${money(dados.trocoLevar)}`] : [])]
+          : [],
       avisoFiscal: () => (dados.fiscal ? [] : ['Este documento nao tem valor fiscal']),
       plataforma: () => (dados.plataforma ? [String(dados.plataforma)] : []),
       pedidoRegem: () => (dados.pedidoRegem ? [`Pedido Regem ${dados.pedidoRegem}`] : []),
@@ -1078,7 +1241,13 @@ export class ProducaoPedidoService {
       endereco: () => (dados.endereco ? String(dados.endereco).split('\n') : []),
       telefone: () => (dados.telefone ? [String(dados.telefone)] : []),
       taxaEntrega: () => (dados.taxaEntrega != null ? [`Entrega: ${money(dados.taxaEntrega)}`] : []),
-      cobrarCliente: () => (dados.cobrarCliente != null ? [`COBRAR ${money(dados.cobrarCliente)}`] : []),
+      // Pago online: o entregador não cobra nada — "COBRAR R$ 0,00" parecia defeito.
+      cobrarCliente: () =>
+        dados.cobrarCliente == null
+          ? []
+          : Number(dados.cobrarCliente) > 0
+            ? [`COBRAR ${money(dados.cobrarCliente)}`]
+            : ['PAGO - NADA A COBRAR'],
       bandeiras: () => (dados.bandeiras ? [`Bandeira: ${dados.bandeiras}`] : []),
       qrcode: () => (dados.qrData ? [`@QR:${dados.qrData}`] : []),
       // Movimentos de caixa (Fase 3 — sangria/suprimento/fechamento)
@@ -1098,7 +1267,7 @@ export class ProducaoPedidoService {
       assinatura: () => ['', '______________________', 'Assinatura'],
     };
     const out: string[] = [];
-    if (cabecalho && String(cabecalho).trim()) out.push(`@C ${String(cabecalho).trim()}`);
+    for (const t of linhasDe(cabecalho)) out.push(`@C ${t}`);
     // Fase 4 — pseudo-campos de layout (_espaco/_tracejado), fonte grande (@D) e
     // agrupar dois campos na mesma linha (esq | dir, via token @LR).
     // Escala 1..4 de um estilo (compat: tamanho 'grande' == 2).
@@ -1127,8 +1296,11 @@ export class ProducaoPedidoService {
         const put = (f: string, t: string) => out.push(f ? `@${f} ${t}` : t);
         out.push(sep);
         for (const it of dados.itens ?? []) {
-          put(fNome, `${Number(it.quantidade)}x ${it.descricao}`);
-          if (it.complementosTexto) put(fComp, `   ${it.complementosTexto}`);
+          // Os adicionais numa linha própria, no estilo deles; os itens do combo logo abaixo do combo.
+          const { descricao, escolhas } = itemNaVia(it);
+          put(fNome, `${Number(it.quantidade)}x ${descricao}`);
+          for (const c of Array.isArray(it.combo) ? it.combo : []) put(fComp, `   - ${c}`);
+          if (escolhas) put(fComp, `   ${escolhas}`);
           if (it.observacao) put(fObs, `   OBS: ${it.observacao}`);
           if (dados.mostrarValoresItem) put(fNome, `   ${money(Number(it.precoUnitario) * Number(it.quantidade))}`);
         }
@@ -1162,9 +1334,10 @@ export class ProducaoPedidoService {
       }
       prev = simples ? { idx: out.length - 1, text: linhas[0] } : null;
     }
-    if (rodape && String(rodape).trim()) {
+    const fim = linhasDe(rodape);
+    if (fim.length) {
       out.push(sep);
-      out.push(`@C ${String(rodape).trim()}`);
+      for (const t of fim) out.push(`@C ${t}`);
     }
     return out.join('\n');
   }
@@ -2701,8 +2874,11 @@ export class ProducaoPedidoService {
       senhaPlataforma: p.senhaPlataforma,
       mesa: p.mesa,
       consumo: p.consumo,
+      cliente: p.comandaId
+        ? (await this.db.select({ cliente: comanda.cliente }).from(comanda).where(and(eq(comanda.id, p.comandaId), eq(comanda.tenantId, tenantId))))[0]?.cliente ?? null
+        : null,
     };
-    const ppEtapa = await this.carregarPerfilProducao(this.db, tenantId, p.unidadeId, p.origem);
+    const ppEtapa = await this.carregarPerfilProducao(this.db, tenantId, p.unidadeId, p.origem, p.plataforma);
     const conteudo = this.renderTicket(
       ctx,
       itens.map((i) => ({
