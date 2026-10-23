@@ -6,6 +6,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig, empresa, whatsappMensagem, whatsappNumero, whatsappTemplate } from '../../db/schema';
 import { registrarSaida, registrarVolta } from '../../common/consentimento-marketing';
+import { buscarUrlPublica } from '../../common/ssrf-guard';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // API OFICIAL do WhatsApp (Meta Cloud API) — via paralela ao Evolution.
@@ -1041,7 +1042,10 @@ export class WhatsappCloudService {
     const appId = process.env.WA_CLOUD_APP_ID ?? '';
     if (!appId) throw new BadRequestException('WA_CLOUD_APP_ID não configurado (necessário p/ enviar imagem à Meta).');
     if (!imagemUrl) throw new BadRequestException('Card sem imagem.');
-    const img = await fetch(imagemUrl).catch(() => null);
+    // Anti-SSRF: o endereço da imagem é um texto qualquer na API (a tela sobe para o nosso Storage) e o
+    // que se baixa aqui vai para a Meta — sem a trava, a nuvem leria a rede interna e entregaria à loja.
+    // Cada redirecionamento passa pela mesma trava.
+    const img = await buscarUrlPublica(imagemUrl, { signal: AbortSignal.timeout(15000) }).catch(() => null);
     if (!img || !img.ok) throw new BadRequestException('Não consegui baixar a imagem do card.');
     const buf = Buffer.from(await img.arrayBuffer());
     const mime = img.headers.get('content-type') || 'image/jpeg';

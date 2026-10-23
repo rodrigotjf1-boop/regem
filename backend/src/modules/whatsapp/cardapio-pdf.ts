@@ -2,6 +2,7 @@
 // (sem esModuleInterop), `import PDFDocument from 'pdfkit'` vira `pdfkit_1.default`
 // (undefined) em runtime — mesmo caso do stripe. Por isso o import por require.
 import PDFDocument = require('pdfkit');
+import { buscarUrlPublica } from '../../common/ssrf-guard';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Gera um PDF resumido do cardápio para enviar ao cliente pelo WhatsApp.
@@ -42,11 +43,14 @@ const MAX_FOTO_BYTES = 400 * 1024;
 
 async function baixaBuf(url: string): Promise<{ buf: Buffer; ct: string } | null> {
   try {
+    // Anti-SSRF: a foto do produto é um texto qualquer na API (a tela sobe para o nosso Storage, mas
+    // nada impede outro endereço) — sem a trava, a nuvem buscaria a rede interna. Cada redirecionamento
+    // passa pela mesma trava.
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 6000);
-    const res = await fetch(url, { signal: ctrl.signal });
+    const res = await buscarUrlPublica(url, { signal: ctrl.signal });
     clearTimeout(t);
-    if (!res.ok) return null;
+    if (!res || !res.ok) return null;
     return { buf: Buffer.from(await res.arrayBuffer()), ct: res.headers.get('content-type') ?? '' };
   } catch {
     return null;
