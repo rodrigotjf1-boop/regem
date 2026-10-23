@@ -58,6 +58,10 @@
   no teste e no envio do webhook do n8n, no aviso ao contador, na base do Open Delivery e nas imagens (card de campanha,
   fotos do cardápio em PDF); webhook sem seguir redirecionamento e imagem conferindo cada um. Só nuvem na prática (esses
   caminhos não chamam nada no servidor da loja); vai no `.zip` do corte sem efeito na loja e não pede `.exe`.
+- **Exclusão vinda da loja só em tabela de mão dupla (#722, 23/10; fase 3A-1, ERR-292):** a nuvem deixa de aceitar do
+  servidor da loja exclusão em tabela que só desce (perfil, vínculos de função e de colaborador, alertas do KDS) — ela
+  apagava a linha da nuvem e descia para as outras lojas; linha recusada pelo banco no envio vai para o log. Só nuvem
+  (o daemon da loja não muda): entra no deploy; vai no `.zip` sem efeito na loja e não pede `.exe`.
 
 ## Última release: `1.30.8` — gerada em 22/10/2026 da `origin/main` `46e21292`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 93.633.216 bytes, SHA-256 `332e7b44ae06d78bc0057aabb51ca2368db4f912807072064d94801fdf9540ba`) e entregue ao dono para reinstalar o servidor e o PC do delivery; **sem `.zip`** (pedido do dono) e nada publicado no console
 
