@@ -74,6 +74,7 @@ export class AtendimentoService {
     user: AuthUser,
     id: string,
     dto: { aceita?: boolean; senha?: string; motivo?: string },
+    terminalId: string | null = null,
   ) {
     const [row] = await this.db
       .select()
@@ -84,17 +85,21 @@ export class AtendimentoService {
       throw new BadRequestException('Este chamado não é um pedido de cancelamento.');
     }
 
+    let comprovante: { enfileirados: number; aviso: string | null } | undefined;
     if (dto.aceita) {
       if (!row.pedidoId) throw new BadRequestException('Chamado sem pedido vinculado.');
-      // Delega ao Delivery (valida a senha do gestor, estorna financeiro/fidelidade).
-      await this.delivery.cancelar(
+      // Delega ao Delivery (valida a senha do gestor, estorna financeiro/fidelidade, imprime o comprovante).
+      const cancelado: any = await this.delivery.cancelar(
         user.tenantId,
         user.colaboradorId,
         user.categoria,
         row.pedidoId,
         dto.motivo ?? 'Cancelamento solicitado pelo cliente',
         dto.senha,
+        true,
+        terminalId,
       );
+      comprovante = cancelado?.comprovante;
     }
 
     await this.db
@@ -106,6 +111,6 @@ export class AtendimentoService {
         resolvidoEm: new Date(),
       })
       .where(eq(atendimentoChamado.id, id));
-    return { ok: true, decisao: dto.aceita ? 'aceito' : 'recusado' };
+    return { ok: true, decisao: dto.aceita ? 'aceito' : 'recusado', ...(comprovante ? { comprovante } : {}) };
   }
 }

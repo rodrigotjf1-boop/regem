@@ -3587,6 +3587,8 @@ export class VendasService {
     }
 
     let aviso = null as { id: string | null; erro?: string } | null;
+    let cancelada: any = null; // a venda e se havia insumo a estornar — para o comprovante
+    let houveBaixa = false;
     await this.db.transaction(async (tx) => {
       const [c] = await tx
         .select()
@@ -3597,6 +3599,7 @@ export class VendasService {
         throw new BadRequestException(
           c.status === 'cancelada' ? 'Já cancelado.' : 'Só cancela venda fechada.',
         );
+      cancelada = c;
 
       // O estorno entra no caixa ABERTO: o deste terminal (como a venda) — antes passava
       // `null` e procurava um caixa SEM terminal, que não existe quando o PDV abre o caixa no
@@ -3637,6 +3640,7 @@ export class VendasService {
             eq(movimentoEstoque.refId, comandaId),
           ),
         );
+      houveBaixa = saidas.length > 0;
       if (reaproveitado) {
         for (const m of saidas) {
           const [volta] = await tx
@@ -3711,6 +3715,52 @@ export class VendasService {
       aviso,
       this.gogemAviso ? (id) => this.gogemAviso!.enviarAgora(id) : undefined,
     );
-    return { ok: true, ...(estornoGogem ? { estornoGogem } : {}) };
+    const comprovante = await this.imprimirComprovanteCancelamento(tenantId, atorId, atorPerfil, cancelada, {
+      motivo: dto.motivo,
+      reaproveitado: houveBaixa ? reaproveitado : null,
+      terminalId,
+    });
+    return { ok: true, comprovante, ...(estornoGogem ? { estornoGogem } : {}) };
+  }
+
+  // COMPROVANTE DO CANCELAMENTO da venda do balcão (pedido do dono, 22/10/2026) — o mesmo perfil "Caixa —
+  // cancelamento" do pedido de canal. Quem libera aqui é quem cancelou: o gestor, ou o caixa quando o presidente deixou
+  // o cancelamento livre. Nunca desfaz o cancelamento: o resultado volta na resposta, para a tela avisar.
+  private async imprimirComprovanteCancelamento(
+    tenantId: string,
+    atorId: string,
+    atorPerfil: string,
+    c: any,
+    d: { motivo?: string; reaproveitado: boolean | null; terminalId: string | null },
+  ): Promise<{ enfileirados: number; aviso: string | null }> {
+    try {
+      const [ator] = atorId
+        ? await this.db
+            .select({ nome: colaborador.nome })
+            .from(colaborador)
+            .where(and(eq(colaborador.tenantId, tenantId), eq(colaborador.id, atorId)))
+        : [];
+      return await this.producao.imprimirCupomCaixa(
+        tenantId,
+        c?.unidadeId ?? null,
+        d.terminalId,
+        'cancelamento',
+        {
+          tipoMovimento: 'CANCELAMENTO',
+          senha: c?.senha ?? null,
+          senhaPrefixo: c?.senhaPrefixo ?? null,
+          mesa: c?.mesa ?? null,
+          motivo: d.motivo || undefined,
+          atendente: ator?.nome,
+          autorizadoPor: ehGestor(atorPerfil) ? ator?.nome : 'cancelamento liberado para o caixa',
+          reaproveitado: d.reaproveitado,
+          totalGeral: c?.total != null ? Number(c.total) : undefined,
+        },
+        c?.id ?? null,
+      );
+    } catch (e: any) {
+      this.logger.warn(`venda ${c?.id}: o comprovante do cancelamento não saiu (${e?.message ?? e})`);
+      return { enfileirados: 0, aviso: 'O comprovante do cancelamento não foi impresso.' };
+    }
   }
 }

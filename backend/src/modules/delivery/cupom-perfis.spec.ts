@@ -87,6 +87,14 @@ describe('perfis de cupom — padrão do Regem × o que a loja gravou', () => {
     expect(keys.indexOf('subtotal')).toBe(keys.indexOf('_tracejado') + 1);
   });
 
+  it('comprovante de cancelamento: o que o dono pediu à mostra no padrão (pedido, horário, motivo, quem, insumos)', () => {
+    const visiveis = ordem({ campos: CUPOM_PERFIS_PADRAO.cancelamento.campos.filter((c) => c.visivel) });
+    expect(visiveis).toEqual(
+      expect.arrayContaining(['tipoMovimento', 'senha', 'plataforma', 'dataHora', 'motivo', 'atendente', 'autorizadoPor', 'destinoInsumos']),
+    );
+    expect(CUPOM_PERFIS_PADRAO.cancelamento.grupo).toBe('caixa');
+  });
+
   it('padrão da via de produção: só o que importa, sem valores, endereço nem pagamento', () => {
     for (const id of ['producao_balcao', 'producao_delivery']) {
       const visiveis = ordem({ campos: CUPOM_PERFIS_PADRAO[id].campos.filter((c) => c.visivel) });

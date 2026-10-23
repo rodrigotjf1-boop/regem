@@ -129,6 +129,8 @@ export const CAMPOS_CATALOGO: { key: string; label: string; grupo: GrupoPerfil }
   { key: 'valorMovimento', label: 'Valor do movimento', grupo: 'caixa' },
   { key: 'motivo', label: 'Motivo / observação', grupo: 'caixa' },
   { key: 'autorizadoPor', label: 'Autorizado por', grupo: 'caixa' },
+  { key: 'atendente', label: 'Atendente (quem fez)', grupo: 'caixa' },
+  { key: 'destinoInsumos', label: 'Insumos: perda ou reaproveitados', grupo: 'caixa' },
   { key: 'turno', label: 'Turno', grupo: 'caixa' },
   { key: 'terminal', label: 'Terminal / PDV', grupo: 'caixa' },
   { key: 'aberturaValor', label: 'Valor de abertura', grupo: 'caixa' },
@@ -356,6 +358,32 @@ const FECHAMENTO: PerfilCupom = {
   ],
 };
 
+// ── CAIXA — cancelamento (comprovante de quem cancelou e de quem liberou) ─────────────────────────────────────────
+// Pedido do dono (22/10/2026): "cancelamento com o motivo, o atendente e quem deu autorização, com pedido, horário,
+// motivo e se foi perda ou reaproveitou". Sai no cancelamento do pedido de canal (painel do Delivery, retirada no PDV)
+// e da venda do balcão.
+const CANCELAMENTO: PerfilCupom = {
+  id: 'cancelamento',
+  nome: 'Caixa — cancelamento',
+  descricao: 'Comprovante do cancelamento: pedido, horário, motivo, quem cancelou, quem liberou e o destino dos insumos.',
+  grupo: 'caixa',
+  campos: [
+    C('nomeLoja', 'Nome da loja', { negrito: true, alinhamento: 'centro' }),
+    C('tipoMovimento', 'CANCELAMENTO', { negrito: true, alinhamento: 'centro', escala: 2 }),
+    C('senha', 'Senha', { negrito: true, alinhamento: 'centro' }),
+    C('plataforma', 'Canal e nº do pedido', { negrito: true, alinhamento: 'centro' }),
+    C('pedidoRegem', 'Nº do pedido no Regem', { alinhamento: 'centro' }),
+    C('mesa', 'Mesa / balcão', { visivel: false }),
+    C('dataHora', 'Data e hora do cancelamento'),
+    C('motivo', 'Motivo', { negrito: true }),
+    C('atendente', 'Atendente (quem cancelou)'),
+    C('autorizadoPor', 'Autorizado por', { negrito: true }),
+    C('destinoInsumos', 'Insumos: perda ou reaproveitados', { negrito: true }),
+    C('totalGeral', 'Total do pedido', { visivel: false }),
+    C('assinatura', 'Linha de assinatura', { visivel: false, alinhamento: 'centro' }),
+  ],
+};
+
 export const CUPOM_PERFIS_PADRAO: Record<string, PerfilCupom> = {
   caixa: CAIXA,
   cliente_totem: CLIENTE_TOTEM,
@@ -366,6 +394,7 @@ export const CUPOM_PERFIS_PADRAO: Record<string, PerfilCupom> = {
   sangria: SANGRIA,
   suprimento: SUPRIMENTO,
   fechamento: FECHAMENTO,
+  cancelamento: CANCELAMENTO,
 };
 
 const KEYS_VALIDAS = new Set(CAMPOS_CATALOGO.map((c) => c.key));

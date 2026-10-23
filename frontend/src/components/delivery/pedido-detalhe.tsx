@@ -13,6 +13,7 @@ import { DetalheEntregadorDoCanal } from '@/components/delivery/logistica-canal'
 import { LinhaDoTempoPedido } from '@/components/delivery/linha-do-tempo-pedido';
 import { ondeSaiu } from '@/lib/reimpressao';
 import { useSenhaSemSalvar } from '@/lib/use-senha-sem-salvar';
+import { avisarComprovante } from '@/lib/comprovante';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -123,6 +124,7 @@ export function PedidoDetalhe({
       const r: any = await api.cancelarDelivery(p.id, motivo.trim() || undefined, senha, reaproveitado);
       toast.success(r?.estoqueAviso ? `Pedido cancelado. ${r.estoqueAviso}` : 'Pedido cancelado.');
       avisarEstornoGogem(r);
+      avisarComprovante(r);
       onChanged();
       onClose();
     } catch (e) {
@@ -280,8 +282,8 @@ export function PedidoDetalhe({
                 <Input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex.: cliente desistiu" autoFocus />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Senha de um gestor (autorização)</Label>
-                <Input {...campoSenha} aria-label="Senha de um gestor (autorização)" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="senha do presidente/gerente" />
+                <Label className="text-xs">Senha de quem libera (presidente, gerente ou supervisão)</Label>
+                <Input {...campoSenha} aria-label="Senha de quem libera (presidente, gerente ou supervisão)" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="senha de quem libera" />
               </div>
             </div>
             {/* Só o pedido já aceito tem cozinha: perda baixa o insumo do estoque (se a produção

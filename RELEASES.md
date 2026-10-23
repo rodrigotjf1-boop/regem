@@ -22,6 +22,10 @@
 - **Senha do gestor sem "Salvar senha?" (#716, 23/10; ERR-284):** cancelar e reabrir pedido, cancelar retirada e
   despachar sem todas as estações pedem a senha num campo que o navegador não oferece guardar; o "reabrir" virou
   diálogo (era `window.prompt`). Só tela → **só `.zip`** (o app servido pelo servidor da loja); na nuvem vale com o merge.
+- **Comprovante de cancelamento e quem libera (#718, 23/10; ERR-285):** cancelar pedido de canal (painel, detalhe,
+  retirada no PDV, cancelamento pedido pelo cliente) e venda do balcão imprime o comprovante (perfil "Caixa —
+  cancelamento") na impressora do PC que cancelou; a senha da SUPERVISÃO também libera (decisão do dono); reabrir pedido
+  vai para a auditoria com quem liberou; hora dos impressos no fuso da loja. Sem migration → **só `.zip`**.
 - **A corrigir no próximo corte** (sem PR ainda): o status do backup que o servidor da loja
   manda à nuvem chega ilegível — o `backup.ps1` grava `ultimo-backup.json` com BOM (`[Text.Encoding]::UTF8`) e o
   daemon faz `JSON.parse` sem tirar o BOM; a nuvem vê "backup falhou" em toda loja desde o #546, mesmo com o backup

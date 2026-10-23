@@ -154,12 +154,12 @@ export class DeliveryController {
     return this.service.imprimirCupomEntregador(user.tenantId, atual, id);
   }
 
-  // "Voltar pedido" (coluna Finalizado) — exige senha de gestor (presidente/C&O).
+  // "Voltar pedido" (coluna Finalizado) — exige a senha de quem libera (presidente, gerente ou supervisão).
   @Post('pedidos/:id/voltar')
   @UseGuards(JwtAuthGuard, PermissoesGuard)
   @RequirePerm('delivery')
   voltar(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
-    return this.service.voltarPedido(user.tenantId, user.colaboradorId, id, dto?.senha);
+    return this.service.voltarPedido(user.tenantId, user.colaboradorId, id, dto?.senha, user.categoria);
   }
 
   // Hub "Retirada / Encomendas" (Fase 1): só pedidos de retirada/encomenda,
@@ -412,6 +412,7 @@ export class DeliveryController {
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: any,
+    @TerminalAtual() terminalId: string | null, // o comprovante sai na impressora do PC que cancelou
   ) {
     return this.service.cancelar(
       user.tenantId,
@@ -423,6 +424,7 @@ export class DeliveryController {
       // mig 128 — insumo já baixado: true = reutilizado (volta ao estoque),
       // false = perda. Default true (comportamento anterior).
       dto?.reaproveitado !== false,
+      terminalId,
     );
   }
 

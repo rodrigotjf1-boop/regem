@@ -6,6 +6,7 @@ import { PermissoesGuard } from '../../auth/permissoes.guard';
 import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
+import { TerminalAtual } from '../../auth/terminal-atual.decorator';
 import { AtendimentoService } from './atendimento.service';
 
 // Chamados de atendimento (handoff). Operados por quem está no balcão/gestão.
@@ -35,7 +36,8 @@ export class AtendimentoController {
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: { aceita?: boolean; senha?: string; motivo?: string },
+    @TerminalAtual() terminalId: string | null, // o comprovante do cancelamento sai na impressora deste PC
   ) {
-    return this.service.decidirCancelamento(user, id, dto);
+    return this.service.decidirCancelamento(user, id, dto, terminalId);
   }
 }

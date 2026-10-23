@@ -225,7 +225,7 @@ export function KdsDespacho({
               histórico com o nome de quem autorizou.
             </p>
             <label className="mt-3 block text-[14px] font-bold" htmlFor="kds-senha-gestor">
-              Senha do gestor (presidente ou gerente)
+              Senha de quem libera (presidente, gerente ou supervisão)
             </label>
             {/* O aparelho da cozinha é compartilhado: o navegador não preenche (V54) nem oferece guardar esta senha — o
                 campo é texto com a máscara de pontos (`useSenhaSemSalvar`); `new-password` só impedia preencher. */}
