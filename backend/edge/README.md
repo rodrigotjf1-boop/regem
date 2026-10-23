@@ -7,7 +7,7 @@ apontando para um **Postgres local** + o **daemon de sync** que fala com a nuvem
 > → `COMPILAR-INSTALADOR.md` · **publicar e aplicar atualizações** → `ATUALIZAR.md`.
 
 ## 1. Pré-requisitos
-- Node 20+ e **PostgreSQL local** (porta 5432).
+- Node 24.22.1+ (a linha do instalador; a 20 saiu de suporte e não tem a correção do boletim de 21/10/2026) e **PostgreSQL local** (porta 5432).
 - `backend/.env.local` (NÃO commitado) com `DATABASE_URL` do Postgres local, ex.:
   ```
   DATABASE_URL=postgresql://postgres:SENHA@localhost:5432/regem_local

@@ -168,6 +168,29 @@ if (versaoEsperada) {
   else erro(`versão pedida ${versaoEsperada} ≠ version.txt ${vTxt} / .iss ${vIss}`);
 }
 
+// ── 6) O Node que vai no .exe tem a correção do boletim do Node de 21/10/2026 ─
+// O .exe leva o Node da pasta bundle/node (fora do git, baixada à mão de nodejs.org, COMPILAR-INSTALADOR.md) para o
+// servidor da loja e para todo PC instalado por ele; o .zip NÃO troca esse Node. Abaixo da versão corrigida da linha,
+// a loja ficaria com o Node afetado (Brotli, CVE-2026-111497; o nome do certificado quando o destino é IP, que é o
+// caso da estação → servidor por IP com `regem.local`; as autoridades da eMudhra). A 20 e as anteriores não têm correção.
+secao('6) Node do instalador (bundle/node/node.exe)');
+const MINIMA_DA_LINHA = { 22: [23, 4], 24: [22, 1], 26: [12, 1] };
+const nodeDoBundle = join(AQUI, 'bundle', 'node', 'node.exe');
+const comoBaixar = 'baixe o Node 24.22.1 (Windows x64, .zip) de nodejs.org, confira o SHASUMS256.txt e extraia em backend/edge/bundle/node';
+if (!existsSync(nodeDoBundle)) {
+  erro(`backend/edge/bundle/node/node.exe ausente — ${comoBaixar}.`);
+} else {
+  try {
+    const v = execSync(`"${nodeDoBundle}" -v`).toString().trim().replace(/^v/, '');
+    const [maior, menor, correcao] = v.split('.').map(Number);
+    const minima = MINIMA_DA_LINHA[maior];
+    if (minima && (menor > minima[0] || (menor === minima[0] && correcao >= minima[1]))) ok(`node.exe do bundle = v${v} (com a correção de 21/10/2026)`);
+    else erro(`node.exe do bundle = v${v}, SEM a correção do boletim do Node de 21/10/2026 (mínimas: 22.23.4, 24.22.1, 26.12.1) — ${comoBaixar}.`);
+  } catch (e) {
+    erro(`não consegui rodar o node.exe do bundle: ${e.message}`);
+  }
+}
+
 // ── Veredito ─────────────────────────────────────────────────────────────────
 console.log('');
 if (falhas === 0) {

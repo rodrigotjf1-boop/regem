@@ -43,8 +43,8 @@ import { BASE_TIPO_PROBLEMA, ProblemaFilter } from './problema';
 // só deste teste, sem as chaves estrangeiras para `empresa`/`unidade` compartilhadas (LIC-088, ERR-109).
 //
 // O último teste roda o kit de conformidade do Padrão DMS (`test/dms/`, cópia igual à do hub) contra a API: é a prova
-// que o Padrão pede antes de abrir a porta. Ele roda direto no Node 22.6 ou mais (TypeScript sem compilar); no Node
-// 20 da produção fica pulado, e o CI o roda num passo com o Node 22 (`KIT_DMS_OBRIGATORIO`).
+// que o Padrão pede antes de abrir a porta. Ele roda direto no Node 22.6 ou mais (TypeScript sem compilar): o CI e a
+// produção estão no 24; num Node mais velho fica pulado, e no CI (`KIT_DMS_OBRIGATORIO`) pular é falha.
 
 const URL_PG = process.env.TEST_PG_URL;
 const descrever = URL_PG ? describe : describe.skip;

@@ -40,6 +40,20 @@
 - **Manifesto da porta de integração (#717, 23/10; Hub DMS, F4 parte A):** `GET /.well-known/dms-manifesto` e a cópia do pacote
   comum 0.7.1 (e do kit). Só nuvem: no servidor da loja a rota não existe e o pacote não muda nada (a loja não fala com
   o hub). Vai no `.zip` do corte sem efeito na loja; não pede `.exe`.
+- **🔴 Node do instalador com a correção do boletim do Node de 21/10/2026 (Brotli, CVE-2026-111497, alta, execução
+  remota; e o nome do certificado quando o destino é IP, CVE-2026-106069/105483/106072 — o caso da estação e do PC
+  cliente falando com o servidor por IP com `regem.local`; e as autoridades da eMudhra):** o servidor da loja e todo PC
+  instalado pelo `.exe` rodam o `node.exe` da pasta `backend/edge/bundle/node` (fora do git), hoje **v24.18.0, afetado**.
+  O `.zip` NÃO troca esse Node (o `package.mjs` deixa o `bundle` de fora e a atualização troca só o conjunto
+  dist/node_modules/web/scripts/database): **só um `.exe` novo corrige a loja**. Preparado no PR do Node 24.22.1 da
+  nuvem: o `COMPILAR-INSTALADOR.md` manda baixar a 24.22.1 (conferindo o `SHASUMS256.txt`) e o `preflight-release.mjs`
+  reprova `node.exe` abaixo da versão corrigida da linha (22.23.4, 24.22.1, 26.12.1). **No corte:** trocar a pasta
+  `bundle/node` pelo Node 24.22.1 (Windows x64, `.zip`) → preflight → `.exe` → reinstalar o servidor e os PCs da loja
+  (sob comando do dono). Toca o que vai no `.exe` → **`.exe` obrigatório no corte**.
+- **`desktop/` (Electron ^31, sem suporte, com o Node 20 e um Chromium antigo dentro, e `rejectUnauthorized: false` em
+  `desktop/main.js:35`): NÃO é distribuído** (o instalador abre o Edge/Chrome em modo app; não há build dele nem
+  registro aqui; última mudança em 31/07, #246). Não empacotar como está: se um dia for usado, subir para um Electron
+  com suporte e tirar o `rejectUnauthorized: false`; senão, o dono decide apagar a pasta.
 
 ## Última release: `1.30.8` — gerada em 22/10/2026 da `origin/main` `46e21292`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 93.633.216 bytes, SHA-256 `332e7b44ae06d78bc0057aabb51ca2368db4f912807072064d94801fdf9540ba`) e entregue ao dono para reinstalar o servidor e o PC do delivery; **sem `.zip`** (pedido do dono) e nada publicado no console
 

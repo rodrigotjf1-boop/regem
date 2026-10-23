@@ -107,7 +107,8 @@ No DMS ID, o recurso do Regem tem as permissões do catálogo (`escopos.ts`), e 
 O kit de testes do Padrão (`backend/test/dms/kit-conformidade.mts`, cópia igual à do hub) roda contra a API no
 `dms-id.http.spec.ts`, no modo do DMS ID: token sem assinatura, adulterado, vencido, de outro destino e sem
 permissão; ligação ausente, inexistente, revogada, de outro aplicativo e sem a permissão; o desafio em todo 401; o
-formato dos erros; o limite. Ele roda no Node 22.6 ou mais; o CI o roda num passo próprio com o Node 22.
+formato dos erros; o limite. Ele roda no Node 22.6 ou mais; o CI (no Node 24.22.1, o mesmo das imagens) o roda no passo
+dos testes, e lá pular é falha (`KIT_DMS_OBRIGATORIO`).
 
 Desde o pacote 0.7.1 (F4, parte A), o kit também roda no modo do **manifesto**, pela porta (sem credencial) e pelo
 arquivo do repositório. No modo do DMS ID, ficam puladas só as conferências opcionais: as três da parte F da F4 (a
