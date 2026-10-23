@@ -12,6 +12,7 @@ import { SeletorProduto, type SelecaoProduto } from '@/components/pdv/seletor-pr
 import { DetalheEntregadorDoCanal } from '@/components/delivery/logistica-canal';
 import { LinhaDoTempoPedido } from '@/components/delivery/linha-do-tempo-pedido';
 import { ondeSaiu } from '@/lib/reimpressao';
+import { useSenhaSemSalvar } from '@/lib/use-senha-sem-salvar';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -53,6 +54,7 @@ export function PedidoDetalhe({
   // cancelar
   const [motivo, setMotivo] = useState('');
   const [senha, setSenha] = useState('');
+  const campoSenha = useSenhaSemSalvar(); // o navegador não oferece guardar a senha do gestor (PC da loja)
   // mig 128 — destino do insumo já baixado ao cancelar: reutilizado x perda.
   const [reaproveitado, setReaproveitado] = useState(true);
   // alterar — itens
@@ -279,7 +281,7 @@ export function PedidoDetalhe({
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Senha de um gestor (autorização)</Label>
-                <Input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="senha do presidente/gerente" />
+                <Input {...campoSenha} aria-label="Senha de um gestor (autorização)" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="senha do presidente/gerente" />
               </div>
             </div>
             {/* Só o pedido já aceito tem cozinha: perda baixa o insumo do estoque (se a produção

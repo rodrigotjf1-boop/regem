@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { ACAO_KDS, type TemaKds } from '@/lib/kds-tema';
+import { useSenhaSemSalvar } from '@/lib/use-senha-sem-salvar';
 import {
   acoesDoDespacho,
   agregarItens,
@@ -46,6 +47,7 @@ export function KdsDespacho({
   const [liberar, setLiberar] = useState<any | null>(null); // pedido do "Despachar assim mesmo" (pede a senha)
   const [senha, setSenha] = useState('');
   const campoSenha = useRef<HTMLInputElement | null>(null);
+  const senhaSemSalvar = useSenhaSemSalvar(); // nem preenchida nem guardada pelo navegador (aparelho compartilhado)
 
   // Diálogo aberto: Esc fecha de qualquer lugar (o foco sai do diálogo quando o botão fica "Liberando…"), e a página
   // sabe que o teclado é dele — sem isso, o número digitado ia para a senha do KDS, atrás do diálogo.
@@ -225,12 +227,12 @@ export function KdsDespacho({
             <label className="mt-3 block text-[14px] font-bold" htmlFor="kds-senha-gestor">
               Senha do gestor (presidente ou gerente)
             </label>
-            {/* O aparelho da cozinha é compartilhado: o navegador nunca preenche nem guarda esta senha (V54). */}
+            {/* O aparelho da cozinha é compartilhado: o navegador não preenche (V54) nem oferece guardar esta senha — o
+                campo é texto com a máscara de pontos (`useSenhaSemSalvar`); `new-password` só impedia preencher. */}
             <input
               ref={campoSenha}
               id="kds-senha-gestor"
-              type="password"
-              autoComplete="new-password"
+              {...senhaSemSalvar}
               value={senha}
               onChange={(e) => setSenha(e.target.value)}
               autoFocus

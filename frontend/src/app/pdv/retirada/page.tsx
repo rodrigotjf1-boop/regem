@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { CaixaPanel } from '@/components/pdv/caixa-panel';
 import { PedidoDetalhe } from '@/components/delivery/pedido-detalhe';
 import { SplitPagamento, montarPagamentos } from '@/components/pdv/split-pagamento';
+import { useSenhaSemSalvar } from '@/lib/use-senha-sem-salvar';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -590,6 +591,7 @@ function CancelarModal({
 }) {
   const [motivo, setMotivo] = useState('');
   const [senha, setSenha] = useState('');
+  const campoSenha = useSenhaSemSalvar(); // o navegador não oferece guardar a senha do gestor (PC da loja)
   const [reaproveitado, setReaproveitado] = useState(true);
   const [busy, setBusy] = useState(false);
   const jaProduziu = pedido.status === 'confirmado' || pedido.status === 'pronto' || pedido.status === 'despachado';
@@ -638,7 +640,7 @@ function CancelarModal({
       )}
 
       <label className="mt-3 block text-sm font-medium">Senha do gestor</label>
-      <Input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="Senha de autorização" />
+      <Input {...campoSenha} aria-label="Senha do gestor" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="Senha de autorização" />
 
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="ghost" onClick={onClose} disabled={busy}>Voltar</Button>
