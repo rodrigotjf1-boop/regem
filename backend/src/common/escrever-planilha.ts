@@ -7,7 +7,7 @@ import { deflateRawSync } from 'node:zlib';
 export type Celula = string | number | null | undefined;
 
 // ── ZIP (um .xlsx é um ZIP de XML) ────────────────────────────────────────────────────────
-// CRC-32 à mão: o `zlib.crc32` só existe a partir do Node 20.15/22.2 e a imagem é node:20.
+// CRC-32 à mão: escrito quando a imagem era node:20, sem o `zlib.crc32` (só existe a partir do Node 20.15/22.2).
 const CRC = (() => {
   const t = new Uint32Array(256);
   for (let n = 0; n < 256; n++) {

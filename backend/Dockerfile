@@ -1,5 +1,8 @@
+# Versão EXATA do Node, igual à do CI (.github/workflows/ci.yml): a tag flutuante deixa o construtor do deploy
+# reaproveitar a camada antiga do cache. 24.22.1 = a correção do boletim do Node de 21/10/2026 (Brotli,
+# CVE-2026-111497, e as autoridades da eMudhra); o Node 20 saiu de suporte e não recebe correção.
 # ---- build ----
-FROM node:20-alpine AS build
+FROM node:24.22.1-alpine AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
@@ -7,7 +10,7 @@ COPY . .
 RUN npm run build
 
 # ---- runtime ----
-FROM node:20-alpine
+FROM node:24.22.1-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package*.json ./

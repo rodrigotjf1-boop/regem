@@ -44,7 +44,7 @@ abaixo são o detalhe manual do que esse comando faz.
 - **Ação:** juntar Node, PostgreSQL e NSSM portáteis dentro de `edge\bundle\`.
 - **Onde:** a pasta `backend\edge\bundle\` (crie-a).
 - **Como:** baixe e extraia para estes 3 subdiretórios:
-  - `edge\bundle\node\` → **Node.js Windows Binary (.zip x64)** de <https://nodejs.org/en/download> (o conteúdo do zip, com `node.exe` e `npm.cmd` na raiz dessa pasta).
+  - `edge\bundle\node\` → **Node.js 24.22.1 (ou mais nova da linha 24), Windows Binary (.zip x64)** de <https://nodejs.org/en/download> (o conteúdo do zip, com `node.exe` e `npm.cmd` na raiz dessa pasta), conferindo o resumo no `SHASUMS256.txt` da mesma versão. Abaixo da 24.22.1 o Node não tem a correção do boletim de 21/10/2026 (Brotli, CVE-2026-111497), e o `preflight-release.mjs` reprova. O `.zip` de atualização não troca o Node da loja: só o `.exe`.
   - `edge\bundle\pgsql\` → **PostgreSQL Binaries (.zip)** da EnterpriseDB (<https://www.enterprisedb.com/download-postgresql-binaries>) — deve conter `bin\initdb.exe` e `bin\postgres.exe`.
   - `edge\bundle\nssm\` → **`nssm.exe`** de <https://nssm.cc/download> (o `nssm.exe` de 64 bits direto nessa pasta).
   - `edge\bundle\vc_redist.x64.exe` → **Visual C++ Redistributable x64** de <https://aka.ms/vs/17/release/vc_redist.x64.exe> (o Postgres embutido depende dele; o instalador o instala silenciosamente). ~25 MB.
