@@ -14,6 +14,7 @@ import { paraCentavos, paraReais, somarCentavos } from '../../util/dinheiro';
 import { ratearCentavos } from '../../common/rateio';
 import { REGRA_COM_REPETICAO, rotuloDaEscolha, vezesPorOpcao } from '../../common/adicionais';
 import { geocode, montarEndereco } from '../../common/geocode';
+import { idEntitlement } from '../../common/id-deterministico';
 import { formasNoCadastro, telefoneCadastro } from '../../common/telefone-chave';
 
 // Estamos rodando no servidor EDGE (appliance da loja) e não na nuvem?
@@ -143,7 +144,7 @@ export class CardapioService {
   async setAutoPausa(tenantId: string, ativo: boolean) {
     await this.db
       .insert(entitlement)
-      .values({ tenantId, modulo: 'cardapio_auto_pausa', ativo })
+      .values({ id: idEntitlement(tenantId, 'cardapio_auto_pausa'), tenantId, modulo: 'cardapio_auto_pausa', ativo })
       .onConflictDoUpdate({
         target: [entitlement.tenantId, entitlement.modulo],
         set: { ativo, updatedAt: new Date() },

@@ -421,6 +421,9 @@ export const TABELAS_DESDE_ZERO = new Set<string>([
   'cliente_endereco', 'cardapio_bairro', 'tarefa_instancia', 'escala_alocacao',
   // O mapa marcado pelo painel (mig 338): o que a nuvem marcou antes de a loja receber o `.zip` precisa descer.
   'kds_tela_ajuste',
+  // Configuração de linha única com o id da chave (mig 339): a migration zera o cursor destas quatro no servidor da
+  // loja e a linha da nuvem desce de novo, UMA vez (entitlement, kds_cor_config e tef_config já estavam acima).
+  'delivery_config',
 ]);
 
 // RESTAURAÇÃO (nuvem → edge, SÓ sob demanda): tabelas TRANSACIONAIS que podem ter

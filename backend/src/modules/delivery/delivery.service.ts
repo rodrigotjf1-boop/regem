@@ -58,6 +58,7 @@ import { condUnidadeOuRede, sqlUnidade } from '../../common/filtro-unidade';
 import { edgeAtivo } from '../../common/edge-ativo';
 import { normalizarFormaPagamento } from '../../common/formas-pagamento-normaliza';
 import { urlPublicaSegura } from '../../common/ssrf-guard';
+import { idConfigDaLoja } from '../../common/id-deterministico';
 import { validarTokenMP } from '../../common/mercadopago';
 import { validarTokenPagBank } from '../../common/pagbank';
 import { perfilEfetivo, listarPerfis, CAMPOS_CATALOGO, type PerfilCupom } from './cupom-perfis';
@@ -1758,9 +1759,10 @@ export class DeliveryService {
       update delivery_config set totem_conclui_ao_ficar_pronto = ${v}, updated_at = now()
       where tenant_id = ${tenantId} and unidade_id is null`);
     if ((upd.rowCount ?? 0) === 0) {
+      // id pela chave (mig 339): a linha que a nuvem e o servidor da loja criam é a MESMA.
       await this.db.execute(sql`
-        insert into delivery_config (tenant_id, unidade_id, totem_conclui_ao_ficar_pronto)
-        values (${tenantId}, null, ${v})`);
+        insert into delivery_config (id, tenant_id, unidade_id, totem_conclui_ao_ficar_pronto)
+        values (${idConfigDaLoja('delivery_config', tenantId, null)}, ${tenantId}, null, ${v})`);
     }
     return { totemConcluiAoFicarPronto: v, mudou: antes !== v };
   }
@@ -1792,8 +1794,8 @@ export class DeliveryService {
       where tenant_id = ${tenantId} and unidade_id is null`);
     if ((upd.rowCount ?? 0) === 0) {
       await this.db.execute(sql`
-        insert into delivery_config (tenant_id, unidade_id, totem_producao_apos_pagamento)
-        values (${tenantId}, null, ${v})`);
+        insert into delivery_config (id, tenant_id, unidade_id, totem_producao_apos_pagamento)
+        values (${idConfigDaLoja('delivery_config', tenantId, null)}, ${tenantId}, null, ${v})`);
     }
     return { totemAposPagamento: v };
   }
@@ -3757,7 +3759,10 @@ export class DeliveryService {
         .set({ ...vals, updatedAt: new Date() })
         .where(eq(deliveryConfig.id, row.id));
     } else {
-      await this.db.insert(deliveryConfig).values({ tenantId, unidadeId, ...vals });
+      // id pela chave (mig 339): a linha que a nuvem e o servidor da loja criam é a MESMA.
+      await this.db
+        .insert(deliveryConfig)
+        .values({ id: idConfigDaLoja('delivery_config', tenantId, unidadeId), tenantId, unidadeId, ...vals });
     }
     return this.getConfig(tenantId, unidadeId);
   }

@@ -32,6 +32,7 @@ import { paraCentavos, paraReais, somarCentavos } from '../../util/dinheiro';
 import { CreateTituloDto } from './dto/create-titulo.dto';
 import { PagarTituloDto } from './dto/pagar-titulo.dto';
 import { hojeISO } from '../../common/data';
+import { idEntitlement } from '../../common/id-deterministico';
 import { baixarPendenciasAntigas, escopoDoTurno, pendenciasDoTurno } from '../delivery/pendencias-turno';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -556,7 +557,7 @@ export class FinanceiroService {
   async setCaixaLivre(tenantId: string, ativo: boolean) {
     await this.db
       .insert(entitlement)
-      .values({ tenantId, modulo: 'pdv_caixa_livre', ativo })
+      .values({ id: idEntitlement(tenantId, 'pdv_caixa_livre'), tenantId, modulo: 'pdv_caixa_livre', ativo })
       .onConflictDoUpdate({
         target: [entitlement.tenantId, entitlement.modulo],
         set: { ativo, updatedAt: new Date() },

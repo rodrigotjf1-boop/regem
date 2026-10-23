@@ -8,6 +8,7 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { comanda, tefConfig, pagamentoTef } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { idConfigDaLoja } from '../../common/id-deterministico';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 @Injectable()
@@ -192,7 +193,8 @@ export class TefService {
         .set({ ...vals, updatedAt: new Date() })
         .where(eq(tefConfig.id, row.id));
     } else {
-      await this.db.insert(tefConfig).values({ tenantId, unidadeId, ...vals });
+      // id pela chave (mig 339): a linha que a nuvem e o servidor da loja criam é a MESMA.
+      await this.db.insert(tefConfig).values({ id: idConfigDaLoja('tef_config', tenantId, unidadeId), tenantId, unidadeId, ...vals });
     }
     return this.getConfig(tenantId, unidadeId);
   }

@@ -9,6 +9,7 @@ import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { entitlement, fichaIngrediente, fichaTecnica, itemConversao, itemEstoque } from '../../db/schema';
 import { MODULO_MESMA_EMBALAGEM } from '../../common/embalagem-da-ficha';
+import { idEntitlement } from '../../common/id-deterministico';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { arredondarEstoque, arredondarInformado, CASAS_INFORMADO, chaveUnidade, fatorParaEstoque, type Conversao } from '../../common/conversao-unidade';
 import { conferirConversoes, unidadeOuPadrao } from '../estoque/unidades';
@@ -116,7 +117,7 @@ export class FichasService {
     const antes = await mesmaEmbalagemDaEmpresa(this.db, tenantId);
     await this.db
       .insert(entitlement)
-      .values({ tenantId, modulo: MODULO_MESMA_EMBALAGEM, ativo: mesmaEmbalagem })
+      .values({ id: idEntitlement(tenantId, MODULO_MESMA_EMBALAGEM), tenantId, modulo: MODULO_MESMA_EMBALAGEM, ativo: mesmaEmbalagem })
       .onConflictDoUpdate({
         target: [entitlement.tenantId, entitlement.modulo],
         set: { ativo: mesmaEmbalagem, updatedAt: new Date() },

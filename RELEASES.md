@@ -62,6 +62,13 @@
   servidor da loja exclusão em tabela que só desce (perfil, vínculos de função e de colaborador, alertas do KDS) — ela
   apagava a linha da nuvem e descia para as outras lojas; linha recusada pelo banco no envio vai para o log. Só nuvem
   (o daemon da loja não muda): entra no deploy; vai no `.zip` sem efeito na loja e não pede `.exe`.
+- **Configuração de linha única com o id da chave (#723, 23/10; fase 3A-2, ERR-293, mig 339):** `delivery_config`
+  (cabeçalho e rodapé do cupom), `tef_config`, `kds_cor_config` e os liga/desliga (`entitlement`) passam a nascer com o
+  id da chave (empresa + loja; empresa + módulo), e a mig 339 reescreve o id das linhas que existem preservando a data.
+  **Nuvem:** migration aplicada antes do merge. **Loja: precisa do `.zip`** — a 339 roda no servidor da loja, reescreve
+  os ids e zera UMA vez o cursor dessas quatro tabelas (marca `mig339_config_linha_unica` no `sync_state`): na volta, o
+  servidor manda e recebe as linhas delas uma vez e a mais nova vence. É o que faz o cabeçalho/rodapé salvo na nuvem
+  chegar à impressora da loja. Sem `.exe` (o daemon não muda).
 
 ## Última release: `1.30.8` — gerada em 22/10/2026 da `origin/main` `46e21292`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 93.633.216 bytes, SHA-256 `332e7b44ae06d78bc0057aabb51ca2368db4f912807072064d94801fdf9540ba`) e entregue ao dono para reinstalar o servidor e o PC do delivery; **sem `.zip`** (pedido do dono) e nada publicado no console
 
