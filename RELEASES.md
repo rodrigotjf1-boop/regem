@@ -10,7 +10,42 @@
 - **Como cortar (OBRIGATÓRIO):** `powershell -File backend\edge\build-release.ps1 -Versao X.Y.Z` → só compilar no Inno / rodar `publicar.ps1` no **"TUDO OK"** do preflight. Nunca de árvore atrás do `origin/main`, nunca de `regem-edge-dist` reaproveitado.
 - **Publicar `.zip`:** `edge/publicar.ps1 -Versao X.Y.Z` → sobe no Supabase Storage (bucket `edge-updates`, nome exato `regem-edge-X.Y.Z.zip`) → `edge/publicar.ps1 -Versao X.Y.Z -SoAssinar -Url <url>` (assina o MESMO arquivo, v1 + v2 com validade) → cola versão, URL, SHA e as assinaturas no console de distribuição, **começando pelas lojas piloto / percentual baixo**. O console recusa release sem as duas assinaturas válidas.
 
-## Acumulado (NÃO empacotado) — próxima release (1.30.9)
+## Acumulado (NÃO empacotado) — próxima release (1.30.10)
+
+- **A corrigir no próximo corte** (sem PR ainda): o status do backup que o servidor da loja
+  manda à nuvem chega ilegível — o `backup.ps1` grava `ultimo-backup.json` com BOM (`[Text.Encoding]::UTF8`) e o
+  daemon faz `JSON.parse` sem tirar o BOM; a nuvem vê "backup falhou" em toda loja desde o #546, mesmo com o backup
+  em dia. Correção: o daemon tira o BOM ao ler e o `backup.ps1` grava sem BOM. Toca `edge/` → `.exe` do corte.
+- **A planejar (pedido do dono, 22/10):** parear de novo o PDV e a estação de impressão JÁ configurados sem
+  reinstalar o PC (o código gerado no servidor digitado no caixa ou no ícone "Regem neste PC"), e a reinstalação ou a
+  atualização não inutilizar os pareamentos e as impressoras. Toca `edge/` → `.exe` do corte.
+- **`desktop/` (Electron ^31, sem suporte, com o Node 20 e um Chromium antigo dentro, e `rejectUnauthorized: false` em
+  `desktop/main.js:35`): NÃO é distribuído** (o instalador abre o Edge/Chrome em modo app; não há build dele nem
+  registro aqui; última mudança em 31/07, #246). Não empacotar como está: se um dia for usado, subir para um Electron
+  com suporte e tirar o `rejectUnauthorized: false`; senão, o dono decide apagar a pasta.
+
+## Última release: `1.30.9` — gerada em 23/10/2026 da `origin/main` `0a89c14e`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 94.076.891 bytes, SHA-256 `c16429f40570a10cb890c55d1e34fa66c1c7c2598e3aef6c4ecf4d23225e9551`) e entregue ao dono; **sem `.zip`** (pedido do dono) e nada publicado no console
+
+- **Pedido do dono (23/10):** "preciso do .exe atualizado" — depois das fases 1 a 3 do pedido de 22–23/10 (vias,
+  comprovantes, sangria, sincronismo da configuração e do cadastro) e do boletim de segurança do Node.
+- **Node do instalador: 24.22.1** (era 24.18.0, afetado pelo boletim de 21/10/2026): o zip oficial `win-x64` de
+  nodejs.org conferido contra o `SHASUMS256.txt` (`d2046d28c2c3dcd211ac5145c0bf30e2047ef9dfb306693c8c6e2eccd8b95fa5`),
+  trocado na pasta `bundle/node` (a 24.18.0 ficou ao lado, em `bundle/node-v24.18.0`, fora do instalador).
+- **Corte:** `build-release.ps1 -Versao 1.30.9` na worktree `C:\regem-wt-1309` (branch `release/1.30.9`, junção do
+  `bundle`); o `.iss` restaurado do git e recarimbado só na linha `AppVer` (`carimbar-iss.cjs`) e compilado no Inno 7.
+  ⚠️ Disparar o `build-release.ps1` com `*>` dentro do PowerShell 5.1 aborta no 1º aviso do `npm` (stderr vira erro
+  com `ErrorActionPreference = Stop`): redirecionar por FORA do processo (`powershell -File ... > log 2>&1`).
+- **Provado:** PREFLIGHT OK (único aviso: o `.iss` carimbado, sem commit) — Node do `bundle` v24.22.1, migrations até
+  a 339, versão 1.30.9 no `.exe` (`ProductVersion`). O daemon DO PACOTE com o Node embutido, num banco de loja montado
+  como o do CI: `--pendencias` → "Nada preso" (código 0); `--conferir-pedidos` sem nuvem → falha tratada (código 1). O
+  pacote leva o cadastro da fase 3B no `PUSH_TABLES` e a regra do recebimento (`condicaoSobrescrever`); nenhum
+  certificado da máquina de build (`edge/certs` ausente).
+- **Entregue ao dono** em `OneDrive\Documentos\Regem - release 1.30.9 (23-10)\`: o `.exe` e `LEIA-ME.txt`
+  (servidor; depois cada PC no modo Cliente, com o CÓDIGO EM BRANCO onde há impressora — reinstalar cada PC é o que
+  leva o Node corrigido a ele; conferir a via do caixa com cabeçalho/rodapé; "Redefinir padrão" nos 3 perfis).
+- **Próximo `.zip`:** a 1.30.10 leva tudo isto para quem atualiza pelo console (o `.zip` não troca o Node).
+
+Mudanças que entraram na 1.30.9:
 
 - **As vias do pedido (#715, 23/10; ERR-281, ERR-282, ERR-283):** a via do caixa do pedido de canal passa a ser a VIA DO DELIVERY (nome,
   telefone, endereço, nº do pedido no canal, total com taxa e desconto, troco, sem "Venda balcão") e a VIA DE PRODUÇÃO
@@ -30,13 +65,6 @@
   (nasce desligada); com ela, a sangria só sai com a senha de presidente, gerente ou supervisão, e o comprovante diz quem
   liberou; sangria e suprimento vão para a auditoria; comprovante do suprimento só com valor, horário e quem fez; a tela
   avisa quando o papel não sai. Sem migration → **só `.zip`**.
-- **A corrigir no próximo corte** (sem PR ainda): o status do backup que o servidor da loja
-  manda à nuvem chega ilegível — o `backup.ps1` grava `ultimo-backup.json` com BOM (`[Text.Encoding]::UTF8`) e o
-  daemon faz `JSON.parse` sem tirar o BOM; a nuvem vê "backup falhou" em toda loja desde o #546, mesmo com o backup
-  em dia. Correção: o daemon tira o BOM ao ler e o `backup.ps1` grava sem BOM. Toca `edge/` → `.exe` do corte.
-- **A planejar (pedido do dono, 22/10):** parear de novo o PDV e a estação de impressão JÁ configurados sem
-  reinstalar o PC (o código gerado no servidor digitado no caixa ou no ícone "Regem neste PC"), e a reinstalação ou a
-  atualização não inutilizar os pareamentos e as impressoras. Toca `edge/` → `.exe` do corte.
 - **Manifesto da porta de integração (#717, 23/10; Hub DMS, F4 parte A):** `GET /.well-known/dms-manifesto` e a cópia do pacote
   comum 0.7.1 (e do kit). Só nuvem: no servidor da loja a rota não existe e o pacote não muda nada (a loja não fala com
   o hub). Vai no `.zip` do corte sem efeito na loja; não pede `.exe`.
@@ -50,10 +78,6 @@
   reprova `node.exe` abaixo da versão corrigida da linha (22.23.4, 24.22.1, 26.12.1). **No corte:** trocar a pasta
   `bundle/node` pelo Node 24.22.1 (Windows x64, `.zip`) → preflight → `.exe` → reinstalar o servidor e os PCs da loja
   (sob comando do dono). Toca o que vai no `.exe` → **`.exe` obrigatório no corte**.
-- **`desktop/` (Electron ^31, sem suporte, com o Node 20 e um Chromium antigo dentro, e `rejectUnauthorized: false` em
-  `desktop/main.js:35`): NÃO é distribuído** (o instalador abre o Edge/Chrome em modo app; não há build dele nem
-  registro aqui; última mudança em 31/07, #246). Não empacotar como está: se um dia for usado, subir para um Electron
-  com suporte e tirar o `rejectUnauthorized: false`; senão, o dono decide apagar a pasta.
 - **Endereço informado pela loja não leva a nuvem para a rede interna (#721, 23/10; SSRF, ERR-290):** trava anti-SSRF
   no teste e no envio do webhook do n8n, no aviso ao contador, na base do Open Delivery e nas imagens (card de campanha,
   fotos do cardápio em PDF); webhook sem seguir redirecionamento e imagem conferindo cada um. Só nuvem na prática (esses
@@ -81,7 +105,7 @@
   servidor manda TODO o cadastro uma vez (sem cursor de envio dessas tabelas) e a nuvem aplica a mais nova, com as
   travas.
 
-## Última release: `1.30.8` — gerada em 22/10/2026 da `origin/main` `46e21292`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 93.633.216 bytes, SHA-256 `332e7b44ae06d78bc0057aabb51ca2368db4f912807072064d94801fdf9540ba`) e entregue ao dono para reinstalar o servidor e o PC do delivery; **sem `.zip`** (pedido do dono) e nada publicado no console
+## Release anterior: `1.30.8` — gerada em 22/10/2026 da `origin/main` `46e21292`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 93.633.216 bytes, SHA-256 `332e7b44ae06d78bc0057aabb51ca2368db4f912807072064d94801fdf9540ba`) e entregue ao dono para reinstalar o servidor e o PC do delivery; **sem `.zip`** (pedido do dono) e nada publicado no console
 
 - **Pedido do dono (22/10):** "crie um .exe novo, não precisa do .zip, vou reinstalar o servidor e o pc do
   delivery" — depois do #711 (envio rápido fora da trava), #712 (ritmo do envio + download que retoma) e #713
