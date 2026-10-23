@@ -705,7 +705,6 @@ export class FinanceiroService {
         operador,
         terminal,
         turno: (s as any).turnoNumero,
-        dataHora: new Date().toLocaleString('pt-BR'),
       });
     } catch {
       /* impressão é best-effort */
@@ -938,7 +937,6 @@ export class FinanceiroService {
         esperado,
         informado,
         diferenca,
-        dataHora: new Date().toLocaleString('pt-BR'),
       });
     } catch {
       /* impressão é best-effort */

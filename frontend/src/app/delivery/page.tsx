@@ -19,6 +19,7 @@ import { Clock } from 'lucide-react';
 import { SeloEntregadorDoCanal, textoEntregadorDoCanal } from '@/components/delivery/logistica-canal';
 import { ondeSaiu } from '@/lib/reimpressao';
 import { useSenhaSemSalvar } from '@/lib/use-senha-sem-salvar';
+import { avisarComprovante } from '@/lib/comprovante';
 import { Dialogo } from '@/components/ui/sobreposto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -232,6 +233,7 @@ export default function DeliveryPage() {
       } else {
         toast.success(`${ok}${ondeSaiu(res)}`);
       }
+      avisarComprovante(res); // o cancelamento aceito pelo atendimento imprime o comprovante
       await reload();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro');
@@ -1265,7 +1267,7 @@ function AtendimentoPanel({ lista, onFechar, onResolver, onDecidir }: {
               </div>
               {c.tipo === 'cancelamento' && cancelId === c.id && (
                 <div className="mt-2 flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-2">
-                  <input {...campoSenha} aria-label="Senha do gestor" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="Senha do gestor" className="h-8 min-w-0 flex-1 rounded border border-border bg-background px-2 text-sm" />
+                  <input {...campoSenha} aria-label="Senha de quem libera (presidente, gerente ou supervisão)" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="Senha de quem libera" className="h-8 min-w-0 flex-1 rounded border border-border bg-background px-2 text-sm" />
                   <Button type="button" size="sm" className="h-8 bg-destructive text-xs text-white hover:bg-destructive/90" disabled={!senha} onClick={() => { onDecidir(c.id, true, senha); setCancelId(null); setSenha(''); }}>
                     Confirmar cancelamento
                   </Button>
@@ -1279,7 +1281,7 @@ function AtendimentoPanel({ lista, onFechar, onResolver, onDecidir }: {
   );
 }
 
-// ---- Reabrir pedido finalizado: senha de um gestor (presidente ou gerente) ----
+// ---- Reabrir pedido finalizado: senha de quem libera (presidente, gerente ou supervisão) ----
 // O diálogo fica aberto até reabrir de fato: senha errada mostra o motivo ali mesmo. O campo é texto mascarado, para o
 // navegador não oferecer guardar a senha no PC da loja (`useSenhaSemSalvar`).
 function ReabrirModal({ pedido, onFechar, onReaberto }: { pedido: any; onFechar: () => void; onReaberto: () => void }) {
@@ -1320,10 +1322,10 @@ function ReabrirModal({ pedido, onFechar, onReaberto }: { pedido: any; onFechar:
     >
       <form id={formId} onSubmit={confirmar} noValidate className="space-y-2 text-sm">
         <p>
-          Reabrir exige a senha de um gestor (presidente ou gerente). O pedido volta para{' '}
-          {pedido.tipo === 'retirada' ? '"pronto"' : '"em rota"'}.
+          Reabrir exige a senha de quem libera (presidente, gerente ou supervisão). O pedido volta para{' '}
+          {pedido.tipo === 'retirada' ? '"pronto"' : '"em rota"'}, e quem liberou fica na auditoria.
         </p>
-        <label htmlFor={campoId} className="block font-medium">Senha do gestor</label>
+        <label htmlFor={campoId} className="block font-medium">Senha de quem libera</label>
         <Input id={campoId} data-foco-inicial {...campoSenha} value={senha} onChange={(e) => setSenha(e.target.value)} />
         {erro && <p role="alert" className="font-medium text-destructive">{erro}</p>}
       </form>

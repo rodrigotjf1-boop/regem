@@ -101,8 +101,9 @@ descrever('Cozinha em estações — fluxo entre KDS e despacho (Postgres)', () 
     p.refri = await produto('Refri', DESP); // bebida: direto ao despacho
     p.agua = await produto('Água', DESP);
     p.suco = await produto('Suco', BAR); // o bar termina ali
-    // Quem libera o "Despachar assim mesmo": só gestor (presidente/gerente) com acesso.
+    // Quem libera o "Despachar assim mesmo": presidente, gerente ou supervisão com acesso (dono, 23/10/2026).
     const gerente = (await q(`insert into funcao (tenant_id, nome, categoria) values ($1,'Gerente','gerente') returning id`, [T]))[0].id;
+    const supervisao = (await q(`insert into funcao (tenant_id, nome, categoria) values ($1,'Supervisor','supervisao') returning id`, [T]))[0].id;
     const atendente = (await q(`insert into funcao (tenant_id, nome, categoria) values ($1,'Atendente','execucao') returning id`, [T]))[0].id;
     const restrito = (await q(`insert into perfil_acesso (tenant_id, nome, nivel) values ($1,'Restrito','execucao') returning id`, [T]))[0].id;
     const pessoa = (nome: string, funcao: string, senha: string, o: { saiu?: boolean; bloqueado?: boolean; perfil?: string } = {}) =>
@@ -116,6 +117,8 @@ descrever('Cozinha em estações — fluxo entre KDS e despacho (Postgres)', () 
     await pessoa('Gerente bloqueado', gerente, 'bloq-123', { bloqueado: true });
     await pessoa('Atendente', atendente, 'atend-123');
     await pessoa('Gerente rebaixado', gerente, 'rebaixado-123', { perfil: restrito });
+    await pessoa('Supervisora', supervisao, 'super-123');
+    await pessoa('Supervisora que saiu', supervisao, 'super-saiu-123', { saiu: true });
   });
 
   afterAll(async () => {
@@ -273,8 +276,9 @@ descrever('Cozinha em estações — fluxo entre KDS e despacho (Postgres)', () 
     const v = await vender([p.burger, p.refri]);
     const forcar = { comandaId: v.cmd, acao: 'pronto', forcar: true };
     await expect(svc.acaoDespacho(T, ATOR, DESP, forcar)).rejects.toThrow(/senha de autorização/);
-    // Errada, de quem saiu, de quem está bloqueado, de quem não é gestor e do gerente com perfil restrito: nada libera.
-    for (const senha of ['errada', 'saiu-123', 'bloq-123', 'atend-123', 'rebaixado-123'])
+    // Errada, de quem saiu (gerente ou supervisão), de quem está bloqueado, da execução e do gerente com perfil restrito:
+    // nada libera.
+    for (const senha of ['errada', 'saiu-123', 'super-saiu-123', 'bloq-123', 'atend-123', 'rebaixado-123'])
       await expect(svc.acaoDespacho(T, ATOR, DESP, { ...forcar, senha })).rejects.toThrow(/Senha de gestor inválida/);
     expect(await ler(cartao(v, CHAPA))).toMatchObject({ destino: CHAPA, status: 'recebido' });
 
@@ -286,6 +290,17 @@ descrever('Cozinha em estações — fluxo entre KDS e despacho (Postgres)', () 
       expect.objectContaining({ entidadeId: DESP, atorId: ATOR.id, detalhe: expect.objectContaining({ kds: 'Despacho', faltavam: ['Chapa'], autorizadoPor: 'Gerente ativo' }) }),
     ]);
     expect((await pedidoNoDespacho(v.cmd)).estacoes).toEqual([expect.objectContaining({ nome: 'Chapa', estado: 'feito', forcado: true })]);
+  });
+
+  it('a senha da supervisão também libera (dono, 23/10/2026: presidente, gerente e supervisão)', async () => {
+    const v = await vender([p.burger, p.refri]);
+    expect(await svc.acaoDespacho(T, ATOR, DESP, { comandaId: v.cmd, acao: 'pronto', forcar: true, senha: 'super-123' })).toMatchObject({
+      ok: true,
+      forcado: true,
+    });
+    expect(auditado.filter((a) => a.acao === 'forcou_despacho_kds').at(-1)).toEqual(
+      expect.objectContaining({ detalhe: expect.objectContaining({ autorizadoPor: 'Supervisora' }) }),
+    );
   });
 
   it('estação que termina noutro lugar conta quando fica pronta; KDS que não é despacho, outra loja e pedido torto são recusados', async () => {

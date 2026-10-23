@@ -68,7 +68,9 @@ const CUPOM_MOCK: Record<string, string[]> = {
   tipoMovimento: ['*** SANGRIA ***'],
   valorMovimento: ['Valor: R$ 100,00'],
   motivo: ['Motivo: troco'],
-  autorizadoPor: ['Autorizado: Gerente'],
+  autorizadoPor: ['Autorizado por: Gerente'],
+  atendente: ['Atendente: Ana'],
+  destinoInsumos: ['Insumos: PERDA (saem do estoque)'],
   turno: ['Turno 1'],
   terminal: ['PDV Caixa 1'],
   aberturaValor: ['Abertura: R$ 150,00'],
@@ -354,10 +356,12 @@ function EditorPerfil({
     const out: { txt: string; bold: boolean; lvl: number; align: string; dir?: string }[] = [];
     for (const c of p.campos) {
       if (!c.visivel) continue;
+      // O tipo do movimento é o próprio rótulo do perfil (SANGRIA, SUPRIMENTO, CANCELAMENTO…).
       const mock =
         c.key === '_espaco' ? [''] : c.key === '_tracejado' ? ['-'.repeat(24)]
           : c.key === 'pagamento' && trocoProprio ? CUPOM_MOCK.pagamento.slice(0, 1)
-            : CUPOM_MOCK[c.key] ?? [c.label];
+            : c.key === 'tipoMovimento' ? [`*** ${c.label} ***`]
+              : CUPOM_MOCK[c.key] ?? [c.label];
       // Itens: complemento/observação podem ter estilo próprio (herdam o do campo se não tiverem).
       if (c.key === 'itens') {
         const proprio = { negrito: c.negrito, escala: c.escala, mini: c.mini };

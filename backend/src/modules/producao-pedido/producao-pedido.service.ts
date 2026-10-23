@@ -1020,21 +1020,27 @@ export class ProducaoPedidoService {
     return { perfil: perfilEfetivo(id, cfg.override[id]), cabecalho: cfg.cabecalho, rodape: cfg.rodape };
   }
 
-  // Cupom de operação de CAIXA (sangria/suprimento/fechamento) — Fase 3. Renderiza
-  // pelo perfil da loja (padrão se não customizado) e enfileira na impressora de
-  // cupom do terminal. Best-effort: quem chama trata falha sem quebrar a operação.
+  // Cupom de operação de CAIXA (sangria/suprimento/fechamento; o comprovante de cancelamento) — Fase 3. Renderiza
+  // pelo perfil da loja (padrão se não customizado) e enfileira nas impressoras do perfil; sem elas, na de cupom do
+  // terminal. Quem chama trata a falha sem quebrar a operação — e devolve o resultado para a tela avisar.
   async imprimirCupomCaixa(
     tenantId: string,
     unidadeId: string | null,
     terminalId: string | null,
-    perfilId: 'sangria' | 'suprimento' | 'fechamento',
+    perfilId: 'sangria' | 'suprimento' | 'fechamento' | 'cancelamento',
     dados: any,
+    comandaId: string | null = null,
   ): Promise<{ enfileirados: number; aviso: string | null }> {
     const cfg = await this.carregarConfigCupom(this.db, tenantId, unidadeId);
     const perfil = perfilEfetivo(perfilId, cfg.override[perfilId]);
     // O nome da loja sai pelo campo `nomeLoja` do perfil (não repetir no cabeçalho).
-    const conteudo = this.renderCupomPerfil(perfil, { nomeLoja: cfg.cabecalho, ...dados }, undefined, cfg.rodape);
-    return this.enfileirarViaCliente(tenantId, unidadeId, null, conteudo, terminalId, null, 'caixa', perfil.impressoras);
+    const conteudo = this.renderCupomPerfil(
+      perfil,
+      { nomeLoja: cfg.cabecalho, dataHora: dataHoraNoFuso(), ...dados },
+      undefined,
+      cfg.rodape,
+    );
+    return this.enfileirarViaCliente(tenantId, unidadeId, comandaId, conteudo, terminalId, null, 'caixa', perfil.impressoras);
   }
 
   // `outros` (impressora na forma "pedido completo", mig 335): os itens da mesma venda que saem em outro lugar. Com eles,
@@ -1138,7 +1144,7 @@ export class ProducaoPedidoService {
           totalGeral: dados.total,
           pagamento: dados.forma,
           operador: dados.atendente,
-          dataHora: new Date().toLocaleString('pt-BR'),
+          dataHora: dataHoraNoFuso(),
           nomeLoja: (typeof L.cabecalho === 'string' && L.cabecalho.trim()) || undefined,
           mostrarValoresItem: L.mostrarValoresItem !== false,
           fiscal: false,
@@ -1167,7 +1173,7 @@ export class ProducaoPedidoService {
     if (on('mostrarTotal')) l.push(`TOTAL: ${money(dados.total)}`);
     if (dados.forma && on('mostrarPagamento')) l.push(`Pagamento: ${dados.forma}`);
     if (dados.atendente && on('mostrarAtendente')) l.push(`Atendente: ${dados.atendente}`);
-    if (on('mostrarData')) l.push(new Date().toLocaleString('pt-BR'));
+    if (on('mostrarData')) l.push(dataHoraNoFuso());
     if (typeof L.rodape === 'string' && L.rodape.trim()) {
       l.push(linha);
       l.push(L.rodape.trim());
@@ -1254,7 +1260,13 @@ export class ProducaoPedidoService {
       tipoMovimento: () => (dados.tipoMovimento ? [String(dados.tipoMovimento)] : []),
       valorMovimento: () => (dados.valorMovimento != null ? [`Valor: ${money(dados.valorMovimento)}`] : []),
       motivo: () => (dados.motivo ? [`Motivo: ${dados.motivo}`] : []),
-      autorizadoPor: () => (dados.autorizadoPor ? [`Autorizado: ${dados.autorizadoPor}`] : []),
+      autorizadoPor: () => (dados.autorizadoPor ? [`Autorizado por: ${dados.autorizadoPor}`] : []),
+      atendente: () => (dados.atendente ? [`Atendente: ${dados.atendente}`] : []),
+      // Cancelamento: o que a pessoa escolheu para os insumos já gastos (mig 128).
+      destinoInsumos: () =>
+        dados.reaproveitado == null
+          ? []
+          : [dados.reaproveitado ? 'Insumos: REAPROVEITADOS (voltam ao estoque)' : 'Insumos: PERDA (saem do estoque)'],
       turno: () => (dados.turno != null ? [`Turno ${dados.turno}`] : []),
       terminal: () => (dados.terminal ? [`Terminal: ${dados.terminal}`] : []),
       aberturaValor: () => (dados.aberturaValor != null ? [`Abertura: ${money(dados.aberturaValor)}`] : []),
@@ -2166,7 +2178,7 @@ export class ProducaoPedidoService {
       `Impressora: ${imp.nome}`,
       `IP: ${imp.host ?? '(sem IP)'}:${imp.porta ?? 9100}`,
       `Largura: ${imp.largura ?? 80}mm`,
-      new Date().toLocaleString('pt-BR'),
+      dataHoraNoFuso(),
       linha,
       'Se leu isto, a impressora esta OK.',
     ].join('\n');

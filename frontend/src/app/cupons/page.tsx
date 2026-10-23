@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { api, getToken, getCategoria } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { avisarEstornoGogem } from '@/lib/estorno-gogem';
+import { avisarComprovante } from '@/lib/comprovante';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -123,6 +124,7 @@ export default function CuponsPage() {
       const r = await api.cancelarVenda(sel.id, { motivo: motivo || undefined });
       toast.success('Venda cancelada. Estoque e caixa estornados.');
       avisarEstornoGogem(r);
+      avisarComprovante(r);
       setSel(null);
       await reload();
     } catch (e) {

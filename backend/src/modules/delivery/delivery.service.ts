@@ -62,7 +62,8 @@ import { validarTokenMP } from '../../common/mercadopago';
 import { validarTokenPagBank } from '../../common/pagbank';
 import { perfilEfetivo, listarPerfis, CAMPOS_CATALOGO, type PerfilCupom } from './cupom-perfis';
 import { dadosDaViaDoDelivery } from './via-do-delivery';
-import { tipoDoPedido } from '../../common/via-do-pedido';
+import { pedidoNoCanal, tipoDoPedido } from '../../common/via-do-pedido';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 import { VendasService } from '../vendas/vendas.service';
 import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
 import { CashbackService } from '../cashback/cashback.service';
@@ -119,6 +120,8 @@ export class DeliveryService {
     private readonly anotaai?: AnotaAiService,
     // Pedido do totem cancelado no hub → o GoGeM estorna o cartão/PIX (fila `aviso_integracao`).
     @Optional() private readonly gogemAviso?: GogemAvisoService,
+    // Quem liberou o "reabrir pedido" fica na auditoria (o cancelamento já guardava no motivo).
+    @Optional() private readonly auditoria?: AuditoriaService,
   ) {}
 
   // ENVIA AO CANAL E REGISTRA (mig 305). `enviar` é o MESMO envio de sempre; aqui só se observa o
@@ -2083,7 +2086,7 @@ export class DeliveryService {
   // "Voltar pedido" na coluna Finalizado: reabre um pedido CONCLUÍDO, trazendo-o de volta
   // uma etapa. Exige senha de gestor (presidente/C&O). A baixa de estoque feita na conclusão
   // NÃO é estornada (o re-concluir é idempotente). Pedido cancelado não volta (ver abaixo).
-  async voltarPedido(tenantId: string, atorId: string | null, id: string, senha?: string) {
+  async voltarPedido(tenantId: string, atorId: string | null, id: string, senha?: string, atorPerfil: string | null = null) {
     const ped = await this.carregar(tenantId, id);
     if (ped.status !== 'concluido' && ped.status !== 'cancelado')
       throw new BadRequestException('Só um pedido finalizado pode voltar.');
@@ -2099,7 +2102,7 @@ export class DeliveryService {
           : 'Pedido cancelado não pode ser reaberto. Lance um pedido novo.',
       );
     // Autorização de gestor (mesmo portão do cancelamento).
-    await this.autorizarPorSenha(tenantId, senha);
+    const autorizou = await this.autorizarPorSenha(tenantId, senha);
     // Destino: concluído → em rota (entrega) ou pronto (retirada).
     const destino = ped.tipo === 'retirada' ? 'pronto' : 'despachado';
     const patch: any = { status: destino, concluidoEm: null, canceladoEm: null, motivoCancelamento: null };
@@ -2114,8 +2117,67 @@ export class DeliveryService {
       .set(patch)
       .where(eq(pedidoExterno.id, id))
       .returning();
+    // Quem reabriu e quem liberou ficam na auditoria (antes, nada registrava o "reabrir").
+    await this.auditoria?.registrar({
+      tenantId,
+      unidadeId: ped.unidadeId ?? null,
+      atorId,
+      atorPerfil,
+      tipo: 'delivery',
+      acao: 'reabriu_pedido',
+      entidadeTipo: 'pedido_externo',
+      entidadeId: id,
+      detalhe: { de: ped.status, para: destino, autorizadoPor: autorizou.nome, autorizadoPorId: autorizou.id },
+      origem: 'web',
+    });
     void this.dispararWebhook(tenantId, row);
     return row;
+  }
+
+  // COMPROVANTE DO CANCELAMENTO (pedido do dono, 22/10/2026): pedido, horário, motivo, quem cancelou, quem liberou e o
+  // destino dos insumos — perfil "Caixa — cancelamento". Sai nas impressoras do perfil; sem elas, na do PC que
+  // cancelou; sem ele, nas de cupom. Nunca desfaz o cancelamento: o resultado volta na resposta, para a tela avisar.
+  private async imprimirComprovanteCancelamento(
+    tenantId: string,
+    ped: any,
+    d: { motivo?: string; atorId: string | null; autorizadoPor: string; reaproveitado: boolean | null; terminalId: string | null },
+  ): Promise<{ enfileirados: number; aviso: string | null }> {
+    try {
+      const [venda] = ped.comandaId
+        ? await this.db
+            .select({ senha: comanda.senha, senhaPrefixo: comanda.senhaPrefixo })
+            .from(comanda)
+            .where(and(eq(comanda.tenantId, tenantId), eq(comanda.id, ped.comandaId)))
+        : [];
+      const [ator] = d.atorId
+        ? await this.db
+            .select({ nome: colaborador.nome })
+            .from(colaborador)
+            .where(and(eq(colaborador.tenantId, tenantId), eq(colaborador.id, d.atorId)))
+        : [];
+      return await this.producao.imprimirCupomCaixa(
+        tenantId,
+        ped.unidadeId ?? null,
+        d.terminalId,
+        'cancelamento',
+        {
+          tipoMovimento: 'CANCELAMENTO',
+          senha: venda?.senha ?? null,
+          senhaPrefixo: venda?.senhaPrefixo ?? null,
+          plataforma: pedidoNoCanal(ped.canal, ped.displayId),
+          pedidoRegem: ped.numero != null ? `#${ped.numero}` : undefined,
+          motivo: d.motivo || undefined,
+          atendente: ator?.nome,
+          autorizadoPor: d.autorizadoPor,
+          reaproveitado: d.reaproveitado,
+          totalGeral: Number(ped.valorPagoCliente ?? ped.total) || undefined,
+        },
+        ped.comandaId ?? null,
+      );
+    } catch (e: any) {
+      this.logger.warn(`pedido ${ped.id}: o comprovante do cancelamento não saiu (${e?.message ?? e})`);
+      return { enfileirados: 0, aviso: 'O comprovante do cancelamento não foi impresso.' };
+    }
   }
 
   // Se o pedido foi pago em dinheiro na entrega, amarra o lançamento da venda à
@@ -2166,6 +2228,7 @@ export class DeliveryService {
     motivo?: string,
     senha?: string,
     reaproveitado = true,
+    terminalId: string | null = null, // o PC que cancelou: o comprovante sai na impressora dele
   ) {
     const ped = await this.carregar(tenantId, id);
     if (ped.status === 'cancelado')
@@ -2269,8 +2332,17 @@ export class DeliveryService {
       aviso,
       this.gogemAviso ? (avisoId) => this.gogemAviso!.enviarAgora(avisoId) : undefined,
     );
+    const comprovante = await this.imprimirComprovanteCancelamento(tenantId, ped, {
+      motivo,
+      atorId,
+      autorizadoPor: autorizou.nome,
+      // Só faz sentido com produção (comanda): sem ela, nenhum insumo saiu.
+      reaproveitado: ped.comandaId ? reaproveitado : null,
+      terminalId,
+    });
     return {
       ...row,
+      comprovante,
       // Informa o destino do insumo já baixado (perda × reutilizado) — mig 128.
       estoqueAviso: !ped.comandaId
         ? null

@@ -12,6 +12,7 @@ import { CaixaPanel } from '@/components/pdv/caixa-panel';
 import { PedidoDetalhe } from '@/components/delivery/pedido-detalhe';
 import { SplitPagamento, montarPagamentos } from '@/components/pdv/split-pagamento';
 import { useSenhaSemSalvar } from '@/lib/use-senha-sem-salvar';
+import { avisarComprovante } from '@/lib/comprovante';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -597,12 +598,13 @@ function CancelarModal({
   const jaProduziu = pedido.status === 'confirmado' || pedido.status === 'pronto' || pedido.status === 'despachado';
 
   async function confirmar() {
-    if (!senha) return toast.error('Informe a senha de um gestor.');
+    if (!senha) return toast.error('Informe a senha de quem libera.');
     setBusy(true);
     try {
       const r: any = await api.cancelarDelivery(pedido.id, motivo, senha, reaproveitado);
       toast.success(r?.estoqueAviso || 'Pedido cancelado.');
       avisarEstornoGogem(r);
+      avisarComprovante(r);
       onDone();
     } catch (e: any) {
       toast.error(e?.message || 'Falha ao cancelar.');
@@ -639,8 +641,8 @@ function CancelarModal({
         </>
       )}
 
-      <label className="mt-3 block text-sm font-medium">Senha do gestor</label>
-      <Input {...campoSenha} aria-label="Senha do gestor" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="Senha de autorização" />
+      <label className="mt-3 block text-sm font-medium">Senha de quem libera</label>
+      <Input {...campoSenha} aria-label="Senha de quem libera (presidente, gerente ou supervisão)" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="presidente, gerente ou supervisão" />
 
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="ghost" onClick={onClose} disabled={busy}>Voltar</Button>
