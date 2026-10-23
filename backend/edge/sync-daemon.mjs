@@ -177,10 +177,30 @@ function fingerprintForte() {
 // Operacional que sobe (espelha as tabelas 'sobe' do sync-config da nuvem).
 // v2: transacionais primeiro (pais antes dos filhos p/ FK) por updated_at (LWW).
 const PUSH_TABLES = [
+  // CADASTRO DA LOJA (fase 3B, decisão do dono de 23/10/2026: "sobe também, com travas"). Era só da nuvem: o que se
+  // editava aqui ficava só aqui e se perdia na reinstalação. A nuvem aplica as TRAVAS no push (nada de presidente, de
+  // acesso pela nuvem, de loja nova/apagada; bloqueio/exclusão de lá não se desfaz). PRIMEIRO da lista: quase tudo o que
+  // sobe aponta para loja, setor, função, colaborador ou turno. Pai antes do filho.
+  { tabela: 'unidade', cursor: 'updated_at' },
+  { tabela: 'setor', cursor: 'updated_at' },
+  { tabela: 'funcao', cursor: 'updated_at' },
+  { tabela: 'perfil_acesso', cursor: 'updated_at' },
+  { tabela: 'colaborador', cursor: 'updated_at' },
+  { tabela: 'turno', cursor: 'updated_at' },
+  { tabela: 'etiqueta', cursor: 'updated_at' },
+  { tabela: 'funcao_setor', cursor: 'created_at' },
+  { tabela: 'colaborador_funcao', cursor: 'created_at' },
+  { tabela: 'kds_alerta_config', cursor: 'updated_at' },
+  { tabela: 'tipo_ocorrencia', cursor: 'updated_at' },
+  { tabela: 'ficha_tecnica', cursor: 'updated_at' },
+  { tabela: 'ficha_ingrediente', cursor: 'updated_at' },
   // Catálogo (bidirecional): sobe do edge p/ o cardápio ONLINE (nuvem) por LWW.
   // Ordem = pais antes dos filhos (FK na nuvem; daemon ainda tem retry de 23503).
   { tabela: 'categoria_produto', cursor: 'updated_at' },
   { tabela: 'produto', cursor: 'updated_at' },
+  // Variação e combo do produto (fase 3B): editados aqui, sobem. Depois de produto (FK).
+  { tabela: 'produto_variacao', cursor: 'updated_at' },
+  { tabela: 'produto_combo_item', cursor: 'updated_at' },
   // Pausa por estoque POR LOJA (mig 260): a loja calcula a própria pausa aqui. Depois de produto.
   { tabela: 'produto_pausa_estoque', cursor: 'updated_at' },
   { tabela: 'cardapio_config', cursor: 'updated_at' },
@@ -430,13 +450,24 @@ const ESTADOS_TERMINAIS = { comanda: ['fechada', 'cancelada'], producao_pedido: 
 function condicaoSobrescrever(tabela, cols) {
   const cond = [];
   const revogacao = tabela === 'equipamento' && cols.has('revogado_em');
+  // CADASTRO DA LOJA (fase 3B): o que a NUVEM excluiu (`deleted_at`) ou bloqueou/desligou (colaborador) vale AQUI mesmo
+  // com a cópia local "mais nova" — a loja pode ter mexido na pessoa antes de o bloqueio descer. A nuvem recusa a cópia
+  // da loja (travas do push); sem isto, a pessoa seguiria ativa neste servidor para sempre. Mesma lista do
+  // `TABELAS_CADASTRO_DA_LOJA` do sync-config (o cadastro-sobe-com-travas.spec confere); fica aqui dentro porque a
+  // função é avaliada sozinha pelos testes.
+  const cadastro = [
+    'unidade', 'setor', 'funcao', 'perfil_acesso', 'colaborador', 'turno', 'etiqueta', 'kds_alerta_config',
+    'ficha_tecnica', 'tipo_ocorrencia', 'funcao_setor', 'colaborador_funcao', 'ficha_ingrediente', 'produto_variacao',
+    'produto_combo_item',
+  ].includes(tabela);
   if (cols.has('updated_at')) {
     const maisNova = `${q(tabela)}.updated_at < excluded.updated_at`;
-    cond.push(
-      revogacao
-        ? `(${maisNova} or (excluded.revogado_em is not null and ${q(tabela)}.revogado_em is null))`
-        : maisNova,
-    );
+    const vence = [maisNova];
+    if (revogacao) vence.push(`(excluded.revogado_em is not null and ${q(tabela)}.revogado_em is null)`);
+    if (cadastro && cols.has('deleted_at')) vence.push(`(excluded.deleted_at is not null and ${q(tabela)}.deleted_at is null)`);
+    if (cadastro && tabela === 'colaborador' && cols.has('status'))
+      vence.push(`(excluded.status <> 'ativo' and ${q(tabela)}.status = 'ativo')`);
+    cond.push(vence.length > 1 ? `(${vence.join(' or ')})` : maisNova);
   }
   if (revogacao && cols.has('pareamento_codigo') && cols.has('pareado_em')) {
     cond.push(
@@ -2194,6 +2225,8 @@ async function aberturaHojeMin(diaSemana) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Volta da nuvem no pull (direção 'desce' no sync-config): apagar é seguro.
+// O cadastro da loja (unidade … produto_combo_item, tipo_ocorrencia, os vínculos) também SOBE desde a fase 3B
+// (PUSH_TABLES): o --descarregar manda a edição feita aqui antes de apagar, e o pull a traz de volta.
 const VOLTA_DA_NUVEM = new Set([
   'empresa', 'unidade', 'setor', 'funcao', 'perfil_acesso', 'colaborador', 'turno',
   'etiqueta', 'kds_alerta_config', 'ficha_tecnica', 'ficha_ingrediente', 'produto_variacao',

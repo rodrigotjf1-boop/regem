@@ -18,16 +18,21 @@ export type TabelaSync = {
 // v1: apenas tabelas com `tenant_id` direto + cursor confiável.
 // (append-only / hard-deletes / produto_variacao etc. entram no endurecimento v2.)
 export const TABELAS_SYNC: TabelaSync[] = [
-  // Controle (nuvem → local) — empresa 1º (pais antes dos filhos p/ FK); escopo por id.
+  // Controle — empresa 1º (pais antes dos filhos p/ FK); escopo por id. A EMPRESA (plano, licença) só desce.
   { tabela: 'empresa', direcao: 'desce', cursor: 'updated_at', escopo: 'id' },
-  { tabela: 'unidade', direcao: 'desce', cursor: 'updated_at' },
-  { tabela: 'setor', direcao: 'desce', cursor: 'updated_at' },
-  { tabela: 'funcao', direcao: 'desce', cursor: 'updated_at' },
-  { tabela: 'perfil_acesso', direcao: 'desce', cursor: 'updated_at' }, // pai do colaborador (RBAC)
-  { tabela: 'colaborador', direcao: 'desce', cursor: 'updated_at' },
-  { tabela: 'turno', direcao: 'desce', cursor: 'updated_at' },
-  { tabela: 'etiqueta', direcao: 'desce', cursor: 'updated_at' },
-  { tabela: 'kds_alerta_config', direcao: 'desce', cursor: 'updated_at' }, // motor de alertas KDS (nuvem → edge)
+  // CADASTRO DA LOJA NOS DOIS SENTIDOS (fase 3B, decisão do dono de 23/10/2026: "sobe também, com travas"). O servidor
+  // da loja edita estes cadastros; a edição ficava só lá (e se perdia numa reinstalação). Agora sobe, a mais nova vence,
+  // com as TRAVAS da nuvem no push (`travasDoCadastro`, sync.service): da loja não vem nível de presidente, nem o
+  // acesso pela nuvem (`pode_nuvem`), nem mudança no registro do presidente; bloqueio, desligamento e exclusão feitos
+  // na nuvem não se desfazem por uma cópia da loja; loja nova e loja apagada só pela nuvem.
+  { tabela: 'unidade', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'setor', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'funcao', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'perfil_acesso', direcao: 'ambos', cursor: 'updated_at' }, // pai do colaborador (RBAC)
+  { tabela: 'colaborador', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'turno', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'etiqueta', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'kds_alerta_config', direcao: 'ambos', cursor: 'updated_at' }, // motor de alertas KDS
   // CONFIGS ESPELHADAS (mig 181, P1): impressoras/terminais e cupom/perfis sincronizam
   // cloud↔edge — config feita na nuvem desce pro edge ativo, e a feita no local sobe
   // (backup) e volta num banco novo/reinstalado. equipamento é FILTRADO: só impressora/
@@ -64,17 +69,20 @@ export const TABELAS_SYNC: TabelaSync[] = [
   // da própria loja; a nuvem, a das lojas sem servidor local. id = md5 do par. Depois de
   // `produto` e `unidade` (FK).
   { tabela: 'produto_pausa_estoque', direcao: 'ambos', cursor: 'updated_at' },
-  { tabela: 'ficha_tecnica', direcao: 'desce', cursor: 'updated_at' },
+  { tabela: 'ficha_tecnica', direcao: 'ambos', cursor: 'updated_at' }, // fase 3B: a ficha editada na loja sobe
   { tabela: 'bot_regra', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'feriado', direcao: 'desce', cursor: 'created_at' },
-  { tabela: 'tipo_ocorrencia', direcao: 'desce', cursor: 'updated_at' },
+  // Fase 3B: o fechamento de caixa da loja cria "Diferença de caixa" — sem subir, a ocorrência que aponta para ele
+  // morria por chave estrangeira na nuvem.
+  { tabela: 'tipo_ocorrencia', direcao: 'ambos', cursor: 'updated_at' },
   // ── PARIDADE (mig 272/273) — o que a loja PRODUZ e antes só existia nela ─────────────
   // Estas tabelas nunca sincronizaram: a nuvem não via a operação da loja, e a
   // reinstalação apagava tudo. Ordem = pai antes do filho (chave estrangeira).
-  // Vínculos de cadastro: master na nuvem, regravados por apagar-e-inserir — por isso
-  // dependem do gatilho de exclusão da mig 272 para o vínculo removido não ressuscitar.
-  { tabela: 'funcao_setor', direcao: 'desce', cursor: 'created_at' },
-  { tabela: 'colaborador_funcao', direcao: 'desce', cursor: 'created_at' },
+  // Vínculos de cadastro, regravados por apagar-e-inserir — por isso dependem do gatilho de
+  // exclusão da mig 272 para o vínculo removido não ressuscitar. Fase 3B: sobem também (o
+  // vínculo novo chega antes da exclusão do antigo: `sync_exclusao` vai por último no push).
+  { tabela: 'funcao_setor', direcao: 'ambos', cursor: 'created_at' },
+  { tabela: 'colaborador_funcao', direcao: 'ambos', cursor: 'created_at' },
   // Módulos ligados/desligados pelo presidente: o edge LÊ para cortar acesso offline e
   // nunca escreve — se subisse, reativaria por última-escrita o que a nuvem desligou.
   { tabela: 'modulo_ativacao', direcao: 'desce', cursor: 'updated_at' },
@@ -189,10 +197,11 @@ export const TABELAS_SYNC: TabelaSync[] = [
   // local a ficha descia VAZIA, a venda não gerava movimento e — porque `consumo` vazio
   // é tratado como "ilimitado" — nada nunca esgotava. Ficam DEPOIS de `item_estoque`
   // (FK ficha_ingrediente.item_id) e depois de `produto` (FK das outras duas).
-  // 'desce': o catálogo é master na nuvem. Cursor/exclusão vêm da mig 242.
-  { tabela: 'ficha_ingrediente', direcao: 'desce', cursor: 'updated_at' },
-  { tabela: 'produto_variacao', direcao: 'desce', cursor: 'updated_at' },
-  { tabela: 'produto_combo_item', direcao: 'desce', cursor: 'updated_at' },
+  // Eram 'desce' (o catálogo como master na nuvem); fase 3B: a ficha, a variação e o combo editados na loja sobem
+  // também — a loja salvava (apaga-tudo + insere) e a nuvem nunca via. Cursor/exclusão vêm da mig 242.
+  { tabela: 'ficha_ingrediente', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'produto_variacao', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'produto_combo_item', direcao: 'ambos', cursor: 'updated_at' },
   // ⚠️ DOCUMENTOS DE ESTOQUE — nascem no EDGE (Recebimento/Contagem/Compras/Desperdício
   // são EDGE_CORE) e nunca estiveram aqui. O `movimento_estoque` subia, então o saldo na
   // nuvem batia — mas a ORIGEM sumia: entrava estoque sem dizer de qual nota, de qual
@@ -475,6 +484,15 @@ export const TABELAS_EXCLUIVEIS = new Set(
 export const TABELAS_EXCLUIVEIS_PELA_LOJA = new Set(
   TABELAS_SYNC.filter((t) => t.direcao === 'ambos').map((t) => t.tabela),
 );
+// O CADASTRO que passou a subir na fase 3B (decisão do dono, 23/10/2026: "sobe também, com travas"). Nestas, o push da
+// loja passa pelas travas (`travasDoCadastro`, sync.service) e a exclusão lógica feita na nuvem (`deleted_at`) é
+// ABSORVENTE: a cópia da loja, mesmo "mais nova" (o relógio é outro, e a loja pode ter mexido antes de receber a
+// exclusão), não a desfaz — como a revogação do equipamento (ERR-235).
+export const TABELAS_CADASTRO_DA_LOJA = new Set([
+  'unidade', 'setor', 'funcao', 'perfil_acesso', 'colaborador', 'turno', 'etiqueta', 'kds_alerta_config',
+  'ficha_tecnica', 'tipo_ocorrencia', 'funcao_setor', 'colaborador_funcao', 'ficha_ingrediente', 'produto_variacao',
+  'produto_combo_item',
+]);
 
 // ── ESCOPO POR LOJA NO PULL (decisão do dono, 17/09/2026) ──────────────────────────────────
 // "Ele só baixa os dados da unidade caso a empresa tenha mais de uma. Em casos de grande volume

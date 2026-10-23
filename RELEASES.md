@@ -69,6 +69,17 @@
   os ids e zera UMA vez o cursor dessas quatro tabelas (marca `mig339_config_linha_unica` no `sync_state`): na volta, o
   servidor manda e recebe as linhas delas uma vez e a mais nova vence. É o que faz o cabeçalho/rodapé salvo na nuvem
   chegar à impressora da loja. Sem `.exe` (o daemon não muda).
+- **🟡 Cadastro da loja sobe, com travas (#724, 23/10; fase 3B, decisão do dono "sobe também, com travas"):** loja,
+  setor, função e seus setores, perfil, colaborador e suas funções, turno, etiqueta, alertas do KDS, tipo de ocorrência,
+  ficha e ingredientes, variações e combos editados no servidor da loja passam a subir (a mais nova vence). A nuvem
+  recusa da loja: nível de presidente, o acesso pela nuvem, mudança no registro do presidente, desfazer bloqueio/
+  desligamento/exclusão feitos na nuvem, loja nova ou apagada. Módulos, configuração da empresa, configuração fiscal e
+  criar conta ficam só da nuvem (no servidor da loja: 404 e tela só leitura). A preferência de tela não carimba mais o
+  colaborador. **Nuvem:** as travas entram no deploy. **Loja: `.zip` (API: rotas só da nuvem, preferência) E `.exe`
+  OBRIGATÓRIO** — a lista de envio do daemon (`PUSH_TABLES`) e a regra do recebimento (o bloqueio/exclusão da nuvem
+  vale na loja mesmo com a cópia local mais nova) só chegam pelo `.exe`; no primeiro ciclo depois dele, o
+  servidor manda TODO o cadastro uma vez (sem cursor de envio dessas tabelas) e a nuvem aplica a mais nova, com as
+  travas.
 
 ## Última release: `1.30.8` — gerada em 22/10/2026 da `origin/main` `46e21292`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 93.633.216 bytes, SHA-256 `332e7b44ae06d78bc0057aabb51ca2368db4f912807072064d94801fdf9540ba`) e entregue ao dono para reinstalar o servidor e o PC do delivery; **sem `.zip`** (pedido do dono) e nada publicado no console
 

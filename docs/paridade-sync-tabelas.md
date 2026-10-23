@@ -109,6 +109,38 @@ Passaram a sincronizar, com a coluna de data e os gatilhos que faltavam: `nota_f
 
 **Ainda bloqueia a reinstalação:** nada — mas a afirmação anterior de que `fiscal_config` era "o último caso" estava ERRADA. Ao varrer o schema REAL do servidor local (e não o de dev, que tem forma de nuvem) apareceram mais cinco tabelas com `tenant_id` fora de toda lista: `ponto_fechamento` — que uma loja com a folha do mês fechada tem preenchida — e quatro herdadas das migrations de fundação que nunca foram usadas (`ausencia`, `equipe`, `equipe_membro`, `colaborador_unidade`). O fechamento de ponto virou só-nuvem (o cron e a rota ganharam guarda: no local ele fecharia o mês sobre a janela de espelho, ~60 dias) e as quatro entraram em `LEGADO_SEM_USO`. O que faltava era um teste que perguntasse "e as tabelas de verdade, estão TODAS classificadas?" — agora existe, em `pendencias-wipe.spec.ts`. O caso do `fiscal_config` foi resolvido na mig 278 (§4.1): ela desce da nuvem, `nota_fiscal` passou a voltar e o contador da numeração (`fiscal_serie`) é por ponto de emissão, descartável e auto-recuperável. Os demais saíram nas migs 272 a 277: cashback e fidelidade (§3), endereço e frete por bairro (§4.6), e tarefa e escala (§4.5).
 
+### 2.4.1 O cadastro da loja sobe, com travas (fase 3B, 23/10/2026)
+
+Pedido do dono de 22–23/10: as mudanças de configuração feitas no servidor da loja não chegavam à nuvem. Ele decidiu:
+"sobe também, com travas". Três PRs:
+
+- **#722 — exclusão vinda da loja.** A exclusão que vem do servidor da loja só vale em tabela de mão dupla
+  (`TABELAS_EXCLUIVEIS_PELA_LOJA`). Antes, o apaga-e-insere dos vínculos e o perfil removido na loja apagavam a linha da
+  nuvem, e essa exclusão descia para as outras lojas (ERR-292).
+- **#723 — configuração de linha única.** `delivery_config`, `tef_config`, `kds_cor_config` e `entitlement` passaram a
+  nascer com o id da chave (mig 339). Com id aleatório, a linha da mesma chave criada dos dois lados era recusada para
+  sempre (ERR-293).
+- **#724 — cadastro nos dois sentidos.** Passam de `desce` para `ambos`, entram na lista de envio do daemon e ficam em
+  `TABELAS_CADASTRO_DA_LOJA`:
+  - `unidade`, `setor`, `funcao`, `perfil_acesso`, `colaborador`, `turno` e `etiqueta`;
+  - `kds_alerta_config` e `tipo_ocorrencia`;
+  - `ficha_tecnica`, `ficha_ingrediente`, `produto_variacao` e `produto_combo_item`;
+  - os vínculos `funcao_setor` e `colaborador_funcao`.
+
+**Travas da nuvem no push** (`travasDoCadastro`). Da loja, a nuvem NÃO aceita:
+- nível de presidente;
+- `pode_nuvem` (fica o da nuvem);
+- mudança no registro do presidente;
+- colaborador bloqueado ou desligado voltando a ativo;
+- loja nova ou apagada;
+- desfazer a exclusão lógica feita na nuvem;
+- exclusão de perfil, colaborador ou função do presidente, ou de loja.
+
+**Continuam só descendo:**
+- `empresa`, `modulo_ativacao` e `fiscal_config` — no servidor da loja, a rota de gravação é `@CloudOnly` e a tela fica
+  só leitura;
+- `bot_regra`, `feriado`, `cupom`, `encomenda_*`, `banner` e `pedido_logistica` — só a nuvem escreve nelas.
+
 ### 2.5 Fila de trabalho — referência completa
 
 > As linhas marcadas como feitas em §2.4 já entraram (migrations 272/273). O restante segue valendo.

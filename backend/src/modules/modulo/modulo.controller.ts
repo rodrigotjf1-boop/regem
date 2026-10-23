@@ -13,6 +13,7 @@ import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { ModuloService } from './modulo.service';
+import { CloudOnly } from '../../common/cloud-only.decorator';
 
 @Controller('modulos')
 @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
@@ -33,7 +34,10 @@ export class ModuloController {
     return this.service.meus(user);
   }
 
+  // Ligar/desligar módulo é só da NUVEM (fase 3B): `modulo_ativacao` só desce — se a loja gravasse, a escolha ficaria
+  // só nela (e, se subisse, reativaria o que a nuvem desligou). No servidor da loja a tela fica só leitura; aqui, 404.
   @Post()
+  @CloudOnly()
   @Roles('presidente')
   @RequirePerm('visao_co')
   setar(

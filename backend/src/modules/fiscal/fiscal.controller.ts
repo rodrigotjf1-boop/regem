@@ -41,7 +41,10 @@ export class FiscalController {
     );
   }
 
+  // A configuração do emitente é só da NUVEM (fase 3B): `fiscal_config` só desce (é configuração de distribuição). No
+  // servidor da loja a tela fica só leitura; aqui, 404 — como as rotas da credencial e da SEFAZ abaixo.
   @Put('config')
+  @CloudOnly()
   @Roles('presidente')
   setConfig(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.setConfig(user.tenantId, dto?.unidadeId || null, dto);

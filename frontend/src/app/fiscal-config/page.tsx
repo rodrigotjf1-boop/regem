@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { CredencialFiscal } from '@/components/fiscal/credencial-fiscal';
 import { TerminaisFiscais } from '@/components/fiscal/terminais-fiscais';
 import { TributosAproximados } from '@/components/fiscal/tributos-aproximados';
+import { NO_SERVIDOR_DA_LOJA, SoPelaNuvem } from '@/components/ui/so-pela-nuvem';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const selectCls = 'flex h-11 w-full rounded-md border border-input bg-card px-3 text-sm';
@@ -338,9 +339,10 @@ export default function FiscalConfigPage() {
             </div>
           </div>
 
-          <Button type="button" onClick={salvar} disabled={salvando}>
+          <Button type="button" onClick={salvar} disabled={salvando || NO_SERVIDOR_DA_LOJA}>
             {salvando ? 'Salvando…' : 'Salvar configuração'}
           </Button>
+          <SoPelaNuvem />
         </Card>
 
         <CredencialFiscal />

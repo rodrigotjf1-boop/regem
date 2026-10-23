@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { colaborador } from '../../db/schema';
 import { mergeUiPrefs, sanitizeUiPrefs, UiPrefs } from '../../common/regras-negocio';
@@ -28,6 +28,11 @@ export class PrefsService {
   }
 
   // Merge parcial: só as chaves enviadas mudam; o resto é preservado.
+  // A preferência de tela NÃO conta como edição do cadastro (fase 3B): o PDV salva sozinho, toda hora, e o colaborador
+  // passou a subir da loja para a nuvem pela data. Com o carimbo, um salvamento automático no servidor da loja mandaria
+  // a cópia inteira do colaborador como "mais nova" e desfaria o que a nuvem mudou nele (nome, função) e ainda não
+  // desceu. A gravação vai com a marca do sincronismo (`regem.sync`), que mantém a data: a preferência fica neste lado
+  // (e pode voltar à da nuvem quando o cadastro da pessoa mudar lá — o lado seguro).
   async patch(
     tenantId: string,
     colaboradorId: string,
@@ -36,12 +41,13 @@ export class PrefsService {
     if (this.ehSuporte(colaboradorId)) return sanitizeUiPrefs(undefined); // suporte não salva prefs
     const atual = await this.get(tenantId, colaboradorId);
     const novo = mergeUiPrefs(atual, dto);
-    await this.db
-      .update(colaborador)
-      .set({ uiPrefs: novo, updatedAt: new Date() })
-      .where(
-        and(eq(colaborador.id, colaboradorId), eq(colaborador.tenantId, tenantId)),
-      );
+    await this.db.transaction(async (tx) => {
+      await tx.execute(sql`select set_config('regem.sync', 'on', true)`);
+      await tx
+        .update(colaborador)
+        .set({ uiPrefs: novo })
+        .where(and(eq(colaborador.id, colaboradorId), eq(colaborador.tenantId, tenantId)));
+    });
     return novo;
   }
 }
