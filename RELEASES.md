@@ -35,6 +35,11 @@
   `bundle`); o `.iss` restaurado do git e recarimbado só na linha `AppVer` (`carimbar-iss.cjs`) e compilado no Inno 7.
   ⚠️ Disparar o `build-release.ps1` com `*>` dentro do PowerShell 5.1 aborta no 1º aviso do `npm` (stderr vira erro
   com `ErrorActionPreference = Stop`): redirecionar por FORA do processo (`powershell -File ... > log 2>&1`).
+- **Provado:** PREFLIGHT OK (único aviso: o `.iss` carimbado, sem commit) — Node do `bundle` v24.22.1, migrations até
+  a 339, versão 1.30.9 no `.exe` (`ProductVersion`). O daemon DO PACOTE com o Node embutido, num banco de loja montado
+  como o do CI: `--pendencias` → "Nada preso" (código 0); `--conferir-pedidos` sem nuvem → falha tratada (código 1). O
+  pacote leva o cadastro da fase 3B no `PUSH_TABLES` e a regra do recebimento (`condicaoSobrescrever`); nenhum
+  certificado da máquina de build (`edge/certs` ausente).
 - **Entregue ao dono** em `OneDrive\Documentos\Regem - release 1.30.9 (23-10)\`: o `.exe` e `LEIA-ME.txt`
   (servidor; depois cada PC no modo Cliente, com o CÓDIGO EM BRANCO onde há impressora — reinstalar cada PC é o que
   leva o Node corrigido a ele; conferir a via do caixa com cabeçalho/rodapé; "Redefinir padrão" nos 3 perfis).
