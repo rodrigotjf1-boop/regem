@@ -29,7 +29,7 @@
 - **A planejar (pedido do dono, 22/10):** parear de novo o PDV e a estação de impressão JÁ configurados sem
   reinstalar o PC (o código gerado no servidor digitado no caixa ou no ícone "Regem neste PC"), e a reinstalação ou a
   atualização não inutilizar os pareamentos e as impressoras. Toca `edge/` → `.exe` do corte.
-- **Manifesto da porta de integração (Hub DMS, F4 parte A):** `GET /.well-known/dms-manifesto` e a cópia do pacote
+- **Manifesto da porta de integração (#717, 23/10; Hub DMS, F4 parte A):** `GET /.well-known/dms-manifesto` e a cópia do pacote
   comum 0.7.1 (e do kit). Só nuvem: no servidor da loja a rota não existe e o pacote não muda nada (a loja não fala com
   o hub). Vai no `.zip` do corte sem efeito na loja; não pede `.exe`.
 
