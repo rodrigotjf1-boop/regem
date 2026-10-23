@@ -36,3 +36,14 @@ export const idEscalaAlocacao = (
 // linha — e a migration 278 semeia com esta mesma conta.
 export const idFiscalSerie = (tenantId: string, unidadeId: string | null, origem: string) =>
   uuidDeChave(tenantId, unidadeId, origem);
+
+// Configuração de LINHA ÚNICA por empresa e loja (sem loja = a linha da empresa), que a nuvem e o servidor da loja
+// criam cada um do seu lado: com id aleatório, as duas linhas da mesma chave se recusavam no sincronismo para sempre
+// (23505 no índice único da chave) — o cabeçalho e o rodapé salvos na nuvem não chegavam à impressora da loja (fase 3,
+// 23/10/2026). A tabela entra na conta para o id de uma não coincidir com o de outra. Mesma conta da migration 339.
+export type TabelaConfigDaLoja = 'delivery_config' | 'tef_config' | 'kds_cor_config';
+export const idConfigDaLoja = (tabela: TabelaConfigDaLoja, tenantId: string, unidadeId: string | null | undefined) =>
+  uuidDeChave(tabela, tenantId, unidadeId ?? null);
+
+// Liga/desliga da empresa (`entitlement`): a empresa e o módulo. Mesma razão e mesma migration.
+export const idEntitlement = (tenantId: string, modulo: string) => uuidDeChave('entitlement', tenantId, modulo);

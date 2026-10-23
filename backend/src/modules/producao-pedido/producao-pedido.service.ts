@@ -44,6 +44,7 @@ import { alvosDoDocumento, regrasDaLoja, type DocumentoImpressao } from '../../c
 import { enfileirarComandoEdge } from '../../common/edge-comando';
 import { garantirImpressoraDaLoja } from '../../common/impressora-da-loja';
 import { conferirDestinosDeProducao } from '../../common/destino-producao';
+import { idConfigDaLoja } from '../../common/id-deterministico';
 import { ESTADOS_IMPRESSORA, MARCA_REIMPRESSAO } from '../../common/impressao-marca';
 import { gravarOuEncaminharImpressao } from '../../common/impressao-destino';
 import { dataHoraNoFuso, hojeISO } from '../../common/data';
@@ -2382,9 +2383,10 @@ export class ProducaoPedidoService {
     // Grava no ajuste do KDS da loja (ou da empresa, como a tela faz), que sincroniza: o contador de cada máquina — o do
     // servidor da loja inclusive — lê o período dali (mig 332). Antes ia para uma linha do contador da nuvem, que o
     // servidor da loja nunca via. Um comando só (índice único por empresa e loja): dois salvamentos juntos não duplicam.
+    // id pela chave (mig 339): a linha que a nuvem e o servidor da loja criam é a MESMA.
     await this.db.execute(sql`
-      insert into kds_cor_config (tenant_id, unidade_id, senha_periodo)
-      values (${tenantId}, ${unidadeId}, ${p})
+      insert into kds_cor_config (id, tenant_id, unidade_id, senha_periodo)
+      values (${idConfigDaLoja('kds_cor_config', tenantId, unidadeId)}, ${tenantId}, ${unidadeId}, ${p})
       on conflict (tenant_id, coalesce(unidade_id, '00000000-0000-0000-0000-000000000000'::uuid))
       do update set senha_periodo = excluded.senha_periodo, updated_at = now()
     `);
@@ -3726,9 +3728,10 @@ export class ProducaoPedidoService {
         .set({ ...vals, updatedAt: new Date() })
         .where(eq(kdsCorConfig.id, row.id));
     } else {
+      // id pela chave (mig 339): a linha que a nuvem e o servidor da loja criam é a MESMA.
       await this.db
         .insert(kdsCorConfig)
-        .values({ tenantId, unidadeId, ...vals });
+        .values({ id: idConfigDaLoja('kds_cor_config', tenantId, unidadeId), tenantId, unidadeId, ...vals });
     }
     // Etapas e cores mudam o que a cozinha vê e por onde o pedido passa: fica na auditoria.
     const mudou = (Object.keys(vals) as (keyof typeof vals)[]).filter((k) => vals[k] !== atual[k]);

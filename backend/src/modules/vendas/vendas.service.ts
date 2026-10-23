@@ -56,6 +56,7 @@ import {
   pedidoExterno,
 } from '../../db/schema';
 import { precoComAtacado } from '../../common/preco-atacado';
+import { idEntitlement } from '../../common/id-deterministico';
 import {
   agruparEscolhas,
   REGRA_COM_REPETICAO,
@@ -3557,7 +3558,7 @@ export class VendasService {
   async setCancelamentoLivre(tenantId: string, ativo: boolean) {
     await this.db
       .insert(entitlement)
-      .values({ tenantId, modulo: 'pdv_cancelamento_livre', ativo })
+      .values({ id: idEntitlement(tenantId, 'pdv_cancelamento_livre'), tenantId, modulo: 'pdv_cancelamento_livre', ativo })
       .onConflictDoUpdate({
         target: [entitlement.tenantId, entitlement.modulo],
         set: { ativo, updatedAt: new Date() },

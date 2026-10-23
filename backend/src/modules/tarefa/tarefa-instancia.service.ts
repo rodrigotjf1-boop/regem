@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { idTarefaInstancia } from '../../common/id-deterministico';
+import { idEntitlement, idTarefaInstancia } from '../../common/id-deterministico';
 import {
   tarefaDef,
   tarefaInstancia,
@@ -177,7 +177,7 @@ export class TarefaInstanciaService {
     const upsert = async (modulo: string, ativo: boolean) =>
       this.db
         .insert(entitlement)
-        .values({ tenantId, modulo, ativo })
+        .values({ id: idEntitlement(tenantId, modulo), tenantId, modulo, ativo })
         .onConflictDoUpdate({
           target: [entitlement.tenantId, entitlement.modulo],
           set: { ativo, updatedAt: new Date() },

@@ -5,6 +5,7 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { equipamento } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { edgeAtivo } from '../../common/edge-ativo';
+import { idConfigDaLoja } from '../../common/id-deterministico';
 import {
   CartaoDaTela,
   SOM_PADRAO,
@@ -190,9 +191,10 @@ export class TelaSenhasService {
         // Um comando só, pelo índice único da empresa e loja (mig 034, `uq_kds_cor_tenant_unidade`): duas gravações ao
         // mesmo tempo não criam duas linhas. Sem ajuste da empresa, a linha nasce com o padrão nas cores e etapas — o
         // mesmo que a leitura do KDS já usa quando não há linha.
+        // id pela chave (mig 339): a linha que a nuvem e o servidor da loja criam é a MESMA.
         await tx.execute(sql`
-          insert into kds_cor_config (tenant_id, unidade_id, tela_pronto_min, tela_som)
-          values (${tenantId}, null, ${depois.prontoMin}, ${depois.som})
+          insert into kds_cor_config (id, tenant_id, unidade_id, tela_pronto_min, tela_som)
+          values (${idConfigDaLoja('kds_cor_config', tenantId, null)}, ${tenantId}, null, ${depois.prontoMin}, ${depois.som})
           on conflict (tenant_id, (coalesce(unidade_id, '00000000-0000-0000-0000-000000000000'::uuid)))
           do update set tela_pronto_min = excluded.tela_pronto_min, tela_som = excluded.tela_som, updated_at = now()`);
       }
