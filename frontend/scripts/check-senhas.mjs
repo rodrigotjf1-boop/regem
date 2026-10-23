@@ -36,8 +36,15 @@ writeFileSync(
 );
 const { camposDaSenhaSemSalvar } = await import(pathToFileURL(join(tmp, 'senha-sem-salvar.mjs')).href);
 // As telas que pedem a SENHA DO GESTOR na hora (o servidor confere em `common/autorizacao-gestor.ts`): cancelar e reabrir
-// pedido de delivery (painel, detalhe do pedido, retirada no PDV) e despachar sem todas as estações (KDS de despacho).
-const AUTORIZACAO = ['app/delivery/page.tsx', 'components/delivery/pedido-detalhe.tsx', 'app/pdv/retirada/page.tsx', 'components/kds/kds-despacho.tsx'];
+// pedido de delivery (painel, detalhe do pedido, retirada no PDV), despachar sem todas as estações (KDS de despacho) e a
+// sangria do perfil que pede senha (caixa).
+const AUTORIZACAO = [
+  'app/delivery/page.tsx',
+  'components/delivery/pedido-detalhe.tsx',
+  'app/pdv/retirada/page.tsx',
+  'components/kds/kds-despacho.tsx',
+  'components/pdv/caixa-panel.tsx',
+];
 
 let n = 0;
 const caso = (nome, fn) => {

@@ -2,8 +2,10 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api } from '@/lib/api';
+import { api, getCategoria, getPermissoes } from '@/lib/api';
 import { toast } from '@/lib/toast';
+import { useSenhaSemSalvar } from '@/lib/use-senha-sem-salvar';
+import { avisarComprovante } from '@/lib/comprovante';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,6 +36,11 @@ export function CaixaPanel({
   const [mov, setMov] = useState<null | 'sangria' | 'suprimento'>(null);
   const [movValor, setMovValor] = useState('');
   const [movDesc, setMovDesc] = useState('');
+  // Sangria do perfil que pede senha (o presidente liga em Acessos & perfis): a senha de quem libera. O servidor confere
+  // pelo perfil ATUAL; se ele pedir a senha e a tela não sabia (chave ligada depois do login), o campo aparece.
+  const [movSenha, setMovSenha] = useState('');
+  const campoSenha = useSenhaSemSalvar();
+  const [pedeSenha, setPedeSenha] = useState(() => getCategoria() !== 'presidente' && !!(getPermissoes() as any)?.sangria_pede_senha);
   const [fechar, setFechar] = useState(false);
   // Conferência cega POR FORMA — o operador informa o contado sem ver o esperado.
   const [informados, setInformados] = useState<Record<string, string>>({ dinheiro: '', cartao: '', pix: '' });
@@ -87,15 +94,28 @@ export function CaixaPanel({
   async function confirmarMov() {
     const valor = Number(String(movValor).replace(',', '.')) || 0;
     if (valor <= 0) return toast.error('Informe um valor válido.');
+    const comSenha = mov === 'sangria' && pedeSenha;
+    if (comSenha && !movSenha) return toast.error('Informe a senha de quem libera.');
     setBusy(true);
     try {
-      await api.movimentarCaixa({ tipo: mov, valor, descricao: movDesc.trim() || undefined, origem });
+      const r: any = await api.movimentarCaixa({
+        tipo: mov,
+        valor,
+        descricao: movDesc.trim() || undefined,
+        origem,
+        ...(comSenha ? { senhaAutorizacao: movSenha } : {}),
+      });
       toast.success(mov === 'sangria' ? 'Sangria registrada.' : 'Suprimento registrado.');
+      avisarComprovante(r, mov === 'sangria' ? 'O comprovante da sangria' : 'O comprovante do suprimento');
       setMov(null);
       setMovValor('');
       setMovDesc('');
+      setMovSenha('');
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Erro ao movimentar o caixa');
+      const msg = e instanceof Error ? e.message : 'Erro ao movimentar o caixa';
+      // O perfil passou a pedir a senha depois do login: mostra o campo em vez de só recusar.
+      if (mov === 'sangria' && /senha de autoriza/i.test(msg)) setPedeSenha(true);
+      toast.error(msg);
     } finally {
       setBusy(false);
     }
@@ -180,9 +200,15 @@ export function CaixaPanel({
                 <Input type="number" inputMode="decimal" value={movValor} onChange={(e) => setMovValor(e.target.value)} placeholder="0,00" autoFocus />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Descrição (opcional)</Label>
+                <Label className="text-xs">{mov === 'sangria' ? 'Motivo (opcional)' : 'Descrição (opcional)'}</Label>
                 <Input value={movDesc} onChange={(e) => setMovDesc(e.target.value)} placeholder={mov === 'sangria' ? 'Ex.: retirada p/ cofre' : 'Ex.: troco extra'} />
               </div>
+              {mov === 'sangria' && pedeSenha && (
+                <div className="space-y-1">
+                  <Label className="text-xs" htmlFor="sangria-senha">Senha de quem libera (presidente, gerente ou supervisão)</Label>
+                  <Input id="sangria-senha" {...campoSenha} value={movSenha} onChange={(e) => setMovSenha(e.target.value)} />
+                </div>
+              )}
             </div>
             <div className="mt-4 flex gap-2">
               <Button type="button" variant="ghost" className="flex-1" onClick={() => setMov(null)}>Cancelar</Button>
