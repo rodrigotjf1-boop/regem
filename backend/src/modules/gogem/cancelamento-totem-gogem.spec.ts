@@ -264,7 +264,9 @@ descrever('venda do totem cancelada no Regem → aviso ao GoGeM (Postgres real)'
     ).rows[0].id;
     const r = await cancelarCupom(c);
 
-    expect(r).toEqual({ ok: true });
+    // Sem aviso ao GoGeM — a resposta só traz o resultado do cancelamento e do comprovante (#718).
+    expect(r.ok).toBe(true);
+    expect(r).not.toHaveProperty('estornoGogem');
     expect(chamadas).toHaveLength(0);
     expect(await avisosDa(chave)).toHaveLength(0);
   });
