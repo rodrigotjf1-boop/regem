@@ -54,6 +54,10 @@
   `desktop/main.js:35`): NÃO é distribuído** (o instalador abre o Edge/Chrome em modo app; não há build dele nem
   registro aqui; última mudança em 31/07, #246). Não empacotar como está: se um dia for usado, subir para um Electron
   com suporte e tirar o `rejectUnauthorized: false`; senão, o dono decide apagar a pasta.
+- **Endereço informado pela loja não leva a nuvem para a rede interna (#721, 23/10; SSRF, ERR-290):** trava anti-SSRF
+  no teste e no envio do webhook do n8n, no aviso ao contador, na base do Open Delivery e nas imagens (card de campanha,
+  fotos do cardápio em PDF); webhook sem seguir redirecionamento e imagem conferindo cada um. Só nuvem na prática (esses
+  caminhos não chamam nada no servidor da loja); vai no `.zip` do corte sem efeito na loja e não pede `.exe`.
 
 ## Última release: `1.30.8` — gerada em 22/10/2026 da `origin/main` `46e21292`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 93.633.216 bytes, SHA-256 `332e7b44ae06d78bc0057aabb51ca2368db4f912807072064d94801fdf9540ba`) e entregue ao dono para reinstalar o servidor e o PC do delivery; **sem `.zip`** (pedido do dono) e nada publicado no console
 
