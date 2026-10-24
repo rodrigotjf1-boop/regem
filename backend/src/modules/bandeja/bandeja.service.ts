@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { ehServidorLocal } from '../../common/modo';
 import { arquivoDaChave, chaveDaBandeja } from './bandeja-chave';
+import { ondeDigitar } from '../../common/onde-digitar';
 import { DIAS_PARA_REATIVAR, EquipamentoService, ViaDaAcao } from '../equipamento/equipamento.service';
 import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
 
@@ -45,25 +46,8 @@ function diaMes(ms: number): string {
   return new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit' }).format(new Date(ms));
 }
 
-/** Onde digitar o código, por tipo — os nomes dos botões e telas como estão neles (V65). */
-export function ondeDigitar(tipo: string): { titulo: string; passos: string[] } | null {
-  if (tipo === 'pdv' || tipo === 'salao')
-    return {
-      titulo: tipo === 'pdv' ? 'No caixa' : 'No celular ou tablet do garçom',
-      passos: ['Abra o Regem no aparelho.', 'Na tela "Código do terminal", digite os 6 números.', 'Toque em "Parear e liberar o caixa".'],
-    };
-  if (tipo === 'estacao_impressao')
-    return {
-      titulo: 'No PC da estação de impressão',
-      passos: [
-        'Perto do relógio, clique com o botão direito no ícone "Regem neste PC".',
-        'Escolha "Parear com codigo...".',
-        'Digite os 6 números e clique em "Parear". As impressoras dela continuam as mesmas.',
-      ],
-    };
-  if (tipo === 'tela_senhas') return { titulo: 'Na TV de senhas', passos: ['A TV mostra "Parear esta TV".', 'Digite os 6 números.'] };
-  return null;
-}
+// Onde digitar o código, por tipo: um lugar só, também para a tela Equipamentos (`common/onde-digitar.ts`).
+export { ondeDigitar };
 
 const msDe = (iso: unknown): number | null => {
   const t = typeof iso === 'string' || iso instanceof Date ? Date.parse(String(iso instanceof Date ? iso.toISOString() : iso)) : NaN;

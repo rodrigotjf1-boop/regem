@@ -10,6 +10,8 @@ import { Select } from '@/components/ui/select';
 import { Gaveta } from '@/components/ui/sobreposto';
 import { texto2 } from '@/components/ui/lista';
 import { cn } from '@/lib/utils';
+import { podeReativar } from './equipamento';
+import type { CodigoGerado } from './equipamento-dialogos';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -34,12 +36,15 @@ const ESPERA_MS = 3000;
 export function NovoPcComImpressora({
   unidades,
   unidadeAtual,
+  todos = [],
   voltarPara,
   aoFechar,
   aoConcluir,
 }: {
   unidades: any[];
   unidadeAtual: string | null;
+  /** A lista de Equipamentos: as estações que já existem (parear de novo o PC que já tinha uma). */
+  todos?: any[];
   voltarPara: string;
   aoFechar: () => void;
   aoConcluir: () => void;
@@ -47,8 +52,17 @@ export function NovoPcComImpressora({
   const [passo, setPasso] = useState<1 | 2 | 3 | 4>(1);
   const [nome, setNome] = useState('PC do delivery');
   const [unidadeId, setUnidadeId] = useState<string>(unidadeAtual ?? unidades[0]?.id ?? '');
+  // Parear sem reinstalar (pedido do dono de 22/10/2026): o PC que já tinha uma estação pareia de novo NELA (mesmo id,
+  // as impressoras continuam ligadas) — antes este fluxo sempre criava OUTRA, e a antiga ficava "muda" com as impressoras.
+  const [escolha, setEscolha] = useState<'nova' | string>('nova');
+  const existentes = todos.filter(
+    (e) => e.tipo === 'estacao_impressao' && (!unidadeId || !e.unidadeId || e.unidadeId === unidadeId) && (e.ativo !== false || podeReativar(e)),
+  );
+  const impressorasDe = (id: string) => todos.filter((p) => p.tipo === 'impressora' && p.estacaoId === id && p.ativo !== false);
   const [estacao, setEstacao] = useState<any>(null);
-  const [codigo, setCodigo] = useState<{ codigo: string; expiraEm: string } | null>(null);
+  // O pareamento de ANTES do código: o passo 2 só avança quando ele muda (a estação que já existe já está "pareada").
+  const [pareadoAntes, setPareadoAntes] = useState<string | null>(null);
+  const [codigo, setCodigo] = useState<CodigoGerado | null>(null);
   const [sinal, setSinal] = useState<{ pareado: boolean; maquina: string | null; impressoras: string[] }>({ pareado: false, maquina: null, impressoras: [] });
   const [marcadas, setMarcadas] = useState<Record<string, Uso | null>>({});
   const [ocupado, setOcupado] = useState(false);
@@ -56,17 +70,27 @@ export function NovoPcComImpressora({
   const [pronto, setPronto] = useState<string[]>([]);
 
   async function mostrarCodigo() {
-    if (!nome.trim() || ocupado) return;
+    const ja = escolha === 'nova' ? null : existentes.find((e) => e.id === escolha);
+    if ((!ja && !nome.trim()) || ocupado) return;
     setErro('');
     setOcupado(true);
     try {
-      const nova: any = await api.criarEquipamento({ tipo: 'estacao_impressao', nome: nome.trim(), unidadeId: unidadeId || null });
-      setEstacao(nova);
-      const c: any = await api.gerarCodigoTerminal(nova.id);
-      setCodigo({ codigo: String(c.codigo), expiraEm: c.expiraEm });
+      if (ja) {
+        // A estação que já existe: código para ELA (ou reativa a revogada há até 30 dias, que volta com código).
+        const c: any = ja.ativo === false ? await api.reativarEquipamento(ja.id) : await api.gerarCodigoTerminal(ja.id);
+        setEstacao(ja);
+        setPareadoAntes(ja.pareadoEm ?? null);
+        setCodigo({ codigo: String(c.codigo), expiraEm: c.expiraEm, onde: c.onde ?? null });
+      } else {
+        const nova: any = await api.criarEquipamento({ tipo: 'estacao_impressao', nome: nome.trim(), unidadeId: unidadeId || null });
+        setEstacao(nova);
+        setPareadoAntes(nova.pareadoEm ?? null);
+        const c: any = await api.gerarCodigoTerminal(nova.id);
+        setCodigo({ codigo: String(c.codigo), expiraEm: c.expiraEm, onde: c.onde ?? null });
+      }
       setPasso(2);
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Não foi possível criar a estação.');
+      setErro(e instanceof Error ? e.message : ja ? 'Não foi possível gerar o código.' : 'Não foi possível criar a estação.');
     } finally {
       setOcupado(false);
     }
@@ -78,7 +102,7 @@ export function NovoPcComImpressora({
     setOcupado(true);
     try {
       const c: any = await api.gerarCodigoTerminal(estacao.id);
-      setCodigo({ codigo: String(c.codigo), expiraEm: c.expiraEm });
+      setCodigo({ codigo: String(c.codigo), expiraEm: c.expiraEm, onde: c.onde ?? null });
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Não foi possível gerar outro código.');
     } finally {
@@ -97,8 +121,11 @@ export function NovoPcComImpressora({
         // `parar` = a gaveta fechou ou o passo mudou (o efeito limpou): a resposta atrasada não vale.
         if (!e || parar) return;
         const impressoras: string[] = Array.isArray(e.estacao?.impressoras) ? e.estacao.impressoras.map(String) : [];
-        setSinal({ pareado: !!e.pareado, maquina: e.estacao?.maquina ?? null, impressoras });
-        if (e.pareado && impressoras.length) {
+        // Pareou AGORA = a data do pareamento mudou desde o código (a estação que já existia já estava pareada; a
+        // comparação é com o valor do próprio servidor — nada do relógio deste PC).
+        const pareouAgora = !!e.pareadoEm && e.pareadoEm !== pareadoAntes;
+        setSinal({ pareado: pareouAgora, maquina: e.estacao?.maquina ?? e.maquinaPareada ?? null, impressoras: pareouAgora ? impressoras : [] });
+        if (pareouAgora && impressoras.length) {
           const primeira = impressoras.find((n) => !naoECupom(n));
           setMarcadas(Object.fromEntries(impressoras.map((n) => [n, n === primeira ? 'delivery' : null])));
           setPasso(3);
@@ -110,7 +137,7 @@ export function NovoPcComImpressora({
     void ver();
     const t = setInterval(() => void ver(), ESPERA_MS);
     return () => { parar = true; clearInterval(t); };
-  }, [passo, estacao]);
+  }, [passo, estacao, pareadoAntes]);
 
   async function concluir() {
     const escolhidas = Object.entries(marcadas).filter((x): x is [string, Uso] => !!x[1]);
@@ -190,7 +217,9 @@ export function NovoPcComImpressora({
         passo === 1 ? (
           <>
             <Button type="button" variant="outline" onClick={aoFechar}>Cancelar</Button>
-            <Button type="button" onClick={() => void mostrarCodigo()} disabled={ocupado || !nome.trim()}>{ocupado ? 'Criando…' : 'Mostrar o código'}</Button>
+            <Button type="button" onClick={() => void mostrarCodigo()} disabled={ocupado || (escolha === 'nova' && !nome.trim())}>
+              {ocupado ? (escolha === 'nova' ? 'Criando…' : 'Gerando…') : 'Mostrar o código'}
+            </Button>
           </>
         ) : passo === 3 ? (
           <>
@@ -216,11 +245,45 @@ export function NovoPcComImpressora({
 
         {passo === 1 && (
           <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="pc-nome">Como chamar este PC</Label>
-              <Input id="pc-nome" data-foco-inicial value={nome} onChange={(e) => setNome(e.target.value)} maxLength={60} autoComplete="off" aria-describedby="pc-nome-ajuda" />
-              <p id="pc-nome-ajuda" className={`text-xs ${texto2}`}>É o nome que aparece no ícone da bandeja do PC e na lista de equipamentos.</p>
-            </div>
+            {existentes.length > 0 && (
+              <fieldset className="space-y-2">
+                <legend className="mb-1 text-sm font-semibold">Este PC já tinha uma estação?</legend>
+                <p className={`text-xs ${texto2}`}>
+                  Se sim, ele pareia de novo nela, sem reinstalar: as impressoras ligadas continuam as mesmas.
+                </p>
+                {existentes.map((e) => {
+                  const imps = impressorasDe(e.id).length;
+                  const maquina = e.estacao?.maquina ?? e.maquinaPareada ?? null;
+                  return (
+                    <label key={e.id} className={cn('flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm', escolha === e.id ? 'border-primary bg-primary/5' : 'border-border')}>
+                      <input type="radio" name="pc-estacao" className="mt-1 flex-none" checked={escolha === e.id} onChange={() => setEscolha(e.id)} />
+                      <span className="min-w-0">
+                        <b className="break-words">Sim, era “{e.nome}”</b>
+                        <span className={`block text-xs ${texto2}`}>
+                          {imps === 1 ? '1 impressora ligada' : `${imps} impressoras ligadas`}
+                          {maquina ? ` · último PC: ${maquina}` : ''}
+                          {e.ativo === false ? ' · revogada: volta com as impressoras' : ''}
+                        </span>
+                      </span>
+                    </label>
+                  );
+                })}
+                <label className={cn('flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm', escolha === 'nova' ? 'border-primary bg-primary/5' : 'border-border')}>
+                  <input type="radio" name="pc-estacao" className="mt-1 flex-none" checked={escolha === 'nova'} onChange={() => setEscolha('nova')} />
+                  <span className="min-w-0">
+                    <b>Não, é um PC novo</b>
+                    <span className={`block text-xs ${texto2}`}>Cria uma estação nova com o nome abaixo.</span>
+                  </span>
+                </label>
+              </fieldset>
+            )}
+            {escolha === 'nova' && (
+              <div className="space-y-1.5">
+                <Label htmlFor="pc-nome">Como chamar este PC</Label>
+                <Input id="pc-nome" data-foco-inicial value={nome} onChange={(e) => setNome(e.target.value)} maxLength={60} autoComplete="off" aria-describedby="pc-nome-ajuda" />
+                <p id="pc-nome-ajuda" className={`text-xs ${texto2}`}>É o nome que aparece no ícone da bandeja do PC e na lista de equipamentos.</p>
+              </div>
+            )}
             {unidades.length > 1 && (
               <div className="space-y-1.5">
                 <Label htmlFor="pc-unidade">Loja</Label>
@@ -234,12 +297,13 @@ export function NovoPcComImpressora({
 
         {passo === 2 && codigo && (
           <div className="space-y-4">
+            {/* Onde digitar, pelo servidor (`common/onde-digitar.ts`): primeiro o ícone "Regem neste PC" (o PC que já tem o
+                Regem pareia sem reinstalar); o instalador fica para o PC novo (`obs`). */}
             <p className="font-semibold">No {estacao?.nome}:</p>
             <ol className="list-decimal space-y-1 pl-5 text-sm">
-              <li>Abra o <b>RegemEdgeSetup.exe</b> e escolha <b>Cliente</b>.</li>
-              <li>Na tela “Impressora neste PC”, marque <b>Este PC tem impressora</b>.</li>
-              <li>Digite o código abaixo e siga até o fim.</li>
+              {(codigo.onde?.passos ?? ['Digite o código abaixo.']).map((p) => <li key={p}>{p}</li>)}
             </ol>
+            {codigo.onde?.obs && <p className={`text-sm ${texto2}`}>{codigo.onde.obs}</p>}
             <p aria-label={`Código de pareamento: ${codigo.codigo.split('').join(' ')}`} className="rounded-lg border border-dashed border-border py-3 text-center font-mono text-4xl font-bold tracking-[0.18em]">
               {codigoBonito}
             </p>
