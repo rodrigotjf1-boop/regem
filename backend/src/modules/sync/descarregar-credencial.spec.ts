@@ -893,3 +893,77 @@ descrever('conferência rápida dos pedidos (ERR-280)', () => {
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// A TV DE SENHAS QUE JÁ EXISTIA SOBE ANTES DE O INSTALADOR APAGAR O BANCO (decisão do dono, 24/10/2026 — parear sem
+// reinstalar). Ela entrou no filtro do envio agora; a que já estava no servidor ficou para trás do cursor e não subiria
+// nunca. O daemon a carimba UMA vez ('tv_no_envio') e o envio a leva. Mesmo arquivo dos blocos acima: mexe no
+// `sync_state` do daemon e não pode rodar junto com eles.
+descrever('--descarregar leva a TV de senhas que já existia, uma vez só', () => {
+  const pool = new Pool({ connectionString: URL_PG });
+  const q = (s: string, p: any[] = []) => pool.query(s, p).then((r) => r.rows);
+  const TODAS = (() => {
+    const fonte = readFileSync(DAEMON, 'utf8');
+    const inicio = fonte.indexOf('const PUSH_TABLES = [');
+    const bloco = fonte.slice(inicio, fonte.indexOf('\n];', inicio));
+    return [...new Set([...bloco.matchAll(/tabela: '([a-z_]+)'/g)].map((m) => m[1]))];
+  })();
+  const CHAVES = ['push_seq', 'tv_no_envio', 'relogio_desvio_s', ...TODAS.map((t) => `push_${t}`)];
+  let estadoAntes: { chave: string; valor: string }[] = [];
+  let tabelaExistia = false;
+  let empresa: string | null = null;
+  let tv: string | null = null;
+
+  beforeAll(async () => {
+    tabelaExistia = !!(await q(`select to_regclass('public.sync_state') t`))[0].t;
+    await q(`create table if not exists sync_state (chave text primary key, valor text)`);
+    estadoAntes = await q(`select chave, valor from sync_state where chave = any($1::text[])`, [CHAVES]);
+    await q(`delete from sync_state where chave = any($1::text[])`, [CHAVES]);
+    empresa = (await q(`insert into empresa (nome) values ('Teste TV no envio') returning id`))[0].id;
+    tv = randomUUID();
+    await q(`insert into equipamento (id, tenant_id, tipo, nome, token) values ($1, $2, 'tela_senhas', 'TV do balcão', $3)`, [tv, empresa, 'tok-' + randomUUID()]);
+    await q(`set session_replication_role = replica`); // a data antiga fica (sem o gatilho de carimbo)
+    await q(`update equipamento set updated_at = now() - interval '1 day' where id = $1`, [tv]);
+    await q(`set session_replication_role = origin`);
+    // Só o equipamento envia, com o cursor DEPOIS da TV (como na loja: o filtro a deixava de fora e o cursor passou).
+    expect(TODAS).toContain('equipamento');
+    for (const t of TODAS)
+      await q(`insert into sync_state (chave, valor) values ($1, $2) on conflict (chave) do update set valor = excluded.valor`, [
+        `push_${t}`,
+        t === 'equipamento'
+          ? `${new Date(Date.now() - 3_600_000).toISOString()}|00000000-0000-0000-0000-000000000000`
+          : '9999-12-31T00:00:00Z|ffffffff-ffff-ffff-ffff-ffffffffffff',
+      ]);
+  });
+
+  afterAll(async () => {
+    if (empresa) {
+      await q(`delete from equipamento where tenant_id = $1`, [empresa]);
+      await q(`delete from empresa where id = $1`, [empresa]);
+    }
+    if (tabelaExistia) {
+      await q(`delete from sync_state where chave = any($1::text[])`, [CHAVES]);
+      for (const l of estadoAntes) await q(`insert into sync_state (chave, valor) values ($1, $2)`, [l.chave, l.valor]);
+    } else {
+      await q(`drop table if exists sync_state`);
+    }
+    await pool.end();
+  });
+
+  const atualizadaEm = async () => String((await q(`select updated_at::text as t from equipamento where id = $1`, [tv]))[0].t);
+
+  it('a TV antiga sobe no envio antes de apagar; na próxima vez, não é carimbada de novo', async () => {
+    const nuvem = await nuvemFalsa(() => ({ status: 201, corpo: {} }));
+    try {
+      await descarregar(nuvem.url);
+      const subiram = nuvem.pedidos.flatMap((p) => p.lotes ?? []).filter((l: any) => l.tabela === 'equipamento').flatMap((l: any) => l.linhas.map((x: any) => x.id));
+      expect(subiram).toContain(tv);
+      expect(((await q(`select valor from sync_state where chave = 'tv_no_envio'`))[0] ?? {}).valor).toBe('feito');
+      const depois = await atualizadaEm();
+      await descarregar(nuvem.url);
+      expect(await atualizadaEm()).toBe(depois); // uma vez só
+    } finally {
+      nuvem.srv.close();
+    }
+  });
+});

@@ -29,7 +29,11 @@
   manda à nuvem chega ilegível — o `backup.ps1` grava `ultimo-backup.json` com BOM (`[Text.Encoding]::UTF8`) e o
   daemon faz `JSON.parse` sem tirar o BOM; a nuvem vê "backup falhou" em toda loja desde o #546, mesmo com o backup
   em dia. Correção: o daemon tira o BOM ao ler e o `backup.ps1` grava sem BOM. Toca `edge/` → `.exe` do corte.
-- **Parear sem reinstalar, PR 1 (pedido do dono de 22/10; ERR-295):**
+- **A TV de senhas no sincronismo (decisão do dono de 24/10; PR desta entrega):** a TV sobe para a nuvem e volta
+  pareada depois de reinstalar o servidor. A TV que já existe é carimbada UMA vez pelo sync-daemon (`tv_no_envio`),
+  inclusive no `--descarregar` do instalador. Vai no `.zip` e no `.exe`.
+  - **Conferir na loja:** em Configurações › Equipamentos da NUVEM, a TV do servidor aparece.
+- **Parear sem reinstalar, PR 1 (pedido do dono de 22/10; ERR-295; #727):**
   - **No `.zip` (servidor e telas):**
     - a recusa do terminal diz o motivo, e o caixa só esquece o pareamento na revogação (o servidor reinstalado não
       derruba mais os caixas: "Reconhecendo este caixa");
