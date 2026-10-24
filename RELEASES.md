@@ -12,7 +12,7 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.10)
 
-- **Ícone do servidor da loja na bandeja (fase 4 do pedido de 22–23/10; PR desta entrega):**
+- **Ícone do servidor da loja na bandeja (fase 4 do pedido de 22–23/10; #726):**
   - **Só com o `.exe` (reinstalar SÓ o servidor, modo "Servidor"):** o `RegemServidor.exe` e a chave Run "RegemServidor"
     (o `.zip` não mexe em `edge\bandeja` nem grava o registro).
   - **Também no `.zip`:**
@@ -29,9 +29,20 @@
   manda à nuvem chega ilegível — o `backup.ps1` grava `ultimo-backup.json` com BOM (`[Text.Encoding]::UTF8`) e o
   daemon faz `JSON.parse` sem tirar o BOM; a nuvem vê "backup falhou" em toda loja desde o #546, mesmo com o backup
   em dia. Correção: o daemon tira o BOM ao ler e o `backup.ps1` grava sem BOM. Toca `edge/` → `.exe` do corte.
-- **A planejar (pedido do dono, 22/10):** parear de novo o PDV e a estação de impressão JÁ configurados sem
-  reinstalar o PC (o código gerado no servidor digitado no caixa ou no ícone "Regem neste PC"), e a reinstalação ou a
-  atualização não inutilizar os pareamentos e as impressoras. Toca `edge/` → `.exe` do corte.
+- **Parear sem reinstalar, PR 1 (pedido do dono de 22/10; ERR-295):**
+  - **No `.zip` (servidor e telas):**
+    - a recusa do terminal diz o motivo, e o caixa só esquece o pareamento na revogação (o servidor reinstalado não
+      derruba mais os caixas: "Reconhecendo este caixa");
+    - o código do caixa digitado no aparelho errado não é gasto;
+    - "Gerar código" diz onde digitar;
+    - "Novo PC com impressora" pareia de novo a estação que o PC já tinha.
+  - **Só com o `.exe` (cada PC cliente):** a estação manda o tipo ao parear. Até lá, o código de caixa digitado no ícone
+    da estação ainda é gasto, porque o servidor não sabe de onde veio.
+  - **Falta o PR 2 (edge, `.exe`):**
+    - a reinstalação mantém o certificado com IP novo, mais o aviso ao dono;
+    - o atalho "Regem – parear este PC";
+    - o aviso no ícone quando o servidor recusa a estação;
+    - decidir a D4.
 - **`desktop/` (Electron ^31, sem suporte, com o Node 20 e um Chromium antigo dentro, e `rejectUnauthorized: false` em
   `desktop/main.js:35`): NÃO é distribuído** (o instalador abre o Edge/Chrome em modo app; não há build dele nem
   registro aqui; última mudança em 31/07, #246). Não empacotar como está: se um dia for usado, subir para um Electron

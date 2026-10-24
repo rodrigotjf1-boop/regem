@@ -16,6 +16,7 @@ import { DIAS_SEM_SINAL_PARA_REVOGAR, revogarServidoresSubstituidos } from '../l
 import { JANELA_PRESENCA_MS, PresencaService, TIPOS_PRESENTES } from './presenca.service';
 import { redeDaSaude } from '../edge/rede-local';
 import { tamanhosDaTela } from '../tela-senhas/tela-senhas.regras';
+import { mesmoLugarDeParear, ondeDigitar } from '../../common/onde-digitar';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -188,7 +189,8 @@ export class EquipamentoService {
       detalhe: { nome: alvo.nome, ...via?.detalhe },
       ...(via ? { atorTipo: via.atorTipo, origem: via.origem } : {}),
     });
-    return { codigo, expiraEm: expira, nome: alvo.nome };
+    // Onde digitar (parear sem reinstalar, 22/10/2026): a tela diz o lugar certo de cada tipo, não o instalador.
+    return { codigo, expiraEm: expira, nome: alvo.nome, onde: ondeDigitar(alvo.tipo) };
   }
 
   // O PC troca o código pelo segredo. Público (o PC ainda não tem credencial),
@@ -253,12 +255,16 @@ export class EquipamentoService {
     if (row.pareamentoExpiraEm && row.pareamentoExpiraEm.getTime() < Date.now())
       throw new BadRequestException('Código expirado. Gere um novo no Regem.');
     if (row.revogadoEm) throw new BadRequestException('Este equipamento foi revogado.');
-    if (tipo && row.tipo !== tipo)
+    // Código digitado no aparelho errado: recusa SEM gastar (senão troca o segredo do aparelho dono do código) e diz
+    // onde ele vale. O caixa e o garçom pareiam pela mesma tela. Quem não manda o tipo (estação antiga) segue aceito.
+    if (tipo && !mesmoLugarDeParear(row.tipo, tipo)) {
+      const onde = ondeDigitar(row.tipo);
       throw new BadRequestException(
         tipo === 'tela_senhas'
           ? 'Este código é de outro equipamento, não de uma tela de senhas. Gere o código na tela de senhas, em Equipamentos.'
-          : 'Este código é de outro tipo de equipamento. Gere o código no equipamento certo.',
+          : `Este código é de "${row.nome}", não deste aparelho${onde ? ` — digite-o ${onde.titulo.charAt(0).toLowerCase()}${onde.titulo.slice(1)}` : ''}. Ele continua valendo.`,
       );
+    }
 
     const segredo = randomBytes(32).toString('hex');
     await this.db
@@ -292,9 +298,49 @@ export class EquipamentoService {
     };
   }
 
+  /**
+   * Por que o `validarSegredo` recusou (parear sem reinstalar, 22/10/2026): só a REVOGAÇÃO faz o PC esquecer o
+   * pareamento. "Desconhecido" acontece no servidor recém-reinstalado enquanto o cadastro volta da nuvem (e com o mesmo
+   * segredo de antes); "segredo" quando o terminal foi pareado de novo em outro PC — nos dois o PC guarda o que tem.
+   */
+  async motivoDaRecusa(tenantId: string, terminalId: string): Promise<'revogado' | 'desconhecido' | 'segredo'> {
+    if (!/^[0-9a-f-]{36}$/i.test(terminalId)) return 'desconhecido';
+    const [row] = await this.db
+      .select({ ativo: equipamento.ativo, revogadoEm: equipamento.revogadoEm })
+      .from(equipamento)
+      .where(and(eq(equipamento.id, terminalId), eq(equipamento.tenantId, tenantId)));
+    if (!row) return 'desconhecido';
+    if (!row.ativo || row.revogadoEm) return 'revogado';
+    return 'segredo';
+  }
+
+  private carregandoAte = 0;
+  private carregandoValor = false;
+  /**
+   * O servidor da loja ainda está trazendo o cadastro da nuvem (reinstalação: o instalador pede a restauração e o
+   * sync-daemon marca `restaurando` enquanto carrega). Lido de `sync_state`, guardado por 10 s. Sem a tabela: não.
+   */
+  async servidorCarregando(agoraMs: number = Date.now()): Promise<boolean> {
+    if (!ehServidorLocal()) return false;
+    if (agoraMs < this.carregandoAte) return this.carregandoValor;
+    let valor = false;
+    try {
+      const r: any = await this.db.execute(
+        sql`select 1 from sync_state where chave in ('restaurar_solicitado', 'restaurando') and valor = '1' limit 1`,
+      );
+      valor = (r.rows ?? r).length > 0;
+    } catch {
+      valor = false; // sem a sync_state (o sync-daemon ainda não rodou): não há restauração em andamento
+    }
+    this.carregandoValor = valor;
+    this.carregandoAte = agoraMs + 10_000;
+    return valor;
+  }
+
   // Confere o segredo que o PC manda no header. Devolve o equipamento ou null.
   async validarSegredo(tenantId: string, terminalId: string, segredo?: string | null) {
-    if (!terminalId) return null;
+    // Id fora do formato (cabeçalho adulterado ou corrompido): recusa sem consultar — o banco recusaria o uuid com 500.
+    if (!terminalId || !/^[0-9a-f-]{36}$/i.test(String(terminalId))) return null;
     const [row] = await this.db
       .select()
       .from(equipamento)
@@ -811,7 +857,7 @@ export class EquipamentoService {
       detalhe: { nome: volta.nome, tipo: volta.tipo, revogadoEm: row.revogadoEm ?? null, comCodigo, ...via?.detalhe },
       ...(via ? { atorTipo: via.atorTipo, origem: via.origem } : {}),
     });
-    return { ...this.publico(volta), codigo, expiraEm };
+    return { ...this.publico(volta), codigo, expiraEm, onde: codigo ? ondeDigitar(volta.tipo) : null };
   }
 
   /**
@@ -1130,6 +1176,10 @@ export class EquipamentoService {
       estacaoId: r.estacaoId ?? null, // estação de impressão que imprime esta impressora (mig 324)
       // Estação e tela de senhas: já trocaram o código pelo segredo? Separa "nunca pareou" de "pareou e está fora".
       ...(r.tipo === 'estacao_impressao' || r.tipo === 'tela_senhas' ? { pareado: !!r.segredoHash } : {}),
+      // Estação (parear sem reinstalar, 22/10/2026): QUANDO pareou e QUAL PC (o nome do Windows que ela mandou ao parear).
+      // "Novo PC com impressora" mostra as estações que já existem pelo PC e espera o pareamento NOVO (a data muda) — o
+      // nome da máquina da batida (`estacao_status`) não volta da nuvem numa reinstalação do servidor; este volta.
+      ...(r.tipo === 'estacao_impressao' ? { pareadoEm: r.pareadoEm ?? null, maquinaPareada: r.fingerprint ? String(r.fingerprint).slice(0, 120) : null } : {}),
       // Tela de senhas (mig 337): o tamanho das letras desta TV, com o padrão no que falta.
       ...(r.tipo === 'tela_senhas' ? { telaTamanhos: tamanhosDaTela(r.telaTamanhos) } : {}),
       codepage: r.codepage ?? null, // acentos: cp860 | cp850 | null (mig 269)

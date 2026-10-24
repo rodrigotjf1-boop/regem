@@ -52,17 +52,21 @@ export function TokenDoEquipamento({ nome, token, aviso, voltarPara, aoFechar }:
 
 const relogio = (seg: number) => `${String(Math.floor(seg / 60)).padStart(2, '0')}:${String(seg % 60).padStart(2, '0')}`;
 
+/** Onde digitar o código, como o servidor manda (`common/onde-digitar.ts`) — o mesmo texto do ícone do servidor. */
+export type OndeDigitar = { titulo: string; passos: string[]; obs?: string };
+export type CodigoGerado = { codigo: string; expiraEm: string; onde?: OndeDigitar | null };
+
 /** Gera o código de 6 dígitos do terminal e mostra quanto tempo ele ainda vale. */
 export function CodigoDePareamento({
   equipamento, inicial, voltarPara, aoFechar,
 }: {
   equipamento: any;
   /** Código já gerado pelo servidor (a reativação devolve um): mostra este, sem gerar outro. */
-  inicial?: { codigo: string; expiraEm: string } | null;
+  inicial?: CodigoGerado | null;
   voltarPara: string;
   aoFechar: () => void;
 }) {
-  const [codigo, setCodigo] = useState<{ codigo: string; expiraEm: string } | null>(inicial ?? null);
+  const [codigo, setCodigo] = useState<CodigoGerado | null>(inicial ?? null);
   const [erro, setErro] = useState('');
   const [resta, setResta] = useState(0);
   const [gerando, setGerando] = useState(false);
@@ -72,7 +76,7 @@ export function CodigoDePareamento({
     setGerando(true);
     try {
       const r: any = await api.gerarCodigoTerminal(equipamento.id);
-      setCodigo({ codigo: String(r.codigo), expiraEm: r.expiraEm });
+      setCodigo({ codigo: String(r.codigo), expiraEm: r.expiraEm, onde: r.onde ?? null });
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao gerar o código');
     } finally {
@@ -109,18 +113,24 @@ export function CodigoDePareamento({
           <p className={texto2} role="status">Gerando o código…</p>
         ) : (
           <>
-            <p>
-              {equipamento.tipo === 'estacao_impressao' ? (
-                'No instalador do Regem, no PC onde a impressora está, marque “Este PC tem impressora” e digite este código:'
-              ) : equipamento.tipo === 'tela_senhas' ? (
-                <>
-                  No navegador da TV, abra <strong className="break-all font-mono">{typeof window !== 'undefined' ? `${window.location.origin}/senhas` : '/senhas'}</strong>{' '}
-                  e digite este código:
-                </>
-              ) : (
-                'No computador do caixa, abra o PDV e digite este código:'
-              )}
-            </p>
+            {/* Onde digitar (parear sem reinstalar, 22/10/2026): os passos vêm do servidor (`common/onde-digitar.ts`), os
+                mesmos do ícone do servidor. A estação pareia pelo ícone "Regem neste PC"; o instalador é só para PC novo. */}
+            {codigo.onde ? (
+              <div className="space-y-1">
+                <p className="font-semibold">{codigo.onde.titulo}:</p>
+                <ol className="list-decimal space-y-0.5 pl-5">
+                  {codigo.onde.passos.map((p) => <li key={p}>{p}</li>)}
+                </ol>
+                {equipamento.tipo === 'tela_senhas' && (
+                  <p className={texto2}>
+                    Na primeira vez, abra no navegador da TV{' '}
+                    <strong className="break-all font-mono text-foreground">{typeof window !== 'undefined' ? `${window.location.origin}/senhas` : '/senhas'}</strong>.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p>{equipamento.tipo === 'tela_senhas' ? 'Na TV de senhas, digite este código:' : 'Digite este código no aparelho:'}</p>
+            )}
             <p data-codigo aria-label={`Código ${codigo.codigo.split('').join(' ')}`} className={`rounded-md bg-secondary px-4 py-3 text-center font-mono text-3xl font-semibold tracking-[0.3em] ${vencido ? 'line-through opacity-60' : ''}`}>
               {codigo.codigo.slice(0, 3)} {codigo.codigo.slice(3)}
             </p>
@@ -129,6 +139,7 @@ export function CodigoDePareamento({
             ) : (
               <p className={texto2}>Vale por <b role="timer" className="font-mono text-foreground">{relogio(resta)}</b> e por um uso só.</p>
             )}
+            {codigo.onde?.obs && <p className={`text-xs ${texto2}`}>{codigo.onde.obs}</p>}
           </>
         )}
       </div>

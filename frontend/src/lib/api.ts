@@ -218,13 +218,34 @@ export function setTerminalAtual(id: string, nome: string, segredo?: string) {
   const atual = lerTerminal();
   const seg = segredo ?? (atual?.id === id ? atual?.segredo : undefined);
   localStorage.setItem(TERMINAL_KEY, JSON.stringify({ id, nome, segredo: seg }));
+  suspensao = null;
   window.dispatchEvent(new Event('regem:terminal'));
 }
 export function clearTerminal() {
   if (typeof window === 'undefined') return;
   localStorage.removeItem(TERMINAL_KEY);
+  suspensao = null;
   window.dispatchEvent(new Event('regem:terminal'));
 }
+
+// PAREAR SEM REINSTALAR (pedido do dono de 22/10/2026). O servidor diz POR QUE recusou o terminal (`code`): só a
+// REVOGAÇÃO faz este PC esquecer o pareamento. "Não reconhecido" (o servidor recém-reinstalado ainda trazendo o cadastro
+// da nuvem — com o MESMO segredo — ou o terminal pareado de novo noutro PC) e "carregando a loja" SUSPENDEM o envio do
+// terminal por 30 s: as outras telas seguem sem ele, o PDV mostra "Reconhecendo este caixa" (terminal-gate) e volta
+// sozinho quando o servidor o reconhece. Antes, qualquer 403 apagava o pareamento e o caixa pedia código depois de toda
+// reinstalação do servidor. Estado da aba (não é dado de negócio): some ao recarregar, e a próxima chamada reconfere.
+export type SuspensaoDoTerminal = { ate: number; code: 'TERMINAL_NAO_RECONHECIDO' | 'LOJA_CARREGANDO'; message: string };
+const SUSPENSAO_MS = 30_000;
+let suspensao: SuspensaoDoTerminal | null = null;
+/** O servidor ainda não reconheceu este terminal (até a próxima resposta boa com ele). */
+export function terminalSuspenso(): SuspensaoDoTerminal | null {
+  return suspensao;
+}
+/** "Tentar agora": a próxima chamada já leva o terminal (sem esperar os 30 s). */
+export function tentarTerminalAgora() {
+  if (suspensao) suspensao = { ...suspensao, ate: 0 };
+}
+const enviarTerminal = () => !suspensao || Date.now() >= suspensao.ate;
 
 // Categoria da hierarquia (gates de UI). Do JWT (edge) ou do /auth/me (cookie).
 export function getCategoria(): string | null {
@@ -358,6 +379,8 @@ const daRede = (todas?: boolean): RequestInit => (todas ? { headers: { 'X-Unidad
 
 async function req(path: string, options: RequestInit = {}) {
   const token = getJwt(); // Bearer só quando há JWT real; no modo cookie vai o cookie
+  // Terminal suspenso (o servidor ainda não o reconheceu): esta chamada vai sem ele — ver `terminalSuspenso`.
+  const comTerminal = !!getTerminalAtual() && enviarTerminal();
   let res: Response;
   try {
     res = await fetch(`${apiBase()}${path}`, {
@@ -369,8 +392,8 @@ async function req(path: string, options: RequestInit = {}) {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(getUnidadeAtual() ? { 'X-Unidade-Id': getUnidadeAtual() as string } : {}),
-        ...(getTerminalAtual() ? { 'X-Terminal-Id': getTerminalAtual() as string } : {}),
-        ...(getTerminalSegredo() ? { 'X-Terminal-Secret': getTerminalSegredo() as string } : {}),
+        ...(comTerminal ? { 'X-Terminal-Id': getTerminalAtual() as string } : {}),
+        ...(comTerminal && getTerminalSegredo() ? { 'X-Terminal-Secret': getTerminalSegredo() as string } : {}),
         ...(options.headers || {}),
       },
     });
@@ -391,13 +414,23 @@ async function req(path: string, options: RequestInit = {}) {
     // recupera sozinho; o PDV volta a pedir o pareamento pela terminal-gate.
     // Sem risco de loop: clearTerminal() zera getTerminalAtual(), então o retry
     // não manda X-Terminal-Id e a guarda (getTerminalAtual()) não dispara de novo.
+    // Parear sem reinstalar: só a revogação apaga (o servidor antigo, sem os códigos, segue pela mensagem).
+    const codigoTerminal = String(body.code || '');
+    const deTerminalNovo = codigoTerminal === 'TERMINAL_NAO_RECONHECIDO' || codigoTerminal === 'LOJA_CARREGANDO';
     if (
+      comTerminal &&
       res.status === 403 &&
-      getTerminalAtual() &&
-      /paread|revogad/i.test(String(body.message || ''))
+      (codigoTerminal === 'TERMINAL_REVOGADO' || (!deTerminalNovo && /paread|revogad/i.test(String(body.message || ''))))
     ) {
       clearTerminal();
       return req(path, options);
+    }
+    if (comTerminal && ((res.status === 403 && codigoTerminal === 'TERMINAL_NAO_RECONHECIDO') || (res.status === 409 && codigoTerminal === 'LOJA_CARREGANDO'))) {
+      suspensao = { ate: Date.now() + SUSPENSAO_MS, code: codigoTerminal as SuspensaoDoTerminal['code'], message: String(body.message || '') };
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('regem:terminal'));
+      // Consulta e o aviso de presença seguem sem o terminal; a ESCRITA não (uma venda não sai sem o caixa).
+      const metodo = String(options.method || 'GET').toUpperCase();
+      if (metodo === 'GET' || metodo === 'HEAD' || path === '/edge/presenca') return req(path, options);
     }
     const msg = Array.isArray(body.message) ? body.message.join('; ') : body.message;
     throw new ApiError({
@@ -407,6 +440,11 @@ async function req(path: string, options: RequestInit = {}) {
       details: body.details,
       requestId: body.requestId,
     });
+  }
+  // O servidor voltou a reconhecer o terminal: acaba a suspensão (o PDV sai do "Reconhecendo este caixa").
+  if (comTerminal && suspensao) {
+    suspensao = null;
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event('regem:terminal'));
   }
   return res.status === 204 ? null : res.json();
 }
@@ -1906,8 +1944,10 @@ export const api = {
   // "Trocar máquina" (DR): reseta o binding e gera um código novo p/ a máquina nova.
   trocarMaquinaTerminal: (id: string) =>
     req(`/equipamento/${id}/trocar-maquina`, { method: 'POST' }),
+  // A tela do caixa (e do garçom, que pareia por ela) diz o tipo: o código de uma estação ou de uma TV digitado aqui é
+  // recusado SEM ser gasto (parear sem reinstalar, 22/10/2026).
   parearPorCodigo: (codigo: string) =>
-    req('/publico/terminal/parear', { method: 'POST', body: JSON.stringify({ codigo }) }),
+    req('/publico/terminal/parear', { method: 'POST', body: JSON.stringify({ codigo, tipo: 'pdv' }) }),
   // Tela de senhas (mig 337): a TV troca o código pelo segredo SEM login (`pub`) e diz que é uma tela de senhas — o
   // código de outro equipamento é recusado sem ser gasto.
   parearTelaSenhas: (codigo: string) =>

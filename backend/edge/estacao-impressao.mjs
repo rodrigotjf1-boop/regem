@@ -125,7 +125,9 @@ async function parear(codigo, { servidor, api }) {
   } else {
     base = (api || 'https://api.dmsregem.com/api/v1').replace(/\/$/, '');
   }
-  const r = await chamar('POST', `${base}/publico/terminal/parear`, { codigo: String(codigo), fingerprint: MAQUINA }, ca ? { ca, servername: NOME_DO_SERVIDOR } : {});
+  // O tipo vai junto (parear sem reinstalar, 22/10/2026): o código de um caixa digitado aqui é recusado SEM ser gasto —
+  // antes ele era gasto e trocava o segredo do caixa. A conferência de baixo fica para o servidor antigo, que não lê o tipo.
+  const r = await chamar('POST', `${base}/publico/terminal/parear`, { codigo: String(codigo), fingerprint: MAQUINA, tipo: 'estacao_impressao' }, ca ? { ca, servername: NOME_DO_SERVIDOR } : {});
   if (r.status >= 400) throw new Error(r.json?.message || `o servidor recusou o código (HTTP ${r.status})`);
   if (r.json?.tipo !== 'estacao_impressao') {
     throw new Error('Este código é de outro tipo de equipamento. No Regem, gere o código na ESTAÇÃO DE IMPRESSÃO.');

@@ -356,7 +356,8 @@ export default function EquipamentosPage() {
           aoFechar={() => setForm(null)}
           aoCadastrar={(novo, aviso) => {
             setForm(null);
-            // A estação e a tela de senhas não usam token: pareiam pelo código (no instalador do PC; na TV, em /senhas).
+            // A estação e a tela de senhas não usam token: pareiam pelo código (no ícone "Regem neste PC" — no instalador só
+            // se o PC é novo; na TV, em /senhas). O diálogo diz onde, pelo que o servidor manda.
             if (novo.tipo === 'estacao_impressao' || novo.tipo === 'tela_senhas') setCodigoDe(novo);
             else setTokenNovo({ nome: novo.nome, token: novo.token, aviso });
             void reload();
@@ -370,7 +371,7 @@ export default function EquipamentosPage() {
         <TelaSenhasGaveta equipamento={telaAjustes} voltarPara={ID_TITULO} aoFechar={() => setTelaAjustes(null)} aoSalvar={() => void reload()} />
       )}
       {novoPc && (
-        <NovoPcComImpressora unidades={unidades} unidadeAtual={getUnidadeAtual()} voltarPara={ID_TITULO}
+        <NovoPcComImpressora unidades={unidades} unidadeAtual={getUnidadeAtual()} todos={lista} voltarPara={ID_TITULO}
           aoFechar={() => { setNovoPc(false); void reload(); }} aoConcluir={() => void reload()} />
       )}
       {reativando && (
@@ -378,7 +379,7 @@ export default function EquipamentosPage() {
           aoReativar={(r) => {
             setReativando(null);
             // PDV, salão e estação voltam com código novo: o PC pareia de novo.
-            if (r?.codigo) setCodigoDe({ ...r, inicial: { codigo: String(r.codigo), expiraEm: r.expiraEm } });
+            if (r?.codigo) setCodigoDe({ ...r, inicial: { codigo: String(r.codigo), expiraEm: r.expiraEm, onde: r.onde ?? null } });
             void reload();
           }} />
       )}
