@@ -365,4 +365,8 @@ describe('sync — filtro de equipamento (R2)', () => {
   it("'servidor_local' continua FORA do filtro", () => {
     expect(equip!.filtroSql).not.toContain('servidor_local');
   });
+
+  it("'tela_senhas' está no filtro (a TV volta pareada depois de reinstalar o servidor — decisão do dono, 24/10/2026)", () => {
+    expect(equip!.filtroSql).toContain("'tela_senhas'");
+  });
 });

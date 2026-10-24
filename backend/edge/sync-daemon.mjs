@@ -207,7 +207,8 @@ const PUSH_TABLES = [
   // Configs espelhadas (P1, mig 181): impressoras/terminais e cupom/perfis sobem
   // (backup + volta num banco novo). equipamento FILTRADO: nunca 'servidor_local'.
   // `estacao_impressao` (mig 324): pareada aqui, sobe como as impressoras.
-  { tabela: 'equipamento', cursor: 'updated_at', filtro: "tipo in ('impressora','pdv','salao','ponto_baixa','kds','estacao_impressao')" },
+  // `tela_senhas` (decisão do dono, 24/10/2026): a TV de senhas também sobe — volta pareada depois de reinstalar.
+  { tabela: 'equipamento', cursor: 'updated_at', filtro: "tipo in ('impressora','pdv','salao','ponto_baixa','kds','estacao_impressao','tela_senhas')" },
   { tabela: 'delivery_config', cursor: 'updated_at' },
   { tabela: 'etiqueta_template', cursor: 'updated_at' },
   { tabela: 'opcao', cursor: 'updated_at' },
@@ -631,6 +632,21 @@ async function verificarRelogio(res, enviadoEm) {
   } catch { /* best-effort */ }
 }
 
+// A TV de senhas entrou no envio em 24/10/2026 (decisão do dono — parear sem reinstalar). A que JÁ existia aqui ficou
+// para trás do cursor do envio (o filtro a deixava de fora) e não subiria nunca: numa reinstalação do servidor ela se
+// perderia de novo. UMA vez: carimba as TVs com a hora de agora, e o próximo envio as leva (no ciclo normal e no
+// --descarregar do instalador). Marca em `sync_state` ('tv_no_envio'). Nunca rejeita (V3): falhou, tenta na próxima.
+async function subirTelasDeSenhasUmaVez() {
+  try {
+    if ((await getState('tv_no_envio', '')) === 'feito') return;
+    const r = await pool.query(`update equipamento set updated_at = now() where tipo = 'tela_senhas'`);
+    await setState('tv_no_envio', 'feito');
+    if (r.rowCount) console.log(`Sync: ${r.rowCount} TV(s) de senhas marcada(s) para subir à nuvem (uma vez).`);
+  } catch (e) {
+    console.warn(`Sync: não marcou as TVs de senhas para subir (tenta na próxima partida): ${e?.message ?? e}`);
+  }
+}
+
 async function semearPushInstalacaoNova(cursores) {
   if ((await getState('push_instalacao_nova', '')) === 'feito') return;
   const temCursor = Object.keys(cursores).length > 0 || (await getState('pull_cursor', '')) !== '';
@@ -676,6 +692,7 @@ async function pull() {
   } catch (e) {
     console.warn(`Sync: não posicionou o push da instalação nova (segue normal): ${e.message}`);
   }
+  await subirTelasDeSenhasUmaVez();
   // Reconciliação: semeia a transição da 1.29.0 (uma vez), promove o que a atualização
   // acabou de criar e rebobina as tabelas enfileiradas. Falha aqui não derruba o pull.
   try {
@@ -2462,6 +2479,8 @@ if (process.argv.includes('--descarregar')) {
     // nenhuma: sem esta conferência, o servidor com a credencial recusada (loja movida para
     // outra máquina) saía 0 e o banco era apagado com o que nunca chegou à nuvem.
     await enviarLotes([]);
+    // A TV de senhas que já existia aqui sobe antes de o instalador apagar o banco (ver `subirTelasDeSenhasUmaVez`).
+    await subirTelasDeSenhasUmaVez();
     const n = await push(Number.POSITIVE_INFINITY);
     if (envioAdiado) {
       // O envio de uma tabela ficou para depois (429 "em curso" ou passou do tempo): nem tudo chegou — o banco fica.

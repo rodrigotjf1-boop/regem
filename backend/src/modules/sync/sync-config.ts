@@ -53,7 +53,10 @@ export const TABELAS_SYNC: TabelaSync[] = [
     // `estacao_impressao` (mig 324): o PC que imprime as impressoras ligadas nele. Pareada no
     // servidor da loja (a tela da nuvem fica só leitura com ele ativo) e validada por ele: a linha
     // sobe (backup, volta num banco novo) e desce (pareada na nuvem numa loja sem servidor).
-    filtroSql: "tipo in ('impressora','pdv','salao','ponto_baixa','kds','totem','estacao_impressao')",
+    // `tela_senhas` (decisão do dono, 24/10/2026 — parear sem reinstalar): a TV de senhas é cadastrada e pareada no
+    // servidor da loja; sem subir, ela sumia numa reinstalação do servidor e tinha de ser cadastrada e pareada de novo.
+    // Agora sobe (backup) e volta com o MESMO segredo. A revogação segue protegida como a dos outros (ERR-235).
+    filtroSql: "tipo in ('impressora','pdv','salao','ponto_baixa','kds','totem','estacao_impressao','tela_senhas')",
   },
   { tabela: 'delivery_config', direcao: 'ambos', cursor: 'updated_at' },
   // Template da etiqueta de validade (mig 245): config espelhada como as de cima —
