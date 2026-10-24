@@ -69,6 +69,26 @@ export const ROTULO_ESCOPO: Record<EscopoIntegracao, string> = {
 };
 
 /**
+ * O TETO da classe parceiro (Hub DMS, F4, parte F; o catálogo aprovado pelo dono em 23/10/2026 no protótipo do portal de
+ * parceiros): o que um aplicativo de PARCEIRO aprovado pela DMS pode chegar a ter no Regem. Só leitura (na F4 o parceiro
+ * só lê); o dado pessoal (o telefone no pedido, o custo) é sensível e só vale na produção, com revisão à parte (F4-6).
+ * Ficam só para os produtos da DMS: criar cupom (nasce valendo: é dinheiro, D6), o totem (lança venda), a lista de
+ * clientes e as vendas da 99 (autorização própria do dono) e os usos de cupom. Hoje só o manifesto publica este teto; o
+ * guard passa a conferi-lo quando a parte F aceitar aplicativo de parceiro (até lá, nenhum parceiro entra: a credencial
+ * do DMS ID só vale para os aplicativos de `DMS_ID_APLICATIVOS`).
+ */
+export const ESCOPOS_DO_PARCEIRO: readonly EscopoIntegracao[] = [
+  'pedidos.ler',
+  'catalogo.ler',
+  'fichas.ler',
+  'producao.ler',
+  'cupons.ler',
+  'clientes.anonimizacao.ler',
+  'clientes.telefone.ler',
+  'custos.ler',
+];
+
+/**
  * Clientes de integração conhecidos (o console emite só para eles). `abrangencia`: `loja` = o
  * token é de UMA loja (Liame); `empresa` = da empresa inteira, todas as lojas (RegemCast — a
  * trava no banco, mig 302, só aceita token sem loja para ele). `escopos` = os que o console pode

@@ -117,8 +117,11 @@ classe, a ligação suspensa e a parada) e as sete da conta, do cursor e da escr
 
 **O manifesto da porta (Padrão §13):** `GET /.well-known/dms-manifesto`, sem credencial e fora do prefixo `/api/v1`, só
 na nuvem. É a documentação pública da porta de integração: OpenAPI 3.1 com os campos `x-dms`, montado do próprio código
-(`manifesto-integracao.ts`): os escopos (a frase da tela do clique; sem ela, o rótulo do console), a classe `dms` (o
-parceiro vem na parte F), o limite de 60 por minuto por ligação, as 15 rotas de `/integracao` com exemplos fictícios, os
+(`manifesto-integracao.ts`): os escopos (a frase da tela do clique; sem ela, o rótulo do console), a classe de cada um
+(`dms` em todos; `parceiro` nos oito do teto da classe, `ESCOPOS_DO_PARCEIRO` em `escopos.ts`, o catálogo aprovado na
+F4: os pedidos, o catálogo, as fichas, a produção, os cupons, a anonimização e, sensíveis, o telefone no pedido e o
+custo; criar cupom, a lista de clientes, a 99Food e os usos de cupom ficam só `dms`; o Regem só aceita aplicativo de
+parceiro com o resto da parte F), o limite de 60 por minuto por ligação, as 15 rotas de `/integracao` com exemplos fictícios, os
 6 avisos (o corpo sai de `corpoDoAviso`) e a credencial do DMS ID. Fora dele, de propósito: a troca pela ligação e o
 OAuth (o ciclo da credencial), as rotas do totem e os avisos assinados ao GoGeM. O arquivo `docs/dms-manifesto.json` é o
 que o código monta; o teste `manifesto-integracao.spec.ts` confere, lê as rotas e as permissões dos decoradores do

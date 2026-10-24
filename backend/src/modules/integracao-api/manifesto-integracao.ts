@@ -1,7 +1,7 @@
 import { LIMITE_INTEGRACAO_POR_MINUTO } from '../../common/integracao-limite';
 import { montarManifesto, type ManifestoDms, type PermissaoNoManifesto, type RotaNoManifesto } from '../../dms/integracao-dms';
 import { PERMISSAO_NA_TELA } from './autorizacao-clique.regras';
-import { ROTULO_ESCOPO, type EscopoIntegracao } from './escopos';
+import { ESCOPOS_DO_PARCEIRO, ROTULO_ESCOPO, type EscopoIntegracao } from './escopos';
 import { corpoDoAviso, EVENTO_DO_RECURSO, EVENTO_DO_RETRATO, type Novidade } from './webhook-integracao';
 
 // O MANIFESTO da porta de integração (Padrão DMS §13; F4, parte A; pacote 0.7.1): a documentação pública da porta,
@@ -42,12 +42,17 @@ export const ESCOPOS_DA_PORTA = [
 const SENSIVEIS: readonly EscopoIntegracao[] = ['clientes.telefone.ler', 'clientes.ler', 'vendas.99food.ler', 'custos.ler'];
 
 /**
- * As permissões. A classe é só `dms`: hoje o Regem só dá credencial a produto da DMS (o console emite para o Liame, o
- * RegemCast, o Farol e o GoGeM), e o teto para o parceiro vem na parte F da F4 (na F4, o parceiro só lê).
+ * As permissões, com a classe que alcança cada uma: `dms` em todas (o console emite para o Liame, o RegemCast, o Farol e
+ * o GoGeM) e `parceiro` nas do teto da classe (`ESCOPOS_DO_PARCEIRO`, o catálogo aprovado na F4). É o que o hub lê para
+ * aprovar um aplicativo de parceiro e o simulador usa para gerar a porta de mentira; o Regem só passa a aceitar o
+ * aplicativo de parceiro com o resto da parte F.
  */
 function permissoes(): Record<string, PermissaoNoManifesto> {
   return Object.fromEntries(
-    ESCOPOS_DA_PORTA.map((e) => [e, { frase: PERMISSAO_NA_TELA[e]?.frase ?? ROTULO_ESCOPO[e], classes: ['dms'], sensivel: SENSIVEIS.includes(e) }]),
+    ESCOPOS_DA_PORTA.map((e) => [
+      e,
+      { frase: PERMISSAO_NA_TELA[e]?.frase ?? ROTULO_ESCOPO[e], classes: ESCOPOS_DO_PARCEIRO.includes(e) ? ['dms', 'parceiro'] : ['dms'], sensivel: SENSIVEIS.includes(e) },
+    ]),
   );
 }
 

@@ -116,6 +116,17 @@ const esperarAte = async (cond: () => boolean | Promise<boolean>, ms = 5_000) =>
   return false;
 };
 
+/**
+ * Quantas sessões estão presas, direta ou indiretamente (uma atrás da outra), atrás da conexão de pid `$1` (a que o
+ * teste segura). No CI, os arquivos de teste rodam em paralelo no MESMO banco: contar "qualquer espera de trava do
+ * banco" pegava a espera de outro teste e soltava a trava antes de a chamada deste chegar nela (ERR-298).
+ */
+const SQL_PRESOS_POR = `with recursive presos as (
+    select pid from pg_stat_activity where $1::int = any(pg_blocking_pids(pid))
+    union
+    select a.pid from pg_stat_activity a join presos p on p.pid = any(pg_blocking_pids(a.pid))
+  ) select count(*)::int as n from presos`;
+
 /** Um CNPJ fictício: a raiz inventada, a filial e dígitos verificadores que não conferem. */
 const cnpjFicticio = (raiz: string, filial = '0001') => `${raiz}${filial}00`;
 const raizNova = () => String(10_000_000 + Math.floor(Math.random() * 89_999_999));
@@ -602,13 +613,14 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
       const p = await pedir();
       const aux = await pool.connect();
       try {
+        const pidDoAux = (await aux.query('select pg_backend_pid() as pid')).rows[0].pid as number;
         await aux.query('begin');
         await aux.query(`select id from integracao_pedido where numero_hash = $1 for update`, [createHash('sha256').update(p.numero as string).digest('hex')]);
         const uma = autorizar(presB, p.numero, { lojas: [B.lojas[0]], ip: '10.8.0.1' });
         const outra = autorizar(presB, p.numero, { lojas: [B.lojas[0]], ip: '10.8.0.2' });
-        // As duas esperam a linha do pedido (a trava da autorização); solta.
+        // As duas esperam a linha do pedido (a trava da autorização), atrás desta conexão; solta.
         const esperando = await esperarAte(async () => {
-          const [w] = await q(`select count(*)::int n from pg_stat_activity where wait_event_type = 'Lock' and datname = current_database()`);
+          const [w] = await q(SQL_PRESOS_POR, [pidDoAux]);
           return w.n >= 2;
         });
         expect(esperando).toBe(true);
@@ -759,6 +771,7 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
       const [aut] = await q(`select id from integracao_autorizacao where codigo_hash = $1`, [createHash('sha256').update(a.codigo as string).digest('hex')]);
       const aux = await pool.connect();
       try {
+        const pidDoAux = (await aux.query('select pg_backend_pid() as pid')).rows[0].pid as number;
         // Outra troca da mesma loja no meio (a linha nova dela ainda não está gravada).
         await aux.query('begin');
         await aux.query(
@@ -767,8 +780,9 @@ descrever('autorização por clique (Hub DMS, F3, parte C)', () => {
           [e.tenant, e.lojas[0], randomBytes(32).toString('hex'), pres.id, aut.id],
         );
         const troca = trocar(a.codigo, p.verificador);
+        // a troca deste teste presa no índice único, atrás desta conexão (não uma espera qualquer do banco)
         const esperando = await esperarAte(async () => {
-          const [w] = await q(`select count(*)::int n from pg_stat_activity where wait_event_type = 'Lock' and datname = current_database()`);
+          const [w] = await q(SQL_PRESOS_POR, [pidDoAux]);
           return w.n >= 1;
         });
         expect(esperando).toBe(true);
