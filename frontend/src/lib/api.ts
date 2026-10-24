@@ -1,4 +1,5 @@
 import { baseDaApi } from './origem-api';
+import { VERSAO_DA_TELA } from './versao-da-tela';
 
 // Base da API. Nuvem: NEXT_PUBLIC_API_URL (fixado no build). Edge
 // (NEXT_PUBLIC_EDGE=1): cada loja tem IP proprio, entao a API fica no MESMO host
@@ -1093,7 +1094,8 @@ export const api = {
   // Conexão PC ↔ servidor (só no edge): o endereço do servidor na rede (gestão) e a presença do PC
   // (o app aberto avisa a cada 30 s; com o terminal pareado, o PC fica "conectado agora").
   edgeRede: () => req('/edge/rede'),
-  edgePresenca: () => req('/edge/presenca', { method: 'POST', body: '{}' }),
+  // Leva a versão desta tela: o ícone do servidor mostra o caixa que ficou aberto na versão anterior.
+  edgePresenca: () => req('/edge/presenca', { method: 'POST', body: JSON.stringify(VERSAO_DA_TELA ? { versao: VERSAO_DA_TELA } : {}) }),
   // Atualização do servidor local (só no edge; gestão)
   edgeAtualizacaoStatus: () => req('/edge/atualizacao/status'),
   edgeVerificarAtualizacao: () => req('/edge/atualizacao/verificar', { method: 'POST', body: '{}' }),

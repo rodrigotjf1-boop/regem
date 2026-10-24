@@ -32,12 +32,36 @@ describe('instalador da estação de impressão (PR 4b)', () => {
   it('o ícone: o caminho do instalador é o que o empacotamento gera; a pasta de dados é a do serviço', () => {
     const iss = ler('regem-edge.iss');
     const pacote = ler('package.mjs');
-    expect(pacote).toMatch(/join\(out, 'edge', 'bandeja', 'RegemEstacao\.exe'\)/);
+    // O pacote compila os dois ícones pelo mesmo caminho: edge/bandeja/<nome>.exe.
+    expect(pacote).toMatch(/join\(out, 'edge', 'bandeja', `\$\{nome\}\.exe`\)/);
+    expect(pacote).toMatch(/compilarIcone\('RegemEstacao', /);
     expect(iss).toMatch(/\{app\}\\backend\\edge\\bandeja\\RegemEstacao\.exe/);
     expect(iss).toMatch(/--raiz ""\{app\}\\estacao""/);
     expect(ler('instalar-estacao-impressao.ps1')).toMatch(/\$dados = Join-Path \$app 'estacao'/);
     // O fonte do ícone não vai para a loja (só o .exe compilado).
     expect(pacote).toMatch(/const VAZA_LOGICA = \/[^\n]*\\\.cs\$/);
+  });
+
+  // Fase 4 do pedido de 22–23/10/2026: o ícone do SERVIDOR da loja ("Regem — servidor da loja").
+  it('o ícone do servidor: só no modo Servidor, com a raiz do sistema (onde nasce bandeja.key), em todo login; sai se virar Cliente', () => {
+    const iss = ler('regem-edge.iss');
+    const pacote = ler('package.mjs');
+    expect(pacote).toMatch(/compilarIcone\('RegemServidor', \['-r:System\.ServiceProcess\.dll'\]/);
+    expect(iss).toMatch(/Filename: "\{app\}\\backend\\edge\\bandeja\\RegemServidor\.exe"; Parameters: "--raiz ""\{app\}\\backend"""/);
+    expect(iss).toMatch(/Flags: nowait postinstall runasoriginaluser skipifdoesntexist; Check: TemIconeDoServidor/);
+    expect(iss).toMatch(/ValueName: "RegemServidor"; \\\r?\n\s+ValueData: """\{app\}\\backend\\edge\\bandeja\\RegemServidor\.exe"" --raiz ""\{app\}\\backend"""; Flags: uninsdeletevalue; Check: TemIconeDoServidor/);
+    expect(iss).toMatch(/ValueType: none; ValueName: "RegemServidor"; \\\r?\n\s+Flags: deletevalue; Check: EhCliente/);
+    expect(iss).toMatch(/function TemIconeDoServidor: Boolean;\s+begin\s+Result := not EhCliente;/);
+    // Reinstalar fecha o ícone antes de copiar; desinstalar também.
+    expect(iss).toMatch(/taskkill\.exe'\), '\/IM RegemServidor\.exe \/F'/);
+    expect(iss).toMatch(/\[UninstallRun\][\s\S]*\/IM RegemServidor\.exe \/F/);
+    // O sistema cria a chave na pasta em que roda (o serviço RegemEdgeApi roda em $Raiz = {app}\backend).
+    expect(ler('instalar-servicos.ps1')).toMatch(/Svc "RegemEdgeApi" "\$Raiz\\dist\\main\.js" \$Raiz/);
+    // A conferência antes do corte reprova pacote sem os dois ícones.
+    expect(ler('preflight-release.mjs')).toMatch(/'edge\/bandeja\/RegemEstacao\.exe', 'edge\/bandeja\/RegemServidor\.exe'/);
+    // O fonte do ícone do servidor é ASCII (o csc lê na página de código do Windows): os acentos vão como ç.
+    const cs = ler('bandeja/RegemServidor.cs');
+    expect([...cs].filter((c) => c.charCodeAt(0) > 127)).toEqual([]);
   });
 
   it('reinstalação para o serviço da estação e fecha o ícone antes de copiar; desinstalar remove os dois', () => {

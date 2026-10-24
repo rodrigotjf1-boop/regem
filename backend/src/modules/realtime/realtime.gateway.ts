@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { Logger, Optional } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { JwtService } from '@nestjs/jwt';
 import {
@@ -13,6 +13,7 @@ import {
 import { randomUUID } from 'crypto';
 import { Server, Socket } from 'socket.io';
 import { EquipamentoService } from '../equipamento/equipamento.service';
+import { PresencaService, enderecoDoHost, ipDoPc, versaoInformada } from '../equipamento/presenca.service';
 import { lerCookieSessao } from '../../auth/cookie-sessao';
 import { ehServidorLocal } from '../../common/modo';
 
@@ -53,18 +54,22 @@ export class RealtimeGateway
   constructor(
     private readonly jwt: JwtService,
     private readonly equipamentos: EquipamentoService,
+    // Opcional: os testes montam o gateway só com os dois de cima.
+    @Optional() private readonly presenca?: PresencaService,
   ) {}
 
   async handleConnection(socket: Socket) {
     try {
       const auth: any = socket.handshake.auth ?? {};
       if (auth.tela && typeof auth.tela === 'object') {
-        // Tela de senhas: id + segredo do pareamento. Não grava presença nem avisa "device:status" (ela não é aparelho
-        // de operação, e cada gravação renovaria uma linha que sincroniza — ERR-235).
+        // Tela de senhas: id + segredo do pareamento. Não grava no banco nem avisa "device:status" (ela não é aparelho
+        // de operação, e cada gravação renovaria uma linha que sincroniza — ERR-235). A presença fica só na MEMÓRIA do
+        // servidor da loja (o ícone do servidor mostra a TV conectada e a versão da tela).
         const tela = await this.equipamentos.validarTela(String(auth.tela.id ?? ''), auth.tela.segredo ? String(auth.tela.segredo) : null);
         if (!tela) return this.recusar(socket, 'tela de senhas inválida ou revogada');
         socket.data.ctx = { tenantId: tela.tenantId, unidadeId: tela.unidadeId, role: 'tela', tipo: 'tela_senhas', equipamentoId: tela.id } satisfies SockCtx;
         socket.join(`senhas:${tela.tenantId}`);
+        this.anotarConexao(socket, tela.id, tela.tenantId, 'tela_senhas', auth.versao);
         return;
       }
       if (auth.token) {
@@ -83,6 +88,7 @@ export class RealtimeGateway
         };
         socket.data.ctx = ctx;
         this.entrarSalas(socket, ctx);
+        if (eq.tipo === 'kds') this.anotarConexao(socket, eq.id, eq.tenantId, 'kds', auth.versao);
         await this.equipamentos.registrarPing(eq.id);
         this.server.to(`tenant:${ctx.tenantId}`).emit('device:status', {
           equipamentoId: eq.id,
@@ -110,8 +116,27 @@ export class RealtimeGateway
     }
   }
 
+  /**
+   * KDS e TV ficam conectados pelo tempo real: o servidor da loja anota na memória quando abrem e quando caem (o ícone do
+   * servidor mostra "conectado agora" / "caiu há N min" e a versão da tela). Fora do servidor da loja não anota nada.
+   */
+  private anotarConexao(socket: Socket, id: string, tenantId: string, tipo: 'kds' | 'tela_senhas', versao: unknown) {
+    if (!this.presenca) return;
+    this.presenca.conectou({
+      id,
+      tenantId,
+      tipo,
+      ip: ipDoPc(socket.handshake?.address),
+      endereco: enderecoDoHost(socket.handshake?.headers?.host),
+      maquina: null,
+      versao: versaoInformada(versao),
+    });
+    socket.data.presenca = id;
+  }
+
   handleDisconnect(socket: Socket) {
     const ctx: SockCtx | undefined = socket.data?.ctx;
+    if (socket.data?.presenca) this.presenca?.desconectou(String(socket.data.presenca));
     if (ctx?.role === 'device') {
       this.server.to(`tenant:${ctx.tenantId}`).emit('device:status', {
         equipamentoId: ctx.equipamentoId,

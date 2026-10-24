@@ -1601,11 +1601,29 @@ async function heartbeat(pullN, pushN, erro, comSaude) {
       headers: { 'content-type': 'application/json', 'x-sync-token': TOKEN },
       body: JSON.stringify(corpo),
     });
+    await anotarContatoNuvem(res.ok && !erro);
     // A nuvem manda comandos pendentes e aviso de atualização JUNTO (2 requisições a menos
     // por ciclo). Edge contra nuvem antiga não recebe nada e cai nos endpoints de sempre.
     if (res.ok) return await res.json().catch(() => null);
-  } catch { /* heartbeat é best-effort */ }
+  } catch {
+    /* heartbeat é best-effort */
+    await anotarContatoNuvem(false);
+  }
   return null;
+}
+
+// O ícone do servidor (bandeja.service.ts) mostra "nuvem sincronizada há N s" ou "sem sincronizar com a nuvem há N min":
+// a cada batida, o último contato bom e desde quando falha ficam em `sync_state.nuvem_contato`. Nunca rejeita (V3).
+async function anotarContatoNuvem(ok) {
+  try {
+    const agora = new Date().toISOString();
+    let atual = {};
+    try { atual = JSON.parse(await getState('nuvem_contato', '{}')) || {}; } catch { atual = {}; }
+    const v = ok
+      ? { okEm: agora, falhandoDesde: null }
+      : { okEm: atual.okEm ?? null, falhandoDesde: atual.falhandoDesde ?? (falhandoDesde ? falhandoDesde.toISOString() : agora) };
+    await setState('nuvem_contato', JSON.stringify(v));
+  } catch { /* best-effort: sem o banco, o ícone diz "sem informação" */ }
 }
 
 // Restore por SNAPSHOT (Trilha A) — robusto. Baixa /sync/snapshot (NDJSON gzip, corpo

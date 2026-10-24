@@ -78,14 +78,28 @@ Filename: "{app}\backend\edge\bandeja\RegemEstacao.exe"; Parameters: "--raiz ""{
   Description: "Mostrar o icone do Regem neste PC"; \
   Flags: nowait postinstall runasoriginaluser skipifdoesntexist; Check: TemEstacao
 
+; "Regem - servidor da loja" (modo servidor; fase 4 do pedido de 22-23/10/2026): o icone ao lado do relogio com todos
+; os aparelhos ligados ao servidor, a versao de cada lugar e gerar codigo / revogar / reativar. Aberto como o usuario
+; que instalou (nao como administrador); depois, em todo login (Registry). Le a chave em {app}\backend\bandeja.key.
+Filename: "{app}\backend\edge\bandeja\RegemServidor.exe"; Parameters: "--raiz ""{app}\backend"""; \
+  Description: "Mostrar o icone do servidor da loja"; \
+  Flags: nowait postinstall runasoriginaluser skipifdoesntexist; Check: TemIconeDoServidor
+
 [Registry]
 ; O icone da estacao abre em todo login, para qualquer usuario do PC. Sai ao desinstalar.
 Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "RegemEstacao"; \
   ValueData: """{app}\backend\edge\bandeja\RegemEstacao.exe"" --raiz ""{app}\estacao"""; Flags: uninsdeletevalue; Check: TemEstacao
+; O icone do servidor abre em todo login no servidor da loja. Sai ao desinstalar; e sai se este PC for reinstalado como
+; Cliente (o PC deixou de ser o servidor).
+Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "RegemServidor"; \
+  ValueData: """{app}\backend\edge\bandeja\RegemServidor.exe"" --raiz ""{app}\backend"""; Flags: uninsdeletevalue; Check: TemIconeDoServidor
+Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "RegemServidor"; \
+  Flags: deletevalue; Check: EhCliente
 
 [UninstallRun]
-; Desinstalar: fecha o icone e remove o servico da estacao (se existirem).
+; Desinstalar: fecha os icones e remove o servico da estacao (se existirem).
 Filename: "{sys}\taskkill.exe"; Parameters: "/IM RegemEstacao.exe /F"; Flags: runhidden; RunOnceId: "FecharIconeEstacao"
+Filename: "{sys}\taskkill.exe"; Parameters: "/IM RegemServidor.exe /F"; Flags: runhidden; RunOnceId: "FecharIconeServidor"
 Filename: "{app}\nssm\nssm.exe"; Parameters: "stop RegemEstacaoImpressao"; Flags: runhidden skipifdoesntexist; RunOnceId: "PararEstacao"
 Filename: "{app}\nssm\nssm.exe"; Parameters: "remove RegemEstacaoImpressao confirm"; Flags: runhidden skipifdoesntexist; RunOnceId: "RemoverEstacao"
 
@@ -394,6 +408,11 @@ function TemEstacao: Boolean;
 begin
   Result := EhCliente;
 end;
+// "Regem - servidor da loja" (fase 4): o icone com todos os aparelhos, so no servidor.
+function TemIconeDoServidor: Boolean;
+begin
+  Result := not EhCliente;
+end;
 // O codigo da estacao so com "Este PC tem impressora" marcado e digitado.
 function TemCodigoEstacao: Boolean;
 begin
@@ -435,8 +454,9 @@ begin
   nomes[3] := 'RegemEdgeImpressao'; nomes[4] := 'RegemEdgePg'; nomes[5] := 'RegemEstacaoImpressao';
   for i := 0 to 5 do
     Exec(ExpandConstant('{sys}\net.exe'), 'stop ' + nomes[i] + ' /y', '', SW_HIDE, ewWaitUntilTerminated, rc);
-  // O icone da estacao segura o RegemEstacao.exe aberto: fecha antes de copiar o novo.
+  // Os icones seguram os .exe abertos: fecha antes de copiar os novos.
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM RegemEstacao.exe /F', '', SW_HIDE, ewWaitUntilTerminated, rc);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM RegemServidor.exe /F', '', SW_HIDE, ewWaitUntilTerminated, rc);
 end;
 
 // O motivo que o script deixou em ULTIMO-ERRO.txt (UTF-8: a frase da nuvem vem com acento).

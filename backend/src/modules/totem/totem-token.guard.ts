@@ -2,10 +2,12 @@ import {
   CanActivate,
   ExecutionContext,
   Injectable,
+  Optional,
   UnauthorizedException,
   createParamDecorator,
 } from '@nestjs/common';
 import { EquipamentoService } from '../equipamento/equipamento.service';
+import { PresencaService, enderecoDoHost, ipDoPc } from '../equipamento/presenca.service';
 import { conferirDispositivo } from '../sync/sync-token.guard';
 
 export type TotemCtxData = {
@@ -23,7 +25,11 @@ export type TotemCtxData = {
 // tipo 'totem' só vale no servidor local, e totem sem loja é recusado.
 @Injectable()
 export class TotemTokenGuard implements CanActivate {
-  constructor(private readonly equipamentos: EquipamentoService) {}
+  constructor(
+    private readonly equipamentos: EquipamentoService,
+    // Opcional: os testes montam o guard só com o serviço de equipamentos.
+    @Optional() private readonly presenca?: PresencaService,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest();
@@ -38,6 +44,11 @@ export class TotemTokenGuard implements CanActivate {
       unidadeId: dev.unidadeId ?? null,
       equipamentoId: dev.id,
     } satisfies TotemCtxData;
+    // "Em uso": a última chamada do totem fica na memória do servidor da loja (o ícone do servidor mostra quantos estão
+    // em uso). O app do totem é outro (não mandamos nele): sem versão.
+    if (dev.tipo === 'totem') {
+      this.presenca?.notar({ id: dev.id, tenantId: dev.tenantId, tipo: 'totem', ip: ipDoPc(req.ip), endereco: enderecoDoHost(req.headers?.host), maquina: null, versao: null });
+    }
     return true;
   }
 }

@@ -77,6 +77,7 @@ import { SyncModule } from './modules/sync/sync.module';
 import { EdgeFlashSyncModule } from './modules/sync/edge-flash-sync.service';
 import { GogemModule } from './modules/gogem/gogem.module';
 import { EdgeModule } from './modules/edge/edge.module';
+import { BandejaModule } from './modules/bandeja/bandeja.module';
 import { TelemetriaInterceptor } from './modules/edge/telemetria.interceptor';
 import { UnidadeUnicaInterceptor } from './auth/unidade-unica.interceptor';
 import { RlsInterceptor } from './auth/rls.interceptor';
@@ -183,6 +184,7 @@ const CLOUD_ONLY_IMPORTS = IS_EDGE
     EdgeFlashSyncModule,
     GogemModule,
     EdgeModule,
+    BandejaModule, // o ícone do servidor da loja (só responde no servidor da loja)
     LicencaModule,
     // CLOUD_ONLY não instanciados no edge (ver edge-manifest.ts). Licença e
     // Integrações ficam sempre (interceptor global de licença / acoplamento do
