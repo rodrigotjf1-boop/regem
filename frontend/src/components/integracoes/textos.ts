@@ -207,6 +207,8 @@ export type Acesso = {
   } | null;
   /** O que aconteceu com o acesso, da auditoria (o mais antigo primeiro). */
   historico?: { em: string; texto: string }[];
+  /** Só o aplicativo de parceiro: a ligação ficou 90 dias sem uso e não lê nada até a loja autorizar de novo. */
+  suspenso?: boolean;
 };
 
 export type Aplicativo = {
@@ -216,15 +218,20 @@ export type Aplicativo = {
   abrangencia: 'loja' | 'empresa';
   ativos: number;
   acessos: Acesso[];
+  /** Só o aplicativo de parceiro (Hub DMS, F4 parte F): o selo e as frases do que ele recebe, vindas do servidor. */
+  classe?: 'parceiro';
+  frases?: Record<string, { rotulo: string; texto: string }>;
 };
 
 /** O recado de "Aplicativos conectados": como incluir outra loja ou religar o aplicativo. */
-export function comoMudar(a: Pick<Aplicativo, 'cliente' | 'rotulo' | 'abrangencia'>): string {
+export function comoMudar(a: Pick<Aplicativo, 'cliente' | 'rotulo' | 'abrangencia' | 'classe'>): string {
   if (a.abrangencia === 'empresa') {
     return 'este acesso é emitido pela distribuição DMS a pedido do presidente. Para ligar de novo depois de revogar, fale com o suporte.';
   }
   // O Farol recebe sempre as mesmas três leituras: só há loja para incluir.
   if (a.cliente === 'farol') return `para incluir outra loja, comece pelo ${a.rotulo}.`;
+  // O aplicativo de parceiro: o caminho dentro dele é dele (o Regem não sabe o nome do menu).
+  if (a.classe === 'parceiro') return `para incluir outra loja ou mudar o que o ${a.rotulo} recebe, comece pelo ${a.rotulo}.`;
   return `para incluir outra loja ou mudar o que o ${a.rotulo} recebe, comece pelo ${a.rotulo}, em Contas conectadas.`;
 }
 
