@@ -91,15 +91,25 @@ function servidorFalso(tls: { key: string; cert: string }, caPem: string, edge =
   });
   return { srv, pedidos };
 }
+// Os soquetes de cada servidor: o closeAllConnections só conhece os que já falaram HTTP — um ainda no aperto de mão TLS
+// segurava o close() para sempre (o teste estourava o tempo sem dizer onde).
+const soquetes = new WeakMap<net.Server, Set<net.Socket>>();
 const ouvir = (srv: net.Server, porta: number, ip: string) =>
   new Promise<void>((ok, erro) => {
+    const lista = new Set<net.Socket>();
+    soquetes.set(srv, lista);
+    srv.on('connection', (s: net.Socket) => {
+      lista.add(s);
+      s.once('close', () => lista.delete(s));
+    });
     srv.once('error', erro);
     srv.listen(porta, ip, () => ok());
   });
 const fechar = (srv: http.Server | https.Server) =>
   new Promise<void>((ok) => {
-    srv.closeAllConnections?.();
     srv.close(() => ok());
+    srv.closeAllConnections?.();
+    for (const s of soquetes.get(srv) ?? []) s.destroy();
   });
 async function portaLivre() {
   const s = net.createServer();
@@ -191,6 +201,8 @@ describe('estação de impressão: acha o servidor da loja quando o IP muda (pro
       REGEM_PORTA_API: String(P),
       REGEM_PORTA_WEB: String(P),
       APP_VERSION: 'teste-e2e',
+      // D4: a CA nova vai para este arquivo em vez do Windows (nenhum teste mexe nos certificados desta máquina).
+      ESTACAO_CONFIAR_CA_ARQ: join(raiz, 'windows-confiou.pem'),
       ...extra,
     });
     const p = spawn(process.execPath, [join(EDGE, 'estacao-impressao.mjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -285,6 +297,8 @@ describe('estação de impressão: acha o servidor da loja quando o IP muda (pro
       expect(par).toMatchObject({ ok: true, nome: 'PC do delivery' });
       await esperar('a batida com a credencial nova', () => loja.pedidos.find((x) => x.caminho === '/api/v1/impressao/estacao/batida' && x.estacao === ID_NOVO));
       expect(readFileSync(join(e.raiz, '.env.local'), 'utf8')).toContain(`ESTACAO_ID=${ID_NOVO}`);
+      expect(par.caRenovada).toBe(false); // o mesmo servidor (a mesma CA): o Windows não é tocado
+      expect(existsSync(join(e.raiz, 'windows-confiou.pem'))).toBe(false);
       expect((await e.painelPedir('POST', '/parear', { codigo: '12' })).status).toBe(400);
     } catch (err) {
       console.error(e.log());
@@ -389,6 +403,111 @@ describe('estação de impressão: acha o servidor da loja quando o IP muda (pro
     } catch (err) {
       console.error(e.log());
       throw err;
+    }
+  });
+
+  // PAREAR SEM REINSTALAR, parte 2 — D4 (dono, 24/10/2026): o servidor da loja foi trocado de máquina (certificado novo).
+  // O "Parear com código..." do ícone renova também a confiança do Windows: só depois de o servidor aceitar o código, só
+  // se a CA mudou e só se ela é uma "Regem Edge CA".
+  it('servidor NOVO (CA nova da loja): o código renova a confiança do Windows; a mesma CA ou uma CA de fora, não', async () => {
+    const caNova = autoridade('Regem Edge CA');
+    const novo = servidorFalso(certificadoDoServidor(caNova), caNova.pem);
+    await ouvir(novo.srv, P, '127.0.0.8');
+    const caDeFora = autoridade('Outra CA');
+    const deFora = servidorFalso(certificadoDoServidor(caDeFora), caDeFora.pem);
+    await ouvir(deFora.srv, P, '127.0.0.7');
+    ipNaNuvem = null;
+    const e = await subirEstacao(true);
+    const confiou = join(e.raiz, 'windows-confiou.pem');
+    try {
+      await esperar('o painel responder', () => e.estado());
+      const r1 = await e.painelPedir('POST', '/parear', { codigo: '222222', endereco: '127.0.0.8' });
+      expect(r1).toMatchObject({ ok: true, caRenovada: true });
+      expect(readFileSync(confiou, 'utf8')).toBe(caNova.pem);
+      expect(readFileSync(join(e.raiz, 'certs', 'servidor-ca.pem'), 'utf8')).toBe(caNova.pem);
+      await esperar('a batida no servidor novo', () => novo.pedidos.find((x) => x.caminho === '/api/v1/impressao/estacao/batida' && x.estacao === ID_NOVO));
+      // De novo no mesmo servidor: a CA não mudou → o Windows não é tocado.
+      rmSync(confiou);
+      const r2 = await e.painelPedir('POST', '/parear', { codigo: '333333', endereco: '127.0.0.8' });
+      expect(r2).toMatchObject({ ok: true, caRenovada: false });
+      expect(existsSync(confiou)).toBe(false);
+      // Um servidor com certificado que não é do Regem: pareia (o código é dele), mas o Windows não passa a confiar.
+      const r3 = await e.painelPedir('POST', '/parear', { codigo: '444444', endereco: '127.0.0.7' });
+      expect(r3).toMatchObject({ ok: true, caRenovada: false });
+      expect(existsSync(confiou)).toBe(false);
+      // Servidor fora do ar: nada pareia, nada se confia.
+      const r4 = await e.painelPedir('POST', '/parear', { codigo: '555555', endereco: '127.0.0.5' });
+      expect(r4.status).toBeGreaterThanOrEqual(400);
+      expect(existsSync(confiou)).toBe(false);
+    } catch (err) {
+      console.error(e.log());
+      throw err;
+    } finally {
+      await fechar(novo.srv);
+      await fechar(deFora.srv);
+    }
+  });
+
+  // O servidor RECUSA a estação (revogada; ou pareada de novo noutro PC): o ícone diz "o servidor recusou" com o motivo
+  // (não "sem servidor" — procurar não adianta) e, com o código novo, o aviso some e a fila volta NA HORA.
+  it('o servidor recusa a estação (401): "recusada" com o motivo; o código novo tira o aviso e a fila volta sem esperar 1 min', async () => {
+    const pedidos: Pedido[] = [];
+    const tls = certificadoDoServidor(caLoja);
+    const recusa = https.createServer(tls, async (req, res) => {
+      const url = new URL(req.url || '/', 'https://x');
+      const estacao = (req.headers['x-estacao-id'] as string) ?? null;
+      pedidos.push({ caminho: url.pathname, estacao, host: req.headers.host ?? null });
+      for await (const _ of req) { /* lê o corpo */ }
+      const json = (s: number, o: unknown) => {
+        res.writeHead(s, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(o));
+      };
+      if (url.pathname === '/ca.pem') return res.end(caLoja.pem);
+      if (url.pathname === '/api/v1/ping') return json(200, { regem: true, edge: true, versao: 'teste', banco: true });
+      if (url.pathname === '/api/v1/publico/terminal/parear') {
+        return json(201, { tipo: 'estacao_impressao', terminalId: ID_NOVO, segredo: 'segredo-novo', nome: 'PC do delivery' });
+      }
+      if (estacao !== ID_NOVO && url.pathname.startsWith('/api/v1/impressao/')) {
+        return json(401, { message: 'Este equipamento foi revogado no Regem.', code: 'TERMINAL_REVOGADO' });
+      }
+      if (url.pathname === '/api/v1/impressao/pendentes') {
+        await espera(400);
+        return json(200, []);
+      }
+      if (url.pathname === '/api/v1/impressao/estacao/batida') return json(200, { impressoras: [] });
+      if (url.pathname === '/api/v1/impressao/estacao/retidos') return json(200, []);
+      return json(404, {});
+    });
+    await ouvir(recusa, P, '127.0.0.9');
+    ipNaNuvem = '127.0.0.9';
+    const e = await subirEstacao(true);
+    try {
+      const s1 = await esperar('o ícone ver a estação recusada', async () => {
+        const s = await e.estado();
+        return s.contato?.recusada === true && s;
+      });
+      expect(s1.contato).toMatchObject({ ok: false, recusada: true, erro: 'Este equipamento foi revogado no Regem.' });
+      expect(s1.conexao.alvo).toBe('127.0.0.9');
+      // A fila acabou de ser recusada: ela dorme até 1 min — o código novo a acorda.
+      await esperar('a fila ser recusada', () => pedidos.find((x) => x.caminho === '/api/v1/impressao/pendentes' && x.estacao === ID_1));
+      const par = await e.painelPedir('POST', '/parear', { codigo: '666666' });
+      expect(par).toMatchObject({ ok: true, caRenovada: false });
+      expect((await e.estado()).contato.recusada).toBe(false);
+      await esperar(
+        'a fila voltar com a credencial nova (sem esperar 1 min)',
+        () => pedidos.find((x) => x.caminho === '/api/v1/impressao/pendentes' && x.estacao === ID_NOVO),
+        15_000,
+      );
+      const s2 = await esperar('o contato bom', async () => {
+        const s = await e.estado();
+        return s.contato?.ok === true && s;
+      });
+      expect(s2.contato).toMatchObject({ recusada: false, erro: null });
+    } catch (err) {
+      console.error(e.log());
+      throw err;
+    } finally {
+      await fechar(recusa);
     }
   });
 });

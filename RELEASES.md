@@ -29,7 +29,7 @@
   manda à nuvem chega ilegível — o `backup.ps1` grava `ultimo-backup.json` com BOM (`[Text.Encoding]::UTF8`) e o
   daemon faz `JSON.parse` sem tirar o BOM; a nuvem vê "backup falhou" em toda loja desde o #546, mesmo com o backup
   em dia. Correção: o daemon tira o BOM ao ler e o `backup.ps1` grava sem BOM. Toca `edge/` → `.exe` do corte.
-- **A TV de senhas no sincronismo (decisão do dono de 24/10; PR desta entrega):** a TV sobe para a nuvem e volta
+- **A TV de senhas no sincronismo (decisão do dono de 24/10; #728):** a TV sobe para a nuvem e volta
   pareada depois de reinstalar o servidor. A TV que já existe é carimbada UMA vez pelo sync-daemon (`tv_no_envio`),
   inclusive no `--descarregar` do instalador. Vai no `.zip` e no `.exe`.
   - **Conferir na loja:** em Configurações › Equipamentos da NUVEM, a TV do servidor aparece.
@@ -42,11 +42,25 @@
     - "Novo PC com impressora" pareia de novo a estação que o PC já tinha.
   - **Só com o `.exe` (cada PC cliente):** a estação manda o tipo ao parear. Até lá, o código de caixa digitado no ícone
     da estação ainda é gasto, porque o servidor não sabe de onde veio.
-  - **Falta o PR 2 (edge, `.exe`):**
-    - a reinstalação mantém o certificado com IP novo, mais o aviso ao dono;
-    - o atalho "Regem – parear este PC";
-    - o aviso no ícone quando o servidor recusa a estação;
-    - decidir a D4.
+- **Parear sem reinstalar, PR 2 (pedido do dono de 22/10; D4 do dono de 24/10; PR desta entrega) — pede o `.exe`:**
+  - **Só com o `.exe` (servidor e cada PC cliente):**
+    - reinstalar o servidor com IP novo MANTÉM o certificado (os aparelhos usam o nome `regem.local`); se ele for
+      trocado de verdade, o gen-cert diz `CERT-TROCADO` e o fim da instalação avisa o dono do que fazer em cada PC;
+    - os avisos do fim da instalação se acumulam (antes um apagava o outro); o título vira "Instalado - leia o aviso
+      abaixo";
+    - o pacote não leva mais o `edge\certs` da máquina que monta (sobrescreveria o certificado da loja);
+    - no PC cliente, o atalho "Regem - parear este PC" (área de trabalho e Menu Iniciar), que abre o "Parear com
+      codigo..." do ícone; sai ao desinstalar;
+    - D4: o "Parear com codigo..." num servidor NOVO (CA nova "Regem Edge CA") renova também a confiança do Windows
+      (`certutil -addstore -f Root`), só depois de o servidor aceitar o código e só se a CA mudou;
+    - o ícone da estação mostra "O servidor recusou esta estacao - pareie de novo com codigo" (com o aviso do Windows
+      uma vez, que abre o pareamento) em vez de "sem servidor", e o código novo devolve a fila na hora (antes até 1 min).
+  - **No `.zip` (telas):** a faixa "Trocou o servidor da loja de máquina?" da tela Equipamentos deixa de mandar reinstalar
+    e parear tudo de novo; o "onde digitar" da estação cita o atalho.
+  - **Conferir na loja depois do `.exe`:**
+    1. no PC do delivery, o atalho "Regem - parear este PC" na área de trabalho abre a janela de parear;
+    2. revogar a estação em Configurações › Equipamentos → o ícone diz "O servidor recusou esta estacao" e avisa uma vez;
+    3. reativar ou gerar código e parear → o aviso some e a impressão volta em segundos.
 - **`desktop/` (Electron ^31, sem suporte, com o Node 20 e um Chromium antigo dentro, e `rejectUnauthorized: false` em
   `desktop/main.js:35`): NÃO é distribuído** (o instalador abre o Edge/Chrome em modo app; não há build dele nem
   registro aqui; última mudança em 31/07, #246). Não empacotar como está: se um dia for usado, subir para um Electron

@@ -153,8 +153,78 @@ describe('instalador da estação de impressão (PR 4b)', () => {
     }
   });
 
+  // PAREAR SEM REINSTALAR, parte 2 (pedido do dono de 22/10/2026): o PC cliente ganha um atalho que abre o "Parear com
+  // código..." do ícone; o servidor reinstalado mantém o certificado e, se trocar, o dono fica sabendo no fim.
+  it('parear sem reinstalar: o atalho "Regem - parear este PC" do cliente acorda o ícone da estação e sai ao desinstalar', () => {
+    const tudo = ler('instalar-tudo.ps1');
+    const cliente = tudo.slice(tudo.indexOf("$dadosEst = Join-Path $appCli 'estacao'"), tudo.indexOf('=== Cliente configurado.'));
+    expect(cliente).toMatch(/\$exeIcone = Join-Path \$Raiz 'edge\\bandeja\\RegemEstacao\.exe'/);
+    expect(cliente).toContain(`$sp.Arguments = ('--raiz "{0}" --abrir parear' -f $dadosEst)`);
+    expect(cliente).toMatch(/foreach \(\$pastaAtalho in @\(\[Environment\]::GetFolderPath\('CommonDesktopDirectory'\), \$menuRegem\)\)/);
+    expect(cliente).toContain("'Regem - parear este PC.lnk'");
+    // A pasta de dados do atalho é a do serviço (e a do ícone no login).
+    expect(ler('instalar-estacao-impressao.ps1')).toMatch(/\$dados = Join-Path \$app 'estacao'/);
+    const iss = ler('regem-edge.iss');
+    expect(iss).toMatch(/\[UninstallDelete\][\s\S]*\{commondesktop\}\\Regem - parear este PC\.lnk[\s\S]*\{commonprograms\}\\Regem\\Regem - parear este PC\.lnk/);
+    // A segunda instância (o atalho com o ícone já aberto) acorda a primeira pelo mesmo sinal que ela escuta.
+    const cs = ler('bandeja/RegemEstacao.cs');
+    expect(cs).toContain('public const string SinalDeParear = "Local\\\\RegemEstacaoParear";');
+    expect(cs).toMatch(/new EventWaitHandle\(false, EventResetMode\.AutoReset, SinalDeParear\)/);
+    expect(cs).toMatch(/if \(abrir == "parear"\)[\s\S]{0,200}EventWaitHandle\.OpenExisting\(Bandeja\.SinalDeParear\)\) ev\.Set\(\)/);
+    expect([...cs].filter((c) => c.charCodeAt(0) > 127)).toEqual([]); // o csc lê na página de código do Windows
+    // A atualização (.zip) troca o ícone só de atalho do navegador: este (aponta para o .exe do ícone) fica como está.
+    expect(ler('atualizacao-comum.ps1')).toContain("$sc.TargetPath -match '(msedge|chrome)\\.exe$'");
+  });
+
+  it('parear sem reinstalar: o certificado de UMA máquina não vai no pacote; certificado trocado vira aviso ao dono', () => {
+    const pacote = ler('package.mjs');
+    const corpo = pacote.slice(pacote.indexOf('const semBundle = (s) =>'), pacote.indexOf('cpSync(src'));
+    const barras = [...corpo.matchAll(/!\/(.+?)\/\.test\(s\)/g)].map((m) => new RegExp(m[1]));
+    const barra = (p: string) => barras.some((r) => r.test(p));
+    expect(barra('C:\\pacote\\backend\\edge\\certs')).toBe(true);
+    expect(barra('C:\\pacote\\backend\\edge\\certs\\servidor-ca.pem')).toBe(true);
+    expect(barra('/pacote/backend/edge/certs/key.pem')).toBe(true);
+    expect(barra('C:\\pacote\\backend\\edge\\gen-cert.mjs')).toBe(false);
+    expect(barra('C:\\pacote\\backend\\edge\\regem.ico')).toBe(false);
+    // O gen-cert diz quando trocou um certificado que havia; o instalador lê a linha e avisa o dono.
+    expect(ler('gen-cert.mjs')).toContain('if (havia) console.log(`CERT-TROCADO: ${motivo}`)');
+    const tudo = ler('instalar-tudo.ps1');
+    expect(tudo).toContain('$saidaCert = & $node "edge\\gen-cert.mjs" $ip');
+    expect(tudo).toContain(`$certTrocado = @($saidaCert) | Where-Object { "$_" -like 'CERT-TROCADO:*' } | Select-Object -First 1`);
+    expect(tudo).toMatch(/if \(\$certTrocado\) \{\s+Avisar-Dono/);
+    expect(tudo.charCodeAt(0)).toBe(0xfeff); // tem acento nos comentários: com o BOM o PowerShell 5.1 lê como UTF-8 (V19)
+  });
+
+  (ps && existsSync(ps) ? it : it.skip)('o instalador parseia no PowerShell 5.1 e os avisos ao dono se ACUMULAM (o do certificado não some sob outro)', () => {
+    const pasta = mkdtempSync(join(tmpdir(), 'regem-avisos-'));
+    try {
+      const roteiro = join(pasta, 'roteiro.ps1');
+      writeFileSync(roteiro, [
+        'param($Instalador, $Pasta)',
+        "$ErrorActionPreference = 'Stop'",
+        '$t = $null; $e = $null',
+        '$ast = [System.Management.Automation.Language.Parser]::ParseFile($Instalador, [ref]$t, [ref]$e)',
+        "$f = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Avisar-Dono' }, $true)",
+        '. ([ScriptBlock]::Create($f.Extent.Text))',
+        '$logDir = $Pasta',
+        '$script:avisosAoDono = New-Object System.Collections.Generic.List[string]',
+        "Avisar-Dono 'Os dados da loja ainda nao chegaram.'",
+        "Avisar-Dono ''",
+        "Avisar-Dono 'O certificado deste servidor foi trocado.'",
+        '@{ erros = @($e | ForEach-Object { $_.Message }); versao = $PSVersionTable.PSVersion.Major } | ConvertTo-Json -Compress',
+      ].join('\r\n'));
+      const saida = execFileSync(ps, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', roteiro, '-Instalador', join(EDGE, 'instalar-tudo.ps1'), '-Pasta', pasta], { encoding: 'utf8' });
+      const r = JSON.parse(saida.trim().split(/\r?\n/).pop()!);
+      expect(r).toEqual({ erros: [], versao: 5 });
+      const aviso = readFileSync(join(pasta, 'INSTALOU-AVISO.txt'), 'utf8').replace(/^\uFEFF/, '');
+      expect(aviso.trimEnd().split('\r\n\r\n')).toEqual(['Os dados da loja ainda nao chegaram.', 'O certificado deste servidor foi trocado.']);
+    } finally {
+      rmSync(pasta, { recursive: true, force: true });
+    }
+  });
+
   // Compila de verdade só no Windows (o .NET Framework 4.8 vem no sistema); no CI (Linux) é pulado.
-  const csc = process.env.SystemRoot ? join(process.env.SystemRoot, 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe') : '';
+  const csc =process.env.SystemRoot ? join(process.env.SystemRoot, 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe') : '';
   (csc && existsSync(csc) ? it : it.skip)('o ícone (RegemEstacao.cs) compila com o compilador do Windows, com o ícone do Regem no .exe', () => {
     const pasta = mkdtempSync(join(tmpdir(), 'regem-icone-'));
     try {

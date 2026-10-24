@@ -21,7 +21,10 @@ export function ondeDigitar(tipo: string): OndeDigitar | null {
         'Escolha "Parear com codigo...".',
         'Digite os 6 números e clique em "Parear". As impressoras dela continuam as mesmas.',
       ],
-      obs: 'PC novo, sem o Regem? Rode o RegemEdgeSetup.exe, escolha "Cliente" e, na tela "Este PC", marque "Este PC tem impressora" e digite o código.',
+      // O atalho é do instalador a partir da parte 2 do "parear sem reinstalar" (instalar-tudo.ps1, modo cliente).
+      obs:
+        'Sem o ícone perto do relógio? Abra o atalho "Regem - parear este PC" na área de trabalho. ' +
+        'PC novo, sem o Regem? Rode o RegemEdgeSetup.exe, escolha "Cliente" e, na tela "Este PC", marque "Este PC tem impressora" e digite o código.',
     };
   if (tipo === 'tela_senhas') return { titulo: 'Na TV de senhas', passos: ['A TV mostra "Parear esta TV".', 'Digite os 6 números.'] };
   return null;

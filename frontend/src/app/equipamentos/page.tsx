@@ -258,9 +258,13 @@ export default function EquipamentosPage() {
                 <Button type="button" variant="outline" size="sm" onClick={() => setVerAvisos(true)}>Ver produtos</Button>
               </div>
             )}
+            {/* Parear sem reinstalar, parte 2 (pedido do dono de 22/10/2026): o servidor novo não obriga a reinstalar os PCs. */}
             <p className="rounded-md border-l-4 border-input bg-secondary px-3 py-2 text-sm">
-              <strong>Trocou o servidor local de máquina?</strong> Reinstale/repareie os equipamentos (impressoras, KDS e Terminais de Ponto){' '}
-              <strong>um a um</strong> no novo servidor. Cada aparelho gera um token/pareamento novo — não reaproveite os antigos, para evitar conflito.
+              <strong>Trocou o servidor da loja de máquina?</strong> Não reinstale os PCs nem cadastre os equipamentos de novo. Em cada PC
+              com o ícone “Regem neste PC” perto do relógio, gere o código da estação dele (<strong>Gerar código</strong>, no Regem do servidor
+              da loja, ou no ícone “Regem — servidor da loja”) e digite-o em <strong>Parear com codigo...</strong>, no ícone do PC ou no atalho
+              “Regem - parear este PC”. Assim o PC volta a confiar no servidor novo. Se o navegador do PC ainda mostrar erro de certificado, ou
+              se o PC não tem o ícone, rode o RegemEdgeSetup.exe nele, no modo Cliente.
             </p>
             {pode && (
               <Card className="flex flex-wrap items-center justify-between gap-3 p-4">

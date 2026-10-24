@@ -81,33 +81,48 @@ describe('certificado do servidor da loja (edge/gen-cert.mjs)', () => {
     expect(conteudo(d)).toBe(antes);
   });
 
-  it('IP que não é desta máquina: conjunto novo, e o anterior fica guardado para o suporte devolver', () => {
+  // Parear sem reinstalar (pedido do dono de 22/10/2026): o roteador deu outro IP ao servidor e a reinstalação trocava a
+  // CA — TODOS os PCs da loja paravam (erro de certificado no navegador; a estação "não é o servidor desta loja") até
+  // cada um ser reinstalado. Os aparelhos falam pelo NOME regem.local e conferem o certificado por ele: o IP não é mais
+  // motivo de troca.
+  it('IP que não é desta máquina (o roteador deu outro ao servidor): MANTÉM o conjunto, com a nota no log', () => {
+    // Certificado sem IP e o instalador passando um: antes trocava para incluir o IP; agora fica.
     const d = copia(semIp);
     const antes = conteudo(d);
     const saida = gerar(d, FORA);
-    expect(saida).toContain('Certificado NOVO');
-    expect(saida).toContain(`nao cobre o IP ${FORA}`);
+    expect(saida).toContain('Certificado MANTIDO');
+    expect(saida).not.toContain('CERT-TROCADO');
+    expect(conteudo(d)).toBe(antes);
+    expect(readdirSync(d).some((n) => n.startsWith('anterior-'))).toBe(false);
+
+    // Certificado com um IP que não é de nenhuma placa desta máquina: fica, e o log diz por quê.
+    const d2 = pasta();
+    expect(gerar(d2, FORA)).toContain('Certificado NOVO'); // instalação nova (sem conjunto): sem marcador de troca
+    expect(ipsDoCert(d2)).toContain(FORA);
+    const antes2 = conteudo(d2);
+    const denovo = gerar(d2, FORA);
+    expect(denovo).toContain('Certificado MANTIDO');
+    expect(conteudo(d2)).toBe(antes2);
+    if (ipsDaMaquina().length) expect(denovo).toContain(`o IP do certificado (${FORA}) nao e mais desta maquina - MANTIDO: os aparelhos usam o nome regem.local`);
+  });
+
+  it('troca de verdade (havia um conjunto): o marcador CERT-TROCADO para o instalador avisar o dono; instalação nova, sem ele', () => {
+    const d0 = pasta();
+    expect(gerar(d0)).not.toContain('CERT-TROCADO');
+    const d = copia(semIp);
+    const antes = conteudo(d);
+    const saida = gerar(d, '--novo');
+    expect(saida).toContain('CERT-TROCADO: pedido um certificado novo (--novo)');
     expect(saida).toContain('precisam confiar neste');
-    expect(ipsDoCert(d)).toContain(FORA);
     const guardada = readdirSync(d).find((n) => n.startsWith('anterior-'));
     expect(guardada).toBeDefined();
     expect(ARQUIVOS.map((n) => readFileSync(join(d, guardada!, n), 'utf8')).join('\n')).toBe(antes);
-
-    // Rodando de novo: o IP gravado não é de nenhuma placa desta máquina. Sem rede nenhuma
-    // agora não dá para julgar, e aí mantém (trocar a CA derrubaria todos os aparelhos).
-    const denovo = gerar(d, FORA);
-    if (ipsDaMaquina().length) {
-      expect(denovo).toContain('Certificado NOVO');
-      expect(denovo).toContain(`o IP do certificado (${FORA}) nao e mais desta maquina`);
-    } else {
-      expect(denovo).toContain('Certificado MANTIDO');
-    }
   });
 
   it('certificado de outra CA, chave trocada ou arquivo ilegível: conjunto novo, com o motivo', () => {
     const d1 = copia(semIp);
     copyFileSync(join(outro, 'ca.pem'), join(d1, 'ca.pem'));
-    expect(gerar(d1)).toContain('o certificado nao foi assinado por esta CA');
+    expect(gerar(d1)).toContain('CERT-TROCADO: o certificado nao foi assinado por esta CA');
 
     const d2 = copia(semIp);
     copyFileSync(join(outro, 'server.key'), join(d2, 'server.key'));

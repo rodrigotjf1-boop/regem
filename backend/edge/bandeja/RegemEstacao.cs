@@ -275,6 +275,8 @@ namespace Regem.Estacao
             // Sem contato = a fila falhou (o mesmo criterio da bolinha vermelha). Antes da primeira
             // resposta da fila, a ultima resposta do teste da partida ja diz que o servidor esta la.
             bool falhou = ct != null && !E.Sim(ct, "ok") && E.Txt(ct, "erro") != "";
+            // Recusada (o servidor respondeu e nao aceitou esta estacao): nao e "sem servidor" - pareie de novo com codigo.
+            if (E.Sim(ct, "recusada")) return "O servidor recusou esta estacao - pareie de novo com codigo";
             if (!E.Sim(c, "local")) return falhou ? "Sem contato com a nuvem do Regem" : "Ligada a nuvem do Regem";
             if (!falhou && (E.Sim(ct, "ok") || E.Txt(c, "ultimaResposta") != ""))
                 return "Ligado ao servidor - " + Endereco(c) + (E.Num(c, "latenciaMs") > 0 ? " - responde em " + E.Num(c, "latenciaMs") + " ms" : "");
@@ -303,6 +305,12 @@ namespace Regem.Estacao
         string buscaAvisada = ""; // a busca (pelo horario dela) que ja virou aviso
         bool semServidorAvisado;
         string abrirAoLer; // --abrir painel|trocar|parear: abre a tela depois da primeira leitura
+        // Parear sem reinstalar (22/10/2026): a recusa do servidor vira aviso do Windows UMA vez; clicar nele abre o
+        // "Parear com codigo...". E o atalho "Regem - parear este PC", com o icone ja aberto, so acorda este pelo sinal.
+        bool recusaAvisada;
+        bool balaoDeRecusa;
+        EventWaitHandle pedidoDeParear;
+        public const string SinalDeParear = "Local\\RegemEstacaoParear";
 
         public Painel Servico { get { return painel; } }
 
@@ -317,6 +325,17 @@ namespace Regem.Estacao
             icone.ContextMenuStrip = menu;
             icone.Visible = true;
             icone.DoubleClick += delegate { AbrirPainel(); };
+            icone.BalloonTipClicked += delegate { if (balaoDeRecusa) { balaoDeRecusa = false; Parear(); } };
+            icone.BalloonTipClosed += delegate { balaoDeRecusa = false; };
+            try
+            {
+                pedidoDeParear = new EventWaitHandle(false, EventResetMode.AutoReset, SinalDeParear);
+                ThreadPool.RegisterWaitForSingleObject(pedidoDeParear, delegate
+                {
+                    try { ui.BeginInvoke(new MethodInvoker(delegate { Parear(); })); } catch { }
+                }, null, -1, false);
+            }
+            catch { /* sem o sinal: o atalho abre so quando o icone nao esta aberto */ }
             menu.Opening += delegate { MontarMenu(); };
             MontarMenu();
             relogio.Interval = 3000;
@@ -397,6 +416,18 @@ namespace Regem.Estacao
         void Avisar()
         {
             if (estado == null) return;
+            // O servidor recusou esta estacao: um aviso por recusa; clicar abre o "Parear com codigo...".
+            bool recusada = E.Sim(E.Obj(estado, "contato"), "recusada");
+            if (recusada && !recusaAvisada)
+            {
+                recusaAvisada = true;
+                balaoDeRecusa = true;
+                icone.ShowBalloonTip(20000, "O servidor recusou esta estacao",
+                    "Os cupons esperam aqui. Clique neste aviso para parear com um codigo novo (gere em Configuracoes > Equipamentos > a estacao > Gerar codigo).",
+                    ToolTipIcon.Warning);
+                SystemSounds.Exclamation.Play();
+            }
+            if (!recusada) recusaAvisada = false;
             HashSet<string> agora = new HashSet<string>();
             foreach (Dictionary<string, object> i in E.Lista(estado, "impressoras"))
             {
@@ -543,7 +574,27 @@ namespace Regem.Estacao
         {
             string codigo = PedirCodigo(estado);
             if (codigo == null) return;
-            Executar(delegate { painel.Chamar("POST", "/parear", new Dictionary<string, object> { { "codigo", codigo } }, 30000); }, "Pareado. Este PC ja fala com o servidor com o cadastro novo.");
+            // D4 (24/10/2026): servidor NOVO (certificado novo) - o servico passa a confiar nele tambem no Windows; o
+            // navegador deste PC so ve a confianca nova quando o Regem e aberto de novo.
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                Dictionary<string, object> r = null;
+                string erro = null;
+                try { r = painel.Chamar("POST", "/parear", new Dictionary<string, object> { { "codigo", codigo } }, 30000); } catch (Exception e) { erro = e.Message; }
+                try
+                {
+                    ui.BeginInvoke(new MethodInvoker(delegate
+                    {
+                        if (erro != null) MessageBox.Show(erro, "Regem neste PC", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        else if (E.Sim(r, "caRenovada"))
+                            icone.ShowBalloonTip(15000, "Pareado com o servidor novo",
+                                "Este PC passou a confiar no certificado novo da loja. Feche e abra o Regem neste PC (o atalho da area de trabalho).", ToolTipIcon.Info);
+                        else icone.ShowBalloonTip(5000, "Regem", "Pareado. Este PC ja fala com o servidor com o cadastro novo.", ToolTipIcon.Info);
+                        Ler();
+                    }));
+                }
+                catch { }
+            });
         }
         public void Executar(ThreadStart chamada, string okTexto)
         {
@@ -969,7 +1020,8 @@ namespace Regem.Estacao
             conexao.Text = string.Join(Environment.NewLine, linhas.ToArray());
             bool local = c != null && E.Sim(c, "local");
             bool semServidor = E.Sim(est, "pareada") && ct != null && !E.Sim(ct, "ok") && E.Txt(ct, "erro") != "";
-            bProcurar.Visible = local && (semServidor || !E.Sim(est, "pareada"));
+            // Recusada pelo servidor: procurar nao adianta (ele respondeu e recusou) - o caminho e parear de novo.
+            bProcurar.Visible = local && !E.Sim(ct, "recusada") && (semServidor || !E.Sim(est, "pareada"));
             bProcurar.Enabled = c != null && !E.Sim(c, "buscando");
             bTestar.Enabled = c != null && !E.Sim(c, "buscando");
             bTrocar.Visible = c == null || local || !E.Sim(est, "pareada");
@@ -993,7 +1045,15 @@ namespace Regem.Estacao
             List<string> avisos = new List<string>();
             bool vermelho = false;
             if (!E.Sim(est, "pareada")) avisos.Add("Este PC ainda nao foi pareado: clique em \"Parear com codigo...\".");
-            if (c != null && !E.Sim(c, "ok") && E.Txt(c, "erro") != "")
+            if (c != null && E.Sim(c, "recusada"))
+            {
+                // Parear sem reinstalar (22/10/2026): o servidor respondeu e RECUSOU esta estacao (revogada no Regem, ou
+                // pareada de novo em outro PC). Nao e "sem servidor": o caminho e um codigo novo, sem reinstalar.
+                avisos.Add("O servidor da loja recusou esta estacao (" + E.Txt(c, "erro") + "). Gere um codigo no Regem (Configuracoes > Equipamentos > " +
+                    (E.Txt(est, "nome") != "" ? E.Txt(est, "nome") : "a estacao") + " > Gerar codigo) e clique em \"Parear com codigo...\". Os cupons esperam aqui.");
+                vermelho = true;
+            }
+            else if (c != null && !E.Sim(c, "ok") && E.Txt(c, "erro") != "")
             {
                 avisos.Add("Sem contato com o servidor: " + E.Txt(c, "erro") + ". O Regem procura o servidor sozinho; os cupons esperam aqui.");
                 vermelho = true;
@@ -1073,7 +1133,15 @@ namespace Regem.Estacao
             bool novo;
             using (Mutex m = new Mutex(true, "Local\\RegemEstacaoBandeja", out novo))
             {
-                if (!novo) return 0;
+                if (!novo)
+                {
+                    // O icone ja esta aberto: o atalho "Regem - parear este PC" (--abrir parear) so o acorda.
+                    if (abrir == "parear")
+                    {
+                        try { using (EventWaitHandle ev = EventWaitHandle.OpenExisting(Bandeja.SinalDeParear)) ev.Set(); } catch { }
+                    }
+                    return 0;
+                }
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
                 Application.Run(new Bandeja(p, abrir));

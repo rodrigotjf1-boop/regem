@@ -43,7 +43,7 @@ import https from 'node:https';
 import { readFileSync, writeFileSync, unlinkSync, appendFileSync, mkdirSync, existsSync } from 'node:fs';
 import { tmpdir, hostname, networkInterfaces } from 'node:os';
 import { join, dirname } from 'node:path';
-import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { X509Certificate, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { renderEscpos } from './escpos.mjs';
 import { imprimirRedeComEstado } from './impressora-estado.mjs';
@@ -115,6 +115,32 @@ function guardarCa(ca) {
   return arq;
 }
 
+// D4 (decisão do dono, 24/10/2026 — parear sem reinstalar): no PC de um servidor NOVO (certificado novo), o "Parear com
+// codigo..." do ícone renova também a confiança do WINDOWS — para o navegador deste PC abrir o Regem sem erro de
+// certificado, sem reinstalar o PC. É a mesma confiança que o instalador dá (o certificado da loja na rede da loja), e só
+// depois de o servidor ACEITAR o código (prova de que é o servidor desta loja), só se a CA mudou e só se ela é uma CA
+// "Regem Edge CA". O serviço da estação roda como sistema: importa em LocalMachine\Root sem pedir confirmação.
+// ESTACAO_CONFIAR_CA_ARQ (só teste): grava a CA nesse arquivo em vez de mexer no Windows.
+function ehCaDaLoja(caPem) {
+  try {
+    const x = new X509Certificate(caPem);
+    return x.ca === true && /CN=Regem Edge CA/.test(x.subject);
+  } catch {
+    return false;
+  }
+}
+function confiarCaNoWindows(caArq) {
+  const destinoDeTeste = process.env.ESTACAO_CONFIAR_CA_ARQ;
+  if (destinoDeTeste) {
+    writeFileSync(destinoDeTeste, readFileSync(caArq));
+    return true;
+  }
+  if (process.platform !== 'win32') return false;
+  const certutil = join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'certutil.exe');
+  execFileSync(certutil, ['-addstore', '-f', 'Root', caArq], { stdio: 'pipe', timeout: 30_000 });
+  return true;
+}
+
 async function parear(codigo, { servidor, api }) {
   let base;
   let ca = null;
@@ -133,7 +159,18 @@ async function parear(codigo, { servidor, api }) {
     throw new Error('Este código é de outro tipo de equipamento. No Regem, gere o código na ESTAÇÃO DE IMPRESSÃO.');
   }
   mkdirSync(RAIZ, { recursive: true });
+  // A CA de antes (a deste PC): mudou = servidor novo → o Windows passa a confiar na nova (D4, acima).
+  const arqCa = join(RAIZ, 'certs', 'servidor-ca.pem');
+  const caAntes = existsSync(arqCa) ? readFileSync(arqCa, 'utf8').trim() : null;
   const caArq = ca ? guardarCa(ca) : null;
+  let caRenovada = false;
+  if (ca && caArq && caAntes !== ca.trim() && ehCaDaLoja(ca)) {
+    try {
+      caRenovada = confiarCaNoWindows(caArq);
+    } catch (e) {
+      console.warn(`  a estação pareou, mas o Windows não aceitou o certificado novo da loja (${e?.message ?? e}) — o navegador deste PC pode mostrar erro de certificado; rode o instalador no modo Cliente.`);
+    }
+  }
   const linhas = [
     `REGEM_API=${base}`,
     caArq ? `REGEM_CA=${caArq}` : null,
@@ -150,7 +187,8 @@ async function parear(codigo, { servidor, api }) {
       { stdio: 'inherit' },
     );
   }
-  console.log(`Estação de impressão pareada: ${r.json.nome}`);
+  console.log(`Estação de impressão pareada: ${r.json.nome}${caRenovada ? ' (o Windows passou a confiar no certificado novo da loja)' : ''}`);
+  return { caRenovada };
 }
 
 // ===== IMPRESSORA USB (spooler do Windows) =====
@@ -681,6 +719,7 @@ async function bater() {
   try {
     const inicio = Date.now();
     const r = await api('POST', '/impressao/estacao/batida', { versao: VERSAO, maquina: MAQUINA, impressoras: impressorasDoWindows, estados: lista }, 15000);
+    if (r.status === 401) return marcarRecusa(r);
     if (r.status < 500) marcarResposta({ ip: r.ip, ms: Date.now() - inicio }); // o tempo de resposta que o ícone mostra
     // As impressoras ligadas nesta estação (o painel mostra cada uma, mesmo antes do primeiro cupom).
     if (r.status < 300 && Array.isArray(r.json?.impressoras)) impressorasDaEstacao = r.json.impressoras;
@@ -699,19 +738,28 @@ async function lerRetidos() {
   } catch { /* rede: a próxima leitura tenta */ }
 }
 
+// O servidor RECUSOU esta estação (401: revogada, ou pareada de novo noutro PC): não é "sem servidor" — procurar não
+// adianta. O ícone mostra "o servidor recusou esta estação" e o aviso do Windows leva ao "Parear com codigo..."
+// (parear sem reinstalar, 22/10/2026). `recusada` some na primeira resposta boa.
+function marcarRecusa(r) {
+  const motivo = typeof r?.json?.message === 'string' && r.json.message.trim() ? r.json.message.trim().slice(0, 200) : 'a estação foi recusada (revogada ou não pareada)';
+  if (!contato.recusada) console.error(`  o servidor recusou a estação (${motivo}) — gere um código no Regem e pareie de novo`);
+  Object.assign(contato, { ok: false, em: new Date().toISOString(), erro: motivo, recusada: true });
+}
+
 // ===== CICLO: espera longa na fila =====
 let falhasSeguidas = 0;
 async function ciclo() {
   try {
     const r = await api('POST', '/impressao/pendentes', { espera: 25, excluir: foraDaReserva() }, 45_000);
     if (r.status === 401) {
-      console.error('  a estação foi recusada (revogada ou não pareada) — gere um código no Regem e pareie de novo');
-      Object.assign(contato, { ok: false, em: new Date().toISOString(), erro: 'a estação foi recusada (revogada ou não pareada)' });
-      await sleep(60_000);
+      marcarRecusa(r);
+      // Pareou de novo pelo ícone → a fila volta na hora (antes, até 1 min sem imprimir depois do código novo).
+      await new Promise((ok) => { acordarPareamento = ok; setTimeout(ok, 60_000); });
       return;
     }
     if (r.status >= 400) throw new Error(`fila HTTP ${r.status}`);
-    Object.assign(contato, { ok: true, em: new Date().toISOString(), erro: null });
+    Object.assign(contato, { ok: true, em: new Date().toISOString(), erro: null, recusada: false });
     const ipNovo = !!r.ip && r.ip !== ultimoIp;
     marcarResposta({ ip: r.ip });
     if (ipNovo) salvarConexao();
@@ -878,7 +926,9 @@ async function parearPeloPainel(codigo, endereco) {
   }
   const apiNuvem = servidor ? undefined : process.env.ESTACAO_API_PAREAR || undefined;
   if (!servidor && !apiNuvem) throw new Error('A estação não sabe o endereço do servidor da loja — digite o endereço dele.');
-  await parear(String(codigo), { servidor, api: apiNuvem });
+  const { caRenovada } = await parear(String(codigo), { servidor, api: apiNuvem });
+  // A credencial nova ainda não foi recusada: o ícone para de dizer "o servidor recusou esta estação".
+  Object.assign(contato, { recusada: false, erro: null });
   // Lê o .env.local novo no lugar do antigo (as variáveis do arquivo anterior saem antes).
   for (const k of ['REGEM_API', 'REGEM_CA', 'ESTACAO_ID', 'ESTACAO_SEGREDO', 'ESTACAO_NOME']) delete process.env[k];
   carregarEnvArquivo(ENV_ARQ);
@@ -889,7 +939,8 @@ async function parearPeloPainel(codigo, endereco) {
     void lerRetidos();
   }
   acordarPareamento?.();
-  return { ok: true, nome: process.env.ESTACAO_NOME || null };
+  // `caRenovada`: o ícone diz "feche e abra o Regem neste PC" (o navegador passa a confiar no certificado novo).
+  return { ok: true, nome: process.env.ESTACAO_NOME || null, caRenovada };
 }
 
 function lerCorpo(req) {
