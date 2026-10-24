@@ -104,6 +104,14 @@ $logDir = Join-Path $root "logs"; New-Item -ItemType Directory -Force $logDir | 
 Remove-Item (Join-Path $logDir 'ULTIMO-ERRO.txt') -Force -ErrorAction SilentlyContinue
 Remove-Item (Join-Path $logDir 'INSTALOU-OK.flag') -Force -ErrorAction SilentlyContinue
 Remove-Item (Join-Path $logDir 'INSTALOU-AVISO.txt') -Force -ErrorAction SilentlyContinue
+# Os avisos ao dono no fim da instalacao (o Inno mostra INSTALOU-AVISO.txt): ACUMULADOS - antes cada aviso gravava por
+# cima do anterior e o do certificado trocado (parear sem reinstalar, 22/10/2026) sumiria sob o dos dados da loja.
+$script:avisosAoDono = New-Object System.Collections.Generic.List[string]
+function Avisar-Dono([string]$texto) {
+  if (-not $texto) { return }
+  $script:avisosAoDono.Add($texto)
+  try { Set-Content -Path (Join-Path $logDir 'INSTALOU-AVISO.txt') -Value ($script:avisosAoDono -join "`r`n`r`n") -Encoding UTF8 -ErrorAction SilentlyContinue } catch { }
+}
 $log = Join-Path $logDir ("instalar-{0}.log" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
 # Grava TODA a saida (inclusive erros de npm/node/initdb/postgres) no log — o
 # arquivo fica em logs\instalar-*.log para enviar ao suporte quando algo falhar.
@@ -690,13 +698,33 @@ if ($Modo -eq 'cliente') {
     if ("$fimEst" -like 'SEM-PAREAMENTO*' -and $temCodigo) {
       $avisoEst = "A estacao de impressao foi instalada, mas ainda NAO esta pareada (" + ("$fimEst" -replace '^SEM-PAREAMENTO:\s*', '') + "). " +
         "Gere um codigo novo no Regem (Configuracoes > Equipamentos > Gerar codigo da estacao) e use 'Parear com codigo...' no icone ao lado do relogio."
-      Set-Content -Path (Join-Path $logDir 'INSTALOU-AVISO.txt') -Value $avisoEst -Encoding UTF8 -ErrorAction SilentlyContinue
+      Avisar-Dono $avisoEst
     }
   } catch {
     $avisoEst = "O Regem neste PC (estacao) NAO foi instalado: " + $_.Exception.Message + ". O atalho do Regem funciona; rode o instalador de novo para tentar."
     Diga $avisoEst
-    Set-Content -Path (Join-Path $logDir 'INSTALOU-AVISO.txt') -Value $avisoEst -Encoding UTF8 -ErrorAction SilentlyContinue
+    Avisar-Dono $avisoEst
   }
+
+  # 4) Atalho "Regem - parear este PC" (parear sem reinstalar, pedido do dono de 22/10/2026): abre o "Parear com
+  #    codigo..." do icone "Regem neste PC" (com o icone ja aberto, so o acorda). Area de trabalho e Menu Iniciar.
+  try {
+    $exeIcone = Join-Path $Raiz 'edge\bandeja\RegemEstacao.exe'
+    if (Test-Path $exeIcone) {
+      $wsP = New-Object -ComObject WScript.Shell
+      $menuRegem = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'Regem'
+      New-Item -ItemType Directory -Path $menuRegem -Force -ErrorAction SilentlyContinue | Out-Null
+      foreach ($pastaAtalho in @([Environment]::GetFolderPath('CommonDesktopDirectory'), $menuRegem)) {
+        $sp = $wsP.CreateShortcut((Join-Path $pastaAtalho 'Regem - parear este PC.lnk'))
+        $sp.TargetPath = $exeIcone
+        $sp.Arguments = ('--raiz "{0}" --abrir parear' -f $dadosEst)
+        $sp.IconLocation = "$exeIcone,0"
+        $sp.Description = 'Parear este PC com um codigo novo do Regem, sem reinstalar'
+        $sp.Save()
+      }
+      Diga "Atalho 'Regem - parear este PC' criado (area de trabalho e Menu Iniciar)."
+    }
+  } catch { Diga "Aviso: nao consegui criar o atalho 'Regem - parear este PC': $($_.Exception.Message)" }
 
   Diga "=== Cliente configurado. Abra o atalho 'Regem'. O pareamento e feito na 1a abertura (codigo de 6 digitos gerado no Servidor). ==="
   Set-Content -Path (Join-Path $logDir 'INSTALOU-OK.flag') -Value 'ok' -Encoding ascii -ErrorAction SilentlyContinue
@@ -1162,6 +1190,15 @@ $saidaCert = & $node "edge\gen-cert.mjs" $ip
 $rcCert = $LASTEXITCODE
 foreach ($l in @($saidaCert)) { if ($l) { Diga "  $l" } }
 if ($rcCert -ne 0) { throw "nao consegui gerar nem manter o certificado HTTPS local (gen-cert rc=$rcCert)." }
+# Certificado TROCADO numa reinstalacao (havia um; o gen-cert diz "CERT-TROCADO: <motivo>"): os PCs da loja confiavam
+# no anterior e passam a ver erro de certificado. Avisa o dono no fim, com o que fazer (parear sem reinstalar, 22/10/2026).
+$certTrocado = @($saidaCert) | Where-Object { "$_" -like 'CERT-TROCADO:*' } | Select-Object -First 1
+if ($certTrocado) {
+  Avisar-Dono ("O certificado deste servidor foi trocado (" + ("$certTrocado" -replace '^CERT-TROCADO:\s*', '') + "). " +
+    "Em cada PC da loja com o icone 'Regem neste PC' perto do relogio: botao direito > 'Parear com codigo...' (gere o codigo em " +
+    "Configuracoes > Equipamentos > a estacao > Gerar codigo) - o PC volta a confiar no servidor. PC sem esse icone: rode o " +
+    "RegemEdgeSetup.exe nele, no modo Cliente.")
+}
 
 # ---- Extrai o app do TAR (evita MAX_PATH) ----
 # O web/ (Next standalone) vem no pacote como web.tar (1 arquivo) porque a copia
@@ -1387,7 +1424,7 @@ if ($dados.loja -and ($dados.usuarios -gt 0)) {
   $motivo = if ($dados.erro) { "a sincronizacao com a nuvem esta falhando: $($dados.erro)" } else { 'a primeira sincronizacao ainda nao terminou' }
   $aviso = "O Regem foi instalado, mas os dados da loja ainda nao chegaram a este servidor ($motivo). A distribuicao do Regem ja foi avisada; o servidor continua tentando sozinho."
   Diga "AVISO: $aviso"
-  try { Set-Content -Path (Join-Path $logDir 'INSTALOU-AVISO.txt') -Value $aviso -Encoding UTF8 -ErrorAction SilentlyContinue } catch { }
+  Avisar-Dono $aviso
   # Telemetria COM o nome da loja: a rota autenticada pelo token do servidor tira a loja do
   # token. Sem ela (token recusado, rede), vai pela rota publica da instalacao, sem a loja.
   $cloudBase = $CloudApi.TrimEnd('/')

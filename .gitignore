@@ -33,6 +33,10 @@ backend/edge/Output/
 # servidor nunca vai para o git (cada loja gera o seu na instalação).
 backend/edge/certs/
 
+# Chave do ícone do servidor da loja (bandeja.key): o sistema a cria ao ligar, na pasta em que roda. Rodar a API no
+# repositório a cria aqui; ela nunca vai para o git.
+backend/bandeja.key
+
 # Mídia gravada em disco no modo local/offline (não versionar uploads de teste)
 backend/uploads/
 uploads/

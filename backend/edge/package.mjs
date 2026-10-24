@@ -37,8 +37,11 @@ export const FERRAMENTAS_DISTRIBUICAO = new Set([
   'backfill-clientes.mjs',
 ]);
 const nomeDe = (s) => s.split(/[\\/]/).pop();
+// `edge/certs` (o certificado HTTPS de UMA máquina — o servidor da loja gera o dele): se existir no PC que monta o
+// pacote, não vai; senão o instalador sobrescreveria o certificado da loja e todos os PCs dela parariam.
 const semBundle = (s) =>
   !/[\\/](bundle|node_modules|Output)([\\/]|$)/.test(s) &&
+  !/[\\/]edge[\\/]certs([\\/]|$)/.test(s) &&
   !VAZA_LOGICA.test(s) &&
   !SEGREDO.test(s) &&
   !FERRAMENTAS_DISTRIBUICAO.has(nomeDe(s));

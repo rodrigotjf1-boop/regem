@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { lastValueFrom, of } from 'rxjs';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
@@ -28,6 +30,25 @@ describe('onde digitar e o mesmo lugar de parear (sem banco)', () => {
     expect(ondeDigitar('tela_senhas')?.passos[0]).toContain('"Parear esta TV"');
     expect(ondeDigitar('kds')).toBeNull();
   });
+  // V65: cada nome que o texto cita existe onde ele manda a pessoa (a tela, o ícone, o instalador).
+  it('parte 2: o atalho "Regem - parear este PC" e a faixa da tela Equipamentos citam o que existe', () => {
+    const raiz = join(__dirname, '..', '..', '..', '..');
+    const ler = (...p: string[]) => readFileSync(join(raiz, ...p), 'utf8');
+    const atalho = 'Regem - parear este PC';
+    expect(ondeDigitar('estacao_impressao')?.obs).toContain(`"${atalho}" na área de trabalho`);
+    expect(ler('backend', 'edge', 'instalar-tudo.ps1')).toContain(`'${atalho}.lnk'`);
+    const pagina = ler('frontend', 'src', 'app', 'equipamentos', 'page.tsx');
+    const faixa = pagina.slice(pagina.indexOf('Trocou o servidor da loja de máquina?'), pagina.indexOf('</p>', pagina.indexOf('Trocou o servidor da loja de máquina?')));
+    expect(faixa).toContain(`“${atalho}”`);
+    expect(faixa).toContain('<strong>Gerar código</strong>');
+    expect(pagina).toContain("rotulo: 'Gerar código'"); // a ação na linha da estação
+    expect(faixa).toContain('<strong>Parear com codigo...</strong>');
+    expect(ler('backend', 'edge', 'bandeja', 'RegemEstacao.cs')).toContain('"Parear com codigo..."');
+    expect(faixa).toContain('“Regem — servidor da loja”');
+    expect(ler('backend', 'edge', 'bandeja', 'RegemServidor.cs')).toContain('Titulo = "Regem \\u2014 servidor da loja"');
+    expect(faixa).not.toMatch(/um a um|token\/pareamento novo/); // o texto antigo mandava reinstalar e parear tudo de novo
+  });
+
   it('o caixa e o garçom pareiam pela mesma tela; os demais só no próprio tipo', () => {
     expect(mesmoLugarDeParear('salao', 'pdv')).toBe(true);
     expect(mesmoLugarDeParear('pdv', 'salao')).toBe(true);

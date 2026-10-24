@@ -55,7 +55,10 @@ describe('instalador: primeira carga da loja (ERR-132)', () => {
     // O assistente mostra o aviso em vez de "concluído".
     const iss = readFileSync(ISS, 'utf8');
     expect(iss).toContain("INSTALOU-AVISO.txt'));");
-    expect(iss).toContain("'Instalado - dados da loja a caminho'");
+    // Título genérico: os avisos se acumulam (dados da loja, estação, certificado trocado — parear sem reinstalar).
+    expect(iss).toContain("'Instalado - leia o aviso abaixo'");
+    expect(fonte).toMatch(/function Avisar-Dono\(\[string\]\$texto\)/);
+    expect(fonte).not.toMatch(/Set-Content -Path \(Join-Path \$logDir 'INSTALOU-AVISO\.txt'\) -Value \$aviso/);
   });
 
   // O node da loja não acha o pacote pg num script da pasta TEMP, e num arquivo o argumento é o

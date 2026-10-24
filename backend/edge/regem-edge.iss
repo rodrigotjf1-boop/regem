@@ -103,6 +103,11 @@ Filename: "{sys}\taskkill.exe"; Parameters: "/IM RegemServidor.exe /F"; Flags: r
 Filename: "{app}\nssm\nssm.exe"; Parameters: "stop RegemEstacaoImpressao"; Flags: runhidden skipifdoesntexist; RunOnceId: "PararEstacao"
 Filename: "{app}\nssm\nssm.exe"; Parameters: "remove RegemEstacaoImpressao confirm"; Flags: runhidden skipifdoesntexist; RunOnceId: "RemoverEstacao"
 
+[UninstallDelete]
+; O atalho "Regem - parear este PC" (instalar-tudo.ps1, modo cliente) aponta para o icone da estacao, que sai junto.
+Type: files; Name: "{commondesktop}\Regem - parear este PC.lnk"
+Type: files; Name: "{commonprograms}\Regem\Regem - parear este PC.lnk"
+
 [Messages]
 WelcomeLabel2=Este assistente instala o Regem local e configura tudo automaticamente. Na proxima tela voce escolhe se este PC e o Servidor (cerebro da loja) ou um Cliente (so abre o app apontando pro Servidor).
 
@@ -532,7 +537,8 @@ begin
   end
   else if (CurPageID = wpFinished) and (gAviso <> '') then
   begin
-    WizardForm.FinishedHeadingLabel.Caption := 'Instalado - dados da loja a caminho';
+    // O aviso pode ser dos dados da loja, da estacao ou do certificado trocado (os avisos se acumulam): titulo generico.
+    WizardForm.FinishedHeadingLabel.Caption := 'Instalado - leia o aviso abaixo';
     WizardForm.FinishedLabel.Caption := gAviso;
   end;
 end;

@@ -13,10 +13,16 @@
 // loja (caixas, totem, KDS) confiam NESTA CA - trocar obrigaria cada um a confiar de novo, e o
 // totem a ser pareado de novo. Antes toda (re)instalacao gerava CA nova. Serve quando: os tres
 // arquivos existem e abrem, o certificado foi assinado por esta CA, a chave e a dele, nenhum
-// dos dois vence em menos de 60 dias e o IP gravado nele ainda e desta maquina. Qualquer
-// falha -> conjunto novo, com o motivo no log, e o anterior guardado em certs/anterior-*.
+// dos dois vence em menos de 60 dias. Qualquer falha -> conjunto novo, com o motivo no log, e o
+// anterior guardado em certs/anterior-*.
 // A chave privada da CA NAO e guardada de proposito: quem a tivesse emitiria certificado
-// para QUALQUER site nos aparelhos que confiam nela. Por isso um IP novo exige CA nova.
+// para QUALQUER site nos aparelhos que confiam nela. Por isso o IP do certificado nao pode ser
+// trocado sem CA nova - e por isso o IP NAO e mais motivo de troca (parear sem reinstalar, pedido
+// do dono de 22/10/2026): os aparelhos falam pelo NOME regem.local (coberto pelo certificado) e
+// conferem o certificado por ele, nunca pelo IP. Trocar a CA porque o roteador deu outro IP ao
+// servidor derrubava TODOS os PCs da loja (erro de certificado no navegador; a estacao "nao e o
+// servidor desta loja") ate cada um ser reinstalado. Quando o conjunto e trocado de verdade, a
+// saida traz "CERT-TROCADO: <motivo>" para o instalador avisar o dono.
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs';
 import { networkInterfaces } from 'os';
 import { dirname, join } from 'path';
@@ -69,17 +75,15 @@ function motivoParaTrocar() {
   const limite = Date.now() + DIAS_MINIMOS * 24 * 3600 * 1000;
   if (crt.validity.notAfter.getTime() < limite) return `o certificado vence em ${dia(crt.validity.notAfter)}`;
   if (ca.validity.notAfter.getTime() < limite) return `a CA vence em ${dia(ca.validity.notAfter)}`;
+  // O IP nao e motivo de troca (ver o topo): so anota, para o log, quando o do certificado nao e mais desta maquina.
   const doCert = ipsDoCertificado(crt);
-  if (!doCert.length) return ip ? `o certificado nao cobre o IP ${ip}` : null;
   const daMaquina = ipsDaMaquina();
-  // Sem rede nenhuma agora (cabo solto, Wi-Fi ainda conectando) nao da para julgar - e trocar
-  // a CA derrubaria todos os aparelhos por um motivo passageiro. Mantem.
-  if (!daMaquina.size) return null;
-  // Compara com os IPs da MAQUINA, nao com o IP detectado agora: em PC com duas placas de rede
-  // a deteccao pode escolher a outra, e os aparelhos seguem usando o IP gravado no certificado.
-  if (!doCert.some((x) => daMaquina.has(x))) return `o IP do certificado (${doCert.join(', ')}) nao e mais desta maquina`;
+  if (doCert.length && daMaquina.size && !doCert.some((x) => daMaquina.has(x))) {
+    notaDoIp = `o IP do certificado (${doCert.join(', ')}) nao e mais desta maquina - MANTIDO: os aparelhos usam o nome regem.local`;
+  }
   return null;
 }
+let notaDoIp = '';
 
 const havia = ARQUIVOS.some((n) => existsSync(join(dir, n)));
 const motivo = novo ? 'pedido um certificado novo (--novo)' : motivoParaTrocar();
@@ -89,6 +93,7 @@ if (!motivo) {
   const doCert = ipsDoCertificado(crt);
   console.log(`Certificado MANTIDO em ${dir} - caixas, totem e KDS seguem confiando nele.`);
   console.log(`- IP: ${doCert.join(', ') || '(sem IP)'}; vale ate ${dia(crt.validity.notAfter)}`);
+  if (notaDoIp) console.log(`- ${notaDoIp}`);
   process.exit(0);
 }
 
@@ -149,6 +154,8 @@ writeFileSync(join(dir, 'server.crt'), forge.pki.certificateToPem(srvCert));
 writeFileSync(join(dir, 'server.key'), forge.pki.privateKeyToPem(srvKeys.privateKey));
 
 console.log(`Certificado NOVO em ${dir} (motivo: ${motivo}).`);
+// O marcador que o instalador procura para avisar o dono (so quando havia um conjunto: troca de verdade).
+if (havia) console.log(`CERT-TROCADO: ${motivo}`);
 console.log(`- SAN: regem.local, localhost, 127.0.0.1${ip ? `, ${ip}` : ''}`);
 if (havia) {
   console.log('- Os aparelhos que confiavam no certificado anterior precisam confiar neste: abra /ca.pem neles');
