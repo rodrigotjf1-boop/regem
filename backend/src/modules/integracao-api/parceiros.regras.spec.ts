@@ -183,6 +183,18 @@ describe('a lista do hub: os tamanhos e a escrita do nome (R1b)', () => {
     expect(motivoParaNaoValer(aprovado({ nome: 'Ελλάδα Painel' }))).toMatch(/outra escrita/);
     expect(motivoParaNaoValer(aprovado({ nome: 'Pão & Café — Painel 2' }))).toBeNull();
   });
+  it('letra matemática e de largura cheia viram as comuns antes de comparar (imitam "Liame"); nome só de sinais não vale', () => {
+    expect(motivoParaNaoValer(aprovado({ nome: '\u{1D40B}\u{1D422}\u{1D41A}\u{1D426}\u{1D41E}' }))).toBe('o nome é o de um produto da DMS'); // 𝐋𝐢𝐚𝐦𝐞
+    expect(motivoParaNaoValer(aprovado({ nome: 'Ｌｉａｍｅ' }))).toBe('o nome é o de um produto da DMS'); // Ｌｉａｍｅ
+    expect(motivoParaNaoValer(aprovado({ nome: '!!! ***' }))).toMatch(/letra nem número/);
+  });
+  it('caractere de controle ou de formatação em qualquer texto do parceiro não vale (inverte ou esconde o que se lê)', () => {
+    expect(motivoParaNaoValer(aprovado({ nome: '‮emaiL' }))).toMatch(/controle ou de formatação/); // aparece como "Liame"
+    expect(motivoParaNaoValer(aprovado({ nome: 'Pai​nel' }))).toMatch(/controle ou de formatação/);
+    expect(motivoParaNaoValer(aprovado({ para_que_serve: 'mostra os pedidos‮' }))).toMatch(/controle ou de formatação/);
+    expect(motivoParaNaoValer(aprovado({ empresa: { razao_social: 'Exemplo⁦ Ltda', cnpj: '12ABC34501DE36' } }))).toMatch(/controle ou de formatação/);
+    expect(motivoParaNaoValer(aprovado({ permissoes: [{ nome: 'pedidos.ler', motivo: 'Mostrar\npedidos.', necessaria: true }] }))).toMatch(/controle ou de formatação/);
+  });
   it('nome, "para que serve", razão social e motivo longos demais (ou vazios) não valem', () => {
     expect(motivoParaNaoValer(aprovado({ nome: 'x'.repeat(81) }))).toMatch(/nome/);
     expect(motivoParaNaoValer(aprovado({ nome: '   ' }))).toMatch(/nome/);
@@ -228,7 +240,7 @@ describe('o parceiro no clique (R1b)', () => {
     expect(cnpjDoParceiroComMascara('123')).toBe('123');
   });
 
-  it('o pedido do parceiro só pede o que ele pode, com ao menos uma necessária', () => {
+  it('o pedido do parceiro só pede o que ele pode (o pedido só com opcionais vale: é o modo "mais" pedindo a nova)', () => {
     const app = aplicativoDoClique(parceiroNoClique(aprovado())!);
     const base = {
       response_type: 'code',
@@ -240,7 +252,7 @@ describe('o parceiro no clique (R1b)', () => {
       conta_email: 'conta@exemplo.test',
     };
     expect(conferirPedido({ ...base, scope: 'pedidos.ler catalogo.ler' }, app, 'aplicativoparceiro01', ['https://app.exemplo.test/volta'])).toMatchObject({ necessarias: ['pedidos.ler'], opcionais: ['catalogo.ler'] });
-    expect(conferirPedido({ ...base, scope: 'catalogo.ler' }, app, 'aplicativoparceiro01', ['https://app.exemplo.test/volta'])).toEqual({ erro: expect.stringMatching(/necessária/) });
+    expect(conferirPedido({ ...base, scope: 'catalogo.ler' }, app, 'aplicativoparceiro01', ['https://app.exemplo.test/volta'])).toMatchObject({ necessarias: [], opcionais: ['catalogo.ler'] });
     expect(conferirPedido({ ...base, scope: 'pedidos.ler custos.ler' }, app, 'aplicativoparceiro01', ['https://app.exemplo.test/volta'])).toEqual({ erro: expect.stringMatching(/custos\.ler/) });
   });
 });
@@ -282,6 +294,17 @@ describe('a tela do parceiro (R1b)', () => {
     expect(montarTela(entrada({ lojasDoTeste: { maximo: 3, emOutras: 2 } })).resumo).toBe(resumo);
     const outroNome = montarTela({ ...entrada(), app: { ...app, nome: 'Outro Painel' } });
     expect(outroNome.resumo).not.toBe(resumo);
+  });
+
+  it('as vagas são para loja NOVA: as que ele já lê aqui contam no teto (B1 da revisão do código)', () => {
+    const ligadaENova = [
+      { id: L1, nome: 'Brasa Centro', tipo: 'matriz', fuso: 'America/Sao_Paulo', conectadaDesde: new Date('2026-10-01T15:00:00Z'), jaLiberado: ['pedidos.ler'] },
+      { id: L2, nome: 'Brasa Praia', tipo: 'filial', fuso: 'America/Sao_Paulo', conectadaDesde: null, jaLiberado: [] },
+    ];
+    const t = montarTela(entrada({ lojas: ligadaENova, lojasDoTeste: { maximo: 3, emOutras: 1 } }));
+    expect(t.lojasDoTeste).toEqual({ maximo: 3, vagas: 1 });
+    expect(t.ajudaLojas).toContain('aqui, mais 1 loja (as que ele já lê podem ser marcadas de novo).');
+    expect(montarTela(entrada({ lojas: ligadaENova, lojasDoTeste: { maximo: 2, emOutras: 1 } })).ajudaLojas).toContain('aqui, nenhuma loja nova');
   });
 
   it('a loja única sem vaga não vem marcada (a que ele já lê, sim)', () => {

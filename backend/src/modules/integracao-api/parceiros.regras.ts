@@ -72,9 +72,13 @@ export function lojasDoParceiro(a: AplicativoAprovado): number | null {
   return a.lojas_max && a.lojas_max > 0 ? Math.min(a.lojas_max, LOJAS_NA_ETAPA_DE_TESTE) : LOJAS_NA_ETAPA_DE_TESTE;
 }
 
-/** Nome sem acento, sem espaço e sem sinal, em minúsculas: "Regem Cast" e "regemcast" são o mesmo nome. */
+/**
+ * Nome sem acento, sem espaço e sem sinal, em minúsculas: "Regem Cast" e "regemcast" são o mesmo nome. Antes, a forma
+ * de compatibilidade (NFKC): a letra matemática ("𝐋𝐢𝐚𝐦𝐞") e a de largura cheia ("Ｌｉａｍｅ") viram as letras comuns.
+ */
 const nomeComparavel = (nome: string) =>
   nome
+    .normalize('NFKC')
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
@@ -94,11 +98,21 @@ const TETOS_DO_TEXTO = { nome: 80, para_que_serve: 400, razao_social: 200, motiv
  */
 const SO_LATIM = /^[\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]+$/u;
 
+/**
+ * Caractere de controle ou de formatação (`\p{C}`: a inversão de sentido U+202E, o espaço de largura zero, a quebra
+ * escondida…): no meio do texto que o dono da loja lê, ele inverte ou esconde o resto do parágrafo — até o texto do
+ * próprio Regem que vem depois das aspas. Nenhum dos textos do parceiro pode ter.
+ */
+const CONTROLE_OU_FORMATO = /\p{C}/u;
+
 /** Por que este aplicativo da lista não vale no Regem (nulo = vale). Vai só para o log. */
 export function motivoParaNaoValer(a: AplicativoAprovado): string | null {
   const nome = a.nome.trim();
   if (!nome || nome.length > TETOS_DO_TEXTO.nome) return `o nome precisa ter de 1 a ${TETOS_DO_TEXTO.nome} caracteres`;
-  if (!SO_LATIM.test(nome)) return 'o nome tem letra de outra escrita (pode imitar outro nome)';
+  const textos = [a.nome, a.para_que_serve, a.empresa.razao_social, ...a.permissoes.map((p) => p.motivo)];
+  if (textos.some((t) => CONTROLE_OU_FORMATO.test(t))) return 'um texto tem caractere de controle ou de formatação (pode inverter ou esconder o que se lê)';
+  if (!SO_LATIM.test(nome.normalize('NFKC'))) return 'o nome tem letra de outra escrita (pode imitar outro nome)';
+  if (!nomeComparavel(nome)) return 'o nome não tem letra nem número que se possa conferir';
   if (!a.para_que_serve.trim() || a.para_que_serve.length > TETOS_DO_TEXTO.para_que_serve) return 'o "para que serve" está vazio ou longo demais';
   if (!a.empresa.razao_social.trim() || a.empresa.razao_social.length > TETOS_DO_TEXTO.razao_social) return 'a razão social está vazia ou longa demais';
   if (a.permissoes.some((p) => p.motivo.length > TETOS_DO_TEXTO.motivo)) return 'o motivo de uma permissão está longo demais';

@@ -154,9 +154,14 @@ export function resumoDaTela(t: Omit<TelaDaAutorizacao, 'resumo'>): string {
     novas: t.novas,
     naoPode: t.naoPode,
     confirmacao: t.confirmacao,
+    // o que a tela diz que ele já tem (o modo "mais" e cada loja): se o teto de hoje cortar algo, o texto mudou
+    jaLiberado: t.jaLiberado,
+    lojas: t.lojas.map((l) => [l.id, l.jaLiberado]),
   };
   return createHash('sha256').update(JSON.stringify(lido), 'utf8').digest('base64url');
 }
+
+const lojasNoPlural = (n: number) => (n === 1 ? '1 loja' : `${n} lojas`);
 
 /** A tela, para quem pode autorizar (o presidente). */
 export function montarTela(e: EntradaDaTela): TelaDaAutorizacao {
@@ -165,10 +170,13 @@ export function montarTela(e: EntradaDaTela): TelaDaAutorizacao {
   const parceiro = app.parceiro ?? null;
   const pedidas = new Set<string>([...e.pedido.necessarias, ...e.pedido.opcionais]);
   const uma = e.lojas.length === 1;
-  // As vagas do parceiro na etapa de teste: o teto menos o que ele já usa em OUTRAS empresas (as lojas desta que ele já
-  // lê podem ser marcadas de novo: a troca as substitui, não soma).
+  // As vagas do parceiro na etapa de teste, para LOJA NOVA: o teto menos o que ele já usa em OUTRAS empresas e menos as
+  // lojas desta que ele já lê (essas contam no teto; marcadas de novo, são trocadas e não somam).
+  const vivasAqui = e.lojas.filter((l) => l.conectadaDesde).length;
   const lojasDoTeste =
-    parceiro && e.lojasDoTeste ? { maximo: e.lojasDoTeste.maximo, vagas: Math.max(0, e.lojasDoTeste.maximo - e.lojasDoTeste.emOutras) } : null;
+    parceiro && e.lojasDoTeste
+      ? { maximo: e.lojasDoTeste.maximo, vagas: Math.max(0, e.lojasDoTeste.maximo - e.lojasDoTeste.emOutras - vivasAqui) }
+      : null;
   const frase = (id: EscopoIntegracao) => fraseDe(app, id);
 
   // O modo "mais": todas as lojas já estão conectadas e há permissão pedida que alguma ainda não tem.
@@ -205,9 +213,10 @@ export function montarTela(e: EntradaDaTela): TelaDaAutorizacao {
   let cancelar = 'Cancelar';
   // A data mais antiga de leitura entre as lojas que já têm o aplicativo (para o parceiro, o início da janela).
   const conectadas = e.lojas.filter((l) => l.conectadaDesde);
-  const desdeMaisAntigo = conectadas.length
-    ? conectadas.reduce((a, l) => ((l.conectadaDesde as Date) < a ? (l.conectadaDesde as Date) : a), conectadas[0].conectadaDesde as Date)
+  const maisAntiga = conectadas.length
+    ? conectadas.reduce((a, l) => ((l.conectadaDesde as Date) < (a.conectadaDesde as Date) ? l : a), conectadas[0])
     : null;
+  const desdeMaisAntigo = maisAntiga ? (maisAntiga.conectadaDesde as Date) : null;
   if (modo === 'mais') {
     titulo = novasIds.length === 1 ? `O ${nome} pede mais uma permissão` : `O ${nome} pede mais ${novasIds.length} permissões`;
     const desde = desdeMaisAntigo as Date;
@@ -225,7 +234,8 @@ export function montarTela(e: EntradaDaTela): TelaDaAutorizacao {
     abertura =
       `O ${nome}, da ${parceiro.empresa.razaoSocial}, pede para ler o que estiver listado aqui. Para que serve, nas palavras ` +
       `dele: “${parceiro.paraQueServe}”. Ele só lê; não muda pedido, preço nem cardápio. ` +
-      `Você veio de ${hostDe(app.inicio)} e volta para lá ao terminar.`;
+      // o endereço de volta DESTE pedido (o parceiro pode ter mais de um), não o primeiro da lista
+      `Você veio de ${hostDe(e.pedido.redirectUri)} e volta para lá ao terminar.`;
   } else {
     titulo = `O ${nome} quer ler as vendas ${uma ? 'da sua loja' : 'das suas lojas'}`;
     abertura =
@@ -259,7 +269,8 @@ export function montarTela(e: EntradaDaTela): TelaDaAutorizacao {
   // A janela de leitura do parceiro, no "não pode": a data que vale de verdade (a da autorização contínua, nas lojas que
   // já têm o aplicativo; nas novas, esta autorização).
   const janela = (): { rotulo: string; frase: string } => {
-    const data = desdeMaisAntigo ? dataNoFuso(desdeMaisAntigo, conectadas[0].fuso) : null;
+    // a data no fuso da loja que tem essa data (a mais antiga), não da primeira da lista
+    const data = maisAntiga ? dataNoFuso(maisAntiga.conectadaDesde as Date, maisAntiga.fuso) : null;
     const todasConectadasJa = conectadas.length === e.lojas.length;
     const fraseDaJanela = !data
       ? 'Ele não lê as vendas de antes desta autorização.'
@@ -272,11 +283,13 @@ export function montarTela(e: EntradaDaTela): TelaDaAutorizacao {
   const versao = parceiro ? VERSAO_DO_TEXTO_PARCEIRO : VERSAO_DO_TEXTO;
   const ajudaLojas = uma
     ? lojasDoTeste
-      ? `Este aplicativo está em teste na DMS: ele pode ler até ${lojasDoTeste.maximo} lojas no total, somando as empresas.`
+      ? `Este aplicativo está em teste na DMS: ele pode ler até ${lojasNoPlural(lojasDoTeste.maximo)} no total, somando as empresas.`
       : null
     : lojasDoTeste
       ? `Marque as lojas que o ${nome} vai ler. Cada uma ganha a própria ligação. Ele está em teste na DMS e pode ler até ` +
-        `${lojasDoTeste.maximo} lojas no total, somando as empresas: aqui, até ${lojasDoTeste.vagas}.`
+        `${lojasNoPlural(lojasDoTeste.maximo)} no total, somando as empresas: aqui, ` +
+        `${lojasDoTeste.vagas === 0 ? 'nenhuma loja nova' : `mais ${lojasNoPlural(lojasDoTeste.vagas)}`}` +
+        `${vivasAqui ? ' (as que ele já lê podem ser marcadas de novo)' : ''}.`
       : `Marque as lojas que o ${nome} vai ler. Cada uma ganha a própria ligação.`;
 
   const tela: TelaDaAutorizacao = {

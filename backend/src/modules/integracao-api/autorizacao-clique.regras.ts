@@ -234,14 +234,9 @@ export function conferirPedido(
   const marca = texto(corpo.conta_marca);
   if (marca.length > 120) return { erro: 'conta_marca pode ter até 120 caracteres.' };
 
-  const necessarias = naOrdemDoCatalogo(pedidas.filter((p) => app.necessarias.includes(p as EscopoIntegracao)));
-  // Sem nenhuma necessária, a autorização com as opcionais desligadas não daria permissão nenhuma (e o acesso não
-  // nasce sem escopo: o `check` da tabela recusaria só na troca).
-  if (!necessarias.length) return { erro: 'scope precisa trazer ao menos uma permissão necessária deste aplicativo.' };
-
   return {
     redirectUri,
-    necessarias,
+    necessarias: naOrdemDoCatalogo(pedidas.filter((p) => app.necessarias.includes(p as EscopoIntegracao))),
     opcionais: naOrdemDoCatalogo(pedidas.filter((p) => app.opcionais.includes(p as EscopoIntegracao))),
     state,
     desafio,

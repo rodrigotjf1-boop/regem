@@ -319,8 +319,10 @@ uma ligação por loja), com o que é do parceiro:
 
 - **Quem usa:** o client_id de `DMS_ID_APLICATIVOS` é da DMS e nunca vira parceiro (o Farol, o GoGeM e o RegemCast, que
   não usam o clique, ficam de fora mesmo se o hub os listar). O parceiro aprovado (seção 10) usa, com os endereços de
-  volta da lista do hub que forem https, com nome (nunca `localhost`). O pedido tem de trazer ao menos uma permissão
-  necessária (vale para todos: sem ela, a autorização com as opcionais desligadas não daria permissão nenhuma).
+  volta da lista do hub que forem https, com nome (nunca `localhost`). Os textos do parceiro (o nome, o "para que serve",
+  a razão social, os motivos) não podem ter caractere de controle ou de formatação (a inversão de sentido esconderia o
+  texto do Regem), e o nome é comparado na forma de compatibilidade (letra matemática ou de largura cheia não imita um
+  produto da DMS). Autorizar com todas as permissões desligadas responde 400 (vale para todos: antes, um 500).
 - **A tela:** selo "Verificado pela DMS"; a empresa e o CNPJ (também o alfanumérico) são os conferidos pela DMS, no lugar
   dos da DMS; o "para que serve" vai entre aspas, nas palavras do parceiro; as necessárias e as opcionais pela marca dele
   (as opcionais nascem desligadas, F4-14), cortadas pelo teto e pela etapa; frases próprias (`FRASES_DO_PARCEIRO`: os
@@ -336,8 +338,10 @@ uma ligação por loja), com o que é do parceiro:
   transação do aplicativo (`pg_advisory_xact_lock`): as lojas com acesso vivo do parceiro em todas as empresas, fora as
   desta troca, mais todas as desta troca. Passou: 400 com a frase do limite, o código fica gasto e a empresa fica com o
   registro `integracao.troca_recusada`. Antes, só para a frase certa: a tela conta as lojas de OUTRAS empresas (vivas e
-  autorizações pendentes) e mostra as vagas; sem vaga e sem loja ligada aqui, a situação `limite`; ao autorizar, marcar
-  além das vagas é recusado. A ligação suspensa (90 dias sem uso) não segura vaga.
+  autorizações pendentes) e as que ele já lê AQUI, e mostra as vagas para loja nova (a ligada pode ser marcada de novo:
+  é trocada, não soma); sem vaga e sem loja ligada aqui — ou já acima do teto —, a situação `limite`; ao autorizar, as
+  de outras empresas mais as ligadas e as marcadas daqui não podem passar do teto. A ligação suspensa (90 dias sem uso)
+  não segura vaga.
 - **A janela que atravessa a re-autorização (migration 340):** a troca grava `integracao_token_loja.ler_desde` na mesma
   transação — o do acesso que ela substitui, se ele estava vivo (o modo "mais" não reinicia a janela), ou agora. O acesso
   suspenso não passa a janela nem as permissões de antes: a loja recomeça (a tela a trata como nova e o e-mail é o de

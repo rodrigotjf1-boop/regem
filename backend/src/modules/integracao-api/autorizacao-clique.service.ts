@@ -110,7 +110,7 @@ type AppDoClique = {
 
 /** A frase das 3 lojas da etapa de teste (na tela, ao autorizar e na troca). */
 const fraseDoLimite = (maximo: number) =>
-  `Este aplicativo está em teste na DMS e já chegou ao limite de ${maximo} ${maximo === 1 ? 'loja' : 'lojas'}, somando as empresas. ` +
+  `Este aplicativo está em teste na DMS e já chegou ao limite de ${maximo === 1 ? '1 loja' : `${maximo} lojas`}, somando as empresas. ` +
   'Fale com quem fez o aplicativo.';
 
 /** A troca do parceiro que passaria do teto de lojas da etapa de teste (desfaz a transação; quem chama responde 400). */
@@ -682,8 +682,13 @@ export class AutorizacaoCliqueService {
     const dados = await this.empresaELojas(user.tenantId, a);
     const maximo = a.parceiro?.lojas ?? null;
     const emOutras = maximo !== null ? await this.lojasEmOutrasEmpresas(user.tenantId, a.cliente) : null;
-    // Sem vaga e sem nenhuma loja desta empresa que ele já leia: não há o que marcar (a que ele já lê sempre pode).
-    if (maximo !== null && (emOutras as number) >= maximo && !dados.lojas.some((l) => l.conectadaDesde)) {
+    // As lojas desta empresa que ele já lê contam no teto (a troca as soma às outras). Sem vaga para loja nova e sem
+    // nenhuma ligada aqui — ou já acima do teto (o hub baixou o número) —, não há o que autorizar.
+    const vivasAqui = dados.lojas.filter((l) => l.conectadaDesde).length;
+    if (
+      maximo !== null &&
+      (((emOutras as number) + vivasAqui >= maximo && vivasAqui === 0) || (emOutras as number) + vivasAqui > maximo)
+    ) {
       return { situacao: 'limite', aplicativo, pessoa, maximo, frase: fraseDoLimite(maximo) };
     }
     return { situacao: 'escolha', aplicativo, pessoa, tela: this.montar(a, pedido, dados, quem, emOutras) };
@@ -803,20 +808,29 @@ export class AutorizacaoCliqueService {
       if (a.parceiro && tela.resumo !== d.resumo) {
         throw new ConflictException('O texto desta autorização mudou desde que a página abriu. Recarregue e confira de novo.');
       }
-      // As vagas da etapa de teste: as lojas marcadas (as desta empresa que ele já lê são trocadas, entram na conta) mais
-      // as que ele já usa em outras empresas. A conta que vale de verdade é a da troca, sob trava.
-      if (maximo !== null && (emOutras as number) + marcadas.length > maximo) {
-        throw new BadRequestException(
-          (emOutras as number) >= maximo
-            ? fraseDoLimite(maximo)
-            : `Este aplicativo está em teste na DMS e pode ler até ${maximo} lojas no total, somando as empresas: aqui, marque até ${maximo - (emOutras as number)}.`,
-        );
+      // As vagas da etapa de teste: as que ele já usa em outras empresas mais, aqui, as que ele já lê E as marcadas (a loja
+      // ligada marcada de novo é trocada, não soma). A conta que vale de verdade é a da troca, sob trava; esta dá a frase
+      // certa à loja antes de a autorização ser gravada.
+      if (maximo !== null) {
+        const vivas = dados.lojas.filter((l) => l.conectadaDesde).map((l) => l.id);
+        const aqui = new Set([...vivas, ...marcadas.map((l) => l.id)]);
+        if ((emOutras as number) + aqui.size > maximo) {
+          const novas = Math.max(0, maximo - (emOutras as number) - vivas.length);
+          throw new BadRequestException(
+            novas === 0
+              ? fraseDoLimite(maximo)
+              : `Este aplicativo está em teste na DMS e pode ler até ${maximo} lojas no total, somando as empresas: aqui, só ${novas === 1 ? 'mais 1 loja' : `mais ${novas} lojas`}.`,
+          );
+        }
       }
       // A confirmação vale pela TELA: o parceiro a tem sempre; o produto da DMS, quando a conta é de outra empresa.
       if (tela.confirmacao && d.confirmoOutraEmpresa !== true) {
         throw new BadRequestException('Marque a confirmação para ligar a conta de outra empresa.');
       }
       const escopos = naOrdemDoCatalogo([...pedido.necessarias, ...ligadas]);
+      // O pedido só com opcionais (o modo "mais" pedindo só a permissão nova) e todas desligadas: nada a autorizar (o
+      // acesso não nasce sem permissão — antes, o `check` da tabela derrubava isto num 500).
+      if (!escopos.length) throw new BadRequestException('Nada foi ligado: ligue ao menos uma permissão para autorizar.');
       const desligadas = pedido.opcionais.filter((o) => !ligadas.includes(o));
       const texto = textoGuardado(tela, { lojas: d.lojas, ligadas, confirmouOutraEmpresa: d.confirmoOutraEmpresa });
       const [nova] = await this.rows(

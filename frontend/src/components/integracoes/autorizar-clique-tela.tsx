@@ -398,6 +398,9 @@ export function AutorizarCliqueTela() {
           </p>
         )}
         <AutorizarCliqueFormulario
+          // O texto do parceiro mudou (409 → a página abriu de novo): o formulário recomeça do zero — a confirmação, a
+          // senha e as marcas eram do texto de antes.
+          key={e.tela.resumo ?? 'tela'}
           tela={e.tela}
           enviando={e.enviando}
           erroSenha={e.erroSenha}

@@ -56,6 +56,7 @@ const APP_P = 'aplicativoparceiro01'; // o parceiro dos casos gerais
 const APP_P2 = 'aplicativoparceiro02'; // as vagas na tela
 const APP_P3 = 'aplicativoparceiro03'; // a corrida da troca
 const APP_P4 = 'aplicativoparceiro04'; // a janela e a suspensão
+const APP_P5 = 'aplicativoparceiro05'; // teto de 2: as lojas ligadas aqui contam
 const APP_FORA = 'aplicativoparceiro99'; // não aprovado
 const KID = 'chave-de-teste';
 const VOLTA = 'https://app.parceiro.exemplo/volta';
@@ -91,6 +92,7 @@ const LISTA = {
     aprovado(APP_P2, { nome: 'Painel Dois' }),
     aprovado(APP_P3, { nome: 'Painel Três' }),
     aprovado(APP_P4, { nome: 'Painel Quatro' }),
+    aprovado(APP_P5, { nome: 'Painel Cinco', lojas_max: 2 }),
     // o client_id do Liame na lista do hub: o Regem decide "é DMS" antes, e ele segue Liame
     aprovado(APP_LIAME, { nome: 'Painel Clone' }),
   ],
@@ -412,12 +414,16 @@ descrever('autorização por clique do aplicativo de parceiro (Hub DMS, F4 parte
     expect(vazou).toEqual([]);
   }, 120_000);
 
-  it('o pedido do parceiro aprovado vale; o fora da lista e a chave desligada, não; o pedido sem nenhuma necessária é recusado', async () => {
+  it('o pedido do parceiro aprovado vale; o fora da lista e a chave desligada, não; autorizar sem nada ligado é recusado (não um 500)', async () => {
     expect((await pedir()).r.status).toBe(201);
     expect((await pedir({ aplicativo: APP_FORA })).r.status).toBe(401);
+    // o pedido só com opcionais vale (o modo "mais" pede só a nova); autorizar com tudo desligado não grava nada
     const soOpcionais = await pedir({ scope: 'catalogo.ler cupons.ler' });
-    expect(soOpcionais.r.status).toBe(400);
-    expect(soOpcionais.c.detail).toMatch(/necessária/);
+    expect(soOpcionais.r.status).toBe(201);
+    const t = await tela(presA, soOpcionais.numero);
+    const nada = await autorizar(presA, soOpcionais.numero, { lojas: [A.lojas[0]], opcionais: [], resumo: t.c.tela.resumo });
+    expect(nada.r.status).toBe(400);
+    expect(nada.c.message).toMatch(/Nada foi ligado/);
     // o que passa do teto (cupons.criar) ou a sensível na etapa de teste (custos.ler) nem pode ser pedido
     expect((await pedir({ scope: 'pedidos.ler custos.ler' })).r.status).toBe(400);
     delete process.env.PARCEIROS_LIGADOS;
@@ -516,7 +522,7 @@ descrever('autorização por clique do aplicativo de parceiro (Hub DMS, F4 parte
     expect(c.tela.lojasDoTeste).toEqual({ maximo: 3, vagas: 1 });
     const duas = await autorizar(presA, p.numero, { lojas: A.lojas, resumo: c.tela.resumo, aplicativo: APP_P2 });
     expect(duas.r.status).toBe(400);
-    expect(duas.c.message).toMatch(/marque até 1/);
+    expect(duas.c.message).toMatch(/aqui, só mais 1 loja/);
     // a terceira loja em outra empresa: a empresa A fica sem vaga e sem loja ligada → "limite"
     await acessoNoBanco(E, E.lojas[0], presE, APP_P2);
     const p2 = await pedir({ aplicativo: APP_P2 });
@@ -526,6 +532,27 @@ descrever('autorização por clique do aplicativo de parceiro (Hub DMS, F4 parte
     // a ligação suspensa (90 dias sem uso) não segura vaga
     await q(`update integracao_ligacao set ultimo_uso_em = now() - interval '100 days', criado_em = now() - interval '100 days' where aplicativo = $1 and tenant_id = $2`, [APP_P2, E.tenant]);
     expect((await tela(presA, p2.numero, APP_P2)).c.situacao).toBe('escolha');
+  });
+
+  it('as lojas desta empresa que ele já lê contam no teto, marcadas ou não (a tela não promete vaga que a troca recusaria)', async () => {
+    // teto de 2: uma loja da empresa A já ligada pelo clique + uma em outra empresa = sem vaga para a 2ª loja da A
+    const [ligada] = await ligar(presA, [A.lojas[0]], { aplicativo: APP_P5 });
+    expect(ligada.permissoes).toEqual(['pedidos.ler']);
+    await acessoNoBanco(B, B.lojas[0], presB, APP_P5);
+    const p = await pedir({ aplicativo: APP_P5 });
+    const { c } = await tela(presA, p.numero, APP_P5);
+    expect(c.situacao).toBe('escolha'); // há loja ligada aqui: ela pode ser marcada de novo
+    expect(c.tela.lojasDoTeste).toEqual({ maximo: 2, vagas: 0 });
+    const soANova = await autorizar(presA, p.numero, { lojas: [A.lojas[1]], resumo: c.tela.resumo, aplicativo: APP_P5 });
+    expect(soANova.r.status).toBe(400);
+    expect(soANova.c.message).toMatch(/limite de 2 lojas/);
+    expect((await autorizar(presA, p.numero, { lojas: A.lojas, resumo: c.tela.resumo, aplicativo: APP_P5 })).r.status).toBe(400);
+    // marcar de novo só a que ele já lê cabe (é trocada, não soma)
+    expect((await autorizar(presA, p.numero, { lojas: [A.lojas[0]], resumo: c.tela.resumo, aplicativo: APP_P5 })).r.status).toBe(200);
+    // acima do teto (mais uma em outra empresa): nem a loja ligada passa → a situação "limite"
+    await acessoNoBanco(D, D.lojas[0], presD, APP_P5);
+    const p2 = await pedir({ aplicativo: APP_P5 });
+    expect((await tela(presA, p2.numero, APP_P5)).c.situacao).toBe('limite');
   });
 
   it('as 3 lojas na troca, com duas empresas cruzando sob a trava (V72): uma leva, a outra é recusada e registrada', async () => {
@@ -616,13 +643,16 @@ descrever('autorização por clique do aplicativo de parceiro (Hub DMS, F4 parte
     const viva = p.acessos.find((x: any) => x.ativo);
     await q(`update integracao_ligacao set ultimo_uso_em = now() - interval '95 days', criado_em = now() - interval '95 days' where id = $1`, [viva.id]);
     const r2: any = await (await chamar('/aplicativos-conectados', { quem: presB })).json();
-    expect(r2.aplicativos.find((a: any) => a.cliente === clienteDoParceiro(APP_P4)).acessos.find((x: any) => x.id === viva.id).suspenso).toBe(true);
-    // revogar todos do parceiro na empresa B não toca a empresa A (o mesmo parceiro APP_P em A segue)
-    const antesEmA = await q(`select count(*)::int as n from integracao_token_loja where tenant_id = $1 and revogado_em is null`, [A.tenant]);
+    const p2 = r2.aplicativos.find((a: any) => a.cliente === clienteDoParceiro(APP_P4));
+    expect(p2.acessos.find((x: any) => x.id === viva.id).suspenso).toBe(true);
+    expect(p2.ativos).toBe(0); // o suspenso não lê nada: não conta como ativo
+    // revogar todos do parceiro na empresa B não toca o MESMO parceiro na empresa A
+    const emA = await acessoNoBanco(A, A.lojas[1], presA, APP_P4);
     const rev = await chamar('/aplicativos-conectados/revogar-todos', { quem: presB, corpo: { cliente: clienteDoParceiro(APP_P4) } });
     expect(rev.status).toBe(200);
     expect(((await rev.json()) as any).revogados).toBeGreaterThan(0);
-    expect(await q(`select count(*)::int as n from integracao_token_loja where tenant_id = $1 and revogado_em is null`, [A.tenant])).toEqual(antesEmA);
+    expect(await q(`select count(*)::int as n from integracao_token_loja where tenant_id = $1 and cliente = $2 and revogado_em is null`, [B.tenant, clienteDoParceiro(APP_P4)])).toEqual([{ n: 0 }]);
+    expect(await q(`select revogado_em from integracao_token_loja where id = $1`, [emA])).toEqual([{ revogado_em: null }]);
   });
 
   it('o parceiro parado no hub pelo client_id: o pedido recebe 503 e a tela diz "pausado"; pelo cliente do Regem, não para', async () => {

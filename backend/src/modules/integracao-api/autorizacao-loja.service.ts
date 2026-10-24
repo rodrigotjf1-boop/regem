@@ -406,12 +406,14 @@ export class AutorizacaoLojaService {
        limit 500`);
     // O aplicativo de PARCEIRO (R1b): o nome e a empresa saem do texto que o presidente leu (a prova do clique, de onde
     // todo acesso de parceiro vem), nunca da lista do hub (que some com o hub fora ou o aplicativo retirado).
-    const doParceiro = new Map<string, { rotulo: string; empresa: string | null; cnpj: string | null }>();
+    // A prova MAIS RECENTE de cada parceiro (o nome e a empresa podem ter mudado de uma autorização para outra).
+    const doParceiro = new Map<string, { rotulo: string; empresa: string | null; cnpj: string | null; em: number }>();
     for (const l of linhas) {
       const app = ehClienteDeParceiro(l.cliente) ? l.texto?.aplicativo : null;
-      if (app?.nome && !doParceiro.has(l.cliente)) {
-        doParceiro.set(l.cliente, { rotulo: String(app.nome), empresa: app.empresa ? String(app.empresa) : null, cnpj: app.cnpj ? String(app.cnpj) : null });
-      }
+      if (!app?.nome) continue;
+      const em = l.autorizadoEm ? new Date(l.autorizadoEm).getTime() : 0;
+      if ((doParceiro.get(l.cliente)?.em ?? -1) >= em) continue;
+      doParceiro.set(l.cliente, { rotulo: String(app.nome), empresa: app.empresa ? String(app.empresa) : null, cnpj: app.cnpj ? String(app.cnpj) : null, em });
     }
     const rotuloDe = (cliente: string) => doParceiro.get(cliente)?.rotulo ?? CLIENTES_INTEGRACAO[cliente]?.rotulo ?? (ehClienteDeParceiro(cliente) ? 'Aplicativo de parceiro' : cliente);
     const historicos = await this.historicos(user.tenantId, linhas, rotuloDe);
@@ -457,7 +459,8 @@ export class AutorizacaoLojaService {
           rotulo: rotuloDe(cliente),
           descricao: parceiro ? (parceiro.empresa ? `Aplicativo da ${parceiro.empresa}, verificada pela DMS` : null) : (DESCRICAO_CLIENTE[cliente] ?? null),
           abrangencia: CLIENTES_INTEGRACAO[cliente]?.abrangencia ?? 'loja',
-          ativos: acessos.filter((a) => a.ativo).length,
+          // o suspenso (parceiro parado há 90 dias) não lê nada: não conta como ativo
+          ativos: acessos.filter((a) => a.ativo && !a.suspenso).length,
           acessos,
           // O parceiro: a classe (o selo da página) e as frases do que ele recebe (sem os textos do Liame da página).
           ...(parceiro

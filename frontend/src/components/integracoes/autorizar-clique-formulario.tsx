@@ -122,10 +122,13 @@ export function AutorizarCliqueFormulario({
   const caixaConfirmacao = useRef<HTMLInputElement>(null);
   const campoSenha = useRef<HTMLInputElement>(null);
   const escolhidas = tela.lojas.filter((l) => marcadas[l.id]).map((l) => l.id);
-  // O aplicativo de parceiro em teste: até N lojas no total, somando as empresas. Esgotadas as vagas desta empresa, as
-  // lojas desmarcadas ficam travadas (o servidor confere de novo ao autorizar e na troca).
+  // O aplicativo de parceiro em teste: até N lojas no total, somando as empresas. As vagas são para LOJA NOVA (a que ele
+  // já lê pode ser marcada de novo: é trocada, não soma). Esgotadas, as lojas novas desmarcadas ficam travadas (o
+  // servidor confere de novo ao autorizar e na troca).
   const vagas = tela.lojasDoTeste?.vagas ?? null;
-  const semVaga = vagas !== null && escolhidas.length >= vagas;
+  const novasMarcadas = tela.lojas.filter((l) => marcadas[l.id] && !l.conectadaDesde).length;
+  const semVaga = vagas !== null && novasMarcadas >= vagas;
+  const parceiro = tela.classe === 'parceiro';
   const mostrarConfirmacao = semConfirmacao || erroConfirmacao;
   const mensagemSenha = senhaVazia ? 'Digite a sua senha do Regem para autorizar.' : erroSenha;
 
@@ -188,9 +191,16 @@ export function AutorizarCliqueFormulario({
           <li className="grid gap-1 border-t border-border px-3.5 py-3 first:border-t-0">
             <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <User className="h-4 w-4 flex-none text-secondary-foreground" aria-hidden="true" />
-              <b className="font-bold">{p.outraEmpresa ? `${p.nome}, no ${app}` : `A conta ${p.nome} no ${app}`}</b>
-              <span className={cn(chip, p.outraEmpresa ? 'bg-warn/15 text-foreground' : 'bg-ok/15 text-foreground')}>
-                {p.outraEmpresa ? 'Outra empresa' : `A mesma empresa ${umaLoja ? 'desta loja' : 'destas lojas'}`}
+              <b className="font-bold">{p.outraEmpresa || parceiro ? `${p.nome}, no ${app}` : `A conta ${p.nome} no ${app}`}</b>
+              {/* O parceiro informa a conta (e o CNPJ dela) sozinho: nada de selo verde de "mesma empresa" — o presidente
+                  confirma a empresa dona do aplicativo, conferida pela DMS, e não a conta. */}
+              <span
+                className={cn(
+                  chip,
+                  parceiro ? 'border border-border bg-secondary text-secondary-foreground' : p.outraEmpresa ? 'bg-warn/15 text-foreground' : 'bg-ok/15 text-foreground',
+                )}
+              >
+                {parceiro ? 'Informada pelo aplicativo' : p.outraEmpresa ? 'Outra empresa' : `A mesma empresa ${umaLoja ? 'desta loja' : 'destas lojas'}`}
               </span>
             </span>
             <span className={cn(ajuda, 'break-words')}>
@@ -213,7 +223,7 @@ export function AutorizarCliqueFormulario({
       <Secao n={2} titulo={umaLoja ? 'A loja' : 'Em quais lojas'} id="aut-lojas">
         {tela.ajudaLojas && <p className={ajuda}>{tela.ajudaLojas}</p>}
         {tela.lojas.map((l, i) => {
-          const travada = semVaga && !marcadas[l.id];
+          const travada = semVaga && !marcadas[l.id] && !l.conectadaDesde;
           return (
             <label
               key={l.id}
@@ -246,9 +256,13 @@ export function AutorizarCliqueFormulario({
             </label>
           );
         })}
-        {semVaga && tela.lojas.length > escolhidas.length && (
+        {semVaga && tela.lojas.some((l) => !marcadas[l.id] && !l.conectadaDesde) && (
           <p id="aut-lojas-vagas" className="text-[13px] text-secondary-foreground">
-            {vagas === 0 ? 'Sem vaga para outra loja agora.' : `As ${vagas} vagas desta empresa estão marcadas: para trocar, desmarque uma.`}
+            {vagas === 0
+              ? 'Sem vaga para outra loja agora.'
+              : vagas === 1
+                ? 'A vaga desta empresa está marcada: para trocar de loja, desmarque a que está marcada.'
+                : `As ${vagas} vagas desta empresa estão marcadas: para trocar, desmarque uma.`}
           </p>
         )}
         {semLoja && (
