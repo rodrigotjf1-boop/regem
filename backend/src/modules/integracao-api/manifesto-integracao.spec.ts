@@ -4,7 +4,7 @@ import { join } from 'path';
 import { RequestMethod } from '@nestjs/common';
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { CAMINHO_MANIFESTO, conferirManifesto, problemasDoGatilho, VERSAO_PACOTE } from '../../dms/integracao-dms';
-import { ESCOPOS_INTEGRACAO } from './escopos';
+import { ESCOPOS_DO_PARCEIRO, ESCOPOS_INTEGRACAO } from './escopos';
 import { IntegracaoApiController } from './integracao-api.controller';
 import { ESCOPOS_KEY } from './integracao-token.guard';
 import { CAMINHO_DO_MANIFESTO, ROTAS_FORA_DO_PREFIXO } from './ligacao.regras';
@@ -54,17 +54,23 @@ describe('manifesto da porta de integração (Padrão §13)', () => {
     expect(doManifesto.length).toBe(15);
   });
 
-  it('as permissões são os escopos do Regem menos os do totem, cada uma com a frase e só a classe dms (o parceiro vem na parte F)', () => {
+  it('as permissões são os escopos do Regem menos os do totem, cada uma com a frase; a classe parceiro só no catálogo aprovado na F4', () => {
     const m = manifestoDaPorta() as any;
     const nomes = Object.keys(m['x-dms-permissoes']).sort();
     expect(nomes).toEqual(ESCOPOS_INTEGRACAO.filter((e) => !e.startsWith('totem.')).sort());
     expect([...ESCOPOS_DA_PORTA].sort()).toEqual(nomes);
+    // o catálogo aprovado pelo dono em 23/10/2026 (protótipo do portal de parceiros), escrito aqui à mão: mudar o teto da
+    // classe parceiro é decisão, e o teste obriga a mudar os dois lugares
+    const doParceiro = ['catalogo.ler', 'clientes.anonimizacao.ler', 'clientes.telefone.ler', 'cupons.ler', 'custos.ler', 'fichas.ler', 'pedidos.ler', 'producao.ler'];
+    expect([...ESCOPOS_DO_PARCEIRO].sort()).toEqual(doParceiro);
     for (const nome of nomes) {
       const p = m['x-dms-permissoes'][nome];
-      expect(p.classes).toEqual(['dms']);
+      expect(p.classes).toEqual(doParceiro.includes(nome) ? ['dms', 'parceiro'] : ['dms']);
       expect(p.frase.length).toBeGreaterThan(10);
       expect(p.frase.length).toBeLessThanOrEqual(200);
     }
+    // só da DMS: criar cupom (é dinheiro, D6), a lista de clientes, as vendas da 99 e os usos de cupom
+    for (const soDms of ['cupons.criar', 'clientes.ler', 'vendas.99food.ler', 'cupons.uso.ler']) expect(m['x-dms-permissoes'][soDms].classes).toEqual(['dms']);
     const sensiveis = nomes.filter((n) => m['x-dms-permissoes'][n].sensivel);
     expect(sensiveis).toEqual(['clientes.ler', 'clientes.telefone.ler', 'custos.ler', 'vendas.99food.ler']);
     // a frase do telefone é a mesma da tela do clique

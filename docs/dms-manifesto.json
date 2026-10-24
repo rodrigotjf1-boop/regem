@@ -830,35 +830,40 @@
     "pedidos.ler": {
       "frase": "Pedidos confirmados e cancelados, com itens, canal, cupom usado e de qual anúncio ou link o cliente veio.",
       "classes": [
-        "dms"
+        "dms",
+        "parceiro"
       ],
       "sensivel": false
     },
     "clientes.telefone.ler": {
       "frase": "O telefone de quem fez o pedido, um código do cliente no Regem e se é o primeiro pedido dele na loja. Sem nome, e-mail e endereço, e nunca de pedido de aplicativo de entrega.",
       "classes": [
-        "dms"
+        "dms",
+        "parceiro"
       ],
       "sensivel": true
     },
     "custos.ler": {
       "frase": "O custo de cada item vendido, pela ficha técnica.",
       "classes": [
-        "dms"
+        "dms",
+        "parceiro"
       ],
       "sensivel": true
     },
     "clientes.anonimizacao.ler": {
       "frase": "Quando um cliente pede para ser esquecido no Regem, o aplicativo recebe o aviso para apagar o que tiver dele.",
       "classes": [
-        "dms"
+        "dms",
+        "parceiro"
       ],
       "sensivel": false
     },
     "cupons.ler": {
       "frase": "Os cupons da loja, com regra e validade.",
       "classes": [
-        "dms"
+        "dms",
+        "parceiro"
       ],
       "sensivel": false
     },
@@ -893,21 +898,24 @@
     "catalogo.ler": {
       "frase": "Produtos, variações, combos e adicionais da loja (sem preço)",
       "classes": [
-        "dms"
+        "dms",
+        "parceiro"
       ],
       "sensivel": false
     },
     "fichas.ler": {
       "frase": "Fichas técnicas e ingredientes (sem custo)",
       "classes": [
-        "dms"
+        "dms",
+        "parceiro"
       ],
       "sensivel": false
     },
     "producao.ler": {
       "frase": "Pedidos na fila de produção (sem o cliente e sem valores)",
       "classes": [
-        "dms"
+        "dms",
+        "parceiro"
       ],
       "sensivel": false
     }
