@@ -2,16 +2,22 @@ import { createHash } from 'node:crypto';
 import type { AplicativoAprovado } from '../../dms/integracao-dms';
 import { ESCOPOS_DO_PARCEIRO, ESCOPOS_INTEGRACAO, ESCOPOS_SENSIVEIS } from './escopos';
 import {
+  aplicativoDoClique,
   aplicativoNoHub,
   clienteDoParceiro,
+  cnpjDoParceiroComMascara,
   ehClienteDeParceiro,
+  enderecoDeVoltaDoParceiro,
   lerParceirosLigados,
   lojasDoParceiro,
   motivoParaNaoValer,
+  parceiroNoClique,
   parceirosQueValem,
   permissoesDoParceiro,
 } from './parceiros.regras';
 import { motivoDaRecusaDaLigacao } from './ligacao.regras';
+import { conferirPedido, VERSAO_DO_TEXTO_PARCEIRO } from './autorizacao-clique.regras';
+import { montarTela, resumoDaTela, textoGuardado } from './autorizacao-clique.tela';
 
 // As regras do aplicativo de PARCEIRO (Hub DMS, F4, parte F), sem banco nem rede. Os dados são fictícios.
 
@@ -166,5 +172,139 @@ describe('motivoDaRecusaDaLigacao com o parceiro', () => {
     expect(motivoDaRecusaDaLigacao(ligacao({ aplicativo: 'outro' }), 'aplicativoparceiro01', aplicativos, { cliente })).toBe('ligação de outro aplicativo');
     expect(motivoDaRecusaDaLigacao(ligacao({ revogada: true }), 'aplicativoparceiro01', aplicativos, { cliente })).toBe('ligação revogada');
     expect(motivoDaRecusaDaLigacao(ligacao({ motivoDoToken: 'vencido' }), 'aplicativoparceiro01', aplicativos, { cliente })).toBe('token da ligação vencido');
+  });
+});
+
+// ───────────────────────────── R1b: a autorização por clique do parceiro ─────────────────────────────
+
+describe('a lista do hub: os tamanhos e a escrita do nome (R1b)', () => {
+  it('nome com letra de outra escrita (imita outro nome) não vale; acento e sinal comum valem', () => {
+    expect(motivoParaNaoValer(aprovado({ nome: 'Lіame Painel' }))).toMatch(/outra escrita/); // "і" cirílico
+    expect(motivoParaNaoValer(aprovado({ nome: 'Ελλάδα Painel' }))).toMatch(/outra escrita/);
+    expect(motivoParaNaoValer(aprovado({ nome: 'Pão & Café — Painel 2' }))).toBeNull();
+  });
+  it('nome, "para que serve", razão social e motivo longos demais (ou vazios) não valem', () => {
+    expect(motivoParaNaoValer(aprovado({ nome: 'x'.repeat(81) }))).toMatch(/nome/);
+    expect(motivoParaNaoValer(aprovado({ nome: '   ' }))).toMatch(/nome/);
+    expect(motivoParaNaoValer(aprovado({ para_que_serve: '' }))).toMatch(/para que serve/);
+    expect(motivoParaNaoValer(aprovado({ empresa: { razao_social: 'x'.repeat(201), cnpj: '12ABC34501DE36' } }))).toMatch(/razão social/);
+    expect(motivoParaNaoValer(aprovado({ permissoes: [{ nome: 'pedidos.ler', motivo: 'x'.repeat(401), necessaria: true }] }))).toMatch(/motivo/);
+  });
+});
+
+describe('o parceiro no clique (R1b)', () => {
+  it('o endereço de volta: só https, com nome, sem usuário, senha ou fragmento, e nunca localhost', () => {
+    expect(enderecoDeVoltaDoParceiro('https://app.exemplo.test/volta')).toBe(true);
+    for (const u of ['http://app.exemplo.test/volta', 'https://localhost/volta', 'https://x.localhost/v', 'https://u:s@app.exemplo.test/v', 'https://app.exemplo.test/v#x', 'não', 3]) {
+      expect(enderecoDeVoltaDoParceiro(u)).toBe(false);
+    }
+  });
+
+  it('necessárias e opcionais pela marca do parceiro, cortadas pelo teto e pela etapa; o início é a origem do primeiro endereço que vale', () => {
+    const p = parceiroNoClique(
+      aprovado({
+        enderecos_de_volta: ['http://inseguro.exemplo/v', 'https://app.exemplo.test/volta'],
+        permissoes: [
+          { nome: 'pedidos.ler', motivo: 'Mostrar os pedidos.', necessaria: true },
+          { nome: 'catalogo.ler', motivo: 'O nome dos itens.', necessaria: false },
+          { nome: 'custos.ler', motivo: 'A margem.', necessaria: false }, // sensível: fora no teste
+          { nome: 'cupons.criar', motivo: 'Criar cupom.', necessaria: false }, // passa do teto
+        ],
+      }),
+    );
+    expect(p).not.toBeNull();
+    expect(p).toMatchObject({ necessarias: ['pedidos.ler'], opcionais: ['catalogo.ler'], inicio: 'https://app.exemplo.test', enderecos: ['https://app.exemplo.test/volta'], lojas: 3, dadoPessoal: [], financeiras: [] });
+    expect(p?.semElas['catalogo.ler']).toMatch(/não recebe isto/);
+  });
+
+  it('sem endereço de volta que valha, ou sem necessária dentro do teto, o parceiro não é oferecido', () => {
+    expect(parceiroNoClique(aprovado({ enderecos_de_volta: ['http://inseguro.exemplo/v'] }))).toBeNull();
+    expect(parceiroNoClique(aprovado({ permissoes: [{ nome: 'catalogo.ler', motivo: 'O nome dos itens.', necessaria: false }] }))).toBeNull();
+  });
+
+  it('o CNPJ do parceiro com máscara (alfanumérico também); o que não tem a forma sai como veio', () => {
+    expect(cnpjDoParceiroComMascara('12abc34501de36')).toBe('12.ABC.345/01DE-36');
+    expect(cnpjDoParceiroComMascara('11222333000100')).toBe('11.222.333/0001-00');
+    expect(cnpjDoParceiroComMascara('123')).toBe('123');
+  });
+
+  it('o pedido do parceiro só pede o que ele pode, com ao menos uma necessária', () => {
+    const app = aplicativoDoClique(parceiroNoClique(aprovado())!);
+    const base = {
+      response_type: 'code',
+      redirect_uri: 'https://app.exemplo.test/volta',
+      state: 's'.repeat(20),
+      code_challenge_method: 'S256',
+      code_challenge: 'a'.repeat(43),
+      conta_nome: 'Conta',
+      conta_email: 'conta@exemplo.test',
+    };
+    expect(conferirPedido({ ...base, scope: 'pedidos.ler catalogo.ler' }, app, 'aplicativoparceiro01', ['https://app.exemplo.test/volta'])).toMatchObject({ necessarias: ['pedidos.ler'], opcionais: ['catalogo.ler'] });
+    expect(conferirPedido({ ...base, scope: 'catalogo.ler' }, app, 'aplicativoparceiro01', ['https://app.exemplo.test/volta'])).toEqual({ erro: expect.stringMatching(/necessária/) });
+    expect(conferirPedido({ ...base, scope: 'pedidos.ler custos.ler' }, app, 'aplicativoparceiro01', ['https://app.exemplo.test/volta'])).toEqual({ erro: expect.stringMatching(/custos\.ler/) });
+  });
+});
+
+describe('a tela do parceiro (R1b)', () => {
+  const L1 = '11111111-1111-4111-8111-111111111111';
+  const L2 = '22222222-2222-4222-8222-222222222222';
+  const app = aplicativoDoClique(parceiroNoClique(aprovado())!);
+  const entrada = (o: { lojas?: any[]; lojasDoTeste?: { maximo: number; emOutras: number } | null; cnpjConta?: string | null } = {}) => ({
+    cliente: clienteDoParceiro('aplicativoparceiro01'),
+    app,
+    dms: { empresa: 'DMS Exemplo Ltda', cnpj: '33444555000100' },
+    pedido: {
+      redirectUri: 'https://app.exemplo.test/volta',
+      necessarias: ['pedidos.ler'] as any,
+      opcionais: ['catalogo.ler'] as any,
+      contaQuePede: { nome: 'Conta da Brasa', cnpj: o.cnpjConta === undefined ? '11222333000200' : o.cnpjConta, email: 'c@brasa.exemplo', marca: null },
+    },
+    empresa: { nome: 'Brasa', cnpj: '11222333000199' },
+    lojas: o.lojas ?? [{ id: L1, nome: 'Brasa Centro', tipo: 'matriz', fuso: 'America/Sao_Paulo', conectadaDesde: null, jaLiberado: [] }],
+    verFinanceiro: true,
+    lojasDoTeste: o.lojasDoTeste === undefined ? { maximo: 3, emOutras: 1 } : o.lojasDoTeste,
+  });
+
+  it('a confirmação sempre — mesmo com a conta da mesma empresa —, gravada e exigida pela tela', () => {
+    const t = montarTela(entrada());
+    expect(t.contaQuePede.outraEmpresa).toBe(false);
+    expect(t.confirmacao?.texto).toContain('vão para a Exemplo Sistemas Ltda (CNPJ 12.ABC.345/01DE-36)');
+    expect(t.confirmacao?.texto).toContain('A conta “Conta da Brasa” (CNPJ 11.222.333/0002-00) foi informada pelo próprio aplicativo');
+    expect(textoGuardado(t, { lojas: [L1], ligadas: [], confirmouOutraEmpresa: true }).confirmouOutraEmpresa).toBe(true);
+  });
+
+  it('a classe, a versão do texto do parceiro, as vagas e o resumo (que muda com o que o presidente lê, e não com as vagas)', () => {
+    const t = montarTela(entrada());
+    expect(t).toMatchObject({ classe: 'parceiro', versao: VERSAO_DO_TEXTO_PARCEIRO, lojasDoTeste: { maximo: 3, vagas: 2 } });
+    expect(t.rodape).toContain(`versão ${VERSAO_DO_TEXTO_PARCEIRO}`);
+    const { resumo, ...sem } = t;
+    expect(resumo).toBe(resumoDaTela(sem));
+    expect(montarTela(entrada({ lojasDoTeste: { maximo: 3, emOutras: 2 } })).resumo).toBe(resumo);
+    const outroNome = montarTela({ ...entrada(), app: { ...app, nome: 'Outro Painel' } });
+    expect(outroNome.resumo).not.toBe(resumo);
+  });
+
+  it('a loja única sem vaga não vem marcada (a que ele já lê, sim)', () => {
+    expect(montarTela(entrada({ lojasDoTeste: { maximo: 3, emOutras: 3 } })).lojas[0].marcada).toBe(false);
+    expect(montarTela(entrada({ lojasDoTeste: { maximo: 3, emOutras: 2 } })).lojas[0].marcada).toBe(true);
+    const ligada = [{ id: L1, nome: 'Brasa Centro', tipo: 'matriz', fuso: 'America/Sao_Paulo', conectadaDesde: new Date('2026-10-01T15:00:00Z'), jaLiberado: ['pedidos.ler'] }];
+    expect(montarTela(entrada({ lojas: ligada, lojasDoTeste: { maximo: 3, emOutras: 3 } })).lojas[0].marcada).toBe(true);
+  });
+
+  it('a janela no "não pode": nova = desta autorização; mista = as duas datas', () => {
+    const mista = [
+      { id: L1, nome: 'Brasa Centro', tipo: 'matriz', fuso: 'America/Sao_Paulo', conectadaDesde: new Date('2026-10-01T15:00:00Z'), jaLiberado: ['pedidos.ler', 'catalogo.ler'] },
+      { id: L2, nome: 'Brasa Praia', tipo: 'filial', fuso: 'America/Sao_Paulo', conectadaDesde: null, jaLiberado: [] },
+    ];
+    expect(montarTela(entrada()).naoPode.at(-1)?.frase).toBe('Ele não lê as vendas de antes desta autorização.');
+    expect(montarTela(entrada({ lojas: mista })).naoPode.at(-1)?.frase).toBe(
+      'Nas lojas novas, ele não lê as vendas de antes desta autorização; nas que já têm o Painel Exemplo, as de antes de 01/10/2026.',
+    );
+  });
+
+  it('sem a etapa de teste (produção), nada de vagas', () => {
+    const t = montarTela(entrada({ lojasDoTeste: null }));
+    expect(t.lojasDoTeste).toBeNull();
+    expect(t.ajudaLojas).toBeNull();
   });
 });

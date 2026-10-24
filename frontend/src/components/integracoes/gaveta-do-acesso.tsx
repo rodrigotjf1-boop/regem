@@ -18,14 +18,17 @@ function Bloco({ titulo, children }: { titulo: string; children: React.ReactNode
   );
 }
 
-/** O que o acesso recebe: a frase do texto que o presidente viu, quando há; senão a do catálogo da página. */
-function recebe(acesso: Acesso): { id: string; rotulo: string; texto: string }[] {
+/**
+ * O que o acesso recebe: a frase do texto que o presidente viu, quando há; senão a do servidor para o aplicativo de
+ * parceiro (a página não tem textos dele — os do catálogo daqui falam do Liame); senão a do catálogo da página.
+ */
+function recebe(app: Aplicativo, acesso: Acesso): { id: string; rotulo: string; texto: string }[] {
   const t = acesso.autorizacao?.texto;
   const doTexto = new Map(t ? [...t.necessarias, ...t.opcionais, ...t.dadosDosClientes, ...t.novas].map((p) => [p.id, p]) : []);
   return acesso.escopos.map((id) => {
     const p = doTexto.get(id);
     if (p) return { id, rotulo: p.rotulo, texto: p.frase };
-    const c = TEXTO_ESCOPO[id];
+    const c = app.classe === 'parceiro' ? app.frases?.[id] : TEXTO_ESCOPO[id];
     return { id, rotulo: c?.rotulo ?? id, texto: c?.texto ?? '' };
   });
 }
@@ -50,7 +53,7 @@ export function GavetaDoAcesso({
   const [verTexto, setVerTexto] = useState(false);
   const aut = acesso.autorizacao ?? null;
   const texto = aut?.texto ?? null;
-  const itens = recebe(acesso);
+  const itens = recebe(app, acesso);
   const naoRecebe = texto
     ? [...texto.opcionais, ...texto.dadosDosClientes].filter((o) => !acesso.escopos.includes(o.id)).map((o) => o.rotulo.toLowerCase())
     : [];
@@ -81,8 +84,12 @@ export function GavetaDoAcesso({
           <div className="grid min-w-0 gap-1">
             <span className="flex flex-wrap items-center gap-2">
               <b className="font-bold">{app.rotulo}</b>
-              {app.cliente !== 'gogem' && <Selo tom="ok">Produto da DMS</Selo>}
-              <Selo tom={acesso.ativo ? 'ok' : 'neutro'}>{acesso.ativo ? 'ativo' : 'revogado'}</Selo>
+              {app.classe === 'parceiro' ? (
+                <Selo tom="neutro">Parceiro verificado pela DMS</Selo>
+              ) : (
+                app.cliente !== 'gogem' && <Selo tom="ok">Produto da DMS</Selo>
+              )}
+              <Selo tom={acesso.ativo && !acesso.suspenso ? 'ok' : 'neutro'}>{!acesso.ativo ? 'revogado' : acesso.suspenso ? 'suspenso' : 'ativo'}</Selo>
             </span>
             {app.descricao && <span className="text-[13px] text-secondary-foreground">{app.descricao}</span>}
           </div>
@@ -151,6 +158,11 @@ export function GavetaDoAcesso({
 
         <Bloco titulo="Último acesso">
           <p>{acesso.ativo ? haQuanto(acesso.ultimoUsoEm, agora) : comoSaiu(acesso, app.rotulo)}</p>
+          {acesso.ativo && acesso.suspenso && (
+            <p className="mt-1 text-[13px] text-secondary-foreground">
+              Suspenso: ficou 90 dias sem uso e não lê nada. Volta quando o {app.rotulo} pedir de novo e você autorizar.
+            </p>
+          )}
         </Bloco>
 
         <Bloco titulo="Histórico">

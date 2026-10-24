@@ -311,16 +311,19 @@ descrever('API de integração — o aplicativo de parceiro (Hub DMS, F4 parte F
     acessoHaDias?: number;
     ligacaoHaDias?: number;
     usoHaDias?: number | null;
+    /** O início da janela gravado na troca do clique (`ler_desde`, R1b); ausente = nulo (vale a criação do acesso). */
+    lerDesdeHaDias?: number | null;
   }) {
     const aplicativo = o.aplicativo ?? APP_PARCEIRO;
     const t = gerarTokenIntegracao();
     segredos.push(t.token);
     const [linha] = await q(
       `insert into integracao_token_loja
-         (tenant_id, unidade_id, cliente, prefixo, token_hash, escopos, autorizado_por, autorizado_por_nome, autorizado_via, evidencia, criado_em)
-       values ($1, $2, $3, $4, $5, $6::text[], $7, 'Presidente', 'autorizacao_loja', 'teste do parceiro', now() - make_interval(days => $8))
+         (tenant_id, unidade_id, cliente, prefixo, token_hash, escopos, autorizado_por, autorizado_por_nome, autorizado_via, evidencia, criado_em, ler_desde)
+       values ($1, $2, $3, $4, $5, $6::text[], $7, 'Presidente', 'autorizacao_loja', 'teste do parceiro', now() - make_interval(days => $8),
+               case when $9::int is null then null else now() - make_interval(days => $9::int) end)
        returning id`,
-      [o.tenant, o.loja, o.cliente ?? clienteDoParceiro(aplicativo), t.prefixo, t.hash, o.escopos, o.pres, o.acessoHaDias ?? 0],
+      [o.tenant, o.loja, o.cliente ?? clienteDoParceiro(aplicativo), t.prefixo, t.hash, o.escopos, o.pres, o.acessoHaDias ?? 0, o.lerDesdeHaDias ?? null],
     );
     const lg = gerarChave('lg', 'regem');
     segredos.push(lg.chave);
@@ -361,6 +364,8 @@ descrever('API de integração — o aplicativo de parceiro (Hub DMS, F4 parte F
     await repetirNaCorridaDeCatalogo(() => pool.query(mig('323_integracao_gogem.sql')));
     await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(mig('329_integracao_ligacao.sql'))));
     await repetirNaCorridaDeCatalogo(() => pool.query(mig('333_integracao_limite.sql')));
+    // A janela de leitura do parceiro (R1b): o guard lê `ler_desde` para o parceiro aprovado.
+    await repetirNaCorridaDeCatalogo(() => pool.query(mig('340_integracao_ler_desde.sql')));
     const [fk] = await q(
       `select count(*)::int n from pg_constraint c join pg_namespace s on s.oid = c.connamespace
         where s.nspname = $1 and c.contype = 'f'
@@ -645,6 +650,18 @@ descrever('API de integração — o aplicativo de parceiro (Hub DMS, F4 parte F
     expect(((await ap.json()) as any).itens.map((c: any) => c.id)).toEqual([esquecidoDepois]);
     const al = await chamar('/api/v1/integracao/clientes/anonimizados', { token: falsos.emitir(), ligacao: liameB.ligacao });
     expect(((await al.json()) as any).itens.map((c: any) => c.id).sort()).toEqual([esquecidoAntes, esquecidoDepois].sort());
+  });
+
+  it('a janela é a da autorização contínua (ler_desde, gravada na troca do clique); sem ela, a criação do acesso', async () => {
+    const herdada = await ligacaoDeParceiro({ tenant: B.tenant, loja: B.lojas[1], pres: presB, escopos: ['pedidos.ler'], acessoHaDias: 1, lerDesdeHaDias: 30 });
+    const r = await comoParceiro('/api/v1/integracao/teste-contexto', herdada.ligacao);
+    const c: any = await r.json();
+    const [{ ler }] = await q(`select to_char(ler_desde at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as ler from integracao_token_loja where id = $1`, [herdada.id]);
+    expect(c.lerVendasDesde).toBe(ler);
+    const sem = await ligacaoDeParceiro({ tenant: B.tenant, loja: B.lojas[0], pres: presB, escopos: ['pedidos.ler'], acessoHaDias: 2 });
+    const c2: any = await (await comoParceiro('/api/v1/integracao/teste-contexto', sem.ligacao)).json();
+    const [{ criado }] = await q(`select to_char(criado_em at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as criado from integracao_token_loja where id = $1`, [sem.id]);
+    expect(c2.lerVendasDesde).toBe(criado);
   });
 
   it('o rgm_it_ de um acesso de parceiro não entra (só a ligação vale para parceiro)', async () => {

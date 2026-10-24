@@ -264,12 +264,11 @@ pede, outra empresa, opcionais desligadas, texto e versão); `integracao_token_l
 de um acesso ativo do clique por loja e aplicativo; e `integracao_autorizacao_trava` (as senhas erradas, fora do
 `colaborador`, que sincroniza com a loja).
 
-## 10. O aplicativo de parceiro (F4, parte F; PR R1a — nasce desligado)
+## 10. O aplicativo de parceiro (F4, parte F; PRs R1a e R1b — nasce desligado)
 
-Um **parceiro** é o aplicativo de outra empresa que a DMS aprovou no portal de parceiros (F4, partes B e C). Esta parte
-abre a **porta** para ele; a autorização por clique que cria a ligação dele (com as 3 lojas da etapa de teste, a tela
-com a empresa conferida, o "Revogar todos" e o aviso dos 90 dias) é a R1b, e os avisos de parceiro, a R2. Sem
-migration; só nuvem.
+Um **parceiro** é o aplicativo de outra empresa que a DMS aprovou no portal de parceiros (F4, partes B e C). A R1a (#732)
+abre a **porta** para ele; a R1b, a **autorização por clique** que cria a ligação dele (seção 11); os avisos de parceiro
+são a R2. Só nuvem.
 
 **Quando ele entra:** só com `PARCEIROS_LIGADOS=true`, o hub ligado (`HUB_LIGADO`) e a via do DMS ID ligada. O cliente do
 hub passa a ler também a lista de aplicativos aprovados (`GET /api/v1/aplicativos` do hub, com um token à parte, de
@@ -289,8 +288,9 @@ parceiro é recusado (401), também nas rotas do totem.
 hub aprovou; as sensíveis (o telefone no pedido e o custo) só na etapa de produção com dado pessoal aprovado — na de
 teste, nunca. A lista do hub nunca passa do teto do código.
 
-**O que muda na resposta:** em `GET /integracao/pedidos`, o parceiro recebe só as vendas **confirmadas depois que o
-acesso nasceu** (decisão do dono, 24/10/2026) e **`origem: null`**: a origem do anúncio foi capturada com o aviso do
+**O que muda na resposta:** em `GET /integracao/pedidos`, o parceiro recebe só as vendas **confirmadas depois que a
+autorização dele começou** (decisão do dono, 24/10/2026; a autorização contínua — `ler_desde`, seção 11 — ou, sem ela,
+a criação do acesso) e **`origem: null`**: a origem do anúncio foi capturada com o aviso do
 cardápio que nomeia o Liame (F4-13). Em `GET /integracao/clientes/anonimizados`, a mesma janela: só os pedidos de
 esquecer feitos depois (dos de antes, ele nunca leu o cliente). `GET /integracao/producao` é a fila viva da cozinha (até
 24 horas), não histórico: fica como é. A captura da origem passa a depender só do token do Liame (hoje já era assim, na
@@ -308,6 +308,51 @@ desligada): 90 dias sem uso suspendem do mesmo jeito.
 ID e o hub de mentira; as ligações de parceiro preparadas no banco), que roda também o kit no modo do DMS ID com as
 credenciais de parceiro: a classe, a ligação suspensa e a parada passam.
 
-**Para ligar (distribuição):** no hub, o papel do Regem com `aplicativos.ler` (feito em 24/10/2026); no EasyPanel do
-`regem-api`, `PARCEIROS_LIGADOS=true` e reiniciar. Ligar antes da R1b não cria parceiro nenhum: sem o clique de parceiro,
-não há ligação de parceiro.
+**Para ligar (distribuição):** no hub, o papel do Regem com `aplicativos.ler` (feito em 24/10/2026); a migration 340 na
+nuvem (seção 11); no EasyPanel do `regem-api`, `PARCEIROS_LIGADOS=true` e reiniciar. A autorização por clique também
+precisa estar ligada (`AUTORIZACAO_POR_CLIQUE`, seção 9).
+
+## 11. A autorização por clique do parceiro (F4, parte F, PR R1b; migration 340)
+
+O mesmo clique da seção 9 (pedido empurrado com o token do DMS ID, a tela, a senha do presidente, o código, a troca por
+uma ligação por loja), com o que é do parceiro:
+
+- **Quem usa:** o client_id de `DMS_ID_APLICATIVOS` é da DMS e nunca vira parceiro (o Farol, o GoGeM e o RegemCast, que
+  não usam o clique, ficam de fora mesmo se o hub os listar). O parceiro aprovado (seção 10) usa, com os endereços de
+  volta da lista do hub que forem https, com nome (nunca `localhost`). O pedido tem de trazer ao menos uma permissão
+  necessária (vale para todos: sem ela, a autorização com as opcionais desligadas não daria permissão nenhuma).
+- **A tela:** selo "Verificado pela DMS"; a empresa e o CNPJ (também o alfanumérico) são os conferidos pela DMS, no lugar
+  dos da DMS; o "para que serve" vai entre aspas, nas palavras do parceiro; as necessárias e as opcionais pela marca dele
+  (as opcionais nascem desligadas, F4-14), cortadas pelo teto e pela etapa; frases próprias (`FRASES_DO_PARCEIRO`: os
+  pedidos sem a origem do anúncio; o catálogo, as fichas e a fila da cozinha com os textos do Farol) — o catálogo do
+  clique e o manifesto não mudam; a **confirmação de outra empresa SEMPRE** ("os dados vão para a <razão social>,
+  conferida pela DMS; a conta foi informada pelo próprio aplicativo"), exigida e gravada pela tela; e, no "não pode", a
+  janela de leitura com a data de verdade ("desta autorização", ou "de antes de <data>" no modo "mais"). O texto tem a
+  versão própria (`VERSAO_DO_TEXTO_PARCEIRO`) e a prova diz `classe: 'parceiro'`.
+- **O texto que o presidente leu:** a tela do parceiro traz um resumo (SHA-256 do que ele lê), que a página devolve ao
+  autorizar. Se a lista do hub mudou entre abrir e clicar (o nome, a empresa, as permissões), o servidor responde 409 e a
+  página abre de novo, com o texto novo. A tela do Liame não muda (provado byte a byte, com a ordem das chaves).
+- **As 3 lojas da etapa de teste (F4-12):** a conta que vale é a da **troca**, dentro da transação e sob a trava de
+  transação do aplicativo (`pg_advisory_xact_lock`): as lojas com acesso vivo do parceiro em todas as empresas, fora as
+  desta troca, mais todas as desta troca. Passou: 400 com a frase do limite, o código fica gasto e a empresa fica com o
+  registro `integracao.troca_recusada`. Antes, só para a frase certa: a tela conta as lojas de OUTRAS empresas (vivas e
+  autorizações pendentes) e mostra as vagas; sem vaga e sem loja ligada aqui, a situação `limite`; ao autorizar, marcar
+  além das vagas é recusado. A ligação suspensa (90 dias sem uso) não segura vaga.
+- **A janela que atravessa a re-autorização (migration 340):** a troca grava `integracao_token_loja.ler_desde` na mesma
+  transação — o do acesso que ela substitui, se ele estava vivo (o modo "mais" não reinicia a janela), ou agora. O acesso
+  suspenso não passa a janela nem as permissões de antes: a loja recomeça (a tela a trata como nova e o e-mail é o de
+  autorização nova). A porta só lê a coluna para o parceiro; os produtos da DMS não dependem dela.
+- **Aplicativos conectados:** o nome e a empresa do parceiro saem do texto guardado do clique (a prova), nunca da lista do
+  hub; o selo "Parceiro verificado pela DMS"; as frases do que ele recebe vêm do servidor; a situação "suspenso" para a
+  ligação parada há 90 dias; "Revogar todos" aceita o parceiro (só nesta empresa, como sempre).
+- **Os e-mails:** o nome e a empresa vêm da prova; o texto diz para onde os dados vão ("conferida pela DMS"), com as
+  frases e o "não pode" do parceiro. Os do Liame não mudam.
+- **A parada:** pelo client_id do parceiro (o pedido recebe 503 e a tela diz "pausado").
+
+**A migration 340 (só nuvem, sem `drop`):** a coluna `integracao_token_loja.ler_desde` e o índice dos acessos ativos por
+cliente (a conta das lojas), com a conferência no mesmo Run (duas linhas `ok`). Tem de estar na nuvem antes do merge.
+
+**Testes:** `autorizacao-clique-parceiro.http.spec.ts` (o clique de ponta a ponta, as vagas, a corrida das 3 lojas na
+troca com o cruzamento forçado — V72 —, a janela no modo "mais" e na suspensão, Aplicativos conectados, a parada, o
+Liame que segue Liame), `parceiros.regras.spec.ts` (a tela e as regras do parceiro) e, na porta, o
+`integracao-parceiro.http.spec.ts` (a janela pelo `ler_desde`).

@@ -50,6 +50,12 @@ export type TelaDaAutorizacao = {
   nota: string;
   rodape: string;
   botoes: { autorizar: string; cancelar: string };
+  /** Só o aplicativo de parceiro (Hub DMS, F4 parte F). */
+  classe?: 'parceiro';
+  /** Só o parceiro em teste: até quantas lojas ele lê (somando as empresas) e quantas esta empresa ainda pode marcar. */
+  lojasDoTeste?: { maximo: number; vagas: number } | null;
+  /** Só o parceiro: o resumo do texto mostrado, que a página devolve ao autorizar. */
+  resumo?: string;
 };
 
 export type AppResumo = { cliente: string; nome: string; inicio: string };
@@ -61,7 +67,12 @@ export type SituacaoDaTela =
   | { situacao: 'pausado'; aplicativo: AppResumo }
   | { situacao: 'nao_presidente'; aplicativo: AppResumo; pessoa: Pessoa }
   | { situacao: 'travada'; aplicativo: AppResumo; pessoa: Pessoa; minutos: number }
+  /** O aplicativo de parceiro em teste já chegou ao limite de lojas, e esta empresa não tem nenhuma com ele. */
+  | { situacao: 'limite'; aplicativo: AppResumo; pessoa: Pessoa; maximo: number; frase: string }
   | { situacao: 'escolha'; aplicativo: AppResumo; pessoa: Pessoa; tela: TelaDaAutorizacao };
+
+/** O `cliente` de um aplicativo de parceiro (`parceiro_` + 24 hex): a página não tem textos próprios para ele. */
+export const ehParceiro = (cliente: string | null | undefined): boolean => /^parceiro_[0-9a-f]{24}$/.test(cliente ?? '');
 
 /** A prova (o texto guardado): a tela que o presidente viu, com a decisão dele. */
 export type TextoGuardado = Omit<TelaDaAutorizacao, 'opcionais' | 'dadosDosClientes' | 'novas'> & {

@@ -4,6 +4,7 @@ import { enviarEmail } from '../../common/mailer';
 import { APLICATIVOS_DO_CLIQUE, PERMISSAO_NA_TELA, cnpjComMascara, naOrdemDoCatalogo, noAssuntoDe } from './autorizacao-clique.regras';
 import { listaNaFrase } from './autorizacao-clique.tela';
 import { CLIENTES_INTEGRACAO, type EscopoIntegracao } from './escopos';
+import { ehClienteDeParceiro, FRASES_DO_PARCEIRO, NAO_PODE_NO_EMAIL_DO_PARCEIRO, type FraseDaPermissao } from './parceiros.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -172,9 +173,14 @@ function emailDoAviso(assunto: string, paragrafos: Parte[][], link: string, roda
 }
 
 const primeiro = (nome: string) => nome.trim().split(/\s+/)[0] || nome.trim() || 'Olá';
-const emMinusculas = (ids: readonly EscopoIntegracao[]) =>
+
+/** As frases de permissão do e-mail: as do catálogo do clique (o Liame); o parceiro passa as dele. */
+type FrasesDoEmail = (id: EscopoIntegracao) => FraseDaPermissao | undefined;
+const DO_CATALOGO: FrasesDoEmail = (id) => PERMISSAO_NA_TELA[id];
+
+const emMinusculas = (ids: readonly EscopoIntegracao[], frases: FrasesDoEmail = DO_CATALOGO) =>
   ids.map((id) => {
-    const r = PERMISSAO_NA_TELA[id]?.rotulo ?? id;
+    const r = frases(id)?.rotulo ?? id;
     return r.charAt(0).toLowerCase() + r.slice(1);
   });
 
@@ -192,18 +198,25 @@ export function emailDaAutorizacaoNova(d: {
   naoPode: string;
   empresa: string;
   link: string;
+  /** Só o aplicativo de parceiro (R1b): as frases dele e a empresa conferida pela DMS, para onde os dados vão. */
+  frases?: FrasesDoEmail;
+  empresaDoApp?: { razaoSocial: string; cnpj: string | null };
 }) {
   const uma = d.lojas.length === 1;
   const lojas = listaNaFrase(d.lojas);
+  const frases = d.frases ?? DO_CATALOGO;
   const assunto = `O ${d.aplicativo} foi autorizado ${uma ? `na loja ${lojas}` : `nas lojas ${lojas}`}`;
+  const paraOnde = d.empresaDoApp
+    ? ` Os dados vão para a ${d.empresaDoApp.razaoSocial}${d.empresaDoApp.cnpj ? ` (CNPJ ${d.empresaDoApp.cnpj})` : ''}, dona do ${d.aplicativo}, conferida pela DMS.`
+    : '';
   const paragrafos: Parte[][] = [
     [
       `${primeiro(d.nome)}, às ${d.hora} de ${d.data} o ${d.por} (presidente) autorizou o ${d.aplicativo} a ler ${uma ? `a loja ${lojas}` : `as lojas ${lojas}`} no Regem, com a própria senha. ` +
-        `O pedido veio da conta ${d.conta.nome} no ${d.aplicativo} (${d.conta.cnpj ? `CNPJ ${d.conta.cnpj}` : 'sem CNPJ informado'}).`,
+        `O pedido veio da conta ${d.conta.nome} no ${d.aplicativo} (${d.conta.cnpj ? `CNPJ ${d.conta.cnpj}` : 'sem CNPJ informado'}).${paraOnde}`,
     ],
-    [{ b: `O ${d.aplicativo} pode ver:` }, ` ${listaNaFrase(emMinusculas(d.pode))}.`],
+    [{ b: `O ${d.aplicativo} pode ver:` }, ` ${listaNaFrase(emMinusculas(d.pode, frases))}.`],
   ];
-  if (d.desligado.length) paragrafos.push([{ b: 'Ficou desligado:' }, ` ${listaNaFrase(emMinusculas(d.desligado))}.`]);
+  if (d.desligado.length) paragrafos.push([{ b: 'Ficou desligado:' }, ` ${listaNaFrase(emMinusculas(d.desligado, frases))}.`]);
   paragrafos.push([d.naoPode]);
   paragrafos.push([
     { b: 'Foi alguém da sua empresa?' },
@@ -226,14 +239,18 @@ export function emailDaPermissaoAMais(d: {
   resto: readonly EscopoIntegracao[];
   empresa: string;
   link: string;
+  /** Só o aplicativo de parceiro (R1b): as frases dele (os pedidos sem a origem do anúncio, as leituras na hora). */
+  frases?: FrasesDoEmail;
 }) {
-  const assunto = `O ${d.aplicativo} passou a receber ${listaNaFrase(d.novas.map(noAssuntoDe))} na ${d.loja}`;
-  const naFrase = listaNaFrase(d.novas.map((id) => PERMISSAO_NA_TELA[id]?.naFrase ?? id));
+  const frases = d.frases;
+  const noAssunto = (id: EscopoIntegracao) => (frases ? (frases(id)?.noAssunto ?? frases(id)?.naFrase ?? id) : noAssuntoDe(id));
+  const assunto = `O ${d.aplicativo} passou a receber ${listaNaFrase(d.novas.map(noAssunto))} na ${d.loja}`;
+  const naFrase = listaNaFrase(d.novas.map((id) => (frases ?? DO_CATALOGO)(id)?.naFrase ?? id));
   const paragrafos: Parte[][] = [
     [`${primeiro(d.nome)}, às ${d.hora} de ${d.data} o ${d.por} (presidente) liberou para o ${d.aplicativo} ${naFrase}, na loja ${d.loja}, com a própria senha.`],
-    ...d.novas.map((id): Parte[] => [PERMISSAO_NA_TELA[id]?.frase ?? id]),
+    ...d.novas.map((id): Parte[] => [(frases ?? DO_CATALOGO)(id)?.frase ?? id]),
   ];
-  if (d.resto.length) paragrafos.push([`O resto continua como estava: ${listaNaFrase(emMinusculas(d.resto))}.`]);
+  if (d.resto.length) paragrafos.push([`O resto continua como estava: ${listaNaFrase(emMinusculas(d.resto, frases))}.`]);
   paragrafos.push([{ b: 'Não reconhece?' }, ' Revogue agora em Configurações › Aplicativos conectados.']);
   return emailDoAviso(assunto, paragrafos, d.link, RODAPE_DO_AVISO(d.empresa));
 }
@@ -276,13 +293,25 @@ export async function avisarAutorizacaoPorClique(db: any, d: AutorizacaoPorCliqu
       return (r.rows ?? r) as any[];
     };
     const [a] = await rows(sql`
-      select a.criado_em, a.conta_que_pede, a.opcionais_desligados, e.nome as empresa,
+      select a.criado_em, a.conta_que_pede, a.opcionais_desligados, e.nome as empresa, a.texto->'aplicativo' as app_da_tela,
              (select coalesce(nullif(u.timezone, ''), 'America/Sao_Paulo') from unidade u
                where u.id = ${d.lojas[0]?.id ?? null}::uuid) as fuso
         from integracao_autorizacao a join empresa e on e.id = a.tenant_id
        where a.id = ${d.autorizacaoId}::uuid and a.tenant_id = ${d.tenantId}::uuid`);
     const destinos = await presidentesComEmail(db, d.tenantId);
-    const aplicativo = APLICATIVOS_DO_CLIQUE[d.cliente]?.nome ?? CLIENTES_INTEGRACAO[d.cliente]?.rotulo ?? d.cliente;
+    // O aplicativo de PARCEIRO (R1b): o nome e a empresa saem do texto que o presidente leu (a prova), não da lista do hub
+    // (que pode ter mudado); as frases e o "não pode" são os do parceiro.
+    const parceiro = ehClienteDeParceiro(d.cliente);
+    const daTela = parceiro ? (a?.app_da_tela ?? null) : null;
+    const aplicativo = parceiro
+      ? String(daTela?.nome ?? 'O aplicativo')
+      : (APLICATIVOS_DO_CLIQUE[d.cliente]?.nome ?? CLIENTES_INTEGRACAO[d.cliente]?.rotulo ?? d.cliente);
+    const doParceiro = parceiro
+      ? {
+          frases: ((id: EscopoIntegracao) => FRASES_DO_PARCEIRO[id] ?? PERMISSAO_NA_TELA[id]) as FrasesDoEmail,
+          empresaDoApp: { razaoSocial: String(daTela?.empresa ?? ''), cnpj: daTela?.cnpj ? String(daTela.cnpj) : null },
+        }
+      : null;
     if (!a || !destinos.length) {
       log.warn(`aviso da autorização do ${aplicativo} não saiu: a empresa ${d.tenantId.slice(0, 8)} não tem presidente com e-mail`);
       return;
@@ -292,21 +321,47 @@ export async function avisarAutorizacaoPorClique(db: any, d: AutorizacaoPorCliqu
     const link = linkDosAplicativos();
     const conta = { nome: String(a.conta_que_pede?.nome ?? ''), cnpj: cnpjComMascara(a.conta_que_pede?.cnpj ?? null) };
     const desligado = naOrdemDoCatalogo(a.opcionais_desligados ?? []);
-    const naoPode = APLICATIVOS_DO_CLIQUE[d.cliente]?.naoPodeNoEmail ?? '';
+    const naoPode = parceiro ? NAO_PODE_NO_EMAIL_DO_PARCEIRO : (APLICATIVOS_DO_CLIQUE[d.cliente]?.naoPodeNoEmail ?? '');
     const emails: { assunto: string; texto: string; html: string; para: { nome: string; email: string } }[] = [];
     for (const p of destinos) {
       if (novas.length) {
         const pode = naOrdemDoCatalogo(novas.flatMap((l) => l.escopos));
         emails.push({
           para: p,
-          ...emailDaAutorizacaoNova({ nome: p.nome, aplicativo, lojas: novas.map((l) => l.nome), hora, data, por: d.porNome, conta, pode, desligado, naoPode, empresa, link }),
+          ...emailDaAutorizacaoNova({
+            nome: p.nome,
+            aplicativo,
+            lojas: novas.map((l) => l.nome),
+            hora,
+            data,
+            por: d.porNome,
+            conta,
+            pode,
+            desligado,
+            naoPode,
+            empresa,
+            link,
+            ...(doParceiro ?? {}),
+          }),
         });
       }
       for (const l of mais) {
         const resto = naOrdemDoCatalogo((l.antes as readonly string[]).filter((e) => l.escopos.includes(e as EscopoIntegracao)));
         emails.push({
           para: p,
-          ...emailDaPermissaoAMais({ nome: p.nome, aplicativo, loja: l.nome, hora, data, por: d.porNome, novas: l.ganhou, resto, empresa, link }),
+          ...emailDaPermissaoAMais({
+            nome: p.nome,
+            aplicativo,
+            loja: l.nome,
+            hora,
+            data,
+            por: d.porNome,
+            novas: l.ganhou,
+            resto,
+            empresa,
+            link,
+            ...(doParceiro ? { frases: doParceiro.frases } : {}),
+          }),
         });
       }
     }
