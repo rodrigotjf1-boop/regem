@@ -45,6 +45,12 @@ const INTEGRADOR_VISTO_MINUTOS = 60;
 /** Quem fez a alteração, para a auditoria (vem do usuário logado, no controller). */
 export type AtorEquipamento = { id: string; perfil: string };
 
+/**
+ * Por onde veio a ação quando não há usuário logado — o ícone do servidor da loja (fase 4 do pedido de 22–23/10/2026,
+ * "o ícone é livre"): a auditoria leva o tipo do ator, a origem e o computador/usuário do Windows no detalhe.
+ */
+export type ViaDaAcao = { atorTipo: string; origem: string; detalhe: Record<string, unknown> };
+
 /** A forma da via de produção de uma impressora (mig 335), conferida: só as duas que existem. */
 function formaDaVia(v: unknown): 'itens' | 'completo' {
   if (v === 'itens' || v === 'completo') return v;
@@ -143,7 +149,7 @@ export class EquipamentoService {
   }
 
   // Código de 6 dígitos, fácil de ditar por telefone no suporte.
-  async gerarCodigo(tenantId: string, id: string, atorId: string, atorPerfil: string) {
+  async gerarCodigo(tenantId: string, id: string, atorId: string | null, atorPerfil: string | null, via?: ViaDaAcao) {
     const [alvo] = await this.db
       .select({ id: equipamento.id, nome: equipamento.nome, tipo: equipamento.tipo })
       .from(equipamento)
@@ -179,7 +185,8 @@ export class EquipamentoService {
       acao: 'terminal_codigo_gerado',
       entidadeTipo: 'equipamento',
       entidadeId: id,
-      detalhe: { nome: alvo.nome },
+      detalhe: { nome: alvo.nome, ...via?.detalhe },
+      ...(via ? { atorTipo: via.atorTipo, origem: via.origem } : {}),
     });
     return { codigo, expiraEm: expira, nome: alvo.nome };
   }
@@ -711,7 +718,7 @@ export class EquipamentoService {
     return this.publico(row);
   }
 
-  async revogar(tenantId: string, id: string, atorId: string, atorPerfil: string) {
+  async revogar(tenantId: string, id: string, atorId: string | null, atorPerfil: string | null, via?: ViaDaAcao) {
     const [row] = await this.db
       .update(equipamento)
       // Também derruba o pareamento (mig 142): sem isso o PC revogado continuaria
@@ -728,7 +735,8 @@ export class EquipamentoService {
       acao: 'revogou_equipamento',
       entidadeTipo: 'equipamento',
       entidadeId: row.id,
-      detalhe: { nome: row.nome },
+      detalhe: { nome: row.nome, ...via?.detalhe },
+      ...(via ? { atorTipo: via.atorTipo, origem: via.origem } : {}),
     });
     return this.publico(row);
   }
@@ -745,7 +753,7 @@ export class EquipamentoService {
    *  • impressora, KDS e os demais: voltam com `pareado_em = agora` (a volta é uma decisão posterior à
    *    revogação). Com servidor da loja ativo, impressora, KDS e estação se reativam nele (F10).
    */
-  async reativar(tenantId: string, id: string, atorId: string, atorPerfil: string) {
+  async reativar(tenantId: string, id: string, atorId: string | null, atorPerfil: string | null, via?: ViaDaAcao) {
     const [row] = await this.db
       .select()
       .from(equipamento)
@@ -800,7 +808,8 @@ export class EquipamentoService {
       acao: 'reativou_equipamento',
       entidadeTipo: 'equipamento',
       entidadeId: volta.id,
-      detalhe: { nome: volta.nome, tipo: volta.tipo, revogadoEm: row.revogadoEm ?? null, comCodigo },
+      detalhe: { nome: volta.nome, tipo: volta.tipo, revogadoEm: row.revogadoEm ?? null, comCodigo, ...via?.detalhe },
+      ...(via ? { atorTipo: via.atorTipo, origem: via.origem } : {}),
     });
     return { ...this.publico(volta), codigo, expiraEm };
   }

@@ -147,6 +147,12 @@ for (const rel of ['edge/update-priv.pem', 'edge/sign-update.mjs', 'edge/publica
   if (existsSync(join(DIST, rel))) erro(`${rel} entrou no pacote — ferramenta/segredo da DISTRIBUIÇÃO não vai para a loja.`);
 }
 ok('conferidas as ferramentas da distribuição fora do pacote');
+// Os ícones na bandeja (compilados pelo package.mjs): o da estação em todo PC cliente; o do servidor no servidor da
+// loja (fase 4 do pedido de 22–23/10/2026). Sem eles o instalador passa calado (`skipifdoesntexist`).
+for (const rel of ['edge/bandeja/RegemEstacao.exe', 'edge/bandeja/RegemServidor.exe']) {
+  if (existsSync(join(DIST, rel))) ok(`${rel} presente`);
+  else erro(`${rel} AUSENTE — o instalador sairia sem esse ícone na bandeja. Monte o pacote no Windows (package.mjs compila os dois).`);
+}
 
 // ── 5) versões batem: version.txt == .iss AppVer == esperada ─────────────────
 secao('5) Versão consistente');

@@ -70,25 +70,31 @@ function gerarManifesto() {
   console.log(`  + dist-manifest.json (${Object.keys(man).length} arquivos)`);
 }
 
-// Ícone da ESTAÇÃO DE IMPRESSÃO na bandeja (central de impressão, PR 4b): compilado aqui do
-// edge/bandeja/RegemEstacao.cs com o compilador do próprio Windows (.NET Framework 4.8, que já vem
-// em todo Windows 10/11) — nenhum binário no repositório, e o fonte não vai para a loja. O pacote
-// é montado no Windows (build-release.ps1); sem o compilador, a montagem PARA: um instalador sem o
-// ícone deixaria a estação sem painel e sem "Parear com código".
-function compilarIconeDaEstacao() {
-  const fonte = join(raiz, 'edge', 'bandeja', 'RegemEstacao.cs');
+// Os ícones na bandeja do Windows, compilados aqui com o compilador do próprio Windows (.NET Framework 4.8, que já
+// vem em todo Windows 10/11) — nenhum binário no repositório, e o fonte não vai para a loja. O pacote é montado no
+// Windows (build-release.ps1); sem o compilador, a montagem PARA.
+//  • RegemEstacao.exe — "Regem neste PC", em todo PC cliente (central de impressão, PR 4b): sem ele, a estação ficaria
+//    sem painel e sem "Parear com código";
+//  • RegemServidor.exe — "Regem — servidor da loja", só no servidor (fase 4 do pedido de 22–23/10/2026): todos os
+//    aparelhos ligados ao servidor, a versão de cada lugar e gerar código / revogar / reativar.
+function compilarIcone(nome, refsExtras, rotulo) {
+  const fonte = join(raiz, 'edge', 'bandeja', `${nome}.cs`);
   const csc = process.env.SystemRoot ? join(process.env.SystemRoot, 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe') : '';
-  const destino = join(out, 'edge', 'bandeja', 'RegemEstacao.exe');
+  const destino = join(out, 'edge', 'bandeja', `${nome}.exe`);
   if (!csc || !existsSync(csc)) {
-    console.error('\n✗ Ícone da estação: csc.exe (.NET Framework 4.8) não encontrado — monte o pacote no Windows.');
+    console.error(`\n✗ ${rotulo}: csc.exe (.NET Framework 4.8) não encontrado — monte o pacote no Windows.`);
     process.exit(1);
   }
   mkdirSync(dirname(destino), { recursive: true });
   // O .exe leva o ícone do Regem (edge/regem.ico, o mesmo dos atalhos): é o que aparece no Gerenciador de
   // Tarefas e em "Aplicativos de inicialização". O ícone ao lado do relógio segue desenhado no código, na cor da situação.
   execFileSync(csc, ['-nologo', '-optimize+', '-target:winexe', `-out:${destino}`, `-win32icon:${join(raiz, 'edge', 'regem.ico')}`,
-    '-r:System.Web.Extensions.dll', '-r:System.Windows.Forms.dll', '-r:System.Drawing.dll', fonte], { stdio: 'inherit' });
-  console.log('  + edge/bandeja/RegemEstacao.exe (ícone da estação, compilado)');
+    '-r:System.Web.Extensions.dll', '-r:System.Windows.Forms.dll', '-r:System.Drawing.dll', ...refsExtras, fonte], { stdio: 'inherit' });
+  console.log(`  + edge/bandeja/${nome}.exe (${rotulo}, compilado)`);
+}
+function compilarIconeDaEstacao() {
+  compilarIcone('RegemEstacao', [], 'ícone da estação');
+  compilarIcone('RegemServidor', ['-r:System.ServiceProcess.dll'], 'ícone do servidor da loja');
 }
 
 console.log('Montando regem-edge-dist/…');
@@ -97,7 +103,7 @@ gerarManifesto();               // manifesto de integridade do dist recém-copia
 copiar('package.json');
 copiar('package-lock.json');
 copiar('edge');                 // daemon, gen-cert, scripts de serviço, .env.example
-compilarIconeDaEstacao();       // edge/bandeja/RegemEstacao.exe (o .cs não vai)
+compilarIconeDaEstacao();       // edge/bandeja/RegemEstacao.exe e RegemServidor.exe (os .cs não vão)
 copiar('scripts');              // apply-all-local.mjs, etc.
 copiar('drizzle.config.ts');
 // migrations ficam em database/migrations (fora de backend/) → copiamos também

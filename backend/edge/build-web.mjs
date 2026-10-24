@@ -23,6 +23,9 @@ const env = {
   // exatamente esta. Mudar aqui obriga a instalar com o mesmo valor — o instalar-tudo.ps1
   // recusa qualquer -Porta diferente ($PORTA_API_DO_APP) justamente por causa disto.
   NEXT_PUBLIC_EDGE_API_PORT: '3002',
+  // A versão da TELA (a mesma do pacote: package.mjs → EDGE_VERSAO). Caixa, garçom, KDS e TV a informam ao servidor;
+  // o ícone do servidor mostra quem ficou aberto na versão anterior. Sem EDGE_VERSAO (build de teste), fica vazia.
+  NEXT_PUBLIC_APP_VERSION: (process.env.EDGE_VERSAO || '').trim(),
 };
 
 if (!existsSync(join(front, 'node_modules', 'next'))) {

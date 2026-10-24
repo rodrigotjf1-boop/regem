@@ -1,0 +1,841 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regem · Ícone do servidor na bandeja (protótipo)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<!--
+  Protótipo da FASE 4 do pedido de 22–23/10/2026: ícone do SERVIDOR DA LOJA na bandeja do Windows (perto do relógio),
+  com todos os aparelhos ligados a ele e o que dá para fazer com cada um.
+  Referência de comportamento e textos — NÃO é o código. O ícone real será um .exe do Windows (C#, como o
+  "Regem neste PC" da estação: backend/edge/bandeja/RegemEstacao.cs), instalado só no modo "Servidor".
+  O que o servidor sabe HOJE (levantamento na origin/main b9fe689e):
+    • conectado agora: caixa (PDV) e garçom (presença a cada 30 s), estação de impressão (batida a cada 60 s);
+    • KDS, TV de senhas e totem: NÃO sabe hoje — marcados "novo" (decisão D2: o servidor passa a anotar);
+    • terminal de ponto e ponto de baixa: entram com login, sem credencial do aparelho → "não informa".
+  Ações (equipamento.service.ts): gerar código (6 números, 15 min) só para caixa, garçom, estação e TV; revogar apaga o
+  pareamento na hora; reativar até 30 dias (caixa, garçom, estação e TV voltam com código novo).
+-->
+<style>
+:root{
+  --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E8A845; --on-gold:#281B06; --navy:#0F2230; --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9;
+  --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8; --radius:12px;
+  --display:'Archivo',sans-serif; --body:'Figtree',sans-serif; --mono:'JetBrains Mono',monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:var(--body);background:var(--bg);color:var(--ink);font-size:15px;line-height:1.45;overflow-x:hidden}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+/* ---------- Página do protótipo ---------- */
+.pagina{max-width:1180px;margin:0 auto;padding:20px 16px 48px}
+.trilha{font-family:var(--display);font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#7A5209}
+h1{font-family:var(--display);font-size:26px;margin:2px 0 6px;line-height:1.2}
+.intro{color:var(--ink-2);margin:0 0 14px;max-width:820px}
+.controles{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;margin-bottom:12px}
+.controle{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.controle > span{font-weight:700;font-size:13px;color:var(--ink-2);margin-right:2px}
+.seg{border:1px solid var(--line-2);background:var(--card);border-radius:9px;padding:6px 11px;font-weight:600;font-size:13.5px;min-height:36px}
+.seg[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.btn-sec{border:1px solid var(--line-2);background:var(--card);border-radius:9px;padding:6px 12px;font-weight:600;font-size:13.5px;min-height:36px}
+.legenda{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:13px;color:var(--ink-2);margin:0 0 12px}
+.legenda span{display:inline-flex;align-items:center;gap:6px}
+.legenda .bol{margin:0}
+
+/* ---------- Mesa do Windows (simulada) ---------- */
+.mesa{position:relative;height:720px;max-height:calc(100vh - 40px);min-height:560px;border-radius:14px;overflow:hidden;
+  background:radial-gradient(1200px 500px at 20% 10%,#2D5573 0%,transparent 60%),radial-gradient(900px 600px at 90% 90%,#5B3F1A 0%,transparent 55%),#16283A;
+  border:1px solid var(--line-2);isolation:isolate;overflow:clip}
+.mesa .dica-mesa{position:absolute;left:16px;top:14px;right:16px;color:#C9D6E2;font-size:13px;max-width:520px}
+.mesa .dica-mesa b{color:#fff}
+.barra{position:absolute;left:0;right:0;bottom:0;height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 8px;
+  background:rgba(32,32,36,.86);backdrop-filter:blur(14px);border-top:1px solid rgba(255,255,255,.08);color:#fff;z-index:5}
+[data-win="claro"] .barra{background:rgba(238,240,244,.9);color:#1B1B1F;border-top-color:rgba(0,0,0,.08)}
+.barra .inicio{display:flex;gap:4px;align-items:center}
+.barra .inicio i{display:block;width:34px;height:34px;border-radius:6px;background:rgba(255,255,255,.08)}
+[data-win="claro"] .barra .inicio i{background:rgba(0,0,0,.06)}
+.bandeja{display:flex;align-items:center;gap:2px}
+.tray-btn{position:relative;width:36px;height:40px;display:grid;place-items:center;border:none;background:transparent;border-radius:6px;color:inherit}
+.tray-btn:hover,.tray-btn[aria-expanded="true"]{background:rgba(255,255,255,.12)}
+[data-win="claro"] .tray-btn:hover,[data-win="claro"] .tray-btn[aria-expanded="true"]{background:rgba(0,0,0,.07)}
+.tray-btn svg{width:18px;height:18px}
+.so-largo{display:grid}
+.relogio{font-size:12px;line-height:1.25;text-align:right;padding:0 8px;font-variant-numeric:tabular-nums}
+.icone-regem{width:22px;height:22px;position:relative}
+.icone-regem .pastilha{position:absolute;right:-3px;bottom:-3px;width:10px;height:10px;border-radius:50%;border:2px solid #202024}
+[data-win="claro"] .icone-regem .pastilha{border-color:#EEF0F4}
+.p-ok{background:#2DBE84}.p-atencao{background:#F2A93B}.p-crit{background:#E5484D}.p-cinza{background:#8A96A3}
+
+/* ---------- Painel (flyout) ---------- */
+.painel,.menu-ctx,.aviso-win{position:absolute;right:10px;bottom:58px;z-index:10;border-radius:12px;
+  box-shadow:0 18px 48px rgba(0,0,0,.45);border:1px solid var(--f-line)}
+.painel{width:min(400px,calc(100% - 20px));max-height:calc(100% - 70px);display:flex;flex-direction:column;background:var(--f-bg);color:var(--f-ink);overflow:hidden}
+[data-win="escuro"]{--f-bg:#16222D;--f-card:#1D2C39;--f-ink:#EEF3F7;--f-ink2:#A9BACA;--f-line:#2C3F50;--f-hover:#243747;
+  --f-ok:#4FD1A1;--f-ok-bg:rgba(79,209,161,.12);--f-info:#8CC4F2;--f-warn:#F5B867;--f-warn-bg:rgba(245,184,103,.13);--f-crit:#FF8F8F;--f-crit-bg:rgba(255,143,143,.12);--f-cinza:#9AABBA;--f-gold:#E8A845}
+[data-win="claro"]{--f-bg:#F7F9FB;--f-card:#FFFFFF;--f-ink:#132536;--f-ink2:#4A5F73;--f-line:#DCE3EA;--f-hover:#EEF2F6;
+  --f-ok:#0F6647;--f-ok-bg:#E3F4EC;--f-info:#2C6699;--f-warn:#8A4318;--f-warn-bg:#FCEDE4;--f-crit:#B93232;--f-crit-bg:#FBE9E9;--f-cinza:#5D6E7E;--f-gold:#E8A845}
+.p-cab{display:flex;gap:12px;align-items:center;padding:14px 16px 12px;background:var(--navy);color:#fff}
+.p-cab .marca{flex:none;width:36px;height:36px;border-radius:10px;background:#0A1924;display:grid;place-items:center}
+.p-cab h2{font-family:var(--display);font-size:16px;margin:0;line-height:1.2}
+.p-cab p{margin:1px 0 0;font-size:12.5px;color:#B9C8D6}
+.p-cab .fechar{margin-left:auto;flex:none;border:none;background:transparent;color:#C9D6E2;width:32px;height:32px;border-radius:8px;font-size:18px}
+.p-cab .fechar:hover{background:rgba(255,255,255,.1)}
+.p-status{display:flex;gap:10px;align-items:flex-start;padding:10px 16px;border-bottom:1px solid var(--f-line);font-size:13.5px}
+.p-status b{font-family:var(--display)}
+.p-status.ok{background:var(--f-ok-bg)} .p-status.atencao{background:var(--f-warn-bg)} .p-status.crit{background:var(--f-crit-bg)}
+.p-corpo{overflow-y:auto;overscroll-behavior:contain;padding:10px 12px 12px;flex:1 1 auto;min-height:0}
+.servidor{background:var(--f-card);border:1px solid var(--f-line);border-radius:10px;padding:4px;margin-bottom:10px}
+.servidor .tit{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:13px;color:var(--f-ink2);padding:6px 8px}
+.servidor .tit b{color:var(--f-ink);font-family:var(--display);font-size:13.5px}
+.srv-linha{width:100%;display:grid;grid-template-columns:10px minmax(0,1fr);align-items:center;gap:2px 8px;border:none;background:transparent;text-align:left;padding:6px 8px;border-radius:8px;font-size:13px}
+.srv-linha:hover{background:var(--f-hover)}
+.srv-linha b{font-family:var(--display)}
+.srv-versao{grid-column:2;font-size:12px;color:var(--f-ink2)}
+.servicos{display:flex;flex-wrap:wrap;gap:6px;padding:4px 8px 8px}
+.servico{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;border:1px solid var(--f-line);border-radius:999px;padding:3px 9px}
+.mono{font-family:var(--mono);font-size:12px}
+.resumo{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 8px}
+.chip{border:1px solid var(--f-line);background:var(--f-card);color:var(--f-ink);border-radius:999px;padding:5px 11px;font-size:12.5px;font-weight:600;min-height:32px}
+.chip[aria-pressed="true"]{background:var(--f-ink);color:var(--f-bg);border-color:var(--f-ink)}
+.busca{position:relative;margin-bottom:8px}
+.busca input{width:100%;border:1px solid var(--f-line);background:var(--f-card);color:var(--f-ink);border-radius:9px;padding:8px 10px 8px 32px;font-size:13.5px}
+.busca svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:var(--f-ink2)}
+.grupo{border-top:1px solid var(--f-line);padding-top:4px;margin-top:4px}
+.grupo-cab{width:100%;display:flex;align-items:center;gap:8px;border:none;background:transparent;padding:8px 4px;border-radius:8px;text-align:left}
+.grupo-cab:hover{background:var(--f-hover)}
+.grupo-cab .seta{flex:none;width:14px;transition:transform .15s}
+.grupo-cab[aria-expanded="false"] .seta{transform:rotate(-90deg)}
+.grupo-cab .nome{font-family:var(--display);font-weight:700;font-size:13.5px}
+.grupo-cab .conta{margin-left:auto;font-size:12px;color:var(--f-ink2);text-align:right}
+.selo-novo{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#7A5209;background:#FBEFD9;border-radius:6px;padding:1px 6px}
+[data-win="escuro"] .selo-novo{color:#F7D49A;background:rgba(232,168,69,.16)}
+.itens{list-style:none;margin:0 0 4px;padding:0}
+.item{display:grid;grid-template-columns:12px minmax(0,1fr) auto;gap:4px 10px;align-items:start;padding:7px 4px 7px 8px;border-radius:8px}
+.item:hover{background:var(--f-hover)}
+.bol{width:10px;height:10px;border-radius:50%;margin-top:5px}
+.b-ok{background:var(--f-ok)} .b-fora{background:var(--f-warn)} .b-crit{background:var(--f-crit)} .b-sem{background:transparent;border:2px solid var(--f-cinza)} .b-revog{background:var(--f-cinza)}
+.item .nome{font-weight:600;font-size:13.5px;overflow-wrap:anywhere}
+.item .linha{font-size:12.5px;color:var(--f-ink2);overflow-wrap:anywhere}
+.item .linha.fora{color:var(--f-warn);font-weight:600}
+.item .linha.crit{color:var(--f-crit);font-weight:600}
+.item .linha.velha,.txt-velha{color:var(--f-info);font-weight:600}
+.item.revogado .nome{text-decoration:line-through;color:var(--f-ink2)}
+.subitens{grid-column:2 / 4;list-style:none;margin:2px 0 0;padding:0;display:flex;flex-direction:column;gap:2px}
+.subitens li{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--f-ink2)}
+.subitens .bol{margin-top:0;width:8px;height:8px}
+.mais{border:none;background:transparent;color:var(--f-ink2);width:32px;height:32px;border-radius:8px;font-size:18px;line-height:1}
+.mais:hover,.mais[aria-expanded="true"]{background:var(--f-hover);color:var(--f-ink)}
+.vazio{padding:22px 10px;text-align:center;color:var(--f-ink2);font-size:13.5px}
+.vazio b{display:block;color:var(--f-ink);font-family:var(--display);font-size:15px;margin-bottom:4px}
+.esqueleto{height:38px;border-radius:8px;background:linear-gradient(90deg,var(--f-hover),var(--f-card),var(--f-hover));background-size:200% 100%;animation:brilho 1.2s infinite;margin:6px 0}
+@keyframes brilho{to{background-position:-200% 0}}
+.p-rodape{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;align-items:center;padding:10px 12px;border-top:1px solid var(--f-line);background:var(--f-card)}
+.p-rodape .atualizado{font-size:11.5px;color:var(--f-ink2);margin-right:auto}
+.btn-p{border:none;background:var(--f-gold);color:var(--on-gold);font-weight:700;border-radius:9px;padding:8px 12px;font-size:13px;min-height:36px}
+.btn-s{border:1px solid var(--f-line);background:transparent;color:var(--f-ink);font-weight:600;border-radius:9px;padding:8px 12px;font-size:13px;min-height:36px}
+.btn-perigo{border:none;background:var(--f-crit);color:#fff;font-weight:700;border-radius:9px;padding:8px 12px;font-size:13px;min-height:36px}
+[data-win="escuro"] .btn-perigo{color:#2A0909}
+
+/* menu da linha (⋯) */
+.menu-linha{position:absolute;z-index:20;min-width:230px;max-width:calc(100% - 20px);background:var(--f-card);color:var(--f-ink);border:1px solid var(--f-line);border-radius:10px;padding:5px;box-shadow:0 12px 32px rgba(0,0,0,.35)}
+.menu-linha button,.menu-ctx button{display:flex;width:100%;align-items:center;gap:8px;border:none;background:transparent;text-align:left;padding:8px 10px;border-radius:7px;font-size:13.5px}
+.menu-linha button:hover,.menu-ctx button:hover,.menu-linha button:focus-visible,.menu-ctx button:focus-visible{background:var(--f-hover)}
+.menu-linha .perigo{color:var(--f-crit)}
+.menu-linha hr,.menu-ctx hr{border:none;border-top:1px solid var(--f-line);margin:4px 2px}
+.menu-linha .nota{font-size:12px;color:var(--f-ink2);padding:4px 10px 6px}
+
+/* menu do botão direito (tradicional) */
+.menu-ctx{width:min(300px,calc(100% - 20px));background:var(--f-card);color:var(--f-ink);padding:5px}
+.menu-ctx .rotulo{padding:8px 10px 6px;font-size:12.5px;color:var(--f-ink2)}
+.menu-ctx .rotulo b{display:block;color:var(--f-ink);font-family:var(--display);font-size:13.5px}
+.menu-ctx .sub{display:none;padding-left:10px}
+.menu-ctx .sub.aberto{display:block}
+
+/* aviso do Windows */
+.aviso-win{width:min(364px,calc(100% - 20px));background:var(--f-card);color:var(--f-ink);padding:12px 14px}
+.aviso-win .app{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--f-ink2);margin-bottom:6px}
+.aviso-win b{display:block;font-size:14px;margin-bottom:2px}
+.aviso-win p{margin:0;font-size:13px;color:var(--f-ink2)}
+.aviso-win .acoes{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+
+/* diálogos (janelinhas do Windows) */
+.fundo{position:absolute;inset:0 0 48px 0;z-index:30;background:rgba(5,12,18,.45);display:grid;place-items:center;padding:12px}
+.dialogo{width:min(420px,100%);max-height:100%;overflow-y:auto;background:var(--f-bg);color:var(--f-ink);border:1px solid var(--f-line);border-radius:12px;box-shadow:0 24px 60px rgba(0,0,0,.5)}
+.d-tit{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--f-line);font-size:13px;color:var(--f-ink2)}
+.d-tit .x{margin-left:auto;border:none;background:transparent;width:30px;height:30px;border-radius:7px;color:var(--f-ink2);font-size:16px}
+.d-tit .x:hover{background:var(--f-hover)}
+.d-corpo{padding:14px 16px}
+.d-corpo h3{font-family:var(--display);font-size:17px;margin:0 0 6px;line-height:1.25}
+.d-corpo p{margin:0 0 10px;font-size:13.5px;color:var(--f-ink2)}
+.d-corpo .consequencia{background:var(--f-warn-bg);color:var(--f-ink);border-radius:9px;padding:10px 12px;font-size:13px;margin-bottom:12px}
+.campo{display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
+.campo label{font-size:12.5px;font-weight:700}
+.campo input{border:1px solid var(--f-line);background:var(--f-card);color:var(--f-ink);border-radius:9px;padding:9px 10px;font-size:14px}
+
+.erro-campo{color:var(--f-crit);font-size:12.5px;font-weight:600;min-height:18px;margin:-4px 0 6px}
+.d-acoes{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;padding:10px 16px 14px}
+.codigo{font-family:var(--mono);font-weight:700;font-size:40px;letter-spacing:.12em;text-align:center;margin:6px 0 2px}
+.validade{text-align:center;font-size:13px;color:var(--f-ink2);margin-bottom:12px}
+.onde{background:var(--f-card);border:1px solid var(--f-line);border-radius:10px;padding:10px 12px;font-size:13.5px}
+.onde b{font-family:var(--display)}
+.onde ol{margin:6px 0 0;padding-left:18px}
+
+/* ---------- Decisões e notas ---------- */
+.secao{margin-top:22px}
+.secao h2{font-family:var(--display);font-size:19px;margin:0 0 4px}
+.secao > p{color:var(--ink-2);margin:0 0 10px}
+.cartoes{display:grid;grid-template-columns:1fr;gap:12px}
+@media (min-width:760px){.cartoes{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (min-width:1080px){.cartoes.tres{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.cartao{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px}
+.cartao h3{font-family:var(--display);font-size:15.5px;margin:0 0 6px}
+.cartao ul{margin:6px 0 0;padding-left:18px;font-size:14px}
+.cartao li{margin-bottom:4px}
+.rec{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ok);background:var(--ok-bg);border-radius:6px;padding:1px 6px;margin-left:4px}
+.tabela-wrap{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:var(--radius)}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--display);font-size:12.5px;color:var(--ink-2);background:#F7F9FB}
+@media (max-width:640px){
+  .tabela-wrap{overflow-x:visible;background:transparent;border:none}
+  .tabela-wrap table,.tabela-wrap tbody,.tabela-wrap tr,.tabela-wrap td{display:block;width:100%}
+  .tabela-wrap thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+  .tabela-wrap tr{background:var(--card);border:1px solid var(--line);border-radius:10px;margin-bottom:8px;padding:6px 0}
+  .tabela-wrap td{border:none;padding:4px 12px}
+  .tabela-wrap td::before{content:attr(data-r);display:block;font-family:var(--display);font-size:11.5px;color:var(--ink-2)}
+}
+@media (max-width:480px){ .so-largo,.barra .inicio i.so-largo{display:none} h1{font-size:22px} }
+@media (prefers-reduced-motion:reduce){ *{animation:none!important;transition:none!important} }
+</style>
+</head>
+<body>
+<div class="pagina">
+  <div class="trilha">Protótipo · fase 4 do pedido de 22–23/10</div>
+  <h1>Ícone do servidor da loja na bandeja do Windows</h1>
+  <p class="intro">Fica perto do relógio, <b>só no computador que é o servidor da loja</b>, e abre sozinho quando alguém entra no
+    Windows. Mostra todos os aparelhos ligados ao servidor e se cada um está conectado agora. Por ele você gera o código
+    para parear, revoga ou reativa um aparelho, sem precisar reinstalar nada. Clique no ícone <b>R</b> da barra lá embaixo, ou
+    use o botão direito nele.</p>
+
+  <div class="controles" role="group" aria-label="Controles do protótipo">
+    <div class="controle" role="group" aria-label="Situação simulada">
+      <span>Situação:</span>
+      <button class="seg" data-cenario="normal" aria-pressed="true">Dia normal</button>
+      <button class="seg" data-cenario="atencao" aria-pressed="false">Um aparelho caiu</button>
+      <button class="seg" data-cenario="parado" aria-pressed="false">Sistema parado</button>
+      <button class="seg" data-cenario="vazio" aria-pressed="false">Primeira vez</button>
+      <button class="seg" data-cenario="lendo" aria-pressed="false">Abrindo</button>
+    </div>
+    <div class="controle" role="group" aria-label="Tema do Windows">
+      <span>Windows:</span>
+      <button class="seg" data-tema="escuro" aria-pressed="true">Escuro</button>
+      <button class="seg" data-tema="claro" aria-pressed="false">Claro</button>
+    </div>
+    <button class="btn-sec" id="simular-aviso" type="button">Simular aviso do Windows</button>
+  </div>
+
+  <div class="legenda" aria-label="Legenda">
+    <span><i class="bol b-ok" style="--f-ok:#0F6647"></i> conectado agora</span>
+    <span><i class="bol b-fora" style="--f-warn:#9A4B1C"></i> fora (parou de responder)</span>
+    <span><i class="bol b-sem" style="--f-cinza:#5D6E7E"></i> não informa presença</span>
+    <span><span class="selo-novo">novo</span> o servidor passa a anotar (hoje não sabe — decisão D2)</span>
+  </div>
+
+  <div class="mesa" id="mesa" data-win="escuro">
+    <p class="dica-mesa">Área de trabalho do <b>servidor da loja</b>. O ícone <b>R</b> fica na barra, perto do relógio: a
+      bolinha dele é verde (tudo bem), amarela (algum aparelho caiu) ou cinza (o sistema deste computador não responde).</p>
+    <div id="camadas"></div>
+    <div class="barra">
+      <div class="inicio" aria-hidden="true"><i></i><i></i><i class="so-largo"></i><i class="so-largo"></i></div>
+      <div class="bandeja">
+        <span class="tray-btn so-largo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m18 15-6-6-6 6"/></svg></span>
+        <button class="tray-btn" id="tray-regem" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="painel">
+          <span class="icone-regem" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="22" height="22"><rect x="1" y="1" width="22" height="22" rx="6" fill="#0F2230" stroke="#E8A845" stroke-width="1.4"/><text x="12" y="16.5" text-anchor="middle" font-family="Archivo, sans-serif" font-weight="800" font-size="12" fill="#E8A845">R</text></svg>
+            <i class="pastilha p-ok" id="pastilha"></i>
+          </span>
+          <span class="sr-only" id="tray-rotulo">Regem — servidor da loja</span>
+        </button>
+        <span class="tray-btn so-largo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg></span>
+        <span class="tray-btn" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5 6 9H2v6h4l5 4V5zM15.54 8.46a5 5 0 0 1 0 7.07"/></svg></span>
+        <span class="relogio" id="relogio" aria-hidden="true"></span>
+      </div>
+    </div>
+  </div>
+
+  <section class="secao" aria-labelledby="dec-tit">
+    <h2 id="dec-tit">Decisões (23/10)</h2>
+    <p>Respondidas pelo dono; o protótipo já está assim.</p>
+    <div class="cartoes tres">
+      <div class="cartao">
+        <h3>D1 · O ícone é livre</h3>
+        <ul>
+          <li>Ver e agir (gerar código, revogar, reativar) <b>sem senha</b> — só no próprio computador do servidor.</li>
+          <li>Cada ação fica na auditoria como feita pelo ícone do servidor, com o computador e o usuário do Windows.</li>
+        </ul>
+      </div>
+      <div class="cartao">
+        <h3>D2 · Aparelhos que hoje não avisam se estão ligados</h3>
+        <ul>
+          <li>O servidor passa a anotar sozinho, <b>sem mudar os aparelhos</b>: KDS e TV de senhas pela conexão (sabe na hora
+            quando cai) e totem pela última chamada. Ponto e ponto de baixa seguem "não informa", porque entram com login de
+            pessoa, não com credencial do aparelho.</li>
+        </ul>
+      </div>
+      <div class="cartao">
+        <h3>D3 · Aviso do Windows quando um aparelho cai</h3>
+        <ul>
+          <li>Quando <b>caixa, estação de impressão ou KDS</b> ficar 3 minutos sem responder, uma vez por queda.</li>
+        </ul>
+      </div>
+      <div class="cartao">
+        <h3>Versões instaladas em cada lugar</h3>
+        <ul>
+          <li><b>Servidor:</b> a versão instalada nele.</li>
+          <li><b>PC com estação de impressão:</b> a versão instalada naquele PC (a estação já informa).</li>
+          <li><b>Caixa, garçom, KDS e TV:</b> a versão da tela aberta — se ficou aberta da versão anterior, avisa para fechar e abrir.</li>
+          <li>Filtro <b>"Versão antiga"</b> mostra o que falta atualizar.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="secao" aria-labelledby="como-tit">
+    <h2 id="como-tit">Como fica cada aparelho</h2>
+    <p>O que o ícone mostra e o que dá para fazer, pelas regras que já existem no servidor.</p>
+    <div class="tabela-wrap">
+      <table>
+        <caption class="sr-only">Aparelho, como o servidor sabe que está conectado e as ações pelo ícone</caption>
+        <thead><tr><th scope="col">Aparelho</th><th scope="col">Conectado agora?</th><th scope="col">Versão</th><th scope="col">Pelo ícone</th></tr></thead>
+        <tbody>
+          <tr><td data-r="Aparelho">Caixa (PDV)</td><td data-r="Conectado agora?">Sim — ele avisa a cada 30 s; "fora" depois de 3 min</td><td data-r="Versão">da tela aberta</td><td data-r="Pelo ícone">gerar código · revogar · reativar</td></tr>
+          <tr><td data-r="Aparelho">App do garçom</td><td data-r="Conectado agora?">Sim — igual ao caixa</td><td data-r="Versão">da tela aberta</td><td data-r="Pelo ícone">gerar código · revogar · reativar</td></tr>
+          <tr><td data-r="Aparelho">Estação de impressão</td><td data-r="Conectado agora?">Sim — avisa a cada 60 s, com o estado de cada impressora</td><td data-r="Versão">instalada no PC</td><td data-r="Pelo ícone">gerar código · revogar · reativar</td></tr>
+          <tr><td data-r="Aparelho">KDS <span class="selo-novo">novo</span></td><td data-r="Conectado agora?">Passa a saber pela conexão (D2)</td><td data-r="Versão">da tela aberta</td><td data-r="Pelo ícone">revogar · reativar</td></tr>
+          <tr><td data-r="Aparelho">TV de senhas <span class="selo-novo">novo</span></td><td data-r="Conectado agora?">Passa a saber pela conexão (D2)</td><td data-r="Versão">da tela aberta</td><td data-r="Pelo ícone">gerar código · revogar · reativar</td></tr>
+          <tr><td data-r="Aparelho">Totem <span class="selo-novo">novo</span></td><td data-r="Conectado agora?">Passa a saber pela última chamada (D2); mostra quantos estão em uso</td><td data-r="Versão">não informa (é outro aplicativo)</td><td data-r="Pelo ícone">revogar · reativar</td></tr>
+          <tr><td data-r="Aparelho">Terminal de ponto · ponto de baixa</td><td data-r="Conectado agora?">Não informa — entram com login de pessoa</td><td data-r="Versão">não informa</td><td data-r="Pelo ícone">revogar · reativar</td></tr>
+          <tr><td data-r="Aparelho">O próprio servidor</td><td data-r="Conectado agora?">Sim — os 5 serviços do Windows e a última sincronização com a nuvem</td><td data-r="Versão">instalada nele</td><td data-r="Pelo ícone">ver; reiniciar fica de fora (precisa de administrador)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="secao" aria-labelledby="entrega-tit">
+    <h2 id="entrega-tit">Como chega à loja</h2>
+    <div class="cartoes">
+      <div class="cartao">
+        <h3>Servidor (sistema)</h3>
+        <ul>
+          <li>Uma leitura nova, só dentro do próprio servidor, protegida por uma chave guardada nele (como o "Regem neste PC" da estação).</li>
+          <li>A presença do KDS, da TV e do totem (D2), as versões e as ações do ícone (livres, D1), com auditoria.</li>
+          <li>A tela Equipamentos passa a abrir direto num aparelho (para o "Abrir em Equipamentos").</li>
+        </ul>
+      </div>
+      <div class="cartao">
+        <h3>O ícone</h3>
+        <ul>
+          <li>Programa do Windows, como o da estação (sem instalar nada a mais), posto pelo instalador no modo <b>Servidor</b>.</li>
+          <li>Chega com o próximo <b>.exe</b>: reinstalar só o servidor. O resto (sistema) também vai no <b>.zip</b>.</li>
+          <li>Junto vai o "parear sem reinstalar" do dia 22/10: cada código diz <b>onde</b> digitar, e o código digitado no aparelho errado não se perde.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var mesa = document.getElementById('mesa');
+  var camadas = document.getElementById('camadas');
+  var trayBtn = document.getElementById('tray-regem');
+  var pastilha = document.getElementById('pastilha');
+  var trayRotulo = document.getElementById('tray-rotulo');
+
+  var estado = { cenario: 'normal', painel: false, menuCtx: false, aviso: false, filtro: 'todos', busca: '', fechados: {}, pilha: [] };
+
+  // ---------- Dados simulados (nomes genéricos) ----------
+  var ONDE = {
+    pdv: { titulo: 'No caixa', passos: ['Abra o Regem no caixa.', 'Na tela "Código do terminal", digite os 6 números.', 'Toque em "Parear e liberar o caixa".'] },
+    salao: { titulo: 'No celular ou tablet do garçom', passos: ['Abra o Regem no aparelho.', 'Na tela "Código do terminal", digite os 6 números.', 'Toque em "Parear e liberar o caixa".'] },
+    estacao_impressao: { titulo: 'No PC da estação de impressão', passos: ['Perto do relógio, clique com o botão direito no ícone "Regem neste PC".', 'Escolha "Parear com codigo...".', 'Digite os 6 números e clique em "Parear". As impressoras dela continuam as mesmas.'] },
+    tela_senhas: { titulo: 'Na TV de senhas', passos: ['A TV mostra "Parear esta TV".', 'Digite os 6 números.'] }
+  };
+  var COM_CODIGO = { pdv: 1, salao: 1, estacao_impressao: 1, tela_senhas: 1 };
+  var VOLTA_COM_CODIGO = COM_CODIGO;
+
+  function dadosBase() {
+    return {
+      servidor: { versao: '1.30.9', nuvem: 'sincronizado há 12 s', servicos: [['Sistema', 'ok'], ['Banco de dados', 'ok'], ['Sincronização', 'ok'], ['Impressão', 'ok'], ['Telas', 'ok']] },
+      grupos: [
+        { id: 'pdv', nome: 'Caixas (PDV)', itens: [
+          { id: 'c1', tipo: 'pdv', nome: 'Caixa 1', estado: 'ok', linha: 'conectado agora · 192.168.0.21', versao: '1.30.9', onde: 'tela' },
+          { id: 'c2', tipo: 'pdv', nome: 'Caixa delivery', estado: 'ok', linha: 'conectado agora · 192.168.0.23', versao: '1.30.9', onde: 'tela' } ] },
+        { id: 'salao', nome: 'App do garçom', itens: [
+          { id: 'g1', tipo: 'salao', nome: 'Garçom 1', estado: 'ok', linha: 'conectado agora · ligado ao Caixa 1', versao: '1.30.9', onde: 'tela' },
+          { id: 'g2', tipo: 'salao', nome: 'Garçom 2', estado: 'ok', linha: 'conectado agora · ligado ao Caixa 1', versao: '1.30.8', onde: 'tela' } ] },
+        { id: 'estacao', nome: 'Estações de impressão', itens: [
+          { id: 'e1', tipo: 'estacao_impressao', nome: 'PC do delivery', estado: 'ok', linha: 'conectada agora · 192.168.0.23', versao: '1.30.8', onde: 'pc',
+            impressoras: [['Caixa delivery', 'ok', 'pronta'], ['Cozinha', 'ok', 'pronta']] } ] },
+        { id: 'kds', nome: 'KDS (telas da cozinha)', novo: true, itens: [
+          { id: 'k1', tipo: 'kds', nome: 'KDS chapa', estado: 'ok', linha: 'conectado agora', versao: '1.30.9', onde: 'tela' },
+          { id: 'k2', tipo: 'kds', nome: 'KDS montagem', estado: 'ok', linha: 'conectado agora', versao: '1.30.9', onde: 'tela' } ] },
+        { id: 'tela', nome: 'TV de senhas', novo: true, itens: [
+          { id: 't1', tipo: 'tela_senhas', nome: 'TV do balcão', estado: 'ok', linha: 'conectada agora', versao: '1.30.9', onde: 'tela' } ] },
+        { id: 'totem', nome: 'Totens', novo: true, contaTotem: true, itens: [
+          { id: 'o1', tipo: 'totem', nome: 'Totem da entrada', estado: 'ok', linha: 'em uso · última chamada há 20 s' },
+          { id: 'o2', tipo: 'totem', nome: 'Totem do salão', estado: 'ok', linha: 'em uso · última chamada há 1 min' },
+          { id: 'o3', tipo: 'totem', nome: 'Totem reserva', estado: 'sem', linha: 'sem chamada hoje' } ] },
+        { id: 'ponto', nome: 'Terminal de ponto', itens: [
+          { id: 'p1', tipo: 'terminal_ponto', nome: 'Ponto da entrada', estado: 'sem', linha: 'não informa · entra com login de pessoa' } ] },
+        { id: 'baixa', nome: 'Pontos de baixa', itens: [
+          { id: 'b1', tipo: 'ponto_baixa', nome: 'Leitor do estoque', estado: 'sem', linha: 'não informa · entra com login de pessoa' } ] },
+        { id: 'revog', nome: 'Revogados (até 30 dias)', itens: [
+          { id: 'r1', tipo: 'pdv', nome: 'Caixa antigo', estado: 'revogado', linha: 'revogado há 3 dias · dá para reativar até 22/11' } ] }
+      ]
+    };
+  }
+
+  function dadosDoCenario() {
+    var d = dadosBase();
+    if (estado.cenario === 'atencao') {
+      var e = d.grupos[2].itens[0];
+      e.estado = 'fora'; e.linha = 'parou de responder há 4 min · último IP 192.168.0.23';
+      e.impressoras = [['Caixa delivery', 'sem', 'sem notícia (a estação caiu)'], ['Cozinha', 'sem', 'sem notícia (a estação caiu)']];
+      var k = d.grupos[3].itens[1];
+      k.estado = 'fora'; k.linha = 'desconectou há 4 min';
+    }
+    if (estado.cenario === 'vazio') {
+      d.grupos = [];
+      d.servidor.nuvem = 'sincronizado há 8 s';
+    }
+    return d;
+  }
+
+  // ---------- Utilidades ----------
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function todosItens(d) { var r = []; d.grupos.forEach(function (g) { g.itens.forEach(function (i) { r.push(i); }); }); return r; }
+  function precisaAtencao(i) { return i.estado === 'fora'; }
+  // Versão antiga = diferente da do servidor (o servidor é a referência: as telas vêm dele e o .exe é o mesmo).
+  function versaoAntiga(i) { return !!i.versao && i.estado !== 'revogado' && i.versao !== VERSAO_SERVIDOR; }
+  var VERSAO_SERVIDOR = '1.30.9';
+  function situacaoGeral(d) {
+    if (estado.cenario === 'parado') return { cls: 'crit', pastilha: 'p-cinza', titulo: 'O sistema deste servidor não responde', texto: 'Os caixas e os aparelhos da loja também ficam sem ele.' };
+    if (estado.cenario === 'lendo') return { cls: '', pastilha: 'p-cinza', titulo: 'Lendo o servidor…', texto: '' };
+    var fora = todosItens(d).filter(precisaAtencao);
+    if (fora.length) return { cls: 'atencao', pastilha: 'p-atencao', titulo: fora.length + (fora.length === 1 ? ' aparelho parou de responder' : ' aparelhos pararam de responder'), texto: fora.map(function (i) { return i.nome; }).join(' · ') };
+    return { cls: 'ok', pastilha: 'p-ok', titulo: 'Tudo funcionando', texto: 'Os aparelhos que avisam presença estão respondendo.' };
+  }
+
+  // ---------- Camadas (pilha: Esc fecha só a de cima) ----------
+  function abrirCamada(nome) { fecharCamada(nome, true); estado.pilha.push(nome); }
+  function fecharCamada(nome, silencioso) { estado.pilha = estado.pilha.filter(function (n) { return n !== nome; }); if (!silencioso) render(); }
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Escape' || !estado.pilha.length) return;
+    var topo = estado.pilha.pop();
+    if (topo === 'painel') { estado.painel = false; trayBtn.focus(); }
+    if (topo === 'ctx') { estado.menuCtx = false; trayBtn.focus(); }
+    if (topo === 'aviso') estado.aviso = false;
+    if (topo === 'linha') estado.menuLinha = null;
+    if (topo === 'dialogo') { estado.dialogo = null; pararContagem(); }
+    render();
+  });
+
+  // ---------- Render ----------
+  function render() {
+    var d = dadosDoCenario();
+    var s = situacaoGeral(d);
+    pastilha.className = 'pastilha ' + s.pastilha;
+    trayRotulo.textContent = 'Regem — servidor da loja: ' + s.titulo;
+    trayBtn.setAttribute('aria-expanded', estado.painel ? 'true' : 'false');
+    var html = '';
+    if (estado.painel) html += renderPainel(d, s);
+    if (estado.menuCtx) html += renderMenuCtx(d, s);
+    if (estado.aviso && !estado.painel && !estado.menuCtx) html += renderAviso();
+    if (estado.dialogo) html += renderDialogo();
+    camadas.innerHTML = html;
+    if (estado.menuLinha) posicionarMenuLinha();
+    ligarEventos(d);
+    if (estado.foco) { var f = document.getElementById(estado.foco); if (f) f.focus(); estado.foco = null; }
+  }
+
+  function renderPainel(d, s) {
+    var h = '<section class="painel" id="painel" role="dialog" aria-modal="false" aria-labelledby="p-tit">';
+    h += '<header class="p-cab"><span class="marca" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24"><text x="12" y="17" text-anchor="middle" font-family="Archivo, sans-serif" font-weight="800" font-size="15" fill="#E8A845">R</text></svg></span>' +
+      '<div><h2 id="p-tit">Regem — servidor da loja</h2><p>Loja Centro · ' + (estado.cenario === 'parado' ? 'tentando de novo a cada 5 s' : estado.cenario === 'lendo' ? 'lendo…' : 'lido agora') + '</p></div>' +
+      '<button class="fechar" type="button" data-acao="fechar-painel" aria-label="Fechar o painel">✕</button></header>';
+    if (s.titulo && estado.cenario !== 'lendo')
+      h += '<div class="p-status ' + s.cls + '" role="status"><i class="bol ' + (s.cls === 'ok' ? 'b-ok' : s.cls === 'atencao' ? 'b-fora' : 'b-crit') + '" aria-hidden="true"></i><div><b>' + esc(s.titulo) + '</b>' + (s.texto ? '<br>' + esc(s.texto) : '') + '</div></div>';
+    h += '<div class="p-corpo">';
+    if (estado.cenario === 'lendo') {
+      h += '<p class="sr-only" role="status">Lendo o servidor…</p><div class="esqueleto"></div><div class="esqueleto"></div><div class="esqueleto"></div><div class="esqueleto"></div>';
+    } else if (estado.cenario === 'parado') {
+      h += renderParado();
+    } else {
+      h += renderServidor(d);
+      if (!d.grupos.length) h += renderVazio();
+      else h += renderLista(d);
+    }
+    h += '</div>';
+    h += '<footer class="p-rodape">' + (estado.cenario === 'parado'
+      ? '<button class="btn-p" type="button" data-acao="tentar">Tentar agora</button>'
+      : '<button class="btn-s" type="button" data-acao="abrir-equip">Abrir Equipamentos</button>' +
+        '<button class="btn-p" type="button" data-acao="abrir-regem">Abrir o Regem</button>') + '</footer>';
+    return h + '</section>';
+  }
+
+  function renderServidor(d) {
+    var sv = d.servidor;
+    var rodando = sv.servicos.filter(function (x) { return x[1] === 'ok'; }).length;
+    var aberto = !!estado.servicosAbertos;
+    var h = '<div class="servidor"><button class="srv-linha" type="button" data-acao="servicos" aria-expanded="' + aberto + '" aria-controls="lista-servicos">' +
+      '<i class="bol b-' + (rodando === sv.servicos.length ? 'ok' : 'crit') + '" style="margin:0" aria-hidden="true"></i>' +
+      '<span><b>Este computador</b> · ' + rodando + ' de ' + sv.servicos.length + ' serviços rodando</span>' +
+      '<span class="srv-versao">versão <span class="mono">' + esc(sv.versao) + '</span> · nuvem ' + esc(sv.nuvem) +
+      (function () { var n = todosItens(d).filter(versaoAntiga).length; return n ? ' · <b class="txt-velha">' + n + (n === 1 ? ' aparelho com versão antiga' : ' aparelhos com versão antiga') + '</b>' : ''; })() +
+      '</span></button>';
+    if (aberto) {
+      h += '<div class="servicos" id="lista-servicos">';
+      sv.servicos.forEach(function (x) { h += '<span class="servico"><i class="bol b-' + (x[1] === 'ok' ? 'ok' : 'crit') + '" style="margin:0" aria-hidden="true"></i>' + esc(x[0]) + '<span class="sr-only">: ' + (x[1] === 'ok' ? 'rodando' : 'parado') + '</span></span>'; });
+      h += '</div>';
+    }
+    return h + '</div>';
+  }
+
+  function renderParado() {
+    var servicos = [['Sistema', 'parado'], ['Banco de dados', 'ok'], ['Sincronização', 'ok'], ['Impressão', 'ok'], ['Telas', 'ok']];
+    var h = '<div class="servidor"><div class="tit"><b>Serviços deste computador</b><span>lidos do Windows</span></div><div class="servicos">';
+    servicos.forEach(function (x) { h += '<span class="servico"><i class="bol b-' + (x[1] === 'ok' ? 'ok' : 'crit') + '" style="margin:0" aria-hidden="true"></i>' + esc(x[0]) + ' <span class="mono">' + (x[1] === 'ok' ? 'rodando' : 'parado') + '</span></span>'; });
+    h += '</div></div>';
+    h += '<div class="vazio" style="text-align:left"><b>Sem o sistema, não dá para ver os aparelhos.</b>' +
+      '<ol style="margin:6px 0 0;padding-left:18px"><li>Espere 1 minuto: o Windows tenta religar sozinho.</li><li>Se continuar, reinicie este computador.</li><li>Se voltar a parar, fale com o suporte do Regem.</li></ol></div>';
+    return h;
+  }
+
+  function renderVazio() {
+    return '<div class="vazio"><b>Nenhum aparelho ligado a este servidor ainda</b>Cadastre o primeiro em Configurações › Equipamentos. Depois é só gerar o código por aqui.</div>';
+  }
+
+  function contagens(d) {
+    var t = todosItens(d).filter(function (i) { return i.estado !== 'revogado'; });
+    return { todos: t.length, atencao: t.filter(precisaAtencao).length, conectados: t.filter(function (i) { return i.estado === 'ok'; }).length, velha: t.filter(versaoAntiga).length };
+  }
+
+  function passaFiltro(i) {
+    if (estado.busca && i.nome.toLowerCase().indexOf(estado.busca.toLowerCase()) < 0) return false;
+    if (estado.filtro === 'atencao') return precisaAtencao(i);
+    if (estado.filtro === 'conectados') return i.estado === 'ok';
+    if (estado.filtro === 'velha') return versaoAntiga(i);
+    return true;
+  }
+
+  function renderLista(d) {
+    var c = contagens(d);
+    var h = '<div class="resumo" role="group" aria-label="Filtrar aparelhos">' +
+      chip('todos', 'Todos ' + c.todos) + chip('atencao', 'Atenção ' + c.atencao) + chip('conectados', 'Conectados ' + c.conectados) + chip('velha', 'Versão antiga ' + c.velha) + '</div>';
+    h += '<div class="busca"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>' +
+      '<label class="sr-only" for="busca">Buscar aparelho</label><input id="busca" type="search" placeholder="Buscar aparelho" value="' + esc(estado.busca) + '" autocomplete="off"></div>';
+    var algum = false;
+    d.grupos.forEach(function (g) {
+      var vis = g.itens.filter(passaFiltro);
+      if (!vis.length) return;
+      algum = true;
+      var aberto = !estado.fechados[g.id];
+      var ok = g.itens.filter(function (i) { return i.estado === 'ok'; }).length;
+      var conta = g.id === 'revog' ? g.itens.length + '' : g.contaTotem ? g.itens.length + ' totens · ' + ok + ' em uso' : ok + ' de ' + g.itens.length + ' conectados';
+      if (!g.contaTotem && g.id !== 'revog' && g.itens.every(function (i) { return i.estado === 'sem'; })) conta = g.itens.length + ' · não informa';
+      h += '<div class="grupo"><button class="grupo-cab" type="button" data-grupo="' + g.id + '" aria-expanded="' + aberto + '" aria-controls="g-' + g.id + '">' +
+        '<svg class="seta" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>' +
+        '<span class="nome">' + esc(g.nome) + '</span>' + (g.novo ? '<span class="selo-novo" title="Hoje o servidor não sabe; passa a anotar (D2)">novo</span>' : '') +
+        '<span class="conta">' + esc(conta) + '</span></button>';
+      if (aberto) {
+        h += '<ul class="itens" id="g-' + g.id + '">';
+        vis.forEach(function (i) { h += renderItem(i); });
+        h += '</ul>';
+      }
+      h += '</div>';
+    });
+    if (!algum) h += '<div class="vazio"><b>Nenhum aparelho neste filtro</b>' + (estado.filtro === 'atencao' ? 'Tudo o que avisa presença está respondendo.' : estado.filtro === 'velha' ? 'Tudo o que informa a versão está na ' + VERSAO_SERVIDOR + ', a mesma do servidor.' : 'Mude o filtro ou a busca.') + '</div>';
+    return h;
+  }
+
+  function chip(id, texto) { return '<button class="chip" type="button" data-filtro="' + id + '" aria-pressed="' + (estado.filtro === id) + '">' + esc(texto) + '</button>'; }
+
+  function renderItem(i) {
+    var bol = { ok: 'b-ok', fora: 'b-fora', sem: 'b-sem', revogado: 'b-revog' }[i.estado];
+    var cl = i.estado === 'fora' ? ' fora' : '';
+    var h = '<li class="item' + (i.estado === 'revogado' ? ' revogado' : '') + '"><i class="bol ' + bol + '" aria-hidden="true"></i>' +
+      '<div><div class="nome">' + esc(i.nome) + '</div><div class="linha' + cl + '">' + esc(i.linha) +
+      (i.versao && !versaoAntiga(i) ? ' · <span class="mono">' + esc(i.versao) + '</span>' : '') + '</div>' +
+      (versaoAntiga(i) ? '<div class="linha velha">versão antiga <span class="mono">' + esc(i.versao) + '</span> — ' +
+        (i.onde === 'pc' ? 'reinstale este PC com o instalador ' + VERSAO_SERVIDOR : 'feche e abra o Regem neste aparelho') + '</div>' : '') + '</div>' +
+      '<button class="mais" type="button" id="mais-' + i.id + '" data-mais="' + i.id + '" aria-haspopup="menu" aria-expanded="' + (estado.menuLinha === i.id) + '" aria-label="Ações de ' + esc(i.nome) + '">⋯</button>';
+    if (i.impressoras) {
+      h += '<ul class="subitens" aria-label="Impressoras de ' + esc(i.nome) + '">';
+      i.impressoras.forEach(function (p) { h += '<li><i class="bol b-' + p[1] + '" aria-hidden="true"></i>' + esc(p[0]) + ' · ' + esc(p[2]) + '</li>'; });
+      h += '</ul>';
+    }
+    return h + '</li>';
+  }
+
+  function renderMenuLinha(i) {
+    var h = '<div class="menu-linha" id="menu-linha" role="menu" aria-label="Ações de ' + esc(i.nome) + '">';
+    if (i.estado === 'revogado') {
+      h += '<button role="menuitem" type="button" data-dlg="reativar">Reativar…</button>';
+      h += '<div class="nota">' + (VOLTA_COM_CODIGO[i.tipo] ? 'Volta com um código novo para parear de novo.' : 'Volta a funcionar sem código.') + '</div>';
+    } else {
+      if (COM_CODIGO[i.tipo]) h += '<button role="menuitem" type="button" data-dlg="codigo">Gerar código para parear…</button>';
+      else h += '<div class="nota">' + (i.tipo === 'kds' ? 'O KDS entra pelo endereço com a chave dele, sem código.' : i.tipo === 'totem' ? 'O totem é ligado pela distribuição Regem, sem código.' : 'Entra com o login de quem usa, sem código.') + '</div>';
+      h += '<button role="menuitem" type="button" data-acao="abrir-equip">Abrir em Equipamentos</button><hr>';
+      h += '<button role="menuitem" type="button" class="perigo" data-dlg="revogar">Revogar…</button>';
+    }
+    return h + '</div>';
+  }
+
+  function posicionarMenuLinha() {
+    var d = dadosDoCenario();
+    var item = todosItens(d).filter(function (x) { return x.id === estado.menuLinha; })[0];
+    var botao = document.getElementById('mais-' + estado.menuLinha);
+    if (!item || !botao) { estado.menuLinha = null; return; }
+    var wrap = document.createElement('div');
+    wrap.innerHTML = renderMenuLinha(item);
+    var menu = wrap.firstChild;
+    camadas.appendChild(menu);
+    var m = mesa.getBoundingClientRect(), b = botao.getBoundingClientRect();
+    var larg = menu.offsetWidth, alt = menu.offsetHeight;
+    var limite = m.height - 48 - 8; // acima da barra de tarefas
+    var left = Math.max(8, Math.min(b.right - m.left - larg, m.width - larg - 8));
+    var top = b.bottom - m.top + 4;
+    if (top + alt > limite) top = b.top - m.top - alt - 4; // não cabe embaixo: abre para cima
+    top = Math.max(8, Math.min(top, limite - alt));        // e nunca sai da área de trabalho
+    menu.style.left = left + 'px'; menu.style.top = top + 'px';
+  }
+
+  function renderMenuCtx(d, s) {
+    var pareaveis = todosItens(d).filter(function (i) { return COM_CODIGO[i.tipo] && i.estado !== 'revogado'; });
+    var h = '<div class="menu-ctx" id="menu-ctx" role="menu" aria-label="Menu do ícone do Regem">' +
+      '<div class="rotulo"><b>Regem — servidor da loja</b>' + esc(s.titulo) + '</div><hr>' +
+      '<button role="menuitem" type="button" data-acao="abrir-painel">Abrir o painel</button>';
+    if (estado.cenario !== 'parado' && estado.cenario !== 'lendo' && pareaveis.length) {
+      h += '<button role="menuitem" type="button" data-acao="sub-codigo" aria-expanded="' + !!estado.subCodigo + '" aria-controls="sub-codigo">Gerar código para parear ' + (estado.subCodigo ? '▾' : '▸') + '</button>' +
+        '<div class="sub' + (estado.subCodigo ? ' aberto' : '') + '" id="sub-codigo" role="group" aria-label="Escolha o aparelho">';
+      pareaveis.forEach(function (i) { h += '<button role="menuitem" type="button" data-codigo-de="' + i.id + '">' + esc(i.nome) + '</button>'; });
+      h += '</div>';
+    }
+    h += '<button role="menuitem" type="button" data-acao="abrir-equip">Abrir Equipamentos no navegador</button>' +
+      '<button role="menuitem" type="button" data-acao="abrir-regem">Abrir o Regem</button><hr>' +
+      '<button role="menuitem" type="button" data-acao="esconder">Esconder o ícone (o servidor continua)</button></div>';
+    return h;
+  }
+
+  function renderAviso() {
+    return '<div class="aviso-win" role="alert"><div class="app"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" fill="#0F2230"/><text x="12" y="16.5" text-anchor="middle" font-family="Archivo, sans-serif" font-weight="800" font-size="12" fill="#E8A845">R</text></svg>Regem — servidor da loja</div>' +
+      '<b>"PC do delivery" parou de responder</b><p>Estação de impressão, sem sinal há 3 minutos. Último IP 192.168.0.23.</p>' +
+      '<div class="acoes"><button class="btn-p" type="button" data-acao="aviso-abrir">Abrir o painel</button><button class="btn-s" type="button" data-acao="aviso-fechar">Fechar</button></div></div>';
+  }
+
+  // ---------- Diálogos ----------
+  var contagem = null;
+  function pararContagem() { if (contagem) { clearInterval(contagem); contagem = null; } }
+
+  function renderDialogo() {
+    var dl = estado.dialogo, i = dl.item;
+    var h = '<div class="fundo" data-acao="fundo"><div class="dialogo" role="dialog" aria-modal="true" aria-labelledby="d-h">' +
+      '<div class="d-tit">Regem — servidor da loja<button class="x" type="button" data-acao="fechar-dlg" aria-label="Fechar">✕</button></div><div class="d-corpo">';
+    if (dl.passo === 'codigo-pronto') {
+      var o = ONDE[i.tipo];
+      h += '<h3 id="d-h">Código para parear "' + esc(i.nome) + '"</h3>' +
+        '<div class="codigo" aria-label="Código ' + dl.codigo.split('').join(' ') + '">' + dl.codigo.slice(0, 3) + ' ' + dl.codigo.slice(3) + '</div>' +
+        '<div class="validade" id="validade" aria-live="polite">' + textoValidade(dl) + '</div>' +
+        '<div class="onde"><b>' + esc(o.titulo) + '</b><ol>' + o.passos.map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ol></div>';
+      h += '</div><div class="d-acoes"><button class="btn-p" type="button" id="d-ok" data-acao="fechar-dlg">Pronto</button></div></div></div>';
+      return h;
+    }
+    if (dl.tipo === 'revogar') {
+      h += '<h3 id="d-h">Revogar "' + esc(i.nome) + '"?</h3><div class="consequencia">Ele para na hora: o pareamento é apagado e o aparelho não entra mais. ' +
+        'Dá para desfazer em até 30 dias por "Reativar"' + (VOLTA_COM_CODIGO[i.tipo] ? ', com um código novo para parear de novo.' : '.') + '</div>';
+    } else if (dl.tipo === 'reativar') {
+      h += '<h3 id="d-h">Reativar "' + esc(i.nome) + '"?</h3><p>' + (VOLTA_COM_CODIGO[i.tipo] ? 'Ele volta com um código novo (15 minutos) para parear de novo.' : 'Ele volta a funcionar na hora.') + '</p>';
+    }
+    h += '<p style="font-size:12.5px">Fica na auditoria como feito pelo ícone do servidor, com este computador e o usuário do Windows.</p>';
+    var rot = dl.tipo === 'revogar' ? 'Revogar' : 'Reativar';
+    h += '</div><div class="d-acoes"><button class="btn-s" type="button" data-acao="fechar-dlg">Cancelar</button>' +
+      '<button class="' + (dl.tipo === 'revogar' ? 'btn-perigo' : 'btn-p') + '" type="button" id="d-confirmar" data-acao="confirmar-dlg">' + rot + '</button></div></div></div>';
+    return h;
+  }
+
+  function textoValidade(dl) {
+    var resta = Math.max(0, Math.round((dl.expira - Date.now()) / 1000));
+    if (!resta) return 'Expirou. Gere outro.';
+    var m = Math.floor(resta / 60), s = resta % 60;
+    var ate = new Date(dl.expira);
+    return 'Vale até ' + String(ate.getHours()).padStart(2, '0') + ':' + String(ate.getMinutes()).padStart(2, '0') + ' · faltam ' + m + ':' + String(s).padStart(2, '0');
+  }
+
+  function abrirDialogo(tipo, item) {
+    pararContagem();
+    estado.menuLinha = null; fecharCamada('linha', true);
+    estado.menuCtx = false; fecharCamada('ctx', true);
+    estado.dialogo = { tipo: tipo, item: item, passo: 'confirmar' };
+    abrirCamada('dialogo');
+    // Gerar código não pede confirmação: o código sai na hora (gerar de novo só troca o anterior).
+    if (tipo === 'codigo') { confirmarDialogo(); return; }
+    estado.foco = 'd-confirmar';
+    render();
+  }
+
+  function confirmarDialogo() {
+    var dl = estado.dialogo;
+    if (dl.tipo === 'codigo' || (dl.tipo === 'reativar' && VOLTA_COM_CODIGO[dl.item.tipo])) {
+      dl.passo = 'codigo-pronto';
+      dl.codigo = String(100000 + Math.floor(Math.random() * 900000));
+      dl.expira = Date.now() + 15 * 60 * 1000;
+      estado.foco = 'd-ok';
+      render();
+      contagem = setInterval(function () { var v = document.getElementById('validade'); if (v && estado.dialogo) v.textContent = textoValidade(estado.dialogo); }, 1000);
+      return;
+    }
+    var nome = dl.item.nome, tipo = dl.tipo;
+    estado.dialogo = null; fecharCamada('dialogo', true);
+    render();
+    toastSimples(tipo === 'revogar' ? '"' + nome + '" foi revogado. Ficou na auditoria.' : '"' + nome + '" voltou a funcionar.');
+  }
+
+  function toastSimples(texto) {
+    var t = document.createElement('div');
+    t.className = 'aviso-win'; t.setAttribute('role', 'status');
+    t.style.bottom = estado.painel ? 'auto' : '58px'; if (estado.painel) t.style.top = '12px';
+    t.innerHTML = '<div class="app">Regem — servidor da loja</div><p style="color:inherit">' + esc(texto) + '</p>';
+    camadas.appendChild(t);
+    setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 4000);
+  }
+
+  function abrirNavegador(onde) { toastSimples('Abre o navegador em ' + onde + ' (no protótipo, só este aviso).'); }
+
+  // ---------- Eventos ----------
+  function ligarEventos(d) {
+    camadas.querySelectorAll('[data-acao]').forEach(function (el) {
+      el.addEventListener('click', function (ev) {
+        var a = el.getAttribute('data-acao');
+        if (a === 'fundo' && ev.target !== el) return;
+        ev.stopPropagation();
+        if (a === 'fechar-painel') { estado.painel = false; fecharCamada('painel', true); render(); trayBtn.focus(); }
+        else if (a === 'abrir-painel' || a === 'aviso-abrir') { estado.menuCtx = false; estado.aviso = false; fecharCamada('ctx', true); fecharCamada('aviso', true); estado.painel = true; abrirCamada('painel'); render(); }
+        else if (a === 'aviso-fechar') { estado.aviso = false; fecharCamada('aviso'); }
+        else if (a === 'abrir-equip') { estado.menuLinha = null; estado.menuCtx = false; fecharCamada('linha', true); fecharCamada('ctx', true); render(); abrirNavegador('Configurações › Equipamentos' + (el.closest('#menu-linha') ? ', já no aparelho' : '')); }
+        else if (a === 'abrir-regem') { estado.menuCtx = false; fecharCamada('ctx', true); render(); abrirNavegador('o Regem deste servidor'); }
+        else if (a === 'esconder') { estado.menuCtx = false; fecharCamada('ctx', true); render(); toastSimples('O ícone some até o próximo login no Windows. O servidor continua funcionando.'); }
+        else if (a === 'sub-codigo') { estado.subCodigo = !estado.subCodigo; render(); var s = document.querySelector('[data-acao="sub-codigo"]'); if (s) s.focus(); }
+        else if (a === 'tentar') toastSimples('Lendo de novo… (no protótipo, o sistema continua parado; escolha "Dia normal" lá em cima).');
+        else if (a === 'servicos') { estado.servicosAbertos = !estado.servicosAbertos; render(); var v = document.querySelector('[data-acao="servicos"]'); if (v) v.focus(); }
+        else if (a === 'fechar-dlg' || a === 'fundo') { pararContagem(); estado.dialogo = null; fecharCamada('dialogo'); }
+        else if (a === 'confirmar-dlg') confirmarDialogo();
+      });
+    });
+    camadas.querySelectorAll('[data-filtro]').forEach(function (el) {
+      el.addEventListener('click', function () { estado.filtro = el.getAttribute('data-filtro'); render(); });
+    });
+    camadas.querySelectorAll('[data-grupo]').forEach(function (el) {
+      el.addEventListener('click', function () { var g = el.getAttribute('data-grupo'); estado.fechados[g] = !estado.fechados[g]; estado.foco = null; render(); var b = camadas.querySelector('[data-grupo="' + g + '"]'); if (b) b.focus(); });
+    });
+    camadas.querySelectorAll('[data-mais]').forEach(function (el) {
+      el.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var id = el.getAttribute('data-mais');
+        estado.menuLinha = estado.menuLinha === id ? null : id;
+        if (estado.menuLinha) abrirCamada('linha'); else fecharCamada('linha', true);
+        render();
+        var primeiro = document.querySelector('#menu-linha button'); if (primeiro) primeiro.focus();
+      });
+    });
+    var ml = document.getElementById('menu-linha');
+    if (ml) ml.querySelectorAll('[data-dlg]').forEach(function (el) {
+      el.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var item = todosItens(d).filter(function (x) { return x.id === estado.menuLinha; })[0];
+        abrirDialogo(el.getAttribute('data-dlg'), item);
+      });
+    });
+    camadas.querySelectorAll('[data-codigo-de]').forEach(function (el) {
+      el.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var item = todosItens(d).filter(function (x) { return x.id === el.getAttribute('data-codigo-de'); })[0];
+        abrirDialogo('codigo', item);
+      });
+    });
+    var busca = document.getElementById('busca');
+    if (busca) busca.addEventListener('input', function () { estado.busca = busca.value; var pos = busca.selectionStart; render(); var b = document.getElementById('busca'); if (b) { b.focus(); b.setSelectionRange(pos, pos); } });
+  }
+
+  // Clique fora fecha o menu da linha e o menu do botão direito (o painel fecha como no Windows: clique fora dele).
+  mesa.addEventListener('click', function (ev) {
+    if (estado.dialogo) return;
+    var dentro = ev.target.closest && (ev.target.closest('.painel') || ev.target.closest('.menu-ctx') || ev.target.closest('.menu-linha') || ev.target.closest('#tray-regem') || ev.target.closest('.aviso-win'));
+    var mudou = false;
+    if (estado.menuLinha && !(ev.target.closest && ev.target.closest('.menu-linha'))) { estado.menuLinha = null; fecharCamada('linha', true); mudou = true; }
+    if (!dentro) {
+      if (estado.painel) { estado.painel = false; fecharCamada('painel', true); mudou = true; }
+      if (estado.menuCtx) { estado.menuCtx = false; fecharCamada('ctx', true); mudou = true; }
+    }
+    if (mudou) render();
+  });
+
+  trayBtn.addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    estado.menuCtx = false; estado.aviso = false; fecharCamada('ctx', true); fecharCamada('aviso', true);
+    estado.painel = !estado.painel;
+    if (estado.painel) abrirCamada('painel'); else fecharCamada('painel', true);
+    render();
+    if (estado.painel) { var f = document.querySelector('.painel .fechar'); if (f) f.focus(); }
+  });
+  trayBtn.addEventListener('contextmenu', function (ev) {
+    ev.preventDefault(); ev.stopPropagation();
+    estado.painel = false; estado.aviso = false; fecharCamada('painel', true); fecharCamada('aviso', true);
+    estado.menuCtx = true; estado.subCodigo = false; abrirCamada('ctx');
+    render();
+    var p = document.querySelector('#menu-ctx button'); if (p) p.focus();
+  });
+  // Teclado: Shift+F10 ou a tecla de menu abrem o menu do botão direito, como no Windows.
+  trayBtn.addEventListener('keydown', function (ev) {
+    if ((ev.shiftKey && ev.key === 'F10') || ev.key === 'ContextMenu') { ev.preventDefault(); trayBtn.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })); }
+  });
+
+  document.querySelectorAll('[data-cenario]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      estado.cenario = b.getAttribute('data-cenario');
+      document.querySelectorAll('[data-cenario]').forEach(function (x) { x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
+      estado.filtro = 'todos'; estado.busca = ''; estado.menuLinha = null; fecharCamada('linha', true);
+      if (estado.cenario === 'atencao') { estado.aviso = !estado.painel; if (estado.aviso) abrirCamada('aviso'); }
+      render();
+    });
+  });
+  document.querySelectorAll('[data-tema]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      mesa.setAttribute('data-win', b.getAttribute('data-tema'));
+      document.querySelectorAll('[data-tema]').forEach(function (x) { x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
+    });
+  });
+  document.getElementById('simular-aviso').addEventListener('click', function () {
+    estado.painel = false; estado.menuCtx = false; fecharCamada('painel', true); fecharCamada('ctx', true);
+    estado.aviso = true; abrirCamada('aviso'); render();
+  });
+
+  function relogio() {
+    var r = document.getElementById('relogio'), a = new Date();
+    r.innerHTML = String(a.getHours()).padStart(2, '0') + ':' + String(a.getMinutes()).padStart(2, '0') + '<br>' +
+      String(a.getDate()).padStart(2, '0') + '/' + String(a.getMonth() + 1).padStart(2, '0') + '/' + a.getFullYear();
+  }
+  relogio(); setInterval(relogio, 15000);
+  estado.painel = true; abrirCamada('painel');
+  render();
+})();
+</script>
+</body>
+</html>

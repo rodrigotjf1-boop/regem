@@ -12,6 +12,19 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.10)
 
+- **Ícone do servidor da loja na bandeja (fase 4 do pedido de 22–23/10; PR desta entrega):**
+  - **Só com o `.exe` (reinstalar SÓ o servidor, modo "Servidor"):** o `RegemServidor.exe` e a chave Run "RegemServidor"
+    (o `.zip` não mexe em `edge\bandeja` nem grava o registro).
+  - **Também no `.zip`:**
+    - a rota local `edge/bandeja/*` e a chave `bandeja.key`, que o sistema cria ao ligar;
+    - a presença do KDS, da TV e do totem;
+    - a versão da tela informada pelo caixa, garçom, KDS e TV;
+    - o "último contato com a nuvem" no sync-daemon.
+  - **Conferir na loja depois do `.exe`:**
+    1. o ícone R dourado perto do relógio do servidor;
+    2. o painel com os aparelhos e a versão do "PC do delivery";
+    3. "Gerar código" no caixa;
+    4. a auditoria com "pelo ícone do servidor".
 - **A corrigir no próximo corte** (sem PR ainda): o status do backup que o servidor da loja
   manda à nuvem chega ilegível — o `backup.ps1` grava `ultimo-backup.json` com BOM (`[Text.Encoding]::UTF8`) e o
   daemon faz `JSON.parse` sem tirar o BOM; a nuvem vê "backup falhou" em toda loja desde o #546, mesmo com o backup

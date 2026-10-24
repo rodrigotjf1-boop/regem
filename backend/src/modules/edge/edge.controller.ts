@@ -12,7 +12,7 @@ import { AuthUser } from '../../auth/auth-user';
 import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
 import { EdgeService } from './edge.service';
 import { EquipamentoService } from '../equipamento/equipamento.service';
-import { PresencaService, enderecoDoHost, ipDoPc } from '../equipamento/presenca.service';
+import { PresencaService, enderecoDoHost, ipDoPc, versaoInformada } from '../equipamento/presenca.service';
 import { RedeLocalService } from './rede-local.service';
 import { NOME_NA_REDE } from './rede-local';
 
@@ -47,12 +47,15 @@ export class EdgeController {
   @Post('edge/presenca')
   @HttpCode(200)
   @UseGuards(JwtAuthGuard)
-  presencaDoPc(@CurrentUser() user: AuthUser, @Req() req: any) {
+  presencaDoPc(@CurrentUser() user: AuthUser, @Req() req: any, @Body() dto?: { versao?: unknown }) {
     const tipo = req?.terminal?.tipo === 'pdv' || req?.terminal?.tipo === 'salao' ? (req.terminal.tipo as 'pdv' | 'salao') : null;
     const terminal = tipo ? { id: String(req.terminal.id), nome: String(req.terminal.nome ?? ''), tipo } : null;
     const pc = { ip: ipDoPc(req?.ip), endereco: enderecoDoHost(req?.headers?.host) };
     if (terminal) {
-      this.presenca?.notar({ id: terminal.id, tenantId: user.tenantId, tipo: terminal.tipo, ip: pc.ip, endereco: pc.endereco, maquina: null, versao: null });
+      // A versão da TELA aberta (carimbada no pacote): um caixa aberto antes da atualização segue na anterior até
+      // fechar e abrir — o ícone do servidor mostra.
+      const versao = versaoInformada(dto?.versao);
+      this.presenca?.notar({ id: terminal.id, tenantId: user.tenantId, tipo: terminal.tipo, ip: pc.ip, endereco: pc.endereco, maquina: null, versao });
     }
     const rede = this.redeLocal?.atual ?? null;
     return {

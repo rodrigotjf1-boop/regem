@@ -25,6 +25,7 @@ const TIPO_LABEL: Record<string, string> = {
   estacao_impressao: 'Estação de impressão',
   servidor_local: 'Servidor local',
   ponto_baixa: 'Ponto de baixa',
+  totem: 'Totem', // vem da distribuição (GoGeM); a tela mostrava o texto cru
 };
 export const tipoDe = (e: any): string => TIPO_LABEL[e.tipo] ?? String(e.tipo);
 export const ESCOPOS = [

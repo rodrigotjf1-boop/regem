@@ -1,6 +1,7 @@
 import { io, type Socket } from 'socket.io-client';
 import { apiBase, getJwt } from './api';
 import { origemDoTempoReal } from './origem-api';
+import { VERSAO_DA_TELA } from './versao-da-tela';
 
 // Origem do WebSocket = base da API sem o sufixo /api/v1, pela MESMA regra do `apiBase()` e resolvida na hora de
 // conectar (no navegador). Antes tinha conta própria (`NEXT_PUBLIC_API_URL ?? nuvem`), vazia no servidor da loja: o KDS
@@ -19,15 +20,15 @@ export function connectAsGestor(): Socket {
   return io(rtUrl(), { auth: { jwt: getJwt() ?? undefined }, withCredentials: !EH_EDGE });
 }
 
-// Device (KDS / Terminal): autentica com o token do equipamento.
+// Device (KDS / Terminal): autentica com o token do equipamento. Leva a versão da tela (o ícone do servidor mostra).
 export function connectAsDevice(token: string): Socket {
-  return io(rtUrl(), { auth: { token } });
+  return io(rtUrl(), { auth: { token, ...(VERSAO_DA_TELA ? { versao: VERSAO_DA_TELA } : {}) } });
 }
 
 // Tela de senhas (mig 337): o id e o segredo do pareamento. O servidor a põe só na sala dela, que recebe só
 // "senhas:mudou" — a TV relê o quadro pela rota com o segredo. Sem cookie: ela não tem sessão.
 export function connectAsTela(id: string, segredo: string): Socket {
-  return io(rtUrl(), { auth: { tela: { id, segredo } }, withCredentials: false });
+  return io(rtUrl(), { auth: { tela: { id, segredo }, ...(VERSAO_DA_TELA ? { versao: VERSAO_DA_TELA } : {}) }, withCredentials: false });
 }
 
 export type { Socket };

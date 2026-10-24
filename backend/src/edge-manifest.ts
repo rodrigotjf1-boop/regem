@@ -60,4 +60,5 @@ export const INFRA_MODULES = [
   'AuthModule', 'DrizzleModule', 'ConfigModule', 'ScheduleModule', 'ThrottlerModule',
   'EventEmitterModule', 'RealtimeModule', 'JobsModule', 'SyncModule', 'EdgeModule',
   'EdgeFlashSyncModule',
+  'BandejaModule', // o ícone do servidor da loja na bandeja do Windows (só responde no servidor da loja)
 ] as const;

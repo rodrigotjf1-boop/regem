@@ -16,9 +16,15 @@ import { ehServidorLocal } from '../../common/modo';
 // UM processo; na nuvem nada é anotado (lá a presença chega pela saúde da batida). Para a nuvem vai um
 // resumo por minuto em `sync_state` (chave `presenca`), que o sync-daemon põe na saúde da batida.
 
-/** Terminal de PDV, sub-PDV do salão (o tablet do garçom pareia igual) e estação de impressão. */
-export type TipoPresente = 'pdv' | 'salao' | 'estacao_impressao';
-export const TIPOS_PRESENTES: readonly TipoPresente[] = ['pdv', 'salao', 'estacao_impressao'];
+/**
+ * Terminal de PDV, sub-PDV do salão (o tablet do garçom pareia igual) e estação de impressão avisam a cada 30–60 s.
+ * KDS e tela de senhas (TV) ficam conectados pelo tempo real: o servidor anota ao conectar e ao cair (ícone do
+ * servidor, fase 4 do pedido de 22–23/10/2026). O totem, a cada chamada com o token dele.
+ */
+export type TipoPresente = 'pdv' | 'salao' | 'estacao_impressao' | 'kds' | 'tela_senhas' | 'totem';
+export const TIPOS_PRESENTES: readonly TipoPresente[] = ['pdv', 'salao', 'estacao_impressao', 'kds', 'tela_senhas', 'totem'];
+/** Os que são um PC (ou tablet) da loja — a contagem "PCs conectados" da tela Servidor local fica só com eles. */
+export const TIPOS_PCS: readonly TipoPresente[] = ['pdv', 'salao', 'estacao_impressao'];
 
 export type Presenca = {
   id: string;
@@ -30,9 +36,21 @@ export type Presenca = {
   endereco: string | null;
   /** O nome do PC no Windows (a estação manda; o navegador não sabe). */
   maquina: string | null;
+  /** A versão que o aparelho informa: a da tela aberta (navegador) ou a instalada no PC (estação). */
   versao: string | null;
+  /**
+   * Só de quem fica conectado pelo tempo real (KDS, TV): `true` enquanto há conexão aberta, `false` depois que caiu
+   * (aí `vistoEm` é a hora em que caiu). `null` para quem avisa de tempos em tempos.
+   */
+  conectado?: boolean | null;
   vistoEm: string;
 };
+
+/** A versão que o aparelho informa, só se tiver cara de versão ("1.30.9", "1.30.9-rc1"); o resto vira `null`. */
+export function versaoInformada(bruto: unknown): string | null {
+  const s = typeof bruto === 'string' ? bruto.trim() : '';
+  return s && s.length <= 40 && /^[0-9A-Za-z][0-9A-Za-z.+-]*$/.test(s) ? s : null;
+}
 
 /** Visto há mais que isto: some do "agora" (e do resumo para a nuvem). */
 export const JANELA_PRESENCA_MS = 10 * 60_000;
@@ -56,6 +74,8 @@ export function enderecoDoHost(host: unknown): string | null {
 export class PresencaService {
   private readonly log = new Logger('Presenca');
   private readonly mapa = new Map<string, Presenca>();
+  /** Conexões de tempo real abertas por aparelho (o mesmo KDS pode estar aberto em duas abas). */
+  private readonly conexoes = new Map<string, number>();
   private ultimoAviso = 0;
 
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
@@ -66,17 +86,43 @@ export class PresencaService {
     this.mapa.set(p.id, { ...p, vistoEm: agora.toISOString() });
   }
 
-  /** Os PCs desta empresa vistos na janela, do mais recente ao mais antigo. */
+  /** O aparelho abriu uma conexão de tempo real (KDS, TV): fica "conectado" até a última cair. */
+  conectou(p: Omit<Presenca, 'vistoEm' | 'conectado'>, agora: Date = new Date()): void {
+    if (!ehServidorLocal() || !p?.id || !p.tenantId) return;
+    this.conexoes.set(p.id, (this.conexoes.get(p.id) ?? 0) + 1);
+    this.mapa.set(p.id, { ...p, conectado: true, vistoEm: agora.toISOString() });
+  }
+
+  /** Uma conexão de tempo real do aparelho caiu; na última, ele passa a "caiu às …". */
+  desconectou(id: string, agora: Date = new Date()): void {
+    if (!ehServidorLocal() || !id) return;
+    // Queda de uma conexão que não foi anotada (aberta antes de o servidor reiniciar, ou já contada): não mexe no
+    // "visto" — senão um aparelho caído há meia hora pareceria visto agora.
+    const abertas = this.conexoes.get(id) ?? 0;
+    if (abertas <= 0) return;
+    if (abertas > 1) return void this.conexoes.set(id, abertas - 1);
+    this.conexoes.delete(id);
+    const p = this.mapa.get(id);
+    if (p) this.mapa.set(id, { ...p, conectado: false, vistoEm: agora.toISOString() });
+  }
+
+  /**
+   * Os aparelhos desta empresa vistos na janela, do mais recente ao mais antigo. Quem está conectado pelo tempo real
+   * sai com `vistoEm` = agora (está sendo visto), por mais antiga que seja a conexão.
+   */
   doTenant(tenantId: string, agoraMs: number = Date.now()): Presenca[] {
+    const agora = new Date(agoraMs).toISOString();
     return [...this.mapa.values()]
-      .filter((p) => p.tenantId === tenantId && agoraMs - Date.parse(p.vistoEm) <= JANELA_PRESENCA_MS)
+      .filter((p) => p.tenantId === tenantId && (p.conectado === true || agoraMs - Date.parse(p.vistoEm) <= JANELA_PRESENCA_MS))
+      .map((p) => (p.conectado === true ? { ...p, vistoEm: agora } : p))
       .sort((a, b) => Date.parse(b.vistoEm) - Date.parse(a.vistoEm));
   }
 
-  /** Quantos PCs (IPs diferentes) falaram com o servidor no último `dentroDeMs`. */
+  /** Quantos PCs (IPs diferentes) falaram com o servidor no último `dentroDeMs`. KDS, TV e totem não contam. */
   pcsConectados(tenantId: string, dentroDeMs = 3 * 60_000, agoraMs: number = Date.now()): number {
     const ips = new Set<string>();
     for (const p of this.doTenant(tenantId, agoraMs)) {
+      if (!TIPOS_PCS.includes(p.tipo)) continue;
       if (agoraMs - Date.parse(p.vistoEm) <= dentroDeMs) ips.add(p.ip ?? `sem-ip:${p.id}`);
     }
     return ips.size;
@@ -91,7 +137,8 @@ export class PresencaService {
   async gravarResumo(agoraMs: number = Date.now()): Promise<void> {
     if (!ehServidorLocal()) return;
     try {
-      for (const [id, p] of this.mapa) if (agoraMs - Date.parse(p.vistoEm) > JANELA_PRESENCA_MS) this.mapa.delete(id);
+      for (const [id, p] of this.mapa) if (p.conectado !== true && agoraMs - Date.parse(p.vistoEm) > JANELA_PRESENCA_MS) this.mapa.delete(id);
+      const agora = new Date(agoraMs).toISOString();
       const pcs = [...this.mapa.values()].map((p) => ({
         id: p.id,
         tipo: p.tipo,
@@ -99,7 +146,7 @@ export class PresencaService {
         endereco: p.endereco,
         maquina: p.maquina,
         versao: p.versao,
-        vistoEm: p.vistoEm,
+        vistoEm: p.conectado === true ? agora : p.vistoEm,
       }));
       const valor = JSON.stringify({ em: new Date(agoraMs).toISOString(), pcs });
       await this.db.execute(sql`
