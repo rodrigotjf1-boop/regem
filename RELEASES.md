@@ -10,7 +10,38 @@
 - **Como cortar (OBRIGATÓRIO):** `powershell -File backend\edge\build-release.ps1 -Versao X.Y.Z` → só compilar no Inno / rodar `publicar.ps1` no **"TUDO OK"** do preflight. Nunca de árvore atrás do `origin/main`, nunca de `regem-edge-dist` reaproveitado.
 - **Publicar `.zip`:** `edge/publicar.ps1 -Versao X.Y.Z` → sobe no Supabase Storage (bucket `edge-updates`, nome exato `regem-edge-X.Y.Z.zip`) → `edge/publicar.ps1 -Versao X.Y.Z -SoAssinar -Url <url>` (assina o MESMO arquivo, v1 + v2 com validade) → cola versão, URL, SHA e as assinaturas no console de distribuição, **começando pelas lojas piloto / percentual baixo**. O console recusa release sem as duas assinaturas válidas.
 
-## Acumulado (NÃO empacotado) — próxima release (1.30.10)
+## Acumulado (NÃO empacotado) — próxima release (1.30.11)
+
+- **A corrigir no próximo corte** (sem PR ainda): o status do backup que o servidor da loja
+  manda à nuvem chega ilegível — o `backup.ps1` grava `ultimo-backup.json` com BOM (`[Text.Encoding]::UTF8`) e o
+  daemon faz `JSON.parse` sem tirar o BOM; a nuvem vê "backup falhou" em toda loja desde o #546, mesmo com o backup
+  em dia. Correção: o daemon tira o BOM ao ler e o `backup.ps1` grava sem BOM. Toca `edge/` → `.exe` do corte.
+- **`desktop/` (Electron ^31, sem suporte, com o Node 20 e um Chromium antigo dentro, e `rejectUnauthorized: false` em
+  `desktop/main.js:35`): NÃO é distribuído** (o instalador abre o Edge/Chrome em modo app; não há build dele nem
+  registro aqui; última mudança em 31/07, #246). Não empacotar como está: se um dia for usado, subir para um Electron
+  com suporte e tirar o `rejectUnauthorized: false`; senão, o dono decide apagar a pasta.
+
+## Última release: `1.30.10` — gerada em 24/10/2026 da `origin/main` `ad8a1501`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 94.097.238 bytes, SHA-256 `01a00351e089563a499cab0fedb7e4e14757cd0b71ebc7a6182ca01e5643111b`) e entregue ao dono; **sem `.zip`** e nada publicado no console
+
+- **Decisão do dono (24/10):** cortar "Depois da parte 2" — um `.exe` só com o ícone do servidor (#726), o pareamento
+  sem reinstalar completo (#727, #729) e a TV no sincronismo (#728).
+- **Corte:** `build-release.ps1 -Versao 1.30.10` na worktree `C:\regem-wt-13010` (branch `release/1.30.10`, junção do
+  `bundle`); o `.iss` restaurado do git e recarimbado só na linha `AppVer` (`carimbar-iss.cjs`) e compilado no Inno 7.
+- **Provado:**
+  - PREFLIGHT OK (único aviso: o `.iss` carimbado, sem commit): Node do `bundle` v24.22.1, migrations até a 339, os
+    dois ícones (`RegemEstacao.exe`, `RegemServidor.exe`) no pacote, `ProductVersion` 1.30.10;
+  - o pacote leva o atalho "Regem - parear este PC", o `CERT-TROCADO` do gen-cert, a confiança da CA nova na estação
+    (D4) e a TV no filtro do daemon; nenhum `edge/certs` nem `bandeja.key` da máquina de build;
+  - o daemon do pacote com o Node embutido, num banco de loja montado como o do CI: `--pendencias` → "Nada preso"
+    (código 0); a estação do pacote abre no Node 24.22.1 (`--baixar-ca` sem servidor → falha tratada).
+- **Entregue ao dono** em `OneDrive\Documentos\Regem - release 1.30.10 (24-10)\`: o `.exe` e `LEIA-ME.txt`
+  (servidor com o ícone do servidor marcado na última tela; depois cada PC no modo Cliente, com o CÓDIGO EM BRANCO onde
+  há impressora; conferir o atalho de parear, a versão de cada PC no ícone do servidor e a TV na nuvem; os dois
+  pendentes da 1.30.9: "Redefinir padrão" nos 3 perfis e a impressora em "Produção — balcão").
+- **Próximo `.zip`:** a 1.30.11 leva tudo isto para quem atualiza pelo console (o `.zip` não troca o Node nem
+  `edge\bandeja`, nem cria o atalho).
+
+Mudanças que entraram na 1.30.10:
 
 - **Ícone do servidor da loja na bandeja (fase 4 do pedido de 22–23/10; #726):**
   - **Só com o `.exe` (reinstalar SÓ o servidor, modo "Servidor"):** o `RegemServidor.exe` e a chave Run "RegemServidor"
@@ -25,10 +56,6 @@
     2. o painel com os aparelhos e a versão do "PC do delivery";
     3. "Gerar código" no caixa;
     4. a auditoria com "pelo ícone do servidor".
-- **A corrigir no próximo corte** (sem PR ainda): o status do backup que o servidor da loja
-  manda à nuvem chega ilegível — o `backup.ps1` grava `ultimo-backup.json` com BOM (`[Text.Encoding]::UTF8`) e o
-  daemon faz `JSON.parse` sem tirar o BOM; a nuvem vê "backup falhou" em toda loja desde o #546, mesmo com o backup
-  em dia. Correção: o daemon tira o BOM ao ler e o `backup.ps1` grava sem BOM. Toca `edge/` → `.exe` do corte.
 - **A TV de senhas no sincronismo (decisão do dono de 24/10; #728):** a TV sobe para a nuvem e volta
   pareada depois de reinstalar o servidor. A TV que já existe é carimbada UMA vez pelo sync-daemon (`tv_no_envio`),
   inclusive no `--descarregar` do instalador. Vai no `.zip` e no `.exe`.
@@ -42,7 +69,7 @@
     - "Novo PC com impressora" pareia de novo a estação que o PC já tinha.
   - **Só com o `.exe` (cada PC cliente):** a estação manda o tipo ao parear. Até lá, o código de caixa digitado no ícone
     da estação ainda é gasto, porque o servidor não sabe de onde veio.
-- **Parear sem reinstalar, PR 2 (pedido do dono de 22/10; D4 do dono de 24/10; PR desta entrega) — pede o `.exe`:**
+- **Parear sem reinstalar, PR 2 (pedido do dono de 22/10; D4 do dono de 24/10; #729; ERR-296) — pede o `.exe`:**
   - **Só com o `.exe` (servidor e cada PC cliente):**
     - reinstalar o servidor com IP novo MANTÉM o certificado (os aparelhos usam o nome `regem.local`); se ele for
       trocado de verdade, o gen-cert diz `CERT-TROCADO` e o fim da instalação avisa o dono do que fazer em cada PC;
@@ -61,12 +88,8 @@
     1. no PC do delivery, o atalho "Regem - parear este PC" na área de trabalho abre a janela de parear;
     2. revogar a estação em Configurações › Equipamentos → o ícone diz "O servidor recusou esta estacao" e avisa uma vez;
     3. reativar ou gerar código e parear → o aviso some e a impressão volta em segundos.
-- **`desktop/` (Electron ^31, sem suporte, com o Node 20 e um Chromium antigo dentro, e `rejectUnauthorized: false` em
-  `desktop/main.js:35`): NÃO é distribuído** (o instalador abre o Edge/Chrome em modo app; não há build dele nem
-  registro aqui; última mudança em 31/07, #246). Não empacotar como está: se um dia for usado, subir para um Electron
-  com suporte e tirar o `rejectUnauthorized: false`; senão, o dono decide apagar a pasta.
 
-## Última release: `1.30.9` — gerada em 23/10/2026 da `origin/main` `0a89c14e`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 94.076.891 bytes, SHA-256 `c16429f40570a10cb890c55d1e34fa66c1c7c2598e3aef6c4ecf4d23225e9551`) e entregue ao dono; **sem `.zip`** (pedido do dono) e nada publicado no console
+## Release anterior: `1.30.9` — gerada em 23/10/2026 da `origin/main` `0a89c14e`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 94.076.891 bytes, SHA-256 `c16429f40570a10cb890c55d1e34fa66c1c7c2598e3aef6c4ecf4d23225e9551`) e entregue ao dono; **sem `.zip`** (pedido do dono) e nada publicado no console
 
 - **Pedido do dono (23/10):** "preciso do .exe atualizado" — depois das fases 1 a 3 do pedido de 22–23/10 (vias,
   comprovantes, sangria, sincronismo da configuração e do cadastro) e do boletim de segurança do Node.
@@ -85,7 +108,8 @@
 - **Entregue ao dono** em `OneDrive\Documentos\Regem - release 1.30.9 (23-10)\`: o `.exe` e `LEIA-ME.txt`
   (servidor; depois cada PC no modo Cliente, com o CÓDIGO EM BRANCO onde há impressora — reinstalar cada PC é o que
   leva o Node corrigido a ele; conferir a via do caixa com cabeçalho/rodapé; "Redefinir padrão" nos 3 perfis).
-- **Próximo `.zip`:** a 1.30.10 leva tudo isto para quem atualiza pelo console (o `.zip` não troca o Node).
+- **Próximo `.zip`:** a 1.30.11 leva tudo isto para quem atualiza pelo console (o `.zip` não troca o Node; a 1.30.10
+  também saiu só em `.exe`).
 
 Mudanças que entraram na 1.30.9:
 
