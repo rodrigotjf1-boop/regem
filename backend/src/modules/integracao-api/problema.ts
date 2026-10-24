@@ -39,6 +39,8 @@ export type TipoProblema =
   | 'aviso-indisponivel'
   // Via do DMS ID (Hub DMS, F3, mig 329): o segredo da ligação ausente, inexistente ou revogado.
   | 'ligacao-invalida'
+  // A ligação de um aplicativo de parceiro parada há 90 dias (Padrão §3; F4, parte F): 403, volta com um clique novo.
+  | 'ligacao-suspensa'
   // A parada (Hub DMS, F3 A2): a lista do hub ou a chave própria `ACEITAR_INTEGRACOES` — 503 com `Retry-After`.
   | 'integracao-parada'
   | 'erro-interno';
@@ -60,6 +62,7 @@ const TITULO: Record<TipoProblema, string> = {
   'endereco-nao-permitido': 'Endereço não permitido',
   'aviso-indisponivel': 'Avisos indisponíveis',
   'ligacao-invalida': 'Ligação inválida',
+  'ligacao-suspensa': 'Ligação suspensa',
   'integracao-parada': 'Integração parada',
   'erro-interno': 'Erro interno',
 };

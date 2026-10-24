@@ -111,9 +111,10 @@ formato dos erros; o limite. Ele roda no Node 22.6 ou mais; o CI (no Node 24.22.
 dos testes, e lá pular é falha (`KIT_DMS_OBRIGATORIO`).
 
 Desde o pacote 0.7.1 (F4, parte A), o kit também roda no modo do **manifesto**, pela porta (sem credencial) e pelo
-arquivo do repositório. No modo do DMS ID, ficam puladas só as conferências opcionais: as três da parte F da F4 (a
-classe, a ligação suspensa e a parada) e as sete da conta, do cursor e da escrita, que pedem configuração própria
-(kit da parte J), além da dos metadados da MCP.
+arquivo do repositório. No modo do DMS ID, o `dms-id.http.spec.ts` pula só as conferências opcionais: as três da parte F
+da F4 (a classe, a ligação suspensa e a parada) e as sete da conta, do cursor e da escrita, que pedem configuração
+própria (kit da parte J), além da dos metadados da MCP. As três da parte F rodam (e passam) no
+`integracao-parceiro.http.spec.ts`, com o hub de mentira e as credenciais de parceiro (seção 10).
 
 **O manifesto da porta (Padrão §13):** `GET /.well-known/dms-manifesto`, sem credencial e fora do prefixo `/api/v1`, só
 na nuvem. É a documentação pública da porta de integração: OpenAPI 3.1 com os campos `x-dms`, montado do próprio código
@@ -121,7 +122,8 @@ na nuvem. É a documentação pública da porta de integração: OpenAPI 3.1 com
 (`dms` em todos; `parceiro` nos oito do teto da classe, `ESCOPOS_DO_PARCEIRO` em `escopos.ts`, o catálogo aprovado na
 F4: os pedidos, o catálogo, as fichas, a produção, os cupons, a anonimização e, sensíveis, o telefone no pedido e o
 custo; criar cupom, a lista de clientes, a 99Food e os usos de cupom ficam só `dms`; o Regem só aceita aplicativo de
-parceiro com o resto da parte F), o limite de 60 por minuto por ligação, as 15 rotas de `/integracao` com exemplos fictícios, os
+parceiro com a chave `PARCEIROS_LIGADOS`, seção 10), o limite (60 por minuto por ligação, para todos; 300 por minuto por
+empresa, que só o aplicativo de parceiro tem), as 15 rotas de `/integracao` com exemplos fictícios, os
 6 avisos (o corpo sai de `corpoDoAviso`) e a credencial do DMS ID. Fora dele, de propósito: a troca pela ligação e o
 OAuth (o ciclo da credencial), as rotas do totem e os avisos assinados ao GoGeM. O arquivo `docs/dms-manifesto.json` é o
 que o código monta; o teste `manifesto-integracao.spec.ts` confere, lê as rotas e as permissões dos decoradores do
@@ -261,3 +263,51 @@ conectados, **Detalhes** abre a gaveta do acesso, com "Ver o texto que você aut
 pede, outra empresa, opcionais desligadas, texto e versão); `integracao_token_loja.autorizacao_id` com o índice único
 de um acesso ativo do clique por loja e aplicativo; e `integracao_autorizacao_trava` (as senhas erradas, fora do
 `colaborador`, que sincroniza com a loja).
+
+## 10. O aplicativo de parceiro (F4, parte F; PR R1a — nasce desligado)
+
+Um **parceiro** é o aplicativo de outra empresa que a DMS aprovou no portal de parceiros (F4, partes B e C). Esta parte
+abre a **porta** para ele; a autorização por clique que cria a ligação dele (com as 3 lojas da etapa de teste, a tela
+com a empresa conferida, o "Revogar todos" e o aviso dos 90 dias) é a R1b, e os avisos de parceiro, a R2. Sem
+migration; só nuvem.
+
+**Quando ele entra:** só com `PARCEIROS_LIGADOS=true`, o hub ligado (`HUB_LIGADO`) e a via do DMS ID ligada. O cliente do
+hub passa a ler também a lista de aplicativos aprovados (`GET /api/v1/aplicativos` do hub, com um token à parte, de
+permissão `aplicativos.ler`): ao iniciar e quando a batida mostra versão nova. Nenhum parceiro vale antes de a lista de
+parada ser lida uma vez pelo processo (senão um parceiro parado entraria enquanto o hub está instável). O client_id que
+está em `DMS_ID_APLICATIVOS` é sempre da DMS, mesmo se aparecer na lista do hub. Da lista ficam de fora (com o motivo
+no log): o client_id repetido, o nome de produto da DMS e o aplicativo sem nenhuma permissão necessária dentro do teto
+e da etapa. Desligado, fora da lista ou com a ligação de outro cliente, a resposta é a mesma 401 `ligacao-invalida` de
+sempre.
+
+**Quem ele é no Regem:** o `cliente` das tabelas é `parceiro_` + 24 dígitos hex do SHA-256 do client_id (não leva o
+client_id, que é da distribuição). No hub, ele é registrado e parado pelo **client_id** (a parada de nível
+`aplicativo` e a suspensão automática da F4-7). O acesso dele só vale pela ligação: o `rgm_it_` de um acesso de
+parceiro é recusado (401), também nas rotas do totem.
+
+**O que ele pode:** as permissões da ligação E do token do DMS ID E as do teto da classe (`ESCOPOS_DO_PARCEIRO`) que o
+hub aprovou; as sensíveis (o telefone no pedido e o custo) só na etapa de produção com dado pessoal aprovado — na de
+teste, nunca. A lista do hub nunca passa do teto do código.
+
+**O que muda na resposta:** em `GET /integracao/pedidos`, o parceiro recebe só as vendas **confirmadas depois que o
+acesso nasceu** (decisão do dono, 24/10/2026) e **`origem: null`**: a origem do anúncio foi capturada com o aviso do
+cardápio que nomeia o Liame (F4-13). Em `GET /integracao/clientes/anonimizados`, a mesma janela: só os pedidos de
+esquecer feitos depois (dos de antes, ele nunca leu o cliente). `GET /integracao/producao` é a fila viva da cozinha (até
+24 horas), não histórico: fica como é. A captura da origem passa a depender só do token do Liame (hoje já era assim, na
+prática). `PUT /integracao/webhook` do parceiro responde 422 até a R2.
+
+**Limite e suspensão:** além dos 60 por minuto por ligação, o parceiro tem 300 por minuto **por empresa** (todas as lojas
+dele nela), contados na mesma ida ao banco (chave `emp:<cliente>:<empresa>` na `integracao_limite`). Só conta a chamada
+que passou no limite da própria ligação, de parceiro aprovado e de ligação não suspensa: uma loja em laço não esgota a
+cota das outras. A ligação de parceiro sem uso há 90 dias (a régua `situacaoChave` do pacote) responde 403
+`ligacao-suspensa` — depois das recusas 401, para quem não tem a ligação não saber que ela existe; volta com um clique novo
+da loja. O relógio dos 90 dias corre também enquanto o Regem recusa o parceiro (parado pelo hub, ou com a chave
+desligada): 90 dias sem uso suspendem do mesmo jeito.
+
+**Testes:** `parceiros.regras.spec.ts` (as regras puras) e `integracao-parceiro.http.spec.ts` (Postgres e HTTP, com o DMS
+ID e o hub de mentira; as ligações de parceiro preparadas no banco), que roda também o kit no modo do DMS ID com as
+credenciais de parceiro: a classe, a ligação suspensa e a parada passam.
+
+**Para ligar (distribuição):** no hub, o papel do Regem com `aplicativos.ler` (feito em 24/10/2026); no EasyPanel do
+`regem-api`, `PARCEIROS_LIGADOS=true` e reiniciar. Ligar antes da R1b não cria parceiro nenhum: sem o clique de parceiro,
+não há ligação de parceiro.

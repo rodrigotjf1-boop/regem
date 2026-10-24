@@ -51,10 +51,11 @@ export function tokenIntegracaoJaValidado(token: string | undefined | null): boo
 }
 
 /**
- * Conta uma chamada do token. `ok: false` = passou do limite na janela de 1 minuto;
- * `retryAfterSeg` = quanto falta para a janela virar (vai no cabeçalho `Retry-After`).
+ * Conta uma chamada do token (ou de outra chave de contagem, como a da empresa de um aplicativo de parceiro, com o teto
+ * dela). `ok: false` = passou do limite na janela de 1 minuto; `retryAfterSeg` = quanto falta para a janela virar (vai
+ * no cabeçalho `Retry-After`).
  */
-export function contarChamadaIntegracao(tokenId: string): { ok: boolean; retryAfterSeg: number } {
+export function contarChamadaIntegracao(tokenId: string, maximo: number = LIMITE_INTEGRACAO_POR_MINUTO): { ok: boolean; retryAfterSeg: number } {
   const agora = Date.now();
   const c = contagem.get(tokenId);
   if (!c || agora - c.inicio >= JANELA_MS) {
@@ -64,7 +65,7 @@ export function contarChamadaIntegracao(tokenId: string): { ok: boolean; retryAf
   }
   c.n++;
   return {
-    ok: c.n <= LIMITE_INTEGRACAO_POR_MINUTO,
+    ok: c.n <= maximo,
     retryAfterSeg: Math.max(1, Math.ceil((c.inicio + JANELA_MS - agora) / 1000)),
   };
 }

@@ -34,6 +34,9 @@ export const VERSOES_DO_PACOTE: Readonly<Record<string, string>> = {
   '0.6.0': 'a094abeee454939a08905cab7ed677793a5afa4037498d6fb2c47c8aa8d257ce',
   '0.7.0': '72d5155371de8f794edae159eff255921c216c70002e5c4eb7b4d2fd60838b8f',
   '0.7.1': 'aeadfd341bbd8bb255b88f5db0deff0a9630b2516bdeeb1d7eb52aaaa2532032',
+  '0.7.2': 'b4ca278d635caae2fb6a9e225467393a2fda4967a5ca7fccdafd28fb10301f22',
+  '0.8.0': '5794e1875c316861d73995682b3e0e5a29b0ccfb837a8f96f99ef2ded23758ad',
+  '0.9.0': '1bee8b1b294ec3b221486f6ca0cb4a33607c6577d4a9b2bcf56be59e8c98ce97',
 };
 
 type Pacote = typeof import('../pacote/integracao-dms.ts');
@@ -888,7 +891,8 @@ export async function rodarKitAvisos(config: ConfigKitAvisos, valores: ValoresAv
   });
 
   async function enviar(onde: string, cab: Record<string, string>, texto = corpo): Promise<Resposta> {
-    const r = await chamar(destino, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json', ...cab }, body: texto });
+    // como quem manda aviso de verdade (Padrão §9): sem seguir redirecionamento; o 3xx é a resposta do destino
+    const r = await chamar(destino, { method: 'POST', redirect: 'manual', headers: { accept: 'application/json', 'content-type': 'application/json', ...cab }, body: texto });
     if (r.status >= 400) errosVistos.push({ onde, r });
     return r;
   }
