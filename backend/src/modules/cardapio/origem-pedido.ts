@@ -83,7 +83,9 @@ export function limparOrigem(bruto: unknown, agora: Date = new Date()): OrigemPe
 /**
  * O token que faz esta loja medir anúncios (o mais antigo, se houver mais de um): ativo, com
  * `pedidos.ler`, da loja do cardápio — ou de uma empresa de loja única, cuja leitura pega a
- * empresa toda (inclusive o cardápio da rede, sem loja).
+ * empresa toda (inclusive o cardápio da rede, sem loja). Só o do Liame (Hub DMS, decisão F4-13,
+ * 24/10/2026): o aviso do cardápio nomeia "o Liame, da DMS"; um aplicativo de parceiro com
+ * `pedidos.ler` não liga a captura (e não recebe a origem).
  */
 function sqlTokenQueMede(tenantId: string, unidadeId: string | null): SQL {
   return sql`
@@ -91,6 +93,7 @@ function sqlTokenQueMede(tenantId: string, unidadeId: string | null): SQL {
       from integracao_token_loja t
       join unidade u on u.id = t.unidade_id and u.tenant_id = t.tenant_id and u.deleted_at is null
      where t.tenant_id = ${tenantId}::uuid
+       and t.cliente = 'liame'
        and t.revogado_em is null
        and (t.expira_em is null or t.expira_em > now())
        and 'pedidos.ler' = any(t.escopos)

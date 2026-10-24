@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "description": "A API que os aplicativos ligados à loja chamam: as vendas, os clientes, os cupons, o catálogo, as fichas e a fila de produção, com o que a loja autorizou. Credencial: o token do DMS ID com o segredo da ligação (DMS-Ligacao).",
     "x-dms-produto": "regem",
-    "x-dms-pacote": "0.7.1"
+    "x-dms-pacote": "0.9.0"
   },
   "servers": [
     {
@@ -920,10 +920,16 @@
       "sensivel": false
     }
   },
-  "x-dms-limite": {
-    "porMinuto": 60,
-    "por": "ligacao"
-  },
+  "x-dms-limite": [
+    {
+      "porMinuto": 60,
+      "por": "ligacao"
+    },
+    {
+      "porMinuto": 300,
+      "por": "empresa"
+    }
+  ],
   "x-dms-ferramentas": [],
   "x-dms-avisos": [
     {

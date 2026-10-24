@@ -100,15 +100,24 @@ export type LigacaoGuardada = {
 /**
  * Por que a ligação não vale para este token, ou nulo (vale). O motivo vai só para o log local: a resposta é a mesma
  * para todos (`LIGACAO_INVALIDA`).
+ *
+ * `parceiro` (F4, parte F): o aplicativo do token é um parceiro aprovado (quem chama já decidiu que ele NÃO é da DMS, que
+ * a chave está ligada e que o hub o aprovou) e este é o `cliente` dele no Regem. A ligação vale só se for dele; sem
+ * `parceiro`, vale a lista da distribuição (`podeTrocar`), que segue só para os produtos da DMS.
  */
 export function motivoDaRecusaDaLigacao(
   l: LigacaoGuardada | undefined | null,
   aplicativoDoToken: string,
   aplicativos: Readonly<Record<string, string>>,
+  parceiro: { cliente: string } | null = null,
 ): string | null {
   if (!l) return 'ligação desconhecida';
   if (l.aplicativo !== aplicativoDoToken) return 'ligação de outro aplicativo';
-  if (!podeTrocar(l.cliente, aplicativoDoToken, aplicativos)) return `aplicativo fora da lista da distribuição para o cliente ${l.cliente}`;
+  if (parceiro) {
+    if (l.cliente !== parceiro.cliente) return `ligação do aplicativo de parceiro com outro cliente (${l.cliente})`;
+  } else if (!podeTrocar(l.cliente, aplicativoDoToken, aplicativos)) {
+    return `aplicativo fora da lista da distribuição para o cliente ${l.cliente}`;
+  }
   if (l.revogada) return 'ligação revogada';
   if (l.motivoDoToken) return `token da ligação ${l.motivoDoToken}`;
   return null;

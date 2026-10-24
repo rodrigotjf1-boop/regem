@@ -10,6 +10,7 @@ import { IntegracaoTokenService } from './integracao-token.service';
 import { ProblemaException } from './problema';
 import { FotoVenda, sqlIso } from './venda-integracao';
 import { bairroOuNulo, MARKETPLACES_REGEMCAST } from './contato-integracao';
+import { ehClienteDeParceiro } from './parceiros.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -55,6 +56,17 @@ export class VendasIntegracaoService {
     return r?.rows ?? r ?? [];
   }
 
+  /**
+   * A janela de leitura do aplicativo de PARCEIRO (F4, parte F; decisão do dono, 24/10/2026: nada de antes da
+   * autorização): o instante em que o acesso nasceu. Nulo para os produtos da DMS (sem janela). O acesso de parceiro
+   * sem ela não lê nada (o guard sempre a põe; faltar é defeito, não "sem janela").
+   */
+  private janelaDoParceiro(ctx: IntegracaoCtxData): string | null {
+    if (!ehClienteDeParceiro(ctx.cliente)) return null;
+    if (!ctx.lerVendasDesde) throw new Error('acesso de parceiro sem o início da janela de leitura');
+    return ctx.lerVendasDesde;
+  }
+
   // ───────────────────────────── GET /integracao/pedidos ─────────────────────────────
 
   async pedidos(ctx: IntegracaoCtxData, q: Consulta) {
@@ -81,6 +93,11 @@ export class VendasIntegracaoService {
     const empresa = !ctx.unidadeId;
     const extras = ctx.cliente === 'regemcast';
     const com99 = ctx.escopos.includes('vendas.99food.ler');
+    // O aplicativo de PARCEIRO (F4, parte F): a origem do anúncio foi capturada com o aviso do cardápio que nomeia o
+    // Liame (F4-13) e não vai para ele; e ele lê só as vendas confirmadas depois que o acesso nasceu (decisão do dono,
+    // 24/10/2026: nada de antes da autorização).
+    const parceiro = ehClienteDeParceiro(ctx.cliente);
+    const lerDesde = this.janelaDoParceiro(ctx);
 
     const linhas = this.rows(
       await this.db.execute(sql`
@@ -98,7 +115,7 @@ export class VendasIntegracaoService {
                    : sql``
                }
                ${comTelefone ? sql`cl.telefone` : sql`null::text`} as telefone,
-               case when po.pedido_id is not null then jsonb_build_object(
+               case when ${parceiro ? sql`false` : sql`po.pedido_id is not null`} then jsonb_build_object(
                  'capturado_em', ${sqlIso(sql`po.capturado_em`)},
                  'lk', po.lk, 'utm_source', po.utm_source, 'utm_medium', po.utm_medium,
                  'utm_campaign', po.utm_campaign, 'utm_content', po.utm_content, 'utm_term', po.utm_term,
@@ -125,6 +142,7 @@ export class VendasIntegracaoService {
            and v.atualizado_em is not null
            and v.atualizado_em <= now() - make_interval(secs => ${this.atrasoSeg})
            ${ctx.lojaUnica || empresa ? sql`` : sql`and v.unidade_id = ${ctx.unidadeId}::uuid`}
+           ${lerDesde ? sql`and v.confirmado_em >= ${lerDesde}::timestamptz` : sql``}
            ${
              cur.posicao
                ? sql`and (v.atualizado_em, v.recurso_id) > (${cur.posicao.t}::timestamptz, ${cur.posicao.i}::uuid)`
@@ -248,6 +266,9 @@ export class VendasIntegracaoService {
     const vinculo = vinculoCursor(ctx.tenantId, ctx.unidadeId);
     const temCursor = q.cursor !== undefined && q.cursor !== '';
     const cur = temCursor ? lerCursor(q.cursor, 'cliente', vinculo) : { posicao: null, desde: null };
+    // O aplicativo de parceiro: só os pedidos de esquecer feitos depois que o acesso nasceu (os de antes são de clientes
+    // cujos dados ele nunca leu — a mesma janela das vendas).
+    const lerDesde = this.janelaDoParceiro(ctx);
     // O cliente é da EMPRESA (não da loja): o aviso vale para todas as lojas dela. Só o id sai.
     const linhas = this.rows(
       await this.db.execute(sql`
@@ -257,6 +278,7 @@ export class VendasIntegracaoService {
          where v.tenant_id = ${ctx.tenantId}::uuid and v.recurso = 'cliente'
            and v.atualizado_em is not null
            and v.atualizado_em <= now() - make_interval(secs => ${this.atrasoSeg})
+           ${lerDesde ? sql`and coalesce(v.removido_em, v.atualizado_em) >= ${lerDesde}::timestamptz` : sql``}
            ${
              cur.posicao
                ? sql`and (v.atualizado_em, v.recurso_id) > (${cur.posicao.t}::timestamptz, ${cur.posicao.i}::uuid)`

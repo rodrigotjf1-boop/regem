@@ -137,6 +137,11 @@ Mudanças que entraram na 1.30.9:
 - **O manifesto publica o teto da classe parceiro (#731, 24/10; Hub DMS, F4 parte F):** oito permissões ganham a classe
   `parceiro` no `/.well-known/dms-manifesto` (`ESCOPOS_DO_PARCEIRO`); só metadado, o guard não muda. Só nuvem: vai no
   `.zip` do corte sem efeito na loja; não pede `.exe`.
+- **A porta de integração aceita o aplicativo de parceiro (R1a, 24/10; Hub DMS, F4 parte F; nasce desligada,
+  `PARCEIROS_LIGADOS`):** o guard da API de integração, a lista de aprovados do hub, o teto por empresa, a suspensão aos 90
+  dias, a janela das vendas e a cópia do pacote e do kit 0.9.0. Só nuvem (a API de integração não sobe no servidor da
+  loja; a captura da origem no cardápio só ganhou `cliente = 'liame'`, que já era o único caso): vai no `.zip` do corte
+  sem efeito na loja; não pede `.exe`.
 - **🔴 Node do instalador com a correção do boletim do Node de 21/10/2026 (Brotli, CVE-2026-111497, alta, execução
   remota; e o nome do certificado quando o destino é IP, CVE-2026-106069/105483/106072 — o caso da estação e do PC
   cliente falando com o servidor por IP com `regem.local`; e as autoridades da eMudhra):** o servidor da loja e todo PC

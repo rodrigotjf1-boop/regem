@@ -73,9 +73,8 @@ export const ROTULO_ESCOPO: Record<EscopoIntegracao, string> = {
  * parceiros): o que um aplicativo de PARCEIRO aprovado pela DMS pode chegar a ter no Regem. Só leitura (na F4 o parceiro
  * só lê); o dado pessoal (o telefone no pedido, o custo) é sensível e só vale na produção, com revisão à parte (F4-6).
  * Ficam só para os produtos da DMS: criar cupom (nasce valendo: é dinheiro, D6), o totem (lança venda), a lista de
- * clientes e as vendas da 99 (autorização própria do dono) e os usos de cupom. Hoje só o manifesto publica este teto; o
- * guard passa a conferi-lo quando a parte F aceitar aplicativo de parceiro (até lá, nenhum parceiro entra: a credencial
- * do DMS ID só vale para os aplicativos de `DMS_ID_APLICATIVOS`).
+ * clientes e as vendas da 99 (autorização própria do dono) e os usos de cupom. O manifesto publica este teto e o guard o
+ * aplica ao aplicativo de parceiro aceito (`permissoesDoParceiro`, com a chave `PARCEIROS_LIGADOS`).
  */
 export const ESCOPOS_DO_PARCEIRO: readonly EscopoIntegracao[] = [
   'pedidos.ler',
@@ -87,6 +86,13 @@ export const ESCOPOS_DO_PARCEIRO: readonly EscopoIntegracao[] = [
   'clientes.telefone.ler',
   'custos.ler',
 ];
+
+/**
+ * As permissões SENSÍVEIS (dado pessoal ou financeiro): o telefone no pedido, a lista de clientes, a 99Food e o custo. O
+ * manifesto as publica como sensíveis, e o aplicativo de parceiro só as recebe na produção com dado pessoal aprovado
+ * (F4-6; `permissoesDoParceiro`). Uma lista só para os dois.
+ */
+export const ESCOPOS_SENSIVEIS: readonly EscopoIntegracao[] = ['clientes.telefone.ler', 'clientes.ler', 'vendas.99food.ler', 'custos.ler'];
 
 /**
  * Clientes de integração conhecidos (o console emite só para eles). `abrangencia`: `loja` = o

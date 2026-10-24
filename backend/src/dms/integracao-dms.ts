@@ -10,7 +10,7 @@
 import { createHash, createHmac, createPublicKey, randomBytes, randomUUID, timingSafeEqual, verify as conferirAssinatura, type JsonWebKey, type KeyObject } from 'node:crypto';
 import { isIP } from 'node:net';
 
-export const VERSAO_PACOTE = '0.7.1';
+export const VERSAO_PACOTE = '0.9.0';
 
 const DIA_MS = 86_400_000;
 
@@ -503,10 +503,11 @@ export function conferirAviso(
 /**
  * O destino de um aviso está dentro da lista aprovada do aplicativo? Só HTTPS, na porta padrão, sem usuário e senha,
  * sem pergunta (`?`) nem fragmento, mesma origem de uma base da lista e o caminho = o caminho da base + UM trecho
- * (o id da ligação no aplicativo). Comparado com `new URL()`, nunca pelo começo do texto (LIC-119).
+ * (o id da ligação no aplicativo), de até 64 caracteres, e o endereço inteiro até 500 (os tetos do Regem, que guarda o
+ * endereço numa coluna de 500; 0.9.0). Comparado com `new URL()`, nunca pelo começo do texto (LIC-119).
  */
 export function destinoAvisoPermitido(endereco: unknown, bases: readonly string[]): boolean {
-  if (typeof endereco !== 'string' || endereco.length > 2048) return false;
+  if (typeof endereco !== 'string' || endereco.length > TETO_DO_ENDERECO_DE_AVISO) return false;
   let u: URL;
   try {
     u = new URL(endereco);
@@ -525,9 +526,36 @@ export function destinoAvisoPermitido(endereco: unknown, bases: readonly string[
     const caminhoBase = b.pathname.endsWith('/') ? b.pathname : b.pathname + '/';
     if (!u.pathname.startsWith(caminhoBase)) continue;
     const resto = u.pathname.slice(caminhoBase.length);
-    if (/^[A-Za-z0-9_-]{1,128}$/.test(resto)) return true;
+    if (/^[A-Za-z0-9_-]{1,64}$/.test(resto)) return true;
   }
   return false;
+}
+
+/** O endereço inteiro do aviso, no máximo (o do Regem). */
+export const TETO_DO_ENDERECO_DE_AVISO = 500;
+
+/**
+ * A base de aviso que se aprova para um aplicativo de parceiro (F4-11, 24/10/2026): https na porta padrão, um nome (não
+ * um IP), sem usuário e senha, sem pergunta nem fragmento, com o caminho terminado em barra (o aviso vai para a base +
+ * UM trecho), até 300 caracteres. Nulo = serve. `producao`: recusa também `localhost`.
+ */
+export function problemaDaBaseDeAviso(base: unknown, o: { producao: boolean }): string | null {
+  if (typeof base !== 'string' || !base.length || base.length > 300) return 'precisa ser um endereço de até 300 caracteres';
+  let u: URL;
+  try {
+    u = new URL(base);
+  } catch {
+    return 'não é um endereço';
+  }
+  if (u.protocol !== 'https:') return 'precisa ser https';
+  if (u.port !== '') return 'precisa usar a porta padrão do https (443)';
+  if (u.username || u.password) return 'não pode ter usuário e senha';
+  if (u.search || u.hash) return 'não pode ter ? nem #';
+  const host = u.hostname.replace(/^\[|\]$/g, '');
+  if (isIP(host)) return 'precisa ser um nome, não um IP';
+  if (o.producao && (host === 'localhost' || host.endsWith('.localhost'))) return 'não pode ser localhost';
+  if (!u.pathname.endsWith('/')) return 'o caminho termina em barra (o aviso vai para a base + o id da ligação)';
+  return null;
 }
 
 function ipv4ParaNumero(ip: string): number {
@@ -1243,6 +1271,89 @@ export function problemaDaParada(): ErroProblema {
   return new ErroProblema('integracao-parada', 'Esta integração está parada pela DMS no momento. Tente de novo mais tarde.', { retryAfterSeg: 60 });
 }
 
+// A lista de aplicativos de PARCEIRO aprovados pela DMS (F4, parte B; decisões F4-2, F4-5 e F4-6). Só acrescenta
+// parceiro: os produtos DMS seguem na lista do código de cada produto, que vence (um client_id que o código conhece é
+// `dms`, mesmo se aparecer aqui). A lista diz o que a DMS aprovou; o teto da classe `parceiro` continua no código do
+// produto (`permissoesEfetivas`, Padrão §1), e quem para um aplicativo é a lista de parada (nível `aplicativo`, alvo =
+// o client_id), não a saída desta lista.
+
+/** A permissão do recurso do hub para ler a lista de aprovados. Vai num token À PARTE: o registro, a parada e a batida não dependem dela. */
+export const PERMISSAO_APLICATIVOS_HUB = 'aplicativos.ler';
+
+/** A etapa do aplicativo de parceiro (F4-6): teste com até 3 lojas, só leitura e sem dado pessoal; depois, produção. */
+export type EtapaDoParceiro = 'teste' | 'producao';
+
+export type AplicativoAprovado = {
+  /** O client_id do aplicativo de produção no DMS ID (o `client_id` do token), criado pelo console na aprovação (F4-5). */
+  aplicativo: string;
+  nome: string;
+  /** O que o dono da loja lê na tela do clique (Padrão §3). */
+  para_que_serve: string;
+  /** A empresa conferida pela DMS: o selo "verificado pela DMS" é a própria aprovação. */
+  empresa: { razao_social: string; cnpj: string };
+  etapa: EtapaDoParceiro;
+  /**
+   * Só as permissões APROVADAS, com o motivo que o parceiro declarou (o dono da loja lê) e se ela é NECESSÁRIA para o
+   * aplicativo funcionar; as opcionais aparecem desligadas na tela do clique (F4-14, 0.9.0).
+   */
+  permissoes: Array<{ nome: string; motivo: string; necessaria: boolean }>;
+  /** Os endereços de volta da autorização por clique (https). */
+  enderecos_de_volta: string[];
+  /**
+   * As BASES de onde o aplicativo pode receber avisos (Padrão §9; F4-11, 0.9.0): https, caminho terminado em barra; o
+   * endereço do aviso é a base + UM trecho (o id da ligação no aplicativo), pela regra de `destinoAvisoPermitido`.
+   */
+  bases_dos_avisos: string[];
+  /** Na etapa de teste, 3 lojas por APLICATIVO, somando todas as empresas (F4-12); na produção, nulo (sem teto do hub). */
+  lojas_max: number | null;
+  so_leitura: boolean;
+  dado_pessoal: boolean;
+  aprovado_em: string;
+};
+export type ListaDeAprovados = { versao: number; itens: AplicativoAprovado[] };
+
+const ehListaDeTextos = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
+
+/** A lista veio no formato do hub (o produto não usa uma lista torta: fica com a anterior). */
+export function listaDeAprovadosValida(v: unknown): v is ListaDeAprovados {
+  if (!v || typeof v !== 'object') return false;
+  const l = v as { versao?: unknown; itens?: unknown };
+  if (typeof l.versao !== 'number' || !Number.isInteger(l.versao) || !Array.isArray(l.itens)) return false;
+  return l.itens.every((i: unknown) => {
+    const a = i as Record<string, unknown> | null;
+    if (!a || typeof a !== 'object') return false;
+    const empresa = a.empresa as { razao_social?: unknown; cnpj?: unknown } | null;
+    const permissoes = a.permissoes;
+    return (
+      typeof a.aplicativo === 'string' &&
+      a.aplicativo.length > 0 &&
+      typeof a.nome === 'string' &&
+      typeof a.para_que_serve === 'string' &&
+      !!empresa &&
+      typeof empresa.razao_social === 'string' &&
+      typeof empresa.cnpj === 'string' &&
+      (a.etapa === 'teste' || a.etapa === 'producao') &&
+      Array.isArray(permissoes) &&
+      permissoes.every((p: unknown) => {
+        const x = p as { nome?: unknown; motivo?: unknown; necessaria?: unknown } | null;
+        return !!x && typeof x.nome === 'string' && typeof x.motivo === 'string' && typeof x.necessaria === 'boolean';
+      }) &&
+      ehListaDeTextos(a.enderecos_de_volta) &&
+      ehListaDeTextos(a.bases_dos_avisos) &&
+      (a.lojas_max === null || (typeof a.lojas_max === 'number' && Number.isInteger(a.lojas_max) && a.lojas_max > 0)) &&
+      typeof a.so_leitura === 'boolean' &&
+      typeof a.dado_pessoal === 'boolean' &&
+      typeof a.aprovado_em === 'string'
+    );
+  });
+}
+
+/** O aplicativo de parceiro aprovado para este client_id, ou nulo (desconhecido para o hub: o produto recusa parceiro). */
+export function aprovadoQueVale(lista: ListaDeAprovados | null, aplicativo: string | null | undefined): AplicativoAprovado | null {
+  if (!lista || !aplicativo) return null;
+  return lista.itens.find((i) => i.aplicativo === aplicativo) ?? null;
+}
+
 /**
  * O que sai da mensagem de erro antes de ir ao hub (Padrão §11): segredo e token, e-mail, endereço com parâmetros,
  * identificador, documento, telefone e número longo. Toda expressão é linear (sem repetição aninhada) e o texto é
@@ -1304,6 +1415,12 @@ export type OpcoesClienteHub = {
   aoMudarLista?: (lista: ListaDeParada) => void;
   /** Cada falha de envio ou de leitura, com o motivo (sem dado). */
   aoFalhar?: (motivo: string) => void;
+  /**
+   * Ler a lista de aplicativos de parceiro aprovados (0.8.0; F4, parte B). Só com esta opção o cliente pede o token com
+   * `aplicativos.ler` (um token à parte) e lê a lista: ao iniciar e quando a batida mostra versão mais nova. `inicial`
+   * é a cópia que o produto guardou (vale até o hub responder); `aoMudar`, para ele guardar a nova.
+   */
+  aprovados?: { inicial?: ListaDeAprovados | null; aoMudar?: (lista: ListaDeAprovados) => void };
   buscar?: typeof fetch;
   relogio?: () => number;
   tempoLimiteMs?: number;
@@ -1323,6 +1440,8 @@ export const PAUSA_AVISOS_SEM_ROTA_MS = 30 * 60_000;
  * novo. As mudanças ficam na fila (são eventos de segurança), até o teto dela.
  */
 export const PAUSA_ACOES_SEM_ROTA_MS = 30 * 60_000;
+/** O hub que ainda não tem a rota da lista de aprovados (404, antes da 0.8.0): o cliente espera este tempo e lê de novo. */
+export const PAUSA_APROVADOS_SEM_ROTA_MS = 30 * 60_000;
 
 const motivoDe = (erro: unknown) => (erro instanceof ErroDmsId ? erro.message : erro instanceof Error ? `${erro.name}: ${erro.message}`.slice(0, 200) : String(erro).slice(0, 200));
 
@@ -1352,6 +1471,11 @@ export class ClienteHub {
   private readonly aceitaIntegracoes: (() => boolean) | undefined;
   private readonly aoMudarLista: ((lista: ListaDeParada) => void) | undefined;
   private readonly aoFalhar: ((motivo: string) => void) | undefined;
+  private readonly lerAprovadosLigado: boolean;
+  private readonly aoMudarAprovados: ((lista: ListaDeAprovados) => void) | undefined;
+  private aprovadosLista: ListaDeAprovados | null;
+  private aprovadosLidaEm: number | null = null;
+  private aprovadosParadosAte = 0;
   private readonly buscar: typeof fetch;
   private readonly relogio: () => number;
   private readonly tempoLimiteMs: number;
@@ -1388,6 +1512,9 @@ export class ClienteHub {
     this.teto = o.tetoDaFila ?? 5_000;
     this.intervalos = { paradaMs: o.intervalos?.paradaMs ?? 15_000, envioMs: o.intervalos?.envioMs ?? 5_000, batidaMs: o.intervalos?.batidaMs ?? 60_000 };
     this.lista = o.listaInicial ?? null;
+    this.lerAprovadosLigado = !!o.aprovados;
+    this.aoMudarAprovados = o.aprovados?.aoMudar;
+    this.aprovadosLista = o.aprovados?.inicial ?? null;
   }
 
   /** Anota uma chamada para o registro central. */
@@ -1479,7 +1606,23 @@ export class ClienteHub {
     return paradaQueVale(this.lista, this.produto, c);
   }
 
-  get estado(): { fila: number; avisos: number; acoes: number; erros: number; descartadas: number; paradaVersao: number | null; paradaLidaEm: number | null; ultimaFalha: string | null } {
+  /** O aplicativo de parceiro aprovado para este client_id, pela última lista recebida (só com a opção `aprovados`). */
+  aprovado(aplicativo: string | null | undefined): AplicativoAprovado | null {
+    return aprovadoQueVale(this.aprovadosLista, aplicativo);
+  }
+
+  get estado(): {
+    fila: number;
+    avisos: number;
+    acoes: number;
+    erros: number;
+    descartadas: number;
+    paradaVersao: number | null;
+    paradaLidaEm: number | null;
+    aprovadosVersao: number | null;
+    aprovadosLidaEm: number | null;
+    ultimaFalha: string | null;
+  } {
     return {
       fila: this.chamadas.length,
       avisos: this.avisos.length,
@@ -1488,6 +1631,8 @@ export class ClienteHub {
       descartadas: this.descartadas,
       paradaVersao: this.lista ? this.lista.versao : null,
       paradaLidaEm: this.listaLidaEm,
+      aprovadosVersao: this.aprovadosLista ? this.aprovadosLista.versao : null,
+      aprovadosLidaEm: this.aprovadosLidaEm,
       ultimaFalha: this.ultimaFalha,
     };
   }
@@ -1497,11 +1642,14 @@ export class ClienteHub {
     if (this.aoFalhar) this.aoFalhar(motivo);
   }
 
-  /** Um pedido ao hub com o token do DMS ID; o 401 joga o token fora e tenta uma vez de novo. */
-  private async pedir(metodo: string, caminho: string, corpo?: unknown, cabecalhos: Record<string, string> = {}): Promise<Response> {
+  /**
+   * Um pedido ao hub com o token do DMS ID; o 401 joga o token fora e tenta uma vez de novo. A lista de aprovados vai com
+   * outro conjunto de permissões (outro token, guardado à parte pelo cliente do DMS ID).
+   */
+  private async pedir(metodo: string, caminho: string, corpo?: unknown, cabecalhos: Record<string, string> = {}, permissoes: readonly string[] = PERMISSOES_HUB): Promise<Response> {
     let ultima: Response | null = null;
     for (let tentativa = 0; tentativa < 2; tentativa++) {
-      const token = await this.dmsId.token(this.recurso, PERMISSOES_HUB);
+      const token = await this.dmsId.token(this.recurso, permissoes);
       ultima = await this.buscar(`${this.url}${caminho}`, {
         method: metodo,
         headers: { authorization: `Bearer ${token}`, ...(corpo === undefined ? {} : { 'content-type': 'application/json' }), ...cabecalhos },
@@ -1510,7 +1658,7 @@ export class ClienteHub {
       });
       if (ultima.status !== 401 || tentativa === 1) return ultima;
       await ultima.arrayBuffer().catch(() => null);
-      this.dmsId.esquecer(this.recurso, PERMISSOES_HUB);
+      this.dmsId.esquecer(this.recurso, permissoes);
     }
     return ultima as Response;
   }
@@ -1644,6 +1792,44 @@ export class ClienteHub {
     return this.lista;
   }
 
+  /**
+   * Lê a lista de aplicativos de parceiro aprovados (0.8.0; só com a opção `aprovados`), com ETag. Falhou, recusou (403:
+   * a permissão `aplicativos.ler` ainda não está no papel do produto) ou veio torta: fica a última, nunca uma vazia. O
+   * hub de antes (404) faz esperar `PAUSA_APROVADOS_SEM_ROTA_MS`.
+   */
+  async lerAprovados(): Promise<ListaDeAprovados | null> {
+    if (!this.lerAprovadosLigado || this.relogio() < this.aprovadosParadosAte) return this.aprovadosLista;
+    let r: Response;
+    try {
+      const cabecalhos: Record<string, string> = this.aprovadosLista ? { 'if-none-match': `"v${this.aprovadosLista.versao}"` } : {};
+      r = await this.pedir('GET', '/api/v1/aplicativos', undefined, cabecalhos, [PERMISSAO_APLICATIVOS_HUB]);
+    } catch (erro) {
+      this.falhou(`sem resposta do hub na lista de aprovados (${motivoDe(erro)})`);
+      return this.aprovadosLista;
+    }
+    if (r.status === 304) {
+      await r.arrayBuffer().catch(() => null);
+      this.aprovadosLidaEm = this.relogio();
+      return this.aprovadosLista;
+    }
+    if (!r.ok) {
+      await r.arrayBuffer().catch(() => null);
+      if (r.status === 404) this.aprovadosParadosAte = this.relogio() + PAUSA_APROVADOS_SEM_ROTA_MS;
+      this.falhou(`o hub respondeu ${r.status} na lista de aprovados`);
+      return this.aprovadosLista;
+    }
+    const j: unknown = await r.json().catch(() => null);
+    if (!listaDeAprovadosValida(j)) {
+      this.falhou('a lista de aprovados veio fora do formato');
+      return this.aprovadosLista;
+    }
+    const mudou = !this.aprovadosLista || this.aprovadosLista.versao !== j.versao;
+    this.aprovadosLista = j;
+    this.aprovadosLidaEm = this.relogio();
+    if (mudou && this.aoMudarAprovados) this.aoMudarAprovados(j);
+    return this.aprovadosLista;
+  }
+
   /** A batida: a versão, desde quando, a chave própria e a lista lida. A lista mais nova no hub faz ler na hora. */
   async bater(): Promise<boolean> {
     const corpo: Record<string, unknown> = { versao: this.versao.slice(0, 80), iniciado_em: this.iniciadoEm.toISOString() };
@@ -1661,8 +1847,12 @@ export class ClienteHub {
       this.falhou(`o hub respondeu ${r.status} na batida`);
       return false;
     }
-    const j = (await r.json().catch(() => null)) as { parada_versao?: unknown } | null;
+    const j = (await r.json().catch(() => null)) as { parada_versao?: unknown; aplicativos_versao?: unknown } | null;
     if (j && typeof j.parada_versao === 'number' && (!this.lista || j.parada_versao > this.lista.versao)) await this.lerParada();
+    // a lista de aprovados também vem pela batida (o hub de antes não manda o campo: nada muda)
+    if (this.lerAprovadosLigado && j && typeof j.aplicativos_versao === 'number' && (!this.aprovadosLista || j.aplicativos_versao > this.aprovadosLista.versao)) {
+      await this.lerAprovados();
+    }
     return true;
   }
 
@@ -1680,6 +1870,7 @@ export class ClienteHub {
     cada(this.intervalos.envioMs, () => this.enviar());
     cada(this.intervalos.batidaMs, () => this.bater());
     this.bater().catch((erro: unknown) => this.falhou(motivoDe(erro)));
+    if (this.lerAprovadosLigado) this.lerAprovados().catch((erro: unknown) => this.falhou(motivoDe(erro)));
   }
 
   /** Desliga os relógios e manda o que falta (uma vez). */
@@ -1711,7 +1902,11 @@ export type PermissaoNoManifesto = {
   /** Dado pessoal ou dinheiro: vai num bloco próprio da tela, desligado (Padrão §4). */
   sensivel: boolean;
 };
-export type LimiteNoManifesto = { porMinuto: number; por: 'ligacao' | 'chave' | 'empresa' };
+/**
+ * Um limite de chamadas (Padrão §5): por minuto OU por hora (0.7.2; um só), por ligação, chave ou empresa. Onde cabe um
+ * limite, cabe uma lista (o mesmo caminho limitado por chave e por empresa, como no Farol).
+ */
+export type LimiteNoManifesto = { por: 'ligacao' | 'chave' | 'empresa'; porMinuto?: number; porHora?: number };
 export type MetodoRest = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 export type RotaNoManifesto = {
   metodo: MetodoRest;
@@ -1723,14 +1918,24 @@ export type RotaNoManifesto = {
   /** Só na escrita: `chave` = `Idempotency-Key` obrigatória; `substituicao` = o envio troca o conjunto inteiro (§5). */
   escrita?: 'chave' | 'substituicao';
   /** Sem isto, vale o limite do manifesto. */
-  limite?: LimiteNoManifesto;
+  limite?: LimiteNoManifesto | readonly LimiteNoManifesto[];
   /** O status do sucesso (padrão 200). O 204 é sem corpo. */
   status?: number;
   exemploPedido?: unknown;
   /** O exemplo do sucesso: obrigatório, menos no 204. */
   exemploResposta?: unknown;
 };
-export type FerramentaNoManifesto = { nome: string; descricao: string; permissao: string | null; esquemaEntrada: Record<string, unknown> };
+export type FerramentaNoManifesto = {
+  nome: string;
+  descricao: string;
+  permissao: string | null;
+  esquemaEntrada: Record<string, unknown>;
+  /**
+   * Só na ferramenta que grava (0.7.2): `chave` = o argumento `chaveIdempotencia` obrigatório (Padrão §6);
+   * `substituicao` = idempotente por natureza (repetir deixa o mesmo estado).
+   */
+  escrita?: 'chave' | 'substituicao';
+};
 export type AvisoNoManifesto = {
   /** Em minúsculas com ponto (`pedido.alterado`). */
   tipo: string;
@@ -1748,12 +1953,17 @@ export type EntradaManifesto = {
   /** O endereço da porta, até a versão. */
   base: string;
   permissoes: Readonly<Record<string, PermissaoNoManifesto>>;
-  limite: LimiteNoManifesto;
+  limite: LimiteNoManifesto | readonly LimiteNoManifesto[];
   rotas: readonly RotaNoManifesto[];
   ferramentas?: readonly FerramentaNoManifesto[];
   avisos?: readonly AvisoNoManifesto[];
   /** As credenciais que a porta aceita (0.7.1). Sem isto, as duas do Padrão (§2.1 e §2.2). */
   credenciais?: readonly CredencialDoManifesto[];
+  /**
+   * A porta MCP (0.7.2): o endereço (https) e a versão da especificação, como `2026-07-28`. Obrigatória com ferramentas:
+   * o OpenAPI não tem onde dizer onde elas moram.
+   */
+  mcp?: { endereco: string; versao: string };
 };
 /** `dms_id` = o token do DMS ID com o segredo da ligação (§2.1); `acesso_proprio` = a chave `dms_ap_` (§2.2). */
 export type CredencialDoManifesto = 'dms_id' | 'acesso_proprio';
@@ -1766,6 +1976,9 @@ const METODOS_REST: readonly string[] = ['get', 'post', 'put', 'patch', 'delete'
  */
 const nomeComPonto = (v: string): boolean => {
   const partes = v.split('.');
+  // As regex são ancoradas, de uma classe de caracteres só e sem repetição aninhada (tempo linear, sem retrocesso
+  // catastrófico), e o tamanho (até 100) é conferido antes delas.
+  // nosemgrep: ajinabraham.njsscan.dos.regex_dos.regex_dos
   return v.length <= 100 && partes.length >= 2 && partes.every((parte, i) => (i === 0 ? /^[a-z][a-z0-9_]*$/.test(parte) : /^[a-z0-9_][a-z0-9_]*$/.test(parte)));
 };
 const NOME_DE_FERRAMENTA = /^[a-z][a-z0-9_]{1,63}$/;
@@ -1781,13 +1994,22 @@ const parametrosDoCaminho = (caminho: string): string[] => [...caminho.matchAll(
 const idDaOperacao = (metodo: string, caminho: string): string =>
   `${metodo.toLowerCase()}_${caminho.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '')}`;
 
+const ehListaDeLimites = (v: LimiteNoManifesto | readonly LimiteNoManifesto[]): v is readonly LimiteNoManifesto[] => Array.isArray(v);
+/** A cópia de um limite só com os campos do Padrão, nesta ordem: porMinuto ou porHora, e por. */
+const copiaDoLimite = (l: LimiteNoManifesto): Record<string, unknown> => ({
+  ...(l.porMinuto !== undefined ? { porMinuto: l.porMinuto } : {}),
+  ...(l.porHora !== undefined ? { porHora: l.porHora } : {}),
+  por: l.por,
+});
+const copiaDosLimites = (v: LimiteNoManifesto | readonly LimiteNoManifesto[]): unknown => (ehListaDeLimites(v) ? v.map(copiaDoLimite) : copiaDoLimite(v));
+
 /** Monta o manifesto (OpenAPI 3.1 com os campos `x-dms`) a partir do que o produto declara no próprio código. */
 export function montarManifesto(e: EntradaManifesto): ManifestoDms {
   const paths: Record<string, Record<string, unknown>> = {};
   for (const r of e.rotas) {
     const operacao: Record<string, unknown> = { operationId: idDaOperacao(r.metodo, r.caminho), summary: r.resumo, 'x-dms-permissao': r.permissao };
     if (r.escrita) operacao['x-dms-escrita'] = r.escrita;
-    if (r.limite) operacao['x-dms-limite'] = { porMinuto: r.limite.porMinuto, por: r.limite.por };
+    if (r.limite) operacao['x-dms-limite'] = copiaDosLimites(r.limite);
     const parametros: Record<string, unknown>[] = parametrosDoCaminho(r.caminho).map((nome) => ({ name: nome, in: 'path', required: true, schema: { type: 'string' } }));
     // a chave da REST tem de 1 a 255 caracteres visíveis (§5; `chaveIdempotenciaRestValida`)
     if (r.escrita === 'chave') parametros.push({ name: 'Idempotency-Key', in: 'header', required: true, schema: { type: 'string', minLength: 1, maxLength: 255 } });
@@ -1826,9 +2048,16 @@ export function montarManifesto(e: EntradaManifesto): ManifestoDms {
     },
     // cópias só com os campos do Padrão: mexer no manifesto não mexe nas tabelas do produto
     'x-dms-permissoes': Object.fromEntries(Object.entries(e.permissoes).map(([nome, p]) => [nome, { frase: p.frase, classes: [...p.classes], sensivel: p.sensivel }])),
-    'x-dms-limite': { porMinuto: e.limite.porMinuto, por: e.limite.por },
-    'x-dms-ferramentas': (e.ferramentas ?? []).map((f) => ({ nome: f.nome, descricao: f.descricao, permissao: f.permissao, esquemaEntrada: f.esquemaEntrada })),
+    'x-dms-limite': copiaDosLimites(e.limite),
+    'x-dms-ferramentas': (e.ferramentas ?? []).map((f) => ({
+      nome: f.nome,
+      descricao: f.descricao,
+      permissao: f.permissao,
+      esquemaEntrada: f.esquemaEntrada,
+      ...(f.escrita ? { escrita: f.escrita } : {}),
+    })),
     'x-dms-avisos': (e.avisos ?? []).map((a) => ({ tipo: a.tipo, permissao: a.permissao, descricao: a.descricao, exemplo: a.exemplo })),
+    ...(e.mcp ? { 'x-dms-mcp': { endereco: e.mcp.endereco, versao: e.mcp.versao } } : {}),
   };
 }
 
@@ -1847,10 +2076,25 @@ export function problemasDoGatilho(exemplo: unknown, tipo?: string): string[] {
   return problemas;
 }
 
+/** O limite (um, ou uma lista não vazia, 0.7.2): cada um por minuto OU por hora, por ligação, chave ou empresa. */
 function problemasDoLimite(v: unknown, onde: string): string[] {
-  if (!ehObjetoSimples(v)) return [`${onde}: o limite precisa ser um objeto { porMinuto, por }`];
+  if (Array.isArray(v)) {
+    if (!v.length) return [`${onde}: a lista de limites está vazia`];
+    return v.flatMap((um, i) => problemasDeUmLimite(um, `${onde} (o limite ${i + 1})`));
+  }
+  return problemasDeUmLimite(v, onde);
+}
+
+function problemasDeUmLimite(v: unknown, onde: string): string[] {
+  if (!ehObjetoSimples(v)) return [`${onde}: o limite precisa ser um objeto { porMinuto ou porHora, por } (ou uma lista deles)`];
   const problemas: string[] = [];
-  if (typeof v.porMinuto !== 'number' || !Number.isInteger(v.porMinuto) || v.porMinuto < 1) problemas.push(`${onde}: porMinuto precisa ser um inteiro de 1 para cima`);
+  const porMinuto = v.porMinuto !== undefined;
+  const porHora = v.porHora !== undefined;
+  if (porMinuto === porHora) problemas.push(`${onde}: o limite leva porMinuto ou porHora, um só`);
+  for (const campo of ['porMinuto', 'porHora'] as const) {
+    const n = v[campo];
+    if (n !== undefined && (typeof n !== 'number' || !Number.isInteger(n) || n < 1)) problemas.push(`${onde}: ${campo} precisa ser um inteiro de 1 para cima`);
+  }
   if (v.por !== 'ligacao' && v.por !== 'chave' && v.por !== 'empresa') problemas.push(`${onde}: "por" precisa ser ligacao, chave ou empresa`);
   return problemas;
 }
@@ -1967,6 +2211,19 @@ export function conferirManifesto(doc: unknown): string[] {
       if (typeof f.descricao !== 'string' || !f.descricao.trim()) problemas.push(`${onde}: falta a descrição`);
       usa(onde, f.permissao);
       if (!ehObjetoSimples(f.esquemaEntrada) || f.esquemaEntrada.type !== 'object') problemas.push(`${onde}: o esquema de entrada precisa ser um objeto JSON Schema (type: object)`);
+      if (f.escrita !== undefined && f.escrita !== 'chave' && f.escrita !== 'substituicao') problemas.push(`${onde}: a escrita é chave ou substituicao (Padrão §6)`);
+      if (f.escrita === 'chave') {
+        const esquema = ehObjetoSimples(f.esquemaEntrada) ? f.esquemaEntrada : {};
+        const temArgumento = ehObjetoSimples(esquema.properties) && ehObjetoSimples(esquema.properties.chaveIdempotencia);
+        const obrigatorio = Array.isArray(esquema.required) && esquema.required.includes('chaveIdempotencia');
+        if (!temArgumento || !obrigatorio) problemas.push(`${onde}: a escrita por chave precisa do argumento chaveIdempotencia obrigatório (Padrão §6)`);
+      }
+    }
+    // as ferramentas moram numa porta MCP: o manifesto diz onde e em que versão da especificação (0.7.2)
+    const mcp = doc['x-dms-mcp'];
+    if ((ferramentas ?? []).length > 0 || mcp !== undefined) {
+      const mcpBom = ehObjetoSimples(mcp) && enderecoHttps(mcp.endereco) !== undefined && typeof mcp.versao === 'string' && mcp.versao.trim().length > 0 && mcp.versao.length <= 40;
+      if (!mcpBom) problemas.push('a porta MCP precisa de x-dms-mcp com o endereço (https) e a versão da especificação');
     }
   }
 

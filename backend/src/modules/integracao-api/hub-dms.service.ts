@@ -5,13 +5,16 @@ import { ehServidorLocal } from '../../common/modo';
 import {
   ClienteDmsId,
   ClienteHub,
+  type AplicativoAprovado,
   type AvisoRegistrado,
   type ChamadaAtendida,
   type ChamadaRegistrada,
   type ErroDoProduto,
   type ItemDeParada,
+  type ListaDeAprovados,
 } from '../../dms/integracao-dms';
 import { aceitaIntegracoes, lerConfigHub, semCredencialDoRegem, versaoNoAr } from './hub.regras';
+import { lerParceirosLigados, parceirosQueValem } from './parceiros.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -26,6 +29,11 @@ import { aceitaIntegracoes, lerConfigHub, semCredencialDoRegem, versaoNoAr } fro
 // - Avisos (F3, parte D; pacote 0.4.0): cada envio de aviso a um aplicativo vai ao registro do hub (rota própria; o
 //   hub de antes responde 404 e o pacote para de mandar avisos por 30 min, sem tocar nas chamadas), e a lista de
 //   parada vale para eles: o job dos avisos pergunta `avisoParado` antes de mandar.
+//
+// - Aplicativos de parceiro (F4, parte F; pacote 0.9.0): só com `PARCEIROS_LIGADOS`, o cliente lê também a lista de
+//   aprovados (um token à parte, com `aplicativos.ler`): ao iniciar e quando a batida mostra versão nova. O que vale
+//   dela (`parceirosQueValem`) fica guardado; nenhum parceiro vale antes de a lista de parada ser lida uma vez por este
+//   processo (senão um parceiro parado pela F4-7 entraria enquanto o hub está instável).
 //
 // Nasce DESLIGADO (`HUB_LIGADO`): sem ele, nada sai daqui e nada é parado pelo hub. A chave própria
 // (`ACEITAR_INTEGRACOES`) vale com ou sem o hub. Nada aqui espera o hub nem falha a chamada de quem integra: o hub fora
@@ -54,6 +62,8 @@ export class HubDmsService implements OnModuleInit, OnApplicationShutdown {
   private cliente: ClienteHub | null = null;
   private ultimoAviso: { motivo: string; em: number } | null = null;
   private readonly nomes = new Map<string, { nome: string | null; ate: number }>();
+  /** Os aplicativos de parceiro que valem, da última lista de aprovados recebida (só com `PARCEIROS_LIGADOS`). */
+  private parceiros: Map<string, AplicativoAprovado> | null = null;
 
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
 
@@ -89,9 +99,36 @@ export class HubDmsService implements OnModuleInit, OnApplicationShutdown {
       aceitaIntegracoes: () => aceitaIntegracoes(),
       aoFalhar: (motivo) => this.avisar(motivo),
       buscar: buscarSoNoHub(c.url),
+      ...(lerParceirosLigados() ? { aprovados: { aoMudar: (lista: ListaDeAprovados) => this.guardarParceiros(lista) } } : {}),
     });
     this.cliente.iniciar();
-    this.log.log(`hub ligado (${c.url}): registro da API de integração, erros, batida e lista de parada.`);
+    this.log.log(
+      `hub ligado (${c.url}): registro da API de integração, erros, batida e lista de parada` +
+        `${lerParceirosLigados() ? ', e a lista de aplicativos de parceiro' : ''}.`,
+    );
+  }
+
+  /** A lista de aprovados mudou: guarda o que vale; o que fica de fora vai ao log (sem dado da empresa, só o motivo). */
+  private guardarParceiros(lista: ListaDeAprovados): void {
+    const { validos, fora } = parceirosQueValem(lista);
+    this.parceiros = validos;
+    for (const f of fora) this.log.warn(`aplicativo de parceiro ${f.aplicativo} fora da lista que vale no Regem: ${f.motivo}`);
+  }
+
+  /**
+   * O aplicativo de parceiro aprovado para este client_id, ou nulo: com `PARCEIROS_LIGADOS` desligado, com o hub
+   * desligado, antes de a lista de parada ser lida uma vez por este processo, ou fora da lista que vale. Quem chama decide
+   * antes se o client_id é de um produto da DMS (esse nunca é parceiro).
+   */
+  parceiroAprovado(clientId: string | null | undefined): AplicativoAprovado | null {
+    if (!clientId || !this.cliente || !lerParceirosLigados()) return null;
+    if (this.cliente.estado.paradaVersao === null) return null;
+    return this.parceiros?.get(clientId) ?? null;
+  }
+
+  /** Lê a lista de aprovados agora (a leitura normal é ao iniciar e quando a batida mostra versão nova). */
+  async lerAprovadosAgora(): Promise<void> {
+    if (this.cliente) await this.cliente.lerAprovados();
   }
 
   /** No desligamento: para os relógios e manda o que falta, uma vez. */

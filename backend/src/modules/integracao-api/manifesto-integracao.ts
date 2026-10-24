@@ -1,10 +1,11 @@
 import { LIMITE_INTEGRACAO_POR_MINUTO } from '../../common/integracao-limite';
 import { montarManifesto, type ManifestoDms, type PermissaoNoManifesto, type RotaNoManifesto } from '../../dms/integracao-dms';
 import { PERMISSAO_NA_TELA } from './autorizacao-clique.regras';
-import { ESCOPOS_DO_PARCEIRO, ROTULO_ESCOPO, type EscopoIntegracao } from './escopos';
+import { ESCOPOS_DO_PARCEIRO, ESCOPOS_SENSIVEIS, ROTULO_ESCOPO, type EscopoIntegracao } from './escopos';
+import { LIMITE_PARCEIRO_EMPRESA_POR_MINUTO } from './parceiros.regras';
 import { corpoDoAviso, EVENTO_DO_RECURSO, EVENTO_DO_RETRATO, type Novidade } from './webhook-integracao';
 
-// O MANIFESTO da porta de integração (Padrão DMS §13; F4, parte A; pacote 0.7.1): a documentação pública da porta,
+// O MANIFESTO da porta de integração (Padrão DMS §13; F4, partes A e F; pacote 0.9.0): a documentação pública da porta,
 // montada das tabelas do próprio código: os escopos (a frase da tela do clique; sem ela, o rótulo do console), o limite,
 // as rotas de `/integracao` com os exemplos e os avisos (o corpo sai de `corpoDoAviso`). Servido SEM credencial em
 // `/.well-known/dms-manifesto` (fora do prefixo, `ROTAS_FORA_DO_PREFIXO`) e guardado em `docs/dms-manifesto.json`: o teste
@@ -38,9 +39,6 @@ export const ESCOPOS_DA_PORTA = [
   'producao.ler',
 ] as const satisfies readonly EscopoIntegracao[];
 
-/** Dado pessoal ou financeiro (Padrão §11): o telefone no pedido, a lista de clientes, as vendas da 99 e o custo. */
-const SENSIVEIS: readonly EscopoIntegracao[] = ['clientes.telefone.ler', 'clientes.ler', 'vendas.99food.ler', 'custos.ler'];
-
 /**
  * As permissões, com a classe que alcança cada uma: `dms` em todas (o console emite para o Liame, o RegemCast, o Farol e
  * o GoGeM) e `parceiro` nas do teto da classe (`ESCOPOS_DO_PARCEIRO`, o catálogo aprovado na F4). É o que o hub lê para
@@ -51,7 +49,7 @@ function permissoes(): Record<string, PermissaoNoManifesto> {
   return Object.fromEntries(
     ESCOPOS_DA_PORTA.map((e) => [
       e,
-      { frase: PERMISSAO_NA_TELA[e]?.frase ?? ROTULO_ESCOPO[e], classes: ESCOPOS_DO_PARCEIRO.includes(e) ? ['dms', 'parceiro'] : ['dms'], sensivel: SENSIVEIS.includes(e) },
+      { frase: PERMISSAO_NA_TELA[e]?.frase ?? ROTULO_ESCOPO[e], classes: ESCOPOS_DO_PARCEIRO.includes(e) ? ['dms', 'parceiro'] : ['dms'], sensivel: ESCOPOS_SENSIVEIS.includes(e) },
     ]),
   );
 }
@@ -376,7 +374,11 @@ export function manifestoDaPorta(): ManifestoDms {
       'de produção, com o que a loja autorizou. Credencial: o token do DMS ID com o segredo da ligação (DMS-Ligacao).',
     base: BASE_DO_MANIFESTO,
     permissoes: permissoes(),
-    limite: { porMinuto: LIMITE_INTEGRACAO_POR_MINUTO, por: 'ligacao' },
+    // 60/min por ligação para todos; o aplicativo de parceiro tem também um teto por empresa (todas as lojas dele nela).
+    limite: [
+      { porMinuto: LIMITE_INTEGRACAO_POR_MINUTO, por: 'ligacao' },
+      { porMinuto: LIMITE_PARCEIRO_EMPRESA_POR_MINUTO, por: 'empresa' },
+    ],
     rotas: ROTAS_DA_PORTA,
     avisos: avisos(),
     credenciais: ['dms_id'],

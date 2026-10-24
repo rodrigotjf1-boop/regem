@@ -1,10 +1,11 @@
 import { Logger } from '@nestjs/common';
 import { sql, type SQL } from 'drizzle-orm';
 import { LIMITE_INTEGRACAO_POR_MINUTO } from '../../common/integracao-limite';
-import { resumoChave } from '../../dms/integracao-dms';
+import { POLITICA_LIGACAO, resumoChave, situacaoChave, type AplicativoAprovado } from '../../dms/integracao-dms';
 import type { EscopoIntegracao } from './escopos';
 import type { IntegracaoCtxData } from './integracao-token.guard';
 import { motivoDaRecusaDaLigacao, permissoesDaLigacao } from './ligacao.regras';
+import { clienteDoParceiro, ehClienteDeParceiro, LIMITE_PARCEIRO_EMPRESA_POR_MINUTO, permissoesDoParceiro } from './parceiros.regras';
 import { hashTokenIntegracao } from './token-integracao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -50,6 +51,15 @@ const COLUNAS_DO_TOKEN = sql`
 /** O que a contagem no banco devolve: passou do limite na janela, e quanto falta para ela virar. */
 export type LimiteContado = { ok: boolean; retryAfterSeg: number };
 
+/**
+ * O que a validação diz a mais da ligação de um aplicativo de PARCEIRO (F4, parte F): se ela está suspensa (90 dias sem
+ * uso, Padrão §3) e a contagem do teto da empresa (o aplicativo em todas as lojas dela), quando contou no banco.
+ */
+export type DoParceiro = { suspensa: boolean; limiteEmpresa?: LimiteContado };
+
+/** A chave da contagem do teto da empresa de um aplicativo de parceiro (a mesma no banco e na memória). */
+export const chaveDoLimiteDaEmpresa = (cliente: string, tenantId: string) => `emp:${cliente}:${tenantId}`;
+
 /** Até quando a tabela do limite é dada como ausente (não tenta de novo a cada chamada) e a última limpeza. */
 let semTabelaDoLimiteAte = 0;
 let limpezaDoLimiteEm = 0;
@@ -58,41 +68,74 @@ const LIMPEZA_DO_LIMITE_MS = 60 * 60_000;
 
 const codigoPg = (e: any): string | undefined => e?.code ?? e?.cause?.code;
 
-/** A seleção do acesso (`achado`) com a contagem do minuto, quando `valido` (condição sobre `achado`). */
-function comContagem(selecao: SQL, valido: SQL): SQL {
+/** O incremento da janela de um minuto de uma linha do limite (a mesma regra para os dois contadores). */
+const JANELA_DO_LIMITE = sql`
+      on conflict (chave) do update
+         set inicio = case when lim.inicio <= now() - interval '1 minute' then now() else lim.inicio end,
+             chamadas = case when lim.inicio <= now() - interval '1 minute' then 1 else lim.chamadas + 1 end
+      returning lim.chamadas,
+                greatest(1, ceil(extract(epoch from (lim.inicio + interval '1 minute' - now()))))::int as resta`;
+
+/**
+ * A seleção do acesso (`achado`) com a contagem do minuto, quando `valido` (condição sobre `achado`), numa linha só.
+ *
+ * `empresa` (só a ligação de um aplicativo de parceiro APROVADO, decidido antes da consulta): o segundo contador, o teto
+ * da empresa, chave `emp:<cliente>:<empresa>`. Ele lê o primeiro (`cross join conta`): só conta a chamada que passou no
+ * limite da própria ligação e na condição `empresa` (a ligação é do parceiro aprovado e não está parada há 90 dias). A
+ * chamada recusada não gasta a cota das outras lojas do parceiro; e a dependência fixa a ordem das travas (a linha da
+ * ligação antes da da empresa).
+ */
+function comContagem(selecao: SQL, valido: SQL, empresa: SQL | null): SQL {
+  const contaDaEmpresa = empresa
+    ? sql`,
+    conta_empresa as (
+      insert into integracao_limite as lim (chave, inicio, chamadas)
+      select 'emp:' || achado.cliente || ':' || achado.tenant_id::text, now(), 1
+        from achado cross join conta
+       where ${valido} and conta.chamadas <= ${LIMITE_INTEGRACAO_POR_MINUTO} and ${empresa}
+      ${JANELA_DO_LIMITE}
+    )`
+    : sql``;
   return sql`
     with achado as (${selecao}),
     conta as (
       insert into integracao_limite as lim (chave, inicio, chamadas)
       select achado.id::text, now(), 1 from achado where ${valido}
-      on conflict (chave) do update
-         set inicio = case when lim.inicio <= now() - interval '1 minute' then now() else lim.inicio end,
-             chamadas = case when lim.inicio <= now() - interval '1 minute' then 1 else lim.chamadas + 1 end
-      returning lim.chamadas,
-                greatest(1, ceil(extract(epoch from (lim.inicio + interval '1 minute' - now()))))::int as resta
-    )
+      ${JANELA_DO_LIMITE}
+    )${contaDaEmpresa}
     select achado.*, conta.chamadas as limite_chamadas, conta.resta as limite_resta
-      from achado left join conta on true`;
+           ${empresa ? sql`, conta_empresa.chamadas as limite_empresa_chamadas, conta_empresa.resta as limite_empresa_resta` : sql``}
+      from achado left join conta on true ${empresa ? sql`left join conta_empresa on true` : sql``}`;
 }
 
 const TOKEN_VALE = sql`not achado.revogado and not achado.vencido and not achado.loja_apagada and not achado.empresa_apagada`;
 const LIGACAO_VALE = sql`${TOKEN_VALE} and not achado.ligacao_revogada`;
 
-/** Linha de acesso parado há mais de um dia sai (no máximo uma vez por hora por processo). Nunca rejeita (V3). */
+/**
+ * Linha de acesso parado há mais de um dia sai (no máximo uma vez por hora por processo). Nunca rejeita (V3). A limpeza
+ * pula a linha que uma chamada travou (`skip locked`): ela nunca espera, e a chamada que trava duas linhas (a da ligação
+ * e a da empresa) não entra num ciclo de espera com ela.
+ */
 function limparLimitesVelhos(db: any): void {
   const agora = Date.now();
   if (agora - limpezaDoLimiteEm < LIMPEZA_DO_LIMITE_MS) return;
   limpezaDoLimiteEm = agora;
-  db.execute(sql`delete from integracao_limite where inicio < now() - interval '1 day'`).catch((e: any) => {
-    if (codigoPg(e) !== '42P01') log.warn(`limpeza do limite de chamadas não rodou: ${e?.message ?? e}`);
-  });
+  db.execute(sql`
+      delete from integracao_limite
+       where chave in (select chave from integracao_limite where inicio < now() - interval '1 day' for update skip locked)`)
+    .catch((e: any) => {
+      if (codigoPg(e) !== '42P01') log.warn(`limpeza do limite de chamadas não rodou: ${e?.message ?? e}`);
+    });
 }
 
-/** Roda a seleção do acesso; com `contar`, já contando a chamada no banco (e, sem a tabela, sem contar). */
-async function acharAcesso(db: any, selecao: SQL, valido: SQL, contar: boolean): Promise<any | undefined> {
+/**
+ * Roda a seleção do acesso; com `contar`, já contando a chamada no banco (e, sem a tabela, sem contar). `empresa`: a
+ * condição do teto da empresa (só a ligação de parceiro aprovado; ver `comContagem`).
+ */
+async function acharAcesso(db: any, selecao: SQL, valido: SQL, contar: boolean, empresa: SQL | null = null): Promise<any | undefined> {
   if (contar && Date.now() >= semTabelaDoLimiteAte) {
     try {
-      const r: any = await db.execute(comContagem(selecao, valido));
+      const r: any = await db.execute(comContagem(selecao, valido, empresa));
       limparLimitesVelhos(db);
       return (r.rows ?? r)[0];
     } catch (e: any) {
@@ -113,6 +156,15 @@ function limiteDaLinha(t: any): { limite?: LimiteContado } {
       ok: Number(t.limite_chamadas) <= LIMITE_INTEGRACAO_POR_MINUTO,
       retryAfterSeg: Math.max(1, Number(t.limite_resta) || 1),
     },
+  };
+}
+
+/** A contagem do teto da empresa (só a do aplicativo de parceiro), ou nada. */
+function limiteDaEmpresaDaLinha(t: any): LimiteContado | undefined {
+  if (t?.limite_empresa_chamadas === null || t?.limite_empresa_chamadas === undefined) return undefined;
+  return {
+    ok: Number(t.limite_empresa_chamadas) <= LIMITE_PARCEIRO_EMPRESA_POR_MINUTO,
+    retryAfterSeg: Math.max(1, Number(t.limite_empresa_resta) || 1),
   };
 }
 
@@ -155,7 +207,9 @@ export async function validarTokenIntegracao(
      limit 1`;
   const t = await acharAcesso(db, selecao, TOKEN_VALE, !!o.contar);
   if (!t) return null;
-  const motivo = motivoDoToken(t);
+  // O acesso de um aplicativo de parceiro só vale pela via do DMS ID (F4, parte F; decisões F4-3): com o teto da classe,
+  // a lista do hub e a suspensão. Pelo `rgm_it_` (e pelo guard do totem, que usa esta função), nunca.
+  const motivo = motivoDoToken(t) ?? (ehClienteDeParceiro(t.cliente) ? 'acesso de aplicativo de parceiro só vale pela ligação' : null);
   if (motivo) {
     log.warn(`token ${t.prefixo}… (${t.cliente}) recusado: ${motivo}`);
     return null;
@@ -169,38 +223,70 @@ export async function validarTokenIntegracao(
  * mesma para todo motivo (ligação desconhecida, revogada, de outro aplicativo, aplicativo fora da lista, token revogado,
  * vencido, loja ou empresa apagada); o motivo vai para o log só quando a ligação existe, com o prefixo, nunca o
  * segredo. As permissões do contexto são as que a loja autorizou E o token do DMS ID também tem.
+ *
+ * O aplicativo de PARCEIRO (F4, parte F), só com `o.parceiro` (quem chama devolve o aprovado que vale, ou nulo — a chave
+ * `PARCEIROS_LIGADOS`, o hub e a parada lida ficam com ele): decide-se antes se o aplicativo é da DMS
+ * (`DMS_ID_APLICATIVOS`), e o da DMS nunca vira parceiro. Para o parceiro, a ligação tem de ser do `cliente` dele; as
+ * permissões são as de sempre E as do teto da classe na etapa (`permissoesDoParceiro`); vai junto se a ligação está
+ * suspensa (90 dias) e a contagem do teto da empresa; e ele lê só as vendas confirmadas depois que o acesso nasceu.
  */
 export async function validarLigacaoIntegracao(
   db: any,
   segredo: string,
   doToken: { aplicativo: string; permissoes: readonly string[] },
   aplicativos: Readonly<Record<string, string>>,
-  o: { contar?: boolean } = {},
-): Promise<(IntegracaoCtxData & { limite?: LimiteContado }) | null> {
+  o: { contar?: boolean; parceiro?: (clientId: string) => AplicativoAprovado | null } = {},
+): Promise<(IntegracaoCtxData & { limite?: LimiteContado; parceiro?: DoParceiro }) | null> {
   const selecao = sql`
-    select l.id, l.prefixo, l.aplicativo, l.revogado_em is not null as ligacao_revogada, ${COLUNAS_DO_TOKEN}
+    select l.id, l.prefixo, l.aplicativo, l.revogado_em is not null as ligacao_revogada,
+           l.criado_em as ligacao_criada_em, l.ultimo_uso_em as ligacao_ultimo_uso_em,
+           coalesce(l.ultimo_uso_em, l.criado_em) <= now() - make_interval(days => ${POLITICA_LIGACAO.suspensaoParadaDias}) as sem_uso,
+           to_char(t.criado_em at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as acesso_criado_em,
+           ${COLUNAS_DO_TOKEN}
       from integracao_ligacao l
       join integracao_token_loja t on t.id = l.id and t.tenant_id = l.tenant_id
       left join unidade u on u.id = t.unidade_id and u.tenant_id = t.tenant_id
       join empresa e on e.id = t.tenant_id
      where l.segredo_hash = ${resumoChave(segredo)}
      limit 1`;
-  const l = await acharAcesso(db, selecao, LIGACAO_VALE, !!o.contar);
+  // Quem é decide-se ANTES da consulta: o da DMS nunca vira parceiro; o parceiro aprovado tem o `cliente` dele — e só a
+  // ligação dele, não parada há 90 dias, conta no teto da empresa (a chamada que vai ser recusada não gasta a cota).
+  const daDms = Object.values(aplicativos).includes(doToken.aplicativo);
+  const aprovado = !daDms && o.parceiro ? o.parceiro(doToken.aplicativo) : null;
+  const clienteDoAprovado = aprovado ? clienteDoParceiro(doToken.aplicativo) : null;
+  const contaNaEmpresa = clienteDoAprovado
+    ? sql`achado.cliente = ${clienteDoAprovado} and achado.aplicativo = ${doToken.aplicativo} and not achado.sem_uso`
+    : null;
+  const l = await acharAcesso(db, selecao, LIGACAO_VALE, !!o.contar, contaNaEmpresa);
   const motivo = motivoDaRecusaDaLigacao(
     l ? { aplicativo: l.aplicativo, cliente: l.cliente, revogada: l.ligacao_revogada, motivoDoToken: motivoDoToken(l) } : null,
     doToken.aplicativo,
     aplicativos,
+    clienteDoAprovado ? { cliente: clienteDoAprovado } : null,
   );
   if (motivo) {
     if (l) log.warn(`ligação ${l.prefixo}… (${l.cliente}) recusada: ${motivo}`);
     return null;
   }
+  const escopos = permissoesDaLigacao(l.escopos ?? [], doToken.permissoes);
+  if (!aprovado) {
+    return { ...contextoDoToken(l), escopos, via: 'ligacao', aplicativo: doToken.aplicativo, ...limiteDaLinha(l) };
+  }
+  const doTeto = permissoesDoParceiro(aprovado);
+  const suspensa =
+    situacaoChave(
+      { criadaEm: new Date(l.ligacao_criada_em), ultimoUsoEm: l.ligacao_ultimo_uso_em ? new Date(l.ligacao_ultimo_uso_em) : null, venceEm: null, revogadaEm: null },
+      new Date(),
+      POLITICA_LIGACAO.suspensaoParadaDias,
+    ).situacao === 'suspensa';
   return {
     ...contextoDoToken(l),
-    escopos: permissoesDaLigacao(l.escopos ?? [], doToken.permissoes),
+    escopos: escopos.filter((e) => doTeto.includes(e)),
     via: 'ligacao',
     aplicativo: doToken.aplicativo,
+    lerVendasDesde: l.acesso_criado_em as string,
     ...limiteDaLinha(l),
+    parceiro: { suspensa, limiteEmpresa: limiteDaEmpresaDaLinha(l) },
   };
 }
 

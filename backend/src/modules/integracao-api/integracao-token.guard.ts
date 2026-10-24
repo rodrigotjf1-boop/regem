@@ -22,10 +22,11 @@ import { EscopoIntegracao } from './escopos';
 import { aceitaIntegracoes, ferramentaDaRota } from './hub.regras';
 import { HubDmsService } from './hub-dms.service';
 import { CABECALHO_LIGACAO_NO_NODE, desafioDaRecusa, EscopoFaltando, LIGACAO_INVALIDA, ligacaoDoCabecalho } from './ligacao.regras';
+import { aplicativoNoHub, LIGACAO_SUSPENSA, LIMITE_PARCEIRO_EMPRESA_POR_MINUTO } from './parceiros.regras';
 import { ProblemaException } from './problema';
 import { formatoTokenIntegracao } from './token-integracao';
 import { IntegracaoTokenService } from './integracao-token.service';
-import type { LimiteContado } from './validar-token-integracao';
+import { chaveDoLimiteDaEmpresa, type DoParceiro, type LimiteContado } from './validar-token-integracao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -49,6 +50,11 @@ export type IntegracaoCtxData = {
   via?: 'ligacao';
   /** O aplicativo do DMS ID que chamou (só pela ligação). É da distribuição: nunca vai para a loja. */
   aplicativo?: string;
+  /**
+   * Só para o aplicativo de PARCEIRO (F4, parte F; o dono decidiu em 24/10/2026): ele lê as vendas confirmadas a partir
+   * daqui — o instante em que o acesso nasceu (ISO 8601 UTC, com microssegundos). Os produtos da DMS não têm janela.
+   */
+  lerVendasDesde?: string;
 };
 
 export const ESCOPOS_KEY = 'integracao_escopos';
@@ -77,7 +83,8 @@ export function ipDe(req: any): string | null {
  *   (401 `ligacao-invalida`, a mesma resposta para todo motivo). Valem as permissões que a loja autorizou E o token tem.
  *
  * Depois, nas duas: limite da credencial (429) → lista de parada do hub (503) → escopos da rota (403, com todos os que
- * faltam) → contexto. Todo 401 leva o desafio `WWW-Authenticate` (com a via ligada, também o endereço dos metadados do
+ * faltam) → contexto. O aplicativo de PARCEIRO (F4, parte F; só com `PARCEIROS_LIGADOS` e o hub) entra pela via do DMS ID,
+ * com o teto da empresa (429), a parada pelo client_id e a ligação suspensa aos 90 dias (403 `ligacao-suspensa`). Todo 401 leva o desafio `WWW-Authenticate` (com a via ligada, também o endereço dos metadados do
  * recurso, RFC 9728).
  *
  * A parada (Padrão §10; Hub DMS F3, A2), nas duas vias, com 503 `integracao-parada`: a chave própria
@@ -122,7 +129,7 @@ export class IntegracaoTokenGuard implements CanActivate {
     // A chave própria: antes de tudo, sem banco e sem hub.
     if (!(this.hub ? this.hub.aceitaIntegracoes : aceitaIntegracoes())) throw problemaDaParada();
 
-    let achado: IntegracaoCtxData & { limite?: LimiteContado };
+    let achado: IntegracaoCtxData & { limite?: LimiteContado; parceiro?: DoParceiro };
     if (peloToken) {
       achado = await this.pelaViaDoToken(req, bearer as string, desafiar);
     } else if (this.dmsId.ligado) {
@@ -130,8 +137,10 @@ export class IntegracaoTokenGuard implements CanActivate {
     } else {
       return desafiar(new ProblemaException(401, 'token-invalido', TOKEN_INVALIDO));
     }
-    const { limite: contadoNoBanco, ...t } = achado;
-    anotarChamada({ aplicativo: t.cliente, ligacaoPrefixo: t.prefixo, conta: t.unidadeId ?? t.tenantId, tenantId: t.tenantId });
+    const { limite: contadoNoBanco, parceiro, ...t } = achado;
+    // O aplicativo de parceiro é registrado e parado no hub pelo client_id (os da DMS, pelo `cliente`).
+    const noHub = aplicativoNoHub(t.cliente, t.aplicativo);
+    anotarChamada({ aplicativo: noHub, ligacaoPrefixo: t.prefixo, conta: t.unidadeId ?? t.tenantId, tenantId: t.tenantId });
 
     // O limite do acesso: o contado no banco, na mesma ida da validação (mig 333, vale entre processos); sem a tabela,
     // o da memória do processo.
@@ -146,10 +155,31 @@ export class IntegracaoTokenGuard implements CanActivate {
         limite.retryAfterSeg,
       );
     }
+    // O teto da empresa do aplicativo de parceiro (todas as lojas dele nela): conta só a chamada que passou no limite da
+    // ligação e não é de ligação suspensa — no banco, pela mesma regra (`comContagem`); sem a contagem do banco, na memória.
+    const limiteEmpresa =
+      parceiro && !parceiro.suspensa
+        ? (parceiro.limiteEmpresa ?? contarChamadaIntegracao(chaveDoLimiteDaEmpresa(t.cliente, t.tenantId), LIMITE_PARCEIRO_EMPRESA_POR_MINUTO))
+        : null;
+    if (limiteEmpresa && !limiteEmpresa.ok) {
+      throw new ProblemaException(
+        429,
+        'limite-de-chamadas',
+        'Muitas chamadas deste aplicativo nesta empresa (todas as lojas somadas) — aguarde e tente de novo.',
+        limiteEmpresa.retryAfterSeg,
+      );
+    }
 
     // A lista de parada do hub: a geral, a do aplicativo, a da credencial e a da rota (hub desligado: nada para).
-    if (this.hub?.parado({ aplicativo: t.cliente, ligacaoPrefixo: t.prefixo, ferramenta: ferramentaDaRota(req?.method, req?.route?.path) })) {
+    if (this.hub?.parado({ aplicativo: noHub, ligacaoPrefixo: t.prefixo, ferramenta: ferramentaDaRota(req?.method, req?.route?.path) })) {
       throw problemaDaParada();
+    }
+
+    // A ligação de parceiro parada há 90 dias (Padrão §3): 403, depois de todas as recusas 401 (quem não tem a ligação
+    // não fica sabendo que ela existe). Volta com um clique novo da loja; a credencial perde a isenção do limite por IP.
+    if (parceiro?.suspensa) {
+      esquecerTokenIntegracao(credencialDaChamada(req));
+      throw new ProblemaException(403, 'ligacao-suspensa', LIGACAO_SUSPENSA);
     }
 
     const exigidos =
@@ -190,7 +220,7 @@ export class IntegracaoTokenGuard implements CanActivate {
     req: any,
     bearer: string | null,
     desafiar: (erro: unknown) => never,
-  ): Promise<IntegracaoCtxData & { limite?: LimiteContado }> {
+  ): Promise<IntegracaoCtxData & { limite?: LimiteContado; parceiro?: DoParceiro }> {
     let doToken: TokenDmsIdDoRegem;
     try {
       doToken = await this.dmsId.conferir(bearer);
@@ -199,7 +229,13 @@ export class IntegracaoTokenGuard implements CanActivate {
       return desafiar(erro);
     }
     const segredo = ligacaoDoCabecalho(req?.headers?.[CABECALHO_LIGACAO_NO_NODE]);
-    const t = segredo ? await this.tokens.validarLigacao(segredo, doToken, this.dmsId.aplicativos, { contar: true }) : null;
+    const hub = this.hub;
+    const t = segredo
+      ? await this.tokens.validarLigacao(segredo, doToken, this.dmsId.aplicativos, {
+          contar: true,
+          parceiro: hub ? (clientId) => hub.parceiroAprovado(clientId) : undefined,
+        })
+      : null;
     if (!t) {
       esquecerTokenIntegracao(credencialDaChamada(req));
       return desafiar(new ProblemaException(401, 'ligacao-invalida', LIGACAO_INVALIDA));

@@ -17,8 +17,10 @@ import {
   marcarUsoTokenIntegracao,
   validarLigacaoIntegracao,
   validarTokenIntegracao,
+  type DoParceiro,
   type LimiteContado,
 } from './validar-token-integracao';
+import type { AplicativoAprovado } from '../../dms/integracao-dms';
 import type { IntegracaoCtxData } from './integracao-token.guard';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -71,8 +73,8 @@ export class IntegracaoTokenService {
     segredo: string,
     doToken: { aplicativo: string; permissoes: readonly string[] },
     aplicativos: Readonly<Record<string, string>>,
-    o: { contar?: boolean } = {},
-  ): Promise<(IntegracaoCtxData & { limite?: LimiteContado }) | null> {
+    o: { contar?: boolean; parceiro?: (clientId: string) => AplicativoAprovado | null } = {},
+  ): Promise<(IntegracaoCtxData & { limite?: LimiteContado; parceiro?: DoParceiro }) | null> {
     return validarLigacaoIntegracao(this.db, segredo, doToken, aplicativos, o);
   }
 
