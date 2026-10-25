@@ -24,7 +24,12 @@
     servidor pelo `.exe`.
   - **Conferir na loja depois do `.exe`:** o "R" dourado abre a lista de aparelhos (sem "o sistema deste servidor não
     responde").
-- **O amarelo do ícone do servidor só com o caixa aberto (decisão do dono, 25/10; PR desta entrega):** no ícone do
+- **Reinstalar não apaga mais, calado, o equipamento que não sobe (ERR-306; P1 do plano do dono de 25/10; PR desta
+  entrega):** a conferência antes de apagar o banco passa a contar os equipamentos de tipo fora do envio, hoje o
+  Terminal de Ponto, inclusive o "REP-Software" que o servidor cria sozinho. Com um deles, a reinstalação PRESERVA o
+  banco (o NSR do ponto continua), como já fazia com a NFC-e. O servidor e o totem seguem liberados (voltam pela nuvem).
+  Vai no `.zip` (o daemon é arquivo solto de `edge\`) e no `.exe` (é o `--descarregar` do instalador que consulta).
+- **O amarelo do ícone do servidor só com o caixa aberto (decisão do dono, 25/10; #736):** no ícone do
   servidor, o terminal de caixa que para de responder fica amarelo SÓ se o caixa (financeiro) dele estiver aberto, e
   enquanto estiver aberto (sem o limite de 1 h). Com o caixa fechado, o terminal desligado no fim do dia aparece
   "caixa fechado · visto pela última vez há …", sem alerta. KDS e estação seguem como antes.

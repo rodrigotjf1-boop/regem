@@ -190,6 +190,36 @@ descrever('trava do apagamento — contra o Postgres', () => {
     expect(semClasse).toEqual([]);
   }, 60000);
 
+  it('equipamento de tipo que NÃO sobe (Terminal de Ponto) TRAVA o apagamento; os que sobem, o servidor e o totem não (ERR-306)', async () => {
+    // O equipamento sobe SÓ em parte (filtro por tipo). Antes a tabela inteira contava como "sobe" e o Terminal de Ponto
+    // — a que as marcações e o NSR apontam — sumia calado numa reinstalação. As expressões são as DO DAEMON (lidas da
+    // fonte), conferidas nas linhas DESTE teste: o daemon conta o banco inteiro e no CI as specs dividem o banco (LIC-084).
+    const PARCIAL = /\{ tabela: 'equipamento', cursor: 'updated_at', filtro: "([^"]+)" \}/.exec(fonte)?.[1] ?? '';
+    const SEGURO = /^\s*equipamento: "([^"]+)",$/m.exec(fonte)?.[1] ?? '';
+    expect(PARCIAL).toContain("'pdv'");
+    expect(SEGURO).toBe("tipo in ('servidor_local','totem')");
+    expect(fonte).toMatch(/filtro = ` where not \(\$\{parcial\}\)\$\{seguro \? ` and not \(\$\{seguro\}\)` : ''\}`;/); // e o daemon o aplica
+    const tenant = (await pool.query(`insert into empresa (nome) values ('Teste equipamento fora do envio') returning id`)).rows[0].id;
+    const foraDoEnvio = async () =>
+      (await pool.query(`select count(*)::int n from equipamento where tenant_id = $1 and not (${PARCIAL}) and not (${SEGURO})`, [tenant])).rows[0].n;
+    const equipar = (tipo: string) =>
+      pool.query(`insert into equipamento (tenant_id, tipo, nome, token) values ($1, $2, $3, $4)`, [tenant, tipo, `teste ${tipo}`, `tok-fora-${tipo}-${tenant}`]);
+    try {
+      for (const tipo of ['pdv', 'salao', 'kds', 'impressora', 'estacao_impressao', 'tela_senhas', 'ponto_baixa', 'totem', 'servidor_local']) {
+        await equipar(tipo);
+      }
+      expect(await foraDoEnvio()).toBe(0); // sobem, voltam da nuvem ou são, por desenho, só desta máquina
+      await equipar('terminal_ponto');
+      expect(await foraDoEnvio()).toBe(1);
+      const r = rodar();
+      expect(r.codigo).toBe(3);
+      expect(r.saida).toMatch(/equipamento \(fora do envio\): \d+ registro/);
+    } finally {
+      await pool.query('delete from equipamento where tenant_id = $1', [tenant]);
+      await pool.query('delete from empresa where id = $1', [tenant]);
+    }
+  }, 180000);
+
   it('FILA DE SAÍDA: aviso de estorno ainda não entregue TRAVA; entregue não (mig 289)', async () => {
     // Pedido de estorno ao GoGeM que ainda não saiu só existe neste banco — apagá-lo seria o
     // cliente sem o dinheiro. O que já foi entregue é histórico e não pode prender a loja.
@@ -199,7 +229,7 @@ descrever('trava do apagamento — contra o Postgres', () => {
     // o aviso esperando de outra spec entraria na conta daqui (LIC-084).
     const PENDENTE = /const FILA_DE_SAIDA_PENDENTE = "([^"]+)"/.exec(fonte)?.[1] ?? '';
     expect(PENDENTE).toContain('pendente');
-    expect(fonte).toMatch(/FILA_DE_SAIDA\.has\(t\) \? ` where \$\{FILA_DE_SAIDA_PENDENTE\}`/); // e o daemon o aplica
+    expect(fonte).toMatch(/else if \(FILA_DE_SAIDA\.has\(t\)\) \{[\s\S]{0,200}?filtro = ` where \$\{FILA_DE_SAIDA_PENDENTE\}`;/); // e o daemon o aplica
     const tenant = (await pool.query(`insert into empresa (nome) values ('Teste fila de saída') returning id`)).rows[0].id;
     const pendentesDoTeste = async () =>
       (await pool.query(`select count(*)::int n from aviso_integracao where tenant_id = $1 and (${PENDENTE})`, [tenant]))
