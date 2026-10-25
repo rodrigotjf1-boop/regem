@@ -24,7 +24,13 @@
     servidor pelo `.exe`.
   - **Conferir na loja depois do `.exe`:** o "R" dourado abre a lista de aparelhos (sem "o sistema deste servidor não
     responde").
-- **O status do backup chega à nuvem (ERR-305; PR desta entrega):** a nuvem via "backup falhou" em toda loja desde o
+- **O amarelo do ícone do servidor só com o caixa aberto (decisão do dono, 25/10; PR desta entrega):** no ícone do
+  servidor, o terminal de caixa que para de responder fica amarelo SÓ se o caixa (financeiro) dele estiver aberto, e
+  enquanto estiver aberto (sem o limite de 1 h). Com o caixa fechado, o terminal desligado no fim do dia aparece
+  "caixa fechado · visto pela última vez há …", sem alerta. KDS e estação seguem como antes.
+
+  Vai no `.zip` e no `.exe`: é o sistema do servidor que monta o texto; o ícone só desenha.
+- **O status do backup chega à nuvem (ERR-305; #735):** a nuvem via "backup falhou" em toda loja desde o
   #546, com o backup em dia. O `backup.ps1` gravava `ultimo-backup.json` com BOM e o daemon fazia `JSON.parse` sem
   tirar o BOM. Agora:
   - a leitura (`edge/marcador-backup.mjs`, que o daemon importa) aceita o arquivo com e sem BOM;
