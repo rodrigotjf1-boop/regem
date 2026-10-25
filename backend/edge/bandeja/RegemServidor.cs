@@ -291,6 +291,45 @@ namespace Regem.Servidor
     }
 
     // ===== o icone =====
+    // ===== o icone trocado pela atualizacao (.zip) =====
+    // A atualizacao renomeia o .exe em uso para "<nome>.antigo-..." e poe o novo no lugar (atualizacao-comum.ps1,
+    // Trocar-Icones - plano do dono de 25/10/2026: menos reinstalacao por .exe). Este processo segue rodando a copia
+    // antiga: ele confere o arquivo do caminho em que abriu e, trocado, abre o novo (que espera esta trava sair,
+    // --substituir) e se fecha. Sem isto o icone novo so valeria no proximo login do Windows.
+    public static class Troca
+    {
+        static string caminho;
+        static DateTime marca;
+        static string argumentos = "";
+
+        // Chamado no comeco do Main, antes de qualquer troca: o caminho e a data do arquivo de agora.
+        public static void Iniciar(string exe, string[] args)
+        {
+            caminho = exe;
+            try { marca = File.GetLastWriteTimeUtc(exe); } catch { marca = DateTime.MinValue; }
+            // So o que diz ONDE (raiz, sistema, tela) segue para o novo; abrir painel, testes e o --substituir, nao.
+            List<string> manter = new List<string>();
+            for (int i = 0; i + 1 < args.Length; i++)
+                if (args[i] == "--raiz" || args[i] == "--api" || args[i] == "--web") { manter.Add(Aspas(args[i])); manter.Add(Aspas(args[++i])); }
+            argumentos = string.Join(" ", manter.ToArray());
+        }
+
+        static string Aspas(string s) { return "\"" + s.Replace("\"", "\\\"") + "\""; }
+
+        public static bool Trocado()
+        {
+            if (string.IsNullOrEmpty(caminho)) return false;
+            try { FileInfo f = new FileInfo(caminho); return f.Exists && f.Length > 0 && f.LastWriteTimeUtc != marca; } catch { return false; }
+        }
+
+        public static void AbrirONovo(string extra)
+        {
+            ProcessStartInfo p = new ProcessStartInfo(caminho, (argumentos + " --substituir " + extra).Trim());
+            p.UseShellExecute = false;
+            Process.Start(p);
+        }
+    }
+
     public class Bandeja : ApplicationContext
     {
         readonly Api api;
@@ -298,6 +337,7 @@ namespace Regem.Servidor
         readonly ContextMenuStrip menu = new ContextMenuStrip();
         readonly Control ui = new Control();
         readonly System.Windows.Forms.Timer relogio = new System.Windows.Forms.Timer();
+        readonly System.Windows.Forms.Timer vigiaDaTroca = new System.Windows.Forms.Timer();
         readonly Icon[] icones = new Icon[3];
         public Dictionary<string, object> Estado;
         public string ErroLeitura = "";
@@ -339,7 +379,21 @@ namespace Regem.Servidor
             relogio.Interval = 5000;
             relogio.Tick += delegate { Ler(); };
             relogio.Start();
+            // A atualizacao trocou este .exe: abre o novo e sai (ver Troca).
+            vigiaDaTroca.Interval = 30000;
+            vigiaDaTroca.Tick += delegate { if (Troca.Trocado()) Reabrir(); };
+            vigiaDaTroca.Start();
             Ler();
+        }
+
+        void Reabrir()
+        {
+            vigiaDaTroca.Stop();
+            try { Troca.AbrirONovo(""); }
+            catch { vigiaDaTroca.Start(); return; } // nao abriu: segue este e tenta de novo depois
+            relogio.Stop();
+            icone.Visible = false;
+            ExitThread();
         }
 
         // O R dourado num quadrado azul-escuro (o do servidor; o da estacao tem o R branco) + a bolinha.
@@ -1147,12 +1201,18 @@ namespace Regem.Servidor
         [STAThread]
         static int Main(string[] args)
         {
+            // Antes de tudo: o caminho e a data deste .exe (a atualizacao pode troca-lo enquanto ele roda - ver Troca).
+            Troca.Iniciar(Application.ExecutablePath, args);
             Api api = new Api();
-            string diagnostico = null, abrir = null, captura = null, tema = null, filtro = null;
+            string diagnostico = null, abrir = null, captura = null, tema = null, filtro = null, testeTroca = null, trocaOk = null;
+            bool substituir = false;
             int altura = 660;
             for (int i = 0; i < args.Length; i++)
             {
-                if (args[i] == "--raiz" && i + 1 < args.Length) api.Raiz = args[++i];
+                if (args[i] == "--substituir") substituir = true;
+                else if (args[i] == "--teste-troca" && i + 1 < args.Length) testeTroca = args[++i];
+                else if (args[i] == "--troca-ok" && i + 1 < args.Length) trocaOk = args[++i];
+                else if (args[i] == "--raiz" && i + 1 < args.Length) api.Raiz = args[++i];
                 else if (args[i] == "--api" && i + 1 < args.Length) api.Base = args[++i];
                 else if (args[i] == "--web" && i + 1 < args.Length) api.Web = args[++i];
                 else if (args[i] == "--diagnostico" && i + 1 < args.Length) diagnostico = args[++i];
@@ -1167,6 +1227,19 @@ namespace Regem.Servidor
                 api.Raiz = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), @"..\.."));
 
             if (diagnostico != null) return Diagnosticar(api, diagnostico);
+            // Teste da troca (sem janela): o novo, aberto pelo antigo, so marca que abriu; o antigo confere o arquivo a cada
+            // 200 ms por ate 60 s e, trocado, abre o novo como o icone de verdade faz (Troca.AbrirONovo).
+            if (trocaOk != null) { File.WriteAllText(trocaOk, "ok"); return 0; }
+            if (testeTroca != null)
+            {
+                DateTime fim = DateTime.UtcNow.AddSeconds(60);
+                while (DateTime.UtcNow < fim)
+                {
+                    if (Troca.Trocado()) { Troca.AbrirONovo("--troca-ok \"" + testeTroca + "\""); return 0; }
+                    Thread.Sleep(200);
+                }
+                return 3;
+            }
             if (captura != null)
             {
                 // Teste: o painel desenhado numa imagem, sem abrir janela na tela de ninguem.
@@ -1183,7 +1256,12 @@ namespace Regem.Servidor
             bool novo;
             using (Mutex m = new Mutex(true, "Local\\RegemServidorBandeja", out novo))
             {
-                if (!novo) return 0;
+                if (!novo)
+                {
+                    // Aberto pelo icone antigo que a atualizacao trocou: espera ele sair (a trava fica abandonada ao sair).
+                    if (!substituir) return 0;
+                    try { if (!m.WaitOne(30000)) return 0; } catch (AbandonedMutexException) { }
+                }
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
                 Application.Run(new Bandeja(api, abrir));

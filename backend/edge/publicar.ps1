@@ -75,7 +75,9 @@ $z = [System.IO.Compression.ZipFile]::OpenRead($zip)
 try { $nomes = @($z.Entries | ForEach-Object { $_.FullName }) } finally { $z.Dispose() }
 $faltando = @('dist/main.js', 'node_modules.tar', 'web.tar', 'edge/atualizar.ps1', 'edge/atualizacao-comum.ps1',
   'edge/saude-local.mjs', 'edge/verify-update.mjs', 'edge/update-pub.pem', 'scripts/apply-all-local.mjs',
-  'dist-manifest.json') | Where-Object { $nomes -notcontains $_ }
+  'dist-manifest.json',
+  # Os icones: a atualizacao troca o edge\bandeja (plano do dono de 25/10/2026) - pacote sem eles nao os atualiza.
+  'edge/bandeja/RegemServidor.exe', 'edge/bandeja/RegemEstacao.exe') | Where-Object { $nomes -notcontains $_ }
 if ($faltando) { throw ("O .zip saiu sem: {0} - NAO publique." -f ($faltando -join ', ')) }
 $proibidos = @('edge/update-priv.pem', 'edge/sign-update.mjs', 'edge/publicar.ps1', 'scripts/gen-license-keys.mjs') |
   Where-Object { $nomes -contains $_ }

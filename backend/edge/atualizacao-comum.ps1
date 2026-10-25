@@ -291,3 +291,41 @@ function Icone-Regem-Nos-Atalhos($icone, $pastas) {
   }
   return $n
 }
+
+# OS ICONES DO SERVIDOR NA ATUALIZACAO (.zip) - plano do dono de 25/10/2026 (menos reinstalacao por .exe). Antes o .zip
+# copiava so os arquivos soltos de edge\, e o edge\bandeja (RegemServidor.exe, RegemEstacao.exe) so mudava reinstalando:
+# a correcao do icone do servidor (TLS 1.2, ERR-303) teria de esperar um .exe. O icone ABERTO nao pode ser apagado nem
+# sobrescrito, mas pode ser RENOMEADO: o atual vira "<nome>.antigo-<data>", o novo entra no lugar e o icone do servidor
+# percebe a troca e se reabre sozinho (RegemServidor.cs). A copia antiga sai quando ninguem a usa mais (cada chamada
+# tenta apagar). Igual (mesmo SHA-256) nao troca. Copia que falha devolve o antigo ao lugar. Devolve quantos trocou.
+# .NET direto (e nao Rename-Item/Copy-Item): o provider do PowerShell recusa caminho curto com ~ (ERR-243).
+function Trocar-Icones($de, $para) {
+  if (-not [IO.Directory]::Exists($de)) { return 0 }
+  [void][IO.Directory]::CreateDirectory($para)
+  $hash = {
+    param($arq)
+    $s = [IO.File]::OpenRead($arq)
+    try { return [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($s)) } finally { $s.Dispose() }
+  }
+  $n = 0
+  foreach ($novo in [IO.Directory]::GetFiles($de, '*.exe')) {
+    $alvo = [IO.Path]::Combine($para, [IO.Path]::GetFileName($novo))
+    $guardado = $null
+    if ([IO.File]::Exists($alvo)) {
+      if ((& $hash $alvo) -eq (& $hash $novo)) { continue }
+      $guardado = '{0}.antigo-{1}-{2}' -f $alvo, (Get-Date -Format 'yyyyMMddHHmmss'), (Get-Random -Maximum 100000)
+      [IO.File]::Move($alvo, $guardado)
+    }
+    try {
+      [IO.File]::Copy($novo, $alvo, $true)
+    } catch {
+      if ($guardado) { try { [IO.File]::Move($guardado, $alvo) } catch { } }
+      throw
+    }
+    $n++
+  }
+  foreach ($velho in [IO.Directory]::GetFiles($para, '*.antigo-*')) {
+    try { [IO.File]::Delete($velho) } catch { }
+  }
+  return $n
+}
