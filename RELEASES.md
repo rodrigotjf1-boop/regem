@@ -170,6 +170,9 @@ Mudanças que entraram na 1.30.9:
   troca do clique; de carona, a fila dos avisos dos produtos da DMS confere a loja e a empresa vivas (ERR-302). Só nuvem
   (o módulo da API de integração não sobe no servidor da loja e o job se guarda com `ehServidorLocal`): vai no `.zip` do
   corte sem efeito na loja; não pede `.exe`.
+- **O "cliente esquecido" do aplicativo de parceiro só com o telefone (25/10; Hub DMS, F4 parte F; decisão do dono, a
+  recomendada):** no teto, na porta e na fila dos avisos. Só nuvem: vai no `.zip` do corte sem efeito na loja; não pede
+  `.exe`.
 - **🔴 Node do instalador com a correção do boletim do Node de 21/10/2026 (Brotli, CVE-2026-111497, alta, execução
   remota; e o nome do certificado quando o destino é IP, CVE-2026-106069/105483/106072 — o caso da estação e do PC
   cliente falando com o servidor por IP com `regem.local`; e as autoridades da eMudhra):** o servidor da loja e todo PC

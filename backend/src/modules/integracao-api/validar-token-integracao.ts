@@ -5,7 +5,7 @@ import { POLITICA_LIGACAO, resumoChave, situacaoChave, type AplicativoAprovado }
 import type { EscopoIntegracao } from './escopos';
 import type { IntegracaoCtxData } from './integracao-token.guard';
 import { motivoDaRecusaDaLigacao, permissoesDaLigacao } from './ligacao.regras';
-import { clienteDoParceiro, ehClienteDeParceiro, LIMITE_PARCEIRO_EMPRESA_POR_MINUTO, permissoesDoParceiro } from './parceiros.regras';
+import { clienteDoParceiro, ehClienteDeParceiro, LIMITE_PARCEIRO_EMPRESA_POR_MINUTO, permissoesDoParceiro, semEsquecidoSemTelefone } from './parceiros.regras';
 import { hashTokenIntegracao } from './token-integracao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -284,7 +284,8 @@ export async function validarLigacaoIntegracao(
     ).situacao === 'suspensa';
   return {
     ...contextoDoToken(l),
-    escopos: escopos.filter((e) => doTeto.includes(e)),
+    // o "cliente esquecido" só com o telefone (a loja pode não ter ligado o telefone, que é opcional)
+    escopos: semEsquecidoSemTelefone(escopos.filter((e) => doTeto.includes(e))),
     via: 'ligacao',
     aplicativo: doToken.aplicativo,
     lerVendasDesde: l.acesso_criado_em as string,

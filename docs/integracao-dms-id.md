@@ -286,7 +286,11 @@ parceiro é recusado (401), também nas rotas do totem.
 
 **O que ele pode:** as permissões da ligação E do token do DMS ID E as do teto da classe (`ESCOPOS_DO_PARCEIRO`) que o
 hub aprovou; as sensíveis (o telefone no pedido e o custo) só na etapa de produção com dado pessoal aprovado — na de
-teste, nunca. A lista do hub nunca passa do teto do código.
+teste, nunca. A lista do hub nunca passa do teto do código. **O "cliente esquecido" (`clientes.anonimizacao.ler`) só vale
+junto com o telefone** (decisão do dono, 25/10/2026, a recomendada): sem o telefone o parceiro nunca recebe o id do
+cliente, e o pedido de esquecer seria só ruído e um sinal das outras lojas da empresa (o cliente é da empresa inteira).
+Vale sobre o que já vale — no teto (a etapa de teste nunca tem o telefone), na porta (a loja pode não ter ligado o
+telefone, que é opcional) e na fila dos avisos (`semEsquecidoSemTelefone`). Os produtos da DMS não mudam.
 
 **O que muda na resposta:** em `GET /integracao/pedidos`, o parceiro recebe só as vendas **confirmadas depois que a
 autorização dele começou** (decisão do dono, 24/10/2026; a autorização contínua — `ler_desde`, seção 11 — ou, sem ela,
@@ -382,7 +386,8 @@ segredo que o aplicativo registra), com o que é do parceiro. Nasce com a mesma 
   acesso E as que o hub aprovou dentro do teto da classe e da etapa — tirar uma permissão é na lista. O aplicativo parado
   pelo client_id (geral ou de aplicativo) fica de fora; a parada de ligação e a de tipo de aviso, como nos produtos da DMS.
 - **A janela (M4) vale para o aviso:** a venda confirmada antes da autorização e o cliente esquecido antes dela não viram
-  aviso (as mesmas expressões da leitura). Quando só há novidade de antes da janela, a posição anda sem mandar nada — e a
+  aviso (as mesmas expressões da leitura). E o cliente esquecido só vira aviso para o parceiro que tem o telefone (seção
+  10), a mesma regra da leitura. Quando só há novidade de antes da janela, a posição anda sem mandar nada — e a
   busca seguinte não varre de novo; havendo as duas, o aviso diz a de dentro e a posição anda até a mais recente.
 - **No envio, de novo:** o aplicativo ainda aprovado (caiu entre a reserva e o envio → volta em 30 s) e o endereço dentro
   de uma base da lista de hoje (saiu → pausa com o motivo, sem contar falha do destino; registrar de novo religa). E o
