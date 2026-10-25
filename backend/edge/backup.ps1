@@ -51,7 +51,9 @@ function Gravar-Resultado($ok, $erro, $arquivo, $bytes) {
       bytes     = $bytes
       erro      = $erro
     }
-    [IO.File]::WriteAllText($marcador, ($o | ConvertTo-Json -Compress), [Text.Encoding]::UTF8)
+    # UTF-8 SEM BOM (ERR-305): com o [Text.Encoding]::UTF8 o arquivo saia com BOM, o JSON.parse do daemon falhava e
+    # a nuvem via "backup falhou" com o backup em dia.
+    [IO.File]::WriteAllText($marcador, ($o | ConvertTo-Json -Compress), (New-Object System.Text.UTF8Encoding($false)))
   } catch { Reg "(aviso) nao consegui gravar $marcador : $($_.Exception.Message)" }
 }
 
