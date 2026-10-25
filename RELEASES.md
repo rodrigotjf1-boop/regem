@@ -12,6 +12,18 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.11)
 
+- **O ícone do servidor não falava com o sistema (ERR-303) e o provisionamento sem nova tentativa (ERR-304) — achados
+  na instalação da 1.30.10 na loja (25/10); PR desta entrega; pede o `.exe` (reinstalar SÓ o servidor):**
+  - o `RegemServidor.exe` força o TLS 1.2. Compilado pelo `csc` sem a marca de versão do .NET, ele oferecia só até o
+    TLS 1.0, o sistema recusava e o ícone dizia "o certificado do sistema deste servidor não é o da loja (reinstale o
+    servidor)" com os 5 serviços de pé. A conexão segura que não abre agora tem mensagem própria (sem "reinstale");
+  - o provisionamento (`/provisionamento/instalar`) tenta de novo até 3 vezes, com conexão nova, quando a conexão cai
+    sem resposta. Antes a instalação parava ("Uma conexão que deveria ser mantida ativa foi fechada pelo servidor"). A
+    resposta da nuvem (escolher a loja, re-autorizar) não se repete;
+  - o `.zip` não troca `edge\bandeja` (copia só os arquivos soltos de `edge\`): o ícone novo só chega reinstalando o
+    servidor pelo `.exe`.
+  - **Conferir na loja depois do `.exe`:** o "R" dourado abre a lista de aparelhos (sem "o sistema deste servidor não
+    responde").
 - **A corrigir no próximo corte** (sem PR ainda): o status do backup que o servidor da loja
   manda à nuvem chega ilegível — o `backup.ps1` grava `ultimo-backup.json` com BOM (`[Text.Encoding]::UTF8`) e o
   daemon faz `JSON.parse` sem tirar o BOM; a nuvem vê "backup falhou" em toda loja desde o #546, mesmo com o backup

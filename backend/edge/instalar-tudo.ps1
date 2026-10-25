@@ -234,6 +234,25 @@ function Resposta-DaNuvem($erro) {
   return [pscustomobject]@{ Status = $status; Mensagem = $msg; Json = $json }
 }
 
+# Provisionamento na nuvem com NOVA TENTATIVA quando a conexao cai SEM resposta (ERR-304). Na loja, em 25/10/2026, com
+# a internet oscilando, o POST caiu ("Uma conexao que deveria ser mantida ativa foi fechada pelo servidor") e a
+# instalacao parou; rodar o instalador de novo deu certo. A nuvem reaproveita o servidor desta maquina (mesmo
+# fingerprint), entao repetir e seguro. Conexao nova a cada tentativa (-DisableKeepAlive). Resposta da nuvem (4xx/5xx)
+# NAO se repete: volta para quem chamou, com o ErrorRecord original (escolher a loja, re-autorizar, senha errada).
+function Provisionar-NaNuvem([string]$Uri, [string]$Corpo, [int]$Tentativas = 3, [int]$EsperaSeg = 5) {
+  for ($t = 1; ; $t++) {
+    try {
+      return Invoke-RestMethod -Method Post -Uri $Uri -ContentType "application/json" -Body $Corpo -TimeoutSec 40 -DisableKeepAlive
+    } catch {
+      # Veio resposta da nuvem? (5.1: WebException.Response; 7: HttpResponseException.Response; queda: nenhuma)
+      $comResposta = $null -ne $_.Exception.Response
+      if ($comResposta -or $t -ge $Tentativas) { throw }
+      Diga ("A conexao com a nuvem caiu ({0}) - tentando de novo em {1} s ({2} de {3})..." -f $_.Exception.Message, ($EsperaSeg * $t), ($t + 1), $Tentativas)
+      Start-Sleep -Seconds ($EsperaSeg * $t)
+    }
+  }
+}
+
 # As ultimas linhas nao vazias de um log, numa linha so (para a mensagem na tela).
 function Ultimas-Linhas($arquivo, $n) {
   try {
@@ -1031,8 +1050,7 @@ if ($Email -and $Senha) {
   $payload = @{ email = $Email; senha = $Senha; fingerprint = $fingerprint }
   if ($UnidadeId) { $payload.unidadeId = $UnidadeId }
   try {
-    $r = Invoke-RestMethod -Method Post -Uri ("{0}/provisionamento/instalar" -f $CloudApi.TrimEnd('/')) `
-      -ContentType "application/json" -Body ($payload | ConvertTo-Json -Compress) -TimeoutSec 40
+    $r = Provisionar-NaNuvem ("{0}/provisionamento/instalar" -f $CloudApi.TrimEnd('/')) ($payload | ConvertTo-Json -Compress)
     $SyncToken = $r.syncToken
     if ($r.unidadeId) { $UnidadeId = $r.unidadeId }
     Diga "Provisionado: sync token recebido e licenca ativada na nuvem."
@@ -1068,8 +1086,7 @@ if ($Email -and $Senha) {
 
       $payload.unidadeId = $UnidadeId
       try {
-        $r = Invoke-RestMethod -Method Post -Uri ("{0}/provisionamento/instalar" -f $CloudApi.TrimEnd('/')) `
-          -ContentType "application/json" -Body ($payload | ConvertTo-Json -Compress) -TimeoutSec 40
+        $r = Provisionar-NaNuvem ("{0}/provisionamento/instalar" -f $CloudApi.TrimEnd('/')) ($payload | ConvertTo-Json -Compress)
         $SyncToken = $r.syncToken
         Diga "Provisionado: sync token recebido e licenca ativada na nuvem."
       } catch {
