@@ -10,7 +10,41 @@
 - **Como cortar (OBRIGATÓRIO):** `powershell -File backend\edge\build-release.ps1 -Versao X.Y.Z` → só compilar no Inno / rodar `publicar.ps1` no **"TUDO OK"** do preflight. Nunca de árvore atrás do `origin/main`, nunca de `regem-edge-dist` reaproveitado.
 - **Publicar `.zip`:** `edge/publicar.ps1 -Versao X.Y.Z` → sobe no Supabase Storage (bucket `edge-updates`, nome exato `regem-edge-X.Y.Z.zip`) → `edge/publicar.ps1 -Versao X.Y.Z -SoAssinar -Url <url>` (assina o MESMO arquivo, v1 + v2 com validade) → cola versão, URL, SHA e as assinaturas no console de distribuição, **começando pelas lojas piloto / percentual baixo**. O console recusa release sem as duas assinaturas válidas.
 
-## Acumulado (NÃO empacotado) — próxima release (1.30.11)
+## Acumulado (NÃO empacotado) — próxima release (1.30.12)
+
+- **Esperando o dono — o Terminal de Ponto no sincronismo (P1b do plano de 25/10):** hoje ele não sobe nem desce, e
+  desde o #737 a reinstalação preserva o banco quando há um. Para sincronizar é preciso:
+  - garantir a sequência do NSR depois de restaurar (as marcações só sobem; o NSR é `max+1` local);
+  - resolver o REP-Software padrão que nasce dos dois lados.
+
+  Pede desenho e migration (Portaria 671).
+- **`desktop/` (Electron ^31, sem suporte, com o Node 20 e um Chromium antigo dentro, e `rejectUnauthorized: false` em
+  `desktop/main.js:35`): NÃO é distribuído** (o instalador abre o Edge/Chrome em modo app; não há build dele nem
+  registro aqui; última mudança em 31/07, #246). Não empacotar como está: se um dia for usado, subir para um Electron
+  com suporte e tirar o `rejectUnauthorized: false`; senão, o dono decide apagar a pasta.
+
+## Última release: `1.30.11` — gerada em 25/10/2026 da `origin/main` `0356f58b`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 94.119.254 bytes, SHA-256 `e4ee92e5b8d3e0b3d0408f22c8eb0248d215ede4d41b99dc036e97cf02edbba1`) e entregue ao dono para reinstalar **SÓ o servidor**; **sem `.zip`** e nada publicado no console
+
+- **Plano do dono de 25/10 ("pode"):** depois da instalação da 1.30.10, corrigir o ícone do servidor e a instalação que
+  parava; reinstalar sem perder pareamento (P1, P2); menos `.exe` (P3); o amarelo só com o caixa aberto; o backup na
+  nuvem. Os PCs clientes não precisam reinstalar.
+- **Corte:** `build-release.ps1 -Versao 1.30.11` na worktree `C:\regem-wt-13011` (junção do `bundle`), o `.iss`
+  restaurado e recarimbado (`carimbar-iss.cjs`), Inno 7.
+- **Provado:**
+  - PREFLIGHT OK (único aviso: o `.iss` carimbado), Node v24.22.1, migrations até a 340, os dois ícones,
+    `ProductVersion` 1.30.11;
+  - no pacote: `marcador-backup.mjs`, `Trocar-Icones`, `Provisionar-NaNuvem`, `FORA_DO_ENVIO_SEGURO` e o
+    `backup.ps1` sem BOM; nenhum `edge/certs` nem `bandeja.key`;
+  - o `RegemServidor.exe` DO PACOTE chega ao certificado num HTTPS do Node (TLS 1.2: `TrustFailure` com um
+    certificado de teste não confiado, e não mais o protocolo);
+  - o daemon do pacote com o Node embutido: `--pendencias` 0.
+- **Entregue** em `OneDrive\Documentos\Regem - release 1.30.11 (25-10)\`, com o `.exe` e o `LEIA-ME.txt`:
+  - só o servidor, com o ícone marcado na última tela;
+  - conferir o "R" dourado com a lista e o "caixa fechado";
+  - os pendentes: IBPT até 31/10, perfis de cupom e o atalho no PC do delivery.
+- **A partir desta versão, os `.zip` trocam os ícones do servidor** (P3).
+
+Mudanças que entraram na 1.30.11:
 
 - **O ícone do servidor não falava com o sistema (ERR-303) e o provisionamento sem nova tentativa (ERR-304) — achados
   na instalação da 1.30.10 na loja (25/10); #734; pede o `.exe` (reinstalar SÓ o servidor):**
@@ -24,7 +58,7 @@
     servidor pelo `.exe`.
   - **Conferir na loja depois do `.exe`:** o "R" dourado abre a lista de aparelhos (sem "o sistema deste servidor não
     responde").
-- **A atualização (`.zip`) troca também os ícones do servidor (P3 do plano do dono de 25/10; PR desta entrega):**
+- **A atualização (`.zip`) troca também os ícones do servidor (P3 do plano do dono de 25/10; #740):**
   - **Como fica:** depois da saúde confirmada, a atualização troca `edge\bandeja` (`RegemServidor.exe`,
     `RegemEstacao.exe`). O ícone aberto é renomeado e o novo entra no lugar; o ícone do servidor percebe a troca (em até
     30 s), abre o novo e se fecha. O `publicar.ps1` reprova o `.zip` sem os dois ícones.
@@ -50,12 +84,10 @@
 
   Vai no `.zip` e no `.exe`: o daemon e o `backup.ps1` são arquivos soltos de `edge\`.
   - **Conferir depois:** no console de distribuição, o backup da loja aparece em dia (com a idade em horas).
-- **`desktop/` (Electron ^31, sem suporte, com o Node 20 e um Chromium antigo dentro, e `rejectUnauthorized: false` em
-  `desktop/main.js:35`): NÃO é distribuído** (o instalador abre o Edge/Chrome em modo app; não há build dele nem
-  registro aqui; última mudança em 31/07, #246). Não empacotar como está: se um dia for usado, subir para um Electron
-  com suporte e tirar o `rejectUnauthorized: false`; senão, o dono decide apagar a pasta.
+- **A reinstalação simulada no CI (P2; #738):** só teste. O daemon e o SyncService de verdade descarregam, apagam e
+  devolvem os 7 tipos de aparelho que sincronizam e as configurações, iguais.
 
-## Última release: `1.30.10` — gerada em 24/10/2026 da `origin/main` `ad8a1501`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 94.097.238 bytes, SHA-256 `01a00351e089563a499cab0fedb7e4e14757cd0b71ebc7a6182ca01e5643111b`) e entregue ao dono; **sem `.zip`** e nada publicado no console
+## Release anterior: `1.30.10` — gerada em 24/10/2026 da `origin/main` `ad8a1501`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 94.097.238 bytes, SHA-256 `01a00351e089563a499cab0fedb7e4e14757cd0b71ebc7a6182ca01e5643111b`) e entregue ao dono; **sem `.zip`** e nada publicado no console
 
 - **Decisão do dono (24/10):** cortar "Depois da parte 2" — um `.exe` só com o ícone do servidor (#726), o pareamento
   sem reinstalar completo (#727, #729) e a TV no sincronismo (#728).
