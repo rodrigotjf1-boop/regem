@@ -328,6 +328,12 @@ try {
 
   # Sucesso.
   Remove-Item -LiteralPath (Join-Path $script:logDir 'update-revertida.txt') -Force -ErrorAction SilentlyContinue
+  # Os icones do servidor (edge\bandeja): antes so mudavam reinstalando (plano do dono de 25/10/2026). Depois da saude
+  # confirmada - a versao nova ja vale; falhar aqui so deixa o icone antigo, nao desfaz nada.
+  try {
+    $nIc = Trocar-Icones (Join-Path $novo 'edge\bandeja') (Join-Path $Raiz 'edge\bandeja')
+    if ($nIc) { Diga "Icones do servidor atualizados: $nIc (o icone aberto se reabre sozinho)." }
+  } catch { Diga "(aviso) nao troquei os icones do servidor: $($_.Exception.Message)" }
   $script:acaoFinal = "Pronto! Nenhuma acao necessaria - os servicos ja reiniciaram. Recarregue a pagina se ela nao atualizar sozinha."
   Prog "ok" 100 'ok'
   Diga "OK! Atualizado para $($script:versaoNova). Versao anterior guardada em $bakDir."

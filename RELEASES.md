@@ -24,8 +24,15 @@
     servidor pelo `.exe`.
   - **Conferir na loja depois do `.exe`:** o "R" dourado abre a lista de aparelhos (sem "o sistema deste servidor não
     responde").
-- **Reinstalar não apaga mais, calado, o equipamento que não sobe (ERR-306; P1 do plano do dono de 25/10; PR desta
-  entrega):** a conferência antes de apagar o banco passa a contar os equipamentos de tipo fora do envio, hoje o
+- **A atualização (`.zip`) troca também os ícones do servidor (P3 do plano do dono de 25/10; PR desta entrega):**
+  - **Como fica:** depois da saúde confirmada, a atualização troca `edge\bandeja` (`RegemServidor.exe`,
+    `RegemEstacao.exe`). O ícone aberto é renomeado e o novo entra no lugar; o ícone do servidor percebe a troca (em até
+    30 s), abre o novo e se fecha. O `publicar.ps1` reprova o `.zip` sem os dois ícones.
+  - **Só vale a partir da atualização SEGUINTE à que trouxer isto** (ERR-253: a tarefa roda o `atualizar.ps1` já
+    instalado). Como a 1.30.11 sai em `.exe`, a partir dela os próximos `.zip` trocam os ícones sem reinstalar.
+  - O ícone da estação, no PC do servidor, passa a valer no próximo login (não se reabre sozinho). Nos PCs clientes nada
+    muda: o `.zip` só atualiza o servidor.
+- **Reinstalar não apaga mais, calado, o equipamento que não sobe (ERR-306; P1 do plano do dono de 25/10; #737):** a conferência antes de apagar o banco passa a contar os equipamentos de tipo fora do envio, hoje o
   Terminal de Ponto, inclusive o "REP-Software" que o servidor cria sozinho. Com um deles, a reinstalação PRESERVA o
   banco (o NSR do ponto continua), como já fazia com a NFC-e. O servidor e o totem seguem liberados (voltam pela nuvem).
   Vai no `.zip` (o daemon é arquivo solto de `edge\`) e no `.exe` (é o `--descarregar` do instalador que consulta).
