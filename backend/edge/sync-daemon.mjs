@@ -2345,11 +2345,22 @@ const FILA_DE_SAIDA = new Set([
 ]);
 const FILA_DE_SAIDA_PENDENTE = "status in ('pendente', 'enviando', 'aguardando_integracao')";
 
+// Tabela que SOBE SÓ EM PARTE (o `filtro` do PUSH_TABLES — hoje, o equipamento por tipo): as linhas FORA do filtro não
+// sobem. Só não travam o apagamento as que voltam da nuvem ou são, por desenho, só desta máquina (abaixo). Antes a tabela
+// inteira contava como "sobe" e o equipamento de tipo fora da lista — o Terminal de Ponto, a que as marcações e o NSR
+// apontam — sumia calado numa reinstalação (ERR-306; plano do dono de 25/10/2026: reinstalar não perde pareamento).
+const FORA_DO_ENVIO_SEGURO = {
+  // servidor_local: o próprio servidor (a nuvem o devolve pelo fingerprint, no provisionamento); totem: nasce na nuvem
+  // (distribuição) e desce no pull (sync-config).
+  equipamento: "tipo in ('servidor_local','totem')",
+};
+
 // Tabelas com dado da loja que NÃO sobem nem voltam. Devolve [{ tabela, linhas }].
 // `contar=false` troca o count(*) por "existe alguma linha?" — é o modo usado no sinal de
 // saúde, que roda o tempo todo; o count completo fica para a hora de decidir apagar.
 async function pendenciasLocais(contar = true) {
   const sobe = new Set(PUSH_TABLES.map((t) => t.tabela));
+  const filtroDoEnvio = new Map(PUSH_TABLES.filter((t) => t.filtro).map((t) => [t.tabela, t.filtro]));
   const r = await pool.query(
     `select table_name from information_schema.columns
       where table_schema = current_schema() and column_name = 'tenant_id'
@@ -2359,21 +2370,31 @@ async function pendenciasLocais(contar = true) {
   for (const row of r.rows) {
     const t = row.table_name;
     if (!/^[a-z_][a-z0-9_]*$/.test(t)) continue; // nome fora do padrão: não interpolar
-    if (
-      sobe.has(t) || VOLTA_DA_NUVEM.has(t) || SO_NUVEM.has(t) ||
-      DESCARTAVEL.has(t) || LEGADO_SEM_USO.has(t)
-    ) continue;
-    // Fila de saída: só conta o que ainda não saiu (o histórico entregue não prende o banco).
-    const filtro = FILA_DE_SAIDA.has(t) ? ` where ${FILA_DE_SAIDA_PENDENTE}` : '';
+    let filtro = '';
+    let rotulo = t;
+    if (sobe.has(t)) {
+      // Sobe inteira: o --descarregar acabou de enviar. Sobe em parte: conta o que ficou de fora (constantes do daemon,
+      // não entrada de usuário).
+      const parcial = filtroDoEnvio.get(t);
+      if (!parcial) continue;
+      const seguro = FORA_DO_ENVIO_SEGURO[t];
+      filtro = ` where not (${parcial})${seguro ? ` and not (${seguro})` : ''}`;
+      rotulo = `${t} (fora do envio)`;
+    } else if (VOLTA_DA_NUVEM.has(t) || SO_NUVEM.has(t) || DESCARTAVEL.has(t) || LEGADO_SEM_USO.has(t)) {
+      continue;
+    } else if (FILA_DE_SAIDA.has(t)) {
+      // Fila de saída: só conta o que ainda não saiu (o histórico entregue não prende o banco).
+      filtro = ` where ${FILA_DE_SAIDA_PENDENTE}`;
+    }
     try {
       const c = contar
         ? await pool.query(`select count(*)::int as n from "${t}"${filtro}`)
         : await pool.query(`select 1 as n from "${t}"${filtro} limit 1`);
       const n = contar ? (c.rows[0]?.n ?? 0) : c.rowCount;
-      if (n > 0) pendentes.push({ tabela: t, linhas: contar ? n : -2 }); // -2 = "tem dado", sem contar
+      if (n > 0) pendentes.push({ tabela: rotulo, linhas: contar ? n : -2 }); // -2 = "tem dado", sem contar
     } catch (e) {
       // Não conseguir contar é motivo para BLOQUEAR, não para liberar.
-      pendentes.push({ tabela: t, linhas: -1, erro: e.message });
+      pendentes.push({ tabela: rotulo, linhas: -1, erro: e.message });
     }
   }
   return pendentes;

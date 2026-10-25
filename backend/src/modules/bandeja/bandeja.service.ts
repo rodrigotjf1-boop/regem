@@ -107,7 +107,16 @@ export class BandejaService implements OnModuleInit {
       impressoras = new Map((await this.producao.estadoImpressoras(loja.tenantId, loja.unidadeId)).map((x: any) => [String(x.id), x]));
     }
     const nomes = new Map(todos.map((e) => [String(e.id), String(e.nome ?? '')]));
-    const aparelhos = lista.map((e) => this.aparelho(e, { agoraMs, versaoServidor, impressoras, nomes }));
+    // Os terminais de caixa com o caixa (financeiro) ABERTO (decisão do dono, 25/10/2026): o terminal que para com o
+    // caixa aberto é problema no meio da venda (amarelo); com o caixa fechado, desligar no fim do dia é normal.
+    const comCaixaAberto = new Set<string>();
+    if (lista.some((e) => e.tipo === 'pdv')) {
+      const r: any = await this.db.execute(
+        sql`select distinct terminal_id as id from caixa_sessao where tenant_id = ${loja.tenantId}::uuid and status = 'aberta' and terminal_id is not null`,
+      );
+      for (const x of r.rows ?? r) comCaixaAberto.add(String(x.id));
+    }
+    const aparelhos = lista.map((e) => this.aparelho(e, { agoraMs, versaoServidor, impressoras, nomes, comCaixaAberto }));
     const ativos = aparelhos.filter((a) => a.situacao !== 'revogado');
     return {
       agora: new Date(agoraMs).toISOString(),
@@ -138,7 +147,10 @@ export class BandejaService implements OnModuleInit {
     };
   }
 
-  private aparelho(e: any, ctx: { agoraMs: number; versaoServidor: string | null; impressoras: Map<string, any>; nomes: Map<string, string> }) {
+  private aparelho(
+    e: any,
+    ctx: { agoraMs: number; versaoServidor: string | null; impressoras: Map<string, any>; nomes: Map<string, string>; comCaixaAberto: Set<string> },
+  ) {
     const { agoraMs } = ctx;
     const fem = FEMININOS.includes(e.tipo);
     const conectadoTxt = fem ? 'conectada agora' : 'conectado agora';
@@ -176,12 +188,18 @@ export class BandejaService implements OnModuleInit {
       } else if (idade < CONECTADO_MS) {
         situacao = 'conectado';
         linha = e.tipo === 'totem' ? `em uso · última chamada ${haQuanto(idade)}` : conectadoTxt;
-      } else if (idade < CAIU_MS && e.tipo !== 'totem') {
+      } else if (e.tipo === 'pdv' && ctx.comCaixaAberto.has(String(e.id))) {
+        // Caixa aberto e o terminal parado: amarelo enquanto o caixa estiver aberto (sem o limite de 1 h).
+        situacao = 'caiu';
+        linha = `parou de responder ${haQuanto(idade)} · caixa aberto`;
+      } else if (idade < CAIU_MS && e.tipo !== 'totem' && e.tipo !== 'pdv') {
         situacao = 'caiu';
         linha = `parou de responder ${haQuanto(idade)}`;
       } else {
         situacao = 'desligado';
         linha = e.tipo === 'totem' ? `última chamada ${haQuanto(idade)}` : `visto pela última vez ${haQuanto(idade)}`;
+        // O terminal de caixa desligado com o caixa fechado (o fim do dia): normal, sem alerta.
+        if (e.tipo === 'pdv') linha = `caixa fechado · ${linha}`;
       }
       if (ip) linha += situacao === 'conectado' ? ` · ${ip}` : ` · último IP ${ip}`;
       if (e.tipo === 'salao' && e.pdvMainId && ctx.nomes.get(String(e.pdvMainId))) linha += ` · ligado ao ${ctx.nomes.get(String(e.pdvMainId))}`;

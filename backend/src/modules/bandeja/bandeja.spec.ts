@@ -248,6 +248,7 @@ descrever('ícone do servidor — o que ele mostra e o que faz (Postgres)', () =
     if (!pool) return;
     await q(`delete from sync_state where chave = 'nuvem_contato'`).catch(() => undefined);
     await q('delete from estacao_status where tenant_id = $1', [T]).catch(() => undefined);
+    await q('delete from caixa_sessao where tenant_id = $1', [T]).catch(() => undefined);
     await q('update equipamento set estacao_id = null, pdv_main_id = null where tenant_id = $1', [T]).catch(() => undefined);
     await q('delete from equipamento where tenant_id = $1', [T]).catch(() => undefined);
     await q('delete from unidade where tenant_id = $1', [T]).catch(() => undefined);
@@ -292,6 +293,29 @@ descrever('ícone do servidor — o que ele mostra e o que faz (Postgres)', () =
     (presenca as any).mapa.delete(ids.kds);
     await q(`update equipamento set ultimo_ping = $2 where id = $1`, [ids.kds, new Date(Date.now() - CAIU_MS - 60_000)]);
     expect((await de()).por('kds')).toMatchObject({ situacao: 'desligado', linha: 'visto pela última vez há 1 h', alerta: false });
+  });
+
+  // Decisão do dono (25/10/2026): o "caixa" do ícone é o TERMINAL; o amarelo vale só com o caixa FINANCEIRO aberto nele
+  // (parado no meio da venda). Caixa fechado e terminal desligado no fim do dia é normal.
+  it('o terminal de caixa só acende o alerta com o caixa (financeiro) ABERTO nele; com o caixa fechado, desligar é normal', async () => {
+    (presenca as any).mapa.delete(ids.pdv);
+    presenca.notar({ id: ids.pdv, tenantId: T, tipo: 'pdv', ip: '192.168.0.21', endereco: 'regem.local', maquina: null, versao: '1.30.9' }, minutos(-8));
+    expect((await de()).por('pdv')).toMatchObject({ situacao: 'desligado', linha: 'caixa fechado · visto pela última vez há 8 min · último IP 192.168.0.21', alerta: false });
+    // O caixa de OUTRO terminal aberto não conta.
+    await q(`insert into caixa_sessao (tenant_id, unidade_id, terminal_id, status) values ($1, $2, $3, 'aberta')`, [T, LOJA, ids.gogem]);
+    expect((await de()).por('pdv').alerta).toBe(false);
+    // Abre o caixa DESTE terminal: o mesmo silêncio vira alerta.
+    await q(`insert into caixa_sessao (tenant_id, unidade_id, terminal_id, status) values ($1, $2, $3, 'aberta')`, [T, LOJA, ids.pdv]);
+    const aberto = await de();
+    expect(aberto.por('pdv')).toMatchObject({ situacao: 'caiu', linha: 'parou de responder há 8 min · caixa aberto · último IP 192.168.0.21', alerta: true });
+    expect(aberto.r.resumo.alerta).toBe(true);
+    // Com o caixa aberto, segue amarelo depois de 1 h (o caixa aberto e parado continua sendo problema).
+    (presenca as any).mapa.delete(ids.pdv);
+    await q(`update equipamento set ultimo_uso_em = $2 where id = $1`, [ids.pdv, new Date(Date.now() - CAIU_MS - 60_000)]);
+    expect((await de()).por('pdv')).toMatchObject({ situacao: 'caiu', linha: 'parou de responder há 1 h · caixa aberto', alerta: true });
+    // Fechou o caixa: desligado, sem alerta.
+    await q(`update caixa_sessao set status = 'fechada', fechada_em = now() where terminal_id = $1`, [ids.pdv]);
+    expect((await de()).por('pdv')).toMatchObject({ situacao: 'desligado', linha: 'caixa fechado · visto pela última vez há 1 h', alerta: false });
   });
 
   it('a nuvem fora: "sem sincronizar com a nuvem há N min"', async () => {
