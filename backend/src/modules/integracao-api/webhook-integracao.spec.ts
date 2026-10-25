@@ -1,11 +1,14 @@
 import { createHmac, randomBytes } from 'node:crypto';
 import {
   assinarAviso,
+  basesDoParceiro,
   basesDoWebhook,
   cabecalhosDoAviso,
   chaveDoSegredo,
   corpoDoAviso,
   desfechoDoEnvio,
+  dominiosProibidosDoAmbiente,
+  enderecoDoParceiro,
   enderecoPermitido,
   EVENTO_DO_RECURSO,
   EVENTO_DO_RETRATO,
@@ -114,6 +117,81 @@ describe('para onde o Regem pode avisar', () => {
     expect(enderecoPermitido({ href: `${BASE}${ID}` }, [BASE])).toBeNull();
     expect(enderecoPermitido(`${BASE}${'a'.repeat(600)}`, [BASE])).toBeNull();
     expect(enderecoPermitido(`${BASE}${ID}`, [])).toBeNull();
+  });
+});
+
+describe('para onde o aplicativo de PARCEIRO pode receber aviso (F4, parte F)', () => {
+  const BASE_P = 'https://avisos.parceiro.exemplo/regem/';
+
+  it('as bases são as da lista do hub que passam nas regras do Regem; as outras ficam de fora', () => {
+    expect(
+      basesDoParceiro({
+        bases_dos_avisos: [
+          BASE_P,
+          'http://avisos.parceiro.exemplo/regem/', // sem TLS
+          'https://avisos.parceiro.exemplo:8443/regem/', // outra porta
+          'https://203.0.113.9/regem/', // IP
+          'https://avisos.parceiro.exemplo/regem', // sem barra no fim
+          'https://avisos.parceiro.exemplo/regem/?x=1', // com pergunta
+          'https://localhost/regem/', // localhost, sempre como produção
+          'https://caixa.local/regem/', // rede local
+          'https://api.dmsregem.com/v1/', // domínio da DMS
+          'https://hub.dmstecnologias.com/x/', // subdomínio da DMS
+          42,
+        ],
+      }),
+    ).toEqual([BASE_P]);
+    expect(basesDoParceiro({ bases_dos_avisos: [] })).toEqual([]);
+    expect(basesDoParceiro({})).toEqual([]);
+    // os serviços do próprio Regem (do ambiente) também ficam de fora
+    expect(basesDoParceiro({ bases_dos_avisos: [BASE_P, 'https://projeto.supabase.exemplo/f/'] }, ['projeto.supabase.exemplo'])).toEqual([BASE_P]);
+  });
+
+  it('os serviços do próprio Regem saem do ambiente: só o nome do servidor; vazio ou torto fica de fora', () => {
+    expect(
+      dominiosProibidosDoAmbiente({
+        APP_URL: 'https://app.exemplo-regem.test',
+        HUB_URL: 'https://hub.exemplo-dms.test/api',
+        SUPABASE_URL: 'https://Projeto.Supabase.Exemplo',
+        PUBLIC_API_URL: 'https://app.exemplo-regem.test/api', // repetido
+        CARDAPIO_PUBLIC_URL: '',
+        OSRM_URL: 'isto não é endereço',
+        OUTRA_COISA: 'https://nao-entra.test',
+        INTEGRACAO_LIAME_WEBHOOK_URLS: 'https://um.liame-teste.test/v1/, https://dois.liame-teste.test/v1/',
+      }).sort(),
+    ).toEqual(['app.exemplo-regem.test', 'dois.liame-teste.test', 'hub.exemplo-dms.test', 'projeto.supabase.exemplo', 'um.liame-teste.test']);
+    expect(dominiosProibidosDoAmbiente({})).toEqual([]);
+  });
+
+  it('o endereço é a base + UM trecho; normalizado; fora da base, com outro trecho ou sem base, recusa', () => {
+    expect(enderecoDoParceiro(`${BASE_P}lig_01-a`, [BASE_P])).toBe(`${BASE_P}lig_01-a`);
+    expect(enderecoDoParceiro('https://AVISOS.Parceiro.Exemplo/regem/lig1', [BASE_P])).toBe(`${BASE_P}lig1`);
+    expect(enderecoDoParceiro(`${BASE_P}${'a'.repeat(64)}`, [BASE_P])).toBe(`${BASE_P}${'a'.repeat(64)}`);
+    for (const fora of [
+      `${BASE_P}${'a'.repeat(65)}`,
+      `${BASE_P}a/b`,
+      `${BASE_P}`,
+      `${BASE_P}lig1?x=1`,
+      `${BASE_P}lig1#x`,
+      'https://outro.exemplo/regem/lig1',
+      'https://avisos.parceiro.exemplo/outra/lig1',
+      'https://avisos.parceiro.exemplo:444/regem/lig1',
+      'http://avisos.parceiro.exemplo/regem/lig1',
+      `${BASE_P}..%2Flig1`,
+      null,
+      42,
+    ]) {
+      expect([fora, enderecoDoParceiro(fora, [BASE_P])]).toEqual([fora, null]);
+    }
+    expect(enderecoDoParceiro(`${BASE_P}lig1`, [])).toBeNull();
+    // a base com acento no caminho: a entrada cabe nos 500, o normalizado (com %C3%A7) não — recusa em vez de estourar a trava
+    const comAcento = `https://avisos.parceiro.exemplo/${'ç'.repeat(100)}/`;
+    expect(basesDoParceiro({ bases_dos_avisos: [comAcento] })).toEqual([comAcento]);
+    expect(`${comAcento}lig1`.length).toBeLessThan(500);
+    expect(enderecoDoParceiro(`${comAcento}lig1`, [comAcento])).toBeNull();
+    expect(enderecoDoParceiro(`https://avisos.parceiro.exemplo/${'ç'.repeat(10)}/lig1`, [`https://avisos.parceiro.exemplo/${'ç'.repeat(10)}/`])).toBe(
+      `https://avisos.parceiro.exemplo/${'%C3%A7'.repeat(10)}/lig1`,
+    );
   });
 });
 

@@ -38,6 +38,9 @@ import {
 import { gerarTokenIntegracao } from './token-integracao';
 import { Autorizador, IntegracaoTokenService } from './integracao-token.service';
 import type { IntegracaoCtxData } from './integracao-token.guard';
+import { POLITICA_LIGACAO } from '../../dms/integracao-dms';
+import { PERMISSAO_NA_TELA } from './autorizacao-clique.regras';
+import { ehClienteDeParceiro, FRASES_DO_PARCEIRO } from './parceiros.regras';
 import { ProblemaException } from './problema';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -389,15 +392,31 @@ export class AutorizacaoLojaService {
              t.autorizado_por_nome as "autorizadoPor", t.autorizado_via as via, t.criado_em as "criadoEm",
              t.ultimo_uso_em as "ultimoUsoEm", t.revogado_em as "revogadoEm", t.revogado_por,
              a.id as "autorizacaoId", a.criado_em as "autorizadoEm", a.autorizado_por_nome as "autorizadoNoClique",
-             a.texto_versao as "textoVersao", a.texto, a.conta_que_pede as "contaQuePede", a.outra_empresa as "outraEmpresa"
+             a.texto_versao as "textoVersao", a.texto, a.conta_que_pede as "contaQuePede", a.outra_empresa as "outraEmpresa",
+             (lg.id is not null and lg.revogado_em is null
+               and coalesce(lg.ultimo_uso_em, lg.criado_em) <= now() - make_interval(days => ${POLITICA_LIGACAO.suspensaoParadaDias}))
+               as "semUso"
         from integracao_token_loja t
         left join unidade u on u.id = t.unidade_id
         left join integracao_autorizacao a on a.id = t.autorizacao_id and a.texto is not null
+        left join integracao_ligacao lg on lg.id = t.id and lg.tenant_id = t.tenant_id
        where t.tenant_id = ${user.tenantId}::uuid
        order by (t.revogado_em is null) desc, t.revogado_em desc nulls first,
                 (u.tipo = 'matriz') desc nulls last, u.nome, t.criado_em desc
        limit 500`);
-    const historicos = await this.historicos(user.tenantId, linhas);
+    // O aplicativo de PARCEIRO (R1b): o nome e a empresa saem do texto que o presidente leu (a prova do clique, de onde
+    // todo acesso de parceiro vem), nunca da lista do hub (que some com o hub fora ou o aplicativo retirado).
+    // A prova MAIS RECENTE de cada parceiro (o nome e a empresa podem ter mudado de uma autorização para outra).
+    const doParceiro = new Map<string, { rotulo: string; empresa: string | null; cnpj: string | null; em: number }>();
+    for (const l of linhas) {
+      const app = ehClienteDeParceiro(l.cliente) ? l.texto?.aplicativo : null;
+      if (!app?.nome) continue;
+      const em = l.autorizadoEm ? new Date(l.autorizadoEm).getTime() : 0;
+      if ((doParceiro.get(l.cliente)?.em ?? -1) >= em) continue;
+      doParceiro.set(l.cliente, { rotulo: String(app.nome), empresa: app.empresa ? String(app.empresa) : null, cnpj: app.cnpj ? String(app.cnpj) : null, em });
+    }
+    const rotuloDe = (cliente: string) => doParceiro.get(cliente)?.rotulo ?? CLIENTES_INTEGRACAO[cliente]?.rotulo ?? (ehClienteDeParceiro(cliente) ? 'Aplicativo de parceiro' : cliente);
+    const historicos = await this.historicos(user.tenantId, linhas, rotuloDe);
     const porCliente = new Map<string, any[]>();
     for (const l of linhas) {
       const lista = porCliente.get(l.cliente) ?? [];
@@ -407,6 +426,8 @@ export class AutorizacaoLojaService {
       lista.push({
         id: l.id,
         ativo,
+        // A ligação de parceiro parada há 90 dias (Padrão §3): a porta responde 403 até a loja autorizar de novo.
+        ...(ativo && ehClienteDeParceiro(l.cliente) && l.semUso ? { suspenso: true } : {}),
         lojaId: l.lojaId ?? null,
         lojaNome: l.lojaNome ?? null,
         escopos: l.escopos ?? [],
@@ -431,14 +452,30 @@ export class AutorizacaoLojaService {
       });
     }
     return {
-      aplicativos: [...porCliente.entries()].map(([cliente, acessos]) => ({
-        cliente,
-        rotulo: CLIENTES_INTEGRACAO[cliente]?.rotulo ?? cliente,
-        descricao: DESCRICAO_CLIENTE[cliente] ?? null,
-        abrangencia: CLIENTES_INTEGRACAO[cliente]?.abrangencia ?? 'loja',
-        ativos: acessos.filter((a) => a.ativo).length,
-        acessos,
-      })),
+      aplicativos: [...porCliente.entries()].map(([cliente, acessos]) => {
+        const parceiro = ehClienteDeParceiro(cliente) ? (doParceiro.get(cliente) ?? { rotulo: rotuloDe(cliente), empresa: null, cnpj: null }) : null;
+        return {
+          cliente,
+          rotulo: rotuloDe(cliente),
+          descricao: parceiro ? (parceiro.empresa ? `Aplicativo da ${parceiro.empresa}, verificada pela DMS` : null) : (DESCRICAO_CLIENTE[cliente] ?? null),
+          abrangencia: CLIENTES_INTEGRACAO[cliente]?.abrangencia ?? 'loja',
+          // o suspenso (parceiro parado há 90 dias) não lê nada: não conta como ativo
+          ativos: acessos.filter((a) => a.ativo && !a.suspenso).length,
+          acessos,
+          // O parceiro: a classe (o selo da página) e as frases do que ele recebe (sem os textos do Liame da página).
+          ...(parceiro
+            ? {
+                classe: 'parceiro' as const,
+                frases: Object.fromEntries(
+                  [...new Set(acessos.flatMap((x: any) => x.escopos as string[]))].map((id) => {
+                    const f = FRASES_DO_PARCEIRO[id as EscopoIntegracao] ?? PERMISSAO_NA_TELA[id as EscopoIntegracao];
+                    return [id, { rotulo: f?.rotulo ?? ROTULO_ESCOPO[id as EscopoIntegracao] ?? id, texto: f?.frase ?? '' }];
+                  }),
+                ),
+              }
+            : {}),
+        };
+      }),
     };
   }
 
@@ -446,7 +483,11 @@ export class AutorizacaoLojaService {
    * O histórico de cada acesso, da auditoria (uma consulta para a lista inteira): quem autorizou, quando a ligação foi
    * entregue, trocada ou desligada, e por quem. Frases para o presidente, nunca o detalhe cru.
    */
-  private async historicos(tenantId: string, linhas: any[]): Promise<Map<string, { em: string; texto: string }[]>> {
+  private async historicos(
+    tenantId: string,
+    linhas: any[],
+    rotuloDe: (cliente: string) => string = (c) => CLIENTES_INTEGRACAO[c]?.rotulo ?? 'aplicativo',
+  ): Promise<Map<string, { em: string; texto: string }[]>> {
     const porAcesso = new Map<string, { em: string; texto: string }[]>();
     const doAcesso = new Map<string, string[]>(); // id na auditoria → acessos
     for (const l of linhas) {
@@ -467,7 +508,7 @@ export class AutorizacaoLojaService {
       return porAcesso;
     }
     for (const ev of eventos) {
-      const texto = this.fraseDoHistorico(ev.acao, ev.detalhe ?? {});
+      const texto = this.fraseDoHistorico(ev.acao, ev.detalhe ?? {}, rotuloDe);
       if (!texto) continue;
       for (const acesso of doAcesso.get(ev.entidade_id) ?? []) {
         const lista = porAcesso.get(acesso) ?? [];
@@ -478,8 +519,8 @@ export class AutorizacaoLojaService {
     return porAcesso;
   }
 
-  private fraseDoHistorico(acao: string, d: any): string | null {
-    const app = CLIENTES_INTEGRACAO[d.cliente]?.rotulo ?? 'aplicativo';
+  private fraseDoHistorico(acao: string, d: any, rotuloDe: (cliente: string) => string): string | null {
+    const app = CLIENTES_INTEGRACAO[d.cliente]?.rotulo ?? (ehClienteDeParceiro(d.cliente) ? rotuloDe(d.cliente) : 'aplicativo');
     switch (acao) {
       case 'integracao.autorizacao_concedida':
         return d.textoVersao
@@ -539,7 +580,9 @@ export class AutorizacaoLojaService {
 
   /** `POST /aplicativos-conectados/revogar-todos`: desliga todos os acessos de um aplicativo. */
   async revogarTodos(user: AuthUser, cliente: unknown) {
-    if (!ehClienteIntegracao(cliente)) throw new BadRequestException('Aplicativo desconhecido.');
+    // O aplicativo de parceiro também (R1b): o `cliente` dele tem a forma `parceiro_` + 24 hex; o filtro pela empresa de
+    // quem pede segue abaixo — nunca revoga acesso de outra empresa.
+    if (!ehClienteIntegracao(cliente) && !ehClienteDeParceiro(cliente)) throw new BadRequestException('Aplicativo desconhecido.');
     const feitos = await this.rows(sql`
       update integracao_token_loja
          set revogado_em = now(), revogado_por = ${`loja:${user.nome ?? 'presidente'}`},

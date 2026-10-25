@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   GoneException,
   HttpException,
@@ -13,7 +14,7 @@ import {
 } from '@nestjs/common';
 import { sql, SQL } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { gerarChave, problemaDaParada } from '../../dms/integracao-dms';
+import { gerarChave, POLITICA_LIGACAO, problemaDaParada, type AplicativoAprovado } from '../../dms/integracao-dms';
 import { conferirSenhaDoColaborador } from '../../common/senha-do-colaborador';
 import type { AuthUser } from '../../auth/auth-user';
 import { AuditoriaService } from '../auditoria/auditoria.service';
@@ -28,13 +29,12 @@ import {
   MAX_ERROS_SENHA_AUTORIZACAO,
   MINUTOS_TRAVA_AUTORIZACAO,
   PEDIDO_INVALIDO,
-  PERMISSAO_NA_TELA,
   SO_O_PRESIDENTE,
   VALIDADE_DO_PEDIDO_MS,
-  VERSAO_DO_TEXTO,
   conferirPedido,
   emissorDoRegem,
   formatoDoPedido,
+  fraseDe,
   fraseDaSenhaErrada,
   fraseDaTrava,
   gerarPedido,
@@ -61,6 +61,14 @@ import type { EscopoIntegracao } from './escopos';
 import { HubDmsService } from './hub-dms.service';
 import type { IntegracaoCtxData } from './integracao-token.guard';
 import { IntegracaoTokenService, type Autorizador } from './integracao-token.service';
+import {
+  aplicativoDoClique,
+  aplicativoNoHub,
+  clienteDoParceiro,
+  parceiroNoClique,
+  permissoesDoParceiro,
+  type ParceiroNoClique,
+} from './parceiros.regras';
 import { ProblemaException } from './problema';
 import { gerarTokenIntegracao } from './token-integracao';
 
@@ -88,7 +96,35 @@ export type SituacaoDaTela =
   | { situacao: 'pausado'; aplicativo: { cliente: string; nome: string; inicio: string } }
   | { situacao: 'nao_presidente'; aplicativo: { cliente: string; nome: string; inicio: string }; pessoa: { nome: string | null; nivel: string } }
   | { situacao: 'travada'; aplicativo: { cliente: string; nome: string; inicio: string }; pessoa: { nome: string; nivel: string }; minutos: number }
+  /** O aplicativo de parceiro em teste já chegou às N lojas, e esta empresa não tem nenhuma com ele (R1b). */
+  | { situacao: 'limite'; aplicativo: { cliente: string; nome: string; inicio: string }; pessoa: { nome: string; nivel: string }; maximo: number; frase: string }
   | { situacao: 'escolha'; aplicativo: { cliente: string; nome: string; inicio: string }; pessoa: { nome: string; nivel: string }; tela: TelaDaAutorizacao };
+
+/** O aplicativo do clique: o da DMS (`parceiro` nulo) ou o de parceiro aprovado, com o que a lista do hub diz dele. */
+type AppDoClique = {
+  cliente: string;
+  clientId: string;
+  app: AplicativoDoClique;
+  parceiro: (ParceiroNoClique & { aprovado: AplicativoAprovado }) | null;
+};
+
+/** A frase das 3 lojas da etapa de teste (na tela, ao autorizar e na troca). */
+const fraseDoLimite = (maximo: number) =>
+  `Este aplicativo está em teste na DMS e já chegou ao limite de ${maximo === 1 ? '1 loja' : `${maximo} lojas`}, somando as empresas. ` +
+  'Fale com quem fez o aplicativo.';
+
+/** A troca do parceiro que passaria do teto de lojas da etapa de teste (desfaz a transação; quem chama responde 400). */
+class LimiteDeLojas extends Error {
+  constructor(
+    readonly maximo: number,
+    readonly emUso: number,
+  ) {
+    super('limite de lojas do aplicativo de parceiro');
+  }
+}
+
+/** O acesso de parceiro que ainda conta: a ligação viva e usada nos últimos 90 dias (a suspensa não segura vaga). */
+const LIGACAO_VIVA = sql`l.revogado_em is null and coalesce(l.ultimo_uso_em, l.criado_em) > now() - make_interval(days => ${POLITICA_LIGACAO.suspensaoParadaDias})`;
 
 /** A loja e a ligação entregues na troca: o segredo da ligação aparece só aqui. */
 export type LojaLigada = Record<string, unknown> & {
@@ -154,22 +190,33 @@ export class AutorizacaoCliqueService {
     );
   }
 
-  /** O cliente cadastrado para o client_id do DMS ID, se ele usa o clique. */
-  private aplicativoDe(clientId: unknown): { cliente: string; app: AplicativoDoClique } | null {
+  /**
+   * O aplicativo do client_id do DMS ID, se ele usa o clique. Primeiro "é da DMS?" (`DMS_ID_APLICATIVOS`): o da DMS só
+   * usa o clique se estiver em `APLICATIVOS_DO_CLIQUE`, e NUNCA vira parceiro (o Farol, o GoGeM e o RegemCast ficam
+   * fora, mesmo se o hub os listar). Depois o aplicativo de PARCEIRO aprovado (F4, parte F, R1b; só com
+   * `PARCEIROS_LIGADOS`, o hub e a parada lida): o `cliente` dele é `clienteDoParceiro`.
+   */
+  private aplicativoDe(clientId: unknown): AppDoClique | null {
     if (typeof clientId !== 'string' || !clientId) return null;
     const aplicativos = this.dmsId.aplicativos;
     const cliente = Object.keys(aplicativos).find((c) => aplicativos[c] === clientId);
-    if (!cliente || !Object.prototype.hasOwnProperty.call(APLICATIVOS_DO_CLIQUE, cliente)) return null;
-    return { cliente, app: APLICATIVOS_DO_CLIQUE[cliente] };
+    if (cliente) {
+      if (!Object.prototype.hasOwnProperty.call(APLICATIVOS_DO_CLIQUE, cliente)) return null;
+      return { cliente, clientId, app: APLICATIVOS_DO_CLIQUE[cliente], parceiro: null };
+    }
+    const aprovado = this.hub.parceiroAprovado(clientId);
+    const p = aprovado ? parceiroNoClique(aprovado) : null;
+    if (!aprovado || !p) return null;
+    return { cliente: clienteDoParceiro(clientId), clientId, app: aplicativoDoClique(p), parceiro: { ...p, aprovado } };
   }
 
-  private enderecosDeVolta(cliente: string): string[] {
-    return clienteAutorizacao(cliente)?.redirectUris ?? [];
+  private enderecosDeVolta(a: AppDoClique): string[] {
+    return a.parceiro ? a.parceiro.enderecos : (clienteAutorizacao(a.cliente)?.redirectUris ?? []);
   }
 
-  /** A chave própria desligada ou o aplicativo na lista de parada do hub. */
-  private parado(cliente: string, ferramenta: string): boolean {
-    return !this.hub.aceitaIntegracoes || this.hub.parado({ aplicativo: cliente, ferramenta }) !== null;
+  /** A chave própria desligada ou o aplicativo na lista de parada do hub (o parceiro, pelo client_id). */
+  private parado(a: AppDoClique, ferramenta: string): boolean {
+    return !this.hub.aceitaIntegracoes || this.hub.parado({ aplicativo: aplicativoNoHub(a.cliente, a.clientId), ferramenta }) !== null;
   }
 
   /** Os parâmetros da volta, com o `iss` (RFC 9207) quando a via do DMS ID está ligada (é ela que dá o endereço). */
@@ -215,23 +262,32 @@ export class AutorizacaoCliqueService {
     return this.tokens.autorizador(user.tenantId, user.colaboradorId);
   }
 
-  /** A empresa e as lojas, com o que cada uma já liberou para este aplicativo (o acesso ativo de hoje). */
-  private async empresaELojas(tenantId: string, cliente: string, executor: any = this.db) {
+  /**
+   * A empresa e as lojas, com o que cada uma já liberou para este aplicativo (o acesso ativo de hoje). Para o PARCEIRO
+   * (R1b): só conta o acesso com a ligação viva e usada nos últimos 90 dias (o suspenso recomeça do zero, como na troca),
+   * "desde" é o início da janela de leitura (a autorização contínua) e o "já liberado" é cortado pelo teto de hoje.
+   */
+  private async empresaELojas(tenantId: string, a: Pick<AppDoClique, 'cliente' | 'parceiro'>, executor: any = this.db) {
+    const cliente = a.cliente;
     const [empresa] = await this.rows(sql`select nome, cnpj from empresa where id = ${tenantId}::uuid and deleted_at is null`, executor);
+    const doAcessoAtivo = a.parceiro
+      ? sql`from integracao_token_loja t
+             join integracao_ligacao l on l.id = t.id and l.tenant_id = t.tenant_id and ${LIGACAO_VIVA}`
+      : sql`from integracao_token_loja t`;
     const lojas = await this.rows(
       sql`
       select u.id, u.nome, u.tipo, coalesce(nullif(u.timezone, ''), 'America/Sao_Paulo') as fuso,
              d.desde, coalesce(s.escopos, '{}') as escopos
         from unidade u
         left join lateral (
-          select min(t.criado_em) as desde
-            from integracao_token_loja t
+          select min(${a.parceiro ? sql`coalesce(t.ler_desde, t.criado_em)` : sql`t.criado_em`}) as desde
+            ${doAcessoAtivo}
            where t.tenant_id = u.tenant_id and t.unidade_id = u.id and t.cliente = ${cliente}
              and t.revogado_em is null and (t.expira_em is null or t.expira_em > now())
         ) d on true
         left join lateral (
           select array_agg(distinct e.escopo) as escopos
-            from integracao_token_loja t
+            ${doAcessoAtivo}
             cross join lateral unnest(t.escopos) as e(escopo)
            where t.tenant_id = u.tenant_id and t.unidade_id = u.id and t.cliente = ${cliente}
              and t.revogado_em is null and (t.expira_em is null or t.expira_em > now())
@@ -240,6 +296,7 @@ export class AutorizacaoCliqueService {
        order by (u.tipo = 'matriz') desc, u.nome`,
       executor,
     );
+    const valem = a.parceiro ? new Set<string>(permissoesDoParceiro(a.parceiro.aprovado)) : null;
     return {
       empresa: empresa ? { nome: empresa.nome as string, cnpj: (empresa.cnpj as string | null) ?? null } : null,
       lojas: lojas.map((l) => ({
@@ -248,21 +305,56 @@ export class AutorizacaoCliqueService {
         tipo: (l.tipo as string | null) ?? null,
         fuso: l.fuso as string,
         conectadaDesde: l.desde ? new Date(l.desde) : null,
-        jaLiberado: (l.escopos ?? []) as string[],
+        jaLiberado: ((l.escopos ?? []) as string[]).filter((e) => !valem || valem.has(e)),
       })),
     };
   }
 
-  private montar(cliente: string, app: AplicativoDoClique, pedido: PedidoGuardado, dados: Awaited<ReturnType<AutorizacaoCliqueService['empresaELojas']>>, quem: Autorizador) {
+  /**
+   * As lojas que o parceiro já usa em OUTRAS empresas (para as vagas da etapa de teste na tela e ao autorizar): os acessos
+   * vivos e as autorizações de lá ainda não trocadas. As desta empresa ficam de fora: marcar de novo uma loja que ele já
+   * lê troca o acesso, não soma; e a autorização pendente desta empresa é a própria tentativa de antes.
+   */
+  private async lojasEmOutrasEmpresas(tenantId: string, cliente: string, executor: any = this.db): Promise<number> {
+    const [r] = await this.rows(
+      sql`
+      select count(*)::int as n from (
+        select t.tenant_id, t.unidade_id
+          from integracao_token_loja t
+          join integracao_ligacao l on l.id = t.id and l.tenant_id = t.tenant_id and ${LIGACAO_VIVA}
+          join unidade u on u.id = t.unidade_id and u.tenant_id = t.tenant_id and u.deleted_at is null
+          join empresa e on e.id = t.tenant_id and e.deleted_at is null
+         where t.cliente = ${cliente} and t.revogado_em is null and (t.expira_em is null or t.expira_em > now())
+           and t.tenant_id <> ${tenantId}::uuid
+        union
+        select a.tenant_id, x.loja
+          from integracao_autorizacao a cross join lateral unnest(a.lojas) as x(loja)
+         where a.cliente = ${cliente} and a.usado_em is null and a.expira_em > now() and a.texto is not null
+           and a.tenant_id <> ${tenantId}::uuid
+      ) z`,
+      executor,
+    );
+    return Number(r?.n ?? 0);
+  }
+
+  private montar(
+    a: AppDoClique,
+    pedido: PedidoGuardado,
+    dados: Awaited<ReturnType<AutorizacaoCliqueService['empresaELojas']>>,
+    quem: Autorizador,
+    emOutras: number | null = null,
+  ) {
     const cfg = this.config;
+    const maximo = a.parceiro?.lojas ?? null;
     return montarTela({
-      cliente,
-      app,
+      cliente: a.cliente,
+      app: a.app,
       dms: { empresa: cfg.empresa, cnpj: cfg.cnpj },
       pedido,
       empresa: dados.empresa ?? { nome: '', cnpj: null },
       lojas: dados.lojas,
       verFinanceiro: quem.verFinanceiro,
+      lojasDoTeste: maximo !== null && emOutras !== null ? { maximo, emOutras } : null,
     });
   }
 
@@ -275,13 +367,13 @@ export class AutorizacaoCliqueService {
   async criarPedido(doToken: TokenDmsIdDoRegem, corpo: unknown): Promise<{ request_uri: string; expires_in: number }> {
     const a = this.aplicativoDe(doToken.aplicativo);
     if (!a) throw new ProblemaException(401, 'cliente-invalido', APLICATIVO_SEM_CLIQUE);
-    anotarChamada({ aplicativo: a.cliente });
-    if (this.parado(a.cliente, 'POST /integracao/autorizacao/pedido')) throw problemaDaParada();
+    anotarChamada({ aplicativo: aplicativoNoHub(a.cliente, a.clientId) });
+    if (this.parado(a, 'POST /integracao/autorizacao/pedido')) throw problemaDaParada();
     const c = conferirPedido(
       corpo !== null && typeof corpo === 'object' ? (corpo as Record<string, unknown>) : {},
       a.app,
       doToken.aplicativo,
-      this.enderecosDeVolta(a.cliente),
+      this.enderecosDeVolta(a),
     );
     if ('erro' in c) throw new ProblemaException(400, 'parametro-invalido', c.erro);
 
@@ -309,8 +401,8 @@ export class AutorizacaoCliqueService {
   async trocarCodigo(doToken: TokenDmsIdDoRegem, corpo: unknown): Promise<{ lojas: LojaLigada[] }> {
     const a = this.aplicativoDe(doToken.aplicativo);
     if (!a) throw new ProblemaException(401, 'cliente-invalido', APLICATIVO_SEM_CLIQUE);
-    anotarChamada({ aplicativo: a.cliente });
-    if (this.parado(a.cliente, 'POST /integracao/autorizacao/token')) throw problemaDaParada();
+    anotarChamada({ aplicativo: aplicativoNoHub(a.cliente, a.clientId) });
+    if (this.parado(a, 'POST /integracao/autorizacao/token')) throw problemaDaParada();
     const b = (corpo !== null && typeof corpo === 'object' ? corpo : {}) as Record<string, unknown>;
     const recusar = (motivo: string): never => {
       this.log.warn(`troca do código do clique recusada (${a.cliente}): ${motivo}`);
@@ -335,7 +427,12 @@ export class AutorizacaoCliqueService {
     if (!verificadorConfere(b.code_verifier, aut.desafio)) return recusar('o verificador do PKCE não confere');
 
     const tenantId = aut.tenant_id as string;
-    const liberadas = naOrdemDoCatalogo(aut.escopos ?? []);
+    // O parceiro: o que foi liberado e o que o acesso antigo tinha, cortados pelo teto de HOJE (a lista do hub pode ter
+    // mudado desde o clique); o produto da DMS, como sempre.
+    const valem = a.parceiro ? new Set<string>(permissoesDoParceiro(a.parceiro.aprovado)) : null;
+    const cortar = (lista: readonly string[]) => (valem ? lista.filter((e) => valem.has(e)) : [...lista]);
+    const liberadas = naOrdemDoCatalogo(cortar(aut.escopos ?? []));
+    if (!liberadas.length) return recusar('nada do que foi liberado cabe hoje no teto do aplicativo');
     const quem = await this.tokens.autorizador(tenantId, aut.autorizado_por);
     if (!quem?.presidente) return recusar('quem autorizou deixou de ser presidente');
     if (liberadas.includes('custos.ler') && !quem.verFinanceiro) return recusar('quem autorizou perdeu "Ver valores em R$"');
@@ -347,9 +444,54 @@ export class AutorizacaoCliqueService {
     if (lojas.length !== ids.length) return recusar('loja apagada depois da autorização');
 
     const evidencia = `autorizado pelo presidente com a senha, na autorização por clique (${aut.id})`;
-    let feito: { antigos: any[]; novos: { loja: { id: string; nome: string }; id: string; prefixo: string; chave: string; escopos: EscopoIntegracao[]; segredoEm: string; antes: EscopoIntegracao[] | null }[] };
+    const maximo = a.parceiro?.lojas ?? null;
+    let feito: {
+      antigos: any[];
+      novos: { loja: { id: string; nome: string }; id: string; prefixo: string; chave: string; escopos: EscopoIntegracao[]; segredoEm: string; antes: EscopoIntegracao[] | null }[];
+      levados: { token_id: string; de: string; unidade_id: string | null; url: string }[];
+    };
     try {
       feito = await this.db.transaction(async (tx: any) => {
+        // O PARCEIRO na etapa de teste (F4-12): até N lojas por aplicativo, somando as empresas. A conta que vale é esta,
+        // dentro da transação e sob a trava de TRANSAÇÃO do aplicativo (V10 proíbe só a de sessão; é a técnica da V24):
+        // duas trocas de empresas diferentes não passam juntas do teto. Contam os acessos vivos (a ligação suspensa não
+        // segura vaga), fora as lojas desta troca, que são trocadas — e TODAS as lojas desta troca entram.
+        if (a.parceiro && maximo !== null) {
+          await tx.execute(sql`select pg_advisory_xact_lock(hashtext('parceiro-lojas'), hashtext(${a.clientId}))`);
+          const [c] = await this.rows(
+            sql`
+            select count(*)::int as n from (
+              select distinct t.tenant_id, t.unidade_id
+                from integracao_token_loja t
+                join integracao_ligacao l on l.id = t.id and l.tenant_id = t.tenant_id and ${LIGACAO_VIVA}
+                join unidade u on u.id = t.unidade_id and u.tenant_id = t.tenant_id and u.deleted_at is null
+                join empresa e on e.id = t.tenant_id and e.deleted_at is null
+               where t.cliente = ${a.cliente} and t.revogado_em is null and (t.expira_em is null or t.expira_em > now())
+                 and not (t.tenant_id = ${tenantId}::uuid and t.unidade_id in (${this.lista(ids)}))
+            ) z`,
+            tx,
+          );
+          if (Number(c?.n ?? 0) + ids.length > maximo) throw new LimiteDeLojas(maximo, Number(c?.n ?? 0));
+        }
+        // O parceiro: o início da janela de leitura de cada loja. Herda o do acesso que esta troca substitui, se ele
+        // estava vivo (a ligação usada nos últimos 90 dias); o suspenso (ou nenhum) começa agora — e não leva as
+        // permissões de antes.
+        const janelas = new Map<string, { desde: string; vivo: boolean }>();
+        if (a.parceiro) {
+          const velhos = await this.rows(
+            sql`
+            select t.unidade_id,
+                   to_char(min(coalesce(t.ler_desde, t.criado_em)) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as desde,
+                   bool_or(l.id is not null and ${LIGACAO_VIVA}) as vivo
+              from integracao_token_loja t
+              left join integracao_ligacao l on l.id = t.id and l.tenant_id = t.tenant_id
+             where t.tenant_id = ${tenantId}::uuid and t.cliente = ${a.cliente} and t.revogado_em is null
+               and t.unidade_id in (${this.lista(ids)})
+             group by t.unidade_id`,
+            tx,
+          );
+          for (const v of velhos) janelas.set(v.unidade_id, { desde: v.desde, vivo: Boolean(v.vivo) });
+        }
         // O acesso ativo de cada loja com este aplicativo (o do console, o da página de 01/10 ou um clique anterior) é
         // trocado: para de valer na mesma transação em que o novo nasce. O que ele liberava continua (soma).
         const antigos = await this.rows(
@@ -364,11 +506,22 @@ export class AutorizacaoCliqueService {
         );
         const novos: (typeof feito)['novos'] = [];
         for (const l of lojas) {
-          const doAntigo = antigos.filter((t) => t.unidade_id === l.id).flatMap((t) => (t.escopos ?? []) as string[]);
+          const janela = janelas.get(l.id) ?? null;
+          const doAntigo =
+            a.parceiro && !janela?.vivo ? [] : cortar(antigos.filter((t) => t.unidade_id === l.id).flatMap((t) => (t.escopos ?? []) as string[]));
           const escopos = naOrdemDoCatalogo([...doAntigo, ...liberadas]);
           const t = gerarTokenIntegracao(); // o token não sai daqui: a loja passa a ser lida pela ligação
           const [linha] = await this.rows(
-            sql`
+            a.parceiro
+              ? sql`
+            insert into integracao_token_loja
+              (tenant_id, unidade_id, cliente, prefixo, token_hash, escopos, autorizado_por, autorizado_por_nome,
+               autorizado_via, evidencia, autorizacao_id, ler_desde)
+            values (${tenantId}::uuid, ${l.id}::uuid, ${a.cliente}, ${t.prefixo}, ${t.hash}, ${`{${escopos.join(',')}}`}::text[],
+                    ${quem.id}::uuid, ${quem.nome}, 'autorizacao_loja', ${evidencia}, ${aut.id}::uuid,
+                    coalesce(${janela?.vivo ? janela.desde : null}::timestamptz, now()))
+            returning id`
+              : sql`
             insert into integracao_token_loja
               (tenant_id, unidade_id, cliente, prefixo, token_hash, escopos, autorizado_por, autorizado_por_nome,
                autorizado_via, evidencia, autorizacao_id)
@@ -392,16 +545,36 @@ export class AutorizacaoCliqueService {
             chave: lg.chave,
             escopos,
             segredoEm: new Date(lig.segredo_em).toISOString(),
-            antes: antigos.some((t) => t.unidade_id === l.id) ? naOrdemDoCatalogo(doAntigo) : null,
+            // O acesso suspenso do parceiro não conta como "já tinha": a loja recebe o e-mail de autorização nova.
+            antes: antigos.some((t) => t.unidade_id === l.id) && (!a.parceiro || janela?.vivo) ? naOrdemDoCatalogo(doAntigo) : null,
           });
         }
-        return { antigos, novos };
+        // O aviso (webhook) do parceiro acompanha a autorização contínua (F4 parte F, R2): o acesso VIVO trocado nesta loja
+        // tinha um aviso registrado → ele passa para o acesso novo. O suspenso (que recomeça a janela) não leva.
+        const levados = a.parceiro ? await this.levarAvisosDoParceiro(tx, tenantId, a.cliente, antigos, novos) : [];
+        return { antigos, novos, levados };
       });
     } catch (erro: any) {
       // A corrida que só o índice único decide (duas trocas da mesma loja ao mesmo tempo): fica UM acesso ativo.
       if (erro?.code === '23505' || erro?.cause?.code === '23505') {
         this.log.warn(`troca do código do clique (${a.cliente}): outra troca da mesma loja terminou antes`);
         throw new ProblemaException(400, 'autorizacao-invalida', CORRIDA_DA_TROCA);
+      }
+      // O parceiro passou do teto de lojas na troca (duas empresas autorizaram juntas): nada nasceu, o código fica gasto e
+      // a empresa fica com o registro (a autorização dela consta como concedida; esta linha diz por que não virou acesso).
+      if (erro instanceof LimiteDeLojas) {
+        this.log.warn(`troca do código do clique (${a.cliente}): o parceiro chegou ao limite de ${erro.maximo} lojas`);
+        await this.auditoria.registrar({
+          tenantId,
+          atorTipo: 'integracao',
+          tipo: 'integracao',
+          acao: 'integracao.troca_recusada',
+          origem: 'integracao',
+          entidadeTipo: 'integracao_autorizacao',
+          entidadeId: aut.id,
+          detalhe: { cliente: a.cliente, motivo: 'limite_de_lojas', maximo: erro.maximo, emUso: erro.emUso, pedidas: ids.length },
+        });
+        throw new ProblemaException(400, 'autorizacao-invalida', fraseDoLimite(erro.maximo));
       }
       throw erro;
     }
@@ -434,6 +607,28 @@ export class AutorizacaoCliqueService {
       });
     }
 
+    // O aviso (webhook) do parceiro que passou para o acesso novo (na transação da troca): a auditoria, só com a origem.
+    for (const lv of feito.levados) {
+      let origem = '';
+      try {
+        origem = new URL(lv.url).origin;
+      } catch {
+        origem = '';
+      }
+      await this.auditoria.registrar({
+        tenantId,
+        unidadeId: lv.unidade_id,
+        atorTipo: 'integracao',
+        tipo: 'integracao',
+        acao: 'integracao.webhook_mantido',
+        origem: 'integracao',
+        entidadeTipo: 'integracao_token',
+        entidadeId: lv.token_id,
+        detalhe: { cliente: a.cliente, url: origem, de: lv.de, via: 'clique', autorizacao: aut.id },
+      });
+    }
+    if (feito.levados.length) this.log.log(`troca do clique (${a.cliente}): ${feito.levados.length} aviso(s) registrado(s) passaram para o acesso novo`);
+
     // O aviso aos presidentes, depois da troca: a ligação só existe agora. Nunca rejeita.
     void avisarAutorizacaoPorClique(this.db, {
       tenantId,
@@ -459,6 +654,52 @@ export class AutorizacaoCliqueService {
       saida.push({ ...(await this.tokens.dadosDaLoja(ctx)), loja_id: n.loja.id, ligacao: n.chave, prefixo: n.prefixo, permissoes: n.escopos, segredo_em: n.segredoEm });
     }
     return { lojas: saida };
+  }
+
+  /**
+   * Leva o aviso registrado do acesso de parceiro trocado para o acesso novo da mesma loja (o mesmo endereço e segredo, a
+   * posição, as falhas e a pausa), só quando o acesso trocado estava VIVO (a mesma condição que herda o `ler_desde` e as
+   * permissões: `antes` preenchido). Dentro da transação da troca (a limpeza não apaga a linha velha no meio), num ponto de
+   * salvamento: se falhar, só a cópia volta atrás — a troca segue, e o parceiro registra o aviso de novo. Devolve o que foi
+   * levado (para a auditoria, depois do commit). A base do endereço é conferida de novo a cada envio.
+   */
+  private async levarAvisosDoParceiro(
+    tx: any,
+    tenantId: string,
+    cliente: string,
+    antigos: any[],
+    novos: { loja: { id: string }; id: string; antes: EscopoIntegracao[] | null }[],
+  ): Promise<{ token_id: string; de: string; unidade_id: string | null; url: string }[]> {
+    const pares = novos
+      .filter((n) => n.antes !== null)
+      .flatMap((n) => antigos.filter((t) => t.unidade_id === n.loja.id).map((t) => sql`(${t.id}::uuid, ${n.id}::uuid)`));
+    if (!pares.length) return [];
+    try {
+      return await tx.transaction(async (sp: any) => {
+        const r: any = await sp.execute(sql`
+          insert into integracao_webhook
+            (token_id, tenant_id, unidade_id, cliente, url, segredo_cifrado, criado_em, registrado_em, avisado_ate,
+             proxima_verificacao_em, falhas_seguidas, primeira_falha_em, ultimo_envio_em, ultimo_status_http, ultimo_erro,
+             entregues, pausado_em, motivo_pausa)
+          select distinct on (m.novo)
+                 m.novo, w.tenant_id, w.unidade_id, w.cliente, w.url, w.segredo_cifrado, w.criado_em, w.registrado_em, w.avisado_ate,
+                 least(w.proxima_verificacao_em, now()), w.falhas_seguidas, w.primeira_falha_em, w.ultimo_envio_em,
+                 w.ultimo_status_http, w.ultimo_erro, w.entregues, w.pausado_em, w.motivo_pausa
+            from (values ${sql.join(pares, sql`, `)}) as m(velho, novo)
+            join integracao_webhook w on w.token_id = m.velho
+           where w.tenant_id = ${tenantId}::uuid and w.cliente = ${cliente}
+           order by m.novo, w.registrado_em desc
+          on conflict (token_id) do nothing
+          returning token_id::text as token_id, unidade_id::text as unidade_id, url`);
+        const levados = (r?.rows ?? r ?? []) as { token_id: string; unidade_id: string | null; url: string }[];
+        return levados.map((x) => ({ ...x, de: String(antigos.find((t) => t.unidade_id === x.unidade_id)?.id ?? '') }));
+      });
+    } catch (e: any) {
+      this.log.warn(
+        `troca do clique (${cliente}): o aviso registrado não passou para o acesso novo (o parceiro registra de novo): ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e}`,
+      );
+      return [];
+    }
   }
 
   /**
@@ -505,7 +746,7 @@ export class AutorizacaoCliqueService {
     const aplicativo = this.resumoDoApp(a.cliente, a.app);
     const pedido = await this.lerPedido(a.cliente, q.client_id, q?.request_uri);
     if (!pedido) return { situacao: 'invalido', aplicativo };
-    if (this.parado(a.cliente, 'GET /integracoes/autorizacao')) return { situacao: 'pausado', aplicativo };
+    if (this.parado(a, 'GET /integracoes/autorizacao')) return { situacao: 'pausado', aplicativo };
     const quem = await this.quemAutoriza(user);
     if (!quem?.presidente) return { situacao: 'nao_presidente', aplicativo, pessoa: { nome: quem?.nome ?? user.nome ?? null, nivel: user.categoria } };
     const pessoa = { nome: quem.nome, nivel: user.categoria };
@@ -513,8 +754,19 @@ export class AutorizacaoCliqueService {
       select travada_ate from integracao_autorizacao_trava
        where colaborador_id = ${quem.id}::uuid and travada_ate > now()`);
     if (trava) return { situacao: 'travada', aplicativo, pessoa, minutos: minutosDaTrava(new Date(trava.travada_ate)) };
-    const dados = await this.empresaELojas(user.tenantId, a.cliente);
-    return { situacao: 'escolha', aplicativo, pessoa, tela: this.montar(a.cliente, a.app, pedido, dados, quem) };
+    const dados = await this.empresaELojas(user.tenantId, a);
+    const maximo = a.parceiro?.lojas ?? null;
+    const emOutras = maximo !== null ? await this.lojasEmOutrasEmpresas(user.tenantId, a.cliente) : null;
+    // As lojas desta empresa que ele já lê contam no teto (a troca as soma às outras). Sem vaga para loja nova e sem
+    // nenhuma ligada aqui — ou já acima do teto (o hub baixou o número) —, não há o que autorizar.
+    const vivasAqui = dados.lojas.filter((l) => l.conectadaDesde).length;
+    if (
+      maximo !== null &&
+      (((emOutras as number) + vivasAqui >= maximo && vivasAqui === 0) || (emOutras as number) + vivasAqui > maximo)
+    ) {
+      return { situacao: 'limite', aplicativo, pessoa, maximo, frase: fraseDoLimite(maximo) };
+    }
+    return { situacao: 'escolha', aplicativo, pessoa, tela: this.montar(a, pedido, dados, quem, emOutras) };
   }
 
   /**
@@ -577,6 +829,8 @@ export class AutorizacaoCliqueService {
       throw new BadRequestException(RECARREGUE);
     }
     if (typeof d.confirmoOutraEmpresa !== 'boolean') throw new BadRequestException(RECARREGUE);
+    // O resumo do texto que a página mostrou (só a tela do parceiro o traz; ausente nos produtos da DMS).
+    if (d.resumo !== undefined && !texto(d.resumo, 100)) throw new BadRequestException(RECARREGUE);
     return {
       clientId: d.clientId as string,
       requestUri: d.requestUri as string,
@@ -584,6 +838,7 @@ export class AutorizacaoCliqueService {
       lojas,
       opcionais: [...new Set(d.opcionais as string[])],
       confirmoOutraEmpresa: d.confirmoOutraEmpresa as boolean,
+      resumo: (d.resumo as string | undefined) ?? null,
     };
   }
 
@@ -596,7 +851,7 @@ export class AutorizacaoCliqueService {
     const d = this.corpoDeAutorizar(dto);
     const a = this.aplicativoDe(d.clientId);
     if (!a) throw new GoneException(PEDIDO_INVALIDO);
-    if (this.parado(a.cliente, 'POST /integracoes/autorizacao')) throw new ServiceUnavailableException(APLICATIVO_PARADO);
+    if (this.parado(a, 'POST /integracoes/autorizacao')) throw new ServiceUnavailableException(APLICATIVO_PARADO);
     const quem = await this.quemAutoriza(user);
     if (!quem) throw new UnauthorizedException('Entre de novo para continuar.');
     if (!quem.presidente) throw new ForbiddenException(SO_O_PRESIDENTE);
@@ -614,17 +869,43 @@ export class AutorizacaoCliqueService {
       const travadas = ligadas.filter((o) => a.app.financeiras.includes(o)) as EscopoIntegracao[];
       if (travadas.length && !quem.verFinanceiro) {
         throw new BadRequestException(
-          `Seu perfil não tem "Ver valores em R$": ${(PERMISSAO_NA_TELA[travadas[0]]?.naFrase ?? travadas[0])} não pode ser liberado.`,
+          `Seu perfil não tem "Ver valores em R$": ${(fraseDe(a.app, travadas[0])?.naFrase ?? travadas[0])} não pode ser liberado.`,
         );
       }
-      const dados = await this.empresaELojas(user.tenantId, a.cliente, tx);
+      const dados = await this.empresaELojas(user.tenantId, a, tx);
       const marcadas = dados.lojas.filter((l) => d.lojas.includes(l.id));
       if (marcadas.length !== d.lojas.length) throw new BadRequestException('Loja não encontrada nesta empresa.');
-      const tela = this.montar(a.cliente, a.app, pedido, dados, quem);
-      if (tela.contaQuePede.outraEmpresa && d.confirmoOutraEmpresa !== true) {
+      const maximo = a.parceiro?.lojas ?? null;
+      const emOutras = maximo !== null ? await this.lojasEmOutrasEmpresas(user.tenantId, a.cliente, tx) : null;
+      const tela = this.montar(a, pedido, dados, quem, emOutras);
+      // O parceiro: o texto que o presidente leu é o desta tela? A lista do hub pode ter mudado entre abrir e clicar
+      // (o nome, a empresa, o "para que serve", as permissões) — a prova tem de ser o que ele viu.
+      if (a.parceiro && tela.resumo !== d.resumo) {
+        throw new ConflictException('O texto desta autorização mudou desde que a página abriu. Recarregue e confira de novo.');
+      }
+      // As vagas da etapa de teste: as que ele já usa em outras empresas mais, aqui, as que ele já lê E as marcadas (a loja
+      // ligada marcada de novo é trocada, não soma). A conta que vale de verdade é a da troca, sob trava; esta dá a frase
+      // certa à loja antes de a autorização ser gravada.
+      if (maximo !== null) {
+        const vivas = dados.lojas.filter((l) => l.conectadaDesde).map((l) => l.id);
+        const aqui = new Set([...vivas, ...marcadas.map((l) => l.id)]);
+        if ((emOutras as number) + aqui.size > maximo) {
+          const novas = Math.max(0, maximo - (emOutras as number) - vivas.length);
+          throw new BadRequestException(
+            novas === 0
+              ? fraseDoLimite(maximo)
+              : `Este aplicativo está em teste na DMS e pode ler até ${maximo} lojas no total, somando as empresas: aqui, só ${novas === 1 ? 'mais 1 loja' : `mais ${novas} lojas`}.`,
+          );
+        }
+      }
+      // A confirmação vale pela TELA: o parceiro a tem sempre; o produto da DMS, quando a conta é de outra empresa.
+      if (tela.confirmacao && d.confirmoOutraEmpresa !== true) {
         throw new BadRequestException('Marque a confirmação para ligar a conta de outra empresa.');
       }
       const escopos = naOrdemDoCatalogo([...pedido.necessarias, ...ligadas]);
+      // O pedido só com opcionais (o modo "mais" pedindo só a permissão nova) e todas desligadas: nada a autorizar (o
+      // acesso não nasce sem permissão — antes, o `check` da tabela derrubava isto num 500).
+      if (!escopos.length) throw new BadRequestException('Nada foi ligado: ligue ao menos uma permissão para autorizar.');
       const desligadas = pedido.opcionais.filter((o) => !ligadas.includes(o));
       const texto = textoGuardado(tela, { lojas: d.lojas, ligadas, confirmouOutraEmpresa: d.confirmoOutraEmpresa });
       const [nova] = await this.rows(
@@ -635,13 +916,13 @@ export class AutorizacaoCliqueService {
         values (${user.tenantId}::uuid, ${a.cliente}, ${gerado.hash}, ${pedido.desafio}, ${pedido.redirectUri},
                 ${`{${d.lojas.join(',')}}`}::uuid[], ${`{${escopos.join(',')}}`}::text[], ${quem.id}::uuid, ${quem.nome},
                 now() + interval '10 minutes', ${pedido.id}::uuid, ${JSON.stringify(pedido.contaQuePede)}::jsonb,
-                ${tela.contaQuePede.outraEmpresa}, ${`{${desligadas.join(',')}}`}::text[], ${VERSAO_DO_TEXTO},
+                ${tela.confirmacao !== null}, ${`{${desligadas.join(',')}}`}::text[], ${tela.versao},
                 ${JSON.stringify(texto)}::jsonb)
         returning id`,
         tx,
       );
       await tx.execute(sql`update integracao_pedido set usado_em = now() where id = ${pedido.id}::uuid`);
-      return { id: nova.id as string, pedido, escopos, desligadas, outra: tela.contaQuePede.outraEmpresa, lojas: marcadas.map((l) => l.nome) };
+      return { id: nova.id as string, pedido, escopos, desligadas, outra: tela.confirmacao !== null, versao: tela.versao, lojas: marcadas.map((l) => l.nome) };
     });
 
     await this.auditoria.registrar({
@@ -660,7 +941,8 @@ export class AutorizacaoCliqueService {
         escopos: r.escopos,
         opcionaisDesligados: r.desligadas,
         outraEmpresa: r.outra,
-        textoVersao: VERSAO_DO_TEXTO,
+        textoVersao: r.versao,
+        ...(a.parceiro ? { classe: 'parceiro' } : {}),
         autorizadoPor: quem.nome,
         ...(origem.ip ? { ip: origem.ip } : {}),
         ...(origem.navegador ? { navegador: origem.navegador.slice(0, 300) } : {}),

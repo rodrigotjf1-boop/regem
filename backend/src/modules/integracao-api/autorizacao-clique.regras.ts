@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'crypto';
 import { ESCOPOS_INTEGRACAO, type EscopoIntegracao } from './escopos';
+import type { FraseDaPermissao } from './parceiros.regras';
 
 // A AUTORIZAÇÃO POR CLIQUE do Regem (Hub DMS, F3, parte C; Padrão DMS §3) — as peças sem banco. O contrato é o da B1
 // do RegemCast (os mesmos campos, as mesmas frases para quem programa o aplicativo e o mesmo `iss` na volta), para o
@@ -10,6 +11,11 @@ import { ESCOPOS_INTEGRACAO, type EscopoIntegracao } from './escopos';
 
 /** Sobe a cada mudança de uma frase que o presidente lê: a prova guarda a versão do texto que ele viu. */
 export const VERSAO_DO_TEXTO = 1;
+/**
+ * A versão do texto do APLICATIVO DE PARCEIRO (F4, parte F, R1b): outro texto (a empresa conferida, a confirmação
+ * sempre, a janela de leitura), com a numeração própria. A prova diz de que classe é (`classe: 'parceiro'`).
+ */
+export const VERSAO_DO_TEXTO_PARCEIRO = 1;
 export const MAX_ERROS_SENHA_AUTORIZACAO = 5;
 export const MINUTOS_TRAVA_AUTORIZACAO = 15;
 export const VALIDADE_DO_PEDIDO_MS = 10 * 60_000;
@@ -107,7 +113,21 @@ export type AplicativoDoClique = {
   naoPode: readonly { rotulo: string; frase: string }[];
   /** O mesmo, numa frase, no e-mail aos presidentes. */
   naoPodeNoEmail: string;
+  /**
+   * Só o APLICATIVO DE PARCEIRO (F4, parte F, R1b): a empresa conferida pela DMS, o "para que serve" nas palavras dele,
+   * as frases próprias de permissão (`FRASES_DO_PARCEIRO`) e as lojas que ele pode ter. Ausente nos produtos da DMS.
+   */
+  parceiro?: {
+    empresa: { razaoSocial: string; cnpj: string };
+    paraQueServe: string;
+    frases: Partial<Record<EscopoIntegracao, FraseDaPermissao>>;
+    lojas: number | null;
+  };
 };
+
+/** A frase da permissão para este aplicativo: a própria do parceiro, quando tem; senão a do catálogo do clique. */
+export const fraseDe = (app: Pick<AplicativoDoClique, 'parceiro'>, id: EscopoIntegracao): FraseDaPermissao | undefined =>
+  app.parceiro?.frases[id] ?? PERMISSAO_NA_TELA[id];
 
 /** Os aplicativos que usam a autorização por clique. Só o Liame (F3-1): o Farol segue na página de 01/10 até a F6. */
 export const APLICATIVOS_DO_CLIQUE: Record<string, AplicativoDoClique> = {

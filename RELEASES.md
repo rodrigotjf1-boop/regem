@@ -154,6 +154,18 @@ Mudanças que entraram na 1.30.9:
   dias, a janela das vendas e a cópia do pacote e do kit 0.9.0. Só nuvem (a API de integração não sobe no servidor da
   loja; a captura da origem no cardápio só ganhou `cliente = 'liame'`, que já era o único caso): vai no `.zip` do corte
   sem efeito na loja; não pede `.exe`.
+- **A autorização por clique do aplicativo de parceiro (R1b, 24/10; Hub DMS, F4 parte F; mig 340 só nuvem; nasce
+  desligada):** o clique do parceiro (a tela com a empresa conferida, a confirmação sempre, a janela no "não pode", o
+  resumo do texto lido), as 3 lojas da etapa de teste na troca sob trava, a janela que atravessa a re-autorização
+  (`ler_desde`), Aplicativos conectados e os e-mails do parceiro. Só nuvem (a tela de autorização por clique e a API de
+  integração não rodam no servidor da loja; a mig 340 é `@cloud-only`): vai no `.zip` do corte sem efeito na loja; não
+  pede `.exe`.
+- **Os avisos (webhooks) do aplicativo de parceiro (R2, 25/10; Hub DMS, F4 parte F; sem migration, depende da 340; nasce
+  desligado):** o registro pelas bases aprovadas pela DMS, o job próprio do parceiro com a janela, as permissões pela lista
+  do hub, a ligação viva e o disjuntor por servidor, o envio seguro (`common/envio-seguro.ts`) e o aviso que acompanha a
+  troca do clique; de carona, a fila dos avisos dos produtos da DMS confere a loja e a empresa vivas (ERR-302). Só nuvem
+  (o módulo da API de integração não sobe no servidor da loja e o job se guarda com `ehServidorLocal`): vai no `.zip` do
+  corte sem efeito na loja; não pede `.exe`.
 - **🔴 Node do instalador com a correção do boletim do Node de 21/10/2026 (Brotli, CVE-2026-111497, alta, execução
   remota; e o nome do certificado quando o destino é IP, CVE-2026-106069/105483/106072 — o caso da estação e do PC
   cliente falando com o servidor por IP com `regem.local`; e as autoridades da eMudhra):** o servidor da loja e todo PC

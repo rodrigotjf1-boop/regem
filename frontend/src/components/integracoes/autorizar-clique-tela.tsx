@@ -9,7 +9,7 @@ import { guardarVoltaAutorizacao, limparVoltaAutorizacao } from '@/lib/volta-aut
 import { Button } from '@/components/ui/button';
 import { AutorizarCliqueFormulario, type Escolha } from './autorizar-clique-formulario';
 import { AutorizarMoldura, CartaoCurto, Disco, ParDeSelos } from './autorizar-moldura';
-import { dentroDeOutroAplicativo, listaNaFrase, type AppResumo, type Pessoa, type SituacaoDaTela, type TelaDaAutorizacao } from './clique-tipos';
+import { dentroDeOutroAplicativo, ehParceiro, listaNaFrase, type AppResumo, type Pessoa, type SituacaoDaTela, type TelaDaAutorizacao } from './clique-tipos';
 import { NIVEL, plural } from './textos';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -23,6 +23,7 @@ type Estado =
   | { fase: 'pausado'; aplicativo: AppResumo }
   | { fase: 'nao_presidente'; aplicativo: AppResumo; pessoa: Pessoa }
   | { fase: 'travada'; aplicativo: AppResumo; pessoa: Pessoa; minutos: number }
+  | { fase: 'limite'; aplicativo: AppResumo; pessoa: Pessoa; frase: string }
   | { fase: 'escolha'; aplicativo: AppResumo; pessoa: Pessoa; tela: TelaDaAutorizacao; enviando: boolean; erro: string | null; erroSenha: string | null; erroConfirmacao: boolean }
   | { fase: 'voltando'; aplicativo: AppResumo; titulo: string; texto: string; ok: boolean; destino: string; empresa: string | null; quem: string | null };
 
@@ -95,6 +96,7 @@ export function AutorizarCliqueTela() {
       else if (s.situacao === 'pausado') setEstado({ fase: 'pausado', aplicativo: s.aplicativo });
       else if (s.situacao === 'nao_presidente') setEstado({ fase: 'nao_presidente', aplicativo: s.aplicativo, pessoa: s.pessoa });
       else if (s.situacao === 'travada') setEstado({ fase: 'travada', aplicativo: s.aplicativo, pessoa: s.pessoa, minutos: s.minutos });
+      else if (s.situacao === 'limite') setEstado({ fase: 'limite', aplicativo: s.aplicativo, pessoa: s.pessoa, frase: s.frase });
       else setEstado({ fase: 'indisponivel' });
     } catch (e) {
       const status = e instanceof ApiError ? e.status : -1;
@@ -124,6 +126,8 @@ export function AutorizarCliqueTela() {
         lojas: escolha.lojas,
         opcionais: escolha.opcionais,
         confirmoOutraEmpresa: escolha.confirmoOutraEmpresa,
+        // A tela do aplicativo de parceiro traz o resumo do texto mostrado: o servidor confere que é o mesmo.
+        ...(e.tela.resumo ? { resumo: e.tela.resumo } : {}),
       });
       const app = e.aplicativo.nome;
       const mais = e.tela.modo === 'mais';
@@ -149,6 +153,11 @@ export function AutorizarCliqueTela() {
       if (status === 410) return setEstado({ fase: 'invalido', aplicativo: e.aplicativo });
       if (status === 503) return setEstado({ fase: 'pausado', aplicativo: e.aplicativo });
       if (status === 404) return setEstado({ fase: 'indisponivel' });
+      // O texto do aplicativo de parceiro mudou desde que a página abriu: abre de novo, com o texto novo, para conferir.
+      if (status === 409) {
+        toast.error(msg);
+        return void carregar();
+      }
       if (status === 400 && /confirmação/.test(msg)) return setEstado({ ...e, enviando: false, erroConfirmacao: true });
       setEstado({ ...e, enviando: false, erro: msg });
     }
@@ -246,9 +255,13 @@ export function AutorizarCliqueTela() {
           {app && (
             <p className="flex gap-2.5 rounded-[11px] border border-border bg-secondary px-3.5 py-3 text-left text-[13px] text-secondary-foreground">
               <Info className="mt-px h-[18px] w-[18px] flex-none text-secondary-foreground" aria-hidden="true" />
-              <span>
-                Para tentar de novo, volte ao {app.nome}, em <b className="text-foreground">Contas conectadas</b>, e conecte o Regem de novo.
-              </span>
+              {ehParceiro(app.cliente) ? (
+                <span>Para tentar de novo, volte ao {app.nome} e conecte o Regem de novo por lá.</span>
+              ) : (
+                <span>
+                  Para tentar de novo, volte ao {app.nome}, em <b className="text-foreground">Contas conectadas</b>, e conecte o Regem de novo.
+                </span>
+              )}
             </p>
           )}
           <div className="flex flex-wrap justify-center gap-2.5">
@@ -335,6 +348,25 @@ export function AutorizarCliqueTela() {
     );
   }
 
+  if (estado.fase === 'limite') {
+    const { aplicativo, pessoa } = estado;
+    return (
+      <AutorizarMoldura quem={quemE(pessoa)}>
+        <CartaoCurto papel="alert">
+          <ParDeSelos cliente={aplicativo.cliente} rotulo={aplicativo.nome} pequeno />
+          <Disco tom="atencao">
+            <Info aria-hidden="true" />
+          </Disco>
+          <h1 className={titulo}>O {aplicativo.nome} não aceita mais lojas agora</h1>
+          <p className="text-secondary-foreground">{estado.frase} Nada foi compartilhado.</p>
+          <Button type="button" variant="outline" className="font-bold" onClick={() => void recusar(aplicativo, false, null, quemE(pessoa))}>
+            Voltar ao {aplicativo.nome}
+          </Button>
+        </CartaoCurto>
+      </AutorizarMoldura>
+    );
+  }
+
   if (estado.fase === 'voltando') {
     return (
       <AutorizarMoldura empresa={estado.empresa} quem={estado.quem}>
@@ -366,6 +398,9 @@ export function AutorizarCliqueTela() {
           </p>
         )}
         <AutorizarCliqueFormulario
+          // O texto do parceiro mudou (409 → a página abriu de novo): o formulário recomeça do zero — a confirmação, a
+          // senha e as marcas eram do texto de antes.
+          key={e.tela.resumo ?? 'tela'}
           tela={e.tela}
           enviando={e.enviando}
           erroSenha={e.erroSenha}

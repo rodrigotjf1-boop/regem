@@ -122,6 +122,13 @@ export function AutorizarCliqueFormulario({
   const caixaConfirmacao = useRef<HTMLInputElement>(null);
   const campoSenha = useRef<HTMLInputElement>(null);
   const escolhidas = tela.lojas.filter((l) => marcadas[l.id]).map((l) => l.id);
+  // O aplicativo de parceiro em teste: até N lojas no total, somando as empresas. As vagas são para LOJA NOVA (a que ele
+  // já lê pode ser marcada de novo: é trocada, não soma). Esgotadas, as lojas novas desmarcadas ficam travadas (o
+  // servidor confere de novo ao autorizar e na troca).
+  const vagas = tela.lojasDoTeste?.vagas ?? null;
+  const novasMarcadas = tela.lojas.filter((l) => marcadas[l.id] && !l.conectadaDesde).length;
+  const semVaga = vagas !== null && novasMarcadas >= vagas;
+  const parceiro = tela.classe === 'parceiro';
   const mostrarConfirmacao = semConfirmacao || erroConfirmacao;
   const mensagemSenha = senhaVazia ? 'Digite a sua senha do Regem para autorizar.' : erroSenha;
 
@@ -184,9 +191,16 @@ export function AutorizarCliqueFormulario({
           <li className="grid gap-1 border-t border-border px-3.5 py-3 first:border-t-0">
             <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <User className="h-4 w-4 flex-none text-secondary-foreground" aria-hidden="true" />
-              <b className="font-bold">{p.outraEmpresa ? `${p.nome}, no ${app}` : `A conta ${p.nome} no ${app}`}</b>
-              <span className={cn(chip, p.outraEmpresa ? 'bg-warn/15 text-foreground' : 'bg-ok/15 text-foreground')}>
-                {p.outraEmpresa ? 'Outra empresa' : `A mesma empresa ${umaLoja ? 'desta loja' : 'destas lojas'}`}
+              <b className="font-bold">{p.outraEmpresa || parceiro ? `${p.nome}, no ${app}` : `A conta ${p.nome} no ${app}`}</b>
+              {/* O parceiro informa a conta (e o CNPJ dela) sozinho: nada de selo verde de "mesma empresa" — o presidente
+                  confirma a empresa dona do aplicativo, conferida pela DMS, e não a conta. */}
+              <span
+                className={cn(
+                  chip,
+                  parceiro ? 'border border-border bg-secondary text-secondary-foreground' : p.outraEmpresa ? 'bg-warn/15 text-foreground' : 'bg-ok/15 text-foreground',
+                )}
+              >
+                {parceiro ? 'Informada pelo aplicativo' : p.outraEmpresa ? 'Outra empresa' : `A mesma empresa ${umaLoja ? 'desta loja' : 'destas lojas'}`}
               </span>
             </span>
             <span className={cn(ajuda, 'break-words')}>
@@ -208,35 +222,49 @@ export function AutorizarCliqueFormulario({
 
       <Secao n={2} titulo={umaLoja ? 'A loja' : 'Em quais lojas'} id="aut-lojas">
         {tela.ajudaLojas && <p className={ajuda}>{tela.ajudaLojas}</p>}
-        {tela.lojas.map((l, i) => (
-          <label
-            key={l.id}
-            className={cn(
-              'grid cursor-pointer grid-cols-[auto_1fr] items-start gap-x-3 gap-y-0.5 rounded-[11px] border px-3.5 py-3',
-              marcadas[l.id] ? 'border-primary bg-primary/10' : 'border-border',
-            )}
-          >
-            <input
-              ref={i === 0 ? primeiraLoja : undefined}
-              type="checkbox"
-              data-loja={l.id}
-              className="mt-0.5 h-[18px] w-[18px] accent-[hsl(var(--primary))]"
-              checked={Boolean(marcadas[l.id])}
-              aria-invalid={semLoja || undefined}
-              aria-describedby={semLoja ? 'aut-lojas-erro' : undefined}
-              onChange={(e) => {
-                setMarcadas((m) => ({ ...m, [l.id]: e.target.checked }));
-                setSemLoja(false);
-              }}
-            />
-            <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
-              <b className="font-bold">{l.nome}</b>
-              <span className={cn(chip, 'border border-border bg-secondary text-secondary-foreground')}>{l.tipo}</span>
-              {l.conectadaDesde && <span className={cn(chip, 'bg-ok/15 text-foreground')}>Conectada desde {dia(l.conectadaDesde)}</span>}
-            </span>
-            {l.nota && <small className="col-start-2 text-[12.5px] text-secondary-foreground">{l.nota}</small>}
-          </label>
-        ))}
+        {tela.lojas.map((l, i) => {
+          const travada = semVaga && !marcadas[l.id] && !l.conectadaDesde;
+          return (
+            <label
+              key={l.id}
+              className={cn(
+                'grid grid-cols-[auto_1fr] items-start gap-x-3 gap-y-0.5 rounded-[11px] border px-3.5 py-3',
+                travada ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+                marcadas[l.id] ? 'border-primary bg-primary/10' : 'border-border',
+              )}
+            >
+              <input
+                ref={i === 0 ? primeiraLoja : undefined}
+                type="checkbox"
+                data-loja={l.id}
+                className="mt-0.5 h-[18px] w-[18px] accent-[hsl(var(--primary))]"
+                checked={Boolean(marcadas[l.id])}
+                disabled={travada}
+                aria-invalid={semLoja || undefined}
+                aria-describedby={semLoja ? 'aut-lojas-erro' : travada ? 'aut-lojas-vagas' : undefined}
+                onChange={(e) => {
+                  setMarcadas((m) => ({ ...m, [l.id]: e.target.checked }));
+                  setSemLoja(false);
+                }}
+              />
+              <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+                <b className="font-bold">{l.nome}</b>
+                <span className={cn(chip, 'border border-border bg-secondary text-secondary-foreground')}>{l.tipo}</span>
+                {l.conectadaDesde && <span className={cn(chip, 'bg-ok/15 text-foreground')}>Conectada desde {dia(l.conectadaDesde)}</span>}
+              </span>
+              {l.nota && <small className="col-start-2 text-[12.5px] text-secondary-foreground">{l.nota}</small>}
+            </label>
+          );
+        })}
+        {semVaga && tela.lojas.some((l) => !marcadas[l.id] && !l.conectadaDesde) && (
+          <p id="aut-lojas-vagas" className="text-[13px] text-secondary-foreground">
+            {vagas === 0
+              ? 'Sem vaga para outra loja agora.'
+              : vagas === 1
+                ? 'A vaga desta empresa está marcada: para trocar de loja, desmarque a que está marcada.'
+                : `As ${vagas} vagas desta empresa estão marcadas: para trocar, desmarque uma.`}
+          </p>
+        )}
         {semLoja && (
           <p id="aut-lojas-erro" role="alert" className="text-[13px] font-semibold text-destructive">
             {umaLoja ? 'Marque a loja para autorizar.' : 'Marque ao menos uma loja.'}

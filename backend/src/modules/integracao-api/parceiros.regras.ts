@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { AplicativoAprovado, ListaDeAprovados } from '../../dms/integracao-dms';
+import type { AplicativoDoClique } from './autorizacao-clique.regras';
 import { CLIENTES_INTEGRACAO, ESCOPOS_DO_PARCEIRO, ESCOPOS_INTEGRACAO, ESCOPOS_SENSIVEIS, type EscopoIntegracao } from './escopos';
 
 // O APLICATIVO DE PARCEIRO no Regem (Hub DMS, F4, parte F): regras puras, sem banco nem rede.
@@ -71,9 +72,13 @@ export function lojasDoParceiro(a: AplicativoAprovado): number | null {
   return a.lojas_max && a.lojas_max > 0 ? Math.min(a.lojas_max, LOJAS_NA_ETAPA_DE_TESTE) : LOJAS_NA_ETAPA_DE_TESTE;
 }
 
-/** Nome sem acento, sem espaço e sem sinal, em minúsculas: "Regem Cast" e "regemcast" são o mesmo nome. */
+/**
+ * Nome sem acento, sem espaço e sem sinal, em minúsculas: "Regem Cast" e "regemcast" são o mesmo nome. Antes, a forma
+ * de compatibilidade (NFKC): a letra matemática ("𝐋𝐢𝐚𝐦𝐞") e a de largura cheia ("Ｌｉａｍｅ") viram as letras comuns.
+ */
 const nomeComparavel = (nome: string) =>
   nome
+    .normalize('NFKC')
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
@@ -84,8 +89,33 @@ const NOMES_DA_DMS = new Set(
   [...Object.values(CLIENTES_INTEGRACAO).map((c) => c.rotulo), 'Regem', 'DMS', 'DMS ID', 'Hub DMS'].map(nomeComparavel),
 );
 
+/** Os tamanhos que a tela do clique comporta (o hub confere os seus; o Regem confere de novo o que mostra ao dono). */
+const TETOS_DO_TEXTO = { nome: 80, para_que_serve: 400, razao_social: 200, motivo: 400 } as const;
+
+/**
+ * Letra de outra escrita (cirílico, grego…) no meio de um nome latino imita o nome de outro ("Lіame" com um "і"
+ * cirílico): o Regem só mostra nome em letras latinas, números, espaço e sinais comuns.
+ */
+const SO_LATIM = /^[\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]+$/u;
+
+/**
+ * Caractere de controle ou de formatação (`\p{C}`: a inversão de sentido U+202E, o espaço de largura zero, a quebra
+ * escondida…): no meio do texto que o dono da loja lê, ele inverte ou esconde o resto do parágrafo — até o texto do
+ * próprio Regem que vem depois das aspas. Nenhum dos textos do parceiro pode ter.
+ */
+const CONTROLE_OU_FORMATO = /\p{C}/u;
+
 /** Por que este aplicativo da lista não vale no Regem (nulo = vale). Vai só para o log. */
 export function motivoParaNaoValer(a: AplicativoAprovado): string | null {
+  const nome = a.nome.trim();
+  if (!nome || nome.length > TETOS_DO_TEXTO.nome) return `o nome precisa ter de 1 a ${TETOS_DO_TEXTO.nome} caracteres`;
+  const textos = [a.nome, a.para_que_serve, a.empresa.razao_social, ...a.permissoes.map((p) => p.motivo)];
+  if (textos.some((t) => CONTROLE_OU_FORMATO.test(t))) return 'um texto tem caractere de controle ou de formatação (pode inverter ou esconder o que se lê)';
+  if (!SO_LATIM.test(nome.normalize('NFKC'))) return 'o nome tem letra de outra escrita (pode imitar outro nome)';
+  if (!nomeComparavel(nome)) return 'o nome não tem letra nem número que se possa conferir';
+  if (!a.para_que_serve.trim() || a.para_que_serve.length > TETOS_DO_TEXTO.para_que_serve) return 'o "para que serve" está vazio ou longo demais';
+  if (!a.empresa.razao_social.trim() || a.empresa.razao_social.length > TETOS_DO_TEXTO.razao_social) return 'a razão social está vazia ou longa demais';
+  if (a.permissoes.some((p) => p.motivo.length > TETOS_DO_TEXTO.motivo)) return 'o motivo de uma permissão está longo demais';
   if (NOMES_DA_DMS.has(nomeComparavel(a.nome))) return 'o nome é o de um produto da DMS';
   const podem = new Set(permissoesDoParceiro(a));
   if (!a.permissoes.some((p) => p.necessaria && podem.has(p.nome as EscopoIntegracao))) {
@@ -114,4 +144,147 @@ export function parceirosQueValem(lista: ListaDeAprovados): { validos: Map<strin
     else validos.set(a.aplicativo, a);
   }
   return { validos, fora };
+}
+
+// ───────────────────────────── a autorização por clique do parceiro (R1b) ─────────────────────────────
+
+/** Como uma permissão aparece para o dono da loja (a tela, o e-mail, Aplicativos conectados). */
+export type FraseDaPermissao = { rotulo: string; frase: string; naFrase: string; curta: string; noAssunto?: string };
+
+/**
+ * As frases que o aplicativo de PARCEIRO recebe no lugar das do catálogo do clique (`PERMISSAO_NA_TELA`, que é o texto que
+ * o presidente do Liame lê e o manifesto publica): os pedidos SEM a origem do anúncio (só do Liame, F4-13) e as três
+ * leituras na hora, com os textos do Farol aprovados pelo dono em 10/10/2026. As outras são as do catálogo (já sem nome
+ * de aplicativo).
+ */
+export const FRASES_DO_PARCEIRO: Partial<Record<EscopoIntegracao, FraseDaPermissao>> = {
+  'pedidos.ler': {
+    rotulo: 'Pedidos',
+    frase: 'Pedidos confirmados e cancelados, com itens, canal e cupom usado. Sem o anúncio ou o link de onde o cliente veio.',
+    naFrase: 'os pedidos',
+    curta: 'os pedidos',
+  },
+  'catalogo.ler': {
+    rotulo: 'Produtos e adicionais',
+    frase: 'Os produtos da loja, com categoria, variações, setor de produção, tempo de preparo e os adicionais de cada um. Sem preço.',
+    naFrase: 'os produtos e adicionais',
+    curta: 'os produtos',
+  },
+  'fichas.ler': { rotulo: 'Fichas técnicas', frase: 'Os ingredientes de cada ficha, com quantidade e unidade. Sem custo.', naFrase: 'as fichas técnicas', curta: 'as fichas' },
+  'producao.ler': {
+    rotulo: 'Pedidos em produção',
+    frase: 'O que está na fila da cozinha: produto, quantidade, adicionais, observação e horários. Sem o cliente e sem valores.',
+    naFrase: 'os pedidos em produção',
+    curta: 'a fila da cozinha',
+  },
+};
+
+/** "O que o aplicativo não pode" do parceiro: só o que o servidor do Regem garante (a janela de leitura entra na tela). */
+export const NAO_PODE_DO_PARCEIRO: readonly { rotulo: string; frase: string }[] = [
+  { rotulo: 'Mudar pedido, preço ou cardápio', frase: 'Ele só lê: a integração não deixa o aplicativo mudar nada no Regem.' },
+  { rotulo: 'Ver quem é o cliente', frase: 'Nome, e-mail e endereço ficam no Regem.' },
+  { rotulo: 'Ver de onde o cliente veio', frase: 'O anúncio ou o link que trouxe o cliente fica no Regem.' },
+  { rotulo: 'Ver o resto da operação', frase: 'Equipe, escala, ponto, estoque e caixa não fazem parte.' },
+  { rotulo: 'Entrar no seu Regem', frase: 'O aplicativo não recebe a sua senha nem a sua sessão.' },
+];
+
+/** O mesmo, numa frase, no e-mail aos presidentes. */
+export const NAO_PODE_NO_EMAIL_DO_PARCEIRO =
+  'Ele só lê: não pode mudar pedido, preço nem cardápio, nem ver nome, e-mail e endereço dos clientes, nem as vendas de antes da autorização.';
+
+/** O que acontece com a opcional desligada, para o parceiro (ele não declara: a frase é a mesma para todas). */
+const SEM_ELA_DO_PARCEIRO = 'Desligado: o aplicativo não recebe isto. O resto funciona.';
+
+/**
+ * Endereço de volta do parceiro: https, com nome (não `localhost`), sem usuário e senha nem fragmento, até 500
+ * caracteres. Mais estreito que o dos produtos da DMS (que aceita `http://localhost` para desenvolvimento).
+ */
+export function enderecoDeVoltaDoParceiro(u: unknown): u is string {
+  if (typeof u !== 'string' || !u || u.length > 500) return false;
+  try {
+    const url = new URL(u);
+    const host = url.hostname.replace(/^\[|\]$/g, '');
+    return url.protocol === 'https:' && !url.username && !url.password && !url.hash && host !== 'localhost' && !host.endsWith('.localhost');
+  } catch {
+    return false;
+  }
+}
+
+/** O aplicativo de parceiro na autorização por clique: o que a tela mostra e o que o pedido pode trazer. */
+export type ParceiroNoClique = {
+  /** O nome, as permissões (necessárias e opcionais, já cortadas pelo teto e pela etapa), os motivos e o "não pode". */
+  nome: string;
+  inicio: string;
+  necessarias: EscopoIntegracao[];
+  opcionais: EscopoIntegracao[];
+  dadoPessoal: EscopoIntegracao[];
+  financeiras: EscopoIntegracao[];
+  motivos: Partial<Record<EscopoIntegracao, string>>;
+  semElas: Partial<Record<EscopoIntegracao, string>>;
+  naoPode: readonly { rotulo: string; frase: string }[];
+  naoPodeNoEmail: string;
+  /** A empresa conferida pela DMS (a razão social e o CNPJ da lista do hub) e o "para que serve" nas palavras dele. */
+  empresa: { razaoSocial: string; cnpj: string };
+  paraQueServe: string;
+  /** Os endereços de volta que passam na regra do parceiro. */
+  enderecos: string[];
+  /** As lojas que ele pode ter (somando as empresas): na etapa de teste, até 3; na produção, nulo. */
+  lojas: number | null;
+};
+
+/**
+ * O aplicativo de parceiro aprovado, montado para a autorização por clique (puro). Nulo quando ele não serve: nenhum
+ * endereço de volta válido ou nenhuma permissão necessária dentro do teto e da etapa. As opcionais nascem desligadas na
+ * tela (F4-14); o telefone (dado pessoal) e o custo (financeiro) só aparecem na produção, que é quando o teto os deixa.
+ */
+export function parceiroNoClique(a: AplicativoAprovado): ParceiroNoClique | null {
+  const enderecos = a.enderecos_de_volta.filter(enderecoDeVoltaDoParceiro);
+  if (!enderecos.length) return null;
+  const podem = permissoesDoParceiro(a);
+  const marca = new Map(a.permissoes.map((p) => [p.nome, p]));
+  const necessarias = podem.filter((e) => marca.get(e)?.necessaria === true);
+  if (!necessarias.length) return null;
+  const opcionais = podem.filter((e) => marca.get(e)?.necessaria === false);
+  return {
+    nome: a.nome.trim(),
+    inicio: new URL(enderecos[0]).origin,
+    necessarias,
+    opcionais,
+    dadoPessoal: podem.filter((e) => e === 'clientes.telefone.ler'),
+    financeiras: podem.filter((e) => e === 'custos.ler'),
+    motivos: Object.fromEntries(podem.map((e) => [e, (marca.get(e)?.motivo ?? '').trim()])),
+    semElas: Object.fromEntries(opcionais.map((e) => [e, SEM_ELA_DO_PARCEIRO])),
+    naoPode: NAO_PODE_DO_PARCEIRO,
+    naoPodeNoEmail: NAO_PODE_NO_EMAIL_DO_PARCEIRO,
+    empresa: { razaoSocial: a.empresa.razao_social.trim(), cnpj: a.empresa.cnpj },
+    paraQueServe: a.para_que_serve.trim(),
+    enderecos,
+    lojas: lojasDoParceiro(a),
+  };
+}
+
+/** O parceiro no formato do aplicativo do clique (o mesmo tipo do Liame, com a parte `parceiro`). */
+export function aplicativoDoClique(p: ParceiroNoClique): AplicativoDoClique {
+  return {
+    nome: p.nome,
+    // A abertura do parceiro tem molde próprio (o "para que serve" entre aspas): `faz` não é usado.
+    faz: '',
+    inicio: p.inicio,
+    necessarias: p.necessarias,
+    opcionais: p.opcionais,
+    dadoPessoal: p.dadoPessoal,
+    financeiras: p.financeiras,
+    motivos: p.motivos,
+    semElas: p.semElas,
+    naoPode: p.naoPode,
+    naoPodeNoEmail: p.naoPodeNoEmail,
+    parceiro: { empresa: p.empresa, paraQueServe: p.paraQueServe, frases: FRASES_DO_PARCEIRO, lojas: p.lojas },
+  };
+}
+
+/** "12.ABC.345/01DE-35": o CNPJ (numérico ou alfanumérico, IN RFB 2.229/2024) com a máscara; o que não tem a forma sai como veio. */
+export function cnpjDoParceiroComMascara(cnpj: string): string {
+  const c = cnpj.trim().toUpperCase();
+  if (!/^[0-9A-Z]{12}\d{2}$/.test(c)) return cnpj.trim();
+  return `${c.slice(0, 2)}.${c.slice(2, 5)}.${c.slice(5, 8)}/${c.slice(8, 12)}-${c.slice(12)}`;
 }

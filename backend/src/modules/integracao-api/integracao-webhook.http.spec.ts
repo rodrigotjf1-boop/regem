@@ -719,6 +719,29 @@ descrever('API de integração — avisos (PUT/GET/DELETE /integracao/webhook e 
       expect(await svc.ciclo({ tenantIds: [] })).toEqual({ enviados: 0, entregues: 0 });
       expect(recebidos).toHaveLength(0);
     });
+
+    it('loja do token apagada (ou empresa apagada) não recebe aviso — nem da outra loja, que sobrou como "única"', async () => {
+      // A leitura recusa esse acesso (401 "loja apagada", o guard); o aviso também tem de recusar. Sem isso, com a loja do
+      // token apagada a empresa fica com uma loja viva só, e a venda DELA passava como venda da "loja única".
+      const E = await empresa('Empresa E', ['E1 apagada', 'E2 viva']);
+      const tE1 = await emitir(E, E.lojas[0]);
+      await registrar(tE1.token, 'e1-apagada');
+      const tE2 = await emitir(E, E.lojas[1]); // o controle: a loja viva recebe
+      await registrar(tE2.token, 'e2-viva');
+      const F = await empresa('Empresa F', ['F1']);
+      const tF = await emitir(F, F.lojas[0]);
+      await registrar(tF.token, 'f1-empresa-apagada');
+      await q(`update unidade set deleted_at = now() where id = $1`, [E.lojas[0]]);
+      await q(`update empresa set deleted_at = now() where id = $1`, [F.tenant]);
+      await q(`update integracao_webhook set avisado_ate = clock_timestamp() - interval '1 second' where token_id = any($1::uuid[])`, [[tE1.id, tE2.id, tF.id]]);
+      await publicar(E.tenant, { recurso: 'venda', loja: E.lojas[1] });
+      await publicar(E.tenant, { recurso: 'cupom', loja: null });
+      await publicar(F.tenant, { recurso: 'venda', loja: F.lojas[0] });
+      await ciclo();
+      expect(doCaminho('e1-apagada')).toHaveLength(0);
+      expect(doCaminho('f1-empresa-apagada')).toHaveLength(0);
+      expect(doCaminho('e2-viva')).toHaveLength(1);
+    });
   });
 
   // ───────────────────────────── o que nunca pode ficar guardado ─────────────────────────────

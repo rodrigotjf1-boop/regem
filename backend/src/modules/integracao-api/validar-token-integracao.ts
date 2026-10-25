@@ -237,11 +237,19 @@ export async function validarLigacaoIntegracao(
   aplicativos: Readonly<Record<string, string>>,
   o: { contar?: boolean; parceiro?: (clientId: string) => AplicativoAprovado | null } = {},
 ): Promise<(IntegracaoCtxData & { limite?: LimiteContado; parceiro?: DoParceiro }) | null> {
+  // Quem é decide-se ANTES da consulta: o da DMS nunca vira parceiro; o parceiro aprovado tem o `cliente` dele — e só a
+  // ligação dele, não parada há 90 dias, conta no teto da empresa (a chamada que vai ser recusada não gasta a cota).
+  const daDms = Object.values(aplicativos).includes(doToken.aplicativo);
+  const aprovado = !daDms && o.parceiro ? o.parceiro(doToken.aplicativo) : null;
+  const clienteDoAprovado = aprovado ? clienteDoParceiro(doToken.aplicativo) : null;
+  // A janela de leitura do parceiro: a da autorização contínua (`ler_desde`, mig 340, gravada na troca do clique) ou a
+  // criação do acesso. A coluna só é lida para o parceiro aprovado: os produtos da DMS não dependem dela.
+  const inicioDaJanela = clienteDoAprovado ? sql`coalesce(t.ler_desde, t.criado_em)` : sql`t.criado_em`;
   const selecao = sql`
     select l.id, l.prefixo, l.aplicativo, l.revogado_em is not null as ligacao_revogada,
            l.criado_em as ligacao_criada_em, l.ultimo_uso_em as ligacao_ultimo_uso_em,
            coalesce(l.ultimo_uso_em, l.criado_em) <= now() - make_interval(days => ${POLITICA_LIGACAO.suspensaoParadaDias}) as sem_uso,
-           to_char(t.criado_em at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as acesso_criado_em,
+           to_char((${inicioDaJanela}) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as acesso_criado_em,
            ${COLUNAS_DO_TOKEN}
       from integracao_ligacao l
       join integracao_token_loja t on t.id = l.id and t.tenant_id = l.tenant_id
@@ -249,11 +257,6 @@ export async function validarLigacaoIntegracao(
       join empresa e on e.id = t.tenant_id
      where l.segredo_hash = ${resumoChave(segredo)}
      limit 1`;
-  // Quem é decide-se ANTES da consulta: o da DMS nunca vira parceiro; o parceiro aprovado tem o `cliente` dele — e só a
-  // ligação dele, não parada há 90 dias, conta no teto da empresa (a chamada que vai ser recusada não gasta a cota).
-  const daDms = Object.values(aplicativos).includes(doToken.aplicativo);
-  const aprovado = !daDms && o.parceiro ? o.parceiro(doToken.aplicativo) : null;
-  const clienteDoAprovado = aprovado ? clienteDoParceiro(doToken.aplicativo) : null;
   const contaNaEmpresa = clienteDoAprovado
     ? sql`achado.cliente = ${clienteDoAprovado} and achado.aplicativo = ${doToken.aplicativo} and not achado.sem_uso`
     : null;

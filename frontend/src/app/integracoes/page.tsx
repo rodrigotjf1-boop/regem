@@ -190,7 +190,15 @@ export default function AplicativosConectadosPage() {
                   },
                   { titulo: 'Autorizado por', celula: (l) => autorizadoPor(l.acesso) },
                   { titulo: 'Último acesso', celula: (l) => (l.acesso.ativo ? haQuanto(l.acesso.ultimoUsoEm, agora) : comoSaiu(l.acesso, l.app.rotulo)) },
-                  { titulo: 'Situação', celula: (l) => <Selo tom={l.acesso.ativo ? 'ok' : 'neutro'}>{l.acesso.ativo ? 'ativo' : 'revogado'}</Selo> },
+                  {
+                    titulo: 'Situação',
+                    // O acesso de parceiro parado há 90 dias está ativo, mas não lê nada até a loja autorizar de novo.
+                    celula: (l) => (
+                      <Selo tom={l.acesso.ativo && !l.acesso.suspenso ? 'ok' : 'neutro'}>
+                        {!l.acesso.ativo ? 'revogado' : l.acesso.suspenso ? 'suspenso' : 'ativo'}
+                      </Selo>
+                    ),
+                  },
                 ]}
                 acoes={(l) => [
                   { rotulo: 'Detalhes', icone: Eye, aoClicar: (x: Linha) => setDetalhe(x.acesso.id) },
