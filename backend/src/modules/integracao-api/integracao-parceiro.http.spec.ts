@@ -1,8 +1,9 @@
 import 'reflect-metadata';
 import { spawn } from 'node:child_process';
-import { generateKeyPairSync, randomUUID, sign } from 'node:crypto';
+import { createHmac, generateKeyPairSync, randomBytes, randomUUID, sign } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
+import { createServer as criarServidorTls } from 'node:https';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,7 +14,10 @@ import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { DRIZZLE } from '../../db/drizzle.module';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { certificadoDeTeste } from '../../common/certificado-de-teste.teste-spec';
+import { cifrar } from '../../common/cifra-segredo';
 import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
+import type { OpcoesDoEnvio } from '../../common/envio-seguro';
 import { CfThrottlerGuard } from '../../common/cf-throttler.guard';
 import { CloudOnlyGuard } from '../../common/cloud-only.guard';
 import { LIMITE_INTEGRACAO_POR_MINUTO } from '../../common/integracao-limite';
@@ -26,6 +30,7 @@ import { ROTAS_FORA_DO_PREFIXO } from './ligacao.regras';
 import { clienteDoParceiro, LIMITE_PARCEIRO_EMPRESA_POR_MINUTO } from './parceiros.regras';
 import { BASE_TIPO_PROBLEMA, ProblemaFilter } from './problema';
 import { gerarTokenIntegracao } from './token-integracao';
+import { MOTIVO_BASE_FORA_DA_LISTA, MOTIVO_LIGACAO_SUSPENSA, WebhookIntegracaoService } from './webhook-integracao.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -187,7 +192,8 @@ descrever('API de integração — o aplicativo de parceiro (Hub DMS, F4 parte F
   const SCHEMA = `teste_parceiro_${process.pid}_${Date.now()}`;
   const pool = new Pool({ connectionString: URL_PG, options: `-c search_path=${SCHEMA},public` });
   const db = drizzle(pool) as any;
-  const auditoria = { registrar: async () => undefined } as unknown as AuditoriaService;
+  const registrosDeAuditoria: any[] = [];
+  const auditoria = { registrar: async (e: any) => void registrosDeAuditoria.push(e) } as unknown as AuditoriaService;
   const svc = new IntegracaoTokenService(db, auditoria);
   const empresas: string[] = [];
   const segredos: string[] = [];
@@ -195,7 +201,7 @@ descrever('API de integração — o aplicativo de parceiro (Hub DMS, F4 parte F
   const dist = { sub: randomUUID(), nome: 'Diretoria Teste', perfil: 'diretoria' };
   const ENV = [
     'EDGE_MODE', 'DMS_ID_LIGADO', 'DMS_ID_EMISSOR', 'DMS_ID_RECURSO', 'DMS_ID_APLICATIVOS', 'HUB_LIGADO', 'HUB_URL',
-    'HUB_RECURSO', 'HUB_APLICATIVO', 'HUB_SEGREDO', 'ACEITAR_INTEGRACOES', 'APP_VERSION', 'PARCEIROS_LIGADOS',
+    'HUB_RECURSO', 'HUB_APLICATIVO', 'HUB_SEGREDO', 'ACEITAR_INTEGRACOES', 'APP_VERSION', 'PARCEIROS_LIGADOS', 'SEGREDOS_CHAVE',
   ] as const;
   const envOriginal = Object.fromEntries(ENV.map((k) => [k, process.env[k]]));
   let falsos: Awaited<ReturnType<typeof subirFalsos>>;
@@ -670,13 +676,325 @@ descrever('API de integração — o aplicativo de parceiro (Hub DMS, F4 parte F
     expect((await r.json()).type).toBe(`${BASE_TIPO_PROBLEMA}token-invalido`);
   });
 
-  it('o parceiro não registra aviso nesta parte (PUT /webhook: 422; os avisos de parceiro vêm na R2)', async () => {
-    const r = await comoParceiro('/api/v1/integracao/webhook', parceiro.ligacao, APP_PARCEIRO, {
-      method: 'PUT',
-      corpo: { url: 'https://api.exemplo.test/avisos/ligacao-1', segredo: 'x'.repeat(32) },
+  // ───────────────────────────── os avisos do parceiro (R2) ─────────────────────────────
+  //
+  // O receptor é um servidor TLS DE VERDADE (certificado gerado na memória para os nomes das bases aprovadas); o envio
+  // seguro do serviço resolve esses nomes para 127.0.0.1 pelo resolvedor do teste (trocado por código) e confere o
+  // certificado pelo nome. As tabelas da marca dos retratos vêm da 316 (só as duas tabelas, sem os gatilhos do cardápio).
+  describe('os avisos do parceiro (R2): o registro, a fila e a entrega pelo envio seguro', () => {
+    const BASE_AVISO = 'https://api.exemplo.test/avisos/';
+    type Recebido = { caminho: string; cabecalhos: Record<string, string | string[] | undefined>; corpo: string };
+    const recebidos: Recebido[] = [];
+    let responder: () => { status: number; atrasoMs?: number } = () => ({ status: 202 });
+    let receptor: ReturnType<typeof criarServidorTls>;
+    let avisos: WebhookIntegracaoService;
+    let envioDoTeste: OpcoesDoEnvio;
+    let C: { tenant: string; lojas: string[] };
+    let presC = '';
+    let lig: Awaited<ReturnType<typeof ligacaoDeParceiro>>;
+    let segredo = '';
+    const listaOriginal = () => [
+      aprovado({}),
+      aprovado({ aplicativo: APP_PARCEIRO_PROD, nome: 'Painel Produção', etapa: 'producao', lojas_max: null, dado_pessoal: true }),
+      aprovado({ aplicativo: APP_LIAME, nome: 'Painel Clone', permissoes: [{ nome: 'pedidos.ler', motivo: 'Ler os pedidos da loja.', necessaria: true }] }),
+    ];
+
+    const put = (l: { ligacao: string }, corpo: unknown) => comoParceiro('/api/v1/integracao/webhook', l.ligacao, APP_PARCEIRO, { method: 'PUT', corpo });
+    const linhaDoAviso = async (tokenId: string) => (await q(`select * from integracao_webhook where token_id = $1`, [tokenId]))[0];
+    const doCaminho = (trecho: string) => recebidos.filter((r) => r.caminho === `/avisos/${trecho}`);
+    const ciclo = () => avisos.cicloParceiros({ tenantIds: empresas }, 30_000);
+    /** As linhas "em dia" (nada pendente) e na vez. */
+    const emDia = () =>
+      q(
+        `update integracao_webhook set avisado_ate = clock_timestamp(), proxima_verificacao_em = now() - interval '1 second',
+                falhas_seguidas = 0, primeira_falha_em = null, pausado_em = null, motivo_pausa = null
+          where tenant_id = any($1::uuid[])`,
+        [empresas],
+      );
+    const naVez = () => q(`update integracao_webhook set proxima_verificacao_em = now() - interval '1 second' where tenant_id = any($1::uuid[])`, [empresas]);
+    /** Uma venda publicada agora, confirmada há `dias` (fração vale). */
+    const venda = async (tenant: string, loja: string, confirmadaHaDias: number) => {
+      const id = randomUUID();
+      await q(
+        `insert into integracao_versao (recurso, recurso_id, tenant_id, fonte, unidade_id, versao, pendente, atualizado_em, situacao, confirmado_em, foto)
+         values ('venda', $1, $2, 'pedido_externo', $3, 1, false, clock_timestamp(), 'confirmado', now() - make_interval(secs => $4::float8 * 86400), '{}'::jsonb)`,
+        [id, tenant, loja, confirmadaHaDias],
+      );
+      return id;
+    };
+    const esquecido = async (tenant: string, esquecidoHaDias: number) => {
+      const id = randomUUID();
+      await q(
+        `insert into integracao_versao (recurso, recurso_id, tenant_id, fonte, versao, pendente, atualizado_em, removido_em)
+         values ('cliente', $1, $2, 'cliente', 1, false, clock_timestamp(), now() - make_interval(secs => $3::float8 * 86400))`,
+        [id, tenant, esquecidoHaDias],
+      );
+      return id;
+    };
+    const trocarAprovados = async (itens: AplicativoAprovado[]) => {
+      falsos.estado.aprovados = { versao: falsos.estado.aprovados.versao + 1, itens };
+      await hub.lerAprovadosAgora();
+      expect(hub.estado?.aprovadosVersao).toBe(falsos.estado.aprovados.versao);
+    };
+    /** A assinatura conferida como o parceiro confere (implementação à parte da do Regem). */
+    const assinaturaConfere = (r: Recebido, s: string) => {
+      const id = String(r.cabecalhos['webhook-id'] ?? '');
+      const ts = String(r.cabecalhos['webhook-timestamp'] ?? '');
+      const esperado = `v1,${createHmac('sha256', Buffer.from(s.slice('whsec_'.length), 'base64')).update(`${id}.${ts}.${r.corpo}`).digest('base64')}`;
+      return !!id && r.cabecalhos['webhook-signature'] === esperado;
+    };
+    const segredoNovo = () => {
+      const s = `whsec_${randomBytes(32).toString('base64')}`;
+      segredos.push(s);
+      return s;
+    };
+
+    beforeAll(async () => {
+      process.env.SEGREDOS_CHAVE = randomBytes(32).toString('base64');
+      await repetirNaCorridaDeCatalogo(() => pool.query(mig('304_integracao_webhook.sql')));
+      const da316 = mig('316_integracao_retrato_aviso.sql');
+      const de = da316.indexOf('create table if not exists integracao_retrato_mudanca');
+      const ate = da316.indexOf('-- Fora do alcance');
+      if (de < 0 || ate < de) throw new Error('a 316 mudou: o teste não acha as tabelas da marca dos retratos');
+      const tabelasDaMarca = da316.slice(de, ate);
+      await repetirNaCorridaDeCatalogo(() => pool.query(tabelasDaMarca));
+
+      const { cert, chave } = certificadoDeTeste(['api.exemplo.test', 'outra.exemplo.test']);
+      receptor = criarServidorTls({ key: chave, cert }, (req, res) => {
+        const partes: Buffer[] = [];
+        req.on('data', (d: Buffer) => partes.push(d));
+        req.on('end', () => {
+          recebidos.push({ caminho: req.url ?? '', cabecalhos: req.headers, corpo: Buffer.concat(partes).toString('utf8') });
+          const resp = responder();
+          const enviar = () => {
+            if (!res.destroyed) res.writeHead(resp.status, { 'content-type': 'application/json' }).end('{"ok":true}');
+          };
+          if (resp.atrasoMs) setTimeout(enviar, resp.atrasoMs).unref();
+          else enviar();
+        });
+      });
+      await new Promise<void>((pronto) => receptor.listen(0, '127.0.0.1', pronto));
+      envioDoTeste = {
+        resolver: async () => [{ address: '127.0.0.1', family: 4 }],
+        ehInterno: () => false,
+        porta: (receptor.address() as AddressInfo).port,
+        ca: cert,
+      };
+      avisos = app.get(WebhookIntegracaoService);
+      avisos.atrasoSeg = 0;
+      avisos.envioDoParceiro = envioDoTeste;
+
+      C = await empresa('Empresa C', ['C1 matriz', 'C2 filial']);
+      presC = await presidente(C.tenant);
+      // a janela começa há 2 dias (a criação do acesso); a permissão forjada `cupons.uso.ler` passa do teto da classe
+      lig = await ligacaoDeParceiro({
+        tenant: C.tenant,
+        loja: C.lojas[0],
+        pres: presC,
+        escopos: ['pedidos.ler', 'catalogo.ler', 'custos.ler', 'clientes.anonimizacao.ler', 'cupons.uso.ler'],
+        acessoHaDias: 2,
+      });
     });
-    expect(r.status).toBe(422);
-    expect((await r.json()).type).toBe(`${BASE_TIPO_PROBLEMA}endereco-nao-permitido`);
+
+    afterAll(async () => {
+      (receptor as any)?.closeAllConnections?.();
+      await new Promise((ok) => (receptor ? receptor.close(() => ok(null)) : ok(null)));
+    });
+
+    beforeEach(() => {
+      recebidos.length = 0;
+      responder = () => ({ status: 202 });
+      avisos.envioDoParceiro = envioDoTeste;
+      avisos.prazoEnvioMs = 5000;
+    });
+
+    it('registrar: a base aprovada pela DMS + um trecho; fora dela, dois trechos ou nome que aponta para dentro → 422; a auditoria guarda só a origem', async () => {
+      segredo = segredoNovo();
+      for (const url of ['https://outra.exemplo.test/avisos/c1', `${BASE_AVISO}c1/mais`, `${BASE_AVISO}c1?x=1`, 'http://api.exemplo.test/avisos/c1']) {
+        const r = await put(lig, { url, segredo });
+        expect([url, r.status, ((await r.json()) as any).type]).toEqual([url, 422, `${BASE_TIPO_PROBLEMA}endereco-nao-permitido`]);
+      }
+      // o nome resolve para a rede interna: o envio seguro de verdade (a regra padrão) recusa já no registro (V68)
+      avisos.envioDoParceiro = { ...envioDoTeste, ehInterno: undefined, resolver: async () => [{ address: '10.0.0.5', family: 4 }] };
+      const interno = await put(lig, { url: `${BASE_AVISO}c1`, segredo });
+      expect(interno.status).toBe(422);
+      expect(((await interno.json()) as any).detail).toBe('"url" não pode receber aviso: o nome do endereço aponta para uma rede interna.');
+      avisos.envioDoParceiro = envioDoTeste;
+      expect(await linhaDoAviso(lig.id)).toBeUndefined();
+      expect(recebidos).toHaveLength(0); // registrar nunca chama o endereço
+
+      const ok = await put(lig, { url: `${BASE_AVISO}c1`, segredo });
+      expect(ok.status).toBe(200);
+      const l = await linhaDoAviso(lig.id);
+      expect([l.url, l.cliente, l.segredo_cifrado.startsWith('v1:')]).toEqual([`${BASE_AVISO}c1`, clienteDoParceiro(APP_PARCEIRO), true]);
+      const reg = registrosDeAuditoria.filter((a) => a.acao === 'integracao.webhook_registrado').at(-1);
+      expect(reg.detalhe.url).toBe('https://api.exemplo.test');
+    });
+
+    it('a fila: a venda de antes da janela anda sem aviso (e não se varre de novo); a de depois avisa, assinada; o esquecido de antes também não', async () => {
+      await emDia();
+      const antiga = await venda(C.tenant, C.lojas[0], 3);
+      expect(await ciclo()).toEqual({ enviados: 0, entregues: 0 });
+      const [andou] = await q(
+        `select w.avisado_ate >= v.atualizado_em as andou from integracao_webhook w, integracao_versao v where w.token_id = $1 and v.recurso_id = $2`,
+        [lig.id, antiga],
+      );
+      expect(andou.andou).toBe(true);
+      expect(await ciclo()).toEqual({ enviados: 0, entregues: 0 });
+      // a reserva dos produtos da DMS nunca pega a linha de parceiro
+      const nova = await venda(C.tenant, C.lojas[0], 0.5);
+      expect(await avisos.ciclo({ tenantIds: empresas }, 30_000)).toEqual({ enviados: 0, entregues: 0 });
+      expect(await ciclo()).toEqual({ enviados: 1, entregues: 1 });
+      const [r] = doCaminho('c1');
+      expect(assinaturaConfere(r, segredo)).toBe(true);
+      expect(JSON.parse(r.corpo)).toEqual({ tipo: 'pedido.alterado', id: nova, versao: 1, loja_id: C.lojas[0] });
+
+      // a nova e, DEPOIS dela, uma de antes da janela: o aviso diz a nova, e a posição anda até a mais recente das duas
+      await naVez();
+      recebidos.length = 0;
+      const nova2 = await venda(C.tenant, C.lojas[0], 0.5);
+      const antiga2 = await venda(C.tenant, C.lojas[0], 3);
+      expect(await ciclo()).toEqual({ enviados: 1, entregues: 1 });
+      expect(JSON.parse(doCaminho('c1')[0].corpo).id).toBe(nova2);
+      const [ate] = await q(
+        `select w.avisado_ate = v.atualizado_em as igual from integracao_webhook w, integracao_versao v where w.token_id = $1 and v.recurso_id = $2`,
+        [lig.id, antiga2],
+      );
+      expect(ate.igual).toBe(true);
+
+      // o cliente esquecido antes da janela não vira aviso; o de depois, vira
+      await emDia();
+      recebidos.length = 0;
+      await esquecido(C.tenant, 3);
+      expect(await ciclo()).toEqual({ enviados: 0, entregues: 0 });
+      await naVez();
+      const depois = await esquecido(C.tenant, 0.5);
+      expect(await ciclo()).toEqual({ enviados: 1, entregues: 1 });
+      expect(JSON.parse(doCaminho('c1')[0].corpo)).toEqual({ tipo: 'cliente.anonimizado', id: depois, loja_id: C.lojas[0] });
+    });
+
+    it('as permissões do aviso vêm da lista do hub: sem pedidos.ler aprovado, a venda não avisa (mesmo com ela no acesso)', async () => {
+      await emDia();
+      await trocarAprovados([
+        aprovado({ permissoes: [{ nome: 'catalogo.ler', motivo: 'O nome dos itens no painel.', necessaria: true }] }),
+        ...listaOriginal().slice(1),
+      ]);
+      try {
+        await venda(C.tenant, C.lojas[0], 0.5);
+        expect(await ciclo()).toEqual({ enviados: 0, entregues: 0 });
+      } finally {
+        await trocarAprovados(listaOriginal());
+      }
+      await naVez();
+      expect(await ciclo()).toEqual({ enviados: 1, entregues: 1 });
+    });
+
+    it('quem não vale não recebe: fora da lista, chave desligada, parado pelo client_id, ligação suspensa ou revogada, loja apagada; e a limpeza', async () => {
+      const G = await empresa('Empresa G', ['G1', 'G2', 'G3']);
+      const presG = await presidente(G.tenant);
+      // registradas direto no banco: a suspensa nem passa pela porta (403), e o registro pela porta marcaria o uso de agora
+      const ligG = async (loja: string, trecho: string, o: { acessoHaDias?: number; usoHaDias?: number } = {}) => {
+        const l = await ligacaoDeParceiro({ tenant: G.tenant, loja, pres: presG, escopos: ['pedidos.ler'], acessoHaDias: o.acessoHaDias ?? 2, usoHaDias: o.usoHaDias ?? null });
+        await q(
+          `insert into integracao_webhook (token_id, tenant_id, unidade_id, cliente, url, segredo_cifrado)
+           select id, tenant_id, unidade_id, cliente, $2, $3 from integracao_token_loja where id = $1`,
+          [l.id, `${BASE_AVISO}${trecho}`, cifrar(segredoNovo())],
+        );
+        return l;
+      };
+      const suspensa = await ligG(G.lojas[0], 'g1', { acessoHaDias: 120, usoHaDias: 100 });
+      const revogada = await ligG(G.lojas[1], 'g2');
+      const apagada = await ligG(G.lojas[2], 'g3');
+      await q(`update integracao_ligacao set revogado_em = now() where id = $1`, [revogada.id]);
+      await q(`update unidade set deleted_at = now() where id = $1`, [G.lojas[2]]);
+      await emDia();
+      for (const loja of G.lojas) await venda(G.tenant, loja, 0.5);
+      await venda(C.tenant, C.lojas[0], 0.5);
+
+      // fora da lista e chave desligada: nada sai (e nada se grava por loja)
+      await trocarAprovados(listaOriginal().slice(1));
+      expect(await ciclo()).toEqual({ enviados: 0, entregues: 0 });
+      await trocarAprovados(listaOriginal());
+      delete process.env.PARCEIROS_LIGADOS;
+      try {
+        expect(await ciclo()).toEqual({ enviados: 0, entregues: 0 });
+      } finally {
+        process.env.PARCEIROS_LIGADOS = 'true';
+      }
+      // parado pelo client_id (nível aplicativo)
+      await lerParada([{ nivel: 'aplicativo', produto: null, alvo: APP_PARCEIRO }]);
+      try {
+        expect(await ciclo()).toEqual({ enviados: 0, entregues: 0 });
+      } finally {
+        await lerParada([]);
+      }
+      // de volta: só a ligação viva da loja viva recebe
+      expect(await ciclo()).toEqual({ enviados: 1, entregues: 1 });
+      expect(doCaminho('c1')).toHaveLength(1);
+      expect([doCaminho('g1'), doCaminho('g2'), doCaminho('g3')].map((x) => x.length)).toEqual([0, 0, 0]);
+
+      // a limpeza: a revogada sai (com o segredo); a suspensa é pausada com o motivo
+      expect(await avisos.limparParceiros({ tenantIds: [G.tenant] })).toEqual({ apagadas: 1, pausadas: 1 });
+      expect(await linhaDoAviso(revogada.id)).toBeUndefined();
+      expect((await linhaDoAviso(suspensa.id)).motivo_pausa).toBe(MOTIVO_LIGACAO_SUSPENSA);
+      expect(await linhaDoAviso(apagada.id)).toBeDefined();
+    });
+
+    it('a base que saiu da lista pausa sem contar falha, e o hub anota; cada envio vai ao hub pelo client_id', async () => {
+      const espiao = jest.spyOn(hub, 'registrarAviso');
+      try {
+        await emDia();
+        await trocarAprovados([aprovado({ bases_dos_avisos: ['https://outra.exemplo.test/avisos/'] }), ...listaOriginal().slice(1)]);
+        try {
+          await venda(C.tenant, C.lojas[0], 0.5);
+          expect(await ciclo()).toEqual({ enviados: 0, entregues: 0 });
+          const pausada = await linhaDoAviso(lig.id);
+          expect([pausada.motivo_pausa, pausada.falhas_seguidas, !!pausada.pausado_em]).toEqual([MOTIVO_BASE_FORA_DA_LISTA, 0, true]);
+          expect(espiao.mock.calls.at(-1)?.[0]).toMatchObject({ aplicativo: APP_PARCEIRO, resultado: 'pausado' });
+          expect(recebidos).toHaveLength(0);
+        } finally {
+          await trocarAprovados(listaOriginal());
+        }
+
+        // a lista volta; registrar de novo religa; o envio vai ao hub com o client_id e só a origem
+        expect((await put(lig, { url: `${BASE_AVISO}c1`, segredo })).status).toBe(200);
+        expect(await ciclo()).toEqual({ enviados: 1, entregues: 1 });
+        const anotado: any = espiao.mock.calls.at(-1)?.[0];
+        expect(anotado).toMatchObject({ aplicativo: APP_PARCEIRO, tipo: 'pedido.alterado' });
+        expect(JSON.stringify(anotado)).not.toContain('/avisos/c1');
+      } finally {
+        espiao.mockRestore();
+      }
+    });
+
+    it('disjuntor por origem: o destino que não responde para no prazo; a 2ª linha do mesmo servidor volta em 30 s sem contar falha', async () => {
+      const lig2 = await ligacaoDeParceiro({ tenant: C.tenant, loja: C.lojas[1], pres: presC, escopos: ['pedidos.ler'], acessoHaDias: 2 });
+      expect((await put(lig2, { url: `${BASE_AVISO}c2`, segredo: segredoNovo() })).status).toBe(200);
+      await emDia();
+      await venda(C.tenant, C.lojas[0], 0.5);
+      await venda(C.tenant, C.lojas[1], 0.5);
+      responder = () => ({ status: 202, atrasoMs: 5_000 });
+      avisos.prazoEnvioMs = 300;
+      const inicio = Date.now();
+      expect(await ciclo()).toEqual({ enviados: 1, entregues: 0 });
+      expect(Date.now() - inicio).toBeLessThan(3_000);
+      const linhas = await q(
+        `select falhas_seguidas, extract(epoch from (proxima_verificacao_em - now()))::int as em from integracao_webhook where token_id = any($1::uuid[]) order by falhas_seguidas`,
+        [[lig.id, lig2.id]],
+      );
+      expect(linhas.map((x: any) => x.falhas_seguidas)).toEqual([0, 1]);
+      // a solta volta em ~30 s (a parada curta), a que falhou no recuo de 1 min
+      expect(linhas[0].em).toBeGreaterThan(20);
+      expect(linhas[0].em).toBeLessThanOrEqual(30);
+    });
+
+    it('o job só olha as empresas do escopo (V32)', async () => {
+      await emDia();
+      await venda(C.tenant, C.lojas[0], 0.5);
+      expect(await avisos.cicloParceiros({ tenantIds: [B.tenant] })).toEqual({ enviados: 0, entregues: 0 });
+      expect(await avisos.cicloParceiros({ tenantIds: [] })).toEqual({ enviados: 0, entregues: 0 });
+      expect(recebidos).toHaveLength(0);
+    });
   });
 
   itDoKit('passa no kit do Padrão no modo do DMS ID com as credenciais de parceiro (a classe, a ligação suspensa e a parada)', async () => {

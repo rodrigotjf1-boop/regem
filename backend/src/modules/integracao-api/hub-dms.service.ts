@@ -126,6 +126,16 @@ export class HubDmsService implements OnModuleInit, OnApplicationShutdown {
     return this.parceiros?.get(clientId) ?? null;
   }
 
+  /**
+   * Todos os aplicativos de parceiro que valem agora, com as mesmas guardas de `parceiroAprovado` (a chave, o hub e a
+   * parada lida uma vez). É a lista que a fila dos avisos usa: o aplicativo fora dela não recebe nada.
+   */
+  parceirosAprovados(): AplicativoAprovado[] {
+    if (!this.cliente || !lerParceirosLigados()) return [];
+    if (this.cliente.estado.paradaVersao === null) return [];
+    return [...(this.parceiros?.values() ?? [])];
+  }
+
   /** Lê a lista de aprovados agora (a leitura normal é ao iniciar e quando a batida mostra versão nova). */
   async lerAprovadosAgora(): Promise<void> {
     if (this.cliente) await this.cliente.lerAprovados();

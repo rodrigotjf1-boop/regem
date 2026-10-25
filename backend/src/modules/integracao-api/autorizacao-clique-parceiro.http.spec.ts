@@ -57,6 +57,7 @@ const APP_P2 = 'aplicativoparceiro02'; // as vagas na tela
 const APP_P3 = 'aplicativoparceiro03'; // a corrida da troca
 const APP_P4 = 'aplicativoparceiro04'; // a janela e a suspensão
 const APP_P5 = 'aplicativoparceiro05'; // teto de 2: as lojas ligadas aqui contam
+const APP_P6 = 'aplicativoparceiro06'; // o aviso registrado na troca (R2)
 const APP_FORA = 'aplicativoparceiro99'; // não aprovado
 const KID = 'chave-de-teste';
 const VOLTA = 'https://app.parceiro.exemplo/volta';
@@ -93,6 +94,7 @@ const LISTA = {
     aprovado(APP_P3, { nome: 'Painel Três' }),
     aprovado(APP_P4, { nome: 'Painel Quatro' }),
     aprovado(APP_P5, { nome: 'Painel Cinco', lojas_max: 2 }),
+    aprovado(APP_P6, { nome: 'Painel Seis' }),
     // o client_id do Liame na lista do hub: o Regem decide "é DMS" antes, e ele segue Liame
     aprovado(APP_LIAME, { nome: 'Painel Clone' }),
   ],
@@ -362,6 +364,11 @@ descrever('autorização por clique do aplicativo de parceiro (Hub DMS, F4 parte
     for (const m of ['295_integracao_token_loja.sql', '303_integracao_autorizacao.sql', '323_integracao_gogem.sql', '329_integracao_ligacao.sql', '336_integracao_autorizacao_clique.sql']) {
       await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(mig(m))));
     }
+    // A tabela dos avisos (304): o aviso registrado do parceiro acompanha a troca (R2). Só o `create table` dela — a 304
+    // inteira pede a 296 (as versões publicadas), que este teste não usa.
+    const tabelaDosAvisos = mig('304_integracao_webhook.sql').match(/create table if not exists integracao_webhook \([\s\S]*?\n\);/)?.[0];
+    if (!tabelaDosAvisos) throw new Error('a 304 mudou: o teste não acha o create table dos avisos');
+    await repetirNaCorridaDeCatalogo(() => pool.query(tabelaDosAvisos));
     // A 340 como vai para a nuvem — a conferência, linha a linha — e de novo: tem de ser idempotente.
     for (let vez = 0; vez < 2; vez++) {
       const r = (await repetirNaCorridaDeCatalogo(() => pool.query(mig('340_integracao_ler_desde.sql')))) as unknown as any[];
@@ -631,6 +638,43 @@ descrever('autorização por clique do aplicativo de parceiro (Hub DMS, F4 parte
     expect(recomecou.escopos).toEqual(['pedidos.ler']);
     expect(await esperarAte(() => email.mock.calls.length > 0, 5_000)).toBe(true);
     expect(email.mock.calls.map((x: any[]) => x[1])).toEqual(['O Painel Quatro foi autorizado na loja Lanche Único']);
+  });
+
+  it('o aviso registrado acompanha a autorização contínua (modo "mais", com a posição) e não atravessa a suspensão (R2)', async () => {
+    const idDe = async (prefixo: string) => (await q(`select id from integracao_ligacao where prefixo = $1`, [prefixo]))[0].id as string;
+    const [primeira] = await ligar(presE, [E.lojas[0]], { aplicativo: APP_P6 });
+    const id1 = await idDe(primeira.prefixo);
+    const URL_AVISO = 'https://api.parceiro.exemplo/avisos/conexao-e1';
+    await q(
+      `insert into integracao_webhook (token_id, tenant_id, unidade_id, cliente, url, segredo_cifrado, avisado_ate, entregues)
+       select id, tenant_id, unidade_id, cliente, $2, 'v1:segredo-cifrado-de-teste', now() - interval '1 day', 7
+         from integracao_token_loja where id = $1`,
+      [id1, URL_AVISO],
+    );
+    // o modo "mais": o acesso trocado estava vivo — o aviso passa para o acesso novo, com a posição e a contagem
+    const p = await pedir({ aplicativo: APP_P6, scope: 'pedidos.ler cupons.ler' });
+    const { c } = await tela(presE, p.numero, APP_P6);
+    expect(c.tela.modo).toBe('mais');
+    const a = await autorizar(presE, p.numero, { lojas: [E.lojas[0]], opcionais: ['cupons.ler'], resumo: c.tela.resumo, aplicativo: APP_P6 });
+    const [segunda] = (await (await trocar(a.codigo, p.verificador, APP_P6)).json()).lojas;
+    segredos.push(segunda.ligacao);
+    const id2 = await idDe(segunda.prefixo);
+    const [levado] = await q(
+      `select url, segredo_cifrado, entregues::int as entregues, avisado_ate < now() - interval '23 hours' as posicao_mantida
+         from integracao_webhook where token_id = $1`,
+      [id2],
+    );
+    expect(levado).toEqual({ url: URL_AVISO, segredo_cifrado: 'v1:segredo-cifrado-de-teste', entregues: 7, posicao_mantida: true });
+
+    // a ligação parada há 100 dias: a autorização nova começa de novo — o aviso NÃO passa (o parceiro registra de novo)
+    await q(`update integracao_ligacao set ultimo_uso_em = now() - interval '100 days', criado_em = now() - interval '100 days' where prefixo = $1`, [segunda.prefixo]);
+    const p3 = await pedir({ aplicativo: APP_P6 });
+    const t3 = await tela(presE, p3.numero, APP_P6);
+    expect(t3.c.tela.modo).toBe('nova');
+    const a3 = await autorizar(presE, p3.numero, { lojas: [E.lojas[0]], resumo: t3.c.tela.resumo, aplicativo: APP_P6 });
+    const [terceira] = (await (await trocar(a3.codigo, p3.verificador, APP_P6)).json()).lojas;
+    segredos.push(terceira.ligacao);
+    expect(await q(`select 1 from integracao_webhook where token_id = $1`, [await idDe(terceira.prefixo)])).toHaveLength(0);
   });
 
   it('Aplicativos conectados: o nome e a empresa da prova, o selo do parceiro, as frases dele, a situação suspensa; "Revogar todos" do parceiro só nesta empresa', async () => {

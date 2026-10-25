@@ -1,4 +1,6 @@
 import { createHmac } from 'node:crypto';
+import { problemaDoNomeDoDestino } from '../../common/envio-seguro';
+import { destinoAvisoPermitido, problemaDaBaseDeAviso } from '../../dms/integracao-dms';
 import { EscopoIntegracao, WEBHOOK_INTEGRACAO } from './escopos';
 import { enderecoDeServico } from './hub.regras';
 
@@ -93,6 +95,75 @@ export function enderecoPermitido(url: unknown, bases: readonly string[]): strin
     return u.href;
   }
   return null;
+}
+
+/**
+ * As bases de aviso do aplicativo de PARCEIRO (F4, parte F; Padrão §9): as `bases_dos_avisos` da lista do hub de AGORA,
+ * cada uma passando na regra do pacote (`problemaDaBaseDeAviso`, sempre como produção: a nuvem do Regem é produção) e na
+ * do envio seguro (um nome público, fora dos domínios da DMS). A que não passa fica de fora — quem aprova a base é a
+ * DMS, e o Regem não confia na lista mais do que nas próprias regras.
+ */
+export function basesDoParceiro(
+  aprovado: { bases_dos_avisos?: readonly unknown[] | null },
+  proibidos: readonly string[] = dominiosProibidosDoAmbiente(),
+): string[] {
+  const bases: string[] = [];
+  for (const b of aprovado.bases_dos_avisos ?? []) {
+    if (typeof b !== 'string' || problemaDaBaseDeAviso(b, { producao: true })) continue;
+    if (problemaDoNomeDoDestino(new URL(b), proibidos)) continue;
+    bases.push(b);
+  }
+  return bases;
+}
+
+/**
+ * Os endereços dos serviços do PRÓPRIO Regem (lidos do ambiente: a API, o app, o cardápio, o hub, o DMS ID, o Supabase…):
+ * o aviso de parceiro não vai para eles, além dos domínios da DMS que o envio seguro já recusa. Só o nome do servidor;
+ * variável vazia ou torta fica de fora.
+ */
+export const VARIAVEIS_DOS_SERVICOS_PROPRIOS = [
+  'APP_URL',
+  'FRONT_URL',
+  'PUBLIC_API_URL',
+  'PUBLIC_API_BASE',
+  'API_PUBLIC_URL',
+  'CARDAPIO_PUBLIC_URL',
+  'CARDAPIO_BASE_URL',
+  'MIDIA_PUBLIC_URL',
+  'HUB_URL',
+  'DMS_ID_EMISSOR',
+  'SUPABASE_URL',
+  'EVOLUTION_API_URL',
+  'OSRM_URL',
+  'GOGEM_CLOUD_URL',
+  'EDGE_UPDATE_URL',
+] as const;
+
+export function dominiosProibidosDoAmbiente(env: Record<string, string | undefined> = process.env): string[] {
+  const nomes = new Set<string>();
+  for (const v of VARIAVEIS_DOS_SERVICOS_PROPRIOS) {
+    const bruto = (env[v] ?? '').trim();
+    if (!bruto) continue;
+    try {
+      const host = new URL(bruto).hostname.toLowerCase();
+      if (host) nomes.add(host);
+    } catch {
+      // variável torta: não é endereço, não há nome a recusar
+    }
+  }
+  return [...nomes];
+}
+
+/**
+ * O endereço de aviso do parceiro, normalizado, se estiver dentro de uma das bases dele (a regra do pacote,
+ * `destinoAvisoPermitido`: https, porta padrão, base + UM trecho de até 64) — senão `null`. A conferência com rede (o
+ * nome resolve só para IP público) é do envio seguro, à parte.
+ */
+export function enderecoDoParceiro(url: unknown, bases: readonly string[]): string | null {
+  if (!bases.length || !destinoAvisoPermitido(url, bases)) return null;
+  const href = new URL(url as string).href;
+  // o nome internacional vira punycode no `href`: o guardado também cabe na trava da tabela
+  return href.length <= URL_MAX ? href : null;
 }
 
 /** O base64 sem os `=` do fim (o preenchimento é opcional na comparação). */

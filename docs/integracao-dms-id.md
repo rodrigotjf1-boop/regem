@@ -294,7 +294,7 @@ a criação do acesso) e **`origem: null`**: a origem do anúncio foi capturada 
 cardápio que nomeia o Liame (F4-13). Em `GET /integracao/clientes/anonimizados`, a mesma janela: só os pedidos de
 esquecer feitos depois (dos de antes, ele nunca leu o cliente). `GET /integracao/producao` é a fila viva da cozinha (até
 24 horas), não histórico: fica como é. A captura da origem passa a depender só do token do Liame (hoje já era assim, na
-prática). `PUT /integracao/webhook` do parceiro responde 422 até a R2.
+prática). Os avisos do parceiro estão na seção 12.
 
 **Limite e suspensão:** além dos 60 por minuto por ligação, o parceiro tem 300 por minuto **por empresa** (todas as lojas
 dele nela), contados na mesma ida ao banco (chave `emp:<cliente>:<empresa>` na `integracao_limite`). Só conta a chamada
@@ -360,3 +360,52 @@ cliente (a conta das lojas), com a conferência no mesmo Run (duas linhas `ok`).
 troca com o cruzamento forçado — V72 —, a janela no modo "mais" e na suspensão, Aplicativos conectados, a parada, o
 Liame que segue Liame), `parceiros.regras.spec.ts` (a tela e as regras do parceiro) e, na porta, o
 `integracao-parceiro.http.spec.ts` (a janela pelo `ler_desde`).
+
+## 12. Os avisos (webhooks) do aplicativo de parceiro (F4, parte F, PR R2 — sem migration; depende da 340)
+
+O mesmo aviso dos produtos da DMS (Standard Webhooks, só gatilho "leia de novo", um por loja por minuto, assinado com o
+segredo que o aplicativo registra), com o que é do parceiro. Nasce com a mesma chave da porta: só com
+`PARCEIROS_LIGADOS`, o hub ligado, a parada lida e o aplicativo na lista de aprovados.
+
+- **Registrar (`PUT /integracao/webhook`, pela ligação):** as bases são as `bases_dos_avisos` que a DMS aprovou para o
+  aplicativo, na lista do hub de AGORA, cada uma passando na regra do pacote (`problemaDaBaseDeAviso`, sempre como
+  produção) e fora dos domínios da DMS e dos serviços do próprio Regem (lidos do ambiente: a API, o app, o cardápio, o
+  hub, o DMS ID, o Supabase…). O endereço é uma base + UM trecho (`[A-Za-z0-9_-]{1,64}`, `destinoAvisoPermitido`), com até
+  500 caracteres já normalizado. E o nome tem de resolver só para IP público (o envio seguro, abaixo): o endereço que
+  aponta para a rede interna é recusado já no registro (422 `endereco-nao-permitido`, com o motivo). A auditoria guarda só
+  a origem do endereço (o trecho é o id interno da conexão no sistema do parceiro). Desligado ou fora da lista, a porta
+  responde 401 `ligacao-invalida` antes de chegar aqui; aprovado sem base válida, 422.
+- **A fila (um job PRÓPRIO, a cada 15 s):** o destino de um parceiro fora do ar nunca atrasa os avisos do Liame, do Farol e
+  do GoGeM (outro relógio, outra trava), e a fila dos produtos da DMS nunca pega linha de parceiro. Na reserva, o acesso
+  vale pela mesma régua da porta: o token e a ligação vivos (não revogados, da mesma empresa), a ligação do aplicativo
+  aprovado usada nos últimos 90 dias, a loja e a empresa vivas. **A lista do hub é a fonte das permissões do aviso:** as do
+  acesso E as que o hub aprovou dentro do teto da classe e da etapa — tirar uma permissão é na lista. O aplicativo parado
+  pelo client_id (geral ou de aplicativo) fica de fora; a parada de ligação e a de tipo de aviso, como nos produtos da DMS.
+- **A janela (M4) vale para o aviso:** a venda confirmada antes da autorização e o cliente esquecido antes dela não viram
+  aviso (as mesmas expressões da leitura). Quando só há novidade de antes da janela, a posição anda sem mandar nada — e a
+  busca seguinte não varre de novo; havendo as duas, o aviso diz a de dentro e a posição anda até a mais recente.
+- **No envio, de novo:** o aplicativo ainda aprovado (caiu entre a reserva e o envio → volta em 30 s) e o endereço dentro
+  de uma base da lista de hoje (saiu → pausa com o motivo, sem contar falha do destino; registrar de novo religa). E o
+  **envio seguro** (`common/envio-seguro.ts`, cópia fiel do simulador do hub — vai para o pacote comum na 0.10): resolve o
+  nome com prazo, recusa se QUALQUER IP for interno (as faixas do pacote e os túneis do IPv6), conecta só no IP conferido
+  (o DNS que muda depois não leva a outro lugar), confere o certificado pelo nome, não segue redirecionamento, 5 s no
+  total, lê no máximo 16 KB. **Disjuntor por servidor de destino:** no máximo um envio em curso por servidor; a primeira
+  falha de um servidor solta as outras linhas dele por 30 s, sem contar falha.
+- **O hub** registra cada envio pelo **client_id** do parceiro (como a porta), com só a origem do destino.
+- **A troca do clique:** o aviso registrado do acesso VIVO trocado (o modo "mais") passa para o acesso novo — o mesmo
+  endereço e segredo, a posição, as falhas e a pausa —, depois do commit da troca e sem nunca derrubá-la. O acesso
+  suspenso (que recomeça a janela) não leva: o parceiro registra o aviso de novo.
+- **A limpeza (a cada 10 min):** a linha de parceiro com a ligação revogada sai (com o segredo); a com a ligação parada há
+  90 dias é pausada com o motivo. A do token revogado ou vencido sai pela limpeza de sempre.
+
+**De carona (ERR-302):** a fila dos produtos da DMS também passou a conferir a loja e a empresa vivas — com a loja do
+acesso apagada, o aviso continuava saindo, e com a venda da outra loja da empresa (que sobrava como "única").
+
+**Testes:** `integracao-parceiro.http.spec.ts` (o registro, a fila — a janela, as permissões pela lista, quem não vale, a
+limpeza —, a base que sai da lista, o hub pelo client_id, o disjuntor e o escopo do job, com um receptor TLS de verdade e
+o certificado gerado na memória), `autorizacao-clique-parceiro.http.spec.ts` (o aviso na troca), `envio-seguro.spec.ts`
+(portado do hub), `webhook-integracao.spec.ts` (as bases e o endereço do parceiro) e `integracao-webhook.http.spec.ts` (a
+loja apagada; e o Liame sem mudança).
+
+**Para ligar (distribuição):** o mesmo da seção 10 — a migration 340 na nuvem antes do merge e `PARCEIROS_LIGADOS`. Sem a
+340 na nuvem, o job do parceiro para sozinho por 10 min de cada vez, com o aviso no log, e os dos produtos da DMS seguem.

@@ -600,6 +600,10 @@ export class AutorizacaoCliqueService {
       });
     }
 
+    // O aviso (webhook) do parceiro acompanha a autorização contínua (F4 parte F, R2): o acesso VIVO trocado nesta loja
+    // tinha um aviso registrado → ele passa para o acesso novo. O suspenso (que recomeça a janela) não leva.
+    if (a.parceiro) await this.levarAvisosDoParceiro(tenantId, a.cliente, feito);
+
     // O aviso aos presidentes, depois da troca: a ligação só existe agora. Nunca rejeita.
     void avisarAutorizacaoPorClique(this.db, {
       tenantId,
@@ -625,6 +629,46 @@ export class AutorizacaoCliqueService {
       saida.push({ ...(await this.tokens.dadosDaLoja(ctx)), loja_id: n.loja.id, ligacao: n.chave, prefixo: n.prefixo, permissoes: n.escopos, segredo_em: n.segredoEm });
     }
     return { lojas: saida };
+  }
+
+  /**
+   * Leva o aviso registrado do acesso de parceiro trocado para o acesso novo da mesma loja (o mesmo endereço e segredo, a
+   * posição, as falhas e a pausa), só quando o acesso trocado estava VIVO (a mesma condição que herda o `ler_desde` e as
+   * permissões: `antes` preenchido). Numa instrução só, DEPOIS do commit da troca, e nunca a derruba: se não sair, o
+   * parceiro registra o aviso de novo (o acesso antigo, revogado, não recebe nada e a limpeza apaga a linha dele). A base
+   * do endereço é conferida de novo a cada envio.
+   */
+  private async levarAvisosDoParceiro(
+    tenantId: string,
+    cliente: string,
+    feito: { antigos: any[]; novos: { loja: { id: string }; id: string; antes: EscopoIntegracao[] | null }[] },
+  ): Promise<void> {
+    const pares = feito.novos
+      .filter((n) => n.antes !== null)
+      .flatMap((n) => feito.antigos.filter((t) => t.unidade_id === n.loja.id).map((t) => sql`(${t.id}::uuid, ${n.id}::uuid)`));
+    if (!pares.length) return;
+    try {
+      const r: any = await this.db.execute(sql`
+        insert into integracao_webhook
+          (token_id, tenant_id, unidade_id, cliente, url, segredo_cifrado, criado_em, registrado_em, avisado_ate,
+           proxima_verificacao_em, falhas_seguidas, primeira_falha_em, ultimo_envio_em, ultimo_status_http, ultimo_erro,
+           entregues, pausado_em, motivo_pausa)
+        select distinct on (m.novo)
+               m.novo, w.tenant_id, w.unidade_id, w.cliente, w.url, w.segredo_cifrado, w.criado_em, w.registrado_em, w.avisado_ate,
+               least(w.proxima_verificacao_em, now()), w.falhas_seguidas, w.primeira_falha_em, w.ultimo_envio_em,
+               w.ultimo_status_http, w.ultimo_erro, w.entregues, w.pausado_em, w.motivo_pausa
+          from (values ${sql.join(pares, sql`, `)}) as m(velho, novo)
+          join integracao_webhook w on w.token_id = m.velho
+         where w.tenant_id = ${tenantId}::uuid and w.cliente = ${cliente}
+         order by m.novo, w.registrado_em desc
+        on conflict (token_id) do nothing`);
+      const levados = Number(r?.rowCount ?? 0);
+      if (levados) this.log.log(`troca do clique (${cliente}): ${levados} aviso(s) registrado(s) passaram para o acesso novo`);
+    } catch (e: any) {
+      this.log.warn(
+        `troca do clique (${cliente}): o aviso registrado não passou para o acesso novo (o parceiro registra de novo): ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e}`,
+      );
+    }
   }
 
   /**
