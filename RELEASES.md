@@ -13,7 +13,7 @@
 ## Acumulado (NÃO empacotado) — próxima release (1.30.11)
 
 - **O ícone do servidor não falava com o sistema (ERR-303) e o provisionamento sem nova tentativa (ERR-304) — achados
-  na instalação da 1.30.10 na loja (25/10); PR desta entrega; pede o `.exe` (reinstalar SÓ o servidor):**
+  na instalação da 1.30.10 na loja (25/10); #734; pede o `.exe` (reinstalar SÓ o servidor):**
   - o `RegemServidor.exe` força o TLS 1.2. Compilado pelo `csc` sem a marca de versão do .NET, ele oferecia só até o
     TLS 1.0, o sistema recusava e o ícone dizia "o certificado do sistema deste servidor não é o da loja (reinstale o
     servidor)" com os 5 serviços de pé. A conexão segura que não abre agora tem mensagem própria (sem "reinstale");
@@ -24,10 +24,14 @@
     servidor pelo `.exe`.
   - **Conferir na loja depois do `.exe`:** o "R" dourado abre a lista de aparelhos (sem "o sistema deste servidor não
     responde").
-- **A corrigir no próximo corte** (sem PR ainda): o status do backup que o servidor da loja
-  manda à nuvem chega ilegível — o `backup.ps1` grava `ultimo-backup.json` com BOM (`[Text.Encoding]::UTF8`) e o
-  daemon faz `JSON.parse` sem tirar o BOM; a nuvem vê "backup falhou" em toda loja desde o #546, mesmo com o backup
-  em dia. Correção: o daemon tira o BOM ao ler e o `backup.ps1` grava sem BOM. Toca `edge/` → `.exe` do corte.
+- **O status do backup chega à nuvem (ERR-305; PR desta entrega):** a nuvem via "backup falhou" em toda loja desde o
+  #546, com o backup em dia. O `backup.ps1` gravava `ultimo-backup.json` com BOM e o daemon fazia `JSON.parse` sem
+  tirar o BOM. Agora:
+  - a leitura (`edge/marcador-backup.mjs`, que o daemon importa) aceita o arquivo com e sem BOM;
+  - o `backup.ps1` grava sem BOM.
+
+  Vai no `.zip` e no `.exe`: o daemon e o `backup.ps1` são arquivos soltos de `edge\`.
+  - **Conferir depois:** no console de distribuição, o backup da loja aparece em dia (com a idade em horas).
 - **`desktop/` (Electron ^31, sem suporte, com o Node 20 e um Chromium antigo dentro, e `rejectUnauthorized: false` em
   `desktop/main.js:35`): NÃO é distribuído** (o instalador abre o Edge/Chrome em modo app; não há build dele nem
   registro aqui; última mudança em 31/07, #246). Não empacotar como está: se um dia for usado, subir para um Electron

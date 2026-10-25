@@ -70,7 +70,7 @@ describe('ícone do servidor: conversa com o sistema da loja por TLS 1.2 (ERR-30
       await new Promise<void>((ok) =>
         execFile(exe, ['--raiz', pasta, '--api', `https://localhost:${porta}`, '--diagnostico', diag], { timeout: 60_000 }, () => ok()),
       );
-      const saida = readFileSync(diag, 'utf8').replace(/^﻿/, '');
+      const saida = readFileSync(diag, 'utf8').replace(/^\uFEFF/, '');
       expect(saida).toContain('erro=o certificado do sistema deste servidor não é o da loja');
       expect(errosTls).not.toContain('ERR_SSL_UNSUPPORTED_PROTOCOL');
     } finally {

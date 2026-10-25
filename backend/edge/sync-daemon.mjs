@@ -14,7 +14,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { readFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { createHash, createHmac } from 'node:crypto';
 import zlib from 'node:zlib';
 import { Readable, pipeline } from 'node:stream';
@@ -43,6 +43,7 @@ for (const _m of ['log', 'warn', 'error']) {
 // DPAPI — senao a EDGE_DATABASE_URL fica cifrada e o pg conecta como a conta da
 // maquina (28P01 "password authentication failed for user <MAQUINA>$").
 import { carregarEnvLocal } from './decifrar-env.mjs';
+import { lerStatusDoBackup } from './marcador-backup.mjs';
 import { criarReconciliacao } from './sync-reconciliacao.mjs';
 import {
   SQL_SEM_RESPONDER, SQL_DANFE_JA_NA_FILA, SQL_DANFE_ALVO, SQL_DANFE_INSERIR, SQL_JOB_DO_COMANDO,
@@ -1542,39 +1543,9 @@ async function coletarSaude() {
   // ── BACKUP ──────────────────────────────────────────────────────────────────
   // Lido do arquivo que o backup.ps1 grava (não do banco): se o Postgres estiver fora, o
   // backup do dia anterior ainda precisa ser reportado. Sem isto a nuvem não tinha como
-  // saber que uma loja passou meses sem backup — foi o que aconteceu.
-  try {
-    const { readFileSync: lerArq, existsSync: temArq, readdirSync: lerDir, statSync } = await import('node:fs');
-    const { join: p, dirname } = await import('node:path');
-    const raizBackend = process.cwd();
-    const dirBk = p(dirname(raizBackend), 'backups');
-    const marcador = p(dirBk, 'ultimo-backup.json');
-    if (temArq(marcador)) {
-      const m = JSON.parse(lerArq(marcador, 'utf8'));
-      saude.backup = {
-        ok: !!m.ok,
-        em: m.em ?? null,
-        horas: m.em ? Math.round((Date.now() - new Date(m.em).getTime()) / 36e5) : null,
-        mb: m.bytes ? Math.round(Number(m.bytes) / 1048576) : null,
-        erro: m.erro ? String(m.erro).slice(0, 200) : null,
-      };
-    } else if (temArq(dirBk)) {
-      // Instalação anterior ao marcador: usa o arquivo mais novo da pasta.
-      const arquivos = lerDir(dirBk).filter((f) => f.startsWith('db-') && f.endsWith('.dump.enc'));
-      let maisNovo = null;
-      for (const f of arquivos) {
-        const st = statSync(p(dirBk, f));
-        if (!maisNovo || st.mtimeMs > maisNovo.mtimeMs) maisNovo = { nome: f, mtimeMs: st.mtimeMs, size: st.size };
-      }
-      saude.backup = maisNovo
-        ? { ok: true, em: new Date(maisNovo.mtimeMs).toISOString(), horas: Math.round((Date.now() - maisNovo.mtimeMs) / 36e5), mb: Math.round(maisNovo.size / 1048576), erro: null }
-        : { ok: false, em: null, horas: null, mb: null, erro: 'nenhum backup encontrado' };
-    } else {
-      saude.backup = { ok: false, em: null, horas: null, mb: null, erro: 'pasta de backups inexistente' };
-    }
-  } catch (e) {
-    saude.backup = { ok: false, em: null, horas: null, mb: null, erro: `não consegui ler: ${e.message}` };
-  }
+  // saber que uma loja passou meses sem backup — foi o que aconteceu. A leitura (com o BOM do backup.ps1 antigo —
+  // ERR-305) está em marcador-backup.mjs, testada.
+  saude.backup = lerStatusDoBackup(join(dirname(process.cwd()), 'backups'));
   // Dado que só existe aqui (ver --pendencias): a nuvem passa a saber ANTES de alguém
   // mandar reinstalar a loja. Varrer ~90 tabelas é caro, então roda a cada 6h e o
   // resultado fica guardado — o heartbeat manda sempre o último apurado.
