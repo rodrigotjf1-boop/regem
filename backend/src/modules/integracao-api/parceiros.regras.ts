@@ -61,9 +61,20 @@ export function aplicativoNoHub(cliente: string, clientId?: string | null): stri
 export function permissoesDoParceiro(a: AplicativoAprovado): EscopoIntegracao[] {
   const aprovadas = new Set(a.permissoes.map((p) => p.nome));
   const comSensivel = a.etapa === 'producao' && a.dado_pessoal === true;
-  return ESCOPOS_INTEGRACAO.filter(
-    (e) => ESCOPOS_DO_PARCEIRO.includes(e) && aprovadas.has(e) && (comSensivel || !ESCOPOS_SENSIVEIS.includes(e)),
+  return semEsquecidoSemTelefone(
+    ESCOPOS_INTEGRACAO.filter((e) => ESCOPOS_DO_PARCEIRO.includes(e) && aprovadas.has(e) && (comSensivel || !ESCOPOS_SENSIVEIS.includes(e))),
   );
+}
+
+/**
+ * O pedido de "cliente esquecido" (anonimização) do aplicativo de PARCEIRO só vale junto com o telefone do cliente (decisão
+ * do dono, 25/10/2026, a recomendada): sem o telefone, o parceiro nunca recebe o id do cliente — o aviso e a leitura do
+ * esquecido seriam só ruído e um sinal das outras lojas da empresa (o cliente é da empresa inteira). Vale sobre as
+ * permissões que já valem: no teto (a etapa de teste nunca tem telefone), na porta (a loja pode não ter ligado o
+ * telefone, que é opcional) e na fila dos avisos. Os produtos da DMS não passam por aqui.
+ */
+export function semEsquecidoSemTelefone<T extends string>(escopos: readonly T[]): T[] {
+  return escopos.includes('clientes.telefone.ler' as T) ? [...escopos] : escopos.filter((e) => e !== 'clientes.anonimizacao.ler');
 }
 
 /** As lojas que o aplicativo pode ter (somando todas as empresas): na etapa de teste, o número da lista ou 3; na produção, sem teto. */

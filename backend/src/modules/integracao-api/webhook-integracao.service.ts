@@ -671,7 +671,12 @@ export class WebhookIntegracaoService {
               on l.id = w.token_id and l.tenant_id = w.tenant_id and l.revogado_em is null and l.aplicativo = pa.client_id
              and coalesce(l.ultimo_uso_em, l.criado_em) > now() - make_interval(days => ${POLITICA_LIGACAO.suspensaoParadaDias})
            cross join lateral (
-                  select array(select unnest(t.escopos) intersect select unnest(pa.escopos)) as escopos,
+                  select array(select unnest(t.escopos) intersect select unnest(pa.escopos)) as ambos
+                 ) pe0
+           cross join lateral (
+                  -- o "cliente esquecido" só com o telefone (a mesma regra da porta, semEsquecidoSemTelefone)
+                  select case when 'clientes.telefone.ler' = any(pe0.ambos) then pe0.ambos
+                              else array_remove(pe0.ambos, 'clientes.anonimizacao.ler') end as escopos,
                          coalesce(t.ler_desde, t.criado_em) as inicio
                  ) pe
            cross join lateral (${this.sqlDasPermissoes(sql`pe.escopos`)}) p

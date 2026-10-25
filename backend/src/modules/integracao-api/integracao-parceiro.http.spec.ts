@@ -99,6 +99,20 @@ const aprovado = (o: Partial<AplicativoAprovado>): AplicativoAprovado => ({
   ...o,
 });
 
+/**
+ * O aplicativo de parceiro na produção com dado pessoal e o telefone aprovado: com ele, o "cliente esquecido" vale (sem
+ * o telefone, não — decisão do dono, 25/10/2026).
+ */
+const aprovadoProducao = () =>
+  aprovado({
+    aplicativo: APP_PARCEIRO_PROD,
+    nome: 'Painel Produção',
+    etapa: 'producao',
+    lojas_max: null,
+    dado_pessoal: true,
+    permissoes: [...aprovado({}).permissoes, { nome: 'clientes.telefone.ler', motivo: 'O telefone do cliente no painel.', necessaria: false }],
+  });
+
 /** O DMS ID e o hub de mentira num servidor só. */
 async function subirFalsos(recurso: () => string) {
   const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-384' });
@@ -111,7 +125,7 @@ async function subirFalsos(recurso: () => string) {
       versao: 1,
       itens: [
         aprovado({}),
-        aprovado({ aplicativo: APP_PARCEIRO_PROD, nome: 'Painel Produção', etapa: 'producao', lojas_max: null, dado_pessoal: true }),
+        aprovadoProducao(),
         // o client_id do Liame na lista do hub: o Regem decide "é DMS" antes, e ele nunca vira parceiro
         aprovado({ aplicativo: APP_LIAME, nome: 'Painel Clone', permissoes: [{ nome: 'pedidos.ler', motivo: 'Ler os pedidos da loja.', necessaria: true }] }),
       ],
@@ -651,9 +665,24 @@ descrever('API de integração — o aplicativo de parceiro (Hub DMS, F4 parte F
     };
     const esquecidoAntes = await esquecido(3);
     const esquecidoDepois = await esquecido(1);
-    const ap = await comoParceiro('/api/v1/integracao/clientes/anonimizados', naJanela.ligacao);
+    // o parceiro sem o telefone (a etapa de teste nunca o tem) não lê o "cliente esquecido" (decisão do dono, 25/10/2026)
+    expect((await comoParceiro('/api/v1/integracao/clientes/anonimizados', naJanela.ligacao)).status).toBe(403);
+    // o de produção com o telefone aprovado e autorizado: lê só os de depois que o acesso nasceu
+    const comTelefone = await ligacaoDeParceiro({
+      tenant: B.tenant,
+      loja: B.lojas[0],
+      pres: presB,
+      escopos: ['pedidos.ler', 'clientes.telefone.ler', 'clientes.anonimizacao.ler'],
+      aplicativo: APP_PARCEIRO_PROD,
+      acessoHaDias: 2,
+    });
+    const tokenComTelefone = falsos.emitir({ aplicativo: APP_PARCEIRO_PROD, scope: 'pedidos.ler clientes.telefone.ler clientes.anonimizacao.ler' });
+    const ap = await chamar('/api/v1/integracao/clientes/anonimizados', { token: tokenComTelefone, ligacao: comTelefone.ligacao });
     expect(ap.status).toBe(200);
     expect(((await ap.json()) as any).itens.map((c: any) => c.id)).toEqual([esquecidoDepois]);
+    // a mesma ligação com um token SEM o telefone: o esquecido também cai (a regra vale sobre o que já vale)
+    const tokenSemTelefone = falsos.emitir({ aplicativo: APP_PARCEIRO_PROD, scope: 'pedidos.ler clientes.anonimizacao.ler' });
+    expect((await chamar('/api/v1/integracao/clientes/anonimizados', { token: tokenSemTelefone, ligacao: comTelefone.ligacao })).status).toBe(403);
     const al = await chamar('/api/v1/integracao/clientes/anonimizados', { token: falsos.emitir(), ligacao: liameB.ligacao });
     expect(((await al.json()) as any).itens.map((c: any) => c.id).sort()).toEqual([esquecidoAntes, esquecidoDepois].sort());
   });
@@ -695,7 +724,7 @@ descrever('API de integração — o aplicativo de parceiro (Hub DMS, F4 parte F
     let segredo = '';
     const listaOriginal = () => [
       aprovado({}),
-      aprovado({ aplicativo: APP_PARCEIRO_PROD, nome: 'Painel Produção', etapa: 'producao', lojas_max: null, dado_pessoal: true }),
+      aprovadoProducao(),
       aprovado({ aplicativo: APP_LIAME, nome: 'Painel Clone', permissoes: [{ nome: 'pedidos.ler', motivo: 'Ler os pedidos da loja.', necessaria: true }] }),
     ];
 
@@ -867,15 +896,42 @@ descrever('API de integração — o aplicativo de parceiro (Hub DMS, F4 parte F
       );
       expect(ate.igual).toBe(true);
 
-      // o cliente esquecido antes da janela não vira aviso; o de depois, vira
+      // o cliente esquecido: este parceiro (etapa de teste) não tem o telefone, então nem o de depois da janela vira aviso
       await emDia();
       recebidos.length = 0;
-      await esquecido(C.tenant, 3);
+      await esquecido(C.tenant, 0.5);
+      expect(await ciclo()).toEqual({ enviados: 0, entregues: 0 });
+    });
+
+    it('o "cliente esquecido" só vira aviso para o parceiro com o telefone (o de produção); o de antes da janela, nem para ele', async () => {
+      const H = await empresa('Empresa H', ['H1']);
+      const presH = await presidente(H.tenant);
+      const prod = await ligacaoDeParceiro({
+        tenant: H.tenant,
+        loja: H.lojas[0],
+        pres: presH,
+        escopos: ['pedidos.ler', 'clientes.telefone.ler', 'clientes.anonimizacao.ler'],
+        aplicativo: APP_PARCEIRO_PROD,
+        acessoHaDias: 2,
+      });
+      await q(
+        `insert into integracao_webhook (token_id, tenant_id, unidade_id, cliente, url, segredo_cifrado)
+         select id, tenant_id, unidade_id, cliente, $2, $3 from integracao_token_loja where id = $1`,
+        [prod.id, `${BASE_AVISO}h1`, cifrar(segredoNovo())],
+      );
+      await emDia();
+      recebidos.length = 0;
+      await esquecido(H.tenant, 3);
       expect(await ciclo()).toEqual({ enviados: 0, entregues: 0 });
       await naVez();
-      const depois = await esquecido(C.tenant, 0.5);
+      const depois = await esquecido(H.tenant, 0.5);
       expect(await ciclo()).toEqual({ enviados: 1, entregues: 1 });
-      expect(JSON.parse(doCaminho('c1')[0].corpo)).toEqual({ tipo: 'cliente.anonimizado', id: depois, loja_id: C.lojas[0] });
+      expect(JSON.parse(doCaminho('h1')[0].corpo)).toEqual({ tipo: 'cliente.anonimizado', id: depois, loja_id: H.lojas[0] });
+      // a mesma ligação, com o telefone tirado do acesso: o esquecido não vira mais aviso
+      await q(`update integracao_token_loja set escopos = '{pedidos.ler,clientes.anonimizacao.ler}' where id = $1`, [prod.id]);
+      await naVez();
+      await esquecido(H.tenant, 0.2);
+      expect(await ciclo()).toEqual({ enviados: 0, entregues: 0 });
     });
 
     it('as permissões do aviso vêm da lista do hub: sem pedidos.ler aprovado, a venda não avisa (mesmo com ela no acesso)', async () => {
