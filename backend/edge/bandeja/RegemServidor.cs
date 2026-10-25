@@ -48,6 +48,14 @@ namespace Regem.Servidor
 
         public const string NaoResponde = "o sistema deste servidor n\u00e3o responde";
 
+        // TLS 1.2 (ERR-303): compilado pelo csc sem a marca de versao do .NET, o HttpWebRequest oferece so SSL3/TLS 1.0
+        // - o sistema (Node) recusa ("unsupported protocol") e o icone dizia "o certificado nao e o da loja" com o
+        // servidor de pe. O instalador (PowerShell 5.1) ja fazia o mesmo nas chamadas dele.
+        static Api()
+        {
+            ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+        }
+
         string Chave()
         {
             string arq = Path.Combine(Raiz, "bandeja.key");
@@ -80,8 +88,12 @@ namespace Regem.Servidor
             {
                 if (we.Response == null)
                 {
-                    if (we.Status == WebExceptionStatus.TrustFailure || we.Status == WebExceptionStatus.SecureChannelFailure)
+                    // O certificado nao confere (TrustFailure) e a conexao segura que nao abre (SecureChannelFailure) sao
+                    // coisas diferentes: so a primeira pede reinstalar o servidor.
+                    if (we.Status == WebExceptionStatus.TrustFailure)
                         throw new Exception("o certificado do sistema deste servidor n\u00e3o \u00e9 o da loja (reinstale o servidor)");
+                    if (we.Status == WebExceptionStatus.SecureChannelFailure)
+                        throw new Exception("o \u00edcone n\u00e3o conseguiu abrir a conex\u00e3o segura com o sistema deste servidor (" + we.Message + ")");
                     throw new Exception(NaoResponde);
                 }
                 using (StreamReader rd = new StreamReader(we.Response.GetResponseStream(), Encoding.UTF8))
