@@ -136,19 +136,27 @@ export const VARIAVEIS_DOS_SERVICOS_PROPRIOS = [
   'EVOLUTION_API_URL',
   'OSRM_URL',
   'GOGEM_CLOUD_URL',
+  'GOGEM_PUBLISH_URL',
   'EDGE_UPDATE_URL',
+  'EDGE_INSTALLER_URL',
+  'OTP_WEBHOOK_URL',
+  // as listas dos avisos dos produtos da DMS (separadas por vírgula)
+  'INTEGRACAO_LIAME_WEBHOOK_URLS',
+  'INTEGRACAO_FAROL_WEBHOOK_URLS',
+  'INTEGRACAO_GOGEM_WEBHOOK_URLS',
 ] as const;
 
 export function dominiosProibidosDoAmbiente(env: Record<string, string | undefined> = process.env): string[] {
   const nomes = new Set<string>();
   for (const v of VARIAVEIS_DOS_SERVICOS_PROPRIOS) {
-    const bruto = (env[v] ?? '').trim();
-    if (!bruto) continue;
-    try {
-      const host = new URL(bruto).hostname.toLowerCase();
-      if (host) nomes.add(host);
-    } catch {
-      // variável torta: não é endereço, não há nome a recusar
+    for (const bruto of (env[v] ?? '').split(',').map((x) => x.trim())) {
+      if (!bruto) continue;
+      try {
+        const host = new URL(bruto).hostname.toLowerCase();
+        if (host) nomes.add(host);
+      } catch {
+        // variável torta: não é endereço, não há nome a recusar
+      }
     }
   }
   return [...nomes];

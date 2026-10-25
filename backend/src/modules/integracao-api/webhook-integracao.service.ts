@@ -354,7 +354,12 @@ export class WebhookIntegracaoService {
 
   /** As opções do envio seguro do parceiro: o prazo do serviço, os serviços do próprio Regem e o que o teste trocou. */
   private opcoesDoParceiro(): OpcoesDoEnvio {
-    return { prazoMs: this.prazoEnvioMs, proibidos: dominiosProibidosDoAmbiente(), ...this.envioDoParceiro };
+    // os proibidos do teste SOMAM aos do ambiente (nunca os trocam)
+    return {
+      prazoMs: this.prazoEnvioMs,
+      ...this.envioDoParceiro,
+      proibidos: [...dominiosProibidosDoAmbiente(), ...(this.envioDoParceiro.proibidos ?? [])],
+    };
   }
 
   /** `GET /integracao/webhook`: a situação do aviso deste token (404 se não há registro). */
@@ -459,7 +464,7 @@ export class WebhookIntegracaoService {
       let ok = 0;
       for (let i = 0; i < mandar.length; i += EM_PARALELO) {
         const r = await Promise.all(mandar.slice(i, i + EM_PARALELO).map((l) => this.enviar(l, ligacoes.get(l.token_id) ?? null)));
-        ok += r.filter(Boolean).length;
+        ok += r.filter((x) => x.entregue).length;
       }
       enviados += mandar.length;
       entregues += ok;
@@ -535,7 +540,8 @@ export class WebhookIntegracaoService {
              and w.cliente !~ '^parceiro_'
              ${fora}
              ${this.escopo(sql`w.tenant_id`, e)}
-           order by w.proxima_verificacao_em
+           -- o desempate pela linha: duas réplicas travam na mesma ordem (sem impasse no empate)
+           order by w.proxima_verificacao_em, w.token_id
            limit ${lote}
         ), res as (
           update integracao_webhook w
@@ -640,13 +646,18 @@ export class WebhookIntegracaoService {
    *   sem envio (uma gravação, e a próxima busca não varre de novo); há as duas → reserva, e o envio entregue anda até o
    *   limite (o aviso é só gatilho: "leia de novo").
    */
-  private async reservarParceiros(e: EscopoAviso | undefined, lote: number, parceiros: ParceiroNaFila[]): Promise<Devido[]> {
-    if (!parceiros.length) return [];
+  private async reservarParceiros(
+    e: EscopoAviso | undefined,
+    lote: number,
+    parceiros: ParceiroNaFila[],
+  ): Promise<{ lote: Devido[]; pegou: number }> {
+    if (!parceiros.length) return { lote: [], pegou: 0 };
     const aprovados = sql.join(
       parceiros.map((p) => sql`(${p.cliente}, ${p.clientId}, ${`{${p.escopos.join(',')}}`}::text[])`),
       sql`, `,
     );
-    return this.rows(
+    // As linhas que só andaram (sem envio) contam no que a reserva pegou: o ciclo segue enquanto ela vem cheia.
+    const linhas = this.rows(
       await this.db.execute(sql`
         with pa(cliente, client_id, escopos) as (values ${aprovados}),
         nov as materialized (
@@ -669,8 +680,11 @@ export class WebhookIntegracaoService {
            where w.pausado_em is null
              and w.proxima_verificacao_em <= now()
              and ${ACESSO_VIVO}
+             -- a linha é do mesmo acesso, do mesmo aplicativo e da mesma loja (a régua da recusa da ligação)
+             and t.cliente = w.cliente
+             and w.unidade_id is not distinct from t.unidade_id
              ${this.escopo(sql`w.tenant_id`, e)}
-           order by w.proxima_verificacao_em
+           order by w.proxima_verificacao_em, w.token_id
            limit ${lote}
         ), andou as (
           update integracao_webhook w
@@ -692,25 +706,29 @@ export class WebhookIntegracaoService {
           returning w.token_id, w.tenant_id, w.unidade_id, w.cliente, w.url, w.segredo_cifrado, w.falhas_seguidas,
                     extract(epoch from (now() - w.primeira_falha_em))::float8 as falhando_ha
         )
-        select res.token_id::text as token_id, nov.token_prefixo, res.tenant_id::text as tenant_id, res.unidade_id::text as unidade_id,
-               res.cliente, res.url,
+        select nov.token_id::text as token_id, res.token_id is not null as reservado, nov.token_prefixo,
+               res.tenant_id::text as tenant_id, res.unidade_id::text as unidade_id, res.cliente, res.url,
                res.segredo_cifrado, res.falhas_seguidas, res.falhando_ha,
                nov.recurso, nov.recurso_id::text as recurso_id, nov.versao::text as versao,
                ${sqlIso(sql`nov.limite`)} as ate, nov.cupom_id, nov.pedido_id,
                nov.client_id, nov.ligacao_prefixo
-          from res
-          join nov on nov.token_id = res.token_id`),
-    ) as Devido[];
+          from nov
+          left join res on res.token_id = nov.token_id`),
+    ) as (Devido & { reservado: boolean })[];
+    return { lote: linhas.filter((l) => l.reservado), pegou: linhas.length };
   }
 
   /**
-   * Manda um aviso e grava o resultado. Nunca rejeita (V3): devolve se foi entregue. `ligacaoPrefixo`: o da ligação do
-   * DMS ID da mesma linha, quando há (vai ao registro do hub no lugar do prefixo do token).
+   * Manda um aviso e grava o resultado. Nunca rejeita (V3): devolve se foi entregue e se o SERVIDOR de destino parece
+   * caído (sem resposta, 5xx ou 429 — o disjuntor do parceiro só cai por isso; o 404 de uma conexão apagada, a pausa e o
+   * segredo que não abre são da linha, não do servidor). `ligacaoPrefixo`: o da ligação do DMS ID da mesma linha, quando
+   * há (vai ao registro do hub no lugar do prefixo do token).
    */
-  private async enviar(l: Devido, ligacaoPrefixo: string | null = null): Promise<boolean> {
+  private async enviar(l: Devido, ligacaoPrefixo: string | null = null): Promise<{ entregue: boolean; servidorCaiu: boolean }> {
     // O id deste envio (o `webhook-id` que o destino recebe) é o mesmo código do registro no hub.
     const id = randomUUID();
     const inicio = Date.now();
+    const daLinha = { entregue: false, servidorCaiu: false };
     try {
       let status: number | null = null;
       let erro: string | null = null;
@@ -724,7 +742,13 @@ export class WebhookIntegracaoService {
         // A chave de segredos desta nuvem mudou (ou o valor foi alterado): não é falha do destino.
         await this.anotarNoHub(l, { id, inicio, status: null, pausado: true, ligacaoPrefixo });
         await this.gravarPausa(l, null, 'o segredo guardado não abre mais neste servidor — registre o aviso de novo');
-        return false;
+        return daLinha;
+      }
+      const parceiro = ehClienteDeParceiro(l.cliente);
+      if (parceiro && !l.client_id) {
+        // Linha de parceiro sem o client_id da reserva: nunca vai pelo caminho dos produtos da DMS (defesa: não acontece).
+        this.log.error(`aviso de parceiro do token ${l.token_id} sem o aplicativo da reserva — não enviado`);
+        return daLinha;
       }
       const corpo = JSON.stringify(
         corpoDoAviso(
@@ -738,7 +762,7 @@ export class WebhookIntegracaoService {
           l.unidade_id,
         ),
       );
-      if (l.client_id) {
+      if (parceiro) {
         // O aplicativo de PARCEIRO: o envio seguro (resolve, confere todos os IPs, conecta no IP conferido, sem
         // redirecionamento, prazo total). Nunca rejeita; o nome que passou a apontar para dentro volta como erro (recuo).
         const r = await enviarComSeguranca(l.url, cabecalhosDoAviso(chave, id, corpo), corpo, this.opcoesDoParceiro());
@@ -763,6 +787,7 @@ export class WebhookIntegracaoService {
       }
 
       const d = desfechoDoEnvio({ status, falhasSeguidas: Number(l.falhas_seguidas ?? 0), falhandoHaSeg: l.falhando_ha });
+      const servidorCaiu = status === null || status >= 500 || status === 429;
       await this.anotarNoHub(l, { id, inicio, status, pausado: d.resultado === 'pausa', ligacaoPrefixo });
       if (d.resultado === 'entregue') {
         await this.db.execute(sql`
@@ -773,11 +798,11 @@ export class WebhookIntegracaoService {
                  ultimo_envio_em = now(), ultimo_status_http = ${status}, ultimo_erro = null,
                  entregues = entregues + 1
            where token_id = ${l.token_id}::uuid`);
-        return true;
+        return { entregue: true, servidorCaiu: false };
       }
       if (d.resultado === 'pausa') {
         await this.gravarPausa(l, status, d.motivo);
-        return false;
+        return { entregue: false, servidorCaiu };
       }
       await this.db.execute(sql`
         update integracao_webhook
@@ -789,11 +814,11 @@ export class WebhookIntegracaoService {
       this.log.warn(
         `aviso ao ${l.cliente} (empresa ${l.tenant_id}) não entregue: ${erro} — tento de novo em ${Math.round(d.recuoSeg / 60)} min`,
       );
-      return false;
+      return { entregue: false, servidorCaiu };
     } catch (e: any) {
       // Falhou ao gravar o resultado: a reserva (2 min) devolve a loja à fila sozinha.
       this.log.error(`aviso do token ${l.token_id}: resultado não gravado — ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e}`);
-      return false;
+      return daLinha;
     }
   }
 
@@ -816,7 +841,7 @@ export class WebhookIntegracaoService {
       if (codigo === '42P01' || codigo === '42703') {
         this.parceirosPausadosAte = Date.now() + ESPERA_SEM_TABELA_MS;
         this.log.warn(
-          `avisos de aplicativo de parceiro parados por 10 min: ${e?.message ?? e} — aplique as migrations 329 e 340 na nuvem (os avisos dos produtos da DMS seguem)`,
+          `avisos de aplicativo de parceiro parados por 10 min: ${e?.message ?? e} — confira as migrations da integração na nuvem (304, 316, 329 e 340; a mensagem diz a tabela ou a coluna) — os avisos dos produtos da DMS seguem`,
         );
       } else {
         this.log.error(`ciclo dos avisos de parceiro falhou: ${codigo ? `[${codigo}] ` : ''}${e?.message ?? e}`, e?.stack);
@@ -861,8 +886,10 @@ export class WebhookIntegracaoService {
     if (!hub) return [];
     const aprovados = hub.parceirosAprovados();
     if (!aprovados.length) return [];
+    // A régua da porta: sem a via do DMS ID ligada (a chave de emergência), a ligação do parceiro não entra — o aviso também não.
     const cfg = lerConfigDmsId();
-    const daDms = new Set(cfg.ligado ? Object.values(cfg.aplicativos) : []);
+    if (!cfg.ligado) return [];
+    const daDms = new Set(Object.values(cfg.aplicativos));
     return aprovados
       .filter((a) => !daDms.has(a.aplicativo) && hub.parado({ aplicativo: a.aplicativo }) === null)
       .map((a) => ({ cliente: clienteDoParceiro(a.aplicativo), clientId: a.aplicativo, escopos: permissoesDoParceiro(a) as string[] }))
@@ -878,12 +905,12 @@ export class WebhookIntegracaoService {
     const parceiros = this.parceirosNaFila();
     if (!parceiros.length) return { enviados, entregues };
     for (;;) {
-      const lote = await this.reservarParceiros(e, LOTE_PARCEIRO, parceiros);
-      if (!lote.length) break;
-      const r = await this.entregarAoParceiro(lote, fim);
+      const { lote, pegou } = await this.reservarParceiros(e, LOTE_PARCEIRO, parceiros);
+      if (!pegou) break;
+      const r = lote.length ? await this.entregarAoParceiro(lote, fim) : { enviados: 0, entregues: 0 };
       enviados += r.enviados;
       entregues += r.entregues;
-      if ((r.enviados && !r.entregues) || lote.length < LOTE_PARCEIRO || Date.now() > fim) break;
+      if ((r.enviados && !r.entregues) || pegou < LOTE_PARCEIRO || Date.now() > fim) break;
     }
     return { enviados, entregues };
   }
@@ -891,72 +918,85 @@ export class WebhookIntegracaoService {
   /**
    * Manda o lote reservado do parceiro. Antes de cada envio, de novo: o aplicativo ainda aprovado (caiu entre a reserva e o
    * envio → volta em 30 s, sem pausar) e o endereço dentro de uma base da lista de hoje (saiu → pausa com o motivo, sem
-   * contar falha do destino). A parada do hub (ligação, tipo) como nos produtos da DMS. DISJUNTOR por origem: no máximo um
-   * envio em curso por servidor de destino; a primeira falha de um servidor solta as outras linhas dele por 30 s (sem
-   * contar falha). O que o tempo do ciclo não alcança volta à fila na hora.
+   * contar falha do destino). A parada do hub (ligação, tipo) como nos produtos da DMS.
+   *
+   * DISJUNTOR por servidor de destino: uma fila por servidor, um envio por vez dentro dela, e até `EM_PARALELO` filas ao
+   * mesmo tempo (um parceiro lento só segura a fila dele). O servidor que parece caído (sem resposta, 5xx, 429) solta o
+   * resto da fila dele por 30 s, sem contar falha; o 404 de uma conexão não derruba as outras do mesmo servidor. O que o
+   * tempo do ciclo não alcança volta à fila na hora. Nunca deixa linha presa: o que der erro aqui é solto.
    */
   private async entregarAoParceiro(lote: Devido[], fim: number): Promise<{ enviados: number; entregues: number }> {
     const soltar: string[] = [];
-    let fila: Devido[] = [];
-    for (const l of lote) {
-      const aprovado = l.client_id ? (this.hub?.parceiroAprovado(l.client_id) ?? null) : null;
-      if (!aprovado) {
-        soltar.push(l.token_id);
-        continue;
-      }
-      if (!enderecoDoParceiro(l.url, basesDoParceiro(aprovado, dominiosProibidosDoAmbiente()))) {
-        await this.anotarNoHub(l, { id: randomUUID(), inicio: Date.now(), status: null, pausado: true, ligacaoPrefixo: l.ligacao_prefixo ?? null });
-        await this.pausarSemFalha(l, MOTIVO_BASE_FORA_DA_LISTA);
-        continue;
-      }
-      const parada = this.hub?.avisoParado({
-        aplicativo: l.client_id as string,
-        ligacaoPrefixos: [l.token_prefixo, l.ligacao_prefixo ?? undefined],
-        tipo: tipoDoAviso(l.recurso),
-      });
-      if (parada) soltar.push(l.token_id);
-      else fila.push(l);
-    }
+    const devolver: string[] = [];
+    const porServidor = new Map<string, Devido[]>();
     let enviados = 0;
     let entregues = 0;
-    const caidas = new Set<string>();
-    const devolver: string[] = [];
-    while (fila.length) {
-      if (Date.now() > fim) {
-        devolver.push(...fila.map((l) => l.token_id));
-        break;
-      }
-      const rodada: Devido[] = [];
-      const resto: Devido[] = [];
-      const naRodada = new Set<string>();
-      for (const l of fila) {
-        const origem = origemDoEndereco(l.url);
-        if (caidas.has(origem)) soltar.push(l.token_id);
-        else if (naRodada.has(origem) || rodada.length >= EM_PARALELO) resto.push(l);
-        else {
-          naRodada.add(origem);
-          rodada.push(l);
+    try {
+      for (const l of lote) {
+        try {
+          const aprovado = l.client_id ? (this.hub?.parceiroAprovado(l.client_id) ?? null) : null;
+          if (!aprovado) {
+            soltar.push(l.token_id);
+            continue;
+          }
+          if (!enderecoDoParceiro(l.url, basesDoParceiro(aprovado, dominiosProibidosDoAmbiente()))) {
+            await this.anotarNoHub(l, { id: randomUUID(), inicio: Date.now(), status: null, pausado: true, ligacaoPrefixo: l.ligacao_prefixo ?? null });
+            await this.pausarSemFalha(l, MOTIVO_BASE_FORA_DA_LISTA);
+            continue;
+          }
+          const parada = this.hub?.avisoParado({
+            aplicativo: l.client_id as string,
+            ligacaoPrefixos: [l.token_prefixo, l.ligacao_prefixo ?? undefined],
+            tipo: tipoDoAviso(l.recurso),
+          });
+          if (parada) {
+            soltar.push(l.token_id);
+            continue;
+          }
+          const origem = origemDoEndereco(l.url);
+          const fila = porServidor.get(origem);
+          if (fila) fila.push(l);
+          else porServidor.set(origem, [l]);
+        } catch (e: any) {
+          this.log.warn(`aviso de parceiro do token ${l.token_id}: conferência antes do envio falhou (${e?.code ?? ''} ${e?.message ?? e}) — solto por 30 s`);
+          soltar.push(l.token_id);
         }
       }
-      const r = await Promise.all(rodada.map((l) => this.enviar(l, l.ligacao_prefixo ?? null)));
-      rodada.forEach((l, i) => {
-        if (!r[i]) caidas.add(origemDoEndereco(l.url));
-      });
-      enviados += rodada.length;
-      entregues += r.filter(Boolean).length;
-      fila = resto;
+      const filas = [...porServidor.values()];
+      const trabalhar = async () => {
+        for (let fila = filas.shift(); fila; fila = filas.shift()) {
+          for (let i = 0; i < fila.length; i++) {
+            if (Date.now() > fim) {
+              devolver.push(...fila.slice(i).map((l) => l.token_id));
+              break;
+            }
+            const r = await this.enviar(fila[i], fila[i].ligacao_prefixo ?? null);
+            enviados++;
+            if (r.entregue) entregues++;
+            if (r.servidorCaiu) {
+              soltar.push(...fila.slice(i + 1).map((l) => l.token_id));
+              break;
+            }
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(EM_PARALELO, filas.length) }, () => trabalhar()));
+    } finally {
+      if (soltar.length) await this.soltarParados(soltar).catch((e: any) => this.log.warn(`avisos de parceiro não soltos (voltam em 2 min): ${e?.message ?? e}`));
+      if (devolver.length) await this.devolverAFila(devolver).catch((e: any) => this.log.warn(`avisos de parceiro não devolvidos (voltam em 2 min): ${e?.message ?? e}`));
     }
-    if (soltar.length) await this.soltarParados(soltar);
-    if (devolver.length) await this.devolverAFila(devolver);
     return { enviados, entregues };
   }
 
-  /** Pausa sem contar falha do destino (o motivo é de cá: a base saiu da lista). Um registro novo religa. */
+  /**
+   * Pausa sem contar falha do destino (o motivo é de cá: a base saiu da lista). Só a linha como foi reservada: um registro
+   * novo (outro endereço) feito nesse meio-tempo não é pausado. Um registro novo religa.
+   */
   private async pausarSemFalha(l: Devido, motivo: string): Promise<void> {
     await this.db.execute(sql`
       update integracao_webhook
          set pausado_em = now(), motivo_pausa = ${motivo}, ultimo_erro = ${motivo}
-       where token_id = ${l.token_id}::uuid`);
+       where token_id = ${l.token_id}::uuid and url = ${l.url} and pausado_em is null`);
     this.log.warn(`aviso ao aplicativo de parceiro ${l.client_id ?? l.cliente} (empresa ${l.tenant_id}) PAUSADO: ${motivo}`);
   }
 

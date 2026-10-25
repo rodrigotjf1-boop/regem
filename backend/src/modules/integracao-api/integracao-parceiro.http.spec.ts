@@ -685,7 +685,7 @@ descrever('API de integração — o aplicativo de parceiro (Hub DMS, F4 parte F
     const BASE_AVISO = 'https://api.exemplo.test/avisos/';
     type Recebido = { caminho: string; cabecalhos: Record<string, string | string[] | undefined>; corpo: string };
     const recebidos: Recebido[] = [];
-    let responder: () => { status: number; atrasoMs?: number } = () => ({ status: 202 });
+    let responder: (r: Recebido) => { status: number; atrasoMs?: number } = () => ({ status: 202 });
     let receptor: ReturnType<typeof criarServidorTls>;
     let avisos: WebhookIntegracaoService;
     let envioDoTeste: OpcoesDoEnvio;
@@ -764,8 +764,9 @@ descrever('API de integração — o aplicativo de parceiro (Hub DMS, F4 parte F
         const partes: Buffer[] = [];
         req.on('data', (d: Buffer) => partes.push(d));
         req.on('end', () => {
-          recebidos.push({ caminho: req.url ?? '', cabecalhos: req.headers, corpo: Buffer.concat(partes).toString('utf8') });
-          const resp = responder();
+          const recebido: Recebido = { caminho: req.url ?? '', cabecalhos: req.headers, corpo: Buffer.concat(partes).toString('utf8') };
+          recebidos.push(recebido);
+          const resp = responder(recebido);
           const enviar = () => {
             if (!res.destroyed) res.writeHead(resp.status, { 'content-type': 'application/json' }).end('{"ok":true}');
           };
@@ -786,7 +787,8 @@ descrever('API de integração — o aplicativo de parceiro (Hub DMS, F4 parte F
 
       C = await empresa('Empresa C', ['C1 matriz', 'C2 filial']);
       presC = await presidente(C.tenant);
-      // a janela começa há 2 dias (a criação do acesso); a permissão forjada `cupons.uso.ler` passa do teto da classe
+      // a janela começa há 2 dias (a criação do acesso); `custos.ler` é sensível (fora na etapa de teste) e `cupons.uso.ler`
+      // está fora do teto da classe — as permissões do aviso são as do acesso E as da lista do hub
       lig = await ligacaoDeParceiro({
         tenant: C.tenant,
         loja: C.lojas[0],
@@ -833,6 +835,9 @@ descrever('API de integração — o aplicativo de parceiro (Hub DMS, F4 parte F
 
     it('a fila: a venda de antes da janela anda sem aviso (e não se varre de novo); a de depois avisa, assinada; o esquecido de antes também não', async () => {
       await emDia();
+      // a venda da OUTRA loja da empresa (duas lojas vivas) não vira aviso para esta
+      await venda(C.tenant, C.lojas[1], 0.5);
+      expect(await ciclo()).toEqual({ enviados: 0, entregues: 0 });
       const antiga = await venda(C.tenant, C.lojas[0], 3);
       expect(await ciclo()).toEqual({ enviados: 0, entregues: 0 });
       const [andou] = await q(
@@ -882,11 +887,77 @@ descrever('API de integração — o aplicativo de parceiro (Hub DMS, F4 parte F
       try {
         await venda(C.tenant, C.lojas[0], 0.5);
         expect(await ciclo()).toEqual({ enviados: 0, entregues: 0 });
+        // o controle: o aplicativo segue na fila — o catálogo, aprovado, avisa (a marca do retrato, sem loja = da rede)
+        await q(
+          `insert into integracao_retrato_marca (tenant_id, recurso, unidade_id, atualizado_em) values ($1, 'catalogo', null, clock_timestamp())
+           on conflict (tenant_id, recurso, (coalesce(unidade_id, '00000000-0000-0000-0000-000000000000'::uuid)))
+           do update set atualizado_em = excluded.atualizado_em`,
+          [C.tenant],
+        );
+        expect(await ciclo()).toEqual({ enviados: 1, entregues: 1 });
+        expect(JSON.parse(doCaminho('c1')[0].corpo)).toEqual({ tipo: 'catalogo.alterado', loja_id: C.lojas[0] });
       } finally {
         await trocarAprovados(listaOriginal());
       }
+      // de volta com pedidos.ler: a venda nova avisa
       await naVez();
+      recebidos.length = 0;
+      const nova = await venda(C.tenant, C.lojas[0], 0.5);
       expect(await ciclo()).toEqual({ enviados: 1, entregues: 1 });
+      expect(JSON.parse(doCaminho('c1')[0].corpo).id).toBe(nova);
+    });
+
+    it('o tempo do ciclo, a aprovação que cai entre a reserva e o envio, a chave própria e a via do DMS ID desligadas', async () => {
+      await emDia();
+      await venda(C.tenant, C.lojas[0], 0.5);
+      // sem tempo: a linha reservada volta à fila na hora (não espera os 2 min da reserva)
+      expect(await avisos.cicloParceiros({ tenantIds: empresas }, -1)).toEqual({ enviados: 0, entregues: 0 });
+      const [devolvida] = await q(`select proxima_verificacao_em <= now() as na_vez from integracao_webhook where token_id = $1`, [lig.id]);
+      expect(devolvida.na_vez).toBe(true);
+      // a aprovação que cai entre a reserva e o envio: a linha é solta por 30 s, sem pausa nem falha
+      const espiao = jest.spyOn(hub, 'parceiroAprovado').mockReturnValue(null);
+      try {
+        expect(await ciclo()).toEqual({ enviados: 0, entregues: 0 });
+      } finally {
+        espiao.mockRestore();
+      }
+      const [solta] = await q(
+        `select pausado_em, falhas_seguidas, extract(epoch from (proxima_verificacao_em - now()))::int as em from integracao_webhook where token_id = $1`,
+        [lig.id],
+      );
+      expect([solta.pausado_em, solta.falhas_seguidas]).toEqual([null, 0]);
+      expect(solta.em).toBeGreaterThan(20);
+      await naVez();
+      // a chave própria desligada (D-2) e a via do DMS ID desligada (a régua da porta): nada sai
+      process.env.ACEITAR_INTEGRACOES = 'false';
+      try {
+        expect(await ciclo()).toEqual({ enviados: 0, entregues: 0 });
+      } finally {
+        delete process.env.ACEITAR_INTEGRACOES;
+      }
+      process.env.DMS_ID_LIGADO = 'false';
+      try {
+        expect(await ciclo()).toEqual({ enviados: 0, entregues: 0 });
+      } finally {
+        process.env.DMS_ID_LIGADO = 'true';
+      }
+      expect(recebidos).toHaveLength(0);
+      expect(await ciclo()).toEqual({ enviados: 1, entregues: 1 });
+    });
+
+    it('a tabela que só a fila do parceiro lê ausente: para só o job dele, por 10 min (o dos produtos da DMS segue)', async () => {
+      const privado = avisos as unknown as { parceirosPausadosAte: number; limpezaParceirosEm: number; pausadoAte: number };
+      await q(`alter table integracao_ligacao rename to integracao_ligacao_fora`);
+      try {
+        privado.limpezaParceirosEm = 0;
+        await avisos.tickParceiros();
+        expect(privado.parceirosPausadosAte).toBeGreaterThan(Date.now() + 9 * 60_000);
+        expect(privado.pausadoAte).toBe(0);
+      } finally {
+        await q(`alter table integracao_ligacao_fora rename to integracao_ligacao`);
+        privado.parceirosPausadosAte = 0;
+        privado.limpezaParceirosEm = 0;
+      }
     });
 
     it('quem não vale não recebe: fora da lista, chave desligada, parado pelo client_id, ligação suspensa ou revogada, loja apagada; e a limpeza', async () => {
@@ -986,6 +1057,16 @@ descrever('API de integração — o aplicativo de parceiro (Hub DMS, F4 parte F
       // a solta volta em ~30 s (a parada curta), a que falhou no recuo de 1 min
       expect(linhas[0].em).toBeGreaterThan(20);
       expect(linhas[0].em).toBeLessThanOrEqual(30);
+
+      // o 404 de UMA conexão não derruba o servidor: a outra linha do mesmo servidor sai no mesmo ciclo
+      avisos.prazoEnvioMs = 5000;
+      responder = (r) => ({ status: r.caminho.endsWith('/c1') ? 404 : 202 });
+      await emDia();
+      await venda(C.tenant, C.lojas[0], 0.5);
+      await venda(C.tenant, C.lojas[1], 0.5);
+      recebidos.length = 0;
+      expect(await ciclo()).toEqual({ enviados: 2, entregues: 1 });
+      expect([doCaminho('c1').length, doCaminho('c2').length]).toEqual([1, 1]);
     });
 
     it('o job só olha as empresas do escopo (V32)', async () => {

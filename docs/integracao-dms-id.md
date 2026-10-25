@@ -389,11 +389,14 @@ segredo que o aplicativo registra), com o que é do parceiro. Nasce com a mesma 
   **envio seguro** (`common/envio-seguro.ts`, cópia fiel do simulador do hub — vai para o pacote comum na 0.10): resolve o
   nome com prazo, recusa se QUALQUER IP for interno (as faixas do pacote e os túneis do IPv6), conecta só no IP conferido
   (o DNS que muda depois não leva a outro lugar), confere o certificado pelo nome, não segue redirecionamento, 5 s no
-  total, lê no máximo 16 KB. **Disjuntor por servidor de destino:** no máximo um envio em curso por servidor; a primeira
-  falha de um servidor solta as outras linhas dele por 30 s, sem contar falha.
+  total, lê no máximo 16 KB. **Disjuntor por servidor de destino:** uma fila por servidor (um envio por vez dentro dela)
+  e até 8 filas ao mesmo tempo — um parceiro lento só segura a fila dele; o servidor que parece caído (sem resposta, 5xx
+  ou 429) solta o resto da fila dele por 30 s, sem contar falha; o 404 de uma conexão apagada não derruba as outras do
+  mesmo servidor. Com a via do DMS ID desligada (a chave de emergência da porta), a fila do parceiro também para.
 - **O hub** registra cada envio pelo **client_id** do parceiro (como a porta), com só a origem do destino.
 - **A troca do clique:** o aviso registrado do acesso VIVO trocado (o modo "mais") passa para o acesso novo — o mesmo
-  endereço e segredo, a posição, as falhas e a pausa —, depois do commit da troca e sem nunca derrubá-la. O acesso
+  endereço e segredo, a posição, as falhas e a pausa —, dentro da transação da troca, num ponto de salvamento (se a cópia
+  falhar, só ela volta atrás: a troca segue), com a auditoria `integracao.webhook_mantido` só com a origem. O acesso
   suspenso (que recomeça a janela) não leva: o parceiro registra o aviso de novo.
 - **A limpeza (a cada 10 min):** a linha de parceiro com a ligação revogada sai (com o segredo); a com a ligação parada há
   90 dias é pausada com o motivo. A do token revogado ou vencido sai pela limpeza de sempre.

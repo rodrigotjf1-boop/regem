@@ -665,6 +665,9 @@ descrever('autorização por clique do aplicativo de parceiro (Hub DMS, F4 parte
       [id2],
     );
     expect(levado).toEqual({ url: URL_AVISO, segredo_cifrado: 'v1:segredo-cifrado-de-teste', entregues: 7, posicao_mantida: true });
+    // a passagem é auditada, só com a origem do endereço (o trecho é o id interno da conexão no parceiro)
+    const [auditada] = await q(`select detalhe from audit_log where acao = 'integracao.webhook_mantido' and entidade_id = $1`, [id2]);
+    expect(auditada.detalhe).toMatchObject({ url: 'https://api.parceiro.exemplo', de: id1, via: 'clique' });
 
     // a ligação parada há 100 dias: a autorização nova começa de novo — o aviso NÃO passa (o parceiro registra de novo)
     await q(`update integracao_ligacao set ultimo_uso_em = now() - interval '100 days', criado_em = now() - interval '100 days' where prefixo = $1`, [segunda.prefixo]);

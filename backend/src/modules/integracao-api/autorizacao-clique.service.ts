@@ -445,7 +445,11 @@ export class AutorizacaoCliqueService {
 
     const evidencia = `autorizado pelo presidente com a senha, na autorização por clique (${aut.id})`;
     const maximo = a.parceiro?.lojas ?? null;
-    let feito: { antigos: any[]; novos: { loja: { id: string; nome: string }; id: string; prefixo: string; chave: string; escopos: EscopoIntegracao[]; segredoEm: string; antes: EscopoIntegracao[] | null }[] };
+    let feito: {
+      antigos: any[];
+      novos: { loja: { id: string; nome: string }; id: string; prefixo: string; chave: string; escopos: EscopoIntegracao[]; segredoEm: string; antes: EscopoIntegracao[] | null }[];
+      levados: { token_id: string; de: string; unidade_id: string | null; url: string }[];
+    };
     try {
       feito = await this.db.transaction(async (tx: any) => {
         // O PARCEIRO na etapa de teste (F4-12): até N lojas por aplicativo, somando as empresas. A conta que vale é esta,
@@ -545,7 +549,10 @@ export class AutorizacaoCliqueService {
             antes: antigos.some((t) => t.unidade_id === l.id) && (!a.parceiro || janela?.vivo) ? naOrdemDoCatalogo(doAntigo) : null,
           });
         }
-        return { antigos, novos };
+        // O aviso (webhook) do parceiro acompanha a autorização contínua (F4 parte F, R2): o acesso VIVO trocado nesta loja
+        // tinha um aviso registrado → ele passa para o acesso novo. O suspenso (que recomeça a janela) não leva.
+        const levados = a.parceiro ? await this.levarAvisosDoParceiro(tx, tenantId, a.cliente, antigos, novos) : [];
+        return { antigos, novos, levados };
       });
     } catch (erro: any) {
       // A corrida que só o índice único decide (duas trocas da mesma loja ao mesmo tempo): fica UM acesso ativo.
@@ -600,9 +607,27 @@ export class AutorizacaoCliqueService {
       });
     }
 
-    // O aviso (webhook) do parceiro acompanha a autorização contínua (F4 parte F, R2): o acesso VIVO trocado nesta loja
-    // tinha um aviso registrado → ele passa para o acesso novo. O suspenso (que recomeça a janela) não leva.
-    if (a.parceiro) await this.levarAvisosDoParceiro(tenantId, a.cliente, feito);
+    // O aviso (webhook) do parceiro que passou para o acesso novo (na transação da troca): a auditoria, só com a origem.
+    for (const lv of feito.levados) {
+      let origem = '';
+      try {
+        origem = new URL(lv.url).origin;
+      } catch {
+        origem = '';
+      }
+      await this.auditoria.registrar({
+        tenantId,
+        unidadeId: lv.unidade_id,
+        atorTipo: 'integracao',
+        tipo: 'integracao',
+        acao: 'integracao.webhook_mantido',
+        origem: 'integracao',
+        entidadeTipo: 'integracao_token',
+        entidadeId: lv.token_id,
+        detalhe: { cliente: a.cliente, url: origem, de: lv.de, via: 'clique', autorizacao: aut.id },
+      });
+    }
+    if (feito.levados.length) this.log.log(`troca do clique (${a.cliente}): ${feito.levados.length} aviso(s) registrado(s) passaram para o acesso novo`);
 
     // O aviso aos presidentes, depois da troca: a ligação só existe agora. Nunca rejeita.
     void avisarAutorizacaoPorClique(this.db, {
@@ -634,40 +659,46 @@ export class AutorizacaoCliqueService {
   /**
    * Leva o aviso registrado do acesso de parceiro trocado para o acesso novo da mesma loja (o mesmo endereço e segredo, a
    * posição, as falhas e a pausa), só quando o acesso trocado estava VIVO (a mesma condição que herda o `ler_desde` e as
-   * permissões: `antes` preenchido). Numa instrução só, DEPOIS do commit da troca, e nunca a derruba: se não sair, o
-   * parceiro registra o aviso de novo (o acesso antigo, revogado, não recebe nada e a limpeza apaga a linha dele). A base
-   * do endereço é conferida de novo a cada envio.
+   * permissões: `antes` preenchido). Dentro da transação da troca (a limpeza não apaga a linha velha no meio), num ponto de
+   * salvamento: se falhar, só a cópia volta atrás — a troca segue, e o parceiro registra o aviso de novo. Devolve o que foi
+   * levado (para a auditoria, depois do commit). A base do endereço é conferida de novo a cada envio.
    */
   private async levarAvisosDoParceiro(
+    tx: any,
     tenantId: string,
     cliente: string,
-    feito: { antigos: any[]; novos: { loja: { id: string }; id: string; antes: EscopoIntegracao[] | null }[] },
-  ): Promise<void> {
-    const pares = feito.novos
+    antigos: any[],
+    novos: { loja: { id: string }; id: string; antes: EscopoIntegracao[] | null }[],
+  ): Promise<{ token_id: string; de: string; unidade_id: string | null; url: string }[]> {
+    const pares = novos
       .filter((n) => n.antes !== null)
-      .flatMap((n) => feito.antigos.filter((t) => t.unidade_id === n.loja.id).map((t) => sql`(${t.id}::uuid, ${n.id}::uuid)`));
-    if (!pares.length) return;
+      .flatMap((n) => antigos.filter((t) => t.unidade_id === n.loja.id).map((t) => sql`(${t.id}::uuid, ${n.id}::uuid)`));
+    if (!pares.length) return [];
     try {
-      const r: any = await this.db.execute(sql`
-        insert into integracao_webhook
-          (token_id, tenant_id, unidade_id, cliente, url, segredo_cifrado, criado_em, registrado_em, avisado_ate,
-           proxima_verificacao_em, falhas_seguidas, primeira_falha_em, ultimo_envio_em, ultimo_status_http, ultimo_erro,
-           entregues, pausado_em, motivo_pausa)
-        select distinct on (m.novo)
-               m.novo, w.tenant_id, w.unidade_id, w.cliente, w.url, w.segredo_cifrado, w.criado_em, w.registrado_em, w.avisado_ate,
-               least(w.proxima_verificacao_em, now()), w.falhas_seguidas, w.primeira_falha_em, w.ultimo_envio_em,
-               w.ultimo_status_http, w.ultimo_erro, w.entregues, w.pausado_em, w.motivo_pausa
-          from (values ${sql.join(pares, sql`, `)}) as m(velho, novo)
-          join integracao_webhook w on w.token_id = m.velho
-         where w.tenant_id = ${tenantId}::uuid and w.cliente = ${cliente}
-         order by m.novo, w.registrado_em desc
-        on conflict (token_id) do nothing`);
-      const levados = Number(r?.rowCount ?? 0);
-      if (levados) this.log.log(`troca do clique (${cliente}): ${levados} aviso(s) registrado(s) passaram para o acesso novo`);
+      return await tx.transaction(async (sp: any) => {
+        const r: any = await sp.execute(sql`
+          insert into integracao_webhook
+            (token_id, tenant_id, unidade_id, cliente, url, segredo_cifrado, criado_em, registrado_em, avisado_ate,
+             proxima_verificacao_em, falhas_seguidas, primeira_falha_em, ultimo_envio_em, ultimo_status_http, ultimo_erro,
+             entregues, pausado_em, motivo_pausa)
+          select distinct on (m.novo)
+                 m.novo, w.tenant_id, w.unidade_id, w.cliente, w.url, w.segredo_cifrado, w.criado_em, w.registrado_em, w.avisado_ate,
+                 least(w.proxima_verificacao_em, now()), w.falhas_seguidas, w.primeira_falha_em, w.ultimo_envio_em,
+                 w.ultimo_status_http, w.ultimo_erro, w.entregues, w.pausado_em, w.motivo_pausa
+            from (values ${sql.join(pares, sql`, `)}) as m(velho, novo)
+            join integracao_webhook w on w.token_id = m.velho
+           where w.tenant_id = ${tenantId}::uuid and w.cliente = ${cliente}
+           order by m.novo, w.registrado_em desc
+          on conflict (token_id) do nothing
+          returning token_id::text as token_id, unidade_id::text as unidade_id, url`);
+        const levados = (r?.rows ?? r ?? []) as { token_id: string; unidade_id: string | null; url: string }[];
+        return levados.map((x) => ({ ...x, de: String(antigos.find((t) => t.unidade_id === x.unidade_id)?.id ?? '') }));
+      });
     } catch (e: any) {
       this.log.warn(
         `troca do clique (${cliente}): o aviso registrado não passou para o acesso novo (o parceiro registra de novo): ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e}`,
       );
+      return [];
     }
   }
 

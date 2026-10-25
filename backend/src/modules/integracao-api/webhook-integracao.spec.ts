@@ -157,8 +157,9 @@ describe('para onde o aplicativo de PARCEIRO pode receber aviso (F4, parte F)', 
         CARDAPIO_PUBLIC_URL: '',
         OSRM_URL: 'isto não é endereço',
         OUTRA_COISA: 'https://nao-entra.test',
+        INTEGRACAO_LIAME_WEBHOOK_URLS: 'https://um.liame-teste.test/v1/, https://dois.liame-teste.test/v1/',
       }).sort(),
-    ).toEqual(['app.exemplo-regem.test', 'hub.exemplo-dms.test', 'projeto.supabase.exemplo']);
+    ).toEqual(['app.exemplo-regem.test', 'dois.liame-teste.test', 'hub.exemplo-dms.test', 'projeto.supabase.exemplo', 'um.liame-teste.test']);
     expect(dominiosProibidosDoAmbiente({})).toEqual([]);
   });
 
