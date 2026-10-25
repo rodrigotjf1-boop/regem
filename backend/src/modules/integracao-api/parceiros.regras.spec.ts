@@ -14,6 +14,7 @@ import {
   parceiroNoClique,
   parceirosQueValem,
   permissoesDoParceiro,
+  semEsquecidoSemTelefone,
 } from './parceiros.regras';
 import { motivoDaRecusaDaLigacao } from './ligacao.regras';
 import { conferirPedido, VERSAO_DO_TEXTO_PARCEIRO } from './autorizacao-clique.regras';
@@ -89,12 +90,33 @@ describe('permissoesDoParceiro: o teto da classe, o que o hub aprovou e a etapa'
     const todas = ESCOPOS_DO_PARCEIRO.map((nome) => ({ nome, motivo: `Motivo de ${nome}.`, necessaria: true }));
     const sensiveisDoTeto = ESCOPOS_DO_PARCEIRO.filter((e) => ESCOPOS_SENSIVEIS.includes(e));
     expect(sensiveisDoTeto).toEqual(['clientes.telefone.ler', 'custos.ler']);
-    const semSensivel = ESCOPOS_INTEGRACAO.filter((e) => ESCOPOS_DO_PARCEIRO.includes(e) && !ESCOPOS_SENSIVEIS.includes(e));
+    // sem o telefone, também sem o "cliente esquecido" (a regra abaixo)
+    const semSensivel = ESCOPOS_INTEGRACAO.filter(
+      (e) => ESCOPOS_DO_PARCEIRO.includes(e) && !ESCOPOS_SENSIVEIS.includes(e) && e !== 'clientes.anonimizacao.ler',
+    );
     expect(permissoesDoParceiro(aprovado({ permissoes: todas, etapa: 'teste', dado_pessoal: true }))).toEqual(semSensivel);
     expect(permissoesDoParceiro(aprovado({ permissoes: todas, etapa: 'producao', dado_pessoal: false }))).toEqual(semSensivel);
     // na produção com dado pessoal: o teto inteiro, na ordem do catálogo
     expect(permissoesDoParceiro(aprovado({ permissoes: todas, etapa: 'producao', dado_pessoal: true }))).toEqual(
       ESCOPOS_INTEGRACAO.filter((e) => ESCOPOS_DO_PARCEIRO.includes(e)),
+    );
+  });
+
+  it('o "cliente esquecido" do parceiro só vale junto com o telefone (decisão do dono, 25/10/2026)', () => {
+    expect(semEsquecidoSemTelefone(['pedidos.ler', 'clientes.anonimizacao.ler'])).toEqual(['pedidos.ler']);
+    expect(semEsquecidoSemTelefone(['clientes.anonimizacao.ler', 'clientes.telefone.ler'])).toEqual(['clientes.anonimizacao.ler', 'clientes.telefone.ler']);
+    expect(semEsquecidoSemTelefone([])).toEqual([]);
+    // no teto: a etapa de teste nunca tem o telefone, então nunca o esquecido
+    const comEsquecido = aprovado({
+      permissoes: [
+        { nome: 'pedidos.ler', motivo: 'Mostrar os pedidos.', necessaria: true },
+        { nome: 'clientes.anonimizacao.ler', motivo: 'Apagar quem pediu para ser esquecido.', necessaria: false },
+        { nome: 'clientes.telefone.ler', motivo: 'O telefone para o painel.', necessaria: false },
+      ],
+    });
+    expect(permissoesDoParceiro({ ...comEsquecido, etapa: 'teste' })).toEqual(['pedidos.ler']);
+    expect(permissoesDoParceiro({ ...comEsquecido, etapa: 'producao', dado_pessoal: true })).toEqual(
+      ESCOPOS_INTEGRACAO.filter((e) => ['pedidos.ler', 'clientes.telefone.ler', 'clientes.anonimizacao.ler'].includes(e)),
     );
   });
 
