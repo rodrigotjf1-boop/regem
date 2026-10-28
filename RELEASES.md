@@ -30,7 +30,7 @@
   motivo. A nuvem já atende no merge; a loja só depois do `.zip`.
   - **Conferir na loja depois do `.zip`:** entregador entra na fila pelo app → as iniciais aparecem no bloco "🛵 Fila"
     do Delivery › Painel em até 25 s.
-- **Cupom do delivery com o número do pedido em destaque (pedido do dono de 28/10; PR desta entrega) — vai no `.zip`:**
+- **Cupom do delivery com o número do pedido em destaque (pedido do dono de 28/10; #745) — vai no `.zip`:**
   na via do caixa (a que vai com o entregador) e na via de produção do pedido de canal, "PEDIDO #10" (o número do
   painel) em destaque e, logo abaixo e menor, o do canal ("iFood 6214", sem "#"). A via do caixa sai sem a senha; a de
   produção a traz pequena no fim do cabeçalho (é ela que o cartão do KDS mostra). No combo, cada escolha (batata,
@@ -55,12 +55,15 @@
   caminho Delivery › Painel (botão CANCELAR) no lugar do botão de cancelar, e o servidor recusa o cancelamento por ali —
   antes o pedido ficava ativo no painel e no canal, sem devolver cashback nem pontos. Totem e pedido concluído seguem
   cancelando pelo PDV.
-- **Descontos no cancelamento (ERR-311, ERR-312, ERR-313; PR desta entrega) — vai no `.zip`:** um estorno só de cashback
+- **Descontos no cancelamento (ERR-311, ERR-312, ERR-313; #746) — vai no `.zip`:** um estorno só de cashback
   e pontos em todo cancelamento (painel, sistema, canal e a baixa administrativa das pendências, que antes não estornava
   nada), com nova tentativa e, se falhar, aviso no log e na auditoria. O estorno do cashback não entra mais em dobro
   quando a loja e a nuvem estornam o mesmo pedido. O cupom se perde no cancelamento (decisão do dono, 28/10). O
   cancelamento vindo do Rappi/Delivery Direto (Open Delivery) passa a cancelar o pedido no Regem — esse roda na nuvem e
   vale no merge.
+- **Painel do delivery legível (pedido do dono de 28/10; PR desta entrega) — vai no `.zip` (a tela da loja):** o texto
+  cinza do Delivery › Painel fica mais escuro (#7E90A2 → #5B6B7B: de 3,3:1 para 5,5:1 no branco), só no painel; na
+  prévia e no detalhe do pedido, o produto em negrito e, embaixo, recuadas, as escolhas uma por linha (como no Anota AI).
 
 ## Última release: `1.30.11` — gerada em 25/10/2026 da `origin/main` `0356f58b`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 94.119.254 bytes, SHA-256 `e4ee92e5b8d3e0b3d0408f22c8eb0248d215ede4d41b99dc036e97cf02edbba1`) e entregue ao dono para reinstalar **SÓ o servidor**; **sem `.zip`** e nada publicado no console
 

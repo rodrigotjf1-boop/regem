@@ -14,6 +14,7 @@ import { LinhaDoTempoPedido } from '@/components/delivery/linha-do-tempo-pedido'
 import { ondeSaiu } from '@/lib/reimpressao';
 import { useSenhaSemSalvar } from '@/lib/use-senha-sem-salvar';
 import { avisarComprovante } from '@/lib/comprovante';
+import { ItensDoPedido } from './itens-do-pedido';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -231,19 +232,13 @@ export function PedidoDetalhe({
               {p.cupom && <p className="text-xs text-muted-foreground">🎟 cupom {p.cupom}</p>}
             </div>
 
-            {/* Itens — com complementos/observação e valor por linha */}
-            <div className="mt-3 space-y-1.5 border-t border-border pt-2">
-              {(p.itens ?? []).map((it: any, k: number) => (
-                <div key={k} className="text-sm">
-                  <div className="flex justify-between gap-2">
-                    <span className="font-medium">{Number(it.quantidade)}× {it.descricao}</span>
-                    {it.precoUnitario != null && Number(it.precoUnitario) > 0 && (
-                      <span className="shrink-0 font-mono text-xs text-muted-foreground">{brl(Number(it.precoUnitario) * Number(it.quantidade))}</span>
-                    )}
-                  </div>
-                  {it.observacao && <p className="text-xs text-muted-foreground">↳ {it.observacao}</p>}
-                </div>
-              ))}
+            {/* Itens — como no Anota AI (dono, 28/10/2026): o produto em negrito e, embaixo, recuadas, as escolhas (uma
+                por linha) e a observação; o valor por linha. */}
+            <div className="mt-3 border-t border-border pt-2">
+              <ItensDoPedido
+                itens={Array.isArray(p.itens) ? p.itens : []}
+                valor={(it) => (it.precoUnitario != null ? Number(it.precoUnitario) * Number(it.quantidade ?? 1) : null)}
+              />
             </div>
 
             {/* Totais */}
