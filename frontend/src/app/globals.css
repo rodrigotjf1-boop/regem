@@ -64,6 +64,14 @@
   --dado: 36 75% 41%;
 }
 
+/* Painel do delivery (pedido do dono, 28/10/2026: "muitos textos num tom cinza claro quase da cor do fundo"). O texto
+   secundário (#7E90A2) dava 3,3:1 no cartão branco e 2,9:1 no fundo — abaixo dos 4,5:1. Só no painel (decisão do dono),
+   o cinza fica #5B6B7B: 5,5:1 no branco, 5,0:1 no fundo, 4,9:1 na linha destacada; a hierarquia segue (a tinta e o
+   ink-2 #43586C continuam mais escuros). `npm run check:painel` mede. */
+.app-light .painel-delivery {
+  --muted-foreground: 210 15% 42%;   /* #5B6B7B */
+}
+
 @layer base {
   * {
     @apply border-border;

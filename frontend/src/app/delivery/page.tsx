@@ -21,10 +21,14 @@ import { ondeSaiu } from '@/lib/reimpressao';
 import { useSenhaSemSalvar } from '@/lib/use-senha-sem-salvar';
 import { avisarComprovante } from '@/lib/comprovante';
 import { Dialogo } from '@/components/ui/sobreposto';
+import { ItensDoPedido } from '@/components/delivery/itens-do-pedido';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
   Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+// O valor da linha do item: o total que o pedido gravou; sem ele, preço × quantidade.
+const valorDaLinha = (it: any): number | null =>
+  it?.total != null ? Number(it.total) : it?.precoUnitario != null ? Number(it.precoUnitario) * Number(it.quantidade ?? 1) : null;
 const hora = (d?: string) =>
   d ? new Date(d).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—';
 const dataCurta = (d?: string) =>
@@ -537,6 +541,9 @@ export default function DeliveryPage() {
 
   return (
     <Shell fill>
+      {/* `painel-delivery`: o cinza do texto secundário mais escuro, legível (dono, 28/10/2026 — só no painel; ver
+          globals.css). `contents`: não cria caixa, o layout do Shell segue igual; o tom vale até nas janelas do pedido. */}
+      <div className="painel-delivery contents">
       <div className="flex h-full min-h-0 flex-col gap-2">
         {erro && <p className="text-destructive">{erro}</p>}
 
@@ -854,6 +861,7 @@ export default function DeliveryPage() {
           }
         />
       )}
+      </div>
     </Shell>
   );
 }
@@ -1104,18 +1112,8 @@ function PreviewPedido({ pedido: p, onAbrirDetalhe, className }: { pedido: any; 
           {p.agendamento && <span className="text-info">agendado {dataCurta(p.agendamento)} {hora(p.agendamento)}</span>}
           {p.cupom && <span className="text-muted-foreground">cupom {p.cupom}</span>}
         </div>
-        <ul className="space-y-1">
-          {itens.map((it, i) => (
-            <li key={i} className="flex justify-between gap-2 text-xs">
-              <span>
-                <span className="font-mono">{it.quantidade ?? 1}×</span> {it.descricao ?? it.nome}
-                {it.observacao && <span className="block text-[11px] text-muted-foreground">obs: {it.observacao}</span>}
-              </span>
-              {it.total != null && <span className="font-mono">{brl(Number(it.total))}</span>}
-            </li>
-          ))}
-          {itens.length === 0 && <li className="text-xs text-muted-foreground">Itens não detalhados neste pedido.</li>}
-        </ul>
+        {/* Como no Anota AI (dono, 28/10/2026): o produto e, embaixo, recuadas, as escolhas — uma por linha. */}
+        <ItensDoPedido itens={itens} compacto valor={valorDaLinha} />
         <div className="space-y-0.5 border-t border-border pt-1.5 text-xs">
           {p.desconto != null && Number(p.desconto) > 0 && <div className="flex justify-between text-ok"><span>Desconto</span><span className="font-mono">- {brl(Number(p.desconto))}</span></div>}
           {p.taxaEntrega != null && Number(p.taxaEntrega) > 0 && <div className="flex justify-between text-muted-foreground"><span>Taxa de entrega</span><span className="font-mono">{brl(Number(p.taxaEntrega))}</span></div>}
