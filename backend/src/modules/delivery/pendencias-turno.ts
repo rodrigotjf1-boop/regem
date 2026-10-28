@@ -120,6 +120,8 @@ export async function pendenciasDoTurno(db: DrizzleDB, tenantId: string, unidade
  * faturamento: os relatórios contam o pedido pela data de criação a partir do aceite — aceito
  * continua contando, não aceito continua fora. Pedido em rota (despachado/entregue) fica de fora:
  * tem entregador e acerto, e se resolve um a um.
+ * O que muda para o cliente: o cancelado (nunca aceito) devolve o cashback e os pontos, como todo
+ * cancelamento (pedido do dono, 28/10/2026) — `canceladosComCliente` diz a quem; quem chama dispara o estorno.
  */
 export async function baixarPendenciasAntigas(db: DrizzleDB, tenantId: string, unidadeId: string | null, escopo: EscopoTurno, agora = new Date()) {
   const corte = corteAntiga(agora);
@@ -134,9 +136,18 @@ export async function baixarPendenciasAntigas(db: DrizzleDB, tenantId: string, u
       .update(pedidoExterno)
       .set({ status: 'cancelado', canceladoEm: agora, motivoCancelamento: MOTIVO_BAIXA_NAO_ACEITO, updatedAt: agora })
       .where(and(base, eq(pedidoExterno.status, 'novo')))
-      .returning({ id: pedidoExterno.id, canal: pedidoExterno.canal });
+      .returning({ id: pedidoExterno.id, canal: pedidoExterno.canal, clienteTelefone: pedidoExterno.clienteTelefone });
     const porCanal: Record<string, number> = {};
     for (const p of [...concluidos, ...cancelados]) porCanal[p.canal] = (porCanal[p.canal] ?? 0) + 1;
-    return { concluidos: concluidos.length, cancelados: cancelados.length, porCanal, ids: [...concluidos, ...cancelados].map((p) => p.id) };
+    return {
+      concluidos: concluidos.length,
+      cancelados: cancelados.length,
+      porCanal,
+      ids: [...concluidos, ...cancelados].map((p) => p.id),
+      canceladosComCliente: cancelados.map((p) => ({ id: p.id, clienteTelefone: p.clienteTelefone ?? null })),
+    };
   });
 }
+
+/** Evento: a baixa administrativa cancelou pedidos nunca aceitos — o delivery estorna o cashback e os pontos deles. */
+export const EVENTO_CANCELADOS_NA_BAIXA = 'delivery.pedidos.cancelados_na_baixa';

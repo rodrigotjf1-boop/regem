@@ -26,6 +26,7 @@ import { exigirBooleano } from '../../common/exigir';
 import { autorizarPorSenhaDeGestor } from '../../common/autorizacao-gestor';
 import { conferirRegras, DocumentoImpressao } from '../../common/regras-impressao';
 import { logisticaDosPedidos } from './logistica-canal';
+import { EVENTO_CANCELADOS_NA_BAIXA } from './pendencias-turno';
 
 // Documento do cliente: guardamos só os dígitos, como a NFC-e exige. Formato inválido não é
 // barrado aqui — quem emite confere os dígitos verificadores e trata como ausente se não fechar.
@@ -39,7 +40,6 @@ import {
   colaborador,
   comanda,
   comandaItem,
-  cupomUso,
   deliveryConfig,
   equipamento,
   funcao,
@@ -466,7 +466,7 @@ export class DeliveryService {
       .returning();
     if (!upd) return 'ignorado';
     // O canal cancelou: a venda é desfeita e o pedido sai da cozinha — como no cancelamento do
-    // painel — e o cupom, o cashback e os pontos do pedido voltam.
+    // painel — e o cashback e os pontos do pedido voltam (o cupom se perde).
     if (novoStatus === 'cancelado') {
       await this.desfazerVendaDoCancelado(tenantId, upd, patch.motivoCancelamento);
       await this.estornarBeneficiosDoCancelado(tenantId, upd);
@@ -520,9 +520,11 @@ export class DeliveryService {
     }
   }
 
-  // Cancelamento estorna cashback, pontos de fidelidade e o uso do cupom do pedido (o cashback
-  // GASTO só volta se a loja configurou; o padrão é voltar). Cada um é idempotente e nenhum
-  // derruba o cancelamento.
+  // Cancelamento estorna o cashback e os pontos de fidelidade do pedido — o mesmo em TODO caminho (painel, canal,
+  // sistema, baixa administrativa). O cashback GANHO sempre sai; o GASTO volta se a loja configurou (o padrão é voltar);
+  // o ponto é perda fixa (com o prêmio que ele gerou) e o prêmio usado volta. O CUPOM SE PERDE (decisão do dono, 28/10/2026,
+  // a mesma de julho): o uso fica gravado — cancelar não devolve a cota, para ninguém cancelar de propósito e reusar.
+  // Cada estorno é idempotente, roda em segundo plano com nova tentativa e nenhum derruba o cancelamento. Nunca rejeita.
   private async estornarBeneficiosDoCancelado(tenantId: string, ped: { id: string; clienteTelefone?: string | null }) {
     try {
       const [cfgLoja] = await this.db
@@ -530,14 +532,58 @@ export class DeliveryService {
         .from(cardapioConfig)
         .where(eq(cardapioConfig.tenantId, tenantId))
         .limit(1);
-      void this.cashback
-        .estornarPedido(tenantId, ped.id, ped.clienteTelefone ?? undefined, cfgLoja?.estorna !== false)
-        .catch(() => {});
-      void this.fidelidade.estornarPedido(tenantId, ped.id).catch(() => {});
-      void this.estornarCupomUso(tenantId, ped.id);
+      const devolverGasto = cfgLoja?.estorna !== false;
+      void this.estornarComNovaTentativa(tenantId, ped.id, 'cashback', () =>
+        this.cashback.estornarPedido(tenantId, ped.id, ped.clienteTelefone ?? undefined, devolverGasto),
+      );
+      void this.estornarComNovaTentativa(tenantId, ped.id, 'pontos de fidelidade', () => this.fidelidade.estornarPedido(tenantId, ped.id));
     } catch (e: any) {
-      this.logger.warn(`pedido ${ped.id} cancelado: cupom/cashback/pontos não estornados: ${e?.message ?? e}`);
+      this.logger.error(`pedido ${ped.id} cancelado: cashback e pontos NÃO estornados: ${e?.message ?? e}`);
     }
+  }
+
+  /**
+   * A baixa administrativa das pendências (Financeiro) cancelou pedidos nunca aceitos: o cashback e os pontos deles voltam,
+   * como em todo cancelamento — antes a baixa não estornava nada e o cliente ficava sem o que usou num pedido que a loja
+   * nunca fez. Um pedido por vez (são os poucos parados há mais de 24 h), em segundo plano. Nunca rejeita.
+   */
+  @OnEvent(EVENTO_CANCELADOS_NA_BAIXA)
+  async aoCancelarNaBaixa(p: { tenantId: string; pedidos: { id: string; clienteTelefone?: string | null }[] }) {
+    for (const ped of p?.pedidos ?? []) await this.estornarBeneficiosDoCancelado(p.tenantId, ped);
+  }
+
+  /** Esperas entre as tentativas de um estorno de benefício (o serviço é idempotente: repetir não estorna em dobro). */
+  private esperasDoEstorno = [0, 2_000, 10_000];
+
+  /**
+   * Um estorno de benefício com nova tentativa. Antes era `void … .catch(() => {})`: uma falha (banco ocupado, queda de
+   * conexão) deixava o cliente com o cashback ganho de um pedido cancelado e ninguém sabia. Esgotadas as tentativas, fica
+   * ERRO no log e na auditoria do pedido. Nunca rejeita (V3).
+   */
+  private async estornarComNovaTentativa(tenantId: string, pedidoId: string, oQue: string, fazer: () => Promise<unknown>): Promise<void> {
+    let ultimo = '';
+    for (const ms of this.esperasDoEstorno) {
+      if (ms) await new Promise((r) => setTimeout(r, ms));
+      try {
+        await fazer();
+        return;
+      } catch (e: any) {
+        ultimo = e?.message ?? String(e);
+        this.logger.warn(`pedido ${pedidoId} cancelado: estorno de ${oQue} falhou (${ultimo}) — tentando de novo`);
+      }
+    }
+    this.logger.error(`pedido ${pedidoId} cancelado: ${oQue} NÃO estornado depois de ${this.esperasDoEstorno.length} tentativas: ${ultimo}`);
+    await this.auditoria
+      ?.registrar({
+        tenantId,
+        tipo: 'venda',
+        acao: 'estorno_beneficio_falhou',
+        origem: 'sistema',
+        entidadeTipo: 'pedido_externo',
+        entidadeId: pedidoId,
+        detalhe: { beneficio: oQue, erro: ultimo.slice(0, 300) },
+      })
+      .catch(() => undefined);
   }
 
   // Materializa (aceita) um pedido externo se ainda estiver 'novo'. Usado pelos pollers
@@ -2299,20 +2345,8 @@ export class DeliveryService {
     // Encomenda com sinal pago: estorna o sinal (S3). O handler no cardápio checa
     // o status — no-op se não houver sinal pago. Idempotente.
     this.events.emit('encomenda.sinal.reembolsar', { tenantId, pedidoId: id });
-    // Integridade: cancelamento estorna cashback e pontos de fidelidade do pedido.
-    // Cashback GASTO só volta se a loja configurou (default true); o GANHO sempre sai.
-    // Fidelidade é perda FIXA do ponto (+ rollback do prêmio gerado; devolve o consumido).
-    const [cfgLoja] = await this.db
-      .select({ estorna: cardapioConfig.cancelamentoEstornaCashback })
-      .from(cardapioConfig)
-      .where(eq(cardapioConfig.tenantId, tenantId))
-      .limit(1);
-    const devolverGasto = cfgLoja?.estorna !== false;
-    void this.cashback
-      .estornarPedido(tenantId, id, row.clienteTelefone ?? undefined, devolverGasto)
-      .catch(() => {});
-    void this.fidelidade.estornarPedido(tenantId, id).catch(() => {});
-    void this.estornarCupomUso(tenantId, id); // libera o uso do cupom (max_por_cliente/max_usos)
+    // Integridade: o cashback e os pontos do pedido voltam (o mesmo estorno dos outros caminhos); o cupom se perde.
+    await this.estornarBeneficiosDoCancelado(tenantId, row);
     void this.statusBack(tenantId, row, 'cancel'); // avisa o marketplace
     // O operador vê o resultado do estorno se o GoGeM responder a tempo; senão, que ele sai sozinho.
     const estornoGogem = await resultadoDoAviso(
@@ -2349,7 +2383,7 @@ export class DeliveryService {
   // Cancelamento automático pelo SISTEMA — sem senha de gestor: PIX que não chegou no prazo,
   // pedido retido do totem que expirou (ambos em 'novo', sem venda) e a ENCOMENDA que o cliente
   // cancela depois de aceita — essa já tem venda e card na cozinha, que são desfeitos aqui.
-  // Estorna cupom/cashback/fidelidade. Idempotente.
+  // Estorna o cashback e os pontos (o cupom se perde). Idempotente.
   async cancelarSistema(tenantId: string, id: string, motivo: string) {
     const [ped] = await this.db
       .select({ status: pedidoExterno.status })
@@ -2368,19 +2402,6 @@ export class DeliveryService {
     void this.dispararWebhook(tenantId, row);
     await this.estornarBeneficiosDoCancelado(tenantId, row);
     return { ok: true, id: row.id };
-  }
-
-  // Cancelamento: devolve o(s) uso(s) de cupom do pedido, liberando os limites
-  // (max_por_cliente e max_usos global). Sem isso, um pedido cancelado consumia
-  // indevidamente uma unidade do limite. Idempotente.
-  private async estornarCupomUso(tenantId: string, pedidoId: string) {
-    try {
-      await this.db
-        .delete(cupomUso)
-        .where(and(eq(cupomUso.tenantId, tenantId), eq(cupomUso.pedidoId, pedidoId)));
-    } catch {
-      /* cupom sem uso registrado (ou tabela ausente no edge) — ignora */
-    }
   }
 
   // Split de pagamento (mig 230): grava N formas em pedido_externo_pagamento (substitui
