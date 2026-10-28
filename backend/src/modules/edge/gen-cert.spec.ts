@@ -58,6 +58,25 @@ describe('certificado do servidor da loja (edge/gen-cert.mjs)', () => {
     gerar(outro);
   });
 
+  // ERR-307: toda CA era "Regem Edge CA" com série 01 (e todo certificado, 02) — o Windows do servidor tratava as CAs de
+  // trocas anteriores como a mesma e usava a errada. Agora a série é única e o certificado aponta para a SUA CA pela chave.
+  it('cada conjunto com número de série único, e o certificado do servidor aponta para a CA dele pela chave (SKI/AKI)', () => {
+    const ler = (dir: string, n: string) => forge.pki.certificateFromPem(readFileSync(join(dir, n), 'utf8'));
+    const [ca1, srv1, ca2] = [ler(semIp, 'ca.pem'), ler(semIp, 'server.crt'), ler(outro, 'ca.pem')];
+    expect(ca1.serialNumber).not.toBe(ca2.serialNumber);
+    expect(ca1.serialNumber).not.toBe(srv1.serialNumber);
+    for (const s of [ca1.serialNumber, srv1.serialNumber, ca2.serialNumber]) {
+      expect(s).toMatch(/^[0-7][0-9a-f]{31}$/); // 16 bytes, positivo
+    }
+    expect(ca1.subject.getField('CN').value).toBe('Regem Edge CA'); // o nome fica (a estação confere por ele — D4)
+    const ski = (ca1.getExtension('subjectKeyIdentifier') as any)?.subjectKeyIdentifier;
+    // O forge não decodifica o authorityKeyIdentifier ao ler: SEQUENCE { [0] keyIdentifier } pelos bytes da extensão.
+    const aki = forge.asn1.fromDer((srv1.getExtension('authorityKeyIdentifier') as any)?.value ?? '') as any;
+    expect(ski).toMatch(/^[0-9a-f]{40}$/);
+    expect(forge.util.bytesToHex(aki.value[0].value)).toBe(ski);
+    expect(ca1.verify(srv1)).toBe(true);
+  });
+
   it('instalação nova gera o conjunto; reinstalar na mesma máquina o MANTÉM', () => {
     const d = pasta();
     const primeira = gerar(d);

@@ -28,7 +28,10 @@ using System.Drawing.Drawing2D;
 using System.IO;
 using System.Media;
 using System.Net;
+using System.Net.Security;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.ServiceProcess;
 using System.Text;
 using System.Threading;
@@ -56,6 +59,30 @@ namespace Regem.Servidor
             ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
         }
 
+        // O CERTIFICADO DO SISTEMA, conferido pela CA DESTA instalacao (ERR-307). O Windows do servidor guarda as
+        // "Regem Edge CA" de certificados anteriores (mesmo nome e mesmo numero de serie 01) e o .NET usava a errada: o
+        // icone dizia "o certificado nao e o da loja" com o certificado certo (o navegador, que confere por outro caminho,
+        // abria). Vale: o Windows confiar, OU o certificado ter sido ASSINADO pela CA do arquivo edge\certs\ca.pem desta
+        // instalacao, dentro da validade e com o nome pedido. Nao e desligar a conferencia: e conferir contra exatamente a
+        // CA da loja, como a estacao de impressao faz com o arquivo dela.
+        bool ConferirCertificado(object remetente, X509Certificate cert, X509Chain cadeia, SslPolicyErrors erros)
+        {
+            if (erros == SslPolicyErrors.None) return true;
+            if ((erros & (SslPolicyErrors.RemoteCertificateNameMismatch | SslPolicyErrors.RemoteCertificateNotAvailable)) != 0) return false;
+            try
+            {
+                string arq = Path.Combine(Path.Combine(Path.Combine(Raiz, "edge"), "certs"), "ca.pem");
+                if (cert == null || !File.Exists(arq)) return false;
+                X509Certificate2 ca = new X509Certificate2(arq);
+                X509Certificate2 folha = new X509Certificate2(cert);
+                DateTime agora = DateTime.Now;
+                if (agora < folha.NotBefore || agora > folha.NotAfter || agora < ca.NotBefore || agora > ca.NotAfter) return false;
+                if (folha.Issuer != ca.Subject) return false;
+                return Assinatura.ConfereRsaSha256(folha.RawData, ca);
+            }
+            catch { return false; }
+        }
+
         string Chave()
         {
             string arq = Path.Combine(Raiz, "bandeja.key");
@@ -70,6 +97,7 @@ namespace Regem.Servidor
             req.Timeout = 15000;
             req.ReadWriteTimeout = 15000;
             req.Proxy = null;
+            req.ServerCertificateValidationCallback = ConferirCertificado;
             req.Headers["x-bandeja-chave"] = Chave();
             if (corpo != null)
             {
@@ -291,6 +319,45 @@ namespace Regem.Servidor
     }
 
     // ===== o icone =====
+    // ===== a assinatura de um certificado, conferida com a chave da CA =====
+    // sha256WithRSAEncryption, o que o gen-cert usa. Le o DER do certificado: SEQUENCE { tbsCertificate, algoritmo,
+    // BIT STRING da assinatura } e confere a assinatura do tbsCertificate com a chave publica da CA.
+    public static class Assinatura
+    {
+        static readonly byte[] OidSha256ComRsa = { 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0B };
+
+        // Um elemento DER em `pos`: devolve onde comeca o conteudo e o tamanho; `pos` vai para depois dele.
+        static void Elemento(byte[] d, ref int pos, out int conteudo, out int tamanho)
+        {
+            pos++; // a etiqueta
+            int b = d[pos++];
+            tamanho = 0;
+            if (b < 0x80) tamanho = b;
+            else for (int i = 0, n = b & 0x7f; i < n; i++) tamanho = (tamanho << 8) | d[pos++];
+            conteudo = pos;
+            pos += tamanho;
+        }
+
+        public static bool ConfereRsaSha256(byte[] cert, X509Certificate2 ca)
+        {
+            int pos = 0, conteudo, tamanho;
+            Elemento(cert, ref pos, out conteudo, out tamanho); // Certificate
+            pos = conteudo;
+            int inicioTbs = pos;
+            Elemento(cert, ref pos, out conteudo, out tamanho); // tbsCertificate (assinado inteiro, com etiqueta e tamanho)
+            byte[] tbs = new byte[pos - inicioTbs];
+            Array.Copy(cert, inicioTbs, tbs, 0, tbs.Length);
+            Elemento(cert, ref pos, out conteudo, out tamanho); // signatureAlgorithm
+            for (int i = 0; i < OidSha256ComRsa.Length; i++) if (cert[conteudo + i] != OidSha256ComRsa[i]) return false;
+            if (cert[pos] != 0x03) return false; // BIT STRING
+            Elemento(cert, ref pos, out conteudo, out tamanho);
+            byte[] sig = new byte[tamanho - 1]; // o 1o byte e o de bits nao usados
+            Array.Copy(cert, conteudo + 1, sig, 0, sig.Length);
+            using (RSA rsa = ca.GetRSAPublicKey())
+                return rsa != null && rsa.VerifyData(tbs, sig, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        }
+    }
+
     // ===== o icone trocado pela atualizacao (.zip) =====
     // A atualizacao renomeia o .exe em uso para "<nome>.antigo-..." e poe o novo no lugar (atualizacao-comum.ps1,
     // Trocar-Icones - plano do dono de 25/10/2026: menos reinstalacao por .exe). Este processo segue rodando a copia

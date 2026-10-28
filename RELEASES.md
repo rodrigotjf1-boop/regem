@@ -12,6 +12,17 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.12)
 
+- **O ícone do servidor confere o certificado pela CA da loja (ERR-307; PR desta entrega) — vai no `.zip`, SEM
+  reinstalar:** com a 1.30.11 o "R" dourado seguia dizendo "o certificado não é o da loja". O certificado estava certo
+  (conferido pela rede em 27/10), mas o Windows do servidor guarda as "Regem Edge CA" antigas, todas com o mesmo nome e
+  a série 01, e o .NET usava a errada.
+  - **No `.zip`:** o `RegemServidor.exe` aceita o certificado assinado pela CA do arquivo `edge\certs\ca.pem`,
+    conferindo validade e nome. A loja está na 1.30.11, então o `atualizar.ps1` instalado já troca os ícones (P3, #740)
+    e o ícone se reabre sozinho.
+  - **Só com o `.exe` (servidor):** o instalador tira do Windows as "Regem Edge CA" antigas e confere a confiança de
+    verdade, avisando o dono se o Windows não confiar.
+  - **Só em certificado novo:** série única e SKI/AKI (o da loja é mantido).
+  - **Conferir na loja depois do `.zip`:** em até 30 s o ícone se reabre e lista os aparelhos.
 - **Esperando o dono — o Terminal de Ponto no sincronismo (P1b do plano de 25/10):** hoje ele não sobe nem desce, e
   desde o #737 a reinstalação preserva o banco quando há um. Para sincronizar é preciso:
   - garantir a sequência do NSR depois de restaurar (as marcações só sobem; o NSR é `max+1` local);
