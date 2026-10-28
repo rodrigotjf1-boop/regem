@@ -5,7 +5,7 @@ import { MOTIVOS_DESPERDICIO, exigirMotivo, normalizarMotivo } from './motivos';
 // num motivo da lista; o resto é recusado (não vira motivo novo).
 describe('motivos de desperdício', () => {
   it('a lista é a aprovada e cada item é a própria forma normalizada', () => {
-    expect([...MOTIVOS_DESPERDICIO]).toEqual(['Validade', 'Preparo', 'Queda', 'Transporte', 'Outro']);
+    expect([...MOTIVOS_DESPERDICIO]).toEqual(['Validade', 'Preparo', 'Queda', 'Transporte', 'Cancelamento', 'Outro']);
     for (const m of MOTIVOS_DESPERDICIO) expect(normalizarMotivo(m)).toBe(m);
   });
 
@@ -27,6 +27,6 @@ describe('motivos de desperdício', () => {
   it('exigirMotivo devolve o da lista ou recusa com 400 mostrando as opções', () => {
     expect(exigirMotivo('queda')).toBe('Queda');
     expect(() => exigirMotivo('forno')).toThrow(BadRequestException);
-    expect(() => exigirMotivo('forno')).toThrow(/Validade, Preparo, Queda, Transporte, Outro/);
+    expect(() => exigirMotivo('forno')).toThrow(/Validade, Preparo, Queda, Transporte, Cancelamento, Outro/);
   });
 });

@@ -15,6 +15,7 @@ import { ondeSaiu } from '@/lib/reimpressao';
 import { useSenhaSemSalvar } from '@/lib/use-senha-sem-salvar';
 import { avisarComprovante } from '@/lib/comprovante';
 import { ItensDoPedido } from './itens-do-pedido';
+import { ItensDaPerda, type MarcaDaPerda } from './itens-da-perda';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -49,7 +50,7 @@ export function PedidoDetalhe({
   // realmente editável (status + canal); senão cai em 'view' (não abre edição indevida).
   const editavel =
     ['confirmado', 'pronto'].includes(p.status) && !['99food', 'ifood'].includes(p.canal);
-  const [modo, setModo] = useState<'view' | 'cancelar' | 'alterar'>(
+  const [modo, setModo] = useState<'view' | 'cancelar' | 'alterar' | 'perda'>(
     modoInicial === 'alterar' && editavel ? 'alterar' : 'view',
   );
   const [busy, setBusy] = useState(false);
@@ -59,6 +60,8 @@ export function PedidoDetalhe({
   const campoSenha = useSenhaSemSalvar(); // o navegador não oferece guardar a senha do gestor (PC da loja)
   // mig 128 — destino do insumo já baixado ao cancelar: reutilizado x perda.
   const [reaproveitado, setReaproveitado] = useState(true);
+  // Perda parcial (28/10/2026): os itens marcados como perdidos (null = a lista ainda não carregou).
+  const [perda, setPerda] = useState<MarcaDaPerda[] | null>(null);
   // alterar — itens
   const [itens, setItens] = useState<any[] | null>(null);
   const [remover, setRemover] = useState<Set<string>>(new Set());
@@ -81,6 +84,8 @@ export function PedidoDetalhe({
   // localmente dessincroniza. Os demais (Regem / Anota Aí / Cardápio Web) podem. (= editavel)
   const podeAlterar = editavel;
   const finalizado = ['concluido', 'cancelado'].includes(p.status);
+  // O canal, o cliente ou o sistema cancelou e ninguém disse o que se perdeu: o "Registrar perda" (28/10/2026).
+  const perdaPendente = p.status === 'cancelado' && !!p.comandaId && p.estoqueReaproveitado == null;
 
   const carregarItens = useCallback(async () => {
     try {
@@ -122,7 +127,7 @@ export function PedidoDetalhe({
     if (!senha.trim()) return toast.error('Informe a senha do gestor.');
     setBusy(true);
     try {
-      const r: any = await api.cancelarDelivery(p.id, motivo.trim() || undefined, senha, reaproveitado);
+      const r: any = await api.cancelarDelivery(p.id, motivo.trim() || undefined, senha, reaproveitado, reaproveitado ? null : perda);
       toast.success(r?.estoqueAviso ? `Pedido cancelado. ${r.estoqueAviso}` : 'Pedido cancelado.');
       avisarEstornoGogem(r);
       avisarComprovante(r);
@@ -130,6 +135,22 @@ export function PedidoDetalhe({
       onClose();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao cancelar');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function registrarPerda() {
+    if (!senha.trim()) return toast.error('Informe a senha do gestor.');
+    if (!perda) return toast.error('Espere a lista dos itens carregar.');
+    setBusy(true);
+    try {
+      const r: any = await api.registrarPerdaDelivery(p.id, perda, senha);
+      toast.success(r?.aviso ?? 'Perda registrada.');
+      onChanged();
+      onClose();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao registrar a perda');
     } finally {
       setBusy(false);
     }
@@ -260,7 +281,14 @@ export function PedidoDetalhe({
               <IconBtn icon="🖨" label="Reimprimir" onClick={reimprimir} disabled={busy || !p.comandaId} />
               {podeAlterar && <IconBtn icon="✏️" label="Alterar" onClick={() => setModo('alterar')} disabled={busy} />}
               {!finalizado && <IconBtn icon="✕" label="Cancelar" tone="destructive" onClick={() => setModo('cancelar')} disabled={busy} />}
+              {perdaPendente && <IconBtn icon="🗑️" label="Registrar perda" tone="destructive" onClick={() => setModo('perda')} disabled={busy} />}
             </div>
+            {perdaPendente && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Este pedido foi cancelado fora da loja (canal, cliente ou sistema): se algo já tinha sido feito, use
+                <strong className="text-foreground"> Registrar perda</strong> para tirar do estoque o que se perdeu.
+              </p>
+            )}
             <Button type="button" variant="ghost" className="mt-2 w-full" onClick={onClose}>Fechar</Button>
           </>
         )}
@@ -304,12 +332,35 @@ export function PedidoDetalhe({
                     🗑️ Perda (saem do estoque)
                   </button>
                 </div>
+                {/* Perda parcial (dono, 28/10/2026): o que não se perdeu, desmarca-se. */}
+                {!reaproveitado && <ItensDaPerda pedidoId={p.id} onChange={setPerda} />}
               </div>
             )}
             <div className="mt-4 flex gap-2">
               <Button type="button" variant="ghost" className="flex-1" onClick={() => setModo('view')}>Voltar</Button>
               <Button type="button" className="flex-1 bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={confirmarCancelamento} disabled={busy}>
                 {busy ? '…' : 'Confirmar cancelamento'}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* ===== REGISTRAR PERDA (pedido cancelado fora da loja) ===== */}
+        {modo === 'perda' && (
+          <div className="mt-3 space-y-3">
+            <p className="rounded-lg bg-warn/10 px-3 py-2 text-sm font-medium text-foreground">
+              O pedido foi cancelado sem ninguém da loja dizer o que se perdeu. Marque o que já tinha sido feito: sai do
+              estoque e vai para Estoque › Desperdício. Dá para registrar uma vez só.
+            </p>
+            <ItensDaPerda pedidoId={p.id} onChange={setPerda} />
+            <div className="space-y-1">
+              <Label className="text-xs">Senha de quem libera (presidente, gerente ou supervisão)</Label>
+              <Input {...campoSenha} aria-label="Senha de quem libera (presidente, gerente ou supervisão)" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="senha de quem libera" />
+            </div>
+            <div className="flex gap-2">
+              <Button type="button" variant="ghost" className="flex-1" onClick={() => setModo('view')}>Voltar</Button>
+              <Button type="button" className="flex-1 bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={registrarPerda} disabled={busy || !perda}>
+                {busy ? '…' : 'Registrar perda'}
               </Button>
             </div>
           </div>

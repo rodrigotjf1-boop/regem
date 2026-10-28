@@ -21,9 +21,13 @@ const perdaDe = (d: any) => (d.custoUnitario != null && d.quantidade != null ? N
 const horaDe = (iso: unknown) =>
   iso ? new Date(String(iso)).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' }) : '';
 
+// Saiu do estoque? O servidor diz (`baixouEstoque`): a perda do cancelamento baixa a ficha inteira do item e não tem um
+// insumo só (`itemId` vazio). API antiga (sem o campo): pelo insumo, como antes.
+const baixou = (d: any) => (d.baixouEstoque != null ? !!d.baixouEstoque : !!d.itemId);
+
 const SITUACOES: Situacao<any>[] = [
-  { rotulo: 'Com baixa de estoque', filtro: (d) => !!d.itemId },
-  { rotulo: 'Só registro', filtro: (d) => !d.itemId, tom: 'aviso' },
+  { rotulo: 'Com baixa de estoque', filtro: (d) => baixou(d) },
+  { rotulo: 'Só registro', filtro: (d) => !baixou(d), tom: 'aviso' },
 ];
 
 // Aba Desperdício: o que se perdeu no período, com o total em R$ (para quem pode ver valores),
@@ -99,7 +103,7 @@ export function DesperdicioSecao({ itens, aoMudarEstoque }: { itens: any[]; aoMu
           chave={(d) => d.id}
           nome={(d) => d.descricao}
           colunas={[
-            { titulo: 'O que', celula: (d) => <NomeComApoio nome={d.descricao} apoio={d.itemId ? 'baixou do estoque' : 'sem vínculo com produto (só registro)'} /> },
+            { titulo: 'O que', celula: (d) => <NomeComApoio nome={d.descricao} apoio={baixou(d) ? 'baixou do estoque' : 'sem vínculo com produto (só registro)'} /> },
             { titulo: 'Quando', celula: (d) => <span className="whitespace-nowrap font-mono">{dataBr(d.data)}{d.createdAt ? <span className={`block text-xs ${texto2}`}>{horaDe(d.createdAt)}</span> : null}</span> },
             { titulo: 'Quantidade', celula: (d) => (d.quantidade != null ? <span className="whitespace-nowrap"><span className="font-mono">{num(d.quantidade)}</span> {d.unidadeMedida ?? ''}</span> : '—') },
             { titulo: 'Motivo', celula: (d) => d.motivo ?? '—' },

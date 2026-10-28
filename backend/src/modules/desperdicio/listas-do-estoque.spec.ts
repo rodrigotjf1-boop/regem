@@ -82,7 +82,7 @@ descrever('listas de histórico do estoque (Postgres real)', () => {
     const s = new DesperdicioService(db);
     const rota = new DesperdicioController(s);
 
-    expect(rota.motivos()).toEqual({ motivos: ['Validade', 'Preparo', 'Queda', 'Transporte', 'Outro'] });
+    expect(rota.motivos()).toEqual({ motivos: ['Validade', 'Preparo', 'Queda', 'Transporte', 'Cancelamento', 'Outro'] });
     expect(() => rota.create(usuario(t, quem), null, { descricao: 'Pão de teste', motivo: 'forno' } as any)).toThrow(BadRequestException);
     expect(await q(`select count(*)::int as n from desperdicio where tenant_id = $1`, [t])).toEqual([{ n: 0 }]);
 

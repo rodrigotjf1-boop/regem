@@ -55,9 +55,13 @@ import {
   produtoFaixaPreco,
   producaoPedido,
   pedidoExterno,
+  desperdicio,
 } from '../../db/schema';
 import { precoComAtacado } from '../../common/preco-atacado';
-import { idEntitlement } from '../../common/id-deterministico';
+import { idEntitlement, uuidDeChave } from '../../common/id-deterministico';
+import { MOTIVO_PERDA_CANCELAMENTO } from '../desperdicio/motivos';
+import type { ItemDaPerda } from './itens-da-perda';
+export type { ItemDaPerda } from './itens-da-perda';
 import {
   agruparEscolhas,
   REGRA_COM_REPETICAO,
@@ -2348,50 +2352,178 @@ export class VendasService {
         );
       const consumo = new Map<string, number>();
       for (const it of itens) {
-        if (!it.produtoId) continue;
-        const [p] = await tx
-          .select()
-          .from(produto)
-          .where(and(eq(produto.id, it.produtoId), eq(produto.tenantId, tenantId)));
-        if (!p) continue;
-        // ANTES: passava `1` de fator e `[]` de complementos — literalmente descartando
-        // a variação e TODOS os adicionais. Resultado: adicional vendido no canal saía
-        // do estoque sem registro, e a variação de 1L baixava a mesma ficha da de 500ml.
-        let fatorFicha = 1;
-        if (it.variacaoId) {
-          const [v] = await tx
-            .select({ fatorFicha: produtoVariacao.fatorFicha })
-            .from(produtoVariacao)
-            .where(
-              and(
-                eq(produtoVariacao.id, it.variacaoId),
-                eq(produtoVariacao.tenantId, tenantId),
-              ),
-            );
-          if (v) fatorFicha = Number(v.fatorFicha) || 1;
-        }
-        const comps = await tx
-          .select()
-          .from(comandaItemComplemento)
-          .where(
-            and(
-              eq(comandaItemComplemento.comandaItemId, it.id),
-              eq(comandaItemComplemento.tenantId, tenantId),
-            ),
-          );
-        await this.acumularProduto(
-          tx,
-          tenantId,
-          p,
-          fatorFicha,
-          Number(it.quantidade) || 1,
-          comps,
-          consumo,
-          comEmbalagem ? PEDIDO_EXTERNO : SO_INGREDIENTES, // pedido externo → baixa também a embalagem do delivery
-        );
+        // pedido externo → baixa também a embalagem do delivery
+        const doItem = await this.consumoDoItem(tx, tenantId, it, comEmbalagem ? PEDIDO_EXTERNO : SO_INGREDIENTES);
+        for (const [insumo, q] of doItem) consumo.set(insumo, (consumo.get(insumo) ?? 0) + q);
       }
       await this.lancarSaidas(tx, tenantId, consumo, comandaId);
     });
+  }
+
+  /**
+   * O CONSUMO de UM item da venda (insumo → quantidade, para a quantidade inteira do item): produto, variação, combo,
+   * ficha técnica e os adicionais gravados dele — a MESMA conta da baixa da venda (`acumularProduto`). Só lê.
+   */
+  private async consumoDoItem(tx: any, tenantId: string, it: any, venda: VendaDaFicha): Promise<Map<string, number>> {
+    const consumo = new Map<string, number>();
+    if (!it.produtoId) return consumo;
+    const [p] = await tx
+      .select()
+      .from(produto)
+      .where(and(eq(produto.id, it.produtoId), eq(produto.tenantId, tenantId)));
+    if (!p) return consumo;
+    // ANTES: passava `1` de fator e `[]` de complementos — literalmente descartando
+    // a variação e TODOS os adicionais. Resultado: adicional vendido no canal saía
+    // do estoque sem registro, e a variação de 1L baixava a mesma ficha da de 500ml.
+    let fatorFicha = 1;
+    if (it.variacaoId) {
+      const [v] = await tx
+        .select({ fatorFicha: produtoVariacao.fatorFicha })
+        .from(produtoVariacao)
+        .where(
+          and(
+            eq(produtoVariacao.id, it.variacaoId),
+            eq(produtoVariacao.tenantId, tenantId),
+          ),
+        );
+      if (v) fatorFicha = Number(v.fatorFicha) || 1;
+    }
+    const comps = await tx
+      .select()
+      .from(comandaItemComplemento)
+      .where(
+        and(
+          eq(comandaItemComplemento.comandaItemId, it.id),
+          eq(comandaItemComplemento.tenantId, tenantId),
+        ),
+      );
+    await this.acumularProduto(tx, tenantId, p, fatorFicha, Number(it.quantidade) || 1, comps, consumo, venda);
+    return consumo;
+  }
+
+  /**
+   * PERDA DOS ITENS MARCADOS no cancelamento (pedido do dono, 28/10/2026: "abrir o pedido com os itens marcados; o que
+   * não se perdeu o usuário desmarca; só os outros dão baixa, considerando a ficha técnica"). Para cada item:
+   *  • uma linha em `desperdicio` — o que aparece em Estoque › Desperdício ("Cancelamento · Pedido #10 · 2× X-Burger"),
+   *    com o custo dos insumos (custo médio da loja da venda);
+   *  • a saída dos insumos dele como DESPERDÍCIO (`motivo`/`ref_tipo` 'desperdicio', ref = a linha acima): o CMV conta
+   *    como perda, não como venda — antes a perda saía como "venda" e nunca aparecia em Desperdício.
+   * `selecao`: os itens (e quanto de cada um; sem quantidade, o item inteiro) ou 'todos'. Item de outra venda = 400.
+   * Ids tirados do item (V42): registrar de novo — ou a outra ponta do sincronismo — não registra duas vezes.
+   * Roda na transação de quem chama. Devolve quantos itens entraram e o custo total.
+   */
+  async registrarPerdaDosItens(
+    tx: any,
+    tenantId: string,
+    comandaId: string,
+    selecao: ItemDaPerda[] | 'todos',
+    opts: { venda: VendaDaFicha; atorId: string | null; rotulo: string },
+  ): Promise<{ itens: number; custo: number }> {
+    const [c] = await tx
+      .select({ unidadeId: comanda.unidadeId })
+      .from(comanda)
+      .where(and(eq(comanda.id, comandaId), eq(comanda.tenantId, tenantId)));
+    if (!c) throw new NotFoundException('Venda não encontrada.');
+    const escolhidos = await this.itensDaPerda(tx, tenantId, comandaId, selecao);
+    let n = 0;
+    let custoTotal = 0;
+    for (const { it, qtd } of escolhidos) {
+      const inteiro = await this.consumoDoItem(tx, tenantId, it, opts.venda);
+      const fracao = qtd / (Number(it.quantidade) || 1);
+      const consumo: { insumo: string; q: number; custo: number | null }[] = [];
+      let custoDoItem = 0;
+      for (const [insumo, q] of inteiro) {
+        const qPerda = q * fracao;
+        if (qPerda <= 0) continue;
+        const custo = await custoMedioDaSaida(tx, tenantId, insumo, c.unidadeId ?? null);
+        if (custo != null) custoDoItem += Number(custo) * qPerda;
+        consumo.push({ insumo, q: qPerda, custo: custo != null ? Number(custo) : null });
+      }
+      const desperdicioId = uuidDeChave('perda-cancelamento', tenantId, it.id);
+      const [d] = await tx
+        .insert(desperdicio)
+        .values({
+          id: desperdicioId,
+          tenantId,
+          unidadeId: c.unidadeId ?? null,
+          descricao: `Cancelamento · ${opts.rotulo} · ${qtd}× ${it.descricao}`.slice(0, 300),
+          quantidade: String(qtd),
+          unidadeMedida: 'un',
+          custoUnitario: consumo.length ? String(Number((custoDoItem / qtd).toFixed(4))) : null,
+          motivo: MOTIVO_PERDA_CANCELAMENTO,
+          registradoPorId: opts.atorId ?? null,
+          data: hojeISO(),
+        })
+        .onConflictDoNothing()
+        .returning({ id: desperdicio.id });
+      if (!d) continue; // já registrado (aqui ou do outro lado do sync)
+      n++;
+      custoTotal += custoDoItem;
+      for (const m of consumo) {
+        const [mov] = await tx
+          .insert(movimentoEstoque)
+          .values({
+            id: uuidDeChave('perda-cancelamento-mov', desperdicioId, m.insumo),
+            tenantId,
+            itemId: m.insumo,
+            tipo: 'saida',
+            quantidade: String(m.q),
+            custoUnitario: m.custo != null ? String(m.custo) : undefined,
+            motivo: 'desperdicio',
+            refTipo: 'desperdicio',
+            refId: desperdicioId,
+            data: hojeISO(),
+          })
+          .onConflictDoNothing()
+          .returning({ id: movimentoEstoque.id });
+        if (mov) await consumirLotes(tx, tenantId, m.insumo, m.q, mov.id);
+      }
+    }
+    if (n) this.events.emit('estoque.baixado', { tenantId });
+    return { itens: n, custo: Number(custoTotal.toFixed(2)) };
+  }
+
+  /** Os itens da perda, conferidos contra a venda: item de outra venda ou quantidade fora do item = 400. */
+  private async itensDaPerda(
+    db: any,
+    tenantId: string,
+    comandaId: string,
+    selecao: ItemDaPerda[] | 'todos',
+  ): Promise<{ it: any; qtd: number }[]> {
+    const itens = await db
+      .select()
+      .from(comandaItem)
+      .where(and(eq(comandaItem.tenantId, tenantId), eq(comandaItem.comandaId, comandaId)));
+    if (selecao === 'todos') return itens.map((it: any) => ({ it, qtd: Number(it.quantidade) || 1 }));
+    if (!Array.isArray(selecao)) throw new BadRequestException('Mande a lista dos itens que se perderam.');
+    const porId = new Map<string, any>(itens.map((it: any) => [it.id, it]));
+    const vistos = new Set<string>();
+    return selecao.map((s) => {
+      const it = porId.get(String(s?.comandaItemId ?? ''));
+      if (!it) throw new BadRequestException('Um item marcado não é desta venda. Abra o pedido de novo.');
+      if (vistos.has(it.id)) throw new BadRequestException(`"${it.descricao}" veio duas vezes na lista da perda.`);
+      vistos.add(it.id);
+      const total = Number(it.quantidade) || 1;
+      const qtd = s.quantidade == null ? total : Number(s.quantidade);
+      if (!Number.isFinite(qtd) || qtd <= 0 || qtd > total)
+        throw new BadRequestException(`A quantidade perdida de "${it.descricao}" vai de 1 a ${total}.`);
+      return { it, qtd };
+    });
+  }
+
+  /** Confere a lista da perda ANTES de desfazer a venda (o cancelamento não pode parar no meio). */
+  async conferirItensDaPerda(tenantId: string, comandaId: string, selecao: ItemDaPerda[]): Promise<void> {
+    await this.itensDaPerda(this.db, tenantId, comandaId, selecao);
+  }
+
+  /** `registrarPerdaDosItens` na sua própria transação. */
+  registrarPerda(
+    tenantId: string,
+    comandaId: string,
+    selecao: ItemDaPerda[] | 'todos',
+    opts: { venda: VendaDaFicha; atorId: string | null; rotulo: string },
+  ) {
+    return this.db.transaction((tx) => this.registrarPerdaDosItens(tx, tenantId, comandaId, selecao, opts));
   }
 
   // Reimprime as vias (via do cliente) a partir do estado atual da comanda. Sai num lugar SÓ
