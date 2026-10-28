@@ -64,11 +64,15 @@
 - **Painel do delivery legível (pedido do dono de 28/10; #747) — vai no `.zip` (a tela da loja):** o texto
   cinza do Delivery › Painel fica mais escuro (#7E90A2 → #5B6B7B: de 3,3:1 para 5,5:1 no branco), só no painel; na
   prévia e no detalhe do pedido, o produto em negrito e, embaixo, recuadas, as escolhas uma por linha (como no Anota AI).
-- **Perda parcial no cancelamento do delivery (pedido do dono de 28/10; PR desta entrega) — vai no `.zip`:** ao
+- **Perda parcial no cancelamento do delivery (pedido do dono de 28/10; #748) — vai no `.zip`:** ao
   cancelar com PERDA (Delivery › Painel e Retirada do PDV), a lista dos itens do pedido, todos marcados — o que não se
   perdeu desmarca-se; só o marcado sai do estoque, pela ficha técnica, como DESPERDÍCIO (aparece em Estoque ›
   Desperdício, motivo "Cancelamento"; antes a perda saía como venda e nunca aparecia lá). O pedido que o canal, o cliente
   ou o sistema cancelou ganha o "Registrar perda" no detalhe (no painel, pelo "Cancelados N" do rodapé). Sem migration.
+- **Perda parcial no cancelamento do balcão (pedido do dono de 28/10; PR desta entrega) — vai no `.zip`:** em "Cupons"
+  e no "Buscar / cancelar cupom" do PDV, o cancelamento pergunta o que aconteceu com o que já foi feito (reutilizado ou
+  perda — antes não perguntava e tudo voltava ao estoque); na perda, a mesma lista dos itens: a venda volta ao estoque e
+  só o marcado sai, como desperdício. Sem migration.
 
 ## Última release: `1.30.11` — gerada em 25/10/2026 da `origin/main` `0356f58b`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 94.119.254 bytes, SHA-256 `e4ee92e5b8d3e0b3d0408f22c8eb0248d215ede4d41b99dc036e97cf02edbba1`) e entregue ao dono para reinstalar **SÓ o servidor**; **sem `.zip`** e nada publicado no console
 

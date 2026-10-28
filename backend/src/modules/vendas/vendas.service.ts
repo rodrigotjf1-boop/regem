@@ -1,4 +1,4 @@
-import { PREFIXO_BALCAO, PREFIXO_DELIVERY } from '../../common/senha-origem';
+import { PREFIXO_BALCAO, PREFIXO_DELIVERY, rotuloSenha } from '../../common/senha-origem';
 import {
   JUSTIFICATIVA_CUPOM_NAO_IMPRESSO,
   NfceDoTotem,
@@ -60,7 +60,7 @@ import {
 import { precoComAtacado } from '../../common/preco-atacado';
 import { idEntitlement, uuidDeChave } from '../../common/id-deterministico';
 import { MOTIVO_PERDA_CANCELAMENTO } from '../desperdicio/motivos';
-import type { ItemDaPerda } from './itens-da-perda';
+import { lerItensDaPerda, type ItemDaPerda } from './itens-da-perda';
 export type { ItemDaPerda } from './itens-da-perda';
 import {
   agruparEscolhas,
@@ -3709,17 +3709,21 @@ export class VendasService {
   // Cancela uma venda fechada: estorna estoque (entrada inversa) + caixa (lançamento
   // de estorno) e marca a comanda como cancelada. Reversível pois a baixa carrega
   // ref_tipo='venda'/ref_id=comanda.
-  // `reaproveitado` (mig 128/132): insumo já baixado da venda foi REUTILIZADO
-  // (volta ao estoque via estorno) ou virou PERDA (fica baixado). Default true.
+  // `reaproveitado` (mig 128/132): insumo já baixado da venda foi REUTILIZADO (volta ao estoque via estorno) ou virou
+  // PERDA. Default true. Perda parcial (dono, 28/10/2026): `perdaItens` = os itens marcados como perdidos (sem a lista, a
+  // venda inteira); a venda volta ao estoque por inteiro e SÓ o marcado sai, pela ficha, como desperdício (Estoque ›
+  // Desperdício) — antes a perda ficava como saída de VENDA.
   async cancelar(
     tenantId: string,
     atorId: string,
     atorPerfil: string,
     comandaId: string,
-    dto: { motivo?: string; reaproveitado?: boolean },
+    dto: { motivo?: string; reaproveitado?: boolean; perdaItens?: unknown },
     terminalId: string | null = null,
   ) {
     const reaproveitado = dto.reaproveitado !== false;
+    const perdaItens = reaproveitado ? null : lerItensDaPerda(dto.perdaItens);
+    let perda = null as { itens: number; custo: number } | null; // gravado dentro da transação
     // Autorização: atendente só cancela se o presidente liberou; gerente+ sempre.
     if (!ehGestor(atorPerfil) && !(await this.cancelamentoLivre(tenantId))) {
       throw new ForbiddenException(
@@ -3776,8 +3780,8 @@ export class VendasService {
       if (!sessaoId)
         throw new BadRequestException('Abra o caixa para cancelar a venda.');
 
-      // Estorna estoque só se REUTILIZADO: entrada inversa de cada saída da venda.
-      // Perda (reaproveitado=false) → mantém a baixa (o insumo foi descartado).
+      // A venda volta ao estoque por inteiro (entrada inversa de cada saída de venda); na PERDA, os itens marcados saem
+      // de novo logo abaixo, como desperdício — o CMV conta como perda, e Estoque › Desperdício mostra.
       const saidas = await tx
         .select()
         .from(movimentoEstoque)
@@ -3789,7 +3793,7 @@ export class VendasService {
           ),
         );
       houveBaixa = saidas.length > 0;
-      if (reaproveitado) {
+      {
         for (const m of saidas) {
           const [volta] = await tx
             .insert(movimentoEstoque)
@@ -3811,6 +3815,16 @@ export class VendasService {
           if (volta) await devolverLotes(tx, tenantId, m.id, volta.id);
         }
       }
+      if (!reaproveitado) {
+        // Na mesma transação: item de outra venda = 400 e nada muda (nem o caixa, nem a comanda).
+        const rotulo = c.mesa ? `Mesa ${c.mesa}` : c.senha != null ? `Senha ${rotuloSenha(c.senha, c.senhaPrefixo)}` : 'Venda do balcão';
+        perda = await this.registrarPerdaDosItens(tx, tenantId, comandaId, perdaItens ?? 'todos', {
+          venda: await this.vendaDeBalcao(tx, tenantId),
+          atorId,
+          rotulo,
+        });
+        if (perda.itens > 0) houveBaixa = true;
+      }
 
       // Estorna o caixa: TODOS os lançamentos de entrada da venda, cada um na sua forma,
       // no caixa aberto (sessaoId).
@@ -3823,8 +3837,8 @@ export class VendasService {
           canceladaEm: new Date(),
           canceladaPorId: atorId,
           motivoCancelamento: dto.motivo,
-          // Registra a decisão só quando houve baixa a estornar (senão n/a).
-          estoqueReaproveitado: saidas.length ? reaproveitado : null,
+          // Registra a decisão só quando houve baixa a estornar ou perda lançada (senão n/a).
+          estoqueReaproveitado: houveBaixa ? reaproveitado : null,
         })
         .where(eq(comanda.id, comandaId));
 
@@ -3868,7 +3882,20 @@ export class VendasService {
       reaproveitado: houveBaixa ? reaproveitado : null,
       terminalId,
     });
-    return { ok: true, comprovante, ...(estornoGogem ? { estornoGogem } : {}) };
+    return {
+      ok: true,
+      comprovante,
+      // O que aconteceu com o estoque, dito pelo que foi FEITO.
+      estoqueAviso: reaproveitado
+        ? houveBaixa
+          ? 'Os insumos desta venda voltaram ao estoque (reutilizados).'
+          : null
+        : perda && perda.itens > 0
+          ? `${perda.itens === 1 ? '1 item lançado' : `${perda.itens} itens lançados`} como PERDA em Estoque › Desperdício: os insumos saíram do estoque.`
+          : 'Nenhum item marcado como perdido: o que tinha saído voltou ao estoque.',
+      ...(perda ? { perda } : {}),
+      ...(estornoGogem ? { estornoGogem } : {}),
+    };
   }
 
   // COMPROVANTE DO CANCELAMENTO da venda do balcão (pedido do dono, 22/10/2026) — o mesmo perfil "Caixa —

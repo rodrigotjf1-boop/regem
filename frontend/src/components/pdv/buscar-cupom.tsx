@@ -9,6 +9,8 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { AvisoPedidoDelivery } from './aviso-pedido-delivery';
+import { DestinoDosInsumos } from './destino-dos-insumos';
+import type { MarcaDaPerda } from '@/components/delivery/itens-da-perda';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -21,6 +23,9 @@ export function BuscarCupom() {
   const [senha, setSenha] = useState('');
   const [cupom, setCupom] = useState<any>(null);
   const [motivo, setMotivo] = useState('');
+  // O que a venda já gastou: reutilizado ou perda — e, na perda, os itens perdidos (dono, 28/10/2026).
+  const [reaproveitado, setReaproveitado] = useState(true);
+  const [perda, setPerda] = useState<MarcaDaPerda[] | null>(null);
   const [busy, setBusy] = useState(false);
 
   function fechar() {
@@ -28,12 +33,16 @@ export function BuscarCupom() {
     setSenha('');
     setCupom(null);
     setMotivo('');
+    setReaproveitado(true);
+    setPerda(null);
   }
 
   async function buscar() {
     if (!senha.trim()) return;
     setBusy(true);
     setCupom(null);
+    setReaproveitado(true);
+    setPerda(null);
     try {
       setCupom(await api.buscarCupomSenha(senha.trim()));
     } catch (e) {
@@ -45,11 +54,15 @@ export function BuscarCupom() {
 
   async function cancelar() {
     if (!cupom?.id) return;
-    if (!confirm(`Cancelar o cupom da senha ${cupom.senha ?? ''}? O estoque e o caixa são estornados.`)) return;
+    if (!confirm(`Cancelar o cupom da senha ${cupom.senha ?? ''}? O caixa é estornado.`)) return;
     setBusy(true);
     try {
-      const r = await api.cancelarVenda(cupom.id, { motivo: motivo.trim() || undefined });
-      toast.success('Cupom cancelado (estornado).');
+      const r: any = await api.cancelarVenda(cupom.id, {
+        motivo: motivo.trim() || undefined,
+        reaproveitado,
+        ...(!reaproveitado && perda ? { perdaItens: perda } : {}),
+      });
+      toast.success(`Cupom cancelado. ${r?.estoqueAviso ?? 'Caixa estornado.'}`);
       avisarEstornoGogem(r);
       avisarComprovante(r);
       fechar();
@@ -114,6 +127,13 @@ export function BuscarCupom() {
                 ) : cupom.status !== 'cancelada' ? (
                   <div className="mt-4 space-y-2">
                     <Input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo do cancelamento (opcional)" />
+                    <DestinoDosInsumos
+                      key={cupom.id}
+                      itens={cupom.itens ?? []}
+                      reaproveitado={reaproveitado}
+                      onReaproveitado={setReaproveitado}
+                      onPerda={setPerda}
+                    />
                     <Button type="button" variant="outline" className="w-full border-destructive/50 text-destructive" onClick={cancelar} disabled={busy}>
                       {busy ? '…' : 'Cancelar cupom (estornar)'}
                     </Button>

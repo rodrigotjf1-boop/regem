@@ -14,6 +14,8 @@ import { Label } from '@/components/ui/label';
 import { imprimirCupomNavegador } from '@/lib/print-cupom';
 import { ondeSaiu } from '@/lib/reimpressao';
 import { AvisoPedidoDelivery } from '@/components/pdv/aviso-pedido-delivery';
+import { DestinoDosInsumos } from '@/components/pdv/destino-dos-insumos';
+import type { MarcaDaPerda } from '@/components/delivery/itens-da-perda';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -38,6 +40,9 @@ export default function CuponsPage() {
   const [erro, setErro] = useState('');
   const [sel, setSel] = useState<any>(null); // cupom detalhado (com itens)
   const [motivo, setMotivo] = useState('');
+  // O que a venda já gastou: reutilizado ou perda — e, na perda, os itens perdidos (dono, 28/10/2026).
+  const [reaproveitado, setReaproveitado] = useState(true);
+  const [perda, setPerda] = useState<MarcaDaPerda[] | null>(null);
   const [cancelando, setCancelando] = useState(false);
   const [cancelLivre, setCancelLivre] = useState<boolean | null>(null);
   const [busca, setBusca] = useState('');
@@ -69,6 +74,8 @@ export default function CuponsPage() {
 
   async function abrir(id: string) {
     setMotivo('');
+    setReaproveitado(true);
+    setPerda(null);
     try {
       const c: any = await api.vendasCupom(id);
       setSel(c);
@@ -119,11 +126,15 @@ export default function CuponsPage() {
 
   async function cancelar() {
     if (!sel) return;
-    if (!confirm(`Cancelar a venda ${sel.mesa ? `da mesa ${sel.mesa}` : ''}? Estorna estoque e caixa.`)) return;
+    if (!confirm(`Cancelar a venda ${sel.mesa ? `da mesa ${sel.mesa}` : ''}? O caixa é estornado.`)) return;
     setCancelando(true);
     try {
-      const r = await api.cancelarVenda(sel.id, { motivo: motivo || undefined });
-      toast.success('Venda cancelada. Estoque e caixa estornados.');
+      const r: any = await api.cancelarVenda(sel.id, {
+        motivo: motivo || undefined,
+        reaproveitado,
+        ...(!reaproveitado && perda ? { perdaItens: perda } : {}),
+      });
+      toast.success(`Venda cancelada. ${r?.estoqueAviso ?? 'Caixa estornado.'}`);
       avisarEstornoGogem(r);
       avisarComprovante(r);
       setSel(null);
@@ -307,6 +318,13 @@ export default function CuponsPage() {
                   <Label className="text-xs">Motivo do cancelamento (opcional)</Label>
                   <Input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex.: pedido errado" />
                 </div>
+                <DestinoDosInsumos
+                  key={sel.id}
+                  itens={sel.itens ?? []}
+                  reaproveitado={reaproveitado}
+                  onReaproveitado={setReaproveitado}
+                  onPerda={setPerda}
+                />
                 {atendenteBloqueado && (
                   <p className="text-xs text-warn">
                     Cancelamento exige autorização de um gerente.
