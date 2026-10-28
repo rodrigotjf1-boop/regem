@@ -83,7 +83,7 @@ descrever('KDS × delivery: cancelamentos, pronto parcial, voltar e perda (Postg
     if (edgeOriginal !== undefined) process.env.EDGE_MODE = edgeOriginal;
     if (empresas.length) {
       // movimento_lote e as tabelas-filhas saem pela cascata; a ordem abaixo respeita as referências
-      for (const t of ['pedido_envio', 'pedido_notificacao', 'impressao_job', 'producao_pedido', 'pedido_externo', 'lancamento_caixa', 'movimento_estoque', 'desperdicio', 'comanda', 'produto', 'ficha_ingrediente', 'ficha_tecnica', 'item_estoque', 'colaborador', 'funcao', 'unidade'])
+      for (const t of ['pedido_envio', 'pedido_notificacao', 'impressao_job', 'producao_pedido', 'pedido_externo', 'lancamento_caixa', 'caixa_sessao', 'movimento_estoque', 'desperdicio', 'comanda', 'produto', 'ficha_ingrediente', 'ficha_tecnica', 'item_estoque', 'colaborador', 'funcao', 'unidade'])
         await pool.query(`delete from ${t} where tenant_id = any($1::uuid[])`, [empresas]).catch(() => {});
       await pool.query('delete from empresa where id = any($1::uuid[])', [empresas]).catch(() => {});
     }
@@ -611,6 +611,58 @@ descrever('KDS × delivery: cancelamentos, pronto parcial, voltar e perda (Postg
       const semVenda = await chegou(l);
       await delivery.refletirStatusExterno(l.t, 'ifood', semVenda.externalId, 'cancelado');
       await expect(delivery.registrarPerdaDepois(l.t, l.gestor, 'gerente', semVenda.id, [], SENHA_GESTOR)).rejects.toThrow(/não chegou a virar venda/);
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════════════════════
+  // A venda do BALCÃO (Cupons / Buscar cupom): baixou o estoque na venda; cancelada, o que se perdeu sai como desperdício.
+  describe('balcão: perda parcial na venda cancelada', () => {
+    /** Venda do balcão já fechada: 2 lanches e 1 porção (1 pão cada, revenda), 3 pães baixados como venda, caixa aberto. */
+    async function vendaDoBalcao(l: Loja) {
+      await q(`insert into caixa_sessao (tenant_id, unidade_id, origem, status, valor_abertura, aberta_por_id) values ($1,$2,'pdv','aberta',0,$3)`, [l.t, l.u, l.gestor]);
+      const c = (await q(`insert into comanda (tenant_id, unidade_id, status, senha, senha_prefixo, total, forma) values ($1,$2,'fechada',7,'B',60,'dinheiro') returning id`, [l.t, l.u]))[0].id as string;
+      for (const [produtoId, descricao, qtd] of [[l.produtoId, 'Lanche de teste', 2], [l.extraId, 'Porção de teste', 1]] as const)
+        await q(`insert into comanda_item (tenant_id, comanda_id, produto_id, descricao, quantidade, preco_unitario) values ($1,$2,$3,$4,$5,20)`, [l.t, c, produtoId, descricao, qtd]);
+      await q(`insert into lancamento_caixa (tenant_id, unidade_id, comanda_id, tipo, valor, data, categoria, forma) values ($1,$2,$3,'entrada',60,current_date,'venda','dinheiro')`, [l.t, l.u, c]);
+      await q(`insert into movimento_estoque (tenant_id, item_id, tipo, quantidade, motivo, ref_tipo, ref_id) values ($1,$2,'saida',3,'venda','venda',$3)`, [l.t, l.item, c]);
+      const [lanche, porcao] = await itensDaVenda(c);
+      return { comandaId: c, lanche, porcao };
+    }
+    const cancelarNoBalcao = (l: Loja, comandaId: string, dto: any) => vendas.cancelar(l.t, l.gestor, 'gerente', comandaId, { motivo: 'Desistiu', ...dto }, null) as Promise<any>;
+
+    it('perda de 1 lanche: a venda volta inteira e só o lanche perdido sai, como desperdício', async () => {
+      const l = await loja();
+      const v = await vendaDoBalcao(l);
+      expect(await saldo(l)).toBe(97);
+      const r = await cancelarNoBalcao(l, v.comandaId, { reaproveitado: false, perdaItens: [{ comandaItemId: v.lanche.id, quantidade: 1 }] });
+      expect(r.estoqueAviso).toBe('1 item lançado como PERDA em Estoque › Desperdício: os insumos saíram do estoque.');
+      expect(r.perda).toEqual({ itens: 1, custo: 2 });
+      expect(await saldo(l)).toBe(99); // os 3 da venda voltaram; 1 saiu como desperdício
+      expect(await desperdicios(l)).toEqual([expect.objectContaining({ descricao: 'Cancelamento · Senha B-7 · 1× Lanche de teste', motivo: 'Cancelamento', quantidade: 1 })]);
+      expect(await comanda(v.comandaId)).toMatchObject({ status: 'cancelada', estoque_reaproveitado: false });
+    });
+
+    it('reutilizado (o de sempre): tudo volta; perda sem a lista: a venda inteira', async () => {
+      const l = await loja();
+      const a = await vendaDoBalcao(l);
+      const r = await cancelarNoBalcao(l, a.comandaId, {});
+      expect(r.estoqueAviso).toBe('Os insumos desta venda voltaram ao estoque (reutilizados).');
+      expect(await saldo(l)).toBe(100);
+      expect(await desperdicios(l)).toEqual([]);
+      await q(`update caixa_sessao set status = 'fechada' where tenant_id = $1`, [l.t]);
+      const b = await vendaDoBalcao(l);
+      await cancelarNoBalcao(l, b.comandaId, { reaproveitado: false });
+      expect(await saldo(l)).toBe(97); // os 3 pães se perderam
+      expect(await desperdicios(l)).toHaveLength(2);
+    });
+
+    it('item que não é da venda: 400 e nada muda (nem estoque, nem caixa, nem a venda)', async () => {
+      const l = await loja();
+      const v = await vendaDoBalcao(l);
+      await expect(cancelarNoBalcao(l, v.comandaId, { reaproveitado: false, perdaItens: [{ comandaItemId: randomUUID() }] })).rejects.toThrow(/não é desta venda/);
+      expect(await comanda(v.comandaId)).toMatchObject({ status: 'fechada' });
+      expect(await saldo(l)).toBe(97);
+      expect((await lancamentos(v.comandaId)).filter((x) => x.categoria === 'estorno')).toHaveLength(0);
     });
   });
 });
