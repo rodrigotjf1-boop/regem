@@ -23,6 +23,7 @@
 // servidor derrubava TODOS os PCs da loja (erro de certificado no navegador; a estacao "nao e o
 // servidor desta loja") ate cada um ser reinstalado. Quando o conjunto e trocado de verdade, a
 // saida traz "CERT-TROCADO: <motivo>" para o instalador avisar o dono.
+import { randomBytes } from 'crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs';
 import { networkInterfaces } from 'os';
 import { dirname, join } from 'path';
@@ -101,11 +102,15 @@ const anos = (base, n) => { const d = new Date(base); d.setFullYear(d.getFullYea
 const agora = new Date();
 const ontem = new Date(agora.getTime() - 24 * 3600 * 1000); // margem p/ relogio adiantado do cliente
 
+// Numero de serie UNICO (ERR-307): antes toda CA era "Regem Edge CA" com serie 01 (e todo certificado, serie 02) - o
+// Windows tratava as CAs de trocas anteriores como a mesma e usava a errada. 16 bytes aleatorios, positivo (1o byte < 0x80).
+const serieUnica = () => { const b = randomBytes(16); b[0] &= 0x7f; return b.toString('hex'); };
+
 // ---- CA raiz (auto-assinada) ----
 const caKeys = forge.pki.rsa.generateKeyPair(2048);
 const caCert = forge.pki.createCertificate();
 caCert.publicKey = caKeys.publicKey;
-caCert.serialNumber = '01';
+caCert.serialNumber = serieUnica();
 caCert.validity.notBefore = ontem;
 caCert.validity.notAfter = anos(agora, 10);
 const caSubject = [{ name: 'commonName', value: 'Regem Edge CA' }];
@@ -114,6 +119,9 @@ caCert.setIssuer(caSubject);
 caCert.setExtensions([
   { name: 'basicConstraints', cA: true },
   { name: 'keyUsage', keyCertSign: true, cRLSign: true },
+  // O identificador da chave: o certificado do servidor aponta para ESTA CA (authorityKeyIdentifier), e o Windows acha
+  // a emissora certa mesmo com outra de mesmo nome no cofre (ERR-307).
+  { name: 'subjectKeyIdentifier' },
 ]);
 caCert.sign(caKeys.privateKey, forge.md.sha256.create());
 
@@ -128,7 +136,7 @@ if (ip) altNames.push({ type: 7, ip });
 const srvKeys = forge.pki.rsa.generateKeyPair(2048);
 const srvCert = forge.pki.createCertificate();
 srvCert.publicKey = srvKeys.publicKey;
-srvCert.serialNumber = '02';
+srvCert.serialNumber = serieUnica();
 srvCert.validity.notBefore = ontem;
 srvCert.validity.notAfter = anos(agora, 10);
 srvCert.setSubject([{ name: 'commonName', value: 'regem.local' }]);
@@ -138,6 +146,8 @@ srvCert.setExtensions([
   { name: 'keyUsage', digitalSignature: true, keyEncipherment: true },
   { name: 'extKeyUsage', serverAuth: true },
   { name: 'subjectAltName', altNames },
+  { name: 'subjectKeyIdentifier' },
+  { name: 'authorityKeyIdentifier', keyIdentifier: caCert.generateSubjectKeyIdentifier().getBytes() },
 ]);
 srvCert.sign(caKeys.privateKey, forge.md.sha256.create());
 

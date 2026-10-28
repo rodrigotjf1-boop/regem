@@ -253,6 +253,38 @@ function Provisionar-NaNuvem([string]$Uri, [string]$Corpo, [int]$Tentativas = 3,
   }
 }
 
+# A CA da loja no cofre de raiz do Windows, SEM as "Regem Edge CA" antigas de mesmo nome (ERR-307): o gen-cert de antes
+# dava a toda CA o mesmo nome e o mesmo numero de serie (01), cada troca de certificado deixava mais uma no Windows e ele
+# usava a errada. Tira so as de MESMO nome "Regem Edge CA..." e outra impressao digital; nenhuma outra CA e tocada.
+# $Cofre: o X509Store (LocalMachine\Root na instalacao; um cofre de teste no teste). Devolve quantas antigas tirou.
+function Confiar-CaDaLoja([string]$CaArq, $Cofre) {
+  $atual = New-Object Security.Cryptography.X509Certificates.X509Certificate2 $CaArq
+  $Cofre.Open('ReadWrite')
+  try {
+    $velhas = @($Cofre.Certificates | Where-Object {
+        $_.Subject -eq $atual.Subject -and $_.Subject -like 'CN=Regem Edge CA*' -and $_.Thumbprint -ne $atual.Thumbprint })
+    foreach ($v in $velhas) { $Cofre.Remove($v) }
+    $Cofre.Add($atual)
+    return $velhas.Count
+  } finally { $Cofre.Close() }
+}
+
+# O Windows deste computador confia no certificado do sistema, pela CA da loja? A cadeia montada como o Windows monta
+# (sem revogacao: a CA da loja nao publica lista). Devolve '' quando confia; senao, o motivo.
+function Motivo-SemConfianca([string]$CertDir) {
+  try {
+    $srv = New-Object Security.Cryptography.X509Certificates.X509Certificate2 (Join-Path $CertDir 'server.crt')
+    $ca = New-Object Security.Cryptography.X509Certificates.X509Certificate2 (Join-Path $CertDir 'ca.pem')
+    $ch = New-Object Security.Cryptography.X509Certificates.X509Chain
+    $ch.ChainPolicy.RevocationMode = 'NoCheck'
+    $ok = $ch.Build($srv)
+    $raiz = $ch.ChainElements[$ch.ChainElements.Count - 1].Certificate.Thumbprint
+    if ($ok -and $raiz -eq $ca.Thumbprint) { return '' }
+    $status = (@($ch.ChainStatus | ForEach-Object { "$($_.Status)" }) -join ', ')
+    return ("cadeia: {0}; raiz {1}, a da loja e {2}" -f $status, $raiz, $ca.Thumbprint)
+  } catch { return "nao consegui conferir: $($_.Exception.Message)" }
+}
+
 # As ultimas linhas nao vazias de um log, numa linha so (para a mensagem na tela).
 function Ultimas-Linhas($arquivo, $n) {
   try {
@@ -1287,10 +1319,22 @@ const { Client } = require('pg');
 }
 
 # ---- 4) confiar o ca.pem NESTA maquina ----
+# Sem as "Regem Edge CA" ANTIGAS deste servidor (ERR-307): todas tinham o mesmo nome e o mesmo numero de serie (01), e
+# o Windows usava a errada - o icone do servidor recusava o certificado certo. So no servidor: num PC cliente (que pode
+# ser de um tecnico, com varias lojas) nao se mexe. E confere DE VERDADE se o Windows confia, avisando o dono se nao.
 $ca = Join-Path $certDir "ca.pem"
 if (Test-Path $ca) {
-  try { Import-Certificate -FilePath $ca -CertStoreLocation Cert:\LocalMachine\Root | Out-Null; Diga "ca.pem confiado nesta maquina." }
-  catch { Diga "AVISO: nao consegui confiar o ca.pem automaticamente: $($_.Exception.Message)" }
+  try {
+    $tiradas = Confiar-CaDaLoja $ca (New-Object Security.Cryptography.X509Certificates.X509Store('Root', 'LocalMachine'))
+    if ($tiradas) { Diga ("  {0} CA(s) 'Regem Edge CA' antiga(s) tirada(s) do Windows deste computador." -f $tiradas) }
+    Diga "ca.pem confiado nesta maquina."
+  } catch { Diga "AVISO: nao consegui confiar o ca.pem automaticamente: $($_.Exception.Message)" }
+  $semConfianca = Motivo-SemConfianca $certDir
+  if ($semConfianca) {
+    Diga "AVISO: $semConfianca"
+    Avisar-Dono ("O Windows deste servidor nao confia no certificado do sistema ($semConfianca). Os outros PCs da loja " +
+      "seguem funcionando; o navegador DESTE computador pode mostrar 'conexao nao segura'. Mande esta mensagem ao suporte do Regem.")
+  } else { Diga "  O Windows deste computador confia no certificado do sistema." }
 }
 
 # ---- 5) health-check ----
