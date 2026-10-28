@@ -259,4 +259,106 @@ descrever('saldo de cashback e pontos de fidelidade vêm do extrato', () => {
     );
     expect(Number(estornado.rows[0].pontos)).toBe(0);
   }, 60000);
+
+  // PRÊMIO APAGADO (mig 341, ERR-315). Cancelar o pedido que COMPLETOU a meta apaga o prêmio
+  // que ele gerou e estorna o ponto. Do lado que recebe pelo sync, as duas mudanças chegam
+  // separadas e em qualquer ordem. Se o ponto estornado chega antes, a conta sai com o prêmio
+  // ainda lá (2 − 3 → 0); quando a exclusão do prêmio chega, os 2 pontos têm de voltar. Antes
+  // o gatilho só olhava o prêmio NOVO e o cliente ficava com 0 naquele lado para sempre.
+  const pontosDe = async (plano: string, telefone: string) => {
+    const r = await pool.query(
+      'select pontos from fidelidade_cliente where plano_id = $1 and telefone = $2',
+      [plano, telefone],
+    );
+    return r.rows.length ? Number(r.rows[0].pontos) : null;
+  };
+  const comoSync = async (texto: string, params: unknown[]) => {
+    const c = await pool.connect();
+    try {
+      await c.query('begin');
+      await c.query(`select set_config('regem.sync', 'on', true)`);
+      await c.query(texto, params);
+      await c.query('commit');
+    } catch (e) {
+      await c.query('rollback');
+      throw e;
+    } finally {
+      c.release();
+    }
+  };
+  const cartelaCheia = async (nome: string, telefone: string) => {
+    const p = await pool.query(
+      `insert into fidelidade_plano (tenant_id, nome, pontos_meta) values ($1, $2, 3) returning id`,
+      [tenant, nome],
+    );
+    const plano: string = p.rows[0].id;
+    const pontos: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const r = await pool.query(
+        `insert into fidelidade_ponto (tenant_id, plano_id, telefone, pedido_id)
+         values ($1, $2, $3, gen_random_uuid()) returning id`,
+        [tenant, plano, telefone],
+      );
+      pontos.push(r.rows[0].id);
+    }
+    const premio = await pool.query(
+      `insert into fidelidade_resgate (tenant_id, plano_id, telefone, status)
+       values ($1, $2, $3, 'disponivel') returning id`,
+      [tenant, plano, telefone],
+    );
+    return { plano, pontos, premio: premio.rows[0].id as string };
+  };
+
+  it('prêmio apagado pelo sync DEPOIS do ponto estornado devolve os pontos (era 0 para sempre)', async () => {
+    const tel6 = '21999990006';
+    const { plano, pontos, premio } = await cartelaCheia('Estorno pelo sync', tel6);
+    expect(await pontosDe(plano, tel6)).toBe(0);
+
+    await comoSync('update fidelidade_ponto set estornado = true where id = $1', [pontos[2]]);
+    expect(await pontosDe(plano, tel6)).toBe(0); // o prêmio ainda está lá: 2 − 3 não fica negativo
+
+    await comoSync('delete from fidelidade_resgate where id = $1', [premio]);
+    expect(await pontosDe(plano, tel6)).toBe(2);
+  }, 60000);
+
+  it('prêmio apagado fora do sync também recalcula, e apagar o plano com prêmio não quebra', async () => {
+    const tel7 = '21999990007';
+    const { plano, premio } = await cartelaCheia('Prêmio removido', tel7);
+    await pool.query('delete from fidelidade_resgate where id = $1', [premio]);
+    expect(await pontosDe(plano, tel7)).toBe(3);
+
+    // Exclusão em cascata: o prêmio sai junto com o plano, e o recálculo (que agora roda no
+    // DELETE) sai cedo em vez de mexer no saldo de um plano que está sumindo.
+    await pool.query(
+      `insert into fidelidade_resgate (tenant_id, plano_id, telefone, status) values ($1, $2, $3, 'disponivel')`,
+      [tenant, plano, tel7],
+    );
+    await expect(pool.query('delete from fidelidade_plano where id = $1', [plano])).resolves.toBeDefined();
+    const sobrou = await pool.query('select count(*)::int as n from fidelidade_resgate where plano_id = $1', [plano]);
+    expect(sobrou.rows[0].n).toBe(0);
+  }, 60000);
+
+  // O arquivo REAL da mig 341 roda de novo sem erro (vai pelo MCP, LIC-171) e deixa um
+  // gatilho só, que continua valendo para o prêmio apagado.
+  it('a mig 341 pode rodar de novo e o gatilho continua um só', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const arquivo = readFileSync(
+      join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '341_fidelidade_pontos_quando_o_premio_sai.sql'),
+      'utf8',
+    );
+    expect(arquivo).not.toMatch(/\bdrop\b|\btruncate\b|^\s*delete\b/im); // LIC-171
+    await pool.query(arquivo);
+    await pool.query(arquivo);
+    const g = await pool.query(
+      `select count(*)::int as n from pg_trigger
+        where tgrelid = 'fidelidade_resgate'::regclass and tgname = 'trg_fidelidade_pontos_resgate'`,
+    );
+    expect(g.rows[0].n).toBe(1);
+
+    const tel8 = '21999990008';
+    const { plano, premio } = await cartelaCheia('Depois de rodar de novo', tel8);
+    await comoSync('delete from fidelidade_resgate where id = $1', [premio]);
+    expect(await pontosDe(plano, tel8)).toBe(3);
+  }, 60000);
 });

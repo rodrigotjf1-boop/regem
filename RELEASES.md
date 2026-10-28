@@ -69,10 +69,15 @@
   perdeu desmarca-se; só o marcado sai do estoque, pela ficha técnica, como DESPERDÍCIO (aparece em Estoque ›
   Desperdício, motivo "Cancelamento"; antes a perda saía como venda e nunca aparecia lá). O pedido que o canal, o cliente
   ou o sistema cancelou ganha o "Registrar perda" no detalhe (no painel, pelo "Cancelados N" do rodapé). Sem migration.
-- **Perda parcial no cancelamento do balcão (pedido do dono de 28/10; PR desta entrega) — vai no `.zip`:** em "Cupons"
+- **Perda parcial no cancelamento do balcão (pedido do dono de 28/10; #749) — vai no `.zip`:** em "Cupons"
   e no "Buscar / cancelar cupom" do PDV, o cancelamento pergunta o que aconteceu com o que já foi feito (reutilizado ou
   perda — antes não perguntava e tudo voltava ao estoque); na perda, a mesma lista dos itens: a venda volta ao estoque e
   só o marcado sai, como desperdício. Sem migration.
+- **Pontos de fidelidade quando um prêmio é apagado (ERR-315; mig 341, PR desta entrega) — vai no `.zip` (a
+  migration):** o recálculo dos pontos passa a rodar também quando um prêmio é apagado. Antes, no lado que recebia pelo
+  sync o estorno de um pedido que tinha completado a meta, o cliente podia ficar com 0 pontos até o próximo pedido. A
+  nuvem recebe a 341 antes do merge; o servidor da loja, no `.zip` (o pacote leva as migrations até a 341). Nenhum saldo a
+  corrigir (na nuvem, 28/10: nenhum cliente com pontos nem prêmio).
 
 ## Última release: `1.30.11` — gerada em 25/10/2026 da `origin/main` `0356f58b`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 94.119.254 bytes, SHA-256 `e4ee92e5b8d3e0b3d0408f22c8eb0248d215ede4d41b99dc036e97cf02edbba1`) e entregue ao dono para reinstalar **SÓ o servidor**; **sem `.zip`** e nada publicado no console
 
