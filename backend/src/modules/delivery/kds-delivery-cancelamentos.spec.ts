@@ -7,6 +7,8 @@ import { FiscalService } from '../fiscal/fiscal.service';
 import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
 import { VendasService } from '../vendas/vendas.service';
 import { DeliveryService } from './delivery.service';
+import { SO_INGREDIENTES } from '../../common/embalagem-da-ficha';
+import { DesperdicioService } from '../desperdicio/desperdicio.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -20,6 +22,8 @@ import { DeliveryService } from './delivery.service';
 //  149 · cancelar só o card (fila de produção do PDV) deixava o delivery "confirmado" para sempre.
 //  150 · "Voltar" um cancelado reabria o pedido sem cozinha e sem venda.
 //  151 · cancelar com PERDA em produção não baixava nada e a resposta dizia "registrados como perda".
+//  Perda parcial (dono, 28/10/2026): só os itens marcados saem, como DESPERDÍCIO (não venda), e o pedido que o canal
+//  cancelou ganha o "Registrar perda" depois.
 
 const URL_PG = process.env.TEST_PG_URL;
 const descrever = URL_PG ? describe : describe.skip;
@@ -79,7 +83,7 @@ descrever('KDS × delivery: cancelamentos, pronto parcial, voltar e perda (Postg
     if (edgeOriginal !== undefined) process.env.EDGE_MODE = edgeOriginal;
     if (empresas.length) {
       // movimento_lote e as tabelas-filhas saem pela cascata; a ordem abaixo respeita as referências
-      for (const t of ['pedido_envio', 'pedido_notificacao', 'impressao_job', 'producao_pedido', 'pedido_externo', 'lancamento_caixa', 'movimento_estoque', 'comanda', 'produto', 'ficha_ingrediente', 'ficha_tecnica', 'item_estoque', 'colaborador', 'funcao', 'unidade'])
+      for (const t of ['pedido_envio', 'pedido_notificacao', 'impressao_job', 'producao_pedido', 'pedido_externo', 'lancamento_caixa', 'movimento_estoque', 'desperdicio', 'comanda', 'produto', 'ficha_ingrediente', 'ficha_tecnica', 'item_estoque', 'colaborador', 'funcao', 'unidade'])
         await pool.query(`delete from ${t} where tenant_id = any($1::uuid[])`, [empresas]).catch(() => {});
       await pool.query('delete from empresa where id = any($1::uuid[])', [empresas]).catch(() => {});
     }
@@ -120,7 +124,7 @@ descrever('KDS × delivery: cancelamentos, pronto parcial, voltar e perda (Postg
     return { t, u, item, emb, produtoId, extraId, gestor };
   }
   type Loja = Awaited<ReturnType<typeof loja>>;
-  type Opcoes = { canal?: string; tipo?: string; codigo?: string; descricao?: string };
+  type Opcoes = { canal?: string; tipo?: string; codigo?: string; descricao?: string; itens?: { codigo: string; descricao: string; quantidade: number }[] };
 
   /** Pedido que chegou do canal, ainda não aceito. */
   async function chegou(l: Loja, o: Opcoes = {}) {
@@ -131,7 +135,9 @@ descrever('KDS × delivery: cancelamentos, pronto parcial, voltar e perda (Postg
          tipo, itens, total, forma_pagamento, status, pago)
        values ($1,$2,$3,$4,$5,'Cliente de teste','5500000000000',$6,$7::jsonb,'20.00','online','novo',true) returning id`,
       [l.t, l.u, o.canal ?? 'ifood', externalId, String(senha), o.tipo ?? 'delivery',
-       JSON.stringify([{ codigo: o.codigo ?? 'XT1', descricao: o.descricao ?? 'Lanche de teste', quantidade: 1, precoUnitario: 20 }])],
+       JSON.stringify(
+         (o.itens ?? [{ codigo: o.codigo ?? 'XT1', descricao: o.descricao ?? 'Lanche de teste', quantidade: 1 }]).map((it) => ({ ...it, precoUnitario: 20 })),
+       )],
     );
     return { id: p.id as string, externalId, canal: o.canal ?? 'ifood' };
   }
@@ -158,8 +164,20 @@ descrever('KDS × delivery: cancelamentos, pronto parcial, voltar e perda (Postg
   const saldo = (l: Loja) => saldoDe(l, l.item);
   const cancelouNaCozinha = () => emitidos.filter((e) => e.nome === 'producao.evento' && e.dado?.tipo === 'cancelado').length;
   const avancarCard = (l: Loja, cardId: string) => producao.avancar(l.t, l.gestor, cardId);
-  const cancelarNoPainel = (l: Loja, id: string, reaproveitado: boolean) =>
-    delivery.cancelar(l.t, l.gestor, 'gerente', id, 'Cliente desistiu', SENHA_GESTOR, reaproveitado) as Promise<any>;
+  const cancelarNoPainel = (l: Loja, id: string, reaproveitado: boolean, perdaItens: any[] | null = null) =>
+    delivery.cancelar(l.t, l.gestor, 'gerente', id, 'Cliente desistiu', SENHA_GESTOR, reaproveitado, null, perdaItens) as Promise<any>;
+  /** Os itens da venda (o id que a tela da perda manda), pela ordem em que entraram. */
+  const itensDaVenda = (comandaId: string) =>
+    q(`select id, descricao, quantidade::float as quantidade from comanda_item where comanda_id = $1 order by descricao`, [comandaId]);
+  /** O que a perda deixou em Estoque › Desperdício, e os movimentos de cada linha. */
+  const desperdicios = (l: Loja) =>
+    q(
+      `select d.descricao, d.motivo, d.quantidade::float as quantidade, d.custo_unitario::float as custo,
+              (select coalesce(json_agg(json_build_object('motivo', m.motivo, 'item', m.item_id, 'q', m.quantidade::float) order by m.item_id), '[]'::json)
+                 from movimento_estoque m where m.ref_tipo = 'desperdicio' and m.ref_id = d.id) as movs
+         from desperdicio d where d.tenant_id = $1 order by d.descricao`,
+      [l.t],
+    );
 
   // ══════════════════════════════════════════════════════════════════════════════════════════
   describe('ERR-147 · o canal cancela: a cozinha para e a venda é desfeita', () => {
@@ -396,15 +414,28 @@ descrever('KDS × delivery: cancelamentos, pronto parcial, voltar e perda (Postg
 
   // ══════════════════════════════════════════════════════════════════════════════════════════
   describe('ERR-151 · cancelar com PERDA baixa o estoque — e a resposta diz o que aconteceu', () => {
-    it('PERDA com a cozinha já em preparo: o insumo sai do estoque e fica como perda', async () => {
+    const UM_ITEM = '1 item lançado como PERDA em Estoque › Desperdício: os insumos saíram do estoque.';
+
+    it('PERDA com a cozinha já em preparo: o insumo sai do estoque como DESPERDÍCIO (não como venda)', async () => {
       const l = await loja();
       const p = await aceito(l);
       await avancarCard(l, p.card); // em preparo
       const r = await cancelarNoPainel(l, p.id, false);
-      expect(r.estoqueAviso).toBe('Os insumos deste pedido foram baixados do estoque como PERDA.');
+      expect(r.estoqueAviso).toBe(UM_ITEM);
+      expect(r.perda).toEqual({ itens: 1, custo: 2 });
       expect(await saldo(l)).toBe(99);
-      expect(await q(`select tipo, quantidade::float as quantidade, ref_tipo from movimento_estoque where tenant_id = $1 and ref_id = $2`, [l.t, p.comandaId])).toEqual([{ tipo: 'saida', quantidade: 1, ref_tipo: 'venda' }]);
-      expect(await comanda(p.comandaId)).toMatchObject({ status: 'cancelada', estoque_reaproveitado: false });
+      // Antes a perda saía como VENDA da comanda (o CMV contava como vendido e Desperdício não via nada).
+      expect(await q(`select 1 from movimento_estoque where tenant_id = $1 and ref_id = $2`, [l.t, p.comandaId])).toEqual([]);
+      expect(await desperdicios(l)).toEqual([
+        {
+          descricao: expect.stringMatching(/^Cancelamento · Pedido #\d+ · 1× Lanche de teste$/),
+          motivo: 'Cancelamento',
+          quantidade: 1,
+          custo: 2,
+          movs: [{ motivo: 'desperdicio', item: l.item, q: 1 }],
+        },
+      ]);
+      expect(await comanda(p.comandaId)).toMatchObject({ status: 'cancelada' });
       expect(await pedido(p.id)).toMatchObject({ status: 'cancelado', estoque_reaproveitado: false });
       expect((await lancamentos(p.comandaId)).filter((x) => x.categoria === 'estorno')).toHaveLength(1); // a venda é estornada do mesmo jeito
     });
@@ -414,8 +445,57 @@ descrever('KDS × delivery: cancelamentos, pronto parcial, voltar e perda (Postg
       const p = await aceito(l);
       await q(`update pedido_externo set status = 'despachado' where id = $1`, [p.id]); // card ainda "recebido": vale o pedido
       const r = await cancelarNoPainel(l, p.id, false);
-      expect(r.estoqueAviso).toBe('Os insumos deste pedido foram baixados do estoque como PERDA.');
+      expect(r.estoqueAviso).toBe(UM_ITEM);
       expect(await saldo(l)).toBe(99);
+    });
+
+    it('PERDA PARCIAL: só os itens marcados saem — e na quantidade marcada', async () => {
+      const l = await loja();
+      const p = await aceito(l, {
+        itens: [
+          { codigo: 'XT1', descricao: 'Lanche de teste', quantidade: 2 },
+          { codigo: 'XT2', descricao: 'Porção de teste', quantidade: 1 },
+        ],
+      });
+      await avancarCard(l, p.card);
+      const [lanche, porcao] = await itensDaVenda(p.comandaId);
+      expect([lanche.descricao, porcao.descricao]).toEqual(['Lanche de teste', 'Porção de teste']);
+      // A porção não se perdeu (desmarcada) e só 1 dos 2 lanches.
+      const r = await cancelarNoPainel(l, p.id, false, [{ comandaItemId: lanche.id, quantidade: 1 }]);
+      expect(r.estoqueAviso).toBe(UM_ITEM);
+      expect(await saldo(l)).toBe(99); // 1 pão, não 3
+      expect(await desperdicios(l)).toEqual([expect.objectContaining({ descricao: expect.stringMatching(/ · 1× Lanche de teste$/), quantidade: 1 })]);
+      // Em Estoque › Desperdício a linha diz que baixou do estoque (sem `item_id`: quem diz é o movimento dela).
+      const lista: any[] = await new DesperdicioService(db).findAll({ tenantId: l.t, categoria: 'gerente' } as any);
+      expect(lista).toEqual([expect.objectContaining({ motivo: 'Cancelamento', itemId: null, baixouEstoque: true })]);
+      // Registrar de novo não registra duas vezes (o id da perda é tirado do item).
+      await vendas.registrarPerda(l.t, p.comandaId, [{ comandaItemId: lanche.id, quantidade: 1 }], { venda: SO_INGREDIENTES, atorId: null, rotulo: 'x' });
+      expect(await saldo(l)).toBe(99);
+      expect(await desperdicios(l)).toHaveLength(1);
+    });
+
+    it('PERDA com nenhum item marcado: o estoque não muda — e item que não é do pedido = 400, sem cancelar nada', async () => {
+      const l = await loja();
+      const p = await aceito(l);
+      await avancarCard(l, p.card);
+      await expect(cancelarNoPainel(l, p.id, false, [{ comandaItemId: randomUUID() }])).rejects.toThrow(/não é desta venda/);
+      expect(await pedido(p.id)).toMatchObject({ status: 'confirmado' }); // nada mudou: a lista é conferida antes
+      expect(await comanda(p.comandaId)).toMatchObject({ status: 'fechada' });
+      const r = await cancelarNoPainel(l, p.id, false, []);
+      expect(r.estoqueAviso).toBe('Nenhum item marcado como perdido: o estoque não mudou.');
+      expect(await saldo(l)).toBe(100);
+      expect(await desperdicios(l)).toEqual([]);
+    });
+
+    it('PERDA do pedido concluído que voltou: a venda volta ao estoque e só o perdido sai, como desperdício', async () => {
+      const l = await loja();
+      const p = await aceito(l);
+      await vendas.baixarEstoqueExterno(l.t, p.comandaId); // a baixa da conclusão (como venda)
+      await q(`update pedido_externo set status = 'despachado' where id = $1`, [p.id]); // "Voltar" do concluído
+      const [lanche] = await itensDaVenda(p.comandaId);
+      await cancelarNoPainel(l, p.id, false, [{ comandaItemId: lanche.id }]);
+      expect(await saldo(l)).toBe(99); // não 98: a saída de venda voltou, a de desperdício entrou
+      expect(await desperdicios(l)).toHaveLength(1);
     });
 
     it('PERDA com a cozinha sem ter começado: nada é baixado, e a resposta diz isso', async () => {
@@ -432,7 +512,7 @@ descrever('KDS × delivery: cancelamentos, pronto parcial, voltar e perda (Postg
       const p = await aceito(l);
       await q(`delete from producao_pedido where comanda_id = $1`, [p.comandaId]);
       const r = await cancelarNoPainel(l, p.id, false);
-      expect(r.estoqueAviso).toBe('Os insumos deste pedido foram baixados do estoque como PERDA.');
+      expect(r.estoqueAviso).toBe(UM_ITEM);
       expect(await saldo(l)).toBe(99);
     });
 
@@ -477,6 +557,60 @@ descrever('KDS × delivery: cancelamentos, pronto parcial, voltar e perda (Postg
       const r = await cancelarNoPainel(l, p.id, false);
       expect(r.estoqueAviso).toBeNull();
       expect(await saldo(l)).toBe(100);
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════════════════════
+  // Dono, 28/10/2026: quando quem cancela não é a loja (o canal, o cliente, o sistema), ninguém diz na hora o que se perdeu.
+  describe('"Registrar perda" depois do cancelamento que não foi da loja', () => {
+    it('o canal cancelou: a loja marca o que se perdeu e sai do estoque como desperdício — uma vez só', async () => {
+      const l = await loja();
+      const p = await aceito(l);
+      await avancarCard(l, p.card);
+      await delivery.refletirStatusExterno(l.t, 'ifood', p.externalId, 'cancelado');
+      expect(await pedido(p.id)).toMatchObject({ status: 'cancelado', estoque_reaproveitado: null }); // ninguém decidiu
+      expect(await saldo(l)).toBe(100);
+      const [lanche] = await itensDaVenda(p.comandaId);
+
+      await expect(delivery.registrarPerdaDepois(l.t, l.gestor, 'gerente', p.id, [{ comandaItemId: lanche.id }], 'errada')).rejects.toThrow(/Senha de gestor inválida/);
+      expect(await pedido(p.id)).toMatchObject({ estoque_reaproveitado: null }); // a senha errada não decide nada
+
+      // Com a auditoria, como no sistema (o `delivery` desta spec nasce sem ela).
+      const comAuditoria = new DeliveryService(
+        db, vendas, producao, beneficio('cashback'), beneficio('fidelidade'), eventos, { flashPedidos: () => undefined } as any,
+        undefined, undefined, undefined, undefined, undefined, undefined, auditoria,
+      );
+      const r: any = await comAuditoria.registrarPerdaDepois(l.t, l.gestor, 'gerente', p.id, [{ comandaItemId: lanche.id }], SENHA_GESTOR);
+      expect(r).toMatchObject({ ok: true, itens: 1, custo: 2, aviso: '1 item lançado como PERDA em Estoque › Desperdício.' });
+      expect(await saldo(l)).toBe(99);
+      expect(await pedido(p.id)).toMatchObject({ estoque_reaproveitado: false });
+      expect(await desperdicios(l)).toHaveLength(1);
+      expect(auditado).toEqual(expect.arrayContaining([expect.objectContaining({ acao: 'registrou_perda_do_cancelado', entidadeId: p.id })]));
+      // De novo: já decidido.
+      await expect(delivery.registrarPerdaDepois(l.t, l.gestor, 'gerente', p.id, [{ comandaItemId: lanche.id }], SENHA_GESTOR)).rejects.toThrow(/já foi decidido/);
+      expect(await saldo(l)).toBe(99);
+    });
+
+    it('duas telas registram juntas: entra uma; a outra ouve que já foi registrada', async () => {
+      const l = await loja();
+      const p = await aceito(l);
+      await delivery.refletirStatusExterno(l.t, 'ifood', p.externalId, 'cancelado');
+      const [lanche] = await itensDaVenda(p.comandaId);
+      const rs = await Promise.allSettled([1, 2].map(() => delivery.registrarPerdaDepois(l.t, l.gestor, 'gerente', p.id, [{ comandaItemId: lanche.id }], SENHA_GESTOR)));
+      expect(rs.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
+      expect(String((rs.find((x) => x.status === 'rejected') as any).reason?.message)).toMatch(/acabou de ser registrada|já foi decidido/);
+      expect(await saldo(l)).toBe(99);
+    });
+
+    it('só pedido cancelado, com venda e sem decisão: o cancelado no painel já decidiu', async () => {
+      const l = await loja();
+      const ativo = await aceito(l);
+      await expect(delivery.registrarPerdaDepois(l.t, l.gestor, 'gerente', ativo.id, [], SENHA_GESTOR)).rejects.toThrow(/Só pedido cancelado/);
+      await cancelarNoPainel(l, ativo.id, true);
+      await expect(delivery.registrarPerdaDepois(l.t, l.gestor, 'gerente', ativo.id, [], SENHA_GESTOR)).rejects.toThrow(/já foi decidido/);
+      const semVenda = await chegou(l);
+      await delivery.refletirStatusExterno(l.t, 'ifood', semVenda.externalId, 'cancelado');
+      await expect(delivery.registrarPerdaDepois(l.t, l.gestor, 'gerente', semVenda.id, [], SENHA_GESTOR)).rejects.toThrow(/não chegou a virar venda/);
     });
   });
 });

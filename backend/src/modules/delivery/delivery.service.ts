@@ -65,7 +65,9 @@ import { perfilEfetivo, listarPerfis, CAMPOS_CATALOGO, type PerfilCupom } from '
 import { dadosDaViaDoDelivery } from './via-do-delivery';
 import { pedidoNoCanal, tipoDoPedido } from '../../common/via-do-pedido';
 import { AuditoriaService } from '../auditoria/auditoria.service';
-import { VendasService } from '../vendas/vendas.service';
+import { type ItemDaPerda, VendasService } from '../vendas/vendas.service';
+import { PEDIDO_EXTERNO, SO_INGREDIENTES } from '../../common/embalagem-da-ficha';
+import { lerItensDaPerda } from '../vendas/itens-da-perda';
 import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
 import { CashbackService } from '../cashback/cashback.service';
 import { FidelidadeService } from '../fidelidade/fidelidade.service';
@@ -2262,6 +2264,7 @@ export class DeliveryService {
     senha?: string,
     reaproveitado = true,
     terminalId: string | null = null, // o PC que cancelou: o comprovante sai na impressora dele
+    perdaItens: ItemDaPerda[] | null = null, // na perda: os itens marcados (sem a lista, vale o pedido inteiro)
   ) {
     const ped = await this.carregar(tenantId, id);
     if (ped.status === 'cancelado')
@@ -2270,40 +2273,42 @@ export class DeliveryService {
       throw new BadRequestException('Pedido concluído não pode ser cancelado.');
     // Trava: exige senha de um gestor com autoridade para cancelar.
     const autorizou = await this.autorizarPorSenha(tenantId, senha);
-    // O que aconteceu com o estoque — dito ao operador pelo que foi FEITO, não pelo que se supõe:
-    // 'devolvido' (a baixa existia e voltou), 'perda' (ficou baixado), 'nada' (nada tinha saído).
-    let estoque: 'devolvido' | 'perda' | 'nada' | 'nao_iniciado' | 'perda_falhou' = 'nada';
+    // O que aconteceu com o estoque — dito ao operador pelo que foi FEITO, não pelo que se supõe.
+    let estoque: 'devolvido' | 'perda' | 'perda_nenhum' | 'nada' | 'nao_iniciado' | 'perda_falhou' = 'nada';
+    let perda: { itens: number; custo: number } | null = null;
     if (ped.comandaId) {
-      // PERDA com a cozinha já em produção: o insumo foi gasto, mas no delivery a baixa só
-      // acontece na conclusão — sem isto "perda" e "reaproveitado" davam no mesmo (nada saía) e a
-      // resposta ainda dizia "registrados como perda". Baixa o consumo da venda agora (a mesma
-      // conta da conclusão, idempotente); o estorno abaixo, com reaproveitado = false, mantém.
-      // A embalagem (custo só de delivery) entra quando o pedido já saiu da cozinha — pronto ou
-      // em rota; ainda em preparo, perdeu-se o insumo da receita, não a embalagem.
+      // PERDA PARCIAL (pedido do dono, 28/10/2026): a tela manda os itens que se perderam; só eles saem do estoque,
+      // pela ficha técnica, como DESPERDÍCIO (aparecem em Estoque › Desperdício; o CMV conta como perda, não venda).
+      // Sem a lista (tela antiga), vale o de antes: o pedido inteiro, se a cozinha já tinha começado. A embalagem
+      // (custo só de delivery) entra quando o pedido já saiu da cozinha — pronto ou em rota.
       const saiuDaCozinha = ['pronto', 'despachado', 'entregue'].includes(ped.status);
+      const marcados = reaproveitado ? null : perdaItens;
       const iniciada =
-        !reaproveitado && (saiuDaCozinha || (await this.producao.producaoIniciada(tenantId, ped.comandaId)));
-      let baixaFalhou = false;
-      if (iniciada)
-        // O estoque não segura o cancelamento (como não segura a conclusão) — mas o motivo fica
-        // no log e o operador é avisado de que a perda NÃO foi lançada.
-        await this.vendas.baixarEstoqueExterno(tenantId, ped.comandaId, saiuDaCozinha).catch((e) => {
-          baixaFalhou = true;
-          this.logger.error(
-            `baixa da PERDA FALHOU no cancelamento do pedido ${ped.id} (comanda ${ped.comandaId}): ${e?.message ?? e}`,
-          );
-        });
-      const r = await this.vendas.estornarVendaExterna(
-        tenantId,
-        atorId,
-        atorPerfil,
-        ped.comandaId,
-        motivo,
-        reaproveitado,
-      );
-      if (r.saidasDaVenda > 0) estoque = reaproveitado ? 'devolvido' : 'perda';
-      else if (baixaFalhou) estoque = 'perda_falhou';
-      else if (!reaproveitado && !iniciada) estoque = 'nao_iniciado';
+        !reaproveitado &&
+        (marcados != null || saiuDaCozinha || (await this.producao.producaoIniciada(tenantId, ped.comandaId)));
+      // A lista é conferida ANTES de desfazer a venda: item que não é do pedido = 400, e nada muda.
+      if (marcados) await this.vendas.conferirItensDaPerda(tenantId, ped.comandaId, marcados);
+      // A venda é desfeita por inteiro (o que tinha saído como venda volta — o pedido concluído que voltou); a perda
+      // entra à parte, abaixo. Antes a perda ficava como saída de VENDA e nunca aparecia em Desperdício.
+      const r = await this.vendas.estornarVendaExterna(tenantId, atorId, atorPerfil, ped.comandaId, motivo, true);
+      if (reaproveitado) {
+        estoque = r.saidasDaVenda > 0 ? 'devolvido' : 'nada';
+      } else if (!iniciada) {
+        estoque = 'nao_iniciado';
+      } else {
+        try {
+          perda = await this.vendas.registrarPerda(tenantId, ped.comandaId, marcados ?? 'todos', {
+            venda: saiuDaCozinha ? PEDIDO_EXTERNO : SO_INGREDIENTES,
+            atorId,
+            rotulo: `Pedido #${ped.numero ?? ped.displayId ?? ''}`,
+          });
+          estoque = perda.itens > 0 ? 'perda' : 'perda_nenhum';
+        } catch (e: any) {
+          // O estoque não segura o cancelamento — mas o motivo fica no log e o operador é avisado.
+          this.logger.error(`PERDA não lançada no cancelamento do pedido ${ped.id} (comanda ${ped.comandaId}): ${e?.message ?? e}`);
+          estoque = 'perda_falhou';
+        }
+      }
     }
     // Pedido do TOTEM: o dinheiro do cartão/PIX quem devolve é o GoGeM — o aviso nasce na MESMA
     // transação do cancelamento do pedido. No dinheiro também vai: o GoGeM mantém o relatório
@@ -2370,13 +2375,78 @@ export class DeliveryService {
         : estoque === 'devolvido'
           ? 'Os insumos deste pedido foram devolvidos ao estoque (reutilizados).'
           : estoque === 'perda'
-            ? 'Os insumos deste pedido foram baixados do estoque como PERDA.'
-            : estoque === 'nao_iniciado'
-              ? 'A cozinha ainda não tinha começado este pedido: nada foi baixado do estoque.'
-              : estoque === 'perda_falhou'
-                ? 'Não foi possível baixar os insumos como perda: o estoque não mudou. Lance a perda em Estoque → Desperdício.'
-                : 'Nenhum insumo tinha saído do estoque por este pedido: o estoque não mudou.',
+            ? `${perda!.itens === 1 ? '1 item lançado' : `${perda!.itens} itens lançados`} como PERDA em Estoque › Desperdício: os insumos saíram do estoque.`
+            : estoque === 'perda_nenhum'
+              ? 'Nenhum item marcado como perdido: o estoque não mudou.'
+              : estoque === 'nao_iniciado'
+                ? 'A cozinha ainda não tinha começado este pedido: nada foi baixado do estoque.'
+                : estoque === 'perda_falhou'
+                  ? 'Não foi possível lançar a perda: o estoque não mudou. Lance a perda em Estoque › Desperdício.'
+                  : 'Nenhum insumo tinha saído do estoque por este pedido: o estoque não mudou.',
+      ...(perda ? { perda } : {}),
       ...(estornoGogem ? { estornoGogem } : {}),
+    };
+  }
+
+  /**
+   * "REGISTRAR PERDA" DEPOIS (pedido do dono, 28/10/2026): o pedido que o canal, o cliente ou o sistema cancelou não teve
+   * quem dissesse, na hora, o que se perdeu. A loja marca agora os itens perdidos (a mesma lista do cancelamento) e eles
+   * saem do estoque como desperdício, pela ficha técnica. Só pedido CANCELADO, com venda, e cuja perda ainda não foi
+   * decidida (`estoque_reaproveitado` nulo — o cancelamento do painel e da Retirada sempre decide). A gravação é
+   * condicional (V43): duas telas juntas registram uma vez só; a segunda ouve 409. Senha de gestor, como o cancelamento.
+   */
+  async registrarPerdaDepois(tenantId: string, atorId: string, atorPerfil: string, id: string, itens: unknown, senha?: string) {
+    const ped = await this.carregar(tenantId, id);
+    if (ped.status !== 'cancelado') throw new BadRequestException('Só pedido cancelado tem perda a registrar.');
+    if (!ped.comandaId) throw new BadRequestException('Este pedido não chegou a virar venda: não há o que baixar do estoque.');
+    if (ped.estoqueReaproveitado != null)
+      throw new ConflictException('O destino do estoque deste pedido já foi decidido no cancelamento.');
+    const selecao = lerItensDaPerda(itens);
+    if (!selecao) throw new BadRequestException('Mande a lista dos itens que se perderam.');
+    const autorizou = await this.autorizarPorSenha(tenantId, senha);
+    const comandaId = ped.comandaId;
+    await this.vendas.conferirItensDaPerda(tenantId, comandaId, selecao);
+    const usouEmbalagem = !!(ped.prontoEm || ped.despachadoEm);
+    const r = await this.db.transaction(async (tx) => {
+      const [trava] = await tx
+        .update(pedidoExterno)
+        .set({ estoqueReaproveitado: false, updatedAt: new Date() })
+        .where(
+          and(
+            eq(pedidoExterno.id, id),
+            eq(pedidoExterno.tenantId, tenantId),
+            eq(pedidoExterno.status, 'cancelado'),
+            isNull(pedidoExterno.estoqueReaproveitado),
+          ),
+        )
+        .returning({ id: pedidoExterno.id });
+      if (!trava) throw new ConflictException('A perda deste pedido acabou de ser registrada por outra tela.');
+      return this.vendas.registrarPerdaDosItens(tx, tenantId, comandaId, selecao, {
+        venda: usouEmbalagem ? PEDIDO_EXTERNO : SO_INGREDIENTES,
+        atorId,
+        rotulo: `Pedido #${ped.numero ?? ped.displayId ?? ''}`,
+      });
+    });
+    void this.flash.flashPedidos([id]); // a decisão sobe já: a nuvem não oferece o botão de novo
+    await this.auditoria?.registrar({
+      tenantId,
+      atorId,
+      atorPerfil,
+      tipo: 'delivery',
+      acao: 'registrou_perda_do_cancelado',
+      origem: 'delivery',
+      unidadeId: ped.unidadeId ?? null,
+      entidadeTipo: 'pedido_externo',
+      entidadeId: id,
+      detalhe: { itens: r.itens, custo: r.custo, autorizadoPor: autorizou.nome },
+    });
+    return {
+      ok: true,
+      ...r,
+      aviso:
+        r.itens > 0
+          ? `${r.itens === 1 ? '1 item lançado' : `${r.itens} itens lançados`} como PERDA em Estoque › Desperdício.`
+          : 'Nenhum item marcado como perdido: o estoque não mudou.',
     };
   }
 

@@ -27,6 +27,7 @@ import { TerminalAtual } from '../../auth/terminal-atual.decorator';
 import { DeliveryService } from './delivery.service';
 import { exigirBooleano } from '../../common/exigir';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { lerItensDaPerda } from '../vendas/itens-da-perda';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const GESTOR = ['presidente', 'gerente', 'supervisao'];
@@ -425,7 +426,17 @@ export class DeliveryController {
       // false = perda. Default true (comportamento anterior).
       dto?.reaproveitado !== false,
       terminalId,
+      // Perda parcial (dono, 28/10/2026): os itens marcados como perdidos; sem a lista, o pedido inteiro.
+      lerItensDaPerda(dto?.perdaItens),
     );
+  }
+
+  // "Registrar perda" do pedido que o canal, o cliente ou o sistema cancelou (dono, 28/10/2026). Corpo: { itens, senha }.
+  @Post('pedidos/:id/perda')
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
+  registrarPerda(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    return this.service.registrarPerdaDepois(user.tenantId, user.colaboradorId, user.categoria, id, dto?.itens, dto?.senha);
   }
 
   // Novo pedido manual (delivery ou retirada) — atendente também pode lançar.

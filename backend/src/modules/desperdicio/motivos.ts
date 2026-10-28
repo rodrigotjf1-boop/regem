@@ -3,8 +3,10 @@ import { BadRequestException } from '@nestjs/common';
 // Motivos de desperdício — LISTA FECHADA (decisão do dono em 07/10/2026, pela mesma razão das
 // unidades de medida: em texto livre, "forno", "queimou" e "preparo" viram três motivos e o
 // relatório por motivo não soma nada). A tela busca a lista em `GET /desperdicios/motivos`.
-export const MOTIVOS_DESPERDICIO = ['Validade', 'Preparo', 'Queda', 'Transporte', 'Outro'] as const;
+// "Cancelamento" (28/10/2026): a perda dos itens de um pedido ou venda cancelado (`VendasService.registrarPerdaDosItens`).
+export const MOTIVOS_DESPERDICIO = ['Validade', 'Preparo', 'Queda', 'Transporte', 'Cancelamento', 'Outro'] as const;
 export type MotivoDesperdicio = (typeof MOTIVOS_DESPERDICIO)[number];
+export const MOTIVO_PERDA_CANCELAMENTO: MotivoDesperdicio = 'Cancelamento';
 
 // Outras formas de dizer o mesmo: o que o próprio sistema já gravava ("validade", da perda por
 // etiqueta) e os jeitos comuns de escrever.

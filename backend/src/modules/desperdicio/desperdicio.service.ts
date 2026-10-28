@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, eq, gte, isNull, lte, desc, getTableColumns } from 'drizzle-orm';
+import { and, eq, gte, isNull, lte, desc, getTableColumns, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { consumirLotes } from '../../common/lotes';
 import { colaborador, desperdicio, equipamento, itemEstoque, movimentoEstoque } from '../../db/schema';
@@ -169,6 +169,11 @@ export class DesperdicioService {
         // Onde e por quem (mig 251). `createdAt` é a hora do registro.
         pontoNome: equipamento.nome,
         registradoPorNome: colaborador.nome,
+        // Saiu do estoque? A perda do cancelamento baixa VÁRIOS insumos (a ficha do item) e não tem `item_id`: quem diz
+        // é o movimento de estoque da linha (`ref_tipo = 'desperdicio'`), não a coluna do insumo.
+        baixouEstoque: sql<boolean>`(${desperdicio.itemId} is not null or exists (
+          select 1 from movimento_estoque m
+           where m.tenant_id = ${desperdicio.tenantId} and m.ref_tipo = 'desperdicio' and m.ref_id = ${desperdicio.id}))`,
       })
       .from(desperdicio)
       .leftJoin(

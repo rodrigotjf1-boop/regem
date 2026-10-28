@@ -13,6 +13,7 @@ import { PedidoDetalhe } from '@/components/delivery/pedido-detalhe';
 import { SplitPagamento, montarPagamentos } from '@/components/pdv/split-pagamento';
 import { useSenhaSemSalvar } from '@/lib/use-senha-sem-salvar';
 import { avisarComprovante } from '@/lib/comprovante';
+import { ItensDaPerda, type MarcaDaPerda } from '@/components/delivery/itens-da-perda';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -594,6 +595,8 @@ function CancelarModal({
   const [senha, setSenha] = useState('');
   const campoSenha = useSenhaSemSalvar(); // o navegador não oferece guardar a senha do gestor (PC da loja)
   const [reaproveitado, setReaproveitado] = useState(true);
+  // Perda parcial (dono, 28/10/2026): os itens marcados como perdidos.
+  const [perda, setPerda] = useState<MarcaDaPerda[] | null>(null);
   const [busy, setBusy] = useState(false);
   const jaProduziu = pedido.status === 'confirmado' || pedido.status === 'pronto' || pedido.status === 'despachado';
 
@@ -601,7 +604,7 @@ function CancelarModal({
     if (!senha) return toast.error('Informe a senha de quem libera.');
     setBusy(true);
     try {
-      const r: any = await api.cancelarDelivery(pedido.id, motivo, senha, reaproveitado);
+      const r: any = await api.cancelarDelivery(pedido.id, motivo, senha, reaproveitado, reaproveitado ? null : perda);
       toast.success(r?.estoqueAviso || 'Pedido cancelado.');
       avisarEstornoGogem(r);
       avisarComprovante(r);
@@ -638,6 +641,11 @@ function CancelarModal({
               🗑️ Perda<br />(saem do estoque)
             </button>
           </div>
+          {!reaproveitado && (
+            <div className="mt-2">
+              <ItensDaPerda pedidoId={pedido.id} onChange={setPerda} />
+            </div>
+          )}
         </>
       )}
 

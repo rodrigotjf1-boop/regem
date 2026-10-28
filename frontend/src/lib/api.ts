@@ -1039,11 +1039,21 @@ export const api = {
       body: JSON.stringify(body ?? {}),
     }),
   // `reaproveitado` (mig 128): insumo já baixado voltou ao estoque (true) ou virou perda (false).
-  cancelarDelivery: (id: string, motivo?: string, senha?: string, reaproveitado?: boolean) =>
+  // `perdaItens`: na perda, os itens marcados como perdidos (perda parcial, 28/10/2026); ausente = o pedido inteiro.
+  cancelarDelivery: (
+    id: string,
+    motivo?: string,
+    senha?: string,
+    reaproveitado?: boolean,
+    perdaItens?: { comandaItemId: string; quantidade: number }[] | null,
+  ) =>
     req(`/delivery/pedidos/${id}/cancelar`, {
       method: 'POST',
-      body: JSON.stringify({ motivo, senha, reaproveitado }),
+      body: JSON.stringify({ motivo, senha, reaproveitado, ...(perdaItens ? { perdaItens } : {}) }),
     }),
+  // "Registrar perda" do pedido que o canal, o cliente ou o sistema cancelou.
+  registrarPerdaDelivery: (id: string, itens: { comandaItemId: string; quantidade: number }[], senha: string) =>
+    req(`/delivery/pedidos/${id}/perda`, { method: 'POST', body: JSON.stringify({ itens, senha }) }),
   retornarDelivery: (id: string) =>
     req(`/delivery/pedidos/${id}/retornar`, { method: 'POST', body: '{}' }),
   // "Voltar pedido" (coluna Finalizado) — exige senha de gestor.

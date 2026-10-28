@@ -755,6 +755,8 @@ export default function DeliveryPage() {
             integracoes={integracoes}
             cardapioAtivo={cardapioAtivo}
             totais={totais}
+            cancelados={(pedidos ?? []).filter((p) => p.status === 'cancelado')}
+            onAbrir={(p) => { setDetalheModo('view'); setDetalhe(p); }}
           />
         )}
       </div>
@@ -1194,13 +1196,55 @@ function PainelAcoes({ acoes, temSel, nPend, nAnd, fila, filaAviso }: { acoes: a
 }
 
 // ---- Rodapé: status por canal + totais ----
-function RodapeDelivery({ integracoes, cardapioAtivo, totais }: { integracoes: any[]; cardapioAtivo: boolean; totais: { total: number; cancelados: number; concluidos: number } }) {
+function RodapeDelivery({
+  integracoes,
+  cardapioAtivo,
+  totais,
+  cancelados,
+  onAbrir,
+}: {
+  integracoes: any[];
+  cardapioAtivo: boolean;
+  totais: { total: number; cancelados: number; concluidos: number };
+  cancelados: any[];
+  onAbrir: (p: any) => void;
+}) {
   const canais = [
     { nome: 'Cardápio Regem', on: cardapioAtivo },
     ...integracoes.filter((it) => it.canal !== 'n8n').map((it) => ({ nome: CANAL_LABEL[it.canal] ?? it.canal, on: !!it.ativo })),
   ];
+  // Os cancelados não aparecem nas colunas do painel: daqui se abre cada um (o "Registrar perda" do que o canal, o
+  // cliente ou o sistema cancelou — dono, 28/10/2026).
+  const [verCancelados, setVerCancelados] = useState(false);
+  const semPerda = cancelados.filter((p) => p.comandaId && p.estoqueReaproveitado == null).length;
   return (
     <Card className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 text-xs">
+      {verCancelados && (
+        <Dialogo titulo={`Cancelados (${cancelados.length})`} aoFechar={() => setVerCancelados(false)}>
+          <ul className="divide-y divide-border">
+            {cancelados.map((p) => {
+              const pendente = p.comandaId && p.estoqueReaproveitado == null;
+              return (
+                <li key={p.id}>
+                  <button
+                    type="button"
+                    className="flex w-full flex-wrap items-center gap-x-2 gap-y-0.5 py-2 text-left text-sm hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+                    onClick={() => {
+                      setVerCancelados(false);
+                      onAbrir(p);
+                    }}
+                  >
+                    <span className="font-mono font-bold">#{p.numero ?? '—'}</span>
+                    <span className="text-muted-foreground">{CANAL_LABEL[p.canal] ?? p.canal}{p.displayId ? ` ${p.displayId}` : ''}</span>
+                    <span className="min-w-0 flex-1 truncate">{p.clienteNome ?? 'Cliente'}</span>
+                    {pendente && <span className="rounded-full bg-warn/15 px-2 py-0.5 text-[11px] font-bold text-foreground">perda a registrar</span>}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </Dialogo>
+      )}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         {canais.map((c) => (
           <span key={c.nome} className="inline-flex items-center gap-1">
@@ -1211,7 +1255,19 @@ function RodapeDelivery({ integracoes, cardapioAtivo, totais }: { integracoes: a
       </div>
       <div className="ml-auto flex items-center gap-3 font-mono">
         <span>Total <strong>{totais.total}</strong></span>
-        <span className="text-destructive">Cancelados <strong>{totais.cancelados}</strong></span>
+        {cancelados.length > 0 ? (
+          <button
+            type="button"
+            className="rounded text-destructive underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+            onClick={() => setVerCancelados(true)}
+            title={semPerda ? `${semPerda} cancelado(s) fora da loja, com a perda a registrar` : 'Ver os pedidos cancelados'}
+          >
+            Cancelados <strong>{totais.cancelados}</strong>
+            {semPerda > 0 && <span className="ml-1 rounded-full bg-warn/15 px-1.5 font-sans font-bold text-foreground">{semPerda} perda</span>}
+          </button>
+        ) : (
+          <span className="text-destructive">Cancelados <strong>{totais.cancelados}</strong></span>
+        )}
         <span className="text-ok">Concluídos <strong>{totais.concluidos}</strong></span>
       </div>
     </Card>
