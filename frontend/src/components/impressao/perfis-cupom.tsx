@@ -44,16 +44,17 @@ const CUPOM_MOCK: Record<string, string[]> = {
   vendaBalcao: ['Venda balcao'],
   tipoPedido: ['DELIVERY'],
   operador: ['Operador: Ana'],
-  // Adicionais e itens do combo em linha própria (estilo "Complementos"); a observação no estilo dela.
-  itens: ['2x X-Burger', '   + 2x Bacon · sem Cebola', '   OBS: bem passado', '1x Combo Smash', '   - 1x Batata frita', '   - 1x Refri lata'],
+  // Adicionais e itens do combo em linha própria (estilo "Complementos"), uma escolha por linha (dono, 28/10/2026); a
+  // observação no estilo dela.
+  itens: ['2x X-Burger', '   + 2x Bacon', '   sem Cebola', '   OBS: bem passado', '1x Trio 08', '   + Batata média', '   + Coca-Cola lata', '1x Combo Smash', '   - 1x Batata frita', '   - 1x Refri lata'],
   subtotal: ['Subtotal: R$ 28,00'],
   desconto: ['Desconto: -R$ 2,00'],
   totalGeral: ['TOTAL: R$ 32,00'],
   pagamento: ['Pagamento: Dinheiro', 'Troco para R$ 50,00'],
   troco: ['Troco para R$ 50,00', 'LEVAR TROCO: R$ 18,00'],
   avisoFiscal: ['Sem valor fiscal'],
-  plataforma: ['iFood #4521'],
-  pedidoRegem: ['Pedido Regem #101'],
+  plataforma: ['iFood 4521'],
+  pedidoRegem: ['PEDIDO #101'],
   cliente: ['Joao Silva'],
   endereco: ['Rua X, 123', 'Centro - Cidade', 'Ref: perto da praca'],
   telefone: ['(11) 90000-0000'],

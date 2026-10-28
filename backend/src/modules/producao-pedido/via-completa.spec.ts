@@ -133,10 +133,11 @@ descrever('as vias do pedido: via do delivery e via de produção completa (Post
     const [via] = await jobs(comanda, 'cliente');
     expect(via.eq).toBe(l.caixa);
     const texto = via.linhas.join('\n');
-    for (const t of ['@CB Loja Fictícia', '@CB DELIVERY', '@CBD Cardápio #12', '@BD Cliente Fictício', '@BSD Rua Fictícia, 10', '@BSD Ref: portão azul',
+    for (const t of ['@CB Loja Fictícia', '@CB DELIVERY', '@CBD PEDIDO #284', '@C Cardápio 12', '@BD Cliente Fictício', '@BSD Rua Fictícia, 10', '@BSD Ref: portão azul',
       '@BD TOTAL: R$ 44,00', '@CB COBRAR R$ 44,00', '@B Troco para R$ 100,00', '@B LEVAR TROCO: R$ 56,00', 'Entrega: R$ 6,00', '@C Obrigado pela preferência'])
       expect(via.linhas).toContain(t);
-    expect(texto).toMatch(/@CBD SENHA D-\d+/);
+    // Dono, 28/10/2026: na via do caixa (vai com o entregador) o número do painel, não a senha.
+    expect(texto).not.toMatch(/SENHA/i);
     expect(texto).not.toMatch(/Venda balcao/i);
 
     const prod = await jobs(comanda, 'producao');
@@ -145,10 +146,13 @@ descrever('as vias do pedido: via do delivery e via de produção completa (Post
     const c = completa.linhas.join('\n');
     expect(completa.linhas).toEqual(
       // Os componentes do combo multiplicados pela quantidade do item (2 combos = 2 batatas).
-      expect.arrayContaining(['@CB DELIVERY', '@CBD Cardápio #12', '@CBD Cliente Fictício', '@BD 2x Burger Fictício', '@B    OBS: bem passado',
+      expect.arrayContaining(['@CB DELIVERY', '@CBD PEDIDO #284', '@C Cardápio 12', '@CBD Cliente Fictício', '@BD 2x Burger Fictício', '@B    OBS: bem passado',
         '@BD 2x Combo Fictício', '@BSD    - 2x Batata Fictícia', '@BSD    - 2x Refri Fictício', `@S ${TITULO_OUTROS_ITENS}`, '@S 1x Refri Fictício']),
     );
-    expect(c).toMatch(/@CBD SENHA D-\d+/);
+    // O número do PAINEL (284), não o da cozinha (outro contador); a senha pequena, a do cartão do KDS.
+    expect(completa.linhas.slice(0, 2)).toEqual(['@CBD PEDIDO #284', '@C Cardápio 12']);
+    expect(c).toMatch(/@CS SENHA D-\d+/);
+    expect(c).not.toMatch(/@CBD SENHA/);
     // Só o que importa: sem valores, endereço, pagamento, cabeçalho e rodapé.
     expect(c).not.toMatch(/R\$|Rua Fictícia|Dinheiro|Troco|Loja Fictícia|Obrigado/);
     expect(c).not.toContain('Molho Fictício'); // retirado do combo
@@ -173,9 +177,10 @@ descrever('as vias do pedido: via do delivery e via de produção completa (Post
     const prod = await jobs(comanda, 'producao');
     expect(prod.map((j) => j.eq)).toEqual([l.cozinha]);
     expect(prod[0].linhas.join('\n')).not.toContain('Combo Fictício'); // o combo sem setor não tem impressora
-    // A via sem perfil (loja que nunca editou) diz DELIVERY no lugar de "BALCAO" e traz o canal e o nome.
-    expect(prod[0].linhas).toEqual(expect.arrayContaining(['@B Cardápio #12', '@B Cliente Fictício']));
-    expect(prod[0].linhas.some((s) => /^DELIVERY · #\d+$/.test(s))).toBe(true);
+    // A via sem perfil (loja que nunca editou) diz DELIVERY no lugar de "BALCAO" e traz o canal e o nome; o número do
+    // painel em destaque, o do canal logo abaixo, e a senha pequena no fim do cabeçalho (dono, 28/10/2026).
+    expect(prod[0].linhas.slice(0, 6)).toEqual(['*** PRODUCAO ***', '@CBD PEDIDO #284', '@C Cardápio 12', '@B DELIVERY', '@B Cliente Fictício', expect.stringMatching(/^@S senha D-\d+$/)]);
+    expect(prod[0].linhas.join('\n')).not.toMatch(/>>> SENHA|DELIVERY · #/); // nem a senha grande nem o nº da cozinha
     expect(prod[0].linhas.join('\n')).not.toContain('BALCAO');
     // A impressora marcada que saiu de uso também não conta.
     const l2 = await loja(({ caixa }: any) => ({ producao_delivery: { impressoras: [caixa, randomUUID()] } }));
@@ -211,11 +216,13 @@ descrever('as vias do pedido: via do delivery e via de produção completa (Post
     const linhasDe = (js: any[], id: string) => js.find((j) => j.eq === id).linhas.filter((s: string) => !/\d{2}\/\d{2}\/\d{4}/.test(s)).sort();
     expect(linhasDe(depois, l.caixa)).toEqual(linhasDe(antes, l.caixa));
     expect(linhasDe(depois, l.cozinha)).toEqual(linhasDe(antes, l.cozinha));
+    // Impressa depois, pelo servidor da loja: o número do painel vem da venda, não do cartão da cozinha.
+    expect(depois.find((j) => j.eq === l.caixa)!.linhas).toContain('@CBD PEDIDO #284');
 
     const r: any = await vendas.reimprimirViasExterno(l.t, randomUUID(), comanda, null, null, null);
     expect(r.ok).toBe(true);
     const [reimpressa] = await jobs(comanda, 'cliente');
-    expect(reimpressa.linhas).toEqual(expect.arrayContaining(['@BD Cliente Fictício', '@B LEVAR TROCO: R$ 56,00', '@CBD Cardápio #12']));
+    expect(reimpressa.linhas).toEqual(expect.arrayContaining(['@BD Cliente Fictício', '@B LEVAR TROCO: R$ 56,00', '@CBD PEDIDO #284', '@C Cardápio 12']));
     expect(reimpressa.linhas.join('\n')).not.toMatch(/Venda balcao/i);
   });
 

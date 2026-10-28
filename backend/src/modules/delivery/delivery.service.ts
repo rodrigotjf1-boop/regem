@@ -1268,6 +1268,7 @@ export class DeliveryService {
       plataforma: PLAT[ped.canal] ?? ped.canal,
       senhaPlataforma: ped.displayId ?? null,
       tipoPedido: tipoDoPedido(ped), // DELIVERY/RETIRADA/ENCOMENDA na via de produção
+      pedidoNumero: ped.numero ?? null, // "PEDIDO #10" na via de produção — o número do painel
       // R6 — totem sai na série do BALCÃO e reaproveita a senha já impressa no cupom
       // do cliente. Regra em `serie-da-senha.ts` (com teste).
       ...serieDaSenha(ped.canal, ped.displayId),

@@ -131,8 +131,8 @@ descrever('comprovante do cancelamento e quem libera (Postgres real)', () => {
     expect(c.linhas).toEqual(
       expect.arrayContaining([
         '@CBD CANCELAMENTO',
-        `@CB iFood #${display}`,
-        '@C Pedido Regem #42',
+        `@CB iFood ${display}`, // o número no canal sem "#"; o "#" é do número do painel (dono, 28/10/2026)
+        '@C PEDIDO #42',
         '@B Motivo: Cliente desistiu',
         'Atendente: Atendente Teste',
         '@B Autorizado por: Supervisora Teste', // a supervisão também libera (dono, 23/10/2026)

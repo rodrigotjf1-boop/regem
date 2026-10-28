@@ -12,8 +12,8 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { and, desc, eq, inArray, isNotNull, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { PREFIXO_BALCAO, rotuloSenha } from '../../common/senha-origem';
-import { separarEscolhas, textoDasEscolhas, type Escolha } from '../../common/adicionais';
-import { pedidoNoCanal, perfilDeProducao, tipoNaProducao } from '../../common/via-do-pedido';
+import { linhasDasEscolhas, separarEscolhas, textoDasEscolhas, type Escolha } from '../../common/adicionais';
+import { linhaDoPedido, pedidoNoCanal, perfilDeProducao, tipoNaProducao } from '../../common/via-do-pedido';
 import {
   equipamento,
   produtoDestinoProducao,
@@ -86,6 +86,21 @@ export function itemNaVia(it: { descricao?: string | null; complementosTexto?: s
 } {
   if (Array.isArray(it.escolhas) && it.escolhas.length) return separarEscolhas(it.descricao, it.escolhas);
   return { descricao: String(it.descricao ?? ''), escolhas: it.complementosTexto ?? null };
+}
+
+/**
+ * O número do pedido de canal ligado a uma venda — o do painel do delivery ("PEDIDO #10"). A via de produção impressa
+ * DEPOIS do aceite (servidor da loja, etapa do KDS) não o tem no cartão; busca pela venda (índice da mig 297). Venda sem
+ * pedido de canal (balcão, mesa) = null.
+ */
+export async function numeroDoPedidoDaVenda(db: any, tenantId: string, comandaId: string): Promise<number | null> {
+  const r: any = await db.execute(sql`
+    select numero from pedido_externo
+     where tenant_id = ${tenantId} and comanda_id = ${comandaId} and numero is not null
+     order by criado_em desc
+     limit 1`);
+  const n = (r.rows ?? r)[0]?.numero;
+  return n != null ? Number(n) : null;
 }
 
 // Item da MESMA venda que sai em outro lugar: a via "pedido completo" o mostra em letra pequena, com o destino (forma da
@@ -600,6 +615,7 @@ export class ProducaoPedidoService {
       consumo?: string | null; // 'local' | 'viagem' (mig 310) — cartão da cozinha e alto da via
       cliente?: string | null; // nome do cliente (canal, totem) — só na via impressa
       tipoPedido?: string | null; // DELIVERY | RETIRADA | ENCOMENDA (pedido de canal) — só na via impressa
+      pedidoNumero?: number | string | null; // nº do pedido de canal no painel ("PEDIDO #10") — só na via impressa
     },
     itens: ItemProducao[],
     // O resto da venda (o que não vai para a produção): só a via completa o mostra. Ver `viasCompletas`.
@@ -864,6 +880,8 @@ export class ProducaoPedidoService {
       setorId: ped.setorId ?? null,
       consumo: ped.consumo ?? null,
       cliente: venda?.cliente ?? null,
+      // Pedido de canal: o número do painel ("PEDIDO #10") — aqui a venda já está ligada ao pedido.
+      pedidoNumero: await numeroDoPedidoDaVenda(this.db, tenantId, comandaId),
     };
     const numero = ped.numero ?? null;
     const db = this.db;
@@ -1076,7 +1094,9 @@ export class ProducaoPedidoService {
           nomeLoja: pp.cabecalho,
           dataHora: dataHoraNoFuso(),
           ticket: numero ? `#${numero}` : undefined,
-          pedidoRegem: numero || undefined,
+          // Pedido de canal: o número do PAINEL ("PEDIDO #10" — `pedido_externo.numero`), não o da cozinha (outro
+          // contador). Sem ele, não sai: um número diferente do painel confunde quem embala.
+          pedidoRegem: tipo ? ctx.pedidoNumero ?? undefined : numero || undefined,
           plataforma: canal,
           emitidoDe: ctx.emitidoDe ?? undefined,
           itens: its,
@@ -1089,10 +1109,21 @@ export class ProducaoPedidoService {
     const cab = ctx.mesa ? `MESA ${ctx.mesa}` : tipo ?? 'BALCAO';
     const l: string[] = ['*** PRODUCAO ***'];
     if (viagem) l.push(MARCA_VIAGEM);
-    if (ctx.senha) l.push(`>>> SENHA ${rotuloSenha(ctx.senha, ctx.senhaPrefixo)} <<<`);
-    l.push(`${cab}${numero ? ` · #${numero}` : ''}`);
-    if (tipo && canal) l.push(`@B ${canal}`);
-    if (ctx.cliente) l.push(`@B ${ctx.cliente}`);
+    const pedido = tipo ? linhaDoPedido(ctx.pedidoNumero) : undefined;
+    if (pedido) {
+      // PEDIDO DE CANAL (pedido do dono, 28/10/2026): o número do painel em destaque, o do canal logo abaixo e menor, e a
+      // senha pequena no fim — ela segue no cartão do KDS, e é por ela que a cozinha liga o papel ao cartão.
+      l.push(`@CBD ${pedido}`);
+      if (canal) l.push(`@C ${canal}`);
+      l.push(`@B ${cab}`);
+      if (ctx.cliente) l.push(`@B ${ctx.cliente}`);
+      if (ctx.senha) l.push(`@S senha ${rotuloSenha(ctx.senha, ctx.senhaPrefixo)}`);
+    } else {
+      if (ctx.senha) l.push(`>>> SENHA ${rotuloSenha(ctx.senha, ctx.senhaPrefixo)} <<<`);
+      l.push(`${cab}${numero ? ` · #${numero}` : ''}`);
+      if (tipo && canal) l.push(`@B ${canal}`);
+      if (ctx.cliente) l.push(`@B ${ctx.cliente}`);
+    }
     // Sub-PDV salão (mig 133): cabeçalho de onde o pedido foi emitido.
     if (ctx.emitidoDe) l.push(`EMITIDO: ${ctx.emitidoDe}`);
     l.push(linha);
@@ -1100,7 +1131,8 @@ export class ProducaoPedidoService {
       const { descricao, escolhas } = itemNaVia(it);
       l.push(`${completo ? '@B ' : ''}${Number(it.quantidade)}x ${descricao}`);
       for (const c of it.combo ?? []) l.push(`  - ${c}`);
-      if (escolhas) l.push(`  >> ${escolhas}`);
+      // Cada escolha na sua linha, recuada e em negrito: no combo, a batata e a bebida não passam batidas.
+      for (const e of linhasDasEscolhas(escolhas)) l.push(`@B   ${e}`);
       if (it.observacao) l.push(`  ** OBS: ${it.observacao}`);
     }
     // Pedido completo: o que sai em outro lugar, pequeno e só a linha do item (sem complemento nem observação — é para a
@@ -1239,7 +1271,11 @@ export class ProducaoPedidoService {
           : [],
       avisoFiscal: () => (dados.fiscal ? [] : ['Este documento nao tem valor fiscal']),
       plataforma: () => (dados.plataforma ? [String(dados.plataforma)] : []),
-      pedidoRegem: () => (dados.pedidoRegem ? [`Pedido Regem ${dados.pedidoRegem}`] : []),
+      // "PEDIDO #10" — o número do painel do delivery (pedido do dono, 28/10/2026: é por ele que se procura o pedido).
+      pedidoRegem: () => {
+        const t = linhaDoPedido(dados.pedidoRegem);
+        return t ? [t] : [];
+      },
       // Produção (Fase 3b): mesa/balcão, origem e sub-PDV emissor.
       mesa: () => [dados.mesa ? `MESA ${dados.mesa}` : 'BALCAO'],
       emitidoDe: () => (dados.emitidoDe ? [`Emitido: ${dados.emitidoDe}`] : []),
@@ -1313,7 +1349,8 @@ export class ProducaoPedidoService {
           const { descricao, escolhas } = itemNaVia(it);
           put(fNome, `${Number(it.quantidade)}x ${descricao}`);
           for (const c of Array.isArray(it.combo) ? it.combo : []) put(fComp, `   - ${c}`);
-          if (escolhas) put(fComp, `   ${escolhas}`);
+          // Uma escolha por linha (pedido do dono, 28/10/2026): no combo, a batata e a bebida cada uma na sua.
+          for (const e of linhasDasEscolhas(escolhas)) put(fComp, `   ${e}`);
           if (it.observacao) put(fObs, `   OBS: ${it.observacao}`);
           if (dados.mostrarValoresItem) put(fNome, `   ${money(Number(it.precoUnitario) * Number(it.quantidade))}`);
         }
@@ -2891,6 +2928,7 @@ export class ProducaoPedidoService {
       cliente: p.comandaId
         ? (await this.db.select({ cliente: comanda.cliente }).from(comanda).where(and(eq(comanda.id, p.comandaId), eq(comanda.tenantId, tenantId))))[0]?.cliente ?? null
         : null,
+      pedidoNumero: p.comandaId ? await numeroDoPedidoDaVenda(this.db, tenantId, p.comandaId) : null,
     };
     const ppEtapa = await this.carregarPerfilProducao(this.db, tenantId, p.unidadeId, p.origem, p.plataforma);
     const conteudo = this.renderTicket(

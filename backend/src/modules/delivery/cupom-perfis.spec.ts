@@ -12,7 +12,11 @@ describe('perfis de cupom — padrão do Regem × o que a loja gravou', () => {
     const p = perfilEfetivo('entregador', { impressoras: ['imp-1'] });
     expect(ordem(p)).toEqual(ordem(CUPOM_PERFIS_PADRAO.entregador));
     expect(p.impressoras).toEqual(['imp-1']);
-    expect(campo(p, 'senha')).toMatchObject({ negrito: true, escala: 2 });
+    // Dono, 28/10/2026: "PEDIDO #10" (o número do painel) em destaque, o do canal logo abaixo e menor, e sem a senha.
+    expect(ordem(p).slice(0, 4)).toEqual(['nomeLoja', 'pedidoRegem', 'plataforma', 'tipoPedido']);
+    expect(campo(p, 'pedidoRegem')).toMatchObject({ visivel: true, negrito: true, escala: 2 });
+    expect(campo(p, 'plataforma').escala).toBeUndefined();
+    expect(campo(p, 'senha').visivel).toBe(false);
     expect(campo(p, 'endereco')).toMatchObject({ negrito: true, mini: true, escala: 2 }); // destaque intermediário
     expect(campo(p, 'totalGeral')).toMatchObject({ negrito: true, escala: 2 }); // do tamanho da senha
     expect(campo(p, 'troco')).toMatchObject({ negrito: true, visivel: true });
@@ -52,7 +56,8 @@ describe('perfis de cupom — padrão do Regem × o que a loja gravou', () => {
     const p = perfilEfetivo('entregador', { campos: gravado });
     const keys = ordem(p);
     expect(keys.indexOf('troco')).toBe(keys.indexOf('pagamento') + 1); // não no fim, depois do QR
-    expect(keys.indexOf('tipoPedido')).toBe(keys.indexOf('senha') + 1);
+    expect(keys.indexOf('tipoPedido')).toBe(keys.indexOf('plataforma') + 1);
+    expect(keys.indexOf('pedidoRegem')).toBe(keys.indexOf('nomeLoja') + 1);
     expect(keys[keys.length - 1]).toBe('qrcode');
     expect(campo(p, 'troco')).toMatchObject({ negrito: true });
     // Os campos gravados ficam na ordem da loja.
@@ -98,12 +103,18 @@ describe('perfis de cupom — padrão do Regem × o que a loja gravou', () => {
   it('padrão da via de produção: só o que importa, sem valores, endereço nem pagamento', () => {
     for (const id of ['producao_balcao', 'producao_delivery']) {
       const visiveis = ordem({ campos: CUPOM_PERFIS_PADRAO[id].campos.filter((c) => c.visivel) });
-      expect(visiveis[0]).toBe('senha');
+      // Balcão: a senha (a cozinha chama por ela). Delivery: o número do painel (dono, 28/10/2026).
+      expect(visiveis[0]).toBe(id === 'producao_balcao' ? 'senha' : 'pedidoRegem');
       expect(visiveis).toContain('cliente');
       for (const k of ['endereco', 'telefone', 'totalGeral', 'subtotal', 'pagamento', 'troco', 'nomeLoja']) expect(visiveis).not.toContain(k);
       expect(campo(CUPOM_PERFIS_PADRAO[id], 'itens')).toMatchObject({ negrito: true, escala: 2, comp: { negrito: true } });
     }
-    // O cabeçalho de identificação do delivery: tipo e nº do pedido no canal.
-    expect(ordem(CUPOM_PERFIS_PADRAO.producao_delivery)).toEqual(expect.arrayContaining(['tipoPedido', 'plataforma']));
+    // O cabeçalho de identificação do delivery: o número do painel em destaque, o canal logo abaixo, o tipo; a senha
+    // pequena (a do cartão do KDS).
+    const pd = CUPOM_PERFIS_PADRAO.producao_delivery;
+    expect(ordem(pd).slice(0, 3)).toEqual(['pedidoRegem', 'plataforma', 'tipoPedido']);
+    expect(campo(pd, 'pedidoRegem')).toMatchObject({ visivel: true, negrito: true, escala: 2 });
+    expect(campo(pd, 'senha')).toMatchObject({ visivel: true, mini: true });
+    expect(campo(pd, 'senha').escala).toBeUndefined();
   });
 });

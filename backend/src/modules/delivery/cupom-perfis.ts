@@ -190,6 +190,8 @@ const CLIENTE_TOTEM: PerfilCupom = {
 // ── DELIVERY — via geral do pedido de canal (sai no caixa e vai com o entregador) ─────────────────────────────────────
 // Padrão do Regem (pedido do dono, 22/10/2026): número do pedido e nome do cliente em destaque, endereço em destaque
 // intermediário, total do tamanho da senha, troco em negrito. Também é o modelo da retirada pedida num canal.
+// Pedido do dono, 28/10/2026: "PEDIDO #10" (o número do painel do delivery, por onde se procura o pedido) em destaque, o
+// número no canal logo abaixo e menor ("iFood 6214"), e sem a senha — eram identificações demais. A senha fica disponível.
 const ENTREGADOR: PerfilCupom = {
   id: 'entregador',
   nome: 'Cliente — delivery',
@@ -198,10 +200,10 @@ const ENTREGADOR: PerfilCupom = {
   grupo: 'cliente',
   campos: [
     C('nomeLoja', 'Nome da loja', { negrito: true, alinhamento: 'centro' }),
-    C('senha', 'Senha', { negrito: true, alinhamento: 'centro', escala: 2 }),
+    C('pedidoRegem', 'Nº do pedido (o do painel do delivery)', { negrito: true, alinhamento: 'centro', escala: 2 }),
+    C('plataforma', 'Canal e nº do pedido no canal', { alinhamento: 'centro' }),
     C('tipoPedido', 'Tipo do pedido (DELIVERY / RETIRADA)', { negrito: true, alinhamento: 'centro' }),
-    C('plataforma', 'Canal e nº do pedido', { negrito: true, alinhamento: 'centro', escala: 2 }),
-    C('pedidoRegem', 'Nº do pedido no Regem', { alinhamento: 'centro' }),
+    C('senha', 'Senha', { visivel: false, negrito: true, alinhamento: 'centro' }),
     C('dataHora', 'Data e hora do pedido', { alinhamento: 'centro' }),
     C('ticket', 'Nº do ticket (controle)', { visivel: false }),
     C('cliente', 'Nome do cliente', { negrito: true, escala: 2 }),
@@ -256,20 +258,21 @@ const PRODUCAO_BALCAO: PerfilCupom = {
 
 // ── PRODUÇÃO — delivery (pedidos de canal: entrega e retirada) ─────────────────────────────────────────────────────
 // Vai colada na embalagem: o entregador associa pelo número do pedido e pelo nome — o cabeçalho de identificação.
+// Pedido do dono, 28/10/2026: "PEDIDO #10" em destaque — o número do PAINEL (`pedido_externo.numero`, que a via agora
+// recebe; antes só havia o da cozinha, outro contador, e por isso o campo nascia desligado) —, o do canal logo abaixo e
+// menor, e a senha pequena no fim: é ela que o cartão do KDS mostra, e por ela a cozinha liga o papel ao cartão.
 const PRODUCAO_DELIVERY: PerfilCupom = {
   id: 'producao_delivery',
   nome: 'Produção — delivery',
   descricao:
-    'Via de produção do pedido de canal: o pedido inteiro com a identificação (senha, nº do pedido, nome) para anexar à embalagem — sem endereço, valores e pagamento.',
+    'Via de produção do pedido de canal: o pedido inteiro com a identificação (nº do pedido, canal, nome) para anexar à embalagem — sem endereço, valores e pagamento.',
   grupo: 'producao',
   campos: [
-    C('senha', 'Senha', { negrito: true, alinhamento: 'centro', escala: 2 }),
+    C('pedidoRegem', 'Nº do pedido (o do painel do delivery)', { negrito: true, alinhamento: 'centro', escala: 2 }),
+    C('plataforma', 'Canal e nº do pedido no canal', { alinhamento: 'centro' }),
     C('tipoPedido', 'Tipo do pedido (DELIVERY / RETIRADA)', { negrito: true, alinhamento: 'centro' }),
-    C('plataforma', 'Canal e nº do pedido', { negrito: true, alinhamento: 'centro', escala: 2 }),
-    // Na via de produção o nº do Regem é o da COZINHA (outro contador que o "#284" do painel): ligado, a embalagem e a
-    // via do delivery mostrariam números diferentes. Fica disponível, desligado.
-    C('pedidoRegem', 'Nº do pedido no Regem', { visivel: false, alinhamento: 'centro' }),
     C('cliente', 'Nome do cliente', { negrito: true, alinhamento: 'centro', escala: 2 }),
+    C('senha', 'Senha (a do cartão do KDS)', { alinhamento: 'centro', mini: true }),
     C('nomeLoja', 'Nome da loja', { visivel: false, alinhamento: 'centro' }),
     C('dataHora', 'Data e hora do pedido'),
     C('ticket', 'Nº do ticket (controle)', { visivel: false }),

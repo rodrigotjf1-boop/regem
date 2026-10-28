@@ -1,6 +1,7 @@
 import {
   ehDoTotem,
   enderecoDoPedido,
+  linhaDoPedido,
   pedidoNoCanal,
   perfilDeProducao,
   rotuloDoCanal,
@@ -16,10 +17,19 @@ describe('via do pedido — dados do pedido de canal no papel', () => {
     expect(rotuloDoCanal('n8n')).toBe('WhatsApp');
     expect(rotuloDoCanal('Cardápio')).toBe('Cardápio'); // o rótulo que a venda já grava passa direto
     expect(rotuloDoCanal('canal_novo')).toBe('canal_novo');
-    expect(pedidoNoCanal('ifood', '8F2A')).toBe('iFood #8F2A');
-    expect(pedidoNoCanal('cardapio', '#12')).toBe('Cardápio #12'); // sem "##"
+    // Sem "#" (dono, 28/10/2026): o "#" é do número do pedido no Regem, o do painel ("PEDIDO #10").
+    expect(pedidoNoCanal('ifood', '6214')).toBe('iFood 6214');
+    expect(pedidoNoCanal('99food', '60023')).toBe('99Food 60023');
+    expect(pedidoNoCanal('cardapio', '#12')).toBe('Cardápio 12'); // o "#" que vier no código sai
     expect(pedidoNoCanal('anotaai', null)).toBe('Anota Aí');
     expect(pedidoNoCanal(null, null)).toBeUndefined();
+  });
+
+  it('"PEDIDO #10": o número do pedido no Regem, o mesmo do painel do delivery', () => {
+    expect(linhaDoPedido(10)).toBe('PEDIDO #10');
+    expect(linhaDoPedido('#284')).toBe('PEDIDO #284'); // sem "##"
+    expect(linhaDoPedido(null)).toBeUndefined();
+    expect(linhaDoPedido('')).toBeUndefined();
   });
 
   it('endereço pelos campos separados, uma informação por linha e sem repetir', () => {

@@ -46,7 +46,7 @@ describe('via do delivery — dados do pedido e impressão', () => {
       senha: 5,
       senhaPrefixo: 'D',
       tipoPedido: 'DELIVERY',
-      plataforma: 'Cardápio #12',
+      plataforma: 'Cardápio 12',
       pedidoRegem: '#284',
       dataHora: '22/10/2026, 21:30:00', // a hora do pedido, no fuso da loja
       cliente: 'Cliente Fictício',
@@ -90,10 +90,11 @@ describe('via do delivery — dados do pedido e impressão', () => {
       'Obrigado!\nVolte sempre',
     );
     const linhas = conteudo.split('\n');
-    expect(linhas.slice(0, 4)).toEqual(['@CB Loja Fictícia', '@CB Rua da Loja, 1', '@CBD SENHA D-5', '@CB DELIVERY']);
+    // Dono, 28/10/2026: "PEDIDO #284" (o número do painel) em destaque, o do canal logo abaixo e menor, sem a senha.
+    expect(linhas.slice(0, 5)).toEqual(['@CB Loja Fictícia', '@CB Rua da Loja, 1', '@CBD PEDIDO #284', '@C Cardápio 12', '@CB DELIVERY']);
+    expect(conteudo).not.toMatch(/SENHA/i);
     expect(linhas).toEqual(
       expect.arrayContaining([
-        '@CBD Cardápio #12', // nº do pedido em destaque
         '@BD Cliente Fictício', // nome em destaque
         '@BSD Rua Fictícia, 10', // endereço: destaque intermediário, uma linha por informação
         '@BSD Centro',
@@ -129,5 +130,33 @@ describe('via do delivery — dados do pedido e impressão', () => {
     expect(conteudo).toContain('DELIVERY');
     expect(conteudo).not.toContain('Venda balcao');
     expect(producao.renderCupomPerfil(perfilEfetivo('caixa', null), { itens: [] })).toContain('Venda balcao');
+  });
+
+  // Dono, 28/10/2026: o "Trio 08" (lanche + batata + bebida) com a batata e a bebida cada uma na sua linha, recuadas e em
+  // negrito, embaixo do produto — numa linha só, a bebida passava batida.
+  it('combo do canal: quantidade + produto, e cada escolha na sua linha, recuada e em negrito', () => {
+    const trio = [{ quantidade: 1, descricao: 'Trio 08', precoUnitario: 39.9, complementosTexto: 'Batata média · Coca-Cola lata' }];
+    const conteudo = producao.renderCupomPerfil(perfilEfetivo('entregador', null), dadosDaViaDoDelivery(pedido({ canal: 'ifood', displayId: '6214' }), trio));
+    const linhas = conteudo.split('\n');
+    const i = linhas.indexOf('1x Trio 08');
+    expect(i).toBeGreaterThan(-1);
+    expect(linhas.slice(i + 1, i + 3)).toEqual(['@B    + Batata média', '@B    + Coca-Cola lata']);
+    expect(linhas).toContain('@C iFood 6214');
+  });
+
+  it('via de produção de quem nunca editou o modelo: "PEDIDO #10", o canal embaixo, a senha pequena e o combo uma escolha por linha', () => {
+    const ctx = { origem: 'delivery', plataforma: 'iFood', senhaPlataforma: '6214', senha: 1, senhaPrefixo: 'D', cliente: 'Ana', pedidoNumero: 10 };
+    const its = [{ quantidade: 1, descricao: 'Trio 08', complementosTexto: 'Batata média · Coca-Cola lata', observacao: 'sem gelo' }];
+    const linhas = (servico as any).renderTicket(ctx, its, 57, null).split('\n');
+    expect(linhas.slice(0, 6)).toEqual(['*** PRODUCAO ***', '@CBD PEDIDO #10', '@C iFood 6214', '@B DELIVERY', '@B Ana', '@S senha D-1']);
+    expect(linhas.join('\n')).not.toContain('#57'); // o número da cozinha (outro contador) não sai
+    const i = linhas.indexOf('1x Trio 08');
+    expect(linhas.slice(i + 1, i + 4)).toEqual(['@B   + Batata média', '@B   + Coca-Cola lata', '  ** OBS: sem gelo']);
+    // Sem o número do painel (cartão antigo): o cabeçalho de antes, com a senha grande.
+    const antigo = (servico as any).renderTicket({ ...ctx, pedidoNumero: null }, its, 57, null).split('\n');
+    expect(antigo).toEqual(expect.arrayContaining(['>>> SENHA D-1 <<<', 'DELIVERY · #57', '@B iFood 6214']));
+    // Balcão (sem canal): como sempre — a senha é por onde a cozinha chama.
+    const balcao = (servico as any).renderTicket({ origem: 'balcao', senha: 7, senhaPrefixo: 'B', pedidoNumero: 10 }, its, 58, null).split('\n');
+    expect(balcao.slice(0, 3)).toEqual(['*** PRODUCAO ***', '>>> SENHA B-7 <<<', 'BALCAO · #58']);
   });
 });

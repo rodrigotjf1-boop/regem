@@ -23,13 +23,23 @@
     verdade, avisando o dono se o Windows não confiar.
   - **Só em certificado novo:** série única e SKI/AKI (o da loja é mantido).
   - **Conferir na loja depois do `.zip`:** em até 30 s o ícone se reabre e lista os aparelhos.
-- **Modo local: a fila do entregador e o código de entrega pela nuvem (ERR-308, ERR-309; PR desta entrega) — vai no
+- **Modo local: a fila do entregador e o código de entrega pela nuvem (ERR-308, ERR-309; #743) — vai no
   `.zip`:** o painel do delivery no servidor da loja passa a pedir a fila à nuvem (onde o app do entregador entra), e
   mostra "sem conexão com a nuvem" em vez de "fila vazia" quando não consegue. O código de entrega do Cardápio Regem,
   avisado no aceite, sai pela nuvem (que tem o robô de WhatsApp da loja); sem robô configurado, o pedido registra o
   motivo. A nuvem já atende no merge; a loja só depois do `.zip`.
   - **Conferir na loja depois do `.zip`:** entregador entra na fila pelo app → as iniciais aparecem no bloco "🛵 Fila"
     do Delivery › Painel em até 25 s.
+- **Cupom do delivery com o número do pedido em destaque (pedido do dono de 28/10; PR desta entrega) — vai no `.zip`:**
+  na via do caixa (a que vai com o entregador) e na via de produção do pedido de canal, "PEDIDO #10" (o número do
+  painel) em destaque e, logo abaixo e menor, o do canal ("iFood 6214", sem "#"). A via do caixa sai sem a senha; a de
+  produção a traz pequena no fim do cabeçalho (é ela que o cartão do KDS mostra). No combo, cada escolha (batata,
+  bebida…) sai numa linha própria, recuada e em negrito.
+  - **Loja que já editou o modelo** em Configurações › Impressoras e cupons: os campos seguem como ela gravou (o texto
+    "PEDIDO #10" e "iFood 6214" muda para todos); para ficar no padrão novo, "Redefinir padrão" no modelo "Cliente —
+    delivery" e no "Produção — delivery".
+  - **Conferir na loja depois do `.zip`:** aceitar um pedido do iFood → a via do caixa começa por "PEDIDO #N" (o mesmo
+    número do Delivery › Painel) e, embaixo, "iFood <código>".
 - **Esperando o dono — o Terminal de Ponto no sincronismo (P1b do plano de 25/10):** hoje ele não sobe nem desce, e
   desde o #737 a reinstalação preserva o banco quando há um. Para sincronizar é preciso:
   - garantir a sequência do NSR depois de restaurar (as marcações só sobem; o NSR é `max+1` local);

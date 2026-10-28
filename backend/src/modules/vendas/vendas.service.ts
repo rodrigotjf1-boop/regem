@@ -1546,6 +1546,7 @@ export class VendasService {
       setorId?: string | null; // setor de produção (ex.: delivery)
       plataforma?: string | null; // ex.: "Cardápio", "iFood"
       senhaPlataforma?: string | null; // senha/nº do pedido na plataforma
+      pedidoNumero?: number | null; // nº do pedido no painel do delivery ("PEDIDO #10" na via de produção)
       tipoPedido?: string | null; // DELIVERY | RETIRADA | ENCOMENDA — a linha do tipo na via de produção
       // Série da senha (R6). Padrão D (delivery) — o comportamento de sempre. O TOTEM
       // manda B: é venda de BALCÃO, e balcão tem uma série só, sem número repetido.
@@ -1706,6 +1707,7 @@ export class VendasService {
           senhaPlataforma: dto.senhaPlataforma ?? null,
           cliente: dto.cliente ?? null,
           tipoPedido: dto.tipoPedido ?? null,
+          pedidoNumero: dto.pedidoNumero ?? null,
         },
         itensProducao,
         foraDaProducao,

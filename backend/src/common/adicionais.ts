@@ -63,9 +63,26 @@ export function descricaoTrazEscolhas(descricao: string | null | undefined, comp
   return partes(texto.slice(inicio, texto.length - 1)) === partes(esperado);
 }
 
+// Separador das escolhas no texto de uma linha só — o nosso ("+ 2x Bacon · sem Cebola") e o dos canais (`adapters.ts`).
+export const SEPARADOR_ESCOLHAS = ' · ';
+
 // "+ 2x Bacon · sem Cebola" — o texto das escolhas agrupadas.
 function textoDosGrupos(grupos: { tipo: string; nome: string; vezes: number }[]): string {
-  return grupos.map((g) => `${g.tipo === 'remover' ? 'sem' : '+'} ${rotuloDaEscolha(g.nome, g.vezes)}`).join(' · ');
+  return grupos.map((g) => `${g.tipo === 'remover' ? 'sem' : '+'} ${rotuloDaEscolha(g.nome, g.vezes)}`).join(SEPARADOR_ESCOLHAS);
+}
+
+/**
+ * As escolhas do item UMA POR LINHA, para a via impressa (pedido do dono, 28/10/2026): no combo, a batata e a bebida
+ * cada uma na sua linha, embaixo do produto — numa linha só, a bebida passava batida. Aceita o texto do nosso cardápio
+ * ("+ Batata média · sem Cebola") e o dos canais ("Batata média · 2x Coca-Cola"); o que vem sem sinal ganha o "+".
+ * O KDS e o cupom de uma linha seguem com o texto inteiro.
+ */
+export function linhasDasEscolhas(texto: string | null | undefined): string[] {
+  return String(texto ?? '')
+    .split(SEPARADOR_ESCOLHAS)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => (/^(\+|-|sem\b)/i.test(s) ? s : `+ ${s}`));
 }
 
 // Texto das escolhas para o cupom e para a cozinha: "+ 2x Bacon · sem Cebola".

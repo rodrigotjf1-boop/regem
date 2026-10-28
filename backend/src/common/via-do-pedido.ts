@@ -26,13 +26,22 @@ export function rotuloDoCanal(canal: string | null | undefined): string {
   return ROTULO_CANAL[c.toLowerCase()] ?? c;
 }
 
-/** "iFood #8F2A" — o canal e o número do pedido nele (o que o entregador procura no app). */
+/**
+ * "iFood 6214" — o canal e o número do pedido nele (o que o entregador procura no app do canal). Sem "#": o "#" é do
+ * número do pedido no Regem ("PEDIDO #10"), o que o painel mostra — pedido do dono, 28/10/2026.
+ */
 export function pedidoNoCanal(canal: string | null | undefined, displayId: string | null | undefined): string | undefined {
   const rotulo = rotuloDoCanal(canal);
-  const num = String(displayId ?? '').trim();
+  const num = String(displayId ?? '').trim().replace(/^#+/, '');
   if (!rotulo && !num) return undefined;
   if (!num) return rotulo;
-  return `${rotulo} ${num.startsWith('#') ? num : `#${num}`}`.trim();
+  return `${rotulo} ${num}`.trim();
+}
+
+/** "PEDIDO #10" — o número do pedido no Regem, o mesmo do painel do delivery. Vazio = não imprime. */
+export function linhaDoPedido(numero: string | number | null | undefined): string | undefined {
+  const n = String(numero ?? '').trim().replace(/^#+/, '');
+  return n ? `PEDIDO #${n}` : undefined;
 }
 
 type EnderecoDoPedido = {
