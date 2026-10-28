@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
+import { eq } from 'drizzle-orm';
 import * as schema from '../../db/schema';
 import { DeliveryService } from './delivery.service';
 import { fetchExterno } from '../../common/fetch-externo';
@@ -375,6 +376,111 @@ descrever('registro dos envios do pedido (Postgres real)', () => {
       } finally {
         if (antes !== undefined) process.env.OTP_WEBHOOK_URL = antes;
       }
+    });
+  });
+
+  // O CÓDIGO DE ENTREGA (Cardápio Regem, entrega própria): o cliente recebe no aceite e informa ao entregador. No
+  // servidor da loja ele saía direto daqui — onde não há o endereço do robô (a `integracao` não desce) — e ficava
+  // "não enviado" (V37). Agora a loja pede à nuvem, como os avisos de status.
+  describe('o código de entrega', () => {
+    const servico = () => new (DeliveryService as any)(db, {}, {}, {}, {}, { emit: () => undefined }, { flashPedidos: () => undefined }) as any;
+    const ambiente = { CLOUD_API: process.env.CLOUD_API, SYNC_TOKEN: process.env.SYNC_TOKEN, OTP_WEBHOOK_URL: process.env.OTP_WEBHOOK_URL };
+    afterEach(() => {
+      for (const [k, v] of Object.entries(ambiente)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    });
+    /** O pedido como o aceite o tem (Drizzle, camelCase), com o telefone do cliente. */
+    const doCardapio = async (t: string, u: string, extra: Record<string, any> = {}) => {
+      const p = await pedido(t, u, extra.canal ?? 'cardapio', extra);
+      await q(`update pedido_externo set cliente_telefone = $2, cliente_nome = 'Bia' where id = $1`, [p.id, extra.telefone === undefined ? '(21) 99999-0000' : extra.telefone]);
+      const [row] = await db.select().from(schema.pedidoExterno).where(eq(schema.pedidoExterno.id, p.id));
+      return row;
+    };
+
+    it('servidor da loja: pede à NUVEM (não ao robô daqui) e registra o que a nuvem fez — inclusive "a loja não tem robô"', async () => {
+      const { t, u } = await empresa();
+      const row = await doCardapio(t, u);
+      expect(row.codigoEntrega).toMatch(/^\d{4}$/); // nasce com o pedido (mig 209/212)
+      process.env.EDGE_MODE = 'true';
+      process.env.CLOUD_API = 'https://nuvem.teste/api/v1';
+      process.env.SYNC_TOKEN = 'token-da-loja';
+      const chamadas: { url: string; corpo: any; token: string }[] = [];
+      let resposta: any = { ok: true };
+      global.fetch = jest.fn(async (url: any, init: any) => {
+        chamadas.push({ url: String(url), corpo: JSON.parse(init.body), token: init.headers['x-sync-token'] });
+        return new Response(JSON.stringify(resposta), { status: 200, headers: { 'content-type': 'application/json' } });
+      }) as any;
+      const svc = servico();
+      svc.notificarN8n = jest.fn(async () => ({ saiu: true }));
+
+      await svc.avisarCodigoDeEntrega(t, row);
+      expect(svc.notificarN8n).not.toHaveBeenCalled();
+      expect(chamadas).toEqual([
+        { url: 'https://nuvem.teste/api/v1/delivery/aviso-da-loja', token: 'token-da-loja', corpo: expect.objectContaining({ pedidoId: row.id, evento: 'codigo_entrega' }) },
+      ]);
+      // O código NÃO viaja no pedido à nuvem: a nuvem usa o do pedido dela (é o que o app do entregador confere).
+      expect(JSON.stringify(chamadas[0].corpo)).not.toContain(String(row.codigoEntrega));
+      // Registrado com o nome do aviso — antes saía como "confirmado" (o status do pedido).
+      expect(await ate(t, row.id, 1)).toMatchObject([{ destino: 'nuvem', acao: 'codigo_entrega', resultado: 'enviado', servidor: 'loja' }]);
+
+      // A nuvem diz que a loja não tem robô de WhatsApp: fica "não enviado", com o motivo (o operador vê no pedido).
+      resposta = { ok: true, resultado: 'nao_enviado', motivo: 'o robô de WhatsApp não está configurado para esta loja' };
+      await svc.avisarCodigoDeEntrega(t, row);
+      const r = await ate(t, row.id, 2);
+      expect(r.find((x: any) => x.resultado === 'nao_enviado')).toMatchObject({
+        destino: 'nuvem',
+        acao: 'codigo_entrega',
+        motivo: 'o robô de WhatsApp não está configurado para esta loja',
+      });
+    });
+
+    it('nuvem: atende o pedido da loja com o código DELA; sem robô diz por quê; o mesmo código não vai duas vezes', async () => {
+      const { t, u } = await empresa();
+      delete process.env.OTP_WEBHOOK_URL;
+      const sem = await doCardapio(t, u);
+      expect(await servico().avisoVindoDaLoja(t, { pedidoId: sem.id, evento: 'codigo_entrega', status: 'confirmado' })).toEqual({
+        ok: true,
+        resultado: 'nao_enviado',
+        motivo: 'o robô de WhatsApp não está configurado para esta loja',
+      });
+
+      process.env.OTP_WEBHOOK_URL = 'https://8.8.8.8/webhook/regem';
+      const corpos: any[] = [];
+      global.fetch = jest.fn(async (_url: any, init: any) => {
+        corpos.push(JSON.parse(init.body));
+        return new Response('ok', { status: 200 });
+      }) as any;
+      const row = await doCardapio(t, u);
+      const svc = servico();
+      expect(await svc.avisoVindoDaLoja(t, { pedidoId: row.id, evento: 'codigo_entrega', status: 'confirmado' })).toEqual({ ok: true });
+      // A loja reenvia (resposta perdida) já com outro status: o cliente não recebe o código de novo.
+      expect(await svc.avisoVindoDaLoja(t, { pedidoId: row.id, evento: 'codigo_entrega', status: 'pronto' })).toEqual({ ok: true, repetido: true });
+      expect(corpos).toEqual([
+        expect.objectContaining({ evento: 'codigo_entrega', pedidoId: row.id, telefone: '21999990000', codigoEntrega: String(row.codigoEntrega) }),
+      ]);
+      expect((await ate(t, row.id, 1))[0]).toMatchObject({ destino: 'cliente_whatsapp', acao: 'codigo_entrega', resultado: 'enviado' });
+    });
+
+    it('só o Cardápio Regem, na entrega, com código e telefone — nos dois lados', async () => {
+      const { t, u } = await empresa();
+      const casos = [
+        await doCardapio(t, u, { canal: 'ifood' }), // marketplace tem o próprio código
+        await doCardapio(t, u, { tipo: 'retirada' }), // o cliente busca: não há entregador
+        await doCardapio(t, u, { telefone: null }), // sem telefone, não há para quem mandar
+      ];
+      process.env.CLOUD_API = 'https://nuvem.teste/api/v1';
+      process.env.SYNC_TOKEN = 'token-da-loja';
+      process.env.OTP_WEBHOOK_URL = 'https://8.8.8.8/webhook/regem';
+      global.fetch = jest.fn(async () => new Response('{}', { status: 200 })) as any;
+      for (const modo of ['true', 'false']) {
+        process.env.EDGE_MODE = modo;
+        for (const row of casos) await servico().avisarCodigoDeEntrega(t, row);
+      }
+      expect(global.fetch).not.toHaveBeenCalled();
+      // E a nuvem também recusa o de canal que não é dela.
+      expect(await servico().avisoVindoDaLoja(t, { pedidoId: casos[0].id, evento: 'codigo_entrega' })).toEqual({ ok: true, ignorado: 'canal' });
     });
   });
 });
