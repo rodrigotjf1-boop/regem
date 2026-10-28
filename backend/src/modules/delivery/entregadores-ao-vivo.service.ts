@@ -8,6 +8,7 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
 import type { AtorKds } from '../producao-pedido/kds-auditoria';
 import { AoVivo, centroDaLoja, consultarAoVivo } from './entregadores-ao-vivo';
+import { consultarFila, EntregadorNaFila } from './fila-entregadores';
 import { DeliveryService } from './delivery.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -16,6 +17,9 @@ export type AoVivoResposta = AoVivo & {
   /** O servidor da loja não conseguiu falar com a nuvem — o mapa mostra "sem conexão". */
   semConexao?: boolean;
 };
+
+/** A fila de entregadores do painel. `semConexao` = o servidor da loja não falou com a nuvem. */
+export type FilaResposta = { entregadores: EntregadorNaFila[]; semConexao?: boolean };
 
 /** Uma tela de KDS no "Mostrar num KDS" do Mapa ao vivo. `mapa` = o painel mandou ela mostrar o mapa. */
 export type TelaDoMapa = { id: string; nome: string; escopo: string; setor: string | null; mapa: boolean };
@@ -44,6 +48,7 @@ export class EntregadoresAoVivoService {
   // Cache de LEITURA por loja (não é estado de requisição): o pedido em andamento é
   // compartilhado, então telas que chegam juntas esperam a MESMA chamada à nuvem.
   private readonly cache = new Map<string, { ate: number; dados: Promise<AoVivoResposta> }>();
+  private readonly cacheFila = new Map<string, { ate: number; dados: Promise<FilaResposta> }>();
 
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
@@ -146,32 +151,63 @@ export class EntregadoresAoVivoService {
   // Nunca rejeita: qualquer falha vira `semConexao` com o motivo no log (o erro é esperado —
   // loja sem internet — e a tela tem de continuar de pé).
   private async daNuvem(tenantId: string, unidadeId: string | null): Promise<AoVivoResposta> {
-    const nuvem = String(process.env.CLOUD_API ?? '').replace(/\/$/, '');
-    const token = process.env.SYNC_TOKEN ?? '';
-    let motivo = 'sem CLOUD_API/SYNC_TOKEN no servidor da loja';
-    if (nuvem && token) {
-      try {
-        const res = await fetch(`${nuvem}/delivery/entregadores-ao-vivo/loja`, {
-          headers: { 'x-sync-token': token },
-          signal: AbortSignal.timeout(8_000),
-        });
-        if (res.ok) {
-          const j: any = await res.json();
-          // A nuvem responde a empresa do TOKEN; a tela é de um usuário desta empresa. Se não
-          // bater (servidor reaproveitado de outra loja), não mostra nada de ninguém.
-          if (j?.tenantId === tenantId && Array.isArray(j?.entregadores)) {
-            return { centro: j.centro ?? null, entregadores: j.entregadores };
-          }
-          motivo = 'a nuvem respondeu por outra empresa';
-        } else {
-          motivo = `HTTP ${res.status}`;
-        }
-      } catch (e: any) {
-        motivo = e?.cause?.code ?? e?.name ?? e?.message ?? String(e);
-      }
-    }
-    this.log.warn(`Mapa dos entregadores sem a nuvem (${motivo}) — a tela mostra "sem conexão".`);
+    const r = await this.lerDaNuvem('/delivery/entregadores-ao-vivo/loja', tenantId);
+    if ('j' in r) return { centro: r.j.centro ?? null, entregadores: r.j.entregadores };
+    this.log.warn(`Mapa dos entregadores sem a nuvem (${r.motivo}) — a tela mostra "sem conexão".`);
     const centro = await centroDaLoja(this.db, tenantId, unidadeId).catch(() => null);
     return { centro, entregadores: [], semConexao: true };
+  }
+
+  /**
+   * A FILA DE ENTREGADORES do painel do delivery. O app do entregador entra na fila pela NUVEM
+   * (`entregador_fila` só é escrita lá): no servidor da loja a fila daqui fica sempre vazia, e o
+   * painel mostrava "fila vazia" com o entregador já na fila do app. O servidor da loja pede à nuvem,
+   * como o mapa — mesma rota do token de sync, mesmo cache por loja, "sem conexão" quando não dá.
+   */
+  async filaDaLoja(tenantId: string, unidadeId: string | null): Promise<FilaResposta> {
+    if (!ehServidorLocal()) return { entregadores: await consultarFila(this.db, tenantId, unidadeId) };
+    const chave = `${tenantId}|${unidadeId ?? ''}`;
+    const agora = Date.now();
+    const c = this.cacheFila.get(chave);
+    if (c && c.ate > agora) return c.dados;
+    const dados = this.filaDaNuvem(tenantId);
+    const item = { ate: agora + CACHE_MS, dados };
+    this.cacheFila.set(chave, item);
+    dados.then((d) => {
+      if (d.semConexao) item.ate = Date.now() + CACHE_FALHA_MS;
+    }, () => undefined);
+    return dados;
+  }
+
+  // Nunca rejeita (como o mapa).
+  private async filaDaNuvem(tenantId: string): Promise<FilaResposta> {
+    const r = await this.lerDaNuvem('/delivery/entregadores-ao-vivo/fila/loja', tenantId);
+    if ('j' in r) return { entregadores: r.j.entregadores };
+    this.log.warn(`Fila dos entregadores sem a nuvem (${r.motivo}) — o painel mostra "sem conexão".`);
+    return { entregadores: [], semConexao: true };
+  }
+
+  /**
+   * GET numa rota da nuvem com o token de sync deste servidor. A nuvem responde pela empresa do TOKEN;
+   * a tela é de um usuário desta empresa — se não bater (servidor reaproveitado de outra loja), não
+   * mostra nada de ninguém. Nunca rejeita.
+   */
+  private async lerDaNuvem(caminho: string, tenantId: string): Promise<{ j: any } | { motivo: string }> {
+    const nuvem = String(process.env.CLOUD_API ?? '').replace(/\/$/, '');
+    const token = process.env.SYNC_TOKEN ?? '';
+    if (!nuvem || !token) return { motivo: 'sem CLOUD_API/SYNC_TOKEN no servidor da loja' };
+    try {
+      const res = await fetch(`${nuvem}${caminho}`, {
+        headers: { 'x-sync-token': token },
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (!res.ok) return { motivo: `HTTP ${res.status}` };
+      const j: any = await res.json();
+      if (!Array.isArray(j?.entregadores)) return { motivo: 'a nuvem respondeu sem a lista' };
+      if (j?.tenantId !== tenantId) return { motivo: 'a nuvem respondeu por outra empresa' };
+      return { j };
+    } catch (e: any) {
+      return { motivo: e?.cause?.code ?? e?.name ?? e?.message ?? String(e) };
+    }
   }
 }

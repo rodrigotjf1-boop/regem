@@ -13,6 +13,7 @@ import { CloudOnly } from '../../common/cloud-only.decorator';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
 import { consultarAoVivo } from './entregadores-ao-vivo';
+import { consultarFila } from './fila-entregadores';
 import { EntregadoresAoVivoService } from './entregadores-ao-vivo.service';
 
 /**
@@ -29,6 +30,8 @@ import { EntregadoresAoVivoService } from './entregadores-ao-vivo.service';
  *    painel, com o módulo KDS ligado.
  *  • `GET /delivery/entregadores-ao-vivo/loja` — o servidor da loja pedindo à nuvem (token de
  *    sync). A loja vem do token, nunca do pedido.
+ *  • `GET /delivery/entregadores-ao-vivo/fila` — a fila de entregadores do painel (quem entrou pelo
+ *    app); `GET …/fila/loja` — o servidor da loja pedindo a fila à nuvem, do mesmo jeito.
  */
 @Controller('delivery/entregadores-ao-vivo')
 export class EntregadoresAoVivoController {
@@ -81,5 +84,22 @@ export class EntregadoresAoVivoController {
   @UseGuards(SyncTokenGuard)
   async loja(@SyncCtx() ctx: SyncCtxData) {
     return { tenantId: ctx.tenantId, ...(await consultarAoVivo(this.db, ctx.tenantId, ctx.unidadeId ?? null)) };
+  }
+
+  // A fila de entregadores do painel do delivery — quem pode ver a de antes (`/entregador/fila`, que só existe na
+  // nuvem): presidente a execução, com a permissão do delivery. No servidor da loja, vem da nuvem.
+  @Get('fila')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
+  @RequirePerm('delivery')
+  fila(@CurrentUser() user: AuthUser, @UnidadeAtual() unidadeId: string | null) {
+    return this.aoVivo.filaDaLoja(user.tenantId, unidadeId ?? null);
+  }
+
+  @Get('fila/loja')
+  @CloudOnly()
+  @UseGuards(SyncTokenGuard)
+  async filaLoja(@SyncCtx() ctx: SyncCtxData) {
+    return { tenantId: ctx.tenantId, entregadores: await consultarFila(this.db, ctx.tenantId, ctx.unidadeId ?? null) };
   }
 }

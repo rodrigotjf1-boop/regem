@@ -94,6 +94,8 @@ export default function DeliveryPage() {
   const isGestor = ['presidente', 'gerente', 'supervisao'].includes(cat ?? '');
   const [pedidos, setPedidos] = useState<any[] | null>(null);
   const [fila, setFila] = useState<any[]>([]); // Frente 2c — fila de entregadores
+  // Por que a fila pode estar vazia sem estar: o servidor da loja sem a nuvem, ou a leitura falhou.
+  const [filaAviso, setFilaAviso] = useState<string | null>(null);
   const [cfg, setCfg] = useState<any>({ ativo: false, autoAceitar: false, finalizadoHoras: 5 });
   // Config GERAL do entregador (uma p/ toda a loja) — o "lote por entregador"
   // (max_pedidos_entregador) fica aqui no painel p/ ajuste rápido conforme a demanda.
@@ -152,10 +154,11 @@ export default function DeliveryPage() {
         api.atendimentos().catch(() => []),
         api.cardapioConfig().catch(() => null),
         api.entregadorPagamentoConfig().catch(() => null),
-        api.filaEntregadores().catch(() => []),
+        api.filaEntregadores().catch(() => null),
       ]);
       setPedidos(ps as any[]);
-      setFila((fl as any[]) ?? []);
+      setFila(fl?.entregadores ?? []);
+      setFilaAviso(!fl ? 'fila indisponível' : fl.semConexao ? 'sem conexão com a nuvem' : null);
       setCfg(c);
       if (ec) setEntCfg(ec);
       setCaixa(cx);
@@ -734,7 +737,7 @@ export default function DeliveryPage() {
             {/* Coluna direita: preview + painel de botões */}
             <div className="flex min-w-0 flex-col gap-3 lg:min-h-0">
               <PreviewPedido className="lg:min-h-0 lg:flex-1" pedido={sel} onAbrirDetalhe={() => { if (sel) { setDetalheModo('view'); setDetalhe(sel); } }} />
-              <PainelAcoes acoes={acoes} temSel={!!sel} nPend={marcadosPend.size} nAnd={marcadosAnd.size} fila={fila} />
+              <PainelAcoes acoes={acoes} temSel={!!sel} nPend={marcadosPend.size} nAnd={marcadosAnd.size} fila={fila} filaAviso={filaAviso} />
             </div>
           </div>
         )}
@@ -1127,7 +1130,7 @@ function PreviewPedido({ pedido: p, onAbrirDetalhe, className }: { pedido: any; 
 }
 
 // ---- Painel de ações (botões do mockup) ----
-function PainelAcoes({ acoes, temSel, nPend, nAnd, fila }: { acoes: any; temSel: boolean; nPend: number; nAnd: number; fila: any[] }) {
+function PainelAcoes({ acoes, temSel, nPend, nAnd, fila, filaAviso }: { acoes: any; temSel: boolean; nPend: number; nAnd: number; fila: any[]; filaAviso: string | null }) {
   const Btn = ({ a, label, variant = 'outline' as const }: { a: any; label: string; variant?: 'default' | 'outline' }) => (
     <Button
       type="button"
@@ -1160,7 +1163,14 @@ function PainelAcoes({ acoes, temSel, nPend, nAnd, fila }: { acoes: any; temSel:
           <div className="mb-1 text-center text-[10px] font-bold uppercase tracking-wide text-muted-foreground">🛵 Fila</div>
           <div className="flex flex-col gap-1.5">
             {fila.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-border py-3 text-center text-[10px] leading-tight text-muted-foreground">fila vazia</div>
+              <div
+                role={filaAviso ? 'status' : undefined}
+                className={`rounded-lg border border-dashed py-3 text-center text-[10px] leading-tight ${
+                  filaAviso ? 'border-warn font-bold text-foreground' : 'border-border text-muted-foreground'
+                }`}
+              >
+                {filaAviso ?? 'fila vazia'}
+              </div>
             ) : (
               fila.map((f, i) => (
                 <div

@@ -24,6 +24,7 @@ import {
   nomeDoCanal,
 } from './modo-entrega';
 import { consultarAoVivo } from '../delivery/entregadores-ao-vivo';
+import { consultarFila } from '../delivery/fila-entregadores';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -411,20 +412,10 @@ export class EntregadorService {
     return this.saidaAtiva(user.tenantId, user.colaboradorId);
   }
 
-  // Atendente: a fila da unidade (nome + INICIAIS + status) p/ o painel de delivery.
+  // Atendente: a fila da unidade (nome + INICIAIS + status) p/ o painel de delivery. A mesma consulta da rota
+  // que serve também o servidor da loja (`/delivery/entregadores-ao-vivo/fila`).
   async listarFila(tenantId: string, unidadeId: string | null = null) {
-    const r: any = await this.db.execute(sql`
-      select f.colaborador_id, c.nome, f.status, f.entrou_em
-      from entregador_fila f join colaborador c on c.id = f.colaborador_id
-      where f.tenant_id = ${tenantId}
-        ${unidadeId ? sql`and (f.unidade_id = ${unidadeId} or f.unidade_id is null)` : sql``}
-      order by (f.status = 'aguardando') desc, f.entrou_em asc`);
-    return (r.rows ?? r).map((x: any) => {
-      const partes = String(x.nome ?? '').trim().split(/\s+/).filter(Boolean);
-      const iniciais =
-        ((partes[0]?.[0] ?? '') + (partes.length > 1 ? partes[partes.length - 1][0] : '')).toUpperCase() || '?';
-      return { colaboradorId: x.colaborador_id, nome: x.nome, iniciais, status: x.status };
-    });
+    return consultarFila(this.db, tenantId, unidadeId);
   }
 
   // ===== Frente 4 — relatório de entregas (por entregador, tempo médio, ganhos) =====
