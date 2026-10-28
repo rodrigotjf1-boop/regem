@@ -33,6 +33,11 @@
   `desktop/main.js:35`): NÃO é distribuído** (o instalador abre o Edge/Chrome em modo app; não há build dele nem
   registro aqui; última mudança em 31/07, #246). Não empacotar como está: se um dia for usado, subir para um Electron
   com suporte e tirar o `rejectUnauthorized: false`; senão, o dono decide apagar a pasta.
+- **PDV: a venda de um pedido de delivery em andamento se cancela pelo painel (ERR-310; PR desta entrega) — vai no
+  `.zip`:** em "Cupons" e no "Buscar / cancelar cupom", a venda de um pedido de delivery ainda em andamento mostra o
+  caminho Delivery › Painel (botão CANCELAR) no lugar do botão de cancelar, e o servidor recusa o cancelamento por ali —
+  antes o pedido ficava ativo no painel e no canal, sem devolver cashback nem pontos. Totem e pedido concluído seguem
+  cancelando pelo PDV.
 
 ## Última release: `1.30.11` — gerada em 25/10/2026 da `origin/main` `0356f58b`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 94.119.254 bytes, SHA-256 `e4ee92e5b8d3e0b3d0408f22c8eb0248d215ede4d41b99dc036e97cf02edbba1`) e entregue ao dono para reinstalar **SÓ o servidor**; **sem `.zip`** e nada publicado no console
 

@@ -212,4 +212,47 @@ descrever('comprovante do cancelamento e quem libera (Postgres real)', () => {
       expect.arrayContaining(['Atendente: Atendente Teste', '@B Autorizado por: cancelamento liberado para o caixa']),
     );
   });
+
+  // Pedido do dono (28/10/2026): cancelar pelo PDV ("Cupons") a venda de um pedido de delivery deixava o pedido ativo no
+  // painel e no canal, sem devolver cashback nem pontos. O cancelamento dele é no painel do delivery.
+  it('venda de pedido de delivery em andamento: o PDV recusa e aponta o painel; concluído e totem seguem por aqui', async () => {
+    const l = await loja();
+    await q(`insert into caixa_sessao (tenant_id, unidade_id, terminal_id, origem, status, valor_abertura, aberta_por_id) values ($1,$2,$3,'pdv','aberta',0,$4)`, [
+      l.t, l.u, l.pdv, l.gerente,
+    ]);
+    const id = await aceito(l);
+    const [{ comanda_id: venda }] = await q(`select comanda_id from pedido_externo where id = $1`, [id]);
+    expect((await q(`select status from comanda where id = $1`, [venda]))[0].status).toBe('fechada');
+
+    // A tela do cupom já sabe: mostra o caminho do painel no lugar do "Cancelar venda".
+    expect((await vendas.getCupom(l.t, venda)).pedidoDelivery).toEqual({ id, rotulo: `#${display} (iFood)`, canal: 'ifood', status: 'confirmado' });
+    const [{ senha }] = await q(`select senha from comanda where id = $1`, [venda]);
+    expect((await vendas.buscarCupomPorSenha(l.t, senha)).pedidoDelivery).toMatchObject({ id });
+
+    // E o servidor recusa — mesmo com o gestor —, sem mexer em nada.
+    const lancamentos = async () => (await q(`select count(*)::int n from lancamento_caixa where comanda_id = $1`, [venda]))[0].n;
+    const antes = await lancamentos();
+    await expect(vendas.cancelar(l.t, l.gerente, 'gerente', venda, { motivo: 'x' }, l.pdv)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PEDIDO_DE_DELIVERY', pedidoId: id, message: expect.stringContaining('Delivery › Painel') }),
+    });
+    expect((await q(`select status from comanda where id = $1`, [venda]))[0].status).toBe('fechada');
+    expect((await q(`select status from pedido_externo where id = $1`, [id]))[0].status).toBe('confirmado');
+    expect(await lancamentos()).toBe(antes);
+    expect(await comprovantes(l)).toEqual([]);
+
+    // Pedido concluído: o painel não cancela; a venda dele segue cancelável aqui (devolução depois da entrega).
+    await q(`update pedido_externo set status = 'concluido', concluido_em = now() where id = $1`, [id]);
+    expect((await vendas.getCupom(l.t, venda)).pedidoDelivery).toBeNull();
+    expect((await vendas.cancelar(l.t, l.gerente, 'gerente', venda, { motivo: 'Devolução' }, l.pdv)).ok).toBe(true);
+
+    // Pedido do TOTEM em andamento: cancela por aqui (é aqui que sai o aviso de estorno ao GoGeM).
+    const doTotem = await um(`insert into comanda (tenant_id, unidade_id, status, senha, senha_prefixo, total, forma) values ($1,$2,'fechada',8,'T',15,'pix') returning id`, [l.t, l.u]);
+    await q(
+      `insert into pedido_externo (tenant_id, unidade_id, canal, external_id, status, tipo, itens, total, comanda_id)
+       values ($1,$2,'totem',$3,'pronto','retirada','[]'::jsonb,15,$4)`,
+      [l.t, l.u, randomUUID(), doTotem],
+    );
+    expect((await vendas.getCupom(l.t, doTotem)).pedidoDelivery).toBeNull();
+    expect((await vendas.cancelar(l.t, l.gerente, 'gerente', doTotem, { motivo: 'Desistiu' }, l.pdv)).ok).toBe(true);
+  });
 });

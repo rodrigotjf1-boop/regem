@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { imprimirCupomNavegador } from '@/lib/print-cupom';
 import { ondeSaiu } from '@/lib/reimpressao';
+import { AvisoPedidoDelivery } from '@/components/pdv/aviso-pedido-delivery';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -296,6 +297,10 @@ export default function CuponsPage() {
                   Registro só para controle — não baixou estoque nem entrou no caixa.
                 </span>
               </p>
+            ) : sel.pedidoDelivery ? (
+              <div className="border-t border-border pt-3">
+                <AvisoPedidoDelivery pedido={sel.pedidoDelivery} />
+              </div>
             ) : (
               <div className="space-y-2 border-t border-border pt-3">
                 <div className="space-y-1">

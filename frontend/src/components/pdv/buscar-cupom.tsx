@@ -8,6 +8,7 @@ import { avisarComprovante } from '@/lib/comprovante';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { AvisoPedidoDelivery } from './aviso-pedido-delivery';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -106,7 +107,11 @@ export function BuscarCupom() {
                   <span className="font-mono">{brl(Number(cupom.total))}</span>
                 </div>
 
-                {cupom.status !== 'cancelada' ? (
+                {cupom.status !== 'cancelada' && cupom.pedidoDelivery ? (
+                  <div className="mt-4">
+                    <AvisoPedidoDelivery pedido={cupom.pedidoDelivery} />
+                  </div>
+                ) : cupom.status !== 'cancelada' ? (
                   <div className="mt-4 space-y-2">
                     <Input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo do cancelamento (opcional)" />
                     <Button type="button" variant="outline" className="w-full border-destructive/50 text-destructive" onClick={cancelar} disabled={busy}>
