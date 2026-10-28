@@ -1,6 +1,7 @@
 import {
   agruparEscolhas,
   descricaoTrazEscolhas,
+  linhasDasEscolhas,
   rotuloDaEscolha,
   separarEscolhas,
   textoDasEscolhas,
@@ -143,6 +144,19 @@ describe('adicionais — repetição e texto das escolhas', () => {
     it('sem escolha: a descrição como veio e nada à parte', () => {
       expect(separarEscolhas('Refrigerante Fictício (lata)', [])).toEqual({ descricao: 'Refrigerante Fictício (lata)', escolhas: null });
       expect(separarEscolhas(null, [])).toEqual({ descricao: '', escolhas: null });
+    });
+  });
+
+  // Pedido do dono (28/10/2026): no combo, a batata e a bebida cada uma na sua linha da via — numa linha só, a bebida
+  // passava batida.
+  describe('linhasDasEscolhas (via impressa)', () => {
+    it('uma escolha por linha: o texto do nosso cardápio e o dos canais', () => {
+      const nosso = textoDasEscolhas([{ nome: 'Batata média' }, { nome: 'Coca-Cola lata' }, { nome: 'Cebola', tipo: 'remover' }]);
+      expect(linhasDasEscolhas(nosso)).toEqual(['+ Batata média', '+ Coca-Cola lata', 'sem Cebola']);
+      // Os canais escrevem sem o sinal ("2x Coca-Cola · Batata grande"): ganha o "+".
+      expect(linhasDasEscolhas('Batata grande · 2x Coca-Cola · Sem gelo')).toEqual(['+ Batata grande', '+ 2x Coca-Cola', 'Sem gelo']);
+      expect(linhasDasEscolhas(null)).toEqual([]);
+      expect(linhasDasEscolhas('')).toEqual([]);
     });
   });
 });
