@@ -5,6 +5,7 @@ import { BadRequestException } from '@nestjs/common';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { consultarAoVivo } from './entregadores-ao-vivo';
+import { consultarFila } from './fila-entregadores';
 import { EntregadoresAoVivoService } from './entregadores-ao-vivo.service';
 import { EntregadoresAoVivoController } from './entregadores-ao-vivo.controller';
 import { DeliveryService } from './delivery.service';
@@ -76,6 +77,7 @@ descrever('entregadores ao vivo por loja (Postgres)', () => {
     }
     if (tenant) {
       await q('delete from pedido_externo where tenant_id = $1', [tenant]);
+      await q('delete from entregador_fila where tenant_id = $1', [tenant]);
       await q('delete from entregador_posicao where tenant_id = $1', [tenant]);
       await q('delete from empresa where id = $1', [tenant]);
     }
@@ -166,5 +168,75 @@ descrever('entregadores ao vivo por loja (Postgres)', () => {
       delete process.env.EDGE_MODE;
       await new Promise<void>((ok) => servidor.close(() => ok()));
     }
+  });
+
+  describe('fila de entregadores do painel', () => {
+    beforeAll(async () => {
+      // Ana (loja A, chegou há 10 min), Caio (sem loja, há 5 min), Beto (loja B), Eva (loja A, em entrega).
+      for (const [nome, loja, status, min] of [
+        ['Ana', lojaA, 'aguardando', 10],
+        ['Caio', null, 'aguardando', 5],
+        ['Beto', lojaB, 'aguardando', 8],
+        ['Eva', lojaA, 'em_entrega', 30],
+      ] as const) {
+        await q(
+          `insert into entregador_fila (colaborador_id, tenant_id, unidade_id, status, entrou_em)
+           values ($1,$2,$3,$4, now() - ($5 || ' minutes')::interval)`,
+          [ent[nome], tenant, loja, status, min],
+        );
+      }
+    });
+
+    it('cada loja vê a fila DELA (e quem está sem loja): quem espera primeiro, na ordem de chegada', async () => {
+      const a = await consultarFila(db, tenant, lojaA);
+      expect(a.map((f) => [f.nome, f.status])).toEqual([['Ana', 'aguardando'], ['Caio', 'aguardando'], ['Eva', 'em_entrega']]);
+      expect(a[0]).toMatchObject({ colaboradorId: ent.Ana, iniciais: 'A' });
+      // A rota do token de sync (a nuvem respondendo ao servidor da loja) usa a empresa E a loja do TOKEN.
+      const ctl = new EntregadoresAoVivoController(servico(), db);
+      const loja: any = await ctl.filaLoja({ tenantId: tenant, unidadeId: lojaB, equipamentoId: 'x', token: 't' });
+      expect(loja.tenantId).toBe(tenant);
+      expect(loja.entregadores.map((f: any) => f.nome)).toEqual(['Beto', 'Caio']);
+      // Na nuvem, o painel lê direto.
+      const painel: any = await ctl.fila({ tenantId: tenant, colaboradorId: ent.Ana, categoria: 'execucao' } as any, lojaA);
+      expect(painel).toEqual({ entregadores: a });
+    });
+
+    it('servidor da loja: pede a fila à nuvem (a fila daqui fica vazia — era o "fila vazia" com o entregador na fila do app)', async () => {
+      const pedidos: string[] = [];
+      let responder: 'ok' | 'outra-empresa' | 'fora' = 'ok';
+      const servidor: Server = createServer((req, res) => {
+        pedidos.push(`${req.url} ${req.headers['x-sync-token']}`);
+        if (responder === 'fora') return void res.writeHead(503).end();
+        const corpo = {
+          tenantId: responder === 'ok' ? tenant : randomUUID(),
+          entregadores: [{ colaboradorId: 'x', nome: 'Da nuvem', iniciais: 'DN', status: 'aguardando' }],
+        };
+        res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(corpo));
+      });
+      await new Promise<void>((ok) => servidor.listen(0, '127.0.0.1', () => ok()));
+      try {
+        process.env.EDGE_MODE = 'true';
+        process.env.CLOUD_API = `http://127.0.0.1:${(servidor.address() as AddressInfo).port}/api/v1`;
+        process.env.SYNC_TOKEN = 'token-da-loja';
+        const svc = servico();
+        // O painel de três PCs pedindo junto → uma chamada só à nuvem (e NÃO a fila do banco daqui).
+        const [a, b] = await Promise.all([1, 2, 3].map(() => svc.filaDaLoja(tenant, lojaA)));
+        expect(pedidos).toEqual(['/api/v1/delivery/entregadores-ao-vivo/fila/loja token-da-loja']);
+        expect(a).toEqual({ entregadores: [{ colaboradorId: 'x', nome: 'Da nuvem', iniciais: 'DN', status: 'aguardando' }] });
+        expect(b).toBe(a);
+
+        // Nuvem respondendo por OUTRA empresa: não mostra ninguém — e o painel diz "sem conexão", não "fila vazia".
+        responder = 'outra-empresa';
+        expect(await servico().filaDaLoja(tenant, lojaA)).toEqual({ entregadores: [], semConexao: true });
+        responder = 'fora';
+        expect(await servico().filaDaLoja(tenant, lojaA)).toEqual({ entregadores: [], semConexao: true });
+        // Sem a ligação com a nuvem configurada, idem.
+        delete process.env.SYNC_TOKEN;
+        expect(await servico().filaDaLoja(tenant, lojaA)).toEqual({ entregadores: [], semConexao: true });
+      } finally {
+        delete process.env.EDGE_MODE;
+        await new Promise<void>((ok) => servidor.close(() => ok()));
+      }
+    });
   });
 });

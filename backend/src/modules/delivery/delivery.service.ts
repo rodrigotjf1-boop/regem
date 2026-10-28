@@ -92,6 +92,8 @@ import {
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 const FLUXO = ['confirmado', 'pronto', 'despachado', 'concluido'];
+/** O aviso do código de entrega ao cliente (não é aviso de status). */
+const EVENTO_CODIGO = 'codigo_entrega';
 
 @Injectable()
 export class DeliveryService {
@@ -1309,26 +1311,8 @@ export class DeliveryService {
       .where(eq(pedidoExterno.id, id))
       .returning();
     void this.dispararWebhook(tenantId, row);
-    // Código de entrega própria: avisa o cliente por WhatsApp que ele precisará
-    // informar o código ao entregador. SÓ para o Cardápio Regem — marketplace e
-    // integrado (Anota Aí, iFood, 99Food, Cardápio Web, Rappi…) têm o próprio fluxo
-    // e NÃO podem receber msg pelo WhatsApp do Regem (mesmo motivo do #391).
-    if (
-      DeliveryService.grupoCanal(row.canal) === 'regem' &&
-      row.tipo !== 'retirada' &&
-      row.codigoEntrega &&
-      row.clienteTelefone
-    ) {
-      void this.notificarN8n(tenantId, {
-        evento: 'codigo_entrega',
-        pedidoId: row.id,
-        numero: row.numero,
-        displayId: row.displayId,
-        cliente: row.clienteNome,
-        telefone: String(row.clienteTelefone).replace(/\D/g, ''),
-        codigoEntrega: String(row.codigoEntrega),
-      });
-    }
+    // Código de entrega própria: avisa o cliente por WhatsApp que ele precisará informar o código ao entregador.
+    void this.avisarCodigoDeEntrega(tenantId, row);
     void this.statusBackCw(tenantId, row, 'confirm');
     void this.statusBackIfood(tenantId, row, 'confirm');
     void this.statusBackFood99(tenantId, row, 'confirm');
@@ -2696,6 +2680,7 @@ export class DeliveryService {
 
   /** O nome do aviso para o registro: o evento do modelo (saiu_entrega…) ou o evento cru. */
   private static acaoDoAviso(ped: any, evento: string): string {
+    if (evento === EVENTO_CODIGO) return EVENTO_CODIGO; // não é aviso de status (senão saía como "confirmado")
     const final = evento === 'status' && ped?.status === 'cancelado' ? 'cancelado' : evento;
     return DeliveryService.eventoDeStatus(ped?.status, ped?.tipo, final) ?? (final === 'status' ? `status_${ped?.status ?? ''}` : final);
   }
@@ -2724,6 +2709,12 @@ export class DeliveryService {
             signal: AbortSignal.timeout(15_000),
           });
           if (res.ok) {
+            // A nuvem diz quando o aviso NÃO saiu de lá (ex.: a loja não tem robô de WhatsApp) — fica o motivo.
+            const j: any = await res.json().catch(() => null);
+            if (j?.resultado === 'nao_enviado') {
+              this.registrarAviso(tenantId, ped.id, 'nuvem', DeliveryService.acaoDoAviso(ped, evento), 'nao_enviado', j?.motivo ? String(j.motivo).slice(0, 200) : null, res.status);
+              return;
+            }
             this.registrarAviso(tenantId, ped.id, 'nuvem', DeliveryService.acaoDoAviso(ped, evento), 'enviado', null, res.status);
             return;
           }
@@ -2736,7 +2727,48 @@ export class DeliveryService {
     }
     this.registrarAviso(tenantId, ped.id, 'nuvem', DeliveryService.acaoDoAviso(ped, evento), 'falhou', `a nuvem não enviou o aviso (${ultimo})`);
     this.logger.warn(`[aviso-status] nuvem não enviou o aviso do pedido ${ped.id} (${ultimo}) — tentando pela loja`);
+    if (evento === EVENTO_CODIGO) {
+      const codigo = DeliveryService.avisoDoCodigo(ped);
+      if (codigo) await this.notificarN8n(tenantId, codigo); // sem robô na loja, fica registrado "não enviado"
+      return;
+    }
     await this.enviarAvisoStatus(tenantId, ped, evento);
+  }
+
+  /**
+   * O aviso do CÓDIGO DE ENTREGA ao cliente: ele vai precisar informar o código ao entregador. SÓ Cardápio
+   * Regem, na entrega, com código e telefone — marketplace e integrado (Anota Aí, iFood, 99Food, Cardápio Web,
+   * Rappi…) têm o próprio fluxo e NÃO podem receber mensagem pelo WhatsApp do Regem (mesmo motivo do #391).
+   * Null = este pedido não tem aviso de código.
+   */
+  private static avisoDoCodigo(row: any): Record<string, unknown> | null {
+    if (DeliveryService.grupoCanal(String(row?.canal ?? '')) !== 'regem') return null;
+    if (row.tipo === 'retirada' || !row.codigoEntrega || !row.clienteTelefone) return null;
+    return {
+      evento: EVENTO_CODIGO,
+      pedidoId: row.id,
+      numero: row.numero,
+      displayId: row.displayId,
+      cliente: row.clienteNome,
+      telefone: String(row.clienteTelefone).replace(/\D/g, ''),
+      codigoEntrega: String(row.codigoEntrega),
+    };
+  }
+
+  /**
+   * Envia o aviso do código de entrega (no aceite). NUVEM: pelo robô de WhatsApp da loja (n8n). SERVIDOR DA LOJA:
+   * pede à nuvem (`aviso-da-loja`, evento `codigo_entrega`) — a loja não tem o endereço do robô (a tabela
+   * `integracao` não desce), e antes o aviso saía direto daqui e ficava "não enviado" (V37). Nunca rejeita (V3).
+   */
+  private async avisarCodigoDeEntrega(tenantId: string, row: any): Promise<void> {
+    try {
+      const aviso = DeliveryService.avisoDoCodigo(row);
+      if (!aviso) return;
+      if (ehServidorLocal()) await this.encaminharAvisoParaNuvem(tenantId, row, EVENTO_CODIGO);
+      else await this.notificarN8n(tenantId, aviso);
+    } catch (e: any) {
+      this.logger.warn(`[aviso-codigo] pedido ${row?.id ?? '?'}: ${e?.message ?? e}`);
+    }
   }
 
   // NUVEM ← SERVIDOR LOCAL: a loja pede o aviso de um pedido dela. Só pedido que a nuvem CONHECE
@@ -2754,7 +2786,8 @@ export class DeliveryService {
     if (!row) throw new ConflictException('Pedido ainda não chegou à nuvem — tente de novo.');
     const evento = typeof dto?.evento === 'string' ? dto.evento.slice(0, 40) : 'status';
     const status = typeof dto?.status === 'string' ? dto.status.slice(0, 40) : row.status;
-    const chave = `${id}:${status}:${evento}`;
+    // O código vai uma vez por pedido, seja qual for o status em que a loja pediu.
+    const chave = evento === EVENTO_CODIGO ? `${id}:${evento}` : `${id}:${status}:${evento}`;
     const agora = Date.now();
     for (const [k, em] of this.avisosRecentes) if (agora - em > 10 * 60_000) this.avisosRecentes.delete(k);
     if (this.avisosRecentes.has(chave)) return { ok: true, repetido: true };
@@ -2766,6 +2799,14 @@ export class DeliveryService {
       motivoCancelamento: dto?.motivoCancelamento ?? (row as any).motivoCancelamento ?? null,
     };
     if (DeliveryService.grupoCanal(ped.canal) !== 'regem') return { ok: true, ignorado: 'canal' };
+    if (evento === EVENTO_CODIGO) {
+      // O código da NUVEM: é o que o app do entregador confere (o mesmo da loja — nasce com o pedido e viaja com ele).
+      const aviso = DeliveryService.avisoDoCodigo(ped);
+      if (!aviso) return { ok: true, ignorado: 'sem_codigo' };
+      const r = await this.notificarN8n(tenantId, aviso);
+      // Não saiu (loja sem robô de WhatsApp, endereço bloqueado): a loja registra o MOTIVO, não "enviado".
+      return r.saiu ? { ok: true } : { ok: true, resultado: 'nao_enviado', motivo: r.motivo ?? null };
+    }
     await this.enviarAvisoStatus(tenantId, ped, evento);
     return { ok: true };
   }
@@ -2947,7 +2988,8 @@ export class DeliveryService {
   // Envia um payload arbitrário ao webhook n8n da loja (canal 'n8n', URL em
   // merchant_id, HMAC em client_secret). Público: outros módulos (encomenda/sinal)
   // reusam para avisos de WhatsApp. Sempre carimba `em`. No-op se não configurado.
-  async notificarN8n(tenantId: string, payload: Record<string, unknown>): Promise<void> {
+  // Responde se o aviso SAIU para o robô (`saiu`), ou por que não saiu — a resposta do robô fica no registro.
+  async notificarN8n(tenantId: string, payload: Record<string, unknown>): Promise<{ saiu: boolean; motivo?: string }> {
     const evento = String(payload?.evento ?? 'status');
     // Registro na linha do tempo do pedido (mig 305): só quando o aviso é de um pedido e o status
     // gera aviso ao cliente (`eventoStatus: null` = o robô recebe, mas não fala com o cliente).
@@ -2976,14 +3018,16 @@ export class DeliveryService {
       })();
       if (!url) {
         this.logger.warn(`[n8n-aviso] evento=${evento} SEM URL (integração n8n inativa e OTP_WEBHOOK_URL vazio)`);
-        registrar('nao_enviado', 'o robô de WhatsApp não está configurado para esta loja');
-        return;
+        const motivo = 'o robô de WhatsApp não está configurado para esta loja';
+        registrar('nao_enviado', motivo);
+        return { saiu: false, motivo };
       }
       // Anti-SSRF: a URL vem do lojista — bloqueia IP privado/local/metadata cloud.
       if (!(await urlPublicaSegura(url))) {
         this.logger.warn(`[n8n-aviso] evento=${evento} BLOQUEADO (URL não-pública): ${host}`);
-        registrar('nao_enviado', 'o endereço do robô de WhatsApp foi bloqueado (não é público)');
-        return;
+        const motivo = 'o endereço do robô de WhatsApp foi bloqueado (não é público)';
+        registrar('nao_enviado', motivo);
+        return { saiu: false, motivo };
       }
       const body = JSON.stringify({ em: new Date().toISOString(), ...payload });
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -3008,8 +3052,10 @@ export class DeliveryService {
           this.logger.warn(`[n8n-aviso] evento=${evento} fonte=${fonte} → ${host} FALHOU: ${e?.message ?? e}`);
           registrar('falhou', 'o robô de WhatsApp não respondeu');
         });
+      return { saiu: true };
     } catch (e: any) {
       this.logger.warn(`[n8n-aviso] evento=${evento} erro interno: ${e?.message ?? e}`);
+      return { saiu: false, motivo: 'erro ao montar o aviso' };
     }
   }
 

@@ -1019,7 +1019,16 @@ export const api = {
     }),
   // Delivery (Fase H)
   deliveryPedidos: () => req('/delivery/pedidos'),
-  filaEntregadores: () => req('/entregador/fila'), // Frente 2c — fila da loja p/ o painel do atendente
+  // Frente 2c — fila da loja p/ o painel do atendente. A rota nova é servida TAMBÉM pelo servidor da loja (que pede à
+  // nuvem, onde o app do entregador entra na fila); a antiga (só nuvem) fica de reserva para API ainda não atualizada.
+  filaEntregadores: async (): Promise<{ entregadores: any[]; semConexao?: boolean }> => {
+    try {
+      return await req('/delivery/entregadores-ao-vivo/fila');
+    } catch {
+      const antiga: any = await req('/entregador/fila');
+      return { entregadores: Array.isArray(antiga) ? antiga : [] };
+    }
+  },
   relatorioEntregas: (inicio: string, fim: string) => // Frente 4 — relatório por período
     req(`/entregador/relatorio?inicio=${encodeURIComponent(inicio)}&fim=${encodeURIComponent(fim)}`),
   aceitarDelivery: (id: string) =>

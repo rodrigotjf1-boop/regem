@@ -23,6 +23,13 @@
     verdade, avisando o dono se o Windows não confiar.
   - **Só em certificado novo:** série única e SKI/AKI (o da loja é mantido).
   - **Conferir na loja depois do `.zip`:** em até 30 s o ícone se reabre e lista os aparelhos.
+- **Modo local: a fila do entregador e o código de entrega pela nuvem (ERR-308, ERR-309; PR desta entrega) — vai no
+  `.zip`:** o painel do delivery no servidor da loja passa a pedir a fila à nuvem (onde o app do entregador entra), e
+  mostra "sem conexão com a nuvem" em vez de "fila vazia" quando não consegue. O código de entrega do Cardápio Regem,
+  avisado no aceite, sai pela nuvem (que tem o robô de WhatsApp da loja); sem robô configurado, o pedido registra o
+  motivo. A nuvem já atende no merge; a loja só depois do `.zip`.
+  - **Conferir na loja depois do `.zip`:** entregador entra na fila pelo app → as iniciais aparecem no bloco "🛵 Fila"
+    do Delivery › Painel em até 25 s.
 - **Esperando o dono — o Terminal de Ponto no sincronismo (P1b do plano de 25/10):** hoje ele não sobe nem desce, e
   desde o #737 a reinstalação preserva o banco quando há um. Para sincronizar é preciso:
   - garantir a sequência do NSR depois de restaurar (as marcações só sobem; o NSR é `max+1` local);
