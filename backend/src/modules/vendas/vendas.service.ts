@@ -9,6 +9,7 @@ import {
 } from '../fiscal/nfce-totem';
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -78,6 +79,7 @@ import { VendaBalcaoDto } from './dto/venda-balcao.dto';
 import { VendaExternaPdvDto } from './dto/venda-externa-pdv.dto';
 import { VendaExternaFalhaDto } from './dto/venda-externa-falha.dto';
 import { hojeISO } from '../../common/data';
+import { pedidoDeliveryEmAndamento } from './pedido-delivery-da-venda';
 import { linhaEntra, PEDIDO_EXTERNO, SO_INGREDIENTES, type VendaDaFicha } from '../../common/embalagem-da-ficha';
 import { mesmaEmbalagemDaEmpresa } from '../fichas/fichas-carga';
 import { instanteDe } from '../../common/fuso-sql';
@@ -3452,8 +3454,12 @@ export class VendasService {
     `).then((r: any) => r.rows ?? r);
   }
 
-  getCupom(tenantId: string, id: string) {
-    return this.getComanda(tenantId, id);
+  // O cupom, e — se for venda de um pedido de delivery ainda em andamento — o pedido: a tela troca o "Cancelar venda"
+  // pelo caminho do painel do delivery (o servidor recusa o cancelamento por aqui de qualquer jeito).
+  async getCupom(tenantId: string, id: string) {
+    const c: any = await this.getComanda(tenantId, id);
+    const ped = await pedidoDeliveryEmAndamento(this.db, tenantId, id);
+    return { ...c, pedidoDelivery: ped };
   }
 
   // Busca um cupom pela SENHA (nº que o operador enxerga) — pega o mais recente.
@@ -3467,7 +3473,7 @@ export class VendasService {
       .orderBy(desc(comanda.abertaEm))
       .limit(1);
     if (!c) throw new NotFoundException('Nenhum cupom com essa senha.');
-    return this.getComanda(tenantId, c.id);
+    return this.getCupom(tenantId, c.id);
   }
 
   // Configuração do presidente/C&O: se o cancelamento é livre para o atendente.
@@ -3600,6 +3606,13 @@ export class VendasService {
         throw new BadRequestException(
           c.status === 'cancelada' ? 'Já cancelado.' : 'Só cancela venda fechada.',
         );
+      const ped = await pedidoDeliveryEmAndamento(tx, tenantId, comandaId);
+      if (ped)
+        throw new ConflictException({
+          code: 'PEDIDO_DE_DELIVERY',
+          pedidoId: ped.id,
+          message: `Esta venda é do pedido de delivery ${ped.rotulo}, que ainda está em andamento. Cancele em Delivery › Painel (botão CANCELAR): lá o cancelamento avisa o canal e devolve o cashback e os pontos do cliente.`,
+        });
       cancelada = c;
 
       // O estorno entra no caixa ABERTO: o deste terminal (como a venda) — antes passava
