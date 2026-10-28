@@ -9,6 +9,7 @@ import {
   cashbackVale,
   produto,
 } from '../../db/schema';
+import { uuidDeChave } from '../../common/id-deterministico';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const soDigitos = (s?: string) => (s ?? '').replace(/\D/g, '');
@@ -272,18 +273,24 @@ export class CashbackService {
     }
     let saldoDevolvido = 0;
     for (const [tipo, info] of porTipo) {
+      // O lançamento do estorno tem id TIRADO DO PEDIDO (V42): o servidor da loja e a nuvem podem estornar o mesmo
+      // pedido (a loja cancela enquanto a nuvem recebe o "cancelado" do canal), e duas chamadas juntas no mesmo
+      // servidor leem o extrato antes de qualquer uma gravar. Com id aleatório, cada uma gravava o seu e, no sincronismo,
+      // o cliente perdia o cashback DUAS vezes; com o mesmo id, o segundo lançamento não entra.
       // 1. Remove o que sobrou de crédito ganho (sempre).
       if (info.credito > 0) {
         await this.ajustarSaldo(tenantId, info.tel, info.cli ?? undefined, tipo, -info.credito, 'estorno', {
           pedidoId,
+          id: uuidDeChave('cashback-estorno', tenantId, pedidoId, tipo),
         });
       }
       // 2. Devolve o gasto (opcional, idempotente): info.gasto é negativo → re-credita.
       if (devolverGasto && info.gasto < 0 && !info.jaDevolvido) {
-        await this.ajustarSaldo(tenantId, info.tel, info.cli ?? undefined, tipo, -info.gasto, 'estorno_devolucao', {
+        const entrou = await this.ajustarSaldo(tenantId, info.tel, info.cli ?? undefined, tipo, -info.gasto, 'estorno_devolucao', {
           pedidoId,
+          id: uuidDeChave('cashback-estorno-devolucao', tenantId, pedidoId, tipo),
         });
-        if (tipo === 'valor') saldoDevolvido += -info.gasto;
+        if (entrou && tipo === 'valor') saldoDevolvido += -info.gasto;
       }
     }
     // 3. Vales usados no pedido voltam a ficar disponíveis (só se devolver o gasto).
@@ -312,8 +319,8 @@ export class CashbackService {
     tipo: string,
     delta: number,
     origem: string,
-    extra: { planoId?: string; pedidoId?: string; expiraEm?: Date | null } = {},
-  ) {
+    extra: { planoId?: string; pedidoId?: string; expiraEm?: Date | null; id?: string } = {},
+  ): Promise<boolean> {
     // O EXTRATO é a verdade. Desde a mig 274 um gatilho recalcula `cashback_saldo` como a
     // soma dos movimentos a cada linha inserida — inclusive a que chega pelo sincronismo,
     // que é como o crédito feito na loja passa a existir para o cliente.
@@ -321,16 +328,23 @@ export class CashbackService {
     // ⚠️ Por isso este método NÃO soma mais o delta no saldo: quando ele lesse a linha, o
     // gatilho JÁ teria somado, e o crédito entraria duas vezes. O que sobra aqui é o PRAZO
     // de validade, que é regra de negócio e não sai do extrato.
-    await this.db.insert(cashbackMovimento).values({
-      tenantId,
-      telefone: tel,
-      clienteId: clienteId ?? null,
-      tipo,
-      delta: String(delta),
-      origem,
-      planoId: extra.planoId ?? null,
-      pedidoId: extra.pedidoId ?? null,
-    });
+    // Com `id` (o do estorno, tirado do pedido): o mesmo lançamento não entra duas vezes. Devolve se entrou.
+    const gravou = await this.db
+      .insert(cashbackMovimento)
+      .values({
+        ...(extra.id ? { id: extra.id } : {}),
+        tenantId,
+        telefone: tel,
+        clienteId: clienteId ?? null,
+        tipo,
+        delta: String(delta),
+        origem,
+        planoId: extra.planoId ?? null,
+        pedidoId: extra.pedidoId ?? null,
+      })
+      .onConflictDoNothing({ target: cashbackMovimento.id })
+      .returning({ id: cashbackMovimento.id });
+    if (!gravou.length) return false;
     if (delta > 0 && extra.expiraEm) {
       // Crédito renova o prazo. (O gatilho já criou/atualizou a linha do saldo.)
       await this.db
@@ -344,6 +358,7 @@ export class CashbackService {
           ),
         );
     }
+    return true;
   }
 
   // Expira saldo vencido (lazy) e devolve o saldo atual por tipo.

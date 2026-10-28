@@ -6,7 +6,9 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { ehGestor } from '../../auth/niveis';
 import { autorizarPorSenhaDeGestor } from '../../common/autorizacao-gestor';
@@ -33,7 +35,7 @@ import { CreateTituloDto } from './dto/create-titulo.dto';
 import { PagarTituloDto } from './dto/pagar-titulo.dto';
 import { hojeISO } from '../../common/data';
 import { idEntitlement } from '../../common/id-deterministico';
-import { baixarPendenciasAntigas, escopoDoTurno, pendenciasDoTurno } from '../delivery/pendencias-turno';
+import { baixarPendenciasAntigas, escopoDoTurno, EVENTO_CANCELADOS_NA_BAIXA, pendenciasDoTurno } from '../delivery/pendencias-turno';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -50,6 +52,7 @@ export class FinanceiroService {
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly auditoria: AuditoriaService,
     private readonly producao: ProducaoPedidoService,
+    @Optional() private readonly events?: EventEmitter2,
   ) {}
 
   // Nome do operador e do terminal (para os cupons de caixa). Best-effort.
@@ -783,11 +786,13 @@ export class FinanceiroService {
   }
 
   // Baixa administrativa das pendências antigas (ver `pendencias-turno.ts`): um clique do
-  // gerente/presidente, auditado. Não mexe em estoque, caixa, canal nem cliente.
+  // gerente/presidente, auditado. Não mexe em estoque, caixa nem canal; o pedido cancelado (nunca aceito) devolve ao
+  // cliente o cashback e os pontos, como todo cancelamento (o delivery estorna, pelo evento).
   async baixarPendenciasAntigas(tenantId: string, atorId: string, atorPerfil: string, unidadeAtual: string | null, origem: string | undefined) {
     if (!gerenteOuPresidente(atorPerfil)) throw new ForbiddenException('Só gerente ou presidente baixa as pendências antigas.');
     const escopo = escopoDoTurno(origem);
     const r = await baixarPendenciasAntigas(this.db, tenantId, unidadeAtual, escopo);
+    if (r.canceladosComCliente.length) this.events?.emit(EVENTO_CANCELADOS_NA_BAIXA, { tenantId, pedidos: r.canceladosComCliente });
     if (r.concluidos + r.cancelados > 0) {
       await this.auditoria.registrar({
         tenantId,
@@ -804,7 +809,7 @@ export class FinanceiroService {
           porCanal: r.porCanal,
           // a lista inteira não cabe no registro quando são centenas: os 200 primeiros e a contagem
           pedidos: r.ids.slice(0, 200),
-          semEfeitos: 'não baixou estoque, não lançou no caixa, não avisou canal nem cliente',
+          semEfeitos: 'não baixou estoque, não lançou no caixa, não avisou canal nem cliente; o cancelado devolveu cashback e pontos',
         },
       });
     }

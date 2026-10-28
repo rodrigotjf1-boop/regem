@@ -129,7 +129,8 @@ export function PendenciasTurno({
             <>
               <p className="mt-1 text-muted-foreground">
                 Os pedidos aceitos passam a <strong>concluídos</strong> e os que nunca foram aceitos, a <strong>cancelados</strong>. É só o registro que fecha:{' '}
-                <strong>não baixa estoque, não mexe no caixa e não avisa o canal nem o cliente</strong>. Pedido em rota fica de fora. A baixa fica na auditoria.
+                <strong>não baixa estoque, não mexe no caixa e não avisa o canal nem o cliente</strong>. O cancelado devolve ao cliente o
+                cashback e os pontos, como todo cancelamento. Pedido em rota fica de fora. A baixa fica na auditoria.
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
                 <Button type="button" size="sm" onClick={baixarAntigas} disabled={busy}>

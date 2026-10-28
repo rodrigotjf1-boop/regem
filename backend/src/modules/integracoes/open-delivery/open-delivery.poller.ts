@@ -50,8 +50,22 @@ export class OpenDeliveryPoller {
     // reconhecidos e o pedido se perdia (ERR-061). Reprocessar é seguro (ingest idempotente).
     const processados: any[] = [];
     for (const ev of eventos) {
-      // Só pedidos novos entram na fila; demais eventos são só reconhecidos.
-      if (String(ev.eventType).toUpperCase() !== 'CREATED') {
+      const tipo = String(ev.eventType).toUpperCase();
+      // O canal CANCELOU o pedido (doc oficial do Open Delivery: "the Software Service must cancel the order" — o cliente
+      // desistiu, ou a plataforma cancelou sem perguntar). Antes o evento era reconhecido e ignorado: o pedido seguia
+      // na cozinha e no painel, a venda ficava de pé e o cashback e os pontos não voltavam. Passa pelo MESMO caminho do
+      // iFood e da 99 (`refletirStatusExterno`): desfaz a venda, tira da cozinha e estorna. Sem ACK se falhar (volta).
+      if (tipo === 'CANCELLED') {
+        try {
+          await this.delivery.refletirStatusExterno(ig.tenantId, ig.canal, String(ev.orderId), 'cancelado');
+          processados.push(ev);
+        } catch (e: any) {
+          this.logger.warn(`pedido ${ev.orderId}: o cancelamento do canal não foi aplicado (${e?.message ?? e}) — sem ACK, volta`);
+        }
+        continue;
+      }
+      // Fora o pedido novo e o cancelamento, os eventos são só reconhecidos.
+      if (tipo !== 'CREATED') {
         processados.push(ev);
         continue;
       }
