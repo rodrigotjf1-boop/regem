@@ -103,8 +103,9 @@ const agora = new Date();
 const ontem = new Date(agora.getTime() - 24 * 3600 * 1000); // margem p/ relogio adiantado do cliente
 
 // Numero de serie UNICO (ERR-307): antes toda CA era "Regem Edge CA" com serie 01 (e todo certificado, serie 02) - o
-// Windows tratava as CAs de trocas anteriores como a mesma e usava a errada. 16 bytes aleatorios, positivo (1o byte < 0x80).
-const serieUnica = () => { const b = randomBytes(16); b[0] &= 0x7f; return b.toString('hex'); };
+// Windows tratava as CAs de trocas anteriores como a mesma e usava a errada. 16 bytes aleatorios, positivo e SEM zero na
+// frente (1o byte entre 0x40 e 0x7f): com o 1o byte zero (1 em 128) o DER encurta a serie para 15 bytes (ERR-324).
+const serieUnica = () => { const b = randomBytes(16); b[0] = 0x40 | (b[0] & 0x3f); return b.toString('hex'); };
 
 // ---- CA raiz (auto-assinada) ----
 const caKeys = forge.pki.rsa.generateKeyPair(2048);

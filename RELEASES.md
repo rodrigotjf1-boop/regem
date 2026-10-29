@@ -27,7 +27,8 @@
   presa assim só recebe esta correção destravando à mão (renomear `logs\update-status.json`) ou pelo suporte.
 - **Só no próximo `.exe` (servidor e estação) — os ícones trocados na reinstalação (ERR-323):** `ignoreversion` na
   cópia do sistema. Sem ele, reinstalar pelo `.exe` mantinha o `RegemServidor.exe`/`RegemEstacao.exe` da primeira
-  instalação. Não pede `.exe` sozinho: o `.zip` já troca os ícones (`Trocar-Icones`).
+  instalação. Não pede `.exe` sozinho: o `.zip` já troca os ícones (`Trocar-Icones`). Junto: a série do certificado
+  da loja sempre com 16 bytes (`gen-cert.mjs`, ERR-324 — só deixava um teste instável; o certificado já era válido).
 - **Só no próximo `.exe` (servidor) — o resto do #742 (ERR-307):** a 1.30.12 leva o ícone que confere pela CA da
   loja. Duas partes só chegam reinstalando o servidor com um `.exe` cortado depois do #742:
   - o instalador que tira do Windows as "Regem Edge CA" antigas e confere a confiança de verdade;
