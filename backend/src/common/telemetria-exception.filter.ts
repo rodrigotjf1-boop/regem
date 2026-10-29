@@ -5,6 +5,7 @@ import { AppError } from './errors/app-error';
 import { ErrorCodes } from './errors/error-codes';
 import type { ErrorCode } from './errors/error-codes';
 import { mapPgError } from './errors/pg-error';
+import { urlParaLog } from './url-para-log';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* Filtro global de exceção. Padroniza o ENVELOPE de erro do cliente de forma ADITIVA —
@@ -41,7 +42,7 @@ export class TelemetriaExceptionFilter extends BaseExceptionFilter {
     if (ex !== exception && status < 500) {
       const err = exception as any;
       logErro.warn(
-        `${req?.method ?? '?'} ${req?.originalUrl ?? req?.url ?? '?'} → ${status}` +
+        `${req?.method ?? '?'} ${urlParaLog(req?.originalUrl ?? req?.url) || '?'} → ${status}` +
           `${requestId ? ` [${requestId}]` : ''} (erro do banco): ${err?.code ? `[${err.code}] ` : ''}${err?.message ?? err}`,
       );
     }
@@ -52,7 +53,7 @@ export class TelemetriaExceptionFilter extends BaseExceptionFilter {
     if (status >= 500) {
       const err = exception as any;
       logErro.error(
-        `${req?.method ?? '?'} ${req?.originalUrl ?? req?.url ?? '?'} → ${status}` +
+        `${req?.method ?? '?'} ${urlParaLog(req?.originalUrl ?? req?.url) || '?'} → ${status}` +
           `${requestId ? ` [${requestId}]` : ''}: ${err?.code ? `[${err.code}] ` : ''}${err?.message ?? err}`,
         err?.stack,
       );
@@ -70,7 +71,7 @@ export class TelemetriaExceptionFilter extends BaseExceptionFilter {
           mensagem: String(err?.message ?? err),
           stack: err?.stack ? String(err.stack) : null,
           versao: process.env.APP_VERSION ?? null,
-          contexto: { rota: req?.url, metodo: req?.method, requestId: requestId ?? null },
+          contexto: { rota: urlParaLog(req?.url), metodo: req?.method, requestId: requestId ?? null },
         });
       }
     } catch {

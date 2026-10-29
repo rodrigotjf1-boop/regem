@@ -1,20 +1,12 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, ilike, or, sql } from 'drizzle-orm';
-import { timingSafeEqual } from 'node:crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig, pedidoExterno } from '../../db/schema';
 import { gerarCardapioPdf } from './cardapio-pdf';
 import { fetchExterno } from '../../common/fetch-externo';
+import { segredoDoRoboOk } from '../../common/segredo-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// Compara o segredo do bot em tempo CONSTANTE (evita timing attack). Falha se o
-// esperado não está setado ou os tamanhos diferem.
-function segredoBotOk(recebido: string, esperado: string): boolean {
-  if (!esperado) return false;
-  const a = Buffer.from(String(recebido ?? ''));
-  const b = Buffer.from(esperado);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
 // Onboarding do WhatsApp da loja via Evolution API (v2):
 //   POST /instance/create · GET /instance/connect/{name} (QR) ·
 //   GET /instance/connectionState/{name} · POST /webhook/set/{name}
@@ -763,8 +755,7 @@ export class WhatsappService {
     numero?: string,
     phoneNumberId?: string,
   ) {
-    const esperado = process.env.BOT_RESOLVER_SECRET ?? '';
-    if (!segredoBotOk(secret, esperado)) throw new BadRequestException('Não autorizado.');
+    if (!segredoDoRoboOk(secret)) throw new BadRequestException('Não autorizado.');
     const cfg = await this.lojaPorChaveBot(instancia, phoneNumberId);
     if (!cfg) throw new NotFoundException('Número/instância não vinculado a uma loja.');
     const num = String(numero ?? '').replace(/\D/g, '');
@@ -815,8 +806,7 @@ export class WhatsappService {
     telefone?: string,
     phoneNumberId?: string,
   ) {
-    const esperado = process.env.BOT_RESOLVER_SECRET ?? '';
-    if (!segredoBotOk(secret, esperado)) throw new BadRequestException('Não autorizado.');
+    if (!segredoDoRoboOk(secret)) throw new BadRequestException('Não autorizado.');
     const cfg = await this.lojaPorChaveBot(instancia, phoneNumberId);
     if (!cfg) throw new NotFoundException('Número/instância não vinculado a uma loja.');
     const tail = this.soNumero(telefone).slice(-8);
@@ -848,8 +838,7 @@ export class WhatsappService {
   }
 
   async resolver(instancia: string, secret: string, numero?: string) {
-    const esperado = process.env.BOT_RESOLVER_SECRET ?? '';
-    if (!segredoBotOk(secret, esperado)) throw new BadRequestException('Não autorizado.');
+    if (!segredoDoRoboOk(secret)) throw new BadRequestException('Não autorizado.');
     const [cfg] = await this.db
       .select()
       .from(cardapioConfig)

@@ -36,6 +36,7 @@ import { assinarCliente, verificarCliente } from './cliente-token';
 import { PedidoEmAndamentoError, esquecerCliente } from './esquecer-cliente';
 import { definirNoPerfil, promocoesDoPerfil } from '../cardapio/promocoes-cardapio';
 import { exigirBooleano } from '../../common/exigir';
+import { segredoDoRoboOk } from '../../common/segredo-robo';
 import { SegmentoImport, mapearTabela, nomeUtil, parseCsvClientes, segmentoPeloArquivo } from './importar-planilha';
 import { lerXlsx } from './ler-xlsx';
 import { urlPublicaSegura } from '../../common/ssrf-guard';
@@ -390,8 +391,9 @@ export class ClienteService {
     };
   }
 
-  // Identifica pelo telefone: acha ou cria o cliente, devolve o token assinado.
-  // Acha (ou cria) o cliente pelo telefone; atualiza o nome se veio um novo.
+  // Acha (ou cria) o cliente pelo telefone. Quem chama aqui NÃO provou ser o dono do número
+  // (cardápio anônimo, robô com o nome do perfil do WhatsApp): o nome só entra num cadastro sem
+  // nome — nunca troca o de um cliente que já existe (ERR-316). Trocar é com o código (OTP).
   private async acharOuCriarCliente(tenantId: string, telefone?: string, nome?: string) {
     const tel = telefoneCadastro(telefone); // sem o 55, como o cadastro guarda (ERR-135)
     if (tel.length < 10) throw new BadRequestException('Telefone inválido.');
@@ -401,7 +403,7 @@ export class ClienteService {
         .insert(cliente)
         .values({ tenantId, telefone: tel, nome: nome?.trim() || null, consentimentoLgpd: true })
         .returning();
-    } else if (nome?.trim() && nome.trim() !== c.nome) {
+    } else if (nome?.trim() && !c.nome?.trim()) {
       [c] = await this.db
         .update(cliente)
         .set({ nome: nome.trim(), atualizadoEm: new Date() })
@@ -941,10 +943,17 @@ export class ClienteService {
   }
 
   // Link curto por cliente (slug ~8 chars). Reusa o slug se já existir.
+  //
+  // SÓ O ROBÔ (n8n, com a senha do robô) pede o link — ele manda ao PRÓPRIO número do cliente, no
+  // WhatsApp. O slug vale uma sessão (resolverLink → clienteToken → endereços, histórico, código de
+  // entrega); devolvê-lo a quem só sabe o token PÚBLICO do cardápio e um telefone anulava o CL-4
+  // (ERR-316).
   async criarLink(
     cardapioToken: string,
     dto: { telefone?: string; nome?: string },
+    segredo: string,
   ): Promise<{ slug: string; url: string }> {
+    if (!segredoDoRoboOk(segredo)) throw new UnauthorizedException('Não autorizado.');
     const tenantId = await this.tenantDoCardapio(cardapioToken);
     const c = await this.acharOuCriarCliente(tenantId, dto.telefone, dto.nome);
     let [link] = await this.db

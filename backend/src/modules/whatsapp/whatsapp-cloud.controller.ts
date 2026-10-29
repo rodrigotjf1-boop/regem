@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Header,
+  Headers,
   HttpCode,
   Logger,
   Post,
@@ -15,6 +16,7 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { CloudOnly } from '../../common/cloud-only.decorator';
+import { CABECALHO_SEGREDO_ROBO, segredoDaChamada } from '../../common/segredo-robo';
 import { WhatsappCloudService } from './whatsapp-cloud.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -106,9 +108,10 @@ export class WhatsappCloudController {
   @Throttle({ default: { ttl: 60000, limit: 300 } })
   enviarBot(
     @Body() dto: { secret?: string; phoneNumberId?: string; para?: string; texto?: string },
+    @Headers(CABECALHO_SEGREDO_ROBO) segredo?: string,
   ) {
     return this.service.enviarPeloBot(
-      dto?.secret ?? '',
+      segredoDaChamada(segredo, dto?.secret),
       dto?.phoneNumberId ?? '',
       dto?.para ?? '',
       dto?.texto ?? '',
@@ -130,9 +133,10 @@ export class WhatsappCloudController {
       params?: string[];
       rastreio?: string;
     },
+    @Headers(CABECALHO_SEGREDO_ROBO) segredo?: string,
   ) {
     return this.service.enviarTemplatePeloBot(
-      dto?.secret ?? '',
+      segredoDaChamada(segredo, dto?.secret),
       dto?.phoneNumberId ?? '',
       dto?.para ?? '',
       dto?.template ?? '',
@@ -152,9 +156,10 @@ export class WhatsappCloudController {
     @Query('phoneNumberId') phoneNumberId: string,
     @Query('mediaId') mediaId: string,
     @Res({ passthrough: true }) res: any,
+    @Headers(CABECALHO_SEGREDO_ROBO) segredo?: string,
   ) {
     const { buffer, mime } = await this.service.baixarMidia(
-      secret ?? '',
+      segredoDaChamada(segredo, secret),
       phoneNumberId ?? '',
       mediaId ?? '',
     );

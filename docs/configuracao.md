@@ -30,7 +30,7 @@
 | `EVOLUTION_API_URL` | base da Evolution (WhatsApp) | `https://sua-evolution` | com `/` no fim → ok (tratado) |
 | `EVOLUTION_API_KEY` | apikey global da Evolution | segredo | — |
 | `N8N_BOT_WEBHOOK_URL` | webhook do workflow multi-tenant | URL do n8n | — |
-| `BOT_RESOLVER_SECRET` | protege o resolver do bot | segredo | **tem que bater** com o secret no nó do n8n |
+| `BOT_RESOLVER_SECRET` | senha do robô de WhatsApp: protege as rotas `publico/bot/*` e o link do cliente (`publico/cardapio/:token/cliente/link`) | segredo | **tem que bater** com a do n8n. O n8n manda no cabeçalho `x-regem-robo-segredo`; `?secret=`/`secret` no corpo ainda vale só para os fluxos antigos. Sem ela configurada, as rotas recusam tudo |
 | `LICENSE_PRIVATE_KEY_B64` | **assina** o lease de licença | base64 (do `gen-license-keys.mjs`) | **NUNCA** colocar isto no edge! |
 | `LICENSE_PUBLIC_KEY_B64` | verifica o lease | base64 (pública) | — |
 | `LICENSE_KID` | id da chave (rotação) | `k1` | trocar a chave sem trocar o kid |

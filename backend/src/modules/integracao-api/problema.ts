@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { ErroProblema } from '../../dms/integracao-dms';
 import { anotarChamada } from './chamada-integracao';
+import { urlParaLog } from '../../common/url-para-log';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -159,7 +160,7 @@ export class ProblemaFilter implements ExceptionFilter {
     if (status >= 500 && tipo !== 'integracao-parada') {
       const err = exception as any;
       log.error(
-        `${req?.method ?? '?'} ${req?.originalUrl ?? req?.url ?? '?'} → ${status}` +
+        `${req?.method ?? '?'} ${urlParaLog(req?.originalUrl ?? req?.url) || '?'} → ${status}` +
           `${requestId ? ` [${requestId}]` : ''}: ${err?.code ? `[${err.code}] ` : ''}${err?.message ?? err}`,
         err?.stack,
       );

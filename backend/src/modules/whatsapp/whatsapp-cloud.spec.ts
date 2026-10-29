@@ -23,13 +23,21 @@ function fakeDb(row: any, msgs: any[] = []) {
   return {
     gravadas,
     select: () => ({ from: (t: any) => build(t) }),
+    // Como o índice único (tenant, wamid) do banco: o mesmo wamid não entra duas vezes, e o
+    // `returning` volta vazio para a linha que já existia.
     insert: () => ({
       values: (v: any) => {
-        gravadas.push(v);
-        return { onConflictDoNothing: () => Promise.resolve() };
+        const repetida = !!v?.wamid && gravadas.some((g) => g.wamid === v.wamid);
+        if (!repetida) gravadas.push(v);
+        const p: any = Promise.resolve();
+        p.returning = () => Promise.resolve(repetida ? [] : [{ id: `id-${gravadas.length}` }]);
+        return { onConflictDoNothing: () => p };
       },
     }),
     update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
+    // Lista de saída das ofertas (registrarSaida/registrarVolta): só precisa não quebrar.
+    transaction: async (fn: any) =>
+      fn({ execute: async () => ({ rows: [], rowCount: 0 }), insert: () => ({ values: async () => undefined }) }),
   } as any;
 }
 
@@ -145,6 +153,51 @@ describe('WhatsappCloudService — portões do recebimento', () => {
     ];
     await svc.processar(ev);
     expect(enviados[0]).toMatchObject({ tipo: 'image', texto: 'esse aqui', midiaId: 'media-1' });
+  });
+
+  // ERR-319: a Meta reenvia o webhook quando não recebe 200 a tempo. O histórico já não duplicava,
+  // mas o robô respondia de novo.
+  it('mensagem reenviada pela Meta (mesmo wamid) não vai ao robô de novo', async () => {
+    const { svc, enviados, gravadas } = comLoja(LOJA);
+    await svc.processar(evento('cadê meu pedido?'));
+    await svc.processar(evento('cadê meu pedido?'));
+    expect(gravadas).toHaveLength(1);
+    expect(enviados).toHaveLength(1);
+  });
+
+  it('mensagens diferentes do mesmo cliente seguem todas para o robô', async () => {
+    const { svc, enviados } = comLoja(LOJA);
+    const segunda: any = evento('e a taxa?');
+    segunda.entry[0].changes[0].value.messages[0].id = 'wamid.OUTRA';
+    await svc.processar(evento('oi'));
+    await svc.processar(segunda);
+    expect(enviados.map((m) => m.texto)).toEqual(['oi', 'e a taxa?']);
+  });
+
+  // ERR-317: "cancelar" é o cliente querendo cancelar o PEDIDO — tirava das ofertas e o robô nem via.
+  it('"cancelar" vai ao robô e NÃO tira o cliente das ofertas', async () => {
+    const { svc, enviados } = comLoja(LOJA);
+    const textos: string[] = [];
+    (svc as any).enviarTexto = async (_t: string, _p: string, texto: string) => {
+      textos.push(texto);
+    };
+    await svc.processar(evento('Cancelar'));
+    expect(enviados).toHaveLength(1);
+    expect(enviados[0].texto).toBe('Cancelar');
+    expect(textos).toHaveLength(0);
+  });
+
+  it('SAIR continua tirando das ofertas, sem ir ao robô — e o reenvio não confirma duas vezes', async () => {
+    const { svc, enviados } = comLoja(LOJA);
+    const textos: string[] = [];
+    (svc as any).enviarTexto = async (_t: string, _p: string, texto: string) => {
+      textos.push(texto);
+    };
+    await svc.processar(evento('SAIR'));
+    await svc.processar(evento('SAIR'));
+    expect(enviados).toHaveLength(0);
+    expect(textos).toHaveLength(1);
+    expect(textos[0]).toContain('não vai mais receber ofertas');
   });
 
   it('não quebra com evento que só traz status de entrega', async () => {
