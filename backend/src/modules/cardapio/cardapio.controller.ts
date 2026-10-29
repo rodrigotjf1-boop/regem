@@ -24,6 +24,7 @@ import { CardapioService } from './cardapio.service';
 
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { exigirBooleano } from '../../common/exigir';
+import { CABECALHO_SEGREDO_ROBO, segredoDaChamada } from '../../common/segredo-robo';
 
 // Público (sem login): o token na URL identifica o cardápio/loja.
 // Cardápio ONLINE = sempre nuvem (cardapioBaseUrl) → não roda no edge.
@@ -198,11 +199,17 @@ export class CardapioPublicoController {
     return this.service.ultimoPedidoPublico(token, ct);
   }
 
-  // Handoff: o robô abre um chamado de atendimento para a loja.
+  // Handoff: o robô abre um chamado de atendimento para a loja — SÓ o robô (n8n), com a senha dele no
+  // cabeçalho `x-regem-robo-segredo` (ou `secret` no corpo, fluxos antigos). O chamado aberto cala o robô
+  // no número: sem a senha, qualquer um com o token público calaria o robô para um cliente (ERR-320).
   @Post(':token/atendimento')
   @Throttle({ default: { ttl: 60000, limit: 20 } })
-  atendimento(@Param('token') token: string, @Body() dto: any) {
-    return this.service.abrirAtendimento(token, dto);
+  atendimento(
+    @Param('token') token: string,
+    @Body() dto: any,
+    @Headers(CABECALHO_SEGREDO_ROBO) segredo?: string,
+  ) {
+    return this.service.abrirAtendimento(token, dto, segredoDaChamada(segredo, dto?.secret));
   }
 }
 

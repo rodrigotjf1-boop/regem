@@ -4,7 +4,9 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
+import { segredoDoRoboOk } from '../../common/segredo-robo';
 import { and, desc, eq, gte, ilike, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { randomBytes } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -15,7 +17,7 @@ import { ratearCentavos } from '../../common/rateio';
 import { REGRA_COM_REPETICAO, rotuloDaEscolha, vezesPorOpcao } from '../../common/adicionais';
 import { geocode, montarEndereco } from '../../common/geocode';
 import { idEntitlement } from '../../common/id-deterministico';
-import { formasNoCadastro, telefoneCadastro } from '../../common/telefone-chave';
+import { chaveTelefone, formasNoCadastro, sqlChaveTelefone, telefoneCadastro } from '../../common/telefone-chave';
 
 // Estamos rodando no servidor EDGE (appliance da loja) e não na nuvem?
 function ehEdge(): boolean {
@@ -319,16 +321,57 @@ export class CardapioService {
     if (payload?.tenantId) await this.sincronizarEsgotados(payload.tenantId).catch(() => undefined);
   }
 
-  // Público (robô): abre um chamado de atendimento (handoff) para a loja.
-  async abrirAtendimento(token: string, dto: any) {
+  // Robô (n8n, com a senha dele): abre um chamado de atendimento (handoff) para a loja. O chamado aberto cala o
+  // robô no número (robo-pausa.ts) — por isso só com a senha (ERR-320). O chamado vem LIGADO ao pedido do cliente
+  // (o número citado, ou o pedido em andamento do mesmo telefone): sem o pedido, o cancelamento pedido pelo robô não
+  // podia ser aceito na tela (o aceite cancela pelo id).
+  async abrirAtendimento(token: string, dto: any, segredo: string) {
+    if (!segredoDoRoboOk(segredo)) throw new UnauthorizedException('Não autorizado.');
     const cfg = await this.resolver(token);
+    const pedido = await this.pedidoDoChamado(cfg.tenantId, dto?.pedidoNumero, dto?.telefone);
     return this.atendimento.abrir(cfg.tenantId, cfg.unidadeId, {
       tipo: dto?.tipo,
       cliente: dto?.cliente,
       telefone: dto?.telefone,
-      pedidoNumero: dto?.pedidoNumero,
+      pedidoNumero: dto?.pedidoNumero || pedido?.numero || undefined,
+      pedidoId: pedido?.id,
       mensagem: dto?.mensagem,
     });
+  }
+
+  /**
+   * O pedido do chamado do robô — SEMPRE do mesmo telefone (a chave casa com/sem 55 e nono dígito): o número citado
+   * nos últimos 3 dias; sem número, o pedido em andamento mais recente das últimas 12 h. Nada casa → sem pedido.
+   */
+  private async pedidoDoChamado(
+    tenantId: string,
+    numero: unknown,
+    telefone: unknown,
+  ): Promise<{ id: string; numero: string } | null> {
+    const k = chaveTelefone(telefone);
+    if (!k) return null;
+    const doTelefone = or(
+      sql`${sqlChaveTelefone(sql`${pedidoExterno.clienteTelefone}`)} = ${k}`,
+      sql`${sqlChaveTelefone(sql`${pedidoExterno.clienteTelefone2}`)} = ${k}`,
+    );
+    const num = String(numero ?? '').replace(/\D/g, '');
+    const numInt = Number(num);
+    const filtro = num
+      ? and(
+          gte(pedidoExterno.criadoEm, sql`now() - interval '3 days'`),
+          or(eq(pedidoExterno.displayId, num), num.length <= 9 && Number.isInteger(numInt) ? eq(pedidoExterno.numero, numInt) : undefined),
+        )
+      : and(
+          gte(pedidoExterno.criadoEm, sql`now() - interval '12 hours'`),
+          sql`${pedidoExterno.status} not in ('concluido', 'cancelado')`,
+        );
+    const [p] = await this.db
+      .select({ id: pedidoExterno.id, numero: pedidoExterno.numero, displayId: pedidoExterno.displayId })
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.tenantId, tenantId), filtro, doTelefone))
+      .orderBy(desc(pedidoExterno.criadoEm))
+      .limit(1);
+    return p ? { id: p.id, numero: String(p.displayId ?? p.numero ?? '') } : null;
   }
 
   // ===== Config (gestor) =====

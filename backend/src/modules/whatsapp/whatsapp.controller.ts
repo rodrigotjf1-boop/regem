@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Headers, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Headers, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
@@ -15,6 +15,16 @@ import { CloudOnly } from '../../common/cloud-only.decorator';
 import { CABECALHO_SEGREDO_ROBO, segredoDaChamada } from '../../common/segredo-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+/** `minutos` do Pausar: ausente = o tempo da loja; 0 = até alguém retomar; senão 1–1440. */
+export function minutosDoPedido(v: unknown): number | null {
+  if (v === undefined || v === null || v === '') return null;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 0 || n > 1440)
+    throw new BadRequestException('minutos deve ser um número inteiro de 0 a 1440 (0 = até alguém retomar).');
+  return n;
+}
+
 // Onboarding do WhatsApp da loja (gestor). O resolver é público (com secret).
 @Controller()
 @CloudOnly()
@@ -174,7 +184,7 @@ export class WhatsappController {
   @RequirePerm('bot')
   enviar(@CurrentUser() user: AuthUser, @Body() dto: { numero?: string; jid?: string; texto?: string }) {
     const numero = dto?.numero ?? (dto?.jid ?? '').split('@')[0];
-    return this.provedores.enviar(user.tenantId, numero ?? '', dto?.texto ?? '');
+    return this.provedores.enviar(user.tenantId, numero ?? '', dto?.texto ?? '', user.colaboradorId);
   }
 
   // Baixa a mídia de uma mensagem sob demanda (miniatura no inbox).
@@ -212,13 +222,37 @@ export class WhatsappController {
     return this.service.enviarCardapio(user.tenantId, dto?.numero ?? '', dto?.cardapioId);
   }
 
-  // Pausa/retoma o robô só nesta conversa (o humano assume).
+  // Pausa/retoma o robô só nesta conversa (o humano assume). `minutos`: por quanto tempo (0 = até alguém
+  // retomar; ausente = o tempo da loja em robo-config).
   @Post('whatsapp/pausar-conversa')
   @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente', 'supervisao')
   @RequirePerm('bot')
-  pausarConversa(@CurrentUser() user: AuthUser, @Body() dto: { numero?: string; pausar?: boolean }) {
-    return this.service.pausarConversa(user.tenantId, dto?.numero ?? '', dto?.pausar !== false);
+  pausarConversa(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: { numero?: string; pausar?: boolean; minutos?: number },
+  ) {
+    return this.service.pausarConversa(user.tenantId, dto?.numero ?? '', dto?.pausar !== false, {
+      minutos: minutosDoPedido(dto?.minutos),
+      por: user.colaboradorId,
+    });
+  }
+
+  // Ajustes do robô que não são do cardápio (mig 342): por quanto tempo ele fica calado depois que o humano assume.
+  @Get('whatsapp/robo-config')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('bot')
+  roboConfig(@CurrentUser() user: AuthUser) {
+    return this.provedores.roboConfig(user.tenantId);
+  }
+
+  @Post('whatsapp/robo-config')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('bot')
+  salvarRoboConfig(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.provedores.salvarRoboConfig(user, dto);
   }
 
   // Modelos aprovados na Meta (API oficial). Alimenta a escolha do modelo num

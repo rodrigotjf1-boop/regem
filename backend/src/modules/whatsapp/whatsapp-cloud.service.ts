@@ -3,6 +3,7 @@ import { Interval } from '@nestjs/schedule';
 import { ehServidorLocal } from '../../common/modo';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
+import { estadoDaPausa, pausaDaConversa, pausarPeloAtendente, pausasDaLojaOuVazio } from './robo-pausa';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig, empresa, whatsappMensagem, whatsappNumero, whatsappTemplate } from '../../db/schema';
 import { registrarSaida, registrarVolta } from '../../common/consentimento-marketing';
@@ -124,7 +125,11 @@ export type MsgNormalizada = {
   timestamp: number;
   midiaId: string | null;
   roboSaudacao: string | null;
+  /** Mensagem de loja fechada/pausada (Delivery › Configurações › Robô de atendimento). */
+  roboAusencia: string | null;
   roboPrompt: string | null;
+  /** Respostas prontas da loja: [{ gatilho, resposta }]. */
+  roboMensagens: any[];
 };
 
 @Injectable()
@@ -218,27 +223,28 @@ export class WhatsappCloudService {
     }
   }
 
-  // Pausa o robô para UMA conversa (coexistência: o lojista respondeu pelo app). Idempotente:
-  // acrescenta o telefone em cardapio_config.robo_pausados sem duplicar. Best-effort.
+  // O robô está calado nesta conversa? (robo-pausa.ts). Se a consulta falhar, o robô responde — como antes da
+  // pausa existir — e o motivo vai para o log: pausa é melhoria, não pode calar a loja inteira.
+  private async conversaPausada(tenantId: string, telefone: string): Promise<boolean> {
+    try {
+      return (await estadoDaPausa(this.db, tenantId, telefone)).pausado;
+    } catch (e: any) {
+      this.logger.warn(`pausa de ${mascarar(telefone)} não consultada (o robô responde): ${e?.message ?? e}`);
+      return false;
+    }
+  }
+
+  // Pausa o robô para UMA conversa (coexistência: o lojista respondeu pelo app) pelo tempo da loja
+  // (robo-pausa.ts, mig 342). Best-effort.
   private async pausarRoboConversa(tenantId: string, telefone: string): Promise<void> {
     try {
       const tel = soDigitos(telefone);
       if (!tel) return;
-      const [cfg] = await this.db
-        .select({ id: cardapioConfig.id, roboPausados: cardapioConfig.roboPausados })
-        .from(cardapioConfig)
-        .where(eq(cardapioConfig.tenantId, tenantId));
-      if (!cfg) return;
-      const atual = Array.isArray(cfg.roboPausados) ? (cfg.roboPausados as any[]).map(String) : [];
-      if (atual.map(soDigitos).includes(tel)) return; // já pausado
-      atual.push(tel);
-      await this.db
-        .update(cardapioConfig)
-        .set({ roboPausados: atual, updatedAt: new Date() })
-        .where(eq(cardapioConfig.id, cfg.id));
+      await pausarPeloAtendente(this.db, { tenantId, telefone: tel, motivo: 'app' });
       this.logger.log(`coexistência: robô pausado para ${mascarar(tel)} (dono respondeu pelo app).`);
-    } catch {
+    } catch (e: any) {
       /* best-effort: pausar é melhoria, nunca pode derrubar o webhook */
+      this.logger.warn(`coexistência: pausa de ${mascarar(telefone)} não gravada: ${e?.message ?? e}`);
     }
   }
 
@@ -438,8 +444,10 @@ export class WhatsappCloudService {
             continue;
           }
 
-          // PORTÃO 3 — humano assumiu esta conversa: o robô não responde.
-          if (!ativo || pausados.has(de)) {
+          // PORTÃO 3 — humano assumiu esta conversa (pausa, chamado aberto — robo-pausa.ts — ou a
+          // pausa antiga do vetor): o robô não responde.
+          const pausada = ativo && (pausados.has(de) || (await this.conversaPausada(cfg.tenantId, de)));
+          if (!ativo || pausada) {
             this.logger.log(
               `sem encaminhar (${!ativo ? 'robô inativo' : 'conversa pausada'}) de=${mascarar(de)}`,
             );
@@ -460,7 +468,9 @@ export class WhatsappCloudService {
             timestamp: Number(m?.timestamp ?? 0),
             midiaId: this.midiaDe(m),
             roboSaudacao: cfg.roboSaudacao ?? null,
+            roboAusencia: cfg.roboAusencia ?? null,
             roboPrompt: cfg.roboPrompt ?? null,
+            roboMensagens: Array.isArray(cfg.roboMensagens) ? (cfg.roboMensagens as any[]) : [],
           };
           await this.encaminhar(msg);
         }
@@ -559,6 +569,14 @@ export class WhatsappCloudService {
     if (cfg.provedor !== 'cloud')
       throw new BadRequestException(`Loja está no provedor '${cfg.provedor}'.`);
 
+    // Resposta do robô que já estava a caminho quando o humano assumiu (pausa, chamado aberto): não sai — senão o
+    // robô fala por cima do atendente. 200 com `enviado: false` (o n8n não trata como erro).
+    const tel = soDigitos(numero);
+    const antigos = (Array.isArray(cfg.roboPausados) ? (cfg.roboPausados as any[]) : []).map(soDigitos);
+    if (tel && (antigos.includes(tel) || (await this.conversaPausada(cfg.tenantId, tel)))) {
+      this.logger.log(`resposta do robô segurada: conversa pausada de=${mascarar(tel)}`);
+      return { ok: true, enviado: false, motivo: 'conversa_pausada' };
+    }
     return this.enviarTexto(cfg.tenantId, numero, texto);
   }
 
@@ -637,6 +655,7 @@ export class WhatsappCloudService {
     const pausados = new Set(
       (Array.isArray(cfg?.roboPausados) ? (cfg!.roboPausados as any[]) : []).map(soDigitos),
     );
+    const pausas = await pausasDaLojaOuVazio(this.db, tenantId, (m) => this.logger.warn(m));
 
     const linhas = await this.db
       .select()
@@ -660,7 +679,7 @@ export class WhatsappCloudService {
         naoLidas: 0,
         ultimaMensagem: null as string | null,
         timestamp: 0,
-        pausada: pausados.has(tel),
+        ...pausaDaConversa(pausas, pausados, tel),
         _ultimaSaida: 0,
       };
       if (!g.nome && l.nomeContato) g.nome = l.nomeContato;
