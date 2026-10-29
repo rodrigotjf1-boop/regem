@@ -21,6 +21,14 @@
   O resto das Fases 0 e 1 (pausa do robô, chamado, senha do robô) é só da nuvem e já está no ar. Sem migration na
   loja (a 342 é só da nuvem).
 
+- **`.zip` — a tela de atualização não fica mais presa (ERR-322):** um status de atualização que parou sem terminar
+  (de uma versão antiga, PC desligado no meio) vai para a tela como "a última tentativa parou sem terminar" e libera
+  "Instalar agora"; antes a tela mostrava "Iniciando… 2%" para sempre e desligava todos os botões. A loja que já está
+  presa assim só recebe esta correção destravando à mão (renomear `logs\update-status.json`) ou pelo suporte.
+- **Só no próximo `.exe` (servidor e estação) — os ícones trocados na reinstalação (ERR-323):** `ignoreversion` na
+  cópia do sistema. Sem ele, reinstalar pelo `.exe` mantinha o `RegemServidor.exe`/`RegemEstacao.exe` da primeira
+  instalação. Não pede `.exe` sozinho: o `.zip` já troca os ícones (`Trocar-Icones`). Junto: a série do certificado
+  da loja sempre com 16 bytes (`gen-cert.mjs`, ERR-324 — só deixava um teste instável; o certificado já era válido).
 - **Só no próximo `.exe` (servidor) — o resto do #742 (ERR-307):** a 1.30.12 leva o ícone que confere pela CA da
   loja. Duas partes só chegam reinstalando o servidor com um `.exe` cortado depois do #742:
   - o instalador que tira do Windows as "Regem Edge CA" antigas e confere a confiança de verdade;
@@ -38,7 +46,13 @@
   registro aqui; última mudança em 31/07, #246). Não empacotar como está: se um dia for usado, subir para um Electron
   com suporte e tirar o `rejectUnauthorized: false`; senão, o dono decide apagar a pasta.
 
-## Última release: `1.30.12` — gerada em 28/10/2026 da `origin/main` `b887655f`, **SÓ `.zip` GERADO, conferido e assinado** (`regem-edge-1.30.12.zip`, 32.169.780 bytes, SHA-256 `4eb8e215df975cf2b067afefab360a88f4d9a6c7f246084aeab068a687f7c9f4`) e entregue ao dono; publicação no console PENDENTE (o dono); sem `.exe`
+## Última release: `1.30.12` — gerada em 28/10/2026 da `origin/main` `b887655f`, **SÓ `.zip`** (`regem-edge-1.30.12.zip`, 32.169.780 bytes, SHA-256 `4eb8e215df975cf2b067afefab360a88f4d9a6c7f246084aeab068a687f7c9f4`); publicada no console em 29/10 04:23 (0% + a loja piloto) e **INSTALADA na loja piloto em 29/10 às 16:04**; sem `.exe`
+
+- **Instalação na loja piloto (29/10):** o "Instalar agora" não fazia nada — a tela estava presa em "Iniciando… 2%" por
+  um `update-status.json` de 20/10 (ERR-322). Com o arquivo velho renomeado, a 1.30.12 instalou em 2 min 30 s
+  (16:02–16:04): assinatura v2, SHA-256, backup cifrado, troca, migrations, saúde e os dois ícones trocados. O ícone
+  ABERTO não se reabriu: era o de 24/10, sem o "reabre sozinho" do #740, porque o `.exe` da 1.30.11 não trocou os
+  ícones (ERR-323); foi fechado e reaberto pelo SSH na sessão do usuário.
 
 - **Pedido do dono (28/10):** "fazer o .zip", depois do #750. Leva à loja o pedido de 28/10 inteiro (#743–#750) e o
   ícone do servidor (#742).

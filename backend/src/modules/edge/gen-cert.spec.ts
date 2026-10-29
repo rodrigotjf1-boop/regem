@@ -66,8 +66,10 @@ describe('certificado do servidor da loja (edge/gen-cert.mjs)', () => {
     expect(ca1.serialNumber).not.toBe(ca2.serialNumber);
     expect(ca1.serialNumber).not.toBe(srv1.serialNumber);
     for (const s of [ca1.serialNumber, srv1.serialNumber, ca2.serialNumber]) {
-      expect(s).toMatch(/^[0-7][0-9a-f]{31}$/); // 16 bytes, positivo
+      expect(s).toMatch(/^[4-7][0-9a-f]{31}$/); // 16 bytes, positivo e sem zero na frente
     }
+    // ERR-324: com o 1º byte sorteado zero (1 em 128) a série saía com 15 bytes e este teste falhava de vez em quando.
+    expect(readFileSync(join(EDGE, 'gen-cert.mjs'), 'utf8')).toMatch(/b\[0\] = 0x40 \| \(b\[0\] & 0x3f\)/);
     expect(ca1.subject.getField('CN').value).toBe('Regem Edge CA'); // o nome fica (a estação confere por ele — D4)
     const ski = (ca1.getExtension('subjectKeyIdentifier') as any)?.subjectKeyIdentifier;
     // O forge não decodifica o authorityKeyIdentifier ao ler: SEQUENCE { [0] keyIdentifier } pelos bytes da extensão.
