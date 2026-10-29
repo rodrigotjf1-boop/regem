@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
@@ -12,6 +12,7 @@ import { WhatsappProvedorService } from './whatsapp-provedor.service';
 import { WhatsappNumeroService, Papel } from './whatsapp-numero.service';
 import { WhatsappCloudService } from './whatsapp-cloud.service';
 import { CloudOnly } from '../../common/cloud-only.decorator';
+import { CABECALHO_SEGREDO_ROBO, segredoDaChamada } from '../../common/segredo-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Onboarding do WhatsApp da loja (gestor). O resolver é público (com secret).
@@ -391,19 +392,21 @@ export class WhatsappController {
     return this.provedores.desvincularCloud(user);
   }
 
-  // Resolver do bot multi-tenant: o n8n manda instância + secret e recebe a loja.
+  // Resolver do bot multi-tenant: o n8n manda instância + a senha do robô e recebe a loja.
+  // A senha vai no cabeçalho `x-regem-robo-segredo`; `?secret=` só para os fluxos antigos.
   @Get('publico/bot/resolver')
   @Throttle({ default: { ttl: 60000, limit: 120 } })
   resolver(
     @Query('instancia') instancia: string,
     @Query('secret') secret: string,
     @Query('numero') numero?: string,
+    @Headers(CABECALHO_SEGREDO_ROBO) segredo?: string,
   ) {
-    return this.service.resolver(instancia ?? '', secret ?? '', numero ?? '');
+    return this.service.resolver(instancia ?? '', segredoDaChamada(segredo, secret), numero ?? '');
   }
 
   // Status de um pedido por NÚMERO (senha), para o robô responder o cliente.
-  // O n8n manda instância + secret + telefone + numero e recebe um texto pronto.
+  // O n8n manda instância + a senha do robô + telefone + numero e recebe um texto pronto.
   @Get('publico/bot/pedido-status')
   @Throttle({ default: { ttl: 60000, limit: 120 } })
   statusPedidoBot(
@@ -412,10 +415,11 @@ export class WhatsappController {
     @Query('numero') numero?: string,
     @Query('telefone') telefone?: string,
     @Query('phoneNumberId') phoneNumberId?: string,
+    @Headers(CABECALHO_SEGREDO_ROBO) segredo?: string,
   ) {
     return this.service.statusPedidoBot(
       instancia ?? '',
-      secret ?? '',
+      segredoDaChamada(segredo, secret),
       telefone ?? '',
       numero ?? '',
       phoneNumberId ?? '',
@@ -423,7 +427,7 @@ export class WhatsappController {
   }
 
   // Pedidos RECENTES do cliente por telefone (contexto da IA "cadê meu pedido").
-  // Autenticado pelo secret do bot — não exige token de cliente.
+  // Autenticado pela senha do robô — não exige token de cliente.
   @Get('publico/bot/pedidos')
   @Throttle({ default: { ttl: 60000, limit: 120 } })
   pedidosBot(
@@ -431,10 +435,11 @@ export class WhatsappController {
     @Query('secret') secret: string,
     @Query('telefone') telefone?: string,
     @Query('phoneNumberId') phoneNumberId?: string,
+    @Headers(CABECALHO_SEGREDO_ROBO) segredo?: string,
   ) {
     return this.service.pedidosPorTelefoneBot(
       instancia ?? '',
-      secret ?? '',
+      segredoDaChamada(segredo, secret),
       telefone ?? '',
       phoneNumberId ?? '',
     );

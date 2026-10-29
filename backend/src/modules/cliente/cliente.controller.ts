@@ -1,6 +1,7 @@
-import { Body, Controller, Delete, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, Post, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ClienteService } from './cliente.service';
+import { CABECALHO_SEGREDO_ROBO, segredoDaChamada } from '../../common/segredo-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Cliente do cardápio (público, sem login) — identidade por "link mágico".
@@ -19,11 +20,16 @@ export class ClientePublicoController {
     return this.service.identificar(token, dto);
   }
 
-  // Link curto do cliente (robô/n8n): devolve { slug, url, clienteToken }.
+  // Link curto do cliente — SÓ o robô (n8n), com a senha do robô no cabeçalho
+  // `x-regem-robo-segredo` (ou `secret` no corpo, fluxos antigos). Devolve { slug, url }.
   @Post(':token/cliente/link')
   @Throttle({ default: { ttl: 60000, limit: 30 } })
-  criarLink(@Param('token') token: string, @Body() dto: any) {
-    return this.service.criarLink(token, dto);
+  criarLink(
+    @Param('token') token: string,
+    @Body() dto: any,
+    @Headers(CABECALHO_SEGREDO_ROBO) segredo?: string,
+  ) {
+    return this.service.criarLink(token, dto, segredoDaChamada(segredo, dto?.secret));
   }
 
   // Resolve o slug curto → clienteToken (o cardápio chama ao abrir ?u=slug).

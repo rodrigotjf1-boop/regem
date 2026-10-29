@@ -2,7 +2,7 @@ import { BadRequestException, Inject, Injectable, Logger, NotFoundException } fr
 import { Interval } from '@nestjs/schedule';
 import { ehServidorLocal } from '../../common/modo';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { timingSafeEqual } from 'node:crypto';
+import { segredoDoRoboOk } from '../../common/segredo-robo';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig, empresa, whatsappMensagem, whatsappNumero, whatsappTemplate } from '../../db/schema';
 import { registrarSaida, registrarVolta } from '../../common/consentimento-marketing';
@@ -109,14 +109,6 @@ function mascarar(tel?: string): string {
   return s.length > 4 ? `***${s.slice(-4)}` : '***';
 }
 
-// Compara o segredo do bot em tempo CONSTANTE (evita timing attack). Mesmo critério
-// do resolver do Evolution: falha se o esperado não está setado ou os tamanhos diferem.
-function segredoBotOk(recebido: string, esperado: string): boolean {
-  if (!esperado) return false;
-  const a = Buffer.from(String(recebido ?? ''));
-  const b = Buffer.from(esperado);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
 
 export type MsgNormalizada = {
   provedor: 'cloud';
@@ -185,6 +177,10 @@ export class WhatsappCloudService {
   //
   // Nunca derruba o fluxo: perder uma linha de historico e ruim, mas deixar de
   // responder o cliente por causa disso e pior.
+  //
+  // Devolve se a linha é NOVA: `false` = este wamid já estava gravado (reenvio da Meta) e o
+  // robô não deve responder de novo (ERR-319); `null` = não deu para saber (sem wamid ou falha
+  // ao gravar) — aí quem chama segue, porque responder em dobro é melhor que não responder.
   private async gravar(linha: {
     tenantId: string;
     telefone: string;
@@ -196,9 +192,9 @@ export class WhatsappCloudService {
     status?: string | null;
     nomeContato?: string | null;
     criadoEm?: Date; // histórico importado: preserva a data original (ordena o inbox)
-  }) {
+  }): Promise<boolean | null> {
     try {
-      await this.db
+      const novas = await this.db
         .insert(whatsappMensagem)
         .values({
           tenantId: linha.tenantId,
@@ -212,9 +208,13 @@ export class WhatsappCloudService {
           nomeContato: linha.nomeContato ?? null,
           ...(linha.criadoEm ? { criadoEm: linha.criadoEm } : {}),
         })
-        .onConflictDoNothing();
+        .onConflictDoNothing()
+        .returning({ id: whatsappMensagem.id });
+      if (!linha.wamid) return null;
+      return Array.isArray(novas) ? novas.length > 0 : null;
     } catch (e: any) {
       this.logger.error(`falha ao gravar historico: ${e?.message ?? e}`);
+      return null;
     }
   }
 
@@ -390,7 +390,7 @@ export class WhatsappCloudService {
           // o que o cliente disse mesmo com o robo desligado ou com a conversa
           // pausada — alias, principalmente nesses casos, que e quando o humano
           // esta atendendo.
-          await this.gravar({
+          const nova = await this.gravar({
             tenantId: cfg.tenantId,
             telefone: de,
             direcao: 'entrada',
@@ -400,14 +400,22 @@ export class WhatsappCloudService {
             wamid: String(m?.id ?? '') || null,
             nomeContato: nome,
           });
+          // A Meta REENVIA o webhook quando não recebe 200 a tempo: a mesma mensagem (mesmo wamid)
+          // já foi tratada — nem o robô nem a confirmação de SAIR saem de novo (ERR-319).
+          if (nova === false) {
+            this.logger.log(`mensagem repetida (reenvio da Meta) de=${mascarar(de)} id=${m?.id} — já tratada`);
+            continue;
+          }
 
           // Opt-out por palavra-chave: cliente responde SAIR/PARAR → entra na lista de
           // exclusão de marketing (LGPD) + AVISO de confirmação. VOLTAR desfaz. Não
           // encaminha ao robô (continue), pra não misturar com o atendimento. A lista e o
           // histórico comparam TODAS as formas do número: o `wa_id` chega com o 55 e, em muitos
           // celulares, SEM o nono dígito — o cadastro tem com (ERR-134).
+          // "cancelar" NÃO está aqui: no delivery é o cliente querendo cancelar o PEDIDO — vai ao
+          // robô, que chama o atendente (ERR-317). Todos os textos mandam responder SAIR.
           const txt = this.textoDe(m).trim().toLowerCase();
-          if (/^(sair|parar|cancelar|stop|descadastrar|sair das ofertas|parar ofertas|n[aã]o quero receber)\.?$/.test(txt)) {
+          if (/^(sair|parar|stop|descadastrar|sair das ofertas|parar ofertas|n[aã]o quero receber)\.?$/.test(txt)) {
             try {
               await registrarSaida(this.db, { tenantId: cfg.tenantId, telefone: de, origem: 'whatsapp', motivo: 'palavra_chave' });
               await this.enviarTexto(
@@ -541,7 +549,7 @@ export class WhatsappCloudService {
   // payload normalizado e só devolve. Sem roteamento por provedor aqui: o workflow
   // da Cloud é separado do workflow do Evolution, então quem chega aqui já é Cloud.
   async enviarPeloBot(secret: string, phoneNumberId: string, numero: string, texto: string) {
-    if (!segredoBotOk(secret, process.env.BOT_RESOLVER_SECRET ?? ''))
+    if (!segredoDoRoboOk(secret))
       throw new BadRequestException('Não autorizado.');
 
     const cfg = await this.lojaPorPhoneId(String(phoneNumberId ?? ''));
@@ -561,7 +569,7 @@ export class WhatsappCloudService {
   // O token da Meta e a credencial-mestre da WABA (envia como qualquer loja, cria e
   // apaga templates) — e no Cenario B passa a alcancar as WABAs dos lojistas.
   async baixarMidia(secret: string, phoneNumberId: string, mediaId: string) {
-    if (!segredoBotOk(secret, process.env.BOT_RESOLVER_SECRET ?? ''))
+    if (!segredoDoRoboOk(secret))
       throw new BadRequestException('Não autorizado.');
 
     // Estrito de propósito: o id vai concatenado na URL da Graph API.
@@ -892,7 +900,7 @@ export class WhatsappCloudService {
     params: string[],
     rastreio?: string | null,
   ) {
-    if (!segredoBotOk(secret, process.env.BOT_RESOLVER_SECRET ?? ''))
+    if (!segredoDoRoboOk(secret))
       throw new BadRequestException('Não autorizado.');
     const cfg = await this.lojaPorPhoneId(String(phoneNumberId ?? '').trim());
     if (!cfg) throw new NotFoundException('Número não vinculado a uma loja.');

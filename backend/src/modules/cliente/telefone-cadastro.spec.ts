@@ -72,6 +72,31 @@ descrever('cardápio e login por código: telefone como o cadastro guarda (ERR-1
     expect(c.telefone).toBe('55999998888');
   });
 
+  // ERR-316: o cardápio anônimo e o robô (com o nome do PERFIL do WhatsApp) não provam ser o dono
+  // do número — trocavam o nome de qualquer cliente cadastrado só sabendo o telefone.
+  it('identificar e o link do robô não trocam o nome de quem já tem; só preenchem o vazio', async () => {
+    const [ana] = await q(`insert into cliente (tenant_id, nome, telefone) values ($1,'Ana Souza','21944443333') returning id`, [T]);
+    await svc.identificar(TOKEN, { telefone: '21944443333', nome: 'Hacker' });
+    const segredoRobo = process.env.BOT_RESOLVER_SECRET;
+    process.env.BOT_RESOLVER_SECRET = 'senha-do-robo-teste';
+    try {
+      const link = await svc.criarLink(TOKEN, { telefone: '5521944443333', nome: 'Aninha 🍔' }, 'senha-do-robo-teste');
+      expect(link.slug).toHaveLength(8);
+      expect(link.url).toContain(`?u=${link.slug}`);
+      const [depois] = await q(`select nome from cliente where id = $1`, [ana.id]);
+      expect(depois.nome).toBe('Ana Souza');
+
+      const [semNome] = await q(`insert into cliente (tenant_id, nome, telefone) values ($1,null,'21933332222') returning id`, [T]);
+      await svc.criarLink(TOKEN, { telefone: '21933332222', nome: 'Bia' }, 'senha-do-robo-teste');
+      const [bia] = await q(`select nome from cliente where id = $1`, [semNome.id]);
+      expect(bia.nome).toBe('Bia');
+    } finally {
+      if (segredoRobo === undefined) delete process.env.BOT_RESOLVER_SECRET;
+      else process.env.BOT_RESOLVER_SECRET = segredoRobo;
+      await q(`delete from cliente_link where tenant_id = $1`, [T]).catch(() => {});
+    }
+  });
+
   it('login por código: o envio e a confirmação usam o mesmo número, e o cadastro nasce sem o 55', async () => {
     await svc.enviarOtp(TOKEN, '+55 21 95555-4444');
     const [otp] = await q(`select telefone from cliente_otp where tenant_id = $1`, [T]);
