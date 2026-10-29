@@ -77,6 +77,12 @@ export function ConfigPanel({
   pagina?: boolean;
 }) {
   const [sec, setSec] = useState('cardapio');
+  // Aba pedida no endereço (?aba=robo — o "Ir para o Robô de atendimento" da caixa de conversas). Lida depois de
+  // montar: a página é pré-renderizada e o primeiro desenho tem de ser o mesmo do servidor.
+  useEffect(() => {
+    const aba = new URLSearchParams(window.location.search).get('aba');
+    if (aba && MENU.some((g) => g.itens.some((i) => i.k === aba))) setSec(aba);
+  }, []);
   const [loja, setLoja] = useState<any>(null);
   const [regrasSinal, setRegrasSinal] = useState<any[]>([]); // faixas de sinal da encomenda (mig 187)
   const [bairros, setBairros] = useState<any[]>([]);
@@ -1228,6 +1234,66 @@ export function PontoLojaMapa({ loja, up, pode }: { loja: any; up: (p: any) => v
 
 const areaTxt = 'w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm';
 
+/** "1 h", "30 min", "Só quando alguém retomar" — os tempos de pausa do robô (mig 342). */
+export function rotuloDaPausa(min: number): string {
+  if (!min) return 'Só quando alguém retomar';
+  if (min < 60) return `${min} min`;
+  const h = min / 60;
+  return Number.isInteger(h) ? `${h} h` : `${min} min`;
+}
+
+// Por quanto tempo o robô fica calado depois que um humano assume a conversa (mig 342). Grava na hora, à parte do
+// "Salvar" da aba: é outro cadastro (robo_config), não o do cardápio.
+function TempoDaPausa({ pode }: { pode: boolean }) {
+  const [cfg, setCfg] = useState<{ pausaMinutos: number; opcoesPausa: number[] } | null>(null);
+  const [erro, setErro] = useState('');
+  const [gravando, setGravando] = useState(false);
+  useEffect(() => {
+    api
+      .whatsappRoboConfig()
+      .then((r: any) => setCfg(r))
+      .catch((e) => setErro(e instanceof Error && e.message ? e.message : 'Não foi possível ler o tempo de pausa.'));
+  }, []);
+  async function trocar(v: number) {
+    setGravando(true);
+    try {
+      const r: any = await api.whatsappRoboConfigSalvar(v);
+      setCfg(r);
+      toast.success(`Pronto: o robô volta a responder ${v ? `em ${rotuloDaPausa(v)}` : 'só quando alguém retomar'}.`);
+    } catch (e) {
+      toast.error(e instanceof Error && e.message ? e.message : 'Não foi possível salvar.');
+    } finally {
+      setGravando(false);
+    }
+  }
+  return (
+    <div className="space-y-1 rounded-lg border border-border p-3">
+      <Label htmlFor="tempo-pausa-robo" className="text-xs">Quando um atendente assume, o robô volta a responder sozinho em</Label>
+      {erro ? (
+        <p className="text-xs text-destructive">{erro}</p>
+      ) : !cfg ? (
+        <p className="text-xs text-muted-foreground">Carregando…</p>
+      ) : (
+        <select
+          id="tempo-pausa-robo"
+          className="h-9 w-full max-w-xs rounded-md border border-border bg-background px-2 text-sm"
+          value={cfg.pausaMinutos}
+          disabled={!pode || gravando}
+          onChange={(e) => trocar(Number(e.target.value))}
+        >
+          {cfg.opcoesPausa.map((m) => (
+            <option key={m} value={m}>{rotuloDaPausa(m)}</option>
+          ))}
+        </select>
+      )}
+      <p className="text-[11px] text-muted-foreground">
+        Vale quando o atendente responde pela caixa de conversas (Delivery › WhatsApp) ou pelo app do WhatsApp, e quando o
+        próprio robô chama um atendente. Resolver o chamado devolve a conversa ao robô na hora.
+      </p>
+    </div>
+  );
+}
+
 // Conectar o WhatsApp da loja (Evolution): mostra o QR e faz polling do status.
 
 function Robo({ loja, up, onSalvar, salvando, pode }: { loja: any; up: (p: any) => void; onSalvar: () => void; salvando: boolean; pode: boolean }) {
@@ -1241,8 +1307,14 @@ function Robo({ loja, up, onSalvar, salvando, pode }: { loja: any; up: (p: any) 
       {/* Configuração completa dos números (Principal + Marketing) — inclui o QR e o
           cadastro oficial da Meta. Substitui o antigo bloco separado "WhatsApp da loja". */}
       <NumerosWhatsapp pode={pode} />
-      <p className="text-xs text-muted-foreground">Robô de auto atendimento do cardápio/WhatsApp. Aqui você configura as <strong>mensagens</strong>. O “cérebro” com IA (respostas livres) entra numa etapa dedicada.</p>
+      <p className="text-xs text-muted-foreground">O robô responde, no número <strong>Principal</strong>, os clientes que falam com a loja pelo WhatsApp: tira dúvidas, manda o cardápio, conta como está o pedido e chama um atendente quando precisa. Preço, taxa e horário ele tira sempre do cadastro da loja.</p>
       <ToggleLinha label="Robô ativo" desc="Responde os clientes automaticamente." checked={!!loja.roboAtivo} onChange={(v) => up({ roboAtivo: v })} pode={pode} />
+      {!!loja.roboAtivo && !loja.ativo && (
+        <p role="status" className="rounded bg-warn/10 px-2 py-1 text-xs text-warn">
+          O robô só responde com o cardápio digital ligado — ligue em <strong>Cardápio</strong> (primeira aba desta tela).
+        </p>
+      )}
+      <TempoDaPausa pode={pode} />
 
       <Campo label="Saudação (primeira mensagem)">
         <textarea rows={2} className={areaTxt} disabled={!pode} value={loja.roboSaudacao ?? ''} onChange={(e) => up({ roboSaudacao: e.target.value })} placeholder="Olá! 👋 Bem-vindo. Como posso ajudar?" />
@@ -1256,19 +1328,23 @@ function Robo({ loja, up, onSalvar, salvando, pode }: { loja: any; up: (p: any) 
         <Label className="text-xs">Respostas prontas (gatilho → resposta)</Label>
         {msgs.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma. Ex.: “horário” → “Funcionamos das 18h às 23h”.</p>}
         {msgs.map((m, i) => (
-          <div key={i} className="flex items-start gap-2 rounded-lg border border-border p-2">
-            <Input value={m.gatilho} onChange={(e) => setMsgs(msgs.map((x, j) => (j === i ? { ...x, gatilho: e.target.value } : x)))} placeholder="gatilho (ex.: horário)" className="h-8 w-40" disabled={!pode} />
-            <textarea rows={2} className={`${areaTxt} flex-1`} disabled={!pode} value={m.resposta} onChange={(e) => setMsgs(msgs.map((x, j) => (j === i ? { ...x, resposta: e.target.value } : x)))} placeholder="resposta" />
-            {pode && <button type="button" className="mt-1 text-xs text-destructive" onClick={() => setMsgs(msgs.filter((_, j) => j !== i))}>x</button>}
+          <div key={i} className="flex flex-col gap-2 rounded-lg border border-border p-2 sm:flex-row sm:items-start">
+            <Input value={m.gatilho} onChange={(e) => setMsgs(msgs.map((x, j) => (j === i ? { ...x, gatilho: e.target.value } : x)))} placeholder="gatilho (ex.: horário)" aria-label={`Gatilho da resposta ${i + 1}`} className="h-8 w-full sm:w-40" disabled={!pode} />
+            <textarea rows={2} className={`${areaTxt} min-w-0 flex-1`} disabled={!pode} value={m.resposta} aria-label={`Resposta ${i + 1}`} onChange={(e) => setMsgs(msgs.map((x, j) => (j === i ? { ...x, resposta: e.target.value } : x)))} placeholder="resposta" />
+            {pode && (
+              <button type="button" className="self-end text-xs font-semibold text-destructive hover:underline sm:mt-1 sm:self-start" onClick={() => setMsgs(msgs.filter((_, j) => j !== i))} aria-label={`Remover a resposta ${i + 1}`}>
+                Remover
+              </button>
+            )}
           </div>
         ))}
         {pode && <Button type="button" size="sm" variant="outline" onClick={() => setMsgs([...msgs, { gatilho: '', resposta: '' }])}>＋ Resposta</Button>}
       </div>
 
-      <Campo label="Base de conhecimento (para a IA — futuro)">
-        <textarea rows={4} className={areaTxt} disabled={!pode} value={loja.roboPrompt ?? ''} onChange={(e) => up({ roboPrompt: e.target.value })} placeholder="Descreva o negócio, produtos, políticas de entrega, troca, etc. Será usado pelo robô com IA quando ativarmos o cérebro." />
+      <Campo label="Base de conhecimento (o que o robô precisa saber da loja)">
+        <textarea rows={4} className={areaTxt} disabled={!pode} value={loja.roboPrompt ?? ''} onChange={(e) => up({ roboPrompt: e.target.value })} placeholder="Políticas de entrega e de troca, formas de pagamento, avisos da semana… Preço, taxa e horário o robô já tira do cadastro — não precisa repetir aqui." />
       </Campo>
-      <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">As respostas livres por IA (usando a base de conhecimento) entram numa etapa dedicada — precisa de um provedor de IA (custo por uso). As mensagens acima já funcionam sem IA.</p>
+      <p className="text-[11px] text-muted-foreground">O robô recebe a saudação, a mensagem de ausência, as respostas prontas e a base de conhecimento. Preço, taxa e horário ele usa só do cadastro da loja — as instruções dele proíbem inventar.</p>
 
       <SalvarBar onSalvar={onSalvar} salvando={salvando} pode={pode} />
     </div>

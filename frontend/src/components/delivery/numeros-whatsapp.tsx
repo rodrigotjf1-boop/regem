@@ -217,6 +217,37 @@ function CardNumero({
   const titulo = papel === 'principal' ? '📱 Número Principal' : '📣 Número de Marketing';
   const conectado = dado.vinculado;
 
+  // Com o QR na tela, confere a cada 3 s se o celular já pareou (até 2 min, o tempo de vida do QR): pareou → some o
+  // QR, o selo vira "conectado" e o aviso sai. Antes o selo ficava "não conectado" até o gestor mexer de novo.
+  useEffect(() => {
+    if (!qr) return;
+    let vivo = true;
+    const inicio = Date.now();
+    const t = setInterval(async () => {
+      if (!vivo) return;
+      if (Date.now() - inicio > 120_000) {
+        clearInterval(t);
+        return;
+      }
+      try {
+        const s: any = papel === 'principal' ? await api.whatsappStatus() : await api.whatsappMarketingStatus();
+        if (vivo && s?.conectado) {
+          clearInterval(t);
+          setQr(null);
+          toast.success('WhatsApp conectado.');
+          onMudou();
+        }
+      } catch {
+        /* segue tentando até o QR vencer */
+      }
+    }, 3000);
+    return () => {
+      vivo = false;
+      clearInterval(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qr, papel]);
+
   async function salvar() {
     setBusy(true);
     try {
