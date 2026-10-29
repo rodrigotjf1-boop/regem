@@ -30,6 +30,7 @@ import {
   escolherRelease,
   versaoRecolhida,
 } from './release-selecao';
+import { ProgressoAtualizacao, progressoEmCurso, progressoParaTela } from './progresso-atualizacao';
 
 const pExecFile = promisify(execFile);
 
@@ -90,17 +91,7 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
 
   // Progresso da instalação em curso: o atualizar.ps1 grava logs/update-status.json
   // a cada estágio (a tela mostra a barra e reconecta no reinício dos serviços).
-  private lerProgresso(): {
-    fase: string;
-    estagio: string;
-    pct: number;
-    versao: string | null;
-    baixadoMb: number | null;
-    totalMb: number | null;
-    erro: string | null;
-    acaoFinal: string | null;
-    ts: string | null;
-  } | null {
+  private lerProgresso(): ProgressoAtualizacao | null {
     try {
       const f = join(process.cwd(), 'logs', 'update-status.json');
       if (!existsSync(f)) return null;
@@ -150,7 +141,8 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
       // A distribuição RECOLHEU a versão que este servidor roda (a tela avisa).
       versaoAtualRecolhida: (await this.getState('update_atual_recolhida')) === '1',
       emOperacao: await this.operacaoEmAndamento(),
-      progresso: this.lerProgresso(),
+      // Parado há mais de 20 min sem terminar → `interrompida` (a tela libera os botões — ERR-322).
+      progresso: progressoParaTela(this.lerProgresso()),
     };
   }
 
@@ -191,10 +183,7 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
   // Uma instalação/reversão está rodando AGORA? (status gravado pelo atualizar.ps1 nos
   // últimos 20 min e ainda não terminou). Evita o clique duplo matar a execução em curso.
   private atualizacaoEmCurso(): boolean {
-    const p = this.lerProgresso();
-    if (!p || p.fase === 'ok' || p.fase === 'erro') return false;
-    const ts = p.ts ? Date.parse(p.ts) : NaN;
-    return Number.isFinite(ts) && Date.now() - ts < 20 * 60 * 1000;
+    return progressoEmCurso(this.lerProgresso());
   }
 
   // Disponibilidade do instalador (.exe). Roda na NUVEM: faz um HEAD no

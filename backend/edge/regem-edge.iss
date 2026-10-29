@@ -44,7 +44,9 @@ ArchitecturesInstallIn64BitMode=x64compatible
 
 [Files]
 ; App (gerado por edge/package.mjs) -> {app}\backend
-Source: "..\..\regem-edge-dist\*"; DestDir: "{app}\backend"; Flags: recursesubdirs createallsubdirs
+; ignoreversion: os icones (edge\bandeja\*.exe) saem do csc com versao 0.0.0.0, e sem esta opcao o Inno NAO troca um .exe
+; com a MESMA versao do instalado - reinstalar mantinha o icone da primeira instalacao (ERR-323).
+Source: "..\..\regem-edge-dist\*"; DestDir: "{app}\backend"; Flags: recursesubdirs createallsubdirs ignoreversion
 ; Binarios portateis EMBUTIDOS (opcionais) — se a pasta existir, sao empacotados:
 Source: "bundle\node\*";  DestDir: "{app}\node";  Flags: recursesubdirs createallsubdirs skipifsourcedoesntexist
 ; Postgres: SO o que o servidor precisa (bin/lib/share). Exclui pgAdmin 4,

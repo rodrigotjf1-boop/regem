@@ -386,12 +386,18 @@ function AtualizacaoServidor() {
   // Enquanto instala/reverte: acompanha o progresso (e reconecta no reinício).
   useEffect(() => {
     if (!monitorando) return;
+    const inicio = Date.now();
     const id = setInterval(async () => {
       const s = await carregar();
       const fase = s?.progresso?.fase;
       if (s && (fase === 'ok' || fase === 'erro')) {
         setMonitorando(false);
         setMsg(s.progresso?.acaoFinal || (fase === 'ok' ? 'Concluído.' : `Falhou: ${s.progresso?.erro || 'erro desconhecido'}.`));
+      } else if (s && (!s.progresso || fase === 'interrompida') && Date.now() - inicio > 90_000) {
+        // Nenhum sinal novo do atualizador em 90 s: não fica esperando para sempre com os botões
+        // desligados (ERR-322).
+        setMonitorando(false);
+        setMsg('A atualização não começou (nenhum sinal em 90 segundos). Tente de novo; se repetir, fale com o suporte do Regem.');
       }
     }, 2500);
     return () => clearInterval(id);
@@ -477,7 +483,10 @@ function AtualizacaoServidor() {
   }
 
   const progresso = status?.progresso;
-  const emAndamento = monitorando && progresso && progresso.fase !== 'ok' && progresso.fase !== 'erro';
+  // Barra só com o atualizador dando sinal; botões travados também na espera logo depois do clique (o clique
+  // duplo encerrava a instalação que acabava de começar — ERR-052). Parada (`interrompida`) não trava (ERR-322).
+  const emAndamento = monitorando && (progresso?.fase === 'baixando' || progresso?.fase === 'instalando');
+  const ocupado = monitorando && progresso?.fase !== 'ok' && progresso?.fase !== 'erro';
 
   return (
     <Card className="p-6 lg:col-span-3">
@@ -495,12 +504,12 @@ function AtualizacaoServidor() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" onClick={verificar} disabled={carregando || !!emAndamento}>
+          <Button type="button" variant="outline" onClick={verificar} disabled={carregando || ocupado}>
             {carregando ? 'Verificando…' : 'Verificar atualização'}
           </Button>
           {status?.disponivel && (
             <>
-              <Button type="button" onClick={() => setPedindo('instalar')} disabled={aplicando || !!emAndamento}>
+              <Button type="button" onClick={() => setPedindo('instalar')} disabled={aplicando || ocupado}>
                 {aplicando ? 'Iniciando…' : 'Instalar agora'}
               </Button>
               <Button
@@ -508,13 +517,13 @@ function AtualizacaoServidor() {
                 variant="outline"
                 onClick={() => setAgendarAberto((v) => !v)}
                 aria-expanded={agendarAberto}
-                disabled={!!emAndamento}
+                disabled={ocupado}
               >
                 Agendar
               </Button>
             </>
           )}
-          <Button type="button" variant="outline" onClick={() => setPedindo('reverter')} disabled={revertendo || !!emAndamento}>
+          <Button type="button" variant="outline" onClick={() => setPedindo('reverter')} disabled={revertendo || ocupado}>
             {revertendo ? 'Revertendo…' : 'Reverter atualização'}
           </Button>
         </div>
@@ -609,6 +618,23 @@ function AtualizacaoServidor() {
           </div>
           <p className="mt-2 text-xs text-secondary-foreground">
             Os serviços (KDS, PDV, ponto) reiniciam por 1–2 minutos só na troca. Não feche esta tela — ela reconecta sozinha ao terminar.
+          </p>
+        </div>
+      )}
+      {ocupado && !emAndamento && (
+        <p className="mt-4 flex items-center gap-2 text-sm text-secondary-foreground" aria-live="polite">
+          <span className="h-2 w-2 animate-pulse rounded-full bg-primary motion-reduce:animate-none" aria-hidden /> Começando…
+        </p>
+      )}
+
+      {/* Parou sem terminar (PC desligado, processo encerrado): a API manda `interrompida` e a tela
+          libera os botões — antes mostrava "Iniciando… 2%" para sempre (ERR-322). */}
+      {progresso?.fase === 'interrompida' && !monitorando && (
+        <div className="mt-4 rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm" role="status">
+          <p className="font-semibold">A última tentativa de atualização parou sem terminar.</p>
+          <p className="mt-1 text-secondary-foreground">
+            Ela ficou em “{ESTAGIO_LABEL[progresso.estagio] ?? progresso.estagio}”
+            {progresso.ts ? ` (${formatarHora(progresso.ts)})` : ''}. Você pode instalar de novo.
           </p>
         </div>
       )}

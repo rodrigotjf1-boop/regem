@@ -36,6 +36,15 @@ describe('troca dos ícones na atualização — as peças amarradas', () => {
     for (const f of [atualizar, readFileSync(COMUM, 'utf8')]) expect([...f].filter((c) => c.charCodeAt(0) > 127)).toEqual([]);
   });
 
+  // ERR-323: os ícones saem do csc com versão 0.0.0.0 e o Inno, sem `ignoreversion`, não troca um .exe de mesma
+  // versão — a reinstalação pelo .exe mantinha o ícone da PRIMEIRA instalação (a loja piloto seguiu com o de 24/10).
+  it('o instalador (.exe) troca os arquivos do sistema mesmo com a mesma versão (os ícones)', () => {
+    const iss = readFileSync(join(EDGE, 'regem-edge.iss'), 'utf8');
+    const linha = iss.split(/\r?\n/).find((l) => l.startsWith('Source: "..\\..\\regem-edge-dist\\*"'));
+    expect(linha).toBeDefined();
+    expect(linha).toMatch(/Flags: [^;]*\bignoreversion\b/);
+  });
+
   it('o ícone do servidor vigia o próprio arquivo e o novo espera a trava do antigo sair', () => {
     const cs = readFileSync(join(EDGE, 'bandeja', 'RegemServidor.cs'), 'utf8');
     expect(cs).toMatch(/Troca\.Iniciar\(Application\.ExecutablePath, args\);\s+Api api = new Api\(\);/); // antes de tudo
