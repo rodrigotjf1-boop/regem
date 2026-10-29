@@ -59,6 +59,12 @@ export function rotaDaFilaDeImpressao(url: string | undefined): boolean {
   );
 }
 
+// A caixa de conversas do WhatsApp repassada pelo SERVIDOR DA LOJA (whatsapp/da-loja): cada tela aberta lê a lista a
+// cada 8 s e a conversa a cada 4 s — no balde do IP da loja (que o sync e o app dividem) faltaria espaço.
+export function rotaDaCaixaDaLoja(url: string | undefined): boolean {
+  return /\/whatsapp\/da-loja\//i.test(String(url ?? ''));
+}
+
 // A leitura da tela de senhas (mig 337), pela TV pareada: o segredo dela, validado pela `TelaSenhasGuard`.
 export function rotaDaTelaDeSenhas(url: string | undefined): boolean {
   return /\/publico\/senhas(\?|$)/i.test(String(url ?? ''));
