@@ -1,4 +1,9 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { minutosDaPausa, pausarPeloAtendente } from './robo-pausa';
+import { sql } from 'drizzle-orm';
+
+/** Opções do "o robô volta sozinho em" (minutos; 0 = só quando alguém retomar). */
+export const OPCOES_PAUSA = [15, 30, 60, 120, 240, 0];
 import { eq } from 'drizzle-orm';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -33,6 +38,7 @@ export type Provedor = 'evolution' | 'cloud';
 
 @Injectable()
 export class WhatsappProvedorService {
+  private readonly logger = new Logger('WhatsappProvedor');
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly auditoria: AuditoriaService,
@@ -172,6 +178,37 @@ export class WhatsappProvedorService {
     return this.estado(cfg.tenantId);
   }
 
+  // ===== Ajustes do robô (mig 342) =====
+  // Por quanto tempo o robô fica calado depois que o humano assume (ou que ele mesmo chama o atendente).
+  async roboConfig(tenantId: string) {
+    return { pausaMinutos: await minutosDaPausa(this.db, tenantId), opcoesPausa: OPCOES_PAUSA };
+  }
+
+  async salvarRoboConfig(ator: AuthUser, dto: any) {
+    const v = dto?.pausaMinutos;
+    if (typeof v !== 'number' || !OPCOES_PAUSA.includes(v))
+      throw new BadRequestException(`pausaMinutos deve ser um destes: ${OPCOES_PAUSA.join(', ')} (0 = até alguém retomar).`);
+    const de = await minutosDaPausa(this.db, ator.tenantId);
+    await this.db.execute(sql`
+      insert into robo_config (tenant_id, pausa_minutos, atualizado_por)
+      values (${ator.tenantId}::uuid, ${v}, ${ator.colaboradorId}::uuid)
+      on conflict (tenant_id) do update
+         set pausa_minutos = excluded.pausa_minutos, atualizado_por = excluded.atualizado_por, atualizado_em = now()`);
+    if (de !== v) {
+      await this.auditoria.registrar({
+        tenantId: ator.tenantId,
+        atorId: ator.colaboradorId,
+        atorPerfil: ator.categoria,
+        tipo: 'config',
+        acao: 'robo_pausa_alterada',
+        entidadeTipo: 'robo_config',
+        entidadeId: ator.tenantId,
+        detalhe: { de, para: v },
+      });
+    }
+    return this.roboConfig(ator.tenantId);
+  }
+
   // ===== Despacho do inbox por provedor (F2b) =====
   // O painel chama sempre os mesmos endpoints; quem decide de onde vem o historico
   // e este servico. No Evolution o proprio Evolution guarda as conversas; na Cloud
@@ -197,10 +234,18 @@ export class WhatsappProvedorService {
       : this.evolution.mensagens(tenantId, chaves);
   }
 
-  // Envio manual do painel (o humano assume a conversa do robo).
-  async enviar(tenantId: string, numero: string, texto: string) {
-    return (await this.provedorDe(tenantId)) === 'cloud'
-      ? this.cloud.enviarTexto(tenantId, numero, texto)
-      : this.evolution.enviar(tenantId, numero, texto);
+  // Envio manual do painel (o humano assume a conversa do robo): enviado, o robô fica calado nesta conversa pelo
+  // tempo da loja (robo-pausa.ts) — senão ele responde por cima do atendente na mensagem seguinte do cliente.
+  async enviar(tenantId: string, numero: string, texto: string, por?: string | null) {
+    const r = (await this.provedorDe(tenantId)) === 'cloud'
+      ? await this.cloud.enviarTexto(tenantId, numero, texto)
+      : await this.evolution.enviar(tenantId, numero, texto);
+    const tel = String(numero ?? '').split('@')[0].replace(/\D/g, '');
+    if (tel) {
+      await pausarPeloAtendente(this.db, { tenantId, telefone: tel, motivo: 'atendente', por: por ?? null }).catch(
+        (e: any) => this.logger.warn(`envio do atendente: pausa não gravada: ${e?.message ?? e}`),
+      );
+    }
+    return r;
   }
 }

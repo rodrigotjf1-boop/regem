@@ -3719,3 +3719,30 @@ export const whatsappMensagem = pgTable('whatsapp_mensagem', {
   nomeContato: text('nome_contato'),
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// Robô calado numa conversa porque um humano assumiu (mig 342, @cloud-only). Uma linha por número
+// (pela chave do telefone). `ate` nulo = só volta quando alguém retomar. Regras em
+// modules/whatsapp/robo-pausa.ts.
+export const roboPausa = pgTable('robo_pausa', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  telefone: text('telefone').notNull(),
+  telefoneChave: text('telefone_chave').notNull(),
+  ate: timestamp('ate', { withTimezone: true }),
+  motivo: text('motivo').notNull(), // manual | atendente | app | retomado
+  por: uuid('por'),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+  atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Ajustes do robô de atendimento que não são do cardápio (mig 342, @cloud-only).
+export const roboConfig = pgTable('robo_config', {
+  tenantId: uuid('tenant_id')
+    .primaryKey()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  pausaMinutos: integer('pausa_minutos').notNull().default(60), // 0 = até alguém retomar
+  atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+  atualizadoPor: uuid('atualizado_por'),
+});

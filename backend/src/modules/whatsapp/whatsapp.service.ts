@@ -5,6 +5,14 @@ import { cardapioConfig, pedidoExterno } from '../../db/schema';
 import { gerarCardapioPdf } from './cardapio-pdf';
 import { fetchExterno } from '../../common/fetch-externo';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
+import {
+  estadoDaPausa,
+  minutosDaPausa,
+  pausaDaConversa,
+  pausarConversa,
+  pausasDaLojaOuVazio,
+  retomarConversa,
+} from './robo-pausa';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Onboarding do WhatsApp da loja via Evolution API (v2):
@@ -360,22 +368,41 @@ export class WhatsappService {
   // OBS: os formatos de resposta variam por versão da Evolution — parse defensivo
   // + log de diagnóstico para ajustar contra a instância real.
 
-  // Pausa/retoma o robô SÓ para um número (o humano assume a conversa). O resolver
-  // do bot consulta e devolve `pausado` p/ o n8n pular a resposta automática.
-  async pausarConversa(tenantId: string, numero: string, pausar: boolean) {
+  // Pausa/retoma o robô SÓ para um número (o humano assume a conversa). Regras em robo-pausa.ts (mig 342):
+  // `minutos` = por quanto tempo (nulo = o tempo da loja; 0 = até alguém retomar). O resolver do bot consulta e
+  // devolve `pausado` p/ o n8n pular a resposta automática.
+  async pausarConversa(
+    tenantId: string,
+    numero: string,
+    pausar: boolean,
+    opcoes: { minutos?: number | null; por?: string | null } = {},
+  ) {
     const n = this.soNumero(numero);
     if (!n) throw new BadRequestException('Número inválido.');
-    const [cfg] = await this.db.select().from(cardapioConfig).where(and(eq(cardapioConfig.tenantId, tenantId)));
-    if (!cfg) throw new NotFoundException('Cardápio não configurado.');
-    const atual: string[] = Array.isArray(cfg.roboPausados) ? (cfg.roboPausados as any) : [];
-    const set = new Set(atual.map((x) => String(x).replace(/\D/g, '')));
-    if (pausar) set.add(n);
-    else set.delete(n);
+    if (pausar) {
+      const minutos = opcoes.minutos ?? (await minutosDaPausa(this.db, tenantId));
+      await pausarConversa(this.db, { tenantId, telefone: n, minutos, motivo: 'manual', por: opcoes.por ?? null });
+    } else {
+      await retomarConversa(this.db, { tenantId, telefone: n, por: opcoes.por ?? null });
+      await this.tirarDaPausaAntiga(tenantId, n);
+    }
+    const estado = await estadoDaPausa(this.db, tenantId, n);
+    return { ok: true, numero: n, pausado: estado.pausado, pausadoAte: estado.ate };
+  }
+
+  // A pausa ANTIGA (vetor cardapio_config.robo_pausados, sem prazo) ainda vale até alguém retomar: o Retomar
+  // também a limpa. Pausa nova não grava mais aqui (a linha sincroniza com a loja e era regravada inteira).
+  private async tirarDaPausaAntiga(tenantId: string, n: string) {
+    const [cfg] = await this.db
+      .select({ id: cardapioConfig.id, roboPausados: cardapioConfig.roboPausados })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.tenantId, tenantId));
+    const atual: string[] = Array.isArray(cfg?.roboPausados) ? (cfg!.roboPausados as any) : [];
+    if (!cfg || !atual.some((x) => this.soNumero(x) === n)) return;
     await this.db
       .update(cardapioConfig)
-      .set({ roboPausados: Array.from(set) as any, updatedAt: new Date() })
+      .set({ roboPausados: atual.filter((x) => this.soNumero(x) !== n) as any, updatedAt: new Date() })
       .where(eq(cardapioConfig.id, cfg.id));
-    return { ok: true, numero: n, pausado: pausar };
   }
 
   private pausadosSet(cfg: any): Set<string> {
@@ -426,7 +453,8 @@ export class WhatsappService {
   // das mensagens do LID. Assim a conversa fica única e o número certo.
   async listarConversas(tenantId: string) {
     const { cfg, instancia } = await this.instanciaDe(tenantId);
-    const pausados = this.pausadosSet(cfg);
+    const pausados = this.pausadosSet(cfg); // pausa antiga (vetor), vale até alguém retomar
+    const pausas = await pausasDaLojaOuVazio(this.db, tenantId, (m) => this.logger.warn(m));
     const res = await this.req(`/chat/findChats/${instancia}`, { method: 'POST', body: '{}' }).catch(() => null);
     if (!res || !res.ok) {
       this.logger.warn(`findChats ${res?.status ?? 'ERR'}`);
@@ -456,7 +484,7 @@ export class WhatsappService {
         naoLidas: 0,
         ultimaMensagem: null as string | null,
         timestamp: 0,
-        pausada: !!telefone && pausados.has(telefone),
+        ...pausaDaConversa(pausas, pausados, telefone),
       };
       g.jids.add(jid);
       const nomeC = c.pushName ?? c.name ?? c.contact?.pushName ?? c.verifiedName ?? null;
@@ -847,14 +875,25 @@ export class WhatsappService {
     // Robô pausado para ESTE número? (o n8n manda &numero=... e pula a resposta se true)
     // Aceita telefone puro OU o jid inteiro — o n8n não precisa acertar o formato.
     const n = this.soNumero(numero);
-    const pausado = n ? this.pausadosSet(cfg).has(n) : false;
+    // Pausa (atendente assumiu, chamado aberto, Pausar manual — robo-pausa.ts) ou a pausa antiga do vetor.
+    // Se a consulta falhar, o robô responde (como antes da pausa existir) e o motivo vai para o log.
+    const estado = n
+      ? await estadoDaPausa(this.db, cfg.tenantId, n).catch((e: any) => {
+          this.logger.warn(`resolver: pausa não consultada (o robô responde): ${e?.message ?? e}`);
+          return null;
+        })
+      : null;
+    const pausado = !!estado?.pausado || (!!n && this.pausadosSet(cfg).has(n));
     return {
       tenantId: cfg.tenantId,
       cardapioToken: cfg.token,
       ativo: !!cfg.roboAtivo && !!cfg.ativo,
       pausado, // true = humano assumiu esta conversa; n8n NÃO deve responder
+      pausadoAte: estado?.pausado ? estado.ate : null,
       roboSaudacao: cfg.roboSaudacao ?? null,
+      roboAusencia: cfg.roboAusencia ?? null,
       roboPrompt: cfg.roboPrompt ?? null,
+      roboMensagens: Array.isArray(cfg.roboMensagens) ? cfg.roboMensagens : [],
       nome: cfg.nomePublico ?? null,
     };
   }
