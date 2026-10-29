@@ -1,6 +1,6 @@
 import { ExecutionContext, Injectable } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
-import { rotaDaFilaDeImpressao, rotaDaTelaDeSenhas, tokenJaValidado } from './dispositivo-limite';
+import { rotaDaCaixaDaLoja, rotaDaFilaDeImpressao, rotaDaTelaDeSenhas, tokenJaValidado } from './dispositivo-limite';
 import { credencialDaChamada, rotaDaIntegracao, tokenIntegracaoJaValidado } from './integracao-limite';
 
 /**
@@ -24,7 +24,9 @@ export class CfThrottlerGuard extends ThrottlerGuard {
   // (common/dispositivo-limite.ts). Token desconhecido segue limitado por IP.
   protected async shouldSkip(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest();
-    if (rotaDaFilaDeImpressao(req?.originalUrl ?? req?.url)) {
+    // A caixa de conversas repassada pelo servidor da loja (whatsapp/da-loja) segue a mesma regra do token.
+    const url = req?.originalUrl ?? req?.url;
+    if (rotaDaFilaDeImpressao(url) || rotaDaCaixaDaLoja(url)) {
       const raw = req?.headers?.['x-sync-token'];
       if (tokenJaValidado(Array.isArray(raw) ? raw[0] : raw)) return true;
       // Estação de impressão (mig 324): o segredo dela, validado pela FilaImpressaoGuard.
