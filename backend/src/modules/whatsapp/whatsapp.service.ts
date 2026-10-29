@@ -4,7 +4,12 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig, pedidoExterno } from '../../db/schema';
 import { gerarCardapioPdf } from './cardapio-pdf';
 import { fetchExterno } from '../../common/fetch-externo';
-import { segredoDoRoboOk } from '../../common/segredo-robo';
+import {
+  CABECALHO_ASSINATURA_EVOLUTION,
+  assinaturaDaInstancia,
+  segredoDoRoboOk,
+} from '../../common/segredo-robo';
+import { lembrarEnvio } from './evolution-envios';
 import {
   estadoDaPausa,
   minutosDaPausa,
@@ -41,7 +46,35 @@ export class WhatsappService {
       ...init,
       headers: { apikey: key, 'Content-Type': 'application/json', ...(init.headers ?? {}) },
     });
+    // Tudo o que o Regem manda sai daqui: guarda o id para o `fromMe` do webhook não parecer o atendente
+    // respondendo pelo celular (evolution-envios.ts). Lê uma cópia — quem chamou ainda lê a resposta.
+    if (res?.ok && path.startsWith('/message/send')) {
+      await res
+        .clone()
+        .json()
+        .then((j: any) => lembrarEnvio(j?.key?.id))
+        .catch(() => {});
+    }
     return res;
+  }
+
+  /**
+   * Para onde a instância manda as mensagens dos clientes. Com `EVOLUTION_PELO_REGEM=true` (o dono liga quando o fluxo
+   * novo do n8n estiver importado): para o Regem, que aplica as travas e repassa ao robô — com a assinatura da instância
+   * no cabeçalho. Sem a chave: direto ao n8n, como sempre.
+   */
+  private webhookDaInstancia(instancia: string): { url: string; headers?: Record<string, string> } | null {
+    if (String(process.env.EVOLUTION_PELO_REGEM ?? '').toLowerCase() === 'true') {
+      const base = (process.env.PUBLIC_API_BASE || 'https://api.dmsregem.com/api/v1').replace(/\/+$/, '');
+      const assinatura = assinaturaDaInstancia(instancia);
+      if (!assinatura) {
+        this.logger.warn('EVOLUTION_PELO_REGEM ligado sem BOT_RESOLVER_SECRET — webhook da instância não configurado.');
+        return null;
+      }
+      return { url: `${base}/publico/whatsapp/evolution/webhook`, headers: { [CABECALHO_ASSINATURA_EVOLUTION]: assinatura } };
+    }
+    const n8n = process.env.N8N_BOT_WEBHOOK_URL ?? '';
+    return n8n ? { url: n8n } : null;
   }
 
   // Nome da instância = slug da loja + sufixo do token (único e estável).
@@ -103,7 +136,7 @@ export class WhatsappService {
   async conectar(tenantId: string) {
     const { cfg, instancia } = await this.instanciaDe(tenantId);
     await this.garantirInstanciaLivre(tenantId, instancia);
-    const webhookUrl = process.env.N8N_BOT_WEBHOOK_URL ?? '';
+    const webhook = this.webhookDaInstancia(instancia);
 
     // Cria a instância (idempotente: se já existe, o Evolution devolve erro que ignoramos).
     await this.req('/instance/create', {
@@ -112,17 +145,18 @@ export class WhatsappService {
         instanceName: instancia,
         qrcode: true,
         integration: 'WHATSAPP-BAILEYS',
-        ...(webhookUrl
-          ? { webhook: { enabled: true, url: webhookUrl, byEvents: false, base64: false, events: EVENTS } }
+        ...(webhook
+          ? { webhook: { enabled: true, ...webhook, byEvents: false, base64: false, events: EVENTS } }
           : {}),
       }),
     }).catch(() => {});
 
-    // Garante o webhook (para instância já existente).
-    if (webhookUrl) {
+    // Garante o webhook (para instância já existente — "Reconectar" reaponta, inclusive quando a chave
+    // EVOLUTION_PELO_REGEM muda).
+    if (webhook) {
       await this.req(`/webhook/set/${instancia}`, {
         method: 'POST',
-        body: JSON.stringify({ webhook: { enabled: true, url: webhookUrl, events: EVENTS } }),
+        body: JSON.stringify({ webhook: { enabled: true, ...webhook, byEvents: false, base64: false, events: EVENTS } }),
       }).catch(() => {});
     }
 
@@ -290,9 +324,9 @@ export class WhatsappService {
       evolutionOk: false,
       instancias: [] as any[],
       instanciaVinculada: null as string | null,
-      // Sem N8N_BOT_WEBHOOK_URL no servidor, a instância nasce SEM webhook e o robô
-      // nunca recebe as mensagens. Só o sim/não — a URL do n8n não vai para o lojista.
-      webhookConfigurado: !!process.env.N8N_BOT_WEBHOOK_URL,
+      // Sem destino (N8N_BOT_WEBHOOK_URL, ou EVOLUTION_PELO_REGEM com a senha do robô), a instância nasce SEM
+      // webhook e o robô nunca recebe as mensagens. Só o sim/não — a URL não vai para o lojista.
+      webhookConfigurado: !!this.webhookDaInstancia('diagnostico'),
       webhookAtivo: null as boolean | null,
       erro: null as string | null,
     };
@@ -568,6 +602,55 @@ export class WhatsappService {
       throw new BadRequestException(`Falha ao enviar (${res?.status ?? 'sem resposta'}): ${body.slice(0, 150)}`);
     }
     return { ok: true };
+  }
+
+  /**
+   * ENQUETE (QR/Evolution não tem botão confiável — os de Baileys estão quebrados na 2.3.7): o cliente toca na opção e o
+   * voto volta no webhook com o NOME da opção. De 2 a 12 opções, uma escolha só. Nome da opção até 100 caracteres.
+   */
+  async enviarEnquete(tenantId: string, numero: string, pergunta: string, opcoes: string[]) {
+    const nome = String(pergunta ?? '').trim().slice(0, 255) || 'Escolha uma opção:';
+    const values = (Array.isArray(opcoes) ? opcoes : []).map((o) => String(o ?? '').trim().slice(0, 100)).filter(Boolean);
+    if (values.length < 2 || values.length > 12) throw new BadRequestException('A enquete leva de 2 a 12 opções.');
+    const { instancia } = await this.instanciaDe(tenantId);
+    const number = this.soNumero(numero);
+    if (!number) throw new BadRequestException('Número inválido.');
+    const res = await this.req(`/message/sendPoll/${instancia}`, {
+      method: 'POST',
+      body: JSON.stringify({ number, name: nome, selectableCount: 1, values }),
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      const body = res ? await res.text().catch(() => '') : '';
+      throw new BadRequestException(`Falha ao enviar a enquete (${res?.status ?? 'sem resposta'}): ${body.slice(0, 150)}`);
+    }
+    return { ok: true };
+  }
+
+  /**
+   * NOTA DE VOZ: a Evolution converte o áudio (mp3, wav, ogg) para OGG/Opus e manda como nota de voz (ptt), com
+   * "gravando áudio…" antes. Base64 sem o prefixo `data:`.
+   */
+  async enviarAudio(tenantId: string, numero: string, base64: string) {
+    const audio = String(base64 ?? '').replace(/^data:[^;]+;base64,/, '');
+    if (!audio) throw new BadRequestException('Áudio vazio.');
+    if (Buffer.byteLength(audio, 'base64') > 5 * 1024 * 1024) throw new BadRequestException('Áudio maior que 5 MB.');
+    const { instancia } = await this.instanciaDe(tenantId);
+    const number = this.soNumero(numero);
+    if (!number) throw new BadRequestException('Número inválido.');
+    const res = await this.req(`/message/sendWhatsAppAudio/${instancia}`, {
+      method: 'POST',
+      body: JSON.stringify({ number, audio, encoding: true, delay: 1200 }),
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      const body = res ? await res.text().catch(() => '') : '';
+      throw new BadRequestException(`Falha ao enviar o áudio (${res?.status ?? 'sem resposta'}): ${body.slice(0, 150)}`);
+    }
+    return { ok: true };
+  }
+
+  /** A loja do robô pela chave que o n8n recebeu (phoneNumberId da API oficial ou instância da Evolution). */
+  async lojaDoRobo(instancia?: string, phoneNumberId?: string): Promise<{ tenantId: string } | null> {
+    return this.lojaPorChaveBot(instancia, phoneNumberId);
   }
 
   // Baixa a mídia de UMA mensagem sob demanda (miniatura no inbox). Usa o mesmo

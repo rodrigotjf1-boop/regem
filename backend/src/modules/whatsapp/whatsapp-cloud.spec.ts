@@ -357,3 +357,63 @@ describe('WhatsappCloudService — envio por modelo (F2d)', () => {
     ).rejects.toThrow();
   });
 });
+
+// Fase 2 do robô: opções com toque e nota de voz pela API oficial, nos limites da Meta.
+describe('WhatsappCloudService — opções com toque e voz (Fase 2)', () => {
+  let pedidos: any[];
+  let espiao: jest.SpyInstance;
+  beforeEach(() => {
+    process.env.WA_CLOUD_TOKEN = 'token-falso';
+    pedidos = [];
+    espiao = jest.spyOn(global, 'fetch' as any).mockImplementation(async (url: any, init: any) => {
+      pedidos.push({ url: String(url), init });
+      const midia = String(url).endsWith('/media');
+      return {
+        ok: true,
+        status: 200,
+        json: async () => (midia ? { id: '987654321' } : { messages: [{ id: 'wamid.X', message_status: 'accepted' }] }),
+        text: async () => '',
+      } as any;
+    });
+  });
+  afterEach(() => espiao.mockRestore());
+
+  it('até 3 opções: BOTÕES, título cortado em 20 caracteres', async () => {
+    const { svc, gravadas } = comLoja(LOJA);
+    await svc.enviarOpcoes('tenant-1', DE, 'O que deseja?', [
+      { id: 'cardapio', titulo: 'Ver o cardápio completo da loja' },
+      { titulo: 'Falar com atendente' },
+    ]);
+    const corpo = JSON.parse(pedidos[0].init.body);
+    expect(pedidos[0].url).toContain(`/${PHONE_ID}/messages`);
+    expect(corpo.interactive.type).toBe('button');
+    expect(corpo.interactive.action.buttons).toEqual([
+      { type: 'reply', reply: { id: 'cardapio', title: 'Ver o cardápio comp…' } },
+      { type: 'reply', reply: { id: '2', title: 'Falar com atendente' } },
+    ]);
+    expect(corpo.interactive.action.buttons[0].reply.title.length).toBeLessThanOrEqual(20);
+    expect(gravadas[0]).toMatchObject({ direcao: 'saida', tipo: 'interactive' });
+  });
+
+  it('de 4 a 10: LISTA; mais de 10 é recusado', async () => {
+    const { svc } = comLoja(LOJA);
+    const ops = (n: number) => Array.from({ length: n }, (_, i) => ({ titulo: `Item ${i + 1}`, descricao: 'x'.repeat(100) }));
+    await svc.enviarOpcoes('tenant-1', DE, 'Escolha', ops(5), 'Ver os itens');
+    const corpo = JSON.parse(pedidos[0].init.body);
+    expect(corpo.interactive.type).toBe('list');
+    expect(corpo.interactive.action.button).toBe('Ver os itens');
+    expect(corpo.interactive.action.sections[0].rows).toHaveLength(5);
+    expect(corpo.interactive.action.sections[0].rows[0].description.length).toBeLessThanOrEqual(72);
+    await expect(svc.enviarOpcoes('tenant-1', DE, 'Escolha', ops(11))).rejects.toThrow('de 1 a 10');
+  });
+
+  it('voz: sobe o áudio à Meta e manda como NOTA DE VOZ (voice: true); acima de 512 KB recusa', async () => {
+    const { svc } = comLoja(LOJA);
+    await svc.enviarVoz('tenant-1', DE, Buffer.from('ogg-falso').toString('base64'), 'audio/ogg; codecs=opus');
+    expect(pedidos[0].url).toContain(`/${PHONE_ID}/media`);
+    const corpo = JSON.parse(pedidos[1].init.body);
+    expect(corpo).toMatchObject({ type: 'audio', audio: { id: '987654321', voice: true } });
+    const grande = Buffer.alloc(513 * 1024).toString('base64');
+    await expect(svc.enviarVoz('tenant-1', DE, grande)).rejects.toThrow('512 KB');
+  });
+});

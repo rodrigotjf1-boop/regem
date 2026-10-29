@@ -29,7 +29,11 @@
 | `OTP_WEBHOOK_URL` | fallback global do OTP | URL do **workflow de STATUS** do n8n | apontar pro workflow do **bot** (não envia OTP) |
 | `EVOLUTION_API_URL` | base da Evolution (WhatsApp) | `https://sua-evolution` | com `/` no fim → ok (tratado) |
 | `EVOLUTION_API_KEY` | apikey global da Evolution | segredo | — |
-| `N8N_BOT_WEBHOOK_URL` | webhook do workflow multi-tenant | URL do n8n | — |
+| `N8N_BOT_WEBHOOK_URL` | webhook do workflow multi-tenant (a Evolution manda DIRETO a ele enquanto `EVOLUTION_PELO_REGEM` estiver desligado) | URL do n8n | — |
+| `N8N_ROBO_WEBHOOK_URL` | o fluxo NOVO do robô (Fase 3): recebe do Regem as mensagens das DUAS vias já com as travas aplicadas, no formato único, assinadas (`x-regem-assinatura: sha256=<hmac do corpo com BOT_RESOLVER_SECRET>`) | URL do n8n | sem ela, a API oficial segue no `N8N_BOT_CLOUD_WEBHOOK_URL` e a Evolution pelo Regem não entrega a ninguém |
+| `EVOLUTION_PELO_REGEM` | `true` = ao conectar/reconectar o QR, a instância passa a avisar o REGEM (`publico/whatsapp/evolution/webhook`, com a assinatura da instância em `x-regem-evolution`), que aplica pausa, SAIR, robô ligado e mensagem repetida e repassa ao `N8N_ROBO_WEBHOOK_URL`; também pausa o robô quando alguém responde pelo celular da loja | `true` (o dono liga quando o fluxo novo estiver importado) | ligar sem o `N8N_ROBO_WEBHOOK_URL` = robô mudo na Evolution. Instância já conectada só muda ao clicar "Reconectar (QR)" |
+| `PUBLIC_API_BASE` | endereço público da API (o webhook da Evolution aponta para ele) | `https://api.dmsregem.com/api/v1` (padrão) | — |
+| `ROBO_JUNTAR_MS` | quanto o Regem espera por mais mensagens do MESMO cliente antes de entregar ao robô (mensagens seguidas viram uma) | `3000` (padrão; `0` desliga, máx. 15000) | alto demais deixa o robô lento para responder |
 | `BOT_RESOLVER_SECRET` | senha do robô de WhatsApp: protege as rotas `publico/bot/*`, o link do cliente (`publico/cardapio/:token/cliente/link`) e o chamado do robô (`publico/cardapio/:token/atendimento`) | segredo | **tem que bater** com a do n8n. O n8n manda no cabeçalho `x-regem-robo-segredo`; `?secret=`/`secret` no corpo ainda vale só para os fluxos antigos. Sem ela configurada, as rotas recusam tudo |
 | `LICENSE_PRIVATE_KEY_B64` | **assina** o lease de licença | base64 (do `gen-license-keys.mjs`) | **NUNCA** colocar isto no edge! |
 | `LICENSE_PUBLIC_KEY_B64` | verifica o lease | base64 (pública) | — |

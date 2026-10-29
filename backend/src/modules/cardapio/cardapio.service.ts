@@ -390,6 +390,27 @@ export class CardapioService {
     return row;
   }
 
+  // ===== Consultas do robô (Fase 2): a loja pela chave do WhatsApp, com a senha do robô =====
+  /** O token do cardápio da loja do robô: pela instância da Evolution ou pelo phoneNumberId da API oficial. */
+  async tokenDaLojaDoRobo(segredo: string, instancia?: string, phoneNumberId?: string): Promise<string> {
+    if (!segredoDoRoboOk(segredo)) throw new UnauthorizedException('Não autorizado.');
+    const pid = String(phoneNumberId ?? '').trim();
+    const inst = String(instancia ?? '').trim();
+    if (!pid && !inst) throw new BadRequestException('Informe a instância ou o phoneNumberId.');
+    const [cfg] = await this.db
+      .select({ token: cardapioConfig.token })
+      .from(cardapioConfig)
+      .where(pid ? eq(cardapioConfig.waCloudPhoneId, pid) : eq(cardapioConfig.evolutionInstancia, inst));
+    if (!cfg?.token) throw new NotFoundException('Número/instância não vinculado a uma loja.');
+    return cfg.token;
+  }
+
+  /** O link público do cardápio (sempre a nuvem — o cliente abre no celular dele). */
+  linkDoCardapio(token: string): string {
+    const base = (process.env.CARDAPIO_PUBLIC_URL || process.env.APP_URL || 'https://app.dmsregem.com').replace(/\/$/, '');
+    return `${base}/c/${token}`;
+  }
+
   async getConfig(tenantId: string, unidadeId?: string | null) {
     // Base pública do cardápio digital: SEMPRE a nuvem (o cliente scaneia o QR com
     // o próprio celular, fora da rede da loja). Mesmo no edge/modo local, o link/QR
