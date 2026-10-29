@@ -1299,8 +1299,19 @@ export const api = {
   whatsappMensagens: (jids: string) => req(`/whatsapp/mensagens?jids=${encodeURIComponent(jids)}`),
   whatsappEnviar: (jid: string, texto: string) =>
     req('/whatsapp/enviar', { method: 'POST', body: JSON.stringify({ jid, texto }) }),
-  whatsappPausarConversa: (numero: string, pausar: boolean) =>
-    req('/whatsapp/pausar-conversa', { method: 'POST', body: JSON.stringify({ numero, pausar }) }),
+  // `minutos`: por quanto tempo o robô fica calado (0 = até alguém retomar; ausente = o tempo da loja).
+  whatsappPausarConversa: (numero: string, pausar: boolean, minutos?: number) =>
+    req('/whatsapp/pausar-conversa', {
+      method: 'POST',
+      body: JSON.stringify({ numero, pausar, ...(minutos !== undefined ? { minutos } : {}) }),
+    }),
+  // Por quanto tempo o robô fica calado depois que o atendente assume (mig 342). Salvar é só pela nuvem.
+  whatsappRoboConfig: () => req('/whatsapp/robo-config'),
+  whatsappRoboConfigSalvar: (pausaMinutos: number) =>
+    req('/whatsapp/robo-config', {
+      method: 'POST',
+      body: JSON.stringify({ pausaMinutos }),
+    }),
   // Mídia de uma mensagem sob demanda (miniatura no inbox). Devolve um data URL.
   whatsappMidia: (id: string, jid: string, fromMe: boolean) =>
     req(`/whatsapp/midia?id=${encodeURIComponent(id)}&jid=${encodeURIComponent(jid)}&fromMe=${fromMe ? 'true' : 'false'}`),

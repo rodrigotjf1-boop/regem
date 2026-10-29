@@ -30,6 +30,25 @@ const foneFmt = (f: string) => {
   return f || '—';
 };
 const inicial = (s: string) => (s ?? '?').trim().slice(0, 1).toUpperCase() || '?';
+// "1 h", "30 min", "até você retomar" — os tempos de pausa do robô (mig 342).
+const rotuloMin = (min: number) => (!min ? 'até você retomar' : min < 60 ? `${min} min` : Number.isInteger(min / 60) ? `${min / 60} h` : `${min} min`);
+const ROTULO_CHAMADO: Record<string, string> = {
+  mudanca: 'mudança no pedido',
+  erro: 'erro no recebimento',
+  humano: 'quer falar com atendente',
+  cancelamento: 'pedido de cancelamento',
+  outro: 'atendimento',
+};
+// Linha de estado do robô na conversa: calado até quando, e por quê.
+function estadoDoRobo(c: any): string {
+  if (!c?.pausada) return '';
+  const ate = c.pausadaAte ? new Date(c.pausadaAte) : null;
+  const quando = ate && !Number.isNaN(ate.getTime())
+    ? `até ${ate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+    : 'até alguém retomar';
+  return c.pausaMotivo === 'chamado' ? `robô aguardando o atendente (${quando})` : `robô pausado ${quando}`;
+}
+const EH_LOJA = process.env.NEXT_PUBLIC_EDGE === '1';
 const cid = (c: any) => c?.telefone || c?.jids?.[0] || '';
 // Mesmo cliente? Tolera o 55 e o 9º dígito comparando o final do número.
 const mesmoNumero = (a?: string, b?: string) => {
@@ -114,6 +133,15 @@ export default function WhatsappPage() {
   const [busca, setBusca] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [pausando, setPausando] = useState(false);
+  const [menuPausa, setMenuPausa] = useState(false);
+  const [resolvendo, setResolvendo] = useState(false);
+  // Tempo de pausa da loja (robo-config) e as opções do "Pausar robô".
+  const [pausaCfg, setPausaCfg] = useState<{ pausaMinutos: number; opcoesPausa: number[] }>({
+    pausaMinutos: 60,
+    opcoesPausa: [15, 30, 60, 120, 240, 0],
+  });
+  // A última leitura da lista falhou (sem nuvem, sem permissão…): a tela diz, em vez de "Nenhuma conversa".
+  const [erroLista, setErroLista] = useState('');
   const [enviandoCard, setEnviandoCard] = useState(false);
   const [escolherCard, setEscolherCard] = useState<any[] | null>(null);
   // "Carregar fotos" (economia de dados, igual ao WhatsApp). Desligado por
@@ -155,8 +183,10 @@ export default function WhatsappPage() {
     try {
       const c = await api.whatsappConversas();
       setConversas(Array.isArray(c) ? c : []);
-    } catch {
-      /* silencioso */
+      setErroLista('');
+    } catch (e: any) {
+      // Mantém a última lista na tela e diz que ela pode estar velha (V37: "vazio" ≠ "não li").
+      setErroLista(e?.message || 'Não consegui atualizar as conversas.');
     } finally {
       setCarregou(true);
     }
@@ -181,8 +211,20 @@ export default function WhatsappPage() {
       router.replace('/entrar');
       return;
     }
-    api.whatsappStatus().then(setStatus).catch(() => setStatus({ conectado: false }));
+    lerStatus();
+    api.whatsappRoboConfig().then((r: any) => r && setPausaCfg(r)).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
+
+  // "Não conectado" (o número da loja não está pareado) é diferente de "não consegui perguntar" (sem nuvem, sem
+  // permissão): o segundo mostra o motivo e um "Tentar de novo".
+  function lerStatus() {
+    setStatus(null);
+    api
+      .whatsappStatus()
+      .then(setStatus)
+      .catch((e: any) => setStatus({ conectado: false, erro: e?.message || 'Não foi possível consultar o WhatsApp da loja.' }));
+  }
 
   useEffect(() => {
     if (!conectado) return;
@@ -226,12 +268,33 @@ export default function WhatsappPage() {
     fimRef.current?.scrollIntoView({ block: 'end' });
   }, [msgs.length]);
 
-  // Sincroniza a flag `pausada` da conversa aberta com o poll da lista.
+  // Sincroniza o estado do robô e o chamado da conversa aberta com o poll da lista.
   useEffect(() => {
     if (!sel) return;
     const atual = conversas.find((c) => cid(c) === cid(sel));
-    if (atual && atual.pausada !== sel.pausada) setSel((s: any) => ({ ...s, pausada: atual.pausada }));
+    if (!atual) return;
+    const mudou =
+      atual.pausada !== sel.pausada ||
+      String(atual.pausadaAte ?? '') !== String(sel.pausadaAte ?? '') ||
+      atual.pausaMotivo !== sel.pausaMotivo ||
+      (atual.chamado?.id ?? null) !== (sel.chamado?.id ?? null);
+    if (mudou)
+      setSel((s: any) => ({
+        ...s,
+        pausada: atual.pausada,
+        pausadaAte: atual.pausadaAte ?? null,
+        pausaMotivo: atual.pausaMotivo ?? null,
+        chamado: atual.chamado ?? null,
+      }));
   }, [conversas, sel]);
+
+  // Fecha o menu do "Pausar robô" com Esc.
+  useEffect(() => {
+    if (!menuPausa) return;
+    const f = (e: KeyboardEvent) => e.key === 'Escape' && setMenuPausa(false);
+    window.addEventListener('keydown', f);
+    return () => window.removeEventListener('keydown', f);
+  }, [menuPausa]);
 
   const filtradas = useMemo(() => {
     const v = busca.trim().toLowerCase();
@@ -250,6 +313,8 @@ export default function WhatsappPage() {
     try {
       await api.whatsappEnviar(sel.telefone, t);
       setTimeout(() => carregarMsgs(selJids), 800);
+      // O servidor pausa o robô nesta conversa ao enviar: a lista traz o "pausado até…".
+      setTimeout(carregarConversas, 800);
     } catch (e: any) {
       toast.error(e?.message || 'Falha ao enviar.');
       setTexto(t);
@@ -258,20 +323,40 @@ export default function WhatsappPage() {
     }
   }
 
-  async function togglePausa() {
+  // Pausar (com o tempo escolhido; 0 = até retomar) ou retomar o robô nesta conversa.
+  async function mudarPausa(pausar: boolean, minutos?: number) {
     if (!sel?.telefone) return;
-    const novo = !sel.pausada;
+    setMenuPausa(false);
     setPausando(true);
-    setSel((s: any) => ({ ...s, pausada: novo }));
     try {
-      await api.whatsappPausarConversa(sel.telefone, novo);
-      toast.success(novo ? 'Robô pausado nesta conversa — você assume.' : 'Robô retomado nesta conversa.');
+      const r: any = await api.whatsappPausarConversa(sel.telefone, pausar, minutos);
+      setSel((s: any) => ({ ...s, pausada: !!r?.pausado, pausadaAte: r?.pausadoAte ?? null, pausaMotivo: r?.pausado ? 'manual' : null }));
+      toast.success(
+        pausar
+          ? `Robô pausado nesta conversa ${minutos === undefined ? `por ${rotuloMin(pausaCfg.pausaMinutos)}` : minutos ? `por ${rotuloMin(minutos)}` : 'até você retomar'} — você assume.`
+          : 'Robô retomado nesta conversa.',
+      );
       carregarConversas();
     } catch (e: any) {
-      toast.error(e?.message || 'Falha ao pausar.');
-      setSel((s: any) => ({ ...s, pausada: !novo }));
+      toast.error(e?.message || (pausar ? 'Falha ao pausar.' : 'Falha ao retomar.'));
     } finally {
       setPausando(false);
+    }
+  }
+
+  // Resolver o chamado aberto deste cliente: o robô volta a responder na conversa (regra da pausa, mig 342).
+  async function resolverChamado() {
+    if (!sel?.chamado?.id) return;
+    setResolvendo(true);
+    try {
+      await api.resolverAtendimento(sel.chamado.id);
+      setSel((s: any) => ({ ...s, chamado: null }));
+      toast.success('Chamado resolvido — o robô volta a responder nesta conversa.');
+      carregarConversas();
+    } catch (e: any) {
+      toast.error(e?.message || 'Não foi possível resolver o chamado.');
+    } finally {
+      setResolvendo(false);
     }
   }
 
@@ -303,17 +388,33 @@ export default function WhatsappPage() {
 
   return (
     <Shell eyebrow="Delivery" title="WhatsApp">
-      {status && !conectado ? (
+      {status?.erro ? (
+        <Card className="mx-auto max-w-md p-8 text-center" role="alert">
+          <p className="text-4xl">⚠️</p>
+          <p className="mt-2 font-display text-lg font-semibold">Não consegui abrir a caixa de conversas</p>
+          <p className="mt-1 text-sm text-muted-foreground">{status.erro}</p>
+          <Button className="mt-4" onClick={lerStatus}>Tentar de novo</Button>
+        </Card>
+      ) : status && !conectado ? (
         <Card className="mx-auto max-w-md p-8 text-center">
           <p className="text-4xl">💬</p>
           <p className="mt-2 font-display text-lg font-semibold">WhatsApp não conectado</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Conecte o WhatsApp da loja no card <strong>Robô de atendimento</strong> (escaneie o QR) para
-            usar a caixa de entrada aqui.
-          </p>
-          <Button className="mt-4" onClick={() => router.push('/delivery/configuracoes')}>
-            Ir para o Robô de atendimento
-          </Button>
+          {EH_LOJA ? (
+            <p className="mt-1 text-sm text-muted-foreground">
+              O número da loja se conecta pela nuvem: entre em <strong>app.dmsregem.com</strong> › <strong>Delivery</strong> ›{' '}
+              <strong>Configurações</strong> › aba <strong>Robô de atendimento</strong>. Depois a caixa de conversas funciona aqui também.
+            </p>
+          ) : (
+            <>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Conecte o WhatsApp da loja em <strong>Delivery › Configurações</strong>, aba <strong>Robô de atendimento</strong>,
+                para usar a caixa de conversas aqui.
+              </p>
+              <Button className="mt-4" onClick={() => router.push('/delivery/configuracoes?aba=robo')}>
+                Ir para o Robô de atendimento
+              </Button>
+            </>
+          )}
         </Card>
       ) : (
         <div className="flex h-[calc(100dvh-8rem)] min-h-[440px] w-full overflow-hidden rounded-xl border border-border">
@@ -322,9 +423,16 @@ export default function WhatsappPage() {
             <div className="border-b border-border p-2">
               <Input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar conversa…" className="h-9" />
             </div>
+            {erroLista && (
+              <p role="status" className="border-b border-border bg-warn/10 px-3 py-1.5 text-xs text-warn">
+                {erroLista} A lista pode estar desatualizada — tentando de novo.
+              </p>
+            )}
             <div className="min-h-0 flex-1 overflow-y-auto">
               {filtradas.length === 0 && (
-                <p className="p-6 text-center text-sm text-muted-foreground">Nenhuma conversa.</p>
+                <p className="p-6 text-center text-sm text-muted-foreground">
+                  {erroLista && !conversas.length ? 'Não consegui carregar as conversas.' : 'Nenhuma conversa.'}
+                </p>
               )}
               {filtradas.map((c) => (
                 <button
@@ -340,7 +448,8 @@ export default function WhatsappPage() {
                     </span>
                     <span className="flex items-center justify-between gap-2">
                       <span className="truncate text-xs text-muted-foreground">
-                        {c.pausada && <span className="mr-1 text-amber-500">⏸</span>}
+                        {c.chamado && <span className="mr-1" title="Chamado de atendimento aberto" aria-label="Chamado aberto">🔔</span>}
+                        {c.pausada && <span className="mr-1 text-amber-500" title={estadoDoRobo(c)} aria-label={estadoDoRobo(c)}>⏸</span>}
                         {c.ultimaMensagem ?? foneFmt(c.telefone)}
                       </span>
                       {c.naoLidas > 0 && (
@@ -367,7 +476,7 @@ export default function WhatsappPage() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold">{nomeConversa(sel)}</p>
                     <p className="truncate text-xs text-muted-foreground">
-                      {foneFmt(sel.telefone)}{sel.pausada ? ' · robô pausado' : ''}
+                      {foneFmt(sel.telefone)}{sel.pausada ? ` · ${estadoDoRobo(sel)}` : ''}
                     </p>
                   </div>
                   <Button
@@ -392,17 +501,32 @@ export default function WhatsappPage() {
                   >
                     <FileText className="h-4 w-4" /> {enviandoCard ? 'Enviando…' : 'Enviar cardápio'}
                   </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={sel.pausada ? 'default' : 'outline'}
-                    className="shrink-0"
-                    disabled={pausando}
-                    onClick={togglePausa}
-                    title={sel.pausada ? 'Retomar o robô nesta conversa' : 'Pausar o robô só nesta conversa'}
-                  >
-                    {sel.pausada ? <><Play className="h-4 w-4" /> Retomar robô</> : <><Bot className="h-4 w-4" /> Pausar robô</>}
-                  </Button>
+                  {sel.pausada ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="shrink-0"
+                      disabled={pausando}
+                      onClick={() => mudarPausa(false)}
+                      title="Retomar o robô nesta conversa"
+                    >
+                      <Play className="h-4 w-4" /> Retomar robô
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="shrink-0"
+                      disabled={pausando}
+                      onClick={() => setMenuPausa(true)}
+                      aria-expanded={menuPausa}
+                      aria-haspopup="dialog"
+                      title="Pausar o robô só nesta conversa"
+                    >
+                      <Bot className="h-4 w-4" /> Pausar robô
+                    </Button>
+                  )}
                   <Button
                     type="button"
                     size="sm"
@@ -414,6 +538,18 @@ export default function WhatsappPage() {
                     <Settings className="h-4 w-4" /> Config
                   </Button>
                 </div>
+
+                {sel.chamado && (
+                  <div role="status" className="flex flex-wrap items-center gap-2 border-b border-destructive/30 bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
+                    <span className="min-w-0 flex-1">
+                      🔔 <strong>Chamado aberto</strong>: {ROTULO_CHAMADO[sel.chamado.tipo] ?? 'atendimento'}
+                      {sel.chamado.pedidoNumero ? ` · pedido #${sel.chamado.pedidoNumero}` : ''}
+                    </span>
+                    <Button type="button" size="sm" variant="outline" className="h-7 shrink-0" disabled={resolvendo} onClick={resolverChamado}>
+                      {resolvendo ? 'Resolvendo…' : 'Resolver chamado'}
+                    </Button>
+                  </div>
+                )}
 
                 <div className="min-h-0 min-w-0 flex-1 space-y-1.5 overflow-y-auto bg-secondary/30 p-3">
                   {msgs.length === 0 && (
@@ -454,14 +590,40 @@ export default function WhatsappPage() {
                   className="flex items-center gap-2 border-t border-border p-2"
                   onSubmit={(e) => { e.preventDefault(); enviar(); }}
                 >
-                  <Input value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Escreva uma mensagem…" className="h-10" />
-                  <Button type="submit" size="icon" className="h-10 w-10 shrink-0" disabled={enviando || !texto.trim()} title="Enviar">
+                  <Input value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Escreva uma mensagem…" aria-label="Mensagem" className="h-10" />
+                  <Button type="submit" size="icon" className="h-10 w-10 shrink-0" disabled={enviando || !texto.trim()} title="Enviar" aria-label="Enviar">
                     <Send className="h-4 w-4" />
                   </Button>
                 </form>
+                {!sel.pausada && (
+                  <p className="border-t border-border/60 px-3 py-1 text-[11px] text-muted-foreground">
+                    Ao responder, o robô fica calado nesta conversa {pausaCfg.pausaMinutos ? `por ${rotuloMin(pausaCfg.pausaMinutos)}` : 'até você retomar'}.
+                  </p>
+                )}
               </>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Por quanto tempo pausar o robô nesta conversa (mig 342). */}
+      {menuPausa && sel && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" onClick={() => setMenuPausa(false)}>
+          <Card role="dialog" aria-modal="true" aria-labelledby="titulo-pausa" className="w-full max-w-sm space-y-3 p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between gap-2">
+              <h3 id="titulo-pausa" className="font-display text-base font-bold">Pausar o robô nesta conversa</h3>
+              <button type="button" onClick={() => setMenuPausa(false)} className="shrink-0 text-sm text-muted-foreground hover:underline">Fechar ✕</button>
+            </div>
+            <p className="text-xs text-muted-foreground">Por quanto tempo? Depois o robô volta a responder sozinho — ou antes, se você clicar em Retomar ou resolver o chamado.</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {pausaCfg.opcoesPausa.map((m) => (
+                <Button key={m} type="button" variant={m === pausaCfg.pausaMinutos ? 'default' : 'outline'} disabled={pausando} onClick={() => mudarPausa(true, m)}>
+                  {m ? rotuloMin(m) : 'Até eu retomar'}
+                  {m === pausaCfg.pausaMinutos && <span className="ml-1 text-[10px] opacity-80">(padrão)</span>}
+                </Button>
+              ))}
+            </div>
+          </Card>
         </div>
       )}
 

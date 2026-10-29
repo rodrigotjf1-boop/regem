@@ -22,6 +22,7 @@ import { useSenhaSemSalvar } from '@/lib/use-senha-sem-salvar';
 import { avisarComprovante } from '@/lib/comprovante';
 import { Dialogo } from '@/components/ui/sobreposto';
 import { ItensDoPedido } from '@/components/delivery/itens-do-pedido';
+import { connectAsGestor } from '@/lib/rt';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -523,6 +524,43 @@ export default function DeliveryPage() {
       concluidos: lista.filter((p) => p.status === 'concluido').length,
     };
   }, [pedidos]);
+
+  // CHAMADO NOVO (o robô chamou o atendente): aviso na tela e o mesmo som do pedido novo. Comparar os ids da lista
+  // vale nas duas pontas — na nuvem a lista se atualiza na hora (tempo real, abaixo); no servidor da loja o chamado
+  // chega pelo sincronismo e a tela o vê na leitura seguinte (15 s).
+  const prevAtendRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const ids = new Set((atendimentos ?? []).map((c: any) => String(c.id)));
+    const antes = prevAtendRef.current;
+    prevAtendRef.current = ids;
+    if (!antes) return; // primeira leitura: o que já estava aberto não é novidade
+    const novos = (atendimentos ?? []).filter((c: any) => !antes.has(String(c.id)));
+    if (!novos.length) return;
+    const c: any = novos[0];
+    toast.info(
+      `🔔 Novo chamado: ${TIPO_ATEND[c.tipo] ?? 'Atendimento'}${c.cliente ? ` · ${c.cliente}` : ''}${novos.length > 1 ? ` (+${novos.length - 1})` : ''}`,
+    );
+    if (somAtivo) tocarBeep();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [atendimentos]);
+
+  // Tempo real (nuvem): chamado aberto pelo robô → relê na hora, sem esperar os 15 s.
+  useEffect(() => {
+    let s: any = null;
+    try {
+      s = connectAsGestor();
+      s.on('atendimento:novo', () => reload());
+    } catch {
+      /* sem tempo real: segue a leitura a cada 15 s */
+    }
+    return () => {
+      try {
+        s?.disconnect();
+      } catch {
+        /* nada */
+      }
+    };
+  }, [reload]);
 
   const novosPendentes = (pedidos ?? []).filter((p) => p.status === 'novo').length;
   useEffect(() => {
@@ -1291,6 +1329,10 @@ function AtendimentoPanel({ lista, onFechar, onResolver, onDecidir }: {
   const [cancelId, setCancelId] = useState<string | null>(null);
   const [senha, setSenha] = useState('');
   const campoSenha = useSenhaSemSalvar(); // o navegador não oferece guardar a senha do gestor
+  // A caixa de conversas (Delivery › WhatsApp) é de presidente, gerente e supervisão (o servidor confere); a execução
+  // vê o chamado e resolve, mas o link a levaria a uma tela que recusa.
+  const [podeResponder, setPodeResponder] = useState(false);
+  useEffect(() => setPodeResponder(['presidente', 'gerente', 'supervisao'].includes(getCategoria() ?? '')), []);
   const inbox = (tel?: string) => {
     const d = String(tel ?? '').replace(/\D/g, '');
     const num = d.length === 10 || d.length === 11 ? `55${d}` : d;
@@ -1317,8 +1359,11 @@ function AtendimentoPanel({ lista, onFechar, onResolver, onDecidir }: {
               </p>
               {c.mensagem && <p className="mt-1.5 rounded bg-secondary px-2 py-1.5 text-sm">{c.mensagem}</p>}
               <div className="mt-2 flex flex-wrap items-center gap-2">
-                {c.telefone && (
+                {c.telefone && podeResponder && (
                   <Link href={inbox(c.telefone)} onClick={(e) => e.stopPropagation()} className="rounded-md bg-ok/10 px-2.5 py-1 text-xs font-semibold text-ok hover:bg-ok/20">💬 Responder no WhatsApp</Link>
+                )}
+                {c.telefone && !podeResponder && (
+                  <span className="text-[11px] text-muted-foreground">Quem responde pelo WhatsApp é a gerência ou a supervisão.</span>
                 )}
                 {c.tipo === 'cancelamento' ? (
                   <>
