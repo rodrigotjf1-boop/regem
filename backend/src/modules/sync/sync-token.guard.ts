@@ -16,6 +16,7 @@ import { ACEITA_INTEGRADOR } from './aceita-integrador.decorator';
 import {
   dentroDoLimite,
   registrarTokenValidado,
+  rotaDaCaixaDaLoja,
   rotaDaFilaDeImpressao,
 } from '../../common/dispositivo-limite';
 
@@ -100,7 +101,8 @@ export class SyncTokenGuard implements CanActivate {
     registrarTokenValidado(String(token));
     // Fila de impressão: isenta do limite por IP (cf-throttler.guard) → limite próprio por
     // dispositivo. As demais rotas de sync seguem no limite por IP de sempre.
-    if (rotaDaFilaDeImpressao(req.originalUrl ?? req.url) && !dentroDoLimite(dev.id)) {
+    const rota = req.originalUrl ?? req.url;
+    if ((rotaDaFilaDeImpressao(rota) || rotaDaCaixaDaLoja(rota)) && !dentroDoLimite(dev.id)) {
       throw new HttpException('Muitas requisições deste dispositivo — aguarde um minuto.', HttpStatus.TOO_MANY_REQUESTS);
     }
     // Quem chama se identifica (`X-Integrador`, GoGeM #137): na NUVEM, isso marca o equipamento

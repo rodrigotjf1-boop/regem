@@ -5,14 +5,29 @@ import { WhatsappCloudController } from './whatsapp-cloud.controller';
 import { WhatsappCloudService } from './whatsapp-cloud.service';
 import { WhatsappProvedorService } from './whatsapp-provedor.service';
 import { WhatsappNumeroService } from './whatsapp-numero.service';
+import { EmpresaDaLojaGuard, WhatsappDaLojaController } from './whatsapp-da-loja.controller';
+import { WhatsappCaixaController } from './whatsapp-caixa.controller';
+import { EquipamentoModule } from '../equipamento/equipamento.module';
+import { SyncTokenGuard } from '../sync/sync-token.guard';
 
 // WhatsApp da loja (Evolution): conectar/QR + resolver do bot multi-tenant.
 // WhatsappCloudController/Service = API oficial (Meta Cloud API), via paralela —
 // a loja escolhe em cardapio_config.provedor qual dos dois atende.
 // WhatsappNumeroService = modelo novo de números por papel×provedor (mig 225).
+// WhatsappCaixaController = a caixa de conversas (Delivery › WhatsApp) nas DUAS pontas: na nuvem atende, no servidor da
+// loja repassa (este módulo também sobe lá — o PontoModule o importa). WhatsappDaLojaController = o lado da nuvem
+// desse repasse (token do servidor).
 @Module({
-  controllers: [WhatsappController, WhatsappCloudController],
-  providers: [WhatsappService, WhatsappCloudService, WhatsappProvedorService, WhatsappNumeroService],
+  imports: [EquipamentoModule],
+  controllers: [WhatsappController, WhatsappCloudController, WhatsappCaixaController, WhatsappDaLojaController],
+  providers: [
+    WhatsappService,
+    WhatsappCloudService,
+    WhatsappProvedorService,
+    WhatsappNumeroService,
+    SyncTokenGuard,
+    EmpresaDaLojaGuard,
+  ],
   exports: [WhatsappService, WhatsappCloudService, WhatsappProvedorService, WhatsappNumeroService],
 })
 export class WhatsappModule {}

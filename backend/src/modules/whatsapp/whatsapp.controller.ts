@@ -83,13 +83,8 @@ export class WhatsappController {
     return this.service.conectar(user.tenantId);
   }
 
-  @Get('whatsapp/status')
-  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
-  @Roles('presidente', 'gerente', 'supervisao')
-  @RequirePerm('bot')
-  status(@CurrentUser() user: AuthUser) {
-    return this.service.status(user.tenantId);
-  }
+  // `whatsapp/status` e a caixa de conversas (conversas, mensagens, enviar, mídia, cardápios, pausar, histórico, tempo
+  // de pausa) moram no WhatsappCaixaController: são as rotas que o servidor da loja também atende, repassando à nuvem.
 
   @Delete('whatsapp/desconectar')
   @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
@@ -142,111 +137,8 @@ export class WhatsappController {
     return this.service.vincular(user.tenantId, dto?.instancia ?? '');
   }
 
-  // ===== Inbox (caixa de entrada sobre a instância Evolution) =====
-  @Get('whatsapp/conversas')
-  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
-  @Roles('presidente', 'gerente', 'supervisao')
-  @RequirePerm('bot')
-  conversas(@CurrentUser() user: AuthUser) {
-    // Roteia pelo provedor da loja: Evolution guarda as conversas nele mesmo; na
-    // Cloud elas vem do nosso banco (a Meta nao guarda historico).
-    return this.provedores.conversas(user.tenantId);
-  }
-
-  @Get('whatsapp/mensagens')
-  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
-  @Roles('presidente', 'gerente', 'supervisao')
-  @RequirePerm('bot')
-  mensagens(@CurrentUser() user: AuthUser, @Query('jids') jids: string, @Query('jid') jid: string) {
-    return this.provedores.mensagens(user.tenantId, jids || jid || '');
-  }
-
-  // Retenção do histórico de conversas (item 11) — lê/salva wa_retencao_dias da loja.
-  @Get('whatsapp/historico-config')
-  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
-  @Roles('presidente', 'gerente', 'supervisao')
-  @RequirePerm('bot')
-  historicoConfig(@CurrentUser() user: AuthUser) {
-    return this.cloud.historicoConfig(user.tenantId);
-  }
-
-  @Post('whatsapp/historico-config')
-  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
-  @Roles('presidente', 'gerente')
-  @RequirePerm('bot')
-  salvarHistoricoConfig(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.cloud.salvarHistoricoConfig(user.tenantId, Number(dto?.retencaoDias) || 0);
-  }
-
-  @Post('whatsapp/enviar')
-  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
-  @Roles('presidente', 'gerente', 'supervisao')
-  @RequirePerm('bot')
-  enviar(@CurrentUser() user: AuthUser, @Body() dto: { numero?: string; jid?: string; texto?: string }) {
-    const numero = dto?.numero ?? (dto?.jid ?? '').split('@')[0];
-    return this.provedores.enviar(user.tenantId, numero ?? '', dto?.texto ?? '', user.colaboradorId);
-  }
-
-  // Baixa a mídia de uma mensagem sob demanda (miniatura no inbox).
-  @Get('whatsapp/midia')
-  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
-  @Roles('presidente', 'gerente', 'supervisao')
-  @RequirePerm('bot')
-  midia(
-    @CurrentUser() user: AuthUser,
-    @Query('id') id: string,
-    @Query('jid') jid: string,
-    @Query('fromMe') fromMe: string,
-  ) {
-    return this.service.midia(user.tenantId, id ?? '', jid ?? '', fromMe === 'true');
-  }
-
-  // Cardápios ativos (para o inbox perguntar de qual, se houver mais de um).
-  @Get('whatsapp/cardapios')
-  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
-  @Roles('presidente', 'gerente', 'supervisao')
-  @RequirePerm('bot')
-  cardapios(@CurrentUser() user: AuthUser) {
-    return this.service.listarCardapios(user.tenantId);
-  }
-
-  // Envia o cardápio em PDF para o número da conversa.
-  @Post('whatsapp/enviar-cardapio')
-  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
-  @Roles('presidente', 'gerente', 'supervisao')
-  @RequirePerm('bot')
-  enviarCardapio(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: { numero?: string; cardapioId?: string },
-  ) {
-    return this.service.enviarCardapio(user.tenantId, dto?.numero ?? '', dto?.cardapioId);
-  }
-
-  // Pausa/retoma o robô só nesta conversa (o humano assume). `minutos`: por quanto tempo (0 = até alguém
-  // retomar; ausente = o tempo da loja em robo-config).
-  @Post('whatsapp/pausar-conversa')
-  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
-  @Roles('presidente', 'gerente', 'supervisao')
-  @RequirePerm('bot')
-  pausarConversa(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: { numero?: string; pausar?: boolean; minutos?: number },
-  ) {
-    return this.service.pausarConversa(user.tenantId, dto?.numero ?? '', dto?.pausar !== false, {
-      minutos: minutosDoPedido(dto?.minutos),
-      por: user.colaboradorId,
-    });
-  }
-
   // Ajustes do robô que não são do cardápio (mig 342): por quanto tempo ele fica calado depois que o humano assume.
-  @Get('whatsapp/robo-config')
-  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
-  @Roles('presidente', 'gerente', 'supervisao')
-  @RequirePerm('bot')
-  roboConfig(@CurrentUser() user: AuthUser) {
-    return this.provedores.roboConfig(user.tenantId);
-  }
-
+  // Ler fica no WhatsappCaixaController (a caixa da loja também lê); salvar é só pela nuvem.
   @Post('whatsapp/robo-config')
   @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente')

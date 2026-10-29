@@ -12,6 +12,15 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **`.zip` — robô de WhatsApp, Fases 0 e 1 (#752, #753 e o PR da caixa de conversas na loja, 29/10):**
+  - a caixa Delivery › WhatsApp passa a abrir no servidor da loja: ele confere o login e a permissão do colaborador e
+    repassa à nuvem (`whatsapp/da-loja`, com o token do servidor; a nuvem recusa servidor de outra empresa). Antes, na
+    loja, a tela dizia "WhatsApp não conectado" e o "Responder no WhatsApp" do sino não abria nada;
+  - o log de erro do servidor deixa de gravar senha, código e telefone inteiro do endereço (`urlParaLog`, ERR-318).
+
+  O resto das Fases 0 e 1 (pausa do robô, chamado, senha do robô) é só da nuvem e já está no ar. Sem migration na
+  loja (a 342 é só da nuvem).
+
 - **Só no próximo `.exe` (servidor) — o resto do #742 (ERR-307):** a 1.30.12 leva o ícone que confere pela CA da
   loja. Duas partes só chegam reinstalando o servidor com um `.exe` cortado depois do #742:
   - o instalador que tira do Windows as "Regem Edge CA" antigas e confere a confiança de verdade;
