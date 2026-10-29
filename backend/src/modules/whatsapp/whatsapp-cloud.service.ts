@@ -4,6 +4,7 @@ import { ehServidorLocal } from '../../common/modo';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
 import { estadoDaPausa, pausaDaConversa, pausarPeloAtendente, pausasDaLojaOuVazio } from './robo-pausa';
+import { entregarJuntando } from './juntar-mensagens';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig, empresa, whatsappMensagem, whatsappNumero, whatsappTemplate } from '../../db/schema';
 import { registrarSaida, registrarVolta } from '../../common/consentimento-marketing';
@@ -111,11 +112,35 @@ function mascarar(tel?: string): string {
 }
 
 
+/** Corta no limite da Meta, com "…" quando corta. */
+export function cortar(s: string, max: number): string {
+  const t = String(s ?? '').trim();
+  return t.length <= max ? t : `${t.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
+}
+
+/** Opções sem título saem; o id que faltar vira "1", "2"… (a Meta pede id único por opção). */
+export function opcoesValidas(opcoes: { id?: string; titulo: string; descricao?: string }[]) {
+  const ok = (Array.isArray(opcoes) ? opcoes : []).filter((o) => String(o?.titulo ?? '').trim());
+  const vistos = new Set<string>();
+  return ok.map((o, i) => {
+    let id = String(o.id ?? '').trim().slice(0, 200) || String(i + 1);
+    if (vistos.has(id)) id = `${id}-${i + 1}`;
+    vistos.add(id);
+    return { id, titulo: String(o.titulo).trim(), descricao: o.descricao ? String(o.descricao).trim() : undefined };
+  });
+}
+
+// A mensagem do cliente como o robô (n8n) recebe — o MESMO formato nas duas vias (Fase 2 do robô): a API oficial
+// preenche `phoneNumberId`; a Evolution (passando pelo Regem), `instancia` e `jid`. É com essa chave que o robô consulta
+// e responde (publico/bot/loja, cardapio, taxa, responder, midia).
 export type MsgNormalizada = {
-  provedor: 'cloud';
+  provedor: 'cloud' | 'evolution';
   tenantId: string;
   cardapioToken: string | null;
-  phoneNumberId: string;
+  phoneNumberId: string | null;
+  instancia?: string | null;
+  /** Evolution: o jid da conversa (para baixar a mídia). */
+  jid?: string | null;
   loja: { nome: string | null; aberto: boolean };
   de: string;
   nome: string | null;
@@ -124,6 +149,8 @@ export type MsgNormalizada = {
   mensagemId: string;
   timestamp: number;
   midiaId: string | null;
+  /** O id da opção que o cliente tocou (botão ou linha da lista enviados por publico/bot/responder); o texto é o título. */
+  opcaoId: string | null;
   roboSaudacao: string | null;
   /** Mensagem de loja fechada/pausada (Delivery › Configurações › Robô de atendimento). */
   roboAusencia: string | null;
@@ -467,6 +494,7 @@ export class WhatsappCloudService {
             mensagemId: String(m?.id ?? ''),
             timestamp: Number(m?.timestamp ?? 0),
             midiaId: this.midiaDe(m),
+            opcaoId: String(m?.interactive?.button_reply?.id ?? m?.interactive?.list_reply?.id ?? '') || null,
             roboSaudacao: cfg.roboSaudacao ?? null,
             roboAusencia: cfg.roboAusencia ?? null,
             roboPrompt: cfg.roboPrompt ?? null,
@@ -480,24 +508,10 @@ export class WhatsappCloudService {
 
   // Entrega a mensagem normalizada ao workflow do n8n. Sem a env configurada, o
   // recebimento fica inerte (só log) — é o estado até o workflow existir.
+  // Junta as mensagens seguidas da conversa e entrega assinada, com limite de tempo — mesma entrega da Evolution
+  // (juntar-mensagens.ts, entregar-ao-robo.ts).
   private async encaminhar(msg: MsgNormalizada): Promise<void> {
-    const url = (process.env.N8N_BOT_CLOUD_WEBHOOK_URL ?? '').trim();
-    if (!url) {
-      this.logger.debug('N8N_BOT_CLOUD_WEBHOOK_URL vazio — mensagem não encaminhada.');
-      return;
-    }
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(msg),
-      });
-      if (!res.ok) {
-        this.logger.error(`n8n respondeu ${res.status} ao receber a mensagem.`);
-      }
-    } catch (e: any) {
-      this.logger.error(`falha ao encaminhar para o n8n: ${e?.message ?? e}`);
-    }
+    await entregarJuntando(msg);
   }
 
   // Envia texto livre pela Cloud API. Só funciona dentro da janela de 24h; fora dela
@@ -550,6 +564,116 @@ export class WhatsappCloudService {
       status: json?.messages?.[0]?.message_status ?? 'accepted',
     });
     return { ok: true, id: wamid };
+  }
+
+  // A config da loja com o número da API oficial — sem ele não há o que enviar.
+  private async cfgDoEnvio(tenantId: string) {
+    const [cfg] = await this.db.select().from(cardapioConfig).where(eq(cardapioConfig.tenantId, tenantId));
+    if (!cfg) throw new NotFoundException('Cardápio não configurado.');
+    if (!cfg.waCloudPhoneId) throw new BadRequestException('Esta loja não tem número da API oficial vinculado.');
+    return cfg;
+  }
+
+  // POST de uma mensagem na Graph; o erro da Meta vai no texto (é o que diagnostica: janela fechada, formato).
+  private async postarMensagem(phoneId: string, corpo: Record<string, unknown>): Promise<{ wamid: string | null; status: string }> {
+    const res = await fetch(`${GRAPH}/${phoneId}/messages`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.token()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messaging_product: 'whatsapp', ...corpo }),
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      const texto = res ? await res.text().catch(() => '') : '';
+      throw new BadRequestException(`Falha ao enviar pela Cloud API (${res?.status ?? 'sem resposta'}): ${texto.slice(0, 200)}`);
+    }
+    const json: any = await res.json().catch(() => ({}));
+    return { wamid: json?.messages?.[0]?.id ?? null, status: json?.messages?.[0]?.message_status ?? 'accepted' };
+  }
+
+  /**
+   * OPÇÕES COM TOQUE (mensagem interativa, dentro da janela de 24 h — sem modelo aprovado): até 3 viram BOTÕES; de 4 a
+   * 10, uma LISTA. Os limites da Meta (título do botão 20, linha da lista 24, descrição 72, corpo 1024) cortam com "…".
+   * A escolha volta no webhook como texto (o título) e com o id (`opcaoId` na mensagem ao robô).
+   */
+  async enviarOpcoes(
+    tenantId: string,
+    numero: string,
+    corpo: string,
+    opcoes: { id?: string; titulo: string; descricao?: string }[],
+    botaoLista = 'Ver opções',
+  ) {
+    const para = soDigitos(numero);
+    if (!para) throw new BadRequestException('Número inválido.');
+    const ops = opcoesValidas(opcoes);
+    if (!ops.length || ops.length > 10) throw new BadRequestException('Mande de 1 a 10 opções.');
+    const cfg = await this.cfgDoEnvio(tenantId);
+    const texto = cortar(String(corpo ?? '').trim() || 'Escolha uma opção:', 1024);
+    const interactive =
+      ops.length <= 3
+        ? {
+            type: 'button',
+            body: { text: texto },
+            action: { buttons: ops.map((o) => ({ type: 'reply', reply: { id: o.id, title: cortar(o.titulo, 20) } })) },
+          }
+        : {
+            type: 'list',
+            body: { text: texto },
+            action: {
+              button: cortar(botaoLista || 'Ver opções', 20),
+              sections: [
+                {
+                  title: cortar('Opções', 24),
+                  rows: ops.map((o) => ({
+                    id: o.id,
+                    title: cortar(o.titulo, 24),
+                    ...(o.descricao ? { description: cortar(o.descricao, 72) } : {}),
+                  })),
+                },
+              ],
+            },
+          };
+    const r = await this.postarMensagem(cfg.waCloudPhoneId!, { to: para, type: 'interactive', interactive });
+    await this.gravar({
+      tenantId,
+      telefone: para,
+      direcao: 'saida',
+      tipo: 'interactive',
+      texto: `${texto}\n${ops.map((o, i) => `${i + 1}) ${o.titulo}`).join('\n')}`,
+      wamid: r.wamid,
+      status: r.status,
+    });
+    return { ok: true, id: r.wamid };
+  }
+
+  /**
+   * NOTA DE VOZ: sobe o áudio à Meta (`/media`) e manda com `voice: true` (a bolinha com a onda, não um arquivo). A Meta
+   * exige OGG com codec Opus, mono; o ícone de tocar só aparece até 512 KB — mais que isso, recusa aqui.
+   */
+  async enviarVoz(tenantId: string, numero: string, base64: string, mime = 'audio/ogg') {
+    const para = soDigitos(numero);
+    if (!para) throw new BadRequestException('Número inválido.');
+    const bytes = Buffer.from(String(base64 ?? '').replace(/^data:[^;]+;base64,/, ''), 'base64');
+    if (!bytes.length) throw new BadRequestException('Áudio vazio.');
+    if (bytes.length > 512 * 1024) throw new BadRequestException('Áudio maior que 512 KB — encurte a resposta falada.');
+    const tipo = /^audio\/ogg/i.test(mime) ? 'audio/ogg' : String(mime || 'audio/ogg');
+    const cfg = await this.cfgDoEnvio(tenantId);
+    const form = new FormData();
+    form.append('messaging_product', 'whatsapp');
+    form.append('type', tipo);
+    form.append('file', new Blob([bytes], { type: tipo }), 'voz.ogg');
+    const up = await fetch(`${GRAPH}/${cfg.waCloudPhoneId}/media`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.token()}` },
+      body: form,
+    }).catch(() => null);
+    if (!up || !up.ok) {
+      const texto = up ? await up.text().catch(() => '') : '';
+      throw new BadRequestException(`Falha ao subir o áudio na Cloud API (${up?.status ?? 'sem resposta'}): ${texto.slice(0, 200)}`);
+    }
+    const midia: any = await up.json().catch(() => ({}));
+    if (!midia?.id) throw new BadRequestException('A Meta não devolveu o id do áudio.');
+    const r = await this.postarMensagem(cfg.waCloudPhoneId!, { to: para, type: 'audio', audio: { id: String(midia.id), voice: true } });
+    await this.gravar({ tenantId, telefone: para, direcao: 'saida', tipo: 'audio', texto: null, midiaId: String(midia.id), wamid: r.wamid, status: r.status });
+    return { ok: true, id: r.wamid };
   }
 
   // Envio chamado pelo WORKFLOW DO N8N para responder o cliente. Autenticado pelo

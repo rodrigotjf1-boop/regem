@@ -7,6 +7,10 @@ import { WhatsappProvedorService } from './whatsapp-provedor.service';
 import { WhatsappNumeroService } from './whatsapp-numero.service';
 import { EmpresaDaLojaGuard, WhatsappDaLojaController } from './whatsapp-da-loja.controller';
 import { WhatsappCaixaController } from './whatsapp-caixa.controller';
+import { RoboRespostaController } from './robo-resposta.controller';
+import { RoboRespostaService } from './robo-resposta.service';
+import { EvolutionEntradaController } from './evolution-entrada.controller';
+import { EvolutionEntradaService } from './evolution-entrada.service';
 import { EquipamentoModule } from '../equipamento/equipamento.module';
 import { SyncTokenGuard } from '../sync/sync-token.guard';
 
@@ -19,8 +23,17 @@ import { SyncTokenGuard } from '../sync/sync-token.guard';
 // desse repasse (token do servidor).
 @Module({
   imports: [EquipamentoModule],
-  controllers: [WhatsappController, WhatsappCloudController, WhatsappCaixaController, WhatsappDaLojaController],
+  controllers: [
+    WhatsappController,
+    WhatsappCloudController,
+    WhatsappCaixaController,
+    WhatsappDaLojaController,
+    RoboRespostaController,
+    EvolutionEntradaController,
+  ],
   providers: [
+    RoboRespostaService,
+    EvolutionEntradaService,
     WhatsappService,
     WhatsappCloudService,
     WhatsappProvedorService,
