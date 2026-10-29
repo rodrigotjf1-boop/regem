@@ -10,9 +10,57 @@
 - **Como cortar (OBRIGATÓRIO):** `powershell -File backend\edge\build-release.ps1 -Versao X.Y.Z` → só compilar no Inno / rodar `publicar.ps1` no **"TUDO OK"** do preflight. Nunca de árvore atrás do `origin/main`, nunca de `regem-edge-dist` reaproveitado.
 - **Publicar `.zip`:** `edge/publicar.ps1 -Versao X.Y.Z` → sobe no Supabase Storage (bucket `edge-updates`, nome exato `regem-edge-X.Y.Z.zip`) → `edge/publicar.ps1 -Versao X.Y.Z -SoAssinar -Url <url>` (assina o MESMO arquivo, v1 + v2 com validade) → cola versão, URL, SHA e as assinaturas no console de distribuição, **começando pelas lojas piloto / percentual baixo**. O console recusa release sem as duas assinaturas válidas.
 
-## Acumulado (NÃO empacotado) — próxima release (1.30.12)
+## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
-- **O ícone do servidor confere o certificado pela CA da loja (ERR-307; PR desta entrega) — vai no `.zip`, SEM
+- **Só no próximo `.exe` (servidor) — o resto do #742 (ERR-307):** a 1.30.12 leva o ícone que confere pela CA da
+  loja. Duas partes só chegam reinstalando o servidor com um `.exe` cortado depois do #742:
+  - o instalador que tira do Windows as "Regem Edge CA" antigas e confere a confiança de verdade;
+  - o certificado novo com série única e SKI/AKI.
+
+  Não pede `.exe` sozinho: o ícone já funciona sem elas. Entram no próximo `.exe` que se cortar.
+- **Esperando o dono — o Terminal de Ponto no sincronismo (P1b do plano de 25/10):** hoje ele não sobe nem desce, e
+  desde o #737 a reinstalação preserva o banco quando há um. Para sincronizar é preciso:
+  - garantir a sequência do NSR depois de restaurar (as marcações só sobem; o NSR é `max+1` local);
+  - resolver o REP-Software padrão que nasce dos dois lados.
+
+  Pede desenho e migration (Portaria 671).
+- **`desktop/` (Electron ^31, sem suporte, com o Node 20 e um Chromium antigo dentro, e `rejectUnauthorized: false` em
+  `desktop/main.js:35`): NÃO é distribuído** (o instalador abre o Edge/Chrome em modo app; não há build dele nem
+  registro aqui; última mudança em 31/07, #246). Não empacotar como está: se um dia for usado, subir para um Electron
+  com suporte e tirar o `rejectUnauthorized: false`; senão, o dono decide apagar a pasta.
+
+## Última release: `1.30.12` — gerada em 28/10/2026 da `origin/main` `b887655f`, **SÓ `.zip` GERADO, conferido e assinado** (`regem-edge-1.30.12.zip`, 32.169.780 bytes, SHA-256 `4eb8e215df975cf2b067afefab360a88f4d9a6c7f246084aeab068a687f7c9f4`) e entregue ao dono; publicação no console PENDENTE (o dono); sem `.exe`
+
+- **Pedido do dono (28/10):** "fazer o .zip", depois do #750. Leva à loja o pedido de 28/10 inteiro (#743–#750) e o
+  ícone do servidor (#742).
+- **Corte:** `build-release.ps1 -Versao 1.30.12` na worktree `C:\regem-wt-13012` (branch `release/1.30.12`, junção do
+  `bundle`).
+  - O 1º preflight reprovou só na conferência do git: o `git fetch` ficou sem rede porque o PC suspendeu no meio do
+    build (o `npm ci` "levou 6 h"). Com a rede de volta e a `origin/main` ainda em `b887655f`: PREFLIGHT OK (único
+    aviso: o `.iss` carimbado, sem commit).
+  - `publicar.ps1 -Versao 1.30.12 -SkipBuild` com `SKIP_WEB_BUILD` (o app do `build-release`, sem refazer o `next
+    build`), o preflight de novo sobre o pacote (OK) e `-SoAssinar` com a URL definitiva do arquivo no bucket
+    `edge-updates`. As assinaturas v1 e v2 (validade até 27/04/2027) foram conferidas com a chave pública; a chave
+    privada só por variável de ambiente.
+- **Conferido dentro do `.zip`:**
+  - a 341 é a última migration;
+  - o `RegemServidor.exe` é o novo do #742, que procura o `ca.pem`;
+  - o código de #743–#749 está no `dist`, e o `version.txt` diz 1.30.12;
+  - nenhum `edge/certs`, `bandeja.key`, `.env` nem ferramenta da distribuição.
+- **Provado na loja simulada** (`C:\regem-e2e` na 1.30.7, com o atualizador da 1.30.11 — o mesmo que a loja real tem
+  desde o `.exe` de 27/10 — e um ícone do servidor antigo ABERTO):
+  - assinatura v2 e SHA-256 conferidos, versão nova montada ao lado, backup cifrado do banco, troca do conjunto;
+  - migrations sem erro: a 341 entrou (o gatilho dos pontos no insert e no delete) e a 340, só da nuvem, foi pulada;
+  - serviços de pé e `/ping` respondendo `1.30.12` em 2 min;
+  - os dois ícones trocados: o aberto renomeado para `.antigo-…` (sai na atualização seguinte) e o novo no lugar.
+- **Entregue ao dono** em `OneDrive\Documentos\Regem - release 1.30.12 (28-10)\`: o `.zip` e `DADOS PARA PUBLICAR.txt`.
+  O texto cobre Storage, console com 0% + loja piloto e instalar no servidor pelo "Verificar atualização". Também diz o
+  que conferir depois: o ícone, a fila do entregador, o cupom com "PEDIDO #N" e o "Redefinir padrão", e a perda no
+  cancelamento.
+
+Mudanças que entraram na 1.30.12:
+
+- **O ícone do servidor confere o certificado pela CA da loja (ERR-307; #742) — vai no `.zip`, SEM
   reinstalar:** com a 1.30.11 o "R" dourado seguia dizendo "o certificado não é o da loja". O certificado estava certo
   (conferido pela rede em 27/10), mas o Windows do servidor guarda as "Regem Edge CA" antigas, todas com o mesmo nome e
   a série 01, e o .NET usava a errada.
@@ -40,16 +88,6 @@
     delivery" e no "Produção — delivery".
   - **Conferir na loja depois do `.zip`:** aceitar um pedido do iFood → a via do caixa começa por "PEDIDO #N" (o mesmo
     número do Delivery › Painel) e, embaixo, "iFood <código>".
-- **Esperando o dono — o Terminal de Ponto no sincronismo (P1b do plano de 25/10):** hoje ele não sobe nem desce, e
-  desde o #737 a reinstalação preserva o banco quando há um. Para sincronizar é preciso:
-  - garantir a sequência do NSR depois de restaurar (as marcações só sobem; o NSR é `max+1` local);
-  - resolver o REP-Software padrão que nasce dos dois lados.
-
-  Pede desenho e migration (Portaria 671).
-- **`desktop/` (Electron ^31, sem suporte, com o Node 20 e um Chromium antigo dentro, e `rejectUnauthorized: false` em
-  `desktop/main.js:35`): NÃO é distribuído** (o instalador abre o Edge/Chrome em modo app; não há build dele nem
-  registro aqui; última mudança em 31/07, #246). Não empacotar como está: se um dia for usado, subir para um Electron
-  com suporte e tirar o `rejectUnauthorized: false`; senão, o dono decide apagar a pasta.
 - **PDV: a venda de um pedido de delivery em andamento se cancela pelo painel (ERR-310; #744) — vai no
   `.zip`:** em "Cupons" e no "Buscar / cancelar cupom", a venda de um pedido de delivery ainda em andamento mostra o
   caminho Delivery › Painel (botão CANCELAR) no lugar do botão de cancelar, e o servidor recusa o cancelamento por ali —
@@ -73,13 +111,13 @@
   e no "Buscar / cancelar cupom" do PDV, o cancelamento pergunta o que aconteceu com o que já foi feito (reutilizado ou
   perda — antes não perguntava e tudo voltava ao estoque); na perda, a mesma lista dos itens: a venda volta ao estoque e
   só o marcado sai, como desperdício. Sem migration.
-- **Pontos de fidelidade quando um prêmio é apagado (ERR-315; mig 341, PR desta entrega) — vai no `.zip` (a
+- **Pontos de fidelidade quando um prêmio é apagado (ERR-315; mig 341, #750) — vai no `.zip` (a
   migration):** o recálculo dos pontos passa a rodar também quando um prêmio é apagado. Antes, no lado que recebia pelo
   sync o estorno de um pedido que tinha completado a meta, o cliente podia ficar com 0 pontos até o próximo pedido. A
   nuvem recebe a 341 antes do merge; o servidor da loja, no `.zip` (o pacote leva as migrations até a 341). Nenhum saldo a
   corrigir (na nuvem, 28/10: nenhum cliente com pontos nem prêmio).
 
-## Última release: `1.30.11` — gerada em 25/10/2026 da `origin/main` `0356f58b`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 94.119.254 bytes, SHA-256 `e4ee92e5b8d3e0b3d0408f22c8eb0248d215ede4d41b99dc036e97cf02edbba1`) e entregue ao dono para reinstalar **SÓ o servidor**; **sem `.zip`** e nada publicado no console
+## Release anterior: `1.30.11` — gerada em 25/10/2026 da `origin/main` `0356f58b`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 94.119.254 bytes, SHA-256 `e4ee92e5b8d3e0b3d0408f22c8eb0248d215ede4d41b99dc036e97cf02edbba1`) e entregue ao dono para reinstalar **SÓ o servidor**; **sem `.zip`** e nada publicado no console
 
 - **Plano do dono de 25/10 ("pode"):** depois da instalação da 1.30.10, corrigir o ícone do servidor e a instalação que
   parava; reinstalar sem perder pareamento (P1, P2); menos `.exe` (P3); o amarelo só com o caixa aberto; o backup na
