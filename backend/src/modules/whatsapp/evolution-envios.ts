@@ -1,8 +1,12 @@
 // MENSAGENS QUE O PRÓPRIO REGEM MANDOU PELA EVOLUTION (robô, caixa de conversas, campanha) — 15 minutos de memória.
 //
-// A Evolution devolve no webhook, como `fromMe`, TODA mensagem que saiu do número da loja: as que o Regem mandou pela
-// API e as que alguém digitou no celular/WhatsApp Web da loja. Só as do celular são "o atendente assumiu" (o robô
-// pausa). O id de cada envio feito pelo Regem fica aqui; um `fromMe` com id desconhecido é de gente.
+// Como a Evolution se comporta (conferido no código dela, 2.3.x): o envio feito pela API (`/message/send*`, do Regem
+// ou do n8n) sai no evento SEND_MESSAGE, e o `emitOwnEvents: false` faz o eco dele não voltar como MESSAGES_UPSERT.
+// Então um `fromMe` que chega no MESSAGES_UPSERT é de OUTRO aparelho — o celular ou o WhatsApp Web da loja —, ou
+// seja, "o atendente assumiu" (o robô pausa).
+//
+// Este registro é a segunda trava: guarda o id de cada envio feito pelo Regem e, se uma versão futura da Evolution
+// voltar a ecoar os envios da API, o eco não pausa o robô à toa. Um `fromMe` com id desconhecido é de gente.
 //
 // Em memória deste processo: com mais de uma réplica da API, o envio feito por outra réplica pareceria humano (o robô
 // pausaria à toa naquela conversa) — o custo é pausar a mais, nunca responder por cima do atendente.
