@@ -117,6 +117,8 @@ describe('entrada pela Evolution — as travas', () => {
     });
     const assinatura = createHmac('sha256', SENHA).update(JSON.stringify(entregas[0].corpo)).digest('hex');
     expect(entregas[0].headers['x-regem-assinatura']).toBe(`sha256=${assinatura}`);
+    // O nó de entrada do n8n exige a senha no cabeçalho (autenticação por cabeçalho) — 30/10.
+    expect(entregas[0].headers['x-regem-robo-segredo']).toBe(SENHA);
   });
 
   it('a mesma mensagem reenviada pela Evolution não vai ao robô de novo', async () => {

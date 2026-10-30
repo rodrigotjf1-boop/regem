@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import { CABECALHO_ASSINATURA_REGEM, assinarParaORobo } from '../../common/segredo-robo';
+import { CABECALHO_ASSINATURA_REGEM, CABECALHO_SEGREDO_ROBO, assinarParaORobo } from '../../common/segredo-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -17,9 +17,11 @@ export function enderecoDoRobo(provedor: 'cloud' | 'evolution'): string {
 }
 
 /**
- * Entrega a mensagem normalizada ao robô (n8n), ASSINADA (`x-regem-assinatura: sha256=<hmac do corpo>` com a senha do
- * robô — o fluxo confere e recusa o que não veio do Regem), com 10 s de limite. Nunca lança: o webhook da Meta/Evolution
- * tem de receber 200. Devolve se entregou (para o teste e o log).
+ * Entrega a mensagem normalizada ao robô (n8n), com 10 s de limite. Vai com a senha do robô no cabeçalho
+ * `x-regem-robo-segredo` — o nó de entrada do fluxo exige esse cabeçalho (credencial "Regem robô", autenticação por
+ * cabeçalho) e recusa o resto: sem isso, quem descobrisse o endereço faria o robô escrever, pelo número da loja, a
+ * qualquer telefone (30/10/2026). Vai também ASSINADA (`x-regem-assinatura: sha256=<hmac do corpo>`), para quem quiser
+ * conferir o conteúdo. Nunca lança: o webhook da Meta/Evolution tem de receber 200. Devolve se entregou.
  */
 export async function entregarAoRobo(msg: any, buscar: typeof fetch = fetch): Promise<boolean> {
   const url = enderecoDoRobo(msg?.provedor === 'evolution' ? 'evolution' : 'cloud');
@@ -28,10 +30,15 @@ export async function entregarAoRobo(msg: any, buscar: typeof fetch = fetch): Pr
     return false;
   }
   const corpo = JSON.stringify(msg);
+  const senha = (process.env.BOT_RESOLVER_SECRET ?? '').trim();
   try {
     const res = await buscar(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', [CABECALHO_ASSINATURA_REGEM]: assinarParaORobo(corpo) },
+      headers: {
+        'Content-Type': 'application/json',
+        [CABECALHO_ASSINATURA_REGEM]: assinarParaORobo(corpo),
+        ...(senha ? { [CABECALHO_SEGREDO_ROBO]: senha } : {}),
+      },
       body: corpo,
       signal: AbortSignal.timeout(10_000),
     });
