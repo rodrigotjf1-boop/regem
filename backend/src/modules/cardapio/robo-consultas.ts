@@ -11,15 +11,52 @@ export function reais(v: unknown): string | null {
   return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }).replace(/ /g, ' ');
 }
 
-/** Sem acento e em minúsculas, para casar "Hamburguer" com "hambúrguer". */
+/**
+ * Sem acento, em minúsculas e sem pontuação, para casar "Hamburguer" com "hambúrguer" e "x-bacon" com "X bacon" (o
+ * cliente escreve com hífen, o cardápio sem — no teste de 29/10 o robô não achava o X bacon e dava o preço do trio).
+ */
 export function normalizar(s: unknown): string {
   return String(s ?? '')
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
+
+const DIAS = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
+
+/** O dia da semana e a hora em São Paulo — o robô precisa saber o que é "hoje" e "amanhã". */
+export function agoraEmSaoPaulo(agora: Date = new Date()): { diaDaSemana: string; hora: string } {
+  const sp = new Date(agora.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+  const p2 = (n: number) => String(n).padStart(2, '0');
+  return { diaDaSemana: DIAS[sp.getDay()], hora: `${p2(sp.getHours())}:${p2(sp.getMinutes())}` };
+}
+
+/**
+ * Os horários da semana, como o cardápio guarda (`dia` 0 = domingo). Janela que passa da meia-noite (fecha antes de
+ * abrir) é do dia em que ABRE — `fechaNoDiaSeguinte` avisa o robô para não dizer "abre às 03:00".
+ */
+export function horariosDaSemana(horarios: unknown): { dia: string; abre: string; fecha: string; fechaNoDiaSeguinte: boolean }[] {
+  const hs: any[] = Array.isArray(horarios) ? horarios : [];
+  return hs
+    .filter((h) => h && h.ativo && h.abre && h.fecha && DIAS[Number(h.dia)])
+    .sort((a, b) => Number(a.dia) - Number(b.dia) || String(a.abre).localeCompare(String(b.abre)))
+    .map((h) => ({ dia: DIAS[Number(h.dia)], abre: String(h.abre), fecha: String(h.fecha), fechaNoDiaSeguinte: String(h.fecha) <= String(h.abre) }));
+}
+
+/** Entrega por distância: as faixas (até X km → taxa), da menor para a maior; taxa zero vira "grátis". */
+export function faixasDeEntrega(raios: unknown): { ateKm: number; taxa: string | null }[] {
+  const rs: any[] = Array.isArray(raios) ? raios : [];
+  return rs
+    .filter((r) => r && Number.isFinite(Number(r.ateKm)))
+    .sort((a, b) => Number(a.ateKm) - Number(b.ateKm))
+    .map((r) => ({ ateKm: Number(r.ateKm), taxa: Number(r.taxa) === 0 ? 'grátis' : reais(r.taxa) }));
+}
+
+const COMO_FUNCIONA_A_DISTANCIA =
+  'A taxa é pela distância da loja até o endereço do cliente. O cardápio online calcula a taxa certa quando o cliente informa o endereço; fora da última faixa a loja não entrega.';
 
 const curto = (s: unknown, max: number) => {
   const t = String(s ?? '').replace(/\s+/g, ' ').trim();
@@ -27,15 +64,18 @@ const curto = (s: unknown, max: number) => {
 };
 
 /** O que o robô precisa saber da loja AGORA: aberta, até quando, como atende, taxas, pagamento e o link. */
-export function resumoDaLoja(menu: any, linkCardapio: string) {
+export function resumoDaLoja(menu: any, linkCardapio: string, agora: Date = new Date()) {
   const loja = menu?.loja ?? {};
   const tipos = menu?.tipos ?? {};
   const porTipo = menu?.abertoPorTipo ?? {};
+  const porDistancia = loja.areaModo === 'raio';
   return {
     nome: loja.nome ?? null,
+    agora: agoraEmSaoPaulo(agora),
     abertaAgora: !!menu?.abertaAgora,
     horario: menu?.horarioLabel ?? null,
     proximaAbertura: menu?.proximaAbertura ?? null,
+    horariosDaSemana: horariosDaSemana(menu?.horarios),
     pausadaPelaLoja: loja.aberto === false,
     atende: {
       entrega: tipos.delivery !== false ? { abertaAgora: !!porTipo.entrega, tempoMin: loja.tempoEntregaMin ?? null } : null,
@@ -48,8 +88,11 @@ export function resumoDaLoja(menu: any, linkCardapio: string) {
     endereco: loja.endereco?.texto ?? null,
     referencia: loja.endereco?.referencia ?? null,
     contatos: { instagram: loja.instagram ?? null, site: loja.site ?? null },
-    taxaPor: loja.areaModo === 'raio' ? 'distancia' : 'bairro',
+    taxaPor: porDistancia ? 'distancia' : 'bairro',
     bairros: (Array.isArray(menu?.bairros) ? menu.bairros : []).map((b: any) => ({ nome: b.nome, taxa: reais(b.taxa) })),
+    // Por distância não há bairro: o robô lê as faixas e explica que o cardápio calcula pelo endereço (no teste de
+    // 29/10 ele dizia "não entregamos em Copacabana" sem saber disso).
+    entregaPorDistancia: porDistancia ? { faixas: faixasDeEntrega(loja.raios), comoFunciona: COMO_FUNCIONA_A_DISTANCIA } : null,
     linkCardapio,
     categorias: (Array.isArray(menu?.categorias) ? menu.categorias : []).map((c: any) => c.nome),
     robo: {
@@ -128,10 +171,16 @@ export function buscarNoCardapio(menu: any, busca: string, limite = 15) {
   };
 }
 
-/** Taxa de entrega por bairro: o bairro exato; senão os parecidos (até 5); sem bairro, a lista (até 60). */
+/**
+ * Taxa de entrega por bairro: o bairro exato; senão os parecidos (até 5); sem bairro, a lista (até 60). Loja que entrega
+ * por DISTÂNCIA não tem bairro: devolve as faixas e como funciona (o cardápio calcula pelo endereço).
+ */
 export function taxaDoBairro(menu: any, bairro: string) {
   const bairros: any[] = Array.isArray(menu?.bairros) ? menu.bairros : [];
   const modo = menu?.loja?.areaModo === 'raio' ? 'distancia' : 'bairro';
+  if (modo === 'distancia') {
+    return { modo, encontrado: false, faixas: faixasDeEntrega(menu?.loja?.raios), comoFunciona: COMO_FUNCIONA_A_DISTANCIA };
+  }
   const q = normalizar(bairro);
   if (!q) return { modo, encontrado: false, bairros: bairros.slice(0, 60).map((b) => ({ nome: b.nome, taxa: reais(b.taxa) })) };
   const exato = bairros.find((b) => normalizar(b.nome) === q);

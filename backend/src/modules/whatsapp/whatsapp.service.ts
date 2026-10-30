@@ -10,6 +10,7 @@ import {
   segredoDoRoboOk,
 } from '../../common/segredo-robo';
 import { lembrarEnvio } from './evolution-envios';
+import { pedidosParaORobo } from './pedidos-do-robo';
 import {
   estadoDaPausa,
   minutosDaPausa,
@@ -945,7 +946,7 @@ export class WhatsappService {
       )
       .orderBy(desc(pedidoExterno.criadoEm))
       .limit(5);
-    return rows.map((r) => ({ ...r, statusTexto: this.textoStatusPedido(r) }));
+    return pedidosParaORobo(rows.map((r) => ({ ...r, statusTexto: this.textoStatusPedido(r) })));
   }
 
   async resolver(instancia: string, secret: string, numero?: string) {
