@@ -1,5 +1,11 @@
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
-import { RoboRespostaService, menuNumerado } from './robo-resposta.service';
+import {
+  JANELA_DO_AVISO_MS,
+  RoboRespostaService,
+  avisoDoChamadoLiberado,
+  esquecerAvisosDeChamado,
+  menuNumerado,
+} from './robo-resposta.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -8,11 +14,12 @@ import { RoboRespostaService, menuNumerado } from './robo-resposta.service';
 const SENHA = 'senha-do-robo';
 const TEL = '5521999998888';
 
-function montar(cfg: any) {
+function montar(cfg: any, linhaPausa?: any) {
   const chamadas: any[] = [];
   const db: any = {
     select: () => ({ from: () => ({ where: async () => (cfg ? [cfg] : []) }) }),
-    execute: async () => ({ rows: [] }), // robo-pausa: sem pausa nem chamado
+    // robo-pausa: sem pausa nem chamado (ou a linha que o teste mandar)
+    execute: async () => ({ rows: linhaPausa ? [linhaPausa] : [] }),
   };
   const evolution: any = {
     lojaDoRobo: async () => (cfg ? { tenantId: cfg.tenantId } : null),
@@ -69,6 +76,39 @@ describe('resposta do robô — travas', () => {
   it('nada para enviar: 400', async () => {
     const { svc } = montar(LOJA_EVO);
     await expect(svc.responder(SENHA, { instancia: 'i', para: TEL })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  // 30/10, loja piloto: o robô chamou o atendente e o aviso "já chamei" era segurado pelo próprio chamado.
+  it('chamado que o robô acabou de abrir: o aviso sai UMA vez; depois, calado', async () => {
+    esquecerAvisosDeChamado();
+    const agora = new Date();
+    const linha = (id: string, criado: Date) => ({
+      pausa: null,
+      chamado: { id, tipo: 'humano', pedido_numero: null, criado_em: criado.toISOString() },
+      resolvido_em: null,
+      minutos: 60,
+      agora: agora.toISOString(),
+    });
+    const a = montar(LOJA_EVO, linha('ch1', new Date(agora.getTime() - 8_000)));
+    expect(await a.svc.responder(SENHA, { instancia: 'i', para: TEL, texto: 'Já chamei um atendente.' })).toMatchObject({ enviado: true });
+    expect(await a.svc.responder(SENHA, { instancia: 'i', para: TEL, texto: 'De novo?' })).toMatchObject({ enviado: false, motivo: 'conversa_pausada' });
+    expect(a.chamadas).toHaveLength(1);
+    // Chamado antigo (mais de 90 s): calado desde a primeira.
+    const b = montar(LOJA_EVO, linha('ch2', new Date(agora.getTime() - 5 * 60_000)));
+    expect(await b.svc.responder(SENHA, { instancia: 'i', para: TEL, texto: 'oi' })).toMatchObject({ enviado: false });
+  });
+
+  it('o aviso só vale quando quem cala é o chamado (atendente que respondeu ou "Pausar" vencem)', () => {
+    esquecerAvisosDeChamado();
+    const agora = Date.now();
+    const chamado = { id: 'c', tipo: 'humano', pedidoNumero: null, criadoEm: new Date(agora - 3_000) };
+    expect(avisoDoChamadoLiberado({ pausado: true, ate: null, motivo: 'atendente', chamado }, agora)).toBe(false);
+    expect(avisoDoChamadoLiberado({ pausado: true, ate: null, motivo: 'manual', chamado }, agora)).toBe(false);
+    expect(avisoDoChamadoLiberado({ pausado: false, ate: null, motivo: null, chamado: null }, agora)).toBe(false);
+    expect(avisoDoChamadoLiberado(null, agora)).toBe(false);
+    expect(avisoDoChamadoLiberado({ pausado: true, ate: null, motivo: 'chamado', chamado }, agora)).toBe(true);
+    expect(avisoDoChamadoLiberado({ pausado: true, ate: null, motivo: 'chamado', chamado }, agora)).toBe(false);
+    expect(avisoDoChamadoLiberado({ pausado: true, ate: null, motivo: 'chamado', chamado: { ...chamado, id: 'd', criadoEm: new Date(agora - JANELA_DO_AVISO_MS - 1) } }, agora)).toBe(false);
   });
 });
 

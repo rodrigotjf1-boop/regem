@@ -5,7 +5,7 @@ import { cardapioConfig } from '../../db/schema';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
 import { WhatsappService } from './whatsapp.service';
 import { WhatsappCloudService, opcoesValidas } from './whatsapp-cloud.service';
-import { estadoDaPausa } from './robo-pausa';
+import { EstadoPausa, estadoDaPausa } from './robo-pausa';
 import { linkDoCardapioDaLoja, soLinksDaLoja } from './links-do-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -26,6 +26,30 @@ export type PedidoDeResposta = {
 };
 
 const soDigitos = (v: unknown) => String(v ?? '').split('@')[0].split(':')[0].replace(/\D/g, '');
+
+/**
+ * O AVISO DE QUE CHAMOU ALGUÉM (30/10/2026, ligando o robô na loja piloto): o robô chama o atendente pela ferramenta e,
+ * segundos depois, manda "já chamei um atendente" — mas o chamado aberto já cala o robô (robo-pausa.ts) e o aviso era
+ * segurado; o cliente ficava sem resposta. Sai UMA resposta por chamado, até 90 s depois de ele abrir, e só enquanto
+ * quem cala é o chamado (atendente que já respondeu ou "Pausar" manual vencem). Depois disso, calado como sempre.
+ */
+export const JANELA_DO_AVISO_MS = 90_000;
+const avisados = new Map<string, number>(); // id do chamado → até quando lembrar
+
+export function avisoDoChamadoLiberado(estado: EstadoPausa | null, agora = Date.now()): boolean {
+  if (!estado?.pausado || estado.motivo !== 'chamado' || !estado.chamado) return false;
+  const idade = agora - estado.chamado.criadoEm.getTime();
+  if (idade < -5_000 || idade > JANELA_DO_AVISO_MS) return false; // -5 s: relógio do banco um pouco à frente
+  for (const [id, ate] of avisados) if (ate <= agora) avisados.delete(id);
+  if (avisados.has(estado.chamado.id)) return false;
+  avisados.set(estado.chamado.id, agora + 10 * 60_000);
+  return true;
+}
+
+/** Só para teste. */
+export function esquecerAvisosDeChamado(): void {
+  avisados.clear();
+}
 
 /** "Escolha:\n\n1) Ver cardápio\n2) Falar com atendente\n\nResponda com o número." — o menu do número sem botão. */
 export function menuNumerado(texto: string, opcoes: Opcao[]): string {
@@ -132,7 +156,12 @@ export class RoboRespostaService {
     const antigos = (Array.isArray(cfg.roboPausados) ? cfg.roboPausados : []).map(soDigitos);
     if (antigos.includes(para)) return true;
     try {
-      return (await estadoDaPausa(this.db, cfg.tenantId, para)).pausado;
+      const estado = await estadoDaPausa(this.db, cfg.tenantId, para);
+      if (avisoDoChamadoLiberado(estado)) {
+        this.logger.log(`resposta do robô liberada: aviso do chamado que ele acabou de abrir de=***${para.slice(-4)}`);
+        return false;
+      }
+      return estado.pausado;
     } catch (e: any) {
       this.logger.warn(`pausa não consultada (o robô responde): ${e?.message ?? e}`);
       return false;
