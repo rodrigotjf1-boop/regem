@@ -53,3 +53,37 @@ export function soLinksDaLoja(
   if (trocados) saida = saida.replace(/[ \t]+([.,;:!?])/g, '$1').replace(/[ \t]{2,}/g, ' ').trim();
   return { texto: saida, trocados };
 }
+
+// O que costuma vir logo antes do link ("acesse", "no link", "por aqui:") e sobra solto quando o link vira botão.
+const CHAMADA_DO_LINK = /(?:\s|^)(?:acesse(?: o link)?|clique(?: aqui| no link)?|pelo link|no link|neste link|nesse link|por aqui|aqui|em|no|pelo)\s*:?\s*$/i;
+
+/**
+ * BOTÃO "VER CARDÁPIO" (API oficial, 30/10/2026): acha no texto o primeiro link do site do cardápio da loja (o
+ * personalizado também — mesmo site) e devolve o texto SEM ele, para o link ir num botão. Sem link da loja: null.
+ */
+export function separarLinkDoCardapio(texto: string, linkDaLoja: string): { corpo: string; url: string } | null {
+  const hostDaLoja = hostDe(linkDaLoja);
+  if (!hostDaLoja) return null;
+  const t = String(texto ?? '');
+  let achado: { inicio: number; fim: number; url: string } | null = null;
+  for (const m of t.matchAll(ENDERECO)) {
+    const bruto = m[0];
+    const fimPont = (bruto.match(PONTUACAO_NO_FIM) ?? [''])[0];
+    const url = fimPont ? bruto.slice(0, -fimPont.length) : bruto;
+    if (hostDe(url) === hostDaLoja) {
+      achado = { inicio: m.index ?? 0, fim: (m.index ?? 0) + url.length, url: /^https?:\/\//i.test(url) ? url : `https://${url}` };
+      break;
+    }
+  }
+  if (!achado) return null;
+  const antes = t.slice(0, achado.inicio).replace(CHAMADA_DO_LINK, '');
+  const corpo = (antes + t.slice(achado.fim))
+    .replace(/[ \t]+([.,;:!?])/g, '$1')
+    .replace(/,\s*([.!?])/g, '$1')
+    .replace(/:\s*([.!?])/g, '$1')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .replace(/\s*:$/, ''); // "Confira o cardápio: <link>" → "Confira o cardápio"
+  return { corpo, url: achado.url.replace(/^http:\/\//i, 'https://') };
+}

@@ -6,7 +6,7 @@ import { segredoDoRoboOk } from '../../common/segredo-robo';
 import { WhatsappService } from './whatsapp.service';
 import { WhatsappCloudService, opcoesValidas } from './whatsapp-cloud.service';
 import { EstadoPausa, estadoDaPausa } from './robo-pausa';
-import { linkDoCardapioDaLoja, soLinksDaLoja } from './links-do-robo';
+import { linkDoCardapioDaLoja, separarLinkDoCardapio, soLinksDaLoja } from './links-do-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -107,7 +107,13 @@ export class RoboRespostaService {
       else await this.evolution.enviarAudio(loja.tenantId, para, audio);
       enviados.push('voz');
     }
-    if (opcoes.length) {
+    // API oficial com o link do cardápio no texto: o link vai num BOTÃO "Ver cardápio" (pedido do dono, 30/10). A
+    // mensagem de botão de link não leva botões de resposta junto: as opções ficam de fora (o cliente escreve).
+    const comLink = via === 'cloud' && cfg.token ? separarLinkDoCardapio(texto, linkDoCardapioDaLoja(cfg.token)) : null;
+    if (comLink) {
+      await this.cloud.enviarLink(loja.tenantId, para, comLink.corpo, comLink.url, 'Ver cardápio');
+      enviados.push('botao_link');
+    } else if (opcoes.length) {
       if (via === 'cloud' && opcoes.length <= 10) {
         await this.cloud.enviarOpcoes(loja.tenantId, para, texto, opcoes, p?.botaoLista);
         enviados.push(opcoes.length <= 3 ? 'botoes' : 'lista');

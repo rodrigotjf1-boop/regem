@@ -31,6 +31,7 @@ function montar(cfg: any, linhaPausa?: any) {
     enviarTexto: async (...a: any[]) => chamadas.push(['cloud.texto', ...a.slice(1)]),
     enviarOpcoes: async (...a: any[]) => chamadas.push(['cloud.opcoes', a[1], a[2], a[3].length]),
     enviarVoz: async (...a: any[]) => chamadas.push(['cloud.voz', a[1], a[3]]),
+    enviarLink: async (...a: any[]) => chamadas.push(['cloud.link', a[1], a[2], a[3]]),
   };
   const svc = new RoboRespostaService(db, evolution, cloud);
   (svc as any).logger = { log() {}, warn() {} };
@@ -161,9 +162,39 @@ describe('resposta do robô — como cada via mostra', () => {
       const a = montar(loja);
       await a.svc.responder(SENHA, { instancia: 'i', para: TEL, texto: 'Veja o cardápio: https://anota.ai/mister' });
       expect(a.chamadas[0]).toEqual(['evo.texto', TEL, 'Veja o cardápio: https://app.dmsregem.com/c/tok1']);
+      // Na API oficial o link (já trocado) vai no botão "Ver cardápio" (30/10).
       const b = montar({ ...loja, provedor: 'cloud' });
-      await b.svc.responder(SENHA, { phoneNumberId: 'p', para: TEL, texto: 'Peça em https://goomer.app/x', opcoes: ops(2) });
-      expect(b.chamadas[0]).toEqual(['cloud.opcoes', TEL, 'Peça em https://app.dmsregem.com/c/tok1', 2]);
+      await b.svc.responder(SENHA, { phoneNumberId: 'p', para: TEL, texto: 'Monte seu pedido em https://goomer.app/x', opcoes: ops(2) });
+      expect(b.chamadas).toEqual([['cloud.link', TEL, 'Monte seu pedido', 'https://app.dmsregem.com/c/tok1']]);
+    } finally {
+      if (antes === undefined) delete process.env.CARDAPIO_PUBLIC_URL;
+      else process.env.CARDAPIO_PUBLIC_URL = antes;
+    }
+  });
+
+  // Pedido do dono (30/10): na API oficial, o link do cardápio num botão; sem link, botões de resposta como antes.
+  it('API oficial: link do cardápio vira o botão "Ver cardápio" (com o link personalizado); Evolution segue no texto', async () => {
+    const antes = process.env.CARDAPIO_PUBLIC_URL;
+    process.env.CARDAPIO_PUBLIC_URL = 'https://app.dmsregem.com';
+    try {
+      const cloud = montar({ ...LOJA_CLOUD, token: 'tok1' });
+      const r = await cloud.svc.responder(SENHA, {
+        phoneNumberId: 'p',
+        para: TEL,
+        texto: 'O X bacon custa R$ 26,00. Monte seu pedido em https://app.dmsregem.com/c/tok1?cl=abc.',
+        opcoes: ops(3),
+        audio: { base64: 'AAAA', mime: 'audio/ogg' },
+      });
+      expect(r.enviados).toEqual(['voz', 'botao_link']);
+      expect(cloud.chamadas[1]).toEqual(['cloud.link', TEL, 'O X bacon custa R$ 26,00. Monte seu pedido.', 'https://app.dmsregem.com/c/tok1?cl=abc']);
+      // Sem link: botões de resposta, como antes.
+      const semLink = montar({ ...LOJA_CLOUD, token: 'tok1' });
+      await semLink.svc.responder(SENHA, { phoneNumberId: 'p', para: TEL, texto: 'Posso ajudar?', opcoes: ops(2) });
+      expect(semLink.chamadas[0][0]).toBe('cloud.opcoes');
+      // Evolution (QR): não tem botão; o link fica no texto.
+      const evo = montar({ ...LOJA_EVO, token: 'tok1' });
+      await evo.svc.responder(SENHA, { instancia: 'i', para: TEL, texto: 'Cardápio: https://app.dmsregem.com/c/tok1' });
+      expect(evo.chamadas[0]).toEqual(['evo.texto', TEL, 'Cardápio: https://app.dmsregem.com/c/tok1']);
     } finally {
       if (antes === undefined) delete process.env.CARDAPIO_PUBLIC_URL;
       else process.env.CARDAPIO_PUBLIC_URL = antes;
