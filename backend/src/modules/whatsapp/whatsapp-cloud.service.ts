@@ -1,7 +1,7 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { ehServidorLocal } from '../../common/modo';
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
 import { estadoDaPausa, pausaDaConversa, pausarPeloAtendente, pausasDaLojaOuVazio } from './robo-pausa';
 import { entregarJuntando } from './juntar-mensagens';
@@ -2070,5 +2070,52 @@ export class WhatsappCloudService {
       verificado: j?.code_verification_status === 'VERIFIED',
       jaVinculadoA: donos[0]?.nome ?? null,
     };
+  }
+
+  // ===== Número que JÁ está na API oficial, ligado à mão (tela › "avançado") =====
+  // O cadastro pela Meta (finalizarEmbeddedSignup) inscreve o nosso app na conta WABA; o caminho à mão só gravava os
+  // códigos. Numa conta que não é a nossa (a do lojista, ou a de um número que entrou pelo app do RegemCast, no mesmo
+  // portfólio), sem a inscrição a Meta não manda ao Regem as mensagens do número: o robô fica mudo e nada avisa (30/10).
+  // Antes de gravar: (1) o nosso token alcança o número; (2) o número é daquela conta; (3) o nosso app fica inscrito
+  // nela — a Meta aceita repetir, e outros apps inscritos continuam. Qualquer recusa volta com o motivo da Meta.
+  async conectarNumeroExistente(tenantId: string, papel: 'principal' | 'marketing', phoneNumberId: string, wabaId: string) {
+    const phone = String(phoneNumberId ?? '').trim();
+    const waba = String(wabaId ?? '').trim();
+    if (!/^[0-9]{5,32}$/.test(waba))
+      throw new BadRequestException('Informe o WABA ID (a conta do WhatsApp Business na Meta), só com números.');
+    const lido = await this.verificarNumero(phone);
+
+    // O Principal decide de qual loja é a mensagem que chega (lojaPorPhoneId): o mesmo número em duas lojas, não.
+    if (papel === 'principal') {
+      const [outra] = await this.db
+        .select({ nome: cardapioConfig.nomePublico })
+        .from(cardapioConfig)
+        .where(and(eq(cardapioConfig.waCloudPhoneId, phone), ne(cardapioConfig.tenantId, tenantId)));
+      if (outra) throw new BadRequestException(`Esse número já é o Principal de outra loja (${outra.nome ?? 'sem nome'}).`);
+    }
+
+    const auth = { Authorization: `Bearer ${this.token()}` };
+    const lista = await fetch(`${GRAPH}/${waba}/phone_numbers?fields=id`, { headers: auth }).catch(() => null);
+    if (!lista || !lista.ok) {
+      const corpo = lista ? await lista.text().catch(() => '') : '';
+      throw new BadRequestException(
+        `Não consegui ler a conta WABA ${waba} na Meta (${lista?.status ?? 'sem resposta'}): ${corpo.slice(0, 180)}`,
+      );
+    }
+    const jl: any = await lista.json().catch(() => ({}));
+    const ids = (Array.isArray(jl?.data) ? jl.data : []).map((d: any) => String(d?.id ?? ''));
+    if (!ids.includes(phone))
+      throw new BadRequestException('Esse Phone Number ID não é da conta WABA informada. Confira os dois códigos.');
+
+    const insc = await fetch(`${GRAPH}/${waba}/subscribed_apps`, { method: 'POST', headers: auth }).catch(() => null);
+    const ji: any = insc && insc.ok ? await insc.json().catch(() => ({})) : null;
+    if (!insc || !insc.ok || ji?.success !== true) {
+      const corpo = insc && !insc.ok ? await insc.text().catch(() => '') : JSON.stringify(ji ?? {});
+      throw new BadRequestException(
+        `A Meta não ligou o Regem a essa conta WABA (${insc?.status ?? 'sem resposta'}): ${corpo.slice(0, 180)}`,
+      );
+    }
+    this.logger.log(`número oficial ligado à mão: loja ${tenantId}, ${papel}, phone ${phone}, app inscrito na WABA ${waba}`);
+    return { numero: lido.numero as string | null, nomeExibicao: lido.nomeExibicao as string | null, verificado: lido.verificado };
   }
 }

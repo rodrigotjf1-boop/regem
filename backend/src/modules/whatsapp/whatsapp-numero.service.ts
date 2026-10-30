@@ -1,8 +1,9 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { and, eq, isNull } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig, whatsappNumero } from '../../db/schema';
 import { TERMO_PROVEDOR } from './whatsapp-provedor.service';
+import { WhatsappCloudService } from './whatsapp-cloud.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Modelo de NÚMEROS de WhatsApp por PAPEL × PROVEDOR (mig 225) — épico 2 provedores.
@@ -33,7 +34,10 @@ export interface NumeroResolvido {
 
 @Injectable()
 export class WhatsappNumeroService {
-  constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
+  constructor(
+    @Inject(DRIZZLE) private readonly db: DrizzleDB,
+    @Optional() private readonly cloud?: WhatsappCloudService,
+  ) {}
 
   private async cfgDe(tenantId: string) {
     const [cfg] = await this.db
@@ -122,14 +126,33 @@ export class WhatsappNumeroService {
     if (papel !== 'principal' && papel !== 'marketing')
       throw new BadRequestException("Papel inválido (use 'principal' ou 'marketing').");
     const provedor = (dto.provedor === 'cloud' ? 'cloud' : 'evolution') as Provedor;
-    const numero = dto.numero ? String(dto.numero).replace(/\D/g, '') : null;
+    let numero = dto.numero ? String(dto.numero).replace(/\D/g, '') : null;
+    const phoneId = dto.phoneId ? String(dto.phoneId).trim() : null;
+    const wabaId = dto.wabaId ? String(dto.wabaId).trim() : null;
+    let verificado = !!dto.verificado;
+
+    // API oficial à mão: só grava o que a Meta confirmou, com o nosso app inscrito na conta (senão as mensagens do
+    // número não chegam). Sem os dois códigos, "oficial" deixaria a loja sem número nenhum: no Principal, a Evolution
+    // para de responder e a oficial não tem por onde.
+    if (provedor === 'cloud') {
+      if (!phoneId || !wabaId)
+        throw new BadRequestException(
+          'Para a oficial, use "Conectar com a Meta" ou informe o Phone Number ID e o WABA ID em "avançado".',
+        );
+      if (!this.cloud) throw new BadRequestException('A API oficial não está disponível neste servidor.');
+      const lido = await this.cloud.conectarNumeroExistente(tenantId, papel, phoneId, wabaId);
+      if (!numero && lido.numero) numero = String(lido.numero).replace(/\D/g, '') || null;
+      verificado = lido.verificado;
+    }
+
     const patch = {
       provedor,
       numero,
       instancia: dto.instancia ?? null,
-      phoneId: dto.phoneId ? String(dto.phoneId).trim() : null,
-      wabaId: dto.wabaId ? String(dto.wabaId).trim() : null,
-      verificado: !!dto.verificado,
+      phoneId,
+      wabaId,
+      verificado,
+      ...(provedor === 'cloud' ? { status: 'conectado' } : {}),
       termoAceito: dto.termoAceito ?? null,
       updatedAt: new Date(),
     };
