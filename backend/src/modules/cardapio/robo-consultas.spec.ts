@@ -103,3 +103,57 @@ describe('consultas do robô — cardápio', () => {
     expect(taxaDoBairro({ ...MENU, loja: { ...MENU.loja, areaModo: 'raio' } }, 'centro').modo).toBe('distancia');
   });
 });
+
+// Teste do robô com a loja piloto (29/10/2026): o Gemini errou o que o Regem não entregava — o X bacon (o cliente
+// escreve "x-bacon"), os horários da semana ("abrem amanhã?") e a entrega por distância ("não entregamos em Copacabana").
+describe('consultas do robô — o que faltava no teste de 29/10', () => {
+  const COM_DADOS: any = {
+    ...MENU,
+    loja: { ...MENU.loja, areaModo: 'raio', raios: [{ taxa: 6, ateKm: 1.5 }, { taxa: 5, ateKm: 0.5 }, { taxa: 0, ateKm: 1.9 }] },
+    horarios: [
+      { dia: 5, abre: '19:00', fecha: '05:45', ativo: true },
+      { dia: 0, abre: '19:00', fecha: '03:00', ativo: true },
+      { dia: 1, abre: '11:00', fecha: '15:00', ativo: false },
+    ],
+    produtos: [
+      ...MENU.produtos,
+      { nome: 'TRIO X-BACON', descricao: 'X-bacon, batata e refri', precoVenda: 36, categoriaId: 'c1', esgotado: false, variacoes: [], grupos: [] },
+      { nome: 'X bacon', descricao: 'Pão, carne e bacon', precoVenda: 26, categoriaId: 'c1', esgotado: false, variacoes: [], grupos: [] },
+    ],
+  };
+
+  it('"x-bacon" acha o "X bacon" primeiro (hífen e pontuação viram espaço)', () => {
+    expect(normalizar('X-Bacon')).toBe('x bacon');
+    expect(normalizar('Cheddar !!!')).toBe('cheddar');
+    const r: any = buscarNoCardapio(COM_DADOS, 'x-bacon');
+    expect(r.itens.map((i: any) => i.nome).slice(0, 2)).toEqual(['X bacon', 'X-Bacon']);
+    expect(r.itens[0].preco).toBe('R$ 26,00');
+    expect(r.itens.map((i: any) => i.nome)).toContain('TRIO X-BACON');
+  });
+
+  it('o resumo traz o dia de hoje em São Paulo e os horários da semana (madrugada marcada)', () => {
+    // 30/10/2026 03:15 UTC = sexta-feira 30/10, 00:15 em São Paulo (o dia vira pelo fuso da loja, não pelo UTC)
+    const r: any = resumoDaLoja(COM_DADOS, 'https://app.dmsregem.com/c/abc', new Date('2026-10-30T03:15:00Z'));
+    expect(r.agora).toEqual({ diaDaSemana: 'sexta', hora: '00:15' });
+    expect((resumoDaLoja(COM_DADOS, 'x', new Date('2026-10-30T02:59:00Z')) as any).agora).toEqual({ diaDaSemana: 'quinta', hora: '23:59' });
+    expect(r.horariosDaSemana).toEqual([
+      { dia: 'domingo', abre: '19:00', fecha: '03:00', fechaNoDiaSeguinte: true },
+      { dia: 'sexta', abre: '19:00', fecha: '05:45', fechaNoDiaSeguinte: true },
+    ]);
+  });
+
+  it('entrega por distância: as faixas em ordem e como funciona, no resumo e na taxa', () => {
+    const faixas = [
+      { ateKm: 0.5, taxa: 'R$ 5,00' },
+      { ateKm: 1.5, taxa: 'R$ 6,00' },
+      { ateKm: 1.9, taxa: 'grátis' },
+    ];
+    const r: any = resumoDaLoja(COM_DADOS, 'x');
+    expect(r.taxaPor).toBe('distancia');
+    expect(r.entregaPorDistancia.faixas).toEqual(faixas);
+    expect(r.entregaPorDistancia.comoFunciona).toMatch(/cardápio online calcula/);
+    expect(taxaDoBairro(COM_DADOS, 'copacabana')).toMatchObject({ modo: 'distancia', encontrado: false, faixas });
+    // Por bairro, nada muda.
+    expect(resumoDaLoja(MENU, 'x').entregaPorDistancia).toBeNull();
+  });
+});
