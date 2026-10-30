@@ -60,6 +60,20 @@ export class WhatsappService {
   }
 
   /**
+   * "Digitando…" no celular do cliente enquanto o robô pensa. Evolution 2.3.x: `POST /chat/sendPresence/{instância}`
+   * `{ number, presence: 'composing', delay }` — ela SEGURA a resposta até o fim do `delay` e depois manda "pausado"; a
+   * mensagem do robô que chegar antes já tira o "digitando". Dispara e segue: nunca lança e não segura a entrada.
+   */
+  mostrarDigitando(instancia: string, numero: string, ms = 10_000): void {
+    if (!instancia || !numero) return;
+    void this.req(`/chat/sendPresence/${encodeURIComponent(instancia)}`, {
+      method: 'POST',
+      body: JSON.stringify({ number: numero, presence: 'composing', delay: ms }),
+      signal: AbortSignal.timeout(ms + 5_000),
+    }).catch(() => undefined);
+  }
+
+  /**
    * Para onde a instância manda as mensagens dos clientes. Com `EVOLUTION_PELO_REGEM=true` (o dono liga quando o fluxo
    * novo do n8n estiver importado): para o Regem, que aplica as travas e repassa ao robô — com a assinatura da instância
    * no cabeçalho. Sem a chave: direto ao n8n, como sempre.

@@ -76,7 +76,7 @@ import { Cron } from '@nestjs/schedule';
 import { VendasService } from '../vendas/vendas.service';
 import { DeliveryService } from '../delivery/delivery.service';
 import { EdgeFlashSyncService } from '../sync/edge-flash-sync.service';
-import { AtendimentoService } from '../atendimento/atendimento.service';
+import { AtendimentoService, prioridadeDe } from '../atendimento/atendimento.service';
 import { FidelidadeService } from '../fidelidade/fidelidade.service';
 import { CashbackService } from '../cashback/cashback.service';
 
@@ -329,13 +329,16 @@ export class CardapioService {
     if (!segredoDoRoboOk(segredo)) throw new UnauthorizedException('Não autorizado.');
     const cfg = await this.resolver(token);
     const pedido = await this.pedidoDoChamado(cfg.tenantId, dto?.pedidoNumero, dto?.telefone);
-    return this.atendimento.abrir(cfg.tenantId, cfg.unidadeId, {
+    // Cliente irritado → `urgente: true` (mig 343): a tela põe na frente, em vermelho. O mesmo cliente com um chamado
+    // já aberto não ganha outro: soma ao aberto e só sobe a prioridade (abrirPeloRobo).
+    return this.atendimento.abrirPeloRobo(cfg.tenantId, cfg.unidadeId, {
       tipo: dto?.tipo,
       cliente: dto?.cliente,
       telefone: dto?.telefone,
       pedidoNumero: dto?.pedidoNumero || pedido?.numero || undefined,
       pedidoId: pedido?.id,
       mensagem: dto?.mensagem,
+      prioridade: prioridadeDe(dto),
     });
   }
 

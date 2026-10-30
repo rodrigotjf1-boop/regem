@@ -4,6 +4,7 @@ import { CloudOnly } from '../../common/cloud-only.decorator';
 import { CABECALHO_SEGREDO_ROBO, segredoDaChamada } from '../../common/segredo-robo';
 import { CardapioService } from './cardapio.service';
 import { buscarNoCardapio, resumoDaLoja, taxaDoBairro } from './robo-consultas';
+import { instrucoesDoRobo } from './robo-instrucoes';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -56,5 +57,20 @@ export class RoboConsultasController {
   ) {
     const { menu } = await this.cardapio(segredoDaChamada(segredo, secret), instancia, phoneNumberId);
     return taxaDoBairro(menu, String(bairro ?? '').slice(0, 80));
+  }
+
+  // As instruções do agente (a "mensagem do sistema") para o fluxo do n8n que pede — robo-instrucoes.ts. Uma por
+  // conversa: o limite acompanha o das outras consultas.
+  @Get('instrucoes')
+  @Throttle({ default: { ttl: 60000, limit: 240 } })
+  async instrucoes(
+    @Query('fluxo') fluxo?: string,
+    @Query('instancia') instancia?: string,
+    @Query('phoneNumberId') phoneNumberId?: string,
+    @Query('secret') secret?: string,
+    @Headers(CABECALHO_SEGREDO_ROBO) segredo?: string,
+  ) {
+    const { menu } = await this.cardapio(segredoDaChamada(segredo, secret), instancia, phoneNumberId);
+    return instrucoesDoRobo({ loja: (menu as any)?.loja?.nome ?? null }, fluxo);
   }
 }

@@ -19,6 +19,7 @@ import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { CardapioService } from './cardapio.service';
+import { menuParaOPublico } from './menu-publico';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -35,9 +36,10 @@ export class CardapioPublicoController {
 
   // `?evento=natal` mostra o cardápio como fica naquele evento (a prévia do painel), sem mudar a
   // escolha da loja.
+  // Sem a base de conhecimento e as respostas prontas do robô (são para o robô, que as lê com a senha — menu-publico.ts).
   @Get(':token')
-  menu(@Param('token') token: string, @Query('evento') evento?: string) {
-    return this.service.menu(token, evento);
+  async menu(@Param('token') token: string, @Query('evento') evento?: string) {
+    return menuParaOPublico(await this.service.menu(token, evento));
   }
 
   // Beacon anônimo do funil (F4) — best-effort, rate-limitado (sem PII).

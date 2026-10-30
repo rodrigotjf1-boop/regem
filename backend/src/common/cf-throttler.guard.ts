@@ -2,6 +2,7 @@ import { ExecutionContext, Injectable } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { rotaDaCaixaDaLoja, rotaDaFilaDeImpressao, rotaDaTelaDeSenhas, tokenJaValidado } from './dispositivo-limite';
 import { credencialDaChamada, rotaDaIntegracao, tokenIntegracaoJaValidado } from './integracao-limite';
+import { baldeDoRobo } from './robo-limite';
 
 /**
  * Rate limit contando pelo IP REAL do cliente quando a nuvem está atrás da
@@ -49,6 +50,9 @@ export class CfThrottlerGuard extends ThrottlerGuard {
   }
 
   protected async getTracker(req: Record<string, any>): Promise<string> {
+    // O robô (n8n) chama de um IP só para todas as lojas: com a senha dele, conta por LOJA (common/robo-limite.ts).
+    const robo = baldeDoRobo(req);
+    if (robo) return robo;
     if (process.env.TRUST_CLOUDFLARE === 'true') {
       const cf = req?.headers?.['cf-connecting-ip'];
       if (typeof cf === 'string' && cf.trim()) return cf.trim();

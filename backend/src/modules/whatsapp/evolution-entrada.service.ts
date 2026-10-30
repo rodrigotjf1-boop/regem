@@ -187,6 +187,7 @@ export class EvolutionEntradaService {
       roboPrompt: cfg.roboPrompt ?? null,
       roboMensagens: Array.isArray(cfg.roboMensagens) ? (cfg.roboMensagens as any[]) : [],
     };
+    this.evolution.mostrarDigitando(instancia, de); // "digitando…" enquanto o robô pensa (dispara e segue)
     await entregarJuntando(msg);
   }
 }

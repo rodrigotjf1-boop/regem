@@ -152,6 +152,18 @@ descrever('robô calado numa conversa (Postgres)', () => {
     expect(mapa.get('21912345678')?.chamado?.tipo).toBe('mudanca');
   });
 
+  it('a URGÊNCIA do chamado chega à caixa pelas duas consultas (mig 343: cliente irritado em vermelho)', async () => {
+    await q(
+      `insert into atendimento_chamado (tenant_id, tipo, telefone, status, prioridade) values ($1, 'erro', $2, 'aberto', 'urgente')`,
+      [T, CEL_55],
+    );
+    await q(`insert into atendimento_chamado (tenant_id, tipo, telefone, status) values ($1, 'humano', '21912345678', 'aberto')`, [T]);
+    expect((await estadoDaPausa(db, T, CEL_SEM_9)).chamado?.prioridade).toBe('urgente');
+    const mapa = await pausasDaLoja(db, T);
+    expect(mapa.get('21987654321')?.chamado?.prioridade).toBe('urgente');
+    expect(mapa.get('21912345678')?.chamado?.prioridade).toBe('normal');
+  });
+
   it('a constraint recusa motivo fora da lista e prazo da loja fora de 0–1440', async () => {
     await expect(
       q(`insert into robo_pausa (tenant_id, telefone, telefone_chave, motivo) values ($1, '1', '1', 'qualquer')`, [T]),
@@ -172,7 +184,9 @@ descrever('chamado do robô ligado ao pedido (Postgres)', () => {
   beforeAll(async () => {
     process.env.BOT_RESOLVER_SECRET = 'senha-do-robo-teste';
     pool = new Pool({ connectionString: URL_PG });
-    const atendimento: any = { abrir: async (_t: string, _u: any, dto: any) => (abertos.push(dto), { ok: true, id: 'x' }) };
+    // O robô abre pelo `abrirPeloRobo` (soma ao chamado aberto do mesmo cliente — atendimento-robo-pg.spec.ts).
+    const registra = async (_t: string, _u: any, dto: any) => (abertos.push(dto), { ok: true, id: 'x' });
+    const atendimento: any = { abrir: registra, abrirPeloRobo: registra };
     const u: any = {};
     cardapio = new CardapioService(drizzle(pool, { schema }) as any, u, u, atendimento, u, u, u, u);
     await q(`insert into empresa (id, nome) values ($1, 'teste chamado do robô')`, [T]);

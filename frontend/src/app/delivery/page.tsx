@@ -221,6 +221,24 @@ export default function DeliveryPage() {
     o.start();
     o.stop(ctx.currentTime + 0.36);
   }
+  // Chamado URGENTE (cliente irritado): três bipes mais agudos — dá para distinguir do pedido novo sem olhar a tela.
+  function tocarAlertaUrgente() {
+    const ctx = garantirAudio();
+    if (!ctx || ctx.state !== 'running') return;
+    for (let i = 0; i < 3; i++) {
+      const t0 = ctx.currentTime + i * 0.28;
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'square';
+      o.frequency.value = 1320;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.18, t0 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.2);
+      o.connect(g).connect(ctx.destination);
+      o.start(t0);
+      o.stop(t0 + 0.21);
+    }
+  }
   function alternarSom() {
     const ligar = !somAtivo;
     garantirAudio();
@@ -528,13 +546,30 @@ export default function DeliveryPage() {
   // CHAMADO NOVO (o robô chamou o atendente): aviso na tela e o mesmo som do pedido novo. Comparar os ids da lista
   // vale nas duas pontas — na nuvem a lista se atualiza na hora (tempo real, abaixo); no servidor da loja o chamado
   // chega pelo sincronismo e a tela o vê na leitura seguinte (15 s).
+  // URGENTE (mig 343 — o robô viu o cliente irritado): aviso vermelho e três bipes. Vale também para o chamado que já
+  // estava aberto e VIROU urgente (o robô soma ao aberto e sobe a prioridade): por isso se compara a lista dos urgentes.
   const prevAtendRef = useRef<Set<string> | null>(null);
+  const prevUrgRef = useRef<Set<string> | null>(null);
   useEffect(() => {
-    const ids = new Set((atendimentos ?? []).map((c: any) => String(c.id)));
+    const lista: any[] = atendimentos ?? [];
+    const ids = new Set(lista.map((c: any) => String(c.id)));
+    const urgentes = new Set(lista.filter((c: any) => c.prioridade === 'urgente').map((c: any) => String(c.id)));
     const antes = prevAtendRef.current;
+    const urgAntes = prevUrgRef.current;
     prevAtendRef.current = ids;
-    if (!antes) return; // primeira leitura: o que já estava aberto não é novidade
-    const novos = (atendimentos ?? []).filter((c: any) => !antes.has(String(c.id)));
+    prevUrgRef.current = urgentes;
+    if (!antes || !urgAntes) return; // primeira leitura: o que já estava aberto não é novidade
+    const novosUrgentes = lista.filter((c: any) => urgentes.has(String(c.id)) && !urgAntes.has(String(c.id)));
+    if (novosUrgentes.length) {
+      const c: any = novosUrgentes[0];
+      toast.error(
+        `🚨 Chamado URGENTE — cliente chateado: ${TIPO_ATEND[c.tipo] ?? 'Atendimento'}${c.cliente ? ` · ${c.cliente}` : ''}${novosUrgentes.length > 1 ? ` (+${novosUrgentes.length - 1})` : ''}`,
+        15000,
+      );
+      if (somAtivo) tocarAlertaUrgente();
+      return;
+    }
+    const novos = lista.filter((c: any) => !antes.has(String(c.id)));
     if (!novos.length) return;
     const c: any = novos[0];
     toast.info(
@@ -543,6 +578,7 @@ export default function DeliveryPage() {
     if (somAtivo) tocarBeep();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [atendimentos]);
+  const urgentesAbertos = (atendimentos ?? []).filter((c: any) => c.prioridade === 'urgente').length;
 
   // Tempo real (nuvem): chamado aberto pelo robô → relê na hora, sem esperar os 15 s.
   useEffect(() => {
@@ -708,13 +744,21 @@ export default function DeliveryPage() {
               <button
                 type="button"
                 onClick={() => setAtendAberto(true)}
-                title="Chamados de atendimento"
-                aria-label="Chamados de atendimento"
-                className={`relative flex h-8 items-center rounded-md border px-2 text-sm ${atendimentos.length ? 'border-destructive/50 bg-destructive/10 text-destructive' : 'border-border text-muted-foreground hover:border-primary/50'}`}
+                title={urgentesAbertos ? `Chamados de atendimento — ${urgentesAbertos} urgente(s)` : 'Chamados de atendimento'}
+                aria-label={urgentesAbertos ? `Chamados de atendimento, ${urgentesAbertos} urgente(s)` : 'Chamados de atendimento'}
+                className={`relative flex h-8 items-center rounded-md border px-2 text-sm ${
+                  urgentesAbertos
+                    ? 'border-destructive bg-destructive text-white motion-safe:animate-pulse'
+                    : atendimentos.length
+                      ? 'border-destructive/50 bg-destructive/10 text-destructive'
+                      : 'border-border text-muted-foreground hover:border-primary/50'
+                }`}
               >
-                🔔
+                {urgentesAbertos ? '🚨' : '🔔'}
                 {atendimentos.length > 0 && (
-                  <span className="ml-1 grid h-5 min-w-5 place-items-center rounded-full bg-destructive px-1 text-[11px] font-bold text-white">{atendimentos.length}</span>
+                  <span className={`ml-1 grid h-5 min-w-5 place-items-center rounded-full px-1 text-[11px] font-bold ${urgentesAbertos ? 'bg-white text-destructive' : 'bg-destructive text-white'}`}>
+                    {atendimentos.length}
+                  </span>
                 )}
               </button>
               <Button type="button" size="sm" className="h-8 text-sm" onClick={() => setNovoPedido(true)}>＋ Novo pedido</Button>
@@ -1349,7 +1393,15 @@ function AtendimentoPanel({ lista, onFechar, onResolver, onDecidir }: {
         {lista.length === 0 && <p className="py-6 text-center text-sm text-muted-foreground">Nenhum chamado no momento. 🎉</p>}
         <div className="space-y-2">
           {lista.map((c) => (
-            <div key={c.id} className="rounded-lg border border-border p-3">
+            <div
+              key={c.id}
+              className={`rounded-lg border p-3 ${c.prioridade === 'urgente' ? 'border-destructive bg-destructive/5' : 'border-border'}`}
+            >
+              {c.prioridade === 'urgente' && (
+                <p className="mb-1.5 inline-flex items-center gap-1 rounded bg-destructive px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white">
+                  🚨 Urgente · cliente chateado
+                </p>
+              )}
               <div className="flex items-center gap-2">
                 <span className="text-sm font-bold">{TIPO_ATEND[c.tipo] ?? c.tipo}</span>
                 <span className="ml-auto font-mono text-[10px] text-muted-foreground">{hora(c.criadoEm)}</span>
