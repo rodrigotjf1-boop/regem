@@ -645,6 +645,35 @@ export class WhatsappCloudService {
   }
 
   /**
+   * BOTÃO DE LINK (mensagem interativa `cta_url`, pedido do dono de 30/10/2026: o link do cardápio num botão, como os
+   * apps grandes). O texto vai no corpo (até 1024) e o botão (até 20 caracteres) abre o endereço. Formato e limites pela
+   * documentação da Meta ("Interactive CTA URL button messages"). Só na API oficial — a conexão por QR não tem botão.
+   */
+  async enviarLink(tenantId: string, numero: string, corpo: string, url: string, rotulo = 'Ver cardápio') {
+    const para = soDigitos(numero);
+    if (!para) throw new BadRequestException('Número inválido.');
+    if (!/^https:\/\//i.test(String(url ?? ''))) throw new BadRequestException('Link inválido.');
+    const cfg = await this.cfgDoEnvio(tenantId);
+    const texto = cortar(String(corpo ?? '').trim() || 'Veja o nosso cardápio:', 1024);
+    const interactive = {
+      type: 'cta_url',
+      body: { text: texto },
+      action: { name: 'cta_url', parameters: { display_text: cortar(rotulo || 'Ver cardápio', 20), url } },
+    };
+    const r = await this.postarMensagem(cfg.waCloudPhoneId!, { to: para, type: 'interactive', interactive });
+    await this.gravar({
+      tenantId,
+      telefone: para,
+      direcao: 'saida',
+      tipo: 'interactive',
+      texto: `${texto}\n[${cortar(rotulo || 'Ver cardápio', 20)}] ${url}`,
+      wamid: r.wamid,
+      status: r.status,
+    });
+    return { ok: true, id: r.wamid };
+  }
+
+  /**
    * NOTA DE VOZ: sobe o áudio à Meta (`/media`) e manda com `voice: true` (a bolinha com a onda, não um arquivo). A Meta
    * exige OGG com codec Opus, mono; o ícone de tocar só aparece até 512 KB — mais que isso, recusa aqui.
    */
