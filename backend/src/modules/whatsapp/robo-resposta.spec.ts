@@ -112,6 +112,24 @@ describe('resposta do robô — como cada via mostra', () => {
     expect(b.chamadas).toEqual([['evo.voz', TEL]]);
   });
 
+  // Teste dos modelos de 29/10: o modelo escreveu o endereço da loja em outros sistemas (anota.ai, Goomer, Zaply).
+  it('link de outro sistema sai trocado pelo do cardápio da loja — no texto e no cabeçalho das opções', async () => {
+    const antes = process.env.CARDAPIO_PUBLIC_URL;
+    process.env.CARDAPIO_PUBLIC_URL = 'https://app.dmsregem.com';
+    try {
+      const loja = { ...LOJA_EVO, token: 'tok1' };
+      const a = montar(loja);
+      await a.svc.responder(SENHA, { instancia: 'i', para: TEL, texto: 'Veja o cardápio: https://anota.ai/mister' });
+      expect(a.chamadas[0]).toEqual(['evo.texto', TEL, 'Veja o cardápio: https://app.dmsregem.com/c/tok1']);
+      const b = montar({ ...loja, provedor: 'cloud' });
+      await b.svc.responder(SENHA, { phoneNumberId: 'p', para: TEL, texto: 'Peça em https://goomer.app/x', opcoes: ops(2) });
+      expect(b.chamadas[0]).toEqual(['cloud.opcoes', TEL, 'Peça em https://app.dmsregem.com/c/tok1', 2]);
+    } finally {
+      if (antes === undefined) delete process.env.CARDAPIO_PUBLIC_URL;
+      else process.env.CARDAPIO_PUBLIC_URL = antes;
+    }
+  });
+
   it('menu numerado: opção sem título sai, a descrição vai junto', () => {
     expect(menuNumerado('', [{ titulo: 'A', descricao: 'primeira' }, { titulo: ' ' }, { titulo: 'B' }])).toBe(
       '1) A — primeira\n2) B\n\nResponda com o número da opção.',

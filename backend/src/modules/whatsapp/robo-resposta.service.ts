@@ -6,6 +6,7 @@ import { segredoDoRoboOk } from '../../common/segredo-robo';
 import { WhatsappService } from './whatsapp.service';
 import { WhatsappCloudService, opcoesValidas } from './whatsapp-cloud.service';
 import { estadoDaPausa } from './robo-pausa';
+import { linkDoCardapioDaLoja, soLinksDaLoja } from './links-do-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -60,7 +61,12 @@ export class RoboRespostaService {
 
     const para = soDigitos(p?.para);
     if (!para) throw new BadRequestException('Número inválido.');
-    const texto = String(p?.texto ?? '').trim();
+    // Só o link do cardápio da loja sai (o modelo já escreveu o endereço da loja em outros sistemas — links-do-robo.ts).
+    const bruto = String(p?.texto ?? '').trim();
+    const { texto, trocados } = cfg.token
+      ? soLinksDaLoja(bruto, linkDoCardapioDaLoja(cfg.token), [cfg.site, cfg.instagram ? 'instagram.com' : null])
+      : { texto: bruto, trocados: 0 };
+    if (trocados) this.logger.warn(`resposta do robô: ${trocados} link(s) de fora trocado(s) pelo do cardápio (${via})`);
     const opcoes = opcoesValidas(p?.opcoes ?? []);
     const audio = String(p?.audio?.base64 ?? '').trim();
     if (!texto && !opcoes.length && !audio) throw new BadRequestException('Nada para enviar (texto, opções ou áudio).');
