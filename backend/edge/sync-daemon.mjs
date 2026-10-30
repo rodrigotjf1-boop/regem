@@ -2277,6 +2277,9 @@ const SO_NUVEM = new Set([
   // entrega à loja, cifrada com a chave DELA, é a etapa seguinte do P2. Apagar a cópia local
   // numa reinstalação não perde nada — a mestra está na nuvem.
   'fiscal_credencial',
+  // Robô de WhatsApp (mig 342, @cloud-only): a pausa do robô numa conversa e o ajuste da loja. O robô e a caixa de
+  // conversas só existem na nuvem (a loja usa a caixa repassando para ela) — a loja não tem estas tabelas.
+  'robo_pausa', 'robo_config',
 ]);
 
 // LEGADO SEM USO: tabelas criadas nas migrations de fundação (002/003) para recursos que

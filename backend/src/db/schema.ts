@@ -3349,6 +3349,8 @@ export const atendimentoChamado = pgTable('atendimento_chamado', {
   pedidoNumero: text('pedido_numero'),
   pedidoId: uuid('pedido_id'), // pedido ligado (cancelamento/alteração pelo cardápio)
   mensagem: text('mensagem'),
+  // 'normal' | 'urgente' (mig 343): cliente irritado → o robô abre urgente; a tela põe na frente, em vermelho.
+  prioridade: text('prioridade').notNull().default('normal'),
   status: text('status').notNull().default('aberto'), // aberto | resolvido
   decisao: text('decisao'), // aceito | recusado | null (veredito do cancelamento)
   resolvidoPorId: uuid('resolvido_por_id'),

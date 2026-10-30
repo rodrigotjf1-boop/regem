@@ -21,6 +21,20 @@
   O resto das Fases 0 e 1 (pausa do robô, chamado, senha do robô) é só da nuvem e já está no ar. Sem migration na
   loja (a 342 é só da nuvem).
 
+- **`.zip` — chamado URGENTE (robô mais humano, F1, 30/10; mig 343 — VAI NA LOJA):** o robô abre o chamado do cliente
+  irritado como urgente. Na loja, a tela Delivery passa a mostrar:
+  - o urgente na frente da lista, em vermelho, com "🚨 Urgente · cliente chateado";
+  - o sino 🚨 piscando e três bipes, com o som ligado.
+
+  A caixa Delivery › WhatsApp marca a conversa com 🚨. A 343 só põe a coluna `prioridade` no `atendimento_chamado`,
+  que sincroniza: o sync ignora a coluna que a loja ainda não tem, então o chamado chega igual antes do `.zip`, só
+  sem o destaque. O resto da F1 é só da nuvem e entra no ar com o merge: as instruções do robô servidas pelo Regem, o
+  "digitando…", o chamado repetido somado ao aberto, o limite do robô por loja e a base de conhecimento fora do JSON
+  público (ERR-328).
+- **Próximo corte (sem efeito na loja) — `sync-daemon.mjs`:** `robo_pausa` e `robo_config` (mig 342, só nuvem) entram no
+  `SO_NUVEM` (ERR-329). As duas tabelas não existem no banco da loja, então nada muda lá; a classificação só deixa o
+  teste da trava do apagamento correto. Não pede `.exe` nem `.zip` sozinha.
+
 - **`.zip` — a tela de atualização não fica mais presa (ERR-322):** um status de atualização que parou sem terminar
   (de uma versão antiga, PC desligado no meio) vai para a tela como "a última tentativa parou sem terminar" e libera
   "Instalar agora"; antes a tela mostrava "Iniciando… 2%" para sempre e desligava todos os botões. A loja que já está

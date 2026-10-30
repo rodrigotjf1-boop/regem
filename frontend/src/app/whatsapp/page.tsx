@@ -277,7 +277,9 @@ export default function WhatsappPage() {
       atual.pausada !== sel.pausada ||
       String(atual.pausadaAte ?? '') !== String(sel.pausadaAte ?? '') ||
       atual.pausaMotivo !== sel.pausaMotivo ||
-      (atual.chamado?.id ?? null) !== (sel.chamado?.id ?? null);
+      (atual.chamado?.id ?? null) !== (sel.chamado?.id ?? null) ||
+      // o mesmo chamado pode VIRAR urgente (o robô soma ao aberto e sobe a prioridade — mig 343)
+      (atual.chamado?.prioridade ?? null) !== (sel.chamado?.prioridade ?? null);
     if (mudou)
       setSel((s: any) => ({
         ...s,
@@ -448,7 +450,12 @@ export default function WhatsappPage() {
                     </span>
                     <span className="flex items-center justify-between gap-2">
                       <span className="truncate text-xs text-muted-foreground">
-                        {c.chamado && <span className="mr-1" title="Chamado de atendimento aberto" aria-label="Chamado aberto">🔔</span>}
+                        {c.chamado &&
+                          (c.chamado.prioridade === 'urgente' ? (
+                            <span className="mr-1" title="Chamado URGENTE: cliente chateado" aria-label="Chamado urgente">🚨</span>
+                          ) : (
+                            <span className="mr-1" title="Chamado de atendimento aberto" aria-label="Chamado aberto">🔔</span>
+                          ))}
                         {c.pausada && <span className="mr-1 text-amber-500" title={estadoDoRobo(c)} aria-label={estadoDoRobo(c)}>⏸</span>}
                         {c.ultimaMensagem ?? foneFmt(c.telefone)}
                       </span>
@@ -540,9 +547,24 @@ export default function WhatsappPage() {
                 </div>
 
                 {sel.chamado && (
-                  <div role="status" className="flex flex-wrap items-center gap-2 border-b border-destructive/30 bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
+                  <div
+                    role="status"
+                    className={`flex flex-wrap items-center gap-2 border-b px-3 py-1.5 text-xs ${
+                      sel.chamado.prioridade === 'urgente'
+                        ? 'border-destructive bg-destructive text-white'
+                        : 'border-destructive/30 bg-destructive/10 text-destructive'
+                    }`}
+                  >
                     <span className="min-w-0 flex-1">
-                      🔔 <strong>Chamado aberto</strong>: {ROTULO_CHAMADO[sel.chamado.tipo] ?? 'atendimento'}
+                      {sel.chamado.prioridade === 'urgente' ? (
+                        <>
+                          🚨 <strong>Chamado URGENTE</strong> — cliente chateado: {ROTULO_CHAMADO[sel.chamado.tipo] ?? 'atendimento'}
+                        </>
+                      ) : (
+                        <>
+                          🔔 <strong>Chamado aberto</strong>: {ROTULO_CHAMADO[sel.chamado.tipo] ?? 'atendimento'}
+                        </>
+                      )}
                       {sel.chamado.pedidoNumero ? ` · pedido #${sel.chamado.pedidoNumero}` : ''}
                     </span>
                     <Button type="button" size="sm" variant="outline" className="h-7 shrink-0" disabled={resolvendo} onClick={resolverChamado}>

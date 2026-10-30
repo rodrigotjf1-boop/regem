@@ -30,10 +30,14 @@ function montar(cfg: any) {
     },
     transaction: async (fn: any) => fn({ execute: async () => ({ rows: [] }), insert: () => ({ values: async () => undefined }) }),
   };
-  const evolution: any = { enviar: async (_t: string, para: string, texto: string) => enviados.push({ para, texto }) };
+  const digitando: { instancia: string; numero: string }[] = [];
+  const evolution: any = {
+    enviar: async (_t: string, para: string, texto: string) => enviados.push({ para, texto }),
+    mostrarDigitando: (instancia: string, numero: string) => digitando.push({ instancia, numero }),
+  };
   const svc = new EvolutionEntradaService(db, evolution);
   (svc as any).logger = { log() {}, warn() {} };
-  return { svc, sqls, enviados };
+  return { svc, sqls, enviados, digitando };
 }
 
 const LOJA = { tenantId: 't1', token: 'abc', nomePublico: 'Mister', aberto: true, ativo: true, roboAtivo: true, provedor: 'evolution', roboPausados: [] };
@@ -146,10 +150,18 @@ describe('entrada pela Evolution — as travas', () => {
 
   it('robô desligado, loja na API oficial ou conversa pausada: não vai ao robô', async () => {
     for (const cfg of [{ ...LOJA, roboAtivo: false }, { ...LOJA, provedor: 'cloud' }, { ...LOJA, roboPausados: [TEL] }]) {
-      const { svc } = montar(cfg);
+      const { svc, digitando } = montar(cfg);
       await svc.processar(aviso(msg('oi')), 'mister-abc123');
+      expect(digitando).toHaveLength(0); // "digitando…" só quando o robô vai mesmo responder
     }
     expect(entregas).toHaveLength(0);
+  });
+
+  it('mensagem que vai ao robô: mostra "digitando…" ao cliente (pela instância, para o número dele)', async () => {
+    const { svc, digitando } = montar(LOJA);
+    await svc.processar(aviso(msg('tem x-bacon?')), 'mister-abc123');
+    expect(digitando).toEqual([{ instancia: 'mister-abc123', numero: TEL }]);
+    expect(entregas).toHaveLength(1);
   });
 
   it('alguém respondeu PELO CELULAR (fromMe que o Regem não mandou): o robô pausa nesta conversa', async () => {

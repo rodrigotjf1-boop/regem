@@ -511,7 +511,33 @@ export class WhatsappCloudService {
   // Junta as mensagens seguidas da conversa e entrega assinada, com limite de tempo — mesma entrega da Evolution
   // (juntar-mensagens.ts, entregar-ao-robo.ts).
   private async encaminhar(msg: MsgNormalizada): Promise<void> {
+    this.mostrarDigitando(String(msg.phoneNumberId ?? ''), String(msg.mensagemId ?? ''));
     await entregarJuntando(msg);
+  }
+
+  /**
+   * "Digitando…" no celular do cliente enquanto o robô pensa, e a mensagem dele fica como LIDA — o mesmo pedido faz as
+   * duas coisas (doc da Meta, "Typing indicators": `status: read` + `typing_indicator`). Some quando a resposta sai ou em
+   * 25 s. Só para mensagem que VAI ao robô (a Meta pede: só mostre se vai responder). Dispara e segue: nunca lança e
+   * não segura a entrada — sem ele, o robô responde igual.
+   */
+  private mostrarDigitando(phoneNumberId: string, wamid: string): void {
+    if (!/^[0-9]{5,32}$/.test(phoneNumberId) || !wamid || !(process.env.WA_CLOUD_TOKEN ?? '').trim()) return;
+    void fetch(`${GRAPH}/${phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.token()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        status: 'read',
+        message_id: wamid,
+        typing_indicator: { type: 'text' },
+      }),
+      signal: AbortSignal.timeout(5000),
+    })
+      .then((r) => {
+        if (!r.ok) this.logger.debug(`"digitando" recusado pela Meta (${r.status}) phone=${phoneNumberId}`);
+      })
+      .catch(() => undefined);
   }
 
   // Envia texto livre pela Cloud API. Só funciona dentro da janela de 24h; fora dela
