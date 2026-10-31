@@ -28,8 +28,11 @@ export type ChamadoAberto = {
   criadoEm: Date;
   /** 'urgente' = cliente irritado (mig 343): a caixa mostra em vermelho. Ausente = 'normal'. */
   prioridade?: 'normal' | 'urgente';
+  /** O resumo da dificuldade que o robô escreveu ao chamar (a caixa mostra na faixa do chamado). */
+  mensagem?: string | null;
 };
 const prioridadeDaLinha = (v: unknown): 'normal' | 'urgente' => (v === 'urgente' ? 'urgente' : 'normal');
+const mensagemDaLinha = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 500) : null);
 export type EstadoPausa = {
   pausado: boolean;
   /** Quando o robô volta sozinho. `null` com `pausado` = só quando alguém retomar. */
@@ -106,7 +109,7 @@ export async function estadoDaPausa(db: any, tenantId: string, telefone: string)
          select rp.ate, rp.motivo, rp.atualizado_em from robo_pausa rp
           where rp.tenant_id = ${tenantId}::uuid and rp.telefone_chave = ${k}) p) as pausa,
       (select row_to_json(c) from (
-         select a.id, a.tipo, a.pedido_numero, a.criado_em, a.prioridade from atendimento_chamado a
+         select a.id, a.tipo, a.pedido_numero, a.criado_em, a.prioridade, a.mensagem from atendimento_chamado a
           where a.tenant_id = ${tenantId}::uuid and a.status = 'aberto' and ${chaveDoChamado} = ${k}
           order by a.criado_em desc limit 1) c) as chamado,
       (select max(a.resolvido_em) from atendimento_chamado a
@@ -126,6 +129,7 @@ export async function estadoDaPausa(db: any, tenantId: string, telefone: string)
           pedidoNumero: c.pedido_numero ?? null,
           criadoEm: data(c.criado_em) as Date,
           prioridade: prioridadeDaLinha(c.prioridade),
+          mensagem: mensagemDaLinha(c.mensagem),
         }
       : null,
     minutos: Number(l.minutos),
@@ -145,7 +149,7 @@ export async function pausasDaLoja(db: any, tenantId: string): Promise<Map<strin
          select rp.telefone_chave, rp.ate, rp.motivo, rp.atualizado_em from robo_pausa rp
           where rp.tenant_id = ${tenantId}::uuid) p), '[]'::json) as pausas,
       coalesce((select json_agg(c) from (
-         select a.id, a.tipo, a.pedido_numero, a.criado_em, a.telefone, a.prioridade from atendimento_chamado a
+         select a.id, a.tipo, a.pedido_numero, a.criado_em, a.telefone, a.prioridade, a.mensagem from atendimento_chamado a
           where a.tenant_id = ${tenantId}::uuid and a.status = 'aberto' and a.telefone is not null
           order by a.criado_em desc limit 300) c), '[]'::json) as chamados,
       coalesce((select json_agg(x) from (
@@ -174,6 +178,7 @@ export async function pausasDaLoja(db: any, tenantId: string): Promise<Map<strin
       pedidoNumero: c.pedido_numero ?? null,
       criadoEm: data(c.criado_em) as Date,
       prioridade: prioridadeDaLinha(c.prioridade),
+      mensagem: mensagemDaLinha(c.mensagem),
     });
   }
   const resolvidos = new Map<string, Date>();

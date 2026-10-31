@@ -26,7 +26,8 @@
   - o urgente na frente da lista, em vermelho, com "🚨 Urgente · cliente chateado";
   - o sino 🚨 piscando e três bipes, com o som ligado.
 
-  A caixa Delivery › WhatsApp marca a conversa com 🚨. A 343 só põe a coluna `prioridade` no `atendimento_chamado`,
+  A caixa Delivery › WhatsApp marca a conversa com 🚨. F1.1 (30/10): o aviso do chamado na tela Delivery e a faixa do
+  chamado na caixa mostram o RESUMO da dificuldade que o robô escreveu. A 343 só põe a coluna `prioridade` no `atendimento_chamado`,
   que sincroniza: o sync ignora a coluna que a loja ainda não tem, então o chamado chega igual antes do `.zip`, só
   sem o destaque. O resto da F1 é só da nuvem e entra no ar com o merge: as instruções do robô servidas pelo Regem, o
   "digitando…", o chamado repetido somado ao aberto, o limite do robô por loja e a base de conhecimento fora do JSON

@@ -566,6 +566,8 @@ export default function WhatsappPage() {
                         </>
                       )}
                       {sel.chamado.pedidoNumero ? ` · pedido #${sel.chamado.pedidoNumero}` : ''}
+                      {/* O resumo da dificuldade que o robô escreveu ao chamar: quem responde já sabe o motivo. */}
+                      {sel.chamado.mensagem && <span className="mt-0.5 block break-words opacity-90">{sel.chamado.mensagem}</span>}
                     </span>
                     <Button type="button" size="sm" variant="outline" className="h-7 shrink-0" disabled={resolvendo} onClick={resolverChamado}>
                       {resolvendo ? 'Resolvendo…' : 'Resolver chamado'}
