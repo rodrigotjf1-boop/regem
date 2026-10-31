@@ -151,6 +151,32 @@ export class CashbackService {
   }
 
   // ===== Motor: crédito na confirmação, estorno no cancelamento =====
+
+  /** Quanto um plano credita por um pedido (valor em reais ou pontos) — a MESMA conta do crédito e da previsão. */
+  static creditoDoPlano(plano: any, total: unknown, taxaEntrega?: unknown): number {
+    const bruto = Number(total) || 0;
+    const baseValor = plano.base === 'sem_frete' ? Math.max(0, bruto - (Number(taxaEntrega) || 0)) : bruto;
+    if (plano.tipo === 'valor') return Number(((baseValor * (Number(plano.percentual) || 0)) / 100).toFixed(2));
+    return CashbackService.pontosPorGasto(plano.regras as any[], baseValor);
+  }
+
+  /**
+   * O que o pedido VAI creditar na confirmação (sem gravar nada): o resumo do robô diz "você ganha R$ X de cashback"
+   * (Bloco 1b do plano de 31/10/2026) pela mesma conta do `creditarPedido`.
+   */
+  async previsaoDoCredito(tenantId: string, total: number, taxaEntrega = 0): Promise<{ valor: number; pontos: number }> {
+    const planos = await this.db
+      .select()
+      .from(cashbackPlano)
+      .where(and(eq(cashbackPlano.tenantId, tenantId), eq(cashbackPlano.ativo, true), eq(cashbackPlano.status, 'ativo')));
+    const r = { valor: 0, pontos: 0 };
+    for (const plano of planos) {
+      const delta = CashbackService.creditoDoPlano(plano, total, taxaEntrega);
+      if (delta > 0) r[plano.tipo === 'valor' ? 'valor' : 'pontos'] += delta;
+    }
+    return { valor: Number(r.valor.toFixed(2)), pontos: r.pontos };
+  }
+
   async creditarPedido(
     tenantId: string,
     dados: {
@@ -188,15 +214,7 @@ export class CashbackService {
           ),
         );
       if (ja) continue;
-      const bruto = Number(dados.total) || 0;
-      const baseValor =
-        plano.base === 'sem_frete' ? Math.max(0, bruto - (Number(dados.taxaEntrega) || 0)) : bruto;
-      let delta = 0;
-      if (plano.tipo === 'valor') {
-        delta = Number(((baseValor * (Number(plano.percentual) || 0)) / 100).toFixed(2));
-      } else {
-        delta = CashbackService.pontosPorGasto(plano.regras as any[], baseValor);
-      }
+      const delta = CashbackService.creditoDoPlano(plano, dados.total, dados.taxaEntrega);
       if (delta <= 0) continue;
       const expiraEm = plano.prazoResgateDias
         ? new Date(Date.now() + Number(plano.prazoResgateDias) * 86400000)

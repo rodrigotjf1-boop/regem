@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Robô de WhatsApp — cashback, prêmio da fidelidade e cupom (Bloco 1b, 31/10): o robô é só nuvem — no ar com o
+  merge.** Antes do pagamento, o Regem pergunta do prêmio e do cashback que o cliente tem; o cupom entra quando o cliente
+  fala; o resumo mostra os descontos e o cashback que o pedido dá. Sem migration. **Na loja, o `.zip` leva só uma
+  reorganização sem mudança de comportamento:** a conta dos descontos do `receberPedido` virou `descontosDoPedido` e a
+  do crédito do cashback virou `CashbackService.creditoDoPlano` (as mesmas contas, cobertas pelos testes do cardápio).
+
 - **Robô de WhatsApp — primeiro contato (Bloco 1, 31/10): sem efeito na loja — nada a empacotar por isto.** Pedido em
   montagem continua (sem mandar o link); cliente conhecido pode repetir o último pedido; o "mais alguma coisa?" oferece
   trocar o lanche pelo trio e sugere o que o cliente costuma pedir. Rotas do robô (`publico/bot/*`), só nuvem: no ar com

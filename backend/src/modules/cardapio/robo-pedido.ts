@@ -47,7 +47,25 @@ export type EntregaDoCarrinho =
 
 /** No "pagar na entrega" genérico: dinheiro (pede troco) ou cartão na maquininha (não pede). `null` = ainda não disse. */
 export type Meio = 'dinheiro' | 'cartao';
-export type PagamentoDoCarrinho = { forma: string; trocoPara: number | null; semTroco: boolean; meio?: Meio | null };
+/**
+ * Bloco 1b (plano de 31/10/2026): o que o cliente decidiu sobre os benefícios — usar o cashback (`undefined` = ainda não
+ * perguntado), o cupom que ELE disse e o prêmio da fidelidade (`resgateId`; `premioDecidido` = já respondeu à pergunta).
+ * Fica no jsonb do pagamento (sem coluna nova): a forma (`forma = ''`) pode ainda não ter sido escolhida.
+ */
+export type BeneficiosDoCarrinho = { usarCashback?: boolean; cupom?: string | null; resgateId?: string | null; premioDecidido?: boolean };
+export type PagamentoDoCarrinho = { forma: string; trocoPara: number | null; semTroco: boolean; meio?: Meio | null; beneficios?: BeneficiosDoCarrinho };
+
+/** As decisões dos benefícios do carrinho (vazio quando nada foi dito). */
+export const beneficiosDe = (pg: unknown): BeneficiosDoCarrinho => {
+  const b = (pg as any)?.beneficios;
+  return b && typeof b === 'object' ? (b as BeneficiosDoCarrinho) : {};
+};
+
+/** O pagamento com as decisões dos benefícios mudadas (a forma, o meio e o troco ficam como estavam). */
+export function comBeneficios(pg: unknown, mudanca: Partial<BeneficiosDoCarrinho>): PagamentoDoCarrinho {
+  const atual = (pg as PagamentoDoCarrinho | null) ?? { forma: '', trocoPara: null, semTroco: false };
+  return { ...atual, beneficios: { ...beneficiosDe(atual), ...mudanca } };
+}
 
 export const MAX_LINHAS = 30;
 export const MAX_QUANTIDADE = 50;
@@ -568,6 +586,11 @@ export type EstadoDaConducao = {
   /** As formas no formato das opções ("Dinheiro — pago na entrega"). */
   opcoesDePagamento: string[];
   total: number;
+  /**
+   * Bloco 1b (31/10/2026): os benefícios que o cliente TEM e ainda não decidiu — os prêmios da fidelidade e o cashback
+   * que dá para usar neste pedido (com o total que fica). Só os que existem viram pergunta; nenhum = nada a perguntar.
+   */
+  beneficios?: { premios: { nome: string }[]; cashbackParaUsar: number; totalComCashback: number } | null;
 };
 
 const OFERTA = { bebida: 'uma bebida', sobremesa: 'uma sobremesa', porcao: 'uma porção' } as const;
@@ -575,8 +598,8 @@ const OFERTA = { bebida: 'uma bebida', sobremesa: 'uma sobremesa', porcao: 'uma 
 /**
  * O que ainda falta, na ORDEM em que o robô pergunta (o primeiro é a próxima pergunta). Pedido do dono (31/10/2026):
  * escolhas obrigatórias do item → adicionais e observação do item → "mais alguma coisa?" → entrega no último endereço,
- * outro endereço ou retirada (uma pergunta, três botões) → complemento e referência → mínimo → nome → pagamento →
- * dinheiro ou cartão → troco.
+ * outro endereço ou retirada (uma pergunta, três botões) → complemento e referência → mínimo → nome → prêmio da
+ * fidelidade e cashback (só os que o cliente tem — Bloco 1b) → pagamento → dinheiro ou cartão → troco.
  */
 export function conducaoDoPedido(e: EstadoDaConducao): Falta[] {
   const f: Falta[] = [];
@@ -666,6 +689,28 @@ export function conducaoDoPedido(e: EstadoDaConducao): Falta[] {
       });
   }
   if (!e.nome) f.push({ campo: 'nome', pergunta: 'Pergunte o nome do cliente para o pedido.', comoResponder: 'definir_nome' });
+  // Bloco 1b (pedido do dono, 31/10/2026): antes do pagamento, o prêmio da fidelidade e o cashback — só os que o cliente
+  // tem. O cupom não entra aqui: só quando o cliente fala dele.
+  const ben = e.beneficios ?? null;
+  if (ben?.premios.length) {
+    const varios = ben.premios.length > 1;
+    f.push({
+      campo: 'premio',
+      pergunta: `O cliente tem ${varios ? 'prêmios' : 'um prêmio'} da fidelidade para usar: ${ben.premios.map((p) => p.nome).join('; ')}. Pergunte se quer usar neste pedido.`,
+      opcoes: [
+        ...ben.premios.slice(0, 3).map((p, i) => opcaoComDetalhe(varios ? `Usar o prêmio ${i + 1}` : 'Usar o prêmio', p.nome)),
+        'Deixar para depois',
+      ],
+      comoResponder: `"Usar o prêmio": mexer_no_pedido com acao = usar_premio${varios ? ' e linha = o número do prêmio' : ''}; "Deixar para depois": mexer_no_pedido com acao = guardar_premio`,
+    });
+  }
+  if (ben && ben.cashbackParaUsar > 0)
+    f.push({
+      campo: 'cashback',
+      pergunta: `O cliente tem ${reais(ben.cashbackParaUsar)} de cashback para usar neste pedido. Pergunte se quer usar agora (o total fica ${reais(ben.totalComCashback)}) ou guardar para depois.`,
+      opcoes: [opcaoComDetalhe('Usar meu cashback', `−${reais(ben.cashbackParaUsar)}`), 'Guardar para depois'],
+      comoResponder: '"Usar meu cashback": mexer_no_pedido com acao = usar_cashback; "Guardar para depois": mexer_no_pedido com acao = guardar_cashback',
+    });
   if (!e.pagamento || !e.pagamentoServe)
     f.push({ campo: 'pagamento', pergunta: 'Pergunte a forma de pagamento.', opcoes: e.opcoesDePagamento, comoResponder: 'definir_pagamento com forma = a opção escolhida' });
   else if (precisaDoMeio(e.pagamento))

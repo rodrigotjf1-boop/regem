@@ -32,7 +32,12 @@ export type ParaConferir = {
   tipo: 'entrega' | 'retirada' | null;
   endereco?: { rua: string; numero: string; bairro: string | null; referencia: string | null } | null;
   taxa: number;
+  /** Bloco 1b: os descontos do pedido (cupom, prêmio da fidelidade, cashback), já rateados como o pedido grava. */
+  descontos?: { rotulo: string; valor: number }[];
   total: number;
+  /** O cashback (em reais) e os pontos que o pedido dá na confirmação (a conta do crédito). */
+  cashbackGanho?: number;
+  pontosGanhos?: number;
   formaNome: string | null;
   trocoPara: number | null;
   semTroco: boolean;
@@ -46,6 +51,15 @@ export const OPCOES_DA_CONFERENCIA = ['Pode registrar', 'Pôr observação', 'Qu
 function linhaDoTroco(trocoPara: number, total: number): string {
   const volta = paraReais(paraCentavos(trocoPara) - paraCentavos(total));
   return volta > 0 ? `Troco para ${reais(trocoPara)} → *troco de ${reais(volta)}*` : `Troco para ${reais(trocoPara)}`;
+}
+
+/** "🎁 Com este pedido você ganha R$ 2,50 de cashback" (e/ou os pontos) — nada quando o pedido não dá cashback. */
+export function linhaDoGanho(valor?: number | null, pontos?: number | null, registrado = false): string | null {
+  const partes = [Number(valor) > 0 ? `*${reais(Number(valor))}* de cashback` : '', Number(pontos) > 0 ? `*${Number(pontos)} pontos*` : ''].filter(Boolean);
+  if (!partes.length) return null;
+  return registrado
+    ? `🎁 Você ganha ${partes.join(' e ')} com este pedido (entra no seu saldo quando a loja aceitar).`
+    : `🎁 Com este pedido você ganha ${partes.join(' e ')}.`;
 }
 
 /**
@@ -65,7 +79,10 @@ export function textoParaConferir(c: ParaConferir): string {
   l.push('');
   l.push(`Subtotal: ${reais(c.subtotal)}`);
   if (c.tipo === 'entrega') l.push(c.taxa > 0 ? `Taxa de entrega: ${reais(c.taxa)}` : 'Entrega: *grátis* 🎉');
+  for (const d of c.descontos ?? []) if (d.valor > 0) l.push(`${d.rotulo}: −${reais(d.valor)}`);
   l.push(`💰 *Total: ${reais(c.total)}*`);
+  const ganho = linhaDoGanho(c.cashbackGanho, c.pontosGanhos);
+  if (ganho) l.push(ganho);
   l.push('');
   if (c.tipo === 'entrega' && c.endereco) {
     l.push('🛵 *Entrega*');
@@ -91,7 +108,7 @@ export function textoParaConferir(c: ParaConferir): string {
 
 export function resumoDoPedido(
   ped: any,
-  opts: { formaNome?: string | null; tempoMin?: number | null; observacao?: string | null } = {},
+  opts: { formaNome?: string | null; tempoMin?: number | null; observacao?: string | null; ganho?: { valor: number; pontos: number } | null } = {},
 ): { texto: string; situacao: string; aceito: boolean } {
   const itens: any[] = Array.isArray(ped?.itens) ? ped.itens : [];
   const sit = SITUACAO[String(ped?.status ?? 'novo')] ?? SITUACAO.novo;
@@ -120,6 +137,8 @@ export function resumoDoPedido(
   if (ped?.tipo === 'entrega') l.push(taxa > 0 ? `Taxa de entrega: ${reais(taxa)}` : 'Entrega: *grátis* 🎉');
   if (desconto > 0) l.push(`Desconto: −${reais(desconto)}`);
   l.push(`💰 *Total: ${reais(total)}*`);
+  const ganho = linhaDoGanho(opts.ganho?.valor, opts.ganho?.pontos, true);
+  if (ganho) l.push(ganho);
   l.push('');
   if (ped?.tipo === 'entrega') {
     l.push('🛵 *Entrega*');

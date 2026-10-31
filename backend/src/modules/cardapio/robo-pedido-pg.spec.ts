@@ -5,7 +5,9 @@ import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { assinarConversa } from '../../common/conversa-do-robo';
+import { CashbackService } from '../cashback/cashback.service';
 import { FichasService } from '../fichas/fichas.service';
+import { FidelidadeService } from '../fidelidade/fidelidade.service';
 import { FiscalService } from '../fiscal/fiscal.service';
 import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
 import { ProdutoService } from '../produto/produto.service';
@@ -57,7 +59,8 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
       ).map((r: any) => ({ ...r, id: r.id, displayId: r.display_id, status: r.status, unidadeId: r.unidade_id }))[0],
     aceitar: async (_t: string, _u: any, id: string) => q(`update pedido_externo set status = 'confirmado' where id = $1`, [id]),
   } as any;
-  const cardapio = new CardapioService(db, vendas, delivery, {} as any, {} as any, {} as any, eventos, {} as any);
+  // A fidelidade e o cashback de verdade: o robô pergunta, desconta e registra pelas contas deles (Bloco 1b).
+  const cardapio = new CardapioService(db, vendas, delivery, {} as any, new FidelidadeService(db), new CashbackService(db), eventos, {} as any);
   // Os envios: a Evolution (o QR — opções em menu numerado) e a API oficial (texto e botões).
   const enviados: { para: string; texto: string; opcoes?: string[] }[] = [];
   const whats = { enviar: async (_t: string, para: string, texto: string) => void enviados.push({ para, texto }) } as any;
@@ -110,7 +113,8 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     if (antes.cliente === undefined) delete process.env.CLIENTE_TOKEN_SECRET;
     else process.env.CLIENTE_TOKEN_SECRET = antes.cliente;
     if (empresas.length) {
-      for (const t of ['robo_carrinho', 'cliente_endereco', 'pedido_externo', 'cliente', 'cardapio_senha_seq', 'cardapio_bairro', 'cardapio_config',
+      for (const t of ['robo_carrinho', 'cupom_uso', 'cupom', 'cashback_vale', 'cashback_movimento', 'cashback_saldo', 'cashback_plano',
+        'fidelidade_resgate', 'fidelidade_cliente', 'fidelidade_plano', 'cliente_endereco', 'pedido_externo', 'cliente', 'cardapio_senha_seq', 'cardapio_bairro', 'cardapio_config',
         'complemento_opcao', 'complemento_grupo', 'produto_complemento', 'complemento_item', 'complemento', 'opcao', 'produto_variacao', 'produto',
         'categoria_produto', 'unidade'])
         await pool.query(`delete from ${t} where tenant_id = any($1::uuid[])`, [empresas]).catch(() => {});
@@ -388,6 +392,115 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
       campo: 'mais_algo',
       opcoes: ['Trocar pelo Trio X-Bacon — +R$ 9,00', 'Guaraná lata — R$ 5,50', 'Coca lata — R$ 6,00', 'Não, só isso'],
     });
+  });
+
+  // Bloco 1b do plano de 31/10/2026 (pedido do dono): "antes do pagamento verificar saldo e perguntar se quer usar para
+  // desconto no pedido"; o cupom só quando o cliente fala; o resumo com o desconto e o cashback que o pedido dá.
+  it('Bloco 1b: o cashback perguntado antes do pagamento; o cupom que o cliente diz; o resumo e o pedido com o desconto e o ganho', async () => {
+    const l = await loja();
+    const c = await l.ctx();
+    const tel = '21987654321';
+    await q(`insert into cliente (tenant_id, nome, telefone) values ($1,'Dora',$2)`, [l.t, tel]);
+    // Plano de 10% sobre o total; R$ 8,00 de saldo (o saldo é a soma do extrato — gatilho da mig 274); cupom de R$ 5 (mínimo R$ 20).
+    await q(`insert into cashback_plano (tenant_id, tipo, ativo, status, percentual, base) values ($1,'valor',true,'ativo',10,'total')`, [l.t]);
+    await q(`insert into cashback_movimento (tenant_id, telefone, tipo, delta, origem) values ($1,$2,'valor',8,'credito')`, [l.t, tel]);
+    await q(`insert into cupom (tenant_id, codigo, tipo, valor, minimo, ativo) values ($1,'BEMVINDO','valor',5,20,true)`, [l.t]);
+
+    // "Quanto tenho de cashback?": ver_pedido traz o saldo (o robô não abre a conversa com isso).
+    const v: any = await robo.ver(c);
+    expect(v.beneficios).toMatchObject({ saldoCashback: 'R$ 8,00' });
+
+    let r: any = await robo.mexerNosItens(c, { acao: 'adicionar', produto: 'xbacon', adicionais: ['bacon'] }); // R$ 29,90
+    r = await robo.mexerNosItens(c, { acao: 'adicionar', produto: 'coca lata' }); // + R$ 6,00
+    expect(r.pedido.falta.map((f: any) => f.campo)).not.toContain('cashback'); // com os itens abertos, ainda não
+    r = await robo.mexerNosItens(c, { acao: 'fechar' });
+    r = await robo.definirEntrega(c, { tipo: 'retirada' });
+    // Depois do nome (do cadastro) e antes do pagamento: o cashback, com o total que fica.
+    expect(r.pedido.falta.map((f: any) => f.campo)).toEqual(['cashback', 'pagamento']);
+    expect(r.pedido.proximo).toMatchObject({ campo: 'cashback', opcoes: ['Usar meu cashback — −R$ 8,00', 'Guardar para depois'] });
+    expect(r.pedido.proximo.pergunta).toContain('o total fica R$ 27,90');
+    expect(r.pedido.total).toBe('R$ 35,90'); // nada descontado antes de ele dizer
+
+    // O cupom que o cliente disse: o errado volta com o motivo; o certo entra (em maiúsculas) e o cashback pergunta sobre o resto.
+    r = await robo.mexerNosItens(c, { acao: 'usar_cupom', observacao: 'NAOEXISTE' });
+    expect(r).toMatchObject({ ok: false, motivo: 'cupom' });
+    expect(r.mensagem).toContain('Cupom inválido');
+    r = await robo.mexerNosItens(c, { acao: 'usar_cupom', observacao: 'cupom bemvindo' });
+    expect(r.ok).toBe(true);
+    expect(r.pedido.descontos).toEqual([{ rotulo: 'Cupom BEMVINDO', valor: '−R$ 5,00' }]);
+    expect(r.pedido.total).toBe('R$ 30,90');
+    expect(r.pedido.proximo.campo).toBe('cashback');
+    expect(r.pedido.proximo.pergunta).toContain('o total fica R$ 22,90');
+
+    r = await robo.mexerNosItens(c, { acao: 'usar_cashback' });
+    expect(r.pedido.descontos).toEqual([
+      { rotulo: 'Cupom BEMVINDO', valor: '−R$ 5,00' },
+      { rotulo: 'Cashback', valor: '−R$ 8,00' },
+    ]);
+    expect(r.pedido).toMatchObject({ total: 'R$ 22,90', cashbackGanho: 'R$ 2,29' }); // 10% de R$ 22,90
+    expect(r.pedido.proximo.campo).toBe('pagamento');
+    r = await robo.definirPagamento(c, { forma: 'cartão' });
+    expect(r.pedido).toMatchObject({ podeRegistrar: true, total: 'R$ 22,90', cupom: 'BEMVINDO' });
+    const conferir = enviados[enviados.length - 1].texto;
+    for (const pedaco of ['Cupom BEMVINDO: −R$ 5,00', 'Cashback: −R$ 8,00', '💰 *Total: R$ 22,90*', '🎁 Com este pedido você ganha *R$ 2,29* de cashback.'])
+      expect(conferir).toContain(pedaco);
+
+    // Registrado pela conta do cardápio: o mesmo total, o saldo gasto, o uso do cupom e o resumo com o ganho.
+    const reg: any = await robo.registrar(c, {});
+    expect(reg.ok).toBe(true);
+    const [ped] = await q(`select total, desconto from pedido_externo where tenant_id = $1`, [l.t]);
+    expect(Number(ped.total)).toBeCloseTo(22.9, 2);
+    expect(Number(ped.desconto)).toBeCloseTo(13, 2);
+    const [saldo] = await q(`select saldo from cashback_saldo where tenant_id = $1 and telefone = $2 and tipo = 'valor'`, [l.t, tel]);
+    expect(Number(saldo.saldo)).toBeCloseTo(0, 2);
+    expect(await q(`select count(*)::int as n from cupom_uso where tenant_id = $1`, [l.t])).toEqual([{ n: 1 }]);
+    const final = enviados[enviados.length - 1].texto;
+    expect(final).toContain('Desconto: −R$ 13,00');
+    expect(final).toContain('🎁 Você ganha *R$ 2,29* de cashback com este pedido');
+  });
+
+  it('Bloco 1b: o prêmio da fidelidade vem antes do cashback; "Guardar para depois" guarda o saldo e a forma não apaga as escolhas', async () => {
+    const l = await loja();
+    await q(`update cardapio_config set fidelidade_ativa = true where tenant_id = $1`, [l.t]);
+    const c = await l.ctx();
+    const tel = '21987654321';
+    await q(`insert into cliente (tenant_id, nome, telefone) values ($1,'Edu',$2)`, [l.t, tel]);
+    const [plano] = await q(
+      `insert into fidelidade_plano (tenant_id, nome, pontos_meta, recompensa_tipo, recompensa_valor) values ($1,'Clube do lanche',10,'valor_fixo',5) returning id`,
+      [l.t],
+    );
+    const [premio] = await q(`insert into fidelidade_resgate (tenant_id, plano_id, telefone) values ($1,$2,$3) returning id`, [l.t, plano.id, tel]);
+    await q(`insert into cashback_movimento (tenant_id, telefone, tipo, delta, origem) values ($1,$2,'valor',3,'credito')`, [l.t, tel]);
+
+    await robo.mexerNosItens(c, { acao: 'adicionar', produto: 'coca lata', quantidade: 4 }); // R$ 24,00
+    await robo.mexerNosItens(c, { acao: 'fechar' });
+    let r: any = await robo.definirEntrega(c, { tipo: 'retirada' });
+    expect(r.pedido.falta.map((f: any) => f.campo)).toEqual(['premio', 'cashback', 'pagamento']);
+    expect(r.pedido.proximo).toMatchObject({ campo: 'premio', opcoes: ['Usar o prêmio — R$ 5.00 de desconto no próximo pedido', 'Deixar para depois'] });
+
+    r = await robo.mexerNosItens(c, { acao: 'usar_premio' });
+    expect(r.ok).toBe(true);
+    expect(r.pedido.descontos).toEqual([{ rotulo: 'Prêmio · Clube do lanche', valor: '−R$ 5,00' }]);
+    expect(r.pedido.total).toBe('R$ 19,00');
+    expect(r.pedido.cashbackGanho).toBeUndefined(); // a loja não tem plano de cashback
+    // O prêmio ganho foi resgatado agora (o passo do "Resgatar" do cardápio); o cashback pergunta sobre o resto.
+    expect((await q(`select status from fidelidade_resgate where id = $1`, [premio.id]))[0].status).toBe('resgatado');
+    expect(r.pedido.proximo).toMatchObject({ campo: 'cashback', opcoes: ['Usar meu cashback — −R$ 3,00', 'Guardar para depois'] });
+
+    r = await robo.mexerNosItens(c, { acao: 'guardar_cashback' });
+    expect(r.pedido).toMatchObject({ total: 'R$ 19,00' });
+    expect(r.pedido.proximo.campo).toBe('pagamento');
+    r = await robo.definirPagamento(c, { forma: 'cartão' });
+    expect(r.pedido).toMatchObject({ podeRegistrar: true, total: 'R$ 19,00' });
+    expect(r.pedido.falta).toEqual([]);
+
+    const reg: any = await robo.registrar(c, {});
+    expect(reg.ok).toBe(true);
+    const [ped] = await q(`select id, total from pedido_externo where tenant_id = $1`, [l.t]);
+    expect(Number(ped.total)).toBeCloseTo(19, 2);
+    expect(await q(`select status, pedido_id from fidelidade_resgate where id = $1`, [premio.id])).toEqual([{ status: 'usado', pedido_id: ped.id }]);
+    // O saldo guardado continua inteiro.
+    expect(Number((await q(`select saldo from cashback_saldo where tenant_id = $1 and tipo = 'valor'`, [l.t]))[0].saldo)).toBeCloseTo(3, 2);
   });
 
   it('API oficial: o resumo para conferir vai com os 3 botões; o que passa do limite vai em texto + botões', async () => {
