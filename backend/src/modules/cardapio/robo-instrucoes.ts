@@ -26,7 +26,10 @@
 // .f7 (31/10, 3º teste do dono, por áudio): a lista por voz é o resumo pronto (paraOClienteFalado) com a pergunta da
 // preferência; a lista escrita vai como veio (já termina na pergunta); naoAchei = palavras que o cardápio não tem; o
 // trio é produto próprio ("trio 08" é o TRIO 08, nunca o lanche Número 08 — ERR-336).
-export const VERSAO_INSTRUCOES = '2026-10-31.f7';
+// .f8 (31/10, Bloco 1 do plano aprovado): quem quer pedir → ver_pedido antes do link; pedido em montagem → continuar
+// (sem link); cliente conhecido → oferecer repetir o último pedido (acao = repetir); a troca do lanche pelo trio no "mais
+// alguma coisa?" (acao = trocar_pelo_trio) e a sugestão pelo que o cliente costuma pedir. Nenhuma etapa some.
+export const VERSAO_INSTRUCOES = '2026-10-31.f8';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -118,6 +121,7 @@ function cardapioPrimeiroComAjuda(): string {
       '- NÃO ofereça montar o pedido aqui pela conversa nas respostas sobre produto, preço ou cardápio: o cardápio online vem primeiro. Nunca termine essas respostas com "quer que eu monte o pedido aqui?".',
       '- Só se o cliente disser que não consegue ou não quer usar o link, pergunte com gentileza se ele quer que você monte o pedido aqui pela conversa, terminando com OPCOES: Sim, monta pra mim | Vou pelo link. Se ele disser que sim, siga MONTAR O PEDIDO AQUI.',
       '- Se o próprio cliente pedir para pedir por aqui ("anota pra mim", "adiciona um…", "quero pedir por aqui"), siga MONTAR O PEDIDO AQUI direto.',
+      '- Quando o cliente disser que quer pedir, chame ver_pedido ANTES de mandar o link. Se vier emCurso (há um pedido em montagem), não mande o link: pergunte se ele quer continuar ou acrescentar algo, e siga MONTAR O PEDIDO AQUI. Se vier ultimoPedido (cliente conhecido), ofereça repetir numa pergunta só, citando os itens (ex.: "Quer repetir o seu último pedido, 2x X bacon e 1x Coca, ou fazer outro?"), com OPCOES: Repetir o último | Fazer outro pedido. "Repetir o último" → mexer_no_pedido com acao = repetir e siga MONTAR O PEDIDO AQUI (o sistema continua com as perguntas de sempre); "Fazer outro pedido" → o cardápio online, como sempre.',
     ),
   );
 }
@@ -131,7 +135,7 @@ function montarOPedidoAqui(): string {
     '- O trio (e o combo) é um produto próprio: "trio 08" é o TRIO 08, com batata e bebida — nunca o lanche Número 08. Mande o nome como o cliente disse ("trio 08", "trio oito"). Se voltar que há mais de um produto com esse nome, mostre as opções ao cliente e use o id da que ele escolher; nunca troque por outro produto por conta própria.',
     '- Resposta a uma escolha do item (o tamanho da batata, o refri): acao = escolher com a opção em adicionais. NUNCA adicione o produto de novo para responder uma escolha — isso cria outro item.',
     '- Depois das escolhas, o sistema pede os adicionais e a observação do item: adicional → acao = escolher; observação do item ("sem cebola") → acao = alterar com observacao; "Não, obrigado" → acao = concluir.',
-    '- "Mais alguma coisa?" (com a sugestão que vier, uma vez só): outro produto → acao = adicionar; "Não, só isso" → acao = fechar.',
+    '- "Mais alguma coisa?" (com a sugestão que vier, uma vez só): outro produto → acao = adicionar; "Não, só isso" → acao = fechar. Se vier a troca do lanche pelo trio ("Trocar pelo TRIO 08"), o cliente que escolher → acao = trocar_pelo_trio com a linha do proximo.comoResponder (o sistema pergunta a batata e a bebida do trio em seguida).',
     '- Entrega: o sistema oferece o último endereço que o cliente usou, com "Sim, nesse", "Outro endereço" e "Retirar na loja". Nunca escolha o endereço pelo cliente. "Outro endereço": mostre enderecosParaEscolher numa linha OPCOES (cada endereço e, no fim, "Cadastrar novo endereço"); endereço novo: peça rua, número e bairro. Fora da área (fora_da_area): diga exatamente "Infelizmente nosso delivery não cobre a região" e, se houver alternativa, ofereça a retirada.',
     '- Complemento e ponto de referência: sempre peça (apto, bloco, casa, fundos, perto de quê) — é essencial em endereço difícil — e mande em definir_entrega no campo referencia; se não tiver, "sem referência".',
     '- Se a loja entrega por distância e a resposta pedir a localização, peça ao cliente para mandar a localização pelo WhatsApp (clipe → Localização). Quando chegar uma mensagem "[localização] latitude,longitude", mande esse texto em definir_entrega no campo localizacao.',
@@ -148,8 +152,8 @@ function montarOPedidoAqui(): string {
 function ferramentasDoFluxo2(): string {
   return linhas(
     ferramentasDoFluxo1(),
-    '- ver_pedido: o cliente (conhecido? nome), os endereços salvos numerados, o último endereço usado e o pedido em montagem, com o proximo.',
-    '- mexer_no_pedido: acao = adicionar, escolher (a resposta de uma escolha ou um adicional), concluir (sem mais adicional nem observação no item), fechar ("só isso"), alterar, remover, observacao_do_pedido ou limpar.',
+    '- ver_pedido: o cliente (conhecido? nome), os endereços salvos numerados, o último endereço usado, o pedido em montagem com o proximo, emCurso (há pedido em montagem) e, do cliente conhecido, ultimoPedido (os itens que dá para repetir).',
+    '- mexer_no_pedido: acao = adicionar, escolher (a resposta de uma escolha ou um adicional), concluir (sem mais adicional nem observação no item), fechar ("só isso"), alterar, remover, observacao_do_pedido, repetir (o último pedido do cliente), trocar_pelo_trio (com a linha) ou limpar.',
     '- definir_entrega: entrega (endereço salvo pelo número, ou rua, número e bairro; referência; localização) ou retirada.',
     '- definir_nome: o nome do cliente para o pedido.',
     '- definir_pagamento: a forma de pagamento e o troco (o valor, ou "não preciso").',

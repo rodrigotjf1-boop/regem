@@ -335,6 +335,61 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     expect((await robo.definirEntrega(c, { tipo: 'entrega', endereco: 7 })) as any).toMatchObject({ ok: false, motivo: 'endereco' });
   });
 
+  // Bloco 1 do plano de 31/10/2026 (pedido do dono): "no primeiro contato, verificar se o cliente já está no sistema e os
+  // últimos pedidos para indicar repetir"; o upsell antes de confirmar (a troca pelo trio; o que o cliente costuma pedir).
+  it('Bloco 1: o cliente conhecido repete o último pedido; o lanche sozinho oferece o trio; a sugestão pelo histórico', async () => {
+    const l = await loja();
+    const c = await l.ctx();
+    const [cli] = await q(`insert into cliente (tenant_id, nome, telefone) values ($1,'Carla','21987654321') returning id`, [l.t]);
+    const menu: any = await (robo as any).cardapio.menu(l.token);
+    const xb = menu.produtos.find((p: any) => p.nome === 'X-Bacon');
+    const bacon = xb.grupos.flatMap((g: any) => g.opcoes).find((o: any) => o.nome === 'Bacon extra');
+    const coca = menu.produtos.find((p: any) => p.nome === 'Coca lata');
+    const [guarana] = await q(
+      `insert into produto (tenant_id, nome, categoria_id, preco_venda, vai_para_producao, controla_estoque, disponivel_cardapio)
+       values ($1,'Guaraná lata',$2,5.5,false,false,true) returning id`,
+      [l.t, coca.categoriaId],
+    );
+    await q(
+      `insert into pedido_externo (tenant_id, canal, display_id, cliente_id, cliente_nome, tipo, itens, total, status, criado_em)
+       values ($1,'cardapio','7',$2,'Carla','retirada',$3::jsonb,63.3,'concluido', now() - interval '2 days')`,
+      [l.t, cli.id, JSON.stringify([
+        { produtoId: xb.id, opcaoIds: [bacon.id], quantidade: 2, descricao: 'X-Bacon' },
+        { produtoId: guarana.id, opcaoIds: [], quantidade: 1, descricao: 'Guaraná lata' },
+      ])],
+    );
+    let v: any = await robo.ver(c);
+    expect(v.emCurso).toBe(false);
+    expect(v.ultimoPedido).toMatchObject({ numero: '7', itens: ['2x X-Bacon', '1x Guaraná lata'], comoRepetir: 'mexer_no_pedido com acao = repetir' });
+
+    // Repetir é pedir igual: os itens com o adicional, sem a pergunta dos extras; o "mais alguma coisa?" vem com o trio.
+    let r: any = await robo.mexerNosItens(c, { acao: 'repetir' });
+    expect(r.ok).toBe(true);
+    expect(r.pedido.itens.map((i: any) => [i.linha, i.quantidade, i.item])).toEqual([
+      [1, 2, 'X-Bacon (Bacon extra)'],
+      [2, 1, 'Guaraná lata'],
+    ]);
+    expect(r.pedido.proximo).toMatchObject({ campo: 'mais_algo', opcoes: ['Trocar pelo Trio X-Bacon — +R$ 9,00', 'Não, só isso'] });
+    expect(r.pedido.proximo.comoResponder).toContain('acao = trocar_pelo_trio e linha = 1');
+    // Com o pedido em montagem: continuar — não oferece repetir de novo.
+    v = await robo.ver(c);
+    expect(v).toMatchObject({ emCurso: true });
+    expect(v.ultimoPedido).toBeUndefined();
+
+    // A troca pelo trio: o item vira o trio (mesma quantidade); o adicional que o trio não tem sai; o refri é perguntado.
+    r = await robo.mexerNosItens(c, { acao: 'trocar_pelo_trio', linha: 1 });
+    expect(r.pedido.itens[0]).toMatchObject({ linha: 1, quantidade: 2, item: 'Trio X-Bacon' });
+    expect(r.pedido.proximo).toMatchObject({ campo: 'linha 1', opcoes: ['Coca-Cola', 'Guaraná'] });
+
+    // Outro pedido da mesma cliente (sem bebida): a sugestão traz primeiro a bebida que ela costuma pedir.
+    await robo.cancelar(c);
+    r = await robo.mexerNosItens(c, { acao: 'adicionar', produto: 'x-bacon', adicionais: 'bacon' });
+    expect(r.pedido.proximo).toMatchObject({
+      campo: 'mais_algo',
+      opcoes: ['Trocar pelo Trio X-Bacon — +R$ 9,00', 'Guaraná lata — R$ 5,50', 'Coca lata — R$ 6,00', 'Não, só isso'],
+    });
+  });
+
   it('API oficial: o resumo para conferir vai com os 3 botões; o que passa do limite vai em texto + botões', async () => {
     const l = await loja('cloud');
     const c = await l.ctx();

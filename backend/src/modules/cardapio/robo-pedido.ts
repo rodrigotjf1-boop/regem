@@ -551,6 +551,8 @@ export type EstadoDaConducao = {
   itensFechados: boolean;
   /** A sugestão do fim dos itens (bebida se não tem; senão sobremesa ou porção): "Nome — R$ 7,00". */
   sugestao: { papel: 'bebida' | 'sobremesa' | 'porcao'; opcoes: string[] } | null;
+  /** Bloco 1 (31/10/2026): o lanche sozinho que tem trio — a opção "Trocar pelo TRIO 08 — +R$ 11,00" e o item. */
+  trocaPorTrio?: { linha: number; opcao: string } | null;
   tipo: 'entrega' | 'retirada' | null;
   tiposAbertos: ('entrega' | 'retirada')[];
   entrega: EntregaDoCarrinho | null;
@@ -607,11 +609,16 @@ export function conducaoDoPedido(e: EstadoDaConducao): Falta[] {
   // Mesmo com a entrega já dita (o cliente falou o endereço logo de cara), o "mais alguma coisa?" vem antes de fechar.
   if (itensProntos && !e.itensFechados) {
     const oferta = e.sugestao?.opcoes.length ? e.sugestao : null;
+    const troca = e.trocaPorTrio ?? null;
+    const ofereca = [troca ? 'trocar o lanche pelo trio' : '', oferta ? OFERTA[oferta.papel] : ''].filter(Boolean).join(' e ');
+    const tituloDaTroca = troca ? troca.opcao.split(' — ')[0] : '';
     f.push({
       campo: 'mais_algo',
-      pergunta: oferta ? `Pergunte se quer mais alguma coisa e ofereça ${OFERTA[oferta.papel]}, uma vez só.` : 'Pergunte se quer mais alguma coisa.',
-      opcoes: [...(oferta?.opcoes ?? []).slice(0, 3), 'Não, só isso'],
-      comoResponder: 'outro produto: mexer_no_pedido com acao = adicionar; "Não, só isso": mexer_no_pedido com acao = fechar',
+      pergunta: ofereca ? `Pergunte se quer mais alguma coisa e ofereça ${ofereca}, uma vez só.` : 'Pergunte se quer mais alguma coisa.',
+      opcoes: [...(troca ? [troca.opcao] : []), ...(oferta?.opcoes ?? []).slice(0, troca ? 2 : 3), 'Não, só isso'],
+      comoResponder:
+        (troca ? `"${tituloDaTroca}": mexer_no_pedido com acao = trocar_pelo_trio e linha = ${troca.linha}; ` : '') +
+        'outro produto: mexer_no_pedido com acao = adicionar; "Não, só isso": mexer_no_pedido com acao = fechar',
     });
   }
 
