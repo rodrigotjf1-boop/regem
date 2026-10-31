@@ -34,7 +34,11 @@
   público (ERR-328).
 - **Próximo corte (sem efeito na loja) — `sync-daemon.mjs`:** `robo_pausa` e `robo_config` (mig 342, só nuvem) entram no
   `SO_NUVEM` (ERR-329). As duas tabelas não existem no banco da loja, então nada muda lá; a classificação só deixa o
-  teste da trava do apagamento correto. Não pede `.exe` nem `.zip` sozinha.
+  teste da trava do apagamento correto. Não pede `.exe` nem `.zip` sozinha. Junto: `robo_carrinho` (mig 344, só nuvem
+  — o pedido montado pelo robô, F3/F4), mesma situação.
+- **Sem efeito na loja — o pedido pelo WhatsApp (robô F3/F4, 30/10; mig 344 só nuvem):** o robô monta e registra o
+  pedido na conversa. Tudo é da nuvem (rotas `publico/bot/pedido*`, o carrinho e o resumo por escrito); o pedido entra
+  pelo mesmo caminho do cardápio online e desce para a loja pelo sync de sempre. Não pede `.zip` nem `.exe`.
 
 - **`.zip` — a tela de atualização não fica mais presa (ERR-322):** um status de atualização que parou sem terminar
   (de uma versão antiga, PC desligado no meio) vai para a tela como "a última tentativa parou sem terminar" e libera

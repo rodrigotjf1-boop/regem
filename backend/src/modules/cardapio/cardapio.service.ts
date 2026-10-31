@@ -927,7 +927,8 @@ export class CardapioService {
   }
 
   // ===== Público (por token) =====
-  private async resolver(token: string) {
+  // A loja do cardápio pelo token (o pedido pelo WhatsApp — robo-pedido.service.ts — também usa).
+  async resolver(token: string) {
     const [cfg] = await this.db
       .select()
       .from(cardapioConfig)
@@ -2836,6 +2837,159 @@ export class CardapioService {
     return edgeAtivo(this.db, tenantId, unidadeId);
   }
 
+  // As contas do pedido em três passos — o pedido do cardápio e o carrinho do robô (F3, 30/10/2026) chamam as
+  // MESMAS, para o robô nunca dizer um preço ou uma taxa que o pedido depois não cobra (V74).
+
+  /** Os produtos do pedido: recusa o que não está à venda no cardápio ou está sem estoque na loja. */
+  async conferirProdutosDoPedido(cfg: any, itens: { produtoId: string }[]) {
+    const ids = [...new Set(itens.map((i) => i.produtoId))];
+    const prods = await this.db
+      .select({
+        id: produto.id,
+        nome: produto.nome,
+        precoVenda: produto.precoVenda,
+        precoPromocional: produto.precoPromocional,
+        ativo: produto.ativo,
+        disponivelCardapio: produto.disponivelCardapio,
+        pausadoEstoque: produto.pausadoEstoque,
+        atacadoAtivo: produto.atacadoAtivo,
+      })
+      .from(produto)
+      .where(and(eq(produto.tenantId, cfg.tenantId), inArray(produto.id, ids)));
+    const porId = new Map(prods.map((p) => [p.id, p]));
+    // Pausa por estoque DA LOJA do cardápio (mig 260); sem loja, o campo antigo do produto.
+    const lojaPedido = await lojaDoCanal(this.db, cfg.tenantId, cfg.unidadeId);
+    const pausadosPedido = lojaPedido ? await pausadosNaLoja(this.db, cfg.tenantId, lojaPedido, ids) : null;
+    // Faixas de atacado (mig 184) para aplicar o desconto por quantidade na linha.
+    const faixasAtacado = await this.faixasAtacadoPorProduto(cfg.tenantId, ids);
+    for (const it of itens) {
+      const p = porId.get(it.produtoId);
+      // Só entra no cardápio produto ativo E marcado para o canal cardápio digital.
+      if (!p || p.ativo === false || p.disponivelCardapio === false)
+        throw new BadRequestException('Produto indisponível no pedido.');
+      // A auto-pausa por estoque era checada só na MONTAGEM do menu: quem estava com a
+      // página aberta desde antes de esgotar — ou quem chama a API direto — passava
+      // batido e o pedido entrava. A trava tem de estar aqui, no checkout.
+      if (pausadosPedido ? pausadosPedido.has(p.id) : p.pausadoEstoque === true)
+        throw new BadRequestException(`${p.nome} está sem estoque no momento.`);
+    }
+    return { porId, faixasAtacado };
+  }
+
+  /** O preço de cada linha (variação, opções, atacado) e o subtotal em centavos — calculados no servidor. */
+  async precificarItensDoPedido(
+    cfg: any,
+    itens: { produtoId: string; variacaoId?: string; quantidade: number; complementos?: string[]; observacao?: string }[],
+    porId: Map<string, any>,
+    faixasAtacado: Map<string, { qtdMin: number; descontoPct: number }[]>,
+  ) {
+    const itensOut: any[] = [];
+    let totalCent = 0; // subtotal dos itens em centavos (exato, sem drift)
+    for (const it of itens) {
+      const p = porId.get(it.produtoId)!;
+      let base = p.precoPromocional != null ? Number(p.precoPromocional) : Number(p.precoVenda);
+      let desc = p.nome;
+      const v = await this.vendas.variacaoDoProduto(this.db, cfg.tenantId, p.id, it.variacaoId);
+      if (v) {
+        base = Number(v.precoVenda);
+        desc = `${p.nome} · ${v.nome}`;
+      }
+      const { precoDelta, labels } = await this.resolverOpcoes(
+        cfg.tenantId,
+        it.produtoId,
+        it.complementos ?? [],
+      );
+      const qtd = Number(it.quantidade) || 1;
+      let preco = base + precoDelta;
+      // Atacado por volume (mig 184): aplica a faixa "a partir de N un" sobre o
+      // preço unitário da linha antes de somar o subtotal (base de cupom/cashback).
+      if (p.atacadoAtivo) preco = precoComAtacado(preco, faixasAtacado.get(p.id), qtd);
+      totalCent += paraCentavos(preco) * qtd;
+      itensOut.push({
+        produtoId: it.produtoId,
+        variacaoId: it.variacaoId,
+        descricao: labels.length ? `${desc} (${labels.join(', ')})` : desc,
+        quantidade: qtd,
+        precoUnitario: preco,
+        observacao: it.observacao,
+        opcaoIds: it.complementos ?? [], // ids das opções → roteamento por opção/etapa (Fase 1)
+      });
+    }
+    return { itensOut, totalCent };
+  }
+
+  /**
+   * A taxa de entrega do pedido (bairro da lista ou distância). O pedido do cardápio usa `taxa`, `taxaCheia` e
+   * `bairroNome`, como sempre; o resto (`km`, `alemDaUltimaFaixa`, `semLocalizacao`, `bairro`) é para o robô
+   * dizer "não entregamos aí" — o cardápio continua cobrando a última faixa, sem mudar.
+   */
+  async taxaDeEntrega(
+    cfg: any,
+    dto: { bairroId?: string; lat?: number; lng?: number; endereco?: string; rua?: string; numero?: string },
+    total: number,
+  ) {
+    let taxa = 0;
+    let bairroNome: string | undefined;
+    let km: number | null = null;
+    let alemDaUltimaFaixa = false;
+    let semLocalizacao = false;
+    let bairro: { id: string; nome: string } | null = null;
+    let ponto: { lat: number; lng: number } | null = null; // onde o cliente está (o robô guarda, para não buscar de novo)
+    if (cfg.areaModo === 'raio') {
+      // Frete por raio: distância loja→cliente (Haversine) escolhe a faixa.
+      let lat = Number(dto.lat);
+      let lng = Number(dto.lng);
+      // Sem GPS do navegador → geocoda o endereço digitado (Nominatim). A cidade/
+      // estado da loja entram na busca para desambiguar. Falha → cai no fallback.
+      if (!(Number.isFinite(lat) && Number.isFinite(lng))) {
+        const q = montarEndereco([
+          dto.endereco || montarEndereco([dto.rua, dto.numero]),
+          cfg.endBairro,
+          cfg.endCidade,
+          cfg.endEstado,
+        ]);
+        const g = await geocode(q);
+        if (g) {
+          lat = g.lat;
+          lng = g.lng;
+        }
+      }
+      const slat = Number(cfg.endLat);
+      const slng = Number(cfg.endLng);
+      const raios = [...((cfg.raios as any[]) ?? [])].sort((a, b) => Number(a.ateKm) - Number(b.ateKm));
+      if ([lat, lng, slat, slng].every((n) => Number.isFinite(n)) && raios.length) {
+        // Distância de ROTA real via OSRM (item 5); fallback Haversine (linha reta).
+        const kmOsrm = await this.distanciaKmOsrm(slat, slng, lat, lng);
+        km = kmOsrm ?? haversineKm(slat, slng, lat, lng);
+        ponto = { lat, lng };
+        const dentro = raios.find((r) => km! <= Number(r.ateKm));
+        alemDaUltimaFaixa = !dentro;
+        const faixa = dentro ?? raios[raios.length - 1];
+        taxa = Number(faixa.taxa) || 0;
+        bairroNome = `~${km.toFixed(1)} km`;
+      } else semLocalizacao = true;
+    } else if (dto.bairroId) {
+      const [b] = await this.db
+        .select()
+        .from(cardapioBairro)
+        .where(
+          and(
+            eq(cardapioBairro.id, dto.bairroId),
+            eq(cardapioBairro.tenantId, cfg.tenantId),
+          ),
+        );
+      taxa = b ? Number(b.taxa) : 0;
+      bairroNome = b?.nome;
+      bairro = b ? { id: b.id, nome: b.nome } : null;
+    }
+    // Valor CHEIO do frete, antes de qualquer promoção. É o que a loja deixa de
+    // receber quando dá frete grátis — sem guardar aqui, esse desconto sumia.
+    const taxaCheia = taxa;
+    // frete grátis acima de X
+    if (cfg.freteGratisAcima != null && total >= Number(cfg.freteGratisAcima)) taxa = 0;
+    return { taxa, taxaCheia, bairroNome, km, alemDaUltimaFaixa, semLocalizacao, bairro, ponto };
+  }
+
   async receberPedido(
     token: string,
     dto: {
@@ -2969,36 +3123,7 @@ export class CardapioService {
       sinalRule = this.resolverSinal(cfg, regrasSinal, qtdItens);
     }
     const ids = [...new Set(dto.itens.map((i) => i.produtoId))];
-    const prods = await this.db
-      .select({
-        id: produto.id,
-        nome: produto.nome,
-        precoVenda: produto.precoVenda,
-        precoPromocional: produto.precoPromocional,
-        ativo: produto.ativo,
-        disponivelCardapio: produto.disponivelCardapio,
-        pausadoEstoque: produto.pausadoEstoque,
-        atacadoAtivo: produto.atacadoAtivo,
-      })
-      .from(produto)
-      .where(and(eq(produto.tenantId, cfg.tenantId), inArray(produto.id, ids)));
-    const porId = new Map(prods.map((p) => [p.id, p]));
-    // Pausa por estoque DA LOJA do cardápio (mig 260); sem loja, o campo antigo do produto.
-    const lojaPedido = await lojaDoCanal(this.db, cfg.tenantId, cfg.unidadeId);
-    const pausadosPedido = lojaPedido ? await pausadosNaLoja(this.db, cfg.tenantId, lojaPedido, ids) : null;
-    // Faixas de atacado (mig 184) para aplicar o desconto por quantidade na linha.
-    const faixasAtacado = await this.faixasAtacadoPorProduto(cfg.tenantId, ids);
-    for (const it of dto.itens) {
-      const p = porId.get(it.produtoId);
-      // Só entra no cardápio produto ativo E marcado para o canal cardápio digital.
-      if (!p || p.ativo === false || p.disponivelCardapio === false)
-        throw new BadRequestException('Produto indisponível no pedido.');
-      // A auto-pausa por estoque era checada só na MONTAGEM do menu: quem estava com a
-      // página aberta desde antes de esgotar — ou quem chama a API direto — passava
-      // batido e o pedido entrava. A trava tem de estar aqui, no checkout.
-      if (pausadosPedido ? pausadosPedido.has(p.id) : p.pausadoEstoque === true)
-        throw new BadRequestException(`${p.nome} está sem estoque no momento.`);
-    }
+    const { porId, faixasAtacado } = await this.conferirProdutosDoPedido(cfg, dto.itens);
 
     // Modo MESA (QR na mesa): itens vão para a comanda (adicionarItem resolve
     // preço, variação e complementos internamente).
@@ -3025,38 +3150,7 @@ export class CardapioService {
     }
 
     // Modo RETIRADA/TOTEM: pedido externo com preço/rótulos calculados no servidor.
-    const itensOut: any[] = [];
-    let totalCent = 0; // subtotal dos itens em centavos (exato, sem drift)
-    for (const it of dto.itens) {
-      const p = porId.get(it.produtoId)!;
-      let base = p.precoPromocional != null ? Number(p.precoPromocional) : Number(p.precoVenda);
-      let desc = p.nome;
-      const v = await this.vendas.variacaoDoProduto(this.db, cfg.tenantId, p.id, it.variacaoId);
-      if (v) {
-        base = Number(v.precoVenda);
-        desc = `${p.nome} · ${v.nome}`;
-      }
-      const { precoDelta, labels } = await this.resolverOpcoes(
-        cfg.tenantId,
-        it.produtoId,
-        it.complementos ?? [],
-      );
-      const qtd = Number(it.quantidade) || 1;
-      let preco = base + precoDelta;
-      // Atacado por volume (mig 184): aplica a faixa "a partir de N un" sobre o
-      // preço unitário da linha antes de somar o subtotal (base de cupom/cashback).
-      if (p.atacadoAtivo) preco = precoComAtacado(preco, faixasAtacado.get(p.id), qtd);
-      totalCent += paraCentavos(preco) * qtd;
-      itensOut.push({
-        produtoId: it.produtoId,
-        variacaoId: it.variacaoId,
-        descricao: labels.length ? `${desc} (${labels.join(', ')})` : desc,
-        quantidade: qtd,
-        precoUnitario: preco,
-        observacao: it.observacao,
-        opcaoIds: it.complementos ?? [], // ids das opções → roteamento por opção/etapa (Fase 1)
-      });
-    }
+    const { itensOut, totalCent } = await this.precificarItensDoPedido(cfg, dto.itens, porId, faixasAtacado);
     // Subtotal em reais (fronteira) — usado nos serviços de cupom/prêmio/cashback.
     const total = paraReais(totalCent);
     // Checkout: tipo, frete (bairro), cupom, pagamento.
@@ -3064,56 +3158,7 @@ export class CardapioService {
     let taxa = 0;
     let taxaCheia = 0; // frete antes das promoções (mig 241 — quem banca o frete grátis)
     let bairroNome: string | undefined;
-    if (tipo === 'entrega') {
-      if (cfg.areaModo === 'raio') {
-        // Frete por raio: distância loja→cliente (Haversine) escolhe a faixa.
-        let lat = Number(dto.lat);
-        let lng = Number(dto.lng);
-        // Sem GPS do navegador → geocoda o endereço digitado (Nominatim). A cidade/
-        // estado da loja entram na busca para desambiguar. Falha → cai no fallback.
-        if (!(Number.isFinite(lat) && Number.isFinite(lng))) {
-          const q = montarEndereco([
-            dto.endereco || montarEndereco([dto.rua, dto.numero]),
-            cfg.endBairro,
-            cfg.endCidade,
-            cfg.endEstado,
-          ]);
-          const g = await geocode(q);
-          if (g) {
-            lat = g.lat;
-            lng = g.lng;
-          }
-        }
-        const slat = Number(cfg.endLat);
-        const slng = Number(cfg.endLng);
-        const raios = [...((cfg.raios as any[]) ?? [])].sort((a, b) => Number(a.ateKm) - Number(b.ateKm));
-        if ([lat, lng, slat, slng].every((n) => Number.isFinite(n)) && raios.length) {
-          // Distância de ROTA real via OSRM (item 5); fallback Haversine (linha reta).
-          const kmOsrm = await this.distanciaKmOsrm(slat, slng, lat, lng);
-          const km = kmOsrm ?? haversineKm(slat, slng, lat, lng);
-          const faixa = raios.find((r) => km <= Number(r.ateKm)) ?? raios[raios.length - 1];
-          taxa = Number(faixa.taxa) || 0;
-          bairroNome = `~${km.toFixed(1)} km`;
-        }
-      } else if (dto.bairroId) {
-        const [b] = await this.db
-          .select()
-          .from(cardapioBairro)
-          .where(
-            and(
-              eq(cardapioBairro.id, dto.bairroId),
-              eq(cardapioBairro.tenantId, cfg.tenantId),
-            ),
-          );
-        taxa = b ? Number(b.taxa) : 0;
-        bairroNome = b?.nome;
-      }
-      // Valor CHEIO do frete, antes de qualquer promoção. É o que a loja deixa de
-      // receber quando dá frete grátis — sem guardar aqui, esse desconto sumia.
-      taxaCheia = taxa;
-      // frete grátis acima de X
-      if (cfg.freteGratisAcima != null && total >= Number(cfg.freteGratisAcima)) taxa = 0;
-    }
+    if (tipo === 'entrega') ({ taxa, taxaCheia, bairroNome } = await this.taxaDeEntrega(cfg, dto, total));
     // Endereço estruturado → compõe o texto p/ impressão/compatibilidade.
     const enderecoTexto =
       tipo === 'entrega'

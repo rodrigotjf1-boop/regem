@@ -3748,3 +3748,23 @@ export const roboConfig = pgTable('robo_config', {
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
   atualizadoPor: uuid('atualizado_por'),
 });
+
+// O pedido montado pelo robô na conversa (mig 344, @cloud-only — Fase 5, F3). Um ABERTO por cliente (chave do
+// telefone). Regras em modules/cardapio/robo-pedido.ts e robo-pedido.service.ts.
+export const roboCarrinho = pgTable('robo_carrinho', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  telefone: text('telefone').notNull(),
+  telefoneChave: text('telefone_chave').notNull(),
+  clienteNome: text('cliente_nome'),
+  itens: jsonb('itens').notNull().default('[]'),
+  entrega: jsonb('entrega'),
+  pagamento: jsonb('pagamento'),
+  versao: integer('versao').notNull().default(0),
+  status: text('status').notNull().default('aberto'), // aberto | registrado | cancelado
+  pedidoId: uuid('pedido_id'),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+  atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+});
