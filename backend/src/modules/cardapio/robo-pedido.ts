@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { REGRA_COM_REPETICAO } from '../../common/adicionais';
-import { GRUPOS, formas, palavrasDe } from './robo-busca';
+import { GRUPOS, formas, nomeJunto, palavrasComNumero, palavrasDe } from './robo-busca';
 import { normalizar, reais } from './robo-consultas';
 
 // O PEDIDO MONTADO PELO ROBÔ (Fase 5, F3 — pedido do dono de 30/10/2026). As regras puras do carrinho que fica no Regem
@@ -67,16 +67,36 @@ const nomesDe = (v: unknown): string[] =>
     .filter(Boolean)
     .slice(0, 30);
 
-/** Todas as palavras de `busca` aparecem no nome (palavra inteira, ou dentro do nome sem espaços: "xbacon"). */
+/**
+ * Todas as palavras de `busca` aparecem no nome (palavra inteira, ou dentro do nome sem espaços: "xbacon"). Número é o
+ * do nome, sem o zero da frente e também falado ("trio 8" = "trio oito" = "TRIO 08"; "trio 1" não é o "TRIO 10").
+ */
 function casaPorPalavras(nome: unknown, busca: string): boolean {
-  const ws = normalizar(busca).split(' ').filter(Boolean);
+  const ws = palavrasComNumero(busca);
   if (!ws.length) return false;
-  const palavras = new Set(normalizar(nome).split(' '));
-  const junto = compacto(nome);
-  return ws.every((w) => formas(w).some((f) => palavras.has(f) || (f.length >= 3 && junto.includes(f))));
+  const palavras = new Set(palavrasComNumero(nome));
+  const junto = nomeJunto(nome);
+  const numero = (w: string) => /^\d/.test(w);
+  return ws.every((w) => (numero(w) ? palavras.has(w) : formas(w).some((f) => palavras.has(f) || (f.length >= 3 && junto.includes(f)))));
 }
 
-const resumoDoProduto = (p: any) => ({ nome: String(p.nome), preco: reais(p.precoVenda), esgotado: p.esgotado === true });
+const resumoDoProduto = (p: any) => ({ id: String(p.id), nome: String(p.nome), preco: reais(p.precoVenda), esgotado: p.esgotado === true });
+
+/**
+ * O MESMO produto cadastrado em duas categorias (mesmo nome e mesmo preço — "TRIO 08" em "Burguer + batata + refri" e
+ * em "Os mais pedidos") é UM para o cliente: fica a cópia mais completa (com mais etapas). 3º teste do dono (31/10/2026):
+ * "trio 08" voltava "mais de um produto com esse nome" com duas opções iguais, e o robô pôs o lanche Número 08.
+ */
+function umaCopiaDeCada(lista: any[]): any[] {
+  const porChave = new Map<string, any>();
+  for (const p of lista) {
+    const chave = `${nomeJunto(p.nome)}|${Number(p.precoVenda)}`;
+    const ja = porChave.get(chave);
+    const etapas = (x: any) => (Array.isArray(x?.grupos) ? x.grupos.length : 0);
+    if (!ja || etapas(p) > etapas(ja)) porChave.set(chave, p);
+  }
+  return [...porChave.values()];
+}
 
 export type ProdutoAchado =
   | { ok: true; produto: any }
@@ -92,9 +112,10 @@ export function acharProduto(menu: any, pedido: unknown): ProdutoAchado {
   const produtos: any[] = Array.isArray(menu?.produtos) ? menu.produtos : [];
   const t = texto(pedido, 120);
   if (!t) return { ok: false, motivo: 'nenhum' };
-  const decide = (lista: any[]): ProdutoAchado | null => {
-    if (!lista.length) return null;
-    const aVenda = lista.filter((p) => p.esgotado !== true);
+  const decide = (achados: any[]): ProdutoAchado | null => {
+    if (!achados.length) return null;
+    const lista = umaCopiaDeCada(achados);
+    const aVenda = umaCopiaDeCada(achados.filter((p) => p.esgotado !== true));
     if (aVenda.length === 1) return { ok: true, produto: aVenda[0] };
     if (!aVenda.length && lista.length === 1) return { ok: false, motivo: 'esgotado', produto: lista[0] };
     return { ok: false, motivo: 'varios', opcoes: (aVenda.length ? aVenda : lista).slice(0, 8).map(resumoDoProduto) };
@@ -103,9 +124,9 @@ export function acharProduto(menu: any, pedido: unknown): ProdutoAchado {
     const p = produtos.find((x) => x.id === t);
     if (p) return decide([p])!;
   }
-  const q = compacto(t);
+  const q = nomeJunto(t);
   return (
-    decide(produtos.filter((p) => compacto(p.nome) === q)) ??
+    decide(produtos.filter((p) => nomeJunto(p.nome) === q)) ??
     decide(produtos.filter((p) => casaPorPalavras(p.nome, t))) ?? { ok: false, motivo: 'nenhum' }
   );
 }

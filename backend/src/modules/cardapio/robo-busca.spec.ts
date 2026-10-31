@@ -7,6 +7,7 @@ import {
   papelDaCategoria,
   procurarNoCardapio,
   termosDaBusca,
+  tituloDaCategoria,
 } from './robo-busca';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -116,16 +117,32 @@ describe('busca do robô — ficha, descrição, adicionais, combos e link', () 
 // F5 (teste do dono, 31/10/2026): "tem alguma opção com bacon?" e o robô citou só o X-Bacon e o trio — os da ficha
 // ficaram de fora e o adicional não apareceu. A busca manda a lista PRONTA, com todos, o trio junto e o adicional.
 describe('F5: a lista pronta para o cliente (paraOCliente)', () => {
-  it('pergunta de ingrediente: TODOS os que levam, o trio junto do lanche e onde dá para pôr a mais (com o preço)', () => {
+  // 3º teste do dono (31/10): a lista saía comprida e sem formatação. Agora por categoria (os lanches primeiro), com o
+  // título em negrito, e termina perguntando a preferência.
+  it('pergunta de ingrediente: TODOS os que levam, por categoria, o trio junto do lanche, o "a mais" e a pergunta do fim', () => {
     const r: any = procurarNoCardapio(MENU, 'Tem alguma opcao com bacon?', DADOS);
     expect(r.paraOCliente).toBe(
       [
-        'Com bacon temos:',
-        '• Batata com bacon — R$ 18,00',
+        '*Com bacon, temos:*',
+        '',
+        '*Lanches*',
         '• X Bacon — R$ 26,00 (no trio, R$ 36,00)',
         '• Smash da Casa — R$ 29,00',
-        'E dá para pôr bacon a mais nos lanches: de +R$ 4,00 a +R$ 5,00.',
+        '',
+        '*Porções*',
+        '• Batata com bacon — R$ 18,00',
+        '',
+        '➕ Dá para pôr bacon a mais nos lanches: de +R$ 4,00 a +R$ 5,00.',
+        '',
+        'Tem alguma preferência? 😋',
       ].join('\n'),
+    );
+  });
+  it('por ÁUDIO: o resumo para a voz — os exemplos, o "a mais" e a pergunta da preferência (sem lista)', () => {
+    const r: any = procurarNoCardapio(MENU, 'tem algo com bacon?', DADOS);
+    expect(r.paraOClienteFalado).toBe(
+      'Com bacon temos X Bacon, Smash da Casa e Batata com bacon. E dá para pôr bacon a mais nos lanches. ' +
+        'Tem alguma preferência? Se quiser, te mando a lista por escrito.',
     );
   });
   it('pergunta pelo NOME de um produto não vira lista (o robô responde com o produto e o link)', () => {
@@ -216,6 +233,34 @@ describe('número no nome, "foto" na frase e a etapa obrigatória (ERR-335)', ()
     expect(r.paraOCliente ?? '').not.toMatch(/a mais/);
     // O adicional de verdade (grupo que dá para pular) continua: "bacon a mais".
     expect((procurarNoCardapio(MENU_LOJA, 'tem com bacon?', SEM_FICHA) as any).paraOCliente).toMatch(/pôr bacon a mais nos lanches: \+R\$ 3,50/);
+  });
+
+  it('o que chega do ÁUDIO: número por extenso ("trio oito", "trio zero oito") e a palavra como se fala ("beicon")', () => {
+    for (const q of ['trio oito', 'trio zero oito', 'o trio oito', 'quero o trio 8']) expect(ids(q)).toEqual(['t08']);
+    expect(ids('número sete').sort()).toEqual(['n07']);
+    // "um" é artigo; só é número depois de "número", "trio", "combo".
+    expect(ids('um x-bacon')).toEqual(ids('x-bacon'));
+    expect(termosDaBusca('numero um').map((t) => t.texto)).toEqual(['numero', '1']);
+    expect(ids('xis bacon')).toContain('xb');
+    const beicon: any = procurarNoCardapio(MENU_LOJA, 'tem algo com beicon?', SEM_FICHA);
+    expect(beicon.paraOCliente).toMatch(/pôr bacon a mais/);
+  });
+
+  it('palavra que o cardápio não tem sai da busca e volta em naoAchei ("algo", "pizza" não esvaziam a busca)', () => {
+    const r: any = procurarNoCardapio(MENU_LOJA, 'tem alguma coisa diferente com bacon?', SEM_FICHA);
+    expect(r.naoAchei).toEqual(['diferente']);
+    expect(r.paraOCliente).toMatch(/bacon/);
+    const pizza: any = procurarNoCardapio(MENU_LOJA, 'pizza', SEM_FICHA);
+    expect(pizza).toMatchObject({ levam: [], parecidos: [], naoAchei: ['pizza'] });
+    // Sem palavra desconhecida, o campo nem vem.
+    expect((procurarNoCardapio(MENU_LOJA, 'trio 07', SEM_FICHA) as any).naoAchei).toBeUndefined();
+  });
+
+  it('o título da categoria: "BURGUER" → "Burguer"; o que a loja escreveu com minúsculas fica como está', () => {
+    expect(tituloDaCategoria('BURGUER')).toBe('Burguer');
+    expect(tituloDaCategoria('POTINHOS DE MOLHO')).toBe('Potinhos de molho');
+    expect(tituloDaCategoria('OS MAIS PEDIDOS !!!')).toBe('Os mais pedidos');
+    expect(tituloDaCategoria('Lanches')).toBe('Lanches');
   });
 
   it('o nome junto e os números do nome comparam sem o zero da frente', () => {

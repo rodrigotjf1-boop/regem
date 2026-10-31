@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Robô de WhatsApp — o trio pedido por áudio e a lista do ingrediente (ERR-336, 31/10): sem efeito na loja — nada a
+  empacotar por isto.** "trio 08" (também "trio oito") acha o TRIO 08 mesmo cadastrado em duas categorias; a busca
+  entende o que chega do áudio e tira a palavra que o cardápio não tem; a lista pronta vem por categoria e com o resumo
+  para a voz. Tudo na rota do robô (`publico/bot/*`), só na nuvem: no ar com o merge. Sem migration.
 - **Robô de WhatsApp — a foto do produto pedido (ERR-335, 31/10): sem efeito na loja — nada a empacotar por isto.** O
   Regem confere o produto do link antes de mandar a foto (o cliente pediu a foto do trio 07 e foi a do lanche; um link
   inventado pela IA saía sem foto) e a busca do robô compara o número do nome ("07" = "7"). A resposta do robô

@@ -29,9 +29,27 @@ const PALAVRAS_VAZIAS = new Set(
     'alguma alguns algumas pra para por favor pf pfv no na nos nas me ai qual quais quanto quantos custa custam preco ' +
     'precos valor opcao opcoes cardapio hoje ainda mais ou oi ola bom boa dia tarde noite eu meu minha ter tenho vende ' +
     'vendem servem serve faz fazem ver saber pode podia poderia sim nao foto fotos fotinho fotinha imagem imagens mostra ' +
-    'mostre mostrar manda mande mandar envia envie enviar'
+    'mostre mostrar manda mande mandar envia envie enviar algo coisa coisas existe existem teriam item itens produto ' +
+    'produtos tipo tipos'
   ).split(' '),
 );
+
+// O QUE CHEGA DO ÁUDIO (31/10/2026 — 3º teste do dono, por voz): a transcrição escreve o número por extenso ("trio
+// oito") e a palavra estrangeira como se fala ("beicon", "xis bacon"). Viram a forma do cardápio, dos DOIS lados (a
+// pergunta e o nome), antes de comparar.
+const NUMERO_FALADO: Record<string, string> = {
+  dois: '2', duas: '2', tres: '3', quatro: '4', cinco: '5', seis: '6', sete: '7', oito: '8', nove: '9', dez: '10',
+  onze: '11', doze: '12', treze: '13', catorze: '14', quatorze: '14', quinze: '15', dezesseis: '16', dezessete: '17',
+  dezoito: '18', dezenove: '19', vinte: '20',
+};
+/** "um"/"uma" só é número depois de "número", "trio", "combo" ("trio um"); no resto é artigo ("um x-bacon"). */
+const ANTES_DE_NUMERO = new Set(['numero', 'n', 'trio', 'combo']);
+const COMO_SE_ESCREVE: Record<string, string> = {
+  beicon: 'bacon', beikon: 'bacon', baicon: 'bacon', bacom: 'bacon', beicom: 'bacon',
+  chedar: 'cheddar', cheder: 'cheddar', xedar: 'cheddar',
+  xis: 'x', catupiri: 'catupiry', nuguets: 'nuggets', nugets: 'nuggets', naguets: 'nuggets', cream: 'creme',
+};
+const comoSeEscreve = (w: string): string => COMO_SE_ESCREVE[w] ?? w;
 
 // O NÚMERO NO NOME (31/10/2026 — teste do dono: "foto do trio 07" trouxe o lanche "Numero 07"). Os lanches da loja têm
 // número ("Numero 07", "TRIO 07"): "trio 7" = "TRIO 07", "número 8" = "Numero 08", e "07" sozinho acha o lanche e o trio.
@@ -42,12 +60,23 @@ const semZeroNaFrente = (w: string) => w.replace(/^0+(?=\d)/, '');
 /** "1,50" e "1.5" viram um número só ("1d5"), antes de a vírgula virar espaço; "07" fica "7" depois. */
 const comDecimal = (s: unknown) =>
   String(s ?? '').replace(/(\d+)[.,](\d+)/g, (_m, a: string, b: string) => `${semZeroNaFrente(a)}d${b.replace(/0+$/, '') || '0'}`);
-/** As palavras do texto para comparar nomes: minúsculas, sem acento, número sem o zero da frente ("TRIO 07" → trio, 7). */
-export const palavrasComNumero = (s: unknown): string[] =>
-  normalizar(comDecimal(s))
-    .split(' ')
-    .filter(Boolean)
-    .map((w) => (ehNumero(w) ? semZeroNaFrente(w) : w));
+/**
+ * As palavras do texto para comparar nomes: minúsculas, sem acento, número sem o zero da frente ("TRIO 07" → trio, 7),
+ * o número falado em algarismo ("trio oito", "trio zero oito" → trio, 8) e a palavra como o cardápio escreve ("beicon").
+ */
+export const palavrasComNumero = (s: unknown): string[] => {
+  const ws = normalizar(comDecimal(s)).split(' ').filter(Boolean);
+  const saida: string[] = [];
+  for (let i = 0; i < ws.length; i++) {
+    let w = comoSeEscreve(ws[i]);
+    if (NUMERO_FALADO[w]) w = NUMERO_FALADO[w];
+    else if ((w === 'um' || w === 'uma') && ANTES_DE_NUMERO.has(saida[saida.length - 1] ?? '')) w = '1';
+    const seguinte = ws[i + 1] ?? '';
+    if (w === 'zero' && (ehNumero(seguinte) || !!NUMERO_FALADO[seguinte] || seguinte === 'um')) continue; // "zero oito" = 8
+    saida.push(ehNumero(w) ? semZeroNaFrente(w) : w);
+  }
+  return saida;
+};
 
 /** Os números do nome, sem o zero da frente ("TRIO 07" → {"7"}; "Coca 1,50 L" → {"1d5"}). */
 export function numerosDoNome(nome: unknown): Set<string> {
@@ -95,7 +124,7 @@ export function palavrasDe(texto: unknown): Set<string> {
   const s = new Set<string>();
   for (const w of normalizar(texto).split(' ')) {
     if (!w || /\d/.test(w)) continue; // medida e número ("20 g", "350ml") não são ingrediente
-    for (const f of formas(w)) s.add(f);
+    for (const f of formas(comoSeEscreve(w))) s.add(f);
   }
   return s;
 }
@@ -191,7 +220,6 @@ export function procurarNoCardapio(menu: any, busca: string, dados: DadosDaBusca
   const cats = new Map<string, string>((Array.isArray(menu?.categorias) ? menu.categorias : []).map((c: any) => [c.id, c.nome]));
   const porId = new Map(produtos.map((p) => [p.id, p]));
   let termos = termosDaBusca(busca);
-  const qCompacta = termos.map((t) => t.texto).join('');
 
   const nomeW = new Map<string, Set<string>>();
   const numW = new Map<string, Set<string>>();
@@ -216,6 +244,24 @@ export function procurarNoCardapio(menu: any, busca: string, dados: DadosDaBusca
   };
   // Termo de TIPO que não casa com nenhum produto não ajuda a separar: sai (o cardápio não usa essa palavra).
   termos = termos.filter((t) => !t.grupo || produtos.some((p) => grupoCasa(t, p)));
+  // Palavra que não está em NADA do cardápio (nome, ficha, descrição, categoria, adicional) também não separa: sai, e
+  // volta em `naoAchei` para o robô dizer que não tem (3º teste do dono, 31/10/2026: "tem algo com bacon?" por áudio
+  // voltou sem nada — uma palavra que nenhum produto tem esvaziava a busca inteira).
+  const opcoesW = new Map<string, Adicional[]>(produtos.map((p) => [p.id, adicionaisDo(p)]));
+  const existe = (t: Termo) =>
+    !!t.grupo ||
+    produtos.some((p) =>
+      t.numero
+        ? numW.get(p.id)!.has(t.texto)
+        : casa(t, nomeW.get(p.id)!) ||
+          (t.texto.length >= 4 && nomeJunto(p.nome).includes(t.texto)) ||
+          casa(t, ingW.get(p.id)!.palavras) ||
+          casa(t, catW.get(p.id)!) ||
+          opcoesW.get(p.id)!.some((a) => casa(t, a.palavras)),
+    );
+  const naoAchei = termos.filter((t) => !existe(t)).map((t) => t.texto);
+  if (naoAchei.length < termos.length) termos = termos.filter(existe);
+  const qCompacta = termos.map((t) => t.texto).join('');
 
   const analisar = (p: any): Analise => {
     const nome = nomeW.get(p.id)!;
@@ -298,7 +344,7 @@ export function procurarNoCardapio(menu: any, busca: string, dados: DadosDaBusca
     link: dados.linkDoProduto ? dados.linkDoProduto(p.id) : null,
   });
 
-  if (!termos.length && !qCompacta) return { busca, levam: [], podeAdicionar: [], parecidos: [] };
+  if (!termos.length && !qCompacta) return { busca, levam: [], podeAdicionar: [], parecidos: [], ...(naoAchei.length ? { naoAchei } : {}) };
 
   const analises = produtos.map(analisar);
   const levam = analises
@@ -355,13 +401,16 @@ export function procurarNoCardapio(menu: any, busca: string, dados: DadosDaBusca
       .map((x) => item(x.p, null));
   }
 
+  const lista = listaParaOCliente(termos, levam, produtos, qCompacta, menu);
   return {
     busca,
     levam: levam.slice(0, limite).map((a) => item(a.p, a.porque)),
     totalLevam: levam.length,
     podeAdicionar,
     parecidos,
-    paraOCliente: listaParaOCliente(termos, levam, produtos, qCompacta),
+    paraOCliente: lista?.texto ?? null,
+    paraOClienteFalado: lista?.falado ?? null,
+    ...(naoAchei.length ? { naoAchei } : {}),
   };
 }
 
@@ -379,14 +428,45 @@ export function nucleoDoNome(nome: unknown): string {
 
 const MAX_NA_LISTA = 12;
 
+/** O nome da categoria como título: "BURGUER" → "Burguer", "OS MAIS PEDIDOS !!!" → "Os mais pedidos". */
+export function tituloDaCategoria(nome: unknown): string {
+  const s = String(nome ?? '')
+    .replace(/\s*[!?.]+\s*$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!s || s !== s.toUpperCase()) return s; // a loja escreveu com minúsculas: fica como está
+  const m = s.toLowerCase();
+  return m.charAt(0).toUpperCase() + m.slice(1);
+}
+
+/** O nome para a VOZ do robô: sem o zero da frente nem os "!!!" ("Numero 07" → "Numero 7"). */
+const nomeParaFalar = (nome: unknown) =>
+  String(nome ?? '')
+    .replace(/\b0+(\d)/g, '$1')
+    .replace(/!+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/** "A", "A e B", "A, B e C". */
+const emFrase = (itens: string[]) => (itens.length <= 1 ? itens.join('') : `${itens.slice(0, -1).join(', ')} e ${itens[itens.length - 1]}`);
+
 /**
  * A LISTA PRONTA para o cliente quando a pergunta é de INGREDIENTE (F5 — teste do dono, 31/10/2026: "tem opção com
  * bacon?" e o robô citou só o X-Bacon e o trio, deixando de fora o Número 08 e o 15, que levam bacon pela ficha, e não
- * disse que dava para adicionar bacon). TODOS os que levam, um por linha, com o preço; o trio vai junto do lanche
- * ("no trio, R$ 29,00"); e no fim onde dá para pôr o ingrediente a mais, com o preço do adicional. Pergunta só pelo nome
- * de um produto ("quanto custa o x-bacon?") não tem lista: o robô responde com o produto e o link.
+ * disse que dava para adicionar bacon). TODOS os que levam, com o preço; o trio vai junto do lanche ("no trio,
+ * R$ 29,00"); e no fim onde dá para pôr o ingrediente a mais, com o preço do adicional. Pergunta só pelo nome de um
+ * produto ("quanto custa o x-bacon?") não tem lista: o robô responde com o produto e o link.
+ * 3º teste do dono (31/10): a lista saía comprida e sem formatação, e por ÁUDIO o robô disse que não tinha nada. Agora:
+ * por categoria (os lanches primeiro), com título em negrito, terminando em "Tem alguma preferência?"; e `falado`, o
+ * resumo para a voz (quantos são, até 3 exemplos, as outras categorias e a mesma pergunta).
  */
-function listaParaOCliente(termos: Termo[], levam: Analise[], produtos: any[], qCompacta: string): string | null {
+function listaParaOCliente(
+  termos: Termo[],
+  levam: Analise[],
+  produtos: any[],
+  qCompacta: string,
+  menu: any,
+): { texto: string; falado: string } | null {
   const ingrediente = termos.filter((t) => !t.grupo && !t.numero); // número não é ingrediente
   if (!ingrediente.length) return null;
   // O cliente disse o NOME de um produto ("x-bacon", "trio 7"): é pergunta do produto, não do ingrediente.
@@ -406,8 +486,7 @@ function listaParaOCliente(termos: Termo[], levam: Analise[], produtos: any[], q
   for (const a of levam) if (ehTrioP(a.p) && !trios.has(nucleoDoNome(a.p.nome))) trios.set(nucleoDoNome(a.p.nome), a.p);
   const usados = new Set<string>();
   const vistos = new Set<string>();
-  const linhas: string[] = [];
-  let resto = 0;
+  const entradas: { p: any; extra: string }[] = [];
   // Os lanches primeiro (cada um puxa o seu trio); depois os trios que sobraram.
   for (const a of [...levam.filter((x) => !ehTrioP(x.p)), ...levam.filter((x) => ehTrioP(x.p))]) {
     const p = a.p;
@@ -416,24 +495,56 @@ function listaParaOCliente(termos: Termo[], levam: Analise[], produtos: any[], q
     if (vistos.has(chave)) continue; // o mesmo produto cadastrado duas vezes
     if (ehTrio && usados.has(nucleoDoNome(p.nome))) continue; // já foi junto do lanche
     vistos.add(chave);
-    if (linhas.length >= MAX_NA_LISTA) {
-      resto++;
-      continue;
-    }
     const trio = !ehTrio ? trios.get(nucleoDoNome(p.nome)) : null;
     if (trio && !trio.esgotado) usados.add(nucleoDoNome(p.nome));
     const extra = p.esgotado ? ' (esgotado agora)' : trio && !trio.esgotado ? ` (no trio, ${reais(trio.precoVenda)})` : '';
-    linhas.push(`• ${p.nome} — ${reais(p.precoVenda)}${extra}`);
+    entradas.push({ p, extra });
   }
+  // Por categoria, na ordem do cardápio — o lanche antes (depois o trio sozinho, depois o resto).
+  const cats: any[] = Array.isArray(menu?.categorias) ? menu.categorias : [];
+  const ordemCat = new Map<string, number>(cats.map((c: any, i: number) => [String(c.id), i]));
+  const nomeCat = new Map<string, string>(cats.map((c: any) => [String(c.id), String(c.nome ?? '')]));
+  const ehLanche = (p: any) =>
+    /^x[a-z]/.test(compacto(p.nome)) ||
+    GRUPOS.sanduiche.some((x) => palavrasDe(p.nome).has(x) || palavrasDe(nomeCat.get(String(p.categoriaId))).has(x));
+  const faixa = (p: any) => (ehTrioP(p) ? 1 : ehLanche(p) ? 0 : 2);
+  const ordenadas = entradas
+    .map((e, i) => ({ ...e, i }))
+    .sort((a, b) => faixa(a.p) - faixa(b.p) || (ordemCat.get(String(a.p.categoriaId)) ?? 999) - (ordemCat.get(String(b.p.categoriaId)) ?? 999) || a.i - b.i);
+  const titulo = (p: any) => tituloDaCategoria(nomeCat.get(String(p.categoriaId))) || 'Outros';
+  const visiveis = ordenadas.slice(0, MAX_NA_LISTA);
+  const resto = ordenadas.length - visiveis.length;
+
   const oQue = ingrediente.map((t) => t.texto).join(' ');
+  const blocos = new Map<string, string[]>();
+  for (const e of visiveis) blocos.set(titulo(e.p), [...(blocos.get(titulo(e.p)) ?? []), `• ${e.p.nome} — ${reais(e.p.precoVenda)}${e.extra}`]);
   const partes: string[] = [];
-  if (linhas.length) partes.push(`Com ${oQue} temos:`, ...linhas);
-  if (resto) partes.push(`E mais ${resto} no cardápio.`);
+  if (visiveis.length) {
+    partes.push(`*Com ${oQue}, temos:*`);
+    if (blocos.size > 1) for (const [t, linhas] of blocos) partes.push('', `*${t}*`, ...linhas);
+    else partes.push(...[...blocos.values()][0]);
+    if (resto) partes.push('', `E mais ${resto} no cardápio.`);
+  }
   if (precos.length) {
     const min = Math.min(...precos);
     const max = Math.max(...precos);
     const preco = min === max ? (min > 0 ? `+${reais(min)}` : 'sem custo') : `de +${reais(min)} a +${reais(max)}`;
-    partes.push(`${linhas.length ? 'E dá' : 'Dá'} para pôr ${oQue} a mais nos lanches: ${preco}.`);
+    if (partes.length) partes.push('');
+    partes.push(`➕ Dá para pôr ${oQue} a mais nos lanches: ${preco}.`);
   }
-  return partes.join('\n');
+  partes.push('', 'Tem alguma preferência? 😋');
+
+  // A VOZ: quantos são, até 3 exemplos (os lanches primeiro), as outras categorias e a mesma pergunta.
+  const falas: string[] = [];
+  if (ordenadas.length) {
+    const exemplos = ordenadas.slice(0, 3);
+    const nomes = exemplos.map((e) => nomeParaFalar(e.p.nome));
+    falas.push(ordenadas.length > 3 ? `Com ${oQue} temos ${ordenadas.length} opções, como ${emFrase(nomes)}.` : `Com ${oQue} temos ${emFrase(nomes)}.`);
+    const jaDitas = new Set(exemplos.map((e) => titulo(e.p)));
+    const outras = [...new Set(ordenadas.slice(3).map((e) => titulo(e.p)))].filter((t) => !jaDitas.has(t));
+    if (outras.length) falas.push(`Também tem ${emFrase(outras.map((t) => t.toLowerCase()))} com ${oQue}.`);
+  }
+  if (precos.length) falas.push(`${ordenadas.length ? 'E dá' : 'Dá'} para pôr ${oQue} a mais nos lanches.`);
+  falas.push('Tem alguma preferência? Se quiser, te mando a lista por escrito.');
+  return { texto: partes.join('\n'), falado: falas.join(' ') };
 }
