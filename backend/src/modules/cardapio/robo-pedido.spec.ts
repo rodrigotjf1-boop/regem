@@ -95,6 +95,29 @@ describe('achar o produto pelo nome', () => {
     expect(acharProduto(MENU, 'pizza')).toEqual({ ok: false, motivo: 'nenhum' });
     expect(acharProduto(MENU, '')).toEqual({ ok: false, motivo: 'nenhum' });
   });
+  // 3º teste do dono (31/10, ERR-336): "trio 08" por áudio virou o lanche Número 08 — o TRIO 08 está em duas categorias
+  // e voltava "mais de um produto com esse nome" com duas opções iguais.
+  it('o MESMO produto em duas categorias é um só (fica a cópia com etapas); número com e sem zero, e falado', () => {
+    const etapa = { id: 'g-bat', nome: 'Tamanho da batata', min: 1, max: 1, obrigatorio: true, regra: 'uma', opcoes: [{ id: 'o-p', nome: 'Pequena', precoDelta: 0 }] };
+    const LOJA: any = {
+      produtos: [
+        { id: 't08-mais', nome: 'TRIO 08', precoVenda: 32.5, grupos: [], variacoes: [] },
+        { id: 't08', nome: 'TRIO 08', precoVenda: 32.5, grupos: [etapa], variacoes: [] },
+        { id: 'n08', nome: 'Numero 08', precoVenda: 21.5, grupos: [], variacoes: [] },
+        { id: 't01', nome: 'TRIO 01', precoVenda: 28, grupos: [], variacoes: [] },
+        { id: 't10', nome: 'TRIO 10', precoVenda: 20, grupos: [], variacoes: [] },
+        { id: 'xa', nome: 'X Especial', precoVenda: 30, grupos: [], variacoes: [] },
+        { id: 'xb', nome: 'X Especial', precoVenda: 35, grupos: [], variacoes: [] },
+      ],
+    };
+    for (const t of ['trio 08', 'TRIO 8', 'trio oito', 'trio zero oito']) expect(acharProduto(LOJA, t)).toMatchObject({ ok: true, produto: { id: 't08' } });
+    expect(acharProduto(LOJA, 'numero 8')).toMatchObject({ ok: true, produto: { id: 'n08' } });
+    expect(acharProduto(LOJA, 'trio 1')).toMatchObject({ ok: true, produto: { id: 't01' } });
+    // Nome igual e preço diferente: são dois produtos — volta a pergunta, com o id de cada um para o robô usar.
+    const r: any = acharProduto(LOJA, 'x especial');
+    expect(r).toMatchObject({ ok: false, motivo: 'varios' });
+    expect(r.opcoes.map((o: any) => o.id).sort()).toEqual(['xa', 'xb']);
+  });
 });
 
 describe('a versão e as escolhas (como a tela do produto do cardápio)', () => {
