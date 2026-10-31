@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **`.zip` — SEGURANÇA: o texto do pedido não vira comando da impressora (ERR-334, 31/10):** nome do cliente, endereço
+  e observação do item passam por `textoNaVia` antes de virar linha da via (entregador, produção e caixa) — uma quebra
+  de linha seguida de "@GAVETA" no texto do cliente abria a gaveta de dinheiro na impressão. As vias da loja são montadas
+  no servidor da loja: a correção só vale lá com o `.zip` (na nuvem, no ar com o merge). Não pede `.exe`.
 - **`.zip` — observação do pedido (mig 346, 31/10; NÃO é só nuvem):** a coluna `pedido_externo.observacao` e o que a
   mostra NA LOJA: o painel do delivery (detalhe, prévia e o 📝 na lista), a via do entregador ("OBS: …" logo abaixo do
   endereço; perfil já editado pela loja recebe o campo sozinho) e a página do QR do entregador. A migration vem no `.zip`
