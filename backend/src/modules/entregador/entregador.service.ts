@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
@@ -32,6 +33,7 @@ import { consultarFila } from '../delivery/fila-entregadores';
 // permissões). Sempre por tenant; reusa a lógica de despacho do DeliveryService.
 @Injectable()
 export class EntregadorService {
+  private readonly logger = new Logger('Entregador');
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly delivery: DeliveryService,
@@ -213,10 +215,16 @@ export class EntregadorService {
         tipo: pedidoExterno.tipo,
         raw: pedidoExterno.raw,
         codigoEntrega: pedidoExterno.codigoEntrega,
+        status: pedidoExterno.status,
       })
       .from(pedidoExterno)
       .where(and(eq(pedidoExterno.tenantId, user.tenantId), eq(pedidoExterno.id, id)));
     if (!ped) throw new NotFoundException('Pedido não encontrado.');
+    // A loja cancelou o pedido com ele no roteiro (ERR-338): não há o que entregar — o roteiro anda, sem erro.
+    if (ped.status === 'cancelado') {
+      await this.avancarSaida(user.tenantId, id).catch(() => {});
+      return { ok: true, valid: true, cancelado: true, msg: 'Este pedido foi cancelado pela loja e saiu do seu roteiro.' };
+    }
     const modo = modoEntrega(ped);
     if (modo === 'logistica_canal')
       throw new BadRequestException(
@@ -1348,12 +1356,48 @@ export class EntregadorService {
       .from(pedidoExterno)
       .where(and(eq(pedidoExterno.tenantId, tenantId), eq(pedidoExterno.saidaId, saida.id)))
       .orderBy(pedidoExterno.ordemParada);
-    const paradas = rows.map((p) => ({
-      ...this.resumo(p),
-      ordemParada: p.ordemParada,
-      entregue: ['entregue', 'concluido'].includes(String(p.status)),
-    }));
+    // PEDIDO CANCELADO SAI DO ROTEIRO (ERR-338, 31/10/2026): cancelar não mexe na saída, e o cancelado ficava como parada
+    // pendente que não finaliza ("precisa estar em rota") — a saída nunca fechava e o entregador ficava preso, sem o botão
+    // da fila. Vale também para a loja com servidor local: o cancelamento chega à nuvem pelo sync, sem evento nenhum.
+    const paradas = rows
+      .filter((p) => String(p.status) !== 'cancelado')
+      .map((p) => ({
+        ...this.resumo(p),
+        ordemParada: p.ordemParada,
+        entregue: ['entregue', 'concluido'].includes(String(p.status)),
+      }));
+    // Nada pendente (todas canceladas, ou concluídas pelo painel sem passar pelo app): a saída terminou.
+    if (!paradas.some((p) => !p.entregue)) {
+      await this.db.execute(sql`update entregador_saida set status = 'concluida', concluida_em = coalesce(concluida_em, now())
+                                where id = ${saida.id} and status = 'em_rota'`);
+      return { saida: null, paradas: [] as any[] };
+    }
     return { saida: { id: saida.id, status: saida.status, totalParadas: saida.total_paradas }, paradas };
+  }
+
+  /**
+   * Pedido cancelado na NUVEM (painel, chamado, sistema, canal) que estava num roteiro: se era a parada DA VEZ, o roteiro
+   * anda na hora (o próximo cliente recebe o link, ou a saída fecha). Se havia parada antes dele, nada muda além de ele
+   * sumir da lista — mandar o link do próximo agora avisaria um cliente antes da hora.
+   */
+  @OnEvent('pedido.cancelado')
+  async aoCancelar(p: { tenantId: string; pedidoId: string }) {
+    try {
+      const [ped] = await this.db
+        .select({ saidaId: pedidoExterno.saidaId, ordem: pedidoExterno.ordemParada })
+        .from(pedidoExterno)
+        .where(and(eq(pedidoExterno.tenantId, p.tenantId), eq(pedidoExterno.id, p.pedidoId)));
+      if (!ped?.saidaId) return;
+      const antes: any = await this.db.execute(sql`
+        select 1 from pedido_externo
+        where tenant_id = ${p.tenantId} and saida_id = ${ped.saidaId} and ordem_parada < ${ped.ordem ?? 0}
+          and status not in ('entregue', 'concluido', 'cancelado')
+        limit 1`);
+      if ((antes.rows ?? antes).length) return;
+      await this.avancarSaida(p.tenantId, p.pedidoId);
+    } catch (e: any) {
+      this.logger.warn(`[roteiro] pedido cancelado ${p.pedidoId}: o roteiro não andou — ${e?.message ?? e}`);
+    }
   }
 
   // O app pede a PRÓXIMA saída: se já há uma ativa, devolve; senão forma uma nova com os

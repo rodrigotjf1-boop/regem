@@ -478,6 +478,7 @@ export class DeliveryService {
     if (novoStatus === 'cancelado') {
       await this.desfazerVendaDoCancelado(tenantId, upd, patch.motivoCancelamento);
       await this.estornarBeneficiosDoCancelado(tenantId, upd);
+      this.events?.emit?.('pedido.cancelado', { tenantId, pedidoId: upd.id }); // sai do roteiro do entregador (ERR-338)
     }
     // Conclusão baixa o estoque e concilia o dinheiro (igual ao avanço manual).
     if (novoStatus === 'concluido' && upd.comandaId) {
@@ -2361,6 +2362,7 @@ export class DeliveryService {
     this.events.emit('encomenda.sinal.reembolsar', { tenantId, pedidoId: id });
     // Integridade: o cashback e os pontos do pedido voltam (o mesmo estorno dos outros caminhos); o cupom se perde.
     await this.estornarBeneficiosDoCancelado(tenantId, row);
+    this.events?.emit?.('pedido.cancelado', { tenantId, pedidoId: row.id }); // sai do roteiro do entregador (ERR-338)
     void this.statusBack(tenantId, row, 'cancel'); // avisa o marketplace
     // O operador vê o resultado do estorno se o GoGeM responder a tempo; senão, que ele sai sozinho.
     const estornoGogem = await resultadoDoAviso(
@@ -2480,6 +2482,7 @@ export class DeliveryService {
     void this.flash.flashPedidos([row.id]); // push imediato → a nuvem reflete o cancelamento
     void this.dispararWebhook(tenantId, row);
     await this.estornarBeneficiosDoCancelado(tenantId, row);
+    this.events?.emit?.('pedido.cancelado', { tenantId, pedidoId: row.id }); // sai do roteiro do entregador (ERR-338)
     return { ok: true, id: row.id };
   }
 
