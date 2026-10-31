@@ -15,6 +15,7 @@ import { PREFIXO_BALCAO, rotuloSenha } from '../../common/senha-origem';
 import { linhasDasEscolhas, separarEscolhas, textoDasEscolhas, type Escolha } from '../../common/adicionais';
 import { linhaDoPedido, pedidoNoCanal, perfilDeProducao, tipoNaProducao } from '../../common/via-do-pedido';
 import { textoDaObservacao } from '../../common/observacao-do-pedido';
+import { textoNaVia } from '../../common/texto-na-via';
 import {
   equipamento,
   produtoDestinoProducao,
@@ -1117,30 +1118,31 @@ export class ProducaoPedidoService {
       l.push(`@CBD ${pedido}`);
       if (canal) l.push(`@C ${canal}`);
       l.push(`@B ${cab}`);
-      if (ctx.cliente) l.push(`@B ${ctx.cliente}`);
+      if (ctx.cliente) l.push(`@B ${textoNaVia(ctx.cliente)}`);
       if (ctx.senha) l.push(`@S senha ${rotuloSenha(ctx.senha, ctx.senhaPrefixo)}`);
     } else {
       if (ctx.senha) l.push(`>>> SENHA ${rotuloSenha(ctx.senha, ctx.senhaPrefixo)} <<<`);
       l.push(`${cab}${numero ? ` · #${numero}` : ''}`);
       if (tipo && canal) l.push(`@B ${canal}`);
-      if (ctx.cliente) l.push(`@B ${ctx.cliente}`);
+      if (ctx.cliente) l.push(`@B ${textoNaVia(ctx.cliente)}`);
     }
     // Sub-PDV salão (mig 133): cabeçalho de onde o pedido foi emitido.
-    if (ctx.emitidoDe) l.push(`EMITIDO: ${ctx.emitidoDe}`);
+    if (ctx.emitidoDe) l.push(`EMITIDO: ${textoNaVia(ctx.emitidoDe)}`);
     l.push(linha);
+    // O texto do pedido nunca vira comando da impressora (ERR-334): cada pedaço passa por `textoNaVia`.
     for (const it of its) {
       const { descricao, escolhas } = itemNaVia(it);
-      l.push(`${completo ? '@B ' : ''}${Number(it.quantidade)}x ${descricao}`);
-      for (const c of it.combo ?? []) l.push(`  - ${c}`);
+      l.push(`${completo ? '@B ' : ''}${Number(it.quantidade)}x ${textoNaVia(descricao)}`);
+      for (const c of it.combo ?? []) l.push(`  - ${textoNaVia(c)}`);
       // Cada escolha na sua linha, recuada e em negrito: no combo, a batata e a bebida não passam batidas.
-      for (const e of linhasDasEscolhas(escolhas)) l.push(`@B   ${e}`);
-      if (it.observacao) l.push(`  ** OBS: ${it.observacao}`);
+      for (const e of linhasDasEscolhas(escolhas)) l.push(`@B   ${textoNaVia(e)}`);
+      if (it.observacao) l.push(`  ** OBS: ${textoNaVia(it.observacao)}`);
     }
     // Pedido completo: o que sai em outro lugar, pequeno e só a linha do item (sem complemento nem observação — é para a
     // cozinha saber o que mais vai no pedido, não para fazer).
     if (completo) {
       l.push(`@S ${TITULO_OUTROS_ITENS}`);
-      for (const o of outros!) l.push(`@S ${linhaDoOutroItem(o)}`);
+      for (const o of outros!) l.push(`@S ${textoNaVia(linhaDoOutroItem(o))}`);
     }
     l.push(linha);
     l.push(dataHoraNoFuso());
@@ -1198,15 +1200,15 @@ export class ProducaoPedidoService {
     if (on('mostrarItens')) {
       for (const it of dados.itens) {
         const sub = Number(it.precoUnitario) * Number(it.quantidade);
-        l.push(`${Number(it.quantidade)}x ${it.descricao}`);
-        if (it.complementosTexto && on('mostrarComplementos')) l.push(`   ${it.complementosTexto}`);
+        l.push(`${Number(it.quantidade)}x ${textoNaVia(it.descricao)}`);
+        if (it.complementosTexto && on('mostrarComplementos')) l.push(`   ${textoNaVia(it.complementosTexto)}`);
         if (on('mostrarValoresItem')) l.push(`   ${money(sub)}`);
       }
       l.push(linha);
     }
     if (on('mostrarTotal')) l.push(`TOTAL: ${money(dados.total)}`);
     if (dados.forma && on('mostrarPagamento')) l.push(`Pagamento: ${dados.forma}`);
-    if (dados.atendente && on('mostrarAtendente')) l.push(`Atendente: ${dados.atendente}`);
+    if (dados.atendente && on('mostrarAtendente')) l.push(`Atendente: ${textoNaVia(dados.atendente)}`);
     if (on('mostrarData')) l.push(dataHoraNoFuso());
     if (typeof L.rodape === 'string' && L.rodape.trim()) {
       l.push(linha);
@@ -1253,7 +1255,7 @@ export class ProducaoPedidoService {
       // Pedido de canal não é "venda balcão" (a via do delivery saía assim): diz o tipo, se o perfil já não o mostra.
       vendaBalcao: () => (!dados.tipoPedido ? ['Venda balcao'] : mostra('tipoPedido') ? [] : [String(dados.tipoPedido)]),
       tipoPedido: () => (dados.tipoPedido ? [String(dados.tipoPedido)] : []),
-      operador: () => (dados.operador ? [`Operador: ${dados.operador}`] : []),
+      operador: () => (dados.operador ? [`Operador: ${textoNaVia(dados.operador)}`] : []),
       // itens é tratado à parte no loop (estilo por linha: nome/complemento/obs/valor).
       subtotal: () => (dados.subtotal != null ? [`Subtotal: ${money(dados.subtotal)}`] : []),
       desconto: () => (dados.desconto ? [`Desconto: -${money(dados.desconto)}`] : []),
@@ -1271,25 +1273,27 @@ export class ProducaoPedidoService {
           ? [`Troco para ${money(dados.troco)}`, ...(dados.trocoLevar ? [`LEVAR TROCO: ${money(dados.trocoLevar)}`] : [])]
           : [],
       avisoFiscal: () => (dados.fiscal ? [] : ['Este documento nao tem valor fiscal']),
-      plataforma: () => (dados.plataforma ? [String(dados.plataforma)] : []),
+      plataforma: () => (dados.plataforma ? [textoNaVia(dados.plataforma)] : []),
       // "PEDIDO #10" — o número do painel do delivery (pedido do dono, 28/10/2026: é por ele que se procura o pedido).
       pedidoRegem: () => {
         const t = linhaDoPedido(dados.pedidoRegem);
         return t ? [t] : [];
       },
       // Produção (Fase 3b): mesa/balcão, origem e sub-PDV emissor.
-      mesa: () => [dados.mesa ? `MESA ${dados.mesa}` : 'BALCAO'],
-      emitidoDe: () => (dados.emitidoDe ? [`Emitido: ${dados.emitidoDe}`] : []),
-      origemPedido: () => (dados.origemPedido ? [String(dados.origemPedido)] : []),
-      cliente: () => (dados.cliente ? [String(dados.cliente)] : []),
-      endereco: () => (dados.endereco ? String(dados.endereco).split('\n') : []),
+      mesa: () => [dados.mesa ? `MESA ${textoNaVia(dados.mesa)}` : 'BALCAO'],
+      emitidoDe: () => (dados.emitidoDe ? [`Emitido: ${textoNaVia(dados.emitidoDe)}`] : []),
+      origemPedido: () => (dados.origemPedido ? [textoNaVia(dados.origemPedido)] : []),
+      // Texto do cliente (ERR-334): nunca vira comando da impressora. O endereço vem em linhas (rua, bairro, referência):
+      // cada uma limpa — a quebra que o cliente pôs na referência não abre linha nova.
+      cliente: () => (dados.cliente ? [textoNaVia(dados.cliente)] : []),
+      endereco: () => (dados.endereco ? String(dados.endereco).split('\n').map(textoNaVia).filter(Boolean) : []),
       // A observação GERAL do pedido (mig 346): uma linha, já limpa ao gravar; o "OBS:" na frente também impede que o
       // texto do cliente comece a linha (a impressora lê marcas no começo da linha).
       observacao: () => {
         const t = textoDaObservacao(dados.observacao);
         return t ? [`OBS: ${t}`] : [];
       },
-      telefone: () => (dados.telefone ? [String(dados.telefone)] : []),
+      telefone: () => (dados.telefone ? [textoNaVia(dados.telefone)] : []),
       taxaEntrega: () => (dados.taxaEntrega != null ? [`Entrega: ${money(dados.taxaEntrega)}`] : []),
       // Pago online: o entregador não cobra nada — "COBRAR R$ 0,00" parecia defeito.
       cobrarCliente: () =>
@@ -1303,9 +1307,9 @@ export class ProducaoPedidoService {
       // Movimentos de caixa (Fase 3 — sangria/suprimento/fechamento)
       tipoMovimento: () => (dados.tipoMovimento ? [String(dados.tipoMovimento)] : []),
       valorMovimento: () => (dados.valorMovimento != null ? [`Valor: ${money(dados.valorMovimento)}`] : []),
-      motivo: () => (dados.motivo ? [`Motivo: ${dados.motivo}`] : []),
-      autorizadoPor: () => (dados.autorizadoPor ? [`Autorizado por: ${dados.autorizadoPor}`] : []),
-      atendente: () => (dados.atendente ? [`Atendente: ${dados.atendente}`] : []),
+      motivo: () => (dados.motivo ? [`Motivo: ${textoNaVia(dados.motivo)}`] : []),
+      autorizadoPor: () => (dados.autorizadoPor ? [`Autorizado por: ${textoNaVia(dados.autorizadoPor)}`] : []),
+      atendente: () => (dados.atendente ? [`Atendente: ${textoNaVia(dados.atendente)}`] : []),
       // Cancelamento: o que a pessoa escolheu para os insumos já gastos (mig 128).
       destinoInsumos: () =>
         dados.reaproveitado == null
@@ -1354,17 +1358,17 @@ export class ProducaoPedidoService {
         for (const it of dados.itens ?? []) {
           // Os adicionais numa linha própria, no estilo deles; os itens do combo logo abaixo do combo.
           const { descricao, escolhas } = itemNaVia(it);
-          put(fNome, `${Number(it.quantidade)}x ${descricao}`);
-          for (const c of Array.isArray(it.combo) ? it.combo : []) put(fComp, `   - ${c}`);
+          put(fNome, `${Number(it.quantidade)}x ${textoNaVia(descricao)}`);
+          for (const c of Array.isArray(it.combo) ? it.combo : []) put(fComp, `   - ${textoNaVia(c)}`);
           // Uma escolha por linha (pedido do dono, 28/10/2026): no combo, a batata e a bebida cada uma na sua.
-          for (const e of linhasDasEscolhas(escolhas)) put(fComp, `   ${e}`);
-          if (it.observacao) put(fObs, `   OBS: ${it.observacao}`);
+          for (const e of linhasDasEscolhas(escolhas)) put(fComp, `   ${textoNaVia(e)}`);
+          if (it.observacao) put(fObs, `   OBS: ${textoNaVia(it.observacao)}`);
           if (dados.mostrarValoresItem) put(fNome, `   ${money(Number(it.precoUnitario) * Number(it.quantidade))}`);
         }
         if (outros.length) {
           const fOutro = flagStr(c.alinhamento, false, true, 1);
           put(fOutro, TITULO_OUTROS_ITENS);
-          for (const o of outros) put(fOutro, linhaDoOutroItem(o));
+          for (const o of outros) put(fOutro, textoNaVia(linhaDoOutroItem(o)));
         }
         out.push(sep);
         prev = null;
@@ -1407,9 +1411,9 @@ export class ProducaoPedidoService {
     const l: string[] = ['*** COLAR NO PRODUTO ***'];
     if (ctx.senha) l.push(`>>> SENHA ${rotuloSenha(ctx.senha, ctx.senhaPrefixo)} <<<`);
     else if (numero) l.push(`>>> #${numero} <<<`);
-    l.push(`${Number(it.quantidade)}x ${it.descricao}`);
-    if (it.complementosTexto) l.push(String(it.complementosTexto));
-    if (it.observacao) l.push(`OBS: ${it.observacao}`);
+    l.push(`${Number(it.quantidade)}x ${textoNaVia(it.descricao)}`);
+    if (it.complementosTexto) l.push(textoNaVia(it.complementosTexto));
+    if (it.observacao) l.push(`OBS: ${textoNaVia(it.observacao)}`);
     return l.join('\n');
   }
 
