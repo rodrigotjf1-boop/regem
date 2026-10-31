@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **`.zip` — aceitar o cancelamento pelo chamado pergunta o destino dos insumos (ERR-339, 31/10):** o "Aceitar
+  cancelamento" do sino 🔔 (Delivery) passa a perguntar o motivo e, no pedido já aceito, "O que aconteceu com os
+  insumos?" (reutilizados × perda, com a perda por item) — antes gravava "reutilizados" fixo e ainda escondia o
+  "Registrar perda". Na loja, o chamado é resolvido no servidor local (tela e rota `atendimento`): só vale lá com o
+  `.zip`. Sem migration; não pede `.exe`.
 - **Pedido cancelado sai do roteiro do entregador (ERR-338, 31/10): sem efeito na loja — nada a empacotar por isto.** O
   cancelado ficava como parada pendente que não finalizava, e a saída nunca fechava (o entregador ficava preso, sem o
   botão da fila). Agora o roteiro tira o cancelado e fecha sozinho quando nada pende — também quando o cancelamento chega
