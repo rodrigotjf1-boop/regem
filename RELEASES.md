@@ -39,6 +39,10 @@
 - **Sem efeito na loja — o pedido pelo WhatsApp (robô F3/F4, 30/10; mig 344 só nuvem):** o robô monta e registra o
   pedido na conversa. Tudo é da nuvem (rotas `publico/bot/pedido*`, o carrinho e o resumo por escrito); o pedido entra
   pelo mesmo caminho do cardápio online e desce para a loja pelo sync de sempre. Não pede `.zip` nem `.exe`.
+- **Sem efeito na loja — robô F5 (31/10; mig 345 só nuvem, ERR-332/333):** a condução do pedido, o resumo para conferir
+  com botões, a foto do produto, as listas de opções e o código de entrega pela API oficial rodam na NUVEM. No servidor
+  da loja muda só código que não roda lá (o código de entrega da loja continua indo à nuvem; a marca do "aviso
+  automático" no `notificarN8n` não tem efeito sem a API oficial). Entra no próximo `.zip` por ser backend, sem pedir um.
 
 - **`.zip` — a tela de atualização não fica mais presa (ERR-322):** um status de atualização que parou sem terminar
   (de uma versão antiga, PC desligado no meio) vai para a tela como "a última tentativa parou sem terminar" e libera

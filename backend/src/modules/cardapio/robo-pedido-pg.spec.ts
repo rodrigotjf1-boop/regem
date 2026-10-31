@@ -15,17 +15,18 @@ import { RoboPedidoService } from './robo-pedido.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// O PEDIDO PELO WHATSAPP DE PONTA A PONTA contra o Postgres real (Fase 5, F3/F4 — mig 344): a conversa monta o pedido no
-// carrinho do Regem (item pelo nome, adicional, etapa obrigatória, bairro da lista, fora da área, referência, mínimo,
-// pagamento do cardápio, troco), registra pelo MESMO caminho do cardápio online (`receberPedido`) e manda o resumo por
-// escrito. A 344 é só da nuvem: o banco do CI é o de uma loja, então o teste aplica o arquivo (duas vezes: idempotente).
-// A entrada do pedido (`DeliveryService.ingest`) é trocada por uma gravação simples — ela é a de sempre, não muda aqui.
+// O PEDIDO PELO WHATSAPP DE PONTA A PONTA contra o Postgres real (Fase 5, F3/F4 — mig 344; F5 — mig 345): a conversa
+// monta o pedido no carrinho do Regem conduzida pelo `proximo` (escolha obrigatória → adicionais e observação do item →
+// "mais alguma coisa?" → entrega → referência → nome → pagamento → troco), o Regem manda o RESUMO PARA CONFERIR com os
+// botões, e o "Pode registrar" registra pelo MESMO caminho do cardápio online (`receberPedido`) — sem a IA carregar a
+// versão. As 344/345 são só da nuvem: o banco do CI é o de uma loja, então o teste aplica os arquivos (duas vezes:
+// idempotentes). A entrada do pedido (`DeliveryService.ingest`) é trocada por uma gravação simples.
 const URL_PG = process.env.TEST_PG_URL;
 const descrever = URL_PG ? describe : describe.skip;
 if (!URL_PG) console.warn('robo-pedido-pg.spec: sem TEST_PG_URL — PULADO');
 jest.setTimeout(120_000);
 
-const MIGRATION = join(__dirname, '../../../../database/migrations/344_robo_carrinho.sql');
+const MIGRATIONS = ['344_robo_carrinho.sql', '345_robo_carrinho_conducao.sql'].map((m) => join(__dirname, '../../../../database/migrations', m));
 const SENHA = 'senha-do-robo-de-teste';
 const CELULAR = '5521987654321';
 
@@ -57,18 +58,25 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     aceitar: async (_t: string, _u: any, id: string) => q(`update pedido_externo set status = 'confirmado' where id = $1`, [id]),
   } as any;
   const cardapio = new CardapioService(db, vendas, delivery, {} as any, {} as any, {} as any, eventos, {} as any);
-  const enviados: { para: string; texto: string }[] = [];
+  // Os envios: a Evolution (o QR — opções em menu numerado) e a API oficial (texto e botões).
+  const enviados: { para: string; texto: string; opcoes?: string[] }[] = [];
   const whats = { enviar: async (_t: string, para: string, texto: string) => void enviados.push({ para, texto }) } as any;
-  const robo = new RoboPedidoService(db, cardapio, whats, whats);
+  const oficial = {
+    enviarTexto: async (_t: string, para: string, texto: string) => void enviados.push({ para, texto }),
+    enviarOpcoes: async (_t: string, para: string, texto: string, ops: any[]) => void enviados.push({ para, texto, opcoes: ops.map((o) => o.titulo) }),
+  } as any;
+  const robo = new RoboPedidoService(db, cardapio, whats, oficial);
   const empresas: string[] = [];
   const antes = { segredo: process.env.BOT_RESOLVER_SECRET, edge: process.env.EDGE_MODE, cliente: process.env.CLIENTE_TOKEN_SECRET };
 
-  async function aplicarMigration() {
+  async function aplicarMigrations() {
     const c = await pool.connect();
     try {
-      await c.query('begin');
-      await c.query(readFileSync(MIGRATION, 'utf8'));
-      await c.query('commit');
+      for (const m of MIGRATIONS) {
+        await c.query('begin');
+        await c.query(readFileSync(m, 'utf8'));
+        await c.query('commit');
+      }
     } catch (e) {
       await c.query('rollback').catch(() => {});
       throw e;
@@ -82,8 +90,8 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     // O pedido do cardápio assina o token do cliente no fim (o CI não tem JWT_SECRET).
     if (!process.env.JWT_SECRET && !antes.cliente) process.env.CLIENTE_TOKEN_SECRET = `teste-${randomUUID()}`;
     delete process.env.EDGE_MODE; // como NUVEM
-    await aplicarMigration();
-    await aplicarMigration(); // idempotente
+    await aplicarMigrations();
+    await aplicarMigrations(); // idempotentes
     // A nuvem pergunta se a loja tem servidor ligado (tabelas só da nuvem): sem linha, não tem.
     for (const t of ['edge_status', 'edge_heartbeat'])
       await pool
@@ -91,6 +99,9 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
         .catch((e: any) => {
           if (!['23505', '42P07'].includes(e?.code)) throw e;
         });
+  });
+  beforeEach(() => {
+    enviados.length = 0;
   });
   afterAll(async () => {
     if (antes.segredo === undefined) delete process.env.BOT_RESOLVER_SECRET;
@@ -109,30 +120,32 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
   });
 
   // ── a loja de teste: X-Bacon (R$ 25,90; adicional Bacon extra +R$ 4), Trio X-Bacon (R$ 34,90; refri obrigatório),
-  //    Coca lata (R$ 6). Entrega por bairro (Centro R$ 5), retirada, mínimo R$ 20, Pix online e "pagar na entrega".
-  async function loja() {
+  //    Coca lata (R$ 6, em Bebidas). Entrega por bairro (Centro R$ 5), retirada, mínimo R$ 20, Pix online e "pagar na
+  //    entrega". `provedor` = a via do WhatsApp da loja (Evolution: menu numerado; oficial: botões).
+  async function loja(provedor: 'evolution' | 'cloud' = 'evolution') {
     const t = (await q(`insert into empresa (nome) values ('teste pedido pelo whatsapp') returning id`))[0].id as string;
     empresas.push(t);
     const u = (await q(`insert into unidade (tenant_id, nome) values ($1,'Loja de teste') returning id`, [t]))[0].id as string;
     const cat = (await q(`insert into categoria_produto (tenant_id, nome) values ($1,'Lanches') returning id`, [t]))[0].id as string;
+    const bebidas = (await q(`insert into categoria_produto (tenant_id, nome) values ($1,'Bebidas') returning id`, [t]))[0].id as string;
     const token = `tk-${randomUUID()}`;
     const instancia = `inst-${randomUUID().slice(0, 8)}`;
     await q(
       `insert into cardapio_config (tenant_id, unidade_id, token, ativo, aberto, modo, tipo_delivery, tipo_retirada, area_modo, pedido_minimo, pagamentos,
-         evolution_instancia, tempo_entrega_min)
-       values ($1,$2,$3,true,true,'retirada',true,true,'bairro',20,'["pix","entrega"]'::jsonb,$4,40)`,
-      [t, u, token, instancia],
+         evolution_instancia, tempo_entrega_min, provedor)
+       values ($1,$2,$3,true,true,'retirada',true,true,'bairro',20,'["pix","entrega"]'::jsonb,$4,40,$5)`,
+      [t, u, token, instancia, provedor],
     );
     await q(`insert into cardapio_bairro (tenant_id, unidade_id, nome, taxa) values ($1,$2,'Centro',5)`, [t, u]);
-    const produto = async (nome: string, preco: number) =>
+    const produto = async (nome: string, preco: number, categoria = cat) =>
       (await q(
         `insert into produto (tenant_id, nome, categoria_id, preco_venda, vai_para_producao, controla_estoque, disponivel_cardapio)
          values ($1,$2,$3,$4,false,false,true) returning id`,
-        [t, nome, cat, preco],
+        [t, nome, categoria, preco],
       ))[0].id as string;
     const xbacon = await produto('X-Bacon', 25.9);
     const trio = await produto('Trio X-Bacon', 34.9);
-    await produto('Coca lata', 6);
+    await produto('Coca lata', 6, bebidas);
     const opcao = async (nome: string, codigoPdv: string | null = null) => ((await produtos.criarOpcaoCatalogo(t, { nome, codigoPdv })) as any).id as string;
     const adic: any = await produtos.criarComplemento(t, {
       nome: 'Adicionais', regra: 'varias_com_repeticao', max: 3, itens: [{ opcaoId: await opcao('Bacon extra', 'A1'), preco: 4 }],
@@ -148,85 +161,138 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     return { t, u, token, instancia, ctx, conversa };
   }
 
-  it('de ponta a ponta: monta, confere cada passo, registra pelo caminho do cardápio e manda o resumo', async () => {
+  const campo = (r: any) => r?.pedido?.proximo?.campo;
+
+  it('de ponta a ponta: o Regem conduz, manda o resumo para conferir e o "Pode registrar" registra sem a IA carregar a versão', async () => {
     const l = await loja();
     const c = await l.ctx();
     const visto: any = await robo.ver(c);
     expect(visto.cliente).toMatchObject({ conhecido: false, nome: null });
     expect(visto.enderecosSalvos).toEqual([]);
-    expect(visto.pedido.falta[0].campo).toBe('itens');
+    expect(visto.pedido.proximo.campo).toBe('itens');
 
-    // Itens pelo nome; adicional com o preço do cardápio; o trio pede o refri.
+    // X-Bacon já com o adicional: os extras dele não se perguntam de novo.
     let r: any = await robo.mexerNosItens(c, { acao: 'adicionar', produto: 'xbacon', adicionais: ['bacon'] });
     expect(r.ok).toBe(true);
     expect(r.pedido.itens[0]).toMatchObject({ linha: 1, quantidade: 1, item: 'X-Bacon (Bacon extra)', total: 'R$ 29,90' });
+    expect(campo(r)).toBe('mais_algo');
+    // O trio pede o refri — com TODAS as opções e como responder.
     r = await robo.mexerNosItens(c, { acao: 'adicionar', produto: 'trio x-bacon' });
-    expect(r.pedido.itens[1].faltaEscolher[0]).toMatch(/^Escolha o refri \(Coca-Cola, Guaraná\)/);
+    expect(r.pedido.proximo).toMatchObject({ campo: 'linha 2', linha: 2, opcoes: ['Coca-Cola', 'Guaraná'] });
     expect(r.pedido.podeRegistrar).toBe(false);
-    r = await robo.mexerNosItens(c, { acao: 'alterar', linha: 2, adicionais: ['guaraná'] });
-    expect(r.pedido.itens[1]).toMatchObject({ item: 'Trio X-Bacon (Guaraná)', total: 'R$ 34,90', faltaEscolher: [] });
+    // O erro do teste do dono: a escolha chega como um novo "adicionar" do trio → COMPLETA o trio, não cria outro.
+    r = await robo.mexerNosItens(c, { acao: 'adicionar', produto: 'Trio X-Bacon', adicionais: 'Guaraná' });
+    expect(r.pedido.itens).toHaveLength(2);
+    expect(r.pedido.itens[1]).toMatchObject({ linha: 2, item: 'Trio X-Bacon (Guaraná)', total: 'R$ 34,90', faltaEscolher: [] });
+    // Agora os extras do trio (é lanche): adicional (não tem) ou observação; "Não, obrigado" conclui.
+    expect(r.pedido.proximo).toMatchObject({ campo: 'extras 2', opcoes: ['Pôr observação', 'Não, obrigado'] });
+    r = await robo.mexerNosItens(c, { acao: 'concluir' });
+    // "Mais alguma coisa?" com a bebida? O trio já tem refri → sem sugestão de bebida (nem sobremesa/porção na loja).
+    expect(r.pedido.proximo).toMatchObject({ campo: 'mais_algo', opcoes: ['Não, só isso'] });
     r = await robo.mexerNosItens(c, { acao: 'adicionar', produto: 'pizza' });
     expect(r).toMatchObject({ ok: false, motivo: 'produto_nao_encontrado' });
-    expect(r.pedido.itens).toHaveLength(2);
+    r = await robo.mexerNosItens(c, { acao: 'fechar' });
+    // Cliente novo, sem endereço salvo: entrega ou retirada.
+    expect(r.pedido.proximo).toMatchObject({ campo: 'tipo', opcoes: ['Entrega', 'Retirar na loja'] });
 
-    // Bairro fora da lista: "não cobre a região" (e a retirada como saída); depois o Centro, com a taxa e a referência.
+    // Bairro fora da lista: "não cobre a região" (e a retirada como saída); depois o Centro, com a taxa e o complemento.
     r = await robo.definirEntrega(c, { tipo: 'entrega', rua: 'Rua A', numero: '10', bairro: 'Barra da Tijuca' });
     expect(r).toMatchObject({ ok: false, motivo: 'fora_da_area', mensagem: 'Infelizmente nosso delivery não cobre a região.', alternativa: 'O cliente pode retirar na loja.' });
     r = await robo.definirEntrega(c, { tipo: 'entrega', rua: 'Rua A', numero: '10', bairro: 'centro' });
     expect(r.pedido.entrega).toMatchObject({ tipo: 'entrega', endereco: 'Rua A, 10 · Centro', taxa: 'R$ 5,00', foraDaArea: false });
     expect(r.pedido.falta.map((f: any) => f.campo)).toEqual(['referencia', 'nome', 'pagamento']);
-    r = await robo.definirEntrega(c, { referencia: 'portão azul' });
-    expect(r.pedido.entrega.endereco).toBe('Rua A, 10 · Centro · ref: portão azul');
+    r = await robo.definirEntrega(c, { referencia: 'casa 2, portão azul' });
+    expect(r.pedido.entrega.endereco).toBe('Rua A, 10 · Centro · ref: casa 2, portão azul');
     expect(r.pedido.total).toBe('R$ 69,80');
 
-    // Pagamento: Pix online só pelo link; dinheiro pede o troco; troco menor que o total não vale.
+    // Pagamento: Pix online só pelo link; "Dinheiro" com "sem troco" que a IA marcou SOZINHA não vale (o teste do dono);
+    // só o troco chega depois, sem repetir a forma; troco menor que o total não vale.
     r = await robo.definirPagamento(c, { forma: 'pix' });
     expect(r).toMatchObject({ ok: false, motivo: 'so_pelo_link' });
-    r = await robo.definirPagamento(c, { forma: 'dinheiro' });
+    r = await robo.definirPagamento(c, { forma: 'Dinheiro', semTroco: true });
     expect(r.pedido.falta.map((f: any) => f.campo)).toEqual(['nome', 'troco']);
-    r = await robo.definirPagamento(c, { forma: 'dinheiro', troco: '50' });
+    r = await robo.definirPagamento(c, { troco: '50' });
     expect(r.pedido.avisos).toContain('O troco para R$ 50,00 não cobre o total de R$ 69,80: pergunte de novo.');
     expect(r.pedido.falta.map((f: any) => f.campo)).toContain('troco');
-    r = await robo.definirPagamento(c, { forma: 'dinheiro', troco: 'R$ 100,00' });
     r = await robo.definirNome(c, { nome: 'Ana Maria' });
-    expect(r.pedido).toMatchObject({ podeRegistrar: true, falta: [], nome: 'Ana Maria', pagamento: { troco: 'troco para R$ 100,00' } });
+    expect(r.pedido.proximo).toMatchObject({ campo: 'troco', opcoes: ['R$ 100', 'R$ 150', 'Não preciso de troco'] });
+    expect(enviados).toHaveLength(0);
+    r = await robo.definirPagamento(c, { troco: 'R$ 100,00' });
 
-    // Registrar: só a versão do resumo; o pedido entra pelo caminho do cardápio, com o total do resumo.
-    const versao = r.pedido.versao;
-    expect((await robo.registrar(c, { versao: versao - 1 })) as any).toMatchObject({ ok: false, motivo: 'versao' });
-    const reg: any = await robo.registrar(c, { versao });
+    // Completo: o Regem MANDA o resumo para conferir (aqui pela Evolution: menu numerado) e marca a versão vista.
+    expect(r.pedido).toMatchObject({ podeRegistrar: true, falta: [], nome: 'Ana Maria', resumoEnviado: true, pagamento: { forma: 'Dinheiro (pago na entrega)', troco: 'troco para R$ 100,00' } });
+    expect(r.pedido.proximo.campo).toBe('confirmar');
+    expect(r.pedido.proximo.pergunta).toContain('JÁ FOI ENVIADO');
+    expect(enviados).toHaveLength(1);
+    for (const pedaco of ['🧾 *Confere o seu pedido:*', '*1x X-Bacon* — R$ 29,90', '   + Guaraná', 'Ref.: casa 2, portão azul', '*troco de R$ 30,20*', '1) Pode registrar', '2) Pôr observação', '3) Quero mudar algo'])
+      expect(enviados[0].texto).toContain(pedaco);
+    const [car] = await q(`select versao, resumo_versao, itens_fechados from robo_carrinho where tenant_id = $1 and status = 'aberto'`, [l.t]);
+    expect(car.resumo_versao).toBe(car.versao);
+    expect(car.itens_fechados).toBe(true);
+
+    // A IA repete a mesma chamada: nada muda, a versão fica e o resumo não sai de novo.
+    r = await robo.definirPagamento(c, { forma: 'Dinheiro', troco: '100' });
+    expect(r.pedido.versao).toBe(car.versao);
+    expect(enviados).toHaveLength(1);
+
+    // "Pôr observação": a observação do pedido muda a versão e o Regem manda o resumo de novo, com ela.
+    r = await robo.mexerNosItens(c, { acao: 'observacao_do_pedido', observacao: 'interfone ruim, ligar ao chegar' });
+    expect(r.pedido.observacao).toBe('interfone ruim, ligar ao chegar');
+    expect(enviados).toHaveLength(2);
+    expect(enviados[1].texto).toContain('📝 *Observação do pedido*\ninterfone ruim, ligar ao chegar');
+
+    // "Pode registrar": a versão que a IA manda não conta mais (no teste ela chutava "7") — vale a do resumo enviado.
+    const reg: any = await robo.registrar(c, { versao: 7 });
     expect(reg).toMatchObject({ ok: true, aceito: true, resumoEnviado: true, resumo: null });
     const [ped] = await q(`select * from pedido_externo where tenant_id = $1`, [l.t]);
     expect(Number(ped.total)).toBeCloseTo(69.8, 2);
-    expect(ped).toMatchObject({ tipo: 'entrega', canal: 'cardapio', forma_pagamento: 'entrega', endereco_rua: 'Rua A', endereco_bairro: 'Centro', endereco_referencia: 'portão azul', status: 'confirmado' });
+    expect(ped).toMatchObject({ tipo: 'entrega', canal: 'cardapio', forma_pagamento: 'entrega', endereco_rua: 'Rua A', endereco_bairro: 'Centro', endereco_referencia: 'casa 2, portão azul', status: 'confirmado' });
     expect(Number(ped.troco_para)).toBe(100);
     expect(ped.client_ref).toMatch(/^robo-whatsapp-/);
     expect(reg.numero).toBe(ped.display_id);
-    // O resumo saiu por escrito, para o telefone da conversa, com o número, os itens, o total, o pagamento e o troco.
-    expect(enviados).toHaveLength(1);
-    expect(enviados[0].para).toBe(CELULAR);
-    for (const pedaco of [`*Pedido nº ${ped.display_id} registrado!*`, '*1x X-Bacon* — R$ 29,90', '   + Bacon extra', '   + Guaraná', '💰 *Total: R$ 69,80*', 'Ref.: portão azul', '*troco de R$ 30,20*', 'aceito e já está em produção'])
-      expect(enviados[0].texto).toContain(pedaco);
+    // O resumo final por escrito, com o número, os itens, o total, o pagamento, o troco e a observação do pedido.
+    expect(enviados).toHaveLength(3);
+    expect(enviados[2].para).toBe(CELULAR);
+    for (const pedaco of [`*Pedido nº ${ped.display_id} registrado!*`, '*1x X-Bacon* — R$ 29,90', '   + Bacon extra', '   + Guaraná', '💰 *Total: R$ 69,80*', 'Dinheiro (pago na entrega)', '*troco de R$ 30,20*', '📝 *Observação do pedido*', 'aceito e já está em produção'])
+      expect(enviados[2].texto).toContain(pedaco);
     // O cliente ficou no cadastro com o número com o nono dígito, e o endereço novo foi guardado.
     const clientes = await q(`select id, nome, telefone from cliente where tenant_id = $1`, [l.t]);
     expect(clientes).toEqual([expect.objectContaining({ nome: 'Ana Maria', telefone: '21987654321' })]);
     expect(await q(`select logradouro, numero, bairro, referencia from cliente_endereco where tenant_id = $1`, [l.t])).toEqual([
-      { logradouro: 'Rua A', numero: '10', bairro: 'Centro', referencia: 'portão azul' },
+      { logradouro: 'Rua A', numero: '10', bairro: 'Centro', referencia: 'casa 2, portão azul' },
     ]);
     expect((await q(`select status from robo_carrinho where tenant_id = $1`, [l.t])).map((x: any) => x.status)).toEqual(['registrado']);
 
     // Registrar de novo não cria outro pedido; a próxima conversa já acha o cliente e o endereço salvo.
-    expect((await robo.registrar(c, { versao })) as any).toMatchObject({ ok: false, motivo: 'sem_pedido' });
+    expect((await robo.registrar(c, {})) as any).toMatchObject({ ok: false, motivo: 'sem_pedido' });
     expect(await q(`select count(*)::int as n from pedido_externo where tenant_id = $1`, [l.t])).toEqual([{ n: 1 }]);
     const depois: any = await robo.ver(c);
     expect(depois.cliente).toEqual({ conhecido: true, nome: 'Ana Maria' });
-    expect(depois.enderecosSalvos).toEqual([{ n: 1, endereco: 'Rua A, 10 · Centro · ref: portão azul' }]);
+    expect(depois.enderecosSalvos).toEqual([{ n: 1, endereco: 'Rua A, 10 · Centro · ref: casa 2, portão azul' }]);
+    expect(depois.ultimoEndereco).toBe(1);
     // O WhatsApp sem o nono dígito é o MESMO cliente (ERR-134).
     const sem9: any = await robo.ver(await l.ctx('552187654321'));
     expect(sem9.cliente).toEqual({ conhecido: true, nome: 'Ana Maria' });
   });
 
-  it('endereço salvo pelo número da lista; pedido mínimo; retirada sem endereço', async () => {
+  it('registrar sem o cliente ter recebido o resumo desta versão: o Regem manda agora e espera a confirmação', async () => {
+    const l = await loja();
+    const c = await l.ctx();
+    await robo.mexerNosItens(c, { acao: 'adicionar', produto: 'coca lata', quantidade: 4 });
+    await robo.mexerNosItens(c, { acao: 'fechar' });
+    await robo.definirEntrega(c, { tipo: 'retirada' });
+    await robo.definirNome(c, { nome: 'Caio' });
+    await robo.definirPagamento(c, { forma: 'Cartão na retirada' });
+    expect(enviados).toHaveLength(1); // o resumo saiu quando ficou completo
+    await q(`update robo_carrinho set resumo_versao = null where tenant_id = $1 and status = 'aberto'`, [l.t]); // como se não tivesse saído
+    const r: any = await robo.registrar(c, {});
+    expect(r).toMatchObject({ ok: false, motivo: 'conferir' });
+    expect(enviados).toHaveLength(2);
+    expect(await q(`select count(*)::int as n from pedido_externo where tenant_id = $1`, [l.t])).toEqual([{ n: 0 }]);
+    expect((await robo.registrar(c, {})) as any).toMatchObject({ ok: true });
+  });
+
+  it('o último endereço usado vem primeiro, com os outros e o "Cadastrar novo"; pedido mínimo; retirada com cartão', async () => {
     const l = await loja();
     const c = await l.ctx();
     const [cli] = await q(`insert into cliente (tenant_id, nome, telefone) values ($1,'Bruno','21987654321') returning id`, [l.t]);
@@ -235,16 +301,58 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
       `insert into cliente_endereco (tenant_id, cliente_id, logradouro, numero, bairro, bairro_id, complemento, principal) values ($1,$2,'Rua B','20','Centro',$3,'apto 101',true)`,
       [l.t, cli.id, bairro],
     );
-    await robo.mexerNosItens(c, { acao: 'adicionar', produto: 'coca lata' });
-    let r: any = await robo.definirEntrega(c, { tipo: 'entrega', endereco: 1 });
-    expect(r.pedido.entrega).toMatchObject({ endereco: 'Rua B, 20 · Centro · ref: apto 101', taxa: 'R$ 5,00' });
+    await q(
+      `insert into cliente_endereco (tenant_id, cliente_id, logradouro, numero, bairro, bairro_id, referencia, principal) values ($1,$2,'Rua C','30','Centro',$3,'casa azul',false)`,
+      [l.t, cli.id, bairro],
+    );
+    // O último pedido de entrega foi na Rua C (a 2ª da lista: a principal é a Rua B).
+    await q(
+      `insert into pedido_externo (tenant_id, canal, display_id, cliente_id, cliente_nome, tipo, endereco_rua, endereco_numero, itens, total, status)
+       values ($1,'cardapio','1',$2,'Bruno','entrega','Rua C','30','[]'::jsonb,10,'concluido')`,
+      [l.t, cli.id],
+    );
+    let r: any = await robo.mexerNosItens(c, { acao: 'adicionar', produto: 'coca lata' });
+    // Bebida não pede adicional nem observação; e já tem bebida: nada a sugerir nesta loja.
+    expect(r.pedido.proximo).toMatchObject({ campo: 'mais_algo', opcoes: ['Não, só isso'] });
+    r = await robo.mexerNosItens(c, { acao: 'fechar' });
+    expect(r.pedido.proximo).toMatchObject({ campo: 'endereco', opcoes: ['Sim, nesse', 'Outro endereço', 'Retirar na loja'] });
+    expect(r.pedido.proximo.pergunta).toContain('Rua C, 30');
+    expect(r.pedido.proximo.comoResponder).toContain('endereco = 2');
+    expect(r.pedido.enderecosParaEscolher).toEqual([
+      'Endereço 1 — Rua B, 20 · Centro · ref: apto 101',
+      'Endereço 2 — Rua C, 30 · Centro · ref: casa azul',
+      'Cadastrar novo endereço',
+    ]);
+    r = await robo.definirEntrega(c, { tipo: 'entrega', endereco: 2 });
+    expect(r.pedido.entrega).toMatchObject({ endereco: 'Rua C, 30 · Centro · ref: casa azul', taxa: 'R$ 5,00' });
     expect(r.pedido.nome).toBe('Bruno'); // do cadastro
     expect(r.pedido.falta.map((f: any) => f.campo)).toEqual(['minimo', 'pagamento']);
     expect(r.pedido.falta[0].pergunta).toBe('O pedido mínimo para entrega é R$ 20,00 em itens (faltam R$ 14,00).');
     r = await robo.definirEntrega(c, { tipo: 'retirada' });
     r = await robo.definirPagamento(c, { forma: 'cartão' });
-    expect(r.pedido).toMatchObject({ entrega: { tipo: 'retirada' }, falta: [], podeRegistrar: true, pagamento: { troco: 'sem troco' } });
+    expect(r.pedido).toMatchObject({ entrega: { tipo: 'retirada' }, falta: [], podeRegistrar: true, pagamento: { forma: 'Cartão na retirada (maquininha)', troco: null } });
     expect((await robo.definirEntrega(c, { tipo: 'entrega', endereco: 7 })) as any).toMatchObject({ ok: false, motivo: 'endereco' });
+  });
+
+  it('API oficial: o resumo para conferir vai com os 3 botões; o que passa do limite vai em texto + botões', async () => {
+    const l = await loja('cloud');
+    const c = await l.ctx();
+    await robo.mexerNosItens(c, { acao: 'adicionar', produto: 'coca lata', quantidade: 4 });
+    await robo.mexerNosItens(c, { acao: 'fechar' });
+    await robo.definirEntrega(c, { tipo: 'retirada' });
+    await robo.definirNome(c, { nome: 'Dani' });
+    await robo.definirPagamento(c, { forma: 'Dinheiro', troco: 'não preciso' });
+    expect(enviados).toHaveLength(1);
+    expect(enviados[0]).toMatchObject({ opcoes: ['Pode registrar', 'Pôr observação', 'Quero mudar algo'] });
+    expect(enviados[0].texto).toContain('Sem troco');
+    // Uma observação bem longa empurra o texto acima de 1000: o resumo vai em texto e os botões, logo depois.
+    await robo.mexerNosItens(c, { acao: 'observacao_do_pedido', observacao: 'x'.repeat(300) });
+    for (let i = 0; i < 12; i++) await robo.mexerNosItens(c, { acao: 'adicionar', produto: 'x-bacon', observacao: `lanche ${i} sem cebola e bem passado` });
+    await robo.mexerNosItens(c, { acao: 'fechar' });
+    const ultimos = enviados.slice(-2);
+    expect(ultimos[0].opcoes).toBeUndefined();
+    expect(ultimos[0].texto.length).toBeGreaterThan(1000);
+    expect(ultimos[1]).toMatchObject({ texto: 'Está tudo certo? 👇', opcoes: ['Pode registrar', 'Pôr observação', 'Quero mudar algo'] });
   });
 
   it('duas mensagens ao mesmo tempo: um carrinho só, com os dois itens', async () => {

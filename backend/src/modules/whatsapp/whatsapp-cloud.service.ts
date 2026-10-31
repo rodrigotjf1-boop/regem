@@ -4,6 +4,7 @@ import { ehServidorLocal } from '../../common/modo';
 import { and, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
 import { assinarConversa } from '../../common/conversa-do-robo';
+import { ecoDeAvisoAutomatico } from '../../common/avisos-automaticos';
 import { estadoDaPausa, pausaDaConversa, pausarPeloAtendente, pausasDaLojaOuVazio } from './robo-pausa';
 import { entregarJuntando } from './juntar-mensagens';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -119,16 +120,48 @@ export function cortar(s: string, max: number): string {
   return t.length <= max ? t : `${t.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
 }
 
-/** Opções sem título saem; o id que faltar vira "1", "2"… (a Meta pede id único por opção). */
+/** Corta numa palavra inteira (a linha da lista tem 24 letras): "Batata com cheddar e…". */
+export function cortarNaPalavra(s: string, max: number): string {
+  const t = String(s ?? '').trim();
+  if (t.length <= max) return t;
+  const parte = t.slice(0, max - 1);
+  const espaco = parte.lastIndexOf(' ');
+  return `${(espaco > max / 2 ? parte.slice(0, espaco) : parte).trimEnd()}…`;
+}
+
+/** O id de uma opção que guarda o título INTEIRO (o da lista é cortado em 24): a resposta volta com o nome todo. */
+export const PREFIXO_TITULO = 't:';
+
+/**
+ * Opções sem título saem; o id que faltar vira "1", "2"… (a Meta pede id único por opção). "Título — detalhe" (o formato
+ * que o Regem manda ao robô, F5) separa o detalhe na descrição da linha da lista ("Bacon" · "+R$ 3,50"). Título maior que
+ * a linha da lista: o id guarda o título inteiro, e a resposta do cliente volta com ele (`textoDe`).
+ */
 export function opcoesValidas(opcoes: { id?: string; titulo: string; descricao?: string }[]) {
   const ok = (Array.isArray(opcoes) ? opcoes : []).filter((o) => String(o?.titulo ?? '').trim());
   const vistos = new Set<string>();
   return ok.map((o, i) => {
-    let id = String(o.id ?? '').trim().slice(0, 200) || String(i + 1);
+    let titulo = String(o.titulo).trim();
+    let descricao = o.descricao ? String(o.descricao).trim() : undefined;
+    const partes = !descricao ? titulo.match(/^(.+?)\s+—\s+(.+)$/) : null;
+    if (partes) {
+      titulo = partes[1].trim();
+      descricao = partes[2].trim();
+    }
+    let id = String(o.id ?? '').trim().slice(0, 200) || (titulo.length > 24 ? `${PREFIXO_TITULO}${titulo}`.slice(0, 200) : String(i + 1));
     if (vistos.has(id)) id = `${id}-${i + 1}`;
     vistos.add(id);
-    return { id, titulo: String(o.titulo).trim(), descricao: o.descricao ? String(o.descricao).trim() : undefined };
+    return { id, titulo, descricao };
   });
+}
+
+/**
+ * Botões (até 3) só quando cabem INTEIROS: título de até 20 letras e nenhum preço que ficaria de fora. Senão, lista — no
+ * teste do dono, "Pagar na entrega (dinheiro ou maquininha)" chegava como "Pagar na entrega (d…" e o robô cortava as
+ * opções em 3 (os 7 refrigerantes viraram 3).
+ */
+export function cabeEmBotoes(ops: { titulo: string; descricao?: string }[]): boolean {
+  return ops.length <= 3 && ops.every((o) => o.titulo.length <= 20 && !/R\$/.test(o.descricao ?? ''));
 }
 
 // A mensagem do cliente como o robô (n8n) recebe — o MESMO formato nas duas vias (Fase 2 do robô): a API oficial
@@ -193,6 +226,10 @@ export class WhatsappCloudService {
   private textoDe(m: any): string {
     if (m?.text?.body) return String(m.text.body);
     if (m?.button?.text) return String(m.button.text);
+    // A opção da lista com o título cortado em 24 volta com o nome INTEIRO, que o id guarda (opcoesValidas).
+    const resposta = m?.interactive?.button_reply ?? m?.interactive?.list_reply;
+    const idDoTitulo = String(resposta?.id ?? '');
+    if (idDoTitulo.startsWith(PREFIXO_TITULO) && idDoTitulo.length > PREFIXO_TITULO.length) return idDoTitulo.slice(PREFIXO_TITULO.length);
     if (m?.interactive?.button_reply?.title) return String(m.interactive.button_reply.title);
     if (m?.interactive?.list_reply?.title) return String(m.interactive.list_reply.title);
     for (const k of ['image', 'video', 'document', 'audio']) {
@@ -352,6 +389,12 @@ export class WhatsappCloudService {
                 wamid: String(e?.id ?? '') || null,
                 status: 'sent',
               });
+              // O eco do aviso AUTOMÁTICO que o Regem acabou de pedir (código de entrega, status — que o n8n pode
+              // mandar pela Evolution) não é o dono assumindo: não pausa o robô (ERR-332).
+              if (ecoDeAvisoAutomatico(cfgE.tenantId, cliente)) {
+                this.logger.log(`coexistência: eco de aviso automático para ${mascarar(cliente)} — robô segue ligado.`);
+                continue;
+              }
               await this.pausarRoboConversa(cfgE.tenantId, cliente);
             }
           }
@@ -643,30 +686,29 @@ export class WhatsappCloudService {
     if (!ops.length || ops.length > 10) throw new BadRequestException('Mande de 1 a 10 opções.');
     const cfg = await this.cfgDoEnvio(tenantId);
     const texto = cortar(String(corpo ?? '').trim() || 'Escolha uma opção:', 1024);
-    const interactive =
-      ops.length <= 3
-        ? {
-            type: 'button',
-            body: { text: texto },
-            action: { buttons: ops.map((o) => ({ type: 'reply', reply: { id: o.id, title: cortar(o.titulo, 20) } })) },
-          }
-        : {
-            type: 'list',
-            body: { text: texto },
-            action: {
-              button: cortar(botaoLista || 'Ver opções', 20),
-              sections: [
-                {
-                  title: cortar('Opções', 24),
-                  rows: ops.map((o) => ({
-                    id: o.id,
-                    title: cortar(o.titulo, 24),
-                    ...(o.descricao ? { description: cortar(o.descricao, 72) } : {}),
-                  })),
-                },
-              ],
-            },
-          };
+    const interactive = cabeEmBotoes(ops)
+      ? {
+          type: 'button',
+          body: { text: texto },
+          action: { buttons: ops.map((o) => ({ type: 'reply', reply: { id: o.id, title: cortar(o.titulo, 20) } })) },
+        }
+      : {
+          type: 'list',
+          body: { text: texto },
+          action: {
+            button: cortar(botaoLista || 'Ver opções', 20),
+            sections: [
+              {
+                title: cortar('Opções', 24),
+                rows: ops.map((o) => {
+                  // Título maior que a linha: o nome inteiro vai na descrição (e no id, para a resposta).
+                  const descricao = o.descricao ?? (o.titulo.length > 24 ? o.titulo : undefined);
+                  return { id: o.id, title: cortarNaPalavra(o.titulo, 24), ...(descricao ? { description: cortar(descricao, 72) } : {}) };
+                }),
+              },
+            ],
+          },
+        };
     const r = await this.postarMensagem(cfg.waCloudPhoneId!, { to: para, type: 'interactive', interactive });
     await this.gravar({
       tenantId,
@@ -685,28 +727,42 @@ export class WhatsappCloudService {
    * apps grandes). O texto vai no corpo (até 1024) e o botão (até 20 caracteres) abre o endereço. Formato e limites pela
    * documentação da Meta ("Interactive CTA URL button messages"). Só na API oficial — a conexão por QR não tem botão.
    */
-  async enviarLink(tenantId: string, numero: string, corpo: string, url: string, rotulo = 'Ver cardápio') {
+  async enviarLink(tenantId: string, numero: string, corpo: string, url: string, rotulo = 'Ver cardápio', imagem?: string | null) {
     const para = soDigitos(numero);
     if (!para) throw new BadRequestException('Número inválido.');
     if (!/^https:\/\//i.test(String(url ?? ''))) throw new BadRequestException('Link inválido.');
     const cfg = await this.cfgDoEnvio(tenantId);
     const texto = cortar(String(corpo ?? '').trim() || 'Veja o nosso cardápio:', 1024);
-    const interactive = {
+    const botao = cortar(rotulo || 'Ver cardápio', 20);
+    // A FOTO do produto em cima (F5, pedido do dono: "sempre que falar de 1 produto"). Cabeçalho de imagem é aceito na
+    // mensagem de botão de link ("Interactive CTA URL button messages": header text, image, video ou document).
+    const montar = (comFoto: boolean) => ({
       type: 'cta_url',
+      ...(comFoto && imagem ? { header: { type: 'image', image: { link: imagem } } } : {}),
       body: { text: texto },
-      action: { name: 'cta_url', parameters: { display_text: cortar(rotulo || 'Ver cardápio', 20), url } },
-    };
-    const r = await this.postarMensagem(cfg.waCloudPhoneId!, { to: para, type: 'interactive', interactive });
+      action: { name: 'cta_url', parameters: { display_text: botao, url } },
+    });
+    let comFoto = !!imagem;
+    let r: { wamid: string | null; status: string };
+    try {
+      r = await this.postarMensagem(cfg.waCloudPhoneId!, { to: para, type: 'interactive', interactive: montar(comFoto) });
+    } catch (e: any) {
+      if (!comFoto) throw e;
+      // A Meta recusou a foto na hora: a mensagem vai sem ela (o cliente não fica sem a resposta).
+      this.logger.warn(`foto do produto recusada pela Meta (vai sem a foto): ${String(e?.message ?? e).slice(0, 160)}`);
+      comFoto = false;
+      r = await this.postarMensagem(cfg.waCloudPhoneId!, { to: para, type: 'interactive', interactive: montar(false) });
+    }
     await this.gravar({
       tenantId,
       telefone: para,
       direcao: 'saida',
       tipo: 'interactive',
-      texto: `${texto}\n[${cortar(rotulo || 'Ver cardápio', 20)}] ${url}`,
+      texto: `${comFoto ? '[foto] ' : ''}${texto}\n[${botao}] ${url}`,
       wamid: r.wamid,
       status: r.status,
     });
-    return { ok: true, id: r.wamid };
+    return { ok: true, id: r.wamid, comFoto };
   }
 
   /**

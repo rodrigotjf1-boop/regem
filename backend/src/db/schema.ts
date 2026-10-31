@@ -3765,6 +3765,10 @@ export const roboCarrinho = pgTable('robo_carrinho', {
   versao: integer('versao').notNull().default(0),
   status: text('status').notNull().default('aberto'), // aberto | registrado | cancelado
   pedidoId: uuid('pedido_id'),
+  // mig 345 (F5): a versão cujo resumo para conferir o cliente recebeu; "só isso" (itens fechados); a observação geral.
+  resumoVersao: integer('resumo_versao'),
+  itensFechados: boolean('itens_fechados').notNull().default(false),
+  observacao: text('observacao'),
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
 });

@@ -31,7 +31,7 @@ describe('instruções do robô', () => {
     expect(texto).toContain('mande o link DIRETO dele (o campo link da busca)');
     expect(texto).toContain('ofereça UMA vez, com o preço');
     expect(texto).toContain('diga os que levam (levam)');
-    expect(texto).toContain('com o preço do adicional (podeAdicionar)');
+    expect(texto).toContain('e os adicionais (podeAdicionar)');
     expect(texto).toContain('Nunca cite quantidades nem a receita');
     expect(texto).toContain('o link de produto que buscar_no_cardapio devolve');
     expect(texto).toContain('categoriasParaOferecer');
@@ -119,19 +119,21 @@ describe('instruções do robô — fluxo 2 (o pedido na conversa)', () => {
     expect(texto).toContain('tentou montar o pedido aqui e não deu certo');
   });
 
-  it('os passos do dono, na ordem: itens (só o sanduíche ou o trio), bebida/sobremesa uma vez, endereço, referência, nome, pagamento e troco, confirmar e registrar', () => {
+  it('F5: os passos do dono, na ordem — o sistema conduz (proximo): item, escolha, extras, "só isso", último endereço, complemento, pagamento, resumo do sistema, registrar', () => {
     const passos = [
       'MONTAR O PEDIDO AQUI',
+      'o SISTEMA CONDUZ',
+      'proximo.comoResponder',
       'pergunte antes se é só o sanduíche ou o trio',
-      'ofereça UMA bebida',
-      'com UM endereço salvo, confirme se é nele',
-      'com vários, pergunte qual',
+      'acao = escolher com a opção',
+      '"Não, obrigado" → acao = concluir',
+      '"Não, só isso" → acao = fechar',
+      'o último endereço que o cliente usou',
       'Infelizmente nosso delivery não cobre a região',
-      'um ponto de referência',
-      'pergunte o nome e use definir_nome',
-      'pergunte se precisa de troco e para quanto',
-      'pergunte se pode registrar',
-      'use registrar_pedido com a versao do pedido que você mostrou no resumo',
+      'Complemento e ponto de referência: sempre peça',
+      'Pagamento: as opções do proximo',
+      'o SISTEMA MANDA SOZINHO o resumo para conferir',
+      '"Pode registrar" (ou 1): registrar_pedido (não precisa de versão)',
     ];
     let ultimo = -1;
     for (const p of passos) {
@@ -141,10 +143,25 @@ describe('instruções do robô — fluxo 2 (o pedido na conversa)', () => {
     }
   });
 
-  it('o resumo completo sai por escrito pelo sistema: o robô não repete; em áudio, só itens e total', () => {
-    expect(texto).toContain('O sistema MANDA SOZINHO o resumo completo por escrito');
-    expect(texto).toContain('sem repetir o resumo');
-    expect(texto).toContain('Na conversa por áudio, diga só quantos itens são e o total');
+  it('F5 (teste do dono): não insiste em montar pelo chat; escolha não vira item novo; troco; endereço; foto; lista inteira', () => {
+    expect(texto).toContain('NÃO ofereça montar o pedido aqui pela conversa nas respostas sobre produto, preço ou cardápio');
+    expect(texto).toContain('Se o próprio cliente pedir para pedir por aqui');
+    expect(texto).toContain('NUNCA adicione o produto de novo para responder uma escolha');
+    expect(texto).toContain('nunca marque "sem troco" por conta própria');
+    expect(texto).toContain('Nunca escolha o endereço pelo cliente');
+    expect(texto).toContain('"Cadastrar novo endereço"');
+    expect(texto).toContain('Nunca diga que não consegue mandar foto');
+    expect(texto).toContain('Nunca corte a lista em dois ou três produtos');
+    expect(texto).toContain('com TODAS as opções, até 10');
+    expect(texto).not.toContain('(até 3, poucas palavras cada)');
+    expect(texto).toContain('comece com ver_pedido');
+  });
+
+  it('o resumo para conferir e o final saem pelo sistema: o robô não escreve outro nem põe botões; a observação do pedido', () => {
+    expect(texto).toContain('NÃO escreva outro resumo e NÃO ponha OPCOES nessa resposta');
+    expect(texto).toContain('O sistema manda o resumo final por escrito');
+    expect(texto).toContain('sem repetir');
+    expect(texto).toContain('acao = observacao_do_pedido');
     expect(texto).toContain('Nunca registre sem o cliente confirmar o resumo');
   });
 
@@ -159,7 +176,8 @@ describe('instruções do robô — fluxo 2 (o pedido na conversa)', () => {
       'consultar_loja', 'buscar_no_cardapio', 'taxa_de_entrega', 'pedidos_do_cliente', 'link_personalizado', 'chamar_atendente',
       'ver_pedido', 'mexer_no_pedido', 'definir_entrega', 'definir_nome', 'definir_pagamento', 'registrar_pedido', 'cancelar_pedido',
     ];
-    const motivos = ['fora_da_area']; // o motivo da recusa que o robô lê na resposta — não é ferramenta
+    // O motivo da recusa que o robô lê na resposta e a ação de mexer_no_pedido — não são ferramentas.
+    const motivos = ['fora_da_area', 'observacao_do_pedido'];
     for (const nome of citadas) if (!motivos.includes(nome)) expect(doFluxo2).toContain(nome);
     for (const nome of doFluxo2) expect(citadas.has(nome)).toBe(true);
     const listas = [...texto.matchAll(/OPCOES: ([^.\n]*)/g)].map((m) => m[1]);

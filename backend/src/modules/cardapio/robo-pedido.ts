@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { REGRA_COM_REPETICAO } from '../../common/adicionais';
-import { formas } from './robo-busca';
+import { GRUPOS, formas, palavrasDe } from './robo-busca';
 import { normalizar, reais } from './robo-consultas';
 
 // O PEDIDO MONTADO PELO ROBÔ (Fase 5, F3 — pedido do dono de 30/10/2026). As regras puras do carrinho que fica no Regem
@@ -9,6 +9,13 @@ import { normalizar, reais } from './robo-consultas';
 // e o que ainda falta para registrar — na ordem em que o robô pergunta.
 // Preço e taxa NÃO se calculam aqui: vêm das MESMAS contas do pedido do cardápio (`CardapioService`), para o resumo que o
 // cliente confirma ser exatamente o que vai ser gravado (V74).
+//
+// F5 (teste do dono no celular, 31/10/2026): o Regem CONDUZ a conversa (`conducaoDoPedido`). A cada passo ele diz ao
+// robô a próxima pergunta, as opções para o cliente tocar e como mandar a resposta — o robô deixou de decidir sozinho
+// (pulava o adicional e a observação, escolhia o endereço sem perguntar, marcava "sem troco" e criava um segundo trio).
+// A ordem é a que o dono descreveu: escolhas obrigatórias do item → adicionais e observação do item → "mais alguma
+// coisa?" (com a sugestão de bebida, sobremesa ou porção) → entrega no último endereço, outro ou retirada → complemento e
+// referência → nome → pagamento → dinheiro ou cartão → troco. Com tudo pronto, o Regem manda o resumo para conferir.
 
 export type Linha = {
   linha: number;
@@ -17,6 +24,8 @@ export type Linha = {
   complementos: string[];
   quantidade: number;
   observacao: string | null;
+  /** F5: o robô já ofereceu os adicionais e a observação deste item (ou o cliente já pediu com eles). */
+  extras?: boolean;
 };
 
 export type EntregaDoCarrinho =
@@ -36,7 +45,9 @@ export type EntregaDoCarrinho =
       enderecoId: string | null;
     };
 
-export type PagamentoDoCarrinho = { forma: string; trocoPara: number | null; semTroco: boolean };
+/** No "pagar na entrega" genérico: dinheiro (pede troco) ou cartão na maquininha (não pede). `null` = ainda não disse. */
+export type Meio = 'dinheiro' | 'cartao';
+export type PagamentoDoCarrinho = { forma: string; trocoPara: number | null; semTroco: boolean; meio?: Meio | null };
 
 export const MAX_LINHAS = 30;
 export const MAX_QUANTIDADE = 50;
@@ -45,9 +56,16 @@ const SEM_REFERENCIA = 'sem referência';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const compacto = (s: unknown) => normalizar(s).replace(/ /g, '');
 const texto = (v: unknown, max = 200) => String(v ?? '').trim().slice(0, max);
-/** Os nomes que vieram: lista, ou texto separado por vírgula ("bacon, cheddar" — como a ferramenta do n8n manda). */
+/**
+ * Os nomes que vieram: lista, ou texto separado por vírgula ("bacon, cheddar" — como a ferramenta do n8n manda). O
+ * detalhe das opções ("Bacon — +R$ 3,50", F5) sai antes: a vírgula do preço não pode partir o nome.
+ */
+const semDetalhe = (s: string) => s.replace(/\s+—\s+.*?(?=,\s*(?!\d)|;|$)/g, '');
 const nomesDe = (v: unknown): string[] =>
-  (Array.isArray(v) ? v : typeof v === 'string' ? v.split(/[,;]/) : v == null ? [] : [v]).map((n) => texto(n, 80)).filter(Boolean).slice(0, 30);
+  (Array.isArray(v) ? v.map((x) => semDetalhe(String(x ?? ''))) : typeof v === 'string' ? semDetalhe(v).split(/[,;]/) : v == null ? [] : [v])
+    .map((n) => texto(n, 80))
+    .filter(Boolean)
+    .slice(0, 30);
 
 /** Todas as palavras de `busca` aparecem no nome (palavra inteira, ou dentro do nome sem espaços: "xbacon"). */
 function casaPorPalavras(nome: unknown, busca: string): boolean {
@@ -172,6 +190,19 @@ export function montarEscolhas(
   return { complementos, naoAchei, passouDoLimite, faltaEscolher };
 }
 
+/** Algum dos nomes é ADICIONAL opcional do produto (não é escolha obrigatória nem "sem cebola")? O cliente já disse. */
+export function temAdicionalOpcional(produto: any, nomes: unknown): boolean {
+  const grupos: any[] = Array.isArray(produto?.grupos) ? produto.grupos : [];
+  return nomesDe(nomes).some((n) => opcaoPeloNome(grupos, n).some(({ g }) => !obrigatorio(g) && String(g?.tipo ?? '') !== 'remover'));
+}
+
+/** O nome casa com uma opção do produto (em qualquer etapa)? Para achar o item a que a escolha pertence. */
+export function temOpcao(produto: any, nome: unknown): boolean {
+  const grupos: any[] = Array.isArray(produto?.grupos) ? produto.grupos : [];
+  const n = texto(nome, 80);
+  return !!n && opcaoPeloNome(grupos, n).length > 0;
+}
+
 /** A opção do produto pelo nome (ou id): o igual primeiro, senão a única que tem as palavras. */
 function opcaoPeloNome(grupos: any[], nome: string): { g: any; o: any }[] {
   const q = compacto(nome);
@@ -238,16 +269,74 @@ export function alterarEscolhas(
 
 /** O que falta escolher numa linha já guardada (o produto pode ter mudado no cadastro depois). */
 export function faltaDaLinha(produto: any, l: Pick<Linha, 'variacaoId' | 'complementos'>): string[] {
-  const falta: string[] = [];
+  return escolhasQueFaltam(produto, l).map((e) => (e.versao ? `a versão (${e.nomes.join(', ')})` : `${e.grupo} (${e.nomes.slice(0, 12).join(', ')})`));
+}
+
+/** "Título — detalhe": o formato das opções que o robô põe na linha OPCOES (o Regem separa o detalhe na lista). */
+export const opcaoComDetalhe = (titulo: string, detalhe?: string | null) => (detalhe ? `${titulo} — ${detalhe}` : titulo);
+
+const detalheDoPreco = (o: any) => {
+  const d = Number(o?.precoDelta) || 0;
+  return d > 0 ? `+${reais(d)}` : null;
+};
+
+/**
+ * As etapas obrigatórias que faltam na linha, com as opções no formato da linha OPCOES ("Batata Frita - Grande —
+ * +R$ 5,00"), TODAS (o Regem mostra em lista até 10 e em menu numerado acima disso — no teste, o robô cortava em 3).
+ */
+export function escolhasQueFaltam(
+  produto: any,
+  l: Pick<Linha, 'variacaoId' | 'complementos'>,
+): { grupo: string; versao: boolean; nomes: string[]; opcoes: string[] }[] {
+  const r: { grupo: string; versao: boolean; nomes: string[]; opcoes: string[] }[] = [];
   const vs: any[] = Array.isArray(produto?.variacoes) ? produto.variacoes : [];
-  if (vs.length && !vs.some((v) => v.id === l.variacaoId)) falta.push(`a versão (${vs.map((v) => v.nome).join(', ')})`);
+  if (vs.length && !vs.some((v) => v.id === l.variacaoId))
+    r.push({ grupo: 'a versão', versao: true, nomes: vs.map((v) => String(v.nome)), opcoes: vs.slice(0, 25).map((v) => opcaoComDetalhe(String(v.nome), reais(v.precoVenda))) });
   for (const g of Array.isArray(produto?.grupos) ? produto.grupos : []) {
     const ids = new Set(opcoesDoGrupo(g).map((o) => o.id));
     const n = (l.complementos ?? []).filter((c) => ids.has(c)).length;
-    if (n < minimoDo(g)) falta.push(`${g.nome} (${opcoesDoGrupo(g).slice(0, 12).map((o) => o.nome).join(', ')})`);
+    if (n < minimoDo(g))
+      r.push({
+        grupo: String(g.nome),
+        versao: false,
+        nomes: opcoesDoGrupo(g).map((o) => String(o.nome)),
+        opcoes: opcoesDoGrupo(g).slice(0, 25).map((o) => opcaoComDetalhe(String(o.nome), detalheDoPreco(o))),
+      });
   }
-  return falta;
+  return r;
 }
+
+/**
+ * Os ADICIONAIS que dá para pôr no item (as etapas opcionais de acrescentar — "Sem cebola" é observação, não entra),
+ * com o preço, sem repetir nome; os que o item já tem ficam de fora (a etapa de uma escolha só troca, e o cliente pede
+ * "mais um bacon" escrevendo).
+ */
+export function adicionaisDoItem(produto: any, complementos: string[] = []): string[] {
+  const ja = new Set(complementos ?? []);
+  const vistos = new Set<string>();
+  const r: string[] = [];
+  for (const g of Array.isArray(produto?.grupos) ? produto.grupos : []) {
+    if (obrigatorio(g) || String(g?.tipo ?? '') === 'remover') continue;
+    for (const o of opcoesDoGrupo(g)) {
+      if (o?.informativa || ja.has(o.id)) continue;
+      const chave = compacto(o.nome);
+      if (!chave || vistos.has(chave)) continue;
+      vistos.add(chave);
+      r.push(opcaoComDetalhe(String(o.nome), detalheDoPreco(o) ?? 'sem custo'));
+    }
+  }
+  return r;
+}
+
+/** Lanche (sanduíche, trio, combo) pelo nome ou pela categoria: mesmo sem adicional, o robô oferece a observação. */
+export function ehLanche(produto: any, nomeDaCategoria?: string | null): boolean {
+  const ws = new Set([...palavrasDe(produto?.nome), ...palavrasDe(nomeDaCategoria)]);
+  if (['trio', 'combo', ...GRUPOS.sanduiche].some((w) => ws.has(w))) return true;
+  return /^x[a-z]/.test(compacto(produto?.nome)); // "X-Bacon", "Xsalada"
+}
+
+/** O item pede a pergunta dos extras (adicionais e observação)? Tem adicional para oferecer ou é lanche. */
+export const pedeExtras = (produto: any, nomeDaCategoria?: string | null) => adicionaisDoItem(produto).length > 0 || ehLanche(produto, nomeDaCategoria);
 
 /** A quantidade do pedido: inteiro de 1 a 50 (o cliente que quer mais fala com a loja). Vazio ou 0 = o padrão. */
 export function quantidadeDoPedido(v: unknown, padrao = 1): number | null {
@@ -324,28 +413,92 @@ export function pedeTroco(forma: unknown): boolean {
   return f === 'entrega' || normalizar(f).includes('dinheiro');
 }
 
-/** A forma do cardápio pelo que o cliente disse ("dinheiro", "cartão na entrega", "pix na entrega"). */
+export type OpcaoDePagamento = { titulo: string; detalhe: string | null; forma: string; meio: Meio | null };
+
+/**
+ * As formas de pagamento como o cliente escolhe nos botões (F5): nomes CURTOS — o botão da Meta corta em 20 letras, e
+ * "Pagar na entrega (dinheiro ou maquininha)" chegava como "Pagar na entrega (d…". O "pagar na entrega" do cardápio vira
+ * DUAS opções, "Dinheiro" e "Cartão na entrega" (é a mesma forma no pedido; o dinheiro pede o troco).
+ */
+export function opcoesDePagamento(menu: any, tipo: 'entrega' | 'retirada' | null): OpcaoDePagamento[] {
+  const onde = tipo === 'retirada' ? 'na retirada' : 'na entrega';
+  const r: OpcaoDePagamento[] = [];
+  const poe = (o: OpcaoDePagamento) => {
+    if (!r.some((x) => compacto(x.titulo) === compacto(o.titulo))) r.push(o);
+  };
+  for (const f of formasDoRobo(menu, tipo)) {
+    if (f.forma === 'entrega') {
+      poe({ titulo: 'Dinheiro', detalhe: `pago ${onde}`, forma: f.forma, meio: 'dinheiro' });
+      poe({ titulo: tipo === 'retirada' ? 'Cartão na retirada' : 'Cartão na entrega', detalhe: 'débito ou crédito na maquininha', forma: f.forma, meio: 'cartao' });
+    } else if (f.forma === 'vr') poe({ titulo: 'Vale-refeição', detalhe: 'na maquininha', forma: f.forma, meio: 'cartao' });
+    else poe({ titulo: f.nome, detalhe: null, forma: f.forma, meio: normalizar(f.nome).includes('dinheiro') ? 'dinheiro' : null });
+  }
+  return r;
+}
+
+/** A forma do cardápio pelo que o cliente disse ("dinheiro", "cartão na entrega", "pix na entrega", o botão tocado). */
 export function acharForma(
   menu: any,
   tipo: 'entrega' | 'retirada' | null,
   pedido: unknown,
-): { ok: true; forma: string; porCartao: boolean } | { ok: false; motivo: 'so_pelo_link' | 'nenhuma'; opcoes: string[] } {
+): { ok: true; forma: string; porCartao: boolean; meio: Meio | null } | { ok: false; motivo: 'so_pelo_link' | 'nenhuma'; opcoes: string[] } {
   const formasRobo = formasDoRobo(menu, tipo);
-  const opcoes = formasRobo.map((f) => f.nome);
-  const t = texto(pedido, 80);
+  const opcoes = opcoesDePagamento(menu, tipo).map((o) => o.titulo);
+  // O botão tocado chega como "Dinheiro" ou "Dinheiro — pago na entrega": o detalhe não conta.
+  const t = texto(pedido, 80).split(' — ')[0].trim();
   const q = compacto(t);
   if (!q) return { ok: false, motivo: 'nenhuma', opcoes };
-  // "cartão", "maquininha", "débito": no "pagar na entrega" genérico, é cartão — não há troco a perguntar.
-  const cartao = /cartao|maquin|debito|credito/.test(q) && !/dinheiro|especie/.test(q);
+  // "cartão", "maquininha", "débito": no "pagar na entrega" genérico, é cartão — não há troco a perguntar. Os dois juntos
+  // ("dinheiro ou maquininha", o nome inteiro da forma) não dizem qual: o robô pergunta.
+  const temCartao = /cartao|maquin|debito|credito/.test(q);
+  const temDinheiro = /dinheiro|especie/.test(q);
+  const cartao = temCartao && !temDinheiro;
+  const dinheiro = temDinheiro && !temCartao;
+  const meioDe = (forma: string): Meio | null =>
+    forma === 'vr' ? 'cartao' : forma === 'entrega' ? (cartao ? 'cartao' : dinheiro ? 'dinheiro' : null) : normalizar(forma).includes('dinheiro') ? 'dinheiro' : null;
+  // O título do botão ("Dinheiro", "Cartão na entrega", "Vale-refeição").
+  const doBotao = opcoesDePagamento(menu, tipo).find((o) => compacto(o.titulo) === q);
+  if (doBotao) return { ok: true, forma: doBotao.forma, porCartao: doBotao.forma === 'entrega' && doBotao.meio === 'cartao', meio: doBotao.meio };
   const igual = formasRobo.find((f) => compacto(f.forma) === q || compacto(f.nome) === q);
-  if (igual) return { ok: true, forma: igual.forma, porCartao: false };
+  if (igual) return { ok: true, forma: igual.forma, porCartao: false, meio: meioDe(igual.forma) };
   const parecidas = formasRobo.filter((f) => casaPorPalavras(f.nome, t) || casaPorPalavras(t, f.forma === 'entrega' ? 'entrega' : f.nome));
-  if (parecidas.length === 1) return { ok: true, forma: parecidas[0].forma, porCartao: parecidas[0].forma === 'entrega' && cartao };
+  if (parecidas.length === 1) {
+    const forma = parecidas[0].forma;
+    return { ok: true, forma, porCartao: forma === 'entrega' && cartao, meio: meioDe(forma) };
+  }
   // "dinheiro" / "cartão" / "maquininha" quando a loja só tem o "pagar na entrega" genérico.
   const generica = formasRobo.find((f) => f.forma === 'entrega');
-  if (generica && /dinheiro|cartao|maquin|debito|credito|especie/.test(q) && !parecidas.length) return { ok: true, forma: generica.forma, porCartao: cartao };
+  if (generica && (temCartao || temDinheiro) && !parecidas.length)
+    return { ok: true, forma: generica.forma, porCartao: cartao, meio: meioDe(generica.forma) };
   if (!parecidas.length && /pix|online|link/.test(q) && formasSoPeloLink(menu).length) return { ok: false, motivo: 'so_pelo_link', opcoes };
   return { ok: false, motivo: 'nenhuma', opcoes };
+}
+
+/** "Não preciso", "sem troco", "tenho trocado": o cliente disse que NÃO precisa de troco (o texto do campo troco). */
+export function semTrocoNoTexto(v: unknown): boolean {
+  const t = normalizar(v);
+  return !!t && /^(n[a]?o|nao preciso|sem|nenhum|ja tenho|tenho trocado|trocado|dinheiro certo|valor certo|certinho|exato)/.test(t) && !/\d/.test(t);
+}
+
+/** O pagamento ainda precisa dizer dinheiro ou cartão (o "pagar na entrega" genérico, sem troco dito). */
+export const precisaDoMeio = (pg: PagamentoDoCarrinho | null): boolean =>
+  !!pg && pg.forma === 'entrega' && !pg.meio && pg.trocoPara == null && !pg.semTroco;
+
+/** O pagamento ainda precisa do troco: é dinheiro e o cliente não disse o valor nem que não precisa. */
+export function precisaDeTroco(pg: PagamentoDoCarrinho | null): boolean {
+  if (!pg || pg.semTroco || pg.trocoPara != null) return false;
+  if (pg.meio === 'dinheiro') return true;
+  if (pg.meio === 'cartao') return false;
+  return pg.forma !== 'entrega' && normalizar(pg.forma).includes('dinheiro');
+}
+
+/** Duas notas que cobrem o total, para os botões do troco ("R$ 50", "R$ 100"). */
+export function sugestoesDeTroco(total: number): string[] {
+  const notas = [20, 50, 100, 150, 200, 300, 500];
+  return notas
+    .filter((n) => n > total + 0.009)
+    .slice(0, 2)
+    .map((n) => `R$ ${n}`);
 }
 
 /** O troco: "100", "R$ 100,00", "1.000" — só o número (o "maior que o total" se confere com o total na mão). */
@@ -359,51 +512,147 @@ export function valorDoTroco(v: unknown): number | null {
   return Number.isFinite(n) && n > 0 && n < 100000 ? Math.round(n * 100) / 100 : null;
 }
 
-// ───────────────────────── o que falta ─────────────────────────
+// ───────────────────────── a condução (o que falta, na ordem) ─────────────────────────
 
-export type Falta = { campo: string; pergunta: string };
+/** Um passo da conversa: o que perguntar, as opções para tocar e como mandar a resposta ao Regem. */
+export type Falta = {
+  campo: string;
+  pergunta: string;
+  /** As opções como vão na linha OPCOES ("Título — detalhe"): até 10 viram lista; mais que isso, menu numerado. */
+  opcoes?: string[];
+  /** A ferramenta e os campos para a resposta do cliente. */
+  comoResponder?: string;
+  linha?: number;
+};
 
-/**
- * O que ainda falta para registrar, na ordem em que o robô pergunta: itens, escolhas dos itens, o jeito de receber, o
- * endereço (e a referência), o pedido mínimo, o nome, a forma de pagamento e o troco.
- */
-export function faltaDoPedido(e: {
-  linhas: number;
-  linhasIncompletas: { linha: number; produto: string; falta: string[] }[];
+export type EstadoDaConducao = {
+  linhas: { linha: number; produto: string; faltaEscolher: { grupo: string; opcoes: string[] }[]; extrasPendentes: boolean; adicionais: string[] }[];
+  itensFechados: boolean;
+  /** A sugestão do fim dos itens (bebida se não tem; senão sobremesa ou porção): "Nome — R$ 7,00". */
+  sugestao: { papel: 'bebida' | 'sobremesa' | 'porcao'; opcoes: string[] } | null;
   tipo: 'entrega' | 'retirada' | null;
   tiposAbertos: ('entrega' | 'retirada')[];
   entrega: EntregaDoCarrinho | null;
   enderecoForaDaArea: boolean;
+  /** O último endereço que o cliente usou (o número dele em enderecosSalvos) — o que o robô oferece primeiro. */
+  ultimoEndereco: { n: number; texto: string } | null;
+  enderecosSalvos: number;
   subtotal: number;
   pedidoMinimo: number | null;
   nome: string | null;
   pagamento: PagamentoDoCarrinho | null;
   pagamentoServe: boolean;
-}): Falta[] {
+  /** As formas no formato das opções ("Dinheiro — pago na entrega"). */
+  opcoesDePagamento: string[];
+  total: number;
+};
+
+const OFERTA = { bebida: 'uma bebida', sobremesa: 'uma sobremesa', porcao: 'uma porção' } as const;
+
+/**
+ * O que ainda falta, na ORDEM em que o robô pergunta (o primeiro é a próxima pergunta). Pedido do dono (31/10/2026):
+ * escolhas obrigatórias do item → adicionais e observação do item → "mais alguma coisa?" → entrega no último endereço,
+ * outro endereço ou retirada (uma pergunta, três botões) → complemento e referência → mínimo → nome → pagamento →
+ * dinheiro ou cartão → troco.
+ */
+export function conducaoDoPedido(e: EstadoDaConducao): Falta[] {
   const f: Falta[] = [];
-  if (!e.linhas) f.push({ campo: 'itens', pergunta: 'O que o cliente quer pedir.' });
-  for (const l of e.linhasIncompletas)
-    f.push({ campo: `linha ${l.linha}`, pergunta: `No item ${l.linha} (${l.produto}) falta escolher: ${l.falta.join('; ')}.` });
-  if (!e.tipo)
-    f.push({
-      campo: 'tipo',
-      pergunta:
-        e.tiposAbertos.length > 1 ? 'Se é para entregar ou para retirar na loja.' : e.tiposAbertos.length ? `Confirmar ${e.tiposAbertos[0]}.` : 'A loja não está recebendo pedidos agora.',
-    });
-  if (e.tipo === 'entrega') {
-    const en = e.entrega && e.entrega.tipo === 'entrega' ? e.entrega : null;
-    if (!en) f.push({ campo: 'endereco', pergunta: 'O endereço de entrega (rua, número e bairro).' });
-    else if (e.enderecoForaDaArea) f.push({ campo: 'endereco', pergunta: 'O endereço está fora da área de entrega: outro endereço ou retirada.' });
-    else if (en.referencia == null) f.push({ campo: 'referencia', pergunta: 'O complemento e um ponto de referência (ou "sem referência").' });
-    if (e.pedidoMinimo != null && e.pedidoMinimo > 0 && e.subtotal < e.pedidoMinimo && e.linhas)
-      f.push({ campo: 'minimo', pergunta: `O pedido mínimo para entrega é ${reais(e.pedidoMinimo)} em itens (faltam ${reais(e.pedidoMinimo - e.subtotal)}).` });
+  if (!e.linhas.length) f.push({ campo: 'itens', pergunta: 'O que o cliente quer pedir.', comoResponder: 'mexer_no_pedido com acao = adicionar, o produto e a quantidade' });
+  for (const l of e.linhas) {
+    for (const g of l.faltaEscolher)
+      f.push({
+        campo: `linha ${l.linha}`,
+        linha: l.linha,
+        pergunta: `Pergunte ${g.grupo === 'a versão' ? 'a versão' : `"${g.grupo}"`} do item ${l.linha} (${l.produto}), com TODAS as opções.`,
+        opcoes: g.opcoes,
+        comoResponder:
+          g.grupo === 'a versão'
+            ? `mexer_no_pedido com acao = escolher, linha = ${l.linha} e versao = a opção escolhida`
+            : `mexer_no_pedido com acao = escolher, linha = ${l.linha} e adicionais = a opção escolhida`,
+      });
+    if (!l.faltaEscolher.length && l.extrasPendentes)
+      f.push({
+        campo: `extras ${l.linha}`,
+        linha: l.linha,
+        pergunta: l.adicionais.length
+          ? `Pergunte se quer acrescentar algum adicional ou deixar uma observação no ${l.produto} (ex.: sem cebola).`
+          : `Pergunte se quer deixar alguma observação no ${l.produto} (ex.: sem cebola, ponto da carne).`,
+        opcoes: [...l.adicionais.slice(0, 8), 'Pôr observação', 'Não, obrigado'],
+        comoResponder: `adicional: mexer_no_pedido com acao = escolher, linha = ${l.linha} e adicionais = o nome; "Pôr observação": pergunte qual e use acao = alterar, linha = ${l.linha} e observacao = o texto; "Não, obrigado": acao = concluir, linha = ${l.linha}`,
+      });
   }
-  if (!e.nome) f.push({ campo: 'nome', pergunta: 'O nome do cliente para o pedido.' });
-  if (!e.pagamento || !e.pagamentoServe) f.push({ campo: 'pagamento', pergunta: 'A forma de pagamento.' });
-  else if (pedeTroco(e.pagamento.forma) && e.pagamento.trocoPara == null && !e.pagamento.semTroco)
+
+  const itensProntos = e.linhas.length > 0 && e.linhas.every((l) => !l.faltaEscolher.length && !l.extrasPendentes);
+  // Mesmo com a entrega já dita (o cliente falou o endereço logo de cara), o "mais alguma coisa?" vem antes de fechar.
+  if (itensProntos && !e.itensFechados) {
+    const oferta = e.sugestao?.opcoes.length ? e.sugestao : null;
+    f.push({
+      campo: 'mais_algo',
+      pergunta: oferta ? `Pergunte se quer mais alguma coisa e ofereça ${OFERTA[oferta.papel]}, uma vez só.` : 'Pergunte se quer mais alguma coisa.',
+      opcoes: [...(oferta?.opcoes ?? []).slice(0, 3), 'Não, só isso'],
+      comoResponder: 'outro produto: mexer_no_pedido com acao = adicionar; "Não, só isso": mexer_no_pedido com acao = fechar',
+    });
+  }
+
+  const entregaAberta = e.tiposAbertos.includes('entrega');
+  const retiradaAberta = e.tiposAbertos.includes('retirada');
+  const en = e.entrega && e.entrega.tipo === 'entrega' ? e.entrega : null;
+  if (!e.tipo && !e.tiposAbertos.length) f.push({ campo: 'tipo', pergunta: 'A loja não está recebendo pedidos agora.' });
+  else if (!e.tipo && !entregaAberta)
+    f.push({ campo: 'tipo', pergunta: 'A entrega está fechada agora: confirme a retirada na loja.', opcoes: ['Retirar na loja'], comoResponder: 'definir_entrega com tipo = retirada' });
+  else if (e.tipo !== 'retirada') {
+    if (!en) {
+      const comRetirada = !e.tipo && retiradaAberta;
+      if (e.ultimoEndereco) {
+        const outro =
+          e.enderecosSalvos > 1
+            ? 'mostre os endereços salvos (enderecosSalvos, cada um como "Endereço N — rua, número, bairro") e, no fim, "Cadastrar novo endereço"'
+            : 'peça o endereço novo (rua, número e bairro)';
+        f.push({
+          campo: 'endereco',
+          pergunta: `Pergunte se a entrega é no último endereço: ${e.ultimoEndereco.texto}.`,
+          opcoes: ['Sim, nesse', 'Outro endereço', ...(comRetirada ? ['Retirar na loja'] : [])],
+          comoResponder: `"Sim, nesse": definir_entrega com tipo = entrega e endereco = ${e.ultimoEndereco.n}; "Outro endereço": ${outro}; endereço da lista: definir_entrega com endereco = o número dele; endereço novo: definir_entrega com rua, numero e bairro${comRetirada ? '; "Retirar na loja": definir_entrega com tipo = retirada' : ''}`,
+        });
+      } else if (comRetirada)
+        f.push({ campo: 'tipo', pergunta: 'Pergunte se é entrega ou retirada na loja.', opcoes: ['Entrega', 'Retirar na loja'], comoResponder: 'definir_entrega com tipo = entrega ou retirada' });
+      else
+        f.push({
+          campo: 'endereco',
+          pergunta: 'Peça o endereço de entrega: rua, número e bairro (ou a localização pelo WhatsApp).',
+          comoResponder: 'definir_entrega com tipo = entrega, rua, numero e bairro (ou localizacao)',
+        });
+    } else if (e.enderecoForaDaArea)
+      f.push({ campo: 'endereco', pergunta: 'O endereço está fora da área de entrega: peça outro endereço ou ofereça a retirada.', comoResponder: 'definir_entrega com o endereço novo, ou tipo = retirada' });
+    else if (en.referencia == null)
+      f.push({
+        campo: 'referencia',
+        pergunta: 'Peça o complemento (apto, bloco, casa, fundos) e um ponto de referência — essencial em endereço difícil.',
+        comoResponder: 'definir_entrega com referencia = o que o cliente disse (ou "sem referência")',
+      });
+    if (e.tipo === 'entrega' && e.pedidoMinimo != null && e.pedidoMinimo > 0 && e.subtotal < e.pedidoMinimo && e.linhas.length)
+      f.push({
+        campo: 'minimo',
+        pergunta: `O pedido mínimo para entrega é ${reais(e.pedidoMinimo)} em itens (faltam ${reais(e.pedidoMinimo - e.subtotal)}).`,
+        comoResponder: 'mais itens: mexer_no_pedido com acao = adicionar; ou definir_entrega com tipo = retirada',
+      });
+  }
+  if (!e.nome) f.push({ campo: 'nome', pergunta: 'Pergunte o nome do cliente para o pedido.', comoResponder: 'definir_nome' });
+  if (!e.pagamento || !e.pagamentoServe)
+    f.push({ campo: 'pagamento', pergunta: 'Pergunte a forma de pagamento.', opcoes: e.opcoesDePagamento, comoResponder: 'definir_pagamento com forma = a opção escolhida' });
+  else if (precisaDoMeio(e.pagamento))
+    f.push({
+      campo: 'meio',
+      pergunta: 'Pergunte se vai pagar em dinheiro ou no cartão (na maquininha).',
+      opcoes: ['Dinheiro', e.tipo === 'retirada' ? 'Cartão na retirada' : 'Cartão na entrega'],
+      comoResponder: 'definir_pagamento com forma = Dinheiro ou Cartão',
+    });
+  else if (precisaDeTroco(e.pagamento))
     f.push({
       campo: 'troco',
-      pergunta: e.pagamento.forma === 'entrega' ? 'Se vai pagar em dinheiro (e troco para quanto) ou no cartão.' : 'Se precisa de troco, e para quanto.',
+      pergunta: `Pergunte se precisa de troco e para quanto (o total é ${reais(e.total)}).`,
+      opcoes: [...sugestoesDeTroco(e.total), 'Não preciso de troco'],
+      comoResponder: 'definir_pagamento com troco = o valor (ex.: 100) ou "não preciso"',
     });
   return f;
 }

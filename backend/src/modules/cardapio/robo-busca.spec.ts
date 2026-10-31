@@ -1,4 +1,4 @@
-import { categoriasPorPapel, palavrasDe, papelDaCategoria, procurarNoCardapio, termosDaBusca } from './robo-busca';
+import { categoriasPorPapel, nucleoDoNome, palavrasDe, papelDaCategoria, procurarNoCardapio, termosDaBusca } from './robo-busca';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -101,6 +101,33 @@ describe('busca do robô — ficha, descrição, adicionais, combos e link', () 
     const r: any = procurarNoCardapio(MENU, 'refrigerante de cola', DADOS);
     expect(r.levam.length + r.parecidos.length).toBeGreaterThan(0);
     expect(procurarNoCardapio(MENU, '   ', DADOS)).toMatchObject({ levam: [], podeAdicionar: [], parecidos: [] });
+  });
+});
+
+// F5 (teste do dono, 31/10/2026): "tem alguma opção com bacon?" e o robô citou só o X-Bacon e o trio — os da ficha
+// ficaram de fora e o adicional não apareceu. A busca manda a lista PRONTA, com todos, o trio junto e o adicional.
+describe('F5: a lista pronta para o cliente (paraOCliente)', () => {
+  it('pergunta de ingrediente: TODOS os que levam, o trio junto do lanche e onde dá para pôr a mais (com o preço)', () => {
+    const r: any = procurarNoCardapio(MENU, 'Tem alguma opcao com bacon?', DADOS);
+    expect(r.paraOCliente).toBe(
+      [
+        'Com bacon temos:',
+        '• Batata com bacon — R$ 18,00',
+        '• X Bacon — R$ 26,00 (no trio, R$ 36,00)',
+        '• Smash da Casa — R$ 29,00',
+        'E dá para pôr bacon a mais nos lanches: de +R$ 4,00 a +R$ 5,00.',
+      ].join('\n'),
+    );
+  });
+  it('pergunta pelo NOME de um produto não vira lista (o robô responde com o produto e o link)', () => {
+    for (const q of ['x-bacon', 'quanto custa o xbacon?']) expect((procurarNoCardapio(MENU, q, DADOS) as any).paraOCliente).toBeNull();
+  });
+  it('o núcleo do nome junta o lanche com o trio ("TRIO 07" = "Numero 07"; "TRIO X-BACON" = "X bacon")', () => {
+    expect(nucleoDoNome('TRIO 07')).toBe(nucleoDoNome('Numero 07'));
+    expect(nucleoDoNome('Trio n8')).toBe(nucleoDoNome('Numero 08'));
+    expect(nucleoDoNome('TRIO X-BACON')).toBe(nucleoDoNome('X bacon'));
+    expect(nucleoDoNome('TRIO CHEDDAR')).toBe(nucleoDoNome('Cheddar !!!'));
+    expect(nucleoDoNome('TRIO 07')).not.toBe(nucleoDoNome('TRIO 08'));
   });
 });
 

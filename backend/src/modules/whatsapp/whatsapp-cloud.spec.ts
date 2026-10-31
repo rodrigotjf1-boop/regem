@@ -378,21 +378,32 @@ describe('WhatsappCloudService — opções com toque e voz (Fase 2)', () => {
   });
   afterEach(() => espiao.mockRestore());
 
-  it('até 3 opções: BOTÕES, título cortado em 20 caracteres', async () => {
+  it('até 3 opções que cabem inteiras: BOTÕES', async () => {
     const { svc, gravadas } = comLoja(LOJA);
-    await svc.enviarOpcoes('tenant-1', DE, 'O que deseja?', [
-      { id: 'cardapio', titulo: 'Ver o cardápio completo da loja' },
-      { titulo: 'Falar com atendente' },
-    ]);
+    await svc.enviarOpcoes('tenant-1', DE, 'O que deseja?', [{ id: 'cardapio', titulo: 'Ver o cardápio' }, { titulo: 'Falar com atendente' }]);
     const corpo = JSON.parse(pedidos[0].init.body);
     expect(pedidos[0].url).toContain(`/${PHONE_ID}/messages`);
     expect(corpo.interactive.type).toBe('button');
     expect(corpo.interactive.action.buttons).toEqual([
-      { type: 'reply', reply: { id: 'cardapio', title: 'Ver o cardápio comp…' } },
+      { type: 'reply', reply: { id: 'cardapio', title: 'Ver o cardápio' } },
       { type: 'reply', reply: { id: '2', title: 'Falar com atendente' } },
     ]);
-    expect(corpo.interactive.action.buttons[0].reply.title.length).toBeLessThanOrEqual(20);
     expect(gravadas[0]).toMatchObject({ direcao: 'saida', tipo: 'interactive' });
+  });
+
+  // F5 (teste do dono, 31/10/2026): "Pagar na entrega (dinheiro ou maquininha)" chegava como "Pagar na entrega (d…".
+  it('título que não cabe no botão (20): vai em LISTA, inteiro na descrição e no id da resposta', async () => {
+    const { svc } = comLoja(LOJA);
+    await svc.enviarOpcoes('tenant-1', DE, 'Como prefere pagar?', [
+      { titulo: 'Pagar na entrega (dinheiro ou maquininha)' },
+      { titulo: 'Vale-refeição' },
+    ]);
+    const corpo = JSON.parse(pedidos[0].init.body);
+    expect(corpo.interactive.type).toBe('list');
+    const [linha] = corpo.interactive.action.sections[0].rows;
+    expect(linha.title.length).toBeLessThanOrEqual(24);
+    expect(linha.description).toBe('Pagar na entrega (dinheiro ou maquininha)');
+    expect(linha.id).toBe('t:Pagar na entrega (dinheiro ou maquininha)');
   });
 
   it('de 4 a 10: LISTA; mais de 10 é recusado', async () => {

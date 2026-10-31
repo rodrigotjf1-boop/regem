@@ -58,6 +58,9 @@ import { condUnidadeOuRede, sqlUnidade } from '../../common/filtro-unidade';
 import { edgeAtivo } from '../../common/edge-ativo';
 import { normalizarFormaPagamento } from '../../common/formas-pagamento-normaliza';
 import { urlPublicaSegura } from '../../common/ssrf-guard';
+import { marcarAvisoAutomatico } from '../../common/avisos-automaticos';
+import { chaveTelefone, formasDaChaveTelefone } from '../../common/telefone-chave';
+import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
 import { idConfigDaLoja } from '../../common/id-deterministico';
 import { validarTokenMP } from '../../common/mercadopago';
 import { validarTokenPagBank } from '../../common/pagbank';
@@ -127,6 +130,8 @@ export class DeliveryService {
     @Optional() private readonly gogemAviso?: GogemAvisoService,
     // Quem liberou o "reabrir pedido" fica na auditoria (o cancelamento já guardava no motivo).
     @Optional() private readonly auditoria?: AuditoriaService,
+    // O código de entrega da loja na API oficial sai pelo próprio Regem (ERR-332).
+    @Optional() private readonly whatsappOficial?: WhatsappCloudService,
   ) {}
 
   // ENVIA AO CANAL E REGISTRA (mig 305). `enviar` é o MESMO envio de sempre; aqui só se observa o
@@ -2857,9 +2862,53 @@ export class DeliveryService {
       const aviso = DeliveryService.avisoDoCodigo(row);
       if (!aviso) return;
       if (ehServidorLocal()) await this.encaminharAvisoParaNuvem(tenantId, row, EVENTO_CODIGO);
-      else await this.notificarN8n(tenantId, aviso);
+      else await this.enviarCodigoDeEntrega(tenantId, row, aviso);
     } catch (e: any) {
       this.logger.warn(`[aviso-codigo] pedido ${row?.id ?? '?'}: ${e?.message ?? e}`);
+    }
+  }
+
+  /** O texto do código de entrega: o MESMO número do pedido que o cliente vê no acompanhamento e no resumo do robô. */
+  static textoDoCodigo(row: any): string {
+    const numero = row?.displayId ?? row?.numero ?? '';
+    return `🔑 Guarde o código de entrega do seu pedido nº ${numero}: *${row?.codigoEntrega}*\nInforme este código ao entregador quando ele chegar.`;
+  }
+
+  /**
+   * O código de entrega ao cliente (na NUVEM). Loja na API OFICIAL: o próprio Regem manda, pelo número oficial, dentro
+   * da janela de 24 h (decisão do dono, 31/10/2026) — pelo n8n ele saía pela Evolution, o eco voltava pela coexistência e
+   * PAUSAVA o robô logo depois do pedido (ERR-332). Fora da janela não sai por WhatsApp: o cliente vê o código no
+   * acompanhamento do pedido (como os avisos de status de quem não conversou). Outras lojas: o n8n, como sempre.
+   */
+  private async enviarCodigoDeEntrega(tenantId: string, row: any, aviso: Record<string, unknown>): Promise<{ saiu: boolean; motivo?: string }> {
+    const [cfg] = await this.db
+      .select({ provedor: cardapioConfig.provedor, waCloudPhoneId: cardapioConfig.waCloudPhoneId })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.tenantId, tenantId));
+    if ((cfg?.provedor ?? 'evolution') !== 'cloud' || !this.whatsappOficial) return this.notificarN8n(tenantId, aviso);
+    const nao = (motivo: string, resultado: 'nao_enviado' | 'falhou' = 'nao_enviado') => {
+      this.registrarAviso(tenantId, row.id, 'cliente_whatsapp', EVENTO_CODIGO, resultado, motivo);
+      return { saiu: false, motivo };
+    };
+    const formas = formasDaChaveTelefone(chaveTelefone(row.clienteTelefone));
+    if (!formas.length) return nao('o pedido não tem o telefone do cliente');
+    // A janela de 24 h: a última mensagem DO CLIENTE na conversa (o telefone do pedido vem sem o 55; o da conversa, com).
+    const [ultima] = await this.db
+      .select({ telefone: whatsappMensagem.telefone, criadoEm: whatsappMensagem.criadoEm })
+      .from(whatsappMensagem)
+      .where(and(eq(whatsappMensagem.tenantId, tenantId), inArray(whatsappMensagem.telefone, formas), eq(whatsappMensagem.direcao, 'entrada')))
+      .orderBy(desc(whatsappMensagem.criadoEm))
+      .limit(1);
+    if (!ultima?.criadoEm || Date.now() - new Date(ultima.criadoEm as any).getTime() >= 24 * 60 * 60 * 1000)
+      return nao('fora da janela de 24 h do WhatsApp oficial: o cliente vê o código no acompanhamento do pedido');
+    try {
+      // Para o número em que o cliente conversa (como a Meta mandou), não para o do cadastro.
+      await this.whatsappOficial.enviarTexto(tenantId, String(ultima.telefone), DeliveryService.textoDoCodigo(row));
+      this.registrarAviso(tenantId, row.id, 'cliente_whatsapp', EVENTO_CODIGO, 'enviado');
+      return { saiu: true };
+    } catch (e: any) {
+      this.logger.warn(`[aviso-codigo] pedido ${row?.id ?? '?'}: o WhatsApp oficial recusou — ${e?.message ?? e}`);
+      return nao(`o WhatsApp oficial recusou: ${String(e?.message ?? e).slice(0, 160)}`, 'falhou');
     }
   }
 
@@ -2895,7 +2944,7 @@ export class DeliveryService {
       // O código da NUVEM: é o que o app do entregador confere (o mesmo da loja — nasce com o pedido e viaja com ele).
       const aviso = DeliveryService.avisoDoCodigo(ped);
       if (!aviso) return { ok: true, ignorado: 'sem_codigo' };
-      const r = await this.notificarN8n(tenantId, aviso);
+      const r = await this.enviarCodigoDeEntrega(tenantId, ped, aviso);
       // Não saiu (loja sem robô de WhatsApp, endereço bloqueado): a loja registra o MOTIVO, não "enviado".
       return r.saiu ? { ok: true } : { ok: true, resultado: 'nao_enviado', motivo: r.motivo ?? null };
     }
@@ -3121,6 +3170,9 @@ export class DeliveryService {
         registrar('nao_enviado', motivo);
         return { saiu: false, motivo };
       }
+      // O aviso pode sair pela Evolution no número em coexistência: o eco dele não é a loja assumindo a conversa
+      // (não pausa o robô — ERR-332). Só o aviso que fala com o cliente (`eventoStatus: null` não fala).
+      if (!semAviso && payload?.telefone) marcarAvisoAutomatico(tenantId, payload.telefone);
       const body = JSON.stringify({ em: new Date().toISOString(), ...payload });
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       const secret = temIntegracao ? row!.clientSecret : undefined;
