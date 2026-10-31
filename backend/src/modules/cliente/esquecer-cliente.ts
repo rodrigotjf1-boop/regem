@@ -81,6 +81,7 @@ export async function esquecerCliente(
         endereco_municipio_ibge = null,
         endereco_uf = null,
         endereco_cep = null,
+        observacao = null, -- a observação do pedido (mig 346) pode ter dado pessoal ("ligar para a Maria")
         raw = null,
         updated_at = now()
       where tenant_id = ${tenantId} and cliente_id = ${clienteId}

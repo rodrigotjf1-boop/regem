@@ -1088,6 +1088,11 @@ function ListaPedidos({
                     <span className="font-mono font-bold">#{p.numero ?? '—'}</span>
                     <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px]">{p.tipo === 'retirada' ? '🏪' : '🛵'}</span>
                     {p.alterado && <span className="ml-1 rounded bg-warn/15 px-1 text-[9px] font-bold text-warn">ALT</span>}
+                    {p.observacao && (
+                      <span className="ml-1 text-[10px]" title={`Observação do pedido: ${p.observacao}`} aria-label="Pedido com observação">
+                        📝
+                      </span>
+                    )}
                     {p.autoAceiteFalhou && <span className="ml-1 text-[10px] font-bold text-destructive" title="Falha no aceite automático">⚠️</span>}
                   </td>
                   <td className="px-2 py-2 font-mono text-xs text-muted-foreground">
@@ -1188,6 +1193,12 @@ function PreviewPedido({ pedido: p, onAbrirDetalhe, className }: { pedido: any; 
           </p>
           {p.clienteTelefone && <p className="text-xs text-muted-foreground">{p.clienteTelefone}</p>}
           <p className="mt-0.5 text-xs text-muted-foreground">{endereco}</p>
+          {/* A observação GERAL do pedido (mig 346): o recado do cliente, em destaque. */}
+          {p.observacao && (
+            <p className="mt-1 break-words rounded-md border border-warn/40 bg-warn/10 px-2 py-1 text-xs">
+              <span className="font-semibold">📝 Observação:</span> {p.observacao}
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap gap-x-3 gap-y-0.5 border-y border-border py-1.5 text-xs">
           <span className="text-muted-foreground">{dataCurta(p.criadoEm)} · {hora(p.criadoEm)}</span>

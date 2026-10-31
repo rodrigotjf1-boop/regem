@@ -95,6 +95,10 @@ export default function DespachoPage({ params }: { params: { token: string } }) 
           {info?.cliente && <p><strong>{info.cliente}</strong></p>}
           {info?.endereco && <p className="text-[#5B6B78]">{info.endereco}</p>}
           {info?.telefone && <p className="text-[#5B6B78]">{info.telefone}</p>}
+          {/* A observação GERAL do pedido (mig 346): o recado para quem entrega. */}
+          {info?.observacao && (
+            <p className="break-words rounded-lg bg-amber-50 px-3 py-2 font-semibold text-amber-800">📝 {info.observacao}</p>
+          )}
         </div>
 
         {Array.isArray(info?.itens) && info.itens.length > 0 && (

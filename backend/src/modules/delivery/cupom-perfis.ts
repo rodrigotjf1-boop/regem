@@ -110,6 +110,7 @@ export const CAMPOS_CATALOGO: { key: string; label: string; grupo: GrupoPerfil }
   // Cliente / entrega
   { key: 'cliente', label: 'Nome do cliente', grupo: 'cliente' },
   { key: 'endereco', label: 'Endereço + complemento/referência', grupo: 'cliente' },
+  { key: 'observacao', label: 'Observação do pedido', grupo: 'cliente' },
   { key: 'telefone', label: 'Telefone', grupo: 'cliente' },
   // Corpo
   { key: 'itens', label: 'Itens (qtd + produto + complementos + obs.)', grupo: 'cliente' },
@@ -209,6 +210,8 @@ const ENTREGADOR: PerfilCupom = {
     C('cliente', 'Nome do cliente', { negrito: true, escala: 2 }),
     C('telefone', 'Telefone', { negrito: true }),
     C('endereco', 'Endereço completo + complemento/referência', { negrito: true, mini: true, escala: 2 }),
+    // A observação GERAL do pedido (mig 346): "interfone ruim, ligar ao chegar" — logo abaixo do endereço.
+    C('observacao', 'Observação do pedido', { negrito: true }),
     C('itens', 'Itens (qtd + descrição + adicionais + obs.)', { fixo: true, comp: { negrito: true }, obs: { negrito: true } }),
     C('subtotal', 'Subtotal'),
     C('taxaEntrega', 'Taxa de entrega'),

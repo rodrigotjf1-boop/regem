@@ -60,6 +60,8 @@ export function dadosDaViaDoDelivery(
     cliente: p.clienteNome || undefined,
     telefone: p.clienteTelefone || undefined,
     endereco: p.tipo === 'retirada' ? undefined : enderecoDoPedido(p),
+    // A observação GERAL do pedido (mig 346) — na entrega e na retirada.
+    observacao: p.observacao || undefined,
     itens,
     mostrarValoresItem: extra.mostrarValoresItem !== false,
     subtotal,

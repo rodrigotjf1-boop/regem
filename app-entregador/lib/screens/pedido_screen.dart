@@ -344,6 +344,19 @@ class _PedidoScreenState extends State<PedidoScreen> {
               icon: const Icon(Icons.map),
               label: const Text('Ver rota'),
             ),
+          // A observação GERAL do pedido (mig 346): o recado do cliente ("interfone ruim, ligar ao chegar").
+          // Servidor antigo não manda o campo: nada aparece.
+          if ((p['observacao'] ?? '').toString().trim().isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Card(
+              color: const Color(0xFFFFF4DE),
+              child: ListTile(
+                leading: const Icon(Icons.sticky_note_2_outlined),
+                title: const Text('Observação do pedido', style: TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: Text(p['observacao'].toString()),
+              ),
+            ),
+          ],
           const SizedBox(height: 8),
           ...itens.map((it) {
             final m = it as Map;

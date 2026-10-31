@@ -237,6 +237,12 @@ export function PedidoDetalhe({
                 {p.clienteTelefone ? <span className="font-normal text-muted-foreground"> · 📞 {p.clienteTelefone}</span> : null}
               </p>
               {enderecoFmt && <p className="text-muted-foreground">📍 {enderecoFmt}{p.enderecoReferencia ? ` (${p.enderecoReferencia})` : ''}</p>}
+              {/* A observação GERAL do pedido (mig 346): o recado do cliente ("interfone ruim, ligar ao chegar"). */}
+              {p.observacao && (
+                <p className="break-words rounded-md border border-warn/40 bg-warn/10 px-2 py-1 text-sm">
+                  <span className="font-semibold">📝 Observação do pedido:</span> {p.observacao}
+                </p>
+              )}
               <p className="text-xs">
                 {p.pago ? <span className="font-bold text-ok">Pago</span> : <span className="font-bold text-warn">Paga na entrega</span>}
                 {p.formaPagamento ? ` · ${p.formaPagamento}` : ''}

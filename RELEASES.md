@@ -12,6 +12,16 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **`.zip` — observação do pedido (mig 346, 31/10; NÃO é só nuvem):** a coluna `pedido_externo.observacao` e o que a
+  mostra NA LOJA: o painel do delivery (detalhe, prévia e o 📝 na lista), a via do entregador ("OBS: …" logo abaixo do
+  endereço; perfil já editado pela loja recebe o campo sozinho) e a página do QR do entregador. A migration vem no `.zip`
+  (o `atualizar.ps1` aplica antes do código novo). Até lá a loja não tem a coluna: o sync ignora a coluna a mais que a
+  nuvem manda (o pedido chega, sem a observação) e o envio da loja NÃO apaga a da nuvem (`sync.service.ts`). Depois do
+  `.zip`, a reconciliação traz a observação dos pedidos recentes. Não pede `.exe`.
+- **APK do entregador — observação do pedido (31/10):** o cartão "Observação do pedido" na tela do pedido
+  (`app-entregador/lib/screens/pedido_screen.dart`); servidor antigo não manda o campo e nada aparece. Sai no próximo APK,
+  sob comando do dono. Até lá o entregador vê a observação na página do QR e na via impressa.
+
 - **`.zip` — robô de WhatsApp, Fases 0 e 1 (#752, #753 e o PR da caixa de conversas na loja, 29/10):**
   - a caixa Delivery › WhatsApp passa a abrir no servidor da loja: ele confere o login e a permissão do colaborador e
     repassa à nuvem (`whatsapp/da-loja`, com o token do servidor; a nuvem recusa servidor de outra empresa). Antes, na

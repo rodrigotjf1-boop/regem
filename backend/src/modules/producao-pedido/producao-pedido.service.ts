@@ -14,6 +14,7 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { PREFIXO_BALCAO, rotuloSenha } from '../../common/senha-origem';
 import { linhasDasEscolhas, separarEscolhas, textoDasEscolhas, type Escolha } from '../../common/adicionais';
 import { linhaDoPedido, pedidoNoCanal, perfilDeProducao, tipoNaProducao } from '../../common/via-do-pedido';
+import { textoDaObservacao } from '../../common/observacao-do-pedido';
 import {
   equipamento,
   produtoDestinoProducao,
@@ -1282,6 +1283,12 @@ export class ProducaoPedidoService {
       origemPedido: () => (dados.origemPedido ? [String(dados.origemPedido)] : []),
       cliente: () => (dados.cliente ? [String(dados.cliente)] : []),
       endereco: () => (dados.endereco ? String(dados.endereco).split('\n') : []),
+      // A observação GERAL do pedido (mig 346): uma linha, já limpa ao gravar; o "OBS:" na frente também impede que o
+      // texto do cliente comece a linha (a impressora lê marcas no começo da linha).
+      observacao: () => {
+        const t = textoDaObservacao(dados.observacao);
+        return t ? [`OBS: ${t}`] : [];
+      },
       telefone: () => (dados.telefone ? [String(dados.telefone)] : []),
       taxaEntrega: () => (dados.taxaEntrega != null ? [`Entrega: ${money(dados.taxaEntrega)}`] : []),
       // Pago online: o entregador não cobra nada — "COBRAR R$ 0,00" parecia defeito.

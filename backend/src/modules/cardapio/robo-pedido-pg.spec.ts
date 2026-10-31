@@ -48,11 +48,11 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
         await q(
           `insert into pedido_externo (tenant_id, unidade_id, canal, client_ref, display_id, cliente_nome, cliente_telefone, tipo, endereco,
              endereco_rua, endereco_numero, endereco_referencia, endereco_bairro, itens, total, forma_pagamento, taxa_entrega, desconto,
-             troco_para, valor_bruto, status)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15,$16,$17,$18,$19,$20,'novo') returning *`,
+             troco_para, valor_bruto, observacao, status)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15,$16,$17,$18,$19,$20,$21,'novo') returning *`,
           [tenantId, unidadeId, canal, x.clientRef, n.displayId, n.cliente, n.clienteTelefone, n.tipo, n.endereco ?? null, x.enderecoRua ?? null,
             x.enderecoNumero ?? null, x.enderecoReferencia ?? null, x.enderecoBairro ?? null, JSON.stringify(n.itens), n.total, n.formaPagamento,
-            x.taxaEntrega ?? 0, x.desconto ?? 0, x.trocoPara ?? null, n.valorBruto ?? null],
+            x.taxaEntrega ?? 0, x.desconto ?? 0, x.trocoPara ?? null, n.valorBruto ?? null, x.observacao ?? null],
         )
       ).map((r: any) => ({ ...r, id: r.id, displayId: r.display_id, status: r.status, unidadeId: r.unidade_id }))[0],
     aceitar: async (_t: string, _u: any, id: string) => q(`update pedido_externo set status = 'confirmado' where id = $1`, [id]),
@@ -248,6 +248,7 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     expect(Number(ped.total)).toBeCloseTo(69.8, 2);
     expect(ped).toMatchObject({ tipo: 'entrega', canal: 'cardapio', forma_pagamento: 'entrega', endereco_rua: 'Rua A', endereco_bairro: 'Centro', endereco_referencia: 'casa 2, portão azul', status: 'confirmado' });
     expect(Number(ped.troco_para)).toBe(100);
+    expect(ped.observacao).toBe('interfone ruim, ligar ao chegar'); // mig 346: vai para o pedido (painel, via, entregador)
     expect(ped.client_ref).toMatch(/^robo-whatsapp-/);
     expect(reg.numero).toBe(ped.display_id);
     // O resumo final por escrito, com o número, os itens, o total, o pagamento, o troco e a observação do pedido.

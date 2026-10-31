@@ -3,6 +3,7 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cliente, clienteEndereco, pedidoExterno, roboCarrinho } from '../../db/schema';
 import { Conversa, lerConversa } from '../../common/conversa-do-robo';
+import { textoDaObservacao } from '../../common/observacao-do-pedido';
 import { paraCentavos, paraReais } from '../../util/dinheiro';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
@@ -72,7 +73,6 @@ type Mudou = { carrinho: Carrinho; recusa: Recusa | null; mudou: boolean };
 
 const linhasDe = (r: any): any[] => (Array.isArray(r) ? r : (r?.rows ?? []));
 const VALIDADE_DO_CARRINHO = sql`interval '12 hours'`;
-const MAX_OBSERVACAO_DO_PEDIDO = 300;
 
 /** As formas do número no cadastro: com/sem o 55 e com/sem o nono dígito (a chave sempre tem o 9 — ERR-134). */
 export function formasDaChave(chave: string): string[] {
@@ -511,7 +511,8 @@ export class RoboPedidoService {
 
   /** A observação GERAL do pedido ("interfone ruim, ligar ao chegar") — pedido do dono. "Nenhuma" apaga. */
   private async observacaoDoPedido(ctx: Contexto, menu: any, texto: unknown) {
-    const t = String(texto ?? '').trim().slice(0, MAX_OBSERVACAO_DO_PEDIDO);
+    // Limpa como o pedido grava (uma linha, até 300 letras — mig 346): o resumo mostra o que vai ser gravado.
+    const t = textoDaObservacao(texto);
     if (!t) return this.semMudar(ctx, menu, recusa('observacao', 'Qual é a observação? Mande o texto em observacao.'));
     const valor = /^(nenhuma|sem observa|nao|não)\.?$/i.test(t) ? null : t;
     const r = await this.mudar(ctx, () => ({ observacao: valor }));
@@ -1097,6 +1098,8 @@ export class RoboPedidoService {
         trocoPara: pg.trocoPara ?? undefined,
         // O robô não oferece cashback nem cupom (ainda): o total gravado é o do resumo que o cliente confirmou.
         usarCashback: false,
+        // A observação GERAL do pedido ("Pôr observação" no resumo) vai para o pedido (mig 346): painel, via, entregador.
+        observacao: c.observacao ?? undefined,
         itens: itensDoPedido(c.itens as Linha[]),
       }).catch((e: any) => {
         // Recusa do pedido (loja fechou, item esgotou no meio): o carrinho fica aberto e o robô explica.

@@ -62,6 +62,9 @@ export class EntregadorService {
           .filter(Boolean)
           .join(', ') || null,
       itens: p.itens ?? [],
+      // A observação GERAL do pedido (mig 346): "interfone ruim, ligar ao chegar" — separada do endereço, que é o que
+      // o "Ver rota" usa.
+      observacao: p.observacao ?? null,
       total: Number(p.total) || 0,
       taxaEntrega: Number(p.taxaEntrega) || 0, // taxa da entrega (compõe os ganhos do entregador)
       pago: p.pago,

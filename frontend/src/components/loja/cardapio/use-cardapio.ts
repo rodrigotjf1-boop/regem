@@ -51,6 +51,8 @@ const CHK_INICIAL = {
   // Cupom fiscal: o CPF é opcional no cardápio. Quem marca a caixa passa a ter de preencher.
   cupomFiscal: false,
   cpf: '',
+  // A observação GERAL do pedido (mig 346 — "interfone ruim, ligar ao chegar"). Opcional; não vai para o cadastro.
+  observacao: '',
 };
 
 /** Camadas abertas sobre a vitrine, em pilha (o "voltar" do aparelho fecha a de cima). */
@@ -918,6 +920,8 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
         origem: medeAnuncios ? origemParaPedido(token) ?? undefined : undefined,
         // A caixinha de promoções só vai quando apareceu (true = como vem; false = desmarcou).
         promocoes: perguntaPromocoes ? promoMarcada : undefined,
+        // A observação do pedido (mig 346): uma linha — o servidor limpa de novo e corta em 300.
+        observacao: String(chk.observacao ?? '').replace(/\s+/g, ' ').trim() || undefined,
         itens: cart.map((i) => ({
           produtoId: i.produtoId,
           variacaoId: i.variacaoId,
@@ -966,6 +970,7 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
       // O que a tela de confirmação precisa e o servidor não devolve (não se mistura ao status).
       const resumo = { tipo: isServico ? 'retirada' : chk.tipo, pontosPrevistos, tempoMin: entrega ? loja?.tempoEntregaMin : loja?.tempoRetiradaMin, enviadoEm: Date.now(), totalPrevisto: totalFinal };
       setCart([]);
+      setChk((s: any) => ({ ...s, observacao: '' })); // a observação era DESTE pedido — o próximo começa sem ela
       setClientRef(''); // pedido concluído: próximo carrinho recebe um novo ref
       setPilha([]);
       setExpressoOff(false);

@@ -2495,6 +2495,9 @@ export const pedidoExterno = pgTable('pedido_externo', {
   enderecoNumero: text('endereco_numero'),
   enderecoReferencia: text('endereco_referencia'),
   enderecoBairro: text('endereco_bairro'),
+  // Observação GERAL do pedido (mig 346): "interfone ruim, ligar ao chegar". Nasce só na nuvem (cardápio online e robô);
+  // uma linha, até 300 letras (limpa no serviço — `textoDaObservacao`).
+  observacao: text('observacao'),
   // Endereço fiscal da entrega (mig 285): o grupo `enderDest` da NFC-e exige município e UF, que
   // o endereço de delivery não guardava. Nulo = usa o município do emitente.
   enderecoCidade: text('endereco_cidade'),

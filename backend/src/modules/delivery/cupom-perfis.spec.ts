@@ -60,6 +60,9 @@ describe('perfis de cupom — padrão do Regem × o que a loja gravou', () => {
     expect(keys.indexOf('pedidoRegem')).toBe(keys.indexOf('nomeLoja') + 1);
     expect(keys[keys.length - 1]).toBe('qrcode');
     expect(campo(p, 'troco')).toMatchObject({ negrito: true });
+    // A observação do pedido (mig 346): o perfil já editado pela loja a recebe logo depois do endereço, em negrito.
+    expect(keys.indexOf('observacao')).toBe(keys.indexOf('endereco') + 1);
+    expect(campo(p, 'observacao')).toMatchObject({ visivel: true, negrito: true });
     // Os campos gravados ficam na ordem da loja.
     expect(keys.filter((k: string) => gravado.some((g) => g.key === k))).toEqual(gravado.map((g) => g.key));
   });
