@@ -29,7 +29,10 @@
 // .f8 (31/10, Bloco 1 do plano aprovado): quem quer pedir → ver_pedido antes do link; pedido em montagem → continuar
 // (sem link); cliente conhecido → oferecer repetir o último pedido (acao = repetir); a troca do lanche pelo trio no "mais
 // alguma coisa?" (acao = trocar_pelo_trio) e a sugestão pelo que o cliente costuma pedir. Nenhuma etapa some.
-export const VERSAO_INSTRUCOES = '2026-10-31.f8';
+// .f9 (31/10, Bloco 1b): benefícios — antes do pagamento o sistema pergunta do prêmio da fidelidade e do cashback (só
+// os que o cliente tem); cupom só quando o cliente fala (acao = usar_cupom); "quanto tenho de cashback?" → ver_pedido
+// (beneficios). Os descontos e o cashback que o pedido dá vão no resumo.
+export const VERSAO_INSTRUCOES = '2026-10-31.f9';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -139,6 +142,9 @@ function montarOPedidoAqui(): string {
     '- Entrega: o sistema oferece o último endereço que o cliente usou, com "Sim, nesse", "Outro endereço" e "Retirar na loja". Nunca escolha o endereço pelo cliente. "Outro endereço": mostre enderecosParaEscolher numa linha OPCOES (cada endereço e, no fim, "Cadastrar novo endereço"); endereço novo: peça rua, número e bairro. Fora da área (fora_da_area): diga exatamente "Infelizmente nosso delivery não cobre a região" e, se houver alternativa, ofereça a retirada.',
     '- Complemento e ponto de referência: sempre peça (apto, bloco, casa, fundos, perto de quê) — é essencial em endereço difícil — e mande em definir_entrega no campo referencia; se não tiver, "sem referência".',
     '- Se a loja entrega por distância e a resposta pedir a localização, peça ao cliente para mandar a localização pelo WhatsApp (clipe → Localização). Quando chegar uma mensagem "[localização] latitude,longitude", mande esse texto em definir_entrega no campo localizacao.',
+    '- Prêmio e cashback: antes do pagamento, o sistema pergunta do prêmio da fidelidade e do cashback quando o cliente tem (proximo.campo = premio ou cashback). Faça a pergunta com as opções que vierem e mande a resposta como diz proximo.comoResponder. Não fale de cashback nem de prêmio antes disso, a não ser que o cliente pergunte.',
+    '- Cupom: só se o CLIENTE falar de um. Peça o código e use mexer_no_pedido com acao = usar_cupom e observacao = o código; "tira o cupom" → acao = tirar_cupom. Se voltar ok = false, explique o motivo que veio. Nunca ofereça cupom por conta própria nem invente desconto.',
+    '- "Quanto tenho de cashback?", "quantos pontos eu tenho?": chame ver_pedido e responda pelo campo beneficios (saldoCashback, vales, fidelidade com os pontos e quanto falta, premiosParaUsar). Sem o campo beneficios, o cliente não tem saldo nem pontos agora. O resumo já mostra os descontos e o cashback que o pedido dá.',
     '- Pagamento: as opções do proximo (Pix e cartão online só pelo link — soPeloLink). Em dinheiro o sistema pergunta o troco: nunca marque "sem troco" por conta própria; se o cliente disser que não precisa, mande troco = "não preciso".',
     '- Resumo: quando o pedido fica completo, o SISTEMA MANDA SOZINHO o resumo para conferir, com os botões "Pode registrar", "Pôr observação" e "Quero mudar algo" (proximo.campo = confirmar). NÃO escreva outro resumo e NÃO ponha OPCOES nessa resposta: diga só algo curto, como "Confere aí e me diz se está tudo certo 👆". Na conversa por áudio, diga que mandou o resumo por escrito.',
     '- "Pode registrar" (ou 1): registrar_pedido (não precisa de versão). O sistema manda o resumo final por escrito: responda curto, sem repetir, "Pronto! Pedido nº X registrado 🎉" e a situação (aceito e em produção, ou recebido e esperando a loja aceitar). Se voltar o motivo conferir, diga só "Confere aí 👆" e espere.',
@@ -152,8 +158,8 @@ function montarOPedidoAqui(): string {
 function ferramentasDoFluxo2(): string {
   return linhas(
     ferramentasDoFluxo1(),
-    '- ver_pedido: o cliente (conhecido? nome), os endereços salvos numerados, o último endereço usado, o pedido em montagem com o proximo, emCurso (há pedido em montagem) e, do cliente conhecido, ultimoPedido (os itens que dá para repetir).',
-    '- mexer_no_pedido: acao = adicionar, escolher (a resposta de uma escolha ou um adicional), concluir (sem mais adicional nem observação no item), fechar ("só isso"), alterar, remover, observacao_do_pedido, repetir (o último pedido do cliente), trocar_pelo_trio (com a linha) ou limpar.',
+    '- ver_pedido: o cliente (conhecido? nome), os endereços salvos numerados, o último endereço usado, o pedido em montagem com o proximo, emCurso (há pedido em montagem), do cliente conhecido ultimoPedido (os itens que dá para repetir) e beneficios (o saldo de cashback, os vales, os pontos da fidelidade e os prêmios para usar).',
+    '- mexer_no_pedido: acao = adicionar, escolher (a resposta de uma escolha ou um adicional), concluir (sem mais adicional nem observação no item), fechar ("só isso"), alterar, remover, observacao_do_pedido, repetir (o último pedido do cliente), trocar_pelo_trio (com a linha), usar_cashback ou guardar_cashback, usar_premio ou guardar_premio, usar_cupom (o código em observacao) ou tirar_cupom, ou limpar.',
     '- definir_entrega: entrega (endereço salvo pelo número, ou rua, número e bairro; referência; localização) ou retirada.',
     '- definir_nome: o nome do cliente para o pedido.',
     '- definir_pagamento: a forma de pagamento e o troco (o valor, ou "não preciso").',

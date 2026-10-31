@@ -2991,6 +2991,143 @@ export class CardapioService {
     return { taxa, taxaCheia, bairroNome, km, alemDaUltimaFaixa, semLocalizacao, bairro, ponto };
   }
 
+  /**
+   * OS DESCONTOS DO PEDIDO — prêmio de fidelidade, cashback e cupom, com as regras de empilhamento da loja. É a conta do
+   * `receberPedido` e a do resumo do robô (Bloco 1b do plano de 31/10/2026): os dois saem daqui, para o total que o
+   * cliente confere no WhatsApp ser o mesmo que o pedido grava (V74). `usarCashback: false` não usa o saldo; ausente,
+   * usa (o padrão do cardápio). Nada é gravado aqui.
+   */
+  async descontosDoPedido(
+    cfg: any,
+    e: {
+      telefone?: string;
+      resgateId?: string;
+      cupom?: string;
+      usarCashback?: boolean;
+      tipo: 'entrega' | 'retirada';
+      itensOut: any[];
+      totalCent: number;
+    },
+  ) {
+    const avisos: string[] = [];
+    const totalCent = e.totalCent;
+    const total = paraReais(totalCent);
+    // ── Prêmio de fidelidade (resgate) — avaliado ANTES do cupom p/ aplicar as regras.
+    let premio: any = cfg.fidelidadeAtiva
+      ? await this.fidelidade.avaliarPremio(cfg.tenantId, e.resgateId, e.telefone ?? '', e.itensOut, total)
+      : { desconto: 0 };
+    // Regra: em ENTREGA o resgate exige o PEDIDO MÍNIMO em ITENS (a taxa não conta).
+    if ((premio.desconto || 0) > 0 && e.tipo === 'entrega' && cfg.pedidoMinimo != null) {
+      const minimo = Number(cfg.pedidoMinimo) || 0;
+      if (total < minimo) {
+        premio = { desconto: 0 };
+        avisos.push(
+          `O resgate da fidelidade exige pedido mínimo de R$ ${minimo.toFixed(2)} em itens ` +
+            `(a taxa de entrega não conta). Complete o mínimo para usar o resgate.`,
+        );
+      }
+    }
+    const temResgate = (premio.desconto || 0) > 0;
+
+    // ── Cashback (PREVIEW) sobre o que sobra após o prêmio — base p/ a regra do cupom.
+    const baseCashbackPrev = Math.max(0, paraReais(somarCentavos(totalCent, -paraCentavos(premio.desconto || 0))));
+    const cbPrev =
+      e.usarCashback === false ? { saldoUsado: 0 } : await this.cashback.avaliarDescontos(cfg.tenantId, e.telefone ?? '', baseCashbackPrev);
+    const cashbackUsadoCent = paraCentavos(cbPrev.saldoUsado || 0);
+
+    // ── Cupom — com as regras configuráveis de empilhamento.
+    let cup: any = await this.avaliarCupom(cfg.tenantId, e.cupom ?? '', total, { telefone: e.telefone });
+    if (cup.valido && cfg.cupomBloqueiaComResgate && temResgate) {
+      avisos.push('Cupom não pode ser usado em pedido com resgate de fidelidade.');
+      cup = { valido: false, desconto: 0, freteGratis: false, motivo: 'Cupom não pode ser usado em pedido com resgate de fidelidade.' };
+    } else if (cup.valido && cfg.cupomMaxCashbackCent != null && cashbackUsadoCent > Number(cfg.cupomMaxCashbackCent)) {
+      const msg =
+        `Cupom não permitido: o cashback usado (R$ ${(cashbackUsadoCent / 100).toFixed(2)}) passa do ` +
+        `limite de R$ ${(Number(cfg.cupomMaxCashbackCent) / 100).toFixed(2)} definido pela loja.`;
+      avisos.push(msg);
+      cup = { valido: false, desconto: 0, freteGratis: false, motivo: msg };
+    }
+
+    // ── Descontos acumulados em CENTAVOS: cupom → prêmio → cashback (sem drift).
+    let descontoCent = cup.valido ? paraCentavos(cup.desconto) : 0;
+    const freteGratis = !!(cup.valido && cup.freteGratis); // cupom de frete grátis zera a entrega
+    descontoCent = somarCentavos(descontoCent, paraCentavos(premio.desconto || 0));
+    // Cashback: aplica saldo (valor) + vales (produto) sobre o que restou.
+    // O cliente pode optar por NÃO usar o saldo (usarCashback=false).
+    const cb =
+      e.usarCashback === false
+        ? { saldoUsado: 0, vales: [] as any[], desconto: 0 }
+        : await this.cashback.avaliarDescontos(cfg.tenantId, e.telefone ?? '', Math.max(0, paraReais(somarCentavos(totalCent, -descontoCent))));
+    descontoCent = somarCentavos(descontoCent, paraCentavos(cb.desconto || 0));
+    // Trava contábil: o desconto total nunca passa do subtotal dos itens.
+    if (descontoCent > totalCent) descontoCent = totalCent;
+    return { premio, temResgate, cup, cb, descontoCent, freteGratis, avisos };
+  }
+
+  /**
+   * Os benefícios do cliente para o robô (Bloco 1b): quanto de cashback (saldo + vales) dá para usar sobre `base` — o
+   * que sobra do pedido depois do cupom e do prêmio, a mesma base do `descontosDoPedido` — e os prêmios da fidelidade
+   * que ele pode usar (ganhos ou já resgatados, no prazo). `saldo: true` traz também o saldo inteiro (a pergunta "quanto
+   * tenho de cashback?"). Só leitura (a não ser a expiração do saldo vencido, que a consulta do cashback já faz).
+   */
+  async beneficiosDoCliente(cfg: any, telefone: string, base: number, opts: { saldo?: boolean } = {}) {
+    const tel = String(telefone ?? '').replace(/\D/g, '');
+    if (!tel)
+      return {
+        cashbackParaUsar: 0,
+        vales: [] as any[],
+        saldoCashback: null as number | null,
+        pontosCashback: null as number | null,
+        premios: [] as any[],
+        fidelidade: [] as { plano: string; pontos: number; meta: number; faltam: number; recompensa: string }[],
+      };
+    const [usar, fid, saldo] = await Promise.all([
+      this.cashback.avaliarDescontos(cfg.tenantId, tel, Math.max(0, Number(base) || 0)),
+      cfg.fidelidadeAtiva ? this.fidelidade.statusCliente(cfg.tenantId, tel) : Promise.resolve(null),
+      opts.saldo ? this.cashback.saldoCliente(cfg.tenantId, tel) : Promise.resolve(null),
+    ]);
+    const agora = Date.now();
+    const premios = ((fid as any)?.resgates ?? [])
+      .filter((r: any) => (r.status === 'disponivel' || r.status === 'resgatado') && (!r.prazoEm || new Date(r.prazoEm).getTime() >= agora))
+      .map((r: any) => ({ id: r.id, nome: String(r.recompensa || r.plano || 'Prêmio'), plano: r.plano ?? null, prazoEm: r.prazoEm ?? null }));
+    return {
+      cashbackParaUsar: Number(usar.desconto) || 0,
+      vales: usar.vales ?? [],
+      saldoCashback: saldo ? Number((saldo as any).valor) || 0 : null,
+      pontosCashback: saldo ? Number((saldo as any).pontos) || 0 : null,
+      premios,
+      // Com `saldo`: os pontos de cada plano ativo da fidelidade e quanto falta para o prêmio.
+      fidelidade: opts.saldo
+        ? ((fid as any)?.planos ?? [])
+            .filter((p: any) => p.ativo)
+            .map((p: any) => {
+              const pontos = Number(p.pontos) || 0;
+              const meta = Number(p.pontosMeta) || 0;
+              return { plano: String(p.nome), pontos, meta, faltam: Math.max(0, meta - pontos), recompensa: String(p.recompensa ?? '') };
+            })
+        : [],
+    };
+  }
+
+  /**
+   * O prêmio da fidelidade que o cliente escolheu usar no pedido do robô: o ganho ('disponivel') é resgatado agora — o
+   * mesmo passo do botão "Resgatar" do cardápio —, e o já resgatado segue. O desconto entra pelo `resgateId` no
+   * `descontosDoPedido`; o prêmio só é marcado como usado quando o pedido é registrado.
+   */
+  async prepararPremioDoRobo(cfg: any, resgateId: string, telefone: string): Promise<{ id: string }> {
+    if (!cfg.fidelidadeAtiva) throw new BadRequestException('A fidelidade não está ligada nesta loja.');
+    const st: any = await this.fidelidade.statusCliente(cfg.tenantId, telefone);
+    const r = (st?.resgates ?? []).find((x: any) => x.id === resgateId);
+    if (!r || (r.status !== 'disponivel' && r.status !== 'resgatado')) throw new BadRequestException('Esse prêmio não está disponível.');
+    if (r.status === 'disponivel') await this.fidelidade.resgatar(cfg.tenantId, resgateId, telefone);
+    return { id: r.id };
+  }
+
+  /** Quanto o pedido vai creditar de cashback na confirmação (a mesma conta do crédito) — para o resumo do robô. */
+  async previsaoDoCashback(tenantId: string, total: number, taxaEntrega = 0) {
+    return this.cashback.previsaoDoCredito(tenantId, total, taxaEntrega);
+  }
+
   async receberPedido(
     token: string,
     dto: {
@@ -3175,70 +3312,19 @@ export class CardapioService {
             .join(' · ') || dto.endereco
         : undefined;
     const avisos: string[] = [];
-    // ── Prêmio de fidelidade (resgate) — avaliado ANTES do cupom p/ aplicar as regras.
-    let premio: any = cfg.fidelidadeAtiva
-      ? await this.fidelidade.avaliarPremio(cfg.tenantId, dto.resgateId, dto.telefone ?? '', itensOut, total)
-      : { desconto: 0 };
-    // Regra: em ENTREGA o resgate exige o PEDIDO MÍNIMO em ITENS (a taxa não conta).
-    if ((premio.desconto || 0) > 0 && tipo === 'entrega' && cfg.pedidoMinimo != null) {
-      const minimo = Number(cfg.pedidoMinimo) || 0;
-      if (total < minimo) {
-        premio = { desconto: 0 };
-        avisos.push(
-          `O resgate da fidelidade exige pedido mínimo de R$ ${minimo.toFixed(2)} em itens ` +
-            `(a taxa de entrega não conta). Complete o mínimo para usar o resgate.`,
-        );
-      }
-    }
-    const temResgate = (premio.desconto || 0) > 0;
-
-    // ── Cashback (PREVIEW) sobre o que sobra após o prêmio — base p/ a regra do cupom.
-    const baseCashbackPrev = Math.max(
-      0,
-      paraReais(somarCentavos(totalCent, -paraCentavos(premio.desconto || 0))),
-    );
-    const cbPrev =
-      dto.usarCashback === false
-        ? { saldoUsado: 0 }
-        : await this.cashback.avaliarDescontos(cfg.tenantId, dto.telefone ?? '', baseCashbackPrev);
-    const cashbackUsadoCent = paraCentavos(cbPrev.saldoUsado || 0);
-
-    // ── Cupom — com as regras configuráveis de empilhamento.
-    let cup: any = await this.avaliarCupom(cfg.tenantId, dto.cupom ?? '', total, {
+    // Prêmio, cashback e cupom — a MESMA conta que o robô usa no resumo (`descontosDoPedido`, Bloco 1b de 31/10/2026).
+    const d = await this.descontosDoPedido(cfg, {
       telefone: dto.telefone,
+      resgateId: dto.resgateId,
+      cupom: dto.cupom,
+      usarCashback: dto.usarCashback,
+      tipo,
+      itensOut,
+      totalCent,
     });
-    if (cup.valido && cfg.cupomBloqueiaComResgate && temResgate) {
-      avisos.push('Cupom não pode ser usado em pedido com resgate de fidelidade.');
-      cup = { valido: false, desconto: 0, freteGratis: false };
-    } else if (
-      cup.valido &&
-      cfg.cupomMaxCashbackCent != null &&
-      cashbackUsadoCent > Number(cfg.cupomMaxCashbackCent)
-    ) {
-      avisos.push(
-        `Cupom não permitido: o cashback usado (R$ ${(cashbackUsadoCent / 100).toFixed(2)}) passa do ` +
-          `limite de R$ ${(Number(cfg.cupomMaxCashbackCent) / 100).toFixed(2)} definido pela loja.`,
-      );
-      cup = { valido: false, desconto: 0, freteGratis: false };
-    }
-
-    // ── Descontos acumulados em CENTAVOS: cupom → prêmio → cashback (sem drift).
-    let descontoCent = cup.valido ? paraCentavos(cup.desconto) : 0;
-    if (cup.valido && cup.freteGratis) taxa = 0; // cupom de frete grátis zera a entrega
-    descontoCent = somarCentavos(descontoCent, paraCentavos(premio.desconto || 0));
-    // Cashback: aplica saldo (valor) + vales (produto) sobre o que restou.
-    // O cliente pode optar por NÃO usar o saldo (usarCashback=false).
-    const cb =
-      dto.usarCashback === false
-        ? { saldoUsado: 0, vales: [] as any[], desconto: 0 }
-        : await this.cashback.avaliarDescontos(
-            cfg.tenantId,
-            dto.telefone ?? '',
-            Math.max(0, paraReais(somarCentavos(totalCent, -descontoCent))),
-          );
-    descontoCent = somarCentavos(descontoCent, paraCentavos(cb.desconto || 0));
-    // Trava contábil: o desconto total nunca passa do subtotal dos itens.
-    if (descontoCent > totalCent) descontoCent = totalCent;
+    avisos.push(...d.avisos);
+    const { premio, cup, cb, descontoCent } = d;
+    if (d.freteGratis) taxa = 0; // cupom de frete grátis zera a entrega
     const desconto = paraReais(descontoCent); // reais na fronteira (gravação/resposta)
     // Indústria (B2B): pedido é ORÇAMENTO — sem cobrança online, fatura por CNPJ.
     const orcamento = cfg.ramo === 'industria';

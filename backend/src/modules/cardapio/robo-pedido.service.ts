@@ -4,6 +4,7 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cliente, clienteEndereco, pedidoExterno, roboCarrinho } from '../../db/schema';
 import { Conversa, lerConversa } from '../../common/conversa-do-robo';
 import { textoDaObservacao } from '../../common/observacao-do-pedido';
+import { ratearCentavos } from '../../common/rateio';
 import { paraCentavos, paraReais } from '../../util/dinheiro';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
@@ -26,6 +27,8 @@ import {
   acharVariacao,
   adicionaisDoItem,
   alterarEscolhas,
+  beneficiosDe,
+  comBeneficios,
   conducaoDoPedido,
   escolhasQueFaltam,
   formasDoRobo,
@@ -120,6 +123,13 @@ const ACOES = {
   // Bloco 1 do plano de 31/10/2026: repetir o último pedido do cliente; trocar o lanche pelo trio dele.
   repetir: ['repetir', 'repetir_pedido', 'repetir_ultimo', 'repetir_o_ultimo_pedido', 'pedir_de_novo', 'mesmo_pedido'],
   trocarPeloTrio: ['trocar_pelo_trio', 'virar_trio', 'trocar_por_trio', 'no_trio', 'fazer_trio'],
+  // Bloco 1b: os benefícios — o cashback e o prêmio perguntados antes do pagamento; o cupom, só quando o cliente diz.
+  usarCashback: ['usar_cashback', 'usar_meu_cashback', 'usar_saldo', 'usar_o_cashback'],
+  guardarCashback: ['guardar_cashback', 'guardar_para_depois', 'nao_usar_cashback', 'guardar_o_cashback'],
+  usarCupom: ['usar_cupom', 'cupom', 'aplicar_cupom'],
+  tirarCupom: ['tirar_cupom', 'remover_cupom', 'sem_cupom'],
+  usarPremio: ['usar_premio', 'usar_o_premio', 'resgatar_premio'],
+  guardarPremio: ['guardar_premio', 'deixar_para_depois', 'nao_usar_premio'],
 };
 
 /** O trio (ou combo) do lanche — "TRIO 08" do "Numero 08", "Trio X-Bacon" do "X-Bacon" —, à venda; da cópia com mais etapas. */
@@ -225,6 +235,7 @@ export class RoboPedidoService {
     const visao = (await this.calcular(ctx, menu, c, cli)).visao;
     const emCurso = Array.isArray(c?.itens) && (c!.itens as Linha[]).length > 0;
     const ultimo = emCurso ? null : await this.ultimoPedidoDoCliente(ctx, cli, produtos);
+    const beneficios = await this.beneficiosParaVer(ctx, cli);
     return {
       cliente: cli
         ? { conhecido: true, nome: cli.nome ?? null }
@@ -244,8 +255,36 @@ export class RoboPedidoService {
             },
           }
         : {}),
+      ...(beneficios ? { beneficios } : {}),
       pedido: visao,
     };
+  }
+
+  /**
+   * O que o cliente tem de benefício (Bloco 1b): o saldo de cashback e os vales, os pontos da fidelidade (quanto falta
+   * para o prêmio) e os prêmios para usar — para responder "quanto tenho de cashback?". O robô não abre a conversa com
+   * isso: o Regem pergunta do cashback e do prêmio antes do pagamento. Nada = não vem.
+   */
+  private async beneficiosParaVer(ctx: Contexto, cli: ClienteDaConversa) {
+    try {
+      const tel = this.telefoneDosBeneficios(ctx, cli);
+      const b = await this.cardapio.beneficiosDoCliente(ctx.cfg, tel, 0, { saldo: true });
+      const fid = b.fidelidade ?? [];
+      const saldo = Number(b.saldoCashback) || 0;
+      const pontos = Number(b.pontosCashback) || 0;
+      const r: Record<string, unknown> = {};
+      if (saldo > 0) r.saldoCashback = reais(saldo);
+      if (pontos > 0) r.pontosCashback = pontos;
+      if (b.vales.length) r.vales = b.vales.map((v: any) => `${v.descricao ?? 'Vale'} — ${reais(Number(v.valor) || 0)}`);
+      if (fid.length) r.fidelidade = fid;
+      if (b.premios.length) r.premiosParaUsar = b.premios.map((p: any) => p.nome);
+      if (!Object.keys(r).length) return null;
+      return { ...r, dica: 'Só fale disto se o cliente perguntar; o Regem pergunta do cashback e do prêmio antes do pagamento.' };
+    } catch (e: any) {
+      // Benefício que não se leu não derruba a conversa: o robô só não sabe o saldo agora.
+      this.logger.warn(`benefícios do cliente não lidos: ${e?.message ?? e}`);
+      return null;
+    }
   }
 
   private textoDoSalvo(e: any): string {
@@ -338,6 +377,18 @@ export class RoboPedidoService {
     if (ACOES.escolher.includes(acao)) return this.escolher(ctx, menu, dto, produtos);
     if (ACOES.repetir.includes(acao)) return this.repetirUltimo(ctx, menu, produtos);
     if (ACOES.trocarPeloTrio.includes(acao)) return this.trocarPeloTrio(ctx, menu, dto, produtos);
+    if (ACOES.usarCashback.includes(acao) || ACOES.guardarCashback.includes(acao))
+      return this.decidirCashback(ctx, menu, ACOES.usarCashback.includes(acao));
+    if (ACOES.usarCupom.includes(acao)) return this.usarCupom(ctx, menu, dto?.observacao ?? dto?.produto);
+    if (ACOES.tirarCupom.includes(acao)) {
+      const r = await this.mudar(ctx, (c) => ({ pagamento: comBeneficios(c.pagamento, { cupom: null }) }));
+      return this.responder(ctx, menu, r, 'cupom tirado');
+    }
+    if (ACOES.usarPremio.includes(acao)) return this.usarPremio(ctx, menu, dto);
+    if (ACOES.guardarPremio.includes(acao)) {
+      const r = await this.mudar(ctx, (c) => ({ pagamento: comBeneficios(c.pagamento, { premioDecidido: true, resgateId: null }) }));
+      return this.responder(ctx, menu, r, 'prêmio guardado para depois');
+    }
     if (ACOES.concluir.includes(acao)) {
       const r = await this.mudar(ctx, (c) => {
         const linhas = this.linhasDe(c);
@@ -412,8 +463,81 @@ export class RoboPedidoService {
     return this.semMudar(
       ctx,
       menu,
-      recusa('acao', 'Ação desconhecida: use adicionar, escolher, concluir, fechar, alterar, remover, observacao_do_pedido, repetir, trocar_pelo_trio ou limpar (veja proximo.comoResponder).'),
+      recusa(
+        'acao',
+        'Ação desconhecida: use adicionar, escolher, concluir, fechar, alterar, remover, observacao_do_pedido, repetir, trocar_pelo_trio, usar_cashback, guardar_cashback, usar_cupom, tirar_cupom, usar_premio, guardar_premio ou limpar (veja proximo.comoResponder).',
+      ),
     );
+  }
+
+  // ───────────────────────── benefícios (Bloco 1b) ─────────────────────────
+
+  /** O telefone dos benefícios: o do cadastro achado (como o pedido grava), senão a chave da conversa — o do `registrar`. */
+  private telefoneDosBeneficios(ctx: Contexto, cli: ClienteDaConversa): string {
+    return cli?.telefone ?? ctx.conversa.chave;
+  }
+
+  /** "Usar meu cashback" / "Guardar para depois": a decisão fica no carrinho e o total muda (ou não). */
+  private async decidirCashback(ctx: Contexto, menu: any, usar: boolean) {
+    const r = await this.mudar(ctx, (c) => {
+      if (!this.linhasDe(c).length) return recusa('itens', 'O pedido ainda não tem itens.');
+      return { pagamento: comBeneficios(c.pagamento, { usarCashback: usar }) };
+    });
+    return this.responder(ctx, menu, r, r.recusa ? undefined : usar ? 'cashback usado no pedido' : 'cashback guardado para depois');
+  }
+
+  /**
+   * O cupom que o CLIENTE disse (o robô não oferece cupom): confere agora, pelas regras do cardápio (validade, mínimo,
+   * primeiro pedido, uso por cliente), e explica a recusa. O desconto e as regras de empilhamento entram no total pela
+   * mesma conta do pedido (`descontosDoPedido`).
+   */
+  private async usarCupom(ctx: Contexto, menu: any, codigoDito: unknown) {
+    const codigo = String(codigoDito ?? '')
+      .trim()
+      .replace(/^cupom\s+/i, '')
+      .replace(/\s+/g, '')
+      .slice(0, 40);
+    if (!codigo) return this.semMudar(ctx, menu, recusa('cupom', 'Peça o código do cupom e mande em observacao.'));
+    const cli = await this.clienteDaConversa(ctx);
+    const c = await this.carrinhoAberto(ctx);
+    if (!c || !this.linhasDe(c).length) return this.semMudar(ctx, menu, recusa('itens', 'Monte o pedido antes: o cupom vale sobre os itens.'));
+    const { subtotal } = await this.calcular(ctx, menu, c, cli);
+    const v: any = await this.cardapio.validarCupomPublico(ctx.token, codigo, subtotal, this.telefoneDosBeneficios(ctx, cli));
+    if (!v?.valido)
+      return this.semMudar(ctx, menu, recusa('cupom', `O cupom ${codigo.toUpperCase()} não vale neste pedido${v?.motivo ? `: ${v.motivo}` : '.'}`));
+    const r = await this.mudar(ctx, (atual) => ({ pagamento: comBeneficios(atual.pagamento, { cupom: String(v.codigo ?? codigo) }) }));
+    return this.responder(ctx, menu, r, `cupom ${String(v.codigo ?? codigo).toUpperCase()} aplicado`);
+  }
+
+  /** "Usar o prêmio": o prêmio da fidelidade (o número dele na pergunta, ou o nome; o único, sem dizer) entra no pedido. */
+  private async usarPremio(ctx: Contexto, menu: any, dto: { linha?: unknown; produto?: string; observacao?: string }) {
+    const cli = await this.clienteDaConversa(ctx);
+    const tel = this.telefoneDosBeneficios(ctx, cli);
+    const { premios } = await this.cardapio.beneficiosDoCliente(ctx.cfg, tel, 0);
+    if (!premios.length) return this.semMudar(ctx, menu, recusa('premio', 'O cliente não tem prêmio da fidelidade para usar agora.'));
+    const n = Number(dto?.linha);
+    const dito = normalizar(dto?.produto ?? dto?.observacao ?? '');
+    const p =
+      n > 0 && n <= premios.length
+        ? premios[n - 1]
+        : dito
+          ? premios.find((x: any) => normalizar(x.nome).includes(dito) || dito.includes(normalizar(x.nome)))
+          : premios.length === 1
+            ? premios[0]
+            : undefined;
+    if (!p)
+      return this.semMudar(
+        ctx,
+        menu,
+        recusa('premio', 'Diga qual prêmio (o número dele na pergunta).', { premios: premios.map((x: any, i: number) => `${i + 1}. ${x.nome}`) }),
+      );
+    try {
+      await this.cardapio.prepararPremioDoRobo(ctx.cfg, p.id, tel);
+    } catch (e: any) {
+      return this.semMudar(ctx, menu, recusa('premio', e?.message ?? 'Esse prêmio não está disponível.'));
+    }
+    const r = await this.mudar(ctx, (c) => ({ pagamento: comBeneficios(c.pagamento, { resgateId: p.id, premioDecidido: true }) }));
+    return this.responder(ctx, menu, r, `prêmio "${p.nome}" no pedido`);
   }
 
   /**
@@ -818,7 +942,7 @@ export class RoboPedidoService {
     const antes = (atual?.pagamento as PagamentoDoCarrinho | null) ?? null;
     let forma: string;
     let meio: Meio | null;
-    if (!String(dto?.forma ?? '').trim() && antes) {
+    if (!String(dto?.forma ?? '').trim() && antes?.forma) {
       // Só o troco (a forma já estava escolhida).
       forma = antes.forma;
       meio = antes.meio ?? null;
@@ -839,7 +963,12 @@ export class RoboPedidoService {
       meio = f.meio ?? (antes && antes.forma === f.forma ? (antes.meio ?? null) : null);
     }
     const mesma = !!antes && antes.forma === forma && (antes.meio ?? null) === meio;
-    const pg: PagamentoDoCarrinho = { forma, meio, trocoPara: mesma ? antes!.trocoPara : null, semTroco: mesma ? antes!.semTroco : false };
+    const pg: PagamentoDoCarrinho = {
+      forma,
+      meio,
+      trocoPara: mesma ? antes!.trocoPara : null,
+      semTroco: mesma ? antes!.semTroco : false,
+    };
     const trocoDito = dto?.troco != null && String(dto.troco).trim() !== '' && String(dto.troco).trim() !== '0';
     if (meio === 'cartao') {
       pg.trocoPara = null;
@@ -861,7 +990,11 @@ export class RoboPedidoService {
         pg.trocoPara = null;
       }
     }
-    const r = await this.mudar(ctx, (c) => ({ pagamento: pg, ...this.fechaSeSoFaltaOMaisAlgo(c, menu) }));
+    // As decisões dos benefícios valem as do carrinho travado (uma resposta do cashback ao mesmo tempo não se perde).
+    const r = await this.mudar(ctx, (c) => {
+      const ben = (c.pagamento as PagamentoDoCarrinho | null)?.beneficios;
+      return { pagamento: ben ? { ...pg, beneficios: ben } : pg, ...this.fechaSeSoFaltaOMaisAlgo(c, menu) };
+    });
     return this.responder(ctx, menu, r, `pagamento: ${this.nomeDaForma(menu, tipo, pg)}`);
   }
 
@@ -987,6 +1120,8 @@ export class RoboPedidoService {
     // O preço das linhas prontas pelas contas do pedido do cardápio. Falhou todo junto: confere uma a uma para dizer qual.
     const precos = new Map<number, { descricao: string; unitario: number; quantidade: number }>();
     let subtotalCent = 0;
+    // Os itens precificados (o formato do pedido do cardápio): o prêmio de produto da fidelidade confere por eles.
+    let itensPrecificados: any[] = [];
     if (prontas.length) {
       const precificar = async (ls: Linha[]) => {
         const { porId, faixasAtacado } = await this.cardapio.conferirProdutosDoPedido(ctx.cfg, itensDoPedido(ls));
@@ -995,6 +1130,7 @@ export class RoboPedidoService {
       try {
         const { itensOut, totalCent } = await precificar(prontas);
         subtotalCent = totalCent;
+        itensPrecificados = itensOut;
         itensOut.forEach((it: any, i: number) => precos.set(prontas[i].linha, { descricao: it.descricao, unitario: it.precoUnitario, quantidade: it.quantidade }));
       } catch {
         bloqueado = true;
@@ -1035,8 +1171,84 @@ export class RoboPedidoService {
         foraDaArea = t.alemDaUltimaFaixa || (menu?.loja?.areaModo === 'raio' && t.semLocalizacao);
       } else foraDaArea = true;
     }
-    const totalCent = subtotalCent + paraCentavos(taxa);
+
+    // Bloco 1b (pedido do dono, 31/10/2026): prêmio, cupom e cashback pela MESMA conta do pedido do cardápio
+    // (`descontosDoPedido`), só o que o cliente escolheu — o total que ele confere é o que o pedido grava (V74). Com os
+    // itens fechados, os benefícios que ele tem e ainda não decidiu viram a pergunta antes do pagamento.
+    const ben = beneficiosDe(c?.pagamento);
+    const telBen = this.telefoneDosBeneficios(ctx, cli);
+    const itensFechadosEProntos = !!c?.itensFechados && linhas.length > 0 && !bloqueado && prontas.length === linhas.length;
+    let descontoCent = 0;
+    const descontos: { rotulo: string; valor: number }[] = [];
+    if (itensFechadosEProntos && (ben.usarCashback === true || ben.cupom || ben.resgateId)) {
+      const d = await this.cardapio
+        .descontosDoPedido(ctx.cfg, {
+          telefone: telBen,
+          resgateId: ben.resgateId ?? undefined,
+          cupom: ben.cupom ?? undefined,
+          usarCashback: ben.usarCashback === true,
+          tipo: tipo ?? 'retirada',
+          itensOut: itensPrecificados,
+          totalCent: subtotalCent,
+        })
+        .catch((e: any) => {
+          // Sem a conta do desconto que o cliente escolheu, o total do resumo não seria o gravado: não registra agora.
+          this.logger.warn(`descontos do pedido do robô não calculados: ${e?.message ?? e}`);
+          return null;
+        });
+      if (!d) {
+        bloqueado = true;
+        avisos.push('Não deu para calcular o desconto agora: peça um instante ao cliente e tente de novo.');
+      } else {
+        descontoCent = d.descontoCent;
+        if (d.freteGratis) taxa = 0; // cupom de frete grátis zera a entrega
+        avisos.push(...d.avisos);
+        if (ben.cupom && !d.cup.valido && !d.avisos.some((a) => /cupom/i.test(a)))
+          avisos.push(`O cupom ${String(ben.cupom).toUpperCase()} não vale neste pedido${d.cup.motivo ? `: ${d.cup.motivo}` : '.'}`);
+        if (ben.resgateId && !((d.premio.desconto || 0) > 0) && !d.avisos.some((a) => /fidelidade/i.test(a)))
+          avisos.push('O prêmio da fidelidade não vale neste pedido (o produto do prêmio não está no pedido): diga ao cliente.');
+        // O detalhe por benefício, rateado sobre o desconto final como o pedido grava (a soma fecha com o total).
+        const partes = [
+          { rotulo: `Cupom ${String(d.cup.codigo ?? ben.cupom ?? '').toUpperCase()}`.trim(), cent: d.cup.valido ? paraCentavos(d.cup.desconto || 0) : 0 },
+          { rotulo: d.premio.plano ? `Prêmio · ${d.premio.plano}` : 'Prêmio da fidelidade', cent: paraCentavos(d.premio.desconto || 0) },
+          { rotulo: 'Cashback', cent: paraCentavos(d.cb.desconto || 0) },
+        ].filter((p) => p.cent > 0);
+        const rateio = ratearCentavos(
+          partes.map((p) => p.cent),
+          descontoCent,
+        );
+        partes.forEach((p, i) => rateio[i] > 0 && descontos.push({ rotulo: p.rotulo, valor: paraReais(rateio[i]) }));
+      }
+    }
+    // Os benefícios que o cliente tem e ainda não decidiu. Se a leitura falhar, a conversa segue sem a pergunta (o
+    // cliente só não vê a oferta agora) e o motivo fica no log.
+    let beneficiosPendentes: EstadoDaConducao['beneficios'] = null;
+    const premioPendente = !ben.premioDecidido && !ben.resgateId;
+    if (itensFechadosEProntos && !bloqueado && (ben.usarCashback === undefined || premioPendente)) {
+      const restanteCent = Math.max(0, subtotalCent - descontoCent);
+      const b = await this.cardapio.beneficiosDoCliente(ctx.cfg, telBen, paraReais(restanteCent)).catch((e: any) => {
+        this.logger.warn(`benefícios do cliente não lidos (a pergunta do cashback e do prêmio fica para depois): ${e?.message ?? e}`);
+        return null;
+      });
+      const premios = b && premioPendente ? b.premios : [];
+      const cash = b && ben.usarCashback === undefined ? b.cashbackParaUsar : 0;
+      if (premios.length || cash > 0)
+        beneficiosPendentes = {
+          premios: premios.map((p: any) => ({ nome: p.nome })),
+          cashbackParaUsar: cash,
+          totalComCashback: paraReais(Math.max(0, restanteCent - paraCentavos(cash)) + paraCentavos(taxa)),
+        };
+    }
+    const totalCent = Math.max(0, subtotalCent - descontoCent) + paraCentavos(taxa);
     const total = paraReais(totalCent);
+    // O cashback que o pedido vai dar (a mesma conta do crédito na confirmação): só com os itens fechados. Só informa: a
+    // previsão que falha não aparece, e o crédito de verdade acontece na confirmação do pedido do mesmo jeito.
+    const ganho = itensFechadosEProntos
+      ? await this.cardapio.previsaoDoCashback(ctx.cfg.tenantId, total, taxa).catch((e: any) => {
+          this.logger.warn(`previsão do cashback do pedido não calculada: ${e?.message ?? e}`);
+          return { valor: 0, pontos: 0 };
+        })
+      : { valor: 0, pontos: 0 };
 
     // Pagamento: a forma ainda é do cardápio? O troco ainda cobre o total?
     const pg = (c?.pagamento as PagamentoDoCarrinho | null) ?? null;
@@ -1086,6 +1298,7 @@ export class RoboPedidoService {
       pagamentoServe: formaServe,
       opcoesDePagamento: opcoesDePagamento(menu, tipo).map((o) => opcaoComDetalhe(o.titulo, o.detalhe)),
       total,
+      beneficios: beneficiosPendentes,
     });
     const podeRegistrar = !falta.length && !bloqueado && linhas.length > 0;
     const formaNome = pg && formaServe ? this.nomeDaForma(menu, tipo, pg) : null;
@@ -1109,7 +1322,10 @@ export class RoboPedidoService {
       tipo,
       endereco: en?.tipo === 'entrega' ? { rua: en.rua, numero: en.numero, bairro: en.bairro ?? null, referencia: referenciaParaOPedido(en.referencia) ?? null } : null,
       taxa,
+      descontos,
       total,
+      cashbackGanho: ganho.valor,
+      pontosGanhos: ganho.pontos,
       formaNome,
       trocoPara: pg?.trocoPara ?? null,
       semTroco: !!pg?.semTroco,
@@ -1146,13 +1362,17 @@ export class RoboPedidoService {
               }
             : null,
       nome,
-      pagamento: pg
+      pagamento: pg?.forma
         ? {
             forma: formaNome ?? pg.forma,
             troco: pg.trocoPara != null ? `troco para ${reais(pg.trocoPara)}` : pg.semTroco ? 'sem troco' : null,
           }
         : null,
       observacao: c?.observacao ?? null,
+      ...(descontos.length ? { descontos: descontos.map((d) => ({ rotulo: d.rotulo, valor: `−${reais(d.valor)}` })) } : {}),
+      ...(ben.cupom ? { cupom: String(ben.cupom).toUpperCase() } : {}),
+      ...(ganho.valor > 0 ? { cashbackGanho: reais(ganho.valor) } : {}),
+      ...(ganho.pontos > 0 ? { pontosGanhos: ganho.pontos } : {}),
       total: reais(total),
       falta: falta.map((f) => ({ campo: f.campo, pergunta: f.pergunta })),
       podeRegistrar,
@@ -1160,7 +1380,7 @@ export class RoboPedidoService {
       ...(outros ? { enderecosParaEscolher: outros } : {}),
       ...(falta.some((x) => x.campo === 'pagamento') ? { soPeloLink: formasSoPeloLink(menu) } : {}),
     };
-    return { visao, total, paraConferir, podeRegistrar, formaNome };
+    return { visao, total, subtotal, paraConferir, podeRegistrar, formaNome, ganho };
   }
 
   // ───────────────────────── o resumo para conferir ─────────────────────────
@@ -1267,8 +1487,11 @@ export class RoboPedidoService {
         lng: en.tipo === 'entrega' && en.lng != null ? Number(en.lng) : undefined,
         formaPagamento: pg.forma,
         trocoPara: pg.trocoPara ?? undefined,
-        // O robô não oferece cashback nem cupom (ainda): o total gravado é o do resumo que o cliente confirmou.
-        usarCashback: false,
+        // Os benefícios que o cliente escolheu na conversa (Bloco 1b): o total gravado sai da mesma conta do resumo que
+        // ele confirmou (`descontosDoPedido`). Sem "usar", o saldo fica guardado.
+        usarCashback: beneficiosDe(pg).usarCashback === true,
+        cupom: beneficiosDe(pg).cupom ?? undefined,
+        resgateId: beneficiosDe(pg).resgateId ?? undefined,
         // A observação GERAL do pedido ("Pôr observação" no resumo) vai para o pedido (mig 346): painel, via, entregador.
         observacao: c.observacao ?? undefined,
         itens: itensDoPedido(c.itens as Linha[]),
@@ -1299,6 +1522,8 @@ export class RoboPedidoService {
       formaNome: calc.formaNome,
       tempoMin: (c.entrega as any)?.tipo === 'entrega' ? menu?.loja?.tempoEntregaMin : menu?.loja?.tempoRetiradaMin,
       observacao: c.observacao ?? null,
+      // O cashback do pedido pela conta do crédito, sobre o total GRAVADO (o que a confirmação credita).
+      ganho: await this.cardapio.previsaoDoCashback(ctx.cfg.tenantId, Number(ped?.total ?? 0), Number(ped?.taxaEntrega ?? 0)).catch(() => calc.ganho),
     });
     // As contas são as mesmas: um total diferente do que o cliente viu é defeito a investigar (o gravado vale).
     if (paraCentavos(Number(ped?.total ?? 0)) !== paraCentavos(calc.total))
