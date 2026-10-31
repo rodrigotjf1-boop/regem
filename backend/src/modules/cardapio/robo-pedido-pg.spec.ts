@@ -355,6 +355,37 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     expect(ultimos[1]).toMatchObject({ texto: 'Está tudo certo? 👇', opcoes: ['Pode registrar', 'Pôr observação', 'Quero mudar algo'] });
   });
 
+  // A ferramenta do n8n descreve só adicionar/alterar/remover/limpar: a IA pode não usar as ações novas. Nada pode
+  // ficar em ciclo por isso.
+  it('a IA que não usa as ações novas: "Não, obrigado" como observação ou adicional conclui; a entrega fecha o "mais alguma coisa?"', async () => {
+    const l = await loja();
+    const c = await l.ctx();
+    let r: any = await robo.mexerNosItens(c, { acao: 'adicionar', produto: 'x-bacon' });
+    expect(r.pedido.proximo.campo).toBe('extras 1');
+    r = await robo.mexerNosItens(c, { acao: 'alterar', linha: 1, observacao: 'Não, obrigado' });
+    expect(r.pedido.itens[0].observacao).toBeNull(); // não virou observação
+    expect(r.pedido.proximo.campo).toBe('mais_algo');
+    r = await robo.mexerNosItens(c, { acao: 'adicionar', produto: 'trio x-bacon', adicionais: 'coca-cola' });
+    expect(r.pedido.proximo.campo).toBe('extras 2');
+    r = await robo.mexerNosItens(c, { acao: 'escolher', adicionais: 'Não, obrigado' });
+    expect(r.pedido.proximo.campo).toBe('mais_algo');
+    // A IA foi direto para a entrega sem chamar "fechar": o "mais alguma coisa?" conta como respondido.
+    r = await robo.definirEntrega(c, { tipo: 'retirada' });
+    expect(r.pedido.falta.map((f: any) => f.campo)).not.toContain('mais_algo');
+    // Ação que o Regem não conhece: recusa explicada (200), não erro.
+    r = await robo.mexerNosItens(c, { acao: 'trocar_tudo' });
+    expect(r).toMatchObject({ ok: false, motivo: 'acao' });
+    expect(r.pedido.itens).toHaveLength(2);
+  });
+
+  it('com o adicional ou a observação do item ainda por perguntar, ir para a entrega NÃO pula a pergunta', async () => {
+    const l = await loja();
+    const c = await l.ctx();
+    await robo.mexerNosItens(c, { acao: 'adicionar', produto: 'x-bacon' });
+    const r: any = await robo.definirEntrega(c, { tipo: 'retirada' });
+    expect(r.pedido.proximo.campo).toBe('extras 1');
+  });
+
   it('duas mensagens ao mesmo tempo: um carrinho só, com os dois itens', async () => {
     const l = await loja();
     const c = await l.ctx();
