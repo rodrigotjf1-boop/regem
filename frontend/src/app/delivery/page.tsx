@@ -22,6 +22,7 @@ import { useSenhaSemSalvar } from '@/lib/use-senha-sem-salvar';
 import { avisarComprovante } from '@/lib/comprovante';
 import { Dialogo } from '@/components/ui/sobreposto';
 import { ItensDoPedido } from '@/components/delivery/itens-do-pedido';
+import { ItensDaPerda, type MarcaDaPerda } from '@/components/delivery/itens-da-perda';
 import { connectAsGestor } from '@/lib/rt';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -938,11 +939,12 @@ export default function DeliveryPage() {
       {atendAberto && (
         <AtendimentoPanel
           lista={atendimentos}
+          pedidos={pedidos}
           onFechar={() => setAtendAberto(false)}
           onResolver={(id) => acao(api.resolverAtendimento(id), 'Chamado resolvido.')}
-          onDecidir={(id, aceita, senha) =>
+          onDecidir={(id, aceita, senha, extra) =>
             acao(
-              api.decidirCancelamento(id, { aceita, senha }),
+              api.decidirCancelamento(id, { aceita, senha, ...(extra ?? {}) }),
               aceita ? 'Pedido cancelado.' : 'Cancelamento recusado.',
             )
           }
@@ -1384,15 +1386,37 @@ function resumoNoAviso(c: any): string {
   if (!m) return '';
   return ` — "${m.length > 90 ? `${m.slice(0, 89).trimEnd()}…` : m}"`;
 }
-function AtendimentoPanel({ lista, onFechar, onResolver, onDecidir }: {
+// Aceitar o cancelamento pedido pelo cliente (ERR-339): as mesmas perguntas do cancelamento no painel — o motivo e o
+// destino dos insumos (reutilizados × perda, com a perda por item). Antes só pedia a senha e o servidor gravava
+// "reutilizados" fixo, o que ainda escondia o "Registrar perda" depois.
+type ExtraDoCancelamento = { motivo?: string; reaproveitado?: boolean; perdaItens?: MarcaDaPerda[] | null };
+const STATUS_COM_COZINHA = ['confirmado', 'pronto', 'despachado', 'entregue'];
+
+function AtendimentoPanel({ lista, pedidos, onFechar, onResolver, onDecidir }: {
   lista: any[];
+  pedidos?: any[] | null;
   onFechar: () => void;
   onResolver: (id: string) => void;
-  onDecidir: (id: string, aceita: boolean, senha?: string) => void;
+  onDecidir: (id: string, aceita: boolean, senha?: string, extra?: ExtraDoCancelamento) => void;
 }) {
   const [cancelId, setCancelId] = useState<string | null>(null);
   const [senha, setSenha] = useState('');
+  const [motivo, setMotivo] = useState('');
+  const [reaproveitado, setReaproveitado] = useState(true);
+  const [perda, setPerda] = useState<MarcaDaPerda[] | null>(null);
   const campoSenha = useSenhaSemSalvar(); // o navegador não oferece guardar a senha do gestor
+  // Só o pedido já aceito tem cozinha (o mesmo critério do painel). Pedido fora da lista carregada: pergunta assim mesmo.
+  const temCozinha = (c: any) => {
+    const ped = (pedidos ?? []).find((p: any) => p.id === c.pedidoId);
+    return !ped || STATUS_COM_COZINHA.includes(String(ped.status));
+  };
+  const abrirCancelamento = (id: string) => {
+    setCancelId(cancelId === id ? null : id);
+    setSenha('');
+    setMotivo('');
+    setReaproveitado(true);
+    setPerda(null);
+  };
   // A caixa de conversas (Delivery › WhatsApp) é de presidente, gerente e supervisão (o servidor confere); a execução
   // vê o chamado e resolve, mas o link a levaria a uma tela que recusa.
   const [podeResponder, setPodeResponder] = useState(false);
@@ -1440,18 +1464,65 @@ function AtendimentoPanel({ lista, onFechar, onResolver, onDecidir }: {
                 {c.tipo === 'cancelamento' ? (
                   <>
                     <Button type="button" size="sm" variant="outline" className="ml-auto h-7 text-xs" onClick={() => onDecidir(c.id, false)}>Recusar</Button>
-                    <Button type="button" size="sm" className="h-7 bg-destructive text-xs text-white hover:bg-destructive/90" onClick={() => { setCancelId(cancelId === c.id ? null : c.id); setSenha(''); }}>Aceitar cancelamento</Button>
+                    <Button type="button" size="sm" className="h-7 bg-destructive text-xs text-white hover:bg-destructive/90" aria-expanded={cancelId === c.id} onClick={() => abrirCancelamento(c.id)}>Aceitar cancelamento</Button>
                   </>
                 ) : (
                   <Button type="button" size="sm" variant="outline" className="ml-auto h-7 text-xs" onClick={() => onResolver(c.id)}>Resolver</Button>
                 )}
               </div>
               {c.tipo === 'cancelamento' && cancelId === c.id && (
-                <div className="mt-2 flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-2">
-                  <input {...campoSenha} aria-label="Senha de quem libera (presidente, gerente ou supervisão)" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="Senha de quem libera" className="h-8 min-w-0 flex-1 rounded border border-border bg-background px-2 text-sm" />
-                  <Button type="button" size="sm" className="h-8 bg-destructive text-xs text-white hover:bg-destructive/90" disabled={!senha} onClick={() => { onDecidir(c.id, true, senha); setCancelId(null); setSenha(''); }}>
-                    Confirmar cancelamento
-                  </Button>
+                <div className="mt-2 space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-2">
+                  <input
+                    aria-label="Motivo do cancelamento"
+                    value={motivo}
+                    onChange={(e) => setMotivo(e.target.value)}
+                    placeholder="Motivo (vazio: cancelamento solicitado pelo cliente)"
+                    className="h-8 w-full min-w-0 rounded border border-border bg-background px-2 text-sm"
+                  />
+                  {temCozinha(c) && (
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-medium">O que aconteceu com os insumos deste pedido?</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        <button
+                          type="button"
+                          aria-pressed={reaproveitado}
+                          onClick={() => setReaproveitado(true)}
+                          className={`min-w-[8rem] flex-1 rounded-md border px-2 py-1.5 text-xs font-medium ${reaproveitado ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground'}`}
+                        >
+                          ♻️ Reutilizados (ficam no estoque)
+                        </button>
+                        <button
+                          type="button"
+                          aria-pressed={!reaproveitado}
+                          onClick={() => setReaproveitado(false)}
+                          className={`min-w-[8rem] flex-1 rounded-md border px-2 py-1.5 text-xs font-medium ${!reaproveitado ? 'border-destructive bg-destructive/10 text-destructive' : 'border-border text-muted-foreground'}`}
+                        >
+                          🗑️ Perda (saem do estoque)
+                        </button>
+                      </div>
+                      {!reaproveitado && c.pedidoId && <ItensDaPerda pedidoId={c.pedidoId} onChange={setPerda} />}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <input {...campoSenha} aria-label="Senha de quem libera (presidente, gerente ou supervisão)" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="Senha de quem libera" className="h-8 min-w-0 flex-1 rounded border border-border bg-background px-2 text-sm" />
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8 bg-destructive text-xs text-white hover:bg-destructive/90"
+                      disabled={!senha}
+                      onClick={() => {
+                        onDecidir(c.id, true, senha, {
+                          motivo: motivo.trim() || undefined,
+                          reaproveitado,
+                          perdaItens: reaproveitado ? null : perda,
+                        });
+                        setCancelId(null);
+                        setSenha('');
+                      }}
+                    >
+                      Confirmar cancelamento
+                    </Button>
+                  </div>
                 </div>
               )}
             </div>

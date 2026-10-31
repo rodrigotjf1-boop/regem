@@ -1166,8 +1166,10 @@ export const api = {
   atendimentos: () => req('/atendimento'),
   resolverAtendimento: (id: string) =>
     req(`/atendimento/${id}/resolver`, { method: 'POST', body: '{}' }),
-  decidirCancelamento: (id: string, body: { aceita: boolean; senha?: string; motivo?: string }) =>
-    req(`/atendimento/${id}/cancelamento`, { method: 'POST', body: JSON.stringify(body) }),
+  decidirCancelamento: (
+    id: string,
+    body: { aceita: boolean; senha?: string; motivo?: string; reaproveitado?: boolean; perdaItens?: { comandaItemId: string; quantidade: number }[] | null },
+  ) => req(`/atendimento/${id}/cancelamento`, { method: 'POST', body: JSON.stringify(body) }),
   integracoesDelivery: () => req('/delivery/integracoes'),
   salvarIntegracao: (body: Record<string, unknown>) =>
     req('/delivery/integracoes', { method: 'PUT', body: JSON.stringify(body) }),

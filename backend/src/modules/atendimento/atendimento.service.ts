@@ -6,6 +6,7 @@ import { atendimentoChamado } from '../../db/schema';
 import { DeliveryService } from '../delivery/delivery.service';
 import { AuthUser } from '../../auth/auth-user';
 import { chaveTelefone, sqlChaveTelefone } from '../../common/telefone-chave';
+import { lerItensDaPerda } from '../vendas/itens-da-perda';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -162,7 +163,7 @@ export class AtendimentoService {
   async decidirCancelamento(
     user: AuthUser,
     id: string,
-    dto: { aceita?: boolean; senha?: string; motivo?: string },
+    dto: { aceita?: boolean; senha?: string; motivo?: string; reaproveitado?: boolean; perdaItens?: unknown },
     terminalId: string | null = null,
   ) {
     const [row] = await this.db
@@ -177,16 +178,19 @@ export class AtendimentoService {
     let comprovante: { enfileirados: number; aviso: string | null } | undefined;
     if (dto.aceita) {
       if (!row.pedidoId) throw new BadRequestException('Chamado sem pedido vinculado.');
-      // Delega ao Delivery (valida a senha do gestor, estorna financeiro/fidelidade, imprime o comprovante).
+      // Delega ao Delivery (valida a senha do gestor, estorna financeiro/fidelidade, imprime o comprovante). O destino
+      // dos insumos vem da tela, como no cancelamento do painel (ERR-339): antes ia `true` fixo — todo cancelamento pelo
+      // chamado gravava "reaproveitado" e escondia o "Registrar perda" depois.
       const cancelado: any = await this.delivery.cancelar(
         user.tenantId,
         user.colaboradorId,
         user.categoria,
         row.pedidoId,
-        dto.motivo ?? 'Cancelamento solicitado pelo cliente',
+        String(dto.motivo ?? '').trim() || 'Cancelamento solicitado pelo cliente',
         dto.senha,
-        true,
+        dto.reaproveitado !== false,
         terminalId,
+        lerItensDaPerda(dto.perdaItens),
       );
       comprovante = cancelado?.comprovante;
     }

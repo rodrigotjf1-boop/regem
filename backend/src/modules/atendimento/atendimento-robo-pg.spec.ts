@@ -59,6 +59,28 @@ descrever('chamado do robô com prioridade (Postgres)', () => {
     await q(`delete from atendimento_chamado where tenant_id = $1`, [T]);
   });
 
+  // ERR-339 (3º teste do dono, 31/10/2026): aceitar o cancelamento pelo chamado gravava "reutilizados" fixo — não
+  // perguntava o destino dos insumos como o cancelamento do painel, e ainda escondia o "Registrar perda" depois.
+  it('aceitar o cancelamento leva ao Delivery o destino dos insumos (perda por item; sem escolha, reutilizados)', async () => {
+    const chamadas: any[][] = [];
+    const delivery: any = { cancelar: async (...a: any[]) => void chamadas.push(a) };
+    const comDelivery = new AtendimentoService(drizzle(pool, { schema }) as any, { emit: () => true } as any, delivery);
+    const gestor: any = { tenantId: T, colaboradorId: randomUUID(), categoria: 'gerente' };
+    const item = randomUUID();
+    const a = await svc.abrir(T, null, { tipo: 'cancelamento', telefone: '21987654321', pedidoId: randomUUID() });
+    await comDelivery.decidirCancelamento(gestor, a.id, { aceita: true, senha: '1234', reaproveitado: false, perdaItens: [{ comandaItemId: item, quantidade: 1 }] });
+    // (tenant, ator, perfil, pedido, motivo, senha, reaproveitado, terminal, perdaItens)
+    expect(chamadas[0][4]).toBe('Cancelamento solicitado pelo cliente');
+    expect(chamadas[0][6]).toBe(false);
+    expect(chamadas[0][8]).toEqual([{ comandaItemId: item, quantidade: 1 }]);
+    const b = await svc.abrir(T, null, { tipo: 'cancelamento', telefone: '21911110000', pedidoId: randomUUID() });
+    await comDelivery.decidirCancelamento(gestor, b.id, { aceita: true, senha: '1234', motivo: '  demorou demais  ' });
+    expect(chamadas[1][4]).toBe('demorou demais');
+    expect(chamadas[1][6]).toBe(true);
+    expect(chamadas[1][8]).toBeNull();
+    expect((await doTenant()).map((c) => c.decisao)).toEqual(['aceito', 'aceito']);
+  });
+
   it('chamado comum nasce "normal"; o do cliente irritado, "urgente"', async () => {
     await svc.abrir(T, null, { tipo: 'humano', telefone: '21987654321' });
     await svc.abrir(T, null, { tipo: 'erro', telefone: '21911112222', prioridade: 'urgente' });
