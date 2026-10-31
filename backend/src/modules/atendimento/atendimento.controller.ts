@@ -29,13 +29,14 @@ export class AtendimentoController {
   }
 
   // Veredito de um pedido de cancelamento feito pelo cliente: aceita (cancela o
-  // pedido de fato — exige senha de gestor) ou recusa (só encerra o chamado).
+  // pedido de fato — exige senha de gestor) ou recusa (só encerra o chamado). Aceitando, o destino dos insumos é o
+  // mesmo do cancelamento do painel (ERR-339): `reaproveitado` (padrão true) e, na perda, `perdaItens`.
   @Post(':id/cancelamento')
   @Roles('presidente', 'gerente', 'supervisao', 'execucao')
   decidirCancelamento(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
-    @Body() dto: { aceita?: boolean; senha?: string; motivo?: string },
+    @Body() dto: { aceita?: boolean; senha?: string; motivo?: string; reaproveitado?: boolean; perdaItens?: unknown },
     @TerminalAtual() terminalId: string | null, // o comprovante do cancelamento sai na impressora deste PC
   ) {
     return this.service.decidirCancelamento(user, id, dto, terminalId);
