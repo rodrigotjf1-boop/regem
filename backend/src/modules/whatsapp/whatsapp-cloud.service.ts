@@ -3,6 +3,7 @@ import { Interval } from '@nestjs/schedule';
 import { ehServidorLocal } from '../../common/modo';
 import { and, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
+import { assinarConversa } from '../../common/conversa-do-robo';
 import { estadoDaPausa, pausaDaConversa, pausarPeloAtendente, pausasDaLojaOuVazio } from './robo-pausa';
 import { entregarJuntando } from './juntar-mensagens';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -157,6 +158,11 @@ export type MsgNormalizada = {
   roboPrompt: string | null;
   /** Respostas prontas da loja: [{ gatilho, resposta }]. */
   roboMensagens: any[];
+  /**
+   * A ficha desta conversa (common/conversa-do-robo.ts, F3): o robô a devolve no cabeçalho `x-regem-conversa` das rotas
+   * que leem ou mudam dados do cliente (cadastro, endereços, carrinho, pedido) — a loja e o telefone vêm dela.
+   */
+  conversa?: string | null;
 };
 
 @Injectable()
@@ -192,6 +198,9 @@ export class WhatsappCloudService {
     for (const k of ['image', 'video', 'document', 'audio']) {
       if (m?.[k]?.caption) return String(m[k].caption);
     }
+    // A localização que o cliente mandou (o endereço de entrega por distância — F3): o mesmo texto da Evolution.
+    if (m?.location && Number.isFinite(Number(m.location.latitude)) && Number.isFinite(Number(m.location.longitude)))
+      return `[localização] ${Number(m.location.latitude)},${Number(m.location.longitude)}`;
     return '';
   }
 
@@ -499,6 +508,7 @@ export class WhatsappCloudService {
             roboAusencia: cfg.roboAusencia ?? null,
             roboPrompt: cfg.roboPrompt ?? null,
             roboMensagens: Array.isArray(cfg.roboMensagens) ? (cfg.roboMensagens as any[]) : [],
+            conversa: assinarConversa(cfg.tenantId, de),
           };
           await this.encaminhar(msg);
         }

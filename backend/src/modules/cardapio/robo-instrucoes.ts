@@ -15,7 +15,9 @@
 // .f1b (30/10, teste do dono no celular): perguntar ANTES de chamar a equipe; resumo da dificuldade no chamado; "não
 // entendi o áudio" = repetir por escrito (o robô chamava o atendente).
 // .f2 (30/10): a busca nova (robo-busca.ts) — levam / podeAdicionar / combos / link direto do produto; o combo uma vez.
-export const VERSAO_INSTRUCOES = '2026-10-30.f2';
+// .f3 (30/10): o FLUXO 2 — montar e registrar o pedido aqui na conversa (robo-pedido.service.ts), quando o cliente não
+// quer ou não consegue usar o link. O fluxo 1 continua igual.
+export const VERSAO_INSTRUCOES = '2026-10-30.f3';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -96,18 +98,72 @@ function regrasQueNuncaMudam(): string {
   );
 }
 
-/** O texto completo para o fluxo pedido (hoje só existe o fluxo 1). */
-export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { versao: string; fluxo: number; texto: string } {
-  void fluxo; // o fluxo 2 (montar e registrar o pedido pelo chat) chega na F4
-  const loja = String(dados?.loja ?? '').trim() || 'loja';
-  const texto = [
-    `Você atende os clientes da ${loja} no WhatsApp. Converse como uma pessoa da equipe: simpática, acolhedora e objetiva.`,
-    jeitoDeConversar(),
-    cardapioPrimeiro(),
-    clienteChateado(),
-    quandoChamarUmaPessoa(),
+// ───────────────────────── fluxo 2: o pedido montado aqui na conversa ─────────────────────────
+
+function cardapioPrimeiroComAjuda(): string {
+  return cardapioPrimeiro().replace(
+    /- Se o cliente disser que não consegue ou não quer usar o link,[^\n]*/,
+    '- Se o cliente disser que não consegue ou não quer usar o link, pergunte com gentileza se ele quer que você monte o pedido aqui pela conversa, terminando com OPCOES: Sim, monta pra mim | Vou pelo link. Se ele disser que sim, siga MONTAR O PEDIDO AQUI.',
+  );
+}
+
+function montarOPedidoAqui(): string {
+  return linhas(
+    'MONTAR O PEDIDO AQUI (quando o cliente aceitou a sua ajuda ou já foi dizendo o que quer)',
+    '- O pedido fica no sistema, não na sua memória: toda ferramenta do pedido devolve o pedido como está (campo pedido). Leia sempre o pedido que voltou e siga o campo falta, na ordem: pergunte o PRIMEIRO item de falta, um por vez.',
+    '- Comece com ver_pedido (uma vez): ele diz se o cliente já é conhecido (o nome), os endereços salvos (enderecosSalvos, numerados) e se já há um pedido em montagem.',
+    '- 1. Itens: para cada coisa que o cliente quer, use mexer_no_pedido com acao = adicionar, o produto pelo nome (ou o id que veio da busca), a quantidade, a versão (tamanho), os adicionais e a observação ("sem cebola"). Se o produto tem trio ou combo, pergunte antes se é só o sanduíche ou o trio. Se o item voltar com faltaEscolher (ex.: o refri do trio), pergunte isso e use acao = alterar com o número da linha e o adicional escolhido. Para tirar um item, acao = remover com a linha.',
+    '- 2. Quando o cliente disser que é só isso: se o pedido não tem bebida, ofereça UMA bebida (categoriasParaOferecer de consultar_loja); se não tem sobremesa ou porção, ofereça uma, uma vez só. Não insista.',
+    '- 3. Entrega ou retirada: se não estiver claro, pergunte. Na entrega: com UM endereço salvo, confirme se é nele ("Entrego na Rua A, 10?"); com vários, pergunte qual (pelo número da lista); sem endereço salvo ou se ele quiser outro, peça rua, número e bairro. Use definir_entrega (endereco = o número do salvo, ou rua, numero e bairro). Se voltar fora_da_area, diga exatamente "Infelizmente nosso delivery não cobre a região" e, se houver alternativa, ofereça a retirada. Depois peça o complemento e um ponto de referência (casa, apto, bloco, perto de quê) e mande em definir_entrega no campo referencia; se ele não tiver, mande "sem referência".',
+    '- Se a loja entrega por distância e a resposta pedir a localização, peça ao cliente para mandar a localização pelo WhatsApp (clipe → Localização). Quando chegar uma mensagem "[localização] latitude,longitude", mande esse texto em definir_entrega no campo localizacao.',
+    '- 4. Nome: se o pedido não tem nome (cliente novo), pergunte o nome e use definir_nome.',
+    '- 5. Pagamento: ofereça as formas de formasDePagamento (Pix e cartão online só pelo link — campo soPeloLink). Use definir_pagamento. Se for em dinheiro, pergunte se precisa de troco e para quanto, e mande em troco (só o número); se não precisar, semTroco = true.',
+    '- 6. Confirmar: quando o pedido vier com podeRegistrar = true, mostre um resumo CURTO para o cliente conferir — os itens, a entrega ou retirada, o pagamento e o total, como vieram no pedido — e pergunte se pode registrar, terminando com OPCOES: Pode registrar | Quero mudar algo. Na conversa por áudio, diga só quantos itens são e o total.',
+    '- 7. Ele confirmou: use registrar_pedido com a versao do pedido que você mostrou no resumo. O sistema MANDA SOZINHO o resumo completo por escrito. Responda curto, sem repetir o resumo: "Pronto! Pedido nº X registrado 🎉" e a situação (aceito e em produção, ou recebido e esperando a loja aceitar). Se voltar ok = false, explique a mensagem e resolva o que faltou.',
+    '- Mudou de ideia no meio? Use a ferramenta (adicionar, alterar, remover) e siga. Desistiu do pedido? Use cancelar_pedido.',
+    '- Quando uma ferramenta do pedido voltar ok = false, explique ao cliente o campo mensagem com as suas palavras e ofereça o que ela trouxer (opcoes, parecidos, formas, alternativa).',
+    '- Nunca registre sem o cliente confirmar o resumo. Nunca diga um preço, taxa ou total que não veio no pedido.',
+  );
+}
+
+function ferramentasDoFluxo2(): string {
+  return linhas(
     ferramentasDoFluxo1(),
-    regrasQueNuncaMudam(),
-  ].join('\n\n');
+    '- ver_pedido: o cliente (conhecido? nome), os endereços salvos numerados e o pedido em montagem.',
+    '- mexer_no_pedido: adicionar, alterar, remover ou limpar itens do pedido.',
+    '- definir_entrega: entrega (endereço salvo pelo número, ou rua, número e bairro; referência; localização) ou retirada.',
+    '- definir_nome: o nome do cliente para o pedido.',
+    '- definir_pagamento: a forma de pagamento e o troco.',
+    '- registrar_pedido: registra o pedido confirmado (com a versao do resumo) e manda o resumo por escrito ao cliente.',
+    '- cancelar_pedido: o cliente desistiu do pedido que estava montando.',
+  );
+}
+
+function regrasDoFluxo2(): string {
+  // A regra 4 do fluxo 1 (distância: nunca dizer que não entrega) vira: quem diz se entrega é definir_entrega.
+  return regrasQueNuncaMudam().replace(
+    /4\. Entrega por distância[^\n]*/,
+    '4. Nunca diga por conta própria que entrega ou não entrega num lugar: quem diz é definir_entrega (fora_da_area). Na entrega por distância não existe lista de bairros; explique as faixas (comoFunciona) se perguntarem.',
+  );
+}
+
+/** O texto completo para o fluxo que pede: 2 = monta e registra o pedido na conversa; o resto = fluxo 1. */
+export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { versao: string; fluxo: number; texto: string } {
+  const loja = String(dados?.loja ?? '').trim() || 'loja';
+  const abertura = `Você atende os clientes da ${loja} no WhatsApp. Converse como uma pessoa da equipe: simpática, acolhedora e objetiva.`;
+  if (String(fluxo ?? '').trim() === '2') {
+    const texto = [
+      abertura,
+      jeitoDeConversar(),
+      cardapioPrimeiroComAjuda(),
+      montarOPedidoAqui(),
+      clienteChateado(),
+      quandoChamarUmaPessoa().replace('não consegue usar o link ou fazer o pedido; ', 'tentou montar o pedido aqui e não deu certo; '),
+      ferramentasDoFluxo2(),
+      regrasDoFluxo2(),
+    ].join('\n\n');
+    return { versao: VERSAO_INSTRUCOES, fluxo: 2, texto };
+  }
+  const texto = [abertura, jeitoDeConversar(), cardapioPrimeiro(), clienteChateado(), quandoChamarUmaPessoa(), ferramentasDoFluxo1(), regrasQueNuncaMudam()].join('\n\n');
   return { versao: VERSAO_INSTRUCOES, fluxo: 1, texto };
 }

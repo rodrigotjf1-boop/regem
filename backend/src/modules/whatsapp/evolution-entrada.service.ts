@@ -8,6 +8,7 @@ import { MsgNormalizada } from './whatsapp-cloud.service';
 import { estadoDaPausa, pausarPeloAtendente } from './robo-pausa';
 import { foiEnviadoPeloRegem } from './evolution-envios';
 import { entregarJuntando } from './juntar-mensagens';
+import { assinarConversa } from '../../common/conversa-do-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -186,6 +187,7 @@ export class EvolutionEntradaService {
       roboAusencia: cfg.roboAusencia ?? null,
       roboPrompt: cfg.roboPrompt ?? null,
       roboMensagens: Array.isArray(cfg.roboMensagens) ? (cfg.roboMensagens as any[]) : [],
+      conversa: assinarConversa(cfg.tenantId, de),
     };
     this.evolution.mostrarDigitando(instancia, de); // "digitando…" enquanto o robô pensa (dispara e segue)
     await entregarJuntando(msg);
