@@ -25,7 +25,7 @@ import {
   textoDoEndereco,
   valorDoTroco,
 } from './robo-pedido';
-import { estavel, formasDaChave } from './robo-pedido.service';
+import { estavel, formasDaChave, respostaNegativa } from './robo-pedido.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -341,6 +341,14 @@ describe('F5: a condução — o que falta, na ordem em que o robô pergunta', (
     const [troco] = conducaoDoPedido({ ...base, total: 36, pagamento: { forma: 'entrega', meio: 'dinheiro', trocoPara: null, semTroco: false } });
     expect(troco).toMatchObject({ campo: 'troco', opcoes: ['R$ 50', 'R$ 100', 'Não preciso de troco'] });
     expect(troco.pergunta).toContain('R$ 36,00');
+  });
+});
+
+describe('F5: a resposta negativa à pergunta dos extras ("Não, obrigado") — não vira observação nem adicional', () => {
+  it('negativas reconhecidas; observação de verdade não', () => {
+    for (const t of ['Não, obrigado', 'nao obrigada', 'nada', 'Nenhum', 'sem adicional', 'só isso', 'Tá ótimo!', 'não precisa'])
+      expect(respostaNegativa(t)).toBe(true);
+    for (const t of ['sem cebola', 'não colocar picles', 'bem passado', 'Bacon', '']) expect(respostaNegativa(t)).toBe(false);
   });
 });
 

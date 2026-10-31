@@ -101,10 +101,18 @@ export function estavel(v: unknown): string {
 
 const recusa = (motivo: string, mensagem: string, extra: Record<string, unknown> = {}): Recusa => ({ ok: false, motivo, mensagem, ...extra });
 const acaoDe = (v: unknown) => normalizar(v).replace(/ /g, '_');
+/**
+ * "Não, obrigado", "nada", "só isso" — a resposta NEGATIVA à pergunta dos extras do item. A ferramenta do n8n descreve só
+ * adicionar/alterar/remover/limpar: a IA pode mandar isso como observação ou como adicional; o Regem entende "concluir".
+ */
+export const respostaNegativa = (v: unknown): boolean =>
+  /^(nao( obrigad[oa])?|nada|nenhum[a]?|sem (observacao|adicional|extras?)|nao precisa|nao quero|ta (bom|otimo)|so isso|pode seguir|esta otimo)$/.test(
+    normalizar(v),
+  );
 const ACOES = {
   adicionar: ['adicionar', 'incluir', 'add'],
   escolher: ['escolher', 'escolha', 'completar', 'responder'],
-  concluir: ['concluir', 'pronto', 'nao', 'nao_obrigado', 'sem_extras', 'seguir'],
+  concluir: ['concluir', 'pronto', 'nao', 'nao_obrigado', 'sem_extras', 'seguir', 'nenhum', 'nada', 'pular', 'nao_quero'],
   fechar: ['fechar', 'so_isso', 'finalizar', 'fechar_itens'],
   obsDoPedido: ['observacao_do_pedido', 'observacao_geral', 'observacao_pedido', 'obs_pedido', 'obs_do_pedido'],
   limpar: ['limpar', 'esvaziar'],
@@ -350,14 +358,40 @@ export class RoboPedidoService {
             return recusa('limite', esc.passouDoLimite.map((g) => `${g.grupo}: no máximo ${g.maximo} (tire um antes)`).join('; '));
           mudou.complementos = esc.complementos;
         }
-        // Observação vazia não apaga a que havia; "nenhuma"/"sem observação" apaga. Observação dada responde à pergunta
-        // dos extras (o item segue).
-        if (obs) mudou = { ...mudou, observacao: /^(nenhuma|sem observa)/i.test(obs) ? null : obs, extras: true };
+        // Observação vazia não apaga a que havia; "nenhuma"/"sem observação" apaga. "Não, obrigado" (a resposta à pergunta
+        // dos extras que veio como observação) não vira observação: só conclui o item. Observação dada também conclui.
+        if (obs) {
+          if (/^(nenhuma|sem observa)/i.test(obs)) mudou = { ...mudou, observacao: null, extras: true };
+          else if (respostaNegativa(obs)) mudou = { ...mudou, extras: true };
+          else mudou = { ...mudou, observacao: obs, extras: true };
+        }
         return { itens: linhas.map((x) => (x === l ? mudou : x)) };
       });
       return this.responder(ctx, menu, r, r.recusa ? undefined : `item ${n} ${remover ? 'removido' : 'alterado'}`);
     }
-    throw new BadRequestException('acao: adicionar, escolher, concluir, fechar, alterar, remover, observacao_do_pedido ou limpar.');
+    // Ação que o Regem não conhece: recusa explicada (200), para a IA corrigir — um erro 400 ela não sabe ler.
+    return this.semMudar(
+      ctx,
+      menu,
+      recusa('acao', 'Ação desconhecida: use adicionar, escolher, concluir, fechar, alterar, remover, observacao_do_pedido ou limpar (veja proximo.comoResponder).'),
+    );
+  }
+
+  /**
+   * A conversa já passou para a entrega ou o pagamento e o único passo dos itens que faltava era o "mais alguma coisa?":
+   * conta como respondido ("só isso"). A ferramenta do n8n descreve só adicionar/alterar/remover/limpar — a IA que não
+   * chama `fechar` faria a pergunta voltar em ciclo. As escolhas e os extras de cada item continuam exigidos.
+   */
+  private fechaSeSoFaltaOMaisAlgo(c: Carrinho, menu: any): Pick<Mudanca, 'itensFechados'> | Record<string, never> {
+    if (c.itensFechados) return {};
+    const linhas = this.linhasDe(c);
+    if (!linhas.length) return {};
+    const produtos = new Map<string, any>((menu?.produtos ?? []).map((p: any) => [p.id, p]));
+    const prontas = linhas.every((l) => {
+      const p = produtos.get(l.produtoId);
+      return !!p && !escolhasQueFaltam(p, l).length && (!!l.extras || !pedeExtras(p, this.nomeDaCategoria(menu, p)));
+    });
+    return prontas ? { itensFechados: true } : {};
   }
 
   private linhasDe(c: Carrinho): Linha[] {
@@ -438,6 +472,8 @@ export class RoboPedidoService {
    */
   private async escolher(ctx: Contexto, menu: any, dto: any, produtos: Map<string, any>) {
     const nomes = dto?.adicionais;
+    // "Não, obrigado" tocado na pergunta dos extras e mandado como adicional: conclui o item (não é opção do produto).
+    if (!dto?.versao && respostaNegativa(nomes)) return this.mexerNosItens(ctx, { ...dto, acao: 'concluir', adicionais: undefined });
     const temLinha = Number(dto?.linha) > 0;
     let alvoN = 0;
     const r = await this.mudar(ctx, (c) => {
@@ -539,7 +575,7 @@ export class RoboPedidoService {
       );
     }
     if (tipo === 'retirada') {
-      const r = await this.mudar(ctx, () => ({ entrega: { tipo: 'retirada' } }));
+      const r = await this.mudar(ctx, (c) => ({ entrega: { tipo: 'retirada' }, ...this.fechaSeSoFaltaOMaisAlgo(c, menu) }));
       return this.responder(ctx, menu, r, 'retirada na loja');
     }
 
@@ -618,7 +654,7 @@ export class RoboPedidoService {
         e.bairroId = b.bairro.id;
       }
     }
-    const r = await this.mudar(ctx, () => ({ entrega: e }));
+    const r = await this.mudar(ctx, (c) => ({ entrega: e, ...this.fechaSeSoFaltaOMaisAlgo(c, menu) }));
     return this.responder(ctx, menu, r, `entrega: ${textoDoEndereco(e)}`);
   }
 
@@ -698,7 +734,7 @@ export class RoboPedidoService {
         pg.trocoPara = null;
       }
     }
-    const r = await this.mudar(ctx, () => ({ pagamento: pg }));
+    const r = await this.mudar(ctx, (c) => ({ pagamento: pg, ...this.fechaSeSoFaltaOMaisAlgo(c, menu) }));
     return this.responder(ctx, menu, r, `pagamento: ${this.nomeDaForma(menu, tipo, pg)}`);
   }
 
