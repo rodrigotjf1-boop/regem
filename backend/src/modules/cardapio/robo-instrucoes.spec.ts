@@ -177,7 +177,7 @@ describe('instruções do robô — fluxo 2 (o pedido na conversa)', () => {
       'ver_pedido', 'mexer_no_pedido', 'definir_entrega', 'definir_nome', 'definir_pagamento', 'registrar_pedido', 'cancelar_pedido',
     ];
     // O motivo da recusa que o robô lê na resposta e a ação de mexer_no_pedido — não são ferramentas.
-    const motivos = ['fora_da_area', 'observacao_do_pedido'];
+    const motivos = ['fora_da_area', 'observacao_do_pedido', 'trocar_pelo_trio'];
     for (const nome of citadas) if (!motivos.includes(nome)) expect(doFluxo2).toContain(nome);
     for (const nome of doFluxo2) expect(citadas.has(nome)).toBe(true);
     const listas = [...texto.matchAll(/OPCOES: ([^.\n]*)/g)].map((m) => m[1]);

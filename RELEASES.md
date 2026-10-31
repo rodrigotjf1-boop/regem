@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Robô de WhatsApp — primeiro contato (Bloco 1, 31/10): sem efeito na loja — nada a empacotar por isto.** Pedido em
+  montagem continua (sem mandar o link); cliente conhecido pode repetir o último pedido; o "mais alguma coisa?" oferece
+  trocar o lanche pelo trio e sugere o que o cliente costuma pedir. Rotas do robô (`publico/bot/*`), só nuvem: no ar com
+  o merge. Sem migration.
 - **`.zip` — aceitar o cancelamento pelo chamado pergunta o destino dos insumos (ERR-339, 31/10):** o "Aceitar
   cancelamento" do sino 🔔 (Delivery) passa a perguntar o motivo e, no pedido já aceito, "O que aconteceu com os
   insumos?" (reutilizados × perda, com a perda por item) — antes gravava "reutilizados" fixo e ainda escondia o

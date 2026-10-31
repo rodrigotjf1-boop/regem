@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cliente, clienteEndereco, pedidoExterno, roboCarrinho } from '../../db/schema';
 import { Conversa, lerConversa } from '../../common/conversa-do-robo';
@@ -11,7 +11,7 @@ import { menuNumerado } from '../whatsapp/robo-resposta.service';
 import { estadoDaPausa } from '../whatsapp/robo-pausa';
 import { CardapioService } from './cardapio.service';
 import { normalizar, reais } from './robo-consultas';
-import { GRUPOS, palavrasDe, papelDaCategoria } from './robo-busca';
+import { GRUPOS, nucleoDoNome, palavrasDe, papelDaCategoria } from './robo-busca';
 import {
   EntregaDoCarrinho,
   EstadoDaConducao,
@@ -117,7 +117,23 @@ const ACOES = {
   obsDoPedido: ['observacao_do_pedido', 'observacao_geral', 'observacao_pedido', 'obs_pedido', 'obs_do_pedido'],
   limpar: ['limpar', 'esvaziar'],
   mexer: ['remover', 'tirar', 'alterar', 'mudar', 'observacao'],
+  // Bloco 1 do plano de 31/10/2026: repetir o último pedido do cliente; trocar o lanche pelo trio dele.
+  repetir: ['repetir', 'repetir_pedido', 'repetir_ultimo', 'repetir_o_ultimo_pedido', 'pedir_de_novo', 'mesmo_pedido'],
+  trocarPeloTrio: ['trocar_pelo_trio', 'virar_trio', 'trocar_por_trio', 'no_trio', 'fazer_trio'],
 };
+
+/** O trio (ou combo) do lanche — "TRIO 08" do "Numero 08", "Trio X-Bacon" do "X-Bacon" —, à venda; da cópia com mais etapas. */
+export function trioDoLanche(menu: any, lanche: any): any | null {
+  if (!lanche || /^(trio|combo)\b/.test(normalizar(lanche.nome))) return null;
+  const nucleo = nucleoDoNome(lanche.nome);
+  if (!nucleo) return null;
+  const etapas = (p: any) => (Array.isArray(p?.grupos) ? p.grupos.length : 0);
+  return (
+    (menu?.produtos ?? [])
+      .filter((p: any) => !p.esgotado && p.id !== lanche.id && /^(trio|combo)\b/.test(normalizar(p.nome)) && nucleoDoNome(p.nome) === nucleo)
+      .sort((a: any, b: any) => etapas(b) - etapas(a))[0] ?? null
+  );
+}
 
 @Injectable()
 export class RoboPedidoService {
@@ -198,16 +214,37 @@ export class RoboPedidoService {
          and status = 'aberto' and atualizado_em < now() - ${VALIDADE_DO_CARRINHO}`);
   }
 
-  /** Quem é o cliente, os endereços salvos (numerados para o robô escolher), o último usado e o pedido em montagem. */
+  /**
+   * Quem é o cliente, os endereços salvos (numerados para o robô escolher), o último usado e o pedido em montagem. Bloco 1
+   * do plano de 31/10/2026: `emCurso` (há pedido em montagem — continuar, sem mandar o link) e `ultimoPedido` (o cliente
+   * conhecido pode repetir: os itens que ainda estão à venda).
+   */
   async ver(ctx: Contexto) {
     const [menu, cli, c] = await Promise.all([this.cardapio.menu(ctx.token), this.clienteDaConversa(ctx), this.carrinhoAberto(ctx)]);
+    const produtos = new Map<string, any>((menu?.produtos ?? []).map((p: any) => [p.id, p]));
+    const visao = (await this.calcular(ctx, menu, c, cli)).visao;
+    const emCurso = Array.isArray(c?.itens) && (c!.itens as Linha[]).length > 0;
+    const ultimo = emCurso ? null : await this.ultimoPedidoDoCliente(ctx, cli, produtos);
     return {
       cliente: cli
         ? { conhecido: true, nome: cli.nome ?? null }
         : { conhecido: false, nome: null, dica: 'Cliente novo: pergunte o nome para o pedido.' },
       enderecosSalvos: (cli?.enderecos ?? []).map((e, i) => ({ n: i + 1, endereco: this.textoDoSalvo(e) })),
       ultimoEndereco: cli?.ultimo ?? null,
-      pedido: (await this.calcular(ctx, menu, c, cli)).visao,
+      emCurso,
+      ...(emCurso ? { dicaEmCurso: 'Há um pedido em montagem: pergunte se quer continuar ou acrescentar algo — não mande o link do cardápio.' } : {}),
+      ...(ultimo
+        ? {
+            ultimoPedido: {
+              numero: ultimo.numero,
+              quando: ultimo.quando,
+              itens: ultimo.itens,
+              ...(ultimo.foraDoCardapio.length ? { foraDoCardapio: ultimo.foraDoCardapio } : {}),
+              comoRepetir: 'mexer_no_pedido com acao = repetir',
+            },
+          }
+        : {}),
+      pedido: visao,
     };
   }
 
@@ -299,6 +336,8 @@ export class RoboPedidoService {
 
     if (ACOES.adicionar.includes(acao)) return this.adicionar(ctx, menu, dto, obs, produtos);
     if (ACOES.escolher.includes(acao)) return this.escolher(ctx, menu, dto, produtos);
+    if (ACOES.repetir.includes(acao)) return this.repetirUltimo(ctx, menu, produtos);
+    if (ACOES.trocarPeloTrio.includes(acao)) return this.trocarPeloTrio(ctx, menu, dto, produtos);
     if (ACOES.concluir.includes(acao)) {
       const r = await this.mudar(ctx, (c) => {
         const linhas = this.linhasDe(c);
@@ -373,7 +412,7 @@ export class RoboPedidoService {
     return this.semMudar(
       ctx,
       menu,
-      recusa('acao', 'Ação desconhecida: use adicionar, escolher, concluir, fechar, alterar, remover, observacao_do_pedido ou limpar (veja proximo.comoResponder).'),
+      recusa('acao', 'Ação desconhecida: use adicionar, escolher, concluir, fechar, alterar, remover, observacao_do_pedido, repetir, trocar_pelo_trio ou limpar (veja proximo.comoResponder).'),
     );
   }
 
@@ -507,6 +546,93 @@ export class RoboPedidoService {
       return { itens: linhas.map((x) => (x === l ? mudou : x)) };
     });
     return this.responder(ctx, menu, r, r.recusa ? undefined : `item ${alvoN}: escolha anotada`);
+  }
+
+  /**
+   * O ÚLTIMO pedido do cliente, pronto para repetir (pedido do dono, 31/10/2026: "no primeiro contato, verificar se o
+   * cliente já está no sistema e os últimos pedidos para indicar repetir"): o mais recente não cancelado. Só entra o que
+   * ainda está à venda, com as opções que o produto ainda tem; o que saiu fica em `foraDoCardapio`. Sem nada: null.
+   */
+  private async ultimoPedidoDoCliente(
+    ctx: Contexto,
+    cli: ClienteDaConversa,
+    produtos: Map<string, any>,
+  ): Promise<{ numero: string; quando: string; itens: string[]; foraDoCardapio: string[]; linhas: Omit<Linha, 'linha'>[] } | null> {
+    if (!cli?.id) return null;
+    const [p] = await this.db
+      .select({ displayId: pedidoExterno.displayId, numero: pedidoExterno.numero, itens: pedidoExterno.itens, criadoEm: pedidoExterno.criadoEm })
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.tenantId, ctx.cfg.tenantId), eq(pedidoExterno.clienteId, cli.id), ne(pedidoExterno.status, 'cancelado')))
+      .orderBy(desc(pedidoExterno.criadoEm))
+      .limit(1);
+    const itens: any[] = Array.isArray(p?.itens) ? (p!.itens as any[]) : [];
+    if (!itens.length) return null;
+    const linhas: Omit<Linha, 'linha'>[] = [];
+    const textos: string[] = [];
+    const fora: string[] = [];
+    for (const it of itens) {
+      const prod = produtos.get(String(it?.produtoId ?? ''));
+      if (!prod || prod.esgotado) {
+        if (it?.descricao) fora.push(String(it.descricao).slice(0, 60));
+        continue;
+      }
+      const qtd = quantidadeDoPedido(it?.quantidade) ?? 1;
+      const daOpcao = new Set<string>(
+        (Array.isArray(prod.grupos) ? prod.grupos : []).flatMap((g: any) => (Array.isArray(g?.opcoes) ? g.opcoes : []).map((o: any) => String(o.id))),
+      );
+      const variacao = (prod.variacoes ?? []).find((v: any) => v.id === it?.variacaoId) ?? null;
+      linhas.push({
+        produtoId: prod.id,
+        variacaoId: variacao?.id ?? null,
+        complementos: (Array.isArray(it?.opcaoIds) ? it.opcaoIds : []).map(String).filter((id: string) => daOpcao.has(id)),
+        quantidade: qtd,
+        observacao: it?.observacao ? String(it.observacao).slice(0, 140) : null,
+        // Repetir é pedir igual: os adicionais e a observação já vêm dele (a etapa obrigatória que faltar, o Regem pergunta).
+        extras: true,
+      });
+      textos.push(`${qtd}x ${prod.nome}${variacao ? ` ${variacao.nome}` : ''}`);
+    }
+    if (!linhas.length) return null;
+    const d = p!.criadoEm ? new Date(p!.criadoEm as any) : null;
+    const quando = d ? d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' }) : '';
+    return { numero: String(p!.displayId ?? p!.numero ?? ''), quando, itens: textos, foraDoCardapio: fora, linhas };
+  }
+
+  /** "Repetir o último pedido": os itens dele entram no pedido em montagem (depois do que já houver). */
+  private async repetirUltimo(ctx: Contexto, menu: any, produtos: Map<string, any>) {
+    const ultimo = await this.ultimoPedidoDoCliente(ctx, await this.clienteDaConversa(ctx), produtos);
+    if (!ultimo) return this.semMudar(ctx, menu, recusa('repetir', 'Este cliente não tem pedido anterior para repetir: siga com o pedido novo.'));
+    const r = await this.mudar(ctx, (c) => {
+      const linhas = this.linhasDe(c);
+      if (linhas.length + ultimo.linhas.length > MAX_LINHAS) return recusa('itens', `O pedido pelo WhatsApp vai até ${MAX_LINHAS} itens.`);
+      let n = linhas.reduce((m, l) => Math.max(m, Number(l.linha) || 0), 0);
+      return { itens: [...linhas, ...ultimo.linhas.map((l) => ({ ...l, linha: ++n }))], itensFechados: false };
+    });
+    const fora = ultimo.foraDoCardapio.length ? ` (fora do cardápio agora: ${ultimo.foraDoCardapio.join(', ')})` : '';
+    return this.responder(ctx, menu, r, r.recusa ? undefined : `último pedido repetido: ${ultimo.itens.join(', ')}${fora}`);
+  }
+
+  /**
+   * "Trocar pelo trio" (a oferta do "mais alguma coisa?"): o lanche vira o trio dele, com a mesma quantidade e observação;
+   * os adicionais que o trio também tem continuam. A batata e a bebida do trio, o Regem pergunta em seguida.
+   */
+  private async trocarPeloTrio(ctx: Contexto, menu: any, dto: any, produtos: Map<string, any>) {
+    let trioNome = '';
+    const r = await this.mudar(ctx, (c) => {
+      const linhas = this.linhasDe(c);
+      const l = Number(dto?.linha) > 0 ? linhas.find((x) => Number(x.linha) === Number(dto.linha)) : linhas.find((x) => !!trioDoLanche(menu, produtos.get(x.produtoId)));
+      if (!l) return recusa('linha', 'Diga em qual item (linha) trocar pelo trio.');
+      const lanche = produtos.get(l.produtoId);
+      const trio = trioDoLanche(menu, lanche);
+      if (!trio) return recusa('trio', `${lanche?.nome ?? 'Este item'} não tem trio à venda agora.`);
+      trioNome = String(trio.nome);
+      const nomes = (l.complementos ?? [])
+        .map((id) => (lanche?.grupos ?? []).flatMap((g: any) => g?.opcoes ?? []).find((o: any) => o.id === id)?.nome)
+        .filter(Boolean);
+      const esc = montarEscolhas(trio, nomes);
+      return { itens: linhas.map((x) => (x === l ? { ...l, produtoId: trio.id, variacaoId: null, complementos: esc.complementos, extras: true } : x)) };
+    });
+    return this.responder(ctx, menu, r, r.recusa ? undefined : `trocado pelo ${trioNome}`);
   }
 
   /** A observação GERAL do pedido ("interfone ruim, ligar ao chegar") — pedido do dono. "Nenhuma" apaga. */
@@ -761,8 +887,33 @@ export class RoboPedidoService {
 
   // ───────────────────────── o estado ─────────────────────────
 
-  /** A sugestão do fim dos itens: bebida se o pedido não tem (o trio com refri tem); senão sobremesa; senão porção. */
-  private sugestao(menu: any, linhas: Linha[], produtos: Map<string, any>): EstadoDaConducao['sugestao'] {
+  /**
+   * Os produtos que o cliente mais pede (os itens dos últimos 10 pedidos não cancelados, do mais pedido para o menos) —
+   * a sugestão do "mais alguma coisa?" oferece primeiro o que ele costuma levar (Bloco 1 do plano de 31/10/2026).
+   */
+  private async preferidosDoCliente(ctx: Contexto, clienteId: string): Promise<string[]> {
+    const rows = await this.db
+      .select({ itens: pedidoExterno.itens })
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.tenantId, ctx.cfg.tenantId), eq(pedidoExterno.clienteId, clienteId), ne(pedidoExterno.status, 'cancelado')))
+      .orderBy(desc(pedidoExterno.criadoEm))
+      .limit(10);
+    const conta = new Map<string, number>();
+    for (const r of rows)
+      for (const it of Array.isArray(r.itens) ? (r.itens as any[]) : [])
+        if (it?.produtoId) conta.set(String(it.produtoId), (conta.get(String(it.produtoId)) ?? 0) + (Number(it.quantidade) || 1));
+    return [...conta.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id);
+  }
+
+  /**
+   * A sugestão do fim dos itens: bebida se o pedido não tem (o trio com refri tem); senão sobremesa; senão porção. Do papel
+   * escolhido, primeiro o que o cliente costuma pedir (`preferidos`), depois os destaques da loja.
+   */
+  private sugestao(menu: any, linhas: Linha[], produtos: Map<string, any>, preferidos: string[] = []): EstadoDaConducao['sugestao'] {
+    const lugar = (id: string) => {
+      const i = preferidos.indexOf(id);
+      return i < 0 ? Number.MAX_SAFE_INTEGER : i;
+    };
     const cats = new Map<string, string>((menu?.categorias ?? []).map((c: any) => [c.id, c.nome]));
     const papelDo = (p: any) => papelDaCategoria(cats.get(p?.categoriaId));
     const tem = { bebida: false, sobremesa: false, porcao: false };
@@ -781,7 +932,7 @@ export class RoboPedidoService {
       if (tem[papel]) continue;
       const ofertas = (menu?.produtos ?? [])
         .filter((p: any) => !p.esgotado && papelDo(p) === papel)
-        .sort((a: any, b: any) => Number(!!b.destaque) - Number(!!a.destaque))
+        .sort((a: any, b: any) => lugar(a.id) - lugar(b.id) || Number(!!b.destaque) - Number(!!a.destaque))
         .slice(0, 3)
         .map((p: any) => opcaoComDetalhe(String(p.nome), reais(p.precoVenda)));
       if (ofertas.length) return { papel, opcoes: ofertas };
@@ -898,10 +1049,30 @@ export class RoboPedidoService {
     }
     const nome = c?.clienteNome ?? cli?.nome ?? null;
     const ultimo = cli?.ultimo ? { n: cli.ultimo, texto: this.textoDoSalvo(cli.enderecos[cli.ultimo - 1]) } : null;
+    // O "mais alguma coisa?" (Bloco 1 do plano de 31/10/2026): a troca do lanche pelo trio dele e a sugestão pelo que o
+    // cliente costuma pedir — só se lê o histórico quando a pergunta ainda vai ser feita.
+    const ofereceMais = linhas.length > 0 && !c?.itensFechados;
+    const preferidos = ofereceMais && cli?.id ? await this.preferidosDoCliente(ctx, cli.id) : [];
+    const ehTrio = (p: any) => /^(trio|combo)\b/.test(normalizar(p?.nome));
+    let trocaPorTrio: EstadoDaConducao['trocaPorTrio'] = null;
+    for (const l of ofereceMais ? linhas : []) {
+      const lanche = produtos.get(l.produtoId);
+      const trio = trioDoLanche(menu, lanche);
+      if (!trio) continue;
+      const jaTemOTrio = linhas.some((x) => {
+        const p = produtos.get(x.produtoId);
+        return ehTrio(p) && nucleoDoNome(p?.nome) === nucleoDoNome(trio.nome);
+      });
+      const dif = paraReais(paraCentavos(Number(trio.precoVenda) || 0) - paraCentavos(Number(lanche.precoVenda) || 0));
+      if (jaTemOTrio || dif <= 0) continue;
+      trocaPorTrio = { linha: Number(l.linha), opcao: opcaoComDetalhe(`Trocar pelo ${trio.nome}`, `+${reais(dif)}`) };
+      break;
+    }
     const falta: Falta[] = conducaoDoPedido({
       linhas: conducao,
       itensFechados: !!c?.itensFechados,
-      sugestao: this.sugestao(menu, linhas, produtos),
+      sugestao: this.sugestao(menu, linhas, produtos, preferidos),
+      trocaPorTrio,
       tipo,
       tiposAbertos: abertos,
       entrega: en,
