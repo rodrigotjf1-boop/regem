@@ -164,6 +164,18 @@ descrever('robô calado numa conversa (Postgres)', () => {
     expect(mapa.get('21912345678')?.chamado?.prioridade).toBe('normal');
   });
 
+  it('o RESUMO da dificuldade (mensagem do chamado) chega à caixa pelas duas consultas (dica do dono, 30/10)', async () => {
+    await q(
+      `insert into atendimento_chamado (tenant_id, tipo, telefone, status, mensagem) values ($1, 'humano', $2, 'aberto', $3)`,
+      [T, CEL_55, 'Não consegue abrir o link do cardápio; quer 1 X-Bacon.'],
+    );
+    await q(`insert into atendimento_chamado (tenant_id, tipo, telefone, status) values ($1, 'humano', '21912345678', 'aberto')`, [T]);
+    expect((await estadoDaPausa(db, T, CEL_LOCAL)).chamado?.mensagem).toBe('Não consegue abrir o link do cardápio; quer 1 X-Bacon.');
+    const mapa = await pausasDaLoja(db, T);
+    expect(mapa.get('21987654321')?.chamado?.mensagem).toBe('Não consegue abrir o link do cardápio; quer 1 X-Bacon.');
+    expect(mapa.get('21912345678')?.chamado?.mensagem).toBeNull();
+  });
+
   it('a constraint recusa motivo fora da lista e prazo da loja fora de 0–1440', async () => {
     await expect(
       q(`insert into robo_pausa (tenant_id, telefone, telefone_chave, motivo) values ($1, '1', '1', 'qualquer')`, [T]),

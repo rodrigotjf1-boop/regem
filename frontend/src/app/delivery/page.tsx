@@ -563,7 +563,7 @@ export default function DeliveryPage() {
     if (novosUrgentes.length) {
       const c: any = novosUrgentes[0];
       toast.error(
-        `🚨 Chamado URGENTE — cliente chateado: ${TIPO_ATEND[c.tipo] ?? 'Atendimento'}${c.cliente ? ` · ${c.cliente}` : ''}${novosUrgentes.length > 1 ? ` (+${novosUrgentes.length - 1})` : ''}`,
+        `🚨 Chamado URGENTE — cliente chateado: ${TIPO_ATEND[c.tipo] ?? 'Atendimento'}${c.cliente ? ` · ${c.cliente}` : ''}${resumoNoAviso(c)}${novosUrgentes.length > 1 ? ` (+${novosUrgentes.length - 1})` : ''}`,
         15000,
       );
       if (somAtivo) tocarAlertaUrgente();
@@ -572,8 +572,11 @@ export default function DeliveryPage() {
     const novos = lista.filter((c: any) => !antes.has(String(c.id)));
     if (!novos.length) return;
     const c: any = novos[0];
+    // O aviso já diz POR QUE o cliente precisa de ajuda (o resumo que o robô escreve — dica do dono, 30/10): fica mais
+    // tempo na tela para dar tempo de ler.
     toast.info(
-      `🔔 Novo chamado: ${TIPO_ATEND[c.tipo] ?? 'Atendimento'}${c.cliente ? ` · ${c.cliente}` : ''}${novos.length > 1 ? ` (+${novos.length - 1})` : ''}`,
+      `🔔 Novo chamado: ${TIPO_ATEND[c.tipo] ?? 'Atendimento'}${c.cliente ? ` · ${c.cliente}` : ''}${resumoNoAviso(c)}${novos.length > 1 ? ` (+${novos.length - 1})` : ''}`,
+      c.mensagem ? 10000 : 4000,
     );
     if (somAtivo) tocarBeep();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1364,6 +1367,12 @@ const TIPO_ATEND: Record<string, string> = {
   cancelamento: '🚫 Pedido de cancelamento',
   outro: '💬 Atendimento',
 };
+/** O resumo da dificuldade (escrito pelo robô no chamado) para o aviso: uma linha, até 90 caracteres. */
+function resumoNoAviso(c: any): string {
+  const m = String(c?.mensagem ?? '').replace(/\s+/g, ' ').trim();
+  if (!m) return '';
+  return ` — "${m.length > 90 ? `${m.slice(0, 89).trimEnd()}…` : m}"`;
+}
 function AtendimentoPanel({ lista, onFechar, onResolver, onDecidir }: {
   lista: any[];
   onFechar: () => void;

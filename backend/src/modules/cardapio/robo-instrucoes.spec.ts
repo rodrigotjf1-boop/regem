@@ -23,7 +23,7 @@ describe('instruções do robô', () => {
     expect(texto).toContain('O CARDÁPIO ONLINE VEM PRIMEIRO');
     expect(texto).toContain('só o sanduíche ou o trio');
     expect(texto).toContain('"X-Bacon", "xbacon" e "x bacon" são o mesmo produto');
-    expect(texto).toContain('se ele quer ajuda para fazer o pedido');
+    expect(texto).toContain('se ele está com dificuldade e se quer ajuda de alguém da equipe para fazer o pedido');
   });
 
   it('cliente chateado: acolhe, não promete, e chama a equipe com urgência', () => {
@@ -34,7 +34,32 @@ describe('instruções do robô', () => {
 
   it('não oferece "falar com atendente" de início', () => {
     expect(texto).toContain('Nunca ofereça "falar com atendente" no começo da conversa');
-    expect(texto).toContain('nunca ponha "atendente" nas opções');
+    expect(texto).toContain('Nunca ponha "atendente" nas opções');
+  });
+
+  // Dica do dono (30/10, depois do teste no celular): antes de passar para o atendimento, perguntar se o cliente está com
+  // dificuldade e se quer ajuda; o chamado leva o resumo da dificuldade.
+  it('pergunta ANTES de chamar a equipe — direto só quando o cliente pediu uma pessoa ou está chateado', () => {
+    expect(texto).toContain('Chame direto, sem perguntar, só em dois casos: o cliente PEDIU para falar com uma pessoa; ou está chateado (urgente).');
+    expect(texto).toContain('PERGUNTE ANTES');
+    expect(texto).toContain('OPCOES: Sim, quero ajuda | Não, obrigado');
+    expect(texto).toContain('Só chame depois que ele disser que sim');
+    // nenhuma lista de opções sugerida traz "atendente" — o fluxo do n8n tira essa palavra das opções que o cliente
+    // não pediu (a lista vai de "OPCOES:" até o ponto final)
+    const listas = [...texto.matchAll(/OPCOES: ([^.\n]*)/g)].map((m) => m[1]);
+    expect(listas).toContain('Sim, quero ajuda | Não, obrigado');
+    for (const l of listas) expect(l).not.toMatch(/atendente/i);
+  });
+
+  it('o chamado leva um RESUMO da dificuldade para a equipe', () => {
+    expect(texto).toContain('o campo mensagem é um RESUMO para a equipe');
+    expect(texto).toContain('o que o cliente quer, qual a dificuldade e o que você já tentou');
+  });
+
+  it('"não entendi o áudio": repete por escrito, sem chamar atendente (teste do dono, 30/10)', () => {
+    expect(texto).toContain('Se o cliente disser que não entendeu o áudio');
+    expect(texto).toContain('repita por escrito, com clareza, o que você disse no último áudio');
+    expect(texto).toContain('Isso NÃO é motivo para chamar atendente');
   });
 
   it('as regras que já existiam continuam (preço, links, loja fechada, distância, cupom, cartão)', () => {
