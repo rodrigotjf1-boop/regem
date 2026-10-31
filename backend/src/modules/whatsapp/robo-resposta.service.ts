@@ -7,7 +7,17 @@ import { WhatsappService } from './whatsapp.service';
 import { WhatsappCloudService, cabeEmBotoes, opcoesValidas } from './whatsapp-cloud.service';
 import { EstadoPausa, estadoDaPausa } from './robo-pausa';
 import { linkDoCardapioDaLoja, separarLinkDoCardapio, soLinksDaLoja } from './links-do-robo';
-import { fotoDoProduto } from './foto-do-produto';
+import {
+  escolherProduto,
+  fotoServe,
+  legendaDoProduto,
+  linkComProduto,
+  pedeFoto,
+  perguntaDoCliente,
+  produtoDoLink,
+  produtosDaLoja,
+} from './foto-do-produto';
+import { buscarUrlPublica } from '../../common/ssrf-guard';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -113,16 +123,19 @@ export class RoboRespostaService {
     const comLink = via === 'cloud' && cfg.token ? separarLinkDoCardapio(texto, linkDoCardapioDaLoja(cfg.token)) : null;
     if (comLink) {
       // Link direto de um produto (`?produto=`, F2): o botão abre aquele item — "Ver no cardápio" — e a FOTO dele vai
-      // em cima (F5, decisão do dono: "sempre que falar de 1 produto"). Sem foto que sirva, vai sem.
-      const doProduto = /[?&]produto=/.test(comLink.url);
-      const rotulo = doProduto ? 'Ver no cardápio' : 'Ver cardápio';
-      const foto = doProduto
-        ? await fotoDoProduto(this.db, loja.tenantId, comLink.url).catch((e: any) => {
-            this.logger.warn(`foto do produto não conferida (vai sem): ${e?.message ?? e}`);
-            return null;
-          })
-        : null;
-      const r: any = await this.cloud.enviarLink(loja.tenantId, para, comLink.corpo, comLink.url, rotulo, foto);
+      // em cima (F5, decisão do dono: "sempre que falar de 1 produto"). O produto é conferido pelo Regem (ERR-335):
+      // o id que a IA escreve é chute. Sem foto que sirva, vai sem.
+      // O link do cardápio todo também vira o do produto quando o cliente pediu a FOTO de um produto pelo nome.
+      const deProduto = /[?&]produto=/.test(comLink.url);
+      let { corpo, url } = comLink;
+      let rotulo = deProduto ? 'Ver no cardápio' : 'Ver cardápio';
+      let foto: string | null = null;
+      const c = await this.produtoConferido(loja.tenantId, cfg.token as string, para, comLink, deProduto).catch((e: any) => {
+        this.logger.warn(`produto do link não conferido (vai o link da IA, sem foto): ${e?.message ?? e}`);
+        return null;
+      });
+      if (c) ({ corpo, url, rotulo, foto } = c);
+      const r: any = await this.cloud.enviarLink(loja.tenantId, para, corpo, url, rotulo, foto);
       enviados.push(r?.comFoto ? 'botao_link_com_foto' : 'botao_link');
     } else if (opcoes.length) {
       if (via === 'cloud' && opcoes.length <= 10) {
@@ -162,6 +175,47 @@ export class RoboRespostaService {
     const buffer = Buffer.from(m[2], 'base64');
     if (buffer.length > 20 * 1024 * 1024) throw new BadRequestException('Mídia maior que 20 MB.');
     return { buffer, mime: m[1] || 'application/octet-stream' };
+  }
+
+  /** Para o teste trocar a busca da foto (sem rede). */
+  private buscarFoto?: typeof buscarUrlPublica;
+
+  /**
+   * O produto do link conferido (foto-do-produto.ts): o que o cliente pediu ver, ou o do link da IA se existe, ou o
+   * citado; a foto da primeira cópia (mesmo nome) que serve. Sem produto da loja: o link do cardápio, sem foto. Link do
+   * cardápio todo: só muda se o cliente pediu a foto de um produto. `null` = vai como a IA mandou.
+   */
+  private async produtoConferido(tenantId: string, token: string, para: string, link: { corpo: string; url: string }, deProduto: boolean) {
+    // A pergunta que não deu para ler não derruba a conferência do link (a foto do produto do link continua).
+    const pergunta = await perguntaDoCliente(this.db, tenantId, para).catch((e: any) => {
+      this.logger.warn(`pergunta do cliente não lida (confere só o link): ${e?.message ?? e}`);
+      return null;
+    });
+    if (!deProduto && !pedeFoto(pergunta)) return null; // o link do cardápio, sem pedido de foto: nada a conferir
+    const produtos = await produtosDaLoja(this.db, tenantId);
+    const e = escolherProduto({ idDoLink: produtoDoLink(link.url), produtos, pergunta, resposta: link.corpo, linkDeProduto: deProduto });
+    if (!e.ids.length) {
+      if (!e.trocou) return null;
+      this.logger.warn(`foto do robô: link de produto que a loja não tem — vai o cardápio (${e.motivo}) de=***${para.slice(-4)}`);
+      return { corpo: legendaDoProduto(null, false), url: linkDoCardapioDaLoja(token), rotulo: 'Ver cardápio', foto: null };
+    }
+    let escolhido = e.ids[0];
+    let foto: string | null = null;
+    for (const id of e.ids) {
+      const imagem = String(produtos.find((p) => p.id === id)?.imagem ?? '').trim();
+      if (/^https:\/\//i.test(imagem) && (await fotoServe(imagem, this.buscarFoto))) {
+        escolhido = id;
+        foto = imagem;
+        break;
+      }
+    }
+    if (e.trocou) this.logger.warn(`foto do robô: produto conferido pelo Regem (${e.motivo}) de=***${para.slice(-4)}`);
+    return {
+      corpo: e.legenda ? legendaDoProduto(e.nome, !!foto) : link.corpo,
+      url: e.trocou ? linkComProduto(link.url, linkDoCardapioDaLoja(token), escolhido) : link.url,
+      rotulo: 'Ver no cardápio',
+      foto,
+    };
   }
 
   private enviarTexto(via: 'cloud' | 'evolution', tenantId: string, para: string, texto: string) {

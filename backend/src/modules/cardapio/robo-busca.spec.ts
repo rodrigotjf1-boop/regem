@@ -1,4 +1,13 @@
-import { categoriasPorPapel, nucleoDoNome, palavrasDe, papelDaCategoria, procurarNoCardapio, termosDaBusca } from './robo-busca';
+import {
+  categoriasPorPapel,
+  nomeJunto,
+  nucleoDoNome,
+  numerosDoNome,
+  palavrasDe,
+  papelDaCategoria,
+  procurarNoCardapio,
+  termosDaBusca,
+} from './robo-busca';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -145,5 +154,74 @@ describe('termos da busca e o papel das categorias', () => {
     expect(papelDaCategoria('Acompanhamentos')).toBe('porcao');
     expect(papelDaCategoria('Lanches')).toBeNull();
     expect(categoriasPorPapel(MENU)).toEqual({ bebidas: ['Bebidas'], sobremesas: ['Sobremesas'], porcoes: ['Porções'] });
+  });
+});
+
+// O NÚMERO NO NOME E A FOTO (2º teste do dono, 31/10/2026 — ERR-335): "Tem foto do trio 07?" trouxe o lanche "Numero 07".
+// Com o cardápio real da loja, a busca não achava nada por "07", achava TODOS os "Numero" por "número 8" e nenhum trio
+// por "foto do trio 07"; e a lista pronta dizia "Dá para pôr foto trio 07 a mais nos lanches: sem custo" (a opção
+// "trio kids" da etapa obrigatória de um combo). Cardápio de teste com os nomes da loja.
+describe('número no nome, "foto" na frase e a etapa obrigatória (ERR-335)', () => {
+  const obrig = (nome: string, opcoes: any[]) => ({ id: `g-${nome}`, nome, tipo: 'adicionar', min: 3, max: 3, obrigatorio: true, opcoes });
+  const MENU_LOJA = {
+    categorias: [
+      { id: 'c-burguer', nome: 'BURGUER' },
+      { id: 'c-trios', nome: 'BURGUER + BATATA + REFRI' },
+      { id: 'c-mais', nome: 'OS MAIS PEDIDOS !!!' },
+      { id: 'c-combos', nome: 'COMBOS' },
+      { id: 'c-bebidas', nome: 'Bebidas' },
+    ],
+    produtos: [
+      { id: 'n07', nome: 'Numero 07', precoVenda: 17.5, categoriaId: 'c-burguer', grupos: [g('adicionar', [op('Bacon', 3.5)])] },
+      { id: 'n08', nome: 'Numero 08', precoVenda: 21.5, categoriaId: 'c-burguer', grupos: [] },
+      { id: 'n10', nome: 'Numero 10', precoVenda: 9, categoriaId: 'c-burguer', grupos: [] },
+      { id: 't01', nome: 'TRIO 01', precoVenda: 28, categoriaId: 'c-trios', grupos: [] },
+      { id: 't07a', nome: 'TRIO 07', precoVenda: 29, categoriaId: 'c-trios', grupos: [] },
+      { id: 't07b', nome: 'TRIO 07', precoVenda: 29, categoriaId: 'c-mais', grupos: [] },
+      { id: 't08', nome: 'TRIO 08', precoVenda: 32.5, categoriaId: 'c-trios', grupos: [] },
+      { id: 't10', nome: 'TRIO 10', precoVenda: 20, categoriaId: 'c-trios', grupos: [] },
+      { id: 'txb', nome: 'TRIO X-BACON', precoVenda: 36, categoriaId: 'c-trios', grupos: [] },
+      { id: 'xb', nome: 'X bacon', precoVenda: 26, categoriaId: 'c-burguer', grupos: [] },
+      { id: 'fam', nome: 'COMBO FAMILIA', precoVenda: 80, categoriaId: 'c-combos', grupos: [obrig('Monte seu combo', [op('Numero 07', 0), op('trio kids', 0)])] },
+      { id: 'coca15', nome: 'Coca cola - 1,50 lts', precoVenda: 14, categoriaId: 'c-bebidas', grupos: [] },
+      { id: 'cocalata', nome: 'Coca cola lata', precoVenda: 7, categoriaId: 'c-bebidas', grupos: [] },
+    ],
+  };
+  const SEM_FICHA = { ingredientes: new Map<string, Set<string>>(), componentes: new Map<string, string[]>() };
+  const ids = (q: string) => (procurarNoCardapio(MENU_LOJA, q, SEM_FICHA) as any).levam.map((x: any) => x.id);
+
+  it('"trio 07", "trio 7" e a frase inteira ("tem foto do trio 07?"): só o TRIO 07 — as duas cópias, nunca o lanche', () => {
+    for (const q of ['trio 07', 'Trio 7', 'foto do trio 07', 'Tem foto do trio 07?', 'me mostra o trio 07']) expect(ids(q)).toEqual(['t07a', 't07b']);
+    expect(ids('tem foto do trio 08?')).toEqual(['t08']);
+  });
+
+  it('o número sozinho acha o lanche e o trio; "número 8" acha só o 08; "trio 1" não é o "TRIO 10"', () => {
+    expect(ids('07').sort()).toEqual(['n07', 't07a', 't07b']);
+    expect(ids('número 8')).toEqual(['n08']);
+    expect(ids('nº 08')).toEqual(['n08', 't08']);
+    expect(ids('trio 1')).toEqual(['t01']);
+    expect(ids('numero 1')).toEqual([]);
+  });
+
+  it('a quantidade na frente do nome não atrapalha ("2 x-bacon" = "x-bacon"); número com vírgula é um só ("coca 1,5")', () => {
+    expect(ids('2 x-bacon')).toEqual(ids('x-bacon'));
+    expect(ids('x-bacon')).toContain('xb');
+    expect(ids('coca 1,5')).toEqual(['coca15']);
+    expect(termosDaBusca('foto do trio 07').map((t) => t.texto)).toEqual(['trio', '7']);
+    expect(termosDaBusca('2 x-bacon').map((t) => t.texto)).toEqual(['x', 'bacon']);
+  });
+
+  it('a etapa OBRIGATÓRIA do combo não é "a mais": a lista pronta não diz "dá para pôr trio a mais"', () => {
+    const r: any = procurarNoCardapio(MENU_LOJA, 'tem trio?', SEM_FICHA);
+    expect(r.paraOCliente ?? '').not.toMatch(/a mais/);
+    // O adicional de verdade (grupo que dá para pular) continua: "bacon a mais".
+    expect((procurarNoCardapio(MENU_LOJA, 'tem com bacon?', SEM_FICHA) as any).paraOCliente).toMatch(/pôr bacon a mais nos lanches: \+R\$ 3,50/);
+  });
+
+  it('o nome junto e os números do nome comparam sem o zero da frente', () => {
+    expect(nomeJunto('TRIO 07')).toBe('trio7');
+    expect(nomeJunto('X-Bacon')).toBe('xbacon');
+    expect([...numerosDoNome('Coca cola - 1,50 lts')]).toEqual(['1d5']);
+    expect([...numerosDoNome('NUmero 03')]).toEqual(['3']);
   });
 });

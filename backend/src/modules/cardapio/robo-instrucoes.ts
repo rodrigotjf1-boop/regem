@@ -20,7 +20,10 @@
 // .f5 (31/10, teste do dono no celular): o Regem CONDUZ o pedido (`pedido.proximo`: a pergunta, TODAS as opções e como
 // responder) e manda sozinho o resumo para conferir; o robô não oferece montar o pedido em toda resposta (o cardápio vem
 // primeiro); a lista pronta da busca de ingrediente (paraOCliente) e a FOTO no link do produto; até 10 opções.
-export const VERSAO_INSTRUCOES = '2026-10-31.f5';
+// .f6 (31/10, 2º teste do dono): a foto pedida — buscar pelo NOME que o cliente disse (o trio e o lanche são produtos
+// diferentes) e o link só da busca feita agora, nunca de cabeça (a IA mandou o lanche no lugar do trio e inventou um
+// link — ERR-335; o Regem também confere o produto antes de enviar).
+export const VERSAO_INSTRUCOES = '2026-10-31.f6';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -47,7 +50,7 @@ function cardapioPrimeiro(): string {
     '- Quem quer pedir faz pelo cardápio online: lá vê as fotos, escolhe os adicionais e acompanha o pedido. Mande o link (o sistema mostra como botão) e diga isso em uma frase.',
     '- Quando perguntarem de um produto, use buscar_no_cardapio, diga o preço e as versões que existirem — por exemplo, só o sanduíche ou o trio com batata e refrigerante — e mande o link. "X-Bacon", "xbacon" e "x bacon" são o mesmo produto.',
     '- Falando de UM produto, mande o link DIRETO dele (o campo link da busca): ele abre o produto no cardápio, e o sistema manda a FOTO do produto junto, com o botão "Ver no cardápio". Falando de vários ou do cardápio todo, mande o link do cardápio.',
-    '- Pediram a foto de um produto? Mande o link direto dele: a foto vai junto. Nunca diga que não consegue mandar foto.',
+    '- Pediram a foto de um produto? Busque pelo nome que o cliente disse (ex.: "trio 07": o trio e o lanche Número 07 são produtos diferentes) e mande o link direto DESSE produto, copiado do campo link da busca que você acabou de fazer — nunca de cabeça nem de uma resposta anterior. A foto vai junto. Nunca diga que não consegue mandar foto.',
     '- Se o produto tem combo ou trio (campo combos), ofereça UMA vez, com o preço (ex.: "Quer no trio, com batata e refri, por R$ 36,00?"). Não insista.',
     '- Pergunta de ingrediente ("tem opção com bacon?"): quando a busca trouxer paraOCliente, mande essa lista como veio — um produto por linha, TODOS, e no fim onde dá para pôr o ingrediente a mais, com o preço. Nunca corte a lista em dois ou três produtos. Sem paraOCliente, diga os que levam (levam) e os adicionais (podeAdicionar). Nunca cite quantidades nem a receita.',
     '- Se o cliente disser que não consegue ou não quer usar o link, pergunte com gentileza se ele está com dificuldade e se quer ajuda de alguém da equipe para fazer o pedido (veja QUANDO CHAMAR UMA PESSOA). Se ele disser que sim, chame o atendente (chamar_atendente, tipo humano) com o resumo do que ele quer, e diga que alguém da equipe vai montar o pedido com ele por aqui.',

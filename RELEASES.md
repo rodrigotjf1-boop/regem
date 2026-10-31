@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Robô de WhatsApp — a foto do produto pedido (ERR-335, 31/10): sem efeito na loja — nada a empacotar por isto.** O
+  Regem confere o produto do link antes de mandar a foto (o cliente pediu a foto do trio 07 e foi a do lanche; um link
+  inventado pela IA saía sem foto) e a busca do robô compara o número do nome ("07" = "7"). A resposta do robô
+  (`publico/bot/responder`) e a busca (`publico/bot/cardapio`) rodam só na nuvem: no ar com o merge. O código vai junto
+  no próximo corte, inerte na loja. Sem migration.
 - **`.zip` — SEGURANÇA: o texto do pedido não vira comando da impressora (ERR-334, 31/10):** nome do cliente, endereço
   e observação do item passam por `textoNaVia` antes de virar linha da via (entregador, produção e caixa) — uma quebra
   de linha seguida de "@GAVETA" no texto do cliente abria a gaveta de dinheiro na impressão. As vias da loja são montadas

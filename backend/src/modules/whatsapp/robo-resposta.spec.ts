@@ -14,12 +14,22 @@ import {
 const SENHA = 'senha-do-robo';
 const TEL = '5521999998888';
 
-function montar(cfg: any, linhaPausa?: any) {
+// O texto de uma consulta `sql` do drizzle (só os pedaços fixos), para o banco de mentira saber o que responder.
+const textoDaConsulta = (q: any) => (q?.queryChunks ?? []).flatMap((c: any) => (Array.isArray(c?.value) ? c.value : [])).join(' ');
+
+function montar(cfg: any, linhaPausa?: any, dados: { produtos?: any[]; conversa?: any[] } = {}) {
   const chamadas: any[] = [];
+  const fotos: (string | null)[] = [];
   const db: any = {
     select: () => ({ from: () => ({ where: async () => (cfg ? [cfg] : []) }) }),
-    // robo-pausa: sem pausa nem chamado (ou a linha que o teste mandar)
-    execute: async () => ({ rows: linhaPausa ? [linhaPausa] : [] }),
+    execute: async (q: any) => {
+      const t = textoDaConsulta(q);
+      // foto-do-produto.ts: os produtos da loja e a conversa (vazios = nada a conferir, como antes)
+      if (/from produto\b/.test(t)) return { rows: dados.produtos ?? [] };
+      if (/from whatsapp_mensagem\b/.test(t)) return { rows: dados.conversa ?? [] };
+      // robo-pausa: sem pausa nem chamado (ou a linha que o teste mandar)
+      return { rows: linhaPausa ? [linhaPausa] : [] };
+    },
   };
   const evolution: any = {
     lojaDoRobo: async () => (cfg ? { tenantId: cfg.tenantId } : null),
@@ -31,11 +41,21 @@ function montar(cfg: any, linhaPausa?: any) {
     enviarTexto: async (...a: any[]) => chamadas.push(['cloud.texto', ...a.slice(1)]),
     enviarOpcoes: async (...a: any[]) => chamadas.push(['cloud.opcoes', a[1], a[2], a[3].length]),
     enviarVoz: async (...a: any[]) => chamadas.push(['cloud.voz', a[1], a[3]]),
-    enviarLink: async (...a: any[]) => chamadas.push(['cloud.link', a[1], a[2], a[3], a[4]]),
+    enviarLink: async (...a: any[]) => {
+      fotos.push(a[5] ?? null);
+      chamadas.push(['cloud.link', a[1], a[2], a[3], a[4]]);
+      return { ok: true, comFoto: !!a[5] };
+    },
   };
   const svc = new RoboRespostaService(db, evolution, cloud);
   (svc as any).logger = { log() {}, warn() {} };
-  return { svc, chamadas };
+  // A foto "serve" sem ir à rede (JPEG pequeno).
+  (svc as any).buscarFoto = async () => ({
+    status: 206,
+    headers: { get: (k: string) => ({ 'content-type': 'image/jpeg', 'content-range': 'bytes 0-0/50000' })[k.toLowerCase()] ?? null },
+    body: { cancel: async () => undefined },
+  });
+  return { svc, chamadas, fotos };
 }
 
 const LOJA_EVO = { tenantId: 't1', provedor: 'evolution', roboAtivo: true, ativo: true, roboPausados: [] };
@@ -199,6 +219,86 @@ describe('resposta do robô — como cada via mostra', () => {
       const evo = montar({ ...LOJA_EVO, token: 'tok1' });
       await evo.svc.responder(SENHA, { instancia: 'i', para: TEL, texto: 'Cardápio: https://app.dmsregem.com/c/tok1' });
       expect(evo.chamadas[0]).toEqual(['evo.texto', TEL, 'Cardápio: https://app.dmsregem.com/c/tok1']);
+    } finally {
+      if (antes === undefined) delete process.env.CARDAPIO_PUBLIC_URL;
+      else process.env.CARDAPIO_PUBLIC_URL = antes;
+    }
+  });
+
+  // 2º teste do dono (31/10, ERR-335): "Tem foto do trio 07?" saiu com o link e a foto do LANCHE "Numero 07"; "Tem foto do
+  // trio 08?" saiu com um link inventado pela IA, sem foto. O Regem confere o produto pelo que o cliente pediu.
+  it('foto pedida: o Regem manda o produto PEDIDO (link, foto e legenda) — também quando a IA inventou o link', async () => {
+    const antes = process.env.CARDAPIO_PUBLIC_URL;
+    process.env.CARDAPIO_PUBLIC_URL = 'https://app.dmsregem.com';
+    try {
+      const N07 = 'aaaaaaaa-0000-4000-8000-000000000007';
+      const T07 = 'bbbbbbbb-0000-4000-8000-000000000007';
+      const T08 = 'bbbbbbbb-0000-4000-8000-000000000008';
+      const INVENTADO = 'deadbeef-0000-4000-8000-000000000000';
+      const produtos = [
+        { id: N07, nome: 'Numero 07', imagem: 'https://fotos.exemplo/n07.png' },
+        { id: T07, nome: 'TRIO 07', imagem: 'https://fotos.exemplo/t07.jpg' },
+        { id: T08, nome: 'TRIO 08', imagem: 'https://fotos.exemplo/t08.jpg' },
+      ];
+      // A conversa, da mais nova para a mais velha: a pergunta desta vez; a resposta anterior da loja corta.
+      const conversa = (pergunta: string) => [
+        { direcao: 'entrada', texto: pergunta },
+        { direcao: 'saida', texto: 'resposta anterior' },
+        { direcao: 'entrada', texto: 'tem foto do x-bacon?' },
+      ];
+      const loja = { ...LOJA_CLOUD, token: 'tok1' };
+      const link = (id: string) => `https://app.dmsregem.com/c/tok1?produto=${id}`;
+
+      const t07 = montar(loja, undefined, { produtos, conversa: conversa('Tem foto do trio 07?') });
+      const r = await t07.svc.responder(SENHA, {
+        phoneNumberId: 'p',
+        para: TEL,
+        texto: `Dá uma olhada na foto e nos detalhes do Número 07 no cardápio ${link(N07)}`,
+      });
+      expect(r.enviados).toEqual(['botao_link_com_foto']);
+      expect(t07.chamadas[0]).toEqual([
+        'cloud.link',
+        TEL,
+        '📸 *TRIO 07*\nToque em "Ver no cardápio" para ver os detalhes e pedir.',
+        link(T07),
+        'Ver no cardápio',
+      ]);
+      expect(t07.fotos[0]).toBe('https://fotos.exemplo/t07.jpg');
+
+      // Link inventado (a loja não tem esse produto): vai o TRIO 08 que o cliente pediu, com a foto.
+      const t08 = montar(loja, undefined, { produtos, conversa: conversa('Tem foto do trio 08?') });
+      await t08.svc.responder(SENHA, { phoneNumberId: 'p', para: TEL, texto: `Olha a foto do Número 08 ${link(INVENTADO)}` });
+      expect(t08.chamadas[0].slice(2)).toEqual(['📸 *TRIO 08*\nToque em "Ver no cardápio" para ver os detalhes e pedir.', link(T08), 'Ver no cardápio']);
+      expect(t08.fotos[0]).toBe('https://fotos.exemplo/t08.jpg');
+
+      // A IA acertou: o texto e o link dela ficam, com a foto.
+      const certo = montar(loja, undefined, { produtos, conversa: conversa('tem foto do trio 07?') });
+      await certo.svc.responder(SENHA, { phoneNumberId: 'p', para: TEL, texto: `Olha o Trio 07: ${link(T07)}` });
+      expect(certo.chamadas[0]).toEqual(['cloud.link', TEL, 'Olha o Trio 07', link(T07), 'Ver no cardápio']);
+      expect(certo.fotos[0]).toBe('https://fotos.exemplo/t07.jpg');
+
+      // A IA mandou o link do cardápio TODO (o personalizado, ?u=): pediu a foto do trio → o botão abre o trio, com a foto.
+      const geral = montar(loja, undefined, { produtos, conversa: conversa('me mostra o trio 07') });
+      await geral.svc.responder(SENHA, { phoneNumberId: 'p', para: TEL, texto: 'Dá uma olhada no cardápio: https://app.dmsregem.com/c/tok1?u=ab12' });
+      expect(geral.chamadas[0].slice(3)).toEqual([`https://app.dmsregem.com/c/tok1?u=ab12&produto=${T07}`, 'Ver no cardápio']);
+      expect(geral.fotos[0]).toBe('https://fotos.exemplo/t07.jpg');
+      // Sem pedido de foto, o link do cardápio todo vai como a IA mandou.
+      const semFoto = montar(loja, undefined, { produtos, conversa: conversa('quero pedir o trio 07') });
+      await semFoto.svc.responder(SENHA, { phoneNumberId: 'p', para: TEL, texto: 'Monte seu pedido: https://app.dmsregem.com/c/tok1?u=ab12' });
+      expect(semFoto.chamadas[0].slice(2)).toEqual(['Monte seu pedido', 'https://app.dmsregem.com/c/tok1?u=ab12', 'Ver cardápio']);
+      expect(semFoto.fotos[0]).toBeNull();
+
+      // Link inventado e nenhum produto citado: o link do cardápio, sem foto, com o convite (nada de "olha a foto").
+      const nada = montar(loja, undefined, { produtos, conversa: conversa('oi') });
+      await nada.svc.responder(SENHA, { phoneNumberId: 'p', para: TEL, texto: `Olha que delícia ${link(INVENTADO)}` });
+      expect(nada.chamadas[0]).toEqual([
+        'cloud.link',
+        TEL,
+        'Dá uma olhada no cardápio 👇 Lá tem a foto e os detalhes de cada produto.',
+        'https://app.dmsregem.com/c/tok1',
+        'Ver cardápio',
+      ]);
+      expect(nada.fotos[0]).toBeNull();
     } finally {
       if (antes === undefined) delete process.env.CARDAPIO_PUBLIC_URL;
       else process.env.CARDAPIO_PUBLIC_URL = antes;
