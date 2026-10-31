@@ -149,6 +149,39 @@ descrever('pedido do cliente pela mesa (QR) e variação do produto (Postgres re
     ).rejects.toThrow('Escolha no máximo 2 em "Adicionais de teste".');
   });
 
+  // Achado da Fase 5 do robô (30/10): a opção que a loja marca como esgotada (ou desativa) continuava no cardápio e era
+  // vendida. Agora o cardápio não a mostra e o pedido a recusa — a mesma regra (opcao-fora-de-venda.ts, V74).
+  it('adicional ESGOTADO na opção de origem: some do cardápio e o pedido (mesa e retirada) é recusado', async () => {
+    const l = await loja();
+    await q(`update opcao set esgotado = true where tenant_id = $1 and nome = 'Bacon de teste'`, [l.t]);
+    const menu: any = await cardapio.menu(l.retirada);
+    const lanche = menu.produtos.find((p: any) => p.id === l.lanche);
+    const adicionais = lanche.grupos.find((g: any) => g.nome === 'Adicionais de teste').opcoes.map((o: any) => o.nome);
+    expect(adicionais).toEqual(expect.arrayContaining(['Queijo de teste', 'Ovo de teste']));
+    expect(adicionais).not.toContain('Bacon de teste');
+    expect(lanche.esgotado).toBe(false);
+    await expect(pedirNaMesa(l, { complementos: [l.op['Mal passado de teste'], l.op['Bacon de teste']] })).rejects.toThrow(
+      'O adicional "Bacon de teste" está esgotado agora.',
+    );
+    await expect(
+      cardapio.receberPedido(l.retirada, {
+        tipo: 'retirada', cliente: 'Cliente de teste', telefone: '5500000000000',
+        itens: [{ produtoId: l.lanche, quantidade: 1, complementos: [l.op['Mal passado de teste'], l.op['Bacon de teste']] } as any],
+      }),
+    ).rejects.toThrow('O adicional "Bacon de teste" está esgotado agora.');
+    // O resto segue valendo.
+    const mesa = await pedirNaMesa(l, { complementos: [l.op['Mal passado de teste'], l.op['Queijo de teste']] });
+    expect(await itensDaMesa(l, mesa)).toEqual([{ descricao: 'Lanche de teste', preco: 22 }]);
+  });
+
+  it('etapa OBRIGATÓRIA com todas as opções fora de venda: o produto aparece esgotado (não dá para escolher)', async () => {
+    const l = await loja();
+    await q(`update opcao set ativo = false where tenant_id = $1 and nome in ('Mal passado de teste', 'Bem passado de teste')`, [l.t]);
+    const menu: any = await cardapio.menu(l.retirada);
+    expect(menu.produtos.find((p: any) => p.id === l.lanche).esgotado).toBe(true);
+    expect(menu.produtos.find((p: any) => p.id === l.suco).esgotado).toBe(false);
+  });
+
   it('opção de outro produto: recusada (antes era ignorada em silêncio)', async () => {
     const l = await loja();
     await expect(
