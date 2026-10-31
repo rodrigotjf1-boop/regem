@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Pedido cancelado sai do roteiro do entregador (ERR-338, 31/10): sem efeito na loja — nada a empacotar por isto.** O
+  cancelado ficava como parada pendente que não finalizava, e a saída nunca fechava (o entregador ficava preso, sem o
+  botão da fila). Agora o roteiro tira o cancelado e fecha sozinho quando nada pende — também quando o cancelamento chega
+  da loja pelo sync. As rotas do entregador são só da nuvem: no ar com o merge. Sem APK novo e sem migration.
 - **Avisos de status ao cliente pela API oficial (ERR-337, 31/10): sem efeito na loja — nada a empacotar por isto.** Na
   loja oficial, nenhum aviso (confirmado, saiu, cancelado…) saía pelo WhatsApp: o telefone do pedido (sem 55) era
   comparado por igualdade com o da conversa (com 55). Agora o próprio Regem manda pelo número oficial (texto na janela
