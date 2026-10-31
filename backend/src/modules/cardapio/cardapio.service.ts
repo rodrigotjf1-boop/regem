@@ -20,6 +20,7 @@ import { REGRA_COM_REPETICAO, rotuloDaEscolha, vezesPorOpcao } from '../../commo
 import { geocode, montarEndereco } from '../../common/geocode';
 import { idEntitlement } from '../../common/id-deterministico';
 import { chaveTelefone, formasNoCadastro, sqlChaveTelefone, telefoneCadastro } from '../../common/telefone-chave';
+import { textoDaObservacao } from '../../common/observacao-do-pedido';
 
 // Estamos rodando no servidor EDGE (appliance da loja) e não na nuvem?
 function ehEdge(): boolean {
@@ -3029,6 +3030,9 @@ export class CardapioService {
       // A caixinha "Receber promoções…" do checkout: só vem quando ela apareceu (true = como ela
       // vem, marcada; false = o cliente desmarcou). Ausente = a tela não perguntou: nada se grava.
       promocoes?: unknown;
+      // A observação GERAL do pedido (mig 346): "interfone ruim, ligar ao chegar". Uma linha, até 300 letras
+      // (`textoDaObservacao`); vazia = sem observação.
+      observacao?: unknown;
       itens: {
         produtoId: string;
         variacaoId?: string;
@@ -3343,6 +3347,7 @@ export class CardapioService {
         enderecoReferencia: tipo === 'entrega' ? dto.referencia : undefined,
         enderecoBairro: tipo === 'entrega' ? bairroNome : undefined,
         bandeira: dto.bandeira,
+        observacao: textoDaObservacao(dto.observacao) ?? undefined,
       },
     );
 

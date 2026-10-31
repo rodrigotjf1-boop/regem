@@ -534,6 +534,7 @@ function EtapaEntrega({ c }: { c: Cardapio }) {
         </div>
       )}
       {comDados && <SecaoDados c={c} />}
+      {c.isIndustria && <ObservacaoDoPedido c={c} />}
       {c.isIndustria && (
         <div className="c-sec">
           <Resumo c={c} completo />
@@ -1155,12 +1156,75 @@ function Origem({ c }: { c: Cardapio }) {
   );
 }
 
+/**
+ * A OBSERVAÇÃO DO PEDIDO (mig 346 — decisão do dono, 31/10/2026): uma linha discreta "＋ Adicionar observação" antes do
+ * resumo; ao tocar, abre a caixa (até 300 letras). Uma linha só no pedido: o servidor troca a quebra por espaço.
+ */
+function ObservacaoDoPedido({ c }: { c: Cardapio }) {
+  const valor = String(c.chk.observacao ?? '');
+  const [aberta, setAberta] = useState(valor.trim() !== '');
+  const [focar, setFocar] = useState(false);
+  if (!aberta)
+    return (
+      <div className="c-sec">
+        <button
+          type="button"
+          className="lk"
+          aria-expanded={false}
+          aria-controls="lp-obs-pedido"
+          onClick={() => {
+            setAberta(true);
+            setFocar(true);
+          }}
+        >
+          ＋ Adicionar observação
+        </button>
+      </div>
+    );
+  return (
+    <div className="c-sec">
+      <div className="c-f">
+        <label htmlFor="lp-obs-pedido">
+          Observação do pedido <em>(opcional)</em>
+        </label>
+        <textarea
+          id="lp-obs-pedido"
+          data-campo="observacao"
+          className="c-in"
+          rows={2}
+          maxLength={300}
+          autoFocus={focar}
+          value={valor}
+          onChange={(e) => c.setChk((s: any) => ({ ...s, observacao: e.target.value }))}
+          placeholder="Ex.: interfone ruim, ligar ao chegar, não buzinar"
+        />
+        <small>
+          {valor.length}/300 ·{' '}
+          <button
+            type="button"
+            className="lk"
+            aria-expanded
+            aria-controls="lp-obs-pedido"
+            onClick={() => {
+              c.setChk((s: any) => ({ ...s, observacao: '' }));
+              setAberta(false);
+            }}
+          >
+            Remover
+          </button>
+        </small>
+      </div>
+    </div>
+  );
+}
+
 function EtapaPagamento({ c }: { c: Cardapio }) {
   const op = OPCOES_TEMPLATE[c.template];
   return (
     <>
       <FormasPagamento c={c} />
       <Beneficios c={c} semCupom={op.cupomNaSacola} />
+      <ObservacaoDoPedido c={c} />
       <div className="c-sec">
         <Resumo c={c} completo />
         <Origem c={c} />
@@ -1264,6 +1328,7 @@ function EtapaRevisar({ c }: { c: Cardapio }) {
         <PromocoesCaixa c={c} />
       </div>
       <Beneficios c={c} />
+      <ObservacaoDoPedido c={c} />
       <div className="c-sec">
         <Resumo c={c} completo />
         <Origem c={c} />

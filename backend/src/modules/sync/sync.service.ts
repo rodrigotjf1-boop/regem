@@ -748,9 +748,12 @@ export class SyncService {
       }
 
       if (linhas.length) {
-        // Colunas do LOTE: do 1º registro (o edge manda `select *` → colunas consistentes).
+        // Colunas do LOTE: do 1º registro (o edge manda `select *` → colunas consistentes). A OBSERVAÇÃO DO PEDIDO (mig 346)
+        // nasce só aqui na nuvem (cardápio online e robô) e a loja não a edita: a cópia da loja não a sobrescreve — a loja
+        // ainda sem a coluna (antes do .zip), ou com a linha ainda não reconciliada, mandaria nula e apagaria a daqui.
+        const soDaNuvem = (k: string) => lote.tabela === 'pedido_externo' && k === 'observacao';
         const cols = Object.keys(linhas[0] as any).filter(
-          (k) => colunas.has(k) && k !== 'tenant_id',
+          (k) => colunas.has(k) && k !== 'tenant_id' && !soDaNuvem(k),
         );
         const nomes = ['tenant_id', ...cols];
         const setCols = cols.filter((c) => c !== 'id');

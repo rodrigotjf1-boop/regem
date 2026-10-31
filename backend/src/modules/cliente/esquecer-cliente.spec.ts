@@ -64,13 +64,14 @@ descrever('esquecer o cliente apaga os dados pessoais dos pedidos dele', () => {
           cliente_telefone, cliente_telefone2, endereco, endereco_rua, endereco_numero,
           endereco_referencia, endereco_bairro, endereco_cidade, endereco_municipio_ibge,
           endereco_uf, endereco_cep, documento_cliente, raw, comanda_id, criado_em, agendamento,
-          updated_at)
+          updated_at, observacao)
        values ($1, $2, 'cardapio', $3, 42.5, 42.5, $4, $10::text, $5, '21977776666',
                'Rua das Flores, 10 - Tijuca', 'Rua das Flores', '10', 'apto 101', 'Tijuca',
                'Rio de Janeiro', 3304557, 'RJ', '20511000', $6,
                jsonb_build_object('cliente', $10::text, 'clienteTelefone', $5::text,
                                   'endereco', 'Rua das Flores, 10', 'total', 42.5),
-               $7, now() - $8::interval, $9::timestamptz, now() - $8::interval)
+               $7, now() - $8::interval, $9::timestamptz, now() - $8::interval,
+               'ligar para a Maria ao chegar')
        returning id`,
       [
         tenant, loja, status, clienteId, extra.telefone ?? '21988887777', CPF,
@@ -87,6 +88,7 @@ descrever('esquecer o cliente apaga os dados pessoais dos pedidos dele', () => {
     'cliente_nome', 'cliente_telefone', 'cliente_telefone2', 'endereco', 'endereco_rua',
     'endereco_numero', 'endereco_referencia', 'endereco_bairro', 'endereco_cidade',
     'endereco_municipio_ibge', 'endereco_uf', 'endereco_cep', 'raw', 'cliente_id',
+    'observacao', // mig 346: o recado do cliente pode ter dado pessoal
   ];
 
   it('tira nome, telefones, endereço e o payload do canal; a NFC-e e o CPF da nota ficam', async () => {

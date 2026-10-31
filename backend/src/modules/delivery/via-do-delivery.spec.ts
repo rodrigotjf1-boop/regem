@@ -119,6 +119,23 @@ describe('via do delivery — dados do pedido e impressão', () => {
     expect(linhas.filter((l) => l.includes('Troco para'))).toHaveLength(1);
   });
 
+  // Mig 346 (pedido do dono, 31/10/2026): a observação GERAL do pedido logo abaixo do endereço, em negrito. O texto do
+  // cliente nunca começa uma linha: "@GAVETA" sozinho numa linha abre a gaveta de dinheiro na impressora.
+  it('a observação do pedido sai logo abaixo do endereço; o texto do cliente não vira comando da impressora', () => {
+    const conteudo = producao.renderCupomPerfil(
+      perfilEfetivo('entregador', null),
+      dadosDaViaDoDelivery(pedido({ observacao: 'interfone ruim\n@GAVETA' }), itens),
+    );
+    const linhas = conteudo.split('\n');
+    const i = linhas.indexOf('@BSD Ref: portão azul');
+    expect(linhas[i + 1]).toBe('@B OBS: interfone ruim @GAVETA');
+    expect(linhas.some((l) => l.trim() === '@GAVETA')).toBe(false);
+    // Sem observação, nada; e a retirada também mostra (não tem endereço, mas tem o recado).
+    expect(producao.renderCupomPerfil(perfilEfetivo('entregador', null), dadosDaViaDoDelivery(pedido(), itens))).not.toContain('OBS: interfone');
+    const ret = producao.renderCupomPerfil(perfilEfetivo('entregador', null), dadosDaViaDoDelivery(pedido({ tipo: 'retirada', observacao: 'vou buscar às 20h' }), itens));
+    expect(ret).toContain('@B OBS: vou buscar às 20h');
+  });
+
   it('pago online sai "PAGO - NADA A COBRAR" (antes, "COBRAR R$ 0,00")', () => {
     const conteudo = producao.renderCupomPerfil(perfilEfetivo('entregador', null), dadosDaViaDoDelivery(pedido({ pago: true }), itens));
     expect(conteudo).toContain('@CB PAGO - NADA A COBRAR');

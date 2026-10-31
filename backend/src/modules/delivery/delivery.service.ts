@@ -59,6 +59,7 @@ import { edgeAtivo } from '../../common/edge-ativo';
 import { normalizarFormaPagamento } from '../../common/formas-pagamento-normaliza';
 import { urlPublicaSegura } from '../../common/ssrf-guard';
 import { marcarAvisoAutomatico } from '../../common/avisos-automaticos';
+import { textoDaObservacao } from '../../common/observacao-do-pedido';
 import { chaveTelefone, formasDaChaveTelefone } from '../../common/telefone-chave';
 import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
 import { idConfigDaLoja } from '../../common/id-deterministico';
@@ -699,6 +700,8 @@ export class DeliveryService {
       // só quem quer o cupom fiscal preenche. O canal externo manda o dele no próprio payload.
       documentoCliente?: string;
       bandeira?: string;
+      // A observação GERAL do pedido (mig 346) — só o nosso cardápio e o robô mandam; já limpa (`textoDaObservacao`).
+      observacao?: string;
       clientRef?: string;
       retiradaTipo?: string; // 'encomenda' quando é pedido para data futura (mig 186)
       naoAutoAceitar?: boolean; // pula o aceite automático (ex.: totem "após pagamento")
@@ -786,6 +789,7 @@ export class DeliveryService {
         enderecoCep: norm.enderecoFiscal?.cep ?? null,
         documentoCliente: soDigitos(extra?.documentoCliente ?? norm.documentoCliente) || null,
         bandeira: extra?.bandeira ?? null,
+        observacao: textoDaObservacao(extra?.observacao),
         // ===== Valores separados por origem (mig 241) =====
         // Aditivo: `total`, `desconto` e `taxa_entrega` acima seguem intocados. Estes campos
         // só são preenchidos pelos canais que informam o detalhe — quem não informa fica
@@ -3426,6 +3430,8 @@ export class DeliveryService {
       cliente: ped.clienteNome,
       telefone: ped.clienteTelefone,
       endereco: endereco || null,
+      // A observação GERAL do pedido (mig 346): o recado para quem entrega ("interfone ruim, ligar ao chegar").
+      observacao: ped.observacao ?? null,
       itens: ped.itens ?? [],
       status: ped.status,
       jaDespachado: ['despachado', 'concluido'].includes(String(ped.status)),

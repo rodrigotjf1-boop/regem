@@ -57,6 +57,7 @@ const CUPOM_MOCK: Record<string, string[]> = {
   pedidoRegem: ['PEDIDO #101'],
   cliente: ['Joao Silva'],
   endereco: ['Rua X, 123', 'Centro - Cidade', 'Ref: perto da praca'],
+  observacao: ['OBS: interfone ruim, ligar ao chegar'],
   telefone: ['(11) 90000-0000'],
   taxaEntrega: ['Entrega: R$ 6,00'],
   cobrarCliente: ['COBRAR R$ 32,00'],
