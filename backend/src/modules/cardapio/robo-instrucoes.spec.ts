@@ -26,6 +26,17 @@ describe('instruções do robô', () => {
     expect(texto).toContain('se ele está com dificuldade e se quer ajuda de alguém da equipe para fazer o pedido');
   });
 
+  // F2 (30/10): a busca nova — os que levam, onde dá para adicionar (com o preço), o combo uma vez e o link do produto.
+  it('busca da F2: link DIRETO do produto, o combo uma vez, e "leva" × "pode adicionar" sem citar a receita', () => {
+    expect(texto).toContain('mande o link DIRETO dele (o campo link da busca)');
+    expect(texto).toContain('ofereça UMA vez, com o preço');
+    expect(texto).toContain('diga os que levam (levam)');
+    expect(texto).toContain('com o preço do adicional (podeAdicionar)');
+    expect(texto).toContain('Nunca cite quantidades nem a receita');
+    expect(texto).toContain('o link de produto que buscar_no_cardapio devolve');
+    expect(texto).toContain('categoriasParaOferecer');
+  });
+
   it('cliente chateado: acolhe, não promete, e chama a equipe com urgência', () => {
     expect(texto).toContain('CLIENTE CHATEADO OU IRRITADO');
     expect(texto).toContain('Não prometa prazo, desconto, reembolso nem solução');

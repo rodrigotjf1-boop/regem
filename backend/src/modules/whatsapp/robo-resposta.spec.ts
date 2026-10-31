@@ -31,7 +31,7 @@ function montar(cfg: any, linhaPausa?: any) {
     enviarTexto: async (...a: any[]) => chamadas.push(['cloud.texto', ...a.slice(1)]),
     enviarOpcoes: async (...a: any[]) => chamadas.push(['cloud.opcoes', a[1], a[2], a[3].length]),
     enviarVoz: async (...a: any[]) => chamadas.push(['cloud.voz', a[1], a[3]]),
-    enviarLink: async (...a: any[]) => chamadas.push(['cloud.link', a[1], a[2], a[3]]),
+    enviarLink: async (...a: any[]) => chamadas.push(['cloud.link', a[1], a[2], a[3], a[4]]),
   };
   const svc = new RoboRespostaService(db, evolution, cloud);
   (svc as any).logger = { log() {}, warn() {} };
@@ -165,7 +165,7 @@ describe('resposta do robô — como cada via mostra', () => {
       // Na API oficial o link (já trocado) vai no botão "Ver cardápio" (30/10).
       const b = montar({ ...loja, provedor: 'cloud' });
       await b.svc.responder(SENHA, { phoneNumberId: 'p', para: TEL, texto: 'Monte seu pedido em https://goomer.app/x', opcoes: ops(2) });
-      expect(b.chamadas).toEqual([['cloud.link', TEL, 'Monte seu pedido', 'https://app.dmsregem.com/c/tok1']]);
+      expect(b.chamadas).toEqual([['cloud.link', TEL, 'Monte seu pedido', 'https://app.dmsregem.com/c/tok1', 'Ver cardápio']]);
     } finally {
       if (antes === undefined) delete process.env.CARDAPIO_PUBLIC_URL;
       else process.env.CARDAPIO_PUBLIC_URL = antes;
@@ -186,7 +186,11 @@ describe('resposta do robô — como cada via mostra', () => {
         audio: { base64: 'AAAA', mime: 'audio/ogg' },
       });
       expect(r.enviados).toEqual(['voz', 'botao_link']);
-      expect(cloud.chamadas[1]).toEqual(['cloud.link', TEL, 'O X bacon custa R$ 26,00. Monte seu pedido.', 'https://app.dmsregem.com/c/tok1?cl=abc']);
+      expect(cloud.chamadas[1]).toEqual(['cloud.link', TEL, 'O X bacon custa R$ 26,00. Monte seu pedido.', 'https://app.dmsregem.com/c/tok1?cl=abc', 'Ver cardápio']);
+      // Link DIRETO do produto (F2, `?produto=`): o botão diz "Ver no cardápio" — abre aquele item.
+      const produto = montar({ ...LOJA_CLOUD, token: 'tok1' });
+      await produto.svc.responder(SENHA, { phoneNumberId: 'p', para: TEL, texto: 'O X Bacon sai por R$ 26,00: https://app.dmsregem.com/c/tok1?produto=xb1' });
+      expect(produto.chamadas[0]).toEqual(['cloud.link', TEL, 'O X Bacon sai por R$ 26,00', 'https://app.dmsregem.com/c/tok1?produto=xb1', 'Ver no cardápio']);
       // Sem link: botões de resposta, como antes.
       const semLink = montar({ ...LOJA_CLOUD, token: 'tok1' });
       await semLink.svc.responder(SENHA, { phoneNumberId: 'p', para: TEL, texto: 'Posso ajudar?', opcoes: ops(2) });

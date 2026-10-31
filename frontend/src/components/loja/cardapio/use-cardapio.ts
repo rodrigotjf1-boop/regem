@@ -449,6 +449,18 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
     setSel(p);
     abrir('produto');
   }
+  // LINK DIRETO DO PRODUTO (`?produto=<id>` — o robô do WhatsApp manda o link do X-Bacon, não o cardápio inteiro;
+  // Fase 5, F2): abre o produto assim que o cardápio carrega, uma vez só. Produto que saiu ou está esgotado: fica o
+  // cardápio, sem erro.
+  const produtoDoLinkRef = useRef(false);
+  useEffect(() => {
+    const alvo = search?.get('produto');
+    if (!alvo || produtoDoLinkRef.current || !produtos.length) return;
+    produtoDoLinkRef.current = true;
+    const p = produtos.find((x: any) => x.id === alvo);
+    if (p && !p.esgotado) abrirProduto(p);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, produtos]);
   /**
    * "+" direto (produto sem escolha obrigatória): entra como entraria pelo produto — com as
    * opções que o cadastro traz pré-marcadas ("Talheres? Sim"), respeitando o máximo do grupo.

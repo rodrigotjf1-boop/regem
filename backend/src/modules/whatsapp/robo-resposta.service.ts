@@ -111,7 +111,9 @@ export class RoboRespostaService {
     // mensagem de botão de link não leva botões de resposta junto: as opções ficam de fora (o cliente escreve).
     const comLink = via === 'cloud' && cfg.token ? separarLinkDoCardapio(texto, linkDoCardapioDaLoja(cfg.token)) : null;
     if (comLink) {
-      await this.cloud.enviarLink(loja.tenantId, para, comLink.corpo, comLink.url, 'Ver cardápio');
+      // Link direto de um produto (`?produto=`, F2): o botão abre aquele item — "Ver no cardápio".
+      const rotulo = /[?&]produto=/.test(comLink.url) ? 'Ver no cardápio' : 'Ver cardápio';
+      await this.cloud.enviarLink(loja.tenantId, para, comLink.corpo, comLink.url, rotulo);
       enviados.push('botao_link');
     } else if (opcoes.length) {
       if (via === 'cloud' && opcoes.length <= 10) {

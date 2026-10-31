@@ -7,6 +7,8 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
+import { palavrasDe } from './robo-busca';
+import { opcaoForaDeVenda } from './opcao-fora-de-venda';
 import { and, desc, eq, gte, ilike, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { randomBytes } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -412,6 +414,59 @@ export class CardapioService {
   linkDoCardapio(token: string): string {
     const base = (process.env.CARDAPIO_PUBLIC_URL || process.env.APP_URL || 'https://app.dmsregem.com').replace(/\/$/, '');
     return `${base}/c/${token}`;
+  }
+
+  /** O link direto de um produto no cardápio: abre o produto já na tela dele (`?produto=`, use-cardapio.ts). */
+  linkDoProduto(token: string, produtoId: string): string {
+    return `${this.linkDoCardapio(token)}?produto=${encodeURIComponent(produtoId)}`;
+  }
+
+  /**
+   * O que a busca do robô precisa além do `menu` (robo-busca.ts — Fase 5, F2): as palavras dos ingredientes da FICHA
+   * de cada produto — descendo nas sub-receitas (até 5 níveis, o que também segura um ciclo), sem as linhas de
+   * embalagem (`somente_delivery`/`somente_balcao`) e sem as apagadas — e o que cada combo leva. Só para a rota do robô
+   * (com a senha): os nomes da ficha viram palavras para casar a pergunta e nunca saem.
+   */
+  async dadosDaBuscaDoRobo(token: string): Promise<{ ingredientes: Map<string, Set<string>>; componentes: Map<string, string[]> }> {
+    const cfg = await this.resolver(token);
+    const tenantId = cfg.tenantId;
+    const linhasDe = (r: any): any[] => (Array.isArray(r) ? r : (r?.rows ?? []));
+    const [ings, combos] = await Promise.all([
+      this.db.execute(sql`
+        with recursive arvore as (
+          select p.id as produto_id, fi.item_id, fi.sub_ficha_id, fi.insumo_nome, 0 as nivel
+            from produto p
+            join ficha_ingrediente fi on fi.ficha_id = p.ficha_id and fi.tenant_id = p.tenant_id
+           where p.tenant_id = ${tenantId}::uuid and p.deleted_at is null and p.ficha_id is not null
+             and fi.deleted_at is null and not fi.somente_delivery and not fi.somente_balcao
+          union all
+          select a.produto_id, fi.item_id, fi.sub_ficha_id, fi.insumo_nome, a.nivel + 1
+            from arvore a
+            join ficha_ingrediente fi on fi.ficha_id = a.sub_ficha_id and fi.tenant_id = ${tenantId}::uuid
+           where a.nivel < 5 and fi.deleted_at is null and not fi.somente_delivery and not fi.somente_balcao
+        )
+        select a.produto_id, coalesce(ie.nome, a.insumo_nome) as nome, ft.nome as sub_receita
+          from arvore a
+          left join item_estoque ie on ie.id = a.item_id
+          left join ficha_tecnica ft on ft.id = a.sub_ficha_id`),
+      this.db.execute(
+        sql`select combo_produto_id, componente_produto_id from produto_combo_item where tenant_id = ${tenantId}::uuid`,
+      ),
+    ]);
+    const ingredientes = new Map<string, Set<string>>();
+    for (const r of linhasDe(ings)) {
+      const id = String(r.produto_id);
+      const s = ingredientes.get(id) ?? new Set<string>();
+      for (const w of palavrasDe(r.nome)) s.add(w);
+      if (r.sub_receita) for (const w of palavrasDe(r.sub_receita)) s.add(w);
+      ingredientes.set(id, s);
+    }
+    const componentes = new Map<string, string[]>();
+    for (const r of linhasDe(combos)) {
+      const id = String(r.combo_produto_id);
+      componentes.set(id, [...(componentes.get(id) ?? []), String(r.componente_produto_id)]);
+    }
+    return { ingredientes, componentes };
   }
 
   async getConfig(tenantId: string, unidadeId?: string | null) {
@@ -1468,10 +1523,10 @@ export class CardapioService {
             .where(and(eq(complemento.tenantId, cfg.tenantId), inArray(complemento.id, origemIds)))
         : Promise.resolve([] as any[]),
       // Imagem da opção — vem da opção reutilizável de origem (o complemento_opcao
-      // materializado não guarda imagem).
+      // materializado não guarda imagem). E se ela está fora de venda (esgotada, desativada, apagada).
       opcaoOrigemIdsPre.length
         ? this.db
-            .select({ id: opcao.id, imagemRef: opcao.imagemRef })
+            .select({ id: opcao.id, imagemRef: opcao.imagemRef, ativo: opcao.ativo, esgotado: opcao.esgotado, deletedAt: opcao.deletedAt })
             .from(opcao)
             .where(and(eq(opcao.tenantId, cfg.tenantId), inArray(opcao.id, opcaoOrigemIdsPre)))
         : Promise.resolve([] as any[]),
@@ -1480,6 +1535,9 @@ export class CardapioService {
     const regraDoGrupo = (g: any) =>
       (g.origemComplementoId && regraPorOrigem.get(g.origemComplementoId)) || (g.max === 1 ? 'uma' : 'varias_sem_repeticao');
     const imgPorOrigem = new Map(imgs.map((o) => [o.id, o.imagemRef]));
+    // Adicional esgotado/desativado na opção de origem não aparece (o pedido também recusa — opcao-fora-de-venda.ts).
+    const origemForaDeVenda = new Set(imgs.filter((o: any) => opcaoForaDeVenda(o)).map((o: any) => o.id));
+    const opcaoEmVenda = (o: any) => !(o.origemOpcaoId && origemForaDeVenda.has(o.origemOpcaoId));
     // Fallback: se nenhuma foi marcada ainda, usa o `pagamentos` legado (sem regressão).
     const pagamentosCardapio = formasCardapio.map((f) => f.nome);
 
@@ -1634,10 +1692,16 @@ export class CardapioService {
             p.atacadoAtivo === true ? faixasAtacado.get(p.id) ?? [] : [],
           // Esgotado = auto por estoque OU pausa manual OU auto-pausa por estoque DA LOJA
           // (sem loja definida, vale o campo antigo do produto).
+          // + etapa obrigatória cujas opções estão TODAS fora de venda (sem o que escolher, não dá para pedir).
           esgotado:
             esgotados.has(p.id) ||
             p.disponivelCardapio === false ||
-            (pausados ? pausados.has(p.id) : p.pausadoEstoque === true),
+            (pausados ? pausados.has(p.id) : p.pausadoEstoque === true) ||
+            grupos.some((g) => {
+              if (g.produtoId !== p.id || !(g.obrigatorio || Number(g.min) > 0)) return false;
+              const doGrupo = opcoes.filter((o) => o.grupoId === g.id);
+              return doGrupo.length > 0 && !doGrupo.some(opcaoEmVenda);
+            }),
           variacoes: variacoes
             .filter((v) => v.produtoId === p.id && v.ativo !== false)
             .map((v) => ({
@@ -1657,7 +1721,7 @@ export class CardapioService {
               obrigatorio: g.obrigatorio,
               regra: regraDoGrupo(g),
               opcoes: opcoes
-                .filter((o) => o.grupoId === g.id)
+                .filter((o) => o.grupoId === g.id && opcaoEmVenda(o))
                 .map((o) => ({
                   id: o.id,
                   nome: o.nome,
@@ -2582,6 +2646,7 @@ export class CardapioService {
             nome: complementoOpcao.nome,
             precoDelta: complementoOpcao.precoDelta,
             codigoPdv: complementoOpcao.codigoPdv,
+            origemOpcaoId: complementoOpcao.origemOpcaoId,
           })
           .from(complementoOpcao)
           .where(
@@ -2618,6 +2683,19 @@ export class CardapioService {
     // 1) Pertencimento: toda opção escolhida tem de ser deste produto.
     const invalida = distintas.find((id) => !porId.has(id));
     if (invalida) throw new BadRequestException('Opção inválida para este produto.');
+
+    // 1b) Adicional fora de venda (esgotado/desativado na opção de origem): a mesma regra do cardápio, que nem o mostra
+    // (opcao-fora-de-venda.ts — V74). Um carrinho aberto antes de a loja marcar o esgotado cai aqui.
+    const origensEscolhidas = [...new Set(distintas.map((id) => porId.get(id)?.origemOpcaoId).filter(Boolean))] as string[];
+    if (origensEscolhidas.length) {
+      const origens = await this.db
+        .select({ id: opcao.id, ativo: opcao.ativo, esgotado: opcao.esgotado, deletedAt: opcao.deletedAt })
+        .from(opcao)
+        .where(and(eq(opcao.tenantId, tenantId), inArray(opcao.id, origensEscolhidas)));
+      const fora = new Set(origens.filter((o) => opcaoForaDeVenda(o)).map((o) => o.id));
+      const esgotada = distintas.map((id) => porId.get(id)).find((o) => o?.origemOpcaoId && fora.has(o.origemOpcaoId));
+      if (esgotada) throw new BadRequestException(`O adicional "${esgotada.nome}" está esgotado agora. Tire do pedido para continuar.`);
+    }
 
     // Quantidade por opção (conta repetições). Fora de 'varias_com_repeticao' a
     // quantidade é travada em 1 — repetição só vale onde a loja liberou.

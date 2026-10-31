@@ -4,6 +4,7 @@ import { CloudOnly } from '../../common/cloud-only.decorator';
 import { CABECALHO_SEGREDO_ROBO, segredoDaChamada } from '../../common/segredo-robo';
 import { CardapioService } from './cardapio.service';
 import { buscarNoCardapio, resumoDaLoja, taxaDoBairro } from './robo-consultas';
+import { categoriasPorPapel, procurarNoCardapio } from './robo-busca';
 import { instrucoesDoRobo } from './robo-instrucoes';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -30,9 +31,12 @@ export class RoboConsultasController {
     @Headers(CABECALHO_SEGREDO_ROBO) segredo?: string,
   ) {
     const { token, menu } = await this.cardapio(segredoDaChamada(segredo, secret), instancia, phoneNumberId);
-    return resumoDaLoja(menu, this.service.linkDoCardapio(token));
+    // + as categorias por papel (bebidas, sobremesas, porções): o que oferecer no fim do pedido (F2).
+    return { ...resumoDaLoja(menu, this.service.linkDoCardapio(token)), categoriasParaOferecer: categoriasPorPapel(menu) };
   }
 
+  // Com texto: a busca da F2 (robo-busca.ts) — os que LEVAM (ficha > descrição > nome), onde entra como ADICIONAL (com o
+  // preço), os combos e o link direto do produto. Sem texto: as categorias com os itens (o "o que tem aí?"), como antes.
   @Get('cardapio')
   @Throttle({ default: { ttl: 60000, limit: 240 } })
   async cardapioBusca(
@@ -42,8 +46,11 @@ export class RoboConsultasController {
     @Query('secret') secret?: string,
     @Headers(CABECALHO_SEGREDO_ROBO) segredo?: string,
   ) {
-    const { menu } = await this.cardapio(segredoDaChamada(segredo, secret), instancia, phoneNumberId);
-    return buscarNoCardapio(menu, String(busca ?? '').slice(0, 80));
+    const { token, menu } = await this.cardapio(segredoDaChamada(segredo, secret), instancia, phoneNumberId);
+    const texto = String(busca ?? '').slice(0, 80);
+    if (!texto.trim()) return buscarNoCardapio(menu, '');
+    const dados = await this.service.dadosDaBuscaDoRobo(token);
+    return procurarNoCardapio(menu, texto, { ...dados, linkDoProduto: (id) => this.service.linkDoProduto(token, id) });
   }
 
   @Get('taxa')
