@@ -4,9 +4,10 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig } from '../../db/schema';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
 import { WhatsappService } from './whatsapp.service';
-import { WhatsappCloudService, opcoesValidas } from './whatsapp-cloud.service';
+import { WhatsappCloudService, cabeEmBotoes, opcoesValidas } from './whatsapp-cloud.service';
 import { EstadoPausa, estadoDaPausa } from './robo-pausa';
 import { linkDoCardapioDaLoja, separarLinkDoCardapio, soLinksDaLoja } from './links-do-robo';
+import { fotoDoProduto } from './foto-do-produto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -111,14 +112,22 @@ export class RoboRespostaService {
     // mensagem de botão de link não leva botões de resposta junto: as opções ficam de fora (o cliente escreve).
     const comLink = via === 'cloud' && cfg.token ? separarLinkDoCardapio(texto, linkDoCardapioDaLoja(cfg.token)) : null;
     if (comLink) {
-      // Link direto de um produto (`?produto=`, F2): o botão abre aquele item — "Ver no cardápio".
-      const rotulo = /[?&]produto=/.test(comLink.url) ? 'Ver no cardápio' : 'Ver cardápio';
-      await this.cloud.enviarLink(loja.tenantId, para, comLink.corpo, comLink.url, rotulo);
-      enviados.push('botao_link');
+      // Link direto de um produto (`?produto=`, F2): o botão abre aquele item — "Ver no cardápio" — e a FOTO dele vai
+      // em cima (F5, decisão do dono: "sempre que falar de 1 produto"). Sem foto que sirva, vai sem.
+      const doProduto = /[?&]produto=/.test(comLink.url);
+      const rotulo = doProduto ? 'Ver no cardápio' : 'Ver cardápio';
+      const foto = doProduto
+        ? await fotoDoProduto(this.db, loja.tenantId, comLink.url).catch((e: any) => {
+            this.logger.warn(`foto do produto não conferida (vai sem): ${e?.message ?? e}`);
+            return null;
+          })
+        : null;
+      const r: any = await this.cloud.enviarLink(loja.tenantId, para, comLink.corpo, comLink.url, rotulo, foto);
+      enviados.push(r?.comFoto ? 'botao_link_com_foto' : 'botao_link');
     } else if (opcoes.length) {
       if (via === 'cloud' && opcoes.length <= 10) {
         await this.cloud.enviarOpcoes(loja.tenantId, para, texto, opcoes, p?.botaoLista);
-        enviados.push(opcoes.length <= 3 ? 'botoes' : 'lista');
+        enviados.push(cabeEmBotoes(opcoes) ? 'botoes' : 'lista');
       } else if (via === 'evolution' && p?.opcoesComo === 'enquete' && opcoes.length >= 2 && opcoes.length <= 12) {
         await this.evolution.enviarEnquete(loja.tenantId, para, texto, opcoes.map((o) => o.titulo));
         enviados.push('enquete');

@@ -46,6 +46,23 @@ export function chaveTelefone(bruto: unknown): string | null {
 }
 
 /**
+ * As formas em que um número pode estar guardado, a partir da CHAVE (`chaveTelefone`): com/sem o 55 e, no celular,
+ * com/sem o nono dígito — o pedido guarda "21987654321", a conversa da API oficial "5521987654321" e o `wa_id` de
+ * muitos celulares vem sem o 9. Para ACHAR o registro (`inArray`), nunca para discar.
+ */
+export function formasDaChaveTelefone(chave: string | null | undefined): string[] {
+  const c = String(chave ?? '').replace(/\D/g, '');
+  if (!c) return [];
+  const f = new Set([c, `55${c}`]);
+  if (/^[1-9][0-9]9[6-9][0-9]{7}$/.test(c)) {
+    const sem9 = `${c.slice(0, 2)}${c.slice(3)}`;
+    f.add(sem9);
+    f.add(`55${sem9}`);
+  }
+  return [...f];
+}
+
+/**
  * A mesma chave em SQL (Postgres), para comparar dentro da consulta — `chaveTelefone` e esta têm de
  * dar o MESMO resultado (teste contra o banco real em `telefone-chave.spec.ts`). Sem barra
  * invertida no SQL (V27): `[^0-9]` no lugar de `\D`. Vazio vira `null` (nunca casa).

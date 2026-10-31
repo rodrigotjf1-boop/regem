@@ -36,7 +36,11 @@ export class RoboPedidoController {
     return this.service.ver(await this.contexto(segredo, ficha, q));
   }
 
-  /** Itens: `acao` adicionar | alterar | remover | limpar; `produto`, `versao`, `adicionais`, `quantidade`, `linha`… */
+  /**
+   * Itens: `acao` adicionar | escolher (a resposta de uma escolha ou um adicional) | concluir (sem mais extras no item) |
+   * fechar ("só isso") | alterar | remover | observacao_do_pedido | limpar; `produto`, `versao`, `adicionais`,
+   * `quantidade`, `observacao`, `linha`…
+   */
   @Post('pedido/itens')
   @HttpCode(200)
   @Throttle(LIMITE)
@@ -68,7 +72,7 @@ export class RoboPedidoController {
     return this.service.definirNome(await this.contexto(segredo, ficha, q, b), b ?? {});
   }
 
-  /** Registra o pedido que o cliente confirmou (com a `versao` do resumo) e manda o resumo por escrito. */
+  /** Registra o pedido que o cliente confirmou no resumo que o Regem mandou (F5: sem a versão da IA) e manda o resumo final. */
   @Post('pedido/registrar')
   @HttpCode(200)
   @Throttle({ default: { ttl: 60000, limit: 60 } })

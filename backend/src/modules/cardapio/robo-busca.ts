@@ -288,5 +288,78 @@ export function procurarNoCardapio(menu: any, busca: string, dados: DadosDaBusca
     totalLevam: levam.length,
     podeAdicionar,
     parecidos,
+    paraOCliente: listaParaOCliente(termos, levam, produtos, qCompacta),
   };
+}
+
+/** O "núcleo" do nome para juntar o lanche com o trio dele: "TRIO 07" = "Numero 07" = "7"; "TRIO X-BACON" = "X bacon". */
+export function nucleoDoNome(nome: unknown): string {
+  return normalizar(nome)
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^(trio|combo)\s+/, '')
+    .replace(/^(numero|num|no|n)\s*(?=\d)/, '')
+    .replace(/\b0+(\d)/g, '$1')
+    .replace(/ /g, '');
+}
+
+const MAX_NA_LISTA = 12;
+
+/**
+ * A LISTA PRONTA para o cliente quando a pergunta é de INGREDIENTE (F5 — teste do dono, 31/10/2026: "tem opção com
+ * bacon?" e o robô citou só o X-Bacon e o trio, deixando de fora o Número 08 e o 15, que levam bacon pela ficha, e não
+ * disse que dava para adicionar bacon). TODOS os que levam, um por linha, com o preço; o trio vai junto do lanche
+ * ("no trio, R$ 29,00"); e no fim onde dá para pôr o ingrediente a mais, com o preço do adicional. Pergunta só pelo nome
+ * de um produto ("quanto custa o x-bacon?") não tem lista: o robô responde com o produto e o link.
+ */
+function listaParaOCliente(termos: Termo[], levam: Analise[], produtos: any[], qCompacta: string): string | null {
+  const ingrediente = termos.filter((t) => !t.grupo);
+  if (!ingrediente.length) return null;
+  // O cliente disse o NOME de um produto ("x-bacon"): é pergunta do produto, não do ingrediente.
+  if (levam.some((a) => compacto(a.p.nome) === qCompacta)) return null;
+  const porIngrediente = levam.some((a) => a.porque === 'ficha' || a.porque === 'descricao');
+  // Onde o ingrediente entra como adicional (em qualquer lanche à venda — também "bacon a mais" no que já leva).
+  const precos: number[] = [];
+  for (const p of produtos) {
+    if (p?.esgotado) continue;
+    for (const a of adicionaisDo(p)) if (ingrediente.some((t) => casa(t, a.palavras))) precos.push(a.preco);
+  }
+  if (!porIngrediente && !precos.length) return null;
+
+  const ehTrioP = (p: any) => /^(trio|combo)\b/.test(normalizar(p?.nome));
+  const trios = new Map<string, any>(); // núcleo → o trio/combo que leva
+  for (const a of levam) if (ehTrioP(a.p) && !trios.has(nucleoDoNome(a.p.nome))) trios.set(nucleoDoNome(a.p.nome), a.p);
+  const usados = new Set<string>();
+  const vistos = new Set<string>();
+  const linhas: string[] = [];
+  let resto = 0;
+  // Os lanches primeiro (cada um puxa o seu trio); depois os trios que sobraram.
+  for (const a of [...levam.filter((x) => !ehTrioP(x.p)), ...levam.filter((x) => ehTrioP(x.p))]) {
+    const p = a.p;
+    const ehTrio = ehTrioP(p);
+    const chave = `${normalizar(p.nome)}|${reais(p.precoVenda)}`;
+    if (vistos.has(chave)) continue; // o mesmo produto cadastrado duas vezes
+    if (ehTrio && usados.has(nucleoDoNome(p.nome))) continue; // já foi junto do lanche
+    vistos.add(chave);
+    if (linhas.length >= MAX_NA_LISTA) {
+      resto++;
+      continue;
+    }
+    const trio = !ehTrio ? trios.get(nucleoDoNome(p.nome)) : null;
+    if (trio && !trio.esgotado) usados.add(nucleoDoNome(p.nome));
+    const extra = p.esgotado ? ' (esgotado agora)' : trio && !trio.esgotado ? ` (no trio, ${reais(trio.precoVenda)})` : '';
+    linhas.push(`• ${p.nome} — ${reais(p.precoVenda)}${extra}`);
+  }
+  const oQue = ingrediente.map((t) => t.texto).join(' ');
+  const partes: string[] = [];
+  if (linhas.length) partes.push(`Com ${oQue} temos:`, ...linhas);
+  if (resto) partes.push(`E mais ${resto} no cardápio.`);
+  if (precos.length) {
+    const min = Math.min(...precos);
+    const max = Math.max(...precos);
+    const preco = min === max ? (min > 0 ? `+${reais(min)}` : 'sem custo') : `de +${reais(min)} a +${reais(max)}`;
+    partes.push(`${linhas.length ? 'E dá' : 'Dá'} para pôr ${oQue} a mais nos lanches: ${preco}.`);
+  }
+  return partes.join('\n');
 }

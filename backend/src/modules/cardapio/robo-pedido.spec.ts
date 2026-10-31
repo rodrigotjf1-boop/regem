@@ -1,20 +1,31 @@
 import {
+  EstadoDaConducao,
   acharBairro,
   acharForma,
   acharProduto,
   acharVariacao,
+  adicionaisDoItem,
   alterarEscolhas,
+  conducaoDoPedido,
+  ehLanche,
+  escolhasQueFaltam,
   faltaDaLinha,
-  faltaDoPedido,
   formasDoRobo,
   montarEscolhas,
   nomeDoCliente,
+  opcoesDePagamento,
+  pedeExtras,
+  precisaDeTroco,
+  precisaDoMeio,
   quantidadeDoPedido,
   referenciaDoPedido,
+  semTrocoNoTexto,
+  sugestoesDeTroco,
+  temAdicionalOpcional,
   textoDoEndereco,
   valorDoTroco,
 } from './robo-pedido';
-import { formasDaChave } from './robo-pedido.service';
+import { estavel, formasDaChave } from './robo-pedido.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -131,6 +142,37 @@ describe('a versão e as escolhas (como a tela do produto do cardápio)', () => 
     expect(montarEscolhas(xbacon, 'bacon, queijo').complementos).toEqual(['o-bacon', 'o-queijo', 'o-talher']);
     expect(alterarEscolhas(trio, ['o-coca'], 'guaraná', '').complementos).toEqual(['o-guarana']);
   });
+  it('F5: a opção copiada com o detalhe ("Bacon extra — +R$ 4,00") — a vírgula do preço não parte o nome', () => {
+    expect(montarEscolhas(xbacon, 'Bacon extra — +R$ 4,00, Queijo cheddar — +R$ 3,00').complementos).toEqual(['o-bacon', 'o-queijo', 'o-talher']);
+    expect(alterarEscolhas(trio, [], 'Coca-Cola Zero — +R$ 1,00', '').complementos).toEqual(['o-coca-zero']);
+  });
+});
+
+describe('F5: o que perguntar no item (escolhas, adicionais e observação)', () => {
+  it('as etapas obrigatórias que faltam, com TODAS as opções e o preço no detalhe', () => {
+    expect(escolhasQueFaltam(trio, { variacaoId: null, complementos: [] })).toEqual([
+      { grupo: 'Escolha o refri', versao: false, nomes: ['Coca-Cola', 'Guaraná', 'Coca-Cola Zero'], opcoes: ['Coca-Cola', 'Guaraná', 'Coca-Cola Zero — +R$ 1,00'] },
+    ]);
+    expect(escolhasQueFaltam(suco, { variacaoId: null, complementos: [] })[0]).toMatchObject({ grupo: 'a versão', versao: true, opcoes: ['300 ml — R$ 9,00', '500 ml — R$ 12,00'] });
+    expect(escolhasQueFaltam(trio, { variacaoId: null, complementos: ['o-guarana'] })).toEqual([]);
+  });
+  it('os adicionais do item (só os opcionais de acrescentar, com o preço; o que já tem sai)', () => {
+    expect(adicionaisDoItem(xbacon)).toEqual(['Bacon extra — +R$ 4,00', 'Queijo cheddar — +R$ 3,00', 'Sim — sem custo']);
+    expect(adicionaisDoItem(xbacon, ['o-bacon'])).toEqual(['Queijo cheddar — +R$ 3,00', 'Sim — sem custo']);
+    expect(adicionaisDoItem(trio)).toEqual([]); // a escolha do refri é obrigatória: não é adicional
+  });
+  it('lanche pelo nome ou pela categoria pede os extras (mesmo sem adicional); bebida, não', () => {
+    expect(ehLanche({ nome: 'X bacon' })).toBe(true);
+    expect(ehLanche({ nome: 'TRIO 07' })).toBe(true);
+    expect(ehLanche({ nome: 'Número 08' }, 'Hambúrgueres')).toBe(true);
+    expect(ehLanche({ nome: 'Coca lata' }, 'Bebidas')).toBe(false);
+    expect(pedeExtras(trio)).toBe(true); // trio: a observação
+    expect(pedeExtras(suco)).toBe(false);
+  });
+  it('o cliente já pediu com adicional: os extras não se perguntam (a escolha obrigatória não conta)', () => {
+    expect(temAdicionalOpcional(xbacon, 'bacon')).toBe(true);
+    expect(temAdicionalOpcional(trio, 'coca')).toBe(false);
+  });
 });
 
 describe('a entrega', () => {
@@ -157,20 +199,44 @@ describe('o pagamento', () => {
     expect(formasDoRobo(MENU, 'entrega')).toEqual([{ forma: 'entrega', nome: 'Pagar na entrega (dinheiro ou maquininha)', pedeTroco: true }]);
     expect(formasDoRobo(MENU, 'retirada')[0].nome).toBe('Pagar na retirada (dinheiro ou maquininha)');
   });
-  it('"dinheiro" e "cartão" caem no pagar na entrega; cartão não pergunta troco; "pix" vai pelo link', () => {
-    expect(acharForma(MENU, 'entrega', 'dinheiro')).toEqual({ ok: true, forma: 'entrega', porCartao: false });
-    expect(acharForma(MENU, 'entrega', 'cartão de crédito')).toEqual({ ok: true, forma: 'entrega', porCartao: true });
-    expect(acharForma(MENU, 'entrega', 'maquininha')).toEqual({ ok: true, forma: 'entrega', porCartao: true });
+  it('"dinheiro" e "cartão" caem no pagar na entrega com o MEIO; o nome inteiro da forma não diz qual; "pix" vai pelo link', () => {
+    expect(acharForma(MENU, 'entrega', 'dinheiro')).toEqual({ ok: true, forma: 'entrega', porCartao: false, meio: 'dinheiro' });
+    expect(acharForma(MENU, 'entrega', 'cartão de crédito')).toEqual({ ok: true, forma: 'entrega', porCartao: true, meio: 'cartao' });
+    expect(acharForma(MENU, 'entrega', 'maquininha')).toEqual({ ok: true, forma: 'entrega', porCartao: true, meio: 'cartao' });
+    expect(acharForma(MENU, 'entrega', 'Pagar na entrega (dinheiro ou maquininha)')).toEqual({ ok: true, forma: 'entrega', porCartao: false, meio: null });
     expect(acharForma(MENU, 'entrega', 'pix')).toMatchObject({ ok: false, motivo: 'so_pelo_link' });
     expect(acharForma(MENU, 'entrega', 'cheque')).toMatchObject({ ok: false, motivo: 'nenhuma' });
   });
+  it('F5: os botões tocados ("Dinheiro", "Cartão na entrega — débito…", "Vale-refeição") e os nomes curtos', () => {
+    const m: any = { loja: { pagamentos: ['pix', 'cartao', 'entrega', 'vr'] } };
+    expect(opcoesDePagamento(m, 'entrega').map((o) => o.titulo)).toEqual(['Dinheiro', 'Cartão na entrega', 'Vale-refeição']);
+    expect(opcoesDePagamento(m, 'retirada').map((o) => o.titulo)).toEqual(['Dinheiro', 'Cartão na retirada', 'Vale-refeição']);
+    expect(opcoesDePagamento(m, 'entrega').every((o) => o.titulo.length <= 20)).toBe(true); // cabe no botão da Meta
+    expect(acharForma(m, 'entrega', 'Cartão na entrega — débito ou crédito na maquininha')).toEqual({ ok: true, forma: 'entrega', porCartao: true, meio: 'cartao' });
+    expect(acharForma(m, 'entrega', 'Vale-refeição')).toEqual({ ok: true, forma: 'vr', porCartao: false, meio: 'cartao' });
+    expect(acharForma(m, 'entrega', 'Dinheiro')).toMatchObject({ forma: 'entrega', meio: 'dinheiro' });
+  });
   it('formas com nome da loja: pelo nome; "cartão" entre débito e crédito pergunta qual', () => {
     const m: any = { loja: { pagamentos: ['Dinheiro', 'Cartão de débito', 'Cartão de crédito', 'Pix'] } };
-    expect(acharForma(m, 'entrega', 'pix')).toEqual({ ok: true, forma: 'Pix', porCartao: false });
-    expect(acharForma(m, 'entrega', 'débito')).toEqual({ ok: true, forma: 'Cartão de débito', porCartao: false });
+    expect(acharForma(m, 'entrega', 'pix')).toEqual({ ok: true, forma: 'Pix', porCartao: false, meio: null });
+    expect(acharForma(m, 'entrega', 'débito')).toEqual({ ok: true, forma: 'Cartão de débito', porCartao: false, meio: null });
     expect(acharForma(m, 'entrega', 'cartão')).toMatchObject({ ok: false, motivo: 'nenhuma', opcoes: ['Dinheiro', 'Cartão de débito', 'Cartão de crédito', 'Pix'] });
+    expect(acharForma(m, 'entrega', 'dinheiro')).toMatchObject({ forma: 'Dinheiro', meio: 'dinheiro' });
     expect(formasDoRobo(m, 'entrega').find((f) => f.forma === 'Dinheiro')?.pedeTroco).toBe(true);
     expect(formasDoRobo(m, 'entrega').find((f) => f.forma === 'Pix')?.pedeTroco).toBe(false);
+  });
+  it('F5: troco só no dinheiro; "não preciso" em texto; "pagar na entrega" sem meio pergunta dinheiro ou cartão', () => {
+    expect(precisaDeTroco({ forma: 'entrega', meio: 'dinheiro', trocoPara: null, semTroco: false })).toBe(true);
+    expect(precisaDeTroco({ forma: 'entrega', meio: 'cartao', trocoPara: null, semTroco: false })).toBe(false);
+    expect(precisaDeTroco({ forma: 'entrega', meio: 'dinheiro', trocoPara: 100, semTroco: false })).toBe(false);
+    expect(precisaDeTroco({ forma: 'Dinheiro', meio: null, trocoPara: null, semTroco: false })).toBe(true);
+    expect(precisaDoMeio({ forma: 'entrega', meio: null, trocoPara: null, semTroco: false })).toBe(true);
+    expect(precisaDoMeio({ forma: 'entrega', trocoPara: 50, semTroco: false })).toBe(false); // carrinho de antes do F5
+    for (const t of ['não preciso', 'Não preciso de troco', 'sem troco', 'tenho trocado', 'nao']) expect(semTrocoNoTexto(t)).toBe(true);
+    for (const t of ['100', 'R$ 50', '', 'troco pra 50']) expect(semTrocoNoTexto(t)).toBe(false);
+    expect(sugestoesDeTroco(36)).toEqual(['R$ 50', 'R$ 100']);
+    expect(sugestoesDeTroco(101)).toEqual(['R$ 150', 'R$ 200']);
+    expect(sugestoesDeTroco(600)).toEqual([]);
   });
   it('o valor do troco: "100", "R$ 100,00", "1.000"', () => {
     expect(valorDoTroco('100')).toBe(100);
@@ -182,44 +248,108 @@ describe('o pagamento', () => {
   });
 });
 
-describe('o que falta, na ordem em que o robô pergunta', () => {
-  const base = {
-    linhas: 1,
-    linhasIncompletas: [],
-    tipo: 'entrega' as const,
-    tiposAbertos: ['entrega', 'retirada'] as ('entrega' | 'retirada')[],
-    entrega: { tipo: 'entrega', rua: 'Rua A', numero: '10', bairro: 'Centro', bairroId: 'b', referencia: 'portão', lat: null, lng: null, enderecoId: null } as any,
+describe('F5: a condução — o que falta, na ordem em que o robô pergunta', () => {
+  const linha = (o: Partial<EstadoDaConducao['linhas'][number]> = {}) => ({
+    linha: 1,
+    produto: 'X-Bacon',
+    faltaEscolher: [],
+    extrasPendentes: false,
+    adicionais: ['Bacon extra — +R$ 4,00'],
+    ...o,
+  });
+  const base: EstadoDaConducao = {
+    linhas: [linha()],
+    itensFechados: true,
+    sugestao: null,
+    tipo: 'entrega',
+    tiposAbertos: ['entrega', 'retirada'],
+    entrega: { tipo: 'entrega', rua: 'Rua A', numero: '10', bairro: 'Centro', bairroId: 'b', referencia: 'portão', lat: null, lng: null, enderecoId: null },
     enderecoForaDaArea: false,
+    ultimoEndereco: null,
+    enderecosSalvos: 0,
     subtotal: 40,
     pedidoMinimo: 20,
     nome: 'Ana',
-    pagamento: { forma: 'entrega', trocoPara: 100, semTroco: false },
+    pagamento: { forma: 'entrega', meio: 'dinheiro', trocoPara: 100, semTroco: false },
     pagamentoServe: true,
+    opcoesDePagamento: ['Dinheiro — pago na entrega', 'Cartão na entrega — débito ou crédito na maquininha'],
+    total: 45,
   };
+  const campos = (e: Partial<EstadoDaConducao>) => conducaoDoPedido({ ...base, ...e }).map((f) => f.campo);
+
   it('completo: nada falta', () => {
-    expect(faltaDoPedido(base)).toEqual([]);
+    expect(conducaoDoPedido(base)).toEqual([]);
   });
-  it('itens, escolha do item, referência, mínimo, nome, pagamento e troco', () => {
-    const campos = faltaDoPedido({
-      ...base,
-      linhasIncompletas: [{ linha: 2, produto: 'Trio X-Bacon', falta: ['Escolha o refri (Coca-Cola, Guaraná)'] }],
-      entrega: { ...base.entrega, referencia: null },
+  it('a ordem do dono: escolha obrigatória → extras do item → mais alguma coisa → entrega → referência → mínimo → nome → pagamento → troco', () => {
+    const tudo = campos({
+      linhas: [linha({ faltaEscolher: [{ grupo: 'Escolha o refri', opcoes: ['Coca-Cola', 'Guaraná'] }], extrasPendentes: true }), linha({ linha: 2, extrasPendentes: true })],
+      itensFechados: false,
+      entrega: { ...(base.entrega as any), referencia: null },
       subtotal: 15,
       nome: null,
-      pagamento: { forma: 'entrega', trocoPara: null, semTroco: false },
-    }).map((f) => f.campo);
-    expect(campos).toEqual(['linha 2', 'referencia', 'minimo', 'nome', 'troco']);
-    expect(faltaDoPedido({ ...base, linhas: 0 })[0].campo).toBe('itens');
-    expect(faltaDoPedido({ ...base, pagamento: null }).map((f) => f.campo)).toEqual(['pagamento']);
-    expect(faltaDoPedido({ ...base, pagamento: { forma: 'entrega', trocoPara: null, semTroco: true } })).toEqual([]);
+      pagamento: { forma: 'entrega', meio: 'dinheiro', trocoPara: null, semTroco: false },
+    });
+    // Linha 1: a escolha primeiro (os extras dela só depois); linha 2: os extras. "Mais alguma coisa" só com os itens prontos.
+    expect(tudo).toEqual(['linha 1', 'extras 2', 'referencia', 'minimo', 'nome', 'troco']);
+    expect(campos({ linhas: [] })[0]).toBe('itens');
+    expect(campos({ itensFechados: false })).toEqual(['mais_algo']);
+    expect(campos({ itensFechados: false, entrega: null, tipo: null })).toEqual(['mais_algo', 'tipo']);
+    expect(campos({ pagamento: null })).toEqual(['pagamento']);
+    expect(campos({ pagamento: { forma: 'entrega', meio: null, trocoPara: null, semTroco: false } })).toEqual(['meio']);
+    expect(campos({ pagamento: { forma: 'entrega', meio: 'dinheiro', trocoPara: null, semTroco: true } })).toEqual([]);
+    expect(campos({ pagamento: { forma: 'entrega', meio: 'cartao', trocoPara: null, semTroco: false } })).toEqual([]);
   });
-  it('fora da área e sem tipo; a retirada não pede endereço nem mínimo', () => {
-    expect(faltaDoPedido({ ...base, enderecoForaDaArea: true })[0].campo).toBe('endereco');
-    expect(faltaDoPedido({ ...base, tipo: null })[0]).toEqual({ campo: 'tipo', pergunta: 'Se é para entregar ou para retirar na loja.' });
-    expect(faltaDoPedido({ ...base, tipo: 'retirada', entrega: { tipo: 'retirada' }, subtotal: 5 })).toEqual([]);
+  it('a escolha leva TODAS as opções e diz como responder; os extras oferecem adicionais, observação e "não"', () => {
+    const [esc] = conducaoDoPedido({ ...base, linhas: [linha({ faltaEscolher: [{ grupo: 'Escolha a Bebida', opcoes: ['Coca', 'Fanta', 'Guaraná', 'Sprite', 'Coca Zero', 'Fanta Uva', 'Guaraviton'] }] })] });
+    expect(esc.opcoes).toHaveLength(7);
+    expect(esc.comoResponder).toContain('acao = escolher, linha = 1');
+    const [ext] = conducaoDoPedido({ ...base, linhas: [linha({ extrasPendentes: true })] });
+    expect(ext.opcoes).toEqual(['Bacon extra — +R$ 4,00', 'Pôr observação', 'Não, obrigado']);
+    expect(ext.comoResponder).toContain('acao = concluir, linha = 1');
   });
-  it('o mínimo diz quanto falta', () => {
-    expect(faltaDoPedido({ ...base, subtotal: 15 })[0].pergunta).toBe('O pedido mínimo para entrega é R$ 20,00 em itens (faltam R$ 5,00).');
+  it('"mais alguma coisa?" com a sugestão (uma vez) e o "Não, só isso"', () => {
+    const [m] = conducaoDoPedido({ ...base, itensFechados: false, sugestao: { papel: 'bebida', opcoes: ['Coca lata — R$ 6,00'] } });
+    expect(m).toMatchObject({ campo: 'mais_algo', opcoes: ['Coca lata — R$ 6,00', 'Não, só isso'] });
+    expect(m.pergunta).toContain('uma bebida');
+    expect(m.comoResponder).toContain('acao = fechar');
+  });
+  it('a entrega numa pergunta: o ÚLTIMO endereço, outro ou retirada (decisão do dono); sem endereço salvo, entrega ou retirada', () => {
+    const sem = { tipo: null, entrega: null } as const;
+    const [e] = conducaoDoPedido({ ...base, ...sem, ultimoEndereco: { n: 2, texto: 'Av. N. Sra. da Penha, 400 · Penha' }, enderecosSalvos: 3 });
+    expect(e).toMatchObject({ campo: 'endereco', opcoes: ['Sim, nesse', 'Outro endereço', 'Retirar na loja'] });
+    expect(e.pergunta).toContain('Av. N. Sra. da Penha, 400');
+    expect(e.comoResponder).toContain('endereco = 2');
+    expect(e.comoResponder).toContain('Cadastrar novo endereço');
+    // Com um endereço só, "Outro endereço" já pede o novo.
+    expect(conducaoDoPedido({ ...base, ...sem, ultimoEndereco: { n: 1, texto: 'Rua B, 20' }, enderecosSalvos: 1 })[0].comoResponder).toContain('peça o endereço novo');
+    // A loja que só entrega não oferece a retirada; o cliente que já disse "entrega" também não.
+    expect(conducaoDoPedido({ ...base, ...sem, tiposAbertos: ['entrega'], ultimoEndereco: { n: 1, texto: 'Rua B' }, enderecosSalvos: 1 })[0].opcoes).toEqual(['Sim, nesse', 'Outro endereço']);
+    expect(conducaoDoPedido({ ...base, entrega: null, ultimoEndereco: { n: 1, texto: 'Rua B' }, enderecosSalvos: 1 })[0].opcoes).toEqual(['Sim, nesse', 'Outro endereço']);
+    expect(conducaoDoPedido({ ...base, ...sem })[0]).toMatchObject({ campo: 'tipo', opcoes: ['Entrega', 'Retirar na loja'] });
+    expect(conducaoDoPedido({ ...base, ...sem, tiposAbertos: ['retirada'] })[0]).toMatchObject({ campo: 'tipo', opcoes: ['Retirar na loja'] });
+    expect(conducaoDoPedido({ ...base, ...sem, tiposAbertos: [] })[0].pergunta).toBe('A loja não está recebendo pedidos agora.');
+  });
+  it('fora da área; o complemento é pedido com a referência; a retirada não pede endereço nem mínimo; o mínimo diz quanto falta', () => {
+    expect(campos({ enderecoForaDaArea: true })[0]).toBe('endereco');
+    expect(conducaoDoPedido({ ...base, entrega: { ...(base.entrega as any), referencia: null } })[0].pergunta).toMatch(/complemento \(apto, bloco, casa, fundos\)/);
+    expect(campos({ tipo: 'retirada', entrega: { tipo: 'retirada' }, subtotal: 5 })).toEqual([]);
+    expect(conducaoDoPedido({ ...base, subtotal: 15 })[0].pergunta).toBe('O pedido mínimo para entrega é R$ 20,00 em itens (faltam R$ 5,00).');
+  });
+  it('dinheiro ou cartão; o troco com as notas que cobrem o total e o "não preciso"', () => {
+    const [meio] = conducaoDoPedido({ ...base, pagamento: { forma: 'entrega', meio: null, trocoPara: null, semTroco: false } });
+    expect(meio.opcoes).toEqual(['Dinheiro', 'Cartão na entrega']);
+    const [troco] = conducaoDoPedido({ ...base, total: 36, pagamento: { forma: 'entrega', meio: 'dinheiro', trocoPara: null, semTroco: false } });
+    expect(troco).toMatchObject({ campo: 'troco', opcoes: ['R$ 50', 'R$ 100', 'Não preciso de troco'] });
+    expect(troco.pergunta).toContain('R$ 36,00');
+  });
+});
+
+describe('F5: mudança que não muda nada não sobe a versão (o jsonb devolve as chaves em outra ordem)', () => {
+  it('JSON estável: mesma coisa, mesma escrita; diferente, diferente', () => {
+    expect(estavel({ b: 1, a: [{ y: 2, x: 1 }] })).toBe(estavel({ a: [{ x: 1, y: 2 }], b: 1 }));
+    expect(estavel({ a: 1, b: undefined })).toBe(estavel({ a: 1 }));
+    expect(estavel({ a: null })).not.toBe(estavel({ a: 1 }));
+    expect(estavel([1, 2])).not.toBe(estavel([2, 1]));
   });
 });
 

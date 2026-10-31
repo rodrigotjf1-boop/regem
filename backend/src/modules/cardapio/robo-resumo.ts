@@ -25,9 +25,73 @@ const SITUACAO: Record<string, { texto: string; aceito: boolean }> = {
   cancelado: { texto: 'cancelado', aceito: false },
 };
 
+/** Os dados do resumo PARA CONFERIR (antes de registrar), tirados do carrinho com as contas do cardápio. */
+export type ParaConferir = {
+  itens: { quantidade: number; descricao: string; observacao: string | null; totalCent: number | null }[];
+  subtotal: number;
+  tipo: 'entrega' | 'retirada' | null;
+  endereco?: { rua: string; numero: string; bairro: string | null; referencia: string | null } | null;
+  taxa: number;
+  total: number;
+  formaNome: string | null;
+  trocoPara: number | null;
+  semTroco: boolean;
+  observacao: string | null;
+};
+
+/** As opções do resumo para conferir (os três botões). */
+export const OPCOES_DA_CONFERENCIA = ['Pode registrar', 'Pôr observação', 'Quero mudar algo'];
+
+/** "Troco para R$ 100,00 → troco de R$ 30,00" (ou só "Troco para…" quando a nota não passa do total). */
+function linhaDoTroco(trocoPara: number, total: number): string {
+  const volta = paraReais(paraCentavos(trocoPara) - paraCentavos(total));
+  return volta > 0 ? `Troco para ${reais(trocoPara)} → *troco de ${reais(volta)}*` : `Troco para ${reais(trocoPara)}`;
+}
+
+/**
+ * O RESUMO PARA CONFERIR (F5 — teste do dono, 31/10/2026): antes de registrar, o Regem manda ao cliente o pedido inteiro
+ * — itens com as escolhas e as observações, entrega, pagamento, troco, a observação do pedido e o total — com os botões
+ * "Pode registrar / Pôr observação / Quero mudar algo". No teste, o robô montava esse resumo sozinho e mandava só
+ * "Pedido de 3 itens… Total: R$ 101,00", sem dizer os itens. O mesmo jeito do resumo final, para não cansar a vista.
+ */
+export function textoParaConferir(c: ParaConferir): string {
+  const l: string[] = ['🧾 *Confere o seu pedido:*', ''];
+  for (const it of c.itens) {
+    const { nome, escolhas } = partesDoItem(it.descricao);
+    l.push(`*${it.quantidade}x ${nome}*${it.totalCent != null ? ` — ${reais(paraReais(it.totalCent))}` : ''}`);
+    for (const e of escolhas) l.push(`   + ${e}`);
+    if (it.observacao) l.push(`   📝 _${String(it.observacao).trim()}_`);
+  }
+  l.push('');
+  l.push(`Subtotal: ${reais(c.subtotal)}`);
+  if (c.tipo === 'entrega') l.push(c.taxa > 0 ? `Taxa de entrega: ${reais(c.taxa)}` : 'Entrega: *grátis* 🎉');
+  l.push(`💰 *Total: ${reais(c.total)}*`);
+  l.push('');
+  if (c.tipo === 'entrega' && c.endereco) {
+    l.push('🛵 *Entrega*');
+    const rua = [c.endereco.rua, c.endereco.numero].filter(Boolean).join(', ');
+    if (rua) l.push(rua);
+    if (c.endereco.bairro) l.push(String(c.endereco.bairro));
+    if (c.endereco.referencia) l.push(`Ref.: ${c.endereco.referencia}`);
+  } else if (c.tipo === 'retirada') l.push('🏪 *Retirada na loja*');
+  l.push('');
+  l.push('💳 *Pagamento*');
+  l.push(c.formaNome || 'a combinar');
+  if (c.trocoPara != null && c.trocoPara > 0) l.push(linhaDoTroco(c.trocoPara, c.total));
+  else if (c.semTroco) l.push('Sem troco');
+  if (c.observacao) {
+    l.push('');
+    l.push('📝 *Observação do pedido*');
+    l.push(String(c.observacao).trim());
+  }
+  l.push('');
+  l.push('Está tudo certo? 👇');
+  return l.join('\n');
+}
+
 export function resumoDoPedido(
   ped: any,
-  opts: { formaNome?: string | null; tempoMin?: number | null } = {},
+  opts: { formaNome?: string | null; tempoMin?: number | null; observacao?: string | null } = {},
 ): { texto: string; situacao: string; aceito: boolean } {
   const itens: any[] = Array.isArray(ped?.itens) ? ped.itens : [];
   const sit = SITUACAO[String(ped?.status ?? 'novo')] ?? SITUACAO.novo;
@@ -73,9 +137,13 @@ export function resumoDoPedido(
   l.push('💳 *Pagamento*');
   l.push(opts.formaNome || String(ped?.formaPagamento ?? 'a combinar'));
   const troco = ped?.trocoPara != null ? Number(ped.trocoPara) : null;
-  if (troco != null && troco > 0) {
-    const volta = paraReais(paraCentavos(troco) - paraCentavos(total));
-    l.push(volta > 0 ? `Troco para ${reais(troco)} → *troco de ${reais(volta)}*` : `Troco para ${reais(troco)}`);
+  if (troco != null && troco > 0) l.push(linhaDoTroco(troco, total));
+  // A observação geral do pedido (F5): a gravada, quando o pedido tiver o campo; senão a do carrinho.
+  const obs = String(ped?.observacao ?? opts.observacao ?? '').trim();
+  if (obs) {
+    l.push('');
+    l.push('📝 *Observação do pedido*');
+    l.push(obs);
   }
   l.push('');
   l.push(sit.aceito ? '👨‍🍳 *Seu pedido foi aceito e já está em produção!*' : '📩 *Recebemos seu pedido!* Assim que a loja aceitar, ele entra em produção.');
