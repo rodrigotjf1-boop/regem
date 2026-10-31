@@ -19,15 +19,57 @@ export type DadosDaBusca = {
   linkDoProduto?: (produtoId: string) => string;
 };
 
-/** Palavras que não ajudam a achar nada ("tem", "com", "quanto custa"). */
+/**
+ * Palavras que não ajudam a achar nada ("tem", "com", "quanto custa"). "foto", "imagem", "mostra", "manda" (31/10/2026):
+ * o robô passava a frase inteira — "foto do trio 07" — e nenhum produto tem "foto" no nome; a busca não achava o trio.
+ */
 const PALAVRAS_VAZIAS = new Set(
   (
     'tem tens teria voces voce vcs vc com de do da dos das um uma uns umas o a os as e que quero queria gostaria algum ' +
     'alguma alguns algumas pra para por favor pf pfv no na nos nas me ai qual quais quanto quantos custa custam preco ' +
     'precos valor opcao opcoes cardapio hoje ainda mais ou oi ola bom boa dia tarde noite eu meu minha ter tenho vende ' +
-    'vendem servem serve faz fazem ver saber pode podia poderia sim nao'
+    'vendem servem serve faz fazem ver saber pode podia poderia sim nao foto fotos fotinho fotinha imagem imagens mostra ' +
+    'mostre mostrar manda mande mandar envia envie enviar'
   ).split(' '),
 );
+
+// O NÚMERO NO NOME (31/10/2026 — teste do dono: "foto do trio 07" trouxe o lanche "Numero 07"). Os lanches da loja têm
+// número ("Numero 07", "TRIO 07"): "trio 7" = "TRIO 07", "número 8" = "Numero 08", e "07" sozinho acha o lanche e o trio.
+// Antes o número saía da busca (palavra de 1 letra; a palavra do nome com dígito era ignorada como medida) e "número 8"
+// achava todos os "Numero".
+const ehNumero = (w: string) => /^\d+(?:d\d+)?$/.test(w);
+const semZeroNaFrente = (w: string) => w.replace(/^0+(?=\d)/, '');
+/** "1,50" e "1.5" viram um número só ("1d5"), antes de a vírgula virar espaço; "07" fica "7" depois. */
+const comDecimal = (s: unknown) =>
+  String(s ?? '').replace(/(\d+)[.,](\d+)/g, (_m, a: string, b: string) => `${semZeroNaFrente(a)}d${b.replace(/0+$/, '') || '0'}`);
+/** As palavras do texto para comparar nomes: minúsculas, sem acento, número sem o zero da frente ("TRIO 07" → trio, 7). */
+export const palavrasComNumero = (s: unknown): string[] =>
+  normalizar(comDecimal(s))
+    .split(' ')
+    .filter(Boolean)
+    .map((w) => (ehNumero(w) ? semZeroNaFrente(w) : w));
+
+/** Os números do nome, sem o zero da frente ("TRIO 07" → {"7"}; "Coca 1,50 L" → {"1d5"}). */
+export function numerosDoNome(nome: unknown): Set<string> {
+  return new Set(palavrasComNumero(nome).filter(ehNumero));
+}
+
+/** O nome todo junto, com o número sem o zero da frente ("TRIO 07" → "trio7"; "X-Bacon" → "xbacon"). */
+export function nomeJunto(nome: unknown): string {
+  return palavrasComNumero(nome).join('');
+}
+
+/** `q` dentro de `nome` sem partir um número ("trio1" está em "trio1", não em "trio10"). */
+function contemInteiro(nome: string, q: string): boolean {
+  if (!q) return false;
+  const digito = (c: string | undefined) => !!c && c >= '0' && c <= '9';
+  for (let i = nome.indexOf(q); i >= 0; i = nome.indexOf(q, i + 1)) {
+    if (digito(q[q.length - 1]) && digito(nome[i + q.length])) continue;
+    if (digito(q[0]) && digito(nome[i - 1])) continue;
+    return true;
+  }
+  return false;
+}
 
 /** Grupos de palavras que indicam o TIPO do produto: casam pelo nome ou pela categoria. */
 export const GRUPOS: Record<'sanduiche' | 'bebida' | 'sobremesa' | 'porcao', string[]> = {
@@ -85,14 +127,24 @@ export function categoriasPorPapel(menu: any): { bebidas: string[]; sobremesas: 
   return r;
 }
 
-type Termo = { texto: string; formas: string[]; grupo: keyof typeof GRUPOS | null };
+type Termo = { texto: string; formas: string[]; grupo: keyof typeof GRUPOS | null; numero?: true };
 
-/** Os termos da pergunta, sem as palavras vazias. "X" sozinho fica (é o "x" de x-bacon). */
+/**
+ * Os termos da pergunta, sem as palavras vazias. "X" sozinho fica (é o "x" de x-bacon); número também ("07" → "7"),
+ * menos a quantidade na frente do nome ("2 x-bacon").
+ */
 export function termosDaBusca(busca: unknown): Termo[] {
   const vistos = new Set<string>();
   const termos: Termo[] = [];
-  for (const w of normalizar(busca).split(' ')) {
-    if (!w || PALAVRAS_VAZIAS.has(w) || vistos.has(w)) continue;
+  const palavras = palavrasComNumero(busca);
+  const inicio = palavras.length > 1 && ehNumero(palavras[0]) && !ehNumero(palavras[1]) ? 1 : 0;
+  for (const w of palavras.slice(inicio)) {
+    if (ehNumero(w)) {
+      if (!vistos.has(w)) termos.push({ texto: w, formas: [w], grupo: null, numero: true });
+      vistos.add(w);
+      continue;
+    }
+    if (PALAVRAS_VAZIAS.has(w) || vistos.has(w)) continue;
     if (w.length < 2 && w !== 'x') continue;
     vistos.add(w);
     termos.push({ texto: w, formas: formas(w), grupo: grupoDa(w) });
@@ -102,10 +154,16 @@ export function termosDaBusca(busca: unknown): Termo[] {
 
 type Adicional = { nome: string; palavras: Set<string>; preco: number };
 
-function adicionaisDo(p: any): Adicional[] {
+/**
+ * As opções dos grupos do produto que a busca compara. `soOpcionais`: só os grupos que o cliente PODE pular — o que dá
+ * para "pôr a mais". A etapa obrigatória (a bebida do trio, "Monte seu combo") é escolha, não adicional: a lista pronta
+ * dizia "Dá para pôr trio a mais nos lanches: sem custo" por causa da opção "trio kids" de um combo (31/10/2026).
+ */
+function adicionaisDo(p: any, soOpcionais = false): Adicional[] {
   const lista: Adicional[] = [];
   for (const g of Array.isArray(p?.grupos) ? p.grupos : []) {
     if (String(g?.tipo ?? '') === 'remover') continue; // "Sem cebola" não é adicional
+    if (soOpcionais && (g?.obrigatorio === true || Number(g?.min) > 0)) continue;
     for (const o of Array.isArray(g?.opcoes) ? g.opcoes : []) {
       if (o?.informativa) continue; // ponto da carne, talheres: não cobra nem adiciona nada
       lista.push({ nome: String(o.nome), palavras: palavrasDe(o.nome), preco: Number(o.precoDelta) || 0 });
@@ -136,10 +194,12 @@ export function procurarNoCardapio(menu: any, busca: string, dados: DadosDaBusca
   const qCompacta = termos.map((t) => t.texto).join('');
 
   const nomeW = new Map<string, Set<string>>();
+  const numW = new Map<string, Set<string>>();
   const catW = new Map<string, Set<string>>();
   const ingW = new Map<string, { palavras: Set<string>; fonte: 'ficha' | 'descricao' }>();
   for (const p of produtos) {
     nomeW.set(p.id, palavrasDe(p.nome));
+    numW.set(p.id, numerosDoNome(p.nome));
     catW.set(p.id, palavrasDe(cats.get(p.categoriaId)));
     const ficha = dados.ingredientes.get(p.id);
     // Combo: os ingredientes dos produtos que ele leva (o trio leva o bacon do X-Bacon).
@@ -166,11 +226,19 @@ export function procurarNoCardapio(menu: any, busca: string, dados: DadosDaBusca
     let porque: Analise['porque'] = null;
     let pontos = 0;
     const adicionais: Analise['adicionais'] = [];
-    const nomeCompacto = compacto(p.nome);
-    const casaInteiro = qCompacta.length >= 4 && nomeCompacto.includes(qCompacta);
+    const nomeCompacto = nomeJunto(p.nome);
+    const casaInteiro = qCompacta.length >= 4 && contemInteiro(nomeCompacto, qCompacta);
     if (casaInteiro) pontos += 100;
     if (nomeCompacto === qCompacta) pontos += 100;
     for (const t of termos) {
+      if (t.numero) {
+        // O número é do nome: "trio 7" não é o "TRIO 01" nem o "TRIO X-BACON" (a quantidade da frente já saiu).
+        if (numW.get(p.id)!.has(t.texto)) {
+          pontos += 30;
+          porque = porque ?? 'nome';
+        } else leva = false;
+        continue;
+      }
       if (t.grupo) {
         if (grupoCasa(t, p)) {
           pontos += 5;
@@ -243,6 +311,7 @@ export function procurarNoCardapio(menu: any, busca: string, dados: DadosDaBusca
     if (a.leva || !a.adicionais.length) continue;
     const resto = termos.filter((t) => !a.adicionais.some((x) => x.termo === t.texto));
     const restoCasa = resto.every((t) => {
+      if (t.numero) return numW.get(a.p.id)!.has(t.texto);
       if (t.grupo) return grupoCasa(t, a.p);
       return casa(t, nomeW.get(a.p.id)!) || casa(t, ingW.get(a.p.id)!.palavras) || casa(t, catW.get(a.p.id)!);
     });
@@ -270,6 +339,10 @@ export function procurarNoCardapio(menu: any, busca: string, dados: DadosDaBusca
       .map((p) => {
         let s = 0;
         for (const t of ws) {
+          if (t.numero) {
+            if (numW.get(p.id)!.has(t.texto)) s += 10;
+            continue;
+          }
           if (casa(t, nomeW.get(p.id)!)) s += 10;
           else if (casa(t, catW.get(p.id)!)) s += 5;
           else if (casa(t, ingW.get(p.id)!.palavras)) s += 3;
@@ -314,16 +387,17 @@ const MAX_NA_LISTA = 12;
  * de um produto ("quanto custa o x-bacon?") não tem lista: o robô responde com o produto e o link.
  */
 function listaParaOCliente(termos: Termo[], levam: Analise[], produtos: any[], qCompacta: string): string | null {
-  const ingrediente = termos.filter((t) => !t.grupo);
+  const ingrediente = termos.filter((t) => !t.grupo && !t.numero); // número não é ingrediente
   if (!ingrediente.length) return null;
-  // O cliente disse o NOME de um produto ("x-bacon"): é pergunta do produto, não do ingrediente.
-  if (levam.some((a) => compacto(a.p.nome) === qCompacta)) return null;
+  // O cliente disse o NOME de um produto ("x-bacon", "trio 7"): é pergunta do produto, não do ingrediente.
+  if (levam.some((a) => nomeJunto(a.p.nome) === qCompacta)) return null;
   const porIngrediente = levam.some((a) => a.porque === 'ficha' || a.porque === 'descricao');
-  // Onde o ingrediente entra como adicional (em qualquer lanche à venda — também "bacon a mais" no que já leva).
+  // Onde o ingrediente entra como adicional (em qualquer lanche à venda — também "bacon a mais" no que já leva). Só os
+  // grupos que dá para pular: a etapa obrigatória do combo/trio é escolha, não "a mais".
   const precos: number[] = [];
   for (const p of produtos) {
     if (p?.esgotado) continue;
-    for (const a of adicionaisDo(p)) if (ingrediente.some((t) => casa(t, a.palavras))) precos.push(a.preco);
+    for (const a of adicionaisDo(p, true)) if (ingrediente.some((t) => casa(t, a.palavras))) precos.push(a.preco);
   }
   if (!porIngrediente && !precos.length) return null;
 
