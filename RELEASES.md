@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Avisos de status ao cliente pela API oficial (ERR-337, 31/10): sem efeito na loja — nada a empacotar por isto.** Na
+  loja oficial, nenhum aviso (confirmado, saiu, cancelado…) saía pelo WhatsApp: o telefone do pedido (sem 55) era
+  comparado por igualdade com o da conversa (com 55). Agora o próprio Regem manda pelo número oficial (texto na janela
+  de 24 h; modelo aprovado fora dela). O servidor da loja já pede o aviso à nuvem: no ar com o merge, sem `.zip`.
 - **Robô de WhatsApp — o trio pedido por áudio e a lista do ingrediente (ERR-336, 31/10): sem efeito na loja — nada a
   empacotar por isto.** "trio 08" (também "trio oito") acha o TRIO 08 mesmo cadastrado em duas categorias; a busca
   entende o que chega do áudio e tira a palavra que o cardápio não tem; a lista pronta vem por categoria e com o resumo
