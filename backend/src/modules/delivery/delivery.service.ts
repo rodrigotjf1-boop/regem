@@ -3003,30 +3003,68 @@ export class DeliveryService {
       return;
     }
 
-    const tel = String(ped.clienteTelefone ?? '').replace(/\D/g, '');
-    const conversaIniciada = tel ? await this.clienteJaConversou(tenantId, tel) : false;
-    if (conversaIniciada) {
-      // Janela aberta? (última entrada do cliente < 24h) — o n8n usa isto p/ escolher
-      // texto (chatbot) x template. Passamos também o phoneNumberId (o bot precisa dele),
-      // o nome do template do status aprovado e o token de rastreio (botão do template).
-      const janelaAberta = tel ? await this.clienteJanelaAberta(tenantId, tel) : false;
-      const templateNome = eventoStatus ? await this.templateDoEvento(tenantId, eventoStatus) : null;
-      const [pe] = await this.db
-        .select({ rastreioToken: pedidoExterno.rastreioToken })
-        .from(pedidoExterno)
-        .where(eq(pedidoExterno.id, ped.id));
-      await this.notificarN8n(tenantId, {
-        ...payload,
-        phoneNumberId: cfg?.waCloudPhoneId ?? null,
-        idioma: 'pt_BR',
-        janelaAberta,
-        templateNome,
-        rastreioToken: pe?.rastreioToken ?? null,
-      });
-      return;
-    }
-    // Não iniciou conversa → notificação in-app (cloud-only).
+    // API OFICIAL (31/10/2026, ERR-337): o PRÓPRIO Regem manda, pelo número oficial — como o código de entrega
+    // (ERR-332). Antes a conferência "o cliente já conversou?" comparava o telefone do pedido (sem o 55) com o da conversa
+    // (com o 55) por igualdade: nunca casava, e NENHUM aviso de status da loja oficial saía por WhatsApp (só no cardápio).
+    // O aviso no cardápio online fica sempre (é o histórico do cliente); o WhatsApp vai junto quando dá.
+    if (!eventoStatus) return; // status sem aviso ao cliente ('novo'; 'pronto' de entrega — o aviso é o "saiu")
     await this.gravarNotificacaoPedido(tenantId, ped, eventoStatus);
+    await this.avisoPelaOficial(tenantId, ped, eventoStatus);
+  }
+
+  /**
+   * O aviso de status pelo WhatsApp OFICIAL, para o número em que o cliente conversa (achado pela CHAVE do telefone —
+   * com/sem 55, com/sem o nono dígito): dentro da janela de 24 h, o texto (no "saiu", com o botão "Acompanhar entrega");
+   * fora dela, o modelo de utilidade aprovado do evento; sem modelo ou sem conversa, não sai por WhatsApp e o registro diz
+   * o motivo (V37). Nunca rejeita (V3).
+   */
+  private async avisoPelaOficial(tenantId: string, ped: any, evento: string): Promise<{ saiu: boolean; motivo?: string }> {
+    const nao = (motivo: string, resultado: 'nao_enviado' | 'falhou' = 'nao_enviado') => {
+      this.registrarAviso(tenantId, ped.id, 'cliente_whatsapp', evento, resultado, motivo);
+      return { saiu: false, motivo };
+    };
+    try {
+      if (!this.whatsappOficial) return nao('o WhatsApp oficial não está disponível neste servidor');
+      const formas = formasDaChaveTelefone(chaveTelefone(ped.clienteTelefone));
+      if (!formas.length) return nao('o pedido não tem o telefone do cliente');
+      const [ultima] = await this.db
+        .select({ telefone: whatsappMensagem.telefone, criadoEm: whatsappMensagem.criadoEm })
+        .from(whatsappMensagem)
+        .where(and(eq(whatsappMensagem.tenantId, tenantId), inArray(whatsappMensagem.telefone, formas), eq(whatsappMensagem.direcao, 'entrada')))
+        .orderBy(desc(whatsappMensagem.criadoEm))
+        .limit(1);
+      if (!ultima?.telefone) return nao('o cliente nunca escreveu para a loja no WhatsApp: o aviso ficou no cardápio online');
+      let rastreio: string | null = ped.rastreioToken ?? null;
+      if (!rastreio && evento === 'saiu_entrega') {
+        const [pe] = await this.db.select({ t: pedidoExterno.rastreioToken }).from(pedidoExterno).where(eq(pedidoExterno.id, ped.id));
+        rastreio = pe?.t ?? null;
+      }
+      const para = String(ultima.telefone);
+      const dentro = !!ultima.criadoEm && Date.now() - new Date(ultima.criadoEm as any).getTime() < 24 * 60 * 60 * 1000;
+      if (dentro) {
+        const t = DeliveryService.textoNotificacao(evento, ped);
+        const texto = `*${t.titulo}*\n${t.texto}`;
+        if (evento === 'saiu_entrega' && rastreio)
+          await this.whatsappOficial.enviarLink(tenantId, para, texto, `${this.basePublica()}/r/${rastreio}`, 'Acompanhar entrega');
+        else await this.whatsappOficial.enviarTexto(tenantId, para, texto);
+      } else {
+        const modelo = await this.templateDoEvento(tenantId, evento);
+        if (!modelo) return nao('fora da janela de 24 h e sem modelo aprovado para este aviso: ficou no cardápio online');
+        await this.whatsappOficial.enviarTemplate(tenantId, para, modelo, 'pt_BR', [DeliveryService.primeiroNome(ped.clienteNome)], {
+          rastreio,
+        });
+      }
+      this.registrarAviso(tenantId, ped.id, 'cliente_whatsapp', evento, 'enviado');
+      return { saiu: true };
+    } catch (e: any) {
+      this.logger.warn(`[aviso-status] pedido ${ped?.id ?? '?'}: o WhatsApp oficial recusou — ${e?.message ?? e}`);
+      return nao(`o WhatsApp oficial recusou: ${String(e?.message ?? e).slice(0, 160)}`, 'falhou');
+    }
+  }
+
+  /** O primeiro nome para o modelo ("Oi {{1}}"); sem nome, "Cliente". */
+  static primeiroNome(nome: unknown): string {
+    return String(nome ?? '').trim().split(/\s+/)[0] || 'Cliente';
   }
 
   // Mapeia o status do pedido para o EVENTO de aviso ao cliente (= evento do template de
@@ -3043,28 +3081,6 @@ export class DeliveryService {
       case 'cancelado': return 'cancelado';
       default: return null;
     }
-  }
-
-  // O cliente já mandou ALGUMA mensagem para a loja (é um contato que conversa com a gente)?
-  private async clienteJaConversou(tenantId: string, telefone: string): Promise<boolean> {
-    const [row] = await this.db
-      .select({ id: whatsappMensagem.id })
-      .from(whatsappMensagem)
-      .where(and(eq(whatsappMensagem.tenantId, tenantId), eq(whatsappMensagem.telefone, telefone), eq(whatsappMensagem.direcao, 'entrada')))
-      .limit(1);
-    return !!row;
-  }
-
-  // Janela de atendimento de 24h aberta = última mensagem do cliente há menos de 24h.
-  private async clienteJanelaAberta(tenantId: string, telefone: string): Promise<boolean> {
-    const [row] = await this.db
-      .select({ criadoEm: whatsappMensagem.criadoEm })
-      .from(whatsappMensagem)
-      .where(and(eq(whatsappMensagem.tenantId, tenantId), eq(whatsappMensagem.telefone, telefone), eq(whatsappMensagem.direcao, 'entrada')))
-      .orderBy(desc(whatsappMensagem.criadoEm))
-      .limit(1);
-    if (!row?.criadoEm) return false;
-    return Date.now() - new Date(row.criadoEm as any).getTime() < 24 * 60 * 60 * 1000;
   }
 
   // Nome do template de UTILIDADE aprovado para um evento de status (ou null).
@@ -3118,7 +3134,11 @@ export class DeliveryService {
   // Texto pt-BR do aviso in-app por evento. #NNN = displayId do pedido quando houver.
   private static textoNotificacao(evento: string, ped: any): { titulo: string; texto: string } {
     const ref = ped.displayId ? ` #${ped.displayId}` : '';
-    const motivo = ped.motivoCancelamento ? ` Motivo: ${ped.motivoCancelamento}.` : '';
+    // Quem autorizou (o gestor, pela senha) é da loja: não vai para o cliente.
+    const motivoLimpo = String(ped.motivoCancelamento ?? '')
+      .replace(/\s*\(?autorizado por [^)]*\)?\s*$/i, '')
+      .trim();
+    const motivo = motivoLimpo ? ` Motivo: ${motivoLimpo.replace(/[.!]+$/, '')}.` : '';
     switch (evento) {
       case 'confirmado': return { titulo: 'Pedido em produção', texto: `Recebemos seu pedido${ref} e ele já está em produção. 👨‍🍳` };
       case 'pronto_retirada': return { titulo: 'Pedido pronto', texto: `Seu pedido${ref} está pronto para retirada! 🎉` };
