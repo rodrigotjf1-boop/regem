@@ -109,7 +109,7 @@ export class WhatsappDaLojaController {
   @Post('enviar-cardapio')
   @HttpCode(201)
   enviarCardapio(@SyncCtx() ctx: SyncCtxData, @Body() dto: { numero?: string; cardapioId?: string }) {
-    return this.service.enviarCardapio(ctx.tenantId, dto?.numero ?? '', dto?.cardapioId);
+    return this.provedores.enviarCardapio(ctx.tenantId, dto?.numero ?? '', dto?.cardapioId);
   }
 
   @Post('pausar-conversa')

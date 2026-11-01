@@ -427,4 +427,16 @@ describe('WhatsappCloudService — opções com toque e voz (Fase 2)', () => {
     const grande = Buffer.alloc(513 * 1024).toString('base64');
     await expect(svc.enviarVoz('tenant-1', DE, grande)).rejects.toThrow('512 KB');
   });
+
+  // Bloco 6 (01/11/2026): o cardápio em PDF da caixa de conversas, que só saía pela Evolution.
+  it('documento (PDF): sobe à Meta e manda como DOCUMENTO com o nome do arquivo e a legenda; grava na conversa', async () => {
+    const { svc, gravadas } = comLoja(LOJA);
+    await svc.enviarDocumentoPdf('tenant-1', DE, Buffer.from('%PDF-falso'), 'cardapio-loja.pdf', 'Cardápio · Loja');
+    expect(pedidos[0].url).toContain(`/${PHONE_ID}/media`);
+    expect(pedidos[0].init.body.get('type')).toBe('application/pdf');
+    const corpo = JSON.parse(pedidos[1].init.body);
+    expect(corpo).toMatchObject({ type: 'document', document: { id: '987654321', filename: 'cardapio-loja.pdf', caption: 'Cardápio · Loja' } });
+    expect(gravadas[0]).toMatchObject({ direcao: 'saida', tipo: 'document', texto: 'Cardápio · Loja' });
+    await expect(svc.enviarDocumentoPdf('tenant-1', DE, Buffer.alloc(0), 'x.pdf')).rejects.toThrow('vazio');
+  });
 });

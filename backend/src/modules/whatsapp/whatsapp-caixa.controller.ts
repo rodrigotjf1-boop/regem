@@ -102,7 +102,8 @@ export class WhatsappCaixaController {
         caminho: 'enviar-cardapio',
         corpo: { numero: dto?.numero, cardapioId: dto?.cardapioId },
       });
-    return this.service.enviarCardapio(user.tenantId, dto?.numero ?? '', dto?.cardapioId);
+    // Pela via da loja: Evolution ou API oficial (Bloco 6 — antes só a Evolution).
+    return this.provedores.enviarCardapio(user.tenantId, dto?.numero ?? '', dto?.cardapioId);
   }
 
   // Pausa/retoma o robô só nesta conversa (o humano assume). `minutos`: por quanto tempo (0 = até alguém retomar;

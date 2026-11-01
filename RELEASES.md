@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Cardápio em PDF pela API oficial (Bloco 6, 01/11): só nuvem — no ar com o merge.** O "Enviar cardápio" da caixa
+  de conversas (Delivery › WhatsApp) mandava só pela Evolution; na loja oficial dava erro. Agora o PDF sobe à Meta e
+  vai como documento (dentro da janela de 24 h). Na loja, a caixa já repassa à nuvem: o `.zip` leva só a
+  reorganização (`WhatsappService.pdfDoCardapio`), sem mudança de comportamento. Sem migration.
+
 - **Entregador sem contato com o cliente (Bloco 3, 01/11) + o canal no "chegando" (ERR-342).** O servidor (rotas do
   entregador e o aviso, só nuvem) entra no ar com o merge. **APK do entregador:** o botão "Não consigo falar com o
   cliente" na tela do pedido (`app-entregador/lib/screens/pedido_screen.dart`, `api.dart` › `semContato`) — sai no
