@@ -227,10 +227,12 @@ export class ClienteService {
     return this.dispararWebhook(wh.url, enriquecido, wh.secret);
   }
 
-  // Anexa o canal ao payload do webhook (rastreio/código/chegando): no EVOLUTION não muda
-  // nada (segue como hoje). Na API OFICIAL adiciona phoneNumberId + janelaAberta para o
-  // fluxo n8n decidir entre texto (janela aberta) e nada (fora da janela, sem template) —
-  // igual ao roteador de status. Não bloqueia o envio se algo falhar.
+  // Anexa o canal ao payload do webhook: no EVOLUTION não muda nada (segue como hoje). Na API OFICIAL adiciona
+  // phoneNumberId + janelaAberta para o fluxo n8n decidir entre texto e nada. ⚠️ A janela aqui compara o telefone por
+  // igualdade (o pedido sem o 55, a conversa com) e quase nunca abre — por isso, na loja oficial, o "chegando" já não
+  // passa por aqui (DeliveryService.avisarChegada, ERR-341) e o rastreio vai no aviso "saiu para entrega" pela oficial
+  // (ERR-337). NÃO corrigir só esta conta: o n8n passaria a mandar em dobro, por fora da API (o eco do ERR-332).
+  // Não bloqueia o envio se algo falhar.
   private async enriquecerCanal(tenantId: string, payload: any): Promise<any> {
     try {
       const tel = soDigitos(payload?.telefone);

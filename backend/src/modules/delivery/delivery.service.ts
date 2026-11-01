@@ -3065,6 +3065,41 @@ export class DeliveryService {
     }
   }
 
+  /**
+   * O "ESTOU CHEGANDO" do entregador (Bloco 5 do plano de 31/10/2026) na loja da API OFICIAL: pelo próprio número
+   * oficial, como os avisos de status (ERR-337) — antes ia ao n8n com a "janela aberta" medida comparando o telefone do
+   * pedido (sem o 55) com o da conversa (com o 55): nunca casava, e o cliente da loja oficial não recebia o aviso (ERR-341).
+   * Dentro da janela, o texto (com o nome e o contato do entregador só se ELE autorizou no app); fora dela, o modelo
+   * aprovado do evento 'chegando'; o aviso também fica no cardápio online. `null` = a loja não é da oficial (o chamador
+   * segue pelo n8n, como sempre). Nunca rejeita.
+   */
+  async avisarChegada(
+    tenantId: string,
+    pedidoId: string,
+    entregador: { nome: string | null; telefone: string | null },
+  ): Promise<{ saiu: boolean; motivo?: string } | null> {
+    try {
+      const [cfg] = await this.db.select({ provedor: cardapioConfig.provedor }).from(cardapioConfig).where(eq(cardapioConfig.tenantId, tenantId));
+      if ((cfg?.provedor ?? 'evolution') !== 'cloud') return null;
+      if (ehServidorLocal()) {
+        const motivo = 'o WhatsApp oficial só sai pela nuvem: o aviso de chegada não saiu deste servidor';
+        this.registrarAviso(tenantId, pedidoId, 'cliente_whatsapp', 'chegando', 'nao_enviado', motivo);
+        return { saiu: false, motivo };
+      }
+      const [ped] = await this.db
+        .select()
+        .from(pedidoExterno)
+        .where(and(eq(pedidoExterno.tenantId, tenantId), eq(pedidoExterno.id, pedidoId)));
+      if (!ped) return { saiu: false, motivo: 'pedido não encontrado' };
+      const p = { ...ped, chegandoEntregadorNome: entregador.nome, chegandoEntregadorTelefone: entregador.telefone };
+      await this.gravarNotificacaoPedido(tenantId, p, 'chegando');
+      return await this.avisoPelaOficial(tenantId, p, 'chegando');
+    } catch (e: any) {
+      this.logger.warn(`[aviso-chegada] pedido ${pedidoId}: não conferido — ${e?.message ?? e}`);
+      return { saiu: false, motivo: 'não deu para conferir o WhatsApp oficial da loja agora' };
+    }
+  }
+
   /** O primeiro nome para o modelo ("Oi {{1}}"); sem nome, "Cliente". */
   static primeiroNome(nome: unknown): string {
     return String(nome ?? '').trim().split(/\s+/)[0] || 'Cliente';
@@ -3149,6 +3184,13 @@ export class DeliveryService {
       case 'entregue': return { titulo: 'Pedido entregue', texto: `Seu pedido${ref} foi entregue. Bom apetite! 💛` };
       case 'cancelado': return { titulo: 'Pedido cancelado', texto: `Seu pedido${ref} foi cancelado.${motivo}` };
       case 'atrasado': return { titulo: 'Pedido atrasando', texto: `Seu pedido${ref} está levando mais tempo que o previsto. Pedimos desculpas — já estamos correndo para concluir. 🙏` };
+      case 'chegando': {
+        // O nome e o contato do entregador só vêm quando ELE autorizou no app ("Compartilhar meu contato").
+        const nome = String(ped.chegandoEntregadorNome ?? '').trim();
+        const tel = String(ped.chegandoEntregadorTelefone ?? '').replace(/\D/g, '');
+        const quem = nome ? `O entregador ${nome}${tel ? ` (${tel})` : ''}` : 'O entregador';
+        return { titulo: 'Pedido chegando', texto: `Seu pedido${ref} está chegando! 🛵 ${quem} está a poucos minutos daí.` };
+      }
       default: return { titulo: 'Atualização do pedido', texto: `Seu pedido${ref} teve uma atualização.` };
     }
   }
