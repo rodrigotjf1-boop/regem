@@ -20,6 +20,7 @@ import { ModuloModule } from '../modulo/modulo.module';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { EntregadoresAoVivoController } from './entregadores-ao-vivo.controller';
 import { EntregadoresAoVivoService } from './entregadores-ao-vivo.service';
+import { AvisoDeAtrasoProcessor } from './aviso-de-atraso.processor';
 
 @Module({
   imports: [
@@ -36,7 +37,8 @@ import { EntregadoresAoVivoService } from './entregadores-ao-vivo.service';
   controllers: [DeliveryController, DespachoPublicoController, DeliveryLojaController,
     EntregadoresAoVivoController],
   providers: [DeliveryService, SyncTokenGuard, CredencialDoTotemGuard, EdgePedidosProcessor,
-    TotemExpiracaoProcessor, CloudFallbackProcessor, PedidoEnvioProcessor, EntregadoresAoVivoService],
+    TotemExpiracaoProcessor, CloudFallbackProcessor, PedidoEnvioProcessor, EntregadoresAoVivoService,
+    AvisoDeAtrasoProcessor], // o aviso automático de atraso (mig 347), só na nuvem
   exports: [DeliveryService],
 })
 export class DeliveryModule {}

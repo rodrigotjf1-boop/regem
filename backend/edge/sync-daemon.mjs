@@ -2283,6 +2283,8 @@ const SO_NUVEM = new Set([
   // O pedido em montagem na conversa do robô (mig 344, @cloud-only). Registrado, vira pedido pelo caminho do cardápio
   // online e desce à loja como qualquer pedido — o carrinho em si nunca vai.
   'robo_carrinho',
+  // "Já avisei este pedido do atraso" (mig 347, @cloud-only): o aviso automático sai pelo WhatsApp oficial, só da nuvem.
+  'pedido_aviso_atraso',
 ]);
 
 // LEGADO SEM USO: tabelas criadas nas migrations de fundação (002/003) para recursos que

@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Aviso automático de atraso ao cliente (Bloco 5, mig 347 @cloud-only aplicada na nuvem em 01/11): só nuvem — no ar
+  com o merge, DESLIGADO.** A loja liga em Delivery › Configurações › Robô ("Avisar o cliente quando o pedido
+  atrasar"); só no WhatsApp oficial. A rotina da nuvem avisa uma vez o pedido do cardápio próprio que passar do tempo
+  prometido + a tolerância. Nada na loja (a tabela nova é só da nuvem, na lista `SO_NUVEM` do sync); o cartão novo da
+  configuração vai no `.zip` junto com a tela.
+
 - **"Estou chegando" do entregador pela API oficial (Bloco 5, ERR-341, 01/11): o app do entregador fala com a nuvem —
   no ar com o merge.** Na loja oficial, o aviso sai pelo próprio número (na janela, o texto com o entregador só se ele
   autorizou; fora, o modelo `pedido_chegando`, que a loja envia à Meta pelo botão "Modelos de utilidade"). Sem

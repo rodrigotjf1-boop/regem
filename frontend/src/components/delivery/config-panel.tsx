@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { InputMoeda } from '@/components/ui/input-moeda';
 import { MapaAreaEntrega } from '@/components/delivery/mapa-area';
 import { Label } from '@/components/ui/label';
+import { Chave } from '@/components/ui/chave';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { FidelidadePanel } from '@/components/delivery/fidelidade-panel';
 import { CashbackPanel } from '@/components/delivery/cashback-panel';
@@ -1294,6 +1295,84 @@ function TempoDaPausa({ pode }: { pode: boolean }) {
   );
 }
 
+// O aviso automático de atraso ao cliente (mig 347): nasce desligado. Grava na hora, à parte do "Salvar" da aba (é o
+// mesmo cadastro do tempo de pausa, robo_config). Só sai pelo WhatsApp oficial.
+function AvisoDeAtraso({ pode, loja }: { pode: boolean; loja: any }) {
+  const [cfg, setCfg] = useState<{ avisoAtraso: boolean; avisoAtrasoToleranciaMin: number; opcoesToleranciaAtraso: number[] } | null>(null);
+  const [erro, setErro] = useState('');
+  const [gravando, setGravando] = useState(false);
+  useEffect(() => {
+    api
+      .whatsappRoboConfig()
+      .then((r: any) => setCfg({ avisoAtraso: !!r?.avisoAtraso, avisoAtrasoToleranciaMin: Number(r?.avisoAtrasoToleranciaMin ?? 10), opcoesToleranciaAtraso: r?.opcoesToleranciaAtraso ?? [0, 5, 10, 15, 20, 30] }))
+      .catch((e) => setErro(e instanceof Error && e.message ? e.message : 'Não foi possível ler o aviso de atraso.'));
+  }, []);
+  async function gravar(dto: { avisoAtraso?: boolean; avisoAtrasoToleranciaMin?: number }, ok: string) {
+    setGravando(true);
+    try {
+      const r: any = await api.whatsappAvisoAtrasoSalvar(dto);
+      setCfg({ avisoAtraso: !!r?.avisoAtraso, avisoAtrasoToleranciaMin: Number(r?.avisoAtrasoToleranciaMin ?? 10), opcoesToleranciaAtraso: r?.opcoesToleranciaAtraso ?? [0, 5, 10, 15, 20, 30] });
+      toast.success(ok);
+    } catch (e) {
+      toast.error(e instanceof Error && e.message ? e.message : 'Não foi possível salvar.');
+    } finally {
+      setGravando(false);
+    }
+  }
+  const oficial = loja?.provedor === 'cloud';
+  const entrega = Number(loja?.tempoEntregaMin) || 0;
+  const retirada = Number(loja?.tempoRetiradaMin) || 0;
+  return (
+    <div className="space-y-2 rounded-lg border border-border p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span id="aviso-atraso-titulo" className="text-xs font-semibold">Avisar o cliente quando o pedido atrasar</span>
+        {cfg && (
+          <Chave
+            rotulo="Avisar o cliente quando o pedido atrasar"
+            ligada={cfg.avisoAtraso}
+            ocupada={!pode || gravando}
+            aoMudar={(v) => gravar({ avisoAtraso: v }, v ? 'Aviso de atraso ligado.' : 'Aviso de atraso desligado.')}
+          />
+        )}
+      </div>
+      {erro ? (
+        <p className="text-xs text-destructive">{erro}</p>
+      ) : !cfg ? (
+        <p className="text-xs text-muted-foreground">Carregando…</p>
+      ) : (
+        <div className="space-y-1">
+          <Label htmlFor="aviso-atraso-tolerancia" className="text-xs">Avisar quando passar do tempo prometido em</Label>
+          <select
+            id="aviso-atraso-tolerancia"
+            className="h-9 w-full max-w-xs rounded-md border border-border bg-background px-2 text-sm"
+            value={cfg.avisoAtrasoToleranciaMin}
+            disabled={!pode || gravando}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              gravar({ avisoAtrasoToleranciaMin: v }, v ? `Pronto: avisa ${v} min depois do tempo prometido.` : 'Pronto: avisa assim que passar do tempo prometido.');
+            }}
+          >
+            {cfg.opcoesToleranciaAtraso.map((m) => (
+              <option key={m} value={m}>{m ? `${m} min` : 'Na hora'}</option>
+            ))}
+          </select>
+        </div>
+      )}
+      <p className="text-[11px] text-muted-foreground">
+        O tempo prometido é o tempo de entrega{entrega ? ` (${entrega} min)` : ''} ou de retirada{retirada ? ` (${retirada} min)` : ''} desta
+        configuração, contado da entrada do pedido. O aviso sai uma vez por pedido do cardápio próprio e do robô (iFood e 99
+        avisam pelo app deles): em texto, se o cliente falou com a loja nas últimas 24 h; senão, pelo modelo &quot;Pedido
+        atrasando&quot; aprovado pela Meta (Marketing › Modelos).
+      </p>
+      {!oficial && (
+        <p role="status" className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">
+          Só funciona com o WhatsApp oficial no número Principal. Com o WhatsApp por QR, o aviso não sai.
+        </p>
+      )}
+    </div>
+  );
+}
+
 // Conectar o WhatsApp da loja (Evolution): mostra o QR e faz polling do status.
 
 function Robo({ loja, up, onSalvar, salvando, pode }: { loja: any; up: (p: any) => void; onSalvar: () => void; salvando: boolean; pode: boolean }) {
@@ -1315,6 +1394,7 @@ function Robo({ loja, up, onSalvar, salvando, pode }: { loja: any; up: (p: any) 
         </p>
       )}
       <TempoDaPausa pode={pode} />
+      <AvisoDeAtraso pode={pode} loja={loja} />
 
       <Campo label="Saudação (primeira mensagem)">
         <textarea rows={2} className={areaTxt} disabled={!pode} value={loja.roboSaudacao ?? ''} onChange={(e) => up({ roboSaudacao: e.target.value })} placeholder="Olá! 👋 Bem-vindo. Como posso ajudar?" />
