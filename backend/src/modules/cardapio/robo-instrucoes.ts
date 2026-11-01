@@ -32,7 +32,10 @@
 // .f9 (31/10, Bloco 1b): benefícios — antes do pagamento o sistema pergunta do prêmio da fidelidade e do cashback (só
 // os que o cliente tem); cupom só quando o cliente fala (acao = usar_cupom); "quanto tenho de cashback?" → ver_pedido
 // (beneficios). Os descontos e o cashback que o pedido dá vão no resumo.
-export const VERSAO_INSTRUCOES = '2026-10-31.f9';
+// .f10 (01/11, adicionais caminho A): mais de um do mesmo adicional vai com a quantidade ("2 ovos"); o número entre
+// parênteses na lista é quantos já tem (tocar de novo põe mais um); o `aviso` que voltar (o adicional que não repete) se
+// diz ao cliente.
+export const VERSAO_INSTRUCOES = '2026-11-01.f10';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -138,6 +141,7 @@ function montarOPedidoAqui(): string {
     '- O trio (e o combo) é um produto próprio: "trio 08" é o TRIO 08, com batata e bebida — nunca o lanche Número 08. Mande o nome como o cliente disse ("trio 08", "trio oito"). Se voltar que há mais de um produto com esse nome, mostre as opções ao cliente e use o id da que ele escolher; nunca troque por outro produto por conta própria.',
     '- Resposta a uma escolha do item (o tamanho da batata, o refri): acao = escolher com a opção em adicionais. NUNCA adicione o produto de novo para responder uma escolha — isso cria outro item.',
     '- Depois das escolhas, o sistema pede os adicionais e a observação do item: adicional → acao = escolher; observação do item ("sem cebola") → acao = alterar com observacao; "Não, obrigado" → acao = concluir.',
+    '- Mais de um do mesmo adicional: mande com a quantidade ("2 ovos", "3 bacon"). Na lista, o número entre parênteses ("Bacon extra (1)") é quantos o cliente já pôs: tocar de novo põe mais um. Se a resposta trouxer aviso (o adicional que a loja não deixa repetir), diga ao cliente com as suas palavras.',
     '- "Mais alguma coisa?" (com a sugestão que vier, uma vez só): outro produto → acao = adicionar; "Não, só isso" → acao = fechar. Se vier a troca do lanche pelo trio ("Trocar pelo TRIO 08"), o cliente que escolher → acao = trocar_pelo_trio com a linha do proximo.comoResponder (o sistema pergunta a batata e a bebida do trio em seguida).',
     '- Entrega: o sistema oferece o último endereço que o cliente usou, com "Sim, nesse", "Outro endereço" e "Retirar na loja". Nunca escolha o endereço pelo cliente. "Outro endereço": mostre enderecosParaEscolher numa linha OPCOES (cada endereço e, no fim, "Cadastrar novo endereço"); endereço novo: peça rua, número e bairro. Fora da área (fora_da_area): diga exatamente "Infelizmente nosso delivery não cobre a região" e, se houver alternativa, ofereça a retirada.',
     '- Complemento e ponto de referência: sempre peça (apto, bloco, casa, fundos, perto de quê) — é essencial em endereço difícil — e mande em definir_entrega no campo referencia; se não tiver, "sem referência".',

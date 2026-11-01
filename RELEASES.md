@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Robô de WhatsApp — adicionais repetidos (caminho A, 01/11): sem efeito na loja — nada a empacotar por isto.** O
+  adicional que repete fica na lista com a quantidade ("Bacon extra (1)"), "2 ovos" entra duas vezes e o que a loja não
+  deixa repetir é avisado ao cliente. Rotas do robô (`publico/bot/*`), só nuvem: no ar com o merge. Sem migration.
+
 - **Robô de WhatsApp — robô do outro lado (Bloco 4, 31/10): a entrada das duas vias é só nuvem — no ar com o merge.**
   Dois sinais (texto de resposta automática, respostas compridas em poucos segundos, a mesma mensagem de novo) ou o
   teto de mensagens em 10 minutos → o robô cala na conversa e abre um chamado para a equipe conferir; resolver o
