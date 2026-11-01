@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Robô de WhatsApp — robô do outro lado (Bloco 4, 31/10): a entrada das duas vias é só nuvem — no ar com o merge.**
+  Dois sinais (texto de resposta automática, respostas compridas em poucos segundos, a mesma mensagem de novo) ou o
+  teto de mensagens em 10 minutos → o robô cala na conversa e abre um chamado para a equipe conferir; resolver o
+  chamado devolve a conversa ao robô. Sem migration. **Na loja, o `.zip` leva só uma reorganização sem mudança de
+  comportamento:** a abertura de chamado saiu do `AtendimentoService` para `atendimento/abrir-chamado.ts`.
+
 - **Robô de WhatsApp — cashback, prêmio da fidelidade e cupom (Bloco 1b, 31/10): o robô é só nuvem — no ar com o
   merge.** Antes do pagamento, o Regem pergunta do prêmio e do cashback que o cliente tem; o cupom entra quando o cliente
   fala; o resumo mostra os descontos e o cashback que o pedido dá. Sem migration. **Na loja, o `.zip` leva só uma

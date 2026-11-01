@@ -1,16 +1,16 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { and, desc, eq, gte, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { atendimentoChamado } from '../../db/schema';
 import { DeliveryService } from '../delivery/delivery.service';
 import { AuthUser } from '../../auth/auth-user';
-import { chaveTelefone, sqlChaveTelefone } from '../../common/telefone-chave';
 import { lerItensDaPerda } from '../vendas/itens-da-perda';
+import { JANELA_DO_MESMO_CHAMADO_H, Prioridade, abrirChamado, abrirChamadoPeloRobo, juntarMensagem } from './abrir-chamado';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-export type Prioridade = 'normal' | 'urgente';
+export type { Prioridade };
 
 /** A prioridade pedida: só `prioridade: 'urgente'` ou `urgente: true` mudam o padrão. Todo o resto é 'normal'. */
 export function prioridadeDe(dto: { prioridade?: unknown; urgente?: unknown } | null | undefined): Prioridade {
@@ -18,17 +18,8 @@ export function prioridadeDe(dto: { prioridade?: unknown; urgente?: unknown } | 
   return dto?.urgente === true || dto?.urgente === 'true' ? 'urgente' : 'normal';
 }
 
-/** Junta a mensagem nova à do chamado que já estava aberto, sem repetir a mesma frase e sem crescer sem fim. */
-export function juntarMensagem(antes: string | null | undefined, nova: string | null | undefined): string | null {
-  const a = String(antes ?? '').trim();
-  const n = String(nova ?? '').trim();
-  if (!n || a.includes(n)) return a || null;
-  if (!a) return n.slice(0, 1000);
-  return `${a}\n${n}`.slice(-1000);
-}
-
-/** Por quanto tempo um chamado ABERTO do mesmo telefone conta como o mesmo pedido de ajuda. */
-export const JANELA_DO_MESMO_CHAMADO_H = 12;
+// A abertura de chamado mora em `abrir-chamado.ts` (o WhatsApp também abre — Bloco 4); estes nomes continuam valendo daqui.
+export { juntarMensagem, JANELA_DO_MESMO_CHAMADO_H };
 
 @Injectable()
 export class AtendimentoService {
@@ -52,25 +43,7 @@ export class AtendimentoService {
       prioridade?: Prioridade;
     },
   ) {
-    const tipo = ['mudanca', 'erro', 'humano', 'outro', 'cancelamento'].includes(dto.tipo ?? '')
-      ? dto.tipo
-      : 'humano';
-    const [row] = await this.db
-      .insert(atendimentoChamado)
-      .values({
-        tenantId,
-        unidadeId: unidadeId ?? null,
-        tipo,
-        cliente: dto.cliente?.trim() || null,
-        telefone: dto.telefone?.trim() || null,
-        pedidoNumero: dto.pedidoNumero != null ? String(dto.pedidoNumero) : null,
-        pedidoId: dto.pedidoId ?? null,
-        mensagem: dto.mensagem?.trim() || null,
-        prioridade: dto.prioridade === 'urgente' ? 'urgente' : 'normal',
-      })
-      .returning();
-    this.events.emit('atendimento.novo', { tenantId, chamado: row });
-    return { ok: true, id: row.id, prioridade: row.prioridade };
+    return abrirChamado(this.db, (ev, p) => this.events.emit(ev, p), tenantId, unidadeId, dto);
   }
 
   /**
@@ -96,45 +69,7 @@ export class AtendimentoService {
       prioridade?: Prioridade;
     },
   ) {
-    const k = chaveTelefone(dto.telefone);
-    if (!k) return this.abrir(tenantId, unidadeId, dto);
-    const [aberto] = await this.db
-      .select()
-      .from(atendimentoChamado)
-      .where(
-        and(
-          eq(atendimentoChamado.tenantId, tenantId),
-          eq(atendimentoChamado.status, 'aberto'),
-          gte(atendimentoChamado.criadoEm, sql.raw(`now() - interval '${Number(JANELA_DO_MESMO_CHAMADO_H)} hours'`)),
-          sql`${sqlChaveTelefone(sql`${atendimentoChamado.telefone}`)} = ${k}`,
-        ),
-      )
-      .orderBy(desc(atendimentoChamado.criadoEm))
-      .limit(1);
-    const tipoNovo = String(dto.tipo ?? '');
-    const precisaDoProprio =
-      (tipoNovo === 'cancelamento' || tipoNovo === 'mudanca') && !!dto.pedidoId && aberto?.tipo !== tipoNovo;
-    if (!aberto || precisaDoProprio) return this.abrir(tenantId, unidadeId, dto);
-
-    const subiu = dto.prioridade === 'urgente' && aberto.prioridade !== 'urgente';
-    const mensagem = juntarMensagem(aberto.mensagem, dto.mensagem);
-    const patch: Record<string, unknown> = {};
-    if (subiu) patch.prioridade = 'urgente';
-    if (mensagem !== (aberto.mensagem ?? null)) patch.mensagem = mensagem;
-    if (!aberto.pedidoId && dto.pedidoId) {
-      patch.pedidoId = dto.pedidoId;
-      if (!aberto.pedidoNumero && dto.pedidoNumero != null) patch.pedidoNumero = String(dto.pedidoNumero);
-    }
-    let row: any = aberto;
-    if (Object.keys(patch).length) {
-      [row] = await this.db
-        .update(atendimentoChamado)
-        .set(patch as any)
-        .where(and(eq(atendimentoChamado.tenantId, tenantId), eq(atendimentoChamado.id, aberto.id)))
-        .returning();
-    }
-    if (subiu) this.events.emit('atendimento.novo', { tenantId, chamado: row });
-    return { ok: true, id: aberto.id, prioridade: (row?.prioridade ?? aberto.prioridade) as Prioridade, jaAberto: true };
+    return abrirChamadoPeloRobo(this.db, (ev, p) => this.events.emit(ev, p), tenantId, unidadeId, dto);
   }
 
   // Urgente primeiro (cliente irritado espera menos); dentro de cada grupo, o mais novo em cima — como sempre foi.
