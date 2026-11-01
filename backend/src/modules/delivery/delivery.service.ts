@@ -2888,6 +2888,22 @@ export class DeliveryService {
     }
   }
 
+  /**
+   * O código de entrega para LEMBRAR nos avisos de quem vai receber o pedido ("saiu para entrega", "chegando", "sem
+   * contato"), pedido do dono de 01/11/2026. As mesmas condições do `avisoDoCodigo` (canal do Regem, entrega, com código)
+   * e só enquanto o pedido não foi entregue. Vai só no TEXTO (janela de 24 h, cardápio online, WhatsApp por QR, n8n):
+   * a Meta não aceita código de verificação em modelo de utilidade (o modelo com código é reprovado), então fora da
+   * janela o botão de rastreio leva à página que mostra o código. Null = nada a lembrar.
+   */
+  static codigoParaLembrar(ped: any): string | null {
+    if (DeliveryService.grupoCanal(String(ped?.canal ?? '')) !== 'regem') return null;
+    if (ped?.tipo === 'retirada') return null;
+    const codigo = String(ped?.codigoEntrega ?? '').trim();
+    if (!codigo) return null;
+    if (['entregue', 'concluido', 'cancelado'].includes(String(ped?.status ?? ''))) return null;
+    return codigo;
+  }
+
   /** O texto do código de entrega: o MESMO número do pedido que o cliente vê no acompanhamento e no resumo do robô. */
   static textoDoCodigo(row: any): string {
     const numero = row?.displayId ?? row?.numero ?? '';
@@ -2999,6 +3015,10 @@ export class DeliveryService {
       canal: ped.canal,
       entregadorNome: ped.entregadorNome ?? null,
       ...(cancelado ? { motivoCancelamento: ped.motivoCancelamento ?? null } : {}),
+      // O "saiu para entrega" lembra o código de entrega (01/11/2026): o fluxo do n8n da loja por QR põe na mensagem.
+      ...(eventoStatus === 'saiu_entrega' && DeliveryService.codigoParaLembrar(ped)
+        ? { codigoEntrega: DeliveryService.codigoParaLembrar(ped) }
+        : {}),
     };
 
     // Provedor do PRINCIPAL decide o canal do aviso. No EVOLUTION (grátis) mantém o
@@ -3310,10 +3330,16 @@ export class DeliveryService {
       .replace(/\s*\(?autorizado por [^)]*\)?\s*$/i, '')
       .trim();
     const motivo = motivoLimpo ? ` Motivo: ${motivoLimpo.replace(/[.!]+$/, '')}.` : '';
+    // O código de entrega lembrado a quem vai receber o pedido (01/11/2026). Sem asterisco: o texto também vai ao
+    // cardápio online, que não formata.
+    const codigo = DeliveryService.codigoParaLembrar(ped);
     switch (evento) {
       case 'confirmado': return { titulo: 'Pedido em produção', texto: `Recebemos seu pedido${ref} e ele já está em produção. 👨‍🍳` };
       case 'pronto_retirada': return { titulo: 'Pedido pronto', texto: `Seu pedido${ref} está pronto para retirada! 🎉` };
-      case 'saiu_entrega': return { titulo: 'Saiu para entrega', texto: `Seu pedido${ref} saiu para entrega! 🛵 Acompanhe a chegada pelo botão abaixo.` };
+      case 'saiu_entrega': {
+        const lembrete = codigo ? `\n🔑 Código de entrega: ${codigo}. Informe ao entregador para liberar o pedido.` : '';
+        return { titulo: 'Saiu para entrega', texto: `Seu pedido${ref} saiu para entrega! 🛵 Acompanhe a chegada pelo botão abaixo.${lembrete}` };
+      }
       case 'entregue': return { titulo: 'Pedido entregue', texto: `Seu pedido${ref} foi entregue. Bom apetite! 💛` };
       case 'cancelado': return { titulo: 'Pedido cancelado', texto: `Seu pedido${ref} foi cancelado.${motivo}` };
       case 'atrasado': return { titulo: 'Pedido atrasando', texto: `Seu pedido${ref} está levando mais tempo que o previsto. Pedimos desculpas — já estamos correndo para concluir. 🙏` };
@@ -3322,7 +3348,8 @@ export class DeliveryService {
         const nome = String(ped.chegandoEntregadorNome ?? '').trim();
         const tel = String(ped.chegandoEntregadorTelefone ?? '').replace(/\D/g, '');
         const quem = nome ? `O entregador ${nome}${tel ? ` (${tel})` : ''}` : 'O entregador';
-        return { titulo: 'Pedido chegando', texto: `Seu pedido${ref} está chegando! 🛵 ${quem} está a poucos minutos daí.` };
+        const lembrete = codigo ? `\n🔑 Tenha em mãos o código ${codigo} para liberar o pedido.` : '';
+        return { titulo: 'Pedido chegando', texto: `Seu pedido${ref} está chegando! 🛵 ${quem} está a poucos minutos daí.${lembrete}` };
       }
       case 'sem_contato': {
         // Bloco 3: o entregador não conseguiu falar com o cliente. O nome e o contato, só se ELE autorizou no app.
@@ -3330,9 +3357,10 @@ export class DeliveryService {
         const tel = String(ped.chegandoEntregadorTelefone ?? '').replace(/\D/g, '');
         const quem = nome ? `O entregador ${nome}` : 'O entregador';
         const contato = tel ? ` O telefone dele é ${tel}.` : '';
+        const lembrete = codigo ? `\n🔑 Não esqueça do código ${codigo} para liberar o pedido.` : '';
         return {
           titulo: 'O entregador está tentando falar com você',
-          texto: `${quem} está com o seu pedido${ref} e não conseguiu falar com você.${contato} Responda esta mensagem para combinar a entrega.`,
+          texto: `${quem} está com o seu pedido${ref} e não conseguiu falar com você.${contato} Responda esta mensagem para combinar a entrega.${lembrete}`,
         };
       }
       default: return { titulo: 'Atualização do pedido', texto: `Seu pedido${ref} teve uma atualização.` };

@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Código de entrega lembrado no "saiu", no "chegando" e no "sem contato" (Onda 0, 01/11): só nuvem — no ar com o
+  merge, sem efeito na loja.** Na loja, o aviso já é pedido à nuvem, que monta o texto. Os modelos da Meta não levam o
+  código (a Meta reprova modelo de utilidade com código de verificação). Sem migration.
+
 - **Cardápio em PDF pela API oficial (Bloco 6, 01/11): só nuvem — no ar com o merge.** O "Enviar cardápio" da caixa
   de conversas (Delivery › WhatsApp) mandava só pela Evolution; na loja oficial dava erro. Agora o PDF sobe à Meta e
   vai como documento (dentro da janela de 24 h). Na loja, a caixa já repassa à nuvem: o `.zip` leva só a
