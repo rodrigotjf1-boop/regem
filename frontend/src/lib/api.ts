@@ -1133,6 +1133,8 @@ export const api = {
     }),
   avisarProntoDelivery: (id: string) =>
     req(`/delivery/pedidos/${id}/avisar-pronto`, { method: 'POST', body: '{}' }),
+  // O entregador não consegue falar com o cliente: o cliente recebe pelo WhatsApp (Bloco 3).
+  semContatoDelivery: (id: string) => req(`/delivery/pedidos/${id}/sem-contato`, { method: 'POST', body: '{}' }),
   alterarDelivery: (id: string, body: Record<string, unknown>) =>
     req(`/delivery/pedidos/${id}/alterar`, { method: 'POST', body: JSON.stringify(body) }),
   reimprimirDelivery: (id: string, equipamentoId?: string | null) =>

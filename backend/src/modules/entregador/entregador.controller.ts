@@ -80,6 +80,12 @@ export class EntregadorController {
     return this.service.avisarChegando(user, id);
   }
 
+  // Bloco 3 — o entregador não consegue falar com o cliente: o cliente recebe pelo WhatsApp, com o link de onde ele está.
+  @Post('pedido/:id/sem-contato')
+  semContato(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.avisarSemContato(user, id);
+  }
+
   // E3 — rota OSRM (traçado + ETA) até o destino do pedido, p/ o mapa in-app. Corpo: { lat, lng }
   // = posição atual do entregador (opcional; sem ela usa a última registrada).
   @Post('pedido/:id/rota')

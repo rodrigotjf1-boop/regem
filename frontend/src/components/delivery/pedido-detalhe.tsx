@@ -123,6 +123,27 @@ export function PedidoDetalhe({
     }
   }
 
+  // Bloco 3: o entregador ligou dizendo que não consegue falar com o cliente — o cliente recebe pelo WhatsApp que o
+  // entregador está com o pedido, com o link de onde ele está (o contato do entregador só se ele autorizou no app).
+  // Só no pedido de entrega a caminho, do canal do Regem: iFood, 99 e os integrados falam pelo app deles.
+  const canalDoRegem = !['ifood', '99food', 'keeta', 'anotaai', 'cardapio_web', 'delivery_direto', 'rappi', 'totem', 'gogem'].includes(
+    String(p.canal ?? '').toLowerCase(),
+  );
+  const podeSemContato = p.tipo === 'entrega' && p.status === 'despachado' && canalDoRegem && !!p.clienteTelefone;
+  async function semContato() {
+    setBusy(true);
+    try {
+      const r: any = await api.semContatoDelivery(p.id);
+      if (r?.pelaNuvem) toast.success('Pedido à nuvem: o cliente recebe o aviso pelo WhatsApp em instantes.');
+      else if (r?.saiu) toast.success('Cliente avisado pelo WhatsApp: o entregador está tentando falar com ele.');
+      else toast.error(`O aviso não saiu: ${r?.motivo ?? 'tente de novo'}.`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Não foi possível avisar o cliente.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function confirmarCancelamento() {
     if (!senha.trim()) return toast.error('Informe a senha do gestor.');
     setBusy(true);
@@ -283,9 +304,10 @@ export function PedidoDetalhe({
             <LinhaDoTempoPedido pedidoId={p.id} />
 
             {/* Ações (ícones) */}
-            <div className="mt-4 flex gap-2">
+            <div className="mt-4 flex flex-wrap gap-2">
               <IconBtn icon="🖨" label="Reimprimir" onClick={reimprimir} disabled={busy || !p.comandaId} />
               {podeAlterar && <IconBtn icon="✏️" label="Alterar" onClick={() => setModo('alterar')} disabled={busy} />}
+              {podeSemContato && <IconBtn icon="📵" label="Sem contato" onClick={semContato} disabled={busy} />}
               {!finalizado && <IconBtn icon="✕" label="Cancelar" tone="destructive" onClick={() => setModo('cancelar')} disabled={busy} />}
               {perdaPendente && <IconBtn icon="🗑️" label="Registrar perda" tone="destructive" onClick={() => setModo('perda')} disabled={busy} />}
             </div>

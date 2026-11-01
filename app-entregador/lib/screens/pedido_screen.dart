@@ -45,6 +45,35 @@ class _PedidoScreenState extends State<PedidoScreen> {
     }
   }
 
+  // Bloco 3 — não consigo falar com o cliente: a loja avisa o cliente pelo WhatsApp, com o link de onde estou.
+  bool _semContatoEnviando = false;
+
+  // iFood, 99 e Keeta falam com o cliente pelo app deles: o aviso pelo WhatsApp da loja não vale ali.
+  bool get _podeSemContato => !['ifood', '99food', 'keeta'].contains(widget.pedido['canal']?.toString());
+
+  Future<void> _semContato() async {
+    setState(() => _semContatoEnviando = true);
+    try {
+      await Api.semContato(widget.pedido['id'] as String);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Cliente avisado pelo WhatsApp que você está tentando falar com ele')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _semContatoEnviando = false);
+    }
+  }
+
   @override
   void dispose() {
     _codigo.dispose();
@@ -437,6 +466,14 @@ class _PedidoScreenState extends State<PedidoScreen> {
             icon: const Icon(Icons.notifications_active),
             label: Text(_avisando ? 'Avisando…' : 'Avisar cliente (estou chegando)'),
           ),
+          if (_podeSemContato) ...[
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _semContatoEnviando ? null : _semContato,
+              icon: const Icon(Icons.phone_disabled),
+              label: Text(_semContatoEnviando ? 'Avisando…' : 'Não consigo falar com o cliente'),
+            ),
+          ],
           const SizedBox(height: 8),
           FilledButton(
             onPressed: _finalizando ? null : _finalizar,

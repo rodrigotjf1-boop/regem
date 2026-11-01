@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Entregador sem contato com o cliente (Bloco 3, 01/11) + o canal no "chegando" (ERR-342).** O servidor (rotas do
+  entregador e o aviso, só nuvem) entra no ar com o merge. **APK do entregador:** o botão "Não consigo falar com o
+  cliente" na tela do pedido (`app-entregador/lib/screens/pedido_screen.dart`, `api.dart` › `semContato`) — sai no
+  PRÓXIMO APK (acumular; gerar só sob comando). **`.zip`:** o botão "📵 Sem contato" no detalhe do pedido do painel (no
+  servidor da loja, ele pede à nuvem pelo `aviso-da-loja`) e o texto do botão "Modelos de utilidade". Sem migration.
+
 - **Aviso automático de atraso ao cliente (Bloco 5, mig 347 @cloud-only aplicada na nuvem em 01/11): só nuvem — no ar
   com o merge, DESLIGADO.** A loja liga em Delivery › Configurações › Robô ("Avisar o cliente quando o pedido
   atrasar"); só no WhatsApp oficial. A rotina da nuvem avisa uma vez o pedido do cardápio próprio que passar do tempo

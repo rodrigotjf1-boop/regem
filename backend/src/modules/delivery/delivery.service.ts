@@ -62,6 +62,7 @@ import { marcarAvisoAutomatico } from '../../common/avisos-automaticos';
 import { textoDaObservacao } from '../../common/observacao-do-pedido';
 import { chaveTelefone, formasDaChaveTelefone } from '../../common/telefone-chave';
 import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
+import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { idConfigDaLoja } from '../../common/id-deterministico';
 import { validarTokenMP } from '../../common/mercadopago';
 import { validarTokenPagBank } from '../../common/pagbank';
@@ -133,6 +134,8 @@ export class DeliveryService {
     @Optional() private readonly auditoria?: AuditoriaService,
     // O código de entrega da loja na API oficial sai pelo próprio Regem (ERR-332).
     @Optional() private readonly whatsappOficial?: WhatsappCloudService,
+    // O "entregador sem contato" na loja com o WhatsApp por QR sai pelo próprio Regem (Bloco 3) — o n8n não trata.
+    @Optional() private readonly whatsappQr?: WhatsappService,
   ) {}
 
   // ENVIA AO CANAL E REGISTRA (mig 305). `enviar` é o MESMO envio de sempre; aqui só se observa o
@@ -1731,6 +1734,14 @@ export class DeliveryService {
     return 'regem'; // cardapio, manual, balcao, n8n…
   }
 
+  /**
+   * O cliente deste pedido pode receber mensagem pelo WhatsApp do Regem? Só o do canal do Regem: iFood, 99 e os
+   * integrados têm o próprio contato com o cliente e não podem receber por aqui (o mesmo motivo do #391).
+   */
+  static podeAvisarPeloWhatsapp(canal: unknown): boolean {
+    return DeliveryService.grupoCanal(String(canal ?? '')) === 'regem';
+  }
+
   // Lista só os pedidos de RETIRADA e ENCOMENDA, com o grupo de origem e o tipo
   // (retirada = imediata; encomenda = agendada). O front agrupa pelos 3 grupos.
   async listarRetirada(tenantId: string, atual: string | null = null) {
@@ -2831,6 +2842,8 @@ export class DeliveryService {
     }
     this.registrarAviso(tenantId, ped.id, 'nuvem', DeliveryService.acaoDoAviso(ped, evento), 'falhou', `a nuvem não enviou o aviso (${ultimo})`);
     this.logger.warn(`[aviso-status] nuvem não enviou o aviso do pedido ${ped.id} (${ultimo}) — tentando pela loja`);
+    // O "entregador sem contato" só sai pela nuvem: pela loja, o caminho do status reenviaria o "saiu para entrega".
+    if (evento === 'sem_contato') return;
     if (evento === EVENTO_CODIGO) {
       const codigo = DeliveryService.avisoDoCodigo(ped);
       if (codigo) await this.notificarN8n(tenantId, codigo); // sem robô na loja, fica registrado "não enviado"
@@ -2947,6 +2960,11 @@ export class DeliveryService {
       motivoCancelamento: dto?.motivoCancelamento ?? (row as any).motivoCancelamento ?? null,
     };
     if (DeliveryService.grupoCanal(ped.canal) !== 'regem') return { ok: true, ignorado: 'canal' };
+    // O botão "Entregador sem contato" do painel da loja (Bloco 3): o aviso sai daqui; o resultado volta à loja.
+    if (evento === 'sem_contato') {
+      const r = await this.avisarSemContato(tenantId, id).catch((e: any) => ({ saiu: false, motivo: String(e?.message ?? e).slice(0, 160) }));
+      return r.saiu ? { ok: true } : { ok: true, resultado: 'nao_enviado', motivo: r.motivo ?? null };
+    }
     if (evento === EVENTO_CODIGO) {
       // O código da NUVEM: é o que o app do entregador confere (o mesmo da loja — nasce com o pedido e viaja com ele).
       const aviso = DeliveryService.avisoDoCodigo(ped);
@@ -3047,8 +3065,14 @@ export class DeliveryService {
       if (dentro) {
         const t = DeliveryService.textoNotificacao(evento, ped);
         const texto = `*${t.titulo}*\n${t.texto}`;
-        if (evento === 'saiu_entrega' && rastreio)
-          await this.whatsappOficial.enviarLink(tenantId, para, texto, `${this.basePublica()}/r/${rastreio}`, 'Acompanhar entrega');
+        if ((evento === 'saiu_entrega' || evento === 'sem_contato') && rastreio)
+          await this.whatsappOficial.enviarLink(
+            tenantId,
+            para,
+            texto,
+            `${this.basePublica()}/r/${rastreio}`,
+            evento === 'sem_contato' ? 'Ver onde ele está' : 'Acompanhar entrega',
+          );
         else await this.whatsappOficial.enviarTexto(tenantId, para, texto);
       } else {
         const modelo = await this.templateDoEvento(tenantId, evento);
@@ -3091,6 +3115,7 @@ export class DeliveryService {
         .from(pedidoExterno)
         .where(and(eq(pedidoExterno.tenantId, tenantId), eq(pedidoExterno.id, pedidoId)));
       if (!ped) return { saiu: false, motivo: 'pedido não encontrado' };
+      if (!DeliveryService.podeAvisarPeloWhatsapp(ped.canal)) return { saiu: false, motivo: 'pedido de outro canal: o cliente acompanha pelo app do canal' };
       const p = { ...ped, chegandoEntregadorNome: entregador.nome, chegandoEntregadorTelefone: entregador.telefone };
       await this.gravarNotificacaoPedido(tenantId, p, 'chegando');
       return await this.avisoPelaOficial(tenantId, p, 'chegando');
@@ -3120,6 +3145,92 @@ export class DeliveryService {
       this.logger.warn(`[aviso-atraso] pedido ${pedidoId}: não avisado — ${e?.message ?? e}`);
       return { saiu: false, motivo: 'não deu para avisar pelo WhatsApp oficial agora' };
     }
+  }
+
+  /**
+   * "O ENTREGADOR NÃO CONSEGUE FALAR COM O CLIENTE" (Bloco 3 do plano do robô, pedido do dono de 31/10/2026): o botão do
+   * app do entregador ou o do painel. O cliente recebe pelo WhatsApp que o entregador está com o pedido e não conseguiu
+   * falar com ele, com o link de onde o entregador está — o nome e o telefone do entregador só se ELE autorizou no app
+   * ("Compartilhar meu contato"). Loja oficial: pelo `avisoPelaOficial` (na janela, o texto com o link; fora dela, o
+   * modelo `pedido_sem_contato`). Loja com o WhatsApp por QR: o próprio Regem manda o texto pela Evolution (o n8n não
+   * trata este aviso). Fica também no cardápio online. Sem chamado: o chamado aberto calaria o robô justo quando o
+   * cliente responde. Só a nuvem manda (a loja pede à nuvem pelo `aviso-da-loja`). Só pedido de entrega a caminho.
+   */
+  async avisarSemContato(tenantId: string, pedidoId: string): Promise<{ saiu: boolean; motivo?: string }> {
+    const [ped] = await this.db
+      .select()
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.tenantId, tenantId), eq(pedidoExterno.id, pedidoId)));
+    if (!ped) throw new NotFoundException('Pedido não encontrado.');
+    if (ped.tipo !== 'entrega' || ped.status !== 'despachado') throw new BadRequestException('O pedido não está a caminho do cliente.');
+    if (!ped.clienteTelefone) throw new BadRequestException('O pedido não tem o telefone do cliente.');
+    // iFood, 99 e os integrados não podem receber mensagem pelo WhatsApp do Regem (o mesmo motivo do #391).
+    if (DeliveryService.grupoCanal(String(ped.canal ?? '')) !== 'regem')
+      throw new BadRequestException('Pedido de outro canal: fale com o cliente pelo app do canal.');
+    const nao = (motivo: string) => {
+      this.registrarAviso(tenantId, ped.id, 'cliente_whatsapp', 'sem_contato', 'nao_enviado', motivo);
+      return { saiu: false, motivo };
+    };
+    // A preferência do entregador e o WhatsApp oficial são só da nuvem: a loja pede à nuvem (o painel faz isso).
+    if (ehServidorLocal()) return nao('este aviso sai pela nuvem');
+    try {
+      // O entregador do pedido e o que ele autorizou mostrar.
+      let nome: string | null = null;
+      let telefone: string | null = null;
+      if (ped.entregadorId) {
+        const r: any = await this.db.execute(sql`
+          select c.nome, c.telefone, coalesce(p.compartilha_contato, false) as compartilha
+            from colaborador c
+            left join entregador_preferencia p on p.colaborador_id = c.id
+           where c.id = ${ped.entregadorId}::uuid and c.tenant_id = ${tenantId}::uuid`);
+        const e = (r?.rows ?? r ?? [])[0];
+        if (e?.compartilha === true) {
+          nome = String(e.nome ?? ped.entregadorNome ?? '').trim() || null;
+          telefone = e.telefone ? String(e.telefone) : null;
+        }
+      }
+      const p = { ...ped, chegandoEntregadorNome: nome, chegandoEntregadorTelefone: telefone };
+      const [cfg] = await this.db.select({ provedor: cardapioConfig.provedor }).from(cardapioConfig).where(eq(cardapioConfig.tenantId, tenantId));
+      if ((cfg?.provedor ?? 'evolution') === 'cloud') {
+        await this.gravarNotificacaoPedido(tenantId, p, 'sem_contato');
+        return await this.avisoPelaOficial(tenantId, p, 'sem_contato');
+      }
+      if (!this.whatsappQr) return nao('o WhatsApp da loja não está disponível neste servidor');
+      const t = DeliveryService.textoNotificacao('sem_contato', p);
+      const link = ped.rastreioToken ? `\n\nVeja onde ele está: ${this.basePublica()}/r/${ped.rastreioToken}` : '';
+      const tel = String(ped.clienteTelefone).replace(/\D/g, '');
+      await this.whatsappQr.enviar(tenantId, tel.length <= 11 ? `55${tel}` : tel, `*${t.titulo}*\n${t.texto}${link}`);
+      await this.gravarNotificacaoPedido(tenantId, p, 'sem_contato');
+      this.registrarAviso(tenantId, ped.id, 'cliente_whatsapp', 'sem_contato', 'enviado');
+      return { saiu: true };
+    } catch (e: any) {
+      this.logger.warn(`[aviso-sem-contato] pedido ${pedidoId}: não avisado — ${e?.message ?? e}`);
+      return nao(`o WhatsApp recusou: ${String(e?.message ?? e).slice(0, 160)}`);
+    }
+  }
+
+  /**
+   * O botão "Entregador sem contato" do painel: na nuvem, avisa na hora; no servidor da loja, pede à nuvem (a mesma fila
+   * do aviso de status, `aviso-da-loja`) e responde que foi pedido — o resultado fica na linha do tempo do pedido.
+   */
+  async avisarSemContatoPeloPainel(tenantId: string, pedidoId: string): Promise<{ ok: boolean; saiu?: boolean; motivo?: string; pelaNuvem?: boolean }> {
+    if (!ehServidorLocal()) {
+      const r = await this.avisarSemContato(tenantId, pedidoId);
+      return { ok: true, ...r };
+    }
+    const [ped] = await this.db
+      .select()
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.tenantId, tenantId), eq(pedidoExterno.id, pedidoId)));
+    if (!ped) throw new NotFoundException('Pedido não encontrado.');
+    if (ped.tipo !== 'entrega' || ped.status !== 'despachado') throw new BadRequestException('O pedido não está a caminho do cliente.');
+    if (DeliveryService.grupoCanal(String(ped.canal ?? '')) !== 'regem')
+      throw new BadRequestException('Pedido de outro canal: fale com o cliente pelo app do canal.');
+    // A nuvem tenta por alguns minutos (quando a internet volta); o botão não espera por isso.
+    void this.encaminharAvisoParaNuvem(tenantId, ped, 'sem_contato').catch((e: any) =>
+      this.logger.warn(`[aviso-sem-contato] pedido ${pedidoId}: o pedido à nuvem falhou — ${e?.message ?? e}`),
+    );
+    return { ok: true, pelaNuvem: true };
   }
 
   /** O primeiro nome para o modelo ("Oi {{1}}"); sem nome, "Cliente". */
@@ -3212,6 +3323,17 @@ export class DeliveryService {
         const tel = String(ped.chegandoEntregadorTelefone ?? '').replace(/\D/g, '');
         const quem = nome ? `O entregador ${nome}${tel ? ` (${tel})` : ''}` : 'O entregador';
         return { titulo: 'Pedido chegando', texto: `Seu pedido${ref} está chegando! 🛵 ${quem} está a poucos minutos daí.` };
+      }
+      case 'sem_contato': {
+        // Bloco 3: o entregador não conseguiu falar com o cliente. O nome e o contato, só se ELE autorizou no app.
+        const nome = String(ped.chegandoEntregadorNome ?? '').trim();
+        const tel = String(ped.chegandoEntregadorTelefone ?? '').replace(/\D/g, '');
+        const quem = nome ? `O entregador ${nome}` : 'O entregador';
+        const contato = tel ? ` O telefone dele é ${tel}.` : '';
+        return {
+          titulo: 'O entregador está tentando falar com você',
+          texto: `${quem} está com o seu pedido${ref} e não conseguiu falar com você.${contato} Responda esta mensagem para combinar a entrega.`,
+        };
       }
       default: return { titulo: 'Atualização do pedido', texto: `Seu pedido${ref} teve uma atualização.` };
     }
