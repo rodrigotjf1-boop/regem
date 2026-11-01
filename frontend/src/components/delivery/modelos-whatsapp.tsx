@@ -305,7 +305,7 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
   async function reenviarUtilidade() {
     if (!confirm(
       'Enviar a biblioteca de modelos de UTILIDADE (avisos de status do pedido) para ANÁLISE DA META?\n\n' +
-      '• São os avisos "em produção", "pronto", "saiu para entrega", "chegando", "entregue", "cancelado", "atrasado" e "atendimento".\n' +
+      '• São os avisos "em produção", "pronto", "saiu para entrega", "chegando", "entregador sem contato", "entregue", "cancelado", "atrasado" e "atendimento".\n' +
       '• Vão para a WABA do número PRINCIPAL (é dele que saem os avisos).\n' +
       '• Só os que ainda NÃO existem são enviados. Reprovados não são reenviados aqui.',
     )) return;
@@ -354,7 +354,7 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
         {pode && (
           <div className="ml-auto flex flex-wrap gap-2">
             <Button size="sm" variant="outline" disabled={busy} onClick={reenviarRegem} title="Envia à Meta só os modelos da Regem que ainda não existem (uma vez). Não reenvia reprovados.">Modelos da Regem</Button>
-            <Button size="sm" variant="outline" disabled={busy} onClick={reenviarUtilidade} title="Envia à Meta os avisos de status do pedido (em produção, pronto, saiu para entrega, chegando, entregue, cancelado, atrasado, atendimento) à WABA do número principal.">Modelos de utilidade</Button>
+            <Button size="sm" variant="outline" disabled={busy} onClick={reenviarUtilidade} title="Envia à Meta os avisos de status do pedido (em produção, pronto, saiu para entrega, chegando, entregador sem contato, entregue, cancelado, atrasado, atendimento) à WABA do número principal.">Modelos de utilidade</Button>
             <Button size="sm" variant="outline" disabled={busy} onClick={sincronizar}>Sincronizar com a Meta</Button>
             <Button size="sm" onClick={() => { resetar(); setAberto((v) => !v); }}>{aberto ? 'Fechar' : '＋ Novo modelo'}</Button>
           </div>

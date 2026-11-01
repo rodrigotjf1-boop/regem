@@ -80,6 +80,9 @@ const CATALOGO_UTILIDADE: Array<{
   // O "estou chegando" do entregador fora da janela de 24 h (Bloco 5, 01/11/2026): dentro dela vai em texto, com o nome e
   // o contato do entregador só se ele autorizou no app.
   { nome: 'pedido_chegando', evento: 'chegando', cabecalho: 'Pedido chegando', corpo: 'Oi {{1}}, seu pedido da {loja} está chegando! 🛵 O entregador está a poucos minutos daí.', botoes: [] },
+  // O entregador não conseguiu falar com o cliente (Bloco 3, 01/11/2026), fora da janela de 24 h — sem o contato dele
+  // (no modelo não dá para saber se ele autorizou); o botão abre onde ele está.
+  { nome: 'pedido_sem_contato', evento: 'sem_contato', cabecalho: 'Entregador tentando contato', corpo: 'Oi {{1}}, o entregador da {loja} está com o seu pedido e não conseguiu falar com você. Responda esta mensagem para combinar a entrega, ou veja onde ele está pelo botão abaixo.', botoes: [{ tipo: 'rastreio', texto: 'Ver onde ele está' }] },
   { nome: 'pedido_atrasado', evento: 'atrasado', cabecalho: 'Pedido atrasando', corpo: 'Oi {{1}}, seu pedido na {loja} está levando um pouco mais de tempo que o previsto. Pedimos desculpas pelo atraso — já estamos correndo para concluir e te entregar o quanto antes! 🙏', botoes: [] },
   {
     nome: 'atendimento_humano',

@@ -136,6 +136,19 @@ class Api {
     throw Exception(_erro(r));
   }
 
+  /// Bloco 3 — não consigo falar com o cliente: a loja avisa o cliente pelo WhatsApp, com o link de onde estou (meu
+  /// nome e telefone só se eu liguei "compartilhar meu contato").
+  static Future<Map<String, dynamic>> semContato(String id) async {
+    final r = await http.post(
+      Uri.parse('$base/entregador/pedido/$id/sem-contato'),
+      headers: _headers,
+    );
+    if (r.statusCode >= 200 && r.statusCode < 300) {
+      return jsonDecode(r.body) as Map<String, dynamic>;
+    }
+    throw Exception(_erro(r));
+  }
+
   /// E3 — rota OSRM (traçado + ETA) da minha posição até o destino do pedido, p/ o mapa
   /// in-app. Manda lat/lng se houver (senão o backend usa a última localização registrada).
   /// Retorna { destino:{lat,lng}, from:{lat,lng}|null, rota:{geometry,duracaoMin,distanciaM}|null,

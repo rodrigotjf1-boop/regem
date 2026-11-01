@@ -605,6 +605,25 @@ export class EntregadorService {
     return { ok: true };
   }
 
+  /**
+   * "Não consigo falar com o cliente" (Bloco 3 do plano do robô, pedido do dono de 31/10/2026): o entregador do pedido,
+   * em rota, toca no app e o cliente recebe pelo WhatsApp que o entregador está com o pedido, com o link de onde ele
+   * está — o nome e o telefone dele só se ele autorizou ("Compartilhar meu contato"). O envio é do `DeliveryService`.
+   */
+  async avisarSemContato(user: AuthUser, pedidoId: string) {
+    if (!this.ehEntregador(user)) throw new ForbiddenException('Apenas entregadores.');
+    const [ped] = await this.db
+      .select({ entregadorId: pedidoExterno.entregadorId, status: pedidoExterno.status })
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.tenantId, user.tenantId), eq(pedidoExterno.id, pedidoId)));
+    if (!ped) throw new NotFoundException('Pedido não encontrado.');
+    if (ped.entregadorId !== user.colaboradorId) throw new ForbiddenException('Este pedido não está atribuído a você.');
+    if (ped.status !== 'despachado') throw new BadRequestException('O pedido não está em rota.');
+    const r = await this.delivery.avisarSemContato(user.tenantId, pedidoId);
+    if (!r.saiu) throw new BadRequestException(`Não foi possível avisar o cliente: ${r.motivo ?? 'tente de novo'}.`);
+    return { ok: true };
+  }
+
   // App do entregador: rota OSRM (traçado + ETA) da posição do entregador até o destino do
   // pedido, para desenhar no mapa IN-APP (sem depender do Google Maps). O app manda a sua
   // posição atual (lat/lng); sem ela, cai na última localização registrada. Carrega o pedido
@@ -643,6 +662,9 @@ export class EntregadorService {
   // chegando…"). Nome/contato do ENTREGADOR só vão se ele ativou o opt-in no app.
   private async dispararChegada(user: AuthUser, ped: any): Promise<{ ok: boolean; motivo?: string }> {
     if (!ped.clienteTelefone) return { ok: false, motivo: 'o pedido não tem o telefone do cliente' };
+    // iFood, 99 e os integrados não recebem mensagem pelo WhatsApp do Regem (o mesmo motivo do #391) — também no n8n.
+    if (!DeliveryService.podeAvisarPeloWhatsapp(ped.canal))
+      return { ok: false, motivo: 'pedido de outro canal: o cliente acompanha pelo app do canal' };
     // Nome da loja p/ a mensagem = "Nome do estabelecimento" (Config → Loja), que salva em
     // cardapio_config.nome_publico. Fallback pro empresa.nome se não houver.
     const cfg: any = await this.db.execute(
@@ -1457,6 +1479,8 @@ export class EntregadorService {
       .from(pedidoExterno)
       .where(and(eq(pedidoExterno.tenantId, tenantId), eq(pedidoExterno.id, pedidoId)));
     if (!ped || !ped.clienteTelefone || !ped.rastreioToken) return;
+    // iFood, 99 e os integrados não recebem mensagem pelo WhatsApp do Regem (ERR-342; o mesmo motivo do #391).
+    if (!DeliveryService.podeAvisarPeloWhatsapp(ped.canal)) return;
     const codigoEntrega =
       ped.tipo !== 'retirada' && !['ifood', '99food'].includes(String(ped.canal)) && ped.codigoEntrega
         ? String(ped.codigoEntrega)

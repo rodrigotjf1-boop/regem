@@ -5,6 +5,7 @@ import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { DeliveryService } from './delivery.service';
+import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -39,17 +40,23 @@ descrever('avisos de status pela API oficial (Postgres)', () => {
     enviarTemplate: async (_t: string, para: string, nome: string, idioma: string, params: string[], opts: any) =>
       void saidas.push({ como: 'modelo', para, nome, idioma, params, rastreio: opts?.rastreio ?? null }),
   } as any;
-  // Os opcionais do construtor na ordem: openDelivery, cardapioWeb, ifood, food99, anotaai, gogemAviso, auditoria, oficial.
+  // O WhatsApp por QR (Evolution) da loja: o "sem contato" sai por ele quando a loja não é da oficial (Bloco 3).
+  const qr = { enviar: async (_t: string, numero: string, texto: string) => void saidas.push({ como: 'qr', para: numero, texto }) } as any;
+  // Os opcionais do construtor na ordem: openDelivery, cardapioWeb, ifood, food99, anotaai, gogemAviso, auditoria, oficial, qr.
   const svc: any = new (DeliveryService as any)(db, {}, {}, {}, {}, { emit: () => true }, { flashPedidos: () => undefined },
-    undefined, undefined, undefined, undefined, undefined, undefined, undefined, oficial);
+    undefined, undefined, undefined, undefined, undefined, undefined, undefined, oficial, qr);
   const empresas: string[] = [];
   const antes = { cardapio: process.env.CARDAPIO_PUBLIC_URL, otp: process.env.OTP_WEBHOOK_URL };
 
   beforeAll(async () => {
     process.env.CARDAPIO_PUBLIC_URL = 'https://app.dmsregem.com';
     delete process.env.OTP_WEBHOOK_URL;
-    await pool.query(readFileSync(MIG_215, 'utf8'));
-    for (const s of [...daTabelaDeModelos('227_whatsapp_template.sql'), ...daTabelaDeModelos('236_whatsapp_template_evento.sql')]) await pool.query(s);
+    // De novo quando o DDL corre com o de outra spec no mesmo banco (ERR-194).
+    await repetirNaCorridaDeCatalogo(() => pool.query(readFileSync(MIG_215, 'utf8')));
+    for (const s of [...daTabelaDeModelos('227_whatsapp_template.sql'), ...daTabelaDeModelos('236_whatsapp_template_evento.sql')])
+      await repetirNaCorridaDeCatalogo(() => pool.query(s));
+    // Só da nuvem: o "compartilhar meu contato" do entregador.
+    await repetirNaCorridaDeCatalogo(() => pool.query(readFileSync(MIG('208_entregador_preferencia.sql'), 'utf8')));
   });
   beforeEach(() => {
     saidas.length = 0;
@@ -59,7 +66,7 @@ descrever('avisos de status pela API oficial (Postgres)', () => {
     else delete process.env.CARDAPIO_PUBLIC_URL;
     if (antes.otp !== undefined) process.env.OTP_WEBHOOK_URL = antes.otp;
     if (empresas.length) {
-      for (const t of ['whatsapp_mensagem', 'whatsapp_template', 'pedido_envio', 'pedido_notificacao', 'pedido_externo', 'cardapio_config'])
+      for (const t of ['whatsapp_mensagem', 'whatsapp_template', 'pedido_envio', 'pedido_notificacao', 'pedido_externo', 'entregador_preferencia', 'colaborador', 'cardapio_config'])
         await pool.query(`delete from ${t} where tenant_id = any($1::uuid[])`, [empresas]).catch(() => {});
       await pool.query('delete from empresa where id = any($1::uuid[])', [empresas]).catch(() => {});
     }
@@ -182,5 +189,78 @@ descrever('avisos de status pela API oficial (Postgres)', () => {
     const t3 = await loja('evolution');
     expect(await svc.avisarChegada(t3, await pedidoNoBanco(t3), { nome: null, telefone: null })).toBeNull();
     expect(saidas).toEqual([]);
+  });
+
+  // Bloco 3 (01/11/2026): o entregador não consegue falar com o cliente — o app do entregador ou o painel.
+  describe('"não consigo falar com o cliente"', () => {
+    /** Um pedido de entrega a caminho, com o entregador (que autorizou ou não mostrar o contato) e o rastreio. */
+    async function emRota(t: string, opts: { compartilha?: boolean; canal?: string; status?: string } = {}) {
+      const [c] = await q(`insert into colaborador (tenant_id, nome, telefone) values ($1,'Carlos Moto','21911112222') returning id`, [t]);
+      if (opts.compartilha != null)
+        await q(`insert into entregador_preferencia (colaborador_id, tenant_id, compartilha_contato) values ($1,$2,$3)`, [c.id, t, opts.compartilha]);
+      return (
+        await q(
+          `insert into pedido_externo (tenant_id, canal, display_id, cliente_nome, cliente_telefone, tipo, itens, total, status, entregador_id, entregador_nome, rastreio_token)
+           values ($1,$2,'81','Rodrigo Teste','21987654321','entrega','[]'::jsonb,30,$3,$4,'Carlos Moto','rt-81') returning id`,
+          [t, opts.canal ?? 'cardapio', opts.status ?? 'despachado', c.id],
+        )
+      )[0].id as string;
+    }
+
+    it('loja oficial, na janela: o texto com o botão de onde ele está; o contato só se o entregador autorizou', async () => {
+      const t = await loja('cloud');
+      await conversa(t, 1);
+      expect(await svc.avisarSemContato(t, await emRota(t, { compartilha: true }))).toEqual({ saiu: true });
+      expect(saidas).toEqual([
+        {
+          como: 'link',
+          para: '5521987654321',
+          corpo:
+            '*O entregador está tentando falar com você*\nO entregador Carlos Moto está com o seu pedido #81 e não conseguiu falar com você. O telefone dele é 21911112222. Responda esta mensagem para combinar a entrega.',
+          url: 'https://app.dmsregem.com/r/rt-81',
+          rotulo: 'Ver onde ele está',
+        },
+      ]);
+      saidas.length = 0;
+      await svc.avisarSemContato(t, await emRota(t)); // sem a preferência: não autorizou
+      expect(saidas[0].corpo).toBe(
+        '*O entregador está tentando falar com você*\nO entregador está com o seu pedido #81 e não conseguiu falar com você. Responda esta mensagem para combinar a entrega.',
+      );
+    });
+
+    it('loja oficial, fora da janela: o modelo pedido_sem_contato (sem modelo, não sai e diz por quê)', async () => {
+      const t = await loja('cloud');
+      await conversa(t, 30);
+      const id = await emRota(t, { compartilha: true });
+      expect(await svc.avisarSemContato(t, id)).toMatchObject({ saiu: false, motivo: expect.stringContaining('sem modelo aprovado') });
+      await modelo(t, 'pedido_sem_contato', 'sem_contato');
+      expect(await svc.avisarSemContato(t, id)).toEqual({ saiu: true });
+      expect(saidas).toEqual([{ como: 'modelo', para: '5521987654321', nome: 'pedido_sem_contato', idioma: 'pt_BR', params: ['Rodrigo'], rastreio: 'rt-81' }]);
+    });
+
+    it('loja com o WhatsApp por QR: o Regem manda o texto pela Evolution, com o link (o n8n não trata este aviso)', async () => {
+      const t = await loja('evolution');
+      expect(await svc.avisarSemContato(t, await emRota(t))).toEqual({ saiu: true });
+      expect(saidas).toEqual([
+        {
+          como: 'qr',
+          para: '5521987654321',
+          texto:
+            '*O entregador está tentando falar com você*\nO entregador está com o seu pedido #81 e não conseguiu falar com você. Responda esta mensagem para combinar a entrega.\n\nVeja onde ele está: https://app.dmsregem.com/r/rt-81',
+        },
+      ]);
+    });
+
+    it('pedido que não está a caminho, ou de outro canal (iFood, 99): recusa — e o "estou chegando" também não vai ao cliente do iFood', async () => {
+      const t = await loja('cloud');
+      await conversa(t, 1);
+      await expect(svc.avisarSemContato(t, await emRota(t, { status: 'pronto' }))).rejects.toThrow('não está a caminho');
+      await expect(svc.avisarSemContato(t, await emRota(t, { canal: 'ifood' }))).rejects.toThrow('outro canal');
+      expect(await svc.avisarChegada(t, await emRota(t, { canal: '99food' }), { nome: null, telefone: null })).toMatchObject({
+        saiu: false,
+        motivo: expect.stringContaining('outro canal'),
+      });
+      expect(saidas).toEqual([]);
+    });
   });
 });

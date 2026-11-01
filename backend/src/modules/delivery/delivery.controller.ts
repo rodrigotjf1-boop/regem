@@ -281,6 +281,15 @@ export class DeliveryController {
     return { totemConcluiAoFicarPronto: r.totemConcluiAoFicarPronto };
   }
 
+  // O entregador não consegue falar com o cliente (Bloco 3): avisa o cliente pelo WhatsApp, com o link de onde o
+  // entregador está. No servidor da loja, pede à nuvem (é ela quem tem o WhatsApp da loja).
+  @Post('pedidos/:id/sem-contato')
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
+  avisarSemContato(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.avisarSemContatoPeloPainel(user.tenantId, id);
+  }
+
   // Avisar pronto (robô / status-back do canal).
   @Post('pedidos/:id/avisar-pronto')
   @UseGuards(JwtAuthGuard, PermissoesGuard)
