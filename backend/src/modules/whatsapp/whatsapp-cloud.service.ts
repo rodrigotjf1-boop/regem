@@ -1,4 +1,5 @@
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Interval } from '@nestjs/schedule';
 import { ehServidorLocal } from '../../common/modo';
 import { and, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
@@ -7,6 +8,7 @@ import { assinarConversa } from '../../common/conversa-do-robo';
 import { ecoDeAvisoAutomatico } from '../../common/avisos-automaticos';
 import { estadoDaPausa, pausaDaConversa, pausarPeloAtendente, pausasDaLojaOuVazio } from './robo-pausa';
 import { entregarJuntando } from './juntar-mensagens';
+import { conversaRecenteOficial, portaoDoRoboDoOutroLado } from './robo-do-outro-lado';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig, empresa, whatsappMensagem, whatsappNumero, whatsappTemplate } from '../../db/schema';
 import { registrarSaida, registrarVolta } from '../../common/consentimento-marketing';
@@ -201,7 +203,11 @@ export type MsgNormalizada = {
 @Injectable()
 export class WhatsappCloudService {
   private readonly logger = new Logger('WhatsappCloud');
-  constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
+  constructor(
+    @Inject(DRIZZLE) private readonly db: DrizzleDB,
+    // O aviso em tempo real do chamado que o detector do robô do outro lado abre (opcional: os testes passam só o banco).
+    @Optional() private readonly events?: EventEmitter2,
+  ) {}
 
   private token(): string {
     const t = process.env.WA_CLOUD_TOKEN ?? '';
@@ -303,6 +309,29 @@ export class WhatsappCloudService {
       return (await estadoDaPausa(this.db, tenantId, telefone)).pausado;
     } catch (e: any) {
       this.logger.warn(`pausa de ${mascarar(telefone)} não consultada (o robô responde): ${e?.message ?? e}`);
+      return false;
+    }
+  }
+
+  // Do outro lado parece um robô? (robo-do-outro-lado.ts). Pela conversa gravada dos últimos 30 minutos. Se a consulta
+  // falhar, o robô responde — como antes — e o motivo vai para o log: o detector é melhoria, não pode calar a loja.
+  private async roboDoOutroLado(cfg: any, de: string, nome: string | null): Promise<boolean> {
+    try {
+      const conversa = await conversaRecenteOficial(this.db, cfg.tenantId, de);
+      const r = await portaoDoRoboDoOutroLado(this.db, (ev, p) => this.events?.emit(ev, p), {
+        tenantId: cfg.tenantId,
+        unidadeId: cfg.unidadeId ?? null,
+        telefone: de,
+        nome,
+        conversa,
+      });
+      if (r.calar)
+        this.logger.log(
+          `sem encaminhar (parece um robô do outro lado${r.abriuChamado ? `: ${[...(r.avaliacao?.sinais ?? []), ...(r.avaliacao?.teto ? ['teto'] : [])].join(', ')}; chamado aberto` : ''}) de=${mascarar(de)}`,
+        );
+      return r.calar;
+    } catch (e: any) {
+      this.logger.warn(`robô do outro lado não conferido para ${mascarar(de)} (o robô responde): ${e?.message ?? e}`);
       return false;
     }
   }
@@ -532,6 +561,9 @@ export class WhatsappCloudService {
             );
             continue;
           }
+
+          // PORTÃO 4 — do outro lado parece um robô (robo-do-outro-lado.ts, Bloco 4): o robô cala e a equipe confere.
+          if (await this.roboDoOutroLado(cfg, de, nome)) continue;
 
           const msg: MsgNormalizada = {
             provedor: 'cloud',

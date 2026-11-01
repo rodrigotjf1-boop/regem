@@ -1,4 +1,5 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { eq } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig } from '../../db/schema';
@@ -8,6 +9,7 @@ import { MsgNormalizada } from './whatsapp-cloud.service';
 import { estadoDaPausa, pausarPeloAtendente } from './robo-pausa';
 import { foiEnviadoPeloRegem } from './evolution-envios';
 import { entregarJuntando } from './juntar-mensagens';
+import { anotarNaMemoria, chaveDaMemoria, conversaNaMemoria, portaoDoRoboDoOutroLado } from './robo-do-outro-lado';
 import { assinarConversa } from '../../common/conversa-do-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -81,6 +83,8 @@ export class EvolutionEntradaService {
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly evolution: WhatsappService,
+    // O aviso em tempo real do chamado que o detector do robô do outro lado abre (opcional: os testes não passam).
+    @Optional() private readonly events?: EventEmitter2,
   ) {}
 
   /** Mensagem já vista nesta janela (a Evolution reenvia quando demora)? Marca como vista. */
@@ -152,6 +156,10 @@ export class EvolutionEntradaService {
       return;
     }
 
+    // A conversa recente fica na memória (a Evolution não é gravada): é dela que o detector do robô do outro lado lê.
+    const chaveDaConversa = chaveDaMemoria(instancia, de);
+    anotarNaMemoria(chaveDaConversa, { direcao: 'entrada', texto: lida.texto, tipo: lida.tipo, em: new Date() });
+
     if (!cfg.roboAtivo || !cfg.ativo) return;
     const antigos = (Array.isArray(cfg.roboPausados) ? (cfg.roboPausados as any[]) : []).map(soDigitos);
     let pausada = antigos.includes(de);
@@ -165,6 +173,23 @@ export class EvolutionEntradaService {
     if (pausada) {
       this.logger.log(`sem encaminhar (conversa pausada) de=${mascarar(de)}`);
       return;
+    }
+    // Do outro lado parece um robô (robo-do-outro-lado.ts, Bloco 4): o robô cala e a equipe confere. Se a conferência
+    // falhar, o robô responde (o detector é melhoria) e o motivo vai para o log.
+    try {
+      const r = await portaoDoRoboDoOutroLado(this.db, (ev, p) => this.events?.emit(ev, p), {
+        tenantId: cfg.tenantId,
+        unidadeId: cfg.unidadeId ?? null,
+        telefone: de,
+        nome: data.pushName ?? null,
+        conversa: conversaNaMemoria(chaveDaConversa),
+      });
+      if (r.calar) {
+        this.logger.log(`sem encaminhar (parece um robô do outro lado${r.abriuChamado ? '; chamado aberto' : ''}) de=${mascarar(de)}`);
+        return;
+      }
+    } catch (e: any) {
+      this.logger.warn(`robô do outro lado não conferido para ${mascarar(de)} (o robô responde): ${e?.message ?? e}`);
     }
 
     const msg: MsgNormalizada = {

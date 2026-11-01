@@ -10,6 +10,7 @@ import {
   segredoDoRoboOk,
 } from '../../common/segredo-robo';
 import { lembrarEnvio } from './evolution-envios';
+import { anotarNaMemoria, chaveDaMemoria } from './robo-do-outro-lado';
 import { pedidosParaORobo } from './pedidos-do-robo';
 import {
   estadoDaPausa,
@@ -53,7 +54,13 @@ export class WhatsappService {
       await res
         .clone()
         .json()
-        .then((j: any) => lembrarEnvio(j?.key?.id))
+        .then((j: any) => {
+          lembrarEnvio(j?.key?.id);
+          // A resposta do Regem entra na conversa recente (o detector do robô do outro lado mede a rapidez por ela).
+          const instancia = decodeURIComponent(path.split('/')[3] ?? '');
+          const numero = String(j?.key?.remoteJid ?? '').split('@')[0];
+          anotarNaMemoria(chaveDaMemoria(instancia, numero), { direcao: 'saida', texto: null, tipo: 'text', em: new Date() });
+        })
         .catch(() => {});
     }
     return res;
