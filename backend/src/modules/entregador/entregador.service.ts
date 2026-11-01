@@ -597,9 +597,11 @@ export class EntregadorService {
       throw new ForbiddenException('Este pedido não está atribuído a você.');
     if (ped.status !== 'despachado') throw new BadRequestException('O pedido não está em rota.');
     if (!ped.clienteTelefone) throw new BadRequestException('Pedido sem telefone do cliente.');
-    const ok = await this.dispararChegada(user, ped);
-    if (!ok)
-      throw new BadRequestException('Não foi possível avisar o cliente (webhook do n8n).');
+    const r = await this.dispararChegada(user, ped);
+    if (!r.ok)
+      throw new BadRequestException(
+        r.motivo ? `Não foi possível avisar o cliente: ${r.motivo}.` : 'Não foi possível avisar o cliente (webhook do n8n).',
+      );
     return { ok: true };
   }
 
@@ -639,8 +641,8 @@ export class EntregadorService {
   // Monta o payload e dispara o alerta de chegada no webhook (manual e automático).
   // Sempre manda o nome fantasia da loja (p/ a mensagem "O entregador do <loja> está
   // chegando…"). Nome/contato do ENTREGADOR só vão se ele ativou o opt-in no app.
-  private async dispararChegada(user: AuthUser, ped: any): Promise<boolean> {
-    if (!ped.clienteTelefone) return false;
+  private async dispararChegada(user: AuthUser, ped: any): Promise<{ ok: boolean; motivo?: string }> {
+    if (!ped.clienteTelefone) return { ok: false, motivo: 'o pedido não tem o telefone do cliente' };
     // Nome da loja p/ a mensagem = "Nome do estabelecimento" (Config → Loja), que salva em
     // cardapio_config.nome_publico. Fallback pro empresa.nome se não houver.
     const cfg: any = await this.db.execute(
@@ -662,16 +664,21 @@ export class EntregadorService {
       );
       entregadorTelefone = (r.rows ?? r)[0]?.telefone ?? null;
     }
-    return this.cliente.enviarEventoWebhook(user.tenantId, {
+    // Loja da API OFICIAL: o próprio Regem manda, pelo número oficial (Bloco 5, ERR-341) — o n8n não sabe a janela.
+    const entregadorNome = compartilha ? (user.nome ?? ped.entregadorNome ?? 'Entregador') : null;
+    const oficial = await this.delivery.avisarChegada(user.tenantId, ped.id, { nome: entregadorNome, telefone: entregadorTelefone });
+    if (oficial) return { ok: oficial.saiu, motivo: oficial.motivo };
+    const ok = await this.cliente.enviarEventoWebhook(user.tenantId, {
       evento: 'chegando',
       telefone: String(ped.clienteTelefone).replace(/\D/g, ''),
       cliente: ped.clienteNome,
       numero: ped.numero,
       nomeFantasia,
       compartilhaContato: compartilha,
-      entregadorNome: compartilha ? user.nome ?? ped.entregadorNome ?? 'Entregador' : null,
+      entregadorNome,
       entregadorTelefone,
     });
+    return { ok };
   }
 
   // Preferência do próprio entregador (opt-in de compartilhar contato no aviso).

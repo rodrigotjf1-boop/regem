@@ -59,7 +59,7 @@ descrever('avisos de status pela API oficial (Postgres)', () => {
     else delete process.env.CARDAPIO_PUBLIC_URL;
     if (antes.otp !== undefined) process.env.OTP_WEBHOOK_URL = antes.otp;
     if (empresas.length) {
-      for (const t of ['whatsapp_mensagem', 'whatsapp_template', 'pedido_envio', 'cardapio_config'])
+      for (const t of ['whatsapp_mensagem', 'whatsapp_template', 'pedido_envio', 'pedido_notificacao', 'pedido_externo', 'cardapio_config'])
         await pool.query(`delete from ${t} where tenant_id = any($1::uuid[])`, [empresas]).catch(() => {});
       await pool.query('delete from empresa where id = any($1::uuid[])', [empresas]).catch(() => {});
     }
@@ -140,6 +140,47 @@ descrever('avisos de status pela API oficial (Postgres)', () => {
     const t = await loja('evolution');
     await conversa(t);
     await svc.enviarAvisoStatus(t, pedido('cancelado'));
+    expect(saidas).toEqual([]);
+  });
+
+  // Bloco 5 (01/11/2026, ERR-341): o "estou chegando" do entregador ia ao n8n com a "janela aberta" medida pela
+  // igualdade do telefone (sem × com o 55) — nunca casava, e o cliente da loja oficial não recebia o aviso.
+  it('"estou chegando" na loja oficial: na janela, o texto (o entregador só se ele autorizou); fora, o modelo aprovado; Evolution, o n8n', async () => {
+    const pedidoNoBanco = async (t: string) =>
+      (
+        await q(
+          `insert into pedido_externo (tenant_id, canal, display_id, cliente_nome, cliente_telefone, tipo, itens, total, status)
+           values ($1,'cardapio','70','Rodrigo Teste','21987654321','entrega','[]'::jsonb,30,'despachado') returning id`,
+          [t],
+        )
+      )[0].id as string;
+    const t = await loja('cloud');
+    await conversa(t, 1);
+    const id = await pedidoNoBanco(t);
+    expect(await svc.avisarChegada(t, id, { nome: 'Carlos', telefone: '21911112222' })).toEqual({ saiu: true });
+    expect(saidas).toEqual([
+      { como: 'texto', para: '5521987654321', texto: '*Pedido chegando*\nSeu pedido #70 está chegando! 🛵 O entregador Carlos (21911112222) está a poucos minutos daí.' },
+    ]);
+    saidas.length = 0;
+    await svc.avisarChegada(t, id, { nome: null, telefone: null }); // o entregador não autorizou o contato
+    expect(saidas[0].texto).toBe('*Pedido chegando*\nSeu pedido #70 está chegando! 🛵 O entregador está a poucos minutos daí.');
+
+    // Fora da janela de 24 h: sem o modelo, não sai e diz por quê; com o modelo aprovado, o modelo com o primeiro nome.
+    saidas.length = 0;
+    const t2 = await loja('cloud');
+    await conversa(t2, 30);
+    const id2 = await pedidoNoBanco(t2);
+    expect(await svc.avisarChegada(t2, id2, { nome: null, telefone: null })).toMatchObject({ saiu: false, motivo: expect.stringContaining('sem modelo aprovado') });
+    expect(saidas).toEqual([]);
+    await modelo(t2, 'pedido_chegando', 'chegando');
+    expect(await svc.avisarChegada(t2, id2, { nome: null, telefone: null })).toEqual({ saiu: true });
+    // (o rastreio do pedido vai junto, mas só entra num modelo com botão de rastreio — o "chegando" não tem)
+    expect(saidas).toEqual([expect.objectContaining({ como: 'modelo', para: '5521987654321', nome: 'pedido_chegando', idioma: 'pt_BR', params: ['Rodrigo'] })]);
+
+    // Loja na Evolution: nada pela oficial — o entregador segue pelo n8n, como sempre.
+    saidas.length = 0;
+    const t3 = await loja('evolution');
+    expect(await svc.avisarChegada(t3, await pedidoNoBanco(t3), { nome: null, telefone: null })).toBeNull();
     expect(saidas).toEqual([]);
   });
 });

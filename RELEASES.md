@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **"Estou chegando" do entregador pela API oficial (Bloco 5, ERR-341, 01/11): o app do entregador fala com a nuvem —
+  no ar com o merge.** Na loja oficial, o aviso sai pelo próprio número (na janela, o texto com o entregador só se ele
+  autorizou; fora, o modelo `pedido_chegando`, que a loja envia à Meta pelo botão "Modelos de utilidade"). Sem
+  migration. **Na loja, o `.zip` leva só o texto do botão "Modelos de utilidade" (cita o "chegando").**
+
 - **Robô de WhatsApp — adicionais repetidos (caminho A, 01/11): sem efeito na loja — nada a empacotar por isto.** O
   adicional que repete fica na lista com a quantidade ("Bacon extra (1)"), "2 ovos" entra duas vezes e o que a loja não
   deixa repetir é avisado ao cliente. Rotas do robô (`publico/bot/*`), só nuvem: no ar com o merge. Sem migration.
