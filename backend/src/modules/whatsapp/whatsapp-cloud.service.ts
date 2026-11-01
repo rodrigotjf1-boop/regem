@@ -63,6 +63,9 @@ const CATALOGO_REGEM: Array<{ nome: string; cabecalho: string; corpo: string; bo
 // código antes assumia 3 e por isso o menu ia numerado no corpo). Botão devolve o texto
 // pronto, então o n8n roteia sem interpretar número digitado. Com a janela já aberta o n8n
 // pode mandar a LISTA interativa (até 10 linhas, com descrição em cada).
+// O CÓDIGO DE ENTREGA NUNCA entra num modelo daqui: a Meta só aceita código de verificação em modelo de autenticação
+// (texto fixo "não compartilhe") e REPROVA o de utilidade que leve um. Ele vai só no texto da janela de 24 h
+// (`DeliveryService.codigoParaLembrar`); fora dela, o botão de rastreio abre a página que mostra o código.
 const CATALOGO_UTILIDADE: Array<{
   nome: string;
   evento: string;

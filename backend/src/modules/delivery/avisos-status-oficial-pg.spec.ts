@@ -117,17 +117,26 @@ descrever('avisos de status pela API oficial (Postgres)', () => {
   it('saiu para entrega, na janela: vai com o botão "Acompanhar entrega" (o rastreio do pedido)', async () => {
     const t = await loja('cloud');
     await conversa(t, 2);
-    await svc.enviarAvisoStatus(t, pedido('despachado', { rastreioToken: 'rt-123' }));
+    await svc.enviarAvisoStatus(t, pedido('despachado', { rastreioToken: 'rt-123', codigoEntrega: '4821' }));
     expect(saidas).toEqual([
-      expect.objectContaining({ como: 'link', para: '5521987654321', url: 'https://app.dmsregem.com/r/rt-123', rotulo: 'Acompanhar entrega' }),
+      {
+        como: 'link',
+        para: '5521987654321',
+        // O código de entrega lembrado a quem vai receber (01/11/2026).
+        corpo:
+          '*Saiu para entrega*\nSeu pedido #66 saiu para entrega! 🛵 Acompanhe a chegada pelo botão abaixo.\n🔑 Código de entrega: 4821. Informe ao entregador para liberar o pedido.',
+        url: 'https://app.dmsregem.com/r/rt-123',
+        rotulo: 'Acompanhar entrega',
+      },
     ]);
   });
 
-  it('fora da janela de 24 h: o modelo aprovado do evento, com o primeiro nome; sem modelo, não sai por WhatsApp', async () => {
+  it('fora da janela de 24 h: o modelo aprovado do evento, com o primeiro nome (o código NÃO vai no modelo); sem modelo, não sai por WhatsApp', async () => {
     const t = await loja('cloud');
     await conversa(t, 30);
     await modelo(t, 'pedido_saiu_entrega', 'saiu_entrega');
-    await svc.enviarAvisoStatus(t, pedido('despachado', { rastreioToken: 'rt-9' }));
+    // A Meta reprova modelo de utilidade com código de verificação: o código fica na página do botão de rastreio.
+    await svc.enviarAvisoStatus(t, pedido('despachado', { rastreioToken: 'rt-9', codigoEntrega: '4821' }));
     expect(saidas).toEqual([{ como: 'modelo', para: '5521987654321', nome: 'pedido_saiu_entrega', idioma: 'pt_BR', params: ['Rodrigo'], rastreio: 'rt-9' }]);
     saidas.length = 0;
     await svc.enviarAvisoStatus(t, pedido('confirmado')); // sem modelo aprovado de "confirmado"
@@ -143,22 +152,33 @@ descrever('avisos de status pela API oficial (Postgres)', () => {
     expect(saidas).toEqual([]);
   });
 
-  it('loja na Evolution: segue pelo n8n, como sempre (o Regem não manda pela oficial)', async () => {
+  it('loja na Evolution: segue pelo n8n, como sempre (o Regem não manda pela oficial); o "saiu" leva o código ao n8n', async () => {
     const t = await loja('evolution');
     await conversa(t);
-    await svc.enviarAvisoStatus(t, pedido('cancelado'));
-    expect(saidas).toEqual([]);
+    const n8n = jest.spyOn(svc, 'notificarN8n').mockResolvedValue({ saiu: true });
+    try {
+      await svc.enviarAvisoStatus(t, pedido('cancelado', { codigoEntrega: '4821' }));
+      expect(saidas).toEqual([]);
+      expect(n8n.mock.calls[0][1]).not.toHaveProperty('codigoEntrega'); // só o "saiu para entrega" lembra o código
+      await svc.enviarAvisoStatus(t, pedido('despachado', { codigoEntrega: '4821' }));
+      expect(n8n.mock.calls[1][1]).toMatchObject({ eventoStatus: 'saiu_entrega', codigoEntrega: '4821' });
+      await svc.enviarAvisoStatus(t, pedido('despachado', { codigoEntrega: '4821', tipo: 'retirada' }));
+      expect(n8n.mock.calls[2][1]).not.toHaveProperty('codigoEntrega');
+    } finally {
+      n8n.mockRestore();
+    }
   });
 
   // Bloco 5 (01/11/2026, ERR-341): o "estou chegando" do entregador ia ao n8n com a "janela aberta" medida pela
   // igualdade do telefone (sem × com o 55) — nunca casava, e o cliente da loja oficial não recebia o aviso.
   it('"estou chegando" na loja oficial: na janela, o texto (o entregador só se ele autorizou); fora, o modelo aprovado; Evolution, o n8n', async () => {
-    const pedidoNoBanco = async (t: string) =>
+    // O código de entrega fixo (a coluna sorteia um por padrão); null = pedido sem código.
+    const pedidoNoBanco = async (t: string, codigo: string | null = '4821') =>
       (
         await q(
-          `insert into pedido_externo (tenant_id, canal, display_id, cliente_nome, cliente_telefone, tipo, itens, total, status)
-           values ($1,'cardapio','70','Rodrigo Teste','21987654321','entrega','[]'::jsonb,30,'despachado') returning id`,
-          [t],
+          `insert into pedido_externo (tenant_id, canal, display_id, cliente_nome, cliente_telefone, tipo, itens, total, status, codigo_entrega)
+           values ($1,'cardapio','70','Rodrigo Teste','21987654321','entrega','[]'::jsonb,30,'despachado',$2) returning id`,
+          [t, codigo],
         )
       )[0].id as string;
     const t = await loja('cloud');
@@ -166,10 +186,18 @@ descrever('avisos de status pela API oficial (Postgres)', () => {
     const id = await pedidoNoBanco(t);
     expect(await svc.avisarChegada(t, id, { nome: 'Carlos', telefone: '21911112222' })).toEqual({ saiu: true });
     expect(saidas).toEqual([
-      { como: 'texto', para: '5521987654321', texto: '*Pedido chegando*\nSeu pedido #70 está chegando! 🛵 O entregador Carlos (21911112222) está a poucos minutos daí.' },
+      {
+        como: 'texto',
+        para: '5521987654321',
+        texto:
+          '*Pedido chegando*\nSeu pedido #70 está chegando! 🛵 O entregador Carlos (21911112222) está a poucos minutos daí.\n🔑 Tenha em mãos o código 4821 para liberar o pedido.',
+      },
     ]);
     saidas.length = 0;
     await svc.avisarChegada(t, id, { nome: null, telefone: null }); // o entregador não autorizou o contato
+    expect(saidas[0].texto).toBe('*Pedido chegando*\nSeu pedido #70 está chegando! 🛵 O entregador está a poucos minutos daí.\n🔑 Tenha em mãos o código 4821 para liberar o pedido.');
+    saidas.length = 0;
+    await svc.avisarChegada(t, await pedidoNoBanco(t, null), { nome: null, telefone: null }); // pedido sem código
     expect(saidas[0].texto).toBe('*Pedido chegando*\nSeu pedido #70 está chegando! 🛵 O entregador está a poucos minutos daí.');
 
     // Fora da janela de 24 h: sem o modelo, não sai e diz por quê; com o modelo aprovado, o modelo com o primeiro nome.
@@ -200,8 +228,8 @@ descrever('avisos de status pela API oficial (Postgres)', () => {
         await q(`insert into entregador_preferencia (colaborador_id, tenant_id, compartilha_contato) values ($1,$2,$3)`, [c.id, t, opts.compartilha]);
       return (
         await q(
-          `insert into pedido_externo (tenant_id, canal, display_id, cliente_nome, cliente_telefone, tipo, itens, total, status, entregador_id, entregador_nome, rastreio_token)
-           values ($1,$2,'81','Rodrigo Teste','21987654321','entrega','[]'::jsonb,30,$3,$4,'Carlos Moto','rt-81') returning id`,
+          `insert into pedido_externo (tenant_id, canal, display_id, cliente_nome, cliente_telefone, tipo, itens, total, status, entregador_id, entregador_nome, rastreio_token, codigo_entrega)
+           values ($1,$2,'81','Rodrigo Teste','21987654321','entrega','[]'::jsonb,30,$3,$4,'Carlos Moto','rt-81','4821') returning id`,
           [t, opts.canal ?? 'cardapio', opts.status ?? 'despachado', c.id],
         )
       )[0].id as string;
@@ -216,7 +244,7 @@ descrever('avisos de status pela API oficial (Postgres)', () => {
           como: 'link',
           para: '5521987654321',
           corpo:
-            '*O entregador está tentando falar com você*\nO entregador Carlos Moto está com o seu pedido #81 e não conseguiu falar com você. O telefone dele é 21911112222. Responda esta mensagem para combinar a entrega.',
+            '*O entregador está tentando falar com você*\nO entregador Carlos Moto está com o seu pedido #81 e não conseguiu falar com você. O telefone dele é 21911112222. Responda esta mensagem para combinar a entrega.\n🔑 Não esqueça do código 4821 para liberar o pedido.',
           url: 'https://app.dmsregem.com/r/rt-81',
           rotulo: 'Ver onde ele está',
         },
@@ -224,7 +252,7 @@ descrever('avisos de status pela API oficial (Postgres)', () => {
       saidas.length = 0;
       await svc.avisarSemContato(t, await emRota(t)); // sem a preferência: não autorizou
       expect(saidas[0].corpo).toBe(
-        '*O entregador está tentando falar com você*\nO entregador está com o seu pedido #81 e não conseguiu falar com você. Responda esta mensagem para combinar a entrega.',
+        '*O entregador está tentando falar com você*\nO entregador está com o seu pedido #81 e não conseguiu falar com você. Responda esta mensagem para combinar a entrega.\n🔑 Não esqueça do código 4821 para liberar o pedido.',
       );
     });
 
@@ -246,7 +274,7 @@ descrever('avisos de status pela API oficial (Postgres)', () => {
           como: 'qr',
           para: '5521987654321',
           texto:
-            '*O entregador está tentando falar com você*\nO entregador está com o seu pedido #81 e não conseguiu falar com você. Responda esta mensagem para combinar a entrega.\n\nVeja onde ele está: https://app.dmsregem.com/r/rt-81',
+            '*O entregador está tentando falar com você*\nO entregador está com o seu pedido #81 e não conseguiu falar com você. Responda esta mensagem para combinar a entrega.\n🔑 Não esqueça do código 4821 para liberar o pedido.\n\nVeja onde ele está: https://app.dmsregem.com/r/rt-81',
         },
       ]);
     });

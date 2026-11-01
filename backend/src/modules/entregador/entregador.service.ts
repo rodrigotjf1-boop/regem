@@ -699,6 +699,8 @@ export class EntregadorService {
       compartilhaContato: compartilha,
       entregadorNome,
       entregadorTelefone,
+      // O código de entrega lembrado ao cliente (01/11/2026): o fluxo do n8n da loja por QR põe na mensagem.
+      codigoEntrega: DeliveryService.codigoParaLembrar(ped),
     });
     return { ok };
   }
