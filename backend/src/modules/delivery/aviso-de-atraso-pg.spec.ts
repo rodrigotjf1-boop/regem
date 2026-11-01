@@ -7,6 +7,7 @@ import * as schema from '../../db/schema';
 import { DeliveryService } from './delivery.service';
 import { AvisoDeAtrasoProcessor } from './aviso-de-atraso.processor';
 import { WhatsappProvedorService } from '../whatsapp/whatsapp-provedor.service';
+import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -44,15 +45,13 @@ descrever('aviso automático de atraso (Postgres)', () => {
   const ajustes = new WhatsappProvedorService(db, { registrar: async (a: any) => void auditados.push(a) } as any, {} as any, {} as any);
   const empresas: string[] = [];
 
-  beforeAll(async () => {
-    delete process.env.EDGE_MODE; // como NUVEM
-    await pool.query(readFileSync(MIG('215_whatsapp_mensagem.sql'), 'utf8'));
-    for (const s of [...daTabelaDeModelos('227_whatsapp_template.sql'), ...daTabelaDeModelos('236_whatsapp_template_evento.sql')]) await pool.query(s);
-    for (const m of ['342_robo_pausa_e_config.sql', '347_aviso_de_atraso.sql', '347_aviso_de_atraso.sql']) {
+  /** Uma migration numa transação só — de novo quando o DDL corre com o de outra spec no mesmo banco (ERR-194). */
+  const aplicar = (arq: string) =>
+    repetirNaCorridaDeCatalogo(async () => {
       const c = await pool.connect();
       try {
         await c.query('begin');
-        await c.query(readFileSync(MIG(m), 'utf8'));
+        await c.query(readFileSync(MIG(arq), 'utf8'));
         await c.query('commit');
       } catch (e) {
         await c.query('rollback').catch(() => {});
@@ -60,7 +59,14 @@ descrever('aviso automático de atraso (Postgres)', () => {
       } finally {
         c.release();
       }
-    }
+    });
+
+  beforeAll(async () => {
+    delete process.env.EDGE_MODE; // como NUVEM
+    await repetirNaCorridaDeCatalogo(() => pool.query(readFileSync(MIG('215_whatsapp_mensagem.sql'), 'utf8')));
+    for (const s of [...daTabelaDeModelos('227_whatsapp_template.sql'), ...daTabelaDeModelos('236_whatsapp_template_evento.sql')])
+      await repetirNaCorridaDeCatalogo(() => pool.query(s));
+    for (const m of ['342_robo_pausa_e_config.sql', '347_aviso_de_atraso.sql', '347_aviso_de_atraso.sql']) await aplicar(m);
   });
   beforeEach(() => {
     saidas.length = 0;

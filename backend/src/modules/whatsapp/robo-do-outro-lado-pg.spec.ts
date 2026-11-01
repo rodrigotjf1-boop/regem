@@ -5,6 +5,7 @@ import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { MARCA_DO_CHAMADO, caladoPorRobo, conversaRecenteOficial, portaoDoRoboDoOutroLado } from './robo-do-outro-lado';
+import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -41,8 +42,9 @@ descrever('robô do outro lado (Postgres)', () => {
     portaoDoRoboDoOutroLado(db, emitir, { tenantId: T, unidadeId: null, telefone: tel, nome: 'Fornecedor X', conversa: await conversaRecenteOficial(db, T, tel) });
 
   beforeAll(async () => {
-    await pool.query(readFileSync(MIG_215, 'utf8'));
-    await pool.query(readFileSync(MIG_215, 'utf8')); // idempotente
+    // De novo quando o DDL corre com o de outra spec no mesmo banco (ERR-194).
+    await repetirNaCorridaDeCatalogo(() => pool.query(readFileSync(MIG_215, 'utf8')));
+    await repetirNaCorridaDeCatalogo(() => pool.query(readFileSync(MIG_215, 'utf8'))); // idempotente
     await q(`insert into empresa (id, nome) values ($1, 'teste robô do outro lado')`, [T]);
   });
   beforeEach(async () => {

@@ -5,6 +5,7 @@ import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { DeliveryService } from './delivery.service';
+import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -50,9 +51,12 @@ descrever('avisos de status pela API oficial (Postgres)', () => {
   beforeAll(async () => {
     process.env.CARDAPIO_PUBLIC_URL = 'https://app.dmsregem.com';
     delete process.env.OTP_WEBHOOK_URL;
-    await pool.query(readFileSync(MIG_215, 'utf8'));
-    for (const s of [...daTabelaDeModelos('227_whatsapp_template.sql'), ...daTabelaDeModelos('236_whatsapp_template_evento.sql')]) await pool.query(s);
-    await pool.query(readFileSync(MIG('208_entregador_preferencia.sql'), 'utf8')); // só da nuvem: o "compartilhar meu contato"
+    // De novo quando o DDL corre com o de outra spec no mesmo banco (ERR-194).
+    await repetirNaCorridaDeCatalogo(() => pool.query(readFileSync(MIG_215, 'utf8')));
+    for (const s of [...daTabelaDeModelos('227_whatsapp_template.sql'), ...daTabelaDeModelos('236_whatsapp_template_evento.sql')])
+      await repetirNaCorridaDeCatalogo(() => pool.query(s));
+    // Só da nuvem: o "compartilhar meu contato" do entregador.
+    await repetirNaCorridaDeCatalogo(() => pool.query(readFileSync(MIG('208_entregador_preferencia.sql'), 'utf8')));
   });
   beforeEach(() => {
     saidas.length = 0;
