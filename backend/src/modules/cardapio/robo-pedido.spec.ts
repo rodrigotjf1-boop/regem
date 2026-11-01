@@ -18,10 +18,12 @@ import {
   precisaDeTroco,
   precisaDoMeio,
   quantidadeDoPedido,
+  quantidadeNoNome,
   referenciaDoPedido,
   semTrocoNoTexto,
   sugestoesDeTroco,
   temAdicionalOpcional,
+  temOpcao,
   textoDoEndereco,
   valorDoTroco,
 } from './robo-pedido';
@@ -179,9 +181,12 @@ describe('F5: o que perguntar no item (escolhas, adicionais e observação)', ()
     expect(escolhasQueFaltam(suco, { variacaoId: null, complementos: [] })[0]).toMatchObject({ grupo: 'a versão', versao: true, opcoes: ['300 ml — R$ 9,00', '500 ml — R$ 12,00'] });
     expect(escolhasQueFaltam(trio, { variacaoId: null, complementos: ['o-guarana'] })).toEqual([]);
   });
-  it('os adicionais do item (só os opcionais de acrescentar, com o preço; o que já tem sai)', () => {
+  it('os adicionais do item (só os opcionais de acrescentar, com o preço; o que já tem sai — o que repete fica com a quantidade)', () => {
     expect(adicionaisDoItem(xbacon)).toEqual(['Bacon extra — +R$ 4,00', 'Queijo cheddar — +R$ 3,00', 'Sim — sem custo']);
-    expect(adicionaisDoItem(xbacon, ['o-bacon'])).toEqual(['Queijo cheddar — +R$ 3,00', 'Sim — sem custo']);
+    // Caminho A (31/10): o bacon repete — fica na lista com quantos já tem, para tocar de novo.
+    expect(adicionaisDoItem(xbacon, ['o-bacon'])).toEqual(['Bacon extra (1) — +R$ 4,00', 'Queijo cheddar — +R$ 3,00', 'Sim — sem custo']);
+    // A etapa cheia (no máximo 3): os escolhidos saem; o que não repete ("Sim") sai assim que escolhido.
+    expect(adicionaisDoItem(xbacon, ['o-bacon', 'o-bacon', 'o-queijo', 'o-talher'])).toEqual([]);
     expect(adicionaisDoItem(trio)).toEqual([]); // a escolha do refri é obrigatória: não é adicional
   });
   it('lanche pelo nome ou pela categoria pede os extras (mesmo sem adicional); bebida, não', () => {
@@ -194,7 +199,85 @@ describe('F5: o que perguntar no item (escolhas, adicionais e observação)', ()
   });
   it('o cliente já pediu com adicional: os extras não se perguntam (a escolha obrigatória não conta)', () => {
     expect(temAdicionalOpcional(xbacon, 'bacon')).toBe(true);
+    expect(temAdicionalOpcional(xbacon, '2 bacon')).toBe(true);
     expect(temAdicionalOpcional(trio, 'coca')).toBe(false);
+  });
+});
+
+// Caminho A dos adicionais (aprovado pelo dono em 31/10/2026): os botões do WhatsApp são de escolha única — o que repete
+// fica na lista com a quantidade, a quantidade dita abre em tantas vezes, e o que a loja não deixa repetir é avisado (antes
+// era ignorado calado: o robô dizia "2 ovos" e o pedido ia com 1).
+describe('caminho A: adicionais repetidos', () => {
+  const molhos = {
+    id: 'g-molho',
+    nome: 'Molhos',
+    min: 0,
+    max: 3,
+    obrigatorio: false,
+    regra: 'varias',
+    opcoes: [
+      { id: 'o-maio', nome: 'Maionese verde', precoDelta: 1 },
+      { id: 'o-ketchup', nome: 'Ketchup', precoDelta: 0 },
+    ],
+  };
+  const fatias = { id: 'g-fatia', nome: 'Extras', min: 0, max: 2, regra: 'varias', opcoes: [{ id: 'o-2fatias', nome: '2 fatias de queijo', precoDelta: 5 }] };
+  const burguer: any = { id: 'p-burguer', nome: 'Burguer da casa', precoVenda: 30, grupos: [adicionais, molhos, fatias], variacoes: [] };
+
+  it('a quantidade no nome: "2 ovos", "2x ovo", "2xovo", "dois ovos", "ovo x2", "ovo 2x" (de 1 a 10)', () => {
+    for (const t of ['2 ovos', '2x ovos', '2xovos', 'dois ovos', 'duas ovos', 'ovos x2', 'ovos 2x'])
+      expect(quantidadeNoNome(t)).toEqual({ quantidade: 2, nome: 'ovos' });
+    expect(quantidadeNoNome('ovo')).toBeNull();
+    expect(quantidadeNoNome('20 ovos')).toBeNull();
+  });
+
+  it('a quantidade dita abre em tantas vezes onde a etapa repete; o nome da opção com número fica inteiro', () => {
+    for (const t of ['2 bacon', 'dois bacon', 'bacon x2', '2x bacon extra'])
+      expect(montarEscolhas(xbacon, [t]).complementos).toEqual(['o-bacon', 'o-bacon', 'o-talher']);
+    expect(montarEscolhas(xbacon, ['4 bacon']).passouDoLimite).toEqual([{ grupo: 'Adicionais', maximo: 3 }]);
+    expect(montarEscolhas(burguer, ['2 fatias de queijo']).complementos).toEqual(['o-2fatias']);
+    expect(temOpcao(xbacon, '2 bacon')).toBe(true);
+  });
+
+  it('o que a etapa NÃO deixa repetir entra uma vez e volta em naoRepete (o robô avisa)', () => {
+    const r = montarEscolhas(burguer, ['2 maionese verde', 'ketchup']);
+    expect(r.complementos).toEqual(['o-maio', 'o-ketchup']);
+    expect(r.naoRepete).toEqual(['Maionese verde']);
+    expect(montarEscolhas(burguer, ['maionese verde']).naoRepete).toEqual([]);
+    expect(alterarEscolhas(burguer, ['o-maio'], ['maionese verde'], []).naoRepete).toEqual(['Maionese verde']);
+    expect(alterarEscolhas(xbacon, ['o-bacon'], ['bacon'], []).naoRepete).toEqual([]);
+  });
+
+  it('tocar de novo o adicional da lista ("Bacon extra (1) — +R$ 4,00") põe mais um; "tirar 2" tira dois', () => {
+    expect(alterarEscolhas(xbacon, ['o-bacon', 'o-talher'], ['Bacon extra (1) — +R$ 4,00'], []).complementos).toEqual(['o-bacon', 'o-bacon', 'o-talher']);
+    expect(alterarEscolhas(xbacon, ['o-bacon', 'o-bacon', 'o-queijo'], [], ['2 bacon']).complementos).toEqual(['o-queijo']);
+  });
+
+  it('a pergunta dos extras explica a quantidade entre parênteses e o "2 ovos" no como responder', () => {
+    const base: EstadoDaConducao = {
+      linhas: [{ linha: 1, produto: 'X-Bacon', faltaEscolher: [], extrasPendentes: true, adicionais: adicionaisDoItem(xbacon, ['o-bacon']) }],
+      itensFechados: false,
+      sugestao: null,
+      tipo: 'retirada',
+      tiposAbertos: ['retirada'],
+      entrega: null,
+      enderecoForaDaArea: false,
+      ultimoEndereco: null,
+      enderecosSalvos: 0,
+      subtotal: 29.9,
+      pedidoMinimo: null,
+      nome: 'Ana',
+      pagamento: null,
+      pagamentoServe: false,
+      opcoesDePagamento: [],
+      total: 29.9,
+    };
+    const [extras] = conducaoDoPedido(base);
+    expect(extras.campo).toBe('extras 1');
+    expect(extras.opcoes?.[0]).toBe('Bacon extra (1) — +R$ 4,00');
+    expect(extras.pergunta).toContain('O número entre parênteses é quantos ele já pôs: tocar de novo põe mais um.');
+    expect(extras.comoResponder).toContain('com a quantidade, ex.: "2 ovos"');
+    const sem = conducaoDoPedido({ ...base, linhas: [{ ...base.linhas[0], adicionais: adicionaisDoItem(xbacon) }] })[0];
+    expect(sem.pergunta).not.toContain('entre parênteses');
   });
 });
 

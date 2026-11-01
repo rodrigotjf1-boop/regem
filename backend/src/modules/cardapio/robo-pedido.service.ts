@@ -350,11 +350,21 @@ export class RoboPedidoService {
   }
 
   /** A resposta de toda ferramenta que muda: o pedido como ficou e, se ficou completo, o resumo para conferir enviado. */
-  private async responder(ctx: Contexto, menu: any, r: Mudou, feito?: string) {
+  private async responder(ctx: Contexto, menu: any, r: Mudou, feito?: string, aviso?: string | null) {
     const calc = await this.calcular(ctx, menu, r.carrinho, await this.clienteDaConversa(ctx));
     let pedido = calc.visao;
     if (!r.recusa && r.mudou && calc.podeRegistrar) pedido = (await this.mandarParaConferir(ctx, r.carrinho, calc)).visao;
-    return r.recusa ? { ...r.recusa, pedido } : { ok: true, feito: feito ?? null, pedido };
+    return r.recusa ? { ...r.recusa, pedido } : { ok: true, feito: feito ?? null, ...(aviso ? { aviso } : {}), pedido };
+  }
+
+  /**
+   * O adicional que o cliente pediu mais de uma vez numa etapa que não repete (caminho A, 31/10/2026): entrou uma vez — o
+   * robô avisa, em vez de dizer "2 ovos" com o pedido indo com 1.
+   */
+  private avisoDoQueNaoRepete(produto: any, naoRepete: string[]): string | null {
+    if (!naoRepete?.length) return null;
+    const nomes = naoRepete.join(', ');
+    return `Avise o cliente: no ${produto?.nome ?? 'item'}, ${nomes} ${naoRepete.length > 1 ? 'vão' : 'vai'} uma vez só (a loja não deixa repetir ${naoRepete.length > 1 ? 'esses adicionais' : 'esse adicional'}). Entrou uma vez.`;
   }
 
   private async semMudar(ctx: Contexto, menu: any, r: Recusa) {
@@ -415,6 +425,7 @@ export class RoboPedidoService {
     if (ACOES.mexer.includes(acao)) {
       const remover = acao === 'remover' || acao === 'tirar';
       let n = Number(dto?.linha);
+      let aviso: string | null = null;
       const r = await this.mudar(ctx, (c) => {
         const linhas = this.linhasDe(c);
         // Sem o número do item: o que está na pergunta dos extras, ou o único.
@@ -447,6 +458,7 @@ export class RoboPedidoService {
           if (esc.passouDoLimite.length)
             return recusa('limite', esc.passouDoLimite.map((g) => `${g.grupo}: no máximo ${g.maximo} (tire um antes)`).join('; '));
           mudou.complementos = esc.complementos;
+          aviso = this.avisoDoQueNaoRepete(p, esc.naoRepete);
         }
         // Observação vazia não apaga a que havia; "nenhuma"/"sem observação" apaga. "Não, obrigado" (a resposta à pergunta
         // dos extras que veio como observação) não vira observação: só conclui o item. Observação dada também conclui.
@@ -457,7 +469,7 @@ export class RoboPedidoService {
         }
         return { itens: linhas.map((x) => (x === l ? mudou : x)) };
       });
-      return this.responder(ctx, menu, r, r.recusa ? undefined : `item ${n} ${remover ? 'removido' : 'alterado'}`);
+      return this.responder(ctx, menu, r, r.recusa ? undefined : `item ${n} ${remover ? 'removido' : 'alterado'}`, aviso);
     }
     // Ação que o Regem não conhece: recusa explicada (200), para a IA corrigir — um erro 400 ela não sabe ler.
     return this.semMudar(
@@ -626,7 +638,7 @@ export class RoboPedidoService {
       const n = linhas.reduce((m, l) => Math.max(m, Number(l.linha) || 0), 0) + 1;
       return { itens: [...linhas, { linha: n, ...nova, quantidade: qtd, extras }] };
     });
-    return this.responder(ctx, menu, r, `adicionado: ${qtd}x ${p.nome}`);
+    return this.responder(ctx, menu, r, `adicionado: ${qtd}x ${p.nome}`, this.avisoDoQueNaoRepete(p, esc.naoRepete));
   }
 
   /**
@@ -639,6 +651,7 @@ export class RoboPedidoService {
     if (!dto?.versao && respostaNegativa(nomes)) return this.mexerNosItens(ctx, { ...dto, acao: 'concluir', adicionais: undefined });
     const temLinha = Number(dto?.linha) > 0;
     let alvoN = 0;
+    let aviso: string | null = null;
     const r = await this.mudar(ctx, (c) => {
       const linhas = this.linhasDe(c);
       const prod = (l: Linha) => produtos.get(l.produtoId);
@@ -666,10 +679,11 @@ export class RoboPedidoService {
         if (esc.passouDoLimite.length)
           return recusa('limite', esc.passouDoLimite.map((g) => `${g.grupo}: no máximo ${g.maximo} (tire um antes)`).join('; '));
         mudou = { ...mudou, complementos: esc.complementos };
+        aviso = this.avisoDoQueNaoRepete(p, esc.naoRepete);
       }
       return { itens: linhas.map((x) => (x === l ? mudou : x)) };
     });
-    return this.responder(ctx, menu, r, r.recusa ? undefined : `item ${alvoN}: escolha anotada`);
+    return this.responder(ctx, menu, r, r.recusa ? undefined : `item ${alvoN}: escolha anotada`, aviso);
   }
 
   /**

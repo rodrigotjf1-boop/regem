@@ -503,6 +503,43 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     expect(Number((await q(`select saldo from cashback_saldo where tenant_id = $1 and tipo = 'valor'`, [l.t]))[0].saldo)).toBeCloseTo(3, 2);
   });
 
+  // Caminho A dos adicionais (aprovado pelo dono em 31/10/2026): os botões do WhatsApp são de escolha única.
+  it('caminho A: "2 bacon" entra duas vezes; a lista mostra quantos já tem; o molho que não repete entra uma vez e o Regem avisa', async () => {
+    const l = await loja();
+    const c = await l.ctx();
+    // Um lanche com uma etapa de molhos que NÃO repete.
+    const [cat] = await q(`select id from categoria_produto where tenant_id = $1 and nome = 'Lanches'`, [l.t]);
+    const [burguer] = await q(
+      `insert into produto (tenant_id, nome, categoria_id, preco_venda, vai_para_producao, controla_estoque, disponivel_cardapio)
+       values ($1,'Burguer da casa',$2,30,false,false,true) returning id`,
+      [l.t, cat.id],
+    );
+    const maio: any = await produtos.criarOpcaoCatalogo(l.t, { nome: 'Maionese verde', codigoPdv: 'M1' });
+    const molhos: any = await produtos.criarComplemento(l.t, { nome: 'Molhos', regra: 'varias', max: 2, itens: [{ opcaoId: maio.id, preco: 1 }] });
+    await produtos.setProdutoComplementos(l.t, burguer.id, [molhos.id]);
+
+    // A quantidade dita: duas vezes o bacon (a etapa repete), sem aviso.
+    let r: any = await robo.mexerNosItens(c, { acao: 'adicionar', produto: 'xbacon', adicionais: '2 bacon' });
+    expect(r.pedido.itens[0]).toMatchObject({ item: 'X-Bacon (2x Bacon extra)', total: 'R$ 33,90' });
+    expect(r.aviso).toBeUndefined();
+    // O molho que não repete: entra uma vez e volta o aviso (antes ia calado).
+    r = await robo.mexerNosItens(c, { acao: 'adicionar', produto: 'burguer da casa', adicionais: '2 maionese verde' });
+    expect(r.aviso).toContain('Maionese verde vai uma vez só');
+    expect(r.pedido.itens[1]).toMatchObject({ item: 'Burguer da casa (Maionese verde)', total: 'R$ 31,00' });
+
+    // Um adicional por toque: o bacon fica na lista com quantos já tem, e tocar de novo põe mais um.
+    await robo.cancelar(c);
+    r = await robo.mexerNosItens(c, { acao: 'adicionar', produto: 'xbacon' });
+    expect(r.pedido.proximo).toMatchObject({ campo: 'extras 1' });
+    expect(r.pedido.proximo.opcoes[0]).toBe('Bacon extra — +R$ 4,00');
+    r = await robo.mexerNosItens(c, { acao: 'escolher', linha: 1, adicionais: 'Bacon extra — +R$ 4,00' });
+    expect(r.pedido.proximo.opcoes[0]).toBe('Bacon extra (1) — +R$ 4,00');
+    expect(r.pedido.proximo.pergunta).toContain('tocar de novo põe mais um');
+    r = await robo.mexerNosItens(c, { acao: 'escolher', linha: 1, adicionais: 'Bacon extra (1) — +R$ 4,00' });
+    expect(r.pedido.itens[0]).toMatchObject({ item: 'X-Bacon (2x Bacon extra)', total: 'R$ 33,90' });
+    expect(r.pedido.proximo.opcoes[0]).toBe('Bacon extra (2) — +R$ 4,00');
+  });
+
   it('API oficial: o resumo para conferir vai com os 3 botões; o que passa do limite vai em texto + botões', async () => {
     const l = await loja('cloud');
     const c = await l.ctx();

@@ -190,11 +190,18 @@ export type FaltaEscolher = { grupo: string; minimo: number; maximo: number | nu
 export function montarEscolhas(
   produto: any,
   nomes: unknown,
-): { complementos: string[]; naoAchei: string[]; passouDoLimite: { grupo: string; maximo: number }[]; faltaEscolher: FaltaEscolher[] } {
+): {
+  complementos: string[];
+  naoAchei: string[];
+  passouDoLimite: { grupo: string; maximo: number }[];
+  faltaEscolher: FaltaEscolher[];
+  naoRepete: string[];
+} {
   const grupos: any[] = Array.isArray(produto?.grupos) ? produto.grupos : [];
-  const lista = nomesDe(nomes);
+  const lista = abrirQuantidades(grupos, nomesDe(nomes));
   const escolhidas = new Map<string, string[]>(); // grupo.id → ids das opções, na ordem
   const naoAchei: string[] = [];
+  const naoRepete = new Set<string>();
   for (const nome of lista) {
     const candidatas = opcaoPeloNome(grupos, nome);
     // A mesma opção em duas etapas: a primeira que ainda tem lugar.
@@ -208,7 +215,10 @@ export function montarEscolhas(
       continue;
     }
     const ja = escolhidas.get(alvo.g.id) ?? [];
-    if (ja.includes(alvo.o.id) && alvo.g.regra !== REGRA_COM_REPETICAO) continue; // uma vez só nesta etapa
+    if (ja.includes(alvo.o.id) && alvo.g.regra !== REGRA_COM_REPETICAO) {
+      naoRepete.add(String(alvo.o.nome)); // uma vez só nesta etapa — o robô avisa
+      continue;
+    }
     escolhidas.set(alvo.g.id, [...ja, alvo.o.id]);
   }
   const complementos: string[] = [];
@@ -226,20 +236,67 @@ export function montarEscolhas(
       faltaEscolher.push({ grupo: String(g.nome), minimo: minimoDo(g), maximo: max, opcoes: opcoesDoGrupo(g).slice(0, 25).map(rotuloDaOpcao) });
     complementos.push(...ids);
   }
-  return { complementos, naoAchei, passouDoLimite, faltaEscolher };
+  return { complementos, naoAchei, passouDoLimite, faltaEscolher, naoRepete: [...naoRepete] };
 }
 
 /** Algum dos nomes é ADICIONAL opcional do produto (não é escolha obrigatória nem "sem cebola")? O cliente já disse. */
 export function temAdicionalOpcional(produto: any, nomes: unknown): boolean {
   const grupos: any[] = Array.isArray(produto?.grupos) ? produto.grupos : [];
-  return nomesDe(nomes).some((n) => opcaoPeloNome(grupos, n).some(({ g }) => !obrigatorio(g) && String(g?.tipo ?? '') !== 'remover'));
+  return abrirQuantidades(grupos, nomesDe(nomes)).some((n) =>
+    opcaoPeloNome(grupos, n).some(({ g }) => !obrigatorio(g) && String(g?.tipo ?? '') !== 'remover'),
+  );
 }
 
 /** O nome casa com uma opção do produto (em qualquer etapa)? Para achar o item a que a escolha pertence. */
 export function temOpcao(produto: any, nome: unknown): boolean {
   const grupos: any[] = Array.isArray(produto?.grupos) ? produto.grupos : [];
   const n = texto(nome, 80);
-  return !!n && opcaoPeloNome(grupos, n).length > 0;
+  return !!n && abrirQuantidades(grupos, [n]).some((x) => opcaoPeloNome(grupos, x).length > 0);
+}
+
+// ── Adicionais repetidos (caminho A, aprovado pelo dono em 31/10/2026) ──
+// Os botões e a lista do WhatsApp são de escolha única: o adicional que REPETE ("varias_com_repeticao") continua na lista
+// depois de escolhido, com quantos já tem ("Bacon extra (1)") — tocar de novo põe mais um. A quantidade dita ("2 ovos",
+// "dois ovos", "ovo x2") abre em tantas vezes. E o que a loja NÃO deixa repetir não é mais ignorado calado: volta em
+// `naoRepete`, para o robô avisar (antes ele dizia "2 ovos" e o pedido ia com 1).
+
+/** "Bacon extra (2)" — a contagem que a lista mostra ao lado do adicional que repete — sai antes de casar o nome. */
+const semContagem = (s: string) => s.replace(/\s*\(\d{1,2}\)\s*$/, '');
+
+const QUANTIDADE_FALADA: Record<string, number> = {
+  um: 1, uma: 1, dois: 2, duas: 2, tres: 3, quatro: 4, cinco: 5, seis: 6, sete: 7, oito: 8, nove: 9, dez: 10,
+};
+
+/** "2 ovos", "2x ovo", "dois ovos", "ovo x2", "ovo 2x": a quantidade (1 a 10) e o nome. Sem quantidade: null. */
+export function quantidadeNoNome(nome: unknown): { quantidade: number; nome: string } | null {
+  const t = String(nome ?? '').trim();
+  const ok = (n: number, resto: string) => (n >= 1 && n <= 10 && resto.trim() ? { quantidade: n, nome: resto.trim() } : null);
+  let m = t.match(/^(\d{1,2})\s*x?\s+(.+)$/i) ?? t.match(/^(\d{1,2})x(\D.*)$/i);
+  if (m) return ok(Number(m[1]), m[2]);
+  m = t.match(/^(.+?)\s+x\s*(\d{1,2})$/i) ?? t.match(/^(.+?)\s+(\d{1,2})\s*x$/i);
+  if (m) return ok(Number(m[2]), m[1]);
+  m = t.match(/^(\S+)\s+(.+)$/);
+  const falada = m ? QUANTIDADE_FALADA[normalizar(m[1])] : undefined;
+  return m && falada ? ok(falada, m[2]) : null;
+}
+
+/**
+ * Os nomes com a quantidade aberta ("2 ovos" → "ovos", "ovos"). Só quando o nome inteiro não é uma opção: "2 fatias de
+ * queijo" pode ser o nome da opção. Até 30 nomes.
+ */
+function abrirQuantidades(grupos: any[], lista: string[]): string[] {
+  const r: string[] = [];
+  for (const bruto of lista) {
+    const n = semContagem(bruto);
+    if (opcaoPeloNome(grupos, n).length) {
+      r.push(n);
+      continue;
+    }
+    const q = quantidadeNoNome(n);
+    if (q && opcaoPeloNome(grupos, q.nome).length) for (let i = 0; i < q.quantidade; i++) r.push(q.nome);
+    else r.push(n);
+  }
+  return r.slice(0, 30);
 }
 
 /** A opção do produto pelo nome (ou id): o igual primeiro, senão a única que tem as palavras. */
@@ -262,9 +319,16 @@ export function alterarEscolhas(
   atuais: string[],
   adicionar: unknown,
   tirar: unknown,
-): { complementos: string[]; naoAchei: string[]; passouDoLimite: { grupo: string; maximo: number }[]; faltaEscolher: FaltaEscolher[] } {
+): {
+  complementos: string[];
+  naoAchei: string[];
+  passouDoLimite: { grupo: string; maximo: number }[];
+  faltaEscolher: FaltaEscolher[];
+  naoRepete: string[];
+} {
   const grupos: any[] = Array.isArray(produto?.grupos) ? produto.grupos : [];
-  const lista = nomesDe;
+  const lista = (v: unknown) => abrirQuantidades(grupos, nomesDe(v));
+  const naoRepete = new Set<string>();
   const doGrupo = new Map<string, string>(); // opção → etapa
   for (const g of grupos) for (const o of opcoesDoGrupo(g)) doGrupo.set(o.id, g.id);
   // O que estava e ainda existe no produto (opção que saiu do cardápio cai aqui).
@@ -287,7 +351,10 @@ export function alterarEscolhas(
       continue;
     }
     if (maximoDo(alvo.g) === 1) ids = ids.filter((x) => doGrupo.get(x) !== alvo.g.id);
-    else if (ids.includes(alvo.o.id) && alvo.g.regra !== REGRA_COM_REPETICAO) continue;
+    else if (ids.includes(alvo.o.id) && alvo.g.regra !== REGRA_COM_REPETICAO) {
+      naoRepete.add(String(alvo.o.nome)); // já tem e a etapa não repete — o robô avisa
+      continue;
+    }
     ids = [...ids, alvo.o.id];
   }
   const passouDoLimite: { grupo: string; maximo: number }[] = [];
@@ -303,7 +370,7 @@ export function alterarEscolhas(
   const ordem = new Map<string, number>();
   grupos.forEach((g, i) => ordem.set(g.id, i));
   const complementos = [...ids].sort((a, b) => (ordem.get(doGrupo.get(a)!) ?? 0) - (ordem.get(doGrupo.get(b)!) ?? 0));
-  return { complementos, naoAchei, passouDoLimite, faltaEscolher };
+  return { complementos, naoAchei, passouDoLimite, faltaEscolher, naoRepete: [...naoRepete] };
 }
 
 /** O que falta escolher numa linha já guardada (o produto pode ter mudado no cadastro depois). */
@@ -351,17 +418,24 @@ export function escolhasQueFaltam(
  * "mais um bacon" escrevendo).
  */
 export function adicionaisDoItem(produto: any, complementos: string[] = []): string[] {
-  const ja = new Set(complementos ?? []);
+  const lista = complementos ?? [];
+  const vezes = (id: string) => lista.filter((x) => x === id).length;
   const vistos = new Set<string>();
   const r: string[] = [];
   for (const g of Array.isArray(produto?.grupos) ? produto.grupos : []) {
     if (obrigatorio(g) || String(g?.tipo ?? '') === 'remover') continue;
+    const repete = g?.regra === REGRA_COM_REPETICAO;
+    const max = maximoDo(g);
+    const naEtapa = opcoesDoGrupo(g).reduce((n, o) => n + vezes(o.id), 0);
     for (const o of opcoesDoGrupo(g)) {
-      if (o?.informativa || ja.has(o.id)) continue;
+      if (o?.informativa) continue;
+      const n = vezes(o.id);
+      // Já escolhido: sai da lista — a não ser que a etapa repita e ainda caiba mais um (fica com a quantidade).
+      if (n > 0 && (!repete || (max != null && naEtapa >= max))) continue;
       const chave = compacto(o.nome);
       if (!chave || vistos.has(chave)) continue;
       vistos.add(chave);
-      r.push(opcaoComDetalhe(String(o.nome), detalheDoPreco(o) ?? 'sem custo'));
+      r.push(opcaoComDetalhe(n > 0 ? `${o.nome} (${n})` : String(o.nome), detalheDoPreco(o) ?? 'sem custo'));
     }
   }
   return r;
@@ -621,10 +695,13 @@ export function conducaoDoPedido(e: EstadoDaConducao): Falta[] {
         campo: `extras ${l.linha}`,
         linha: l.linha,
         pergunta: l.adicionais.length
-          ? `Pergunte se quer acrescentar algum adicional ou deixar uma observação no ${l.produto} (ex.: sem cebola).`
+          ? `Pergunte se quer acrescentar algum adicional ou deixar uma observação no ${l.produto} (ex.: sem cebola).` +
+            (l.adicionais.some((a) => /\(\d{1,2}\)( —|$)/.test(a))
+              ? ' O número entre parênteses é quantos ele já pôs: tocar de novo põe mais um.'
+              : '')
           : `Pergunte se quer deixar alguma observação no ${l.produto} (ex.: sem cebola, ponto da carne).`,
         opcoes: [...l.adicionais.slice(0, 8), 'Pôr observação', 'Não, obrigado'],
-        comoResponder: `adicional: mexer_no_pedido com acao = escolher, linha = ${l.linha} e adicionais = o nome; "Pôr observação": pergunte qual e use acao = alterar, linha = ${l.linha} e observacao = o texto; "Não, obrigado": acao = concluir, linha = ${l.linha}`,
+        comoResponder: `adicional: mexer_no_pedido com acao = escolher, linha = ${l.linha} e adicionais = o nome (mais de um: com a quantidade, ex.: "2 ovos"); "Pôr observação": pergunte qual e use acao = alterar, linha = ${l.linha} e observacao = o texto; "Não, obrigado": acao = concluir, linha = ${l.linha}`,
       });
   }
 
