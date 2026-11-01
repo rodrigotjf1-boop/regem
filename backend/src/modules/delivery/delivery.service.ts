@@ -3100,6 +3100,28 @@ export class DeliveryService {
     }
   }
 
+  /**
+   * O AVISO AUTOMÁTICO DE ATRASO (Bloco 5, mig 347 — quem chama é o `AvisoDeAtrasoProcessor`, que já marcou o pedido
+   * como avisado): pelo número oficial, como os avisos de status — na janela de 24 h, o texto "Pedido atrasando"; fora
+   * dela, o modelo `pedido_atrasado`; sem modelo, o registro do pedido diz o motivo. O aviso também fica no cardápio
+   * online. Só nuvem. Nunca rejeita.
+   */
+  async avisarAtraso(tenantId: string, pedidoId: string): Promise<{ saiu: boolean; motivo?: string }> {
+    try {
+      if (ehServidorLocal()) return { saiu: false, motivo: 'o WhatsApp oficial só sai pela nuvem' };
+      const [ped] = await this.db
+        .select()
+        .from(pedidoExterno)
+        .where(and(eq(pedidoExterno.tenantId, tenantId), eq(pedidoExterno.id, pedidoId)));
+      if (!ped) return { saiu: false, motivo: 'pedido não encontrado' };
+      await this.gravarNotificacaoPedido(tenantId, ped, 'atrasado');
+      return await this.avisoPelaOficial(tenantId, ped, 'atrasado');
+    } catch (e: any) {
+      this.logger.warn(`[aviso-atraso] pedido ${pedidoId}: não avisado — ${e?.message ?? e}`);
+      return { saiu: false, motivo: 'não deu para avisar pelo WhatsApp oficial agora' };
+    }
+  }
+
   /** O primeiro nome para o modelo ("Oi {{1}}"); sem nome, "Cliente". */
   static primeiroNome(nome: unknown): string {
     return String(nome ?? '').trim().split(/\s+/)[0] || 'Cliente';

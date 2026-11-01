@@ -3748,8 +3748,20 @@ export const roboConfig = pgTable('robo_config', {
     .primaryKey()
     .references(() => empresa.id, { onDelete: 'cascade' }),
   pausaMinutos: integer('pausa_minutos').notNull().default(60), // 0 = até alguém retomar
+  // Aviso automático de atraso ao cliente (mig 347): nasce desligado; a tolerância é além do tempo prometido.
+  avisoAtraso: boolean('aviso_atraso').notNull().default(false),
+  avisoAtrasoToleranciaMin: integer('aviso_atraso_tolerancia_min').notNull().default(10),
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
   atualizadoPor: uuid('atualizado_por'),
+});
+
+// "Já avisei este pedido do atraso" (mig 347, @cloud-only): gravado ANTES do envio — o aviso sai uma vez só.
+export const pedidoAvisoAtraso = pgTable('pedido_aviso_atraso', {
+  pedidoId: uuid('pedido_id').primaryKey(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  enviadoEm: timestamp('enviado_em', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // O pedido montado pelo robô na conversa (mig 344, @cloud-only — Fase 5, F3). Um ABERTO por cliente (chave do

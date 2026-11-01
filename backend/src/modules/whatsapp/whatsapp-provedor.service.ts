@@ -1,9 +1,12 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { minutosDaPausa, pausarPeloAtendente } from './robo-pausa';
 import { sql } from 'drizzle-orm';
+import { exigirBooleano } from '../../common/exigir';
 
 /** Opções do "o robô volta sozinho em" (minutos; 0 = só quando alguém retomar). */
 export const OPCOES_PAUSA = [15, 30, 60, 120, 240, 0];
+/** Opções da tolerância do aviso de atraso: minutos além do tempo prometido ao cliente (mig 347). */
+export const OPCOES_TOLERANCIA_ATRASO = [0, 5, 10, 15, 20, 30];
 import { eq } from 'drizzle-orm';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -181,31 +184,67 @@ export class WhatsappProvedorService {
   // ===== Ajustes do robô (mig 342) =====
   // Por quanto tempo o robô fica calado depois que o humano assume (ou que ele mesmo chama o atendente).
   async roboConfig(tenantId: string) {
-    return { pausaMinutos: await minutosDaPausa(this.db, tenantId), opcoesPausa: OPCOES_PAUSA };
+    return {
+      pausaMinutos: await minutosDaPausa(this.db, tenantId),
+      opcoesPausa: OPCOES_PAUSA,
+      ...(await this.avisoDeAtraso(tenantId)),
+      opcoesToleranciaAtraso: OPCOES_TOLERANCIA_ATRASO,
+    };
   }
 
+  /** O aviso automático de atraso da loja (mig 347): nasce desligado; sem linha, o padrão. */
+  private async avisoDeAtraso(tenantId: string): Promise<{ avisoAtraso: boolean; avisoAtrasoToleranciaMin: number }> {
+    const r: any = await this.db.execute(
+      sql`select aviso_atraso, aviso_atraso_tolerancia_min from robo_config where tenant_id = ${tenantId}::uuid`,
+    );
+    const l = (r?.rows ?? r ?? [])[0];
+    return { avisoAtraso: l?.aviso_atraso === true, avisoAtrasoToleranciaMin: l ? Number(l.aviso_atraso_tolerancia_min) : 10 };
+  }
+
+  /**
+   * Salva os ajustes do robô. Cada campo é opcional e o ausente MANTÉM o que estava (V16): a tela grava um de cada vez.
+   * O liga/desliga do aviso de atraso só como verdadeiro/falso (V15). Cada mudança vai para a auditoria.
+   */
   async salvarRoboConfig(ator: AuthUser, dto: any) {
+    const temPausa = dto?.pausaMinutos !== undefined;
+    const temAviso = dto?.avisoAtraso !== undefined;
+    const temTolerancia = dto?.avisoAtrasoToleranciaMin !== undefined;
+    if (!temPausa && !temAviso && !temTolerancia) throw new BadRequestException('Nada para salvar: informe pausaMinutos, avisoAtraso ou avisoAtrasoToleranciaMin.');
     const v = dto?.pausaMinutos;
-    if (typeof v !== 'number' || !OPCOES_PAUSA.includes(v))
+    if (temPausa && (typeof v !== 'number' || !OPCOES_PAUSA.includes(v)))
       throw new BadRequestException(`pausaMinutos deve ser um destes: ${OPCOES_PAUSA.join(', ')} (0 = até alguém retomar).`);
+    const aviso = temAviso ? exigirBooleano(dto.avisoAtraso, 'avisoAtraso') : undefined;
+    const tol = dto?.avisoAtrasoToleranciaMin;
+    if (temTolerancia && (typeof tol !== 'number' || !OPCOES_TOLERANCIA_ATRASO.includes(tol)))
+      throw new BadRequestException(`avisoAtrasoToleranciaMin deve ser um destes: ${OPCOES_TOLERANCIA_ATRASO.join(', ')}.`);
+
     const de = await minutosDaPausa(this.db, ator.tenantId);
+    const antes = await this.avisoDeAtraso(ator.tenantId);
+    const pausa = temPausa ? v : de;
+    const ligado = aviso ?? antes.avisoAtraso;
+    const tolerancia = temTolerancia ? tol : antes.avisoAtrasoToleranciaMin;
     await this.db.execute(sql`
-      insert into robo_config (tenant_id, pausa_minutos, atualizado_por)
-      values (${ator.tenantId}::uuid, ${v}, ${ator.colaboradorId}::uuid)
+      insert into robo_config (tenant_id, pausa_minutos, aviso_atraso, aviso_atraso_tolerancia_min, atualizado_por)
+      values (${ator.tenantId}::uuid, ${pausa}, ${ligado}, ${tolerancia}, ${ator.colaboradorId}::uuid)
       on conflict (tenant_id) do update
-         set pausa_minutos = excluded.pausa_minutos, atualizado_por = excluded.atualizado_por, atualizado_em = now()`);
-    if (de !== v) {
-      await this.auditoria.registrar({
+         set pausa_minutos = excluded.pausa_minutos, aviso_atraso = excluded.aviso_atraso,
+             aviso_atraso_tolerancia_min = excluded.aviso_atraso_tolerancia_min,
+             atualizado_por = excluded.atualizado_por, atualizado_em = now()`);
+    const registrar = (acao: string, detalhe: Record<string, unknown>) =>
+      this.auditoria.registrar({
         tenantId: ator.tenantId,
         atorId: ator.colaboradorId,
         atorPerfil: ator.categoria,
         tipo: 'config',
-        acao: 'robo_pausa_alterada',
+        acao,
         entidadeTipo: 'robo_config',
         entidadeId: ator.tenantId,
-        detalhe: { de, para: v },
+        detalhe,
       });
-    }
+    if (de !== pausa) await registrar('robo_pausa_alterada', { de, para: pausa });
+    if (antes.avisoAtraso !== ligado) await registrar(ligado ? 'aviso_atraso_ligado' : 'aviso_atraso_desligado', { tolerancia });
+    if (antes.avisoAtrasoToleranciaMin !== tolerancia)
+      await registrar('aviso_atraso_tolerancia_alterada', { de: antes.avisoAtrasoToleranciaMin, para: tolerancia });
     return this.roboConfig(ator.tenantId);
   }
 
