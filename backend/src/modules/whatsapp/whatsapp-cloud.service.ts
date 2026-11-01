@@ -835,6 +835,49 @@ export class WhatsappCloudService {
     return { ok: true, id: r.wamid };
   }
 
+  /**
+   * DOCUMENTO (PDF) pela API oficial (Bloco 6 — o cardápio em PDF da caixa de conversas, que só saía pela Evolution):
+   * sobe o arquivo à Meta (`/media`) e manda pelo id, com o nome do arquivo e a legenda. Mensagem livre: só dentro da
+   * janela de 24 h (fora dela a Meta recusa e o motivo volta). A Meta aceita documento de até 100 MB.
+   */
+  async enviarDocumentoPdf(tenantId: string, numero: string, pdf: Buffer, arquivo: string, legenda = '') {
+    const para = soDigitos(numero);
+    if (!para) throw new BadRequestException('Número inválido.');
+    if (!pdf?.length) throw new BadRequestException('Documento vazio.');
+    const cfg = await this.cfgDoEnvio(tenantId);
+    const form = new FormData();
+    form.append('messaging_product', 'whatsapp');
+    form.append('type', 'application/pdf');
+    form.append('file', new Blob([new Uint8Array(pdf)], { type: 'application/pdf' }), arquivo);
+    const up = await fetch(`${GRAPH}/${cfg.waCloudPhoneId}/media`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.token()}` },
+      body: form,
+    }).catch(() => null);
+    if (!up || !up.ok) {
+      const texto = up ? await up.text().catch(() => '') : '';
+      throw new BadRequestException(`Falha ao subir o documento na Cloud API (${up?.status ?? 'sem resposta'}): ${texto.slice(0, 200)}`);
+    }
+    const midia: any = await up.json().catch(() => ({}));
+    if (!midia?.id) throw new BadRequestException('A Meta não devolveu o id do documento.');
+    const r = await this.postarMensagem(cfg.waCloudPhoneId!, {
+      to: para,
+      type: 'document',
+      document: { id: String(midia.id), filename: arquivo, ...(legenda ? { caption: legenda.slice(0, 1024) } : {}) },
+    });
+    await this.gravar({
+      tenantId,
+      telefone: para,
+      direcao: 'saida',
+      tipo: 'document',
+      texto: legenda || arquivo,
+      midiaId: String(midia.id),
+      wamid: r.wamid,
+      status: r.status,
+    });
+    return { ok: true, id: r.wamid };
+  }
+
   // Envio chamado pelo WORKFLOW DO N8N para responder o cliente. Autenticado pelo
   // mesmo BOT_RESOLVER_SECRET do resolver do Evolution — o n8n nunca toca o banco.
   //

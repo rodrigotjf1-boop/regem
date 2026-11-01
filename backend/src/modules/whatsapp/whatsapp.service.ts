@@ -719,12 +719,41 @@ export class WhatsappService {
     }));
   }
 
-  // Monta o PDF resumido (categorias × itens) e envia como documento pelo WhatsApp.
+  // Monta o PDF resumido (categorias × itens) e envia como documento pelo WhatsApp (Evolution). A loja da API oficial
+  // usa o mesmo PDF pelo `WhatsappProvedorService.enviarCardapio` (Bloco 6).
   async enviarCardapio(tenantId: string, numero: string, cardapioId?: string) {
     const { instancia } = await this.instanciaDe(tenantId);
     const number = this.soNumero(numero);
     if (!number) throw new BadRequestException('Número inválido.');
+    const { pdf, arquivo, legenda, itens } = await this.pdfDoCardapio(tenantId, cardapioId);
+    const base64 = pdf.toString('base64');
 
+    // Evolution v2: envia documento (base64). Alguns builds aceitam `fileName`,
+    // outros `filename` — mandamos os dois para não depender da versão.
+    const res = await this.req(`/message/sendMedia/${instancia}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        number,
+        mediatype: 'document',
+        mimetype: 'application/pdf',
+        media: base64,
+        fileName: arquivo,
+        filename: arquivo,
+        caption: legenda,
+      }),
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      const body = res ? await res.text().catch(() => '') : '';
+      throw new BadRequestException(`Falha ao enviar o cardápio (${res?.status ?? 'sem resposta'}): ${body.slice(0, 150)}`);
+    }
+    return { ok: true, itens };
+  }
+
+  /**
+   * O PDF resumido do cardápio (categorias × itens, com foto, descrição e preço) — o mesmo para as duas vias do WhatsApp
+   * (a Evolution manda em base64; a API oficial sobe à Meta). O nome do arquivo e a legenda vêm junto.
+   */
+  async pdfDoCardapio(tenantId: string, cardapioId?: string): Promise<{ pdf: Buffer; arquivo: string; legenda: string; itens: number }> {
     // A loja/cardápio: o escolhido (validado no tenant) ou o único ativo.
     const cfgRow: any = await this.db.execute(sql`
       select id, nome_publico as "nome", logo_ref as "logo"
@@ -779,28 +808,8 @@ export class WhatsappService {
       { nome: cfg.nome || 'Cardápio', logoUrl: cfg.logo },
       categorias,
     );
-    const base64 = pdf.toString('base64');
     const arquivo = `cardapio-${(cfg.nome || 'loja').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 24)}.pdf`;
-
-    // Evolution v2: envia documento (base64). Alguns builds aceitam `fileName`,
-    // outros `filename` — mandamos os dois para não depender da versão.
-    const res = await this.req(`/message/sendMedia/${instancia}`, {
-      method: 'POST',
-      body: JSON.stringify({
-        number,
-        mediatype: 'document',
-        mimetype: 'application/pdf',
-        media: base64,
-        fileName: arquivo,
-        filename: arquivo,
-        caption: `Cardápio · ${cfg.nome || ''}`.trim(),
-      }),
-    }).catch(() => null);
-    if (!res || !res.ok) {
-      const body = res ? await res.text().catch(() => '') : '';
-      throw new BadRequestException(`Falha ao enviar o cardápio (${res?.status ?? 'sem resposta'}): ${body.slice(0, 150)}`);
-    }
-    return { ok: true, itens: categorias.reduce((n, c) => n + c.itens.length, 0) };
+    return { pdf, arquivo, legenda: `Cardápio · ${cfg.nome || ''}`.trim(), itens: categorias.reduce((n, c) => n + c.itens.length, 0) };
   }
 
   // Envia um documento (PDF) já montado por WhatsApp. Reuso genérico do sendMedia

@@ -287,4 +287,15 @@ export class WhatsappProvedorService {
     }
     return r;
   }
+
+  /**
+   * O cardápio em PDF para o número da conversa (o botão da caixa de conversas), pela via da loja (Bloco 6): na API
+   * oficial, o PDF sobe à Meta e vai como documento (só na janela de 24 h); na Evolution, como sempre.
+   */
+  async enviarCardapio(tenantId: string, numero: string, cardapioId?: string) {
+    if ((await this.provedorDe(tenantId)) !== 'cloud') return this.evolution.enviarCardapio(tenantId, numero, cardapioId);
+    const { pdf, arquivo, legenda, itens } = await this.evolution.pdfDoCardapio(tenantId, cardapioId);
+    await this.cloud.enviarDocumentoPdf(tenantId, numero, pdf, arquivo, legenda);
+    return { ok: true, itens };
+  }
 }
