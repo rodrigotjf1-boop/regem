@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **"Entregue" perto do endereço no pedido sem código (Onda 0, 01/11; complemento da mig 348): servidor só nuvem — no
+  ar com o merge; o resto, no PRÓXIMO APK.** A rota do entregador aceita a posição do toque (`local`) e, no pedido da
+  loja sem código, recusa o "Entregue" a mais de 300 m do endereço (com a precisão do GPS de folga). Sem a posição
+  (APK de hoje) vale como antes e fica na auditoria (`entregue_sem_conferir_local`). **APK do entregador:** o
+  "Entregue" manda a posição do toque, também pela fila sem internet (`pedido_screen.dart`, `api.dart`, `outbox.dart`)
+  — acumular; gerar só sob comando. Nada no `.zip`.
+
 - **Código de entrega opcional por loja (Onda 0, 01/11, mig 348 — NÃO só-nuvem: VAI NO `.zip`).** Ajuste "Usar o
   código de entrega" em Delivery › Configurações › Cardápio digital › Entrega (ligado de padrão). Na nuvem, no ar com o
   merge: o pedido do cardápio, do robô e o feito no painel da nuvem nascem sem código quando a loja desliga. **Na loja,

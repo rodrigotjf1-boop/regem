@@ -5,8 +5,11 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
+import { AuditoriaService } from '../auditoria/auditoria.service';
+import { localInformado, longeDoEndereco, textoDeLonge } from './local-da-entrega';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { createHash } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -38,6 +41,8 @@ export class EntregadorService {
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly delivery: DeliveryService,
     private readonly cliente: ClienteService,
+    // A entrega sem código que não deu para conferir pelo local fica na auditoria. Opcional: os testes montam sem ela.
+    @Optional() private readonly auditoria?: AuditoriaService,
   ) {}
 
   private ehEntregador(user: AuthUser): boolean {
@@ -205,7 +210,7 @@ export class EntregadorService {
 
   // Finaliza a entrega. Com código (marketplace de entrega própria) valida no canal;
   // sem código, conclui direto (cardápio nativo). Reusa a lógica do DeliveryService.
-  async finalizar(user: AuthUser, id: string, codigo?: string) {
+  async finalizar(user: AuthUser, id: string, codigo?: string, local?: unknown) {
     if (!this.ehEntregador(user)) throw new ForbiddenException('Apenas entregadores.');
     const cod = String(codigo ?? '').trim();
     // Carrega o que decide a regra do código (escopo tenant).
@@ -246,11 +251,44 @@ export class EntregadorService {
       if (cod !== String(ped.codigoEntrega))
         return { ok: false, valid: false, msg: 'Código inválido — confira com o cliente.' };
     }
+    // Entrega própria SEM código (a loja desligou o código, mig 348): o "entregue" só vale perto do endereço. Só no
+    // pedido a caminho — o reenvio da fila sem internet de um pedido já entregue não é conferido de novo.
+    if (modo === 'propria_loja' && !ped.codigoEntrega && ped.status === 'despachado')
+      await this.conferirLocalDaEntrega(user, id, local);
     // Marca ENTREGUE (aguarda a conferência do atendente no Painel, que finaliza → concluído).
     await this.delivery.marcarEntregue(user.tenantId, user.colaboradorId, id);
     // Regra do usuário: só agora (parada entregue) o cliente da PRÓXIMA parada recebe o link.
     await this.avancarSaida(user.tenantId, id).catch(() => {});
     return { ok: true, valid: true };
+  }
+
+  /**
+   * O "Entregue" do pedido sem código: a posição do toque (o app manda; a fila sem internet guarda a do toque) tem de
+   * estar perto do endereço do pedido (`local-da-entrega.ts`). Longe: recusa com a distância. Sem posição (app antigo,
+   * GPS desligado) ou endereço sem coordenadas: vale como antes, e fica na auditoria que não deu para conferir.
+   */
+  private async conferirLocalDaEntrega(user: AuthUser, id: string, local: unknown): Promise<void> {
+    const pos = localInformado(local);
+    const r: any = await this.db.execute(sql`select * from pedido_externo where id = ${id}::uuid and tenant_id = ${user.tenantId}::uuid`);
+    const p = (r?.rows ?? r ?? [])[0];
+    const destino = pos && p ? await this.coordDoPedido(user.tenantId, p).catch(() => null) : null;
+    if (pos && destino) {
+      const dist = this.distanciaM(pos.lat, pos.lng, destino.lat, destino.lng);
+      if (longeDoEndereco(dist, pos.precisao)) throw new BadRequestException(textoDeLonge(dist));
+      return;
+    }
+    await this.auditoria?.registrar({
+      tenantId: user.tenantId,
+      unidadeId: p?.unidade_id ?? null,
+      atorId: user.colaboradorId,
+      atorPerfil: user.categoria,
+      tipo: 'delivery',
+      acao: 'entregue_sem_conferir_local',
+      entidadeTipo: 'pedido_externo',
+      entidadeId: id,
+      detalhe: { motivo: pos ? 'o endereço do pedido não tem coordenadas' : 'o app não mandou a posição' },
+      origem: 'app_entregador',
+    });
   }
 
   // ===== FILA DE ENTREGADORES (Frente 2) — por unidade =====

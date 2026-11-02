@@ -16,7 +16,7 @@ void main() {
     await guardar('p1', codigo: '5107');
     await guardar('p2', codigo: '1234');
     final r = await Outbox.flush(
-      enviar: (id, cod) async => id == 'p1' ? {'ok': true, 'valid': true} : {'ok': true, 'valid': true, 'jaFeito': true},
+      enviar: (id, cod, local) async => id == 'p1' ? {'ok': true, 'valid': true} : {'ok': true, 'valid': true, 'jaFeito': true},
     );
     expect(r.confirmadas, 2);
     expect(r.recusadas, isEmpty);
@@ -26,7 +26,7 @@ void main() {
   test('200 com valid:false (código errado na 99) volta como RECUSADA com o motivo — não como entregue', () async {
     await guardar('p7', codigo: '0000');
     final r = await Outbox.flush(
-      enviar: (id, cod) async => {'ok': false, 'valid': false, 'msg': 'Código não aceito pela 99Food'},
+      enviar: (id, cod, local) async => {'ok': false, 'valid': false, 'msg': 'Código não aceito pela 99Food'},
     );
     expect(r.confirmadas, 0);
     expect(r.recusadas, hasLength(1));
@@ -39,7 +39,7 @@ void main() {
     for (final id in ['p1', 'p2', 'p3', 'p4', 'p5']) {
       await guardar(id, codigo: '1');
     }
-    final r = await Outbox.flush(enviar: (id, cod) async {
+    final r = await Outbox.flush(enviar: (id, cod, local) async {
       switch (id) {
         case 'p1':
           throw const ApiErro(400, 'O pedido precisa estar em rota para confirmar a entrega com o código.');
@@ -62,10 +62,34 @@ void main() {
     await guardar('p9', codigo: '1111');
     await guardar('p9', codigo: '2222');
     final enviados = <String?>[];
-    await Outbox.flush(enviar: (id, cod) async {
+    await Outbox.flush(enviar: (id, cod, local) async {
       enviados.add(cod);
       return {'ok': true, 'valid': true};
     });
     expect(enviados, ['2222']);
+  });
+
+  // Pedido sem código (a loja desligou o código — mig 348): o servidor confere se o "Entregue" foi tocado perto do
+  // endereço. A fila guarda a posição DO TOQUE e a reenvia — não a de onde o entregador está quando o sinal volta.
+  test('a posição do toque vai junto ao reenviar; pedido sem posição vai sem', () async {
+    await Outbox.enfileirar('p5', null, numero: '5', local: {'lat': -22.9, 'lng': -43.2, 'precisao': 12.0});
+    await Outbox.enfileirar('p6', null, numero: '6');
+    final enviados = <String, Map<String, dynamic>?>{};
+    final r = await Outbox.flush(enviar: (id, cod, local) async {
+      enviados[id] = local;
+      return {'ok': true, 'valid': true};
+    });
+    expect(r.confirmadas, 2);
+    expect(enviados['p5'], {'lat': -22.9, 'lng': -43.2, 'precisao': 12.0});
+    expect(enviados['p6'], isNull);
+  });
+
+  test('longe do endereço é recusa: sai da fila e o entregador é avisado com a distância', () async {
+    await Outbox.enfileirar('p8', null, numero: '8', local: {'lat': -22.911, 'lng': -43.2});
+    final r = await Outbox.flush(
+      enviar: (id, cod, local) async => throw const ApiErro(400, 'Você está a 1,2 km do endereço do cliente.'),
+    );
+    expect(r.recusadas.single['motivo'], contains('1,2 km'));
+    expect(await Outbox.pendentes(), 0);
   });
 }

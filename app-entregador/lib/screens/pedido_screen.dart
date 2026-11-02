@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:crypto/crypto.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../api.dart';
+import '../location.dart';
 import '../outbox.dart';
 import 'rota_screen.dart';
 
@@ -178,6 +179,17 @@ class _PedidoScreenState extends State<PedidoScreen> {
     return sha256.convert(utf8.encode(code)).toString() == hash;
   }
 
+  // Pedido da loja SEM código (a loja desligou o código — mig 348): o servidor confere se o "Entregue" foi tocado perto
+  // do endereço. Vai a posição DO TOQUE (também para a fila sem internet). Sem GPS, vai sem — o servidor aceita e anota.
+  bool get _confereLocal => !_precisaCodigo && widget.pedido['modoEntrega'] == 'propria_loja';
+
+  Future<Map<String, dynamic>?> _localDoToque() async {
+    if (!_confereLocal) return null;
+    final p = await LocationSender.posicaoAtual();
+    if (p == null) return null;
+    return {'lat': p.latitude, 'lng': p.longitude, 'precisao': p.accuracy};
+  }
+
   void _aviso(String msg, {bool erro = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg), backgroundColor: erro ? Colors.red : null),
@@ -202,8 +214,9 @@ class _PedidoScreenState extends State<PedidoScreen> {
     }
     setState(() => _finalizando = true);
     final id = widget.pedido['id'] as String;
+    final local = await _localDoToque();
     try {
-      final r = await Api.finalizar(id, codigo: _precisaCodigo ? code : null);
+      final r = await Api.finalizar(id, codigo: _precisaCodigo ? code : null, local: local);
       if (!mounted) return;
       if (r['valid'] == false) {
         _aviso(r['msg']?.toString() ?? 'Código inválido.', erro: true);
@@ -215,20 +228,20 @@ class _PedidoScreenState extends State<PedidoScreen> {
     } on ApiErro catch (e) {
       if (!mounted) return;
       // Servidor/canal fora do ar (5xx, 408, 429) conta como falta de conexão; recusa (4xx) não.
-      if (!e.recusa) return _semConexao(id, code);
+      if (!e.recusa) return _semConexao(id, code, local);
       _aviso(e.mensagem, erro: true);
       setState(() => _finalizando = false);
     } catch (e) {
       if (!mounted) return;
       final msg = e.toString();
-      if (Outbox.ehErroDeRede(msg)) return _semConexao(id, code);
+      if (Outbox.ehErroDeRede(msg)) return _semConexao(id, code, local);
       _aviso(msg.replaceFirst('Exception: ', ''), erro: true);
       setState(() => _finalizando = false);
     }
   }
 
   /// Sem internet: o que pode esperar vai para a fila e conclui aqui; o do iFood, não.
-  Future<void> _semConexao(String id, String code) async {
+  Future<void> _semConexao(String id, String code, Map<String, dynamic>? local) async {
     if (_conferencia == 'online') {
       _aviso(
         'Sem internet — o código do iFood só é conferido online. Tente de novo quando o sinal voltar.',
@@ -242,6 +255,7 @@ class _PedidoScreenState extends State<PedidoScreen> {
       _precisaCodigo ? code : null,
       numero: widget.pedido['numero'],
       canal: _codigoDoCanal,
+      local: local,
     );
     if (!mounted) return;
     _aviso(_conferencia == 'depois'
