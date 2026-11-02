@@ -9,29 +9,39 @@ import { NO_SERVIDOR_DA_LOJA, SoPelaNuvem } from '@/components/ui/so-pela-nuvem'
 import { texto2 } from '@/components/ui/lista';
 import { MOTIVO_REEMBOLSO_99 } from '@/components/atendimento/pedido-99';
 
-// AJUSTES DO ATENDIMENTO — Delivery › Configurações › Operação › Atendimento (Onda 1, PR 3; protótipo
-// `mockups/regem-central-atendimento.html`, vista "ajustes"). Por enquanto, o grupo da 99 (o que o Regem faz com o pedido
-// de cancelamento e de reembolso do cliente). Os grupos da fila e do iFood entram com o que eles ligam (PRs seguintes) —
-// nenhum ajuste aparece antes de valer. Os ajustes ficam na integração da 99, que mora só na NUVEM: no servidor da loja a
-// tela só explica. Só gerente e presidente mudam (o servidor confere).
+// AJUSTES DO ATENDIMENTO — Delivery › Configurações › Operação › Atendimento (protótipo
+// `mockups/regem-central-atendimento.html`, vista "ajustes"). Dois grupos:
+//  • "Fila e avisos" (Onda 2, mig 353): avisar o gerente se ninguém pegar o caso; dizer ao cliente a posição na fila.
+//    Ficam na `robo_config` da empresa — sempre aparecem.
+//  • "99Food · pedidos do cliente" (Onda 1): o que o Regem faz com o pedido de cancelamento e de reembolso do cliente.
+//    Ficam na integração da 99 — só aparecem com a 99 conectada.
+// Nenhum ajuste aparece antes de valer ("Som do aviso no computador" e o grupo do iFood ainda não existem). Tudo mora só
+// na NUVEM: no servidor da loja a tela só explica. Só gerente e presidente mudam (o servidor confere).
 
 const HORAS_PADRAO = [1, 2, 4, 8, 12, 20];
+const MINUTOS_PADRAO = [0, 2, 3, 5, 10];
+/** As chaves do grupo "Fila e avisos" (o resto é da 99). */
+const DA_FILA = ['avisarGerenteMin', 'dizerPosicao'];
 
 type Resposta = {
   conectado99: boolean;
   ajuste99: { decidirCancelamento: boolean; reembolsoRecusarEmHoras: number; reembolsoMotivo: string; reembolsoExplicacao: string } | null;
   horasPermitidas?: number[];
+  fila?: { avisarGerenteMin: number; dizerPosicao: boolean };
+  minutosDoAviso?: number[];
 };
 
-const paraValores = (r: Resposta): Valores =>
-  r.ajuste99
+const paraValores = (r: Resposta): Valores => ({
+  ...(r.fila ? { avisarGerenteMin: String(r.fila.avisarGerenteMin), dizerPosicao: r.fila.dizerPosicao } : {}),
+  ...(r.ajuste99
     ? {
         decidirCancelamento: r.ajuste99.decidirCancelamento,
         reembolsoRecusarEmHoras: String(r.ajuste99.reembolsoRecusarEmHoras),
         reembolsoMotivo: r.ajuste99.reembolsoMotivo,
         reembolsoExplicacao: r.ajuste99.reembolsoExplicacao,
       }
-    : {};
+    : {}),
+});
 
 export function AjustesDoAtendimento() {
   const [podeMudar, setPodeMudar] = useState<boolean | null>(null);
@@ -63,62 +73,91 @@ export function AjustesDoAtendimento() {
   }, []);
 
   const horas = resp?.horasPermitidas?.length ? resp.horasPermitidas : HORAS_PADRAO;
+  const minutos = resp?.minutosDoAviso?.length ? resp.minutosDoAviso : MINUTOS_PADRAO;
   const motivoSalvo = String(salvos.reembolsoMotivo ?? '');
   const opcoesMotivo = Object.entries(MOTIVO_REEMBOLSO_99).map(([v, rotulo]) => ({ v, rotulo }));
   if (motivoSalvo && !opcoesMotivo.some((o) => o.v.toLowerCase() === motivoSalvo.toLowerCase())) opcoesMotivo.push({ v: motivoSalvo, rotulo: motivoSalvo });
 
-  const grupos: GrupoDeAjustes[] = [
-    {
-      titulo: '99Food · pedidos do cliente',
-      nota: 'Quem responde aos pedidos da 99 na tela Atendimento: gerente e presidente, com a senha.',
-      itens: [
-        {
-          id: 'decidirCancelamento',
-          rotulo: 'Cancelamento pedido pelo cliente: decidir na fila',
-          tipo: 'chave',
-          ajuda: valores.decidirCancelamento
-            ? 'Ligado (padrão): o pedido vira caso na fila; se ninguém responder em 5 min, a 99 recusa sozinha (regra da 99).'
-            : 'Desligado: o Regem aceita o cancelamento na hora e o caso aparece em "Resolvidos hoje".',
-          palavras: '99 cancelamento fila',
-        },
-        {
-          id: 'reembolsoRecusarEmHoras',
-          rotulo: 'Reembolso pedido pelo cliente: o Regem recusa se ninguém responder em',
-          tipo: 'selecao',
-          opcoes: horas.map((h) => ({ v: String(h), rotulo: `${h} h` })),
-          ajuda: 'O pedido vira caso na fila, com as fotos do cliente. Sem o Regem, a 99 reembolsa sozinha em 24 h.',
-          palavras: '99 reembolso tempo horas',
-        },
-        {
-          id: 'reembolsoMotivo',
-          rotulo: 'Motivo da recusa automática do reembolso',
-          tipo: 'selecao',
-          opcoes: opcoesMotivo,
-          ajuda: 'Da lista da 99. Se o motivo não vier na lista do pedido, vai "Outro".',
-          palavras: '99 reembolso motivo',
-        },
-        {
-          id: 'reembolsoExplicacao',
-          rotulo: 'Explicação que a 99 recebe',
-          tipo: 'texto',
-          opcional: true,
-          maximo: 200,
-          ajuda: 'Vai junto com o motivo da recusa automática.',
-          palavras: '99 reembolso explicação texto',
-        },
-      ],
-    },
-  ];
+  const grupoDaFila: GrupoDeAjustes = {
+    titulo: 'Fila e avisos',
+    itens: [
+      {
+        id: 'avisarGerenteMin',
+        rotulo: 'Avisar o gerente se ninguém pegar o caso em',
+        tipo: 'selecao',
+        opcoes: minutos.map((m) => ({ v: String(m), rotulo: m === 0 ? 'Não avisar' : `${m} min` })),
+        ajuda:
+          'O aviso vai para o app de atendimento de quem é gerente ou presidente. Vale para o caso que espera uma pessoa; disputa do iFood e pedido da 99 já chegam com o prazo da plataforma.',
+        palavras: 'aviso gerente tempo minutos fila ninguém pegou',
+      },
+      {
+        id: 'dizerPosicao',
+        rotulo: 'Dizer ao cliente a posição na fila',
+        tipo: 'chave',
+        ajuda: 'No WhatsApp, o robô responde "Você é o 2º da fila". Nunca promete tempo. Só onde a loja pode escrever ao cliente.',
+        palavras: 'posição fila robô whatsapp cliente',
+      },
+    ],
+  };
+  const grupoDa99: GrupoDeAjustes = {
+    titulo: '99Food · pedidos do cliente',
+    nota: 'Quem responde aos pedidos da 99 na tela Atendimento: gerente e presidente — no computador com a senha, no app com o PIN.',
+    itens: [
+      {
+        id: 'decidirCancelamento',
+        rotulo: 'Cancelamento pedido pelo cliente: decidir na fila',
+        tipo: 'chave',
+        ajuda: valores.decidirCancelamento
+          ? 'Ligado (padrão): o pedido vira caso na fila; se ninguém responder em 5 min, a 99 recusa sozinha (regra da 99).'
+          : 'Desligado: o Regem aceita o cancelamento na hora e o caso aparece em "Resolvidos hoje".',
+        palavras: '99 cancelamento fila',
+      },
+      {
+        id: 'reembolsoRecusarEmHoras',
+        rotulo: 'Reembolso pedido pelo cliente: o Regem recusa se ninguém responder em',
+        tipo: 'selecao',
+        opcoes: horas.map((h) => ({ v: String(h), rotulo: `${h} h` })),
+        ajuda: 'O pedido vira caso na fila, com as fotos do cliente. Sem o Regem, a 99 reembolsa sozinha em 24 h.',
+        palavras: '99 reembolso tempo horas',
+      },
+      {
+        id: 'reembolsoMotivo',
+        rotulo: 'Motivo da recusa automática do reembolso',
+        tipo: 'selecao',
+        opcoes: opcoesMotivo,
+        ajuda: 'Da lista da 99. Se o motivo não vier na lista do pedido, vai "Outro".',
+        palavras: '99 reembolso motivo',
+      },
+      {
+        id: 'reembolsoExplicacao',
+        rotulo: 'Explicação que a 99 recebe',
+        tipo: 'texto',
+        opcional: true,
+        maximo: 200,
+        ajuda: 'Vai junto com o motivo da recusa automática.',
+        palavras: '99 reembolso explicação texto',
+      },
+    ],
+  };
+  const grupos: GrupoDeAjustes[] = [grupoDaFila, ...(resp?.conectado99 ? [grupoDa99] : [])];
 
   async function salvar() {
     const chaves = alterados(grupos, valores, salvos);
     if (!chaves.length || salvando) return;
     setSalvando(true);
     setErro('');
+    // Cada grupo vai com o seu dono (a fila na configuração do robô, a 99 na integração) — só o que mudou.
+    const fila: Record<string, unknown> = {};
     const ajuste99: Record<string, unknown> = {};
-    for (const k of chaves) ajuste99[k] = k === 'reembolsoRecusarEmHoras' ? Number(valores[k]) : valores[k];
+    for (const k of chaves) {
+      if (DA_FILA.includes(k)) fila[k] = k === 'avisarGerenteMin' ? Number(valores[k]) : valores[k];
+      else ajuste99[k] = k === 'reembolsoRecusarEmHoras' ? Number(valores[k]) : valores[k];
+    }
     try {
-      const r: Resposta = await api.salvarAtendimentoAjustes({ ajuste99 });
+      const r: Resposta = await api.salvarAtendimentoAjustes({
+        ...(Object.keys(fila).length ? { fila } : {}),
+        ...(Object.keys(ajuste99).length ? { ajuste99 } : {}),
+      });
       setResp(r);
       setValores(paraValores(r));
       setSalvos(paraValores(r));
@@ -152,29 +191,30 @@ export function AjustesDoAtendimento() {
         </Button>
       </div>,
     );
-  if (!resp?.conectado99)
-    return cabecalho(
-      <p className={`rounded-lg border border-border px-4 py-3 text-sm ${texto2}`}>
-        A 99 não está conectada nesta empresa. Os ajustes dos pedidos do cliente da 99 aparecem aqui depois de conectar em Delivery ›
-        Configurações › Integrações.
-      </p>,
-    );
 
   return (
-    <Ajustes
-      id="atend-ajustes"
-      titulo="Atendimento"
-      grupos={grupos}
-      valores={valores}
-      salvos={salvos}
-      aoMudar={(k: string, v: Valor) => setValores((s) => ({ ...s, [k]: v }))}
-      aoSalvar={() => void salvar()}
-      aoDescartar={() => {
-        setValores(salvos);
-        setErro('');
-      }}
-      salvando={salvando}
-      erro={erro}
-    />
+    <div className="space-y-3">
+      <Ajustes
+        id="atend-ajustes"
+        titulo="Atendimento"
+        grupos={grupos}
+        valores={valores}
+        salvos={salvos}
+        aoMudar={(k: string, v: Valor) => setValores((s) => ({ ...s, [k]: v }))}
+        aoSalvar={() => void salvar()}
+        aoDescartar={() => {
+          setValores(salvos);
+          setErro('');
+        }}
+        salvando={salvando}
+        erro={erro}
+      />
+      {!resp?.conectado99 && (
+        <p className={`rounded-lg border border-border px-4 py-3 text-sm ${texto2}`}>
+          A 99 não está conectada nesta empresa. Os ajustes dos pedidos do cliente da 99 aparecem aqui depois de conectar em Delivery ›
+          Configurações › Integrações.
+        </p>
+      )}
+    </div>
   );
 }

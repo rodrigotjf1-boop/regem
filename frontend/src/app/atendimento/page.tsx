@@ -20,6 +20,7 @@ import {
   CASO_DA_PLATAFORMA,
   ROTULO_DO_CANAL,
   ROTULO_DO_TIPO,
+  escaladoDe,
   hora,
   relerFila,
   tempoAte,
@@ -356,6 +357,8 @@ function ListaDaFila({
                 {c.situacao === 'aguardando' && (
                   <span className="rounded-full bg-info/15 px-2 py-0.5 text-xs font-bold text-foreground">Aguardando o cliente</span>
                 )}
+                {/* Ninguém pegou no tempo do ajuste (mig 353): o gerente foi avisado. */}
+                {escaladoDe(c) && <span className="rounded-full bg-warn/15 px-2 py-0.5 text-xs font-bold text-foreground">⏰ Gerente avisado</span>}
                 <span className="ml-auto flex items-center gap-2 font-mono text-sm font-bold">
                   {prazo && <span className={prazo === 'venceu' || (c.prazoEm && new Date(c.prazoEm).getTime() - (agora ?? 0) < 120_000) ? 'text-destructive' : 'text-foreground'}>{prazo}</span>}
                   {c.posicao ? <span>{c.posicao}º</span> : null}

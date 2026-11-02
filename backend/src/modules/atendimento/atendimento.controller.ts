@@ -14,6 +14,7 @@ import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AtendimentoService } from './atendimento.service';
 import { DisputaIfoodService, RespostaDaDisputa } from './disputa-ifood.service';
 import { ChatIfoodService } from './chat-ifood.service';
+import { FilaEAvisosService, lerAjusteDaFila, MINUTOS_DO_AVISO } from './fila-e-avisos.service';
 
 // Chamados de atendimento (handoff). Operados por quem está no balcão/gestão.
 @Controller('atendimento')
@@ -25,6 +26,7 @@ export class AtendimentoController {
     private readonly disputa: DisputaIfoodService,
     private readonly pedido99: Pedido99Service,
     private readonly chatIfood: ChatIfoodService,
+    private readonly filaEAvisos: FilaEAvisosService,
   ) {}
 
   // A configuração do CHAT OFICIAL DO iFOOD (o widget da distribuição e as lojas do iFood da empresa). Sem o widget
@@ -43,20 +45,28 @@ export class AtendimentoController {
     return this.pedido99.responder(user, id, dto);
   }
 
-  // Os ajustes do atendimento (a 99: decidir o cancelamento na fila; o tempo e o motivo da recusa automática do
-  // reembolso). Ficam na integração, que mora só na nuvem — no servidor da loja a tela mostra "só pela nuvem".
+  // Os ajustes do atendimento: "Fila e avisos" (mig 353 — avisar o gerente se ninguém pegar o caso; dizer ao cliente a
+  // posição na fila; ficam na `robo_config`) e a 99 (decidir o cancelamento na fila; o tempo e o motivo da recusa
+  // automática do reembolso; ficam na integração). Os dois moram só na nuvem — no servidor da loja a tela mostra "só pela
+  // nuvem".
   @Get('ajustes')
   @CloudOnly()
   @Roles('presidente', 'gerente')
-  ajustes(@CurrentUser() user: AuthUser) {
-    return this.pedido99.ajustes(user.tenantId);
+  async ajustes(@CurrentUser() user: AuthUser) {
+    const [da99, fila] = await Promise.all([this.pedido99.ajustes(user.tenantId), this.filaEAvisos.ajustes(user.tenantId)]);
+    return { ...da99, fila, minutosDoAviso: MINUTOS_DO_AVISO };
   }
 
+  // Cada grupo pelo seu dono, só o que veio. A fila é conferida ANTES de gravar qualquer coisa: um salvar com os dois
+  // grupos não grava a 99 e recusa a fila.
   @Put('ajustes')
   @CloudOnly()
   @Roles('presidente', 'gerente')
-  salvarAjustes(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.pedido99.salvarAjustes(user, dto);
+  async salvarAjustes(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    if (dto?.fila !== undefined) lerAjusteDaFila(dto.fila);
+    if (dto?.ajuste99 !== undefined) await this.pedido99.salvarAjustes(user, dto);
+    if (dto?.fila !== undefined) await this.filaEAvisos.salvar(user, dto.fila);
+    return this.ajustes(user);
   }
 
   // Resposta à DISPUTA do iFood (aceitar, recusar ou propor). Quem decide é a senha: só gerente e presidente (decisão

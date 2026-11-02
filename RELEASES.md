@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **"Fila e avisos": o aviso ao gerente e a posição na fila (Onda 2, parte 2, 02/11, sem migration nova — usa a 353,
+  já na nuvem): nuvem no ar com o merge (a rotina do aviso, os ajustes e a resposta ao robô moram lá); a loja no `.zip`
+  (o selo "⏰ Gerente avisado" e o alerta para o gerente na tela Atendimento — a marca desce com o caso pelo
+  sincronismo; a aba de ajustes no servidor da loja só explica).**
+
 - **App "Regem Atendimento" — o servidor (Onda 2, parte 1, 02/11, mig 353 @cloud-only — aplicar na nuvem ANTES do
   merge): nuvem no ar com o merge (o app fala com a nuvem: a entrada com PIN, "Disponível / Ocupado" e o PIN de gerente
   na disputa e na 99 moram lá); a loja no `.zip` — e toca o `edge/sync-daemon.mjs` (o celular do app desce da nuvem como

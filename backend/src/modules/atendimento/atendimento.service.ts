@@ -29,6 +29,7 @@ import {
 } from './abrir-chamado';
 import { canalDoCaso, posicoes, situacaoDo } from './fila';
 import { PRESENCA_VALE_MIN } from './presenca';
+import { FilaEAvisosService } from './fila-e-avisos.service';
 import { ehServidorLocal } from '../../common/modo';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -57,6 +58,8 @@ export class AtendimentoService {
     private readonly delivery: DeliveryService,
     // Quem passou o caso para quem fica na auditoria. Opcional: os testes montam o serviço sem ela.
     @Optional() private readonly auditoria?: AuditoriaService,
+    // O ajuste "Dizer ao cliente a posição na fila" (mig 353). Opcional: sem ele, o robô recebe a posição (o padrão).
+    @Optional() private readonly filaEAvisos?: FilaEAvisosService,
   ) {}
 
   // Abre um chamado (handoff do robô → humano). Dispara alerta em tempo real.
@@ -75,7 +78,11 @@ export class AtendimentoService {
    * dois — nenhum índice impede; o pior caso é um chamado a mais no painel.
    */
   async abrirPeloRobo(tenantId: string, unidadeId: string | null, dto: DadosDoChamado) {
-    return abrirChamadoPeloRobo(this.db, (ev, p) => this.events.emit(ev, p), tenantId, unidadeId, dto);
+    const r = await abrirChamadoPeloRobo(this.db, (ev, p) => this.events.emit(ev, p), tenantId, unidadeId, dto);
+    // "Dizer ao cliente a posição na fila" desligado (Configurações › Atendimento, mig 353): o robô não recebe o lugar do
+    // cliente — e não o diz. "Já tem alguém com o seu caso" (comAlguem) não é posição: segue.
+    if (r.posicao != null && this.filaEAvisos && !(await this.filaEAvisos.dizPosicao(tenantId))) return { ...r, posicao: null };
+    return r;
   }
 
   // Urgente primeiro (cliente irritado espera menos); dentro de cada grupo, o mais novo em cima — como sempre foi.

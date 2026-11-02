@@ -7,6 +7,7 @@ import { Pedido99Service } from './pedido-99.service';
 import { ChatIfoodService } from './chat-ifood.service';
 import { AtendimentoAppController } from './atendimento-app.controller';
 import { AtendimentoAppService } from './atendimento-app.service';
+import { FilaEAvisosService } from './fila-e-avisos.service';
 import { DeliveryModule } from '../delivery/delivery.module';
 import { IntegracoesModule } from '../integracoes/integracoes.module';
 import { EquipamentoModule } from '../equipamento/equipamento.module';
@@ -21,7 +22,8 @@ import { SyncTokenGuard } from '../sync/sync-token.guard';
   controllers: [AtendimentoController, AtendimentoLojaController, AtendimentoAppController],
   // Pedido99Service: a resposta ao pedido do cliente da 99 e a rotina da nuvem (cancelamento vencido, reembolso recusado).
   // ChatIfoodService: a configuração do chat oficial do iFood (o widget da distribuição e as lojas do iFood).
-  providers: [AtendimentoService, DisputaIfoodService, Pedido99Service, ChatIfoodService, SyncTokenGuard, AtendimentoAppService],
+  // FilaEAvisosService (mig 353): o aviso ao gerente (rotina da nuvem) e os ajustes "Fila e avisos".
+  providers: [AtendimentoService, DisputaIfoodService, Pedido99Service, ChatIfoodService, SyncTokenGuard, AtendimentoAppService, FilaEAvisosService],
   exports: [AtendimentoService],
 })
 export class AtendimentoModule {}
