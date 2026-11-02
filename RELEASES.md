@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Lembrete do pedido que ficou pela metade no robô (Onda 0, 01/11, mig 349 @cloud-only aplicada na nuvem): só
+  nuvem — no ar com o merge, DESLIGADO.** A loja liga em Delivery › Configurações › Robô de atendimento ("Lembrar o
+  cliente do pedido que ficou pela metade"). A rotina da nuvem manda UMA mensagem ao cliente com itens no carrinho do
+  robô parado há 30 min a 3 h, com a loja aberta, a conversa sem atendente e (na oficial) dentro da janela de 24 h. Nada
+  na loja além do cartão novo da configuração, que vai no `.zip` com a tela.
+
 - **O "saiu para entrega" diz quando chega (Onda 0, 01/11): só nuvem — no ar com o merge, sem efeito na loja.** "Chega
   por volta das 20h15" no texto da janela de 24 h e no aviso do cardápio, com a mesma conta da página de rastreio
   (posição ao vivo do entregador, roteiro, OSRM), arredondada para cima em 5 min; sem GPS ao vivo ou sem endereço, o
