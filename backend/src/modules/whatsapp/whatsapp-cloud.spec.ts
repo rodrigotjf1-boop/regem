@@ -440,3 +440,57 @@ describe('WhatsappCloudService — opções com toque e voz (Fase 2)', () => {
     await expect(svc.enviarDocumentoPdf('tenant-1', DE, Buffer.alloc(0), 'x.pdf')).rejects.toThrow('vazio');
   });
 });
+
+// A RESPOSTA AO "ENTREGADOR SEM CONTATO" (Onda 0, 01/11/2026): a regra está em resposta-ao-sem-contato.ts (testada com o
+// Postgres); aqui, a ligação na entrada da API oficial.
+describe('WhatsappCloudService — resposta ao "entregador sem contato"', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const resposta = require('./resposta-ao-sem-contato');
+  afterEach(() => jest.restoreAllMocks());
+
+  it('é a resposta: não vai ao robô — nem com o robô desligado nem com a conversa pausada', async () => {
+    for (const loja of [LOJA, { ...LOJA, roboAtivo: false }, { ...LOJA, roboPausados: [DE] }]) {
+      const { svc, enviados } = comLoja(loja);
+      const visto: any[] = [];
+      (svc as any).respostaAoSemContato = async (...a: any[]) => {
+        visto.push(a);
+        return true;
+      };
+      await svc.processar(evento('Estou descendo'));
+      expect(enviados).toHaveLength(0);
+      expect(visto).toEqual([[expect.objectContaining({ tenantId: 'tenant-1' }), DE, 'Maria', 'Estou descendo']]);
+    }
+  });
+
+  it('não é a resposta: segue o caminho de sempre (o robô recebe)', async () => {
+    const { svc, enviados } = comLoja(LOJA);
+    (svc as any).respostaAoSemContato = async () => false;
+    await svc.processar(evento('quero uma pizza'));
+    expect(enviados).toHaveLength(1);
+  });
+
+  it('a confirmação sai pelo número oficial e fica no pedido; se não sair, o pedido registra a falha', async () => {
+    const { svc } = comLoja(LOJA);
+    jest.spyOn(resposta, 'portaoDaRespostaAoSemContato').mockResolvedValue({ tratou: true, responder: 'Recebido', pedidoId: 'p1' });
+    const registros: any[] = [];
+    jest.spyOn(resposta, 'registrarConfirmacao').mockImplementation(async (...a: any[]) => void registros.push(a.slice(1)));
+    const textos: any[] = [];
+    (svc as any).enviarTexto = async (t: string, para: string, texto: string) => void textos.push({ t, para, texto });
+    expect(await (svc as any).respostaAoSemContato(LOJA, DE, 'Maria', 'oi')).toBe(true);
+    expect(textos).toEqual([{ t: 'tenant-1', para: DE, texto: 'Recebido' }]);
+    expect(registros).toEqual([['tenant-1', 'p1', 'enviado']]);
+
+    registros.length = 0;
+    (svc as any).enviarTexto = async () => {
+      throw new Error('fora da janela');
+    };
+    expect(await (svc as any).respostaAoSemContato(LOJA, DE, 'Maria', 'oi')).toBe(true);
+    expect(registros).toEqual([['tenant-1', 'p1', 'falhou', 'fora da janela']]);
+  });
+
+  it('a conferência falhou (banco fora): a mensagem segue ao robô, como antes', async () => {
+    const { svc } = comLoja(LOJA);
+    jest.spyOn(resposta, 'portaoDaRespostaAoSemContato').mockRejectedValue(new Error('banco fora'));
+    expect(await (svc as any).respostaAoSemContato(LOJA, DE, 'Maria', 'oi')).toBe(false);
+  });
+});

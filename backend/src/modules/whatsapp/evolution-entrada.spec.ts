@@ -157,6 +157,35 @@ describe('entrada pela Evolution — as travas', () => {
     expect(entregas).toHaveLength(0);
   });
 
+  // Onda 0 (01/11/2026): a resposta ao "entregador sem contato" vai à equipe (chamado urgente) e ao entregador, não ao
+  // robô — com o robô ligado ou desligado; a confirmação ao cliente sai pela Evolution e fica no pedido.
+  it('resposta ao "entregador sem contato": não vai ao robô, o cliente recebe a confirmação e o pedido registra', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const resposta = require('./resposta-ao-sem-contato');
+    const portao = jest.spyOn(resposta, 'portaoDaRespostaAoSemContato').mockResolvedValue({ tratou: true, responder: 'Recebido ✅', pedidoId: 'p1' });
+    const registros: any[] = [];
+    const registro = jest.spyOn(resposta, 'registrarConfirmacao').mockImplementation(async (...a: any[]) => void registros.push(a.slice(1)));
+    try {
+      for (const cfg of [LOJA, { ...LOJA, roboAtivo: false }]) {
+        registros.length = 0;
+        const { svc, enviados } = montar(cfg);
+        await svc.processar(aviso(msg('Estou descendo')), 'mister-abc123');
+        expect(enviados).toEqual([{ para: TEL, texto: 'Recebido ✅' }]);
+        expect(registros).toEqual([['t1', 'p1', 'enviado']]);
+      }
+      expect(entregas).toHaveLength(0);
+      expect(portao).toHaveBeenCalledWith(expect.anything(), expect.any(Function), expect.objectContaining({ tenantId: 't1', telefone: TEL, texto: 'Estou descendo' }));
+      // Não é a resposta: segue ao robô.
+      portao.mockResolvedValue({ tratou: false, responder: null });
+      const { svc } = montar(LOJA);
+      await svc.processar(aviso(msg('tem x-bacon?')), 'mister-abc123');
+      expect(entregas).toHaveLength(1);
+    } finally {
+      portao.mockRestore();
+      registro.mockRestore();
+    }
+  });
+
   it('mensagem que vai ao robô: mostra "digitando…" ao cliente (pela instância, para o número dele)', async () => {
     const { svc, digitando } = montar(LOJA);
     await svc.processar(aviso(msg('tem x-bacon?')), 'mister-abc123');
