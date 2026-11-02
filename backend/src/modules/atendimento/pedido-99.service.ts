@@ -21,7 +21,7 @@ import {
   PedidoDoCliente99,
   motivoDaRecusaAutomatica,
 } from '../integracoes/food99/food99-pedido-cliente';
-import { autorizarPorSenhaDeGestor, NIVEIS_DA_PLATAFORMA } from '../../common/autorizacao-gestor';
+import { autorizarPorPinDoUsuario, autorizarPorSenhaDeGestor, NIVEIS_DA_PLATAFORMA } from '../../common/autorizacao-gestor';
 import { ehServidorLocal } from '../../common/modo';
 import { exigirBooleano } from '../../common/exigir';
 
@@ -34,7 +34,7 @@ import { exigirBooleano } from '../../common/exigir';
 // A ROTINA da nuvem (a cada minuto): cancelamento sem resposta no prazo = a 99 recusou sozinha (regra dela, 5 min) — o caso
 // fecha assim; reembolso sem resposta no tempo do ajuste = o REGEM recusa com o motivo do ajuste (decisão do dono, 02/11).
 
-export type RespostaAo99 = { aceita?: unknown; motivo?: string; motivoId?: string; explicacao?: string; senha?: string };
+export type RespostaAo99 = { aceita?: unknown; motivo?: string; motivoId?: string; explicacao?: string; senha?: string; pin?: string };
 
 type Caso99 = { id: string; unidadeId: string | null; status: string; tipo: string; prazoEm: Date | null; detalhe: any };
 
@@ -94,7 +94,10 @@ export class Pedido99Service {
     const c = await this.carregar(user.tenantId, id);
     this.conferirAberto(c);
     montarRespostaAo99(c.detalhe.pedido99, dto ?? {}); // confere antes de pedir a senha
-    const quem = await autorizarPorSenhaDeGestor(this.db, user.tenantId, dto?.senha, NIVEIS_DA_PLATAFORMA);
+    // No computador, a senha de quem decide; no app (mig 353), o PIN de quem está nele.
+    const quem = dto?.pin
+      ? await autorizarPorPinDoUsuario(this.db, user.tenantId, user.colaboradorId, dto.pin, NIVEIS_DA_PLATAFORMA)
+      : await autorizarPorSenhaDeGestor(this.db, user.tenantId, dto?.senha, NIVEIS_DA_PLATAFORMA);
     if (ehServidorLocal()) return this.responderPelaNuvem(user, c, dto, quem);
     return this.enviar(user.tenantId, c, dto, quem, user.colaboradorId ?? null, user.categoria ?? null);
   }
@@ -144,7 +147,7 @@ export class Pedido99Service {
     const nuvem = String(process.env.CLOUD_API ?? '').replace(/\/$/, '');
     const token = process.env.SYNC_TOKEN ?? '';
     if (!nuvem || !token) throw new BadGatewayException('Este servidor não está ligado à nuvem: a resposta à 99 sai de lá.');
-    const { senha: _senha, ...semSenha } = dto ?? {};
+    const { senha: _senha, pin: _pin, ...semSenha } = dto ?? {};
     let res: Response;
     try {
       res = await fetch(`${nuvem}/atendimento/pedido99-da-loja`, {

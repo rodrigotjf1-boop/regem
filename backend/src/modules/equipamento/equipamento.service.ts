@@ -149,6 +149,19 @@ export class EquipamentoService {
     return createHash('sha256').update(v).digest('hex');
   }
 
+  /**
+   * O APP "REGEM ATENDIMENTO" (mig 353) é cadastrado, pareado e revogado só na NUVEM — é com ela que o app fala (decisão
+   * do dono, 02/11/2026: "nuvem agora, loja depois"). No servidor da loja a linha é CÓPIA: desce no pull e não sobe (o
+   * sync-daemon não envia esse tipo), então uma mudança feita aqui ficaria só aqui — e o celular seguiria valendo na nuvem.
+   * Com uma origem só, não há conflito de segredo nem de revogação entre os dois lados.
+   */
+  private recusarAppNaLoja(tipo: string | null | undefined) {
+    if (tipo === 'atendimento' && ehServidorLocal())
+      throw new ForbiddenException(
+        'O app de atendimento só se cadastra e se pareia pela nuvem: abra esta mesma tela no Regem na nuvem. Aqui, no servidor da loja, ele só aparece.',
+      );
+  }
+
   // Código de 6 dígitos, fácil de ditar por telefone no suporte.
   async gerarCodigo(tenantId: string, id: string, atorId: string | null, atorPerfil: string | null, via?: ViaDaAcao) {
     const [alvo] = await this.db
@@ -158,6 +171,7 @@ export class EquipamentoService {
     if (!alvo) throw new NotFoundException('Equipamento não encontrado.');
     // A estação e a tela de senhas pareiam no servidor da loja: o código gerado na nuvem não chega a ele a tempo.
     if (alvo.tipo === 'estacao_impressao' || alvo.tipo === 'tela_senhas') await this.garantirConfigLocal(tenantId, alvo.tipo);
+    this.recusarAppNaLoja(alvo.tipo);
 
     // Evita 0 à esquerda sumindo e colisão com código já pendente de outro PC.
     let codigo = '';
@@ -201,10 +215,11 @@ export class EquipamentoService {
   // nova pareia do zero; a antiga fica inerte (segredo revogado).
   async trocarMaquina(tenantId: string, id: string, atorId: string, atorPerfil: string) {
     const [alvo] = await this.db
-      .select({ id: equipamento.id, nome: equipamento.nome })
+      .select({ id: equipamento.id, nome: equipamento.nome, tipo: equipamento.tipo })
       .from(equipamento)
       .where(and(eq(equipamento.id, id), eq(equipamento.tenantId, tenantId)));
     if (!alvo) throw new NotFoundException('Equipamento não encontrado.');
+    this.recusarAppNaLoja(alvo.tipo);
     let codigo = '';
     for (let i = 0; i < 5; i++) {
       codigo = String(100000 + Math.floor(randomInt(900000)));
@@ -255,6 +270,7 @@ export class EquipamentoService {
     if (row.pareamentoExpiraEm && row.pareamentoExpiraEm.getTime() < Date.now())
       throw new BadRequestException('Código expirado. Gere um novo no Regem.');
     if (row.revogadoEm) throw new BadRequestException('Este equipamento foi revogado.');
+    this.recusarAppNaLoja(row.tipo); // a cópia daqui traz o código da nuvem: o celular pareia lá
     // Código digitado no aparelho errado: recusa SEM gastar (senão troca o segredo do aparelho dono do código) e diz
     // onde ele vale. O caixa e o garçom pareiam pela mesma tela. Quem não manda o tipo (estação antiga) segue aceito.
     if (tipo && !mesmoLugarDeParear(row.tipo, tipo)) {
@@ -338,6 +354,35 @@ export class EquipamentoService {
   }
 
   // Confere o segredo que o PC manda no header. Devolve o equipamento ou null.
+  /**
+   * O CELULAR DO APP "REGEM ATENDIMENTO" (mig 353): confere o segredo do aparelho ANTES de qualquer login (ainda não há
+   * empresa no pedido — ela sai do aparelho). Só o tipo `atendimento`, ativo, não revogado e COM segredo (não existe app
+   * de antes do pareamento). A recusa diz o motivo em `code`, como a do caixa (V70): só `TERMINAL_REVOGADO` faz o app
+   * esquecer o pareamento. Grava o último uso no máximo a cada 5 min.
+   */
+  async aparelhoDeAtendimento(terminalId: unknown, segredo: unknown): Promise<{ id: string; tenantId: string; unidadeId: string | null; nome: string }> {
+    const id = String(terminalId ?? '');
+    const s = String(segredo ?? '');
+    const naoReconhecido = () =>
+      new ForbiddenException({
+        message: 'Este celular não foi reconhecido. Se continuar, gere um código novo em Configurações › Equipamentos e pareie de novo.',
+        code: 'TERMINAL_NAO_RECONHECIDO',
+      });
+    if (!/^[0-9a-f-]{36}$/i.test(id) || !s) throw naoReconhecido();
+    const [row] = await this.db.select().from(equipamento).where(and(eq(equipamento.id, id), eq(equipamento.tipo, 'atendimento')));
+    if (!row) throw naoReconhecido();
+    if (!row.ativo || row.revogadoEm)
+      throw new ForbiddenException({
+        message: 'Este celular foi revogado no Regem. Peça um código novo ao gestor e pareie de novo.',
+        code: 'TERMINAL_REVOGADO',
+      });
+    if (!row.segredoHash || this.hash(s) !== row.segredoHash) throw naoReconhecido();
+    const usadoEm = row.ultimoUsoEm ? new Date(row.ultimoUsoEm as any).getTime() : 0;
+    if (!usadoEm || Date.now() - usadoEm >= USO_GRAVAR_A_CADA_MS)
+      await this.db.update(equipamento).set({ ultimoUsoEm: new Date() }).where(eq(equipamento.id, row.id));
+    return { id: row.id, tenantId: row.tenantId, unidadeId: row.unidadeId ?? null, nome: row.nome };
+  }
+
   async validarSegredo(tenantId: string, terminalId: string, segredo?: string | null) {
     // Id fora do formato (cabeçalho adulterado ou corrompido): recusa sem consultar — o banco recusaria o uuid com 500.
     if (!terminalId || !/^[0-9a-f-]{36}$/i.test(String(terminalId))) return null;
@@ -424,6 +469,7 @@ export class EquipamentoService {
     // impressão também: ela pareia e imprime pelo servidor da loja (mig 324).
     // A tela de senhas também (mig 337): ela mostra a cozinha do servidor da loja e pareia nele.
     if (['impressora', 'kds', 'estacao_impressao', 'tela_senhas'].includes(dto.tipo)) await this.garantirConfigLocal(tenantId, dto.tipo);
+    this.recusarAppNaLoja(dto.tipo);
     if (dto.tipo === 'pdv')
       await garantirImpressoraDaLoja(this.db, tenantId, dto.impressoraPadraoId ?? null, dto.unidadeId ?? null);
     // "Ligada em" (mig 324): a mesma conferência do salvar impressora.
@@ -704,6 +750,7 @@ export class EquipamentoService {
     if (!atual.ativo) throw new BadRequestException('Equipamento revogado não é editado.');
     // Com servidor local ativo, impressora, KDS e tela de senhas são configurados nele (mesma trava do cadastro).
     if (atual.tipo === 'impressora' || atual.tipo === 'kds' || atual.tipo === 'tela_senhas') await this.garantirConfigLocal(tenantId, atual.tipo);
+    this.recusarAppNaLoja(atual.tipo);
 
     const set: { nome?: string; escopo?: string; setorId?: string | null; pdvMainId?: string; proximoKdsId?: null } = {};
     const mudou: Record<string, { de: unknown; para: unknown }> = {};
@@ -765,6 +812,14 @@ export class EquipamentoService {
   }
 
   async revogar(tenantId: string, id: string, atorId: string | null, atorPerfil: string | null, via?: ViaDaAcao) {
+    // No servidor da loja, o app de atendimento só aparece (a revogação dele é na nuvem, onde o celular fala).
+    if (ehServidorLocal()) {
+      const [t] = await this.db
+        .select({ tipo: equipamento.tipo })
+        .from(equipamento)
+        .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, id)));
+      this.recusarAppNaLoja(t?.tipo);
+    }
     const [row] = await this.db
       .update(equipamento)
       // Também derruba o pareamento (mig 142): sem isso o PC revogado continuaria
@@ -809,6 +864,7 @@ export class EquipamentoService {
     if (row.revogadoEm && Date.now() - new Date(row.revogadoEm).getTime() > DIAS_PARA_REATIVAR * 86400000)
       throw new BadRequestException(`Revogado há mais de ${DIAS_PARA_REATIVAR} dias: cadastre o equipamento de novo.`);
     if (['impressora', 'kds', 'estacao_impressao', 'tela_senhas'].includes(row.tipo)) await this.garantirConfigLocal(tenantId, row.tipo);
+    this.recusarAppNaLoja(row.tipo);
     if (row.tipo === 'servidor_local' && !row.integrador) {
       let outro: { nome: string } | undefined;
       try {
@@ -824,7 +880,8 @@ export class EquipamentoService {
       if (outro) throw new ConflictException(`A loja já tem outro servidor da loja em uso ("${outro.nome}"). Reativar este deixaria dois.`);
     }
 
-    const comCodigo = ['pdv', 'salao', 'estacao_impressao', 'tela_senhas'].includes(row.tipo);
+    // O celular do app de atendimento (mig 353) também volta com código: o segredo foi apagado ao revogar.
+    const comCodigo = ['pdv', 'salao', 'estacao_impressao', 'tela_senhas', 'atendimento'].includes(row.tipo);
     let codigo: string | null = null;
     if (comCodigo) {
       for (let i = 0; i < 5 && !codigo; i++) {
@@ -1175,7 +1232,8 @@ export class EquipamentoService {
       agenteMaquina: r.agenteMaquina ?? null, // máquina do agente dona da USB (mig 267)
       estacaoId: r.estacaoId ?? null, // estação de impressão que imprime esta impressora (mig 324)
       // Estação e tela de senhas: já trocaram o código pelo segredo? Separa "nunca pareou" de "pareou e está fora".
-      ...(r.tipo === 'estacao_impressao' || r.tipo === 'tela_senhas' ? { pareado: !!r.segredoHash } : {}),
+      // O celular do app de atendimento (mig 353) também: "esperando o celular" × "pareado".
+      ...(r.tipo === 'estacao_impressao' || r.tipo === 'tela_senhas' || r.tipo === 'atendimento' ? { pareado: !!r.segredoHash } : {}),
       // Estação (parear sem reinstalar, 22/10/2026): QUANDO pareou e QUAL PC (o nome do Windows que ela mandou ao parear).
       // "Novo PC com impressora" mostra as estações que já existem pelo PC e espera o pareamento NOVO (a data muda) — o
       // nome da máquina da batida (`estacao_status`) não volta da nuvem numa reinstalação do servidor; este volta.

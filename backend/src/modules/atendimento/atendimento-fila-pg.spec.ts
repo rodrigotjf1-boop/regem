@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
@@ -5,6 +7,7 @@ import * as schema from '../../db/schema';
 import { AtendimentoService } from './atendimento.service';
 import { abrirChamadoPeloRobo, clienteRespondeu } from './abrir-chamado';
 import { compararNaFila } from './fila';
+import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -15,6 +18,10 @@ const descrever = URL_PG ? describe : describe.skip;
 if (!URL_PG) console.warn('atendimento-fila-pg.spec: sem TEST_PG_URL — PULADO');
 
 jest.setTimeout(60_000);
+
+// A equipe do "Passar" lê a situação do app de atendimento (mig 353), que mora só na nuvem: o teste aplica as migrations
+// (o banco do CI é o de uma loja — ERR-329).
+const MIG = (arq: string) => join(__dirname, '../../../../database/migrations', arq);
 
 descrever('fila da central de atendimento (Postgres)', () => {
   let pool: Pool;
@@ -57,9 +64,26 @@ descrever('fila da central de atendimento (Postgres)', () => {
     return id as string;
   };
 
+  const aplicar = (arq: string) =>
+    repetirNaCorridaDeCatalogo(async () => {
+      const c = await pool.connect();
+      try {
+        await c.query('begin');
+        await c.query(readFileSync(MIG(arq), 'utf8'));
+        await c.query('commit');
+      } catch (e) {
+        await c.query('rollback').catch(() => {});
+        throw e;
+      } finally {
+        c.release();
+      }
+    });
+
   beforeAll(async () => {
+    delete process.env.EDGE_MODE; // como NUVEM
     pool = new Pool({ connectionString: URL_PG });
     db = drizzle(pool, { schema });
+    for (const m of ['342_robo_pausa_e_config.sql', '353_app_atendimento.sql']) await aplicar(m);
     svc = new AtendimentoService(db, { emit: emitir } as any, {} as any, { registrar: async (e: any) => void auditoria.push(e) } as any);
     await q(`insert into empresa (id, nome) values ($1, 'teste fila de atendimento')`, [T]);
     [{ id: lojaA }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja A') returning id`, [T]);
@@ -229,7 +253,17 @@ descrever('fila da central de atendimento (Postgres)', () => {
       expect(await nomes(lojaA)).toEqual(['Ana', 'Bruno']); // Carla está bloqueada; Davi é da loja B
       expect(await nomes(null)).toEqual(['Ana', 'Bruno', 'Davi da B']);
       expect((await svc.equipe(gerente(), null)).find((p: any) => p.eu)?.nome).toBe('Ana');
+      // Quem está no app agora vem com a situação ("Bruno · ocupado: caixa"); quem parou de avisar há mais de 3 min, não.
+      expect((await svc.equipe(gerente(), lojaA)).every((p: any) => p.presenca === null)).toBe(true);
+      await q(
+        `insert into atendimento_presenca (colaborador_id, tenant_id, estado, motivo, atualizado_em)
+         values ($1, $3, 'ocupado', 'caixa', now()), ($2, $3, 'disponivel', null, now() - interval '4 minutes')`,
+        [bruno, ana, T],
+      );
+      const porNome = Object.fromEntries((await svc.equipe(gerente(), lojaA)).map((p: any) => [p.nome, p.presenca]));
+      expect(porNome).toEqual({ Ana: null, Bruno: { estado: 'ocupado', motivo: 'caixa' } });
     } finally {
+      await q(`delete from atendimento_presenca where tenant_id = $1`, [T]);
       await q(`delete from colaborador where id = $1`, [daB]);
     }
   });

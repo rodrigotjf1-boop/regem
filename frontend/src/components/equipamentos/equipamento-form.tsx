@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Gaveta } from '@/components/ui/sobreposto';
 import { texto2 } from '@/components/ui/lista';
+import { NO_SERVIDOR_DA_LOJA } from '@/components/ui/so-pela-nuvem';
 import { ESCOPOS, ETAPAS, TIPOS, daLoja, ehGogem } from './equipamento';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -92,6 +93,7 @@ export function EquipamentoForm({
 
   const [pdv, salao, kds, imp] = [f.tipo === 'pdv', f.tipo === 'salao', f.tipo === 'kds', f.tipo === 'impressora'];
   const estacao = f.tipo === 'estacao_impressao';
+  const atendimento = f.tipo === 'atendimento'; // o celular do app "Regem Atendimento" (mig 353)
   const local = f.conexao === 'local';
   const etiqueta = !!item?.fazEtiqueta;
   const travadoPeloServidor = novo && peloServidorLocal && (kds || imp || estacao);
@@ -239,7 +241,8 @@ export function EquipamentoForm({
         <div className="space-y-1.5">
           <Label htmlFor="eq-tipo">Tipo</Label>
           <Select id="eq-tipo" value={f.tipo} onChange={(e) => muda({ tipo: e.target.value })} disabled={!novo}>
-            {TIPOS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+            {/* O app de atendimento (mig 353) se cadastra só pela nuvem: no servidor da loja ele não é oferecido. */}
+            {TIPOS.filter((t) => !(novo && NO_SERVIDOR_DA_LOJA && t.value === 'atendimento')).map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
             {!TIPOS.some((t) => t.value === f.tipo) && <option value={f.tipo}>{f.tipo}</option>}
           </Select>
           {!novo && <p className={ajuda}>O tipo não muda depois do cadastro.</p>}
@@ -251,7 +254,7 @@ export function EquipamentoForm({
         )}
         <div className="space-y-1.5">
           <Label htmlFor="eq-nome">Nome</Label>
-          <Input id="eq-nome" data-foco-inicial value={f.nome} maxLength={80} onChange={(e) => muda({ nome: e.target.value })} placeholder={estacao ? 'Ex.: Estação Delivery' : 'Ex.: Terminal do balcão'} autoComplete="off" />
+          <Input id="eq-nome" data-foco-inicial value={f.nome} maxLength={80} onChange={(e) => muda({ nome: e.target.value })} placeholder={estacao ? 'Ex.: Estação Delivery' : atendimento ? 'Ex.: Celular do balcão' : 'Ex.: Terminal do balcão'} autoComplete="off" />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="eq-unidade">Unidade</Label>
@@ -262,6 +265,14 @@ export function EquipamentoForm({
           </Select>
           {!novo && <p className={ajuda}>A unidade não muda depois do cadastro.</p>}
         </div>
+
+        {atendimento && (
+          <p className={`rounded-md bg-secondary px-3 py-2 text-sm ${texto2}`}>
+            O celular com o app <b>Regem Atendimento</b>: a fila do atendimento no bolso. Depois de cadastrar, aparece o código: abra o app no
+            celular e digite o código na tela “Primeira vez neste aparelho”. Depois, cada pessoa entra com o PIN dela (o mesmo do ponto) e
+            atende a fila da loja escolhida acima.
+          </p>
+        )}
 
         {estacao && (
           <p className={`rounded-md bg-secondary px-3 py-2 text-sm ${texto2}`}>
