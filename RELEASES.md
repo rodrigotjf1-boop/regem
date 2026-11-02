@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Central de atendimento — a tela "Atendimento" e o sino em todas as telas (Onda 1, PR 1b, 02/11, sem migration): nuvem
+  no ar com o merge; a loja no `.zip` (a tela e a rota `GET atendimento/equipe`).** Item novo no menu; o alerta (aviso e
+  bipe) passa a valer em todas as telas; o sino do painel do Delivery abre a tela nova e o painel de chamados antigo saiu
+  (a decisão do cancelamento foi junto, igual). Precisa da mig 350 (PR 1a), que vai no mesmo `.zip`.
+
 - **Central de atendimento — a fila no servidor (Onda 1, PR 1a, 02/11, mig 350 NÃO só-nuvem, aplicada na nuvem antes do
   merge): nuvem no ar com o merge; a loja no `.zip` — e toca o `edge/sync-daemon.mjs`, então instalação NOVA pede o `.exe`
   do mesmo corte.** O chamado ganha responsável, "aguardando o cliente", canal e prazo; rotas da fila (`GET

@@ -1166,6 +1166,15 @@ export const api = {
   edgeRestaurarStatus: () => req('/edge/restaurar/status'),
   edgeRestaurar: () => req('/edge/restaurar', { method: 'POST', body: '{}' }),
   atendimentos: () => req('/atendimento'),
+  // Central de atendimento (Onda 1): a fila da loja em uso, os resolvidos de hoje, a equipe do "Passar" e as ações do caso.
+  atendimentoFila: () => req('/atendimento/fila'),
+  atendimentoResolvidos: () => req('/atendimento/fila/resolvidos'),
+  atendimentoEquipe: () => req('/atendimento/equipe'),
+  atendimentoPegar: (id: string) => req(`/atendimento/${id}/pegar`, { method: 'POST', body: '{}' }),
+  atendimentoPassar: (id: string, para: string | null) =>
+    req(`/atendimento/${id}/passar`, { method: 'POST', body: JSON.stringify({ para }) }),
+  atendimentoAguardar: (id: string, aguardando: boolean) =>
+    req(`/atendimento/${id}/aguardar`, { method: 'POST', body: JSON.stringify({ aguardando }) }),
   resolverAtendimento: (id: string) =>
     req(`/atendimento/${id}/resolver`, { method: 'POST', body: '{}' }),
   decidirCancelamento: (
