@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Código de entrega opcional por loja (Onda 0, 01/11, mig 348 — NÃO só-nuvem: VAI NO `.zip`).** Ajuste "Usar o
+  código de entrega" em Delivery › Configurações › Cardápio digital › Entrega (ligado de padrão). Na nuvem, no ar com o
+  merge: o pedido do cardápio, do robô e o feito no painel da nuvem nascem sem código quando a loja desliga. **Na loja,
+  só com o `.zip`:** a migration 348 (coluna + gatilho no banco da loja — o pedido feito no painel da loja passa a
+  respeitar o ajuste; até lá ele nasce com código) e a tela com o item "Entrega". O sync ignora a coluna nova na loja
+  até a migration chegar (filtra pelas colunas locais).
+
 - **Código de entrega lembrado no "saiu", no "chegando" e no "sem contato" (Onda 0, 01/11): só nuvem — no ar com o
   merge, sem efeito na loja.** Na loja, o aviso já é pedido à nuvem, que monta o texto. Os modelos da Meta não levam o
   código (a Meta reprova modelo de utilidade com código de verificação). Sem migration.

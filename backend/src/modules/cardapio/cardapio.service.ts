@@ -4,9 +4,12 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
   UnauthorizedException,
 } from '@nestjs/common';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
+import { exigirBooleano } from '../../common/exigir';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 import { palavrasDe } from './robo-busca';
 import { opcaoForaDeVenda } from './opcao-fora-de-venda';
 import { and, desc, eq, gte, ilike, inArray, isNull, lt, or, sql } from 'drizzle-orm';
@@ -133,6 +136,8 @@ export class CardapioService {
     private readonly cashback: CashbackService,
     private readonly events: EventEmitter2,
     private readonly flash: EdgeFlashSyncService,
+    // Quem ligou ou desligou o código de entrega fica na auditoria (mig 348). Opcional: os testes montam sem ela.
+    @Optional() private readonly auditoria?: AuditoriaService,
   ) {}
 
   // ===== Gestão do cardápio: auto-pausa por esgotamento de estoque =====
@@ -493,7 +498,7 @@ export class CardapioService {
     'endReferencia', 'endComplemento', 'endLat', 'endLng',
   ];
 
-  async setConfig(tenantId: string, unidadeId: string | null, dto: any, atorCategoria = 'presidente') {
+  async setConfig(tenantId: string, unidadeId: string | null, dto: any, atorCategoria = 'presidente', atorId: string | null = null) {
     // Não-presidente não altera os dados da loja: ignora esses campos (mantém o atual).
     if (atorCategoria !== 'presidente') {
       for (const k of CardapioService.CAMPOS_LOJA) delete dto[k];
@@ -551,6 +556,11 @@ export class CardapioService {
         dto.fidelidadeIntervaloHoras != null
           ? Math.max(0, Math.floor(Number(dto.fidelidadeIntervaloHoras) || 0))
           : row?.fidelidadeIntervaloHoras ?? 3,
+      // Código de entrega (mig 348): ausente mantém (V16); só sim ou não (V15) — "false" em texto não pode virar "sim".
+      usarCodigoEntrega:
+        dto.usarCodigoEntrega != null
+          ? exigirBooleano(dto.usarCodigoEntrega, 'usarCodigoEntrega')
+          : row?.usarCodigoEntrega ?? true,
       // Modo Encomenda (mig 186) — opt-in + regras de data futura.
       encomendaAtiva:
         dto.encomendaAtiva != null ? !!dto.encomendaAtiva : row?.encomendaAtiva ?? false,
@@ -664,6 +674,21 @@ export class CardapioService {
       vals.token = randomBytes(6).toString('hex'); // 12 chars
       await this.db.insert(cardapioConfig).values({ tenantId, unidadeId, ...vals });
     }
+    // Ligar ou desligar o código de entrega muda a conferência da entrega: quem mudou fica na auditoria.
+    const codigoAntes = row?.usarCodigoEntrega ?? true;
+    if (vals.usarCodigoEntrega !== codigoAntes)
+      await this.auditoria?.registrar({
+        tenantId,
+        unidadeId,
+        atorId,
+        atorPerfil: atorCategoria,
+        tipo: 'delivery',
+        acao: vals.usarCodigoEntrega ? 'ligou_codigo_entrega' : 'desligou_codigo_entrega',
+        entidadeTipo: 'cardapio_config',
+        entidadeId: row?.id ?? null,
+        detalhe: { de: codigoAntes, para: vals.usarCodigoEntrega },
+        origem: 'web',
+      });
     return this.getConfig(tenantId, unidadeId);
   }
 

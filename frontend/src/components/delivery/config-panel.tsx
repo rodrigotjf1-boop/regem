@@ -16,6 +16,7 @@ import { FidelidadePanel } from '@/components/delivery/fidelidade-panel';
 import { CashbackPanel } from '@/components/delivery/cashback-panel';
 import { EventosPanel } from '@/components/delivery/eventos-panel';
 import { NumerosWhatsapp } from '@/components/delivery/numeros-whatsapp';
+import { CodigoEntregaAjuste } from '@/components/delivery/codigo-entrega-ajuste';
 import { localizacaoAtual, geocodificar, mapaEmbedUrl } from '@/lib/geo';
 import { INDICADO_PARA, ROTULO_TEMPLATE, TEMPLATES, templateDe } from '@/components/loja/cardapio/tipos-template';
 
@@ -52,6 +53,7 @@ const MENU: { grupo: string; itens: { k: string; label: string; breve?: boolean 
       { k: 'horarios', label: 'Horários' },
       { k: 'encomenda', label: 'Encomenda' },
       { k: 'area', label: 'Área de atendimento' },
+      { k: 'entrega', label: 'Entrega' },
       { k: 'cupons', label: 'Cupons' },
       { k: 'fidelidade', label: 'Plano de fidelidade' },
       { k: 'cashback', label: 'Cashback' },
@@ -217,6 +219,22 @@ export function ConfigPanel({
     } catch (e) {
       setLoja(antes); // não gravou: a tela volta ao que era
       toast.error(e instanceof Error ? e.message : 'Erro');
+    }
+  }
+
+  // "Usar o código de entrega" (mig 348): grava na hora, com o retorno do que passa a valer.
+  async function mudarCodigoEntrega(usar: boolean) {
+    const antes = loja;
+    setLoja({ ...(loja ?? {}), usarCodigoEntrega: usar });
+    setSalvando(true);
+    try {
+      await gravarNaLoja({ usarCodigoEntrega: usar });
+      toast.success(usar ? 'Código de entrega ligado: vale para os próximos pedidos.' : 'Código de entrega desligado: os próximos pedidos saem sem código.');
+    } catch (e) {
+      setLoja(antes); // não gravou: a tela volta ao que era
+      toast.error(e instanceof Error ? e.message : 'Não foi possível salvar.');
+    } finally {
+      setSalvando(false);
     }
   }
 
@@ -830,6 +848,17 @@ export function ConfigPanel({
                     salvando={salvando}
                     pode={isGestor}
                   />
+                )}
+
+                {sec === 'entrega' && (
+                  <Secao dica="Como a entrega do pedido é confirmada na porta do cliente.">
+                    <CodigoEntregaAjuste
+                      usar={loja.usarCodigoEntrega !== false}
+                      pode={isGestor}
+                      salvando={salvando}
+                      aoMudar={mudarCodigoEntrega}
+                    />
+                  </Secao>
                 )}
 
                 {/* EVENTOS SAZONAIS (só o presidente edita; o painel mesmo trata quem só vê) */}

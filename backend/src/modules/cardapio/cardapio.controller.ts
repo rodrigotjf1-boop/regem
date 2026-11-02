@@ -231,7 +231,7 @@ export class CardapioController {
   @Roles('presidente', 'gerente')
   @RequirePerm('loja')
   setConfig(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.service.setConfig(user.tenantId, dto?.unidadeId ?? null, dto, user.categoria);
+    return this.service.setConfig(user.tenantId, dto?.unidadeId ?? null, dto, user.categoria, user.colaboradorId);
   }
 
   // Regras de sinal da encomenda por faixa de quantidade (mig 187).

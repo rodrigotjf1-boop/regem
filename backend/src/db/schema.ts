@@ -3217,6 +3217,8 @@ export const cardapioConfig = pgTable('cardapio_config', {
   cupomBloqueiaComResgate: boolean('cupom_bloqueia_com_resgate').notNull().default(false),
   cupomMaxCashbackCent: integer('cupom_max_cashback_cent'), // null = sem limite
   fidelidadeIntervaloHoras: integer('fidelidade_intervalo_horas').notNull().default(3),
+  // Código de entrega (mig 348): desligado, o pedido NOVO nasce sem código (gatilho no banco); os em andamento seguem.
+  usarCodigoEntrega: boolean('usar_codigo_entrega').notNull().default(true),
   // Modo Encomenda (mig 186) — OPT-IN: pedido para data futura + regras.
   encomendaAtiva: boolean('encomenda_ativa').notNull().default(false),
   encomendaAntecedenciaHoras: integer('encomenda_antecedencia_horas').notNull().default(24),
