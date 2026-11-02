@@ -15,6 +15,7 @@ import { DisputaIfood } from '@/components/atendimento/disputa-ifood';
 import { Pedido99 } from '@/components/atendimento/pedido-99';
 import { ResumoDoRobo, resumoCurto } from '@/components/atendimento/resumo-do-robo';
 import { ChatDoIfood } from '@/components/atendimento/chat-do-ifood';
+import { ConversaDoCaso } from '@/components/atendimento/conversa-do-caso';
 import {
   CASO_DA_PLATAFORMA,
   ROTULO_DO_CANAL,
@@ -412,10 +413,6 @@ function Caso({
       setEnviando(false);
     }
   }
-  const numeroDoWhatsapp = () => {
-    const d = String(c.telefone ?? '').replace(/\D/g, '');
-    return d.length === 10 || d.length === 11 ? `55${d}` : d;
-  };
   const prazo = c.prazoEm && agora ? tempoAte(c.prazoEm, agora) : '';
 
   return (
@@ -530,16 +527,12 @@ function Caso({
           </section>
         )}
 
-        {c.telefone && c.canal === 'whatsapp' && aberto && (
+        {/* A conversa dentro do caso (2B): quem responde pelo WhatsApp é a gestão — a caixa de conversas confere. */}
+        {c.telefone && c.canal === 'whatsapp' && aberto && podeResponder && <ConversaDoCaso key={c.id} caso={c} />}
+        {c.telefone && c.canal === 'whatsapp' && aberto && !podeResponder && (
           <section className="rounded-lg border border-border p-3 text-sm">
             <h4 className="mb-1 font-display text-sm font-bold">Conversa no WhatsApp</h4>
-            {podeResponder ? (
-              <Link href={`/whatsapp?numero=${numeroDoWhatsapp()}`} className="font-semibold text-foreground underline underline-offset-2">
-                Abrir a conversa com {c.cliente || 'o cliente'}
-              </Link>
-            ) : (
-              <p className="text-secondary-foreground">Quem responde pelo WhatsApp é a gerência ou a supervisão.</p>
-            )}
+            <p className="text-secondary-foreground">Quem responde pelo WhatsApp é a gerência ou a supervisão.</p>
             <p className="mt-1 text-xs text-secondary-foreground">O robô fica quieto nesta conversa enquanto o caso está aberto, e volta quando ele for resolvido.</p>
           </section>
         )}

@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **A conversa do WhatsApp dentro do caso (central, 02/11, sem migration, só tela): nuvem no ar com o merge; a loja no
+  `.zip` (a tela; o envio repassa à nuvem pela caixa de conversas que já existe).**
+
 - **O chat oficial do iFood na tela Atendimento (Onda 1, PR 5, 02/11, sem migration): nasce DESLIGADO — só aparece
   depois que a distribuição cadastrar o widget no Portal do Desenvolvedor do iFood e puser `IFOOD_WIDGET_ID` no
   `regem-api`; a loja no `.zip` (o botão e o "pedir à nuvem" da configuração).**
