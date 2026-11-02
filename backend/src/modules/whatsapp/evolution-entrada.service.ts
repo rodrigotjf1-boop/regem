@@ -10,6 +10,7 @@ import { estadoDaPausa, pausarPeloAtendente } from './robo-pausa';
 import { foiEnviadoPeloRegem } from './evolution-envios';
 import { entregarJuntando } from './juntar-mensagens';
 import { anotarNaMemoria, chaveDaMemoria, conversaNaMemoria, portaoDoRoboDoOutroLado } from './robo-do-outro-lado';
+import { portaoDaRespostaAoSemContato, registrarConfirmacao } from './resposta-ao-sem-contato';
 import { assinarConversa } from '../../common/conversa-do-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -159,6 +160,33 @@ export class EvolutionEntradaService {
     // A conversa recente fica na memória (a Evolution não é gravada): é dela que o detector do robô do outro lado lê.
     const chaveDaConversa = chaveDaMemoria(instancia, de);
     anotarNaMemoria(chaveDaConversa, { direcao: 'entrada', texto: lida.texto, tipo: lida.tipo, em: new Date() });
+
+    // A resposta ao "entregador sem contato" (resposta-ao-sem-contato.ts, Onda 0 de 01/11/2026): vira chamado urgente do
+    // pedido e não vai ao robô — com o robô ligado ou desligado. Se a conferência falhar, segue como antes.
+    try {
+      const r = await portaoDaRespostaAoSemContato(this.db, (ev, p) => this.events?.emit(ev, p), {
+        tenantId: cfg.tenantId,
+        unidadeId: cfg.unidadeId ?? null,
+        telefone: de,
+        nome: data.pushName ?? null,
+        texto: lida.texto,
+      });
+      if (r.tratou) {
+        this.logger.log(`resposta ao "entregador sem contato" (pedido ${r.pedidoId}): chamado urgente, sem robô — de=${mascarar(de)}`);
+        if (r.responder && r.pedidoId) {
+          await this.evolution
+            .enviar(cfg.tenantId, de, r.responder)
+            .then(() => registrarConfirmacao(this.db, cfg.tenantId, r.pedidoId!, 'enviado'))
+            .catch((e: any) => {
+              this.logger.warn(`confirmação da resposta ao "sem contato" não saiu para ${mascarar(de)}: ${e?.message ?? e}`);
+              return registrarConfirmacao(this.db, cfg.tenantId, r.pedidoId!, 'falhou', String(e?.message ?? e));
+            });
+        }
+        return;
+      }
+    } catch (e: any) {
+      this.logger.warn(`resposta ao "sem contato" não conferida para ${mascarar(de)} (segue como antes): ${e?.message ?? e}`);
+    }
 
     if (!cfg.roboAtivo || !cfg.ativo) return;
     const antigos = (Array.isArray(cfg.roboPausados) ? (cfg.roboPausados as any[]) : []).map(soDigitos);

@@ -9,6 +9,7 @@ import { ecoDeAvisoAutomatico } from '../../common/avisos-automaticos';
 import { estadoDaPausa, pausaDaConversa, pausarPeloAtendente, pausasDaLojaOuVazio } from './robo-pausa';
 import { entregarJuntando } from './juntar-mensagens';
 import { conversaRecenteOficial, portaoDoRoboDoOutroLado } from './robo-do-outro-lado';
+import { portaoDaRespostaAoSemContato, registrarConfirmacao } from './resposta-ao-sem-contato';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig, empresa, whatsappMensagem, whatsappNumero, whatsappTemplate } from '../../db/schema';
 import { registrarSaida, registrarVolta } from '../../common/consentimento-marketing';
@@ -345,6 +346,36 @@ export class WhatsappCloudService {
     }
   }
 
+  // É a resposta do cliente ao "entregador sem contato"? (resposta-ao-sem-contato.ts). Se for, vira chamado urgente do
+  // pedido, o cliente recebe a confirmação (uma por aviso) e o robô NÃO recebe a mensagem. Se a conferência falhar, a
+  // mensagem segue ao robô, como antes, e o motivo vai para o log.
+  private async respostaAoSemContato(cfg: any, de: string, nome: string | null, texto: string): Promise<boolean> {
+    try {
+      const r = await portaoDaRespostaAoSemContato(this.db, (ev, p) => this.events?.emit(ev, p), {
+        tenantId: cfg.tenantId,
+        unidadeId: cfg.unidadeId ?? null,
+        telefone: de,
+        nome,
+        texto,
+      });
+      if (!r.tratou) return false;
+      this.logger.log(`resposta ao "entregador sem contato" (pedido ${r.pedidoId}): chamado urgente, sem robô — de=${mascarar(de)}`);
+      if (r.responder && r.pedidoId) {
+        try {
+          await this.enviarTexto(cfg.tenantId, de, r.responder);
+          await registrarConfirmacao(this.db, cfg.tenantId, r.pedidoId, 'enviado');
+        } catch (e: any) {
+          this.logger.warn(`confirmação da resposta ao "sem contato" não saiu para ${mascarar(de)}: ${e?.message ?? e}`);
+          await registrarConfirmacao(this.db, cfg.tenantId, r.pedidoId, 'falhou', String(e?.message ?? e));
+        }
+      }
+      return true;
+    } catch (e: any) {
+      this.logger.warn(`resposta ao "sem contato" não conferida para ${mascarar(de)} (segue ao robô): ${e?.message ?? e}`);
+      return false;
+    }
+  }
+
   // Pausa o robô para UMA conversa (coexistência: o lojista respondeu pelo app) pelo tempo da loja
   // (robo-pausa.ts, mig 342). Best-effort.
   private async pausarRoboConversa(tenantId: string, telefone: string): Promise<void> {
@@ -560,6 +591,10 @@ export class WhatsappCloudService {
             }
             continue;
           }
+
+          // A resposta ao "entregador sem contato" (Onda 0, 01/11/2026): vai à equipe e ao entregador, não ao robô — com o
+          // robô ligado ou desligado (quem pediu a resposta foi o aviso) e antes da pausa (o chamado aberto já pausa).
+          if (await this.respostaAoSemContato(cfg, de, nome, this.textoDe(m))) continue;
 
           // PORTÃO 3 — humano assumiu esta conversa (pausa, chamado aberto — robo-pausa.ts — ou a
           // pausa antiga do vetor): o robô não responde.

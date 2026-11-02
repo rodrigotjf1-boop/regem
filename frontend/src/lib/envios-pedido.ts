@@ -46,6 +46,10 @@ const AVISO: Record<string, string> = {
   cancelado: 'pedido cancelado',
   atrasado: 'pedido atrasado',
   codigo_entrega: 'código de entrega',
+  chegando: 'entregador chegando',
+  sem_contato: 'entregador sem contato',
+  // A confirmação ao cliente que respondeu ao "sem contato" (Onda 0, 01/11/2026): "avisei o entregador e a loja".
+  sem_contato_resposta: 'resposta recebida, entregador e loja avisados',
 };
 
 export const ehCliente = (destino: string) => destino in CLIENTE;
