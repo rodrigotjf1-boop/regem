@@ -131,6 +131,43 @@ descrever('avisos de status pela API oficial (Postgres)', () => {
     ]);
   });
 
+  // Onda 0 (01/11/2026): o "saiu" diz quando chega — a conta do rastreio, entregue pelo EntregadorService.
+  it('saiu para entrega com previsão: "Chega por volta das …" no texto e no aviso ao n8n; sem previsão ou com erro, o texto de sempre', async () => {
+    const t = await loja('cloud');
+    await conversa(t, 1);
+    try {
+      svc.definirPrevisaoDeChegada(async () => 12);
+      const possiveis = [0, 1].map((s) => DeliveryService.horaPorVolta(new Date(Date.now() + 12 * 60_000 + s * 1000)));
+      await svc.enviarAvisoStatus(t, pedido('despachado', { rastreioToken: 'rt-7' }));
+      const hora = /Chega por volta das (\d\dh\d\d)\./.exec(saidas[0].corpo)?.[1];
+      expect(possiveis).toContain(hora);
+      // A conta que falha (OSRM fora, banco fora) não derruba o aviso: sai sem a hora.
+      saidas.length = 0;
+      svc.definirPrevisaoDeChegada(async () => {
+        throw new Error('OSRM fora');
+      });
+      await svc.enviarAvisoStatus(t, pedido('despachado', { rastreioToken: 'rt-7' }));
+      expect(saidas[0].corpo).toBe('*Saiu para entrega*\nSeu pedido #66 saiu para entrega! 🛵 Acompanhe a chegada pelo botão abaixo.');
+      // Conta absurda (mais de 3 h) também fica de fora.
+      saidas.length = 0;
+      svc.definirPrevisaoDeChegada(async () => 500);
+      await svc.enviarAvisoStatus(t, pedido('despachado', { rastreioToken: 'rt-7' }));
+      expect(saidas[0].corpo).not.toContain('Chega por volta');
+      // Loja por QR: a hora vai ao n8n, que põe na mensagem.
+      const tq = await loja('evolution');
+      svc.definirPrevisaoDeChegada(async () => 12);
+      const n8n = jest.spyOn(svc, 'notificarN8n').mockResolvedValue({ saiu: true });
+      try {
+        await svc.enviarAvisoStatus(tq, pedido('despachado'));
+        expect(possiveis).toContain((n8n.mock.calls[0][1] as any).previsaoChegada);
+      } finally {
+        n8n.mockRestore();
+      }
+    } finally {
+      (svc as any).previsaoDeChegada = undefined;
+    }
+  });
+
   it('fora da janela de 24 h: o modelo aprovado do evento, com o primeiro nome (o código NÃO vai no modelo); sem modelo, não sai por WhatsApp', async () => {
     const t = await loja('cloud');
     await conversa(t, 30);

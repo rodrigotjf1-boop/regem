@@ -5,6 +5,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleInit,
   Optional,
 } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
@@ -36,7 +37,7 @@ import { PREFIXO_DA_RESPOSTA } from '../whatsapp/resposta-ao-sem-contato';
 // App do Entregador. Auth reusa o login de colaborador (JWT já traz nome/função/
 // permissões). Sempre por tenant; reusa a lógica de despacho do DeliveryService.
 @Injectable()
-export class EntregadorService {
+export class EntregadorService implements OnModuleInit {
   private readonly logger = new Logger('Entregador');
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
@@ -45,6 +46,36 @@ export class EntregadorService {
     // A entrega sem código que não deu para conferir pelo local fica na auditoria. Opcional: os testes montam sem ela.
     @Optional() private readonly auditoria?: AuditoriaService,
   ) {}
+
+  // A previsão de chegada do "saiu para entrega" (Onda 0, 01/11/2026): o aviso mora no DeliveryService e a conta, aqui
+  // (a mesma do rastreio). Este serviço já depende daquele; o contrário seria circular — então entrega a função a ele.
+  onModuleInit(): void {
+    this.delivery?.definirPrevisaoDeChegada?.((tenantId, pedidoId) => this.previsaoDeChegadaMin(tenantId, pedidoId));
+  }
+
+  /**
+   * Minutos até o entregador chegar a este pedido — a mesma conta da página de rastreio: a posição AO VIVO dele (GPS dos
+   * últimos 10 min) e o roteiro até esta parada; sem roteiro, direto ao endereço. OSRM; sem ele, a distância reta a
+   * 25 km/h. null = não dá para prever (sem entregador, sem GPS ao vivo, endereço sem coordenadas).
+   */
+  async previsaoDeChegadaMin(tenantId: string, pedidoId: string): Promise<number | null> {
+    const r: any = await this.db.execute(sql`select * from pedido_externo where tenant_id = ${tenantId}::uuid and id = ${pedidoId}::uuid`);
+    const ped = (r?.rows ?? r ?? [])[0];
+    if (!ped || ped.status !== 'despachado' || !ped.entregador_id) return null;
+    const loc: any = await this.db.execute(sql`
+      select lat, lng from entregador_posicao
+       where colaborador_id = ${ped.entregador_id} and atualizado_em >= now() - interval '10 minutes'`);
+    const l = (loc?.rows ?? loc ?? [])[0];
+    if (!l || l.lat == null || l.lng == null) return null;
+    const pos = { lat: Number(l.lat), lng: Number(l.lng) };
+    if (ped.saida_id && ped.ordem_parada != null) return this.etaAcumulado(tenantId, ped, pos);
+    const destino = await this.coordDoPedido(tenantId, ped);
+    if (!destino) return null;
+    const osrm = await this.duracaoRotaOsrm([pos, destino]);
+    if (osrm != null) return osrm;
+    const dist = this.distanciaM(pos.lat, pos.lng, destino.lat, destino.lng);
+    return dist > 0 ? Math.max(1, Math.round(dist / (25000 / 60))) : null;
+  }
 
   private ehEntregador(user: AuthUser): boolean {
     return /entregador/i.test(user.funcaoNome ?? '');
