@@ -18,6 +18,7 @@ import { EventosPanel } from '@/components/delivery/eventos-panel';
 import { NumerosWhatsapp } from '@/components/delivery/numeros-whatsapp';
 import { CodigoEntregaAjuste } from '@/components/delivery/codigo-entrega-ajuste';
 import { LembreteCarrinho } from '@/components/delivery/lembrete-carrinho';
+import { AjustesDoAtendimento } from '@/components/atendimento/ajustes-do-atendimento';
 import { localizacaoAtual, geocodificar, mapaEmbedUrl } from '@/lib/geo';
 import { INDICADO_PARA, ROTULO_TEMPLATE, TEMPLATES, templateDe } from '@/components/loja/cardapio/tipos-template';
 
@@ -67,6 +68,7 @@ const MENU: { grupo: string; itens: { k: string; label: string; breve?: boolean 
       { k: 'banners', label: 'Banners' },
       { k: 'integracoes', label: 'Integrações' },
       { k: 'robo', label: 'Robô de atendimento' },
+      { k: 'atendimento', label: 'Atendimento' },
     ],
   },
 ];
@@ -358,9 +360,9 @@ export function ConfigPanel({
   return (
     <div className={pagina ? 'w-full' : 'fixed inset-0 z-50 grid place-items-center bg-black/50 p-4'} onClick={pagina ? undefined : onClose}>
       <div className={pagina ? 'flex w-full flex-col' : 'flex h-[92vh] w-full max-w-6xl overflow-hidden rounded-xl border border-border bg-card'} onClick={(e) => e.stopPropagation()}>
-        {/* Abas no topo (modo página) */}
+        {/* Abas no topo (modo página) — quebram a linha no estreito: nada de barra de rolagem para o lado (V45). */}
         {pagina && (
-          <div className="mb-3 flex gap-1 overflow-x-auto border-b border-border pb-1">
+          <div className="mb-3 flex flex-wrap gap-1 border-b border-border pb-1">
             {MENU.flatMap((g) => g.itens).map((it) => (
               <button
                 key={it.k}
@@ -879,6 +881,9 @@ export function ConfigPanel({
                 {sec === 'robo' && (
                   <Robo loja={loja} up={up} onSalvar={salvarLoja} salvando={salvando} pode={isGestor} />
                 )}
+
+                {/* ATENDIMENTO (a central: o que o Regem faz com os pedidos do cliente da 99) */}
+                {sec === 'atendimento' && <AjustesDoAtendimento />}
               </>
             )}
           </div>

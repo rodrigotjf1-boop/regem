@@ -1,4 +1,6 @@
-import { Body, Controller, Get, Param, Post, Res, StreamableFile, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Res, StreamableFile, UseGuards } from '@nestjs/common';
+import { CloudOnly } from '../../common/cloud-only.decorator';
+import { Pedido99Service, RespostaAo99 } from './pedido-99.service';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
@@ -20,7 +22,32 @@ export class AtendimentoController {
   constructor(
     private readonly service: AtendimentoService,
     private readonly disputa: DisputaIfoodService,
+    private readonly pedido99: Pedido99Service,
   ) {}
+
+  // Resposta ao pedido de CANCELAMENTO ou REEMBOLSO do cliente da 99 (aceitar ou recusar com o motivo da lista). Só
+  // gerente e presidente — a senha diz quem respondeu.
+  @Post(':id/pedido99')
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
+  responderPedido99(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: RespostaAo99) {
+    return this.pedido99.responder(user, id, dto);
+  }
+
+  // Os ajustes do atendimento (a 99: decidir o cancelamento na fila; o tempo e o motivo da recusa automática do
+  // reembolso). Ficam na integração, que mora só na nuvem — no servidor da loja a tela mostra "só pela nuvem".
+  @Get('ajustes')
+  @CloudOnly()
+  @Roles('presidente', 'gerente')
+  ajustes(@CurrentUser() user: AuthUser) {
+    return this.pedido99.ajustes(user.tenantId);
+  }
+
+  @Put('ajustes')
+  @CloudOnly()
+  @Roles('presidente', 'gerente')
+  salvarAjustes(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.pedido99.salvarAjustes(user, dto);
+  }
 
   // Resposta à DISPUTA do iFood (aceitar, recusar ou propor). Quem decide é a senha: só gerente e presidente (decisão
   // do dono, 01/11/2026) — qualquer pessoa da equipe abre o diálogo, a senha diz quem respondeu.

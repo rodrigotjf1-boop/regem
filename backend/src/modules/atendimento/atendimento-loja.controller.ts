@@ -3,12 +3,25 @@ import type { Response } from 'express';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
 import { DisputaIfoodService, RespostaDaDisputa } from './disputa-ifood.service';
+import { Pedido99Service, RespostaAo99 } from './pedido-99.service';
 
 // Pedidos do SERVIDOR DA LOJA à nuvem sobre a central de atendimento (V37): a credencial do iFood fica só na nuvem.
 // Autenticação pelo token do servidor (x-sync-token) — a empresa vem do token, nunca do corpo. Só na nuvem.
 @Controller('atendimento')
 export class AtendimentoLojaController {
-  constructor(private readonly disputa: DisputaIfoodService) {}
+  constructor(
+    private readonly disputa: DisputaIfoodService,
+    private readonly pedido99: Pedido99Service,
+  ) {}
+
+  // A loja responde ao pedido de cancelamento/reembolso do cliente da 99 (senha já conferida no servidor dela).
+  @Post('pedido99-da-loja')
+  @HttpCode(200)
+  @CloudOnly()
+  @UseGuards(SyncTokenGuard)
+  pedido99DaLoja(@SyncCtx() ctx: SyncCtxData, @Body() dto: RespostaAo99 & { chamadoId?: string; liberadorId?: string; liberadorNome?: string; atorId?: string }) {
+    return this.pedido99.responderVindoDaLoja(ctx.tenantId, dto);
+  }
 
   // A loja responde a uma disputa do iFood: a senha de gerente/presidente já foi conferida no servidor dela.
   @Post('disputa-da-loja')

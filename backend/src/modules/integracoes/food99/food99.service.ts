@@ -1,5 +1,13 @@
-import { BadRequestException, forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, forwardRef, Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { createHash } from 'node:crypto';
+import {
+  Ajuste99,
+  TipoDoPedido99,
+  ajusteDa99,
+  lerPedidoDoCliente,
+  registrarPedidoDoCliente,
+} from './food99-pedido-cliente';
 import { and, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../../db/drizzle.module';
 import { integracao } from '../../../db/schema';
@@ -58,6 +66,8 @@ export class Food99Service {
     // forwardRef dos dois lados: DeliveryService injeta este serviço (status back).
     @Inject(forwardRef(() => DeliveryService))
     private readonly delivery: DeliveryService,
+    // O aviso em tempo real do caso novo (pedido do cliente) — opcional: os testes montam o serviço sem ele.
+    @Optional() private readonly events?: EventEmitter2,
   ) {}
 
   // App de PRODUÇÃO: app_id/app_secret são GLOBAIS (1 app da SISTER p/ TODAS as
@@ -117,21 +127,29 @@ export class Food99Service {
     return ativos.length === 1 ? ativos[0] : null;
   }
 
+  // Grava SÓ as chaves dadas na configuração da integração, mesclando no banco (`jsonb ||`): cada rotina escreve a sua
+  // chave sem regravar as outras com a cópia que tinha em memória — o token renovado no meio de um ciclo apagava o
+  // ajuste do atendimento que a loja acabara de salvar (Onda 1, PR 3). `token` (opcional) vai junto.
+  private async mesclarNoConfig(id: string, parcial: Record<string, unknown>, token?: string | null): Promise<void> {
+    await this.db
+      .update(integracao)
+      .set({ config: sql`coalesce(${integracao.config}, '{}'::jsonb) || ${JSON.stringify(parcial)}::jsonb`, ...(token !== undefined ? { token } : {}) })
+      .where(eq(integracao.id, id));
+  }
+
   // ===== Auth (auth_token por loja, cache + refresh) =====
   private async persistToken(ig: IntegFood99, token: string, expMs: number): Promise<void> {
-    const config = { ...(ig.config ?? {}), tokenExp: expMs, lastAuthErrno: null };
-    await this.db.update(integracao).set({ token, config }).where(eq(integracao.id, ig.id));
+    await this.mesclarNoConfig(ig.id, { tokenExp: expMs, lastAuthErrno: null }, token);
     ig.token = token;
-    ig.config = config;
+    ig.config = { ...(ig.config ?? {}), tokenExp: expMs, lastAuthErrno: null };
   }
 
   // Registra o último erro de auth (errno do get/refresh) no config e zera o token,
   // p/ o /status refletir a saúde REAL do auth sem forçar uma chamada a cada poll.
   private async persistAuthErro(ig: IntegFood99, errno: number): Promise<void> {
-    const config = { ...(ig.config ?? {}), tokenExp: 0, lastAuthErrno: errno };
-    await this.db.update(integracao).set({ token: null, config }).where(eq(integracao.id, ig.id));
+    await this.mesclarNoConfig(ig.id, { tokenExp: 0, lastAuthErrno: errno }, null);
     ig.token = null;
-    ig.config = config;
+    ig.config = { ...(ig.config ?? {}), tokenExp: 0, lastAuthErrno: errno };
   }
 
   // GET authtoken/get: read-only. Retorna o token vigente; errno 10102 = expirado.
@@ -516,44 +534,83 @@ export class Food99Service {
     return j?.errno === 0;
   }
 
-  // POST /v1/order/apply/cancel — responde ao cancelamento PEDIDO PELO CLIENTE
-  // (webhook orderCancelApply). agree=true aceita; false recusa (com reason).
-  // ⚠️ Os nomes dos campos (agree_type/reason) precisam ser confirmados na doc
-  // "Order Cancel Apply" — se der errno de parâmetro no Sandbox, ajustar aqui.
+  // ===== Pedido do cliente (cancelamento/reembolso) na central de atendimento — Onda 1, PR 3 =====
+
+  /** O ajuste da loja para a 99 (em `integracao.config.atendimento99`), completado pelo padrão. */
+  ajusteDoAtendimento(ig: IntegFood99): Ajuste99 {
+    return ajusteDa99(ig.config);
+  }
+
+  /** Grava o ajuste da loja para a 99 (só o que veio muda; o resto do `config` da integração fica). */
+  async salvarAjusteDoAtendimento(tenantId: string, parcial: Partial<Ajuste99>): Promise<Ajuste99 | null> {
+    const ig = await this.integracaoDoTenant(tenantId);
+    if (!ig) return null;
+    const novo = ajusteDa99({ atendimento99: { ...ajusteDa99(ig.config), ...parcial } });
+    await this.mesclarNoConfig(ig.id, { atendimento99: novo });
+    return novo;
+  }
+
+  private async receberPedidoDoCliente(ig: IntegFood99, raw: string, tipo: TipoDoPedido99) {
+    const p = lerPedidoDoCliente(raw, tipo);
+    if (!p) return;
+    const ajuste = ajusteDa99(ig.config);
+    const emitir = (e: string, d: any) => this.events?.emit(e, d);
+    if (tipo === 'cancelamento' && !ajuste.decidirCancelamento) {
+      // O caso já existe (a 99 reenviou)? Não responde de novo.
+      const ja: any = await this.db.execute(
+        sql`select 1 from atendimento_chamado where tenant_id = ${ig.tenantId} and canal = '99food' and externo_id = ${p.applyId}`,
+      );
+      if ((ja.rows ?? ja).length) return;
+      const r = await this.responderCancelamento(ig, p.pedidoExterno, p.applyId, true);
+      await registrarPedidoDoCliente(this.db, emitir, ig, p, ajuste, r.ok ? 'aceito_automatico' : null);
+      return;
+    }
+    const r = await registrarPedidoDoCliente(this.db, emitir, ig, p, ajuste);
+    if (r.aberto) this.logger.log(`loja ${ig.tenantId}: pedido de ${tipo} do cliente (99 ${p.pedidoExterno}) na central`);
+  }
+
+  // POST /v1/order/apply/cancel — responde ao cancelamento PEDIDO PELO CLIENTE (aviso orderCancelApply). Doc oficial
+  // (Handle Cancellation Requests, conferida em 02/11/2026): `agree` booleano (true aceita, false recusa) e `reason` da
+  // lista que veio no aviso. Até 02/11 o Regem mandava `agree_type: 1|2`, campo que não existe (ERR-344).
   async responderCancelamento(
     ig: IntegFood99,
     orderId: string,
     applyId: string,
     agree: boolean,
     reason?: string,
-  ): Promise<{ ok: boolean; errno: number }> {
+  ): Promise<{ ok: boolean; errno: number; errmsg?: string }> {
     if (!this.soDigitos(orderId) || !this.soDigitos(applyId)) return { ok: false, errno: -1 };
     const tk = await this.authToken(ig);
     if (!tk) return { ok: false, errno: -1 };
-    const campos = [`"order_id":${orderId}`, `"apply_id":${applyId}`, `"agree_type":${agree ? 1 : 2}`];
+    const campos = [`"order_id":${orderId}`, `"apply_id":${applyId}`, `"agree":${agree ? 'true' : 'false'}`];
     if (reason) campos.push(`"reason":${JSON.stringify(reason)}`);
     const j = await this.postJson('/v1/order/apply/cancel', tk, campos);
     this.logger.log(`apply/cancel ${orderId} agree=${agree} errno=${j?.errno}`);
-    return { ok: j?.errno === 0, errno: Number(j?.errno ?? -1) };
+    return { ok: j?.errno === 0, errno: Number(j?.errno ?? -1), errmsg: j?.errmsg ? String(j.errmsg) : undefined };
   }
 
-  // POST /v1/order/apply/refund — responde ao reembolso pedido pelo cliente
-  // (webhook orderRefundApply). Mesma ressalva de campos que o apply/cancel.
+  // POST /v1/order/apply/refund — responde ao reembolso pedido pelo cliente (aviso orderRefundApply). Doc oficial (Handle
+  // Refund Requests): `agree` booleano; na RECUSA, `base_reason_id` e `base_reason` da lista que veio no aviso são
+  // obrigatórios e `custom_reason` é a explicação opcional (ERR-344).
   async responderReembolso(
     ig: IntegFood99,
     orderId: string,
     applyId: string,
     agree: boolean,
-    reason?: string,
-  ): Promise<{ ok: boolean; errno: number }> {
+    recusa?: { baseId: string; base: string; explicacao?: string | null },
+  ): Promise<{ ok: boolean; errno: number; errmsg?: string }> {
     if (!this.soDigitos(orderId) || !this.soDigitos(applyId)) return { ok: false, errno: -1 };
+    if (!agree && (!recusa?.baseId || !recusa?.base)) return { ok: false, errno: -1, errmsg: 'recusa sem o motivo da lista' };
     const tk = await this.authToken(ig);
     if (!tk) return { ok: false, errno: -1 };
-    const campos = [`"order_id":${orderId}`, `"apply_id":${applyId}`, `"agree_type":${agree ? 1 : 2}`];
-    if (reason) campos.push(`"reason":${JSON.stringify(reason)}`);
+    const campos = [`"order_id":${orderId}`, `"apply_id":${applyId}`, `"agree":${agree ? 'true' : 'false'}`];
+    if (!agree && recusa) {
+      campos.push(`"base_reason_id":${JSON.stringify(String(recusa.baseId))}`, `"base_reason":${JSON.stringify(recusa.base)}`);
+      if (recusa.explicacao) campos.push(`"custom_reason":${JSON.stringify(String(recusa.explicacao).slice(0, 200))}`);
+    }
     const j = await this.postJson('/v1/order/apply/refund', tk, campos);
     this.logger.log(`apply/refund ${orderId} agree=${agree} errno=${j?.errno}`);
-    return { ok: j?.errno === 0, errno: Number(j?.errno ?? -1) };
+    return { ok: j?.errno === 0, errno: Number(j?.errno ?? -1), errmsg: j?.errmsg ? String(j.errmsg) : undefined };
   }
 
   // POST cancel {auth_token, order_id, reason_id, reason}. Retorna errno p/ a blindagem.
@@ -628,9 +685,8 @@ export class Food99Service {
     const pend = { ...(ig.config?.pendingCancels ?? {}) };
     const anterior = pend[orderId] ?? {};
     pend[orderId] = { reasonId, reason: reason ?? anterior.reason, attempts: (anterior.attempts ?? 0) + 1 };
-    const config = { ...(ig.config ?? {}), pendingCancels: pend };
-    await this.db.update(integracao).set({ config }).where(eq(integracao.id, ig.id));
-    ig.config = config;
+    await this.mesclarNoConfig(ig.id, { pendingCancels: pend });
+    ig.config = { ...(ig.config ?? {}), pendingCancels: pend };
     this.logger.warn(`cancel ${orderId} pendente (reconciliação vai reenviar)`);
   }
 
@@ -638,9 +694,8 @@ export class Food99Service {
     if (!ig.config?.pendingCancels?.[orderId]) return;
     const pend = { ...ig.config.pendingCancels };
     delete pend[orderId];
-    const config = { ...(ig.config ?? {}), pendingCancels: pend };
-    await this.db.update(integracao).set({ config }).where(eq(integracao.id, ig.id));
-    ig.config = config;
+    await this.mesclarNoConfig(ig.id, { pendingCancels: pend });
+    ig.config = { ...(ig.config ?? {}), pendingCancels: pend };
   }
 
   // ===== O entregador na 99 (mig 294) =====
@@ -865,9 +920,8 @@ export class Food99Service {
       mudou = true;
     }
     if (mudou) {
-      const config = { ...(ig.config ?? {}), pendingCancels: pend };
-      await this.db.update(integracao).set({ config }).where(eq(integracao.id, ig.id));
-      ig.config = config;
+      await this.mesclarNoConfig(ig.id, { pendingCancels: pend });
+      ig.config = { ...(ig.config ?? {}), pendingCancels: pend };
     }
     return feitos;
   }
@@ -921,18 +975,12 @@ export class Food99Service {
     }
 
     try {
-      if (ev === 'ordercancelapply') {
-        // Cliente pediu cancelamento → aceitamos (homologação). O orderCancel seguinte
-        // reflete o pedido como cancelado. (FOOD99_APPLY_CANCEL=refuse recusa.)
-        if (applyId) {
-          const agree = process.env.FOOD99_APPLY_CANCEL !== 'refuse';
-          await this.responderCancelamento(ig, orderId!, applyId, agree, agree ? undefined : 'store cannot fulfill');
-        }
-      } else if (ev === 'orderrefundapply') {
-        if (applyId) {
-          const agree = process.env.FOOD99_APPLY_REFUND !== 'refuse';
-          await this.responderReembolso(ig, orderId!, applyId, agree, agree ? undefined : 'store refuses');
-        }
+      if (ev === 'ordercancelapply' || ev === 'orderrefundapply') {
+        // O cliente pediu CANCELAMENTO ou REEMBOLSO (central de atendimento, Onda 1, PR 3): vira caso na fila, gravado
+        // ANTES de responder errno 0 (falhou ao gravar → errno≠0: a 99 reenvia; o caso é único pelo `apply_id`). O
+        // cancelamento com o ajuste DESLIGADO é aceito na hora, como antes (o caso nasce resolvido; se a 99 recusar a
+        // resposta, o caso fica aberto para alguém ver). Antes daqui o Regem aceitava tudo sozinho (`agree_type` errado).
+        await this.receberPedidoDoCliente(ig, raw, ev === 'ordercancelapply' ? 'cancelamento' : 'reembolso');
       } else if (ev === 'ordercancel' || ev === 'orderpartialcancel') {
         if (orderId) await this.delivery.refletirStatusExterno(ig.tenantId, CANAL, orderId, 'cancelado');
       } else if (ev === 'orderfinish') {
