@@ -22,6 +22,7 @@ import { motivoVendaDesfeita } from '../fiscal/nfce-totem';
 import { gravarAvisoCancelamentoTotem, resultadoDoAviso } from '../gogem/aviso-gogem';
 import { GogemAvisoService } from '../gogem/gogem-aviso.service';
 import { ehServidorLocal } from '../../common/modo';
+import { horaNoFuso } from '../../common/data';
 import { exigirBooleano } from '../../common/exigir';
 import { autorizarPorSenhaDeGestor } from '../../common/autorizacao-gestor';
 import { conferirRegras, DocumentoImpressao } from '../../common/regras-impressao';
@@ -1742,6 +1743,34 @@ export class DeliveryService {
     return DeliveryService.grupoCanal(String(canal ?? '')) === 'regem';
   }
 
+  // A PREVISÃO DE CHEGADA do "saiu para entrega" (Onda 0, 01/11/2026). A conta é a do rastreio e mora no
+  // `EntregadorService` (posição ao vivo do entregador, roteiro, OSRM) — que depende deste serviço; o contrário seria
+  // circular. Então ele entrega a função aqui quando sobe (`onModuleInit`). Sem ela (testes, servidor da loja), sem previsão.
+  private previsaoDeChegada?: (tenantId: string, pedidoId: string) => Promise<number | null>;
+
+  definirPrevisaoDeChegada(fn: (tenantId: string, pedidoId: string) => Promise<number | null>): void {
+    this.previsaoDeChegada = fn;
+  }
+
+  /** "20h15": o instante arredondado PARA CIMA em 5 min, no fuso da operação (melhor chegar antes do que depois). */
+  static horaPorVolta(d: Date): string {
+    const cinco = 5 * 60 * 1000;
+    return horaNoFuso(new Date(Math.ceil(d.getTime() / cinco) * cinco)).replace(':', 'h');
+  }
+
+  /** A hora prevista de chegada para o aviso, ou null quando não dá para prever (sem GPS ao vivo, sem endereço, conta absurda). */
+  private async horaPrevistaDeChegada(tenantId: string, ped: any): Promise<string | null> {
+    if (!this.previsaoDeChegada || ehServidorLocal() || !ped?.id) return null;
+    try {
+      const min = await this.previsaoDeChegada(tenantId, ped.id);
+      if (min == null || !Number.isFinite(min) || min <= 0 || min > 180) return null;
+      return DeliveryService.horaPorVolta(new Date(Date.now() + min * 60_000));
+    } catch (e: any) {
+      this.logger.warn(`[previsao-chegada] pedido ${ped.id}: sem previsão — ${e?.message ?? e}`);
+      return null;
+    }
+  }
+
   // Lista só os pedidos de RETIRADA e ENCOMENDA, com o grupo de origem e o tipo
   // (retirada = imediata; encomenda = agendada). O front agrupa pelos 3 grupos.
   async listarRetirada(tenantId: string, atual: string | null = null) {
@@ -3000,6 +3029,8 @@ export class DeliveryService {
     const cancelado = ped.status === 'cancelado';
     const eventoFinal = evento === 'status' && cancelado ? 'cancelado' : evento;
     const eventoStatus = DeliveryService.eventoDeStatus(ped.status, ped.tipo, eventoFinal);
+    // O "saiu para entrega" diz quando chega (Onda 0, 01/11/2026): a mesma conta do rastreio, na hora do aviso.
+    if (eventoStatus === 'saiu_entrega') ped = { ...ped, previsaoChegada: await this.horaPrevistaDeChegada(tenantId, ped) };
 
     const payload = {
       evento: eventoFinal,
@@ -3019,6 +3050,8 @@ export class DeliveryService {
       ...(eventoStatus === 'saiu_entrega' && DeliveryService.codigoParaLembrar(ped)
         ? { codigoEntrega: DeliveryService.codigoParaLembrar(ped) }
         : {}),
+      // A hora prevista de chegada ("20h15"), quando dá para prever: o fluxo do n8n da loja por QR põe na mensagem.
+      ...(ped.previsaoChegada ? { previsaoChegada: ped.previsaoChegada } : {}),
     };
 
     // Provedor do PRINCIPAL decide o canal do aviso. No EVOLUTION (grátis) mantém o
@@ -3338,7 +3371,9 @@ export class DeliveryService {
       case 'pronto_retirada': return { titulo: 'Pedido pronto', texto: `Seu pedido${ref} está pronto para retirada! 🎉` };
       case 'saiu_entrega': {
         const lembrete = codigo ? `\n🔑 Código de entrega: ${codigo}. Informe ao entregador para liberar o pedido.` : '';
-        return { titulo: 'Saiu para entrega', texto: `Seu pedido${ref} saiu para entrega! 🛵 Acompanhe a chegada pelo botão abaixo.${lembrete}` };
+        // A hora prevista (`horaPrevistaDeChegada`), quando deu para prever na hora do aviso.
+        const chega = ped.previsaoChegada ? ` Chega por volta das ${ped.previsaoChegada}.` : '';
+        return { titulo: 'Saiu para entrega', texto: `Seu pedido${ref} saiu para entrega! 🛵${chega} Acompanhe a chegada pelo botão abaixo.${lembrete}` };
       }
       case 'entregue': return { titulo: 'Pedido entregue', texto: `Seu pedido${ref} foi entregue. Bom apetite! 💛` };
       case 'cancelado': return { titulo: 'Pedido cancelado', texto: `Seu pedido${ref} foi cancelado.${motivo}` };
