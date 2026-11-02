@@ -1322,6 +1322,12 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(dto),
     }),
+  // O lembrete do pedido que ficou pela metade no robô (mig 349): só o liga/desliga.
+  whatsappLembreteCarrinhoSalvar: (lembreteCarrinho: boolean) =>
+    req('/whatsapp/robo-config', {
+      method: 'POST',
+      body: JSON.stringify({ lembreteCarrinho }),
+    }),
   // Mídia de uma mensagem sob demanda (miniatura no inbox). Devolve um data URL.
   whatsappMidia: (id: string, jid: string, fromMe: boolean) =>
     req(`/whatsapp/midia?id=${encodeURIComponent(id)}&jid=${encodeURIComponent(jid)}&fromMe=${fromMe ? 'true' : 'false'}`),

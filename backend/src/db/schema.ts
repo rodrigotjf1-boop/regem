@@ -3753,6 +3753,8 @@ export const roboConfig = pgTable('robo_config', {
   // Aviso automático de atraso ao cliente (mig 347): nasce desligado; a tolerância é além do tempo prometido.
   avisoAtraso: boolean('aviso_atraso').notNull().default(false),
   avisoAtrasoToleranciaMin: integer('aviso_atraso_tolerancia_min').notNull().default(10),
+  // Lembrete do pedido que ficou pela metade no robô (mig 349): nasce desligado.
+  lembreteCarrinho: boolean('lembrete_carrinho').notNull().default(false),
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
   atualizadoPor: uuid('atualizado_por'),
 });
@@ -3786,6 +3788,8 @@ export const roboCarrinho = pgTable('robo_carrinho', {
   resumoVersao: integer('resumo_versao'),
   itensFechados: boolean('itens_fechados').notNull().default(false),
   observacao: text('observacao'),
+  // mig 349: quando o lembrete do pedido parado saiu (gravado ANTES do envio — sai uma vez só).
+  lembradoEm: timestamp('lembrado_em', { withTimezone: true }),
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
 });

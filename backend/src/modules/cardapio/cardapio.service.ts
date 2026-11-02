@@ -1142,6 +1142,11 @@ export class CardapioService {
     return !!this.janelaAtual(hs);
   }
 
+  /** A loja está aberta agora? A MESMA regra do cardápio online (o interruptor da loja e os horários). */
+  lojaAbertaAgora(cfg: any): boolean {
+    return this.estaAberta(cfg);
+  }
+
   // Janela de funcionamento que cobre AGORA (ou null). Uma janela que vira a
   // meia-noite (ex.: 18:00–02:00) pertence ao dia em que ABRE — então, depois da
   // meia-noite, quem vale é a janela de ONTEM, não a de hoje.
