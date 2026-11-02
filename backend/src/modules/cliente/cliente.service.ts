@@ -1424,6 +1424,7 @@ export class ClienteService {
       pedidoNumero: p.numero != null ? String(p.numero) : undefined,
       pedidoId: p.id,
       mensagem: 'Cliente solicitou o cancelamento do pedido pelo cardápio.',
+      canal: 'cardapio',
     });
     return { ...(chamado as any), avisos };
   }
@@ -1510,6 +1511,7 @@ export class ClienteService {
       pedidoNumero: p.numero != null ? String(p.numero) : undefined,
       pedidoId: p.id,
       mensagem: `Cliente pediu alteração em ${alvo}${detalhe ? `: ${detalhe}` : '.'}`,
+      canal: 'cardapio',
     });
   }
 }

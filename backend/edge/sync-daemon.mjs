@@ -437,7 +437,9 @@ async function setState(k, v) {
 // nuvem (exceção do LWW — prioridade LOCAL): uma comanda fechada/cancelada no
 // edge não volta pra 'aberta' por um delta atrasado/materialização tardia da nuvem.
 // O cartão do KDS também (auditoria do KDS, 20/10/2026): entregue ou cancelado não volta à fila.
-const ESTADOS_TERMINAIS = { comanda: ['fechada', 'cancelada'], producao_pedido: ['entregue', 'cancelado'] };
+// E o caso da central de atendimento (mig 350): resolvido aqui não reabre por uma cópia da nuvem ainda aberta (o robô somou
+// uma mensagem lá antes de o resolvido subir). Na nuvem, o resolvido que sobe daqui vence (sync.service, `resolvidoVence`).
+const ESTADOS_TERMINAIS = { comanda: ['fechada', 'cancelada'], producao_pedido: ['entregue', 'cancelado'], atendimento_chamado: ['resolvido'] };
 
 // Quando a linha da nuvem sobrescreve a local (pull e restore, linha a linha e em lote):
 //  • LWW: só se a da nuvem for ESTRITAMENTE mais nova (updated_at);

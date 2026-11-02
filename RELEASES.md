@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Central de atendimento — a fila no servidor (Onda 1, PR 1a, 02/11, mig 350 NÃO só-nuvem, aplicada na nuvem antes do
+  merge): nuvem no ar com o merge; a loja no `.zip` — e toca o `edge/sync-daemon.mjs`, então instalação NOVA pede o `.exe`
+  do mesmo corte.** O chamado ganha responsável, "aguardando o cliente", canal e prazo; rotas da fila (`GET
+  atendimento/fila`, `fila/resolvidos`, `POST :id/pegar|passar|aguardar`). No servidor da loja: a mig 350 vai no pacote; o
+  `sync-daemon` passa a não reabrir o chamado resolvido aqui por uma cópia da nuvem ainda aberta (`ESTADOS_TERMINAIS`).
+  Sem tela ainda (vem no PR 1b) — nada muda para quem usa.
+
 - **Lembrete do pedido que ficou pela metade no robô (Onda 0, 01/11, mig 349 @cloud-only aplicada na nuvem): só
   nuvem — no ar com o merge, DESLIGADO.** A loja liga em Delivery › Configurações › Robô de atendimento ("Lembrar o
   cliente do pedido que ficou pela metade"). A rotina da nuvem manda UMA mensagem ao cliente com itens no carrinho do

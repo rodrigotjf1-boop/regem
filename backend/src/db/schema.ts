@@ -3361,6 +3361,13 @@ export const atendimentoChamado = pgTable('atendimento_chamado', {
   resolvidoPorId: uuid('resolvido_por_id'),
   resolvidoEm: timestamp('resolvido_em', { withTimezone: true }),
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+  // Caso de fila (mig 350, central de atendimento): quem pegou (NULL = na fila), quando pegou, desde quando espera o
+  // cliente (NULL = não espera), de onde veio e até quando a loja tem de responder (disputa do iFood, pedido da 99).
+  responsavelId: uuid('responsavel_id'),
+  pegoEm: timestamp('pego_em', { withTimezone: true }),
+  aguardandoDesde: timestamp('aguardando_desde', { withTimezone: true }),
+  canal: text('canal'), // whatsapp | cardapio | anotaai | ifood | 99food (NULL = chamado antigo)
+  prazoEm: timestamp('prazo_em', { withTimezone: true }),
 });
 
 // ===== Banners do cardápio digital =====
