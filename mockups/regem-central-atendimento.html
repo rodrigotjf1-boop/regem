@@ -13,6 +13,10 @@
    ondas aprovadas; disputa do iFood e cancelamento da 99 só gerente e presidente respondem; na 99, RECUSAR se ninguém
    responder (padrão) e um ajuste que, desmarcado, faz aceitar sozinho como hoje; base da central no Regem; app Android
    primeiro; pesquisa de satisfação só dentro da janela de 24 h (fica para a Onda 3).
+   VERSÃO 2 (02/11/2026, depois do "ficou bom" do dono): o chat oficial do iFood (Widget) abre numa gaveta da tela; a 99
+   como a documentação diz (cancelamento: 5 min e a 99 recusa sozinha; reembolso: fotos do cliente e o Regem recusa no
+   tempo do ajuste, padrão 4 h); casos identificados por cliente + plataforma + número do pedido; o que o cliente já viu
+   no app da plataforma. A ponte da loja (texto dos chats na fila) fica para depois do advogado e do teste na loja.
    O que a tela faz:
    (1) uma FILA só com tudo o que precisa de uma pessoa: chamado do robô, disputa do iFood, pedido de cancelamento ou
        reembolso da 99, cancelamento pedido no cardápio e a resposta ao "sem contato". A conversa que o robô atende
@@ -212,6 +216,18 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 .opcao{flex:1 1 150px;min-height:44px;border-radius:10px;border:1px solid var(--line-2);background:#fff;padding:6px 10px;font-weight:600;font-size:13.5px;text-align:left}
 .opcao[aria-pressed="true"]{border-color:var(--gold);background:#FFF6E4;box-shadow:inset 0 0 0 1px var(--gold)}
 .opcao.perda[aria-pressed="true"]{border-color:var(--crit);background:var(--crit-bg);box-shadow:inset 0 0 0 1px var(--crit)}
+/* gaveta (chat oficial do iFood) */
+.fundo.lado-dir{display:flex;justify-content:flex-end;align-items:stretch;padding:0}
+.dlg.gaveta{width:min(440px,100%);height:100%;max-height:none;border-radius:0;display:flex;flex-direction:column}
+.dlg.gaveta .meio{flex:1;overflow-y:auto}
+.widget{border:2px dashed #E9A0A8;border-radius:12px;overflow:hidden;background:#fff;display:flex;flex-direction:column;min-height:360px}
+.widget .w-topo{background:var(--c-ifood);color:#fff;font-weight:700;font-size:14px;padding:10px 12px;display:flex;justify-content:space-between;gap:8px}
+.widget .w-topo span{font-size:11px;font-weight:700;background:rgba(255,255,255,.2);border-radius:6px;padding:1px 6px}
+.widget .w-conv{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;padding:8px 12px;border-bottom:1px solid var(--line);font-size:13px}
+.widget .w-conv span{grid-column:1;color:var(--ink-2)}
+.widget .w-conv i{grid-row:1/3;grid-column:2;align-self:center;font-style:normal;font-family:var(--mono);font-size:11px;background:var(--c-ifood);color:#fff;border-radius:999px;padding:1px 7px}
+.widget .w-msgs{flex:1;display:flex;flex-direction:column;gap:6px;padding:10px 12px;background:#FAFBFC}
+.widget .w-escrever{margin:8px 12px 12px;border:1px solid var(--line-2);border-radius:10px;padding:10px;color:var(--ink-2);font-size:13px}
 
 /* ajustes */
 .grupo{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);margin-bottom:12px}
@@ -373,11 +389,12 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <div class="trilha">Atendimento</div>
       <h1 id="titulo-fila">7 casos abertos</h1>
       <p class="resumo" id="resumo-fila">2 com prazo · 3 na fila · o robô está em 5 conversas agora (<a href="#" onclick="return false">ver em Delivery › WhatsApp</a>)</p>
+      <div class="acoes" style="margin:-4px 0 12px"><button type="button" class="bt" id="bt-chat-ifood">💬 Chat do iFood</button><span class="ajuda" style="align-self:center">As mensagens do chat do iFood não entram sozinhas na fila: o chat do iFood mostra os avisos dele.</span></div>
       <div class="sits" role="group" aria-label="Situação" id="sits"></div>
       <div class="filtros">
         <div class="campo larga"><label for="busca">Buscar</label><input id="busca" type="search" placeholder="Cliente, pedido ou telefone"></div>
         <div class="campo"><label for="f-canal">Canal</label><select id="f-canal"><option value="">Todos</option><option value="wa">WhatsApp</option><option value="ifood">iFood</option><option value="n99">99Food</option><option value="card">Cardápio</option></select></div>
-        <div class="campo"><label for="f-motivo">Motivo</label><select id="f-motivo"><option value="">Todos</option><option>Atraso</option><option>Faltou item</option><option>Disputa</option><option>Cancelamento</option><option>Sem contato</option><option>Outro</option></select></div>
+        <div class="campo"><label for="f-motivo">Motivo</label><select id="f-motivo"><option value="">Todos</option><option>Atraso</option><option>Faltou item</option><option>Disputa</option><option>Cancelamento</option><option>Reembolso</option><option>Sem contato</option><option>Outro</option></select></div>
         <div class="campo"><label for="f-resp">Com quem</label><select id="f-resp"><option value="">Qualquer um</option><option value="-">Ninguém ainda</option><option value="Ana">Ana (você)</option><option value="Bruno">Bruno</option><option value="Carla">Carla</option></select></div>
       </div>
       <div class="corpo" id="corpo" data-modo="duplo">
@@ -393,7 +410,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     <main id="v-aj" hidden>
       <div class="trilha">Delivery › Configurações › Operação</div>
       <h1>Atendimento</h1>
-      <p class="resumo">9 ajustes em 3 grupos · item novo no grupo "Operação", ao lado de "Robô de atendimento"</p>
+      <p class="resumo">11 ajustes em 3 grupos · item novo no grupo "Operação", ao lado de "Robô de atendimento"</p>
       <div class="filtros" style="grid-template-columns:minmax(0,1fr)"><div class="campo"><label for="busca-aj">Buscar ajuste</label><input id="busca-aj" type="search" placeholder="Ex.: 99, disputa, som"></div></div>
 
       <section class="grupo" data-grupo>
@@ -407,7 +424,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       </section>
 
       <section class="grupo" data-grupo>
-        <header><h3>iFood · disputas</h3><span>3 ajustes</span></header>
+        <header><h3>iFood · disputas e chat</h3><span>4 ajustes</span></header>
+        <div class="aj"><div><span class="rot-aj">Chat do iFood na tela Atendimento</span><span class="ajuda">Mostra o botão "Chat do iFood" (o chat oficial do iFood). Cada computador autoriza uma vez, com um usuário "Dono" ou "Administrador" do iFood.</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Chat do iFood na tela Atendimento" data-aj></button></div></div>
         <div class="aj"><div><span class="rot-aj">Quem responde</span><span class="ajuda">Gerente e presidente. No computador, com a senha de quem decide; no app, com o PIN.</span></div>
           <div class="ctrl"><span class="fixo">Gerente e presidente</span></div></div>
         <div class="aj"><div><span class="rot-aj">Avisar o gerente quando chega uma disputa</span><span class="ajuda">No app de atendimento, na hora. Disputa sem resposta segue o que o iFood decidir sozinho.</span></div>
@@ -417,16 +436,16 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       </section>
 
       <section class="grupo" data-grupo>
-        <header><h3>99Food · pedidos do cliente</h3><span>3 ajustes</span></header>
-        <div class="aj"><div><span class="rot-aj">Cancelamento pedido pelo cliente: recusar se ninguém responder</span>
-          <span class="ajuda" id="aj99-ajuda">Ligado (padrão): o pedido vira caso na fila e, se ninguém responder no tempo abaixo, o Regem recusa com o motivo escolhido. Desligado: o Regem aceita na hora, como hoje, e avisa a equipe.</span></div>
-          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Cancelamento da 99: recusar se ninguém responder" id="aj99" data-aj></button></div></div>
-        <div class="aj" data-dep99><div><span class="rot-aj">Esperar antes de responder sozinho</span><span class="ajuda">A 99 não informa na integração quanto tempo a loja tem. Por isso o padrão é curto.</span></div>
-          <div class="ctrl"><select aria-label="Tempo antes de recusar sozinho" data-aj><option>1 min</option><option>2 min</option><option selected>3 min</option><option>5 min</option></select></div></div>
-        <div class="aj" data-dep99><div><span class="rot-aj">Motivo da recusa automática</span><span class="ajuda">É o texto que a 99 recebe.</span></div>
-          <div class="ctrl"><select aria-label="Motivo da recusa automática" data-aj><option>O pedido já está em preparo</option><option>O pedido já saiu para entrega</option><option>O pedido já foi entregue</option></select></div></div>
-        <div class="aj"><div><span class="rot-aj">Reembolso pedido pelo cliente</span><span class="ajuda">Segue a mesma regra do cancelamento (a confirmar com você).</span></div>
-          <div class="ctrl"><span class="fixo" id="aj99-reemb">Recusar se ninguém responder</span></div></div>
+        <header><h3>99Food · pedidos do cliente</h3><span>4 ajustes</span></header>
+        <div class="aj"><div><span class="rot-aj">Cancelamento pedido pelo cliente: decidir na fila</span>
+          <span class="ajuda" id="aj99-ajuda">Ligado (padrão): o pedido vira caso na fila; se ninguém responder em 5 min, a 99 recusa sozinha (regra da 99). Desligado: o Regem aceita na hora e avisa a equipe.</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Cancelamento da 99: decidir na fila" id="aj99" data-aj></button></div></div>
+        <div class="aj"><div><span class="rot-aj">Reembolso pedido pelo cliente: o Regem recusa se ninguém responder em</span><span class="ajuda">O pedido vira caso na fila, com as fotos do cliente. Sem o Regem, a 99 reembolsa sozinha em 24 h.</span></div>
+          <div class="ctrl"><select aria-label="Tempo para o Regem recusar o reembolso" data-aj><option>1 h</option><option>2 h</option><option selected>4 h</option><option>8 h</option><option>12 h</option><option>20 h</option></select></div></div>
+        <div class="aj"><div><span class="rot-aj">Motivo da recusa automática do reembolso</span><span class="ajuda">Da lista da 99. Se o motivo não vier na lista do pedido, vai "Outro".</span></div>
+          <div class="ctrl"><select aria-label="Motivo da recusa automática do reembolso" data-aj><option>Outro</option><option>O pedido foi entregue ao entregador</option><option>O cliente se enganou</option><option>Faltam dados do cliente</option></select></div></div>
+        <div class="aj"><div><span class="rot-aj">Explicação que a 99 recebe</span><span class="ajuda">Vai junto com o motivo da recusa automática.</span></div>
+          <div class="ctrl"><input type="text" aria-label="Explicação que a 99 recebe" value="Pedido conferido na saída" data-aj></div></div>
       </section>
     </main>
   </div>
@@ -482,10 +501,10 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
           <p class="nota warn" style="font-size:13px;margin:0 0 10px">Você está ocupado: o app só toca para o que tem prazo. Os outros casos vão para quem está disponível.</p>
           <div class="a-sec">Com prazo · 2</div>
           <div class="a-card"><div class="l1"><span class="canal n99">99Food</span><span class="selo warn">Cancelamento</span><span class="dir prazo warn" data-prazo="c2">02:41</span></div>
-            <div class="tit">Pedido 77 · cliente pediu para cancelar</div><div class="fala">Recusa sozinho quando o tempo acabar</div>
+            <div class="tit">Marina S. · pedido 99Food 77 · quer cancelar</div><div class="fala">A 99 recusa sozinha quando o tempo acabar</div>
             <button type="button" class="bt">Ver · só o gerente responde</button></div>
           <div class="a-card urg"><div class="l1"><span class="canal ifood">iFood</span><span class="selo crit">Disputa</span><span class="dir prazo crit" data-prazo="c1">06:12</span></div>
-            <div class="tit">Pedido 4521 · faltou item</div><div class="fala">"Faltou a batata." · 2 fotos</div>
+            <div class="tit">Ana P. · pedido iFood 4521 · faltou item</div><div class="fala">"Faltou a batata." · 2 fotos</div>
             <button type="button" class="bt">Ver · só o gerente responde</button></div>
           <div class="a-sec">Na fila · 3</div>
           <div class="a-card urg"><div class="l1"><span class="canal wa">WhatsApp</span><span class="selo crit">🚨 Urgente</span><span class="dir pos" style="font-family:var(--mono);font-weight:700">1º · 4 min</span></div>
@@ -530,7 +549,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
         <div class="a-volta"><button type="button">← Fila</button><span style="margin-left:auto;font-size:12.5px;color:#9FB2C4">Ana · gerente</span></div>
         <div class="a-meio">
           <div style="display:flex;flex-wrap:wrap;gap:6px"><span class="canal ifood">iFood</span><span class="selo crit">Disputa</span><span class="selo neutro">Após a entrega</span></div>
-          <div style="font-family:var(--display);font-weight:800;font-size:18px;margin:6px 0 8px">Pedido 4521 · faltou item</div>
+          <div style="font-family:var(--display);font-weight:800;font-size:18px;margin:6px 0 8px">Ana P. · pedido iFood 4521</div>
           <div class="relogio" style="padding:10px 12px"><span class="grande prazo crit" data-prazo="c1">06:12</span><span class="txt" style="font-size:13px">Se ninguém responder até 19:58, o iFood aceita sozinho: cancela a batata e o cliente recebe o valor de volta.</span></div>
           <div class="a-card" style="margin-top:10px"><div style="font-size:14px">"Faltou a batata."</div><div class="fotos" style="margin-top:8px"><span class="foto">foto 1</span><span class="foto">foto 2</span></div>
             <div style="font-size:13.5px;margin-top:8px">Contesta: <b>1× Batata média · R$ 12,90</b></div></div>
@@ -556,7 +575,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
             <div class="t">Ninguém pegou o Carlos (pedido 1180)</div><div class="d">Esperando há 3 min. Avisando a Ana (gerente).</div>
             <div class="acs"><button type="button">Pegar</button><button type="button">Abrir</button></div></div>
           <div class="notif"><div class="app-n"><span>🔔 Regem Atendimento</span><span>2 min</span></div>
-            <div class="t">99Food · pedido 77 · cancelamento</div><div class="d">Recusado sozinho: ninguém respondeu em 3 min.</div></div>
+            <div class="t">99Food · pedido 77 · Marina S.</div><div class="d">A 99 recusou o cancelamento sozinha: ninguém respondeu em 5 min.</div></div>
         </div>
       </div></div>
       <figcaption><strong>6 · Avisos com o celular bloqueado</strong>Toca mesmo com a tela apagada. Ninguém pegou no tempo do ajuste, o aviso sobe para o gerente.</figcaption>
@@ -598,8 +617,27 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 
   <div class="cartao">
     <h3>99Food</h3>
-    <p>Hoje o Regem aceita sozinho, na hora, todo pedido de cancelamento e de reembolso da 99 (<code>food99.service.ts</code>). Com a Onda 1: o pedido vira caso com contagem regressiva; se ninguém responder em 3 min (ajuste), o Regem recusa com o motivo escolhido. Quem desliga o ajuste volta ao jeito de hoje: aceita na hora, com aviso à equipe.</p>
-    <p>A confirmar com a 99: se a integração aceita foto na recusa (no app da 99 aceita; a nossa resposta leva só o motivo) e quanto tempo a loja tem para responder. Até lá, a tela mostra só o motivo e o padrão é curto.</p>
+    <p>O que a documentação da 99 diz (conferida em 02/11/2026):</p>
+    <ul>
+      <li><b>Cancelamento pedido pelo cliente:</b> chega com o que o cliente escreveu e a lista de motivos aceitos para recusar (em preparo, pronto, entregador chegou, entregador já levou). A loja tem 5 min (a página do ajuste da loja diz 10); sem resposta, a 99 recusa sozinha.</li>
+      <li><b>Reembolso pedido pelo cliente:</b> chega com o que o cliente escreveu, as fotos dele e a lista de motivos para recusar. Sem resposta em 24 h, a 99 reembolsa sozinha.</li>
+      <li>A recusa leva só o motivo da lista e, no reembolso, uma explicação em texto. Foto na recusa só existe no app da 99, não na integração.</li>
+    </ul>
+    <p>Com a Onda 1: o cancelamento vira caso com os 5 min da 99 (ninguém respondeu, a 99 recusa); quem desliga o ajuste faz o Regem aceitar na hora. O reembolso vira caso com as fotos; ninguém respondeu no tempo do ajuste (padrão 4 h), o Regem recusa com o motivo escolhido.</p>
+    <p>Hoje o Regem responde à 99 num formato que a documentação não aceita (<code>agree_type</code> no lugar de <code>agree</code>, e a recusa do reembolso sem o motivo da lista). É corrigido no mesmo trabalho.</p>
+    <p>Fonte: <a href="https://developer-food.99app.com/">99Food Open Platform</a> · Order API › Handle Cancellation Requests, Handle Refund Requests, Order Webhooks; Store API › Set Store Cancellation/Refund.</p>
+  </div>
+
+  <div class="cartao">
+    <h3>Chat do iFood e da 99</h3>
+    <p>Conferido em 02/11/2026: nem o iFood nem a 99 deixam um sistema ler ou escrever no chat do pedido.</p>
+    <ul>
+      <li><b>iFood:</b> o chat oficial dele (Widget) abre numa gaveta da tela Atendimento, pelo botão "Chat do iFood" ou pelo caso do pedido. A pessoa lê e responde ali, sem trocar de janela. O robô não lê nem escreve nesse chat.</li>
+      <li><b>99:</b> não tem chat para sistemas. A conversa fica no app 99Food Parceiros.</li>
+      <li><b>"Saiu para entrega" e o entregador:</b> o próprio app de cada plataforma mostra ao cliente. O Regem avisa o iFood quando aceita e quando despacha; na 99, com entrega da loja, manda o nome do entregador e a posição dele no mapa.</li>
+      <li><b>Depois (ponte da loja):</b> uma extensão no navegador da loja que traz o texto dos chats para a fila, com o número do pedido e o nome do cliente, e deixa responder pelo Regem com um clique. Só depois de um advogado ler o contrato do iFood e de um teste na loja (decisão de 02/11). O envio sempre pelo clique da pessoa: a loja de extensões do Chrome não permite envio sozinho.</li>
+    </ul>
+    <p>Fonte: <a href="https://developer.ifood.com.br/pt-BR/docs/guides/solutions/widget">iFood · Widget</a> (conferida em 02/11/2026).</p>
   </div>
 
   <div class="cartao">
@@ -614,13 +652,11 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   </div>
 
   <div class="cartao">
-    <h3>Para você aprovar</h3>
+    <h3>Decisões do dono</h3>
     <ol>
-      <li>"Atendimento" como item próprio do menu, com o sino em todas as telas. O sino do painel do Delivery passa a abrir esta tela.</li>
-      <li>A ordem da fila: prazo, depois urgente, depois espera.</li>
-      <li>99: 3 min como padrão para recusar sozinho, e o reembolso com a mesma regra do cancelamento.</li>
-      <li>No computador, a disputa e o cancelamento pedem a senha de quem decide, mesmo para quem já entrou como gerente (o PC da loja é de uso comum).</li>
-      <li>App próprio "Regem Atendimento", separado do app do entregador.</li>
+      <li>Versão 1 aprovada em 02/11/2026 ("ficou bom"): "Atendimento" como item próprio do menu, com o sino em todas as telas; a ordem da fila (prazo, urgente, espera); senha de quem decide no computador; app próprio "Regem Atendimento".</li>
+      <li>02/11: chat do iFood pelo caminho oficial agora (Widget na tela Atendimento); a ponte da loja só depois do advogado e do teste na loja.</li>
+      <li>02/11: reembolso da 99 sem resposta, o Regem recusa antes das 24 h (o tempo e o motivo ficam no ajuste; o padrão de 4 h é a minha proposta).</li>
     </ol>
     <p>As respostas prontas são da loja (ela cadastra as suas); as do protótipo são exemplos.</p>
   </div>
@@ -637,10 +673,12 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   const em = (seg) => agora + seg * 1000;
   // Os casos (inventados). prazoFim = quando o tempo acaba; pos = só para quem espera na fila.
   const CASOS = [
-    { id: 'c1', canal: 'ifood', motivo: 'Disputa', tipo: 'disputa', urgente: false, prazoFim: em(372), titulo: 'Pedido 4521 · faltou item',
+    { id: 'c1', canal: 'ifood', motivo: 'Disputa', tipo: 'disputa', urgente: false, prazoFim: em(372), titulo: 'Ana P. · pedido iFood 4521 · faltou item',
       cliente: 'Ana P.', pedido: '4521', fala: '"Faltou a batata." · 2 fotos', resp: null, sit: 'fila', espera: 'agora' },
-    { id: 'c2', canal: 'n99', motivo: 'Cancelamento', tipo: 'n99', urgente: false, prazoFim: em(161), titulo: 'Pedido 77 · cancelamento',
-      cliente: 'Cliente da 99', pedido: '77', fala: 'O cliente pediu para cancelar · recusa sozinho quando o tempo acabar', resp: null, sit: 'fila', espera: '1 min' },
+    { id: 'c2', canal: 'n99', motivo: 'Cancelamento', tipo: 'n99', urgente: false, prazoFim: em(161), titulo: 'Marina S. · pedido 99Food 77 · quer cancelar',
+      cliente: 'Marina S.', pedido: '77', fala: '"Não quero mais, demorou" · a 99 recusa sozinha se ninguém responder', resp: null, sit: 'fila', espera: '2 min' },
+    { id: 'c9', canal: 'n99', motivo: 'Reembolso', tipo: 'n99-reembolso', urgente: false, prazoFim: em(11700), titulo: 'Paulo R. · pedido 99Food 81 · pede reembolso',
+      cliente: 'Paulo R.', pedido: '81', fala: '"Faltou o refrigerante, quero o reembolso" · 1 foto', resp: null, sit: 'fila', espera: '45 min' },
     { id: 'c3', canal: 'wa', motivo: 'Atraso', tipo: 'conversa', urgente: true, titulo: 'Carlos · pedido 1180 · atraso', cliente: 'Carlos',
       tel: '(21) 98412-3301', pedido: '1180', fala: '"Cadê meu lanche? Já faz mais de 1 hora"', resp: null, sit: 'fila', espera: '4 min', robo: true },
     { id: 'c5', canal: 'wa', motivo: 'Sem contato', tipo: 'conversa', urgente: true, titulo: 'Marcos · pedido 1182 · respondeu ao "sem contato"',
@@ -653,10 +691,10 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       tel: '(21) 99614-2210', pedido: '1170', fala: 'Bruno ofereceu mandar o molho ou desconto no próximo pedido', resp: 'Bruno', sit: 'aguardando', espera: '6 min' },
     { id: 'r1', canal: 'wa', motivo: 'Atraso', tipo: 'feito', titulo: 'Lucas · pedido 1150 · atraso', cliente: 'Lucas', pedido: '1150',
       fala: 'Resolvido por Ana às 18:20', resp: 'Ana', sit: 'resolvido', espera: '' },
-    { id: 'r2', canal: 'ifood', motivo: 'Disputa', tipo: 'feito', titulo: 'Pedido 4498 · disputa recusada', cliente: 'iFood', pedido: '4498',
+    { id: 'r2', canal: 'ifood', motivo: 'Disputa', tipo: 'feito', titulo: 'Bruna T. · pedido iFood 4498 · disputa recusada', cliente: 'Bruna T.', pedido: '4498',
       fala: 'Recusada por Ana às 17:55 · motivo "Verificação de disponibilidade"', resp: 'Ana', sit: 'resolvido', espera: '' },
   ];
-  const NOVO = { id: 'c8', canal: 'ifood', motivo: 'Disputa', tipo: 'disputa-atraso', urgente: false, prazoFim: em(470), titulo: 'Pedido 4530 · atraso',
+  const NOVO = { id: 'c8', canal: 'ifood', motivo: 'Disputa', tipo: 'disputa-atraso', urgente: false, prazoFim: em(470), titulo: 'Rafael M. · pedido iFood 4530 · atraso',
     cliente: 'Rafael M.', pedido: '4530', fala: '"Já passou do horário, quero cancelar"', resp: null, sit: 'fila', espera: 'agora' };
 
   let estado = 'com', filtroSit = 'todos', selecionado = 'c1', mostrouNovo = false;
@@ -665,7 +703,10 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const CANAL = { wa: ['wa', 'WhatsApp'], ifood: ['ifood', 'iFood'], n99: ['n99', '99Food'], card: ['card', 'Cardápio'] };
   const chip = (c) => `<span class="canal ${CANAL[c][0]}">${CANAL[c][1]}</span>`;
-  const mmss = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
+  const mmss = (ms) => {
+    const s = Math.max(0, Math.round(ms / 1000)), dd = (n) => String(n).padStart(2, '0');
+    return s >= 3600 ? `${Math.floor(s / 3600)}:${dd(Math.floor((s % 3600) / 60))}:${dd(s % 60)}` : `${dd(Math.floor(s / 60))}:${dd(s % 60)}`;
+  };
   const classePrazo = (ms) => (ms < 120000 ? 'crit' : 'warn');
 
   // ---------- ordem e filtros ----------
@@ -746,10 +787,13 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   // ---------- caso (painel da direita ou folha por cima) ----------
   const PEDIDOS = {
     '4521': { itens: [['1× X-bacon', '32,90'], ['1× Batata média', '12,90', true], ['1× Refrigerante lata', '9,00']], total: '54,80',
-      tempo: [['19:05', 'Aceito'], ['19:20', 'Pronto (cozinha)'], ['19:26', 'Saiu com o entregador do iFood'], ['19:51', 'Entregue']] },
+      tempo: [['19:05', 'Aceito'], ['19:20', 'Pronto (cozinha)'], ['19:26', 'Saiu com o entregador do iFood'], ['19:51', 'Entregue']],
+      app: 'iFood' },
     '4530': { itens: [['2× Smash duplo', '59,80'], ['1× Batata grande', '16,90']], total: '76,70',
-      tempo: [['19:20', 'Aceito'], ['19:44', 'Pronto (cozinha)'], ['—', 'Esperando o entregador do iFood (previsto 19:40)']] },
-    '77': { itens: [['2× X-salada', '55,80'], ['1× Suco de laranja', '8,00']], total: '63,80', tempo: [['19:44', 'Aceito'], ['19:46', 'Em preparo (cozinha, 4 min)']] },
+      tempo: [['19:20', 'Aceito'], ['19:44', 'Pronto (cozinha)'], ['—', 'Esperando o entregador do iFood (previsto 19:40)']], app: 'iFood' },
+    '77': { itens: [['2× X-salada', '55,80'], ['1× Suco de laranja', '8,00']], total: '63,80', tempo: [['19:44', 'Aceito'], ['19:46', 'Em preparo (cozinha, 4 min)']], app: '99Food' },
+    '81': { itens: [['1× Combo burger', '39,90'], ['1× Refrigerante lata', '7,00', true], ['Taxa de entrega', '6,00']], total: '52,90',
+      tempo: [['18:31', 'Aceito'], ['18:52', 'Saiu com o Diego (entrega da loja)'], ['19:05', 'Entregue']], app: '99Food', entregaLoja: true },
     '1180': { itens: [['1× X-tudo', '38,90'], ['1× Batata média', '12,90'], ['Taxa de entrega', '6,00']], total: '57,80',
       tempo: [['18:48', 'Aceito'], ['19:22', 'Pronto (cozinha)'], ['19:31', 'Saiu com o João'], ['19:55', 'Previsão de chegada']] },
     '1176': { itens: [['1× Combo smash', '42,90'], ['1× Coca-Cola lata', '6,00', true], ['Taxa de entrega', '6,00']], total: '54,90',
@@ -764,7 +808,14 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   };
   const blocoPedido = (n, extra = '') => {
     const p = PEDIDOS[n];
-    return `<section class="bloco"><h3>Pedido ${esc(n)} <span class="dir">total R$ ${p.total}</span></h3>
+    const nome = p.app ? `Pedido ${p.app} ${n}` : `Pedido ${n}`;
+    const noApp = p.app === 'iFood'
+      ? '<p class="ajuda" style="margin:8px 0 0">📱 O app do iFood mostra cada etapa ao cliente: o Regem avisa o iFood quando aceita o pedido e quando ele sai para entrega.</p>'
+      : p.app === '99Food'
+        ? `<p class="ajuda" style="margin:8px 0 0">📱 O app da 99 mostra cada etapa ao cliente${p.entregaLoja ? ', com o nome do entregador e a posição dele no mapa (o Regem envia à 99)' : ''}.</p>`
+        : '';
+    extra = noApp + extra;
+    return `<section class="bloco"><h3>${esc(nome)} <span class="dir">total R$ ${p.total}</span></h3>
       <table class="itens"><caption class="sr">Itens do pedido ${esc(n)}</caption><tbody>${p.itens.map(([d, v, m]) => `<tr class="${m ? 'marcado' : ''}"><td>${esc(d)}${m ? ' · contestado' : ''}</td><td class="v">R$ ${v}</td></tr>`).join('')}</tbody></table>
       <ol class="linha-tempo" style="margin-top:10px">${p.tempo.map(([h, t]) => `<li><span class="h">${h}</span><span>${esc(t)}</span></li>`).join('')}</ol>${extra}
       <div class="acoes" style="margin-top:10px"><button type="button" class="bt">Ver no painel</button></div></section>`;
@@ -793,19 +844,38 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <section class="bloco"><h3>Responder ao iFood</h3>
         <div class="respostas">${resp}</div>
         <p class="so-gerente" style="margin:10px 0 0"><span aria-hidden="true">🔒</span><span>Só gerente e presidente respondem, com a senha de quem decide. O iFood aceita uma resposta só por disputa. <button type="button" class="bt leve" style="min-height:28px;padding:0">Chamar o gerente no app</button></span></p>
+      </section>
+      <section class="bloco"><h3>Chat do iFood com ${esc(c.cliente)}</h3>
+        <p style="margin:0 0 8px;font-size:14px">Abre o chat oficial do iFood numa gaveta, sem sair do Regem. Procure o pedido ${esc(c.pedido)} nele.</p>
+        <button type="button" class="bt" data-dlg="chat-ifood">💬 Abrir o chat do iFood</button>
+        <p class="ajuda" style="margin:8px 0 0">O robô não lê nem escreve no chat do iFood: o iFood não libera o chat para sistemas.</p>
       </section></div>
       <div class="col">${blocoPedido(c.pedido)}
       <section class="bloco"><h3>Histórico do caso</h3><ol class="linha-tempo"><li><span class="h">${atraso ? '19:53' : '19:52'}</span><span>O iFood abriu a disputa</span></li><li><span class="h">${atraso ? '19:53' : '19:52'}</span><span>Aviso no app da Ana (gerente)</span></li></ol></section></div></div>`;
   }
+  const chat99 = `<section class="bloco"><h3>Chat da 99</h3><p style="margin:0;font-size:14px">A conversa com o cliente fica no app 99Food Parceiros. A 99 não libera o chat para sistemas.</p></section>`;
   function caso99(c) {
     return topo(c, `<button type="button" class="bt">Pegar para mim</button>`) + `<div class="c-corpo"><div class="col">
-      ${relogio(c, 'Se ninguém responder, o Regem <b>recusa</b> sozinho com o motivo "O pedido já está em preparo" (ajuste da loja: recusar depois de 3 min).')}
-      <section class="bloco"><h3>O que a 99 manda</h3>
-        <p style="margin:0">O cliente pediu para cancelar o pedido 77. O pedido está <b>em preparo</b> há 4 min.</p>
-        <p class="ajuda" style="margin:6px 0 0">Motivo do cliente: a integração da 99 não informou.</p></section>
+      ${relogio(c, 'Se ninguém responder, a <b>99 recusa sozinha</b> (regra da 99: a loja tem 5 min). Para aceitar na hora, sem passar pela fila, desligue o ajuste da 99.')}
+      <section class="bloco"><h3>O que o cliente escreveu à 99</h3>
+        <p style="margin:0;font-size:15px">"Não quero mais, demorou."</p>
+        <p class="ajuda" style="margin:6px 0 0">O pedido está <b>em preparo</b> há 4 min.</p></section>
       <section class="bloco"><h3>Responder à 99</h3>
         <div class="respostas" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)"><button type="button" class="bt perigo" data-dlg="aceitar-99">Aceitar o cancelamento</button><button type="button" class="bt" data-dlg="recusar-99">Recusar</button></div>
-        <p class="so-gerente" style="margin:10px 0 0"><span aria-hidden="true">🔒</span><span>Só gerente e presidente respondem, com a senha. <button type="button" class="bt leve" style="min-height:28px;padding:0" data-ir="aj">Mudar o ajuste da 99</button></span></p></section></div>
+        <p class="so-gerente" style="margin:10px 0 0"><span aria-hidden="true">🔒</span><span>Só gerente e presidente respondem, com a senha. <button type="button" class="bt leve" style="min-height:28px;padding:0" data-ir="aj">Mudar o ajuste da 99</button></span></p></section>
+      ${chat99}</div>
+      <div class="col">${blocoPedido(c.pedido)}</div></div>`;
+  }
+  function caso99Reembolso(c) {
+    return topo(c, `<button type="button" class="bt">Pegar para mim</button>`) + `<div class="c-corpo"><div class="col">
+      ${relogio(c, 'Se ninguém responder, o <b>Regem recusa sozinho</b> com o motivo do ajuste ("Outro · Pedido conferido na saída"). Sem isso, a 99 reembolsaria o cliente sozinha em 24 h.')}
+      <section class="bloco"><h3>O que o cliente pede à 99</h3>
+        <p style="margin:0 0 8px;font-size:15px">"Faltou o refrigerante, quero o reembolso."</p>
+        <div class="fotos"><span class="foto">foto do cliente</span></div></section>
+      <section class="bloco"><h3>Responder à 99</h3>
+        <div class="respostas" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)"><button type="button" class="bt perigo" data-dlg="aceitar-99-reemb">Aceitar o reembolso</button><button type="button" class="bt" data-dlg="recusar-99-reemb">Recusar</button></div>
+        <p class="so-gerente" style="margin:10px 0 0"><span aria-hidden="true">🔒</span><span>Só gerente e presidente respondem, com a senha. <button type="button" class="bt leve" style="min-height:28px;padding:0" data-ir="aj">Mudar o ajuste da 99</button></span></p></section>
+      ${chat99}</div>
       <div class="col">${blocoPedido(c.pedido)}</div></div>`;
   }
   const CONVERSAS = {
@@ -847,7 +917,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   function casoFeito(c) {
     return topo(c, '') + `<div class="c-corpo"><div class="col"><div class="nota ok">${esc(c.fala)}</div></div><div class="col">${blocoPedido(c.pedido)}</div></div>`;
   }
-  const RENDER = { disputa: casoDisputa, 'disputa-atraso': casoDisputa, n99: caso99, conversa: casoConversa, cardapio: casoCardapio, feito: casoFeito };
+  const RENDER = { disputa: casoDisputa, 'disputa-atraso': casoDisputa, n99: caso99, 'n99-reembolso': caso99Reembolso, conversa: casoConversa, cardapio: casoCardapio, feito: casoFeito };
 
   let modo = 'duplo';
   function abrirCaso(id, doClique) {
@@ -905,8 +975,18 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
         <div class="campo"><span class="rot">O que propor</span><div class="opcoes" role="group" aria-label="Tipo de proposta"><button type="button" class="opcao" aria-pressed="true" data-op>Devolver parte do valor · até R$ 12,90</button><button type="button" class="opcao" aria-pressed="false" data-op>Crédito para o cliente no iFood · até R$ 15,00</button></div></div>
         <div class="campo"><label for="valor">Valor (R$)</label><input id="valor" type="text" inputmode="decimal" value="6,00"><span class="ajuda">O iFood não aceita acima do limite desta disputa.</span></div>${senha()}`, ok: 'Enviar proposta', cl: 'pri' },
     'aceitar-99': () => ({ t: 'Aceitar o cancelamento do pedido 77', b: `<p style="margin:0">A 99 cancela o pedido e o Regem cancela aqui também, como no painel.</p>${insumos}${senha()}`, ok: 'Enviar à 99', cl: 'perigo' }),
-    'recusar-99': () => ({ t: 'Recusar o cancelamento do pedido 77', b: `<div class="campo"><label for="mot-99">Motivo que a 99 recebe</label><select id="mot-99"><option>O pedido já está em preparo</option><option>O pedido já saiu para entrega</option><option>O pedido já foi entregue</option><option>Outro motivo</option></select></div>
-      <div class="campo"><label for="txt-99">Detalhe (opcional)</label><input id="txt-99" type="text" placeholder="Ex.: o lanche já está montado"></div>${senha()}`, ok: 'Enviar à 99', cl: 'pri' }),
+    'recusar-99': () => ({ t: 'Recusar o cancelamento do pedido 77', b: `<div class="campo"><label for="mot-99">Motivo que a 99 recebe</label><select id="mot-99"><option>O pedido está em preparo</option><option>O pedido está pronto</option><option>O entregador chegou</option><option>O entregador já levou</option></select><span class="ajuda">A 99 só aceita os motivos desta lista, que vem junto com o pedido do cliente.</span></div>${senha()}`, ok: 'Enviar à 99', cl: 'pri' }),
+    'aceitar-99-reemb': () => ({ t: 'Aceitar o reembolso do pedido 81', b: `<p style="margin:0">A 99 devolve o valor ao cliente.</p>${senha()}`, ok: 'Enviar à 99', cl: 'perigo' }),
+    'recusar-99-reemb': () => ({ t: 'Recusar o reembolso do pedido 81', b: `<div class="campo"><label for="mot-r99">Motivo que a 99 recebe</label><select id="mot-r99"><option>Combinei com o cliente uma nova entrega</option><option>Combinei com o cliente trocar por outro item</option><option>O pedido foi entregue ao entregador</option><option>Erro do entregador na entrega</option><option>O cliente se enganou</option><option>O cliente quer reembolso de só uma parte</option><option>Faltam dados do cliente</option><option>Outro</option></select><span class="ajuda">A lista vem da 99 junto com o pedido do cliente.</span></div>
+      <div class="campo"><label for="txt-r99">Explicação para a 99 (opcional)</label><input id="txt-r99" type="text" placeholder="Ex.: o refrigerante foi conferido na sacola"></div>${senha()}`, ok: 'Enviar à 99', cl: 'pri' }),
+    'chat-ifood': () => ({ gaveta: true, t: 'Chat do iFood', b: `<div class="widget">
+        <div class="w-topo">iFood · conversas com clientes <span>exemplo</span></div>
+        <div class="w-conv"><b>Pedido 4521 · Ana P.</b><span>Faltou a batata.</span><i>2</i></div>
+        <div class="w-conv"><b>Pedido 4519 · João V.</b><span>Obrigado!</span></div>
+        <div class="w-msgs"><div class="msg cli">Faltou a batata.<small>19:51</small></div><div class="msg loja">Oi, Ana! Vamos resolver agora.<small>loja · 19:53</small></div></div>
+        <div class="w-escrever">Escreva uma mensagem…</div></div>
+      <p class="ajuda" style="margin:0">Esta área é o chat oficial do iFood (Widget): a tela é do iFood, e a pessoa lê e escreve nela, sem sair do Regem. O robô não lê nem escreve aqui.</p>
+      <p class="ajuda" style="margin:0">Autorização uma vez por computador, com um usuário "Dono" ou "Administrador" do iFood. Fica autorizado enquanto o computador usar o chat ao menos uma vez a cada 7 dias. Só uma aba do navegador por vez.</p>`, ok: null }),
     'aceitar-card': () => ({ t: 'Aceitar o cancelamento do pedido 1185', b: `<div class="campo"><label for="mot-c">Motivo</label><input id="mot-c" type="text" placeholder="Vazio: cancelamento pedido pelo cliente"></div>${insumos}${senha()}`, ok: 'Cancelar o pedido', cl: 'perigo' }),
     'recusar-card': () => ({ t: 'Recusar o cancelamento do pedido 1185', b: `<p style="margin:0">O pedido segue normalmente. Avise o cliente pelo WhatsApp, se quiser.</p>`, ok: 'Recusar', cl: 'pri' }),
     passar: () => ({ t: 'Passar o caso', b: `<div class="campo"><span class="rot">Para quem</span><div class="opcoes" role="group" aria-label="Para quem"><button type="button" class="opcao" aria-pressed="true" data-op>Bruno · disponível</button><button type="button" class="opcao" aria-pressed="false" data-op>Carla · ocupada: caixa</button><button type="button" class="opcao" aria-pressed="false" data-op>De volta para a fila</button></div></div>
@@ -916,17 +996,18 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   };
   function abrirDialogo(k, origem) {
     const d = DLG[k](origem);
-    const fundo = document.createElement('div'); fundo.className = 'fundo';
+    const fundo = document.createElement('div'); fundo.className = d.gaveta ? 'fundo lado-dir' : 'fundo';
     const idT = `dlg-t-${pilha.length}`;
-    fundo.innerHTML = `<div class="dlg" role="dialog" aria-modal="true" aria-labelledby="${idT}"><header><h2 id="${idT}">${d.t}</h2></header><div class="meio">${d.b}</div>
-      <footer><button type="button" class="bt" data-cancelar>Cancelar</button><button type="button" class="bt ${d.cl}" data-confirmar>${d.ok}</button></footer></div>`;
+    fundo.innerHTML = `<div class="dlg ${d.gaveta ? 'gaveta' : ''}" role="dialog" aria-modal="true" aria-labelledby="${idT}"><header><h2 id="${idT}">${d.t}</h2></header><div class="meio">${d.b}</div>
+      <footer><button type="button" class="bt" data-cancelar>${d.ok ? 'Cancelar' : 'Fechar'}</button>${d.ok ? `<button type="button" class="bt ${d.cl}" data-confirmar>${d.ok}</button>` : ''}</footer></div>`;
     $('#camada').appendChild(fundo);
     pilha.push({ fundo, origem });
     $$('.opcoes', fundo).forEach((g) => $$('[data-op]', g).forEach((o) => o.addEventListener('click', () => $$('[data-op]', g).forEach((x) => x.setAttribute('aria-pressed', String(x === o))))));
     $('[data-cancelar]', fundo).addEventListener('click', fecharDialogo);
-    $('[data-confirmar]', fundo).addEventListener('click', () => { const t = d.t; fecharDialogo(); toast(`✅ Feito (protótipo): ${t.toLowerCase()}`); });
+    const conf = $('[data-confirmar]', fundo);
+    if (conf) conf.addEventListener('click', () => { const t = d.t; fecharDialogo(); toast(`✅ Feito (protótipo): ${t.toLowerCase()}`); });
     fundo.addEventListener('click', (e) => { if (e.target === fundo) fecharDialogo(); });
-    const primeiro = $('input,select,[data-op]', fundo) || $('[data-confirmar]', fundo); primeiro.focus();
+    const primeiro = $('input,select,[data-op]', fundo) || $('[data-confirmar]', fundo) || $('[data-cancelar]', fundo); primeiro.focus();
   }
   function fecharDialogo() { const top = pilha.pop(); if (!top) return; top.fundo.remove(); if (top.origem && document.contains(top.origem)) top.origem.focus(); }
   document.addEventListener('keydown', (e) => {
@@ -951,6 +1032,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     if (acao) $('.bt', t).addEventListener('click', () => { t.remove(); acao(); });
     setTimeout(() => t.remove(), 7000);
   }
+  $('#bt-chat-ifood').addEventListener('click', (e) => abrirDialogo('chat-ifood', e.currentTarget));
   $('#simular').addEventListener('click', () => {
     if (!mostrouNovo) { CASOS.unshift(NOVO); mostrouNovo = true; }
     irPara('pc'); desenharTudo();
@@ -1006,12 +1088,13 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   function atualizarBarra() {
     const n = mudancas(); $('#barra-salvar').hidden = !n; $('#n-mud').textContent = `${n} ${n === 1 ? 'alteração ainda não salva' : 'alterações ainda não salvas'}`;
     const lig = $('#aj99').getAttribute('aria-checked') === 'true';
-    $$('#v-aj [data-dep99]').forEach((r) => r.classList.toggle('desligado', !lig));
-    $$('#v-aj [data-dep99] select').forEach((s) => (s.disabled = !lig));
-    $('#aj99-reemb').textContent = lig ? 'Recusar se ninguém responder' : 'Aceitar na hora, como hoje';
+    $('#aj99-ajuda').textContent = lig
+      ? 'Ligado (padrão): o pedido vira caso na fila; se ninguém responder em 5 min, a 99 recusa sozinha (regra da 99). Desligado: o Regem aceita na hora e avisa a equipe.'
+      : 'Desligado: o Regem aceita na hora todo cancelamento pedido pelo cliente na 99 e avisa a equipe. Ligue para decidir na fila.';
   }
   $$('#v-aj .chave').forEach((c) => c.addEventListener('click', () => { c.setAttribute('aria-checked', String(c.getAttribute('aria-checked') !== 'true')); atualizarBarra(); }));
   $$('#v-aj select[data-aj]').forEach((s) => s.addEventListener('change', atualizarBarra));
+  $$('#v-aj input[data-aj]').forEach((s) => s.addEventListener('input', atualizarBarra));
   $('#desfazer').addEventListener('click', () => { inicial.forEach((v, el) => { if (el.getAttribute('role') === 'switch') el.setAttribute('aria-checked', v); else el.value = v; }); atualizarBarra(); });
   $('#salvar').addEventListener('click', () => { inicial.forEach((_, el) => inicial.set(el, valorDe(el))); atualizarBarra(); toast('✅ Ajustes do atendimento salvos (protótipo)'); });
   $('#busca-aj').addEventListener('input', (e) => {
