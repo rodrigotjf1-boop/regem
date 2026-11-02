@@ -1175,6 +1175,22 @@ export const api = {
     req(`/atendimento/${id}/passar`, { method: 'POST', body: JSON.stringify({ para }) }),
   atendimentoAguardar: (id: string, aguardando: boolean) =>
     req(`/atendimento/${id}/aguardar`, { method: 'POST', body: JSON.stringify({ aguardando }) }),
+  // Disputa do iFood (PR 2): a resposta (aceitar, recusar, propor — com a senha de gerente/presidente) e a foto do cliente.
+  atendimentoResponderDisputa: (id: string, body: Record<string, unknown>) =>
+    req(`/atendimento/${id}/disputa`, { method: 'POST', body: JSON.stringify(body) }),
+  // A foto vem por fetch (no servidor da loja a sessão é Bearer, que o <img> não manda) e vira um endereço local.
+  atendimentoFotoUrl: async (id: string, n: number): Promise<string> => {
+    const token = getJwt();
+    const res = await fetch(`${apiBase()}/atendimento/${id}/foto/${n}`, {
+      credentials: ehEdge() ? 'same-origin' : 'include',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(getUnidadeAtual() ? { 'X-Unidade-Id': getUnidadeAtual() as string } : {}),
+      },
+    });
+    if (!res.ok) throw new Error(`Erro ${res.status} ao abrir a foto`);
+    return URL.createObjectURL(await res.blob());
+  },
   resolverAtendimento: (id: string) =>
     req(`/atendimento/${id}/resolver`, { method: 'POST', body: '{}' }),
   decidirCancelamento: (

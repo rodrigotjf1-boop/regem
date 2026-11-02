@@ -89,6 +89,15 @@ export class IfoodPoller {
         } else if (code === 'CAN' || code === 'CANCELLED') {
           // iFood cancelou o pedido → reflete localmente (sem status-back de volta).
           await this.delivery.refletirStatusExterno(ig.tenantId, 'ifood', String(ev.orderId), 'cancelado');
+        } else if (code === 'HSD' || code === 'HANDSHAKE_DISPUTE') {
+          // DISPUTA (cliente pede cancelamento, reembolso ou mais tempo): vira caso na central de atendimento, com o
+          // prazo do iFood. Gravado ANTES da confirmação de leitura; repetido, não abre outro (idempotente). Antes era
+          // confirmado e jogado fora — sem ninguém ver, o prazo vencia e o iFood decidia sozinho.
+          const r = await this.ifood.registrarDisputa(ig, ev);
+          if (r.aberto) this.logger.log(`loja ${ig.tenantId}: disputa do pedido ${String(ev.orderId).slice(0, 8)} na central`);
+        } else if (code === 'HSS' || code === 'HANDSHAKE_SETTLEMENT') {
+          // A disputa TERMINOU (aceita, recusada, vencida ou proposta aceita): o caso ganha o resultado e sai da fila.
+          await this.ifood.registrarEncerramento(ig, ev);
         }
         // Demais códigos: nada a fazer — reconhecidos.
         processados.push(ev);

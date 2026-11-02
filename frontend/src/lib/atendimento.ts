@@ -34,6 +34,9 @@ export type CasoDaFila = {
   resolvidoPorNome?: string | null;
   situacao: 'fila' | 'com_alguem' | 'aguardando' | 'resolvido';
   posicao?: number | null;
+  /** O que a plataforma mandou e o que a loja respondeu (mig 351): a disputa do iFood, o pedido da 99. */
+  detalhe?: any;
+  externoId?: string | null;
 };
 
 export type ContagensDaFila = {
@@ -115,6 +118,7 @@ export const ROTULO_DO_TIPO: Record<string, string> = {
   humano: 'Quer falar com alguém',
   cancelamento: 'Pedido de cancelamento',
   outro: 'Atendimento',
+  disputa: 'Disputa',
 };
 
 /** "Ana P. · pedido iFood 4521": cliente + plataforma + número (o da plataforma quando há; senão o da loja). */

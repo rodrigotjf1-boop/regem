@@ -1,8 +1,10 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { and, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../../db/drizzle.module';
 import { integracao } from '../../../db/schema';
 import { fetchExterno } from '../../../common/fetch-externo';
+import { registrarDisputa, registrarEncerramento } from './ifood-disputa';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Cliente da API do iFood (merchant-api.ifood.com.br). Guardamos por integração
@@ -27,7 +29,73 @@ export interface IntegIfood {
 @Injectable()
 export class IfoodService {
   private readonly logger = new Logger('iFood');
-  constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
+  constructor(
+    @Inject(DRIZZLE) private readonly db: DrizzleDB,
+    // O aviso em tempo real do caso novo (disputa) — opcional: os testes montam o serviço sem ele.
+    @Optional() private readonly events?: EventEmitter2,
+  ) {}
+
+  // ===== Disputas (Plataforma de negociação) — a central de atendimento, Onda 1, PR 2 =====
+
+  /** HSD: abre o caso da disputa (idempotente pelo id da disputa). */
+  registrarDisputa(ig: IntegIfood, ev: any) {
+    return registrarDisputa(this.db, (e, p) => this.events?.emit(e, p), ig, ev);
+  }
+
+  /** HSS: grava como a disputa terminou e resolve o caso. */
+  registrarEncerramento(ig: IntegIfood, ev: any) {
+    return registrarEncerramento(this.db, (e, p) => this.events?.emit(e, p), ig.tenantId, ev);
+  }
+
+  /**
+   * Responde à disputa: `accept` | `reject` | `alternative` (POST /order/v1.0/disputes/{id}/…). O iFood aceita UMA resposta
+   * por disputa (422 DISPUTE_ALREADY_ANSWERED). Devolve o que o iFood respondeu — quem chama decide a mensagem.
+   */
+  async responderDisputa(
+    ig: IntegIfood,
+    disputa: string,
+    acao: 'accept' | 'reject' | 'alternative',
+    corpo: Record<string, unknown>,
+  ): Promise<{ ok: boolean; status: number; codigo: string | null; mensagem: string | null }> {
+    if (!/^[A-Za-z0-9_-]{1,80}$/.test(disputa)) return { ok: false, status: 400, codigo: 'ID', mensagem: 'id da disputa inválido' };
+    const res = await this.req(ig, `/order/v1.0/disputes/${disputa}/${acao}`, { method: 'POST', body: JSON.stringify(corpo) });
+    if (res.ok) {
+      this.logger.log(`disputa ${disputa.slice(0, 8)} ${acao} OK`);
+      return { ok: true, status: res.status, codigo: null, mensagem: null };
+    }
+    const txt = await res.text().catch(() => '');
+    let j: any = null;
+    try {
+      j = JSON.parse(txt);
+    } catch {
+      /* corpo sem JSON */
+    }
+    const codigo = j?.code ?? j?.error?.code ?? null;
+    const mensagem = j?.message ?? j?.error?.message ?? (txt.slice(0, 160) || null);
+    this.logger.warn(`disputa ${disputa.slice(0, 8)} ${acao} ${res.status}: ${codigo ?? ''} ${String(mensagem ?? '').slice(0, 120)}`);
+    return { ok: false, status: res.status, codigo, mensagem };
+  }
+
+  /**
+   * A FOTO que o cliente mandou na disputa. O endereço vem do iFood e pede o token da loja — por isso só vale o próprio
+   * `https://merchant-api.ifood.com.br/…` (o token nunca vai para outro endereço — V68). Até 8 MB, só imagem.
+   */
+  async fotoDaDisputa(ig: IntegIfood, url: string): Promise<{ tipo: string; bytes: Buffer } | null> {
+    let alvo: URL;
+    try {
+      alvo = new URL(url);
+    } catch {
+      return null;
+    }
+    if (alvo.protocol !== 'https:' || alvo.host !== 'merchant-api.ifood.com.br') return null;
+    const res = await this.req(ig, `${alvo.pathname}${alvo.search}`, { method: 'GET', headers: { Accept: 'image/*' } });
+    if (!res.ok) return null;
+    const tipo = String(res.headers.get('content-type') ?? '');
+    if (!tipo.startsWith('image/')) return null;
+    const bytes = Buffer.from(await res.arrayBuffer());
+    if (bytes.length > 8 * 1024 * 1024) return null;
+    return { tipo, bytes };
+  }
 
   private mapRow(r: any): IntegIfood | null {
     // Client ID/Secret são do APP PARCEIRO da Regem — globais (env), iguais p/ todas

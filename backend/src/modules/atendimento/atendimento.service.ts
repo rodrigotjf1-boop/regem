@@ -115,7 +115,7 @@ export class AtendimentoService {
       select c.id, c.tipo, c.canal, c.cliente, c.telefone, c.mensagem, c.prioridade, c.status, c.decisao,
              c.pedido_id as "pedidoId", c.pedido_numero as "pedidoNumero", c.unidade_id as "unidadeId",
              c.responsavel_id as "responsavelId", c.pego_em as "pegoEm", c.aguardando_desde as "aguardandoDesde",
-             c.prazo_em as "prazoEm", c.criado_em as "criadoEm",
+             c.prazo_em as "prazoEm", c.criado_em as "criadoEm", c.detalhe, c.externo_id as "externoId",
              r.nome as "responsavelNome",
              p.canal as "pedidoCanal", p.status as "pedidoStatus", p.display_id as "pedidoNaPlataforma",
              p.cliente_nome as "pedidoCliente"
@@ -136,7 +136,7 @@ export class AtendimentoService {
     const r: any = await this.db.execute(sql`
       select c.id, c.tipo, c.canal, c.cliente, c.telefone, c.mensagem, c.prioridade, c.status, c.decisao,
              c.pedido_id as "pedidoId", c.pedido_numero as "pedidoNumero", c.criado_em as "criadoEm",
-             c.resolvido_em as "resolvidoEm", q.nome as "resolvidoPorNome",
+             c.resolvido_em as "resolvidoEm", q.nome as "resolvidoPorNome", c.detalhe, c.externo_id as "externoId",
              p.canal as "pedidoCanal", p.status as "pedidoStatus", p.display_id as "pedidoNaPlataforma"
         from atendimento_chamado c
         left join colaborador q on q.id = c.resolvido_por_id and q.tenant_id = c.tenant_id

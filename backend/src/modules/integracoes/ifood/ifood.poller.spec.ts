@@ -99,3 +99,50 @@ describe('IfoodPoller — evento de status antes de o servidor da loja aceitar',
     expect(reconhecidos.map((e) => e.id)).toEqual(['e1', 'e3']);
   });
 });
+
+// DISPUTAS (central de atendimento, Onda 1, PR 2): HSD e HSS eram confirmados e jogados fora. Agora cada um é GRAVADO
+// antes da confirmação de leitura; o que falhou ao gravar fica sem confirmação e volta no próximo polling.
+describe('IfoodPoller — disputa e encerramento vão para a central', () => {
+  const ig = { id: 'ig-1', tenantId: 'loja-1', unidadeId: null, merchantId: 'm-1' };
+  const edge = process.env.EDGE_MODE;
+  beforeEach(() => {
+    delete process.env.EDGE_MODE;
+    jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    jest.restoreAllMocks();
+    if (edge === undefined) delete process.env.EDGE_MODE;
+    else process.env.EDGE_MODE = edge;
+  });
+
+  it('HSD vira caso e HSS encerra; a disputa que não gravou não é confirmada', async () => {
+    const eventos = [
+      { id: 'e1', code: 'HSD', orderId: 'o-1', metadata: { id: 'd-1' } },
+      { id: 'e2', code: 'HANDSHAKE_SETTLEMENT', orderId: 'o-1', metadata: { disputeId: 'd-1', status: 'ACCEPTED' } },
+      { id: 'e3', code: 'HSD', orderId: 'o-2', metadata: { id: 'd-falha' } },
+    ];
+    const reconhecidos: any[] = [];
+    const disputas: string[] = [];
+    const encerramentos: string[] = [];
+    const poller = new IfoodPoller(
+      {
+        integracoesAtivas: async () => [ig],
+        polling: async () => eventos,
+        acknowledge: async (_ig: any, evs: any[]) => void reconhecidos.push(...evs),
+        reconciliarCancels: async () => 0,
+        registrarDisputa: async (_ig: any, ev: any) => {
+          if (ev.metadata.id === 'd-falha') throw new Error('banco fora');
+          disputas.push(ev.metadata.id);
+          return { aberto: true, id: 'c-1' };
+        },
+        registrarEncerramento: async (_ig: any, ev: any) => void encerramentos.push(`${ev.metadata.disputeId}:${ev.metadata.status}`),
+      } as any,
+      {} as any,
+    );
+    await poller.tick();
+    expect(disputas).toEqual(['d-1']);
+    expect(encerramentos).toEqual(['d-1:ACCEPTED']);
+    expect(reconhecidos.map((e) => e.id)).toEqual(['e1', 'e2']);
+  });
+});

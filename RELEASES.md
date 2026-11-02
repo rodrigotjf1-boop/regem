@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Disputas do iFood na central de atendimento (Onda 1, PR 2, 02/11, mig 351 NÃO só-nuvem — aplicar na nuvem ANTES do
+  merge): nuvem no ar com o merge (o leitor do iFood é só da nuvem); a loja no `.zip` (mig 351, a tela da disputa e o
+  "pedir à nuvem" da resposta e da foto).** O HSD vira caso com o prazo do iFood; o HSS encerra; a resposta (gerente ou
+  presidente) sai pela nuvem. Teste novo `app-sobe.spec.ts` (ERR-343).
+
 - **Central de atendimento — a tela "Atendimento" e o sino em todas as telas (Onda 1, PR 1b, 02/11, sem migration): nuvem
   no ar com o merge; a loja no `.zip` (a tela e a rota `GET atendimento/equipe`).** Item novo no menu; o alerta (aviso e
   bipe) passa a valer em todas as telas; o sino do painel do Delivery abre a tela nova e o painel de chamados antigo saiu
