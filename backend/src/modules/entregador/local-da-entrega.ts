@@ -37,7 +37,10 @@ export function distanciaParaLer(m: number): string {
   return m < 1000 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toFixed(1).replace('.', ',')} km`;
 }
 
-/** A recusa que o entregador lê (no app e no aviso da fila sem internet). O botão do painel é o FINALIZAR. */
+/**
+ * A recusa que o entregador lê (no app e no aviso da fila sem internet). Os nomes dos botões são os das telas: no app,
+ * "Concluir entrega" (`pedido_screen.dart`); no painel, FINALIZAR (Delivery › Painel).
+ */
 export function textoDeLonge(distanciaM: number): string {
-  return `Você está a ${distanciaParaLer(distanciaM)} do endereço do cliente. Marque "Entregue" quando estiver lá. Se já está no endereço, peça à loja para finalizar o pedido no painel.`;
+  return `Você está a ${distanciaParaLer(distanciaM)} do endereço do cliente. Toque em "Concluir entrega" quando estiver lá. Se já está no endereço, peça à loja para finalizar o pedido no painel.`;
 }

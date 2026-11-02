@@ -28,12 +28,17 @@ describe('local da entrega — a regra', () => {
     expect(longeDoEndereco(500, 900)).toBe(true); // 350
   });
 
-  it('a distância e a recusa para a pessoa ler, com o botão do painel', () => {
+  it('a distância e a recusa para a pessoa ler, com o nome dos botões das telas (V65)', () => {
     expect(distanciaParaLer(847)).toBe('850 m');
     expect(distanciaParaLer(1234)).toBe('1,2 km');
     expect(textoDeLonge(1234)).toBe(
-      'Você está a 1,2 km do endereço do cliente. Marque "Entregue" quando estiver lá. Se já está no endereço, peça à loja para finalizar o pedido no painel.',
+      'Você está a 1,2 km do endereço do cliente. Toque em "Concluir entrega" quando estiver lá. Se já está no endereço, peça à loja para finalizar o pedido no painel.',
     );
+    // O botão do app que conclui a entrega tem esse nome (pedido_screen.dart); o do painel é o FINALIZAR (delivery/page.tsx).
+    const raiz = require('node:path').join(__dirname, '../../../..');
+    const ler = (arq: string) => require('node:fs').readFileSync(require('node:path').join(raiz, arq), 'utf8');
+    expect(ler('app-entregador/lib/screens/pedido_screen.dart')).toContain("'Concluir entrega'");
+    expect(ler('frontend/src/app/delivery/page.tsx')).toContain("'FINALIZAR'");
   });
 });
 
