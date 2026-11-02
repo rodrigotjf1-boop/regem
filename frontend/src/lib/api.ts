@@ -1191,6 +1191,13 @@ export const api = {
     if (!res.ok) throw new Error(`Erro ${res.status} ao abrir a foto`);
     return URL.createObjectURL(await res.blob());
   },
+  // Pedido de cancelamento/reembolso do cliente da 99 (PR 3): aceitar ou recusar com o motivo da lista, com a senha.
+  atendimentoResponderPedido99: (id: string, body: { aceita: boolean; motivo?: string; motivoId?: string; explicacao?: string; senha: string }) =>
+    req(`/atendimento/${id}/pedido99`, { method: 'POST', body: JSON.stringify(body) }),
+  // Os ajustes do atendimento (Delivery › Configurações › Atendimento) — só na nuvem, só gerente e presidente.
+  atendimentoAjustes: () => req('/atendimento/ajustes'),
+  salvarAtendimentoAjustes: (body: { ajuste99?: Record<string, unknown> }) =>
+    req('/atendimento/ajustes', { method: 'PUT', body: JSON.stringify(body) }),
   resolverAtendimento: (id: string) =>
     req(`/atendimento/${id}/resolver`, { method: 'POST', body: '{}' }),
   decidirCancelamento: (

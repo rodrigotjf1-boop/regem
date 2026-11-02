@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Pedidos de cancelamento e de reembolso do cliente da 99 na central (Onda 1, PR 3, 02/11, sem migration — usa a 351):
+  nuvem no ar com o merge (o aviso da 99, a resposta e a rotina são só da nuvem); a loja no `.zip` (a tela do caso, o
+  "pedir à nuvem" da resposta e a aba Delivery › Configurações › Atendimento, que no servidor da loja só explica).** A
+  resposta à 99 corrigida (`agree` booleano e os motivos da lista — ERR-344); o reembolso sem resposta o Regem recusa no
+  tempo do ajuste (padrão 4 h); a configuração da 99 gravada por chave (ERR-345).
+
 - **Disputas do iFood na central de atendimento (Onda 1, PR 2, 02/11, mig 351 NÃO só-nuvem — aplicar na nuvem ANTES do
   merge): nuvem no ar com o merge (o leitor do iFood é só da nuvem); a loja no `.zip` (mig 351, a tela da disputa e o
   "pedir à nuvem" da resposta e da foto).** O HSD vira caso com o prazo do iFood; o HSS encerra; a resposta (gerente ou

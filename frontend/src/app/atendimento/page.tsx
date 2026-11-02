@@ -12,7 +12,9 @@ import { FiltroBusca, FiltroSelect, Filtros, semAcento } from '@/components/ui/l
 import { ChipDoCanal } from '@/components/atendimento/chip-do-canal';
 import { DecidirCancelamento } from '@/components/atendimento/decidir-cancelamento';
 import { DisputaIfood } from '@/components/atendimento/disputa-ifood';
+import { Pedido99 } from '@/components/atendimento/pedido-99';
 import {
+  CASO_DA_PLATAFORMA,
   ROTULO_DO_CANAL,
   ROTULO_DO_TIPO,
   hora,
@@ -434,8 +436,9 @@ function Caso({
             <Button type="button" variant="outline" disabled={enviando} onClick={() => setPassando(true)}>
               Passar
             </Button>
-            {/* A disputa se resolve pela resposta ao iFood (ou pelo prazo): "aguardar" e "resolver" à mão a esconderiam. */}
-            {c.tipo !== 'disputa' && (
+            {/* Disputa do iFood e pedido da 99 se resolvem pela resposta à plataforma (ou pelo prazo): "aguardar" e
+                "resolver" à mão os esconderiam. */}
+            {!CASO_DA_PLATAFORMA.has(c.tipo) && (
               <>
                 <Button
                   type="button"
@@ -463,6 +466,8 @@ function Caso({
       <div className="space-y-4 p-4">
         {c.tipo === 'disputa' && c.detalhe?.disputa ? (
           <DisputaIfood caso={c} agora={agora} aoMudar={aoMudar} />
+        ) : (c.tipo === 'cancelamento_99' || c.tipo === 'reembolso_99') && c.detalhe?.pedido99 ? (
+          <Pedido99 caso={c} agora={agora} aoMudar={aoMudar} />
         ) : (
           <>
             {prazo && aberto && (

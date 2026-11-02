@@ -3,6 +3,7 @@ import { AtendimentoController } from './atendimento.controller';
 import { AtendimentoLojaController } from './atendimento-loja.controller';
 import { AtendimentoService } from './atendimento.service';
 import { DisputaIfoodService } from './disputa-ifood.service';
+import { Pedido99Service } from './pedido-99.service';
 import { DeliveryModule } from '../delivery/delivery.module';
 import { IntegracoesModule } from '../integracoes/integracoes.module';
 import { EquipamentoModule } from '../equipamento/equipamento.module';
@@ -13,7 +14,8 @@ import { SyncTokenGuard } from '../sync/sync-token.guard';
   // Equipamento + SyncTokenGuard: as rotas que o servidor da loja chama na nuvem (AtendimentoLojaController), como no Delivery.
   imports: [DeliveryModule, forwardRef(() => IntegracoesModule), EquipamentoModule],
   controllers: [AtendimentoController, AtendimentoLojaController],
-  providers: [AtendimentoService, DisputaIfoodService, SyncTokenGuard],
+  // Pedido99Service: a resposta ao pedido do cliente da 99 e a rotina da nuvem (cancelamento vencido, reembolso recusado).
+  providers: [AtendimentoService, DisputaIfoodService, Pedido99Service, SyncTokenGuard],
   exports: [AtendimentoService],
 })
 export class AtendimentoModule {}

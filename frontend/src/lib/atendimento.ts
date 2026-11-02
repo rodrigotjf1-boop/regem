@@ -119,7 +119,12 @@ export const ROTULO_DO_TIPO: Record<string, string> = {
   cancelamento: 'Pedido de cancelamento',
   outro: 'Atendimento',
   disputa: 'Disputa',
+  cancelamento_99: 'Cancelamento pedido à 99',
+  reembolso_99: 'Reembolso pedido à 99',
 };
+
+/** Casos que se resolvem pela resposta à plataforma (ou pelo prazo): "aguardar" e "resolver" à mão os esconderiam. */
+export const CASO_DA_PLATAFORMA = new Set(['disputa', 'cancelamento_99', 'reembolso_99']);
 
 /** "Ana P. · pedido iFood 4521": cliente + plataforma + número (o da plataforma quando há; senão o da loja). */
 export function tituloDoCaso(c: CasoDaFila): string {
