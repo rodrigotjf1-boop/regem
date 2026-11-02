@@ -66,8 +66,16 @@ descrever('aviso automático de atraso (Postgres)', () => {
     await repetirNaCorridaDeCatalogo(() => pool.query(readFileSync(MIG('215_whatsapp_mensagem.sql'), 'utf8')));
     for (const s of [...daTabelaDeModelos('227_whatsapp_template.sql'), ...daTabelaDeModelos('236_whatsapp_template_evento.sql')])
       await repetirNaCorridaDeCatalogo(() => pool.query(s));
-    // A 349 (lembrete do carrinho) põe a coluna que a leitura dos ajustes do robô lê; ela altera o carrinho da 344.
-    for (const m of ['342_robo_pausa_e_config.sql', '347_aviso_de_atraso.sql', '347_aviso_de_atraso.sql', '344_robo_carrinho.sql', '349_lembrete_do_carrinho.sql'])
+    // A 349 (lembrete do carrinho) e a 352 ("chegou tudo certo?") põem colunas que a leitura dos ajustes do robô lê; a 349
+    // altera o carrinho da 344 (ERR-273: toda migration nova da robo_config entra nesta lista).
+    for (const m of [
+      '342_robo_pausa_e_config.sql',
+      '347_aviso_de_atraso.sql',
+      '347_aviso_de_atraso.sql',
+      '344_robo_carrinho.sql',
+      '349_lembrete_do_carrinho.sql',
+      '352_conferir_entrega.sql',
+    ])
       await aplicar(m);
   });
   beforeEach(() => {

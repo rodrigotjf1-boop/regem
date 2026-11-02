@@ -11,6 +11,7 @@ import { RoboRespostaController } from './robo-resposta.controller';
 import { RoboRespostaService } from './robo-resposta.service';
 import { EvolutionEntradaController } from './evolution-entrada.controller';
 import { EvolutionEntradaService } from './evolution-entrada.service';
+import { ConferirEntregaProcessor } from './conferir-entrega.processor';
 import { EquipamentoModule } from '../equipamento/equipamento.module';
 import { SyncTokenGuard } from '../sync/sync-token.guard';
 
@@ -38,6 +39,8 @@ import { SyncTokenGuard } from '../sync/sync-token.guard';
     WhatsappCloudService,
     WhatsappProvedorService,
     WhatsappNumeroService,
+    // A rotina do "Chegou tudo certo?" depois da entrega (B1; mig 352; só nuvem, só API oficial).
+    ConferirEntregaProcessor,
     SyncTokenGuard,
     EmpresaDaLojaGuard,
   ],
