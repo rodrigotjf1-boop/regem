@@ -16,11 +16,13 @@ import { RoboConsultasController } from './robo-consultas.controller';
 import { RoboPedidoController } from './robo-pedido.controller';
 import { RoboPedidoService } from './robo-pedido.service';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
+import { LembreteDoCarrinhoProcessor } from './lembrete-do-carrinho.processor';
 
 @Module({
   // WhatsappModule: o resumo do pedido feito pelo robô sai por escrito pela via da loja (robo-pedido.service.ts).
   imports: [VendasModule, DeliveryModule, AtendimentoModule, FidelidadeModule, CashbackModule, WhatsappModule],
   controllers: [CardapioController, CardapioPublicoController, EventosCardapioController, RoboConsultasController, RoboPedidoController],
-  providers: [CardapioService, OrigemPedidoService, EventosCardapioService, RoboPedidoService],
+  // LembreteDoCarrinhoProcessor: o lembrete do pedido que ficou pela metade no robô (mig 349; só nuvem).
+  providers: [CardapioService, OrigemPedidoService, EventosCardapioService, RoboPedidoService, LembreteDoCarrinhoProcessor],
 })
 export class CardapioModule {}

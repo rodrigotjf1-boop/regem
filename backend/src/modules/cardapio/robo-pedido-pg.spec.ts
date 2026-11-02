@@ -28,7 +28,10 @@ const descrever = URL_PG ? describe : describe.skip;
 if (!URL_PG) console.warn('robo-pedido-pg.spec: sem TEST_PG_URL — PULADO');
 jest.setTimeout(120_000);
 
-const MIGRATIONS = ['344_robo_carrinho.sql', '345_robo_carrinho_conducao.sql'].map((m) => join(__dirname, '../../../../database/migrations', m));
+// A 349 (lembrete do carrinho) põe `lembrado_em`, que o `select()` do carrinho lê, e altera o ajuste do robô (342).
+const MIGRATIONS = ['344_robo_carrinho.sql', '345_robo_carrinho_conducao.sql', '342_robo_pausa_e_config.sql', '349_lembrete_do_carrinho.sql'].map((m) =>
+  join(__dirname, '../../../../database/migrations', m),
+);
 const SENHA = 'senha-do-robo-de-teste';
 const CELULAR = '5521987654321';
 

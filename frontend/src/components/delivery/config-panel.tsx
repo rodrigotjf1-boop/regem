@@ -17,6 +17,7 @@ import { CashbackPanel } from '@/components/delivery/cashback-panel';
 import { EventosPanel } from '@/components/delivery/eventos-panel';
 import { NumerosWhatsapp } from '@/components/delivery/numeros-whatsapp';
 import { CodigoEntregaAjuste } from '@/components/delivery/codigo-entrega-ajuste';
+import { LembreteCarrinho } from '@/components/delivery/lembrete-carrinho';
 import { localizacaoAtual, geocodificar, mapaEmbedUrl } from '@/lib/geo';
 import { INDICADO_PARA, ROTULO_TEMPLATE, TEMPLATES, templateDe } from '@/components/loja/cardapio/tipos-template';
 
@@ -1424,6 +1425,7 @@ function Robo({ loja, up, onSalvar, salvando, pode }: { loja: any; up: (p: any) 
       )}
       <TempoDaPausa pode={pode} />
       <AvisoDeAtraso pode={pode} loja={loja} />
+      <LembreteCarrinho pode={pode} loja={loja} />
 
       <Campo label="Saudação (primeira mensagem)">
         <textarea rows={2} className={areaTxt} disabled={!pode} value={loja.roboSaudacao ?? ''} onChange={(e) => up({ roboSaudacao: e.target.value })} placeholder="Olá! 👋 Bem-vindo. Como posso ajudar?" />
