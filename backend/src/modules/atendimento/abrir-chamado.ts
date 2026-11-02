@@ -1,6 +1,7 @@
-import { and, desc, eq, gte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNotNull, sql } from 'drizzle-orm';
 import { atendimentoChamado } from '../../db/schema';
 import { chaveTelefone, sqlChaveTelefone } from '../../common/telefone-chave';
+import { canalValido } from './fila';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -18,6 +19,8 @@ export type DadosDoChamado = {
   pedidoId?: string;
   mensagem?: string;
   prioridade?: Prioridade;
+  /** De onde veio (mig 350): whatsapp | cardapio | anotaai | ifood | 99food. O do robô é 'whatsapp'. */
+  canal?: string;
 };
 
 /** Avisa a tela em tempo real (o `EventEmitter2.emit`). */
@@ -50,10 +53,39 @@ export async function abrirChamado(db: any, emitir: Emitir, tenantId: string, un
       pedidoId: dto.pedidoId ?? null,
       mensagem: dto.mensagem?.trim() || null,
       prioridade: dto.prioridade === 'urgente' ? 'urgente' : 'normal',
+      canal: canalValido(dto.canal),
     })
     .returning();
   emitir('atendimento.novo', { tenantId, chamado: row });
   return { ok: true, id: row.id, prioridade: row.prioridade };
+}
+
+/**
+ * O CLIENTE RESPONDEU (mensagem nova no WhatsApp): o caso que estava "aguardando o cliente" volta para a fila — com o
+ * mesmo responsável, que é avisado pela tela. Pela chave do telefone (com/sem 55 e nono dígito), só nos casos abertos.
+ * Nunca rejeita (é chamada no caminho de entrada da mensagem, que não pode cair por isto — V3); devolve quantos voltaram.
+ */
+export async function clienteRespondeu(db: any, emitir: Emitir, tenantId: string, telefone: string | null | undefined): Promise<number> {
+  try {
+    const k = chaveTelefone(telefone);
+    if (!k || !tenantId) return 0;
+    const voltaram: Array<{ id: string }> = await db
+      .update(atendimentoChamado)
+      .set({ aguardandoDesde: null })
+      .where(
+        and(
+          eq(atendimentoChamado.tenantId, tenantId),
+          eq(atendimentoChamado.status, 'aberto'),
+          isNotNull(atendimentoChamado.aguardandoDesde),
+          sql`${sqlChaveTelefone(sql`${atendimentoChamado.telefone}`)} = ${k}`,
+        ),
+      )
+      .returning({ id: atendimentoChamado.id });
+    for (const v of voltaram) emitir('atendimento.mudou', { tenantId, id: v.id, motivo: 'cliente_respondeu' });
+    return voltaram.length;
+  } catch {
+    return 0;
+  }
 }
 
 /**
@@ -66,7 +98,9 @@ export async function abrirChamado(db: any, emitir: Emitir, tenantId: string, un
  * Sem telefone, abre sempre (não há como saber se é o mesmo cliente). Duas chamadas no mesmo instante ainda podem abrir
  * dois — nenhum índice impede; o pior caso é um chamado a mais no painel.
  */
-export async function abrirChamadoPeloRobo(db: any, emitir: Emitir, tenantId: string, unidadeId: string | null, dto: DadosDoChamado) {
+export async function abrirChamadoPeloRobo(db: any, emitir: Emitir, tenantId: string, unidadeId: string | null, dados: DadosDoChamado) {
+  // O robô é o do WhatsApp: o caso nasce desse canal, salvo quando quem chama diz outro.
+  const dto: DadosDoChamado = { ...dados, canal: dados.canal ?? 'whatsapp' };
   const k = chaveTelefone(dto.telefone);
   if (!k) return abrirChamado(db, emitir, tenantId, unidadeId, dto);
   const [aberto] = await db

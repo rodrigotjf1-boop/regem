@@ -10,6 +10,7 @@ import { estadoDaPausa, pausaDaConversa, pausarPeloAtendente, pausasDaLojaOuVazi
 import { entregarJuntando } from './juntar-mensagens';
 import { conversaRecenteOficial, portaoDoRoboDoOutroLado } from './robo-do-outro-lado';
 import { portaoDaRespostaAoSemContato, registrarConfirmacao } from './resposta-ao-sem-contato';
+import { clienteRespondeu } from '../atendimento/abrir-chamado';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig, empresa, whatsappMensagem, whatsappNumero, whatsappTemplate } from '../../db/schema';
 import { registrarSaida, registrarVolta } from '../../common/consentimento-marketing';
@@ -591,6 +592,10 @@ export class WhatsappCloudService {
             }
             continue;
           }
+
+          // O cliente respondeu: o caso que esperava por ele volta para a fila da central (atendimento/abrir-chamado.ts).
+          // Nunca rejeita — se falhar, a mensagem segue o caminho de sempre.
+          await clienteRespondeu(this.db, (ev, p) => this.events?.emit(ev, p), cfg.tenantId, de);
 
           // A resposta ao "entregador sem contato" (Onda 0, 01/11/2026): vai à equipe e ao entregador, não ao robô — com o
           // robô ligado ou desligado (quem pediu a resposta foi o aviso) e antes da pausa (o chamado aberto já pausa).

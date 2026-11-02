@@ -264,6 +264,7 @@ export class AnotaAiService {
         pedidoNumero: ped.numero != null ? String(ped.numero) : null,
         pedidoId: ped.id,
         mensagem: 'Cliente pediu cancelamento na Anota Aí',
+        canal: 'anotaai',
       })
       .returning();
     this.events.emit('atendimento.novo', { tenantId, chamado: row });

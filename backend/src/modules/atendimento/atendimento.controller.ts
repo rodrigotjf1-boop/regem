@@ -7,6 +7,7 @@ import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { TerminalAtual } from '../../auth/terminal-atual.decorator';
+import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AtendimentoService } from './atendimento.service';
 
 // Chamados de atendimento (handoff). Operados por quem está no balcão/gestão.
@@ -20,6 +21,40 @@ export class AtendimentoController {
   @Roles('presidente', 'gerente', 'supervisao', 'execucao')
   listar(@CurrentUser() user: AuthUser) {
     return this.service.listar(user.tenantId);
+  }
+
+  // A FILA da central de atendimento (Onda 1): os casos abertos da loja em uso, na ordem da fila, e as contagens.
+  @Get('fila')
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
+  fila(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
+    return this.service.fila(user, unidade);
+  }
+
+  // Os casos resolvidos hoje (a situação "Resolvidos hoje" da tela).
+  @Get('fila/resolvidos')
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
+  resolvidos(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
+    return this.service.resolvidosHoje(user, unidade);
+  }
+
+  @Post(':id/pegar')
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
+  pegar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.pegar(user, id);
+  }
+
+  // `para` = colaborador ativo da equipe; vazio = de volta para a fila.
+  @Post(':id/passar')
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
+  passar(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { para?: string | null }) {
+    return this.service.passar(user, id, dto);
+  }
+
+  // `aguardando` true = esperando o cliente; false = volta para a fila (ou para quem tem o caso).
+  @Post(':id/aguardar')
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
+  aguardar(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { aguardando?: unknown }) {
+    return this.service.aguardar(user, id, dto);
   }
 
   @Post(':id/resolver')

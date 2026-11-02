@@ -11,6 +11,7 @@ import { foiEnviadoPeloRegem } from './evolution-envios';
 import { entregarJuntando } from './juntar-mensagens';
 import { anotarNaMemoria, chaveDaMemoria, conversaNaMemoria, portaoDoRoboDoOutroLado } from './robo-do-outro-lado';
 import { portaoDaRespostaAoSemContato, registrarConfirmacao } from './resposta-ao-sem-contato';
+import { clienteRespondeu } from '../atendimento/abrir-chamado';
 import { assinarConversa } from '../../common/conversa-do-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -160,6 +161,10 @@ export class EvolutionEntradaService {
     // A conversa recente fica na memória (a Evolution não é gravada): é dela que o detector do robô do outro lado lê.
     const chaveDaConversa = chaveDaMemoria(instancia, de);
     anotarNaMemoria(chaveDaConversa, { direcao: 'entrada', texto: lida.texto, tipo: lida.tipo, em: new Date() });
+
+    // O cliente respondeu: o caso que esperava por ele volta para a fila da central (atendimento/abrir-chamado.ts).
+    // Nunca rejeita — se falhar, a mensagem segue o caminho de sempre.
+    await clienteRespondeu(this.db, (ev, p) => this.events?.emit(ev, p), cfg.tenantId, de);
 
     // A resposta ao "entregador sem contato" (resposta-ao-sem-contato.ts, Onda 0 de 01/11/2026): vira chamado urgente do
     // pedido e não vai ao robô — com o robô ligado ou desligado. Se a conferência falhar, segue como antes.

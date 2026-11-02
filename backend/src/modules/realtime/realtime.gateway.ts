@@ -268,6 +268,18 @@ export class RealtimeGateway
     });
   }
 
+  // Caso de atendimento mudou (pegou, passou, aguardando, cliente respondeu, resolveu) → as telas da fila relêem.
+  // Só o aviso; o que a tela mostra vem da fila (`GET /atendimento/fila`), que filtra a loja e o perfil.
+  @OnEvent('atendimento.mudou')
+  onAtendimentoMudou(p: { tenantId: string; id: string; motivo?: string }) {
+    if (!this.server) return;
+    this.server.to(`tenant:${p.tenantId}`).emit('atendimento:mudou', {
+      id: p.id,
+      motivo: p.motivo ?? null,
+      em: new Date().toISOString(),
+    });
+  }
+
   // Garçom lançou item numa mesa → avisa o PDV dono (e o tenant como fallback).
   @OnEvent('mesa.evento')
   onMesaEvento(p: {

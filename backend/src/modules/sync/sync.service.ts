@@ -791,6 +791,18 @@ export class SyncService {
           TABELAS_CADASTRO_DA_LOJA.has(lote.tabela) && colunas.has('deleted_at')
             ? sql` and not (${sql.identifier(lote.tabela)}.deleted_at is not null and excluded.deleted_at is null)`
             : sql``;
+        // CHAMADO RESOLVIDO NÃO REABRE (central de atendimento, mig 350): o caso é mexido dos dois lados — pegar, passar e
+        // aguardar aqui ou na loja; o robô soma mensagem aqui. A cópia "mais nova" da loja com o caso ainda aberto não
+        // desfaz o resolvido daqui; e o RESOLVIDO da loja vale aqui mesmo com a data mais velha (o robô somou uma mensagem
+        // depois): sem isso a nuvem ficava "aberto" e a loja "resolvido" para sempre. Mesma regra no pull do servidor da
+        // loja (sync-daemon, `ESTADOS_TERMINAIS` — lá o chamado não tem LWW e a cópia da nuvem entra, menos sobre o resolvido).
+        const ehChamado = lote.tabela === 'atendimento_chamado' && colunas.has('status');
+        const naoReabreChamado = ehChamado
+          ? sql` and not (atendimento_chamado.status = 'resolvido' and excluded.status <> 'resolvido')`
+          : sql``;
+        const resolvidoVence = ehChamado
+          ? sql` or (excluded.status = 'resolvido' and atendimento_chamado.status <> 'resolvido')`
+          : sql``;
         // LWW (update-se-mais-nova) p/ tabela com updated_at; senão do-nothing (append imutável).
         const conflito =
           (modo === 'lww' || colunas.has('updated_at')) && setCols.length && colunas.has(lwwCol)
@@ -799,7 +811,7 @@ export class SyncService {
                 sql`, `,
               )}
               where ${sql.identifier(lote.tabela)}.tenant_id = excluded.tenant_id
-                and ${sql.identifier(lote.tabela)}.${sql.identifier(lwwCol)} < excluded.${sql.identifier(lwwCol)}${naoDesfazRevogacao}${naoReabreCartao}${naoVoltaANovo}${naoRessuscita}`
+                and (${sql.identifier(lote.tabela)}.${sql.identifier(lwwCol)} < excluded.${sql.identifier(lwwCol)}${resolvidoVence})${naoDesfazRevogacao}${naoReabreCartao}${naoVoltaANovo}${naoRessuscita}${naoReabreChamado}`
             : sql`on conflict (id) do nothing`;
         const linhaVals = (linha: any) =>
           sql`(${sql.join([tenantId, ...cols.map((c) => coagir(linha[c]))].map((v) => sql`${v}`), sql`, `)})`;
