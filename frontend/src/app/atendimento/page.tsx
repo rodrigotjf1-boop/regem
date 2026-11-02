@@ -11,6 +11,7 @@ import { Dialogo, Gaveta } from '@/components/ui/sobreposto';
 import { FiltroBusca, FiltroSelect, Filtros, semAcento } from '@/components/ui/lista';
 import { ChipDoCanal } from '@/components/atendimento/chip-do-canal';
 import { DecidirCancelamento } from '@/components/atendimento/decidir-cancelamento';
+import { DisputaIfood } from '@/components/atendimento/disputa-ifood';
 import {
   ROTULO_DO_CANAL,
   ROTULO_DO_TIPO,
@@ -433,43 +434,54 @@ function Caso({
             <Button type="button" variant="outline" disabled={enviando} onClick={() => setPassando(true)}>
               Passar
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={enviando}
-              aria-pressed={c.situacao === 'aguardando'}
-              onClick={() =>
-                fazer(
-                  () => api.atendimentoAguardar(c.id, c.situacao !== 'aguardando'),
-                  c.situacao === 'aguardando' ? 'O caso voltou para você.' : 'Aguardando o cliente: o caso volta quando ele responder.',
-                )
-              }
-            >
-              {c.situacao === 'aguardando' ? 'Parar de aguardar' : 'Aguardar o cliente'}
-            </Button>
-            <Button type="button" className="bg-ok text-foreground hover:bg-ok/90" disabled={enviando} onClick={() => setResolvendo(true)}>
-              Resolver
-            </Button>
+            {/* A disputa se resolve pela resposta ao iFood (ou pelo prazo): "aguardar" e "resolver" à mão a esconderiam. */}
+            {c.tipo !== 'disputa' && (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={enviando}
+                  aria-pressed={c.situacao === 'aguardando'}
+                  onClick={() =>
+                    fazer(
+                      () => api.atendimentoAguardar(c.id, c.situacao !== 'aguardando'),
+                      c.situacao === 'aguardando' ? 'O caso voltou para você.' : 'Aguardando o cliente: o caso volta quando ele responder.',
+                    )
+                  }
+                >
+                  {c.situacao === 'aguardando' ? 'Parar de aguardar' : 'Aguardar o cliente'}
+                </Button>
+                <Button type="button" className="bg-ok text-foreground hover:bg-ok/90" disabled={enviando} onClick={() => setResolvendo(true)}>
+                  Resolver
+                </Button>
+              </>
+            )}
           </div>
         )}
       </header>
 
       <div className="space-y-4 p-4">
-        {prazo && aberto && (
-          <div className={`flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-4 py-3 ${prazo === 'venceu' ? 'border-destructive/40 bg-destructive/10' : 'border-warn/40 bg-warn/10'}`}>
-            <span className="font-mono text-3xl font-bold leading-none">{prazo}</span>
-            <span className="min-w-0 flex-1 basis-52 text-sm">Até {hora(c.prazoEm)} para responder. Passado o prazo, a plataforma decide sozinha.</span>
-          </div>
-        )}
+        {c.tipo === 'disputa' && c.detalhe?.disputa ? (
+          <DisputaIfood caso={c} agora={agora} aoMudar={aoMudar} />
+        ) : (
+          <>
+            {prazo && aberto && (
+              <div className={`flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-4 py-3 ${prazo === 'venceu' ? 'border-destructive/40 bg-destructive/10' : 'border-warn/40 bg-warn/10'}`}>
+                <span className="font-mono text-3xl font-bold leading-none">{prazo}</span>
+                <span className="min-w-0 flex-1 basis-52 text-sm">Até {hora(c.prazoEm)} para responder. Passado o prazo, a plataforma decide sozinha.</span>
+              </div>
+            )}
 
-        <section className="rounded-lg border border-border bg-secondary/40 p-3">
-          <h4 className="mb-1 font-display text-sm font-bold">O que o cliente precisa</h4>
-          {c.mensagem ? (
-            <p className="whitespace-pre-line break-words text-sm">{c.mensagem}</p>
-          ) : (
-            <p className="text-sm text-secondary-foreground">O caso chegou sem descrição.</p>
-          )}
-        </section>
+            <section className="rounded-lg border border-border bg-secondary/40 p-3">
+              <h4 className="mb-1 font-display text-sm font-bold">O que o cliente precisa</h4>
+              {c.mensagem ? (
+                <p className="whitespace-pre-line break-words text-sm">{c.mensagem}</p>
+              ) : (
+                <p className="text-sm text-secondary-foreground">O caso chegou sem descrição.</p>
+              )}
+            </section>
+          </>
+        )}
 
         {c.tipo === 'cancelamento' && aberto && (
           <section className="space-y-2">

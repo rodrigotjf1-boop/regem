@@ -15,10 +15,18 @@ export const NIVEIS_QUE_LIBERAM = ['presidente', 'gerente', 'supervisao'] as con
 // delivery olhava só a função e aceitava a senha de quem já tinha saído (ERR-192 / V48: tirar o acesso fecha TODAS as
 // portas — login, PIN e esta senha). Até 23/10/2026 só presidente e gerente liberavam. Devolve quem liberou, para a
 // auditoria e o comprovante.
+/**
+ * Só presidente e gerente — a disputa do iFood e o pedido de cancelamento/reembolso da 99 (decisão do dono, 01/11/2026:
+ * "disputa iFood/cancelamento 99: só gerente e presidente respondem").
+ */
+export const NIVEIS_DA_PLATAFORMA = ['presidente', 'gerente'] as const;
+
 export async function autorizarPorSenhaDeGestor(
   db: any,
   tenantId: string,
   senha?: string | null,
+  // Quem pode liberar AQUI (padrão: presidente, gerente e supervisão). A plataforma usa `NIVEIS_DA_PLATAFORMA`.
+  niveis: readonly string[] = NIVEIS_QUE_LIBERAM,
 ): Promise<{ id: string; nome: string }> {
   if (!senha) throw new BadRequestException('Informe a senha de autorização.');
   const candidatos = await db
@@ -39,12 +47,12 @@ export async function autorizarPorSenhaDeGestor(
         isNull(colaborador.deletedAt),
         eq(colaborador.status, 'ativo'),
         // Só quem pode liberar entra na conta: cada senha conferida custa um bcrypt.
-        inArray(sql`coalesce(${perfilAcesso.nivel}, ${funcao.categoria}::text)`, [...NIVEIS_QUE_LIBERAM]),
+        inArray(sql`coalesce(${perfilAcesso.nivel}, ${funcao.categoria}::text)`, [...niveis]),
       ),
     );
   for (const c of candidatos) {
     const nivel = c.nivel ?? c.categoria;
-    if (!(NIVEIS_QUE_LIBERAM as readonly string[]).includes(nivel)) continue;
+    if (!niveis.includes(nivel)) continue;
     if (c.senhaHash && (await bcrypt.compare(senha, c.senhaHash))) return { id: c.id, nome: c.nome };
   }
   throw new ForbiddenException('Senha de gestor inválida.');

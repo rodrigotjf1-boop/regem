@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Res, StreamableFile, UseGuards } from '@nestjs/common';
+import type { Response } from 'express';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
@@ -9,13 +10,40 @@ import { AuthUser } from '../../auth/auth-user';
 import { TerminalAtual } from '../../auth/terminal-atual.decorator';
 import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AtendimentoService } from './atendimento.service';
+import { DisputaIfoodService, RespostaDaDisputa } from './disputa-ifood.service';
 
 // Chamados de atendimento (handoff). Operados por quem está no balcão/gestão.
 @Controller('atendimento')
 @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
 @RequirePerm('pedidos')
 export class AtendimentoController {
-  constructor(private readonly service: AtendimentoService) {}
+  constructor(
+    private readonly service: AtendimentoService,
+    private readonly disputa: DisputaIfoodService,
+  ) {}
+
+  // Resposta à DISPUTA do iFood (aceitar, recusar ou propor). Quem decide é a senha: só gerente e presidente (decisão
+  // do dono, 01/11/2026) — qualquer pessoa da equipe abre o diálogo, a senha diz quem respondeu.
+  @Post(':id/disputa')
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
+  responderDisputa(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: RespostaDaDisputa) {
+    return this.disputa.responder(user, id, dto);
+  }
+
+  // A foto `n` que o cliente mandou na disputa (o iFood só entrega com a credencial da loja).
+  @Get(':id/foto/:n')
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
+  async fotoDaDisputa(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('n') n: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const f = await this.disputa.foto(user.tenantId, id, Number(n) || 0);
+    res.setHeader('Content-Type', f.tipo);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    return new StreamableFile(f.bytes);
+  }
 
   @Get()
   @Roles('presidente', 'gerente', 'supervisao', 'execucao')

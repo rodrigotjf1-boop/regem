@@ -1,12 +1,19 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { AtendimentoController } from './atendimento.controller';
+import { AtendimentoLojaController } from './atendimento-loja.controller';
 import { AtendimentoService } from './atendimento.service';
+import { DisputaIfoodService } from './disputa-ifood.service';
 import { DeliveryModule } from '../delivery/delivery.module';
+import { IntegracoesModule } from '../integracoes/integracoes.module';
+import { EquipamentoModule } from '../equipamento/equipamento.module';
+import { SyncTokenGuard } from '../sync/sync-token.guard';
 
 @Module({
-  imports: [DeliveryModule],
-  controllers: [AtendimentoController],
-  providers: [AtendimentoService],
+  // Integrações: a resposta à disputa do iFood (IfoodService). forwardRef: integrações e delivery já se referem.
+  // Equipamento + SyncTokenGuard: as rotas que o servidor da loja chama na nuvem (AtendimentoLojaController), como no Delivery.
+  imports: [DeliveryModule, forwardRef(() => IntegracoesModule), EquipamentoModule],
+  controllers: [AtendimentoController, AtendimentoLojaController],
+  providers: [AtendimentoService, DisputaIfoodService, SyncTokenGuard],
   exports: [AtendimentoService],
 })
 export class AtendimentoModule {}
