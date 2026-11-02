@@ -116,17 +116,28 @@ descrever('custo da ficha técnica conforme a permissão (Postgres real)', () =>
     }
   });
 
+  // O valor como NÚMERO no texto (com os zeros que o banco põe no fim: "7.7700"), nunca pedaço de outro número — o
+  // horário de criação "10:54:57.775Z" tem "7.77" dentro e deixava o CI vermelho por acaso (ERR-346).
+  const temONumero = (texto: string, valor: string) => new RegExp(`(?<![\\d.])${valor.replace('.', '\\.')}0*(?!\\d)`).test(texto);
+
+  it('a busca do valor: o número sozinho (com zeros no fim) conta; o mesmo dígito dentro de horário ou de outro número, não', () => {
+    expect(temONumero('{"custo":"7.7700"}', '7.77')).toBe(true);
+    expect(temONumero('{"custo":7.77}', '7.77')).toBe(true);
+    expect(temONumero('{"createdAt":"2026-11-02T10:54:57.775Z"}', '7.77')).toBe(false);
+    expect(temONumero('{"x":17.77,"y":7.771}', '7.77')).toBe(false);
+  });
+
   it('nenhum número de dinheiro escapa por outro campo (a resposta inteira, em texto, não tem os valores)', async () => {
     const c = await cenario();
     // valores escolhidos para não coincidir com quantidade, rendimento ou preço: 7,77 e 3,33
     await q(`update ficha_ingrediente set custo_unitario = 7.77 where ficha_id = $1 and insumo_nome = 'Tomate de teste'`, [c.molho]);
     await q(`update ficha_ingrediente set custo_unitario = 3.33 where ficha_id = $1 and insumo_nome = 'Massa de teste'`, [c.prato]);
     const comPermissao = JSON.stringify(await rotas.list(quem(c.t, 'gerente', { fichas: true })));
-    expect(comPermissao).toContain('7.77');
-    expect(comPermissao).toContain('15.54'); // custo total do molho: 2 × 7,77
+    expect(temONumero(comPermissao, '7.77')).toBe(true);
+    expect(temONumero(comPermissao, '15.54')).toBe(true); // custo total do molho: 2 × 7,77
     const texto = JSON.stringify(await rotas.list(quem(c.t, 'execucao', {}))) + JSON.stringify(await rotas.getOne(quem(c.t, 'execucao', {}), c.prato));
     for (const valor of ['7.77', '3.33', '15.54', '3.89', '7.22', '17.54'])
-      expect(texto).not.toContain(valor);
+      expect({ valor, escapou: temONumero(texto, valor) }).toEqual({ valor, escapou: false });
   });
 
   it('o corte não altera o objeto original (o serviço é usado por outros módulos)', () => {
