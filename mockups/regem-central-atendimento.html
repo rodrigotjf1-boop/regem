@@ -1,0 +1,1030 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regem — Central de atendimento e app de atendimento (mockup)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* MOCKUP da CENTRAL DE ATENDIMENTO (Onda 1, tela do PC) e do APP DE ATENDIMENTO (Onda 2, Android), feito em
+   02/11/2026 para o dono aprovar ANTES de qualquer código de tela. Nada aqui fala com o Regem; os dados são inventados.
+   Base: plano da central (30/10/2026) e o plano do pós-venda (31/10 e 01/11), com as decisões do dono de 01/11:
+   ondas aprovadas; disputa do iFood e cancelamento da 99 só gerente e presidente respondem; na 99, RECUSAR se ninguém
+   responder (padrão) e um ajuste que, desmarcado, faz aceitar sozinho como hoje; base da central no Regem; app Android
+   primeiro; pesquisa de satisfação só dentro da janela de 24 h (fica para a Onda 3).
+   O que a tela faz:
+   (1) uma FILA só com tudo o que precisa de uma pessoa: chamado do robô, disputa do iFood, pedido de cancelamento ou
+       reembolso da 99, cancelamento pedido no cardápio e a resposta ao "sem contato". A conversa que o robô atende
+       sozinho NÃO entra (continua em Delivery › WhatsApp);
+   (2) ordem: prazo vencendo → urgente (cliente irritado) → quem espera há mais tempo; o cliente do WhatsApp sabe a
+       posição ("você é o 2º, cerca de 4 min");
+   (3) o caso tem ciclo: na fila → com alguém → aguardando o cliente → resolvido. Resolver devolve a conversa ao robô;
+   (4) o robô abre o caso PREENCHIDO (Bloco 2A): motivo, humor, o que o cliente quer, o pedido, o que ele já fez;
+   (5) disputa do iFood com contagem regressiva, a ação automática do iFood escrita por extenso, as fotos e as
+       propostas que o iFood permite — uma resposta só por disputa;
+   (6) o sino vale em TODAS as telas (hoje só no Delivery);
+   (7) o app pareia com o servidor da loja, entra com o PIN, recebe na hora pela rede da loja e tem "Ocupado: embalando".
+   Regras de tela seguidas: contagem no título, situações que filtram, busca e filtros, nenhuma barra de rolagem para o
+   lado (a lista e o caso se arrumam pelo ESPAÇO da peça, não pela janela — ERR-219), diálogos em vez da janela do
+   navegador, senha do gestor com máscara e nada a guardar (V54), Esc fecha só o diálogo de cima. */
+:root{
+  --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E8A845; --on-gold:#281B06; --navy:#0F2230; --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9;
+  --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8; --radius:12px;
+  --c-wa:#0B6E3A; --c-ifood:#C3122B; --c-99:#FFD21F; --c-99-ink:#2A2300; --c-card:#7A5209; --c-card-bg:#FCF1DD;
+  --display:'Archivo',sans-serif; --body:'Figtree',sans-serif; --mono:'JetBrains Mono',monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:var(--body);background:var(--bg);color:var(--ink);font-size:15px;line-height:1.45}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid #3A7FB8;outline-offset:2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+[hidden]{display:none!important}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* faixa do protótipo (fora do app) */
+.proto{background:#0B1822;color:#D5E0EA;padding:10px 16px;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center}
+.proto strong{font-family:var(--display);color:#fff;font-size:14px}
+.proto .obs{font-size:12.5px;color:#9FB2C4}
+.abas{display:flex;flex-wrap:wrap;gap:8px}
+.aba{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:6px 14px;border-radius:10px;border:1px solid #2E4456;background:#13283A;color:#D5E0EA;font-weight:600;font-size:14px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.proto .ctl{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12.5px}
+.proto .ctl button{min-height:32px;padding:0 10px;border-radius:8px;border:1px solid #2E4456;background:#13283A;color:#D5E0EA;font-size:12.5px;font-weight:600}
+.proto .ctl button[aria-pressed="true"]{background:#2C6699;border-color:#2C6699;color:#fff}
+
+/* shell do Regem */
+.app{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:calc(100vh - 58px)}
+.lado{background:var(--navy);color:#C9D6E2;padding:14px 10px;position:sticky;top:0;height:100vh;overflow-y:auto}
+.lado .marca{display:flex;align-items:center;gap:10px;padding:4px 8px 14px;color:#fff;font-family:var(--display);font-weight:700;font-size:18px}
+.lado .marca svg{width:28px;height:28px}
+.lado .it{display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;min-height:36px;text-align:left;border:none;background:transparent;color:inherit;padding:6px 10px;border-radius:10px;font-weight:600;font-size:14px}
+.lado .it.sub{padding-left:26px;font-size:13.5px}
+.lado .it:hover{background:rgba(255,255,255,.06);color:#fff}
+.lado .it[aria-current="page"]{background:rgba(232,168,69,.18);color:#fff;box-shadow:inset 3px 0 0 var(--gold)}
+.lado .grupo-menu{padding:8px 10px 2px;color:#fff;font-weight:700;font-size:14px}
+.lado .badge{font-family:var(--mono);font-size:11.5px;font-weight:700;background:var(--crit);color:#fff;border-radius:999px;padding:1px 7px}
+.lado .novo{font-size:10.5px;font-weight:800;letter-spacing:.06em;color:var(--on-gold);background:var(--gold);border-radius:6px;padding:1px 6px}
+.topo{display:flex;align-items:center;gap:10px;padding:10px 20px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+.topo .menu-bt{display:none}
+.topo .onde{font-size:13px;color:var(--ink-2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.topo .dir{margin-left:auto;display:flex;align-items:center;gap:8px}
+.sino{position:relative;min-width:42px;min-height:42px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);font-size:18px}
+.sino b{position:absolute;top:-6px;right:-6px;font-family:var(--mono);font-size:11px;background:var(--crit);color:#fff;border-radius:999px;padding:1px 6px}
+.quem{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-2)}
+.quem .av{width:32px;height:32px;border-radius:50%;background:#1D3B4D;color:var(--gold);display:grid;place-items:center;font-family:var(--display);font-weight:800;font-size:13px}
+.pop-sino{position:absolute;right:12px;top:calc(100% + 6px);width:min(360px,calc(100vw - 32px));background:var(--card);border:1px solid var(--line-2);border-radius:var(--radius);box-shadow:0 12px 40px rgba(15,34,48,.18);z-index:30;padding:10px}
+.pop-sino h3{font-family:var(--display);font-size:15px;margin:2px 4px 8px}
+.pop-sino .pi{display:flex;gap:8px;align-items:flex-start;padding:8px;border-radius:10px;border:1px solid var(--line);margin-bottom:6px;width:100%;text-align:left;background:#fff}
+.pop-sino .pi:hover{border-color:var(--ink-2)}
+main{min-width:0;padding:18px 22px 110px;container-type:inline-size;container-name:principal}
+.trilha{font-family:var(--display);font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#7A5209}
+h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
+.resumo{color:var(--ink-2);font-size:13.5px;margin:0 0 12px}
+.resumo a{color:var(--info);font-weight:600}
+.sits{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+.sit{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0 12px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);font-weight:600;font-size:14px;color:var(--ink-2)}
+.sit b{font-family:var(--mono);font-size:13px;background:#EEF2F6;color:var(--ink);border-radius:999px;padding:1px 8px}
+.sit[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.sit[aria-pressed="true"] b{background:rgba(255,255,255,.18);color:#fff}
+.sit.crit b{background:var(--crit-bg);color:var(--crit)}
+.sit[aria-pressed="true"].crit b{background:rgba(255,255,255,.18);color:#fff}
+.filtros{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin-bottom:12px}
+.filtros .larga{grid-column:span 2}
+@container principal (max-width:520px){.filtros .larga{grid-column:auto}}
+.campo{display:flex;flex-direction:column;gap:4px;min-width:0}
+.campo label,.rot{font-size:12.5px;font-weight:700;color:var(--ink-2)}
+.campo input,.campo select,.campo textarea{min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 12px;background:#fff;width:100%;min-width:0}
+.campo textarea{padding:8px 12px;min-height:64px;resize:vertical}
+.ajuda{font-size:12.5px;color:var(--ink-2)}
+.senha{-webkit-text-security:disc;text-security:disc}
+
+.bt{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:40px;padding:0 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);font-weight:600;font-size:14px;text-align:center}
+.bt:hover{border-color:var(--ink-2)}
+.bt.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.bt.perigo{background:var(--crit);border-color:var(--crit);color:#fff;font-weight:700}
+.bt.ok{background:var(--ok);border-color:var(--ok);color:#fff;font-weight:700}
+.bt.leve{border-color:transparent;background:transparent;color:var(--info);font-weight:700;padding:0 8px}
+.bt[disabled]{opacity:.5;cursor:not-allowed}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+
+/* chips de canal e selos */
+.canal{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:800;letter-spacing:.02em;border-radius:6px;padding:2px 7px;white-space:nowrap}
+.canal.wa{background:var(--c-wa);color:#fff} .canal.ifood{background:var(--c-ifood);color:#fff}
+.canal.n99{background:var(--c-99);color:var(--c-99-ink)} .canal.card{background:var(--c-card-bg);color:var(--c-card);border:1px solid #E9CF9E}
+.selo{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:999px;font-weight:700;font-size:12px;white-space:nowrap}
+.selo.crit{background:var(--crit-bg);color:var(--crit)} .selo.warn{background:var(--warn-bg);color:var(--warn)}
+.selo.ok{background:var(--ok-bg);color:var(--ok)} .selo.info{background:var(--info-bg);color:var(--info)} .selo.neutro{background:#EEF2F6;color:var(--ink-2)}
+.prazo{font-family:var(--mono);font-weight:700}
+.prazo.crit{color:var(--crit)} .prazo.warn{color:var(--warn)}
+
+/* fila + caso: duas colunas quando a peça tem espaço; uma só (caso em folha por cima) quando não tem */
+.corpo{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}
+.corpo[data-modo="duplo"]{grid-template-columns:minmax(300px,380px) minmax(0,1fr);align-items:start}
+.fila{display:flex;flex-direction:column;gap:8px;min-width:0}
+.fila .cab{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 10px;align-items:baseline;font-size:12.5px;color:var(--ink-2);padding:0 2px}
+.fila .cab strong{font-family:var(--display);font-size:15px;color:var(--ink)}
+.item{display:block;width:100%;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;position:relative}
+.item:hover{border-color:var(--line-2)}
+.item[aria-current="true"]{border-color:var(--gold);box-shadow:inset 4px 0 0 var(--gold)}
+.item.urgente{border-color:#E7B4B4;background:#FFFBFB}
+.item.feito{opacity:.7}
+.item .l1{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.item .l1 .dir{margin-left:auto;display:flex;gap:6px;align-items:center}
+.item .tit{font-weight:700;margin-top:4px;overflow-wrap:anywhere}
+.item .fala{font-size:13.5px;color:var(--ink-2);margin-top:2px;overflow-wrap:anywhere}
+.item .l3{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:12.5px;color:var(--ink-2);margin-top:6px}
+.item .pos{font-family:var(--mono);font-weight:700;color:var(--ink)}
+.vazio{padding:28px 16px;text-align:center;color:var(--ink-2);background:var(--card);border:1px dashed var(--line-2);border-radius:var(--radius)}
+.vazio .grande{font-size:28px}
+.nota{border-left:4px solid var(--info);background:var(--info-bg);padding:10px 12px;border-radius:8px;font-size:14px}
+.nota.crit{border-color:var(--crit);background:var(--crit-bg)} .nota.warn{border-color:var(--warn);background:var(--warn-bg)} .nota.ok{border-color:var(--ok);background:var(--ok-bg)}
+
+.caso{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);min-width:0;container-type:inline-size;container-name:caso}
+.caso .c-topo{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:flex-start;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--line)}
+.caso .c-topo h2{font-family:var(--display);font-size:19px;margin:4px 0 2px;overflow-wrap:anywhere}
+.caso .c-topo .sub{font-size:13px;color:var(--ink-2);overflow-wrap:anywhere}
+.caso .voltar{display:none}
+.caso .c-corpo{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;padding:14px 16px}
+@container caso (min-width:780px){.caso .c-corpo{grid-template-columns:minmax(0,1.35fr) minmax(0,1fr)}}
+.bloco{border:1px solid var(--line);border-radius:10px;padding:12px;min-width:0}
+.bloco > h3{font-family:var(--display);font-size:14px;margin:0 0 8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.bloco > h3 .dir{margin-left:auto;font-family:var(--body);font-size:12px;font-weight:600;color:var(--ink-2)}
+.col{display:flex;flex-direction:column;gap:14px;min-width:0}
+.resumo-robo{background:#F6F9FC}
+.resumo-robo dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 10px;margin:0;font-size:14px}
+.resumo-robo dt{font-weight:700;color:var(--ink-2);font-size:12.5px;padding-top:2px}
+.resumo-robo dd{margin:0;overflow-wrap:anywhere}
+@container caso (max-width:420px){.resumo-robo dl{grid-template-columns:minmax(0,1fr)}.resumo-robo dd{margin-bottom:4px}}
+.msgs{display:flex;flex-direction:column;gap:6px;max-height:340px;overflow-y:auto;padding:2px}
+.msg{max-width:88%;padding:7px 10px;border-radius:12px;font-size:14px;overflow-wrap:anywhere}
+.msg small{display:block;font-size:11px;color:var(--ink-2);margin-top:2px}
+.msg.cli{background:#EEF2F6;align-self:flex-start;border-top-left-radius:4px}
+.msg.robo{background:#E6F0F8;align-self:flex-end;border-top-right-radius:4px}
+.msg.loja{background:#FCF1DD;align-self:flex-end;border-top-right-radius:4px}
+.msg.sis{align-self:center;background:transparent;color:var(--ink-2);font-size:12px;padding:2px}
+.prontas{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.pronta{min-height:34px;padding:4px 10px;border-radius:999px;border:1px solid var(--line-2);background:#fff;font-size:13px;text-align:left}
+.pronta:hover{border-color:var(--ink-2)}
+.escrever{display:flex;gap:8px;align-items:flex-end}
+.escrever textarea{flex:1;min-width:0;min-height:44px;border:1px solid var(--line-2);border-radius:10px;padding:8px 10px;resize:vertical}
+.pausa{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12.5px;color:var(--ink-2);margin-top:6px}
+.relogio{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;border-radius:10px;padding:12px 14px;background:var(--crit-bg);border:1px solid #EBC2C2}
+.relogio.warn{background:var(--warn-bg);border-color:#F0CDB8}
+.relogio .grande{font-family:var(--mono);font-size:30px;font-weight:700;color:var(--crit);line-height:1}
+.relogio.warn .grande{color:var(--warn)}
+.relogio .txt{flex:1 1 220px;min-width:0;font-size:14px}
+.fotos{display:flex;flex-wrap:wrap;gap:8px}
+.foto{width:84px;height:64px;border-radius:8px;background:repeating-linear-gradient(45deg,#E3E9EF,#E3E9EF 6px,#EEF2F6 6px,#EEF2F6 12px);display:grid;place-items:center;font-size:11px;color:var(--ink-2);border:1px solid var(--line)}
+.itens{width:100%;border-collapse:collapse;font-size:13.5px}
+.itens td{padding:4px 0;border-bottom:1px solid var(--line);vertical-align:top}
+.itens td.v{text-align:right;font-family:var(--mono);white-space:nowrap;padding-left:8px}
+.itens tr.marcado td{color:var(--crit);font-weight:700}
+.linha-tempo{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;font-size:13px}
+.linha-tempo li{display:flex;gap:8px}
+.linha-tempo .h{font-family:var(--mono);color:var(--ink-2);min-width:44px}
+.respostas{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
+@container caso (min-width:560px){.respostas{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.respostas .bt{min-height:48px;white-space:normal;line-height:1.2;padding:6px 10px}
+.so-gerente{font-size:12.5px;color:var(--ink-2);display:flex;gap:6px;align-items:flex-start}
+
+/* modo uma coluna: o caso abre numa folha por cima da página */
+.folha{position:fixed;inset:0;z-index:40;background:rgba(15,34,48,.45);display:flex;justify-content:flex-end}
+.folha > .caso{width:min(760px,100%);height:100%;overflow-y:auto;border-radius:0;border:none}
+.folha .caso .voltar{display:inline-flex}
+
+/* toast */
+.toasts{position:fixed;bottom:16px;right:16px;z-index:70;display:flex;flex-direction:column;gap:8px;width:min(380px,calc(100vw - 32px))}
+.toast{background:var(--navy);color:#fff;border-radius:12px;padding:12px 14px;box-shadow:0 12px 40px rgba(0,0,0,.25);display:flex;gap:10px;align-items:flex-start}
+.toast .bt{min-height:34px;margin-left:auto}
+
+/* diálogos */
+.fundo{position:fixed;inset:0;background:rgba(15,34,48,.55);z-index:60;display:grid;place-items:center;padding:16px}
+.dlg{background:var(--card);border-radius:14px;width:min(520px,100%);max-height:calc(100vh - 32px);overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.dlg header{padding:14px 16px;border-bottom:1px solid var(--line)}
+.dlg header h2{font-family:var(--display);font-size:18px;margin:0}
+.dlg .meio{padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.dlg footer{padding:12px 16px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.opcoes{display:flex;flex-wrap:wrap;gap:8px}
+.opcao{flex:1 1 150px;min-height:44px;border-radius:10px;border:1px solid var(--line-2);background:#fff;padding:6px 10px;font-weight:600;font-size:13.5px;text-align:left}
+.opcao[aria-pressed="true"]{border-color:var(--gold);background:#FFF6E4;box-shadow:inset 0 0 0 1px var(--gold)}
+.opcao.perda[aria-pressed="true"]{border-color:var(--crit);background:var(--crit-bg);box-shadow:inset 0 0 0 1px var(--crit)}
+
+/* ajustes */
+.grupo{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);margin-bottom:12px}
+.grupo > header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.grupo > header h3{font-family:var(--display);font-size:16px;margin:0}
+.grupo > header span{font-size:12.5px;color:var(--ink-2)}
+.aj{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,280px);gap:6px 16px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)}
+.aj:last-child{border-bottom:none}
+.aj .rot-aj{font-weight:600}
+.aj .ajuda{display:block;margin-top:1px}
+.aj.mudou{background:#FFF9EC;box-shadow:inset 3px 0 0 var(--gold)}
+.aj.desligado{opacity:.55}
+.aj .ctrl{display:flex;justify-content:flex-end;align-items:center;gap:8px;min-width:0}
+.aj .ctrl select,.aj .ctrl input{min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 12px;background:#fff;width:100%;min-width:0}
+.aj .fixo{font-weight:700;font-size:14px;text-align:right}
+@container principal (max-width:640px){.aj{grid-template-columns:minmax(0,1fr)}.aj .ctrl{justify-content:flex-start}.aj .fixo{text-align:left}}
+.chave{position:relative;width:52px;height:30px;border-radius:999px;border:none;background:#C8D2DC;flex:none}
+.chave::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:left .15s}
+.chave[aria-checked="true"]{background:var(--ok)}
+.chave[aria-checked="true"]::after{left:25px}
+.salvar{position:fixed;left:0;right:0;bottom:0;background:var(--navy);color:#fff;padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:flex-end;z-index:25}
+.salvar span{margin-right:auto;font-weight:600}
+.salvar .bt{min-height:38px}
+.salvar .bt:not(.pri){background:transparent;color:#fff;border-color:rgba(255,255,255,.45)}
+
+/* app Android */
+.vitrine{padding:20px 16px 60px;display:flex;flex-wrap:wrap;gap:28px 24px;justify-content:center}
+.tela-app{width:min(360px,100%);display:flex;flex-direction:column;gap:8px}
+.tela-app > figcaption{font-size:13.5px;color:var(--ink-2)}
+.tela-app > figcaption strong{display:block;font-family:var(--display);color:var(--ink);font-size:15px}
+.fone{width:100%;height:700px;border-radius:28px;background:#0F2230;padding:10px;box-shadow:0 16px 40px rgba(15,34,48,.25)}
+.fone .vidro{height:100%;border-radius:20px;background:#EDF0F4;overflow:hidden;display:flex;flex-direction:column;position:relative}
+.barra-sis{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;color:#C9D6E2;background:#0F2230;padding:4px 14px}
+.a-topo{background:#0F2230;color:#fff;padding:8px 14px 12px}
+.a-topo .l1{display:flex;align-items:center;gap:8px}
+.a-topo .nome{font-family:var(--display);font-weight:800;font-size:16px}
+.a-topo .loja{font-size:12px;color:#9FB2C4}
+.a-topo .av{margin-left:auto;width:32px;height:32px;border-radius:50%;background:#1D3B4D;color:var(--gold);display:grid;place-items:center;font-family:var(--display);font-weight:800;font-size:13px}
+.conexao{display:flex;align-items:center;gap:6px;font-size:12px;color:#BFE8D8;margin-top:6px}
+.conexao i{width:8px;height:8px;border-radius:50%;background:#2BD18F;display:inline-block}
+.estado{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px}
+.estado button{min-height:44px;border-radius:10px;border:1px solid #2E4456;background:#13283A;color:#D5E0EA;font-weight:700;font-size:13.5px}
+.estado button[aria-pressed="true"].livre{background:#0F6647;border-color:#0F6647;color:#fff}
+.estado button[aria-pressed="true"].ocup{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.a-meio{flex:1;overflow-y:auto;padding:12px}
+.a-sec{font-family:var(--display);font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);margin:6px 2px}
+.a-card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
+.a-card.urg{border-color:#E7B4B4}
+.a-card .l1{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.a-card .l1 .dir{margin-left:auto}
+.a-card .tit{font-weight:700;font-size:15px;margin-top:6px}
+.a-card .fala{font-size:13.5px;color:var(--ink-2);margin-top:2px}
+.a-card .bt{width:100%;min-height:48px;margin-top:10px;font-size:15px}
+.a-nav{display:grid;grid-template-columns:repeat(4,1fr);background:#fff;border-top:1px solid var(--line)}
+.a-nav button{min-height:56px;border:none;background:none;font-size:12px;font-weight:700;color:var(--ink-2);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+.a-nav button[aria-current="page"]{color:var(--ink);box-shadow:inset 0 3px 0 var(--gold)}
+.a-nav b{font-family:var(--mono);font-size:11px;background:var(--crit);color:#fff;border-radius:999px;padding:0 6px}
+.a-volta{display:flex;align-items:center;gap:8px;background:#0F2230;color:#fff;padding:10px 14px}
+.a-volta button{border:none;background:none;color:#fff;font-size:15px;font-weight:700;min-height:40px;padding:0}
+.a-baixo{background:#fff;border-top:1px solid var(--line);padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.a-baixo .acoes .bt{flex:1 1 0}
+.teclado{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.teclado span{min-height:56px;border-radius:12px;border:1px solid var(--line);background:#fff;font-family:var(--mono);font-size:22px;font-weight:700;display:grid;place-items:center}
+.pin{display:flex;justify-content:center;gap:12px;margin:14px 0 4px}
+.pin i{width:16px;height:16px;border-radius:50%;border:2px solid var(--ink-2);display:inline-block}
+.pin i.on{background:var(--ink);border-color:var(--ink)}
+.codigo{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin:12px 0}
+.codigo span{height:52px;border-radius:10px;background:#fff;border:1px solid var(--line-2);display:grid;place-items:center;font-family:var(--mono);font-size:22px;font-weight:700}
+.bloqueio{height:100%;background:linear-gradient(160deg,#1D3B4D,#0B1822);color:#fff;padding:22px 14px;display:flex;flex-direction:column;gap:10px}
+.bloqueio .hora{font-family:var(--display);font-size:54px;font-weight:700;text-align:center;line-height:1}
+.bloqueio .data{text-align:center;color:#9FB2C4;font-size:13px;margin-bottom:10px}
+.notif{background:rgba(255,255,255,.95);color:var(--ink);border-radius:16px;padding:10px 12px}
+.notif .app-n{display:flex;gap:6px;font-size:11.5px;color:var(--ink-2);font-weight:600}
+.notif .app-n span:last-child{margin-left:auto}
+.notif .t{font-weight:700;margin-top:4px;font-size:14px}
+.notif .d{font-size:13px;color:var(--ink-2)}
+.notif .acs{display:flex;gap:6px;margin-top:8px}
+.notif .acs button{flex:1;min-height:38px;border-radius:10px;border:none;background:#EEF2F6;font-weight:700;font-size:13px;color:var(--info)}
+
+/* notas */
+.notas{max-width:920px;margin:0 auto;padding:20px 16px 80px}
+.notas h2{font-family:var(--display);font-size:20px;margin:22px 0 8px}
+.notas h3{font-family:var(--display);font-size:16px;margin:16px 0 6px}
+.notas p,.notas li{font-size:15px}
+.notas ol,.notas ul{padding-left:22px}
+.notas .cartao{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin:10px 0}
+.notas a{color:var(--info);font-weight:600;overflow-wrap:anywhere}
+
+/* telas estreitas: o menu lateral some (no app é o ☰) */
+@media (max-width:900px){
+  .app{grid-template-columns:minmax(0,1fr)}
+  .lado{display:none}
+  .topo .menu-bt{display:inline-flex;min-width:42px;min-height:42px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);align-items:center;justify-content:center;font-size:18px}
+  main{padding:14px 14px 110px}
+  .topo{padding:8px 12px}
+  .quem .nome-u{display:none}
+}
+</style>
+</head>
+<body>
+
+<div class="proto" role="region" aria-label="Controles do protótipo">
+  <strong>Protótipo · Atendimento</strong>
+  <div class="abas" role="group" aria-label="Ver">
+    <button type="button" class="aba" data-vista="pc" aria-pressed="true">Tela do PC</button>
+    <button type="button" class="aba" data-vista="app" aria-pressed="false">App Android</button>
+    <button type="button" class="aba" data-vista="aj" aria-pressed="false">Ajustes</button>
+    <button type="button" class="aba" data-vista="notas" aria-pressed="false">Notas</button>
+  </div>
+  <div class="ctl" id="ctl-pc" role="group" aria-label="Estado da fila">
+    <span>Fila:</span>
+    <button type="button" data-estado="com" aria-pressed="true">com casos</button>
+    <button type="button" data-estado="vazia" aria-pressed="false">vazia</button>
+    <button type="button" data-estado="erro" aria-pressed="false">sem conexão</button>
+    <button type="button" id="simular">Simular aviso novo</button>
+  </div>
+  <span class="obs">Dados inventados. Nada aqui fala com o Regem.</span>
+</div>
+
+<!-- ============ TELA DO PC (e ajustes, que usam o mesmo shell) ============ -->
+<div class="app" id="shell">
+  <nav class="lado" aria-label="Menu principal">
+    <div class="marca"><svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="#E8A845" stroke-width="2"/><text x="16" y="21" text-anchor="middle" font-family="Archivo" font-weight="800" font-size="12" fill="#fff">R.O</text></svg>Regem</div>
+    <button type="button" class="it">Dashboard</button>
+    <button type="button" class="it">PDV · Balcão</button>
+    <div class="grupo-menu">Delivery</div>
+    <button type="button" class="it sub">Painel</button>
+    <button type="button" class="it sub">Mapa ao vivo</button>
+    <button type="button" class="it sub">Entregadores</button>
+    <button type="button" class="it sub">Clientes</button>
+    <button type="button" class="it sub">WhatsApp</button>
+    <button type="button" class="it sub">Marketing</button>
+    <button type="button" class="it sub" id="menu-config" data-ir="aj">Configurações</button>
+    <button type="button" class="it" id="menu-atend" data-ir="pc" aria-current="page"><span>Atendimento <span class="novo">NOVO</span></span><span class="badge" id="badge-menu">7</span></button>
+    <button type="button" class="it">Tarefas</button>
+    <button type="button" class="it">Escalas</button>
+    <button type="button" class="it">Estoque</button>
+    <button type="button" class="it">Financeiro</button>
+    <button type="button" class="it">Configurações</button>
+  </nav>
+  <div style="min-width:0">
+    <header class="topo">
+      <button type="button" class="menu-bt" aria-label="Menu (no Regem abre o menu lateral)">☰</button>
+      <span class="onde" id="onde">Atendimento</span>
+      <div class="dir">
+        <button type="button" class="sino" id="sino" aria-expanded="false" aria-controls="pop-sino" aria-label="Avisos de atendimento: 7 abertos">🔔<b id="badge-sino">7</b></button>
+        <span class="quem"><span class="av" aria-hidden="true">AN</span><span class="nome-u">Ana · gerente · Loja Centro</span></span>
+      </div>
+      <div class="pop-sino" id="pop-sino" hidden role="dialog" aria-label="Avisos de atendimento">
+        <h3>Atendimento · o que pede você agora</h3>
+        <div id="pop-lista"></div>
+        <button type="button" class="bt pri" style="width:100%" data-ir="pc">Abrir o Atendimento</button>
+        <p class="ajuda" style="margin:8px 4px 0">O sino aparece em todas as telas do Regem e toca quando chega caso novo. Hoje ele só existe no painel do Delivery.</p>
+      </div>
+    </header>
+
+    <!-- vista: atendimento -->
+    <main id="v-pc">
+      <div class="trilha">Atendimento</div>
+      <h1 id="titulo-fila">7 casos abertos</h1>
+      <p class="resumo" id="resumo-fila">2 com prazo · 3 na fila · o robô está em 5 conversas agora (<a href="#" onclick="return false">ver em Delivery › WhatsApp</a>)</p>
+      <div class="sits" role="group" aria-label="Situação" id="sits"></div>
+      <div class="filtros">
+        <div class="campo larga"><label for="busca">Buscar</label><input id="busca" type="search" placeholder="Cliente, pedido ou telefone"></div>
+        <div class="campo"><label for="f-canal">Canal</label><select id="f-canal"><option value="">Todos</option><option value="wa">WhatsApp</option><option value="ifood">iFood</option><option value="n99">99Food</option><option value="card">Cardápio</option></select></div>
+        <div class="campo"><label for="f-motivo">Motivo</label><select id="f-motivo"><option value="">Todos</option><option>Atraso</option><option>Faltou item</option><option>Disputa</option><option>Cancelamento</option><option>Sem contato</option><option>Outro</option></select></div>
+        <div class="campo"><label for="f-resp">Com quem</label><select id="f-resp"><option value="">Qualquer um</option><option value="-">Ninguém ainda</option><option value="Ana">Ana (você)</option><option value="Bruno">Bruno</option><option value="Carla">Carla</option></select></div>
+      </div>
+      <div class="corpo" id="corpo" data-modo="duplo">
+        <section class="fila" aria-labelledby="cab-fila">
+          <div class="cab"><strong id="cab-fila">Fila</strong><span>Ordem: prazo vencendo, depois urgente, depois quem espera há mais tempo</span></div>
+          <div id="lista" role="list"></div>
+        </section>
+        <div id="vaga-caso" style="min-width:0"></div>
+      </div>
+    </main>
+
+    <!-- vista: ajustes (Delivery › Configurações › Operação › Atendimento) -->
+    <main id="v-aj" hidden>
+      <div class="trilha">Delivery › Configurações › Operação</div>
+      <h1>Atendimento</h1>
+      <p class="resumo">9 ajustes em 3 grupos · item novo no grupo "Operação", ao lado de "Robô de atendimento"</p>
+      <div class="filtros" style="grid-template-columns:minmax(0,1fr)"><div class="campo"><label for="busca-aj">Buscar ajuste</label><input id="busca-aj" type="search" placeholder="Ex.: 99, disputa, som"></div></div>
+
+      <section class="grupo" data-grupo>
+        <header><h3>Fila e avisos</h3><span>3 ajustes</span></header>
+        <div class="aj"><div><span class="rot-aj">Som do aviso no computador</span><span class="ajuda">Toca quando chega caso novo, em qualquer tela do Regem. O urgente toca três vezes.</span></div>
+          <div class="ctrl"><select aria-label="Som do aviso" data-aj><option>Bipe curto</option><option>Campainha</option><option>Sem som</option></select></div></div>
+        <div class="aj"><div><span class="rot-aj">Avisar o gerente se ninguém pegar o caso em</span><span class="ajuda">O aviso vai para o app de atendimento de quem é gerente e está em turno.</span></div>
+          <div class="ctrl"><select aria-label="Tempo para avisar o gerente" data-aj><option>2 min</option><option selected>3 min</option><option>5 min</option><option>10 min</option></select></div></div>
+        <div class="aj"><div><span class="rot-aj">Dizer ao cliente a posição na fila</span><span class="ajuda">No WhatsApp, o robô responde "Você é o 2º da fila, cerca de 4 min". Só onde a loja pode escrever ao cliente.</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Dizer ao cliente a posição na fila" data-aj></button></div></div>
+      </section>
+
+      <section class="grupo" data-grupo>
+        <header><h3>iFood · disputas</h3><span>3 ajustes</span></header>
+        <div class="aj"><div><span class="rot-aj">Quem responde</span><span class="ajuda">Gerente e presidente. No computador, com a senha de quem decide; no app, com o PIN.</span></div>
+          <div class="ctrl"><span class="fixo">Gerente e presidente</span></div></div>
+        <div class="aj"><div><span class="rot-aj">Avisar o gerente quando chega uma disputa</span><span class="ajuda">No app de atendimento, na hora. Disputa sem resposta segue o que o iFood decidir sozinho.</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Avisar o gerente quando chega uma disputa" data-aj></button></div></div>
+        <div class="aj"><div><span class="rot-aj">Avisar de novo quando faltarem</span><span class="ajuda">Segundo aviso, se ninguém respondeu.</span></div>
+          <div class="ctrl"><select aria-label="Avisar de novo quando faltarem" data-aj><option>1 min</option><option selected>2 min</option><option>3 min</option></select></div></div>
+      </section>
+
+      <section class="grupo" data-grupo>
+        <header><h3>99Food · pedidos do cliente</h3><span>3 ajustes</span></header>
+        <div class="aj"><div><span class="rot-aj">Cancelamento pedido pelo cliente: recusar se ninguém responder</span>
+          <span class="ajuda" id="aj99-ajuda">Ligado (padrão): o pedido vira caso na fila e, se ninguém responder no tempo abaixo, o Regem recusa com o motivo escolhido. Desligado: o Regem aceita na hora, como hoje, e avisa a equipe.</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Cancelamento da 99: recusar se ninguém responder" id="aj99" data-aj></button></div></div>
+        <div class="aj" data-dep99><div><span class="rot-aj">Esperar antes de responder sozinho</span><span class="ajuda">A 99 não informa na integração quanto tempo a loja tem. Por isso o padrão é curto.</span></div>
+          <div class="ctrl"><select aria-label="Tempo antes de recusar sozinho" data-aj><option>1 min</option><option>2 min</option><option selected>3 min</option><option>5 min</option></select></div></div>
+        <div class="aj" data-dep99><div><span class="rot-aj">Motivo da recusa automática</span><span class="ajuda">É o texto que a 99 recebe.</span></div>
+          <div class="ctrl"><select aria-label="Motivo da recusa automática" data-aj><option>O pedido já está em preparo</option><option>O pedido já saiu para entrega</option><option>O pedido já foi entregue</option></select></div></div>
+        <div class="aj"><div><span class="rot-aj">Reembolso pedido pelo cliente</span><span class="ajuda">Segue a mesma regra do cancelamento (a confirmar com você).</span></div>
+          <div class="ctrl"><span class="fixo" id="aj99-reemb">Recusar se ninguém responder</span></div></div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<!-- ============ APP ANDROID ============ -->
+<section id="v-app" hidden aria-label="App de atendimento (Android)">
+  <div class="vitrine">
+
+    <figure class="tela-app">
+      <div class="fone"><div class="vidro">
+        <div class="barra-sis"><span>19:30</span><span>Wi-Fi da loja</span></div>
+        <div class="a-meio" style="padding:22px 16px">
+          <div style="text-align:center;font-family:var(--display);font-weight:800;font-size:22px">Regem Atendimento</div>
+          <p class="ajuda" style="text-align:center;margin:4px 0 0">Primeira vez neste aparelho</p>
+          <p style="margin:18px 0 0;font-weight:700">Digite o código deste aparelho</p>
+          <div class="codigo" aria-label="Código digitado: 4 8 2"><span>4</span><span>8</span><span>2</span><span></span><span></span><span></span></div>
+          <div class="nota" style="font-size:13px">O código sai no Regem, no computador: <b>Configurações › Equipamentos › Novo equipamento</b>, tipo "App de atendimento", e depois <b>Gerar código</b>.</div>
+          <button type="button" class="bt pri" style="width:100%;min-height:52px;margin-top:14px" disabled>Parear com o servidor da loja</button>
+          <p class="ajuda" style="margin-top:10px">O app procura o servidor da loja na rede (Wi-Fi). Sem servidor na loja, ele usa a internet.</p>
+        </div>
+      </div></div>
+      <figcaption><strong>1 · Parear (só uma vez)</strong>Igual aos outros aparelhos da loja: o código vem da tela Equipamentos. Aparelho revogado lá para de receber na hora.</figcaption>
+    </figure>
+
+    <figure class="tela-app">
+      <div class="fone"><div class="vidro">
+        <div class="barra-sis"><span>19:31</span><span>Wi-Fi da loja</span></div>
+        <div class="a-meio" style="padding:22px 16px">
+          <div style="display:flex;align-items:center;gap:8px"><span class="selo ok">Pareado</span><span class="ajuda">Loja Centro · servidor da loja</span></div>
+          <p style="margin:22px 0 0;font-family:var(--display);font-weight:800;font-size:20px;text-align:center">Quem vai atender?</p>
+          <p class="ajuda" style="text-align:center;margin:2px 0 0">Digite o seu PIN, o mesmo do ponto</p>
+          <div class="pin" aria-label="2 de 4 números digitados"><i class="on"></i><i class="on"></i><i></i><i></i></div>
+          <div class="teclado" aria-hidden="true"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span style="font-size:14px;font-family:var(--body)">Apagar</span><span>0</span><span style="font-size:14px;font-family:var(--body)">Entrar</span></div>
+          <p class="ajuda" style="margin-top:12px">O aparelho pode ser de uso comum: cada um entra com o seu PIN e sai no fim do turno. Quem respondeu fica registrado no caso.</p>
+        </div>
+      </div></div>
+      <figcaption><strong>2 · Entrar com o PIN</strong>O PIN diz quem pegou cada caso e libera o que o perfil pode (disputa, só gerente e presidente).</figcaption>
+    </figure>
+
+    <figure class="tela-app">
+      <div class="fone"><div class="vidro">
+        <div class="barra-sis"><span>19:53</span><span>Wi-Fi da loja</span></div>
+        <div class="a-topo">
+          <div class="l1"><div><div class="nome">Atendimento</div><div class="loja">Loja Centro</div></div><span class="av" aria-label="Bruno">BR</span></div>
+          <div class="conexao"><i aria-hidden="true"></i>Servidor da loja · recebendo na hora</div>
+          <div class="estado" role="group" aria-label="Minha situação">
+            <button type="button" class="livre" aria-pressed="false" data-est>Disponível</button>
+            <button type="button" class="ocup" aria-pressed="true" data-est>Ocupado: embalando</button>
+          </div>
+        </div>
+        <div class="a-meio">
+          <p class="nota warn" style="font-size:13px;margin:0 0 10px">Você está ocupado: o app só toca para o que tem prazo. Os outros casos vão para quem está disponível.</p>
+          <div class="a-sec">Com prazo · 2</div>
+          <div class="a-card"><div class="l1"><span class="canal n99">99Food</span><span class="selo warn">Cancelamento</span><span class="dir prazo warn" data-prazo="c2">02:41</span></div>
+            <div class="tit">Pedido 77 · cliente pediu para cancelar</div><div class="fala">Recusa sozinho quando o tempo acabar</div>
+            <button type="button" class="bt">Ver · só o gerente responde</button></div>
+          <div class="a-card urg"><div class="l1"><span class="canal ifood">iFood</span><span class="selo crit">Disputa</span><span class="dir prazo crit" data-prazo="c1">06:12</span></div>
+            <div class="tit">Pedido 4521 · faltou item</div><div class="fala">"Faltou a batata." · 2 fotos</div>
+            <button type="button" class="bt">Ver · só o gerente responde</button></div>
+          <div class="a-sec">Na fila · 3</div>
+          <div class="a-card urg"><div class="l1"><span class="canal wa">WhatsApp</span><span class="selo crit">🚨 Urgente</span><span class="dir pos" style="font-family:var(--mono);font-weight:700">1º · 4 min</span></div>
+            <div class="tit">Carlos · pedido 1180 · atraso</div><div class="fala">"Cadê meu lanche? Já faz mais de 1 hora"</div>
+            <button type="button" class="bt pri">Pegar</button></div>
+          <div class="a-card"><div class="l1"><span class="canal wa">WhatsApp</span><span class="selo neutro">Faltou item</span><span class="dir" style="font-family:var(--mono);font-weight:700">2º · 3 min</span></div>
+            <div class="tit">Juliana · pedido 1176</div><div class="fala">"Veio sem o refrigerante" · 1 foto</div>
+            <button type="button" class="bt pri">Pegar</button></div>
+        </div>
+        <nav class="a-nav" aria-label="Navegação do app"><button aria-current="page">Fila <b>5</b></button><button>Comigo</button><button>Feitos</button><button>Eu</button></nav>
+      </div></div>
+      <figcaption><strong>3 · A fila</strong>A mesma ordem do computador. "Ocupado: embalando" tira a pessoa da vez sem sair do app; o que tem prazo continua tocando.</figcaption>
+    </figure>
+
+    <figure class="tela-app">
+      <div class="fone"><div class="vidro">
+        <div class="barra-sis"><span>19:54</span><span>Wi-Fi da loja</span></div>
+        <div class="a-volta"><button type="button">← Fila</button><span style="margin-left:auto;font-size:12.5px;color:#9FB2C4">com você · 1 min</span></div>
+        <div class="a-meio">
+          <div class="l1" style="display:flex;flex-wrap:wrap;gap:6px"><span class="canal wa">WhatsApp</span><span class="selo crit">🚨 Urgente</span><span class="selo neutro">Atraso</span></div>
+          <div style="font-family:var(--display);font-weight:800;font-size:18px;margin:6px 0 8px">Carlos · pedido 1180</div>
+          <div class="a-card" style="background:#F6F9FC"><div style="font-size:12px;font-weight:700;color:var(--ink-2)">O ROBÔ RESUMIU</div>
+            <div style="font-size:14px;margin-top:4px">Quer saber onde está o pedido. Está irritado. Saiu às 19:31 com o João; chega por volta das 19h55. O robô já mandou o rastreio.</div></div>
+          <div class="msgs" style="max-height:none">
+            <div class="msg cli">Cadê meu lanche? Já faz mais de 1 hora, isso é um absurdo<small>19:46</small></div>
+            <div class="msg robo">Já chamei a equipe da loja. Você é o 1º da fila, cerca de 2 min.<small>robô · 19:47</small></div>
+            <div class="msg cli">Quero falar com alguém<small>19:48</small></div>
+          </div>
+        </div>
+        <div class="a-baixo">
+          <div class="prontas" style="margin:0"><button type="button" class="pronta">O João chega por volta das 19h55.</button><button type="button" class="pronta">Vou falar com o entregador.</button><button type="button" class="pronta">Desculpe a demora.</button></div>
+          <div class="escrever"><textarea aria-label="Escrever ao cliente" placeholder="Escreva ou use o microfone do teclado"></textarea><button type="button" class="bt pri">Enviar</button></div>
+          <div class="acoes"><button type="button" class="bt">Passar</button><button type="button" class="bt ok">Resolver</button></div>
+        </div>
+      </div></div>
+      <figcaption><strong>4 · Um caso do WhatsApp</strong>O resumo do robô vem primeiro; as respostas prontas resolvem com um toque, com a loja ocupada.</figcaption>
+    </figure>
+
+    <figure class="tela-app">
+      <div class="fone"><div class="vidro">
+        <div class="barra-sis"><span>19:54</span><span>Wi-Fi da loja</span></div>
+        <div class="a-volta"><button type="button">← Fila</button><span style="margin-left:auto;font-size:12.5px;color:#9FB2C4">Ana · gerente</span></div>
+        <div class="a-meio">
+          <div style="display:flex;flex-wrap:wrap;gap:6px"><span class="canal ifood">iFood</span><span class="selo crit">Disputa</span><span class="selo neutro">Após a entrega</span></div>
+          <div style="font-family:var(--display);font-weight:800;font-size:18px;margin:6px 0 8px">Pedido 4521 · faltou item</div>
+          <div class="relogio" style="padding:10px 12px"><span class="grande prazo crit" data-prazo="c1">06:12</span><span class="txt" style="font-size:13px">Se ninguém responder até 19:58, o iFood aceita sozinho: cancela a batata e o cliente recebe o valor de volta.</span></div>
+          <div class="a-card" style="margin-top:10px"><div style="font-size:14px">"Faltou a batata."</div><div class="fotos" style="margin-top:8px"><span class="foto">foto 1</span><span class="foto">foto 2</span></div>
+            <div style="font-size:13.5px;margin-top:8px">Contesta: <b>1× Batata média · R$ 12,90</b></div></div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <button type="button" class="bt perigo" style="min-height:52px">Aceitar · devolver R$ 12,90</button>
+            <button type="button" class="bt" style="min-height:52px">Propor outra coisa (crédito ou outro valor)</button>
+            <button type="button" class="bt" style="min-height:52px">Recusar</button>
+          </div>
+          <p class="ajuda" style="margin-top:10px">Confirma com o seu PIN. O iFood aceita uma resposta só por disputa. Quem não é gerente vê o botão "Chamar o gerente".</p>
+        </div>
+      </div></div>
+      <figcaption><strong>5 · Disputa do iFood (gerente)</strong>Botões grandes, o tempo que falta e o que o iFood faz sozinho se ninguém responder.</figcaption>
+    </figure>
+
+    <figure class="tela-app">
+      <div class="fone"><div class="vidro">
+        <div class="bloqueio">
+          <div class="hora">19:55</div><div class="data">domingo, 2 de novembro</div>
+          <div class="notif"><div class="app-n"><span>🔔 Regem Atendimento</span><span>agora</span></div>
+            <div class="t">Disputa do iFood · pedido 4521</div><div class="d">Faltou a batata. Vence em 3 min.</div>
+            <div class="acs"><button type="button">Abrir</button></div></div>
+          <div class="notif"><div class="app-n"><span>🔔 Regem Atendimento</span><span>1 min</span></div>
+            <div class="t">Ninguém pegou o Carlos (pedido 1180)</div><div class="d">Esperando há 3 min. Avisando a Ana (gerente).</div>
+            <div class="acs"><button type="button">Pegar</button><button type="button">Abrir</button></div></div>
+          <div class="notif"><div class="app-n"><span>🔔 Regem Atendimento</span><span>2 min</span></div>
+            <div class="t">99Food · pedido 77 · cancelamento</div><div class="d">Recusado sozinho: ninguém respondeu em 3 min.</div></div>
+        </div>
+      </div></div>
+      <figcaption><strong>6 · Avisos com o celular bloqueado</strong>Toca mesmo com a tela apagada. Ninguém pegou no tempo do ajuste, o aviso sobe para o gerente.</figcaption>
+    </figure>
+
+  </div>
+</section>
+
+<!-- ============ NOTAS ============ -->
+<section id="v-notas" hidden class="notas" aria-label="Notas do protótipo">
+  <div class="trilha">Notas do protótipo · 02/11/2026</div>
+  <h1>Atendimento: o que cada parte faz</h1>
+
+  <div class="cartao">
+    <h3>O que entra na fila</h3>
+    <ul>
+      <li>Chamado aberto pelo robô do WhatsApp, já preenchido: motivo, humor, o que o cliente quer, o pedido e o que o robô já fez.</li>
+      <li>Disputa do iFood (pedido de cancelamento ou reembolso do cliente), com o prazo do iFood.</li>
+      <li>Pedido de cancelamento ou de reembolso da 99Food.</li>
+      <li>Pedido de cancelamento ou de alteração feito no cardápio online (hoje já vira chamado).</li>
+      <li>A resposta do cliente ao "sem contato" do entregador (no ar desde o #789).</li>
+    </ul>
+    <p>Não entra: a conversa que o robô está atendendo sozinho. Ela continua em Delivery › WhatsApp, e o resumo do topo da fila mostra quantas são.</p>
+  </div>
+
+  <div class="cartao">
+    <h3>Ordem e ciclo</h3>
+    <p>A fila põe na frente o que tem prazo vencendo, depois o urgente (cliente irritado), depois quem espera há mais tempo. O cliente do WhatsApp recebe a posição ("Você é o 2º da fila, cerca de 4 min").</p>
+    <p>Cada caso passa por: na fila → com alguém → aguardando o cliente → resolvido. Responder pega o caso para quem respondeu. Quando o cliente responde, o caso "aguardando" volta para a fila. Resolver devolve a conversa ao robô, como hoje.</p>
+  </div>
+
+  <div class="cartao">
+    <h3>Disputa do iFood</h3>
+    <p>O iFood manda, em cada disputa: a fala do cliente, as fotos, os itens contestados, o prazo e o que ele faz sozinho se ninguém responder (aceitar, recusar ou nada). Também manda as propostas que a loja pode fazer: reembolso parcial até um valor, crédito para o cliente no iFood até um valor e, no atraso, mais 15, 30 ou 45 minutos. A loja responde uma vez só por disputa.</p>
+    <p>Só gerente e presidente respondem: no computador, com a senha de quem decide; no app, com o PIN. Aceitar o cancelamento do pedido inteiro passa pelo cancelamento de hoje, que pergunta o destino dos insumos.</p>
+    <p>Hoje o Regem confirma e descarta esses eventos do iFood (<code>ifood.poller.ts</code>). Com a Onda 1, eles viram caso.</p>
+    <p>Fonte: <a href="https://developer.ifood.com.br/pt-BR/docs/guides/modules/order/handshake-platform">iFood · Plataforma de negociação</a> (conferida em 01/11/2026).</p>
+  </div>
+
+  <div class="cartao">
+    <h3>99Food</h3>
+    <p>Hoje o Regem aceita sozinho, na hora, todo pedido de cancelamento e de reembolso da 99 (<code>food99.service.ts</code>). Com a Onda 1: o pedido vira caso com contagem regressiva; se ninguém responder em 3 min (ajuste), o Regem recusa com o motivo escolhido. Quem desliga o ajuste volta ao jeito de hoje: aceita na hora, com aviso à equipe.</p>
+    <p>A confirmar com a 99: se a integração aceita foto na recusa (no app da 99 aceita; a nossa resposta leva só o motivo) e quanto tempo a loja tem para responder. Até lá, a tela mostra só o motivo e o padrão é curto.</p>
+  </div>
+
+  <div class="cartao">
+    <h3>O app de atendimento (Onda 2)</h3>
+    <p>App próprio para Android, "Regem Atendimento", separado do app do entregador. Pareia uma vez com o servidor da loja (Configurações › Equipamentos › Novo equipamento › Gerar código), e cada pessoa entra com o seu PIN. Recebe os casos na hora pela rede da loja; sem servidor na loja, pela internet.</p>
+    <p>"Ocupado: embalando" tira a pessoa da vez: os casos sem prazo vão para quem está disponível. Se ninguém pegar no tempo do ajuste, o aviso sobe para o gerente.</p>
+  </div>
+
+  <div class="cartao">
+    <h3>Onde cada coisa fica</h3>
+    <p>Os casos sincronizam com o servidor da loja, como os chamados de hoje. O texto das conversas fica na nuvem, como o histórico do WhatsApp hoje. A resposta da loja ao iFood e à 99 sai de um lado só, para não sair em dobro (fica decidido no código).</p>
+  </div>
+
+  <div class="cartao">
+    <h3>Para você aprovar</h3>
+    <ol>
+      <li>"Atendimento" como item próprio do menu, com o sino em todas as telas. O sino do painel do Delivery passa a abrir esta tela.</li>
+      <li>A ordem da fila: prazo, depois urgente, depois espera.</li>
+      <li>99: 3 min como padrão para recusar sozinho, e o reembolso com a mesma regra do cancelamento.</li>
+      <li>No computador, a disputa e o cancelamento pedem a senha de quem decide, mesmo para quem já entrou como gerente (o PC da loja é de uso comum).</li>
+      <li>App próprio "Regem Atendimento", separado do app do entregador.</li>
+    </ol>
+    <p>As respostas prontas são da loja (ela cadastra as suas); as do protótipo são exemplos.</p>
+  </div>
+</section>
+
+<div class="salvar" id="barra-salvar" hidden><span id="n-mud">1 alteração ainda não salva</span><button type="button" class="bt" id="desfazer">Desfazer</button><button type="button" class="bt pri" id="salvar">Salvar alterações</button></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<div id="camada"></div>
+
+<script>
+(() => {
+  'use strict';
+  const agora = Date.now();
+  const em = (seg) => agora + seg * 1000;
+  // Os casos (inventados). prazoFim = quando o tempo acaba; pos = só para quem espera na fila.
+  const CASOS = [
+    { id: 'c1', canal: 'ifood', motivo: 'Disputa', tipo: 'disputa', urgente: false, prazoFim: em(372), titulo: 'Pedido 4521 · faltou item',
+      cliente: 'Ana P.', pedido: '4521', fala: '"Faltou a batata." · 2 fotos', resp: null, sit: 'fila', espera: 'agora' },
+    { id: 'c2', canal: 'n99', motivo: 'Cancelamento', tipo: 'n99', urgente: false, prazoFim: em(161), titulo: 'Pedido 77 · cancelamento',
+      cliente: 'Cliente da 99', pedido: '77', fala: 'O cliente pediu para cancelar · recusa sozinho quando o tempo acabar', resp: null, sit: 'fila', espera: '1 min' },
+    { id: 'c3', canal: 'wa', motivo: 'Atraso', tipo: 'conversa', urgente: true, titulo: 'Carlos · pedido 1180 · atraso', cliente: 'Carlos',
+      tel: '(21) 98412-3301', pedido: '1180', fala: '"Cadê meu lanche? Já faz mais de 1 hora"', resp: null, sit: 'fila', espera: '4 min', robo: true },
+    { id: 'c5', canal: 'wa', motivo: 'Sem contato', tipo: 'conversa', urgente: true, titulo: 'Marcos · pedido 1182 · respondeu ao "sem contato"',
+      cliente: 'Marcos', tel: '(21) 99231-0045', pedido: '1182', fala: '"Estou no portão azul, pode subir"', resp: 'Ana', sit: 'comigo', espera: '2 min' },
+    { id: 'c4', canal: 'wa', motivo: 'Faltou item', tipo: 'conversa', urgente: false, titulo: 'Juliana · pedido 1176 · faltou item', cliente: 'Juliana',
+      tel: '(21) 97710-8822', pedido: '1176', fala: '"Veio sem o refrigerante" · 1 foto', resp: null, sit: 'fila', espera: '3 min', robo: true },
+    { id: 'c6', canal: 'card', motivo: 'Cancelamento', tipo: 'cardapio', urgente: false, titulo: 'Pedro · pedido 1185 · quer cancelar', cliente: 'Pedro',
+      tel: '(21) 98001-7733', pedido: '1185', fala: '"Pedi o tamanho errado, quero cancelar"', resp: null, sit: 'fila', espera: '2 min' },
+    { id: 'c7', canal: 'wa', motivo: 'Outro', tipo: 'conversa', urgente: false, titulo: 'Renata · pedido 1170 · faltou o molho', cliente: 'Renata',
+      tel: '(21) 99614-2210', pedido: '1170', fala: 'Bruno ofereceu mandar o molho ou desconto no próximo pedido', resp: 'Bruno', sit: 'aguardando', espera: '6 min' },
+    { id: 'r1', canal: 'wa', motivo: 'Atraso', tipo: 'feito', titulo: 'Lucas · pedido 1150 · atraso', cliente: 'Lucas', pedido: '1150',
+      fala: 'Resolvido por Ana às 18:20', resp: 'Ana', sit: 'resolvido', espera: '' },
+    { id: 'r2', canal: 'ifood', motivo: 'Disputa', tipo: 'feito', titulo: 'Pedido 4498 · disputa recusada', cliente: 'iFood', pedido: '4498',
+      fala: 'Recusada por Ana às 17:55 · motivo "Verificação de disponibilidade"', resp: 'Ana', sit: 'resolvido', espera: '' },
+  ];
+  const NOVO = { id: 'c8', canal: 'ifood', motivo: 'Disputa', tipo: 'disputa-atraso', urgente: false, prazoFim: em(470), titulo: 'Pedido 4530 · atraso',
+    cliente: 'Rafael M.', pedido: '4530', fala: '"Já passou do horário, quero cancelar"', resp: null, sit: 'fila', espera: 'agora' };
+
+  let estado = 'com', filtroSit = 'todos', selecionado = 'c1', mostrouNovo = false;
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const CANAL = { wa: ['wa', 'WhatsApp'], ifood: ['ifood', 'iFood'], n99: ['n99', '99Food'], card: ['card', 'Cardápio'] };
+  const chip = (c) => `<span class="canal ${CANAL[c][0]}">${CANAL[c][1]}</span>`;
+  const mmss = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
+  const classePrazo = (ms) => (ms < 120000 ? 'crit' : 'warn');
+
+  // ---------- ordem e filtros ----------
+  const abertos = () => CASOS.filter((c) => c.sit !== 'resolvido');
+  function ordenar(lista) {
+    return [...lista].sort((a, b) => {
+      if (!!a.prazoFim !== !!b.prazoFim) return a.prazoFim ? -1 : 1;
+      if (a.prazoFim && b.prazoFim) return a.prazoFim - b.prazoFim;
+      if (a.urgente !== b.urgente) return a.urgente ? -1 : 1;
+      return 0;
+    });
+  }
+  function passa(c) {
+    const q = $('#busca').value.trim().toLowerCase();
+    if (q && !`${c.titulo} ${c.cliente} ${c.pedido} ${c.tel || ''}`.toLowerCase().includes(q)) return false;
+    if ($('#f-canal').value && c.canal !== $('#f-canal').value) return false;
+    if ($('#f-motivo').value && c.motivo !== $('#f-motivo').value) return false;
+    const r = $('#f-resp').value;
+    if (r === '-' && c.resp) return false;
+    if (r && r !== '-' && c.resp !== r) return false;
+    if (filtroSit === 'prazo') return !!c.prazoFim && c.sit !== 'resolvido';
+    if (filtroSit === 'fila') return c.sit === 'fila' && !c.prazoFim;
+    if (filtroSit === 'comigo') return c.resp === 'Ana' && c.sit !== 'resolvido';
+    if (filtroSit === 'aguardando') return c.sit === 'aguardando';
+    if (filtroSit === 'resolvido') return c.sit === 'resolvido';
+    return c.sit !== 'resolvido';
+  }
+  function contar() {
+    const a = abertos();
+    return {
+      todos: a.length, prazo: a.filter((c) => c.prazoFim).length, fila: a.filter((c) => c.sit === 'fila' && !c.prazoFim).length,
+      comigo: a.filter((c) => c.resp === 'Ana').length, aguardando: a.filter((c) => c.sit === 'aguardando').length, resolvido: 14,
+    };
+  }
+  function desenharSits() {
+    const n = contar();
+    const S = [['todos', 'Abertos'], ['prazo', 'Com prazo', 'crit'], ['fila', 'Na fila'], ['comigo', 'Comigo'], ['aguardando', 'Aguardando o cliente'], ['resolvido', 'Resolvidos hoje']];
+    $('#sits').innerHTML = S.map(([k, r, cl]) => `<button type="button" class="sit ${cl || ''}" data-sit="${k}" aria-pressed="${filtroSit === k}">${r} <b>${n[k]}</b></button>`).join('');
+    $$('#sits .sit').forEach((b) => b.addEventListener('click', () => { filtroSit = b.dataset.sit; desenharTudo(); }));
+    const ab = n.todos;
+    $('#titulo-fila').textContent = `${ab} casos abertos`;
+    $('#resumo-fila').innerHTML = `${n.prazo} com prazo · ${n.fila} na fila · o robô está em 5 conversas agora (<a href="#" onclick="return false">ver em Delivery › WhatsApp</a>)`;
+    $('#badge-menu').textContent = ab; $('#badge-sino').textContent = ab;
+    $('#sino').setAttribute('aria-label', `Avisos de atendimento: ${ab} abertos`);
+  }
+
+  // ---------- lista ----------
+  function linhaItem(c, posicao) {
+    const prazo = c.prazoFim ? `<span class="prazo ${classePrazo(c.prazoFim - Date.now())}" data-prazo="${c.id}">${mmss(c.prazoFim - Date.now())}</span>` : '';
+    const sitTxt = c.sit === 'aguardando' ? '<span class="selo info">Aguardando o cliente</span>' : c.sit === 'resolvido' ? '<span class="selo ok">Resolvido</span>' : '';
+    const quem = c.resp ? `com ${c.resp === 'Ana' ? 'você' : c.resp}` : 'ninguém pegou';
+    const pos = posicao ? `<span class="pos">${posicao}º</span>` : '';
+    return `<div role="listitem"><button type="button" class="item ${c.urgente ? 'urgente' : ''} ${c.sit === 'resolvido' ? 'feito' : ''}" data-id="${c.id}" aria-current="${selecionado === c.id}">
+      <div class="l1">${chip(c.canal)}${c.urgente ? '<span class="selo crit">🚨 Urgente</span>' : ''}<span class="selo neutro">${esc(c.motivo)}</span>${sitTxt}<span class="dir">${prazo}${pos}</span></div>
+      <div class="tit">${esc(c.titulo)}</div><div class="fala">${esc(c.fala)}</div>
+      <div class="l3"><span>${quem}</span>${c.espera ? `<span>esperando ${c.espera === 'agora' ? 'desde agora' : 'há ' + c.espera}</span>` : ''}${c.robo ? '<span>aberto pelo robô</span>' : ''}</div></button></div>`;
+  }
+  function desenharLista() {
+    const el = $('#lista');
+    if (estado === 'erro') {
+      el.innerHTML = `<div class="vazio" role="status"><div class="grande">⚠️</div><p><b>Não consegui ler a fila agora.</b><br>Os casos continuam guardados. Tento de novo em 10 s.</p><button type="button" class="bt">Tentar agora</button></div>`;
+      return;
+    }
+    const vis = estado === 'vazia' ? [] : ordenar(CASOS.filter(passa));
+    if (!vis.length) {
+      el.innerHTML = estado === 'vazia' || filtroSit === 'todos'
+        ? `<div class="vazio" role="status"><div class="grande">🎉</div><p><b>Ninguém esperando.</b><br>O robô está em 5 conversas. Se alguma precisar de você, ela aparece aqui e o sino toca.</p></div>`
+        : `<div class="vazio" role="status"><p><b>Nenhum caso com este filtro.</b></p><button type="button" class="bt" id="limpar">Limpar filtros</button></div>`;
+      const l = $('#limpar'); if (l) l.addEventListener('click', limparFiltros);
+      return;
+    }
+    let p = 0;
+    el.innerHTML = vis.map((c) => linhaItem(c, c.sit === 'fila' && !c.prazoFim ? ++p : 0)).join('');
+    $$('#lista .item').forEach((b) => b.addEventListener('click', () => abrirCaso(b.dataset.id, true)));
+  }
+  function limparFiltros() { $('#busca').value = ''; $('#f-canal').value = ''; $('#f-motivo').value = ''; $('#f-resp').value = ''; filtroSit = 'todos'; desenharTudo(); }
+
+  // ---------- caso (painel da direita ou folha por cima) ----------
+  const PEDIDOS = {
+    '4521': { itens: [['1× X-bacon', '32,90'], ['1× Batata média', '12,90', true], ['1× Refrigerante lata', '9,00']], total: '54,80',
+      tempo: [['19:05', 'Aceito'], ['19:20', 'Pronto (cozinha)'], ['19:26', 'Saiu com o entregador do iFood'], ['19:51', 'Entregue']] },
+    '4530': { itens: [['2× Smash duplo', '59,80'], ['1× Batata grande', '16,90']], total: '76,70',
+      tempo: [['19:20', 'Aceito'], ['19:44', 'Pronto (cozinha)'], ['—', 'Esperando o entregador do iFood (previsto 19:40)']] },
+    '77': { itens: [['2× X-salada', '55,80'], ['1× Suco de laranja', '8,00']], total: '63,80', tempo: [['19:44', 'Aceito'], ['19:46', 'Em preparo (cozinha, 4 min)']] },
+    '1180': { itens: [['1× X-tudo', '38,90'], ['1× Batata média', '12,90'], ['Taxa de entrega', '6,00']], total: '57,80',
+      tempo: [['18:48', 'Aceito'], ['19:22', 'Pronto (cozinha)'], ['19:31', 'Saiu com o João'], ['19:55', 'Previsão de chegada']] },
+    '1176': { itens: [['1× Combo smash', '42,90'], ['1× Coca-Cola lata', '6,00', true], ['Taxa de entrega', '6,00']], total: '54,90',
+      tempo: [['18:55', 'Aceito'], ['19:28', 'Saiu com o Diego'], ['19:40', 'Entregue']] },
+    '1182': { itens: [['1× Pizza média calabresa', '49,90'], ['Taxa de entrega', '6,00']], total: '55,90',
+      tempo: [['19:02', 'Aceito'], ['19:30', 'Saiu com o Diego'], ['19:45', 'Diego no endereço'], ['19:47', 'Diego avisou "sem contato"']] },
+    '1185': { itens: [['1× Açaí 300 ml', '18,00'], ['Taxa de entrega', '5,00']], total: '23,00', tempo: [['19:50', 'Aceito'], ['19:51', 'Em preparo (cozinha, 2 min)']] },
+    '1170': { itens: [['1× Hambúrguer da casa', '34,90'], ['1× Molho especial', '4,00', true], ['Taxa de entrega', '6,00']], total: '44,90',
+      tempo: [['18:40', 'Aceito'], ['19:12', 'Saiu com o João'], ['19:25', 'Entregue']] },
+    '1150': { itens: [['1× X-bacon', '32,90']], total: '32,90', tempo: [['18:20', 'Resolvido']] },
+    '4498': { itens: [['1× Combo família', '89,90']], total: '89,90', tempo: [['17:55', 'Disputa recusada']] },
+  };
+  const blocoPedido = (n, extra = '') => {
+    const p = PEDIDOS[n];
+    return `<section class="bloco"><h3>Pedido ${esc(n)} <span class="dir">total R$ ${p.total}</span></h3>
+      <table class="itens"><caption class="sr">Itens do pedido ${esc(n)}</caption><tbody>${p.itens.map(([d, v, m]) => `<tr class="${m ? 'marcado' : ''}"><td>${esc(d)}${m ? ' · contestado' : ''}</td><td class="v">R$ ${v}</td></tr>`).join('')}</tbody></table>
+      <ol class="linha-tempo" style="margin-top:10px">${p.tempo.map(([h, t]) => `<li><span class="h">${h}</span><span>${esc(t)}</span></li>`).join('')}</ol>${extra}
+      <div class="acoes" style="margin-top:10px"><button type="button" class="bt">Ver no painel</button></div></section>`;
+  };
+  const topo = (c, acoes) => `<div class="c-topo"><div style="min-width:0;flex:1 1 280px">
+      <button type="button" class="bt leve voltar" data-fechar-folha>← Voltar à fila</button>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">${chip(c.canal)}${c.urgente ? '<span class="selo crit">🚨 Urgente</span>' : ''}<span class="selo neutro">${esc(c.motivo)}</span></div>
+      <h2 id="titulo-caso">${esc(c.titulo)}</h2><div class="sub">${esc(c.cliente)}${c.tel ? ' · ' + esc(c.tel) : ''} · ${c.resp ? 'com ' + (c.resp === 'Ana' ? 'você' : c.resp) : 'ninguém pegou ainda'}</div></div>
+      <div class="acoes">${acoes}</div></div>`;
+  const relogio = (c, txt) => `<div class="relogio ${classePrazo(c.prazoFim - Date.now()) === 'warn' ? 'warn' : ''}" data-relogio="${c.id}"><span class="grande prazo" data-prazo="${c.id}">${mmss(c.prazoFim - Date.now())}</span><span class="txt">${txt}</span></div>`;
+
+  function casoDisputa(c) {
+    const atraso = c.tipo === 'disputa-atraso';
+    const txt = atraso
+      ? 'Se ninguém responder até 20:01, o iFood cancela o pedido sozinho e o cliente recebe o valor de volta.'
+      : 'Se ninguém responder até 19:58, o iFood aceita sozinho: cancela a batata e o cliente recebe o valor de volta.';
+    const resp = atraso
+      ? `<button type="button" class="bt pri" data-dlg="propor" data-tipo="tempo">Pedir mais tempo (15, 30 ou 45 min)</button><button type="button" class="bt perigo" data-dlg="aceitar-total">Aceitar o cancelamento</button><button type="button" class="bt" data-dlg="recusar-ifood">Recusar</button>`
+      : `<button type="button" class="bt perigo" data-dlg="aceitar-ifood">Aceitar · devolver R$ 12,90</button><button type="button" class="bt" data-dlg="propor" data-tipo="valor">Propor crédito ou outro valor</button><button type="button" class="bt" data-dlg="recusar-ifood">Recusar</button>`;
+    return topo(c, `<button type="button" class="bt">Pegar para mim</button>`) + `<div class="c-corpo"><div class="col">
+      ${relogio(c, txt)}
+      <section class="bloco"><h3>O que o cliente diz <span class="dir">${atraso ? 'durante a entrega' : 'depois da entrega'}</span></h3>
+        <p style="margin:0 0 8px;font-size:15px">${atraso ? '"Já passou do horário, quero cancelar."' : '"Faltou a batata."'}</p>
+        ${atraso ? '<p class="ajuda" style="margin:0">Sem foto. O iFood permite propor mais tempo nesta disputa.</p>' : '<div class="fotos"><span class="foto">foto 1</span><span class="foto">foto 2</span></div><p class="ajuda" style="margin:6px 0 0">As fotos abrem pelo endereço do iFood, com o acesso da loja.</p>'}
+      </section>
+      <section class="bloco"><h3>Responder ao iFood</h3>
+        <div class="respostas">${resp}</div>
+        <p class="so-gerente" style="margin:10px 0 0"><span aria-hidden="true">🔒</span><span>Só gerente e presidente respondem, com a senha de quem decide. O iFood aceita uma resposta só por disputa. <button type="button" class="bt leve" style="min-height:28px;padding:0">Chamar o gerente no app</button></span></p>
+      </section></div>
+      <div class="col">${blocoPedido(c.pedido)}
+      <section class="bloco"><h3>Histórico do caso</h3><ol class="linha-tempo"><li><span class="h">${atraso ? '19:53' : '19:52'}</span><span>O iFood abriu a disputa</span></li><li><span class="h">${atraso ? '19:53' : '19:52'}</span><span>Aviso no app da Ana (gerente)</span></li></ol></section></div></div>`;
+  }
+  function caso99(c) {
+    return topo(c, `<button type="button" class="bt">Pegar para mim</button>`) + `<div class="c-corpo"><div class="col">
+      ${relogio(c, 'Se ninguém responder, o Regem <b>recusa</b> sozinho com o motivo "O pedido já está em preparo" (ajuste da loja: recusar depois de 3 min).')}
+      <section class="bloco"><h3>O que a 99 manda</h3>
+        <p style="margin:0">O cliente pediu para cancelar o pedido 77. O pedido está <b>em preparo</b> há 4 min.</p>
+        <p class="ajuda" style="margin:6px 0 0">Motivo do cliente: a integração da 99 não informou.</p></section>
+      <section class="bloco"><h3>Responder à 99</h3>
+        <div class="respostas" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)"><button type="button" class="bt perigo" data-dlg="aceitar-99">Aceitar o cancelamento</button><button type="button" class="bt" data-dlg="recusar-99">Recusar</button></div>
+        <p class="so-gerente" style="margin:10px 0 0"><span aria-hidden="true">🔒</span><span>Só gerente e presidente respondem, com a senha. <button type="button" class="bt leve" style="min-height:28px;padding:0" data-ir="aj">Mudar o ajuste da 99</button></span></p></section></div>
+      <div class="col">${blocoPedido(c.pedido)}</div></div>`;
+  }
+  const CONVERSAS = {
+    c3: { resumo: [['Motivo', 'Atraso · cliente irritado ("isso é um absurdo")'], ['Quer', 'Saber onde está o pedido e quando chega'], ['Pedido', '1180 · saiu às 19:31 com o João · chega por volta das 19h55'], ['O robô já fez', 'Mandou o rastreio às 19:46 e disse ao cliente que ele é o 1º da fila']],
+      msgs: [['cli', 'Cadê meu lanche? Já faz mais de 1 hora, isso é um absurdo', '19:46'], ['robo', 'Sinto muito pela demora, Carlos. Seu pedido 1180 saiu às 19:31 com o João. Acompanhe por aqui: (link do rastreio)', 'robô · 19:46'], ['robo', 'Já chamei a equipe da loja. Você é o 1º da fila, cerca de 2 min.', 'robô · 19:47'], ['cli', 'Quero falar com alguém', '19:48']],
+      prontas: ['O João está a caminho e chega por volta das 19h55.', 'Vou falar com o entregador e já te respondo.', 'Pedimos desculpas pela demora.'], entregador: 'João (não compartilhou o contato)' },
+    c4: { resumo: [['Motivo', 'Faltou item · cliente calma'], ['Quer', 'O refrigerante que faltou: 1× Coca-Cola lata (R$ 6,00)'], ['Pedido', '1176 · entregue às 19:40 pelo Diego'], ['O robô já fez', 'Pediu a foto da sacola (chegou) e avisou que a equipe vai resolver']], foto: true,
+      msgs: [['cli', 'Oi, meu pedido veio sem o refrigerante', '19:47'], ['robo', 'Poxa, Juliana, desculpe. Pode mandar uma foto da sacola?', 'robô · 19:47'], ['cli', '(foto)', '19:48'], ['robo', 'Obrigado! A equipe da loja já vai resolver. Você é o 2º da fila, cerca de 4 min.', 'robô · 19:48']],
+      prontas: ['Vamos mandar o refrigerante agora, sem custo.', 'Pedimos desculpas pelo erro.', 'Pode me confirmar o endereço?'], entregador: 'Diego (compartilhou o contato)' },
+    c5: { resumo: [['Motivo', 'Resposta ao "sem contato" · urgente'], ['Quer', 'Avisar o entregador onde está'], ['Pedido', '1182 · Diego no endereço desde 19:45; avisou "sem contato" às 19:47'], ['O robô já fez', 'Confirmou ao cliente "Recebido ✅ Avisei o entregador e a loja" e ficou quieto nesta conversa']],
+      msgs: [['sis', 'Aviso "sem contato" enviado ao cliente · 19:47'], ['cli', 'Estou no portão azul, pode subir', '19:49'], ['robo', 'Recebido ✅ Avisei o entregador e a loja.', 'robô · 19:49']],
+      prontas: ['O Diego já está aí e vai subir.', 'Pode descer até a portaria, por favor?'], entregador: 'Diego (compartilhou o contato) · já vê esta resposta no app' },
+    c7: { resumo: [['Motivo', 'Faltou o molho especial (R$ 4,00)'], ['Quer', 'O molho ou um desconto'], ['Pedido', '1170 · entregue às 19:25 pelo João'], ['O robô já fez', 'Abriu o caso; o Bruno respondeu às 19:47']],
+      msgs: [['cli', 'Faltou o molho especial', '19:44'], ['loja', 'Oi, Renata! Podemos mandar o molho agora ou dar R$ 4 de desconto no próximo pedido. O que prefere?', 'Bruno · 19:47']],
+      prontas: ['Combinado! Já estamos mandando.', 'Pronto, o desconto fica no seu próximo pedido.'], entregador: 'João (não compartilhou o contato)', aguardando: true },
+  };
+  function casoConversa(c) {
+    const d = CONVERSAS[c.id];
+    const acoes = c.resp ? `<button type="button" class="bt" data-dlg="passar">Passar</button>${d.aguardando ? '' : '<button type="button" class="bt">Aguardar o cliente</button>'}<button type="button" class="bt ok" data-dlg="resolver">Resolver</button>`
+      : `<button type="button" class="bt pri">Pegar para mim</button><button type="button" class="bt" data-dlg="passar">Passar</button><button type="button" class="bt ok" data-dlg="resolver">Resolver</button>`;
+    return topo(c, acoes) + `<div class="c-corpo"><div class="col">
+      <section class="bloco resumo-robo"><h3>🤖 O robô resumiu <span class="dir">aberto às 19:4${c.id === 'c3' ? '7' : '8'}</span></h3><dl>${d.resumo.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
+        ${d.foto ? '<div class="fotos" style="margin-top:8px"><span class="foto">foto da sacola</span></div>' : ''}</section>
+      <section class="bloco"><h3>Conversa no WhatsApp <span class="dir">${d.aguardando ? 'aguardando a Renata · volta para a fila quando ela responder' : ''}</span></h3>
+        <div class="msgs">${d.msgs.map(([q, t, h]) => `<div class="msg ${q}">${esc(t)}${h ? `<small>${esc(h)}</small>` : ''}</div>`).join('')}</div>
+        <div class="prontas" aria-label="Respostas prontas">${d.prontas.map((p) => `<button type="button" class="pronta">${esc(p)}</button>`).join('')}</div>
+        <div class="escrever"><textarea aria-label="Escrever ao cliente" placeholder="Escreva a resposta (Enter envia)"></textarea><button type="button" class="bt pri">Enviar</button></div>
+        <div class="pausa"><span aria-hidden="true">🤖</span><span>O robô está quieto nesta conversa e volta quando o caso for resolvido.</span></div></section></div>
+      <div class="col">${blocoPedido(c.pedido, `<p class="ajuda" style="margin:8px 0 0">Entregador: ${esc(d.entregador)}</p>`)}</div></div>`;
+  }
+  function casoCardapio(c) {
+    return topo(c, `<button type="button" class="bt pri">Pegar para mim</button>`) + `<div class="c-corpo"><div class="col">
+      <section class="bloco"><h3>Pedido no cardápio online <span class="dir">19:52</span></h3><p style="margin:0">"Pedi o tamanho errado, quero cancelar."</p>
+        <p class="ajuda" style="margin:6px 0 0">O pedido está em preparo há 2 min. O cliente pode receber a resposta pelo WhatsApp da loja.</p></section>
+      <section class="bloco"><h3>Responder</h3><div class="respostas" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)"><button type="button" class="bt perigo" data-dlg="aceitar-card">Aceitar o cancelamento</button><button type="button" class="bt" data-dlg="recusar-card">Recusar</button></div>
+        <p class="ajuda" style="margin:8px 0 0">Igual ao botão de hoje no sino do Delivery: pede o motivo, o destino dos insumos e a senha de quem libera.</p></section></div>
+      <div class="col">${blocoPedido(c.pedido)}</div></div>`;
+  }
+  function casoFeito(c) {
+    return topo(c, '') + `<div class="c-corpo"><div class="col"><div class="nota ok">${esc(c.fala)}</div></div><div class="col">${blocoPedido(c.pedido)}</div></div>`;
+  }
+  const RENDER = { disputa: casoDisputa, 'disputa-atraso': casoDisputa, n99: caso99, conversa: casoConversa, cardapio: casoCardapio, feito: casoFeito };
+
+  let modo = 'duplo';
+  function abrirCaso(id, doClique) {
+    selecionado = id;
+    const c = [...CASOS].find((x) => x.id === id);
+    $$('#lista .item').forEach((b) => b.setAttribute('aria-current', String(b.dataset.id === id)));
+    const visivel = c && estado === 'com' && passa(c);
+    const html = visivel ? `<article class="caso" aria-labelledby="titulo-caso">${RENDER[c.tipo](c)}</article>` : '';
+    fecharFolha(false);
+    if (modo === 'duplo') {
+      $('#vaga-caso').innerHTML = html || `<div class="vazio">${estado === 'com' ? 'Escolha um caso na fila para ver aqui.' : 'Quando chegar um caso, ele abre aqui.'}</div>`;
+    }
+    else {
+      $('#vaga-caso').innerHTML = '';
+      if (doClique && c) {
+        const f = document.createElement('div'); f.className = 'folha'; f.id = 'folha'; f.innerHTML = html; $('#camada').appendChild(f);
+        f.addEventListener('click', (e) => { if (e.target === f) fecharFolha(true); });
+        const v = $('[data-fechar-folha]', f); if (v) v.focus();
+      }
+    }
+    ligarBotoesDoCaso();
+    tic();
+  }
+  function fecharFolha(devolver) { const f = $('#folha'); if (f) { f.remove(); if (devolver) { const it = $(`#lista .item[data-id="${selecionado}"]`); if (it) it.focus(); } } }
+  function ligarBotoesDoCaso() {
+    $$('[data-fechar-folha]').forEach((b) => b.addEventListener('click', () => fecharFolha(true)));
+    $$('.caso [data-dlg]').forEach((b) => b.addEventListener('click', () => abrirDialogo(b.dataset.dlg, b)));
+    $$('.caso [data-ir]').forEach((b) => b.addEventListener('click', () => irPara(b.dataset.ir)));
+  }
+
+  // modo da peça: decide pelo espaço da área (ERR-219), não pela janela
+  const ro = new ResizeObserver(() => {
+    const w = $('#corpo').getBoundingClientRect().width;
+    const novo = w >= 900 ? 'duplo' : 'unico';
+    if (novo !== modo) { modo = novo; $('#corpo').dataset.modo = modo; abrirCaso(selecionado, false); }
+  });
+
+  // ---------- diálogos ----------
+  const pilha = [];
+  const senha = (id = 'senha') => `<div class="campo"><label for="${id}">Senha de quem decide (gerente ou presidente)</label><input id="${id}" class="senha" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="text"></div>`;
+  const insumos = `<div class="campo"><span class="rot">O que aconteceu com os insumos deste pedido?</span><div class="opcoes" role="group" aria-label="Destino dos insumos">
+      <button type="button" class="opcao" aria-pressed="true" data-op>♻️ Reutilizados (ficam no estoque)</button><button type="button" class="opcao perda" aria-pressed="false" data-op>🗑️ Perda (saem do estoque)</button></div></div>`;
+  const DLG = {
+    'aceitar-ifood': () => ({ t: 'Aceitar a disputa do pedido 4521', b: `<p style="margin:0">O iFood cancela a <b>batata média (R$ 12,90)</b> e o cliente recebe esse valor de volta. A loja não pode responder de novo depois.</p>
+      <div class="campo"><label for="mot-a">Motivo (a lista vem do iFood nesta disputa)</label><select id="mot-a"><option>Pedido incorreto</option><option>Qualidade do produto</option><option>Satisfação do cliente</option></select></div>
+      <div class="campo"><label for="det-a">Detalhe (opcional)</label><input id="det-a" type="text" placeholder="Ex.: a batata ficou no balcão"></div>${senha()}`, ok: 'Enviar ao iFood', cl: 'perigo' }),
+    'aceitar-total': () => ({ t: 'Aceitar o cancelamento do pedido 4530', b: `<p style="margin:0">O iFood cancela o pedido inteiro. O Regem cancela o pedido aqui também, como no painel.</p>${insumos}${senha()}`, ok: 'Enviar ao iFood', cl: 'perigo' }),
+    'recusar-ifood': () => ({ t: 'Recusar a disputa', b: `<p style="margin:0">O iFood registra a recusa da loja. A loja não pode responder de novo depois.</p>
+      <div class="campo"><label for="mot-r">Motivo</label><select id="mot-r"><option>Verificação de disponibilidade</option><option>Qualidade do produto</option><option>Pedido incorreto</option><option>Entrega atrasada</option><option>Loja em capacidade máxima</option><option>Problema técnico</option><option>Solicitação do cliente</option><option>Satisfação do cliente</option><option>Problema não especificado</option></select><span class="ajuda">Os motivos são os da lista do iFood.</span></div>${senha()}`, ok: 'Enviar ao iFood', cl: 'pri' }),
+    propor: (b) => b.dataset.tipo === 'tempo'
+      ? { t: 'Pedir mais tempo ao cliente', b: `<p style="margin:0">O cliente vê a proposta no app do iFood e decide.</p>
+        <div class="campo"><span class="rot">Quanto tempo a mais</span><div class="opcoes" role="group" aria-label="Minutos a mais"><button type="button" class="opcao" aria-pressed="true" data-op>15 min</button><button type="button" class="opcao" aria-pressed="false" data-op>30 min</button><button type="button" class="opcao" aria-pressed="false" data-op>45 min</button></div></div>
+        <div class="campo"><label for="mot-t">Motivo do atraso (a lista vem do iFood)</label><select id="mot-t"><option>Loja com muitos pedidos</option><option>Entregador atrasou</option></select></div>${senha()}`, ok: 'Enviar proposta', cl: 'pri' }
+      : { t: 'Propor outra coisa ao cliente', b: `<p style="margin:0">O cliente vê a proposta no app do iFood e decide.</p>
+        <div class="campo"><span class="rot">O que propor</span><div class="opcoes" role="group" aria-label="Tipo de proposta"><button type="button" class="opcao" aria-pressed="true" data-op>Devolver parte do valor · até R$ 12,90</button><button type="button" class="opcao" aria-pressed="false" data-op>Crédito para o cliente no iFood · até R$ 15,00</button></div></div>
+        <div class="campo"><label for="valor">Valor (R$)</label><input id="valor" type="text" inputmode="decimal" value="6,00"><span class="ajuda">O iFood não aceita acima do limite desta disputa.</span></div>${senha()}`, ok: 'Enviar proposta', cl: 'pri' },
+    'aceitar-99': () => ({ t: 'Aceitar o cancelamento do pedido 77', b: `<p style="margin:0">A 99 cancela o pedido e o Regem cancela aqui também, como no painel.</p>${insumos}${senha()}`, ok: 'Enviar à 99', cl: 'perigo' }),
+    'recusar-99': () => ({ t: 'Recusar o cancelamento do pedido 77', b: `<div class="campo"><label for="mot-99">Motivo que a 99 recebe</label><select id="mot-99"><option>O pedido já está em preparo</option><option>O pedido já saiu para entrega</option><option>O pedido já foi entregue</option><option>Outro motivo</option></select></div>
+      <div class="campo"><label for="txt-99">Detalhe (opcional)</label><input id="txt-99" type="text" placeholder="Ex.: o lanche já está montado"></div>${senha()}`, ok: 'Enviar à 99', cl: 'pri' }),
+    'aceitar-card': () => ({ t: 'Aceitar o cancelamento do pedido 1185', b: `<div class="campo"><label for="mot-c">Motivo</label><input id="mot-c" type="text" placeholder="Vazio: cancelamento pedido pelo cliente"></div>${insumos}${senha()}`, ok: 'Cancelar o pedido', cl: 'perigo' }),
+    'recusar-card': () => ({ t: 'Recusar o cancelamento do pedido 1185', b: `<p style="margin:0">O pedido segue normalmente. Avise o cliente pelo WhatsApp, se quiser.</p>`, ok: 'Recusar', cl: 'pri' }),
+    passar: () => ({ t: 'Passar o caso', b: `<div class="campo"><span class="rot">Para quem</span><div class="opcoes" role="group" aria-label="Para quem"><button type="button" class="opcao" aria-pressed="true" data-op>Bruno · disponível</button><button type="button" class="opcao" aria-pressed="false" data-op>Carla · ocupada: caixa</button><button type="button" class="opcao" aria-pressed="false" data-op>De volta para a fila</button></div></div>
+      <div class="campo"><label for="nota-p">Recado (opcional)</label><input id="nota-p" type="text" placeholder="Ex.: já pedi a foto"></div>`, ok: 'Passar', cl: 'pri' }),
+    resolver: () => ({ t: 'Resolver o caso', b: `<p style="margin:0">A conversa volta para o robô. Se o cliente escrever de novo, o robô atende e abre outro caso quando precisar.</p>
+      <div class="campo"><label for="nota-r">Como foi resolvido (opcional)</label><input id="nota-r" type="text" placeholder="Ex.: mandamos o refrigerante"></div>`, ok: 'Resolver', cl: 'ok' }),
+  };
+  function abrirDialogo(k, origem) {
+    const d = DLG[k](origem);
+    const fundo = document.createElement('div'); fundo.className = 'fundo';
+    const idT = `dlg-t-${pilha.length}`;
+    fundo.innerHTML = `<div class="dlg" role="dialog" aria-modal="true" aria-labelledby="${idT}"><header><h2 id="${idT}">${d.t}</h2></header><div class="meio">${d.b}</div>
+      <footer><button type="button" class="bt" data-cancelar>Cancelar</button><button type="button" class="bt ${d.cl}" data-confirmar>${d.ok}</button></footer></div>`;
+    $('#camada').appendChild(fundo);
+    pilha.push({ fundo, origem });
+    $$('.opcoes', fundo).forEach((g) => $$('[data-op]', g).forEach((o) => o.addEventListener('click', () => $$('[data-op]', g).forEach((x) => x.setAttribute('aria-pressed', String(x === o))))));
+    $('[data-cancelar]', fundo).addEventListener('click', fecharDialogo);
+    $('[data-confirmar]', fundo).addEventListener('click', () => { const t = d.t; fecharDialogo(); toast(`✅ Feito (protótipo): ${t.toLowerCase()}`); });
+    fundo.addEventListener('click', (e) => { if (e.target === fundo) fecharDialogo(); });
+    const primeiro = $('input,select,[data-op]', fundo) || $('[data-confirmar]', fundo); primeiro.focus();
+  }
+  function fecharDialogo() { const top = pilha.pop(); if (!top) return; top.fundo.remove(); if (top.origem && document.contains(top.origem)) top.origem.focus(); }
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (pilha.length) { fecharDialogo(); return; }
+    if (!$('#pop-sino').hidden) { fecharSino(); return; }
+    if ($('#folha')) fecharFolha(true);
+  });
+
+  // ---------- sino, toast e aviso novo ----------
+  function desenharPop() {
+    const top = ordenar(abertos()).slice(0, 3);
+    $('#pop-lista').innerHTML = top.map((c) => `<button type="button" class="pi" data-id="${c.id}">${chip(c.canal)}<span style="min-width:0"><b style="display:block">${esc(c.titulo)}</b><span class="ajuda">${c.prazoFim ? `vence em <span class="prazo" data-prazo="${c.id}">${mmss(c.prazoFim - Date.now())}</span>` : c.urgente ? 'urgente · esperando há ' + c.espera : 'esperando há ' + c.espera}</span></span></button>`).join('');
+    $$('#pop-lista .pi').forEach((b) => b.addEventListener('click', () => { fecharSino(); irPara('pc'); abrirCaso(b.dataset.id, true); }));
+  }
+  function fecharSino() { $('#pop-sino').hidden = true; $('#sino').setAttribute('aria-expanded', 'false'); }
+  $('#sino').addEventListener('click', () => { const ab = $('#pop-sino').hidden; if (ab) desenharPop(); $('#pop-sino').hidden = !ab; $('#sino').setAttribute('aria-expanded', String(ab)); });
+  document.addEventListener('click', (e) => { if (!$('#pop-sino').hidden && !e.target.closest('#pop-sino') && !e.target.closest('#sino')) fecharSino(); });
+  function toast(html, acao) {
+    const t = document.createElement('div'); t.className = 'toast'; t.innerHTML = `<span>${html}</span>${acao ? '<button type="button" class="bt pri">Abrir</button>' : ''}`;
+    $('#toasts').appendChild(t);
+    if (acao) $('.bt', t).addEventListener('click', () => { t.remove(); acao(); });
+    setTimeout(() => t.remove(), 7000);
+  }
+  $('#simular').addEventListener('click', () => {
+    if (!mostrouNovo) { CASOS.unshift(NOVO); mostrouNovo = true; }
+    irPara('pc'); desenharTudo();
+    toast('🔔 <b>Disputa do iFood</b> · pedido 4530 · vence em 7 min<br><span style="font-size:12.5px;color:#C9D6E2">O som toca em qualquer tela do Regem.</span>', () => abrirCaso('c8', true));
+  });
+
+  // ---------- relógio ----------
+  function tic() {
+    const n = Date.now();
+    $$('[data-prazo]').forEach((el) => {
+      const c = CASOS.find((x) => x.id === el.dataset.prazo) || (el.dataset.prazo === 'c8' ? NOVO : null);
+      if (!c || !c.prazoFim) return;
+      const ms = c.prazoFim - n;
+      el.textContent = ms > 0 ? mmss(ms) : 'venceu';
+      el.classList.toggle('crit', ms < 120000); el.classList.toggle('warn', ms >= 120000);
+    });
+    $$('[data-relogio]').forEach((el) => { const c = CASOS.find((x) => x.id === el.dataset.relogio); if (c) el.classList.toggle('warn', c.prazoFim - n >= 120000); });
+  }
+  setInterval(tic, 1000);
+
+  // ---------- vistas e estado ----------
+  function irPara(v) {
+    $$('.proto .aba').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.vista === v)));
+    $('#shell').hidden = !(v === 'pc' || v === 'aj');
+    $('#v-pc').hidden = v !== 'pc'; $('#v-aj').hidden = v !== 'aj';
+    $('#v-app').hidden = v !== 'app'; $('#v-notas').hidden = v !== 'notas';
+    $('#ctl-pc').hidden = v !== 'pc';
+    $('#menu-atend').toggleAttribute('aria-current', v === 'pc'); if (v === 'pc') $('#menu-atend').setAttribute('aria-current', 'page');
+    $('#menu-config').toggleAttribute('aria-current', v === 'aj'); if (v === 'aj') $('#menu-config').setAttribute('aria-current', 'page');
+    $('#onde').textContent = v === 'aj' ? 'Delivery › Configurações › Atendimento' : 'Atendimento';
+    fecharFolha(false); fecharSino();
+    $('#barra-salvar').hidden = v !== 'aj' || !mudancas();
+    window.scrollTo(0, 0);
+  }
+  $$('.proto .aba').forEach((b) => b.addEventListener('click', () => irPara(b.dataset.vista)));
+  $$('[data-ir]').forEach((b) => b.addEventListener('click', () => irPara(b.dataset.ir)));
+  $$('#ctl-pc [data-estado]').forEach((b) => b.addEventListener('click', () => {
+    estado = b.dataset.estado; $$('#ctl-pc [data-estado]').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); desenharTudo();
+  }));
+  ['#busca', '#f-canal', '#f-motivo', '#f-resp'].forEach((s) => $(s).addEventListener('input', desenharTudo));
+  function desenharTudo() {
+    desenharSits(); desenharLista();
+    const vis = estado === 'com' ? ordenar(CASOS.filter(passa)) : [];
+    if (!vis.find((c) => c.id === selecionado) && vis.length) selecionado = vis[0].id;
+    abrirCaso(selecionado, false);
+  }
+
+  // ---------- ajustes ----------
+  const inicial = new Map();
+  const valorDe = (el) => (el.getAttribute('role') === 'switch' ? el.getAttribute('aria-checked') : el.value);
+  $$('#v-aj [data-aj]').forEach((el) => inicial.set(el, valorDe(el)));
+  function mudancas() { let n = 0; inicial.forEach((v, el) => { const m = valorDe(el) !== v; el.closest('.aj').classList.toggle('mudou', m); if (m) n++; }); return n; }
+  function atualizarBarra() {
+    const n = mudancas(); $('#barra-salvar').hidden = !n; $('#n-mud').textContent = `${n} ${n === 1 ? 'alteração ainda não salva' : 'alterações ainda não salvas'}`;
+    const lig = $('#aj99').getAttribute('aria-checked') === 'true';
+    $$('#v-aj [data-dep99]').forEach((r) => r.classList.toggle('desligado', !lig));
+    $$('#v-aj [data-dep99] select').forEach((s) => (s.disabled = !lig));
+    $('#aj99-reemb').textContent = lig ? 'Recusar se ninguém responder' : 'Aceitar na hora, como hoje';
+  }
+  $$('#v-aj .chave').forEach((c) => c.addEventListener('click', () => { c.setAttribute('aria-checked', String(c.getAttribute('aria-checked') !== 'true')); atualizarBarra(); }));
+  $$('#v-aj select[data-aj]').forEach((s) => s.addEventListener('change', atualizarBarra));
+  $('#desfazer').addEventListener('click', () => { inicial.forEach((v, el) => { if (el.getAttribute('role') === 'switch') el.setAttribute('aria-checked', v); else el.value = v; }); atualizarBarra(); });
+  $('#salvar').addEventListener('click', () => { inicial.forEach((_, el) => inicial.set(el, valorDe(el))); atualizarBarra(); toast('✅ Ajustes do atendimento salvos (protótipo)'); });
+  $('#busca-aj').addEventListener('input', (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    $$('#v-aj .grupo').forEach((g) => { let algum = false; $$('.aj', g).forEach((a) => { const ok = !q || a.textContent.toLowerCase().includes(q) || $('h3', g).textContent.toLowerCase().includes(q); a.hidden = !ok; algum = algum || ok; }); g.hidden = !algum; });
+  });
+
+  // ---------- app: "Disponível × Ocupado" ----------
+  $$('[data-est]').forEach((b) => b.addEventListener('click', () => $$('[data-est]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)))));
+
+  ro.observe($('#corpo'));
+  desenharTudo();
+})();
+</script>
+</body>
+</html>
