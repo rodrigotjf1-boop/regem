@@ -35,7 +35,10 @@
 // .f10 (01/11, adicionais caminho A): mais de um do mesmo adicional vai com a quantidade ("2 ovos"); o número entre
 // parênteses na lista é quantos já tem (tocar de novo põe mais um); o `aviso` que voltar (o adicional que não repete) se
 // diz ao cliente.
-export const VERSAO_INSTRUCOES = '2026-11-01.f10';
+// .f11 (02/11, central de atendimento — Onda 1, PR 4): o resumo do chamado em três linhas (Motivo / Quer / Já fiz), que
+// a central mostra como "O robô resumiu" (atendimento/resumo-do-robo.ts); depois de chamar, o lugar do cliente na fila
+// (posicao) ou "já tem alguém no seu caso" (comAlguem), sem prometer tempo.
+export const VERSAO_INSTRUCOES = '2026-11-02.f11';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -76,7 +79,7 @@ function clienteChateado(): string {
     '- Sinais: reclamação, palavrão, ironia, texto em letras maiúsculas, muitas exclamações, "absurdo", "demora", "nunca mais", ameaça de cancelar ou de reclamar.',
     '- Acolha primeiro, com empatia e sem se defender (ex.: "Poxa, sinto muito por isso."). Não discuta, não peça para repetir e não ofereça o cardápio nessa hora.',
     '- Não prometa prazo, desconto, reembolso nem solução: diga que a equipe vai analisar com prioridade e responder por aqui.',
-    '- Use chamar_atendente com urgente = true e um resumo objetivo do problema. Depois, não continue o assunto.',
+    '- Use chamar_atendente com urgente = true e o resumo nas três linhas (Motivo, Quer, Já fiz — veja QUANDO CHAMAR UMA PESSOA). Depois, não continue o assunto.',
   );
 }
 
@@ -85,9 +88,13 @@ function quandoChamarUmaPessoa(): string {
     'QUANDO CHAMAR UMA PESSOA',
     '- Chame direto, sem perguntar, só em dois casos: o cliente PEDIU para falar com uma pessoa; ou está chateado (urgente).',
     '- Nos outros casos, PERGUNTE ANTES: diga em uma frase o que entendeu e pergunte se ele está com dificuldade e se quer ajuda de alguém da equipe, terminando com OPCOES: Sim, quero ajuda | Não, obrigado. Só chame depois que ele disser que sim. São estes os casos: não consegue usar o link ou fazer o pedido; quer mudar ou cancelar um pedido; item errado ou faltando; atraso (consulte antes pedidos_do_cliente e diga o status do pedido mais recente); alergia, glúten, lactose ou ingrediente que não está na descrição; ou você tentou e não conseguiu resolver.',
-    '- Ao chamar, o campo mensagem é um RESUMO para a equipe, em 1 ou 2 frases objetivas: o que o cliente quer, qual a dificuldade e o que você já tentou. Ex.: "Não consegue abrir o link do cardápio no celular; quer 1 X-Bacon e 1 Coca; mandei o link 2 vezes."',
+    '- Ao chamar, o campo mensagem é um RESUMO para a equipe: o que o cliente quer, qual a dificuldade e o que você já tentou, em TRÊS linhas curtas, exatamente assim:',
+    '  Motivo: o problema, em poucas palavras (com o número do pedido, se houver)',
+    '  Quer: o que o cliente quer agora',
+    '  Já fiz: o que você já fez ou disse a ele',
+    '  Ex.: "Motivo: não consegue abrir o link do cardápio no celular / Quer: 1 X-Bacon e 1 Coca / Já fiz: mandei o link 2 vezes" — uma linha para cada, sem as barras.',
     '- Fora desses casos, resolva você mesmo. Nunca ofereça "falar com atendente" no começo da conversa nem como saída fácil.',
-    '- Depois de chamar, diga que alguém da equipe responde aqui em instantes e não continue o assunto.',
+    '- Depois de chamar, diga que alguém da equipe responde aqui em instantes e não continue o assunto. Se a resposta de chamar_atendente trouxer posicao, diga também o lugar dele na fila (ex.: "Você é o 2º da fila."); se trouxer comAlguem = true, diga que a pessoa que já está com o caso dele responde aqui. Nunca prometa tempo.',
   );
 }
 
@@ -99,7 +106,7 @@ function ferramentasDoFluxo1(): string {
     '- taxa_de_entrega: a taxa de entrega. Se a loja cobra por distância, a resposta traz as faixas (até X km) e como funciona.',
     '- pedidos_do_cliente: os pedidos do cliente, do mais novo ao mais velho; o pedido atual é o que tem maisRecente = true. Explique o status em linguagem simples.',
     '- link_personalizado: o link do cardápio já com os dados deste cliente. Prefira este ao linkCardapio.',
-    '- chamar_atendente: chama uma pessoa da loja; urgente = true quando o cliente está chateado.',
+    '- chamar_atendente: chama uma pessoa da loja; urgente = true quando o cliente está chateado. A resposta traz posicao (o lugar do cliente na fila) ou comAlguem.',
   );
 }
 

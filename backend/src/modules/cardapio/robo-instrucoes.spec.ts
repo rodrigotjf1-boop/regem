@@ -1,4 +1,5 @@
 import { instrucoesDoRobo, VERSAO_INSTRUCOES } from './robo-instrucoes';
+import { lerResumoDaMensagem } from '../atendimento/resumo-do-robo';
 
 // AS INSTRUÇÕES DO ROBÔ (Fase 5, F1 — pedido do dono de 30/10/2026). O texto é a "mensagem do sistema" do agente no
 // n8n; aqui se confere que cada pedido do dono está escrito nele, e que o texto só cita ferramentas que o fluxo tem.
@@ -62,9 +63,27 @@ describe('instruções do robô', () => {
     for (const l of listas) expect(l).not.toMatch(/atendente/i);
   });
 
-  it('o chamado leva um RESUMO da dificuldade para a equipe', () => {
+  it('o chamado leva um RESUMO da dificuldade para a equipe — nas três linhas que a central lê (Onda 1, PR 4)', () => {
     expect(texto).toContain('o campo mensagem é um RESUMO para a equipe');
     expect(texto).toContain('o que o cliente quer, qual a dificuldade e o que você já tentou');
+    expect(texto).toContain('  Motivo: ');
+    expect(texto).toContain('  Quer: ');
+    expect(texto).toContain('  Já fiz: ');
+  });
+
+  it('depois de chamar: o lugar na fila (posicao) ou "já tem alguém" (comAlguem), sem prometer tempo', () => {
+    expect(texto).toContain('Se a resposta de chamar_atendente trouxer posicao');
+    expect(texto).toContain('se trouxer comAlguem = true');
+    expect(texto).toContain('Nunca prometa tempo.');
+  });
+
+  it('o exemplo do resumo, lido como a central lê, dá as três partes (instrução e leitor andam juntos)', () => {
+    const exemplo = (texto.match(/Ex\.: "(Motivo: [^"]+)"/) || [])[1] ?? '';
+    expect(lerResumoDaMensagem(exemplo.replace(/ \/ /g, '\n'))).toEqual({
+      motivo: 'não consegue abrir o link do cardápio no celular',
+      quer: '1 X-Bacon e 1 Coca',
+      jaFez: 'mandei o link 2 vezes',
+    });
   });
 
   it('"não entendi o áudio": repete por escrito, sem chamar atendente (teste do dono, 30/10)', () => {

@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **O robô preenche o caso da central (Onda 1, PR 4, 02/11, sem migration — usa a 351): nuvem no ar com o merge (a rota
+  do robô e as instruções são da nuvem; o robô passa a escrever o resumo em três linhas e a dizer o lugar na fila); a
+  loja no `.zip` (o bloco "O robô resumiu" na tela e o resumo dos casos do "sem contato" e do "robô do outro lado").**
+
 - **Pedidos de cancelamento e de reembolso do cliente da 99 na central (Onda 1, PR 3, 02/11, sem migration — usa a 351):
   nuvem no ar com o merge (o aviso da 99, a resposta e a rotina são só da nuvem); a loja no `.zip` (a tela do caso, o
   "pedir à nuvem" da resposta e a aba Delivery › Configurações › Atendimento, que no servidor da loja só explica).** A

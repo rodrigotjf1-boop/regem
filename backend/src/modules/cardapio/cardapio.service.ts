@@ -83,6 +83,7 @@ import { VendasService } from '../vendas/vendas.service';
 import { DeliveryService } from '../delivery/delivery.service';
 import { EdgeFlashSyncService } from '../sync/edge-flash-sync.service';
 import { AtendimentoService, prioridadeDe } from '../atendimento/atendimento.service';
+import { resumoDoRobo } from '../atendimento/resumo-do-robo';
 import { FidelidadeService } from '../fidelidade/fidelidade.service';
 import { CashbackService } from '../cashback/cashback.service';
 
@@ -339,6 +340,9 @@ export class CardapioService {
     const pedido = await this.pedidoDoChamado(cfg.tenantId, dto?.pedidoNumero, dto?.telefone);
     // Cliente irritado → `urgente: true` (mig 343): a tela põe na frente, em vermelho. O mesmo cliente com um chamado
     // já aberto não ganha outro: soma ao aberto e só sobe a prioridade (abrirPeloRobo).
+    // O resumo do caso (Onda 1, PR 4): motivo, o que o cliente quer e o que o robô já fez — dos campos próprios ou das
+    // linhas "Motivo / Quer / Já fiz" da mensagem. A resposta traz a POSIÇÃO na fila, que o robô diz ao cliente.
+    const prioridade = prioridadeDe(dto);
     return this.atendimento.abrirPeloRobo(cfg.tenantId, cfg.unidadeId, {
       tipo: dto?.tipo,
       cliente: dto?.cliente,
@@ -346,7 +350,8 @@ export class CardapioService {
       pedidoNumero: dto?.pedidoNumero || pedido?.numero || undefined,
       pedidoId: pedido?.id,
       mensagem: dto?.mensagem,
-      prioridade: prioridadeDe(dto),
+      prioridade,
+      resumo: resumoDoRobo(dto, prioridade === 'urgente'),
     });
   }
 

@@ -51,6 +51,8 @@ descrever('chamado do robô com prioridade (Postgres)', () => {
   afterAll(async () => {
     if (!pool) return;
     await q(`delete from atendimento_chamado where tenant_id = $1`, [T]).catch(() => {});
+    await q(`delete from colaborador where tenant_id = $1`, [T]).catch(() => {});
+    await q(`delete from unidade where tenant_id = $1`, [T]).catch(() => {});
     await q(`delete from empresa where id = $1`, [T]).catch(() => {});
     await pool.end();
   });
@@ -94,7 +96,9 @@ descrever('chamado do robô com prioridade (Postgres)', () => {
     const linhas = await doTenant();
     expect(linhas).toHaveLength(1);
     expect(linhas[0].mensagem).toBe('quer ajuda para pedir\nnão acha o x-bacon');
-    expect(avisos).toHaveLength(1); // nada mudou para a equipe ver de novo
+    // nada de "caso novo" de novo (o som); a tela só é avisada para reler (Onda 1, PR 4)
+    expect(avisos.filter((a) => a.nome === 'atendimento.novo')).toHaveLength(1);
+    expect(avisos.filter((a) => a.nome === 'atendimento.mudou')).toEqual([{ nome: 'atendimento.mudou', dados: { tenantId: T, id: a.id, motivo: 'robo_somou' } }]);
   });
 
   it('urgente SOBE a prioridade do aberto e avisa a tela de novo; normal depois não desce', async () => {
@@ -156,5 +160,61 @@ descrever('chamado do robô com prioridade (Postgres)', () => {
     await expect(
       q(`insert into atendimento_chamado (tenant_id, tipo, prioridade) values ($1, 'humano', 'altissima')`, [T]),
     ).rejects.toThrow();
+  });
+
+  // ===== Onda 1, PR 4: o robô preenche o caso e diz ao cliente o lugar na fila =====
+
+  it('o resumo do robô vai para detalhe.robo; o caso somado troca o resumo SEM apagar o resto do detalhe (V82)', async () => {
+    const resumo = { motivo: 'atraso no pedido 1180', quer: 'saber quando chega', jaFez: 'mandou o rastreio', humor: 'chateado' as const };
+    const a = await svc.abrirPeloRobo(T, null, { tipo: 'erro', telefone: '21987654321', mensagem: 'x', resumo });
+    let [c] = await doTenant();
+    expect(c.detalhe.robo).toMatchObject(resumo);
+    await q(`update atendimento_chamado set detalhe = detalhe || '{"outra":1}'::jsonb where id = $1`, [a.id]); // outra rotina
+    await svc.abrirPeloRobo(T, null, { tipo: 'erro', telefone: '21987654321', resumo: { ...resumo, jaFez: 'pediu a foto da sacola' } });
+    [c] = await doTenant();
+    expect(c.detalhe).toMatchObject({ outra: 1, robo: { jaFez: 'pediu a foto da sacola', motivo: 'atraso no pedido 1180' } });
+    // sem resumo, o caso somado não mexe no detalhe
+    await svc.abrirPeloRobo(T, null, { tipo: 'erro', telefone: '21987654321', mensagem: 'mais uma' });
+    expect((await doTenant())[0].detalhe.robo.jaFez).toBe('pediu a foto da sacola');
+  });
+
+  it('a POSIÇÃO devolvida ao robô: na ordem da fila (urgente na frente), só quem espera; com alguém no caso, comAlguem', async () => {
+    const a = await svc.abrirPeloRobo(T, null, { tipo: 'humano', telefone: '21900000001' });
+    const b = await svc.abrirPeloRobo(T, null, { tipo: 'humano', telefone: '21900000002' });
+    const u = await svc.abrirPeloRobo(T, null, { tipo: 'erro', telefone: '21900000003', prioridade: 'urgente' });
+    expect([a, b, u].map((x: any) => x.posicao)).toEqual([1, 2, 1]);
+    // o normal que chega depois do urgente fica atrás dele também
+    const d = await svc.abrirPeloRobo(T, null, { tipo: 'humano', telefone: '21900000004' });
+    expect((d as any).posicao).toBe(4);
+    await q(`delete from atendimento_chamado where id = $1`, [d.id]);
+    // caso com prazo de plataforma (disputa, mesmo mais antigo) e caso aguardando o cliente não contam; o que já tem
+    // pessoa também não
+    await q(
+      `insert into atendimento_chamado (tenant_id, tipo, canal, prazo_em, criado_em) values ($1, 'disputa', 'ifood', now() + interval '5 minutes', now() - interval '1 hour')`,
+      [T],
+    );
+    await q(`update atendimento_chamado set aguardando_desde = now() where id = $1`, [u.id]);
+    const [{ id: ana }] = await q(`insert into colaborador (tenant_id, nome) values ($1, 'Ana') returning id`, [T]);
+    await q(`update atendimento_chamado set responsavel_id = $2 where id = $1`, [a.id, ana]);
+    const deNovoB = await svc.abrirPeloRobo(T, null, { tipo: 'humano', telefone: '21900000002', mensagem: 'e aí?' });
+    expect(deNovoB).toMatchObject({ id: b.id, posicao: 1, comAlguem: false });
+    const deNovoA = await svc.abrirPeloRobo(T, null, { tipo: 'humano', telefone: '21900000001', mensagem: 'oi?' });
+    expect(deNovoA).toMatchObject({ id: a.id, posicao: null, comAlguem: true });
+  });
+
+  it('a posição conta a loja do caso e os sem loja — nunca os casos de OUTRA loja', async () => {
+    const [{ id: lojaA }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja A') returning id`, [T]);
+    const [{ id: lojaB }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja B') returning id`, [T]);
+    try {
+      await svc.abrirPeloRobo(T, lojaB, { tipo: 'humano', telefone: '21900000011' }); // outra loja: não conta
+      await svc.abrirPeloRobo(T, null, { tipo: 'humano', telefone: '21900000012' }); // sem loja: conta
+      const meu = await svc.abrirPeloRobo(T, lojaA, { tipo: 'humano', telefone: '21900000013' });
+      expect(meu).toMatchObject({ posicao: 2 });
+      const semLoja = await svc.abrirPeloRobo(T, null, { tipo: 'humano', telefone: '21900000014' }); // sem loja = a empresa toda
+      expect(semLoja).toMatchObject({ posicao: 4 });
+    } finally {
+      await q(`delete from atendimento_chamado where tenant_id = $1`, [T]);
+      await q(`delete from unidade where tenant_id = $1`, [T]);
+    }
   });
 });
