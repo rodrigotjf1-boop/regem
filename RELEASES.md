@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **O "saiu para entrega" diz quando chega (Onda 0, 01/11): só nuvem — no ar com o merge, sem efeito na loja.** "Chega
+  por volta das 20h15" no texto da janela de 24 h e no aviso do cardápio, com a mesma conta da página de rastreio
+  (posição ao vivo do entregador, roteiro, OSRM), arredondada para cima em 5 min; sem GPS ao vivo ou sem endereço, o
+  texto de sempre. O aviso ao n8n (loja por QR) leva `previsaoChegada`. O modelo da Meta não muda. Sem migration.
+
 - **A resposta do cliente ao "entregador sem contato" chega à equipe e ao entregador (Onda 0, 01/11): servidor só
   nuvem — no ar com o merge; o app, no PRÓXIMO APK.** A mensagem do cliente com um pedido a caminho e o "sem contato"
   enviado há menos de 30 min não vai ao robô: vira chamado URGENTE ligado ao pedido (o painel vê; na loja, pela
