@@ -198,15 +198,17 @@ export class WhatsappProvedorService {
    */
   private async avisosDoRobo(
     tenantId: string,
-  ): Promise<{ avisoAtraso: boolean; avisoAtrasoToleranciaMin: number; lembreteCarrinho: boolean }> {
+  ): Promise<{ avisoAtraso: boolean; avisoAtrasoToleranciaMin: number; lembreteCarrinho: boolean; conferirEntrega: boolean }> {
     const r: any = await this.db.execute(
-      sql`select aviso_atraso, aviso_atraso_tolerancia_min, lembrete_carrinho from robo_config where tenant_id = ${tenantId}::uuid`,
+      sql`select aviso_atraso, aviso_atraso_tolerancia_min, lembrete_carrinho, conferir_entrega from robo_config where tenant_id = ${tenantId}::uuid`,
     );
     const l = (r?.rows ?? r ?? [])[0];
     return {
       avisoAtraso: l?.aviso_atraso === true,
       avisoAtrasoToleranciaMin: l ? Number(l.aviso_atraso_tolerancia_min) : 10,
       lembreteCarrinho: l?.lembrete_carrinho === true,
+      // "Chegou tudo certo?" depois da entrega (B1, mig 352): nasce desligado.
+      conferirEntrega: l?.conferir_entrega === true,
     };
   }
 
@@ -220,8 +222,11 @@ export class WhatsappProvedorService {
     const temAviso = dto?.avisoAtraso !== undefined;
     const temTolerancia = dto?.avisoAtrasoToleranciaMin !== undefined;
     const temLembrete = dto?.lembreteCarrinho !== undefined;
-    if (!temPausa && !temAviso && !temTolerancia && !temLembrete)
-      throw new BadRequestException('Nada para salvar: informe pausaMinutos, avisoAtraso, avisoAtrasoToleranciaMin ou lembreteCarrinho.');
+    const temConferir = dto?.conferirEntrega !== undefined;
+    if (!temPausa && !temAviso && !temTolerancia && !temLembrete && !temConferir)
+      throw new BadRequestException(
+        'Nada para salvar: informe pausaMinutos, avisoAtraso, avisoAtrasoToleranciaMin, lembreteCarrinho ou conferirEntrega.',
+      );
     const v = dto?.pausaMinutos;
     if (temPausa && (typeof v !== 'number' || !OPCOES_PAUSA.includes(v)))
       throw new BadRequestException(`pausaMinutos deve ser um destes: ${OPCOES_PAUSA.join(', ')} (0 = até alguém retomar).`);
@@ -230,6 +235,7 @@ export class WhatsappProvedorService {
     if (temTolerancia && (typeof tol !== 'number' || !OPCOES_TOLERANCIA_ATRASO.includes(tol)))
       throw new BadRequestException(`avisoAtrasoToleranciaMin deve ser um destes: ${OPCOES_TOLERANCIA_ATRASO.join(', ')}.`);
     const lembrete = temLembrete ? exigirBooleano(dto.lembreteCarrinho, 'lembreteCarrinho') : undefined;
+    const conferir = temConferir ? exigirBooleano(dto.conferirEntrega, 'conferirEntrega') : undefined;
 
     const de = await minutosDaPausa(this.db, ator.tenantId);
     const antes = await this.avisosDoRobo(ator.tenantId);
@@ -237,13 +243,15 @@ export class WhatsappProvedorService {
     const ligado = aviso ?? antes.avisoAtraso;
     const tolerancia = temTolerancia ? tol : antes.avisoAtrasoToleranciaMin;
     const lembra = lembrete ?? antes.lembreteCarrinho;
+    const confere = conferir ?? antes.conferirEntrega;
     await this.db.execute(sql`
-      insert into robo_config (tenant_id, pausa_minutos, aviso_atraso, aviso_atraso_tolerancia_min, lembrete_carrinho, atualizado_por)
-      values (${ator.tenantId}::uuid, ${pausa}, ${ligado}, ${tolerancia}, ${lembra}, ${ator.colaboradorId}::uuid)
+      insert into robo_config (tenant_id, pausa_minutos, aviso_atraso, aviso_atraso_tolerancia_min, lembrete_carrinho, conferir_entrega, atualizado_por)
+      values (${ator.tenantId}::uuid, ${pausa}, ${ligado}, ${tolerancia}, ${lembra}, ${confere}, ${ator.colaboradorId}::uuid)
       on conflict (tenant_id) do update
          set pausa_minutos = excluded.pausa_minutos, aviso_atraso = excluded.aviso_atraso,
              aviso_atraso_tolerancia_min = excluded.aviso_atraso_tolerancia_min,
              lembrete_carrinho = excluded.lembrete_carrinho,
+             conferir_entrega = excluded.conferir_entrega,
              atualizado_por = excluded.atualizado_por, atualizado_em = now()`);
     const registrar = (acao: string, detalhe: Record<string, unknown>) =>
       this.auditoria.registrar({
@@ -261,6 +269,7 @@ export class WhatsappProvedorService {
     if (antes.avisoAtrasoToleranciaMin !== tolerancia)
       await registrar('aviso_atraso_tolerancia_alterada', { de: antes.avisoAtrasoToleranciaMin, para: tolerancia });
     if (antes.lembreteCarrinho !== lembra) await registrar(lembra ? 'lembrete_carrinho_ligado' : 'lembrete_carrinho_desligado', {});
+    if (antes.conferirEntrega !== confere) await registrar(confere ? 'conferir_entrega_ligado' : 'conferir_entrega_desligado', {});
     return this.roboConfig(ator.tenantId);
   }
 

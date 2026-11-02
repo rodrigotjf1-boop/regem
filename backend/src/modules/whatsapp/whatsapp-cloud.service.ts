@@ -10,6 +10,7 @@ import { estadoDaPausa, pausaDaConversa, pausarPeloAtendente, pausasDaLojaOuVazi
 import { entregarJuntando } from './juntar-mensagens';
 import { conversaRecenteOficial, portaoDoRoboDoOutroLado } from './robo-do-outro-lado';
 import { portaoDaRespostaAoSemContato, registrarConfirmacao } from './resposta-ao-sem-contato';
+import { portaoDaConferencia } from './conferir-entrega';
 import { clienteRespondeu } from '../atendimento/abrir-chamado';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig, empresa, whatsappMensagem, whatsappNumero, whatsappTemplate } from '../../db/schema';
@@ -377,6 +378,32 @@ export class WhatsappCloudService {
     }
   }
 
+  // É a resposta ao "Chegou tudo certo?" (conferir-entrega.ts, B1)? Se for: agradece, ou abre o caso na central
+  // (problema / não chegou), e o robô NÃO recebe a mensagem. Se a conferência falhar, a mensagem segue ao robô.
+  private async respostaAConferencia(cfg: any, de: string, nome: string | null, texto: string, opcaoId: string | null): Promise<boolean> {
+    try {
+      const r = await portaoDaConferencia(this.db, (ev, p) => this.events?.emit(ev, p), {
+        tenantId: cfg.tenantId,
+        unidadeId: cfg.unidadeId ?? null,
+        telefone: de,
+        nome,
+        texto,
+        opcaoId,
+      });
+      if (!r.tratou) return false;
+      this.logger.log(`resposta ao "chegou tudo certo?" (pedido ${r.pedidoId}): ${r.resposta} — de=${mascarar(de)}`);
+      if (r.responder) {
+        await this.enviarTexto(cfg.tenantId, de, r.responder).catch((e: any) =>
+          this.logger.warn(`a resposta ao "chegou tudo certo?" não saiu para ${mascarar(de)}: ${e?.message ?? e}`),
+        );
+      }
+      return true;
+    } catch (e: any) {
+      this.logger.warn(`resposta ao "chegou tudo certo?" não conferida para ${mascarar(de)} (segue ao robô): ${e?.message ?? e}`);
+      return false;
+    }
+  }
+
   // Pausa o robô para UMA conversa (coexistência: o lojista respondeu pelo app) pelo tempo da loja
   // (robo-pausa.ts, mig 342). Best-effort.
   private async pausarRoboConversa(tenantId: string, telefone: string): Promise<void> {
@@ -600,6 +627,10 @@ export class WhatsappCloudService {
           // A resposta ao "entregador sem contato" (Onda 0, 01/11/2026): vai à equipe e ao entregador, não ao robô — com o
           // robô ligado ou desligado (quem pediu a resposta foi o aviso) e antes da pausa (o chamado aberto já pausa).
           if (await this.respostaAoSemContato(cfg, de, nome, this.textoDe(m))) continue;
+
+          // A resposta ao "Chegou tudo certo?" (B1): agradece ou abre o caso — com o robô ligado ou desligado.
+          const opcaoDaResposta = String(m?.interactive?.button_reply?.id ?? m?.interactive?.list_reply?.id ?? '') || null;
+          if (await this.respostaAConferencia(cfg, de, nome, this.textoDe(m), opcaoDaResposta)) continue;
 
           // PORTÃO 3 — humano assumiu esta conversa (pausa, chamado aberto — robo-pausa.ts — ou a
           // pausa antiga do vetor): o robô não responde.

@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **"Chegou tudo certo?" depois da entrega (B1, 02/11, mig 352 @cloud-only — aplicar na nuvem ANTES do merge): só
+  nuvem (a rotina, a resposta e o ajuste moram lá; nasce desligado); a loja no `.zip` só a tela do ajuste.**
+
 - **A conversa do WhatsApp dentro do caso (central, 02/11, sem migration, só tela): nuvem no ar com o merge; a loja no
   `.zip` (a tela; o envio repassa à nuvem pela caixa de conversas que já existe).**
 
