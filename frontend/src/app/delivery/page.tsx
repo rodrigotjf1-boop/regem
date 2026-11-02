@@ -22,7 +22,6 @@ import { useSenhaSemSalvar } from '@/lib/use-senha-sem-salvar';
 import { avisarComprovante } from '@/lib/comprovante';
 import { Dialogo } from '@/components/ui/sobreposto';
 import { ItensDoPedido } from '@/components/delivery/itens-do-pedido';
-import { ItensDaPerda, type MarcaDaPerda } from '@/components/delivery/itens-da-perda';
 import { connectAsGestor } from '@/lib/rt';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -132,7 +131,6 @@ export default function DeliveryPage() {
   const prevNovosRef = useRef<number | null>(null);
   const [piscar, setPiscar] = useState(false);
   const [atendimentos, setAtendimentos] = useState<any[]>([]);
-  const [atendAberto, setAtendAberto] = useState(false);
   const [roboAtivo, setRoboAtivo] = useState(false);
   const [cardapioAtivo, setCardapioAtivo] = useState(false);
   const [lojaCfg, setLojaCfg] = useState<any>(null);
@@ -221,24 +219,6 @@ export default function DeliveryPage() {
     o.connect(g).connect(ctx.destination);
     o.start();
     o.stop(ctx.currentTime + 0.36);
-  }
-  // Chamado URGENTE (cliente irritado): três bipes mais agudos — dá para distinguir do pedido novo sem olhar a tela.
-  function tocarAlertaUrgente() {
-    const ctx = garantirAudio();
-    if (!ctx || ctx.state !== 'running') return;
-    for (let i = 0; i < 3; i++) {
-      const t0 = ctx.currentTime + i * 0.28;
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.type = 'square';
-      o.frequency.value = 1320;
-      g.gain.setValueAtTime(0.0001, t0);
-      g.gain.exponentialRampToValueAtTime(0.18, t0 + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.2);
-      o.connect(g).connect(ctx.destination);
-      o.start(t0);
-      o.stop(t0 + 0.21);
-    }
   }
   function alternarSom() {
     const ligar = !somAtivo;
@@ -544,44 +524,7 @@ export default function DeliveryPage() {
     };
   }, [pedidos]);
 
-  // CHAMADO NOVO (o robô chamou o atendente): aviso na tela e o mesmo som do pedido novo. Comparar os ids da lista
-  // vale nas duas pontas — na nuvem a lista se atualiza na hora (tempo real, abaixo); no servidor da loja o chamado
-  // chega pelo sincronismo e a tela o vê na leitura seguinte (15 s).
-  // URGENTE (mig 343 — o robô viu o cliente irritado): aviso vermelho e três bipes. Vale também para o chamado que já
-  // estava aberto e VIROU urgente (o robô soma ao aberto e sobe a prioridade): por isso se compara a lista dos urgentes.
-  const prevAtendRef = useRef<Set<string> | null>(null);
-  const prevUrgRef = useRef<Set<string> | null>(null);
-  useEffect(() => {
-    const lista: any[] = atendimentos ?? [];
-    const ids = new Set(lista.map((c: any) => String(c.id)));
-    const urgentes = new Set(lista.filter((c: any) => c.prioridade === 'urgente').map((c: any) => String(c.id)));
-    const antes = prevAtendRef.current;
-    const urgAntes = prevUrgRef.current;
-    prevAtendRef.current = ids;
-    prevUrgRef.current = urgentes;
-    if (!antes || !urgAntes) return; // primeira leitura: o que já estava aberto não é novidade
-    const novosUrgentes = lista.filter((c: any) => urgentes.has(String(c.id)) && !urgAntes.has(String(c.id)));
-    if (novosUrgentes.length) {
-      const c: any = novosUrgentes[0];
-      toast.error(
-        `🚨 Chamado URGENTE — cliente chateado: ${TIPO_ATEND[c.tipo] ?? 'Atendimento'}${c.cliente ? ` · ${c.cliente}` : ''}${resumoNoAviso(c)}${novosUrgentes.length > 1 ? ` (+${novosUrgentes.length - 1})` : ''}`,
-        15000,
-      );
-      if (somAtivo) tocarAlertaUrgente();
-      return;
-    }
-    const novos = lista.filter((c: any) => !antes.has(String(c.id)));
-    if (!novos.length) return;
-    const c: any = novos[0];
-    // O aviso já diz POR QUE o cliente precisa de ajuda (o resumo que o robô escreve — dica do dono, 30/10): fica mais
-    // tempo na tela para dar tempo de ler.
-    toast.info(
-      `🔔 Novo chamado: ${TIPO_ATEND[c.tipo] ?? 'Atendimento'}${c.cliente ? ` · ${c.cliente}` : ''}${resumoNoAviso(c)}${novos.length > 1 ? ` (+${novos.length - 1})` : ''}`,
-      c.mensagem ? 10000 : 4000,
-    );
-    if (somAtivo) tocarBeep();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [atendimentos]);
+  // O aviso e o som de chamado novo ficam no alerta da central de atendimento (Shell, todas as telas — 02/11/2026).
   const urgentesAbertos = (atendimentos ?? []).filter((c: any) => c.prioridade === 'urgente').length;
 
   // Tempo real (nuvem): chamado aberto pelo robô → relê na hora, sem esperar os 15 s.
@@ -747,7 +690,7 @@ export default function DeliveryPage() {
               )}
               <button
                 type="button"
-                onClick={() => setAtendAberto(true)}
+                onClick={() => router.push('/atendimento')}
                 title={urgentesAbertos ? `Chamados de atendimento — ${urgentesAbertos} urgente(s)` : 'Chamados de atendimento'}
                 aria-label={urgentesAbertos ? `Chamados de atendimento, ${urgentesAbertos} urgente(s)` : 'Chamados de atendimento'}
                 className={`relative flex h-8 items-center rounded-md border px-2 text-sm ${
@@ -936,20 +879,6 @@ export default function DeliveryPage() {
 
       {novoPedido && <NovoPedido onFechar={() => setNovoPedido(false)} onCriado={reload} />}
 
-      {atendAberto && (
-        <AtendimentoPanel
-          lista={atendimentos}
-          pedidos={pedidos}
-          onFechar={() => setAtendAberto(false)}
-          onResolver={(id) => acao(api.resolverAtendimento(id), 'Chamado resolvido.')}
-          onDecidir={(id, aceita, senha, extra) =>
-            acao(
-              api.decidirCancelamento(id, { aceita, senha, ...(extra ?? {}) }),
-              aceita ? 'Pedido cancelado.' : 'Cancelamento recusado.',
-            )
-          }
-        />
-      )}
       </div>
     </Shell>
   );
@@ -1369,167 +1298,6 @@ function RodapeDelivery({
         <span className="text-ok">Concluídos <strong>{totais.concluidos}</strong></span>
       </div>
     </Card>
-  );
-}
-
-// ---- Painel de chamados de atendimento ----
-const TIPO_ATEND: Record<string, string> = {
-  mudanca: '✏️ Mudança no pedido',
-  erro: '⚠️ Erro no recebimento',
-  humano: '🙋 Falar com atendente',
-  cancelamento: '🚫 Pedido de cancelamento',
-  outro: '💬 Atendimento',
-};
-/** O resumo da dificuldade (escrito pelo robô no chamado) para o aviso: uma linha, até 90 caracteres. */
-function resumoNoAviso(c: any): string {
-  const m = String(c?.mensagem ?? '').replace(/\s+/g, ' ').trim();
-  if (!m) return '';
-  return ` — "${m.length > 90 ? `${m.slice(0, 89).trimEnd()}…` : m}"`;
-}
-// Aceitar o cancelamento pedido pelo cliente (ERR-339): as mesmas perguntas do cancelamento no painel — o motivo e o
-// destino dos insumos (reutilizados × perda, com a perda por item). Antes só pedia a senha e o servidor gravava
-// "reutilizados" fixo, o que ainda escondia o "Registrar perda" depois.
-type ExtraDoCancelamento = { motivo?: string; reaproveitado?: boolean; perdaItens?: MarcaDaPerda[] | null };
-const STATUS_COM_COZINHA = ['confirmado', 'pronto', 'despachado', 'entregue'];
-
-function AtendimentoPanel({ lista, pedidos, onFechar, onResolver, onDecidir }: {
-  lista: any[];
-  pedidos?: any[] | null;
-  onFechar: () => void;
-  onResolver: (id: string) => void;
-  onDecidir: (id: string, aceita: boolean, senha?: string, extra?: ExtraDoCancelamento) => void;
-}) {
-  const [cancelId, setCancelId] = useState<string | null>(null);
-  const [senha, setSenha] = useState('');
-  const [motivo, setMotivo] = useState('');
-  const [reaproveitado, setReaproveitado] = useState(true);
-  const [perda, setPerda] = useState<MarcaDaPerda[] | null>(null);
-  const campoSenha = useSenhaSemSalvar(); // o navegador não oferece guardar a senha do gestor
-  // Só o pedido já aceito tem cozinha (o mesmo critério do painel). Pedido fora da lista carregada: pergunta assim mesmo.
-  const temCozinha = (c: any) => {
-    const ped = (pedidos ?? []).find((p: any) => p.id === c.pedidoId);
-    return !ped || STATUS_COM_COZINHA.includes(String(ped.status));
-  };
-  const abrirCancelamento = (id: string) => {
-    setCancelId(cancelId === id ? null : id);
-    setSenha('');
-    setMotivo('');
-    setReaproveitado(true);
-    setPerda(null);
-  };
-  // A caixa de conversas (Delivery › WhatsApp) é de presidente, gerente e supervisão (o servidor confere); a execução
-  // vê o chamado e resolve, mas o link a levaria a uma tela que recusa.
-  const [podeResponder, setPodeResponder] = useState(false);
-  useEffect(() => setPodeResponder(['presidente', 'gerente', 'supervisao'].includes(getCategoria() ?? '')), []);
-  const inbox = (tel?: string) => {
-    const d = String(tel ?? '').replace(/\D/g, '');
-    const num = d.length === 10 || d.length === 11 ? `55${d}` : d;
-    return `/whatsapp?numero=${num}`;
-  };
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" onClick={onFechar}>
-      <Card className="max-h-[85vh] w-full max-w-md overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-3 flex items-center gap-2">
-          <h3 className="font-display text-base font-bold">🔔 Atendimento</h3>
-          <span className="font-mono text-xs text-muted-foreground">{lista.length} aberto(s)</span>
-          <button type="button" onClick={onFechar} className="ml-auto text-sm text-muted-foreground hover:underline">Fechar ✕</button>
-        </div>
-        {lista.length === 0 && <p className="py-6 text-center text-sm text-muted-foreground">Nenhum chamado no momento. 🎉</p>}
-        <div className="space-y-2">
-          {lista.map((c) => (
-            <div
-              key={c.id}
-              className={`rounded-lg border p-3 ${c.prioridade === 'urgente' ? 'border-destructive bg-destructive/5' : 'border-border'}`}
-            >
-              {c.prioridade === 'urgente' && (
-                <p className="mb-1.5 inline-flex items-center gap-1 rounded bg-destructive px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white">
-                  🚨 Urgente · cliente chateado
-                </p>
-              )}
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-bold">{TIPO_ATEND[c.tipo] ?? c.tipo}</span>
-                <span className="ml-auto font-mono text-[10px] text-muted-foreground">{hora(c.criadoEm)}</span>
-              </div>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                {c.cliente ?? 'Cliente'}{c.telefone ? ` · ${c.telefone}` : ''}{c.pedidoNumero ? ` · pedido #${c.pedidoNumero}` : ''}
-              </p>
-              {c.mensagem && <p className="mt-1.5 rounded bg-secondary px-2 py-1.5 text-sm">{c.mensagem}</p>}
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                {c.telefone && podeResponder && (
-                  <Link href={inbox(c.telefone)} onClick={(e) => e.stopPropagation()} className="rounded-md bg-ok/10 px-2.5 py-1 text-xs font-semibold text-ok hover:bg-ok/20">💬 Responder no WhatsApp</Link>
-                )}
-                {c.telefone && !podeResponder && (
-                  <span className="text-[11px] text-muted-foreground">Quem responde pelo WhatsApp é a gerência ou a supervisão.</span>
-                )}
-                {c.tipo === 'cancelamento' ? (
-                  <>
-                    <Button type="button" size="sm" variant="outline" className="ml-auto h-7 text-xs" onClick={() => onDecidir(c.id, false)}>Recusar</Button>
-                    <Button type="button" size="sm" className="h-7 bg-destructive text-xs text-white hover:bg-destructive/90" aria-expanded={cancelId === c.id} onClick={() => abrirCancelamento(c.id)}>Aceitar cancelamento</Button>
-                  </>
-                ) : (
-                  <Button type="button" size="sm" variant="outline" className="ml-auto h-7 text-xs" onClick={() => onResolver(c.id)}>Resolver</Button>
-                )}
-              </div>
-              {c.tipo === 'cancelamento' && cancelId === c.id && (
-                <div className="mt-2 space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-2">
-                  <input
-                    aria-label="Motivo do cancelamento"
-                    value={motivo}
-                    onChange={(e) => setMotivo(e.target.value)}
-                    placeholder="Motivo (vazio: cancelamento solicitado pelo cliente)"
-                    className="h-8 w-full min-w-0 rounded border border-border bg-background px-2 text-sm"
-                  />
-                  {temCozinha(c) && (
-                    <div className="space-y-1.5">
-                      <p className="text-xs font-medium">O que aconteceu com os insumos deste pedido?</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        <button
-                          type="button"
-                          aria-pressed={reaproveitado}
-                          onClick={() => setReaproveitado(true)}
-                          className={`min-w-[8rem] flex-1 rounded-md border px-2 py-1.5 text-xs font-medium ${reaproveitado ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground'}`}
-                        >
-                          ♻️ Reutilizados (ficam no estoque)
-                        </button>
-                        <button
-                          type="button"
-                          aria-pressed={!reaproveitado}
-                          onClick={() => setReaproveitado(false)}
-                          className={`min-w-[8rem] flex-1 rounded-md border px-2 py-1.5 text-xs font-medium ${!reaproveitado ? 'border-destructive bg-destructive/10 text-destructive' : 'border-border text-muted-foreground'}`}
-                        >
-                          🗑️ Perda (saem do estoque)
-                        </button>
-                      </div>
-                      {!reaproveitado && c.pedidoId && <ItensDaPerda pedidoId={c.pedidoId} onChange={setPerda} />}
-                    </div>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <input {...campoSenha} aria-label="Senha de quem libera (presidente, gerente ou supervisão)" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="Senha de quem libera" className="h-8 min-w-0 flex-1 rounded border border-border bg-background px-2 text-sm" />
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="h-8 bg-destructive text-xs text-white hover:bg-destructive/90"
-                      disabled={!senha}
-                      onClick={() => {
-                        onDecidir(c.id, true, senha, {
-                          motivo: motivo.trim() || undefined,
-                          reaproveitado,
-                          perdaItens: reaproveitado ? null : perda,
-                        });
-                        setCancelId(null);
-                        setSenha('');
-                      }}
-                    >
-                      Confirmar cancelamento
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </Card>
-    </div>
   );
 }
 

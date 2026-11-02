@@ -37,6 +37,13 @@ export class AtendimentoController {
     return this.service.resolvidosHoje(user, unidade);
   }
 
+  // As pessoas ativas da loja (só id e nome) — a lista do "Passar o caso".
+  @Get('equipe')
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
+  equipe(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
+    return this.service.equipe(user, unidade);
+  }
+
   @Post(':id/pegar')
   @Roles('presidente', 'gerente', 'supervisao', 'execucao')
   pegar(@CurrentUser() user: AuthUser, @Param('id') id: string) {

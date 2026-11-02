@@ -92,7 +92,8 @@ descrever('fila da central de atendimento (Postgres)', () => {
     const prazoCurto = await chamado({ canal: 'ifood', prazo_em: new Date(agora + 120_000) });
     const comAna = await chamado({ responsavel_id: ana, criado_em: new Date(agora - 1_200_000) });
 
-    const { casos } = await svc.fila(gerente(), null);
+    const { casos, eu } = await svc.fila(gerente(), null);
+    expect(eu).toBe(ana); // quem pediu a fila (a tela marca "Comigo" sem ler o token)
     expect(casos.map((c: any) => c.id)).toEqual([prazoCurto, prazoLongo, urgente, comAna, velho, novo]);
     // a mesma ordem da regra pura (o app e a tela usam a regra; o banco, o SQL)
     expect([...casos].sort(compararNaFila).map((c: any) => c.id)).toEqual(casos.map((c: any) => c.id));
@@ -219,6 +220,18 @@ descrever('fila da central de atendimento (Postgres)', () => {
       aguardando_desde: null,
     });
     expect(avisos.some((a) => a.ev === 'atendimento.mudou' && a.p.id === id && a.p.motivo === 'resolveu')).toBe(true);
+  });
+
+  it('a equipe do "Passar": só quem está ativo, da loja em uso ou sem loja, com a marca de quem pergunta', async () => {
+    const [{ id: daB }] = await q(`insert into colaborador (tenant_id, nome, unidade_id) values ($1, 'Davi da B', $2) returning id`, [T, lojaB]);
+    try {
+      const nomes = async (u: string | null) => (await svc.equipe(gerente(), u)).map((p: any) => p.nome);
+      expect(await nomes(lojaA)).toEqual(['Ana', 'Bruno']); // Carla está bloqueada; Davi é da loja B
+      expect(await nomes(null)).toEqual(['Ana', 'Bruno', 'Davi da B']);
+      expect((await svc.equipe(gerente(), null)).find((p: any) => p.eu)?.nome).toBe('Ana');
+    } finally {
+      await q(`delete from colaborador where id = $1`, [daB]);
+    }
   });
 
   it('o chamado do robô nasce do canal WhatsApp; o chamado antigo (sem canal) mostra o canal do pedido', async () => {

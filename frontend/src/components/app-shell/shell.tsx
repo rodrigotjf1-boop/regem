@@ -19,6 +19,7 @@ import {
   FileText,
   Flame,
   HardDrive,
+  Headset,
   Printer,
   History,
   LayoutDashboard,
@@ -51,6 +52,7 @@ import { ModoOperacao } from '@/components/ui/modo-operacao';
 import { ServidorOfflineAviso } from '@/components/ui/servidor-offline-aviso';
 import { AtualizacaoAviso } from '@/components/ui/atualizacao-aviso';
 import { TotemAPagarAviso } from '@/components/pdv/totem-a-pagar-aviso';
+import { AlertaDeAtendimento, SinoDoAtendimento } from '@/components/atendimento/alerta-de-atendimento';
 import { useUiPrefs } from '@/hooks/use-ui-prefs';
 import { AccountMenu } from './account-menu';
 import { UnidadeSeletor } from './unidade-seletor';
@@ -112,6 +114,9 @@ const NAV: NavNode[] = [
       { href: '/delivery/configuracoes', label: 'Configurações', icon: Settings, perm: 'delivery' },
     ],
   },
+  // Central de atendimento (Onda 1, protótipo aprovado em 02/11/2026): a fila de tudo o que precisa de uma pessoa.
+  // Mesma permissão das rotas do servidor (`pedidos`).
+  { href: '/atendimento', label: 'Atendimento', icon: Headset, perm: 'pedidos' },
   {
     label: 'Tarefas', icon: ListChecks,
     children: [
@@ -454,6 +459,8 @@ export function Shell({
         <AtualizacaoAviso />
         {/* Só nas telas do PDV e só para quem pode cobrar o pedido na Retirada. */}
         <TotemAPagarAviso habilitado={temPerm('delivery', perms, cat === 'presidente')} />
+        {/* O alerta da central de atendimento vale em TODAS as telas (som e aviso de caso novo), com ou sem topo. */}
+        <AlertaDeAtendimento ativo={!!cat && temPerm('pedidos', perms, cat === 'presidente')} />
         {!fill && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border px-5 py-2">
             {prefs.side === 'left' && burger}
@@ -475,6 +482,7 @@ export function Shell({
               <span className="hidden items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 font-mono text-xs text-muted-foreground sm:inline-flex">
                 <Clock className="h-3.5 w-3.5" /> {rel}
               </span>
+              {!!cat && temPerm('pedidos', perms, cat === 'presidente') && <SinoDoAtendimento />}
               {actions}
               {prefs.side === 'right' && burger}
             </div>

@@ -126,7 +126,8 @@ export class AtendimentoService {
        order by (c.prazo_em is null), c.prazo_em, (c.prioridade = 'urgente') desc, c.criado_em
        limit ${LIMITE_DA_FILA}`);
     const casos = posicoes((r.rows ?? r) as any[]).map((c) => ({ ...c, canal: canalDoCaso(c), situacao: situacaoDo(c) }));
-    return { casos, contagens: await this.contagens(user, loja), limite: LIMITE_DA_FILA };
+    // `eu`: quem pediu a fila — a tela marca "Comigo" e "você" sem ler o token (na nuvem a sessão é um cookie httpOnly).
+    return { casos, contagens: await this.contagens(user, loja), limite: LIMITE_DA_FILA, eu: user.colaboradorId ?? null };
   }
 
   /** Os casos resolvidos HOJE (dia da operação, não da sessão do banco — ERR-120), os mais recentes primeiro. */
@@ -145,6 +146,20 @@ export class AtendimentoService {
        order by c.resolvido_em desc
        limit ${LIMITE_DA_FILA}`);
     return ((r.rows ?? r) as any[]).map((c) => ({ ...c, canal: canalDoCaso(c), situacao: 'resolvido' as const }));
+  }
+
+  /**
+   * A EQUIPE para "Passar o caso": as pessoas ATIVAS da loja em uso (e as sem loja), só id e nome — o mínimo, para quem
+   * atende sem a permissão do cadastro de colaboradores. O presidente na rede vê todas. Em ordem de nome.
+   */
+  async equipe(user: AuthUser, unidadeAtual: string | null) {
+    const r: any = await this.db.execute(sql`
+      select c.id, c.nome from colaborador c
+       where c.tenant_id = ${user.tenantId} and c.status = 'ativo' and c.deleted_at is null
+             ${sqlUnidadeOuRede('c.unidade_id', unidadeAtual)}
+       order by c.nome
+       limit ${LIMITE_DA_FILA}`);
+    return ((r.rows ?? r) as Array<{ id: string; nome: string }>).map((p) => ({ ...p, eu: p.id === user.colaboradorId }));
   }
 
   private async contagens(user: AuthUser, loja: ReturnType<typeof sqlUnidadeOuRede>) {
