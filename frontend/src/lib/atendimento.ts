@@ -39,6 +39,15 @@ export type CasoDaFila = {
   externoId?: string | null;
 };
 
+/**
+ * O AVISO AO GERENTE (mig 353): o caso que ninguém pegou no tempo do ajuste ("Fila e avisos") ganha `detalhe.escalado`
+ * na nuvem. Só conta enquanto o caso continua na fila — pegou, passou ou resolveu, o aviso deixa de valer.
+ */
+export function escaladoDe(c: CasoDaFila): { em: string; minutos: number } | null {
+  const e = c.detalhe?.escalado;
+  return c.situacao === 'fila' && e?.em ? { em: String(e.em), minutos: Number(e.minutos) || 0 } : null;
+}
+
 export type ContagensDaFila = {
   abertos: number;
   comPrazo: number;

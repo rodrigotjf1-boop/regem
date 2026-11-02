@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { toast } from '@/lib/toast';
 import { connectAsGestor } from '@/lib/rt';
+import { getCategoria } from '@/lib/api';
 import {
   ROTULO_DO_TIPO,
+  escaladoDe,
   relerFila,
   tempoAte,
   tempoDesde,
@@ -18,8 +20,9 @@ import { ChipDoCanal } from './chip-do-canal';
 // O ALERTA DA CENTRAL DE ATENDIMENTO, em TODAS as telas (protótipo aprovado em 02/11/2026; antes só no painel do
 // Delivery). Montado pelo Shell para quem pode atender. Relê a fila a cada 15 s e na hora pelo tempo real (nuvem); no
 // servidor da loja o caso chega pelo sincronismo e aparece na leitura seguinte. Caso NOVO: aviso e um bipe; caso que
-// virou URGENTE (cliente irritado): aviso vermelho e três bipes. O som é desta tela (preferência do aparelho) e só toca
-// depois do primeiro clique na página — regra dos navegadores.
+// virou URGENTE (cliente irritado): aviso vermelho e três bipes; caso que NINGUÉM PEGOU no tempo do ajuste "Fila e
+// avisos" (mig 353): para gerente e presidente, aviso e dois bipes. O som é desta tela (preferência do aparelho) e só
+// toca depois do primeiro clique na página — regra dos navegadores.
 
 const CHAVE_SOM = 'som_atendimento';
 let audio: AudioContext | null = null;
@@ -75,7 +78,10 @@ const resumo = (c: CasoDaFila) => {
 
 export function AlertaDeAtendimento({ ativo }: { ativo: boolean }) {
   const { casos, lida } = useFilaDeAtendimento();
-  const antes = useRef<{ ids: Set<string>; urgentes: Set<string> } | null>(null);
+  const antes = useRef<{ ids: Set<string>; urgentes: Set<string>; escalados: Set<string> } | null>(null);
+  // O aviso "ninguém pegou" (mig 353) é para quem é gerente ou presidente. A categoria só existe no navegador (V35).
+  const [gestor, setGestor] = useState(false);
+  useEffect(() => setGestor(['presidente', 'gerente'].includes(getCategoria() ?? '')), []);
 
   // Leitura a cada 15 s + tempo real (caso novo, caso mudou).
   useEffect(() => {
@@ -109,8 +115,9 @@ export function AlertaDeAtendimento({ ativo }: { ativo: boolean }) {
     if (!ativo || !lida) return;
     const ids = new Set(casos.map((c) => c.id));
     const urgentes = new Set(casos.filter((c) => c.prioridade === 'urgente').map((c) => c.id));
+    const escalados = new Set(casos.filter((c) => escaladoDe(c)).map((c) => c.id));
     const ant = antes.current;
-    antes.current = { ids, urgentes };
+    antes.current = { ids, urgentes, escalados };
     if (!ant) return; // primeira leitura: o que já estava aberto não é novidade
     const novosUrgentes = casos.filter((c) => urgentes.has(c.id) && !ant.urgentes.has(c.id));
     if (novosUrgentes.length) {
@@ -122,6 +129,18 @@ export function AlertaDeAtendimento({ ativo }: { ativo: boolean }) {
       if (somLigado()) bipe(3, 1320, 'square');
       return;
     }
+    // Ninguém pegou no tempo do ajuste "Fila e avisos" (mig 353): o aviso sobe para o gerente — aqui e no app.
+    const novosEscalados = gestor ? casos.filter((c) => escalados.has(c.id) && !ant.escalados.has(c.id)) : [];
+    if (novosEscalados.length) {
+      const c = novosEscalados[0];
+      const min = escaladoDe(c)?.minutos;
+      toast.error(
+        `⏰ Ninguém pegou${min ? ` em ${min} min` : ''}: ${tituloDoCaso(c)}${resumo(c)}${novosEscalados.length > 1 ? ` (+${novosEscalados.length - 1})` : ''}`,
+        15000,
+      );
+      if (somLigado()) bipe(2, 1100, 'triangle');
+      return;
+    }
     const novos = casos.filter((c) => !ant.ids.has(c.id));
     if (!novos.length) return;
     const c = novos[0];
@@ -130,7 +149,7 @@ export function AlertaDeAtendimento({ ativo }: { ativo: boolean }) {
       c.mensagem ? 10000 : 5000,
     );
     if (somLigado()) bipe(1, 880, 'sine');
-  }, [casos, lida, ativo]);
+  }, [casos, lida, ativo, gestor]);
 
   return null;
 }

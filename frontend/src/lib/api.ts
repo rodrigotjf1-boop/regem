@@ -1194,9 +1194,10 @@ export const api = {
   // Pedido de cancelamento/reembolso do cliente da 99 (PR 3): aceitar ou recusar com o motivo da lista, com a senha.
   atendimentoResponderPedido99: (id: string, body: { aceita: boolean; motivo?: string; motivoId?: string; explicacao?: string; senha: string }) =>
     req(`/atendimento/${id}/pedido99`, { method: 'POST', body: JSON.stringify(body) }),
-  // Os ajustes do atendimento (Delivery › Configurações › Atendimento) — só na nuvem, só gerente e presidente.
+  // Os ajustes do atendimento (Delivery › Configurações › Atendimento) — só na nuvem, só gerente e presidente. Cada grupo
+  // vai com o seu dono: `fila` ("Fila e avisos", mig 353) e `ajuste99` (a 99); só o que mudou.
   atendimentoAjustes: () => req('/atendimento/ajustes'),
-  salvarAtendimentoAjustes: (body: { ajuste99?: Record<string, unknown> }) =>
+  salvarAtendimentoAjustes: (body: { fila?: Record<string, unknown>; ajuste99?: Record<string, unknown> }) =>
     req('/atendimento/ajustes', { method: 'PUT', body: JSON.stringify(body) }),
   // O chat oficial do iFood (PR 5): o widget da distribuição e as lojas do iFood da empresa (ou `disponivel: false`).
   atendimentoChatIfood: () => req('/atendimento/chat-ifood'),
