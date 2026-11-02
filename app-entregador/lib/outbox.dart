@@ -43,8 +43,10 @@ class Outbox {
   static Future<bool> temPendente(String pedidoId) async =>
       (await _ler()).any((e) => e['pedidoId'] == pedidoId);
 
+  /// `local` = a posição do TOQUE no "Entregue" (pedido sem código): vai junto ao reenviar, para o servidor
+  /// conferir onde o entregador estava quando marcou — não onde ele está quando o sinal volta.
   static Future<void> enfileirar(String pedidoId, String? codigo,
-      {Object? numero, String? canal}) async {
+      {Object? numero, String? canal, Map<String, dynamic>? local}) async {
     final itens = await _ler();
     // Mesmo pedido de novo (o entregador corrigiu o código): vale o último digitado.
     itens.removeWhere((e) => e['pedidoId'] == pedidoId);
@@ -53,6 +55,7 @@ class Outbox {
       'codigo': codigo,
       'numero': numero?.toString(),
       'canal': canal,
+      if (local != null) 'local': local,
       'ts': DateTime.now().toIso8601String(),
     });
     await _salvar(itens);
@@ -75,9 +78,10 @@ class Outbox {
   ///    descartado (LIC-039);
   ///  • fica — sem rede, 5xx, 408, 429: tenta de novo depois.
   static Future<ResultadoEnvio> flush({
-    Future<Map<String, dynamic>> Function(String pedidoId, String? codigo)? enviar,
+    Future<Map<String, dynamic>> Function(String pedidoId, String? codigo, Map<String, dynamic>? local)? enviar,
   }) async {
-    final envia = enviar ?? (String id, String? cod) => Api.finalizar(id, codigo: cod);
+    final envia = enviar ??
+        (String id, String? cod, Map<String, dynamic>? local) => Api.finalizar(id, codigo: cod, local: local);
     final itens = await _ler();
     if (itens.isEmpty) return const ResultadoEnvio(0, []);
     final restantes = <Map<String, dynamic>>[];
@@ -85,7 +89,12 @@ class Outbox {
     var confirmadas = 0;
     for (final e in itens) {
       try {
-        final r = await envia(e['pedidoId'] as String, e['codigo'] as String?);
+        final local = e['local'];
+        final r = await envia(
+          e['pedidoId'] as String,
+          e['codigo'] as String?,
+          local is Map ? Map<String, dynamic>.from(local) : null,
+        );
         if (r['valid'] == false) {
           recusadas.add({...e, 'motivo': r['msg']?.toString() ?? 'Código recusado.'});
         } else {

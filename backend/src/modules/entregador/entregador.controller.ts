@@ -57,10 +57,11 @@ export class EntregadorController {
     return this.service.proximaSaida(user);
   }
 
-  // E1 — finaliza a entrega (código opcional para marketplace de entrega própria).
+  // E1 — finaliza a entrega (código opcional para marketplace de entrega própria). `local` = a posição do toque
+  // ({ lat, lng, precisao }), conferida no pedido sem código (mig 348).
   @Post('pedido/:id/finalizar')
   finalizar(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
-    return this.service.finalizar(user, id, dto?.codigo);
+    return this.service.finalizar(user, id, dto?.codigo, dto?.local);
   }
 
   // E2 — o app manda a localização (durante entrega ativa).

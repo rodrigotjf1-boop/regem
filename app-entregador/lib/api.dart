@@ -110,12 +110,14 @@ class Api {
   /// E1 — finaliza a entrega (código opcional p/ marketplace de entrega própria).
   /// Resposta `{valid:false, msg}` = código recusado (200, mas NÃO é entrega feita).
   /// Erro da API vem como [ApiErro] (com o status); falta de rede, como exceção do http.
-  static Future<Map<String, dynamic>> finalizar(String id, {String? codigo}) async {
+  /// `local` = a posição do toque ({lat, lng, precisao}): no pedido sem código, o servidor confere se o
+  /// entregador está perto do endereço (a loja desligou o código — mig 348).
+  static Future<Map<String, dynamic>> finalizar(String id, {String? codigo, Map<String, dynamic>? local}) async {
     final r = await http
         .post(
           Uri.parse('$base/entregador/pedido/$id/finalizar'),
           headers: _headers,
-          body: jsonEncode({if (codigo != null) 'codigo': codigo}),
+          body: jsonEncode({if (codigo != null) 'codigo': codigo, if (local != null) 'local': local}),
         )
         .timeout(const Duration(seconds: 25));
     if (r.statusCode >= 200 && r.statusCode < 300) {
