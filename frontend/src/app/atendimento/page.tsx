@@ -14,6 +14,7 @@ import { DecidirCancelamento } from '@/components/atendimento/decidir-cancelamen
 import { DisputaIfood } from '@/components/atendimento/disputa-ifood';
 import { Pedido99 } from '@/components/atendimento/pedido-99';
 import { ResumoDoRobo, resumoCurto } from '@/components/atendimento/resumo-do-robo';
+import { ChatDoIfood } from '@/components/atendimento/chat-do-ifood';
 import {
   CASO_DA_PLATAFORMA,
   ROTULO_DO_CANAL,
@@ -171,6 +172,9 @@ export default function AtendimentoPage() {
             </Link>
           </p>
         </div>
+
+        {/* O chat oficial do iFood (PR 5): só aparece com o widget da distribuição e o iFood ligado na empresa. */}
+        <ChatDoIfood />
 
         <div className="flex flex-wrap gap-2" role="group" aria-label="Situação">
           {SITUACOES.map((s) => {

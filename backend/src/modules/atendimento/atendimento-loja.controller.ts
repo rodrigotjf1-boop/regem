@@ -4,6 +4,7 @@ import { CloudOnly } from '../../common/cloud-only.decorator';
 import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
 import { DisputaIfoodService, RespostaDaDisputa } from './disputa-ifood.service';
 import { Pedido99Service, RespostaAo99 } from './pedido-99.service';
+import { ChatIfoodService } from './chat-ifood.service';
 
 // Pedidos do SERVIDOR DA LOJA à nuvem sobre a central de atendimento (V37): a credencial do iFood fica só na nuvem.
 // Autenticação pelo token do servidor (x-sync-token) — a empresa vem do token, nunca do corpo. Só na nuvem.
@@ -12,7 +13,16 @@ export class AtendimentoLojaController {
   constructor(
     private readonly disputa: DisputaIfoodService,
     private readonly pedido99: Pedido99Service,
+    private readonly chatIfood: ChatIfoodService,
   ) {}
+
+  // A configuração do chat oficial do iFood para a tela do servidor da loja (a integração mora só na nuvem — V37).
+  @Get('chat-ifood-da-loja')
+  @CloudOnly()
+  @UseGuards(SyncTokenGuard)
+  chatIfoodDaLoja(@SyncCtx() ctx: SyncCtxData) {
+    return this.chatIfood.montar(ctx.tenantId);
+  }
 
   // A loja responde ao pedido de cancelamento/reembolso do cliente da 99 (senha já conferida no servidor dela).
   @Post('pedido99-da-loja')

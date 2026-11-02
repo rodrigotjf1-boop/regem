@@ -1198,6 +1198,8 @@ export const api = {
   atendimentoAjustes: () => req('/atendimento/ajustes'),
   salvarAtendimentoAjustes: (body: { ajuste99?: Record<string, unknown> }) =>
     req('/atendimento/ajustes', { method: 'PUT', body: JSON.stringify(body) }),
+  // O chat oficial do iFood (PR 5): o widget da distribuição e as lojas do iFood da empresa (ou `disponivel: false`).
+  atendimentoChatIfood: () => req('/atendimento/chat-ifood'),
   resolverAtendimento: (id: string) =>
     req(`/atendimento/${id}/resolver`, { method: 'POST', body: '{}' }),
   decidirCancelamento: (
