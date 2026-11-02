@@ -87,6 +87,12 @@ export class EntregadorController {
     return this.service.avisarSemContato(user, id);
   }
 
+  // Onda 0 (01/11/2026) — o que o cliente respondeu ao "não consigo falar com o cliente" (o app consulta depois do aviso).
+  @Get('pedido/:id/resposta-do-cliente')
+  respostaDoCliente(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.respostaDoCliente(user, id);
+  }
+
   // E3 — rota OSRM (traçado + ETA) até o destino do pedido, p/ o mapa in-app. Corpo: { lat, lng }
   // = posição atual do entregador (opcional; sem ela usa a última registrada).
   @Post('pedido/:id/rota')

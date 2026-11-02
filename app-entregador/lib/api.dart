@@ -151,6 +151,17 @@ class Api {
     throw Exception(_erro(r));
   }
 
+  /// Onda 0 (01/11/2026) — o que o cliente respondeu ao "não consigo falar": `{ respostaDoCliente: {texto, em} | null }`.
+  static Future<Map<String, dynamic>> respostaDoCliente(String id) async {
+    final r = await http
+        .get(Uri.parse('$base/entregador/pedido/$id/resposta-do-cliente'), headers: _headers)
+        .timeout(const Duration(seconds: 15));
+    if (r.statusCode >= 200 && r.statusCode < 300) {
+      return jsonDecode(r.body) as Map<String, dynamic>;
+    }
+    throw ApiErro(r.statusCode, _erro(r));
+  }
+
   /// E3 — rota OSRM (traçado + ETA) da minha posição até o destino do pedido, p/ o mapa
   /// in-app. Manda lat/lng se houver (senão o backend usa a última localização registrada).
   /// Retorna { destino:{lat,lng}, from:{lat,lng}|null, rota:{geometry,duracaoMin,distanciaM}|null,

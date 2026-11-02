@@ -29,6 +29,7 @@ import {
 } from './modo-entrega';
 import { consultarAoVivo } from '../delivery/entregadores-ao-vivo';
 import { consultarFila } from '../delivery/fila-entregadores';
+import { PREFIXO_DA_RESPOSTA } from '../whatsapp/resposta-ao-sem-contato';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -205,7 +206,48 @@ export class EntregadorService {
         ),
       )
       .orderBy(desc(pedidoExterno.despachadoEm));
-    return rows.map((p) => this.resumo(p));
+    const respostas = await this.respostasDoCliente(user.tenantId, rows.map((p) => p.id));
+    return rows.map((p) => ({ ...this.resumo(p), respostaDoCliente: respostas.get(p.id) ?? null }));
+  }
+
+  /**
+   * O que o cliente respondeu ao "não consigo falar com o cliente" (Onda 0, 01/11/2026): o chamado urgente ABERTO do
+   * pedido que a resposta abriu (`whatsapp/resposta-ao-sem-contato.ts`). Uma consulta para a lista toda. Cada resposta é
+   * uma linha do chamado com o prefixo; outras linhas do chamado (outro assunto do mesmo cliente) não entram.
+   */
+  private async respostasDoCliente(tenantId: string, ids: string[]): Promise<Map<string, { texto: string; em: string }>> {
+    const mapa = new Map<string, { texto: string; em: string }>();
+    if (!ids.length) return mapa;
+    const r: any = await this.db.execute(sql`
+      select distinct on (pedido_id) pedido_id, mensagem, criado_em
+        from atendimento_chamado
+       where tenant_id = ${tenantId}::uuid
+         and pedido_id in (${sql.join(ids.map((i) => sql`${i}::uuid`), sql`, `)})
+         and status = 'aberto'
+         and position(${PREFIXO_DA_RESPOSTA} in coalesce(mensagem, '')) > 0
+       order by pedido_id, criado_em desc`);
+    for (const row of r?.rows ?? r ?? []) {
+      const texto = String(row.mensagem ?? '')
+        .split('\n')
+        .filter((l: string) => l.startsWith(PREFIXO_DA_RESPOSTA))
+        .map((l: string) => l.slice(PREFIXO_DA_RESPOSTA.length).trim())
+        .filter(Boolean)
+        .join('\n');
+      if (texto) mapa.set(row.pedido_id, { texto, em: new Date(row.criado_em).toISOString() });
+    }
+    return mapa;
+  }
+
+  /** A resposta do cliente a UM pedido meu a caminho (o app consulta depois do "não consigo falar"). */
+  async respostaDoCliente(user: AuthUser, id: string) {
+    if (!this.ehEntregador(user)) throw new ForbiddenException('Apenas entregadores.');
+    const [ped] = await this.db
+      .select({ id: pedidoExterno.id, entregadorId: pedidoExterno.entregadorId })
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.tenantId, user.tenantId), eq(pedidoExterno.id, id)));
+    if (!ped) throw new NotFoundException('Pedido não encontrado.');
+    if (ped.entregadorId !== user.colaboradorId) throw new ForbiddenException('Este pedido não está atribuído a você.');
+    return { respostaDoCliente: (await this.respostasDoCliente(user.tenantId, [ped.id])).get(ped.id) ?? null };
   }
 
   // Finaliza a entrega. Com código (marketplace de entrega própria) valida no canal;
@@ -1428,13 +1470,14 @@ export class EntregadorService {
     // PEDIDO CANCELADO SAI DO ROTEIRO (ERR-338, 31/10/2026): cancelar não mexe na saída, e o cancelado ficava como parada
     // pendente que não finaliza ("precisa estar em rota") — a saída nunca fechava e o entregador ficava preso, sem o botão
     // da fila. Vale também para a loja com servidor local: o cancelamento chega à nuvem pelo sync, sem evento nenhum.
-    const paradas = rows
-      .filter((p) => String(p.status) !== 'cancelado')
-      .map((p) => ({
-        ...this.resumo(p),
-        ordemParada: p.ordemParada,
-        entregue: ['entregue', 'concluido'].includes(String(p.status)),
-      }));
+    const vivas = rows.filter((p) => String(p.status) !== 'cancelado');
+    const respostas = await this.respostasDoCliente(tenantId, vivas.map((p) => p.id));
+    const paradas = vivas.map((p) => ({
+      ...this.resumo(p),
+      ordemParada: p.ordemParada,
+      entregue: ['entregue', 'concluido'].includes(String(p.status)),
+      respostaDoCliente: respostas.get(p.id) ?? null,
+    }));
     // Nada pendente (todas canceladas, ou concluídas pelo painel sem passar pelo app): a saída terminou.
     if (!paradas.some((p) => !p.entregue)) {
       await this.db.execute(sql`update entregador_saida set status = 'concluida', concluida_em = coalesce(concluida_em, now())

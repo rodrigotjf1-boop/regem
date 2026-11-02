@@ -12,6 +12,16 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **A resposta do cliente ao "entregador sem contato" chega à equipe e ao entregador (Onda 0, 01/11): servidor só
+  nuvem — no ar com o merge; o app, no PRÓXIMO APK.** A mensagem do cliente com um pedido a caminho e o "sem contato"
+  enviado há menos de 30 min não vai ao robô: vira chamado URGENTE ligado ao pedido (o painel vê; na loja, pela
+  sincronização dos chamados) e o cliente recebe uma confirmação por aviso (`sem_contato_resposta` no registro do
+  pedido) — nas duas vias (oficial e QR), com o robô ligado ou desligado. Rota nova `GET entregador/pedido/:id/
+  resposta-do-cliente`; a lista e o roteiro do entregador levam `respostaDoCliente`. **APK do entregador:** depois do
+  "Não consigo falar com o cliente", a tela do pedido consulta a resposta a cada 15 s por até 30 min e mostra "💬 O
+  cliente respondeu" (`pedido_screen.dart`, `api.dart`) — acumular; gerar só sob comando. **`.zip`:** só os rótulos da
+  linha do tempo do pedido (`envios-pedido.ts`). Sem migration.
+
 - **"Entregue" perto do endereço no pedido sem código (Onda 0, 01/11; complemento da mig 348): servidor só nuvem — no
   ar com o merge; o resto, no PRÓXIMO APK.** A rota do entregador aceita a posição do toque (`local`) e, no pedido da
   loja sem código, recusa o "Entregue" a mais de 300 m do endereço (com a precisão do GPS de folga). Sem a posição

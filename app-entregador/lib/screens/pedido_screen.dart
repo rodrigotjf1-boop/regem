@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -60,6 +61,7 @@ class _PedidoScreenState extends State<PedidoScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Cliente avisado pelo WhatsApp que você está tentando falar com ele')),
         );
+        _esperarResposta();
       }
     } catch (e) {
       if (mounted) {
@@ -75,8 +77,59 @@ class _PedidoScreenState extends State<PedidoScreen> {
     }
   }
 
+  // A RESPOSTA DO CLIENTE ao "não consigo falar" (Onda 0, 01/11/2026): o cliente responde pelo WhatsApp e a loja manda
+  // para cá. Vem no pedido (lista) e, depois do aviso, a tela consulta a cada 15 s por até 30 min — o mesmo prazo em que
+  // a resposta conta como resposta ao aviso no servidor.
+  late Map<String, dynamic>? _resposta = _respostaDe(widget.pedido['respostaDoCliente']);
+  Timer? _esperaResposta;
+
+  static Map<String, dynamic>? _respostaDe(dynamic v) => v is Map ? Map<String, dynamic>.from(v) : null;
+
+  void _esperarResposta() {
+    _esperaResposta?.cancel();
+    final ate = DateTime.now().add(const Duration(minutes: 30));
+    _esperaResposta = Timer.periodic(const Duration(seconds: 15), (t) async {
+      if (!mounted || DateTime.now().isAfter(ate)) return t.cancel();
+      try {
+        final r = await Api.respostaDoCliente(widget.pedido['id'] as String);
+        final nova = _respostaDe(r['respostaDoCliente']);
+        if (!mounted || nova == null) return;
+        final mudou = nova['texto'] != _resposta?['texto'];
+        setState(() => _resposta = nova);
+        if (mudou) {
+          HapticFeedback.heavyImpact();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('💬 O cliente respondeu — veja na tela do pedido')),
+          );
+        }
+      } catch (_) {
+        // sem rede ou servidor fora: tenta de novo na próxima volta
+      }
+    });
+  }
+
+  Widget _cartaoResposta() {
+    final r = _resposta;
+    if (r == null) return const SizedBox.shrink();
+    return Card(
+      color: Colors.green.withValues(alpha: 0.10),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('💬 O cliente respondeu', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            Text(r['texto']?.toString() ?? ''),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
+    _esperaResposta?.cancel();
     _codigo.dispose();
     super.dispose();
   }
@@ -488,6 +541,7 @@ class _PedidoScreenState extends State<PedidoScreen> {
               label: Text(_semContatoEnviando ? 'Avisando…' : 'Não consigo falar com o cliente'),
             ),
           ],
+          if (_resposta != null) ...[const SizedBox(height: 8), _cartaoResposta()],
           const SizedBox(height: 8),
           FilledButton(
             onPressed: _finalizando ? null : _finalizar,
