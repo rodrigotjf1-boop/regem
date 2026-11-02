@@ -38,7 +38,7 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { PinLoginDto } from './dto/pin-login.dto';
 import { AuthUser } from './auth-user';
-import { PERFIS_PADRAO, perfilPadrao, type Permissoes } from './permissoes';
+import { PERFIS_PADRAO, perfilPadrao, podeAcessar, type Permissoes } from './permissoes';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Lockout de PIN: após N falhas em JANELA minutos (na mesma unidade), bloqueia.
@@ -504,6 +504,94 @@ export class AuthService {
     throw new UnauthorizedException('PIN inválido');
   }
 
+  /**
+   * O PIN NO CELULAR DO APP "REGEM ATENDIMENTO" (mig 353): a empresa vem do APARELHO pareado — o app não manda empresa
+   * nem loja. Cada pessoa entra com o PIN dela (o mesmo do ponto; o aparelho pode ser de uso comum). Excluído, bloqueado,
+   * sem acesso ao atendimento ou de outra loja não entra (ERR-192). A trava de tentativas conta POR APARELHO (10 falhas em
+   * 5 min), como a do terminal de ponto conta por loja. Devolve a sessão (JWT) presa a este celular (`ap`).
+   */
+  async pinLoginNoAparelho(ap: { id: string; tenantId: string; unidadeId: string | null }, pin: string) {
+    if (!/^\d{4,6}$/.test(String(pin ?? ''))) throw new UnauthorizedException('PIN deve ter de 4 a 6 dígitos.');
+    const falhas: any = await this.db.execute(sql`
+      select count(*)::int as n from audit_log
+       where acao = 'pin_falhou' and entidade_tipo = 'equipamento' and entidade_id = ${ap.id}::uuid
+         and created_at > now() - interval '${sql.raw(String(PIN_JANELA_MIN))} minutes'`);
+    if (Number((falhas.rows ?? falhas)[0].n) >= PIN_MAX_FALHAS)
+      throw new ForbiddenException(`Muitas tentativas de PIN neste celular. Tente novamente em ${PIN_JANELA_MIN} minutos.`);
+    const candidatos = await this.db
+      .select({
+        id: colaborador.id,
+        tenantId: colaborador.tenantId,
+        funcaoId: colaborador.funcaoId,
+        unidadeId: colaborador.unidadeId,
+        pinHash: colaborador.pinHash,
+        status: colaborador.status,
+        funcaoCategoria: funcao.categoria,
+        funcaoNome: funcao.nome,
+        perfilNivel: perfilAcesso.nivel,
+        permissoes: perfilAcesso.permissoes,
+        nome: colaborador.nome,
+      })
+      .from(colaborador)
+      .leftJoin(funcao, eq(colaborador.funcaoId, funcao.id))
+      .leftJoin(perfilAcesso, eq(colaborador.perfilAcessoId, perfilAcesso.id))
+      .where(and(eq(colaborador.tenantId, ap.tenantId), isNotNull(colaborador.pinHash), isNull(colaborador.deletedAt)));
+    for (const c of candidatos) {
+      if (!c.pinHash || !(await bcrypt.compare(String(pin), c.pinHash))) continue;
+      if (c.status === 'bloqueado') throw new ForbiddenException('Acesso bloqueado. Fale com o presidente.');
+      // Só quem está ATIVO (o desligamento — mig 135 — também fecha esta porta: V48).
+      if (c.status !== 'ativo') throw new ForbiddenException('Acesso encerrado. Fale com o presidente.');
+      const nivel = c.perfilNivel ?? c.funcaoCategoria ?? 'execucao';
+      const permissoes = (c.permissoes as Permissoes) ?? perfilPadrao(nivel).permissoes;
+      // O app é a fila do atendimento: entra quem a vê no computador (a mesma permissão da tela Atendimento).
+      if (nivel !== 'presidente' && !podeAcessar(permissoes, 'pedidos'))
+        throw new ForbiddenException('O seu perfil não tem acesso ao atendimento. Fale com o gerente.');
+      const esc = await this.escopo(c.funcaoId);
+      // A loja: a regra do computador (UnidadeAtual) — quem tem loja fica na dela, e o celular de OUTRA loja não a abre;
+      // o presidente (sem loja) fica na loja do celular. Quem não é presidente e não tem loja segue sem enxergar nenhuma.
+      const daPessoa = c.unidadeId ?? esc.unidadeId ?? null;
+      if (daPessoa && ap.unidadeId && daPessoa !== ap.unidadeId)
+        throw new ForbiddenException('Este celular é de outra loja. Entre num celular da sua loja.');
+      const loja = daPessoa ?? (nivel === 'presidente' ? ap.unidadeId : null);
+      // `ap` no token: a sessão só vale com este celular (JwtAuthGuard).
+      const base = this.assinar(
+        {
+          colaboradorId: c.id,
+          tenantId: c.tenantId,
+          categoria: nivel,
+          setorId: esc.setorId,
+          unidadeId: loja,
+          permissoes,
+          nome: c.nome,
+          funcaoNome: c.funcaoNome,
+        },
+        { ap: ap.id },
+      );
+      await this.auditoria.registrar({
+        tenantId: ap.tenantId,
+        unidadeId: ap.unidadeId,
+        atorId: c.id,
+        atorPerfil: nivel,
+        tipo: 'auth',
+        acao: 'entrou_no_app_atendimento',
+        entidadeTipo: 'equipamento',
+        entidadeId: ap.id,
+        origem: 'terminal',
+      });
+      return { ...base, nome: c.nome, categoria: nivel, permissoes, colaboradorId: c.id, unidadeId: loja };
+    }
+    await this.auditoria.registrar({
+      tenantId: ap.tenantId,
+      unidadeId: ap.unidadeId,
+      tipo: 'auth',
+      acao: 'pin_falhou',
+      entidadeTipo: 'equipamento',
+      entidadeId: ap.id,
+      origem: 'terminal',
+    });
+    throw new UnauthorizedException('PIN inválido.');
+  }
+
   // Conta as falhas de PIN recentes da unidade (janela de lockout).
   private async pinBloqueado(unidadeId: string): Promise<boolean> {
     const r: any = await this.db.execute(sql`
@@ -550,8 +638,10 @@ export class AuthService {
     return { ok: true };
   }
 
-  private assinar(user: AuthUser) {
+  // `extra`: marcas a mais no token — hoje só `ap`, o celular do app de atendimento (mig 353).
+  private assinar(user: AuthUser, extra: Record<string, unknown> = {}) {
     const access_token = this.jwt.sign({
+      ...extra,
       sub: user.colaboradorId,
       tenant: user.tenantId,
       cat: user.categoria,

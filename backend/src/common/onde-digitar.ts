@@ -27,6 +27,13 @@ export function ondeDigitar(tipo: string): OndeDigitar | null {
         'PC novo, sem o Regem? Rode o RegemEdgeSetup.exe, escolha "Cliente" e, na tela "Este PC", marque "Este PC tem impressora" e digite o código.',
     };
   if (tipo === 'tela_senhas') return { titulo: 'Na TV de senhas', passos: ['A TV mostra "Parear esta TV".', 'Digite os 6 números.'] };
+  // O app "Regem Atendimento" (mig 353): a tela "Primeira vez neste aparelho" (app-atendimento/lib/telas/parear.dart).
+  if (tipo === 'atendimento')
+    return {
+      titulo: 'No celular, no app Regem Atendimento',
+      passos: ['Abra o app Regem Atendimento.', 'Na tela "Primeira vez neste aparelho", digite os 6 números.', 'Toque em "Parear".'],
+      obs: 'O celular precisa de internet: o app fala com o Regem na nuvem.',
+    };
   return null;
 }
 

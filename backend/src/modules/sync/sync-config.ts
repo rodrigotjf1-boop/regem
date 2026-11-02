@@ -56,7 +56,10 @@ export const TABELAS_SYNC: TabelaSync[] = [
     // `tela_senhas` (decisão do dono, 24/10/2026 — parear sem reinstalar): a TV de senhas é cadastrada e pareada no
     // servidor da loja; sem subir, ela sumia numa reinstalação do servidor e tinha de ser cadastrada e pareada de novo.
     // Agora sobe (backup) e volta com o MESMO segredo. A revogação segue protegida como a dos outros (ERR-235).
-    filtroSql: "tipo in ('impressora','pdv','salao','ponto_baixa','kds','totem','estacao_impressao','tela_senhas')",
+    // `atendimento` (mig 353): o celular do app "Regem Atendimento" — cadastrado, pareado, usado e revogado só na NUVEM
+    // (decisão do dono, 02/11/2026: o app fala com a nuvem). Desce como CÓPIA (a tela da loja o mostra; o servidor da loja
+    // recusa mexer — `recusarAppNaLoja`) e não sobe (sync-daemon): uma origem só, sem conflito de segredo ou revogação.
+    filtroSql: "tipo in ('impressora','pdv','salao','ponto_baixa','kds','totem','estacao_impressao','tela_senhas','atendimento')",
   },
   { tabela: 'delivery_config', direcao: 'ambos', cursor: 'updated_at' },
   // Template da etiqueta de validade (mig 245): config espelhada como as de cima —

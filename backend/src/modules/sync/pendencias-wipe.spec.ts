@@ -190,14 +190,17 @@ descrever('trava do apagamento — contra o Postgres', () => {
     expect(semClasse).toEqual([]);
   }, 60000);
 
-  it('equipamento de tipo que NÃO sobe (Terminal de Ponto) TRAVA o apagamento; os que sobem, o servidor e o totem não (ERR-306)', async () => {
+  it('equipamento de tipo que NÃO sobe (Terminal de Ponto) TRAVA o apagamento; os que sobem, o servidor, o totem e o celular do app não (ERR-306)', async () => {
     // O equipamento sobe SÓ em parte (filtro por tipo). Antes a tabela inteira contava como "sobe" e o Terminal de Ponto
     // — a que as marcações e o NSR apontam — sumia calado numa reinstalação. As expressões são as DO DAEMON (lidas da
     // fonte), conferidas nas linhas DESTE teste: o daemon conta o banco inteiro e no CI as specs dividem o banco (LIC-084).
     const PARCIAL = /\{ tabela: 'equipamento', cursor: 'updated_at', filtro: "([^"]+)" \}/.exec(fonte)?.[1] ?? '';
     const SEGURO = /^\s*equipamento: "([^"]+)",$/m.exec(fonte)?.[1] ?? '';
     expect(PARCIAL).toContain("'pdv'");
-    expect(SEGURO).toBe("tipo in ('servidor_local','totem')");
+    // O celular do app "Regem Atendimento" (mig 353) nasce, pareia e é revogado só na nuvem: NÃO sobe, e a cópia daqui
+    // volta da nuvem numa reinstalação — não trava o apagamento.
+    expect(PARCIAL).not.toContain("'atendimento'");
+    expect(SEGURO).toBe("tipo in ('servidor_local','totem','atendimento')");
     expect(fonte).toMatch(/filtro = ` where not \(\$\{parcial\}\)\$\{seguro \? ` and not \(\$\{seguro\}\)` : ''\}`;/); // e o daemon o aplica
     const tenant = (await pool.query(`insert into empresa (nome) values ('Teste equipamento fora do envio') returning id`)).rows[0].id;
     const foraDoEnvio = async () =>
@@ -205,7 +208,7 @@ descrever('trava do apagamento — contra o Postgres', () => {
     const equipar = (tipo: string) =>
       pool.query(`insert into equipamento (tenant_id, tipo, nome, token) values ($1, $2, $3, $4)`, [tenant, tipo, `teste ${tipo}`, `tok-fora-${tipo}-${tenant}`]);
     try {
-      for (const tipo of ['pdv', 'salao', 'kds', 'impressora', 'estacao_impressao', 'tela_senhas', 'ponto_baixa', 'totem', 'servidor_local']) {
+      for (const tipo of ['pdv', 'salao', 'kds', 'impressora', 'estacao_impressao', 'tela_senhas', 'ponto_baixa', 'totem', 'servidor_local', 'atendimento']) {
         await equipar(tipo);
       }
       expect(await foraDoEnvio()).toBe(0); // sobem, voltam da nuvem ou são, por desenho, só desta máquina

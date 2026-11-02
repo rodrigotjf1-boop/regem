@@ -14,7 +14,7 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { AuthUser } from '../../auth/auth-user';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { IfoodService } from '../integracoes/ifood/ifood.service';
-import { autorizarPorSenhaDeGestor, NIVEIS_DA_PLATAFORMA } from '../../common/autorizacao-gestor';
+import { autorizarPorPinDoUsuario, autorizarPorSenhaDeGestor, NIVEIS_DA_PLATAFORMA } from '../../common/autorizacao-gestor';
 import { ehServidorLocal } from '../../common/modo';
 import type { DisputaIfood } from '../integracoes/ifood/ifood-disputa';
 
@@ -48,6 +48,8 @@ export type RespostaDaDisputa = {
   centavos?: number;
   minutos?: number;
   senha?: string;
+  /** No app "Regem Atendimento" (mig 353): o PIN de quem está nele, no lugar da senha. */
+  pin?: string;
 };
 
 type PedidoAoIfood = { acao: 'accept' | 'reject' | 'alternative'; corpo: Record<string, unknown>; resumo: Record<string, unknown> };
@@ -135,7 +137,10 @@ export class DisputaIfoodService {
     const c = await this.carregar(user.tenantId, id);
     this.conferirAberta(c);
     const pedido = montarRespostaAoIfood(c.detalhe.disputa, dto ?? {});
-    const quem = await autorizarPorSenhaDeGestor(this.db, user.tenantId, dto?.senha, NIVEIS_DA_PLATAFORMA);
+    // No computador, a senha de quem decide; no app (mig 353), o PIN de quem está nele.
+    const quem = dto?.pin
+      ? await autorizarPorPinDoUsuario(this.db, user.tenantId, user.colaboradorId, dto.pin, NIVEIS_DA_PLATAFORMA)
+      : await autorizarPorSenhaDeGestor(this.db, user.tenantId, dto?.senha, NIVEIS_DA_PLATAFORMA);
     if (ehServidorLocal()) return this.responderPelaNuvem(user, c, dto, quem);
     return this.enviar(user.tenantId, c, pedido, quem, user.colaboradorId ?? null, user.categoria ?? null);
   }
@@ -195,7 +200,7 @@ export class DisputaIfoodService {
     const nuvem = String(process.env.CLOUD_API ?? '').replace(/\/$/, '');
     const token = process.env.SYNC_TOKEN ?? '';
     if (!nuvem || !token) throw new BadGatewayException('Este servidor não está ligado à nuvem: a resposta ao iFood sai de lá.');
-    const { senha: _senha, ...semSenha } = dto ?? {};
+    const { senha: _senha, pin: _pin, ...semSenha } = dto ?? {};
     let res: Response;
     try {
       res = await fetch(`${nuvem}/atendimento/disputa-da-loja`, {

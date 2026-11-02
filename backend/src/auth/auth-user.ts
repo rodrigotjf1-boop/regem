@@ -13,6 +13,9 @@ export interface AuthUser {
   // Exibição (menu inferior): nome do responsável + rótulo da função.
   nome?: string | null;
   funcaoNome?: string | null;
+  // App "Regem Atendimento" (mig 353): o celular pareado em que a pessoa entrou com o PIN. Só existe nessa sessão — e
+  // ela só vale com esse celular (o JwtAuthGuard confere o `X-Terminal-Id`).
+  aparelhoId?: string | null;
   // Sessão de suporte (F9): presente só quando categoria='suporte' (técnico da distribuição).
   suporte?: { sessaoId: string; tecnicoId: string; nome?: string | null };
 }

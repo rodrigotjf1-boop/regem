@@ -242,6 +242,48 @@ descrever('pedidos do cliente da 99 na central (Postgres)', () => {
     expect((await svc.ajustes(T)).ajuste99).toMatchObject({ reembolsoRecusarEmHoras: 8 });
   });
 
+  it('no APP (mig 353): o PIN de quem está nele responde ao pedido da 99 — gerente sim, supervisão não', async () => {
+    const [{ id: sara }] = await q(`select id from colaborador where tenant_id = $1 and nome = 'Sara supervisora'`, [T]);
+    await q(`update colaborador set pin_hash = $2 where id = $1`, [gerente, await bcrypt.hash('2468', 4)]);
+    await q(`update colaborador set pin_hash = $2 where id = $1`, [sara, await bcrypt.hash('1357', 4)]);
+    const noApp = (quem: string) => ({ tenantId: T, colaboradorId: quem, categoria: 'execucao', aparelhoId: '00000000-0000-4000-8000-000000000353' }) as any;
+    await food99.processarWebhook(aviso('orderCancelApply', '1007'));
+    const [c] = await casos();
+    await expect(svc.responder(noApp(sara), c.id, { aceita: false, motivo: 'preparing', pin: '1357' })).rejects.toThrow('Só gerente e presidente respondem. Chame o gerente.');
+    await expect(svc.responder(noApp(gerente), c.id, { aceita: false, motivo: 'preparing', pin: '0000' })).rejects.toThrow('PIN inválido.');
+    expect(enviados).toEqual([]);
+    const r = await svc.responder(noApp(gerente), c.id, { aceita: false, motivo: 'preparing', pin: '2468' });
+    expect(r.resposta).toMatchObject({ acao: 'recusar', motivo: 'preparing', por: 'Ana gerente' });
+    expect((await casos())[0]).toMatchObject({ status: 'resolvido', decisao: 'recusado', resolvido_por_id: gerente });
+  });
+
+  it('no SERVIDOR DA LOJA, pelo PIN: conferido aqui, e o PIN não vai à nuvem', async () => {
+    await q(`update colaborador set pin_hash = $2 where id = $1`, [gerente, await bcrypt.hash('2468', 4)]);
+    await food99.processarWebhook(aviso('orderCancelApply', '1008'));
+    const [c] = await casos();
+    process.env.EDGE_MODE = 'true';
+    const antes = { api: process.env.CLOUD_API, tok: process.env.SYNC_TOKEN };
+    process.env.CLOUD_API = 'https://nuvem.teste/api/v1';
+    process.env.SYNC_TOKEN = 'tok';
+    const pedidos: any[] = [];
+    const fetchAntes = global.fetch;
+    global.fetch = (async (url: any, init: any) => {
+      pedidos.push({ url: String(url), corpo: JSON.parse(init.body) });
+      return new Response(JSON.stringify({ ok: true, resposta: { acao: 'aceitar', por: 'Ana gerente' } }), { status: 200 });
+    }) as any;
+    try {
+      await svc.responder({ tenantId: T, colaboradorId: gerente, categoria: 'gerente' } as any, c.id, { aceita: true, pin: '2468' });
+    } finally {
+      global.fetch = fetchAntes;
+      process.env.CLOUD_API = antes.api;
+      process.env.SYNC_TOKEN = antes.tok;
+      delete process.env.EDGE_MODE;
+    }
+    expect(pedidos[0].corpo).toMatchObject({ chamadoId: c.id, aceita: true, liberadorId: gerente });
+    expect(pedidos[0].corpo.pin).toBeUndefined();
+    expect(enviados).toEqual([]);
+  });
+
   it('no SERVIDOR DA LOJA: a senha é conferida aqui e a resposta vai à nuvem, sem a senha no corpo', async () => {
     await food99.processarWebhook(aviso('orderCancelApply', '1006'));
     const [c] = await casos();

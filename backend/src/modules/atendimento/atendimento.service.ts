@@ -28,6 +28,8 @@ import {
   juntarMensagem,
 } from './abrir-chamado';
 import { canalDoCaso, posicoes, situacaoDo } from './fila';
+import { PRESENCA_VALE_MIN } from './presenca';
+import { ehServidorLocal } from '../../common/modo';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -151,15 +153,30 @@ export class AtendimentoService {
   /**
    * A EQUIPE para "Passar o caso": as pessoas ATIVAS da loja em uso (e as sem loja), só id e nome — o mínimo, para quem
    * atende sem a permissão do cadastro de colaboradores. O presidente na rede vê todas. Em ordem de nome.
+   * Na nuvem, com a situação de quem está no app de atendimento agora (mig 353: "Bruno · disponível", "Carla · ocupada:
+   * caixa"); quem não está no app vem com `presenca: null`. No servidor da loja a tabela não existe — só os nomes.
    */
   async equipe(user: AuthUser, unidadeAtual: string | null) {
+    const naNuvem = !ehServidorLocal();
     const r: any = await this.db.execute(sql`
-      select c.id, c.nome from colaborador c
+      select c.id, c.nome ${naNuvem ? sql`, p.estado, p.motivo` : sql``}
+        from colaborador c
+        ${
+          naNuvem
+            ? sql`left join atendimento_presenca p on p.colaborador_id = c.id and p.tenant_id = c.tenant_id
+                   and p.atualizado_em > now() - interval '${sql.raw(String(PRESENCA_VALE_MIN))} minutes'`
+            : sql``
+        }
        where c.tenant_id = ${user.tenantId} and c.status = 'ativo' and c.deleted_at is null
              ${sqlUnidadeOuRede('c.unidade_id', unidadeAtual)}
        order by c.nome
        limit ${LIMITE_DA_FILA}`);
-    return ((r.rows ?? r) as Array<{ id: string; nome: string }>).map((p) => ({ ...p, eu: p.id === user.colaboradorId }));
+    return ((r.rows ?? r) as Array<{ id: string; nome: string; estado?: string | null; motivo?: string | null }>).map((p) => ({
+      id: p.id,
+      nome: p.nome,
+      eu: p.id === user.colaboradorId,
+      presenca: p.estado ? { estado: p.estado, motivo: p.motivo ?? null } : null,
+    }));
   }
 
   private async contagens(user: AuthUser, loja: ReturnType<typeof sqlUnidadeOuRede>) {

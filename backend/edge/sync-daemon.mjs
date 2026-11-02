@@ -209,6 +209,8 @@ const PUSH_TABLES = [
   // (backup + volta num banco novo). equipamento FILTRADO: nunca 'servidor_local'.
   // `estacao_impressao` (mig 324): pareada aqui, sobe como as impressoras.
   // `tela_senhas` (decisão do dono, 24/10/2026): a TV de senhas também sobe — volta pareada depois de reinstalar.
+  // `atendimento` (mig 353) NÃO sobe: o celular do app "Regem Atendimento" nasce, pareia e é revogado só na nuvem (a
+  // tela daqui só o mostra) — desce como cópia (FORA_DO_ENVIO_SEGURO, abaixo).
   { tabela: 'equipamento', cursor: 'updated_at', filtro: "tipo in ('impressora','pdv','salao','ponto_baixa','kds','estacao_impressao','tela_senhas')" },
   { tabela: 'delivery_config', cursor: 'updated_at' },
   { tabela: 'etiqueta_template', cursor: 'updated_at' },
@@ -2287,6 +2289,9 @@ const SO_NUVEM = new Set([
   'robo_carrinho',
   // "Já avisei este pedido do atraso" (mig 347, @cloud-only): o aviso automático sai pelo WhatsApp oficial, só da nuvem.
   'pedido_aviso_atraso',
+  // "Disponível / Ocupado: embalando" de quem atende pelo app "Regem Atendimento" (mig 353, @cloud-only): o app fala
+  // com a nuvem (decisão do dono, 02/11/2026); a loja não tem esta tabela.
+  'atendimento_presenca',
 ]);
 
 // LEGADO SEM USO: tabelas criadas nas migrations de fundação (002/003) para recursos que
@@ -2361,8 +2366,9 @@ const FILA_DE_SAIDA_PENDENTE = "status in ('pendente', 'enviando', 'aguardando_i
 // apontam — sumia calado numa reinstalação (ERR-306; plano do dono de 25/10/2026: reinstalar não perde pareamento).
 const FORA_DO_ENVIO_SEGURO = {
   // servidor_local: o próprio servidor (a nuvem o devolve pelo fingerprint, no provisionamento); totem: nasce na nuvem
-  // (distribuição) e desce no pull (sync-config).
-  equipamento: "tipo in ('servidor_local','totem')",
+  // (distribuição) e desce no pull (sync-config); atendimento (mig 353): o celular do app "Regem Atendimento" nasce e
+  // pareia na nuvem e desce no pull — a cópia daqui volta numa reinstalação.
+  equipamento: "tipo in ('servidor_local','totem','atendimento')",
 };
 
 // Tabelas com dado da loja que NÃO sobem nem voltam. Devolve [{ tabela, linhas }].

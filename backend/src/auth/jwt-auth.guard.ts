@@ -93,6 +93,16 @@ export class JwtAuthGuard implements CanActivate {
       perfil: payload.perfil,
     };
 
+    // APP "REGEM ATENDIMENTO" (mig 353): a sessão que nasceu no PIN do celular pareado vale SÓ com esse celular. O app
+    // manda o id dele em toda chamada, e o `TerminalSegredoInterceptor` confere o segredo e a revogação. Sem isto, o token
+    // copiado do celular serviria em qualquer lugar, e revogar o aparelho em Equipamentos não fecharia a sessão.
+    if (payload.ap) {
+      const h = req.headers['x-terminal-id'];
+      if ((Array.isArray(h) ? h[0] : h) !== payload.ap)
+        throw new UnauthorizedException('Esta sessão é do app de atendimento: entre pelo celular pareado.');
+      req.user.aparelhoId = payload.ap;
+    }
+
     // Revalidação autoritativa contra o banco (cacheada por CACHE_MS).
     try {
       const fresh = await this.estado(payload.sub);

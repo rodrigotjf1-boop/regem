@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **App "Regem Atendimento" — o servidor (Onda 2, parte 1, 02/11, mig 353 @cloud-only — aplicar na nuvem ANTES do
+  merge): nuvem no ar com o merge (o app fala com a nuvem: a entrada com PIN, "Disponível / Ocupado" e o PIN de gerente
+  na disputa e na 99 moram lá); a loja no `.zip` — e toca o `edge/sync-daemon.mjs` (o celular do app desce da nuvem como
+  cópia e não sobe; reinstalar o servidor não trava por ele), então instalação NOVA pede o `.exe` do mesmo corte.** Em
+  Equipamentos, tipo novo "App de atendimento (celular)", cadastrado, pareado e revogado SÓ na nuvem (no servidor da loja
+  só aparece). O app (Flutter, `app-atendimento/`) vem no PR seguinte; o APK sai sob comando.
+
 - **"Chegou tudo certo?" depois da entrega (B1, 02/11, mig 352 @cloud-only — aplicar na nuvem ANTES do merge): só
   nuvem (a rotina, a resposta e o ajuste moram lá; nasce desligado); a loja no `.zip` só a tela do ajuste.**
 

@@ -22,6 +22,7 @@ import { NovoPcComImpressora } from '@/components/equipamentos/novo-pc-impressor
 import { EquipamentosPorPc } from '@/components/equipamentos/por-pc';
 import { TelaSenhasGaveta } from '@/components/senhas/tela-senhas-gaveta';
 import { agruparPorPc, conexaoDe, ehGogem, ligacaoDe, podeReativar, seloDe, situacaoDe, tipoDe } from '@/components/equipamentos/equipamento';
+import { NO_SERVIDOR_DA_LOJA } from '@/components/ui/so-pela-nuvem';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Parte = 'equipamentos' | 'fila' | 'historico';
@@ -201,16 +202,19 @@ export default function EquipamentosPage() {
   // Com servidor local, impressora, KDS e estação de impressão são configurados nele: a nuvem recusa,
   // então nem oferece (a estação pareia no servidor da loja — o código também sai lá).
   const doServidorLocal = (e: any) => peloServidorLocal && ['impressora', 'kds', 'estacao_impressao', 'tela_senhas'].includes(e.tipo);
-  const configuravel = (e: any) => !doServidorLocal(e);
+  // O contrário: o celular do app de atendimento (mig 353) se cadastra, pareia e revoga só pela NUVEM (é com ela que o app
+  // fala). No servidor da loja ele só aparece — o servidor recusa mexer, então a tela nem oferece.
+  const soPelaNuvem = (e: any) => NO_SERVIDOR_DA_LOJA && e.tipo === 'atendimento';
+  const configuravel = (e: any) => !doServidorLocal(e) && !soPelaNuvem(e);
   const acoesDe = (e: any): Acao<any>[] => {
-    if (!pode) return [];
+    if (!pode || soPelaNuvem(e)) return [];
     // Revogado há até 30 dias: dá para desfazer (ERR-236). Impressora/KDS/estação de loja com
     // servidor local se reativam nele, como se configuram.
     if (!e.ativo) return podeReativar(e) && !doServidorLocal(e) ? [{ rotulo: 'Reativar', icone: RotateCcw, aoClicar: setReativando }] : [];
     return [
       ...(e.tipo === 'impressora' ? [{ rotulo: 'Imprimir teste', icone: Printer, aoClicar: (x: any) => void imprimirTeste(x), ocupada: (x: any) => testando === x.id }] : []),
       ...(e.tipo === 'tela_senhas' && configuravel(e) ? [{ rotulo: 'Ajustes da tela', icone: Tv, aoClicar: setTelaAjustes }] : []),
-      ...((['pdv', 'salao'].includes(e.tipo) && !ehGogem(e)) || (['estacao_impressao', 'tela_senhas'].includes(e.tipo) && !doServidorLocal(e))
+      ...((['pdv', 'salao'].includes(e.tipo) && !ehGogem(e)) || (['estacao_impressao', 'tela_senhas', 'atendimento'].includes(e.tipo) && !doServidorLocal(e))
         ? [{ rotulo: 'Gerar código', icone: KeyRound, aoClicar: setCodigoDe }]
         : []),
       ...(configuravel(e) ? [{ rotulo: 'Configurar', icone: Settings2, aoClicar: (x: any) => setForm({ item: x }) }] : []),
@@ -241,12 +245,19 @@ export default function EquipamentosPage() {
               {pode && <Button type="button" onClick={() => setForm({ item: null })}><Plus className="h-4 w-4" aria-hidden="true" /> Novo equipamento</Button>}
             </TituloLista>
             <p className={`max-w-3xl text-sm ${texto2}`}>
-              Registre os apps satélites (KDS e Terminal de Ponto) que se conectam ao Regem. Cada aparelho recebe um token único usado no pareamento.
+              Registre os apps satélites (KDS, Terminal de Ponto e o app de atendimento no celular) que se conectam ao Regem. Cada aparelho
+              recebe um token ou um código único usado no pareamento.
             </p>
             {peloServidorLocal && (
               <p className="rounded-md border-l-4 border-warn bg-warn/10 px-3 py-2 text-sm" role="status">
                 Esta loja tem <strong>servidor local (edge) ativo</strong> — a configuração de impressão é gerenciada por ele. Aqui na nuvem ela fica{' '}
                 <strong>somente leitura</strong>; edite as impressoras e os KDS, e teste, no servidor local da loja.
+              </p>
+            )}
+            {NO_SERVIDOR_DA_LOJA && lista.some((e) => e.tipo === 'atendimento') && (
+              <p role="note" className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+                O app de atendimento (celular) se cadastra, pareia e revoga pela nuvem: abra esta mesma tela no Regem na nuvem. Aqui, no servidor
+                da loja, ele só aparece.
               </p>
             )}
             {avisosRota.length > 0 && (
@@ -360,9 +371,10 @@ export default function EquipamentosPage() {
           aoFechar={() => setForm(null)}
           aoCadastrar={(novo, aviso) => {
             setForm(null);
-            // A estação e a tela de senhas não usam token: pareiam pelo código (no ícone "Regem neste PC" — no instalador só
-            // se o PC é novo; na TV, em /senhas). O diálogo diz onde, pelo que o servidor manda.
-            if (novo.tipo === 'estacao_impressao' || novo.tipo === 'tela_senhas') setCodigoDe(novo);
+            // A estação, a tela de senhas e o celular do app de atendimento não usam token: pareiam pelo código (no ícone
+            // "Regem neste PC" — no instalador só se o PC é novo; na TV, em /senhas; no celular, no app). O diálogo diz onde,
+            // pelo que o servidor manda.
+            if (['estacao_impressao', 'tela_senhas', 'atendimento'].includes(novo.tipo)) setCodigoDe(novo);
             else setTokenNovo({ nome: novo.nome, token: novo.token, aviso });
             void reload();
           }}

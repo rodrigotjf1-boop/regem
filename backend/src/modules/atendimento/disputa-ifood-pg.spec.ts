@@ -192,6 +192,47 @@ descrever('disputas do iFood na central (Postgres)', () => {
     expect((await q(`select status from atendimento_chamado where id = $1`, [id]))[0].status).toBe('resolvido');
   });
 
+  it('no APP (mig 353): o PIN de quem está nele decide — gerente responde; supervisão ouve "chame o gerente"; PIN errado não passa', async () => {
+    const [{ id: sara }] = await q(`select id from colaborador where tenant_id = $1 and nome = 'Sara supervisora'`, [T]);
+    await q(`update colaborador set pin_hash = $2 where id = $1`, [gerente, await bcrypt.hash('2468', 4)]);
+    await q(`update colaborador set pin_hash = $2 where id = $1`, [sara, await bcrypt.hash('1357', 4)]);
+    const noApp = (quem: string) => ({ tenantId: T, colaboradorId: quem, categoria: 'execucao', aparelhoId: randomUUID() }) as any;
+    const { id } = await registrarDisputa(db, emitir, ig, evento('disp-pin', 'ord-pin'));
+    await expect(svc.responder(noApp(sara), id!, { acao: 'aceitar', motivo: 'WRONG_ORDER', pin: '1357' })).rejects.toThrow('Só gerente e presidente respondem. Chame o gerente.');
+    await expect(svc.responder(noApp(gerente), id!, { acao: 'aceitar', motivo: 'WRONG_ORDER', pin: '9999' })).rejects.toThrow('PIN inválido.');
+    expect(chamadasIfood).toEqual([]);
+    const r = await svc.responder(noApp(gerente), id!, { acao: 'aceitar', motivo: 'WRONG_ORDER', pin: '2468' });
+    expect(r.resposta).toMatchObject({ acao: 'aceitar', por: 'Ana gerente', porId: gerente });
+    expect(chamadasIfood).toEqual([[ig, 'disp-pin', 'accept', { reason: 'WRONG_ORDER' }]]);
+  });
+
+  it('no SERVIDOR DA LOJA, pelo PIN: conferido aqui, e o PIN não vai à nuvem', async () => {
+    await q(`update colaborador set pin_hash = $2 where id = $1`, [gerente, await bcrypt.hash('2468', 4)]);
+    const { id } = await registrarDisputa(db, emitir, ig, evento('disp-pin-loja', 'ord-pin-loja'));
+    process.env.EDGE_MODE = 'true';
+    const antes = { api: process.env.CLOUD_API, tok: process.env.SYNC_TOKEN };
+    process.env.CLOUD_API = 'https://nuvem.teste/api/v1';
+    process.env.SYNC_TOKEN = 'tok';
+    const enviados: any[] = [];
+    const fetchAntes = global.fetch;
+    global.fetch = (async (url: any, init: any) => {
+      enviados.push({ url: String(url), corpo: JSON.parse(init.body) });
+      return new Response(JSON.stringify({ ok: true, resposta: { acao: 'aceitar', motivo: 'WRONG_ORDER', por: 'Ana gerente' } }), { status: 200 });
+    }) as any;
+    try {
+      await svc.responder({ tenantId: T, colaboradorId: gerente, categoria: 'gerente', aparelhoId: randomUUID() } as any, id!, { acao: 'aceitar', motivo: 'WRONG_ORDER', pin: '2468' });
+    } finally {
+      global.fetch = fetchAntes;
+      process.env.CLOUD_API = antes.api;
+      process.env.SYNC_TOKEN = antes.tok;
+      delete process.env.EDGE_MODE;
+    }
+    expect(enviados.length).toBe(1);
+    expect(enviados[0].corpo).toMatchObject({ chamadoId: id, acao: 'aceitar', liberadorId: gerente, liberadorNome: 'Ana gerente' });
+    expect(enviados[0].corpo.pin).toBeUndefined();
+    expect(enviados[0].corpo.senha).toBeUndefined();
+  });
+
   it('na NUVEM, vindo da loja: responde ao iFood com quem a loja disse que liberou', async () => {
     const { id } = await registrarDisputa(db, emitir, ig, evento('disp-9', 'ord-9'));
     const r = await svc.responderVindoDaLoja(T, { chamadoId: id!, acao: 'recusar', motivo: 'INVENTORY_CHECK', liberadorId: gerente, liberadorNome: 'Ana gerente' });

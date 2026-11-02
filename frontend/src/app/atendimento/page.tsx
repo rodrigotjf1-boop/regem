@@ -597,7 +597,10 @@ function Caso({
 }
 
 function PassarCaso({ caso, aoFechar, aoPassar }: { caso: CasoDaFila; aoFechar: () => void; aoPassar: () => Promise<void> }) {
-  const [equipe, setEquipe] = useState<{ id: string; nome: string; eu: boolean }[] | null>(null);
+  // `presenca`: quem está no app de atendimento agora (mig 353, só na nuvem) — "disponível" ou "ocupado: caixa".
+  const [equipe, setEquipe] = useState<
+    { id: string; nome: string; eu: boolean; presenca?: { estado: string; motivo: string | null } | null }[] | null
+  >(null);
   const [para, setPara] = useState<string>('');
   const [erro, setErro] = useState('');
   const [enviando, setEnviando] = useState(false);
@@ -652,8 +655,16 @@ function PassarCaso({ caso, aoFechar, aoPassar }: { caso: CasoDaFila; aoFechar: 
             className="flex min-h-11 cursor-pointer items-center gap-2 rounded-md border border-border px-3 text-sm has-[:checked]:border-primary has-[:checked]:bg-primary/10"
           >
             <input type="radio" name="passar-para" value={p.id} checked={para === p.id} onChange={() => setPara(p.id)} />
-            {p.nome}
-            {p.eu ? ' (você)' : ''}
+            <span className="min-w-0 break-words">
+              {p.nome}
+              {p.eu ? ' (você)' : ''}
+              {p.presenca && (
+                <span className="text-secondary-foreground">
+                  {' · '}
+                  {p.presenca.estado === 'disponivel' ? 'disponível' : `ocupado${p.presenca.motivo ? `: ${p.presenca.motivo}` : ''}`}
+                </span>
+              )}
+            </span>
           </label>
         ))}
         {equipe !== null && !opcoes.length && <p className="text-sm text-secondary-foreground">Ninguém mais ativo nesta loja.</p>}

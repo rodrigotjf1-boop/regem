@@ -21,6 +21,7 @@ import { RolesGuard } from './roles.guard';
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtAuthGuard, RolesGuard],
-  exports: [JwtModule, JwtAuthGuard, RolesGuard],
+  // AuthService: a entrada por PIN no celular do app de atendimento (AtendimentoAppController, mig 353).
+  exports: [JwtModule, JwtAuthGuard, RolesGuard, AuthService],
 })
 export class AuthModule {}
