@@ -4,6 +4,7 @@ import { AtendimentoLojaController } from './atendimento-loja.controller';
 import { AtendimentoService } from './atendimento.service';
 import { DisputaIfoodService } from './disputa-ifood.service';
 import { Pedido99Service } from './pedido-99.service';
+import { ChatIfoodService } from './chat-ifood.service';
 import { DeliveryModule } from '../delivery/delivery.module';
 import { IntegracoesModule } from '../integracoes/integracoes.module';
 import { EquipamentoModule } from '../equipamento/equipamento.module';
@@ -15,7 +16,8 @@ import { SyncTokenGuard } from '../sync/sync-token.guard';
   imports: [DeliveryModule, forwardRef(() => IntegracoesModule), EquipamentoModule],
   controllers: [AtendimentoController, AtendimentoLojaController],
   // Pedido99Service: a resposta ao pedido do cliente da 99 e a rotina da nuvem (cancelamento vencido, reembolso recusado).
-  providers: [AtendimentoService, DisputaIfoodService, Pedido99Service, SyncTokenGuard],
+  // ChatIfoodService: a configuração do chat oficial do iFood (o widget da distribuição e as lojas do iFood).
+  providers: [AtendimentoService, DisputaIfoodService, Pedido99Service, ChatIfoodService, SyncTokenGuard],
   exports: [AtendimentoService],
 })
 export class AtendimentoModule {}

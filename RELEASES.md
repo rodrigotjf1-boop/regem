@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **O chat oficial do iFood na tela Atendimento (Onda 1, PR 5, 02/11, sem migration): nasce DESLIGADO — só aparece
+  depois que a distribuição cadastrar o widget no Portal do Desenvolvedor do iFood e puser `IFOOD_WIDGET_ID` no
+  `regem-api`; a loja no `.zip` (o botão e o "pedir à nuvem" da configuração).**
+
 - **O robô preenche o caso da central (Onda 1, PR 4, 02/11, sem migration — usa a 351): nuvem no ar com o merge (a rota
   do robô e as instruções são da nuvem; o robô passa a escrever o resumo em três linhas e a dizer o lugar na fila); a
   loja no `.zip` (o bloco "O robô resumiu" na tela e o resumo dos casos do "sem contato" e do "robô do outro lado").**

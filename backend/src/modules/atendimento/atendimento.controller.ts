@@ -13,6 +13,7 @@ import { TerminalAtual } from '../../auth/terminal-atual.decorator';
 import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AtendimentoService } from './atendimento.service';
 import { DisputaIfoodService, RespostaDaDisputa } from './disputa-ifood.service';
+import { ChatIfoodService } from './chat-ifood.service';
 
 // Chamados de atendimento (handoff). Operados por quem está no balcão/gestão.
 @Controller('atendimento')
@@ -23,7 +24,16 @@ export class AtendimentoController {
     private readonly service: AtendimentoService,
     private readonly disputa: DisputaIfoodService,
     private readonly pedido99: Pedido99Service,
+    private readonly chatIfood: ChatIfoodService,
   ) {}
+
+  // A configuração do CHAT OFICIAL DO iFOOD (o widget da distribuição e as lojas do iFood da empresa). Sem o widget
+  // cadastrado pela distribuição, `disponivel: false` — a tela não mostra o botão.
+  @Get('chat-ifood')
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
+  chatDoIfood(@CurrentUser() user: AuthUser) {
+    return this.chatIfood.config(user.tenantId);
+  }
 
   // Resposta ao pedido de CANCELAMENTO ou REEMBOLSO do cliente da 99 (aceitar ou recusar com o motivo da lista). Só
   // gerente e presidente — a senha diz quem respondeu.
