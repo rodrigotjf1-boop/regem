@@ -74,10 +74,12 @@ descrever('robô do outro lado (Postgres)', () => {
     await gravar('entrada', MENU, 2);
     const r = await portao();
     expect(r).toMatchObject({ calar: true, abriuChamado: true, avaliacao: { robo: true, sinais: ['texto_automatico', 'repeticao'] } });
-    const chamados = await q(`select tipo, prioridade, status, telefone, cliente, mensagem from atendimento_chamado where tenant_id = $1`, [T]);
+    const chamados = await q(`select tipo, prioridade, status, telefone, cliente, mensagem, detalhe from atendimento_chamado where tenant_id = $1`, [T]);
     expect(chamados).toHaveLength(1);
     expect(chamados[0]).toMatchObject({ tipo: 'outro', prioridade: 'normal', status: 'aberto', telefone: CEL, cliente: 'Fornecedor X' });
     expect(chamados[0].mensagem.startsWith(MARCA_DO_CHAMADO)).toBe(true);
+    expect(chamados[0].detalhe.robo.motivo.startsWith(`${MARCA_DO_CHAMADO}: `)).toBe(true); // o resumo da central (PR 4)
+    expect(chamados[0].detalhe.robo.jaFez).toContain('Parou de responder nesta conversa');
     expect(eventos.map((e) => e.ev)).toEqual(['atendimento.novo']);
 
     // A próxima mensagem dele (mesmo sem sinal novo): calada pela marca, sem abrir outro chamado.

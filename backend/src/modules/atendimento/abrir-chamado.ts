@@ -2,6 +2,7 @@ import { and, desc, eq, gte, isNotNull, sql } from 'drizzle-orm';
 import { atendimentoChamado } from '../../db/schema';
 import { chaveTelefone, sqlChaveTelefone } from '../../common/telefone-chave';
 import { canalValido } from './fila';
+import type { ResumoDoRobo } from './resumo-do-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -21,6 +22,8 @@ export type DadosDoChamado = {
   prioridade?: Prioridade;
   /** De onde veio (mig 350): whatsapp | cardapio | anotaai | ifood | 99food. O do robô é 'whatsapp'. */
   canal?: string;
+  /** O resumo do robô (Onda 1, PR 4) — vai para `detalhe.robo`. */
+  resumo?: ResumoDoRobo | null;
 };
 
 /** Avisa a tela em tempo real (o `EventEmitter2.emit`). */
@@ -54,10 +57,41 @@ export async function abrirChamado(db: any, emitir: Emitir, tenantId: string, un
       mensagem: dto.mensagem?.trim() || null,
       prioridade: dto.prioridade === 'urgente' ? 'urgente' : 'normal',
       canal: canalValido(dto.canal),
+      ...(dto.resumo ? { detalhe: { robo: { ...dto.resumo, em: new Date().toISOString() } } } : {}),
     })
     .returning();
   emitir('atendimento.novo', { tenantId, chamado: row });
-  return { ok: true, id: row.id, prioridade: row.prioridade };
+  return { ok: true, id: row.id, prioridade: row.prioridade, ...(await posicaoNaFila(db, tenantId, row.id)) };
+}
+
+/**
+ * A POSIÇÃO do caso na fila (Onda 1, PR 4): quantos casos esperam uma pessoa antes dele, na ordem da fila (urgente
+ * primeiro, depois o mais antigo — `compararNaFila`), entre os que a loja dele vê (a loja e os sem loja; caso sem loja =
+ * a empresa toda). Só conta quem está NA FILA: sem responsável, sem aguardar o cliente e sem prazo de plataforma.
+ * `comAlguem` = já tem uma pessoa no caso (o robô diz isso no lugar da posição). Nunca rejeita: sem posição, null.
+ */
+export async function posicaoNaFila(db: any, tenantId: string, id: string): Promise<{ posicao: number | null; comAlguem: boolean }> {
+  try {
+    const r: any = await db.execute(sql`
+      with c as (
+        select id, unidade_id, prioridade, criado_em, responsavel_id, aguardando_desde, prazo_em, status
+          from atendimento_chamado where tenant_id = ${tenantId} and id = ${id}
+      )
+      select c.responsavel_id is not null as "comAlguem",
+             case when c.status = 'aberto' and c.responsavel_id is null and c.aguardando_desde is null and c.prazo_em is null then
+               (select count(*)::int + 1 from atendimento_chamado o
+                 where o.tenant_id = ${tenantId} and o.id <> c.id and o.status = 'aberto' and o.responsavel_id is null
+                   and o.aguardando_desde is null and o.prazo_em is null
+                   and (c.unidade_id is null or o.unidade_id = c.unidade_id or o.unidade_id is null)
+                   and ((o.prioridade = 'urgente' and c.prioridade <> 'urgente')
+                        or (o.prioridade = c.prioridade and (o.criado_em, o.id) < (c.criado_em, c.id))))
+             end as posicao
+        from c`);
+    const row = (r?.rows ?? r ?? [])[0];
+    return { posicao: row?.posicao ?? null, comAlguem: !!row?.comAlguem };
+  } catch {
+    return { posicao: null, comAlguem: false };
+  }
 }
 
 /**
@@ -129,6 +163,11 @@ export async function abrirChamadoPeloRobo(db: any, emitir: Emitir, tenantId: st
     patch.pedidoId = dto.pedidoId;
     if (!aberto.pedidoNumero && dto.pedidoNumero != null) patch.pedidoNumero = String(dto.pedidoNumero);
   }
+  // O resumo novo substitui o do robô, mesclado no banco: o resto do `detalhe` (o que outra rotina gravou) fica (V82).
+  if (dto.resumo) {
+    const robo = { robo: { ...dto.resumo, em: new Date().toISOString() } };
+    patch.detalhe = sql`coalesce(${atendimentoChamado.detalhe}, '{}'::jsonb) || ${JSON.stringify(robo)}::jsonb`;
+  }
   let row: any = aberto;
   if (Object.keys(patch).length) {
     [row] = await db
@@ -138,5 +177,12 @@ export async function abrirChamadoPeloRobo(db: any, emitir: Emitir, tenantId: st
       .returning();
   }
   if (subiu) emitir('atendimento.novo', { tenantId, chamado: row });
-  return { ok: true, id: aberto.id, prioridade: (row?.prioridade ?? aberto.prioridade) as Prioridade, jaAberto: true };
+  else if (Object.keys(patch).length) emitir('atendimento.mudou', { tenantId, id: aberto.id, motivo: 'robo_somou' });
+  return {
+    ok: true,
+    id: aberto.id,
+    prioridade: (row?.prioridade ?? aberto.prioridade) as Prioridade,
+    jaAberto: true,
+    ...(await posicaoNaFila(db, tenantId, aberto.id)),
+  };
 }

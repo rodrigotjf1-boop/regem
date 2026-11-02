@@ -13,6 +13,7 @@ import { ChipDoCanal } from '@/components/atendimento/chip-do-canal';
 import { DecidirCancelamento } from '@/components/atendimento/decidir-cancelamento';
 import { DisputaIfood } from '@/components/atendimento/disputa-ifood';
 import { Pedido99 } from '@/components/atendimento/pedido-99';
+import { ResumoDoRobo, resumoCurto } from '@/components/atendimento/resumo-do-robo';
 import {
   CASO_DA_PLATAFORMA,
   ROTULO_DO_CANAL,
@@ -356,7 +357,9 @@ function ListaDaFila({
                 </span>
               </span>
               <span className="mt-1 block break-words font-bold">{tituloDoCaso(c)}</span>
-              {c.mensagem && <span className="mt-0.5 line-clamp-2 block break-words text-sm text-secondary-foreground">{c.mensagem}</span>}
+              {(resumoCurto(c.detalhe?.robo) ?? c.mensagem) && (
+                <span className="mt-0.5 line-clamp-2 block break-words text-sm text-secondary-foreground">{resumoCurto(c.detalhe?.robo) ?? c.mensagem}</span>
+              )}
               <span className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-secondary-foreground">
                 <span>{c.situacao === 'resolvido' ? `resolvido às ${hora(c.resolvidoEm)}${c.resolvidoPorNome ? ` por ${c.resolvidoPorNome}` : ''}` : quem}</span>
                 {c.situacao !== 'resolvido' && agora && <span>esperando há {tempoDesde(c.criadoEm, agora)}</span>}
@@ -477,14 +480,27 @@ function Caso({
               </div>
             )}
 
-            <section className="rounded-lg border border-border bg-secondary/40 p-3">
-              <h4 className="mb-1 font-display text-sm font-bold">O que o cliente precisa</h4>
-              {c.mensagem ? (
-                <p className="whitespace-pre-line break-words text-sm">{c.mensagem}</p>
-              ) : (
-                <p className="text-sm text-secondary-foreground">O caso chegou sem descrição.</p>
-              )}
-            </section>
+            {/* O resumo do robô (PR 4) no lugar do texto corrido; o texto inteiro (com o que foi somado depois) fica a um clique. */}
+            {c.detalhe?.robo && resumoCurto(c.detalhe.robo) ? (
+              <div>
+                <ResumoDoRobo robo={c.detalhe.robo} />
+                {c.mensagem && (
+                  <details className="mt-2 text-sm">
+                    <summary className="cursor-pointer text-xs font-semibold text-secondary-foreground">Ver tudo o que o robô anotou</summary>
+                    <p className="mt-1 whitespace-pre-line break-words">{c.mensagem}</p>
+                  </details>
+                )}
+              </div>
+            ) : (
+              <section className="rounded-lg border border-border bg-secondary/40 p-3">
+                <h4 className="mb-1 font-display text-sm font-bold">O que o cliente precisa</h4>
+                {c.mensagem ? (
+                  <p className="whitespace-pre-line break-words text-sm">{c.mensagem}</p>
+                ) : (
+                  <p className="text-sm text-secondary-foreground">O caso chegou sem descrição.</p>
+                )}
+              </section>
+            )}
           </>
         )}
 

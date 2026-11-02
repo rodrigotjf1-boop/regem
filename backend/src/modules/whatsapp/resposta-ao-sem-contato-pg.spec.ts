@@ -76,6 +76,9 @@ descrever('resposta ao "entregador sem contato" (Postgres)', () => {
     let [ch] = await chamados(t);
     expect(ch).toMatchObject({ tipo: 'outro', prioridade: 'urgente', status: 'aberto', pedido_id: pedidoId, pedido_numero: '81' });
     expect(ch.mensagem).toBe('O cliente respondeu ao "entregador sem contato": Estou descendo, 2 minutos');
+    // o resumo da central (Onda 1, PR 4): o que o cliente disse e o que já saiu para ele
+    expect(ch.detalhe.robo).toMatchObject({ motivo: 'Resposta ao aviso "entregador sem contato"', quer: 'Estou descendo, 2 minutos' });
+    expect(ch.detalhe.robo.jaFez).toContain('Confirmou ao cliente');
     expect(emitidos.map((e) => e.ev)).toEqual(['atendimento.novo']);
 
     const r2 = await portao(t, 'O portão é o azul');

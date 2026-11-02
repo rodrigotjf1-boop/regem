@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { chaveTelefone, sqlChaveTelefone } from '../../common/telefone-chave';
 import { Emitir, JANELA_DO_MESMO_CHAMADO_H, abrirChamadoPeloRobo } from '../atendimento/abrir-chamado';
+import type { ResumoDoRobo } from '../atendimento/resumo-do-robo';
 import { normalizar } from '../cardapio/robo-consultas';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -125,13 +126,24 @@ const NOME_DO_SINAL: Record<Sinal, string> = {
   repeticao: 'a mesma mensagem chegando de novo',
 };
 
+const oQueSeViu = (a: Avaliacao) => [...a.sinais.map((s) => NOME_DO_SINAL[s]), ...(a.teto ? ['mensagens demais em 10 minutos'] : [])].join(', ');
+
 /** A mensagem do chamado: o que se viu e o que a equipe faz (baixa prioridade — não é cliente esperando). */
 export function mensagemDoChamado(a: Avaliacao): string {
-  const visto = [...a.sinais.map((s) => NOME_DO_SINAL[s]), ...(a.teto ? ['mensagens demais em 10 minutos'] : [])].join(', ');
   return (
-    `${MARCA_DO_CHAMADO} (baixa prioridade): ${visto}. O robô parou de responder nesta conversa. ` +
+    `${MARCA_DO_CHAMADO} (baixa prioridade): ${oQueSeViu(a)}. O robô parou de responder nesta conversa. ` +
     'Se for uma pessoa, resolva este chamado e o robô volta a atender.'
   );
+}
+
+/** O resumo do caso na central (Onda 1, PR 4): o que se viu e o que o robô fez. */
+export function resumoDoChamado(a: Avaliacao): ResumoDoRobo {
+  return {
+    motivo: `${MARCA_DO_CHAMADO}: ${oQueSeViu(a)}`.slice(0, 300),
+    quer: null,
+    jaFez: 'Parou de responder nesta conversa. Se for uma pessoa, resolva o caso e o robô volta a atender.',
+    humor: null,
+  };
 }
 
 // ───────────────────────── a conversa recente ─────────────────────────
@@ -228,6 +240,7 @@ export async function portaoDoRoboDoOutroLado(
     cliente: e.nome?.trim() || undefined,
     telefone: e.telefone,
     mensagem: mensagemDoChamado(a),
+    resumo: resumoDoChamado(a),
   });
   return { calar: true, avaliacao: a, abriuChamado: true };
 }

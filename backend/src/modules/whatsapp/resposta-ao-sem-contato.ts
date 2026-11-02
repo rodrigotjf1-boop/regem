@@ -91,6 +91,15 @@ export async function portaoDaRespostaAoSemContato(
     pedidoId: ped.id,
     mensagem: `${PREFIXO_DA_RESPOSTA}${texto}`.slice(0, 1000),
     prioridade: 'urgente',
+    // O resumo do caso na central (Onda 1, PR 4): de cara, o que o cliente disse e o que já saiu para ele.
+    resumo: {
+      motivo: 'Resposta ao aviso "entregador sem contato"',
+      quer: texto.slice(0, 300),
+      jaFez: ped.jaConfirmado
+        ? 'Já tinha confirmado ao cliente que avisou o entregador e a loja'
+        : `Confirmou ao cliente: "${TEXTO_RESPOSTA_RECEBIDA}"`.slice(0, 300),
+      humor: null,
+    },
   });
   return { tratou: true, responder: ped.jaConfirmado ? null : TEXTO_RESPOSTA_RECEBIDA, pedidoId: ped.id };
 }
