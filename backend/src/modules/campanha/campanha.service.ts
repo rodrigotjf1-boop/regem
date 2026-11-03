@@ -1,10 +1,11 @@
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, sql, type SQL } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { campanha, campanhaEnvio, cardapioConfig, cliente, cupom } from '../../db/schema';
 import { registrarEvento, registrarSaida } from '../../common/consentimento-marketing';
-import { chaveTelefone, sqlChaveTelefone } from '../../common/telefone-chave';
+import { chaveTelefone, sqlChaveTelefone, sqlDigitosTelefone, sqlPodeTerAChave } from '../../common/telefone-chave';
+import { AJUSTES_PADRAO } from '../relacionamento/relacionamento';
 import { saiuDoMarketing, sqlRecebeMarketing } from '../../common/marketing-quem-recebe';
 import { semanaDe, sqlAniversarioEntre } from '../../common/aniversario';
 import { hojeISO, somarDias } from '../../common/data';
@@ -72,12 +73,66 @@ export class CampanhaService {
     return sqlRecebeMarketing();
   }
 
-  // Público estimado (quem receberia): do segmento, com telefone, exceto excluídos.
-  async previa(tenantId: string, segmento: string, recuperacaoDias?: number) {
+  private automaticasExistem: boolean | null = null;
+  /** As automáticas (Onda 3, mig 356) moram só na nuvem; no banco de loja do CI a tabela não existe. */
+  private async temAutomaticas(): Promise<boolean> {
+    if (this.automaticasExistem === null) {
+      const r: any = await this.db.execute(sql`select to_regclass('relacionamento_envio') is not null as ok`);
+      this.automaticasExistem = !!(r.rows ?? r)[0]?.ok;
+    }
+    return this.automaticasExistem;
+  }
+
+  /** "Uma oferta a cada N dias": o N das Automáticas (Delivery › Marketing › Automáticas; padrão 7). */
+  private async intervaloOfertas(tenantId: string): Promise<number> {
+    const r: any = await this.db.execute(sql`select intervalo_ofertas_dias from relacionamento_config where tenant_id = ${tenantId}::uuid`);
+    return Number((r.rows ?? r)[0]?.intervalo_ofertas_dias) || AJUSTES_PADRAO.intervaloOfertasDias;
+  }
+
+  /**
+   * A campanha pula quem recebeu uma oferta AUTOMÁTICA (aniversário, "sentimos sua falta", o cashback quando a Meta o
+   * classificou como marketing) nos últimos N dias — o intervalo das Automáticas (decisão do dono 3B, 03/11/2026; antes,
+   * só a automática pulava quem recebeu campanha). Devolve a expressão sobre `cliente c` e o N, ou `null` quando ninguém
+   * recebeu oferta no intervalo — a consulta fica como antes, sem custo. O filtro barato vem antes da chave (ERR-353).
+   */
+  private async ofertaAutomaticaRecente(tenantId: string): Promise<{ expr: SQL; dias: number } | null> {
+    if (!(await this.temAutomaticas())) return null;
+    const dias = await this.intervaloOfertas(tenantId);
+    const recentes = sql`from relacionamento_envio e
+       where e.tenant_id = ${tenantId}::uuid and e.oferta and e.status = 'enviado'
+         and e.enviado_em > now() - make_interval(days => ${dias}::int)`;
+    const tem: any = await this.db.execute(sql`select 1 ${recentes} limit 1`);
+    if (!(tem.rows ?? tem).length) return null;
+    // `coalesce`: telefone sem dígito nenhum (chave nula) não é "recebeu oferta" — fica como antes.
+    const expr = sql`coalesce((${sqlPodeTerAChave(sqlDigitosTelefone(sql`c.telefone`), sql`select right(e.chave_telefone, 8) ${recentes}`)}
+      and ${sqlChaveTelefone(sql`c.telefone`)} in (select e.chave_telefone ${recentes})), false)`;
+    return { expr, dias };
+  }
+
+  /** Na hora de mandar (o estado muda entre montar a lista e mandar — LIC-514): recebeu oferta automática no intervalo? */
+  private async recebeuOfertaAutomatica(tenantId: string, telefone: string): Promise<boolean> {
+    if (!(await this.temAutomaticas())) return false;
+    const chave = chaveTelefone(telefone);
+    if (!chave) return false;
+    const dias = await this.intervaloOfertas(tenantId);
     const r: any = await this.db.execute(sql`
-      select count(*)::int as total from cliente c
-      where c.tenant_id = ${tenantId} ${this.excluidos()} ${this.segFrag(segmento, recuperacaoDias)}`);
-    return { total: (r.rows ?? r)[0]?.total ?? 0 };
+      select 1 from relacionamento_envio e
+       where e.tenant_id = ${tenantId}::uuid and e.chave_telefone = ${chave} and e.oferta and e.status = 'enviado'
+         and e.enviado_em > now() - make_interval(days => ${dias}::int)
+       limit 1`);
+    return (r.rows ?? r).length > 0;
+  }
+
+  // Público estimado (quem receberia): do segmento, com telefone, exceto excluídos e quem recebeu oferta automática no
+  // intervalo — esses voltam à parte (`foraPorOferta`), para a tela dizer quantos ficaram de fora e por quê.
+  async previa(tenantId: string, segmento: string, recuperacaoDias?: number) {
+    const oferta = await this.ofertaAutomaticaRecente(tenantId);
+    const r: any = await this.db.execute(sql`
+      select count(*) filter (where not x.recente)::int as total, count(*) filter (where x.recente)::int as fora
+        from (select ${oferta ? oferta.expr : sql`false`} as recente from cliente c
+               where c.tenant_id = ${tenantId} ${this.excluidos()} ${this.segFrag(segmento, recuperacaoDias)}) x`);
+    const l = (r.rows ?? r)[0] ?? {};
+    return { total: l.total ?? 0, foraPorOferta: l.fora ?? 0, intervaloOfertasDias: oferta?.dias ?? null };
   }
 
   async listar(tenantId: string) {
@@ -344,11 +399,14 @@ export class CampanhaService {
     // A/B: se tem mensagem B, sorteia a variante de cada destinatário (~50/50); senão, 'A'.
     const temAB = !!(dto.mensagemB && dto.mensagemB.trim());
     const varFrag = temAB ? sql`case when random() < 0.5 then 'B' else 'A' end` : sql`'A'`;
+    // Quem recebeu oferta automática no intervalo fica fora (3B) — a mesma conta da prévia.
+    const oferta = await this.ofertaAutomaticaRecente(tenantId);
     const ins: any = await this.db.execute(sql`
       insert into campanha_envio (campanha_id, tenant_id, cliente_id, telefone, variante)
       select ${camp.id}, c.tenant_id, c.id, c.telefone, ${varFrag}
       from cliente c
-      where c.tenant_id = ${tenantId} ${this.excluidos()} ${this.segFrag(segmento, dto.recuperacaoDias)}`);
+      where c.tenant_id = ${tenantId} ${this.excluidos()} ${this.segFrag(segmento, dto.recuperacaoDias)}
+        ${oferta ? sql`and not ${oferta.expr}` : sql``}`);
     const total = ins.rowCount ?? 0;
     await this.db
       .update(campanha)
@@ -605,6 +663,14 @@ export class CampanhaService {
           await this.db
             .update(campanhaEnvio)
             .set({ status: 'excluido' })
+            .where(eq(campanhaEnvio.id, envio.id));
+          continue;
+        }
+        // E a oferta automática que saiu depois de a campanha ser montada (3B; LIC-514).
+        if (await this.recebeuOfertaAutomatica(camp.tenant_id, tel)) {
+          await this.db
+            .update(campanhaEnvio)
+            .set({ status: 'excluido', erro: 'recebeu uma oferta automática no intervalo das Automáticas' })
             .where(eq(campanhaEnvio.id, envio.id));
           continue;
         }

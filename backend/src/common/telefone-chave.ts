@@ -78,3 +78,21 @@ export function sqlChaveTelefone(expr: SQL): SQL {
       when ${d1} ~ '^[1-9][0-9][6-9][0-9]{7}$' then substr(${d1}, 1, 2) || '9' || substr(${d1}, 3)
       else ${d1} end), '')`;
 }
+
+/** Os dígitos do telefone, em SQL (sem formatação) — um `regexp_replace` só. */
+export function sqlDigitosTelefone(expr: SQL): SQL {
+  return sql`regexp_replace(coalesce((${expr})::text, ''), '[^0-9]', '', 'g')`;
+}
+
+/**
+ * FILTRO BARATO antes da chave (ERR-353): a chave (~20 `regexp_replace`) só mexe no COMEÇO do número — 0055/55/0 e o
+ * nono dígito depois do DDD —, então quem tem a mesma chave tem os mesmos 8 últimos dígitos. A exceção é o número curto
+ * ou estranho, cuja chave fica com menos de 8 dígitos (sem prefixo < 8, com 0 < 9, com 0055 < 12): esse passa sempre, e
+ * a chave decide. `digitos`: os dígitos DESTE lado (`sqlDigitosTelefone` ou uma coluna já calculada); `fins`: a
+ * subconsulta com os 8 últimos dígitos do OUTRO lado (da chave ou dos dígitos — dá no mesmo quando a chave tem 8 ou mais).
+ * Use na MESMA expressão, antes da chave: `(${sqlPodeTerAChave(…)} and chave = …)` — o planejador não reordena dentro dela.
+ */
+export function sqlPodeTerAChave(digitos: SQL, fins: SQL): SQL {
+  return sql`(right(${digitos}, 8) in (${fins})
+      or length(${digitos}) < 8 or (${digitos} like '0%' and length(${digitos}) < 9) or (${digitos} like '0055%' and length(${digitos}) < 12))`;
+}

@@ -106,6 +106,8 @@ export default function MarketingPage() {
   const [cupomValor, setCupomValor] = useState('10');
   const [cupomDuracao, setCupomDuracao] = useState('7');
   const [previa, setPrevia] = useState<number | null>(null);
+  // Quem ficou de fora por ter recebido uma oferta automática no intervalo das Automáticas (decisão do dono 3B).
+  const [previaFora, setPreviaFora] = useState<{ n: number; dias: number } | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [testeNumero, setTesteNumero] = useState('');
   const [testando, setTestando] = useState(false);
@@ -247,9 +249,13 @@ export default function MarketingPage() {
   useEffect(() => {
     if (!novo) return;
     setPrevia(null);
+    setPreviaFora(null);
     api
       .crmCampanhaPrevia(seg, seg === 'recuperacao' ? recDias : undefined)
-      .then((r: any) => setPrevia(r?.total ?? 0))
+      .then((r: any) => {
+        setPrevia(r?.total ?? 0);
+        setPreviaFora(r?.foraPorOferta > 0 ? { n: Number(r.foraPorOferta), dias: Number(r.intervaloOfertasDias) || 7 } : null);
+      })
       .catch(() => setPrevia(0));
   }, [novo, seg, recDias]);
 
@@ -545,6 +551,12 @@ export default function MarketingPage() {
               <p className="mt-1 text-xs">
                 {previa == null ? 'calculando público…' : <><strong>{previa}</strong> destinatário(s) (exclui opt-out e lista de exclusão)</>}
               </p>
+              {previa != null && previaFora && (
+                <p className="mt-1 text-xs" data-previa-fora>
+                  <strong>{previaFora.n}</strong> {previaFora.n === 1 ? 'fica de fora: recebeu' : 'ficam de fora: receberam'} uma oferta
+                  automática nos últimos {previaFora.dias} dias (o intervalo de Marketing › Automáticas).
+                </p>
+              )}
             </div>
 
             {/* Conteúdo — no OFICIAL vem do modelo aprovado (texto travado pela Meta); no
