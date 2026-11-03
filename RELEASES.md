@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **APK NOVO "Regem Atendimento" (`app-atendimento/`, 1.0.0+1, 02/11): NÃO gerado para distribuição — sob comando do
+  dono.** Fala com a nuvem (servidor do #801 e do #802 já no ar). Antes de publicar: ícone com a marca e a assinatura de
+  release (hoje a de debug, como o do entregador). Caminho do APK: `app-atendimento/build/app/outputs/flutter-apk/app-release.apk`.
+
 - **"Fila e avisos": o aviso ao gerente e a posição na fila (Onda 2, parte 2, 02/11, sem migration nova — usa a 353,
   já na nuvem): nuvem no ar com o merge (a rotina do aviso, os ajustes e a resposta ao robô moram lá); a loja no `.zip`
   (o selo "⏰ Gerente avisado" e o alerta para o gerente na tela Atendimento — a marca desce com o caso pelo
