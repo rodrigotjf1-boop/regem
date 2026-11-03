@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **A campanha pula quem recebeu oferta automática (decisão do dono 3B, 03/11; sem migration).** As campanhas são só
+  da nuvem: no ar com o merge. No `.zip` só vai a tela (a linha "N ficam de fora" na prévia).
+
 - **O saldo vencido sai do extrato + o saldo sem data ganha o prazo (decisões do dono 1 e 2, 03/11; mig 359 — SÓ
   NUVEM).** A rotina (de hora em hora) e a correção dos saldos sem data são da nuvem: no ar com o merge. No `.zip`: a
   leitura do saldo no servidor da loja passa a usar o MESMO id do "venceu" (último lançamento positivo do extrato) —
