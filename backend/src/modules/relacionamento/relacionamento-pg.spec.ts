@@ -25,7 +25,7 @@ if (!URL_PG) console.warn('relacionamento-pg.spec: sem TEST_PG_URL — PULADO');
 jest.setTimeout(120_000);
 
 const MIGS = join(__dirname, '..', '..', '..', '..', 'database', 'migrations');
-const semFkCompartilhada = (s: string) => s.replace(/\s+references\s+(empresa|unidade|cliente)\s*\(\s*id\s*\)(\s+on\s+delete\s+cascade)?/gi, '');
+const semFkCompartilhada = (s: string) => s.replace(/\s+references\s+(empresa|unidade|cliente|cupom)\s*\(\s*id\s*\)(\s+on\s+delete\s+cascade)?/gi, '');
 const DIA = 86_400_000;
 const semana = (abre = '18:00') => [0, 1, 2, 3, 4, 5, 6].map((dia) => ({ dia, ativo: true, abre, fecha: '23:00' }));
 /** Às 17:05 de hoje (1 h antes de abrir às 18:00 = 17:00: dentro da janela). */
@@ -53,9 +53,12 @@ descrever('automáticas — cashback vencendo (Postgres)', () => {
       create table ${SCHEMA}.whatsapp_template (
         id uuid primary key default gen_random_uuid(), tenant_id uuid not null, nome text not null, idioma text not null default 'pt_BR',
         categoria text not null default 'MARKETING', status text not null default 'rascunho', motivo_rejeicao text);`);
-    const r: any = await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(readFileSync(join(MIGS, '356_relacionamento_automaticas.sql'), 'utf8'))));
-    const conf = (Array.isArray(r) ? r[r.length - 1] : r).rows as { objeto: string; ok: boolean }[];
-    if (conf.length !== 5 || conf.some((l) => !l.ok)) throw new Error(`conferência da 356: ${JSON.stringify(conf)}`);
+    // A 356 (as automáticas) e a 357 (o aniversário: o painel e a rotina leem as duas).
+    for (const arq of ['356_relacionamento_automaticas.sql', '357_aniversario_do_cliente.sql']) {
+      const r: any = await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(readFileSync(join(MIGS, arq), 'utf8'))));
+      const conf = (Array.isArray(r) ? r[r.length - 1] : r).rows as { objeto: string; ok: boolean }[];
+      if (conf.length !== 5 || conf.some((l) => !l.ok)) throw new Error(`conferência da ${arq}: ${JSON.stringify(conf)}`);
+    }
     db = drizzle(pool, { schema });
   });
 
@@ -154,7 +157,7 @@ descrever('automáticas — cashback vencendo (Postgres)', () => {
     expect(p.cashback.previa.total).toBe(2);
     expect(p.cashback.previa.lista.map((x: any) => x.nome)).toEqual(['Teresa A.', 'Marina L.']);
     expect(p.cashback.previa.lista[1].detalhe).toMatch(/^R\$ 12,40 · vence \d\d\/\d\d$/);
-    expect(p.cashback.resultado).toEqual({ mensagens: 0, cliques: 0, voltaram: 0, valor: 0 });
+    expect(p.cashback.resultado).toEqual({ mensagens: 0, cliques: 0, voltaram: 0, valor: 0, cupons: 0 });
   });
 
   it('fora do horário não separa nada; no horário separa UMA vez e manda devagar pelo QR, sem repetir', async () => {

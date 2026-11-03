@@ -84,6 +84,20 @@ export class ClienteAdminController {
     return this.service.crmHistorico(user.tenantId, id);
   }
 
+  // O aniversário na gaveta do cliente (Onda 3, mig 357): de onde veio a data e desde quando vale.
+  @Get('crm/:id/aniversario')
+  @Roles('presidente', 'gerente', 'supervisao')
+  crmAniversario(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.aniversarioParaALoja(user.tenantId, id);
+  }
+
+  // Anotar ou corrigir a data: só gerente e presidente, com o motivo (a proteção contra troca de data — pedido do dono).
+  @Post('crm/:id/aniversario')
+  @Roles('presidente', 'gerente')
+  crmCorrigirAniversario(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    return this.service.corrigirAniversario(user, id, { dia: dto?.dia, mes: dto?.mes, motivo: dto?.motivo });
+  }
+
   // Importação de contatos (.vcf) — PII/LGPD: presidente (sempre) e gerente quando o
   // presidente conceder `clientes_importar`. Prévia: parseia em memória e NÃO grava.
   @Post('importar-vcf/previa')

@@ -7,6 +7,7 @@ import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { AniversarioNaGaveta } from '@/components/clientes/aniversario-na-gaveta';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: any) =>
@@ -74,9 +75,15 @@ export default function ClientesPage() {
   // Bloco 3 — exportação.
   const [expModal, setExpModal] = useState<string | null>(null); // formato pendente de confirmação
   const [exportando, setExportando] = useState(false);
-  const podeExportar = getCategoria() === 'presidente' || !!getPermissoes()?.clientes_exportar;
+  // A categoria e as permissões só existem no navegador: lidas depois de montar (o primeiro desenho é o mesmo do
+  // servidor — V35; antes davam "Hydration failed" na abertura da tela).
+  const [podeExportar, setPodeExportar] = useState(false);
   // Bloco — importação de contatos (.vcf).
-  const podeImportar = getCategoria() === 'presidente' || !!getPermissoes()?.clientes_importar;
+  const [podeImportar, setPodeImportar] = useState(false);
+  useEffect(() => {
+    setPodeExportar(getCategoria() === 'presidente' || !!getPermissoes()?.clientes_exportar);
+    setPodeImportar(getCategoria() === 'presidente' || !!getPermissoes()?.clientes_importar);
+  }, []);
   const vcfRef = useRef<HTMLInputElement>(null);
   const [impPrevia, setImpPrevia] = useState<any>(null);
   const [impConsent, setImpConsent] = useState(false);
@@ -771,6 +778,8 @@ export default function ClientesPage() {
                     : 'Não enviar campanhas a este cliente'}
                 </button>
               </div>
+              {/* O aniversário (Onda 3): de onde veio a data, desde quando vale, e o "corrigir" com o motivo. */}
+              <AniversarioNaGaveta clienteId={detalhe.id} nome={detalhe.nome} />
               <div className="scroll-fino max-h-[50vh] overflow-y-auto px-4 py-3">
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Histórico de pedidos

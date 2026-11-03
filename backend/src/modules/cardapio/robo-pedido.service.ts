@@ -514,7 +514,10 @@ export class RoboPedidoService {
     const c = await this.carrinhoAberto(ctx);
     if (!c || !this.linhasDe(c).length) return this.semMudar(ctx, menu, recusa('itens', 'Monte o pedido antes: o cupom vale sobre os itens.'));
     const { subtotal } = await this.calcular(ctx, menu, c, cli);
-    const v: any = await this.cardapio.validarCupomPublico(ctx.token, codigo, subtotal, this.telefoneDosBeneficios(ctx, cli));
+    // O número é o da conversa: o WhatsApp prova (o cupom pessoal e o "só aniversariantes" valem por ele — mig 357).
+    const v: any = await this.cardapio.validarCupomPublico(ctx.token, codigo, subtotal, this.telefoneDosBeneficios(ctx, cli), {
+      telefoneVerificado: true,
+    });
     if (!v?.valido)
       return this.semMudar(ctx, menu, recusa('cupom', `O cupom ${codigo.toUpperCase()} não vale neste pedido${v?.motivo ? `: ${v.motivo}` : '.'}`));
     const r = await this.mudar(ctx, (atual) => ({ pagamento: comBeneficios(atual.pagamento, { cupom: String(v.codigo ?? codigo) }) }));
@@ -1204,6 +1207,7 @@ export class RoboPedidoService {
           tipo: tipo ?? 'retirada',
           itensOut: itensPrecificados,
           totalCent: subtotalCent,
+          telefoneVerificado: true, // o número da conversa (mig 357)
         })
         .catch((e: any) => {
           // Sem a conta do desconto que o cliente escolheu, o total do resumo não seria o gravado: não registra agora.
@@ -1509,7 +1513,8 @@ export class RoboPedidoService {
         // A observação GERAL do pedido ("Pôr observação" no resumo) vai para o pedido (mig 346): painel, via, entregador.
         observacao: c.observacao ?? undefined,
         itens: itensDoPedido(c.itens as Linha[]),
-      }).catch((e: any) => {
+        // O número é o da conversa: o WhatsApp prova (o cupom pessoal e o "só aniversariantes" — mig 357).
+      }, { telefoneVerificado: true }).catch((e: any) => {
         // Recusa do pedido (loja fechou, item esgotou no meio): o carrinho fica aberto e o robô explica.
         if (e instanceof BadRequestException) {
           falha.msg = e.message;

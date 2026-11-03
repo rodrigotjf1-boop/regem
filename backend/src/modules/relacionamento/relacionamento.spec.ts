@@ -38,6 +38,13 @@ describe('automáticas — regras puras', () => {
       cashbackAtivo: true,
       cashbackDiasAntes: 5,
       cashbackSaldoMin: 10,
+      // o aniversário (PR 3): sem as colunas, o padrão — desligado, R$ 10 acima de R$ 40 por 7 dias, no dia
+      aniversarioAtivo: false,
+      aniversarioQuando: 'no_dia',
+      aniversarioPresente: 'cupom',
+      aniversarioDesconto: 'v10',
+      aniversarioMinimo: 40,
+      aniversarioValidadeDias: 7,
     });
   });
 

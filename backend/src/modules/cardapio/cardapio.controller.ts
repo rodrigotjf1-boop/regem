@@ -59,7 +59,10 @@ export class CardapioPublicoController {
   @Post(':token/cupom')
   @Throttle({ default: { ttl: 60000, limit: 30 } })
   cupom(@Param('token') token: string, @Body() dto: any) {
-    return this.service.validarCupomPublico(token, dto?.codigo ?? '', dto?.subtotal ?? 0, dto?.telefone);
+    // O token de Sua conta prova quem usa (o cupom pessoal e o "só aniversariantes" — mig 357). Nunca "telefone verificado".
+    return this.service.validarCupomPublico(token, dto?.codigo ?? '', dto?.subtotal ?? 0, dto?.telefone, {
+      clienteToken: typeof dto?.clienteToken === 'string' ? dto.clienteToken : undefined,
+    });
   }
 
   // Cupons que o cliente pode usar agora (sugestão no checkout).

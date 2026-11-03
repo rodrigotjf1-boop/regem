@@ -97,6 +97,27 @@ export class ClientePublicoController {
     return this.service.definirPromocoes(token, dto?.clienteToken, dto?.ativo);
   }
 
+  // O aniversário (Onda 3, mig 357): o cliente informa (Perfil ou a pergunta da confirmação) e corrige UMA vez.
+  @Post(':token/cliente/aniversario')
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
+  aniversario(@Param('token') token: string, @Body() dto: any) {
+    return this.service.informarAniversario(token, dto?.clienteToken, { dia: dto?.dia, mes: dto?.mes, origem: dto?.origem });
+  }
+
+  // "Agora não" na pergunta da confirmação: não pergunta de novo.
+  @Post(':token/cliente/aniversario/agora-nao')
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
+  aniversarioAgoraNao(@Param('token') token: string, @Body() dto: any) {
+    return this.service.aniversarioAgoraNao(token, dto?.clienteToken);
+  }
+
+  // Os presentes do cliente (cupons pessoais das automáticas) — Sua conta › Benefícios.
+  @Get(':token/cliente/presentes')
+  @Throttle({ default: { ttl: 60000, limit: 60 } })
+  presentes(@Param('token') token: string, @Query('clienteToken') clienteToken?: string) {
+    return this.service.presentes(token, clienteToken);
+  }
+
   @Post(':token/cliente/esquecer')
   esquecer(@Param('token') token: string, @Body() dto: any) {
     return this.service.esquecer(token, dto?.clienteToken);

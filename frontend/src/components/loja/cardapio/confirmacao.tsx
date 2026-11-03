@@ -3,6 +3,7 @@
 import type { Cardapio } from './use-cardapio';
 import { brl, Ic } from './partes';
 import { EvApoioOk, EvChamadaOk, EvSeloOk, EvTopo, useEventoNoAr } from '../eventos/contexto';
+import { PerguntaDoAniversario } from './aniversario-do-cliente';
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @next/next/no-img-element */
 
@@ -210,6 +211,8 @@ export function Confirmacao({ c }: { c: Cardapio }) {
               </div>
             </div>
           )}
+          {/* A pergunta do aniversário (Onda 3): uma vez, só com a automática ligada e sem data. */}
+          {!cancelado && !expirado && !mesa && <PerguntaDoAniversario c={c} />}
           {ped.pedidoId && !cancelado && !expirado && (
             <a className="p-btn2" href={`/c/${c.token}/pedido/${ped.pedidoId}${ped.ref ? `?ref=${encodeURIComponent(ped.ref)}` : ''}`}>
               <Ic n="link" s={18} /> Acompanhar pedido (guarde este link)

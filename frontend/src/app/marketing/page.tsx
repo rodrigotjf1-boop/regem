@@ -25,6 +25,9 @@ const SEGS = [
   { k: 'sem_60', t: '+60 dias sem pedir' },
   { k: 'campeoes', t: 'Campeões (3+ no mês)' },
   { k: 'recuperacao', t: 'Recuperação (X dias)' },
+  // Aniversariantes (Onda 3, mig 357): só quem tem a data valendo (informada há 30 dias ou mais) — a regra do servidor.
+  { k: 'aniversario_semana', t: 'Aniversariantes desta semana' },
+  { k: 'aniversario_mes', t: 'Aniversariantes do mês' },
   // Base importada (Clientes → Importar contatos → CSV da Anota Aí).
   { k: 'anotaai_ativo', t: 'Anota Aí · ativos' },
   { k: 'anotaai_inativo', t: 'Anota Aí · inativos' },

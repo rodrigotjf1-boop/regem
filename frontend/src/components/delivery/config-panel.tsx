@@ -329,6 +329,8 @@ export function ConfigPanel({
         tetoDesconto: novoCupom.tipo === 'percentual' ? n(novoCupom.tetoDesconto) : undefined,
         minimo: n(novoCupom.minimo),
         somenteNovos: novoCupom.condicao === 'novos',
+        // "Só aniversariantes" (Onda 3, mig 357): a semana do aniversário, com a data valendo (a proteção do servidor).
+        soAniversariantes: novoCupom.condicao === 'aniversario',
         minDiasSemCompra: novoCupom.condicao === 'dias' ? n(novoCupom.minDiasSemCompra) : undefined,
         maxPorCliente: novoCupom.condicao === 'max' ? n(novoCupom.maxPorCliente) : undefined,
         validoDe: novoCupom.validoDe || undefined,
@@ -589,8 +591,15 @@ export function ConfigPanel({
                             <option value="novos">Só clientes novos (1º pedido)</option>
                             <option value="dias">Cliente há X dias sem comprar</option>
                             <option value="max">Máx. X usos por cliente</option>
+                            <option value="aniversario">Só aniversariantes (semana do aniversário)</option>
                           </select>
                         </div>
+                        {novoCupom.condicao === 'aniversario' && (
+                          <p className="w-full text-xs text-muted-foreground">
+                            O cupom só aceita o cliente que faz aniversário naquela semana, com a data informada há 30 dias ou mais, uma vez a cada 12 meses — e
+                            entrando em Sua conta pelo código do WhatsApp (no robô, pelo número).
+                          </p>
+                        )}
                         {novoCupom.condicao === 'dias' && (
                           <div>
                             <label className="mb-1 block text-xs text-muted-foreground">Dias sem comprar</label>
@@ -619,6 +628,7 @@ export function ConfigPanel({
                               : Number(c.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                           {c.minimo ? ` · mín. ${Number(c.minimo).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}` : ''}
                           {c.somenteNovos ? ' · novos' : ''}
+                          {c.soAniversariantes ? ' · só aniversariantes' : ''}
                           {c.minDiasSemCompra ? ` · ${c.minDiasSemCompra}d inativo` : ''}
                           {c.maxPorCliente ? ` · máx ${c.maxPorCliente}x/cliente` : ''}
                           {c.maxUsos ? ` · ${c.maxUsos} no total` : ''}

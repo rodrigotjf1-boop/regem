@@ -145,6 +145,35 @@ export const CATALOGO_RELACIONAMENTO: Array<{
     exemplo: ['Marina', 'R$ 12,40', '06/11'],
     botoes: [{ tipo: 'beneficios', texto: 'Ver meu saldo' }],
   },
+  //  • aniversario_presente / aniversario_parabens — MARKETING (aniversário está na lista de marketing da Meta). Com
+  //    presente: {{1}} nome, {{2}} o presente ("R$ 10 de desconto em pedido acima de R$ 40"), {{3}} até quando; "Peça agora"
+  //    abre o cardápio com o cupom pessoal aplicado; "Copiar o cupom"; "Sair das ofertas". Nomes NOVOS: o `aniversario` da
+  //    biblioteca prometia "um presente especial" sem dizer qual (o protótipo pede que mude).
+  {
+    nome: 'aniversario_presente',
+    categoria: 'MARKETING',
+    cabecalho: 'Feliz aniversário',
+    corpo: 'Parabéns, {{1}}! 🎉 Para comemorar, a {loja} te dá {{2}}, até {{3}}. O cupom já vem aplicado no seu carrinho.',
+    rodape: '',
+    exemplo: ['Marina', 'R$ 10 de desconto em pedido acima de R$ 40', '12/11'],
+    botoes: [
+      { tipo: 'automatica', texto: 'Peça agora' },
+      { tipo: 'copy_code', texto: 'Copiar o cupom' },
+      { tipo: 'optout', texto: 'Sair das ofertas' },
+    ],
+  },
+  {
+    nome: 'aniversario_parabens',
+    categoria: 'MARKETING',
+    cabecalho: 'Feliz aniversário',
+    corpo: 'Parabéns, {{1}}! 🎉 A {loja} deseja um feliz aniversário. Obrigado por pedir com a gente!',
+    rodape: '',
+    exemplo: ['Marina'],
+    botoes: [
+      { tipo: 'automatica', texto: 'Peça agora' },
+      { tipo: 'optout', texto: 'Sair das ofertas' },
+    ],
+  },
 ];
 
 // Só os dígitos, para comparar telefone vindo em qualquer formato.
@@ -1236,8 +1265,8 @@ export class WhatsappCloudService {
     const rastreio = opts?.rastreio || 'x';
     const paramBotao = (b: any, idx: number, emCarrossel = false) => {
       // url = redirect de campanha (envioId); rastreio = página /r/{token} do delivery.
-      // `beneficios` (automáticas da Onda 3): o mesmo envioId, no redirect da automática.
-      if (b?.tipo === 'url' || b?.tipo === 'beneficios')
+      // `beneficios` / `automatica` (automáticas da Onda 3): o mesmo envioId, no redirect da automática.
+      if (b?.tipo === 'url' || b?.tipo === 'beneficios' || b?.tipo === 'automatica')
         return { type: 'button', sub_type: 'url', index: String(idx), parameters: [{ type: 'text', text: envioId }] };
       if (b?.tipo === 'rastreio')
         return { type: 'button', sub_type: 'url', index: String(idx), parameters: [{ type: 'text', text: rastreio }] };
@@ -1499,10 +1528,11 @@ export class WhatsappCloudService {
       if (b?.tipo === 'url') {
         const base = `${this.redirectBase()}/publico/campanha/r`;
         out.push({ type: 'URL', text: texto || 'Peça agora', url: `${base}/{{1}}`, example: [`${base}/exemplo`] });
-      } else if (b?.tipo === 'beneficios') {
-        // Automáticas (Onda 3): o redirect da automática mede o clique e abre Sua conta › Benefícios da loja.
+      } else if (b?.tipo === 'beneficios' || b?.tipo === 'automatica') {
+        // Automáticas (Onda 3): o redirect da automática mede o clique e leva ao lugar certo — Sua conta › Benefícios (o
+        // cashback) ou o cardápio com o cupom pessoal já aplicado (o aniversário, o "sentimos sua falta").
         const base = `${this.redirectBase()}/publico/relacionamento/r`;
-        out.push({ type: 'URL', text: texto || 'Ver meu saldo', url: `${base}/{{1}}`, example: [`${base}/exemplo`] });
+        out.push({ type: 'URL', text: texto || (b?.tipo === 'beneficios' ? 'Ver meu saldo' : 'Peça agora'), url: `${base}/{{1}}`, example: [`${base}/exemplo`] });
       } else if (b?.tipo === 'rastreio') {
         // Botão de rastreio do delivery: URL dinâmica {app}/r/{{1}} = token de rastreio.
         const base = `${this.rastreioBase()}/r`;

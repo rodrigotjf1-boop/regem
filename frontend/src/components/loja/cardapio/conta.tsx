@@ -6,6 +6,7 @@ import { buscarCep, localizacaoAtual } from '@/lib/geo';
 import { getClienteToken, limparCliente, setClienteToken } from '@/components/loja/tipos';
 import type { Cardapio } from './use-cardapio';
 import { brl, Ic } from './partes';
+import { AniversarioNoPerfil } from './aniversario-do-cliente';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -624,6 +625,7 @@ function AbaBeneficios({ c, perfil }: { c: Cardapio; perfil: any }) {
   const [data, setData] = useState<any>(null);
   const [status, setStatus] = useState<any>(null);
   const [cashback, setCashback] = useState<any>(null);
+  const [presentes, setPresentes] = useState<any[]>([]);
 
   useEffect(() => {
     api.cardapioPromos(token).then(setData).catch(() => setData({ cupons: [], fidelidadeAtiva: false }));
@@ -638,6 +640,8 @@ function AbaBeneficios({ c, perfil }: { c: Cardapio; perfil: any }) {
     const ct = getClienteToken(token) || undefined;
     api.cardapioPontos(token, ct).then(setStatus).catch(() => setStatus(null));
     api.cardapioCashback(token, ct).then(setCashback).catch(() => setCashback(null));
+    // Os presentes pessoais (o cupom do aniversário — Onda 3): só do próprio cliente.
+    if (ct) api.clientePresentes(token, ct).then((r: any) => setPresentes(r?.presentes ?? [])).catch(() => setPresentes([]));
   }, [token, perfil]);
   useEffect(() => {
     carregarStatus();
@@ -673,10 +677,29 @@ function AbaBeneficios({ c, perfil }: { c: Cardapio; perfil: any }) {
   const cupons: any[] = data?.cupons ?? [];
   const ofertas: any[] = c.produtosPromo;
   const rotuloCupom = (x: any) => (x.tipo === 'fretegratis' ? 'Frete grátis' : x.tipo === 'percentual' ? `${x.valor}% off` : `${brl(x.valor)} off`);
-  const nada = data && !data.fidelidadeAtiva && cupons.length === 0 && ofertas.length === 0 && !temCashback;
+  const nada = data && !data.fidelidadeAtiva && cupons.length === 0 && ofertas.length === 0 && !temCashback && presentes.length === 0;
 
   return (
     <>
+      {presentes.length > 0 && (
+        <div className="c-sec">
+          {presentes.map((p: any) => (
+            <div key={p.codigo} className="c-card">
+              <Ic n="gift" />
+              <div>
+                <small>{p.origem === 'aniversario' ? '🎂 Presente de aniversário' : '🎁 Presente para você'}</small>
+                <b>{p.descricao.charAt(0).toUpperCase() + p.descricao.slice(1)}</b>
+                <small>
+                  {p.validade ? `Até ${p.validade.slice(8, 10)}/${p.validade.slice(5, 7)}. ` : ''}Uso único, só seu · <span className="c-cupom">{p.codigo}</span>
+                </small>
+              </div>
+              <button type="button" className="lk" onClick={() => void usarCupom(p.codigo)}>
+                Usar
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       {temCashback && (
         <div className="c-sec">
           <h3 className="c-h">Cashback</h3>
@@ -988,6 +1011,16 @@ function AbaPerfil({
           </div>
         </div>
       </div>
+
+      {/* O aniversário (Onda 3): dia e mês; corrige uma vez; vale para promoções 30 dias depois. */}
+      <AniversarioNoPerfil
+        c={c}
+        perfil={perfil}
+        aoSalvar={async () => {
+          await recarregar();
+          await c.recarregarPerfil();
+        }}
+      />
 
       <div className="c-sec">
         <div className="ac-row">
