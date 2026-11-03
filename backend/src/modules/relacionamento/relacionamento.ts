@@ -24,6 +24,18 @@ export const ANIV_VALIDADE = [3, 7, 15] as const;
 export type AnivQuando = (typeof ANIV_QUANDO)[number];
 export type AnivPresente = (typeof ANIV_PRESENTE)[number];
 export type AnivDesconto = (typeof ANIV_DESCONTO)[number];
+/** "Sentimos sua falta" (PR 4, mig 358): quem não pede há N dias, quantos pedidos, o presente, as tentativas. */
+export const VOLTA_DIAS = [21, 30, 45, 60] as const;
+export const VOLTA_PEDIDOS = [1, 2, 3] as const;
+export const VOLTA_DESCONTO = ['v5', 'v8', 'v10', 'p10', 'frete'] as const;
+export const VOLTA_MINIMO = [0, 30, 40] as const;
+export const VOLTA_VALIDADE = [3, 7, 15] as const;
+export const VOLTA_TENTATIVAS = [1, 2] as const;
+export type VoltaDesconto = (typeof VOLTA_DESCONTO)[number];
+/** A 1ª chamada vale só até 30 dias depois do prazo (quem sumiu há mais tempo fica para as campanhas). */
+export const VOLTA_JANELA_DIAS = 30;
+/** Entre uma tentativa e outra. */
+export const VOLTA_ENTRE_TENTATIVAS_DIAS = 60;
 /** Quantos dias antes do aniversário a mensagem sai. */
 export const DIAS_ANTES_DO_ANIVERSARIO: Record<AnivQuando, number> = { no_dia: 0, '3_antes': 3, '7_antes': 7 };
 /** Loja fechada no dia: a mensagem ainda sai até 3 dias depois (nunca duas no ano — a referência é o ano). */
@@ -45,8 +57,19 @@ export type AjustesRelacionamento = {
   aniversarioDesconto: AnivDesconto;
   aniversarioMinimo: number;
   aniversarioValidadeDias: number;
+  voltaAtivo: boolean;
+  voltaDias: number;
+  voltaMinPedidos: number;
+  voltaPresente: AnivPresente;
+  voltaDesconto: VoltaDesconto;
+  voltaMinimo: number;
+  voltaValidadeDias: number;
+  voltaTentativas: number;
 };
-/** Nasce DESLIGADO; o resto, como as decisões do dono de 03/11/2026 (aniversário: R$ 10 acima de R$ 40 por 7 dias). */
+/**
+ * Nasce DESLIGADO; o resto, como as decisões do dono de 03/11/2026 (aniversário: R$ 10 acima de R$ 40 por 7 dias;
+ * "sentimos sua falta": aos 30 dias, R$ 8 acima de R$ 30 por 7 dias, 2 tentativas).
+ */
 export const AJUSTES_PADRAO: AjustesRelacionamento = {
   intervaloOfertasDias: 7,
   maxPorDia: 30,
@@ -60,10 +83,18 @@ export const AJUSTES_PADRAO: AjustesRelacionamento = {
   aniversarioDesconto: 'v10',
   aniversarioMinimo: 40,
   aniversarioValidadeDias: 7,
+  voltaAtivo: false,
+  voltaDias: 30,
+  voltaMinPedidos: 1,
+  voltaPresente: 'cupom',
+  voltaDesconto: 'v8',
+  voltaMinimo: 30,
+  voltaValidadeDias: 7,
+  voltaTentativas: 2,
 };
 
 /** O cupom de um desconto da lista: tipo e valor como o cadastro de cupons guarda. */
-export function cupomDoDesconto(d: AnivDesconto): { tipo: 'valor' | 'percentual' | 'fretegratis'; valor: number } {
+export function cupomDoDesconto(d: AnivDesconto | VoltaDesconto): { tipo: 'valor' | 'percentual' | 'fretegratis'; valor: number } {
   if (d === 'frete') return { tipo: 'fretegratis', valor: 0 };
   if (d.startsWith('p')) return { tipo: 'percentual', valor: Number(d.slice(1)) };
   return { tipo: 'valor', valor: Number(d.slice(1)) };
@@ -116,6 +147,14 @@ export function lerAjustes(dto: unknown): Partial<AjustesRelacionamento> {
     p.aniversarioMinimo = umDe(ANIV_MINIMO, d.aniversarioMinimo, 'Pedido mínimo: sem mínimo, R$ 30, R$ 40 ou R$ 60.');
   if (d.aniversarioValidadeDias !== undefined)
     p.aniversarioValidadeDias = umDe(ANIV_VALIDADE, d.aniversarioValidadeDias, 'O cupom vale por 3, 7 ou 15 dias.');
+  if (d.voltaAtivo !== undefined) p.voltaAtivo = exigirBooleano(d.voltaAtivo, 'voltaAtivo');
+  if (d.voltaDias !== undefined) p.voltaDias = umDe(VOLTA_DIAS, d.voltaDias, 'Quem não pede há: 21, 30, 45 ou 60 dias.');
+  if (d.voltaMinPedidos !== undefined) p.voltaMinPedidos = umDe(VOLTA_PEDIDOS, d.voltaMinPedidos, 'Só quem já pediu: 1, 2 ou 3 vezes ou mais.');
+  if (d.voltaPresente !== undefined) p.voltaPresente = texto(ANIV_PRESENTE, d.voltaPresente, 'Presente: cupom de desconto ou só a mensagem.');
+  if (d.voltaDesconto !== undefined) p.voltaDesconto = texto(VOLTA_DESCONTO, d.voltaDesconto, 'Desconto: R$ 5, R$ 8, R$ 10, 10% ou entrega grátis.');
+  if (d.voltaMinimo !== undefined) p.voltaMinimo = umDe(VOLTA_MINIMO, d.voltaMinimo, 'Pedido mínimo: sem mínimo, R$ 30 ou R$ 40.');
+  if (d.voltaValidadeDias !== undefined) p.voltaValidadeDias = umDe(VOLTA_VALIDADE, d.voltaValidadeDias, 'O cupom vale por 3, 7 ou 15 dias.');
+  if (d.voltaTentativas !== undefined) p.voltaTentativas = umDe(VOLTA_TENTATIVAS, d.voltaTentativas, 'Tentativas: 1 ou 2.');
   return p;
 }
 
@@ -138,6 +177,14 @@ export function ajustesDaLinha(row: any): AjustesRelacionamento {
     aniversarioDesconto: (ANIV_DESCONTO as readonly string[]).includes(String(row.aniversario_desconto)) ? (row.aniversario_desconto as AnivDesconto) : 'v10',
     aniversarioMinimo: de(ANIV_MINIMO, row.aniversario_minimo, 40),
     aniversarioValidadeDias: de(ANIV_VALIDADE, row.aniversario_validade_dias, 7),
+    voltaAtivo: row.volta_ativo === true,
+    voltaDias: de(VOLTA_DIAS, row.volta_dias, 30),
+    voltaMinPedidos: de(VOLTA_PEDIDOS, row.volta_min_pedidos, 1),
+    voltaPresente: row.volta_presente === 'nada' ? 'nada' : 'cupom',
+    voltaDesconto: (VOLTA_DESCONTO as readonly string[]).includes(String(row.volta_desconto)) ? (row.volta_desconto as VoltaDesconto) : 'v8',
+    voltaMinimo: de(VOLTA_MINIMO, row.volta_minimo, 30),
+    voltaValidadeDias: de(VOLTA_VALIDADE, row.volta_validade_dias, 7),
+    voltaTentativas: de(VOLTA_TENTATIVAS, row.volta_tentativas, 2),
   };
 }
 
@@ -244,5 +291,18 @@ export function textoAniversarioQr(p: { nome?: string | null; loja: string; link
         `Peça agora: ${p.link}`,
       ]
     : [`${ola} A ${p.loja} deseja um feliz aniversário. Obrigado por pedir com a gente!`, `Peça agora: ${p.link}`];
+  return [...corpo, '', 'Para sair das ofertas, responda SAIR.'].join('\n');
+}
+
+/**
+ * O "sentimos sua falta" pelo QR — o mesmo texto dos modelos de marketing `volta_cupom` / `volta_lembrete` da API
+ * oficial. Com cupom: o desconto, até quando, o cupom e o link (que já aplica o cupom).
+ */
+export function textoVoltaQr(p: { nome?: string | null; loja: string; link: string; presente?: { descricao: string; ate: string; cupom: string } | null }): string {
+  const nome = primeiroNome(p.nome);
+  const oi = `Oi${nome ? `, ${nome}` : ''}! Faz um tempo que você não pede na ${p.loja}.`;
+  const corpo = p.presente
+    ? [`${oi} Para matar a saudade: ${p.presente.descricao}, até ${dataCurta(`${p.presente.ate}T15:00:00Z`)}. 😊`, `Cupom: ${p.presente.cupom}`, `Peça agora: ${p.link}`]
+    : [`${oi} Que tal matar a saudade hoje? Tem novidade te esperando. 😊`, `Peça agora: ${p.link}`];
   return [...corpo, '', 'Para sair das ofertas, responda SAIR.'].join('\n');
 }

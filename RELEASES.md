@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **"Sentimos sua falta" + os resultados das três automáticas (Onda 3, PR 4, 03/11; mig 358 — SÓ NUVEM).** Tudo no ar
+  com o merge (a rotina, o WhatsApp e o cardápio moram na nuvem). No `.zip` só vai a tela (no servidor da loja a aba
+  Automáticas explica que é pela nuvem). Sem mudança no sync: a 358 só acrescenta colunas na `relacionamento_config`, que
+  já está em `SO_NUVEM`.
+
 - **Aniversário do cliente + a proteção + o cupom pessoal e o "só aniversariantes" (Onda 3, PR 3, 03/11; mig 357 — SÓ
   NUVEM).** Tudo no ar com o merge (Perfil, confirmação, Benefícios, Delivery › Clientes, cupons, campanhas e a automática
   moram na nuvem). No `.zip` só vão as telas (no servidor da loja, as que são da nuvem explicam). `sync-daemon.mjs` ganhou

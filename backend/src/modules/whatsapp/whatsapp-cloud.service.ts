@@ -174,6 +174,34 @@ export const CATALOGO_RELACIONAMENTO: Array<{
       { tipo: 'optout', texto: 'Sair das ofertas' },
     ],
   },
+  //  • volta_cupom / volta_lembrete — MARKETING ("retargeting" é marketing para a Meta, mesmo pedido pelo cliente). Com
+  //    cupom: {{1}} nome, {{2}} o presente, {{3}} até quando. Sem cupom: o texto do `recuperacao_cliente` de hoje, com o
+  //    "Peça agora" pelo redirect da automática (o da biblioteca usa o redirect das campanhas).
+  {
+    nome: 'volta_cupom',
+    categoria: 'MARKETING',
+    cabecalho: 'Sentimos sua falta',
+    corpo: 'Oi, {{1}}! Faz um tempo que você não pede na {loja}. Para matar a saudade: {{2}}, até {{3}}. 😊',
+    rodape: '',
+    exemplo: ['Paulo', 'R$ 8 de desconto em pedido acima de R$ 30', '10/11'],
+    botoes: [
+      { tipo: 'automatica', texto: 'Peça agora' },
+      { tipo: 'copy_code', texto: 'Copiar o cupom' },
+      { tipo: 'optout', texto: 'Sair das ofertas' },
+    ],
+  },
+  {
+    nome: 'volta_lembrete',
+    categoria: 'MARKETING',
+    cabecalho: 'Sentimos sua falta',
+    corpo: 'Oi, {{1}}! Faz um tempo que você não pede na {loja}. Que tal matar a saudade hoje? Tem novidade te esperando. 😊',
+    rodape: '',
+    exemplo: ['Paulo'],
+    botoes: [
+      { tipo: 'automatica', texto: 'Peça agora' },
+      { tipo: 'optout', texto: 'Sair das ofertas' },
+    ],
+  },
 ];
 
 // Só os dígitos, para comparar telefone vindo em qualquer formato.

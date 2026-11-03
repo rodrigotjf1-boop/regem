@@ -43,6 +43,12 @@ export class RelacionamentoController {
     await this.service.enviarModelo(user, tipo);
     return this.service.painel(user.tenantId);
   }
+
+  /** "Quem voltou" de uma automática (últimos 30 dias): pediu em até 7 dias depois da mensagem. */
+  @Get('voltaram/:tipo')
+  voltaram(@CurrentUser() user: AuthUser, @Param('tipo') tipo: string) {
+    return this.service.quemVoltou(user.tenantId, tipo);
+  }
 }
 
 // O botão "Ver meu saldo" (e o link do QR): público, é o cliente tocando. Marca o clique e leva a Sua conta › Benefícios
