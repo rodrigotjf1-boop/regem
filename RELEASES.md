@@ -12,9 +12,15 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Acabamentos da Onda 2 (03/11, sem migration): nuvem no ar com o merge (os ajustes do iFood e os avisos da
+  disputa moram lá); a loja no `.zip` (o som no sino, os avisos da disputa no computador com os padrões, a tela
+  Atendimento que não troca de arranjo com um diálogo aberto); o APK do app de atendimento leva os avisos da disputa e
+  o ícone com a marca (APK sob comando).**
+
 - **APK NOVO "Regem Atendimento" (`app-atendimento/`, 1.0.0+1, 02/11): NÃO gerado para distribuição — sob comando do
-  dono.** Fala com a nuvem (servidor do #801 e do #802 já no ar). Antes de publicar: ícone com a marca e a assinatura de
-  release (hoje a de debug, como o do entregador). Caminho do APK: `app-atendimento/build/app/outputs/flutter-apk/app-release.apk`.
+  dono.** Fala com a nuvem (servidor do #801 e do #802 já no ar). O ícone com a marca entrou em 03/11. Antes de publicar
+  na Play: a assinatura de release (hoje a de debug, como o do entregador). Caminho do APK:
+  `app-atendimento/build/app/outputs/flutter-apk/app-release.apk`.
 
 - **"Fila e avisos": o aviso ao gerente e a posição na fila (Onda 2, parte 2, 02/11, sem migration nova — usa a 353,
   já na nuvem): nuvem no ar com o merge (a rotina do aviso, os ajustes e a resposta ao robô moram lá); a loja no `.zip`

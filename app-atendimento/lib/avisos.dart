@@ -9,6 +9,9 @@ class Avisos {
   static bool _pronto = false;
   static int _id = 0;
 
+  /// Os testes escutam o que seria avisado (o plugin não existe no teste).
+  static void Function(String titulo, String texto, bool urgente)? espiao;
+
   static Future<void> iniciar() async {
     try {
       await _plugin.initialize(settings: const InitializationSettings(android: AndroidInitializationSettings('@mipmap/ic_launcher')));
@@ -22,6 +25,7 @@ class Avisos {
 
   /// `urgente`: cliente chateado ou "ninguém pegou" — canal de importância máxima.
   static Future<void> mostrar(String titulo, String texto, {bool urgente = false}) async {
+    espiao?.call(titulo, texto, urgente);
     if (!_pronto) return;
     final android = AndroidNotificationDetails(
       urgente ? 'atendimento_urgente' : 'atendimento',

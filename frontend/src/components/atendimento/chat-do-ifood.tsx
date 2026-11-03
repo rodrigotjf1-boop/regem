@@ -19,7 +19,10 @@ declare global {
   }
 }
 
-type Config = { disponivel: true; widgetId: string; merchantIds: string[] } | { disponivel: false; motivo: 'sem_widget' | 'sem_ifood' | 'sem_nuvem' };
+// `desligado`: a loja tirou o chat da tela (ajuste "Chat do iFood na tela Atendimento").
+type Config =
+  | { disponivel: true; widgetId: string; merchantIds: string[] }
+  | { disponivel: false; motivo: 'sem_widget' | 'sem_ifood' | 'sem_nuvem' | 'desligado' };
 
 const SCRIPT = 'https://widgets.ifood.com.br/widget.js';
 let carregando: Promise<IFoodWidget> | null = null;

@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:regem_atendimento/api.dart';
+import 'package:regem_atendimento/avisos.dart';
 import 'package:regem_atendimento/main.dart';
 
 // O FLUXO DO APP contra um servidor FALSO que confere o que o app manda como o servidor de verdade confere: o pareamento
@@ -18,6 +19,7 @@ class ServidorFalso {
   String categoria = 'gerente';
   bool revogado = false;
   final casos = <Map<String, dynamic>>[];
+  Map<String, dynamic> avisos = {'disputa': {'avisar': true, 'deNovoMin': 2}};
 
   http.Response _json(Object corpo, [int status = 200]) =>
       http.Response(jsonEncode(corpo), status, headers: {'content-type': 'application/json; charset=utf-8'});
@@ -58,7 +60,7 @@ class ServidorFalso {
       case 'POST /atendimento/app/sair':
         return _json({'ok': true}, 201);
       case 'GET /atendimento/fila':
-        return _json({'casos': casos, 'contagens': {}, 'eu': 'eu'});
+        return _json({'casos': casos, 'contagens': {}, 'eu': 'eu', 'avisos': avisos});
       case 'GET /atendimento/fila/resolvidos':
         return _json([]);
       case 'GET /atendimento/equipe':
@@ -289,6 +291,67 @@ void main() {
     expect(find.text('Primeira vez neste aparelho'), findsOneWidget);
     expect(find.textContaining('Este celular foi revogado no Regem'), findsOneWidget);
     expect(Api.pareado, isFalse);
+    await fechar(t);
+  });
+
+  testWidgets('disputa nova avisa o gerente na hora; "de novo" perto do prazo; o ajuste desligado não avisa', (t) async {
+    celular(t);
+    final avisados = <String>[];
+    Avisos.espiao = (titulo, texto, urgente) => avisados.add('${urgente ? 'URGENTE' : 'normal'}|$titulo|$texto');
+    addTearDown(() => Avisos.espiao = null);
+    await parearEEntrar(t); // a 1ª leitura é a base: o que já estava não avisa
+    servidor.casos.add(casoDaDisputa());
+    await t.pump(const Duration(seconds: 11));
+    await esperar(t);
+    expect(avisados.where((a) => a.startsWith('URGENTE|🔔 Disputa do iFood — só gerente e presidente respondem|Ana P. · pedido iFood 4521 · vence em')), hasLength(1));
+    // com 6 min ainda, o "de novo" (2 min) não toca
+    await t.pump(const Duration(seconds: 11));
+    await esperar(t);
+    expect(avisados.where((a) => a.contains('⏰ Disputa sem resposta')), isEmpty);
+    // faltando menos que o "de novo" (2 min): o segundo aviso, uma vez só
+    servidor.casos.first['prazoEm'] = DateTime.now().add(const Duration(seconds: 90)).toUtc().toIso8601String();
+    await t.pump(const Duration(seconds: 11));
+    await esperar(t);
+    await t.pump(const Duration(seconds: 11));
+    await esperar(t);
+    expect(avisados.where((a) => a.startsWith('URGENTE|⏰ Disputa sem resposta|')), hasLength(1));
+    // a disputa já respondida (ainda na lista, a caminho de fechar) não pede o "de novo"
+    servidor.casos.add({
+      ...casoDaDisputa(),
+      'id': 'd3',
+      'cliente': 'Caio',
+      'prazoEm': DateTime.now().add(const Duration(seconds: 60)).toUtc().toIso8601String(),
+      'detalhe': <String, dynamic>{'disputa': <String, dynamic>{'mensagem': 'x'}, 'resposta': <String, dynamic>{'acao': 'recusar'}},
+    });
+    for (var i = 0; i < 2; i++) {
+      await t.pump(const Duration(seconds: 11));
+      await esperar(t);
+    }
+    expect(avisados.where((a) => a.contains('⏰') && a.contains('Caio')), isEmpty);
+    // o ajuste "Avisar o gerente quando chega uma disputa" desligado: a próxima disputa não avisa
+    servidor.avisos = {'disputa': {'avisar': false, 'deNovoMin': 2}};
+    await t.pump(const Duration(seconds: 11));
+    await esperar(t);
+    servidor.casos.add({...casoDaDisputa(), 'id': 'd2', 'cliente': 'Bia'});
+    await t.pump(const Duration(seconds: 11));
+    await esperar(t);
+    expect(avisados.where((a) => a.contains('Bia')), isEmpty);
+    await fechar(t);
+  });
+
+  testWidgets('quem não é gerente não é avisado da disputa (não responde); do caso do WhatsApp, sim', (t) async {
+    celular(t);
+    servidor.categoria = 'execucao';
+    final avisados = <String>[];
+    Avisos.espiao = (titulo, texto, urgente) => avisados.add('$titulo|$texto');
+    addTearDown(() => Avisos.espiao = null);
+    await parearEEntrar(t);
+    servidor.casos.add(casoDaDisputa());
+    servidor.casos.add({...casoDoWhatsapp(), 'prioridade': 'normal'});
+    await t.pump(const Duration(seconds: 11));
+    await esperar(t);
+    expect(avisados.where((a) => a.contains('Ana P.')), isEmpty);
+    expect(avisados.where((a) => a.startsWith('🔔 Problema no pedido|Carlos')), hasLength(1));
     await fechar(t);
   });
 

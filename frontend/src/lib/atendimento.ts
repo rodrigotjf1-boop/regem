@@ -61,9 +61,20 @@ export type ContagensDaFila = {
  * O que a tela sabe da fila. `lida` = já houve uma leitura certa; `erro` = a última leitura falhou (≠ fila vazia);
  * `eu` = o colaborador de quem pediu (o servidor diz — na nuvem a sessão é um cookie que a tela não lê).
  */
-export type EstadoDaFila = { casos: CasoDaFila[]; contagens: ContagensDaFila | null; lida: boolean; erro: boolean; eu: string | null };
+export type EstadoDaFila = {
+  casos: CasoDaFila[];
+  contagens: ContagensDaFila | null;
+  lida: boolean;
+  erro: boolean;
+  eu: string | null;
+  /** Os avisos da disputa (ajuste do iFood): avisar o gerente quando chega; avisar de novo quando faltarem N min. */
+  avisos: AvisosDaFila;
+};
+export type AvisosDaFila = { disputa: { avisar: boolean; deNovoMin: number } };
+/** Os padrões do servidor (`AJUSTE_IFOOD_PADRAO`): a tela usa enquanto não leu. */
+export const AVISOS_PADRAO: AvisosDaFila = { disputa: { avisar: true, deNovoMin: 2 } };
 
-let estado: EstadoDaFila = { casos: [], contagens: null, lida: false, erro: false, eu: null };
+let estado: EstadoDaFila = { casos: [], contagens: null, lida: false, erro: false, eu: null, avisos: AVISOS_PADRAO };
 const ouvintes = new Set<() => void>();
 const avisar = () => ouvintes.forEach((f) => f());
 
@@ -91,6 +102,10 @@ export function relerFila(): Promise<void> {
         lida: true,
         erro: false,
         eu: typeof r?.eu === 'string' ? r.eu : null,
+        avisos:
+          typeof r?.avisos?.disputa?.avisar === 'boolean' && typeof r?.avisos?.disputa?.deNovoMin === 'number'
+            ? { disputa: { avisar: r.avisos.disputa.avisar, deNovoMin: r.avisos.disputa.deNovoMin } }
+            : AVISOS_PADRAO,
       };
     } catch {
       // A leitura falhou: o que já estava na tela fica, marcado como "não li agora" — nunca vira "fila vazia" (V37).

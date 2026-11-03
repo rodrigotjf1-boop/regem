@@ -189,12 +189,23 @@ descrever('fila e avisos (Postgres)', () => {
       ajustes: async () => ({ conectado99: true, ajuste99: { decidirCancelamento: true }, horasPermitidas: [4] }),
       salvarAjustes: async (_u: any, dto: any) => void gravados99.push(dto),
     } as any;
-    const rota = new AtendimentoController({} as any, {} as any, pedido99, {} as any, svc);
+    const gravadosIfood: any[] = [];
+    const chatIfood = {
+      ajustes: async () => ({ conectadoIfood: true, ajusteIfood: { chat: true, avisarDisputa: true, avisarDeNovoMin: 2 }, minutosDeNovo: [1, 2, 3] }),
+      salvarAjustes: async (_u: any, dto: any) => void gravadosIfood.push(dto),
+    } as any;
+    const rota = new AtendimentoController({} as any, {} as any, pedido99, chatIfood, svc);
+    // o grupo do iFood torto: nada é gravado (nem a fila, nem a 99)
+    await expect(rota.salvarAjustes(user, { fila: { avisarGerenteMin: 10 }, ifood: { avisarDeNovoMin: 5 }, ajuste99: { decidirCancelamento: false } })).rejects.toThrow('Avisar de novo');
+    expect([gravados99, gravadosIfood]).toEqual([[], []]);
+    expect((await svc.ajustes(D)).avisarGerenteMin).toBe(3);
     await expect(rota.salvarAjustes(user, { fila: { avisarGerenteMin: 4 }, ajuste99: { decidirCancelamento: false } })).rejects.toThrow('Avisar o gerente');
     expect(gravados99).toEqual([]);
     const r: any = await rota.salvarAjustes(user, { fila: { avisarGerenteMin: 10 } });
     expect(gravados99).toEqual([]); // só a fila veio: a 99 nem é chamada (funciona sem a 99 conectada)
-    expect(r).toMatchObject({ conectado99: true, fila: { avisarGerenteMin: 10, dizerPosicao: true }, minutosDoAviso: [0, 2, 3, 5, 10] });
+    expect(r).toMatchObject({ conectado99: true, fila: { avisarGerenteMin: 10, dizerPosicao: true }, minutosDoAviso: [0, 2, 3, 5, 10], conectadoIfood: true, minutosDeNovo: [1, 2, 3] });
+    await rota.salvarAjustes(user, { ifood: { chat: false } });
+    expect(gravadosIfood).toEqual([{ chat: false }]);
     await rota.salvarAjustes(user, { ajuste99: { decidirCancelamento: false } });
     expect(gravados99).toHaveLength(1);
   });

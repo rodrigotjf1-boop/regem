@@ -7,7 +7,7 @@ import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Dialogo, Gaveta } from '@/components/ui/sobreposto';
+import { Dialogo, Gaveta, useQuantosSobrepostos } from '@/components/ui/sobreposto';
 import { FiltroBusca, FiltroSelect, Filtros, semAcento } from '@/components/ui/lista';
 import { ChipDoCanal } from '@/components/atendimento/chip-do-canal';
 import { DecidirCancelamento } from '@/components/atendimento/decidir-cancelamento';
@@ -84,13 +84,25 @@ export default function AtendimentoPage() {
   }, []);
 
   // Duas colunas só quando a ÁREA tem espaço (ERR-219): mede a peça, não a janela.
+  const [largura, setLargura] = useState<number | null>(null);
   useEffect(() => {
     const el = corpo.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => setDuplo(el.clientWidth >= 900));
+    const ro = new ResizeObserver(() => setLargura(el.clientWidth));
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+  // Com um diálogo do caso aberto, o arranjo NÃO troca: trocar (coluna × gaveta) remonta o caso e o diálogo fecharia
+  // sozinho — girar o tablet com o "Passar o caso" aberto (ERR-347). Fechado o diálogo, vale a largura de agora.
+  const sobrepostos = useQuantosSobrepostos();
+  const comDialogo = sobrepostos > (duplo ? 0 : folha ? 1 : 0);
+  useEffect(() => {
+    if (largura === null || comDialogo) return;
+    setDuplo(largura >= 900);
+  }, [largura, comDialogo]);
+  // Segurado num arranjo que não cabe (as duas colunas numa tela que estreitou): o fundo, atrás do diálogo, é recortado —
+  // sem barra lateral (V45) até o diálogo fechar e a tela trocar de arranjo.
+  const segurado = comDialogo && largura !== null && largura >= 900 !== duplo;
 
   const lerResolvidos = useCallback(async () => {
     try {
@@ -232,7 +244,10 @@ export default function AtendimentoPage() {
           />
         </Filtros>
 
-        <div ref={corpo} className={duplo ? 'grid grid-cols-[minmax(300px,380px)_minmax(0,1fr)] items-start gap-4' : 'space-y-2'}>
+        <div
+          ref={corpo}
+          className={`${duplo ? 'grid grid-cols-[minmax(300px,380px)_minmax(0,1fr)] items-start gap-4' : 'space-y-2'}${segurado ? ' overflow-hidden' : ''}`}
+        >
           <section aria-labelledby="titulo-fila" className="min-w-0 space-y-2">
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 px-0.5">
               <h3 id="titulo-fila" className="font-display text-base font-bold">
