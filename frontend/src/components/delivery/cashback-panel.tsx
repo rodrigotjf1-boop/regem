@@ -16,8 +16,9 @@ const VAZIO = {
   base: 'total',
   regras: [{ reais: '', pontos: '' }] as any[],
   produtos: [] as any[],
-  prazoResgateDias: '',
-  semPrazo: true,
+  // Plano novo vem com 30 dias de prazo (decisão do dono, 03/11/2026); a loja muda o número ou marca "sem prazo".
+  prazoResgateDias: '30',
+  semPrazo: false,
 };
 
 export function CashbackPanel({ pode }: { pode: boolean }) {
@@ -221,7 +222,14 @@ export function CashbackPanel({ pode }: { pode: boolean }) {
 
         <div className="flex flex-wrap items-center gap-3 border-t border-border pt-3">
           <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" className="h-4 w-4 accent-primary" checked={form.semPrazo} onChange={(e) => set({ semPrazo: e.target.checked })} disabled={!pode} />
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-primary"
+              checked={form.semPrazo}
+              // Ao tirar o "sem prazo" de um plano sem número, sugere o padrão de 30 dias.
+              onChange={(e) => set({ semPrazo: e.target.checked, ...(!e.target.checked && !form.prazoResgateDias ? { prazoResgateDias: '30' } : {}) })}
+              disabled={!pode}
+            />
             Saldo sem prazo (indeterminado)
           </label>
           {!form.semPrazo && (

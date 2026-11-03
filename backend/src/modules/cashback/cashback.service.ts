@@ -1,6 +1,8 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Interval } from '@nestjs/schedule';
+import { and, desc, eq, gt, gte, inArray, lte, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { ehServidorLocal } from '../../common/modo';
 import {
   cashbackMovimento,
   cashbackPlano,
@@ -16,7 +18,69 @@ const soDigitos = (s?: string) => (s ?? '').replace(/\D/g, '');
 
 @Injectable()
 export class CashbackService {
+  private readonly logger = new Logger(CashbackService.name);
+  private expirando = false;
+
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
+
+  // ===== O saldo vencido sai do extrato (decisão do dono, 03/11/2026 — "2B") =====
+
+  /** De hora em hora, só na NUVEM (o "venceu" desce para a loja pelo extrato, como o crédito sobe). */
+  @Interval(60 * 60_000)
+  async rotinaDeVencimento(): Promise<void> {
+    if (ehServidorLocal() || this.expirando) return;
+    this.expirando = true;
+    try {
+      const n = await this.expirarVencidos();
+      if (n) this.logger.log(`cashback: ${n} saldo(s) vencido(s) saíram do extrato`);
+    } catch (e: any) {
+      this.logger.warn(`cashback: a rotina de vencimento não rodou agora: ${e?.message ?? e}`);
+    } finally {
+      this.expirando = false;
+    }
+  }
+
+  /**
+   * Lança o "venceu" (`expiracao`: o saldo inteiro, para baixo) de todo saldo com a data passada — uma gravação só, e o
+   * gatilho do extrato zera o saldo. Antes, só a LEITURA do saldo (`saldoTipo`) expirava: quem não voltava ficava com o
+   * saldo vencido para sempre no banco. O id vem do ÚLTIMO lançamento positivo do extrato, que é o mesmo nos dois lados
+   * do sync (o saldo e a data são calculados em cada lado; podem diferir): esta rotina e a leitura dão o MESMO id, e o
+   * "venceu" nunca entra duas vezes — um a mais deixaria a soma negativa e comeria o próximo crédito.
+   * `tenantId`: só para os testes (a rotina roda para todas as empresas).
+   */
+  async expirarVencidos(tenantId?: string): Promise<number> {
+    const r: any = await this.db.execute(sql`
+      insert into cashback_movimento (id, tenant_id, telefone, cliente_id, tipo, delta, origem)
+      select md5('cashback-expiracao' || s.tenant_id::text || s.telefone || s.tipo || u.id::text)::uuid,
+             s.tenant_id, s.telefone, s.cliente_id, s.tipo, -s.saldo, 'expiracao'
+        from cashback_saldo s
+        cross join lateral (select m.id from cashback_movimento m
+                             where m.tenant_id = s.tenant_id and m.telefone = s.telefone and m.tipo = s.tipo and m.delta > 0
+                             order by m.criado_em desc, m.id desc limit 1) u
+       where s.expira_em < now() and s.saldo > 0
+         ${tenantId ? sql`and s.tenant_id = ${tenantId}::uuid` : sql``}
+      on conflict (id) do nothing
+      returning id`);
+    return (r.rows ?? r).length;
+  }
+
+  /** O id do "venceu" deste ciclo: a chave do último lançamento positivo (a mesma conta da rotina, em SQL). */
+  private async idDaExpiracao(tenantId: string, tel: string, tipo: string): Promise<string | undefined> {
+    const [u] = await this.db
+      .select({ id: cashbackMovimento.id })
+      .from(cashbackMovimento)
+      .where(
+        and(
+          eq(cashbackMovimento.tenantId, tenantId),
+          eq(cashbackMovimento.telefone, tel),
+          eq(cashbackMovimento.tipo, tipo),
+          gt(cashbackMovimento.delta, '0'),
+        ),
+      )
+      .orderBy(desc(cashbackMovimento.criadoEm), desc(cashbackMovimento.id))
+      .limit(1);
+    return u ? uuidDeChave('cashback-expiracao', tenantId, tel, tipo, u.id) : undefined;
+  }
 
   // Pontos por gasto: aplica a faixa que dá MAIS pontos (pacotes completos).
   static pontosPorGasto(regras: any[], total: number): number {
@@ -393,7 +457,9 @@ export class CashbackService {
       );
     if (!row) return 0;
     if (row.expiraEm && new Date(row.expiraEm) < new Date() && Number(row.saldo) > 0) {
-      await this.ajustarSaldo(tenantId, tel, row.clienteId ?? undefined, tipo, -Number(row.saldo), 'expiracao');
+      // O mesmo id da rotina de vencimento: se ela (ou outra leitura) já lançou, este não entra.
+      const id = await this.idDaExpiracao(tenantId, tel, tipo);
+      await this.ajustarSaldo(tenantId, tel, row.clienteId ?? undefined, tipo, -Number(row.saldo), 'expiracao', id ? { id } : {});
       return 0;
     }
     return Number(row.saldo);
