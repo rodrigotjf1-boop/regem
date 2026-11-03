@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Vencimento do cashback pelo extrato (03/11; mig 355 — NÃO é só-nuvem: vai no `.zip`).** O gatilho do saldo renova
+  o vencimento no crédito de plano com prazo, também na linha que chega pelo sync; a correção de uma vez só estende datas.
+  Nuvem com a migration (antes do merge); a loja recebe a mesma função na migration do `.zip` (sem código novo).
+
 - **"Cheguei" na retirada (Onda 3, PR 1, 03/11; mig 354 — NÃO é só-nuvem: vai no `.zip`).** Nuvem no ar com o merge (o
   botão do cliente, o WhatsApp e os ajustes moram lá). Loja no `.zip`: a Retirada ("Clientes esperando" e a marca), o KDS
   (etiqueta e rodapé), o aviso em qualquer tela e a leitura da nuvem pelo token de sync. **`.exe` novo**: o
