@@ -61,10 +61,15 @@ descrever('aniversário — regra, proteção, cupom e automática (Postgres)', 
       create table ${SCHEMA}.whatsapp_template (
         id uuid primary key default gen_random_uuid(), tenant_id uuid not null, nome text not null, idioma text not null default 'pt_BR',
         categoria text not null default 'MARKETING', status text not null default 'rascunho', motivo_rejeicao text);`);
-    for (const arq of ['356_relacionamento_automaticas.sql', '357_aniversario_do_cliente.sql']) {
+    // A 356, a 357 e a 358: a rotina e o painel leem as três.
+    for (const [arq, linhas] of [
+      ['356_relacionamento_automaticas.sql', 5],
+      ['357_aniversario_do_cliente.sql', 5],
+      ['358_sentimos_sua_falta.sql', 2],
+    ] as [string, number][]) {
       const r: any = await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(readFileSync(join(MIGS, arq), 'utf8'))));
       const conf = (Array.isArray(r) ? r[r.length - 1] : r).rows as { objeto: string; ok: boolean }[];
-      if (conf.length !== 5 || conf.some((l) => !l.ok)) throw new Error(`conferência da ${arq}: ${JSON.stringify(conf)}`);
+      if (conf.length !== linhas || conf.some((l) => !l.ok)) throw new Error(`conferência da ${arq}: ${JSON.stringify(conf)}`);
     }
     db = drizzle(pool, { schema });
   });

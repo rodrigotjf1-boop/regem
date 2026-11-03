@@ -20,6 +20,17 @@ import {
   ANIV_MINIMO,
   ANIV_QUANDO,
   ANIV_VALIDADE,
+  VOLTA_DESCONTO,
+  VOLTA_DIAS,
+  VOLTA_ENTRE_TENTATIVAS_DIAS,
+  VOLTA_JANELA_DIAS,
+  VOLTA_MINIMO,
+  VOLTA_PEDIDOS,
+  VOLTA_TENTATIVAS,
+  VOLTA_VALIDADE,
+  textoVoltaQr,
+  type AnivDesconto,
+  type VoltaDesconto,
   CASHBACK_DIAS_ANTES,
   CASHBACK_SALDO_MIN,
   DIAS_ANTES_DO_ANIVERSARIO,
@@ -59,15 +70,25 @@ export const MODELO_CASHBACK = 'cashback_vencendo';
 /** Os modelos de marketing do aniversário: com o presente e só os parabéns. */
 export const MODELO_ANIV_PRESENTE = 'aniversario_presente';
 export const MODELO_ANIV_PARABENS = 'aniversario_parabens';
+/** Os modelos de marketing do "sentimos sua falta": com o cupom e só o lembrete. */
+export const MODELO_VOLTA_CUPOM = 'volta_cupom';
+export const MODELO_VOLTA_LEMBRETE = 'volta_lembrete';
 /** Quantas mensagens por minuto, por empresa: a API oficial aguenta; o QR vai devagar (protege o número). */
 const POR_MINUTO = { cloud: 10, evolution: 1 } as const;
 /** Quantos nomes a prévia mostra ("Ver quem"). */
 const NA_PREVIA = 5;
 const NA_PREVIA_ANIV = 8;
 
-export type Tipo = 'cashback' | 'aniversario';
+export type Tipo = 'cashback' | 'aniversario' | 'volta';
 /** O número que manda: o aviso do cashback é utilidade (o principal, como os avisos do pedido); o resto, o de marketing. */
-const PAPEL: Record<Tipo, 'principal' | 'marketing'> = { cashback: 'principal', aniversario: 'marketing' };
+const PAPEL: Record<Tipo, 'principal' | 'marketing'> = { cashback: 'principal', aniversario: 'marketing', volta: 'marketing' };
+/** A ordem da rotina: o que tem prazo primeiro (o limite do dia é de todas juntas). */
+const ORDEM: Tipo[] = ['cashback', 'aniversario', 'volta'];
+const LIGADA: Record<Tipo, (a: AjustesRelacionamento) => boolean> = {
+  cashback: (a) => a.cashbackAtivo,
+  aniversario: (a) => a.aniversarioAtivo,
+  volta: (a) => a.voltaAtivo,
+};
 
 type Prontidao = { pronto: boolean; provedor: 'cloud' | 'evolution'; motivo?: string; instancia?: string | null; phoneId?: string | null; oferta: boolean };
 
@@ -118,6 +139,14 @@ export class RelacionamentoService {
       aniversarioDesconto: 'aniversario_desconto',
       aniversarioMinimo: 'aniversario_minimo',
       aniversarioValidadeDias: 'aniversario_validade_dias',
+      voltaAtivo: 'volta_ativo',
+      voltaDias: 'volta_dias',
+      voltaMinPedidos: 'volta_min_pedidos',
+      voltaPresente: 'volta_presente',
+      voltaDesconto: 'volta_desconto',
+      voltaMinimo: 'volta_minimo',
+      voltaValidadeDias: 'volta_validade_dias',
+      voltaTentativas: 'volta_tentativas',
     };
     const nomes = mudou.map((k) => sql.raw(colunas[k]));
     const valores = mudou.map((k) => sql`${parcial[k] as any}`);
@@ -168,6 +197,7 @@ export class RelacionamentoService {
   /** O modelo da API oficial que a automática usa agora. */
   modeloDe(tipo: Tipo, a: AjustesRelacionamento): string {
     if (tipo === 'cashback') return MODELO_CASHBACK;
+    if (tipo === 'volta') return a.voltaPresente === 'cupom' ? MODELO_VOLTA_CUPOM : MODELO_VOLTA_LEMBRETE;
     return a.aniversarioPresente === 'cupom' ? MODELO_ANIV_PRESENTE : MODELO_ANIV_PARABENS;
   }
 
@@ -222,7 +252,7 @@ export class RelacionamentoService {
 
   /** "Enviar à Meta" (só API oficial). O aniversário manda os dois modelos (com o presente e só os parabéns). */
   async enviarModelo(user: AuthUser, tipo: string): Promise<{ status: string }> {
-    if (tipo !== 'cashback' && tipo !== 'aniversario') throw new BadRequestException('Automática desconhecida.');
+    if (tipo !== 'cashback' && tipo !== 'aniversario' && tipo !== 'volta') throw new BadRequestException('Automática desconhecida.');
     const num = await this.numeros.resolver(user.tenantId, PAPEL[tipo]).catch(() => null);
     if (num?.provedor !== 'cloud')
       throw new BadRequestException(
@@ -230,7 +260,8 @@ export class RelacionamentoService {
           ? 'O modelo é da API oficial: o número principal da loja usa o QR, e o aviso sai como texto.'
           : 'O modelo é da API oficial: o número de marketing usa o QR, e a mensagem sai como texto.',
       );
-    const nomes = tipo === 'cashback' ? [MODELO_CASHBACK] : [MODELO_ANIV_PRESENTE, MODELO_ANIV_PARABENS];
+    const nomes =
+      tipo === 'cashback' ? [MODELO_CASHBACK] : tipo === 'volta' ? [MODELO_VOLTA_CUPOM, MODELO_VOLTA_LEMBRETE] : [MODELO_ANIV_PRESENTE, MODELO_ANIV_PARABENS];
     let status = '';
     for (const nome of nomes) status = await this.cloud.garantirModeloRelacionamento(user.tenantId, nome);
     await this.auditoria?.registrar({
@@ -250,15 +281,39 @@ export class RelacionamentoService {
 
   // ===================== Quem recebe =====================
 
-  /** "Uma oferta a cada N dias" somando as automáticas e as campanhas (só para o que é oferta). */
+  /**
+   * "Uma oferta a cada N dias" somando as automáticas e as campanhas (só para o que é oferta). Conta também a oferta já
+   * SEPARADA hoje e ainda na fila (pelo QR sai uma por minuto): sem isso, o aniversário na fila e o "sentimos sua falta"
+   * da mesma pessoa saíam no mesmo dia (ERR-352). O envio confere de novo na hora (`ofertaRecente`).
+   */
   private frequencia(tenantId: string, a: AjustesRelacionamento, oferta: boolean) {
     return oferta
       ? sql`and not exists (select 1 from relacionamento_envio e2 where e2.tenant_id = ${tenantId}::uuid and e2.chave_telefone = x.chave
-               and e2.oferta and e2.status = 'enviado' and e2.enviado_em > now() - make_interval(days => ${a.intervaloOfertasDias}::int))
+               and e2.oferta
+               and ((e2.status = 'enviado' and e2.enviado_em > now() - make_interval(days => ${a.intervaloOfertasDias}::int))
+                    or (e2.status = 'pendente' and e2.dia = ${hojeISO()}::date)))
             and not exists (select 1 from campanha_envio ce where ce.tenant_id = ${tenantId}::uuid and ce.status = 'enviado'
                and ce.enviado_em > now() - make_interval(days => ${a.intervaloOfertasDias}::int)
                and ${sqlChaveTelefone(sql`ce.telefone`)} = x.chave)`
       : sql``;
+  }
+
+  /**
+   * Na hora de mandar uma oferta: outra oferta (automática ou campanha) já saiu para este telefone nos últimos N dias?
+   * Pega o que mudou depois da separação — a campanha que saiu no meio, a outra automática que andou na frente (ERR-352).
+   */
+  private async ofertaRecente(tenantId: string, e: any, a: AjustesRelacionamento): Promise<boolean> {
+    const r = this.rows(
+      await this.db.execute(sql`
+        select 1 as sim
+         where exists (select 1 from relacionamento_envio e2 where e2.tenant_id = ${tenantId}::uuid and e2.id <> ${e.id}::uuid
+                         and e2.chave_telefone = ${e.chave_telefone} and e2.oferta and e2.status = 'enviado'
+                         and e2.enviado_em > now() - make_interval(days => ${a.intervaloOfertasDias}::int))
+            or exists (select 1 from campanha_envio ce where ce.tenant_id = ${tenantId}::uuid and ce.status = 'enviado'
+                         and ce.enviado_em > now() - make_interval(days => ${a.intervaloOfertasDias}::int)
+                         and ${sqlChaveTelefone(sql`ce.telefone`)} = ${e.chave_telefone})`),
+    );
+    return r.length > 0;
   }
 
   /** Quem já pediu fora do iFood e da 99 (o telefone dessas é da plataforma). Alias `c`. */
@@ -336,6 +391,43 @@ export class RelacionamentoService {
       ${this.frequencia(tenantId, a, true)}`;
   }
 
+  /**
+   * "Sentimos sua falta": quem não pede há N dias (a 1ª chamada só até N + 30 — quem sumiu há mais tempo fica para as
+   * campanhas), com pelo menos M pedidos, que recebe marketing, que pediu fora do iFood e da 99, sem caso aberto no
+   * Atendimento e respeitando "uma oferta a cada N dias". A 2ª chamada (com 2 tentativas) sai 60 dias depois da 1ª, se o
+   * cliente não pediu no meio; pedido novo zera as tentativas (a referência é o dia do último pedido + "#tentativa").
+   */
+  private candidatosVolta(tenantId: string, a: AjustesRelacionamento) {
+    const chave = sqlChaveTelefone(sql`c.telefone`);
+    return sql`
+      select x.*, x.dia_pedido || '#' || (x.tentativas + 1) as referencia from (
+        select distinct on (${chave})
+               ${chave} as chave, c.id as cliente_id, c.nome, c.telefone, c.ultimo_pedido_em, c.total_pedidos,
+               to_char((c.ultimo_pedido_em at time zone ${FUSO_SQL})::date, 'YYYY-MM-DD') as dia_pedido,
+               (select count(*) from relacionamento_envio e where e.tenant_id = c.tenant_id and e.tipo = 'volta'
+                  and e.status = 'enviado' and e.chave_telefone = ${chave} and e.enviado_em > c.ultimo_pedido_em)::int as tentativas,
+               (select max(e.enviado_em) from relacionamento_envio e where e.tenant_id = c.tenant_id and e.tipo = 'volta'
+                  and e.status = 'enviado' and e.chave_telefone = ${chave} and e.enviado_em > c.ultimo_pedido_em) as ultima_tentativa,
+               (select p.unidade_id from pedido_externo p where p.tenant_id = c.tenant_id and p.cliente_id = c.id
+                 order by p.criado_em desc limit 1) as unidade_id
+          from cliente c
+         where c.tenant_id = ${tenantId}::uuid and c.ultimo_pedido_em is not null
+           and c.ultimo_pedido_em <= now() - make_interval(days => ${a.voltaDias}::int)
+           and coalesce(c.total_pedidos, 0) >= ${a.voltaMinPedidos}::int
+           ${sqlRecebeMarketing()}
+           ${this.pediuNaLoja()}
+           and not exists (select 1 from atendimento_chamado ac where ac.tenant_id = c.tenant_id and ac.status <> 'resolvido'
+                             and ${sqlChaveTelefone(sql`ac.telefone`)} = ${chave})
+         order by ${chave}, c.ultimo_pedido_em desc
+      ) x
+      where x.tentativas < ${a.voltaTentativas}::int
+        and ((x.tentativas = 0 and x.ultimo_pedido_em > now() - make_interval(days => ${a.voltaDias + VOLTA_JANELA_DIAS}::int))
+             or (x.tentativas > 0 and x.ultima_tentativa <= now() - make_interval(days => ${VOLTA_ENTRE_TENTATIVAS_DIAS}::int)))
+        and not exists (select 1 from relacionamento_envio e where e.tenant_id = ${tenantId}::uuid and e.tipo = 'volta'
+                          and e.chave_telefone = x.chave and e.referencia = x.dia_pedido || '#' || (x.tentativas + 1))
+      ${this.frequencia(tenantId, a, true)}`;
+  }
+
   /** Quantas mensagens das automáticas a empresa já separou no dia (o limite é de todas juntas). */
   private async usadasNoDia(tenantId: string, dia: string): Promise<number> {
     const r = this.rows(
@@ -374,6 +466,15 @@ export class RelacionamentoService {
       ).map((x) => ({ nome: nomeCurto(x.nome), detalhe: `${reais(x.saldo)} · vence ${dataCurta(x.expira_em)}` }));
       previa = { ...prox, total, vagas, lista };
     }
+    // O "sentimos sua falta" sai DEPOIS do cashback e do aniversário (`ORDEM`): as vagas dele são as que sobram deles.
+    let antesDaVolta = 0;
+    if (prox) {
+      if (a.cashbackAtivo && pronto.pronto) antesDaVolta += previa?.total ?? 0;
+      if (a.aniversarioAtivo && prontoAniv.pronto)
+        antesDaVolta += Number(
+          this.rows(await this.db.execute(sql`select count(*)::int as n from (${this.candidatosAniversario(tenantId, prox.dia, a)}) q`))[0]?.n ?? 0,
+        );
+    }
     return {
       ajustes: a,
       opcoes: {
@@ -386,6 +487,12 @@ export class RelacionamentoService {
         aniversarioDesconto: [...ANIV_DESCONTO],
         aniversarioMinimo: [...ANIV_MINIMO],
         aniversarioValidade: [...ANIV_VALIDADE],
+        voltaDias: [...VOLTA_DIAS],
+        voltaPedidos: [...VOLTA_PEDIDOS],
+        voltaDesconto: [...VOLTA_DESCONTO],
+        voltaMinimo: [...VOLTA_MINIMO],
+        voltaValidade: [...VOLTA_VALIDADE],
+        voltaTentativas: [...VOLTA_TENTATIVAS],
       },
       envioHoje,
       cashback: {
@@ -411,7 +518,71 @@ export class RelacionamentoService {
         previa: await this.previaAniversario(tenantId, a),
         resultado: await this.resultado(tenantId, 'aniversario'),
       },
+      volta: await this.painelVolta(tenantId, a, prox, antesDaVolta),
     };
+  }
+
+  /**
+   * O grupo do "sentimos sua falta": o número e os modelos, a prévia do próximo envio e o resultado. `antes`: quantos do
+   * cashback e do aniversário saem antes no mesmo dia (o limite do dia é de todas juntas).
+   */
+  private async painelVolta(tenantId: string, a: AjustesRelacionamento, prox: { dia: string; hora: string; emDias: number } | null, antes = 0) {
+    const pronto = await this.prontidao(tenantId, 'volta', a, true);
+    let previa: any = null;
+    if (prox) {
+      const total = Number(this.rows(await this.db.execute(sql`select count(*)::int as n from (${this.candidatosVolta(tenantId, a)}) q`))[0]?.n ?? 0);
+      const vagas = Math.max(0, a.maxPorDia - (await this.usadasNoDia(tenantId, prox.dia)) - antes);
+      const lista = this.rows(
+        await this.db.execute(sql`
+          select q.nome, q.ultimo_pedido_em, q.total_pedidos, q.tentativas from (${this.candidatosVolta(tenantId, a)}) q
+           order by q.ultimo_pedido_em desc limit ${NA_PREVIA}`),
+      ).map((x) => {
+        const dias = Math.max(0, Math.floor((Date.now() - new Date(x.ultimo_pedido_em).getTime()) / 86_400_000));
+        const pedidos = Number(x.total_pedidos ?? 0);
+        const tentativa = Number(x.tentativas ?? 0) > 0 ? ` · ${Number(x.tentativas) + 1}ª tentativa` : '';
+        return { nome: nomeCurto(x.nome), detalhe: `${dias} dias sem pedir · ${pedidos} ${pedidos === 1 ? 'pedido' : 'pedidos'}${tentativa}` };
+      });
+      previa = { ...prox, total, vagas, lista };
+    }
+    return {
+      provedor: pronto.provedor,
+      pronto: pronto.pronto,
+      motivo: pronto.motivo ?? null,
+      modelos:
+        pronto.provedor === 'cloud'
+          ? { cupom: await this.modelo(tenantId, MODELO_VOLTA_CUPOM), lembrete: await this.modelo(tenantId, MODELO_VOLTA_LEMBRETE) }
+          : null,
+      previa,
+      resultado: await this.resultado(tenantId, 'volta'),
+    };
+  }
+
+  /**
+   * "Quem voltou" (últimos 30 dias): quem recebeu a mensagem e pediu em até 7 dias depois — quanto, quantos dias depois e
+   * se usou o cupom da mensagem. A mesma conta do resultado (a das campanhas).
+   */
+  async quemVoltou(tenantId: string, tipo: string) {
+    if (!['cashback', 'aniversario', 'volta'].includes(tipo)) throw new BadRequestException('Automática desconhecida.');
+    const r = this.rows(
+      await this.db.execute(sql`
+        select c.nome, e.enviado_em, p.criado_em, p.total::float8 as total,
+               exists (select 1 from cupom_uso u where u.cupom_id = e.cupom_id and u.pedido_id = p.id) as usou_cupom
+          from relacionamento_envio e
+          join cliente c on c.id = e.cliente_id
+          join lateral (select p.id, p.criado_em, p.total from pedido_externo p
+                         where p.tenant_id = e.tenant_id and p.cliente_id = e.cliente_id and p.status <> 'cancelado'
+                           and p.criado_em >= e.enviado_em and p.criado_em <= e.enviado_em + interval '7 days'
+                         order by p.criado_em asc limit 1) p on true
+         where e.tenant_id = ${tenantId}::uuid and e.tipo = ${tipo} and e.status = 'enviado'
+           and e.enviado_em > now() - interval '30 days'
+         order by p.criado_em desc
+         limit 50`),
+    );
+    return r.map((x) => {
+      const dias = Math.floor((new Date(x.criado_em).getTime() - new Date(x.enviado_em).getTime()) / 86_400_000);
+      const quando = dias <= 0 ? 'pediu no mesmo dia' : `pediu ${dias} ${dias === 1 ? 'dia' : 'dias'} depois`;
+      return { nome: nomeCurto(x.nome), detalhe: `${quando} · ${reais(x.total)} · ${x.usou_cupom ? 'usou o cupom' : 'sem cupom'}` };
+    });
   }
 
   private async quantosInformaram(tenantId: string): Promise<number> {
@@ -517,7 +688,7 @@ export class RelacionamentoService {
     this.rodando = true;
     try {
       const empresas = this.rows(
-        await this.db.execute(sql`select tenant_id from relacionamento_config where cashback_ativo or aniversario_ativo`),
+        await this.db.execute(sql`select tenant_id from relacionamento_config where cashback_ativo or aniversario_ativo or volta_ativo`),
       );
       for (const e of empresas) {
         try {
@@ -539,21 +710,26 @@ export class RelacionamentoService {
    */
   async rodarEmpresa(tenantId: string, agora = agoraNaOperacao()): Promise<{ separados: number; enviados: number }> {
     const a = await this.ajustes(tenantId);
-    if (!a.cashbackAtivo && !a.aniversarioAtivo) return { separados: 0, enviados: 0 };
+    if (!ORDEM.some((t) => LIGADA[t](a))) return { separados: 0, enviados: 0 };
     const listas = await this.horarios(tenantId);
     if (!podeMandarAgora(listas, a.horario, agora)) return { separados: 0, enviados: 0 };
     const dia = hojeISO();
     let separados = 0;
     let enviados = 0;
-    for (const tipo of ['cashback', 'aniversario'] as Tipo[]) {
-      if (!(tipo === 'cashback' ? a.cashbackAtivo : a.aniversarioAtivo)) continue;
+    for (const tipo of ORDEM) {
+      if (!LIGADA[tipo](a)) continue;
       const chave = `${tenantId}|${tipo}`;
       const perguntar = this.perguntouMeta.get(chave) !== dia;
       const pronto = await this.prontidao(tenantId, tipo, a, perguntar);
       if (perguntar) this.perguntouMeta.set(chave, dia);
       if (!pronto.pronto) continue;
       if (this.separado.get(chave) !== dia) {
-        separados += tipo === 'cashback' ? await this.separarCashback(tenantId, dia, a, pronto.oferta) : await this.separarAniversario(tenantId, dia, a);
+        separados +=
+          tipo === 'cashback'
+            ? await this.separarCashback(tenantId, dia, a, pronto.oferta)
+            : tipo === 'volta'
+              ? await this.separarVolta(tenantId, dia, a)
+              : await this.separarAniversario(tenantId, dia, a);
         this.separado.set(chave, dia);
       }
       enviados += await this.mandar(tenantId, dia, a, pronto, tipo);
@@ -593,6 +769,25 @@ export class RelacionamentoService {
     return r.length;
   }
 
+  /**
+   * Separa os clientes do "sentimos sua falta" do dia — quem sumiu há MENOS tempo primeiro (os outros ficam para os
+   * próximos dias). A referência (o dia do último pedido + a tentativa) é a trava.
+   */
+  async separarVolta(tenantId: string, dia: string, a: AjustesRelacionamento): Promise<number> {
+    await this.soltarPendentesAntigos(tenantId, dia, 'volta');
+    const r = this.rows(
+      await this.db.execute(sql`
+        insert into relacionamento_envio (tenant_id, tipo, chave_telefone, referencia, telefone, cliente_id, unidade_id, dia, oferta, vence_em)
+        select ${tenantId}::uuid, 'volta', q.chave, q.referencia, q.telefone, q.cliente_id, q.unidade_id, ${dia}::date, true, q.ultimo_pedido_em
+          from (${this.candidatosVolta(tenantId, a)}) q
+         order by q.ultimo_pedido_em desc
+         limit ${this.vagasSql(tenantId, dia, a)}
+        on conflict (tenant_id, tipo, chave_telefone, referencia) do nothing
+        returning id`),
+    );
+    return r.length;
+  }
+
   /** Separa os aniversariantes do dia (uma vez por ano por telefone — a referência é o ano). */
   async separarAniversario(tenantId: string, dia: string, a: AjustesRelacionamento): Promise<number> {
     await this.soltarPendentesAntigos(tenantId, dia, 'aniversario');
@@ -615,17 +810,22 @@ export class RelacionamentoService {
    * nunca pegam a mesma linha); confere de novo o que pode ter mudado; falha volta como `falha`, com o motivo.
    */
   async mandar(tenantId: string, dia: string, a: AjustesRelacionamento, pronto: Prontidao, tipo: Tipo = 'cashback'): Promise<number> {
+    // A ordem: quem vence antes (cashback, aniversário); no "sentimos sua falta", quem sumiu há MENOS tempo (o `vence_em`
+    // dele é o último pedido).
+    const recente = tipo === 'volta';
     const lote = this.rows(
       await this.db.execute(sql`
         update relacionamento_envio set status = 'enviado', enviado_em = now()
          where id in (select id from relacionamento_envio
                        where tenant_id = ${tenantId}::uuid and tipo = ${tipo} and dia = ${dia}::date and status = 'pendente'
-                       order by vence_em asc nulls last, criado_em asc
+                       order by ${recente ? sql`vence_em desc nulls last` : sql`vence_em asc nulls last`}, criado_em asc
                        limit ${POR_MINUTO[pronto.provedor]} for update skip locked)
         returning *`),
     ).sort(
-      // o `returning` não garante a ordem: quem vence antes recebe antes
-      (x, y) => new Date(x.vence_em ?? 0).getTime() - new Date(y.vence_em ?? 0).getTime() || new Date(x.criado_em).getTime() - new Date(y.criado_em).getTime(),
+      // o `returning` não garante a ordem
+      (x, y) =>
+        (new Date(x.vence_em ?? 0).getTime() - new Date(y.vence_em ?? 0).getTime()) * (recente ? -1 : 1) ||
+        new Date(x.criado_em).getTime() - new Date(y.criado_em).getTime(),
     );
     let enviados = 0;
     for (const e of lote) {
@@ -636,7 +836,16 @@ export class RelacionamentoService {
           await fora('pediu para sair');
           continue;
         }
-        const ok = tipo === 'cashback' ? await this.mandarCashback(tenantId, e, a, pronto, fora) : await this.mandarAniversario(tenantId, dia, e, a, pronto, fora);
+        if (e.oferta && (await this.ofertaRecente(tenantId, e, a))) {
+          await fora(`recebeu outra oferta nos últimos ${a.intervaloOfertasDias} dias`);
+          continue;
+        }
+        const ok =
+          tipo === 'cashback'
+            ? await this.mandarCashback(tenantId, e, a, pronto, fora)
+            : tipo === 'volta'
+              ? await this.mandarVolta(tenantId, e, a, pronto, fora)
+              : await this.mandarAniversario(tenantId, dia, e, a, pronto, fora);
         if (ok) enviados += 1;
       } catch (err: any) {
         const motivo = String(err?.message ?? err).slice(0, 300);
@@ -713,7 +922,15 @@ export class RelacionamentoService {
     const nome = await this.nomeDoCliente(e.cliente_id ?? null);
     const numero = this.numeroParaMandar(e.telefone);
     let cupom: { id: string; codigo: string; descricao: string; ate: string } | null = null;
-    if (comPresente) cupom = await this.criarCupomPessoal(tenantId, e, a, nome);
+    if (comPresente)
+      cupom = await this.criarCupomPessoal(tenantId, e, nome, {
+        prefixo: 'NIVER',
+        origem: 'aniversario',
+        rotulo: 'Aniversário',
+        desconto: a.aniversarioDesconto,
+        minimo: a.aniversarioMinimo,
+        validadeDias: a.aniversarioValidadeDias,
+      });
     try {
       if (pronto.provedor === 'cloud') {
         if (cupom)
@@ -748,26 +965,97 @@ export class RelacionamentoService {
   }
 
   /**
+   * O "sentimos sua falta": confere de novo (pediu depois de separado? caso aberto?), cria o cupom PESSOAL (só agora),
+   * manda. Falhou o envio: o cupom fica desligado.
+   */
+  private async mandarVolta(tenantId: string, e: any, a: AjustesRelacionamento, pronto: Prontidao, fora: (m: string) => Promise<unknown>): Promise<boolean> {
+    const [c] = this.rows(
+      await this.db.execute(sql`
+        select to_char((ultimo_pedido_em at time zone ${FUSO_SQL})::date, 'YYYY-MM-DD') as dia_pedido, nome from cliente where id = ${e.cliente_id}::uuid`),
+    );
+    if (!c || !String(e.referencia).startsWith(`${c.dia_pedido}#`)) {
+      await fora('voltou a pedir');
+      return false;
+    }
+    const [caso] = this.rows(
+      await this.db.execute(sql`
+        select 1 from atendimento_chamado ac where ac.tenant_id = ${tenantId}::uuid and ac.status <> 'resolvido'
+           and ${sqlChaveTelefone(sql`ac.telefone`)} = ${e.chave_telefone} limit 1`),
+    );
+    if (caso) {
+      await fora('caso aberto no Atendimento');
+      return false;
+    }
+    const nome = String(c.nome ?? '');
+    const numero = this.numeroParaMandar(e.telefone);
+    const cupom =
+      a.voltaPresente === 'cupom'
+        ? await this.criarCupomPessoal(tenantId, e, nome, {
+            prefixo: 'VOLTA',
+            origem: 'volta',
+            rotulo: 'Sentimos sua falta',
+            desconto: a.voltaDesconto,
+            minimo: a.voltaMinimo,
+            validadeDias: a.voltaValidadeDias,
+          })
+        : null;
+    try {
+      if (pronto.provedor === 'cloud') {
+        if (cupom)
+          await this.cloud.enviarTemplate(tenantId, numero, MODELO_VOLTA_CUPOM, 'pt_BR', [primeiroNome(nome) || 'cliente', cupom.descricao, dataCurta(`${cupom.ate}T15:00:00Z`)], {
+            envioId: String(e.id),
+            cupom: cupom.codigo,
+            phoneId: pronto.phoneId ?? undefined,
+          });
+        else
+          await this.cloud.enviarTemplate(tenantId, numero, MODELO_VOLTA_LEMBRETE, 'pt_BR', [primeiroNome(nome) || 'cliente'], {
+            envioId: String(e.id),
+            phoneId: pronto.phoneId ?? undefined,
+          });
+      } else {
+        const loja = await this.nomeDaLoja(tenantId, e.unidade_id ?? null);
+        const texto = textoVoltaQr({
+          nome,
+          loja,
+          link: `${PUB()}/publico/relacionamento/r/${e.id}`,
+          presente: cupom ? { descricao: cupom.descricao, ate: cupom.ate, cupom: cupom.codigo } : null,
+        });
+        await this.whatsapp.enviarPorInstancia(tenantId, String(pronto.instancia), numero, texto);
+      }
+    } catch (err) {
+      if (cupom) await this.db.execute(sql`update cupom set ativo = false where id = ${cupom.id}::uuid`);
+      throw err;
+    }
+    if (cupom) await this.db.execute(sql`update relacionamento_envio set cupom_id = ${cupom.id}::uuid where id = ${e.id}::uuid`);
+    return true;
+  }
+
+  /**
    * O cupom PESSOAL do presente: uso único, só do cliente (a regra em `cupom_regra`), com o desconto, o mínimo e a validade
    * dos ajustes. O código é sorteado; repetido (índice único da empresa), sorteia de novo.
    */
-  private async criarCupomPessoal(tenantId: string, e: any, a: AjustesRelacionamento, nome: string) {
-    const { tipo, valor } = cupomDoDesconto(a.aniversarioDesconto);
-    const ate = validadeDoPresente(a.aniversarioValidadeDias);
-    const minimo = a.aniversarioMinimo > 0 ? a.aniversarioMinimo : null;
+  private async criarCupomPessoal(
+    tenantId: string,
+    e: any,
+    nome: string,
+    o: { prefixo: string; origem: 'aniversario' | 'volta'; rotulo: string; desconto: AnivDesconto | VoltaDesconto; minimo: number; validadeDias: number },
+  ) {
+    const { tipo, valor } = cupomDoDesconto(o.desconto);
+    const ate = validadeDoPresente(o.validadeDias);
+    const minimo = o.minimo > 0 ? o.minimo : null;
     for (let tentativa = 0; tentativa < 6; tentativa += 1) {
-      const codigo = codigoDoCupom('NIVER');
+      const codigo = codigoDoCupom(o.prefixo);
       try {
         const [c] = this.rows(
           await this.db.execute(sql`
             insert into cupom (tenant_id, codigo, tipo, valor, minimo, ativo, validade, valido_de, max_usos, max_por_cliente, nome)
             values (${tenantId}::uuid, ${codigo}, ${tipo}, ${String(valor)}, ${minimo === null ? null : String(minimo)}, true,
-                    ${ate}::date, ${dataNoFuso(new Date())}::date, 1, 1, ${`Aniversário · ${nomeCurto(nome)}`})
+                    ${ate}::date, ${dataNoFuso(new Date())}::date, 1, 1, ${`${o.rotulo} · ${nomeCurto(nome)}`})
             returning id`),
         );
         await this.db.execute(sql`
           insert into cupom_regra (cupom_id, tenant_id, cliente_id, chave_telefone, origem, relacionamento_envio_id)
-          values (${c.id}::uuid, ${tenantId}::uuid, ${e.cliente_id}::uuid, ${e.chave_telefone}, 'aniversario', ${e.id}::uuid)`);
+          values (${c.id}::uuid, ${tenantId}::uuid, ${e.cliente_id}::uuid, ${e.chave_telefone}, ${o.origem}, ${e.id}::uuid)`);
         return { id: String(c.id), codigo, descricao: descricaoDoCupom(tipo, valor, minimo ?? 0), ate };
       } catch (err: any) {
         if (err?.code === '23505' || /duplicate key/i.test(String(err?.message))) continue;

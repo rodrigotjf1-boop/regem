@@ -26,6 +26,21 @@ describe('automáticas — regras puras', () => {
     expect(() => lerAjustes({ horario: '12:00' })).toThrow('Horário do envio');
     expect(() => lerAjustes({ cashbackDiasAntes: 4 })).toThrow('1, 2, 3, 5 ou 7');
     expect(() => lerAjustes({ cashbackSaldoMin: 3 })).toThrow('R$ 1, 2, 5 ou 10');
+    // o "sentimos sua falta" (PR 4)
+    expect(lerAjustes({ voltaAtivo: true, voltaDias: 45, voltaTentativas: 1, voltaDesconto: 'frete' })).toEqual({
+      voltaAtivo: true,
+      voltaDias: 45,
+      voltaTentativas: 1,
+      voltaDesconto: 'frete',
+    });
+    expect(() => lerAjustes({ voltaAtivo: 'sim' })).toThrow('voltaAtivo');
+    expect(() => lerAjustes({ voltaDias: 25 })).toThrow('21, 30, 45 ou 60');
+    expect(() => lerAjustes({ voltaMinPedidos: 5 })).toThrow('1, 2 ou 3');
+    expect(() => lerAjustes({ voltaPresente: 'brinde' })).toThrow('Presente');
+    expect(() => lerAjustes({ voltaDesconto: 'v15' })).toThrow('R$ 5, R$ 8, R$ 10');
+    expect(() => lerAjustes({ voltaMinimo: 60 })).toThrow('sem mínimo, R$ 30 ou R$ 40');
+    expect(() => lerAjustes({ voltaValidadeDias: 30 })).toThrow('3, 7 ou 15');
+    expect(() => lerAjustes({ voltaTentativas: 3 })).toThrow('1 ou 2');
   });
 
   it('a linha do banco: sem linha é o padrão (nasce desligado); valor torto vira o padrão do campo', () => {
@@ -45,6 +60,15 @@ describe('automáticas — regras puras', () => {
       aniversarioDesconto: 'v10',
       aniversarioMinimo: 40,
       aniversarioValidadeDias: 7,
+      // o "sentimos sua falta" (PR 4): desligado, aos 30 dias, R$ 8 acima de R$ 30 por 7 dias, 2 tentativas
+      voltaAtivo: false,
+      voltaDias: 30,
+      voltaMinPedidos: 1,
+      voltaPresente: 'cupom',
+      voltaDesconto: 'v8',
+      voltaMinimo: 30,
+      voltaValidadeDias: 7,
+      voltaTentativas: 2,
     });
   });
 

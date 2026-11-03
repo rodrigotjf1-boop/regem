@@ -1657,8 +1657,10 @@ export const api = {
   marketingAutomaticas: () => req('/marketing/automaticas'),
   salvarMarketingAutomaticas: (body: Record<string, unknown>) =>
     req('/marketing/automaticas', { method: 'PUT', body: JSON.stringify(body) }),
-  enviarModeloAutomatica: (tipo: 'cashback' | 'aniversario') =>
+  enviarModeloAutomatica: (tipo: 'cashback' | 'aniversario' | 'volta') =>
     req(`/marketing/automaticas/modelo/${encodeURIComponent(tipo)}`, { method: 'POST' }),
+  // "Quem voltou" de uma automática (últimos 30 dias): pediu em até 7 dias depois da mensagem.
+  marketingQuemVoltou: (tipo: 'cashback' | 'aniversario' | 'volta') => req(`/marketing/automaticas/voltaram/${encodeURIComponent(tipo)}`),
   // O aniversário na gaveta do cliente (Delivery › Clientes): ver e corrigir (gerente e presidente, com o motivo).
   crmAniversario: (id: string) => req(`/clientes/crm/${encodeURIComponent(id)}/aniversario`),
   crmCorrigirAniversario: (id: string, body: { dia: number; mes: number; motivo?: string }) =>
