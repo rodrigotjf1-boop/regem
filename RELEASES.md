@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **O saldo vencido sai do extrato + o saldo sem data ganha o prazo (decisões do dono 1 e 2, 03/11; mig 359 — SÓ
+  NUVEM).** A rotina (de hora em hora) e a correção dos saldos sem data são da nuvem: no ar com o merge. No `.zip`: a
+  leitura do saldo no servidor da loja passa a usar o MESMO id do "venceu" (último lançamento positivo do extrato) —
+  sem isso, a loja e a nuvem poderiam lançar o "venceu" duas vezes — e a tela do plano de cashback com 30 dias de
+  prazo por padrão.
+
 - **"Sentimos sua falta" + os resultados das três automáticas (Onda 3, PR 4, 03/11; mig 358 — SÓ NUVEM).** Tudo no ar
   com o merge (a rotina, o WhatsApp e o cardápio moram na nuvem). No `.zip` só vai a tela (no servidor da loja a aba
   Automáticas explica que é pela nuvem). Sem mudança no sync: a 358 só acrescenta colunas na `relacionamento_config`, que
