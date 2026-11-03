@@ -10,6 +10,7 @@ import {
 import { segredoDoRoboOk } from '../../common/segredo-robo';
 import { exigirBooleano } from '../../common/exigir';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { ChegadaService } from '../chegada/chegada.service';
 import { palavrasDe } from './robo-busca';
 import { opcaoForaDeVenda } from './opcao-fora-de-venda';
 import { and, desc, eq, gte, ilike, inArray, isNull, lt, or, sql } from 'drizzle-orm';
@@ -139,7 +140,14 @@ export class CardapioService {
     private readonly flash: EdgeFlashSyncService,
     // Quem ligou ou desligou o código de entrega fica na auditoria (mig 348). Opcional: os testes montam sem ela.
     @Optional() private readonly auditoria?: AuditoriaService,
+    // "Cheguei" na retirada (mig 354): o bloco da página do pedido. Opcional: sem ela, uma instância só com o banco.
+    @Optional() private readonly chegadaInj?: ChegadaService,
   ) {}
+
+  private chegadaLocal?: ChegadaService;
+  private get chegada(): ChegadaService {
+    return this.chegadaInj ?? (this.chegadaLocal ??= new ChegadaService(this.db));
+  }
 
   // ===== Gestão do cardápio: auto-pausa por esgotamento de estoque =====
   // Config do gestor (entitlement): auto-pausar produtos que controlam estoque
@@ -1693,6 +1701,8 @@ export class CardapioService {
         retirada: !!cfg.tipoRetirada,
         local: !!cfg.tipoLocal,
       },
+      // "Cheguei" na retirada (mig 354): Sua conta mostra o botão no pedido de retirada de hoje.
+      cheguei: cfg.chegueiAtivo === true,
       robo: {
         ativo: !!cfg.roboAtivo,
         saudacao: cfg.roboSaudacao ?? null,
@@ -1946,6 +1956,8 @@ export class CardapioService {
         p.codigoEntrega
           ? String(p.codigoEntrega)
           : null,
+      // "Cheguei" na retirada (mig 354): ligado na loja, se pergunta onde, e a chegada já avisada. Só na retirada.
+      cheguei: await this.chegada.daPaginaDoPedido(cfg.tenantId, { id: p.id, unidadeId: p.unidadeId, tipo: p.tipo }),
     };
   }
 

@@ -2629,6 +2629,23 @@ export const pedidoLogistica = pgTable('pedido_logistica', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// "Cheguei" na retirada (mig 354): UMA linha por pedido (`id` = id do pedido). Só a NUVEM escreve (cardápio online e
+// WhatsApp) e a tabela só DESCE para a loja — à parte de `pedido_externo` pelo mesmo motivo da `pedido_logistica`.
+export const pedidoChegada = pgTable('pedido_chegada', {
+  id: uuid('id').primaryKey(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  chegouEm: timestamp('chegou_em', { withTimezone: true }).notNull(),
+  deNovoEm: timestamp('de_novo_em', { withTimezone: true }),
+  onde: text('onde'), // 'balcao' | 'porta' | null
+  obs: text('obs'),
+  origem: text('origem').notNull(), // 'cardapio' | 'whatsapp'
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // Registro dos envios do pedido (mig 305): o que o Regem mandou ao canal e ao cliente a cada
 // mudança de status, se deu certo e o motivo quando não deu. NÃO sincroniza: cada servidor
 // (nuvem / loja) guarda o que ele mesmo tentou. Não guarda corpo, token nem telefone.
@@ -3219,6 +3236,11 @@ export const cardapioConfig = pgTable('cardapio_config', {
   fidelidadeIntervaloHoras: integer('fidelidade_intervalo_horas').notNull().default(3),
   // Código de entrega (mig 348): desligado, o pedido NOVO nasce sem código (gatilho no banco); os em andamento seguem.
   usarCodigoEntrega: boolean('usar_codigo_entrega').notNull().default(true),
+  // "Cheguei" na retirada (mig 354): nasce desligado. Perguntar onde, avisar em todas as telas e avisar de novo (3/5/10).
+  chegueiAtivo: boolean('cheguei_ativo').notNull().default(false),
+  chegueiPerguntarOnde: boolean('cheguei_perguntar_onde').notNull().default(true),
+  chegueiTodasTelas: boolean('cheguei_todas_telas').notNull().default(true),
+  chegueiDeNovoMin: integer('cheguei_de_novo_min').notNull().default(5),
   // Modo Encomenda (mig 186) — OPT-IN: pedido para data futura + regras.
   encomendaAtiva: boolean('encomenda_ativa').notNull().default(false),
   encomendaAntecedenciaHoras: integer('encomenda_antecedencia_horas').notNull().default(24),

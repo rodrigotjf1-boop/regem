@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **"Cheguei" na retirada (Onda 3, PR 1, 03/11; mig 354 — NÃO é só-nuvem: vai no `.zip`).** Nuvem no ar com o merge (o
+  botão do cliente, o WhatsApp e os ajustes moram lá). Loja no `.zip`: a Retirada ("Clientes esperando" e a marca), o KDS
+  (etiqueta e rodapé), o aviso em qualquer tela e a leitura da nuvem pelo token de sync. **`.exe` novo**: o
+  `sync-daemon.mjs` ganhou `pedido_chegada` no `VOLTA_DA_NUVEM` (junto do que o #801 já pedia). Pelo QR, o fluxo do n8n
+  da loja põe o campo `cheguei` no fim do aviso de pronto.
+
 - **Acabamentos da Onda 2 (03/11, sem migration): nuvem no ar com o merge (os ajustes do iFood e os avisos da
   disputa moram lá); a loja no `.zip` (o som no sino, os avisos da disputa no computador com os padrões, a tela
   Atendimento que não troca de arranjo com um diálogo aberto); o APK do app de atendimento leva os avisos da disputa e

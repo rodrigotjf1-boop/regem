@@ -12,11 +12,13 @@ import { DeliveryModule } from '../delivery/delivery.module';
 import { IntegracoesModule } from '../integracoes/integracoes.module';
 import { EquipamentoModule } from '../equipamento/equipamento.module';
 import { SyncTokenGuard } from '../sync/sync-token.guard';
+import { ChegadaModule } from '../chegada/chegada.module';
 
 @Module({
   // Integrações: a resposta à disputa do iFood (IfoodService). forwardRef: integrações e delivery já se referem.
   // Equipamento + SyncTokenGuard: as rotas que o servidor da loja chama na nuvem (AtendimentoLojaController), como no Delivery.
-  imports: [DeliveryModule, forwardRef(() => IntegracoesModule), EquipamentoModule],
+  // ChegadaModule: o grupo "Retirada · cliente chegou" dos ajustes (mig 354).
+  imports: [DeliveryModule, forwardRef(() => IntegracoesModule), EquipamentoModule, ChegadaModule],
   // AtendimentoAppController: o app "Regem Atendimento" (mig 353) — entrar com o PIN e "Disponível / Ocupado". O
   // AuthService vem do AuthModule (global); o EquipamentoService, do EquipamentoModule (o celular pareado).
   controllers: [AtendimentoController, AtendimentoLojaController, AtendimentoAppController],

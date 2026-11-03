@@ -18,8 +18,8 @@
        benefícios (cashback com a data e o cupom pessoal); a PROTEÇÃO contra troca de data (pedido do dono em 03/11:
        30 dias de carência, o cliente corrige uma vez, um presente a cada 12 meses — vale para toda promoção de
        aniversariante, inclusive o cupom "Só aniversariantes" e a campanha de aniversariantes);
-   (2) LOJA: "Clientes esperando" em PDV · Balcão › Retirada / Encomendas, a marca "Chegou" nos pedidos (também no
-       painel do delivery) e no KDS de produção, o aviso em qualquer tela;
+   (2) LOJA: "Clientes esperando" em PDV · Balcão › Retirada / Encomendas, a marca "Chegou" nos pedidos (o pedido de
+       retirada não vai ao painel do delivery) e no KDS de produção, o aviso em qualquer tela;
    (3) AUTOMÁTICAS: aba nova em Delivery › Marketing — regras para todas (frequência, limite por dia, horário),
        cashback vencendo, aniversário e "sentimos sua falta", com a prévia de quem recebe e o resultado;
    (4) AJUSTE DO CHEGUEI: grupo novo em Delivery › Configurações › Operação › Atendimento;
@@ -534,7 +534,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px;overflow-wrap:anyw
     <main id="v-loja" hidden>
       <div class="trilha">PDV · Balcão</div>
       <h1>Retirada / Encomendas</h1>
-      <p class="resumo">O protótipo mostra só o que muda: o quadro "Clientes esperando" e a marca "Chegou" nos pedidos. O resto da tela fica como hoje.</p>
+      <p class="resumo">O protótipo mostra só o que muda: o quadro "Clientes esperando" e a marca "Chegou" nos pedidos. O resto da tela fica como hoje. (Ajustado na implementação, 03/11: o pedido de retirada não aparece no painel do delivery.)</p>
       <section class="esperando" id="esperando" aria-labelledby="t-esp">
         <h2 id="t-esp">🙋 Clientes esperando <span class="selo warn" id="n-esp">2</span></h2>
         <p class="ajuda">Quem esperou mais aparece primeiro. Também toca o som e aparece um aviso em qualquer tela do Regem.</p>
@@ -545,9 +545,8 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px;overflow-wrap:anyw
 
       <div class="dois">
         <section class="peca" aria-labelledby="t-painel">
-          <h3 id="t-painel">No painel do delivery</h3>
-          <p class="ajuda">O cartão de retirada ganha a mesma marca e sobe para o topo da coluna.</p>
-          <div class="mini-col"><h4><span>Prontos</span><span>2</span></h4><div id="mini-painel"></div></div>
+          <h3 id="t-painel">E o painel do delivery?</h3>
+          <p class="ajuda">O pedido de retirada não aparece no painel do delivery (ele fica só aqui, na Retirada / Encomendas). Por isso a marca "Chegou" vive nesta tela, no KDS e no aviso em qualquer tela.</p>
         </section>
         <section class="peca" aria-labelledby="t-kds">
           <h3 id="t-kds">No KDS de produção</h3>
@@ -693,7 +692,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px;overflow-wrap:anyw
         <div class="aj" data-depende="cheg"><div><span class="rot-aj">Perguntar onde o cliente está</span><span class="ajuda">No cardápio: no balcão ou na porta (moto ou carro), com "Como te achar?". No WhatsApp não pergunta: o que o cliente escrever vai junto.</span></div>
           <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Perguntar onde o cliente está" data-aj></button></div></div>
         <div class="aj" data-depende="cheg"><div><span class="rot-aj">Onde a equipe é avisada</span><span class="ajuda">O som é o que cada computador escolheu no sino.</span></div>
-          <div class="ctrl"><select aria-label="Onde a equipe é avisada" data-aj><option selected>Retirada, painel, KDS e qualquer tela do Regem</option><option>Só na Retirada, no painel e no KDS</option></select></div></div>
+          <div class="ctrl"><select aria-label="Onde a equipe é avisada" data-aj><option selected>Na Retirada, no KDS e em qualquer tela do Regem</option><option>Só na Retirada e no KDS</option></select></div></div>
         <div class="aj" data-depende="cheg"><div><span class="rot-aj">Avisar de novo se ninguém entregar em</span><span class="ajuda">Uma vez, com o tempo de espera. O cliente também pode avisar de novo depois de 5 min.</span></div>
           <div class="ctrl"><select aria-label="Avisar de novo se ninguém entregar em" data-aj><option>3 min</option><option selected>5 min</option><option>10 min</option></select></div></div>
       </section>
@@ -781,7 +780,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px;overflow-wrap:anyw
     <ul>
       <li><b>Para quem:</b> pedido de retirada feito no cardápio online ou pelo WhatsApp (robô ou equipe), no dia da retirada. iFood e 99 têm o app delas; o pedido feito no balcão não tem página para o cliente.</li>
       <li><b>O cliente avisa de três jeitos:</b> o botão na página do pedido (e em Sua conta › Pedidos); o botão "Cheguei" na mensagem de pronto (API oficial) ou "responda CHEGUEI" (QR); escrevendo "cheguei", "tô aqui", "estou na porta" — o Regem entende com o robô ligado ou não.</li>
-      <li><b>A loja vê:</b> "Clientes esperando" no topo de PDV · Balcão › Retirada / Encomendas, com o tempo de espera e o botão de entregar (o mesmo "Entregar" de hoje: pago online conclui, a pagar abre a cobrança); a marca "Chegou" no pedido, também no painel do delivery; no KDS, a etiqueta "Cliente chegou" e o aviso no rodapé; em qualquer tela, o aviso com o som do sino. Ninguém entregou em 5 min: avisa de novo, uma vez.</li>
+      <li><b>A loja vê:</b> "Clientes esperando" no topo de PDV · Balcão › Retirada / Encomendas, com o tempo de espera e o botão de entregar (o mesmo "Entregar" de hoje: pago online conclui, a pagar abre a cobrança); a marca "Chegou" no pedido (o de retirada não vai ao painel do delivery); no KDS, a etiqueta "Cliente chegou" e o aviso no rodapé; em qualquer tela, o aviso com o som do sino. Ninguém entregou em 5 min: avisa de novo, uma vez.</li>
       <li><b>O cliente recebe a resposta na hora:</b> pronto → "está no balcão"; em preparo → "avisamos a cozinha". Depois de 5 min, "Avisar de novo".</li>
       <li>A página do pedido passa a mostrar os passos da retirada (hoje mostra "Retire no balcão" e "Entregue", da entrega).</li>
     </ul>
@@ -865,7 +864,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px;overflow-wrap:anyw
     <h3>Decisões para você</h3>
     <ol>
       <li><b>Onde ficam:</b> Marketing ganha a aba "Automáticas" (como "Campanhas", mas sozinhas todo dia); o "Cheguei" fica em Configurações › Atendimento, grupo "Retirada · cliente chegou". <span class="recom">recomendado</span></li>
-      <li><b>Onde a equipe é avisada do "Cheguei":</b> Retirada / Encomendas, painel do delivery, KDS e qualquer tela do Regem. <span class="recom">recomendado</span> Outra opção: sem o aviso nas outras telas.</li>
+      <li><b>Onde a equipe é avisada do "Cheguei":</b> Retirada / Encomendas, KDS e qualquer tela do Regem (o pedido de retirada não vai ao painel do delivery). <span class="recom">recomendado</span> Outra opção: sem o aviso nas outras telas.</li>
       <li><b>Aniversário:</b> dia e mês, sem o ano; pelo Perfil, por uma pergunta na confirmação do pedido e pelo cadastro da loja; o robô não pergunta. Com a proteção: 30 dias de carência, o cliente corrige uma vez (depois, só gerente e presidente), um presente a cada 12 meses, só quem pediu nos últimos 12 meses e cupom só do próprio cliente. A mesma regra vale para o cupom "Só aniversariantes" e a campanha de aniversariantes, que entram no mesmo PR. <span class="recom">recomendado</span></li>
       <li><b>Padrões dos presentes e da frequência:</b> aniversário R$ 10 acima de R$ 40 por 7 dias; "sentimos sua falta" aos 30 dias, R$ 8 acima de R$ 30 por 7 dias, 2 tentativas; uma oferta a cada 7 dias; até 30 mensagens por dia. A loja muda todos. <span class="recom">recomendado</span></li>
       <li><b>Cashback vencendo como utilidade</b>, com texto neutro. Se a Meta disser que é marketing, ele passa a contar na frequência das ofertas e a tela mostra a categoria. <span class="recom">recomendado</span></li>
@@ -955,8 +954,6 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px;overflow-wrap:anyw
     }).join('');
     const ordem = [...vivos].sort((a, b) => Number(!!chegadaDe(b.id)) - Number(!!chegadaDe(a.id)));
     $('#hub').innerHTML = ordem.map(cartaoHub).join('');
-    const prontos = vivos.filter((p) => p.status === 'pronto').sort((a, b) => Number(!!chegadaDe(b.id)) - Number(!!chegadaDe(a.id)));
-    $('#mini-painel').innerHTML = prontos.map((p) => { const c = chegadaDe(p.id); return `<article class="hcard${c ? ' chegou' : ''}" style="margin-bottom:6px"><div class="l1"><b>#${p.id}</b><span class="selo neutro">🏪 Retirada</span></div>${c ? `<span class="marca-chegou">🙋 Chegou · ${minDesde(c.desde)} min</span>` : ''}<div class="itens-p">${esc(p.nome)} · ${esc(p.itens)}</div></article>`; }).join('') || '<p class="ajuda" style="margin:4px">Nenhum pedido pronto.</p>';
     const k = chegadaDe('1189');
     $('#kds-tag').hidden = !k || !!ped('1189').entregue;
     $('#kds-rodape').innerHTML = k && !ped('1189').entregue ? `<small>Alertas</small>🙋 <b>Cliente chegou</b> · pedido 1189 · ${esc(ondeTxt(k))}` : '<small>Alertas</small>Sem alertas agora.';

@@ -139,7 +139,7 @@ Pedido do dono de 22–23/10: as mudanças de configuração feitas no servidor 
 **Continuam só descendo:**
 - `empresa`, `modulo_ativacao` e `fiscal_config` — no servidor da loja, a rota de gravação é `@CloudOnly` e a tela fica
   só leitura;
-- `bot_regra`, `feriado`, `cupom`, `encomenda_*`, `banner` e `pedido_logistica` — só a nuvem escreve nelas.
+- `bot_regra`, `feriado`, `cupom`, `encomenda_*`, `banner`, `pedido_logistica` e `pedido_chegada` (o "Cheguei" da retirada, mig 354; filtrada pela loja) — só a nuvem escreve nelas.
 
 ### 2.5 Fila de trabalho — referência completa
 

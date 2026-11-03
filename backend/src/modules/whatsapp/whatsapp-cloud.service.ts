@@ -11,6 +11,7 @@ import { entregarJuntando } from './juntar-mensagens';
 import { conversaRecenteOficial, portaoDoRoboDoOutroLado } from './robo-do-outro-lado';
 import { portaoDaRespostaAoSemContato, registrarConfirmacao } from './resposta-ao-sem-contato';
 import { portaoDaConferencia } from './conferir-entrega';
+import { ChegadaService } from '../chegada/chegada.service';
 import { clienteRespondeu } from '../atendimento/abrir-chamado';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig, empresa, whatsappMensagem, whatsappNumero, whatsappTemplate } from '../../db/schema';
@@ -80,6 +81,10 @@ const CATALOGO_UTILIDADE: Array<{
   // de um "recebido" — quando confirma, a cozinha já começou).
   { nome: 'pedido_em_producao', evento: 'confirmado', cabecalho: 'Pedido em produção', corpo: 'Oi {{1}}! Recebemos seu pedido na {loja} e ele já está em produção. 👨‍🍳 Qualquer novidade a gente te avisa por aqui.', botoes: [] },
   { nome: 'pedido_pronto_retirada', evento: 'pronto_retirada', cabecalho: 'Pedido pronto', corpo: 'Oi {{1}}, seu pedido na {loja} está PRONTO para retirada! 🎉 Pode vir buscar quando quiser.', botoes: [] },
+  // "Cheguei" na retirada (mig 354): o mesmo aviso com o botão de resposta rápida "Cheguei" — o toque volta como a
+  // palavra "Cheguei" e o portão do WhatsApp avisa a loja. Nome NOVO (o seed não troca modelo que a loja já tem): sai
+  // quando a loja liga o "Cheguei" e a Meta aprova; senão vai o de cima.
+  { nome: 'pedido_pronto_cheguei', evento: 'pronto_retirada_cheguei', cabecalho: 'Pedido pronto', corpo: 'Oi {{1}}, seu pedido na {loja} está PRONTO para retirada! 🎉 Quando chegar, toque em Cheguei.', botoes: [{ tipo: 'quick_reply', texto: 'Cheguei' }] },
   { nome: 'pedido_saiu_entrega', evento: 'saiu_entrega', cabecalho: 'Saiu para entrega', corpo: 'Oi {{1}}, seu pedido saiu para entrega! 🛵 Acompanhe a chegada em tempo real pelo botão abaixo.', botoes: [{ tipo: 'rastreio', texto: 'Acompanhar entrega' }] },
   { nome: 'pedido_entregue', evento: 'entregue', cabecalho: 'Pedido entregue', corpo: 'Oi {{1}}, seu pedido foi entregue! Bom apetite e muito obrigado por pedir na {loja}. 💛', botoes: [] },
   { nome: 'pedido_cancelado', evento: 'cancelado', cabecalho: 'Pedido cancelado', corpo: 'Oi {{1}}, seu pedido na {loja} foi cancelado. Se ficou alguma dúvida ou não reconhece isso, é só responder aqui que a gente ajuda.', botoes: [] },
@@ -378,6 +383,30 @@ export class WhatsappCloudService {
     }
   }
 
+  // "Cheguei" na retirada (Onda 3, mig 354; chegada/chegada.service.ts). É um "cheguei" de quem tem pedido de RETIRADA
+  // esperando hoje, numa loja que usa o "Cheguei"? Avisa a loja (a Retirada, o KDS e o aviso em qualquer tela) e responde
+  // ao cliente. Não é, ou a conferência falhou: segue o caminho de sempre (o motivo vai para o log).
+  private chegadaSvc?: ChegadaService;
+  private async chegueiPeloWhatsapp(cfg: any, de: string, texto: string): Promise<boolean> {
+    try {
+      this.chegadaSvc ??= new ChegadaService(this.db);
+      const r = await this.chegadaSvc.porWhatsapp(cfg.tenantId, de, texto);
+      if (!r.tratou) return false;
+      this.logger.log(`"cheguei" na retirada (pedido ${(r.pedidoIds ?? []).join(',')}), sem robô — de=${mascarar(de)}`);
+      if (r.responder) {
+        try {
+          await this.enviarTexto(cfg.tenantId, de, r.responder);
+        } catch (e: any) {
+          this.logger.warn(`resposta ao "cheguei" não saiu para ${mascarar(de)}: ${e?.message ?? e}`);
+        }
+      }
+      return true;
+    } catch (e: any) {
+      this.logger.warn(`"cheguei" não conferido para ${mascarar(de)} (segue o caminho de sempre): ${e?.message ?? e}`);
+      return false;
+    }
+  }
+
   // É a resposta ao "Chegou tudo certo?" (conferir-entrega.ts, B1)? Se for: agradece, ou abre o caso na central
   // (problema / não chegou), e o robô NÃO recebe a mensagem. Se a conferência falhar, a mensagem segue ao robô.
   private async respostaAConferencia(cfg: any, de: string, nome: string | null, texto: string, opcaoId: string | null): Promise<boolean> {
@@ -627,6 +656,10 @@ export class WhatsappCloudService {
           // A resposta ao "entregador sem contato" (Onda 0, 01/11/2026): vai à equipe e ao entregador, não ao robô — com o
           // robô ligado ou desligado (quem pediu a resposta foi o aviso) e antes da pausa (o chamado aberto já pausa).
           if (await this.respostaAoSemContato(cfg, de, nome, this.textoDe(m))) continue;
+
+          // "Cheguei" na retirada (Onda 3, mig 354): o botão do aviso de pronto ou o cliente escrevendo — avisa a loja e
+          // responde, com o robô ligado ou não. Antes do B1 (cuja resposta "chegou" é de entrega, não de retirada).
+          if (await this.chegueiPeloWhatsapp(cfg, de, this.textoDe(m))) continue;
 
           // A resposta ao "Chegou tudo certo?" (B1): agradece ou abre o caso — com o robô ligado ou desligado.
           const opcaoDaResposta = String(m?.interactive?.button_reply?.id ?? m?.interactive?.list_reply?.id ?? '') || null;

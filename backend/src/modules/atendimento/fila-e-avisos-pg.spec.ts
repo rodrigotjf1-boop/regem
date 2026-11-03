@@ -194,20 +194,33 @@ descrever('fila e avisos (Postgres)', () => {
       ajustes: async () => ({ conectadoIfood: true, ajusteIfood: { chat: true, avisarDisputa: true, avisarDeNovoMin: 2 }, minutosDeNovo: [1, 2, 3] }),
       salvarAjustes: async (_u: any, dto: any) => void gravadosIfood.push(dto),
     } as any;
-    const rota = new AtendimentoController({} as any, {} as any, pedido99, chatIfood, svc);
+    // "Cheguei" (mig 354): o grupo da retirada, gravado na loja em uso.
+    const gravadosCheguei: any[] = [];
+    const chegada = {
+      ajustes: async (_t: string, loja: string | null) => ({ ativo: false, perguntarOnde: true, todasTelas: true, deNovoMin: 5, temCardapio: true, loja }),
+      salvarAjustes: async (_u: any, loja: string | null, parcial: any) => void gravadosCheguei.push({ loja, parcial }),
+    } as any;
+    const rota = new AtendimentoController({} as any, {} as any, pedido99, chatIfood, svc, chegada);
     // o grupo do iFood torto: nada é gravado (nem a fila, nem a 99)
-    await expect(rota.salvarAjustes(user, { fila: { avisarGerenteMin: 10 }, ifood: { avisarDeNovoMin: 5 }, ajuste99: { decidirCancelamento: false } })).rejects.toThrow('Avisar de novo');
+    await expect(rota.salvarAjustes(user, null, { fila: { avisarGerenteMin: 10 }, ifood: { avisarDeNovoMin: 5 }, ajuste99: { decidirCancelamento: false } })).rejects.toThrow('Avisar de novo');
     expect([gravados99, gravadosIfood]).toEqual([[], []]);
     expect((await svc.ajustes(D)).avisarGerenteMin).toBe(3);
-    await expect(rota.salvarAjustes(user, { fila: { avisarGerenteMin: 4 }, ajuste99: { decidirCancelamento: false } })).rejects.toThrow('Avisar o gerente');
+    await expect(rota.salvarAjustes(user, null, { fila: { avisarGerenteMin: 4 }, ajuste99: { decidirCancelamento: false } })).rejects.toThrow('Avisar o gerente');
     expect(gravados99).toEqual([]);
-    const r: any = await rota.salvarAjustes(user, { fila: { avisarGerenteMin: 10 } });
+    // o grupo do "Cheguei" torto: nada é gravado de nenhum grupo
+    await expect(rota.salvarAjustes(user, null, { fila: { avisarGerenteMin: 10 }, cheguei: { deNovoMin: 7 } })).rejects.toThrow('Avisar de novo: escolha 3, 5 ou 10');
+    await expect(rota.salvarAjustes(user, null, { ajuste99: { decidirCancelamento: false }, cheguei: { ativo: 'sim' } })).rejects.toThrow();
+    expect([gravados99, gravadosCheguei, (await svc.ajustes(D)).avisarGerenteMin]).toEqual([[], [], 3]);
+    const r: any = await rota.salvarAjustes(user, null, { fila: { avisarGerenteMin: 10 } });
     expect(gravados99).toEqual([]); // só a fila veio: a 99 nem é chamada (funciona sem a 99 conectada)
-    expect(r).toMatchObject({ conectado99: true, fila: { avisarGerenteMin: 10, dizerPosicao: true }, minutosDoAviso: [0, 2, 3, 5, 10], conectadoIfood: true, minutosDeNovo: [1, 2, 3] });
-    await rota.salvarAjustes(user, { ifood: { chat: false } });
+    expect(r).toMatchObject({ conectado99: true, fila: { avisarGerenteMin: 10, dizerPosicao: true }, minutosDoAviso: [0, 2, 3, 5, 10], conectadoIfood: true, minutosDeNovo: [1, 2, 3], cheguei: { ativo: false, temCardapio: true }, minutosDeNovoCheguei: [3, 5, 10] });
+    await rota.salvarAjustes(user, null, { ifood: { chat: false } });
     expect(gravadosIfood).toEqual([{ chat: false }]);
-    await rota.salvarAjustes(user, { ajuste99: { decidirCancelamento: false } });
+    await rota.salvarAjustes(user, null, { ajuste99: { decidirCancelamento: false } });
     expect(gravados99).toHaveLength(1);
+    const comLoja: any = await rota.salvarAjustes(user, 'loja-x', { cheguei: { ativo: true, deNovoMin: 10 } });
+    expect(gravadosCheguei).toEqual([{ loja: 'loja-x', parcial: { ativo: true, deNovoMin: 10 } }]);
+    expect(comLoja.cheguei.loja).toBe('loja-x'); // a resposta relê a mesma loja
   });
 
   it('"Dizer ao cliente a posição na fila" desligado: o robô não recebe a posição (o "já tem alguém" segue)', async () => {

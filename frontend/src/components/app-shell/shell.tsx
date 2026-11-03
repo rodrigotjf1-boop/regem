@@ -52,6 +52,7 @@ import { ModoOperacao } from '@/components/ui/modo-operacao';
 import { ServidorOfflineAviso } from '@/components/ui/servidor-offline-aviso';
 import { AtualizacaoAviso } from '@/components/ui/atualizacao-aviso';
 import { TotemAPagarAviso } from '@/components/pdv/totem-a-pagar-aviso';
+import { ClienteChegouAviso } from '@/components/pdv/cliente-chegou-aviso';
 import { AlertaDeAtendimento, SinoDoAtendimento } from '@/components/atendimento/alerta-de-atendimento';
 import { useUiPrefs } from '@/hooks/use-ui-prefs';
 import { AccountMenu } from './account-menu';
@@ -459,6 +460,8 @@ export function Shell({
         <AtualizacaoAviso />
         {/* Só nas telas do PDV e só para quem pode cobrar o pedido na Retirada. */}
         <TotemAPagarAviso habilitado={temPerm('delivery', perms, cat === 'presidente')} />
+        {/* "Cheguei" na retirada (mig 354): o aviso do cliente que chegou, em qualquer tela — a mesma permissão da Retirada. */}
+        <ClienteChegouAviso habilitado={!!cat && temPerm('delivery', perms, cat === 'presidente')} />
         {/* O alerta da central de atendimento vale em TODAS as telas (som e aviso de caso novo), com ou sem topo. */}
         <AlertaDeAtendimento ativo={!!cat && temPerm('pedidos', perms, cat === 'presidente')} />
         {!fill && (

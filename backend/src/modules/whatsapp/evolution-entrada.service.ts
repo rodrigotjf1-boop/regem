@@ -11,6 +11,7 @@ import { foiEnviadoPeloRegem } from './evolution-envios';
 import { entregarJuntando } from './juntar-mensagens';
 import { anotarNaMemoria, chaveDaMemoria, conversaNaMemoria, portaoDoRoboDoOutroLado } from './robo-do-outro-lado';
 import { portaoDaRespostaAoSemContato, registrarConfirmacao } from './resposta-ao-sem-contato';
+import { ChegadaService } from '../chegada/chegada.service';
 import { clienteRespondeu } from '../atendimento/abrir-chamado';
 import { assinarConversa } from '../../common/conversa-do-robo';
 
@@ -81,6 +82,7 @@ export function telefoneDaConversa(key: any): string {
 export class EvolutionEntradaService {
   private readonly logger = new Logger('EvolutionEntrada');
   private readonly recebidas = new Map<string, number>(); // instância:id → até quando lembrar
+  private chegadaSvc?: ChegadaService; // o "Cheguei" na retirada (só precisa do banco)
 
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
@@ -191,6 +193,23 @@ export class EvolutionEntradaService {
       }
     } catch (e: any) {
       this.logger.warn(`resposta ao "sem contato" não conferida para ${mascarar(de)} (segue como antes): ${e?.message ?? e}`);
+    }
+
+    // "Cheguei" na retirada (Onda 3, mig 354): o cliente escrevendo "cheguei" (pelo QR não há botão) — avisa a loja e
+    // responde, com o robô ligado ou não. Não é, ou a conferência falhou: segue como antes.
+    try {
+      this.chegadaSvc ??= new ChegadaService(this.db);
+      const ch = await this.chegadaSvc.porWhatsapp(cfg.tenantId, de, lida.texto);
+      if (ch.tratou) {
+        this.logger.log(`"cheguei" na retirada (pedido ${(ch.pedidoIds ?? []).join(',')}), sem robô — de=${mascarar(de)}`);
+        if (ch.responder)
+          await this.evolution
+            .enviar(cfg.tenantId, de, ch.responder)
+            .catch((e: any) => this.logger.warn(`resposta ao "cheguei" não saiu para ${mascarar(de)}: ${e?.message ?? e}`));
+        return;
+      }
+    } catch (e: any) {
+      this.logger.warn(`"cheguei" não conferido para ${mascarar(de)} (segue como antes): ${e?.message ?? e}`);
     }
 
     if (!cfg.roboAtivo || !cfg.ativo) return;

@@ -200,6 +200,51 @@ describe('WhatsappCloudService — portões do recebimento', () => {
     expect(textos[0]).toContain('não vai mais receber ofertas');
   });
 
+  // "Cheguei" na retirada (mig 354): o portão vem antes do robô e da pausa — avisa a loja e responde, com o robô ligado
+  // ou não. Quem decide se é chegada é o serviço (chegada.service.ts, testado com o Postgres); aqui, a fiação.
+  it('"Cheguei" (texto ou o botão do modelo de pronto): avisa a loja e responde, sem ir ao robô — ligado ou desligado', async () => {
+    const botao = (() => {
+      const e: any = evento();
+      e.entry[0].changes[0].value.messages[0] = { from: DE, id: 'wamid.BOTAO', type: 'button', timestamp: '1756200000', button: { text: 'Cheguei', payload: 'Cheguei' } };
+      return e;
+    })();
+    for (const [roboAtivo, corpo, texto] of [
+      [true, evento('Cheguei, tô de moto'), 'Cheguei, tô de moto'],
+      [false, evento('cheguei'), 'cheguei'],
+      [true, botao, 'Cheguei'],
+    ] as const) {
+      const { svc, enviados } = comLoja({ ...LOJA, roboAtivo });
+      const textos: string[] = [];
+      (svc as any).enviarTexto = async (_t: string, _p: string, t: string) => void textos.push(t);
+      const chamadas: any[] = [];
+      (svc as any).chegadaSvc = {
+        porWhatsapp: async (t: string, de: string, tx: string) => {
+          chamadas.push({ t, de, tx });
+          return { tratou: true, responder: 'Avisamos a equipe!', pedidoIds: ['p1'] };
+        },
+      };
+      await svc.processar(corpo);
+      expect(enviados).toHaveLength(0);
+      expect(textos).toEqual(['Avisamos a equipe!']);
+      expect(chamadas).toEqual([{ t: 'tenant-1', de: DE, tx: texto }]);
+    }
+  });
+
+  it('"Cheguei": não é chegada, ou a conferência falhou → segue ao robô, como antes', async () => {
+    const { svc, enviados } = comLoja(LOJA);
+    (svc as any).chegadaSvc = { porWhatsapp: async () => ({ tratou: false }) };
+    await svc.processar(evento('cheguei em casa'));
+    expect(enviados).toHaveLength(1);
+    const outro = comLoja(LOJA);
+    (outro.svc as any).chegadaSvc = {
+      porWhatsapp: async () => {
+        throw new Error('banco fora');
+      },
+    };
+    await outro.svc.processar(evento('cheguei'));
+    expect(outro.enviados).toHaveLength(1);
+  });
+
   it('não quebra com evento que só traz status de entrega', async () => {
     const { svc, enviados } = comLoja(LOJA);
     await svc.processar({

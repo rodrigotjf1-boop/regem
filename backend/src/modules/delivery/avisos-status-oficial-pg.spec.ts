@@ -39,6 +39,8 @@ descrever('avisos de status pela API oficial (Postgres)', () => {
     enviarLink: async (_t: string, para: string, corpo: string, url: string, rotulo: string) => void saidas.push({ como: 'link', para, corpo, url, rotulo }),
     enviarTemplate: async (_t: string, para: string, nome: string, idioma: string, params: string[], opts: any) =>
       void saidas.push({ como: 'modelo', para, nome, idioma, params, rastreio: opts?.rastreio ?? null }),
+    // "Cheguei" (mig 354): o aviso de pronto da retirada com o botão de resposta.
+    enviarOpcoes: async (_t: string, para: string, corpo: string, opcoes: any[]) => void saidas.push({ como: 'opcoes', para, corpo, opcoes }),
   } as any;
   // O WhatsApp por QR (Evolution) da loja: o "sem contato" sai por ele quando a loja não é da oficial (Bloco 3).
   const qr = { enviar: async (_t: string, numero: string, texto: string) => void saidas.push({ como: 'qr', para: numero, texto }) } as any;
@@ -178,6 +180,57 @@ descrever('avisos de status pela API oficial (Postgres)', () => {
     saidas.length = 0;
     await svc.enviarAvisoStatus(t, pedido('confirmado')); // sem modelo aprovado de "confirmado"
     expect(saidas).toEqual([]);
+  });
+
+  // "Cheguei" na retirada (Onda 3, mig 354): com o ajuste ligado, o aviso de pronto da retirada ensina o cliente a avisar.
+  it('"Cheguei": pronto da retirada com o botão na janela; fora, o modelo com o botão (senão o de sempre); desligado, como sempre', async () => {
+    const t = await loja('cloud');
+    await q(`update cardapio_config set cheguei_ativo = true where tenant_id = $1`, [t]);
+    await conversa(t, 1);
+    await svc.enviarAvisoStatus(t, pedido('pronto', { tipo: 'retirada' }));
+    expect(saidas).toEqual([
+      {
+        como: 'opcoes',
+        para: '5521987654321',
+        corpo: '*Pedido pronto*\nSeu pedido #66 está pronto para retirada! 🎉\nQuando chegar, toque em Cheguei.',
+        opcoes: [{ id: 'cheguei', titulo: 'Cheguei' }],
+      },
+    ]);
+    // fora da janela: o modelo com o botão quando a Meta já aprovou; só o de sempre, vai o de sempre
+    const t2 = await loja('cloud');
+    await q(`update cardapio_config set cheguei_ativo = true where tenant_id = $1`, [t2]);
+    await conversa(t2, 30);
+    await modelo(t2, 'pedido_pronto_retirada', 'pronto_retirada');
+    saidas.length = 0;
+    await svc.enviarAvisoStatus(t2, pedido('pronto', { tipo: 'retirada' }));
+    expect(saidas).toEqual([{ como: 'modelo', para: '5521987654321', nome: 'pedido_pronto_retirada', idioma: 'pt_BR', params: ['Rodrigo'], rastreio: null }]);
+    await modelo(t2, 'pedido_pronto_cheguei', 'pronto_retirada_cheguei');
+    saidas.length = 0;
+    await svc.enviarAvisoStatus(t2, pedido('pronto', { tipo: 'retirada' }));
+    expect(saidas).toEqual([{ como: 'modelo', para: '5521987654321', nome: 'pedido_pronto_cheguei', idioma: 'pt_BR', params: ['Rodrigo'], rastreio: null }]);
+    // desligado: o texto de sempre (na janela) e o modelo de sempre (fora), mesmo com o do botão aprovado
+    await q(`update cardapio_config set cheguei_ativo = false where tenant_id = any($1::uuid[])`, [[t, t2]]);
+    saidas.length = 0;
+    await svc.enviarAvisoStatus(t, pedido('pronto', { tipo: 'retirada' }));
+    await svc.enviarAvisoStatus(t2, pedido('pronto', { tipo: 'retirada' }));
+    expect(saidas).toEqual([
+      { como: 'texto', para: '5521987654321', texto: '*Pedido pronto*\nSeu pedido #66 está pronto para retirada! 🎉' },
+      { como: 'modelo', para: '5521987654321', nome: 'pedido_pronto_retirada', idioma: 'pt_BR', params: ['Rodrigo'], rastreio: null },
+    ]);
+    // pelo QR: o n8n recebe a frase pronta só com o "Cheguei" ligado, e só no pronto da retirada
+    const tq = await loja('evolution');
+    const n8n = jest.spyOn(svc, 'notificarN8n').mockResolvedValue({ saiu: true });
+    try {
+      await svc.enviarAvisoStatus(tq, pedido('pronto', { tipo: 'retirada' }));
+      expect(n8n.mock.calls[0][1]).not.toHaveProperty('cheguei');
+      await q(`update cardapio_config set cheguei_ativo = true where tenant_id = $1`, [tq]);
+      await svc.enviarAvisoStatus(tq, pedido('pronto', { tipo: 'retirada' }));
+      expect(n8n.mock.calls[1][1]).toMatchObject({ eventoStatus: 'pronto_retirada', cheguei: 'Quando chegar, responda CHEGUEI.' });
+      await svc.enviarAvisoStatus(tq, pedido('confirmado', { tipo: 'retirada' }));
+      expect(n8n.mock.calls[2][1]).not.toHaveProperty('cheguei');
+    } finally {
+      n8n.mockRestore();
+    }
   });
 
   it('cliente que nunca escreveu, ou status sem aviso: nada pelo WhatsApp', async () => {
