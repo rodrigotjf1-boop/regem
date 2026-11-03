@@ -13,7 +13,7 @@ import { TerminalAtual } from '../../auth/terminal-atual.decorator';
 import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AtendimentoService } from './atendimento.service';
 import { DisputaIfoodService, RespostaDaDisputa } from './disputa-ifood.service';
-import { ChatIfoodService } from './chat-ifood.service';
+import { ChatIfoodService, lerAjusteIfood } from './chat-ifood.service';
 import { FilaEAvisosService, lerAjusteDaFila, MINUTOS_DO_AVISO } from './fila-e-avisos.service';
 
 // Chamados de atendimento (handoff). Operados por quem está no balcão/gestão.
@@ -53,19 +53,25 @@ export class AtendimentoController {
   @CloudOnly()
   @Roles('presidente', 'gerente')
   async ajustes(@CurrentUser() user: AuthUser) {
-    const [da99, fila] = await Promise.all([this.pedido99.ajustes(user.tenantId), this.filaEAvisos.ajustes(user.tenantId)]);
-    return { ...da99, fila, minutosDoAviso: MINUTOS_DO_AVISO };
+    const [da99, fila, doIfood] = await Promise.all([
+      this.pedido99.ajustes(user.tenantId),
+      this.filaEAvisos.ajustes(user.tenantId),
+      this.chatIfood.ajustes(user.tenantId),
+    ]);
+    return { ...da99, fila, minutosDoAviso: MINUTOS_DO_AVISO, ...doIfood };
   }
 
-  // Cada grupo pelo seu dono, só o que veio. A fila é conferida ANTES de gravar qualquer coisa: um salvar com os dois
-  // grupos não grava a 99 e recusa a fila.
+  // Cada grupo pelo seu dono, só o que veio. A fila e o iFood são conferidos ANTES de gravar qualquer coisa: um salvar com
+  // vários grupos não grava um e recusa o outro.
   @Put('ajustes')
   @CloudOnly()
   @Roles('presidente', 'gerente')
   async salvarAjustes(@CurrentUser() user: AuthUser, @Body() dto: any) {
     if (dto?.fila !== undefined) lerAjusteDaFila(dto.fila);
+    if (dto?.ifood !== undefined) lerAjusteIfood(dto.ifood);
     if (dto?.ajuste99 !== undefined) await this.pedido99.salvarAjustes(user, dto);
     if (dto?.fila !== undefined) await this.filaEAvisos.salvar(user, dto.fila);
+    if (dto?.ifood !== undefined) await this.chatIfood.salvarAjustes(user, dto.ifood);
     return this.ajustes(user);
   }
 
@@ -101,8 +107,10 @@ export class AtendimentoController {
   // A FILA da central de atendimento (Onda 1): os casos abertos da loja em uso, na ordem da fila, e as contagens.
   @Get('fila')
   @Roles('presidente', 'gerente', 'supervisao', 'execucao')
-  fila(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
-    return this.service.fila(user, unidade);
+  async fila(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
+    // Com os avisos da disputa (ajuste do iFood): o app e o computador de quem é gerente avisam por eles.
+    const [fila, avisos] = await Promise.all([this.service.fila(user, unidade), this.chatIfood.avisos(user.tenantId)]);
+    return { ...fila, avisos };
   }
 
   // Os casos resolvidos hoje (a situação "Resolvidos hoje" da tela).

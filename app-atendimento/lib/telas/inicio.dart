@@ -42,6 +42,11 @@ class _TelaInicioState extends State<TelaInicio> with WidgetsBindingObserver {
   Set<String>? _vistos;
   final Set<String> _urgentesVistos = {};
   final Set<String> _escaladosVistos = {};
+  final Set<String> _deNovoAvisadas = {};
+
+  // Os avisos da disputa (ajuste do iFood, vêm com a fila): avisar quando chega; de novo quando faltarem N min.
+  bool _avisarDisputa = true;
+  int _deNovoMin = 2;
 
   @override
   void initState() {
@@ -137,6 +142,11 @@ class _TelaInicioState extends State<TelaInicio> with WidgetsBindingObserver {
     try {
       final r = await Api.fila();
       final casos = ((r['casos'] as List?) ?? const []).whereType<Map>().map((m) => Caso(Map<String, dynamic>.from(m))).toList();
+      final disputa = (r['avisos'] is Map) ? (r['avisos'] as Map)['disputa'] : null;
+      if (disputa is Map) {
+        _avisarDisputa = disputa['avisar'] != false;
+        _deNovoMin = (disputa['deNovoMin'] as num?)?.toInt() ?? 2;
+      }
       _avisarNovidades(casos);
       if (!mounted) return;
       setState(() {
@@ -164,15 +174,30 @@ class _TelaInicioState extends State<TelaInicio> with WidgetsBindingObserver {
   }
 
   /// O que mudou desde a leitura anterior vira aviso: caso novo (ocupado: só o que tem prazo), caso que virou urgente
-  /// e, para gerente e presidente, o caso que ninguém pegou no tempo do ajuste.
+  /// e, para gerente e presidente, o caso que ninguém pegou no tempo do ajuste. Disputa do iFood e pedido da 99: só
+  /// quem responde (gerente e presidente) é avisado — a disputa segue o ajuste do iFood, com o "de novo" perto do prazo.
   void _avisarNovidades(List<Caso> casos) {
     final primeira = _vistos == null;
     final vistos = _vistos ?? <String>{};
+    final agora = DateTime.now();
     for (final c in casos) {
       final novo = !vistos.contains(c.id);
       final ficouUrgente = c.urgente && !_urgentesVistos.contains(c.id);
       final escalou = c.escalado != null && !_escaladosVistos.contains(c.id);
-      if (!primeira) {
+      if (!primeira && c.daPlataforma) {
+        if (_eu.decide && c.aberto) {
+          final prazo = c.prazoEm != null ? ' · vence em ${tempoAte(c.prazoEm, agora)}' : '';
+          if (novo && (c.tipo != 'disputa' || _avisarDisputa)) {
+            Avisos.mostrar(c.tipo == 'disputa' ? '🔔 Disputa do iFood — só gerente e presidente respondem' : '🔔 ${c.rotulo}', '${c.titulo}$prazo', urgente: true);
+          } else if (c.tipo == 'disputa' && _avisarDisputa && c.detalhe['resposta'] == null && c.prazoEm != null && !_deNovoAvisadas.contains(c.id)) {
+            final falta = c.prazoEm!.difference(agora);
+            if (falta > Duration.zero && falta <= Duration(minutes: _deNovoMin)) {
+              _deNovoAvisadas.add(c.id);
+              Avisos.mostrar('⏰ Disputa sem resposta', '${c.titulo}$prazo', urgente: true);
+            }
+          }
+        }
+      } else if (!primeira) {
         if (escalou && _eu.decide) {
           Avisos.mostrar('⏰ Ninguém pegou em ${c.escalado!.minutos} min', c.titulo, urgente: true);
         } else if (novo && c.aberto && c.responsavelId == null) {

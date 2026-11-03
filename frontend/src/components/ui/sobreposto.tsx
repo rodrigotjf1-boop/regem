@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useRef } from 'react';
+import { useEffect, useId, useRef, useSyncExternalStore } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -21,6 +21,23 @@ function focaveis(painel: HTMLElement): HTMLElement[] {
 // de uma gaveta fecha sozinho com o Esc, e a gaveta continua. As duas escutas ficam no mesmo nó (o `document`), e o
 // `stopPropagation` não impede a outra de rodar — sem a pilha, um Esc fechava os dois.
 const pilha: React.RefObject<HTMLDivElement>[] = [];
+const ouvintesDaPilha = new Set<() => void>();
+const avisarPilha = () => ouvintesDaPilha.forEach((f) => f());
+
+/**
+ * Quantos painéis (gaveta, diálogo) estão abertos agora. Para a tela que troca de arranjo com a largura (coluna ×
+ * gaveta) não trocar por baixo de um diálogo: trocar remonta quem abriu o diálogo e ele fecha sozinho (ERR-347).
+ */
+export function useQuantosSobrepostos(): number {
+  return useSyncExternalStore(
+    (f) => {
+      ouvintesDaPilha.add(f);
+      return () => ouvintesDaPilha.delete(f);
+    },
+    () => pilha.length,
+    () => 0,
+  );
+}
 
 function useSobreposto(aoFechar: () => void, voltarPara?: string) {
   const painel = useRef<HTMLDivElement>(null);
@@ -28,6 +45,7 @@ function useSobreposto(aoFechar: () => void, voltarPara?: string) {
   fechar.current = aoFechar;
   useEffect(() => {
     pilha.push(painel);
+    avisarPilha();
     const quemAbriu = document.activeElement as HTMLElement | null;
     const p = painel.current;
     // Foco inicial: o que o conteúdo marcou com `data-foco-inicial`, senão o 1º campo, senão o painel.
@@ -63,6 +81,7 @@ function useSobreposto(aoFechar: () => void, voltarPara?: string) {
     return () => {
       const i = pilha.indexOf(painel);
       if (i >= 0) pilha.splice(i, 1);
+      avisarPilha();
       document.removeEventListener('keydown', tecla, true);
       document.body.style.overflow = rolagem;
       // Devolve o foco a quem abriu; se ele sumiu (a linha foi excluída), ao ponto combinado.

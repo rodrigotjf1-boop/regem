@@ -10,18 +10,21 @@ import { texto2 } from '@/components/ui/lista';
 import { MOTIVO_REEMBOLSO_99 } from '@/components/atendimento/pedido-99';
 
 // AJUSTES DO ATENDIMENTO — Delivery › Configurações › Operação › Atendimento (protótipo
-// `mockups/regem-central-atendimento.html`, vista "ajustes"). Dois grupos:
+// `mockups/regem-central-atendimento.html`, vista "ajustes"). Três grupos:
 //  • "Fila e avisos" (Onda 2, mig 353): avisar o gerente se ninguém pegar o caso; dizer ao cliente a posição na fila.
-//    Ficam na `robo_config` da empresa — sempre aparecem.
+//    Ficam na `robo_config` da empresa — sempre aparecem. O "Som do aviso no computador" é de cada computador (no sino).
+//  • "iFood · disputas e chat": o chat do iFood na tela; avisar o gerente da disputa e de novo perto do prazo. Ficam na
+//    integração do iFood — só aparecem com o iFood conectado.
 //  • "99Food · pedidos do cliente" (Onda 1): o que o Regem faz com o pedido de cancelamento e de reembolso do cliente.
 //    Ficam na integração da 99 — só aparecem com a 99 conectada.
-// Nenhum ajuste aparece antes de valer ("Som do aviso no computador" e o grupo do iFood ainda não existem). Tudo mora só
-// na NUVEM: no servidor da loja a tela só explica. Só gerente e presidente mudam (o servidor confere).
+// Tudo mora só na NUVEM: no servidor da loja a tela só explica. Só gerente e presidente mudam (o servidor confere).
 
 const HORAS_PADRAO = [1, 2, 4, 8, 12, 20];
 const MINUTOS_PADRAO = [0, 2, 3, 5, 10];
-/** As chaves do grupo "Fila e avisos" (o resto é da 99). */
+const DE_NOVO_PADRAO = [1, 2, 3];
+/** As chaves do grupo "Fila e avisos" e as do iFood (o resto é da 99). */
 const DA_FILA = ['avisarGerenteMin', 'dizerPosicao'];
+const DO_IFOOD: Record<string, string> = { ifoodChat: 'chat', ifoodAvisarDisputa: 'avisarDisputa', ifoodAvisarDeNovoMin: 'avisarDeNovoMin' };
 
 type Resposta = {
   conectado99: boolean;
@@ -29,10 +32,20 @@ type Resposta = {
   horasPermitidas?: number[];
   fila?: { avisarGerenteMin: number; dizerPosicao: boolean };
   minutosDoAviso?: number[];
+  conectadoIfood?: boolean;
+  ajusteIfood?: { chat: boolean; avisarDisputa: boolean; avisarDeNovoMin: number } | null;
+  minutosDeNovo?: number[];
 };
 
 const paraValores = (r: Resposta): Valores => ({
   ...(r.fila ? { avisarGerenteMin: String(r.fila.avisarGerenteMin), dizerPosicao: r.fila.dizerPosicao } : {}),
+  ...(r.ajusteIfood
+    ? {
+        ifoodChat: r.ajusteIfood.chat,
+        ifoodAvisarDisputa: r.ajusteIfood.avisarDisputa,
+        ifoodAvisarDeNovoMin: String(r.ajusteIfood.avisarDeNovoMin),
+      }
+    : {}),
   ...(r.ajuste99
     ? {
         decidirCancelamento: r.ajuste99.decidirCancelamento,
@@ -80,6 +93,8 @@ export function AjustesDoAtendimento() {
 
   const grupoDaFila: GrupoDeAjustes = {
     titulo: 'Fila e avisos',
+    // O som é de cada computador (como o do pedido novo e o do KDS) — vale também com o servidor da loja.
+    nota: 'O som do aviso é de cada computador: escolha no sino do topo da tela (Bipe curto, Campainha ou Sem som).',
     itens: [
       {
         id: 'avisarGerenteMin',
@@ -139,23 +154,55 @@ export function AjustesDoAtendimento() {
       },
     ],
   };
-  const grupos: GrupoDeAjustes[] = [grupoDaFila, ...(resp?.conectado99 ? [grupoDa99] : [])];
+  const deNovo = resp?.minutosDeNovo?.length ? resp.minutosDeNovo : DE_NOVO_PADRAO;
+  const grupoDoIfood: GrupoDeAjustes = {
+    titulo: 'iFood · disputas e chat',
+    nota: 'Quem responde à disputa: gerente e presidente — no computador com a senha de quem decide, no app com o PIN.',
+    itens: [
+      {
+        id: 'ifoodChat',
+        rotulo: 'Chat do iFood na tela Atendimento',
+        tipo: 'chave',
+        ajuda: 'Mostra o botão "Chat do iFood" (o chat oficial do iFood). Cada computador autoriza uma vez, com um usuário "Dono" ou "Administrador" do iFood.',
+        palavras: 'ifood chat widget conversa',
+      },
+      {
+        id: 'ifoodAvisarDisputa',
+        rotulo: 'Avisar o gerente quando chega uma disputa',
+        tipo: 'chave',
+        ajuda: 'No app de atendimento e no computador de quem é gerente ou presidente, na hora. Disputa sem resposta segue o que o iFood decidir sozinho.',
+        palavras: 'ifood disputa aviso gerente',
+      },
+      {
+        id: 'ifoodAvisarDeNovoMin',
+        rotulo: 'Avisar de novo quando faltarem',
+        tipo: 'selecao',
+        opcoes: deNovo.map((m) => ({ v: String(m), rotulo: `${m} min` })),
+        ajuda: 'Segundo aviso, se ninguém respondeu.',
+        palavras: 'ifood disputa aviso de novo minutos prazo',
+      },
+    ],
+  };
+  const grupos: GrupoDeAjustes[] = [grupoDaFila, ...(resp?.conectadoIfood ? [grupoDoIfood] : []), ...(resp?.conectado99 ? [grupoDa99] : [])];
 
   async function salvar() {
     const chaves = alterados(grupos, valores, salvos);
     if (!chaves.length || salvando) return;
     setSalvando(true);
     setErro('');
-    // Cada grupo vai com o seu dono (a fila na configuração do robô, a 99 na integração) — só o que mudou.
+    // Cada grupo vai com o seu dono (a fila na configuração do robô, o iFood e a 99 nas integrações) — só o que mudou.
     const fila: Record<string, unknown> = {};
+    const ifood: Record<string, unknown> = {};
     const ajuste99: Record<string, unknown> = {};
     for (const k of chaves) {
       if (DA_FILA.includes(k)) fila[k] = k === 'avisarGerenteMin' ? Number(valores[k]) : valores[k];
+      else if (DO_IFOOD[k]) ifood[DO_IFOOD[k]] = k === 'ifoodAvisarDeNovoMin' ? Number(valores[k]) : valores[k];
       else ajuste99[k] = k === 'reembolsoRecusarEmHoras' ? Number(valores[k]) : valores[k];
     }
     try {
       const r: Resposta = await api.salvarAtendimentoAjustes({
         ...(Object.keys(fila).length ? { fila } : {}),
+        ...(Object.keys(ifood).length ? { ifood } : {}),
         ...(Object.keys(ajuste99).length ? { ajuste99 } : {}),
       });
       setResp(r);
