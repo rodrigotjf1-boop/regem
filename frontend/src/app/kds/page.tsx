@@ -276,6 +276,45 @@ export default function KdsPage() {
     }
   }, []);
 
+  // "Cheguei" na retirada (mig 354): o cartão desta tela ganhou a chegada do cliente (ou ele avisou de novo) entre uma
+  // leitura e outra → aviso no rodapé + som. Montado aqui, na tela (como o do cancelamento): vale na nuvem e no servidor
+  // da loja, onde a chegada desce pelo sync sem evento. A primeira leitura é a base (não avisa o que já estava lá).
+  const chegadasVistas = useRef<Map<string, string> | null>(null);
+  const avisarChegadas = useCallback(
+    (lista: any[]) => {
+      const base = chegadasVistas.current === null;
+      const mapa = chegadasVistas.current ?? new Map<string, string>();
+      const novos: any[] = [];
+      for (const p of lista) {
+        const c = p?.chegada;
+        if (!c || !p.comandaId || p.situacao === 'cancelado' || p.status === 'cancelado') continue;
+        const aviso = String(c.deNovoEm ?? c.chegouEm);
+        if (mapa.get(p.comandaId) !== aviso) {
+          if (!base) novos.push(p);
+          mapa.set(p.comandaId, aviso);
+        }
+      }
+      chegadasVistas.current = mapa;
+      if (!novos.length) return;
+      const ondeTxt = (c: any) =>
+        c?.onde === 'balcao' ? `No balcão${c.obs ? ` · ${c.obs}` : ''}` : c?.onde === 'porta' ? `Na porta${c.obs ? `: ${c.obs}` : ''}` : c?.obs ?? 'Para retirar';
+      const em = new Date().toISOString();
+      setAlertas((prev) => [
+        ...novos.map((p) => ({
+          id: `cheg-${p.comandaId}`,
+          titulo: `🙋 CLIENTE CHEGOU — ${identPedido(p)}`,
+          detalhe: ondeTxt(p.chegada),
+          prioridade: 'alta' as const,
+          em,
+          restanteSeg: 30,
+        })),
+        ...prev.filter((x) => !novos.some((p) => x.id === `cheg-${p.comandaId}`)),
+      ]);
+      bip();
+    },
+    [bip],
+  );
+
   // Devolve a fila nova (ou null se falhou) — o som de pedido novo confere se o cartão entrou NESTA tela.
   const carregarFila = useCallback(async (): Promise<any[] | null> => {
     if (!getToken()) return null; // fila durável requer operador logado (JWT)
@@ -293,12 +332,13 @@ export default function KdsPage() {
       if (despacho) setPedidosDespacho(lista);
       else setPedidos(lista);
       if (r.cores) setCores(r.cores);
+      avisarChegadas(lista);
       return lista;
     } catch {
       /* mantém a fila atual em caso de falha momentânea */
       return null;
     }
-  }, []);
+  }, [avisarChegadas]);
 
   useEffect(() => {
     setNow(new Date()); // só no cliente

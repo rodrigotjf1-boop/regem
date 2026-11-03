@@ -35,6 +35,8 @@ export const EDGE_CORE_MODULES = [
   'TelaSenhasModule', // a TV de senhas (mig 337): mostra a cozinha do servidor da loja, na hora
   'DeliveryModule', // PAINEL de delivery (aceitar/pronto/despachar) roda no edge;
                     // a INGESTÃO de integração é da nuvem → endpoints @CloudOnly pontuais.
+  'ChegadaModule', // "Cheguei" na retirada (mig 354): a Retirada, o KDS e o aviso leem no edge; o botão do cliente
+                   // e a rota que o servidor da loja chama são @CloudOnly (só a nuvem escreve a chegada).
 ] as const;
 
 // Existem nos DOIS; a nuvem é master e replica pro edge (PULL). Entram no bundle,

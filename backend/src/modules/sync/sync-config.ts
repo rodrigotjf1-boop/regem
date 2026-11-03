@@ -318,6 +318,9 @@ export const TABELAS_SYNC: TabelaSync[] = [
   // (webhook/verificador) → só DESCE; o painel e o KDS da loja leem. Separada de `pedido_externo`
   // para a última-escrita da linha do pedido (a loja marca pronto) não apagar o "chegou na loja".
   { tabela: 'pedido_logistica', direcao: 'desce', cursor: 'updated_at' },
+  // O "Cheguei" do cliente da retirada (mig 354): só a NUVEM escreve (cardápio online e WhatsApp) → só DESCE; a
+  // Retirada, o KDS e o aviso da loja leem. À parte de `pedido_externo` pelo mesmo motivo da `pedido_logistica`.
+  { tabela: 'pedido_chegada', direcao: 'desce', cursor: 'updated_at' },
   // Exclusões físicas (mig 262): o gatilho grava (tabela, id) aqui e quem recebe apaga a mesma
   // linha do seu lado. Sobe como anexo e desce pelo TABELAS_PULL_APPEND. Por ÚLTIMO no push,
   // para a exclusão chegar depois das linhas do mesmo ciclo.
@@ -524,6 +527,8 @@ export const LOJA_COLUNA = new Set<string>([
   // configuração continuam de fora (valem para a rede inteira).
   'nota_fiscal', 'fiscal_inutilizacao', 'fiscal_evento', 'ordem_producao', 'acerto_subpdv', 'vistoria', 'pagamento_tef', 'alerta_estoque',
   'tarefa_instancia', 'escala_alocacao',
+  // O "Cheguei" da retirada (mig 354): cresce com os pedidos de cada loja.
+  'pedido_chegada',
 ]);
 
 export const LOJA_PELO_PAI: Record<string, (uid: string) => SQL> = {

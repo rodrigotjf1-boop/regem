@@ -10,7 +10,11 @@ import { texto2 } from '@/components/ui/lista';
 import { MOTIVO_REEMBOLSO_99 } from '@/components/atendimento/pedido-99';
 
 // AJUSTES DO ATENDIMENTO — Delivery › Configurações › Operação › Atendimento (protótipo
-// `mockups/regem-central-atendimento.html`, vista "ajustes"). Três grupos:
+// `mockups/regem-central-atendimento.html`, vista "ajustes"; o grupo do "Cheguei" é do `mockups/regem-relacionamento.html`).
+//  • "Retirada · cliente chegou" (Onda 3, mig 354): o botão "Cheguei" do cliente que retira, perguntar onde ele está,
+//    onde a equipe é avisada e quando avisar de novo. Ficam no `cardapio_config` da LOJA EM USO (sincroniza com o servidor
+//    da loja) — só aparecem com o cardápio online da loja.
+// E os três grupos da central:
 //  • "Fila e avisos" (Onda 2, mig 353): avisar o gerente se ninguém pegar o caso; dizer ao cliente a posição na fila.
 //    Ficam na `robo_config` da empresa — sempre aparecem. O "Som do aviso no computador" é de cada computador (no sino).
 //  • "iFood · disputas e chat": o chat do iFood na tela; avisar o gerente da disputa e de novo perto do prazo. Ficam na
@@ -22,9 +26,16 @@ import { MOTIVO_REEMBOLSO_99 } from '@/components/atendimento/pedido-99';
 const HORAS_PADRAO = [1, 2, 4, 8, 12, 20];
 const MINUTOS_PADRAO = [0, 2, 3, 5, 10];
 const DE_NOVO_PADRAO = [1, 2, 3];
-/** As chaves do grupo "Fila e avisos" e as do iFood (o resto é da 99). */
+const DE_NOVO_CHEGUEI_PADRAO = [3, 5, 10];
+/** As chaves do grupo "Fila e avisos", as do iFood e as do "Cheguei" (o resto é da 99). */
 const DA_FILA = ['avisarGerenteMin', 'dizerPosicao'];
 const DO_IFOOD: Record<string, string> = { ifoodChat: 'chat', ifoodAvisarDisputa: 'avisarDisputa', ifoodAvisarDeNovoMin: 'avisarDeNovoMin' };
+const DO_CHEGUEI: Record<string, string> = {
+  chegueiAtivo: 'ativo',
+  chegueiPerguntarOnde: 'perguntarOnde',
+  chegueiTodasTelas: 'todasTelas',
+  chegueiDeNovoMin: 'deNovoMin',
+};
 
 type Resposta = {
   conectado99: boolean;
@@ -35,9 +46,19 @@ type Resposta = {
   conectadoIfood?: boolean;
   ajusteIfood?: { chat: boolean; avisarDisputa: boolean; avisarDeNovoMin: number } | null;
   minutosDeNovo?: number[];
+  cheguei?: { ativo: boolean; perguntarOnde: boolean; todasTelas: boolean; deNovoMin: number; temCardapio: boolean };
+  minutosDeNovoCheguei?: number[];
 };
 
 const paraValores = (r: Resposta): Valores => ({
+  ...(r.cheguei?.temCardapio
+    ? {
+        chegueiAtivo: r.cheguei.ativo,
+        chegueiPerguntarOnde: r.cheguei.perguntarOnde,
+        chegueiTodasTelas: r.cheguei.todasTelas ? 'sim' : 'nao',
+        chegueiDeNovoMin: String(r.cheguei.deNovoMin),
+      }
+    : {}),
   ...(r.fila ? { avisarGerenteMin: String(r.fila.avisarGerenteMin), dizerPosicao: r.fila.dizerPosicao } : {}),
   ...(r.ajusteIfood
     ? {
@@ -183,7 +204,53 @@ export function AjustesDoAtendimento() {
       },
     ],
   };
-  const grupos: GrupoDeAjustes[] = [grupoDaFila, ...(resp?.conectadoIfood ? [grupoDoIfood] : []), ...(resp?.conectado99 ? [grupoDa99] : [])];
+  const deNovoCheguei = resp?.minutosDeNovoCheguei?.length ? resp.minutosDeNovoCheguei : DE_NOVO_CHEGUEI_PADRAO;
+  const grupoDoCheguei: GrupoDeAjustes = {
+    titulo: 'Retirada · cliente chegou',
+    nota: 'Vale para a loja em uso. O som do aviso é o que cada computador escolheu no sino do topo da tela.',
+    itens: [
+      {
+        id: 'chegueiAtivo',
+        rotulo: 'Botão "Cheguei" para quem retira',
+        tipo: 'chave',
+        ajuda:
+          'Aparece na página do pedido, em Sua conta › Pedidos e no aviso de pronto do WhatsApp; o Regem também entende "cheguei" escrito. Só em pedido de retirada, no dia. A equipe vê em PDV · Balcão › Retirada / Encomendas.',
+        palavras: 'cheguei retirada cliente chegou balcão porta',
+      },
+      {
+        id: 'chegueiPerguntarOnde',
+        rotulo: 'Perguntar onde o cliente está',
+        tipo: 'chave',
+        ajuda: 'No cardápio: no balcão ou na porta (moto ou carro), com "Como te achar?". No WhatsApp não pergunta: o que o cliente escrever vai junto.',
+        palavras: 'cheguei onde balcão porta carro moto',
+      },
+      {
+        id: 'chegueiTodasTelas',
+        rotulo: 'Onde a equipe é avisada',
+        tipo: 'selecao',
+        opcoes: [
+          { v: 'sim', rotulo: 'Na Retirada, no KDS e em qualquer tela do Regem' },
+          { v: 'nao', rotulo: 'Só na Retirada e no KDS' },
+        ],
+        ajuda: 'O aviso em qualquer tela toca o som do sino de cada computador.',
+        palavras: 'cheguei aviso telas kds retirada som',
+      },
+      {
+        id: 'chegueiDeNovoMin',
+        rotulo: 'Avisar de novo se ninguém entregar em',
+        tipo: 'selecao',
+        opcoes: deNovoCheguei.map((m) => ({ v: String(m), rotulo: `${m} min` })),
+        ajuda: 'Uma vez, com o tempo de espera. O cliente também pode avisar de novo depois desse tempo.',
+        palavras: 'cheguei avisar de novo minutos espera',
+      },
+    ],
+  };
+  const grupos: GrupoDeAjustes[] = [
+    ...(resp?.cheguei?.temCardapio ? [grupoDoCheguei] : []),
+    grupoDaFila,
+    ...(resp?.conectadoIfood ? [grupoDoIfood] : []),
+    ...(resp?.conectado99 ? [grupoDa99] : []),
+  ];
 
   async function salvar() {
     const chaves = alterados(grupos, valores, salvos);
@@ -194,9 +261,13 @@ export function AjustesDoAtendimento() {
     const fila: Record<string, unknown> = {};
     const ifood: Record<string, unknown> = {};
     const ajuste99: Record<string, unknown> = {};
+    const cheguei: Record<string, unknown> = {};
     for (const k of chaves) {
       if (DA_FILA.includes(k)) fila[k] = k === 'avisarGerenteMin' ? Number(valores[k]) : valores[k];
       else if (DO_IFOOD[k]) ifood[DO_IFOOD[k]] = k === 'ifoodAvisarDeNovoMin' ? Number(valores[k]) : valores[k];
+      else if (DO_CHEGUEI[k])
+        cheguei[DO_CHEGUEI[k]] =
+          k === 'chegueiDeNovoMin' ? Number(valores[k]) : k === 'chegueiTodasTelas' ? valores[k] === 'sim' : valores[k];
       else ajuste99[k] = k === 'reembolsoRecusarEmHoras' ? Number(valores[k]) : valores[k];
     }
     try {
@@ -204,6 +275,7 @@ export function AjustesDoAtendimento() {
         ...(Object.keys(fila).length ? { fila } : {}),
         ...(Object.keys(ifood).length ? { ifood } : {}),
         ...(Object.keys(ajuste99).length ? { ajuste99 } : {}),
+        ...(Object.keys(cheguei).length ? { cheguei } : {}),
       });
       setResp(r);
       setValores(paraValores(r));
@@ -256,6 +328,12 @@ export function AjustesDoAtendimento() {
         salvando={salvando}
         erro={erro}
       />
+      {resp?.cheguei && !resp.cheguei.temCardapio && (
+        <p className={`rounded-lg border border-border px-4 py-3 text-sm ${texto2}`}>
+          A loja em uso ainda não tem cardápio online. O &quot;Cheguei&quot; da retirada aparece aqui depois de criar o cardápio em
+          Delivery › Configurações › Cardápio.
+        </p>
+      )}
       {!resp?.conectado99 && (
         <p className={`rounded-lg border border-border px-4 py-3 text-sm ${texto2}`}>
           A 99 não está conectada nesta empresa. Os ajustes dos pedidos do cliente da 99 aparecem aqui depois de conectar em Delivery ›

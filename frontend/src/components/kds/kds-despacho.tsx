@@ -148,6 +148,14 @@ export function KdsDespacho({
                 {p.alterado && !cancelado && (
                   <p className="font-bold uppercase tracking-wider" style={{ fontSize: fs(12), color: T.text }}>Alterado depois de entrar</p>
                 )}
+                {/* "Cheguei" na retirada (mig 354): o cliente já está na loja, e onde. */}
+                {p.chegada && !cancelado && (
+                  <p className="font-bold" style={{ fontSize: fs(14) }}>
+                    🙋 cliente chegou
+                    {p.chegada.onde === 'balcao' ? ' · no balcão' : p.chegada.onde === 'porta' ? ' · na porta' : ''}
+                    {p.chegada.obs ? `${p.chegada.onde === 'porta' ? ':' : ' ·'} ${p.chegada.obs}` : ''}
+                  </p>
+                )}
                 {p.logistica?.status === 130 && (
                   <p className="font-semibold" style={{ fontSize: fs(14) }}>🛵 entregador da 99 chegou</p>
                 )}

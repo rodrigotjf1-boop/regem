@@ -64,6 +64,7 @@ import { textoDaObservacao } from '../../common/observacao-do-pedido';
 import { chaveTelefone, formasDaChaveTelefone } from '../../common/telefone-chave';
 import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { ChegadaService } from '../chegada/chegada.service';
 import { idConfigDaLoja } from '../../common/id-deterministico';
 import { validarTokenMP } from '../../common/mercadopago';
 import { validarTokenPagBank } from '../../common/pagbank';
@@ -137,7 +138,15 @@ export class DeliveryService {
     @Optional() private readonly whatsappOficial?: WhatsappCloudService,
     // O "entregador sem contato" na loja com o WhatsApp por QR sai pelo próprio Regem (Bloco 3) — o n8n não trata.
     @Optional() private readonly whatsappQr?: WhatsappService,
+    // "Cheguei" na retirada (mig 354): a marca da Retirada e o botão no aviso de pronto. Opcional: os testes montam o
+    // serviço sem ela (aí vale uma instância só com o banco).
+    @Optional() private readonly chegadaInj?: ChegadaService,
   ) {}
+
+  private chegadaLocal?: ChegadaService;
+  private get chegada(): ChegadaService {
+    return this.chegadaInj ?? (this.chegadaLocal ??= new ChegadaService(this.db));
+  }
 
   // ENVIA AO CANAL E REGISTRA (mig 305). `enviar` é o MESMO envio de sempre; aqui só se observa o
   // que saiu e se grava o resultado na linha do tempo do pedido (`pedido_envio`). Decisão do dono
@@ -1775,10 +1784,17 @@ export class DeliveryService {
   // (retirada = imediata; encomenda = agendada). O front agrupa pelos 3 grupos.
   async listarRetirada(tenantId: string, atual: string | null = null) {
     const rows = await this.listar(tenantId, atual);
+    // "Cheguei" (mig 354): a chegada do cliente de cada pedido e o ajuste da loja (o quadro "Clientes esperando" e o
+    // "avisar de novo"). Nunca derruba a lista: sem a chegada, a tela segue como antes.
+    const [chegadas, ajusteCheguei] = await Promise.all([
+      this.chegada.mapaDaLoja(tenantId, atual),
+      this.chegada.ajusteDaLoja(tenantId, atual).catch(() => null),
+    ]);
     const pedidos = rows
       .filter((r) => r.tipo === 'retirada' || r.agendamento != null)
       .map((r) => ({
         ...r,
+        chegada: chegadas.get(String(r.id)) ?? null,
         grupoCanal: DeliveryService.grupoCanal(r.canal),
         retiradaTipo: r.agendamento != null ? 'encomenda' : 'retirada',
         // 99Food: código de 4 dígitos que o CLIENTE mostra na retirada (`takeaway_code`,
@@ -1792,7 +1808,14 @@ export class DeliveryService {
     const totemAposPagamento = await this.totemAposPagamento(tenantId);
     const totemConcluiAoFicarPronto = await this.totemConcluiAoFicarPronto(tenantId);
     // `totemAlertaMinutos`: a partir de quantos minutos sem pagar o cartão do totem fica em alerta.
-    return { pedidos, origensEmUso, totemAposPagamento, totemConcluiAoFicarPronto, totemAlertaMinutos: MINUTOS_ALERTA_TOTEM };
+    return {
+      pedidos,
+      origensEmUso,
+      totemAposPagamento,
+      totemConcluiAoFicarPronto,
+      totemAlertaMinutos: MINUTOS_ALERTA_TOTEM,
+      cheguei: ajusteCheguei ? { ativo: ajusteCheguei.ativo, deNovoMin: ajusteCheguei.deNovoMin } : null,
+    };
   }
 
   /**
@@ -3031,6 +3054,8 @@ export class DeliveryService {
     const eventoStatus = DeliveryService.eventoDeStatus(ped.status, ped.tipo, eventoFinal);
     // O "saiu para entrega" diz quando chega (Onda 0, 01/11/2026): a mesma conta do rastreio, na hora do aviso.
     if (eventoStatus === 'saiu_entrega') ped = { ...ped, previsaoChegada: await this.horaPrevistaDeChegada(tenantId, ped) };
+    // "Cheguei" (mig 354): com o ajuste ligado, o aviso de pronto da retirada ensina o cliente a avisar que chegou.
+    const cheguei = eventoStatus === 'pronto_retirada' && (await this.chegueiLigado(tenantId, ped));
 
     const payload = {
       evento: eventoFinal,
@@ -3052,6 +3077,8 @@ export class DeliveryService {
         : {}),
       // A hora prevista de chegada ("20h15"), quando dá para prever: o fluxo do n8n da loja por QR põe na mensagem.
       ...(ped.previsaoChegada ? { previsaoChegada: ped.previsaoChegada } : {}),
+      // "Cheguei" (mig 354): a frase pronta que o fluxo do n8n da loja por QR põe no fim do aviso de pronto.
+      ...(cheguei ? { cheguei: 'Quando chegar, responda CHEGUEI.' } : {}),
     };
 
     // Provedor do PRINCIPAL decide o canal do aviso. No EVOLUTION (grátis) mantém o
@@ -3083,7 +3110,17 @@ export class DeliveryService {
     // O aviso no cardápio online fica sempre (é o histórico do cliente); o WhatsApp vai junto quando dá.
     if (!eventoStatus) return; // status sem aviso ao cliente ('novo'; 'pronto' de entrega — o aviso é o "saiu")
     await this.gravarNotificacaoPedido(tenantId, ped, eventoStatus);
-    await this.avisoPelaOficial(tenantId, ped, eventoStatus);
+    await this.avisoPelaOficial(tenantId, ped, eventoStatus, { cheguei });
+  }
+
+  /** O "Cheguei" está ligado na loja do pedido? Na dúvida (erro de leitura), não — o aviso sai como sempre. */
+  private async chegueiLigado(tenantId: string, ped: any): Promise<boolean> {
+    try {
+      return (await this.chegada.ajusteDaLoja(tenantId, ped?.unidadeId ?? null)).ativo;
+    } catch (e: any) {
+      this.logger.warn(`[aviso-status] pedido ${ped?.id ?? '?'}: ajuste do "Cheguei" não lido (${e?.message ?? e}) — aviso sem o botão`);
+      return false;
+    }
   }
 
   /**
@@ -3092,7 +3129,12 @@ export class DeliveryService {
    * fora dela, o modelo de utilidade aprovado do evento; sem modelo ou sem conversa, não sai por WhatsApp e o registro diz
    * o motivo (V37). Nunca rejeita (V3).
    */
-  private async avisoPelaOficial(tenantId: string, ped: any, evento: string): Promise<{ saiu: boolean; motivo?: string }> {
+  private async avisoPelaOficial(
+    tenantId: string,
+    ped: any,
+    evento: string,
+    opcoes: { cheguei?: boolean } = {},
+  ): Promise<{ saiu: boolean; motivo?: string }> {
     const nao = (motivo: string, resultado: 'nao_enviado' | 'falhou' = 'nao_enviado') => {
       this.registrarAviso(tenantId, ped.id, 'cliente_whatsapp', evento, resultado, motivo);
       return { saiu: false, motivo };
@@ -3126,9 +3168,18 @@ export class DeliveryService {
             `${this.basePublica()}/r/${rastreio}`,
             evento === 'sem_contato' ? 'Ver onde ele está' : 'Acompanhar entrega',
           );
+        // "Cheguei" (mig 354): o aviso de pronto da retirada vai com o botão — o toque volta como "Cheguei".
+        else if (evento === 'pronto_retirada' && opcoes.cheguei)
+          await this.whatsappOficial.enviarOpcoes(tenantId, para, `${texto}\nQuando chegar, toque em Cheguei.`, [
+            { id: 'cheguei', titulo: 'Cheguei' },
+          ]);
         else await this.whatsappOficial.enviarTexto(tenantId, para, texto);
       } else {
-        const modelo = await this.templateDoEvento(tenantId, evento);
+        // Com o "Cheguei", o modelo com o botão (se a Meta já aprovou); senão, o de sempre.
+        const modelo =
+          (evento === 'pronto_retirada' && opcoes.cheguei
+            ? await this.templateDoEvento(tenantId, 'pronto_retirada_cheguei')
+            : null) ?? (await this.templateDoEvento(tenantId, evento));
         if (!modelo) return nao('fora da janela de 24 h e sem modelo aprovado para este aviso: ficou no cardápio online');
         await this.whatsappOficial.enviarTemplate(tenantId, para, modelo, 'pt_BR', [DeliveryService.primeiroNome(ped.clienteNome)], {
           rastreio,

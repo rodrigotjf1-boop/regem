@@ -113,10 +113,19 @@ export function KdsCartaoPedido({
           {atrasado && <EtiquetaKds cheia={invCab} esc={esc}>Atrasado</EtiquetaKds>}
           {alterado && <EtiquetaKds esc={esc}>Alterado</EtiquetaKds>}
           {veioDe && !cancelado && <EtiquetaKds esc={esc}>Veio de {veioDe}</EtiquetaKds>}
+          {/* "Cheguei" na retirada (mig 354): o cliente já está na loja — etiqueta CHEIA (sem cor nova: a do tempo segue). */}
+          {p.chegada && !cancelado && <EtiquetaKds cheia={invCab} esc={esc}>Cliente chegou</EtiquetaKds>}
         </span>
       </div>
 
       <div className="flex flex-1 flex-col" style={{ padding: `${Math.round(12 * esc)}px ${Math.round(14 * esc)}px ${Math.round(14 * esc)}px` }}>
+        {/* Onde o cliente da retirada está (o "Cheguei" do cardápio ou do WhatsApp), quando ele disse. */}
+        {p.chegada && !cancelado && (p.chegada.onde || p.chegada.obs) && (
+          <p className="mb-2.5 font-bold" style={{ fontSize: Math.round(13.5 * esc) }}>
+            {p.chegada.onde === 'balcao' ? '🏪 No balcão' : p.chegada.onde === 'porta' ? '🛵 Na porta' : '🙋'}
+            {p.chegada.obs ? `${p.chegada.onde === 'porta' ? ':' : ' ·'} ${p.chegada.obs}` : ''}
+          </p>
+        )}
         {/* Entregador do canal (99, mig 294): quem vem buscar, se já chegou e o código de coleta. */}
         {entregador && (
           <p className="mb-2.5 font-bold" style={{ fontSize: Math.round(13.5 * esc) }}>

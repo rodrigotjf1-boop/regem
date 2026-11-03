@@ -14,6 +14,10 @@ import { SplitPagamento, montarPagamentos } from '@/components/pdv/split-pagamen
 import { useSenhaSemSalvar } from '@/lib/use-senha-sem-salvar';
 import { avisarComprovante } from '@/lib/comprovante';
 import { ItensDaPerda, type MarcaDaPerda } from '@/components/delivery/itens-da-perda';
+import { ClientesEsperando, minutosDesde, ondeDaChegada } from '@/components/pdv/clientes-esperando';
+
+/* "Cheguei" na retirada (mig 354): o pedido que ainda espera o cliente e já tem a chegada dele. */
+const esperandoCliente = (p: any) => !!p?.chegada && p.status !== 'concluido' && p.status !== 'cancelado';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -77,6 +81,10 @@ export default function RetiradaPage() {
   // "Entregar" (false, padrão). Mig 301.
   const [totemConcluiPronto, setTotemConcluiPronto] = useState(false);
   const [cobrarModo, setCobrarModo] = useState<'entregar' | 'receber'>('entregar');
+  // "Cheguei" (mig 354): o ajuste da loja ("avisar de novo" em N min) e o relógio do "há X min" (posto depois de
+  // montar e a cada leitura — V35: nada de hora no primeiro desenho).
+  const [deNovoMin, setDeNovoMin] = useState(5);
+  const [agora, setAgora] = useState(0);
   const [cat, setCat] = useState<string | null>(null);
   const ehGestor = ['presidente', 'gerente', 'supervisao'].includes(cat ?? '');
 
@@ -97,6 +105,8 @@ export default function RetiradaPage() {
         setTotemConcluiPronto(!!(p as any).totemConcluiAoFicarPronto);
       if (!Array.isArray(p) && Number((p as any)?.totemAlertaMinutos) > 0)
         setTotemAlertaMin(Number((p as any).totemAlertaMinutos));
+      if (!Array.isArray(p) && Number((p as any)?.cheguei?.deNovoMin) > 0) setDeNovoMin(Number((p as any).cheguei.deNovoMin));
+      setAgora(Date.now());
       setCaixa(c);
       setFormas(Array.isArray(f) ? f : []);
     } catch {
@@ -113,11 +123,19 @@ export default function RetiradaPage() {
     return () => clearInterval(t);
   }, [reload]);
 
+  // Quem já chegou sobe para o topo da coluna (o que esperou mais primeiro); o resto fica na ordem de sempre.
   const porGrupo = useMemo(() => {
     const m: Record<string, any[]> = { regem: [], integrado: [], marketplace: [], totem: [] };
-    for (const p of pedidos) (m[p.grupoCanal] ?? m.regem).push(p);
+    const ordem = [...pedidos.filter(esperandoCliente).sort((a, b) => Date.parse(a.chegada.chegouEm) - Date.parse(b.chegada.chegouEm)), ...pedidos.filter((p) => !esperandoCliente(p))];
+    for (const p of ordem) (m[p.grupoCanal] ?? m.regem).push(p);
     return m;
   }, [pedidos]);
+
+  // "Clientes esperando": de quem esperou mais para quem chegou agora.
+  const esperando = useMemo(
+    () => pedidos.filter(esperandoCliente).sort((a, b) => Date.parse(a.chegada.chegouEm) - Date.parse(b.chegada.chegouEm)),
+    [pedidos],
+  );
 
   // Coluna visível: origem EM USO (integração conectada) OU tem pedido agora — nunca
   // esconde uma coluna que tenha pedido. Fallback: se o backend não informou origens
@@ -218,6 +236,17 @@ export default function RetiradaPage() {
         <span>Entregue e cobre os pedidos de retirada e encomenda no balcão.</span>
       </div>
 
+      <ClientesEsperando
+        pedidos={esperando}
+        deNovoMin={deNovoMin}
+        agora={agora}
+        busy={busy}
+        onAbrir={(p) => setDetalhe(p)}
+        onAceitar={aceitar}
+        onAvisar={avisarPronto}
+        onEntregar={entregar}
+      />
+
       {carregando ? (
         <p className="text-sm text-muted-foreground">Carregando…</p>
       ) : abertos === 0 && pedidos.length === 0 ? (
@@ -286,6 +315,7 @@ export default function RetiradaPage() {
                     busy={busy === p.id}
                     totemAposPagamento={totemAposPagamento}
                     totemAlertaMin={totemAlertaMin}
+                    agora={agora}
                     onAbrir={() => setDetalhe(p)}
                     onAceitar={() => aceitar(p)}
                     onReceber={() => receberPagamento(p)}
@@ -350,9 +380,9 @@ function ChipCanal({ canal }: { canal: string }) {
 }
 
 function PedidoCard({
-  p, busy, totemAposPagamento, totemAlertaMin, onAbrir, onAceitar, onReceber, onAvisar, onEntregar, onCancelar,
+  p, busy, totemAposPagamento, totemAlertaMin, agora, onAbrir, onAceitar, onReceber, onAvisar, onEntregar, onCancelar,
 }: {
-  p: any; busy: boolean; totemAposPagamento: boolean; totemAlertaMin: number;
+  p: any; busy: boolean; totemAposPagamento: boolean; totemAlertaMin: number; agora: number;
   onAbrir: () => void;
   onAceitar: () => void; onReceber: () => void; onAvisar: () => void; onEntregar: () => void; onCancelar: () => void;
 }) {
@@ -377,9 +407,12 @@ function PedidoCard({
       ? Math.max(0, Math.floor((Date.now() - new Date(p.criadoEm).getTime()) / 60_000))
       : null;
   const esperaAlerta = esperaMin != null && esperaMin >= totemAlertaMin;
+  // "Cheguei" (mig 354): o cliente já está na loja — o cartão ganha a marca e o contorno dourado.
+  const chegou = esperandoCliente(p);
+  const chegouMin = chegou ? minutosDesde(p.chegada.chegouEm, agora) : 0;
   return (
     <Card
-      className="cursor-pointer p-3 transition-colors hover:bg-secondary/40"
+      className={`cursor-pointer p-3 transition-colors hover:bg-secondary/40 ${chegou ? 'ring-2 ring-primary' : ''}`}
       role="button"
       tabIndex={0}
       onClick={onAbrir}
@@ -411,6 +444,11 @@ function PedidoCard({
               </span>
             )}
           </div>
+          {chegou && (
+            <span className="mt-1 inline-block max-w-full break-words rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-bold text-foreground">
+              {chegouMin < 1 ? 'Chegou agora' : `Chegou há ${chegouMin} min`} · {ondeDaChegada(p.chegada)}
+            </span>
+          )}
           <p className="mt-1 truncate text-sm font-medium">{p.clienteNome || 'Cliente'}</p>
           {p.clienteTelefone && (
             <p className="truncate text-xs text-muted-foreground">{p.clienteTelefone}</p>

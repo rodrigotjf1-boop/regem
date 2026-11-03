@@ -1,0 +1,1106 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regem — Relacionamento: "Cheguei", cashback, aniversário e volta (mockup)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* MOCKUP da ONDA 3 — RELACIONAMENTO (03/11/2026), para o dono aprovar ANTES de qualquer código de tela. Nada aqui fala
+   com o Regem; os dados e a loja ("Burger da Praça") são inventados.
+   Base: plano das ondas aprovado em 01/11/2026 (Onda 3: "Cheguei" na retirada, cashback vencendo, aniversário e
+   recuperação automáticos, com o consentimento) e a regra de promoções decidida pelo dono em 01/10/2026 (o cliente da
+   loja recebe até pedir para sair; o histórico do aceite fica na mig 300).
+   O que o protótipo mostra:
+   (1) CLIENTE: o botão "Cheguei" na página do pedido de retirada (com "onde você está?"), o "Cheguei" na mensagem de
+       pronto do WhatsApp, o aniversário em Sua conta › Perfil e a pergunta única na confirmação do pedido, os
+       benefícios (cashback com a data e o cupom pessoal); a PROTEÇÃO contra troca de data (pedido do dono em 03/11:
+       30 dias de carência, o cliente corrige uma vez, um presente a cada 12 meses — vale para toda promoção de
+       aniversariante, inclusive o cupom "Só aniversariantes" e a campanha de aniversariantes);
+   (2) LOJA: "Clientes esperando" em PDV · Balcão › Retirada / Encomendas, a marca "Chegou" nos pedidos (o pedido de
+       retirada não vai ao painel do delivery) e no KDS de produção, o aviso em qualquer tela;
+   (3) AUTOMÁTICAS: aba nova em Delivery › Marketing — regras para todas (frequência, limite por dia, horário),
+       cashback vencendo, aniversário e "sentimos sua falta", com a prévia de quem recebe e o resultado;
+   (4) AJUSTE DO CHEGUEI: grupo novo em Delivery › Configurações › Operação › Atendimento;
+   (5) MENSAGENS: o que sai pelo WhatsApp (API oficial e QR) e a categoria de cada uma na Meta;
+   (6) NOTAS: regras, fontes e as decisões para o dono.
+   Regras de tela seguidas: contagem no título, busca nos ajustes, barra de "N alterações ainda não salvas", diálogo
+   em vez da janela do navegador, Esc fecha só o de cima, nenhuma barra de rolagem para o lado (as peças se arrumam
+   pelo ESPAÇO delas — ERR-219), data só por seletor (dia e mês). */
+:root{
+  --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E8A845; --on-gold:#281B06; --navy:#0F2230; --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9;
+  --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8; --ouro:#7A5209; --ouro-bg:#FCF1DD; --radius:12px;
+  --display:'Archivo',sans-serif; --body:'Figtree',sans-serif; --mono:'JetBrains Mono',monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:var(--body);background:var(--bg);color:var(--ink);font-size:15px;line-height:1.45}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid #3A7FB8;outline-offset:2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+[hidden]{display:none!important}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+body[data-numero="qr"] .so-oficial{display:none!important}
+body[data-numero="oficial"] .so-qr{display:none!important}
+
+/* faixa do protótipo (fora do app) */
+.proto{background:#0B1822;color:#D5E0EA;padding:10px 16px;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center}
+.proto strong{font-family:var(--display);color:#fff;font-size:14px}
+.proto .obs{font-size:12.5px;color:#9FB2C4}
+.abas{display:flex;flex-wrap:wrap;gap:8px}
+.aba{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:6px 14px;border-radius:10px;border:1px solid #2E4456;background:#13283A;color:#D5E0EA;font-weight:600;font-size:14px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.proto .ctl{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12.5px}
+.proto .ctl button{min-height:32px;padding:0 10px;border-radius:8px;border:1px solid #2E4456;background:#13283A;color:#D5E0EA;font-size:12.5px;font-weight:600}
+.proto .ctl button[aria-pressed="true"]{background:#2C6699;border-color:#2C6699;color:#fff}
+
+/* shell do Regem */
+.app{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:calc(100vh - 58px)}
+.lado{background:var(--navy);color:#C9D6E2;padding:14px 10px;position:sticky;top:0;height:100vh;overflow-y:auto}
+.lado .marca{display:flex;align-items:center;gap:10px;padding:4px 8px 14px;color:#fff;font-family:var(--display);font-weight:700;font-size:18px}
+.lado .marca svg{width:28px;height:28px}
+.lado .it{display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;min-height:36px;text-align:left;border:none;background:transparent;color:inherit;padding:6px 10px;border-radius:10px;font-weight:600;font-size:14px}
+.lado .it.sub{padding-left:26px;font-size:13.5px}
+.lado .it:hover{background:rgba(255,255,255,.06);color:#fff}
+.lado .it[aria-current="page"]{background:rgba(232,168,69,.18);color:#fff;box-shadow:inset 3px 0 0 var(--gold)}
+.lado .grupo-menu{padding:8px 10px 2px;color:#fff;font-weight:700;font-size:14px}
+.topo{display:flex;align-items:center;gap:10px;padding:10px 20px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+.topo .menu-bt{display:none}
+.topo .onde{font-size:13px;color:var(--ink-2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.topo .dir{margin-left:auto;display:flex;align-items:center;gap:8px}
+.sino{position:relative;min-width:42px;min-height:42px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);font-size:18px}
+.quem{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-2)}
+.quem .av{width:32px;height:32px;border-radius:50%;background:#1D3B4D;color:var(--gold);display:grid;place-items:center;font-family:var(--display);font-weight:800;font-size:13px}
+main{min-width:0;padding:18px 22px 110px;container-type:inline-size;container-name:principal}
+.trilha{font-family:var(--display);font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--ouro)}
+h1{font-family:var(--display);font-size:26px;margin:2px 0 4px;overflow-wrap:anywhere}
+.resumo{color:var(--ink-2);font-size:13.5px;margin:0 0 12px}
+.filtros{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin-bottom:12px}
+.campo{display:flex;flex-direction:column;gap:4px;min-width:0}
+.campo label,.rot{font-size:12.5px;font-weight:700;color:var(--ink-2)}
+.campo input,.campo select{min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 12px;background:#fff;width:100%;min-width:0}
+.ajuda{font-size:12.5px;color:var(--ink-2)}
+.novo-l{font-size:10.5px;font-weight:800;letter-spacing:.06em;color:var(--on-gold);background:var(--gold);border-radius:6px;padding:1px 6px;vertical-align:middle}
+
+.bt{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:40px;padding:0 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);font-weight:600;font-size:14px;text-align:center}
+.bt:hover{border-color:var(--ink-2)}
+.bt.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.bt.ok{background:var(--ok);border-color:var(--ok);color:#fff;font-weight:700}
+.bt.leve{border-color:transparent;background:transparent;color:var(--info);font-weight:700;padding:0 8px}
+.bt[disabled]{opacity:.5;cursor:not-allowed}
+.selo{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:999px;font-weight:700;font-size:12px;white-space:nowrap}
+.selo.crit{background:var(--crit-bg);color:var(--crit)} .selo.warn{background:var(--warn-bg);color:var(--warn)}
+.selo.ok{background:var(--ok-bg);color:var(--ok)} .selo.info{background:var(--info-bg);color:var(--info)}
+.selo.neutro{background:#EEF2F6;color:var(--ink-2)} .selo.ouro{background:var(--ouro-bg);color:var(--ouro)}
+
+/* LOJA: clientes esperando + pedidos de retirada */
+.esperando{background:#FFF8EC;border:1px solid #F0D3A0;border-radius:var(--radius);padding:12px 14px;margin-bottom:6px}
+.esperando h2{font-family:var(--display);font-size:17px;margin:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.esperando .ajuda{margin:2px 0 0}
+.chegada{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:8px}
+.chegada .quem-c{flex:1 1 220px;min-width:0}
+.chegada .quem-c b{display:block;overflow-wrap:anywhere}
+.chegada .quem-c span{font-size:13px;color:var(--ink-2);overflow-wrap:anywhere}
+.chegada .selo{white-space:normal}
+.origem-t{font-family:var(--display);font-size:13px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);margin:18px 0 8px;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}
+.origem-t span{font-family:var(--body);font-size:12.5px;font-weight:600;letter-spacing:0;text-transform:none}
+.hub{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,250px),1fr));gap:10px}
+.hcard{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.hcard.chegou{border-color:var(--gold);box-shadow:inset 4px 0 0 var(--gold)}
+.hcard .l1{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.hcard .l1 .dir{margin-left:auto;font-family:var(--mono);font-size:12.5px;color:var(--ink-2)}
+.hcard .nome{font-weight:700;overflow-wrap:anywhere}
+.hcard .itens-p{font-size:13px;color:var(--ink-2);overflow-wrap:anywhere}
+.hcard .bt{width:100%;margin-top:4px}
+.marca-chegou{align-self:flex-start;display:inline-flex;align-items:center;gap:4px;font-size:12.5px;font-weight:800;background:var(--ouro-bg);color:var(--ouro);border-radius:999px;padding:2px 9px;overflow-wrap:anywhere}
+.dois{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;margin-top:6px}
+@container principal (min-width:760px){.dois{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
+.peca{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;min-width:0}
+.peca h3{font-family:var(--display);font-size:15px;margin:0 0 4px}
+.peca > .ajuda{margin:0 0 10px}
+.mini-col{background:#E9EEF3;border-radius:10px;padding:8px}
+.mini-col h4{font-family:var(--display);font-size:13px;margin:2px 4px 6px;display:flex;justify-content:space-between}
+
+/* KDS de produção (tema claro, cor só no status do tempo — mockup do KDS) */
+.kds-demo{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start}
+.kcard{flex:1 1 240px;max-width:320px;min-width:0;background:#fff;border:1px solid #D5DCE3;border-radius:12px;overflow:hidden;color:#0F2230}
+.kcab{background:#F5C842;color:#0F2230;padding:10px 14px;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:4px 10px}
+.kcab .kid{font-family:var(--display);font-weight:800;font-size:24px;line-height:1.05}
+.kcab .ktp{font-family:var(--mono);font-weight:700;font-size:20px}
+.kcab .ksub{flex-basis:100%;display:flex;flex-wrap:wrap;gap:4px 8px;font-size:13px;font-weight:700}
+.ktag{display:inline-block;border:1.5px solid currentColor;border-radius:5px;padding:0 6px;font-size:11.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;line-height:1.5}
+.ktag.cheia{background:#0F2230;color:#F5C842;border-color:#0F2230}
+.kcc{padding:12px 14px}
+.kcc ul{list-style:none;margin:0 0 10px;padding:0;display:grid;gap:6px}
+.kcc li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;font-size:16px;font-weight:700}
+.kcc .q{font-family:var(--mono)}
+.kbt{width:100%;min-height:44px;border-radius:9px;border:none;background:#F5C842;color:#0F2230;font-family:var(--display);font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+.krodape{flex:1 1 220px;min-width:0;background:#0F2230;color:#fff;border-radius:12px;padding:10px 14px;font-size:14px;overflow-wrap:anywhere}
+.krodape small{display:block;color:#C9D6E2;font-size:12px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.08em;font-weight:700}
+
+/* ajustes */
+.mk-abas{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 10px}
+.mk-aba{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);font-weight:700;font-size:14px;color:var(--ink-2)}
+.mk-aba[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.grupo{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);margin-bottom:12px}
+.grupo > header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.grupo > header h3{font-family:var(--display);font-size:16px;margin:0;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.grupo > header > span{font-size:12.5px;color:var(--ink-2)}
+.grupo.fechado > header{border-bottom:none}
+.aj{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,280px);gap:6px 16px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)}
+.aj:last-child{border-bottom:none}
+.aj .rot-aj{font-weight:600}
+.aj .ajuda{display:block;margin-top:1px}
+.aj.mudou{background:#FFF9EC;box-shadow:inset 3px 0 0 var(--gold)}
+.aj.desligado{opacity:.55}
+.aj .ctrl{display:flex;justify-content:flex-end;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}
+.aj .ctrl select{min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 12px;background:#fff;width:100%;min-width:0}
+.aj .fixo{font-weight:700;font-size:14px;text-align:right;overflow-wrap:anywhere}
+@container principal (max-width:640px){.aj{grid-template-columns:minmax(0,1fr)}.aj .ctrl{justify-content:flex-start}.aj .fixo{text-align:left}}
+.chave{position:relative;width:52px;height:30px;border-radius:999px;border:none;background:#C8D2DC;flex:none}
+.chave::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:left .15s}
+.chave[aria-checked="true"]{background:var(--ok)}
+.chave[aria-checked="true"]::after{left:25px}
+.result{display:flex;flex-wrap:wrap;gap:6px 16px;padding:10px 16px;background:#F6F9FC;border-bottom:1px solid var(--line);font-size:13.5px;color:var(--ink-2)}
+.result b{font-family:var(--mono);color:var(--ink)}
+.result .t{font-weight:700;color:var(--ink)}
+.aj-sub{padding:10px 16px 6px;border-bottom:1px solid var(--line);font-family:var(--display);font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--ouro);background:#FFFCF5}
+.aj-sub.desligado{opacity:.55}
+.salvar{position:fixed;left:0;right:0;bottom:0;background:var(--navy);color:#fff;padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:flex-end;z-index:25}
+.salvar span{margin-right:auto;font-weight:600}
+.salvar .bt{min-height:38px}
+.salvar .bt:not(.pri){background:transparent;color:#fff;border-color:rgba(255,255,255,.45)}
+
+/* vitrine de celulares */
+.cab-vitrine{max-width:1500px;margin:0 auto;padding:18px 16px 0}
+.vitrine{padding:16px 16px 40px;display:flex;flex-wrap:wrap;gap:28px 24px;justify-content:center}
+.tela-app{width:min(360px,100%);margin:0;display:flex;flex-direction:column;gap:8px}
+.tela-app > figcaption{font-size:13.5px;color:var(--ink-2)}
+.tela-app > figcaption strong{display:block;font-family:var(--display);color:var(--ink);font-size:15px}
+.fone{width:100%;height:700px;border-radius:28px;background:#0F2230;padding:10px;box-shadow:0 16px 40px rgba(15,34,48,.25)}
+.fone .vidro{height:100%;border-radius:20px;background:#FAFAFA;overflow:hidden;display:flex;flex-direction:column;position:relative}
+.barra-sis{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;color:#C9D6E2;background:#0F2230;padding:4px 14px}
+
+/* cardápio online (o que o cliente vê) */
+.cd{background:#FAFAFA;color:#171717;flex:1;overflow-y:auto;padding:18px 16px;display:flex;flex-direction:column;gap:12px}
+.cd .emoji{font-size:34px;line-height:1}
+.cd h2{font-family:var(--body);font-size:20px;font-weight:800;margin:0}
+.cd p{margin:0}
+.cin{font-size:13px;color:#5F5F5F}
+.passos{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
+.passos li{display:flex;align-items:center;gap:10px;font-size:14px;color:#737373}
+.passos li i{width:24px;height:24px;border-radius:50%;background:#D4D4D4;color:#fff;display:grid;place-items:center;font-size:12px;font-style:normal;flex:none}
+.passos li.feito{color:#5F5F5F} .passos li.feito i,.passos li.agora i{background:#E2A340;color:#281B06}
+.passos li.agora{color:#171717;font-weight:800}
+.cheguei{border:1px solid #F0D9AE;background:#FFF8EB;border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:8px}
+.cheguei b{font-size:15px}
+.cheguei p{font-size:13.5px;color:#4A4A4A}
+.cd-bt{min-height:48px;border-radius:12px;border:none;background:#E2A340;color:#281B06;font-weight:800;font-size:15px;width:100%}
+.cd-bt2{min-height:44px;border-radius:12px;border:1px solid #D4D4D4;background:#fff;color:#171717;font-weight:700;font-size:14px;width:100%}
+.cd-bt2[disabled]{color:#737373;cursor:not-allowed}
+.cd-op{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
+.cd-op button{min-height:68px;border-radius:12px;border:1px solid #D4D4D4;background:#fff;font-weight:700;font-size:13.5px;padding:6px;line-height:1.25}
+.cd-op button[aria-pressed="true"]{border-color:#E2A340;background:#FFF6E4;box-shadow:inset 0 0 0 1px #E2A340}
+.cd-in{min-height:44px;border:1px solid #D4D4D4;border-radius:12px;padding:0 12px;background:#fff;width:100%;min-width:0}
+.cd-sel{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:8px}
+.cd-2bt{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
+.cd-ok{border-radius:16px;padding:14px;background:#ECFDF3;border:1px solid #ABEFC6;color:#05603A;display:flex;flex-direction:column;gap:4px}
+.cd-ok p{font-size:13.5px;color:#05603A}
+.cd-fundo{position:absolute;inset:0;background:rgba(0,0,0,.4)}
+.cd-folha{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:20px 20px 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.18);padding:16px;display:flex;flex-direction:column;gap:10px;color:#171717}
+.cd-folha .tit{font-size:17px;font-weight:800}
+.cd-campo{display:flex;flex-direction:column;gap:4px;min-width:0}
+.cd-campo label,.cd-rot{font-size:12.5px;font-weight:700;color:#4A4A4A}
+.cd-val{font-size:15px;font-weight:600;overflow-wrap:anywhere}
+.cd-data{font-size:18px;font-weight:800}
+.cd-conta{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.cd-conta b{font-size:18px}
+.cd-tabs{display:flex;gap:6px;flex-wrap:wrap}
+.cd-tabs span{padding:6px 12px;border-radius:999px;background:#EDEDED;font-size:13px;font-weight:700;color:#4A4A4A}
+.cd-tabs span.on{background:#171717;color:#fff}
+.cd-linha{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;border-top:1px solid #E5E5E5;padding-top:12px}
+.cd-linha small{display:block;font-size:12.5px;color:#5F5F5F;margin-top:2px}
+.cd-bene{background:#fff;border:1px solid #E5E5E5;border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:4px}
+.cd-bene .grande{font-family:var(--mono);font-size:26px;font-weight:700}
+.cd-cupom{font-family:var(--mono);font-weight:700;background:#F5F5F5;border:1px dashed #A3A3A3;border-radius:8px;padding:2px 8px;align-self:flex-start}
+
+/* WhatsApp (parecido com o app, para o dono ver como chega) */
+.wa-topo{background:#008069;color:#fff;padding:10px 14px;display:flex;align-items:center;gap:10px}
+.wa-topo .av{width:34px;height:34px;border-radius:50%;background:#0F2230;color:var(--gold);display:grid;place-items:center;font-family:var(--display);font-weight:800;font-size:12px;flex:none}
+.wa-topo b{display:block;font-size:15px} .wa-topo small{font-size:12px;color:#E9FBF6}
+.wa{flex:1;overflow-y:auto;background:#EFEAE2;padding:12px 10px;display:flex;flex-direction:column;gap:6px}
+.bolha{max-width:88%;background:#fff;color:#111B21;border-radius:10px;padding:7px 9px;font-size:14px;box-shadow:0 1px 1px rgba(0,0,0,.08);overflow-wrap:anywhere}
+.bolha.eu{align-self:flex-end;background:#D9FDD3}
+.bolha .cab-t{font-weight:800;margin-bottom:2px}
+.bolha .rod{font-size:12.5px;color:#54656F;margin-top:6px}
+.bolha small{display:block;text-align:right;font-size:11px;color:#54656F;margin-top:2px}
+.wa-bts{display:flex;flex-direction:column;gap:2px;width:88%;max-width:88%}
+.wa-bts span{background:#fff;border-radius:10px;text-align:center;color:#00719F;font-weight:600;font-size:14px;padding:8px;box-shadow:0 1px 1px rgba(0,0,0,.08);overflow-wrap:anywhere}
+.wa-dia{align-self:center;background:#fff;border-radius:8px;font-size:12px;color:#54656F;padding:3px 10px}
+.wa-escrever{background:#F0F2F5;padding:8px 10px;display:flex;gap:8px;align-items:center}
+.wa-escrever span{flex:1;background:#fff;border-radius:999px;padding:9px 14px;color:#54656F;font-size:14px}
+
+/* mensagens */
+.msgs-grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,330px),1fr));gap:16px;padding:16px 16px 80px;max-width:1500px;margin:0 auto}
+.mcard{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column;min-width:0}
+.mcard > header{padding:12px 14px;border-bottom:1px solid var(--line)}
+.mcard > header h3{font-family:var(--display);font-size:15px;margin:0 0 6px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.mcard .wa{flex:none;border-bottom:1px solid var(--line)}
+.mcard dl{margin:0;padding:10px 14px 12px;display:grid;grid-template-columns:minmax(0,1fr);gap:2px;font-size:13.5px}
+.mcard dt{font-weight:700;color:var(--ink-2);font-size:12.5px;margin-top:6px}
+.mcard dd{margin:0;overflow-wrap:anywhere}
+
+/* toast e diálogos */
+.toasts{position:fixed;bottom:16px;right:16px;z-index:70;display:flex;flex-direction:column;gap:8px;width:min(380px,calc(100vw - 32px))}
+.toast{background:var(--navy);color:#fff;border-radius:12px;padding:12px 14px;box-shadow:0 12px 40px rgba(0,0,0,.25);display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start}
+.toast > span{flex:1 1 200px;min-width:0;overflow-wrap:anywhere}
+.toast .sub{display:block;font-size:12.5px;color:#C9D6E2;margin-top:2px}
+.toast .bt{min-height:34px;margin-left:auto}
+.fundo{position:fixed;inset:0;background:rgba(15,34,48,.55);z-index:60;display:grid;place-items:center;padding:16px}
+.dlg{background:var(--card);border-radius:14px;width:min(520px,100%);max-height:calc(100vh - 32px);overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.dlg header{padding:14px 16px;border-bottom:1px solid var(--line)}
+.dlg header h2{font-family:var(--display);font-size:18px;margin:0}
+.dlg .meio{padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.dlg footer{padding:12px 16px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.quem-lista{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.quem-lista li{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 10px;border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.quem-lista li span{color:var(--ink-2);font-size:13.5px;overflow-wrap:anywhere}
+
+/* notas */
+.notas{max-width:920px;margin:0 auto;padding:20px 16px 80px}
+.notas h2{font-family:var(--display);font-size:20px;margin:22px 0 8px}
+.notas h3{font-family:var(--display);font-size:16px;margin:4px 0 6px}
+.notas p,.notas li{font-size:15px}
+.notas ol,.notas ul{padding-left:22px}
+.notas .cartao{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin:10px 0}
+.notas .cartao.decide{border-color:var(--gold);box-shadow:inset 4px 0 0 var(--gold)}
+.notas a{color:var(--info);font-weight:600;overflow-wrap:anywhere}
+.notas code{font-family:var(--mono);font-size:13px;background:#EEF2F6;border-radius:4px;padding:0 4px;overflow-wrap:anywhere}
+.notas blockquote{margin:6px 0;padding:6px 12px;border-left:3px solid var(--line-2);color:var(--ink-2);font-size:14px}
+.recom{font-size:12px;font-weight:800;color:var(--ok);background:var(--ok-bg);border-radius:6px;padding:1px 6px;white-space:nowrap}
+
+/* telas estreitas: o menu lateral some (no app é o ☰) */
+@media (max-width:900px){
+  .app{grid-template-columns:minmax(0,1fr)}
+  .lado{display:none}
+  .topo .menu-bt{display:inline-flex;min-width:42px;min-height:42px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);align-items:center;justify-content:center;font-size:18px}
+  main{padding:14px 14px 110px}
+  .topo{padding:8px 12px}
+  .quem .nome-u{display:none}
+}
+</style>
+</head>
+<body data-numero="oficial">
+
+<div class="proto" role="region" aria-label="Controles do protótipo">
+  <strong>Protótipo · Relacionamento (Onda 3)</strong>
+  <div class="abas" role="group" aria-label="Ver">
+    <button type="button" class="aba" data-vista="cli" aria-pressed="true">Cliente</button>
+    <button type="button" class="aba" data-vista="loja" aria-pressed="false">Loja: cliente chegou</button>
+    <button type="button" class="aba" data-vista="aut" aria-pressed="false">Automáticas</button>
+    <button type="button" class="aba" data-vista="ajc" aria-pressed="false">Ajuste do "Cheguei"</button>
+    <button type="button" class="aba" data-vista="msg" aria-pressed="false">Mensagens</button>
+    <button type="button" class="aba" data-vista="notas" aria-pressed="false">Notas e decisões</button>
+  </div>
+  <div class="ctl" id="ctl-loja" role="group" aria-label="Estado da retirada" hidden>
+    <span>Clientes esperando:</span>
+    <button type="button" data-espera="com" aria-pressed="true">dois</button>
+    <button type="button" data-espera="nenhum" aria-pressed="false">nenhum</button>
+    <button type="button" id="simular">Simular cliente chegou</button>
+  </div>
+  <div class="ctl" id="ctl-aut" role="group" aria-label="Número de WhatsApp da loja" hidden>
+    <span>Número da loja:</span>
+    <button type="button" data-numero="oficial" aria-pressed="true">API oficial</button>
+    <button type="button" data-numero="qr" aria-pressed="false">QR (WhatsApp Web)</button>
+  </div>
+  <span class="obs">Dados inventados. Nada aqui fala com o Regem.</span>
+</div>
+
+<!-- ============ CLIENTE ============ -->
+<section id="v-cli" aria-label="O que o cliente vê">
+  <div class="cab-vitrine">
+    <div class="trilha">O que o cliente vê</div>
+    <h1>"Cheguei" na retirada e o aniversário</h1>
+    <p class="resumo">Cardápio online e WhatsApp da loja do exemplo, a Burger da Praça. Os botões do cliente mostram o que acontece em cada passo.</p>
+  </div>
+  <div class="vitrine">
+
+    <figure class="tela-app">
+      <div class="fone"><div class="vidro">
+        <div class="barra-sis"><span>19:41</span><span>4G</span></div>
+        <div class="cd">
+          <div class="emoji" aria-hidden="true">🧾</div>
+          <h2>Pedido 1187</h2>
+          <p class="cin">Retirada · total R$ 54,90</p>
+          <div class="cheguei">
+            <b>Já chegou à loja?</b>
+            <p>Avise aqui e a equipe separa o seu pedido.</p>
+            <button type="button" class="cd-bt" data-toast="Abre a pergunta &quot;Onde você está?&quot; (tela 2).">🙋 Cheguei</button>
+          </div>
+          <ol class="passos" aria-label="Andamento do pedido">
+            <li class="feito"><i aria-hidden="true">✓</i>Pedido recebido</li>
+            <li class="agora"><i aria-hidden="true">●</i>Em preparo</li>
+            <li><i aria-hidden="true"></i>Pronto para retirada</li>
+            <li><i aria-hidden="true"></i>Retirado</li>
+          </ol>
+          <p class="cin">Atualiza sozinho. Você pode fechar e reabrir este link quando quiser.</p>
+          <button type="button" class="cd-bt2">Fazer outro pedido</button>
+        </div>
+      </div></div>
+      <figcaption><strong>1 · Página do pedido de retirada</strong>O botão aparece do preparo até a retirada, só no dia. Também em Sua conta › Pedidos, ao lado de "Acompanhar". Os passos passam a ser os da retirada (hoje a página mostra "Retire no balcão" e "Entregue", que não acontecem na retirada).</figcaption>
+    </figure>
+
+    <figure class="tela-app">
+      <div class="fone"><div class="vidro">
+        <div class="barra-sis"><span>19:42</span><span>4G</span></div>
+        <div class="cd" aria-hidden="true">
+          <div class="emoji">🧾</div>
+          <h2>Pedido 1187</h2>
+          <p class="cin">Retirada · total R$ 54,90</p>
+        </div>
+        <div class="cd-fundo"></div>
+        <div class="cd-folha" role="group" aria-label="Onde você está?">
+          <span class="tit">Onde você está?</span>
+          <div class="cd-op" role="group" aria-label="Onde você está">
+            <button type="button" aria-pressed="false" data-op>🏪<br>No balcão</button>
+            <button type="button" aria-pressed="true" data-op>🛵🚗<br>Na porta, de moto ou carro</button>
+          </div>
+          <div class="cd-campo"><label for="como-achar">Como te achar? (opcional)</label><input id="como-achar" class="cd-in" type="text" value="moto vermelha" placeholder="Ex.: moto vermelha, carro prata"></div>
+          <button type="button" class="cd-bt" data-toast="A loja é avisada na hora (tela 3 e a aba &quot;Loja: cliente chegou&quot;).">Avisar a loja</button>
+          <p class="cin">Sem escolher nada, a loja recebe só "chegou".</p>
+        </div>
+      </div></div>
+      <figcaption><strong>2 · Tocou em "Cheguei"</strong>Uma pergunta, opcional: no balcão ou na porta (com "como te achar"). A loja que não entrega na porta desliga a pergunta no ajuste.</figcaption>
+    </figure>
+
+    <figure class="tela-app">
+      <div class="fone"><div class="vidro">
+        <div class="barra-sis"><span>19:43</span><span>4G</span></div>
+        <div class="cd">
+          <div class="emoji" aria-hidden="true">🧾</div>
+          <h2>Pedido 1187</h2>
+          <p class="cin">Retirada · total R$ 54,90</p>
+          <div class="cd-ok" role="status"><b>A loja sabe que você chegou · 19:42</b><p>Seu pedido ainda está em preparo. Avisamos a cozinha.</p></div>
+          <div class="cheguei">
+            <b>Ainda esperando?</b>
+            <p>Depois de 5 minutos, dá para avisar de novo.</p>
+            <button type="button" class="cd-bt2" disabled>Avisar de novo · em 4 min</button>
+          </div>
+          <ol class="passos" aria-label="Andamento do pedido">
+            <li class="feito"><i aria-hidden="true">✓</i>Pedido recebido</li>
+            <li class="agora"><i aria-hidden="true">●</i>Em preparo</li>
+            <li><i aria-hidden="true"></i>Pronto para retirada</li>
+            <li><i aria-hidden="true"></i>Retirado</li>
+          </ol>
+        </div>
+      </div></div>
+      <figcaption><strong>3 · Avisado</strong>Se o pedido já está pronto: "Seu pedido está no balcão. Diga o seu nome ou o número 1187." A loja também é avisada de novo sozinha se ninguém entregar em 5 min.</figcaption>
+    </figure>
+
+    <figure class="tela-app">
+      <div class="fone"><div class="vidro">
+        <div class="barra-sis"><span>19:42</span><span>4G</span></div>
+        <div class="wa-topo"><span class="av" aria-hidden="true">BP</span><span><b>Burger da Praça</b><small>Conta comercial</small></span></div>
+        <div class="wa">
+          <span class="wa-dia">Hoje</span>
+          <div class="bolha"><div class="cab-t">Pedido pronto</div>Oi, Marina! Seu pedido #1187 está pronto para retirada. Quando chegar, toque em Cheguei.<small>19:40</small></div>
+          <div class="wa-bts"><span>🙋 Cheguei</span></div>
+          <div class="bolha eu">Cheguei<small>19:42 ✓✓</small></div>
+          <div class="bolha">Avisamos a equipe, Marina! 🙋 Seu pedido está no balcão: diga o seu nome ou o número 1187.<small>19:42</small></div>
+        </div>
+        <div class="wa-escrever"><span>Mensagem</span></div>
+      </div></div>
+      <figcaption><strong>4 · WhatsApp: o aviso de pronto com o botão</strong>API oficial: o botão "Cheguei" vem no modelo de pronto. Pelo QR: "Quando chegar, responda CHEGUEI". O Regem também entende "cheguei", "tô aqui", "estou na porta", com o robô ligado ou não. No WhatsApp não há a pergunta: o que o cliente escrever junto ("tô na porta, moto vermelha") vai para a equipe.</figcaption>
+    </figure>
+
+    <figure class="tela-app">
+      <div class="fone"><div class="vidro">
+        <div class="barra-sis"><span>10:15</span><span>Wi-Fi</span></div>
+        <div class="cd">
+          <div class="cd-conta"><b>Sua conta</b><span class="cin">Marina</span></div>
+          <div class="cd-tabs" aria-hidden="true"><span>Pedidos</span><span>Benefícios</span><span class="on">Perfil</span></div>
+          <div class="cd-campo"><span class="cd-rot">Nome</span><span class="cd-val">Marina Lopes</span></div>
+          <div class="cd-campo"><span class="cd-rot">WhatsApp</span><span class="cd-val">(21) 9 ••••-4521 · confirmado</span></div>
+          <div class="cd-campo"><span class="cd-rot" id="rot-niver-1">Seu aniversário (opcional)</span>
+            <div class="cd-sel" role="group" aria-labelledby="rot-niver-1"><select class="cd-in" aria-label="Dia do aniversário" data-dias=""><option value="">Dia</option></select><select class="cd-in" aria-label="Mês do aniversário" data-meses=""><option value="">Mês</option></select></div>
+            <p class="cin">A Burger da Praça manda um presente no seu aniversário. Não pedimos o ano.</p>
+            <p class="cin"><b>Confira antes de salvar:</b> dá para corrigir uma vez. O presente vale a partir de 30 dias depois de informar.</p>
+          </div>
+          <div class="cd-linha"><span><b>Receber promoções de Burger da Praça pelo WhatsApp</b><small>Você recebe as promoções de Burger da Praça neste número. Para sair, desligue aqui ou responda SAIR.</small></span><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Receber promoções pelo WhatsApp"></button></div>
+          <button type="button" class="cd-bt" data-toast="Aniversário salvo.">Salvar</button>
+        </div>
+      </div></div>
+      <figcaption><strong>5 · Sua conta › Perfil: informar o aniversário</strong>Dia e mês por seletor, sem o ano (o mínimo que a mensagem precisa). A regra aparece antes de salvar. A chave de promoções é a de hoje.</figcaption>
+    </figure>
+
+    <figure class="tela-app">
+      <div class="fone"><div class="vidro">
+        <div class="barra-sis"><span>10:16</span><span>Wi-Fi</span></div>
+        <div class="cd">
+          <div class="cd-conta"><b>Sua conta</b><span class="cin">Marina</span></div>
+          <div class="cd-tabs" aria-hidden="true"><span>Pedidos</span><span>Benefícios</span><span class="on">Perfil</span></div>
+          <div class="cd-campo"><span class="cd-rot">Seu aniversário</span><span class="cd-data">5 de novembro</span>
+            <p class="cin">Informado em 10/09. Vale para o presente desde 10/10.</p></div>
+          <button type="button" class="cd-bt2" data-toast="Abre o dia e o mês para corrigir. A nova data espera 30 dias para valer; depois disso, só a loja muda.">Corrigir a data (uma vez)</button>
+          <p class="cin">Depois da correção, só a loja muda a data.</p>
+          <div class="cd-linha"><span><b>Receber promoções de Burger da Praça pelo WhatsApp</b><small>Você recebe as promoções de Burger da Praça neste número. Para sair, desligue aqui ou responda SAIR.</small></span><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Receber promoções pelo WhatsApp"></button></div>
+        </div>
+      </div></div>
+      <figcaption><strong>6 · Perfil: depois de salvo</strong>A data trava. O cliente corrige uma vez; depois, só a loja (gerente ou presidente), com o motivo. Toda troca espera 30 dias para valer, e o presente sai no máximo uma vez a cada 12 meses: trocar a data não dá outro brinde.</figcaption>
+    </figure>
+
+    <figure class="tela-app">
+      <div class="fone"><div class="vidro">
+        <div class="barra-sis"><span>19:21</span><span>4G</span></div>
+        <div class="cd">
+          <div class="emoji" aria-hidden="true">✅</div>
+          <h2>Pedido enviado!</h2>
+          <p class="cin">Pedido 1187 · retirada em cerca de 20 min</p>
+          <div class="cheguei">
+            <b>🎂 Ganhe um presente no seu aniversário</b>
+            <div class="cd-sel" role="group" aria-label="Seu aniversário"><select class="cd-in" aria-label="Dia" data-dias=""><option value="">Dia</option></select><select class="cd-in" aria-label="Mês" data-meses=""><option value="">Mês</option></select></div>
+            <div class="cd-2bt"><button type="button" class="cd-bt" data-toast="Salvo no Perfil.">Salvar</button><button type="button" class="cd-bt2" data-toast="Não pergunta de novo.">Agora não</button></div>
+            <p>Perguntamos uma vez só. Dá para corrigir uma vez em Sua conta › Perfil. O presente vale a partir de 30 dias depois de hoje.</p>
+          </div>
+          <button type="button" class="cd-bt2">Acompanhar o pedido</button>
+          <button type="button" class="cd-bt2">Fazer outro pedido</button>
+        </div>
+      </div></div>
+      <figcaption><strong>7 · Confirmação do pedido: a pergunta, uma vez</strong>Só quando a loja liga o aniversário e o cliente ainda não informou. "Agora não" não pergunta de novo. O robô do WhatsApp não pergunta (o pedido não fica mais longo).</figcaption>
+    </figure>
+
+    <figure class="tela-app">
+      <div class="fone"><div class="vidro">
+        <div class="barra-sis"><span>11:02</span><span>Wi-Fi</span></div>
+        <div class="cd">
+          <div class="cd-conta"><b>Sua conta</b><span class="cin">Marina</span></div>
+          <div class="cd-tabs" aria-hidden="true"><span>Pedidos</span><span class="on">Benefícios</span><span>Perfil</span></div>
+          <div class="cd-bene"><span class="cd-rot">Cashback</span><span class="grande">R$ 12,40</span><p class="cin">Vence em 06/11 (sexta). É descontado no seu próximo pedido.</p></div>
+          <div class="cd-bene"><span class="cd-rot">🎂 Presente de aniversário</span><b>R$ 10 de desconto em pedido acima de R$ 40</b><p class="cin">Até 12/11. Já vem aplicado no carrinho (dá para tirar).</p><span class="cd-cupom">NIVER7K2QX</span></div>
+        </div>
+      </div></div>
+      <figcaption><strong>8 · Sua conta › Benefícios</strong>Onde o botão "Ver meu saldo" leva. O cupom pessoal é de uso único e segue as Regras de desconto da loja (o que pode somar com o quê).</figcaption>
+    </figure>
+  </div>
+
+  <div class="cab-vitrine" style="padding-bottom:40px">
+    <div class="peca" style="max-width:720px;margin:0 auto;container-type:inline-size;container-name:principal">
+      <div class="trilha">No painel da loja · Delivery › Clientes › Marina Lopes</div>
+      <h3 style="margin-top:4px">A equipe vê de onde veio a data e corrige com o motivo</h3>
+      <p class="ajuda">Na gaveta do cliente, junto dos dados de hoje. Cliente sem data: a equipe anota, e vale em 30 dias.</p>
+      <div class="aj" style="padding-left:0;padding-right:0"><div><span class="rot-aj">Aniversário · 5 de novembro</span><span class="ajuda">Informado em 10/09/2026 pelo cliente, no cardápio. Vale para promoções desde 10/10/2026. O cliente ainda pode corrigir uma vez.</span></div>
+        <div class="ctrl"><button type="button" class="bt" data-dlg="corrigir-niver">Corrigir</button></div></div>
+      <div class="aj" style="padding-left:0;padding-right:0;border-bottom:none"><div><span class="rot-aj">Promoções pelo WhatsApp</span><span class="ajuda">O histórico do aceite e da saída fica guardado (como hoje).</span></div>
+        <div class="ctrl"><span class="fixo">Recebe · desde 12/10, pelo cardápio</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ TELAS DO PC (loja, automáticas e ajuste — mesmo shell) ============ -->
+<div class="app" id="shell" hidden>
+  <nav class="lado" aria-label="Menu principal">
+    <div class="marca"><svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="#E8A845" stroke-width="2"/><text x="16" y="21" text-anchor="middle" font-family="Archivo" font-weight="800" font-size="12" fill="#fff">R.O</text></svg>Regem</div>
+    <button type="button" class="it">Dashboard</button>
+    <div class="grupo-menu">PDV · Balcão</div>
+    <button type="button" class="it sub">Balcão</button>
+    <button type="button" class="it sub" data-menu="loja">Retirada / Encomendas</button>
+    <button type="button" class="it sub">Mesas e comandas</button>
+    <div class="grupo-menu">Delivery</div>
+    <button type="button" class="it sub">Painel</button>
+    <button type="button" class="it sub">Clientes</button>
+    <button type="button" class="it sub">WhatsApp</button>
+    <button type="button" class="it sub" data-menu="aut">Marketing</button>
+    <button type="button" class="it sub" data-menu="ajc">Configurações</button>
+    <button type="button" class="it">Atendimento</button>
+    <button type="button" class="it">Tarefas</button>
+    <button type="button" class="it">Estoque</button>
+    <button type="button" class="it">Financeiro</button>
+  </nav>
+  <div style="min-width:0">
+    <header class="topo">
+      <button type="button" class="menu-bt" aria-label="Menu (no Regem abre o menu lateral)">☰</button>
+      <span class="onde" id="onde">PDV · Balcão › Retirada / Encomendas</span>
+      <div class="dir">
+        <button type="button" class="sino" aria-label="Avisos de atendimento">🔔</button>
+        <span class="quem"><span class="av" aria-hidden="true">AN</span><span class="nome-u">Ana · gerente · Loja Centro</span></span>
+      </div>
+    </header>
+
+    <!-- vista: loja (PDV · Balcão › Retirada / Encomendas) -->
+    <main id="v-loja" hidden>
+      <div class="trilha">PDV · Balcão</div>
+      <h1>Retirada / Encomendas</h1>
+      <p class="resumo">O protótipo mostra só o que muda: o quadro "Clientes esperando" e a marca "Chegou" nos pedidos. O resto da tela fica como hoje. (Ajustado na implementação, 03/11: o pedido de retirada não aparece no painel do delivery.)</p>
+      <section class="esperando" id="esperando" aria-labelledby="t-esp">
+        <h2 id="t-esp">🙋 Clientes esperando <span class="selo warn" id="n-esp">2</span></h2>
+        <p class="ajuda">Quem esperou mais aparece primeiro. Também toca o som e aparece um aviso em qualquer tela do Regem.</p>
+        <div id="lista-esp"></div>
+      </section>
+      <div class="origem-t">🟡 Cardápio Regem <span>pedidos do seu cardápio</span></div>
+      <div class="hub" id="hub"></div>
+
+      <div class="dois">
+        <section class="peca" aria-labelledby="t-painel">
+          <h3 id="t-painel">E o painel do delivery?</h3>
+          <p class="ajuda">O pedido de retirada não aparece no painel do delivery (ele fica só aqui, na Retirada / Encomendas). Por isso a marca "Chegou" vive nesta tela, no KDS e no aviso em qualquer tela.</p>
+        </section>
+        <section class="peca" aria-labelledby="t-kds">
+          <h3 id="t-kds">No KDS de produção</h3>
+          <p class="ajuda">O cartão do pedido ganha a etiqueta "Cliente chegou" (sem cor nova: a cor do KDS continua só a do tempo) e o aviso entra no rodapé de alertas.</p>
+          <div class="kds-demo">
+            <article class="kcard" aria-label="Pedido 1189 no KDS">
+              <div class="kcab"><span class="kid">1189</span><span class="ktp">12 min</span>
+                <span class="ksub"><span class="ktag">Retirada</span><span class="ktag cheia" id="kds-tag">🙋 Cliente chegou</span></span></div>
+              <div class="kcc"><ul><li><span class="q">1</span><span>X-Bacon</span></li><li><span class="q">1</span><span>Batata média</span></li></ul>
+                <button type="button" class="kbt">Pronto</button></div>
+            </article>
+            <div class="krodape" id="kds-rodape" role="status"></div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <!-- vista: automáticas (Delivery › Marketing › Automáticas) -->
+    <main id="v-aut" hidden>
+      <div class="trilha">Delivery</div>
+      <h1>Marketing</h1>
+      <div class="mk-abas" role="group" aria-label="Marketing">
+        <button type="button" class="mk-aba so-oficial" aria-pressed="false" data-toast="A aba de hoje (modelos da API oficial).">Modelos (API oficial)</button>
+        <button type="button" class="mk-aba" aria-pressed="false" data-toast="A aba de hoje (campanhas).">Campanhas</button>
+        <button type="button" class="mk-aba" aria-pressed="true">Automáticas <span class="novo-l">NOVO</span></button>
+      </div>
+      <p class="resumo" id="resumo-aut">3 mensagens automáticas · 1 ligada</p>
+      <div class="filtros"><div class="campo"><label for="busca-aut">Buscar ajuste</label><input id="busca-aut" type="search" placeholder="Ex.: cupom, horário, aniversário"></div></div>
+
+      <section class="grupo" data-grupo>
+        <header><h3>Para todas as automáticas</h3><span>4 ajustes</span></header>
+        <div class="aj"><div><span class="rot-aj">Quem recebe</span><span class="ajuda">Cliente da loja recebe até pedir para sair: SAIR no WhatsApp, a chave do Perfil no cardápio ou a marca no cadastro (regra de 01/10). Toda mensagem leva o jeito de sair. Quem só pediu pelo iFood ou pela 99 fica fora: o telefone é da plataforma.</span></div>
+          <div class="ctrl"><span class="fixo">Clientes que não pediram para sair</span></div></div>
+        <div class="aj"><div><span class="rot-aj">No máximo uma oferta por cliente a cada</span><span class="ajuda">Soma o aniversário, o "sentimos sua falta" e as campanhas. O aviso do cashback não conta.</span></div>
+          <div class="ctrl"><select aria-label="Intervalo mínimo entre ofertas" data-aj><option>3 dias</option><option selected>7 dias</option><option>15 dias</option><option>30 dias</option></select></div></div>
+        <div class="aj"><div><span class="rot-aj">Mensagens por dia, no máximo</span>
+            <span class="ajuda so-oficial">Protege o seu número. A Meta também limita quantas conversas o número abre por dia: o Regem fica abaixo do limite dela.</span>
+            <span class="ajuda so-qr">Protege o seu número: pelo QR, o Regem manda devagar, com intervalo entre uma e outra, como nas campanhas.</span></div>
+          <div class="ctrl"><select aria-label="Mensagens por dia, no máximo" data-aj><option>10</option><option>20</option><option selected>30</option><option>50</option><option>100</option></select></div></div>
+        <div class="aj"><div><span class="rot-aj">Horário do envio</span><span class="ajuda">Só em dia que a loja abre. Nunca antes das 9h nem depois das 21h.</span></div>
+          <div class="ctrl"><select aria-label="Horário do envio" data-aj><option selected>1 h antes de abrir (hoje, 17:00)</option><option>Na hora de abrir</option><option>Às 10:00</option><option>Às 15:00</option></select></div></div>
+      </section>
+
+      <section class="grupo" data-grupo>
+        <header><h3>💰 Cashback vencendo</h3><span class="selo neutro" data-estado-de="cash">Desligada</span></header>
+        <div class="result"><span class="t">Últimos 30 dias</span><span>Ainda não mandou nenhuma.</span></div>
+        <div class="aj"><div><span class="rot-aj">Avisar o cashback que vai vencer</span><span class="ajuda">Uma mensagem por vencimento. O saldo vence 30 dias depois do último crédito (o prazo do seu Plano de cashback; cada crédito renova).</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="false" aria-label="Avisar o cashback que vai vencer" data-aj data-liga="cash"></button></div></div>
+        <div class="aj" data-depende="cash"><div><span class="rot-aj">Avisar quantos dias antes</span></div>
+          <div class="ctrl"><select aria-label="Avisar quantos dias antes de vencer" data-aj><option>1 dia</option><option>2 dias</option><option selected>3 dias</option><option>5 dias</option><option>7 dias</option></select></div></div>
+        <div class="aj" data-depende="cash"><div><span class="rot-aj">Só se o saldo for de pelo menos</span><span class="ajuda">Saldo pequeno não vale a mensagem.</span></div>
+          <div class="ctrl"><select aria-label="Saldo mínimo para avisar" data-aj><option>R$ 1,00</option><option>R$ 2,00</option><option selected>R$ 5,00</option><option>R$ 10,00</option></select></div></div>
+        <div class="aj" data-depende="cash"><div><span class="rot-aj">A mensagem</span>
+            <span class="ajuda so-oficial">Pedida à Meta como Utilidade (texto sem convite para comprar). A Meta confirma a categoria na aprovação.</span>
+            <span class="ajuda so-qr">Mensagem de texto (sem modelo).</span></div>
+          <div class="ctrl"><span class="selo neutro so-oficial" data-modelo="cash">Ainda não enviada à Meta</span><button type="button" class="bt so-oficial" data-enviar="cash">Enviar à Meta</button><span class="fixo so-qr">Pronta para sair</span></div></div>
+        <div class="aj" data-depende="cash"><div><span class="rot-aj">Prévia</span><span class="ajuda">Com os ajustes de agora.</span></div>
+          <div class="ctrl"><span class="fixo">Amanhã: 12 clientes</span><button type="button" class="bt leve" data-dlg="quem-cash">Ver quem</button></div></div>
+      </section>
+
+      <section class="grupo" data-grupo>
+        <header><h3>🎂 Aniversário</h3><span class="selo neutro" data-estado-de="aniv">Desligada</span></header>
+        <div class="result"><span class="t">Últimos 30 dias</span><span>Ainda não mandou nenhuma.</span></div>
+        <div class="aj"><div><span class="rot-aj">Mandar os parabéns no aniversário</span><span class="ajuda">Para quem informou o dia e o mês: no Perfil do cardápio, na pergunta da confirmação do pedido ou no cadastro em Delivery › Clientes. Hoje, 86 clientes informaram. As travas contra troca de data estão logo abaixo.</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="false" aria-label="Mandar os parabéns no aniversário" data-aj data-liga="aniv"></button></div></div>
+        <div class="aj" data-depende="aniv"><div><span class="rot-aj">Quando</span></div>
+          <div class="ctrl"><select aria-label="Quando mandar os parabéns" data-aj><option selected>No dia</option><option>3 dias antes</option><option>7 dias antes</option></select></div></div>
+        <div class="aj" data-depende="aniv"><div><span class="rot-aj">Presente</span><span class="ajuda">Cupom pessoal, de uso único, que já vem aplicado no carrinho do cliente.</span></div>
+          <div class="ctrl"><select aria-label="Presente de aniversário" data-aj data-presente="aniv"><option value="cupom" selected>Cupom de desconto</option><option value="nada">Sem presente, só os parabéns</option></select></div></div>
+        <div class="aj" data-depende="aniv" data-do-presente="aniv"><div><span class="rot-aj">Desconto</span></div>
+          <div class="ctrl"><select aria-label="Desconto do presente de aniversário" data-aj><option>R$ 5,00</option><option selected>R$ 10,00</option><option>R$ 15,00</option><option>10%</option><option>15%</option><option>Entrega grátis</option></select></div></div>
+        <div class="aj" data-depende="aniv" data-do-presente="aniv"><div><span class="rot-aj">Pedido mínimo</span></div>
+          <div class="ctrl"><select aria-label="Pedido mínimo do presente de aniversário" data-aj><option>Sem mínimo</option><option>R$ 30,00</option><option selected>R$ 40,00</option><option>R$ 60,00</option></select></div></div>
+        <div class="aj" data-depende="aniv" data-do-presente="aniv"><div><span class="rot-aj">O cupom vale por</span><span class="ajuda">A partir do dia da mensagem.</span></div>
+          <div class="ctrl"><select aria-label="Validade do cupom de aniversário" data-aj><option>3 dias</option><option selected>7 dias</option><option>15 dias</option></select></div></div>
+        <div class="aj" data-depende="aniv"><div><span class="rot-aj">A mensagem</span><span class="ajuda so-oficial">Marketing para a Meta (aniversário está na lista de marketing dela).</span><span class="ajuda so-qr">Mensagem de texto (sem modelo).</span></div>
+          <div class="ctrl"><span class="selo ok so-oficial">Aprovada pela Meta</span><span class="fixo so-qr">Pronta para sair</span></div></div>
+        <div class="aj" data-depende="aniv"><div><span class="rot-aj">Prévia</span><span class="ajuda">Com os ajustes e a proteção de agora.</span></div>
+          <div class="ctrl"><span class="fixo">Esta semana: 3 presentes (5 aniversários)</span><button type="button" class="bt leve" data-dlg="quem-aniv">Ver quem</button></div></div>
+        <div class="aj-sub" data-depende="aniv">Proteção contra troca de data · sempre ligada</div>
+        <div class="aj" data-depende="aniv"><div><span class="rot-aj">A data vale 30 dias depois de informada</span><span class="ajuda">Quem informa (ou troca) a data a menos de 30 dias do aniversário ganha só no ano seguinte.</span></div>
+          <div class="ctrl"><span class="fixo">30 dias</span></div></div>
+        <div class="aj" data-depende="aniv"><div><span class="rot-aj">Troca de data</span><span class="ajuda">Toda troca espera os mesmos 30 dias e fica na auditoria: quem, quando, a data de antes e a nova, e o motivo.</span></div>
+          <div class="ctrl"><span class="fixo">O cliente corrige uma vez; depois, só gerente e presidente</span></div></div>
+        <div class="aj" data-depende="aniv"><div><span class="rot-aj">Um presente por cliente</span><span class="ajuda">Mesmo que a data mude.</span></div>
+          <div class="ctrl"><span class="fixo">A cada 12 meses</span></div></div>
+        <div class="aj" data-depende="aniv"><div><span class="rot-aj">Quem ganha</span><span class="ajuda">Cliente de verdade, não cadastro feito só para o brinde.</span></div>
+          <div class="ctrl"><span class="fixo">Quem pediu nos últimos 12 meses</span></div></div>
+        <div class="aj" data-depende="aniv"><div><span class="rot-aj">O cupom</span><span class="ajuda">No cardápio, entrando com o código do WhatsApp; no WhatsApp, pelo número do cliente. Não serve para outra pessoa.</span></div>
+          <div class="ctrl"><span class="fixo">Só do próprio cliente, uma vez</span></div></div>
+      </section>
+
+      <section class="grupo" data-grupo>
+        <header><h3>👋 Sentimos sua falta</h3><span class="selo ok" data-estado-de="volta">Ligada</span></header>
+        <div class="result"><span class="t">Últimos 30 dias</span><span><b>42</b> mensagens</span><span><b>9</b> clientes voltaram (21%)</span><span><b>R$ 486,30</b> em pedidos</span><span><b>6</b> cupons usados</span><button type="button" class="bt leve" data-dlg="voltaram">Quem voltou</button></div>
+        <div class="aj"><div><span class="rot-aj">Chamar de volta quem sumiu</span><span class="ajuda">Voltou = pediu em até 7 dias depois da mensagem (a mesma conta das campanhas).</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Chamar de volta quem sumiu" data-aj data-liga="volta"></button></div></div>
+        <div class="aj" data-depende="volta"><div><span class="rot-aj">Quem não pede há</span><span class="ajuda">Até 30 dias depois disso (com 30: de 30 a 60 dias sem pedir). Quem sumiu há mais tempo fica para as campanhas.</span></div>
+          <div class="ctrl"><select aria-label="Quem não pede há quantos dias" data-aj><option>21 dias</option><option selected>30 dias</option><option>45 dias</option><option>60 dias</option></select></div></div>
+        <div class="aj" data-depende="volta"><div><span class="rot-aj">Só quem já pediu</span></div>
+          <div class="ctrl"><select aria-label="Quantos pedidos o cliente já fez" data-aj><option selected>1 vez ou mais</option><option>2 vezes ou mais</option><option>3 vezes ou mais</option></select></div></div>
+        <div class="aj" data-depende="volta"><div><span class="rot-aj">Presente</span></div>
+          <div class="ctrl"><select aria-label="Presente para quem sumiu" data-aj data-presente="volta"><option value="cupom" selected>Cupom de desconto</option><option value="nada">Sem cupom, só a mensagem</option></select></div></div>
+        <div class="aj" data-depende="volta" data-do-presente="volta"><div><span class="rot-aj">Desconto</span></div>
+          <div class="ctrl"><select aria-label="Desconto para quem sumiu" data-aj><option>R$ 5,00</option><option selected>R$ 8,00</option><option>R$ 10,00</option><option>10%</option><option>Entrega grátis</option></select></div></div>
+        <div class="aj" data-depende="volta" data-do-presente="volta"><div><span class="rot-aj">Pedido mínimo</span></div>
+          <div class="ctrl"><select aria-label="Pedido mínimo do cupom de volta" data-aj><option>Sem mínimo</option><option selected>R$ 30,00</option><option>R$ 40,00</option></select></div></div>
+        <div class="aj" data-depende="volta" data-do-presente="volta"><div><span class="rot-aj">O cupom vale por</span></div>
+          <div class="ctrl"><select aria-label="Validade do cupom de volta" data-aj><option>3 dias</option><option selected>7 dias</option><option>15 dias</option></select></div></div>
+        <div class="aj" data-depende="volta"><div><span class="rot-aj">Tentativas, no máximo</span><span class="ajuda">Com 60 dias entre uma e outra. Depois disso, para de chamar até o cliente pedir de novo. Nunca chama quem tem caso aberto no Atendimento.</span></div>
+          <div class="ctrl"><select aria-label="Tentativas, no máximo" data-aj><option>1</option><option selected>2</option></select></div></div>
+        <div class="aj" data-depende="volta"><div><span class="rot-aj">A mensagem</span><span class="ajuda so-oficial">Marketing para a Meta. Com cupom, vai a versão com o valor e a validade.</span><span class="ajuda so-qr">Mensagem de texto (sem modelo).</span></div>
+          <div class="ctrl"><span class="selo ok so-oficial">Aprovada pela Meta</span><span class="fixo so-qr">Pronta para sair</span></div></div>
+        <div class="aj" data-depende="volta"><div><span class="rot-aj">Prévia</span><span class="ajuda">Com os ajustes de agora. O limite do dia deixa os outros 21 para os próximos dias.</span></div>
+          <div class="ctrl"><span class="fixo">Amanhã: 30 de 51 clientes</span><button type="button" class="bt leve" data-dlg="quem-volta">Ver quem</button></div></div>
+      </section>
+
+      <section class="peca" aria-labelledby="t-promo-niver">
+        <h3 id="t-promo-niver">🎂 Promoção de aniversariante criada pela loja</h3>
+        <p class="ajuda">Além do presente automático, a loja pode criar a dela. As duas formas usam a mesma proteção: só vale a data informada há 30 dias ou mais, a troca é travada e cada cliente usa uma vez a cada 12 meses.</p>
+        <div class="dois">
+          <div class="campo"><label for="cond-cupom">Cupom · Condição de uso <span class="novo-l">NOVO</span></label>
+            <select id="cond-cupom"><option>Sem condição (uso livre)</option><option>Só clientes novos (1º pedido)</option><option>Cliente há X dias sem comprar</option><option>Máx. X usos por cliente</option><option selected>Só aniversariantes (semana do aniversário)</option></select>
+            <span class="ajuda">Em Delivery › Configurações › Cupons. O cupom só aceita o cliente que faz aniversário naquela semana, com a data valendo.</span></div>
+          <div class="campo"><label for="seg-camp">Campanha · Para quem <span class="novo-l">NOVO</span></label>
+            <select id="seg-camp"><option>Todos os clientes</option><option>Pediram no mês</option><option>+30 dias sem pedir</option><option selected>Aniversariantes desta semana</option><option>Aniversariantes do mês</option></select>
+            <span class="ajuda">Em Marketing › Campanhas. Entra só quem tem a data valendo e não pediu para sair.</span></div>
+        </div>
+      </section>
+    </main>
+
+    <!-- vista: ajuste do "Cheguei" (Delivery › Configurações › Operação › Atendimento) -->
+    <main id="v-ajc" hidden>
+      <div class="trilha">Delivery › Configurações › Operação</div>
+      <h1>Atendimento</h1>
+      <p class="resumo">14 ajustes em 4 grupos · o grupo novo é "Retirada · cliente chegou"</p>
+      <div class="filtros"><div class="campo"><label for="busca-ajc">Buscar ajuste</label><input id="busca-ajc" type="search" placeholder="Ex.: cheguei, retirada, disputa"></div></div>
+
+      <section class="grupo" data-grupo>
+        <header><h3>Retirada · cliente chegou <span class="novo-l">NOVO</span></h3><span>4 ajustes</span></header>
+        <div class="aj"><div><span class="rot-aj">Botão "Cheguei" para quem retira</span><span class="ajuda">Aparece na página do pedido, em Sua conta › Pedidos e na mensagem de pronto do WhatsApp; o Regem também entende "cheguei" escrito. Só em pedido de retirada, no dia.</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="false" aria-label="Botão Cheguei para quem retira" data-aj data-liga="cheg"></button></div></div>
+        <div class="aj" data-depende="cheg"><div><span class="rot-aj">Perguntar onde o cliente está</span><span class="ajuda">No cardápio: no balcão ou na porta (moto ou carro), com "Como te achar?". No WhatsApp não pergunta: o que o cliente escrever vai junto.</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Perguntar onde o cliente está" data-aj></button></div></div>
+        <div class="aj" data-depende="cheg"><div><span class="rot-aj">Onde a equipe é avisada</span><span class="ajuda">O som é o que cada computador escolheu no sino.</span></div>
+          <div class="ctrl"><select aria-label="Onde a equipe é avisada" data-aj><option selected>Na Retirada, no KDS e em qualquer tela do Regem</option><option>Só na Retirada e no KDS</option></select></div></div>
+        <div class="aj" data-depende="cheg"><div><span class="rot-aj">Avisar de novo se ninguém entregar em</span><span class="ajuda">Uma vez, com o tempo de espera. O cliente também pode avisar de novo depois de 5 min.</span></div>
+          <div class="ctrl"><select aria-label="Avisar de novo se ninguém entregar em" data-aj><option>3 min</option><option selected>5 min</option><option>10 min</option></select></div></div>
+      </section>
+      <section class="grupo fechado"><header><h3>Fila e avisos</h3><span>2 ajustes · como hoje</span></header></section>
+      <section class="grupo fechado"><header><h3>iFood · disputas e chat</h3><span>4 ajustes · como hoje</span></header></section>
+      <section class="grupo fechado"><header><h3>99Food · pedidos do cliente</h3><span>4 ajustes · como hoje</span></header></section>
+    </main>
+  </div>
+</div>
+
+<!-- ============ MENSAGENS ============ -->
+<section id="v-msg" hidden aria-label="As mensagens">
+  <div class="cab-vitrine">
+    <div class="trilha">Mensagens</div>
+    <h1>O que sai pelo WhatsApp</h1>
+    <p class="resumo">Como chega no celular do cliente. Na API oficial, cada mensagem que abre conversa é um modelo aprovado pela Meta; pelo QR, sai como texto.</p>
+  </div>
+  <div class="msgs-grade">
+
+    <article class="mcard">
+      <header><h3>Pedido pronto, com o botão "Cheguei"</h3><div class="chips"><span class="selo info">Utilidade</span><span class="selo neutro">muda o modelo de hoje</span></div></header>
+      <div class="wa">
+        <div class="bolha"><div class="cab-t">Pedido pronto</div>Oi, Marina! Seu pedido #1187 está pronto para retirada. Quando chegar, toque em Cheguei.<small>19:40</small></div>
+        <div class="wa-bts"><span>🙋 Cheguei</span></div>
+      </div>
+      <dl><dt>Quando sai</dt><dd>Quando o pedido de retirada fica pronto (como hoje), com o "Cheguei" ligado.</dd>
+        <dt>Pelo QR</dt><dd>"Oi, Marina! Seu pedido #1187 está pronto para retirada. Quando chegar, responda CHEGUEI."</dd>
+        <dt>O que muda</dt><dd>O modelo ganha o botão: a loja reenvia à Meta pelo botão "Modelos de utilidade" (Marketing › Modelos), como no "chegando".</dd></dl>
+    </article>
+
+    <article class="mcard">
+      <header><h3>Resposta ao "Cheguei"</h3><div class="chips"><span class="selo neutro">Texto na conversa</span></div></header>
+      <div class="wa">
+        <div class="bolha eu">Cheguei<small>19:42 ✓✓</small></div>
+        <div class="bolha">Avisamos a equipe, Marina! 🙋 Seu pedido está no balcão: diga o seu nome ou o número 1187.<small>19:42</small></div>
+        <div class="bolha eu">cheguei, to na porta de moto<small>19:51 ✓✓</small></div>
+        <div class="bolha">Avisamos a cozinha que você chegou, Paulo! Seu pedido #1189 ainda está em preparo.<small>19:51</small></div>
+      </div>
+      <dl><dt>Quando sai</dt><dd>Na hora em que o cliente avisa. Não precisa de modelo: foi o cliente quem escreveu.</dd>
+        <dt>Sem pedido de retirada hoje</dt><dd>O robô (ou a equipe) segue a conversa normal; o "cheguei" não avisa ninguém.</dd></dl>
+    </article>
+
+    <article class="mcard">
+      <header><h3>Cashback vencendo</h3><div class="chips"><span class="selo info">Utilidade (a Meta confirma)</span><span class="selo ouro">novo</span></div></header>
+      <div class="wa">
+        <div class="bolha"><div class="cab-t">Seu cashback</div>Oi, Marina! Seu cashback de R$ 12,40 na Burger da Praça vence em 06/11. Ele é descontado no seu próximo pedido pelo cardápio ou pelo WhatsApp.<div class="rod">Para não receber estes avisos, responda SAIR.</div><small>17:00</small></div>
+        <div class="wa-bts"><span>Ver meu saldo</span></div>
+      </div>
+      <dl><dt>Quando sai</dt><dd>3 dias antes de vencer (ajuste), uma vez por vencimento, 1 h antes de a loja abrir.</dd>
+        <dt>Pelo QR</dt><dd>O mesmo texto, com o link de Sua conta › Benefícios.</dd>
+        <dt>Por que Utilidade</dt><dd>A Meta dá como exemplo de utilidade o aviso de saldo que vai vencer, sem convite para comprar. "Aproveite" ou "use agora" fariam virar marketing.</dd></dl>
+    </article>
+
+    <article class="mcard">
+      <header><h3>Aniversário</h3><div class="chips"><span class="selo ouro">Marketing</span><span class="selo neutro">modelo de hoje, agora com o presente</span></div></header>
+      <div class="wa">
+        <div class="bolha"><div class="cab-t">Feliz aniversário</div>Parabéns, Marina! 🎉 Para comemorar, a Burger da Praça te dá R$ 10 de desconto em pedido acima de R$ 40, até 12/11. O cupom já vem aplicado no seu carrinho.<small>10:00</small></div>
+        <div class="wa-bts"><span>Peça agora</span><span>Copiar o cupom NIVER7K2QX</span><span>Sair das ofertas</span></div>
+      </div>
+      <dl><dt>Quando sai</dt><dd>No dia (ajuste), 1 h antes de a loja abrir. No máximo uma vez a cada 12 meses, e só com a data informada há 30 dias ou mais.</dd>
+        <dt>Sem presente</dt><dd>"Parabéns, Marina! 🎉 A Burger da Praça deseja um feliz aniversário. Obrigado por pedir com a gente!" (o modelo de hoje promete "um presente especial" sem dizer qual: muda).</dd>
+        <dt>Pelo QR</dt><dd>O mesmo texto, com o link do cardápio, o cupom e "Para sair das ofertas, responda SAIR."</dd></dl>
+    </article>
+
+    <article class="mcard">
+      <header><h3>Sentimos sua falta</h3><div class="chips"><span class="selo ouro">Marketing</span><span class="selo neutro">modelo de hoje + versão com cupom</span></div></header>
+      <div class="wa">
+        <div class="bolha"><div class="cab-t">Sentimos sua falta</div>Oi, Paulo! Faz um tempo que você não pede na Burger da Praça. Para matar a saudade: R$ 8 de desconto em pedido acima de R$ 30, até 10/11. 😊<small>17:00</small></div>
+        <div class="wa-bts"><span>Peça agora</span><span>Copiar o cupom VOLTA4M8RZ</span><span>Sair das ofertas</span></div>
+      </div>
+      <dl><dt>Quando sai</dt><dd>Quando o cliente passa de 30 dias sem pedir (ajuste), 1 h antes de a loja abrir. No máximo 2 vezes, com 60 dias entre elas.</dd>
+        <dt>Sem cupom</dt><dd>O modelo de hoje: "Oi Paulo, faz um tempo que você não pede na Burger da Praça! Que tal matar a saudade hoje? Tem novidade te esperando. 😊"</dd>
+        <dt>Pelo QR</dt><dd>O mesmo texto, com o link do cardápio, o cupom e "Para sair das ofertas, responda SAIR."</dd></dl>
+    </article>
+  </div>
+</section>
+
+<!-- ============ NOTAS ============ -->
+<section id="v-notas" hidden class="notas" aria-label="Notas do protótipo">
+  <div class="trilha">Notas do protótipo · 03/11/2026</div>
+  <h1>Relacionamento: o que cada parte faz</h1>
+
+  <div class="cartao">
+    <h3>🙋 "Cheguei" na retirada</h3>
+    <ul>
+      <li><b>Para quem:</b> pedido de retirada feito no cardápio online ou pelo WhatsApp (robô ou equipe), no dia da retirada. iFood e 99 têm o app delas; o pedido feito no balcão não tem página para o cliente.</li>
+      <li><b>O cliente avisa de três jeitos:</b> o botão na página do pedido (e em Sua conta › Pedidos); o botão "Cheguei" na mensagem de pronto (API oficial) ou "responda CHEGUEI" (QR); escrevendo "cheguei", "tô aqui", "estou na porta" — o Regem entende com o robô ligado ou não.</li>
+      <li><b>A loja vê:</b> "Clientes esperando" no topo de PDV · Balcão › Retirada / Encomendas, com o tempo de espera e o botão de entregar (o mesmo "Entregar" de hoje: pago online conclui, a pagar abre a cobrança); a marca "Chegou" no pedido (o de retirada não vai ao painel do delivery); no KDS, a etiqueta "Cliente chegou" e o aviso no rodapé; em qualquer tela, o aviso com o som do sino. Ninguém entregou em 5 min: avisa de novo, uma vez.</li>
+      <li><b>O cliente recebe a resposta na hora:</b> pronto → "está no balcão"; em preparo → "avisamos a cozinha". Depois de 5 min, "Avisar de novo".</li>
+      <li>A página do pedido passa a mostrar os passos da retirada (hoje mostra "Retire no balcão" e "Entregue", da entrega).</li>
+    </ul>
+    <p>Referências: Target Drive Up — <i>"Park in the Drive Up area &amp; tap 'I'm here' in the Target app"</i> e <i>"We'll bring your order to your vehicle"</i> (<a href="https://www.target.com/driveup">target.com/driveup</a>, verificado em 03/11/2026). McDonald's — no retirar no carro, o cliente informa a vaga ao chegar (NÃO VERIFICADO: a página de ajuda recusa leitura automática). No iFood, a busca não achou botão parecido para a retirada.</p>
+  </div>
+
+  <div class="cartao">
+    <h3>💰 Cashback vencendo</h3>
+    <ul>
+      <li>Só com o Plano de cashback com prazo (Delivery › Configurações › Cashback). O saldo vence o prazo do plano depois do último crédito; cada crédito renova.</li>
+      <li>Uma mensagem por vencimento, N dias antes, se o saldo for de pelo menos R$ X. Quem usou o saldo antes não recebe.</li>
+      <li>Texto neutro (saldo, data e como usar), pedido à Meta como Utilidade. O botão "Ver meu saldo" abre Sua conta › Benefícios.</li>
+    </ul>
+  </div>
+
+  <div class="cartao">
+    <h3>🎂 Aniversário</h3>
+    <ul>
+      <li>Dia e mês, sem o ano. Vêm de: Sua conta › Perfil; a pergunta única na confirmação do pedido (só com o aniversário ligado e sem data informada; "Agora não" não pergunta de novo); o cadastro em Delivery › Clientes. O robô não pergunta.</li>
+      <li>Presente: cupom pessoal de uso único, já aplicado no carrinho (ou só os parabéns).</li>
+      <li>Segue o desenho do aniversário que já estava no "Clube de recompra" (<code>docs/templates-cardapio/07-clube-de-recompra.md</code>): dia e mês sem ano e cupom pessoal. O resto do clube (raspadinha, selos, meta do mês) continua para depois.</li>
+    </ul>
+    <h3>Proteção contra troca de data (pedido do dono, 03/11)</h3>
+    <ul>
+      <li><b>30 dias de carência:</b> a data só vale para presente ou promoção se foi informada pelo menos 30 dias antes do aniversário. Informou (ou trocou) mais perto: ganha no ano seguinte.</li>
+      <li><b>Data travada:</b> o cliente corrige uma vez (erro de digitação); depois, só gerente e presidente, em Delivery › Clientes, com o motivo. Toda troca espera os mesmos 30 dias e fica na auditoria: quem, quando, a data de antes e a nova, e o motivo.</li>
+      <li><b>Um presente a cada 12 meses</b> por cliente, mesmo que a data mude.</li>
+      <li><b>Cliente de verdade:</b> só quem pediu nos últimos 12 meses ganha o presente.</li>
+      <li><b>Cupom só do dono dele:</b> vale para o próprio cliente (no cardápio, entrando com o código do WhatsApp; no WhatsApp, pelo número dele), uma vez.</li>
+      <li><b>Vale para toda promoção de aniversariante:</b> o presente automático, o cupom novo "Só aniversariantes" e a campanha para "Aniversariantes desta semana / do mês" usam a mesma regra, que fica num lugar só do servidor. Promoção no balcão: a gaveta do cliente mostra desde quando a data vale; pedir documento é decisão da loja.</li>
+    </ul>
+    <p>Como o mercado faz (verificado em 03/11/2026): <a href="https://help.joy.so/new-joy-loyalty/reward-programs/earning-programs/birthday-reward">Joy Loyalty</a> — <i>"customers must enter their birth date at least 30 days before their birthday"</i>, presente "once per year"; <a href="https://affiliatewp.com/rewardswp/docs/birthday-reward/">RewardsWP</a> — <i>"members must set their birthday at least 30 days before that birthday date"</i>, <i>"Members can update their birthday once before they've ever received birthday points"</i>, <i>"Admin edits bypass the lock"</i>; <a href="https://intercom.help/casa-apps/en/articles/15496460-birthdays-bonus">CASA Loyalty</a> — a loja escolhe de "Never (set once)" até 30 dias entre trocas, para <i>"prevent customers from repeatedly changing their birthday to farm the reward"</i>.</p>
+  </div>
+
+  <div class="cartao">
+    <h3>👋 Sentimos sua falta</h3>
+    <ul>
+      <li>Cliente que não pede há N dias (padrão 30), até N + 30. Quem sumiu há mais tempo fica para as campanhas — assim o primeiro dia ligado não manda para a base inteira.</li>
+      <li>Cupom pessoal opcional. No máximo 2 tentativas, com 60 dias entre elas; volta a valer depois que o cliente pede de novo. Nunca com caso aberto no Atendimento.</li>
+      <li>Resultado na própria tela: mensagens, quem voltou (pediu em até 7 dias), quanto vendeu e quantos cupons foram usados — a mesma conta das campanhas.</li>
+    </ul>
+  </div>
+
+  <div class="cartao">
+    <h3>Regras de todas as automáticas</h3>
+    <ul>
+      <li><b>Quem recebe:</b> a regra que você decidiu em 01/10/2026 — cliente da loja recebe até pedir para sair (SAIR, a chave do Perfil, a marca no cadastro); toda mensagem leva o "Sair das ofertas" (API oficial) ou "responda SAIR" (QR). Só quem já pediu na loja. Quem só pediu pelo iFood ou pela 99 fica fora.</li>
+      <li><b>Frequência:</b> uma oferta por cliente a cada 7 dias, somando as campanhas; até 30 mensagens por dia. O aviso do cashback não conta como oferta.</li>
+      <li><b>Horário:</b> 1 h antes de abrir, só em dia que a loja abre, nunca antes das 9h nem depois das 21h.</li>
+      <li><b>Nascem desligadas.</b> Na API oficial, a mensagem só sai com o modelo aprovado pela Meta.</li>
+      <li><b>Empresa com várias lojas:</b> a mensagem leva o nome e o link da loja do último pedido do cliente.</li>
+      <li>Só gerente e presidente mudam os ajustes (conferido no servidor).</li>
+    </ul>
+  </div>
+
+  <div class="cartao">
+    <h3>Categorias da Meta (o que ela cobra e aprova)</h3>
+    <blockquote>"Utility templates are typically triggered by a user action or request." · "Must be non-promotional, not containing any promotional or persuasive intent."</blockquote>
+    <blockquote>Exemplo de utilidade: "Your {{welfare}} disbursement balance is {{amount}}. Kindly note it will expire on {{date}}."</blockquote>
+    <blockquote>Aniversário está na lista de marketing ("Build Customer Relationships"); chamar o cliente de volta é "Retargeting", marketing "even if requested by users"; mensagem que mistura utilidade e oferta é marketing.</blockquote>
+    <p>Por isso: aniversário e "sentimos sua falta" são marketing (custam mais por mensagem); o cashback vencendo vai como utilidade, com texto neutro — quem decide é a Meta. Fonte: <a href="https://developers.facebook.com/documentation/business-messaging/whatsapp/templates/template-categorization">Meta · Template categorization</a> (conferida em 03/11/2026).</p>
+  </div>
+
+  <div class="cartao">
+    <h3>Onde cada coisa fica e o que muda no Regem</h3>
+    <ul>
+      <li><b>"Cheguei":</b> a hora e o lugar ficam no pedido, que sincroniza com o servidor da loja — a Retirada, o painel e o KDS da loja avisam (vai no <code>.zip</code>). Com servidor na loja, o aviso chega no tempo em que um pedido novo do cardápio chega hoje.</li>
+      <li><b>Automáticas:</b> só na nuvem (WhatsApp e cardápio rodam lá). A data do aniversário fica no cadastro do cliente (sincroniza com a loja). O cupom pessoal vale no cardápio online e no robô.</li>
+    </ul>
+    <p>Em PRs, cada um com testes, tela real e CI verde (as migrations com a numeração conferida na <code>origin/main</code>, aplicadas na nuvem antes do merge):</p>
+    <ol>
+      <li><b>"Cheguei"</b> — migration (colunas no pedido; sincroniza) + página do pedido + mensagem de pronto com o botão + a palavra no WhatsApp + avisos na loja + o ajuste. Vai no <code>.zip</code>.</li>
+      <li><b>Base das automáticas + cashback vencendo</b> — migration só da nuvem (o registro do que já saiu, com trava contra mandar duas vezes; o cupom pessoal) + a aba Automáticas + o modelo de utilidade.</li>
+      <li><b>Aniversário</b> — migration (dia e mês no cadastro do cliente, com quando e por quem foi informado; sincroniza) + Perfil, confirmação e Delivery › Clientes + a proteção (carência, trava, 12 meses) + o cupom "Só aniversariantes" e a campanha de aniversariantes + os modelos.</li>
+      <li><b>Sentimos sua falta</b> + os resultados das três.</li>
+    </ol>
+    <p>Fica para depois: o resto do Clube de recompra; o aviso "Cheguei" no app de atendimento.</p>
+  </div>
+
+  <div class="cartao decide">
+    <h3>Decisões para você</h3>
+    <ol>
+      <li><b>Onde ficam:</b> Marketing ganha a aba "Automáticas" (como "Campanhas", mas sozinhas todo dia); o "Cheguei" fica em Configurações › Atendimento, grupo "Retirada · cliente chegou". <span class="recom">recomendado</span></li>
+      <li><b>Onde a equipe é avisada do "Cheguei":</b> Retirada / Encomendas, KDS e qualquer tela do Regem (o pedido de retirada não vai ao painel do delivery). <span class="recom">recomendado</span> Outra opção: sem o aviso nas outras telas.</li>
+      <li><b>Aniversário:</b> dia e mês, sem o ano; pelo Perfil, por uma pergunta na confirmação do pedido e pelo cadastro da loja; o robô não pergunta. Com a proteção: 30 dias de carência, o cliente corrige uma vez (depois, só gerente e presidente), um presente a cada 12 meses, só quem pediu nos últimos 12 meses e cupom só do próprio cliente. A mesma regra vale para o cupom "Só aniversariantes" e a campanha de aniversariantes, que entram no mesmo PR. <span class="recom">recomendado</span></li>
+      <li><b>Padrões dos presentes e da frequência:</b> aniversário R$ 10 acima de R$ 40 por 7 dias; "sentimos sua falta" aos 30 dias, R$ 8 acima de R$ 30 por 7 dias, 2 tentativas; uma oferta a cada 7 dias; até 30 mensagens por dia. A loja muda todos. <span class="recom">recomendado</span></li>
+      <li><b>Cashback vencendo como utilidade</b>, com texto neutro. Se a Meta disser que é marketing, ele passa a contar na frequência das ofertas e a tela mostra a categoria. <span class="recom">recomendado</span></li>
+    </ol>
+    <p>Tudo nasce desligado: cada loja liga o que quiser.</p>
+  </div>
+</section>
+
+<div class="salvar" id="barra-salvar" hidden><span id="n-mud">1 alteração ainda não salva</span><button type="button" class="bt" id="desfazer">Desfazer</button><button type="button" class="bt pri" id="salvar">Salvar alterações</button></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<div id="camada"></div>
+
+<script>
+(() => {
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const MIN = 60000;
+
+  // ---------- aniversário: dia e mês por seletor (nunca digitação) ----------
+  const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+  $$('select[data-dias]').forEach((s) => { for (let d = 1; d <= 31; d++) s.add(new Option(String(d), String(d), false, s.dataset.dias === String(d))); });
+  $$('select[data-meses]').forEach((s) => MESES.forEach((m, i) => s.add(new Option(m, String(i + 1), false, s.dataset.meses === String(i + 1)))));
+
+  // ---------- opções em grupo (aria-pressed) e chaves soltas do cliente ----------
+  function ligarOpcoes(raiz) {
+    $$('[data-op]', raiz).forEach((o) => o.addEventListener('click', () => {
+      const g = o.closest('[role="group"]');
+      $$('[data-op]', g).forEach((x) => x.setAttribute('aria-pressed', String(x === o)));
+    }));
+  }
+  ligarOpcoes(document);
+  $$('#v-cli .chave').forEach((c) => c.addEventListener('click', () => c.setAttribute('aria-checked', String(c.getAttribute('aria-checked') !== 'true'))));
+
+  // ---------- toast ----------
+  function toast(html, acao, rotulo = 'Ver') {
+    const t = document.createElement('div'); t.className = 'toast'; t.setAttribute('role', 'status');
+    t.innerHTML = `<span>${html}</span>${acao ? `<button type="button" class="bt pri">${rotulo}</button>` : ''}`;
+    $('#toasts').appendChild(t);
+    if (acao) $('.bt', t).addEventListener('click', () => { t.remove(); acao(); });
+    setTimeout(() => t.remove(), 7000);
+  }
+  $$('[data-toast]').forEach((b) => b.addEventListener('click', () => toast(`(protótipo) ${esc(b.dataset.toast)}`)));
+
+  // ---------- loja: clientes esperando, retirada, painel e KDS ----------
+  const PEDIDOS = [
+    { id: '1187', nome: 'Marina', status: 'pronto', pago: true, itens: '1 X-Tudo · 1 Milkshake', total: 'R$ 54,90' },
+    { id: '1189', nome: 'Paulo', status: 'preparo', pago: false, itens: '1 X-Bacon · 1 Batata média', total: 'R$ 38,00' },
+    { id: '1191', nome: 'Caio', status: 'preparo', pago: true, itens: '1 Combo Smash', total: 'R$ 42,50' },
+    { id: '1192', nome: 'Júlia', status: 'novo', pago: true, itens: '2 X-Salada · 1 Refri lata', total: 'R$ 61,80' },
+    { id: '1185', nome: 'Renata', status: 'pronto', pago: false, itens: '1 Combo Duplo', total: 'R$ 47,00' },
+  ];
+  const iniciais = () => [
+    { pedido: '1187', onde: 'balcao', obs: '', desde: Date.now() - 6 * MIN },
+    { pedido: '1189', onde: 'porta', obs: 'moto vermelha', desde: Date.now() - 1 * MIN },
+  ];
+  let chegadas = iniciais();
+  const ped = (id) => PEDIDOS.find((p) => p.id === id);
+  const minDesde = (t) => Math.max(0, Math.floor((Date.now() - t) / MIN));
+  const ondeTxt = (c) => (c.onde === 'balcao' ? '🏪 No balcão' : `🛵 Na porta${c.obs ? `: ${c.obs}` : ''}`);
+  const STATUS = { novo: 'Novo', preparo: 'Em preparo', pronto: 'Pronto' };
+  const chegadaDe = (id) => chegadas.find((c) => c.pedido === id);
+
+  function acaoDe(p) {
+    if (p.status === 'novo') return `<button type="button" class="bt pri" data-acao="aceitar" data-id="${p.id}">Aceitar</button>`;
+    if (p.status === 'preparo') return `<button type="button" class="bt" data-acao="pronto" data-id="${p.id}">Avisar que está pronto</button>`;
+    return p.pago
+      ? `<button type="button" class="bt ok" data-acao="entregar" data-id="${p.id}">Entregar ao cliente</button>`
+      : `<button type="button" class="bt ok" data-acao="cobrar" data-id="${p.id}">Cobrar e entregar</button>`;
+  }
+  function cartaoHub(p) {
+    const c = chegadaDe(p.id);
+    return `<article class="hcard${c ? ' chegou' : ''}" aria-label="Pedido ${p.id}"><div class="l1"><b>#${p.id}</b><span class="selo ${p.status === 'pronto' ? 'ok' : 'neutro'}">${STATUS[p.status]}</span><span class="dir">${p.total}</span></div>
+      ${c ? `<span class="marca-chegou">🙋 Chegou há ${minDesde(c.desde)} min · ${esc(ondeTxt(c))}</span>` : ''}
+      <div class="nome">${esc(p.nome)} · ${p.pago ? 'pago online' : 'paga na retirada'}</div><div class="itens-p">${esc(p.itens)}</div>${acaoDe(p)}</article>`;
+  }
+  function desenharLoja() {
+    const vivos = PEDIDOS.filter((p) => !p.entregue);
+    const lista = chegadas.filter((c) => !ped(c.pedido).entregue).sort((a, b) => a.desde - b.desde);
+    $('#esperando').hidden = !lista.length;
+    $('#n-esp').textContent = String(lista.length);
+    $('#lista-esp').innerHTML = lista.map((c) => {
+      const p = ped(c.pedido); const m = minDesde(c.desde);
+      const espera = m >= 5 ? `<span class="selo crit">esperando há ${m} min · equipe avisada de novo</span>` : `<span class="selo neutro">chegou há ${m} min</span>`;
+      const situacao = p.status === 'pronto' ? '✓ Pronto' : 'Em preparo · a cozinha foi avisada';
+      return `<div class="chegada"><div class="quem-c"><b>Pedido ${p.id} · ${esc(p.nome)}</b><span>${esc(ondeTxt(c))} · ${situacao}</span></div>${espera}${acaoDe(p)}</div>`;
+    }).join('');
+    const ordem = [...vivos].sort((a, b) => Number(!!chegadaDe(b.id)) - Number(!!chegadaDe(a.id)));
+    $('#hub').innerHTML = ordem.map(cartaoHub).join('');
+    const k = chegadaDe('1189');
+    $('#kds-tag').hidden = !k || !!ped('1189').entregue;
+    $('#kds-rodape').innerHTML = k && !ped('1189').entregue ? `<small>Alertas</small>🙋 <b>Cliente chegou</b> · pedido 1189 · ${esc(ondeTxt(k))}` : '<small>Alertas</small>Sem alertas agora.';
+    $$('#v-loja [data-acao]').forEach((b) => b.addEventListener('click', () => agir(b.dataset.acao, b.dataset.id)));
+  }
+  function agir(acao, id) {
+    const p = ped(id);
+    if (acao === 'entregar') { p.entregue = true; toast(`✅ Pedido ${id} entregue a ${esc(p.nome)} (protótipo). Sai de "Clientes esperando" e o pedido conclui, como o "Entregar" de hoje.`); }
+    else if (acao === 'cobrar') { toast(`(protótipo) Abre a cobrança do pedido ${id}, como hoje; depois de receber, entrega e sai do quadro.`); return; }
+    else if (acao === 'pronto') { p.status = 'pronto'; toast(`(protótipo) Pedido ${id} pronto. Quem já chegou recebe "está no balcão".`); }
+    else if (acao === 'aceitar') { p.status = 'preparo'; toast(`(protótipo) Pedido ${id} aceito.`); }
+    desenharLoja();
+  }
+  function estadoEspera(est) {
+    $$('#ctl-loja [data-espera]').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.espera === est)));
+    PEDIDOS.forEach((p) => { delete p.entregue; });
+    PEDIDOS.find((p) => p.id === '1189').status = 'preparo';
+    PEDIDOS.find((p) => p.id === '1191').status = 'preparo';
+    PEDIDOS.find((p) => p.id === '1192').status = 'novo';
+    chegadas = est === 'com' ? iniciais() : [];
+    desenharLoja();
+  }
+  $$('#ctl-loja [data-espera]').forEach((b) => b.addEventListener('click', () => estadoEspera(b.dataset.espera)));
+  $('#simular').addEventListener('click', () => {
+    if (!chegadaDe('1191')) chegadas.push({ pedido: '1191', onde: 'porta', obs: 'carro prata', desde: Date.now() });
+    desenharLoja();
+    toast('🙋 <b>Caio chegou</b> para retirar o pedido 1191 · na porta: carro prata · em preparo<span class="sub">Aparece em qualquer tela do Regem, com o som do sino deste computador.</span>', () => { irPara('loja'); $('#esperando').scrollIntoView({ block: 'start' }); });
+  });
+  setInterval(() => { if (!$('#v-loja').hidden && !$('#v-loja').contains(document.activeElement)) desenharLoja(); }, 30000);
+
+  // ---------- ajustes (automáticas e "Cheguei") ----------
+  const inicial = new Map();
+  const valorDe = (el) => (el.getAttribute('role') === 'switch' ? el.getAttribute('aria-checked') : el.value);
+  $$('[data-aj]').forEach((el) => inicial.set(el, valorDe(el)));
+  const vistaDeAjustes = () => ['aut', 'ajc'].find((k) => !$(`#v-${k}`).hidden) || null;
+  function atualizarBarra() {
+    const v = vistaDeAjustes();
+    let n = 0;
+    inicial.forEach((val, el) => { const m = valorDe(el) !== val; el.closest('.aj').classList.toggle('mudou', m); if (m && v && el.closest(`#v-${v}`)) n++; });
+    $('#barra-salvar').hidden = !n;
+    $('#n-mud').textContent = `${n} ${n === 1 ? 'alteração ainda não salva' : 'alterações ainda não salvas'}`;
+    let ligadas = 0;
+    $$('[data-liga]').forEach((ch) => {
+      const lig = ch.getAttribute('aria-checked') === 'true';
+      if (ch.closest('#v-aut') && lig) ligadas++;
+      const selo = $(`[data-estado-de="${ch.dataset.liga}"]`);
+      if (selo) { selo.textContent = lig ? 'Ligada' : 'Desligada'; selo.className = `selo ${lig ? 'ok' : 'neutro'}`; }
+      $$(`[data-depende="${ch.dataset.liga}"]`).forEach((a) => a.classList.toggle('desligado', !lig));
+    });
+    $$('[data-presente]').forEach((s) => $$(`[data-do-presente="${s.dataset.presente}"]`).forEach((a) => { a.hidden = s.value !== 'cupom'; }));
+    $('#resumo-aut').textContent = `3 mensagens automáticas · ${ligadas} ${ligadas === 1 ? 'ligada' : 'ligadas'}`;
+  }
+  $$('.chave[data-aj]').forEach((c) => c.addEventListener('click', () => { c.setAttribute('aria-checked', String(c.getAttribute('aria-checked') !== 'true')); atualizarBarra(); }));
+  $$('select[data-aj]').forEach((s) => s.addEventListener('change', atualizarBarra));
+  $('#desfazer').addEventListener('click', () => {
+    const v = vistaDeAjustes();
+    inicial.forEach((val, el) => { if (!v || !el.closest(`#v-${v}`)) return; if (el.getAttribute('role') === 'switch') el.setAttribute('aria-checked', val); else el.value = val; });
+    atualizarBarra();
+  });
+  $('#salvar').addEventListener('click', () => {
+    const v = vistaDeAjustes();
+    inicial.forEach((_, el) => { if (v && el.closest(`#v-${v}`)) inicial.set(el, valorDe(el)); });
+    atualizarBarra();
+    toast(v === 'aut' ? '✅ Automáticas salvas (protótipo)' : '✅ Ajustes do atendimento salvos (protótipo)');
+  });
+  [['#busca-aut', '#v-aut'], ['#busca-ajc', '#v-ajc']].forEach(([campo, vista]) => $(campo).addEventListener('input', (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    $$(`${vista} .grupo`).forEach((g) => {
+      const titulo = $('h3', g).textContent.toLowerCase();
+      let algum = !q || titulo.includes(q);
+      $$('.aj', g).forEach((a) => { if (a.dataset.doPresente) return; const ok = !q || titulo.includes(q) || a.textContent.toLowerCase().includes(q); a.style.display = ok ? '' : 'none'; algum = algum || ok; });
+      g.hidden = !algum;
+    });
+  }));
+  $$('[data-enviar]').forEach((b) => b.addEventListener('click', () => {
+    const selo = $(`[data-modelo="${b.dataset.enviar}"]`);
+    selo.textContent = 'Em análise na Meta'; selo.className = 'selo warn so-oficial';
+    b.remove();
+    toast('(protótipo) Modelo enviado à Meta. A mensagem começa a sair quando ela aprovar; a tela mostra a categoria que ela der.');
+  }));
+  $$('#ctl-aut [data-numero]').forEach((b) => b.addEventListener('click', () => {
+    document.body.dataset.numero = b.dataset.numero;
+    $$('#ctl-aut [data-numero]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  }));
+
+  // ---------- diálogos ----------
+  const pilha = [];
+  const opcoesDias = (sel) => `<option value="">Dia</option>${Array.from({ length: 31 }, (_, i) => `<option${i + 1 === sel ? ' selected' : ''}>${i + 1}</option>`).join('')}`;
+  const opcoesMeses = (sel) => `<option value="">Mês</option>${MESES.map((m, i) => `<option${i + 1 === sel ? ' selected' : ''}>${m}</option>`).join('')}`;
+  const lista = (linhas) => `<ul class="quem-lista">${linhas.map(([a, b]) => `<li><b>${esc(a)}</b><span>${esc(b)}</span></li>`).join('')}</ul>`;
+  const DLG = {
+    'quem-cash': () => ({ t: 'Quem recebe amanhã · cashback vencendo', b: `${lista([['Marina L.', 'R$ 12,40 · vence 06/11'], ['Paulo R.', 'R$ 8,10 · vence 06/11'], ['Júlia M.', 'R$ 21,75 · vence 06/11'], ['Caio T.', 'R$ 5,30 · vence 06/11'], ['Renata S.', 'R$ 9,90 · vence 06/11']])}
+      <p class="ajuda" style="margin:0">E mais 7 clientes. Ficam fora: quem pediu para sair, quem já recebeu o aviso deste vencimento e quem tem saldo abaixo de R$ 5,00.</p>` }),
+    'quem-aniv': () => ({ t: 'Aniversários desta semana', b: `${lista([['Marina L.', '05/11 · cupom R$ 10,00'], ['Otávio P.', '06/11 · cupom R$ 10,00'], ['Bianca R.', '08/11 · cupom R$ 10,00'], ['Rui P.', '07/11 · informou em 28/10: fica para o ano que vem (menos de 30 dias)'], ['Fábio N.', '09/11 · pediu para sair: não recebe']])}
+      <p class="ajuda" style="margin:0">3 presentes. A data vem do Perfil do cardápio, da confirmação do pedido ou do cadastro da loja, e só vale 30 dias depois de informada.</p>` }),
+    'corrigir-niver': () => ({ t: 'Corrigir o aniversário · Marina Lopes', ok: 'Corrigir a data', feito: 'Data corrigida (protótipo). Vale para promoções daqui a 30 dias; a troca ficou na auditoria.', b: `
+      <p style="margin:0">Hoje: <b>5 de novembro</b>, informado em 10/09/2026 pelo cliente, no cardápio.</p>
+      <div class="campo"><span class="rot" id="rot-nova">Nova data</span><div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:8px" role="group" aria-labelledby="rot-nova"><select aria-label="Dia">${opcoesDias(5)}</select><select aria-label="Mês">${opcoesMeses(11)}</select></div></div>
+      <div class="campo"><label for="motivo-niver">Motivo (obrigatório)</label><input id="motivo-niver" type="text" placeholder="Ex.: o cliente mostrou o documento"><span class="ajuda" id="erro-motivo" hidden style="color:var(--crit);font-weight:700">Escreva o motivo para corrigir.</span></div>
+      <p class="ajuda" style="margin:0">A nova data espera 30 dias para valer e o presente continua no máximo uma vez a cada 12 meses. Fica na auditoria: quem, quando, a data de antes e a nova, e o motivo. Só gerente e presidente corrigem.</p>` }),
+    'quem-volta': () => ({ t: 'Quem recebe amanhã · sentimos sua falta', b: `${lista([['Paulo R.', '31 dias sem pedir · 4 pedidos'], ['Sara M.', '33 dias sem pedir · 1 pedido'], ['Igor V.', '38 dias sem pedir · 2 pedidos'], ['Teresa A.', '44 dias sem pedir · 7 pedidos · 2ª tentativa']])}
+      <p class="ajuda" style="margin:0">E mais 26 (o limite é 30 por dia; os outros 21 ficam para os próximos dias, começando por quem sumiu há menos tempo). Ficam fora: quem pediu para sair, quem recebeu uma oferta nos últimos 7 dias e quem tem caso aberto no Atendimento.</p>` }),
+    voltaram: () => ({ t: 'Quem voltou · últimos 30 dias', b: `${lista([['Henrique D.', 'pediu 2 dias depois · R$ 64,90 · usou o cupom'], ['Camila F.', 'pediu 5 dias depois · R$ 41,00 · usou o cupom'], ['Rafael O.', 'pediu no mesmo dia · R$ 88,40 · sem cupom']])}
+      <p class="ajuda" style="margin:0">E mais 6. Voltou = pediu em até 7 dias depois da mensagem.</p>` }),
+  };
+  function abrirDialogo(k, origem) {
+    const d = DLG[k]();
+    const fundo = document.createElement('div'); fundo.className = 'fundo';
+    const idT = `dlg-t-${pilha.length}`;
+    fundo.innerHTML = `<div class="dlg" role="dialog" aria-modal="true" aria-labelledby="${idT}"><header><h2 id="${idT}">${d.t}</h2></header><div class="meio">${d.b}</div><footer><button type="button" class="bt" data-fechar>${d.ok ? 'Cancelar' : 'Fechar'}</button>${d.ok ? `<button type="button" class="bt pri" data-confirmar>${d.ok}</button>` : ''}</footer></div>`;
+    $('#camada').appendChild(fundo);
+    pilha.push({ fundo, origem });
+    $('[data-fechar]', fundo).addEventListener('click', fecharDialogo);
+    const conf = $('[data-confirmar]', fundo);
+    if (conf) conf.addEventListener('click', () => {
+      const motivo = $('#motivo-niver', fundo);
+      if (motivo && !motivo.value.trim()) { $('#erro-motivo', fundo).hidden = false; motivo.focus(); return; }
+      fecharDialogo(); toast(`✅ ${esc(d.feito || 'Feito (protótipo)')}`);
+    });
+    fundo.addEventListener('click', (e) => { if (e.target === fundo) fecharDialogo(); });
+    ($('select,input', fundo) || $('[data-fechar]', fundo)).focus();
+  }
+  function fecharDialogo() { const top = pilha.pop(); if (!top) return; top.fundo.remove(); if (top.origem && document.contains(top.origem)) top.origem.focus(); }
+  $$('[data-dlg]').forEach((b) => b.addEventListener('click', () => abrirDialogo(b.dataset.dlg, b)));
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && pilha.length) fecharDialogo(); });
+
+  // ---------- vistas ----------
+  const NO_SHELL = { loja: 'PDV · Balcão › Retirada / Encomendas', aut: 'Delivery › Marketing › Automáticas', ajc: 'Delivery › Configurações › Atendimento' };
+  function irPara(v) {
+    $$('.proto .aba').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.vista === v)));
+    $('#shell').hidden = !NO_SHELL[v];
+    ['loja', 'aut', 'ajc'].forEach((k) => { $(`#v-${k}`).hidden = k !== v; });
+    $('#v-cli').hidden = v !== 'cli'; $('#v-msg').hidden = v !== 'msg'; $('#v-notas').hidden = v !== 'notas';
+    $('#ctl-loja').hidden = v !== 'loja'; $('#ctl-aut').hidden = v !== 'aut';
+    $$('#shell [data-menu]').forEach((b) => { if (b.dataset.menu === v) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
+    if (NO_SHELL[v]) $('#onde').textContent = NO_SHELL[v];
+    while (pilha.length) fecharDialogo();
+    if (v === 'loja') desenharLoja();
+    atualizarBarra();
+    window.scrollTo(0, 0);
+  }
+  $$('.proto .aba').forEach((b) => b.addEventListener('click', () => irPara(b.dataset.vista)));
+  $$('#shell [data-menu]').forEach((b) => b.addEventListener('click', () => irPara(b.dataset.menu)));
+
+  desenharLoja();
+  atualizarBarra();
+})();
+</script>
+</body>
+</html>

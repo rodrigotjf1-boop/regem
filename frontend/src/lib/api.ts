@@ -1102,6 +1102,9 @@ export const api = {
   pedidoLinhaDoTempo: (id: string) => req(`/delivery/pedidos/${id}/linha-do-tempo`),
   falhasDeEnvio: () => req('/delivery/envios/falhas'),
   retiradaPedidos: () => req('/delivery/retirada'),
+  // "Cheguei" na retirada (mig 354): as chegadas da loja em uso que ainda esperam o cliente, com o ajuste (o aviso em
+  // qualquer tela lê daqui; desligado, a lista vem vazia).
+  retiradaChegadas: () => req('/delivery/retirada/chegadas'),
   // Aviso do PDV: pedidos do totem em dinheiro sem pagar há mais de 8 min.
   totemAguardandoPagamento: () => req('/delivery/totem/aguardando-pagamento'),
   // Encomendas agrupadas por data (mig 186). data opcional (YYYY-MM-DD) filtra uma data.
@@ -1195,9 +1198,15 @@ export const api = {
   atendimentoResponderPedido99: (id: string, body: { aceita: boolean; motivo?: string; motivoId?: string; explicacao?: string; senha: string }) =>
     req(`/atendimento/${id}/pedido99`, { method: 'POST', body: JSON.stringify(body) }),
   // Os ajustes do atendimento (Delivery › Configurações › Atendimento) — só na nuvem, só gerente e presidente. Cada grupo
-  // vai com o seu dono: `fila` ("Fila e avisos", mig 353), `ifood` (disputas e chat) e `ajuste99` (a 99); só o que mudou.
+  // vai com o seu dono: `fila` ("Fila e avisos", mig 353), `ifood` (disputas e chat), `ajuste99` (a 99) e `cheguei`
+  // ("Retirada · cliente chegou", mig 354 — da loja em uso); só o que mudou.
   atendimentoAjustes: () => req('/atendimento/ajustes'),
-  salvarAtendimentoAjustes: (body: { fila?: Record<string, unknown>; ifood?: Record<string, unknown>; ajuste99?: Record<string, unknown> }) =>
+  salvarAtendimentoAjustes: (body: {
+    fila?: Record<string, unknown>;
+    ifood?: Record<string, unknown>;
+    ajuste99?: Record<string, unknown>;
+    cheguei?: Record<string, unknown>;
+  }) =>
     req('/atendimento/ajustes', { method: 'PUT', body: JSON.stringify(body) }),
   // O chat oficial do iFood (PR 5): o widget da distribuição e as lojas do iFood da empresa (ou `disponivel: false`).
   atendimentoChatIfood: () => req('/atendimento/chat-ifood'),
@@ -1552,6 +1561,12 @@ export const api = {
     pub(`/publico/cardapio/${token}/ultimo-pedido${clienteToken ? `?ct=${encodeURIComponent(clienteToken)}` : ''}`),
   cardapioStatus: (token: string, id: string, ref?: string) =>
     pub(`/publico/cardapio/${token}/pedido/${id}${ref ? `?ref=${encodeURIComponent(ref)}` : ''}`),
+  // "Cheguei" na retirada (mig 354): o cliente avisa que chegou. Prova de dono: o `ref` do link ou o token de Sua conta.
+  cardapioCheguei: (
+    token: string,
+    id: string,
+    body: { ref?: string; clienteToken?: string; onde?: 'balcao' | 'porta' | null; obs?: string },
+  ) => pub(`/publico/cardapio/${token}/pedido/${id}/cheguei`, { method: 'POST', body: JSON.stringify(body) }),
   cardapioPagar: (token: string, id: string) =>
     pub(`/publico/cardapio/${token}/pedido/${id}/pagar`, { method: 'POST', body: '{}' }),
   cardapioVerificarPagamento: (token: string, id: string) =>

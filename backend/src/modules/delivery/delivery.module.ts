@@ -18,6 +18,7 @@ import { IntegracoesModule } from '../integracoes/integracoes.module';
 import { GogemModule } from '../gogem/gogem.module';
 import { ModuloModule } from '../modulo/modulo.module';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
+import { ChegadaModule } from '../chegada/chegada.module';
 import { EntregadoresAoVivoController } from './entregadores-ao-vivo.controller';
 import { EntregadoresAoVivoService } from './entregadores-ao-vivo.service';
 import { AvisoDeAtrasoProcessor } from './aviso-de-atraso.processor';
@@ -33,6 +34,7 @@ import { AvisoDeAtrasoProcessor } from './aviso-de-atraso.processor';
     GogemModule,
     ModuloModule, // ModuloGuard (@RequireModulo('kds')) do mapa no KDS precisa do ModuloService
     WhatsappModule, // o código de entrega da loja na API oficial sai pelo próprio Regem (ERR-332)
+    ChegadaModule, // "Cheguei" na retirada (mig 354): a marca da Retirada e o botão no aviso de pronto
   ],
   controllers: [DeliveryController, DespachoPublicoController, DeliveryLojaController,
     EntregadoresAoVivoController],

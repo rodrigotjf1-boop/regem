@@ -6,6 +6,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -51,6 +52,7 @@ import { ESTADOS_IMPRESSORA, MARCA_REIMPRESSAO } from '../../common/impressao-ma
 import { gravarOuEncaminharImpressao } from '../../common/impressao-destino';
 import { dataHoraNoFuso, hojeISO } from '../../common/data';
 import { logisticaDasComandas } from '../delivery/logistica-canal';
+import { ChegadaService } from '../chegada/chegada.service';
 import { autorizarPorSenhaDeGestor } from '../../common/autorizacao-gestor';
 import { conferirProximoKds, kdsQueChegamA, lerEstacoes } from '../../common/fluxo-kds';
 import { ACOES_KDS, type AtorKds } from './kds-auditoria';
@@ -185,7 +187,26 @@ export class ProducaoPedidoService {
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly auditoria: AuditoriaService,
     private readonly events: EventEmitter2,
+    // "Cheguei" na retirada (mig 354): a etiqueta "Cliente chegou" no cartão. Opcional: os testes montam sem ela.
+    @Optional() private readonly chegadaInj?: ChegadaService,
   ) {}
+
+  private chegadaLocal?: ChegadaService;
+  private get chegada(): ChegadaService {
+    return this.chegadaInj ?? (this.chegadaLocal ??= new ChegadaService(this.db));
+  }
+
+  /** A chegada do cliente da retirada em cada cartão (pela comanda). Informação a mais — nunca derruba a fila. */
+  private async comChegada<T extends { comandaId?: string | null }>(
+    tenantId: string,
+    unidadeId: string | null,
+    pedidos: T[],
+  ): Promise<(T & { chegada: any })[]> {
+    const mapa = await this.chegada
+      .porComanda(tenantId, unidadeId, pedidos.map((p) => p.comandaId as string).filter(Boolean))
+      .catch(() => new Map());
+    return pedidos.map((p) => ({ ...p, chegada: (p.comandaId && mapa.get(p.comandaId)) || null }));
+  }
 
   // ===== Roteamento =====
   // Resolve os destinos de um produto NA LOJA DA VENDA: (1) destinos próprios; (2) padrão do
@@ -2612,12 +2633,10 @@ export class ProducaoPedidoService {
       new Logger('KDS').warn(`logística do canal no KDS: ${e?.message ?? e}`);
       return new Map();
     });
-    return {
-      cores,
-      pedidos: logistica.size
-        ? comItens.map((p: any) => ({ ...p, logistica: (p.comandaId && logistica.get(p.comandaId)) || null }))
-        : comItens,
-    };
+    const comLogistica = logistica.size
+      ? comItens.map((p: any) => ({ ...p, logistica: (p.comandaId && logistica.get(p.comandaId)) || null }))
+      : comItens;
+    return { cores, pedidos: await this.comChegada(tenantId, opts.unidadeId ?? null, comLogistica as any[]) };
   }
 
   // Fila do PDV (atendente): ativos + concluídos recentes (janela de ação).
@@ -3478,7 +3497,8 @@ export class ProducaoPedidoService {
       new Logger('KDS').warn(`logística do canal no despacho: ${e?.message ?? e}`);
       return new Map();
     });
-    return { cores, pedidos: pedidos.map((p) => ({ ...p, logistica: logistica.get(p.comandaId) ?? null })) };
+    const comLogistica = pedidos.map((p) => ({ ...p, logistica: logistica.get(p.comandaId) ?? null }));
+    return { cores, pedidos: await this.comChegada(tenantId, unidadeId, comLogistica) };
   }
 
   // Monta o pedido do despacho a partir dos cartões de KDS da comanda.

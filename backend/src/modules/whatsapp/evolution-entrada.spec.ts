@@ -125,6 +125,31 @@ describe('entrada pela Evolution — as travas', () => {
     expect(entregas[0].headers['x-regem-robo-segredo']).toBe(SENHA);
   });
 
+  // "Cheguei" na retirada (mig 354): pelo QR não há botão — o cliente escreve. O portão vem antes do robô e da pausa.
+  it('"Cheguei": avisa a loja e responde, sem ir ao robô — com o robô ligado ou não', async () => {
+    for (const roboAtivo of [true, false]) {
+      const { svc, enviados } = montar({ ...LOJA, roboAtivo });
+      const chamadas: any[] = [];
+      (svc as any).chegadaSvc = {
+        porWhatsapp: async (t: string, de: string, texto: string) => {
+          chamadas.push({ t, de, texto });
+          return { tratou: true, responder: 'Avisamos a equipe!', pedidoIds: ['p1'] };
+        },
+      };
+      await svc.processar(aviso(msg('cheguei, to de carro')), 'mister-abc123');
+      expect(enviados).toEqual([{ para: TEL, texto: 'Avisamos a equipe!' }]);
+      expect(chamadas).toEqual([{ t: 't1', de: TEL, texto: 'cheguei, to de carro' }]);
+    }
+    expect(entregas).toHaveLength(0);
+  });
+
+  it('"cheguei" de quem não tem retirada esperando (o banco não acha pedido) segue ao robô, como antes', async () => {
+    const { svc, enviados } = montar(LOJA);
+    await svc.processar(aviso(msg('cheguei')), 'mister-abc123');
+    expect(entregas).toHaveLength(1);
+    expect(enviados).toHaveLength(0);
+  });
+
   it('a mesma mensagem reenviada pela Evolution não vai ao robô de novo', async () => {
     const { svc } = montar(LOJA);
     const m = msg('oi');

@@ -2257,6 +2257,8 @@ const VOLTA_DA_NUVEM = new Set([
   'fiscal_inutilizacao', 'fiscal_evento',
   // O entregador do pedido de marketplace como o canal vê (mig 294): só a nuvem escreve, só desce.
   'pedido_logistica',
+  // O "Cheguei" do cliente da retirada (mig 354): só a nuvem escreve, só desce.
+  'pedido_chegada',
 ]);
 
 // DONA É A NUVEM (regra de distribuição): licença, telemetria, campanhas, credenciais de

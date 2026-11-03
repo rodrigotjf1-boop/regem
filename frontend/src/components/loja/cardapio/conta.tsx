@@ -32,6 +32,13 @@ const STATUS: Record<string, string> = {
   cancelado: 'Cancelado',
 };
 const finalizado = (s: string) => s === 'concluido' || s === 'cancelado';
+/** O pedido é de hoje (no relógio do celular do cliente)? O "Cheguei" vale no dia da retirada (o servidor confere). */
+const ehHoje = (iso?: string | null) => {
+  if (!iso) return false;
+  const d = new Date(iso);
+  const h = new Date();
+  return d.getFullYear() === h.getFullYear() && d.getMonth() === h.getMonth() && d.getDate() === h.getDate();
+};
 // Cancelável enquanto ainda não saiu para entrega (alinhado ao backend).
 const cancelavel = (s: string) => !['despachado', 'concluido', 'cancelado'].includes(s);
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -284,6 +291,10 @@ function AbaPedidos({ c, perfil, onMudou }: { c: Cardapio; perfil: any; onMudou:
           {finalizado(p.status) ? 'Ver detalhes e pedir de novo' : 'Detalhes, alteração e cancelamento'}
         </button>
         {!finalizado(p.status) && <a href={`/c/${token}/pedido/${p.id}`}>Acompanhar</a>}
+        {/* "Cheguei" na retirada (mig 354): a página do pedido abre já perguntando onde o cliente está. */}
+        {c.menu?.cheguei && p.tipo === 'retirada' && ['novo', 'confirmado', 'pronto'].includes(p.status) && ehHoje(p.criadoEm) && (
+          <a href={`/c/${token}/pedido/${p.id}?cheguei=1`}>🙋 Cheguei</a>
+        )}
       </div>
     </div>
   );

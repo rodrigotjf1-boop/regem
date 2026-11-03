@@ -66,6 +66,7 @@ import { ClienteModule } from './modules/cliente/cliente.module';
 import { CampanhaModule } from './modules/campanha/campanha.module';
 import { EntregadorModule } from './modules/entregador/entregador.module';
 import { AtendimentoModule } from './modules/atendimento/atendimento.module';
+import { ChegadaModule } from './modules/chegada/chegada.module';
 import { FidelidadeModule } from './modules/fidelidade/fidelidade.module';
 import { CashbackModule } from './modules/cashback/cashback.module';
 import { IntegracoesModule } from './modules/integracoes/integracoes.module';
@@ -173,6 +174,8 @@ const CLOUD_ONLY_IMPORTS = IS_EDGE
     // Tabela do IBPT (Lei 12.741): nos dois lados — a nuvem recebe e verifica, a loja baixa.
     IbptModule,
     DeliveryModule,
+    // "Cheguei" na retirada (mig 354): nos dois lados — a nuvem escreve a chegada, a loja lê (e pede à nuvem a mais nova).
+    ChegadaModule,
     TefModule,
     FidelidadeModule,
     CashbackModule,
