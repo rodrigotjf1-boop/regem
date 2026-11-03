@@ -65,6 +65,11 @@ Ver `backend/src/modules/sync/sync-config.ts`. Não repetidas aqui.
 `cliente_link`, `cardapio_evento`, `pedido_notificacao`, `bot_atendimento` e as onze
 `entregador_*` (o app do entregador fala com a nuvem pela internet, não com a LAN da loja).
 
+`relacionamento_config` e `relacionamento_envio` (mig 356, Onda 3 — as automáticas de Delivery › Marketing): os ajustes
+das automáticas e o que cada uma separou e mandou (a trava "uma mensagem por vencimento" é o índice único). A migration é
+`-- @cloud-only` e o WhatsApp e o cardápio moram na nuvem; estão em `SO_NUVEM` só para o `--pendencias` não travar se uma
+instalação antiga tiver a tabela.
+
 `integracao_token_loja` (mig 295, trilha C): token de integração POR LOJA (Liame), guardado só
 em hash. A migration é `-- @cloud-only` (o servidor da loja pula o arquivo), então a tabela nunca
 existe no banco da loja — não entra no `sync-config.ts` nem nas listas do `sync-daemon.mjs`, e o

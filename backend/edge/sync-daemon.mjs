@@ -2294,6 +2294,9 @@ const SO_NUVEM = new Set([
   // "Disponível / Ocupado: embalando" de quem atende pelo app "Regem Atendimento" (mig 353, @cloud-only): o app fala
   // com a nuvem (decisão do dono, 02/11/2026); a loja não tem esta tabela.
   'atendimento_presenca',
+  // As automáticas de Delivery › Marketing (mig 356, @cloud-only): os ajustes e o que cada uma mandou — o WhatsApp e o
+  // cardápio moram na nuvem; a loja não tem estas tabelas.
+  'relacionamento_config', 'relacionamento_envio',
 ]);
 
 // LEGADO SEM USO: tabelas criadas nas migrations de fundação (002/003) para recursos que

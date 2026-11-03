@@ -5,6 +5,7 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { campanha, campanhaEnvio, cardapioConfig, cliente, cupom } from '../../db/schema';
 import { registrarEvento, registrarSaida } from '../../common/consentimento-marketing';
 import { chaveTelefone, sqlChaveTelefone } from '../../common/telefone-chave';
+import { saiuDoMarketing, sqlRecebeMarketing } from '../../common/marketing-quem-recebe';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { WhatsappNumeroService } from '../whatsapp/whatsapp-numero.service';
 import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
@@ -53,11 +54,9 @@ export class CampanhaService {
   // WhatsApp chega com o 55 e, em muitos celulares, SEM o 9 — comparando só sem o 55, quem pediu
   // para sair continuava recebendo (ERR-134). O marcador `S/N-…` (cliente sem telefone da
   // mig 073) não é número.
+  // A regra mora em `common/marketing-quem-recebe.ts` (a mesma das automáticas da Onda 3).
   private excluidos() {
-    return sql`and c.opt_out_marketing = false and coalesce(c.telefone,'') <> ''
-      and c.telefone not like 'S/N-%'
-      and not exists (select 1 from marketing_optout mo where mo.tenant_id = c.tenant_id
-        and ${sqlChaveTelefone(sql`mo.telefone`)} = ${sqlChaveTelefone(sql`c.telefone`)})`;
+    return sqlRecebeMarketing();
   }
 
   // Público estimado (quem receberia): do segmento, com telefone, exceto excluídos.
@@ -432,14 +431,7 @@ export class CampanhaService {
    * (ERR-134).
    */
   private async saiuAntesDoEnvio(tenantId: string, telefone: string, clienteId: string | null): Promise<boolean> {
-    const r: any = await this.db.execute(sql`
-      select 1 where exists (
-        select 1 from marketing_optout mo where mo.tenant_id = ${tenantId}::uuid
-           and ${sqlChaveTelefone(sql`mo.telefone`)} = ${chaveTelefone(telefone)})
-      or exists (
-        select 1 from cliente c where c.id = ${clienteId}::uuid
-           and c.tenant_id = ${tenantId}::uuid and c.opt_out_marketing)`);
-    return (r.rows ?? r).length > 0;
+    return saiuDoMarketing(this.db, tenantId, telefone, clienteId);
   }
 
   // Agora em São Paulo (dia 0=dom..6=sáb, hh:mm) — p/ a janela de agendamento.

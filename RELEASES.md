@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Automáticas de Marketing + "cashback vencendo" (Onda 3, PR 2, 03/11; mig 356 — SÓ NUVEM).** Tudo no ar com o merge
+  (a aba, a rotina, o WhatsApp e o cardápio moram na nuvem). No `.zip` só vai a tela: no servidor da loja a aba
+  Automáticas explica que é pela nuvem. `sync-daemon.mjs` ganhou as duas tabelas em `SO_NUVEM` (vai no `.exe` que o PR 1
+  já pede).
+
 - **Vencimento do cashback pelo extrato (03/11; mig 355 — NÃO é só-nuvem: vai no `.zip`).** O gatilho do saldo renova
   o vencimento no crédito de plano com prazo, também na linha que chega pelo sync; a correção de uma vez só estende datas.
   Nuvem com a migration (antes do merge); a loja recebe a mesma função na migration do `.zip` (sem código novo).

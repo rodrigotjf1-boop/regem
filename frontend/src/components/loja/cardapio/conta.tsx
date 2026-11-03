@@ -42,10 +42,17 @@ const ehHoje = (iso?: string | null) => {
 // Cancelável enquanto ainda não saiu para entrega (alinhado ao backend).
 const cancelavel = (s: string) => !['despachado', 'concluido', 'cancelado'].includes(s);
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+const DIAS_LONGOS = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
+/** "06/11 (sexta)" — o vencimento do cashback, no relógio do celular do cliente. */
+const venceEm = (iso: string) => {
+  const d = new Date(iso);
+  return `${d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} (${DIAS_LONGOS[d.getDay()]})`;
+};
 
 export function Conta({ c }: { c: Cardapio }) {
   const token = c.token;
-  const [aba, setAba] = useState<Aba>('pedidos');
+  // `?conta=beneficios` (o "Ver meu saldo" do aviso do cashback) abre direto na aba.
+  const [aba, setAba] = useState<Aba>(c.abaInicialConta ?? 'pedidos');
   const [perfil, setPerfil] = useState<any>(null);
   const [carregado, setCarregado] = useState(false);
   const [erro, setErro] = useState('');
@@ -678,6 +685,8 @@ function AbaBeneficios({ c, perfil }: { c: Cardapio; perfil: any }) {
               <Ic n="repeat" s={16} />
               <span>
                 Saldo de cashback: <b>{brl(Number(cashback.valor))}</b>. Abate no próximo pedido.
+                {/* Quando vence (Onda 3): o aviso "seu cashback vence em…" do WhatsApp traz o cliente para cá. */}
+                {cashback.valorVenceEm && <> Vence em {venceEm(cashback.valorVenceEm)}.</>}
               </span>
             </div>
           )}

@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ModelosWhatsapp } from '@/components/delivery/modelos-whatsapp';
+import { Automaticas } from '@/components/marketing/automaticas';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Delivery → Marketing: campanhas de WhatsApp (épico 2 provedores). Público segmentado,
@@ -108,7 +109,7 @@ export default function MarketingPage() {
   const [limite, setLimite] = useState<{ limite: number | null; usadoHoje: number; tier: string | null } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   // Abas + provedor + templates (para campanha na API oficial)
-  const [aba, setAba] = useState<'campanhas' | 'modelos'>('campanhas');
+  const [aba, setAba] = useState<'campanhas' | 'modelos' | 'automaticas'>('campanhas');
   const [numeros, setNumeros] = useState<any>(null);
   const [templates, setTemplates] = useState<any[]>([]);
   const [templateNome, setTemplateNome] = useState('');
@@ -150,7 +151,8 @@ export default function MarketingPage() {
   // Marketing só funciona com um número conectado — evita erro no disparo.
   const numeroConectado = !!(numeros?.principal?.vinculado || numeros?.marketing?.vinculado);
   // Na API oficial o modelo é PRÉ-REQUISITO → aba "Modelos" vem primeiro.
-  const abas = (temCloud ? (['modelos', 'campanhas'] as const) : (['campanhas'] as const));
+  // "Automáticas" (Onda 3): as mensagens que saem sozinhas, todo dia — depois das campanhas.
+  const abas = temCloud ? (['modelos', 'campanhas', 'automaticas'] as const) : (['campanhas', 'automaticas'] as const);
   const semModeloAprovado = temCloud && templates.length === 0;
 
   const carregar = useCallback(async () => {
@@ -391,7 +393,7 @@ export default function MarketingPage() {
         </div>
 
         {/* Abas (Modelos só quando a loja usa API oficial) */}
-        <div className="flex gap-1 border-b border-border">
+        <div className="flex flex-wrap gap-1 border-b border-border">
           {abas.map((k) => (
             <button
               key={k}
@@ -404,7 +406,11 @@ export default function MarketingPage() {
                   : 'border-transparent text-foreground/60 hover:text-foreground'
               }`}
             >
-              {k === 'campanhas' ? 'Campanhas' : 'Modelos (API oficial)'}
+              {k === 'campanhas' ? 'Campanhas' : k === 'automaticas' ? (
+                <>
+                  Automáticas <span className="ml-1 rounded bg-primary/20 px-1.5 py-0.5 text-[10px] font-bold uppercase text-foreground">novo</span>
+                </>
+              ) : 'Modelos (API oficial)'}
             </button>
           ))}
         </div>
@@ -435,29 +441,29 @@ export default function MarketingPage() {
                     <tr className="border-b border-border text-left text-foreground">
                       <th className="py-1 pr-2 font-semibold">Categoria</th>
                       <th className="py-1 pr-2 font-semibold">Quando usar</th>
-                      <th className="py-1 font-semibold whitespace-nowrap">Custo aprox. (Brasil)</th>
+                      <th className="py-1 font-semibold">Custo aprox. (Brasil)</th>
                     </tr>
                   </thead>
                   <tbody className="align-top">
                     <tr className="border-b border-border/60">
                       <td className="py-1 pr-2 font-medium text-foreground">Marketing</td>
                       <td className="py-1 pr-2">Promoções, ofertas, cupom, reativação, carrossel</td>
-                      <td className="py-1 font-mono whitespace-nowrap">~R$ 0,31–0,38</td>
+                      <td className="py-1 font-mono">~R$ 0,31–0,38</td>
                     </tr>
                     <tr className="border-b border-border/60">
                       <td className="py-1 pr-2 font-medium text-foreground">Utilidade</td>
                       <td className="py-1 pr-2">Status de pedido, recibo, lembrete (ligado a uma transação)</td>
-                      <td className="py-1 font-mono whitespace-nowrap">~R$ 0,04–0,05</td>
+                      <td className="py-1 font-mono">~R$ 0,04–0,05</td>
                     </tr>
                     <tr className="border-b border-border/60">
                       <td className="py-1 pr-2 font-medium text-foreground">Autenticação</td>
                       <td className="py-1 pr-2">Código OTP / login</td>
-                      <td className="py-1 font-mono whitespace-nowrap">~R$ 0,15–0,19</td>
+                      <td className="py-1 font-mono">~R$ 0,15–0,19</td>
                     </tr>
                     <tr>
                       <td className="py-1 pr-2 font-medium text-foreground">Serviço (cliente inicia, em 24h)</td>
-                      <td className="py-1 pr-2">Atendimento/dúvidas depois que o cliente te chama</td>
-                      <td className="py-1 font-mono font-semibold text-ok whitespace-nowrap">grátis</td>
+                      <td className="py-1 pr-2">Atendimento e dúvidas depois que o cliente te chama</td>
+                      <td className="py-1 font-mono font-semibold text-ok">grátis</td>
                     </tr>
                   </tbody>
                 </table>
@@ -477,6 +483,7 @@ export default function MarketingPage() {
         )}
 
         {aba === 'modelos' && temCloud && <ModelosWhatsapp pode={pode} />}
+        {aba === 'automaticas' && <Automaticas />}
 
         {/* Assistente */}
         {aba === 'campanhas' && novo && pode && (

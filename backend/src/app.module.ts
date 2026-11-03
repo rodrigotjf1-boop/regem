@@ -64,6 +64,7 @@ import { TefModule } from './modules/tef/tef.module';
 import { CardapioModule } from './modules/cardapio/cardapio.module';
 import { ClienteModule } from './modules/cliente/cliente.module';
 import { CampanhaModule } from './modules/campanha/campanha.module';
+import { RelacionamentoModule } from './modules/relacionamento/relacionamento.module';
 import { EntregadorModule } from './modules/entregador/entregador.module';
 import { AtendimentoModule } from './modules/atendimento/atendimento.module';
 import { ChegadaModule } from './modules/chegada/chegada.module';
@@ -113,6 +114,8 @@ const CLOUD_ONLY_IMPORTS = IS_EDGE
       // Autorização pela loja (trilha C, C1b): página "Autorizar o Liame", troca do código e
       // "Aplicativos conectados" — tabela só da nuvem (mig 303).
       AutorizacaoLojaModule,
+      // As automáticas de Delivery › Marketing (Onda 3, mig 356): WhatsApp e cardápio moram na nuvem.
+      RelacionamentoModule,
     ];
 
 @Module({

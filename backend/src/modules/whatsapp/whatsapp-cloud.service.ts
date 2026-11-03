@@ -121,6 +121,32 @@ function identificarLoja(txt: string, loja: string, cidade: string): string {
     .trim();
 }
 
+// Os modelos das AUTOMÁTICAS de Delivery › Marketing (Onda 3, mig 356; protótipo `mockups/regem-relacionamento.html`).
+// Não são semeados sozinhos: a loja manda à Meta pelo botão "Enviar à Meta" da aba Automáticas, quando quiser ligar.
+// `exemplo` = os valores de exemplo das variáveis do corpo (a Meta exige para aprovar).
+//  • cashback_vencendo — UTILIDADE: saldo, data e como usar, sem convite para comprar (a Meta dá o aviso de saldo que vai
+//    vencer como exemplo de utilidade; "aproveite" faria virar marketing). {{1}} nome, {{2}} saldo, {{3}} data. O botão
+//    "Ver meu saldo" abre Sua conta › Benefícios pelo redirect da automática (`/publico/relacionamento/r/{{1}}`).
+export const CATALOGO_RELACIONAMENTO: Array<{
+  nome: string;
+  categoria: 'UTILITY' | 'MARKETING';
+  cabecalho: string;
+  corpo: string;
+  rodape: string;
+  exemplo: string[];
+  botoes: any[];
+}> = [
+  {
+    nome: 'cashback_vencendo',
+    categoria: 'UTILITY',
+    cabecalho: 'Seu cashback',
+    corpo: 'Oi, {{1}}! Seu cashback de {{2}} na {loja} vence em {{3}}. Ele é descontado no seu próximo pedido pelo cardápio ou pelo WhatsApp.',
+    rodape: 'Para não receber estes avisos, responda SAIR.',
+    exemplo: ['Marina', 'R$ 12,40', '06/11'],
+    botoes: [{ tipo: 'beneficios', texto: 'Ver meu saldo' }],
+  },
+];
+
 // Só os dígitos, para comparar telefone vindo em qualquer formato.
 function soDigitos(v: any): string {
   return String(v ?? '').replace(/\D/g, '');
@@ -1210,7 +1236,8 @@ export class WhatsappCloudService {
     const rastreio = opts?.rastreio || 'x';
     const paramBotao = (b: any, idx: number, emCarrossel = false) => {
       // url = redirect de campanha (envioId); rastreio = página /r/{token} do delivery.
-      if (b?.tipo === 'url')
+      // `beneficios` (automáticas da Onda 3): o mesmo envioId, no redirect da automática.
+      if (b?.tipo === 'url' || b?.tipo === 'beneficios')
         return { type: 'button', sub_type: 'url', index: String(idx), parameters: [{ type: 'text', text: envioId }] };
       if (b?.tipo === 'rastreio')
         return { type: 'button', sub_type: 'url', index: String(idx), parameters: [{ type: 'text', text: rastreio }] };
@@ -1472,6 +1499,10 @@ export class WhatsappCloudService {
       if (b?.tipo === 'url') {
         const base = `${this.redirectBase()}/publico/campanha/r`;
         out.push({ type: 'URL', text: texto || 'Peça agora', url: `${base}/{{1}}`, example: [`${base}/exemplo`] });
+      } else if (b?.tipo === 'beneficios') {
+        // Automáticas (Onda 3): o redirect da automática mede o clique e abre Sua conta › Benefícios da loja.
+        const base = `${this.redirectBase()}/publico/relacionamento/r`;
+        out.push({ type: 'URL', text: texto || 'Ver meu saldo', url: `${base}/{{1}}`, example: [`${base}/exemplo`] });
       } else if (b?.tipo === 'rastreio') {
         // Botão de rastreio do delivery: URL dinâmica {app}/r/{{1}} = token de rastreio.
         const base = `${this.rastreioBase()}/r`;
@@ -1806,15 +1837,21 @@ export class WhatsappCloudService {
   // Sincroniza o STATUS dos templates com a Meta (aprovado/rejeitado/pausado).
   async sincronizarTemplates(tenantId: string) {
     const remotos = await this.listarTemplates(tenantId); // [{nome,status,categoria,idioma}]
-    const mapa = new Map((remotos as any[]).map((t) => [`${t.nome}|${t.idioma}`, t.status]));
+    const mapa = new Map((remotos as any[]).map((t) => [`${t.nome}|${t.idioma}`, t]));
     const locais = await this.templatesLocais(tenantId);
     const de: Record<string, string> = { APPROVED: 'aprovado', PENDING: 'pendente', REJECTED: 'rejeitado', PAUSED: 'pausado' };
     for (const l of locais) {
-      const st = mapa.get(`${l.nome}|${l.idioma}`);
-      if (st && de[st] && de[st] !== l.status) {
+      const remoto: any = mapa.get(`${l.nome}|${l.idioma}`);
+      const st = remoto?.status;
+      // A categoria é a que a Meta DEU (ela reclassifica: o aviso do cashback pedido como utilidade pode voltar como
+      // marketing — e aí conta na frequência das ofertas; Onda 3, decisão 5 do dono).
+      const cat = ['MARKETING', 'UTILITY', 'AUTHENTICATION'].includes(String(remoto?.categoria)) ? String(remoto.categoria) : null;
+      const mudaStatus = !!(st && de[st] && de[st] !== l.status);
+      const mudaCategoria = !!(cat && cat !== l.categoria);
+      if (mudaStatus || mudaCategoria) {
         await this.db
           .update(whatsappTemplate)
-          .set({ status: de[st], atualizadoEm: new Date() })
+          .set({ ...(mudaStatus ? { status: de[st] } : {}), ...(mudaCategoria ? { categoria: cat as string } : {}), atualizadoEm: new Date() })
           .where(eq(whatsappTemplate.id, l.id));
       }
     }
@@ -1984,6 +2021,90 @@ export class WhatsappCloudService {
       }
     }
     return { total: CATALOGO_UTILIDADE.length, resultados };
+  }
+
+  /**
+   * Manda à Meta o modelo de uma AUTOMÁTICA (Onda 3) — o botão "Enviar à Meta" da aba Automáticas. Cria do catálogo se
+   * não existe e submete; o que já foi pedido (em análise, aprovado, recusado, pausado) NÃO é reenviado — recusado se
+   * corrige em Marketing › Modelos, como os outros. Devolve o status local.
+   */
+  async garantirModeloRelacionamento(tenantId: string, nome: string): Promise<string> {
+    const base = CATALOGO_RELACIONAMENTO.find((m) => m.nome === nome);
+    if (!base) throw new BadRequestException('Modelo de automática desconhecido.');
+    const [ja] = await this.db
+      .select({ id: whatsappTemplate.id, status: whatsappTemplate.status })
+      .from(whatsappTemplate)
+      .where(and(eq(whatsappTemplate.tenantId, tenantId), eq(whatsappTemplate.nome, base.nome), eq(whatsappTemplate.idioma, 'pt_BR')));
+    if (ja && ja.status !== 'rascunho') return String(ja.status);
+    let id = ja?.id;
+    if (!id) {
+      const [cfgLoja] = await this.db
+        .select({ nomePublico: cardapioConfig.nomePublico, cidade: cardapioConfig.endCidade })
+        .from(cardapioConfig)
+        .where(eq(cardapioConfig.tenantId, tenantId));
+      const [emp] = await this.db.select({ nome: empresa.nome }).from(empresa).where(eq(empresa.id, tenantId));
+      const loja = String(cfgLoja?.nomePublico || emp?.nome || 'nossa loja').trim();
+      const [row] = await this.db
+        .insert(whatsappTemplate)
+        .values({
+          tenantId,
+          nome: base.nome,
+          categoria: base.categoria,
+          idioma: 'pt_BR',
+          cabecalho: identificarLoja(base.cabecalho, loja, ''),
+          corpo: identificarLoja(base.corpo, loja, ''),
+          rodape: base.rodape,
+          exemplo: base.exemplo,
+          botoes: base.botoes,
+          formato: 'padrao',
+          status: 'rascunho',
+        })
+        .returning({ id: whatsappTemplate.id });
+      id = row.id;
+    }
+    await this.submeterTemplate(tenantId, id);
+    return 'pendente';
+  }
+
+  /**
+   * Status e categoria de UM modelo, lidos na Meta e gravados no local. Procura na WABA do principal e na do marketing
+   * (a utilidade é pedida na do principal; a lista geral olha primeiro a do marketing). Best-effort: sem resposta, fica
+   * o que estava.
+   */
+  async atualizarModelo(tenantId: string, nome: string): Promise<void> {
+    const [l] = await this.db
+      .select()
+      .from(whatsappTemplate)
+      .where(and(eq(whatsappTemplate.tenantId, tenantId), eq(whatsappTemplate.nome, nome), eq(whatsappTemplate.idioma, 'pt_BR')));
+    if (!l) return;
+    const wabas = new Set<string>();
+    for (const papel of ['principal', 'marketing'] as const) {
+      try {
+        wabas.add(await this.wabaDe(tenantId, papel));
+      } catch {
+        /* sem WABA neste papel */
+      }
+    }
+    const de: Record<string, string> = { APPROVED: 'aprovado', PENDING: 'pendente', REJECTED: 'rejeitado', PAUSED: 'pausado' };
+    for (const waba of wabas) {
+      const res = await fetch(
+        `${GRAPH}/${waba}/message_templates?name=${encodeURIComponent(nome)}&fields=name,status,category,language,rejected_reason&limit=10`,
+        { headers: { Authorization: `Bearer ${this.token()}` } },
+      ).catch(() => null);
+      if (!res || !res.ok) continue;
+      const json: any = await res.json().catch(() => ({}));
+      const t = (json?.data ?? []).find((x: any) => x?.name === nome && x?.language === 'pt_BR');
+      if (!t) continue;
+      const status = de[String(t.status)] ?? l.status;
+      const categoria = ['MARKETING', 'UTILITY', 'AUTHENTICATION'].includes(String(t.category)) ? String(t.category) : l.categoria;
+      const motivo = status === 'rejeitado' ? String(t.rejected_reason ?? '').slice(0, 300) || null : null;
+      if (status !== l.status || categoria !== l.categoria || motivo !== l.motivoRejeicao)
+        await this.db
+          .update(whatsappTemplate)
+          .set({ status, categoria, motivoRejeicao: motivo, atualizadoEm: new Date() })
+          .where(eq(whatsappTemplate.id, l.id));
+      return;
+    }
   }
 
   // App ID + Configuration ID do Embedded Signup (do env) para o front montar o popup.

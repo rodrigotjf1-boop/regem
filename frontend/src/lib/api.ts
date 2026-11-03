@@ -1651,6 +1651,13 @@ export const api = {
         (recuperacaoDias ? `&recuperacaoDias=${recuperacaoDias}` : ''),
     ),
   crmCampanhas: () => req('/campanhas'),
+  // Delivery › Marketing › Automáticas (Onda 3, mig 356): o painel (ajustes, prévia, modelo, resultado), salvar só o que
+  // mudou e o "Enviar à Meta" do modelo. Só gerente e presidente (o servidor confere).
+  marketingAutomaticas: () => req('/marketing/automaticas'),
+  salvarMarketingAutomaticas: (body: Record<string, unknown>) =>
+    req('/marketing/automaticas', { method: 'PUT', body: JSON.stringify(body) }),
+  enviarModeloAutomatica: (tipo: 'cashback') =>
+    req(`/marketing/automaticas/modelo/${encodeURIComponent(tipo)}`, { method: 'POST' }),
   crmCampanhaMetricas: (id: string) => req(`/campanhas/${encodeURIComponent(id)}/metricas`),
   // Corpo rico (tipo, link, imagem, agendamento, tetos, cupom automático).
   crmCampanhaCriar: (body: any) =>
