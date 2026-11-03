@@ -7,7 +7,7 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ehServidorLocal } from '../../common/modo';
 import { dataNoFuso, hojeISO, somarDias } from '../../common/data';
 import { FUSO_SQL } from '../../common/fuso-sql';
-import { sqlChaveTelefone } from '../../common/telefone-chave';
+import { sqlChaveTelefone, sqlPodeTerAChave } from '../../common/telefone-chave';
 import { saiuDoMarketing, sqlRecebeMarketing } from '../../common/marketing-quem-recebe';
 import { aniversarioValendoEntre, sqlOcorrenciaEntre, valePara } from '../../common/aniversario';
 import { descricaoDoCupom, validadeDoPresente } from '../aniversario/aniversario.service';
@@ -352,8 +352,7 @@ export class RelacionamentoService {
           from cliente c
           cross join lateral (select regexp_replace(coalesce(c.telefone, ''), '[^0-9]', '', 'g') as d) dd
          where c.tenant_id = ${tenantId}::uuid
-           and (right(dd.d, 8) in (select fim from sal)
-                or length(dd.d) < 8 or (dd.d like '0%' and length(dd.d) < 9) or (dd.d like '0055%' and length(dd.d) < 12))
+           and ${sqlPodeTerAChave(sql`dd.d`, sql`select fim from sal`)}
       )
       select x.* from (
         select distinct on (c.chave)
