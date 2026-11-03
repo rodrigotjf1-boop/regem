@@ -327,26 +327,45 @@ export class RelacionamentoService {
    * recebem marketing (regra única), que já pediram fora do iFood e da 99 e que ainda não foram avisados DESTE
    * vencimento. Um por telefone (pela chave). Com o aviso classificado pela Meta como marketing, também respeita "uma
    * oferta a cada N dias" (somando as campanhas).
+   *
+   * Os poucos saldos que vencem na janela PRIMEIRO; os clientes, por um filtro barato antes da chave do telefone (que é
+   * cara: ~20 `regexp_replace` por número). A chave só mexe no COMEÇO do número (0055/55/0 e o nono dígito depois do DDD):
+   * quem tem a mesma chave tem os mesmos 8 últimos dígitos; o número curto ou estranho (chave com menos de 8 dígitos)
+   * passa pelo filtro e é conferido pela chave. CTE `materialized`: o planejador não pode reordenar — a consulta antiga
+   * cruzava pedidos × saldos e calculava a chave 1 milhão de vezes (3,7 s na nuvem, 20 s com o volume da loja aqui; a aba
+   * Automáticas não carregava — ERR-353).
    */
   private candidatosCashback(tenantId: string, dia: string, a: AjustesRelacionamento, oferta: boolean) {
     return sql`
-      select x.* from (
-        select distinct on (${sqlChaveTelefone(sql`c.telefone`)})
-               ${sqlChaveTelefone(sql`c.telefone`)} as chave, c.id as cliente_id, c.nome, c.telefone,
-               s.saldo::float8 as saldo, s.expira_em,
+      with sal as materialized (
+        select s.saldo::float8 as saldo, s.expira_em,
                to_char((s.expira_em at time zone ${FUSO_SQL})::date, 'YYYY-MM-DD') as referencia,
-               (select p.unidade_id from pedido_externo p where p.tenant_id = c.tenant_id and p.cliente_id = c.id
-                 order by p.criado_em desc limit 1) as unidade_id
+               ${sqlChaveTelefone(sql`s.telefone`)} as chave,
+               right(regexp_replace(coalesce(s.telefone, ''), '[^0-9]', '', 'g'), 8) as fim
           from cashback_saldo s
-          join cliente c on c.tenant_id = s.tenant_id
-                        and ${sqlChaveTelefone(sql`c.telefone`)} = ${sqlChaveTelefone(sql`s.telefone`)}
          where s.tenant_id = ${tenantId}::uuid and s.tipo = 'valor'
            and s.saldo >= ${a.cashbackSaldoMin}::numeric and s.expira_em is not null
            and (s.expira_em at time zone ${FUSO_SQL})::date between ${dia}::date + 1 and ${dia}::date + ${a.cashbackDiasAntes}::int
+      ),
+      cli as materialized (
+        select c.id, c.nome, c.telefone, c.tenant_id, c.opt_out_marketing, ${sqlChaveTelefone(sql`c.telefone`)} as chave
+          from cliente c
+          cross join lateral (select regexp_replace(coalesce(c.telefone, ''), '[^0-9]', '', 'g') as d) dd
+         where c.tenant_id = ${tenantId}::uuid
+           and (right(dd.d, 8) in (select fim from sal)
+                or length(dd.d) < 8 or (dd.d like '0%' and length(dd.d) < 9) or (dd.d like '0055%' and length(dd.d) < 12))
+      )
+      select x.* from (
+        select distinct on (c.chave)
+               c.chave, c.id as cliente_id, c.nome, c.telefone, s.saldo, s.expira_em, s.referencia,
+               (select p.unidade_id from pedido_externo p where p.tenant_id = c.tenant_id and p.cliente_id = c.id
+                 order by p.criado_em desc limit 1) as unidade_id
+          from sal s
+          join cli c on c.chave = s.chave
+         where true
            ${sqlRecebeMarketing()}
-           and exists (select 1 from pedido_externo p where p.tenant_id = c.tenant_id and p.cliente_id = c.id
-                         and coalesce(p.canal, '') not in ('ifood', '99food'))
-         order by ${sqlChaveTelefone(sql`c.telefone`)}, s.expira_em asc, s.saldo desc
+           ${this.pediuNaLoja()}
+         order by c.chave, s.expira_em asc, s.saldo desc
       ) x
       where not exists (select 1 from relacionamento_envio e where e.tenant_id = ${tenantId}::uuid and e.tipo = 'cashback'
                           and e.chave_telefone = x.chave and e.referencia = x.referencia)
