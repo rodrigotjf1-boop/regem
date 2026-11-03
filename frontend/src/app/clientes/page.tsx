@@ -7,6 +7,8 @@ import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Select } from '@/components/ui/select';
+import { useModoDaLista } from '@/components/ui/lista';
 import { AniversarioNaGaveta } from '@/components/clientes/aniversario-na-gaveta';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -42,6 +44,14 @@ const SEGS_IMPORT: { k: string; t: string; c: string }[] = [
   { k: 'importados', t: 'Importados', c: 'importados' },
 ];
 const SEG_ANOTA: Record<string, string> = { ativo: 'Ativos', inativo: 'Inativos', potencial: 'Potenciais (não finalizaram)' };
+// Nos cartões (tela estreita) não há o topo da tabela para clicar: a ordem vem de um seletor.
+const ORDENS: [string, string][] = [
+  ['nome', 'Cliente'],
+  ['pedidos', 'Pedidos'],
+  ['ultimo', 'Último pedido'],
+  ['ticket', 'Ticket médio'],
+  ['total', 'Total gasto'],
+];
 // Gravação em partes (o servidor aceita até 5.000 por vez).
 const LOTE_IMPORT = 5000;
 
@@ -198,6 +208,23 @@ export default function ClientesPage() {
   function toggleSelTodos() {
     setSelec(todosSel ? new Set() : new Set(lista.map((c) => c.id)));
   }
+  // A lista vira cartões quando a tabela não cabe (decisão do dono 4A, 03/11/2026 — V45): a mesma medida do `ListaDados`.
+  const { caixa: caixaLista, modo: modoLista } = useModoDaLista('clientes:selecao|cliente|telefone|pedidos|ultimo|ticket|total|canais');
+  // As marcas ao lado do nome (na tabela e no cartão).
+  const selosDoCliente = (c: any) => (
+    <>
+      {Number(c.pedidos_30d) >= 3 && (
+        <span title="Campeão — 3+ pedidos em 30 dias" className="ml-1.5 rounded-full bg-primary/15 px-1.5 text-[10px] font-bold text-primary">
+          ★
+        </span>
+      )}
+      {c.opt_out_marketing && (
+        <span title="Optou por não receber campanhas" className="ml-1.5 rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">
+          opt-out
+        </span>
+      )}
+    </>
+  );
 
   function baixarArquivo(res: { filename: string; mime: string; base64: string }) {
     const bin = atob(res.base64);
@@ -566,7 +593,119 @@ export default function ClientesPage() {
           )}
         </div>
 
-        {/* Tabela */}
+        {/* A lista: a TABELA quando cabe; CARTÕES quando não cabe — a página nunca rola para o lado (V45; decisão do dono 4A,
+            03/11/2026). A medida é a do `ListaDados` (`useModoDaLista`): a própria tabela, no espaço que ela tem. */}
+        <div ref={caixaLista} className="min-w-0">
+          {modoLista === 2 ? (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-border bg-card px-3 py-2 text-sm">
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={todosSel} onChange={toggleSelTodos} />
+                  Selecionar todos
+                </label>
+                <span className="ml-auto flex min-w-0 flex-wrap items-center gap-2">
+                  <label htmlFor="clientes-ordenar" className="text-xs text-muted-foreground">
+                    Ordenar por
+                  </label>
+                  <Select id="clientes-ordenar" className="h-9 w-auto min-w-0" value={ordenar} onChange={(e) => ordenarPor(e.target.value)}>
+                    {ORDENS.map(([k, t]) => (
+                      <option key={k} value={k}>
+                        {t}
+                      </option>
+                    ))}
+                  </Select>
+                  <button
+                    type="button"
+                    onClick={() => setDirecao((d) => (d === 'asc' ? 'desc' : 'asc'))}
+                    className="h-9 min-w-9 rounded-md border border-input px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={direcao === 'asc' ? 'Ordem crescente; tocar para decrescente' : 'Ordem decrescente; tocar para crescente'}
+                  >
+                    {direcao === 'asc' ? '▲' : '▼'}
+                  </button>
+                </span>
+              </div>
+              {loading ? (
+                <p className="py-6 text-center text-xs text-muted-foreground" role="status">
+                  Carregando…
+                </p>
+              ) : lista.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">Nenhum cliente neste segmento.</p>
+              ) : (
+                <>
+                  <ul className="grid grid-cols-1 gap-2 md:grid-cols-2" aria-label="Lista de clientes por segmento" data-clientes-cartoes>
+                    {lista.map((c) => {
+                      const dias = diasDesde(c.ultimo_pedido_em);
+                      const ticket = Number(c.total_pedidos) > 0 ? Number(c.total_gasto) / Number(c.total_pedidos) : 0;
+                      const canais: string[] = Array.isArray(c.canais) ? c.canais : [];
+                      return (
+                        <li key={c.id}>
+                          <Card className="cursor-pointer space-y-2 p-3 hover:bg-muted/50" onClick={() => abrir(c)}>
+                            <div className="flex items-start gap-2">
+                              <input
+                                type="checkbox"
+                                className="mt-1"
+                                checked={selec.has(c.id)}
+                                onChange={() => toggleSel(c.id)}
+                                onClick={(e) => e.stopPropagation()}
+                                aria-label={`Selecionar ${c.nome || 'cliente'}`}
+                              />
+                              <button
+                                type="button"
+                                className="min-w-0 flex-1 break-words text-left font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  abrir(c);
+                                }}
+                              >
+                                {c.nome || 'Cliente'}
+                                {selosDoCliente(c)}
+                              </button>
+                            </div>
+                            <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
+                              <dt className="text-xs font-bold text-muted-foreground">Telefone</dt>
+                              <dd className="break-all text-right font-mono text-xs">{c.telefone}</dd>
+                              <dt className="text-xs font-bold text-muted-foreground">Pedidos</dt>
+                              <dd className="text-right font-mono tabular-nums">{c.total_pedidos ?? 0}</dd>
+                              <dt className="text-xs font-bold text-muted-foreground">Último pedido</dt>
+                              <dd className="text-right text-xs">
+                                {fmtData(c.ultimo_pedido_em)}
+                                {dias != null && <span className="ml-1 text-muted-foreground">({dias}d)</span>}
+                              </dd>
+                              <dt className="text-xs font-bold text-muted-foreground">Ticket médio</dt>
+                              <dd className="text-right font-mono tabular-nums">{brl(ticket)}</dd>
+                              <dt className="text-xs font-bold text-muted-foreground">Total gasto</dt>
+                              <dd className="text-right font-mono tabular-nums">{brl(c.total_gasto)}</dd>
+                              {canais.length > 0 && (
+                                <>
+                                  <dt className="text-xs font-bold text-muted-foreground">Canais</dt>
+                                  <dd className="flex flex-wrap justify-end gap-1">
+                                    {canais.map((ch) => (
+                                      <span key={ch} className="rounded bg-muted px-1.5 py-0.5 text-[10px]">
+                                        {CANAL_LABEL[ch] ?? ch}
+                                      </span>
+                                    ))}
+                                  </dd>
+                                </>
+                              )}
+                            </dl>
+                          </Card>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {(() => {
+                    const totPed = lista.reduce((s, c) => s + (Number(c.total_pedidos) || 0), 0);
+                    const totGasto = lista.reduce((s, c) => s + (Number(c.total_gasto) || 0), 0);
+                    return (
+                      <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs font-semibold">
+                        Total · {lista.length} cliente(s) · {totPed} pedidos · ticket médio {brl(totPed > 0 ? totGasto / totPed : 0)} · {brl(totGasto)}
+                      </p>
+                    );
+                  })()}
+                </>
+              )}
+            </div>
+          ) : (
         <Card className="overflow-hidden p-0">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[720px] text-left text-sm">
@@ -656,22 +795,7 @@ export default function ClientesPage() {
                         </td>
                         <td className="px-3 py-2 font-medium">
                           {c.nome || 'Cliente'}
-                          {Number(c.pedidos_30d) >= 3 && (
-                            <span
-                              title="Campeão — 3+ pedidos em 30 dias"
-                              className="ml-1.5 rounded-full bg-primary/15 px-1.5 text-[10px] font-bold text-primary"
-                            >
-                              ★
-                            </span>
-                          )}
-                          {c.opt_out_marketing && (
-                            <span
-                              title="Optou por não receber campanhas"
-                              className="ml-1.5 rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground"
-                            >
-                              opt-out
-                            </span>
-                          )}
+                          {selosDoCliente(c)}
                         </td>
                         <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
                           {c.telefone}
@@ -726,6 +850,8 @@ export default function ClientesPage() {
             </table>
           </div>
         </Card>
+          )}
+        </div>
       </div>
 
       {/* Modal de detalhe / histórico */}
