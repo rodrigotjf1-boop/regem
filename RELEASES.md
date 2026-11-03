@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Delivery › Clientes em cartões no estreito (decisão do dono 4A, 03/11; sem migration).** Só tela: no ar na nuvem
+  com o merge; no `.zip` vai a mesma tela para o servidor da loja.
+
 - **A campanha pula quem recebeu oferta automática (decisão do dono 3B, 03/11; sem migration).** As campanhas são só
   da nuvem: no ar com o merge. No `.zip` só vai a tela (a linha "N ficam de fora" na prévia).
 
