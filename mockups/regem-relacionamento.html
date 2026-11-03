@@ -15,7 +15,9 @@
    O que o protótipo mostra:
    (1) CLIENTE: o botão "Cheguei" na página do pedido de retirada (com "onde você está?"), o "Cheguei" na mensagem de
        pronto do WhatsApp, o aniversário em Sua conta › Perfil e a pergunta única na confirmação do pedido, os
-       benefícios (cashback com a data e o cupom pessoal);
+       benefícios (cashback com a data e o cupom pessoal); a PROTEÇÃO contra troca de data (pedido do dono em 03/11:
+       30 dias de carência, o cliente corrige uma vez, um presente a cada 12 meses — vale para toda promoção de
+       aniversariante, inclusive o cupom "Só aniversariantes" e a campanha de aniversariantes);
    (2) LOJA: "Clientes esperando" em PDV · Balcão › Retirada / Encomendas, a marca "Chegou" nos pedidos (também no
        painel do delivery) e no KDS de produção, o aviso em qualquer tela;
    (3) AUTOMÁTICAS: aba nova em Delivery › Marketing — regras para todas (frequência, limite por dia, horário),
@@ -165,6 +167,8 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px;overflow-wrap:anyw
 .result{display:flex;flex-wrap:wrap;gap:6px 16px;padding:10px 16px;background:#F6F9FC;border-bottom:1px solid var(--line);font-size:13.5px;color:var(--ink-2)}
 .result b{font-family:var(--mono);color:var(--ink)}
 .result .t{font-weight:700;color:var(--ink)}
+.aj-sub{padding:10px 16px 6px;border-bottom:1px solid var(--line);font-family:var(--display);font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--ouro);background:#FFFCF5}
+.aj-sub.desligado{opacity:.55}
 .salvar{position:fixed;left:0;right:0;bottom:0;background:var(--navy);color:#fff;padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:flex-end;z-index:25}
 .salvar span{margin-right:auto;font-weight:600}
 .salvar .bt{min-height:38px}
@@ -211,6 +215,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px;overflow-wrap:anyw
 .cd-campo{display:flex;flex-direction:column;gap:4px;min-width:0}
 .cd-campo label,.cd-rot{font-size:12.5px;font-weight:700;color:#4A4A4A}
 .cd-val{font-size:15px;font-weight:600;overflow-wrap:anywhere}
+.cd-data{font-size:18px;font-weight:800}
 .cd-conta{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
 .cd-conta b{font-size:18px}
 .cd-tabs{display:flex;gap:6px;flex-wrap:wrap}
@@ -421,14 +426,31 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px;overflow-wrap:anyw
           <div class="cd-campo"><span class="cd-rot">Nome</span><span class="cd-val">Marina Lopes</span></div>
           <div class="cd-campo"><span class="cd-rot">WhatsApp</span><span class="cd-val">(21) 9 ••••-4521 · confirmado</span></div>
           <div class="cd-campo"><span class="cd-rot" id="rot-niver-1">Seu aniversário (opcional)</span>
-            <div class="cd-sel" role="group" aria-labelledby="rot-niver-1"><select class="cd-in" aria-label="Dia do aniversário" data-dias="12"><option value="">Dia</option></select><select class="cd-in" aria-label="Mês do aniversário" data-meses="3"><option value="">Mês</option></select></div>
+            <div class="cd-sel" role="group" aria-labelledby="rot-niver-1"><select class="cd-in" aria-label="Dia do aniversário" data-dias=""><option value="">Dia</option></select><select class="cd-in" aria-label="Mês do aniversário" data-meses=""><option value="">Mês</option></select></div>
             <p class="cin">A Burger da Praça manda um presente no seu aniversário. Não pedimos o ano.</p>
+            <p class="cin"><b>Confira antes de salvar:</b> dá para corrigir uma vez. O presente vale a partir de 30 dias depois de informar.</p>
           </div>
           <div class="cd-linha"><span><b>Receber promoções de Burger da Praça pelo WhatsApp</b><small>Você recebe as promoções de Burger da Praça neste número. Para sair, desligue aqui ou responda SAIR.</small></span><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Receber promoções pelo WhatsApp"></button></div>
           <button type="button" class="cd-bt" data-toast="Aniversário salvo.">Salvar</button>
         </div>
       </div></div>
-      <figcaption><strong>5 · Sua conta › Perfil: o aniversário</strong>Dia e mês por seletor, sem o ano (o mínimo que a mensagem precisa). A chave de promoções é a de hoje.</figcaption>
+      <figcaption><strong>5 · Sua conta › Perfil: informar o aniversário</strong>Dia e mês por seletor, sem o ano (o mínimo que a mensagem precisa). A regra aparece antes de salvar. A chave de promoções é a de hoje.</figcaption>
+    </figure>
+
+    <figure class="tela-app">
+      <div class="fone"><div class="vidro">
+        <div class="barra-sis"><span>10:16</span><span>Wi-Fi</span></div>
+        <div class="cd">
+          <div class="cd-conta"><b>Sua conta</b><span class="cin">Marina</span></div>
+          <div class="cd-tabs" aria-hidden="true"><span>Pedidos</span><span>Benefícios</span><span class="on">Perfil</span></div>
+          <div class="cd-campo"><span class="cd-rot">Seu aniversário</span><span class="cd-data">5 de novembro</span>
+            <p class="cin">Informado em 10/09. Vale para o presente desde 10/10.</p></div>
+          <button type="button" class="cd-bt2" data-toast="Abre o dia e o mês para corrigir. A nova data espera 30 dias para valer; depois disso, só a loja muda.">Corrigir a data (uma vez)</button>
+          <p class="cin">Depois da correção, só a loja muda a data.</p>
+          <div class="cd-linha"><span><b>Receber promoções de Burger da Praça pelo WhatsApp</b><small>Você recebe as promoções de Burger da Praça neste número. Para sair, desligue aqui ou responda SAIR.</small></span><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Receber promoções pelo WhatsApp"></button></div>
+        </div>
+      </div></div>
+      <figcaption><strong>6 · Perfil: depois de salvo</strong>A data trava. O cliente corrige uma vez; depois, só a loja (gerente ou presidente), com o motivo. Toda troca espera 30 dias para valer, e o presente sai no máximo uma vez a cada 12 meses: trocar a data não dá outro brinde.</figcaption>
     </figure>
 
     <figure class="tela-app">
@@ -442,13 +464,13 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px;overflow-wrap:anyw
             <b>🎂 Ganhe um presente no seu aniversário</b>
             <div class="cd-sel" role="group" aria-label="Seu aniversário"><select class="cd-in" aria-label="Dia" data-dias=""><option value="">Dia</option></select><select class="cd-in" aria-label="Mês" data-meses=""><option value="">Mês</option></select></div>
             <div class="cd-2bt"><button type="button" class="cd-bt" data-toast="Salvo no Perfil.">Salvar</button><button type="button" class="cd-bt2" data-toast="Não pergunta de novo.">Agora não</button></div>
-            <p>Perguntamos uma vez só. Dá para mudar em Sua conta › Perfil.</p>
+            <p>Perguntamos uma vez só. Dá para corrigir uma vez em Sua conta › Perfil. O presente vale a partir de 30 dias depois de hoje.</p>
           </div>
           <button type="button" class="cd-bt2">Acompanhar o pedido</button>
           <button type="button" class="cd-bt2">Fazer outro pedido</button>
         </div>
       </div></div>
-      <figcaption><strong>6 · Confirmação do pedido: a pergunta, uma vez</strong>Só quando a loja liga o aniversário e o cliente ainda não informou. "Agora não" não pergunta de novo. O robô do WhatsApp não pergunta (o pedido não fica mais longo).</figcaption>
+      <figcaption><strong>7 · Confirmação do pedido: a pergunta, uma vez</strong>Só quando a loja liga o aniversário e o cliente ainda não informou. "Agora não" não pergunta de novo. O robô do WhatsApp não pergunta (o pedido não fica mais longo).</figcaption>
     </figure>
 
     <figure class="tela-app">
@@ -457,21 +479,21 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px;overflow-wrap:anyw
         <div class="cd">
           <div class="cd-conta"><b>Sua conta</b><span class="cin">Marina</span></div>
           <div class="cd-tabs" aria-hidden="true"><span>Pedidos</span><span class="on">Benefícios</span><span>Perfil</span></div>
-          <div class="cd-bene"><span class="cd-rot">Cashback</span><span class="grande">R$ 12,40</span><p class="cin">Vence em 06/11 (quinta). É descontado no seu próximo pedido.</p></div>
-          <div class="cd-bene"><span class="cd-rot">🎂 Presente de aniversário</span><b>R$ 10 de desconto em pedido acima de R$ 40</b><p class="cin">Até 19/03. Já vem aplicado no carrinho (dá para tirar).</p><span class="cd-cupom">NIVER7K2QX</span></div>
+          <div class="cd-bene"><span class="cd-rot">Cashback</span><span class="grande">R$ 12,40</span><p class="cin">Vence em 06/11 (sexta). É descontado no seu próximo pedido.</p></div>
+          <div class="cd-bene"><span class="cd-rot">🎂 Presente de aniversário</span><b>R$ 10 de desconto em pedido acima de R$ 40</b><p class="cin">Até 12/11. Já vem aplicado no carrinho (dá para tirar).</p><span class="cd-cupom">NIVER7K2QX</span></div>
         </div>
       </div></div>
-      <figcaption><strong>7 · Sua conta › Benefícios</strong>Onde o botão "Ver meu saldo" leva. O cupom pessoal é de uso único e segue as Regras de desconto da loja (o que pode somar com o quê).</figcaption>
+      <figcaption><strong>8 · Sua conta › Benefícios</strong>Onde o botão "Ver meu saldo" leva. O cupom pessoal é de uso único e segue as Regras de desconto da loja (o que pode somar com o quê).</figcaption>
     </figure>
   </div>
 
   <div class="cab-vitrine" style="padding-bottom:40px">
     <div class="peca" style="max-width:720px;margin:0 auto;container-type:inline-size;container-name:principal">
       <div class="trilha">No painel da loja · Delivery › Clientes › Marina Lopes</div>
-      <h3 style="margin-top:4px">A equipe também pode anotar o aniversário</h3>
-      <p class="ajuda">Na gaveta do cliente, junto dos dados de hoje.</p>
-      <div class="aj" style="padding-left:0;padding-right:0"><div><span class="rot-aj" id="rot-niver-3">Aniversário</span><span class="ajuda">Dia e mês, sem o ano.</span></div>
-        <div class="ctrl" role="group" aria-labelledby="rot-niver-3"><select aria-label="Dia do aniversário" data-dias="12" style="width:auto;flex:1 1 80px"><option value="">Dia</option></select><select aria-label="Mês do aniversário" data-meses="3" style="width:auto;flex:2 1 120px"><option value="">Mês</option></select></div></div>
+      <h3 style="margin-top:4px">A equipe vê de onde veio a data e corrige com o motivo</h3>
+      <p class="ajuda">Na gaveta do cliente, junto dos dados de hoje. Cliente sem data: a equipe anota, e vale em 30 dias.</p>
+      <div class="aj" style="padding-left:0;padding-right:0"><div><span class="rot-aj">Aniversário · 5 de novembro</span><span class="ajuda">Informado em 10/09/2026 pelo cliente, no cardápio. Vale para promoções desde 10/10/2026. O cliente ainda pode corrigir uma vez.</span></div>
+        <div class="ctrl"><button type="button" class="bt" data-dlg="corrigir-niver">Corrigir</button></div></div>
       <div class="aj" style="padding-left:0;padding-right:0;border-bottom:none"><div><span class="rot-aj">Promoções pelo WhatsApp</span><span class="ajuda">O histórico do aceite e da saída fica guardado (como hoje).</span></div>
         <div class="ctrl"><span class="fixo">Recebe · desde 12/10, pelo cardápio</span></div></div>
     </div>
@@ -552,7 +574,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px;overflow-wrap:anyw
         <button type="button" class="mk-aba" aria-pressed="false" data-toast="A aba de hoje (campanhas).">Campanhas</button>
         <button type="button" class="mk-aba" aria-pressed="true">Automáticas <span class="novo-l">NOVO</span></button>
       </div>
-      <p class="resumo" id="resumo-aut">3 mensagens automáticas · 1 ligada · 18 ajustes em 4 grupos</p>
+      <p class="resumo" id="resumo-aut">3 mensagens automáticas · 1 ligada</p>
       <div class="filtros"><div class="campo"><label for="busca-aut">Buscar ajuste</label><input id="busca-aut" type="search" placeholder="Ex.: cupom, horário, aniversário"></div></div>
 
       <section class="grupo" data-grupo>
@@ -589,7 +611,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px;overflow-wrap:anyw
       <section class="grupo" data-grupo>
         <header><h3>🎂 Aniversário</h3><span class="selo neutro" data-estado-de="aniv">Desligada</span></header>
         <div class="result"><span class="t">Últimos 30 dias</span><span>Ainda não mandou nenhuma.</span></div>
-        <div class="aj"><div><span class="rot-aj">Mandar os parabéns no aniversário</span><span class="ajuda">Para quem informou o dia e o mês: no Perfil do cardápio, na pergunta da confirmação do pedido ou no cadastro em Delivery › Clientes. Hoje, 86 clientes informaram. Uma vez por ano.</span></div>
+        <div class="aj"><div><span class="rot-aj">Mandar os parabéns no aniversário</span><span class="ajuda">Para quem informou o dia e o mês: no Perfil do cardápio, na pergunta da confirmação do pedido ou no cadastro em Delivery › Clientes. Hoje, 86 clientes informaram. As travas contra troca de data estão logo abaixo.</span></div>
           <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="false" aria-label="Mandar os parabéns no aniversário" data-aj data-liga="aniv"></button></div></div>
         <div class="aj" data-depende="aniv"><div><span class="rot-aj">Quando</span></div>
           <div class="ctrl"><select aria-label="Quando mandar os parabéns" data-aj><option selected>No dia</option><option>3 dias antes</option><option>7 dias antes</option></select></div></div>
@@ -603,8 +625,19 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px;overflow-wrap:anyw
           <div class="ctrl"><select aria-label="Validade do cupom de aniversário" data-aj><option>3 dias</option><option selected>7 dias</option><option>15 dias</option></select></div></div>
         <div class="aj" data-depende="aniv"><div><span class="rot-aj">A mensagem</span><span class="ajuda so-oficial">Marketing para a Meta (aniversário está na lista de marketing dela).</span><span class="ajuda so-qr">Mensagem de texto (sem modelo).</span></div>
           <div class="ctrl"><span class="selo ok so-oficial">Aprovada pela Meta</span><span class="fixo so-qr">Pronta para sair</span></div></div>
-        <div class="aj" data-depende="aniv"><div><span class="rot-aj">Prévia</span></div>
-          <div class="ctrl"><span class="fixo">Esta semana: 4 aniversários</span><button type="button" class="bt leve" data-dlg="quem-aniv">Ver quem</button></div></div>
+        <div class="aj" data-depende="aniv"><div><span class="rot-aj">Prévia</span><span class="ajuda">Com os ajustes e a proteção de agora.</span></div>
+          <div class="ctrl"><span class="fixo">Esta semana: 3 presentes (5 aniversários)</span><button type="button" class="bt leve" data-dlg="quem-aniv">Ver quem</button></div></div>
+        <div class="aj-sub" data-depende="aniv">Proteção contra troca de data · sempre ligada</div>
+        <div class="aj" data-depende="aniv"><div><span class="rot-aj">A data vale 30 dias depois de informada</span><span class="ajuda">Quem informa (ou troca) a data a menos de 30 dias do aniversário ganha só no ano seguinte.</span></div>
+          <div class="ctrl"><span class="fixo">30 dias</span></div></div>
+        <div class="aj" data-depende="aniv"><div><span class="rot-aj">Troca de data</span><span class="ajuda">Toda troca espera os mesmos 30 dias e fica na auditoria: quem, quando, a data de antes e a nova, e o motivo.</span></div>
+          <div class="ctrl"><span class="fixo">O cliente corrige uma vez; depois, só gerente e presidente</span></div></div>
+        <div class="aj" data-depende="aniv"><div><span class="rot-aj">Um presente por cliente</span><span class="ajuda">Mesmo que a data mude.</span></div>
+          <div class="ctrl"><span class="fixo">A cada 12 meses</span></div></div>
+        <div class="aj" data-depende="aniv"><div><span class="rot-aj">Quem ganha</span><span class="ajuda">Cliente de verdade, não cadastro feito só para o brinde.</span></div>
+          <div class="ctrl"><span class="fixo">Quem pediu nos últimos 12 meses</span></div></div>
+        <div class="aj" data-depende="aniv"><div><span class="rot-aj">O cupom</span><span class="ajuda">No cardápio, entrando com o código do WhatsApp; no WhatsApp, pelo número do cliente. Não serve para outra pessoa.</span></div>
+          <div class="ctrl"><span class="fixo">Só do próprio cliente, uma vez</span></div></div>
       </section>
 
       <section class="grupo" data-grupo>
@@ -630,6 +663,19 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px;overflow-wrap:anyw
           <div class="ctrl"><span class="selo ok so-oficial">Aprovada pela Meta</span><span class="fixo so-qr">Pronta para sair</span></div></div>
         <div class="aj" data-depende="volta"><div><span class="rot-aj">Prévia</span><span class="ajuda">Com os ajustes de agora. O limite do dia deixa os outros 21 para os próximos dias.</span></div>
           <div class="ctrl"><span class="fixo">Amanhã: 30 de 51 clientes</span><button type="button" class="bt leve" data-dlg="quem-volta">Ver quem</button></div></div>
+      </section>
+
+      <section class="peca" aria-labelledby="t-promo-niver">
+        <h3 id="t-promo-niver">🎂 Promoção de aniversariante criada pela loja</h3>
+        <p class="ajuda">Além do presente automático, a loja pode criar a dela. As duas formas usam a mesma proteção: só vale a data informada há 30 dias ou mais, a troca é travada e cada cliente usa uma vez a cada 12 meses.</p>
+        <div class="dois">
+          <div class="campo"><label for="cond-cupom">Cupom · Condição de uso <span class="novo-l">NOVO</span></label>
+            <select id="cond-cupom"><option>Sem condição (uso livre)</option><option>Só clientes novos (1º pedido)</option><option>Cliente há X dias sem comprar</option><option>Máx. X usos por cliente</option><option selected>Só aniversariantes (semana do aniversário)</option></select>
+            <span class="ajuda">Em Delivery › Configurações › Cupons. O cupom só aceita o cliente que faz aniversário naquela semana, com a data valendo.</span></div>
+          <div class="campo"><label for="seg-camp">Campanha · Para quem <span class="novo-l">NOVO</span></label>
+            <select id="seg-camp"><option>Todos os clientes</option><option>Pediram no mês</option><option>+30 dias sem pedir</option><option selected>Aniversariantes desta semana</option><option>Aniversariantes do mês</option></select>
+            <span class="ajuda">Em Marketing › Campanhas. Entra só quem tem a data valendo e não pediu para sair.</span></div>
+        </div>
       </section>
     </main>
 
@@ -704,10 +750,10 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px;overflow-wrap:anyw
     <article class="mcard">
       <header><h3>Aniversário</h3><div class="chips"><span class="selo ouro">Marketing</span><span class="selo neutro">modelo de hoje, agora com o presente</span></div></header>
       <div class="wa">
-        <div class="bolha"><div class="cab-t">Feliz aniversário</div>Parabéns, Marina! 🎉 Para comemorar, a Burger da Praça te dá R$ 10 de desconto em pedido acima de R$ 40, até 19/03. O cupom já vem aplicado no seu carrinho.<small>10:00</small></div>
+        <div class="bolha"><div class="cab-t">Feliz aniversário</div>Parabéns, Marina! 🎉 Para comemorar, a Burger da Praça te dá R$ 10 de desconto em pedido acima de R$ 40, até 12/11. O cupom já vem aplicado no seu carrinho.<small>10:00</small></div>
         <div class="wa-bts"><span>Peça agora</span><span>Copiar o cupom NIVER7K2QX</span><span>Sair das ofertas</span></div>
       </div>
-      <dl><dt>Quando sai</dt><dd>No dia (ajuste), 1 h antes de a loja abrir. Uma vez por ano.</dd>
+      <dl><dt>Quando sai</dt><dd>No dia (ajuste), 1 h antes de a loja abrir. No máximo uma vez a cada 12 meses, e só com a data informada há 30 dias ou mais.</dd>
         <dt>Sem presente</dt><dd>"Parabéns, Marina! 🎉 A Burger da Praça deseja um feliz aniversário. Obrigado por pedir com a gente!" (o modelo de hoje promete "um presente especial" sem dizer qual: muda).</dd>
         <dt>Pelo QR</dt><dd>O mesmo texto, com o link do cardápio, o cupom e "Para sair das ofertas, responda SAIR."</dd></dl>
     </article>
@@ -755,9 +801,19 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px;overflow-wrap:anyw
     <h3>🎂 Aniversário</h3>
     <ul>
       <li>Dia e mês, sem o ano. Vêm de: Sua conta › Perfil; a pergunta única na confirmação do pedido (só com o aniversário ligado e sem data informada; "Agora não" não pergunta de novo); o cadastro em Delivery › Clientes. O robô não pergunta.</li>
-      <li>Uma vez por ano. Presente: cupom pessoal de uso único, já aplicado no carrinho (ou só os parabéns).</li>
+      <li>Presente: cupom pessoal de uso único, já aplicado no carrinho (ou só os parabéns).</li>
       <li>Segue o desenho do aniversário que já estava no "Clube de recompra" (<code>docs/templates-cardapio/07-clube-de-recompra.md</code>): dia e mês sem ano e cupom pessoal. O resto do clube (raspadinha, selos, meta do mês) continua para depois.</li>
     </ul>
+    <h3>Proteção contra troca de data (pedido do dono, 03/11)</h3>
+    <ul>
+      <li><b>30 dias de carência:</b> a data só vale para presente ou promoção se foi informada pelo menos 30 dias antes do aniversário. Informou (ou trocou) mais perto: ganha no ano seguinte.</li>
+      <li><b>Data travada:</b> o cliente corrige uma vez (erro de digitação); depois, só gerente e presidente, em Delivery › Clientes, com o motivo. Toda troca espera os mesmos 30 dias e fica na auditoria: quem, quando, a data de antes e a nova, e o motivo.</li>
+      <li><b>Um presente a cada 12 meses</b> por cliente, mesmo que a data mude.</li>
+      <li><b>Cliente de verdade:</b> só quem pediu nos últimos 12 meses ganha o presente.</li>
+      <li><b>Cupom só do dono dele:</b> vale para o próprio cliente (no cardápio, entrando com o código do WhatsApp; no WhatsApp, pelo número dele), uma vez.</li>
+      <li><b>Vale para toda promoção de aniversariante:</b> o presente automático, o cupom novo "Só aniversariantes" e a campanha para "Aniversariantes desta semana / do mês" usam a mesma regra, que fica num lugar só do servidor. Promoção no balcão: a gaveta do cliente mostra desde quando a data vale; pedir documento é decisão da loja.</li>
+    </ul>
+    <p>Como o mercado faz (verificado em 03/11/2026): <a href="https://help.joy.so/new-joy-loyalty/reward-programs/earning-programs/birthday-reward">Joy Loyalty</a> — <i>"customers must enter their birth date at least 30 days before their birthday"</i>, presente "once per year"; <a href="https://affiliatewp.com/rewardswp/docs/birthday-reward/">RewardsWP</a> — <i>"members must set their birthday at least 30 days before that birthday date"</i>, <i>"Members can update their birthday once before they've ever received birthday points"</i>, <i>"Admin edits bypass the lock"</i>; <a href="https://intercom.help/casa-apps/en/articles/15496460-birthdays-bonus">CASA Loyalty</a> — a loja escolhe de "Never (set once)" até 30 dias entre trocas, para <i>"prevent customers from repeatedly changing their birthday to farm the reward"</i>.</p>
   </div>
 
   <div class="cartao">
@@ -799,7 +855,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px;overflow-wrap:anyw
     <ol>
       <li><b>"Cheguei"</b> — migration (colunas no pedido; sincroniza) + página do pedido + mensagem de pronto com o botão + a palavra no WhatsApp + avisos na loja + o ajuste. Vai no <code>.zip</code>.</li>
       <li><b>Base das automáticas + cashback vencendo</b> — migration só da nuvem (o registro do que já saiu, com trava contra mandar duas vezes; o cupom pessoal) + a aba Automáticas + o modelo de utilidade.</li>
-      <li><b>Aniversário</b> — migration (dia e mês no cadastro do cliente; sincroniza) + Perfil, confirmação e Delivery › Clientes + os modelos.</li>
+      <li><b>Aniversário</b> — migration (dia e mês no cadastro do cliente, com quando e por quem foi informado; sincroniza) + Perfil, confirmação e Delivery › Clientes + a proteção (carência, trava, 12 meses) + o cupom "Só aniversariantes" e a campanha de aniversariantes + os modelos.</li>
       <li><b>Sentimos sua falta</b> + os resultados das três.</li>
     </ol>
     <p>Fica para depois: o resto do Clube de recompra; o aviso "Cheguei" no app de atendimento.</p>
@@ -810,7 +866,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px;overflow-wrap:anyw
     <ol>
       <li><b>Onde ficam:</b> Marketing ganha a aba "Automáticas" (como "Campanhas", mas sozinhas todo dia); o "Cheguei" fica em Configurações › Atendimento, grupo "Retirada · cliente chegou". <span class="recom">recomendado</span></li>
       <li><b>Onde a equipe é avisada do "Cheguei":</b> Retirada / Encomendas, painel do delivery, KDS e qualquer tela do Regem. <span class="recom">recomendado</span> Outra opção: sem o aviso nas outras telas.</li>
-      <li><b>Aniversário:</b> dia e mês, sem o ano; pelo Perfil, por uma pergunta na confirmação do pedido e pelo cadastro da loja; o robô não pergunta. <span class="recom">recomendado</span></li>
+      <li><b>Aniversário:</b> dia e mês, sem o ano; pelo Perfil, por uma pergunta na confirmação do pedido e pelo cadastro da loja; o robô não pergunta. Com a proteção: 30 dias de carência, o cliente corrige uma vez (depois, só gerente e presidente), um presente a cada 12 meses, só quem pediu nos últimos 12 meses e cupom só do próprio cliente. A mesma regra vale para o cupom "Só aniversariantes" e a campanha de aniversariantes, que entram no mesmo PR. <span class="recom">recomendado</span></li>
       <li><b>Padrões dos presentes e da frequência:</b> aniversário R$ 10 acima de R$ 40 por 7 dias; "sentimos sua falta" aos 30 dias, R$ 8 acima de R$ 30 por 7 dias, 2 tentativas; uma oferta a cada 7 dias; até 30 mensagens por dia. A loja muda todos. <span class="recom">recomendado</span></li>
       <li><b>Cashback vencendo como utilidade</b>, com texto neutro. Se a Meta disser que é marketing, ele passa a contar na frequência das ofertas e a tela mostra a categoria. <span class="recom">recomendado</span></li>
     </ol>
@@ -951,7 +1007,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px;overflow-wrap:anyw
       $$(`[data-depende="${ch.dataset.liga}"]`).forEach((a) => a.classList.toggle('desligado', !lig));
     });
     $$('[data-presente]').forEach((s) => $$(`[data-do-presente="${s.dataset.presente}"]`).forEach((a) => { a.hidden = s.value !== 'cupom'; }));
-    $('#resumo-aut').textContent = `3 mensagens automáticas · ${ligadas} ${ligadas === 1 ? 'ligada' : 'ligadas'} · 18 ajustes em 4 grupos`;
+    $('#resumo-aut').textContent = `3 mensagens automáticas · ${ligadas} ${ligadas === 1 ? 'ligada' : 'ligadas'}`;
   }
   $$('.chave[data-aj]').forEach((c) => c.addEventListener('click', () => { c.setAttribute('aria-checked', String(c.getAttribute('aria-checked') !== 'true')); atualizarBarra(); }));
   $$('select[data-aj]').forEach((s) => s.addEventListener('change', atualizarBarra));
@@ -988,12 +1044,19 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px;overflow-wrap:anyw
 
   // ---------- diálogos ----------
   const pilha = [];
+  const opcoesDias = (sel) => `<option value="">Dia</option>${Array.from({ length: 31 }, (_, i) => `<option${i + 1 === sel ? ' selected' : ''}>${i + 1}</option>`).join('')}`;
+  const opcoesMeses = (sel) => `<option value="">Mês</option>${MESES.map((m, i) => `<option${i + 1 === sel ? ' selected' : ''}>${m}</option>`).join('')}`;
   const lista = (linhas) => `<ul class="quem-lista">${linhas.map(([a, b]) => `<li><b>${esc(a)}</b><span>${esc(b)}</span></li>`).join('')}</ul>`;
   const DLG = {
     'quem-cash': () => ({ t: 'Quem recebe amanhã · cashback vencendo', b: `${lista([['Marina L.', 'R$ 12,40 · vence 06/11'], ['Paulo R.', 'R$ 8,10 · vence 06/11'], ['Júlia M.', 'R$ 21,75 · vence 06/11'], ['Caio T.', 'R$ 5,30 · vence 06/11'], ['Renata S.', 'R$ 9,90 · vence 06/11']])}
       <p class="ajuda" style="margin:0">E mais 7 clientes. Ficam fora: quem pediu para sair, quem já recebeu o aviso deste vencimento e quem tem saldo abaixo de R$ 5,00.</p>` }),
-    'quem-aniv': () => ({ t: 'Aniversários desta semana', b: `${lista([['Lívia C.', '05/11 · cupom R$ 10,00'], ['Otávio P.', '06/11 · cupom R$ 10,00'], ['Bianca R.', '08/11 · cupom R$ 10,00'], ['Fábio N.', '09/11 · pediu para sair: não recebe']])}
-      <p class="ajuda" style="margin:0">O dia vem do Perfil do cardápio, da confirmação do pedido ou do cadastro da loja.</p>` }),
+    'quem-aniv': () => ({ t: 'Aniversários desta semana', b: `${lista([['Marina L.', '05/11 · cupom R$ 10,00'], ['Otávio P.', '06/11 · cupom R$ 10,00'], ['Bianca R.', '08/11 · cupom R$ 10,00'], ['Rui P.', '07/11 · informou em 28/10: fica para o ano que vem (menos de 30 dias)'], ['Fábio N.', '09/11 · pediu para sair: não recebe']])}
+      <p class="ajuda" style="margin:0">3 presentes. A data vem do Perfil do cardápio, da confirmação do pedido ou do cadastro da loja, e só vale 30 dias depois de informada.</p>` }),
+    'corrigir-niver': () => ({ t: 'Corrigir o aniversário · Marina Lopes', ok: 'Corrigir a data', feito: 'Data corrigida (protótipo). Vale para promoções daqui a 30 dias; a troca ficou na auditoria.', b: `
+      <p style="margin:0">Hoje: <b>5 de novembro</b>, informado em 10/09/2026 pelo cliente, no cardápio.</p>
+      <div class="campo"><span class="rot" id="rot-nova">Nova data</span><div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:8px" role="group" aria-labelledby="rot-nova"><select aria-label="Dia">${opcoesDias(5)}</select><select aria-label="Mês">${opcoesMeses(11)}</select></div></div>
+      <div class="campo"><label for="motivo-niver">Motivo (obrigatório)</label><input id="motivo-niver" type="text" placeholder="Ex.: o cliente mostrou o documento"><span class="ajuda" id="erro-motivo" hidden style="color:var(--crit);font-weight:700">Escreva o motivo para corrigir.</span></div>
+      <p class="ajuda" style="margin:0">A nova data espera 30 dias para valer e o presente continua no máximo uma vez a cada 12 meses. Fica na auditoria: quem, quando, a data de antes e a nova, e o motivo. Só gerente e presidente corrigem.</p>` }),
     'quem-volta': () => ({ t: 'Quem recebe amanhã · sentimos sua falta', b: `${lista([['Paulo R.', '31 dias sem pedir · 4 pedidos'], ['Sara M.', '33 dias sem pedir · 1 pedido'], ['Igor V.', '38 dias sem pedir · 2 pedidos'], ['Teresa A.', '44 dias sem pedir · 7 pedidos · 2ª tentativa']])}
       <p class="ajuda" style="margin:0">E mais 26 (o limite é 30 por dia; os outros 21 ficam para os próximos dias, começando por quem sumiu há menos tempo). Ficam fora: quem pediu para sair, quem recebeu uma oferta nos últimos 7 dias e quem tem caso aberto no Atendimento.</p>` }),
     voltaram: () => ({ t: 'Quem voltou · últimos 30 dias', b: `${lista([['Henrique D.', 'pediu 2 dias depois · R$ 64,90 · usou o cupom'], ['Camila F.', 'pediu 5 dias depois · R$ 41,00 · usou o cupom'], ['Rafael O.', 'pediu no mesmo dia · R$ 88,40 · sem cupom']])}
@@ -1003,12 +1066,18 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px;overflow-wrap:anyw
     const d = DLG[k]();
     const fundo = document.createElement('div'); fundo.className = 'fundo';
     const idT = `dlg-t-${pilha.length}`;
-    fundo.innerHTML = `<div class="dlg" role="dialog" aria-modal="true" aria-labelledby="${idT}"><header><h2 id="${idT}">${d.t}</h2></header><div class="meio">${d.b}</div><footer><button type="button" class="bt" data-fechar>Fechar</button></footer></div>`;
+    fundo.innerHTML = `<div class="dlg" role="dialog" aria-modal="true" aria-labelledby="${idT}"><header><h2 id="${idT}">${d.t}</h2></header><div class="meio">${d.b}</div><footer><button type="button" class="bt" data-fechar>${d.ok ? 'Cancelar' : 'Fechar'}</button>${d.ok ? `<button type="button" class="bt pri" data-confirmar>${d.ok}</button>` : ''}</footer></div>`;
     $('#camada').appendChild(fundo);
     pilha.push({ fundo, origem });
     $('[data-fechar]', fundo).addEventListener('click', fecharDialogo);
+    const conf = $('[data-confirmar]', fundo);
+    if (conf) conf.addEventListener('click', () => {
+      const motivo = $('#motivo-niver', fundo);
+      if (motivo && !motivo.value.trim()) { $('#erro-motivo', fundo).hidden = false; motivo.focus(); return; }
+      fecharDialogo(); toast(`✅ ${esc(d.feito || 'Feito (protótipo)')}`);
+    });
     fundo.addEventListener('click', (e) => { if (e.target === fundo) fecharDialogo(); });
-    $('[data-fechar]', fundo).focus();
+    ($('select,input', fundo) || $('[data-fechar]', fundo)).focus();
   }
   function fecharDialogo() { const top = pilha.pop(); if (!top) return; top.fundo.remove(); if (top.origem && document.contains(top.origem)) top.origem.focus(); }
   $$('[data-dlg]').forEach((b) => b.addEventListener('click', () => abrirDialogo(b.dataset.dlg, b)));
