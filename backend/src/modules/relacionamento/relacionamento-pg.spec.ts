@@ -164,6 +164,27 @@ descrever('automáticas — cashback vencendo (Postgres)', () => {
     expect(p.cashback.resultado).toEqual({ mensagens: 0, cliques: 0, voltaram: 0, valor: 0, cupons: 0 });
   });
 
+  it('a prévia acha o cliente pelo número em qualquer formato (o filtro rápido dos 8 últimos dígitos não perde ninguém — ERR-353)', async () => {
+    const { t } = await empresa();
+    await cliente(t, 'Ana Lima', '21987651001', 9, 2, { telSaldo: '5521987651001' }); // o saldo com o 55
+    await cliente(t, 'Beto Reis', '21987651002', 9, 2, { telSaldo: '2187651002' }); // o saldo sem o nono dígito
+    await cliente(t, 'Cris Melo', '2187651003', 9, 2, { telSaldo: '5521987651003' }); // o cadastro sem o 9; o saldo com 55 e 9
+    await cliente(t, 'Davi Souza', '(21) 98765-1004', 9, 2, { telSaldo: '21987651004' }); // o cadastro formatado
+    await cliente(t, 'Edu Prado', '0055123', 9, 2, { telSaldo: '123' }); // número curto e estranho: a chave decide
+    await cliente(t, 'Fábio Nunes', '021987651006', 9, 2, { telSaldo: '21987651006' }); // o 0 da longa distância
+    await cliente(t, 'Gil Rocha', '21987651007', 9, 2, { telSaldo: '21987651077' }); // saldo de OUTRO número: ninguém
+    // Números absurdos DE PROPÓSITO: a chave tira o 0055 / o 0 e fica com menos de 8 dígitos — cada um só passa por uma
+    // das regras do filtro rápido (prova que ele não perde nem o número estranho).
+    await cliente(t, 'Hugo Dias', '005512345', 9, 2, { telSaldo: '12345' });
+    await cliente(t, 'Iara Luz', '01234567', 9, 2, { telSaldo: '1234567' });
+    const { svc } = servico();
+    const p: any = await svc.painel(t);
+    expect(p.cashback.previa.total).toBe(8); // a lista da prévia mostra só os 5 primeiros; a separação pega todos
+    expect(await svc.separarCashback(t, hojeISO(), await svc.ajustes(t), false)).toBe(8);
+    const nomes = (await q(`select c.nome from relacionamento_envio e join cliente c on c.id = e.cliente_id where e.tenant_id = $1`, [t])).map((x: any) => x.nome);
+    expect(nomes.sort()).toEqual(['Ana Lima', 'Beto Reis', 'Cris Melo', 'Davi Souza', 'Edu Prado', 'Fábio Nunes', 'Hugo Dias', 'Iara Luz']);
+  });
+
   it('fora do horário não separa nada; no horário separa UMA vez e manda devagar pelo QR, sem repetir', async () => {
     const { t } = await empresa();
     await cenario(t);
