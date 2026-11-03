@@ -16,8 +16,23 @@ const seq = (...itens: Buffer[]) => tlv(0x30, Buffer.concat(itens));
 const conjunto = (...itens: Buffer[]) => tlv(0x31, Buffer.concat(itens));
 const explicito = (n: number, item: Buffer) => tlv(0xa0 + n, item);
 
-function inteiro(bytes: Buffer): Buffer {
-  return tlv(0x02, (bytes[0] as number) & 0x80 ? Buffer.concat([Buffer.from([0]), bytes]) : bytes);
+/**
+ * INTEGER do DER no MENOR tamanho: zero à esquerda só quando o byte seguinte tem o bit alto (senão o número viraria
+ * negativo). Um zero sobrando na frente o OpenSSL recusa ("illegal padding") — a série aleatória começava com 0x00 uma
+ * vez em 256 e o teste do TLS caía uma vez em ~512 no CI (ERR-350, a mesma família do ERR-324 do certificado da loja).
+ */
+export function inteiro(bytes: Buffer): Buffer {
+  let i = 0;
+  while (i < bytes.length - 1 && bytes[i] === 0 && !((bytes[i + 1] as number) & 0x80)) i += 1;
+  const b = bytes.subarray(i);
+  return tlv(0x02, (b[0] as number) & 0x80 ? Buffer.concat([Buffer.from([0]), b]) : b);
+}
+
+/** Série de 12 bytes, positiva e sem zero na frente (1º byte entre 0x40 e 0x7f), como a do `edge/gen-cert.mjs`. */
+export function serieDeTeste(): Buffer {
+  const b = randomBytes(12);
+  b[0] = 0x40 | ((b[0] as number) & 0x3f);
+  return b;
 }
 
 function oid(texto: string): Buffer {
@@ -46,14 +61,17 @@ function pem(der: Buffer, rotulo: string): string {
   return `-----BEGIN ${rotulo}-----\n${linhas.join('\n')}\n-----END ${rotulo}-----\n`;
 }
 
-/** O certificado (PEM) e a chave (PEM) para os nomes dados, valendo de 1 hora atrás a 1 dia à frente. */
-export function certificadoDeTeste(nomes: readonly string[]): { cert: string; chave: string } {
+/**
+ * O certificado (PEM) e a chave (PEM) para os nomes dados, valendo de 1 hora atrás a 1 dia à frente. `serie` só para o
+ * teste do próprio ajudante (as séries que quebravam o DER).
+ */
+export function certificadoDeTeste(nomes: readonly string[], serie: Buffer = serieDeTeste()): { cert: string; chave: string } {
   const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
   const algoritmo = seq(oid('1.2.840.10045.4.3.2')); // ecdsa-with-SHA256
   const agora = Date.now();
   const tbs = seq(
     explicito(0, inteiro(Buffer.from([2]))), // v3
-    inteiro(randomBytes(12)),
+    inteiro(serie),
     algoritmo,
     nome(nomes[0] as string),
     seq(utc(new Date(agora - 3_600_000)), utc(new Date(agora + 86_400_000))),
