@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Aniversário do cliente + a proteção + o cupom pessoal e o "só aniversariantes" (Onda 3, PR 3, 03/11; mig 357 — SÓ
+  NUVEM).** Tudo no ar com o merge (Perfil, confirmação, Benefícios, Delivery › Clientes, cupons, campanhas e a automática
+  moram na nuvem). No `.zip` só vão as telas (no servidor da loja, as que são da nuvem explicam). `sync-daemon.mjs` ganhou
+  `cliente_aniversario` e `cupom_regra` em `SO_NUVEM` (vai no `.exe` que o PR 1 já pede).
+
 - **Automáticas de Marketing + "cashback vencendo" (Onda 3, PR 2, 03/11; mig 356 — SÓ NUVEM).** Tudo no ar com o merge
   (a aba, a rotina, o WhatsApp e o cardápio moram na nuvem). No `.zip` só vai a tela: no servidor da loja a aba
   Automáticas explica que é pela nuvem. `sync-daemon.mjs` ganhou as duas tabelas em `SO_NUVEM` (vai no `.exe` que o PR 1

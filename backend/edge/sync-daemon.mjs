@@ -2297,6 +2297,9 @@ const SO_NUVEM = new Set([
   // As automáticas de Delivery › Marketing (mig 356, @cloud-only): os ajustes e o que cada uma mandou — o WhatsApp e o
   // cardápio moram na nuvem; a loja não tem estas tabelas.
   'relacionamento_config', 'relacionamento_envio',
+  // O aniversário do cliente e as regras de cupom (pessoal, "só aniversariantes") — mig 357, @cloud-only: o cadastro de
+  // clientes, o cardápio e o robô moram na nuvem; a loja não tem estas tabelas.
+  'cliente_aniversario', 'cupom_regra',
 ]);
 
 // LEGADO SEM USO: tabelas criadas nas migrations de fundação (002/003) para recursos que

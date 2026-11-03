@@ -70,6 +70,13 @@ das automáticas e o que cada uma separou e mandou (a trava "uma mensagem por ve
 `-- @cloud-only` e o WhatsApp e o cardápio moram na nuvem; estão em `SO_NUVEM` só para o `--pendencias` não travar se uma
 instalação antiga tiver a tabela.
 
+`cliente_aniversario` e `cupom_regra` (mig 357, Onda 3 — o aniversário): o dia e o mês do cliente com quando e por quem
+foram informados (a proteção contra troca de data), e as regras de cupom que o `cupom` não guarda (o cupom PESSOAL das
+automáticas e o "só aniversariantes"). À parte de `cliente` e de `cupom` de propósito: o `cliente` sincroniza por linha
+inteira nos dois sentidos (a cópia da loja apagaria a data gravada na nuvem) e o `cupom` desce para a loja (coluna nova
+pediria a migration da loja — ERR-029). O cadastro de clientes (Delivery › Clientes), o cardápio e o robô moram na nuvem:
+`@cloud-only`, em `SO_NUVEM`.
+
 `integracao_token_loja` (mig 295, trilha C): token de integração POR LOJA (Liame), guardado só
 em hash. A migration é `-- @cloud-only` (o servidor da loja pula o arquivo), então a tabela nunca
 existe no banco da loja — não entra no `sync-config.ts` nem nas listas do `sync-daemon.mjs`, e o

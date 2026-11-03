@@ -11,6 +11,7 @@ import { segredoDoRoboOk } from '../../common/segredo-robo';
 import { exigirBooleano } from '../../common/exigir';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ChegadaService } from '../chegada/chegada.service';
+import { AniversarioService } from '../aniversario/aniversario.service';
 import { palavrasDe } from './robo-busca';
 import { opcaoForaDeVenda } from './opcao-fora-de-venda';
 import { and, desc, eq, gte, ilike, inArray, isNull, lt, or, sql } from 'drizzle-orm';
@@ -142,11 +143,24 @@ export class CardapioService {
     @Optional() private readonly auditoria?: AuditoriaService,
     // "Cheguei" na retirada (mig 354): o bloco da página do pedido. Opcional: sem ela, uma instância só com o banco.
     @Optional() private readonly chegadaInj?: ChegadaService,
+    // Aniversário (mig 357): o cupom pessoal e o "só aniversariantes". Opcional: sem ela, uma instância só com o banco.
+    @Optional() private readonly aniversarioInj?: AniversarioService,
   ) {}
 
   private chegadaLocal?: ChegadaService;
   private get chegada(): ChegadaService {
     return this.chegadaInj ?? (this.chegadaLocal ??= new ChegadaService(this.db));
+  }
+  private aniversarioLocal?: AniversarioService;
+  private get aniversario(): AniversarioService {
+    return this.aniversarioInj ?? (this.aniversarioLocal ??= new AniversarioService(this.db));
+  }
+
+  /** Fragmento: o cupom NÃO é pessoal (o presente das automáticas fica fora das listas da loja e do cliente). */
+  private async semPessoais(): Promise<any> {
+    return (await this.aniversario.existe('cupom_regra'))
+      ? sql`not exists (select 1 from cupom_regra r where r.cupom_id = ${cupom.id} and r.cliente_id is not null)`
+      : sql`true`;
   }
 
   // ===== Gestão do cardápio: auto-pausa por esgotamento de estoque =====
@@ -773,13 +787,23 @@ export class CardapioService {
   }
 
   // ===== Cupons — gestor =====
-  listarCupons(tenantId: string) {
-    return this.db.select().from(cupom).where(eq(cupom.tenantId, tenantId));
+  // Os cupons da loja — sem os PESSOAIS das automáticas (presente de aniversário, "sentimos sua falta"), com a condição
+  // "só aniversariantes" (mig 357) junto de cada um.
+  async listarCupons(tenantId: string) {
+    const lista = await this.db.select().from(cupom).where(and(eq(cupom.tenantId, tenantId), await this.semPessoais()));
+    if (!(await this.aniversario.existe('cupom_regra'))) return lista.map((c) => ({ ...c, soAniversariantes: false }));
+    const r: any = await this.db.execute(sql`select cupom_id from cupom_regra where tenant_id = ${tenantId}::uuid and so_aniversariantes`);
+    const so = new Set(((r?.rows ?? r) as any[]).map((x) => String(x.cupom_id)));
+    return lista.map((c) => ({ ...c, soAniversariantes: so.has(c.id) }));
   }
 
   async criarCupom(tenantId: string, unidadeId: string | null, dto: any) {
     if (!dto?.codigo?.trim()) throw new BadRequestException('Informe o código.');
     const codigo = dto.codigo.trim().toUpperCase();
+    // "Só aniversariantes (semana do aniversário)" (mig 357): a mesma proteção do presente automático.
+    const soAniversariantes = dto?.soAniversariantes === true;
+    if (soAniversariantes && (dto.somenteNovos || Number(dto.maxPorCliente) || Number(dto.minDiasSemCompra)))
+      throw new BadRequestException('"Só aniversariantes" não se combina com outra condição de uso.');
     const tipo = ['valor', 'fretegratis'].includes(dto.tipo) ? dto.tipo : 'percentual';
     const num = (v: any) => (v != null && v !== '' ? String(Number(v)) : null);
     const int = (v: any) => (v ? Number(v) || null : null);
@@ -801,19 +825,23 @@ export class CardapioService {
       .select({ id: cupom.id })
       .from(cupom)
       .where(and(eq(cupom.tenantId, tenantId), sql`upper(codigo) = ${codigo}`));
+    const temRegras = await this.aniversario.existe('cupom_regra');
+    if (ja && temRegras && (await this.aniversario.regraDoCupom(ja.id))?.clienteId)
+      throw new BadRequestException('Este código é de um presente pessoal das automáticas: escolha outro.');
+    let row: any;
     if (ja) {
-      const [row] = await this.db
-        .update(cupom)
-        .set(vals)
-        .where(eq(cupom.id, ja.id))
-        .returning();
-      return row;
+      [row] = await this.db.update(cupom).set(vals).where(eq(cupom.id, ja.id)).returning();
+    } else {
+      [row] = await this.db.insert(cupom).values({ tenantId, unidadeId, codigo, ...vals }).returning();
     }
-    const [row] = await this.db
-      .insert(cupom)
-      .values({ tenantId, unidadeId, codigo, ...vals })
-      .returning();
-    return row;
+    if (temRegras && row?.id) {
+      if (soAniversariantes)
+        await this.db.execute(sql`
+          insert into cupom_regra (cupom_id, tenant_id, so_aniversariantes) values (${row.id}::uuid, ${tenantId}::uuid, true)
+          on conflict (cupom_id) do update set so_aniversariantes = true`);
+      else await this.db.execute(sql`update cupom_regra set so_aniversariantes = false where cupom_id = ${row.id}::uuid and so_aniversariantes`);
+    }
+    return { ...row, soAniversariantes: temRegras && soAniversariantes };
   }
 
   async removerCupom(tenantId: string, id: string) {
@@ -870,12 +898,14 @@ export class CardapioService {
   }
 
   // Valida o cupom e devolve o desconto (e efeito no frete) para um subtotal.
-  // ctx.telefone habilita a checagem dos condicionais.
+  // ctx.telefone habilita a checagem dos condicionais. Quem usa (mig 357): `clienteId` = o cliente do token de Sua conta
+  // (o cardápio); `telefoneVerificado` = o número da conversa do robô (o WhatsApp prova o número). O cupom PESSOAL e o
+  // "só aniversariantes" só valem com um dos dois.
   private async avaliarCupom(
     tenantId: string,
     codigo: string,
     subtotal: number,
-    ctx: { telefone?: string } = {},
+    ctx: { telefone?: string; clienteId?: string | null; telefoneVerificado?: boolean } = {},
   ) {
     if (!codigo) return { valido: false, desconto: 0, freteGratis: false };
     const [c] = await this.db
@@ -909,6 +939,13 @@ export class CardapioService {
     const tel = (ctx.telefone ?? '').replace(/\D/g, '');
     const cond = await this.checarCondicoesCupom(tenantId, c, tel);
     if (!cond.ok) return { valido: false, desconto: 0, freteGratis: false, motivo: cond.motivo };
+    // Cupom pessoal e "só aniversariantes" (mig 357): a regra única do aniversário (`common/aniversario.ts`).
+    const regra = await this.aniversario.cupomValePara(tenantId, c.id, {
+      clienteId: ctx.clienteId ?? null,
+      telefone: ctx.telefone ?? null,
+      telefoneVerificado: ctx.telefoneVerificado === true,
+    });
+    if (!regra.ok) return { valido: false, desconto: 0, freteGratis: false, motivo: regra.motivo };
     let desconto = 0;
     let freteGratis = false;
     if (c.tipo === 'fretegratis') {
@@ -936,6 +973,11 @@ export class CardapioService {
   async cuponsDisponiveis(token: string, telefone: string | undefined, subtotal: number) {
     const cfg = await this.resolver(token);
     const tel = (telefone ?? '').replace(/\D/g, '');
+    // Sem os cupons com regra (mig 357): o pessoal é de um cliente só e o "só aniversariantes" depende de quem entrou —
+    // a sugestão não sabe quem é.
+    const semRegra = (await this.aniversario.existe('cupom_regra'))
+      ? sql`not exists (select 1 from cupom_regra r where r.cupom_id = ${cupom.id})`
+      : sql`true`;
     const lista = await this.db
       .select()
       .from(cupom)
@@ -944,6 +986,7 @@ export class CardapioService {
           eq(cupom.tenantId, cfg.tenantId),
           eq(cupom.ativo, true),
           or(sql`${cupom.validade} is null`, sql`${cupom.validade} >= current_date`),
+          semRegra,
         ),
       );
     const sub = Number(subtotal) || 0;
@@ -1904,9 +1947,16 @@ export class CardapioService {
     codigo: string,
     subtotal: number,
     telefone?: string,
+    // Quem usa (mig 357): o token de Sua conta (o cardápio) ou o número verificado (o robô — nunca vem do corpo público).
+    quem: { clienteToken?: string; telefoneVerificado?: boolean } = {},
   ) {
     const cfg = await this.resolver(token);
-    return this.avaliarCupom(cfg.tenantId, codigo, Number(subtotal) || 0, { telefone });
+    const cli = verificarCliente(quem.clienteToken);
+    return this.avaliarCupom(cfg.tenantId, codigo, Number(subtotal) || 0, {
+      telefone,
+      clienteId: cli && cli.tenant === cfg.tenantId ? cli.cli : null,
+      telefoneVerificado: quem.telefoneVerificado === true,
+    });
   }
 
   // Público: status do pedido (timeline) por id.
@@ -3054,6 +3104,9 @@ export class CardapioService {
       tipo: 'entrega' | 'retirada';
       itensOut: any[];
       totalCent: number;
+      /** Quem usa o cupom (mig 357): o cliente do token de Sua conta, ou o número verificado do robô. */
+      clienteId?: string | null;
+      telefoneVerificado?: boolean;
     },
   ) {
     const avisos: string[] = [];
@@ -3083,7 +3136,11 @@ export class CardapioService {
     const cashbackUsadoCent = paraCentavos(cbPrev.saldoUsado || 0);
 
     // ── Cupom — com as regras configuráveis de empilhamento.
-    let cup: any = await this.avaliarCupom(cfg.tenantId, e.cupom ?? '', total, { telefone: e.telefone });
+    let cup: any = await this.avaliarCupom(cfg.tenantId, e.cupom ?? '', total, {
+      telefone: e.telefone,
+      clienteId: e.clienteId ?? null,
+      telefoneVerificado: e.telefoneVerificado === true,
+    });
     if (cup.valido && cfg.cupomBloqueiaComResgate && temResgate) {
       avisos.push('Cupom não pode ser usado em pedido com resgate de fidelidade.');
       cup = { valido: false, desconto: 0, freteGratis: false, motivo: 'Cupom não pode ser usado em pedido com resgate de fidelidade.' };
@@ -3225,6 +3282,9 @@ export class CardapioService {
         observacao?: string;
       }[];
     },
+    // Só para chamadas INTERNAS (o robô do WhatsApp): o número do pedido é o da conversa — o WhatsApp prova. A rota
+    // pública nunca passa este parâmetro (mig 357: o cupom pessoal e o "só aniversariantes" dependem disto).
+    interno: { telefoneVerificado?: boolean } = {},
   ) {
     const cfg = await this.resolver(token);
     // Idempotência: se este client_ref já virou pedido, devolve o mesmo (200) —
@@ -3360,6 +3420,7 @@ export class CardapioService {
         : undefined;
     const avisos: string[] = [];
     // Prêmio, cashback e cupom — a MESMA conta que o robô usa no resumo (`descontosDoPedido`, Bloco 1b de 31/10/2026).
+    const clienteDoToken = verificarCliente(dto.clienteToken);
     const d = await this.descontosDoPedido(cfg, {
       telefone: dto.telefone,
       resgateId: dto.resgateId,
@@ -3368,6 +3429,9 @@ export class CardapioService {
       tipo,
       itensOut,
       totalCent,
+      // Quem usa o cupom (mig 357): o cliente do token de Sua conta, ou o número verificado do robô.
+      clienteId: clienteDoToken && clienteDoToken.tenant === cfg.tenantId ? clienteDoToken.cli : null,
+      telefoneVerificado: interno.telefoneVerificado === true,
     });
     avisos.push(...d.avisos);
     const { premio, cup, cb, descontoCent } = d;
@@ -3736,6 +3800,8 @@ export class CardapioService {
           eq(cupom.tenantId, cfg.tenantId),
           eq(cupom.ativo, true),
           or(sql`${cupom.validade} is null`, sql`${cupom.validade} >= current_date`),
+          // O presente pessoal de um cliente não aparece para os outros (mig 357; o dono vê em "Seus presentes").
+          await this.semPessoais(),
         ),
       );
     const planos = cfg.fidelidadeAtiva

@@ -1548,8 +1548,9 @@ export const api = {
     pub(`/publico/cardapio/${token}${previaEvento ? `?evento=${encodeURIComponent(previaEvento)}` : ''}`),
   cardapioPedido: (token: string, body: Record<string, unknown>) =>
     pub(`/publico/cardapio/${token}/pedido`, { method: 'POST', body: JSON.stringify(body) }),
-  cardapioCupomValidar: (token: string, codigo: string, subtotal: number, telefone?: string) =>
-    pub(`/publico/cardapio/${token}/cupom`, { method: 'POST', body: JSON.stringify({ codigo, subtotal, telefone }) }),
+  // `clienteToken` (Sua conta) prova quem usa: o cupom pessoal e o "só aniversariantes" (Onda 3, mig 357) pedem.
+  cardapioCupomValidar: (token: string, codigo: string, subtotal: number, telefone?: string, clienteToken?: string) =>
+    pub(`/publico/cardapio/${token}/cupom`, { method: 'POST', body: JSON.stringify({ codigo, subtotal, telefone, clienteToken }) }),
   cardapioCuponsDisponiveis: (token: string, telefone: string, subtotal: number) =>
     pub(`/publico/cardapio/${token}/cupons-disponiveis?telefone=${encodeURIComponent(telefone)}&subtotal=${subtotal}`),
   // Ações de PII do cliente: identificadas pelo TOKEN do cliente (não por telefone).
@@ -1656,8 +1657,12 @@ export const api = {
   marketingAutomaticas: () => req('/marketing/automaticas'),
   salvarMarketingAutomaticas: (body: Record<string, unknown>) =>
     req('/marketing/automaticas', { method: 'PUT', body: JSON.stringify(body) }),
-  enviarModeloAutomatica: (tipo: 'cashback') =>
+  enviarModeloAutomatica: (tipo: 'cashback' | 'aniversario') =>
     req(`/marketing/automaticas/modelo/${encodeURIComponent(tipo)}`, { method: 'POST' }),
+  // O aniversário na gaveta do cliente (Delivery › Clientes): ver e corrigir (gerente e presidente, com o motivo).
+  crmAniversario: (id: string) => req(`/clientes/crm/${encodeURIComponent(id)}/aniversario`),
+  crmCorrigirAniversario: (id: string, body: { dia: number; mes: number; motivo?: string }) =>
+    req(`/clientes/crm/${encodeURIComponent(id)}/aniversario`, { method: 'POST', body: JSON.stringify(body) }),
   crmCampanhaMetricas: (id: string) => req(`/campanhas/${encodeURIComponent(id)}/metricas`),
   // Corpo rico (tipo, link, imagem, agendamento, tetos, cupom automático).
   crmCampanhaCriar: (body: any) =>
@@ -1749,6 +1754,14 @@ export const api = {
   // A chave "Promoções pelo WhatsApp" do Perfil (desligar = sair das campanhas da loja).
   clientePromocoes: (token: string, clienteToken: string, ativo: boolean) =>
     pub(`/publico/cardapio/${token}/cliente/promocoes`, { method: 'POST', body: JSON.stringify({ clienteToken, ativo }) }),
+  // O aniversário (Onda 3, mig 357): o cliente informa (Perfil ou a pergunta da confirmação) e corrige uma vez.
+  clienteAniversario: (token: string, clienteToken: string, dia: number, mes: number, origem: 'perfil' | 'confirmacao') =>
+    pub(`/publico/cardapio/${token}/cliente/aniversario`, { method: 'POST', body: JSON.stringify({ clienteToken, dia, mes, origem }) }),
+  clienteAniversarioAgoraNao: (token: string, clienteToken: string) =>
+    pub(`/publico/cardapio/${token}/cliente/aniversario/agora-nao`, { method: 'POST', body: JSON.stringify({ clienteToken }) }),
+  // Os presentes (cupons pessoais das automáticas) — Sua conta › Benefícios.
+  clientePresentes: (token: string, clienteToken: string) =>
+    pub(`/publico/cardapio/${token}/cliente/presentes?clienteToken=${encodeURIComponent(clienteToken)}`),
   clienteEsquecer: (token: string, clienteToken: string) =>
     pub(`/publico/cardapio/${token}/cliente/esquecer`, { method: 'POST', body: JSON.stringify({ clienteToken }) }),
   clientePedirDeNovo: (token: string, pedidoId: string, clienteToken: string) =>

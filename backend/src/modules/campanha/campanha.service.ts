@@ -6,6 +6,8 @@ import { campanha, campanhaEnvio, cardapioConfig, cliente, cupom } from '../../d
 import { registrarEvento, registrarSaida } from '../../common/consentimento-marketing';
 import { chaveTelefone, sqlChaveTelefone } from '../../common/telefone-chave';
 import { saiuDoMarketing, sqlRecebeMarketing } from '../../common/marketing-quem-recebe';
+import { semanaDe, sqlAniversarioEntre } from '../../common/aniversario';
+import { hojeISO, somarDias } from '../../common/data';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { WhatsappNumeroService } from '../whatsapp/whatsapp-numero.service';
 import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
@@ -34,6 +36,17 @@ export class CampanhaService {
   private segFrag(segmento?: string, recuperacaoDias?: number) {
     if (segmento === 'recuperacao' && recuperacaoDias && recuperacaoDias > 0)
       return sql`and c.ultimo_pedido_em < now() - (${recuperacaoDias} || ' days')::interval`;
+    // Aniversariantes (Onda 3, mig 357): a MESMA regra do presente automático e do cupom "só aniversariantes" — a data
+    // valendo (informada 30 dias ou mais antes do aniversário), na semana (domingo a sábado) ou no mês de hoje.
+    if (segmento === 'aniversario_semana') {
+      const { inicio, fim } = semanaDe(hojeISO());
+      return sqlAniversarioEntre(inicio, fim);
+    }
+    if (segmento === 'aniversario_mes') {
+      const hoje = hojeISO();
+      const inicio = `${hoje.slice(0, 8)}01`;
+      return sqlAniversarioEntre(inicio, somarDias(somarDias(inicio, 31).slice(0, 8) + '01', -1));
+    }
     const m: Record<string, any> = {
       mes: sql`and c.ultimo_pedido_em >= date_trunc('month', now() at time zone 'America/Sao_Paulo')`,
       '30d': sql`and c.ultimo_pedido_em >= now() - interval '30 days'`,

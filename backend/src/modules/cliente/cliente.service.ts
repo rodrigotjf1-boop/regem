@@ -5,8 +5,10 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
   UnauthorizedException,
 } from '@nestjs/common';
+import { AniversarioService } from '../aniversario/aniversario.service';
 import { createHmac, createHash, randomBytes, randomInt } from 'crypto';
 
 // SHA-256 do código OTP (o banco só guarda o hash; comparação hash-com-hash).
@@ -160,7 +162,14 @@ export class ClienteService {
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly atendimento: AtendimentoService,
     private readonly auditoria: AuditoriaService,
+    // Aniversário (Onda 3, mig 357). Opcional: os testes montam sem ele (uma instância só com o banco).
+    @Optional() private readonly aniversarioInj?: AniversarioService,
   ) {}
+
+  private aniversarioLocal?: AniversarioService;
+  private get aniversario(): AniversarioService {
+    return this.aniversarioInj ?? (this.aniversarioLocal ??= new AniversarioService(this.db, this.auditoria));
+  }
 
   // Resolve o webhook do n8n: prefere a integração n8n da loja (por tenant, com
   // secret p/ HMAC); cai no OTP_WEBHOOK_URL global se a loja não tiver integração.
@@ -1152,11 +1161,20 @@ export class ClienteService {
       resgates = new Set(rows.map((r) => r.pedidoId).filter(Boolean) as string[]);
     }
 
-    // Endereços e promoções juntos (o banco fica longe: cada ida custa). `promocoesDe` nunca rejeita.
-    const [enderecos, promocoes] = await Promise.all([this.enderecosDe(c.id), this.promocoesDe(cardapioToken, c)]);
+    // Endereços, promoções e o aniversário juntos (o banco fica longe: cada ida custa). Os dois últimos nunca rejeitam.
+    const [enderecos, promocoes, aniversario] = await Promise.all([
+      this.enderecosDe(c.id),
+      this.promocoesDe(cardapioToken, c),
+      this.aniversario.paraOCliente(c.tenantId, c.id).catch((e: any) => {
+        this.logger.warn(`aniversário do perfil ${c.id} não lido: ${e?.message ?? e}`);
+        return null;
+      }),
+    ]);
     return {
       cliente: { id: c.id, nome: c.nome, telefone: c.telefone },
       enderecos,
+      // O aniversário (Onda 3, mig 357): a data, desde quando vale, se ainda pode corrigir e se a confirmação pergunta.
+      aniversario,
       // A chave "Promoções pelo WhatsApp" (`null` = a loja não manda promoção: o bloco não aparece).
       // Nunca derruba o Perfil: sem a tabela do histórico, o motivo vai para o log.
       promocoes,
@@ -1199,6 +1217,36 @@ export class ClienteService {
    * entrou com o código do WhatsApp ou pelo link enviado ao próprio número: é o dono dele.
    * Desligar = sair (vale na hora, em todas as campanhas da loja); ligar = volta a receber.
    */
+  // ===== Aniversário (Onda 3, mig 357) — só do próprio cliente (token de Sua conta) =====
+
+  /** O cliente informa o dia e o mês (Perfil ou a pergunta da confirmação); corrige uma vez. */
+  async informarAniversario(cardapioToken: string, clienteToken: string | undefined, dto: unknown) {
+    const c = await this.clienteDoToken(cardapioToken, clienteToken);
+    return { aniversario: await this.aniversario.peloCliente(c.tenantId, c.id, dto) };
+  }
+
+  /** "Agora não" na pergunta da confirmação: não pergunta de novo. */
+  async aniversarioAgoraNao(cardapioToken: string, clienteToken: string | undefined) {
+    const c = await this.clienteDoToken(cardapioToken, clienteToken);
+    return { aniversario: await this.aniversario.agoraNao(c.tenantId, c.id) };
+  }
+
+  /** Os presentes (cupons pessoais) do cliente — Sua conta › Benefícios. */
+  async presentes(cardapioToken: string, clienteToken: string | undefined) {
+    const c = await this.clienteDoToken(cardapioToken, clienteToken);
+    return { presentes: await this.aniversario.presentesDoCliente(c.tenantId, c.id) };
+  }
+
+  /** Delivery › Clientes: o aniversário na gaveta do cliente. */
+  aniversarioParaALoja(tenantId: string, clienteId: string) {
+    return this.aniversario.paraALoja(tenantId, clienteId);
+  }
+
+  /** Delivery › Clientes: a loja anota ou corrige (com o motivo); gerente e presidente — o controller confere. */
+  corrigirAniversario(user: AuthUser, clienteId: string, dto: unknown) {
+    return this.aniversario.pelaLoja(user, clienteId, dto);
+  }
+
   async definirPromocoes(cardapioToken: string, clienteToken: string | undefined, ativo: unknown) {
     const liga = exigirBooleano(ativo, 'ativo');
     const c = await this.clienteDoToken(cardapioToken, clienteToken);

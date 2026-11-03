@@ -644,18 +644,30 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
     if (!cod) return;
     if (codigo) setChk((s: any) => ({ ...s, cupom: cod.toUpperCase() }));
     try {
-      setCupomOk(await api.cardapioCupomValidar(token, cod, total, chk.telefone));
+      // O token de Sua conta prova quem usa (o cupom pessoal e o "só aniversariantes" — Onda 3).
+      setCupomOk(await api.cardapioCupomValidar(token, cod, total, chk.telefone, getClienteToken(token) || undefined));
     } catch {
       setCupomOk({ valido: false });
     }
   }
   function tirarCupom() {
+    cupomDoLinkRef.current = '';
     setCupomOk(null);
     setChk((s: any) => ({ ...s, cupom: '' }));
   }
-  // A sacola mudou com um cupom aplicado: confere de novo (mínimo do cupom, desconto em %).
+  // O CUPOM DO LINK (`?cupom=` — o "Peça agora" do presente de aniversário; Onda 3): já vem no carrinho (dá para tirar).
+  const cupomDoLinkRef = useRef('');
   useEffect(() => {
-    if (cupomOk?.valido && chk.cupom) void aplicarCupom(chk.cupom);
+    const cod = (search?.get('cupom') ?? '').trim().toUpperCase();
+    if (!cod || !menu || cupomDoLinkRef.current) return;
+    cupomDoLinkRef.current = cod;
+    setChk((s: any) => ({ ...s, cupom: cod }));
+    avisar(`Seu cupom ${cod} já está no carrinho`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, menu]);
+  // A sacola mudou com um cupom aplicado (ou o do link): confere de novo (mínimo do cupom, desconto em %).
+  useEffect(() => {
+    if (chk.cupom && total > 0 && (cupomOk?.valido || cupomDoLinkRef.current === chk.cupom)) void aplicarCupom(chk.cupom);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [total]);
 

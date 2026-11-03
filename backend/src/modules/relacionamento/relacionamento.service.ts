@@ -5,22 +5,32 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { AuthUser } from '../../auth/auth-user';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ehServidorLocal } from '../../common/modo';
-import { hojeISO, somarDias } from '../../common/data';
+import { dataNoFuso, hojeISO, somarDias } from '../../common/data';
 import { FUSO_SQL } from '../../common/fuso-sql';
 import { sqlChaveTelefone } from '../../common/telefone-chave';
 import { saiuDoMarketing, sqlRecebeMarketing } from '../../common/marketing-quem-recebe';
+import { aniversarioValendoEntre, sqlOcorrenciaEntre, valePara } from '../../common/aniversario';
+import { descricaoDoCupom, validadeDoPresente } from '../aniversario/aniversario.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { WhatsappNumeroService } from '../whatsapp/whatsapp-numero.service';
 import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
 import {
+  ANIV_ATRASO_MAX,
+  ANIV_DESCONTO,
+  ANIV_MINIMO,
+  ANIV_QUANDO,
+  ANIV_VALIDADE,
   CASHBACK_DIAS_ANTES,
   CASHBACK_SALDO_MIN,
+  DIAS_ANTES_DO_ANIVERSARIO,
   HORA_MAX,
   HORARIOS,
   INTERVALOS_OFERTA,
   MAX_POR_DIA,
   agoraNaOperacao,
   ajustesDaLinha,
+  codigoDoCupom,
+  cupomDoDesconto,
   dataCurta,
   horaDoEnvio,
   lerAjustes,
@@ -28,27 +38,36 @@ import {
   podeMandarAgora,
   primeiroNome,
   reais,
+  textoAniversarioQr,
   textoCashbackQr,
   type AjustesRelacionamento,
 } from './relacionamento';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// AS AUTOMÁTICAS DE MARKETING (Onda 3 · PR 2, mig 356 — só NUVEM). Delivery › Marketing › Automáticas: os ajustes para
-// todas (frequência, limite por dia, horário) e o "cashback vencendo". Uma rotina, a cada minuto, no horário do envio de
-// cada empresa: SEPARA a lista do dia numa gravação só (o índice único é a trava "uma mensagem por vencimento") e MANDA o
-// que separou, marcando antes de mandar (dois servidores não mandam a mesma). O aniversário e o "sentimos sua falta"
-// entram nos PRs seguintes, pela mesma rotina.
+// AS AUTOMÁTICAS DE MARKETING (Onda 3 — PR 2, mig 356; PR 3, mig 357 — só NUVEM). Delivery › Marketing › Automáticas: os
+// ajustes para todas (frequência, limite por dia, horário), o "cashback vencendo" e o "aniversário". Uma rotina, a cada
+// minuto, no horário do envio de cada empresa: SEPARA a lista do dia numa gravação só (o índice único é a trava "uma
+// mensagem por vencimento" / "uma por ano") e MANDA o que separou, marcando antes de mandar (dois servidores não mandam a
+// mesma). O cupom pessoal do aniversário nasce só na hora de mandar. O "sentimos sua falta" entra no PR 4.
 
 const PUB = () => (process.env.PUBLIC_API_BASE || 'https://api.dmsregem.com/api/v1').replace(/\/+$/, '');
 const APP = () => (process.env.CARDAPIO_PUBLIC_URL || process.env.APP_URL || 'https://app.dmsregem.com').replace(/\/+$/, '');
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** O modelo de utilidade do aviso do cashback na API oficial. */
 export const MODELO_CASHBACK = 'cashback_vencendo';
+/** Os modelos de marketing do aniversário: com o presente e só os parabéns. */
+export const MODELO_ANIV_PRESENTE = 'aniversario_presente';
+export const MODELO_ANIV_PARABENS = 'aniversario_parabens';
 /** Quantas mensagens por minuto, por empresa: a API oficial aguenta; o QR vai devagar (protege o número). */
 const POR_MINUTO = { cloud: 10, evolution: 1 } as const;
 /** Quantos nomes a prévia mostra ("Ver quem"). */
 const NA_PREVIA = 5;
+const NA_PREVIA_ANIV = 8;
+
+export type Tipo = 'cashback' | 'aniversario';
+/** O número que manda: o aviso do cashback é utilidade (o principal, como os avisos do pedido); o resto, o de marketing. */
+const PAPEL: Record<Tipo, 'principal' | 'marketing'> = { cashback: 'principal', aniversario: 'marketing' };
 
 type Prontidao = { pronto: boolean; provedor: 'cloud' | 'evolution'; motivo?: string; instancia?: string | null; phoneId?: string | null; oferta: boolean };
 
@@ -56,7 +75,7 @@ type Prontidao = { pronto: boolean; provedor: 'cloud' | 'evolution'; motivo?: st
 export class RelacionamentoService {
   private readonly logger = new Logger('Automaticas');
   private rodando = false;
-  /** "Já separei a lista de hoje desta empresa" (por processo; a trava de verdade é o índice único). */
+  /** "Já separei a lista de hoje desta empresa, deste tipo" (por processo; a trava de verdade é o índice único). */
   private readonly separado = new Map<string, string>();
   /** "Já perguntei à Meta hoje como está o modelo desta empresa". */
   private readonly perguntouMeta = new Map<string, string>();
@@ -93,6 +112,12 @@ export class RelacionamentoService {
       cashbackAtivo: 'cashback_ativo',
       cashbackDiasAntes: 'cashback_dias_antes',
       cashbackSaldoMin: 'cashback_saldo_min',
+      aniversarioAtivo: 'aniversario_ativo',
+      aniversarioQuando: 'aniversario_quando',
+      aniversarioPresente: 'aniversario_presente',
+      aniversarioDesconto: 'aniversario_desconto',
+      aniversarioMinimo: 'aniversario_minimo',
+      aniversarioValidadeDias: 'aniversario_validade_dias',
     };
     const nomes = mudou.map((k) => sql.raw(colunas[k]));
     const valores = mudou.map((k) => sql`${parcial[k] as any}`);
@@ -140,28 +165,50 @@ export class RelacionamentoService {
 
   // ===================== O número e o modelo =====================
 
-  /** Dá para mandar o aviso do cashback agora? Pelo número principal (é utilidade, como os avisos do pedido). */
-  async prontidaoCashback(tenantId: string, perguntarAMeta = false): Promise<Prontidao> {
+  /** O modelo da API oficial que a automática usa agora. */
+  modeloDe(tipo: Tipo, a: AjustesRelacionamento): string {
+    if (tipo === 'cashback') return MODELO_CASHBACK;
+    return a.aniversarioPresente === 'cupom' ? MODELO_ANIV_PRESENTE : MODELO_ANIV_PARABENS;
+  }
+
+  /**
+   * Dá para mandar agora? O número do papel (principal para o cashback, marketing para o resto); na API oficial, o modelo
+   * aprovado. `oferta`: conta na frequência das ofertas — o cashback só se a Meta o classificou como marketing.
+   */
+  async prontidao(tenantId: string, tipo: Tipo, a: AjustesRelacionamento, perguntarAMeta = false): Promise<Prontidao> {
+    const ofertaPadrao = tipo !== 'cashback';
     let num: any;
     try {
-      num = await this.numeros.resolver(tenantId, 'principal');
+      num = await this.numeros.resolver(tenantId, PAPEL[tipo]);
     } catch {
-      return { pronto: false, provedor: 'evolution', motivo: 'sem WhatsApp conectado', oferta: false };
+      return { pronto: false, provedor: 'evolution', motivo: 'sem WhatsApp conectado', oferta: ofertaPadrao };
     }
     if (num?.provedor === 'cloud') {
-      if (!num.phoneId) return { pronto: false, provedor: 'cloud', motivo: 'sem número da API oficial', oferta: false };
-      let m = await this.modelo(tenantId, MODELO_CASHBACK);
+      if (!num.phoneId) return { pronto: false, provedor: 'cloud', motivo: 'sem número da API oficial', oferta: ofertaPadrao };
+      const nome = this.modeloDe(tipo, a);
+      let m = await this.modelo(tenantId, nome);
       if (m && m.status === 'pendente' && perguntarAMeta) {
-        await this.cloud.atualizarModelo(tenantId, MODELO_CASHBACK).catch(() => undefined);
-        m = await this.modelo(tenantId, MODELO_CASHBACK);
+        await this.cloud.atualizarModelo(tenantId, nome).catch(() => undefined);
+        m = await this.modelo(tenantId, nome);
       }
-      const oferta = m?.categoria === 'MARKETING';
+      const oferta = tipo === 'cashback' ? m?.categoria === 'MARKETING' : true;
       if (!m) return { pronto: false, provedor: 'cloud', motivo: 'o modelo ainda não foi enviado à Meta', oferta };
       if (m.status !== 'aprovado') return { pronto: false, provedor: 'cloud', motivo: `o modelo está ${m.status} na Meta`, oferta };
       return { pronto: true, provedor: 'cloud', phoneId: num.phoneId, oferta };
     }
-    if (!num?.instancia) return { pronto: false, provedor: 'evolution', motivo: 'o WhatsApp da loja não está conectado', oferta: false };
-    return { pronto: true, provedor: 'evolution', instancia: num.instancia, oferta: false };
+    if (!num?.instancia)
+      return {
+        pronto: false,
+        provedor: 'evolution',
+        motivo: PAPEL[tipo] === 'principal' ? 'o WhatsApp da loja não está conectado' : 'o número de marketing não está conectado',
+        oferta: ofertaPadrao,
+      };
+    return { pronto: true, provedor: 'evolution', instancia: num.instancia, oferta: ofertaPadrao };
+  }
+
+  /** Dá para mandar o aviso do cashback agora? (o atalho que o PR 2 usava) */
+  async prontidaoCashback(tenantId: string, perguntarAMeta = false): Promise<Prontidao> {
+    return this.prontidao(tenantId, 'cashback', await this.ajustes(tenantId), perguntarAMeta);
   }
 
   private async modelo(tenantId: string, nome: string): Promise<{ status: string; categoria: string; motivo: string | null } | null> {
@@ -173,12 +220,19 @@ export class RelacionamentoService {
     return r[0] ? { status: String(r[0].status), categoria: String(r[0].categoria), motivo: r[0].motivo_rejeicao ?? null } : null;
   }
 
-  /** "Enviar à Meta" (só API oficial). */
+  /** "Enviar à Meta" (só API oficial). O aniversário manda os dois modelos (com o presente e só os parabéns). */
   async enviarModelo(user: AuthUser, tipo: string): Promise<{ status: string }> {
-    if (tipo !== 'cashback') throw new BadRequestException('Automática desconhecida.');
-    const num = await this.numeros.resolver(user.tenantId, 'principal').catch(() => null);
-    if (num?.provedor !== 'cloud') throw new BadRequestException('O modelo é da API oficial: o número principal da loja usa o QR, e o aviso sai como texto.');
-    const status = await this.cloud.garantirModeloRelacionamento(user.tenantId, MODELO_CASHBACK);
+    if (tipo !== 'cashback' && tipo !== 'aniversario') throw new BadRequestException('Automática desconhecida.');
+    const num = await this.numeros.resolver(user.tenantId, PAPEL[tipo]).catch(() => null);
+    if (num?.provedor !== 'cloud')
+      throw new BadRequestException(
+        tipo === 'cashback'
+          ? 'O modelo é da API oficial: o número principal da loja usa o QR, e o aviso sai como texto.'
+          : 'O modelo é da API oficial: o número de marketing usa o QR, e a mensagem sai como texto.',
+      );
+    const nomes = tipo === 'cashback' ? [MODELO_CASHBACK] : [MODELO_ANIV_PRESENTE, MODELO_ANIV_PARABENS];
+    let status = '';
+    for (const nome of nomes) status = await this.cloud.garantirModeloRelacionamento(user.tenantId, nome);
     await this.auditoria?.registrar({
       tenantId: user.tenantId,
       unidadeId: null,
@@ -189,27 +243,37 @@ export class RelacionamentoService {
       origem: 'marketing',
       entidadeTipo: 'whatsapp_template',
       entidadeId: user.tenantId,
-      detalhe: { modelo: MODELO_CASHBACK, status },
+      detalhe: { modelos: nomes, status },
     });
     return { status };
   }
 
-  // ===================== Quem recebe (cashback) =====================
+  // ===================== Quem recebe =====================
 
-  /**
-   * Os clientes cujo cashback vence entre o dia seguinte ao envio e N dias depois, com saldo de pelo menos R$ X, que
-   * recebem marketing (regra única), que já pediram fora do iFood e da 99 (o telefone dessas é da plataforma) e que ainda
-   * não foram avisados DESTE vencimento. Um por telefone (pela chave). Com o aviso classificado pela Meta como marketing,
-   * também respeita "uma oferta a cada N dias" (somando as campanhas).
-   */
-  private candidatosCashback(tenantId: string, dia: string, a: AjustesRelacionamento, oferta: boolean) {
-    const freq = oferta
+  /** "Uma oferta a cada N dias" somando as automáticas e as campanhas (só para o que é oferta). */
+  private frequencia(tenantId: string, a: AjustesRelacionamento, oferta: boolean) {
+    return oferta
       ? sql`and not exists (select 1 from relacionamento_envio e2 where e2.tenant_id = ${tenantId}::uuid and e2.chave_telefone = x.chave
                and e2.oferta and e2.status = 'enviado' and e2.enviado_em > now() - make_interval(days => ${a.intervaloOfertasDias}::int))
             and not exists (select 1 from campanha_envio ce where ce.tenant_id = ${tenantId}::uuid and ce.status = 'enviado'
                and ce.enviado_em > now() - make_interval(days => ${a.intervaloOfertasDias}::int)
                and ${sqlChaveTelefone(sql`ce.telefone`)} = x.chave)`
       : sql``;
+  }
+
+  /** Quem já pediu fora do iFood e da 99 (o telefone dessas é da plataforma). Alias `c`. */
+  private pediuNaLoja() {
+    return sql`and exists (select 1 from pedido_externo p where p.tenant_id = c.tenant_id and p.cliente_id = c.id
+                             and coalesce(p.canal, '') not in ('ifood', '99food'))`;
+  }
+
+  /**
+   * Os clientes cujo cashback vence entre o dia seguinte ao envio e N dias depois, com saldo de pelo menos R$ X, que
+   * recebem marketing (regra única), que já pediram fora do iFood e da 99 e que ainda não foram avisados DESTE
+   * vencimento. Um por telefone (pela chave). Com o aviso classificado pela Meta como marketing, também respeita "uma
+   * oferta a cada N dias" (somando as campanhas).
+   */
+  private candidatosCashback(tenantId: string, dia: string, a: AjustesRelacionamento, oferta: boolean) {
     return sql`
       select x.* from (
         select distinct on (${sqlChaveTelefone(sql`c.telefone`)})
@@ -231,7 +295,45 @@ export class RelacionamentoService {
       ) x
       where not exists (select 1 from relacionamento_envio e where e.tenant_id = ${tenantId}::uuid and e.tipo = 'cashback'
                           and e.chave_telefone = x.chave and e.referencia = x.referencia)
-      ${freq}`;
+      ${this.frequencia(tenantId, a, oferta)}`;
+  }
+
+  /** A janela do aniversário para o envio do dia: a data alvo (no dia, 3 ou 7 dias antes) e até 3 dias de atraso. */
+  janelaAniversario(dia: string, a: AjustesRelacionamento): { desde: string; ate: string } {
+    const alvo = somarDias(dia, DIAS_ANTES_DO_ANIVERSARIO[a.aniversarioQuando]);
+    return { desde: somarDias(alvo, -ANIV_ATRASO_MAX), ate: alvo };
+  }
+
+  /**
+   * Os aniversariantes da janela com a PROTEÇÃO (regra única em `common/aniversario.ts`): a data informada 30 dias ou
+   * mais antes do aniversário, quem pediu nos últimos 12 meses, um presente a cada 12 meses (com cupom), quem recebe
+   * marketing, quem pediu fora do iFood e da 99, uma vez por ano (a referência é o ano) e "uma oferta a cada N dias".
+   */
+  private candidatosAniversario(tenantId: string, dia: string, a: AjustesRelacionamento) {
+    const { desde, ate } = this.janelaAniversario(dia, a);
+    const presente = a.aniversarioPresente === 'cupom'
+      ? sql`and (ca.ultimo_presente_em is null or ca.ultimo_presente_em < now() - interval '12 months')`
+      : sql``;
+    return sql`
+      select x.* from (
+        select distinct on (${sqlChaveTelefone(sql`c.telefone`)})
+               ${sqlChaveTelefone(sql`c.telefone`)} as chave, c.id as cliente_id, c.nome, c.telefone,
+               o.data as aniversario, to_char(o.data, 'YYYY') as referencia,
+               (select p.unidade_id from pedido_externo p where p.tenant_id = c.tenant_id and p.cliente_id = c.id
+                 order by p.criado_em desc limit 1) as unidade_id
+          from cliente c
+          join cliente_aniversario ca on ca.cliente_id = c.id and ca.tenant_id = c.tenant_id
+          cross join lateral (select ${sqlOcorrenciaEntre(desde, ate)} as data) o
+         where c.tenant_id = ${tenantId}::uuid and ca.dia is not null and o.data is not null
+           and c.ultimo_pedido_em >= now() - interval '12 months'
+           ${presente}
+           ${sqlRecebeMarketing()}
+           ${this.pediuNaLoja()}
+         order by ${sqlChaveTelefone(sql`c.telefone`)}, o.data asc
+      ) x
+      where not exists (select 1 from relacionamento_envio e where e.tenant_id = ${tenantId}::uuid and e.tipo = 'aniversario'
+                          and e.chave_telefone = x.chave and e.referencia = x.referencia)
+      ${this.frequencia(tenantId, a, true)}`;
   }
 
   /** Quantas mensagens das automáticas a empresa já separou no dia (o limite é de todas juntas). */
@@ -256,7 +358,7 @@ export class RelacionamentoService {
       ao_abrir: horaDoEnvio(listas, 'ao_abrir', hoje.dia),
     };
     const prox = this.proximoEnvio(listas, a.horario, hoje);
-    const pronto = await this.prontidaoCashback(tenantId, true);
+    const [pronto, prontoAniv] = await Promise.all([this.prontidao(tenantId, 'cashback', a, true), this.prontidao(tenantId, 'aniversario', a, true)]);
     const modelo = pronto.provedor === 'cloud' ? await this.modelo(tenantId, MODELO_CASHBACK) : null;
 
     let previa: any = null;
@@ -280,6 +382,10 @@ export class RelacionamentoService {
         horarios: [...HORARIOS],
         cashbackDiasAntes: [...CASHBACK_DIAS_ANTES],
         cashbackSaldoMin: [...CASHBACK_SALDO_MIN],
+        aniversarioQuando: [...ANIV_QUANDO],
+        aniversarioDesconto: [...ANIV_DESCONTO],
+        aniversarioMinimo: [...ANIV_MINIMO],
+        aniversarioValidade: [...ANIV_VALIDADE],
       },
       envioHoje,
       cashback: {
@@ -290,15 +396,94 @@ export class RelacionamentoService {
         previa,
         resultado: await this.resultado(tenantId, 'cashback'),
       },
+      aniversario: {
+        provedor: prontoAniv.provedor,
+        pronto: prontoAniv.pronto,
+        motivo: prontoAniv.motivo ?? null,
+        modelos:
+          prontoAniv.provedor === 'cloud'
+            ? {
+                presente: await this.modelo(tenantId, MODELO_ANIV_PRESENTE),
+                parabens: await this.modelo(tenantId, MODELO_ANIV_PARABENS),
+              }
+            : null,
+        informaram: await this.quantosInformaram(tenantId),
+        previa: await this.previaAniversario(tenantId, a),
+        resultado: await this.resultado(tenantId, 'aniversario'),
+      },
     };
   }
 
-  /** "Últimos 30 dias": mensagens, cliques, quem voltou (pediu em até 7 dias depois — a conta das campanhas) e quanto. */
+  private async quantosInformaram(tenantId: string): Promise<number> {
+    const r = this.rows(
+      await this.db.execute(sql`select count(*)::int as n from cliente_aniversario where tenant_id = ${tenantId}::uuid and dia is not null`),
+    );
+    return Number(r[0]?.n ?? 0);
+  }
+
+  /**
+   * "Esta semana: 3 presentes (5 aniversários)" + o "Ver quem" com o motivo de cada um — os aniversários dos próximos 7
+   * dias, com a mesma ordem da regra: saiu, só iFood/99, não pede há 12 meses, a carência, o presente nos 12 meses, já
+   * recebeu este ano, oferta recente.
+   */
+  async previaAniversario(tenantId: string, a: AjustesRelacionamento) {
+    const hoje = hojeISO();
+    const fim = somarDias(hoje, 6);
+    const r = this.rows(
+      await this.db.execute(sql`
+        select c.nome, c.ultimo_pedido_em, ca.dia, ca.mes, ca.informado_em, ca.ultimo_presente_em,
+               ${sqlOcorrenciaEntre(hoje, fim, false)} as aniversario,
+               (c.opt_out_marketing or coalesce(c.telefone, '') = '' or c.telefone like 'S/N-%'
+                or exists (select 1 from marketing_optout mo where mo.tenant_id = c.tenant_id
+                             and ${sqlChaveTelefone(sql`mo.telefone`)} = ${sqlChaveTelefone(sql`c.telefone`)})) as saiu,
+               exists (select 1 from pedido_externo p where p.tenant_id = c.tenant_id and p.cliente_id = c.id
+                         and coalesce(p.canal, '') not in ('ifood', '99food')) as na_loja,
+               exists (select 1 from relacionamento_envio e where e.tenant_id = c.tenant_id and e.tipo = 'aniversario'
+                         and e.chave_telefone = ${sqlChaveTelefone(sql`c.telefone`)} and e.status = 'enviado'
+                         and e.referencia = to_char(${sqlOcorrenciaEntre(hoje, fim, false)}, 'YYYY')) as ja_recebeu,
+               (exists (select 1 from relacionamento_envio e2 where e2.tenant_id = c.tenant_id and e2.oferta and e2.status = 'enviado'
+                          and e2.chave_telefone = ${sqlChaveTelefone(sql`c.telefone`)}
+                          and e2.enviado_em > now() - make_interval(days => ${a.intervaloOfertasDias}::int))
+                or exists (select 1 from campanha_envio ce where ce.tenant_id = c.tenant_id and ce.status = 'enviado'
+                          and ce.enviado_em > now() - make_interval(days => ${a.intervaloOfertasDias}::int)
+                          and ${sqlChaveTelefone(sql`ce.telefone`)} = ${sqlChaveTelefone(sql`c.telefone`)})) as oferta_recente
+          from cliente c join cliente_aniversario ca on ca.cliente_id = c.id and ca.tenant_id = c.tenant_id
+         where c.tenant_id = ${tenantId}::uuid and ca.dia is not null and ${sqlOcorrenciaEntre(hoje, fim, false)} is not null
+         order by 7 asc, c.nome asc
+         limit 200`),
+    );
+    const doze = Date.now() - 365 * 86_400_000;
+    const { tipo, valor } = cupomDoDesconto(a.aniversarioDesconto);
+    const presenteTxt = a.aniversarioPresente === 'cupom' ? `cupom ${descricaoDoCupom(tipo, valor, a.aniversarioMinimo)}` : 'só os parabéns';
+    let recebem = 0;
+    const lista = r.map((x) => {
+      const quando = dataCurta(`${String(x.aniversario).slice(0, 10)}T15:00:00Z`);
+      const aniversario = String(x.aniversario).slice(0, 10);
+      let motivo: string;
+      if (x.saiu) motivo = 'pediu para sair: não recebe';
+      else if (!x.na_loja) motivo = 'só pediu pelo iFood ou pela 99';
+      else if (!x.ultimo_pedido_em || new Date(x.ultimo_pedido_em).getTime() < doze) motivo = 'não pede há mais de 12 meses';
+      else if (!valePara(x.informado_em, aniversario))
+        motivo = `informou em ${dataCurta(x.informado_em)}: fica para o ano que vem (menos de 30 dias)`;
+      else if (a.aniversarioPresente === 'cupom' && x.ultimo_presente_em && new Date(x.ultimo_presente_em).getTime() > doze)
+        motivo = 'já ganhou presente nos últimos 12 meses';
+      else if (x.ja_recebeu) motivo = 'já recebeu este ano';
+      else if (x.oferta_recente) motivo = `recebeu uma oferta nos últimos ${a.intervaloOfertasDias} dias: não recebe`;
+      else {
+        motivo = presenteTxt;
+        recebem += 1;
+      }
+      return { nome: nomeCurto(x.nome), detalhe: `${quando} · ${motivo}` };
+    });
+    return { inicio: hoje, fim, aniversarios: r.length, recebem, lista: lista.slice(0, NA_PREVIA_ANIV) };
+  }
+
+  /** "Últimos 30 dias": mensagens, cliques, quem voltou (pediu em até 7 dias depois — a conta das campanhas), quanto e os cupons usados. */
   async resultado(tenantId: string, tipo: string) {
     const r = this.rows(
       await this.db.execute(sql`
         with env as (
-          select id, cliente_id, enviado_em, clicou_em from relacionamento_envio
+          select id, cliente_id, enviado_em, clicou_em, cupom_id from relacionamento_envio
            where tenant_id = ${tenantId}::uuid and tipo = ${tipo} and status = 'enviado'
              and enviado_em > now() - interval '30 days'
         ),
@@ -310,10 +495,18 @@ export class RelacionamentoService {
         select (select count(*) from env)::int as mensagens,
                (select count(clicou_em) from env)::int as cliques,
                (select count(distinct cliente_id) from ped)::int as voltaram,
-               (select coalesce(sum(total), 0) from ped)::float8 as valor`),
+               (select coalesce(sum(total), 0) from ped)::float8 as valor,
+               (select count(*) from env where cupom_id is not null
+                  and exists (select 1 from cupom_uso u where u.cupom_id = env.cupom_id))::int as cupons`),
     );
     const x = r[0] ?? {};
-    return { mensagens: Number(x.mensagens ?? 0), cliques: Number(x.cliques ?? 0), voltaram: Number(x.voltaram ?? 0), valor: Number(x.valor ?? 0) };
+    return {
+      mensagens: Number(x.mensagens ?? 0),
+      cliques: Number(x.cliques ?? 0),
+      voltaram: Number(x.voltaram ?? 0),
+      valor: Number(x.valor ?? 0),
+      cupons: Number(x.cupons ?? 0),
+    };
   }
 
   // ===================== A rotina =====================
@@ -323,7 +516,9 @@ export class RelacionamentoService {
     if (ehServidorLocal() || this.rodando) return; // só a NUVEM manda (o WhatsApp mora lá)
     this.rodando = true;
     try {
-      const empresas = this.rows(await this.db.execute(sql`select tenant_id from relacionamento_config where cashback_ativo`));
+      const empresas = this.rows(
+        await this.db.execute(sql`select tenant_id from relacionamento_config where cashback_ativo or aniversario_ativo`),
+      );
       for (const e of empresas) {
         try {
           await this.rodarEmpresa(String(e.tenant_id));
@@ -338,44 +533,77 @@ export class RelacionamentoService {
     }
   }
 
-  /** Uma passada numa empresa: no horário, separa a lista do dia (uma vez) e manda um punhado. */
+  /**
+   * Uma passada numa empresa: no horário, para cada automática ligada e pronta (o cashback primeiro — tem prazo), separa
+   * a lista do dia (uma vez; o limite do dia é de todas juntas) e manda um punhado.
+   */
   async rodarEmpresa(tenantId: string, agora = agoraNaOperacao()): Promise<{ separados: number; enviados: number }> {
     const a = await this.ajustes(tenantId);
-    if (!a.cashbackAtivo) return { separados: 0, enviados: 0 };
+    if (!a.cashbackAtivo && !a.aniversarioAtivo) return { separados: 0, enviados: 0 };
     const listas = await this.horarios(tenantId);
     if (!podeMandarAgora(listas, a.horario, agora)) return { separados: 0, enviados: 0 };
     const dia = hojeISO();
-    const perguntar = this.perguntouMeta.get(tenantId) !== dia;
-    const pronto = await this.prontidaoCashback(tenantId, perguntar);
-    if (perguntar) this.perguntouMeta.set(tenantId, dia);
-    if (!pronto.pronto) return { separados: 0, enviados: 0 };
-
     let separados = 0;
-    if (this.separado.get(tenantId) !== dia) {
-      separados = await this.separarCashback(tenantId, dia, a, pronto.oferta);
-      this.separado.set(tenantId, dia);
+    let enviados = 0;
+    for (const tipo of ['cashback', 'aniversario'] as Tipo[]) {
+      if (!(tipo === 'cashback' ? a.cashbackAtivo : a.aniversarioAtivo)) continue;
+      const chave = `${tenantId}|${tipo}`;
+      const perguntar = this.perguntouMeta.get(chave) !== dia;
+      const pronto = await this.prontidao(tenantId, tipo, a, perguntar);
+      if (perguntar) this.perguntouMeta.set(chave, dia);
+      if (!pronto.pronto) continue;
+      if (this.separado.get(chave) !== dia) {
+        separados += tipo === 'cashback' ? await this.separarCashback(tenantId, dia, a, pronto.oferta) : await this.separarAniversario(tenantId, dia, a);
+        this.separado.set(chave, dia);
+      }
+      enviados += await this.mandar(tenantId, dia, a, pronto, tipo);
     }
-    const enviados = await this.mandar(tenantId, dia, a, pronto);
     return { separados, enviados };
+  }
+
+  /** O que ficou separado de um dia anterior sem sair volta a valer (some e pode entrar de novo). */
+  private async soltarPendentesAntigos(tenantId: string, dia: string, tipo: Tipo) {
+    await this.db.execute(sql`
+      delete from relacionamento_envio where tenant_id = ${tenantId}::uuid and tipo = ${tipo} and status = 'pendente' and dia < ${dia}::date`);
+  }
+
+  /** O limite do dia (todas as automáticas juntas), dentro da gravação. */
+  private vagasSql(tenantId: string, dia: string, a: AjustesRelacionamento) {
+    return sql`greatest(0, ${a.maxPorDia}::int - (select count(*)::int from relacionamento_envio u
+                                                   where u.tenant_id = ${tenantId}::uuid and u.dia = ${dia}::date
+                                                     and u.status in ('pendente', 'enviado', 'falha')))`;
   }
 
   /**
    * Separa a lista do dia numa gravação só: até o limite do dia (todas as automáticas juntas), quem vence antes
-   * primeiro. A trava contra mandar duas vezes é o índice único (um aviso por vencimento). O que ficou separado de um dia
-   * anterior sem sair volta a valer (some e pode entrar de novo).
+   * primeiro. A trava contra mandar duas vezes é o índice único (um aviso por vencimento).
    */
   async separarCashback(tenantId: string, dia: string, a: AjustesRelacionamento, oferta: boolean): Promise<number> {
-    await this.db.execute(sql`
-      delete from relacionamento_envio where tenant_id = ${tenantId}::uuid and status = 'pendente' and dia < ${dia}::date`);
+    await this.soltarPendentesAntigos(tenantId, dia, 'cashback');
     const r = this.rows(
       await this.db.execute(sql`
         insert into relacionamento_envio (tenant_id, tipo, chave_telefone, referencia, telefone, cliente_id, unidade_id, dia, oferta, valor, vence_em)
         select ${tenantId}::uuid, 'cashback', q.chave, q.referencia, q.telefone, q.cliente_id, q.unidade_id, ${dia}::date, ${oferta}, q.saldo, q.expira_em
           from (${this.candidatosCashback(tenantId, dia, a, oferta)}) q
          order by q.expira_em asc, q.saldo desc
-         limit greatest(0, ${a.maxPorDia}::int - (select count(*)::int from relacionamento_envio u
-                                                   where u.tenant_id = ${tenantId}::uuid and u.dia = ${dia}::date
-                                                     and u.status in ('pendente', 'enviado', 'falha')))
+         limit ${this.vagasSql(tenantId, dia, a)}
+        on conflict (tenant_id, tipo, chave_telefone, referencia) do nothing
+        returning id`),
+    );
+    return r.length;
+  }
+
+  /** Separa os aniversariantes do dia (uma vez por ano por telefone — a referência é o ano). */
+  async separarAniversario(tenantId: string, dia: string, a: AjustesRelacionamento): Promise<number> {
+    await this.soltarPendentesAntigos(tenantId, dia, 'aniversario');
+    const r = this.rows(
+      await this.db.execute(sql`
+        insert into relacionamento_envio (tenant_id, tipo, chave_telefone, referencia, telefone, cliente_id, unidade_id, dia, oferta, vence_em)
+        select ${tenantId}::uuid, 'aniversario', q.chave, q.referencia, q.telefone, q.cliente_id, q.unidade_id, ${dia}::date, true,
+               (q.aniversario::timestamp + interval '12 hours') at time zone ${FUSO_SQL}
+          from (${this.candidatosAniversario(tenantId, dia, a)}) q
+         order by q.aniversario asc
+         limit ${this.vagasSql(tenantId, dia, a)}
         on conflict (tenant_id, tipo, chave_telefone, referencia) do nothing
         returning id`),
     );
@@ -384,14 +612,14 @@ export class RelacionamentoService {
 
   /**
    * Manda o que foi separado para o dia: marca como enviado ANTES de mandar (`for update skip locked` — dois servidores
-   * nunca pegam a mesma linha); confere de novo quem saiu e o saldo; falha volta como `falha`, com o motivo.
+   * nunca pegam a mesma linha); confere de novo o que pode ter mudado; falha volta como `falha`, com o motivo.
    */
-  async mandar(tenantId: string, dia: string, a: AjustesRelacionamento, pronto: Prontidao): Promise<number> {
+  async mandar(tenantId: string, dia: string, a: AjustesRelacionamento, pronto: Prontidao, tipo: Tipo = 'cashback'): Promise<number> {
     const lote = this.rows(
       await this.db.execute(sql`
         update relacionamento_envio set status = 'enviado', enviado_em = now()
          where id in (select id from relacionamento_envio
-                       where tenant_id = ${tenantId}::uuid and dia = ${dia}::date and status = 'pendente'
+                       where tenant_id = ${tenantId}::uuid and tipo = ${tipo} and dia = ${dia}::date and status = 'pendente'
                        order by vence_em asc nulls last, criado_em asc
                        limit ${POR_MINUTO[pronto.provedor]} for update skip locked)
         returning *`),
@@ -408,48 +636,145 @@ export class RelacionamentoService {
           await fora('pediu para sair');
           continue;
         }
-        // O saldo de agora: usou (ou caiu do mínimo) não recebe; ganhou de novo (o vencimento mudou), também não — o
-        // aviso deste vencimento não vale mais.
-        const s = this.rows(
-          await this.db.execute(sql`
-            select saldo::float8 as saldo, expira_em,
-                   to_char((expira_em at time zone ${FUSO_SQL})::date, 'YYYY-MM-DD') as referencia
-              from cashback_saldo
-             where tenant_id = ${tenantId}::uuid and tipo = 'valor' and ${sqlChaveTelefone(sql`telefone`)} = ${e.chave_telefone}
-             order by expira_em asc nulls last limit 1`),
-        )[0];
-        if (!s || Number(s.saldo) < a.cashbackSaldoMin) {
-          await fora('usou o saldo');
-          continue;
-        }
-        if (s.referencia !== e.referencia) {
-          await fora('o vencimento mudou');
-          continue;
-        }
-        const nome = String(
-          this.rows(await this.db.execute(sql`select nome from cliente where id = ${e.cliente_id}::uuid`))[0]?.nome ?? '',
-        );
-        const tel = String(e.telefone).replace(/\D/g, '');
-        const numero = tel.length === 10 || tel.length === 11 ? `55${tel}` : tel;
-        if (pronto.provedor === 'cloud') {
-          await this.cloud.enviarTemplate(tenantId, numero, MODELO_CASHBACK, 'pt_BR', [primeiroNome(nome) || 'cliente', reais(s.saldo), dataCurta(s.expira_em)], {
-            envioId: String(e.id),
-            phoneId: pronto.phoneId ?? undefined,
-          });
-        } else {
-          const loja = await this.nomeDaLoja(tenantId, e.unidade_id ?? null);
-          const texto = textoCashbackQr({ nome, valor: Number(s.saldo), loja, vence: s.expira_em, link: `${PUB()}/publico/relacionamento/r/${e.id}` });
-          await this.whatsapp.enviarPorInstancia(tenantId, String(pronto.instancia), numero, texto);
-        }
-        await this.db.execute(sql`update relacionamento_envio set valor = ${Number(s.saldo)}, vence_em = ${s.expira_em} where id = ${e.id}::uuid`);
-        enviados += 1;
+        const ok = tipo === 'cashback' ? await this.mandarCashback(tenantId, e, a, pronto, fora) : await this.mandarAniversario(tenantId, dia, e, a, pronto, fora);
+        if (ok) enviados += 1;
       } catch (err: any) {
         const motivo = String(err?.message ?? err).slice(0, 300);
         await this.db.execute(sql`update relacionamento_envio set status = 'falha', motivo = ${motivo} where id = ${e.id}::uuid`);
-        this.logger.warn(`aviso do cashback (empresa ${tenantId}, envio ${e.id}) não saiu: ${motivo}`);
+        this.logger.warn(`automática ${tipo} (empresa ${tenantId}, envio ${e.id}) não saiu: ${motivo}`);
       }
     }
     return enviados;
+  }
+
+  private numeroParaMandar(telefone: string): string {
+    const tel = String(telefone).replace(/\D/g, '');
+    return tel.length === 10 || tel.length === 11 ? `55${tel}` : tel;
+  }
+
+  private async nomeDoCliente(clienteId: string | null): Promise<string> {
+    if (!clienteId) return '';
+    return String(this.rows(await this.db.execute(sql`select nome from cliente where id = ${clienteId}::uuid`))[0]?.nome ?? '');
+  }
+
+  /** O aviso do cashback: o saldo de agora (usou ou ganhou de novo → não manda) e o modelo de utilidade ou o texto do QR. */
+  private async mandarCashback(tenantId: string, e: any, a: AjustesRelacionamento, pronto: Prontidao, fora: (m: string) => Promise<unknown>): Promise<boolean> {
+    const s = this.rows(
+      await this.db.execute(sql`
+        select saldo::float8 as saldo, expira_em,
+               to_char((expira_em at time zone ${FUSO_SQL})::date, 'YYYY-MM-DD') as referencia
+          from cashback_saldo
+         where tenant_id = ${tenantId}::uuid and tipo = 'valor' and ${sqlChaveTelefone(sql`telefone`)} = ${e.chave_telefone}
+         order by expira_em asc nulls last limit 1`),
+    )[0];
+    if (!s || Number(s.saldo) < a.cashbackSaldoMin) {
+      await fora('usou o saldo');
+      return false;
+    }
+    if (s.referencia !== e.referencia) {
+      await fora('o vencimento mudou');
+      return false;
+    }
+    const nome = await this.nomeDoCliente(e.cliente_id ?? null);
+    const numero = this.numeroParaMandar(e.telefone);
+    if (pronto.provedor === 'cloud') {
+      await this.cloud.enviarTemplate(tenantId, numero, MODELO_CASHBACK, 'pt_BR', [primeiroNome(nome) || 'cliente', reais(s.saldo), dataCurta(s.expira_em)], {
+        envioId: String(e.id),
+        phoneId: pronto.phoneId ?? undefined,
+      });
+    } else {
+      const loja = await this.nomeDaLoja(tenantId, e.unidade_id ?? null);
+      const texto = textoCashbackQr({ nome, valor: Number(s.saldo), loja, vence: s.expira_em, link: `${PUB()}/publico/relacionamento/r/${e.id}` });
+      await this.whatsapp.enviarPorInstancia(tenantId, String(pronto.instancia), numero, texto);
+    }
+    await this.db.execute(sql`update relacionamento_envio set valor = ${Number(s.saldo)}, vence_em = ${s.expira_em} where id = ${e.id}::uuid`);
+    return true;
+  }
+
+  /**
+   * Os parabéns: confere de novo a PROTEÇÃO (a data pode ter mudado; o presente dos 12 meses), cria o cupom PESSOAL (só
+   * agora — envio que não sai não deixa cupom), manda e marca o presente. Falhou o envio: o cupom fica desligado.
+   */
+  private async mandarAniversario(tenantId: string, dia: string, e: any, a: AjustesRelacionamento, pronto: Prontidao, fora: (m: string) => Promise<unknown>): Promise<boolean> {
+    const [ca] = this.rows(
+      await this.db.execute(sql`select dia, mes, informado_em, ultimo_presente_em from cliente_aniversario where cliente_id = ${e.cliente_id}::uuid`),
+    );
+    const { desde, ate } = this.janelaAniversario(dia, a);
+    const ocorrencia = aniversarioValendoEntre(ca ? { dia: ca.dia, mes: ca.mes, informadoEm: ca.informado_em } : null, desde, ate);
+    if (!ocorrencia || ocorrencia.slice(0, 4) !== e.referencia) {
+      await fora('a data mudou');
+      return false;
+    }
+    const comPresente = a.aniversarioPresente === 'cupom';
+    if (comPresente && ca.ultimo_presente_em && new Date(ca.ultimo_presente_em).getTime() > Date.now() - 365 * 86_400_000) {
+      await fora('já ganhou presente nos últimos 12 meses');
+      return false;
+    }
+    const nome = await this.nomeDoCliente(e.cliente_id ?? null);
+    const numero = this.numeroParaMandar(e.telefone);
+    let cupom: { id: string; codigo: string; descricao: string; ate: string } | null = null;
+    if (comPresente) cupom = await this.criarCupomPessoal(tenantId, e, a, nome);
+    try {
+      if (pronto.provedor === 'cloud') {
+        if (cupom)
+          await this.cloud.enviarTemplate(tenantId, numero, MODELO_ANIV_PRESENTE, 'pt_BR', [primeiroNome(nome) || 'cliente', cupom.descricao, dataCurta(`${cupom.ate}T15:00:00Z`)], {
+            envioId: String(e.id),
+            cupom: cupom.codigo,
+            phoneId: pronto.phoneId ?? undefined,
+          });
+        else
+          await this.cloud.enviarTemplate(tenantId, numero, MODELO_ANIV_PARABENS, 'pt_BR', [primeiroNome(nome) || 'cliente'], {
+            envioId: String(e.id),
+            phoneId: pronto.phoneId ?? undefined,
+          });
+      } else {
+        const loja = await this.nomeDaLoja(tenantId, e.unidade_id ?? null);
+        const texto = textoAniversarioQr({
+          nome,
+          loja,
+          link: `${PUB()}/publico/relacionamento/r/${e.id}`,
+          presente: cupom ? { descricao: cupom.descricao, ate: cupom.ate, cupom: cupom.codigo } : null,
+        });
+        await this.whatsapp.enviarPorInstancia(tenantId, String(pronto.instancia), numero, texto);
+      }
+    } catch (err) {
+      if (cupom) await this.db.execute(sql`update cupom set ativo = false where id = ${cupom.id}::uuid`);
+      throw err;
+    }
+    if (comPresente)
+      await this.db.execute(sql`update cliente_aniversario set ultimo_presente_em = now(), atualizado_em = now() where cliente_id = ${e.cliente_id}::uuid`);
+    if (cupom) await this.db.execute(sql`update relacionamento_envio set cupom_id = ${cupom.id}::uuid where id = ${e.id}::uuid`);
+    return true;
+  }
+
+  /**
+   * O cupom PESSOAL do presente: uso único, só do cliente (a regra em `cupom_regra`), com o desconto, o mínimo e a validade
+   * dos ajustes. O código é sorteado; repetido (índice único da empresa), sorteia de novo.
+   */
+  private async criarCupomPessoal(tenantId: string, e: any, a: AjustesRelacionamento, nome: string) {
+    const { tipo, valor } = cupomDoDesconto(a.aniversarioDesconto);
+    const ate = validadeDoPresente(a.aniversarioValidadeDias);
+    const minimo = a.aniversarioMinimo > 0 ? a.aniversarioMinimo : null;
+    for (let tentativa = 0; tentativa < 6; tentativa += 1) {
+      const codigo = codigoDoCupom('NIVER');
+      try {
+        const [c] = this.rows(
+          await this.db.execute(sql`
+            insert into cupom (tenant_id, codigo, tipo, valor, minimo, ativo, validade, valido_de, max_usos, max_por_cliente, nome)
+            values (${tenantId}::uuid, ${codigo}, ${tipo}, ${String(valor)}, ${minimo === null ? null : String(minimo)}, true,
+                    ${ate}::date, ${dataNoFuso(new Date())}::date, 1, 1, ${`Aniversário · ${nomeCurto(nome)}`})
+            returning id`),
+        );
+        await this.db.execute(sql`
+          insert into cupom_regra (cupom_id, tenant_id, cliente_id, chave_telefone, origem, relacionamento_envio_id)
+          values (${c.id}::uuid, ${tenantId}::uuid, ${e.cliente_id}::uuid, ${e.chave_telefone}, 'aniversario', ${e.id}::uuid)`);
+        return { id: String(c.id), codigo, descricao: descricaoDoCupom(tipo, valor, minimo ?? 0), ate };
+      } catch (err: any) {
+        if (err?.code === '23505' || /duplicate key/i.test(String(err?.message))) continue;
+        throw err;
+      }
+    }
+    throw new Error('não consegui sortear um código de cupom livre');
   }
 
   /** O nome da loja do último pedido do cliente (empresa com várias lojas); senão o da empresa. */
@@ -469,8 +794,9 @@ export class RelacionamentoService {
   // ===================== O clique =====================
 
   /**
-   * O botão "Ver meu saldo" (e o link do QR): marca o clique (uma vez) e devolve o endereço de Sua conta › Benefícios no
-   * cardápio da loja do envio. Envio desconhecido (o exemplo que a Meta abre na análise): o endereço do app.
+   * O botão do WhatsApp (e o link do QR): marca o clique (uma vez) e devolve o endereço no cardápio da loja do envio — o
+   * cashback em Sua conta › Benefícios; o presente com o cupom já aplicado (`?cupom=`); sem cupom, o cardápio. Envio
+   * desconhecido (o exemplo que a Meta abre na análise): o endereço do app.
    */
   async destinoDoClique(id: string): Promise<string> {
     if (!UUID.test(String(id ?? ''))) return APP();
@@ -478,7 +804,7 @@ export class RelacionamentoService {
       await this.db.execute(sql`
         update relacionamento_envio set clicou_em = coalesce(clicou_em, now())
          where id = ${id}::uuid
-        returning tenant_id, unidade_id`),
+        returning tenant_id, unidade_id, tipo, cupom_id`),
     );
     if (!r[0]) return APP();
     // O cardápio da loja do envio; senão o da empresa; senão qualquer um da empresa.
@@ -489,6 +815,12 @@ export class RelacionamentoService {
          order by (unidade_id is not distinct from ${r[0].unidade_id ?? null}::uuid) desc, (unidade_id is null) desc
          limit 1`),
     )[0];
-    return cfg?.token ? `${APP()}/c/${cfg.token}?conta=beneficios` : APP();
+    if (!cfg?.token) return APP();
+    if (r[0].tipo === 'cashback') return `${APP()}/c/${cfg.token}?conta=beneficios`;
+    if (r[0].cupom_id) {
+      const [c] = this.rows(await this.db.execute(sql`select codigo from cupom where id = ${r[0].cupom_id}::uuid`));
+      if (c?.codigo) return `${APP()}/c/${cfg.token}?cupom=${encodeURIComponent(String(c.codigo))}`;
+    }
+    return `${APP()}/c/${cfg.token}`;
   }
 }
