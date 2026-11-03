@@ -72,7 +72,17 @@ descrever('"Cheguei" na retirada (Postgres)', () => {
 
   beforeAll(async () => {
     delete process.env.EDGE_MODE; // como NUVEM: é lá que o cliente avisa (o jest do CI roda sem EDGE_MODE — V44)
-    await aplicar('354_cheguei_na_retirada.sql'); // idempotente: no banco do CI ela já veio pelo apply-all
+    // Só quando falta (banco local antigo). No CI ela já veio pelo apply-all, e rodar o DDL de novo (o `alter table
+    // cardapio_config` e os gatilhos da tabela nova) no meio das outras suítes deu impasse na limpeza de uma delas, que
+    // apaga a empresa de teste em cascata (`deadlock detected` no PR #805 — ERR-351).
+    const [{ falta }] = (
+      await pool.query(
+        `select to_regclass('pedido_chegada') is null
+             or not exists (select 1 from information_schema.columns where table_schema = current_schema()
+                             and table_name = 'cardapio_config' and column_name = 'cheguei_de_novo_min') as falta`,
+      )
+    ).rows;
+    if (falta) await aplicar('354_cheguei_na_retirada.sql');
   });
   beforeEach(segredoDeTeste);
   afterEach(voltarEnv);
