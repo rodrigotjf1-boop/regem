@@ -463,6 +463,17 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
     if (p && !p.esgotado) abrirProduto(p);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, produtos]);
+  // LINK DIRETO DE SUA CONTA (`?conta=beneficios` — o botão "Ver meu saldo" do aviso do cashback; Onda 3): abre Sua
+  // conta na aba pedida assim que o cardápio carrega, uma vez só.
+  const [abaInicialConta, setAbaInicialConta] = useState<'pedidos' | 'beneficios' | 'perfil' | null>(null);
+  const contaDoLinkRef = useRef(false);
+  useEffect(() => {
+    const alvo = search?.get('conta');
+    if (!menu || contaDoLinkRef.current || (alvo !== 'beneficios' && alvo !== 'pedidos' && alvo !== 'perfil')) return;
+    contaDoLinkRef.current = true;
+    setAbaInicialConta(alvo);
+    abrir('conta');
+  }, [search, menu, abrir]);
   /**
    * "+" direto (produto sem escolha obrigatória): entra como entraria pelo produto — com as
    * opções que o cadastro traz pré-marcadas ("Talheres? Sim"), respeitando o máximo do grupo.
@@ -1102,7 +1113,7 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
     freteGratisAcima, gratisAcima, promosLoja, fidStatus, cashbackInfo,
     abrirBanner, produtoDoBanner, precisaEscolha, fotoDe, proximaAbertura,
     // navegação
-    pilha, topo, abrir, voltar, fecharTudo, etapaAtual, checkoutAberto, toast, avisar, pulo,
+    pilha, topo, abrir, voltar, fecharTudo, etapaAtual, checkoutAberto, toast, avisar, pulo, abaInicialConta,
     // produto e carrinho
     sel, abrirProduto, adicionarRapido, adicionarDoProduto, onAdd,
     cart, qtdItens, total, mudarQtd, removeItem, upsell: upsellFinal, reordenar, reordenarUltimo, ultimoPedido,

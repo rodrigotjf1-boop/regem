@@ -418,8 +418,19 @@ export class CashbackService {
         ),
       );
     const planos = await this.planosPublicos(tenantId);
+    // Quando o saldo em R$ vence (Sua conta › Benefícios: "Vence em 06/11"; Onda 3). Só com saldo e data no futuro — a
+    // data vencida já zerou o saldo na leitura de cima.
+    let valorVenceEm: string | null = null;
+    if (valor > 0) {
+      const [s] = await this.db
+        .select({ expiraEm: cashbackSaldo.expiraEm })
+        .from(cashbackSaldo)
+        .where(and(eq(cashbackSaldo.tenantId, tenantId), eq(cashbackSaldo.telefone, tel), eq(cashbackSaldo.tipo, 'valor')));
+      if (s?.expiraEm && new Date(s.expiraEm) > new Date()) valorVenceEm = new Date(s.expiraEm).toISOString();
+    }
     return {
       valor,
+      valorVenceEm,
       pontos,
       vales: vales.map((v) => ({ id: v.id, descricao: v.descricao, valor: Number(v.valor) })),
       planos,
