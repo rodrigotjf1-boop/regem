@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import {
   antesAgora,
   brl,
+  depoisQueSaiu,
   horaDaAlteracao,
   linhasDosItens,
   mudouACozinha,
@@ -61,6 +62,7 @@ export function AlteracaoDoPedido({ pedidoId, versao, silencioso }: { pedidoId: 
   const m = ultima.mudanca;
   const itens = linhasDosItens(m);
   const vias = textoDasVias(ultima, dados.impressoras);
+  const saiu = depoisQueSaiu(ultima);
   const a = ultima.antes;
   const d = ultima.depois;
 
@@ -70,6 +72,7 @@ export function AlteracaoDoPedido({ pedidoId, versao, silencioso }: { pedidoId: 
     <section className="mt-3 rounded-lg border border-warn/40 bg-warn/5 px-3 py-2 text-sm" aria-label="O que mudou no pedido" data-alteracao>
       <p className="font-bold text-warn">
         Alterado às {horaDaAlteracao(ultima.createdAt)} · {quemAlterou(ultima)}
+        {saiu ? ' · depois que saiu' : ''}
       </p>
       {ultima.pedidoDoCliente && <p className="mt-1 break-words text-xs text-muted-foreground">O cliente pediu: “{ultima.pedidoDoCliente}”</p>}
 
@@ -118,7 +121,13 @@ export function AlteracaoDoPedido({ pedidoId, versao, silencioso }: { pedidoId: 
           </>
         ) : null}
         <dt className="text-muted-foreground">Vias</dt>
-        <dd>{vias ? `${vias} ✓` : 'nenhuma via saiu (confira as impressoras)'}</dd>
+        <dd>
+          {saiu
+            ? 'nenhuma: o pedido já tinha saído (a equipe avisa o entregador pelo WhatsApp)'
+            : vias
+              ? `${vias} ✓`
+              : 'nenhuma via saiu (confira as impressoras)'}
+        </dd>
         {(d?.cozinha ?? mudouACozinha(m)) && (
           <>
             <dt className="text-muted-foreground">Cozinha</dt>
@@ -134,7 +143,11 @@ export function AlteracaoDoPedido({ pedidoId, versao, silencioso }: { pedidoId: 
         {m.endereco && (
           <>
             <dt className="text-muted-foreground">Entregador</dt>
-            <dd>a posição do endereço antigo foi apagada e o caminho sai do novo</dd>
+            <dd>
+              {saiu
+                ? 'já estava na rua: a equipe avisa pelo WhatsApp; o app dele refaz o caminho pelo endereço novo'
+                : 'a posição do endereço antigo foi apagada e o caminho sai do novo'}
+            </dd>
           </>
         )}
       </dl>

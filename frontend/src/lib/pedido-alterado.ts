@@ -31,7 +31,12 @@ export type Alteracao = {
   pedidoDoCliente: string | null;
   motivo?: string | null; // por que o servidor da loja recusou
   vencida?: boolean; // a "pedida" passou da validade sem resposta da loja (a regra é do servidor)
+  // O que foi pedido; `depoisQueSaiu` = o endereço mudado pelo caso urgente de Atendimento com o pedido já na rua (PR 3b-2).
+  pedido?: { depoisQueSaiu?: boolean } | null;
 };
+
+/** A alteração foi feita depois que o pedido saiu (só o endereço, sem via — a equipe avisa o entregador pelo WhatsApp). */
+export const depoisQueSaiu = (a: Pick<Alteracao, 'pedido'>) => a.pedido?.depoisQueSaiu === true;
 export type HistoricoDaAlteracao = {
   alteracoes: Alteracao[];
   impressoras: Record<string, string>;

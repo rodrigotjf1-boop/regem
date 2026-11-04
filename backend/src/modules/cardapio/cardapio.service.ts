@@ -104,6 +104,7 @@ import { gravarOrigemPedido, medicaoDeAnuncios } from './origem-pedido';
 import { escolhaNoCheckout, promocoesDaLoja } from './promocoes-cardapio';
 import { TIPOS_EVENTO_FUNIL, ehTemplateCardapio, proximaAberturaDe, templateDoCardapio } from './menu-themes';
 import { ehEventoCardapio, eventoEmPrevia, eventoNoAr, lerEventos } from './eventos-cardapio';
+import type { Distancia } from '../atendimento/endereco-depois-que-saiu';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // O tema que a tela mandou, sem a chave dos eventos sazonais (ela não se grava pela rota geral).
@@ -1239,20 +1240,65 @@ export class CardapioService {
   // Usa a mesma infra OSRM_URL do app do entregador. FALLBACK: sem OSRM_URL / fora / fora
   // de cobertura / timeout → null (o chamador cai no Haversine).
   private async distanciaKmOsrm(slat: number, slng: number, lat: number, lng: number): Promise<number | null> {
+    return (await this.rotaOsrm({ lat: slat, lng: slng }, { lat, lng }))?.km ?? null;
+  }
+
+  /** A rota de A até B pelo OSRM: os km e os minutos pelo caminho. Sem OSRM (fora, sem cobertura, demora): null. */
+  private async rotaOsrm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): Promise<{ km: number; min: number | null } | null> {
     const base = (process.env.OSRM_URL || '').replace(/\/$/, '');
     if (!base) return null;
-    if (![slat, slng, lat, lng].every((n) => Number.isFinite(n))) return null;
+    if (![a.lat, a.lng, b.lat, b.lng].every((n) => Number.isFinite(n))) return null;
     try {
-      const url = `${base}/route/v1/driving/${slng},${slat};${lng},${lat}?overview=false`;
+      const url = `${base}/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=false`;
       const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
       if (!res.ok) return null;
       const j: any = await res.json();
       const rt = j?.routes?.[0];
       if (j?.code !== 'Ok' || rt?.distance == null) return null;
-      return Number(rt.distance) / 1000; // metros → km
+      return { km: Number(rt.distance) / 1000, min: rt.duration != null ? Number(rt.duration) / 60 : null }; // metros → km; s → min
     } catch {
       return null; // OSRM fora / timeout → Haversine
     }
+  }
+
+  /**
+   * A DISTÂNCIA entre o endereço do pedido e um endereço novo (o caso "endereço depois que saiu" — PR 3b-2): pelo caminho
+   * (OSRM) ou, sem ele, em linha reta. O ponto do pedido: o que o app do entregador guardou para ele (`entregador_chegada`,
+   * se o pedido não mudou depois), senão o geocodificador; o novo: a localização que o cliente mandou, senão o
+   * geocodificador — os dois com a cidade da loja. Sem um dos pontos: null ("não deu para medir"). Não lança por rede.
+   */
+  async distanciaEntreEnderecos(
+    cfg: any,
+    pedidoId: string,
+    de: { rua: string | null; numero: string | null; bairro: string | null },
+    para: { rua: string | null; numero: string | null; bairro: string | null; lat?: number | null; lng?: number | null },
+  ): Promise<Distancia | null> {
+    const peloEndereco = (e: { rua: string | null; numero: string | null; bairro: string | null }) => {
+      const q = montarEndereco([montarEndereco([e.rua, e.numero]), e.bairro, cfg?.endCidade, cfg?.endEstado, 'Brasil']);
+      return e.rua ? geocode(q) : Promise.resolve(null);
+    };
+    let a: { lat: number; lng: number } | null = null;
+    try {
+      const r: any = await this.db.execute(sql`
+        select c.lat, c.lng from entregador_chegada c
+          join pedido_externo pe on pe.id = c.pedido_id
+         where c.pedido_id = ${pedidoId} and c.tenant_id = ${cfg.tenantId}
+           and not (pe.alterado_em is not null and pe.alterado_em > c.criado_em)`);
+      const x = (r.rows ?? r)[0];
+      if (x && Number.isFinite(Number(x.lat)) && Number.isFinite(Number(x.lng))) a = { lat: Number(x.lat), lng: Number(x.lng) };
+    } catch {
+      /* banco sem a posição do app do entregador: o geocodificador */
+    }
+    if (!a) a = await peloEndereco(de);
+    const b =
+      Number.isFinite(Number(para.lat)) && Number.isFinite(Number(para.lng)) && para.lat != null && para.lng != null
+        ? { lat: Number(para.lat), lng: Number(para.lng) }
+        : await peloEndereco(para);
+    if (!a || !b) return null;
+    const umaCasa = (n: number) => Math.round(n * 10) / 10;
+    const rota = await this.rotaOsrm(a, b);
+    if (rota) return { km: umaCasa(rota.km), min: rota.min != null ? Math.max(1, Math.round(rota.min)) : null, pelo: 'caminho' };
+    return { km: umaCasa(haversineKm(a.lat, a.lng, b.lat, b.lng)), min: null, pelo: 'linha_reta' };
   }
 
   private proximaAbertura(cfg: any, tipo: string): string | null {

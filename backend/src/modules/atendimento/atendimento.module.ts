@@ -15,13 +15,16 @@ import { SyncTokenGuard } from '../sync/sync-token.guard';
 import { ChegadaModule } from '../chegada/chegada.module';
 import { PedidoRepetidoService } from '../pedido-repetido/pedido-repetido.service';
 import { ProducaoPedidoModule } from '../producao-pedido/producao-pedido.module';
+import { WhatsappModule } from '../whatsapp/whatsapp.module';
+import { AvisoDoEnderecoProcessor } from './aviso-do-endereco.processor';
 
 @Module({
   // Integrações: a resposta à disputa do iFood (IfoodService). forwardRef: integrações e delivery já se referem.
   // Equipamento + SyncTokenGuard: as rotas que o servidor da loja chama na nuvem (AtendimentoLojaController), como no Delivery.
   // ChegadaModule: o grupo "Retirada · cliente chegou" dos ajustes (mig 354).
   // ProducaoPedidoModule: o grupo "Pedido alterado" dos ajustes — o som do KDS mora no ajuste do KDS (mig 362).
-  imports: [DeliveryModule, forwardRef(() => IntegracoesModule), EquipamentoModule, ChegadaModule, ProducaoPedidoModule],
+  // WhatsappModule: "Endereço atualizado!" ao cliente pela via da conversa (PR 3b-2) — o módulo já sobe com o Delivery.
+  imports: [DeliveryModule, forwardRef(() => IntegracoesModule), EquipamentoModule, ChegadaModule, ProducaoPedidoModule, WhatsappModule],
   // AtendimentoAppController: o app "Regem Atendimento" (mig 353) — entrar com o PIN e "Disponível / Ocupado". O
   // AuthService vem do AuthModule (global); o EquipamentoService, do EquipamentoModule (o celular pareado).
   controllers: [AtendimentoController, AtendimentoLojaController, AtendimentoAppController],
@@ -29,7 +32,18 @@ import { ProducaoPedidoModule } from '../producao-pedido/producao-pedido.module'
   // ChatIfoodService: a configuração do chat oficial do iFood (o widget da distribuição e as lojas do iFood).
   // FilaEAvisosService (mig 353): o aviso ao gerente (rotina da nuvem) e os ajustes "Fila e avisos".
   // PedidoRepetidoService (mig 360): o grupo "Pedido repetido" dos ajustes (só o banco e a auditoria, que é global).
-  providers: [AtendimentoService, DisputaIfoodService, Pedido99Service, ChatIfoodService, SyncTokenGuard, AtendimentoAppService, FilaEAvisosService, PedidoRepetidoService],
+  // AvisoDoEnderecoProcessor (PR 3b-2): "Endereço atualizado!" ao cliente quando a mudança feita pelo caso vale (só a nuvem).
+  providers: [
+    AtendimentoService,
+    DisputaIfoodService,
+    Pedido99Service,
+    ChatIfoodService,
+    SyncTokenGuard,
+    AtendimentoAppService,
+    FilaEAvisosService,
+    PedidoRepetidoService,
+    AvisoDoEnderecoProcessor,
+  ],
   exports: [AtendimentoService],
 })
 export class AtendimentoModule {}

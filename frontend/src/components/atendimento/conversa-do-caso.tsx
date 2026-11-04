@@ -34,7 +34,14 @@ const numeroDoWhatsapp = (t: string | null | undefined) => {
   return d.length === 10 || d.length === 11 ? `55${d}` : d;
 };
 
-export function ConversaDoCaso({ caso: c }: { caso: CasoDaFila }) {
+export function ConversaDoCaso({
+  caso: c,
+  rascunho,
+}: {
+  caso: CasoDaFila;
+  /** Um texto que outro bloco do caso leva ao campo (ex.: "Não dá: responder ao cliente"); `n` novo = aplicar de novo. */
+  rascunho?: { texto: string; n: number } | null;
+}) {
   const numero = numeroDoWhatsapp(c.telefone);
   const [jids, setJids] = useState<string | null>(null);
   const [msgs, setMsgs] = useState<Mensagem[] | null>(null);
@@ -43,6 +50,16 @@ export function ConversaDoCaso({ caso: c }: { caso: CasoDaFila }) {
   const [enviando, setEnviando] = useState(false);
   const atual = useRef('');
   const fim = useRef<HTMLDivElement>(null);
+  const campo = useRef<HTMLTextAreaElement>(null);
+  // O rascunho vai para o campo (nunca é enviado sozinho): só o que chegou DEPOIS de abrir esta conversa.
+  const rascunhoAplicado = useRef(rascunho?.n ?? 0);
+  useEffect(() => {
+    if (!rascunho || rascunho.n === rascunhoAplicado.current) return;
+    rascunhoAplicado.current = rascunho.n;
+    setTexto(rascunho.texto);
+    campo.current?.focus();
+    campo.current?.scrollIntoView({ block: 'nearest' });
+  }, [rascunho]);
 
   // A conversa do cliente na caixa (os jids dela: com ou sem o 9, ou o identificador novo do WhatsApp); sem conversa
   // anterior, o número dele — dá para escrever assim mesmo.
@@ -170,6 +187,7 @@ export function ConversaDoCaso({ caso: c }: { caso: CasoDaFila }) {
             }}
           >
             <textarea
+              ref={campo}
               value={texto}
               onChange={(e) => setTexto(e.target.value)}
               onKeyDown={(e) => {

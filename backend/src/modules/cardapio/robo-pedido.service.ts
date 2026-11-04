@@ -84,6 +84,7 @@ import {
   enderecoCurto,
   lerMudanca,
   linhasDaMudanca,
+  motivoDoEnderecoDepoisQueSaiu,
   motivoParaNaoMudar,
   noPedido,
   opcoesDaConferencia,
@@ -97,6 +98,12 @@ import {
   textoDoFeito,
   visaoDoPedidoFeito,
 } from './robo-mudanca';
+import {
+  type EnderecoDoCaso,
+  enderecoEmUmaLinha,
+  resumoDoCasoDoEndereco,
+  textoAoClienteDepoisQueSaiu,
+} from '../atendimento/endereco-depois-que-saiu';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -1090,8 +1097,12 @@ export class RoboPedidoService {
     const f = await this.pedidoFeitoDaConversa(ctx, await this.clienteDaConversa(ctx));
     if (!f)
       return this.naoMuda({ motivo: 'sem_pedido_feito', mensagem: 'Não achei pedido em andamento deste número nas últimas 12 horas.', chamaEquipe: true });
-    const motivo = motivoParaNaoMudar(f.p, null, 'endereco');
+    // O pedido JÁ SAIU (PR 3b-2, decisão 8): o robô pega o endereço novo e chama a equipe como urgente — não muda.
+    const depoisQueSaiu = f.p.status === 'despachado';
+    const motivo = depoisQueSaiu ? motivoDoEnderecoDepoisQueSaiu(f.p) : motivoParaNaoMudar(f.p, null, 'endereco');
     if (motivo) return this.naoMuda(motivo);
+    if (depoisQueSaiu && !this.atendimento)
+      return this.naoMuda({ motivo: 'indisponivel', mensagem: `O ${noPedido(f.p.numero)} já saiu para a entrega: a mudança precisa de alguém da equipe.`, chamaEquipe: true });
     const m: MudancaDoRobo = {
       id: randomUUID(),
       pedidoId: f.p.id,
@@ -1100,6 +1111,7 @@ export class RoboPedidoService {
       aguardaEndereco: true,
       enderecoParcial: null,
       via: (ctx.cfg.provedor ?? 'evolution') === 'cloud' ? 'cloud' : 'evolution',
+      ...(depoisQueSaiu ? { depoisQueSaiu: true } : {}),
       criadaEm: new Date().toISOString(),
     };
     const gravou = await this.gravarMudanca(ctx, m, (atual) => !(atual?.situacao === 'pedida' && !atual.avisada));
@@ -1109,6 +1121,17 @@ export class RoboPedidoService {
         mensagem: `A mudança anterior do ${noPedido(f.p.numero)} ainda está com a loja: a confirmação chega aqui em instantes.`,
         chamaEquipe: false,
       });
+    if (depoisQueSaiu)
+      return {
+        ok: true,
+        feito: `o ${noPedido(f.p.numero)} já saiu para a entrega: falta o endereço novo para chamar a equipe`,
+        proximo: {
+          campo: 'endereco_da_mudanca',
+          pergunta: `O ${noPedido(f.p.numero)} já saiu para a entrega: peça o endereço novo (rua, número e bairro) — a equipe avisa o entregador. Se o cliente já disse, mande direto. Não prometa a mudança.`,
+          comoResponder:
+            'definir_entrega com rua, numero e bairro (e referencia, se o cliente disse); um endereço salvo pelo número (endereco) ou a localização do WhatsApp (localizacao) também valem',
+        },
+      };
     return {
       ok: true,
       feito: `mudança de endereço do ${noPedido(f.p.numero)} aberta: falta o endereço novo`,
@@ -1133,6 +1156,8 @@ export class RoboPedidoService {
       await this.gravarMudanca(ctx, null, (a) => a?.id === m.id && !a.situacao);
       return this.naoMuda({ motivo: 'sem_pedido_feito', mensagem: `O ${noPedido(m.numero)} não está mais em andamento.`, chamaEquipe: true });
     }
+    // O pedido já saiu (quando o cliente pediu, ou enquanto ele dizia o endereço): o caso urgente para a equipe.
+    if (m.depoisQueSaiu || f.p.status === 'despachado') return this.enderecoDepoisQueSaiu(ctx, menu, dto, m, f, cli);
     const motivo = motivoParaNaoMudar(f.p, null, 'endereco');
     if (motivo) {
       await this.gravarMudanca(ctx, null, (a) => a?.id === m.id && !a.situacao);
@@ -1188,6 +1213,134 @@ export class RoboPedidoService {
     const freteGratisNoPedido = Array.isArray(f.ped.descontos) && f.ped.descontos.some((d: any) => d?.origem === 'frete');
     const op: OperacaoDoRobo = { tipo: 'endereco', de: f.p.endereco, para: novo, taxaAntes: f.p.taxaEntrega, taxaNova: freteGratisNoPedido ? 0 : r2(t.taxa) };
     return this.seguirMudanca(ctx, f, { ...m, op, aguardaEndereco: false, enderecoParcial: null });
+  }
+
+  /**
+   * O endereço novo do pedido que JÁ SAIU (PR 3b-2, decisão 8 — "após é necessário atendimento para alertar entregador e
+   * avaliar a distância dos endereços"): o robô NÃO muda. Confere o endereço pela mesma regra do pedido (fora da área
+   * também vai — a equipe decide), abre o caso URGENTE em Atendimento com o endereço do pedido, o novo, a taxa da área
+   * nova, o pagamento e o entregador (`detalhe.endereco`) e diz ao cliente que a equipe avisa o entregador e confere a
+   * distância. A distância entre os dois endereços é medida depois (não segura a resposta) e entra no caso. Sem a
+   * pergunta da referência: o que o cliente disse basta para a equipe.
+   */
+  private async enderecoDepoisQueSaiu(ctx: Contexto, menu: any, dto: any, m: MudancaDoRobo, f: { p: PedidoFeito; ped: any }, cli: ClienteDaConversa) {
+    const fim = () => this.gravarMudanca(ctx, null, (a) => a?.id === m.id && !a.situacao);
+    const nao = motivoDoEnderecoDepoisQueSaiu(f.p);
+    if (nao) {
+      await fim();
+      return this.naoMuda(nao);
+    }
+    if (!this.atendimento) {
+      await fim();
+      return this.naoMuda({ motivo: 'indisponivel', mensagem: `O ${noPedido(f.p.numero)} já saiu para a entrega: a mudança precisa de alguém da equipe.`, chamaEquipe: true });
+    }
+    const { oferecidos, abertos } = this.tipos(menu);
+    const antes = m.enderecoParcial ? { tipo: 'entrega', ...m.enderecoParcial, enderecoId: null } : null;
+    const conferido = await this.enderecoConferido(ctx, menu, dto, antes, cli, oferecidos, abertos, { aceitaForaDaArea: true });
+    if (conferido.ok === false) return conferido; // falta a rua, o número ou o bairro: o robô pergunta
+    const e = conferido.e;
+    const novo: EnderecoNovo = {
+      rua: e.rua || null,
+      numero: e.numero || null,
+      bairro: e.bairro ?? null,
+      bairroId: e.bairroId ?? null,
+      referencia: referenciaParaOPedido(e.referencia) ?? null,
+      lat: e.lat ?? null,
+      lng: e.lng ?? null,
+    };
+    // A taxa da área nova pela conta do cardápio (a mesma da mudança em produção); fora da área, nenhuma.
+    let taxaNova: number | null = null;
+    if (!conferido.foraDaArea) {
+      const subtotal = r2(Number(f.ped.valorBruto ?? Number(f.ped.total ?? 0) - Number(f.ped.taxaEntrega ?? 0)));
+      const t = await this.cardapio.taxaDeEntrega(
+        ctx.cfg,
+        { bairroId: novo.bairroId ?? undefined, rua: novo.rua ?? undefined, numero: novo.numero ?? undefined, lat: novo.lat ?? undefined, lng: novo.lng ?? undefined },
+        subtotal,
+      );
+      const freteGratisNoPedido = Array.isArray(f.ped.descontos) && f.ped.descontos.some((d: any) => d?.origem === 'frete');
+      taxaNova = freteGratisNoPedido ? 0 : r2(t.taxa);
+    }
+    const ped = f.ped;
+    // As contas pela MESMA função da gravação (V74): o que o entregador recebe hoje e com a taxa da área nova (ou por que
+    // a nova não dá — o troco não cobre, pago pelo link). A gaveta só oferece o que a gravação aceita.
+    const comATaxa = (taxa: number) =>
+      contaDaMudanca(ped, { tipo: 'endereco', de: f.p.endereco, para: novo, taxaAntes: f.p.taxaEntrega, taxaNova: taxa });
+    const hoje = comATaxa(f.p.taxaEntrega);
+    const nova = taxaNova == null ? null : comATaxa(taxaNova);
+    const endereco: EnderecoDoCaso = {
+      pedidoId: f.p.id,
+      numero: f.p.numero,
+      de: f.p.endereco,
+      para: novo,
+      taxaAntes: f.p.taxaEntrega,
+      taxaNova,
+      total: f.p.total,
+      aReceber: hoje.ok ? hoje.aReceber : f.p.total,
+      comANova: nova == null ? null : nova.ok ? { total: nova.total, aReceber: nova.aReceber } : { recusa: nova.message },
+      pagoAntes: f.p.pagoAntes,
+      formaPagamento: ped.formaPagamento ?? null,
+      trocoPara: f.p.trocoPara,
+      entregador:
+        ped.entregadorNome || ped.entregadorTelefone
+          ? {
+              nome: ped.entregadorNome ?? null,
+              telefone: ped.entregadorTelefone ?? null,
+              saiuEm: ped.despachadoEm ? new Date(ped.despachadoEm).toISOString() : null,
+            }
+          : null,
+      via: m.via ?? null,
+      em: new Date().toISOString(),
+    };
+    const resumo = resumoDoCasoDoEndereco(endereco);
+    // A conversa já estava com a equipe ANTES deste caso (pausada)? Então o robô não fala — quem fala é a equipe.
+    const comAEquipeAntes = await estadoDaPausa(this.db, ctx.cfg.tenantId, ctx.conversa.telefone)
+      .then((x) => x.pausado)
+      .catch(() => false);
+    // O caso ANTES da mensagem: o "Já chamei" só sai com o caso aberto (ou somado ao que o cliente já tinha aberto).
+    const caso = await this.atendimento.abrirPeloRobo(ctx.cfg.tenantId, ped.unidadeId ?? ctx.cfg.unidadeId ?? null, {
+      tipo: 'mudanca',
+      prioridade: 'urgente',
+      cliente: cli?.nome ?? ped.clienteNome ?? undefined,
+      telefone: ctx.conversa.telefone,
+      pedidoNumero: f.p.numero ?? undefined,
+      pedidoId: f.p.id,
+      mensagem: `Motivo: ${resumo.motivo}\nQuer: ${resumo.quer}\nJá fiz: ${resumo.jaFez}`,
+      resumo: { ...resumo, humor: null },
+      endereco,
+    });
+    await fim();
+    void this.medirDistanciaDoCaso(ctx.cfg, String(caso.id), endereco);
+    const texto = textoAoClienteDepoisQueSaiu(f.p.numero);
+    const feito = `o ${noPedido(f.p.numero)} já saiu: caso urgente aberto para a equipe avisar o entregador (endereço novo: ${enderecoEmUmaLinha(novo)})`;
+    const proximo = {
+      campo: 'equipe_chamada',
+      pergunta:
+        'A MENSAGEM AO CLIENTE JÁ FOI ENVIADA pelo Regem ("já chamei a equipe"). Não repita nem prometa a mudança: responda só algo curto, como "Só um instante 🙏".',
+    };
+    // O caso que o Regem acabou de abrir cala o robô neste número (robo-pausa.ts): o aviso de que a equipe foi chamada é a
+    // última fala do robô e sai assim mesmo (como a resposta logo depois de abrir o chamado — `avisoDoChamadoLiberado`).
+    return !comAEquipeAntes && (await this.enviarResumo(ctx, texto))
+      ? { ok: true, feito, proximo }
+      : {
+          ok: true,
+          feito: `${feito} (a mensagem não saiu por aqui)`,
+          proximo: { ...proximo, pergunta: 'Mande ao cliente o texto de mensagemParaOCliente exatamente como veio.' },
+          mensagemParaOCliente: texto,
+        };
+  }
+
+  /**
+   * A distância entre o endereço do pedido e o novo, medida DEPOIS de abrir o caso (o geocodificador e o OSRM levam
+   * segundos — o cliente não espera por eles) e anotada no caso. Nunca rejeita (é chamada com `void` — V3): sem medir,
+   * o caso fica com "não deu para medir".
+   */
+  private async medirDistanciaDoCaso(cfg: any, chamadoId: string, e: EnderecoDoCaso): Promise<void> {
+    try {
+      const d = await this.cardapio.distanciaEntreEnderecos(cfg, e.pedidoId, e.de, e.para);
+      await this.atendimento?.anotarDistanciaDoEndereco(cfg.tenantId, chamadoId, d);
+    } catch (err: any) {
+      this.logger.warn(`distância do caso ${chamadoId}: não medida — ${err?.message ?? err}`);
+    }
   }
 
   /** A mudança de endereço aberta ainda sem o endereço novo: o robô pede o endereço (nada sai ao cliente pelo Regem). */
@@ -1692,7 +1845,9 @@ export class RoboPedidoService {
     cli: ClienteDaConversa,
     oferecidos: string[],
     abertos: string[],
-  ): Promise<{ ok: true; e: Extract<EntregaDoCarrinho, { tipo: 'entrega' }> } | Recusa> {
+    // `aceitaForaDaArea`: o endereço do pedido que já saiu (PR 3b-2) vai para a equipe mesmo fora da área — volta com a marca.
+    o: { aceitaForaDaArea?: boolean } = {},
+  ): Promise<{ ok: true; e: Extract<EntregaDoCarrinho, { tipo: 'entrega' }>; foraDaArea?: boolean } | Recusa> {
     let e: Extract<EntregaDoCarrinho, { tipo: 'entrega' }>;
     if (Number(dto?.endereco) > 0) {
       const salvo = (cli?.enderecos ?? [])[Number(dto.endereco) - 1];
@@ -1736,11 +1891,11 @@ export class RoboPedidoService {
       const taxa = await this.cardapio.taxaDeEntrega(ctx.cfg, { rua: e.rua, numero: e.numero, lat: e.lat ?? undefined, lng: e.lng ?? undefined }, 0);
       if (taxa.semLocalizacao)
         return recusa('localizacao', 'Não achei esse endereço no mapa. Peça ao cliente a localização pelo WhatsApp (clipe → Localização) ou confira a rua e o número.');
-      if (taxa.alemDaUltimaFaixa) return this.foraDaArea(oferecidos, abertos, taxa.km);
       if (taxa.ponto) {
         e.lat = taxa.ponto.lat;
         e.lng = taxa.ponto.lng;
       }
+      if (taxa.alemDaUltimaFaixa) return o.aceitaForaDaArea ? { ok: true, e, foraDaArea: true } : this.foraDaArea(oferecidos, abertos, taxa.km);
     } else {
       const lista: any[] = Array.isArray(menu?.bairros) ? menu.bairros : [];
       const pelaLista = e.bairroId ? lista.find((b) => b.id === e.bairroId) : null;
@@ -1751,7 +1906,9 @@ export class RoboPedidoService {
         if (!b.ok)
           return b.parecidos.length
             ? recusa('bairro', `Não achei o bairro "${e.bairro}" na lista de entrega. Pergunte se é um destes.`, { parecidos: b.parecidos })
-            : this.foraDaArea(oferecidos, abertos, null);
+            : o.aceitaForaDaArea
+              ? { ok: true, e, foraDaArea: true }
+              : this.foraDaArea(oferecidos, abertos, null);
         e.bairro = b.bairro.nome;
         e.bairroId = b.bairro.id;
       }

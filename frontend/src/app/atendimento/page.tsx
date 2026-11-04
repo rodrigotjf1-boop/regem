@@ -16,6 +16,8 @@ import { Pedido99 } from '@/components/atendimento/pedido-99';
 import { ResumoDoRobo, resumoCurto } from '@/components/atendimento/resumo-do-robo';
 import { ChatDoIfood } from '@/components/atendimento/chat-do-ifood';
 import { ConversaDoCaso } from '@/components/atendimento/conversa-do-caso';
+import { EnderecoDepoisQueSaiu } from '@/components/atendimento/endereco-depois-que-saiu';
+import { enderecoDoCaso } from '@/lib/endereco-do-caso';
 import {
   CASO_DA_PLATAFORMA,
   ROTULO_DO_CANAL,
@@ -412,6 +414,10 @@ function Caso({
   const [resolvendo, setResolvendo] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [podeResponder, setPodeResponder] = useState(false);
+  // O rascunho que um bloco do caso leva ao campo da conversa ("Não dá: responder ao cliente"); `n` reaplica o mesmo texto.
+  const [rascunho, setRascunho] = useState<{ texto: string; n: number } | null>(null);
+  useEffect(() => setRascunho(null), [c.id]); // outro caso: o rascunho do anterior não vai junto
+  const endereco = c.tipo === 'mudanca' ? enderecoDoCaso(c.detalhe) : null;
   // Quem responde pelo WhatsApp é a gestão (a caixa de conversas é de presidente, gerente e supervisão — o servidor confere).
   useEffect(() => setPodeResponder(['presidente', 'gerente', 'supervisao'].includes(getCategoria() ?? '')), []);
   const aberto = c.situacao !== 'resolvido';
@@ -530,6 +536,21 @@ function Caso({
           </section>
         )}
 
+        {/* O endereço novo do pedido que já saiu (PR 3b-2): o robô anotou; a equipe muda e avisa o entregador. */}
+        {endereco && (
+          <EnderecoDepoisQueSaiu
+            caso={c}
+            endereco={endereco}
+            aberto={aberto}
+            aoMudar={aoMudar}
+            aoResponder={
+              c.telefone && c.canal === 'whatsapp' && aberto && podeResponder
+                ? (texto) => setRascunho((r) => ({ texto, n: (r?.n ?? 0) + 1 }))
+                : undefined
+            }
+          />
+        )}
+
         {(c.pedidoNumero || c.pedidoNaPlataforma) && (
           <section className="rounded-lg border border-border p-3 text-sm">
             <h4 className="mb-1 font-display text-sm font-bold">Pedido ligado</h4>
@@ -546,7 +567,7 @@ function Caso({
         )}
 
         {/* A conversa dentro do caso (2B): quem responde pelo WhatsApp é a gestão — a caixa de conversas confere. */}
-        {c.telefone && c.canal === 'whatsapp' && aberto && podeResponder && <ConversaDoCaso key={c.id} caso={c} />}
+        {c.telefone && c.canal === 'whatsapp' && aberto && podeResponder && <ConversaDoCaso key={c.id} caso={c} rascunho={rascunho} />}
         {c.telefone && c.canal === 'whatsapp' && aberto && !podeResponder && (
           <section className="rounded-lg border border-border p-3 text-sm">
             <h4 className="mb-1 font-display text-sm font-bold">Conversa no WhatsApp</h4>

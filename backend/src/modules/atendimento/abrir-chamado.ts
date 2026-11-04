@@ -3,6 +3,7 @@ import { atendimentoChamado } from '../../db/schema';
 import { chaveTelefone, sqlChaveTelefone } from '../../common/telefone-chave';
 import { canalValido } from './fila';
 import type { ResumoDoRobo } from './resumo-do-robo';
+import type { EnderecoDoCaso } from './endereco-depois-que-saiu';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -24,7 +25,17 @@ export type DadosDoChamado = {
   canal?: string;
   /** O resumo do robô (Onda 1, PR 4) — vai para `detalhe.robo`. */
   resumo?: ResumoDoRobo | null;
+  /** O endereço novo do pedido que já saiu (PR 3b-2) — vai para `detalhe.endereco` (a gaveta mostra e a equipe muda). */
+  endereco?: EnderecoDoCaso | null;
 };
+
+/** O que o chamado guarda em `detalhe` do que chegou: o resumo do robô e o endereço do pedido que já saiu. */
+function detalheDoChamado(dto: DadosDoChamado): Record<string, unknown> | null {
+  const d: Record<string, unknown> = {};
+  if (dto.resumo) d.robo = { ...dto.resumo, em: new Date().toISOString() };
+  if (dto.endereco) d.endereco = dto.endereco;
+  return Object.keys(d).length ? d : null;
+}
 
 /** Avisa a tela em tempo real (o `EventEmitter2.emit`). */
 export type Emitir = (evento: string, dados: any) => unknown;
@@ -57,7 +68,7 @@ export async function abrirChamado(db: any, emitir: Emitir, tenantId: string, un
       mensagem: dto.mensagem?.trim() || null,
       prioridade: dto.prioridade === 'urgente' ? 'urgente' : 'normal',
       canal: canalValido(dto.canal),
-      ...(dto.resumo ? { detalhe: { robo: { ...dto.resumo, em: new Date().toISOString() } } } : {}),
+      ...(detalheDoChamado(dto) ? { detalhe: detalheDoChamado(dto) } : {}),
     })
     .returning();
   emitir('atendimento.novo', { tenantId, chamado: row });
@@ -163,11 +174,10 @@ export async function abrirChamadoPeloRobo(db: any, emitir: Emitir, tenantId: st
     patch.pedidoId = dto.pedidoId;
     if (!aberto.pedidoNumero && dto.pedidoNumero != null) patch.pedidoNumero = String(dto.pedidoNumero);
   }
-  // O resumo novo substitui o do robô, mesclado no banco: o resto do `detalhe` (o que outra rotina gravou) fica (V82).
-  if (dto.resumo) {
-    const robo = { robo: { ...dto.resumo, em: new Date().toISOString() } };
-    patch.detalhe = sql`coalesce(${atendimentoChamado.detalhe}, '{}'::jsonb) || ${JSON.stringify(robo)}::jsonb`;
-  }
+  // O resumo novo substitui o do robô (e o endereço do pedido que já saiu, o de antes), mesclado no banco: o resto do
+  // `detalhe` (o que outra rotina gravou) fica (V82).
+  const novoDetalhe = detalheDoChamado(dto);
+  if (novoDetalhe) patch.detalhe = sql`coalesce(${atendimentoChamado.detalhe}, '{}'::jsonb) || ${JSON.stringify(novoDetalhe)}::jsonb`;
   let row: any = aberto;
   if (Object.keys(patch).length) {
     [row] = await db

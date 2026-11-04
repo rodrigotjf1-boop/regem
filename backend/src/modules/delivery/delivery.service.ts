@@ -2850,9 +2850,14 @@ export class DeliveryService {
     // `aplicandoPedida`: o servidor da loja aplicando a alteração que a nuvem pediu (a linha "pedida" já existe com este id
     // e passa a "aplicada" — `aplicarAlteracaoPedida`). `precoInformado`: o preço do item posto vem de quem chama (o robô,
     // pela conta do cardápio que o cliente conferiu — V74); só chamada INTERNA — a rota da tela nunca liga.
-    opts: { aplicandoPedida?: boolean; precoInformado?: boolean } = {},
+    // `depoisQueSaiu` (PR 3b-2, decisão 8): o caso urgente do Atendimento muda o ENDEREÇO do pedido que já saiu para a
+    // entrega — só o endereço (e o troco), sem item, sem cozinha e sem via nova (o entregador já está na rua; quem o
+    // avisa é a equipe, pelo WhatsApp dele); `chamadoId` = o caso (a rotina da nuvem avisa o cliente por ele). Também só
+    // por chamada interna.
+    opts: { aplicandoPedida?: boolean; precoInformado?: boolean; depoisQueSaiu?: boolean; chamadoId?: string | null } = {},
   ) {
     const tenantId = user.tenantId;
+    const podeNoStatus = (s: string) => STATUS_ALTERAVEL.includes(s) || (!!opts.depoisQueSaiu && s === 'despachado');
     const idAlteracao = UUID_ALTERACAO.test(String(dto.idAlteracao ?? '')) ? String(dto.idAlteracao) : randomUUID();
     const ja = await this.alteracaoJaFeita(tenantId, idAlteracao);
     if (ja && !(opts.aplicandoPedida && ja.situacao === 'pedida'))
@@ -2866,7 +2871,7 @@ export class DeliveryService {
         message: `Pedido do ${ROTULO_DO_CANAL[String(ped.canal).toLowerCase()] ?? ped.canal}: quem altera é a plataforma. Combine com o cliente pelo app dela.`,
       });
     }
-    if (!STATUS_ALTERAVEL.includes(ped.status))
+    if (!podeNoStatus(ped.status))
       throw new BadRequestException('Só dá para alterar um pedido aceito e ainda na loja. Se já saiu, fale com o entregador.');
     if (!ped.comandaId) throw new BadRequestException('Pedido sem venda vinculada.');
     if (dto.endereco && ped.tipo === 'retirada')
@@ -2878,6 +2883,12 @@ export class DeliveryService {
       .map((a) => (opts.precoInformado ? a : { ...a, precoUnitario: undefined }));
     const remover = (dto.remover ?? []).filter((r) => typeof r === 'string' && r);
     const mexeItens = adicionar.length > 0 || remover.length > 0;
+    if (opts.depoisQueSaiu && mexeItens) throw new BadRequestException('Depois que o pedido saiu, só o endereço e o troco mudam.');
+    // O que marca a alteração "depois que saiu" no histórico (e na pedida ao servidor da loja): a rotina da nuvem avisa o
+    // cliente quando ela vale, pelo caso.
+    const marcaDoSaiu = opts.depoisQueSaiu
+      ? { depoisQueSaiu: true, ...(opts.chamadoId && UUID_ALTERACAO.test(opts.chamadoId) ? { chamadoId: opts.chamadoId } : {}) }
+      : {};
     // A taxa informada da área nova também só vale com `precoInformado` (o robô: a conta do cardápio — o bairro, a
     // distância e o frete grátis — que o cliente conferiu, V74); da tela, sai — a taxa é a do bairro do cadastro.
     const enderecoPedido = dto.endereco ? (opts.precoInformado ? dto.endereco : { ...dto.endereco, taxa: undefined }) : undefined;
@@ -2913,16 +2924,31 @@ export class DeliveryService {
     // V53: na tela da NUVEM de uma loja com o servidor ligado, quem tem a cozinha e as impressoras é o servidor da loja —
     // a alteração vai como "pedida" e ele aplica (ou recusa, com o motivo).
     if (!opts.aplicandoPedida && (await edgeAtivo(this.db, tenantId, ped.unidadeId ?? null)))
-      return this.pedirAoServidorDaLoja(user, ped, idAlteracao, { adicionar, remover, endereco: enderecoPedido, trocoPara: dto.trocoPara }, {
-        origem: dto.origem === 'robo' ? 'robo' : 'equipe',
-        porNome,
-        pedidoDoCliente: dto.pedidoDoCliente ?? null,
-      });
+      return this.pedirAoServidorDaLoja(
+        user,
+        ped,
+        idAlteracao,
+        {
+          adicionar,
+          remover,
+          endereco: enderecoPedido,
+          trocoPara: dto.trocoPara,
+          // O que a nuvem decidiu viaja na pedida (o servidor da loja aplica igual): o preço e a taxa informados (já
+          // filtrados aqui) e o "depois que saiu" (com o caso).
+          ...(opts.precoInformado ? { precoInformado: true } : {}),
+          ...marcaDoSaiu,
+        },
+        {
+          origem: dto.origem === 'robo' ? 'robo' : 'equipe',
+          porNome,
+          pedidoDoCliente: dto.pedidoDoCliente ?? null,
+        },
+      );
     const r = await this.db.transaction(async (tx) => {
       // A linha do pedido fica presa até o fim: duas alterações juntas (dois computadores, a equipe e o robô) não se
       // atropelam — a segunda espera e confere o status de novo.
       const [atual] = await tx.select().from(pedidoExterno).where(and(eq(pedidoExterno.id, id), eq(pedidoExterno.tenantId, tenantId))).for('update');
-      if (!atual || !STATUS_ALTERAVEL.includes(atual.status))
+      if (!atual || !podeNoStatus(atual.status))
         throw new BadRequestException('O pedido mudou de situação enquanto você alterava: abra-o de novo.');
       const [jaDentro] = await tx
         .select({ id: pedidoAlteracao.id, situacao: pedidoAlteracao.situacao })
@@ -3055,7 +3081,13 @@ export class DeliveryService {
               situacao: 'aplicada',
               porId: user.colaboradorId ?? null,
               porNome,
-              pedido: { adicionar, remover, endereco: enderecoPedido ?? null, trocoPara: dto.trocoPara },
+              pedido: {
+                adicionar,
+                remover,
+                endereco: enderecoPedido ?? null,
+                trocoPara: dto.trocoPara,
+                ...marcaDoSaiu,
+              },
               ...historico,
               pedidoDoCliente: dto.pedidoDoCliente ? String(dto.pedidoDoCliente).slice(0, 500) : null,
             })
@@ -3072,15 +3104,21 @@ export class DeliveryService {
     });
     if (!r) return { ...(await this.carregar(tenantId, id)), alteracao: await this.alteracaoJaFeita(tenantId, idAlteracao), repetida: true };
 
-    // Depois do commit: a cozinha fica sabendo (som e aviso no KDS), as vias saem e o histórico guarda quais.
+    // Depois do commit: a cozinha fica sabendo (som e aviso no KDS), as vias saem e o histórico guarda quais. Depois que
+    // o pedido saiu, via nenhuma: o entregador já está na rua — quem o avisa é a equipe, pelo WhatsApp dele.
     this.producao.emitirNovos(r.cozinha.eventos);
-    const vias = await this.imprimirViasDaAlteracao(tenantId, r.row, r.mudanca, r.novos, agora, r.mudouCozinha).catch((e: any) => {
-      this.logger.warn(`pedido ${id} alterado: as vias não saíram (${e?.message ?? e})`);
-      return [] as { impressora: string; via: string }[];
-    });
-    await this.db.update(pedidoAlteracao).set({ vias, updatedAt: new Date() }).where(eq(pedidoAlteracao.id, idAlteracao)).catch((e: any) =>
-      this.logger.warn(`pedido ${id} alterado: as vias não ficaram no histórico (${e?.message ?? e})`),
-    );
+    const vias = opts.depoisQueSaiu
+      ? ([] as { impressora: string; via: string }[])
+      : await this.imprimirViasDaAlteracao(tenantId, r.row, r.mudanca, r.novos, agora, r.mudouCozinha).catch((e: any) => {
+          this.logger.warn(`pedido ${id} alterado: as vias não saíram (${e?.message ?? e})`);
+          return [] as { impressora: string; via: string }[];
+        });
+    // Sem via, a linha do histórico não é regravada: a marca de "cliente avisado" que a nuvem põe nela depois não pode
+    // ser desfeita por uma cópia daqui que suba atrasada (`avisarEnderecosMudados`).
+    if (!opts.depoisQueSaiu)
+      await this.db.update(pedidoAlteracao).set({ vias, updatedAt: new Date() }).where(eq(pedidoAlteracao.id, idAlteracao)).catch((e: any) =>
+        this.logger.warn(`pedido ${id} alterado: as vias não ficaram no histórico (${e?.message ?? e})`),
+      );
     await this.auditoria?.registrar({
       tenantId,
       unidadeId: r.row.unidadeId ?? null,
@@ -3113,7 +3151,15 @@ export class DeliveryService {
     user: Pick<AuthUser, 'tenantId' | 'colaboradorId'> & Partial<Pick<AuthUser, 'categoria'>>,
     ped: any,
     idAlteracao: string,
-    pedido: { adicionar: unknown[]; remover: unknown[]; endereco?: unknown; trocoPara?: number | null },
+    pedido: {
+      adicionar: unknown[];
+      remover: unknown[];
+      endereco?: unknown;
+      trocoPara?: number | null;
+      precoInformado?: boolean;
+      depoisQueSaiu?: boolean;
+      chamadoId?: string;
+    },
     o: { origem: 'equipe' | 'robo'; porNome: string | null; pedidoDoCliente: string | null },
   ) {
     const tenantId = user.tenantId;
@@ -3219,8 +3265,15 @@ export class DeliveryService {
           origem: a.origem === 'robo' ? 'robo' : 'equipe',
           pedidoDoCliente: a.pedidoDoCliente,
         },
-        // A pedida do ROBÔ leva o preço do cardápio que o cliente conferiu (a da equipe, não: a conta é a da loja).
-        { aplicandoPedida: true, precoInformado: a.origem === 'robo' },
+        // A pedida do ROBÔ leva o preço do cardápio que o cliente conferiu (a da equipe, não: a conta é a da loja); a do
+        // caso "endereço depois que saiu" (Atendimento) leva a taxa que a equipe escolheu entre as duas que o Regem
+        // calculou e o "depois que saiu" — as duas marcas só nascem no `alterar` da nuvem, por chamada interna.
+        {
+          aplicandoPedida: true,
+          precoInformado: a.origem === 'robo' || p.precoInformado === true,
+          depoisQueSaiu: p.depoisQueSaiu === true,
+          chamadoId: typeof p.chamadoId === 'string' ? p.chamadoId : null,
+        },
       );
       void this.flash.flashPedidos([a.pedidoId]); // o pedido alterado sobe já; a decisão sobe no ciclo
       return { aplicada: true, motivo: null };

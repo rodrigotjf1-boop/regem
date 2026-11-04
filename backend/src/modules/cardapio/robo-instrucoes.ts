@@ -45,7 +45,9 @@
 // equipe, com a pergunta antes. Só no fluxo 2.
 // .f14 (04/11, PR 3b-1 — decisão 8): mudar o ENDEREÇO do pedido em produção (acao = pedido_endereco abre; o endereço
 // novo vai pelo definir_entrega; a conferência traz a entrega da área nova); fora da área e retirada: a equipe.
-export const VERSAO_INSTRUCOES = '2026-11-04.f14';
+// .f15 (04/11, PR 3b-2 — decisão 8): o pedido que JÁ SAIU — o mesmo pedido_endereco + definir_entrega, e o Regem chama a
+// equipe como urgente (avisa o entregador, confere a distância) e manda sozinho o "já chamei"; o robô não promete nada.
+export const VERSAO_INSTRUCOES = '2026-11-04.f15';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -184,6 +186,7 @@ function mudarUmPedidoJaFeito(): string {
     '- "Mudar o troco": acao = troco_da_mudanca sem valor (o sistema pergunta o troco). O valor que o cliente disser: acao = troco_da_mudanca com observacao = o valor (ex.: 100) ou "não preciso".',
     '- "Deixar como estava": acao = desistir_da_mudanca, e diga que o pedido continua como estava.',
     '- Mudar o ENDEREÇO (podeMudarEndereco = true — o pedido de entrega ainda na loja): acao = pedido_endereco; depois mande o endereço novo em definir_entrega (rua, número e bairro, um endereço salvo pelo número ou a localização do WhatsApp) e o complemento ou ponto de referência (ou "sem referência"). Se o cliente já disse o endereço, mande direto. O sistema manda a conferência com a entrega da área nova, como nas outras mudanças. Fora da área de entrega, pedido de retirada ou podeMudarEndereco = false: a equipe (pergunte antes, como abaixo).',
+    '- O pedido JÁ SAIU para a entrega e o cliente quer outro endereço (enderecoPelaEquipe = true): acao = pedido_endereco e o endereço novo em definir_entrega, como acima (sem a referência, se ele não disse). O sistema chama a equipe como URGENTE (ela avisa o entregador e confere a distância) e manda sozinho ao cliente "já chamei" — não repita, não prometa a mudança e não pergunte se ele quer ajuda: responda só algo curto, como "Só um instante 🙏".',
     '- podeMudar = false, ou a ferramenta voltou ok = false: diga ao cliente o campo mensagem com as suas palavras. Se vier faltaEscolher, pergunte a escolha e chame de novo com ela em adicionais (ou a versão). Se vier chamaEquipe = true, pergunte se ele quer ajuda da equipe, terminando com OPCOES: Sim, quero ajuda | Não, obrigado. Se ele disser que sim, use chamar_atendente com tipo mudanca, o número do pedido e o resumo nas três linhas.',
     '- Se a resposta da loja chegar perguntando "Quer ajuda de alguém da equipe?" e o cliente tocar em "Sim, quero ajuda", use chamar_atendente com tipo mudanca e o número do pedido.',
     '- Mudar a forma de pagamento, trocar entre entrega e retirada ou mudar mais de um item de uma vez é com a equipe (pergunte antes, como acima). Nunca diga que mudou sem a resposta da ferramenta, nem prometa a mudança antes do "Pode alterar".',

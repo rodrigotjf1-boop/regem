@@ -303,8 +303,8 @@ export function AjustesDoAtendimento() {
               rotulo: 'O robô faz mudanças simples',
               tipo: 'chave' as const,
               ajuda:
-                'Pôr, tirar ou trocar um produto (uma vez por pedido) e mudar o endereço, com o pedido em produção e pago na entrega. O resto vai para a equipe (Atendimento › Mudança no pedido).',
-              palavras: 'robô whatsapp mudança pedido pôr tirar trocar produto alterar',
+                'Pôr, tirar ou trocar um produto (uma vez por pedido) e mudar o endereço, com o pedido em produção e pago na entrega. Depois que o pedido sai, a mudança de endereço vai para a equipe avisar o entregador; o resto também vai para a equipe (Atendimento › Mudança no pedido).',
+              palavras: 'robô whatsapp mudança pedido pôr tirar trocar produto alterar endereço entregador',
             },
           ]
         : []),

@@ -114,6 +114,11 @@ export type MudancaDoRobo = {
   aguardaEndereco?: boolean;
   /** O endereço novo já dito, esperando só o complemento ou ponto de referência. */
   enderecoParcial?: EnderecoNovo | null;
+  /**
+   * O pedido JÁ SAIU para a entrega (PR 3b-2, decisão 8): o robô não muda o endereço — pega o novo e abre o caso urgente
+   * em Atendimento (a equipe avisa o entregador e confere a distância). Sem a pergunta da referência.
+   */
+  depoisQueSaiu?: boolean;
   criadaEm: string;
 };
 
@@ -207,6 +212,25 @@ export function motivoParaNaoMudar(p: PedidoFeito, op?: OperacaoDoRobo | null, q
         return nao('item_pronto', `O ${item.descricao} já ficou pronto na cozinha: não dá para ${op.tipo === 'tirar' ? 'tirar' : 'trocar'} por aqui.`);
     }
   }
+  return null;
+}
+
+/**
+ * O endereço do pedido que JÁ SAIU (PR 3b-2, decisão 8): o robô leva à equipe como caso urgente (null = leva). O que
+ * barra: a loja desligou "O robô faz mudanças simples", dois pedidos em andamento (qual mudar, a equipe confere) e o pedido
+ * de retirada (virar entrega é com a equipe) — a mesma resposta de sempre, com a oferta da equipe.
+ */
+export function motivoDoEnderecoDepoisQueSaiu(p: PedidoFeito): MotivoParaNaoMudar | null {
+  const n = noPedido(p.numero);
+  if (p.status !== 'despachado') return { motivo: 'situacao', mensagem: `O ${n} não saiu para a entrega.`, chamaEquipe: false };
+  if (p.desligado) return { motivo: 'desligado', mensagem: `A mudança no ${n} é feita pela equipe da loja.`, chamaEquipe: true };
+  if (p.outroEmAndamento)
+    return {
+      motivo: 'dois_pedidos',
+      mensagem: 'Há mais de um pedido em andamento deste número: para não mudar o pedido errado, alguém da equipe confere com você.',
+      chamaEquipe: true,
+    };
+  if (p.tipo !== 'entrega') return { motivo: 'retirada', mensagem: `O ${n} é de retirada na loja: para virar entrega, alguém da equipe ajuda.`, chamaEquipe: true };
   return null;
 }
 
@@ -362,6 +386,8 @@ export function lerMudanca(v: unknown): MudancaDoRobo | null {
 export function visaoDoPedidoFeito(p: PedidoFeito, situacaoParaOCliente: string, m: MudancaDoRobo | null) {
   const motivo = motivoParaNaoMudar(p);
   const motivoEnd = motivoParaNaoMudar(p, null, 'endereco');
+  // O pedido que já saiu: o endereço novo vai para a equipe como urgente (o robô pega o endereço e chama — PR 3b-2).
+  const enderecoPelaEquipe = p.status === 'despachado' && !motivoDoEnderecoDepoisQueSaiu(p);
   const emAndamento = m && m.pedidoId === p.id && !m.situacao ? m : null;
   return {
     numero: p.numero,
@@ -384,15 +410,24 @@ export function visaoDoPedidoFeito(p: PedidoFeito, situacaoParaOCliente: string,
         }),
     // O endereço tem a regra dele (uma vez por pedido, só na entrega): pode dar para mudar o endereço e não os itens.
     podeMudarEndereco: !motivoEnd,
-    ...(motivoEnd
-      ? motivoEnd.motivo !== motivo?.motivo
-        ? { motivoEndereco: motivoEnd.motivo, mensagemEndereco: motivoEnd.mensagem }
-        : {}
-      : { comoMudarEndereco: 'mexer_no_pedido com acao = pedido_endereco; depois o endereço novo em definir_entrega (rua, número, bairro e referência).' }),
+    ...(enderecoPelaEquipe
+      ? {
+          enderecoPelaEquipe: true,
+          comoMudarEndereco:
+            'O pedido já saiu: mexer_no_pedido com acao = pedido_endereco e o endereço novo em definir_entrega — o Regem chama a equipe como urgente (ela avisa o entregador). Não prometa a mudança.',
+        }
+      : motivoEnd
+        ? motivoEnd.motivo !== motivo?.motivo
+          ? { motivoEndereco: motivoEnd.motivo, mensagemEndereco: motivoEnd.mensagem }
+          : {}
+        : { comoMudarEndereco: 'mexer_no_pedido com acao = pedido_endereco; depois o endereço novo em definir_entrega (rua, número, bairro e referência).' }),
     ...(emAndamento
       ? {
           mudancaEmConferencia: {
-            mudanca: emAndamento.op.tipo === 'endereco' && !emAndamento.op.para ? ['📍 esperando o endereço novo'] : linhasDaMudanca(emAndamento.op),
+            mudanca:
+              emAndamento.op.tipo === 'endereco' && !emAndamento.op.para
+                ? [emAndamento.depoisQueSaiu ? '📍 esperando o endereço novo (o pedido já saiu: vai para a equipe)' : '📍 esperando o endereço novo']
+                : linhasDaMudanca(emAndamento.op),
             ...(emAndamento.aguardaTroco ? { esperandoOTroco: true } : {}),
             ...(emAndamento.aguardaEndereco ? { esperandoOEndereco: true } : {}),
           },
