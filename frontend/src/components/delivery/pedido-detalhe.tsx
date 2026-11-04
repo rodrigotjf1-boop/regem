@@ -17,6 +17,16 @@ import { avisarComprovante } from '@/lib/comprovante';
 import { ItensDoPedido } from './itens-do-pedido';
 import { horaCurta, textoDoOutroPedido } from '@/lib/pedido-repetido';
 import { ItensDaPerda, type MarcaDaPerda } from './itens-da-perda';
+import { AlteracaoDoPedido } from './alteracao-do-pedido';
+
+// Os canais em que quem manda no pedido é a plataforma: o Regem não altera (a mesma lista do servidor,
+// `CANAIS_SEM_ALTERACAO` em `backend/src/modules/pedido-alterado/pedido-alterado.ts`).
+const CANAIS_SEM_ALTERACAO = ['ifood', '99food', 'keeta', 'rappi'];
+// O id de cada "Salvar alteração": a mesma alteração mandada duas vezes (clique duplo, rede que caiu) entra uma vez.
+const novoIdAlteracao = () =>
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : 'xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx'.replace(/x/g, () => Math.floor(Math.random() * 16).toString(16));
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -50,7 +60,7 @@ export function PedidoDetalhe({
   // Abre já em "alterar" quando o botão "Editar pedido" pede — mas só se o pedido for
   // realmente editável (status + canal); senão cai em 'view' (não abre edição indevida).
   const editavel =
-    ['confirmado', 'pronto'].includes(p.status) && !['99food', 'ifood'].includes(p.canal);
+    ['confirmado', 'pronto'].includes(p.status) && !CANAIS_SEM_ALTERACAO.includes(String(p.canal ?? '').toLowerCase());
   const [modo, setModo] = useState<'view' | 'cancelar' | 'alterar' | 'perda'>(
     modoInicial === 'alterar' && editavel ? 'alterar' : 'view',
   );
@@ -80,6 +90,14 @@ export function PedidoDetalhe({
   const [endBairroId, setEndBairroId] = useState('');
   const [endRef, setEndRef] = useState(p.enderecoReferencia ?? '');
   const [endEditado, setEndEditado] = useState(false);
+  // alterar — troco (pedido pago em dinheiro na entrega) e o id do "Salvar" (mig 362)
+  const pagaEmDinheiro =
+    !p.pago &&
+    (/dinheiro/i.test(String(p.formaPagamento ?? '')) ||
+      (Array.isArray(p.pagamentos) && p.pagamentos.some((x: any) => !x?.prepago && /dinheiro/i.test(String(x?.rotulo ?? '')))));
+  const [troco, setTroco] = useState(p.trocoPara != null && Number(p.trocoPara) > 0 ? String(Number(p.trocoPara)) : '');
+  const [trocoEditado, setTrocoEditado] = useState(false);
+  const [idAlteracao, setIdAlteracao] = useState(novoIdAlteracao);
 
   // 99food/iFood NÃO podem ser alterados: o marketplace controla o pedido e alterar
   // localmente dessincroniza. Os demais (Regem / Anota Aí / Cardápio Web) podem. (= editavel)
@@ -211,18 +229,27 @@ export function PedidoDetalhe({
   }
 
   async function salvarAlteracao() {
-    if (remover.size === 0 && adicionar.length === 0 && !endEditado)
+    if (remover.size === 0 && adicionar.length === 0 && !endEditado && !trocoEditado)
       return toast.error('Nenhuma mudança para salvar.');
+    const trocoNum = troco.trim() ? Number(troco.replace(',', '.')) : null;
+    if (trocoEditado && trocoNum != null && !(trocoNum >= 0)) return toast.error('Informe o troco em reais (ex.: 50), ou deixe vazio para "sem troco".');
     setBusy(true);
     try {
-      await api.alterarDelivery(p.id, {
+      const r: any = await api.alterarDelivery(p.id, {
+        idAlteracao,
         remover: [...remover],
         adicionar: adicionar.map((a) => ({ produtoId: a.produtoId, quantidade: 1, observacao: a.observacao, variacaoId: a.variacaoId, complementos: a.complementos })),
         endereco: endEditado
           ? { rua: endRua.trim(), numero: endNum.trim(), bairro: endBairro.trim(), bairroId: endBairroId || undefined, referencia: endRef.trim() }
           : undefined,
+        ...(trocoEditado ? { trocoPara: trocoNum } : {}),
       });
-      toast.success('Pedido alterado — vias reimpressas e cozinha avisada.');
+      const vias = Array.isArray(r?.alteracao?.vias) ? r.alteracao.vias.length : 0;
+      const cozinha = remover.size > 0 || adicionar.length > 0;
+      toast.success(
+        `Pedido alterado.${vias ? ` Saiu a via "PEDIDO ALTERADO" em ${vias === 1 ? '1 impressora' : `${vias} impressoras`}.` : ' Nenhuma via saiu: confira as impressoras.'}${cozinha ? ' A cozinha recebeu o aviso.' : ''}`,
+      );
+      setIdAlteracao(novoIdAlteracao());
       onChanged();
       onClose();
     } catch (e) {
@@ -278,6 +305,8 @@ export function PedidoDetalhe({
                 ✓ Confirmado com o cliente: são dois pedidos ({okRepetido.porNome || 'equipe'}, {horaCurta(okRepetido.em)}).
               </p>
             )}
+            {/* Pedido alterado (mig 362): o que mudou, antes → agora, as vias e se a cozinha viu. */}
+            {p.alterado && <AlteracaoDoPedido pedidoId={p.id} versao={p.alteradoEm ?? null} />}
             <div className="mt-2 space-y-1 text-sm">
               <p className="flex flex-wrap items-center gap-1.5">
                 <span>{p.tipo === 'retirada' ? '🏪' : '🛵'}</span>
@@ -440,7 +469,10 @@ export function PedidoDetalhe({
         {/* ===== ALTERAR ===== */}
         {modo === 'alterar' && (
           <div className="mt-3">
-            <p className="mb-2 text-xs text-muted-foreground">Marque itens para remover e/ou adicione novos. Ao salvar, as vias são reimpressas e a cozinha é avisada.</p>
+            <p className="mb-2 text-xs text-muted-foreground">
+              Marque itens para tirar e/ou ponha novos. Ao salvar, sai a via &quot;PEDIDO ALTERADO&quot; nas impressoras que já
+              imprimiram o pedido, e a cozinha recebe o aviso no KDS quando os itens mudam.
+            </p>
             <div className="space-y-1">
               {itens === null && <p className="text-sm text-muted-foreground">Carregando itens…</p>}
               {itens?.length === 0 && <p className="text-sm text-muted-foreground">Sem itens.</p>}
@@ -477,7 +509,7 @@ export function PedidoDetalhe({
               <div className="mt-3 rounded-lg border border-border p-2.5">
                 <p className="mb-2 text-xs font-semibold">Endereço da entrega</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <div className="col-span-2"><Input value={endRua} onChange={(e) => { setEndRua(e.target.value); setEndEditado(true); }} placeholder="Rua" /></div>
+                  <div className="sm:col-span-2"><Input value={endRua} onChange={(e) => { setEndRua(e.target.value); setEndEditado(true); }} placeholder="Rua" /></div>
                   <Input value={endNum} onChange={(e) => { setEndNum(e.target.value); setEndEditado(true); }} placeholder="Número" />
                   {bairros.length > 0 ? (
                     <select value={endBairroId} onChange={(e) => escolherBairro(e.target.value)} aria-label="Bairro" className="rounded-md border border-border bg-background px-2 py-1.5 text-sm">
@@ -487,7 +519,7 @@ export function PedidoDetalhe({
                   ) : (
                     <Input value={endBairro} onChange={(e) => { setEndBairro(e.target.value); setEndEditado(true); }} placeholder="Bairro" />
                   )}
-                  <div className="col-span-2"><Input value={endRef} onChange={(e) => { setEndRef(e.target.value); setEndEditado(true); }} placeholder="Referência" /></div>
+                  <div className="sm:col-span-2"><Input value={endRef} onChange={(e) => { setEndRef(e.target.value); setEndEditado(true); }} placeholder="Referência" /></div>
                 </div>
                 {taxaPrevista != null && (
                   <p className="mt-1.5 text-[11px] text-muted-foreground">Taxa do bairro: <span className="font-mono font-bold text-foreground">{brl(taxaPrevista)}</span></p>
@@ -495,6 +527,24 @@ export function PedidoDetalhe({
                 {bairros.length === 0 && (
                   <p className="mt-1.5 text-[11px] text-muted-foreground">Cadastre bairros com taxa em Cardápio → Área de atendimento para recalcular a taxa automaticamente.</p>
                 )}
+              </div>
+            )}
+
+            {/* Troco (pedido pago em dinheiro na entrega): o entregador leva o troco certo do valor novo. */}
+            {pagaEmDinheiro && (
+              <div className="mt-3 rounded-lg border border-border p-2.5">
+                <Label htmlFor="troco-alterar" className="text-xs font-semibold">Troco para (R$)</Label>
+                <Input
+                  id="troco-alterar"
+                  inputMode="decimal"
+                  value={troco}
+                  onChange={(e) => { setTroco(e.target.value); setTrocoEditado(true); }}
+                  placeholder="sem troco"
+                  className="mt-1 max-w-[12rem]"
+                />
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Pergunte ao cliente com quanto vai pagar se o valor mudou. Vazio = sem troco.
+                </p>
               </div>
             )}
 

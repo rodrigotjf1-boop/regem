@@ -1992,6 +1992,11 @@ export const producaoPedido = pgTable('producao_pedido', {
   obs: text('obs'),
   // Por quais estações (KDS) o cartão já passou: [{ kds, pronto, forcado? }] (mig 334, Cozinha em estações, entrega 2).
   estacoes: jsonb('estacoes').default('[]'),
+  // Pedido ALTERADO (mig 362): quando a mudança chegou a este cartão e o "Visto" da cozinha. O aviso grande fica
+  // enquanto `vistoEm` for nulo ou mais velho que `alteradoEm`.
+  alteradoEm: timestamp('alterado_em', { withTimezone: true }),
+  vistoEm: timestamp('visto_em', { withTimezone: true }),
+  vistoPor: text('visto_por'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // sync v2 (LWW)
 });
@@ -2009,7 +2014,10 @@ export const producaoPedidoItem = pgTable('producao_pedido_item', {
   quantidade: numeric('quantidade').notNull().default('1'),
   complementosTexto: text('complementos_texto'),
   observacao: text('observacao'), // obs do item (Fase F4)
-  status: text('status').notNull().default('ok'), // ok | alterado | removido
+  status: text('status').notNull().default('ok'), // ok | alterado | removido | novo (entrou numa alteração, mig 362)
+  // Quando o item entrou (NOVO) ou saiu (TIRAR) por uma alteração do pedido (mig 362): o tirado fica no cartão, riscado,
+  // até o "Visto".
+  mudouEm: timestamp('mudou_em', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // LWW sync (mig 121; gatilho mig 095)
 });
 
@@ -2063,6 +2071,8 @@ export const kdsCorConfig = pgTable('kds_cor_config', {
   // Vazio = herda (loja → empresa → padrão 10 min e aviso ligado), campo a campo.
   telaProntoMin: integer('tela_pronto_min'),
   telaSom: boolean('tela_som'),
+  // Som do KDS no pedido alterado (mig 362): 'uma' | '1min' | '2min'. Vazio = herda (loja → empresa → padrão '1min').
+  alteradoSom: text('alterado_som'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -2660,6 +2670,32 @@ export const pedidoRepetidoOk = pgTable('pedido_repetido_ok', {
   pedidoId: uuid('pedido_id').notNull(),
   porId: uuid('por_id'),
   porNome: text('por_nome'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// PEDIDO ALTERADO (mig 362): o histórico das alterações do pedido de canal — uma linha por alteração, com o id vindo de
+// quem pede (idempotência). À parte de `pedido_externo` (que sincroniza pela linha inteira), como a `pedido_repetido_ok`.
+// Regras em `modules/pedido-alterado/pedido-alterado.ts`.
+export const pedidoAlteracao = pgTable('pedido_alteracao', {
+  id: uuid('id').primaryKey(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  pedidoId: uuid('pedido_id').notNull(),
+  comandaId: uuid('comanda_id'),
+  origem: text('origem').notNull().default('equipe'), // equipe | robo
+  situacao: text('situacao').notNull().default('aplicada'), // aplicada | pedida (nuvem → servidor da loja) | recusada
+  motivo: text('motivo'),
+  porId: uuid('por_id'),
+  porNome: text('por_nome'),
+  pedido: jsonb('pedido'), // o que foi pedido (adicionar, remover, endereço, troco)
+  mudanca: jsonb('mudanca').notNull().default({}), // { itens: [{ acao, descricao, quantidade, valor }], endereco }
+  antes: jsonb('antes'), // { total, taxaEntrega, trocoPara, cashback, endereco }
+  depois: jsonb('depois'),
+  vias: jsonb('vias'), // [{ impressora, via }]
+  pedidoDoCliente: text('pedido_do_cliente'), // o que o cliente pediu (robô)
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

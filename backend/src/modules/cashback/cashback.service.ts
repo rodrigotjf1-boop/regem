@@ -394,6 +394,52 @@ export class CashbackService {
     return { saldoDevolvido: Number(saldoDevolvido.toFixed(2)), valesDevolvidos };
   }
 
+  /**
+   * PEDIDO ALTERADO (mig 362, decisão 7): o cashback ganho no pedido acompanha o valor novo. O crédito do pedido passa a
+   * ser o que o plano daria para o total de agora; a diferença entra como um lançamento com o id tirado da alteração (a
+   * mesma alteração não lança duas vezes — V42) — 'credito' quando sobe, 'estorno' quando desce, que é o que o
+   * cancelamento soma para devolver. Pedido sem telefone (sem cashback) não lança. Roda na transação da alteração.
+   * Devolve o cashback em R$ do pedido antes e depois (o painel mostra "R$ 2,25 → R$ 2,95").
+   */
+  async ajustarPedidoAlterado(
+    q: any,
+    tenantId: string,
+    d: { pedidoId: string; alteracaoId: string; total: number; taxaEntrega: number; telefone?: string | null; clienteId?: string | null },
+  ): Promise<{ antes: number; depois: number }> {
+    const movs: any[] = await q
+      .select()
+      .from(cashbackMovimento)
+      .where(and(eq(cashbackMovimento.tenantId, tenantId), eq(cashbackMovimento.pedidoId, d.pedidoId)));
+    // O que o pedido creditou até aqui, por tipo (o crédito e os estornos dele — a mesma conta do cancelamento).
+    const atual = new Map<string, number>();
+    for (const m of movs) if (m.origem === 'credito' || m.origem === 'estorno') atual.set(m.tipo, (atual.get(m.tipo) ?? 0) + Number(m.delta));
+    const antes = Number((atual.get('valor') ?? 0).toFixed(2));
+    const tel = movs.find((m) => m.origem === 'credito')?.telefone ?? soDigitos(d.telefone ?? undefined);
+    if (!tel) return { antes, depois: antes };
+    const planos: any[] = await q
+      .select()
+      .from(cashbackPlano)
+      .where(and(eq(cashbackPlano.tenantId, tenantId), eq(cashbackPlano.ativo, true), eq(cashbackPlano.status, 'ativo')));
+    const feito = new Set<string>();
+    let depois = antes;
+    for (const plano of planos) {
+      if (feito.has(plano.tipo)) continue; // um crédito por tipo, como `creditarPedido`
+      feito.add(plano.tipo);
+      const alvo = CashbackService.creditoDoPlano(plano, d.total, d.taxaEntrega);
+      const delta = plano.tipo === 'valor' ? Number((alvo - (atual.get('valor') ?? 0)).toFixed(2)) : Math.round(alvo - (atual.get(plano.tipo) ?? 0));
+      if (delta === 0) continue;
+      const expiraEm = delta > 0 && plano.prazoResgateDias ? new Date(Date.now() + Number(plano.prazoResgateDias) * 86400000) : null;
+      const entrou = await this.ajustarSaldo(tenantId, tel, d.clienteId ?? undefined, plano.tipo, delta, delta > 0 ? 'credito' : 'estorno', {
+        planoId: plano.id,
+        pedidoId: d.pedidoId,
+        expiraEm,
+        id: uuidDeChave('cashback-alteracao', tenantId, d.pedidoId, d.alteracaoId, plano.tipo),
+      }, q);
+      if (entrou && plano.tipo === 'valor') depois = Number((antes + delta).toFixed(2));
+    }
+    return { antes, depois };
+  }
+
   private async ajustarSaldo(
     tenantId: string,
     tel: string,
@@ -402,6 +448,7 @@ export class CashbackService {
     delta: number,
     origem: string,
     extra: { planoId?: string; pedidoId?: string; expiraEm?: Date | null; id?: string } = {},
+    q: any = this.db, // a transação de quem chama (a alteração do pedido), ou o banco
   ): Promise<boolean> {
     // O EXTRATO é a verdade. Desde a mig 274 um gatilho recalcula `cashback_saldo` como a
     // soma dos movimentos a cada linha inserida — inclusive a que chega pelo sincronismo,
@@ -411,7 +458,7 @@ export class CashbackService {
     // gatilho JÁ teria somado, e o crédito entraria duas vezes. O que sobra aqui é o PRAZO
     // de validade, que é regra de negócio e não sai do extrato.
     // Com `id` (o do estorno, tirado do pedido): o mesmo lançamento não entra duas vezes. Devolve se entrou.
-    const gravou = await this.db
+    const gravou = await q
       .insert(cashbackMovimento)
       .values({
         ...(extra.id ? { id: extra.id } : {}),
@@ -429,7 +476,7 @@ export class CashbackService {
     if (!gravou.length) return false;
     if (delta > 0 && extra.expiraEm) {
       // Crédito renova o prazo. (O gatilho já criou/atualizou a linha do saldo.)
-      await this.db
+      await q
         .update(cashbackSaldo)
         .set({ expiraEm: extra.expiraEm })
         .where(

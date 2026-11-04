@@ -913,6 +913,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ escopo, equipamentoId }),
     }),
+  // Pedido alterado (mig 362): "Visto" no cartão — o aviso grande e o som param, o item tirado sai do cartão.
+  producaoVisto: (id: string) => req(`/producao/pedidos/${id}/visto`, { method: 'POST', body: '{}' }),
   // Limpa a fila do KDS num só request (o servidor avança todos) — evita o 429.
   producaoLimparFila: (body: { canal?: string; setorId?: string; equipamentoId?: string }) =>
     req('/producao/fila/limpar', { method: 'POST', body: JSON.stringify(body) }),
@@ -1141,8 +1143,12 @@ export const api = {
   // Pedido igual (mig 360): a equipe confirmou com o cliente que são dois pedidos — o aviso sai do painel e do KDS.
   confirmarPedidoRepetido: (id: string) =>
     req(`/delivery/pedidos/${id}/repetido/confirmar`, { method: 'POST', body: '{}' }),
+  // Pedido alterado (mig 362): `idAlteracao` (um por "Salvar") faz a mesma alteração mandada duas vezes entrar uma vez;
+  // `trocoPara` ausente mantém o troco, null = sem troco.
   alterarDelivery: (id: string, body: Record<string, unknown>) =>
     req(`/delivery/pedidos/${id}/alterar`, { method: 'POST', body: JSON.stringify(body) }),
+  // O histórico das alterações do pedido: o que mudou, antes → agora, as vias que saíram e se a cozinha viu.
+  alteracoesDelivery: (id: string) => req(`/delivery/pedidos/${id}/alteracoes`),
   reimprimirDelivery: (id: string, equipamentoId?: string | null) =>
     req(`/delivery/pedidos/${id}/reimprimir`, { method: 'POST', body: JSON.stringify({ equipamentoId: equipamentoId ?? null }) }),
   despacharDelivery: (id: string, body?: Record<string, unknown>) =>
@@ -1210,6 +1216,7 @@ export const api = {
     ajuste99?: Record<string, unknown>;
     cheguei?: Record<string, unknown>;
     repetido?: Record<string, unknown>; // pedido igual em até 30 min (mig 360)
+    alterado?: { som: string }; // o som do KDS no pedido alterado (mig 362)
   }) =>
     req('/atendimento/ajustes', { method: 'PUT', body: JSON.stringify(body) }),
   // O chat oficial do iFood (PR 5): o widget da distribuição e as lojas do iFood da empresa (ou `disponivel: false`).

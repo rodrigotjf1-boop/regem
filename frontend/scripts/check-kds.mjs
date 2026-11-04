@@ -274,6 +274,38 @@ try {
     assert.equal(k.pedidoDoDespachoNaTela(lista, 'k9', 'todos', 'todos'), undefined);
   });
 
+  // Pedido ALTERADO (mig 362): o item tirado fica no cartão (riscado, "Tirar") até o "Visto", mas não se produz.
+  caso('pedido alterado: o tirado não soma nem se mistura com o igual que fica; o novo fica à parte', () => {
+    const p = ped('a', 'preparo', 3, [
+      it(1, 'Coca-Cola lata'),
+      it(1, 'Coca-Cola lata', { status: 'removido' }),
+      it(1, 'Batata', { status: 'novo' }),
+      it(1, 'Batata'),
+    ]);
+    assert.deepEqual(
+      k.agregarItens(p.itens).map((i) => `${i.quantidade} ${i.descricao} ${i.status ?? 'ok'}`),
+      ['1 Coca-Cola lata ok', '1 Coca-Cola lata removido', '1 Batata novo', '1 Batata ok'],
+    );
+    const grupos = k.agruparPorItem([p], AGORA);
+    assert.equal(grupos.find((g) => g.descricao === 'Coca-Cola lata').quantidade, 1); // o tirado aparece, não soma
+    assert.equal(grupos.find((g) => g.descricao === 'Batata').quantidade, 2);
+    // Só o tirado: nada a produzir — sai do resumo; e não acende o pedido como "leva o item".
+    const soTirado = ped('b', 'preparo', 2, [it(1, 'Suco', { status: 'removido' })]);
+    assert.equal(k.somarItens([soTirado]).length, 0);
+    assert.equal(k.pedidoTemItem(soTirado, 'Suco'), false);
+    assert.equal(k.somarItens([p, soTirado]).find((i) => i.descricao === 'Coca-Cola lata').pedidos, 1);
+  });
+
+  caso('pedido alterado: o rodapé diz a troca numa frase, ou o que entra e o que sai (só a última alteração)', () => {
+    const em = '2026-11-04T19:51:00.000Z';
+    const antes = '2026-11-04T19:40:00.000Z';
+    const troca = { alteradoEm: em, itens: [it(1, 'Guaraná', { status: 'novo', mudouEm: em }), it(1, 'Coca-Cola lata', { status: 'removido', mudouEm: em })] };
+    assert.equal(k.textoDaAlteracao(troca), 'troca de 1 Coca-Cola lata por 1 Guaraná');
+    const por = { alteradoEm: em, itens: [it(2, 'Batata', { status: 'novo', mudouEm: em }), it(1, 'Suco', { status: 'novo', mudouEm: antes })] };
+    assert.equal(k.textoDaAlteracao(por), '+ 2 Batata');
+    assert.equal(k.textoDaAlteracao({ alteradoEm: em, itens: [] }), 'o pedido mudou');
+  });
+
   console.log(`\ncheck:kds — ${n} casos, tudo certo`);
 } finally {
   rmSync(tmp, { recursive: true, force: true });

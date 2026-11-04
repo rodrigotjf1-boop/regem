@@ -1311,8 +1311,18 @@ export class EntregadorService implements OnModuleInit {
 
   // Coord do pedido: cache (entregador_chegada) senão geocode (Nominatim) + cacheia.
   private async coordDoPedido(tenantId: string, p: any): Promise<{ lat: number; lng: number } | null> {
-    const c: any = await this.db.execute(sql`select lat, lng from entregador_chegada where pedido_id = ${p.id}`);
-    const row = (c.rows ?? c)[0];
+    // Pedido ALTERADO depois da posição guardada (mig 362 — o endereço pode ter mudado): a posição do endereço antigo
+    // sai e o caminho é refeito pelo novo; o aviso de "chegando" volta a valer para ele.
+    const c: any = await this.db.execute(sql`
+      select c.lat, c.lng, (pe.alterado_em is not null and pe.alterado_em > c.criado_em) as velha
+        from entregador_chegada c
+        left join pedido_externo pe on pe.id = c.pedido_id
+       where c.pedido_id = ${p.id}`);
+    let row = (c.rows ?? c)[0];
+    if (row?.velha) {
+      await this.db.execute(sql`delete from entregador_chegada where pedido_id = ${p.id}`);
+      row = undefined;
+    }
     if (row && row.lat != null && row.lng != null) {
       const lat = Number(row.lat), lng = Number(row.lng);
       if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };

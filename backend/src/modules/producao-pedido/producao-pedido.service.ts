@@ -51,6 +51,7 @@ import { idConfigDaLoja } from '../../common/id-deterministico';
 import { ESTADOS_IMPRESSORA, MARCA_REIMPRESSAO } from '../../common/impressao-marca';
 import { gravarOuEncaminharImpressao } from '../../common/impressao-destino';
 import { dataHoraNoFuso, hojeISO } from '../../common/data';
+import { SONS_DO_ALTERADO, SOM_DO_ALTERADO_PADRAO, type SomDoAlterado } from '../pedido-alterado/pedido-alterado';
 import { logisticaDasComandas } from '../delivery/logistica-canal';
 import { ChegadaService } from '../chegada/chegada.service';
 import {
@@ -81,7 +82,24 @@ export interface ItemProducao {
   // ("X-Burger (2x Bacon)") e destaca as escolhas numa linha própria. Só para o papel: o cartão do KDS não muda.
   escolhas?: Escolha[];
   combo?: string[]; // itens do combo na via ("2x Batata frita") — preenchido na hora da via (`marcarCombos`)
+  // Entrou numa alteração do pedido (mig 362): a via de "PEDIDO ALTERADO" marca a linha com "<< NOVO".
+  novo?: boolean;
 }
+
+/** A marca do item que entrou numa alteração, no fim da linha da via (cozinha e entregador). */
+const MARCA_NOVO = ' << NOVO';
+
+/** O cartão alterado (mig 362) que a cozinha ainda não viu: o aviso grande e o som ficam até o "Visto". */
+export const alteracaoNaoVista = (p: { alteradoEm?: Date | string | null; vistoEm?: Date | string | null }) =>
+  p.alteradoEm != null && (p.vistoEm == null || new Date(p.vistoEm).getTime() < new Date(p.alteradoEm).getTime());
+
+/** O item tirado numa alteração que a cozinha ainda não viu: fica no cartão, riscado, até o "Visto". */
+const tiradoAindaNaoVisto = (p: any, i: any) =>
+  i.status === 'removido' &&
+  i.mudouEm != null &&
+  p.alteradoEm != null &&
+  (p.vistoEm == null || new Date(i.mudouEm).getTime() > new Date(p.vistoEm).getTime());
+
 
 // Item da venda que NÃO vai para a produção (a lata, o item sem produto ligado): a via completa o lista em letra pequena,
 // depois de "TAMBEM NO PEDIDO", para quem embala conferir o pedido inteiro.
@@ -846,12 +864,30 @@ export class ProducaoPedidoService {
   // `criarPedidos` (mantê-los em sincronia). O pedido de produção NÃO é recriado (já
   // desceu). O job leva `comandaId` → o processador do edge não reprocessa.
   async materializarProducaoLocal(tenantId: string, comandaId: string): Promise<number> {
+    const c = await this.contextoDaComanda(tenantId, comandaId);
+    if (!c || !c.daProducao.length) return 0;
+    const { ped, daProducao, resto, ctx, numero } = c;
+    const db = this.db;
+
+    // Mesmo roteamento da venda local (uma implementação só), com a mesma regra das estações: o cartão de cada KDS já
+    // desceu da nuvem; aqui sai só o papel.
+    const estacoes = await this.modoEstacoes(db, tenantId, ctx.unidadeId ?? null);
+    const { impressoras, padraoId, kds } = await this.rotearProducao(db, tenantId, ctx.unidadeId ?? null, daProducao, estacoes);
+    return this.gravarViasMaterializadas(tenantId, comandaId, ped, daProducao, resto, ctx, numero, { impressoras, padraoId, kds }, estacoes);
+  }
+
+  /**
+   * A venda como ela está agora, para refazer as vias de produção: o primeiro cartão (o cabeçalho), os itens de produção
+   * montados da comanda (produto + escolhas gravadas), o resto da venda e o contexto do cabeçalho. Uma implementação para
+   * o servidor da loja (`materializarProducaoLocal`) e para a via do pedido ALTERADO (`viasDaAlteracao`, mig 362).
+   */
+  private async contextoDaComanda(tenantId: string, comandaId: string) {
     const [ped] = await this.db
       .select()
       .from(producaoPedido)
       .where(and(eq(producaoPedido.comandaId, comandaId), eq(producaoPedido.tenantId, tenantId)))
       .limit(1);
-    if (!ped) return 0;
+    if (!ped) return null;
 
     // Reconstrói os ItemProducao a partir da comanda (produto + complementos que desceram). O resto da venda (sem
     // produto, ou que não vai para a produção) só aparece na via completa.
@@ -892,7 +928,6 @@ export class ProducaoPedidoService {
         escolhas: comps.map((s) => ({ tipo: s.tipo, nome: s.nome })),
       });
     }
-    if (!daProducao.length) return 0;
     // O nome do cliente vem da venda (o canal e o totem gravam; a venda do PDV não tem).
     const [venda] = await this.db
       .select({ cliente: comanda.cliente })
@@ -915,13 +950,23 @@ export class ProducaoPedidoService {
       // Pedido de canal: o número do painel ("PEDIDO #10") — aqui a venda já está ligada ao pedido.
       pedidoNumero: await numeroDoPedidoDaVenda(this.db, tenantId, comandaId),
     };
-    const numero = ped.numero ?? null;
-    const db = this.db;
+    return { ped, daProducao, resto, ctx, numero: (ped.numero ?? null) as number | null };
+  }
 
-    // Mesmo roteamento da venda local (uma implementação só), com a mesma regra das estações: o cartão de cada KDS já
-    // desceu da nuvem; aqui sai só o papel.
-    const estacoes = await this.modoEstacoes(db, tenantId, ctx.unidadeId ?? null);
-    const { impressoras, padraoId, kds } = await this.rotearProducao(db, tenantId, ctx.unidadeId ?? null, daProducao, estacoes);
+  // As vias (e etiquetas) que o servidor da loja grava para a venda que desceu — o resto de `materializarProducaoLocal`.
+  private async gravarViasMaterializadas(
+    tenantId: string,
+    comandaId: string,
+    ped: any,
+    daProducao: ItemProducao[],
+    resto: ItemForaDaProducao[],
+    ctx: any,
+    numero: number | null,
+    rota: { impressoras: Map<string, Set<ItemProducao>>; padraoId: string | null; kds: Map<string, ItemProducao[]> },
+    estacoes: boolean,
+  ): Promise<number> {
+    const db = this.db;
+    const { impressoras, padraoId, kds } = rota;
 
     const cfgCupom = await this.carregarConfigCupom(db, tenantId, ctx.unidadeId ?? null);
     const idProd = perfilDeProducao(ctx.origem, ctx.plataforma); // o mesmo modelo da venda local
@@ -1109,6 +1154,9 @@ export class ProducaoPedidoService {
     // Pedido IGUAL ainda sem o "São dois pedidos" (mig 360): o aviso vai no ALTO, antes de tudo — como a viagem, não é
     // campo de perfil (não pode ser desligado sem querer).
     const repetido = ctx.repetido ? linhasDaViaDoRepetido(ctx.repetido) : '';
+    // Pedido ALTERADO (mig 362): "PEDIDO ALTERADO / Descarte TODAS as vias anteriores" e o que mudou, no ALTO de tudo —
+    // texto pronto de `linhasDoAlteradoNaCozinha`, como a marca de viagem não é campo de perfil.
+    const alterado = typeof ctx.alterado === 'string' ? ctx.alterado : '';
     // Pedido de canal: DELIVERY/RETIRADA no lugar de "BALCAO", e o nº do pedido no canal ("iFood #8F2A").
     const tipo = tipoNaProducao(ctx);
     const canal = pedidoNoCanal(ctx.plataforma, ctx.senhaPlataforma);
@@ -1116,7 +1164,7 @@ export class ProducaoPedidoService {
     if (pp?.perfil) {
       // O perfil escolhe e ordena os campos; a marca de viagem não é campo de perfil (não pode ser
       // desligada sem querer): entra por cima, centralizada, em negrito e em tamanho dobrado.
-      return repetido + (viagem ? `@CBD ${MARCA_VIAGEM}\n` : '') + this.renderCupomPerfil(
+      return alterado + repetido + (viagem ? `@CBD ${MARCA_VIAGEM}\n` : '') + this.renderCupomPerfil(
         pp.perfil,
         {
           senha: ctx.senha,
@@ -1142,7 +1190,7 @@ export class ProducaoPedidoService {
     }
     const linha = '--------------------------------';
     const cab = ctx.mesa ? `MESA ${ctx.mesa}` : tipo ?? 'BALCAO';
-    const l: string[] = ['*** PRODUCAO ***'];
+    const l: string[] = alterado ? [...alterado.trimEnd().split('\n'), '*** PRODUCAO ***'] : ['*** PRODUCAO ***'];
     if (repetido) l.push(...repetido.trimEnd().split('\n'));
     if (viagem) l.push(MARCA_VIAGEM);
     const pedido = tipo ? linhaDoPedido(ctx.pedidoNumero) : undefined;
@@ -1166,7 +1214,7 @@ export class ProducaoPedidoService {
     // O texto do pedido nunca vira comando da impressora (ERR-334): cada pedaço passa por `textoNaVia`.
     for (const it of its) {
       const { descricao, escolhas } = itemNaVia(it);
-      l.push(`${completo ? '@B ' : ''}${Number(it.quantidade)}x ${textoNaVia(descricao)}`);
+      l.push(`${completo ? '@B ' : ''}${Number(it.quantidade)}x ${textoNaVia(descricao)}${it.novo ? MARCA_NOVO : ''}`);
       for (const c of it.combo ?? []) l.push(`  - ${textoNaVia(c)}`);
       // Cada escolha na sua linha, recuada e em negrito: no combo, a batata e a bebida não passam batidas.
       for (const e of linhasDasEscolhas(escolhas)) l.push(`@B   ${textoNaVia(e)}`);
@@ -1392,7 +1440,8 @@ export class ProducaoPedidoService {
         for (const it of dados.itens ?? []) {
           // Os adicionais numa linha própria, no estilo deles; os itens do combo logo abaixo do combo.
           const { descricao, escolhas } = itemNaVia(it);
-          put(fNome, `${Number(it.quantidade)}x ${textoNaVia(descricao)}`);
+          // O item que entrou numa alteração do pedido (mig 362) sai marcado — na cozinha e na via do entregador.
+          put(fNome, `${Number(it.quantidade)}x ${textoNaVia(descricao)}${it.novo ? MARCA_NOVO : ''}`);
           for (const c of Array.isArray(it.combo) ? it.combo : []) put(fComp, `   - ${textoNaVia(c)}`);
           // Uma escolha por linha (pedido do dono, 28/10/2026): no combo, a batata e a bebida cada uma na sua.
           for (const e of linhasDasEscolhas(escolhas)) put(fComp, `   ${textoNaVia(e)}`);
@@ -2568,7 +2617,7 @@ export class ProducaoPedidoService {
   }
 
   // ===== Consulta =====
-  private async comItens(tenantId: string, pedidos: any[]) {
+  private async comItens(tenantId: string, pedidos: any[], opts: { tirados?: boolean } = {}) {
     if (!pedidos.length) return [];
     const itens = await this.db
       .select()
@@ -2585,9 +2634,13 @@ export class ProducaoPedidoService {
     // Item tirado da comanda (`removido`) sai do cartão ativo e do resumo de itens: a cozinha não faz o que foi removido,
     // e o cartão ganha a etiqueta "Alterado" (removerItemComanda). No cartão CANCELADO os itens ficam (riscados na tela):
     // é o que diz à cozinha o que parar (auditoria do KDS, 20/10/2026).
+    // No KDS (`tirados`), o item TIRADO numa alteração do pedido (mig 362) fica no cartão, riscado ("Tirar"), até a
+    // cozinha tocar em "Visto" — quem já começou a fazer precisa ver o que parar. O tirado pelo PDV (sem `mudouEm`) sai.
     return pedidos.map((p) => ({
       ...p,
-      itens: itens.filter((i) => i.pedidoId === p.id && (p.status === 'cancelado' || i.status !== 'removido')),
+      itens: itens.filter(
+        (i) => i.pedidoId === p.id && (p.status === 'cancelado' || i.status !== 'removido' || (!!opts.tirados && tiradoAindaNaoVisto(p, i))),
+      ),
     }));
   }
 
@@ -2635,7 +2688,7 @@ export class ProducaoPedidoService {
       .from(producaoPedido)
       .where(and(...conds))
       .orderBy(producaoPedido.criadoEm);
-    const comItens = await this.comItens(tenantId, pedidos);
+    const comItens = await this.comItens(tenantId, pedidos, { tirados: true });
     // Pedido da 99 com entregador da plataforma (mig 294): o KDS mostra quem vem buscar e se já
     // chegou, e o código de coleta. Informação a mais — nunca derruba a fila.
     const logistica = await logisticaDasComandas(
@@ -2658,11 +2711,272 @@ export class ProducaoPedidoService {
       return [] as MarcaDoRepetido[];
     });
     const abertas = new Map(marcas.filter((m) => !m.ok && m.comandaId).map((m) => [m.comandaId as string, m]));
+    // Pedido ALTERADO (mig 362): o endereço que mudou (etiqueta "Endereço mudou" para quem despacha) e o som do aviso.
+    // Informação a mais — nunca derruba a fila.
+    const enderecos = await this.enderecoMudouNasComandas(
+      tenantId,
+      pedidos.map((p) => p.comandaId).filter((c): c is string => !!c),
+    ).catch((e: any) => {
+      new Logger('KDS').warn(`endereço mudou no KDS: ${e?.message ?? e}`);
+      return new Map<string, string>();
+    });
     const comRepetido = (comLogistica as any[]).map((p) => {
       const m = p.comandaId ? abertas.get(p.comandaId) : undefined;
-      return { ...p, repetido: m ? { deNumero: m.deNumero, deEm: m.deEm, texto: textoDoKds(m) } : null };
+      return {
+        ...p,
+        repetido: m ? { deNumero: m.deNumero, deEm: m.deEm, texto: textoDoKds(m) } : null,
+        alteracaoNaoVista: alteracaoNaoVista(p),
+        enderecoMudouEm: (p.comandaId && enderecos.get(p.comandaId)) || null,
+      };
     });
-    return { cores, pedidos: await this.comChegada(tenantId, opts.unidadeId ?? null, comRepetido) };
+    const alteradoSom = await this.somDoAlterado(tenantId, opts.unidadeId ?? null).catch(() => SOM_DO_ALTERADO_PADRAO);
+    return { cores: { ...cores, alteradoSom }, pedidos: await this.comChegada(tenantId, opts.unidadeId ?? null, comRepetido) };
+  }
+
+  // ===== Pedido ALTERADO (mig 362) =====
+
+  /** Quando o endereço do pedido mudou pela última vez (por comanda), para a etiqueta "Endereço mudou" do cartão. */
+  private async enderecoMudouNasComandas(tenantId: string, comandaIds: string[]): Promise<Map<string, string>> {
+    if (!comandaIds.length) return new Map();
+    const r: any = await this.db.execute(sql`
+      select comanda_id::text as comanda, max(created_at) as em
+        from pedido_alteracao
+       where tenant_id = ${tenantId} and situacao = 'aplicada'
+         and comanda_id in (${sql.join([...new Set(comandaIds)].map((c) => sql`${c}::uuid`), sql`, `)})
+         and jsonb_typeof(mudanca -> 'endereco') = 'object'
+       group by comanda_id`);
+    return new Map(((r.rows ?? r) as any[]).map((x) => [String(x.comanda), new Date(x.em).toISOString()]));
+  }
+
+  /** O som do KDS no pedido alterado: o da loja, senão o da empresa, senão o padrão (1 minuto) — V59. */
+  async somDoAlterado(tenantId: string, unidadeId: string | null): Promise<SomDoAlterado> {
+    // `to_jsonb` para a leitura não quebrar num banco ainda sem a coluna (a fila do KDS não pode cair por isso).
+    const r: any = await this.db.execute(sql`
+      select unidade_id is null as "daEmpresa", to_jsonb(k) ->> 'alterado_som' as som
+        from kds_cor_config k
+       where k.tenant_id = ${tenantId}
+         and (k.unidade_id is null ${unidadeId ? sql`or k.unidade_id = ${unidadeId}` : sql``})`);
+    const validos = ((r.rows ?? r) as any[]).filter((a) => (SONS_DO_ALTERADO as readonly string[]).includes(a.som));
+    return ((unidadeId ? validos.find((a) => !a.daEmpresa)?.som : undefined) ??
+      validos.find((a) => a.daEmpresa)?.som ??
+      SOM_DO_ALTERADO_PADRAO) as SomDoAlterado;
+  }
+
+  /** Grava o som do pedido alterado no ajuste do KDS da loja (ou da empresa), que sincroniza. Audita a mudança. */
+  async salvarSomDoAlterado(tenantId: string, unidadeId: string | null, som: SomDoAlterado, ator?: AtorKds) {
+    const antes = await this.somDoAlterado(tenantId, unidadeId);
+    await this.db.execute(sql`
+      insert into kds_cor_config (id, tenant_id, unidade_id, alterado_som)
+      values (${idConfigDaLoja('kds_cor_config', tenantId, unidadeId)}, ${tenantId}, ${unidadeId}, ${som})
+      on conflict (tenant_id, coalesce(unidade_id, '00000000-0000-0000-0000-000000000000'::uuid))
+      do update set alterado_som = excluded.alterado_som, updated_at = now()`);
+    if (antes !== som) {
+      await this.auditoria.registrar({
+        tenantId,
+        unidadeId,
+        atorId: ator?.id ?? null,
+        atorPerfil: ator?.perfil ?? null,
+        tipo: 'config',
+        acao: 'alterou_som_pedido_alterado',
+        entidadeTipo: 'kds',
+        detalhe: { antes, depois: som },
+      });
+    }
+    return { som };
+  }
+
+  /**
+   * A mudança do pedido NA COZINHA, dentro da transação da alteração (`DeliveryService.alterar`):
+   * • o item TIRADO fica no cartão marcado `removido` com `mudou_em` (riscado, "Tirar", até o "Visto"); o cartão que fica
+   *   sem nada é cancelado (a cozinha recebe o "Cancelado" de sempre);
+   * • o item POSTO entra no cartão do MESMO destino que ainda está em produção (`recebido`/`preparo`), marcado `novo`;
+   *   sem esse cartão (o de antes já ficou pronto, ou o item vai para uma estação que não tinha nada), nasce um cartão
+   *   com o mesmo número, a mesma senha e o mesmo canal — o pedido só fica pronto quando ele ficar (`comandaTodaPronta`);
+   * • cada cartão mexido ganha `alterado_em` e a etiqueta "Alterado" (`obs`): o aviso grande fica até o "Visto".
+   * Não grava via (quem chama decide as vias) e devolve os avisos para emitir DEPOIS do commit.
+   */
+  async aplicarAlteracaoNaCozinha(
+    tx: any,
+    a: { tenantId: string; unidadeId: string | null; comandaId: string; postos: ItemProducao[]; tirados: string[]; agora: Date },
+  ): Promise<{ eventos: any[]; cartoes: string[] }> {
+    const eventos: any[] = [];
+    const tocados = new Set<string>();
+    const aviso = (c: any, tipo: string) =>
+      eventos.push({
+        tenantId: a.tenantId,
+        unidadeId: c.unidadeId,
+        setorId: c.setorId,
+        destinoEquipamentoId: c.destinoEquipamentoId,
+        destinoTipo: c.destinoTipo,
+        pedidoId: c.id,
+        tipo,
+      });
+    const cartoes: any[] = await tx
+      .select()
+      .from(producaoPedido)
+      .where(and(eq(producaoPedido.tenantId, a.tenantId), eq(producaoPedido.comandaId, a.comandaId)))
+      .orderBy(producaoPedido.criadoEm);
+
+    // 1. O que sai.
+    if (a.tirados.length) {
+      const saem: { id: string; pedidoId: string }[] = await tx
+        .update(producaoPedidoItem)
+        .set({ status: 'removido', mudouEm: a.agora })
+        .where(
+          and(
+            eq(producaoPedidoItem.tenantId, a.tenantId),
+            inArray(producaoPedidoItem.comandaItemId, a.tirados),
+            sql`${producaoPedidoItem.status} <> 'removido'`,
+          ),
+        )
+        .returning({ id: producaoPedidoItem.id, pedidoId: producaoPedidoItem.pedidoId });
+      for (const pedidoId of [...new Set(saem.map((s) => s.pedidoId))]) {
+        const c = cartoes.find((x) => x.id === pedidoId);
+        if (!c || c.status === 'cancelado') continue;
+        const r: any = await tx.execute(sql`
+          select count(*)::int as n from producao_pedido_item where pedido_id = ${pedidoId} and status <> 'removido'`);
+        const resta = Number((r.rows ?? r)[0]?.n ?? 0);
+        if (resta === 0) {
+          await tx.update(producaoPedido).set({ status: 'cancelado', canceladoEm: a.agora }).where(eq(producaoPedido.id, pedidoId));
+          c.status = 'cancelado';
+          aviso(c, 'cancelado');
+        } else if (c.status !== 'entregue') {
+          await tx.update(producaoPedido).set({ obs: 'ALTERADO', alteradoEm: a.agora }).where(eq(producaoPedido.id, pedidoId));
+          tocados.add(pedidoId);
+        }
+      }
+    }
+
+    // 2. O que entra — pelo mesmo roteamento da venda (com as estações).
+    const daProducao = a.postos.filter((it) => it.produto?.vaiParaProducao);
+    if (daProducao.length) {
+      const estacoes = await this.modoEstacoes(tx, a.tenantId, a.unidadeId);
+      const { kds } = await this.rotearProducao(tx, a.tenantId, a.unidadeId, daProducao, estacoes);
+      const grupos: { destino: string | null; tipo: 'kds' | 'impressora'; itens: ItemProducao[] }[] = [];
+      if (estacoes) {
+        for (const [destino, its] of kds) grupos.push({ destino, tipo: 'kds', itens: its });
+        const naTela = new Set([...kds.values()].flat());
+        const papel = daProducao.filter((it) => !naTela.has(it));
+        if (papel.length) grupos.push({ destino: null, tipo: 'impressora', itens: papel });
+      } else {
+        grupos.push({ destino: null, tipo: 'kds', itens: daProducao });
+      }
+      const modelo = cartoes[0] ?? null; // o cabeçalho de todos os cartões da venda é o mesmo
+      for (const g of grupos) {
+        let alvo = [...cartoes]
+          .reverse()
+          .find(
+            (c) =>
+              c.destinoTipo === g.tipo &&
+              (c.destinoEquipamentoId ?? null) === g.destino &&
+              ['recebido', 'preparo'].includes(c.status),
+          );
+        if (!alvo) {
+          const [novo] = await tx
+            .insert(producaoPedido)
+            .values({
+              tenantId: a.tenantId,
+              unidadeId: modelo?.unidadeId ?? a.unidadeId,
+              comandaId: a.comandaId,
+              destinoEquipamentoId: g.destino,
+              destinoTipo: g.tipo,
+              setorId: modelo?.setorId ?? null,
+              numero: modelo?.numero ?? (await this.proximoNumero(tx, a.tenantId, a.unidadeId)),
+              senha: modelo?.senha ?? null,
+              senhaPrefixo: modelo?.senhaPrefixo ?? null,
+              origem: modelo?.origem ?? 'delivery',
+              plataforma: modelo?.plataforma ?? null,
+              senhaPlataforma: modelo?.senhaPlataforma ?? null,
+              mesa: modelo?.mesa ?? null,
+              consumo: modelo?.consumo ?? null,
+              status: 'recebido',
+              obs: 'ALTERADO',
+              alteradoEm: a.agora,
+              tempoPreparoMin: g.itens.reduce((mx, it) => Math.max(mx, Number(it.produto?.tempoPreparoMin) || 0), 0) || null,
+            })
+            .returning();
+          cartoes.push(novo);
+          alvo = novo;
+          aviso(novo, 'novo');
+        } else {
+          await tx.update(producaoPedido).set({ obs: 'ALTERADO', alteradoEm: a.agora }).where(eq(producaoPedido.id, alvo.id));
+          tocados.add(alvo.id);
+        }
+        await tx.insert(producaoPedidoItem).values(
+          g.itens.map((it) => ({
+            tenantId: a.tenantId,
+            pedidoId: alvo!.id,
+            comandaItemId: it.comandaItemId ?? null,
+            descricao: it.descricao,
+            quantidade: String(it.quantidade),
+            complementosTexto: it.complementosTexto ?? null,
+            observacao: it.observacao ?? null,
+            status: 'novo',
+            mudouEm: a.agora,
+          })),
+        );
+      }
+    }
+    for (const id of tocados) {
+      const c = cartoes.find((x) => x.id === id);
+      if (c && !eventos.some((e) => e.pedidoId === id)) aviso(c, 'atualizado');
+    }
+    return { eventos, cartoes: [...new Set([...tocados, ...eventos.map((e) => e.pedidoId)])] };
+  }
+
+  /**
+   * As vias de produção da venda COMO ESTÁ AGORA, com o destaque do pedido alterado no alto e o "<< NOVO" nos itens que
+   * entraram — uma por impressora, pelo mesmo roteamento da venda (via completa + direcionadas). Não grava: quem chama
+   * escolhe as impressoras (as que já imprimiram o pedido e as que agora têm item novo — decisão 5A).
+   */
+  async viasDaAlteracao(
+    tenantId: string,
+    comandaId: string,
+    o: { alterado: string; novos: Set<string> },
+  ): Promise<{ equipamentoId: string; conteudo: string; temNovo: boolean }[]> {
+    const c = await this.contextoDaComanda(tenantId, comandaId);
+    if (!c) return [];
+    const { daProducao, resto, ctx, numero } = c;
+    for (const it of daProducao) if (it.comandaItemId && o.novos.has(it.comandaItemId)) it.novo = true;
+    ctx.alterado = o.alterado;
+    const db = this.db;
+    const estacoes = await this.modoEstacoes(db, tenantId, ctx.unidadeId ?? null);
+    const rota = await this.rotearProducao(db, tenantId, ctx.unidadeId ?? null, daProducao, estacoes);
+    const cfgCupom = await this.carregarConfigCupom(db, tenantId, ctx.unidadeId ?? null);
+    const idProd = perfilDeProducao(ctx.origem, ctx.plataforma);
+    const ppProd = cfgCupom.override[idProd]
+      ? { perfil: perfilEfetivo(idProd, cfgCupom.override[idProd]), cabecalho: cfgCupom.cabecalho, rodape: cfgCupom.rodape }
+      : null;
+    await this.marcarCombos(db, tenantId, daProducao);
+    const completas = await this.viasCompletas(db, tenantId, ctx.unidadeId ?? null, daProducao, resto, ctx, numero, ppProd);
+    const direcionadas = (await this.viasDeProducao(db, tenantId, daProducao, rota, ctx, numero, ppProd)).filter(
+      (v) => !completas.some((x) => x.equipamentoId === v.equipamentoId),
+    );
+    const temNovo = (equipamentoId: string, completa: boolean) =>
+      completa ? daProducao.some((it) => it.novo) : [...(rota.impressoras.get(equipamentoId) ?? [])].some((it) => it.novo);
+    return [
+      ...completas.map((v) => ({ ...v, temNovo: temNovo(v.equipamentoId, true) })),
+      ...direcionadas.map((v) => ({ ...v, temNovo: temNovo(v.equipamentoId, false) })),
+    ];
+  }
+
+  /** "Visto" no cartão alterado: o aviso grande e o som param; o item tirado sai do cartão. Idempotente. */
+  async marcarVisto(tenantId: string, cartaoId: string, quem: { nome?: string | null } = {}) {
+    const [c] = await this.db
+      .update(producaoPedido)
+      .set({ vistoEm: new Date(), vistoPor: quem.nome ?? null })
+      .where(and(eq(producaoPedido.tenantId, tenantId), eq(producaoPedido.id, cartaoId), isNotNull(producaoPedido.alteradoEm)))
+      .returning();
+    if (!c) throw new NotFoundException('Cartão alterado não encontrado.');
+    this.events?.emit('producao.evento', {
+      tenantId,
+      unidadeId: c.unidadeId,
+      setorId: c.setorId,
+      destinoEquipamentoId: c.destinoEquipamentoId,
+      pedidoId: c.id,
+      tipo: 'atualizado',
+    });
+    return { ok: true, vistoEm: c.vistoEm, vistoPor: c.vistoPor };
   }
 
   /**
@@ -3212,36 +3526,6 @@ export class ProducaoPedidoService {
     return { cancelados: pedidos.filter((p) => p.status !== 'cancelado').length };
   }
 
-  // Marca os pedidos ativos de uma comanda como "ALTERADO" e avisa o KDS
-  // (usado quando o delivery tem os itens alterados após já estar na produção).
-  async marcarAlteradoPorComanda(tenantId: string, comandaId: string) {
-    const pedidos = await this.db
-      .select()
-      .from(producaoPedido)
-      .where(
-        and(
-          eq(producaoPedido.tenantId, tenantId),
-          eq(producaoPedido.comandaId, comandaId),
-        ),
-      );
-    for (const p of pedidos) {
-      if (['cancelado', 'entregue'].includes(p.status)) continue;
-      await this.db
-        .update(producaoPedido)
-        .set({ obs: 'ALTERADO' })
-        .where(eq(producaoPedido.id, p.id));
-      this.events?.emit('producao.evento', {
-        tenantId,
-        unidadeId: p.unidadeId,
-        setorId: p.setorId,
-        destinoEquipamentoId: p.destinoEquipamentoId,
-        pedidoId: p.id,
-        tipo: 'atualizado',
-      });
-    }
-    return { ok: true };
-  }
-
   // Item removido de uma comanda aberta (PDV): marca o item nos pedidos de
   // produção como 'removido' e cancela o pedido se ficar sem itens. Avisa o KDS.
   async removerItemComanda(tenantId: string, comandaItemId: string) {
@@ -3283,7 +3567,7 @@ export class ProducaoPedidoService {
           .where(eq(producaoPedido.id, pedidoId));
       } else if (n > 0 && !['cancelado', 'entregue'].includes(ped.status)) {
         // Sobrou item: o removido sai da lista do cartão (comItens) e o cartão mostra "Alterado" — quem já começou a
-        // fazer precisa perceber a mudança. Mesma marca do delivery alterado (marcarAlteradoPorComanda).
+        // fazer precisa perceber a mudança. Mesma marca do pedido de canal alterado (aplicarAlteracaoNaCozinha, mig 362).
         await this.db
           .update(producaoPedido)
           .set({ obs: 'ALTERADO' })

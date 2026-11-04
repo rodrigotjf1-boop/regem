@@ -158,11 +158,16 @@ export function rotuloDaEstacao(e: { nome: string; estado: string; desde?: strin
 }
 
 // ── Itens ─────────────────────────────────────────────────────────────────────────────────
-// Dentro de UM pedido: agrega itens iguais (mesma descrição + complementos + obs) somando.
+// Pedido ALTERADO (mig 362): o item tirado (riscado, "Tirar", até o "Visto") não se produz; o novo leva "Novo".
+export const itemTirado = (it: any) => it?.status === 'removido';
+const marcaDoItem = (it: any) => (it?.status === 'removido' ? 'tirar' : it?.status === 'novo' ? 'novo' : '');
+
+// Dentro de UM pedido: agrega itens iguais (mesma descrição + complementos + obs) somando. O tirado e o novo ficam à parte
+// (a Coca que saiu não soma com a que fica).
 export function agregarItens(itens: any[]): any[] {
   const mapa = new Map<string, any>();
   for (const it of itens ?? []) {
-    const chave = `${it.descricao}|${it.complementosTexto ?? ''}|${it.observacao ?? ''}`;
+    const chave = `${it.descricao}|${it.complementosTexto ?? ''}|${it.observacao ?? ''}|${marcaDoItem(it)}`;
     const ex = mapa.get(chave);
     if (ex) ex.quantidade = Number(ex.quantidade) + Number(it.quantidade);
     else mapa.set(chave, { ...it, quantidade: Number(it.quantidade) });
@@ -186,7 +191,8 @@ export function agruparPorItem(pedidos: any[], agoraMs: number): GrupoDeItem[] {
     for (const it of agregarItens(p.itens ?? [])) {
       const descricao = String(it.descricao ?? '').trim() || 'Item sem nome';
       const g = mapa.get(descricao) ?? { descricao, quantidade: 0, minMaisAntigo: 0, linhas: [] };
-      g.quantidade += Number(it.quantidade) || 0;
+      // O tirado aparece (riscado) na visão por item, mas não soma o que se produz.
+      if (!itemTirado(it)) g.quantidade += Number(it.quantidade) || 0;
       g.minMaisAntigo = Math.max(g.minMaisAntigo, min);
       g.linhas.push({ pedido: p, item: it, min });
       mapa.set(descricao, g);
@@ -202,13 +208,33 @@ export type ItemDoResumo = { descricao: string; quantidade: number; pedidos: num
 // Resumo lateral: a mesma soma, da maior quantidade para a menor.
 export function somarItens(pedidos: any[]): ItemDoResumo[] {
   return agruparPorItem(pedidos, 0)
-    .map((g) => ({ descricao: g.descricao, quantidade: g.quantidade, pedidos: new Set(g.linhas.map((l) => l.pedido.id)).size }))
+    .filter((g) => g.quantidade > 0) // só o tirado: nada a produzir
+    .map((g) => ({
+      descricao: g.descricao,
+      quantidade: g.quantidade,
+      pedidos: new Set(g.linhas.filter((l) => !itemTirado(l.item)).map((l) => l.pedido.id)).size,
+    }))
     .sort((a, b) => b.quantidade - a.quantidade || a.descricao.localeCompare(b.descricao, 'pt-BR'));
+}
+
+/**
+ * O que mudou no cartão, para o rodapé do KDS (mig 362): "+ 1 Batata frita média", "troca de 1 Coca-Cola lata por 1
+ * Guaraná Antarctica lata", "tirar 1 Coca-Cola lata". Só os itens da última alteração (`mudouEm` = `alteradoEm`).
+ */
+export function textoDaAlteracao(p: any): string {
+  const ultima = p?.alteradoEm ? new Date(p.alteradoEm).getTime() : null;
+  const daUltima = (it: any) => ultima == null || (it?.mudouEm != null && new Date(it.mudouEm).getTime() === ultima);
+  const q = (it: any) => String(Number(it?.quantidade) || 1);
+  const postos = (p?.itens ?? []).filter((it: any) => it?.status === 'novo' && daUltima(it));
+  const tirados = (p?.itens ?? []).filter((it: any) => itemTirado(it) && daUltima(it));
+  if (postos.length === 1 && tirados.length === 1) return `troca de ${q(tirados[0])} ${tirados[0].descricao} por ${q(postos[0])} ${postos[0].descricao}`;
+  const partes = [...postos.map((it: any) => `+ ${q(it)} ${it.descricao}`), ...tirados.map((it: any) => `tirar ${q(it)} ${it.descricao}`)];
+  return partes.join(' · ') || 'o pedido mudou';
 }
 
 // O pedido leva o item destacado no resumo? (só conta o que ainda se produz)
 export function pedidoTemItem(p: any, descricao: string): boolean {
-  return aProduzir(p) && (p.itens ?? []).some((it: any) => String(it.descricao ?? '').trim() === descricao);
+  return aProduzir(p) && (p.itens ?? []).some((it: any) => !itemTirado(it) && String(it.descricao ?? '').trim() === descricao);
 }
 
 // ── Forma de uso: toque × teclado ──────────────────────────────────────────────────────────

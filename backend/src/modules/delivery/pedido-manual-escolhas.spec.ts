@@ -166,7 +166,7 @@ descrever('pedido manual do delivery e do nosso cardápio: variação e adiciona
     const l = await loja();
     const ped = await manual(l, {});
     const r: any = await delivery.aceitar(l.t, l.gestor, ped.id);
-    const depois: any = await delivery.alterar(l.t, l.gestor, ped.id, {
+    const depois: any = await delivery.alterar({ tenantId: l.t, colaboradorId: l.gestor }, ped.id, {
       adicionar: [{ produtoId: l.suco, variacaoId: l.grande, complementos: [l.op], quantidade: 1 }],
     } as any);
     expect(Number(depois.total)).toBe(23); // 8 + (12 + 3)
