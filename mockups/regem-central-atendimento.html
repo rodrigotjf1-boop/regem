@@ -17,6 +17,14 @@
    como a documentação diz (cancelamento: 5 min e a 99 recusa sozinha; reembolso: fotos do cliente e o Regem recusa no
    tempo do ajuste, padrão 4 h); casos identificados por cliente + plataforma + número do pedido; o que o cliente já viu
    no app da plataforma. A ponte da loja (texto dos chats na fila) fica para depois do advogado e do teste na loja.
+   VERSÃO 3 (04/11/2026, decisão do dono: "vamos usar o caminho não oficial", "integrar todas as mensagens ali
+   [whatsapp, ifood e 99food], cada um com sua identificação" e "não criar uma tela nova"): a PONTE DO CHAT — o programa
+   do Regem no PC da loja com o iFood e a 99 abertos — traz as conversas do iFood e da 99 para ESTA tela, na mesma lista
+   do WhatsApp. Identificação: WhatsApp = nome do cliente cadastrado ou o número; iFood e 99 = nome do cliente + número
+   do pedido. O robô responde no chat da plataforma com o dado do pedido; o que ele não resolve vira caso com o resumo; a
+   equipe responde aqui e a resposta sai no chat da plataforma. Avisos automáticos no chat: "saiu" ao despachar e
+   "chegando" a 70 m da posição que a plataforma manda no pedido. Situação nova "Conversas agora": o que o robô está
+   atendendo nos três canais. Sem a ponte, o chat oficial do iFood (Widget) continua de reserva.
    O que a tela faz:
    (1) uma FILA só com tudo o que precisa de uma pessoa: chamado do robô, disputa do iFood, pedido de cancelamento ou
        reembolso da 99, cancelamento pedido no cardápio e a resposta ao "sem contato". A conversa que o robô atende
@@ -170,6 +178,22 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 .msg.robo{background:#E6F0F8;align-self:flex-end;border-top-right-radius:4px}
 .msg.loja{background:#FCF1DD;align-self:flex-end;border-top-right-radius:4px}
 .msg.sis{align-self:center;background:transparent;color:var(--ink-2);font-size:12px;padding:2px}
+.msg.auto{background:var(--ok-bg);align-self:flex-end;border-top-right-radius:4px}
+.msg .env-ok{color:var(--ok);font-weight:700}
+.msg .env-esp{color:var(--warn);font-weight:700}
+/* versão 3: faixa da ponte do chat, mapa da chegada, ajustes com texto */
+.faixa{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:-4px 0 12px;font-size:13.5px}
+.faixa .txt{flex:1 1 240px;min-width:0;overflow-wrap:anywhere}
+.faixa.caiu{border-color:#EBC2C2;background:var(--crit-bg)}
+.novo-t{font-size:10.5px;font-weight:800;letter-spacing:.06em;color:var(--on-gold);background:var(--gold);border-radius:6px;padding:1px 6px;vertical-align:middle}
+.mapa{position:relative;height:140px;border-radius:10px;border:1px solid var(--line);margin:0 0 6px;overflow:hidden;background:linear-gradient(90deg,rgba(67,88,108,.08) 1px,transparent 1px) 0 0/24px 24px,linear-gradient(0deg,rgba(67,88,108,.08) 1px,transparent 1px) 0 0/24px 24px,#F7F9FB}
+.mapa .rua{position:absolute;left:0;right:0;top:58%;height:14px;background:#E3E9EF}
+.mapa .rua2{position:absolute;top:0;bottom:0;left:62%;width:14px;background:#E3E9EF}
+.mapa .pino{position:absolute;font-size:22px;line-height:1}
+.mapa .raio{position:absolute;border:2px dashed var(--ok);border-radius:50%;width:70px;height:70px}
+.mapa .leg{position:absolute;left:8px;right:8px;bottom:6px;font-size:11.5px;background:rgba(255,255,255,.92);border-radius:6px;padding:1px 6px;color:var(--ink-2);overflow-wrap:anywhere}
+.aj .linha-txt{grid-column:1/-1}
+.aj .linha-txt input{min-height:40px;border:1px solid var(--line-2);border-radius:10px;padding:0 12px;background:#fff;width:100%;min-width:0}
 .prontas{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
 .pronta{min-height:34px;padding:4px 10px;border-radius:999px;border:1px solid var(--line-2);background:#fff;font-size:13px;text-align:left}
 .pronta:hover{border-color:var(--ink-2)}
@@ -343,6 +367,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     <button type="button" data-estado="vazia" aria-pressed="false">vazia</button>
     <button type="button" data-estado="erro" aria-pressed="false">sem conexão</button>
     <button type="button" id="simular">Simular aviso novo</button>
+    <span>Ponte do chat:</span>
+    <button type="button" data-ponte="ok" aria-pressed="true">ligada</button>
+    <button type="button" data-ponte="caiu" aria-pressed="false">sem sinal</button>
   </div>
   <span class="obs">Dados inventados. Nada aqui fala com o Regem.</span>
 </div>
@@ -389,7 +416,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <div class="trilha">Atendimento</div>
       <h1 id="titulo-fila">7 casos abertos</h1>
       <p class="resumo" id="resumo-fila">2 com prazo · 3 na fila · o robô está em 5 conversas agora (<a href="#" onclick="return false">ver em Delivery › WhatsApp</a>)</p>
-      <div class="acoes" style="margin:-4px 0 12px"><button type="button" class="bt" id="bt-chat-ifood">💬 Chat do iFood</button><span class="ajuda" style="align-self:center">As mensagens do chat do iFood não entram sozinhas na fila: o chat do iFood mostra os avisos dele.</span></div>
+      <div class="faixa" id="faixa-ponte"><span class="selo ok" id="ponte-selo">🔗 Ponte do chat ligada</span><span class="txt" id="ponte-txt"></span><button type="button" class="bt" id="bt-chat-ifood">💬 Chat oficial do iFood</button></div>
       <div class="sits" role="group" aria-label="Situação" id="sits"></div>
       <div class="filtros">
         <div class="campo larga"><label for="busca">Buscar</label><input id="busca" type="search" placeholder="Cliente, pedido ou telefone"></div>
@@ -410,7 +437,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     <main id="v-aj" hidden>
       <div class="trilha">Delivery › Configurações › Operação</div>
       <h1>Atendimento</h1>
-      <p class="resumo">11 ajustes em 3 grupos · item novo no grupo "Operação", ao lado de "Robô de atendimento"</p>
+      <p class="resumo">18 ajustes em 4 grupos · item novo no grupo "Operação", ao lado de "Robô de atendimento" · grupo novo: "iFood e 99 · chat pela ponte"</p>
       <div class="filtros" style="grid-template-columns:minmax(0,1fr)"><div class="campo"><label for="busca-aj">Buscar ajuste</label><input id="busca-aj" type="search" placeholder="Ex.: 99, disputa, som"></div></div>
 
       <section class="grupo" data-grupo>
@@ -424,9 +451,34 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       </section>
 
       <section class="grupo" data-grupo>
+        <header><h3>iFood e 99 · chat pela ponte <span class="novo-t">NOVO</span></h3><span>7 ajustes</span></header>
+        <div class="aj"><div><span class="rot-aj">Ponte do chat</span><span class="ajuda">O programa do Regem no PC da loja fica com o iFood e a 99 abertos e traz as conversas para a tela Atendimento, junto com o WhatsApp. Desligada, o chat fica só no Gestor de cada plataforma.</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Ponte do chat" data-aj></button></div></div>
+        <div class="aj"><div><span class="rot-aj">Onde a ponte roda</span><span class="ajuda">Automático: o Regem usa os PCs onde a ponte está aberta e logada. A principal responde; a reserva lê tudo e assume sozinha se a principal ficar 2 min sem sinal. Cada PC aparece em Configurações › Equipamentos.</span></div>
+          <div class="ctrl"><select aria-label="Onde a ponte roda" data-aj id="onde-ponte"><option value="auto">Automático (recomendado)</option><option value="escolher">Escolher os PCs</option></select></div></div>
+        <div class="aj" id="aj-principal" data-so-escolher hidden><div><span class="rot-aj">PC principal</span><span class="ajuda">Onde o iFood e a 99 ficam abertos no dia a dia.</span></div>
+          <div class="ctrl"><select aria-label="PC principal da ponte" data-aj><option>CX-DELIVERY</option><option>Servidor da loja</option><option>CX-CAIXA</option></select></div></div>
+        <div class="aj" id="aj-reserva" data-so-escolher hidden><div><span class="rot-aj">PC de reserva</span><span class="ajuda">Assume quando a principal desliga, por exemplo o PC do delivery à noite.</span></div>
+          <div class="ctrl"><select aria-label="PC de reserva da ponte" data-aj><option>Servidor da loja</option><option>CX-CAIXA</option><option>CX-DELIVERY</option><option>Nenhum</option></select></div></div>
+        <div class="aj"><div><span class="rot-aj">Robô responde sozinho no chat</span><span class="ajuda">Com o dado do pedido: etapa na cozinha, hora da saída, onde está o entregador, previsão e atraso. Reclamação, item faltando, reembolso, cancelamento ou "quero falar com alguém" viram caso com o resumo.</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Robô responde sozinho no chat do iFood e da 99" data-aj></button></div></div>
+        <div class="aj"><div><span class="rot-aj">Aviso "saiu para entrega" no chat</span><span class="ajuda">Sai quando o Regem despacha o pedido, com a previsão do rastreio ({hora}).</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Aviso saiu para entrega no chat" data-aj></button></div>
+          <div class="linha-txt"><input type="text" aria-label="Texto do aviso saiu para entrega" value="Seu pedido saiu para entrega! Chega por volta das {hora}." data-aj></div></div>
+        <div class="aj"><div><span class="rot-aj">Aviso "o entregador está chegando" no chat</span><span class="ajuda">Sai quando o entregador do Regem fica a 70 m (o raio do app do entregador) da posição que o iFood e a 99 mandam no pedido. Só em entrega da loja.</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Aviso o entregador está chegando no chat" data-aj></button></div>
+          <div class="linha-txt"><input type="text" aria-label="Texto do aviso o entregador está chegando" value="{nome}, o entregador está chegando! Já pode ir até a porta." data-aj></div></div>
+        <div class="aj"><div><span class="rot-aj">Agradecer depois da entrega</span><span class="ajuda">Só o agradecimento: a avaliação do iFood e da 99 é pedida pela própria plataforma.</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="false" aria-label="Agradecer no chat depois da entrega" data-aj></button></div>
+          <div class="linha-txt"><input type="text" aria-label="Texto do agradecimento" value="Obrigado pelo pedido, {nome}! Bom apetite." data-aj></div></div>
+        <div class="aj"><div><span class="rot-aj">Sempre vale</span><span class="ajuda">Não se desliga: protege a conta da loja na plataforma.</span></div>
+          <div class="ctrl"><span class="fixo">Nunca telefone, WhatsApp, Instagram nem link no chat · no máximo 3 avisos por pedido · a conversa não entra em campanha</span></div></div>
+      </section>
+
+      <section class="grupo" data-grupo>
         <header><h3>iFood · disputas e chat</h3><span>4 ajustes</span></header>
-        <div class="aj"><div><span class="rot-aj">Chat do iFood na tela Atendimento</span><span class="ajuda">Mostra o botão "Chat do iFood" (o chat oficial do iFood). Cada computador autoriza uma vez, com um usuário "Dono" ou "Administrador" do iFood.</span></div>
-          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Chat do iFood na tela Atendimento" data-aj></button></div></div>
+        <div class="aj"><div><span class="rot-aj">Chat oficial do iFood na tela Atendimento</span><span class="ajuda">Mostra o botão "Chat oficial do iFood", para quando a ponte estiver sem sinal. Cada computador autoriza uma vez, com um usuário "Dono" ou "Administrador" do iFood.</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Chat oficial do iFood na tela Atendimento" data-aj></button></div></div>
         <div class="aj"><div><span class="rot-aj">Quem responde</span><span class="ajuda">Gerente e presidente. No computador, com a senha de quem decide; no app, com o PIN.</span></div>
           <div class="ctrl"><span class="fixo">Gerente e presidente</span></div></div>
         <div class="aj"><div><span class="rot-aj">Avisar o gerente quando chega uma disputa</span><span class="ajuda">No app de atendimento, na hora. Disputa sem resposta segue o que o iFood decidir sozinho.</span></div>
@@ -506,15 +558,18 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
           <div class="a-card urg"><div class="l1"><span class="canal ifood">iFood</span><span class="selo crit">Disputa</span><span class="dir prazo crit" data-prazo="c1">06:12</span></div>
             <div class="tit">Ana P. · pedido iFood 4521 · faltou item</div><div class="fala">"Faltou a batata." · 2 fotos</div>
             <button type="button" class="bt">Ver · só o gerente responde</button></div>
-          <div class="a-sec">Na fila · 3</div>
-          <div class="a-card urg"><div class="l1"><span class="canal wa">WhatsApp</span><span class="selo crit">🚨 Urgente</span><span class="dir pos" style="font-family:var(--mono);font-weight:700">1º · 4 min</span></div>
+          <div class="a-sec">Na fila · 4</div>
+          <div class="a-card urg"><div class="l1"><span class="canal ifood">iFood</span><span class="selo crit">🚨 Urgente</span><span class="dir pos" style="font-family:var(--mono);font-weight:700">1º · 2 min</span></div>
+            <div class="tit">Maria S. · pedido iFood 4821 · atraso</div><div class="fala">"Quero falar com alguém" · no chat do iFood</div>
+            <button type="button" class="bt pri">Pegar</button></div>
+          <div class="a-card urg"><div class="l1"><span class="canal wa">WhatsApp</span><span class="selo crit">🚨 Urgente</span><span class="dir pos" style="font-family:var(--mono);font-weight:700">2º · 4 min</span></div>
             <div class="tit">Carlos · pedido 1180 · atraso</div><div class="fala">"Cadê meu lanche? Já faz mais de 1 hora"</div>
             <button type="button" class="bt pri">Pegar</button></div>
-          <div class="a-card"><div class="l1"><span class="canal wa">WhatsApp</span><span class="selo neutro">Faltou item</span><span class="dir" style="font-family:var(--mono);font-weight:700">2º · 3 min</span></div>
+          <div class="a-card"><div class="l1"><span class="canal wa">WhatsApp</span><span class="selo neutro">Faltou item</span><span class="dir" style="font-family:var(--mono);font-weight:700">3º · 3 min</span></div>
             <div class="tit">Juliana · pedido 1176</div><div class="fala">"Veio sem o refrigerante" · 1 foto</div>
             <button type="button" class="bt pri">Pegar</button></div>
         </div>
-        <nav class="a-nav" aria-label="Navegação do app"><button aria-current="page">Fila <b>5</b></button><button>Comigo</button><button>Feitos</button><button>Eu</button></nav>
+        <nav class="a-nav" aria-label="Navegação do app"><button aria-current="page">Fila <b>6</b></button><button>Comigo</button><button>Feitos</button><button>Eu</button></nav>
       </div></div>
       <figcaption><strong>3 · A fila</strong>A mesma ordem do computador. "Ocupado: embalando" tira a pessoa da vez sem sair do app; o que tem prazo continua tocando.</figcaption>
     </figure>
@@ -586,7 +641,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 
 <!-- ============ NOTAS ============ -->
 <section id="v-notas" hidden class="notas" aria-label="Notas do protótipo">
-  <div class="trilha">Notas do protótipo · 02/11/2026</div>
+  <div class="trilha">Notas do protótipo · 02/11/2026 · versão 3 em 04/11/2026</div>
   <h1>Atendimento: o que cada parte faz</h1>
 
   <div class="cartao">
@@ -597,8 +652,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <li>Pedido de cancelamento ou de reembolso da 99Food.</li>
       <li>Pedido de cancelamento ou de alteração feito no cardápio online (hoje já vira chamado).</li>
       <li>A resposta do cliente ao "sem contato" do entregador (no ar desde o #789).</li>
+      <li>Versão 3: a mensagem do cliente no chat do iFood ou da 99 que o robô não resolve, trazida pela ponte, já com o resumo.</li>
     </ul>
-    <p>Não entra: a conversa que o robô está atendendo sozinho. Ela continua em Delivery › WhatsApp, e o resumo do topo da fila mostra quantas são.</p>
+    <p>A conversa que o robô está atendendo sozinho não é caso: ela aparece em <b>Conversas agora</b>, dos três canais (WhatsApp, iFood e 99), e qualquer pessoa pode assumir. Delivery › WhatsApp continua com o histórico completo do WhatsApp.</p>
   </div>
 
   <div class="cartao">
@@ -629,7 +685,22 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   </div>
 
   <div class="cartao">
-    <h3>Chat do iFood e da 99</h3>
+    <h3>Chat do iFood e da 99 · versão 3 (04/11/2026)</h3>
+    <p>Decisão do dono: usar o caminho não oficial e trazer o chat do iFood e da 99 para esta tela, junto com o WhatsApp, sem tela nova. As plataformas não liberam o chat para sistemas (conferido em 30/10 e 02/11), então o Regem usa a <b>ponte do chat</b>:</p>
+    <ul>
+      <li><b>O que é:</b> um programa do Regem no PC da loja (o mesmo ícone perto do relógio) com o Gestor de Pedidos do iFood e o portal da 99 abertos dentro. A pessoa entra uma vez com o login dela; a senha não vai para o Regem. A ponte lê as mensagens e digita as respostas no chat da plataforma.</li>
+      <li><b>Identificação:</b> WhatsApp pelo nome do cliente cadastrado ou pelo número; iFood e 99 pelo nome do cliente e o número do pedido.</li>
+      <li><b>O robô</b> responde no chat com o dado do pedido (cozinha, saída, entregador, previsão). O que ele não resolve vira caso com o resumo, e ele diz ao cliente que a equipe já foi chamada.</li>
+      <li><b>Avisos automáticos no chat:</b> "saiu para entrega" quando o Regem despacha; "o entregador está chegando" quando o entregador do Regem fica a 70 m da posição que a plataforma manda no pedido (hoje o Regem procura o endereço pelo texto; o iFood manda a posição em 1.709 de 1.711 pedidos e a 99 em todos os 823); "obrigado" opcional. No máximo 3 avisos por pedido.</li>
+      <li><b>Onde a ponte roda:</b> no PC do delivery, no servidor da loja ou nos dois. Todas leem; só a principal envia; a reserva assume sozinha se a principal ficar 2 min sem sinal. O Regem acha sozinho onde estão (Configurações › Equipamentos mostra os programas de cada PC e avisa); a loja também pode informar onde o iFood e a 99 ficam abertos.</li>
+      <li><b>Regras que protegem a conta:</b> nunca telefone, WhatsApp, Instagram ou link no chat (o Regem barra também na mensagem da equipe); a conversa não entra em campanha; "Pausar a ponte" para tudo na hora.</li>
+      <li><b>Sem a ponte</b> (PC desligado, sessão caiu): a faixa do topo avisa, o gerente recebe o aviso e o chat oficial do iFood continua no botão.</li>
+      <li><b>Teste da etapa 0 (04/11):</b> o Gestor do iFood e o portal da 99 abrem e continuam logados dentro do programa de teste, mesmo depois de fechar e abrir. O chat do iFood roda sobre o Sendbird; o portal da 99 tem um botão de chat no pedido selecionado, que abre uma janelinha (visto pelo dono). Falta o teste com um pedido de verdade: como a mensagem chega e como a resposta sai.</li>
+    </ul>
+  </div>
+
+  <div class="cartao">
+    <h3>Chat do iFood e da 99 · como era na versão 2</h3>
     <p>Conferido em 02/11/2026: nem o iFood nem a 99 deixam um sistema ler ou escrever no chat do pedido.</p>
     <ul>
       <li><b>iFood:</b> o chat oficial dele (Widget) abre numa gaveta da tela Atendimento, pelo botão "Chat do iFood" ou pelo caso do pedido. A pessoa lê e responde ali, sem trocar de janela. O robô não lê nem escreve nesse chat.</li>
@@ -657,6 +728,8 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <li>Versão 1 aprovada em 02/11/2026 ("ficou bom"): "Atendimento" como item próprio do menu, com o sino em todas as telas; a ordem da fila (prazo, urgente, espera); senha de quem decide no computador; app próprio "Regem Atendimento".</li>
       <li>02/11: chat do iFood pelo caminho oficial agora (Widget na tela Atendimento); a ponte da loja só depois do advogado e do teste na loja.</li>
       <li>02/11: reembolso da 99 sem resposta, o Regem recusa antes das 24 h (o tempo e o motivo ficam no ajuste; o padrão de 4 h é a minha proposta).</li>
+      <li>04/11 (noite): caminho não oficial para o chat do iFood e da 99 (a ponte), também na 99; avisos "saiu" e "chegando" no chat, com a posição da plataforma no nosso mapa; a ponte no PC do delivery e/ou no servidor, achada sozinha ou informada pela loja; a detecção de equipamentos mostra em qual PC fica cada programa.</li>
+      <li>04/11: tudo nesta tela Atendimento, sem tela nova; cada conversa com a sua identificação (WhatsApp: nome ou número; iFood e 99: nome e número do pedido).</li>
     </ol>
     <p>As respostas prontas são da loja (ela cadastra as suas); as do protótipo são exemplos.</p>
   </div>
@@ -681,6 +754,20 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       cliente: 'Paulo R.', pedido: '81', fala: '"Faltou o refrigerante, quero o reembolso" · 1 foto', resp: null, sit: 'fila', espera: '45 min' },
     { id: 'c3', canal: 'wa', motivo: 'Atraso', tipo: 'conversa', urgente: true, titulo: 'Carlos · pedido 1180 · atraso', cliente: 'Carlos',
       tel: '(21) 98412-3301', pedido: '1180', fala: '"Cadê meu lanche? Já faz mais de 1 hora"', resp: null, sit: 'fila', espera: '4 min', robo: true },
+    // Versão 3 — o chat do iFood e da 99 pela ponte: identificados por nome do cliente + número do pedido.
+    { id: 'i1', canal: 'ifood', motivo: 'Atraso', tipo: 'chat', urgente: true, titulo: 'Maria S. · pedido iFood 4821 · atraso', cliente: 'Maria S.',
+      pedido: '4821', fala: '"Quero falar com alguém" · no chat do iFood', resp: null, sit: 'fila', espera: '2 min', robo: true },
+    { id: 'n1', canal: 'n99', motivo: 'Faltou item', tipo: 'chat', urgente: false, titulo: 'João P. · pedido 99Food 92 · faltou item', cliente: 'João P.',
+      pedido: '92', fala: '"Veio sem o refrigerante" · no chat da 99', resp: 'Bruno', sit: 'comigo', espera: '5 min', robo: true },
+    // O que o robô está atendendo agora (não é caso): situação "Conversas agora", dos três canais.
+    { id: 'v1', canal: 'wa', motivo: 'Pedido', tipo: 'robo', urgente: false, titulo: 'Fernanda · fazendo um pedido', cliente: 'Fernanda', tel: '(21) 99876-5432',
+      pedido: '', fala: 'Cliente cadastrada: aparece pelo nome · 2 itens no carrinho', resp: null, sit: 'robo', espera: '' },
+    { id: 'v2', canal: 'wa', motivo: 'Dúvida', tipo: 'robo', urgente: false, titulo: '(21) 97654-3210 · perguntou o horário', cliente: '(21) 97654-3210',
+      pedido: '', fala: 'Sem cadastro: aparece pelo número', resp: null, sit: 'robo', espera: '' },
+    { id: 'v3', canal: 'ifood', motivo: 'Previsão', tipo: 'robo', urgente: false, titulo: 'Paulo T. · pedido iFood 4790 · perguntou a previsão', cliente: 'Paulo T.',
+      pedido: '4790', fala: 'O robô respondeu: chega por volta das 20h40', resp: null, sit: 'robo', espera: '' },
+    { id: 'v4', canal: 'n99', motivo: 'Aviso', tipo: 'robo', urgente: false, titulo: 'Carla M. · pedido 99Food 95 · aviso "saiu" enviado', cliente: 'Carla M.',
+      pedido: '95', fala: 'A cliente respondeu "Obrigada!"', resp: null, sit: 'robo', espera: '' },
     { id: 'c5', canal: 'wa', motivo: 'Sem contato', tipo: 'conversa', urgente: true, titulo: 'Marcos · pedido 1182 · respondeu ao "sem contato"',
       cliente: 'Marcos', tel: '(21) 99231-0045', pedido: '1182', fala: '"Estou no portão azul, pode subir"', resp: 'Ana', sit: 'comigo', espera: '2 min' },
     { id: 'c4', canal: 'wa', motivo: 'Faltou item', tipo: 'conversa', urgente: false, titulo: 'Juliana · pedido 1176 · faltou item', cliente: 'Juliana',
@@ -697,7 +784,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   const NOVO = { id: 'c8', canal: 'ifood', motivo: 'Disputa', tipo: 'disputa-atraso', urgente: false, prazoFim: em(470), titulo: 'Rafael M. · pedido iFood 4530 · atraso',
     cliente: 'Rafael M.', pedido: '4530', fala: '"Já passou do horário, quero cancelar"', resp: null, sit: 'fila', espera: 'agora' };
 
-  let estado = 'com', filtroSit = 'todos', selecionado = 'c1', mostrouNovo = false;
+  let estado = 'com', filtroSit = 'todos', selecionado = 'i1', mostrouNovo = false;
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
   const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -710,7 +797,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   const classePrazo = (ms) => (ms < 120000 ? 'crit' : 'warn');
 
   // ---------- ordem e filtros ----------
-  const abertos = () => CASOS.filter((c) => c.sit !== 'resolvido');
+  const abertos = () => CASOS.filter((c) => c.sit !== 'resolvido' && c.sit !== 'robo');
   function ordenar(lista) {
     return [...lista].sort((a, b) => {
       if (!!a.prazoFim !== !!b.prazoFim) return a.prazoFim ? -1 : 1;
@@ -732,23 +819,26 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     if (filtroSit === 'comigo') return c.resp === 'Ana' && c.sit !== 'resolvido';
     if (filtroSit === 'aguardando') return c.sit === 'aguardando';
     if (filtroSit === 'resolvido') return c.sit === 'resolvido';
-    return c.sit !== 'resolvido';
+    if (filtroSit === 'conversas') return c.sit === 'robo';
+    return c.sit !== 'resolvido' && c.sit !== 'robo';
   }
   function contar() {
     const a = abertos();
     return {
       todos: a.length, prazo: a.filter((c) => c.prazoFim).length, fila: a.filter((c) => c.sit === 'fila' && !c.prazoFim).length,
       comigo: a.filter((c) => c.resp === 'Ana').length, aguardando: a.filter((c) => c.sit === 'aguardando').length, resolvido: 14,
+      conversas: CASOS.filter((c) => c.sit === 'robo').length,
     };
   }
   function desenharSits() {
     const n = contar();
-    const S = [['todos', 'Abertos'], ['prazo', 'Com prazo', 'crit'], ['fila', 'Na fila'], ['comigo', 'Comigo'], ['aguardando', 'Aguardando o cliente'], ['resolvido', 'Resolvidos hoje']];
+    const S = [['todos', 'Abertos'], ['prazo', 'Com prazo', 'crit'], ['fila', 'Na fila'], ['comigo', 'Comigo'], ['aguardando', 'Aguardando o cliente'], ['conversas', 'Conversas agora'], ['resolvido', 'Resolvidos hoje']];
     $('#sits').innerHTML = S.map(([k, r, cl]) => `<button type="button" class="sit ${cl || ''}" data-sit="${k}" aria-pressed="${filtroSit === k}">${r} <b>${n[k]}</b></button>`).join('');
     $$('#sits .sit').forEach((b) => b.addEventListener('click', () => { filtroSit = b.dataset.sit; desenharTudo(); }));
     const ab = n.todos;
     $('#titulo-fila').textContent = `${ab} casos abertos`;
-    $('#resumo-fila').innerHTML = `${n.prazo} com prazo · ${n.fila} na fila · o robô está em 5 conversas agora (<a href="#" onclick="return false">ver em Delivery › WhatsApp</a>)`;
+    $('#resumo-fila').innerHTML = `${n.prazo} com prazo · ${n.fila} na fila · o robô está em ${n.conversas} conversas agora, no WhatsApp, no iFood e na 99 (<a href="#" id="ir-conversas">ver em Conversas agora</a>)`;
+    $('#ir-conversas').addEventListener('click', (e) => { e.preventDefault(); filtroSit = 'conversas'; desenharTudo(); });
     $('#badge-menu').textContent = ab; $('#badge-sino').textContent = ab;
     $('#sino').setAttribute('aria-label', `Avisos de atendimento: ${ab} abertos`);
   }
@@ -756,8 +846,8 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   // ---------- lista ----------
   function linhaItem(c, posicao) {
     const prazo = c.prazoFim ? `<span class="prazo ${classePrazo(c.prazoFim - Date.now())}" data-prazo="${c.id}">${mmss(c.prazoFim - Date.now())}</span>` : '';
-    const sitTxt = c.sit === 'aguardando' ? '<span class="selo info">Aguardando o cliente</span>' : c.sit === 'resolvido' ? '<span class="selo ok">Resolvido</span>' : '';
-    const quem = c.resp ? `com ${c.resp === 'Ana' ? 'você' : c.resp}` : 'ninguém pegou';
+    const sitTxt = c.sit === 'aguardando' ? '<span class="selo info">Aguardando o cliente</span>' : c.sit === 'resolvido' ? '<span class="selo ok">Resolvido</span>' : c.sit === 'robo' ? '<span class="selo info">🤖 Com o robô</span>' : '';
+    const quem = c.sit === 'robo' ? 'o robô está atendendo' : c.resp ? `com ${c.resp === 'Ana' ? 'você' : c.resp}` : 'ninguém pegou';
     const pos = posicao ? `<span class="pos">${posicao}º</span>` : '';
     return `<div role="listitem"><button type="button" class="item ${c.urgente ? 'urgente' : ''} ${c.sit === 'resolvido' ? 'feito' : ''}" data-id="${c.id}" aria-current="${selecionado === c.id}">
       <div class="l1">${chip(c.canal)}${c.urgente ? '<span class="selo crit">🚨 Urgente</span>' : ''}<span class="selo neutro">${esc(c.motivo)}</span>${sitTxt}<span class="dir">${prazo}${pos}</span></div>
@@ -805,6 +895,12 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       tempo: [['18:40', 'Aceito'], ['19:12', 'Saiu com o João'], ['19:25', 'Entregue']] },
     '1150': { itens: [['1× X-bacon', '32,90']], total: '32,90', tempo: [['18:20', 'Resolvido']] },
     '4498': { itens: [['1× Combo família', '89,90']], total: '89,90', tempo: [['17:55', 'Disputa recusada']] },
+    '4821': { itens: [['1× X-burguer duplo', '32,90'], ['1× Batata média', '14,00'], ['1× Guaraná lata', '8,00']], total: '54,90', app: 'iFood', entregaLoja: true,
+      tempo: [['19:44', 'Aceito'], ['20:02', 'Pronto (cozinha)'], ['20:05', 'Saiu com o Carlos (entrega da loja) · aviso "saiu" no chat'], ['20:32', 'Previsão de chegada']] },
+    '92': { itens: [['1× Combo smash', '39,90'], ['1× Guaraná lata', '8,00', true]], total: '47,90', app: '99Food', entregaLoja: true,
+      tempo: [['19:50', 'Aceito'], ['20:10', 'Saiu com o Lucas (entrega da loja) · aviso "saiu" no chat'], ['20:28', 'Entregue']] },
+    '4790': { itens: [['2× Cheeseburguer', '45,80']], total: '45,80', app: 'iFood', tempo: [['20:05', 'Aceito'], ['20:12', 'Em preparo (cozinha, 6 min)']] },
+    '95': { itens: [['1× Pizza média', '49,00']], total: '49,00', app: '99Food', entregaLoja: true, tempo: [['19:58', 'Aceito'], ['20:20', 'Saiu com o Diego · aviso "saiu" no chat']] },
   };
   const blocoPedido = (n, extra = '') => {
     const p = PEDIDOS[n];
@@ -823,7 +919,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   const topo = (c, acoes) => `<div class="c-topo"><div style="min-width:0;flex:1 1 280px">
       <button type="button" class="bt leve voltar" data-fechar-folha>← Voltar à fila</button>
       <div style="display:flex;flex-wrap:wrap;gap:6px">${chip(c.canal)}${c.urgente ? '<span class="selo crit">🚨 Urgente</span>' : ''}<span class="selo neutro">${esc(c.motivo)}</span></div>
-      <h2 id="titulo-caso">${esc(c.titulo)}</h2><div class="sub">${esc(c.cliente)}${c.tel ? ' · ' + esc(c.tel) : ''} · ${c.resp ? 'com ' + (c.resp === 'Ana' ? 'você' : c.resp) : 'ninguém pegou ainda'}</div></div>
+      <h2 id="titulo-caso">${esc(c.titulo)}</h2><div class="sub">${esc(c.cliente)}${c.tel ? ' · ' + esc(c.tel) : ''} · ${c.sit === 'robo' ? 'o robô está atendendo' : c.resp ? 'com ' + (c.resp === 'Ana' ? 'você' : c.resp) : 'ninguém pegou ainda'}</div></div>
       <div class="acoes">${acoes}</div></div>`;
   const relogio = (c, txt) => `<div class="relogio ${classePrazo(c.prazoFim - Date.now()) === 'warn' ? 'warn' : ''}" data-relogio="${c.id}"><span class="grande prazo" data-prazo="${c.id}">${mmss(c.prazoFim - Date.now())}</span><span class="txt">${txt}</span></div>`;
 
@@ -845,15 +941,11 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
         <div class="respostas">${resp}</div>
         <p class="so-gerente" style="margin:10px 0 0"><span aria-hidden="true">🔒</span><span>Só gerente e presidente respondem, com a senha de quem decide. O iFood aceita uma resposta só por disputa. <button type="button" class="bt leve" style="min-height:28px;padding:0">Chamar o gerente no app</button></span></p>
       </section>
-      <section class="bloco"><h3>Chat do iFood com ${esc(c.cliente)}</h3>
-        <p style="margin:0 0 8px;font-size:14px">Abre o chat oficial do iFood numa gaveta, sem sair do Regem. Procure o pedido ${esc(c.pedido)} nele.</p>
-        <button type="button" class="bt" data-dlg="chat-ifood">💬 Abrir o chat do iFood</button>
-        <p class="ajuda" style="margin:8px 0 0">O robô não lê nem escreve no chat do iFood: o iFood não libera o chat para sistemas.</p>
-      </section></div>
+      ${blocoChat(c, { msgs: CHAT_DAS_PLATAFORMAS[c.pedido] || [], prontas: ['Já estamos vendo o seu pedido.', 'Sentimos muito pelo transtorno.'] })}</div>
       <div class="col">${blocoPedido(c.pedido)}
       <section class="bloco"><h3>Histórico do caso</h3><ol class="linha-tempo"><li><span class="h">${atraso ? '19:53' : '19:52'}</span><span>O iFood abriu a disputa</span></li><li><span class="h">${atraso ? '19:53' : '19:52'}</span><span>Aviso no app da Ana (gerente)</span></li></ol></section></div></div>`;
   }
-  const chat99 = `<section class="bloco"><h3>Chat da 99</h3><p style="margin:0;font-size:14px">A conversa com o cliente fica no app 99Food Parceiros. A 99 não libera o chat para sistemas.</p></section>`;
+  const chat99 = (c) => blocoChat(c, { msgs: CHAT_DAS_PLATAFORMAS[c.pedido] || [], prontas: ['Já estamos vendo o seu pedido.', 'Sentimos muito pelo transtorno.'] });
   function caso99(c) {
     return topo(c, `<button type="button" class="bt">Pegar para mim</button>`) + `<div class="c-corpo"><div class="col">
       ${relogio(c, 'Se ninguém responder, a <b>99 recusa sozinha</b> (regra da 99: a loja tem 5 min). Para aceitar na hora, sem passar pela fila, desligue o ajuste da 99.')}
@@ -863,7 +955,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <section class="bloco"><h3>Responder à 99</h3>
         <div class="respostas" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)"><button type="button" class="bt perigo" data-dlg="aceitar-99">Aceitar o cancelamento</button><button type="button" class="bt" data-dlg="recusar-99">Recusar</button></div>
         <p class="so-gerente" style="margin:10px 0 0"><span aria-hidden="true">🔒</span><span>Só gerente e presidente respondem, com a senha. <button type="button" class="bt leve" style="min-height:28px;padding:0" data-ir="aj">Mudar o ajuste da 99</button></span></p></section>
-      ${chat99}</div>
+      ${chat99(c)}</div>
       <div class="col">${blocoPedido(c.pedido)}</div></div>`;
   }
   function caso99Reembolso(c) {
@@ -875,7 +967,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <section class="bloco"><h3>Responder à 99</h3>
         <div class="respostas" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)"><button type="button" class="bt perigo" data-dlg="aceitar-99-reemb">Aceitar o reembolso</button><button type="button" class="bt" data-dlg="recusar-99-reemb">Recusar</button></div>
         <p class="so-gerente" style="margin:10px 0 0"><span aria-hidden="true">🔒</span><span>Só gerente e presidente respondem, com a senha. <button type="button" class="bt leve" style="min-height:28px;padding:0" data-ir="aj">Mudar o ajuste da 99</button></span></p></section>
-      ${chat99}</div>
+      ${chat99(c)}</div>
       <div class="col">${blocoPedido(c.pedido)}</div></div>`;
   }
   const CONVERSAS = {
@@ -891,7 +983,97 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     c7: { resumo: [['Motivo', 'Faltou o molho especial (R$ 4,00)'], ['Quer', 'O molho ou um desconto'], ['Pedido', '1170 · entregue às 19:25 pelo João'], ['O robô já fez', 'Abriu o caso; o Bruno respondeu às 19:47']],
       msgs: [['cli', 'Faltou o molho especial', '19:44'], ['loja', 'Oi, Renata! Podemos mandar o molho agora ou dar R$ 4 de desconto no próximo pedido. O que prefere?', 'Bruno · 19:47']],
       prontas: ['Combinado! Já estamos mandando.', 'Pronto, o desconto fica no seu próximo pedido.'], entregador: 'João (não compartilhou o contato)', aguardando: true },
+    // Versão 3: as conversas do chat do iFood e da 99 que a ponte traz.
+    i1: { resumo: [['Motivo', 'Atraso · cliente irritada (2 mensagens em 2 min)'], ['Quer', 'Falar com uma pessoa'], ['Pedido', 'iFood 4821 · saiu às 20:05 com o Carlos (entrega da loja) · está a 1,2 km · chega por volta das 20h32'], ['O robô já fez', 'Respondeu onde está o entregador e a nova previsão, pediu desculpas e avisou que a equipe foi chamada']],
+      msgs: [['auto', 'Seu pedido saiu para entrega! Chega por volta das 20h20.', 'aviso automático · 20:05'], ['cli', 'Cadê meu pedido? Já era pra ter chegado', '20:21'], ['robo', 'Oi, Maria! O Carlos saiu com seu pedido às 20h05 e está a 1,2 km daí. Chega por volta das 20h32. Desculpe a demora!', 'robô · 20:21'], ['cli', 'Quero falar com alguém', '20:23'], ['robo', 'Claro! Já chamei a equipe e você é a próxima. Em instantes alguém responde aqui.', 'robô · 20:23']],
+      prontas: ['O Carlos já está chegando, faltam 5 minutos.', 'Vou confirmar com o entregador e já te falo.', 'Sentimos muito pela demora.'], entregador: 'Carlos · a 1,2 km', mapa: true },
+    n1: { resumo: [['Motivo', 'Faltou item: 1× Guaraná lata (R$ 8,00)'], ['Quer', 'O refrigerante ou o dinheiro de volta'], ['Pedido', '99Food 92 · entregue às 20:28 pelo Lucas'], ['O robô já fez', 'Pediu desculpas e explicou que o reembolso na 99 é pedido pelo app da 99 (Ajuda › Problema com o pedido), e que a loja aprova aqui']],
+      msgs: [['cli', 'Veio sem o refrigerante', '20:30'], ['robo', 'Sinto muito, João! Já passei para a equipe resolver. Se preferir o dinheiro de volta, peça pelo app da 99 em Ajuda › Problema com o pedido, que a gente aprova aqui.', 'robô · 20:30'], ['loja', 'Oi, João, aqui é o Bruno. Vou ver se dá para mandar com o próximo entregador.', 'Bruno · 20:32']],
+      prontas: ['Vamos mandar o refrigerante agora.', 'Pode pedir o reembolso pelo app da 99, que a gente aprova.', 'Sentimos muito pelo erro.'], entregador: 'Lucas · entregue às 20:28' },
+    v1: { msgs: [['cli', 'Boa noite! Quero um X-bacon e uma batata', '20:24'], ['robo', 'Boa noite, Fernanda! Anotei: 1× X-bacon e 1× Batata média. Quer mais alguma coisa?', 'robô · 20:24']] },
+    v2: { msgs: [['cli', 'Vocês abrem até que horas?', '20:25'], ['robo', 'Hoje até as 23h59! Quer ver o cardápio?', 'robô · 20:25']] },
+    v3: { msgs: [['cli', 'Vai demorar muito?', '20:22'], ['robo', 'Oi, Paulo! Seu pedido está na cozinha e sai em uns 10 minutos. Chega por volta das 20h40.', 'robô · 20:22']] },
+    v4: { msgs: [['auto', 'Seu pedido saiu para entrega! Chega por volta das 20h45.', 'aviso automático · 20:20'], ['cli', 'Obrigada!', '20:21']] },
   };
+  // Versão 3: o que a ponte traz do chat da plataforma nos casos de disputa (iFood) e de cancelamento/reembolso (99).
+  const CHAT_DAS_PLATAFORMAS = {
+    '4521': [['cli', 'Faltou a batata.', '19:51'], ['robo', 'Sinto muito, Ana! Já passei para a equipe, que está vendo o seu pedido no iFood.', 'robô · 19:52']],
+    '4530': [['cli', 'Já passou do horário', '19:52'], ['robo', 'Oi, Rafael! Seu pedido está pronto e esperando o entregador do iFood. Já avisei a equipe.', 'robô · 19:52']],
+    '77': [['cli', 'Não quero mais, demorou', '19:46'], ['robo', 'Entendi, Marina. Passei o seu pedido de cancelamento para a equipe decidir agora.', 'robô · 19:46']],
+    '81': [['cli', 'Faltou o refrigerante', '19:04'], ['robo', 'Poxa, Paulo, desculpe! A equipe já vai ver o seu pedido de reembolso.', 'robô · 19:05']],
+  };
+  // Telefone, WhatsApp, Instagram e link: a plataforma proíbe no chat — o Regem barra antes de mandar à ponte.
+  const PROIBIDO = /(https?:\/\/|www\.|\.com\b|wa\.me|whats|insta|@[a-z0-9_.]{3,}|\(?\d{2}\)?\s?9?\d{4}[-\s]?\d{4})/i;
+  let ponte = 'ok';
+  const envio = (q, canal) => (q === 'cli' || q === 'sis' || canal === 'wa' ? '' : ' · <span class="env-ok">✓ enviada</span>');
+  const msgsHtml = (msgs, canal) => msgs.map(([q, t, h]) => `<div class="msg ${q}">${esc(t)}${h ? `<small>${esc(h)}${envio(q, canal)}</small>` : ''}</div>`).join('');
+  function blocoChat(c, d) {
+    const daPlat = c.canal === 'ifood' ? 'do iFood' : 'da 99';
+    const pela = c.canal === 'ifood' ? 'pelo iFood' : 'pela 99';
+    const caiu = ponte !== 'ok';
+    const aviso = caiu
+      ? `<div class="nota crit" style="margin:0 0 8px;font-size:13px">A ponte está sem sinal: mensagens novas não chegam e o que você escrever sai quando ela voltar. ${c.canal === 'ifood' ? '<button type="button" class="bt leve" style="min-height:28px;padding:0" data-dlg="chat-ifood">Responder agora pelo chat oficial do iFood</button>' : 'Para responder agora, use o portal da 99.'}</div>`
+      : '';
+    return `<section class="bloco"><h3>Chat ${daPlat} com ${esc(c.cliente)} <span class="dir">pedido ${esc(c.pedido)} · pela ponte</span></h3>${aviso}
+      <div class="msgs" data-msgs>${msgsHtml(d.msgs, c.canal)}</div>
+      <div class="prontas" aria-label="Respostas prontas">${(d.prontas || []).map((p) => `<button type="button" class="pronta" data-pronta>${esc(p)}</button>`).join('')}</div>
+      <div class="escrever"><textarea aria-label="Escrever ao cliente no chat ${daPlat}" placeholder="Escreva para ${esc(c.cliente)} (sai no chat ${daPlat})" data-txt></textarea><button type="button" class="bt pri" data-enviar data-canal="${c.canal}">Enviar ${pela}</button></div>
+      <p class="ajuda" data-erro style="color:var(--crit);font-weight:600;margin:6px 0 0" hidden></p>
+      <p class="ajuda" style="margin:6px 0 0">Sai pela ponte do CX-DELIVERY, como se alguém digitasse no chat ${daPlat}. Telefone, WhatsApp, Instagram e link o Regem barra: a plataforma proíbe.</p></section>`;
+  }
+  function casoChat(c) {
+    const d = CONVERSAS[c.id];
+    const acoes = c.resp ? `<button type="button" class="bt" data-dlg="passar">Passar</button><button type="button" class="bt">Aguardar o cliente</button><button type="button" class="bt ok" data-dlg="resolver">Resolver</button>`
+      : `<button type="button" class="bt pri">Pegar para mim</button><button type="button" class="bt" data-dlg="passar">Passar</button><button type="button" class="bt ok" data-dlg="resolver">Resolver</button>`;
+    const mapa = d.mapa
+      ? `<div class="mapa" role="img" aria-label="Mapa: a posição do cliente que o iFood mandou, o círculo de 70 metros e o entregador"><span class="rua"></span><span class="rua2"></span><span class="raio" style="left:calc(70% - 35px);top:calc(40% - 35px)"></span><span class="pino" style="left:calc(70% - 11px);top:calc(40% - 22px)" aria-hidden="true">📍</span><span class="pino" style="left:18%;top:50%" aria-hidden="true">🛵</span><span class="leg">📍 posição que o iFood mandou · círculo de 70 m</span></div>
+        <p class="ajuda" style="margin:0">O aviso "o entregador está chegando" sai sozinho no chat quando o Carlos entrar no círculo.</p>`
+      : '<p class="ajuda" style="margin:0">Entrega da loja, já concluída.</p>';
+    return topo(c, acoes) + `<div class="c-corpo"><div class="col">
+      <section class="bloco resumo-robo"><h3>🤖 O robô resumiu <span class="dir">aberto às ${c.id === 'i1' ? '20:23' : '20:30'}</span></h3><dl>${d.resumo.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl></section>
+      ${blocoChat(c, d)}
+      <div class="pausa"><span aria-hidden="true">🤖</span><span>O robô está quieto nesta conversa e volta quando o caso for resolvido.</span></div></div>
+      <div class="col"><section class="bloco"><h3>Entrega <span class="dir">${esc(d.entregador)}</span></h3>${mapa}</section>
+      ${blocoPedido(c.pedido)}</div></div>`;
+  }
+  function casoRobo(c) {
+    const d = CONVERSAS[c.id];
+    const titulo = c.canal === 'wa' ? 'Conversa no WhatsApp' : `Chat ${c.canal === 'ifood' ? 'do iFood' : 'da 99'} com ${esc(c.cliente)}`;
+    const lado = c.pedido
+      ? blocoPedido(c.pedido)
+      : `<section class="bloco"><h3>Cliente</h3><p style="margin:0;font-size:14px">${esc(c.tel ? `${c.cliente} · ${c.tel}` : c.cliente)}</p><p class="ajuda" style="margin:6px 0 0">${c.tel ? 'Cliente cadastrada: aparece pelo nome.' : 'Sem cadastro: aparece pelo número do WhatsApp.'}</p></section>`;
+    return topo(c, '<button type="button" class="bt pri" data-assumir>Assumir a conversa</button>') + `<div class="c-corpo"><div class="col">
+      <section class="bloco"><h3>${titulo} <span class="dir">🤖 com o robô</span></h3>
+        <div class="msgs">${msgsHtml(d.msgs, c.canal)}</div>
+        <p class="ajuda" style="margin:8px 0 0">O robô está atendendo. "Assumir a conversa" cala o robô e põe o caso com você.</p></section></div>
+      <div class="col">${lado}</div></div>`;
+  }
+  function enviarPelaPonte(b) {
+    const bloco = b.closest('.bloco');
+    const t = $('[data-txt]', bloco);
+    const erro = $('[data-erro]', bloco);
+    const txt = t.value.trim();
+    if (!txt) return;
+    const plat = b.dataset.canal === 'ifood' ? 'O iFood' : 'A 99';
+    if (PROIBIDO.test(txt)) {
+      erro.hidden = false;
+      erro.textContent = `${plat} proíbe mandar telefone, WhatsApp, Instagram ou link no chat. Tire isso da mensagem para enviar.`;
+      t.focus();
+      return;
+    }
+    erro.hidden = true;
+    const m = document.createElement('div');
+    m.className = 'msg loja';
+    m.textContent = txt;
+    const s = document.createElement('small');
+    s.innerHTML = ponte === 'ok' ? 'Ana · agora · <span class="env-esp">⏳ saindo pela ponte…</span>' : 'Ana · agora · <span class="env-esp">⏳ esperando a ponte</span>';
+    m.appendChild(s);
+    const caixa = $('[data-msgs]', bloco);
+    caixa.appendChild(m);
+    caixa.scrollTop = caixa.scrollHeight;
+    t.value = '';
+    if (ponte === 'ok') setTimeout(() => { s.innerHTML = 'Ana · agora · <span class="env-ok">✓ enviada</span>'; }, 1200);
+  }
   function casoConversa(c) {
     const d = CONVERSAS[c.id];
     const acoes = c.resp ? `<button type="button" class="bt" data-dlg="passar">Passar</button>${d.aguardando ? '' : '<button type="button" class="bt">Aguardar o cliente</button>'}<button type="button" class="bt ok" data-dlg="resolver">Resolver</button>`
@@ -917,7 +1099,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   function casoFeito(c) {
     return topo(c, '') + `<div class="c-corpo"><div class="col"><div class="nota ok">${esc(c.fala)}</div></div><div class="col">${blocoPedido(c.pedido)}</div></div>`;
   }
-  const RENDER = { disputa: casoDisputa, 'disputa-atraso': casoDisputa, n99: caso99, 'n99-reembolso': caso99Reembolso, conversa: casoConversa, cardapio: casoCardapio, feito: casoFeito };
+  const RENDER = { disputa: casoDisputa, 'disputa-atraso': casoDisputa, n99: caso99, 'n99-reembolso': caso99Reembolso, conversa: casoConversa, cardapio: casoCardapio, feito: casoFeito, chat: casoChat, robo: casoRobo };
 
   let modo = 'duplo';
   function abrirCaso(id, doClique) {
@@ -946,6 +1128,10 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     $$('[data-fechar-folha]').forEach((b) => b.addEventListener('click', () => fecharFolha(true)));
     $$('.caso [data-dlg]').forEach((b) => b.addEventListener('click', () => abrirDialogo(b.dataset.dlg, b)));
     $$('.caso [data-ir]').forEach((b) => b.addEventListener('click', () => irPara(b.dataset.ir)));
+    $$('.caso [data-pronta]').forEach((b) => b.addEventListener('click', () => { const t = $('[data-txt]', b.closest('.bloco')); if (t) { t.value = b.textContent; t.focus(); } }));
+    $$('.caso [data-enviar]').forEach((b) => b.addEventListener('click', () => enviarPelaPonte(b)));
+    $$('.caso [data-txt]').forEach((t) => t.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviarPelaPonte($('[data-enviar]', t.closest('.bloco'))); } }));
+    $$('.caso [data-assumir]').forEach((b) => b.addEventListener('click', () => toast('✅ Você assumiu a conversa (protótipo). O robô ficou quieto e o caso está com você.')));
   }
 
   // modo da peça: decide pelo espaço da área (ERR-219), não pela janela
@@ -979,13 +1165,13 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     'aceitar-99-reemb': () => ({ t: 'Aceitar o reembolso do pedido 81', b: `<p style="margin:0">A 99 devolve o valor ao cliente.</p>${senha()}`, ok: 'Enviar à 99', cl: 'perigo' }),
     'recusar-99-reemb': () => ({ t: 'Recusar o reembolso do pedido 81', b: `<div class="campo"><label for="mot-r99">Motivo que a 99 recebe</label><select id="mot-r99"><option>Combinei com o cliente uma nova entrega</option><option>Combinei com o cliente trocar por outro item</option><option>O pedido foi entregue ao entregador</option><option>Erro do entregador na entrega</option><option>O cliente se enganou</option><option>O cliente quer reembolso de só uma parte</option><option>Faltam dados do cliente</option><option>Outro</option></select><span class="ajuda">A lista vem da 99 junto com o pedido do cliente.</span></div>
       <div class="campo"><label for="txt-r99">Explicação para a 99 (opcional)</label><input id="txt-r99" type="text" placeholder="Ex.: o refrigerante foi conferido na sacola"></div>${senha()}`, ok: 'Enviar à 99', cl: 'pri' }),
-    'chat-ifood': () => ({ gaveta: true, t: 'Chat do iFood', b: `<div class="widget">
+    'chat-ifood': () => ({ gaveta: true, t: 'Chat oficial do iFood', b: `<div class="widget">
         <div class="w-topo">iFood · conversas com clientes <span>exemplo</span></div>
         <div class="w-conv"><b>Pedido 4521 · Ana P.</b><span>Faltou a batata.</span><i>2</i></div>
         <div class="w-conv"><b>Pedido 4519 · João V.</b><span>Obrigado!</span></div>
         <div class="w-msgs"><div class="msg cli">Faltou a batata.<small>19:51</small></div><div class="msg loja">Oi, Ana! Vamos resolver agora.<small>loja · 19:53</small></div></div>
         <div class="w-escrever">Escreva uma mensagem…</div></div>
-      <p class="ajuda" style="margin:0">Esta área é o chat oficial do iFood (Widget): a tela é do iFood, e a pessoa lê e escreve nela, sem sair do Regem. O robô não lê nem escreve aqui.</p>
+      <p class="ajuda" style="margin:0">Esta área é o chat oficial do iFood (Widget): a tela é do iFood, e a pessoa lê e escreve nela, sem sair do Regem. Serve de reserva quando a ponte está sem sinal; o que se escreve aqui não passa pelo Regem.</p>
       <p class="ajuda" style="margin:0">Autorização uma vez por computador, com um usuário "Dono" ou "Administrador" do iFood. Fica autorizado enquanto o computador usar o chat ao menos uma vez a cada 7 dias. Só uma aba do navegador por vez.</p>`, ok: null }),
     'aceitar-card': () => ({ t: 'Aceitar o cancelamento do pedido 1185', b: `<div class="campo"><label for="mot-c">Motivo</label><input id="mot-c" type="text" placeholder="Vazio: cancelamento pedido pelo cliente"></div>${insumos}${senha()}`, ok: 'Cancelar o pedido', cl: 'perigo' }),
     'recusar-card': () => ({ t: 'Recusar o cancelamento do pedido 1185', b: `<p style="margin:0">O pedido segue normalmente. Avise o cliente pelo WhatsApp, se quiser.</p>`, ok: 'Recusar', cl: 'pri' }),
@@ -1033,6 +1219,22 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     setTimeout(() => t.remove(), 7000);
   }
   $('#bt-chat-ifood').addEventListener('click', (e) => abrirDialogo('chat-ifood', e.currentTarget));
+  // Versão 3: a faixa da ponte do chat no topo da tela (ligada × sem sinal).
+  function desenharFaixa() {
+    const ok = ponte === 'ok';
+    $('#faixa-ponte').classList.toggle('caiu', !ok);
+    $('#ponte-selo').className = `selo ${ok ? 'ok' : 'crit'}`;
+    $('#ponte-selo').textContent = ok ? '🔗 Ponte do chat ligada' : '⚠️ Ponte do chat sem sinal';
+    $('#ponte-txt').innerHTML = ok
+      ? 'As conversas do iFood e da 99 entram aqui pela ponte do <b>CX-DELIVERY</b> · reserva: Servidor da loja · última mensagem há 1 min'
+      : 'Desde 20:14: o CX-DELIVERY parou e a reserva (Servidor da loja) está sem o iFood aberto. Mensagens novas do iFood e da 99 não chegam e as respostas ficam esperando. O gerente foi avisado.';
+  }
+  $$('#ctl-pc [data-ponte]').forEach((b) => b.addEventListener('click', () => {
+    ponte = b.dataset.ponte;
+    $$('#ctl-pc [data-ponte]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    desenharFaixa();
+    abrirCaso(selecionado, false);
+  }));
   $('#simular').addEventListener('click', () => {
     if (!mostrouNovo) { CASOS.unshift(NOVO); mostrouNovo = true; }
     irPara('pc'); desenharTudo();
@@ -1087,6 +1289,8 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   function mudancas() { let n = 0; inicial.forEach((v, el) => { const m = valorDe(el) !== v; el.closest('.aj').classList.toggle('mudou', m); if (m) n++; }); return n; }
   function atualizarBarra() {
     const n = mudancas(); $('#barra-salvar').hidden = !n; $('#n-mud').textContent = `${n} ${n === 1 ? 'alteração ainda não salva' : 'alterações ainda não salvas'}`;
+    const escolher = $('#onde-ponte').value === 'escolher';
+    $$('#v-aj [data-so-escolher]').forEach((a) => { a.hidden = !escolher; });
     const lig = $('#aj99').getAttribute('aria-checked') === 'true';
     $('#aj99-ajuda').textContent = lig
       ? 'Ligado (padrão): o pedido vira caso na fila; se ninguém responder em 5 min, a 99 recusa sozinha (regra da 99). Desligado: o Regem aceita na hora e avisa a equipe.'
@@ -1099,13 +1303,14 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   $('#salvar').addEventListener('click', () => { inicial.forEach((_, el) => inicial.set(el, valorDe(el))); atualizarBarra(); toast('✅ Ajustes do atendimento salvos (protótipo)'); });
   $('#busca-aj').addEventListener('input', (e) => {
     const q = e.target.value.trim().toLowerCase();
-    $$('#v-aj .grupo').forEach((g) => { let algum = false; $$('.aj', g).forEach((a) => { const ok = !q || a.textContent.toLowerCase().includes(q) || $('h3', g).textContent.toLowerCase().includes(q); a.hidden = !ok; algum = algum || ok; }); g.hidden = !algum; });
+    $$('#v-aj .grupo').forEach((g) => { let algum = false; $$('.aj', g).forEach((a) => { const ok = (!q || a.textContent.toLowerCase().includes(q) || $('h3', g).textContent.toLowerCase().includes(q)) && !(a.hasAttribute('data-so-escolher') && $('#onde-ponte').value !== 'escolher'); a.hidden = !ok; algum = algum || ok; }); g.hidden = !algum; });
   });
 
   // ---------- app: "Disponível × Ocupado" ----------
   $$('[data-est]').forEach((b) => b.addEventListener('click', () => $$('[data-est]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)))));
 
   ro.observe($('#corpo'));
+  desenharFaixa();
   desenharTudo();
 })();
 </script>

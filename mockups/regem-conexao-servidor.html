@@ -5,7 +5,11 @@
 <!-- Mockup "Conexão com o servidor" (PCs da loja ↔ servidor local). Protótipo aprovado pelo dono em 20/10/2026 ("aprovado"; plano: "pode"
      com D1 serviço em todo PC cliente, D2 anotar regem.local no PC quando a rede não resolve, D3 depois).
      Peças: Servidor local › Endereço na rede · indicador no topo do app · Equipamentos por PC · o ícone do Regem no PC ·
-     instalador do PC cliente · o que entra em cada parte. Nomes da loja reais (20/10); IPs, MAC e nome do servidor: exemplos. -->
+     instalador do PC cliente · o que entra em cada parte. Nomes da loja reais (20/10); IPs, MAC e nome do servidor: exemplos.
+     04/11/2026: peça 6 nova, a PONTE DO CHAT do iFood e da 99 (decisão do dono: caminho não oficial; a ponte no PC do
+     delivery, no servidor ou nos dois; o Regem acha sozinho e a loja também informa; Equipamentos mostra em qual PC fica
+     cada programa e avisa). As peças 1–5 aprovadas em 20/10 ficam como estão. -->
+
 <title>Conexão com o servidor</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
@@ -202,6 +206,17 @@ table.eq td .sub{display:block;color:var(--ink-2);font-size:12.5px}
 .inst .caixa i{width:14px;height:14px;border:1px solid #333;border-radius:2px;display:grid;place-items:center;font-style:normal;font-size:11px;line-height:1;flex:none;margin-top:2px}
 .inst .entrada{border:1px solid #8a8a8a;padding:5px 7px;font-family:var(--mono);width:160px;max-width:100%;background:#fff}
 .decisoes{background:var(--gold);color:var(--on-gold);border-radius:12px;padding:16px 18px;display:grid;gap:10px}
+/* ---- peça 6: ponte do chat (04/11/2026) ---- */
+.marcar{border:1px solid var(--line);border-radius:10px;padding:8px 12px;display:grid;gap:4px;margin:0;min-width:0}
+.marcar legend{font-weight:700;padding:0 4px}
+.marcar label{display:flex;gap:8px;align-items:center;min-height:32px}
+.marcar input{width:18px;height:18px;flex:none;margin:0}
+.plat-sim{border:2px dashed var(--line-2);border-radius:10px;padding:14px;min-height:150px;display:grid;place-items:center;text-align:center;color:var(--ink-2);font-size:14px;overflow-wrap:anywhere}
+.plat-sim .entrar{display:grid;gap:6px;width:min(280px,100%);text-align:left}
+.plat-sim .entrar span{border:1px solid var(--line-2);border-radius:8px;padding:7px 10px;background:var(--card)}
+.abas-plat{display:flex;flex-wrap:wrap;gap:6px}
+.abas-plat span{border:1px solid var(--line-2);border-radius:8px;padding:4px 12px;font-weight:700;font-size:13.5px}
+.abas-plat span.sel{background:var(--navy);color:var(--on-navy);border-color:var(--navy)}
 .decisoes ul,.decisoes ol{margin:0;padding-left:20px;display:grid;gap:6px}
 .decisoes h2{color:var(--on-gold)}
 @media (prefers-reduced-motion:no-preference){.balao,.pop,.dialogo{animation:entra .3s ease-out}@keyframes entra{from{transform:translateY(6px);opacity:.5}to{transform:none;opacity:1}}}
@@ -213,7 +228,7 @@ table.eq td .sub{display:block;color:var(--ink-2);font-size:12.5px}
   <h1>Conexão com o servidor</h1>
   <p class="nota">As telas das duas partes do plano: <b>ver e provar</b> que cada PC está ligado ao servidor, e <b>achar e consertar no próprio PC</b> quando o roteador troca o IP do servidor. Os botões de estado mostram cada situação. Os nomes são os da sua loja (CX-DELIVERY, estacao delivery, Pdv delivery, PC do delivery, PDV1, Caixa delivery); os IPs, o MAC e o nome do PC servidor são exemplos.</p>
   <nav class="indice" aria-label="Peças do protótipo">
-    <a href="#p1">1. Endereço na rede</a><a href="#p2">2. Topo do app</a><a href="#p3">3. Equipamentos por PC</a><a href="#p4">4. Ícone do Regem no PC</a><a href="#p5">5. Instalador</a><a href="#p6">O que entra</a>
+    <a href="#p1">1. Endereço na rede</a><a href="#p2">2. Topo do app</a><a href="#p3">3. Equipamentos por PC</a><a href="#p4">4. Ícone do Regem no PC</a><a href="#p5">5. Instalador</a><a href="#p7">6. Ponte do chat (04/11)</a><a href="#p6">O que entra</a>
   </nav>
 </header>
 
@@ -298,6 +313,21 @@ table.eq td .sub{display:block;color:var(--ink-2);font-size:12.5px}
   </div>
 </section>
 
+<!-- ============================ PEÇA 6 NOVA: PONTE DO CHAT (04/11/2026) ============================ -->
+<section class="peca" id="p7" aria-labelledby="t7">
+  <div class="rotulo"><span class="parte">Ponte do chat · 04/11/2026</span><h2 id="t7">6. A ponte do chat do iFood e da 99: em qual PC está cada programa</h2></div>
+  <p class="nota">A ponte é um programa do "Regem neste PC" com o Gestor do iFood e o portal da 99 abertos dentro; as conversas aparecem na tela Atendimento (protótipo da Central, versão 3). Ela roda no PC do delivery, no servidor ou nos dois: todas leem, só a principal envia, e a reserva assume sozinha. O Regem acha sozinho onde está cada uma; a loja também pode informar onde o iFood e a 99 ficam abertos.</p>
+  <div class="estados" id="e7" role="group" aria-label="O que ver na ponte do chat">
+    <button type="button" data-e="pcs" aria-pressed="true">Equipamentos por PC</button>
+    <button type="button" data-e="avisos" aria-pressed="false">Com avisos</button>
+    <button type="button" data-e="mao" aria-pressed="false">Informar à mão</button>
+    <button type="button" data-e="icone" aria-pressed="false">O ícone do Regem</button>
+    <button type="button" data-e="janela" aria-pressed="false">A janela da ponte</button>
+    <button type="button" data-e="login" aria-pressed="false">O iFood pediu login</button>
+  </div>
+  <div id="p7-corpo" style="min-width:0;display:grid;gap:14px"></div>
+</section>
+
 <!-- ============================ PEÇA 6 ============================ -->
 <section class="peca" id="p6" aria-labelledby="t6">
   <div class="decisoes">
@@ -306,6 +336,7 @@ table.eq td .sub{display:block;color:var(--ink-2);font-size:12.5px}
       <li><b>Parte 1 (só .zip, sem migration):</b> peças 1, 2 e 3. O servidor mede os próprios endereços e os manda na batida; o app avisa o servidor a cada 30 s com o terminal do PC; Equipamentos junta tudo por PC.</li>
       <li><b>Parte 2 (.exe novo + .zip):</b> peças 4 e 5. O serviço "Regem neste PC" procura o servidor sozinho, anota <b>regem.local</b> no PC quando a rede não resolve o nome (D2), aceita o endereço digitado e pareia de novo sem reinstalar.</li>
       <li><b>Decidido em 20/10:</b> D1 o serviço vai em todo PC cliente · D2 anotar regem.local no PC · D3 o ícone no PC servidor fica para depois.</li>
+      <li><b>Ponte do chat (04/11, peça 6):</b> programa novo (instalador próprio; gerar e publicar sob comando); o "Regem neste PC" passa a contar quais programas das plataformas estão no PC e se a ponte está nele (vai no próximo .exe/.zip); migrations só da nuvem para as mensagens e os ajustes.</li>
     </ul>
     <p><b>Para aprovar:</b> as telas como estão, ou o que mudar em cada peça.</p>
   </div>
@@ -552,11 +583,88 @@ table.eq td .sub{display:block;color:var(--ink-2);font-size:12.5px}
   }
   function p4(e) { desk(e); janela(e); }
 
-  estados('e1', p1); estados('e2', p2); estados('e3', p3); estados('e4', p4);
-  p1('local'); p2('ok'); p3('pc'); p4('ok');
+  // ------------------------------------------------------------ peça 6 nova: ponte do chat (04/11/2026)
+  const itPonte = (papel, ifood, n99, pill, det) => `<div class="it"><div><div class="t">Ponte do chat · ${papel}</div><div class="n">iFood ${ifood} · 99 ${n99}</div><div class="d">${det}</div></div><div class="lado-d">${pill}</div></div>`;
+  const cabEq = (avisos) => `<div class="cartao" style="gap:10px">
+      <header><h3>Equipamentos <span class="mono" style="font-weight:600;color:var(--ink-2)">· 10 em 3 PCs</span></h3><div class="acoes"><button type="button" class="btn mini" data-e7="mao">Onde o iFood e a 99 ficam abertos?</button><button type="button" class="btn mini pri">＋ Novo equipamento</button></div></header>
+      <div class="sits" aria-label="Situações"><span>Conectados agora <b>8</b></span><span>Sem sinal <b>0</b></span><span>Ponte do chat <b>2</b></span><span>Com aviso <b>${avisos ? 2 : 0}</b></span></div>
+      ${avisos
+        ? `<div class="faixa aviso"><p><b>O iFood também está aberto no PDV1, fora da ponte.</b> O que alguém responder por lá não entra no Atendimento.</p></div>
+           <div class="faixa aviso"><p><b>A 99 está sem reserva.</b> Se o CX-DELIVERY desligar, o chat da 99 para de entrar. Entre na 99 também na ponte do SERVIDOR-MB.</p></div>`
+        : '<div class="faixa ok"><p><b>Ponte do chat em ordem:</b> iFood e 99 com principal (CX-DELIVERY) e reserva (SERVIDOR-MB).</p></div>'}
+    </div>`;
+  const pcsPonte = (avisos) => `
+    <div class="pc">
+      <header><div class="quem"><b>SERVIDOR-MB</b><small>Servidor da loja · <span class="mono">192.168.0.10</span></small></div><span class="pill ok">no ar</span></header>
+      <div class="itens">
+        <div class="it"><div><div class="t">Servidor local</div><div class="n">Servidor loja teste</div><div class="d">sincronizado há 1 min</div></div><div class="lado-d"><span class="pill ok">no ar</span></div></div>
+        ${itPonte('reserva', 'logado ✓', avisos ? 'sem login' : 'logado ✓', avisos ? '<span class="pill aviso">99 sem login</span>' : '<span class="pill ok">reserva pronta</span>', avisos ? 'Entre na 99 dentro da ponte deste PC para ela ter reserva.' : 'Lê tudo e assume sozinha se a principal ficar 2 min sem sinal.')}
+      </div>
+    </div>
+    <div class="pc">
+      <header><div class="quem"><b>CX-DELIVERY</b><small>PC do delivery · <span class="mono">192.168.0.23</span></small></div><span class="pill ok">conectado agora</span></header>
+      <div class="itens">
+        <div class="it"><div><div class="t">Estação de impressão</div><div class="n">estacao delivery</div><div class="d">última batida há 40 s</div></div><div class="lado-d"><span class="pill ok">conectada</span></div></div>
+        ${itPonte('principal', 'logado ✓', 'logado ✓', '<span class="pill ok">principal</span>', 'Lê e responde · última mensagem há 1 min · 7 respostas do robô hoje')}
+        <div class="it"><div><div class="t">Programa da plataforma</div><div class="n">Gestor de Pedidos do iFood (app oficial)</div><div class="d">visto pelo "Regem neste PC" · aberto</div></div><div class="lado-d"><span class="pill neutro">aberto</span></div></div>
+      </div>
+    </div>
+    <div class="pc">
+      <header><div class="quem"><b>PDV1</b><small>caixa do balcão · <span class="mono">192.168.0.21</span></small></div><span class="pill ok">conectado agora</span></header>
+      <div class="itens">
+        <div class="it"><div><div class="t">Terminal de PDV</div><div class="n">PDV1</div><div class="d">app aberto · última resposta há 20 s</div></div><div class="lado-d"><span class="pill ok">conectado</span></div></div>
+        ${avisos
+          ? `<div class="it"><div><div class="t">Programa da plataforma</div><div class="n">Gestor de Pedidos do iFood (app oficial)</div><div class="d">visto pelo "Regem neste PC" · aberto, fora da ponte</div></div><div class="lado-d"><span class="pill aviso">sem a ponte</span></div>
+             <div class="dica">Se a loja responde o chat por este PC, instale a ponte aqui para as mensagens entrarem no Atendimento.<div class="acoes" style="margin-top:6px"><button type="button" class="btn mini pri">Instalar a ponte neste PC</button><button type="button" class="btn mini">Está certo assim</button></div></div></div>`
+          : ''}
+        <div class="it"><div><div class="t">Informado à mão</div><div class="n">99Food no navegador</div><div class="d">anotado por Ana em 04/11 · aba do navegador o Regem não enxerga sozinho</div></div><div class="lado-d"><span class="pill neutro">informado</span></div></div>
+      </div>
+    </div>`;
+  const telaEq = (miolo) => `<div class="tela"><div class="cab"><b>Configurações › Equipamentos &amp; apps</b><span>Mister Burguer · loja</span></div><div class="corpo">${miolo}</div></div>`;
+  function p7(e) {
+    let html = '';
+    if (e === 'pcs' || e === 'avisos') html = telaEq(`${cabEq(e === 'avisos')}<div class="pcs">${pcsPonte(e === 'avisos')}</div>`);
+    else if (e === 'mao') {
+      const pc = (nome, ifood, n99) => `<fieldset class="marcar"><legend>${nome}</legend><label><input type="checkbox"${ifood ? ' checked' : ''}> iFood aberto aqui</label><label><input type="checkbox"${n99 ? ' checked' : ''}> 99Food aberta aqui</label></fieldset>`;
+      html = telaEq(`<div class="dialogo" role="dialog" aria-labelledby="dMao"><h3 id="dMao">Onde o iFood e a 99 ficam abertos?</h3>
+        <p>Marque onde a loja deixa cada plataforma aberta. O Regem avisa quando a ponte não estiver nesse PC. O app oficial do iFood e da 99 o "Regem neste PC" enxerga sozinho; a aba do navegador, não.</p>
+        ${pc('CX-DELIVERY', true, true)}${pc('PDV1', false, true)}${pc('SERVIDOR-MB', false, false)}
+        <div class="rodape"><button type="button" class="btn">Cancelar</button><button type="button" class="btn pri">Salvar</button></div></div>`);
+    } else if (e === 'icone') {
+      html = `<div class="palco"><div class="desk" aria-label="Área de trabalho do Windows (simulada)">
+          <div class="menu" role="menu" aria-label="Menu do ícone do Regem"><div class="mcab"><b>Regem neste PC</b><span>CX-DELIVERY · estacao delivery</span>
+            <span class="estado"><i aria-hidden="true"></i>Ligado ao servidor · há 5 s</span><span class="estado"><i aria-hidden="true"></i>Ponte do chat: principal · iFood ✓ · 99 ✓</span></div>
+            <button type="button" class="item">Abrir painel</button><button type="button" class="item">Abrir a ponte do chat</button><button type="button" class="item">Pausar a ponte do chat</button>
+            <hr><button type="button" class="item">Testar conexão com o servidor</button><button type="button" class="item">Imprimir teste</button><hr><button type="button" class="item">Sair</button></div>
+          <div class="barra"><span class="icone" title="Regem neste PC">R</span><span class="mono">20:32</span></div></div>
+        <div class="lado"><h3>O que muda no ícone</h3><ul>
+          <li>Uma linha com a ponte: o papel deste PC (principal ou reserva) e se o iFood e a 99 estão logados.</li>
+          <li>"Abrir a ponte do chat" mostra a janela com o iFood e a 99, para entrar de novo ou olhar.</li>
+          <li>"Pausar a ponte do chat" para a leitura e o envio deste PC na hora.</li>
+          <li>Num PC sem a ponte, o item vira "Instalar a ponte do chat".</li></ul></div></div>`;
+    } else {
+      const login = e === 'login';
+      html = `<div class="janela"><div class="tit">Regem · Ponte do chat <span>CX-DELIVERY · principal</span></div><div class="corpo">
+          ${login ? '<div class="faixa aviso"><p><b>O iFood pediu para entrar de novo.</b> Entre aqui embaixo. Enquanto isso, a reserva (SERVIDOR-MB) responde o chat do iFood e o gerente foi avisado.</p></div>' : ''}
+          <div class="bloco"><h3>Ponte do chat <span class="pill ${login ? 'aviso' : 'ok'}">${login ? 'iFood sem login' : 'principal'}</span></h3>
+            <dl class="pares"><dt>Regem</dt><dd>conectado · Mister Burguer</dd><dt>iFood</dt><dd>${login ? 'pediu para entrar de novo' : 'logado · 3 conversas hoje · última há 1 min'}</dd><dt>99Food</dt><dd>logado · 1 conversa hoje</dd><dt>Robô</dt><dd>respondendo sozinho · 7 respostas hoje · 2 casos na fila</dd></dl>
+            <div class="acoes"><button type="button" class="btn">Pausar a ponte</button><button type="button" class="btn">Abrir o Atendimento</button></div></div>
+          <div class="bloco"><h3>As plataformas</h3><div class="abas-plat" aria-hidden="true"><span class="sel">iFood</span><span>99Food</span></div>
+            <div class="plat-sim">${login
+              ? '<div class="entrar"><b>Entrar no Gestor de Pedidos</b><span>E-mail</span><span>Senha</span><span style="text-align:center;font-weight:700">Continuar</span><small>É a página do próprio iFood. A senha fica só neste PC; o Regem não recebe.</small></div>'
+              : 'Gestor de Pedidos do iFood: a página do próprio iFood, aberta aqui dentro. A ponte só lê as mensagens e digita as respostas nela.'}</div>
+            <p class="nota" style="font-size:13px">Fechar a janela deixa a ponte rodando perto do relógio; ela abre sozinha quando o Windows liga.</p></div>
+        </div></div>`;
+    }
+    $('#p7-corpo').innerHTML = html;
+  }
+  document.addEventListener('click', (ev) => { const b = ev.target.closest('[data-e7]'); if (b) { p7(b.dataset.e7); marcar('e7', b.dataset.e7); } });
+
+  estados('e1', p1); estados('e2', p2); estados('e3', p3); estados('e4', p4); estados('e7', p7);
+  p1('local'); p2('ok'); p3('pc'); p4('ok'); p7('pcs');
 
   // Para conferir cada estado (roteiro de medição): window.cenario('p4', 'ip').
-  window.cenario = (peca, e) => { ({ p1, p2, p3, p4 })[peca](e); marcar('e' + peca.slice(1), e); };
+  window.cenario = (peca, e) => { ({ p1, p2, p3, p4, p7 })[peca](e); marcar('e' + peca.slice(1), e); };
 })();
 </script>
 </html>
