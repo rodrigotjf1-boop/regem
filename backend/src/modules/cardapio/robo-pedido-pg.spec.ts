@@ -39,6 +39,7 @@ const MIGRATIONS = [
   '349_lembrete_do_carrinho.sql',
   '352_conferir_entrega.sql',
   '361_robo_carrinho_repetido.sql',
+  '363_robo_mudanca_do_pedido.sql', // a mudança do pedido feito (`mudanca`) e o "O robô faz mudanças simples"
 ].map((m) => join(__dirname, '../../../../database/migrations', m));
 const SENHA = 'senha-do-robo-de-teste';
 const CELULAR = '5521987654321';

@@ -60,7 +60,8 @@ descrever('"chegou tudo certo?" (Postgres)', () => {
   beforeAll(async () => {
     delete process.env.EDGE_MODE; // como NUVEM
     await repetirNaCorridaDeCatalogo(() => pool.query(readFileSync(MIG('215_whatsapp_mensagem.sql'), 'utf8')));
-    for (const m of ['342_robo_pausa_e_config.sql', '344_robo_carrinho.sql', '347_aviso_de_atraso.sql', '349_lembrete_do_carrinho.sql', '352_conferir_entrega.sql'])
+    // A 363 (a mudança do pedido feito) altera o carrinho e o ajuste do robô (ERR-273: o `select()` do carrinho lê tudo).
+    for (const m of ['342_robo_pausa_e_config.sql', '344_robo_carrinho.sql', '347_aviso_de_atraso.sql', '349_lembrete_do_carrinho.sql', '352_conferir_entrega.sql', '363_robo_mudanca_do_pedido.sql'])
       await aplicar(m);
   });
   beforeEach(() => {

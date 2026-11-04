@@ -1,8 +1,13 @@
-import { BadRequestException, ConflictException, Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
-import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
+import { BadRequestException, ConflictException, HttpException, Inject, Injectable, Logger, Optional, UnauthorizedException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { and, desc, eq, gte, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { cliente, clienteEndereco, pedidoExterno, roboCarrinho } from '../../db/schema';
+import { cardapioConfig, cliente, clienteEndereco, pedidoAlteracao, pedidoExterno, roboCarrinho } from '../../db/schema';
 import { Conversa, lerConversa } from '../../common/conversa-do-robo';
+import { sqlChaveTelefone } from '../../common/telefone-chave';
+import { DeliveryService } from '../delivery/delivery.service';
+import { AtendimentoService } from '../atendimento/atendimento.service';
+import { pagoAntes, pedidaVencida, VALIDADE_DA_PEDIDA_MIN } from '../pedido-alterado/pedido-alterado';
 import { textoDaObservacao } from '../../common/observacao-do-pedido';
 import { ratearCentavos } from '../../common/rateio';
 import { paraCentavos, paraReais } from '../../util/dinheiro';
@@ -39,6 +44,7 @@ import {
   opcaoComDetalhe,
   opcoesDePagamento,
   pedeExtras,
+  pedeTroco,
   precisaDeTroco,
   quantidadeDoPedido,
   referenciaDoPedido,
@@ -63,6 +69,32 @@ import {
   procurarPedidoIgual,
   situacaoParaOCliente,
 } from '../pedido-repetido/pedido-repetido';
+import {
+  ACOES_DA_MUDANCA,
+  type Entra,
+  type ItemDoPedidoFeito,
+  type MotivoParaNaoMudar,
+  type MudancaDoRobo,
+  type OperacaoDoRobo,
+  type PedidoFeito,
+  OPCOES_DE_AJUDA,
+  TEXTO_DA_PEDIDA,
+  contaDaMudanca,
+  lerMudanca,
+  linhasDaMudanca,
+  motivoParaNaoMudar,
+  noPedido,
+  opcoesDaConferencia,
+  ordemDoPedido,
+  opcoesDoTroco,
+  r2,
+  textoDaConferencia,
+  textoDaDecisao,
+  textoDaPerguntaDoTroco,
+  textoDaRecusaDaGravacao,
+  textoDoFeito,
+  visaoDoPedidoFeito,
+} from './robo-mudanca';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -167,6 +199,10 @@ export class RoboPedidoService {
     private readonly cardapio: CardapioService,
     private readonly evolution: WhatsappService,
     private readonly cloud: WhatsappCloudService,
+    // A mudança do pedido já feito (PR 3): a MESMA alteração da equipe e o chamado quando a loja não responde. Opcionais:
+    // os testes que só montam o pedido criam o serviço sem elas (a mudança responde "indisponível").
+    @Optional() private readonly delivery?: DeliveryService,
+    @Optional() private readonly atendimento?: AtendimentoService,
   ) {}
 
   /** A loja (pela chave do número, com a senha do robô) e o cliente (pela ficha da conversa, da mesma loja). */
@@ -249,6 +285,12 @@ export class RoboPedidoService {
     const emCurso = Array.isArray(c?.itens) && (c!.itens as Linha[]).length > 0;
     const ultimo = emCurso ? null : await this.ultimoPedidoDoCliente(ctx, cli, produtos);
     const beneficios = await this.beneficiosParaVer(ctx, cli);
+    // O pedido JÁ FEITO em andamento (PR 3): o robô vê os itens numerados e se dá para mudar. Falhou a leitura: a conversa
+    // segue sem ele (o robô só não oferece a mudança agora) e o motivo fica no log.
+    const feito = await this.pedidoFeitoDaConversa(ctx, cli).catch((e: any) => {
+      this.logger.warn(`pedido feito da conversa não lido: ${e?.message ?? e}`);
+      return null;
+    });
     return {
       cliente: cli
         ? { conhecido: true, nome: cli.nome ?? null }
@@ -269,6 +311,7 @@ export class RoboPedidoService {
           }
         : {}),
       ...(beneficios ? { beneficios } : {}),
+      ...(feito ? { pedidoFeito: visaoDoPedidoFeito(feito.p, situacaoParaOCliente(feito.p.status), lerMudanca(c?.mudanca)) } : {}),
       pedido: visao,
     };
   }
@@ -357,6 +400,7 @@ export class RoboPedidoService {
       resumoVersao: r.resumo_versao != null ? Number(r.resumo_versao) : null,
       itensFechados: !!r.itens_fechados,
       observacao: r.observacao ?? null,
+      mudanca: r.mudanca ?? null,
       criadoEm: r.criado_em,
       atualizadoEm: r.atualizado_em,
     } as Carrinho;
@@ -395,6 +439,14 @@ export class RoboPedidoService {
     const obs = String(dto?.observacao ?? '').trim().slice(0, 140) || null;
     const produtos = new Map<string, any>((menu?.produtos ?? []).map((p: any) => [p.id, p]));
     const temLinha = Number(dto?.linha) > 0;
+
+    // A mudança do pedido JÁ FEITO (PR 3) — ações próprias, para nunca se confundirem com o pedido em montagem.
+    if (ACOES_DA_MUDANCA.por.includes(acao)) return this.mudarPedidoFeito(ctx, menu, 'por', dto, produtos);
+    if (ACOES_DA_MUDANCA.tirar.includes(acao)) return this.mudarPedidoFeito(ctx, menu, 'tirar', dto, produtos);
+    if (ACOES_DA_MUDANCA.trocar.includes(acao)) return this.mudarPedidoFeito(ctx, menu, 'trocar', dto, produtos);
+    if (ACOES_DA_MUDANCA.troco.includes(acao)) return this.trocoDaMudanca(ctx, [dto?.observacao, dto?.quantidade].map((v) => String(v ?? '').trim()).find(Boolean) ?? '');
+    if (ACOES_DA_MUDANCA.confirmar.includes(acao)) return this.confirmarMudanca(ctx);
+    if (ACOES_DA_MUDANCA.desistir.includes(acao)) return this.desistirDaMudanca(ctx);
 
     if (ACOES.adicionar.includes(acao)) return this.adicionar(ctx, menu, dto, obs, produtos);
     if (ACOES.escolher.includes(acao)) return this.escolher(ctx, menu, dto, produtos);
@@ -490,9 +542,600 @@ export class RoboPedidoService {
       menu,
       recusa(
         'acao',
-        'Ação desconhecida: use adicionar, escolher, concluir, fechar, alterar, remover, observacao_do_pedido, repetir, trocar_pelo_trio, usar_cashback, guardar_cashback, usar_cupom, tirar_cupom, usar_premio, guardar_premio ou limpar (veja proximo.comoResponder).',
+        'Ação desconhecida: use adicionar, escolher, concluir, fechar, alterar, remover, observacao_do_pedido, repetir, trocar_pelo_trio, usar_cashback, guardar_cashback, usar_cupom, tirar_cupom, usar_premio, guardar_premio ou limpar (veja proximo.comoResponder). No pedido JÁ FEITO: pedido_por, pedido_tirar, pedido_trocar, troco_da_mudanca, confirmar_mudanca ou desistir_da_mudanca.',
       ),
     );
+  }
+
+  // ───────────────────────── a mudança do pedido já feito (PR 3) ─────────────────────────
+
+  /** Margem sobre a validade da "pedida": o "aplicada" do servidor da loja ainda pode estar subindo pelo sincronismo. */
+  static readonly MARGEM_DA_DECISAO_MIN = 3;
+
+  /**
+   * O pedido JÁ FEITO desta conversa: o mais recente do cardápio nas últimas 12 h, ainda não entregue nem cancelado —
+   * SEMPRE do telefone da conversa (a ficha assinada, nunca um número que a IA mande — V79): pelo telefone do pedido ou
+   * pelo cadastro achado. Vem com os itens da venda numerados (e se a cozinha já deixou cada um pronto), se foi pago antes,
+   * se tem nota, se o robô já mudou e se a loja deixa o robô mudar. Dois em andamento: a equipe confere qual.
+   */
+  private async pedidoFeitoDaConversa(ctx: Contexto, cli: ClienteDaConversa): Promise<{ p: PedidoFeito; ped: any } | null> {
+    const tenantId = ctx.cfg.tenantId;
+    const peloTelefone = sql`${sqlChaveTelefone(sql`${pedidoExterno.clienteTelefone}`)} = ${ctx.conversa.chave}`;
+    const doCliente = cli?.id ? or(peloTelefone, eq(pedidoExterno.clienteId, cli.id)) : peloTelefone;
+    const pedidos = await this.db
+      .select()
+      .from(pedidoExterno)
+      .where(
+        and(
+          eq(pedidoExterno.tenantId, tenantId),
+          eq(pedidoExterno.canal, 'cardapio'),
+          gte(pedidoExterno.criadoEm, sql`now() - interval '12 hours'`),
+          sql`${pedidoExterno.status} not in ('concluido', 'entregue', 'cancelado')`,
+          isNull(pedidoExterno.deletedAt),
+          doCliente,
+        ),
+      )
+      .orderBy(desc(pedidoExterno.criadoEm))
+      .limit(2);
+    const ped: any = pedidos[0];
+    if (!ped) return null;
+    const [itens, alteracoes, desligado, comNota] = await Promise.all([
+      ped.comandaId ? this.itensDoPedidoFeito(tenantId, ped.comandaId, ped.itens) : Promise.resolve([] as ItemDoPedidoFeito[]),
+      this.db
+        .select({ situacao: pedidoAlteracao.situacao, createdAt: pedidoAlteracao.createdAt })
+        .from(pedidoAlteracao)
+        .where(and(eq(pedidoAlteracao.tenantId, tenantId), eq(pedidoAlteracao.pedidoId, ped.id), eq(pedidoAlteracao.origem, 'robo'))),
+      this.mudancaDesligada(tenantId),
+      ped.comandaId && this.delivery ? this.delivery.temNotaFiscal(this.db, tenantId, ped.comandaId) : Promise.resolve(false),
+    ]);
+    const p: PedidoFeito = {
+      id: ped.id,
+      // O número que o cliente recebeu: a senha do cardápio (sem o "#" que a entrada põe quando não há senha).
+      numero: String(ped.displayId ?? ped.numero ?? '').replace(/^#/, '').trim() || null,
+      status: ped.status,
+      tipo: ped.tipo,
+      total: r2(Number(ped.total ?? 0)),
+      trocoPara: ped.trocoPara != null && Number(ped.trocoPara) > 0 ? r2(Number(ped.trocoPara)) : null,
+      trocoPossivel: !pagoAntes(ped) && pedeTroco(ped.formaPagamento),
+      pagoAntes: pagoAntes(ped),
+      comNota,
+      jaMudouPeloRobo: alteracoes.some((a) => a.situacao === 'aplicada'),
+      mudancaPendente: alteracoes.some((a) => a.situacao === 'pedida' && !pedidaVencida(a.createdAt)),
+      desligado,
+      outroEmAndamento: pedidos.length > 1,
+      itens,
+    };
+    return { p, ped };
+  }
+
+  /**
+   * Os itens da venda do pedido, na ordem do resumo que o cliente recebeu (`ordemDoPedido`), com as opções e se a cozinha
+   * já deixou cada um pronto.
+   */
+  private async itensDoPedidoFeito(tenantId: string, comandaId: string, listaDoPedido: unknown): Promise<ItemDoPedidoFeito[]> {
+    const r: any = await this.db.execute(sql`
+      select ci.id, ci.produto_id, ci.variacao_id, ci.descricao, ci.quantidade, ci.preco_unitario, ci.observacao, ci.created_at,
+             coalesce((select array_agg(cc.opcao_id::text)
+                         from comanda_item_complemento cc
+                        where cc.comanda_item_id = ci.id and cc.opcao_id is not null), '{}') as opcao_ids,
+             exists (select 1
+                       from producao_pedido_item ppi
+                       join producao_pedido pp on pp.id = ppi.pedido_id
+                      where ppi.tenant_id = ci.tenant_id and ppi.comanda_item_id = ci.id and ppi.status <> 'removido'
+                        and pp.status in ('pronto', 'entregue')) as pronto
+        from comanda_item ci
+       where ci.tenant_id = ${tenantId}::uuid and ci.comanda_id = ${comandaId}::uuid`);
+    const brutos = linhasDe(r).map((x: any) => ({
+      id: String(x.id),
+      produtoId: (x.produto_id as string | null) ?? null,
+      descricao: String(x.descricao),
+      criadoEm: new Date(x.created_at).getTime() || 0,
+      x,
+    }));
+    return ordemDoPedido(brutos, listaDoPedido).map(({ x }, i) => ({
+      linha: i + 1,
+      comandaItemId: String(x.id),
+      produtoId: x.produto_id ?? null,
+      variacaoId: x.variacao_id ?? null,
+      opcaoIds: Array.isArray(x.opcao_ids) ? x.opcao_ids.map(String) : [],
+      descricao: String(x.descricao),
+      quantidade: Number(x.quantidade) || 1,
+      precoUnitario: r2(Number(x.preco_unitario) || 0),
+      observacao: x.observacao ?? null,
+      pronto: !!x.pronto,
+    }));
+  }
+
+  /** "O robô faz mudanças simples" desligado na loja (Atendimento › Ajustes do robô, mig 363; nasce ligado). */
+  private async mudancaDesligada(tenantId: string): Promise<boolean> {
+    try {
+      const [l] = linhasDe(await this.db.execute(sql`select muda_pedido from robo_config where tenant_id = ${tenantId}::uuid`));
+      return l ? l.muda_pedido === false : false;
+    } catch (e: any) {
+      if (e?.code === '42P01' || e?.code === '42703') return false; // banco sem a mig 363: como nasce, ligado
+      throw e;
+    }
+  }
+
+  /** A recusa da mudança para o robô: o que dizer e, quando a equipe resolve, os botões da oferta da equipe. */
+  private naoMuda(x: MotivoParaNaoMudar) {
+    return { ok: false, motivo: x.motivo, mensagem: x.mensagem, chamaEquipe: x.chamaEquipe, ...(x.chamaEquipe ? { opcoes: OPCOES_DE_AJUDA } : {}) };
+  }
+
+  /**
+   * Grava a mudança da conversa no carrinho aberto (cria o carrinho vazio se não houver), com a linha presa — sem subir a
+   * versão do pedido em montagem (o resumo dele continua valendo). `quando`: só grava se a mudança atual deixar.
+   */
+  private async gravarMudanca(ctx: Contexto, m: MudancaDoRobo | null, quando?: (atual: MudancaDoRobo | null) => boolean): Promise<boolean> {
+    return this.db.transaction(async (tx: any) => {
+      await this.vencer(tx, ctx);
+      await tx.execute(sql`
+        insert into robo_carrinho (tenant_id, telefone, telefone_chave)
+        values (${ctx.cfg.tenantId}::uuid, ${ctx.conversa.telefone}, ${ctx.conversa.chave})
+        on conflict (tenant_id, telefone_chave) where status = 'aberto' do nothing`);
+      const [c] = linhasDe(
+        await tx.execute(sql`
+          select id, mudanca from robo_carrinho
+           where tenant_id = ${ctx.cfg.tenantId}::uuid and telefone_chave = ${ctx.conversa.chave} and status = 'aberto'
+           for update`),
+      );
+      if (!c || (quando && !quando(lerMudanca(c.mudanca)))) return false;
+      await tx.execute(sql`update robo_carrinho set mudanca = ${m ? JSON.stringify(m) : null}::jsonb where id = ${c.id}::uuid`);
+      return true;
+    });
+  }
+
+  /** O texto (com os botões) ao cliente pela via da loja — conversa com atendente (pausada): não manda. */
+  private async enviarAoCliente(ctx: Contexto, texto: string, opcoes: string[] | null): Promise<boolean> {
+    const pausado = await estadoDaPausa(this.db, ctx.cfg.tenantId, ctx.conversa.telefone)
+      .then((e) => e.pausado)
+      .catch(() => false);
+    if (pausado) return false;
+    return opcoes?.length ? this.enviarComBotoes(ctx, texto, opcoes) : this.enviarResumo(ctx, texto);
+  }
+
+  /** "Pôr", "tirar" ou "trocar" no pedido já feito: confere, monta a mudança e manda a conferência (ou a pergunta do troco). */
+  private async mudarPedidoFeito(ctx: Contexto, menu: any, tipo: 'por' | 'tirar' | 'trocar', dto: any, produtos: Map<string, any>) {
+    if (!this.delivery)
+      return this.naoMuda({ motivo: 'indisponivel', mensagem: 'A mudança do pedido não está disponível agora.', chamaEquipe: true });
+    const f = await this.pedidoFeitoDaConversa(ctx, await this.clienteDaConversa(ctx));
+    if (!f)
+      return this.naoMuda({
+        motivo: 'sem_pedido_feito',
+        mensagem: 'Não achei pedido em andamento deste número nas últimas 12 horas.',
+        chamaEquipe: true,
+      });
+    const antes = motivoParaNaoMudar(f.p);
+    if (antes) return this.naoMuda(antes);
+    const op = await this.operacaoDoRobo(ctx, menu, tipo, dto, f.p, produtos);
+    if ((op as Recusa).ok === false) return op;
+    const motivo = motivoParaNaoMudar(f.p, op as OperacaoDoRobo);
+    if (motivo) return this.naoMuda(motivo);
+    const m: MudancaDoRobo = {
+      id: randomUUID(),
+      pedidoId: f.p.id,
+      numero: f.p.numero,
+      op: op as OperacaoDoRobo,
+      via: (ctx.cfg.provedor ?? 'evolution') === 'cloud' ? 'cloud' : 'evolution',
+      criadaEm: new Date().toISOString(),
+    };
+    return this.seguirMudanca(ctx, f, m, { nova: true });
+  }
+
+  /** O item do pedido feito de que se fala: pelo número da linha; para tirar, também pelo nome; o único, sem dizer. */
+  private itemDoPedidoFeito(p: PedidoFeito, dto: any, tipo: 'tirar' | 'trocar'): ItemDoPedidoFeito | Recusa {
+    const lista = { itens: p.itens.map((i) => `${i.linha}. ${i.quantidade}x ${i.descricao}`) };
+    const n = Number(dto?.linha);
+    if (n > 0) return p.itens.find((i) => i.linha === n) ?? recusa('linha', `O pedido não tem o item ${n}: confira a lista.`, lista);
+    // Tirar pelo nome ("tira a coca"): o item com esse nome, se for um só. Na troca, o nome é o do produto NOVO.
+    const nome = tipo === 'tirar' ? normalizar(dto?.produto) : '';
+    if (nome) {
+      const achados = p.itens.filter((i) => normalizar(i.descricao).includes(nome));
+      if (achados.length === 1) return achados[0];
+      if (achados.length > 1) return recusa('linha', 'Mais de um item com esse nome: pergunte qual (o número da linha).', lista);
+    }
+    if (p.itens.length === 1) return p.itens[0];
+    return recusa('linha', 'Diga qual item do pedido (o número da linha em pedidoFeito.itens).', lista);
+  }
+
+  /**
+   * A operação que o cliente pediu. Pôr e trocar por outro produto (ou mudar a versão ou um adicional) seguem as regras do
+   * `adicionar` — as escolhas obrigatórias completas — com o preço do cardápio (promoção e atacado: o que o cliente
+   * confere). Mudar só a quantidade ou a observação, ou tirar só parte, repete o item pelo preço que o cliente já pagou.
+   */
+  private async operacaoDoRobo(
+    ctx: Contexto,
+    menu: any,
+    tipo: 'por' | 'tirar' | 'trocar',
+    dto: any,
+    p: PedidoFeito,
+    produtos: Map<string, any>,
+  ): Promise<OperacaoDoRobo | Recusa> {
+    const qtdDita =
+      dto?.quantidade != null && String(dto.quantidade).trim() !== '' && Number(dto.quantidade) !== 0 ? quantidadeDoPedido(dto.quantidade) : undefined;
+    if (qtdDita === null) return recusa('quantidade', 'A quantidade vai de 1 a 50.');
+    const ehRecusa = (x: unknown): x is Recusa => (x as Recusa)?.ok === false;
+    if (tipo === 'por') {
+      const entra = await this.itemQueEntra(ctx, menu, dto, null, produtos);
+      return ehRecusa(entra) ? entra : { tipo: 'por', entra };
+    }
+    const item = this.itemDoPedidoFeito(p, dto, tipo);
+    if (ehRecusa(item)) return item;
+    const sai = { comandaItemId: item.comandaItemId, descricao: item.descricao, quantidade: item.quantidade, precoUnitario: item.precoUnitario };
+    const avulso = () =>
+      recusa('item_avulso', `O ${item.descricao} não dá para mudar por aqui.`, { chamaEquipe: true, opcoes: OPCOES_DE_AJUDA });
+    const mesmo = (quantidade: number, observacao: string | null): Entra | Recusa =>
+      item.produtoId
+        ? {
+            produtoId: item.produtoId,
+            variacaoId: item.variacaoId,
+            complementos: item.opcaoIds,
+            quantidade,
+            observacao,
+            descricao: item.descricao,
+            precoUnitario: item.precoUnitario,
+          }
+        : avulso();
+    if (tipo === 'tirar') {
+      // Tirar só parte ("tira uma das cocas"): o item fica com o resto, pelo preço que o cliente já pagou.
+      if (qtdDita != null && qtdDita < item.quantidade) {
+        const e = mesmo(item.quantidade - qtdDita, item.observacao);
+        return ehRecusa(e) ? e : { tipo: 'trocar', sai, entra: e };
+      }
+      return { tipo: 'tirar', sai };
+    }
+    // Trocar por OUTRO produto ("troca a coca por guaraná").
+    const achado = String(dto?.produto ?? '').trim() ? acharProduto(menu, dto.produto) : null;
+    if (achado && (!achado.ok || achado.produto.id !== item.produtoId)) {
+      const entra = await this.itemQueEntra(ctx, menu, { ...dto, quantidade: qtdDita ?? item.quantidade }, null, produtos);
+      return ehRecusa(entra) ? entra : { tipo: 'trocar', sai, entra };
+    }
+    // O mesmo produto: a quantidade, a observação, a versão ou os adicionais.
+    const obsDita = String(dto?.observacao ?? '').trim().slice(0, 140);
+    const obsNova = obsDita && !respostaNegativa(obsDita) ? (/^(nenhuma|sem observa)/i.test(obsDita) ? null : obsDita) : item.observacao;
+    const qtdNova = qtdDita ?? item.quantidade;
+    const dito = (v: unknown) => v != null && String(v).trim() !== '';
+    if (!dito(dto?.versao) && !dito(dto?.adicionais) && !dito(dto?.tirarAdicionais)) {
+      if (qtdNova === item.quantidade && (obsNova ?? null) === (item.observacao ?? null))
+        return recusa('nada_muda', 'Diga o que muda no item: outro produto, a quantidade, a versão, um adicional ou a observação.');
+      const e = mesmo(qtdNova, obsNova);
+      return ehRecusa(e) ? e : { tipo: 'trocar', sai, entra: e };
+    }
+    if (!item.produtoId) return avulso();
+    const base = { produtoId: item.produtoId, variacaoId: item.variacaoId, complementos: item.opcaoIds, quantidade: qtdNova, observacao: obsNova };
+    const entra = await this.itemQueEntra(ctx, menu, dto, base, produtos);
+    return ehRecusa(entra) ? entra : { tipo: 'trocar', sai, entra };
+  }
+
+  /**
+   * O item que ENTRA com preço do cardápio: um produto novo pelo nome (as regras do `adicionar`), ou o produto do item
+   * (`base`) com a versão e os adicionais mudados. Escolha obrigatória que falta volta para o robô perguntar.
+   */
+  private async itemQueEntra(
+    ctx: Contexto,
+    menu: any,
+    dto: any,
+    base: { produtoId: string; variacaoId: string | null; complementos: string[]; quantidade: number; observacao: string | null } | null,
+    produtos: Map<string, any>,
+  ): Promise<Entra | Recusa> {
+    let p: any;
+    if (base) {
+      p = produtos.get(base.produtoId);
+      if (!p)
+        return recusa('produto_fora', 'Esse item saiu do cardápio: a versão e os adicionais dele não mudam por aqui.', { chamaEquipe: true, opcoes: OPCOES_DE_AJUDA });
+    } else {
+      const achado = acharProduto(menu, dto?.produto);
+      if (!achado.ok)
+        return achado.motivo === 'varios'
+          ? recusa('varios_produtos', 'Mais de um produto com esse nome: pergunte qual o cliente quer.', { opcoes: achado.opcoes })
+          : achado.motivo === 'esgotado'
+            ? recusa('esgotado', `${achado.produto.nome} está esgotado agora. Ofereça outra opção.`)
+            : recusa('produto_nao_encontrado', 'Não achei esse produto no cardápio: use a busca do cardápio e confira o nome.');
+      p = achado.produto;
+    }
+    if (p.esgotado) return recusa('esgotado', `${p.nome} está esgotado agora. Ofereça outra opção.`);
+    const qtd = base ? base.quantidade : quantidadeDoPedido(dto?.quantidade);
+    if (qtd == null) return recusa('quantidade', 'A quantidade vai de 1 a 50.');
+    let variacaoId: string | null = base?.variacaoId ?? null;
+    if (!base || String(dto?.versao ?? '').trim()) {
+      const v = acharVariacao(p, dto?.versao);
+      if (!v.ok && v.motivo === 'nenhuma') return recusa('versao', `${p.nome} não tem a versão "${dto?.versao}". As versões são estas.`, { opcoes: v.opcoes });
+      variacaoId = v.ok ? (v.variacao?.id ?? null) : (base?.variacaoId ?? null);
+    }
+    const esc = base ? alterarEscolhas(p, base.complementos, dto?.adicionais, dto?.tirarAdicionais) : montarEscolhas(p, dto?.adicionais);
+    if (esc.naoAchei.length)
+      return recusa('adicional', `Não achei em ${p.nome}: ${esc.naoAchei.join(', ')}. Estas são as opções dele.`, { opcoesDoProduto: this.opcoesDoProduto(p) });
+    if (esc.passouDoLimite.length) return recusa('limite', esc.passouDoLimite.map((g) => `${g.grupo}: no máximo ${g.maximo}`).join('; '));
+    const obsDita = String(dto?.observacao ?? '').trim().slice(0, 140);
+    const observacao = base ? base.observacao : obsDita && !respostaNegativa(obsDita) && !/^(nenhuma|sem observa)/i.test(obsDita) ? obsDita : null;
+    const linha: Linha = { linha: 1, produtoId: p.id, variacaoId, complementos: esc.complementos, quantidade: qtd, observacao, extras: true };
+    const faltam = escolhasQueFaltam(p, linha);
+    if (faltam.length)
+      return recusa(
+        'escolha',
+        `Falta escolher no ${p.nome}: ${faltam.map((x) => x.grupo).join(', ')}. Pergunte ao cliente e mande de novo com a escolha em adicionais (ou a versão).`,
+        { faltaEscolher: faltam.map((x) => ({ grupo: x.grupo, opcoes: x.opcoes })) },
+      );
+    try {
+      const { porId, faixasAtacado } = await this.cardapio.conferirProdutosDoPedido(ctx.cfg, itensDoPedido([linha]));
+      const { itensOut } = await this.cardapio.precificarItensDoPedido(ctx.cfg, itensDoPedido([linha]), porId, faixasAtacado);
+      const it = itensOut[0];
+      return {
+        produtoId: p.id,
+        variacaoId,
+        complementos: esc.complementos,
+        quantidade: qtd,
+        observacao,
+        descricao: String(it?.descricao ?? p.nome),
+        precoUnitario: r2(Number(it?.precoUnitario) || 0),
+      };
+    } catch (e: any) {
+      return recusa('produto', e?.message ?? 'Não deu para conferir esse produto agora.');
+    }
+  }
+
+  /**
+   * O passo seguinte da mudança: a pergunta do troco (o troco do pedido não cobre o valor novo, ou o cliente quer mudar o
+   * troco) ou a conferência com os botões — pela MESMA conta da gravação (`contaDaMudanca`). O Regem grava a mudança e
+   * manda ao cliente; o robô recebe o que já saiu (`proximo`). `nova`: não passa por cima de uma mudança que está com a
+   * loja e o cliente ainda não soube a decisão.
+   */
+  private async seguirMudanca(ctx: Contexto, f: { p: PedidoFeito; ped: any }, m: MudancaDoRobo, o: { perguntarTroco?: boolean; nova?: boolean } = {}) {
+    const { p, ped } = f;
+    const semTroco = contaDaMudanca(ped, m.op, null);
+    if (!semTroco.ok) return this.naoMuda(textoDaRecusaDaGravacao(p.numero, semTroco.code));
+    const conta = contaDaMudanca(ped, m.op, m.trocoPara);
+    const naoCobre = !conta.ok && conta.code === 'TROCO_INSUFICIENTE';
+    if (!conta.ok && !naoCobre) return this.naoMuda(textoDaRecusaDaGravacao(p.numero, conta.code));
+    const perguntaTroco = naoCobre || (!!o.perguntarTroco && p.trocoPossivel);
+    let texto: string;
+    let opcoes: string[];
+    let novo: MudancaDoRobo;
+    let proximo: Falta;
+    if (perguntaTroco) {
+      texto = textoDaPerguntaDoTroco(p.numero, m.op, p.total, semTroco.total, { naoCobre, trocoAntes: p.trocoPara });
+      opcoes = opcoesDoTroco(semTroco.aReceber);
+      novo = { ...m, aguardaTroco: true, conferida: false };
+      proximo = {
+        campo: 'troco_da_mudanca',
+        pergunta:
+          'A PERGUNTA DO TROCO DA MUDANÇA JÁ FOI ENVIADA ao cliente pelo Regem, com os botões. Não repita a pergunta nem ponha OPCOES: responda só algo curto, como "Me diz aí 👆".',
+        opcoes,
+        comoResponder: 'mexer_no_pedido com acao = troco_da_mudanca e observacao = o valor (ex.: 100) ou "não preciso"',
+      };
+    } else {
+      const c = conta as Extract<typeof conta, { ok: true }>;
+      texto = textoDaConferencia(p.numero, m.op, p.total, c.total, { antes: p.trocoPara, depois: c.troco, possivel: p.trocoPossivel });
+      opcoes = opcoesDaConferencia(p.trocoPossivel);
+      novo = { ...m, aguardaTroco: false, conferida: true };
+      proximo = {
+        campo: 'confirmar_mudanca',
+        pergunta:
+          'A CONFERÊNCIA DA MUDANÇA JÁ FOI ENVIADA ao cliente pelo Regem, com os botões. Não repita a mudança nem ponha OPCOES: responda só algo curto, como "Confere aí 👆".',
+        opcoes,
+        comoResponder:
+          '"Pode alterar": mexer_no_pedido com acao = confirmar_mudanca; "Mudar o troco": acao = troco_da_mudanca sem valor (o Regem pergunta o troco); "Deixar como estava": acao = desistir_da_mudanca.',
+      };
+    }
+    const gravou = await this.gravarMudanca(ctx, novo, (atual) =>
+      o.nova ? !(atual?.situacao === 'pedida' && !atual.avisada) : !!atual && atual.id === m.id && !atual.situacao,
+    );
+    if (!gravou)
+      return this.naoMuda(
+        o.nova
+          ? { motivo: 'uma_por_vez', mensagem: `A mudança anterior do ${noPedido(p.numero)} ainda está com a loja: a confirmação chega aqui em instantes.`, chamaEquipe: false }
+          : { motivo: 'mudanca_mudou', mensagem: 'A mudança mudou enquanto o cliente respondia: pergunte de novo o que ele quer mudar.', chamaEquipe: false },
+      );
+    const enviado = await this.enviarAoCliente(ctx, texto, opcoes);
+    const feito = perguntaTroco ? 'pergunta do troco da mudança enviada' : 'conferência da mudança enviada';
+    return enviado
+      ? { ok: true, feito, proximo }
+      : {
+          ok: true,
+          feito: `${feito.replace(' enviada', '')} pronta (não saiu por aqui)`,
+          proximo: { ...proximo, pergunta: `Mande ao cliente o texto de mensagemParaOCliente exatamente como veio, terminando com OPCOES: ${opcoes.join(' | ')}` },
+          mensagemParaOCliente: texto,
+        };
+  }
+
+  /** O troco da mudança: o valor dito ("100", "não preciso") — ou, sem valor, a pergunta do troco ("Mudar o troco"). */
+  private async trocoDaMudanca(ctx: Contexto, dito: string) {
+    const m = lerMudanca((await this.carrinhoAberto(ctx))?.mudanca);
+    if (!m || m.situacao) return recusa('sem_mudanca', 'Não há mudança de pedido esperando o troco: pergunte o que o cliente quer mudar.');
+    const f = await this.pedidoFeitoDaConversa(ctx, await this.clienteDaConversa(ctx));
+    if (!f || f.p.id !== m.pedidoId) return recusa('sem_pedido_feito', 'O pedido dessa mudança não está mais em andamento.', { chamaEquipe: true, opcoes: OPCOES_DE_AJUDA });
+    const t = String(dito ?? '').trim();
+    if (!t) return this.seguirMudanca(ctx, f, m, { perguntarTroco: true });
+    let troco: number | null = null;
+    if (!semTrocoNoTexto(t)) {
+      const v = valorDoTroco(t);
+      if (v == null) return recusa('troco', 'Não entendi o valor do troco: peça só o número (ex.: 100), ou "não preciso".');
+      troco = v;
+    }
+    const conta = contaDaMudanca(f.ped, m.op, troco);
+    if (!conta.ok && conta.code === 'TROCO_INSUFICIENTE') {
+      const sem = contaDaMudanca(f.ped, m.op, null);
+      return recusa('troco', `O troco para ${reais(troco)} não cobre o valor novo${sem.ok ? ` (${reais(sem.aReceber)})` : ''}: peça outro valor.`);
+    }
+    return this.seguirMudanca(ctx, f, { ...m, trocoPara: troco, aguardaTroco: false });
+  }
+
+  /**
+   * "Pode alterar": a mudança conferida vai pela MESMA alteração da equipe (`DeliveryService.alterar`, origem "robo", com
+   * o id da mudança — repetir não muda duas vezes —, e o preço do cardápio que o cliente conferiu). Loja sem servidor
+   * ligado: aplica na hora (via "PEDIDO ALTERADO", KDS, troco, cashback) e o cliente recebe o "✅ Pronto!". Loja com
+   * servidor: vai como "pedida" — o cliente recebe "Pedi a mudança à loja ⏳" e a rotina da nuvem avisa a decisão.
+   */
+  private async confirmarMudanca(ctx: Contexto) {
+    if (!this.delivery)
+      return this.naoMuda({ motivo: 'indisponivel', mensagem: 'A mudança do pedido não está disponível agora.', chamaEquipe: true });
+    const m = lerMudanca((await this.carrinhoAberto(ctx))?.mudanca);
+    if (!m) return recusa('sem_mudanca', 'Não há mudança esperando o "Pode alterar": pergunte o que o cliente quer mudar no pedido.');
+    if (m.situacao)
+      return {
+        ok: true,
+        feito: m.situacao === 'aplicada' ? 'esta mudança já foi feita' : 'esta mudança já foi pedida à loja',
+        jaFeita: true,
+        orientacao: m.situacao === 'aplicada' ? 'Diga só que a mudança já está feita.' : 'Diga só que a loja confirma aqui em instantes.',
+      };
+    const f = await this.pedidoFeitoDaConversa(ctx, await this.clienteDaConversa(ctx));
+    if (!f || f.p.id !== m.pedidoId) {
+      await this.gravarMudanca(ctx, null, (a) => a?.id === m.id && !a.situacao);
+      return this.naoMuda({ motivo: 'sem_pedido_feito', mensagem: `O ${noPedido(m.numero)} não está mais em andamento.`, chamaEquipe: true });
+    }
+    // Sem a conferência (ou com a pergunta do troco aberta — o "Mudar o troco" seguido do botão antigo "Pode alterar"), o
+    // cliente não confirmou o que vai mudar: manda de novo o passo que falta.
+    if (!m.conferida || m.aguardaTroco) return this.seguirMudanca(ctx, f, m, { perguntarTroco: !!m.aguardaTroco });
+    const motivo = motivoParaNaoMudar(f.p, m.op);
+    if (motivo) {
+      await this.gravarMudanca(ctx, null, (a) => a?.id === m.id && !a.situacao);
+      return this.naoMuda(motivo);
+    }
+    const op = m.op;
+    const dto = {
+      idAlteracao: m.id,
+      adicionar:
+        op.tipo === 'tirar'
+          ? []
+          : [
+              {
+                produtoId: op.entra.produtoId,
+                variacaoId: op.entra.variacaoId,
+                complementos: op.entra.complementos,
+                quantidade: op.entra.quantidade,
+                observacao: op.entra.observacao ?? undefined,
+                precoUnitario: op.entra.precoUnitario,
+              },
+            ],
+      remover: op.tipo === 'por' ? [] : [op.sai.comandaItemId],
+      ...(m.trocoPara !== undefined ? { trocoPara: m.trocoPara } : {}),
+      origem: 'robo' as const,
+      pedidoDoCliente: linhasDaMudanca(op).join(' / '),
+    };
+    let r: any;
+    try {
+      r = await this.delivery.alterar({ tenantId: ctx.cfg.tenantId, colaboradorId: null as any, nome: 'Robô do WhatsApp' }, m.pedidoId, dto, { precoInformado: true });
+    } catch (e: any) {
+      if (!(e instanceof HttpException)) throw e;
+      const code = (e.getResponse() as any)?.code ?? null;
+      // O troco deixou de cobrir (o pedido mudou por outro caminho no meio): pergunta o troco de novo.
+      if (code === 'TROCO_INSUFICIENTE') return this.seguirMudanca(ctx, f, { ...m, trocoPara: undefined }, { perguntarTroco: true });
+      this.logger.warn(`mudança ${m.id} do pedido ${m.pedidoId} pelo robô recusada: ${e.message}`);
+      await this.gravarMudanca(ctx, null, (a) => a?.id === m.id && !a.situacao);
+      // O pedido andou (saiu, ficou pronto…): o motivo de agora; senão, o código da gravação.
+      const f2 = await this.pedidoFeitoDaConversa(ctx, await this.clienteDaConversa(ctx)).catch(() => null);
+      const agora = f2 && f2.p.id === m.pedidoId ? motivoParaNaoMudar(f2.p, op) : null;
+      return this.naoMuda(agora ?? textoDaRecusaDaGravacao(m.numero, code));
+    }
+    const pedida = r?.pedida === true || r?.alteracao?.situacao === 'pedida';
+    const agora = new Date().toISOString();
+    await this.gravarMudanca(ctx, { ...m, situacao: pedida ? 'pedida' : 'aplicada', pedidaEm: pedida ? agora : null, avisada: !pedida }, (a) => a?.id === m.id);
+    if (r?.repetida)
+      return { ok: true, feito: pedida ? 'mudança já pedida à loja' : 'mudança já feita', jaFeita: true, orientacao: 'O cliente já recebeu a mensagem: diga só algo curto.' };
+    const troco = r?.trocoPara != null && Number(r.trocoPara) > 0 ? Number(r.trocoPara) : null;
+    const texto = pedida ? TEXTO_DA_PEDIDA : textoDoFeito(m.numero, Number(r?.total ?? 0), troco);
+    const enviado = await this.enviarAoCliente(ctx, texto, null);
+    return {
+      ok: true,
+      feito: pedida ? 'mudança pedida ao servidor da loja (a decisão chega ao cliente por aqui)' : 'mudança feita no pedido',
+      ...(enviado
+        ? { orientacao: 'O Regem JÁ MANDOU a mensagem ao cliente. Não repita: responda só algo curto, ou nada.' }
+        : { mensagemParaOCliente: texto, orientacao: 'Mande ao cliente o texto de mensagemParaOCliente exatamente como veio.' }),
+    };
+  }
+
+  /** "Deixar como estava": a mudança em conferência sai; o pedido fica como estava. */
+  private async desistirDaMudanca(ctx: Contexto) {
+    const m = lerMudanca((await this.carrinhoAberto(ctx))?.mudanca);
+    if (!m || m.situacao) return { ok: true, feito: 'não havia mudança esperando: o pedido continua como estava' };
+    await this.gravarMudanca(ctx, null, (a) => a?.id === m.id && !a.situacao);
+    return { ok: true, feito: `mudança desfeita: o ${noPedido(m.numero)} continua como estava` };
+  }
+
+  /**
+   * A DECISÃO DA LOJA chega ao cliente (rotina da nuvem — `AvisoDaMudancaProcessor`): a mudança pedida ao servidor da loja
+   * que voltou "aplicada" ou "recusada" pelo sincronismo, ou que passou da validade sem resposta ("vencida" — o Regem já
+   * chama a equipe, tipo "mudança"). Uma vez só por mudança: "avisada" é gravado ANTES do envio, numa troca condicional
+   * (duas réplicas da API nunca mandam duas vezes — V24/V42). Até 50 por volta, todas as lojas numa consulta (set-based).
+   */
+  async avisarDecisoesDasMudancas(): Promise<number> {
+    const r: any = await this.db.execute(sql`
+      select c.id as carrinho_id, c.tenant_id, c.telefone, c.cliente_nome, c.mudanca,
+             a.situacao, a.depois, a.unidade_id
+        from robo_carrinho c
+        join pedido_alteracao a
+          on a.tenant_id = c.tenant_id
+         and a.id = (case when c.mudanca->>'id' ~ '^[0-9a-fA-F-]{36}$' then (c.mudanca->>'id')::uuid end)
+       where c.mudanca->>'situacao' = 'pedida'
+         and coalesce(c.mudanca->>'avisada', 'false') <> 'true'
+         and (a.situacao <> 'pedida'
+              or a.created_at < now() - make_interval(mins => ${VALIDADE_DA_PEDIDA_MIN + RoboPedidoService.MARGEM_DA_DECISAO_MIN}))
+       order by a.created_at
+       limit 50`);
+    let n = 0;
+    for (const x of linhasDe(r)) {
+      try {
+        const m = lerMudanca(x.mudanca);
+        if (!m) continue;
+        const situacao = x.situacao === 'aplicada' ? 'aplicada' : x.situacao === 'recusada' ? 'recusada' : 'vencida';
+        const marcou = linhasDe(
+          await this.db.execute(sql`
+            update robo_carrinho set mudanca = mudanca || '{"avisada": true}'::jsonb
+             where id = ${x.carrinho_id}::uuid and mudanca->>'id' = ${m.id} and coalesce(mudanca->>'avisada', 'false') <> 'true'
+            returning id`),
+        );
+        if (!marcou.length) continue; // outra volta (ou réplica) já avisou
+        const tenantId = String(x.tenant_id);
+        if (situacao === 'vencida') await this.chamarEquipeDaMudanca(tenantId, x, m);
+        const depois = x.depois ?? {};
+        const texto = textoDaDecisao(m.numero, situacao, {
+          total: depois.total != null ? Number(depois.total) : null,
+          troco: depois.trocoPara != null && Number(depois.trocoPara) > 0 ? Number(depois.trocoPara) : null,
+        });
+        await this.enviarDaRotina(tenantId, String(x.telefone), texto, situacao === 'recusada' ? OPCOES_DE_AJUDA : null, m.via ?? null);
+        n++;
+      } catch (e: any) {
+        this.logger.warn(`aviso da decisão da mudança (carrinho ${x?.carrinho_id}): não saiu — ${e?.message ?? e}`);
+      }
+    }
+    return n;
+  }
+
+  /** A loja não respondeu à mudança: o caso vai para a equipe (tipo "mudança", ligado ao pedido), com o resumo. */
+  private async chamarEquipeDaMudanca(tenantId: string, x: any, m: MudancaDoRobo) {
+    if (!this.atendimento) return;
+    const motivo = `a loja não respondeu à mudança do ${noPedido(m.numero)} pedida pelo robô`;
+    const quer = linhasDaMudanca(m.op).join('; ');
+    const jaFez = 'pedi a mudança ao servidor da loja e avisei o cliente que a equipe responde por aqui';
+    await this.atendimento.abrirPeloRobo(tenantId, x.unidade_id ?? null, {
+      tipo: 'mudanca',
+      cliente: x.cliente_nome ?? undefined,
+      telefone: String(x.telefone),
+      pedidoNumero: m.numero ?? undefined,
+      pedidoId: m.pedidoId,
+      mensagem: `Motivo: ${motivo}\nQuer: ${quer}\nJá fiz: ${jaFez}`,
+      resumo: { motivo, quer, jaFez, humor: null },
+    });
+  }
+
+  /**
+   * Mensagem da rotina (sem a conversa aberta): pela MESMA via da conversa em que a mudança nasceu (`via`) — a API
+   * oficial (com botões) ou a Evolution (menu numerado). Sem a via guardada, a do cardápio da empresa.
+   */
+  private async enviarDaRotina(tenantId: string, telefone: string, texto: string, opcoes: string[] | null, via: 'cloud' | 'evolution' | null) {
+    let provedor: string | null = via;
+    if (!provedor) {
+      const [cfg] = await this.db
+        .select({ provedor: cardapioConfig.provedor })
+        .from(cardapioConfig)
+        .where(and(eq(cardapioConfig.tenantId, tenantId), sql`unidade_id is null`));
+      provedor = cfg?.provedor ?? 'evolution';
+    }
+    const ops = (opcoes ?? []).map((titulo) => ({ titulo }));
+    if (provedor === 'cloud') {
+      if (ops.length) await this.cloud.enviarOpcoes(tenantId, telefone, texto, ops);
+      else await this.cloud.enviarTexto(tenantId, telefone, texto);
+    } else await this.evolution.enviar(tenantId, telefone, ops.length ? menuNumerado(texto, ops) : texto);
   }
 
   // ───────────────────────── benefícios (Bloco 1b) ─────────────────────────
@@ -967,6 +1610,13 @@ export class RoboPedidoService {
   async definirPagamento(ctx: Contexto, dto: { forma?: string; troco?: unknown; semTroco?: unknown }) {
     const menu = await this.cardapio.menu(ctx.token);
     const atual = await this.carrinhoAberto(ctx);
+    // A pergunta do troco da MUDANÇA do pedido já feito (PR 3) está aberta: o troco dito é a resposta a ela (a IA pode
+    // mandar pelo definir_pagamento, a ferramenta de sempre do troco).
+    const mudancaAberta = lerMudanca(atual?.mudanca);
+    const trocoNaMudanca = String(dto?.troco ?? '').trim();
+    const semTrocoNaMudanca = dto?.semTroco === true || String(dto?.semTroco ?? '').toLowerCase() === 'true';
+    if (mudancaAberta && !mudancaAberta.situacao && mudancaAberta.aguardaTroco && (trocoNaMudanca || semTrocoNaMudanca))
+      return this.trocoDaMudanca(ctx, trocoNaMudanca || 'não preciso');
     const { oferecidos } = this.tipos(menu);
     const tipo = ((atual?.entrega as any)?.tipo as 'entrega' | 'retirada' | undefined) ?? (oferecidos.length === 1 ? oferecidos[0] : null);
     const antes = (atual?.pagamento as PagamentoDoCarrinho | null) ?? null;

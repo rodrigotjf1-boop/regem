@@ -2830,6 +2830,7 @@ export class DeliveryService {
         observacao?: string;
         variacaoId?: string | null;
         complementos?: string[] | null;
+        precoUnitario?: number | null; // só vale com `opts.precoInformado` (o robô — a conta do cardápio já conferida)
       }[];
       remover?: string[];
       endereco?: {
@@ -2844,8 +2845,9 @@ export class DeliveryService {
       pedidoDoCliente?: string | null;
     },
     // `aplicandoPedida`: o servidor da loja aplicando a alteração que a nuvem pediu (a linha "pedida" já existe com este id
-    // e passa a "aplicada" — `aplicarAlteracaoPedida`).
-    opts: { aplicandoPedida?: boolean } = {},
+    // e passa a "aplicada" — `aplicarAlteracaoPedida`). `precoInformado`: o preço do item posto vem de quem chama (o robô,
+    // pela conta do cardápio que o cliente conferiu — V74); só chamada INTERNA — a rota da tela nunca liga.
+    opts: { aplicandoPedida?: boolean; precoInformado?: boolean } = {},
   ) {
     const tenantId = user.tenantId;
     const idAlteracao = UUID_ALTERACAO.test(String(dto.idAlteracao ?? '')) ? String(dto.idAlteracao) : randomUUID();
@@ -2867,7 +2869,10 @@ export class DeliveryService {
     if (dto.endereco && ped.tipo === 'retirada')
       throw new BadRequestException('Pedido de retirada não tem endereço. Trocar entre retirada e entrega: cancele e refaça o pedido.');
 
-    const adicionar = (dto.adicionar ?? []).filter((a) => a && typeof a.produtoId === 'string' && a.produtoId);
+    // O preço que veio de fora só vale com `precoInformado` (o robô); da tela, sai — a conta é a da loja.
+    const adicionar = (dto.adicionar ?? [])
+      .filter((a) => a && typeof a.produtoId === 'string' && a.produtoId)
+      .map((a) => (opts.precoInformado ? a : { ...a, precoUnitario: undefined }));
     const remover = (dto.remover ?? []).filter((r) => typeof r === 'string' && r);
     const mexeItens = adicionar.length > 0 || remover.length > 0;
 
@@ -3196,7 +3201,8 @@ export class DeliveryService {
           origem: a.origem === 'robo' ? 'robo' : 'equipe',
           pedidoDoCliente: a.pedidoDoCliente,
         },
-        { aplicandoPedida: true },
+        // A pedida do ROBÔ leva o preço do cardápio que o cliente conferiu (a da equipe, não: a conta é a da loja).
+        { aplicandoPedida: true, precoInformado: a.origem === 'robo' },
       );
       void this.flash.flashPedidos([a.pedidoId]); // o pedido alterado sobe já; a decisão sobe no ciclo
       return { aplicada: true, motivo: null };
@@ -3260,8 +3266,11 @@ export class DeliveryService {
     return c?.nome ?? null;
   }
 
-  /** A venda tem nota fiscal emitida, enviada ou em contingência? (banco sem a tabela fiscal: não tem) */
-  private async temNotaFiscal(q: any, tenantId: string, comandaId: string): Promise<boolean> {
+  /**
+   * A venda tem nota fiscal emitida, enviada ou em contingência? (banco sem a tabela fiscal: não tem) Pública: o robô
+   * confere pela MESMA regra antes de mandar a conferência da mudança ao cliente (V74).
+   */
+  async temNotaFiscal(q: any, tenantId: string, comandaId: string): Promise<boolean> {
     try {
       const r: any = await q.execute(sql`
         select 1 from nota_fiscal
