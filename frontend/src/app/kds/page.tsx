@@ -29,6 +29,7 @@ import {
   minutosDesde,
   pedidoTemItem,
   somarItens,
+  textoDaAlteracao,
   type CorStatus,
   type FiltroEtapa,
   type FormaUso,
@@ -315,6 +316,43 @@ export default function KdsPage() {
     [bip],
   );
 
+  // PEDIDO ALTERADO (mig 362): o cartão desta tela ganhou uma alteração que a cozinha ainda não viu → aviso no rodapé e
+  // som. Pela leitura da fila (como o "Cheguei"): vale na nuvem e no servidor da loja, onde a mudança desce pelo sync. A
+  // primeira leitura é a base — o som que repete até o "Visto" cobre o que já estava lá.
+  const alteracoesVistas = useRef<Map<string, string> | null>(null);
+  const avisarAlteracoes = useCallback(
+    (lista: any[]) => {
+      const base = alteracoesVistas.current === null;
+      const mapa = alteracoesVistas.current ?? new Map<string, string>();
+      const novos: any[] = [];
+      for (const p of lista) {
+        if (!p?.alteracaoNaoVista || p.status === 'cancelado' || !p.alteradoEm) continue;
+        if (!cartaoNaTela(lista, p.id, canalRef.current, subAtivoRef.current)) continue;
+        const em = String(p.alteradoEm);
+        if (mapa.get(p.id) !== em) {
+          if (!base) novos.push(p);
+          mapa.set(p.id, em);
+        }
+      }
+      alteracoesVistas.current = mapa;
+      if (!novos.length) return;
+      const em = new Date().toISOString();
+      setAlertas((prev) => [
+        ...novos.map((p) => ({
+          id: `alt-${p.id}`,
+          titulo: `! PEDIDO ALTERADO — ${identPedido(p)}`,
+          detalhe: `${textoDaAlteracao(p)} — toque em Visto no cartão`,
+          prioridade: 'danger' as const,
+          em,
+          restanteSeg: 60,
+        })),
+        ...prev.filter((x) => !novos.some((p) => x.id === `alt-${p.id}`)),
+      ]);
+      bip();
+    },
+    [bip],
+  );
+
   // Devolve a fila nova (ou null se falhou) — o som de pedido novo confere se o cartão entrou NESTA tela.
   const carregarFila = useCallback(async (): Promise<any[] | null> => {
     if (!getToken()) return null; // fila durável requer operador logado (JWT)
@@ -333,12 +371,13 @@ export default function KdsPage() {
       else setPedidos(lista);
       if (r.cores) setCores(r.cores);
       avisarChegadas(lista);
+      if (!despacho) avisarAlteracoes(lista);
       return lista;
     } catch {
       /* mantém a fila atual em caso de falha momentânea */
       return null;
     }
-  }, [avisarChegadas]);
+  }, [avisarChegadas, avisarAlteracoes]);
 
   useEffect(() => {
     setNow(new Date()); // só no cliente
@@ -554,6 +593,17 @@ export default function KdsPage() {
     return () => clearTimeout(t);
   }, [conectado, temSessao]);
 
+  // "Visto" no cartão alterado (mig 362): o aviso grande, o som e o rodapé param; o item tirado sai do cartão.
+  async function visto(id: string) {
+    try {
+      await api.producaoVisto(id);
+    } catch {
+      /* outra tela já marcou (ou o cartão saiu): a releitura corrige */
+    }
+    setAlertas((prev) => prev.filter((a) => a.id !== `alt-${id}`));
+    await carregarFila();
+  }
+
   async function avancar(id: string) {
     try {
       // Board único por canal → permite concluir (entregue) no próprio KDS.
@@ -614,6 +664,16 @@ export default function KdsPage() {
   const resumoVisivel = resumoAberto && ver === 'pedido' && !modoEntrega && !modoDespacho && !mostrarMapa;
   const itensResumo = resumoVisivel ? somarItens(pedidosOrigem) : [];
   const itemAtivo = resumoVisivel && itensResumo.some((i) => i.descricao === itemSel) ? itemSel : '';
+
+  // PEDIDO ALTERADO (mig 362, decisão 6A): enquanto um cartão desta tela tiver alteração sem "Visto", o som repete — a cada
+  // 1 ou 2 minutos (Delivery › Configurações › Operação › Atendimento › "Pedido alterado"); "uma vez" não repete.
+  const somDoAlterado = String((cores as any).alteradoSom ?? '1min');
+  const temAlteracaoNaoVista = !modoDespacho && pedidosOrigem.some((p: any) => p.alteracaoNaoVista && p.status !== 'cancelado');
+  useEffect(() => {
+    if (!temAlteracaoNaoVista || somDoAlterado === 'uma') return;
+    const t = setInterval(() => bip(), somDoAlterado === '2min' ? 120_000 : 60_000);
+    return () => clearInterval(t);
+  }, [temAlteracaoNaoVista, somDoAlterado, bip]);
 
   function avisarSenha(texto: string, erro: boolean) {
     if (senhaMsgTimer.current) clearTimeout(senhaMsgTimer.current);
@@ -1342,6 +1402,7 @@ export default function KdsPage() {
                     onAvancar={avancar}
                     proximoNome={proximoDoCartao(p)}
                     veioDe={veioDoCartao(p)}
+                    onVisto={visto}
                   />
                 ))}
           </div>

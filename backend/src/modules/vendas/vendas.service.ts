@@ -1314,7 +1314,8 @@ export class VendasService {
     terminalId?: string | null,
     alvoPreferido?: string | null,
     qrData?: string | null,
-    opcoes: { reimpressao?: boolean; documento?: DocumentoImpressao; terminalDoPdv?: string | null } = {},
+    // `cabecalho`: texto pronto que vai no ALTO da via (o destaque do pedido alterado, mig 362).
+    opcoes: { reimpressao?: boolean; documento?: DocumentoImpressao; terminalDoPdv?: string | null; cabecalho?: string } = {},
     // O pedido de CANAL da venda (`pedidoDeCanalDaComanda`): com ele, sai a via do DELIVERY — o perfil "Cliente —
     // delivery", com os dados do pedido —, não a do balcão.
     pedidoDeCanal?: any | null,
@@ -1366,6 +1367,8 @@ export class VendasService {
     // Pedido IGUAL ainda sem o "São dois pedidos" (mig 360): o aviso no ALTO da via do caixa e do entregador.
     const repetido = pedidoDeCanal ? await marcaAbertaDoPedido(this.db, tenantId, pedidoDeCanal) : null;
     if (repetido) conteudo = linhasDaViaDoRepetido(repetido) + conteudo;
+    // Pedido ALTERADO (mig 362): "PEDIDO ALTERADO / Descarte TODAS as vias anteriores" e o que mudou, acima de tudo.
+    if (opcoes.cabecalho) conteudo = opcoes.cabecalho + conteudo;
     return this.producao.enfileirarViaCliente(
       tenantId,
       unidadeId,
@@ -1484,6 +1487,9 @@ export class VendasService {
     comandaId: string,
     qrData?: string | null,
     documento?: DocumentoImpressao,
+    // Pedido ALTERADO (mig 362): o destaque no alto, o "<< NOVO" nos itens que entraram e a impressora que já tinha
+    // imprimido a via (sem ela, a regra de sempre escolhe).
+    alterado?: { cabecalho: string; novos: Set<string>; alvo?: string | null },
   ): Promise<{ enfileirados: number; aviso: string | null }> {
     const [c] = await this.db
       .select()
@@ -1510,6 +1516,7 @@ export class VendasService {
         complementosTexto: compTexto,
         observacao: it.observacao,
         escolhas: comps, // a via tira da descrição e destaca numa linha própria
+        novo: !!alterado?.novos.has(it.id),
       });
     }
 
@@ -1520,9 +1527,9 @@ export class VendasService {
       c.abertaPorId ?? null,
       { senha: c.senha, senhaPrefixo: c.senhaPrefixo ?? null, mesa: c.mesa, itens: viaClienteItens, total: Number(c.total), forma: c.forma ?? null },
       null,
-      null,
+      alterado?.alvo ?? null,
       qrData,
-      { documento },
+      { documento: alterado?.alvo ? undefined : documento, cabecalho: alterado?.cabecalho },
       await this.pedidoDeCanalDaComanda(tenantId, comandaId),
     );
   }
@@ -2605,10 +2612,12 @@ export class VendasService {
     return this.reimprimirViasExterno(tenantId, atorId, comandaId, alvoPreferido, null, terminalId);
   }
 
-  // Altera os itens de um delivery (comanda 'fechada'): adiciona/remove itens,
-  // recalcula o total e ajusta o lançamento no financeiro. A baixa de estoque só
-  // ocorre na conclusão, então NÃO há estorno aqui. Reemite a produção ao KDS.
+  // Altera os itens de um pedido de canal (comanda 'fechada') DENTRO da transação da alteração (`DeliveryService.alterar`,
+  // mig 362): tira e põe itens, recalcula o total da venda e ajusta o lançamento no financeiro. A baixa de estoque só
+  // ocorre na conclusão, então NÃO há estorno aqui. A cozinha (cartões, NOVO/TIRAR) e as vias ficam com quem chama —
+  // antes daqui saía um cartão separado, sem canal e sem número, e o item tirado sumia sem aviso.
   async alterarItensExterno(
+    tx: any,
     tenantId: string,
     atorId: string,
     comandaId: string,
@@ -2622,34 +2631,46 @@ export class VendasService {
       }[];
       remover?: string[];
     },
-  ) {
-    const [c] = await this.db
+  ): Promise<{
+    total: number;
+    tirados: { comandaItemId: string; descricao: string; quantidade: number; precoUnitario: number }[];
+    postos: (ItemProducao & { precoUnitario: number; produtoId: string; variacaoId: string | null })[];
+  }> {
+    const [c] = await tx
       .select()
       .from(comanda)
       .where(and(eq(comanda.id, comandaId), eq(comanda.tenantId, tenantId)));
     if (!c) throw new NotFoundException('Comanda não encontrada');
 
-    for (const itemId of dto.remover ?? []) {
-      await this.db
-        .delete(comandaItemComplemento)
-        .where(eq(comandaItemComplemento.comandaItemId, itemId));
-      await this.producao.removerItemComanda(tenantId, itemId);
-      await this.db
-        .delete(comandaItem)
-        .where(
-          and(eq(comandaItem.id, itemId), eq(comandaItem.comandaId, comandaId)),
-        );
+    const remover = [...new Set((dto.remover ?? []).filter((x) => typeof x === 'string' && x))];
+    const daVenda: any[] = remover.length
+      ? await tx
+          .select()
+          .from(comandaItem)
+          .where(and(eq(comandaItem.tenantId, tenantId), eq(comandaItem.comandaId, comandaId), inArray(comandaItem.id, remover)))
+      : [];
+    if (daVenda.length !== remover.length) throw new BadRequestException('Um dos itens a tirar não é deste pedido (a lista mudou — abra o pedido de novo).');
+    const tirados = daVenda.map((it) => ({
+      comandaItemId: it.id as string,
+      descricao: it.descricao as string,
+      quantidade: Number(it.quantidade),
+      precoUnitario: Number(it.precoUnitario),
+    }));
+    if (remover.length) {
+      await tx.delete(comandaItemComplemento).where(inArray(comandaItemComplemento.comandaItemId, remover));
+      await tx.delete(comandaItem).where(and(eq(comandaItem.comandaId, comandaId), inArray(comandaItem.id, remover)));
     }
 
+    const postos: (ItemProducao & { precoUnitario: number; produtoId: string; variacaoId: string | null })[] = [];
     for (const add of dto.adicionar ?? []) {
       // A variação e os adicionais escolhidos no seletor entram no item: preço, descrição,
       // escolhas gravadas (é delas que a conclusão do pedido baixa o estoque). Antes só o
       // produto e o preço-base entravam.
-      const escolhido = await this.itemDeOrigemInterna(this.db, tenantId, add);
-      if (!escolhido) continue;
+      const escolhido = await this.itemDeOrigemInterna(tx, tenantId, add);
+      if (!escolhido) throw new BadRequestException('Produto não encontrado no cardápio da loja.');
       const p = escolhido.produto;
       const qtd = Number(add.quantidade) || 1;
-      const [item] = await this.db
+      const [item] = await tx
         .insert(comandaItem)
         .values({
           tenantId,
@@ -2665,7 +2686,7 @@ export class VendasService {
         })
         .returning();
       for (const sn of escolhido.snapshots)
-        await this.db.insert(comandaItemComplemento).values({
+        await tx.insert(comandaItemComplemento).values({
           tenantId,
           comandaItemId: item.id,
           opcaoId: sn.opcaoId,
@@ -2677,35 +2698,25 @@ export class VendasService {
           produtoRefId: sn.produtoRefId,
           quantidade: String(sn.quantidade),
         });
-      if (p.vaiParaProducao) {
-        const payloads = await this.producao.criarPedidos(
-          this.db,
-          {
-            tenantId,
-            unidadeId: c.unidadeId,
-            comandaId,
-            senha: c.senha,
-            senhaPrefixo: c.senhaPrefixo ?? null,
-            origem: 'delivery',
-            cliente: c.cliente ?? null, // a via identifica o pedido pelo nome também
-          },
-          [
-            {
-              produto: p,
-              descricao: escolhido.descricao,
-              quantidade: qtd,
-              observacao: add.observacao || null,
-              comandaItemId: item.id,
-              opcaoIds: escolhido.opcaoIds, // roteamento por opção/etapa
-            },
-          ],
-        );
-        this.producao.emitirNovos(payloads);
-      }
+      const escolhas = escolhido.snapshots.map((s: any) => ({ tipo: s.tipo, nome: s.nome }));
+      postos.push({
+        produto: p,
+        produtoId: p.id,
+        variacaoId: escolhido.variacaoId ?? null,
+        descricao: escolhido.descricao,
+        quantidade: qtd,
+        precoUnitario: Number(escolhido.precoUnitario),
+        observacao: add.observacao || null,
+        comandaItemId: item.id,
+        opcaoIds: escolhido.opcaoIds, // roteamento por opção/etapa
+        // Os adicionais no cartão do KDS (antes o item posto chegava sem eles).
+        complementosTexto: textoDasEscolhas(escolhas, escolhido.descricao),
+        escolhas,
+      });
     }
 
     // Recalcula o total a partir dos itens restantes.
-    const itens = await this.db
+    const itens = await tx
       .select()
       .from(comandaItem)
       .where(
@@ -2715,15 +2726,15 @@ export class VendasService {
         ),
       );
     const total = itens.reduce(
-      (s, it) => s + Number(it.precoUnitario) * Number(it.quantidade),
+      (s: number, it: any) => s + Number(it.precoUnitario) * Number(it.quantidade),
       0,
     );
-    await this.db
+    await tx
       .update(comanda)
       .set({ total: String(total.toFixed(2)) })
       .where(eq(comanda.id, comandaId));
     // Ajusta a receita lançada (delivery = 'venda'/'entrada').
-    await this.db
+    await tx
       .update(lancamentoCaixa)
       .set({ valor: String(total.toFixed(2)) })
       .where(
@@ -2734,9 +2745,7 @@ export class VendasService {
           eq(lancamentoCaixa.tipo, 'entrada'),
         ),
       );
-    // Avisa o KDS que o pedido foi alterado.
-    await this.producao.marcarAlteradoPorComanda(tenantId, comandaId);
-    return { total: Number(total.toFixed(2)) };
+    return { total: Number(total.toFixed(2)), tirados, postos };
   }
 
   // ===== Mesas & comandas (J3) =====

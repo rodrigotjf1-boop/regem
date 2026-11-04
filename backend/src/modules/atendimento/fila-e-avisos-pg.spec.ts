@@ -206,7 +206,13 @@ descrever('fila e avisos (Postgres)', () => {
       ajustes: async (_t: string, loja: string | null) => ({ ativo: true, minutos: 30, temCardapio: true, janelas: [10, 15, 20, 30, 45, 60], loja }),
       salvarAjustes: async (_u: any, loja: string | null, parcial: any) => void gravadosRepetido.push({ loja, parcial }),
     } as any;
-    const rota = new AtendimentoController({} as any, {} as any, pedido99, chatIfood, svc, chegada, repetido);
+    // "Pedido alterado" (mig 362): o som do KDS, gravado no ajuste do KDS da loja em uso.
+    const gravadosSom: any[] = [];
+    const producao = {
+      somDoAlterado: async () => '1min',
+      salvarSomDoAlterado: async (_t: string, loja: string | null, som: string) => void gravadosSom.push({ loja, som }),
+    } as any;
+    const rota = new AtendimentoController({} as any, {} as any, pedido99, chatIfood, svc, chegada, repetido, producao);
     // o grupo do iFood torto: nada é gravado (nem a fila, nem a 99)
     await expect(rota.salvarAjustes(user, null, { fila: { avisarGerenteMin: 10 }, ifood: { avisarDeNovoMin: 5 }, ajuste99: { decidirCancelamento: false } })).rejects.toThrow('Avisar de novo');
     expect([gravados99, gravadosIfood]).toEqual([[], []]);
@@ -234,6 +240,12 @@ descrever('fila e avisos (Postgres)', () => {
     const comRepetido: any = await rota.salvarAjustes(user, 'loja-x', { repetido: { ativo: false, minutos: 45 } });
     expect(gravadosRepetido).toEqual([{ loja: 'loja-x', parcial: { ativo: false, minutos: 45 } }]);
     expect(comRepetido.repetido).toMatchObject({ temCardapio: true, janelas: [10, 15, 20, 30, 45, 60], loja: 'loja-x' });
+    // o grupo do "Pedido alterado" torto (som fora da lista): nada é gravado de nenhum grupo
+    await expect(rota.salvarAjustes(user, null, { cheguei: { ativo: false }, alterado: { som: '5min' } })).rejects.toThrow('Som do pedido alterado');
+    expect([gravadosCheguei.length, gravadosSom]).toEqual([1, []]);
+    const comSom: any = await rota.salvarAjustes(user, 'loja-x', { alterado: { som: 'uma' } });
+    expect(gravadosSom).toEqual([{ loja: 'loja-x', som: 'uma' }]);
+    expect(comSom.alterado).toEqual({ som: '1min', sons: ['uma', '1min', '2min'] });
   });
 
   it('"Dizer ao cliente a posição na fila" desligado: o robô não recebe a posição (o "já tem alguém" segue)', async () => {

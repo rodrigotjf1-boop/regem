@@ -302,11 +302,24 @@ export class DeliveryController {
   @UseGuards(JwtAuthGuard, PermissoesGuard)
   @RequirePerm('delivery')
   alterar(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
-    return this.service.alterar(user.tenantId, user.colaboradorId, id, {
-      adicionar: dto?.adicionar ?? [],
-      remover: dto?.remover ?? [],
-      endereco: dto?.endereco,
+    // Pela tela a alteração é sempre da EQUIPE (o robô chega pelo caminho dele, no PR 3).
+    return this.service.alterar(user, id, {
+      idAlteracao: typeof dto?.idAlteracao === 'string' ? dto.idAlteracao : null,
+      adicionar: Array.isArray(dto?.adicionar) ? dto.adicionar : [],
+      remover: Array.isArray(dto?.remover) ? dto.remover : [],
+      endereco: dto?.endereco && typeof dto.endereco === 'object' ? dto.endereco : undefined,
+      // Ausente = mantém o troco; número = troco para; null/0 = sem troco.
+      trocoPara: dto && 'trocoPara' in dto ? (dto.trocoPara == null ? null : Number(dto.trocoPara)) : undefined,
+      origem: 'equipe',
     });
+  }
+
+  // O histórico das alterações do pedido (mig 362): o que mudou, antes → agora, as vias e se a cozinha viu.
+  @Get('pedidos/:id/alteracoes')
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
+  alteracoes(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.alteracoesDoPedido(user.tenantId, id);
   }
 
   // Pedido IGUAL (mig 360): a equipe confirmou com o cliente que são dois pedidos — o aviso sai do painel e do KDS.

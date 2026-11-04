@@ -283,7 +283,10 @@ A fila da cozinha da loja do token — o que o KDS mostra, sem o histórico.
 - `origem`: `balcao`, `mesa`, `comanda`, `delivery` ou `totem`. `canal`: de onde veio o pedido de
   fora ("iFood", "Cardápio", "Totem"…), ou `null`. `consumo`: `local`, `viagem` ou `null`.
 - `numero`: o número do pedido na fila da loja, no dia.
-- `alterado`: o pedido mudou depois de entrar na fila (item acrescentado ou retirado).
+- `alterado`: o pedido mudou depois de entrar na fila (item acrescentado ou retirado). **Desde 04/11/2026 (pedido
+  alterado, mig 362):** o item acrescentado entra no MESMO pedido enquanto ele está em produção (`recebido`/`preparo`);
+  se o pedido de antes já ficou pronto, nasce outro pedido com o **mesmo `numero`** (antes nascia com outro número). O
+  item retirado continua saindo com `removido: true` — inclusive enquanto a cozinha ainda não tocou em "Visto".
 - `itens[].produto_id`, `ficha_id` e `variacao`: como ficaram **na venda**. A `variacao.id` muda
   quando o produto é salvo de novo — case pelo `codigo` (ou nome). Item que foi retirado da venda
   sai com `removido: true` e sem produto; item de canal que não casou com produto do catálogo sai

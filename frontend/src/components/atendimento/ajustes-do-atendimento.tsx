@@ -23,6 +23,8 @@ import { MOTIVO_REEMBOLSO_99 } from '@/components/atendimento/pedido-99';
 //    Ficam na integração da 99 — só aparecem com a 99 conectada.
 //  • "Pedido repetido" (mig 360; `mockups/regem-alteracao-pedido.html`): perguntar quando o mesmo cliente faz um pedido
 //    igual e a janela (30 min de padrão). No `cardapio_config` da loja em uso, como o "Cheguei" — no fim da tela.
+//  • "Pedido alterado" (mig 362; mesmo protótipo): o som do KDS até a cozinha tocar em "Visto" (a cada 1 min de padrão).
+//    No ajuste do KDS da loja em uso (`kds_cor_config`, sincroniza). O ajuste do robô entra com o robô (PR 3).
 // Tudo mora só na NUVEM: no servidor da loja a tela só explica. Só gerente e presidente mudam (o servidor confere).
 
 const HORAS_PADRAO = [1, 2, 4, 8, 12, 20];
@@ -41,6 +43,12 @@ const DO_CHEGUEI: Record<string, string> = {
 // Pedido igual em até 30 min (mig 360; protótipo `mockups/regem-alteracao-pedido.html`, vista "Ajustes").
 const DO_REPETIDO: Record<string, string> = { repetidoAtivo: 'ativo', repetidoMin: 'minutos' };
 const JANELAS_REPETIDO_PADRAO = [10, 15, 20, 30, 45, 60];
+// Pedido alterado (mig 362): o som do KDS no pedido alterado.
+const ROTULO_DO_SOM: Record<string, string> = {
+  uma: 'Toca uma vez',
+  '1min': 'Repete a cada 1 minuto até o Visto (padrão)',
+  '2min': 'Repete a cada 2 minutos até o Visto',
+};
 
 type Resposta = {
   conectado99: boolean;
@@ -54,10 +62,12 @@ type Resposta = {
   cheguei?: { ativo: boolean; perguntarOnde: boolean; todasTelas: boolean; deNovoMin: number; temCardapio: boolean };
   minutosDeNovoCheguei?: number[];
   repetido?: { ativo: boolean; minutos: number; temCardapio: boolean; janelas?: number[] };
+  alterado?: { som: string; sons?: string[] };
 };
 
 const paraValores = (r: Resposta): Valores => ({
   ...(r.repetido?.temCardapio ? { repetidoAtivo: r.repetido.ativo, repetidoMin: String(r.repetido.minutos) } : {}),
+  ...(r.alterado ? { alteradoSom: r.alterado.som } : {}),
   ...(r.cheguei?.temCardapio
     ? {
         chegueiAtivo: r.cheguei.ativo,
@@ -279,12 +289,28 @@ export function AjustesDoAtendimento() {
       },
     ],
   };
+  const sonsDoAlterado = resp?.alterado?.sons?.length ? resp.alterado.sons : Object.keys(ROTULO_DO_SOM);
+  const grupoDoAlterado: GrupoDeAjustes = {
+    titulo: 'Pedido alterado',
+    nota: 'Vale para a loja em uso. A via "PEDIDO ALTERADO" sai nas impressoras que já imprimiram o pedido.',
+    itens: [
+      {
+        id: 'alteradoSom',
+        rotulo: 'Som do KDS no pedido alterado',
+        tipo: 'selecao',
+        opcoes: sonsDoAlterado.map((s) => ({ v: s, rotulo: ROTULO_DO_SOM[s] ?? s })),
+        ajuda: 'O aviso grande "PEDIDO ALTERADO" fica no cartão até alguém da cozinha tocar em Visto.',
+        palavras: 'pedido alterado mudança som kds visto cozinha aviso',
+      },
+    ],
+  };
   const grupos: GrupoDeAjustes[] = [
     ...(resp?.cheguei?.temCardapio ? [grupoDoCheguei] : []),
     grupoDaFila,
     ...(resp?.conectadoIfood ? [grupoDoIfood] : []),
     ...(resp?.conectado99 ? [grupoDa99] : []),
     ...(resp?.repetido?.temCardapio ? [grupoDoRepetido] : []),
+    ...(resp?.alterado ? [grupoDoAlterado] : []),
   ];
 
   async function salvar() {
@@ -298,7 +324,12 @@ export function AjustesDoAtendimento() {
     const ajuste99: Record<string, unknown> = {};
     const cheguei: Record<string, unknown> = {};
     const repetido: Record<string, unknown> = {};
+    let alterado: { som: string } | null = null;
     for (const k of chaves) {
+      if (k === 'alteradoSom') {
+        alterado = { som: String(valores[k]) };
+        continue;
+      }
       if (DA_FILA.includes(k)) fila[k] = k === 'avisarGerenteMin' ? Number(valores[k]) : valores[k];
       else if (DO_IFOOD[k]) ifood[DO_IFOOD[k]] = k === 'ifoodAvisarDeNovoMin' ? Number(valores[k]) : valores[k];
       else if (DO_CHEGUEI[k])
@@ -314,6 +345,7 @@ export function AjustesDoAtendimento() {
         ...(Object.keys(ajuste99).length ? { ajuste99 } : {}),
         ...(Object.keys(cheguei).length ? { cheguei } : {}),
         ...(Object.keys(repetido).length ? { repetido } : {}),
+        ...(alterado ? { alterado } : {}),
       });
       setResp(r);
       setValores(paraValores(r));

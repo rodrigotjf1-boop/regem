@@ -325,6 +325,9 @@ export const TABELAS_SYNC: TabelaSync[] = [
   // Uma linha por pedido, só de inclusão, com o id pela chave do pedido (a loja e a nuvem criam o MESMO id). À parte de
   // `pedido_externo` pelo mesmo motivo da `pedido_logistica`: a última-escrita da linha do pedido apagaria a confirmação.
   { tabela: 'pedido_repetido_ok', direcao: 'ambos', cursor: 'updated_at' },
+  // O histórico do pedido ALTERADO (mig 362): a equipe altera no computador da loja OU na tela da nuvem (e o robô, na
+  // nuvem) → SOBE E DESCE. Uma linha por alteração, com o id de quem pede. À parte de `pedido_externo` pelo mesmo motivo.
+  { tabela: 'pedido_alteracao', direcao: 'ambos', cursor: 'updated_at' },
   // Exclusões físicas (mig 262): o gatilho grava (tabela, id) aqui e quem recebe apaga a mesma
   // linha do seu lado. Sobe como anexo e desce pelo TABELAS_PULL_APPEND. Por ÚLTIMO no push,
   // para a exclusão chegar depois das linhas do mesmo ciclo.
@@ -448,6 +451,8 @@ export const TABELAS_DESDE_ZERO = new Set<string>([
   'delivery_config',
   // O "São dois pedidos" do pedido igual (mig 360): o que a tela da nuvem confirmou antes de a loja receber o `.zip` desce.
   'pedido_repetido_ok',
+  // O histórico do pedido alterado (mig 362): o que a nuvem gravou antes de a loja receber o `.zip` desce.
+  'pedido_alteracao',
 ]);
 
 // RESTAURAÇÃO (nuvem → edge, SÓ sob demanda): tabelas TRANSACIONAIS que podem ter
@@ -537,6 +542,8 @@ export const LOJA_COLUNA = new Set<string>([
   'pedido_chegada',
   // O "São dois pedidos" do pedido igual (mig 360): também cresce com os pedidos de cada loja.
   'pedido_repetido_ok',
+  // O histórico do pedido alterado (mig 362): idem.
+  'pedido_alteracao',
 ]);
 
 export const LOJA_PELO_PAI: Record<string, (uid: string) => SQL> = {

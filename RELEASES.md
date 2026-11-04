@@ -12,6 +12,14 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Pedido alterado pela equipe, de ponta a ponta (PR 2 do pedido repetido/alterado, 04/11; mig 362 vai para a loja).**
+  Na nuvem com o merge, para a loja SEM servidor ligado: a alteração numa gravação só (itens, total, cobrança e troco do
+  entregador, cashback, histórico), a via "PEDIDO ALTERADO" nas impressoras que já imprimiram, o KDS com o aviso grande,
+  NOVO/TIRAR e o "Visto", e o ajuste do som. **Na loja com servidor, só com o `.zip`:** a **mig 362** (`pedido_alteracao`,
+  o "Visto" do cartão, `mudou_em` do item e o som em `kds_cor_config`) e todo o código — até lá, na tela da nuvem dessa
+  loja a alteração é recusada com o motivo ("faça pelo painel no computador da loja"). **Tocou
+  `backend/edge/sync-daemon.mjs`** (a tabela nova na lista de envio): o `.exe` novo sai no próximo corte (V21).
+
 - **Pedido igual em até 30 min (PR 1 do pedido repetido/alterado, 03/11; mig 360 vai para a loja + mig 361 SÓ NUVEM).**
   Na nuvem com o merge: a pergunta no cardápio online e no robô, a marca "Possível repetido" nos pedidos dos canais de
   fora (entram pela nuvem) e o ajuste. No `.zip`: a **mig 360** (`pedido_externo.repetido_de`, a tabela

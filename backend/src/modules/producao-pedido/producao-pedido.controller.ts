@@ -61,6 +61,13 @@ export class ProducaoPedidoController {
     return this.service.avancar(user.tenantId, user.colaboradorId, id, dto?.escopo, dto?.equipamentoId);
   }
 
+  // Pedido ALTERADO (mig 362): a cozinha tocou em "Visto" no cartão — o aviso grande e o som param, o item tirado sai.
+  @Post('pedidos/:id/visto')
+  @RequireModulo('kds')
+  visto(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.marcarVisto(user.tenantId, id, { nome: user.nome ?? null });
+  }
+
   // Limpa a tela do KDS: avança TODOS os cards ativos num só request (evita o 429 do
   // loop cliente). Mesmos filtros da fila (canal/setor/KDS).
   @Post('fila/limpar')

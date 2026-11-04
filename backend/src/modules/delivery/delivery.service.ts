@@ -9,7 +9,7 @@ import {
   Optional,
   forwardRef,
 } from '@nestjs/common';
-import { createHmac, randomBytes } from 'crypto';
+import { createHmac, randomBytes, randomUUID } from 'crypto';
 import { and, desc, eq, gte, ilike, inArray, isNotNull, isNull, notInArray, or, sql } from 'drizzle-orm';
 import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -32,6 +32,23 @@ import { EVENTO_CANCELADOS_NA_BAIXA } from './pendencias-turno';
 // Documento do cliente: guardamos só os dígitos, como a NFC-e exige. Formato inválido não é
 // barrado aqui — quem emite confere os dígitos verificadores e trata como ausente se não fechar.
 const soDigitos = (v: unknown) => String(v ?? '').replace(/\D/g, '');
+// Pedido ALTERADO (mig 362): o id da alteração vem de quem pede (a mesma alteração mandada duas vezes entra uma vez).
+const UUID_ALTERACAO = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ROTULO_DO_CANAL: Record<string, string> = { ifood: 'iFood', '99food': '99', keeta: 'Keeta', rappi: 'Rappi' };
+// O endereço do pedido depois da alteração (sobre a linha `base`): os campos a gravar — com o texto combinado — e a
+// mudança para o histórico (null quando nada muda de fato: o mesmo endereço mandado de novo não é alteração).
+function enderecoDepois(base: any, campos: Record<string, any>): { patch: Record<string, any>; mudanca: Mudanca['endereco'] } {
+  const valor = (k: string) => (k in campos ? campos[k] : base?.[k]);
+  const rua = valor('enderecoRua');
+  const numero = valor('enderecoNumero');
+  const bairro = valor('enderecoBairro');
+  const referencia = valor('enderecoReferencia') ?? null;
+  const endereco = [rua, numero, bairro].filter(Boolean).join(', ') || base?.endereco || null;
+  const de = enderecoEmLinha({ rua: base?.enderecoRua, numero: base?.enderecoNumero, bairro: base?.enderecoBairro, endereco: base?.endereco });
+  const para = enderecoEmLinha({ rua, numero, bairro, endereco });
+  const mudou = para !== de || referencia !== (base?.enderecoReferencia ?? null);
+  return { patch: { ...campos, endereco }, mudanca: mudou ? { de: de || null, para, referencia } : null };
+}
 import {
   caixaSessao,
   cardapioBairro,
@@ -47,6 +64,8 @@ import {
   integracao,
   lancamentoCaixa,
   pedidoExterno,
+  pedidoAlteracao,
+  impressaoJob,
   pedidoExternoPagamento,
   pedidoNotificacao,
   whatsappMensagem,
@@ -80,6 +99,18 @@ import {
   marcasDosPedidos,
   procurarPedidoIgual,
 } from '../pedido-repetido/pedido-repetido';
+import {
+  enderecoEmLinha,
+  itensDoPedidoDepois,
+  linhasDoAlteradoNaCozinha,
+  linhasDoAlteradoNoEntregador,
+  mudaACozinha,
+  podeAlterarNoCanal,
+  resumoDaMudanca,
+  STATUS_ALTERAVEL,
+  valoresDepois,
+  type Mudanca,
+} from '../pedido-alterado/pedido-alterado';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import type { AuthUser } from '../../auth/auth-user';
 import { type ItemDaPerda, VendasService } from '../vendas/vendas.service';
@@ -2773,11 +2804,20 @@ export class DeliveryService {
     return null;
   }
 
+  /**
+   * PEDIDO ALTERADO (mig 362; protótipo `mockups/regem-alteracao-pedido.html`, aprovado em 03/11/2026). Uma gravação só:
+   * a venda (itens, total, financeiro), o pedido (a lista de itens que o painel, o entregador, a página do pedido e o robô
+   * leem; o total, a forma paga na entrega e o troco — pela DIFERENÇA, `valoresDepois`), o pedido "pronto" que ganhou item
+   * volta para a produção, a cozinha (NOVO/TIRAR e o aviso até o "Visto"), o cashback do pedido (decisão 7) e o
+   * histórico (`pedido_alteracao`: quem, quando, o que mudou, antes → agora). Depois do commit: os avisos do KDS e as vias
+   * "PEDIDO ALTERADO" nas impressoras que já tinham imprimido o pedido (decisão 5A) — a cozinha só quando os itens mudam.
+   * A mesma alteração mandada duas vezes (o mesmo `idAlteracao`) não entra duas vezes.
+   */
   async alterar(
-    tenantId: string,
-    atorId: string,
+    user: Pick<AuthUser, 'tenantId' | 'colaboradorId'> & Partial<Pick<AuthUser, 'nome' | 'categoria'>>,
     id: string,
     dto: {
+      idAlteracao?: string | null;
       adicionar?: {
         produtoId: string;
         quantidade?: number;
@@ -2793,59 +2833,361 @@ export class DeliveryService {
         bairroId?: string;
         referencia?: string;
       };
+      trocoPara?: number | null; // ausente = mantém o troco; null/0 = sem troco
+      origem?: 'equipe' | 'robo';
+      pedidoDoCliente?: string | null;
     },
   ) {
+    const tenantId = user.tenantId;
+    const idAlteracao = UUID_ALTERACAO.test(String(dto.idAlteracao ?? '')) ? String(dto.idAlteracao) : randomUUID();
+    const ja = await this.alteracaoJaFeita(tenantId, idAlteracao);
+    if (ja) return { ...(await this.carregar(tenantId, id)), alteracao: ja, repetida: true };
+
     const ped = await this.carregar(tenantId, id);
-    if (!['confirmado', 'pronto'].includes(ped.status))
-      throw new BadRequestException(
-        'Só dá para alterar um pedido aceito e ainda não despachado. Se já saiu, cancele e refaça.',
-      );
-    if (!ped.comandaId)
-      throw new BadRequestException('Pedido sem venda vinculada.');
-
-    // Subtotal dos itens: recalcula se houve mudança de itens; senão usa o atual.
-    const mexeuItens = (dto.adicionar?.length ?? 0) > 0 || (dto.remover?.length ?? 0) > 0;
-    let subtotal: number;
-    if (mexeuItens) {
-      const r = await this.vendas.alterarItensExterno(tenantId, atorId, ped.comandaId, {
-        adicionar: dto.adicionar,
-        remover: dto.remover,
+    if (!podeAlterarNoCanal(ped.canal)) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'CANAL_SEM_ALTERACAO',
+        message: `Pedido do ${ROTULO_DO_CANAL[String(ped.canal).toLowerCase()] ?? ped.canal}: quem altera é a plataforma. Combine com o cliente pelo app dela.`,
       });
-      subtotal = r.total;
-    } else {
-      subtotal = Number(ped.total) - Number(ped.taxaEntrega ?? 0) + Number(ped.desconto ?? 0);
     }
+    if (!STATUS_ALTERAVEL.includes(ped.status))
+      throw new BadRequestException('Só dá para alterar um pedido aceito e ainda na loja. Se já saiu, fale com o entregador.');
+    if (!ped.comandaId) throw new BadRequestException('Pedido sem venda vinculada.');
+    // V53: na tela da NUVEM de uma loja com o servidor ligado, quem tem a cozinha e as impressoras é o servidor da loja.
+    if (await edgeAtivo(this.db, tenantId, ped.unidadeId ?? null)) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'LOJA_COM_SERVIDOR',
+        message: 'Esta loja tem o servidor da loja ligado: faça a alteração pelo painel no computador da loja (é ele que imprime as vias e avisa a cozinha).',
+      });
+    }
+    if (dto.endereco && ped.tipo === 'retirada')
+      throw new BadRequestException('Pedido de retirada não tem endereço. Trocar entre retirada e entrega: cancele e refaça o pedido.');
 
-    const patch: any = { alterado: true, alteradoEm: new Date() };
-    let taxa = Number(ped.taxaEntrega ?? 0);
-    // Edição de endereço: atualiza campos e, se o bairro mudou, puxa a taxa do cadastro.
+    const adicionar = (dto.adicionar ?? []).filter((a) => a && typeof a.produtoId === 'string' && a.produtoId);
+    const remover = (dto.remover ?? []).filter((r) => typeof r === 'string' && r);
+    const mexeItens = adicionar.length > 0 || remover.length > 0;
+
+    // Os campos do endereço que a alteração pede e a taxa da área nova, quando o bairro é do cadastro. O "de antes", a taxa
+    // que fica e o troco de antes saem da linha PRESA, dentro da gravação: lidos aqui, uma alteração que começou antes de
+    // outra desfaria o que a outra gravou (a taxa da área nova, por exemplo).
+    const camposEnd: Record<string, any> = {};
+    let taxaDoBairro: number | null = null;
     if (dto.endereco) {
       const e = dto.endereco;
-      if (e.rua != null) patch.enderecoRua = e.rua || null;
-      if (e.numero != null) patch.enderecoNumero = e.numero || null;
-      if (e.referencia != null) patch.enderecoReferencia = e.referencia || null;
+      if (e.rua != null) camposEnd.enderecoRua = String(e.rua).trim() || null;
+      if (e.numero != null) camposEnd.enderecoNumero = String(e.numero).trim() || null;
+      if (e.referencia != null) camposEnd.enderecoReferencia = String(e.referencia).trim() || null;
       if (e.bairro != null || e.bairroId != null) {
         const b = await this.resolverBairro(tenantId, e.bairroId, e.bairro);
         // Nome do bairro: o do cadastro (se resolvido) ou o texto informado.
-        patch.enderecoBairro = b?.nome ?? e.bairro ?? null;
-        if (b) {
-          taxa = b.taxa;
-          patch.taxaEntrega = String(b.taxa.toFixed(2));
-        }
+        camposEnd.enderecoBairro = b?.nome ?? (String(e.bairro ?? '').trim() || null);
+        if (b) taxaDoBairro = b.taxa;
       }
-      const bairroFinal = patch.enderecoBairro ?? ped.enderecoBairro;
-      patch.endereco = [e.rua ?? ped.enderecoRua, e.numero ?? ped.enderecoNumero, bairroFinal].filter(Boolean).join(', ') || ped.endereco;
     }
+    if (dto.trocoPara != null && !(Number.isFinite(Number(dto.trocoPara)) && Number(dto.trocoPara) >= 0))
+      throw new BadRequestException('Informe o troco em reais (ex.: 50), ou deixe vazio para "sem troco".');
+    const trocoPedido = dto.trocoPara === undefined ? undefined : dto.trocoPara == null || !(Number(dto.trocoPara) > 0) ? null : Number(dto.trocoPara);
+    const trocoDe = (p: any) => (p?.trocoPara != null ? Number(p.trocoPara) : null);
+    const nadaMuda = (base: any) =>
+      !mexeItens && !(dto.endereco && enderecoDepois(base, camposEnd).mudanca) && !(trocoPedido !== undefined && trocoPedido !== trocoDe(base));
+    if (nadaMuda(ped)) throw new BadRequestException('Nenhuma mudança para salvar.');
 
-    patch.total = String((subtotal + taxa - Number(ped.desconto ?? 0)).toFixed(2));
-    const [row] = await this.db
-      .update(pedidoExterno)
-      .set(patch)
-      .where(eq(pedidoExterno.id, id))
-      .returning();
-    // Reimprime as vias configuradas com o novo conteúdo.
-    await this.vendas.reimprimirViasExterno(tenantId, atorId, ped.comandaId).catch(() => {});
-    return row;
+    const agora = new Date();
+    const porNome = user.nome ?? (user.colaboradorId ? await this.nomeDoColaborador(user.colaboradorId) : null);
+    const r = await this.db.transaction(async (tx) => {
+      // A linha do pedido fica presa até o fim: duas alterações juntas (dois computadores, a equipe e o robô) não se
+      // atropelam — a segunda espera e confere o status de novo.
+      const [atual] = await tx.select().from(pedidoExterno).where(and(eq(pedidoExterno.id, id), eq(pedidoExterno.tenantId, tenantId))).for('update');
+      if (!atual || !STATUS_ALTERAVEL.includes(atual.status))
+        throw new BadRequestException('O pedido mudou de situação enquanto você alterava: abra-o de novo.');
+      const [jaDentro] = await tx.select({ id: pedidoAlteracao.id }).from(pedidoAlteracao).where(and(eq(pedidoAlteracao.tenantId, tenantId), eq(pedidoAlteracao.id, idAlteracao)));
+      if (jaDentro) return null; // a mesma alteração entrou pelo outro pedido (clique duplo)
+      if (nadaMuda(atual)) throw new BadRequestException('Nenhuma mudança para salvar: o pedido já está assim.');
+      // Pela linha presa: o endereço de antes → o novo, a taxa que fica (a da área nova ou a de agora) e o troco de antes.
+      const end = dto.endereco ? enderecoDepois(atual, camposEnd) : { patch: {}, mudanca: null as Mudanca['endereco'] };
+      const taxaNova = taxaDoBairro ?? Number(atual.taxaEntrega ?? 0);
+      const trocoAntes = trocoDe(atual);
+
+      const itensDaVenda = mexeItens
+        ? await this.vendas.alterarItensExterno(tx, tenantId, user.colaboradorId, atual.comandaId as string, { adicionar, remover })
+        : { total: 0, tirados: [], postos: [] };
+      const { tirados, postos } = itensDaVenda;
+      const valorDe = (p: { precoUnitario: number; quantidade: number }) => Math.round(Number(p.precoUnitario) * Number(p.quantidade) * 100) / 100;
+      const deltaItens = Math.round((postos.reduce((s, p) => s + valorDe(p), 0) - tirados.reduce((s, t) => s + valorDe(t), 0)) * 100) / 100;
+
+      const v = valoresDepois(atual, { deltaItens, taxaNova, trocoPara: trocoPedido });
+      if (!v.ok) throw new ConflictException({ statusCode: 409, code: v.recusa.code, message: v.recusa.message });
+      // Nota fiscal emitida (ou enviada, ou em contingência): nada que mude o valor — a nota é daquele valor (decisão 7).
+      if (Number(v.valores.total) !== Number(atual.total) && (await this.temNotaFiscal(tx, tenantId, atual.comandaId as string))) {
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'NOTA_FISCAL',
+          message: 'Este pedido já tem nota fiscal: cancele a nota antes de mudar os valores (Fiscal › Notas) e emita outra depois.',
+        });
+      }
+
+      const lista = mexeItens
+        ? itensDoPedidoDepois(
+            atual.itens,
+            tirados,
+            postos.map((p) => ({
+              produtoId: p.produtoId,
+              variacaoId: p.variacaoId,
+              descricao: p.descricao,
+              quantidade: p.quantidade,
+              precoUnitario: p.precoUnitario,
+              observacao: p.observacao ?? undefined,
+              opcaoIds: p.opcaoIds ?? [],
+            })),
+          )
+        : null;
+      if (lista?.naoAchados) this.logger.warn(`pedido ${id}: ${lista.naoAchados} item(ns) tirado(s) sem par na lista do pedido`);
+      // O pedido pronto que ganhou item da cozinha volta para a produção: fica pronto de novo quando o cartão novo ficar.
+      const voltaParaProducao = atual.status === 'pronto' && postos.some((p) => p.produto?.vaiParaProducao);
+
+      const [row] = await tx
+        .update(pedidoExterno)
+        .set({
+          ...(end.mudanca ? end.patch : {}),
+          ...(lista ? { itens: lista.itens } : {}),
+          total: v.valores.total,
+          valorBruto: v.valores.valorBruto,
+          valorPagoCliente: v.valores.valorPagoCliente,
+          pagamentos: v.valores.pagamentos,
+          trocoPara: v.valores.trocoPara,
+          taxaEntrega: v.valores.taxaEntrega,
+          alterado: true,
+          alteradoEm: agora,
+          ...(voltaParaProducao ? { status: 'confirmado', prontoEm: null } : {}),
+          updatedAt: agora,
+        })
+        .where(eq(pedidoExterno.id, id))
+        .returning();
+
+      const cozinha = mexeItens
+        ? await this.producao.aplicarAlteracaoNaCozinha(tx, {
+            tenantId,
+            unidadeId: atual.unidadeId ?? null,
+            comandaId: atual.comandaId as string,
+            postos,
+            tirados: tirados.map((t) => t.comandaItemId),
+            agora,
+          })
+        : { eventos: [], cartoes: [] };
+
+      const cashback = (await this.cashback.ajustarPedidoAlterado(tx, tenantId, {
+        pedidoId: id,
+        alteracaoId: idAlteracao,
+        total: Number(v.valores.total),
+        taxaEntrega: Number(v.valores.taxaEntrega),
+        telefone: atual.clienteTelefone,
+        clienteId: atual.clienteId,
+      })) ?? { antes: 0, depois: 0 };
+
+      const mudanca: Mudanca = {
+        itens: [
+          ...postos.map((p) => ({ acao: 'por' as const, descricao: p.descricao, quantidade: p.quantidade, valor: valorDe(p) })),
+          ...tirados.map((t) => ({ acao: 'tirar' as const, descricao: t.descricao, quantidade: t.quantidade, valor: valorDe(t) })),
+        ],
+        endereco: end.mudanca,
+        taxa: Number(v.valores.taxaEntrega) !== Number(atual.taxaEntrega ?? 0) ? { de: Number(atual.taxaEntrega ?? 0), para: Number(v.valores.taxaEntrega) } : null,
+        troco: (v.valores.trocoPara != null ? Number(v.valores.trocoPara) : null) !== trocoAntes ? { de: trocoAntes, para: v.valores.trocoPara != null ? Number(v.valores.trocoPara) : null } : null,
+      };
+      const [alteracao] = await tx
+        .insert(pedidoAlteracao)
+        .values({
+          id: idAlteracao,
+          tenantId,
+          unidadeId: atual.unidadeId ?? null,
+          pedidoId: id,
+          comandaId: atual.comandaId,
+          origem: dto.origem === 'robo' ? 'robo' : 'equipe',
+          situacao: 'aplicada',
+          porId: user.colaboradorId ?? null,
+          porNome,
+          pedido: { adicionar, remover, endereco: dto.endereco ?? null, trocoPara: dto.trocoPara },
+          mudanca,
+          antes: { total: Number(atual.total), taxaEntrega: Number(atual.taxaEntrega ?? 0), trocoPara: trocoAntes, cashback: cashback.antes, aReceber: null, status: atual.status },
+          depois: {
+            total: Number(v.valores.total),
+            taxaEntrega: Number(v.valores.taxaEntrega),
+            trocoPara: v.valores.trocoPara != null ? Number(v.valores.trocoPara) : null,
+            cashback: cashback.depois,
+            aReceber: v.aReceber,
+            status: row.status,
+            // A cozinha recebeu a mudança (algum cartão dela mexeu): o painel mostra se ela já tocou em "Visto".
+            cozinha: cozinha.cartoes.length > 0,
+          },
+          pedidoDoCliente: dto.pedidoDoCliente ? String(dto.pedidoDoCliente).slice(0, 500) : null,
+        })
+        .returning();
+      return {
+        row,
+        alteracao,
+        mudanca,
+        cozinha,
+        mudouCozinha: cozinha.cartoes.length > 0,
+        novos: new Set(postos.map((p) => p.comandaItemId as string)),
+      };
+    });
+    if (!r) return { ...(await this.carregar(tenantId, id)), alteracao: await this.alteracaoJaFeita(tenantId, idAlteracao), repetida: true };
+
+    // Depois do commit: a cozinha fica sabendo (som e aviso no KDS), as vias saem e o histórico guarda quais.
+    this.producao.emitirNovos(r.cozinha.eventos);
+    const vias = await this.imprimirViasDaAlteracao(tenantId, r.row, r.mudanca, r.novos, agora, r.mudouCozinha).catch((e: any) => {
+      this.logger.warn(`pedido ${id} alterado: as vias não saíram (${e?.message ?? e})`);
+      return [] as { impressora: string; via: string }[];
+    });
+    await this.db.update(pedidoAlteracao).set({ vias, updatedAt: new Date() }).where(eq(pedidoAlteracao.id, idAlteracao)).catch((e: any) =>
+      this.logger.warn(`pedido ${id} alterado: as vias não ficaram no histórico (${e?.message ?? e})`),
+    );
+    await this.auditoria?.registrar({
+      tenantId,
+      unidadeId: r.row.unidadeId ?? null,
+      atorId: user.colaboradorId,
+      atorPerfil: user.categoria ?? null,
+      tipo: 'delivery',
+      acao: 'alterou_pedido',
+      entidadeTipo: 'pedido_externo',
+      entidadeId: id,
+      detalhe: {
+        pedido: r.row.numero ?? null,
+        origem: dto.origem === 'robo' ? 'robo' : 'equipe',
+        mudanca: resumoDaMudanca(r.mudanca),
+        totalAntes: (r.alteracao.antes as any)?.total ?? null,
+        totalDepois: (r.alteracao.depois as any)?.total ?? null,
+      },
+      origem: dto.origem === 'robo' ? 'robo' : 'web',
+    });
+    void this.dispararWebhook(tenantId, r.row);
+    return { ...r.row, alteracao: { ...r.alteracao, vias }, repetida: false };
+  }
+
+  /**
+   * O histórico das alterações do pedido para a gaveta do painel (mig 362): a mais nova primeiro, com o nome das
+   * impressoras das vias que saíram e se a cozinha já tocou em "Visto" (todos os cartões alterados da venda).
+   */
+  async alteracoesDoPedido(tenantId: string, pedidoId: string) {
+    const ped = await this.carregar(tenantId, pedidoId);
+    const alteracoes = await this.db
+      .select()
+      .from(pedidoAlteracao)
+      .where(and(eq(pedidoAlteracao.tenantId, tenantId), eq(pedidoAlteracao.pedidoId, pedidoId)))
+      .orderBy(desc(pedidoAlteracao.createdAt))
+      .limit(20);
+    const ids = [...new Set(alteracoes.flatMap((a) => ((a.vias as any[]) ?? []).map((v) => v?.impressora)).filter((x) => UUID_ALTERACAO.test(String(x))))];
+    const nomes = ids.length
+      ? await this.db
+          .select({ id: equipamento.id, nome: equipamento.nome })
+          .from(equipamento)
+          .where(and(eq(equipamento.tenantId, tenantId), inArray(equipamento.id, ids)))
+      : [];
+    let cozinha: { pendente: boolean; vistoEm: string | null; vistoPor: string | null } = { pendente: false, vistoEm: null, vistoPor: null };
+    if (ped.comandaId) {
+      const r: any = await this.db.execute(sql`
+        select bool_or(alterado_em is not null and (visto_em is null or visto_em < alterado_em)) as pendente,
+               max(visto_em) as visto_em,
+               (array_agg(visto_por order by visto_em desc nulls last))[1] as visto_por
+          from producao_pedido
+         where tenant_id = ${tenantId} and comanda_id = ${ped.comandaId} and alterado_em is not null and status <> 'cancelado'`);
+      const x = (r.rows ?? r)[0] ?? {};
+      cozinha = { pendente: !!x.pendente, vistoEm: x.visto_em ? new Date(x.visto_em).toISOString() : null, vistoPor: x.visto_por ?? null };
+    }
+    return { alteracoes, impressoras: Object.fromEntries(nomes.map((n) => [n.id, n.nome])), cozinha };
+  }
+
+  /** A alteração com este id já entrou? (a mesma mandada duas vezes devolve a primeira) */
+  private async alteracaoJaFeita(tenantId: string, idAlteracao: string) {
+    const [a] = await this.db
+      .select()
+      .from(pedidoAlteracao)
+      .where(and(eq(pedidoAlteracao.tenantId, tenantId), eq(pedidoAlteracao.id, idAlteracao)));
+    return a ?? null;
+  }
+
+  private async nomeDoColaborador(id: string): Promise<string | null> {
+    const [c] = await this.db.select({ nome: colaborador.nome }).from(colaborador).where(eq(colaborador.id, id));
+    return c?.nome ?? null;
+  }
+
+  /** A venda tem nota fiscal emitida, enviada ou em contingência? (banco sem a tabela fiscal: não tem) */
+  private async temNotaFiscal(q: any, tenantId: string, comandaId: string): Promise<boolean> {
+    try {
+      const r: any = await q.execute(sql`
+        select 1 from nota_fiscal
+         where tenant_id = ${tenantId} and comanda_id = ${comandaId} and status in ('autorizada', 'contingencia', 'pendente')
+         limit 1`);
+      return (r.rows ?? r).length > 0;
+    } catch (e: any) {
+      if (e?.code === '42P01') return false;
+      throw e;
+    }
+  }
+
+  /**
+   * As vias "PEDIDO ALTERADO" (decisão 5A): cada impressora que já imprimiu o pedido recebe de novo a via DELA, inteira e
+   * atualizada, com o destaque e o que mudou. A cozinha só quando um cartão dela mudou (`mudouCozinha` — a lata que não
+   * vai para a produção não chama a cozinha), e também a impressora que agora tem item novo; o caixa e o entregador
+   * sempre (o valor, o troco ou o endereço mudou) — sem via anterior, pela regra de sempre. Devolve as que saíram.
+   */
+  private async imprimirViasDaAlteracao(
+    tenantId: string,
+    ped: any,
+    m: Mudanca,
+    novos: Set<string>,
+    agora: Date,
+    mudouCozinha: boolean,
+  ): Promise<{ impressora: string; via: string }[]> {
+    const comandaId = ped.comandaId as string;
+    const hora = horaNoFuso(agora);
+    const r: any = await this.db.execute(sql`
+      select distinct equipamento_id::text as equipamento, via
+        from impressao_job
+       where tenant_id = ${tenantId} and comanda_id = ${comandaId} and equipamento_id is not null
+         and via in ('producao', 'cliente') and criado_em < ${agora.toISOString()}::timestamptz`);
+    const antes = (r.rows ?? r) as { equipamento: string; via: string }[];
+    const saiu: { impressora: string; via: string }[] = [];
+    if (mudouCozinha && mudaACozinha(m)) {
+      const jaImprimiu = new Set(antes.filter((x) => x.via === 'producao').map((x) => x.equipamento));
+      const destaque = linhasDoAlteradoNaCozinha(m, hora);
+      const vias = await this.producao.viasDaAlteracao(tenantId, comandaId, { alterado: destaque, novos });
+      for (const v of vias) {
+        if (!jaImprimiu.has(v.equipamentoId) && !v.temNovo) continue;
+        await this.db.insert(impressaoJob).values({
+          tenantId,
+          unidadeId: ped.unidadeId ?? null,
+          equipamentoId: v.equipamentoId,
+          comandaId,
+          via: 'producao',
+          conteudo: v.conteudo,
+        });
+        saiu.push({ impressora: v.equipamentoId, via: 'producao' });
+      }
+      // A impressora que imprimiu o pedido e agora não tem nada dele (tudo o que era dela saiu): recebe o destaque com o
+      // que mudou — quem estava fazendo precisa saber que parou.
+      for (const equipamentoId of jaImprimiu) {
+        if (vias.some((v) => v.equipamentoId === equipamentoId)) continue;
+        await this.db.insert(impressaoJob).values({
+          tenantId,
+          unidadeId: ped.unidadeId ?? null,
+          equipamentoId,
+          comandaId,
+          via: 'producao',
+          conteudo: `${destaque}@CBD PEDIDO ${ped.numero ?? ''}\n@C Nada deste pedido para esta impressora agora.`,
+        });
+        saiu.push({ impressora: equipamentoId, via: 'producao' });
+      }
+    }
+    const cabecalho = linhasDoAlteradoNoEntregador(m, hora);
+    const qrData = await this.qrDespacho(tenantId, ped).catch(() => null);
+    const doCaixa = [...new Set(antes.filter((x) => x.via === 'cliente').map((x) => x.equipamento))];
+    for (const alvo of doCaixa.length ? doCaixa : [null]) {
+      const res = await this.vendas.materializarCupomCaixa(tenantId, comandaId, qrData, this.documentoDoPedido(ped), { cabecalho, novos, alvo });
+      if ((res?.enfileirados ?? 0) > 0) saiu.push({ impressora: alvo ?? 'regra', via: 'cliente' });
+    }
+    return saiu;
   }
 
   // Itens reais da comanda (com id) — para o editor de "Alterar".
