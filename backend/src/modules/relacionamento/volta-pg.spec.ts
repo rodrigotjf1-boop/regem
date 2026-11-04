@@ -152,13 +152,16 @@ descrever('sentimos sua falta (Postgres)', () => {
     const rafa = await cliente(t, 'Rafa Souza', '21987661001', 95); // 1ª há 62 dias: vai a 2ª
     const bia = await cliente(t, 'Bia Reis', '21987661002', 95); // 1ª há 30 dias: ainda não
     const duda = await cliente(t, 'Duda Lins', '21987661003', 150); // já teve as 2
+    // O DIA é o da operação (`hojeISO()`, fuso da loja), como o serviço grava — nunca o `current_date` do banco, que no
+    // CI é UTC: das 21h à meia-noite de Brasília o UTC já é o dia seguinte e a conferência não achava a linha (ERR-354, V46).
+    const hoje = hojeISO();
     const tentativa = async (cli: string, tel: string, n: number, diasAtras: number) =>
       q(
         `insert into relacionamento_envio (tenant_id, tipo, chave_telefone, referencia, telefone, cliente_id, dia, status, enviado_em, oferta)
          select $1, 'volta', $2, to_char((c.ultimo_pedido_em at time zone 'America/Sao_Paulo')::date, 'YYYY-MM-DD') || '#' || $3::text, $2, c.id,
-                current_date - $4::int, 'enviado', now() - make_interval(days => $4::int), true
+                $6::date - $4::int, 'enviado', now() - make_interval(days => $4::int), true
            from cliente c where c.id = $5`,
-        [t, tel, String(n), diasAtras, cli],
+        [t, tel, String(n), diasAtras, cli, hoje],
       );
     await tentativa(rafa, '21987661001', 1, 62);
     await tentativa(bia, '21987661002', 1, 30);
@@ -166,7 +169,7 @@ descrever('sentimos sua falta (Postgres)', () => {
     await tentativa(duda, '21987661003', 2, 61);
     const { svc } = automaticas('evolution');
     expect((await svc.rodarEmpresa(t, naJanela())).separados).toBe(1);
-    const [nova] = await q(`select referencia, status from relacionamento_envio where tenant_id = $1 and cliente_id = $2 and dia = current_date`, [t, rafa]);
+    const [nova] = await q(`select referencia, status from relacionamento_envio where tenant_id = $1 and cliente_id = $2 and dia = $3::date`, [t, rafa, hoje]);
     expect(nova.referencia).toMatch(/#2$/);
     expect(bia && duda).toBeTruthy(); // a Bia (60 dias ainda não) e a Duda (já teve as 2) ficaram fora
 
@@ -229,8 +232,8 @@ descrever('sentimos sua falta (Postgres)', () => {
     // Uma mensagem mais antiga (20 dias): o pedido de hoje veio DEPOIS dos 7 dias dela — não conta como "voltou" por ela.
     await q(
       `insert into relacionamento_envio (tenant_id, tipo, chave_telefone, referencia, telefone, cliente_id, dia, status, enviado_em, oferta)
-       values ($1,'volta',$2,'antiga#1',$2,$3,current_date - 20,'enviado', now() - interval '20 days', true)`,
-      [t, env.chave_telefone, paulo],
+       values ($1,'volta',$2,'antiga#1',$2,$3,$4::date - 20,'enviado', now() - interval '20 days', true)`,
+      [t, env.chave_telefone, paulo, hojeISO()], // o dia da operação, não o do banco (ERR-354)
     );
     expect(await svc.quemVoltou(t, 'volta')).toEqual([{ nome: 'Paulo R.', detalhe: 'pediu 2 dias depois · R$ 64,90 · usou o cupom' }]);
     expect(await svc.resultado(t, 'volta')).toMatchObject({ mensagens: 2, voltaram: 1, valor: 64.9, cupons: 1 });
