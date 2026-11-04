@@ -579,7 +579,7 @@ export class RoboPedidoService {
       .limit(2);
     const ped: any = pedidos[0];
     if (!ped) return null;
-    const [itens, alteracoes, desligado, comNota] = await Promise.all([
+    const [itens, alteracoes, desligado, comNota, quemAplica] = await Promise.all([
       ped.comandaId ? this.itensDoPedidoFeito(tenantId, ped.comandaId, ped.itens) : Promise.resolve([] as ItemDoPedidoFeito[]),
       this.db
         .select({ situacao: pedidoAlteracao.situacao, createdAt: pedidoAlteracao.createdAt })
@@ -587,6 +587,8 @@ export class RoboPedidoService {
         .where(and(eq(pedidoAlteracao.tenantId, tenantId), eq(pedidoAlteracao.pedidoId, ped.id), eq(pedidoAlteracao.origem, 'robo'))),
       this.mudancaDesligada(tenantId),
       ped.comandaId && this.delivery ? this.delivery.temNotaFiscal(this.db, tenantId, ped.comandaId) : Promise.resolve(false),
+      // Quem aplicaria a mudança agora — a regra da gravação: o servidor da loja numa versão antiga recusaria.
+      this.delivery ? this.delivery.quemAplicaAlteracao(tenantId, ped.unidadeId ?? null) : Promise.resolve('nuvem' as const),
     ]);
     const p: PedidoFeito = {
       id: ped.id,
@@ -603,6 +605,7 @@ export class RoboPedidoService {
       mudancaPendente: alteracoes.some((a) => a.situacao === 'pedida' && !pedidaVencida(a.createdAt)),
       desligado,
       outroEmAndamento: pedidos.length > 1,
+      lojaSemVersao: quemAplica === 'servidor_antigo',
       itens,
     };
     return { p, ped };

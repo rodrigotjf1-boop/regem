@@ -19,6 +19,8 @@
   com o robô (o do cardápio — promoção e atacado) vale quando o servidor da loja aplica a alteração pedida pelo robô
   (`vendas.alterarItensExterno` com `precoUnitario` e o `aplicarAlteracaoPedida` com `precoInformado`). Sem ele, o
   servidor da loja cobraria o preço cheio do item posto. Não tocou `edge/` (o `.exe` já sai no corte pelo PR 2b).
+  A correção seguinte (pago pelo link e nota sempre com a equipe; servidor antigo avisado antes da conferência; o ajuste
+  em Atendimento › "Pedido alterado") é só da nuvem — nada a mais para a loja.
 
 - **A alteração feita na nuvem (ou pelo robô) de loja com servidor ligado: o servidor da loja aplica (04/11; sem
   migration — usa a 362).** ⚠️ **A versão do corte tem de ser a 1.30.13** (`VERSAO_QUE_APLICA_ALTERACAO` em

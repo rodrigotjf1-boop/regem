@@ -38,6 +38,7 @@ const pedido = (o: Partial<PedidoFeito> = {}): PedidoFeito => ({
   mudancaPendente: false,
   desligado: false,
   outroEmAndamento: false,
+  lojaSemVersao: false,
   itens: [
     { linha: 1, comandaItemId: 'ci1', produtoId: 'xb', variacaoId: null, opcaoIds: [], descricao: 'X-Bacon', quantidade: 1, precoUnitario: 32, observacao: null, pronto: false },
     { linha: 2, comandaItemId: 'ci2', produtoId: 'co', variacaoId: null, opcaoIds: [], descricao: 'Coca lata', quantidade: 2, precoUnitario: 6.5, observacao: null, pronto: true },
@@ -91,12 +92,27 @@ describe('quando o robô muda o pedido', () => {
     expect(motivoParaNaoMudar(pedido({ jaMudouPeloRobo: true }))).toMatchObject({ motivo: 'ja_mudou', chamaEquipe: true });
   });
 
-  it('pago pelo link e nota fiscal: só barram a mudança que MEXE no valor (4A e 7)', () => {
-    expect(motivoParaNaoMudar(pedido({ pagoAntes: true }), por)).toMatchObject({ motivo: 'pago' });
-    expect(motivoParaNaoMudar(pedido({ comNota: true }), tirarCoca)).toMatchObject({ motivo: 'nota' });
-    expect(motivoParaNaoMudar(pedido({ pagoAntes: true, comNota: true }), trocarXBacon)).toBeNull();
-    // Sem a operação (o "dá para mudar?" do ver_pedido), pago e nota ainda não dizem nada.
-    expect(motivoParaNaoMudar(pedido({ pagoAntes: true, comNota: true }))).toBeNull();
+  it('o servidor da loja numa versão que ainda não aplica: a equipe, ANTES da conferência (a gravação recusaria)', () => {
+    expect(motivoParaNaoMudar(pedido({ lojaSemVersao: true }))).toEqual({
+      motivo: 'loja_sem_versao',
+      mensagem: 'A mudança no pedido nº 57 é feita pela equipe da loja.',
+      chamaEquipe: true,
+    });
+    expect(motivoParaNaoMudar(pedido({ lojaSemVersao: true }), por)).toMatchObject({ motivo: 'loja_sem_versao' });
+  });
+
+  it('pago pelo link e nota fiscal: TODA mudança pelo robô vai para a equipe — também a que não mexe no valor (4A e 7)', () => {
+    expect(motivoParaNaoMudar(pedido({ pagoAntes: true }), por)).toMatchObject({ motivo: 'pago', chamaEquipe: true });
+    expect(motivoParaNaoMudar(pedido({ comNota: true }), tirarCoca)).toMatchObject({ motivo: 'nota', chamaEquipe: true });
+    expect(motivoParaNaoMudar(pedido({ pagoAntes: true }), trocarXBacon)).toEqual({
+      motivo: 'pago',
+      mensagem: 'O pedido nº 57 já foi pago pelo link: a mudança precisa de alguém da equipe.',
+      chamaEquipe: true,
+    });
+    expect(motivoParaNaoMudar(pedido({ comNota: true }), trocarXBacon)).toMatchObject({ motivo: 'nota' });
+    // O "dá para mudar?" do ver_pedido (sem a operação) já diz que não.
+    expect(motivoParaNaoMudar(pedido({ pagoAntes: true }))).toMatchObject({ motivo: 'pago' });
+    expect(motivoParaNaoMudar(pedido({ comNota: true }))).toMatchObject({ motivo: 'nota' });
   });
 
   it('o item que SAI já pronto na cozinha não sai nem troca por aqui; pôr um item novo, sim', () => {

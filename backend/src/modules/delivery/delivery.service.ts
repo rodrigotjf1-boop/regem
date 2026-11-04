@@ -37,6 +37,8 @@ import { EVENTO_CANCELADOS_NA_BAIXA } from './pendencias-turno';
 const soDigitos = (v: unknown) => String(v ?? '').replace(/\D/g, '');
 // Pedido ALTERADO (mig 362): o id da alteração vem de quem pede (a mesma alteração mandada duas vezes entra uma vez).
 const UUID_ALTERACAO = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** O servidor da loja nesta versão aplica a alteração pedida pela nuvem? Uma regra só: o `alterar` e o "quem aplica". */
+const versaoQueAplica = (versao: string | null) => !!versao && compararVersao(versao, VERSAO_QUE_APLICA_ALTERACAO) >= 0;
 const ROTULO_DO_CANAL: Record<string, string> = { ifood: 'iFood', '99food': '99', keeta: 'Keeta', rappi: 'Rappi' };
 // O endereço do pedido depois da alteração (sobre a linha `base`): os campos a gravar — com o texto combinado — e a
 // mudança para o histórico (null quando nada muda de fato: o mesmo endereço mandado de novo não é alteração).
@@ -3111,7 +3113,7 @@ export class DeliveryService {
   ) {
     const tenantId = user.tenantId;
     const versao = await this.versaoDoServidorDaLoja(tenantId, ped.unidadeId ?? null);
-    if (!versao || compararVersao(versao, VERSAO_QUE_APLICA_ALTERACAO) < 0) {
+    if (!versaoQueAplica(versao)) {
       throw new ConflictException({
         statusCode: 409,
         code: 'LOJA_COM_SERVIDOR',
@@ -3153,6 +3155,17 @@ export class DeliveryService {
       origem: o.origem === 'robo' ? 'robo' : 'web',
     });
     return { ...ped, alteracao: nova, pedida: true, repetida: false };
+  }
+
+  /**
+   * Quem aplica a alteração do pedido desta loja AGORA — a MESMA regra do `alterar` (V74), para quem confere antes (o
+   * robô, antes de mandar a conferência ao cliente): 'nuvem' (sem servidor ligado: a nuvem aplica), 'servidor' (servidor
+   * ligado numa versão que aplica: vai como "pedida") ou 'servidor_antigo' (servidor numa versão que ainda não aplica:
+   * o `alterar` recusa com `LOJA_COM_SERVIDOR`).
+   */
+  async quemAplicaAlteracao(tenantId: string, unidadeId: string | null): Promise<'nuvem' | 'servidor' | 'servidor_antigo'> {
+    if (!(await edgeAtivo(this.db, tenantId, unidadeId))) return 'nuvem';
+    return versaoQueAplica(await this.versaoDoServidorDaLoja(tenantId, unidadeId)) ? 'servidor' : 'servidor_antigo';
   }
 
   /** A versão do servidor desta loja que mandou sinal nos últimos minutos (o mesmo prazo do "servidor ligado"). */

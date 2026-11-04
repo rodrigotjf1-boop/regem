@@ -144,6 +144,43 @@ export class FilaEAvisosService {
   }
 
   /**
+   * "O robô faz mudanças simples" (mig 363; grupo "Pedido alterado" dos ajustes — `mockups/regem-alteracao-pedido.html`):
+   * nasce LIGADO (decisão 3A); sem linha (ou banco sem a 363), ligado. Vale para a empresa toda (o robô é um só).
+   */
+  async roboMudaPedido(tenantId: string): Promise<boolean> {
+    try {
+      const r: any = await this.db.execute(sql`select muda_pedido from robo_config where tenant_id = ${tenantId}::uuid`);
+      const l = (r.rows ?? r)[0];
+      return l ? l.muda_pedido !== false : true;
+    } catch (e: any) {
+      if (e?.code === '42703' || e?.code === '42P01') return true; // banco sem a 363 (ou sem o robô): como nasce
+      throw e;
+    }
+  }
+
+  /** Grava SÓ a coluna dele (`muda_pedido`) — as outras da `robo_config` têm outros donos (V82); a mudança vai à auditoria. */
+  async salvarRoboMudaPedido(user: AuthUser, ligado: boolean): Promise<boolean> {
+    const antes = await this.roboMudaPedido(user.tenantId);
+    if (antes === ligado) return antes;
+    await this.db.execute(sql`
+      insert into robo_config (tenant_id, muda_pedido, atualizado_por)
+      values (${user.tenantId}::uuid, ${ligado}, ${user.colaboradorId}::uuid)
+      on conflict (tenant_id) do update
+         set muda_pedido = excluded.muda_pedido, atualizado_por = excluded.atualizado_por, atualizado_em = now()`);
+    await this.auditoria?.registrar({
+      tenantId: user.tenantId,
+      atorId: user.colaboradorId,
+      atorPerfil: user.categoria,
+      tipo: 'config',
+      acao: ligado ? 'robo_muda_pedido_ligado' : 'robo_muda_pedido_desligado',
+      entidadeTipo: 'robo_config',
+      entidadeId: user.tenantId,
+      detalhe: {},
+    });
+    return this.roboMudaPedido(user.tenantId);
+  }
+
+  /**
    * O robô diz ao cliente o lugar dele na fila? Na dúvida (leitura falhou), diz — é o padrão e o que ele sempre fez.
    * No servidor da loja não há robô nem a tabela: diz.
    */
