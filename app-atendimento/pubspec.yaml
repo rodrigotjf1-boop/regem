@@ -37,6 +37,8 @@ dependencies:
   http: ^1.6.0
   flutter_secure_storage: ^11.2.0
   flutter_local_notifications: ^22.3.3
+  # Abrir a mensagem pronta no WhatsApp do entregador (o caso do endereço depois que o pedido saiu — PR 3b-2).
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:
