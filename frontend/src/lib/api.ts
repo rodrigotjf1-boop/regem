@@ -1387,6 +1387,16 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ lembreteCarrinho }),
     }),
+  // "Pedir avaliação" depois da entrega (mig 365): só os campos que mudaram (o ausente mantém). Ler vem no robo-config.
+  whatsappAvaliacaoSalvar: (body: {
+    ativa?: boolean;
+    link?: string | null;
+    texto?: string;
+    depoisMin?: number;
+    soSemProblema?: boolean;
+    aPartirDo?: number;
+    deNovoDias?: number;
+  }) => req('/whatsapp/avaliacao', { method: 'POST', body: JSON.stringify(body) }),
   // "Chegou tudo certo?" depois da entrega (mig 352): só o liga/desliga.
   whatsappConferirEntregaSalvar: (conferirEntrega: boolean) =>
     req('/whatsapp/robo-config', {

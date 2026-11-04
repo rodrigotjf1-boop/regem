@@ -147,6 +147,15 @@ export class WhatsappController {
     return this.provedores.salvarRoboConfig(user, dto);
   }
 
+  // "Pedir avaliação" depois da entrega (mig 365): grava SÓ os ajustes dele (V82). Ler vem no `robo-config`. Só nuvem.
+  @Post('whatsapp/avaliacao')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('bot')
+  salvarAvaliacao(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.provedores.salvarAvaliacao(user, dto);
+  }
+
   // Modelos aprovados na Meta (API oficial). Alimenta a escolha do modelo num
   // aviso ou campanha, e mostra ao lojista o que ja foi aprovado.
   @Get('whatsapp/cloud/templates')

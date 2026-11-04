@@ -12,6 +12,14 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Pedir avaliação no Google depois da entrega + a fila do "Chegou tudo certo?" (04/11; mig 365 SÓ NUVEM).** Na nuvem
+  com o merge: o ajuste em Delivery › Configurações › Operação › Robô de atendimento (nasce DESLIGADO), a rotina que manda
+  o pedido de avaliação pelo WhatsApp oficial (só canais da loja — iFood e 99 pedem pela plataforma) e o link
+  `/publico/avaliacao/:id`; o "Chegou tudo certo?" passa a conferir a conversa aberta NA consulta (ERR-360 — os pedidos
+  de quem não escreveu à loja não tomam mais a vez). **Na loja:** nada roda (as duas rotinas são só da nuvem); o `.zip`
+  1.30.13 leva o cartão da tela e a classificação `avaliacao_pedida` em SO_NUVEM no `edge/sync-daemon.mjs` (sem efeito na
+  loja, que não tem a tabela; o `.exe` já sai no corte pelo PR 2b).
+
 - **O chat do iFood abre sozinho na tela Atendimento (04/11; só tela, sem migration).** Na nuvem com o merge. **Na loja:
   no `.zip` 1.30.13** (a tela Atendimento do servidor da loja). Não tocou `edge/`.
 

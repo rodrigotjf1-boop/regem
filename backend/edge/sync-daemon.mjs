@@ -2323,6 +2323,9 @@ const SO_NUVEM = new Set([
   // O aniversário do cliente e as regras de cupom (pessoal, "só aniversariantes") — mig 357, @cloud-only: o cadastro de
   // clientes, o cardápio e o robô moram na nuvem; a loja não tem estas tabelas.
   'cliente_aniversario', 'cupom_regra',
+  // O pedido de avaliação no Google depois da entrega (mig 365, @cloud-only): sai pelo WhatsApp oficial, só da nuvem; o
+  // toque no link também chega lá. A loja não tem esta tabela.
+  'avaliacao_pedida',
 ]);
 
 // LEGADO SEM USO: tabelas criadas nas migrations de fundação (002/003) para recursos que
