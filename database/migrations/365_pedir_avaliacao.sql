@@ -23,15 +23,12 @@
 -- Sem instrução destrutiva (vai à nuvem pelo MCP: V9, ERR-225). Idempotente. `add column` com valor padrão constante não
 -- reescreve a tabela (pequena); o `lock_timeout` desiste em vez de enfileirar escrita atrás dela. A tabela de casos é
 -- pequena na nuvem (04/11: 19 linhas): o índice sobe na hora.
+--
+-- A ORDEM importa (ERR-362): primeiro a tabela nova — a chave estrangeira trava `empresa` sem segurar mais nada —, depois o
+-- índice dos casos e, por ÚLTIMO, os `alter` de `robo_config`. Ao contrário (o `alter` antes), quem apaga uma empresa ao
+-- mesmo tempo segura `empresa` e espera `robo_config` pela cascata enquanto esta espera `empresa`: impasse (no CI, com as
+-- specs juntas no mesmo banco). Aplicada na nuvem em 04/11 com os `alter` antes — o mesmo resultado.
 set local lock_timeout = '5s';
-
-alter table robo_config add column if not exists avaliacao_ativa boolean not null default false;
-alter table robo_config add column if not exists avaliacao_link text;
-alter table robo_config add column if not exists avaliacao_texto text;
-alter table robo_config add column if not exists avaliacao_depois_min integer not null default 40;
-alter table robo_config add column if not exists avaliacao_so_sem_problema boolean not null default true;
-alter table robo_config add column if not exists avaliacao_a_partir_do integer not null default 2;
-alter table robo_config add column if not exists avaliacao_de_novo_dias integer not null default 60;
 
 create table if not exists avaliacao_pedida (
   id             uuid primary key default gen_random_uuid(),
@@ -64,6 +61,14 @@ alter table avaliacao_pedida enable row level security;
 create index if not exists idx_atendimento_chamado_pedido
   on atendimento_chamado (pedido_id)
   where pedido_id is not null;
+
+alter table robo_config add column if not exists avaliacao_ativa boolean not null default false;
+alter table robo_config add column if not exists avaliacao_link text;
+alter table robo_config add column if not exists avaliacao_texto text;
+alter table robo_config add column if not exists avaliacao_depois_min integer not null default 40;
+alter table robo_config add column if not exists avaliacao_so_sem_problema boolean not null default true;
+alter table robo_config add column if not exists avaliacao_a_partir_do integer not null default 2;
+alter table robo_config add column if not exists avaliacao_de_novo_dias integer not null default 60;
 
 -- Conferência no MESMO Run: as seis linhas têm de vir com `ok = true`.
 select 'ajustes da avaliação em robo_config (7 colunas)' as objeto,

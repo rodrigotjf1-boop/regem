@@ -162,7 +162,7 @@ descrever('"chegou tudo certo?" (Postgres)', () => {
       const plano = (r.rows ?? r).map((l: any) => l['QUERY PLAN']).join('\n');
       // Por IGUALDADE com cada forma: assim entra na condição do índice também no Postgres 16 (o do CI — ERR-361).
       expect(plano).toMatch(/whatsapp_mensagem_tenant_tel_idx[^\n]*\n\s*Index Cond: [^\n]*\(telefone = f\.forma\)/);
-      expect(plano).not.toMatch(/Filter: [^\n]*telefone = /);
+      expect(plano).not.toMatch(/Filter: [^\n]*\(telefone = /);
     } finally {
       await c.query('rollback').catch(() => {});
       c.release();

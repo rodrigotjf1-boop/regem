@@ -426,7 +426,7 @@ descrever('"pedir avaliação" depois da entrega (Postgres)', () => {
     // condição dele (não "a empresa inteira e filtra depois" — o que o Postgres 16 do CI fazia com `= any`: ERR-361).
     const plano = await explicar(PedirAvaliacaoProcessor.consulta());
     expect(plano).toMatch(/whatsapp_mensagem_tenant_tel_idx[^\n]*\n\s*Index Cond: [^\n]*\(telefone = f\.forma\)/);
-    expect(plano).not.toMatch(/Filter: [^\n]*telefone = /);
+    expect(plano).not.toMatch(/Filter: [^\n]*\(telefone = /); // o "(chave_telefone = …)" das avaliações é outra coisa
     // As buscas de cada pedido. Com a tabela pequena (como aqui), o Postgres prefere ler a tabela uma vez e guardar num
     // hash; com ela grande, usa o índice. Aqui se prova que o caminho pelo índice EXISTE para cada uma.
     const t = randomUUID();
