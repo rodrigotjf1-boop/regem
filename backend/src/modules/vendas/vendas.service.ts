@@ -2628,6 +2628,9 @@ export class VendasService {
         observacao?: string;
         variacaoId?: string | null;
         complementos?: string[] | null;
+        // O preço do item JÁ CONFERIDO com o cliente pela conta do cardápio (o robô — promoção e atacado entram). Só por
+        // chamada interna: quem chama pela tela nunca manda (`DeliveryService.alterar` tira). Sem ele, o preço de sempre.
+        precoUnitario?: number | null;
       }[];
       remover?: string[];
     },
@@ -2670,6 +2673,8 @@ export class VendasService {
       if (!escolhido) throw new BadRequestException('Produto não encontrado no cardápio da loja.');
       const p = escolhido.produto;
       const qtd = Number(add.quantidade) || 1;
+      const informado = add.precoUnitario != null && Number.isFinite(Number(add.precoUnitario)) && Number(add.precoUnitario) >= 0;
+      const preco = informado ? Math.round(Number(add.precoUnitario) * 100) / 100 : Number(escolhido.precoUnitario);
       const [item] = await tx
         .insert(comandaItem)
         .values({
@@ -2680,7 +2685,7 @@ export class VendasService {
           fichaId: p.fichaId,
           descricao: escolhido.descricao,
           quantidade: String(qtd),
-          precoUnitario: String(escolhido.precoUnitario),
+          precoUnitario: String(preco),
           observacao: add.observacao || null,
           criadoPorId: atorId,
         })
@@ -2705,7 +2710,7 @@ export class VendasService {
         variacaoId: escolhido.variacaoId ?? null,
         descricao: escolhido.descricao,
         quantidade: qtd,
-        precoUnitario: Number(escolhido.precoUnitario),
+        precoUnitario: preco,
         observacao: add.observacao || null,
         comandaItemId: item.id,
         opcaoIds: escolhido.opcaoIds, // roteamento por opção/etapa

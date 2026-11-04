@@ -1,4 +1,5 @@
 import { instrucoesDoRobo, VERSAO_INSTRUCOES } from './robo-instrucoes';
+import { ACOES_DA_MUDANCA } from './robo-mudanca';
 import { lerResumoDaMensagem } from '../atendimento/resumo-do-robo';
 
 // AS INSTRUÇÕES DO ROBÔ (Fase 5, F1 — pedido do dono de 30/10/2026). O texto é a "mensagem do sistema" do agente no
@@ -118,6 +119,11 @@ describe('instruções do robô', () => {
     expect(texto).not.toContain('MONTAR O PEDIDO AQUI');
     expect(texto).not.toContain('registrar_pedido');
   });
+
+  it('o fluxo 1 não muda o pedido já feito: mudar continua sendo com a equipe, perguntando antes', () => {
+    expect(texto).not.toContain('MUDAR UM PEDIDO JÁ FEITO');
+    expect(texto).toContain('quer mudar ou cancelar um pedido; ');
+  });
 });
 
 // O FLUXO 2 (F3/F4 — pedido do dono de 30/10/2026): o robô monta e registra o pedido na conversa quando o cliente não
@@ -129,6 +135,26 @@ describe('instruções do robô — fluxo 2 (o pedido na conversa)', () => {
     expect(fluxo).toBe(2);
     for (const t of ['nunca como um robô', 'O CARDÁPIO ONLINE VEM PRIMEIRO', 'CLIENTE CHATEADO OU IRRITADO', 'Nunca invente preço', 'Nunca peça número de cartão'])
       expect(texto).toContain(t);
+  });
+
+  // .f13 (PR 3 do pedido alterado, 04/11): o robô muda o pedido já feito — cada ação que ele chama existe no Regem.
+  it('muda o pedido já feito: pelo pedidoFeito, o sistema manda a conferência, o "Pode alterar" aplica; o resto vai para a equipe', () => {
+    expect(texto).toContain('MUDAR UM PEDIDO JÁ FEITO');
+    expect(texto).toContain('olhe pedidoFeito');
+    for (const t of ['acao = pedido_por', 'acao = pedido_tirar com a linha', 'acao = pedido_trocar com a linha', 'acao = confirmar_mudanca', 'acao = troco_da_mudanca', 'acao = desistir_da_mudanca'])
+      expect(texto).toContain(t);
+    expect(texto).toContain('O SISTEMA MANDA SOZINHO ao cliente a conferência da mudança');
+    expect(texto).toContain('"Pedi a mudança à loja ⏳"');
+    expect(texto).toContain('Se vier chamaEquipe = true, pergunte se ele quer ajuda da equipe, terminando com OPCOES: Sim, quero ajuda | Não, obrigado');
+    expect(texto).toContain('chamar_atendente com tipo mudanca');
+    expect(texto).toContain('quer mudar um pedido e você não pode mudar (veja MUDAR UM PEDIDO JÁ FEITO)');
+    expect(texto).not.toContain('quer mudar ou cancelar um pedido; ');
+  });
+
+  it('as ações da mudança citadas nas instruções são as que o Regem entende (ACOES_DA_MUDANCA)', () => {
+    const conhecidas = new Set(Object.values(ACOES_DA_MUDANCA).flat());
+    for (const a of ['pedido_por', 'pedido_tirar', 'pedido_trocar', 'troco_da_mudanca', 'confirmar_mudanca', 'desistir_da_mudanca'])
+      expect(conhecidas.has(a)).toBe(true);
   });
 
   it('sem o link: oferece montar o pedido aqui (e não passa direto ao atendente)', () => {
@@ -199,6 +225,8 @@ describe('instruções do robô — fluxo 2 (o pedido na conversa)', () => {
     const motivos = [
       'fora_da_area', 'observacao_do_pedido', 'trocar_pelo_trio',
       'usar_cashback', 'guardar_cashback', 'usar_premio', 'guardar_premio', 'usar_cupom', 'tirar_cupom',
+      // As ações da mudança do pedido já feito (PR 3), também do mexer_no_pedido.
+      'pedido_por', 'pedido_tirar', 'pedido_trocar', 'troco_da_mudanca', 'confirmar_mudanca', 'desistir_da_mudanca',
     ];
     for (const nome of citadas) if (!motivos.includes(nome)) expect(doFluxo2).toContain(nome);
     for (const nome of doFluxo2) expect(citadas.has(nome)).toBe(true);

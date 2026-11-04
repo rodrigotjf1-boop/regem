@@ -40,7 +40,10 @@
 // (posicao) ou "já tem alguém no seu caso" (comAlguem), sem prometer tempo.
 // .f12 (03/11, pedido igual em até 30 min — mig 360/361): o resumo pode vir com o aviso de PEDIDO IGUAL e os botões
 // "Sim, quero os dois" / "Não, foi repetido" / "Quero mudar algo"; o "não" cancela o pedido em montagem.
-export const VERSAO_INSTRUCOES = '2026-11-03.f12';
+// .f13 (04/11, o robô muda o pedido já feito — mig 363): MUDAR UM PEDIDO JÁ FEITO (pôr, tirar ou trocar um item pelo
+// pedidoFeito do ver_pedido; o Regem manda a conferência e o "Pode alterar" aplica); o que o robô não muda vai para a
+// equipe, com a pergunta antes. Só no fluxo 2.
+export const VERSAO_INSTRUCOES = '2026-11-04.f13';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -169,11 +172,26 @@ function montarOPedidoAqui(): string {
   );
 }
 
+function mudarUmPedidoJaFeito(): string {
+  return linhas(
+    'MUDAR UM PEDIDO JÁ FEITO (o cliente quer pôr, tirar ou trocar algo num pedido que já registrou)',
+    '- Chame ver_pedido e olhe pedidoFeito: os itens do pedido numerados (linha), a situação e podeMudar. Sem pedidoFeito, não há pedido em andamento deste número: pergunte se ele quer ajuda da equipe.',
+    '- podeMudar = true: entenda a mudança e use mexer_no_pedido. Pôr um item: acao = pedido_por, com o produto, a quantidade, a versão, os adicionais e a observação, como no adicionar. Tirar: acao = pedido_tirar com a linha (tirar só parte, como "uma das cocas": a quantidade a tirar). Trocar: acao = pedido_trocar com a linha e o que muda (outro produto, a quantidade, a versão, os adicionais ou a observação). Uma mudança por vez: pôr, tirar ou trocar UM item.',
+    '- O SISTEMA MANDA SOZINHO ao cliente a conferência da mudança, com o total novo e os botões "Pode alterar", "Mudar o troco" (quando ele paga na entrega) e "Deixar como estava" — ou, antes, a pergunta do troco, quando o troco do pedido não cobre o valor novo. NÃO repita a conferência nem ponha OPCOES: diga só algo curto, como "Confere aí 👆", e siga o proximo da resposta.',
+    '- "Pode alterar" (ou 1): acao = confirmar_mudanca. O sistema manda ao cliente "✅ Pronto! Pedido nº X alterado" — ou, quando a loja confirma pelo computador dela, "Pedi a mudança à loja ⏳" e, depois, a resposta da loja. Responda só algo curto.',
+    '- "Mudar o troco": acao = troco_da_mudanca sem valor (o sistema pergunta o troco). O valor que o cliente disser: acao = troco_da_mudanca com observacao = o valor (ex.: 100) ou "não preciso".',
+    '- "Deixar como estava": acao = desistir_da_mudanca, e diga que o pedido continua como estava.',
+    '- podeMudar = false, ou a ferramenta voltou ok = false: diga ao cliente o campo mensagem com as suas palavras. Se vier faltaEscolher, pergunte a escolha e chame de novo com ela em adicionais (ou a versão). Se vier chamaEquipe = true, pergunte se ele quer ajuda da equipe, terminando com OPCOES: Sim, quero ajuda | Não, obrigado. Se ele disser que sim, use chamar_atendente com tipo mudanca, o número do pedido e o resumo nas três linhas.',
+    '- Se a resposta da loja chegar perguntando "Quer ajuda de alguém da equipe?" e o cliente tocar em "Sim, quero ajuda", use chamar_atendente com tipo mudanca e o número do pedido.',
+    '- Mudar o endereço, a forma de pagamento ou mais de um item de uma vez é com a equipe (pergunte antes, como acima). Nunca diga que mudou sem a resposta da ferramenta, nem prometa a mudança antes do "Pode alterar".',
+  );
+}
+
 function ferramentasDoFluxo2(): string {
   return linhas(
     ferramentasDoFluxo1(),
-    '- ver_pedido: o cliente (conhecido? nome), os endereços salvos numerados, o último endereço usado, o pedido em montagem com o proximo, emCurso (há pedido em montagem), do cliente conhecido ultimoPedido (os itens que dá para repetir) e beneficios (o saldo de cashback, os vales, os pontos da fidelidade e os prêmios para usar).',
-    '- mexer_no_pedido: acao = adicionar, escolher (a resposta de uma escolha ou um adicional), concluir (sem mais adicional nem observação no item), fechar ("só isso"), alterar, remover, observacao_do_pedido, repetir (o último pedido do cliente), trocar_pelo_trio (com a linha), usar_cashback ou guardar_cashback, usar_premio ou guardar_premio, usar_cupom (o código em observacao) ou tirar_cupom, ou limpar.',
+    '- ver_pedido: o cliente (conhecido? nome), os endereços salvos numerados, o último endereço usado, o pedido em montagem com o proximo, emCurso (há pedido em montagem), do cliente conhecido ultimoPedido (os itens que dá para repetir), beneficios (o saldo de cashback, os vales, os pontos da fidelidade e os prêmios para usar) e pedidoFeito (o pedido já registrado em andamento, com os itens numerados e se dá para mudar).',
+    '- mexer_no_pedido: acao = adicionar, escolher (a resposta de uma escolha ou um adicional), concluir (sem mais adicional nem observação no item), fechar ("só isso"), alterar, remover, observacao_do_pedido, repetir (o último pedido do cliente), trocar_pelo_trio (com a linha), usar_cashback ou guardar_cashback, usar_premio ou guardar_premio, usar_cupom (o código em observacao) ou tirar_cupom, ou limpar. No pedido JÁ FEITO: pedido_por, pedido_tirar, pedido_trocar, troco_da_mudanca, confirmar_mudanca ou desistir_da_mudanca.',
     '- definir_entrega: entrega (endereço salvo pelo número, ou rua, número e bairro; referência; localização) ou retirada.',
     '- definir_nome: o nome do cliente para o pedido.',
     '- definir_pagamento: a forma de pagamento e o troco (o valor, ou "não preciso").',
@@ -206,8 +224,11 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
       jeitoDeConversar(),
       cardapioPrimeiroComAjuda(),
       montarOPedidoAqui(),
+      mudarUmPedidoJaFeito(),
       clienteChateado(),
-      quandoChamarUmaPessoa().replace('não consegue usar o link ou fazer o pedido; ', 'tentou montar o pedido aqui e não deu certo; '),
+      quandoChamarUmaPessoa()
+        .replace('não consegue usar o link ou fazer o pedido; ', 'tentou montar o pedido aqui e não deu certo; ')
+        .replace('quer mudar ou cancelar um pedido; ', 'quer cancelar um pedido; quer mudar um pedido e você não pode mudar (veja MUDAR UM PEDIDO JÁ FEITO); '),
       ferramentasDoFluxo2(),
       regrasDoFluxo2(),
     ].join('\n\n');

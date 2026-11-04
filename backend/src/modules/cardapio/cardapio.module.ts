@@ -17,6 +17,7 @@ import { RoboPedidoController } from './robo-pedido.controller';
 import { RoboPedidoService } from './robo-pedido.service';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { LembreteDoCarrinhoProcessor } from './lembrete-do-carrinho.processor';
+import { AvisoDaMudancaProcessor } from './aviso-da-mudanca.processor';
 import { ChegadaModule } from '../chegada/chegada.module';
 import { AniversarioModule } from '../aniversario/aniversario.module';
 
@@ -27,6 +28,7 @@ import { AniversarioModule } from '../aniversario/aniversario.module';
   imports: [VendasModule, DeliveryModule, AtendimentoModule, FidelidadeModule, CashbackModule, WhatsappModule, ChegadaModule, AniversarioModule],
   controllers: [CardapioController, CardapioPublicoController, EventosCardapioController, RoboConsultasController, RoboPedidoController],
   // LembreteDoCarrinhoProcessor: o lembrete do pedido que ficou pela metade no robô (mig 349; só nuvem).
-  providers: [CardapioService, OrigemPedidoService, EventosCardapioService, RoboPedidoService, LembreteDoCarrinhoProcessor],
+  // AvisoDaMudancaProcessor: a decisão do servidor da loja sobre a mudança pedida pelo robô chega ao cliente (mig 363; só nuvem).
+  providers: [CardapioService, OrigemPedidoService, EventosCardapioService, RoboPedidoService, LembreteDoCarrinhoProcessor, AvisoDaMudancaProcessor],
 })
 export class CardapioModule {}

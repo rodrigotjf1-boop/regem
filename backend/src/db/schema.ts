@@ -3845,6 +3845,8 @@ export const roboConfig = pgTable('robo_config', {
   avisoAtrasoToleranciaMin: integer('aviso_atraso_tolerancia_min').notNull().default(10),
   // Lembrete do pedido que ficou pela metade no robô (mig 349): nasce desligado.
   lembreteCarrinho: boolean('lembrete_carrinho').notNull().default(false),
+  // "O robô faz mudanças simples" no pedido já feito (mig 363): nasce LIGADO (decisão 3A); desligado → a equipe.
+  mudaPedido: boolean('muda_pedido').notNull().default(true),
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
   atualizadoPor: uuid('atualizado_por'),
 });
@@ -3882,6 +3884,8 @@ export const roboCarrinho = pgTable('robo_carrinho', {
   observacao: text('observacao'),
   // mig 349: quando o lembrete do pedido parado saiu (gravado ANTES do envio — sai uma vez só).
   lembradoEm: timestamp('lembrado_em', { withTimezone: true }),
+  // mig 363: a mudança do pedido JÁ FEITO que o cliente está conferindo (robo-mudanca.ts). Nulo = nenhuma.
+  mudanca: jsonb('mudanca'),
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
 });
