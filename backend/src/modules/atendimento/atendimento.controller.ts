@@ -17,6 +17,8 @@ import { ChatIfoodService, lerAjusteIfood } from './chat-ifood.service';
 import { FilaEAvisosService, lerAjusteDaFila, MINUTOS_DO_AVISO } from './fila-e-avisos.service';
 import { ChegadaService } from '../chegada/chegada.service';
 import { lerAjusteCheguei, MINUTOS_DE_NOVO } from '../chegada/chegada';
+import { PedidoRepetidoService } from '../pedido-repetido/pedido-repetido.service';
+import { lerAjusteRepetido } from '../pedido-repetido/pedido-repetido';
 
 // Chamados de atendimento (handoff). Operados por quem está no balcão/gestão.
 @Controller('atendimento')
@@ -30,6 +32,8 @@ export class AtendimentoController {
     private readonly chatIfood: ChatIfoodService,
     private readonly filaEAvisos: FilaEAvisosService,
     private readonly chegada: ChegadaService,
+    // Pedido igual em até 30 min (mig 360): o grupo "Pedido repetido" dos ajustes.
+    private readonly repetido: PedidoRepetidoService,
   ) {}
 
   // A configuração do CHAT OFICIAL DO iFOOD (o widget da distribuição e as lojas do iFood da empresa). Sem o widget
@@ -58,13 +62,14 @@ export class AtendimentoController {
   @CloudOnly()
   @Roles('presidente', 'gerente')
   async ajustes(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
-    const [da99, fila, doIfood, cheguei] = await Promise.all([
+    const [da99, fila, doIfood, cheguei, repetido] = await Promise.all([
       this.pedido99.ajustes(user.tenantId),
       this.filaEAvisos.ajustes(user.tenantId),
       this.chatIfood.ajustes(user.tenantId),
       this.chegada.ajustes(user.tenantId, unidade),
+      this.repetido.ajustes(user.tenantId, unidade),
     ]);
-    return { ...da99, fila, minutosDoAviso: MINUTOS_DO_AVISO, ...doIfood, cheguei, minutosDeNovoCheguei: MINUTOS_DE_NOVO };
+    return { ...da99, fila, minutosDoAviso: MINUTOS_DO_AVISO, ...doIfood, cheguei, minutosDeNovoCheguei: MINUTOS_DE_NOVO, repetido };
   }
 
   // Cada grupo pelo seu dono, só o que veio. A fila, o iFood e o "Cheguei" são conferidos ANTES de gravar qualquer
@@ -76,10 +81,12 @@ export class AtendimentoController {
     if (dto?.fila !== undefined) lerAjusteDaFila(dto.fila);
     if (dto?.ifood !== undefined) lerAjusteIfood(dto.ifood);
     const cheguei = dto?.cheguei !== undefined ? lerAjusteCheguei(dto.cheguei) : null;
+    const repetido = dto?.repetido !== undefined ? lerAjusteRepetido(dto.repetido) : null;
     if (dto?.ajuste99 !== undefined) await this.pedido99.salvarAjustes(user, dto);
     if (dto?.fila !== undefined) await this.filaEAvisos.salvar(user, dto.fila);
     if (dto?.ifood !== undefined) await this.chatIfood.salvarAjustes(user, dto.ifood);
     if (cheguei) await this.chegada.salvarAjustes(user, unidade, cheguei);
+    if (repetido) await this.repetido.salvarAjustes(user, unidade, repetido);
     return this.ajustes(user, unidade);
   }
 

@@ -1138,6 +1138,9 @@ export const api = {
     req(`/delivery/pedidos/${id}/avisar-pronto`, { method: 'POST', body: '{}' }),
   // O entregador não consegue falar com o cliente: o cliente recebe pelo WhatsApp (Bloco 3).
   semContatoDelivery: (id: string) => req(`/delivery/pedidos/${id}/sem-contato`, { method: 'POST', body: '{}' }),
+  // Pedido igual (mig 360): a equipe confirmou com o cliente que são dois pedidos — o aviso sai do painel e do KDS.
+  confirmarPedidoRepetido: (id: string) =>
+    req(`/delivery/pedidos/${id}/repetido/confirmar`, { method: 'POST', body: '{}' }),
   alterarDelivery: (id: string, body: Record<string, unknown>) =>
     req(`/delivery/pedidos/${id}/alterar`, { method: 'POST', body: JSON.stringify(body) }),
   reimprimirDelivery: (id: string, equipamentoId?: string | null) =>
@@ -1206,6 +1209,7 @@ export const api = {
     ifood?: Record<string, unknown>;
     ajuste99?: Record<string, unknown>;
     cheguei?: Record<string, unknown>;
+    repetido?: Record<string, unknown>; // pedido igual em até 30 min (mig 360)
   }) =>
     req('/atendimento/ajustes', { method: 'PUT', body: JSON.stringify(body) }),
   // O chat oficial do iFood (PR 5): o widget da distribuição e as lojas do iFood da empresa (ou `disponivel: false`).

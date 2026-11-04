@@ -321,6 +321,10 @@ export const TABELAS_SYNC: TabelaSync[] = [
   // O "Cheguei" do cliente da retirada (mig 354): só a NUVEM escreve (cardápio online e WhatsApp) → só DESCE; a
   // Retirada, o KDS e o aviso da loja leem. À parte de `pedido_externo` pelo mesmo motivo da `pedido_logistica`.
   { tabela: 'pedido_chegada', direcao: 'desce', cursor: 'updated_at' },
+  // O "São dois pedidos" do pedido igual (mig 360): confirma-se no computador da loja OU na tela da nuvem → SOBE E DESCE.
+  // Uma linha por pedido, só de inclusão, com o id pela chave do pedido (a loja e a nuvem criam o MESMO id). À parte de
+  // `pedido_externo` pelo mesmo motivo da `pedido_logistica`: a última-escrita da linha do pedido apagaria a confirmação.
+  { tabela: 'pedido_repetido_ok', direcao: 'ambos', cursor: 'updated_at' },
   // Exclusões físicas (mig 262): o gatilho grava (tabela, id) aqui e quem recebe apaga a mesma
   // linha do seu lado. Sobe como anexo e desce pelo TABELAS_PULL_APPEND. Por ÚLTIMO no push,
   // para a exclusão chegar depois das linhas do mesmo ciclo.
@@ -442,6 +446,8 @@ export const TABELAS_DESDE_ZERO = new Set<string>([
   // Configuração de linha única com o id da chave (mig 339): a migration zera o cursor destas quatro no servidor da
   // loja e a linha da nuvem desce de novo, UMA vez (entitlement, kds_cor_config e tef_config já estavam acima).
   'delivery_config',
+  // O "São dois pedidos" do pedido igual (mig 360): o que a tela da nuvem confirmou antes de a loja receber o `.zip` desce.
+  'pedido_repetido_ok',
 ]);
 
 // RESTAURAÇÃO (nuvem → edge, SÓ sob demanda): tabelas TRANSACIONAIS que podem ter
@@ -529,6 +535,8 @@ export const LOJA_COLUNA = new Set<string>([
   'tarefa_instancia', 'escala_alocacao',
   // O "Cheguei" da retirada (mig 354): cresce com os pedidos de cada loja.
   'pedido_chegada',
+  // O "São dois pedidos" do pedido igual (mig 360): também cresce com os pedidos de cada loja.
+  'pedido_repetido_ok',
 ]);
 
 export const LOJA_PELO_PAI: Record<string, (uid: string) => SQL> = {

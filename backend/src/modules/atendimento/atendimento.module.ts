@@ -13,6 +13,7 @@ import { IntegracoesModule } from '../integracoes/integracoes.module';
 import { EquipamentoModule } from '../equipamento/equipamento.module';
 import { SyncTokenGuard } from '../sync/sync-token.guard';
 import { ChegadaModule } from '../chegada/chegada.module';
+import { PedidoRepetidoService } from '../pedido-repetido/pedido-repetido.service';
 
 @Module({
   // Integrações: a resposta à disputa do iFood (IfoodService). forwardRef: integrações e delivery já se referem.
@@ -25,7 +26,8 @@ import { ChegadaModule } from '../chegada/chegada.module';
   // Pedido99Service: a resposta ao pedido do cliente da 99 e a rotina da nuvem (cancelamento vencido, reembolso recusado).
   // ChatIfoodService: a configuração do chat oficial do iFood (o widget da distribuição e as lojas do iFood).
   // FilaEAvisosService (mig 353): o aviso ao gerente (rotina da nuvem) e os ajustes "Fila e avisos".
-  providers: [AtendimentoService, DisputaIfoodService, Pedido99Service, ChatIfoodService, SyncTokenGuard, AtendimentoAppService, FilaEAvisosService],
+  // PedidoRepetidoService (mig 360): o grupo "Pedido repetido" dos ajustes (só o banco e a auditoria, que é global).
+  providers: [AtendimentoService, DisputaIfoodService, Pedido99Service, ChatIfoodService, SyncTokenGuard, AtendimentoAppService, FilaEAvisosService, PedidoRepetidoService],
   exports: [AtendimentoService],
 })
 export class AtendimentoModule {}

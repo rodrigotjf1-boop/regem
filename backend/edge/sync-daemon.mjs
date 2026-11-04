@@ -260,6 +260,8 @@ const PUSH_TABLES = [
   { tabela: 'ocorrencia', cursor: 'updated_at' },
   { tabela: 'pedido_manutencao', cursor: 'updated_at' },
   { tabela: 'atendimento_chamado', cursor: 'atualizado_em' },
+  // O "São dois pedidos" do pedido igual (mig 360): confirmado aqui, sobe; a linha tem o id pela chave do pedido.
+  { tabela: 'pedido_repetido_ok', cursor: 'updated_at' },
   { tabela: 'alerta_estoque', cursor: 'atualizado_em' },
   { tabela: 'cupom_uso', cursor: 'created_at' }, // o estorno feito aqui precisa voltar o uso
   // Dinheiro do cliente (mig 274). O SALDO não sobe: é recalculado do extrato por gatilho

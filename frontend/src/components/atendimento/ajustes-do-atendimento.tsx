@@ -21,6 +21,8 @@ import { MOTIVO_REEMBOLSO_99 } from '@/components/atendimento/pedido-99';
 //    integração do iFood — só aparecem com o iFood conectado.
 //  • "99Food · pedidos do cliente" (Onda 1): o que o Regem faz com o pedido de cancelamento e de reembolso do cliente.
 //    Ficam na integração da 99 — só aparecem com a 99 conectada.
+//  • "Pedido repetido" (mig 360; `mockups/regem-alteracao-pedido.html`): perguntar quando o mesmo cliente faz um pedido
+//    igual e a janela (30 min de padrão). No `cardapio_config` da loja em uso, como o "Cheguei" — no fim da tela.
 // Tudo mora só na NUVEM: no servidor da loja a tela só explica. Só gerente e presidente mudam (o servidor confere).
 
 const HORAS_PADRAO = [1, 2, 4, 8, 12, 20];
@@ -36,6 +38,9 @@ const DO_CHEGUEI: Record<string, string> = {
   chegueiTodasTelas: 'todasTelas',
   chegueiDeNovoMin: 'deNovoMin',
 };
+// Pedido igual em até 30 min (mig 360; protótipo `mockups/regem-alteracao-pedido.html`, vista "Ajustes").
+const DO_REPETIDO: Record<string, string> = { repetidoAtivo: 'ativo', repetidoMin: 'minutos' };
+const JANELAS_REPETIDO_PADRAO = [10, 15, 20, 30, 45, 60];
 
 type Resposta = {
   conectado99: boolean;
@@ -48,9 +53,11 @@ type Resposta = {
   minutosDeNovo?: number[];
   cheguei?: { ativo: boolean; perguntarOnde: boolean; todasTelas: boolean; deNovoMin: number; temCardapio: boolean };
   minutosDeNovoCheguei?: number[];
+  repetido?: { ativo: boolean; minutos: number; temCardapio: boolean; janelas?: number[] };
 };
 
 const paraValores = (r: Resposta): Valores => ({
+  ...(r.repetido?.temCardapio ? { repetidoAtivo: r.repetido.ativo, repetidoMin: String(r.repetido.minutos) } : {}),
   ...(r.cheguei?.temCardapio
     ? {
         chegueiAtivo: r.cheguei.ativo,
@@ -245,11 +252,39 @@ export function AjustesDoAtendimento() {
       },
     ],
   };
+  // O valor gravado entra na lista mesmo fora das janelas oferecidas (nunca some da tela).
+  const janelasRepetido = [
+    ...new Set([...(resp?.repetido?.janelas?.length ? resp.repetido.janelas : JANELAS_REPETIDO_PADRAO), ...(resp?.repetido ? [resp.repetido.minutos] : [])]),
+  ].sort((a, b) => a - b);
+  const grupoDoRepetido: GrupoDeAjustes = {
+    titulo: 'Pedido repetido',
+    nota: 'Vale para a loja em uso. Nada vai para a cozinha antes de o cliente responder (cardápio e robô).',
+    itens: [
+      {
+        id: 'repetidoAtivo',
+        rotulo: 'Perguntar quando o mesmo cliente faz um pedido igual',
+        tipo: 'chave',
+        ajuda:
+          'No cardápio online e no robô do WhatsApp, o cliente responde antes de o pedido entrar. Nos pedidos do Anota AI, iFood, 99 e Cardápio Web, o pedido entra com o aviso "Possível repetido" no painel, no KDS e na via, até alguém tocar em "São dois pedidos".',
+        palavras: 'pedido repetido igual duplicado mesmo cliente perguntar',
+      },
+      {
+        id: 'repetidoMin',
+        rotulo: 'Igual dentro de',
+        tipo: 'selecao',
+        opcoes: janelasRepetido.map((m) => ({ v: String(m), rotulo: m === 30 ? '30 minutos (padrão)' : `${m} minutos` })),
+        ajuda:
+          'Contado do primeiro pedido. Mesmos produtos, tamanhos, adicionais e quantidades; a observação, o endereço e o pagamento não contam. Pedido cancelado não conta.',
+        palavras: 'pedido repetido igual minutos janela tempo',
+      },
+    ],
+  };
   const grupos: GrupoDeAjustes[] = [
     ...(resp?.cheguei?.temCardapio ? [grupoDoCheguei] : []),
     grupoDaFila,
     ...(resp?.conectadoIfood ? [grupoDoIfood] : []),
     ...(resp?.conectado99 ? [grupoDa99] : []),
+    ...(resp?.repetido?.temCardapio ? [grupoDoRepetido] : []),
   ];
 
   async function salvar() {
@@ -262,12 +297,14 @@ export function AjustesDoAtendimento() {
     const ifood: Record<string, unknown> = {};
     const ajuste99: Record<string, unknown> = {};
     const cheguei: Record<string, unknown> = {};
+    const repetido: Record<string, unknown> = {};
     for (const k of chaves) {
       if (DA_FILA.includes(k)) fila[k] = k === 'avisarGerenteMin' ? Number(valores[k]) : valores[k];
       else if (DO_IFOOD[k]) ifood[DO_IFOOD[k]] = k === 'ifoodAvisarDeNovoMin' ? Number(valores[k]) : valores[k];
       else if (DO_CHEGUEI[k])
         cheguei[DO_CHEGUEI[k]] =
           k === 'chegueiDeNovoMin' ? Number(valores[k]) : k === 'chegueiTodasTelas' ? valores[k] === 'sim' : valores[k];
+      else if (DO_REPETIDO[k]) repetido[DO_REPETIDO[k]] = k === 'repetidoMin' ? Number(valores[k]) : valores[k];
       else ajuste99[k] = k === 'reembolsoRecusarEmHoras' ? Number(valores[k]) : valores[k];
     }
     try {
@@ -276,6 +313,7 @@ export function AjustesDoAtendimento() {
         ...(Object.keys(ifood).length ? { ifood } : {}),
         ...(Object.keys(ajuste99).length ? { ajuste99 } : {}),
         ...(Object.keys(cheguei).length ? { cheguei } : {}),
+        ...(Object.keys(repetido).length ? { repetido } : {}),
       });
       setResp(r);
       setValores(paraValores(r));

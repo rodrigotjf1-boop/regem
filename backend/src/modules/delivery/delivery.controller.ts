@@ -309,6 +309,14 @@ export class DeliveryController {
     });
   }
 
+  // Pedido IGUAL (mig 360): a equipe confirmou com o cliente que são dois pedidos — o aviso sai do painel e do KDS.
+  @Post('pedidos/:id/repetido/confirmar')
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
+  confirmarRepetido(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.confirmarRepetido(user, id);
+  }
+
   @Post('pedidos/:id/reimprimir')
   @UseGuards(JwtAuthGuard, PermissoesGuard)
   @RequirePerm('delivery')

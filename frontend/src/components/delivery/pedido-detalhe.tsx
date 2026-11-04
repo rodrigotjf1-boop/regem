@@ -15,6 +15,7 @@ import { ondeSaiu } from '@/lib/reimpressao';
 import { useSenhaSemSalvar } from '@/lib/use-senha-sem-salvar';
 import { avisarComprovante } from '@/lib/comprovante';
 import { ItensDoPedido } from './itens-do-pedido';
+import { horaCurta, textoDoOutroPedido } from '@/lib/pedido-repetido';
 import { ItensDaPerda, type MarcaDaPerda } from './itens-da-perda';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -130,6 +131,26 @@ export function PedidoDetalhe({
     String(p.canal ?? '').toLowerCase(),
   );
   const podeSemContato = p.tipo === 'entrega' && p.status === 'despachado' && canalDoRegem && !!p.clienteTelefone;
+
+  // PEDIDO IGUAL em até 30 min (mig 360): o pedido de fora que chegou igual a outro do mesmo cliente. A equipe confirma
+  // com o cliente e toca em "São dois pedidos" (o aviso sai do painel e do KDS); se foi engano, "Cancelar este".
+  const [repetidoOk, setRepetidoOk] = useState<{ porNome: string | null; em: string } | null>(null);
+  const marcaRepetido = p.repetido ?? null;
+  const okRepetido = repetidoOk ?? marcaRepetido?.ok ?? null;
+  async function confirmarRepetido() {
+    setBusy(true);
+    try {
+      const r: any = await api.confirmarPedidoRepetido(p.id);
+      setRepetidoOk(r?.repetido?.ok ?? { porNome: null, em: new Date().toISOString() });
+      toast.success('Confirmado: são dois pedidos. O aviso saiu do KDS.');
+      onChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Não foi possível confirmar.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function semContato() {
     setBusy(true);
     try {
@@ -235,6 +256,28 @@ export function PedidoDetalhe({
         {/* ===== VIEW ===== */}
         {modo === 'view' && (
           <>
+            {/* Pedido igual (mig 360): aberto → o aviso com as duas saídas; confirmado → quem confirmou e quando. */}
+            {marcaRepetido && !okRepetido && !finalizado && (
+              <div role="status" className="mt-3 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-sm" data-repetido>
+                <p className="font-bold text-warn">
+                  ⚠ Possível repetido do {textoDoOutroPedido(marcaRepetido)}
+                </p>
+                <p className="text-foreground">Mesmo cliente, mesmos itens. Confirme com o cliente antes de produzir.</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button type="button" size="sm" onClick={confirmarRepetido} disabled={busy}>
+                    São dois pedidos
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" onClick={() => setModo('cancelar')} disabled={busy}>
+                    Cancelar este
+                  </Button>
+                </div>
+              </div>
+            )}
+            {marcaRepetido && okRepetido && (
+              <p className="mt-3 rounded-lg bg-ok/10 px-3 py-2 text-xs font-semibold text-ok" data-repetido-ok>
+                ✓ Confirmado com o cliente: são dois pedidos ({okRepetido.porNome || 'equipe'}, {horaCurta(okRepetido.em)}).
+              </p>
+            )}
             <div className="mt-2 space-y-1 text-sm">
               <p className="flex flex-wrap items-center gap-1.5">
                 <span>{p.tipo === 'retirada' ? '🏪' : '🛵'}</span>

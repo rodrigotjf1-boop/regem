@@ -27,6 +27,7 @@ import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { perfilEfetivo } from '../delivery/cupom-perfis';
 import { dadosDaViaDoDelivery } from '../delivery/via-do-delivery';
+import { linhasDaViaDoRepetido, marcaAbertaDoPedido } from '../pedido-repetido/pedido-repetido';
 import { ehDoTotem } from '../../common/via-do-pedido';
 import {
   mesa,
@@ -1362,6 +1363,9 @@ export class VendasService {
     // cupom do entregador separado). Na via do delivery o QR sai no lugar do campo dele; sem o campo no perfil, no fim.
     const qrNoPerfil = !!pedidoDeCanal && perfil.campos.some((c) => c.key === 'qrcode' && c.visivel);
     if (qrData && !qrNoPerfil) conteudo += `\n@C\n@QR:${qrData}\n`;
+    // Pedido IGUAL ainda sem o "São dois pedidos" (mig 360): o aviso no ALTO da via do caixa e do entregador.
+    const repetido = pedidoDeCanal ? await marcaAbertaDoPedido(this.db, tenantId, pedidoDeCanal) : null;
+    if (repetido) conteudo = linhasDaViaDoRepetido(repetido) + conteudo;
     return this.producao.enfileirarViaCliente(
       tenantId,
       unidadeId,
@@ -1552,6 +1556,8 @@ export class VendasService {
       senhaPlataforma?: string | null; // senha/nº do pedido na plataforma
       pedidoNumero?: number | null; // nº do pedido no painel do delivery ("PEDIDO #10" na via de produção)
       tipoPedido?: string | null; // DELIVERY | RETIRADA | ENCOMENDA — a linha do tipo na via de produção
+      // Pedido IGUAL ainda sem o "São dois pedidos" (mig 360): o aviso no alto da via de produção.
+      repetido?: { deNumero: number | null; deEm: string | null } | null;
       // Série da senha (R6). Padrão D (delivery) — o comportamento de sempre. O TOTEM
       // manda B: é venda de BALCÃO, e balcão tem uma série só, sem número repetido.
       senhaPrefixo?: string | null;
@@ -1712,6 +1718,7 @@ export class VendasService {
           cliente: dto.cliente ?? null,
           tipoPedido: dto.tipoPedido ?? null,
           pedidoNumero: dto.pedidoNumero ?? null,
+          repetido: dto.repetido ?? null,
         },
         itensProducao,
         foraDaProducao,

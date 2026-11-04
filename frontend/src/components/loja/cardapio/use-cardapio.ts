@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
+import { avisoDepoisDoNao, perguntaDoRepetido, type PedidoRepetidoPergunta } from './pedido-igual';
 import {
   TEMA,
   carregarCliente,
@@ -70,6 +71,13 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
   const [erro, setErro] = useState('');
   /** Motivo de o pedido (ou o endereço) não ter saído — mostrado acima do botão (ERR-140). */
   const [erroEnvio, setErroEnvio] = useState('');
+  /**
+   * PEDIDO IGUAL em até 30 min (mig 360): o servidor perguntou se é outro pedido igual. `provado`: o cliente entrou pelo
+   * link/conta — só então vêm o número, a hora e a situação do outro pedido (V79).
+   */
+  const [repetido, setRepetido] = useState<PedidoRepetidoPergunta | null>(null);
+  /** O aviso depois do "Não, foi engano" (some ao enviar de novo). */
+  const [avisoRepetido, setAvisoRepetido] = useState('');
   const [cat, setCat] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   // Idempotência: 1 ref por carrinho, reenviado em qualquer retry; zera no sucesso.
@@ -888,7 +896,8 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
     setPilha((p) => [...p.filter((c) => !ehEtapa(c)), ...normais.slice(0, ate + 1).map((e) => `etapa:${e}` as Camada)]);
   }
 
-  async function submitPedido() {
+  // `confirmarRepetido`: o cliente respondeu "Sim, fazer outro igual" à pergunta do PEDIDO IGUAL (mig 360).
+  async function submitPedido(opts: { confirmarRepetido?: boolean } = {}) {
     // Cliente é obrigado a informar nome e telefone (exceto QR de mesa).
     if (!mesa) {
       if (!chk.nome?.trim()) { setErroEnvio('Informe seu nome.'); return; }
@@ -901,6 +910,7 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
       }
     }
     setErroEnvio(''); // some o aviso da tentativa anterior; se esta falhar, o motivo novo aparece
+    setAvisoRepetido('');
     setEnviando(true);
     try {
       const entrega = !isServico && chk.tipo === 'entrega';
@@ -945,6 +955,8 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
         promocoes: perguntaPromocoes ? promoMarcada : undefined,
         // A observação do pedido (mig 346): uma linha — o servidor limpa de novo e corta em 300.
         observacao: String(chk.observacao ?? '').replace(/\s+/g, ' ').trim() || undefined,
+        // Pedido igual (mig 360): só o "sim" do cliente manda — e só `true` de verdade vale no servidor.
+        confirmarRepetido: opts.confirmarRepetido === true ? true : undefined,
         itens: cart.map((i) => ({
           produtoId: i.produtoId,
           variacaoId: i.variacaoId,
@@ -1017,10 +1029,25 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
           resumo,
         });
     } catch (e) {
-      setErroEnvio(e instanceof Error ? e.message : 'Erro ao enviar');
+      // PEDIDO IGUAL (mig 360): não é erro — o servidor pergunta. Nada foi gravado; o mesmo `clientRef` segue livre.
+      const pergunta = perguntaDoRepetido(e instanceof ApiError ? e : null);
+      if (pergunta) setRepetido(pergunta);
+      else setErroEnvio(e instanceof Error ? e.message : 'Erro ao enviar');
     } finally {
       setEnviando(false);
     }
+  }
+
+  /** "Sim, fazer outro igual": manda o MESMO pedido de novo, agora confirmado. */
+  function repetidoSim() {
+    setRepetido(null);
+    void submitPedido({ confirmarRepetido: true });
+  }
+
+  /** "Não, foi engano" (ou Esc): fecha sem enviar; o carrinho continua, se o cliente quiser mudar algo. */
+  function repetidoNao() {
+    if (repetido) setAvisoRepetido(avisoDepoisDoNao(repetido));
+    setRepetido(null);
   }
 
   // ───────────────────────── pedido enviado: acompanhamento ─────────────────────────
@@ -1140,6 +1167,7 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
     estadoOrigem, recusarOrigemPedido, desfazerRecusaOrigem,
     perguntaPromocoes, promoLoja, promoMarcada, setPromoMarcada,
     submitPedido, enviando, erroEnvio, setErroEnvio,
+    repetido, repetidoSim, repetidoNao, avisoRepetido,
     // pós-pedido
     ped, agora, verificando, verificarPagamento, novoPedido,
   };

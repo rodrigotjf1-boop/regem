@@ -53,6 +53,13 @@ import { gravarOuEncaminharImpressao } from '../../common/impressao-destino';
 import { dataHoraNoFuso, hojeISO } from '../../common/data';
 import { logisticaDasComandas } from '../delivery/logistica-canal';
 import { ChegadaService } from '../chegada/chegada.service';
+import {
+  linhasDaViaDoRepetido,
+  marcaAbertaDaComanda,
+  type MarcaDoRepetido,
+  marcasDosPedidos,
+  textoDoKds,
+} from '../pedido-repetido/pedido-repetido';
 import { autorizarPorSenhaDeGestor } from '../../common/autorizacao-gestor';
 import { conferirProximoKds, kdsQueChegamA, lerEstacoes } from '../../common/fluxo-kds';
 import { ACOES_KDS, type AtorKds } from './kds-auditoria';
@@ -639,6 +646,8 @@ export class ProducaoPedidoService {
       cliente?: string | null; // nome do cliente (canal, totem) — só na via impressa
       tipoPedido?: string | null; // DELIVERY | RETIRADA | ENCOMENDA (pedido de canal) — só na via impressa
       pedidoNumero?: number | string | null; // nº do pedido de canal no painel ("PEDIDO #10") — só na via impressa
+      // Pedido IGUAL ainda sem o "São dois pedidos" (mig 360): o aviso no alto da via — só na via impressa.
+      repetido?: { deNumero: number | null; deEm: string | null } | null;
     },
     itens: ItemProducao[],
     // O resto da venda (o que não vai para a produção): só a via completa o mostra. Ver `viasCompletas`.
@@ -1097,6 +1106,9 @@ export class ProducaoPedidoService {
     const completo = !!outros?.length;
     // Para viagem (mig 310): a cozinha embala diferente — a marca vai no ALTO da via, antes de tudo.
     const viagem = ctx.consumo === 'viagem';
+    // Pedido IGUAL ainda sem o "São dois pedidos" (mig 360): o aviso vai no ALTO, antes de tudo — como a viagem, não é
+    // campo de perfil (não pode ser desligado sem querer).
+    const repetido = ctx.repetido ? linhasDaViaDoRepetido(ctx.repetido) : '';
     // Pedido de canal: DELIVERY/RETIRADA no lugar de "BALCAO", e o nº do pedido no canal ("iFood #8F2A").
     const tipo = tipoNaProducao(ctx);
     const canal = pedidoNoCanal(ctx.plataforma, ctx.senhaPlataforma);
@@ -1104,7 +1116,7 @@ export class ProducaoPedidoService {
     if (pp?.perfil) {
       // O perfil escolhe e ordena os campos; a marca de viagem não é campo de perfil (não pode ser
       // desligada sem querer): entra por cima, centralizada, em negrito e em tamanho dobrado.
-      return (viagem ? `@CBD ${MARCA_VIAGEM}\n` : '') + this.renderCupomPerfil(
+      return repetido + (viagem ? `@CBD ${MARCA_VIAGEM}\n` : '') + this.renderCupomPerfil(
         pp.perfil,
         {
           senha: ctx.senha,
@@ -1131,6 +1143,7 @@ export class ProducaoPedidoService {
     const linha = '--------------------------------';
     const cab = ctx.mesa ? `MESA ${ctx.mesa}` : tipo ?? 'BALCAO';
     const l: string[] = ['*** PRODUCAO ***'];
+    if (repetido) l.push(...repetido.trimEnd().split('\n'));
     if (viagem) l.push(MARCA_VIAGEM);
     const pedido = tipo ? linhaDoPedido(ctx.pedidoNumero) : undefined;
     if (pedido) {
@@ -2636,7 +2649,49 @@ export class ProducaoPedidoService {
     const comLogistica = logistica.size
       ? comItens.map((p: any) => ({ ...p, logistica: (p.comandaId && logistica.get(p.comandaId)) || null }))
       : comItens;
-    return { cores, pedidos: await this.comChegada(tenantId, opts.unidadeId ?? null, comLogistica as any[]) };
+    // Pedido IGUAL ainda sem o "São dois pedidos" (mig 360): o "Repetido?" no cartão. Informação a mais — nunca
+    // derruba a fila (V11: fica no log).
+    const marcas: MarcaDoRepetido[] = await marcasDosPedidos(this.db, tenantId, {
+      comandaIds: pedidos.map((p) => p.comandaId),
+    }).catch((e: any) => {
+      new Logger('KDS').warn(`pedido igual no KDS: ${e?.message ?? e}`);
+      return [] as MarcaDoRepetido[];
+    });
+    const abertas = new Map(marcas.filter((m) => !m.ok && m.comandaId).map((m) => [m.comandaId as string, m]));
+    const comRepetido = (comLogistica as any[]).map((p) => {
+      const m = p.comandaId ? abertas.get(p.comandaId) : undefined;
+      return { ...p, repetido: m ? { deNumero: m.deNumero, deEm: m.deEm, texto: textoDoKds(m) } : null };
+    });
+    return { cores, pedidos: await this.comChegada(tenantId, opts.unidadeId ?? null, comRepetido) };
+  }
+
+  /**
+   * Avisa o KDS que os cartões da comanda mudaram SEM mudar de etapa (o "São dois pedidos" do pedido igual, mig 360):
+   * a tela relê o cartão. Cartão entregue ou cancelado não muda.
+   */
+  async avisarCartoesDaComanda(tenantId: string, comandaId: string | null | undefined) {
+    if (!comandaId) return;
+    const cartoes = await this.db
+      .select({
+        id: producaoPedido.id,
+        unidadeId: producaoPedido.unidadeId,
+        setorId: producaoPedido.setorId,
+        destinoEquipamentoId: producaoPedido.destinoEquipamentoId,
+        status: producaoPedido.status,
+      })
+      .from(producaoPedido)
+      .where(and(eq(producaoPedido.tenantId, tenantId), eq(producaoPedido.comandaId, comandaId)));
+    for (const p of cartoes) {
+      if (['cancelado', 'entregue'].includes(p.status)) continue;
+      this.events?.emit('producao.evento', {
+        tenantId,
+        unidadeId: p.unidadeId,
+        setorId: p.setorId,
+        destinoEquipamentoId: p.destinoEquipamentoId,
+        pedidoId: p.id,
+        tipo: 'atualizado',
+      });
+    }
   }
 
   // Fila do PDV (atendente): ativos + concluídos recentes (janela de ação).
@@ -2959,6 +3014,8 @@ export class ProducaoPedidoService {
         ? (await this.db.select({ cliente: comanda.cliente }).from(comanda).where(and(eq(comanda.id, p.comandaId), eq(comanda.tenantId, tenantId))))[0]?.cliente ?? null
         : null,
       pedidoNumero: p.comandaId ? await numeroDoPedidoDaVenda(this.db, tenantId, p.comandaId) : null,
+      // Pedido IGUAL ainda sem o "São dois pedidos" (mig 360): o ticket da etapa também avisa.
+      repetido: await marcaAbertaDaComanda(this.db, tenantId, p.comandaId),
     };
     const ppEtapa = await this.carregarPerfilProducao(this.db, tenantId, p.unidadeId, p.origem, p.plataforma);
     const conteudo = this.renderTicket(
