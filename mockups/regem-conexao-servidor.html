@@ -316,7 +316,7 @@ table.eq td .sub{display:block;color:var(--ink-2);font-size:12.5px}
 <!-- ============================ PEÇA 6 NOVA: PONTE DO CHAT (04/11/2026) ============================ -->
 <section class="peca" id="p7" aria-labelledby="t7">
   <div class="rotulo"><span class="parte">Ponte do chat · 04/11/2026</span><h2 id="t7">6. A ponte do chat do iFood e da 99: em qual PC está cada programa</h2></div>
-  <p class="nota">A ponte é um programa do "Regem neste PC" com o Gestor do iFood e o portal da 99 abertos dentro; as conversas aparecem na tela Atendimento (protótipo da Central, versão 3). Ela roda no PC do delivery, no servidor ou nos dois: todas leem, só a principal envia, e a reserva assume sozinha. O Regem acha sozinho onde está cada uma; a loja também pode informar onde o iFood e a 99 ficam abertos.</p>
+  <p class="nota">A ponte é um programa do "Regem neste PC" com o Gestor do iFood e o portal da 99 abertos dentro; as conversas aparecem na tela Atendimento (protótipo da Central, versão 3). Ela roda no PC do delivery, no servidor ou nos dois: todas leem, só a principal envia, e a reserva assume sozinha. O Regem acha sozinho onde está cada uma; a loja também pode informar onde o iFood e a 99 ficam abertos. A 99 aceita um login só (o iFood aceita vários): a ponte da 99 é a sessão da própria loja, no PC do delivery, sem reserva.</p>
   <div class="estados" id="e7" role="group" aria-label="O que ver na ponte do chat">
     <button type="button" data-e="pcs" aria-pressed="true">Equipamentos por PC</button>
     <button type="button" data-e="avisos" aria-pressed="false">Com avisos</button>
@@ -590,23 +590,24 @@ table.eq td .sub{display:block;color:var(--ink-2);font-size:12.5px}
       <div class="sits" aria-label="Situações"><span>Conectados agora <b>8</b></span><span>Sem sinal <b>0</b></span><span>Ponte do chat <b>2</b></span><span>Com aviso <b>${avisos ? 2 : 0}</b></span></div>
       ${avisos
         ? `<div class="faixa aviso"><p><b>O iFood também está aberto no PDV1, fora da ponte.</b> O que alguém responder por lá não entra no Atendimento.</p></div>
-           <div class="faixa aviso"><p><b>A 99 está sem reserva.</b> Se o CX-DELIVERY desligar, o chat da 99 para de entrar. Entre na 99 também na ponte do SERVIDOR-MB.</p></div>`
-        : '<div class="faixa ok"><p><b>Ponte do chat em ordem:</b> iFood e 99 com principal (CX-DELIVERY) e reserva (SERVIDOR-MB).</p></div>'}
+           <div class="faixa aviso"><p><b>A 99 está aberta no navegador do CX-DELIVERY, fora da ponte.</b> A 99 aceita um login só: com a 99 aberta nos dois, um derruba o outro. Feche a aba e use a 99 dentro da ponte desse PC.</p></div>`
+        : '<div class="faixa ok"><p><b>Ponte do chat em ordem:</b> iFood com principal (CX-DELIVERY) e reserva (SERVIDOR-MB); 99 dentro da ponte do CX-DELIVERY (a 99 aceita um login só).</p></div>'}
     </div>`;
   const pcsPonte = (avisos) => `
     <div class="pc">
       <header><div class="quem"><b>SERVIDOR-MB</b><small>Servidor da loja · <span class="mono">192.168.0.10</span></small></div><span class="pill ok">no ar</span></header>
       <div class="itens">
         <div class="it"><div><div class="t">Servidor local</div><div class="n">Servidor loja teste</div><div class="d">sincronizado há 1 min</div></div><div class="lado-d"><span class="pill ok">no ar</span></div></div>
-        ${itPonte('reserva', 'logado ✓', avisos ? 'sem login' : 'logado ✓', avisos ? '<span class="pill aviso">99 sem login</span>' : '<span class="pill ok">reserva pronta</span>', avisos ? 'Entre na 99 dentro da ponte deste PC para ela ter reserva.' : 'Lê tudo e assume sozinha se a principal ficar 2 min sem sinal.')}
+        ${itPonte('reserva do iFood', 'logado ✓', 'fica só no CX-DELIVERY', '<span class="pill ok">reserva pronta</span>', 'Lê o iFood e assume sozinha se a principal ficar 2 min sem sinal. A 99 aceita um login só: ela não entra aqui.')}
       </div>
     </div>
     <div class="pc">
       <header><div class="quem"><b>CX-DELIVERY</b><small>PC do delivery · <span class="mono">192.168.0.23</span></small></div><span class="pill ok">conectado agora</span></header>
       <div class="itens">
         <div class="it"><div><div class="t">Estação de impressão</div><div class="n">estacao delivery</div><div class="d">última batida há 40 s</div></div><div class="lado-d"><span class="pill ok">conectada</span></div></div>
-        ${itPonte('principal', 'logado ✓', 'logado ✓', '<span class="pill ok">principal</span>', 'Lê e responde · última mensagem há 1 min · 7 respostas do robô hoje')}
-        <div class="it"><div><div class="t">Programa da plataforma</div><div class="n">Gestor de Pedidos do iFood (app oficial)</div><div class="d">visto pelo "Regem neste PC" · aberto</div></div><div class="lado-d"><span class="pill neutro">aberto</span></div></div>
+        ${itPonte('principal', 'logado ✓', 'logada ✓', '<span class="pill ok">principal</span>', 'Lê e responde · última mensagem há 1 min · 7 respostas do robô hoje')}
+        <div class="it"><div><div class="t">Programa da plataforma</div><div class="n">Gestor de Pedidos do iFood (app oficial)</div><div class="d">visto pelo "Regem neste PC" · aberto · o iFood aceita vários logins</div></div><div class="lado-d"><span class="pill neutro">aberto</span></div></div>
+        ${avisos ? '<div class="it"><div><div class="t">Informado à mão</div><div class="n">99Food no navegador</div><div class="d">a 99 aceita um login só · aberta aqui E na ponte</div></div><div class="lado-d"><span class="pill aviso">um derruba o outro</span></div></div>' : ''}
       </div>
     </div>
     <div class="pc">
@@ -617,7 +618,7 @@ table.eq td .sub{display:block;color:var(--ink-2);font-size:12.5px}
           ? `<div class="it"><div><div class="t">Programa da plataforma</div><div class="n">Gestor de Pedidos do iFood (app oficial)</div><div class="d">visto pelo "Regem neste PC" · aberto, fora da ponte</div></div><div class="lado-d"><span class="pill aviso">sem a ponte</span></div>
              <div class="dica">Se a loja responde o chat por este PC, instale a ponte aqui para as mensagens entrarem no Atendimento.<div class="acoes" style="margin-top:6px"><button type="button" class="btn mini pri">Instalar a ponte neste PC</button><button type="button" class="btn mini">Está certo assim</button></div></div></div>`
           : ''}
-        <div class="it"><div><div class="t">Informado à mão</div><div class="n">99Food no navegador</div><div class="d">anotado por Ana em 04/11 · aba do navegador o Regem não enxerga sozinho</div></div><div class="lado-d"><span class="pill neutro">informado</span></div></div>
+        <div class="it"><div><div class="t">Informado à mão</div><div class="n">iFood no navegador</div><div class="d">anotado por Ana em 04/11 · aba do navegador o Regem não enxerga sozinho</div></div><div class="lado-d"><span class="pill neutro">informado</span></div></div>
       </div>
     </div>`;
   const telaEq = (miolo) => `<div class="tela"><div class="cab"><b>Configurações › Equipamentos &amp; apps</b><span>Mister Burguer · loja</span></div><div class="corpo">${miolo}</div></div>`;
@@ -627,8 +628,8 @@ table.eq td .sub{display:block;color:var(--ink-2);font-size:12.5px}
     else if (e === 'mao') {
       const pc = (nome, ifood, n99) => `<fieldset class="marcar"><legend>${nome}</legend><label><input type="checkbox"${ifood ? ' checked' : ''}> iFood aberto aqui</label><label><input type="checkbox"${n99 ? ' checked' : ''}> 99Food aberta aqui</label></fieldset>`;
       html = telaEq(`<div class="dialogo" role="dialog" aria-labelledby="dMao"><h3 id="dMao">Onde o iFood e a 99 ficam abertos?</h3>
-        <p>Marque onde a loja deixa cada plataforma aberta. O Regem avisa quando a ponte não estiver nesse PC. O app oficial do iFood e da 99 o "Regem neste PC" enxerga sozinho; a aba do navegador, não.</p>
-        ${pc('CX-DELIVERY', true, true)}${pc('PDV1', false, true)}${pc('SERVIDOR-MB', false, false)}
+        <p>Marque onde a loja deixa cada plataforma aberta. O Regem avisa quando a ponte não estiver nesse PC. O app oficial do iFood e da 99 o "Regem neste PC" enxerga sozinho; a aba do navegador, não. A 99 aceita um login só: marque um PC só para ela.</p>
+        ${pc('CX-DELIVERY', true, true)}${pc('PDV1', true, false)}${pc('SERVIDOR-MB', false, false)}
         <div class="rodape"><button type="button" class="btn">Cancelar</button><button type="button" class="btn pri">Salvar</button></div></div>`);
     } else if (e === 'icone') {
       html = `<div class="palco"><div class="desk" aria-label="Área de trabalho do Windows (simulada)">
