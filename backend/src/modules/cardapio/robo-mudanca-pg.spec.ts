@@ -164,11 +164,16 @@ descrever('o robô muda o pedido já feito (Postgres)', () => {
       ))[0].id as string;
     const cozinha = await imp('Cozinha de teste', true);
     await imp('Caixa de teste', false);
+    // As áreas de entrega (PR 3b): Centro R$ 6 (a do pedido) e Jardim América R$ 8.
+    const bairro = async (nome: string, taxa: number) =>
+      (await q(`insert into cardapio_bairro (tenant_id, unidade_id, nome, taxa) values ($1,$2,$3,$4) returning id`, [t, u, nome, taxa]))[0].id as string;
+    const centro = await bairro('Centro', 6);
+    const jardim = await bairro('Jardim América', 8);
     const celular = umCelular();
     const ctx = () => robo.contexto(SENHA, assinarConversa(t, celular)!, instancia);
     /** As mensagens que este cliente recebeu. */
     const doCliente = () => enviados.filter((e) => e.para === celular);
-    return { t, u, gestor, xbacon, batata, suco, agua, cozinha, celular, ctx, doCliente };
+    return { t, u, gestor, xbacon, batata, suco, agua, cozinha, centro, jardim, celular, ctx, doCliente };
   }
   type Loja = Awaited<ReturnType<typeof loja>>;
 
@@ -187,6 +192,11 @@ descrever('o robô muda o pedido já feito (Postgres)', () => {
       telefone?: string;
       itens?: any[];
       forma?: string;
+      /** Retirada (sem endereço nem taxa) ou entrega (Rua das Flores, 120 · Centro — R$ 6 de padrão). */
+      tipo?: 'entrega' | 'retirada';
+      taxa?: number;
+      /** Os descontos do pedido (o frete grátis vem como a linha de origem "frete"). */
+      descontos?: any[];
     } = {},
   ) {
     const sucos = o.sucos ?? 1;
@@ -194,7 +204,9 @@ descrever('o robô muda o pedido já feito (Postgres)', () => {
       { produtoId: l.xbacon, descricao: 'X-Bacon de teste', quantidade: 1, precoUnitario: 32, opcaoIds: [] },
       { produtoId: l.suco, descricao: 'Suco de teste', quantidade: sucos, precoUnitario: 7, opcaoIds: [] },
     ];
-    const total = itens.reduce((s, i) => s + i.precoUnitario * i.quantidade, 0) + 6;
+    const tipo = o.tipo ?? 'entrega';
+    const taxa = tipo === 'retirada' ? 0 : (o.taxa ?? 6);
+    const total = itens.reduce((s, i) => s + i.precoUnitario * i.quantidade, 0) + taxa;
     const troco = o.troco === undefined ? 50 : o.troco;
     const ped: any = await delivery.ingest(
       l.t,
@@ -204,17 +216,20 @@ descrever('o robô muda o pedido já feito (Postgres)', () => {
         cliente: 'Marina de teste',
         clienteTelefone: o.telefone ?? l.celular.slice(2), // como o pedido grava (sem o 55); a conversa chega com o 55
         displayId: o.numero ?? '57',
-        tipo: 'entrega',
-        endereco: 'Rua das Flores, 120, Centro',
+        tipo,
+        endereco: tipo === 'entrega' ? 'Rua das Flores, 120, Centro' : undefined,
         formaPagamento: o.forma ?? (o.pagamentos ? 'pix' : 'Dinheiro'),
         total,
         itens,
-        valorBruto: total - 6,
+        valorBruto: total - taxa,
+        ...(o.descontos ? { descontos: o.descontos } : {}),
         pagamentos: o.pagamentos ?? [{ rotulo: 'Dinheiro', valor: total, prepago: false, troco }],
         valorPagoCliente: total,
       } as any,
-      { clientRef: randomUUID(), taxaEntrega: 6, trocoPara: troco ?? undefined, repetidoConferido: true } as any,
+      { clientRef: randomUUID(), taxaEntrega: taxa, trocoPara: troco ?? undefined, repetidoConferido: true } as any,
     );
+    if (tipo === 'entrega')
+      await q(`update pedido_externo set endereco_rua = 'Rua das Flores', endereco_numero = '120', endereco_bairro = 'Centro' where id = $1`, [ped.id]);
     if (o.pagoOnline) await q(`update pedido_externo set pago_online = true, status_pagamento = 'aprovado' where id = $1`, [ped.id]);
     const r: any = await delivery.aceitar(l.t, l.gestor, ped.id);
     return { id: ped.id as string, comandaId: r.comandaId as string };
@@ -531,5 +546,131 @@ descrever('o robô muda o pedido já feito (Postgres)', () => {
     r = await robo.mexerNosItens(c, { acao: 'pedido_por', produto: 'agua' });
     expect(r).toMatchObject({ ok: false, motivo: 'saiu', chamaEquipe: true, mensagem: 'O pedido nº 58 já saiu para a entrega: não dá para mudar por aqui.' });
     expect(await alteracoes(outro.id)).toHaveLength(0);
+  });
+
+  // ── A MUDANÇA DE ENDEREÇO com o pedido em produção (PR 3b-1, decisão 8) ──────────────────────────────────────────────
+  it('endereço em produção: o robô pede o endereço e a referência, confere com a taxa da área nova, e o "Pode alterar" muda o pedido sem chamar a cozinha', async () => {
+    const l = await loja();
+    const p = await pedidoAceito(l);
+    const c = await l.ctx();
+    expect(((await robo.ver(c)) as any).pedidoFeito).toMatchObject({ endereco: 'Rua das Flores, 120 · Centro', podeMudarEndereco: true });
+
+    // "Errei o endereço!": abre a mudança; o endereço novo vem pelo definir_entrega (nada sai ao cliente pelo Regem).
+    let r: any = await robo.mexerNosItens(c, { acao: 'pedido_endereco' });
+    expect(r).toMatchObject({ ok: true, proximo: { campo: 'endereco_da_mudanca' } });
+    r = await robo.definirEntrega(c, { rua: 'Rua Ipê', numero: '45', bairro: 'jardim america' });
+    expect(r).toMatchObject({ ok: true, proximo: { campo: 'referencia_da_mudanca', opcoes: ['Sem referência'] } });
+    expect(l.doCliente()).toEqual([]);
+    // O carrinho do pedido em montagem não ganhou entrega nenhuma (o endereço foi para a mudança).
+    expect((await q(`select entrega from robo_carrinho where tenant_id = $1 and status = 'aberto'`, [l.t]))[0].entrega).toBeNull();
+
+    // A referência completa: a conferência com a entrega da área nova (Jardim R$ 8) e o troco que continua.
+    r = await robo.definirEntrega(c, { referencia: 'casa azul, portão de ferro' });
+    expect(r).toMatchObject({ ok: true, proximo: { campo: 'confirmar_mudanca', opcoes: ['Pode alterar', 'Mudar o troco', 'Deixar como estava'] } });
+    expect(ultimo().texto).toBe(
+      [
+        'Mudança no pedido nº 57',
+        '📍 Rua das Flores, 120 · Centro → Rua Ipê, 45 · Jardim América (casa azul, portão de ferro)',
+        'Entrega: R$ 6,00 → R$ 8,00',
+        'Total: R$ 45,00 → R$ 47,00',
+        'Troco para R$ 50,00 (continua)',
+        '',
+        'Confere a mudança 👇',
+      ].join('\n'),
+    );
+    r = await robo.mexerNosItens(c, { acao: 'confirmar_mudanca' });
+    expect(r).toMatchObject({ ok: true, feito: 'mudança feita no pedido' });
+    expect(ultimo().texto).toBe('✅ Pronto! Pedido nº 57 alterado. A entrega vai para: Rua Ipê, 45 · Jardim América.\nTotal: R$ 47,00 · troco para R$ 50,00.');
+
+    // O pedido: o endereço novo, a taxa da área nova e o total; o histórico do robô com o endereço (sem item).
+    const [ped] = await q(
+      `select endereco_rua, endereco_numero, endereco_bairro, endereco_referencia, taxa_entrega::float8 as taxa, total::float8 as total, cliente_id
+         from pedido_externo where id = $1`,
+      [p.id],
+    );
+    expect(ped).toMatchObject({ endereco_rua: 'Rua Ipê', endereco_numero: '45', endereco_bairro: 'Jardim América', endereco_referencia: 'casa azul, portão de ferro', taxa: 8, total: 47 });
+    const [a] = await alteracoes(p.id);
+    expect(a).toMatchObject({ origem: 'robo', situacao: 'aplicada', mudanca: { itens: [] } });
+    expect(a.mudanca.endereco).toMatchObject({ para: 'Rua Ipê, 45 · Jardim América' });
+    // A cozinha não é chamada (nada mudou para ela): nenhum cartão com o aviso, nenhuma via ALTERADO de produção.
+    expect((await q(`select count(*)::int as n from producao_pedido where comanda_id = $1 and alterado_em is not null`, [p.comandaId]))[0].n).toBe(0);
+    expect((await q(`select count(*)::int as n from impressao_job where comanda_id = $1 and via = 'producao' and conteudo like '%@CBD4 ALTERADO%'`, [p.comandaId]))[0].n).toBe(0);
+    // O endereço novo entrou no cadastro do cliente (o próximo pedido já o oferece).
+    expect((await q(`select logradouro, numero from cliente_endereco where cliente_id = $1`, [ped.cliente_id])).map((x: any) => `${x.logradouro}, ${x.numero}`)).toContain('Rua Ipê, 45');
+
+    // Uma mudança de endereço por pedido; a de item continua valendo (cada uma por si).
+    r = await robo.mexerNosItens(c, { acao: 'pedido_endereco' });
+    expect(r).toMatchObject({ ok: false, motivo: 'ja_mudou_endereco', chamaEquipe: true });
+    r = await robo.mexerNosItens(c, { acao: 'pedido_por', produto: 'agua' });
+    expect(r).toMatchObject({ ok: true, proximo: { campo: 'confirmar_mudanca' } });
+  });
+
+  it('endereço: fora da área e pedido de retirada vão para a equipe; o endereço salvo pelo número vale; o frete grátis do pedido continua', async () => {
+    const l = await loja();
+    const p = await pedidoAceito(l, { troco: 100 });
+    const c = await l.ctx();
+    await robo.mexerNosItens(c, { acao: 'pedido_endereco' });
+    let r: any = await robo.definirEntrega(c, { rua: 'Rua Longe', numero: '9', bairro: 'Barra da Tijuca', referencia: 'sem referência' });
+    expect(r).toMatchObject({ ok: false, motivo: 'fora_da_area', chamaEquipe: true, opcoes: ['Sim, quero ajuda', 'Não, obrigado'] });
+    expect(l.doCliente()).toEqual([]);
+    // "Sem referência" fecha o endereço sem o passo da referência (e não grava a marca no pedido).
+    r = await robo.definirEntrega(c, { rua: 'Rua Ipê', numero: '45', bairro: 'Jardim América', referencia: 'sem referência' });
+    expect(r).toMatchObject({ ok: true, proximo: { campo: 'confirmar_mudanca' } });
+    expect(ultimo().texto).toContain('📍 Rua das Flores, 120 · Centro → Rua Ipê, 45 · Jardim América\n');
+    await robo.mexerNosItens(c, { acao: 'desistir_da_mudanca' });
+    expect(await alteracoes(p.id)).toHaveLength(0);
+
+    // O pedido de retirada não tem endereço: a equipe.
+    await q(`update pedido_externo set status = 'concluido' where id = $1`, [p.id]);
+    await pedidoAceito(l, { tipo: 'retirada', numero: '58', troco: 100 });
+    r = await robo.mexerNosItens(c, { acao: 'pedido_endereco' });
+    expect(r).toMatchObject({ ok: false, motivo: 'retirada', chamaEquipe: true });
+  });
+
+  it('endereço: o frete grátis que o pedido ganhou continua no endereço novo — a taxa conferida é a gravada (V74)', async () => {
+    const l = await loja();
+    // O pedido saiu com o frete grátis (a linha "frete" dos descontos) e a taxa zerada.
+    const p = await pedidoAceito(l, { taxa: 0, troco: 100, descontos: [{ origem: 'frete', rotulo: 'Frete grátis', valor: 6, alvo: 'DELIVERY_FEE', quemBanca: 'loja' }] });
+    const c = await l.ctx();
+    await robo.mexerNosItens(c, { acao: 'pedido_endereco' });
+    const r: any = await robo.definirEntrega(c, { rua: 'Rua Ipê', numero: '45', bairro: 'Jardim América', referencia: 'portão azul' });
+    expect(r.proximo.campo).toBe('confirmar_mudanca');
+    expect(ultimo().texto).not.toContain('Entrega:');
+    expect(ultimo().texto).toContain('Total: R$ 39,00 (não muda)');
+    await robo.mexerNosItens(c, { acao: 'confirmar_mudanca' });
+    // A gravação usa a taxa que o cliente conferiu (zero) — não a da lista de bairros (R$ 8).
+    expect((await q(`select taxa_entrega::float8 as taxa, total::float8 as total from pedido_externo where id = $1`, [p.id]))[0]).toEqual({ taxa: 0, total: 39 });
+  });
+
+  it('endereço na loja com servidor: a pedida leva o endereço e a taxa conferida; o servidor da loja aplica a mesma; a taxa que a TELA mandasse não vale', async () => {
+    const l = await loja();
+    const p = await pedidoAceito(l, { troco: 100 });
+    await q(`insert into edge_heartbeat (tenant_id, unidade_id, versao) values ($1,$2,'1.30.13')`, [l.t, l.u]);
+    const c = await l.ctx();
+    await robo.mexerNosItens(c, { acao: 'pedido_endereco' });
+    await robo.definirEntrega(c, { rua: 'Rua Ipê', numero: '45', bairro: 'Jardim América', referencia: 'portão azul' });
+    const r: any = await robo.mexerNosItens(c, { acao: 'confirmar_mudanca' });
+    expect(r.feito).toContain('pedida');
+    const [a] = await alteracoes(p.id);
+    expect(a.pedido.endereco).toMatchObject({ rua: 'Rua Ipê', numero: '45', bairroId: l.jardim, referencia: 'portão azul', taxa: 8 });
+    // O servidor da loja aplica com a taxa da pedida do robô.
+    await delivery.aplicarAlteracaoPedida({
+      id: a.id, tenantId: l.t, pedidoId: p.id, porId: null, porNome: a.por_nome, origem: 'robo', pedido: a.pedido, pedidoDoCliente: a.pedido_do_cliente, createdAt: new Date(),
+    });
+    expect((await q(`select endereco_rua, taxa_entrega::float8 as taxa from pedido_externo where id = $1`, [p.id]))[0]).toEqual({ endereco_rua: 'Rua Ipê', taxa: 8 });
+    enviados.length = 0;
+    await robo.avisarDecisoesDasMudancas();
+    expect(l.doCliente()).toEqual([
+      { para: l.celular, texto: '✅ A loja confirmou: pedido nº 57 alterado. A entrega vai para: Rua Ipê, 45 · Jardim América.\nTotal: R$ 47,00 · troco para R$ 100,00.' },
+    ]);
+
+    // A tela (a equipe) não informa taxa: a que viesse no corpo sai — vale a do bairro do cadastro.
+    await q(`delete from edge_heartbeat where tenant_id = $1`, [l.t]);
+    const outro = await pedidoAceito(l, { troco: 100, numero: '59' });
+    await delivery.alterar({ tenantId: l.t, colaboradorId: l.gestor, nome: 'Ana de teste', categoria: 'gerente' } as any, outro.id, {
+      idAlteracao: randomUUID(),
+      endereco: { rua: 'Rua Ipê', numero: '45', bairroId: l.jardim, taxa: 1 } as any,
+    });
+    expect((await q(`select taxa_entrega::float8 as taxa from pedido_externo where id = $1`, [outro.id]))[0].taxa).toBe(8);
   });
 });

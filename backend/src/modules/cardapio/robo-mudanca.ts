@@ -46,8 +46,13 @@ export type PedidoFeito = {
   pagoAntes: boolean;
   /** Tem nota fiscal emitida, enviada ou em contingência: mudar o valor vai para a equipe (decisão 7). */
   comNota: boolean;
-  /** O robô já mudou este pedido (uma mudança por pedido — 3A). */
+  /** O robô já mudou os ITENS deste pedido (uma mudança de item por pedido — 3A). */
   jaMudouPeloRobo: boolean;
+  /** O robô já mudou o ENDEREÇO deste pedido (um por pedido, à parte da mudança de item — PR 3b, decisão 8). */
+  jaMudouEnderecoPeloRobo: boolean;
+  /** Para onde o pedido vai (entrega) e a taxa que ele pagou. */
+  endereco: EnderecoDoPedido;
+  taxaEntrega: number;
   /** Uma mudança do robô está com o servidor da loja, ainda dentro do prazo. */
   mudancaPendente: boolean;
   /** A loja desligou "O robô faz mudanças simples" (`robo_config.muda_pedido`, mig 363). */
@@ -73,7 +78,17 @@ export type Entra = {
   precoUnitario: number;
 };
 export type Sai = { comandaItemId: string; descricao: string; quantidade: number; precoUnitario: number };
-export type OperacaoDoRobo = { tipo: 'por'; entra: Entra } | { tipo: 'tirar'; sai: Sai } | { tipo: 'trocar'; sai: Sai; entra: Entra };
+/** O endereço de entrega como o cliente vê: rua, número, bairro e o complemento ou ponto de referência. */
+export type EnderecoDoPedido = { rua: string | null; numero: string | null; bairro: string | null; referencia: string | null };
+/** O endereço novo pronto para gravar: o bairro da lista de entrega (`bairroId`) ou o ponto no mapa (entrega por distância). */
+export type EnderecoNovo = EnderecoDoPedido & { bairroId: string | null; lat: number | null; lng: number | null };
+export type OperacaoDoRobo =
+  | { tipo: 'por'; entra: Entra }
+  | { tipo: 'tirar'; sai: Sai }
+  | { tipo: 'trocar'; sai: Sai; entra: Entra }
+  // A mudança de ENDEREÇO (PR 3b, decisão 8): `para` nulo enquanto o cliente não disse o endereço novo; a taxa nova é a
+  // da área nova pela MESMA conta do cardápio (`taxaDeEntrega`) — a que o cliente confere e a que se grava (V74).
+  | { tipo: 'endereco'; de: EnderecoDoPedido; para: EnderecoNovo | null; taxaAntes: number; taxaNova: number };
 
 /** A mudança em andamento na conversa (`robo_carrinho.mudanca`, mig 363). */
 export type MudancaDoRobo = {
@@ -95,6 +110,10 @@ export type MudancaDoRobo = {
   avisada?: boolean;
   /** A via do WhatsApp da conversa (a da loja que atendeu): a rotina responde pela mesma. */
   via?: 'cloud' | 'evolution';
+  /** A mudança de endereço aberta (`pedido_endereco`) espera o endereço novo, que vem pelo `definir_entrega`. */
+  aguardaEndereco?: boolean;
+  /** O endereço novo já dito, esperando só o complemento ou ponto de referência. */
+  enderecoParcial?: EnderecoNovo | null;
   criadaEm: string;
 };
 
@@ -127,8 +146,15 @@ export function ordemDoPedido<T extends { id: string; produtoId: string | null; 
   return pelaOrdem.sort((a, b) => a.criadoEm - b.criadoEm || (lugar.get(a.id) ?? sem) - (lugar.get(b.id) ?? sem) || a.id.localeCompare(b.id));
 }
 
-/** A diferença no valor dos itens (positivo = sobe), em reais. */
+/** "Rua das Flores, 120 · Centro" — o endereço numa linha, como o painel e a via mostram. */
+export function enderecoCurto(e: Partial<EnderecoDoPedido> | null | undefined): string {
+  if (!e) return '';
+  return [[e.rua, e.numero].filter((x) => x && String(x).trim()).join(', '), e.bairro].filter((x) => x && String(x).trim()).join(' · ');
+}
+
+/** A diferença no valor dos itens (positivo = sobe), em reais. A mudança de endereço não mexe nos itens (só na taxa). */
 export function deltaDaMudanca(op: OperacaoDoRobo): number {
+  if (op.tipo === 'endereco') return 0;
   const entra = op.tipo === 'tirar' ? 0 : r2(op.entra.precoUnitario * op.entra.quantidade);
   const sai = op.tipo === 'por' ? 0 : r2(op.sai.precoUnitario * op.sai.quantidade);
   return r2(entra - sai);
@@ -142,8 +168,12 @@ export type MotivoParaNaoMudar = {
   chamaEquipe: boolean;
 };
 
-/** Por que o robô NÃO muda este pedido agora (null = muda). Com a operação, também o valor, a nota e o item pronto. */
-export function motivoParaNaoMudar(p: PedidoFeito, op?: OperacaoDoRobo | null): MotivoParaNaoMudar | null {
+/**
+ * Por que o robô NÃO muda este pedido agora (null = muda). Com a operação, também o item pronto. `quer`: a mudança de
+ * itens ou a de endereço (a da operação, quando vem) — cada uma uma vez por pedido; o endereço só no pedido de entrega.
+ */
+export function motivoParaNaoMudar(p: PedidoFeito, op?: OperacaoDoRobo | null, quer?: 'itens' | 'endereco'): MotivoParaNaoMudar | null {
+  const querQue = quer ?? (op?.tipo === 'endereco' ? 'endereco' : 'itens');
   const n = noPedido(p.numero);
   const nao = (motivo: string, mensagem: string, chamaEquipe = true): MotivoParaNaoMudar => ({ motivo, mensagem, chamaEquipe });
   if (p.desligado) return nao('desligado', `A mudança no ${n} é feita pela equipe da loja.`);
@@ -160,13 +190,17 @@ export function motivoParaNaoMudar(p: PedidoFeito, op?: OperacaoDoRobo | null): 
     return nao('situacao', `O ${n} não dá para mudar por aqui agora.`);
   }
   if (p.mudancaPendente) return nao('uma_por_vez', `A mudança do ${n} ainda está com a loja: a confirmação chega aqui em instantes.`, false);
-  if (p.jaMudouPeloRobo) return nao('ja_mudou', `Por aqui dá para fazer uma mudança por pedido, e o ${n} já foi mudado.`);
+  if (querQue === 'endereco') {
+    // Trocar entre retirada e entrega vai para a equipe (decisão 8).
+    if (p.tipo !== 'entrega') return nao('retirada', `O ${n} é de retirada na loja: para virar entrega, alguém da equipe ajuda.`);
+    if (p.jaMudouEnderecoPeloRobo) return nao('ja_mudou_endereco', `Por aqui dá para mudar o endereço uma vez por pedido, e o do ${n} já foi mudado.`);
+  } else if (p.jaMudouPeloRobo) return nao('ja_mudou', `Por aqui dá para fazer uma mudança por pedido, e o ${n} já foi mudado.`);
   // Decisões 4A e 7 (aprovadas em 03/11): o pedido pago pelo link e o pedido com nota fiscal vão para a equipe — qualquer
   // mudança, também a que não mexe no valor (o ajuste da tela diz "com o pedido em produção e pago na entrega").
   if (p.pagoAntes) return nao('pago', `O ${n} já foi pago pelo link: a mudança precisa de alguém da equipe.`);
   if (p.comNota) return nao('nota', `O ${n} já tem nota fiscal: a mudança precisa de alguém da equipe.`);
   if (op) {
-    if (op.tipo !== 'por') {
+    if (op.tipo === 'tirar' || op.tipo === 'trocar') {
       const sai = op.sai;
       const item = p.itens.find((i) => i.comandaItemId === sai.comandaItemId);
       if (item?.pronto)
@@ -182,10 +216,12 @@ export type ContaDaMudanca =
 
 /**
  * Os valores do pedido depois da mudança pela MESMA conta da gravação (`valoresDepois`, V74): o total, o que o
- * entregador recebe e o troco. `trocoPara` ausente = fica o do pedido; null = sem troco. A taxa não muda aqui.
+ * entregador recebe e o troco. `trocoPara` ausente = fica o do pedido; null = sem troco. A taxa só muda na mudança de
+ * endereço (a da área nova).
  */
 export function contaDaMudanca(ped: any, op: OperacaoDoRobo, trocoPara?: number | null): ContaDaMudanca {
-  const v = valoresDepois(ped, { deltaItens: deltaDaMudanca(op), taxaNova: Number(ped?.taxaEntrega ?? 0), trocoPara });
+  const taxaNova = op.tipo === 'endereco' ? op.taxaNova : Number(ped?.taxaEntrega ?? 0);
+  const v = valoresDepois(ped, { deltaItens: deltaDaMudanca(op), taxaNova, trocoPara });
   if (!v.ok) return { ok: false, code: v.recusa.code, message: v.recusa.message };
   return {
     ok: true,
@@ -197,8 +233,15 @@ export function contaDaMudanca(ped: any, op: OperacaoDoRobo, trocoPara?: number 
 
 const comObs = (descricao: string, obs: string | null) => (obs ? `${descricao} (${obs})` : descricao);
 
-/** As linhas da mudança: ➕ põe, ➖ tira, 🔄 troca. */
+/** As linhas da mudança: ➕ põe, ➖ tira, 🔄 troca, 📍 endereço (com a entrega de antes → agora, quando muda). */
 export function linhasDaMudanca(op: OperacaoDoRobo): string[] {
+  if (op.tipo === 'endereco') {
+    if (!op.para) return [];
+    const ref = op.para.referencia ? ` (${op.para.referencia})` : '';
+    const linhas = [`📍 ${enderecoCurto(op.de)} → ${enderecoCurto(op.para)}${ref}`];
+    if (r2(op.taxaAntes) !== r2(op.taxaNova)) linhas.push(`Entrega: ${valor(op.taxaAntes)} → ${valor(op.taxaNova)}`);
+    return linhas;
+  }
   if (op.tipo === 'por') return [`➕ ${qtd(op.entra.quantidade)} ${comObs(op.entra.descricao, op.entra.observacao)} — ${valor(op.entra.precoUnitario * op.entra.quantidade)}`];
   if (op.tipo === 'tirar') return [`➖ ${qtd(op.sai.quantidade)} ${op.sai.descricao} — ${valor(op.sai.precoUnitario * op.sai.quantidade)}`];
   return [`🔄 ${qtd(op.sai.quantidade)} ${op.sai.descricao} → ${qtd(op.entra.quantidade)} ${comObs(op.entra.descricao, op.entra.observacao)}`];
@@ -261,9 +304,12 @@ export const OPCOES_DE_AJUDA = ['Sim, quero ajuda', 'Não, obrigado'];
 
 const linhaDoValor = (total: number, troco: number | null) => `Total: ${valor(total)}${troco != null ? ` · troco para ${valor(troco)}` : ''}.`;
 
-/** Mudou na hora (loja sem servidor ligado: a nuvem aplica). */
-export function textoDoFeito(numero: string | null, total: number, troco: number | null): string {
-  return [`✅ Pronto! ${noPedido(numero).replace(/^p/, 'P')} alterado.`, linhaDoValor(total, troco)].join('\n');
+/** "A entrega vai para: Rua Ipê, 45 · Jardim América." — na mudança de endereço. */
+const fraseDoEndereco = (e: EnderecoDoPedido | null | undefined) => (e ? ` A entrega vai para: ${enderecoCurto(e)}.` : '');
+
+/** Mudou na hora (loja sem servidor ligado: a nuvem aplica). Na mudança de endereço, para onde a entrega vai agora. */
+export function textoDoFeito(numero: string | null, total: number, troco: number | null, endereco?: EnderecoDoPedido | null): string {
+  return [`✅ Pronto! ${noPedido(numero).replace(/^p/, 'P')} alterado.${fraseDoEndereco(endereco)}`, linhaDoValor(total, troco)].join('\n');
 }
 
 /** Pedida ao servidor da loja (a decisão chega em instantes, pela rotina da nuvem). */
@@ -276,10 +322,11 @@ export const TEXTO_DA_PEDIDA = 'Pedi a mudança à loja ⏳ Te confirmo aqui em 
 export function textoDaDecisao(
   numero: string | null,
   situacao: 'aplicada' | 'recusada' | 'vencida',
-  o: { total?: number | null; troco?: number | null } = {},
+  o: { total?: number | null; troco?: number | null; endereco?: EnderecoDoPedido | null } = {},
 ): string {
   const n = noPedido(numero);
-  if (situacao === 'aplicada') return [`✅ A loja confirmou: ${n} alterado.`, ...(o.total != null ? [linhaDoValor(o.total, o.troco ?? null)] : [])].join('\n');
+  if (situacao === 'aplicada')
+    return [`✅ A loja confirmou: ${n} alterado.${fraseDoEndereco(o.endereco)}`, ...(o.total != null ? [linhaDoValor(o.total, o.troco ?? null)] : [])].join('\n');
   if (situacao === 'vencida') return `A loja não respondeu à mudança do ${n}. Já chamei alguém da equipe — te respondem aqui em instantes 🙋`;
   return `A loja não conseguiu mudar o ${n} agora. Quer ajuda de alguém da equipe?`;
 }
@@ -298,6 +345,8 @@ export const ACOES_DA_MUDANCA = {
   tirar: ['pedido_tirar', 'tirar_do_pedido', 'remover_do_pedido', 'pedido_remover'],
   trocar: ['pedido_trocar', 'trocar_no_pedido', 'pedido_alterar', 'alterar_item_do_pedido', 'mudar_item_do_pedido'],
   troco: ['troco_da_mudanca', 'pedido_troco', 'mudar_o_troco', 'mudar_troco'],
+  // A mudança de endereço (PR 3b): abre aqui; o endereço novo vem pelo `definir_entrega` (a ferramenta que tem os campos).
+  endereco: ['pedido_endereco', 'mudar_endereco', 'endereco_do_pedido', 'trocar_endereco', 'mudar_o_endereco'],
   confirmar: ['confirmar_mudanca', 'pode_alterar', 'confirmar_alteracao'],
   desistir: ['desistir_da_mudanca', 'deixar_como_estava', 'cancelar_mudanca', 'nao_alterar'],
 };
@@ -312,10 +361,12 @@ export function lerMudanca(v: unknown): MudancaDoRobo | null {
 /** Como o robô vê o pedido feito (`ver_pedido`): os itens numerados, o que dá para mudar e como pedir a mudança. */
 export function visaoDoPedidoFeito(p: PedidoFeito, situacaoParaOCliente: string, m: MudancaDoRobo | null) {
   const motivo = motivoParaNaoMudar(p);
+  const motivoEnd = motivoParaNaoMudar(p, null, 'endereco');
   const emAndamento = m && m.pedidoId === p.id && !m.situacao ? m : null;
   return {
     numero: p.numero,
     situacao: situacaoParaOCliente,
+    ...(p.tipo === 'entrega' ? { endereco: enderecoCurto(p.endereco) + (p.endereco.referencia ? ` (${p.endereco.referencia})` : '') } : { retirada: true }),
     itens: p.itens.map((i) => ({
       linha: i.linha,
       item: `${qtd(i.quantidade)}x ${comObs(i.descricao, i.observacao)}`,
@@ -331,11 +382,19 @@ export function visaoDoPedidoFeito(p: PedidoFeito, situacaoParaOCliente: string,
           comoMudar:
             'mexer_no_pedido com acao = pedido_por (produto, quantidade, versão, adicionais, observação), pedido_tirar (linha) ou pedido_trocar (linha e o que muda: produto, quantidade, versão, adicionais ou observação).',
         }),
+    // O endereço tem a regra dele (uma vez por pedido, só na entrega): pode dar para mudar o endereço e não os itens.
+    podeMudarEndereco: !motivoEnd,
+    ...(motivoEnd
+      ? motivoEnd.motivo !== motivo?.motivo
+        ? { motivoEndereco: motivoEnd.motivo, mensagemEndereco: motivoEnd.mensagem }
+        : {}
+      : { comoMudarEndereco: 'mexer_no_pedido com acao = pedido_endereco; depois o endereço novo em definir_entrega (rua, número, bairro e referência).' }),
     ...(emAndamento
       ? {
           mudancaEmConferencia: {
-            mudanca: linhasDaMudanca(emAndamento.op),
+            mudanca: emAndamento.op.tipo === 'endereco' && !emAndamento.op.para ? ['📍 esperando o endereço novo'] : linhasDaMudanca(emAndamento.op),
             ...(emAndamento.aguardaTroco ? { esperandoOTroco: true } : {}),
+            ...(emAndamento.aguardaEndereco ? { esperandoOEndereco: true } : {}),
           },
         }
       : {}),

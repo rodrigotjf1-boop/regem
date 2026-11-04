@@ -5,6 +5,7 @@ import {
   TEXTO_DA_PEDIDA,
   contaDaMudanca,
   deltaDaMudanca,
+  enderecoCurto,
   lerMudanca,
   linhasDaMudanca,
   motivoParaNaoMudar,
@@ -35,6 +36,9 @@ const pedido = (o: Partial<PedidoFeito> = {}): PedidoFeito => ({
   pagoAntes: false,
   comNota: false,
   jaMudouPeloRobo: false,
+  jaMudouEnderecoPeloRobo: false,
+  endereco: { rua: 'Rua das Flores', numero: '120', bairro: 'Centro', referencia: null },
+  taxaEntrega: 6,
   mudancaPendente: false,
   desligado: false,
   outroEmAndamento: false,
@@ -52,6 +56,14 @@ const trocarXBacon: OperacaoDoRobo = {
   tipo: 'trocar',
   sai: { comandaItemId: 'ci1', descricao: 'X-Bacon', quantidade: 1, precoUnitario: 32 },
   entra: entra({ produtoId: 'xb', descricao: 'X-Bacon', precoUnitario: 32, observacao: 'sem cebola' }),
+};
+/** A mudança de endereço (PR 3b): do Centro (R$ 6) para o Jardim América (R$ 8), com o complemento. */
+const paraOJardim: OperacaoDoRobo = {
+  tipo: 'endereco',
+  de: { rua: 'Rua das Flores', numero: '120', bairro: 'Centro', referencia: null },
+  para: { rua: 'Rua Ipê', numero: '45', bairro: 'Jardim América', referencia: 'casa azul, portão de ferro', bairroId: 'b2', lat: null, lng: null },
+  taxaAntes: 6,
+  taxaNova: 8,
 };
 /** O pedido como a gravação lê (a linha do `pedido_externo`): dinheiro na entrega, troco para R$ 50. */
 const linha = (o: any = {}) => ({
@@ -193,6 +205,73 @@ describe('o que o cliente lê', () => {
     expect(textoDaRecusaDaGravacao('57', 'PAGO_ONLINE')).toMatchObject({ motivo: 'pago', chamaEquipe: true });
     expect(textoDaRecusaDaGravacao('57', 'NOTA_FISCAL')).toMatchObject({ motivo: 'nota', chamaEquipe: true });
     expect(textoDaRecusaDaGravacao('57', 'LOJA_COM_SERVIDOR')).toEqual({ motivo: 'nao_mudou', mensagem: 'Não consegui mudar o pedido nº 57 agora.', chamaEquipe: true });
+  });
+});
+
+describe('a mudança de endereço com o pedido em produção (PR 3b, decisão 8)', () => {
+  it('a conferência: o endereço de antes → o novo (com o complemento) e a entrega de antes → a da área nova', () => {
+    expect(enderecoCurto({ rua: 'Rua Ipê', numero: '45', bairro: 'Jardim América' })).toBe('Rua Ipê, 45 · Jardim América');
+    expect(linhasDaMudanca(paraOJardim)).toEqual(['📍 Rua das Flores, 120 · Centro → Rua Ipê, 45 · Jardim América (casa azul, portão de ferro)', 'Entrega: R$ 6,00 → R$ 8,00']);
+    // A mesma área: só o endereço (sem a linha da entrega); sem complemento: sem os parênteses.
+    const mesmaArea: OperacaoDoRobo = { ...paraOJardim, para: { ...(paraOJardim as any).para, referencia: null }, taxaNova: 6 } as any;
+    expect(linhasDaMudanca(mesmaArea)).toEqual(['📍 Rua das Flores, 120 · Centro → Rua Ipê, 45 · Jardim América']);
+    // Ainda sem o endereço novo: nada a mostrar.
+    expect(linhasDaMudanca({ ...paraOJardim, para: null } as any)).toEqual([]);
+  });
+
+  it('a conta é a da gravação com a taxa da área nova (os itens não mudam); o troco que cobre continua', () => {
+    expect(deltaDaMudanca(paraOJardim)).toBe(0);
+    expect(contaDaMudanca(linha(), paraOJardim)).toEqual({ ok: true, total: 47, aReceber: 47, troco: 50 });
+    expect(contaDaMudanca(linha({ trocoPara: '46.00', pagamentos: [{ rotulo: 'Dinheiro', valor: 45, prepago: false, troco: 46 }] }), paraOJardim)).toMatchObject({
+      ok: false,
+      code: 'TROCO_INSUFICIENTE',
+    });
+    expect(textoDaConferencia('57', paraOJardim, 45, 47, { antes: 50, depois: 50, possivel: true })).toBe(
+      [
+        'Mudança no pedido nº 57',
+        '📍 Rua das Flores, 120 · Centro → Rua Ipê, 45 · Jardim América (casa azul, portão de ferro)',
+        'Entrega: R$ 6,00 → R$ 8,00',
+        'Total: R$ 45,00 → R$ 47,00',
+        'Troco para R$ 50,00 (continua)',
+        '',
+        'Confere a mudança 👇',
+      ].join('\n'),
+    );
+  });
+
+  it('uma mudança de endereço e uma de item por pedido, cada uma por si; retirada não tem endereço (a equipe)', () => {
+    expect(motivoParaNaoMudar(pedido(), paraOJardim)).toBeNull();
+    expect(motivoParaNaoMudar(pedido({ jaMudouPeloRobo: true }), paraOJardim)).toBeNull();
+    expect(motivoParaNaoMudar(pedido({ jaMudouEnderecoPeloRobo: true }), paraOJardim)).toMatchObject({ motivo: 'ja_mudou_endereco', chamaEquipe: true });
+    expect(motivoParaNaoMudar(pedido({ jaMudouEnderecoPeloRobo: true }), por)).toBeNull();
+    expect(motivoParaNaoMudar(pedido({ tipo: 'retirada' }), null, 'endereco')).toEqual({
+      motivo: 'retirada',
+      mensagem: 'O pedido nº 57 é de retirada na loja: para virar entrega, alguém da equipe ajuda.',
+      chamaEquipe: true,
+    });
+    // As regras de sempre valem também para o endereço: já saiu (o PR 3b-2 leva ao caso urgente), pago, nota.
+    expect(motivoParaNaoMudar(pedido({ status: 'despachado' }), null, 'endereco')).toMatchObject({ motivo: 'saiu' });
+    expect(motivoParaNaoMudar(pedido({ pagoAntes: true }), paraOJardim)).toMatchObject({ motivo: 'pago' });
+  });
+
+  it('o "Pronto" e a decisão da loja dizem para onde a entrega vai agora', () => {
+    expect(textoDoFeito('57', 47, 50, (paraOJardim as any).para)).toBe(
+      '✅ Pronto! Pedido nº 57 alterado. A entrega vai para: Rua Ipê, 45 · Jardim América.\nTotal: R$ 47,00 · troco para R$ 50,00.',
+    );
+    expect(textoDaDecisao('57', 'aplicada', { total: 47, troco: 50, endereco: (paraOJardim as any).para })).toBe(
+      '✅ A loja confirmou: pedido nº 57 alterado. A entrega vai para: Rua Ipê, 45 · Jardim América.\nTotal: R$ 47,00 · troco para R$ 50,00.',
+    );
+  });
+
+  it('o robô vê o endereço do pedido e se dá para mudá-lo; na retirada, não', () => {
+    const v: any = visaoDoPedidoFeito(pedido(), 'em produção', null);
+    expect(v).toMatchObject({ endereco: 'Rua das Flores, 120 · Centro', podeMudar: true, podeMudarEndereco: true });
+    expect(v.comoMudarEndereco).toContain('acao = pedido_endereco');
+    const ret: any = visaoDoPedidoFeito(pedido({ tipo: 'retirada' }), 'em produção', null);
+    expect(ret).toMatchObject({ retirada: true, podeMudar: true, podeMudarEndereco: false, motivoEndereco: 'retirada' });
+    // A mudança de endereço aberta, esperando o endereço novo.
+    const m = { id: 'm1', pedidoId: 'p1', numero: '57', op: { ...paraOJardim, para: null } as any, aguardaEndereco: true, criadaEm: 'agora' };
+    expect((visaoDoPedidoFeito(pedido(), 'em produção', m) as any).mudancaEmConferencia).toEqual({ mudanca: ['📍 esperando o endereço novo'], esperandoOEndereco: true });
   });
 });
 

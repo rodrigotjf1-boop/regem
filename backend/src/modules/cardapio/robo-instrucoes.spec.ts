@@ -151,9 +151,21 @@ describe('instruções do robô — fluxo 2 (o pedido na conversa)', () => {
     expect(texto).not.toContain('quer mudar ou cancelar um pedido; ');
   });
 
+  // .f14 (PR 3b-1): o endereço do pedido em produção — abre pelo mexer_no_pedido, o endereço vai pelo definir_entrega.
+  it('muda o ENDEREÇO do pedido em produção: pedido_endereco abre, o endereço novo vai pelo definir_entrega; fora da área e retirada, a equipe', () => {
+    expect(texto).toContain('Mudar o ENDEREÇO (podeMudarEndereco = true');
+    expect(texto).toContain('acao = pedido_endereco; depois mande o endereço novo em definir_entrega');
+    expect(texto).toContain('o complemento ou ponto de referência (ou "sem referência")');
+    expect(texto).toContain('Fora da área de entrega, pedido de retirada ou podeMudarEndereco = false: a equipe');
+    expect(texto).toContain('Depois de pedido_endereco, é o endereço novo do pedido já feito.');
+    // O endereço saiu da lista do que é "com a equipe"; trocar entre entrega e retirada entrou.
+    expect(texto).not.toContain('Mudar o endereço, a forma de pagamento');
+    expect(texto).toContain('trocar entre entrega e retirada');
+  });
+
   it('as ações da mudança citadas nas instruções são as que o Regem entende (ACOES_DA_MUDANCA)', () => {
     const conhecidas = new Set(Object.values(ACOES_DA_MUDANCA).flat());
-    for (const a of ['pedido_por', 'pedido_tirar', 'pedido_trocar', 'troco_da_mudanca', 'confirmar_mudanca', 'desistir_da_mudanca'])
+    for (const a of ['pedido_por', 'pedido_tirar', 'pedido_trocar', 'pedido_endereco', 'troco_da_mudanca', 'confirmar_mudanca', 'desistir_da_mudanca'])
       expect(conhecidas.has(a)).toBe(true);
   });
 
@@ -225,8 +237,8 @@ describe('instruções do robô — fluxo 2 (o pedido na conversa)', () => {
     const motivos = [
       'fora_da_area', 'observacao_do_pedido', 'trocar_pelo_trio',
       'usar_cashback', 'guardar_cashback', 'usar_premio', 'guardar_premio', 'usar_cupom', 'tirar_cupom',
-      // As ações da mudança do pedido já feito (PR 3), também do mexer_no_pedido.
-      'pedido_por', 'pedido_tirar', 'pedido_trocar', 'troco_da_mudanca', 'confirmar_mudanca', 'desistir_da_mudanca',
+      // As ações da mudança do pedido já feito (PR 3 e 3b), também do mexer_no_pedido.
+      'pedido_por', 'pedido_tirar', 'pedido_trocar', 'pedido_endereco', 'troco_da_mudanca', 'confirmar_mudanca', 'desistir_da_mudanca',
     ];
     for (const nome of citadas) if (!motivos.includes(nome)) expect(doFluxo2).toContain(nome);
     for (const nome of doFluxo2) expect(citadas.has(nome)).toBe(true);
