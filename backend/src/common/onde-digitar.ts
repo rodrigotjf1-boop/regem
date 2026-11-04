@@ -34,6 +34,13 @@ export function ondeDigitar(tipo: string): OndeDigitar | null {
       passos: ['Abra o app Regem Atendimento.', 'Na tela "Primeira vez neste aparelho", digite os 6 números.', 'Toque em "Parear".'],
       obs: 'O celular precisa de internet: o app fala com o Regem na nuvem.',
     };
+  // A ponte do chat do iFood e da 99 (mig 366): o programa "Regem · Ponte do chat" no PC da loja.
+  if (tipo === 'ponte_chat')
+    return {
+      titulo: 'No PC, no programa Regem · Ponte do chat',
+      passos: ['Abra o programa Regem · Ponte do chat.', 'Na tela "Parear este PC", digite os 6 números.', 'Clique em "Parear".'],
+      obs: 'O PC precisa de internet: a ponte fala com o Regem na nuvem. Depois, entre no iFood e na 99 dentro da ponte.',
+    };
   return null;
 }
 

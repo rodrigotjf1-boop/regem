@@ -2317,6 +2317,9 @@ const SO_NUVEM = new Set([
   // "Disponível / Ocupado: embalando" de quem atende pelo app "Regem Atendimento" (mig 353, @cloud-only): o app fala
   // com a nuvem (decisão do dono, 02/11/2026); a loja não tem esta tabela.
   'atendimento_presenca',
+  // A ponte do chat do iFood e da 99 (mig 366, @cloud-only): o programa da ponte fala com a nuvem; as mensagens do chat
+  // e a presença de cada ponte moram lá — a loja não tem estas tabelas.
+  'chat_ponte', 'chat_plataforma_msg',
   // As automáticas de Delivery › Marketing (mig 356, @cloud-only): os ajustes e o que cada uma mandou — o WhatsApp e o
   // cardápio moram na nuvem; a loja não tem estas tabelas.
   'relacionamento_config', 'relacionamento_envio',
@@ -2401,8 +2404,9 @@ const FILA_DE_SAIDA_PENDENTE = "status in ('pendente', 'enviando', 'aguardando_i
 const FORA_DO_ENVIO_SEGURO = {
   // servidor_local: o próprio servidor (a nuvem o devolve pelo fingerprint, no provisionamento); totem: nasce na nuvem
   // (distribuição) e desce no pull (sync-config); atendimento (mig 353): o celular do app "Regem Atendimento" nasce e
-  // pareia na nuvem e desce no pull — a cópia daqui volta numa reinstalação.
-  equipamento: "tipo in ('servidor_local','totem','atendimento')",
+  // pareia na nuvem e desce no pull — a cópia daqui volta numa reinstalação; ponte_chat (mig 366): o programa da ponte do
+  // chat do iFood e da 99, igual ao celular do app — nasce, pareia e é revogado só na nuvem.
+  equipamento: "tipo in ('servidor_local','totem','atendimento','ponte_chat')",
 };
 
 // Tabelas com dado da loja que NÃO sobem nem voltam. Devolve [{ tabela, linhas }].

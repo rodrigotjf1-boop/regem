@@ -200,7 +200,9 @@ descrever('trava do apagamento — contra o Postgres', () => {
     // O celular do app "Regem Atendimento" (mig 353) nasce, pareia e é revogado só na nuvem: NÃO sobe, e a cópia daqui
     // volta da nuvem numa reinstalação — não trava o apagamento.
     expect(PARCIAL).not.toContain("'atendimento'");
-    expect(SEGURO).toBe("tipo in ('servidor_local','totem','atendimento')");
+    // O programa da ponte do chat (mig 366): o mesmo caminho do celular do app.
+    expect(PARCIAL).not.toContain("'ponte_chat'");
+    expect(SEGURO).toBe("tipo in ('servidor_local','totem','atendimento','ponte_chat')");
     expect(fonte).toMatch(/filtro = ` where not \(\$\{parcial\}\)\$\{seguro \? ` and not \(\$\{seguro\}\)` : ''\}`;/); // e o daemon o aplica
     const tenant = (await pool.query(`insert into empresa (nome) values ('Teste equipamento fora do envio') returning id`)).rows[0].id;
     const foraDoEnvio = async () =>
@@ -208,7 +210,7 @@ descrever('trava do apagamento — contra o Postgres', () => {
     const equipar = (tipo: string) =>
       pool.query(`insert into equipamento (tenant_id, tipo, nome, token) values ($1, $2, $3, $4)`, [tenant, tipo, `teste ${tipo}`, `tok-fora-${tipo}-${tenant}`]);
     try {
-      for (const tipo of ['pdv', 'salao', 'kds', 'impressora', 'estacao_impressao', 'tela_senhas', 'ponto_baixa', 'totem', 'servidor_local', 'atendimento']) {
+      for (const tipo of ['pdv', 'salao', 'kds', 'impressora', 'estacao_impressao', 'tela_senhas', 'ponto_baixa', 'totem', 'servidor_local', 'atendimento', 'ponte_chat']) {
         await equipar(tipo);
       }
       expect(await foraDoEnvio()).toBe(0); // sobem, voltam da nuvem ou são, por desenho, só desta máquina

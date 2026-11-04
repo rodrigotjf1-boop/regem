@@ -12,7 +12,8 @@ import {
 export class CreateEquipamentoDto {
   // 'tela_senhas' (mig 337): a TV do balcão com Preparando e Pronto, pareada por código, sem login.
   // 'atendimento' (mig 353): o celular com o app "Regem Atendimento", pareado por código; cada pessoa entra com o PIN.
-  @IsIn(['kds', 'terminal_ponto', 'servidor_local', 'impressora', 'pdv', 'salao', 'ponto_baixa', 'estacao_impressao', 'tela_senhas', 'atendimento'])
+  // 'ponte_chat' (mig 366): o programa da ponte do chat do iFood e da 99 no PC da loja, pareado por código, sem login.
+  @IsIn(['kds', 'terminal_ponto', 'servidor_local', 'impressora', 'pdv', 'salao', 'ponto_baixa', 'estacao_impressao', 'tela_senhas', 'atendimento', 'ponte_chat'])
   tipo!: string;
 
   @IsString()

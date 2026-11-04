@@ -160,6 +160,11 @@ export class EquipamentoService {
       throw new ForbiddenException(
         'O app de atendimento só se cadastra e se pareia pela nuvem: abra esta mesma tela no Regem na nuvem. Aqui, no servidor da loja, ele só aparece.',
       );
+    // A ponte do chat do iFood e da 99 (mig 366): o mesmo caminho — o programa fala com a nuvem.
+    if (tipo === 'ponte_chat' && ehServidorLocal())
+      throw new ForbiddenException(
+        'A ponte do chat só se cadastra e se pareia pela nuvem: abra esta mesma tela no Regem na nuvem. Aqui, no servidor da loja, ela só aparece.',
+      );
   }
 
   // Código de 6 dígitos, fácil de ditar por telefone no suporte.
@@ -381,6 +386,46 @@ export class EquipamentoService {
     if (!usadoEm || Date.now() - usadoEm >= USO_GRAVAR_A_CADA_MS)
       await this.db.update(equipamento).set({ ultimoUsoEm: new Date() }).where(eq(equipamento.id, row.id));
     return { id: row.id, tenantId: row.tenantId, unidadeId: row.unidadeId ?? null, nome: row.nome };
+  }
+
+  /**
+   * O PROGRAMA DA PONTE DO CHAT (mig 366): confere o segredo do PC a cada chamada da ponte (não há login de pessoa). Só o
+   * tipo `ponte_chat`, ativo, não revogado e COM segredo — e com a MESMA régua de "acesso vale" da integração (V75,
+   * ERR-302): empresa viva e loja viva. A ponte recebe nome de cliente e o que ele escreveu; loja apagada não recebe nada.
+   * A recusa diz o motivo em `code` (V70): só `TERMINAL_REVOGADO` faz o programa esquecer o pareamento. Último uso no
+   * máximo a cada 5 min.
+   */
+  async aparelhoDaPonte(terminalId: unknown, segredo: unknown): Promise<{ id: string; tenantId: string; unidadeId: string | null; nome: string }> {
+    const id = String(terminalId ?? '');
+    const s = String(segredo ?? '');
+    const naoReconhecido = () =>
+      new ForbiddenException({
+        message: 'Este PC não foi reconhecido. Se continuar, gere um código novo em Configurações › Equipamentos e pareie a ponte de novo.',
+        code: 'TERMINAL_NAO_RECONHECIDO',
+      });
+    if (!/^[0-9a-f-]{36}$/i.test(id) || !s) throw naoReconhecido();
+    const r: any = await this.db.execute(sql`
+      select e.id, e.tenant_id, e.unidade_id, e.nome, e.ativo, e.revogado_em, e.segredo_hash, e.ultimo_uso_em,
+             emp.deleted_at is not null as empresa_apagada,
+             (e.unidade_id is not null and (u.id is null or u.deleted_at is not null)) as loja_apagada
+        from equipamento e
+        join empresa emp on emp.id = e.tenant_id
+        left join unidade u on u.id = e.unidade_id
+       where e.id = ${id}::uuid and e.tipo = 'ponte_chat'`);
+    const row = (r.rows ?? r)[0];
+    if (!row) throw naoReconhecido();
+    if (!row.ativo || row.revogado_em || row.empresa_apagada || row.loja_apagada)
+      throw new ForbiddenException({
+        message: row.loja_apagada || row.empresa_apagada
+          ? 'A loja desta ponte não existe mais no Regem. A ponte parou.'
+          : 'A ponte deste PC foi revogada no Regem. Peça um código novo ao gestor e pareie de novo.',
+        code: 'TERMINAL_REVOGADO',
+      });
+    if (!row.segredo_hash || this.hash(s) !== row.segredo_hash) throw naoReconhecido();
+    const usadoEm = row.ultimo_uso_em ? new Date(row.ultimo_uso_em).getTime() : 0;
+    if (!usadoEm || Date.now() - usadoEm >= USO_GRAVAR_A_CADA_MS)
+      await this.db.update(equipamento).set({ ultimoUsoEm: new Date() }).where(eq(equipamento.id, row.id));
+    return { id: row.id, tenantId: row.tenant_id, unidadeId: row.unidade_id ?? null, nome: row.nome };
   }
 
   async validarSegredo(tenantId: string, terminalId: string, segredo?: string | null) {
@@ -880,8 +925,9 @@ export class EquipamentoService {
       if (outro) throw new ConflictException(`A loja já tem outro servidor da loja em uso ("${outro.nome}"). Reativar este deixaria dois.`);
     }
 
-    // O celular do app de atendimento (mig 353) também volta com código: o segredo foi apagado ao revogar.
-    const comCodigo = ['pdv', 'salao', 'estacao_impressao', 'tela_senhas', 'atendimento'].includes(row.tipo);
+    // O celular do app de atendimento (mig 353) e a ponte do chat (mig 366) também voltam com código: o segredo foi
+    // apagado ao revogar.
+    const comCodigo = ['pdv', 'salao', 'estacao_impressao', 'tela_senhas', 'atendimento', 'ponte_chat'].includes(row.tipo);
     let codigo: string | null = null;
     if (comCodigo) {
       for (let i = 0; i < 5 && !codigo; i++) {
@@ -1232,8 +1278,8 @@ export class EquipamentoService {
       agenteMaquina: r.agenteMaquina ?? null, // máquina do agente dona da USB (mig 267)
       estacaoId: r.estacaoId ?? null, // estação de impressão que imprime esta impressora (mig 324)
       // Estação e tela de senhas: já trocaram o código pelo segredo? Separa "nunca pareou" de "pareou e está fora".
-      // O celular do app de atendimento (mig 353) também: "esperando o celular" × "pareado".
-      ...(r.tipo === 'estacao_impressao' || r.tipo === 'tela_senhas' || r.tipo === 'atendimento' ? { pareado: !!r.segredoHash } : {}),
+      // O celular do app de atendimento (mig 353) também: "esperando o celular" × "pareado"; e a ponte do chat (mig 366).
+      ...(r.tipo === 'estacao_impressao' || r.tipo === 'tela_senhas' || r.tipo === 'atendimento' || r.tipo === 'ponte_chat' ? { pareado: !!r.segredoHash } : {}),
       // Estação (parear sem reinstalar, 22/10/2026): QUANDO pareou e QUAL PC (o nome do Windows que ela mandou ao parear).
       // "Novo PC com impressora" mostra as estações que já existem pelo PC e espera o pareamento NOVO (a data muda) — o
       // nome da máquina da batida (`estacao_status`) não volta da nuvem numa reinstalação do servidor; este volta.

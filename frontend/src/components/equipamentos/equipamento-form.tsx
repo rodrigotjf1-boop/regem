@@ -94,6 +94,7 @@ export function EquipamentoForm({
   const [pdv, salao, kds, imp] = [f.tipo === 'pdv', f.tipo === 'salao', f.tipo === 'kds', f.tipo === 'impressora'];
   const estacao = f.tipo === 'estacao_impressao';
   const atendimento = f.tipo === 'atendimento'; // o celular do app "Regem Atendimento" (mig 353)
+  const ponteChat = f.tipo === 'ponte_chat'; // o programa da ponte do chat do iFood e da 99 (mig 366)
   const local = f.conexao === 'local';
   const etiqueta = !!item?.fazEtiqueta;
   const travadoPeloServidor = novo && peloServidorLocal && (kds || imp || estacao);
@@ -241,8 +242,8 @@ export function EquipamentoForm({
         <div className="space-y-1.5">
           <Label htmlFor="eq-tipo">Tipo</Label>
           <Select id="eq-tipo" value={f.tipo} onChange={(e) => muda({ tipo: e.target.value })} disabled={!novo}>
-            {/* O app de atendimento (mig 353) se cadastra só pela nuvem: no servidor da loja ele não é oferecido. */}
-            {TIPOS.filter((t) => !(novo && NO_SERVIDOR_DA_LOJA && t.value === 'atendimento')).map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+            {/* O app de atendimento (mig 353) e a ponte do chat (mig 366) se cadastram só pela nuvem: no servidor da loja não são oferecidos. */}
+            {TIPOS.filter((t) => !(novo && NO_SERVIDOR_DA_LOJA && (t.value === 'atendimento' || t.value === 'ponte_chat'))).map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
             {!TIPOS.some((t) => t.value === f.tipo) && <option value={f.tipo}>{f.tipo}</option>}
           </Select>
           {!novo && <p className={ajuda}>O tipo não muda depois do cadastro.</p>}
@@ -254,7 +255,7 @@ export function EquipamentoForm({
         )}
         <div className="space-y-1.5">
           <Label htmlFor="eq-nome">Nome</Label>
-          <Input id="eq-nome" data-foco-inicial value={f.nome} maxLength={80} onChange={(e) => muda({ nome: e.target.value })} placeholder={estacao ? 'Ex.: Estação Delivery' : atendimento ? 'Ex.: Celular do balcão' : 'Ex.: Terminal do balcão'} autoComplete="off" />
+          <Input id="eq-nome" data-foco-inicial value={f.nome} maxLength={80} onChange={(e) => muda({ nome: e.target.value })} placeholder={estacao ? 'Ex.: Estação Delivery' : atendimento ? 'Ex.: Celular do balcão' : ponteChat ? 'Ex.: Ponte do PC do delivery' : 'Ex.: Terminal do balcão'} autoComplete="off" />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="eq-unidade">Unidade</Label>
@@ -271,6 +272,13 @@ export function EquipamentoForm({
             O celular com o app <b>Regem Atendimento</b>: a fila do atendimento no bolso. Depois de cadastrar, aparece o código: abra o app no
             celular e digite o código na tela “Primeira vez neste aparelho”. Depois, cada pessoa entra com o PIN dela (o mesmo do ponto) e
             atende a fila da loja escolhida acima.
+          </p>
+        )}
+        {ponteChat && (
+          <p className={`rounded-md bg-secondary px-3 py-2 text-sm ${texto2}`}>
+            O programa <b>Regem · Ponte do chat</b> no PC da loja: ele fica com o iFood e a 99 abertos e traz as conversas para a tela
+            Atendimento. Depois de cadastrar, aparece o código: abra o programa no PC e digite o código na tela “Parear este PC”. Depois,
+            entre no iFood e na 99 dentro da ponte, com o login da loja.
           </p>
         )}
 
