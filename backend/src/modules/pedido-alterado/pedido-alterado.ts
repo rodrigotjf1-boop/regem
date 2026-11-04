@@ -20,6 +20,22 @@ export const STATUS_ALTERAVEL = ['confirmado', 'pronto'];
 
 export const podeAlterarNoCanal = (canal: unknown) => !CANAIS_SEM_ALTERACAO.includes(String(canal ?? '').toLowerCase());
 
+// ===== A alteração pedida na NUVEM para a loja que tem servidor ligado (V53) =====
+// A tela da nuvem (e o robô, que roda na nuvem) não mexe na cozinha nem nas impressoras da loja: grava a alteração como
+// "pedida" e manda um comando ao servidor da loja; QUEM DECIDE (aplicada | recusada) é só o servidor da loja, pelo mesmo
+// `alterar` da equipe. A nuvem nunca decide — assim os dois lados nunca discordam (o sincronismo só garante que a decisão
+// não volta a "pedida": `naoVoltaAPedida`/`decisaoVence` no sync.service e `condicaoSobrescrever` no sync-daemon).
+
+/** A versão do servidor da loja que aplica a alteração vinda da nuvem. Mais antigo: a tela da nuvem recusa com o motivo. */
+export const VERSAO_QUE_APLICA_ALTERACAO = '1.30.13';
+
+/** A "pedida" tem validade: o servidor da loja que a recebe depois disso recusa ("chegou tarde") — a mesma regra que a
+ *  tela usa para mostrar "a loja não respondeu" (V80: a regra é UMA). */
+export const VALIDADE_DA_PEDIDA_MIN = 5;
+
+export const pedidaVencida = (criadaEm: Date | string | null | undefined, agora = Date.now()) =>
+  criadaEm != null && agora - new Date(criadaEm).getTime() > VALIDADE_DA_PEDIDA_MIN * 60_000;
+
 /** O som do KDS no pedido alterado (decisão 6A): toca ao chegar e repete até o "Visto" — o padrão é a cada 1 minuto. */
 export const SONS_DO_ALTERADO = ['uma', '1min', '2min'] as const;
 export type SomDoAlterado = (typeof SONS_DO_ALTERADO)[number];

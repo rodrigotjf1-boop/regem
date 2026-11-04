@@ -803,6 +803,17 @@ export class SyncService {
         const resolvidoVence = ehChamado
           ? sql` or (excluded.status = 'resolvido' and atendimento_chamado.status <> 'resolvido')`
           : sql``;
+        // ALTERAÇÃO DO PEDIDO (mig 362): a nuvem só cria a "pedida"; quem DECIDE (aplicada | recusada) é o servidor da
+        // loja. A decisão que sobe vale aqui mesmo com a data mais velha (relógios diferentes), e a cópia "pedida" não
+        // desfaz a decisão. Mesma regra no pull do servidor da loja (sync-daemon, `condicaoSobrescrever`): sem ela, a
+        // "pedida" voltaria à loja e seria aplicada de novo.
+        const ehAlteracao = lote.tabela === 'pedido_alteracao' && colunas.has('situacao');
+        const naoVoltaAPedida = ehAlteracao
+          ? sql` and not (pedido_alteracao.situacao <> 'pedida' and excluded.situacao = 'pedida')`
+          : sql``;
+        const decisaoVence = ehAlteracao
+          ? sql` or (excluded.situacao <> 'pedida' and pedido_alteracao.situacao = 'pedida')`
+          : sql``;
         // LWW (update-se-mais-nova) p/ tabela com updated_at; senão do-nothing (append imutável).
         const conflito =
           (modo === 'lww' || colunas.has('updated_at')) && setCols.length && colunas.has(lwwCol)
@@ -811,7 +822,7 @@ export class SyncService {
                 sql`, `,
               )}
               where ${sql.identifier(lote.tabela)}.tenant_id = excluded.tenant_id
-                and (${sql.identifier(lote.tabela)}.${sql.identifier(lwwCol)} < excluded.${sql.identifier(lwwCol)}${resolvidoVence})${naoDesfazRevogacao}${naoReabreCartao}${naoVoltaANovo}${naoRessuscita}${naoReabreChamado}`
+                and (${sql.identifier(lote.tabela)}.${sql.identifier(lwwCol)} < excluded.${sql.identifier(lwwCol)}${resolvidoVence}${decisaoVence})${naoDesfazRevogacao}${naoReabreCartao}${naoVoltaANovo}${naoRessuscita}${naoReabreChamado}${naoVoltaAPedida}`
             : sql`on conflict (id) do nothing`;
         const linhaVals = (linha: any) =>
           sql`(${sql.join([tenantId, ...cols.map((c) => coagir(linha[c]))].map((v) => sql`${v}`), sql`, `)})`;

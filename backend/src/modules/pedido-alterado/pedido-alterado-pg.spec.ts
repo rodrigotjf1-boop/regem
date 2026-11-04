@@ -9,6 +9,7 @@ import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.servic
 import { VendasService } from '../vendas/vendas.service';
 import { CashbackService } from '../cashback/cashback.service';
 import { DeliveryService } from '../delivery/delivery.service';
+import { EdgeAlteracoesProcessor } from '../delivery/edge-alteracoes.processor';
 import { EntregadorService } from '../entregador/entregador.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -55,8 +56,15 @@ descrever('pedido alterado pela equipe (Postgres real)', () => {
         .catch((e: any) => {
           if (!['23505', '42P07'].includes(e?.code)) throw e;
         });
+    // A versão do servidor da loja (a telemetria da frota, na nuvem): a alteração pedida na nuvem só vai ao servidor que aplica.
+    await pool.query(`alter table edge_heartbeat add column if not exists versao text`);
     const tem = async (t: string) => (await q(`select to_regclass(current_schema() || '.' || $1) is not null as ok`, [t]))[0].ok;
     if (!(await tem('entregador_chegada'))) await pool.query(readFileSync(join(MIGRATIONS, '201_entregador_chegada.sql'), 'utf8'));
+    // A fila de comandos para o servidor da loja (só nuvem): a mig 124 cria, a 269 põe o destino e os dados.
+    if (!(await tem('edge_comando'))) {
+      await pool.query(readFileSync(join(MIGRATIONS, '124_edge_release_comando.sql'), 'utf8'));
+      await pool.query(readFileSync(join(MIGRATIONS, '269_impressora_status_codepage_comando_destino.sql'), 'utf8'));
+    }
     // A mig 362 só quando falta (o banco do CI já a tem pelo apply-all; o local de quem testa, talvez não).
     if (!(await tem('pedido_alteracao'))) await pool.query(readFileSync(join(MIGRATIONS, '362_pedido_alteracao.sql'), 'utf8'));
   });
@@ -65,7 +73,7 @@ descrever('pedido alterado pela equipe (Postgres real)', () => {
     if (empresas.length) {
       for (const t of ['pedido_alteracao', 'pedido_envio', 'pedido_notificacao', 'impressao_job', 'producao_pedido', 'nota_fiscal', 'cashback_movimento',
         'cashback_saldo', 'cashback_plano', 'pedido_externo', 'lancamento_caixa', 'comanda', 'cliente_endereco', 'cliente', 'cardapio_bairro', 'produto',
-        'categoria_produto', 'equipamento', 'edge_heartbeat', 'colaborador', 'funcao', 'unidade'])
+        'categoria_produto', 'equipamento', 'edge_heartbeat', 'edge_comando', 'colaborador', 'funcao', 'unidade'])
         await pool.query(`delete from ${t} where tenant_id = any($1::uuid[])`, [empresas]).catch(() => {});
       await pool.query(`delete from entregador_chegada where tenant_id = any($1::uuid[])`, [empresas]).catch(() => {});
       await pool.query('delete from empresa where id = any($1::uuid[])', [empresas]).catch(() => {});
@@ -380,5 +388,113 @@ descrever('pedido alterado pela equipe (Postgres real)', () => {
     await delivery.alterar(equipe(l), p.id, { endereco: { rua: 'Rua Ipê', numero: '45', bairroId: l.jardim }, trocoPara: 100 });
     expect(await coord({ id: p.id, cliente_id: cli, endereco_rua: 'Rua Ipê', endereco_numero: '45' })).toEqual({ lat: -22.9, lng: -43.2 });
     expect(await q(`select lat::float8 as lat, avisada from entregador_chegada where pedido_id = $1`, [p.id])).toEqual([{ lat: -22.9, avisada: false }]);
+  });
+
+  // ── a alteração feita na NUVEM de uma loja com servidor ligado: o servidor da loja aplica (V53) ──────────────────────
+  const servidorNaVersao = (l: Loja, versao: string) =>
+    q(`insert into edge_heartbeat (tenant_id, unidade_id, versao) values ($1,$2,$3)`, [l.t, l.u, versao]);
+  const itensNaVenda = async (comandaId: string) =>
+    (await q(`select count(*)::int as n from comanda_item where comanda_id = $1`, [comandaId]))[0].n as number;
+  // O módulo do servidor da loja que grava a pedida vinda do comando — avaliado do TEXTO do arquivo (é o que o daemon roda).
+  function moduloDoDaemon(): { SQL_ALTERACAO_PEDIDA: string; paramsDaAlteracaoPedida: (d: any) => any[] | null } {
+    const fonte = readFileSync(join(__dirname, '../../../edge/alteracao-pedida.mjs'), 'utf8');
+    const nomes = [...fonte.matchAll(/^export (?:const|function) (\w+)/gm)].map((m) => m[1]);
+    return new Function(fonte.replace(/^export (const|function) /gm, '$1 ') + `\nreturn { ${nomes.join(', ')} };`)();
+  }
+  // "No servidor da loja": o processador só roda com EDGE_MODE e cuida só da loja dele.
+  async function noServidorDaLoja<T>(l: Loja, fn: (proc: EdgeAlteracoesProcessor) => Promise<T>): Promise<T> {
+    const unidadeAntes = process.env.EDGE_UNIDADE_ID;
+    process.env.EDGE_MODE = 'true';
+    process.env.EDGE_UNIDADE_ID = l.u;
+    try {
+      return await fn(new EdgeAlteracoesProcessor(db, delivery));
+    } finally {
+      delete process.env.EDGE_MODE;
+      if (unidadeAntes === undefined) delete process.env.EDGE_UNIDADE_ID;
+      else process.env.EDGE_UNIDADE_ID = unidadeAntes;
+    }
+  }
+
+  it('na tela da nuvem: a alteração vira "pedida" e vai ao servidor da loja pelo comando; servidor antigo recusa com o motivo', async () => {
+    const l = await loja();
+    const p = await pedidoAceito(l);
+    await servidorNaVersao(l, '1.30.12');
+    await expect(delivery.alterar(equipe(l), p.id, { adicionar: [{ produtoId: l.agua }] })).rejects.toEqual(recusa('LOJA_COM_SERVIDOR'));
+    await q(`update edge_heartbeat set versao = '1.30.13' where tenant_id = $1`, [l.t]);
+    const id = randomUUID();
+    const r: any = await delivery.alterar(equipe(l), p.id, { idAlteracao: id, adicionar: [{ produtoId: l.agua }], trocoPara: 100 });
+    expect(r).toMatchObject({ pedida: true, repetida: false, alteracao: { id, situacao: 'pedida', origem: 'equipe', porNome: 'Ana de teste' } });
+    // Nada mudou ainda (quem aplica é o servidor da loja): a venda, o pedido e a cozinha seguem como estavam.
+    expect(await itensNaVenda(p.comandaId)).toBe(2);
+    expect((await q(`select total::float8 as total, alterado from pedido_externo where id = $1`, [p.id]))[0]).toEqual({ total: 45, alterado: false });
+    expect((await viasAlteradas(p.comandaId)).length).toBe(0);
+    // O comando leva os dados da pedida ao servidor da loja; a mesma pedida de novo não manda outro.
+    const cmds = await q(`select comando, dados from edge_comando where tenant_id = $1`, [l.t]);
+    expect(cmds).toHaveLength(1);
+    expect(cmds[0]).toMatchObject({ comando: 'alterar_pedido', dados: { id, pedidoId: p.id, situacao: 'pedida', pedido: { adicionar: [{ produtoId: l.agua }], trocoPara: 100 } } });
+    expect((await delivery.alterar(equipe(l), p.id, { idAlteracao: id, adicionar: [{ produtoId: l.agua }] }) as any).repetida).toBe(true);
+    expect((await q(`select count(*)::int as n from edge_comando where tenant_id = $1`, [l.t]))[0].n).toBe(1);
+    expect(auditados).toContainEqual(expect.objectContaining({ acao: 'pediu_alteracao_ao_servidor_da_loja', entidadeId: p.id }));
+    // A gaveta mostra "esperando a loja" (ainda dentro da validade).
+    const [h] = (await delivery.alteracoesDoPedido(l.t, p.id) as any).alteracoes;
+    expect(h).toMatchObject({ situacao: 'pedida', vencida: false });
+  });
+
+  it('o servidor da loja grava a pedida do comando (uma vez), aplica pelo mesmo caminho da equipe e não aplica duas vezes', async () => {
+    const l = await loja();
+    const p = await pedidoAceito(l);
+    await servidorNaVersao(l, '1.30.13');
+    const id = randomUUID();
+    await delivery.alterar(equipe(l), p.id, { idAlteracao: id, adicionar: [{ produtoId: l.agua }], trocoPara: 100 });
+    const [cmd] = await q(`select dados from edge_comando where tenant_id = $1`, [l.t]);
+    await q(`delete from edge_heartbeat where tenant_id = $1`, [l.t]);
+    // No banco da loja a linha chega pelo comando (aqui, o mesmo banco: apaga-se a da nuvem para provar a gravação).
+    await q(`delete from pedido_alteracao where id = $1`, [id]);
+    const daemon = moduloDoDaemon();
+    expect(daemon.paramsDaAlteracaoPedida({ id: 'x' })).toBeNull();
+    const params = daemon.paramsDaAlteracaoPedida(cmd.dados)!;
+    expect((await pool.query(daemon.SQL_ALTERACAO_PEDIDA, params)).rowCount).toBe(1);
+    expect((await pool.query(daemon.SQL_ALTERACAO_PEDIDA, params)).rowCount).toBe(0); // o sync já a trouxe: não grava de novo
+
+    // Uma pedida de OUTRA loja da mesma empresa: este servidor não toca nela (o da outra loja aplica).
+    const daOutraLoja = randomUUID();
+    await q(
+      `insert into pedido_alteracao (id, tenant_id, unidade_id, pedido_id, situacao, pedido) values ($1,$2,$3,$4,'pedida','{}'::jsonb)`,
+      [daOutraLoja, l.t, randomUUID(), randomUUID()],
+    );
+
+    const aplicadas = await noServidorDaLoja(l, async (proc) => [await proc.processar(), await proc.processar()]);
+    expect(aplicadas).toEqual([1, 0]); // decidida: não volta para a fila
+    expect((await q(`select situacao from pedido_alteracao where id = $1`, [daOutraLoja]))[0].situacao).toBe('pedida');
+    const [a] = await q(`select situacao, motivo, mudanca, depois from pedido_alteracao where id = $1`, [id]);
+    expect(a).toMatchObject({ situacao: 'aplicada', motivo: null, mudanca: { itens: [{ acao: 'por', descricao: 'Água de teste', valor: 3 }] }, depois: { total: 48, trocoPara: 100 } });
+    expect(await itensNaVenda(p.comandaId)).toBe(3);
+    // Mesmo chamada de novo (a pedida voltou pelo sync com relógio errado, por exemplo), não aplica outra vez.
+    await delivery.aplicarAlteracaoPedida({ ...(await q(`select * from pedido_alteracao where id = $1`, [id]))[0], tenantId: l.t, pedidoId: p.id, createdAt: new Date() } as any);
+    expect(await itensNaVenda(p.comandaId)).toBe(3);
+  });
+
+  it('o servidor da loja recusa com o motivo (a regra da equipe) e a pedida que chegou depois da validade', async () => {
+    const l = await loja();
+    const p = await pedidoAceito(l);
+    const pedida = async (id: string, pedido: any, criadaEm: Date) => {
+      await q(
+        `insert into pedido_alteracao (id, tenant_id, unidade_id, pedido_id, comanda_id, origem, situacao, por_nome, pedido, created_at)
+         values ($1,$2,$3,$4,$5,'robo','pedida','Robô do WhatsApp',$6::jsonb,$7)`,
+        [id, l.t, l.u, p.id, p.comandaId, JSON.stringify(pedido), criadaEm],
+      );
+      return { id, tenantId: l.t, pedidoId: p.id, porId: null, porNome: 'Robô do WhatsApp', origem: 'robo', pedido, pedidoDoCliente: null, createdAt: criadaEm };
+    };
+    // R$ 45 + batata = R$ 59, e o cliente paga com R$ 50: o servidor recusa com o motivo do troco.
+    const semTroco = await pedida(randomUUID(), { adicionar: [{ produtoId: l.batata }] }, new Date());
+    expect(await delivery.aplicarAlteracaoPedida(semTroco)).toEqual({ aplicada: false, motivo: expect.stringContaining('não cobre o novo valor') });
+    expect((await q(`select situacao, motivo from pedido_alteracao where id = $1`, [semTroco.id]))[0]).toMatchObject({ situacao: 'recusada', motivo: expect.stringContaining('troco') });
+    // Chegou depois de 5 minutos: recusa sem mexer no pedido.
+    const tarde = await pedida(randomUUID(), { adicionar: [{ produtoId: l.agua }], trocoPara: 100 }, new Date(Date.now() - 6 * 60_000));
+    expect((await delivery.aplicarAlteracaoPedida(tarde)).motivo).toContain('depois de 5 minutos');
+    expect(await itensNaVenda(p.comandaId)).toBe(2);
+    // A gaveta da nuvem mostra a recusa com o motivo (a mais nova primeiro).
+    const h: any = await delivery.alteracoesDoPedido(l.t, p.id);
+    expect(h.alteracoes.map((x: any) => x.situacao)).toEqual(['recusada', 'recusada']);
   });
 });

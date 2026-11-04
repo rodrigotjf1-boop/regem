@@ -49,6 +49,7 @@ import {
   SQL_SEM_RESPONDER, SQL_DANFE_JA_NA_FILA, SQL_DANFE_ALVO, SQL_DANFE_INSERIR, SQL_JOB_DO_COMANDO,
   SQL_FILA_POR_IMPRESSORA, SQL_IMPRESSORAS_COM_AVISO, SQL_ESTACOES,
 } from './impressao-fila.mjs';
+import { SQL_ALTERACAO_PEDIDA, paramsDaAlteracaoPedida } from './alteracao-pedida.mjs';
 import {
   ehTempoEsgotado, motivoDoAdiamento, loteDepoisDoTempoEsgotado, loteDepoisDoSucesso, adiamentoViraFalha,
 } from './sync-push-ritmo.mjs';
@@ -493,6 +494,12 @@ function condicaoSobrescrever(tabela, cols) {
   // desce (não é "novo"). Mesma regra no envio para a nuvem (sync.service, `naoVoltaANovo`).
   if (tabela === 'pedido_externo' && cols.has('status')) {
     cond.push(`not (${q(tabela)}.status <> 'novo' and excluded.status = 'novo')`);
+  }
+  // ALTERAÇÃO DO PEDIDO DECIDIDA AQUI NÃO VOLTA A "PEDIDA" (mig 362): quem decide (aplicada | recusada) é este servidor; a
+  // cópia "pedida" da nuvem — mais nova pela data com o relógio daqui atrasado — faria o EdgeAlteracoesProcessor aplicar
+  // DE NOVO (item em dobro). Mesma regra no envio para a nuvem (sync.service, `naoVoltaAPedida` e `decisaoVence`).
+  if (tabela === 'pedido_alteracao' && cols.has('situacao')) {
+    cond.push(`not (${q(tabela)}.situacao <> 'pedida' and excluded.situacao = 'pedida')`);
   }
   const terminais = ESTADOS_TERMINAIS[tabela];
   if (terminais && cols.has('status')) {
@@ -1793,6 +1800,16 @@ async function imprimirDaNuvem(d) {
   return r.rowCount ? 'enfileirado' : 'já estava na fila (ou impressora inexistente neste servidor)';
 }
 
+// Comando 'alterar_pedido' (nuvem→loja, mig 362): a alteração do pedido pedida na tela da nuvem ou pelo robô. Grava a
+// linha "pedida" aqui (o id é o da nuvem); quem aplica é o EdgeAlteracoesProcessor do servidor, pelo mesmo `alterar` da
+// equipe, e a decisão sobe pelo sincronismo. Se a linha já desceu pelo pull, não grava de novo.
+async function gravarAlteracaoPedida(d) {
+  const params = paramsDaAlteracaoPedida(d);
+  if (!params) return 'sem os dados da alteração';
+  const r = await pool.query(SQL_ALTERACAO_PEDIDA, params);
+  return r.rowCount ? 'alteração recebida: o servidor aplica' : 'a alteração já estava aqui';
+}
+
 async function enfileirarTesteLocal(soEsta = null) {
   // Só as impressoras DESTA loja (e as sem loja). As de todas as lojas descem para cá (config
   // da rede): testar as da outra loja mandava papel para um IP que aqui é outro aparelho — e o
@@ -1849,6 +1866,8 @@ async function verificarComandos(jaRecebidos) {
           resultado = await imprimirDanfeLocal(c.dados);
         } else if (c.comando === 'imprimir') {
           resultado = await imprimirDaNuvem(c.dados);
+        } else if (c.comando === 'alterar_pedido') {
+          resultado = await gravarAlteracaoPedida(c.dados);
         } else {
           resultado = 'ignorado';
         }

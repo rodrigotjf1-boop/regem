@@ -4,6 +4,7 @@ import { DespachoPublicoController } from './despacho-publico.controller';
 import { DeliveryLojaController } from './delivery-loja.controller';
 import { DeliveryService } from './delivery.service';
 import { EdgePedidosProcessor } from './edge-pedidos.processor';
+import { EdgeAlteracoesProcessor } from './edge-alteracoes.processor';
 import { TotemExpiracaoProcessor } from './totem-expiracao.processor';
 import { CloudFallbackProcessor } from './cloud-fallback.processor';
 import { PedidoEnvioProcessor } from './pedido-envio.processor';
@@ -40,7 +41,8 @@ import { AvisoDeAtrasoProcessor } from './aviso-de-atraso.processor';
     EntregadoresAoVivoController],
   providers: [DeliveryService, SyncTokenGuard, CredencialDoTotemGuard, EdgePedidosProcessor,
     TotemExpiracaoProcessor, CloudFallbackProcessor, PedidoEnvioProcessor, EntregadoresAoVivoService,
-    AvisoDeAtrasoProcessor], // o aviso automático de atraso (mig 347), só na nuvem
+    AvisoDeAtrasoProcessor, // o aviso automático de atraso (mig 347), só na nuvem
+    EdgeAlteracoesProcessor], // a alteração pedida na nuvem, aplicada no servidor da loja (mig 362)
   exports: [DeliveryService],
 })
 export class DeliveryModule {}

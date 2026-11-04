@@ -12,6 +12,14 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **A alteração feita na nuvem (ou pelo robô) de loja com servidor ligado: o servidor da loja aplica (04/11; sem
+  migration — usa a 362).** ⚠️ **A versão do corte tem de ser a 1.30.13** (`VERSAO_QUE_APLICA_ALTERACAO` em
+  `pedido-alterado.ts`): a nuvem só manda a alteração ao servidor que informa essa versão ou maior; abaixo dela, a tela da
+  nuvem segue recusando com o motivo. Se o corte sair com outro número, ajustar a constante ANTES. No `.zip`: o
+  `EdgeAlteracoesProcessor` (aplica a "pedida" pelo mesmo `alterar` da equipe), o comando `alterar_pedido` e a regra "a
+  decidida não volta a pedida" no `edge/sync-daemon.mjs` (+ o arquivo novo `edge/alteracao-pedida.mjs`) — **tocou `edge/`:
+  o `.exe` novo sai no mesmo corte (V21)**.
+
 - **Pedido alterado pela equipe, de ponta a ponta (PR 2 do pedido repetido/alterado, 04/11; mig 362 vai para a loja).**
   Na nuvem com o merge, para a loja SEM servidor ligado: a alteração numa gravação só (itens, total, cobrança e troco do
   entregador, cashback, histórico), a via "PEDIDO ALTERADO" nas impressoras que já imprimiram, o KDS com o aviso grande,

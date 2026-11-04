@@ -7,9 +7,12 @@ import {
   linhasDoAlteradoNoEntregador,
   mudaACozinha,
   pagoAntes,
+  pedidaVencida,
   podeAlterarNoCanal,
   resumoDaMudanca,
+  VALIDADE_DA_PEDIDA_MIN,
   valoresDepois,
+  VERSAO_QUE_APLICA_ALTERACAO,
   type Mudanca,
 } from './pedido-alterado';
 
@@ -170,6 +173,18 @@ describe('pedido alterado — a via e o resumo', () => {
   it('o endereço numa linha: rua e número, depois o bairro; sem os campos, o texto combinado', () => {
     expect(enderecoEmLinha({ rua: 'Rua Ipê', numero: '45', bairro: 'Jardim América' })).toBe('Rua Ipê, 45 · Jardim América');
     expect(enderecoEmLinha({ endereco: 'Av. Brasil, 455' })).toBe('Av. Brasil, 455');
+  });
+});
+
+describe('pedido alterado — a alteração pedida na nuvem para o servidor da loja', () => {
+  it('a pedida vale por 5 minutos (a mesma regra do servidor da loja e da tela)', () => {
+    const agora = new Date('2026-11-04T20:00:00Z').getTime();
+    expect(pedidaVencida(new Date(agora - 4 * 60_000), agora)).toBe(false);
+    expect(pedidaVencida(new Date(agora - 5 * 60_000), agora)).toBe(false);
+    expect(pedidaVencida(new Date(agora - 5 * 60_000 - 1), agora)).toBe(true);
+    expect(pedidaVencida(null, agora)).toBe(false);
+    expect(VALIDADE_DA_PEDIDA_MIN).toBe(5);
+    expect(VERSAO_QUE_APLICA_ALTERACAO).toMatch(/^\d+\.\d+\.\d+$/);
   });
 });
 

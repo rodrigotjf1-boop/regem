@@ -29,6 +29,8 @@ export type Alteracao = {
   depois: Valores | null;
   vias: { impressora: string; via: string }[] | null;
   pedidoDoCliente: string | null;
+  motivo?: string | null; // por que o servidor da loja recusou
+  vencida?: boolean; // a "pedida" passou da validade sem resposta da loja (a regra é do servidor)
 };
 export type HistoricoDaAlteracao = {
   alteracoes: Alteracao[];

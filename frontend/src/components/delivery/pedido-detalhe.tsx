@@ -244,11 +244,16 @@ export function PedidoDetalhe({
           : undefined,
         ...(trocoEditado ? { trocoPara: trocoNum } : {}),
       });
-      const vias = Array.isArray(r?.alteracao?.vias) ? r.alteracao.vias.length : 0;
-      const cozinha = remover.size > 0 || adicionar.length > 0;
-      toast.success(
-        `Pedido alterado.${vias ? ` Saiu a via "PEDIDO ALTERADO" em ${vias === 1 ? '1 impressora' : `${vias} impressoras`}.` : ' Nenhuma via saiu: confira as impressoras.'}${cozinha ? ' A cozinha recebeu o aviso.' : ''}`,
-      );
+      if (r?.pedida) {
+        // Tela da nuvem de loja com servidor ligado (mig 362): quem aplica é o servidor da loja.
+        toast.info('Alteração enviada ao servidor da loja: ela aparece aqui quando a loja aplicar (em até 2 minutos).');
+      } else {
+        const vias = Array.isArray(r?.alteracao?.vias) ? r.alteracao.vias.length : 0;
+        const cozinha = remover.size > 0 || adicionar.length > 0;
+        toast.success(
+          `Pedido alterado.${vias ? ` Saiu a via "PEDIDO ALTERADO" em ${vias === 1 ? '1 impressora' : `${vias} impressoras`}.` : ' Nenhuma via saiu: confira as impressoras.'}${cozinha ? ' A cozinha recebeu o aviso.' : ''}`,
+        );
+      }
       setIdAlteracao(novoIdAlteracao());
       onChanged();
       onClose();
@@ -306,7 +311,7 @@ export function PedidoDetalhe({
               </p>
             )}
             {/* Pedido alterado (mig 362): o que mudou, antes → agora, as vias e se a cozinha viu. */}
-            {p.alterado && <AlteracaoDoPedido pedidoId={p.id} versao={p.alteradoEm ?? null} />}
+            {(p.alterado || editavel) && <AlteracaoDoPedido pedidoId={p.id} versao={p.alteradoEm ?? null} silencioso={!p.alterado} />}
             <div className="mt-2 space-y-1 text-sm">
               <p className="flex flex-wrap items-center gap-1.5">
                 <span>{p.tipo === 'retirada' ? '🏪' : '🛵'}</span>
