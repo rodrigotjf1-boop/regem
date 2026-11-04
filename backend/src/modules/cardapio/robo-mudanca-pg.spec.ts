@@ -12,10 +12,19 @@ import { FidelidadeService } from '../fidelidade/fidelidade.service';
 import { FiscalService } from '../fiscal/fiscal.service';
 import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
 import { VendasService } from '../vendas/vendas.service';
+import { AtendimentoService, consultaDosAvisosDoEndereco } from '../atendimento/atendimento.service';
+import { sql } from 'drizzle-orm';
 import { CardapioService } from './cardapio.service';
 import { RoboPedidoService } from './robo-pedido.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+// O geocodificador (Nominatim) sem rede (PR 3b-2, a distância entre os endereços): a Rua das Flores e a Rua Ipê em pontos
+// conhecidos — sem OSRM_URL, a distância sai em linha reta.
+const mockGeocode = jest.fn(async (q: string) =>
+  /Rua Ipê/.test(q) ? { lat: -22.9, lng: -43.2 } : /Rua das Flores/.test(q) ? { lat: -22.92, lng: -43.18 } : null,
+);
+jest.mock('../../common/geocode', () => ({ ...jest.requireActual('../../common/geocode'), geocode: (q: string) => mockGeocode(q) }));
 
 // O ROBÔ MUDA O PEDIDO JÁ FEITO, DE PONTA A PONTA (PR 3 do pedido alterado; mig 363) — contra Postgres (TEST_PG_URL),
 // com a venda, a cozinha, o cashback e as vias de verdade (a MESMA alteração da equipe, `DeliveryService.alterar`), como
@@ -71,8 +80,12 @@ descrever('o robô muda o pedido já feito (Postgres)', () => {
   const chamados: any[] = [];
   const atendimento = { abrirPeloRobo: async (tenantId: string, unidadeId: string | null, d: any) => void chamados.push({ tenantId, unidadeId, ...d }) } as any;
   const robo = new RoboPedidoService(db, cardapio, whats, oficial, delivery, atendimento);
+  // O endereço depois que o pedido saiu (PR 3b-2): o caso de verdade em `atendimento_chamado`, a ação da equipe e a rotina
+  // que manda "Endereço atualizado!" — pelos mesmos envios de teste.
+  const atendimentoDeVerdade = new AtendimentoService(db, eventos, delivery, auditoria, undefined, oficial, whats);
+  const roboComEquipe = new RoboPedidoService(db, cardapio, whats, oficial, delivery, atendimentoDeVerdade);
   const empresas: string[] = [];
-  const antes = { segredo: process.env.BOT_RESOLVER_SECRET, edge: process.env.EDGE_MODE };
+  const antes = { segredo: process.env.BOT_RESOLVER_SECRET, edge: process.env.EDGE_MODE, osrm: process.env.OSRM_URL };
 
   /** Uma migration numa transação só — de novo quando o DDL corre com o de outra spec no mesmo banco (ERR-194). */
   const aplicar = (arq: string) =>
@@ -93,6 +106,7 @@ descrever('o robô muda o pedido já feito (Postgres)', () => {
   beforeAll(async () => {
     process.env.BOT_RESOLVER_SECRET = SENHA;
     delete process.env.EDGE_MODE; // como NUVEM (o jest do CI roda sem EDGE_MODE — V44)
+    delete process.env.OSRM_URL; // a distância do caso em linha reta (sem rede)
     for (const m of DO_ROBO) await aplicar(m);
     // "Servidor da loja ligado" (V53) e a versão dele: tabelas da nuvem (o banco do CI é de loja — V44).
     for (const t of ['edge_status', 'edge_heartbeat'])
@@ -109,6 +123,8 @@ descrever('o robô muda o pedido já feito (Postgres)', () => {
       await aplicar('269_impressora_status_codepage_comando_destino.sql');
     }
     if (!(await tem('pedido_alteracao'))) await aplicar('362_pedido_alteracao.sql');
+    // O índice parcial da rotina do "Endereço atualizado!" (PR 3b-2) — idempotente.
+    await aplicar('364_pedido_alteracao_aviso_do_endereco.sql');
   });
   beforeEach(() => {
     enviados.length = 0;
@@ -118,8 +134,9 @@ descrever('o robô muda o pedido já feito (Postgres)', () => {
     if (antes.segredo === undefined) delete process.env.BOT_RESOLVER_SECRET;
     else process.env.BOT_RESOLVER_SECRET = antes.segredo;
     if (antes.edge !== undefined) process.env.EDGE_MODE = antes.edge;
+    if (antes.osrm !== undefined) process.env.OSRM_URL = antes.osrm;
     if (empresas.length) {
-      for (const t of ['robo_carrinho', 'robo_config', 'pedido_alteracao', 'pedido_envio', 'pedido_notificacao', 'impressao_job', 'producao_pedido',
+      for (const t of ['atendimento_chamado', 'robo_carrinho', 'robo_config', 'pedido_alteracao', 'pedido_envio', 'pedido_notificacao', 'impressao_job', 'producao_pedido',
         'cashback_movimento', 'cashback_saldo', 'cashback_plano', 'pedido_externo', 'lancamento_caixa', 'comanda', 'cliente_endereco', 'cliente',
         'cardapio_senha_seq', 'cardapio_bairro', 'cardapio_config', 'produto', 'categoria_produto', 'equipamento', 'edge_heartbeat', 'edge_comando',
         'colaborador', 'funcao', 'unidade'])
@@ -672,5 +689,299 @@ descrever('o robô muda o pedido já feito (Postgres)', () => {
       endereco: { rua: 'Rua Ipê', numero: '45', bairroId: l.jardim, taxa: 1 } as any,
     });
     expect((await q(`select taxa_entrega::float8 as taxa from pedido_externo where id = $1`, [outro.id]))[0].taxa).toBe(8);
+  });
+
+  // ── o endereço depois que o pedido SAIU (PR 3b-2, decisão 8): o robô não muda — chama a equipe como urgente ─────────
+  const despachar = (pedidoId: string) =>
+    q(
+      `update pedido_externo set status = 'despachado', despachado_em = now(), entregador_nome = 'João de teste', entregador_telefone = '21988887777'
+        where id = $1`,
+      [pedidoId],
+    );
+  const equipe = (l: Loja) => ({ tenantId: l.t, colaboradorId: l.gestor, nome: 'Ana de teste', categoria: 'gerente' }) as any;
+  const casos = (l: Loja) => q(`select * from atendimento_chamado where tenant_id = $1 order by criado_em`, [l.t]);
+  /** Espera algo que acontece depois da resposta (a distância medida, o aviso que sai em seguida). */
+  async function esperar<T>(ler: () => Promise<T>, pronto: (v: T) => boolean, ms = 8000): Promise<T> {
+    const ate = Date.now() + ms;
+    for (;;) {
+      const v = await ler();
+      if (pronto(v) || Date.now() > ate) return v;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  }
+  /** O cliente do pedido que já saiu pede o endereço novo ao robô: o caso urgente que a equipe recebe. */
+  async function casoDoEnderecoNaRua(l: Loja, p: { id: string }, endereco: any = { rua: 'Rua Ipê', numero: '45', bairro: 'Jardim América' }) {
+    await despachar(p.id);
+    const c = await l.ctx();
+    await roboComEquipe.mexerNosItens(c, { acao: 'pedido_endereco' });
+    const r: any = await roboComEquipe.definirEntrega(c, endereco);
+    const [caso] = await casos(l);
+    return { c, r, caso };
+  }
+  const user = equipe;
+
+  it('o pedido já saiu: o robô pega o endereço novo e abre o caso URGENTE com a distância, a taxa da área nova e o entregador', async () => {
+    const l = await loja();
+    const p = await pedidoAceito(l);
+    await despachar(p.id);
+    const c = await l.ctx();
+    const v: any = await roboComEquipe.ver(c);
+    expect(v.pedidoFeito).toMatchObject({ podeMudar: false, motivo: 'saiu', enderecoPelaEquipe: true });
+
+    let r: any = await roboComEquipe.mexerNosItens(c, { acao: 'pedido_endereco' });
+    expect(r).toMatchObject({ ok: true, proximo: { campo: 'endereco_da_mudanca' } });
+    expect(r.proximo.pergunta).toContain('já saiu para a entrega');
+    expect(l.doCliente()).toEqual([]); // até aqui o Regem não manda nada
+    // Sem a pergunta da referência: o endereço que o cliente disse basta para a equipe.
+    r = await roboComEquipe.definirEntrega(c, { rua: 'Rua Ipê', numero: '45', bairro: 'Jardim América' });
+    expect(r).toMatchObject({ ok: true, proximo: { campo: 'equipe_chamada' } });
+    expect(r.feito).toContain('caso urgente aberto');
+    expect(l.doCliente()).toEqual([
+      {
+        para: l.celular,
+        texto:
+          'Seu pedido nº 57 já saiu para entrega, então a mudança de endereço passa pela equipe: ela avisa o entregador e confere a distância. Já chamei — alguém te responde aqui em instantes 🙋',
+      },
+    ]);
+    const [caso] = await casos(l);
+    expect(caso).toMatchObject({ tipo: 'mudanca', prioridade: 'urgente', pedido_id: p.id, pedido_numero: '57', canal: 'whatsapp', status: 'aberto' });
+    expect(caso.detalhe.robo.motivo).toBe('o pedido nº 57 já saiu para a entrega e o cliente quer mudar o endereço');
+    expect(caso.detalhe.endereco).toMatchObject({
+      pedidoId: p.id,
+      numero: '57',
+      de: { rua: 'Rua das Flores', numero: '120', bairro: 'Centro' },
+      para: { rua: 'Rua Ipê', numero: '45', bairro: 'Jardim América', bairroId: l.jardim },
+      taxaAntes: 6,
+      taxaNova: 8,
+      total: 45,
+      aReceber: 45,
+      comANova: { total: 47, aReceber: 47 },
+      pagoAntes: false,
+      trocoPara: 50,
+      entregador: { nome: 'João de teste', telefone: '21988887777' },
+      via: 'cloud',
+    });
+    // A distância é medida DEPOIS (não segura a resposta ao cliente) e entra no caso.
+    const medido = await esperar(
+      async () => (await q(`select detalhe from atendimento_chamado where id = $1`, [caso.id]))[0].detalhe,
+      (d: any) => 'distancia' in (d?.endereco ?? {}),
+    );
+    expect(medido.endereco.distancia).toMatchObject({ pelo: 'linha_reta', min: null });
+    expect(medido.endereco.distancia.km).toBeGreaterThan(2.9);
+    expect(medido.endereco.distancia.km).toBeLessThan(3.1);
+    // O pedido NÃO mudou (quem muda é a equipe) e a mudança da conversa saiu.
+    expect((await q(`select endereco_rua, status from pedido_externo where id = $1`, [p.id]))[0]).toEqual({ endereco_rua: 'Rua das Flores', status: 'despachado' });
+    expect(await alteracoes(p.id)).toHaveLength(0);
+    expect((await q(`select mudanca from robo_carrinho where tenant_id = $1 and status = 'aberto'`, [l.t]))[0]?.mudanca ?? null).toBeNull();
+  });
+
+  it('a equipe muda pelo caso: só o endereço (sem cozinha e sem via); o cliente recebe "Endereço atualizado!" uma vez', async () => {
+    const l = await loja();
+    const p = await pedidoAceito(l);
+    const { caso } = await casoDoEnderecoNaRua(l, p);
+    const jobsAntes = (await q(`select count(*)::int as n from impressao_job where tenant_id = $1`, [l.t]))[0].n;
+    enviados.length = 0;
+
+    const r: any = await atendimentoDeVerdade.mudarEnderecoDepoisQueSaiu(user(l), caso.id, { taxa: 'manter' });
+    expect(r).toMatchObject({ ok: true, situacao: 'aplicada', mudado: { taxa: 6, porNome: 'Ana de teste' } });
+    expect((await q(`select endereco_rua, endereco_numero, endereco_bairro, taxa_entrega::float8 as taxa, total::float8 as total, status, alterado from pedido_externo where id = $1`, [p.id]))[0]).toEqual({
+      endereco_rua: 'Rua Ipê', endereco_numero: '45', endereco_bairro: 'Jardim América', taxa: 6, total: 45, status: 'despachado', alterado: true,
+    });
+    const [a] = await alteracoes(p.id);
+    expect(a).toMatchObject({ origem: 'equipe', situacao: 'aplicada', id: r.mudado.alteracaoId, vias: null });
+    expect(a.pedido).toMatchObject({ depoisQueSaiu: true, chamadoId: caso.id, endereco: { rua: 'Rua Ipê', numero: '45', taxa: 6 } });
+    // Sem via e sem cozinha: o entregador já está na rua.
+    expect((await q(`select count(*)::int as n from impressao_job where tenant_id = $1`, [l.t]))[0].n).toBe(jobsAntes);
+    expect((await q(`select count(*)::int as n from producao_pedido where comanda_id = $1 and alterado_em is not null`, [p.comandaId]))[0].n).toBe(0);
+    // O caso guarda o que a equipe fez e fica com quem tocou.
+    const [depois] = await casos(l);
+    expect(depois.detalhe.endereco.mudado).toMatchObject({ taxa: 6, alteracaoId: a.id, porId: l.gestor });
+    expect(depois.responsavel_id).toBe(l.gestor);
+
+    // Mudou na nuvem, na hora: o cliente recebe já — e a rotina não manda de novo (a marca é na alteração).
+    const doCliente = await esperar(async () => l.doCliente(), (x) => x.length > 0);
+    expect(doCliente).toEqual([{ para: l.celular, texto: 'Endereço atualizado! O entregador já está indo para a Rua Ipê, 45 👍' }]);
+    await atendimentoDeVerdade.avisarEnderecosMudados();
+    await atendimentoDeVerdade.avisarEnderecosMudados();
+    expect(l.doCliente()).toHaveLength(1);
+    expect((await alteracoes(p.id))[0].pedido.avisoAoCliente).toMatchObject({ em: expect.any(String) });
+    expect((await alteracoes(p.id))[0].pedido.avisoAoCliente.falhou).toBeUndefined();
+
+    // A fila mostra a mudança aplicada e o aviso; o "Mudar" de novo não muda outra vez.
+    const fila: any = await atendimentoDeVerdade.fila(user(l), null);
+    expect(fila.casos.find((x: any) => x.id === caso.id).mudancaDoEndereco).toMatchObject({ situacao: 'aplicada', aviso: { em: expect.any(String) } });
+    expect(await atendimentoDeVerdade.mudarEnderecoDepoisQueSaiu(user(l), caso.id, { taxa: 'nova' })).toMatchObject({ repetido: true });
+    expect(await alteracoes(p.id)).toHaveLength(1);
+  });
+
+  it('cobrar a taxa nova: a da área nova e o total novo; um valor digitado não vale; item depois que saiu, nunca', async () => {
+    const l = await loja();
+    const p = await pedidoAceito(l);
+    const { caso } = await casoDoEnderecoNaRua(l, p);
+    for (const taxa of [10, '10', 'outra', undefined])
+      await expect(atendimentoDeVerdade.mudarEnderecoDepoisQueSaiu(user(l), caso.id, { taxa })).rejects.toThrow('Escolha a taxa da entrega');
+    expect(await atendimentoDeVerdade.mudarEnderecoDepoisQueSaiu(user(l), caso.id, { taxa: 'nova' })).toMatchObject({ situacao: 'aplicada', mudado: { taxa: 8 } });
+    expect((await q(`select taxa_entrega::float8 as taxa, total::float8 as total from pedido_externo where id = $1`, [p.id]))[0]).toEqual({ taxa: 8, total: 47 });
+    // O "depois que saiu" só muda o endereço e o troco (a regra mora no `alterar`).
+    await expect(
+      delivery.alterar(user(l), p.id, { adicionar: [{ produtoId: l.agua, quantidade: 1 }] } as any, { depoisQueSaiu: true }),
+    ).rejects.toThrow('Depois que o pedido saiu, só o endereço e o troco mudam.');
+    // Sem a marca, o pedido na rua não muda pela alteração de sempre (a tela do painel).
+    await expect(
+      delivery.alterar(user(l), p.id, { idAlteracao: randomUUID(), endereco: { rua: 'Rua A', numero: '1', bairroId: l.centro } }),
+    ).rejects.toThrow('Só dá para alterar um pedido aceito e ainda na loja');
+  });
+
+  it('fora da área: o caso vai mesmo assim, sem taxa nova; "cobrar a nova" não dá e "manter" muda o endereço', async () => {
+    const l = await loja();
+    const p = await pedidoAceito(l);
+    const { r, caso } = await casoDoEnderecoNaRua(l, p, { rua: 'Rua Ipê', numero: '45', bairro: 'Zona Rural Distante' });
+    expect(r).toMatchObject({ ok: true, proximo: { campo: 'equipe_chamada' } });
+    expect(caso.detalhe.endereco).toMatchObject({ para: { bairro: 'Zona Rural Distante', bairroId: null }, taxaNova: null, comANova: null });
+    await expect(atendimentoDeVerdade.mudarEnderecoDepoisQueSaiu(user(l), caso.id, { taxa: 'nova' })).rejects.toThrow('fora da área de entrega');
+    await atendimentoDeVerdade.mudarEnderecoDepoisQueSaiu(user(l), caso.id, { taxa: 'manter' });
+    expect((await q(`select endereco_bairro, taxa_entrega::float8 as taxa from pedido_externo where id = $1`, [p.id]))[0]).toEqual({
+      endereco_bairro: 'Zona Rural Distante',
+      taxa: 6,
+    });
+  });
+
+  it('o troco que não cobre a taxa nova: o caso já diz que "cobrar a nova" não dá (a conta da gravação — V74)', async () => {
+    const l = await loja();
+    const p = await pedidoAceito(l, { troco: 46 });
+    const { caso } = await casoDoEnderecoNaRua(l, p);
+    expect(caso.detalhe.endereco.comANova.recusa).toContain('O troco para R$ 46,00 não cobre o novo valor (R$ 47,00)');
+    await expect(atendimentoDeVerdade.mudarEnderecoDepoisQueSaiu(user(l), caso.id, { taxa: 'nova' })).rejects.toThrow('Mantenha a taxa do pedido.');
+    expect(await atendimentoDeVerdade.mudarEnderecoDepoisQueSaiu(user(l), caso.id, { taxa: 'manter' })).toMatchObject({ situacao: 'aplicada' });
+  });
+
+  it('loja com servidor: vai como "pedida" (com a marca e o caso); o servidor da loja aplica e a rotina avisa depois; passou do prazo, não avisa', async () => {
+    const l = await loja();
+    const p = await pedidoAceito(l);
+    const { caso } = await casoDoEnderecoNaRua(l, p);
+    await q(`insert into edge_heartbeat (tenant_id, unidade_id, versao) values ($1,$2,'1.30.13')`, [l.t, l.u]);
+    enviados.length = 0;
+    expect(await atendimentoDeVerdade.mudarEnderecoDepoisQueSaiu(user(l), caso.id, { taxa: 'nova' })).toMatchObject({ situacao: 'pedida' });
+    const [a] = await alteracoes(p.id);
+    expect(a).toMatchObject({ situacao: 'pedida' });
+    expect(a.pedido).toMatchObject({ depoisQueSaiu: true, chamadoId: caso.id, precoInformado: true, endereco: { rua: 'Rua Ipê', taxa: 8 } });
+    // Enquanto a loja não aplica: nada ao cliente; a fila diz "pedida"; o "Mudar" de novo não pede outra.
+    await atendimentoDeVerdade.avisarEnderecosMudados();
+    expect(l.doCliente()).toEqual([]);
+    expect(((await atendimentoDeVerdade.fila(user(l), null)) as any).casos.find((x: any) => x.id === caso.id).mudancaDoEndereco).toMatchObject({ situacao: 'pedida' });
+    expect(await atendimentoDeVerdade.mudarEnderecoDepoisQueSaiu(user(l), caso.id, { taxa: 'nova' })).toMatchObject({ repetido: true });
+
+    // O servidor da loja aplica a pedida: com o "depois que saiu" e a taxa escolhida — sem via.
+    expect(
+      await delivery.aplicarAlteracaoPedida({
+        id: a.id, tenantId: l.t, pedidoId: p.id, porId: l.gestor, porNome: a.por_nome, origem: 'equipe', pedido: a.pedido, pedidoDoCliente: a.pedido_do_cliente, createdAt: new Date(),
+      }),
+    ).toEqual({ aplicada: true, motivo: null });
+    expect((await q(`select endereco_rua, taxa_entrega::float8 as taxa, total::float8 as total from pedido_externo where id = $1`, [p.id]))[0]).toEqual({
+      endereco_rua: 'Rua Ipê',
+      taxa: 8,
+      total: 47,
+    });
+    await atendimentoDeVerdade.avisarEnderecosMudados();
+    expect(l.doCliente()).toEqual([{ para: l.celular, texto: 'Endereço atualizado! O entregador já está indo para a Rua Ipê, 45 👍' }]);
+
+    // Outra loja: a mudança aplicada que chegou à nuvem tarde demais (a loja ficou sem internet) — marca, não manda.
+    const l2 = await loja();
+    const p2 = await pedidoAceito(l2);
+    const { caso: caso2 } = await casoDoEnderecoNaRua(l2, p2);
+    await q(`insert into edge_heartbeat (tenant_id, unidade_id, versao) values ($1,$2,'1.30.13')`, [l2.t, l2.u]);
+    await atendimentoDeVerdade.mudarEnderecoDepoisQueSaiu(user(l2), caso2.id, { taxa: 'manter' });
+    const [a2] = await alteracoes(p2.id);
+    await delivery.aplicarAlteracaoPedida({
+      id: a2.id, tenantId: l2.t, pedidoId: p2.id, porId: l2.gestor, porNome: a2.por_nome, origem: 'equipe', pedido: a2.pedido, pedidoDoCliente: null, createdAt: new Date(),
+    });
+    // "Manter" vale também no servidor da loja: a taxa escolhida viaja na pedida (não a do bairro novo, R$ 8).
+    expect((await q(`select taxa_entrega::float8 as taxa from pedido_externo where id = $1`, [p2.id]))[0].taxa).toBe(6);
+    await q(`update pedido_alteracao set created_at = now() - interval '40 minutes' where id = $1`, [a2.id]);
+    enviados.length = 0;
+    await atendimentoDeVerdade.avisarEnderecosMudados();
+    expect(l2.doCliente()).toEqual([]);
+    expect((await alteracoes(p2.id))[0].pedido.avisoAoCliente).toMatchObject({ expirou: true });
+  });
+
+  it('a rotina do "Endereço atualizado!": duas réplicas na mesma volta mandam UMA vez; a consulta lê pelo índice parcial (mig 364)', async () => {
+    const l = await loja();
+    const p = await pedidoAceito(l);
+    const { caso } = await casoDoEnderecoNaRua(l, p);
+    await q(`insert into edge_heartbeat (tenant_id, unidade_id, versao) values ($1,$2,'1.30.13')`, [l.t, l.u]);
+    await atendimentoDeVerdade.mudarEnderecoDepoisQueSaiu(user(l), caso.id, { taxa: 'manter' });
+    const [a] = await alteracoes(p.id);
+    await delivery.aplicarAlteracaoPedida({
+      id: a.id, tenantId: l.t, pedidoId: p.id, porId: l.gestor, porNome: a.por_nome, origem: 'equipe', pedido: a.pedido, pedidoDoCliente: null, createdAt: new Date(),
+    });
+    enviados.length = 0;
+    // A réplica B lê a alteração ANTES de a A marcar e só grava depois que a A terminou: a marca é condicional (V24/V42).
+    let leuB!: () => void;
+    let liberarB!: () => void;
+    const bLeu = new Promise<void>((r) => (leuB = r));
+    const portaoB = new Promise<void>((r) => (liberarB = r));
+    let leiturasB = 0;
+    const dbB = new Proxy(db, {
+      get(alvo: any, chave) {
+        if (chave !== 'execute') return alvo[chave];
+        return async (consulta: any) => {
+          const r = await alvo.execute(consulta);
+          if (leiturasB++ === 0) {
+            leuB();
+            await portaoB;
+          }
+          return r;
+        };
+      },
+    });
+    const replicaB = new AtendimentoService(dbB, eventos, delivery, auditoria, undefined, oficial, whats);
+    const b = replicaB.avisarEnderecosMudados(a.id);
+    await bLeu;
+    await atendimentoDeVerdade.avisarEnderecosMudados(a.id);
+    liberarB();
+    await b;
+    expect(l.doCliente()).toEqual([{ para: l.celular, texto: 'Endereço atualizado! O entregador já está indo para a Rua Ipê, 45 👍' }]);
+
+    // O plano da consulta da rotina usa o índice parcial (a condição é a mesma — sem isso, varreria o histórico todo).
+    const plano = await db.transaction(async (tx: any) => {
+      await tx.execute(sql`set local enable_seqscan = off`);
+      const r: any = await tx.execute(sql`explain ${consultaDosAvisosDoEndereco()}`);
+      return (r.rows ?? r).map((x: any) => x['QUERY PLAN']).join('\n');
+    });
+    expect(plano).toContain('idx_pedido_alteracao_aviso_do_endereco');
+  });
+
+  it('loja com servidor numa versão antiga: a equipe recebe a frase certa (avisar o entregador pelo WhatsApp)', async () => {
+    const l = await loja();
+    const p = await pedidoAceito(l);
+    const { caso } = await casoDoEnderecoNaRua(l, p);
+    await q(`insert into edge_heartbeat (tenant_id, unidade_id, versao) values ($1,$2,'1.30.12')`, [l.t, l.u]);
+    await expect(atendimentoDeVerdade.mudarEnderecoDepoisQueSaiu(user(l), caso.id, { taxa: 'manter' })).rejects.toThrow(
+      'O servidor desta loja ainda não muda o endereço do pedido que já saiu',
+    );
+    expect(await alteracoes(p.id)).toHaveLength(0);
+  });
+
+  it('a conversa já estava com a equipe (um caso aberto antes): o caso do endereço abre, mas o Regem não fala por cima', async () => {
+    const l = await loja();
+    const p = await pedidoAceito(l);
+    await atendimentoDeVerdade.abrirPeloRobo(l.t, l.u, { tipo: 'humano', telefone: l.celular, mensagem: 'Quer falar com alguém' });
+    enviados.length = 0;
+    const { r } = await casoDoEnderecoNaRua(l, p);
+    expect(l.doCliente()).toEqual([]);
+    expect(r.mensagemParaOCliente).toContain('Seu pedido nº 57 já saiu para entrega');
+    const todos = await casos(l);
+    expect(todos.map((x: any) => x.tipo)).toEqual(['humano', 'mudanca']);
+    expect(todos[1]).toMatchObject({ prioridade: 'urgente', pedido_id: p.id });
+  });
+
+  it('o robô desligado, dois pedidos ou retirada: a resposta de sempre (com a oferta da equipe) — nada de caso pelo endereço', async () => {
+    const l = await loja();
+    const p = await pedidoAceito(l);
+    await despachar(p.id);
+    await q(`insert into robo_config (tenant_id, muda_pedido) values ($1, false) on conflict (tenant_id) do update set muda_pedido = false`, [l.t]);
+    const r: any = await roboComEquipe.mexerNosItens(await l.ctx(), { acao: 'pedido_endereco' });
+    expect(r).toMatchObject({ ok: false, motivo: 'desligado', chamaEquipe: true });
+    expect(await casos(l)).toEqual([]);
   });
 });

@@ -8,6 +8,7 @@ import {
   enderecoCurto,
   lerMudanca,
   linhasDaMudanca,
+  motivoDoEnderecoDepoisQueSaiu,
   motivoParaNaoMudar,
   opcoesDaConferencia,
   opcoesDoTroco,
@@ -272,6 +273,42 @@ describe('a mudança de endereço com o pedido em produção (PR 3b, decisão 8)
     // A mudança de endereço aberta, esperando o endereço novo.
     const m = { id: 'm1', pedidoId: 'p1', numero: '57', op: { ...paraOJardim, para: null } as any, aguardaEndereco: true, criadaEm: 'agora' };
     expect((visaoDoPedidoFeito(pedido(), 'em produção', m) as any).mudancaEmConferencia).toEqual({ mudanca: ['📍 esperando o endereço novo'], esperandoOEndereco: true });
+  });
+});
+
+describe('o endereço do pedido que JÁ SAIU (PR 3b-2, decisão 8): o robô leva à equipe como urgente', () => {
+  it('leva: o pedido de entrega na rua — mesmo pago pelo link, com nota, numa loja de servidor antigo ou já mudado uma vez', () => {
+    const saiu = (o: Partial<PedidoFeito> = {}) => pedido({ status: 'despachado', ...o });
+    expect(motivoDoEnderecoDepoisQueSaiu(saiu())).toBeNull();
+    // A equipe decide o que o robô não muda: o pago pelo link e a nota não barram o aviso ao entregador.
+    for (const o of [{ pagoAntes: true }, { comNota: true }, { lojaSemVersao: true }, { jaMudouEnderecoPeloRobo: true }, { jaMudouPeloRobo: true }])
+      expect(motivoDoEnderecoDepoisQueSaiu(saiu(o))).toBeNull();
+    // Na regra de sempre, o pedido na rua não muda pelo robô (a oferta da equipe).
+    expect(motivoParaNaoMudar(saiu(), null, 'endereco')?.motivo).toBe('saiu');
+  });
+
+  it('não leva: a loja desligou o robô, dois pedidos em andamento, retirada ou o pedido ainda não saiu', () => {
+    const saiu = (o: Partial<PedidoFeito> = {}) => pedido({ status: 'despachado', ...o });
+    expect(motivoDoEnderecoDepoisQueSaiu(saiu({ desligado: true }))).toMatchObject({ motivo: 'desligado', chamaEquipe: true });
+    expect(motivoDoEnderecoDepoisQueSaiu(saiu({ outroEmAndamento: true }))).toMatchObject({ motivo: 'dois_pedidos', chamaEquipe: true });
+    expect(motivoDoEnderecoDepoisQueSaiu(saiu({ tipo: 'retirada' }))).toMatchObject({ motivo: 'retirada', chamaEquipe: true });
+    expect(motivoDoEnderecoDepoisQueSaiu(pedido())).toMatchObject({ motivo: 'situacao' });
+  });
+
+  it('o robô vê que o endereço vai para a equipe (enderecoPelaEquipe) — e a mudança aberta esperando o endereço', () => {
+    const v: any = visaoDoPedidoFeito(pedido({ status: 'despachado' }), 'saiu para entrega', null);
+    expect(v).toMatchObject({ podeMudar: false, motivo: 'saiu', podeMudarEndereco: false, enderecoPelaEquipe: true });
+    expect(v.comoMudarEndereco).toContain('o Regem chama a equipe como urgente');
+    expect(v.motivoEndereco).toBeUndefined();
+    // Desligado: nada de equipe pelo endereço (a regra de sempre — a oferta da equipe).
+    const desl: any = visaoDoPedidoFeito(pedido({ status: 'despachado', desligado: true }), 'saiu para entrega', null);
+    expect(desl.enderecoPelaEquipe).toBeUndefined();
+    expect(desl.comoMudarEndereco).toBeUndefined();
+    const m = { id: 'm1', pedidoId: 'p1', numero: '57', op: { ...paraOJardim, para: null } as any, aguardaEndereco: true, depoisQueSaiu: true, criadaEm: 'agora' };
+    expect((visaoDoPedidoFeito(pedido({ status: 'despachado' }), 'saiu', m) as any).mudancaEmConferencia).toEqual({
+      mudanca: ['📍 esperando o endereço novo (o pedido já saiu: vai para a equipe)'],
+      esperandoOEndereco: true,
+    });
   });
 });
 

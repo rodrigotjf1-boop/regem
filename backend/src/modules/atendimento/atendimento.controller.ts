@@ -193,4 +193,12 @@ export class AtendimentoController {
   ) {
     return this.service.decidirCancelamento(user, id, dto, terminalId);
   }
+
+  // "Mudar o endereço e avisar o entregador" (PR 3b-2): o caso urgente do pedido que já saiu. `taxa` = 'manter' (a do
+  // pedido) ou 'nova' (a da área nova, que o Regem calculou) — nunca um valor digitado.
+  @Post(':id/endereco-depois-que-saiu')
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
+  mudarEnderecoDepoisQueSaiu(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { taxa?: unknown }) {
+    return this.service.mudarEnderecoDepoisQueSaiu(user, id, dto);
+  }
 }

@@ -12,6 +12,15 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **O endereço depois que o pedido saiu (PR 3b-2, 04/11; mig 364 — índice parcial, vai para a loja).** Na nuvem com o
+  merge: o robô abre o caso urgente em Atendimento com o endereço novo, a distância e o entregador; a ação "Mudar o
+  endereço e avisar o entregador"; a rotina da nuvem manda "Endereço atualizado!" ao cliente. **No `.zip` (o mesmo corte
+  1.30.13):** o servidor da loja aplica a mudança pedida com o "depois que saiu" (`DeliveryService.alterar` com
+  `depoisQueSaiu` e a taxa escolhida — `precoInformado` da pedida; sem via e sem cozinha) e a mesma ação pela tela do
+  servidor da loja (a rota `POST /atendimento/:id/endereco-depois-que-saiu`); a **mig 364** entra pelo `.zip` (índice
+  inofensivo na loja). Sem ele, a pedida do pedido que já saiu é recusada pelo servidor da loja ("Só dá para alterar um
+  pedido aceito e ainda na loja") e a gaveta mostra a recusa. Não tocou `edge/`.
+
 - **O robô muda o endereço do pedido em produção (PR 3b-1, 04/11; sem migration).** Na nuvem com o merge (loja sem
   servidor). **No `.zip` (o mesmo corte 1.30.13):** a taxa da área nova que o cliente conferiu com o robô vale quando o
   servidor da loja aplica a mudança pedida (`DeliveryService.alterar` com `endereco.taxa` e `precoInformado`) — sem ele, o

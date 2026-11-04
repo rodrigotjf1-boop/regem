@@ -163,6 +163,16 @@ describe('instruções do robô — fluxo 2 (o pedido na conversa)', () => {
     expect(texto).toContain('trocar entre entrega e retirada');
   });
 
+  // .f15 (PR 3b-2): o pedido que JÁ SAIU — o mesmo caminho, e o Regem chama a equipe como urgente e manda o "já chamei".
+  it('o endereço do pedido que JÁ SAIU: o mesmo pedido_endereco + definir_entrega; o sistema chama a equipe e avisa o cliente', () => {
+    expect(VERSAO_INSTRUCOES).toBe('2026-11-04.f15');
+    expect(texto).toContain('O pedido JÁ SAIU para a entrega e o cliente quer outro endereço (enderecoPelaEquipe = true)');
+    expect(texto).toContain('acao = pedido_endereco e o endereço novo em definir_entrega, como acima (sem a referência, se ele não disse)');
+    expect(texto).toContain('O sistema chama a equipe como URGENTE (ela avisa o entregador e confere a distância)');
+    // O robô não pergunta "quer ajuda?" aqui (o caso já foi aberto) e não promete a mudança.
+    expect(texto).toContain('não repita, não prometa a mudança e não pergunte se ele quer ajuda');
+  });
+
   it('as ações da mudança citadas nas instruções são as que o Regem entende (ACOES_DA_MUDANCA)', () => {
     const conhecidas = new Set(Object.values(ACOES_DA_MUDANCA).flat());
     for (const a of ['pedido_por', 'pedido_tirar', 'pedido_trocar', 'pedido_endereco', 'troco_da_mudanca', 'confirmar_mudanca', 'desistir_da_mudanca'])

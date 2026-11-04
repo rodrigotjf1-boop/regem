@@ -1227,6 +1227,10 @@ export const api = {
     id: string,
     body: { aceita: boolean; senha?: string; motivo?: string; reaproveitado?: boolean; perdaItens?: { comandaItemId: string; quantidade: number }[] | null },
   ) => req(`/atendimento/${id}/cancelamento`, { method: 'POST', body: JSON.stringify(body) }),
+  // "Mudar o endereço e avisar o entregador" (PR 3b-2): o caso urgente do pedido que já saiu. `taxa`: a do pedido
+  // ('manter') ou a da área nova que o Regem calculou ('nova') — nunca um valor digitado.
+  atendimentoMudarEnderecoDepoisQueSaiu: (id: string, taxa: 'manter' | 'nova') =>
+    req(`/atendimento/${id}/endereco-depois-que-saiu`, { method: 'POST', body: JSON.stringify({ taxa }) }),
   integracoesDelivery: () => req('/delivery/integracoes'),
   salvarIntegracao: (body: Record<string, unknown>) =>
     req('/delivery/integracoes', { method: 'PUT', body: JSON.stringify(body) }),

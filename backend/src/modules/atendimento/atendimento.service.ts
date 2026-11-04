@@ -2,16 +2,31 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   Optional,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { and, desc, eq, isNull, or, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { atendimentoChamado } from '../../db/schema';
+import { atendimentoChamado, cardapioConfig } from '../../db/schema';
 import { DeliveryService } from '../delivery/delivery.service';
+import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
+import { WhatsappService } from '../whatsapp/whatsapp.service';
+import {
+  AVISO_DO_ENDERECO_VALE_MIN,
+  type Distancia,
+  type MudancaDoEndereco,
+  enderecoEmUmaLinha,
+  estadoDaMudancaDoEndereco,
+  idDaMudancaDoCaso,
+  lerEnderecoDoCaso,
+  taxaEscolhida,
+  textoDoEnderecoAtualizado,
+} from './endereco-depois-que-saiu';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { AuthUser } from '../../auth/auth-user';
 import { lerItensDaPerda } from '../vendas/itens-da-perda';
@@ -37,6 +52,46 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /** Quantos casos a fila devolve de uma vez. As contagens da tela vêm do banco, não desta lista. */
 export const LIMITE_DA_FILA = 300;
 
+// A MUDANÇA DE ENDEREÇO DO CASO (PR 3b-2): a alteração do pedido que a equipe fez pelo caso, pela chave (o id anotado em
+// `detalhe.endereco.mudado`). O que aconteceu com ela (a loja aplicou ou recusou; o cliente recebeu o aviso) mora na
+// alteração — que sobe e desce com a decisão do servidor da loja —, não no caso.
+const JUNTA_A_MUDANCA_DO_ENDERECO = sql`
+        left join pedido_alteracao pa
+          on pa.tenant_id = c.tenant_id
+         and pa.id = (case when c.detalhe #>> '{endereco,mudado,alteracaoId}' ~ '^[0-9a-fA-F-]{36}$'
+                           then (c.detalhe #>> '{endereco,mudado,alteracaoId}')::uuid end)`;
+const COLUNAS_DA_MUDANCA_DO_ENDERECO = sql`pa.situacao as "mudancaSituacao", pa.motivo as "mudancaMotivo",
+             pa.created_at as "mudancaCriadaEm", pa.pedido -> 'avisoAoCliente' as "mudancaAviso"`;
+
+/**
+ * As alterações "depois que saiu" já aplicadas que esperam o "Endereço atualizado!" (a rotina da nuvem), com o caso pela
+ * chave. O `where` é o MESMO do índice parcial da mig 364 — sem ele igual, o Postgres varre o histórico inteiro a cada
+ * 20 s (o teste confere o plano). Até 50 por volta, a mais antiga primeiro.
+ */
+export function consultaDosAvisosDoEndereco(soAlteracao?: string) {
+  return sql`
+      select a.id, a.tenant_id, a.pedido,
+             a.created_at < now() - make_interval(mins => ${AVISO_DO_ENDERECO_VALE_MIN}) as velha,
+             c.id as chamado_id, c.telefone, c.detalhe #>> '{endereco,via}' as via
+        from pedido_alteracao a
+        left join atendimento_chamado c
+          on c.tenant_id = a.tenant_id
+         and c.id = (case when a.pedido ->> 'chamadoId' ~ '^[0-9a-fA-F-]{36}$' then (a.pedido ->> 'chamadoId')::uuid end)
+       where a.situacao = 'aplicada'
+         and (a.pedido ->> 'depoisQueSaiu') = 'true'
+         and not (a.pedido ? 'avisoAoCliente')
+         ${soAlteracao && UUID_RE.test(soAlteracao) ? sql`and a.id = ${soAlteracao}` : sql``}
+       order by a.created_at
+       limit 50`;
+}
+
+/** O caso da fila com o estado da mudança de endereço (`mudancaDoEndereco`) no lugar das colunas da alteração. */
+function comAMudancaDoEndereco(c: any) {
+  const { mudancaSituacao, mudancaMotivo, mudancaCriadaEm, mudancaAviso, ...resto } = c;
+  const estado = estadoDaMudancaDoEndereco({ situacao: mudancaSituacao, motivo: mudancaMotivo, criadaEm: mudancaCriadaEm, aviso: mudancaAviso });
+  return estado ? { ...resto, mudancaDoEndereco: estado } : resto;
+}
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 export type { Prioridade };
@@ -52,6 +107,8 @@ export { juntarMensagem, JANELA_DO_MESMO_CHAMADO_H };
 
 @Injectable()
 export class AtendimentoService {
+  private readonly logger = new Logger('Atendimento');
+
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly events: EventEmitter2,
@@ -60,6 +117,10 @@ export class AtendimentoService {
     @Optional() private readonly auditoria?: AuditoriaService,
     // O ajuste "Dizer ao cliente a posição na fila" (mig 353). Opcional: sem ele, o robô recebe a posição (o padrão).
     @Optional() private readonly filaEAvisos?: FilaEAvisosService,
+    // "Endereço atualizado!" ao cliente (PR 3b-2), pela via da conversa do caso: a API oficial ou a Evolution. Só a nuvem
+    // manda (a rotina não roda no servidor da loja). Opcionais: os testes montam o serviço sem elas.
+    @Optional() private readonly cloud?: WhatsappCloudService,
+    @Optional() private readonly evolution?: WhatsappService,
   ) {}
 
   // Abre um chamado (handoff do robô → humano). Dispara alerta em tempo real.
@@ -127,14 +188,19 @@ export class AtendimentoService {
              c.prazo_em as "prazoEm", c.criado_em as "criadoEm", c.detalhe, c.externo_id as "externoId",
              r.nome as "responsavelNome",
              p.canal as "pedidoCanal", p.status as "pedidoStatus", p.display_id as "pedidoNaPlataforma",
-             p.cliente_nome as "pedidoCliente"
+             p.cliente_nome as "pedidoCliente", ${COLUNAS_DA_MUDANCA_DO_ENDERECO}
         from atendimento_chamado c
         left join colaborador r on r.id = c.responsavel_id and r.tenant_id = c.tenant_id
         left join pedido_externo p on p.id = c.pedido_id and p.tenant_id = c.tenant_id
+        ${JUNTA_A_MUDANCA_DO_ENDERECO}
        where c.tenant_id = ${user.tenantId} and c.status = 'aberto' ${loja}
        order by (c.prazo_em is null), c.prazo_em, (c.prioridade = 'urgente') desc, c.criado_em
        limit ${LIMITE_DA_FILA}`);
-    const casos = posicoes((r.rows ?? r) as any[]).map((c) => ({ ...c, canal: canalDoCaso(c), situacao: situacaoDo(c) }));
+    const casos = posicoes((r.rows ?? r) as any[]).map((c) => ({
+      ...comAMudancaDoEndereco(c),
+      canal: canalDoCaso(c),
+      situacao: situacaoDo(c),
+    }));
     // `eu`: quem pediu a fila — a tela marca "Comigo" e "você" sem ler o token (na nuvem a sessão é um cookie httpOnly).
     return { casos, contagens: await this.contagens(user, loja), limite: LIMITE_DA_FILA, eu: user.colaboradorId ?? null };
   }
@@ -146,15 +212,17 @@ export class AtendimentoService {
       select c.id, c.tipo, c.canal, c.cliente, c.telefone, c.mensagem, c.prioridade, c.status, c.decisao,
              c.pedido_id as "pedidoId", c.pedido_numero as "pedidoNumero", c.criado_em as "criadoEm",
              c.resolvido_em as "resolvidoEm", q.nome as "resolvidoPorNome", c.detalhe, c.externo_id as "externoId",
-             p.canal as "pedidoCanal", p.status as "pedidoStatus", p.display_id as "pedidoNaPlataforma"
+             p.canal as "pedidoCanal", p.status as "pedidoStatus", p.display_id as "pedidoNaPlataforma",
+             ${COLUNAS_DA_MUDANCA_DO_ENDERECO}
         from atendimento_chamado c
         left join colaborador q on q.id = c.resolvido_por_id and q.tenant_id = c.tenant_id
         left join pedido_externo p on p.id = c.pedido_id and p.tenant_id = c.tenant_id
+        ${JUNTA_A_MUDANCA_DO_ENDERECO}
        where c.tenant_id = ${user.tenantId} and c.status = 'resolvido' ${loja}
          and c.resolvido_em >= ${instanteDe(hojeISO())}
        order by c.resolvido_em desc
        limit ${LIMITE_DA_FILA}`);
-    return ((r.rows ?? r) as any[]).map((c) => ({ ...c, canal: canalDoCaso(c), situacao: 'resolvido' as const }));
+    return ((r.rows ?? r) as any[]).map((c) => ({ ...comAMudancaDoEndereco(c), canal: canalDoCaso(c), situacao: 'resolvido' as const }));
   }
 
   /**
@@ -369,5 +437,182 @@ export class AtendimentoService {
       .where(eq(atendimentoChamado.id, id));
     this.avisar(user.tenantId, id, 'resolveu');
     return { ok: true, decisao: dto.aceita ? 'aceito' : 'recusado', ...(comprovante ? { comprovante } : {}) };
+  }
+
+  // ===================== ENDEREÇO DEPOIS QUE O PEDIDO SAIU (PR 3b-2, decisão 8) =====================
+
+  /** A distância entre os dois endereços, medida pelo robô depois de abrir o caso (null = não deu para medir). */
+  async anotarDistanciaDoEndereco(tenantId: string, id: string, distancia: Distancia | null) {
+    const r: any = await this.db.execute(sql`
+      update atendimento_chamado
+         set detalhe = jsonb_set(detalhe, '{endereco,distancia}', ${JSON.stringify(distancia ?? null)}::jsonb, true)
+       where tenant_id = ${tenantId} and id = ${id} and detalhe ? 'endereco'
+      returning id`);
+    if ((r.rows ?? r).length) this.avisar(tenantId, id, 'distancia');
+  }
+
+  /**
+   * "MUDAR O ENDEREÇO E AVISAR O ENTREGADOR" — o caso urgente que o robô abriu quando o cliente pediu outro endereço com o
+   * pedido JÁ NA RUA. Muda pelo MESMO `DeliveryService.alterar` da equipe, com `depoisQueSaiu` (só o endereço — sem
+   * cozinha e sem via; a posição do endereço antigo sai e o app do entregador refaz o caminho pelo novo) e a taxa que a
+   * equipe escolheu entre as duas que o Regem calculou ("manter" ou "nova" — nunca um valor digitado). O id da alteração é
+   * do caso: o "Mudar" repetido, ou em dois computadores, muda uma vez. Na nuvem de loja com servidor ligado, vai como
+   * "pedida" e o servidor da loja aplica. "Endereço atualizado!" sai ao cliente pela rotina da nuvem quando a mudança vale.
+   * Quem toca fica com o caso, se ninguém tinha.
+   */
+  async mudarEnderecoDepoisQueSaiu(user: AuthUser, id: string, dto: { taxa?: unknown } | null | undefined) {
+    if (!UUID_RE.test(String(id))) throw new NotFoundException('Caso não encontrado.');
+    const [caso] = await this.db
+      .select()
+      .from(atendimentoChamado)
+      .where(and(eq(atendimentoChamado.tenantId, user.tenantId), eq(atendimentoChamado.id, id)));
+    if (!caso) throw new NotFoundException('Caso não encontrado.');
+    if (caso.status !== 'aberto') throw new ConflictException('Este caso já foi resolvido.');
+    const e = lerEnderecoDoCaso(caso.detalhe);
+    if (caso.tipo !== 'mudanca' || !e) throw new BadRequestException('Este caso não tem um endereço novo para o pedido.');
+    // Já mudou (ou está com o servidor da loja): o "Mudar" repetido não muda de novo. Recusada ou vencida: tenta outra vez.
+    if (e.mudado) {
+      const atual = await this.estadoDaAlteracao(user.tenantId, e.mudado.alteracaoId);
+      if (atual !== 'recusada' && atual !== 'vencida') return { ok: true, id, mudado: e.mudado, repetido: true };
+    }
+    const t = taxaEscolhida(e, dto?.taxa);
+    if (!t.ok) throw new BadRequestException(t.mensagem);
+    const alteracaoId = idDaMudancaDoCaso(id, e.em, e.mudado?.alteracaoId ?? null);
+    const ref = e.para.referencia ? ` (${e.para.referencia})` : '';
+    let r: any;
+    try {
+      r = await this.delivery.alterar(
+        user,
+        e.pedidoId,
+        {
+          idAlteracao: alteracaoId,
+          endereco: {
+            rua: e.para.rua ?? '',
+            numero: e.para.numero ?? '',
+            bairro: e.para.bairro ?? '',
+            ...(e.para.bairroId ? { bairroId: e.para.bairroId } : {}),
+            referencia: e.para.referencia ?? '',
+            taxa: t.taxa,
+          },
+          origem: 'equipe',
+          pedidoDoCliente: `Entregar em ${enderecoEmUmaLinha(e.para)}${ref}`,
+        },
+        { depoisQueSaiu: true, precoInformado: true, chamadoId: id },
+      );
+    } catch (err: any) {
+      // O servidor da loja numa versão que ainda não aplica a mudança pedida pela nuvem: a frase certa para este caso.
+      const resp: any = err instanceof HttpException ? err.getResponse() : null;
+      if (resp?.code === 'LOJA_COM_SERVIDOR')
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'LOJA_COM_SERVIDOR',
+          message:
+            'O servidor desta loja ainda não muda o endereço do pedido que já saiu (falta atualizá-lo): avise o entregador pelo WhatsApp dele e responda ao cliente.',
+        });
+      throw err;
+    }
+    const mudado: MudancaDoEndereco = {
+      em: new Date().toISOString(),
+      porId: user.colaboradorId ?? null,
+      porNome: r?.alteracao?.porNome ?? user.nome ?? null,
+      taxa: t.taxa,
+      alteracaoId,
+    };
+    await this.db.execute(sql`
+      update atendimento_chamado
+         set detalhe = jsonb_set(detalhe, '{endereco,mudado}', ${JSON.stringify(mudado)}::jsonb, true),
+             responsavel_id = coalesce(responsavel_id, ${user.colaboradorId ?? null}::uuid),
+             pego_em = coalesce(pego_em, now())
+       where tenant_id = ${user.tenantId} and id = ${id}`);
+    const situacao = r?.alteracao?.situacao ?? 'aplicada';
+    await this.auditoria?.registrar({
+      tenantId: user.tenantId,
+      unidadeId: caso.unidadeId ?? null,
+      atorId: user.colaboradorId,
+      atorPerfil: user.categoria,
+      tipo: 'atendimento',
+      acao: 'mudou_endereco_depois_que_saiu',
+      entidadeTipo: 'atendimento_chamado',
+      entidadeId: id,
+      detalhe: { pedido: e.numero, pedidoId: e.pedidoId, alteracao: alteracaoId, situacao, taxa: t.taxa, para: enderecoEmUmaLinha(e.para) },
+      origem: 'web',
+    });
+    this.avisar(user.tenantId, id, 'endereco_mudado');
+    // Mudou na hora AQUI na nuvem: o cliente recebe já (a rotina cobre o resto — a pedida e a mudança feita na loja).
+    if (situacao === 'aplicada' && !ehServidorLocal())
+      void this.avisarEnderecosMudados(alteracaoId).catch((x: any) => this.logger.warn(`aviso do endereço ${alteracaoId}: ${x?.message ?? x}`));
+    return { ok: true, id, mudado, situacao };
+  }
+
+  /** A situação da alteração (null = ainda não chegou a este banco); a "pedida" passada da validade é "vencida" (V80). */
+  private async estadoDaAlteracao(tenantId: string, alteracaoId: string): Promise<string | null> {
+    if (!UUID_RE.test(alteracaoId)) return null;
+    const r: any = await this.db.execute(sql`
+      select situacao, motivo, created_at as "criadaEm" from pedido_alteracao where tenant_id = ${tenantId} and id = ${alteracaoId}`);
+    const x = (r.rows ?? r)[0];
+    return x ? (estadoDaMudancaDoEndereco(x)?.situacao ?? null) : null;
+  }
+
+  /**
+   * "ENDEREÇO ATUALIZADO!" AO CLIENTE (rotina da nuvem — `AvisoDoEnderecoProcessor`, e logo depois do "Mudar" quando a
+   * nuvem aplica na hora): a alteração "depois que saiu" que VALEU — na hora, ou aplicada pelo servidor da loja e subida
+   * pelo sincronismo. Uma vez só por alteração: a marca `pedido.avisoAoCliente` é gravada ANTES do envio, numa troca
+   * condicional (duas réplicas nunca mandam duas vezes — V24/V42); na alteração, e não no caso, porque o caso é mexido dos
+   * dois lados e a cópia da loja apagaria a marca. Passou do prazo (a loja ficou sem internet): marca sem mandar —
+   * "endereço atualizado" uma hora depois só confunde. Pela via da conversa do caso. Até 50 por volta, todas as lojas numa
+   * consulta (o índice parcial da mig 364 — a MESMA condição).
+   */
+  async avisarEnderecosMudados(soAlteracao?: string): Promise<number> {
+    const r: any = await this.db.execute(consultaDosAvisosDoEndereco(soAlteracao));
+    let n = 0;
+    for (const x of (r.rows ?? r) as any[]) {
+      try {
+        const manda = !x.velha && !!x.telefone;
+        const marca = { em: new Date().toISOString(), ...(x.velha ? { expirou: true } : !x.telefone ? { semTelefone: true } : {}) };
+        const marcou: any = await this.db.execute(sql`
+          update pedido_alteracao
+             set pedido = coalesce(pedido, '{}'::jsonb) || jsonb_build_object('avisoAoCliente', ${JSON.stringify(marca)}::jsonb),
+                 updated_at = now()
+           where id = ${x.id} and not (coalesce(pedido, '{}'::jsonb) ? 'avisoAoCliente')
+          returning id`);
+        if (!(marcou.rows ?? marcou).length) continue; // outra volta (ou réplica) já avisou
+        if (manda) {
+          try {
+            await this.mandarAoCliente(String(x.tenant_id), String(x.telefone), textoDoEnderecoAtualizado(x.pedido?.endereco ?? {}), x.via ?? null);
+            n++;
+          } catch (e: any) {
+            const motivo = String(e?.message ?? e).slice(0, 200);
+            this.logger.warn(`aviso do endereço ${x.id}: não saiu ao cliente — ${motivo}`);
+            await this.db.execute(sql`
+              update pedido_alteracao
+                 set pedido = jsonb_set(pedido, '{avisoAoCliente,falhou}', to_jsonb(${motivo}::text), true), updated_at = now()
+               where id = ${x.id}`);
+          }
+        }
+        if (x.chamado_id) this.avisar(String(x.tenant_id), String(x.chamado_id), 'cliente_avisado');
+      } catch (e: any) {
+        this.logger.warn(`aviso do endereço ${x?.id}: a volta falhou — ${e?.message ?? e}`);
+      }
+    }
+    return n;
+  }
+
+  /** A mensagem ao cliente pela via da conversa (`via`); sem ela, a do cardápio da empresa. Falha = lança. */
+  private async mandarAoCliente(tenantId: string, telefone: string, texto: string, via: string | null) {
+    let provedor = via === 'cloud' || via === 'evolution' ? via : null;
+    if (!provedor) {
+      const [cfg] = await this.db
+        .select({ provedor: cardapioConfig.provedor })
+        .from(cardapioConfig)
+        .where(and(eq(cardapioConfig.tenantId, tenantId), sql`unidade_id is null`));
+      provedor = cfg?.provedor === 'cloud' ? 'cloud' : 'evolution';
+    }
+    if (provedor === 'cloud') {
+      if (!this.cloud) throw new Error('o WhatsApp oficial não está disponível aqui');
+      await this.cloud.enviarTexto(tenantId, telefone, texto);
+    } else {
+      if (!this.evolution) throw new Error('o WhatsApp não está disponível aqui');
+      await this.evolution.enviar(tenantId, telefone, texto);
+    }
   }
 }

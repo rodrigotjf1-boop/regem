@@ -37,6 +37,12 @@ export type CasoDaFila = {
   /** O que a plataforma mandou e o que a loja respondeu (mig 351): a disputa do iFood, o pedido da 99. */
   detalhe?: any;
   externoId?: string | null;
+  /** A mudança de endereço feita pelo caso (PR 3b-2), pela alteração do pedido: a loja aplicou, recusou; o cliente soube. */
+  mudancaDoEndereco?: {
+    situacao: 'aplicada' | 'pedida' | 'recusada' | 'vencida';
+    motivo: string | null;
+    aviso: { em: string; falhou?: string; expirou?: boolean; semTelefone?: boolean } | null;
+  } | null;
 };
 
 /**
