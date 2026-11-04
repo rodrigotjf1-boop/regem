@@ -12,6 +12,8 @@ import { RoboRespostaService } from './robo-resposta.service';
 import { EvolutionEntradaController } from './evolution-entrada.controller';
 import { EvolutionEntradaService } from './evolution-entrada.service';
 import { ConferirEntregaProcessor } from './conferir-entrega.processor';
+import { PedirAvaliacaoProcessor } from './pedir-avaliacao.processor';
+import { AvaliacaoPublicaController } from './avaliacao-publica.controller';
 import { EquipamentoModule } from '../equipamento/equipamento.module';
 import { SyncTokenGuard } from '../sync/sync-token.guard';
 
@@ -31,6 +33,8 @@ import { SyncTokenGuard } from '../sync/sync-token.guard';
     WhatsappDaLojaController,
     RoboRespostaController,
     EvolutionEntradaController,
+    // O link do pedido de avaliação (mig 365): anota o toque e leva ao Google (só nuvem).
+    AvaliacaoPublicaController,
   ],
   providers: [
     RoboRespostaService,
@@ -41,6 +45,8 @@ import { SyncTokenGuard } from '../sync/sync-token.guard';
     WhatsappNumeroService,
     // A rotina do "Chegou tudo certo?" depois da entrega (B1; mig 352; só nuvem, só API oficial).
     ConferirEntregaProcessor,
+    // A rotina do "Pedir avaliação" depois da entrega (mig 365; só nuvem, só API oficial).
+    PedirAvaliacaoProcessor,
     SyncTokenGuard,
     EmpresaDaLojaGuard,
   ],

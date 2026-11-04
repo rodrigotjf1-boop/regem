@@ -14,6 +14,7 @@ import { cardapioConfig } from '../../db/schema';
 import { AuthUser } from '../../auth/auth-user';
 import { WhatsappService } from './whatsapp.service';
 import { WhatsappCloudService } from './whatsapp-cloud.service';
+import { OPCOES_A_PARTIR_DO, OPCOES_DEPOIS_MIN, OPCOES_DE_NOVO_DIAS, TEXTO_PADRAO, ajustesNovos, lerAvaliacao } from './pedir-avaliacao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Escolha do PROVEDOR de WhatsApp pela loja (F2c).
@@ -189,7 +190,57 @@ export class WhatsappProvedorService {
       opcoesPausa: OPCOES_PAUSA,
       ...(await this.avisosDoRobo(tenantId)),
       opcoesToleranciaAtraso: OPCOES_TOLERANCIA_ATRASO,
+      // "Pedir avaliação" depois da entrega (mig 365): os ajustes, o que saiu no mês e as opções da tela.
+      avaliacao: {
+        ...(await lerAvaliacao(this.db, tenantId)),
+        opcoes: { depoisMin: OPCOES_DEPOIS_MIN, aPartirDo: OPCOES_A_PARTIR_DO, deNovoDias: OPCOES_DE_NOVO_DIAS },
+        textoPadrao: TEXTO_PADRAO,
+      },
     };
+  }
+
+  /**
+   * Salva os ajustes do "Pedir avaliação" (mig 365) — SÓ as colunas dele (um escritor por coluna — V82): o ausente
+   * mantém (V16), os liga/desliga só verdadeiro/falso (V15), o link só do Google, a mensagem com {link}; ligar exige o
+   * link. Cada mudança vai para a auditoria.
+   */
+  async salvarAvaliacao(ator: AuthUser, dto: any) {
+    const antes = await lerAvaliacao(this.db, ator.tenantId);
+    const novo = ajustesNovos(dto, antes);
+    // Na linha que já existe, grava SÓ o que a tela mandou (V16): duas telas salvando ao mesmo tempo não desfazem o ajuste
+    // uma da outra. Sem linha ainda, entra tudo (o que não veio é o padrão).
+    const colunas = {
+      ativa: sql`avaliacao_ativa = excluded.avaliacao_ativa`,
+      link: sql`avaliacao_link = excluded.avaliacao_link`,
+      texto: sql`avaliacao_texto = excluded.avaliacao_texto`,
+      depoisMin: sql`avaliacao_depois_min = excluded.avaliacao_depois_min`,
+      soSemProblema: sql`avaliacao_so_sem_problema = excluded.avaliacao_so_sem_problema`,
+      aPartirDo: sql`avaliacao_a_partir_do = excluded.avaliacao_a_partir_do`,
+      deNovoDias: sql`avaliacao_de_novo_dias = excluded.avaliacao_de_novo_dias`,
+    };
+    const mudar = (Object.keys(colunas) as (keyof typeof colunas)[]).filter((k) => dto[k] !== undefined).map((k) => colunas[k]);
+    await this.db.execute(sql`
+      insert into robo_config (tenant_id, avaliacao_ativa, avaliacao_link, avaliacao_texto, avaliacao_depois_min,
+                               avaliacao_so_sem_problema, avaliacao_a_partir_do, avaliacao_de_novo_dias, atualizado_por)
+      values (${ator.tenantId}::uuid, ${novo.ativa}, ${novo.link}, ${novo.texto === TEXTO_PADRAO ? null : novo.texto}, ${novo.depoisMin},
+              ${novo.soSemProblema}, ${novo.aPartirDo}, ${novo.deNovoDias}, ${ator.colaboradorId}::uuid)
+      on conflict (tenant_id) do update
+         set ${sql.join(mudar, sql`, `)}, atualizado_por = excluded.atualizado_por, atualizado_em = now()`);
+    const mudou: Record<string, { de: unknown; para: unknown }> = {};
+    for (const k of ['ativa', 'link', 'texto', 'depoisMin', 'soSemProblema', 'aPartirDo', 'deNovoDias'] as const)
+      if (antes[k] !== novo[k]) mudou[k] = { de: antes[k], para: novo[k] };
+    if (Object.keys(mudou).length)
+      await this.auditoria.registrar({
+        tenantId: ator.tenantId,
+        atorId: ator.colaboradorId,
+        atorPerfil: ator.categoria,
+        tipo: 'config',
+        acao: antes.ativa !== novo.ativa ? (novo.ativa ? 'pedir_avaliacao_ligado' : 'pedir_avaliacao_desligado') : 'pedir_avaliacao_alterado',
+        entidadeTipo: 'robo_config',
+        entidadeId: ator.tenantId,
+        detalhe: mudou,
+      });
+    return this.roboConfig(ator.tenantId);
   }
 
   /**

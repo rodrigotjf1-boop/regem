@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
+import { sql } from 'drizzle-orm';
 import * as schema from '../../db/schema';
 import { ConferirEntregaProcessor } from './conferir-entrega.processor';
 import { OPCOES_DA_CONFERENCIA, TEXTO_DEPOIS_DA_RESPOSTA, portaoDaConferencia, textoDaPergunta } from './conferir-entrega';
@@ -111,22 +112,61 @@ descrever('"chegou tudo certo?" (Postgres)', () => {
   const envios = (pedidoId: string) => q(`select acao, resultado, motivo from pedido_envio where pedido_id = $1 order by criado_em`, [pedidoId]);
   const meus = (t: string) => enviados.filter((e) => e.t === t);
 
-  it('quem pode receber: entrega dos canais da loja, concluída há 20 min a 3 h, loja da API oficial com a pergunta ligada', async () => {
+  it('quem pode receber: entrega dos canais da loja, concluída há 20 min a 3 h, loja da API oficial com a pergunta ligada, conversa ABERTA', async () => {
     const t = await loja();
     const ok = await pedido(t);
+    await escreveu(t);
     const ifood = await pedido(t, { canal: 'ifood' });
     const n99 = await pedido(t, { canal: '99food' });
     const retirada = await pedido(t, { tipo: 'retirada' });
     const cedo = await pedido(t, { min: 10 });
     const tarde = await pedido(t, { min: 200 });
     const aCaminho = await pedido(t, { status: 'despachado' });
+    const semConversa = await pedido(t, { telefone: '21911112222' }); // o cliente nunca escreveu à loja (ERR-360)
     const qr = await loja({ provedor: 'evolution' });
     const daQr = await pedido(qr);
+    await escreveu(qr);
     const desligada = await loja({ conferir: false });
     const daDesligada = await pedido(desligada);
-    const ids = (await rotina.candidatos()).map((c) => c.id);
+    await escreveu(desligada);
+    const lista = await rotina.candidatos();
+    const ids = lista.map((c) => c.id);
     expect(ids).toContain(ok.id);
-    for (const fora of [ifood, n99, retirada, cedo, tarde, aCaminho, daQr, daDesligada]) expect(ids).not.toContain(fora.id);
+    expect(lista.find((c) => c.id === ok.id)?.para).toBe(NA_CONVERSA);
+    for (const fora of [ifood, n99, retirada, cedo, tarde, aCaminho, semConversa, daQr, daDesligada]) expect(ids).not.toContain(fora.id);
+  });
+
+  it('ERR-360: 210 pedidos de quem não escreveu à loja não tomam a vez — o pedido mais novo, com a conversa aberta, recebe a pergunta', async () => {
+    const t = await loja();
+    await q(
+      `insert into pedido_externo (tenant_id, canal, external_id, numero, tipo, status, cliente_nome, cliente_telefone, total, concluido_em)
+       select $1, 'cardapio', 'e2e-' || gen_random_uuid(), 100000 + g, 'entrega', 'concluido', 'Sem Conversa', '2197' || lpad(g::text, 7, '0'), 50,
+              now() - interval '2 hours' - make_interval(secs => g)
+         from generate_series(1, 210) g`,
+      [t],
+    );
+    const novo = await pedido(t, { min: 30 });
+    await escreveu(t);
+    expect((await rotina.candidatos()).map((c) => c.id)).toContain(novo.id);
+    await rotina.perguntar();
+    expect(await envios(novo.id)).toEqual([{ acao: 'conferir_entrega', resultado: 'enviado', motivo: null }]);
+    expect(meus(t)).toHaveLength(1);
+  });
+
+  it('o plano: a conversa de cada pedido pelo índice das mensagens, com as formas do número na condição dele (LIC-113)', async () => {
+    const c = await pool.connect();
+    try {
+      await c.query('begin');
+      await c.query('set local enable_seqscan = off');
+      const r: any = await drizzle(c).execute(sql`explain ${ConferirEntregaProcessor.consulta()}`);
+      const plano = (r.rows ?? r).map((l: any) => l['QUERY PLAN']).join('\n');
+      // Por IGUALDADE com cada forma: assim entra na condição do índice também no Postgres 16 (o do CI — ERR-361).
+      expect(plano).toMatch(/whatsapp_mensagem_tenant_tel_idx[^\n]*\n\s*Index Cond: [^\n]*\(telefone = f\.forma\)/);
+      expect(plano).not.toMatch(/Filter: [^\n]*\(telefone = /);
+    } finally {
+      await c.query('rollback').catch(() => {});
+      c.release();
+    }
   });
 
   it('pergunta UMA vez, pelo número da conversa (com 55), com os 3 botões — só com a janela de 24 h aberta', async () => {

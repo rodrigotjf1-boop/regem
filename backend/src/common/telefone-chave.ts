@@ -79,6 +79,19 @@ export function sqlChaveTelefone(expr: SQL): SQL {
       else ${d1} end), '')`;
 }
 
+/**
+ * As FORMAS (`formasDaChaveTelefone`) em SQL, a partir de uma chave JÁ calculada (`k`: uma coluna ou a saída de
+ * `sqlChaveTelefone`): um `text[]` — para achar o registro pelo índice (`telefone = any(...)`), nunca para discar. As duas
+ * têm de dar o MESMO conjunto (teste contra o banco real em `telefone-chave.spec.ts`). Calcule a chave UMA vez (numa
+ * coluna de CTE `materialized` ou de `lateral`) e passe a coluna: `k` aparece várias vezes aqui (LIC-113).
+ */
+export function sqlFormasDaChave(k: SQL): SQL {
+  return sql`(case when ${k} is null or ${k} = '' then array[]::text[]
+      when ${k} ~ '^[1-9][0-9]9[6-9][0-9]{7}$'
+        then array[${k}, '55' || ${k}, substr(${k}, 1, 2) || substr(${k}, 4), '55' || substr(${k}, 1, 2) || substr(${k}, 4)]
+      else array[${k}, '55' || ${k}] end)`;
+}
+
 /** Os dígitos do telefone, em SQL (sem formatação) — um `regexp_replace` só. */
 export function sqlDigitosTelefone(expr: SQL): SQL {
   return sql`regexp_replace(coalesce((${expr})::text, ''), '[^0-9]', '', 'g')`;

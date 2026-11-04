@@ -2,7 +2,7 @@ import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { sql } from 'drizzle-orm';
 import { DeliveryService } from '../modules/delivery/delivery.service';
-import { chaveTelefone, formasNoCadastro, sqlChaveTelefone, telefoneCadastro } from './telefone-chave';
+import { chaveTelefone, formasDaChaveTelefone, formasNoCadastro, sqlChaveTelefone, sqlFormasDaChave, telefoneCadastro } from './telefone-chave';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -79,5 +79,13 @@ descrever('chave do telefone em SQL = a do TypeScript (Postgres real)', () => {
     const db = drizzle(pool);
     const r: any = await db.execute(sql`select ${sqlChaveTelefone(sql`${entrada as any}`)} as k`);
     expect((r.rows ?? r)[0].k).toBe(chave);
+  });
+
+  // As formas em SQL (o "achar a conversa pelo índice" das rotinas do WhatsApp) = as do TypeScript, para cada caso.
+  it.each(CASOS)('formas de %p', async (entrada) => {
+    const db = drizzle(pool);
+    const r: any = await db.execute(sql`select ${sqlFormasDaChave(sql`k.k`)} as f from (select ${sqlChaveTelefone(sql`${entrada as any}`)} as k) k`);
+    const emSql = [...((r.rows ?? r)[0].f ?? [])].sort();
+    expect(emSql).toEqual([...formasDaChaveTelefone(chaveTelefone(entrada))].sort());
   });
 });
