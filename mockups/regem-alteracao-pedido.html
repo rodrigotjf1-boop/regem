@@ -1,0 +1,953 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regem — Pedido repetido e pedido alterado (protótipo)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* PROTÓTIPO (03/11/2026) — PEDIDO REPETIDO e PEDIDO ALTERADO, para o dono aprovar ANTES de qualquer código. Nada aqui
+   fala com o Regem; a loja ("Burger da Praça"), os clientes e os números dos pedidos são inventados.
+   Pedido do dono (03/11/2026):
+   (A) se o cliente fizer um pedido IGUAL em até 30 min, perguntar se é para produzir e enviar os dois;
+   (B) mudança pedida ao robô: identificar a mudança e, com o pedido ainda em produção e a mudança simples (pôr, tirar
+       ou trocar um produto), avisar o cliente, perguntar o troco, atualizar o pedido e imprimir uma via com
+       "PEDIDO ALTERADO" bem grande e, embaixo, "Descarte TODAS as vias anteriores"; no KDS, o aviso em destaque e uma
+       exclamação para a equipe ver.
+   O que o protótipo mostra:
+   (1) ROBÔ: a pergunta do pedido igual dentro do resumo para conferir; a mudança simples com o troco (pôr, trocar,
+       tirar), com a loja que tem o servidor do Regem ligado e a que é só nuvem; quando o robô passa para a equipe;
+   (2) CARDÁPIO: a pergunta no checkout — com o cliente identificado mostra o outro pedido; só com o telefone
+       digitado, não mostra nada dele (qualquer um digita um telefone — V79);
+   (3) VIA: cozinha (80 mm) e entregador (58 mm), com o destaque, o que mudou e a via inteira atualizada; e a marca de
+       "possível repetido" dos pedidos que chegam de fora (Anota AI, iFood, 99, Cardápio Web);
+   (4) KDS: claro e escuro; a cor continua só a do tempo — o destaque é o cartão INVERTIDO, como as etiquetas cheias de
+       hoje (regra do check-kds); exclamação, NOVO e TIRAR, rodapé de alerta e o botão "Visto";
+   (5) PAINEL: Delivery › Painel com a gaveta do pedido: o que mudou, antes → agora, as vias, se a cozinha viu, o
+       histórico; e o "possível repetido" com "São dois pedidos";
+   (6) AJUSTES: dois grupos novos em Delivery › Configurações › Operação › Atendimento (caminho conferido no shell.tsx
+       e no config-panel.tsx em 03/11/2026);
+   (7) PLANO E DECISÕES: o que medi na produção, os 3 PRs com as migrations e as decisões para o dono.
+   Regras de tela seguidas: nenhuma barra de rolagem para o lado (as peças se arrumam pelo espaço — ERR-219), diálogo
+   em vez da janela do navegador, Esc fecha o diálogo, foco visível, prefers-reduced-motion, contagem nos grupos de
+   ajustes e a barra de "N alterações ainda não salvas". */
+:root{
+  --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E8A845; --on-gold:#281B06; --navy:#0F2230; --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9;
+  --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8; --ouro:#7A5209; --ouro-bg:#FCF1DD; --radius:12px;
+  --display:'Archivo',sans-serif; --body:'Figtree',sans-serif; --mono:'JetBrains Mono',monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:var(--body);background:var(--bg);color:var(--ink);font-size:15px;line-height:1.45}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid #3A7FB8;outline-offset:2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+[hidden]{display:none!important}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* faixa do protótipo (fora do app) */
+.proto{background:#0B1822;color:#D5E0EA;padding:10px 16px;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center}
+.proto strong{font-family:var(--display);color:#fff;font-size:14px}
+.proto .obs{font-size:12.5px;color:#9FB2C4}
+.abas{display:flex;flex-wrap:wrap;gap:8px}
+.aba{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:6px 14px;border-radius:10px;border:1px solid #2E4456;background:#13283A;color:#D5E0EA;font-weight:600;font-size:14px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+
+main{max-width:1500px;margin:0 auto;padding:16px 16px 96px}
+.vista > h1,.aj h1,.notas h1{font-family:var(--display);font-size:clamp(20px,2.4vw,26px);margin:4px 0 6px}
+.intro{color:var(--ink-2);max-width:920px;margin:0 0 14px}
+.ctls{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;margin:0 0 16px;display:grid;gap:8px}
+.ctl{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;font-size:13px}
+.ctl > span{font-weight:700;color:var(--ink-2);margin-right:2px}
+.ctl button{min-height:36px;padding:0 12px;border-radius:9px;border:1px solid var(--line-2);background:var(--card);font-weight:600;font-size:13px}
+.ctl button[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.mini{font-size:13px;color:var(--ink-2);margin:8px 0 0}
+
+/* ── celulares: WhatsApp e cardápio ── */
+.fones{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),420px));justify-content:center;gap:18px;align-items:start}
+.caso h2{font-family:var(--display);font-size:16px;margin:0 0 8px;display:flex;gap:8px;align-items:center}
+.caso h2 .n{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--navy);color:var(--gold);font-size:13px;flex:none}
+.leg{font-size:13px;color:var(--ink-2);margin:10px 2px 0}
+.fone{width:100%;height:690px;border-radius:28px;background:#0F2230;padding:10px;box-shadow:0 16px 40px rgba(15,34,48,.25)}
+.fone .vidro{height:100%;border-radius:20px;background:#FAFAFA;overflow:hidden;display:flex;flex-direction:column;position:relative}
+/* Conversa do robô: o celular cresce com a conversa (o protótipo mostra tudo, sem rolar dentro do celular). */
+.fone.alto,.fone.alto .vidro{height:auto}
+.fone.alto .wa{flex:none;overflow:visible}
+.wa-topo,.lp-topo{background:#008069;color:#fff;padding:10px 14px;display:flex;align-items:center;gap:10px}
+.lp-topo{background:var(--navy)}
+.av{width:34px;height:34px;border-radius:50%;background:#0F2230;color:var(--gold);display:grid;place-items:center;font-family:var(--display);font-weight:800;font-size:12px;flex:none}
+.lp-topo .av{background:var(--gold);color:var(--on-gold)}
+.wa-topo b,.lp-topo b{display:block;font-size:15px} .wa-topo small,.lp-topo small{font-size:12px;color:#E9FBF6}
+.wa{flex:1;overflow-y:auto;background:#EFEAE2;padding:12px 10px;display:flex;flex-direction:column;gap:6px}
+.bolha{max-width:88%;background:#fff;color:#111B21;border-radius:10px;padding:7px 9px;font-size:14px;box-shadow:0 1px 1px rgba(0,0,0,.08);overflow-wrap:anywhere}
+.bolha.eu{align-self:flex-end;background:#D9FDD3}
+.bolha p{margin:0 0 6px} .bolha p:last-of-type{margin-bottom:0}
+.bolha small{display:block;text-align:right;font-size:11px;color:#54656F;margin-top:2px}
+.wa-bts{display:flex;flex-direction:column;gap:2px;width:88%;max-width:88%}
+.wa-bts span{background:#fff;border-radius:10px;text-align:center;color:#00719F;font-weight:600;font-size:14px;padding:8px;box-shadow:0 1px 1px rgba(0,0,0,.08);overflow-wrap:anywhere}
+.wa-dia{align-self:center;background:#fff;border-radius:8px;font-size:12px;color:#54656F;padding:3px 10px;text-align:center;max-width:92%}
+.wa-escrever{background:#F0F2F5;padding:8px 10px;display:flex;gap:8px;align-items:center}
+.wa-escrever span{flex:1;background:#fff;border-radius:999px;padding:9px 14px;color:#54656F;font-size:14px}
+
+.cel-box{max-width:420px;margin:0 auto}
+.lp-corpo{flex:1;overflow-y:auto;padding:14px;background:#F6F7F9;display:flex;flex-direction:column;gap:10px}
+.lp-card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px}
+.lp-card h3{font-family:var(--display);font-size:15px;margin:0 0 8px}
+.lp-linha{display:flex;justify-content:space-between;gap:10px;font-size:14px;padding:2px 0}
+.lp-linha span:last-child{white-space:nowrap}
+.lp-total{font-weight:800;border-top:1px solid var(--line);margin-top:6px;padding-top:6px}
+.lp-bt{min-height:50px;border-radius:12px;border:0;background:var(--gold);color:var(--on-gold);font-weight:800;font-size:15px;width:100%}
+.dlg-fundo{position:absolute;inset:0;background:rgba(15,34,48,.55);display:flex;align-items:flex-end;justify-content:center;padding:12px}
+.dlg{background:#fff;border-radius:16px;padding:18px 16px 16px;width:100%;max-width:420px;box-shadow:0 20px 40px rgba(0,0,0,.3)}
+.dlg h3{font-family:var(--display);font-size:18px;margin:0 0 8px}
+.dlg p{margin:0 0 10px;font-size:14.5px}
+.itens-d{background:var(--bg);border-radius:10px;padding:8px 10px;font-size:14px;margin:0 0 12px}
+.acoes{display:flex;flex-direction:column;gap:8px}
+.bt{min-height:48px;border-radius:12px;font-weight:800;font-size:15px;padding:0 14px}
+.bt.pri{background:var(--gold);color:var(--on-gold);border:0}
+.bt.sec{background:#fff;color:var(--ink);border:1.5px solid var(--line-2)}
+.nota-dlg{font-size:12.5px!important;color:var(--ink-2);margin:10px 0 0!important}
+.aviso-lp{background:var(--ok-bg);color:var(--ok);border-radius:12px;padding:10px 12px;font-weight:700;font-size:14px}
+
+/* ── vias impressas (papel térmico) ── */
+.papeis{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:22px;align-items:start}
+.papel-box{width:100%;display:flex;flex-direction:column;align-items:center;gap:8px}
+.papel-box h2{font-size:14px;font-family:var(--display);margin:0;color:var(--ink-2);text-align:center}
+.papel{width:100%;max-width:330px;background:#FFFEFA;color:#111;font-family:var(--mono);font-size:10.5px;line-height:1.35;padding:16px 12px 14px;box-shadow:0 8px 24px rgba(15,34,48,.16);border-radius:3px}
+.papel.p58{max-width:232px}
+.pl{overflow-wrap:anywhere}
+.pc{text-align:center}
+.pb{font-weight:700}
+.p2{font-size:2em;line-height:1.15}
+.p4{font-size:3.6em;line-height:1.05}
+.psep{border-top:1px dashed #111;margin:7px 0}
+.psep2{border-top:4px double #111;margin:8px 0}
+.pd{display:flex;justify-content:space-between;gap:8px}
+.pd span:first-child{min-width:0;overflow-wrap:anywhere}
+.pd span:last-child{white-space:nowrap}
+.pcorte{margin-top:14px;text-align:center;font-family:var(--body);font-size:11px;color:#8A97A3;border-top:1px dashed #B9C3CC;padding-top:4px}
+
+/* ── KDS (tokens do mockups/regem-kds-producao.html) ── */
+.kds{--s-ok:#0E7C66;--on-ok:#FFFFFF;--s-warn:#F5C842;--on-warn:#0F2230;--s-late:#D92D20;--on-late:#FFFFFF;
+  background:var(--k-bg);color:var(--k-ink);border-radius:16px;border:1px solid var(--line-2);overflow:hidden}
+.kds[data-tema="claro"]{--k-bg:#EDF0F4;--k-panel:#FFFFFF;--k-panel-2:#F1F4F7;--k-line:#D5DCE4;--k-ink:#0F2230;--k-muted:#4F6476}
+.kds[data-tema="escuro"]{--k-bg:#0B1117;--k-panel:#151E27;--k-panel-2:#1D2833;--k-line:#2C3A47;--k-ink:#F1F5F8;--k-muted:#A3B1BD}
+.k-topo{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 16px;background:var(--k-panel);border-bottom:1px solid var(--k-line)}
+.k-logo{width:38px;height:38px;flex:none;border-radius:10px;display:grid;place-items:center;background:#0F2230;color:#E2A340;font-family:var(--display);font-weight:800;font-size:17px}
+.k-marca b{display:block;font-family:var(--display);font-weight:800;font-size:16px}
+.k-marca span{display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--k-muted)}
+.k-esp{flex:1 1 0;min-width:0}
+.k-relogio{font-family:var(--mono);font-size:24px;font-weight:700}
+.k-grade{display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr));padding:14px;align-items:start}
+.kc{--inv-bg:var(--k-ink);--inv-fg:var(--k-panel);display:flex;flex-direction:column;overflow:hidden;background:var(--k-panel);color:var(--k-ink);border:1px solid var(--k-line);border-radius:12px}
+.kc.t-ok{--c:var(--s-ok);--on:var(--on-ok)} .kc.t-warn{--c:var(--s-warn);--on:var(--on-warn)} .kc.t-late{--c:var(--s-late);--on:var(--on-late)}
+.kc .cab{--inv-bg:var(--on);--inv-fg:var(--c);display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 10px;padding:11px 14px;background:var(--c);color:var(--on)}
+.kc .ident{display:flex;align-items:center;gap:8px;font-family:var(--display);font-weight:800;font-size:27px;line-height:1.05;white-space:nowrap}
+.kc .tempo{font-family:var(--mono);font-weight:700;font-size:24px;white-space:nowrap}
+.kc .tempo small{font-family:var(--body);font-size:13.5px;font-weight:700;margin-left:3px}
+.kc .sub{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:13.5px;font-weight:700}
+.ktag{display:inline-block;border:1.5px solid currentColor;border-radius:5px;padding:0 6px;font-size:11.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;line-height:1.5}
+.ktag.cheia{background:var(--inv-bg);color:var(--inv-fg);border-color:var(--inv-bg)}
+.excl{display:inline-grid;place-items:center;width:32px;height:32px;border-radius:50%;background:var(--inv-bg);color:var(--inv-fg);font-family:var(--display);font-weight:800;font-size:22px;line-height:1;flex:none}
+@keyframes pulsa-excl{50%{transform:scale(1.12)}}
+.excl.pulsa{animation:pulsa-excl 1s ease-in-out infinite}
+.kc .cc{display:flex;flex-direction:column;flex:1;padding:12px 14px 14px}
+.faixa-alt{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin:0 0 12px;padding:10px 12px;border-radius:9px;background:var(--inv-bg);color:var(--inv-fg)}
+.faixa-alt .excl{background:var(--inv-fg);color:var(--inv-bg)}
+.faixa-alt b{font-family:var(--display);font-weight:800;font-size:22px;letter-spacing:.03em;line-height:1.1;flex:1 1 9ch;min-width:0}
+.faixa-alt small{font-family:var(--mono);font-weight:700;font-size:15px}
+.faixa-alt button{flex:1 0 100%;min-height:48px;padding:0 16px;border:0;border-radius:8px;background:var(--inv-fg);color:var(--inv-bg);font-weight:800;font-size:15px;letter-spacing:.08em;text-transform:uppercase}
+.kc .aviso{margin:0 0 10px;font-size:13.5px;font-weight:700}
+.kc .itens{list-style:none;margin:0 0 12px;padding:0;display:grid;gap:8px;flex:1}
+.kc .itens li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;font-size:16px;line-height:1.3}
+.kc .q{font-family:var(--mono);font-weight:700;min-width:2.2ch;text-align:right}
+.kc .d{font-weight:700}
+.kc .obs{margin-top:4px;font-size:13.5px;font-weight:800}
+.kc li.tirado .d,.kc li.tirado .q{text-decoration:line-through;text-decoration-thickness:2px}
+.kc .avancar{width:100%;min-height:48px;border-radius:9px;border:0;background:var(--c);color:var(--on);font-family:var(--display);font-weight:800;font-size:14.5px;letter-spacing:.08em;text-transform:uppercase}
+.k-alerta{display:flex;align-items:stretch;min-height:56px;color:#fff;background:#1E6FA8}
+.k-alerta .lado{display:grid;place-items:center;padding:0 14px;background:rgba(0,0,0,.22);font-weight:800;font-size:13px;letter-spacing:.08em;text-transform:uppercase}
+.k-alerta .txt{flex:1;min-width:0;display:flex;align-items:center;padding:8px 14px;font-family:var(--display);font-weight:800;font-size:18px;overflow-wrap:anywhere}
+
+/* ── painel da loja (gaveta do pedido) ── */
+.gav{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:0 10px 30px rgba(15,34,48,.08);max-width:660px;margin:0 auto}
+.gav-cab{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;padding:16px 18px;border-bottom:1px solid var(--line)}
+.gav-cab h2{font-family:var(--display);font-size:20px;margin:0;flex:1 1 auto}
+.chip{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:3px 10px;font-size:12.5px;font-weight:700;background:var(--info-bg);color:var(--info)}
+.chip.ok{background:var(--ok-bg);color:var(--ok)} .chip.warn{background:var(--warn-bg);color:var(--warn)} .chip.ouro{background:var(--ouro-bg);color:var(--ouro)}
+.gav-sec{padding:14px 18px;border-bottom:1px solid var(--line)}
+.gav-sec:last-child{border-bottom:0}
+.gav-sec h3{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);margin:0 0 8px;font-family:var(--display)}
+.mud{list-style:none;margin:0 0 8px;padding:0;display:grid;gap:6px}
+.mud li{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;font-weight:600}
+.sinal{display:inline-grid;place-items:center;min-width:24px;height:24px;border-radius:6px;background:var(--navy);color:#fff;font-family:var(--mono);font-weight:700;font-size:13px}
+.linha-v{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 12px;font-size:14px;padding:5px 0;border-top:1px solid var(--line)}
+.linha-v > span:first-child{color:var(--ink-2);font-weight:600}
+.hist{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.hist li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 10px;font-size:14px}
+.hist time{font-family:var(--mono);font-weight:700;color:var(--ink-2)}
+.alerta-rep{background:var(--warn-bg);color:var(--warn);border:1px solid #F0C9AE;border-radius:12px;padding:12px 14px}
+.alerta-rep b{display:block;font-size:15px;margin-bottom:4px}
+.ok-rep{background:var(--ok-bg);color:var(--ok);border-radius:12px;padding:12px 14px;font-weight:700}
+.acoes-l{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.bt-a{min-height:40px;padding:0 14px;border-radius:10px;font-weight:700;font-size:14px;border:1.5px solid var(--line-2);background:#fff;color:var(--ink)}
+.bt-a.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.bt-a.perigo{color:var(--crit);border-color:#E7B8B8}
+
+/* ── ajustes ── */
+.aj{max-width:880px;margin:0 auto}
+.migalha{font-size:13px;color:var(--ink-2);margin:0 0 4px}
+.grupo{background:var(--card);border:1px solid var(--line);border-radius:14px;margin:0 0 10px;overflow:hidden}
+.g-cab{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 10px;padding:12px 16px;font-family:var(--display);font-weight:800}
+.g-cab .cont{font-family:var(--mono);font-size:12.5px;color:var(--ink-2);font-weight:700}
+.grupo.fechado .g-cab{color:var(--ink-2);font-weight:700}
+.novo-tag{font-family:var(--body);font-size:11px;background:var(--ouro-bg);color:var(--ouro);border-radius:999px;padding:2px 8px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;margin-left:6px;vertical-align:2px}
+.aj-linha{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 16px;align-items:center;padding:12px 16px;border-top:1px solid var(--line)}
+.aj-linha p{margin:2px 0 0;font-size:13px;color:var(--ink-2)}
+.aj-linha label b,.aj-linha > div > b{font-weight:700}
+@media (max-width:560px){.aj-linha{grid-template-columns:minmax(0,1fr)}}
+.sw{width:52px;height:30px;border-radius:999px;background:var(--line-2);border:0;position:relative;flex:none}
+.sw::after{content:'';position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:left .15s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.sw[aria-checked="true"]{background:var(--ok)}
+.sw[aria-checked="true"]::after{left:25px}
+.sel{min-height:42px;border:1px solid var(--line-2);border-radius:10px;padding:0 10px;background:#fff;font-weight:600;max-width:100%}
+.barra-salvar{position:sticky;bottom:12px;margin:16px auto 0;display:flex;flex-wrap:wrap;align-items:center;gap:10px;justify-content:space-between;background:var(--navy);color:#fff;border-radius:14px;padding:12px 14px;box-shadow:0 10px 30px rgba(15,34,48,.3)}
+.barra-salvar .bt-a{border-color:#3A5568}
+.barra-salvar div{display:flex;flex-wrap:wrap;gap:8px}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ok);color:#fff;padding:10px 16px;border-radius:12px;font-weight:700;z-index:50;max-width:calc(100vw - 32px)}
+
+/* ── plano e decisões ── */
+.notas{max-width:1000px;margin:0 auto}
+.notas h2{font-family:var(--display);font-size:19px;margin:24px 0 8px}
+.notas p,.notas li{max-width:920px}
+.notas ul,.notas ol{padding-left:22px}
+.medidas{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr));gap:10px;margin:8px 0}
+.medida{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.medida b{display:block;font-family:var(--display);font-size:14.5px;margin-bottom:4px}
+.medida .num{display:block;font-family:var(--mono);font-size:24px;font-weight:700}
+.medida p{margin:4px 0 0;font-size:13.5px;color:var(--ink-2)}
+.pr{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin:0 0 10px}
+.pr h3{margin:0 0 6px;font-family:var(--display);font-size:16px}
+.pr ul{margin:6px 0 0}
+.mig{display:inline-block;background:var(--warn-bg);color:var(--warn);font-weight:800;font-size:12.5px;border-radius:8px;padding:3px 10px;margin:8px 0 0}
+.zip{display:inline-block;background:var(--info-bg);color:var(--info);font-weight:800;font-size:12.5px;border-radius:8px;padding:3px 10px;margin:8px 0 0}
+.dec{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--gold);border-radius:12px;padding:12px 14px;margin:0 0 10px}
+.dec h3{margin:0 0 6px;font-size:15.5px;font-family:var(--display)}
+.dec ol{margin:4px 0 0;padding-left:22px}
+.dec li{margin:3px 0}
+.rec{display:inline-block;background:var(--ok-bg);color:var(--ok);font-weight:800;font-size:12px;border-radius:999px;padding:1px 8px;margin-left:4px}
+</style>
+</head>
+<body>
+
+<header class="proto">
+  <strong>Protótipo · pedido repetido e pedido alterado</strong>
+  <span class="obs">03/11/2026 · para o dono aprovar · nada aqui fala com o Regem</span>
+  <nav class="abas" aria-label="Vistas do protótipo">
+    <button type="button" class="aba" data-grupo="vista" data-valor="robo">Robô do WhatsApp</button>
+    <button type="button" class="aba" data-grupo="vista" data-valor="cardapio">Cardápio online</button>
+    <button type="button" class="aba" data-grupo="vista" data-valor="via">Via impressa</button>
+    <button type="button" class="aba" data-grupo="vista" data-valor="kds">KDS</button>
+    <button type="button" class="aba" data-grupo="vista" data-valor="painel">Painel da loja</button>
+    <button type="button" class="aba" data-grupo="vista" data-valor="ajuste">Ajustes</button>
+    <button type="button" class="aba" data-grupo="vista" data-valor="notas">Plano e decisões</button>
+  </nav>
+</header>
+
+<main>
+
+<!-- ═════════════ 1. ROBÔ DO WHATSAPP ═════════════ -->
+<section class="vista" id="v-robo" aria-labelledby="t-robo">
+  <h1 id="t-robo">Robô do WhatsApp</h1>
+  <p class="intro">O que o cliente vê na conversa com o robô do Regem: o pedido igual em até 30 minutos, a mudança simples com o troco e quando o robô passa para a equipe. Use os botões abaixo para ver as variações.</p>
+  <div class="ctls">
+    <div class="ctl"><span>1 · Resposta do cliente:</span>
+      <button type="button" data-grupo="resposta" data-valor="nao">Não, foi repetido</button>
+      <button type="button" data-grupo="resposta" data-valor="sim">Sim, quero os dois</button></div>
+    <div class="ctl"><span>2 · A mudança:</span>
+      <button type="button" data-grupo="mudanca" data-valor="por">pôr a batata</button>
+      <button type="button" data-grupo="mudanca" data-valor="trocar">trocar a Coca por Guaraná</button>
+      <button type="button" data-grupo="mudanca" data-valor="tirar">tirar a Coca</button></div>
+    <div class="ctl"><span>2 · A loja:</span>
+      <button type="button" data-grupo="loja" data-valor="servidor">tem o servidor do Regem ligado</button>
+      <button type="button" data-grupo="loja" data-valor="nuvem">só na nuvem</button></div>
+    <div class="ctl"><span>3 · Por que o robô não muda:</span>
+      <button type="button" data-grupo="motivo" data-valor="saiu">já saiu para entrega</button>
+      <button type="button" data-grupo="motivo" data-valor="online">pago pelo link</button>
+      <button type="button" data-grupo="motivo" data-valor="duas">duas mudanças</button>
+      <button type="button" data-grupo="motivo" data-valor="pronto">item já pronto</button></div>
+  </div>
+
+  <div class="fones">
+    <!-- 1 · pedido igual -->
+    <article class="caso" id="caso-igual">
+      <h2><span class="n">1</span> Pedido igual em até 30 min</h2>
+      <div class="fone alto"><div class="vidro">
+        <div class="wa-topo"><span class="av">BP</span><div><b>Burger da Praça</b><small>conta comercial</small></div></div>
+        <div class="wa">
+          <span class="wa-dia">Hoje</span>
+          <div class="bolha"><p>Pronto! Pedido nº 123 registrado 🎉 Já está em produção.</p><small>19:42</small></div>
+          <div class="bolha eu"><p>Quero 1 X-Bacon sem cebola e 1 Coca lata pra entrega</p><small>19:47</small></div>
+          <span class="wa-dia">… o robô monta o pedido como hoje (itens, endereço e pagamento) …</span>
+          <div class="bolha">
+            <p>⚠️ <b>Você já fez um pedido igual hoje às 19:42</b> (nº 123), e ele está <b>em produção</b>.</p>
+            <p><b>Este pedido</b><br>1 X-Bacon (sem cebola) — R$ 32,00<br>1 Coca-Cola lata — R$ 7,00<br>Entrega — R$ 6,00<br><b>Total: R$ 45,00</b> · dinheiro, troco para R$ 50</p>
+            <p>Quer que a gente produza e envie <b>os dois</b> pedidos?</p><small>19:48</small></div>
+          <div class="wa-bts"><span>Sim, quero os dois</span><span>Não, foi repetido</span><span>Quero mudar algo</span></div>
+          <div class="bolha eu" data-mostra="resposta:nao"><p>Não, foi repetido</p><small>19:48</small></div>
+          <div class="bolha" data-mostra="resposta:nao" data-teste="igual-nao"><p>Tudo certo! Não registrei de novo 😉 Seu pedido nº 123 continua em produção — te aviso quando sair para entrega.</p><small>19:48</small></div>
+          <div class="bolha eu" data-mostra="resposta:sim"><p>Sim, quero os dois</p><small>19:48</small></div>
+          <div class="bolha" data-mostra="resposta:sim" data-teste="igual-sim"><p>Pronto! Pedido nº 124 registrado 🎉 Agora são dois: o nº 123 e o nº 124, os dois para a Rua das Flores, 120.</p><small>19:48</small></div>
+        </div>
+        <div class="wa-escrever"><span>Mensagem</span></div>
+      </div></div>
+      <p class="leg">A pergunta vem <b>no próprio resumo para conferir</b>: o "Pode registrar" de sempre dá lugar a "Sim, quero os dois" e "Não, foi repetido". Nada vai para a cozinha antes de o cliente responder.</p>
+    </article>
+
+    <!-- 2 · mudança simples -->
+    <article class="caso" id="caso-mudanca">
+      <h2><span class="n">2</span> Mudança simples, com o troco</h2>
+      <div class="fone alto"><div class="vidro">
+        <div class="wa-topo"><span class="av">BP</span><div><b>Burger da Praça</b><small>conta comercial</small></div></div>
+        <div class="wa">
+          <span class="wa-dia">Hoje</span>
+          <div class="bolha"><p>Pronto! Pedido nº 123 registrado 🎉 Já está em produção.</p><small>19:42</small></div>
+          <div class="bolha eu" data-mostra="mudanca:por"><p>Esqueci a batata! Dá pra pôr no meu pedido?</p><small>19:50</small></div>
+          <div class="bolha eu" data-mostra="mudanca:trocar"><p>Dá pra trocar a Coca por Guaraná?</p><small>19:50</small></div>
+          <div class="bolha eu" data-mostra="mudanca:tirar"><p>Tira a Coca do meu pedido, por favor</p><small>19:50</small></div>
+          <div class="bolha"><p>Dá sim 👍 Seu pedido nº 123 ainda está em produção, então consigo mudar.</p><small>19:50</small></div>
+          <div class="bolha" data-mostra="mudanca:por" data-teste="troco-pergunta"><p><b>Mudança no pedido nº 123</b><br>➕ 1 Batata frita média — R$ 14,00<br>Total: R$ 45,00 → <b>R$ 59,00</b></p><p>Você paga em <b>dinheiro</b> na entrega e tinha pedido troco para <b>R$ 50</b>. Vai precisar de troco para quanto?</p><small>19:50</small></div>
+          <div class="wa-bts" data-mostra="mudanca:por"><span>Troco para R$ 100</span><span>Outro valor</span><span>Não preciso de troco</span></div>
+          <div class="bolha eu" data-mostra="mudanca:por"><p>Troco para R$ 100</p><small>19:51</small></div>
+          <div class="bolha" data-mostra="mudanca:por"><p><b>Confere a mudança</b> 👇<br>➕ 1 Batata frita média<br>Total: <b>R$ 59,00</b> · dinheiro, troco para R$ 100</p><small>19:51</small></div>
+          <div class="bolha" data-mostra="mudanca:trocar" data-teste="troca-resumo"><p><b>Mudança no pedido nº 123</b><br>🔄 1 Coca-Cola lata → 1 Guaraná Antarctica lata<br>Total: <b>R$ 45,00</b> (não muda)<br>Dinheiro, troco para R$ 50 — continua.</p><small>19:50</small></div>
+          <div class="bolha" data-mostra="mudanca:tirar" data-teste="tira-resumo"><p><b>Mudança no pedido nº 123</b><br>➖ 1 Coca-Cola lata — R$ 7,00<br>Total: R$ 45,00 → <b>R$ 38,00</b><br>Dinheiro, troco para R$ 50 — continua.</p><small>19:50</small></div>
+          <div class="wa-bts" data-mostra="mudanca:por"><span>Pode alterar</span><span>Deixar como estava</span></div>
+          <div class="wa-bts" data-mostra="mudanca:trocar|tirar"><span>Pode alterar</span><span>Mudar o troco</span><span>Deixar como estava</span></div>
+          <div class="bolha eu"><p>Pode alterar</p><small>19:51</small></div>
+          <div class="bolha" data-mostra="loja:servidor" data-teste="pedi-cozinha"><p>Pedi a mudança à cozinha ⏳ Te confirmo aqui em instantes.</p><small>19:51</small></div>
+          <div class="bolha" data-teste="alterado-ok">
+            <p><span data-mostra="loja:servidor">✅ A loja confirmou: pedido nº 123 alterado.</span><span data-mostra="loja:nuvem">✅ Pronto! Pedido nº 123 alterado.</span> A cozinha já recebeu a mudança.</p>
+            <p><span data-mostra="mudanca:por">Total: R$ 59,00 — troco para R$ 100.</span><span data-mostra="mudanca:trocar">Total: R$ 45,00 — troco para R$ 50.</span><span data-mostra="mudanca:tirar">Total: R$ 38,00 — troco para R$ 50.</span></p>
+            <small><span data-mostra="loja:servidor">19:52</span><span data-mostra="loja:nuvem">19:51</span></small></div>
+        </div>
+        <div class="wa-escrever"><span>Mensagem</span></div>
+      </div></div>
+      <p class="leg" data-mostra="loja:servidor">Na sua loja (servidor do Regem ligado), <b>quem altera é o servidor da loja</b> — é ele que tem a cozinha e as impressoras. A nuvem passa a mudança para ele e o robô confirma quando a loja confirmar (em até 1 minuto).</p>
+      <p class="leg" data-mostra="loja:nuvem">Na loja sem servidor, a nuvem altera na hora e o robô já confirma.</p>
+    </article>
+
+    <!-- 3 · quando o robô passa para a equipe -->
+    <article class="caso" id="caso-equipe">
+      <h2><span class="n">3</span> Quando o robô passa para a equipe</h2>
+      <div class="fone alto"><div class="vidro">
+        <div class="wa-topo"><span class="av">BP</span><div><b>Burger da Praça</b><small>conta comercial</small></div></div>
+        <div class="wa">
+          <span class="wa-dia">Hoje</span>
+          <div class="bolha"><p>Pronto! Pedido nº 123 registrado 🎉 Já está em produção.</p><small>19:42</small></div>
+          <div class="bolha" data-mostra="motivo:saiu"><p>Seu pedido nº 123 saiu para entrega 🛵</p><small>20:05</small></div>
+          <div class="bolha eu" data-mostra="motivo:saiu"><p>Dá pra trocar a Coca por Guaraná?</p><small>20:06</small></div>
+          <div class="bolha" data-mostra="motivo:saiu"><p>Seu pedido nº 123 já saiu para entrega, então não dá para mudar por aqui. Quer que eu chame alguém da equipe?</p><small>20:06</small></div>
+          <div class="bolha eu" data-mostra="motivo:online"><p>Dá pra pôr mais uma Coca?</p><small>19:50</small></div>
+          <div class="bolha" data-mostra="motivo:online"><p>Seu pedido nº 123 já foi pago pelo link, então mudar o valor precisa de alguém da equipe (pode ter diferença a cobrar ou a devolver). Quer que eu chame?</p><small>19:50</small></div>
+          <div class="bolha eu" data-mostra="motivo:duas"><p>Troca a Coca por Guaraná e põe uma batata</p><small>19:50</small></div>
+          <div class="bolha" data-mostra="motivo:duas"><p>Por aqui eu faço uma mudança simples por pedido: pôr, tirar ou trocar um produto. Para essas duas, quer que eu chame alguém da equipe?</p><small>19:50</small></div>
+          <div class="bolha eu" data-mostra="motivo:pronto"><p>Troca o X-Bacon por X-Salada?</p><small>19:55</small></div>
+          <div class="bolha" data-mostra="motivo:pronto loja:nuvem"><p>O X-Bacon do seu pedido já ficou pronto na cozinha, então não consigo trocar por aqui. Quer que eu chame alguém da equipe?</p><small>19:55</small></div>
+          <span class="wa-dia" data-mostra="motivo:pronto loja:servidor">… o cliente confere a troca e toca em "Pode alterar" …</span>
+          <div class="bolha" data-mostra="motivo:pronto loja:servidor"><p>Pedi a mudança à cozinha ⏳ Te confirmo aqui em instantes.</p><small>19:56</small></div>
+          <div class="bolha" data-mostra="motivo:pronto loja:servidor"><p>A cozinha já tinha deixado o X-Bacon pronto, então essa troca não dá mais 😕 Quer que eu chame alguém da equipe?</p><small>19:56</small></div>
+          <div class="wa-bts"><span>Sim, chamar alguém</span><span>Não, deixa como está</span></div>
+          <div class="bolha eu"><p>Sim, chamar alguém</p><small>20:06</small></div>
+          <div class="bolha"><p>Chamei! Alguém da equipe te responde aqui em instantes 🙋</p><small>20:06</small></div>
+        </div>
+        <div class="wa-escrever"><span>Mensagem</span></div>
+      </div></div>
+      <p class="leg">Na loja: abre o caso <b>Mudança no pedido</b> em Atendimento, com o que o cliente pediu escrito. Pedido do iFood e da 99 não passa por aqui: o cliente fala com a loja pelo app deles.</p>
+    </article>
+  </div>
+</section>
+
+<!-- ═════════════ 2. CARDÁPIO ONLINE ═════════════ -->
+<section class="vista" id="v-cardapio" aria-labelledby="t-cardapio" hidden>
+  <h1 id="t-cardapio">Cardápio online</h1>
+  <p class="intro">O cliente fecha um pedido igual a um que fez há pouco. O servidor percebe ao receber e o checkout pergunta antes de enviar. Com o cliente identificado (entrou pelo link do WhatsApp ou pela conta), a pergunta mostra o outro pedido; só com o telefone digitado, não mostra nada dele — qualquer pessoa pode digitar um telefone.</p>
+  <div class="ctls">
+    <div class="ctl"><span>Cliente:</span>
+      <button type="button" data-grupo="cliente" data-valor="conta">identificado (link ou conta)</button>
+      <button type="button" data-grupo="cliente" data-valor="tel">só digitou o telefone</button></div>
+    <div class="ctl"><span>Resposta:</span>
+      <button type="button" data-grupo="dialogo" data-valor="aberto">a pergunta</button>
+      <button type="button" data-grupo="dialogo" data-valor="nao">"Não, foi engano"</button>
+      <button type="button" data-grupo="dialogo" data-valor="sim">"Sim, fazer outro igual"</button></div>
+  </div>
+  <div class="cel-box">
+    <div class="fone"><div class="vidro">
+      <div class="lp-topo"><span class="av">BP</span><div><b>Burger da Praça</b><small>Finalizar pedido</small></div></div>
+      <div class="lp-corpo">
+        <div class="lp-card">
+          <h3>Seu pedido</h3>
+          <div class="lp-linha"><span>1 X-Bacon · sem cebola</span><span>R$ 32,00</span></div>
+          <div class="lp-linha"><span>1 Coca-Cola lata</span><span>R$ 7,00</span></div>
+          <div class="lp-linha"><span>Entrega</span><span>R$ 6,00</span></div>
+          <div class="lp-linha lp-total"><span>Total</span><span>R$ 45,00</span></div>
+        </div>
+        <div class="lp-card">
+          <h3>Entrega e pagamento</h3>
+          <div class="lp-linha"><span>Rua das Flores, 120 · Centro</span></div>
+          <div class="lp-linha"><span>Dinheiro · troco para R$ 50</span></div>
+        </div>
+        <div class="aviso-lp" data-mostra="dialogo:nao" data-teste="lp-nao">Tudo certo: não fizemos outro pedido.<span data-mostra="cliente:conta"> O nº 123 continua em produção.</span></div>
+        <button type="button" class="bt sec" data-mostra="dialogo:nao cliente:conta">Acompanhar pedido nº 123</button>
+        <div class="aviso-lp" data-mostra="dialogo:sim" data-teste="lp-sim">Pedido nº 124 feito! 🎉 Agora são dois pedidos para a Rua das Flores, 120.</div>
+        <button type="button" class="lp-bt" data-mostra="dialogo:aberto|nao">Fazer pedido · R$ 45,00</button>
+      </div>
+      <div class="dlg-fundo" data-mostra="dialogo:aberto">
+        <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="dlg-t" data-teste="dialogo-igual">
+          <h3 id="dlg-t"><span data-mostra="cliente:conta">Você já fez um pedido igual</span><span data-mostra="cliente:tel">Pedido igual a um que acabou de chegar</span></h3>
+          <p data-mostra="cliente:conta">Hoje às 19:42 você pediu estes mesmos itens (pedido nº 123), que está <b>em produção</b>.</p>
+          <p data-mostra="cliente:tel">Acabamos de receber um pedido com estes mesmos itens e este telefone.</p>
+          <div class="itens-d">1 X-Bacon · sem cebola<br>1 Coca-Cola lata</div>
+          <p><b>Quer fazer outro pedido igual?</b></p>
+          <div class="acoes">
+            <button type="button" class="bt pri" data-acao="dlg-nao">Não, foi engano</button>
+            <button type="button" class="bt sec" data-acao="dlg-sim">Sim, fazer outro igual</button>
+          </div>
+          <p class="nota-dlg" data-mostra="cliente:tel">Para ver o outro pedido, use o link que chegou no seu WhatsApp.</p>
+        </div>
+      </div>
+    </div></div>
+    <p class="leg">Nada é enviado antes da resposta. "Sim" manda o mesmo pedido de novo, agora confirmado; "Não" (ou Esc) fecha sem enviar e o carrinho continua, se ele quiser mudar algo.</p>
+  </div>
+</section>
+
+<!-- ═════════════ 3. VIA IMPRESSA ═════════════ -->
+<section class="vista" id="v-via" aria-labelledby="t-via" hidden>
+  <h1 id="t-via">Via impressa</h1>
+  <p class="intro">Cada impressora que já imprimiu o pedido recebe de novo a via dela, <b>inteira e atualizada</b>, com o destaque no topo e o que mudou logo abaixo. "PEDIDO" e "ALTERADO" saem no tamanho máximo da impressora (4×), um em cada linha, para caber nos dois papéis. Os pedidos que chegam de fora iguais a outro do mesmo cliente saem com o aviso de "possível repetido".</p>
+  <div class="ctls">
+    <div class="ctl"><span>Via:</span>
+      <button type="button" data-grupo="via" data-valor="alterado">pedido alterado</button>
+      <button type="button" data-grupo="via" data-valor="repetido">possível repetido (Anota AI)</button></div>
+    <div class="ctl" data-mostra="via:alterado"><span>A mudança:</span>
+      <button type="button" data-grupo="mudanca" data-valor="por">pôr a batata</button>
+      <button type="button" data-grupo="mudanca" data-valor="trocar">trocar a Coca por Guaraná</button>
+      <button type="button" data-grupo="mudanca" data-valor="tirar">tirar a Coca</button></div>
+  </div>
+  <div class="papeis">
+    <div class="papel-box">
+      <h2>Cozinha · papel de 80 mm</h2>
+      <div class="papel" data-teste="papel80">
+        <div data-mostra="via:alterado">
+          <div class="psep2"></div>
+          <div class="pl pc pb p4" data-teste="grande">PEDIDO</div>
+          <div class="pl pc pb p4" data-teste="grande">ALTERADO</div>
+          <div class="psep2"></div>
+          <div class="pl pc pb p2">Descarte TODAS as vias anteriores</div>
+          <div class="psep"></div>
+          <div class="pl pb">O QUE MUDOU · 19:51</div>
+          <div class="pl pb" data-mostra="mudanca:por">+ NOVO&nbsp; 1 Batata frita média</div>
+          <div class="pl pb" data-mostra="mudanca:trocar">- TIRAR 1 Coca-Cola lata</div>
+          <div class="pl pb" data-mostra="mudanca:trocar">+ NOVO&nbsp; 1 Guaraná Antarctica lata</div>
+          <div class="pl pb" data-mostra="mudanca:tirar">- TIRAR 1 Coca-Cola lata</div>
+          <div class="psep"></div>
+          <div class="pl pc pb p2">SENHA 123</div>
+          <div class="pl pc">DELIVERY · WhatsApp · feito às 19:42</div>
+          <div class="pl pc">Marina</div>
+          <div class="psep"></div>
+          <div class="pl pb">1 X-Bacon</div>
+          <div class="pl">&nbsp;&nbsp;OBS: sem cebola</div>
+          <div class="pl pb" data-mostra="mudanca:por">1 Coca-Cola lata</div>
+          <div class="pl pb" data-mostra="mudanca:por">1 Batata frita média &lt;&lt; NOVO</div>
+          <div class="pl pb" data-mostra="mudanca:trocar">1 Guaraná Antarctica lata &lt;&lt; NOVO</div>
+          <div class="pcorte">✂ corte</div>
+        </div>
+        <div data-mostra="via:repetido">
+          <div class="psep2"></div>
+          <div class="pl pc pb p2">!! POSSÍVEL REPETIDO !!</div>
+          <div class="pl pc pb">Igual ao pedido 127 de 19:46</div>
+          <div class="pl pc">Mesmo cliente, mesmos itens.</div>
+          <div class="pl pc pb">Confirme com o cliente antes de produzir.</div>
+          <div class="psep2"></div>
+          <div class="pl pc pb p2">SENHA 130</div>
+          <div class="pl pc">DELIVERY · Anota AI · feito às 19:49</div>
+          <div class="pl pc">Carlos</div>
+          <div class="psep"></div>
+          <div class="pl pb">2 X-Salada</div>
+          <div class="pl pb">1 Batata frita média</div>
+          <div class="pcorte">✂ corte</div>
+        </div>
+      </div>
+    </div>
+    <div class="papel-box">
+      <h2>Entregador · papel de 58 mm</h2>
+      <div class="papel p58" data-teste="papel58">
+        <div data-mostra="via:alterado">
+          <div class="psep2"></div>
+          <div class="pl pc pb p4" data-teste="grande">PEDIDO</div>
+          <div class="pl pc pb p4" data-teste="grande">ALTERADO</div>
+          <div class="psep2"></div>
+          <div class="pl pc pb p2">Descarte TODAS as vias anteriores</div>
+          <div class="psep"></div>
+          <div class="pl pb">O QUE MUDOU · 19:51</div>
+          <div class="pd pb" data-mostra="mudanca:por"><span>+ 1 Batata frita média</span><span>14,00</span></div>
+          <div class="pl pb" data-mostra="mudanca:trocar">- 1 Coca-Cola lata</div>
+          <div class="pl pb" data-mostra="mudanca:trocar">+ 1 Guaraná Antarctica lata</div>
+          <div class="pd pb" data-mostra="mudanca:tirar"><span>- 1 Coca-Cola lata</span><span>-7,00</span></div>
+          <div class="psep"></div>
+          <div class="pl pc pb p2">PEDIDO 123</div>
+          <div class="pl pc">ENTREGA · WhatsApp</div>
+          <div class="pl">Marina</div>
+          <div class="pl">Rua das Flores, 120 · Centro</div>
+          <div class="pl">Ref.: portão azul</div>
+          <div class="psep"></div>
+          <div class="pd"><span>1 X-Bacon</span><span>32,00</span></div>
+          <div class="pl">&nbsp;&nbsp;sem cebola</div>
+          <div class="pd" data-mostra="mudanca:por"><span>1 Coca-Cola lata</span><span>7,00</span></div>
+          <div class="pd pb" data-mostra="mudanca:por"><span>1 Batata frita média NOVO</span><span>14,00</span></div>
+          <div class="pd pb" data-mostra="mudanca:trocar"><span>1 Guaraná Antarctica lata NOVO</span><span>7,00</span></div>
+          <div class="pd"><span>Entrega</span><span>6,00</span></div>
+          <div class="psep"></div>
+          <div class="pd pb p2"><span>TOTAL</span><span data-mostra="mudanca:por">59,00</span><span data-mostra="mudanca:trocar">45,00</span><span data-mostra="mudanca:tirar">38,00</span></div>
+          <div class="pl" data-mostra="mudanca:por">Dinheiro · troco para R$ 100,00</div>
+          <div class="pl" data-mostra="mudanca:trocar|tirar">Dinheiro · troco para R$ 50,00</div>
+          <div class="pl pb" data-mostra="mudanca:por">Levar de troco: R$ 41,00</div>
+          <div class="pl pb" data-mostra="mudanca:trocar">Levar de troco: R$ 5,00</div>
+          <div class="pl pb" data-mostra="mudanca:tirar">Levar de troco: R$ 12,00</div>
+          <div class="pcorte">✂ corte</div>
+        </div>
+        <div data-mostra="via:repetido">
+          <div class="psep2"></div>
+          <div class="pl pc pb p2">!! POSSÍVEL REPETIDO !!</div>
+          <div class="pl pc pb">Igual ao pedido 127 (19:46)</div>
+          <div class="pl pc">Confirme com o cliente.</div>
+          <div class="psep2"></div>
+          <div class="pl pc pb p2">PEDIDO 130</div>
+          <div class="pl pc">ENTREGA · Anota AI</div>
+          <div class="pl">Carlos</div>
+          <div class="pl">Av. Brasil, 455 · Centro</div>
+          <div class="psep"></div>
+          <div class="pd"><span>2 X-Salada</span><span>56,00</span></div>
+          <div class="pd"><span>1 Batata frita média</span><span>14,00</span></div>
+          <div class="pd"><span>Entrega</span><span>8,00</span></div>
+          <div class="psep"></div>
+          <div class="pd pb p2"><span>TOTAL</span><span>78,00</span></div>
+          <div class="pl">Pix na entrega</div>
+          <div class="pcorte">✂ corte</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="mini">A impressora não imprime branco no preto; o destaque é o tamanho (4× e 2×), o negrito e as linhas duplas. Os sinais "+" e "-" e as palavras NOVO e TIRAR saem em qualquer impressora.</p>
+</section>
+
+<!-- ═════════════ 4. KDS ═════════════ -->
+<section class="vista" id="v-kds" aria-labelledby="t-kds" hidden>
+  <h1 id="t-kds">KDS da cozinha</h1>
+  <p class="intro">O cartão do pedido alterado ganha o aviso grande <b>PEDIDO ALTERADO</b> com a exclamação, os itens que entram (NOVO) e os que saem (riscados, TIRAR), o rodapé de alerta e o som. Fica assim até alguém tocar em <b>Visto</b>; depois sobra a etiqueta "Alterado" e o NOVO no item. A cor continua só a do tempo: o destaque é o cartão invertido, como as etiquetas cheias de hoje.</p>
+  <div class="ctls">
+    <div class="ctl"><span>Tema:</span>
+      <button type="button" data-grupo="tema" data-valor="claro">claro</button>
+      <button type="button" data-grupo="tema" data-valor="escuro">escuro</button></div>
+    <div class="ctl"><span>A mudança:</span>
+      <button type="button" data-grupo="mudanca" data-valor="por">pôr a batata</button>
+      <button type="button" data-grupo="mudanca" data-valor="trocar">trocar a Coca por Guaraná</button>
+      <button type="button" data-grupo="mudanca" data-valor="tirar">tirar a Coca</button></div>
+    <div class="ctl"><span>Situação:</span>
+      <button type="button" data-grupo="visto" data-valor="nao">acabou de chegar</button>
+      <button type="button" data-grupo="visto" data-valor="sim">depois do "Visto"</button></div>
+  </div>
+  <div class="kds" id="kds" data-tema="claro">
+    <div class="k-topo">
+      <span class="k-logo" aria-hidden="true">R</span>
+      <span class="k-marca"><b>Cozinha</b><span>KDS · por pedido</span></span>
+      <span class="k-esp"></span>
+      <span class="k-relogio">19:52</span>
+    </div>
+    <div class="k-grade">
+      <article class="kc t-warn" aria-label="Senha 123, 10 minutos, em preparo, pedido alterado" data-teste="cartao-123">
+        <div class="cab">
+          <span class="ident"><span class="excl pulsa" data-mostra="visto:nao" aria-hidden="true">!</span>Senha 123</span>
+          <span class="tempo">10<small>min</small></span>
+          <span class="sub"><span>Em preparo · WhatsApp</span><span class="ktag" data-mostra="visto:sim">Alterado</span></span>
+        </div>
+        <div class="cc">
+          <div class="faixa-alt" data-mostra="visto:nao" data-teste="faixa">
+            <span class="excl" aria-hidden="true">!</span>
+            <b>PEDIDO ALTERADO</b>
+            <small>19:51</small>
+            <button type="button" data-acao="visto">Visto</button>
+          </div>
+          <ul class="itens">
+            <li><span class="q">1×</span><div><span class="d">X-Bacon</span><div class="obs"><span class="ktag cheia">Obs</span> sem cebola</div></div></li>
+            <li data-mostra="mudanca:por"><span class="q">1×</span><div><span class="d">Coca-Cola lata</span></div></li>
+            <li data-mostra="mudanca:por"><span class="q">1×</span><div><span class="d">Batata frita média</span> <span class="ktag cheia">Novo</span></div></li>
+            <li class="tirado" data-mostra="mudanca:trocar|tirar visto:nao"><span class="q">1×</span><div><span class="d">Coca-Cola lata</span> <span class="ktag">Tirar</span></div></li>
+            <li data-mostra="mudanca:trocar"><span class="q">1×</span><div><span class="d">Guaraná Antarctica lata</span> <span class="ktag cheia">Novo</span></div></li>
+          </ul>
+          <button type="button" class="avancar">Pronto</button>
+        </div>
+      </article>
+      <article class="kc t-ok" aria-label="Senha 130, 3 minutos, em preparo, possível repetido" data-teste="cartao-130">
+        <div class="cab">
+          <span class="ident">Senha 130</span>
+          <span class="tempo">3<small>min</small></span>
+          <span class="sub"><span>Em preparo · Anota AI #5531</span><span class="ktag cheia" data-mostra="confirmado:nao">Repetido?</span></span>
+        </div>
+        <div class="cc">
+          <p class="aviso" data-mostra="confirmado:nao">Igual ao pedido 127 de 19:46 — confirme com o atendimento antes de fazer.</p>
+          <ul class="itens">
+            <li><span class="q">2×</span><div><span class="d">X-Salada</span></div></li>
+            <li><span class="q">1×</span><div><span class="d">Batata frita média</span></div></li>
+          </ul>
+          <button type="button" class="avancar">Pronto</button>
+        </div>
+      </article>
+      <article class="kc t-late" aria-label="Senha 126, 16 minutos, atrasado">
+        <div class="cab">
+          <span class="ident">Senha 126</span>
+          <span class="tempo">16<small>min</small></span>
+          <span class="sub"><span>Em preparo · iFood #8842</span><span class="ktag cheia">Atrasado</span></span>
+        </div>
+        <div class="cc">
+          <ul class="itens">
+            <li><span class="q">2×</span><div><span class="d">X-Salada</span></div></li>
+            <li><span class="q">1×</span><div><span class="d">Batata frita grande</span></div></li>
+          </ul>
+          <button type="button" class="avancar">Pronto</button>
+        </div>
+      </article>
+    </div>
+    <div class="k-alerta" data-mostra="visto:nao" role="status" data-teste="rodape">
+      <span class="lado">Alterado</span>
+      <span class="txt"><span><span data-mostra="mudanca:por">Senha 123: + 1 Batata frita média</span><span data-mostra="mudanca:trocar">Senha 123: troca da Coca-Cola lata por Guaraná Antarctica lata</span><span data-mostra="mudanca:tirar">Senha 123: tirar 1 Coca-Cola lata</span> — toque em Visto no cartão</span></span>
+    </div>
+  </div>
+  <p class="mini">O som toca quando a alteração chega e repete a cada 1 minuto enquanto ninguém tocar em Visto (ajustável). Na visão "por item", o item novo leva NOVO e o tirado aparece riscado até o Visto. O "Repetido?" sai do cartão quando o atendimento confirma no painel.</p>
+</section>
+
+<!-- ═════════════ 5. PAINEL DA LOJA ═════════════ -->
+<section class="vista" id="v-painel" aria-labelledby="t-painel" hidden>
+  <h1 id="t-painel">Painel da loja</h1>
+  <p class="intro">Delivery › Painel, com a gaveta do pedido aberta. O pedido alterado mostra o que mudou, os valores de antes e de agora, as vias que saíram e se a cozinha já viu. O pedido de fora que chega igual a outro do mesmo cliente vem com o aviso de "possível repetido" para a equipe confirmar com o cliente.</p>
+  <div class="ctls">
+    <div class="ctl"><span>Pedido:</span>
+      <button type="button" data-grupo="pedido" data-valor="123">123 · alterado pelo robô</button>
+      <button type="button" data-grupo="pedido" data-valor="130">130 · possível repetido (Anota AI)</button></div>
+    <div class="ctl" data-mostra="pedido:123"><span>A mudança:</span>
+      <button type="button" data-grupo="mudanca" data-valor="por">pôr a batata</button>
+      <button type="button" data-grupo="mudanca" data-valor="trocar">trocar a Coca por Guaraná</button>
+      <button type="button" data-grupo="mudanca" data-valor="tirar">tirar a Coca</button></div>
+    <div class="ctl" data-mostra="pedido:123"><span>Cozinha:</span>
+      <button type="button" data-grupo="visto" data-valor="nao">ainda não viu</button>
+      <button type="button" data-grupo="visto" data-valor="sim">tocou em Visto</button></div>
+    <div class="ctl" data-mostra="pedido:130"><span>Aviso:</span>
+      <button type="button" data-grupo="confirmado" data-valor="nao">esperando a equipe</button>
+      <button type="button" data-grupo="confirmado" data-valor="sim">"São dois pedidos"</button></div>
+  </div>
+
+  <div class="gav" data-mostra="pedido:123" data-teste="gaveta-123">
+    <div class="gav-cab">
+      <h2>Pedido 123</h2>
+      <span class="chip">Em produção</span>
+      <span class="chip ouro">Alterado às 19:51 · pelo cliente no WhatsApp</span>
+    </div>
+    <div class="gav-sec">
+      <h3>O que mudou</h3>
+      <ul class="mud">
+        <li data-mostra="mudanca:por"><span class="sinal" aria-label="entrou">+</span>1 Batata frita média · R$ 14,00</li>
+        <li data-mostra="mudanca:trocar"><span class="sinal" aria-label="saiu">−</span>1 Coca-Cola lata</li>
+        <li data-mostra="mudanca:trocar"><span class="sinal" aria-label="entrou">+</span>1 Guaraná Antarctica lata</li>
+        <li data-mostra="mudanca:tirar"><span class="sinal" aria-label="saiu">−</span>1 Coca-Cola lata · R$ 7,00</li>
+      </ul>
+      <div class="linha-v"><span>Total</span><span><span data-mostra="mudanca:por">R$ 45,00 → <b>R$ 59,00</b></span><span data-mostra="mudanca:trocar"><b>R$ 45,00</b> (não mudou)</span><span data-mostra="mudanca:tirar">R$ 45,00 → <b>R$ 38,00</b></span></span></div>
+      <div class="linha-v"><span>Pagamento</span><span><span data-mostra="mudanca:por">Dinheiro na entrega · troco para R$ 100 (antes R$ 50)</span><span data-mostra="mudanca:trocar|tirar">Dinheiro na entrega · troco para R$ 50</span></span></div>
+      <div class="linha-v"><span>Cashback do pedido</span><span><span data-mostra="mudanca:por">R$ 2,25 → R$ 2,95</span><span data-mostra="mudanca:trocar">R$ 2,25 (não mudou)</span><span data-mostra="mudanca:tirar">R$ 2,25 → R$ 1,90</span></span></div>
+      <div class="linha-v"><span>Vias</span><span>Cozinha e Expedição, às 19:51 ✓</span></div>
+      <div class="linha-v"><span>Cozinha</span><span><span data-mostra="visto:nao">ainda não tocou em Visto (o som repete a cada 1 min)</span><span data-mostra="visto:sim">viu às 19:52 ✓</span></span></div>
+    </div>
+    <div class="gav-sec">
+      <h3>Histórico</h3>
+      <ul class="hist">
+        <li><time>19:42</time><span>Pedido feito pelo robô do WhatsApp</span></li>
+        <li><time>19:42</time><span>Aceito pelo servidor da loja · em produção</span></li>
+        <li><time>19:50</time><span>Cliente pediu: <span data-mostra="mudanca:por">"Esqueci a batata! Dá pra pôr no meu pedido?"</span><span data-mostra="mudanca:trocar">"Dá pra trocar a Coca por Guaraná?"</span><span data-mostra="mudanca:tirar">"Tira a Coca do meu pedido, por favor"</span></span></li>
+        <li><time>19:51</time><span>Alterado pelo robô (o cliente confirmou) · vias impressas de novo</span></li>
+        <li data-mostra="visto:sim"><time>19:52</time><span>Cozinha tocou em Visto</span></li>
+      </ul>
+    </div>
+    <div class="gav-sec">
+      <div class="acoes-l" style="margin-top:0"><button type="button" class="bt-a">✏️ Alterar</button><button type="button" class="bt-a">🖨️ Reimprimir</button><button type="button" class="bt-a perigo">Cancelar pedido</button></div>
+      <p class="mini">A equipe também altera por aqui ("Alterar"): sai a mesma via com "PEDIDO ALTERADO" e o mesmo aviso no KDS, e fica no histórico quem alterou.</p>
+    </div>
+  </div>
+
+  <div class="gav" data-mostra="pedido:130" data-teste="gaveta-130">
+    <div class="gav-cab">
+      <h2>Pedido 130</h2>
+      <span class="chip">Em produção</span>
+      <span class="chip warn">Anota AI #5531</span>
+    </div>
+    <div class="gav-sec">
+      <div class="alerta-rep" data-mostra="confirmado:nao" role="status">
+        <b>⚠ Possível repetido do pedido 127 (19:46)</b>
+        Mesmo cliente, mesmos itens, 3 minutos depois. Confirme com o cliente antes de produzir.
+        <div class="acoes-l">
+          <button type="button" class="bt-a pri" data-acao="sao-dois">São dois pedidos</button>
+          <button type="button" class="bt-a perigo">Cancelar este</button>
+          <button type="button" class="bt-a">Ver o 127</button>
+        </div>
+      </div>
+      <div class="ok-rep" data-mostra="confirmado:sim" data-teste="rep-ok">✓ Confirmado com o cliente: são dois pedidos (Ana, 19:51). O aviso saiu do KDS.</div>
+    </div>
+    <div class="gav-sec">
+      <h3>Itens</h3>
+      <div class="linha-v" style="border-top:0"><span>2 X-Salada</span><span>R$ 56,00</span></div>
+      <div class="linha-v"><span>1 Batata frita média</span><span>R$ 14,00</span></div>
+      <div class="linha-v"><span>Entrega</span><span>R$ 8,00</span></div>
+      <div class="linha-v"><span><b>Total</b></span><span><b>R$ 78,00</b> · Pix na entrega</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ 6. AJUSTES ═════════════ -->
+<section class="vista" id="v-ajuste" aria-labelledby="t-ajuste" hidden>
+  <div class="aj">
+    <p class="migalha">Delivery › Configurações › Operação › <b>Atendimento</b></p>
+    <h1 id="t-ajuste">Atendimento</h1>
+    <p class="intro">Dois grupos novos no fim da tela que já existe; Fila e avisos, iFood, 99 e Cheguei continuam como estão.</p>
+    <div class="grupo fechado"><div class="g-cab"><span>Fila e avisos</span><span class="cont">4 ajustes</span></div></div>
+    <div class="grupo fechado"><div class="g-cab"><span>iFood</span><span class="cont">3 ajustes</span></div></div>
+    <div class="grupo fechado"><div class="g-cab"><span>99</span><span class="cont">3 ajustes</span></div></div>
+    <div class="grupo fechado"><div class="g-cab"><span>Cheguei</span><span class="cont">2 ajustes</span></div></div>
+    <div class="grupo">
+      <div class="g-cab"><span>Pedido repetido<span class="novo-tag">novo</span></span><span class="cont">2 ajustes</span></div>
+      <div class="aj-linha">
+        <div><b id="aj-rep-t">Perguntar quando o mesmo cliente faz um pedido igual</b><p>No cardápio online e no robô do WhatsApp, o cliente responde antes de o pedido entrar. Nos pedidos do Anota AI, iFood, 99 e Cardápio Web, o pedido entra com o aviso "Possível repetido" no painel, no KDS e na via.</p></div>
+        <button type="button" class="sw" role="switch" aria-checked="true" aria-labelledby="aj-rep-t" data-aj="rep"></button>
+      </div>
+      <div class="aj-linha">
+        <div><label for="aj-janela"><b>Igual dentro de</b></label><p>Contado do primeiro pedido. Mesmos produtos, tamanhos, adicionais e quantidades; a observação, o endereço e o pagamento não contam. Pedido cancelado não conta.</p></div>
+        <select id="aj-janela" class="sel" data-aj="janela">
+          <option value="10">10 minutos</option><option value="15">15 minutos</option><option value="20">20 minutos</option>
+          <option value="30">30 minutos (padrão)</option><option value="45">45 minutos</option><option value="60">60 minutos</option>
+        </select>
+      </div>
+    </div>
+    <div class="grupo">
+      <div class="g-cab"><span>Pedido alterado<span class="novo-tag">novo</span></span><span class="cont">2 ajustes</span></div>
+      <div class="aj-linha">
+        <div><b id="aj-robo-t">O robô faz mudanças simples</b><p>Pôr, tirar ou trocar um produto, uma vez por pedido, com o pedido em produção e pago na entrega. O resto o robô passa para a equipe (Atendimento › Mudança no pedido).</p></div>
+        <button type="button" class="sw" role="switch" aria-checked="true" aria-labelledby="aj-robo-t" data-aj="robo"></button>
+      </div>
+      <div class="aj-linha">
+        <div><label for="aj-som"><b>Som do KDS no pedido alterado</b></label><p>O aviso grande fica no cartão até alguém tocar em Visto.</p></div>
+        <select id="aj-som" class="sel" data-aj="som">
+          <option value="1x">Toca uma vez</option>
+          <option value="1min">Repete a cada 1 minuto até o Visto (padrão)</option>
+          <option value="2min">Repete a cada 2 minutos até o Visto</option>
+        </select>
+      </div>
+    </div>
+    <div class="barra-salvar" id="barra" hidden>
+      <span id="barra-txt" role="status">1 alteração ainda não salva</span>
+      <div><button type="button" class="bt-a" data-acao="descartar">Descartar</button><button type="button" class="bt-a pri" data-acao="salvar">Salvar ajustes</button></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ 7. PLANO E DECISÕES ═════════════ -->
+<section class="vista" id="v-notas" aria-labelledby="t-notas" hidden>
+  <div class="notas">
+    <h1 id="t-notas">Plano e decisões</h1>
+    <p class="intro">O que medi na produção, o que a alteração de hoje deixa de fazer, os 3 PRs (com as migrations) e as decisões que preciso de você.</p>
+
+    <h2>O que medi na produção (últimos 60 dias, só contagens)</h2>
+    <div class="medidas">
+      <div class="medida"><b>Pedido igual do mesmo cliente em até 30 min</b><span class="num">30 pares</span><p>24 no Anota AI, 2 no iFood, 2 na 99 e 2 no Cardápio Web. Metade em até 5 minutos. <b>Em 19, os dois seguiram</b> (nenhum cancelado); nos outros 11, um dos dois foi cancelado.</p></div>
+      <div class="medida"><b>Segundo pedido diferente em até 30 min</b><span class="num">68</span><p>51 com um item só — o "esqueci a Coca". É o que a mudança pelo robô (e pela equipe) resolve.</p></div>
+      <div class="medida"><b>Pedidos alterados pela tela</b><span class="num">0</span><p>A alteração da tela existe desde antes, mas não foi usada — e tem falhas (abaixo).</p></div>
+      <div class="medida"><b>Pedidos do cardápio e do robô do Regem</b><span class="num">12</span><p>Todos de teste. Hoje a loja recebe pelo Anota AI (5.287), iFood (1.100), Cardápio Web (845) e 99 (650).</p></div>
+    </div>
+    <p>Por isso a ordem: primeiro o que vale para os pedidos que chegam hoje (o aviso de "possível repetido" e a alteração feita pela equipe, com a via e o KDS); depois a mudança pelo robô, que vale quando os pedidos passarem a vir pelo robô do Regem.</p>
+
+    <h2>O que a alteração de hoje (Painel › Alterar) deixa de fazer</h2>
+    <ul>
+      <li>A lista de itens que o painel, o app do entregador, a página do pedido e o robô leem continua a antiga.</li>
+      <li>O valor a cobrar e o troco do entregador continuam os antigos — ele cobra o valor errado.</li>
+      <li>A cozinha recebe o item novo num cartão separado, sem o canal e sem o número do pedido; o item tirado some sem aviso.</li>
+      <li>A via sai sem destaque, numa impressora só.</li>
+      <li>Na tela da nuvem, com o servidor da loja ligado, nada chega à cozinha nem à impressora da loja.</li>
+      <li>Não registra quem alterou, não ajusta o cashback e o pedido "pronto" que ganha um item continua "pronto".</li>
+    </ul>
+
+    <h2>O plano em 3 PRs</h2>
+    <div class="pr">
+      <h3>PR 1 · Pedido igual em 30 minutos</h3>
+      <ul>
+        <li>Uma regra só no servidor (mesmo cliente pelo cadastro ou pelo telefone; mesmos itens; 30 min; cancelado não conta).</li>
+        <li>Cardápio online: o checkout pergunta antes de enviar (com o cliente identificado, mostra o outro pedido).</li>
+        <li>Robô: a pergunta vem no resumo para conferir, com "Sim, quero os dois" e "Não, foi repetido".</li>
+        <li>Pedidos de fora (Anota AI, iFood, 99, Cardápio Web): entram com o aviso "Possível repetido" no painel, no KDS e na via; "São dois pedidos" tira o aviso.</li>
+        <li>Ajuste em Delivery › Configurações › Operação › Atendimento.</li>
+      </ul>
+      <span class="mig">Migration: marca do "possível repetido" no pedido + o ajuste da janela (vão para a loja)</span> <span class="zip">Servidor da loja: entra no próximo .zip</span>
+    </div>
+    <div class="pr">
+      <h3>PR 2 · A alteração da equipe funcionando de ponta a ponta</h3>
+      <ul>
+        <li>Corrige as falhas acima, tudo numa gravação só, com o histórico de quem alterou.</li>
+        <li>Via "PEDIDO ALTERADO / Descarte TODAS as vias anteriores" com o que mudou, nas impressoras que já imprimiram o pedido.</li>
+        <li>KDS: aviso grande com a exclamação, NOVO e TIRAR, rodapé, som e "Visto".</li>
+        <li>Painel: o que mudou, antes → agora, as vias e se a cozinha viu.</li>
+        <li>Na tela da nuvem com o servidor da loja ligado: a alteração vai para o servidor da loja aplicar.</li>
+      </ul>
+      <span class="mig">Migration: histórico das alterações + o "Visto" do cartão (vão para a loja)</span> <span class="zip">Servidor da loja: entra no próximo .zip</span>
+    </div>
+    <div class="pr">
+      <h3>PR 3 · O robô faz a mudança</h3>
+      <ul>
+        <li>O robô identifica a mudança, confere com o cliente (e o troco, no dinheiro) e aplica pelo mesmo caminho da equipe.</li>
+        <li>Na loja com servidor, a nuvem passa a mudança para o servidor da loja; o robô confirma quando a loja confirmar.</li>
+        <li>Fora das regras, abre "Mudança no pedido" em Atendimento.</li>
+        <li>Pelo desenho, o fluxo do n8n <b>não precisa ser importado de novo</b> (o robô aprende a nova ação pelas instruções que o Regem manda). Se no teste a IA se confundir, mando um fluxo novo para importar.</li>
+      </ul>
+      <span class="mig">Migration: provavelmente nenhuma (usa o histórico do PR 2)</span> <span class="zip">Servidor da loja: entra no próximo .zip</span>
+    </div>
+    <p>Depois disso, como você pediu: o APK do app de atendimento e a Central de atendimento.</p>
+
+    <h2>Decisões</h2>
+    <div class="dec" id="d1">
+      <h3>1 · O que é "pedido igual"</h3>
+      <p>Mesmos produtos, tamanhos, adicionais e quantidades, do mesmo cliente (cadastro ou telefone), até 30 minutos depois do primeiro. Observação, endereço e pagamento não contam; pedido cancelado não conta. 30 minutos de padrão, ajustável (ou desligado). <span class="rec">recomendo</span></p>
+    </div>
+    <div class="dec" id="d2">
+      <h3>2 · Pedidos que chegam de fora (Anota AI, iFood, 99, Cardápio Web)</h3>
+      <p>O Regem não conversa com o cliente nesses apps, então não dá para perguntar a ele.</p>
+      <ol type="A">
+        <li>O pedido entra normal, com o aviso "Possível repetido" no painel, no KDS e na via, para a equipe confirmar com o cliente. <span class="rec">recomendo</span></li>
+        <li>O segundo fica parado até alguém da loja aceitar (o iFood cancela sozinho se passar do prazo dele).</li>
+        <li>Nada nos pedidos de fora.</li>
+      </ol>
+    </div>
+    <div class="dec" id="d3">
+      <h3>3 · O que o robô muda sozinho</h3>
+      <ol type="A">
+        <li>Uma mudança por pedido: pôr, tirar ou trocar um produto (ou mudar a quantidade, um adicional ou a observação de um item), com o pedido recebido ou em produção e o item que sai ainda não pronto. O resto vai para a equipe. <span class="rec">recomendo</span></li>
+        <li>Várias mudanças, uma de cada vez, enquanto o pedido estiver em produção (cada uma imprime uma via nova).</li>
+      </ol>
+    </div>
+    <div class="dec" id="d4">
+      <h3>4 · Pedido já pago pelo link (Pix ou cartão online)</h3>
+      <ol type="A">
+        <li>O robô passa para a equipe: cobrar ou devolver diferença online ainda não existe. <span class="rec">recomendo</span></li>
+        <li>Se aumentar, a diferença é cobrada na entrega; se diminuir, vai para a equipe.</li>
+      </ol>
+      <p class="mini">Nos canais do Regem ainda não há pedido pago pelo link; no Anota AI foram 302 em 60 dias, mas esses o robô não altera.</p>
+    </div>
+    <div class="dec" id="d5">
+      <h3>5 · Vias impressas</h3>
+      <ol type="A">
+        <li>Cada impressora que já imprimiu o pedido recebe a via dela de novo, inteira e atualizada, com o destaque e o que mudou. <span class="rec">recomendo</span></li>
+        <li>Uma via só, na impressora do caixa ou da expedição.</li>
+      </ol>
+    </div>
+    <div class="dec" id="d6">
+      <h3>6 · KDS</h3>
+      <ol type="A">
+        <li>O aviso grande e a exclamação ficam até alguém tocar em "Visto"; o som toca ao chegar e repete a cada 1 minuto até o Visto (ajustável). <span class="rec">recomendo</span></li>
+        <li>O som toca uma vez e o aviso sai quando o cartão avançar.</li>
+      </ol>
+    </div>
+    <div class="dec" id="d7">
+      <h3>7 · Cashback e nota fiscal</h3>
+      <p>O cashback do pedido acompanha o novo valor. Pedido com nota fiscal autorizada não é alterado pelo robô (vai para a equipe, que cancela e emite outra). Hoje a nota fiscal não está ligada na loja, então isso só vale quando ligar. <span class="rec">recomendo</span></p>
+    </div>
+
+    <h2>Fora deste pacote</h2>
+    <ul>
+      <li>Pedido do iFood e da 99 continua sem alteração pelo Regem (quem controla é a plataforma).</li>
+      <li>Mudar o endereço pelo robô vai para a equipe; a equipe já muda pelo painel.</li>
+      <li>O "Pedir alteração" da página do pedido no cardápio continua abrindo "Mudança no pedido" em Atendimento.</li>
+    </ul>
+  </div>
+</section>
+
+</main>
+
+<script>
+(() => {
+  // O estado de cada controle do protótipo; [data-mostra="grupo:valor[|valor] …"] aparece quando TODAS as condições valem.
+  const estado = { vista: 'robo', resposta: 'nao', loja: 'servidor', motivo: 'saiu', cliente: 'conta', dialogo: 'aberto',
+    via: 'alterado', mudanca: 'por', tema: 'claro', visto: 'nao', pedido: '123', confirmado: 'nao' };
+  const vale = (cond) => cond.trim().split(/\s+/).every((c) => {
+    const [g, v] = c.split(':');
+    return v.split('|').includes(estado[g]);
+  });
+  function aplicar() {
+    for (const el of document.querySelectorAll('[data-mostra]')) el.hidden = !vale(el.dataset.mostra);
+    for (const b of document.querySelectorAll('[data-grupo]')) b.setAttribute('aria-pressed', String(estado[b.dataset.grupo] === b.dataset.valor));
+    for (const s of document.querySelectorAll('.vista')) s.hidden = s.id !== 'v-' + estado.vista;
+    document.getElementById('kds').dataset.tema = estado.tema;
+  }
+
+  // Ajustes: contagem do que mudou e a barra de salvar.
+  const salvo = { rep: 'true', janela: '30', robo: 'true', som: '1min' };
+  const atual = { ...salvo };
+  function contar() {
+    const n = Object.keys(salvo).filter((k) => salvo[k] !== atual[k]).length;
+    document.getElementById('barra').hidden = n === 0;
+    document.getElementById('barra-txt').textContent = n === 1 ? '1 alteração ainda não salva' : n + ' alterações ainda não salvas';
+  }
+  function mostrarAjustes() {
+    for (const sw of document.querySelectorAll('.sw[data-aj]')) sw.setAttribute('aria-checked', atual[sw.dataset.aj]);
+    for (const s of document.querySelectorAll('select[data-aj]')) s.value = atual[s.dataset.aj];
+    contar();
+  }
+  let tempoDoAviso;
+  function aviso(texto) {
+    let t = document.querySelector('.toast');
+    if (!t) {
+      t = document.createElement('div');
+      t.className = 'toast';
+      t.setAttribute('role', 'status');
+      document.body.appendChild(t);
+    }
+    t.textContent = texto;
+    clearTimeout(tempoDoAviso);
+    tempoDoAviso = setTimeout(() => t.remove(), 2600);
+  }
+
+  document.addEventListener('click', (e) => {
+    const g = e.target.closest('[data-grupo]');
+    if (g) { estado[g.dataset.grupo] = g.dataset.valor; aplicar(); return; }
+    const sw = e.target.closest('.sw[data-aj]');
+    if (sw) { atual[sw.dataset.aj] = atual[sw.dataset.aj] === 'true' ? 'false' : 'true'; mostrarAjustes(); return; }
+    const a = e.target.closest('[data-acao]');
+    if (!a) return;
+    const acao = a.dataset.acao;
+    if (acao === 'dlg-nao') estado.dialogo = 'nao';
+    else if (acao === 'dlg-sim') estado.dialogo = 'sim';
+    else if (acao === 'visto') estado.visto = 'sim';
+    else if (acao === 'sao-dois') estado.confirmado = 'sim';
+    else if (acao === 'descartar') { Object.assign(atual, salvo); mostrarAjustes(); aviso('Alterações descartadas'); return; }
+    else if (acao === 'salvar') { Object.assign(salvo, atual); mostrarAjustes(); aviso('Ajustes salvos'); return; }
+    aplicar();
+  });
+  document.addEventListener('change', (e) => {
+    const s = e.target.closest('select[data-aj]');
+    if (s) { atual[s.dataset.aj] = s.value; contar(); }
+  });
+  // Esc fecha a pergunta do cardápio sem enviar (= "Não, foi engano").
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && estado.vista === 'cardapio' && estado.dialogo === 'aberto') { estado.dialogo = 'nao'; aplicar(); }
+  });
+  aplicar();
+  mostrarAjustes();
+})();
+</script>
+</body>
+</html>
