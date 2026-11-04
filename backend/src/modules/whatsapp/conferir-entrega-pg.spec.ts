@@ -160,7 +160,9 @@ descrever('"chegou tudo certo?" (Postgres)', () => {
       await c.query('set local enable_seqscan = off');
       const r: any = await drizzle(c).execute(sql`explain ${ConferirEntregaProcessor.consulta()}`);
       const plano = (r.rows ?? r).map((l: any) => l['QUERY PLAN']).join('\n');
-      expect(plano).toMatch(/Index Scan using whatsapp_mensagem_tenant_tel_idx[^\n]*\n[^\n]*Index Cond: .*telefone = ANY/);
+      // Por IGUALDADE com cada forma: assim entra na condição do índice também no Postgres 16 (o do CI — ERR-361).
+      expect(plano).toMatch(/whatsapp_mensagem_tenant_tel_idx[^\n]*\n\s*Index Cond: [^\n]*\(telefone = f\.forma\)/);
+      expect(plano).not.toMatch(/Filter: [^\n]*telefone = /);
     } finally {
       await c.query('rollback').catch(() => {});
       c.release();
