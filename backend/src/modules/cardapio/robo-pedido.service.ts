@@ -71,6 +71,7 @@ import {
 } from '../pedido-repetido/pedido-repetido';
 import {
   ACOES_DA_MUDANCA,
+  type EnderecoNovo,
   type Entra,
   type ItemDoPedidoFeito,
   type MotivoParaNaoMudar,
@@ -80,6 +81,7 @@ import {
   OPCOES_DE_AJUDA,
   TEXTO_DA_PEDIDA,
   contaDaMudanca,
+  enderecoCurto,
   lerMudanca,
   linhasDaMudanca,
   motivoParaNaoMudar,
@@ -445,6 +447,7 @@ export class RoboPedidoService {
     if (ACOES_DA_MUDANCA.tirar.includes(acao)) return this.mudarPedidoFeito(ctx, menu, 'tirar', dto, produtos);
     if (ACOES_DA_MUDANCA.trocar.includes(acao)) return this.mudarPedidoFeito(ctx, menu, 'trocar', dto, produtos);
     if (ACOES_DA_MUDANCA.troco.includes(acao)) return this.trocoDaMudanca(ctx, [dto?.observacao, dto?.quantidade].map((v) => String(v ?? '').trim()).find(Boolean) ?? '');
+    if (ACOES_DA_MUDANCA.endereco.includes(acao)) return this.abrirMudancaDeEndereco(ctx);
     if (ACOES_DA_MUDANCA.confirmar.includes(acao)) return this.confirmarMudanca(ctx);
     if (ACOES_DA_MUDANCA.desistir.includes(acao)) return this.desistirDaMudanca(ctx);
 
@@ -582,7 +585,7 @@ export class RoboPedidoService {
     const [itens, alteracoes, desligado, comNota, quemAplica] = await Promise.all([
       ped.comandaId ? this.itensDoPedidoFeito(tenantId, ped.comandaId, ped.itens) : Promise.resolve([] as ItemDoPedidoFeito[]),
       this.db
-        .select({ situacao: pedidoAlteracao.situacao, createdAt: pedidoAlteracao.createdAt })
+        .select({ situacao: pedidoAlteracao.situacao, createdAt: pedidoAlteracao.createdAt, mudanca: pedidoAlteracao.mudanca })
         .from(pedidoAlteracao)
         .where(and(eq(pedidoAlteracao.tenantId, tenantId), eq(pedidoAlteracao.pedidoId, ped.id), eq(pedidoAlteracao.origem, 'robo'))),
       this.mudancaDesligada(tenantId),
@@ -601,7 +604,16 @@ export class RoboPedidoService {
       trocoPossivel: !pagoAntes(ped) && pedeTroco(ped.formaPagamento),
       pagoAntes: pagoAntes(ped),
       comNota,
-      jaMudouPeloRobo: alteracoes.some((a) => a.situacao === 'aplicada'),
+      // Uma mudança de item e uma de endereço por pedido (3A e 8): cada uma pela sua parte da mudança aplicada.
+      jaMudouPeloRobo: alteracoes.some((a) => a.situacao === 'aplicada' && ((a.mudanca as any)?.itens?.length ?? 0) > 0),
+      jaMudouEnderecoPeloRobo: alteracoes.some((a) => a.situacao === 'aplicada' && !!(a.mudanca as any)?.endereco),
+      endereco: {
+        rua: ped.enderecoRua ?? null,
+        numero: ped.enderecoNumero ?? null,
+        bairro: ped.enderecoBairro ?? null,
+        referencia: ped.enderecoReferencia ?? null,
+      },
+      taxaEntrega: r2(Number(ped.taxaEntrega ?? 0)),
       mudancaPendente: alteracoes.some((a) => a.situacao === 'pedida' && !pedidaVencida(a.createdAt)),
       desligado,
       outroEmAndamento: pedidos.length > 1,
@@ -947,6 +959,7 @@ export class RoboPedidoService {
     if (!m || m.situacao) return recusa('sem_mudanca', 'Não há mudança de pedido esperando o troco: pergunte o que o cliente quer mudar.');
     const f = await this.pedidoFeitoDaConversa(ctx, await this.clienteDaConversa(ctx));
     if (!f || f.p.id !== m.pedidoId) return recusa('sem_pedido_feito', 'O pedido dessa mudança não está mais em andamento.', { chamaEquipe: true, opcoes: OPCOES_DE_AJUDA });
+    if (m.op.tipo === 'endereco' && !m.op.para) return this.faltaOEndereco(m);
     const t = String(dito ?? '').trim();
     if (!t) return this.seguirMudanca(ctx, f, m, { perguntarTroco: true });
     let troco: number | null = null;
@@ -986,6 +999,8 @@ export class RoboPedidoService {
       await this.gravarMudanca(ctx, null, (a) => a?.id === m.id && !a.situacao);
       return this.naoMuda({ motivo: 'sem_pedido_feito', mensagem: `O ${noPedido(m.numero)} não está mais em andamento.`, chamaEquipe: true });
     }
+    // A mudança de endereço ainda sem o endereço novo: falta ele (nada para confirmar).
+    if (m.op.tipo === 'endereco' && !m.op.para) return this.faltaOEndereco(m);
     // Sem a conferência (ou com a pergunta do troco aberta — o "Mudar o troco" seguido do botão antigo "Pode alterar"), o
     // cliente não confirmou o que vai mudar: manda de novo o passo que falta.
     if (!m.conferida || m.aguardaTroco) return this.seguirMudanca(ctx, f, m, { perguntarTroco: !!m.aguardaTroco });
@@ -998,9 +1013,8 @@ export class RoboPedidoService {
     const dto = {
       idAlteracao: m.id,
       adicionar:
-        op.tipo === 'tirar'
-          ? []
-          : [
+        op.tipo === 'por' || op.tipo === 'trocar'
+          ? [
               {
                 produtoId: op.entra.produtoId,
                 variacaoId: op.entra.variacaoId,
@@ -1009,8 +1023,23 @@ export class RoboPedidoService {
                 observacao: op.entra.observacao ?? undefined,
                 precoUnitario: op.entra.precoUnitario,
               },
-            ],
-      remover: op.tipo === 'por' ? [] : [op.sai.comandaItemId],
+            ]
+          : [],
+      remover: op.tipo === 'tirar' || op.tipo === 'trocar' ? [op.sai.comandaItemId] : [],
+      // O endereço novo com a taxa da área nova que o cliente conferiu (só vale por esta chamada interna — `precoInformado`);
+      // sem referência, a do endereço antigo sai.
+      ...(op.tipo === 'endereco' && op.para
+        ? {
+            endereco: {
+              rua: op.para.rua ?? undefined,
+              numero: op.para.numero ?? undefined,
+              bairro: op.para.bairro ?? undefined,
+              bairroId: op.para.bairroId ?? undefined,
+              referencia: op.para.referencia ?? '',
+              taxa: op.taxaNova,
+            },
+          }
+        : {}),
       ...(m.trocoPara !== undefined ? { trocoPara: m.trocoPara } : {}),
       origem: 'robo' as const,
       pedidoDoCliente: linhasDaMudanca(op).join(' / '),
@@ -1036,7 +1065,10 @@ export class RoboPedidoService {
     if (r?.repetida)
       return { ok: true, feito: pedida ? 'mudança já pedida à loja' : 'mudança já feita', jaFeita: true, orientacao: 'O cliente já recebeu a mensagem: diga só algo curto.' };
     const troco = r?.trocoPara != null && Number(r.trocoPara) > 0 ? Number(r.trocoPara) : null;
-    const texto = pedida ? TEXTO_DA_PEDIDA : textoDoFeito(m.numero, Number(r?.total ?? 0), troco);
+    const enderecoNovo = op.tipo === 'endereco' ? op.para : null;
+    const texto = pedida ? TEXTO_DA_PEDIDA : textoDoFeito(m.numero, Number(r?.total ?? 0), troco, enderecoNovo);
+    // O endereço novo vai para o cadastro do cliente (sem repetir o que ele já tem): o próximo pedido já o oferece.
+    if (enderecoNovo) await this.guardarEndereco(ctx, f.ped, enderecoNovo);
     const enviado = await this.enviarAoCliente(ctx, texto, null);
     return {
       ok: true,
@@ -1044,6 +1076,129 @@ export class RoboPedidoService {
       ...(enviado
         ? { orientacao: 'O Regem JÁ MANDOU a mensagem ao cliente. Não repita: responda só algo curto, ou nada.' }
         : { mensagemParaOCliente: texto, orientacao: 'Mande ao cliente o texto de mensagemParaOCliente exatamente como veio.' }),
+    };
+  }
+
+  /**
+   * "Errei o endereço" com o pedido em produção (PR 3b, decisão 8): abre a mudança de ENDEREÇO — o endereço novo vem pelo
+   * `definir_entrega` (a ferramenta que tem os campos), conferido pela área de entrega como no pedido; a taxa é a da área
+   * nova. Uma por pedido, à parte da mudança de item; pedido de retirada, fora da área e o que o robô não muda: a equipe.
+   */
+  private async abrirMudancaDeEndereco(ctx: Contexto) {
+    if (!this.delivery)
+      return this.naoMuda({ motivo: 'indisponivel', mensagem: 'A mudança do pedido não está disponível agora.', chamaEquipe: true });
+    const f = await this.pedidoFeitoDaConversa(ctx, await this.clienteDaConversa(ctx));
+    if (!f)
+      return this.naoMuda({ motivo: 'sem_pedido_feito', mensagem: 'Não achei pedido em andamento deste número nas últimas 12 horas.', chamaEquipe: true });
+    const motivo = motivoParaNaoMudar(f.p, null, 'endereco');
+    if (motivo) return this.naoMuda(motivo);
+    const m: MudancaDoRobo = {
+      id: randomUUID(),
+      pedidoId: f.p.id,
+      numero: f.p.numero,
+      op: { tipo: 'endereco', de: f.p.endereco, para: null, taxaAntes: f.p.taxaEntrega, taxaNova: f.p.taxaEntrega },
+      aguardaEndereco: true,
+      enderecoParcial: null,
+      via: (ctx.cfg.provedor ?? 'evolution') === 'cloud' ? 'cloud' : 'evolution',
+      criadaEm: new Date().toISOString(),
+    };
+    const gravou = await this.gravarMudanca(ctx, m, (atual) => !(atual?.situacao === 'pedida' && !atual.avisada));
+    if (!gravou)
+      return this.naoMuda({
+        motivo: 'uma_por_vez',
+        mensagem: `A mudança anterior do ${noPedido(f.p.numero)} ainda está com a loja: a confirmação chega aqui em instantes.`,
+        chamaEquipe: false,
+      });
+    return {
+      ok: true,
+      feito: `mudança de endereço do ${noPedido(f.p.numero)} aberta: falta o endereço novo`,
+      proximo: {
+        campo: 'endereco_da_mudanca',
+        pergunta: `Peça o endereço novo do ${noPedido(f.p.numero)} (rua, número e bairro) e o complemento ou ponto de referência (apto, bloco, casa, perto de quê). Se o cliente já disse, mande direto.`,
+        comoResponder: 'definir_entrega com rua, numero, bairro e referencia (ou "sem referência"); um endereço salvo pelo número (endereco) ou a localização do WhatsApp (localizacao) também valem',
+      },
+    };
+  }
+
+  /**
+   * O endereço novo da mudança (o `definir_entrega` com a mudança de endereço aberta): conferido pela MESMA regra do
+   * pedido (`enderecoConferido` — o bairro da lista ou a distância); sem o complemento ou ponto de referência, pergunta
+   * antes da conferência (como no pedido). A taxa é a da área nova pela conta do cardápio (`taxaDeEntrega`, com o frete
+   * grátis acima de X) — a que o cliente confere e a que se grava (V74). Fora da área ou virar retirada: a equipe.
+   */
+  private async enderecoDaMudanca(ctx: Contexto, menu: any, dto: any, m: MudancaDoRobo) {
+    const cli = await this.clienteDaConversa(ctx);
+    const f = await this.pedidoFeitoDaConversa(ctx, cli);
+    if (!f || f.p.id !== m.pedidoId) {
+      await this.gravarMudanca(ctx, null, (a) => a?.id === m.id && !a.situacao);
+      return this.naoMuda({ motivo: 'sem_pedido_feito', mensagem: `O ${noPedido(m.numero)} não está mais em andamento.`, chamaEquipe: true });
+    }
+    const motivo = motivoParaNaoMudar(f.p, null, 'endereco');
+    if (motivo) {
+      await this.gravarMudanca(ctx, null, (a) => a?.id === m.id && !a.situacao);
+      return this.naoMuda(motivo);
+    }
+    // Trocar a entrega por retirada é com a equipe (decisão 8).
+    if (/retir|buscar|balcao|pegar/.test(normalizar(dto?.tipo)))
+      return this.naoMuda({ motivo: 'virar_retirada', mensagem: `Trocar a entrega do ${noPedido(m.numero)} por retirada é com a equipe.`, chamaEquipe: true });
+    const { oferecidos, abertos } = this.tipos(menu);
+    const antes = m.enderecoParcial ? { tipo: 'entrega', ...m.enderecoParcial, enderecoId: null } : null;
+    const conferido = await this.enderecoConferido(ctx, menu, dto, antes, cli, oferecidos, abertos);
+    if (conferido.ok === false) {
+      // Fora da área: a equipe decide (decisão 8) — o resto (falta o número, o bairro parecido) o robô pergunta.
+      if (conferido.motivo === 'fora_da_area')
+        return this.naoMuda({
+          motivo: 'fora_da_area',
+          mensagem: `O endereço novo fica fora da nossa área de entrega: para o ${noPedido(m.numero)}, alguém da equipe confere com você.`,
+          chamaEquipe: true,
+        });
+      return conferido;
+    }
+    const e = conferido.e;
+    const novo: EnderecoNovo = {
+      rua: e.rua || null,
+      numero: e.numero || null,
+      bairro: e.bairro ?? null,
+      bairroId: e.bairroId ?? null,
+      referencia: referenciaParaOPedido(e.referencia) ?? null,
+      lat: e.lat ?? null,
+      lng: e.lng ?? null,
+    };
+    if (!e.referencia) {
+      await this.gravarMudanca(ctx, { ...m, enderecoParcial: novo }, (a) => a?.id === m.id && !a.situacao);
+      return {
+        ok: true,
+        feito: `endereço novo anotado (${enderecoCurto(novo)}): falta o complemento ou ponto de referência`,
+        proximo: {
+          campo: 'referencia_da_mudanca',
+          pergunta: 'Pergunte o complemento ou ponto de referência do endereço novo (apto, bloco, casa, perto de quê).',
+          opcoes: ['Sem referência'],
+          comoResponder: 'definir_entrega com referencia = o texto (ou "sem referência")',
+        },
+      };
+    }
+    // A taxa da área nova pela conta do cardápio, sobre os itens do pedido (o frete grátis acima de X vale igual); o frete
+    // grátis que o pedido ganhou (cupom ou valor mínimo — a linha "frete" dos descontos) continua valendo no endereço novo.
+    const subtotal = r2(Number(f.ped.valorBruto ?? Number(f.ped.total ?? 0) - Number(f.ped.taxaEntrega ?? 0)));
+    const t = await this.cardapio.taxaDeEntrega(
+      ctx.cfg,
+      { bairroId: novo.bairroId ?? undefined, rua: novo.rua ?? undefined, numero: novo.numero ?? undefined, lat: novo.lat ?? undefined, lng: novo.lng ?? undefined },
+      subtotal,
+    );
+    const freteGratisNoPedido = Array.isArray(f.ped.descontos) && f.ped.descontos.some((d: any) => d?.origem === 'frete');
+    const op: OperacaoDoRobo = { tipo: 'endereco', de: f.p.endereco, para: novo, taxaAntes: f.p.taxaEntrega, taxaNova: freteGratisNoPedido ? 0 : r2(t.taxa) };
+    return this.seguirMudanca(ctx, f, { ...m, op, aguardaEndereco: false, enderecoParcial: null });
+  }
+
+  /** A mudança de endereço aberta ainda sem o endereço novo: o robô pede o endereço (nada sai ao cliente pelo Regem). */
+  private faltaOEndereco(m: MudancaDoRobo) {
+    return {
+      ...recusa('falta_endereco', `Falta o endereço novo do ${noPedido(m.numero)}: peça ao cliente e mande em definir_entrega.`),
+      proximo: {
+        campo: 'endereco_da_mudanca',
+        pergunta: `Peça o endereço novo do ${noPedido(m.numero)} (rua, número e bairro) e o complemento ou ponto de referência.`,
+        comoResponder: 'definir_entrega com rua, numero, bairro e referencia (ou "sem referência")',
+      },
     };
   }
 
@@ -1094,6 +1249,7 @@ export class RoboPedidoService {
         const texto = textoDaDecisao(m.numero, situacao, {
           total: depois.total != null ? Number(depois.total) : null,
           troco: depois.trocoPara != null && Number(depois.trocoPara) > 0 ? Number(depois.trocoPara) : null,
+          endereco: m.op.tipo === 'endereco' ? m.op.para : null,
         });
         await this.enviarDaRotina(tenantId, String(x.telefone), texto, situacao === 'recusada' ? OPCOES_DE_AJUDA : null, m.via ?? null);
         n++;
@@ -1480,6 +1636,11 @@ export class RoboPedidoService {
     dto: { tipo?: string; endereco?: unknown; rua?: string; numero?: string; bairro?: string; referencia?: string; localizacao?: string; lat?: unknown; lng?: unknown },
   ) {
     const menu = await this.cardapio.menu(ctx.token);
+    // A mudança de ENDEREÇO do pedido já feito (PR 3b) está aberta: o endereço dito é o novo endereço DELE (a ferramenta
+    // com os campos do endereço é esta — o `mexer_no_pedido` com acao = pedido_endereco só abre).
+    const mudancaAberta = lerMudanca((await this.carrinhoAberto(ctx))?.mudanca);
+    if (mudancaAberta && !mudancaAberta.situacao && mudancaAberta.op.tipo === 'endereco' && mudancaAberta.aguardaEndereco)
+      return this.enderecoDaMudanca(ctx, menu, dto, mudancaAberta);
     const { oferecidos, abertos } = this.tipos(menu);
     const t = normalizar(dto?.tipo);
     let tipo: 'entrega' | 'retirada' | null = /retir|buscar|balcao|pegar/.test(t) ? 'retirada' : /entreg|delivery|casa/.test(t) ? 'entrega' : null;
@@ -1510,10 +1671,32 @@ export class RoboPedidoService {
     const cli = await this.clienteDaConversa(ctx);
     const atual = await this.carrinhoAberto(ctx);
     const antes: any = atual?.entrega && (atual.entrega as any).tipo === 'entrega' ? atual.entrega : null;
+    const conferido = await this.enderecoConferido(ctx, menu, dto, antes, cli, oferecidos, abertos);
+    if (conferido.ok === false) return this.semMudar(ctx, menu, conferido);
+    const e = conferido.e;
+    const r = await this.mudar(ctx, (c) => ({ entrega: e, ...this.fechaSeSoFaltaOMaisAlgo(c, menu) }));
+    return this.responder(ctx, menu, r, `entrega: ${textoDoEndereco(e)}`);
+  }
+
+  /**
+   * O endereço de ENTREGA que o cliente disse — o salvo pelo número, ou rua, número e bairro com o que já havia por baixo
+   * (`antes`) — conferido pela área de entrega da loja: o bairro da lista ou a distância pelas faixas, a mesma conta do
+   * cardápio. Uma regra só para o pedido em montagem e para a mudança de endereço do pedido já feito (PR 3b). Fora da
+   * área: a recusa "não cobre a região" (com a retirada como saída, quando a loja faz).
+   */
+  private async enderecoConferido(
+    ctx: Contexto,
+    menu: any,
+    dto: { endereco?: unknown; rua?: string; numero?: string; bairro?: string; referencia?: string; localizacao?: string; lat?: unknown; lng?: unknown },
+    antes: any | null,
+    cli: ClienteDaConversa,
+    oferecidos: string[],
+    abertos: string[],
+  ): Promise<{ ok: true; e: Extract<EntregaDoCarrinho, { tipo: 'entrega' }> } | Recusa> {
     let e: Extract<EntregaDoCarrinho, { tipo: 'entrega' }>;
     if (Number(dto?.endereco) > 0) {
       const salvo = (cli?.enderecos ?? [])[Number(dto.endereco) - 1];
-      if (!salvo) return this.semMudar(ctx, menu, recusa('endereco', 'Esse endereço salvo não existe: confira o número na lista.'));
+      if (!salvo) return recusa('endereco', 'Esse endereço salvo não existe: confira o número na lista.');
       e = {
         tipo: 'entrega',
         rua: salvo.logradouro ?? '',
@@ -1546,18 +1729,14 @@ export class RoboPedidoService {
       e.lng = ponto.lng;
     }
     if (!e.rua || !e.numero)
-      return this.semMudar(ctx, menu, recusa('endereco', 'Falta a rua e o número do endereço de entrega.', { tem: { rua: e.rua || null, numero: e.numero || null } }));
+      return recusa('endereco', 'Falta a rua e o número do endereço de entrega.', { tem: { rua: e.rua || null, numero: e.numero || null } });
 
     // A área: bairro da lista (modo bairro) ou a distância pelas faixas (modo distância) — a mesma conta do cardápio.
     if (menu?.loja?.areaModo === 'raio') {
       const taxa = await this.cardapio.taxaDeEntrega(ctx.cfg, { rua: e.rua, numero: e.numero, lat: e.lat ?? undefined, lng: e.lng ?? undefined }, 0);
       if (taxa.semLocalizacao)
-        return this.semMudar(
-          ctx,
-          menu,
-          recusa('localizacao', 'Não achei esse endereço no mapa. Peça ao cliente a localização pelo WhatsApp (clipe → Localização) ou confira a rua e o número.'),
-        );
-      if (taxa.alemDaUltimaFaixa) return this.semMudar(ctx, menu, this.foraDaArea(oferecidos, abertos, taxa.km));
+        return recusa('localizacao', 'Não achei esse endereço no mapa. Peça ao cliente a localização pelo WhatsApp (clipe → Localização) ou confira a rua e o número.');
+      if (taxa.alemDaUltimaFaixa) return this.foraDaArea(oferecidos, abertos, taxa.km);
       if (taxa.ponto) {
         e.lat = taxa.ponto.lat;
         e.lng = taxa.ponto.lng;
@@ -1567,22 +1746,17 @@ export class RoboPedidoService {
       const pelaLista = e.bairroId ? lista.find((b) => b.id === e.bairroId) : null;
       if (pelaLista) e.bairro = pelaLista.nome;
       else {
-        if (!e.bairro) return this.semMudar(ctx, menu, recusa('bairro', 'Falta o bairro do endereço de entrega.'));
+        if (!e.bairro) return recusa('bairro', 'Falta o bairro do endereço de entrega.');
         const b = acharBairro(menu, e.bairro);
         if (!b.ok)
-          return this.semMudar(
-            ctx,
-            menu,
-            b.parecidos.length
-              ? recusa('bairro', `Não achei o bairro "${e.bairro}" na lista de entrega. Pergunte se é um destes.`, { parecidos: b.parecidos })
-              : this.foraDaArea(oferecidos, abertos, null),
-          );
+          return b.parecidos.length
+            ? recusa('bairro', `Não achei o bairro "${e.bairro}" na lista de entrega. Pergunte se é um destes.`, { parecidos: b.parecidos })
+            : this.foraDaArea(oferecidos, abertos, null);
         e.bairro = b.bairro.nome;
         e.bairroId = b.bairro.id;
       }
     }
-    const r = await this.mudar(ctx, (c) => ({ entrega: e, ...this.fechaSeSoFaltaOMaisAlgo(c, menu) }));
-    return this.responder(ctx, menu, r, `entrega: ${textoDoEndereco(e)}`);
+    return { ok: true, e };
   }
 
   /** "Infelizmente nosso delivery não cobre a região" — e a retirada, quando a loja faz e está aberta. */

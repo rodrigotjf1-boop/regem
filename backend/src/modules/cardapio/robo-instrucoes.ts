@@ -43,7 +43,9 @@
 // .f13 (04/11, o robô muda o pedido já feito — mig 363): MUDAR UM PEDIDO JÁ FEITO (pôr, tirar ou trocar um item pelo
 // pedidoFeito do ver_pedido; o Regem manda a conferência e o "Pode alterar" aplica); o que o robô não muda vai para a
 // equipe, com a pergunta antes. Só no fluxo 2.
-export const VERSAO_INSTRUCOES = '2026-11-04.f13';
+// .f14 (04/11, PR 3b-1 — decisão 8): mudar o ENDEREÇO do pedido em produção (acao = pedido_endereco abre; o endereço
+// novo vai pelo definir_entrega; a conferência traz a entrega da área nova); fora da área e retirada: a equipe.
+export const VERSAO_INSTRUCOES = '2026-11-04.f14';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -181,9 +183,10 @@ function mudarUmPedidoJaFeito(): string {
     '- "Pode alterar" (ou 1): acao = confirmar_mudanca. O sistema manda ao cliente "✅ Pronto! Pedido nº X alterado" — ou, quando a loja confirma pelo computador dela, "Pedi a mudança à loja ⏳" e, depois, a resposta da loja. Responda só algo curto.',
     '- "Mudar o troco": acao = troco_da_mudanca sem valor (o sistema pergunta o troco). O valor que o cliente disser: acao = troco_da_mudanca com observacao = o valor (ex.: 100) ou "não preciso".',
     '- "Deixar como estava": acao = desistir_da_mudanca, e diga que o pedido continua como estava.',
+    '- Mudar o ENDEREÇO (podeMudarEndereco = true — o pedido de entrega ainda na loja): acao = pedido_endereco; depois mande o endereço novo em definir_entrega (rua, número e bairro, um endereço salvo pelo número ou a localização do WhatsApp) e o complemento ou ponto de referência (ou "sem referência"). Se o cliente já disse o endereço, mande direto. O sistema manda a conferência com a entrega da área nova, como nas outras mudanças. Fora da área de entrega, pedido de retirada ou podeMudarEndereco = false: a equipe (pergunte antes, como abaixo).',
     '- podeMudar = false, ou a ferramenta voltou ok = false: diga ao cliente o campo mensagem com as suas palavras. Se vier faltaEscolher, pergunte a escolha e chame de novo com ela em adicionais (ou a versão). Se vier chamaEquipe = true, pergunte se ele quer ajuda da equipe, terminando com OPCOES: Sim, quero ajuda | Não, obrigado. Se ele disser que sim, use chamar_atendente com tipo mudanca, o número do pedido e o resumo nas três linhas.',
     '- Se a resposta da loja chegar perguntando "Quer ajuda de alguém da equipe?" e o cliente tocar em "Sim, quero ajuda", use chamar_atendente com tipo mudanca e o número do pedido.',
-    '- Mudar o endereço, a forma de pagamento ou mais de um item de uma vez é com a equipe (pergunte antes, como acima). Nunca diga que mudou sem a resposta da ferramenta, nem prometa a mudança antes do "Pode alterar".',
+    '- Mudar a forma de pagamento, trocar entre entrega e retirada ou mudar mais de um item de uma vez é com a equipe (pergunte antes, como acima). Nunca diga que mudou sem a resposta da ferramenta, nem prometa a mudança antes do "Pode alterar".',
   );
 }
 
@@ -191,8 +194,8 @@ function ferramentasDoFluxo2(): string {
   return linhas(
     ferramentasDoFluxo1(),
     '- ver_pedido: o cliente (conhecido? nome), os endereços salvos numerados, o último endereço usado, o pedido em montagem com o proximo, emCurso (há pedido em montagem), do cliente conhecido ultimoPedido (os itens que dá para repetir), beneficios (o saldo de cashback, os vales, os pontos da fidelidade e os prêmios para usar) e pedidoFeito (o pedido já registrado em andamento, com os itens numerados e se dá para mudar).',
-    '- mexer_no_pedido: acao = adicionar, escolher (a resposta de uma escolha ou um adicional), concluir (sem mais adicional nem observação no item), fechar ("só isso"), alterar, remover, observacao_do_pedido, repetir (o último pedido do cliente), trocar_pelo_trio (com a linha), usar_cashback ou guardar_cashback, usar_premio ou guardar_premio, usar_cupom (o código em observacao) ou tirar_cupom, ou limpar. No pedido JÁ FEITO: pedido_por, pedido_tirar, pedido_trocar, troco_da_mudanca, confirmar_mudanca ou desistir_da_mudanca.',
-    '- definir_entrega: entrega (endereço salvo pelo número, ou rua, número e bairro; referência; localização) ou retirada.',
+    '- mexer_no_pedido: acao = adicionar, escolher (a resposta de uma escolha ou um adicional), concluir (sem mais adicional nem observação no item), fechar ("só isso"), alterar, remover, observacao_do_pedido, repetir (o último pedido do cliente), trocar_pelo_trio (com a linha), usar_cashback ou guardar_cashback, usar_premio ou guardar_premio, usar_cupom (o código em observacao) ou tirar_cupom, ou limpar. No pedido JÁ FEITO: pedido_por, pedido_tirar, pedido_trocar, pedido_endereco, troco_da_mudanca, confirmar_mudanca ou desistir_da_mudanca.',
+    '- definir_entrega: entrega (endereço salvo pelo número, ou rua, número e bairro; referência; localização) ou retirada. Depois de pedido_endereco, é o endereço novo do pedido já feito.',
     '- definir_nome: o nome do cliente para o pedido.',
     '- definir_pagamento: a forma de pagamento e o troco (o valor, ou "não preciso").',
     '- registrar_pedido: registra o pedido que o cliente confirmou no resumo e manda o resumo final por escrito.',

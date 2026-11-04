@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **O robô muda o endereço do pedido em produção (PR 3b-1, 04/11; sem migration).** Na nuvem com o merge (loja sem
+  servidor). **No `.zip` (o mesmo corte 1.30.13):** a taxa da área nova que o cliente conferiu com o robô vale quando o
+  servidor da loja aplica a mudança pedida (`DeliveryService.alterar` com `endereco.taxa` e `precoInformado`) — sem ele, o
+  servidor da loja cobraria a taxa do bairro do cadastro (no frete grátis e na entrega por distância, outra). Não tocou
+  `edge/`.
+
 - **O robô muda o pedido já feito (PR 3 do pedido repetido/alterado, 04/11; mig 363 SÓ NUVEM).** Na nuvem com o merge:
   o robô (que só roda na nuvem) põe, tira ou troca um item do pedido do cardápio, com a pergunta do troco e a
   conferência, pela MESMA alteração da equipe; a rotina da nuvem avisa o cliente da decisão do servidor da loja; o

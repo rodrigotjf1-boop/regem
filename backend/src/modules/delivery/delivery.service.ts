@@ -2841,6 +2841,7 @@ export class DeliveryService {
         bairro?: string;
         bairroId?: string;
         referencia?: string;
+        taxa?: number | null; // só vale com `opts.precoInformado` (o robô — a taxa da área nova pela conta do cardápio)
       };
       trocoPara?: number | null; // ausente = mantém o troco; null/0 = sem troco
       origem?: 'equipe' | 'robo';
@@ -2877,14 +2878,17 @@ export class DeliveryService {
       .map((a) => (opts.precoInformado ? a : { ...a, precoUnitario: undefined }));
     const remover = (dto.remover ?? []).filter((r) => typeof r === 'string' && r);
     const mexeItens = adicionar.length > 0 || remover.length > 0;
+    // A taxa informada da área nova também só vale com `precoInformado` (o robô: a conta do cardápio — o bairro, a
+    // distância e o frete grátis — que o cliente conferiu, V74); da tela, sai — a taxa é a do bairro do cadastro.
+    const enderecoPedido = dto.endereco ? (opts.precoInformado ? dto.endereco : { ...dto.endereco, taxa: undefined }) : undefined;
 
     // Os campos do endereço que a alteração pede e a taxa da área nova, quando o bairro é do cadastro. O "de antes", a taxa
     // que fica e o troco de antes saem da linha PRESA, dentro da gravação: lidos aqui, uma alteração que começou antes de
     // outra desfaria o que a outra gravou (a taxa da área nova, por exemplo).
     const camposEnd: Record<string, any> = {};
     let taxaDoBairro: number | null = null;
-    if (dto.endereco) {
-      const e = dto.endereco;
+    if (enderecoPedido) {
+      const e = enderecoPedido;
       if (e.rua != null) camposEnd.enderecoRua = String(e.rua).trim() || null;
       if (e.numero != null) camposEnd.enderecoNumero = String(e.numero).trim() || null;
       if (e.referencia != null) camposEnd.enderecoReferencia = String(e.referencia).trim() || null;
@@ -2894,13 +2898,14 @@ export class DeliveryService {
         camposEnd.enderecoBairro = b?.nome ?? (String(e.bairro ?? '').trim() || null);
         if (b) taxaDoBairro = b.taxa;
       }
+      if (e.taxa != null && Number.isFinite(Number(e.taxa)) && Number(e.taxa) >= 0) taxaDoBairro = Math.round(Number(e.taxa) * 100) / 100;
     }
     if (dto.trocoPara != null && !(Number.isFinite(Number(dto.trocoPara)) && Number(dto.trocoPara) >= 0))
       throw new BadRequestException('Informe o troco em reais (ex.: 50), ou deixe vazio para "sem troco".');
     const trocoPedido = dto.trocoPara === undefined ? undefined : dto.trocoPara == null || !(Number(dto.trocoPara) > 0) ? null : Number(dto.trocoPara);
     const trocoDe = (p: any) => (p?.trocoPara != null ? Number(p.trocoPara) : null);
     const nadaMuda = (base: any) =>
-      !mexeItens && !(dto.endereco && enderecoDepois(base, camposEnd).mudanca) && !(trocoPedido !== undefined && trocoPedido !== trocoDe(base));
+      !mexeItens && !(enderecoPedido && enderecoDepois(base, camposEnd).mudanca) && !(trocoPedido !== undefined && trocoPedido !== trocoDe(base));
     if (nadaMuda(ped)) throw new BadRequestException('Nenhuma mudança para salvar.');
 
     const agora = new Date();
@@ -2908,7 +2913,7 @@ export class DeliveryService {
     // V53: na tela da NUVEM de uma loja com o servidor ligado, quem tem a cozinha e as impressoras é o servidor da loja —
     // a alteração vai como "pedida" e ele aplica (ou recusa, com o motivo).
     if (!opts.aplicandoPedida && (await edgeAtivo(this.db, tenantId, ped.unidadeId ?? null)))
-      return this.pedirAoServidorDaLoja(user, ped, idAlteracao, { adicionar, remover, endereco: dto.endereco, trocoPara: dto.trocoPara }, {
+      return this.pedirAoServidorDaLoja(user, ped, idAlteracao, { adicionar, remover, endereco: enderecoPedido, trocoPara: dto.trocoPara }, {
         origem: dto.origem === 'robo' ? 'robo' : 'equipe',
         porNome,
         pedidoDoCliente: dto.pedidoDoCliente ?? null,
@@ -2928,7 +2933,7 @@ export class DeliveryService {
       if (opts.aplicandoPedida && !jaDentro) return null; // a "pedida" sumiu (o pedido foi apagado): nada a aplicar
       if (nadaMuda(atual)) throw new BadRequestException('Nenhuma mudança para salvar: o pedido já está assim.');
       // Pela linha presa: o endereço de antes → o novo, a taxa que fica (a da área nova ou a de agora) e o troco de antes.
-      const end = dto.endereco ? enderecoDepois(atual, camposEnd) : { patch: {}, mudanca: null as Mudanca['endereco'] };
+      const end = enderecoPedido ? enderecoDepois(atual, camposEnd) : { patch: {}, mudanca: null as Mudanca['endereco'] };
       const taxaNova = taxaDoBairro ?? Number(atual.taxaEntrega ?? 0);
       const trocoAntes = trocoDe(atual);
 
@@ -3050,7 +3055,7 @@ export class DeliveryService {
               situacao: 'aplicada',
               porId: user.colaboradorId ?? null,
               porNome,
-              pedido: { adicionar, remover, endereco: dto.endereco ?? null, trocoPara: dto.trocoPara },
+              pedido: { adicionar, remover, endereco: enderecoPedido ?? null, trocoPara: dto.trocoPara },
               ...historico,
               pedidoDoCliente: dto.pedidoDoCliente ? String(dto.pedidoDoCliente).slice(0, 500) : null,
             })
