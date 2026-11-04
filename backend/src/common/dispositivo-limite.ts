@@ -69,3 +69,9 @@ export function rotaDaCaixaDaLoja(url: string | undefined): boolean {
 export function rotaDaTelaDeSenhas(url: string | undefined): boolean {
   return /\/publico\/senhas(\?|$)/i.test(String(url ?? ''));
 }
+
+// A ponte do chat do iFood e da 99 (mig 366): o programa no PC da loja pergunta pela fila de saída a cada poucos
+// segundos — com o segredo dele já validado pela `PonteChatGuard`, fica no limite por aparelho, fora do balde do IP.
+export function rotaDaPonteDoChat(url: string | undefined): boolean {
+  return /\/ponte-chat\/(estado|mensagens|saida\/(pegar|[0-9a-f-]{36}\/resultado))(\?|$)/i.test(String(url ?? ''));
+}

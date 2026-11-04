@@ -59,7 +59,8 @@ export const TABELAS_SYNC: TabelaSync[] = [
     // `atendimento` (mig 353): o celular do app "Regem Atendimento" — cadastrado, pareado, usado e revogado só na NUVEM
     // (decisão do dono, 02/11/2026: o app fala com a nuvem). Desce como CÓPIA (a tela da loja o mostra; o servidor da loja
     // recusa mexer — `recusarAppNaLoja`) e não sobe (sync-daemon): uma origem só, sem conflito de segredo ou revogação.
-    filtroSql: "tipo in ('impressora','pdv','salao','ponto_baixa','kds','totem','estacao_impressao','tela_senhas','atendimento')",
+    // `ponte_chat` (mig 366): o programa da ponte do chat do iFood e da 99 — do mesmo jeito que o celular do app.
+    filtroSql: "tipo in ('impressora','pdv','salao','ponto_baixa','kds','totem','estacao_impressao','tela_senhas','atendimento','ponte_chat')",
   },
   { tabela: 'delivery_config', direcao: 'ambos', cursor: 'updated_at' },
   // Template da etiqueta de validade (mig 245): config espelhada como as de cima —

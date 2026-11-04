@@ -13,6 +13,8 @@ export const TIPOS = [
   { value: 'tela_senhas', label: 'Tela de senhas (TV)' },
   // O celular do app "Regem Atendimento" (mig 353): pareia por código e cada pessoa entra com o PIN.
   { value: 'atendimento', label: 'App de atendimento (celular)' },
+  // O programa da ponte do chat do iFood e da 99 (mig 366): pareia por código, no PC da loja, sem login de pessoa.
+  { value: 'ponte_chat', label: 'Ponte do chat (iFood e 99, no PC)' },
   { value: 'impressora', label: 'Impressora térmica' },
   { value: 'estacao_impressao', label: 'Estação de impressão (PC com impressora)' },
   { value: 'servidor_local', label: 'Servidor local (edge)' },
@@ -24,6 +26,7 @@ const TIPO_LABEL: Record<string, string> = {
   kds: 'KDS',
   tela_senhas: 'Tela de senhas',
   atendimento: 'App de atendimento',
+  ponte_chat: 'Ponte do chat',
   impressora: 'Impressora',
   estacao_impressao: 'Estação de impressão',
   servidor_local: 'Servidor local',
@@ -101,6 +104,8 @@ export function situacaoDe(e: any, estado: Record<string, any>, todos: any[] = [
   if (e.tipo === 'tela_senhas') return e.pareado ? 'ativo' : 'nunca';
   // O celular do app de atendimento (mig 353): vale se já trocou o código pelo segredo (o "último uso" é a última entrada).
   if (e.tipo === 'atendimento') return e.pareado ? 'ativo' : 'nunca';
+  // A ponte do chat (mig 366): também — o sinal de vida dela aparece na faixa da tela Atendimento.
+  if (e.tipo === 'ponte_chat') return e.pareado ? 'ativo' : 'nunca';
   if (e.tipo === 'estacao_impressao') {
     if (estacaoNoAr(e) || conectadoAgora(e)) return 'ativo';
     return e.estacao?.vistoEm || e.pareado ? 'mudo' : 'nunca';
@@ -143,6 +148,7 @@ export function seloDe(e: any, estado: Record<string, any>, todos: any[] = []): 
   if (sit !== 'revogado' && TEM_PRESENCA.includes(e.tipo) && conectadoAgora(e)) return { tom: 'ok', rotulo: 'conectado agora' };
   if (e.tipo === 'tela_senhas' && sit !== 'revogado') return sit === 'ativo' ? { tom: 'ok', rotulo: 'pareada' } : { tom: 'aviso', rotulo: 'falta parear' };
   if (e.tipo === 'atendimento' && sit !== 'revogado') return sit === 'ativo' ? { tom: 'ok', rotulo: 'pareado' } : { tom: 'aviso', rotulo: 'falta parear' };
+  if (e.tipo === 'ponte_chat' && sit !== 'revogado') return sit === 'ativo' ? { tom: 'ok', rotulo: 'pareada' } : { tom: 'aviso', rotulo: 'falta parear' };
   if (e.tipo === 'estacao_impressao') {
     if (sit === 'ativo') return { tom: 'ok', rotulo: 'no ar' };
     if (sit === 'mudo') return { tom: 'critico', rotulo: e.estacao?.vistoEm ? `fora · há ${tempoDesde(e.estacao.vistoEm)}` : 'fora' };
@@ -322,6 +328,8 @@ export function ligacaoDe(e: any, todos: any[]): string {
     }
     case 'atendimento':
       return e.pareado ? 'celular · app Regem Atendimento' : 'falta parear no app Regem Atendimento';
+    case 'ponte_chat':
+      return e.pareado ? 'PC · programa Regem · Ponte do chat' : 'falta parear no programa Regem · Ponte do chat';
     default:
       return '—';
   }

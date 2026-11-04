@@ -12,6 +12,14 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Ponte do chat do iFood e da 99 — parte A1 (04/11; mig 366 SÓ NUVEM).** Na nuvem com o merge: o aparelho "Ponte do
+  chat" em Configurações › Equipamentos (cadastra e pareia só na nuvem) e as rotas `ponte-chat/*` que o programa da ponte
+  vai usar (nasce DESLIGADA nos ajustes). **No `.zip`/`.exe` (o mesmo corte 1.30.13):** `edge/sync-daemon.mjs` com
+  `chat_ponte`/`chat_plataforma_msg` em SO_NUVEM e o tipo `ponte_chat` no `FORA_DO_ENVIO_SEGURO` (a cópia da loja não
+  sobe nem trava a reinstalação), o filtro do `sync-config` (o aparelho desce como cópia) e a tela de Equipamentos do
+  servidor da loja (mostra a ponte, sem oferecer cadastrar). **O programa da ponte** (PR B) será um instalador NOVO,
+  próprio — gerar e publicar sob comando do dono.
+
 - **Pedir avaliação no Google depois da entrega + a fila do "Chegou tudo certo?" (04/11; mig 365 SÓ NUVEM).** Na nuvem
   com o merge: o ajuste em Delivery › Configurações › Operação › Robô de atendimento (nasce DESLIGADO), a rotina que manda
   o pedido de avaliação pelo WhatsApp oficial (só canais da loja — iFood e 99 pedem pela plataforma) e o link

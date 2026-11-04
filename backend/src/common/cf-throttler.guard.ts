@@ -1,6 +1,6 @@
 import { ExecutionContext, Injectable } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
-import { rotaDaCaixaDaLoja, rotaDaFilaDeImpressao, rotaDaTelaDeSenhas, tokenJaValidado } from './dispositivo-limite';
+import { rotaDaCaixaDaLoja, rotaDaFilaDeImpressao, rotaDaPonteDoChat, rotaDaTelaDeSenhas, tokenJaValidado } from './dispositivo-limite';
 import { credencialDaChamada, rotaDaIntegracao, tokenIntegracaoJaValidado } from './integracao-limite';
 import { baldeDoRobo } from './robo-limite';
 
@@ -36,6 +36,11 @@ export class CfThrottlerGuard extends ThrottlerGuard {
     }
     // Tela de senhas (mig 337): a TV lê a cada aviso e a cada 30 s; com o segredo já validado pela TelaSenhasGuard,
     // fica no limite por aparelho, fora do balde do IP da loja.
+    // A ponte do chat (mig 366): o segredo do PC, já validado pela PonteChatGuard — limite por aparelho.
+    if (rotaDaPonteDoChat(req?.originalUrl ?? req?.url)) {
+      const seg = req?.headers?.['x-terminal-secret'];
+      if (tokenJaValidado(Array.isArray(seg) ? seg[0] : seg)) return true;
+    }
     if (rotaDaTelaDeSenhas(req?.originalUrl ?? req?.url)) {
       const seg = req?.headers?.['x-tela-segredo'];
       if (tokenJaValidado(Array.isArray(seg) ? seg[0] : seg)) return true;

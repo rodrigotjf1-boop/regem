@@ -204,7 +204,8 @@ export default function EquipamentosPage() {
   const doServidorLocal = (e: any) => peloServidorLocal && ['impressora', 'kds', 'estacao_impressao', 'tela_senhas'].includes(e.tipo);
   // O contrário: o celular do app de atendimento (mig 353) se cadastra, pareia e revoga só pela NUVEM (é com ela que o app
   // fala). No servidor da loja ele só aparece — o servidor recusa mexer, então a tela nem oferece.
-  const soPelaNuvem = (e: any) => NO_SERVIDOR_DA_LOJA && e.tipo === 'atendimento';
+  // A ponte do chat do iFood e da 99 (mig 366): o mesmo caminho do celular do app.
+  const soPelaNuvem = (e: any) => NO_SERVIDOR_DA_LOJA && (e.tipo === 'atendimento' || e.tipo === 'ponte_chat');
   const configuravel = (e: any) => !doServidorLocal(e) && !soPelaNuvem(e);
   const acoesDe = (e: any): Acao<any>[] => {
     if (!pode || soPelaNuvem(e)) return [];
@@ -214,7 +215,7 @@ export default function EquipamentosPage() {
     return [
       ...(e.tipo === 'impressora' ? [{ rotulo: 'Imprimir teste', icone: Printer, aoClicar: (x: any) => void imprimirTeste(x), ocupada: (x: any) => testando === x.id }] : []),
       ...(e.tipo === 'tela_senhas' && configuravel(e) ? [{ rotulo: 'Ajustes da tela', icone: Tv, aoClicar: setTelaAjustes }] : []),
-      ...((['pdv', 'salao'].includes(e.tipo) && !ehGogem(e)) || (['estacao_impressao', 'tela_senhas', 'atendimento'].includes(e.tipo) && !doServidorLocal(e))
+      ...((['pdv', 'salao'].includes(e.tipo) && !ehGogem(e)) || (['estacao_impressao', 'tela_senhas', 'atendimento', 'ponte_chat'].includes(e.tipo) && !doServidorLocal(e))
         ? [{ rotulo: 'Gerar código', icone: KeyRound, aoClicar: setCodigoDe }]
         : []),
       ...(configuravel(e) ? [{ rotulo: 'Configurar', icone: Settings2, aoClicar: (x: any) => setForm({ item: x }) }] : []),
@@ -254,10 +255,10 @@ export default function EquipamentosPage() {
                 <strong>somente leitura</strong>; edite as impressoras e os KDS, e teste, no servidor local da loja.
               </p>
             )}
-            {NO_SERVIDOR_DA_LOJA && lista.some((e) => e.tipo === 'atendimento') && (
+            {NO_SERVIDOR_DA_LOJA && lista.some((e) => e.tipo === 'atendimento' || e.tipo === 'ponte_chat') && (
               <p role="note" className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
-                O app de atendimento (celular) se cadastra, pareia e revoga pela nuvem: abra esta mesma tela no Regem na nuvem. Aqui, no servidor
-                da loja, ele só aparece.
+                O app de atendimento (celular) e a ponte do chat se cadastram, pareiam e revogam pela nuvem: abra esta mesma tela no Regem na
+                nuvem. Aqui, no servidor da loja, eles só aparecem.
               </p>
             )}
             {avisosRota.length > 0 && (
@@ -374,7 +375,7 @@ export default function EquipamentosPage() {
             // A estação, a tela de senhas e o celular do app de atendimento não usam token: pareiam pelo código (no ícone
             // "Regem neste PC" — no instalador só se o PC é novo; na TV, em /senhas; no celular, no app). O diálogo diz onde,
             // pelo que o servidor manda.
-            if (['estacao_impressao', 'tela_senhas', 'atendimento'].includes(novo.tipo)) setCodigoDe(novo);
+            if (['estacao_impressao', 'tela_senhas', 'atendimento', 'ponte_chat'].includes(novo.tipo)) setCodigoDe(novo);
             else setTokenNovo({ nome: novo.nome, token: novo.token, aviso });
             void reload();
           }}

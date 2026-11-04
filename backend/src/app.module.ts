@@ -67,6 +67,7 @@ import { CampanhaModule } from './modules/campanha/campanha.module';
 import { RelacionamentoModule } from './modules/relacionamento/relacionamento.module';
 import { EntregadorModule } from './modules/entregador/entregador.module';
 import { AtendimentoModule } from './modules/atendimento/atendimento.module';
+import { PonteChatModule } from './modules/ponte-chat/ponte-chat.module';
 import { ChegadaModule } from './modules/chegada/chegada.module';
 import { FidelidadeModule } from './modules/fidelidade/fidelidade.module';
 import { CashbackModule } from './modules/cashback/cashback.module';
@@ -184,6 +185,8 @@ const CLOUD_ONLY_IMPORTS = IS_EDGE
     CashbackModule,
     IntegracoesModule,
     AtendimentoModule,
+    // A ponte do chat do iFood e da 99 (mig 366): o programa da ponte no PC da loja fala com a nuvem por aqui.
+    PonteChatModule,
     RelatoriosModule,
     MuralModule,
     SyncModule,
