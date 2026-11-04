@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **O chat do iFood abre sozinho na tela Atendimento (04/11; só tela, sem migration).** Na nuvem com o merge. **Na loja:
+  no `.zip` 1.30.13** (a tela Atendimento do servidor da loja). Não tocou `edge/`.
+
 - **O endereço depois que o pedido saiu (PR 3b-2, 04/11; mig 364 — índice parcial, vai para a loja).** Na nuvem com o
   merge: o robô abre o caso urgente em Atendimento com o endereço novo, a distância e o entregador; a ação "Mudar o
   endereço e avisar o entregador"; a rotina da nuvem manda "Endereço atualizado!" ao cliente. **No `.zip` (o mesmo corte
