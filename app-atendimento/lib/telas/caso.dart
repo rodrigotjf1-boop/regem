@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../abrir.dart';
 import '../api.dart';
 import '../modelo.dart';
 import '../tema.dart';
@@ -32,6 +33,8 @@ class _TelaCasoState extends State<TelaCaso> {
   List<Map<String, dynamic>>? _msgs;
   String? _erroConversa;
   final _texto = TextEditingController();
+  final _campo = FocusNode();
+  final _rolagem = ScrollController();
   bool _enviando = false;
 
   bool get _temConversa => _c.canal == 'whatsapp' && (_c.telefone ?? '').isNotEmpty && _eu.conversa;
@@ -52,6 +55,8 @@ class _TelaCasoState extends State<TelaCaso> {
     _tRelogio?.cancel();
     _tConversa?.cancel();
     _texto.dispose();
+    _campo.dispose();
+    _rolagem.dispose();
     super.dispose();
   }
 
@@ -146,6 +151,46 @@ class _TelaCasoState extends State<TelaCaso> {
     }
   }
 
+  // ===================== O endereço depois que o pedido saiu (PR 3b-2) =====================
+
+  /// "Mudar o endereço e avisar o entregador": a mesma ação do computador. Mudou, abre a mensagem pronta no WhatsApp do
+  /// entregador (fora do app); foi ao servidor da loja, avisa que vale quando a loja aplicar.
+  Future<void> _mudarEndereco(String taxa, Uri? link) async {
+    if (_fazendo) return;
+    setState(() => _fazendo = true);
+    try {
+      final r = await Api.mudarEnderecoDepoisQueSaiu(_c.id, taxa);
+      if (!mounted) return;
+      final repetido = r['repetido'] == true;
+      avisar(
+        context,
+        repetido
+            ? 'Este endereço já tinha sido mudado.'
+            : r['situacao'] == 'pedida'
+                ? 'Mudança enviada ao servidor da loja: vale quando a loja aplicar.'
+                : 'Endereço mudado. Avise o entregador pela mensagem pronta.',
+      );
+      if (!repetido && link != null) await abrirLink(context, link);
+    } on ApiErro catch (e) {
+      if (mounted) avisar(context, e.mensagem, erro: true);
+    } finally {
+      if (mounted) setState(() => _fazendo = false);
+      await _reler();
+    }
+  }
+
+  /// "Não dá: responder ao cliente": o rascunho vai para o campo da conversa (nunca sai sozinho) e a tela desce até ele.
+  Future<void> _responderNaoDa(String texto) async {
+    _texto.text = texto;
+    _texto.selection = TextSelection.collapsed(offset: texto.length);
+    if (_rolagem.hasClients) {
+      await _rolagem.animateTo(_rolagem.position.maxScrollExtent, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+      // A lista só monta o fim ao chegar perto dele: desce de novo até o fim de verdade.
+      if (_rolagem.hasClients) _rolagem.jumpTo(_rolagem.position.maxScrollExtent);
+    }
+    if (mounted) _campo.requestFocus();
+  }
+
   // ===================== Passar =====================
 
   Future<void> _passar() async {
@@ -228,6 +273,7 @@ class _TelaCasoState extends State<TelaCaso> {
         ],
       ),
       body: ListView(
+        controller: _rolagem,
         padding: const EdgeInsets.fromLTRB(14, 12, 14, 24),
         children: [
           Wrap(spacing: 6, runSpacing: 4, children: [
@@ -245,6 +291,15 @@ class _TelaCasoState extends State<TelaCaso> {
           if (_c.tipo == 'disputa') _Disputa(caso: _c, agora: _agora, decide: _eu.decide, aoResponder: _reler),
           if (_c.tipo == 'cancelamento_99' || _c.tipo == 'reembolso_99') _Pedido99(caso: _c, agora: _agora, decide: _eu.decide, aoResponder: _reler),
           if (robo != null) _roboResumiu(robo),
+          // O endereço novo do pedido que já saiu (PR 3b-2): o robô anotou; a equipe muda e avisa o entregador.
+          if (_c.endereco != null)
+            _EnderecoDepoisQueSaiu(
+              caso: _c,
+              e: _c.endereco!,
+              fazendo: _fazendo,
+              aoMudar: _mudarEndereco,
+              aoResponder: _temConversa && _c.aberto ? _responderNaoDa : null,
+            ),
           if ((_c.mensagem ?? '').trim().isNotEmpty && !_c.daPlataforma) _bloco('O que o cliente precisa', Text(_c.mensagem!.trim())),
           if (_c.tipo == 'cancelamento')
             _bloco(
@@ -362,6 +417,7 @@ class _TelaCasoState extends State<TelaCaso> {
           Expanded(
             child: TextField(
               controller: _texto,
+              focusNode: _campo,
               minLines: 1,
               maxLines: 5,
               textCapitalization: TextCapitalization.sentences,
@@ -395,6 +451,199 @@ class _TelaCasoState extends State<TelaCaso> {
         ]),
       ),
     );
+  }
+}
+
+// ===================== O endereço depois que o pedido saiu (PR 3b-2) =====================
+
+/// Abre o link fora do app (o WhatsApp do entregador). Sem app que abra: o aviso diz o que fazer.
+Future<void> abrirLink(BuildContext context, Uri link) async {
+  var abriu = false;
+  try {
+    abriu = await Abrir.link(link);
+  } catch (_) {
+    abriu = false;
+  }
+  if (!abriu && context.mounted) avisar(context, 'Não deu para abrir o WhatsApp neste celular. Ligue para o entregador.', erro: true);
+}
+
+/// O CASO DO ENDEREÇO DEPOIS QUE O PEDIDO SAIU (protótipo `mockups/regem-alteracao-pedido.html`, vista "Painel da loja" ›
+/// "endereço depois que saiu" — o mesmo bloco da tela do computador): o endereço do pedido, o novo, a distância, a taxa da
+/// área nova, o pagamento e o entregador; a taxa "Manter / Cobrar a nova"; "Mudar o endereço e avisar o entregador",
+/// "WhatsApp do entregador" e "Não dá: responder ao cliente". Depois de mudar, em que pé está (e se o cliente soube).
+class _EnderecoDepoisQueSaiu extends StatefulWidget {
+  final Caso caso;
+  final EnderecoDoCaso e;
+  final bool fazendo;
+  final Future<void> Function(String taxa, Uri? link) aoMudar;
+  final Future<void> Function(String texto)? aoResponder;
+  const _EnderecoDepoisQueSaiu({required this.caso, required this.e, required this.fazendo, required this.aoMudar, this.aoResponder});
+
+  @override
+  State<_EnderecoDepoisQueSaiu> createState() => _EnderecoDepoisQueSaiuState();
+}
+
+class _EnderecoDepoisQueSaiuState extends State<_EnderecoDepoisQueSaiu> {
+  String _escolha = 'manter';
+
+  Widget _linha(String rotulo, Widget valor) => Padding(
+        padding: const EdgeInsets.only(top: 5),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(rotulo, style: const TextStyle(fontSize: 12.5, color: kTinta2)),
+          valor,
+        ]),
+      );
+
+  bool _mesmo(double a, double b) => (a * 100).round() == (b * 100).round();
+
+  @override
+  Widget build(BuildContext context) {
+    final e = widget.e;
+    final c = widget.caso;
+    final estado = c.mudancaDoEndereco;
+    final mudado = e.mudado;
+    final naRua = c.pedidoStatus == null || c.pedidoStatus == 'despachado';
+    // Recusada ou sem resposta: a equipe pode tentar de novo (o servidor confere a mesma regra).
+    final podeMudar = c.aberto && (mudado == null || estado?.situacao == 'recusada' || estado?.situacao == 'vencida');
+    final vale = e.escolhaQueVale(_escolha);
+    final semNova = e.porQueNaoCobraANova;
+    final linkAgora = e.linkDoEntregador(vale);
+    final nome = (e.entregadorNome ?? '').trim();
+    final primeiro = nome.isEmpty ? null : nome.split(' ').first;
+    final doEntregador = primeiro != null ? 'do $primeiro' : 'do entregador';
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF6F1),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE06A3C).withValues(alpha: 0.45)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Wrap(spacing: 6, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
+          Text('Endereço novo${e.numero != null ? ' · pedido nº ${e.numero}' : ''}', style: const TextStyle(fontWeight: FontWeight.w800)),
+          if (naRua) const Selo('🛵 Já saiu para entrega', cor: kAviso),
+        ]),
+        _linha('Endereço do pedido', Text(e.de.emUmaLinha.isEmpty ? 'sem endereço no pedido' : e.de.emUmaLinha)),
+        _linha(
+          'Endereço novo',
+          Text.rich(TextSpan(children: [
+            TextSpan(text: e.para.emUmaLinha, style: const TextStyle(fontWeight: FontWeight.w800)),
+            if (e.para.referencia != null) TextSpan(text: ' (${e.para.referencia})'),
+          ])),
+        ),
+        _linha('Distância entre os dois', Text(e.textoDaDistancia)),
+        _linha(
+          'Taxa da área nova',
+          e.taxaNova == null
+              ? const Text('fora da área de entrega', style: TextStyle(fontWeight: FontWeight.w700, color: kPerigo))
+              : Text('${brlR(e.taxaNova!)} (o pedido pagou ${brlR(e.taxaAntes)})'),
+        ),
+        _linha('Pagamento', Text(e.textoDoPagamento)),
+        _linha('Entregador', Text(nome.isEmpty ? 'não informado no despacho' : '$nome${e.saiuEm != null ? ' · saiu às ${hora(e.saiuEm)}' : ''}')),
+        if (mudado != null) _estado(e, estado, primeiro),
+        if (podeMudar) ...[
+          const Divider(height: 22),
+          if (!naRua)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 6),
+              child: Text('O pedido já não está na rua: a mudança de endereço não vale mais. Responda ao cliente.',
+                  style: TextStyle(fontWeight: FontWeight.w700, color: kPerigo)),
+            ),
+          const Text('Taxa da entrega', style: TextStyle(fontWeight: FontWeight.w800)),
+          const Text('A diferença fica a seu critério.', style: TextStyle(fontSize: 12.5, color: kTinta2)),
+          const SizedBox(height: 6),
+          Wrap(spacing: 8, runSpacing: 6, children: [
+            ChoiceChip(label: Text('Manter ${brlR(e.taxaAntes)}'), selected: vale == 'manter', onSelected: (_) => setState(() => _escolha = 'manter')),
+            if (semNova == null && e.taxaNova != null)
+              ChoiceChip(
+                label: Text('Cobrar a nova (${brlR(e.taxaNova!)}) na entrega'),
+                selected: vale == 'nova',
+                onSelected: (_) => setState(() => _escolha = 'nova'),
+              ),
+          ]),
+          if (semNova != null && e.taxaNova != null && !_mesmo(e.taxaNova!, e.taxaAntes))
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text('Cobrar a taxa nova não dá: $semNova.', style: const TextStyle(fontSize: 12.5, color: kTinta2)),
+            ),
+          if (vale == 'nova')
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text('O pedido passa para ${brlR(e.valoresDaEscolha(vale).total)}.', style: const TextStyle(fontSize: 12.5, color: kTinta2)),
+            ),
+          const SizedBox(height: 10),
+          FilledButton(
+            onPressed: widget.fazendo || !naRua ? null : () => widget.aoMudar(vale, linkAgora),
+            child: const Text('Mudar o endereço e avisar o entregador', textAlign: TextAlign.center),
+          ),
+          const SizedBox(height: 8),
+          if (linkAgora != null)
+            OutlinedButton(onPressed: () => abrirLink(context, linkAgora), child: Text('WhatsApp $doEntregador'))
+          else
+            const Text('O entregador não tem telefone no despacho.', style: TextStyle(fontSize: 12.5, color: kTinta2)),
+          if (widget.aoResponder != null) ...[
+            const SizedBox(height: 8),
+            OutlinedButton(onPressed: () => widget.aoResponder!(e.rascunhoNaoDa), child: const Text('Não dá: responder ao cliente')),
+          ],
+          const SizedBox(height: 8),
+          Text(
+            '“Mudar” troca o endereço do pedido, apaga a posição do endereço antigo (o app do entregador refaz o caminho pelo '
+            'novo) e abre a mensagem pronta para o WhatsApp $doEntregador. O cliente recebe “${e.textoAoCliente}” quando a '
+            'mudança vale.',
+            style: const TextStyle(fontSize: 12, color: kTinta2),
+          ),
+        ],
+      ]),
+    );
+  }
+
+  /// Em que pé está a mudança: enviada ao servidor da loja, recusada, sem resposta ou feita (e se o cliente soube).
+  Widget _estado(EnderecoDoCaso e, EstadoDaMudanca? estado, String? primeiro) {
+    final m = e.mudado!;
+    final quem = 'às ${hora(m.em)}${m.porNome != null ? ' por ${m.porNome}' : ''}';
+    Widget caixa(Color cor, List<Widget> filhos) => Container(
+          margin: const EdgeInsets.only(top: 10),
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(color: cor.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(12), border: Border.all(color: cor.withValues(alpha: 0.35))),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: filhos),
+        );
+    if (estado == null || estado.situacao == 'pedida') {
+      return caixa(kNavy, [
+        Text('⏳ Mudança enviada ao servidor da loja $quem: vale quando a loja aplicar. O cliente recebe a mensagem depois disso.',
+            style: const TextStyle(fontWeight: FontWeight.w700)),
+      ]);
+    }
+    if (estado.situacao == 'recusada' || estado.situacao == 'vencida') {
+      final texto = estado.situacao == 'recusada'
+          ? '✕ A loja recusou a mudança feita $quem: ${estado.motivo ?? 'sem motivo informado'}.'
+          : 'A loja não respondeu à mudança feita $quem.';
+      return caixa(kPerigo, [
+        Text('$texto Avise o entregador pelo WhatsApp dele — ou tente de novo.', style: const TextStyle(fontWeight: FontWeight.w700, color: kPerigo)),
+      ]);
+    }
+    final taxaTexto = _mesmo(m.taxa, e.taxaAntes) ? 'taxa mantida em ${brlR(m.taxa)}' : 'entrega passou para ${brlR(m.taxa)}';
+    final motivo = (estado.avisoFalhou ?? '').replaceAll(RegExp(r'[\s:;,.–-]+$'), '');
+    final aviso = !estado.temAviso
+        ? 'O cliente recebe a mensagem em instantes.'
+        : estado.avisoFalhou != null
+            ? 'A mensagem ao cliente não saiu${motivo.isNotEmpty ? ': ${motivo[0].toLowerCase()}${motivo.substring(1)}' : ''}. Responda pela conversa.'
+            : estado.avisoExpirou
+                ? 'A mensagem ao cliente não saiu (a mudança chegou tarde à nuvem): responda pela conversa.'
+                : estado.semTelefone
+                    ? 'O caso não tem o telefone do cliente: avise por outro meio.'
+                    : 'O cliente recebeu: “${e.textoAoCliente}”.';
+    final link = e.linkDoEntregador(_mesmo(m.taxa, e.taxaAntes) ? 'manter' : 'nova');
+    return caixa(kVerde, [
+      Text('✓ Endereço mudado $quem: ${e.para.emUmaLinha}, $taxaTexto. O app do entregador já mostra o endereço novo.',
+          style: const TextStyle(fontWeight: FontWeight.w700)),
+      const SizedBox(height: 4),
+      Text(aviso),
+      if (link != null) ...[
+        const SizedBox(height: 8),
+        OutlinedButton(onPressed: () => abrirLink(context, link), child: Text('Abrir a mensagem para ${primeiro != null ? 'o $primeiro' : 'o entregador'}')),
+      ],
+    ]);
   }
 }
 

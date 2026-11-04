@@ -46,5 +46,11 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- O WhatsApp do entregador (link wa.me, o caso do endereço depois que o pedido saiu): no Android 11+ o app
+             só enxerga quem abre o link com esta declaração. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
     </queries>
 </manifest>

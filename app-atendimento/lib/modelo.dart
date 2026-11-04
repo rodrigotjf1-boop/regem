@@ -80,7 +80,236 @@ class Caso {
     if (em == null) return null;
     return (em: em, minutos: (e['minutos'] as num?)?.toInt() ?? 0);
   }
+
+  /// O endereço novo do pedido que JÁ SAIU (PR 3b-2): o que o robô anotou no caso "Mudança no pedido".
+  EnderecoDoCaso? get endereco => tipo == 'mudanca' ? EnderecoDoCaso.ler(detalhe) : null;
+
+  /// Em que pé está a mudança de endereço feita pelo caso (a fila lê da alteração do pedido).
+  EstadoDaMudanca? get mudancaDoEndereco => EstadoDaMudanca.de(bruto['mudancaDoEndereco']);
+
+  /// O número do pedido na loja (o "#951" do título).
+  String? get pedidoNumero => bruto['pedidoNumero']?.toString();
+
+  /// A situação do pedido ligado (o "Em rota" é `despachado`).
+  String? get pedidoStatus => bruto['pedidoStatus'] as String?;
 }
+
+// ===================== O endereço depois que o pedido saiu (PR 3b-2) =====================
+// Os textos e as contas são os da tela do computador (`frontend/src/lib/endereco-do-caso.ts`); a regra mora no servidor
+// (`backend/src/modules/atendimento/endereco-depois-que-saiu.ts`) — o app só lê e escreve para a tela.
+
+/// Um endereço como o caso guarda: rua, número, bairro e o complemento ou ponto de referência.
+class EnderecoCurto {
+  final String? rua;
+  final String? numero;
+  final String? bairro;
+  final String? referencia;
+  const EnderecoCurto({this.rua, this.numero, this.bairro, this.referencia});
+
+  static EnderecoCurto de(dynamic m) {
+    String? t(dynamic v) => v == null || '$v'.trim().isEmpty ? null : '$v'.trim();
+    if (m is! Map) return const EnderecoCurto();
+    return EnderecoCurto(rua: t(m['rua']), numero: t(m['numero']), bairro: t(m['bairro']), referencia: t(m['referencia']));
+  }
+
+  /// "Rua das Flores, 120 · Centro".
+  String get emUmaLinha {
+    final rn = [rua, numero].whereType<String>().join(', ');
+    return [rn, bairro ?? ''].where((s) => s.isNotEmpty).join(' · ');
+  }
+
+  /// "Rua Ipê, 45".
+  String get ruaENumero {
+    final r = [rua, numero].whereType<String>().join(', ');
+    return r.isNotEmpty ? r : emUmaLinha;
+  }
+}
+
+class EnderecoDoCaso {
+  final String pedidoId;
+  final String? numero;
+  final EnderecoCurto de;
+  final EnderecoCurto para;
+  final double taxaAntes;
+  /// null = o endereço novo fica fora da área de entrega.
+  final double? taxaNova;
+  final double total;
+  /// O que o entregador recebe hoje (a conta do servidor).
+  final double aReceber;
+  /// A conta com a taxa nova (total e o que receber) — ou por que não dá; nenhum = fora da área.
+  final ({double total, double aReceber})? contaDaNova;
+  final String? recusaDaNova;
+  final bool pagoAntes;
+  final String? formaPagamento;
+  final double? trocoPara;
+  final String? entregadorNome;
+  final String? entregadorTelefone;
+  final DateTime? saiuEm;
+  /// A chave `distancia` existe? (ausente = ainda medindo; nula = não deu para medir)
+  final bool medida;
+  final ({double km, int? min, bool peloCaminho})? distancia;
+  final ({DateTime? em, String? porNome, double taxa, String alteracaoId})? mudado;
+
+  const EnderecoDoCaso({
+    required this.pedidoId,
+    required this.numero,
+    required this.de,
+    required this.para,
+    required this.taxaAntes,
+    required this.taxaNova,
+    required this.total,
+    required this.aReceber,
+    required this.contaDaNova,
+    required this.recusaDaNova,
+    required this.pagoAntes,
+    required this.formaPagamento,
+    required this.trocoPara,
+    required this.entregadorNome,
+    required this.entregadorTelefone,
+    required this.saiuEm,
+    required this.medida,
+    required this.distancia,
+    required this.mudado,
+  });
+
+  static double? _n(dynamic v) => v is num ? v.toDouble() : (v is String ? double.tryParse(v) : null);
+
+  /// O endereço do caso (null = o caso não tem — o que não tem a forma certa conta como nenhum).
+  static EnderecoDoCaso? ler(Map<String, dynamic> detalhe) {
+    final e = detalhe['endereco'];
+    if (e is! Map || e['pedidoId'] is! String || e['para'] is! Map) return null;
+    final nova = e['comANova'];
+    final d = e['distancia'];
+    final m = e['mudado'];
+    final ent = e['entregador'];
+    return EnderecoDoCaso(
+      pedidoId: e['pedidoId'] as String,
+      numero: e['numero']?.toString(),
+      de: EnderecoCurto.de(e['de']),
+      para: EnderecoCurto.de(e['para']),
+      taxaAntes: _n(e['taxaAntes']) ?? 0,
+      taxaNova: _n(e['taxaNova']),
+      total: _n(e['total']) ?? 0,
+      aReceber: _n(e['aReceber']) ?? _n(e['total']) ?? 0,
+      contaDaNova: nova is Map && nova['total'] != null ? (total: _n(nova['total']) ?? 0, aReceber: _n(nova['aReceber']) ?? 0) : null,
+      recusaDaNova: nova is Map && nova['recusa'] is String ? nova['recusa'] as String : null,
+      pagoAntes: e['pagoAntes'] == true,
+      formaPagamento: e['formaPagamento'] as String?,
+      trocoPara: (_n(e['trocoPara']) ?? 0) > 0 ? _n(e['trocoPara']) : null,
+      entregadorNome: ent is Map ? ent['nome'] as String? : null,
+      entregadorTelefone: ent is Map ? ent['telefone'] as String? : null,
+      saiuEm: ent is Map ? _data(ent['saiuEm']) : null,
+      medida: e.containsKey('distancia'),
+      distancia: d is Map && _n(d['km']) != null ? (km: _n(d['km'])!, min: (d['min'] as num?)?.toInt(), peloCaminho: d['pelo'] == 'caminho') : null,
+      mudado: m is Map && m['alteracaoId'] is String
+          ? (em: _data(m['em']), porNome: m['porNome'] as String?, taxa: _n(m['taxa']) ?? 0, alteracaoId: m['alteracaoId'] as String)
+          : null,
+    );
+  }
+
+  /// "2,4 km pelo caminho (≈ 7 min de moto)" · "2,4 km em linha reta" · "medindo…" · "não deu para medir".
+  String get textoDaDistancia {
+    if (!medida) return 'medindo…';
+    final d = distancia;
+    if (d == null) return 'não deu para medir (confira no mapa)';
+    final km = '${d.km.toStringAsFixed(1).replaceAll('.', ',')} km';
+    if (!d.peloCaminho) return '$km em linha reta';
+    return '$km pelo caminho${d.min != null ? ' (≈ ${d.min} min de moto)' : ''}';
+  }
+
+  /// Por que "cobrar a nova" não dá (null = dá) — a mesma regra da tela do computador (a conta é do servidor — V74).
+  String? get porQueNaoCobraANova {
+    if (taxaNova == null) return 'o endereço novo fica fora da área de entrega';
+    if (pagoAntes) return 'o pedido foi pago pelo link';
+    if ((taxaNova! * 100).round() == (taxaAntes * 100).round()) return 'a taxa da área nova é a mesma';
+    if (recusaDaNova != null) return recusaDaNova!.replaceAll(RegExp(r'[.:]\s*$'), '');
+    if (contaDaNova == null) return 'a conta com a taxa nova não veio';
+    return null;
+  }
+
+  /// "nova" só quando dá; senão a do pedido.
+  String escolhaQueVale(String escolha) => escolha == 'nova' && porQueNaoCobraANova == null ? 'nova' : 'manter';
+
+  double taxaDaEscolha(String escolha) => escolhaQueVale(escolha) == 'nova' ? (taxaNova ?? taxaAntes) : taxaAntes;
+
+  /// O total e o que o entregador recebe com a taxa escolhida (as contas do servidor).
+  ({double total, double aReceber}) valoresDaEscolha(String escolha) =>
+      escolhaQueVale(escolha) == 'nova' && contaDaNova != null ? contaDaNova! : (total: total, aReceber: aReceber);
+
+  /// "Dinheiro · troco para R$ 50,00" (ou "pago pelo link").
+  String get textoDoPagamento {
+    if (pagoAntes) return 'pago pelo link';
+    final f = (formaPagamento ?? 'na entrega').trim();
+    final forma = f.isEmpty ? 'Na entrega' : '${f[0].toUpperCase()}${f.substring(1)}';
+    return '$forma${trocoPara != null ? ' · troco para ${brlR(trocoPara!)}' : ''}';
+  }
+
+  /// A mensagem pronta para o entregador: o endereço novo e, no pago na entrega, quanto receber.
+  String mensagemAoEntregador(String escolha) {
+    final nome = (entregadorNome ?? '').trim().isEmpty ? '' : ', ${entregadorNome!.trim().split(' ').first}';
+    final n = numero != null ? 'do pedido nº $numero' : 'do pedido';
+    final ref = para.referencia != null ? ' (${para.referencia})' : '';
+    final receber = valoresDaEscolha(escolha).aReceber;
+    final quanto = pagoAntes || receber <= 0
+        ? ' O pedido já está pago.'
+        : ' Receber ${brlR(receber)}${trocoPara != null ? ' (troco para ${brlR(trocoPara!)})' : ''}.';
+    return 'Oi$nome! O endereço $n mudou: agora é ${para.emUmaLinha}$ref.$quanto';
+  }
+
+  /// O link do WhatsApp do entregador com a mensagem pronta (null = sem telefone do entregador).
+  Uri? linkDoEntregador(String escolha) {
+    final numero = numeroDoWhatsapp(entregadorTelefone);
+    if (numero.isEmpty) return null;
+    return Uri.parse('https://wa.me/$numero?text=${Uri.encodeComponent(mensagemAoEntregador(escolha))}');
+  }
+
+  /// O rascunho do "Não dá: responder ao cliente" (vai para o campo da conversa — nunca sai sozinho).
+  String get rascunhoNaoDa {
+    final n = numero != null ? 'do pedido nº $numero' : 'do pedido';
+    return 'Não conseguimos mudar o endereço $n: o entregador já está a caminho da ${de.ruaENumero}. Você consegue receber lá?';
+  }
+
+  /// O que o cliente recebe quando a mudança vale (o texto do servidor).
+  String get textoAoCliente => 'Endereço atualizado! O entregador já está indo para a ${para.ruaENumero} 👍';
+}
+
+/// Em que pé está a mudança feita pelo caso: aplicada, pedida (ao servidor da loja), recusada ou sem resposta (vencida);
+/// e o aviso ao cliente (o "Endereço atualizado!").
+class EstadoDaMudanca {
+  final String situacao;
+  final String? motivo;
+  final bool avisoSaiu;
+  final String? avisoFalhou;
+  final bool avisoExpirou;
+  final bool semTelefone;
+  final bool temAviso;
+  const EstadoDaMudanca({
+    required this.situacao,
+    this.motivo,
+    this.avisoSaiu = false,
+    this.avisoFalhou,
+    this.avisoExpirou = false,
+    this.semTelefone = false,
+    this.temAviso = false,
+  });
+
+  static EstadoDaMudanca? de(dynamic m) {
+    if (m is! Map || m['situacao'] is! String) return null;
+    final a = m['aviso'];
+    return EstadoDaMudanca(
+      situacao: m['situacao'] as String,
+      motivo: m['motivo'] as String?,
+      temAviso: a is Map,
+      avisoFalhou: a is Map && a['falhou'] is String ? a['falhou'] as String : null,
+      avisoExpirou: a is Map && a['expirou'] == true,
+      semTelefone: a is Map && a['semTelefone'] == true,
+      avisoSaiu: a is Map && a['falhou'] == null && a['expirou'] != true && a['semTelefone'] != true,
+    );
+  }
+}
+
+/// Reais como a tela mostra ("R$ 8,00").
+String brlR(num reais) => brl((reais * 100).round());
 
 DateTime? _data(dynamic v) => v is String ? DateTime.tryParse(v)?.toLocal() : null;
 

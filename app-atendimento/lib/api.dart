@@ -261,6 +261,12 @@ class Api {
   static Future<Map<String, dynamic>> responderDisputa(String id, Map<String, dynamic> corpo) async =>
       await _chamar('POST', '/atendimento/$id/disputa', corpo: corpo) as Map<String, dynamic>;
 
+  /// "Mudar o endereço e avisar o entregador" (o caso do pedido que já saiu — PR 3b-2): `taxa` = 'manter' (a do pedido)
+  /// ou 'nova' (a da área nova, que o Regem calculou) — nunca um valor digitado. A resposta diz se mudou na hora
+  /// (`situacao: aplicada`), se foi ao servidor da loja (`pedida`) ou se já tinha mudado (`repetido`).
+  static Future<Map<String, dynamic>> mudarEnderecoDepoisQueSaiu(String id, String taxa) async =>
+      await _chamar('POST', '/atendimento/$id/endereco-depois-que-saiu', corpo: {'taxa': taxa}) as Map<String, dynamic>;
+
   /// Pedido de cancelamento ou reembolso do cliente da 99: `aceita`, o motivo da lista e o `pin` de quem decide.
   static Future<Map<String, dynamic>> responderPedido99(String id, Map<String, dynamic> corpo) async =>
       await _chamar('POST', '/atendimento/$id/pedido99', corpo: corpo) as Map<String, dynamic>;

@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:regem_atendimento/abrir.dart';
 import 'package:regem_atendimento/api.dart';
 import 'package:regem_atendimento/avisos.dart';
 import 'package:regem_atendimento/main.dart';
@@ -68,6 +69,11 @@ class ServidorFalso {
           {'id': 'eu', 'nome': 'Ana Gerente', 'eu': true, 'presenca': null},
           {'id': 'b', 'nome': 'Bruno', 'eu': false, 'presenca': {'estado': 'disponivel', 'motivo': null}},
         ]);
+      // A conversa do caso do WhatsApp (sem mensagens ainda).
+      case 'GET /whatsapp/conversas':
+        return _json([]);
+      case 'GET /whatsapp/mensagens':
+        return _json([]);
     }
     if (r.method == 'POST' && partes.length == 4 && partes[1] == 'atendimento') {
       final id = partes[2];
@@ -84,6 +90,18 @@ class ServidorFalso {
         case 'disputa':
           (c['detalhe'] as Map)['resposta'] = {'acao': corpo['acao'], 'motivo': corpo['motivo'], 'por': 'Ana Gerente'};
           return _json({'ok': true, 'resposta': {'acao': corpo['acao']}}, 201);
+        // O endereço depois que o pedido saiu (PR 3b-2): só 'manter' ou 'nova', como o servidor de verdade.
+        case 'endereco-depois-que-saiu':
+          if (corpo['taxa'] != 'manter' && corpo['taxa'] != 'nova') return _json({'message': 'Escolha a taxa da entrega.'}, 400);
+          final mudado = {
+            'em': DateTime.now().toUtc().toIso8601String(),
+            'porNome': 'Ana Gerente',
+            'taxa': corpo['taxa'] == 'nova' ? 8 : 6,
+            'alteracaoId': 'alt-1',
+          };
+          ((c['detalhe'] as Map)['endereco'] as Map)['mudado'] = mudado;
+          c['mudancaDoEndereco'] = {'situacao': 'aplicada', 'motivo': null, 'aviso': null};
+          return _json({'ok': true, 'id': id, 'mudado': mudado, 'situacao': 'aplicada'}, 201);
       }
     }
     return _json({'message': 'rota que o teste não conhece: ${r.method} $caminho'}, 404);
@@ -120,6 +138,43 @@ Map<String, dynamic> casoDaDisputa() => {
       'criadoEm': DateTime.now().toUtc().toIso8601String(),
       'detalhe': <String, dynamic>{
         'disputa': <String, dynamic>{'mensagem': 'Faltou a batata.', 'acaoAutomatica': 'ACCEPT_CANCELLATION', 'alternativas': [], 'motivosParaAceitar': []},
+      },
+    };
+
+/// O caso que o robô abre quando o cliente pede outro endereço com o pedido já na rua (PR 3b-2).
+Map<String, dynamic> casoDoEndereco() => {
+      'id': 'm1',
+      'tipo': 'mudanca',
+      'canal': 'whatsapp',
+      'cliente': 'Bia',
+      'telefone': '5521999990001',
+      'pedidoNumero': '951',
+      'pedidoStatus': 'despachado',
+      'mensagem': 'Motivo: o pedido nº 951 já saiu para a entrega e o cliente quer mudar o endereço',
+      'prioridade': 'urgente',
+      'situacao': 'fila',
+      'responsavelId': null,
+      'criadoEm': DateTime.now().subtract(const Duration(minutes: 1)).toUtc().toIso8601String(),
+      'posicao': 1,
+      'detalhe': <String, dynamic>{
+        'robo': {'motivo': 'o pedido nº 951 já saiu e o cliente quer mudar o endereço', 'quer': 'entregar em Rua Ipê, 45', 'jaFez': 'chamei a equipe'},
+        'endereco': <String, dynamic>{
+          'pedidoId': 'p1',
+          'numero': '951',
+          'de': {'rua': 'Rua das Flores', 'numero': '120', 'bairro': 'Centro', 'referencia': null},
+          'para': {'rua': 'Rua Ipê', 'numero': '45', 'bairro': 'Jardim América', 'bairroId': null, 'referencia': 'casa azul'},
+          'taxaAntes': 6,
+          'taxaNova': 8,
+          'total': 36,
+          'aReceber': 36,
+          'comANova': {'total': 38, 'aReceber': 38},
+          'pagoAntes': false,
+          'formaPagamento': 'Dinheiro',
+          'trocoPara': 50,
+          'entregador': {'nome': 'João Silva', 'telefone': '21988887777', 'saiuEm': DateTime.now().toUtc().toIso8601String()},
+          'distancia': {'km': 2.4, 'min': 7, 'pelo': 'caminho'},
+          'em': DateTime.now().toUtc().toIso8601String(),
+        },
       },
     };
 
@@ -352,6 +407,60 @@ void main() {
     await esperar(t);
     expect(avisados.where((a) => a.contains('Ana P.')), isEmpty);
     expect(avisados.where((a) => a.startsWith('🔔 Problema no pedido|Carlos')), hasLength(1));
+    await fechar(t);
+  });
+
+  testWidgets('o endereço depois que o pedido saiu: o bloco, "Cobrar a nova", o "Não dá" no campo e o "Mudar" que abre o WhatsApp do entregador', (t) async {
+    celular(t);
+    final abertos = <Uri>[];
+    final original = Abrir.link;
+    Abrir.link = (u) async {
+      abertos.add(u);
+      return true;
+    };
+    addTearDown(() => Abrir.link = original);
+    servidor.casos.add(casoDoEndereco());
+    await parearEEntrar(t);
+    await t.tap(find.text('Pegar'));
+    await esperar(t, 10);
+    // O bloco com o que o robô anotou (os mesmos textos da tela do computador).
+    expect(find.text('Endereço novo · pedido nº 951'), findsOneWidget);
+    expect(find.text('🛵 Já saiu para entrega'), findsOneWidget);
+    expect(find.text('Rua das Flores, 120 · Centro'), findsOneWidget);
+    expect(find.text('2,4 km pelo caminho (≈ 7 min de moto)'), findsOneWidget);
+    expect(find.text(r'R$ 8,00 (o pedido pagou R$ 6,00)'), findsOneWidget);
+    expect(find.text(r'Dinheiro · troco para R$ 50,00'), findsOneWidget);
+    expect(find.textContaining('João Silva · saiu às'), findsOneWidget);
+    // A taxa: "Cobrar a nova" mostra o total novo.
+    await rolarAte(t, find.text(r'Cobrar a nova (R$ 8,00) na entrega'));
+    await t.tap(find.text(r'Cobrar a nova (R$ 8,00) na entrega'));
+    await t.pump();
+    expect(find.text(r'O pedido passa para R$ 38,00.'), findsOneWidget);
+    // "Não dá": o rascunho vai para o campo da conversa (nada é enviado).
+    await rolarAte(t, find.text('Não dá: responder ao cliente'));
+    await t.tap(find.text('Não dá: responder ao cliente'));
+    await esperar(t);
+    final campo = t.widget<TextField>(find.byType(TextField).last);
+    expect(campo.controller!.text, startsWith('Não conseguimos mudar o endereço do pedido nº 951: o entregador já está a caminho da Rua das Flores, 120.'));
+    expect(servidor.pedidos.where((r) => r.url.path.endsWith('/whatsapp/enviar')), isEmpty);
+    // "Mudar o endereço e avisar o entregador": o servidor recebe a taxa escolhida e a mensagem pronta abre no WhatsApp dele.
+    await rolarAte(t, find.text('Mudar o endereço e avisar o entregador'));
+    await t.tap(find.text('Mudar o endereço e avisar o entregador'));
+    await esperar(t, 10);
+    final mudou = servidor.pedidos.lastWhere((r) => r.url.path.endsWith('/atendimento/m1/endereco-depois-que-saiu'));
+    expect(jsonDecode(mudou.body), {'taxa': 'nova'});
+    expect(mudou.headers['x-terminal-id'], 'term-1');
+    expect(abertos, hasLength(1));
+    expect(abertos.single.host, 'wa.me');
+    expect(abertos.single.path, '/5521988887777');
+    expect(abertos.single.queryParameters['text'],
+        r'Oi, João! O endereço do pedido nº 951 mudou: agora é Rua Ipê, 45 · Jardim América (casa azul). Receber R$ 38,00 (troco para R$ 50,00).');
+    // Depois de mudar: o estado (a fila relida) e o formulário sai.
+    await rolarAte(t, find.textContaining('✓ Endereço mudado'));
+    expect(find.textContaining(r'Rua Ipê, 45 · Jardim América, entrega passou para R$ 8,00.'), findsOneWidget);
+    expect(find.text('O cliente recebe a mensagem em instantes.'), findsOneWidget);
+    expect(find.text('Mudar o endereço e avisar o entregador'), findsNothing);
+    expect(find.text('Abrir a mensagem para o João'), findsOneWidget);
     await fechar(t);
   });
 

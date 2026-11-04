@@ -102,10 +102,15 @@
   Atendimento que não troca de arranjo com um diálogo aberto); o APK do app de atendimento leva os avisos da disputa e
   o ícone com a marca (APK sob comando).**
 
-- **APK NOVO "Regem Atendimento" (`app-atendimento/`, 1.0.0+1, 02/11): NÃO gerado para distribuição — sob comando do
-  dono.** Fala com a nuvem (servidor do #801 e do #802 já no ar). O ícone com a marca entrou em 03/11. Antes de publicar
-  na Play: a assinatura de release (hoje a de debug, como o do entregador). Caminho do APK:
-  `app-atendimento/build/app/outputs/flutter-apk/app-release.apk`.
+- **APK "Regem Atendimento" (`app-atendimento/`, 1.0.0+1) — GERADO em 04/11 por comando do dono, da `origin/main` com o
+  bloco "endereço depois que o pedido saiu" no caso** (o mesmo do computador: a distância, a taxa da área nova, o
+  entregador, "Manter / Cobrar a nova", "Mudar o endereço e avisar o entregador" — abre a mensagem pronta no WhatsApp do
+  entregador —, "WhatsApp do entregador" e "Não dá: responder ao cliente"). Fala com a nuvem (servidor do #801, #802 e
+  #821 no ar). Assinatura: a de debug do PC (como o do entregador). Caminho do APK:
+  `C:\Regen\app-atendimento\build\app\outputs\flutter-apk\app-release.apk`. ⚠️ **Antes de instalar:** o pacote
+  `com.dmsregem.regem_atendimento` precisa estar registrado na verificação de desenvolvedor Android (Play Console), com a
+  chave de debug (SHA-256 `5a:88:c9:…:88:e4`) — sem isso, celular certificado no Brasil recusa a instalação. Antes de
+  publicar na Play: a assinatura de release. Avisos com o app FECHADO dependem do projeto Firebase (do dono).
 
 - **"Fila e avisos": o aviso ao gerente e a posição na fila (Onda 2, parte 2, 02/11, sem migration nova — usa a 353,
   já na nuvem): nuvem no ar com o merge (a rotina do aviso, os ajustes e a resposta ao robô moram lá); a loja no `.zip`
