@@ -200,7 +200,13 @@ descrever('fila e avisos (Postgres)', () => {
       ajustes: async (_t: string, loja: string | null) => ({ ativo: false, perguntarOnde: true, todasTelas: true, deNovoMin: 5, temCardapio: true, loja }),
       salvarAjustes: async (_u: any, loja: string | null, parcial: any) => void gravadosCheguei.push({ loja, parcial }),
     } as any;
-    const rota = new AtendimentoController({} as any, {} as any, pedido99, chatIfood, svc, chegada);
+    // "Pedido repetido" (mig 360): o grupo do pedido igual, gravado na loja em uso.
+    const gravadosRepetido: any[] = [];
+    const repetido = {
+      ajustes: async (_t: string, loja: string | null) => ({ ativo: true, minutos: 30, temCardapio: true, janelas: [10, 15, 20, 30, 45, 60], loja }),
+      salvarAjustes: async (_u: any, loja: string | null, parcial: any) => void gravadosRepetido.push({ loja, parcial }),
+    } as any;
+    const rota = new AtendimentoController({} as any, {} as any, pedido99, chatIfood, svc, chegada, repetido);
     // o grupo do iFood torto: nada é gravado (nem a fila, nem a 99)
     await expect(rota.salvarAjustes(user, null, { fila: { avisarGerenteMin: 10 }, ifood: { avisarDeNovoMin: 5 }, ajuste99: { decidirCancelamento: false } })).rejects.toThrow('Avisar de novo');
     expect([gravados99, gravadosIfood]).toEqual([[], []]);
@@ -221,6 +227,13 @@ descrever('fila e avisos (Postgres)', () => {
     const comLoja: any = await rota.salvarAjustes(user, 'loja-x', { cheguei: { ativo: true, deNovoMin: 10 } });
     expect(gravadosCheguei).toEqual([{ loja: 'loja-x', parcial: { ativo: true, deNovoMin: 10 } }]);
     expect(comLoja.cheguei.loja).toBe('loja-x'); // a resposta relê a mesma loja
+    // o grupo do "Pedido repetido" torto (janela fora da lista, liga/desliga em texto): nada é gravado de nenhum grupo
+    await expect(rota.salvarAjustes(user, null, { cheguei: { ativo: false }, repetido: { minutos: 25 } })).rejects.toThrow('Pedido igual: escolha 10, 15, 20, 30, 45 ou 60');
+    await expect(rota.salvarAjustes(user, null, { cheguei: { ativo: false }, repetido: { ativo: 'não' } })).rejects.toThrow();
+    expect([gravadosCheguei.length, gravadosRepetido]).toEqual([1, []]);
+    const comRepetido: any = await rota.salvarAjustes(user, 'loja-x', { repetido: { ativo: false, minutos: 45 } });
+    expect(gravadosRepetido).toEqual([{ loja: 'loja-x', parcial: { ativo: false, minutos: 45 } }]);
+    expect(comRepetido.repetido).toMatchObject({ temCardapio: true, janelas: [10, 15, 20, 30, 45, 60], loja: 'loja-x' });
   });
 
   it('"Dizer ao cliente a posição na fila" desligado: o robô não recebe a posição (o "já tem alguém" segue)', async () => {

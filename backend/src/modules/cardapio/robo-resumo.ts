@@ -47,6 +47,34 @@ export type ParaConferir = {
 /** As opções do resumo para conferir (os três botões). */
 export const OPCOES_DA_CONFERENCIA = ['Pode registrar', 'Pôr observação', 'Quero mudar algo'];
 
+/**
+ * PEDIDO IGUAL (mig 360; pedido do dono, 03/11/2026): com um pedido igual do mesmo cliente há pouco, o resumo para
+ * conferir pergunta se são dois — o "Pode registrar" dá lugar a estes botões.
+ */
+export const OPCOES_DO_REPETIDO = ['Sim, quero os dois', 'Não, foi repetido', 'Quero mudar algo'];
+
+/** O outro pedido como o cliente entende: o número que ele recebeu, a hora e a situação. */
+export type PedidoIgualNaConversa = { numero: string | null; hora: string | null; situacao: string };
+
+/**
+ * O resumo para conferir COM a pergunta do pedido igual: o aviso no alto e, no lugar do "Está tudo certo?", a pergunta
+ * (é a última linha — a que vira o texto dos botões quando o resumo passa do limite da mensagem).
+ */
+export function textoParaConferirRepetido(texto: string, outro: PedidoIgualNaConversa): string {
+  const linhas = String(texto ?? '').split('\n');
+  if (/^Está tudo certo/.test(linhas[linhas.length - 1] ?? '')) linhas.pop();
+  while (linhas.length && !linhas[linhas.length - 1].trim()) linhas.pop();
+  const quando = outro.hora ? ` às ${outro.hora}` : '';
+  const numero = outro.numero ? ` (nº ${outro.numero})` : '';
+  return [
+    `⚠️ *Você já fez um pedido igual hoje${quando}*${numero}, e ele está *${outro.situacao}*.`,
+    '',
+    ...linhas,
+    '',
+    'Quer que a gente produza e envie *os dois* pedidos? 👇',
+  ].join('\n');
+}
+
 /** "Troco para R$ 100,00 → troco de R$ 30,00" (ou só "Troco para…" quando a nota não passa do total). */
 function linhaDoTroco(trocoPara: number, total: number): string {
   const volta = paraReais(paraCentavos(trocoPara) - paraCentavos(total));

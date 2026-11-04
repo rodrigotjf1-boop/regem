@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Inject,
   Injectable,
   Logger,
@@ -8,6 +9,13 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
+import {
+  ajusteRepetidoDaLinha,
+  clientePeloTelefone,
+  horaDoPedido,
+  procurarPedidoIgual,
+  situacaoParaOCliente,
+} from '../pedido-repetido/pedido-repetido';
 import { exigirBooleano } from '../../common/exigir';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ChegadaService } from '../chegada/chegada.service';
@@ -3274,6 +3282,8 @@ export class CardapioService {
       // A observação GERAL do pedido (mig 346): "interfone ruim, ligar ao chegar". Uma linha, até 300 letras
       // (`textoDaObservacao`); vazia = sem observação.
       observacao?: unknown;
+      // PEDIDO IGUAL (mig 360): o cliente respondeu "sim, quero os dois" à pergunta (só `true` de verdade vale — V15).
+      confirmarRepetido?: unknown;
       itens: {
         produtoId: string;
         variacaoId?: string;
@@ -3399,6 +3409,40 @@ export class CardapioService {
 
     // Modo RETIRADA/TOTEM: pedido externo com preço/rótulos calculados no servidor.
     const { itensOut, totalCent } = await this.precificarItensDoPedido(cfg, dto.itens, porId, faixasAtacado);
+    // PEDIDO IGUAL EM ATÉ 30 MIN (mig 360; pedido do dono, 03/11/2026 — decisão 1): o cliente responde ANTES de o
+    // pedido entrar, e nada vai para a cozinha. O 409 sai antes de gravar e de gastar a senha: o "sim" volta com
+    // `confirmarRepetido` e o MESMO `clientRef`. Recorrência e encomenda (data marcada) não perguntam. Os dados do outro
+    // pedido só vão a quem PROVOU quem é (link de Sua conta, ou o WhatsApp do robô): qualquer um digita um telefone (V79).
+    const clienteDoToken = verificarCliente(dto.clienteToken);
+    const doToken = clienteDoToken && clienteDoToken.tenant === cfg.tenantId ? clienteDoToken.cli : null;
+    const ajRepetido = ajusteRepetidoDaLinha(cfg);
+    if (ajRepetido.ativo && !(dto as any)._sistema && !dto.agendamento && dto.confirmarRepetido !== true) {
+      const igual = await procurarPedidoIgual(this.db, {
+        tenantId: cfg.tenantId,
+        unidadeId: cfg.unidadeId ?? null,
+        clienteId: doToken ?? (await clientePeloTelefone(this.db, cfg.tenantId, dto.telefone)),
+        itens: itensOut,
+        minutos: ajRepetido.minutos,
+      }).catch((e: any) => {
+        // A conferência é ajuda ao cliente: falha de leitura nunca impede o pedido (fica no log — V11).
+        this.logger.warn(`pedido igual (cardápio): ${e?.message ?? e}`);
+        return null;
+      });
+      if (igual) {
+        const provado = !!doToken || interno.telefoneVerificado === true;
+        const numero = igual.displayId ?? (igual.numero != null ? String(igual.numero) : null);
+        const hora = horaDoPedido(igual.criadoEm);
+        const situacao = situacaoParaOCliente(igual.status);
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'PEDIDO_REPETIDO',
+          message: provado
+            ? `Você já fez um pedido igual hoje às ${hora} (nº ${numero}), que está ${situacao}. Quer fazer outro pedido igual?`
+            : 'Acabamos de receber um pedido com estes mesmos itens e este telefone. Quer fazer outro pedido igual?',
+          details: provado ? { numero, hora, situacao, minutos: ajRepetido.minutos } : { minutos: ajRepetido.minutos },
+        });
+      }
+    }
     // Subtotal em reais (fronteira) — usado nos serviços de cupom/prêmio/cashback.
     const total = paraReais(totalCent);
     // Checkout: tipo, frete (bairro), cupom, pagamento.
@@ -3420,7 +3464,6 @@ export class CardapioService {
         : undefined;
     const avisos: string[] = [];
     // Prêmio, cashback e cupom — a MESMA conta que o robô usa no resumo (`descontosDoPedido`, Bloco 1b de 31/10/2026).
-    const clienteDoToken = verificarCliente(dto.clienteToken);
     const d = await this.descontosDoPedido(cfg, {
       telefone: dto.telefone,
       resgateId: dto.resgateId,
@@ -3545,6 +3588,8 @@ export class CardapioService {
         enderecoBairro: tipo === 'entrega' ? bairroNome : undefined,
         bandeira: dto.bandeira,
         observacao: textoDaObservacao(dto.observacao) ?? undefined,
+        // O cliente já respondeu à pergunta do pedido igual (ou não havia o que perguntar): aqui não se marca.
+        repetidoConferido: true,
       },
     );
 

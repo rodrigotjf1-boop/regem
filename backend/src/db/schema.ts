@@ -2559,6 +2559,9 @@ export const pedidoExterno = pgTable('pedido_externo', {
   autoAceiteFalhou: boolean('auto_aceite_falhou').notNull().default(false),
   alterado: boolean('alterado').notNull().default(false),
   alteradoEm: timestamp('alterado_em', { withTimezone: true }),
+  // Pedido IGUAL em até 30 min (mig 360): o pedido igual mais antigo do mesmo cliente. Nasce na gravação e não muda
+  // mais; a confirmação "São dois pedidos" mora em `pedido_repetido_ok` (ver `pedido-repetido/pedido-repetido.ts`).
+  repetidoDe: uuid('repetido_de'),
   deletedAt: timestamp('deleted_at', { withTimezone: true }), // soft-delete p/ contrato do sync 'ambos' (mig 125); na prática só cancela por status
   estoqueReaproveitado: boolean('estoque_reaproveitado'), // cancelamento: null=n/a, true=reaproveitado (estorna baixa), false=perda (mig 128)
   // Hub PDV "Retirada / Encomendas" (mig 132)
@@ -2642,6 +2645,21 @@ export const pedidoChegada = pgTable('pedido_chegada', {
   onde: text('onde'), // 'balcao' | 'porta' | null
   obs: text('obs'),
   origem: text('origem').notNull(), // 'cardapio' | 'whatsapp'
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// "São dois pedidos" (mig 360): a confirmação da equipe de que o pedido marcado como possível repetido vale. UMA por
+// pedido, só de inclusão, com o id pela chave do pedido (`idDaConfirmacao`) — sobe e desce sem conflito.
+export const pedidoRepetidoOk = pgTable('pedido_repetido_ok', {
+  id: uuid('id').primaryKey(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  pedidoId: uuid('pedido_id').notNull(),
+  porId: uuid('por_id'),
+  porNome: text('por_nome'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -3241,6 +3259,9 @@ export const cardapioConfig = pgTable('cardapio_config', {
   chegueiPerguntarOnde: boolean('cheguei_perguntar_onde').notNull().default(true),
   chegueiTodasTelas: boolean('cheguei_todas_telas').notNull().default(true),
   chegueiDeNovoMin: integer('cheguei_de_novo_min').notNull().default(5),
+  // Pedido IGUAL em até 30 min (mig 360): nasce ligado, 30 min (decisão 1 do dono, 03/11/2026).
+  pedidoRepetidoAtivo: boolean('pedido_repetido_ativo').notNull().default(true),
+  pedidoRepetidoMin: integer('pedido_repetido_min').notNull().default(30),
   // Modo Encomenda (mig 186) — OPT-IN: pedido para data futura + regras.
   encomendaAtiva: boolean('encomenda_ativa').notNull().default(false),
   encomendaAntecedenciaHoras: integer('encomenda_antecedencia_horas').notNull().default(24),
@@ -3819,6 +3840,8 @@ export const roboCarrinho = pgTable('robo_carrinho', {
   pedidoId: uuid('pedido_id'),
   // mig 345 (F5): a versão cujo resumo para conferir o cliente recebeu; "só isso" (itens fechados); a observação geral.
   resumoVersao: integer('resumo_versao'),
+  // mig 361: a versão para a qual o Regem perguntou do PEDIDO IGUAL (o "sim" só vale para ela).
+  repetidoVersao: integer('repetido_versao'),
   itensFechados: boolean('itens_fechados').notNull().default(false),
   observacao: text('observacao'),
   // mig 349: quando o lembrete do pedido parado saiu (gravado ANTES do envio — sai uma vez só).

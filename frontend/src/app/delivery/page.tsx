@@ -22,6 +22,7 @@ import { useSenhaSemSalvar } from '@/lib/use-senha-sem-salvar';
 import { avisarComprovante } from '@/lib/comprovante';
 import { Dialogo } from '@/components/ui/sobreposto';
 import { ItensDoPedido } from '@/components/delivery/itens-do-pedido';
+import { repetidoAberto, textoDoOutroPedido } from '@/lib/pedido-repetido';
 import { connectAsGestor } from '@/lib/rt';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -1019,6 +1020,18 @@ function ListaPedidos({
                     <span className="font-mono font-bold">#{p.numero ?? '—'}</span>
                     <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px]">{p.tipo === 'retirada' ? '🏪' : '🛵'}</span>
                     {p.alterado && <span className="ml-1 rounded bg-warn/15 px-1 text-[9px] font-bold text-warn">ALT</span>}
+                    {/* Pedido igual (mig 360) ainda sem o "São dois pedidos": ícone compacto como o 📝 (a célula não
+                        quebra linha — uma etiqueta larga alargaria a coluna); a gaveta do pedido tem o aviso e as saídas. */}
+                    {repetidoAberto(p.repetido) && (
+                      <span
+                        className="ml-1 text-[10px]"
+                        title={`Possível repetido do ${textoDoOutroPedido(p.repetido)}: confirme com o cliente`}
+                        aria-label={`Possível repetido do ${textoDoOutroPedido(p.repetido)}`}
+                        data-repetido-lista
+                      >
+                        ⚠️
+                      </span>
+                    )}
                     {p.observacao && (
                       <span className="ml-1 text-[10px]" title={`Observação do pedido: ${p.observacao}`} aria-label="Pedido com observação">
                         📝

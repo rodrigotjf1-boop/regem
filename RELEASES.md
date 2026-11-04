@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Pedido igual em até 30 min (PR 1 do pedido repetido/alterado, 03/11; mig 360 vai para a loja + mig 361 SÓ NUVEM).**
+  Na nuvem com o merge: a pergunta no cardápio online e no robô, a marca "Possível repetido" nos pedidos dos canais de
+  fora (entram pela nuvem) e o ajuste. No `.zip`: a **mig 360** (`pedido_externo.repetido_de`, a tabela
+  `pedido_repetido_ok` e o ajuste em `cardapio_config`) e o código que mostra a marca no **KDS**, no **painel** e nas
+  **vias** do servidor da loja, e o "São dois pedidos" feito no computador da loja. **Tocou `backend/edge/sync-daemon.mjs`**
+  (a tabela nova na lista de envio): o `.exe` novo sai no próximo corte para a instalação nova (V21).
+
 - **Delivery › Clientes em cartões no estreito (decisão do dono 4A, 03/11; sem migration).** Só tela: no ar na nuvem
   com o merge; no `.zip` vai a mesma tela para o servidor da loja.
 

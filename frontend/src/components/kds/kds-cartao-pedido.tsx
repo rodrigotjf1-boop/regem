@@ -115,10 +115,18 @@ export function KdsCartaoPedido({
           {veioDe && !cancelado && <EtiquetaKds esc={esc}>Veio de {veioDe}</EtiquetaKds>}
           {/* "Cheguei" na retirada (mig 354): o cliente já está na loja — etiqueta CHEIA (sem cor nova: a do tempo segue). */}
           {p.chegada && !cancelado && <EtiquetaKds cheia={invCab} esc={esc}>Cliente chegou</EtiquetaKds>}
+          {/* Pedido IGUAL ainda sem o "São dois pedidos" (mig 360): etiqueta CHEIA (sem cor nova: a do tempo segue). */}
+          {p.repetido && !cancelado && <EtiquetaKds cheia={invCab} esc={esc}>Repetido?</EtiquetaKds>}
         </span>
       </div>
 
       <div className="flex flex-1 flex-col" style={{ padding: `${Math.round(12 * esc)}px ${Math.round(14 * esc)}px ${Math.round(14 * esc)}px` }}>
+        {/* O outro pedido igual do mesmo cliente: a cozinha confirma com o atendimento antes de fazer. */}
+        {p.repetido && !cancelado && (
+          <p className="mb-2.5 font-bold" style={{ fontSize: Math.round(13.5 * esc) }} data-kds-repetido>
+            {p.repetido.texto}
+          </p>
+        )}
         {/* Onde o cliente da retirada está (o "Cheguei" do cardápio ou do WhatsApp), quando ele disse. */}
         {p.chegada && !cancelado && (p.chegada.onde || p.chegada.obs) && (
           <p className="mb-2.5 font-bold" style={{ fontSize: Math.round(13.5 * esc) }}>

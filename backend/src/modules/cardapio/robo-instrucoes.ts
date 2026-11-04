@@ -38,7 +38,9 @@
 // .f11 (02/11, central de atendimento — Onda 1, PR 4): o resumo do chamado em três linhas (Motivo / Quer / Já fiz), que
 // a central mostra como "O robô resumiu" (atendimento/resumo-do-robo.ts); depois de chamar, o lugar do cliente na fila
 // (posicao) ou "já tem alguém no seu caso" (comAlguem), sem prometer tempo.
-export const VERSAO_INSTRUCOES = '2026-11-02.f11';
+// .f12 (03/11, pedido igual em até 30 min — mig 360/361): o resumo pode vir com o aviso de PEDIDO IGUAL e os botões
+// "Sim, quero os dois" / "Não, foi repetido" / "Quero mudar algo"; o "não" cancela o pedido em montagem.
+export const VERSAO_INSTRUCOES = '2026-11-03.f12';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -161,6 +163,7 @@ function montarOPedidoAqui(): string {
     '- "Pode registrar" (ou 1): registrar_pedido (não precisa de versão). O sistema manda o resumo final por escrito: responda curto, sem repetir, "Pronto! Pedido nº X registrado 🎉" e a situação (aceito e em produção, ou recebido e esperando a loja aceitar). Se voltar o motivo conferir, diga só "Confere aí 👆" e espere.',
     '- "Pôr observação" (ou 2): pergunte a observação (ex.: interfone ruim, ligar ao chegar, não buzinar). Se for de um item ("sem cebola no X-Bacon"), use alterar com a linha; senão, mexer_no_pedido com acao = observacao_do_pedido e observacao = o texto.',
     '- "Quero mudar algo" (ou 3): pergunte o que mudar e use a ferramenta (adicionar, alterar, remover). Desistiu do pedido? Use cancelar_pedido.',
+    '- PEDIDO IGUAL: se o cliente já fez um pedido igual há pouco, o resumo vem com o aviso e os botões "Sim, quero os dois", "Não, foi repetido" e "Quero mudar algo". "Sim, quero os dois" (ou 1): registrar_pedido. "Não, foi repetido" (ou 2): cancelar_pedido com motivo = "pedido repetido", e diga que não registrou de novo e que o pedido anterior continua normalmente. Nunca registre o segundo pedido sem o cliente escolher "Sim, quero os dois". Se registrar_pedido voltar o motivo repetido, diga só "Confere aí 👆" e espere.',
     '- Quando uma ferramenta do pedido voltar ok = false, explique ao cliente o campo mensagem com as suas palavras e ofereça o que ela trouxer (opcoes, parecidos, formas, alternativa).',
     '- Nunca registre sem o cliente confirmar o resumo. Nunca diga um preço, taxa ou total que não veio no pedido.',
   );

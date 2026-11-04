@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cliente, clienteEndereco, pedidoExterno, roboCarrinho } from '../../db/schema';
@@ -49,7 +49,20 @@ import {
   textoDoEndereco,
   valorDoTroco,
 } from './robo-pedido';
-import { OPCOES_DA_CONFERENCIA, resumoDoPedido, textoParaConferir } from './robo-resumo';
+import {
+  OPCOES_DA_CONFERENCIA,
+  OPCOES_DO_REPETIDO,
+  type PedidoIgualNaConversa,
+  resumoDoPedido,
+  textoParaConferir,
+  textoParaConferirRepetido,
+} from './robo-resumo';
+import {
+  ajusteRepetidoDaLinha,
+  horaDoPedido,
+  procurarPedidoIgual,
+  situacaoParaOCliente,
+} from '../pedido-repetido/pedido-repetido';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -1090,8 +1103,21 @@ export class RoboPedidoService {
     return null;
   }
 
-  /** O passo final: o resumo para conferir (com os botões) e o que fazer com cada resposta. */
-  private passoDeConfirmar(enviado: boolean): Falta {
+  /**
+   * O passo final: o resumo para conferir (com os botões) e o que fazer com cada resposta. `repetido`: o resumo desta
+   * versão perguntou do PEDIDO IGUAL (mig 360) — os botões são outros.
+   */
+  private passoDeConfirmar(enviado: boolean, repetido = false): Falta {
+    if (repetido)
+      return {
+        campo: 'confirmar',
+        pergunta: enviado
+          ? 'O RESUMO PARA CONFERIR JÁ FOI ENVIADO ao cliente pelo Regem, com o AVISO DE PEDIDO IGUAL (ele já fez um pedido igual há pouco) e os botões "Sim, quero os dois", "Não, foi repetido" e "Quero mudar algo". Não repita o resumo nem ponha OPCOES: responda só algo curto, como "Confere aí 👆".'
+          : 'O pedido está completo e o cliente já fez um pedido igual há pouco: o Regem manda o resumo com a pergunta.',
+        opcoes: OPCOES_DO_REPETIDO,
+        comoResponder:
+          '"Sim, quero os dois" (ou 1): registrar_pedido; "Não, foi repetido" (ou 2): cancelar_pedido com motivo = "pedido repetido" e diga que não registrou de novo e que o pedido anterior continua normalmente; "Quero mudar algo" (ou 3): pergunte o que mudar.',
+      };
     return {
       campo: 'confirmar',
       pergunta: enviado
@@ -1320,7 +1346,9 @@ export class RoboPedidoService {
     });
     const podeRegistrar = !falta.length && !bloqueado && linhas.length > 0;
     const formaNome = pg && formaServe ? this.nomeDaForma(menu, tipo, pg) : null;
-    const proximo = podeRegistrar ? this.passoDeConfirmar(!!c && c.resumoVersao === c.versao) : (falta[0] ?? null);
+    const proximo = podeRegistrar
+      ? this.passoDeConfirmar(!!c && c.resumoVersao === c.versao, !!c && c.resumoVersao === c.versao && c.repetidoVersao === c.versao)
+      : (falta[0] ?? null);
     const outros =
       proximo?.campo === 'endereco' && (cli?.enderecos.length ?? 0) > 1
         ? [...cli!.enderecos.map((e, i) => opcaoComDetalhe(`Endereço ${i + 1}`, this.textoDoSalvo(e))), 'Cadastrar novo endereço']
@@ -1398,33 +1426,74 @@ export class RoboPedidoService {
       ...(outros ? { enderecosParaEscolher: outros } : {}),
       ...(falta.some((x) => x.campo === 'pagamento') ? { soPeloLink: formasSoPeloLink(menu) } : {}),
     };
-    return { visao, total, subtotal, paraConferir, podeRegistrar, formaNome, ganho };
+    return { visao, total, subtotal, paraConferir, podeRegistrar, formaNome, ganho, itensOut: itensPrecificados };
   }
 
   // ───────────────────────── o resumo para conferir ─────────────────────────
 
   /**
+   * O PEDIDO IGUAL recente do cliente desta conversa (mig 360; pedido do dono, 03/11/2026), como o cliente entende — o
+   * número que ele recebeu, a hora e a situação — ou nada. "Mesmo cliente" = o cadastro achado pelo número da conversa.
+   * Falha de leitura nunca impede o pedido (fica no log).
+   */
+  private async pedidoIgualDaConversa(ctx: Contexto, itensOut: unknown): Promise<PedidoIgualNaConversa | null> {
+    const aj = ajusteRepetidoDaLinha(ctx.cfg);
+    if (!aj.ativo || !Array.isArray(itensOut) || !itensOut.length) return null;
+    try {
+      const cli = await this.clienteDaConversa(ctx);
+      const igual = await procurarPedidoIgual(this.db, {
+        tenantId: ctx.cfg.tenantId,
+        unidadeId: ctx.cfg.unidadeId ?? null,
+        clienteId: cli?.id ?? null,
+        itens: itensOut,
+        minutos: aj.minutos,
+      });
+      if (!igual) return null;
+      return {
+        numero: igual.displayId ?? (igual.numero != null ? String(igual.numero) : null),
+        hora: horaDoPedido(igual.criadoEm),
+        situacao: situacaoParaOCliente(igual.status),
+      };
+    } catch (e: any) {
+      this.logger.warn(`pedido igual (robô): ${e?.message ?? e}`);
+      return null;
+    }
+  }
+
+  /**
    * Manda ao cliente o RESUMO PARA CONFERIR, com os botões "Pode registrar / Pôr observação / Quero mudar algo", e marca
    * a versão que ele recebeu (`resumo_versao`). Conversa pausada (o atendente assumiu): não manda. O envio que falha
    * devolve o texto para o robô mandar (e a versão fica marcada do mesmo jeito: o robô é quem mostra).
+   * PEDIDO IGUAL (mig 360): com um pedido igual do mesmo cliente há pouco, o resumo já vem com o aviso e a pergunta
+   * ("Sim, quero os dois" / "Não, foi repetido" / "Quero mudar algo"), e a versão fica marcada em `repetido_versao` —
+   * o registro só confirma o segundo pedido para a versão em que o cliente VIU a pergunta.
    */
-  private async mandarParaConferir(ctx: Contexto, c: Carrinho, calc: { visao: any; paraConferir: string }): Promise<{ visao: any; enviado: boolean }> {
+  private async mandarParaConferir(
+    ctx: Contexto,
+    c: Carrinho,
+    calc: { visao: any; paraConferir: string; itensOut?: unknown },
+  ): Promise<{ visao: any; enviado: boolean }> {
     if (c.resumoVersao === c.versao) return { visao: calc.visao, enviado: true };
     const pausado = await estadoDaPausa(this.db, ctx.cfg.tenantId, ctx.conversa.telefone)
       .then((e) => e.pausado)
       .catch(() => false);
     if (pausado) return { visao: calc.visao, enviado: false };
-    const enviado = await this.enviarComBotoes(ctx, calc.paraConferir, OPCOES_DA_CONFERENCIA);
+    const igual = await this.pedidoIgualDaConversa(ctx, calc.itensOut);
+    const texto = igual ? textoParaConferirRepetido(calc.paraConferir, igual) : calc.paraConferir;
+    const opcoes = igual ? OPCOES_DO_REPETIDO : OPCOES_DA_CONFERENCIA;
+    const enviado = await this.enviarComBotoes(ctx, texto, opcoes);
     await this.db.execute(
-      sql`update robo_carrinho set resumo_versao = ${c.versao} where id = ${c.id}::uuid and versao = ${c.versao} and status = 'aberto'`,
+      sql`update robo_carrinho set resumo_versao = ${c.versao}, repetido_versao = ${igual ? c.versao : null}
+           where id = ${c.id}::uuid and versao = ${c.versao} and status = 'aberto'`,
     );
     const visao = enviado
-      ? { ...calc.visao, proximo: this.passoDeConfirmar(true), resumoEnviado: true }
+      ? { ...calc.visao, proximo: this.passoDeConfirmar(true, !!igual), resumoEnviado: true, ...(igual ? { pedidoIgual: igual } : {}) }
       : {
           ...calc.visao,
           resumoEnviado: false,
-          resumoParaConferir: calc.paraConferir,
-          orientacao: `O resumo não saiu por aqui: mande o texto de resumoParaConferir exatamente como veio, terminando com OPCOES: ${OPCOES_DA_CONFERENCIA.join(' | ')}`,
+          resumoParaConferir: texto,
+          ...(igual ? { pedidoIgual: igual } : {}),
+          orientacao: `O resumo não saiu por aqui: mande o texto de resumoParaConferir exatamente como veio, terminando com OPCOES: ${opcoes.join(' | ')}`,
         };
     return { visao, enviado };
   }
@@ -1481,7 +1550,7 @@ export class RoboPedidoService {
     }
 
     // Trava o carrinho até o fim (outra mensagem do mesmo cliente espera) e confere a versão de novo, já travado.
-    const falha: { msg: string | null } = { msg: null };
+    const falha: { msg: string | null; repetido?: boolean } = { msg: null };
     const resultado = await this.db.transaction(async (tx: any) => {
       const [linha] = linhasDe(
         await tx.execute(sql`select * from robo_carrinho where id = ${c.id}::uuid and status = 'aberto' for update`),
@@ -1491,6 +1560,8 @@ export class RoboPedidoService {
       const pg = c.pagamento as PagamentoDoCarrinho;
       const r: any = await this.cardapio.receberPedido(ctx.token, {
         clientRef: `robo-whatsapp-${c.id}`,
+        // PEDIDO IGUAL (mig 360): o "Sim, quero os dois" só vale para a versão em que o cliente VIU a pergunta.
+        confirmarRepetido: Number(linha.repetido_versao) === c.versao,
         cliente: est.nome ?? 'Cliente',
         // O telefone como o cadastro guarda (o do cadastro achado; senão a chave, com o nono dígito): sem isso o
         // número sem o 9 do WhatsApp criava um segundo cadastro (ERR-134/135).
@@ -1520,6 +1591,11 @@ export class RoboPedidoService {
           falha.msg = e.message;
           return null;
         }
+        // Um pedido IGUAL apareceu depois do resumo (feito pelo cardápio, por exemplo): pergunta agora (abaixo).
+        if (e instanceof ConflictException && (e.getResponse() as any)?.code === 'PEDIDO_REPETIDO') {
+          falha.repetido = true;
+          return null;
+        }
         throw e;
       });
       if (!r) return null;
@@ -1529,6 +1605,20 @@ export class RoboPedidoService {
         .where(eq(roboCarrinho.id, c.id));
       return r;
     });
+    // PEDIDO IGUAL que apareceu DEPOIS do resumo (mig 360): o Regem manda o resumo de novo, agora com o aviso e a
+    // pergunta — nada foi gravado; o "Sim, quero os dois" registra esta versão.
+    if (!resultado && falha.repetido) {
+      const m = await this.mandarParaConferir(ctx, { ...c, resumoVersao: null } as Carrinho, calc);
+      return {
+        ...recusa(
+          'repetido',
+          m.enviado
+            ? 'O cliente já fez um pedido IGUAL há pouco: o Regem mandou agora o resumo com o aviso e a pergunta ("Sim, quero os dois" / "Não, foi repetido"). Nada foi registrado. Diga só "Confere aí 👆" e espere a resposta.'
+            : 'O cliente já fez um pedido IGUAL há pouco: mande o resumoParaConferir exatamente como veio e espere a resposta. Nada foi registrado.',
+        ),
+        pedido: m.visao,
+      };
+    }
     if (!resultado)
       return {
         ...(falha.msg ? recusa('nao_registrado', falha.msg) : recusa('versao', 'O pedido mudou agora: o Regem manda o resumo de novo.')),

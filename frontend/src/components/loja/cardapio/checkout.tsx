@@ -8,6 +8,7 @@ import { EvTrilha } from '../eventos/contexto';
 import { rotuloAvancar, tituloEtapa, type Etapa } from './etapas';
 import { OPCOES_TEMPLATE } from './tipos-template';
 import { brl, Caixa, Foto, Ic, irAoCampo, Qtd, type NomeIcone } from './partes';
+import { PedidoIgualDialogo } from './pedido-igual-dialogo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -171,6 +172,12 @@ export function Checkout({ c }: { c: Cardapio }) {
             {c.erroEnvio}
           </p>
         )}
+        {/* Pedido igual (mig 360): depois do "Não, foi engano" — nada foi enviado e o carrinho continua. */}
+        {c.avisoRepetido && (
+          <p role="status" className="mb-2 rounded-xl bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-800" data-aviso-repetido>
+            {c.avisoRepetido}
+          </p>
+        )}
         {f && op.botaoDizOQueFalta ? (
           <button type="button" className="p-btn falta c" onClick={avancar}>
             {f.mensagem} {f.campo && <Ic n="down" s={16} />}
@@ -185,6 +192,15 @@ export function Checkout({ c }: { c: Cardapio }) {
           </>
         )}
       </div>
+      {c.repetido && (
+        <PedidoIgualDialogo
+          pergunta={c.repetido}
+          itens={c.cart.map((i) => ({ chave: i.key, texto: `${i.qtd} ${i.nome}${i.sub ? ` · ${i.sub}` : ''}` }))}
+          enviando={c.enviando}
+          onSim={c.repetidoSim}
+          onNao={c.repetidoNao}
+        />
+      )}
     </div>
   );
 }

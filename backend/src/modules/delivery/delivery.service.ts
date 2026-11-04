@@ -71,7 +71,17 @@ import { validarTokenPagBank } from '../../common/pagbank';
 import { perfilEfetivo, listarPerfis, CAMPOS_CATALOGO, type PerfilCupom } from './cupom-perfis';
 import { dadosDaViaDoDelivery } from './via-do-delivery';
 import { pedidoNoCanal, tipoDoPedido } from '../../common/via-do-pedido';
+import {
+  ajusteRepetidoDaLoja,
+  gravarConfirmacao,
+  linhasDaViaDoRepetido,
+  marcaAbertaDoPedido,
+  type MarcaDoRepetido,
+  marcasDosPedidos,
+  procurarPedidoIgual,
+} from '../pedido-repetido/pedido-repetido';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import type { AuthUser } from '../../auth/auth-user';
 import { type ItemDaPerda, VendasService } from '../vendas/vendas.service';
 import { PEDIDO_EXTERNO, SO_INGREDIENTES } from '../../common/embalagem-da-ficha';
 import { lerItensDaPerda } from '../vendas/itens-da-perda';
@@ -719,6 +729,8 @@ export class DeliveryService {
       clientRef?: string;
       retiradaTipo?: string; // 'encomenda' quando é pedido para data futura (mig 186)
       naoAutoAceitar?: boolean; // pula o aceite automático (ex.: totem "após pagamento")
+      // Pedido IGUAL (mig 360): o cardápio online e o robô já perguntaram ao cliente — aqui não se marca.
+      repetidoConferido?: boolean;
     },
   ) {
     const norm: PedidoNormalizado = adaptar(canal, raw);
@@ -758,6 +770,30 @@ export class DeliveryService {
         and (criado_em at time zone 'America/Sao_Paulo')::date
             = (now() at time zone 'America/Sao_Paulo')::date`);
     const numero = Number((nq.rows ?? nq)[0].n) || 1;
+    // PEDIDO IGUAL EM ATÉ 30 MIN (mig 360, decisão 2A do dono): nos canais de fora o Regem não conversa com o cliente —
+    // o pedido entra MARCADO e o painel, o KDS e a via avisam a equipe. A marca nasce NESTA gravação (nunca num update
+    // depois: o servidor da loja poderia puxar o pedido no meio e aceitá-lo sem ela). "Mesmo cliente" = o cadastro,
+    // achado antes de gravar pela mesma regra do vínculo (no iFood, pelo id do cliente na plataforma — o telefone é 0800).
+    let clienteDoPedido: string | null = null;
+    let repetidoDe: string | null = null;
+    if (!extra?.repetidoConferido && !extra?.agendamento) {
+      try {
+        clienteDoPedido = await this.resolverCliente(tenantId, {
+          canal,
+          raw,
+          clienteTelefone: norm.clienteTelefone,
+          clienteNome: norm.clienteNome,
+        } as any);
+        const aj = clienteDoPedido ? await ajusteRepetidoDaLoja(this.db, tenantId, unidadeId) : null;
+        if (aj?.ativo)
+          repetidoDe =
+            (await procurarPedidoIgual(this.db, { tenantId, unidadeId, clienteId: clienteDoPedido, itens: norm.itens, minutos: aj.minutos }))
+              ?.id ?? null;
+      } catch (e: any) {
+        // Informação a mais: nunca derruba a entrada do pedido.
+        this.logger.warn(`pedido igual (${canal}): ${e?.message ?? e}`);
+      }
+    }
     let row: typeof pedidoExterno.$inferSelect;
     try {
       [row] = await this.db
@@ -767,6 +803,8 @@ export class DeliveryService {
         unidadeId,
         canal,
         numero,
+        ...(clienteDoPedido ? { clienteId: clienteDoPedido } : {}),
+        repetidoDe,
         clientRef: extra?.clientRef ?? null,
         externalId: norm.externalId,
         displayId: norm.displayId ?? `#${numero}`,
@@ -1087,6 +1125,40 @@ export class DeliveryService {
     }
   }
 
+  /**
+   * "São dois pedidos" (mig 360, decisão 2A): a equipe confirmou com o cliente que o pedido marcado como possível
+   * repetido vale. Grava a confirmação (uma por pedido — repetir não muda nada), registra na auditoria e avisa o KDS
+   * (o "Repetido?" sai do cartão). Vale no computador da loja e na tela da nuvem: a confirmação sobe e desce.
+   */
+  async confirmarRepetido(user: AuthUser, id: string) {
+    const ped = await this.carregar(user.tenantId, id);
+    if (!ped.repetidoDe) throw new BadRequestException('Este pedido não está marcado como possível repetido.');
+    const nova = await gravarConfirmacao(this.db, {
+      tenantId: user.tenantId,
+      unidadeId: ped.unidadeId ?? null,
+      pedidoId: ped.id,
+      porId: user.colaboradorId ?? null,
+      porNome: user.nome ?? null,
+    });
+    if (nova) {
+      await this.auditoria?.registrar({
+        tenantId: user.tenantId,
+        unidadeId: ped.unidadeId ?? null,
+        atorId: user.colaboradorId,
+        atorPerfil: user.categoria,
+        tipo: 'delivery',
+        acao: 'confirmou_pedido_repetido',
+        entidadeTipo: 'pedido_externo',
+        entidadeId: ped.id,
+        detalhe: { pedido: ped.numero ?? null, igualAo: ped.repetidoDe },
+        origem: 'web',
+      });
+      await this.producao.avisarCartoesDaComanda(user.tenantId, ped.comandaId);
+    }
+    const [marca] = await marcasDosPedidos(this.db, user.tenantId, { pedidoIds: [ped.id] });
+    return { ok: true, repetido: marca ?? null };
+  }
+
   // ===== Gestão (PDV) =====
   // Ativos (qualquer idade) + finalizados das últimas 24h (coluna Finalizado).
   async listar(
@@ -1151,9 +1223,18 @@ export class DeliveryService {
       this.logger.warn(`logística do canal no painel: ${e?.message ?? e}`);
       return new Map();
     });
+    // Pedido IGUAL (mig 360): o outro pedido e a confirmação "São dois pedidos", só dos pedidos marcados.
+    const marcas: MarcaDoRepetido[] = await marcasDosPedidos(this.db, tenantId, {
+      pedidoIds: base.filter((r) => r.repetidoDe).map((r) => r.id),
+    }).catch((e: any) => {
+      this.logger.warn(`pedido igual no painel: ${e?.message ?? e}`);
+      return [] as MarcaDoRepetido[];
+    });
+    const repetidos = new Map(marcas.map((m) => [m.pedidoId, m] as const));
     return base.map((r) => ({
       ...r,
       logistica: logistica.get(r.id) ?? null,
+      repetido: repetidos.get(r.id) ?? null,
       clientePedidosCount: r.clienteTelefone ? counts.get(r.clienteTelefone) ?? 1 : 1,
       // Forma de pagamento unificada (rótulo do Regem) — o campo cru fica em formaPagamento.
       formaPagamentoLabel: normalizarFormaPagamento(r.formaPagamento, r.raw).label,
@@ -1326,6 +1407,8 @@ export class DeliveryService {
 
     const PLAT: Record<string, string> = { cardapio: 'Cardápio', ifood: 'iFood', totem: 'Totem' };
     const cfg = await this.configRaw(tenantId, ped.unidadeId);
+    // Pedido IGUAL ainda sem o "São dois pedidos" (mig 360): a via da cozinha sai com o aviso no alto.
+    const repetido = await marcaAbertaDoPedido(this.db, tenantId, ped);
     // Retirada/consumo no local = produção do BALCÃO; entrega (courier) = DELIVERY.
     // A plataforma (iFood/Cardápio/Totem) segue no rótulo do card em ambos.
     const venda = await this.vendas.venderExterno(tenantId, atorId, {
@@ -1340,6 +1423,7 @@ export class DeliveryService {
       senhaPlataforma: ped.displayId ?? null,
       tipoPedido: tipoDoPedido(ped), // DELIVERY/RETIRADA/ENCOMENDA na via de produção
       pedidoNumero: ped.numero ?? null, // "PEDIDO #10" na via de produção — o número do painel
+      repetido: repetido ? { deNumero: repetido.deNumero, deEm: repetido.deEm } : null,
       // R6 — totem sai na série do BALCÃO e reaproveita a senha já impressa no cupom
       // do cliente. Regra em `serie-da-senha.ts` (com teste).
       ...serieDaSenha(ped.canal, ped.displayId),
@@ -3802,10 +3886,12 @@ export class DeliveryService {
           .from(comanda)
           .where(and(eq(comanda.tenantId, tenantId), eq(comanda.id, ped.comandaId)))
       : [];
+    // Pedido IGUAL ainda sem o "São dois pedidos" (mig 360): o aviso no ALTO da comanda do entregador também.
+    const repetido = await marcaAbertaDoPedido(this.db, tenantId, ped);
     // Os mesmos dados da via do delivery (`via-do-delivery.ts`): endereço sem repetição, total com a taxa e o desconto,
     // valor a cobrar e troco pela conta do app do entregador. Antes o endereço repetia número e bairro (o texto inteiro
     // mais os campos separados) e o subtotal era o total do pedido.
-    const conteudo = this.producao.renderCupomPerfil(
+    const conteudo = (repetido ? linhasDaViaDoRepetido(repetido) : '') + this.producao.renderCupomPerfil(
       perfil,
       dadosDaViaDoDelivery(
         ped,

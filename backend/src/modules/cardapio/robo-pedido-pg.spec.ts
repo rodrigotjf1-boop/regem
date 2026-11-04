@@ -5,6 +5,7 @@ import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { assinarConversa } from '../../common/conversa-do-robo';
+import { assinarCliente } from '../cliente/cliente-token';
 import { CashbackService } from '../cashback/cashback.service';
 import { FichasService } from '../fichas/fichas.service';
 import { FidelidadeService } from '../fidelidade/fidelidade.service';
@@ -29,13 +30,15 @@ if (!URL_PG) console.warn('robo-pedido-pg.spec: sem TEST_PG_URL — PULADO');
 jest.setTimeout(120_000);
 
 // A 349 (lembrete do carrinho) põe `lembrado_em`, que o `select()` do carrinho lê, e altera o ajuste do robô (342); a 352
-// ("chegou tudo certo?") põe a coluna que a leitura dos ajustes do robô lê (ERR-273).
+// ("chegou tudo certo?") põe a coluna que a leitura dos ajustes do robô lê; a 361 (pedido igual), `repetido_versao`, que o
+// `select()` do carrinho também lê (ERR-273).
 const MIGRATIONS = [
   '344_robo_carrinho.sql',
   '345_robo_carrinho_conducao.sql',
   '342_robo_pausa_e_config.sql',
   '349_lembrete_do_carrinho.sql',
   '352_conferir_entrega.sql',
+  '361_robo_carrinho_repetido.sql',
 ].map((m) => join(__dirname, '../../../../database/migrations', m));
 const SENHA = 'senha-do-robo-de-teste';
 const CELULAR = '5521987654321';
@@ -303,6 +306,99 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     expect(enviados).toHaveLength(2);
     expect(await q(`select count(*)::int as n from pedido_externo where tenant_id = $1`, [l.t])).toEqual([{ n: 0 }]);
     expect((await robo.registrar(c, {})) as any).toMatchObject({ ok: true });
+  });
+
+  // ── PEDIDO IGUAL EM ATÉ 30 MIN (mig 360/361; pedido do dono, 03/11/2026 — decisão 1) ──
+  const recusaDe = async (p: Promise<any>) => {
+    try {
+      await p;
+      return null;
+    } catch (e: any) {
+      return { status: e?.getStatus?.(), corpo: e?.getResponse?.() } as { status: number; corpo: any };
+    }
+  };
+
+  it('pedido IGUAL (cardápio): recusa com a pergunta (409) — os dados do outro só com prova (V79); o "sim" grava sem marca', async () => {
+    const l = await loja();
+    const [{ id: coca }] = await q(`select id from produto where tenant_id = $1 and nome = 'Coca lata'`, [l.t]);
+    const pedir = (o: any = {}) =>
+      cardapio.receberPedido(l.token, {
+        clientRef: `ref-${randomUUID()}`,
+        cliente: 'Marina',
+        telefone: '21976543210',
+        tipo: 'retirada',
+        formaPagamento: 'entrega',
+        itens: [{ produtoId: coca, quantidade: 4 }],
+        ...o,
+      }) as Promise<any>;
+    const r1 = await pedir();
+    expect(r1.pedidoId).toBeTruthy();
+    // o mesmo pedido de novo, só com o telefone digitado: a pergunta, sem nada do outro pedido
+    const semProva = await recusaDe(pedir());
+    expect(semProva).toMatchObject({ status: 409, corpo: { code: 'PEDIDO_REPETIDO', details: { minutos: 30 } } });
+    expect(semProva!.corpo.details.numero).toBeUndefined();
+    expect(semProva!.corpo.message).not.toMatch(/\d\d:\d\d|nº/);
+    // com a prova (o link de Sua conta): o número que o cliente recebeu, a hora e a situação
+    const [{ cliente_id }] = await q(`select cliente_id from pedido_externo where id = $1`, [r1.pedidoId]);
+    const comProva = await recusaDe(pedir({ clienteToken: assinarCliente(cliente_id, l.t) }));
+    expect(comProva!.corpo.details).toMatchObject({ numero: r1.displayId, hora: expect.stringMatching(/^\d\d:\d\d$/), situacao: expect.any(String) });
+    expect(comProva!.corpo.message).toContain(`nº ${r1.displayId}`);
+    // nada foi gravado nas recusas (nem a senha andou para um pedido que não existe)
+    expect(await q(`select count(*)::int as n from pedido_externo where tenant_id = $1`, [l.t])).toEqual([{ n: 1 }]);
+    // "true" em texto não confirma (V15); o "sim" de verdade grava — e SEM a marca (o cliente já respondeu)
+    expect((await recusaDe(pedir({ confirmarRepetido: 'true' })))?.status).toBe(409);
+    const r2 = await pedir({ confirmarRepetido: true });
+    expect(r2.pedidoId).toBeTruthy();
+    expect((await q(`select repetido_de from pedido_externo where id = $1`, [r2.pedidoId]))[0].repetido_de).toBeNull();
+    // outra quantidade não é igual; o número escrito de outro jeito (+55, sem o 9) é o MESMO cliente
+    expect((await pedir({ itens: [{ produtoId: coca, quantidade: 5 }] })).pedidoId).toBeTruthy();
+    expect((await recusaDe(pedir({ telefone: '+55 (21) 97654-3210' })))?.corpo?.code).toBe('PEDIDO_REPETIDO');
+    // com o ajuste desligado, nada pergunta
+    await q(`update cardapio_config set pedido_repetido_ativo = false where tenant_id = $1`, [l.t]);
+    expect((await pedir()).pedidoId).toBeTruthy();
+  });
+
+  it('pedido IGUAL (robô): o resumo pergunta se são dois; o "Sim" registra; o igual que chega DEPOIS do resumo é perguntado no registrar', async () => {
+    const l = await loja();
+    const c = await l.ctx();
+    const montar = async () => {
+      await robo.mexerNosItens(c, { acao: 'adicionar', produto: 'coca lata', quantidade: 4 });
+      await robo.mexerNosItens(c, { acao: 'fechar' });
+      await robo.definirEntrega(c, { tipo: 'retirada' });
+      await robo.definirNome(c, { nome: 'Caio' });
+      await robo.definirPagamento(c, { forma: 'Cartão na retirada' });
+    };
+    const ultimo = () => enviados[enviados.length - 1].texto;
+    const pedidos = async () => (await q(`select count(*)::int as n from pedido_externo where tenant_id = $1`, [l.t]))[0].n;
+    // o primeiro: o resumo de sempre
+    await montar();
+    expect(ultimo()).not.toContain('pedido igual');
+    expect(ultimo()).toContain('Pode registrar');
+    expect((await robo.registrar(c, {})) as any).toMatchObject({ ok: true });
+    // o mesmo pedido de novo: o resumo vem com o aviso e os botões do pedido igual, e a versão fica marcada
+    await montar();
+    expect(ultimo()).toContain('Você já fez um pedido igual hoje');
+    expect(ultimo()).toContain('Sim, quero os dois');
+    expect(ultimo()).toContain('Não, foi repetido');
+    expect(ultimo()).not.toContain('Pode registrar');
+    const [car] = await q(`select versao, resumo_versao, repetido_versao from robo_carrinho where tenant_id = $1 and status = 'aberto'`, [l.t]);
+    expect(car.repetido_versao).toBe(car.versao);
+    const visao: any = await robo.ver(c);
+    expect(visao.pedido.proximo.opcoes).toEqual(['Sim, quero os dois', 'Não, foi repetido', 'Quero mudar algo']);
+    expect(visao.pedido.proximo.comoResponder).toContain('cancelar_pedido');
+    // "Sim, quero os dois" → registrar_pedido: o segundo entra
+    expect((await robo.registrar(c, {})) as any).toMatchObject({ ok: true });
+    expect(await pedidos()).toBe(2);
+    // um igual que aparece DEPOIS do resumo (a pergunta não foi desta versão): o registrar pergunta agora e não grava
+    await montar();
+    await q(`update robo_carrinho set repetido_versao = null where tenant_id = $1 and status = 'aberto'`, [l.t]);
+    const n0 = enviados.length;
+    expect((await robo.registrar(c, {})) as any).toMatchObject({ ok: false, motivo: 'repetido' });
+    expect(enviados.length).toBe(n0 + 1);
+    expect(ultimo()).toContain('Você já fez um pedido igual hoje');
+    expect(await pedidos()).toBe(2);
+    expect((await robo.registrar(c, {})) as any).toMatchObject({ ok: true }); // o "Sim" desta versão
+    expect(await pedidos()).toBe(3);
   });
 
   it('o último endereço usado vem primeiro, com os outros e o "Cadastrar novo"; pedido mínimo; retirada com cartão', async () => {

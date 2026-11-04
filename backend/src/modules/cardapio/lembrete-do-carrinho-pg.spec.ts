@@ -55,7 +55,8 @@ descrever('lembrete do pedido parado no robô (Postgres)', () => {
   beforeAll(async () => {
     delete process.env.EDGE_MODE; // como NUVEM
     await repetirNaCorridaDeCatalogo(() => pool.query(readFileSync(MIG('215_whatsapp_mensagem.sql'), 'utf8')));
-    // A 352 ("chegou tudo certo?") põe a coluna que a leitura dos ajustes do robô lê (ERR-273).
+    // A 352 ("chegou tudo certo?") põe a coluna que a leitura dos ajustes do robô lê; a 361 (pedido igual), a que o
+    // `select()` do carrinho lê (ERR-273).
     for (const m of [
       '342_robo_pausa_e_config.sql',
       '344_robo_carrinho.sql',
@@ -63,6 +64,7 @@ descrever('lembrete do pedido parado no robô (Postgres)', () => {
       '347_aviso_de_atraso.sql',
       '349_lembrete_do_carrinho.sql',
       '352_conferir_entrega.sql',
+      '361_robo_carrinho_repetido.sql',
     ])
       await aplicar(m);
   });
