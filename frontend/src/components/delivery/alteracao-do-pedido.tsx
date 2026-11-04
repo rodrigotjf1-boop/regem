@@ -17,7 +17,9 @@ import {
 // PEDIDO ALTERADO (mig 362; protótipo `mockups/regem-alteracao-pedido.html`, vista "Painel da loja"): o que mudou na
 // última alteração — os itens, o endereço, os valores de antes e de agora, as vias que saíram e se a cozinha já viu — e o
 // histórico das alterações. Lê `GET /delivery/pedidos/:id/alteracoes`; separa "carregando", "não li" e "vazio" (V37).
-export function AlteracaoDoPedido({ pedidoId, versao }: { pedidoId: string; versao?: string | null }) {
+// `silencioso`: o pedido ainda não foi alterado — só aparece se houver uma alteração esperando a loja ou recusada (a da
+// tela da nuvem de loja com servidor); enquanto lê, nada.
+export function AlteracaoDoPedido({ pedidoId, versao, silencioso }: { pedidoId: string; versao?: string | null; silencioso?: boolean }) {
   const [dados, setDados] = useState<HistoricoDaAlteracao | null>(null);
   const [erro, setErro] = useState(false);
 
@@ -34,11 +36,28 @@ export function AlteracaoDoPedido({ pedidoId, versao }: { pedidoId: string; vers
   }, [pedidoId, versao]);
 
   if (erro && !dados) {
+    if (silencioso) return null;
     return <p className="mt-3 text-xs text-muted-foreground">Não deu para ler o que mudou neste pedido. Feche e abra de novo.</p>;
   }
-  if (!dados) return <p className="mt-3 text-xs text-muted-foreground">Carregando o que mudou…</p>;
+  if (!dados) return silencioso ? null : <p className="mt-3 text-xs text-muted-foreground">Carregando o que mudou…</p>;
+  // A alteração feita na nuvem de uma loja com servidor (mig 362): vai como "pedida" e o servidor da loja aplica ou recusa.
+  const maisNova = dados.alteracoes[0];
+  const aviso =
+    maisNova && maisNova.situacao !== 'aplicada' ? (
+      <p
+        role="status"
+        className={`mt-3 break-words rounded-lg px-3 py-2 text-xs font-semibold ${maisNova.situacao === 'pedida' && !maisNova.vencida ? 'bg-secondary text-foreground' : 'bg-destructive/10 text-destructive'}`}
+        data-alteracao-pedida={maisNova.situacao}
+      >
+        {maisNova.situacao === 'pedida'
+          ? maisNova.vencida
+            ? `A loja não respondeu à alteração das ${horaDaAlteracao(maisNova.createdAt)}: faça pelo painel no computador da loja.`
+            : `⏳ Alteração enviada ao servidor da loja às ${horaDaAlteracao(maisNova.createdAt)}: aparece aqui quando a loja aplicar.`
+          : `✕ A loja recusou a alteração das ${horaDaAlteracao(maisNova.createdAt)}: ${maisNova.motivo || 'sem motivo informado'}.`}
+      </p>
+    ) : null;
   const [ultima, ...antes] = dados.alteracoes.filter((a) => a.situacao === 'aplicada');
-  if (!ultima) return null;
+  if (!ultima) return aviso;
   const m = ultima.mudanca;
   const itens = linhasDosItens(m);
   const vias = textoDasVias(ultima, dados.impressoras);
@@ -46,6 +65,8 @@ export function AlteracaoDoPedido({ pedidoId, versao }: { pedidoId: string; vers
   const d = ultima.depois;
 
   return (
+    <>
+    {aviso}
     <section className="mt-3 rounded-lg border border-warn/40 bg-warn/5 px-3 py-2 text-sm" aria-label="O que mudou no pedido" data-alteracao>
       <p className="font-bold text-warn">
         Alterado às {horaDaAlteracao(ultima.createdAt)} · {quemAlterou(ultima)}
@@ -131,5 +152,6 @@ export function AlteracaoDoPedido({ pedidoId, versao }: { pedidoId: string; vers
         </details>
       )}
     </section>
+    </>
   );
 }

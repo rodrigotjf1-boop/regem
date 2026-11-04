@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Inject,
   Injectable,
   Logger,
@@ -9,6 +10,8 @@ import {
   Optional,
   forwardRef,
 } from '@nestjs/common';
+import { enfileirarComandoEdge } from '../../common/edge-comando';
+import { compararVersao } from '../edge/release-selecao';
 import { createHmac, randomBytes, randomUUID } from 'crypto';
 import { and, desc, eq, gte, ilike, inArray, isNotNull, isNull, notInArray, or, sql } from 'drizzle-orm';
 import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
@@ -75,7 +78,7 @@ import {
   produtoVariacao,
 } from '../../db/schema';
 import { condUnidadeOuRede, sqlUnidade } from '../../common/filtro-unidade';
-import { edgeAtivo } from '../../common/edge-ativo';
+import { EDGE_JANELA_MIN, edgeAtivo } from '../../common/edge-ativo';
 import { normalizarFormaPagamento } from '../../common/formas-pagamento-normaliza';
 import { urlPublicaSegura } from '../../common/ssrf-guard';
 import { marcarAvisoAutomatico } from '../../common/avisos-automaticos';
@@ -105,10 +108,13 @@ import {
   linhasDoAlteradoNaCozinha,
   linhasDoAlteradoNoEntregador,
   mudaACozinha,
+  pedidaVencida,
   podeAlterarNoCanal,
   resumoDaMudanca,
   STATUS_ALTERAVEL,
+  VALIDADE_DA_PEDIDA_MIN,
   valoresDepois,
+  VERSAO_QUE_APLICA_ALTERACAO,
   type Mudanca,
 } from '../pedido-alterado/pedido-alterado';
 import { AuditoriaService } from '../auditoria/auditoria.service';
@@ -2837,11 +2843,15 @@ export class DeliveryService {
       origem?: 'equipe' | 'robo';
       pedidoDoCliente?: string | null;
     },
+    // `aplicandoPedida`: o servidor da loja aplicando a alteração que a nuvem pediu (a linha "pedida" já existe com este id
+    // e passa a "aplicada" — `aplicarAlteracaoPedida`).
+    opts: { aplicandoPedida?: boolean } = {},
   ) {
     const tenantId = user.tenantId;
     const idAlteracao = UUID_ALTERACAO.test(String(dto.idAlteracao ?? '')) ? String(dto.idAlteracao) : randomUUID();
     const ja = await this.alteracaoJaFeita(tenantId, idAlteracao);
-    if (ja) return { ...(await this.carregar(tenantId, id)), alteracao: ja, repetida: true };
+    if (ja && !(opts.aplicandoPedida && ja.situacao === 'pedida'))
+      return { ...(await this.carregar(tenantId, id)), alteracao: ja, repetida: true };
 
     const ped = await this.carregar(tenantId, id);
     if (!podeAlterarNoCanal(ped.canal)) {
@@ -2854,14 +2864,6 @@ export class DeliveryService {
     if (!STATUS_ALTERAVEL.includes(ped.status))
       throw new BadRequestException('Só dá para alterar um pedido aceito e ainda na loja. Se já saiu, fale com o entregador.');
     if (!ped.comandaId) throw new BadRequestException('Pedido sem venda vinculada.');
-    // V53: na tela da NUVEM de uma loja com o servidor ligado, quem tem a cozinha e as impressoras é o servidor da loja.
-    if (await edgeAtivo(this.db, tenantId, ped.unidadeId ?? null)) {
-      throw new ConflictException({
-        statusCode: 409,
-        code: 'LOJA_COM_SERVIDOR',
-        message: 'Esta loja tem o servidor da loja ligado: faça a alteração pelo painel no computador da loja (é ele que imprime as vias e avisa a cozinha).',
-      });
-    }
     if (dto.endereco && ped.tipo === 'retirada')
       throw new BadRequestException('Pedido de retirada não tem endereço. Trocar entre retirada e entrega: cancele e refaça o pedido.');
 
@@ -2896,14 +2898,27 @@ export class DeliveryService {
 
     const agora = new Date();
     const porNome = user.nome ?? (user.colaboradorId ? await this.nomeDoColaborador(user.colaboradorId) : null);
+    // V53: na tela da NUVEM de uma loja com o servidor ligado, quem tem a cozinha e as impressoras é o servidor da loja —
+    // a alteração vai como "pedida" e ele aplica (ou recusa, com o motivo).
+    if (!opts.aplicandoPedida && (await edgeAtivo(this.db, tenantId, ped.unidadeId ?? null)))
+      return this.pedirAoServidorDaLoja(user, ped, idAlteracao, { adicionar, remover, endereco: dto.endereco, trocoPara: dto.trocoPara }, {
+        origem: dto.origem === 'robo' ? 'robo' : 'equipe',
+        porNome,
+        pedidoDoCliente: dto.pedidoDoCliente ?? null,
+      });
     const r = await this.db.transaction(async (tx) => {
       // A linha do pedido fica presa até o fim: duas alterações juntas (dois computadores, a equipe e o robô) não se
       // atropelam — a segunda espera e confere o status de novo.
       const [atual] = await tx.select().from(pedidoExterno).where(and(eq(pedidoExterno.id, id), eq(pedidoExterno.tenantId, tenantId))).for('update');
       if (!atual || !STATUS_ALTERAVEL.includes(atual.status))
         throw new BadRequestException('O pedido mudou de situação enquanto você alterava: abra-o de novo.');
-      const [jaDentro] = await tx.select({ id: pedidoAlteracao.id }).from(pedidoAlteracao).where(and(eq(pedidoAlteracao.tenantId, tenantId), eq(pedidoAlteracao.id, idAlteracao)));
-      if (jaDentro) return null; // a mesma alteração entrou pelo outro pedido (clique duplo)
+      const [jaDentro] = await tx
+        .select({ id: pedidoAlteracao.id, situacao: pedidoAlteracao.situacao })
+        .from(pedidoAlteracao)
+        .where(and(eq(pedidoAlteracao.tenantId, tenantId), eq(pedidoAlteracao.id, idAlteracao)));
+      // A mesma alteração entrou pelo outro pedido (clique duplo); a "pedida" só passa quando é o servidor aplicando-a.
+      if (jaDentro && !(opts.aplicandoPedida && jaDentro.situacao === 'pedida')) return null;
+      if (opts.aplicandoPedida && !jaDentro) return null; // a "pedida" sumiu (o pedido foi apagado): nada a aplicar
       if (nadaMuda(atual)) throw new BadRequestException('Nenhuma mudança para salvar: o pedido já está assim.');
       // Pela linha presa: o endereço de antes → o novo, a taxa que fica (a da área nova ou a de agora) e o troco de antes.
       const end = dto.endereco ? enderecoDepois(atual, camposEnd) : { patch: {}, mudanca: null as Mudanca['endereco'] };
@@ -2995,34 +3010,45 @@ export class DeliveryService {
         taxa: Number(v.valores.taxaEntrega) !== Number(atual.taxaEntrega ?? 0) ? { de: Number(atual.taxaEntrega ?? 0), para: Number(v.valores.taxaEntrega) } : null,
         troco: (v.valores.trocoPara != null ? Number(v.valores.trocoPara) : null) !== trocoAntes ? { de: trocoAntes, para: v.valores.trocoPara != null ? Number(v.valores.trocoPara) : null } : null,
       };
-      const [alteracao] = await tx
-        .insert(pedidoAlteracao)
-        .values({
-          id: idAlteracao,
-          tenantId,
-          unidadeId: atual.unidadeId ?? null,
-          pedidoId: id,
-          comandaId: atual.comandaId,
-          origem: dto.origem === 'robo' ? 'robo' : 'equipe',
-          situacao: 'aplicada',
-          porId: user.colaboradorId ?? null,
-          porNome,
-          pedido: { adicionar, remover, endereco: dto.endereco ?? null, trocoPara: dto.trocoPara },
-          mudanca,
-          antes: { total: Number(atual.total), taxaEntrega: Number(atual.taxaEntrega ?? 0), trocoPara: trocoAntes, cashback: cashback.antes, aReceber: null, status: atual.status },
-          depois: {
-            total: Number(v.valores.total),
-            taxaEntrega: Number(v.valores.taxaEntrega),
-            trocoPara: v.valores.trocoPara != null ? Number(v.valores.trocoPara) : null,
-            cashback: cashback.depois,
-            aReceber: v.aReceber,
-            status: row.status,
-            // A cozinha recebeu a mudança (algum cartão dela mexeu): o painel mostra se ela já tocou em "Visto".
-            cozinha: cozinha.cartoes.length > 0,
-          },
-          pedidoDoCliente: dto.pedidoDoCliente ? String(dto.pedidoDoCliente).slice(0, 500) : null,
-        })
-        .returning();
+      const historico = {
+        mudanca,
+        antes: { total: Number(atual.total), taxaEntrega: Number(atual.taxaEntrega ?? 0), trocoPara: trocoAntes, cashback: cashback.antes, aReceber: null, status: atual.status },
+        depois: {
+          total: Number(v.valores.total),
+          taxaEntrega: Number(v.valores.taxaEntrega),
+          trocoPara: v.valores.trocoPara != null ? Number(v.valores.trocoPara) : null,
+          cashback: cashback.depois,
+          aReceber: v.aReceber,
+          status: row.status,
+          // A cozinha recebeu a mudança (algum cartão dela mexeu): o painel mostra se ela já tocou em "Visto".
+          cozinha: cozinha.cartoes.length > 0,
+        },
+      };
+      // A "pedida" pela nuvem vira "aplicada" (a mesma linha); a da equipe daqui nasce aplicada.
+      const [alteracao] = opts.aplicandoPedida
+        ? await tx
+            .update(pedidoAlteracao)
+            .set({ ...historico, situacao: 'aplicada', motivo: null, comandaId: atual.comandaId, updatedAt: new Date() })
+            .where(and(eq(pedidoAlteracao.id, idAlteracao), eq(pedidoAlteracao.situacao, 'pedida')))
+            .returning()
+        : await tx
+            .insert(pedidoAlteracao)
+            .values({
+              id: idAlteracao,
+              tenantId,
+              unidadeId: atual.unidadeId ?? null,
+              pedidoId: id,
+              comandaId: atual.comandaId,
+              origem: dto.origem === 'robo' ? 'robo' : 'equipe',
+              situacao: 'aplicada',
+              porId: user.colaboradorId ?? null,
+              porNome,
+              pedido: { adicionar, remover, endereco: dto.endereco ?? null, trocoPara: dto.trocoPara },
+              ...historico,
+              pedidoDoCliente: dto.pedidoDoCliente ? String(dto.pedidoDoCliente).slice(0, 500) : null,
+            })
+            .returning();
+      if (!alteracao) throw new ConflictException({ statusCode: 409, code: 'ALTERACAO_DECIDIDA', message: 'Esta alteração já foi decidida.' });
       return {
         row,
         alteracao,
@@ -3066,6 +3092,126 @@ export class DeliveryService {
   }
 
   /**
+   * A tela da NUVEM (ou o robô) de uma loja com o servidor ligado: a alteração vai como "pedida" — a linha do histórico
+   * nasce aqui e o comando `alterar_pedido` leva os dados ao servidor da loja (que grava a mesma linha, aplica pelo mesmo
+   * `alterar` e devolve "aplicada" ou "recusada" com o motivo, pelo sincronismo). Servidor numa versão que ainda não aplica:
+   * recusa com o motivo, como antes. A mesma pedida mandada duas vezes (o mesmo id) entra uma vez.
+   */
+  private async pedirAoServidorDaLoja(
+    user: Pick<AuthUser, 'tenantId' | 'colaboradorId'> & Partial<Pick<AuthUser, 'categoria'>>,
+    ped: any,
+    idAlteracao: string,
+    pedido: { adicionar: unknown[]; remover: unknown[]; endereco?: unknown; trocoPara?: number | null },
+    o: { origem: 'equipe' | 'robo'; porNome: string | null; pedidoDoCliente: string | null },
+  ) {
+    const tenantId = user.tenantId;
+    const versao = await this.versaoDoServidorDaLoja(tenantId, ped.unidadeId ?? null);
+    if (!versao || compararVersao(versao, VERSAO_QUE_APLICA_ALTERACAO) < 0) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'LOJA_COM_SERVIDOR',
+        message:
+          'O servidor desta loja ainda não aplica a alteração feita na nuvem: faça pelo painel no computador da loja ' +
+          '(é ele que imprime as vias e avisa a cozinha) ou atualize o servidor da loja.',
+      });
+    }
+    const linha = {
+      id: idAlteracao,
+      tenantId,
+      unidadeId: ped.unidadeId ?? null,
+      pedidoId: ped.id as string,
+      comandaId: ped.comandaId ?? null,
+      origem: o.origem,
+      situacao: 'pedida',
+      porId: user.colaboradorId ?? null,
+      porNome: o.porNome,
+      pedido,
+      pedidoDoCliente: o.pedidoDoCliente ? String(o.pedidoDoCliente).slice(0, 500) : null,
+    };
+    const [nova] = await this.db.insert(pedidoAlteracao).values(linha).onConflictDoNothing({ target: pedidoAlteracao.id }).returning();
+    if (!nova) return { ...ped, alteracao: await this.alteracaoJaFeita(tenantId, idAlteracao), pedida: true, repetida: true };
+    await enfileirarComandoEdge(this.db, tenantId, 'alterar_pedido', {
+      unidadeId: ped.unidadeId ?? null,
+      solicitadoPor: user.colaboradorId ?? null,
+      dados: { ...linha, createdAt: nova.createdAt },
+    });
+    await this.auditoria?.registrar({
+      tenantId,
+      unidadeId: ped.unidadeId ?? null,
+      atorId: user.colaboradorId,
+      atorPerfil: user.categoria ?? null,
+      tipo: 'delivery',
+      acao: 'pediu_alteracao_ao_servidor_da_loja',
+      entidadeTipo: 'pedido_externo',
+      entidadeId: ped.id,
+      detalhe: { pedido: ped.numero ?? null, origem: o.origem, alteracao: idAlteracao },
+      origem: o.origem === 'robo' ? 'robo' : 'web',
+    });
+    return { ...ped, alteracao: nova, pedida: true, repetida: false };
+  }
+
+  /** A versão do servidor desta loja que mandou sinal nos últimos minutos (o mesmo prazo do "servidor ligado"). */
+  private async versaoDoServidorDaLoja(tenantId: string, unidadeId: string | null): Promise<string | null> {
+    try {
+      const r: any = await this.db.execute(sql`
+        select versao from edge_heartbeat
+         where tenant_id = ${tenantId} and versao is not null
+           and recebido_em >= now() - make_interval(mins => ${EDGE_JANELA_MIN})
+           ${unidadeId ? sql`and (unidade_id = ${unidadeId} or unidade_id is null)` : sql``}
+         order by recebido_em desc limit 1`);
+      return ((r.rows ?? r)[0]?.versao as string | undefined) ?? null;
+    } catch (e: any) {
+      if (e?.code === '42P01' || e?.code === '42703') return null; // banco sem a telemetria da frota
+      throw e;
+    }
+  }
+
+  /**
+   * O servidor da loja aplica a alteração que a nuvem pediu (`EdgeAlteracoesProcessor`): pelo mesmo `alterar` da equipe,
+   * com o id da pedida. Recusa (a mesma regra da equipe, ou chegou depois da validade) → "recusada" com o motivo; falha de
+   * infraestrutura → tenta de novo no próximo ciclo, até vencer. Só este servidor decide.
+   */
+  async aplicarAlteracaoPedida(a: { id: string; tenantId: string; pedidoId: string; porId: string | null; porNome: string | null; origem: string; pedido: unknown; pedidoDoCliente: string | null; createdAt: Date | string }) {
+    const recusar = async (motivo: string) => {
+      await this.db
+        .update(pedidoAlteracao)
+        .set({ situacao: 'recusada', motivo: motivo.slice(0, 300), updatedAt: new Date() })
+        .where(and(eq(pedidoAlteracao.id, a.id), eq(pedidoAlteracao.situacao, 'pedida')));
+      this.logger.warn(`alteração ${a.id} do pedido ${a.pedidoId} recusada: ${motivo}`);
+      return { aplicada: false, motivo };
+    };
+    if (pedidaVencida(a.createdAt))
+      return recusar(`Chegou ao servidor da loja depois de ${VALIDADE_DA_PEDIDA_MIN} minutos: faça a alteração de novo.`);
+    const p: any = a.pedido ?? {};
+    try {
+      await this.alterar(
+        { tenantId: a.tenantId, colaboradorId: a.porId as string, nome: a.porNome },
+        a.pedidoId,
+        {
+          idAlteracao: a.id,
+          adicionar: Array.isArray(p.adicionar) ? p.adicionar : [],
+          remover: Array.isArray(p.remover) ? p.remover : [],
+          endereco: p.endereco && typeof p.endereco === 'object' ? p.endereco : undefined,
+          ...('trocoPara' in p ? { trocoPara: p.trocoPara } : {}),
+          origem: a.origem === 'robo' ? 'robo' : 'equipe',
+          pedidoDoCliente: a.pedidoDoCliente,
+        },
+        { aplicandoPedida: true },
+      );
+      void this.flash.flashPedidos([a.pedidoId]); // o pedido alterado sobe já; a decisão sobe no ciclo
+      return { aplicada: true, motivo: null };
+    } catch (e: any) {
+      if (e instanceof HttpException) {
+        const resp: any = e.getResponse();
+        const motivo = typeof resp === 'string' ? resp : Array.isArray(resp?.message) ? resp.message.join(' ') : resp?.message ?? e.message;
+        return recusar(String(motivo));
+      }
+      this.logger.warn(`alteração ${a.id} do pedido ${a.pedidoId}: falhou agora, tento no próximo ciclo (${e?.message ?? e})`);
+      return { aplicada: false, motivo: null };
+    }
+  }
+
+  /**
    * O histórico das alterações do pedido para a gaveta do painel (mig 362): a mais nova primeiro, com o nome das
    * impressoras das vias que saíram e se a cozinha já tocou em "Visto" (todos os cartões alterados da venda).
    */
@@ -3095,7 +3241,9 @@ export class DeliveryService {
       const x = (r.rows ?? r)[0] ?? {};
       cozinha = { pendente: !!x.pendente, vistoEm: x.visto_em ? new Date(x.visto_em).toISOString() : null, vistoPor: x.visto_por ?? null };
     }
-    return { alteracoes, impressoras: Object.fromEntries(nomes.map((n) => [n.id, n.nome])), cozinha };
+    // A "pedida" que passou da validade: a tela diz "a loja não respondeu" — a regra é a do servidor (V80).
+    const comPrazo = alteracoes.map((a) => ({ ...a, vencida: a.situacao === 'pedida' && pedidaVencida(a.createdAt) }));
+    return { alteracoes: comPrazo, impressoras: Object.fromEntries(nomes.map((n) => [n.id, n.nome])), cozinha };
   }
 
   /** A alteração com este id já entrou? (a mesma mandada duas vezes devolve a primeira) */
