@@ -188,10 +188,19 @@ describe('pedido alterado — a alteração pedida na nuvem para o servidor da l
   });
 });
 
-describe('pedido alterado — o ajuste do som do KDS', () => {
+describe('pedido alterado — o ajuste do som do KDS e o do robô', () => {
   it('só "uma", "1min" ou "2min"', () => {
     expect(lerAjusteAlterado({ som: '2min' })).toEqual({ som: '2min' });
     expect(() => lerAjusteAlterado({ som: '5min' })).toThrow('Som do pedido alterado');
     expect(() => lerAjusteAlterado(null)).toThrow();
+  });
+
+  it('"O robô faz mudanças simples": só verdadeiro/falso; o que não vem fica; nada dos dois é recusado', () => {
+    expect(lerAjusteAlterado({ roboMuda: false })).toEqual({ roboMuda: false });
+    expect(lerAjusteAlterado({ som: 'uma', roboMuda: true })).toEqual({ som: 'uma', roboMuda: true });
+    expect(() => lerAjusteAlterado({ roboMuda: 'sim' })).toThrow('O robô faz mudanças simples');
+    expect(() => lerAjusteAlterado({})).toThrow('nada para salvar');
+    // O som torto recusa o grupo inteiro, mesmo com o robô certo (nada é gravado).
+    expect(() => lerAjusteAlterado({ som: '5min', roboMuda: true })).toThrow('Som do pedido alterado');
   });
 });

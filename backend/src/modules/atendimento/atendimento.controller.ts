@@ -66,15 +66,17 @@ export class AtendimentoController {
   @CloudOnly()
   @Roles('presidente', 'gerente')
   async ajustes(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
-    const [da99, fila, doIfood, cheguei, repetido, som] = await Promise.all([
+    const [da99, fila, doIfood, cheguei, repetido, som, roboMuda] = await Promise.all([
       this.pedido99.ajustes(user.tenantId),
       this.filaEAvisos.ajustes(user.tenantId),
       this.chatIfood.ajustes(user.tenantId),
       this.chegada.ajustes(user.tenantId, unidade),
       this.repetido.ajustes(user.tenantId, unidade),
       this.producao.somDoAlterado(user.tenantId, unidade),
+      // "O robô faz mudanças simples" (mig 363): no mesmo grupo "Pedido alterado", como no protótipo; da empresa.
+      this.filaEAvisos.roboMudaPedido(user.tenantId),
     ]);
-    const alterado = { som, sons: SONS_DO_ALTERADO };
+    const alterado = { som, sons: SONS_DO_ALTERADO, roboMuda };
     return { ...da99, fila, minutosDoAviso: MINUTOS_DO_AVISO, ...doIfood, cheguei, minutosDeNovoCheguei: MINUTOS_DE_NOVO, repetido, alterado };
   }
 
@@ -94,7 +96,9 @@ export class AtendimentoController {
     if (dto?.ifood !== undefined) await this.chatIfood.salvarAjustes(user, dto.ifood);
     if (cheguei) await this.chegada.salvarAjustes(user, unidade, cheguei);
     if (repetido) await this.repetido.salvarAjustes(user, unidade, repetido);
-    if (alterado) await this.producao.salvarSomDoAlterado(user.tenantId, unidade, alterado.som, { id: user.colaboradorId, perfil: user.categoria });
+    if (alterado?.som !== undefined)
+      await this.producao.salvarSomDoAlterado(user.tenantId, unidade, alterado.som, { id: user.colaboradorId, perfil: user.categoria });
+    if (alterado?.roboMuda !== undefined) await this.filaEAvisos.salvarRoboMudaPedido(user, alterado.roboMuda);
     return this.ajustes(user, unidade);
   }
 

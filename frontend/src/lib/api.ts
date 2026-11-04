@@ -1216,7 +1216,7 @@ export const api = {
     ajuste99?: Record<string, unknown>;
     cheguei?: Record<string, unknown>;
     repetido?: Record<string, unknown>; // pedido igual em até 30 min (mig 360)
-    alterado?: { som: string }; // o som do KDS no pedido alterado (mig 362)
+    alterado?: { som?: string; roboMuda?: boolean }; // o som do KDS (mig 362) e "O robô faz mudanças simples" (mig 363)
   }) =>
     req('/atendimento/ajustes', { method: 'PUT', body: JSON.stringify(body) }),
   // O chat oficial do iFood (PR 5): o widget da distribuição e as lojas do iFood da empresa (ou `disponivel: false`).
@@ -1388,12 +1388,6 @@ export const api = {
     req('/whatsapp/robo-config', {
       method: 'POST',
       body: JSON.stringify({ conferirEntrega }),
-    }),
-  // "O robô faz mudanças simples" no pedido já feito (mig 363): só o liga/desliga; nasce ligado.
-  whatsappMudaPedidoSalvar: (mudaPedido: boolean) =>
-    req('/whatsapp/robo-config', {
-      method: 'POST',
-      body: JSON.stringify({ mudaPedido }),
     }),
   // Mídia de uma mensagem sob demanda (miniatura no inbox). Devolve um data URL.
   whatsappMidia: (id: string, jid: string, fromMe: boolean) =>

@@ -23,8 +23,9 @@ import { MOTIVO_REEMBOLSO_99 } from '@/components/atendimento/pedido-99';
 //    Ficam na integração da 99 — só aparecem com a 99 conectada.
 //  • "Pedido repetido" (mig 360; `mockups/regem-alteracao-pedido.html`): perguntar quando o mesmo cliente faz um pedido
 //    igual e a janela (30 min de padrão). No `cardapio_config` da loja em uso, como o "Cheguei" — no fim da tela.
-//  • "Pedido alterado" (mig 362; mesmo protótipo): o som do KDS até a cozinha tocar em "Visto" (a cada 1 min de padrão).
-//    No ajuste do KDS da loja em uso (`kds_cor_config`, sincroniza). O ajuste do robô entra com o robô (PR 3).
+//  • "Pedido alterado" (mig 362; mesmo protótipo): "O robô faz mudanças simples" (mig 363 — `robo_config.muda_pedido`, da
+//    EMPRESA: o robô é um só) e o som do KDS até a cozinha tocar em "Visto" (a cada 1 min de padrão — no ajuste do KDS da
+//    loja em uso, `kds_cor_config`, sincroniza).
 // Tudo mora só na NUVEM: no servidor da loja a tela só explica. Só gerente e presidente mudam (o servidor confere).
 
 const HORAS_PADRAO = [1, 2, 4, 8, 12, 20];
@@ -62,12 +63,13 @@ type Resposta = {
   cheguei?: { ativo: boolean; perguntarOnde: boolean; todasTelas: boolean; deNovoMin: number; temCardapio: boolean };
   minutosDeNovoCheguei?: number[];
   repetido?: { ativo: boolean; minutos: number; temCardapio: boolean; janelas?: number[] };
-  alterado?: { som: string; sons?: string[] };
+  alterado?: { som: string; sons?: string[]; roboMuda?: boolean };
 };
 
 const paraValores = (r: Resposta): Valores => ({
   ...(r.repetido?.temCardapio ? { repetidoAtivo: r.repetido.ativo, repetidoMin: String(r.repetido.minutos) } : {}),
   ...(r.alterado ? { alteradoSom: r.alterado.som } : {}),
+  ...(typeof r.alterado?.roboMuda === 'boolean' ? { alteradoRobo: r.alterado.roboMuda } : {}),
   ...(r.cheguei?.temCardapio
     ? {
         chegueiAtivo: r.cheguei.ativo,
@@ -292,8 +294,20 @@ export function AjustesDoAtendimento() {
   const sonsDoAlterado = resp?.alterado?.sons?.length ? resp.alterado.sons : Object.keys(ROTULO_DO_SOM);
   const grupoDoAlterado: GrupoDeAjustes = {
     titulo: 'Pedido alterado',
-    nota: 'Vale para a loja em uso. A via "PEDIDO ALTERADO" sai nas impressoras que já imprimiram o pedido.',
+    nota: 'O som vale para a loja em uso; o robô, para todas as lojas da empresa. A via "PEDIDO ALTERADO" sai nas impressoras que já imprimiram o pedido.',
     itens: [
+      ...(typeof resp?.alterado?.roboMuda === 'boolean'
+        ? [
+            {
+              id: 'alteradoRobo',
+              rotulo: 'O robô faz mudanças simples',
+              tipo: 'chave' as const,
+              ajuda:
+                'Pôr, tirar ou trocar um produto (uma vez por pedido), com o pedido em produção e pago na entrega. O resto vai para a equipe (Atendimento › Mudança no pedido).',
+              palavras: 'robô whatsapp mudança pedido pôr tirar trocar produto alterar',
+            },
+          ]
+        : []),
       {
         id: 'alteradoSom',
         rotulo: 'Som do KDS no pedido alterado',
@@ -324,10 +338,14 @@ export function AjustesDoAtendimento() {
     const ajuste99: Record<string, unknown> = {};
     const cheguei: Record<string, unknown> = {};
     const repetido: Record<string, unknown> = {};
-    let alterado: { som: string } | null = null;
+    let alterado: { som?: string; roboMuda?: boolean } | null = null;
     for (const k of chaves) {
       if (k === 'alteradoSom') {
-        alterado = { som: String(valores[k]) };
+        alterado = { ...(alterado ?? {}), som: String(valores[k]) };
+        continue;
+      }
+      if (k === 'alteradoRobo') {
+        alterado = { ...(alterado ?? {}), roboMuda: valores[k] === true };
         continue;
       }
       if (DA_FILA.includes(k)) fila[k] = k === 'avisarGerenteMin' ? Number(valores[k]) : valores[k];

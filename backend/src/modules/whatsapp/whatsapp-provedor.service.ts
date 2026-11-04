@@ -198,9 +198,9 @@ export class WhatsappProvedorService {
    */
   private async avisosDoRobo(
     tenantId: string,
-  ): Promise<{ avisoAtraso: boolean; avisoAtrasoToleranciaMin: number; lembreteCarrinho: boolean; conferirEntrega: boolean; mudaPedido: boolean }> {
+  ): Promise<{ avisoAtraso: boolean; avisoAtrasoToleranciaMin: number; lembreteCarrinho: boolean; conferirEntrega: boolean }> {
     const r: any = await this.db.execute(
-      sql`select aviso_atraso, aviso_atraso_tolerancia_min, lembrete_carrinho, conferir_entrega, muda_pedido from robo_config where tenant_id = ${tenantId}::uuid`,
+      sql`select aviso_atraso, aviso_atraso_tolerancia_min, lembrete_carrinho, conferir_entrega from robo_config where tenant_id = ${tenantId}::uuid`,
     );
     const l = (r?.rows ?? r ?? [])[0];
     return {
@@ -209,8 +209,6 @@ export class WhatsappProvedorService {
       lembreteCarrinho: l?.lembrete_carrinho === true,
       // "Chegou tudo certo?" depois da entrega (B1, mig 352): nasce desligado.
       conferirEntrega: l?.conferir_entrega === true,
-      // "O robô faz mudanças simples" no pedido já feito (PR 3, mig 363): nasce LIGADO (decisão 3A).
-      mudaPedido: l ? l.muda_pedido !== false : true,
     };
   }
 
@@ -225,10 +223,9 @@ export class WhatsappProvedorService {
     const temTolerancia = dto?.avisoAtrasoToleranciaMin !== undefined;
     const temLembrete = dto?.lembreteCarrinho !== undefined;
     const temConferir = dto?.conferirEntrega !== undefined;
-    const temMuda = dto?.mudaPedido !== undefined;
-    if (!temPausa && !temAviso && !temTolerancia && !temLembrete && !temConferir && !temMuda)
+    if (!temPausa && !temAviso && !temTolerancia && !temLembrete && !temConferir)
       throw new BadRequestException(
-        'Nada para salvar: informe pausaMinutos, avisoAtraso, avisoAtrasoToleranciaMin, lembreteCarrinho, conferirEntrega ou mudaPedido.',
+        'Nada para salvar: informe pausaMinutos, avisoAtraso, avisoAtrasoToleranciaMin, lembreteCarrinho ou conferirEntrega.',
       );
     const v = dto?.pausaMinutos;
     if (temPausa && (typeof v !== 'number' || !OPCOES_PAUSA.includes(v)))
@@ -239,7 +236,6 @@ export class WhatsappProvedorService {
       throw new BadRequestException(`avisoAtrasoToleranciaMin deve ser um destes: ${OPCOES_TOLERANCIA_ATRASO.join(', ')}.`);
     const lembrete = temLembrete ? exigirBooleano(dto.lembreteCarrinho, 'lembreteCarrinho') : undefined;
     const conferir = temConferir ? exigirBooleano(dto.conferirEntrega, 'conferirEntrega') : undefined;
-    const muda = temMuda ? exigirBooleano(dto.mudaPedido, 'mudaPedido') : undefined;
 
     const de = await minutosDaPausa(this.db, ator.tenantId);
     const antes = await this.avisosDoRobo(ator.tenantId);
@@ -248,16 +244,14 @@ export class WhatsappProvedorService {
     const tolerancia = temTolerancia ? tol : antes.avisoAtrasoToleranciaMin;
     const lembra = lembrete ?? antes.lembreteCarrinho;
     const confere = conferir ?? antes.conferirEntrega;
-    const mudaPedido = muda ?? antes.mudaPedido;
     await this.db.execute(sql`
-      insert into robo_config (tenant_id, pausa_minutos, aviso_atraso, aviso_atraso_tolerancia_min, lembrete_carrinho, conferir_entrega, muda_pedido, atualizado_por)
-      values (${ator.tenantId}::uuid, ${pausa}, ${ligado}, ${tolerancia}, ${lembra}, ${confere}, ${mudaPedido}, ${ator.colaboradorId}::uuid)
+      insert into robo_config (tenant_id, pausa_minutos, aviso_atraso, aviso_atraso_tolerancia_min, lembrete_carrinho, conferir_entrega, atualizado_por)
+      values (${ator.tenantId}::uuid, ${pausa}, ${ligado}, ${tolerancia}, ${lembra}, ${confere}, ${ator.colaboradorId}::uuid)
       on conflict (tenant_id) do update
          set pausa_minutos = excluded.pausa_minutos, aviso_atraso = excluded.aviso_atraso,
              aviso_atraso_tolerancia_min = excluded.aviso_atraso_tolerancia_min,
              lembrete_carrinho = excluded.lembrete_carrinho,
              conferir_entrega = excluded.conferir_entrega,
-             muda_pedido = excluded.muda_pedido,
              atualizado_por = excluded.atualizado_por, atualizado_em = now()`);
     const registrar = (acao: string, detalhe: Record<string, unknown>) =>
       this.auditoria.registrar({
@@ -276,7 +270,6 @@ export class WhatsappProvedorService {
       await registrar('aviso_atraso_tolerancia_alterada', { de: antes.avisoAtrasoToleranciaMin, para: tolerancia });
     if (antes.lembreteCarrinho !== lembra) await registrar(lembra ? 'lembrete_carrinho_ligado' : 'lembrete_carrinho_desligado', {});
     if (antes.conferirEntrega !== confere) await registrar(confere ? 'conferir_entrega_ligado' : 'conferir_entrega_desligado', {});
-    if (antes.mudaPedido !== mudaPedido) await registrar(mudaPedido ? 'robo_muda_pedido_ligado' : 'robo_muda_pedido_desligado', {});
     return this.roboConfig(ator.tenantId);
   }
 

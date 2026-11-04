@@ -81,7 +81,8 @@ descrever('fila e avisos (Postgres)', () => {
 
   beforeAll(async () => {
     delete process.env.EDGE_MODE; // como NUVEM
-    for (const m of ['342_robo_pausa_e_config.sql', '353_app_atendimento.sql']) await aplicar(m);
+    // A 363 ("O robô faz mudanças simples", no grupo "Pedido alterado") altera o carrinho da 344 (ERR-273).
+    for (const m of ['342_robo_pausa_e_config.sql', '353_app_atendimento.sql', '344_robo_carrinho.sql', '363_robo_mudanca_do_pedido.sql']) await aplicar(m);
     A = await empresa('teste aviso ao gerente A');
     B = await empresa('teste aviso ao gerente B');
     Z = await empresa('teste aviso ao gerente Z');
@@ -245,7 +246,21 @@ descrever('fila e avisos (Postgres)', () => {
     expect([gravadosCheguei.length, gravadosSom]).toEqual([1, []]);
     const comSom: any = await rota.salvarAjustes(user, 'loja-x', { alterado: { som: 'uma' } });
     expect(gravadosSom).toEqual([{ loja: 'loja-x', som: 'uma' }]);
-    expect(comSom.alterado).toEqual({ som: '1min', sons: ['uma', '1min', '2min'] });
+    expect(comSom.alterado).toEqual({ som: '1min', sons: ['uma', '1min', '2min'], roboMuda: true });
+    // "O robô faz mudanças simples" (mig 363), no mesmo grupo: nasce ligado; só verdadeiro/falso; o som não muda junto.
+    auditados.length = 0;
+    await expect(rota.salvarAjustes(user, null, { alterado: { roboMuda: 'sim' } })).rejects.toThrow('O robô faz mudanças simples');
+    expect(gravadosSom).toHaveLength(1);
+    const desligado: any = await rota.salvarAjustes(user, null, { alterado: { roboMuda: false } });
+    expect(desligado.alterado.roboMuda).toBe(false);
+    expect(gravadosSom).toHaveLength(1);
+    expect((await q(`select muda_pedido from robo_config where tenant_id = $1`, [D]))[0].muda_pedido).toBe(false);
+    // Grava SÓ a coluna dela (V82): a fila que esta empresa salvou antes continua.
+    expect((await svc.ajustes(D)).avisarGerenteMin).toBe(10);
+    await rota.salvarAjustes(user, null, { alterado: { roboMuda: false } }); // de novo: nada muda, nada na auditoria
+    expect(auditados.map((a) => a.acao)).toEqual(['robo_muda_pedido_desligado']);
+    expect((await rota.salvarAjustes(user, null, { alterado: { roboMuda: true } })).alterado.roboMuda).toBe(true);
+    await expect(rota.salvarAjustes(user, null, { alterado: {} })).rejects.toThrow('nada para salvar');
   });
 
   it('"Dizer ao cliente a posição na fila" desligado: o robô não recebe a posição (o "já tem alguém" segue)', async () => {

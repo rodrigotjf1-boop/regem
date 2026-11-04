@@ -11,8 +11,8 @@ import { STATUS_ALTERAVEL, valoresDepois } from '../pedido-alterado/pedido-alter
 //
 // O que o robô muda sozinho (3A): UMA mudança por pedido — pôr, tirar ou trocar um item (a troca também muda a
 // quantidade, a versão, um adicional ou a observação de um item) —, com o pedido aceito e ainda na loja, e o item que
-// sai ainda não pronto na cozinha. Pedido pago pelo link ou com nota fiscal só muda sem mexer no valor (4A, 7). O resto
-// vai para a equipe ("Mudança no pedido" em Atendimento). As regras de status, de pago e de troco são as do
+// sai ainda não pronto na cozinha. Pedido pago pelo link ou com nota fiscal vai para a equipe (4A, 7), como o resto
+// ("Mudança no pedido" em Atendimento). As regras de status, de pago e de troco são as do
 // `valoresDepois`/`STATUS_ALTERAVEL` da alteração (V74): a conferência que o cliente vê nunca promete o que a gravação
 // recusaria.
 
@@ -54,6 +54,11 @@ export type PedidoFeito = {
   desligado: boolean;
   /** Há outro pedido em andamento deste número (o pedido igual, por exemplo): qual mudar, a equipe confere com o cliente. */
   outroEmAndamento: boolean;
+  /**
+   * A loja tem o servidor ligado numa versão que ainda não aplica a alteração pedida pela nuvem (`quemAplicaAlteracao` =
+   * 'servidor_antigo' — a MESMA regra da gravação, que recusaria com `LOJA_COM_SERVIDOR`): a mudança fica com a equipe.
+   */
+  lojaSemVersao: boolean;
   itens: ItemDoPedidoFeito[];
 };
 
@@ -142,6 +147,9 @@ export function motivoParaNaoMudar(p: PedidoFeito, op?: OperacaoDoRobo | null): 
   const n = noPedido(p.numero);
   const nao = (motivo: string, mensagem: string, chamaEquipe = true): MotivoParaNaoMudar => ({ motivo, mensagem, chamaEquipe });
   if (p.desligado) return nao('desligado', `A mudança no ${n} é feita pela equipe da loja.`);
+  // O servidor da loja ainda não aplica a mudança pedida pela nuvem: dizer ANTES da conferência — não depois do "Pode
+  // alterar" (a conferência nunca promete o que a gravação recusaria — V74).
+  if (p.lojaSemVersao) return nao('loja_sem_versao', `A mudança no ${n} é feita pela equipe da loja.`);
   if (p.outroEmAndamento)
     return nao('dois_pedidos', 'Há mais de um pedido em andamento deste número: para não mudar o pedido errado, alguém da equipe confere com você.');
   if (!STATUS_ALTERAVEL.includes(p.status)) {
@@ -153,10 +161,11 @@ export function motivoParaNaoMudar(p: PedidoFeito, op?: OperacaoDoRobo | null): 
   }
   if (p.mudancaPendente) return nao('uma_por_vez', `A mudança do ${n} ainda está com a loja: a confirmação chega aqui em instantes.`, false);
   if (p.jaMudouPeloRobo) return nao('ja_mudou', `Por aqui dá para fazer uma mudança por pedido, e o ${n} já foi mudado.`);
+  // Decisões 4A e 7 (aprovadas em 03/11): o pedido pago pelo link e o pedido com nota fiscal vão para a equipe — qualquer
+  // mudança, também a que não mexe no valor (o ajuste da tela diz "com o pedido em produção e pago na entrega").
+  if (p.pagoAntes) return nao('pago', `O ${n} já foi pago pelo link: a mudança precisa de alguém da equipe.`);
+  if (p.comNota) return nao('nota', `O ${n} já tem nota fiscal: a mudança precisa de alguém da equipe.`);
   if (op) {
-    const mudaValor = deltaDaMudanca(op) !== 0;
-    if (mudaValor && p.pagoAntes) return nao('pago', `O ${n} já foi pago pelo link: mudar o valor precisa de alguém da equipe.`);
-    if (mudaValor && p.comNota) return nao('nota', `O ${n} já tem nota fiscal: mudar o valor precisa de alguém da equipe.`);
     if (op.tipo !== 'por') {
       const sai = op.sai;
       const item = p.itens.find((i) => i.comandaItemId === sai.comandaItemId);
@@ -278,8 +287,8 @@ export function textoDaDecisao(
 /** A recusa da gravação (o código da alteração) dita ao cliente. Sem código conhecido: a oferta da equipe. */
 export function textoDaRecusaDaGravacao(numero: string | null, code: string | null | undefined): MotivoParaNaoMudar {
   const n = noPedido(numero);
-  if (code === 'PAGO_ONLINE') return { motivo: 'pago', mensagem: `O ${n} já foi pago pelo link: mudar o valor precisa de alguém da equipe.`, chamaEquipe: true };
-  if (code === 'NOTA_FISCAL') return { motivo: 'nota', mensagem: `O ${n} já tem nota fiscal: mudar o valor precisa de alguém da equipe.`, chamaEquipe: true };
+  if (code === 'PAGO_ONLINE') return { motivo: 'pago', mensagem: `O ${n} já foi pago pelo link: a mudança precisa de alguém da equipe.`, chamaEquipe: true };
+  if (code === 'NOTA_FISCAL') return { motivo: 'nota', mensagem: `O ${n} já tem nota fiscal: a mudança precisa de alguém da equipe.`, chamaEquipe: true };
   return { motivo: 'nao_mudou', mensagem: `Não consegui mudar o ${n} agora.`, chamaEquipe: true };
 }
 

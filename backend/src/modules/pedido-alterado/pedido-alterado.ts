@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { exigirBooleano } from '../../common/exigir';
 import { textoNaVia } from '../../common/texto-na-via';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -41,12 +42,23 @@ export const SONS_DO_ALTERADO = ['uma', '1min', '2min'] as const;
 export type SomDoAlterado = (typeof SONS_DO_ALTERADO)[number];
 export const SOM_DO_ALTERADO_PADRAO: SomDoAlterado = '1min';
 
-/** O grupo "Pedido alterado" dos ajustes do atendimento: `{ som }`, conferido antes de gravar qualquer grupo. */
-export function lerAjusteAlterado(dto: unknown): { som: SomDoAlterado } {
-  const som = (dto as any)?.som;
-  if (!(SONS_DO_ALTERADO as readonly string[]).includes(som))
-    throw new BadRequestException('Som do pedido alterado: escolha "uma vez", "a cada 1 minuto" ou "a cada 2 minutos".');
-  return { som };
+/**
+ * O grupo "Pedido alterado" dos ajustes do atendimento, conferido antes de gravar qualquer grupo: o som do KDS (`som`)
+ * e "O robô faz mudanças simples" (`roboMuda` — `robo_config.muda_pedido`, mig 363). O que não vem fica como estava (V16);
+ * o liga/desliga só como verdadeiro/falso (V15). Nada dos dois: recusa.
+ */
+export function lerAjusteAlterado(dto: unknown): { som?: SomDoAlterado; roboMuda?: boolean } {
+  const d = (dto ?? {}) as any;
+  const r: { som?: SomDoAlterado; roboMuda?: boolean } = {};
+  if (d.som !== undefined) {
+    if (!(SONS_DO_ALTERADO as readonly string[]).includes(d.som))
+      throw new BadRequestException('Som do pedido alterado: escolha "uma vez", "a cada 1 minuto" ou "a cada 2 minutos".');
+    r.som = d.som;
+  }
+  if (d.roboMuda !== undefined) r.roboMuda = exigirBooleano(d.roboMuda, 'O robô faz mudanças simples');
+  if (r.som === undefined && r.roboMuda === undefined)
+    throw new BadRequestException('Pedido alterado: nada para salvar (o som do KDS ou "O robô faz mudanças simples").');
+  return r;
 }
 
 export interface ItemDaMudanca {

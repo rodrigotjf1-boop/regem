@@ -19,7 +19,6 @@ import { NumerosWhatsapp } from '@/components/delivery/numeros-whatsapp';
 import { CodigoEntregaAjuste } from '@/components/delivery/codigo-entrega-ajuste';
 import { LembreteCarrinho } from '@/components/delivery/lembrete-carrinho';
 import { ConferirEntrega } from '@/components/delivery/conferir-entrega';
-import { MudancaPeloRobo } from '@/components/delivery/mudanca-pelo-robo';
 import { AjustesDoAtendimento } from '@/components/atendimento/ajustes-do-atendimento';
 import { localizacaoAtual, geocodificar, mapaEmbedUrl } from '@/lib/geo';
 import { INDICADO_PARA, ROTULO_TEMPLATE, TEMPLATES, templateDe } from '@/components/loja/cardapio/tipos-template';
@@ -1444,7 +1443,6 @@ function Robo({ loja, up, onSalvar, salvando, pode }: { loja: any; up: (p: any) 
       <AvisoDeAtraso pode={pode} loja={loja} />
       <LembreteCarrinho pode={pode} loja={loja} />
       <ConferirEntrega pode={pode} loja={loja} />
-      <MudancaPeloRobo pode={pode} />
 
       <Campo label="Saudação (primeira mensagem)">
         <textarea rows={2} className={areaTxt} disabled={!pode} value={loja.roboSaudacao ?? ''} onChange={(e) => up({ roboSaudacao: e.target.value })} placeholder="Olá! 👋 Bem-vindo. Como posso ajudar?" />

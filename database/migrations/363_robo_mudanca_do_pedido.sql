@@ -8,8 +8,8 @@
 --                         com o preço do cardápio que o cliente confere), o troco, se a conferência saiu (só depois dela
 --                         vale o "Pode alterar") e, depois do "Pode alterar", se foi aplicada ou pedida ao servidor da
 --                         loja e se o cliente já soube da decisão. Nulo = nenhuma mudança na conversa.
--- robo_config.muda_pedido — "O robô faz mudanças simples no pedido" (Delivery › Configurações › Operação › Robô de
---                         atendimento): nasce LIGADO (decisão 3A); desligado, o robô passa toda mudança para a equipe.
+-- robo_config.muda_pedido — "O robô faz mudanças simples" (Delivery › Configurações › Operação › Atendimento, grupo
+--                         "Pedido alterado"): nasce LIGADO (decisão 3A); desligado, o robô passa toda mudança para a equipe.
 --
 -- Sem instrução destrutiva (vai à nuvem pelo MCP: V9, ERR-225). Idempotente. As tabelas têm poucas linhas.
 set local lock_timeout = '5s';

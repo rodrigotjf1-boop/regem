@@ -178,7 +178,16 @@ descrever('o robô muda o pedido já feito (Postgres)', () => {
    */
   async function pedidoAceito(
     l: Loja,
-    o: { sucos?: number; troco?: number | null; pagamentos?: any[]; pagoOnline?: boolean; numero?: string; telefone?: string; itens?: any[] } = {},
+    o: {
+      sucos?: number;
+      troco?: number | null;
+      pagamentos?: any[];
+      pagoOnline?: boolean;
+      numero?: string;
+      telefone?: string;
+      itens?: any[];
+      forma?: string;
+    } = {},
   ) {
     const sucos = o.sucos ?? 1;
     const itens = o.itens ?? [
@@ -197,7 +206,7 @@ descrever('o robô muda o pedido já feito (Postgres)', () => {
         displayId: o.numero ?? '57',
         tipo: 'entrega',
         endereco: 'Rua das Flores, 120, Centro',
-        formaPagamento: o.pagamentos ? 'pix' : 'Dinheiro',
+        formaPagamento: o.forma ?? (o.pagamentos ? 'pix' : 'Dinheiro'),
         total,
         itens,
         valorBruto: total - 6,
@@ -348,12 +357,22 @@ descrever('o robô muda o pedido já feito (Postgres)', () => {
     ]);
   });
 
-  it('pago pelo link: mudar o valor vai para a equipe; mudar a observação (o mesmo valor) o robô faz, sem troco na conversa', async () => {
+  it('pago pelo link: TODA mudança vai para a equipe (4A); no vale-refeição (sem troco) a conferência vem sem "Mudar o troco"', async () => {
     const l = await loja();
-    const p = await pedidoAceito(l, { troco: null, pagoOnline: true, pagamentos: [{ rotulo: 'pix', valor: 45, prepago: true }] });
+    const pago = await pedidoAceito(l, { troco: null, pagoOnline: true, pagamentos: [{ rotulo: 'pix', valor: 45, prepago: true }] });
     const c = await l.ctx();
+    expect(((await robo.ver(c)) as any).pedidoFeito).toMatchObject({ podeMudar: false, motivo: 'pago', chamaEquipe: true });
     let r: any = await robo.mexerNosItens(c, { acao: 'pedido_por', produto: 'agua' });
     expect(r).toMatchObject({ ok: false, motivo: 'pago', chamaEquipe: true });
+    // Também a que não mexe no valor (a observação).
+    r = await robo.mexerNosItens(c, { acao: 'pedido_trocar', linha: 1, observacao: 'sem cebola' });
+    expect(r).toMatchObject({ ok: false, motivo: 'pago', mensagem: 'O pedido nº 57 já foi pago pelo link: a mudança precisa de alguém da equipe.' });
+    expect(l.doCliente()).toEqual([]);
+    expect(await alteracoes(pago.id)).toHaveLength(0);
+
+    // O mesmo cliente, outro pedido pago NA ENTREGA com vale-refeição (forma sem troco): o robô muda a observação.
+    await q(`update pedido_externo set status = 'concluido' where id = $1`, [pago.id]);
+    const p = await pedidoAceito(l, { troco: null, forma: 'vr', pagamentos: [{ rotulo: 'vr', valor: 45, prepago: false }] });
     r = await robo.mexerNosItens(c, { acao: 'pedido_trocar', linha: 1, observacao: 'sem cebola' });
     expect(r).toMatchObject({ ok: true, proximo: { campo: 'confirmar_mudanca', opcoes: ['Pode alterar', 'Deixar como estava'] } });
     expect(ultimo().texto).toBe(
@@ -424,6 +443,21 @@ descrever('o robô muda o pedido já feito (Postgres)', () => {
     expect(l.doCliente()).toEqual([{ para: l.celular, texto: '✅ A loja confirmou: pedido nº 57 alterado.\nTotal: R$ 57,00 · troco para R$ 100,00.' }]);
     await robo.avisarDecisoesDasMudancas();
     expect(l.doCliente()).toHaveLength(1);
+  });
+
+  it('servidor da loja numa versão que ainda não aplica: o robô oferece a equipe ANTES da conferência (nada sai para o cliente)', async () => {
+    const l = await loja();
+    const p = await pedidoAceito(l, { troco: 100 });
+    await q(`insert into edge_heartbeat (tenant_id, unidade_id, versao) values ($1,$2,'1.30.12')`, [l.t, l.u]);
+    const c = await l.ctx();
+    expect(((await robo.ver(c)) as any).pedidoFeito).toMatchObject({ podeMudar: false, motivo: 'loja_sem_versao', chamaEquipe: true });
+    const r: any = await robo.mexerNosItens(c, { acao: 'pedido_por', produto: 'agua' });
+    expect(r).toMatchObject({ ok: false, motivo: 'loja_sem_versao', chamaEquipe: true, opcoes: ['Sim, quero ajuda', 'Não, obrigado'] });
+    expect(l.doCliente()).toEqual([]);
+    expect(await alteracoes(p.id)).toHaveLength(0);
+    // O servidor atualizado (1.30.13): a mesma conversa já pode mudar.
+    await q(`insert into edge_heartbeat (tenant_id, unidade_id, versao) values ($1,$2,'1.30.13')`, [l.t, l.u]);
+    expect(((await robo.ver(c)) as any).pedidoFeito).toMatchObject({ podeMudar: true });
   });
 
   it('a loja recusou: o cliente ouve "não conseguiu" com a oferta da equipe; a loja não respondeu: avisa e chama a equipe', async () => {
