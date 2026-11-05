@@ -8,7 +8,8 @@ import { EquipamentoService } from '../equipamento/equipamento.service';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { PonteChatGuard, type PonteCtx } from '../ponte-chat/ponte-chat.guard';
 import { PonteChatService } from '../ponte-chat/ponte-chat.service';
-import { casosDoChat } from '../ponte-chat/casos-do-chat';
+import { casosDoChat, chaveDaConversa, chaveSql } from '../ponte-chat/casos-do-chat';
+import { sql } from 'drizzle-orm';
 import { ChatDoCasoService } from './chat-do-caso.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -82,10 +83,34 @@ descrever('o chat do iFood e da 99 na fila do Atendimento (Postgres)', () => {
     q(`select * from atendimento_chamado where tenant_id = $1 and tipo = 'chat' and detalhe #>> '{chat,chave}' = $2 order by criado_em`, [T, `ext:${ext}`]);
   const user = (id = ana, categoria = 'gerente') => ({ tenantId: T, colaboradorId: id, categoria }) as any;
   const saidas = async () => (await q(`select count(*)::int as n from chat_plataforma_msg where tenant_id = $1 and direcao = 'saida'`, [T]))[0].n as number;
+  /** Uma mensagem do chat gravada direto, `min` minutos atrás (as "Conversas agora" olham a última hora). */
+  const msg = (
+    ext: string | null,
+    o: { min: number; direcao?: string; autor?: string; texto?: string; unidade?: string | null; tenant?: string; pedidoId?: string | null; numero?: string | null; cliente?: string | null },
+  ) =>
+    q(
+      `insert into chat_plataforma_msg (tenant_id, unidade_id, canal, pedido_id, pedido_externo, pedido_numero, cliente_nome, direcao, autor, texto, estado, criado_em)
+       values ($1, $2, 'ifood', $3, $4, $5, $6, $7, $8, $9, $10, now() - make_interval(mins => $11))`,
+      [
+        o.tenant ?? T,
+        o.unidade === undefined ? loja : o.unidade,
+        o.pedidoId ?? null,
+        ext,
+        o.numero ?? null,
+        o.cliente === undefined ? 'Paulo T.' : o.cliente,
+        o.direcao ?? 'entrada',
+        o.autor ?? 'cliente',
+        o.texto ?? 'Oi',
+        (o.direcao ?? 'entrada') === 'saida' ? 'enviada' : 'recebida',
+        o.min,
+      ],
+    );
+  const chavesAgora = async (unidade: string | null = loja, t = T) =>
+    ((await chat.conversasAgora(t, unidade)).conversas as any[]).map((c) => c.chave as string);
 
   beforeAll(async () => {
     delete process.env.EDGE_MODE; // como NUVEM
-    for (const m of ['342_robo_pausa_e_config.sql', '366_ponte_do_chat.sql']) await aplicar(m);
+    for (const m of ['342_robo_pausa_e_config.sql', '366_ponte_do_chat.sql', '367_chat_ordem_e_indices.sql']) await aplicar(m);
     for (const t of [T, T2]) await q(`insert into empresa (id, nome) values ($1, 'teste chat do caso')`, [t]);
     [{ id: loja }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja A') returning id`, [T]);
     [{ id: ana }] = await q(`insert into colaborador (tenant_id, nome, unidade_id, status) values ($1, 'Ana', $2, 'ativo') returning id`, [T, loja]);
@@ -304,6 +329,212 @@ descrever('o chat do iFood e da 99 na fila do Atendimento (Postgres)', () => {
         if (v === undefined) delete process.env[k];
         else process.env[k] = v;
       }
+    }
+  });
+
+  // ───────────────────────── Conversas agora ─────────────────────────
+
+  it('a chave em SQL é a MESMA da função da fila (id na plataforma > id do pedido > número)', async () => {
+    const formas = [
+      { pedidoExterno: 'ifood-zz', pedidoId: pedidoA, pedidoNumero: '4821' },
+      { pedidoExterno: null, pedidoId: pedidoA, pedidoNumero: '4821' },
+      { pedidoExterno: null, pedidoId: null, pedidoNumero: '4821' },
+      { pedidoExterno: null, pedidoId: null, pedidoNumero: null },
+    ];
+    for (const f of formas) {
+      const r = await db.execute(sql`
+        select ${chaveSql('m')} as chave
+          from (select ${f.pedidoExterno}::text as pedido_externo, ${f.pedidoId}::uuid as pedido_id, ${f.pedidoNumero}::text as pedido_numero) m`);
+      expect((r.rows ?? r)[0].chave).toBe(chaveDaConversa(f));
+    }
+  });
+
+  it('Conversas agora: só as da última hora SEM caso aberto, da loja em uso, com as últimas 8 mensagens em ordem e o pedido', async () => {
+    const [{ id: lojaB }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja B') returning id`, [T]);
+    const [{ id: pedidoK }] = await q(
+      `insert into pedido_externo (tenant_id, unidade_id, canal, external_id, display_id, numero, tipo, status, cliente_nome, total)
+       values ($1, $2, 'ifood', 'ifood-k', '4790', (floor(random()*90000)+10000)::int, 'entrega', 'despachado', 'Paulo T.', 40) returning id`,
+      [T, loja],
+    );
+    // 10 mensagens na última hora (cliente e robô alternados): vêm as 8 últimas, da mais antiga para a mais nova
+    for (let i = 1; i <= 10; i++)
+      await msg('ifood-k', { min: 55 - i * 5, pedidoId: pedidoK, direcao: i % 2 ? 'entrada' : 'saida', autor: i % 2 ? 'cliente' : 'robo', texto: `m${i}` });
+    await msg('ifood-velha', { min: 90, texto: 'Faz tempo' }); // fora da última hora
+    await msg('ifood-loja-b', { min: 10, unidade: lojaB, texto: 'Da outra loja' });
+    await msg('ifood-sem-loja', { min: 2, unidade: null, cliente: null, numero: '77', texto: 'Sem loja' });
+    await msg('ifood-sem-loja', { min: 60 * 30, unidade: null, cliente: null, numero: '77', texto: 'De ontem' }); // fora do último dia
+    await msg('ifood-t2', { min: 1, tenant: T2, unidade: null, texto: 'De outra empresa' });
+    await doCliente('ifood-m', 'Cadê meu pedido?'); // abre caso: some daqui
+
+    const r = await chat.conversasAgora(T, loja);
+    const chaves = (r.conversas as any[]).map((c) => c.chave);
+    expect(chaves).toEqual(expect.arrayContaining(['ext:ifood-k', 'ext:ifood-sem-loja']));
+    for (const fora of ['ext:ifood-velha', 'ext:ifood-loja-b', 'ext:ifood-t2', 'ext:ifood-m']) expect(chaves).not.toContain(fora);
+    expect(chaves.indexOf('ext:ifood-sem-loja')).toBeLessThan(chaves.indexOf('ext:ifood-k')); // a mais recente primeiro
+    const k = (r.conversas as any[]).find((c) => c.chave === 'ext:ifood-k');
+    expect(k).toMatchObject({ canal: 'ifood', cliente: 'Paulo T.', pedidoId: pedidoK, pedidoNumero: '4790', pedidoStatus: 'despachado' });
+    expect(k.mensagens.map((m: any) => m.texto)).toEqual(['m3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9', 'm10']);
+    expect(k.mensagens[1]).toMatchObject({ direcao: 'saida', autor: 'robo', estado: 'enviada', motivo: null });
+    expect(new Date(k.ultima).getTime()).toBeGreaterThan(Date.now() - 6 * 60_000);
+    const semLoja = (r.conversas as any[]).find((c) => c.chave === 'ext:ifood-sem-loja');
+    expect(semLoja).toMatchObject({ cliente: null, pedidoId: null, pedidoNumero: '77', pedidoStatus: null });
+    expect(semLoja.mensagens.map((m: any) => m.texto)).toEqual(['Sem loja']); // a leitura é do último dia, não do histórico
+    expect(r.roboResponde).toBe(false);
+    // todas as lojas (presidente, loja única): a da outra loja aparece; a de outra empresa nunca
+    expect(await chavesAgora(null)).toEqual(expect.arrayContaining(['ext:ifood-loja-b', 'ext:ifood-k']));
+    expect(await chavesAgora(null)).not.toContain('ext:ifood-t2');
+    // resolvido o caso, a conversa volta (o robô volta a atender)
+    await q(`update atendimento_chamado set status = 'resolvido', resolvido_em = now() where tenant_id = $1 and detalhe #>> '{chat,chave}' = 'ext:ifood-m'`, [T]);
+    expect(await chavesAgora()).toContain('ext:ifood-m');
+    // o robô do chat ligado vem junto (a tela diz "com o robô" só assim)
+    await q(`update robo_config set chat_robo_responde = true where tenant_id = $1`, [T]);
+    try {
+      expect((await chat.conversasAgora(T, loja)).roboResponde).toBe(true);
+    } finally {
+      await q(`update robo_config set chat_robo_responde = false where tenant_id = $1`, [T]);
+    }
+  });
+
+  it('Assumir a conversa: o caso nasce com quem assumiu; já aberto sem ninguém fica com ela; com outra pessoa, 409 com o nome', async () => {
+    const [{ id: bia }] = await q(`insert into colaborador (tenant_id, nome, unidade_id, status) values ($1, 'Bia', $2, 'ativo') returning id`, [T, loja]);
+    await msg('ifood-n', { min: 3, texto: 'Qual a previsão?', cliente: 'Carla M.', numero: '95' });
+    await msg('ifood-n', { min: 2, direcao: 'saida', autor: 'robo', texto: 'Chega por volta das 20h40.', cliente: 'Carla M.', numero: '95' });
+    const r = await chat.assumir(user(), { canal: 'ifood', chave: 'ext:ifood-n' });
+    expect(r).toMatchObject({ ok: true });
+    let casos = await casosDo('ifood-n');
+    expect(casos).toHaveLength(1);
+    expect(casos[0]).toMatchObject({
+      id: r.id,
+      tipo: 'chat',
+      canal: 'ifood',
+      status: 'aberto',
+      responsavel_id: ana,
+      cliente: 'Carla M.',
+      pedido_numero: '95',
+      unidade_id: loja,
+      mensagem: 'Qual a previsão?',
+      prioridade: 'normal',
+    });
+    expect(casos[0].pego_em).not.toBeNull();
+    expect(casos[0].detalhe).toMatchObject({ chat: { chave: 'ext:ifood-n', pedidoExterno: 'ifood-n', pedidoNumero: '95' }, assumida: true });
+    expect(auditados).toEqual([
+      expect.objectContaining({ acao: 'assumiu_conversa_do_chat', entidadeId: r.id, atorId: ana, detalhe: { canal: 'ifood', chave: 'ext:ifood-n' } }),
+    ]);
+    expect(eventos.map(([ev]) => ev)).toEqual(['atendimento.novo']);
+    expect(await chavesAgora()).not.toContain('ext:ifood-n'); // virou caso: sai das "Conversas agora"
+    // a fala seguinte do cliente soma no caso assumido; assumir de novo devolve o mesmo caso
+    expect(await doCliente('ifood-n', 'Ok, obrigada')).toMatchObject({ casosNovos: 0, casosSomados: 1 });
+    expect((await chat.assumir(user(), { canal: 'ifood', chave: 'ext:ifood-n' })).id).toBe(r.id);
+    // com outra pessoa: 409 com o nome, e o caso não muda de mãos
+    const e = await erro(chat.assumir(user(bia, 'supervisao'), { canal: 'ifood', chave: 'ext:ifood-n' }));
+    expect([e?.status, e?.message]).toEqual([409, 'Ana já está com esta conversa.']);
+    expect((await casosDo('ifood-n'))[0].responsavel_id).toBe(ana);
+    // o caso que a fala do cliente abriu, sem ninguém: fica com quem assumiu (não abre outro)
+    await doCliente('ifood-o', 'Veio sem o refrigerante');
+    const [o] = await casosDo('ifood-o');
+    expect(o.responsavel_id).toBeNull();
+    expect((await chat.assumir(user(bia, 'supervisao'), { canal: 'ifood', chave: 'ext:ifood-o' })).id).toBe(o.id);
+    casos = await casosDo('ifood-o');
+    expect(casos.map((c: any) => [c.id, c.responsavel_id])).toEqual([[o.id, bia]]);
+  });
+
+  it('Assumir a conversa: as recusas vêm antes de gravar (inválida, sem usuário, inexistente, de outra empresa)', async () => {
+    await msg('ifood-q', { min: 1, texto: 'Oi' });
+    const contar = async () => (await q(`select count(*)::int as n from atendimento_chamado where tenant_id in ($1, $2)`, [T, T2]))[0].n as number;
+    const antes = await contar();
+    const assumir = (u: any, dto: any) => erro(chat.assumir(u, dto));
+    expect((await assumir(user(), { canal: 'whatsapp', chave: 'ext:ifood-q' }))?.status).toBe(400);
+    expect((await assumir(user(), { canal: 'ifood', chave: 'ifood-q' }))?.status).toBe(400);
+    expect((await assumir(user(), { canal: 'ifood', chave: `ext:${'x'.repeat(121)}` }))?.status).toBe(400);
+    expect((await assumir(user(), null))?.status).toBe(400);
+    expect((await assumir({ tenantId: T, colaboradorId: null, categoria: 'gerente' }, { canal: 'ifood', chave: 'ext:ifood-q' }))?.status).toBe(403);
+    expect((await assumir(user(), { canal: 'ifood', chave: 'ext:nao-existe' }))?.message).toBe('Esta conversa não está mais no chat.');
+    expect((await assumir({ tenantId: T2, colaboradorId: deOutra, categoria: 'gerente' }, { canal: 'ifood', chave: 'ext:ifood-q' }))?.status).toBe(404);
+    expect(await contar()).toBe(antes);
+    expect(auditados).toEqual([]);
+  });
+
+  it('o cruzamento forçado: "assumir" e a fala do cliente ao mesmo tempo esperam a MESMA trava — um caso só, com quem assumiu', async () => {
+    // L segura a trava da empresa (a linha do robo_config); "assumir" e a fala (B) têm de ficar presas ATRÁS de L (V72: pelas
+    // sessões que L — ou B, na fila da mesma linha — bloqueia; a linha é desta empresa, ninguém mais a trava). Sem a trava
+    // no "assumir", ele passaria direto e, com a fala, seriam dois casos.
+    await msg('ifood-p', { min: 1, texto: 'Oi' });
+    const l = await pool.connect();
+    const b = await pool.connect();
+    const dbB = drizzle(b as any, { schema }) as any;
+    try {
+      const [{ pid: pidL }] = (await l.query('select pg_backend_pid() as pid')).rows;
+      const [{ pid: pidB }] = (await b.query('select pg_backend_pid() as pid')).rows;
+      await l.query('begin');
+      await l.query(`select 1 from robo_config where tenant_id = $1 for update`, [T]);
+      let assumiu = false;
+      const pa = chat.assumir(user(), { canal: 'ifood', chave: 'ext:ifood-p' }).finally(() => (assumiu = true));
+      await b.query('begin');
+      let falou = false;
+      const fala = { canal: 'ifood', pedidoId: null, pedidoExterno: 'ifood-p', pedidoNumero: null, cliente: 'Paulo T.', unidadeId: loja, texto: 'Cadê?', criadoEm: new Date() };
+      const pb = casosDoChat(dbB, T, [fala]).finally(() => (falou = true));
+      // Presas: quem L bloqueia, a própria B e quem espera atrás de B (o 2º da fila da linha espera o 1º, não L).
+      let presas = 0;
+      for (let i = 0; i < 100 && !assumiu && !falou && presas < 2; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+        [{ n: presas }] = await q(
+          `select count(*)::int as n from pg_stat_activity
+            where cardinality(pg_blocking_pids(pid)) > 0
+              and ($1::int = any(pg_blocking_pids(pid)) or pid = $2::int or $2::int = any(pg_blocking_pids(pid)))`,
+          [pidL, pidB],
+        );
+      }
+      expect({ presas, assumiu, falou }).toEqual({ presas: 2, assumiu: false, falou: false });
+      await l.query('commit');
+      // Quem pegar a trava primeiro passa; a fala segura a dela até o commit de B — só então o "assumir" anda, se for o 2º.
+      const rb = await pb;
+      await b.query('commit');
+      const ra = await pa;
+      const casos = await casosDo('ifood-p');
+      expect(casos).toHaveLength(1);
+      expect(casos[0]).toMatchObject({ id: ra.id, responsavel_id: ana, status: 'aberto' });
+      expect(rb.novos.length + rb.somados.length).toBe(1);
+    } finally {
+      await l.query('rollback').catch(() => {});
+      await b.query('rollback').catch(() => {});
+      l.release();
+      b.release();
+    }
+  });
+
+  it('a leitura das Conversas agora vai pelo índice por hora (367): não lê o histórico inteiro da empresa', async () => {
+    // Uma empresa à parte com 3.000 mensagens antigas e nenhuma loja escolhida (loja única, presidente) — o caso em que o
+    // índice da 366 (empresa, loja, hora) não serve.
+    const T3 = randomUUID();
+    await q(`insert into empresa (id, nome) values ($1, 'teste plano do chat')`, [T3]);
+    try {
+      await q(
+        `insert into chat_plataforma_msg (tenant_id, canal, pedido_externo, direcao, autor, texto, estado, criado_em)
+         select $1, 'ifood', 'velho-' || (g % 300), 'entrada', 'cliente', 'antiga', 'recebida', now() - make_interval(days => 2 + g % 60)
+           from generate_series(1, 3000) g`,
+        [T3],
+      );
+      await msg('ifood-novo', { min: 3, tenant: T3, unidade: null });
+      await q('analyze chat_plataforma_msg');
+      const r = await db.execute(sql`explain (format json) ${chat.sqlDasConversasAgora(T3, null)}`);
+      const nos: any[] = [];
+      const andar = (n: any) => {
+        nos.push(n);
+        for (const f of n.Plans ?? []) andar(f);
+      };
+      andar((r.rows ?? r)[0]['QUERY PLAN'][0].Plan);
+      expect(nos.filter((n) => n['Relation Name'] === 'chat_plataforma_msg').map((n) => n['Node Type'])).not.toContain('Seq Scan');
+      // No Postgres 16 (CI) e 17 (produção) só o índice da 367 lê o intervalo; do 18 em diante o da 366 também (pula a loja).
+      const [{ v }] = await q(`select current_setting('server_version_num')::int as v`);
+      const aceitos = v < 180000 ? ['idx_chat_msg_empresa_hora'] : ['idx_chat_msg_empresa_hora', 'idx_chat_msg_loja'];
+      const leituras = nos.filter((n) => aceitos.includes(n['Index Name']));
+      expect(leituras.length).toBeGreaterThan(0);
+      // e o índice corta pela hora (o intervalo do último dia), não só pela empresa
+      for (const n of leituras) expect(String(n['Index Cond'] ?? '')).toContain('criado_em');
+      expect(await chavesAgora(null, T3)).toEqual(['ext:ifood-novo']);
+    } finally {
+      await q(`delete from chat_plataforma_msg where tenant_id = $1`, [T3]);
+      await q(`delete from empresa where id = $1`, [T3]);
     }
   });
 });

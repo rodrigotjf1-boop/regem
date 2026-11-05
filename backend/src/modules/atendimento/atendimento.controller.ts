@@ -55,6 +55,24 @@ export class AtendimentoController {
     return this.chat.conversa(user, id);
   }
 
+  // "CONVERSAS AGORA" (protótipo v3): as conversas do chat do iFood e da 99 que o robô (ou os avisos) atende, sem caso
+  // aberto, na última hora. Só na nuvem (as mensagens moram lá — no servidor da loja, como a faixa, não aparece).
+  @Get('conversas-agora')
+  @CloudOnly()
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
+  conversasAgora(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
+    return this.chat.conversasAgora(user.tenantId, unidade);
+  }
+
+  // "Assumir a conversa": o caso nasce com quem assumiu e o robô fica quieto. Só quem responde no chat (a gestão, como
+  // `POST :id/chat`): assumir sem poder responder calaria o robô e deixaria o cliente sem ninguém.
+  @Post('conversas-agora/assumir')
+  @CloudOnly()
+  @Roles('presidente', 'gerente', 'supervisao')
+  assumirConversa(@CurrentUser() user: AuthUser, @Body() dto: { canal?: unknown; chave?: unknown }) {
+    return this.chat.assumir(user, dto);
+  }
+
   // A resposta da equipe no chat da plataforma: entra na fila de saída e a ponte do PC da loja digita. Responde a gestão,
   // como no WhatsApp do caso.
   @Post(':id/chat')

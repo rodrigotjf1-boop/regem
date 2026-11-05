@@ -19,19 +19,25 @@ import { FaixaDaPonte } from '@/components/atendimento/faixa-da-ponte';
 import { ConversaDoCaso } from '@/components/atendimento/conversa-do-caso';
 import { ChatDaPlataforma } from '@/components/atendimento/chat-da-plataforma';
 import { EnderecoDepoisQueSaiu } from '@/components/atendimento/endereco-depois-que-saiu';
+import { ListaDeConversas } from '@/components/atendimento/lista-de-conversas';
+import { ConversaDoRobo } from '@/components/atendimento/conversa-do-robo';
 import { enderecoDoCaso } from '@/lib/endereco-do-caso';
 import {
   CASO_DA_PLATAFORMA,
   ROTULO_DO_CANAL,
   ROTULO_DO_TIPO,
+  STATUS_DO_PEDIDO,
   escaladoDe,
   hora,
+  idDaConversa,
   relerFila,
   tempoAte,
   tempoDesde,
+  tituloDaConversa,
   tituloDoCaso,
   useFilaDeAtendimento,
   type CasoDaFila,
+  type ConversaAgora,
 } from '@/lib/atendimento';
 
 // CENTRAL DE ATENDIMENTO — a tela "Atendimento" (Onda 1, PR 1b; protótipo `mockups/regem-central-atendimento.html`,
@@ -39,25 +45,20 @@ import {
 // urgente, quem espera há mais tempo); o caso ao lado quando a peça tem espaço (≥ 900 px), numa gaveta por cima quando
 // não tem — decide-se pelo espaço da área, não pela janela (ERR-219). A fila vem do alerta do Shell (uma leitura só).
 
-const STATUS_DO_PEDIDO: Record<string, string> = {
-  novo: 'Novo',
-  confirmado: 'Em produção',
-  pronto: 'Pronto',
-  despachado: 'Em rota',
-  entregue: 'Entregue',
-  concluido: 'Concluído',
-  cancelado: 'Cancelado',
-};
-
-type Sit = 'abertos' | 'prazo' | 'fila' | 'comigo' | 'aguardando' | 'resolvidos';
+// "Conversas agora" (ponte do chat, protótipo v3): as conversas do chat do iFood e da 99 sem caso aberto — só aparece com
+// a ponte ligada (na nuvem; no servidor da loja a situação da ponte não vem).
+type Sit = 'abertos' | 'prazo' | 'fila' | 'comigo' | 'aguardando' | 'conversas' | 'resolvidos';
 const SITUACOES: { k: Sit; rotulo: string; critico?: boolean }[] = [
   { k: 'abertos', rotulo: 'Abertos' },
   { k: 'prazo', rotulo: 'Com prazo', critico: true },
   { k: 'fila', rotulo: 'Na fila' },
   { k: 'comigo', rotulo: 'Comigo' },
   { k: 'aguardando', rotulo: 'Aguardando o cliente' },
+  { k: 'conversas', rotulo: 'Conversas agora' },
   { k: 'resolvidos', rotulo: 'Resolvidos hoje' },
 ];
+/** Quem responde no chat da plataforma (e por isso pode assumir a conversa do robô): a gestão — o servidor confere. */
+const GESTAO = ['presidente', 'gerente', 'supervisao'];
 
 export default function AtendimentoPage() {
   // `eu` vem do servidor com a fila: marca "Comigo" e "você" (o servidor confere tudo de novo em cada ação).
@@ -73,6 +74,14 @@ export default function AtendimentoPage() {
   const [agora, setAgora] = useState<number | null>(null); // hora só depois de montar (V35)
   const [duplo, setDuplo] = useState(true);
   const corpo = useRef<HTMLDivElement>(null);
+  // "Conversas agora": a lista, se o robô do chat está ligado, a conversa aberta e se quem está na tela pode assumir.
+  const [conversas, setConversas] = useState<ConversaAgora[] | null>(null);
+  const [erroConversas, setErroConversas] = useState(false);
+  const [roboResponde, setRoboResponde] = useState(false);
+  const [conversaSel, setConversaSel] = useState<string | null>(null);
+  const [podeAssumir, setPodeAssumir] = useState(false);
+  const comPonte = ponte?.ligada === true;
+  const naConversa = sit === 'conversas';
 
   useEffect(() => {
     setAgora(Date.now());
@@ -120,6 +129,40 @@ export default function AtendimentoPage() {
     if (sit === 'resolvidos') void lerResolvidos();
   }, [sit, lerResolvidos]);
 
+  // Só a leitura mais nova vale (V64): a de 15 s e a que segue a fila podem se cruzar.
+  const leituraDasConversas = useRef(0);
+  const lerConversas = useCallback(async () => {
+    const n = ++leituraDasConversas.current;
+    try {
+      const r: any = await api.atendimentoConversasAgora();
+      if (n !== leituraDasConversas.current) return;
+      setConversas(Array.isArray(r?.conversas) ? (r.conversas as ConversaAgora[]) : []);
+      setRoboResponde(r?.roboResponde === true);
+      setErroConversas(false);
+    } catch {
+      // Falhou: o que já estava fica, marcado como "não li agora" — nunca vira "nenhuma conversa" (V37).
+      if (n === leituraDasConversas.current) setErroConversas(true);
+    }
+  }, []);
+  // Com a ponte ligada: ao abrir, sempre que um caso do chat abre ou fecha (a conversa sai daqui quando vira caso e volta
+  // quando ele é resolvido) e a cada 15 s com a aba à vista.
+  const casosDoChat = useMemo(() => casos.filter((c) => c.tipo === 'chat').map((c) => c.id).join(','), [casos]);
+  useEffect(() => {
+    if (comPonte) void lerConversas();
+  }, [comPonte, casosDoChat, lerConversas]);
+  useEffect(() => {
+    if (!comPonte) return;
+    const t = setInterval(() => {
+      if (document.visibilityState === 'visible') void lerConversas();
+    }, 15_000);
+    return () => clearInterval(t);
+  }, [comPonte, lerConversas]);
+  // A ponte desligou: a situação some e a tela volta para "Abertos".
+  useEffect(() => {
+    if (!comPonte && sit === 'conversas') setSit('abertos');
+  }, [comPonte, sit]);
+  useEffect(() => setPodeAssumir(GESTAO.includes(getCategoria() ?? '')), []);
+
   const base = sit === 'resolvidos' ? resolvidos ?? [] : casos;
   const responsaveis = useMemo(
     () => [...new Map(casos.filter((c) => c.responsavelId).map((c) => [c.responsavelId!, c.responsavelNome ?? 'Alguém'])).entries()],
@@ -147,6 +190,7 @@ export default function AtendimentoPage() {
     if (k === 'prazo') return casos.filter((c) => c.prazoEm).length;
     if (k === 'fila') return casos.filter((c) => c.situacao === 'fila' && !c.prazoEm).length;
     if (k === 'comigo') return casos.filter((c) => eu && c.responsavelId === eu).length;
+    if (k === 'conversas') return conversas?.length ?? 0;
     return casos.filter((c) => c.situacao === 'aguardando').length;
   };
   const limpar = () => {
@@ -156,6 +200,36 @@ export default function AtendimentoPage() {
     setQuem('');
     setSit('abertos');
   };
+  const irPara = (k: Sit) => {
+    setSit(k);
+    setFolha(false); // o que estava aberto por cima era da outra situação
+  };
+
+  // As conversas que passam na busca e no canal (motivo e "com quem" são de caso: nem aparecem nesta situação).
+  const conversasVisiveis = useMemo(() => {
+    const q = semAcento(busca.trim());
+    return (conversas ?? []).filter((c) => (!q || semAcento(tituloDaConversa(c)).includes(q)) && (!canal || c.canal === canal));
+  }, [conversas, busca, canal]);
+  const conversa = useMemo(() => (conversas ?? []).find((c) => idDaConversa(c) === conversaSel) ?? null, [conversas, conversaSel]);
+  // A conversa aberta virou caso (ou saiu da última hora): na coluna da direita aparece a primeira da lista.
+  const conversaNaColuna = conversa ?? conversasVisiveis[0] ?? null;
+  const abrirConversa = (id: string) => {
+    setConversaSel(id);
+    if (!duplo) setFolha(true);
+  };
+  // Assumiu: a conversa virou caso com a pessoa — a tela vai para "Comigo" com ele aberto. Não deu (outra pessoa assumiu,
+  // a conversa saiu do chat): relê as duas listas.
+  const depoisDeAssumir = useCallback(
+    async (casoId: string | null) => {
+      await relerFila();
+      void lerConversas();
+      if (!casoId) return;
+      setSit('comigo');
+      setSelecionado(casoId);
+      if (!duplo) setFolha(true);
+    },
+    [duplo, lerConversas],
+  );
 
   const caso = useMemo(
     () => [...casos, ...(resolvidos ?? [])].find((c) => c.id === selecionado) ?? null,
@@ -184,7 +258,22 @@ export default function AtendimentoPage() {
           </h2>
           <p className="text-sm text-secondary-foreground" role="status" aria-live="polite">
             {contagens ? `${contagens.comPrazo} com prazo · ${contagens.naFila} na fila · ` : ''}
-            as conversas que o robô atende sozinho ficam em{' '}
+            {comPonte && conversas !== null && (
+              <>
+                {roboResponde
+                  ? `o robô está em ${conversas.length === 1 ? '1 conversa' : `${conversas.length} conversas`} no iFood e na 99 (`
+                  : `${conversas.length === 1 ? '1 conversa' : `${conversas.length} conversas`} no chat do iFood e da 99 sem caso (`}
+                <button
+                  type="button"
+                  onClick={() => irPara('conversas')}
+                  className="font-semibold text-foreground underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  ver em Conversas agora
+                </button>
+                {') · '}
+              </>
+            )}
+            as conversas que o robô atende sozinho {comPonte ? 'no WhatsApp ' : ''}ficam em{' '}
             <Link href="/whatsapp" className="font-semibold text-foreground underline underline-offset-2">
               Delivery › WhatsApp
             </Link>
@@ -198,14 +287,14 @@ export default function AtendimentoPage() {
         <ChatDoIfood />
 
         <div className="flex flex-wrap gap-2" role="group" aria-label="Situação">
-          {SITUACOES.map((s) => {
+          {SITUACOES.filter((s) => s.k !== 'conversas' || comPonte).map((s) => {
             const ligada = sit === s.k;
             return (
               <button
                 key={s.k}
                 type="button"
                 aria-pressed={ligada}
-                onClick={() => setSit(s.k)}
+                onClick={() => irPara(s.k)}
                 className={`inline-flex min-h-10 items-center gap-2 whitespace-nowrap rounded-md border px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                   ligada ? 'border-foreground bg-foreground text-background' : 'border-input bg-card text-secondary-foreground hover:text-foreground'
                 }`}
@@ -233,22 +322,26 @@ export default function AtendimentoPage() {
             todos="Todos"
             opcoes={Object.entries(ROTULO_DO_CANAL).map(([v, rotulo]) => ({ v, rotulo }))}
           />
-          <FiltroSelect
-            id="filtro-motivo"
-            rotulo="Motivo"
-            valor={tipo}
-            aoMudar={setTipo}
-            todos="Todos"
-            opcoes={Object.entries(ROTULO_DO_TIPO).map(([v, rotulo]) => ({ v, rotulo }))}
-          />
-          <FiltroSelect
-            id="filtro-quem"
-            rotulo="Com quem"
-            valor={quem}
-            aoMudar={setQuem}
-            todos="Qualquer um"
-            opcoes={[{ v: '-', rotulo: 'Ninguém ainda' }, ...responsaveis.map(([v, nome]) => ({ v, rotulo: v === eu ? `${nome} (você)` : nome }))]}
-          />
+          {!naConversa && (
+            <>
+              <FiltroSelect
+                id="filtro-motivo"
+                rotulo="Motivo"
+                valor={tipo}
+                aoMudar={setTipo}
+                todos="Todos"
+                opcoes={Object.entries(ROTULO_DO_TIPO).map(([v, rotulo]) => ({ v, rotulo }))}
+              />
+              <FiltroSelect
+                id="filtro-quem"
+                rotulo="Com quem"
+                valor={quem}
+                aoMudar={setQuem}
+                todos="Qualquer um"
+                opcoes={[{ v: '-', rotulo: 'Ninguém ainda' }, ...responsaveis.map(([v, nome]) => ({ v, rotulo: v === eu ? `${nome} (você)` : nome }))]}
+              />
+            </>
+          )}
         </Filtros>
 
         <div
@@ -258,26 +351,65 @@ export default function AtendimentoPage() {
           <section aria-labelledby="titulo-fila" className="min-w-0 space-y-2">
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 px-0.5">
               <h3 id="titulo-fila" className="font-display text-base font-bold">
-                {sit === 'resolvidos' ? 'Resolvidos hoje' : 'Fila'}
+                {sit === 'resolvidos' ? 'Resolvidos hoje' : naConversa ? 'Conversas agora' : 'Fila'}
               </h3>
-              {sit !== 'resolvidos' && (
-                <span className="text-xs text-secondary-foreground">Ordem: prazo vencendo, depois urgente, depois quem espera há mais tempo</span>
+              {naConversa ? (
+                <span className="text-xs text-secondary-foreground">Chat do iFood e da 99 · última hora · sem caso aberto</span>
+              ) : (
+                sit !== 'resolvidos' && (
+                  <span className="text-xs text-secondary-foreground">Ordem: prazo vencendo, depois urgente, depois quem espera há mais tempo</span>
+                )
               )}
             </div>
-            <ListaDaFila
-              casos={visiveis}
-              lida={sit === 'resolvidos' ? resolvidos !== null : lida}
-              erro={sit !== 'resolvidos' && erro}
-              vazioPorFiltro={base.length > 0}
-              selecionado={duplo ? casoNaColuna?.id ?? null : selecionado}
-              agora={agora}
-              eu={eu}
-              aoAbrir={abrir}
-              aoLimpar={limpar}
-            />
+            {naConversa ? (
+              <ListaDeConversas
+                conversas={conversas === null ? null : conversasVisiveis}
+                erro={erroConversas}
+                vazioPorFiltro={(conversas?.length ?? 0) > 0}
+                roboResponde={roboResponde}
+                selecionada={duplo ? (conversaNaColuna ? idDaConversa(conversaNaColuna) : null) : conversaSel}
+                agora={agora}
+                aoAbrir={abrirConversa}
+                aoLimpar={() => {
+                  setBusca('');
+                  setCanal('');
+                }}
+              />
+            ) : (
+              <ListaDaFila
+                casos={visiveis}
+                lida={sit === 'resolvidos' ? resolvidos !== null : lida}
+                erro={sit !== 'resolvidos' && erro}
+                vazioPorFiltro={base.length > 0}
+                selecionado={duplo ? casoNaColuna?.id ?? null : selecionado}
+                agora={agora}
+                eu={eu}
+                aoAbrir={abrir}
+                aoLimpar={limpar}
+              />
+            )}
           </section>
 
-          {duplo && (
+          {duplo && naConversa && (
+            <div className="min-w-0">
+              {conversaNaColuna ? (
+                <Card className="min-w-0">
+                  <ConversaDoRobo
+                    key={idDaConversa(conversaNaColuna)}
+                    conversa={conversaNaColuna}
+                    roboResponde={roboResponde}
+                    podeAssumir={podeAssumir}
+                    aoAssumir={depoisDeAssumir}
+                  />
+                </Card>
+              ) : (
+                <div className="rounded-lg border border-dashed border-input bg-card px-4 py-10 text-center text-sm text-secondary-foreground">
+                  {conversas === null ? 'Carregando…' : 'Quando alguém escrever no chat do iFood ou da 99, a conversa abre aqui.'}
+                </div>
+              )}
+            </div>
+          )}
+          {duplo && !naConversa && (
             <div className="min-w-0">
               {casoNaColuna ? (
                 <Card className="min-w-0">
@@ -293,7 +425,19 @@ export default function AtendimentoPage() {
         </div>
       </div>
 
-      {!duplo && folha && caso && (
+      {!duplo && folha && naConversa && conversa && (
+        <Gaveta titulo={tituloDaConversa(conversa)} media aoFechar={() => setFolha(false)} fecharNoFundo>
+          <ConversaDoRobo
+            key={idDaConversa(conversa)}
+            conversa={conversa}
+            roboResponde={roboResponde}
+            podeAssumir={podeAssumir}
+            aoAssumir={depoisDeAssumir}
+            semTitulo
+          />
+        </Gaveta>
+      )}
+      {!duplo && folha && !naConversa && caso && (
         <Gaveta titulo={tituloDoCaso(caso)} media aoFechar={() => setFolha(false)} fecharNoFundo>
           <Caso caso={caso} agora={agora} eu={eu} aoMudar={depoisDeMudar} semTitulo />
         </Gaveta>

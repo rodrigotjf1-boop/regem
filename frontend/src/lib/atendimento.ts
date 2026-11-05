@@ -168,6 +168,17 @@ export const ROTULO_DO_TIPO: Record<string, string> = {
   chat: 'Mensagem no chat',
 };
 
+/** A situação do pedido ligado ao caso ou à conversa, como a equipe fala. */
+export const STATUS_DO_PEDIDO: Record<string, string> = {
+  novo: 'Novo',
+  confirmado: 'Em produção',
+  pronto: 'Pronto',
+  despachado: 'Em rota',
+  entregue: 'Entregue',
+  concluido: 'Concluído',
+  cancelado: 'Cancelado',
+};
+
 /** Casos que se resolvem pela resposta à plataforma (ou pelo prazo): "aguardar" e "resolver" à mão os esconderiam. */
 export const CASO_DA_PLATAFORMA = new Set(['disputa', 'cancelamento_99', 'reembolso_99']);
 
@@ -178,6 +189,44 @@ export function tituloDoCaso(c: CasoDaFila): string {
   const numero = c.pedidoNaPlataforma && plataforma ? c.pedidoNaPlataforma : c.pedidoNumero;
   if (!numero) return quem;
   return `${quem} · pedido ${plataforma ? `${plataforma} ` : '#'}${numero}`;
+}
+
+/** Uma mensagem do chat do iFood/99 (a conversa do pedido). */
+export type MensagemDaConversa = {
+  id: string;
+  direcao: 'entrada' | 'saida';
+  autor: 'cliente' | 'loja' | 'robo' | 'equipe' | 'aviso';
+  texto: string;
+  estado: string;
+  motivo: string | null;
+  em: string;
+};
+/** "Conversas agora" (ponte do chat): a conversa do chat do iFood/99 que o robô (ou os avisos) atende, sem caso aberto. */
+export type ConversaAgora = {
+  canal: 'ifood' | '99food';
+  chave: string;
+  ultima: string;
+  cliente: string | null;
+  pedidoId: string | null;
+  pedidoNumero: string | null;
+  pedidoStatus: string | null;
+  mensagens: MensagemDaConversa[];
+};
+export const idDaConversa = (c: { canal: string; chave: string }) => `${c.canal}|${c.chave}`;
+/** "Maria S. · pedido iFood 4821" — como o título do caso. */
+export function tituloDaConversa(c: ConversaAgora): string {
+  const plataforma = c.canal === 'ifood' ? 'iFood' : '99Food';
+  return `${c.cliente || 'Cliente'}${c.pedidoNumero ? ` · pedido ${plataforma} ${c.pedidoNumero}` : ` · chat ${c.canal === 'ifood' ? 'do iFood' : 'da 99'}`}`;
+}
+/** O que aconteceu por último: a fala do cliente e, se houve, o que o robô (ou o aviso) disse depois. */
+export function resumoDaConversa(c: ConversaAgora): string {
+  const ultimaDoCliente = [...c.mensagens].reverse().find((m) => m.direcao === 'entrada' && m.autor === 'cliente');
+  const ultima = c.mensagens[c.mensagens.length - 1];
+  if (ultima && ultima.direcao === 'saida') {
+    const quem = ultima.autor === 'aviso' ? 'aviso automático' : ultima.autor === 'robo' ? 'o robô' : 'a equipe';
+    return ultimaDoCliente ? `"${ultimaDoCliente.texto}" · ${quem} respondeu` : `${quem}: ${ultima.texto}`;
+  }
+  return ultimaDoCliente ? `"${ultimaDoCliente.texto}"` : ultima?.texto ?? '';
 }
 
 /** "agora", "4 min", "1 h 20 min" desde o instante. */

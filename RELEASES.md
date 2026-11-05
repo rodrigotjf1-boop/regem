@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Ponte do chat — "Conversas agora" (05/11; mig 367 só na nuvem: a ordem das mensagens e dois índices).** Na nuvem com
+  o merge: com a ponte ligada, a tela Atendimento ganha a situação "Conversas agora" — as conversas do chat do iFood e da
+  99 da última hora sem caso aberto (o que o robô e os avisos atendem), com "Assumir a conversa" (gestão); a resposta do
+  robô não aparece mais antes da pergunta (ERR-379). **No `.zip` 1.30.13:** só a tela,
+  que fica ESCONDIDA no servidor da loja (a situação da ponte não vem lá; as rotas são da nuvem); nada no `sync`/`edge`;
+  a 367 não vai à loja (`@cloud-only`).
+
 - **Ponte do chat do iFood e da 99 — Etapa 3, o robô no chat (05/11; sem migration).** Na nuvem com o merge: com
   "Robô responde no chat" ligado (nasce DESLIGADO), o robô responde o "cadê meu pedido?" pelo dado do pedido e chama a
   equipe no resto (o caso nasce com o resumo dele). **No `.zip` 1.30.13:** só a tela (o campo novo no grupo da ponte, que
