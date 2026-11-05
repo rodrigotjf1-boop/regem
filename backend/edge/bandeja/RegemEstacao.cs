@@ -18,11 +18,17 @@
 // Uso: RegemEstacao.exe --raiz "C:\regem-edge\estacao" [--porta 17311] [--abrir painel|trocar|parear]
 //      RegemEstacao.exe --raiz ... --diagnostico <arquivo>   (le o estado uma vez, grava o que o
 //                                                            icone mostraria e sai - para teste)
+//      RegemEstacao.exe --ponte <arquivo> --chamar-ponte abrir|pausar|retomar   (o item da ponte do chat, sem
+//                                                            abrir o icone - para teste)
+// A ponte do chat (peca 6): num PC onde o programa da ponte roda, o menu ganha a linha dela e "Abrir a ponte do chat",
+// "Pausar/Retomar a ponte do chat" (classe Ponte).
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Globalization;
 using System.IO;
 using System.Media;
 using System.Net;
@@ -286,6 +292,104 @@ namespace Regem.Estacao
         }
     }
 
+    // ===== a ponte do chat neste PC (peca 6 do prototipo de conexao, "o icone do Regem") =====
+    // O programa "Regem Ponte do chat" (ponte-chat/) grava o estado dele em %APPDATA%\Regem Ponte do chat\
+    // estado-da-ponte.json (a cada sinal de vida, ~30 s, e a cada mudanca) e atende --abrir, --pausar e --retomar: abrir
+    // o programa de novo com o comando entrega o pedido ao que ja esta aberto. O icone so le o arquivo e chama o
+    // programa - nada de rede. PC onde a ponte nunca rodou: nenhuma linha. As palavras seguem as da janela da ponte
+    // (ponte-chat/src/estado-local.js, `selo`).
+    public static class Ponte
+    {
+        public static string Arquivo = Path.Combine(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Regem Ponte do chat"), "estado-da-ponte.json");
+        // aberta = o programa gravou o estado ha ate 2 min (o sinal de vida e de 30 s; o mesmo prazo da nuvem)
+        public const int AbertaPorSegundos = 120;
+        static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
+
+        public static Dictionary<string, object> Ler()
+        {
+            try
+            {
+                if (!File.Exists(Arquivo)) return null;
+                return Json.DeserializeObject(File.ReadAllText(Arquivo, Encoding.UTF8)) as Dictionary<string, object>;
+            }
+            catch { return null; } // meio gravado ou estragado: na proxima leitura vem certo
+        }
+
+        public static bool Aberta(Dictionary<string, object> d, DateTime agoraUtc)
+        {
+            DateTime em;
+            if (d == null || !DateTime.TryParse(E.Txt(d, "atualizadoEm"), CultureInfo.InvariantCulture,
+                    DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out em)) return false;
+            double s = (agoraUtc - em).TotalSeconds;
+            return s >= -60 && s <= AbertaPorSegundos;
+        }
+
+        // "Ponte do chat: responde o chat - iFood logado". Sem o arquivo (PC sem a ponte): null.
+        public static string Linha(Dictionary<string, object> d, DateTime agoraUtc)
+        {
+            if (d == null) return null;
+            if (!Aberta(d, agoraUtc)) return "Ponte do chat: fechada neste PC";
+            string s;
+            if (E.Sim(d, "soObservar")) s = "so observando";
+            else if (!E.Sim(d, "pareada")) s = "falta parear";
+            else if (E.Txt(d, "pausadaEm") != "") s = "pausada neste PC";
+            else if (E.Txt(d, "nuvem") == "revogado") s = "revogada";
+            else if (E.Txt(d, "nuvem") != "ok") s = "sem a nuvem";
+            else if (!E.Sim(d, "ligada")) s = "desligada nos ajustes";
+            else if (E.Txt(d, "papel") == "responde") s = "responde o chat";
+            else if (E.Txt(d, "papel") == "reserva") s = "reserva";
+            else s = "no ar";
+            return "Ponte do chat: " + s + " - iFood " + (E.Sim(E.Obj(d, "ifood"), "logado") ? "logado" : "sem login");
+        }
+
+        // Os itens do menu ({texto, comando}): abrir (a janela do estado; fechada, o programa abre) e, com a ponte aberta e
+        // pareada, pausar ou retomar. Sem o programa no PC (o executavel sumiu): nenhum.
+        public static List<string[]> Itens(Dictionary<string, object> d, DateTime agoraUtc)
+        {
+            List<string[]> r = new List<string[]>();
+            if (d == null || Exe(d) == null) return r;
+            r.Add(new string[] { "Abrir a ponte do chat", "--abrir" });
+            if (Aberta(d, agoraUtc) && E.Sim(d, "pareada") && !E.Sim(d, "soObservar"))
+                r.Add(E.Txt(d, "pausadaEm") != "" ? new string[] { "Retomar a ponte do chat", "--retomar" } : new string[] { "Pausar a ponte do chat", "--pausar" });
+            return r;
+        }
+
+        // O executavel, como o programa da ponte gravou - so o dela (ou o electron.exe de quem desenvolve) e que exista:
+        // o icone nao abre outro programa pelo arquivo.
+        public static string Exe(Dictionary<string, object> d)
+        {
+            string exe = E.Txt(E.Obj(d, "abrir"), "exe");
+            if (exe == "" || !Path.IsPathRooted(exe)) return null;
+            string nome = Path.GetFileName(exe).ToLowerInvariant();
+            if (nome != "regem ponte do chat.exe" && nome != "electron.exe") return null;
+            return File.Exists(exe) ? exe : null;
+        }
+
+        public static string Argumentos(Dictionary<string, object> d, string comando)
+        {
+            StringBuilder sb = new StringBuilder();
+            object v;
+            Dictionary<string, object> a = E.Obj(d, "abrir");
+            if (a != null && a.TryGetValue("args", out v) && v is IEnumerable && !(v is string))
+                foreach (object x in (IEnumerable)v)
+                    if (x != null) sb.Append('"').Append(Convert.ToString(x).Replace("\"", "")).Append("\" ");
+            sb.Append(comando);
+            return sb.ToString();
+        }
+
+        // Chama o programa da ponte com o comando: o que ja esta aberto atende; fechado, abre e atende.
+        public static void Chamar(Dictionary<string, object> d, string comando)
+        {
+            if (comando != "--abrir" && comando != "--pausar" && comando != "--retomar") throw new Exception("comando desconhecido");
+            string exe = Exe(d);
+            if (exe == null) throw new Exception("o programa da ponte nao foi encontrado neste PC");
+            ProcessStartInfo pi = new ProcessStartInfo(exe, Argumentos(d, comando));
+            pi.UseShellExecute = false;
+            pi.WorkingDirectory = Path.GetDirectoryName(exe);
+            Process.Start(pi);
+        }
+    }
+
     // ===== o icone =====
     public class Bandeja : ApplicationContext
     {
@@ -497,6 +601,20 @@ namespace Regem.Estacao
                 if (E.Sim(estado, "pareada"))
                     Rotulo(string.Format("Fila: {0} cupom(ns){1}", fila, retidos > 0 ? string.Format(" - {0} esperando decisao", retidos) : ""));
             }
+            // A ponte do chat neste PC (peca 6): a linha e os itens, so num PC onde o programa da ponte ja rodou. Le o
+            // arquivo da ponte ao abrir o menu (nao depende do servico da impressao).
+            Dictionary<string, object> ponte = Ponte.Ler();
+            string linhaDaPonte = Ponte.Linha(ponte, DateTime.UtcNow);
+            if (linhaDaPonte != null)
+            {
+                menu.Items.Add(new ToolStripSeparator());
+                Rotulo(linhaDaPonte);
+                foreach (string[] it in Ponte.Itens(ponte, DateTime.UtcNow))
+                {
+                    string comando = it[1];
+                    Item(it[0], delegate { ChamarPonte(ponte, comando); });
+                }
+            }
             menu.Items.Add(new ToolStripSeparator());
             Item("Abrir o painel", delegate { AbrirPainel(); });
             Item("Testar conexao com o servidor", delegate { TestarConexao(); });
@@ -522,6 +640,12 @@ namespace Regem.Estacao
             Item("Parear com codigo...", delegate { Parear(); }); // sempre (parte 2): com aviso se ja pareada
             menu.Items.Add(new ToolStripSeparator());
             Item("Esconder o icone (a impressao continua)", delegate { icone.Visible = false; ExitThread(); });
+        }
+
+        void ChamarPonte(Dictionary<string, object> ponte, string comando)
+        {
+            try { Ponte.Chamar(ponte, comando); }
+            catch (Exception e) { Balao("Ponte do chat", "Nao deu para chamar a ponte: " + e.Message, ToolTipIcon.Warning); }
         }
 
         void Rotulo(string texto) { Rotulo(texto, false); }
@@ -1116,18 +1240,26 @@ namespace Regem.Estacao
         static int Main(string[] args)
         {
             Painel p = new Painel();
-            string diagnostico = null, abrir = null;
+            string diagnostico = null, abrir = null, chamarPonte = null;
             for (int i = 0; i < args.Length; i++)
             {
                 if (args[i] == "--raiz" && i + 1 < args.Length) p.Raiz = args[++i];
                 else if (args[i] == "--porta" && i + 1 < args.Length) p.Porta = int.Parse(args[++i]);
                 else if (args[i] == "--diagnostico" && i + 1 < args.Length) diagnostico = args[++i];
                 else if (args[i] == "--abrir" && i + 1 < args.Length) abrir = args[++i]; // painel | trocar | parear
+                else if (args[i] == "--ponte" && i + 1 < args.Length) Ponte.Arquivo = args[++i]; // outro arquivo da ponte (teste)
+                else if (args[i] == "--chamar-ponte" && i + 1 < args.Length) chamarPonte = args[++i]; // abrir | pausar | retomar (teste)
             }
             if (string.IsNullOrEmpty(p.Raiz))
                 p.Raiz = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), @"..\..\..\estacao"));
 
             if (diagnostico != null) return Diagnosticar(p, diagnostico);
+            // O que o item do menu faz, sem abrir o icone (teste): chama a ponte com o comando e sai.
+            if (chamarPonte != null)
+            {
+                try { Ponte.Chamar(Ponte.Ler(), "--" + chamarPonte); return 0; }
+                catch { return 2; }
+            }
 
             // Um icone por sessao do Windows.
             bool novo;
@@ -1171,14 +1303,27 @@ namespace Regem.Estacao
                 sb.AppendLine("retidos=" + E.Lista(est, "retidos").Count);
                 foreach (Dictionary<string, object> r in E.Lista(est, "recentes"))
                     sb.AppendLine(string.Format("recente={0}|{1}", E.Txt(r, "resumo"), E.Situacao(E.Txt(r, "situacao"))));
-                File.WriteAllText(arquivo, sb.ToString(), Encoding.UTF8);
+                File.WriteAllText(arquivo, sb.ToString() + PonteNoDiagnostico(), Encoding.UTF8);
                 return 0;
             }
             catch (Exception e)
             {
-                File.WriteAllText(arquivo, "erro=" + e.Message, Encoding.UTF8);
+                // a ponte vem mesmo sem o servico (o menu tambem a mostra sem ele)
+                File.WriteAllText(arquivo, "erro=" + e.Message + Environment.NewLine + PonteNoDiagnostico(), Encoding.UTF8);
                 return 2;
             }
+        }
+
+        // O que o menu mostraria da ponte do chat: a linha ("-" sem a ponte neste PC) e cada item com o que ele chamaria.
+        static string PonteNoDiagnostico()
+        {
+            StringBuilder sb = new StringBuilder();
+            Dictionary<string, object> ponte = Ponte.Ler();
+            string linha = Ponte.Linha(ponte, DateTime.UtcNow);
+            sb.AppendLine("ponte=" + (linha ?? "-"));
+            foreach (string[] it in Ponte.Itens(ponte, DateTime.UtcNow))
+                sb.AppendLine("ponteItem=" + it[0] + "|" + Ponte.Exe(ponte) + " " + Ponte.Argumentos(ponte, it[1]));
+            return sb.ToString();
         }
     }
 }

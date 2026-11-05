@@ -12,13 +12,20 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **A ponte do chat no ícone "Regem neste PC" (05/11; sem migration; ⚠️ pede `.exe` novo nos PCs).** O ícone da estação
+  (`edge/bandeja/RegemEstacao.cs`) lê o `estado-da-ponte.json` que o programa da ponte grava e, num PC onde a ponte roda,
+  mostra a linha "Ponte do chat: responde o chat - iFood logado" (pausada, fechada, sem login…) e os itens "Abrir a ponte
+  do chat" e "Pausar/Retomar a ponte do chat" (chama o programa da ponte com `--abrir`/`--pausar`/`--retomar`; só o
+  executável da ponte). **Só chega aos PCs clientes com o `.exe` novo** (o ícone deles muda só reinstalando); o `.zip`
+  troca o `edge\bandeja` apenas no PC do servidor. Nada muda no servidor nem na nuvem.
+
 - **Ponte do chat — "Pausar a ponte" e a janela "Estado da ponte" (05/11; mig 368 só na nuvem: `chat_ponte.pausada_em`).**
   Na nuvem com o merge: a ponte pausada no PC não responde nem fica de reserva (a reserva assume), e Equipamentos, a faixa
   do Atendimento e os ajustes dizem "pausada neste PC" e onde retomar. **No programa `ponte-chat/` 0.5.0** (ainda sem
   instalador — gerar sob comando): "Pausar/Retomar a ponte neste PC" no menu do ícone e na janela nova "Estado da ponte"
   (o clique no ícone); a pausa fica guardada no PC; os comandos `--abrir`, `--pausar` e `--retomar` (o programa aberto
-  atende) e o arquivo `estado-da-ponte.json` na pasta do programa — o canal com o ícone "Regem neste PC", que passa a
-  usá-los no próximo `.exe` (parte 2 da peça 6, ainda não feita). **No `.zip` 1.30.13:** só as telas.
+  atende) e o arquivo `estado-da-ponte.json` na pasta do programa — o canal com o ícone "Regem neste PC" (que passa a
+  usá-los no próximo `.exe` — ver o item acima). **No `.zip` 1.30.13:** só as telas.
 
 - **A faixa da ponte e "Conversas agora" no servidor da loja (05/11; sem migration).** Na nuvem com o merge: as rotas que
   o servidor da loja chama (`atendimento/ponte-da-loja`, `conversas-da-loja`, `conversas-da-loja/assumir`, token do
