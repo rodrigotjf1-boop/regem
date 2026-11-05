@@ -98,7 +98,7 @@ descrever('ponte do chat (Postgres)', () => {
 
   beforeAll(async () => {
     delete process.env.EDGE_MODE; // como NUVEM
-    for (const m of ['342_robo_pausa_e_config.sql', '366_ponte_do_chat.sql', '367_chat_ordem_e_indices.sql']) await aplicar(m);
+    for (const m of ['342_robo_pausa_e_config.sql', '366_ponte_do_chat.sql', '367_chat_ordem_e_indices.sql', '368_ponte_pausada.sql']) await aplicar(m);
     for (const t of [T, T2]) await q(`insert into empresa (id, nome) values ($1, 'teste ponte do chat')`, [t]);
     [{ id: lojaA }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja A') returning id`, [T]);
     [{ id: lojaB }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja B') returning id`, [T]);
@@ -110,7 +110,7 @@ descrever('ponte do chat (Postgres)', () => {
   beforeEach(async () => {
     delete process.env.EDGE_MODE;
     await q(`delete from chat_plataforma_msg where tenant_id = $1`, [T]);
-    await q(`update chat_ponte set papel = 'auto', visto_em = now() - interval '1 hour' where tenant_id = $1`, [T]);
+    await q(`update chat_ponte set papel = 'auto', visto_em = now() - interval '1 hour', pausada_em = null where tenant_id = $1`, [T]);
     await ligar(true);
   });
   afterAll(async () => {
@@ -240,6 +240,39 @@ descrever('ponte do chat (Postgres)', () => {
     );
     expect(linhas.map((l: any) => l.texto)).toEqual(falas);
     expect(linhas.slice(1).map((l: any) => l.depois)).toEqual([true, true, true]); // nenhuma hora repetida
+  });
+
+  it('pausada no PC (mig 368): não responde nem é reserva, a reserva assume e pega a fila; a hora fica a do 1º sinal; sem "pausada" retoma', async () => {
+    const d = await entrar(delivery);
+    const s = await entrar(servidor);
+    expect((await svc.estado(d, logada(true))).canais.ifood).toBe('responde');
+    expect((await svc.estado(s, logada(true))).canais.ifood).toBe('reserva');
+    // pausa o PC do delivery: ele diz "fora" em tudo (logado no iFood lá dentro — não é "sem login")
+    expect(await svc.estado(d, { ...logada(true, true), pausada: true })).toEqual({ ligada: true, canais: { ifood: 'fora', '99food': 'fora' } });
+    const [p1] = await q(`select pausada_em, plataformas from chat_ponte where equipamento_id = $1`, [delivery.id]);
+    expect(p1.pausada_em).toBeTruthy();
+    expect(p1.plataformas.ifood).toEqual({ logado: true });
+    // a reserva passa a responder e pega a fila; a pausada não pega nada
+    expect((await svc.estado(s, logada(true))).canais.ifood).toBe('responde');
+    const id = await saida(lojaA);
+    expect((await svc.pegar(d, { canal: 'ifood' })).itens).toEqual([]);
+    expect((await svc.pegar(s, { canal: 'ifood' })).itens.map((i: any) => i.id)).toEqual([id]);
+    // o 2º sinal pausado mantém a hora do 1º (a tela diz "pausada desde")
+    await q(`update chat_ponte set pausada_em = pausada_em - interval '10 minutes' where equipamento_id = $1`, [delivery.id]);
+    const [{ pausada_em: antes }] = await q(`select pausada_em from chat_ponte where equipamento_id = $1`, [delivery.id]);
+    await svc.estado(d, { ...logada(true), pausada: true });
+    const [{ pausada_em: depois }] = await q(`select pausada_em from chat_ponte where equipamento_id = $1`, [delivery.id]);
+    expect(new Date(depois).getTime()).toBe(new Date(antes).getTime());
+    // só `true` pausa (V15): "sim" ou 1 não é pausa
+    expect((await svc.estado(d, { ...logada(true), pausada: 'sim' })).canais.ifood).not.toBe('fora');
+    // retomada: o sinal sem `pausada` limpa a hora e a ponte volta à vez dela (pareada primeiro responde)
+    expect((await svc.estado(d, logada(true))).canais.ifood).toBe('responde');
+    expect((await q(`select pausada_em from chat_ponte where equipamento_id = $1`, [delivery.id]))[0].pausada_em).toBeNull();
+    // a ponte nova que já nasce pausada (1º sinal pausado) também fica anotada
+    const nova = await ponteNova(T, lojaA, 'Ponte que nasce pausada');
+    expect(await svc.estado(await entrar(nova), { ...logada(true), pausada: true })).toEqual({ ligada: true, canais: { ifood: 'fora', '99food': 'fora' } });
+    expect((await q(`select pausada_em from chat_ponte where equipamento_id = $1`, [nova.id]))[0].pausada_em).toBeTruthy();
+    await q(`delete from equipamento where id = $1`, [nova.id]);
   });
 
   it('fila de saída: só quem responde pega; duas chamadas juntas nunca pegam a mesma; a loja B não pega a da loja A', async () => {

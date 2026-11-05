@@ -67,7 +67,8 @@ export class PonteChatService {
       select cp.equipamento_id as id, cp.papel,
              extract(epoch from (now() - cp.visto_em)) * 1000 as idade_ms,
              extract(epoch from (now() - e.created_at)) * 1000 as cadastro_ms,
-             coalesce((cp.plataformas -> ${canal} ->> 'logado')::boolean, false) as logada
+             -- pausada no PC (mig 368) não responde: a vez passa para a reserva
+             coalesce((cp.plataformas -> ${canal} ->> 'logado')::boolean, false) and cp.pausada_em is null as logada
         from chat_ponte cp
         join equipamento e on e.id = cp.equipamento_id
        where cp.tenant_id = ${tenantId}::uuid
@@ -85,7 +86,11 @@ export class PonteChatService {
     return quemResponde(candidatas, agora);
   }
 
-  /** O sinal de vida da ponte. Devolve se a ponte está ligada e, por canal, o papel DESTA ponte. */
+  /**
+   * O sinal de vida da ponte. Devolve se a ponte está ligada e, por canal, o papel DESTA ponte. `pausada` (mig 368): a
+   * pessoa pausou a ponte NAQUELE PC — fica anotado desde quando (o 1º sinal pausado; os seguintes mantêm a hora) e a
+   * ponte não responde por canal nenhum (a reserva assume); o sinal sem `pausada: true` retoma.
+   */
   async estado(p: PonteCtx, dto: any): Promise<{ ligada: boolean; canais: Record<CanalDaPonte, PapelNoCanal> }> {
     const plataformas: Record<string, { logado: boolean }> = {};
     for (const c of CANAIS) {
@@ -94,17 +99,19 @@ export class PonteChatService {
     }
     const versao = versaoInformada(dto?.versao);
     const maquina = texto(dto?.maquina, 80);
+    const pausada = dto?.pausada === true;
     await this.db.execute(sql`
-      insert into chat_ponte (equipamento_id, tenant_id, unidade_id, plataformas, versao, maquina, visto_em, atualizado_em)
+      insert into chat_ponte (equipamento_id, tenant_id, unidade_id, plataformas, versao, maquina, visto_em, atualizado_em, pausada_em)
       values (${p.id}::uuid, ${p.tenantId}::uuid, ${p.unidadeId}::uuid, ${JSON.stringify(plataformas)}::jsonb,
-              ${versao}, ${maquina}, now(), now())
+              ${versao}, ${maquina}, now(), now(), case when ${pausada} then now() end)
       on conflict (equipamento_id) do update
          set tenant_id = excluded.tenant_id, unidade_id = excluded.unidade_id, plataformas = excluded.plataformas,
-             versao = excluded.versao, maquina = excluded.maquina, visto_em = now(), atualizado_em = now()`);
+             versao = excluded.versao, maquina = excluded.maquina, visto_em = now(), atualizado_em = now(),
+             pausada_em = case when ${pausada} then coalesce(chat_ponte.pausada_em, now()) end`);
     const ligada = await this.ligada(p.tenantId);
     const canais = {} as Record<CanalDaPonte, PapelNoCanal>;
     for (const c of CANAIS) {
-      if (!plataformas[c]?.logado) canais[c] = 'fora';
+      if (pausada || !plataformas[c]?.logado) canais[c] = 'fora';
       else canais[c] = (await this.quemRespondePeloCanal(p.tenantId, p.unidadeId, c)) === p.id ? 'responde' : 'reserva';
     }
     return { ligada, canais };

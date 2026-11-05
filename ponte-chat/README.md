@@ -64,6 +64,20 @@ Regem — e liga o chat à nuvem do Regem.
 
 **A 99 fica fora** por enquanto: ela aceita um login só (ERR-365) — abrir aqui derrubaria a 99 da loja.
 
+## O que a versão 0.5 soma (peça 6 do protótipo de conexão)
+
+- **Pausar a ponte neste PC** (menu do ícone e janela do estado; "Retomar a ponte neste PC" volta): pausada, não leva nada
+  ao Regem (o que chega no chat nesse tempo não fica guardado) e não pega a vez na fila de saída — a reserva assume. A
+  pausa fica guardada (`pausadaEm` em `ponte.json`): segue pausada depois de reiniciar, até alguém retomar. O sinal de
+  vida manda `pausada: true` e a nuvem anota desde quando (mig 368): Equipamentos e o Atendimento dizem "pausada neste PC".
+- **A janela "Estado da ponte"** (o clique no ícone, ou "Ver o estado da ponte"): o PC, um selo, UMA faixa com o que
+  fazer agora, a situação (Regem, iFood e o papel deste PC, 99, mensagens levadas, fila de saída, último aviso) e os
+  botões "Abrir o iFood", "Pausar/Retomar a ponte neste PC" e "Abrir o Atendimento".
+- **Os comandos** (para o ícone "Regem neste PC" do mesmo PC, e atalhos): `--abrir` (a janela do estado), `--pausar`,
+  `--retomar`, `--abrir-ifood`. Abrir o programa de novo com o comando entrega o pedido ao que já está aberto.
+- **`estado-da-ponte.json`** (na pasta de dados): o resumo do estado, gravado a cada sinal e a cada mudança — o que o
+  ícone "Regem neste PC" vai ler (no próximo `.exe`). Sem segredo nem conversa; leva o caminho do executável.
+
 **Pendências de teste no Gestor de verdade** (provado só com o Gestor de mentira): o 1º envio automático com o dono
 olhando, num pedido de entrega própria saindo; o "Fechar" da conversa e do resumo (o rótulo do X no Gestor real não está
 mapeado — sem ele, a tela fica na conversa); o "setter" com a janela escondida.
@@ -92,11 +106,13 @@ percebe e se reabre sem ela.
 | `REGEM_PONTE_SINAL_MS`, `REGEM_PONTE_FILA_MS` | intervalos menores na prova |
 | `REGEM_PONTE_SAIDA_MS`, `REGEM_PONTE_PARADA_MS`, `REGEM_PONTE_ESPERA_TELA_MS`, `REGEM_PONTE_ECO_MS` | a fila de saída na prova (5 s · 10 s de tela parada · 45 s de espera pela tela · 20 s pelo eco) |
 | `REGEM_PONTE_SO_OBSERVAR=1` | o mesmo que `npm run observar` |
+| `REGEM_PONTE_APP` | outro endereço do app no "Abrir o Atendimento" (padrão: `https://app.dmsregem.com`) |
 
 ## Onde guarda (neste PC)
 
 `%APPDATA%\Regem Ponte do chat\`: `ponte.json` (o pareamento, com o segredo cifrado, e o sal do diagnóstico),
-`diagnostico.jsonl` (marcas), `envios.jsonl` (o diário dos envios da fila: ids, sem texto) e a sessão do iFood (o perfil
+`diagnostico.jsonl` (marcas), `envios.jsonl` (o diário dos envios da fila: ids, sem texto), `estado-da-ponte.json` (o
+resumo do estado para o ícone "Regem neste PC") e a sessão do iFood (o perfil
 do navegador do programa). Apagar a pasta despareia o PC e
 sai do iFood nele.
 

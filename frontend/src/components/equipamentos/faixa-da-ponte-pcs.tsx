@@ -1,6 +1,7 @@
 'use client';
 
 import { porOndePassa } from '@/components/atendimento/faixa-da-ponte';
+import { COMO_RETOMAR_A_PONTE } from '@/lib/ponte-do-chat';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -44,7 +45,9 @@ export function FaixaDaPonteNosPcs({ lista, nomeDaLoja }: { lista: any[]; nomeDa
         ];
       });
     const semPc = canais.filter(([, c]) => !c.responde).map(([k]) => k);
-    return { u, canais, semPc, passa: porOndePassa(canais) };
+    // pausada pela pessoa no PC (mig 368), com sinal: a faixa diz onde retomar em vez de "entre no iFood"
+    const pausadas = daLoja.filter((e) => e.ponte.pausadaEm && e.ponte.viva).map(pcDa);
+    return { u, canais, semPc, pausadas, passa: porOndePassa(canais) };
   });
   const comAviso = linhas.some((l) => l.semPc.length);
   const semCanal = linhas.every((l) => !l.canais.length);
@@ -66,12 +69,21 @@ export function FaixaDaPonteNosPcs({ lista, nomeDaLoja }: { lista: any[]; nomeDa
           {l.semPc.length ? (
             <>
               <strong>Nenhum PC responde o chat {l.semPc.map((k) => NO[k]).join(' e ')} agora.</strong> O que o Regem manda no chat
-              espera a ponte voltar; o que passar de 30 min não sai mais. No PC da ponte, abra o programa Regem · Ponte do chat e entre{' '}
-              {l.semPc.map((k) => NO[k]).join(' e ')}.{l.passa ? ` · ${l.passa}` : ''}
+              espera a ponte voltar; o que passar de 30 min não sai mais.{' '}
+              {l.pausadas.length ? (
+                <>
+                  A ponte está pausada {l.pausadas.length > 1 ? 'nos PCs' : 'no PC'} {l.pausadas.join(' e ')}. {COMO_RETOMAR_A_PONTE}
+                </>
+              ) : (
+                <>
+                  No PC da ponte, abra o programa Regem · Ponte do chat e entre {l.semPc.map((k) => NO[k]).join(' e ')}.
+                </>
+              )}
+              {l.passa ? ` · ${l.passa}` : ''}
             </>
           ) : (
             <>
-              <strong>Ponte do chat em ordem:</strong> {l.passa}.
+              <strong>Ponte do chat em ordem:</strong> {l.passa}.{l.pausadas.length ? ` Pausada no ${l.pausadas.join(' e ')}.` : ''}
             </>
           )}
         </p>

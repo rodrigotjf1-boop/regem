@@ -12,6 +12,14 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Ponte do chat — "Pausar a ponte" e a janela "Estado da ponte" (05/11; mig 368 só na nuvem: `chat_ponte.pausada_em`).**
+  Na nuvem com o merge: a ponte pausada no PC não responde nem fica de reserva (a reserva assume), e Equipamentos, a faixa
+  do Atendimento e os ajustes dizem "pausada neste PC" e onde retomar. **No programa `ponte-chat/` 0.5.0** (ainda sem
+  instalador — gerar sob comando): "Pausar/Retomar a ponte neste PC" no menu do ícone e na janela nova "Estado da ponte"
+  (o clique no ícone); a pausa fica guardada no PC; os comandos `--abrir`, `--pausar` e `--retomar` (o programa aberto
+  atende) e o arquivo `estado-da-ponte.json` na pasta do programa — o canal com o ícone "Regem neste PC", que passa a
+  usá-los no próximo `.exe` (parte 2 da peça 6, ainda não feita). **No `.zip` 1.30.13:** só as telas.
+
 - **A faixa da ponte e "Conversas agora" no servidor da loja (05/11; sem migration).** Na nuvem com o merge: as rotas que
   o servidor da loja chama (`atendimento/ponte-da-loja`, `conversas-da-loja`, `conversas-da-loja/assumir`, token do
   servidor). **No `.zip` 1.30.13:** o servidor da loja passa a pedir à nuvem a faixa da ponte (guardada, sem a fila esperar
