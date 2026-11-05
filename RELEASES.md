@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **A faixa da ponte e "Conversas agora" no servidor da loja (05/11; sem migration).** Na nuvem com o merge: as rotas que
+  o servidor da loja chama (`atendimento/ponte-da-loja`, `conversas-da-loja`, `conversas-da-loja/assumir`, token do
+  servidor). **No `.zip` 1.30.13:** o servidor da loja passa a pedir à nuvem a faixa da ponte (guardada, sem a fila esperar
+  a internet) e "Conversas agora"/"Assumir a conversa"; a tela de lá passa a mostrar os dois. Nada no `sync`/`edge`.
+  **Conferir na loja depois de instalar.**
+
 - **PIX do cardápio online pela Rede — e.Rede (05/11; sem migration).** Na nuvem com o merge: o cardápio online cobra o
   PIX pela Rede como 3º gateway (nasce desligado: a loja liga em Delivery › Configurações › Integrações › "Rede (e.Rede)"
   com o PV e a chave de integração; precisa de conta Itaú e do PIX habilitado no portal da Rede); a conferência de minuto
@@ -21,8 +27,8 @@
 
 - **"Conversas agora" com o WhatsApp (05/11; sem migration).** Na nuvem com o merge: para quem atende a caixa do WhatsApp
   e com o robô dele ligado, a situação "Conversas agora" traz também as conversas do WhatsApp em que o robô está, com
-  "Assumir a conversa". **No `.zip` 1.30.13:** só a tela (a situação não aparece no servidor da loja — a rota é da nuvem);
-  nada no `sync`/`edge`.
+  "Assumir a conversa". **No `.zip` 1.30.13:** a tela; no servidor da loja, pela nuvem (ver "A faixa da ponte e
+  Conversas agora no servidor da loja", acima); nada no `sync`/`edge`.
 
 - **Ponte do chat em Equipamentos (05/11; sem migration).** Na nuvem com o merge: em Configurações › Equipamentos, a
   ponte aparece no cartão do PC onde roda, com o papel de agora, os logins e o movimento de hoje, e a faixa "em ordem /
@@ -32,9 +38,9 @@
 - **Ponte do chat — "Conversas agora" (05/11; mig 367 só na nuvem: a ordem das mensagens e dois índices).** Na nuvem com
   o merge: com a ponte ligada, a tela Atendimento ganha a situação "Conversas agora" — as conversas do chat do iFood e da
   99 da última hora sem caso aberto (o que o robô e os avisos atendem), com "Assumir a conversa" (gestão); a resposta do
-  robô não aparece mais antes da pergunta (ERR-379). **No `.zip` 1.30.13:** só a tela,
-  que fica ESCONDIDA no servidor da loja (a situação da ponte não vem lá; as rotas são da nuvem); nada no `sync`/`edge`;
-  a 367 não vai à loja (`@cloud-only`).
+  robô não aparece mais antes da pergunta (ERR-379). **No `.zip` 1.30.13:** a tela; no servidor da loja, pela nuvem (ver
+  "A faixa da ponte e Conversas agora no servidor da loja", acima); nada no `sync`/`edge`; a 367 não vai à loja
+  (`@cloud-only`).
 
 - **Ponte do chat do iFood e da 99 — Etapa 3, o robô no chat (05/11; sem migration).** Na nuvem com o merge: com
   "Robô responde no chat" ligado (nasce DESLIGADO), o robô responde o "cadê meu pedido?" pelo dado do pedido e chama a

@@ -251,6 +251,14 @@ export class ChatDoCasoService {
    * como a caixa; as mensagens a tela pede ao abrir (a rota da caixa). `whatsapp.lida = false` = não deu para ler.
    */
   async conversasAgora(tenantId: string, unidade: string | null, quem?: { categoria?: string | null; permissoes?: any }) {
+    // No servidor da loja as mensagens não existem: a nuvem responde, com quem está na tela de lá (V37).
+    if (ehServidorLocal()) {
+      const q = new URLSearchParams();
+      if (unidade && UUID_RE.test(unidade)) q.set('unidade', unidade);
+      if (quem?.categoria) q.set('categoria', String(quem.categoria));
+      q.set('bot', String(podeAcessar(quem?.permissoes, 'bot')));
+      return this.pelaNuvem('GET', `conversas-da-loja?${q.toString()}`);
+    }
     const [conversas, robo, whatsapp] = await Promise.all([
       this.db.execute(this.sqlDasConversasAgora(tenantId, unidade)),
       this.db.execute(sql`select chat_robo_responde from robo_config where tenant_id = ${tenantId}::uuid`),
@@ -359,12 +367,26 @@ export class ChatDoCasoService {
    * trava da empresa (a mesma dos casos do chat): se a conversa já tem caso aberto — sem ninguém, ele fica com quem
    * assumiu; com outra pessoa, 409 com o nome.
    */
-  async assumir(user: AuthUser, dto: { canal?: unknown; chave?: unknown; nome?: unknown } | null | undefined) {
+  async assumir(
+    user: AuthUser,
+    dto: { canal?: unknown; chave?: unknown; nome?: unknown } | null | undefined,
+    origem: 'web' | 'servidor_loja' = 'web',
+  ) {
     const eu = user.colaboradorId;
     if (!eu) throw new ForbiddenException('Entre com o seu usuário para assumir a conversa.');
+    // No servidor da loja: a nuvem assume, com quem assumiu e a permissão dele conferidos aqui (V37).
+    if (ehServidorLocal())
+      return this.pelaNuvem('POST', 'conversas-da-loja/assumir', {
+        canal: dto?.canal,
+        chave: dto?.chave,
+        nome: dto?.nome,
+        atorId: eu,
+        atorPerfil: user.categoria,
+        bot: podeAcessar(user.permissoes, 'bot'),
+      });
     const canal = dto?.canal;
     const chave = typeof dto?.chave === 'string' ? dto.chave : '';
-    if (canal === 'whatsapp') return this.assumirNoWhatsapp(user, eu, chave, dto?.nome);
+    if (canal === 'whatsapp') return this.assumirNoWhatsapp(user, eu, chave, dto?.nome, origem);
     if (!ehCanalDaPonte(canal) || !/^(ext|id|num):.{1,120}$/.test(chave)) throw new BadRequestException('Conversa inválida.');
     const r = await this.db.transaction(async (tx) => {
       await tx.execute(sql`select 1 from robo_config where tenant_id = ${user.tenantId}::uuid for update`);
@@ -419,7 +441,7 @@ export class ChatDoCasoService {
         entidadeTipo: 'atendimento_chamado',
         entidadeId: r.id,
         detalhe: { canal, chave },
-        origem: 'web',
+        origem,
       })
       .catch((e: any) => this.logger.warn(`auditoria do "assumir a conversa" (${r.id}): ${e?.message ?? e}`));
     if (r.novo) this.events.emit('atendimento.novo', { tenantId: user.tenantId, chamado: r.novo });
@@ -434,7 +456,7 @@ export class ChatDoCasoService {
    * aberto cala o robô (robo-pausa.ts) e a pausa "atendente" segura pelo tempo da loja, como quando a equipe responde
    * pela caixa. A auditoria guarda o número mascarado.
    */
-  private async assumirNoWhatsapp(user: AuthUser, eu: string, chave: string, nome: unknown) {
+  private async assumirNoWhatsapp(user: AuthUser, eu: string, chave: string, nome: unknown, origem: 'web' | 'servidor_loja' = 'web') {
     if (!veOWhatsapp(user)) throw new ForbiddenException('Quem assume a conversa do WhatsApp é quem atende a caixa do WhatsApp.');
     if (!CHAVE_DO_WHATSAPP.test(chave)) throw new BadRequestException('Conversa inválida.');
     const tel = chave.slice(4);
@@ -479,7 +501,7 @@ export class ChatDoCasoService {
         entidadeTipo: 'atendimento_chamado',
         entidadeId: r.id,
         detalhe: { canal: 'whatsapp', telefone: mascararTelefone(tel) },
-        origem: 'web',
+        origem,
       })
       .catch((e: any) => this.logger.warn(`auditoria do "assumir a conversa" (${r.id}): ${e?.message ?? e}`));
     if (r.novo) this.events.emit('atendimento.novo', { tenantId: user.tenantId, chamado: r.novo });
@@ -487,9 +509,57 @@ export class ChatDoCasoService {
     return { ok: true, id: r.id };
   }
 
+  // ───────────────────────── "Conversas agora" e a faixa no servidor da loja (V37) ─────────────────────────
+
+  /**
+   * A SITUAÇÃO DA PONTE para a fila do servidor da loja (a faixa da tela Atendimento): ela mora na nuvem e a fila da loja
+   * não pode esperar a internet. Guarda a última resposta por empresa e loja e a renova EM SEGUNDO PLANO quando passa de
+   * 15 s (uma busca por vez); devolve na hora o que tem — nada na primeira leitura —, e nada se a última é de mais de
+   * 2 min (sem internet a faixa some em vez de mostrar uma situação velha). Só no servidor da loja.
+   */
+  private readonly ponteDaLoja = new Map<string, { em: number; valor: any; buscando: boolean }>();
+  ponteDaNuvem(tenantId: string, unidade: string | null): any | null {
+    const k = `${tenantId}|${unidade ?? ''}`;
+    const agora = Date.now();
+    const atual = this.ponteDaLoja.get(k);
+    if ((!atual || agora - atual.em > 15_000) && !atual?.buscando) {
+      const entrada = atual ?? { em: 0, valor: null, buscando: false };
+      entrada.buscando = true;
+      this.ponteDaLoja.set(k, entrada);
+      const q = unidade && UUID_RE.test(unidade) ? `?unidade=${unidade}` : '';
+      this.pelaNuvem('GET', `ponte-da-loja${q}`, undefined, 8000)
+        .then((v) => Object.assign(entrada, { em: Date.now(), valor: v && typeof v.ligada === 'boolean' ? v : null }))
+        .catch((e: any) => this.logger.warn(`faixa da ponte no servidor da loja: ${e?.message ?? e}`))
+        .finally(() => (entrada.buscando = false));
+    }
+    return atual && atual.em && agora - atual.em <= 120_000 ? atual.valor : null;
+  }
+
+  /** Na nuvem, para o servidor da loja: as "Conversas agora" de quem está na tela de lá (o login foi conferido lá). */
+  conversasVindoDaLoja(tenantId: string, q: { unidade?: unknown; categoria?: unknown; bot?: unknown }) {
+    const unidade = typeof q?.unidade === 'string' && UUID_RE.test(q.unidade) ? q.unidade : null;
+    const categoria = typeof q?.categoria === 'string' ? q.categoria.slice(0, 20) : null;
+    return this.conversasAgora(tenantId, unidade, { categoria, permissoes: { bot: q?.bot === 'true' || q?.bot === true } });
+  }
+
+  /**
+   * Na nuvem, o "Assumir a conversa" vindo do servidor da loja: quem assumiu precisa ser colaborador desta empresa e da
+   * gestão (a mesma trava da rota); o resto, as mesmas regras de `assumir` (inclusive a caixa do WhatsApp).
+   */
+  async assumirVindoDaLoja(tenantId: string, dto: { canal?: unknown; chave?: unknown; nome?: unknown; atorId?: unknown; atorPerfil?: unknown; bot?: unknown }) {
+    const atorId = typeof dto?.atorId === 'string' && UUID_RE.test(dto.atorId) ? dto.atorId : null;
+    const perfil = typeof dto?.atorPerfil === 'string' ? dto.atorPerfil : '';
+    if (!atorId || !['presidente', 'gerente', 'supervisao'].includes(perfil))
+      throw new ForbiddenException('Quem assume a conversa é a gerência ou a supervisão.');
+    const ok = linhas(await this.db.execute(sql`select 1 from colaborador where id = ${atorId}::uuid and tenant_id = ${tenantId}::uuid`));
+    if (!ok.length) throw new ForbiddenException('Entre com o seu usuário para assumir a conversa.');
+    const user = { tenantId, colaboradorId: atorId, categoria: perfil, permissoes: { bot: dto?.bot === true } } as any;
+    return this.assumir(user, { canal: dto?.canal, chave: dto?.chave, nome: dto?.nome }, 'servidor_loja');
+  }
+
   // ───────────────────────── servidor da loja → nuvem ─────────────────────────
 
-  private async pelaNuvem(metodo: 'GET' | 'POST', caminho: string, corpo?: unknown): Promise<any> {
+  private async pelaNuvem(metodo: 'GET' | 'POST', caminho: string, corpo?: unknown, prazoMs = 20_000): Promise<any> {
     const nuvem = String(process.env.CLOUD_API ?? '').replace(/\/$/, '');
     const token = process.env.SYNC_TOKEN ?? '';
     if (!nuvem || !token) throw new BadGatewayException('Este servidor não está ligado à nuvem: o chat do iFood e da 99 mora lá.');
@@ -499,7 +569,7 @@ export class ChatDoCasoService {
         method: metodo,
         headers: { 'x-sync-token': token, ...(corpo ? { 'content-type': 'application/json' } : {}) },
         ...(corpo ? { body: JSON.stringify(corpo) } : {}),
-        signal: AbortSignal.timeout(20_000),
+        signal: AbortSignal.timeout(prazoMs),
       });
     } catch (e: any) {
       this.logger.warn(`chat do caso (${metodo} ${caminho.split('?')[0]}): a nuvem não respondeu (${e?.cause?.code ?? e?.message ?? e})`);
@@ -510,6 +580,7 @@ export class ChatDoCasoService {
       const msg = typeof j?.message === 'string' ? j.message : `a nuvem recusou (HTTP ${res.status})`;
       if (res.status === 409) throw new ConflictException(msg);
       if (res.status === 404) throw new NotFoundException(msg);
+      if (res.status === 403) throw new ForbiddenException(msg);
       if (res.status === 400) throw new BadRequestException(msg);
       throw new BadGatewayException(msg);
     }
