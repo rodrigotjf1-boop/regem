@@ -154,7 +154,7 @@ descrever('automáticas — cashback vencendo (Postgres)', () => {
     const { t } = await empresa();
     await cenario(t);
     const { svc } = servico();
-    const p: any = await svc.painel(t);
+    const p: any = await svc.painel(t, naJanela());
     expect(p.ajustes).toMatchObject({ cashbackAtivo: true, cashbackDiasAntes: 3, cashbackSaldoMin: 5, maxPorDia: 30, horario: 'antes_de_abrir' });
     expect(p.envioHoje).toEqual({ antes_de_abrir: '17:00', ao_abrir: '18:00' });
     expect(p.cashback.pronto).toBe(true);
@@ -178,7 +178,7 @@ descrever('automáticas — cashback vencendo (Postgres)', () => {
     await cliente(t, 'Hugo Dias', '005512345', 9, 2, { telSaldo: '12345' });
     await cliente(t, 'Iara Luz', '01234567', 9, 2, { telSaldo: '1234567' });
     const { svc } = servico();
-    const p: any = await svc.painel(t);
+    const p: any = await svc.painel(t, naJanela());
     expect(p.cashback.previa.total).toBe(8); // a lista da prévia mostra só os 5 primeiros; a separação pega todos
     expect(await svc.separarCashback(t, hojeISO(), await svc.ajustes(t), false)).toBe(8);
     const nomes = (await q(`select c.nome from relacionamento_envio e join cliente c on c.id = e.cliente_id where e.tenant_id = $1`, [t])).map((x: any) => x.nome);
@@ -210,7 +210,7 @@ descrever('automáticas — cashback vencendo (Postgres)', () => {
     expect(linhas[1]).toMatchObject({ tipo: 'cashback', chave_telefone: '21987650001', oferta: false });
     expect(Number(linhas[1].valor)).toBeCloseTo(12.4, 2);
     // Avisados deste vencimento: a prévia não os conta de novo.
-    expect((await svc.painel(t)).cashback.previa.total).toBe(0);
+    expect((await svc.painel(t, naJanela())).cashback.previa.total).toBe(0);
   });
 
   it('o limite do dia vale para todas as automáticas juntas', async () => {
@@ -275,7 +275,7 @@ descrever('automáticas — cashback vencendo (Postgres)', () => {
     const { svc, saidas } = servico('cloud');
     expect(await svc.rodarEmpresa(t, naJanela())).toEqual({ separados: 0, enviados: 0 }); // sem modelo
     await q(`insert into whatsapp_template (tenant_id, nome, categoria, status) values ($1, $2, 'UTILITY', 'pendente')`, [t, MODELO_CASHBACK]);
-    expect((await svc.painel(t)).cashback.motivo).toBe('o modelo está pendente na Meta');
+    expect((await svc.painel(t, naJanela())).cashback.motivo).toBe('o modelo está pendente na Meta');
     await q(`update whatsapp_template set status = 'aprovado' where tenant_id = $1`, [t]);
     const outro = servico('cloud');
     expect(await outro.svc.rodarEmpresa(t, naJanela())).toEqual({ separados: 2, enviados: 2 });
@@ -294,7 +294,7 @@ descrever('automáticas — cashback vencendo (Postgres)', () => {
     await q(`insert into whatsapp_template (tenant_id, nome, categoria, status) values ($1, $2, 'MARKETING', 'aprovado')`, [t, MODELO_CASHBACK]);
     await q(`insert into campanha_envio (tenant_id, telefone, status, enviado_em) values ($1, '5521987650001', 'enviado', now() - interval '2 days')`, [t]);
     const { svc } = servico('cloud');
-    const p: any = await svc.painel(t);
+    const p: any = await svc.painel(t, naJanela());
     expect(p.cashback.previa.lista.map((x: any) => x.nome)).toEqual(['Teresa A.']);
     await svc.rodarEmpresa(t, naJanela());
     expect((await envios(t)).map((l: any) => [l.chave_telefone, l.oferta])).toEqual([['21987650007', true]]);
