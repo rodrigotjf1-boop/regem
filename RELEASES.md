@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Ponte do chat em Equipamentos (05/11; sem migration).** Na nuvem com o merge: em Configurações › Equipamentos, a
+  ponte aparece no cartão do PC onde roda, com o papel de agora, os logins e o movimento de hoje, e a faixa "em ordem /
+  aviso". **No `.zip` 1.30.13:** só a tela (no servidor da loja a ponte segue em "Outros aparelhos" e o aviso diz que o PC
+  dela só aparece na nuvem); nada no `sync`/`edge`.
+
 - **Ponte do chat — "Conversas agora" (05/11; mig 367 só na nuvem: a ordem das mensagens e dois índices).** Na nuvem com
   o merge: com a ponte ligada, a tela Atendimento ganha a situação "Conversas agora" — as conversas do chat do iFood e da
   99 da última hora sem caso aberto (o que o robô e os avisos atendem), com "Assumir a conversa" (gestão); a resposta do

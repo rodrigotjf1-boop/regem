@@ -104,8 +104,15 @@ export function situacaoDe(e: any, estado: Record<string, any>, todos: any[] = [
   if (e.tipo === 'tela_senhas') return e.pareado ? 'ativo' : 'nunca';
   // O celular do app de atendimento (mig 353): vale se já trocou o código pelo segredo (o "último uso" é a última entrada).
   if (e.tipo === 'atendimento') return e.pareado ? 'ativo' : 'nunca';
-  // A ponte do chat (mig 366): também — o sinal de vida dela aparece na faixa da tela Atendimento.
-  if (e.tipo === 'ponte_chat') return e.pareado ? 'ativo' : 'nunca';
+  // A ponte do chat (mig 366): pareada = trocou o código pelo segredo. Na nuvem vem o sinal de vida dela (`e.ponte`, peça
+  // 6 do protótipo de conexão): viva (sinal há até 2 min) = ativa; já deu sinal e parou = sem responder; pareada e nunca
+  // deu sinal = nunca conectou. No servidor da loja o sinal não vem (as tabelas da ponte são da nuvem): vale o pareamento.
+  if (e.tipo === 'ponte_chat') {
+    if (!e.pareado) return 'nunca';
+    if (!e.ponte) return 'ativo';
+    if (!e.ponte.vistoEm) return 'nunca';
+    return e.ponte.viva ? 'ativo' : 'mudo';
+  }
   if (e.tipo === 'estacao_impressao') {
     if (estacaoNoAr(e) || conectadoAgora(e)) return 'ativo';
     return e.estacao?.vistoEm || e.pareado ? 'mudo' : 'nunca';
@@ -130,7 +137,7 @@ export function situacaoDe(e: any, estado: Record<string, any>, todos: any[] = [
  * contava e o PDV em uso aparecia "nunca conectou".
  */
 export function ultimoSinal(e: any): string | null {
-  const t = [e.ultimoPing, e.ultimoUsoEm, e.integradorVistoEm, e.servidor?.vistoEm, e.estacao?.vistoEm, e.presenca?.vistoEm]
+  const t = [e.ultimoPing, e.ultimoUsoEm, e.integradorVistoEm, e.servidor?.vistoEm, e.estacao?.vistoEm, e.presenca?.vistoEm, e.ponte?.vistoEm]
     .filter(Boolean)
     .map((x: string) => new Date(x).getTime())
     .filter((n: number) => !Number.isNaN(n));
@@ -148,7 +155,13 @@ export function seloDe(e: any, estado: Record<string, any>, todos: any[] = []): 
   if (sit !== 'revogado' && TEM_PRESENCA.includes(e.tipo) && conectadoAgora(e)) return { tom: 'ok', rotulo: 'conectado agora' };
   if (e.tipo === 'tela_senhas' && sit !== 'revogado') return sit === 'ativo' ? { tom: 'ok', rotulo: 'pareada' } : { tom: 'aviso', rotulo: 'falta parear' };
   if (e.tipo === 'atendimento' && sit !== 'revogado') return sit === 'ativo' ? { tom: 'ok', rotulo: 'pareado' } : { tom: 'aviso', rotulo: 'falta parear' };
-  if (e.tipo === 'ponte_chat' && sit !== 'revogado') return sit === 'ativo' ? { tom: 'ok', rotulo: 'pareada' } : { tom: 'aviso', rotulo: 'falta parear' };
+  if (e.tipo === 'ponte_chat' && sit !== 'revogado') {
+    if (!e.pareado) return { tom: 'aviso', rotulo: 'falta parear' };
+    if (!e.ponte) return { tom: 'ok', rotulo: 'pareada' };
+    if (sit === 'nunca') return { tom: 'aviso', rotulo: 'sem sinal ainda' };
+    if (sit === 'mudo') return { tom: 'critico', rotulo: `sem sinal · há ${tempoDesde(e.ponte.vistoEm)}` };
+    return seloDaPonteViva(e.ponte);
+  }
   if (e.tipo === 'estacao_impressao') {
     if (sit === 'ativo') return { tom: 'ok', rotulo: 'no ar' };
     if (sit === 'mudo') return { tom: 'critico', rotulo: e.estacao?.vistoEm ? `fora · há ${tempoDesde(e.estacao.vistoEm)}` : 'fora' };
@@ -194,6 +207,61 @@ export function conexaoDe(e: any, estado: Record<string, any>): string {
   return [quando, p.ip, p.endereco ? `por ${p.endereco}` : ''].filter(Boolean).join(' · ');
 }
 
+// ───────────── A ponte do chat no PC (peça 6 do protótipo de conexão, `mockups/regem-conexao-servidor.html` #p7) ─────────────
+// `e.ponte` vem da nuvem (`sinaisDasPontes`): o PC, o sinal, os logins, o papel de AGORA por canal conectado (a regra única
+// `quemResponde`) e o movimento de hoje.
+
+type CanalPonte = 'ifood' | '99food';
+const CANAIS_PONTE: CanalPonte[] = ['ifood', '99food'];
+const COM_ARTIGO: Record<CanalPonte, string> = { ifood: 'o iFood', '99food': 'a 99' };
+const DE: Record<CanalPonte, string> = { ifood: 'do iFood', '99food': 'da 99' };
+const EM: Record<CanalPonte, string> = { ifood: 'no iFood', '99food': 'na 99' };
+const juntar = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} e ${xs[xs.length - 1]}` : xs[0] ?? '');
+const canaisCom = (p: any, papel: string) => CANAIS_PONTE.filter((c) => p?.canais?.[c] === papel);
+
+/** "iFood logado ✓ · 99 sem login": o que a ponte informou no último sinal (das plataformas conectadas ou logadas). */
+export function loginsDaPonte(p: any): string {
+  const ks = CANAIS_PONTE.filter((c) => (p?.canais && c in p.canais) || p?.logado?.[c]);
+  return ks.map((c) => (c === 'ifood' ? `iFood ${p.logado?.ifood ? 'logado ✓' : 'sem login'}` : `99 ${p.logado?.['99food'] ? 'logada ✓' : 'sem login'}`)).join(' · ');
+}
+
+/** O selo da ponte com sinal: quem responde, a reserva pronta, sem login ou só no ar (canal nenhum conectado). */
+function seloDaPonteViva(p: any): { tom: Tom; rotulo: string } {
+  if (!p.ligada) return { tom: 'neutro', rotulo: 'no ar · ponte desligada' };
+  if (canaisCom(p, 'responde').length) return { tom: 'ok', rotulo: 'responde o chat' };
+  if (canaisCom(p, 'reserva').length) return { tom: 'ok', rotulo: 'reserva pronta' };
+  if (canaisCom(p, 'fora').length) return { tom: 'aviso', rotulo: 'sem login' };
+  return { tom: 'ok', rotulo: 'no ar' };
+}
+
+/**
+ * O que a ponte faz agora, em palavras: "Lê e responde o iFood · última mensagem há 2 min · 3 recebidas e 2 enviadas
+ * hoje"; a reserva "assume sozinha se a que responde ficar 2 min sem sinal" (a regra `VIVA_POR_MS`); sem login, o que fazer.
+ */
+export function detalheDaPonte(p: any): string {
+  if (!p) return '';
+  if (!p.ligada) return 'A ponte está desligada nos ajustes do Atendimento: o chat do iFood e da 99 não entra no Regem.';
+  if (!p.viva)
+    return p.vistoEm
+      ? `Sem sinal há ${tempoDesde(p.vistoEm)}: o PC desligou ou o programa da ponte fechou.`
+      : 'Pareada, mas o programa da ponte ainda não deu sinal neste PC.';
+  const partes: string[] = [];
+  const responde = canaisCom(p, 'responde');
+  const reserva = canaisCom(p, 'reserva');
+  const fora = canaisCom(p, 'fora');
+  if (responde.length) partes.push(`Lê e responde ${juntar(responde.map((c) => COM_ARTIGO[c]))}`);
+  if (reserva.length) partes.push(`Reserva ${juntar(reserva.map((c) => DE[c]))}: assume sozinha se a que responde ficar 2 min sem sinal`);
+  if (fora.length) partes.push(`Sem login ${juntar(fora.map((c) => EM[c]))}: entre dentro da janela da ponte`);
+  if (!responde.length && !reserva.length && !fora.length) partes.push('No ar (nem o iFood nem a 99 estão conectados)');
+  const h = p.hoje ?? {};
+  if (h.ultimaEm) partes.push(`última mensagem do cliente ${minutosDesde(h.ultimaEm) < 1 ? 'agora' : `há ${tempoDesde(h.ultimaEm)}`}`);
+  if (h.recebidas || h.enviadas) partes.push(`${h.recebidas ?? 0} recebidas e ${h.enviadas ?? 0} enviadas hoje`);
+  return partes.join(' · ');
+}
+
+/** O nome do PC para comparar (o Windows não diferencia maiúsculas no nome da máquina). */
+const nomeDoPc = (m: unknown) => (typeof m === 'string' ? m.trim().toLowerCase() : '');
+
 /** Um PC da loja na visão "Por PC" de Equipamentos (protótipo de 20/10/2026, peça 3). */
 export type GrupoPc = {
   chave: string;
@@ -213,15 +281,36 @@ export function agruparPorPc(linhas: any[], todos: any[], servidor?: { ip?: stri
   const porId = new Map(todos.map((x) => [x.id, x]));
   const grupos = new Map<string, any[]>();
   const pc = (e: any) => (e?.ativo !== false && TEM_PRESENCA.includes(e?.tipo) && e.presenca?.ip ? `pc:${e.presenca.ip}` : null);
+  const pontes: any[] = [];
+  const por = (chave: string, e: any) => {
+    if (!grupos.has(chave)) grupos.set(chave, []);
+    grupos.get(chave)!.push(e);
+  };
   for (const e of linhas) {
     let chave: string;
     if (e.ativo === false) chave = 'revogados';
     else if (e.tipo === 'servidor_local' && !ehGogem(e)) chave = 'servidor';
     else if (e.tipo === 'impressora') chave = e.estacaoId ? (pc(porId.get(e.estacaoId)) ?? 'sem-sinal') : 'servidor';
     else if (TEM_PRESENCA.includes(e.tipo) && !ehGogem(e)) chave = pc(e) ?? 'sem-sinal';
-    else chave = 'outros';
-    if (!grupos.has(chave)) grupos.set(chave, []);
-    grupos.get(chave)!.push(e);
+    // A ponte do chat (peça 6): fala com a nuvem, não com o servidor da loja — não tem o IP da rede. Vai para o PC de mesmo
+    // NOME do Windows (o da estação, do terminal ou do servidor); sem nome ainda (nunca deu sinal), "Outros aparelhos".
+    else if (e.tipo === 'ponte_chat' && nomeDoPc(e.ponte?.maquina)) {
+      pontes.push(e);
+      continue;
+    } else chave = 'outros';
+    por(chave, e);
+  }
+  if (pontes.length) {
+    const nomeDoGrupo = new Map<string, string>();
+    for (const [chave, itens] of grupos)
+      if (chave.startsWith('pc:')) {
+        const m = nomeDoPc(itens.map((x) => x.presenca?.maquina).find(Boolean));
+        if (m && !nomeDoGrupo.has(m)) nomeDoGrupo.set(m, chave);
+      }
+    for (const e of pontes) {
+      const m = nomeDoPc(e.ponte.maquina);
+      por(servidor?.maquina && nomeDoPc(servidor.maquina) === m ? 'servidor' : nomeDoGrupo.get(m) ?? `maq:${m}`, e);
+    }
   }
   const mais = (itens: any[]) =>
     itens.map((x) => x.presenca?.vistoEm).filter(Boolean).sort().pop() as string | undefined;
@@ -254,9 +343,22 @@ export function agruparPorPc(linhas: any[], todos: any[], servidor?: { ip?: stri
       itens,
     });
   }
+  // O PC que só tem a ponte do chat (nem estação nem terminal do Regem): o cartão leva o nome do Windows que ela manda.
+  for (const [chave, itens] of grupos) {
+    if (!chave.startsWith('maq:')) continue;
+    const visto = itens.map((x) => x.ponte?.vistoEm).filter(Boolean).sort().pop() as string | undefined;
+    const viva = itens.some((x) => x.ponte?.viva);
+    out.push({
+      chave,
+      titulo: itens[0].ponte.maquina,
+      apoio: 'só a ponte do chat neste PC (sem estação nem terminal do Regem)',
+      selo: visto ? { tom: viva ? 'ok' : 'aviso', rotulo: viva ? 'conectado agora' : `visto ${haQuanto(visto)}` } : null,
+      itens,
+    });
+  }
   const resto: Array<[string, string, string]> = [
     ['sem-sinal', 'Sem sinal agora', 'terminais e estações que não falaram com o servidor nos últimos 10 min (ou nunca)'],
-    ['outros', 'Outros aparelhos', 'KDS, ponto e o que não abre o app num PC'],
+    ['outros', 'Outros aparelhos', 'KDS, ponto, celulares e a ponte do chat que ainda não deu sinal'],
     ['revogados', 'Revogados', 'dá para reativar em até 30 dias'],
   ];
   for (const [chave, titulo, apoio] of resto) {
@@ -329,7 +431,11 @@ export function ligacaoDe(e: any, todos: any[]): string {
     case 'atendimento':
       return e.pareado ? 'celular · app Regem Atendimento' : 'falta parear no app Regem Atendimento';
     case 'ponte_chat':
-      return e.pareado ? 'PC · programa Regem · Ponte do chat' : 'falta parear no programa Regem · Ponte do chat';
+      if (!e.pareado) return 'falta parear no programa Regem · Ponte do chat';
+      // Na nuvem, o PC de verdade (o nome do Windows que a ponte manda no sinal de vida) e a versão do programa.
+      return e.ponte?.maquina
+        ? [`PC: ${e.ponte.maquina}`, e.ponte.versao ? `versão ${e.ponte.versao}` : ''].filter(Boolean).join(' · ')
+        : 'PC · programa Regem · Ponte do chat';
     default:
       return '—';
   }

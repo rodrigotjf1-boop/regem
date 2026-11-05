@@ -20,6 +20,7 @@ import { FilaDeImpressao } from '@/components/equipamentos/fila-impressao';
 import { HistoricoEquipamentos } from '@/components/equipamentos/historico-equipamentos';
 import { NovoPcComImpressora } from '@/components/equipamentos/novo-pc-impressora';
 import { EquipamentosPorPc } from '@/components/equipamentos/por-pc';
+import { FaixaDaPonteNosPcs } from '@/components/equipamentos/faixa-da-ponte-pcs';
 import { TelaSenhasGaveta } from '@/components/senhas/tela-senhas-gaveta';
 import { agruparPorPc, conexaoDe, ehGogem, ligacaoDe, podeReativar, seloDe, situacaoDe, tipoDe } from '@/components/equipamentos/equipamento';
 import { NO_SERVIDOR_DA_LOJA } from '@/components/ui/so-pela-nuvem';
@@ -258,9 +259,11 @@ export default function EquipamentosPage() {
             {NO_SERVIDOR_DA_LOJA && lista.some((e) => e.tipo === 'atendimento' || e.tipo === 'ponte_chat') && (
               <p role="note" className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
                 O app de atendimento (celular) e a ponte do chat se cadastram, pareiam e revogam pela nuvem: abra esta mesma tela no Regem na
-                nuvem. Aqui, no servidor da loja, eles só aparecem.
+                nuvem. Aqui, no servidor da loja, eles só aparecem — e em qual PC a ponte está, com o papel e os logins dela, também só lá.
               </p>
             )}
+            {/* A ponte do chat em ordem ou com aviso, por loja (peça 6 do protótipo de conexão) — vem com a lista, só na nuvem. */}
+            <FaixaDaPonteNosPcs lista={lista} nomeDaLoja={(u) => (u ? unidades.find((x) => x.id === u)?.nome ?? 'Loja fora da lista' : 'Todas as lojas')} />
             {avisosRota.length > 0 && (
               <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-md border-l-4 border-warn bg-warn/10 px-3 py-2 text-sm">
                 <span>
