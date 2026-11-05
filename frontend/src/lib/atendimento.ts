@@ -75,12 +75,24 @@ export type EstadoDaFila = {
   eu: string | null;
   /** Os avisos da disputa (ajuste do iFood): avisar o gerente quando chega; avisar de novo quando faltarem N min. */
   avisos: AvisosDaFila;
+  /** A ponte do chat do iFood e da 99 (mig 366): a faixa do topo da tela. `null` = não veio (servidor da loja, falha). */
+  ponte: SituacaoDaPonte | null;
 };
 export type AvisosDaFila = { disputa: { avisar: boolean; deNovoMin: number } };
+/** Por canal conectado: qual PC responde agora (null = nenhum) e os nomes das pontes de reserva (vivas e logadas). */
+export type SituacaoDaPonte =
+  | { ligada: false }
+  | {
+      ligada: true;
+      /** As pontes cadastradas da loja (pareadas ou não): 0 = nenhum PC cadastrado como ponte. */
+      pontes: number;
+      canais: Partial<Record<'ifood' | '99food', { responde: { nome: string; maquina: string | null } | null; reservas: string[] }>>;
+      ultimaMensagemEm: string | null;
+    };
 /** Os padrões do servidor (`AJUSTE_IFOOD_PADRAO`): a tela usa enquanto não leu. */
 export const AVISOS_PADRAO: AvisosDaFila = { disputa: { avisar: true, deNovoMin: 2 } };
 
-let estado: EstadoDaFila = { casos: [], contagens: null, lida: false, erro: false, eu: null, avisos: AVISOS_PADRAO };
+let estado: EstadoDaFila = { casos: [], contagens: null, lida: false, erro: false, eu: null, avisos: AVISOS_PADRAO, ponte: null };
 const ouvintes = new Set<() => void>();
 const avisar = () => ouvintes.forEach((f) => f());
 
@@ -112,6 +124,7 @@ export function relerFila(): Promise<void> {
           typeof r?.avisos?.disputa?.avisar === 'boolean' && typeof r?.avisos?.disputa?.deNovoMin === 'number'
             ? { disputa: { avisar: r.avisos.disputa.avisar, deNovoMin: r.avisos.disputa.deNovoMin } }
             : AVISOS_PADRAO,
+        ponte: r?.ponte && typeof r.ponte.ligada === 'boolean' ? (r.ponte as SituacaoDaPonte) : null,
       };
     } catch {
       // A leitura falhou: o que já estava na tela fica, marcado como "não li agora" — nunca vira "fila vazia" (V37).

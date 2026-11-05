@@ -19,7 +19,7 @@ declare global {
   }
 }
 
-// `desligado`: a loja tirou o chat da tela (ajuste "Chat do iFood na tela Atendimento").
+// `desligado`: a loja tirou o chat da tela (ajuste "Chat oficial do iFood na tela Atendimento").
 type Config =
   | { disponivel: true; widgetId: string; merchantIds: string[] }
   | { disponivel: false; motivo: 'sem_widget' | 'sem_ifood' | 'sem_nuvem' | 'desligado' };
@@ -122,7 +122,7 @@ export function ChatDoIfood() {
     } catch {
       if (!montado.current) return;
       if (sozinho) setNaoAbriuSozinho(true);
-      else toast.error('O chat do iFood não abriu agora. Confira a internet deste computador e tente de novo.');
+      else toast.error('O chat oficial do iFood não abriu agora. Confira a internet deste computador e tente de novo.');
     } finally {
       if (montado.current) setAbrindo(false);
     }
@@ -138,7 +138,7 @@ export function ChatDoIfood() {
   if (!cfg) return null;
   if (!cfg.disponivel) {
     if (cfg.motivo !== 'sem_nuvem') return null; // sem o widget da distribuição ou sem o iFood ligado: não há chat
-    return <p className="text-xs text-secondary-foreground">O chat do iFood não carregou agora (a nuvem não respondeu). Abra a tela de novo daqui a pouco.</p>;
+    return <p className="text-xs text-secondary-foreground">O chat oficial do iFood não carregou agora (a nuvem não respondeu). Abra a tela de novo daqui a pouco.</p>;
   }
   const c = cfg;
 
@@ -155,11 +155,12 @@ export function ChatDoIfood() {
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1" data-chat-ifood={aberto ? 'aberto' : 'fechado'}>
       <Button type="button" variant="outline" aria-pressed={aberto} disabled={abrindo} onClick={alternar}>
-        <span aria-hidden="true">💬</span> {abrindo ? 'Abrindo o chat do iFood…' : aberto ? 'Esconder o chat do iFood' : 'Chat do iFood'}
+        <span aria-hidden="true">💬</span>{' '}
+        {abrindo ? 'Abrindo o chat oficial do iFood…' : aberto ? 'Esconder o chat oficial do iFood' : 'Chat oficial do iFood'}
       </Button>
       <span className="min-w-0 flex-1 basis-64 text-xs text-secondary-foreground">
         {naoAbriuSozinho
-          ? 'O chat do iFood não abriu sozinho agora (confira a internet deste computador). Toque em "Chat do iFood" para tentar de novo.'
+          ? 'O chat oficial do iFood não abriu sozinho agora (confira a internet deste computador). Toque em "Chat oficial do iFood" para tentar de novo.'
           : 'O chat oficial do iFood abre sozinho nesta tela — o botão dele fica no canto. "Esconder" vale para este computador. Na primeira vez, cada computador autoriza com um usuário Dono ou Administrador do iFood. As mensagens dele não entram na fila: o iFood não as entrega a sistemas.'}
       </span>
     </div>

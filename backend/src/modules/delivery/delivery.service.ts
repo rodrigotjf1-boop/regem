@@ -1890,6 +1890,11 @@ export class DeliveryService {
     return horaNoFuso(new Date(Math.ceil(d.getTime() / cinco) * cinco)).replace(':', 'h');
   }
 
+  /** A previsão ("20h15") de um pedido pelo id — o aviso "saiu" no chat do iFood e da 99 (ponte do chat, parte A2). */
+  async horaPrevistaDoPedido(tenantId: string, pedidoId: string): Promise<string | null> {
+    return this.horaPrevistaDeChegada(tenantId, { id: pedidoId });
+  }
+
   /** A hora prevista de chegada para o aviso, ou null quando não dá para prever (sem GPS ao vivo, sem endereço, conta absurda). */
   private async horaPrevistaDeChegada(tenantId: string, ped: any): Promise<string | null> {
     if (!this.previsaoDeChegada || ehServidorLocal() || !ped?.id) return null;

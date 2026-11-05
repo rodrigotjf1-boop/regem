@@ -15,6 +15,7 @@ import { DisputaIfood } from '@/components/atendimento/disputa-ifood';
 import { Pedido99 } from '@/components/atendimento/pedido-99';
 import { ResumoDoRobo, resumoCurto } from '@/components/atendimento/resumo-do-robo';
 import { ChatDoIfood } from '@/components/atendimento/chat-do-ifood';
+import { FaixaDaPonte } from '@/components/atendimento/faixa-da-ponte';
 import { ConversaDoCaso } from '@/components/atendimento/conversa-do-caso';
 import { EnderecoDepoisQueSaiu } from '@/components/atendimento/endereco-depois-que-saiu';
 import { enderecoDoCaso } from '@/lib/endereco-do-caso';
@@ -59,7 +60,7 @@ const SITUACOES: { k: Sit; rotulo: string; critico?: boolean }[] = [
 
 export default function AtendimentoPage() {
   // `eu` vem do servidor com a fila: marca "Comigo" e "você" (o servidor confere tudo de novo em cada ação).
-  const { casos, contagens, lida, erro, eu } = useFilaDeAtendimento();
+  const { casos, contagens, lida, erro, eu, ponte } = useFilaDeAtendimento();
   const [sit, setSit] = useState<Sit>('abertos');
   const [busca, setBusca] = useState('');
   const [canal, setCanal] = useState('');
@@ -188,6 +189,9 @@ export default function AtendimentoPage() {
             </Link>
           </p>
         </div>
+
+        {/* A ponte do chat do iFood e da 99 (mig 366): só aparece ligada; sem sinal, o aviso. Vem com a fila. */}
+        <FaixaDaPonte ponte={ponte} agora={agora} />
 
         {/* O chat oficial do iFood (PR 5): só aparece com o widget da distribuição e o iFood ligado na empresa. */}
         <ChatDoIfood />

@@ -31,6 +31,8 @@ import {
 import { consultarAoVivo } from '../delivery/entregadores-ao-vivo';
 import { consultarFila } from '../delivery/fila-entregadores';
 import { PREFIXO_DA_RESPOSTA } from '../whatsapp/resposta-ao-sem-contato';
+import { posicaoDaPlataforma } from './posicao-da-plataforma';
+import { AvisosDoChatService } from '../ponte-chat/avisos-do-chat.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -45,6 +47,8 @@ export class EntregadorService implements OnModuleInit {
     private readonly cliente: ClienteService,
     // A entrega sem código que não deu para conferir pelo local fica na auditoria. Opcional: os testes montam sem ela.
     @Optional() private readonly auditoria?: AuditoriaService,
+    // O "o entregador está chegando" no chat do iFood e da 99, pela ponte (parte A2). Opcional: os testes montam sem ela.
+    @Optional() private readonly avisosDoChat?: AvisosDoChatService,
   ) {}
 
   // A previsão de chegada do "saiu para entrega" (Onda 0, 01/11/2026): o aviso mora no DeliveryService e a conta, aqui
@@ -707,7 +711,8 @@ export class EntregadorService implements OnModuleInit {
     if (ped.entregadorId !== user.colaboradorId)
       throw new ForbiddenException('Este pedido não está atribuído a você.');
     if (ped.status !== 'despachado') throw new BadRequestException('O pedido não está em rota.');
-    if (!ped.clienteTelefone) throw new BadRequestException('Pedido sem telefone do cliente.');
+    // iFood e 99: o aviso vai pelo chat da plataforma (ponte do chat) — não precisa do telefone do cliente.
+    if (!ped.clienteTelefone && ped.canal !== 'ifood' && ped.canal !== '99food') throw new BadRequestException('Pedido sem telefone do cliente.');
     const r = await this.dispararChegada(user, ped);
     if (!r.ok)
       throw new BadRequestException(
@@ -772,6 +777,23 @@ export class EntregadorService implements OnModuleInit {
   // Sempre manda o nome fantasia da loja (p/ a mensagem "O entregador do <loja> está
   // chegando…"). Nome/contato do ENTREGADOR só vão se ele ativou o opt-in no app.
   private async dispararChegada(user: AuthUser, ped: any): Promise<{ ok: boolean; motivo?: string }> {
+    // iFood e 99: o aviso vai pelo CHAT da plataforma, pela ponte (ponte do chat, parte A2) — com a ponte e o aviso
+    // "chegando" ligados nos ajustes; um por pedido (a cerca e o botão juntos não mandam dois). Não usa o telefone.
+    if (ped.canal === 'ifood' || ped.canal === '99food') {
+      const r = this.avisosDoChat
+        ? await this.avisosDoChat.enfileirarChegando(user.tenantId, ped.id).catch((e: any) => {
+            this.logger.warn(`[chegando-chat] pedido ${ped.id}: não entrou na fila do chat — ${e?.message ?? e}`);
+            return 'falhou' as const;
+          })
+        : 'desligado';
+      if (r === 'enfileirado' || r === 'ja_enfileirado') return { ok: true };
+      return {
+        ok: false,
+        motivo: r === 'desligado'
+          ? 'pedido do iFood ou da 99: o aviso no chat da plataforma está desligado (Delivery › Configurações › Atendimento)'
+          : 'o aviso não entrou na fila do chat da plataforma',
+      };
+    }
     if (!ped.clienteTelefone) return { ok: false, motivo: 'o pedido não tem o telefone do cliente' };
     // iFood, 99 e os integrados não recebem mensagem pelo WhatsApp do Regem (o mesmo motivo do #391) — também no n8n.
     if (!DeliveryService.podeAvisarPeloWhatsapp(ped.canal))
@@ -1327,6 +1349,13 @@ export class EntregadorService implements OnModuleInit {
       const lat = Number(row.lat), lng = Number(row.lng);
       if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
     }
+    // A posição que o iFood e a 99 mandaram no pedido (ponte do chat, parte A2): exata — vem antes de procurar o endereço
+    // pelo texto (que erra rua de nome repetido, número que o mapa não tem, condomínio). Guardada como a geocodificada.
+    const daPlataforma = posicaoDaPlataforma(p.canal, p.raw);
+    if (daPlataforma) {
+      await this.cachearChegada(tenantId, p.id, daPlataforma.lat, daPlataforma.lng);
+      return daPlataforma;
+    }
     // Resolve o destino pelo endereço DESTE pedido — NÃO o "principal" do cliente. (Antes pegava
     // o cliente_endereco por principal/recente: dois pedidos do mesmo cliente em endereços
     // diferentes caíam no mesmo destino → rastreio "travado" no mesmo trajeto.)
@@ -1856,11 +1885,15 @@ export class EntregadorService implements OnModuleInit {
           )
         ).rows?.[0];
         if (!ch) {
-          const partes = [ped.enderecoRua, ped.enderecoNumero, ped.enderecoBairro].filter(
-            Boolean,
-          ) as string[];
-          const end = partes.length ? montarEndereco(partes) : String(ped.endereco ?? '');
-          const g = end ? await geocode(end).catch(() => null) : null;
+          // A posição que o iFood e a 99 mandaram no pedido vem antes da geocodificação pelo texto (ponte do chat, A2).
+          let g: { lat: number; lng: number } | null = posicaoDaPlataforma(ped.canal, (ped as any).raw);
+          if (!g) {
+            const partes = [ped.enderecoRua, ped.enderecoNumero, ped.enderecoBairro].filter(
+              Boolean,
+            ) as string[];
+            const end = partes.length ? montarEndereco(partes) : String(ped.endereco ?? '');
+            g = end ? await geocode(end).catch(() => null) : null;
+          }
           await this.db.execute(sql`
             insert into entregador_chegada (tenant_id, pedido_id, lat, lng)
             values (${user.tenantId}, ${ped.id}, ${g?.lat ?? null}, ${g?.lng ?? null})

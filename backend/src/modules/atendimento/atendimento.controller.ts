@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, Res, StreamableFile, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Logger, Param, Post, Put, Res, StreamableFile, UseGuards } from '@nestjs/common';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { Pedido99Service, RespostaAo99 } from './pedido-99.service';
 import type { Response } from 'express';
@@ -21,6 +21,8 @@ import { PedidoRepetidoService } from '../pedido-repetido/pedido-repetido.servic
 import { lerAjusteRepetido } from '../pedido-repetido/pedido-repetido';
 import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
 import { lerAjusteAlterado, SONS_DO_ALTERADO } from '../pedido-alterado/pedido-alterado';
+import { AjustesDaPonteService } from '../ponte-chat/ajustes-da-ponte.service';
+import { ehServidorLocal } from '../../common/modo';
 
 // Chamados de atendimento (handoff). Operados por quem está no balcão/gestão.
 @Controller('atendimento')
@@ -38,6 +40,8 @@ export class AtendimentoController {
     private readonly repetido: PedidoRepetidoService,
     // Pedido alterado (mig 362): o som do KDS, no grupo "Pedido alterado" dos ajustes.
     private readonly producao: ProducaoPedidoService,
+    // A ponte do chat do iFood e da 99 (mig 366, parte A2): o grupo "iFood e 99 · chat pela ponte" e a faixa da fila.
+    private readonly ponte: AjustesDaPonteService,
   ) {}
 
   // A configuração do CHAT OFICIAL DO iFOOD (o widget da distribuição e as lojas do iFood da empresa). Sem o widget
@@ -66,7 +70,7 @@ export class AtendimentoController {
   @CloudOnly()
   @Roles('presidente', 'gerente')
   async ajustes(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
-    const [da99, fila, doIfood, cheguei, repetido, som, roboMuda] = await Promise.all([
+    const [da99, fila, doIfood, cheguei, repetido, som, roboMuda, ponte] = await Promise.all([
       this.pedido99.ajustes(user.tenantId),
       this.filaEAvisos.ajustes(user.tenantId),
       this.chatIfood.ajustes(user.tenantId),
@@ -75,9 +79,11 @@ export class AtendimentoController {
       this.producao.somDoAlterado(user.tenantId, unidade),
       // "O robô faz mudanças simples" (mig 363): no mesmo grupo "Pedido alterado", como no protótipo; da empresa.
       this.filaEAvisos.roboMudaPedido(user.tenantId),
+      // A ponte do chat do iFood e da 99 (mig 366): os ajustes da empresa e as pontes da loja em uso.
+      this.ponte.ajustes(user.tenantId, unidade),
     ]);
     const alterado = { som, sons: SONS_DO_ALTERADO, roboMuda };
-    return { ...da99, fila, minutosDoAviso: MINUTOS_DO_AVISO, ...doIfood, cheguei, minutosDeNovoCheguei: MINUTOS_DE_NOVO, repetido, alterado };
+    return { ...da99, fila, minutosDoAviso: MINUTOS_DO_AVISO, ...doIfood, cheguei, minutosDeNovoCheguei: MINUTOS_DE_NOVO, repetido, alterado, ponte };
   }
 
   // Cada grupo pelo seu dono, só o que veio. A fila, o iFood e o "Cheguei" são conferidos ANTES de gravar qualquer
@@ -91,7 +97,10 @@ export class AtendimentoController {
     const cheguei = dto?.cheguei !== undefined ? lerAjusteCheguei(dto.cheguei) : null;
     const repetido = dto?.repetido !== undefined ? lerAjusteRepetido(dto.repetido) : null;
     const alterado = dto?.alterado !== undefined ? lerAjusteAlterado(dto.alterado) : null;
+    // A ponte: o texto e o papel dos PCs (lê as pontes da loja) — conferidos antes de gravar qualquer grupo.
+    if (dto?.ponte !== undefined) await this.ponte.conferir(user, unidade, dto.ponte);
     if (dto?.ajuste99 !== undefined) await this.pedido99.salvarAjustes(user, dto);
+    if (dto?.ponte !== undefined) await this.ponte.salvar(user, unidade, dto.ponte);
     if (dto?.fila !== undefined) await this.filaEAvisos.salvar(user, dto.fila);
     if (dto?.ifood !== undefined) await this.chatIfood.salvarAjustes(user, dto.ifood);
     if (cheguei) await this.chegada.salvarAjustes(user, unidade, cheguei);
@@ -136,8 +145,19 @@ export class AtendimentoController {
   @Roles('presidente', 'gerente', 'supervisao', 'execucao')
   async fila(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
     // Com os avisos da disputa (ajuste do iFood): o app e o computador de quem é gerente avisam por eles.
-    const [fila, avisos] = await Promise.all([this.service.fila(user, unidade), this.chatIfood.avisos(user.tenantId)]);
-    return { ...fila, avisos };
+    // E a FAIXA da ponte do chat (mig 366, só nuvem — no servidor da loja não há a tabela; a faixa não aparece).
+    const [fila, avisos, ponte] = await Promise.all([
+      this.service.fila(user, unidade),
+      this.chatIfood.avisos(user.tenantId),
+      ehServidorLocal()
+        ? Promise.resolve(null)
+        : this.ponte.situacao(user.tenantId, unidade).catch((e: any) => {
+            // A fila sai mesmo assim (a faixa some); o motivo fica no log (V11).
+            new Logger('Atendimento').warn(`[ponte-chat] situação da ponte: ${e?.message ?? e}`);
+            return null;
+          }),
+    ]);
+    return { ...fila, avisos, ponte };
   }
 
   // Os casos resolvidos hoje (a situação "Resolvidos hoje" da tela).

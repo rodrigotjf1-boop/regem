@@ -26,6 +26,9 @@ import { MOTIVO_REEMBOLSO_99 } from '@/components/atendimento/pedido-99';
 //  • "Pedido alterado" (mig 362; mesmo protótipo): "O robô faz mudanças simples" (mig 363 — `robo_config.muda_pedido`, da
 //    EMPRESA: o robô é um só) e o som do KDS até a cozinha tocar em "Visto" (a cada 1 min de padrão — no ajuste do KDS da
 //    loja em uso, `kds_cor_config`, sincroniza).
+//  • "iFood e 99 · chat pela ponte" (mig 366, parte A2; protótipo v3): ligar a ponte, onde ela roda (automático ou a
+//    principal e a reserva — das pontes da loja em uso) e os três avisos no chat com o texto de cada um. Liga/desliga e
+//    textos na `robo_config` da empresa; o papel, em `chat_ponte`. Só aparece com o iFood ou a 99 conectados.
 // Tudo mora só na NUVEM: no servidor da loja a tela só explica. Só gerente e presidente mudam (o servidor confere).
 
 const HORAS_PADRAO = [1, 2, 4, 8, 12, 20];
@@ -50,6 +53,28 @@ const ROTULO_DO_SOM: Record<string, string> = {
   '1min': 'Repete a cada 1 minuto até o Visto (padrão)',
   '2min': 'Repete a cada 2 minutos até o Visto',
 };
+// A ponte do chat (mig 366): a chave da tela → o aviso e o campo do servidor.
+type MotivoDoAviso = 'saiu' | 'chegando' | 'obrigado';
+const DO_AVISO_DA_PONTE: Record<string, [MotivoDoAviso, 'ligado' | 'texto']> = {
+  ponteSaiu: ['saiu', 'ligado'],
+  ponteSaiuTexto: ['saiu', 'texto'],
+  ponteChegando: ['chegando', 'ligado'],
+  ponteChegandoTexto: ['chegando', 'texto'],
+  ponteObrigado: ['obrigado', 'ligado'],
+  ponteObrigadoTexto: ['obrigado', 'texto'],
+};
+/** O papel dos PCs vai junto (onde + principal + reserva): a escolha é uma só, e o servidor confere as três. */
+const DO_PAPEL_DA_PONTE = ['ponteOnde', 'pontePrincipal', 'ponteReserva'];
+type PonteDaLoja = { id: string; nome: string; maquina: string | null; vistoEm: string | null; viva: boolean; logado: { ifood: boolean; '99food': boolean } };
+type AjusteDaPonte = {
+  ligada: boolean;
+  avisos: Record<MotivoDoAviso, { ligado: boolean; texto: string | null }>;
+  padroes: Record<MotivoDoAviso, string>;
+  onde: 'auto' | 'escolher';
+  principalId: string | null;
+  reservaId: string | null;
+  pontes: PonteDaLoja[];
+};
 
 type Resposta = {
   conectado99: boolean;
@@ -64,9 +89,24 @@ type Resposta = {
   minutosDeNovoCheguei?: number[];
   repetido?: { ativo: boolean; minutos: number; temCardapio: boolean; janelas?: number[] };
   alterado?: { som: string; sons?: string[]; roboMuda?: boolean };
+  ponte?: AjusteDaPonte | null;
 };
 
 const paraValores = (r: Resposta): Valores => ({
+  ...(r.ponte
+    ? {
+        ponteLigada: r.ponte.ligada,
+        ponteOnde: r.ponte.onde,
+        pontePrincipal: r.ponte.principalId ?? '',
+        ponteReserva: r.ponte.reservaId ?? '',
+        ponteSaiu: r.ponte.avisos.saiu.ligado,
+        ponteSaiuTexto: r.ponte.avisos.saiu.texto ?? '',
+        ponteChegando: r.ponte.avisos.chegando.ligado,
+        ponteChegandoTexto: r.ponte.avisos.chegando.texto ?? '',
+        ponteObrigado: r.ponte.avisos.obrigado.ligado,
+        ponteObrigadoTexto: r.ponte.avisos.obrigado.texto ?? '',
+      }
+    : {}),
   ...(r.repetido?.temCardapio ? { repetidoAtivo: r.repetido.ativo, repetidoMin: String(r.repetido.minutos) } : {}),
   ...(r.alterado ? { alteradoSom: r.alterado.som } : {}),
   ...(typeof r.alterado?.roboMuda === 'boolean' ? { alteradoRobo: r.alterado.roboMuda } : {}),
@@ -201,9 +241,9 @@ export function AjustesDoAtendimento() {
     itens: [
       {
         id: 'ifoodChat',
-        rotulo: 'Chat do iFood na tela Atendimento',
+        rotulo: 'Chat oficial do iFood na tela Atendimento',
         tipo: 'chave',
-        ajuda: 'Mostra o botão "Chat do iFood" (o chat oficial do iFood). Cada computador autoriza uma vez, com um usuário "Dono" ou "Administrador" do iFood.',
+        ajuda: 'Mostra o botão "Chat oficial do iFood" (a tela de chat do próprio iFood). Cada computador autoriza uma vez, com um usuário "Dono" ou "Administrador" do iFood.',
         palavras: 'ifood chat widget conversa',
       },
       {
@@ -318,9 +358,112 @@ export function AjustesDoAtendimento() {
       },
     ],
   };
+  // A ponte do chat (mig 366): as pontes da loja em uso; "Escolher os PCs" só com alguma cadastrada.
+  const pontes = resp?.ponte?.pontes ?? [];
+  const padroes = resp?.ponte?.padroes;
+  const escolher = valores.ponteOnde === 'escolher';
+  const principalAtual = String(valores.pontePrincipal ?? '');
+  const rotuloDaPonte = (p: PonteDaLoja) => `${p.nome}${p.viva ? '' : ' · sem sinal agora'}`;
+  const grupoDaPonte: GrupoDeAjustes = {
+    titulo: 'iFood e 99 · chat pela ponte',
+    nota: 'Sempre vale, não se desliga (protege a conta da loja na plataforma): nunca telefone, WhatsApp, Instagram nem link no chat · no máximo 3 avisos por pedido · a conversa não entra em campanha.',
+    itens: [
+      {
+        id: 'ponteLigada',
+        rotulo: 'Ponte do chat',
+        tipo: 'chave',
+        ajuda:
+          'O programa Regem · Ponte do chat, no PC da loja, fica com o iFood e a 99 abertos e manda os avisos abaixo pelo chat de cada plataforma. Desligada, nada sai pelo chat do iFood nem da 99.',
+        palavras: 'ponte chat ifood 99 programa pc ligar',
+      },
+      {
+        id: 'ponteOnde',
+        rotulo: 'Onde a ponte roda',
+        tipo: 'selecao',
+        opcoes: [{ v: 'auto', rotulo: 'Automático (recomendado)' }, ...(pontes.length || escolher ? [{ v: 'escolher', rotulo: 'Escolher os PCs' }] : [])],
+        ajuda: pontes.length
+          ? 'Automático: o Regem usa os PCs onde a ponte está aberta e logada. No iFood, a principal manda as mensagens; a reserva assume sozinha se a principal ficar 2 min sem sinal. A 99 aceita um login só: ela fica na ponte do PC onde a loja usa a 99, sem reserva. Vale para a loja em uso; cada PC aparece em Configurações › Equipamentos.'
+          : 'Nenhum PC está cadastrado como ponte nesta loja: cadastre e pareie o PC em Configurações › Equipamentos, como "Ponte do chat".',
+        palavras: 'ponte onde pc principal reserva automático escolher',
+      },
+      ...(escolher
+        ? [
+            {
+              id: 'pontePrincipal',
+              rotulo: 'PC principal',
+              tipo: 'selecao' as const,
+              opcoes: [...(principalAtual ? [] : [{ v: '', rotulo: 'Escolha o PC' }]), ...pontes.map((p) => ({ v: p.id, rotulo: rotuloDaPonte(p) }))],
+              ajuda: 'Onde o iFood e a 99 ficam abertos no dia a dia.',
+              palavras: 'ponte pc principal',
+            },
+            {
+              id: 'ponteReserva',
+              rotulo: 'PC de reserva (iFood)',
+              tipo: 'selecao' as const,
+              opcoes: [{ v: '', rotulo: 'Nenhum' }, ...pontes.filter((p) => p.id !== principalAtual).map((p) => ({ v: p.id, rotulo: rotuloDaPonte(p) }))],
+              ajuda: 'Assume o chat do iFood quando a principal desliga, por exemplo o PC do delivery à noite. A 99 não tem reserva: ela aceita um login só.',
+              palavras: 'ponte pc reserva ifood',
+            },
+          ]
+        : []),
+      {
+        id: 'ponteSaiu',
+        rotulo: 'Aviso "saiu para entrega" no chat',
+        tipo: 'chave',
+        ajuda: 'Sai quando o Regem despacha o pedido de entrega da loja, com a previsão do rastreio. Quando o entregador é do iFood ou da 99, quem avisa é a plataforma.',
+        palavras: 'aviso saiu entrega despacho chat ifood 99',
+      },
+      {
+        id: 'ponteSaiuTexto',
+        rotulo: 'Texto do "saiu para entrega"',
+        tipo: 'texto',
+        opcional: true,
+        maximo: 300,
+        placeholder: padroes?.saiu,
+        ajuda: 'Em branco, vai o texto padrão (o que aparece apagado no campo). {hora} vira a previsão — sem previsão, essa frase fica de fora; {nome}, o primeiro nome do cliente.',
+        palavras: 'texto aviso saiu entrega',
+      },
+      {
+        id: 'ponteChegando',
+        rotulo: 'Aviso "o entregador está chegando" no chat',
+        tipo: 'chave',
+        ajuda:
+          'Sai quando o entregador da loja chega perto da posição que o iFood e a 99 mandam no pedido (o raio de chegada do app do entregador, 70 m de padrão) ou toca em "estou chegando". Só em entrega da loja.',
+        palavras: 'aviso chegando entregador chegou porta chat',
+      },
+      {
+        id: 'ponteChegandoTexto',
+        rotulo: 'Texto do "o entregador está chegando"',
+        tipo: 'texto',
+        opcional: true,
+        maximo: 300,
+        placeholder: padroes?.chegando,
+        ajuda: 'Em branco, vai o texto padrão. {nome} vira o primeiro nome do cliente.',
+        palavras: 'texto aviso chegando entregador',
+      },
+      {
+        id: 'ponteObrigado',
+        rotulo: 'Agradecer depois da entrega',
+        tipo: 'chave',
+        ajuda: 'Sai quando o pedido é entregue (ou concluído na plataforma). Só o agradecimento: a avaliação do iFood e da 99 é pedida pela própria plataforma.',
+        palavras: 'agradecer obrigado entrega chat',
+      },
+      {
+        id: 'ponteObrigadoTexto',
+        rotulo: 'Texto do agradecimento',
+        tipo: 'texto',
+        opcional: true,
+        maximo: 300,
+        placeholder: padroes?.obrigado,
+        ajuda: 'Em branco, vai o texto padrão. {nome} vira o primeiro nome do cliente.',
+        palavras: 'texto agradecimento obrigado',
+      },
+    ],
+  };
   const grupos: GrupoDeAjustes[] = [
     ...(resp?.cheguei?.temCardapio ? [grupoDoCheguei] : []),
     grupoDaFila,
+    ...(resp?.ponte && (resp.conectadoIfood || resp.conectado99) ? [grupoDaPonte] : []),
     ...(resp?.conectadoIfood ? [grupoDoIfood] : []),
     ...(resp?.conectado99 ? [grupoDa99] : []),
     ...(resp?.repetido?.temCardapio ? [grupoDoRepetido] : []),
@@ -339,7 +482,33 @@ export function AjustesDoAtendimento() {
     const cheguei: Record<string, unknown> = {};
     const repetido: Record<string, unknown> = {};
     let alterado: { som?: string; roboMuda?: boolean } | null = null;
+    const ponte: {
+      ligada?: boolean;
+      onde?: string;
+      principalId?: string | null;
+      reservaId?: string | null;
+      avisos?: Partial<Record<MotivoDoAviso, { ligado?: boolean; texto?: string | null }>>;
+    } = {};
+    // O papel dos PCs vai inteiro quando qualquer parte mudou (a escolha é uma só; o servidor confere as três juntas).
+    if (chaves.some((k) => DO_PAPEL_DA_PONTE.includes(k))) {
+      ponte.onde = String(valores.ponteOnde);
+      if (ponte.onde === 'escolher') {
+        ponte.principalId = String(valores.pontePrincipal ?? '') || null;
+        ponte.reservaId = String(valores.ponteReserva ?? '') || null;
+      }
+    }
     for (const k of chaves) {
+      if (DO_PAPEL_DA_PONTE.includes(k)) continue;
+      if (k === 'ponteLigada') {
+        ponte.ligada = valores[k] === true;
+        continue;
+      }
+      if (DO_AVISO_DA_PONTE[k]) {
+        const [m, campo] = DO_AVISO_DA_PONTE[k];
+        const avisos = (ponte.avisos ??= {});
+        avisos[m] = { ...avisos[m], [campo]: campo === 'ligado' ? valores[k] === true : String(valores[k] ?? '').trim() || null };
+        continue;
+      }
       if (k === 'alteradoSom') {
         alterado = { ...(alterado ?? {}), som: String(valores[k]) };
         continue;
@@ -364,6 +533,7 @@ export function AjustesDoAtendimento() {
         ...(Object.keys(cheguei).length ? { cheguei } : {}),
         ...(Object.keys(repetido).length ? { repetido } : {}),
         ...(alterado ? { alterado } : {}),
+        ...(Object.keys(ponte).length ? { ponte } : {}),
       });
       setResp(r);
       setValores(paraValores(r));
@@ -407,7 +577,16 @@ export function AjustesDoAtendimento() {
         grupos={grupos}
         valores={valores}
         salvos={salvos}
-        aoMudar={(k: string, v: Valor) => setValores((s) => ({ ...s, [k]: v }))}
+        aoMudar={(k: string, v: Valor) =>
+          setValores((s) => {
+            const n = { ...s, [k]: v };
+            // "Escolher os PCs" já vem com a primeira ponte de principal (o servidor exige a principal).
+            if (k === 'ponteOnde' && v === 'escolher' && !n.pontePrincipal && pontes.length) n.pontePrincipal = pontes[0].id;
+            // A reserva nunca é a principal.
+            if (k === 'pontePrincipal' && v && v === n.ponteReserva) n.ponteReserva = '';
+            return n;
+          })
+        }
         aoSalvar={() => void salvar()}
         aoDescartar={() => {
           setValores(salvos);
