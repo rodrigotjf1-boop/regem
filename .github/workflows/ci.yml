@@ -71,3 +71,17 @@ jobs:
         env:
           TEST_PG_URL: postgresql://postgres:postgres@localhost:5432/regem_ci
           KIT_DMS_OBRIGATORIO: 'true'
+
+  # O programa da ponte do chat (ponte-chat/, Electron): os testes dos módulos que não dependem do Electron (o leitor do
+  # chat, a fila, a nuvem, o diagnóstico, a configuração) — sem npm ci (não precisam de pacote; nada de baixar o Electron).
+  ponte-chat:
+    name: ponte do chat (testes)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+      - name: Testes
+        working-directory: ponte-chat
+        run: node --test "test/*.test.js"

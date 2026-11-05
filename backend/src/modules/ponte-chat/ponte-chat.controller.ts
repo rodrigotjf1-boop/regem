@@ -23,7 +23,8 @@ export class PonteChatController {
     return this.ponte.estado(p, dto);
   }
 
-  // O que chegou no chat das plataformas (até 50 por vez): entra uma vez só e ligado ao pedido.
+  // O que chegou no chat das plataformas (até 50 por vez): entra uma vez só e ligado ao pedido — só com a ponte LIGADA
+  // nos ajustes (desligada, nada é gravado e a resposta diz `desligada: true`).
   @Post('mensagens')
   @HttpCode(200)
   mensagens(@Ponte() p: PonteCtx, @Body() dto: any) {
