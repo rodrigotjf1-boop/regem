@@ -56,20 +56,22 @@ export class AtendimentoController {
   }
 
   // "CONVERSAS AGORA" (protótipo v3): as conversas do chat do iFood e da 99 que o robô (ou os avisos) atende, sem caso
-  // aberto, na última hora. Só na nuvem (as mensagens moram lá — no servidor da loja, como a faixa, não aparece).
+  // aberto, na última hora — e as do WhatsApp com o robô, só para quem atende a caixa do WhatsApp (o serviço confere).
+  // Só na nuvem (as mensagens moram lá — no servidor da loja, como a faixa, não aparece).
   @Get('conversas-agora')
   @CloudOnly()
   @Roles('presidente', 'gerente', 'supervisao', 'execucao')
   conversasAgora(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
-    return this.chat.conversasAgora(user.tenantId, unidade);
+    return this.chat.conversasAgora(user.tenantId, unidade, user);
   }
 
   // "Assumir a conversa": o caso nasce com quem assumiu e o robô fica quieto. Só quem responde no chat (a gestão, como
-  // `POST :id/chat`): assumir sem poder responder calaria o robô e deixaria o cliente sem ninguém.
+  // `POST :id/chat`): assumir sem poder responder calaria o robô e deixaria o cliente sem ninguém. No WhatsApp, só quem
+  // atende a caixa do WhatsApp (permissão `bot` — o serviço confere).
   @Post('conversas-agora/assumir')
   @CloudOnly()
   @Roles('presidente', 'gerente', 'supervisao')
-  assumirConversa(@CurrentUser() user: AuthUser, @Body() dto: { canal?: unknown; chave?: unknown }) {
+  assumirConversa(@CurrentUser() user: AuthUser, @Body() dto: { canal?: unknown; chave?: unknown; nome?: unknown }) {
     return this.chat.assumir(user, dto);
   }
 

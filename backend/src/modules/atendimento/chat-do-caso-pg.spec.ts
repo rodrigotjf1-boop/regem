@@ -11,6 +11,7 @@ import { PonteChatService } from '../ponte-chat/ponte-chat.service';
 import { casosDoChat, chaveDaConversa, chaveSql } from '../ponte-chat/casos-do-chat';
 import { sql } from 'drizzle-orm';
 import { ChatDoCasoService } from './chat-do-caso.service';
+import { estadoDaPausa } from '../whatsapp/robo-pausa';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -132,7 +133,7 @@ descrever('o chat do iFood e da 99 na fila do Atendimento (Postgres)', () => {
   afterAll(async () => {
     delete process.env.EDGE_MODE;
     for (const t of [T, T2]) {
-      for (const tab of ['atendimento_chamado', 'chat_plataforma_msg', 'chat_ponte', 'robo_config', 'pedido_externo', 'equipamento', 'colaborador', 'unidade'])
+      for (const tab of ['atendimento_chamado', 'chat_plataforma_msg', 'chat_ponte', 'robo_pausa', 'robo_config', 'cardapio_config', 'pedido_externo', 'equipamento', 'colaborador', 'unidade'])
         await q(`delete from ${tab} where tenant_id = $1`, [t]).catch(() => {});
       await q(`delete from empresa where id = $1`, [t]).catch(() => {});
     }
@@ -443,7 +444,9 @@ descrever('o chat do iFood e da 99 na fila do Atendimento (Postgres)', () => {
     const contar = async () => (await q(`select count(*)::int as n from atendimento_chamado where tenant_id in ($1, $2)`, [T, T2]))[0].n as number;
     const antes = await contar();
     const assumir = (u: any, dto: any) => erro(chat.assumir(u, dto));
-    expect((await assumir(user(), { canal: 'whatsapp', chave: 'ext:ifood-q' }))?.status).toBe(400);
+    expect((await assumir(user(), { canal: 'instagram', chave: 'ext:ifood-q' }))?.status).toBe(400);
+    // o WhatsApp é canal válido, mas só para quem atende a caixa dele (o gerente aqui não tem a permissão bot)
+    expect((await assumir(user(), { canal: 'whatsapp', chave: 'tel:5521999990009' }))?.status).toBe(403);
     expect((await assumir(user(), { canal: 'ifood', chave: 'ifood-q' }))?.status).toBe(400);
     expect((await assumir(user(), { canal: 'ifood', chave: `ext:${'x'.repeat(121)}` }))?.status).toBe(400);
     expect((await assumir(user(), null))?.status).toBe(400);
@@ -536,5 +539,106 @@ descrever('o chat do iFood e da 99 na fila do Atendimento (Postgres)', () => {
       await q(`delete from chat_plataforma_msg where tenant_id = $1`, [T3]);
       await q(`delete from empresa where id = $1`, [T3]);
     }
+  });
+
+  // ───────────────────────── o WhatsApp em "Conversas agora" ─────────────────────────
+
+  describe('o WhatsApp (protótipo v3: "dos três canais")', () => {
+    // O provedor do WhatsApp de mentira: a lista da caixa (Evolution ou API oficial), com a pausa e o caso de cada número.
+    let lista: any[] = [];
+    let falhar = false;
+    const provedor = { conversas: async () => { if (falhar) throw new Error('a Evolution não respondeu'); return lista; } } as any;
+    const chatWa = new ChatDoCasoService(db, events, ponte, auditoria, provedor);
+    const seg = (min: number) => Math.floor(Date.now() / 1000) - min * 60;
+    const quem = (categoria: string, permissoes: any = {}) => ({ categoria, permissoes });
+    let bia: string;
+    const doWhatsapp = (r: any) => (r.conversas as any[]).filter((c) => c.canal === 'whatsapp');
+
+    beforeAll(async () => {
+      [{ id: bia }] = await q(`insert into colaborador (tenant_id, nome, unidade_id, status) values ($1, 'Bia WA', $2, 'ativo') returning id`, [T, loja]);
+      await q(`insert into cardapio_config (tenant_id, token, ativo, robo_ativo) values ($1, $2, true, true)`, [T, `tok-${randomUUID()}`]);
+    });
+    beforeEach(() => {
+      falhar = false;
+      lista = [
+        { telefone: '5521999990001', jids: ['5521999990001@s.whatsapp.net', '123@lid'], nome: 'Fernanda', ultimaMensagem: 'Quero pedir', timestamp: seg(5), pausada: false, chamado: null },
+        { telefone: '5521999990002', jids: ['5521999990002@s.whatsapp.net'], nome: null, ultimaMensagem: 'Qual o horário?', timestamp: seg(10), pausada: false, chamado: null },
+        { telefone: '5521999990003', nome: 'Pausada', timestamp: seg(3), pausada: true, chamado: null }, // a equipe assumiu
+        { telefone: '5521999990004', nome: 'Com caso', timestamp: seg(2), pausada: false, chamado: { id: randomUUID() } },
+        { telefone: '5521999990005', nome: 'Velha', timestamp: seg(90), pausada: false, chamado: null }, // fora da última hora
+        { telefone: '', jids: ['grupo@lid'], nome: 'Sem número', timestamp: seg(1), pausada: false, chamado: null },
+      ];
+    });
+
+    it('para quem atende a caixa (presidente; gerente e supervisão com a permissão bot), com o robô ligado: as da última hora sem pausa nem caso', async () => {
+      const r = await chatWa.conversasAgora(T, loja, quem('presidente'));
+      expect(r.whatsapp).toEqual({ ligado: true, lida: true });
+      const wa = doWhatsapp(r);
+      expect(wa.map((c) => c.chave)).toEqual(['tel:5521999990001', 'tel:5521999990002']);
+      expect(wa[0]).toMatchObject({ canal: 'whatsapp', cliente: 'Fernanda', telefone: '5521999990001', ultimaMensagem: 'Quero pedir', comRobo: true, mensagens: [] });
+      expect(wa[0].jids).toEqual(['5521999990001@s.whatsapp.net', '123@lid']);
+      expect(wa[1].cliente).toBeNull();
+      // a lista junta os canais pela hora (a mais recente primeiro)
+      const horas = (r.conversas as any[]).map((c) => new Date(c.ultima).getTime());
+      expect(horas).toEqual([...horas].sort((a, b) => b - a));
+      expect(doWhatsapp(await chatWa.conversasAgora(T, loja, quem('gerente', { bot: true })))).toHaveLength(2);
+      expect(doWhatsapp(await chatWa.conversasAgora(T, loja, quem('supervisao', { bot: true })))).toHaveLength(2);
+      // sem a caixa do WhatsApp: nem vem
+      for (const u of [quem('gerente', { bot: false }), quem('supervisao'), quem('execucao', { bot: true }), undefined]) {
+        const s = await chatWa.conversasAgora(T, loja, u);
+        expect([s.whatsapp, doWhatsapp(s)]).toEqual([null, []]);
+      }
+    });
+
+    it('robô do WhatsApp desligado: nada do WhatsApp; a leitura que falha vem marcada (≠ nenhuma) e o chat do iFood segue', async () => {
+      await q(`update cardapio_config set robo_ativo = false where tenant_id = $1`, [T]);
+      try {
+        const r = await chatWa.conversasAgora(T, loja, quem('presidente'));
+        expect([r.whatsapp, doWhatsapp(r)]).toEqual([{ ligado: false, lida: true }, []]);
+      } finally {
+        await q(`update cardapio_config set robo_ativo = true where tenant_id = $1`, [T]);
+      }
+      falhar = true;
+      const r = await chatWa.conversasAgora(T, loja, quem('presidente'));
+      expect(r.whatsapp).toEqual({ ligado: true, lida: false });
+      expect(doWhatsapp(r)).toEqual([]);
+      expect((r.conversas as any[]).length).toBeGreaterThan(0); // as do iFood (dos testes de cima) continuam
+    });
+
+    it('Assumir a conversa do WhatsApp: o caso nasce com a pessoa e o robô fica calado; de novo, o mesmo caso; com outra pessoa, 409', async () => {
+      const presidente = { tenantId: T, colaboradorId: ana, categoria: 'presidente', permissoes: {} } as any;
+      const r = await chatWa.assumir(presidente, { canal: 'whatsapp', chave: 'tel:5521999990001', nome: 'Fernanda' });
+      const [c] = await q(`select * from atendimento_chamado where id = $1`, [r.id]);
+      expect(c).toMatchObject({ tipo: 'humano', canal: 'whatsapp', telefone: '5521999990001', cliente: 'Fernanda', status: 'aberto', responsavel_id: ana, prioridade: 'normal' });
+      expect(c.pego_em).not.toBeNull();
+      expect(c.detalhe).toMatchObject({ assumida: true });
+      // o robô calado: a pausa "atendente" e o caso aberto (a mesma regra da caixa do WhatsApp)
+      expect(await estadoDaPausa(db, T, '21999990001')).toMatchObject({ pausado: true });
+      const [p] = await q(`select motivo, por from robo_pausa where tenant_id = $1 and telefone = '5521999990001'`, [T]);
+      expect(p).toEqual({ motivo: 'atendente', por: ana });
+      expect(auditados).toEqual([expect.objectContaining({ acao: 'assumiu_conversa_do_chat', entidadeId: r.id, detalhe: { canal: 'whatsapp', telefone: '***0001' } })]);
+      expect(eventos.map(([ev]) => ev)).toEqual(['atendimento.novo']);
+      // de novo (o mesmo número com outra forma): o mesmo caso
+      expect((await chatWa.assumir(presidente, { canal: 'whatsapp', chave: 'tel:21999990001' })).id).toBe(r.id);
+      // outra pessoa
+      const e = await erro(chatWa.assumir({ tenantId: T, colaboradorId: bia, categoria: 'supervisao', permissoes: { bot: true } } as any, { canal: 'whatsapp', chave: 'tel:5521999990001' }));
+      expect([e?.status, e?.message]).toEqual([409, 'Ana já está com esta conversa.']);
+    });
+
+    it('o caso que o robô abriu, sem ninguém, fica com quem assumiu; sem a caixa do WhatsApp, 403; número inválido, 400 — sem gravar', async () => {
+      const [{ id: doRobo }] = await q(
+        `insert into atendimento_chamado (tenant_id, tipo, canal, telefone, mensagem) values ($1, 'humano', 'whatsapp', '21999990002', 'Quer falar com alguém') returning id`,
+        [T],
+      );
+      const r = await chatWa.assumir({ tenantId: T, colaboradorId: bia, categoria: 'gerente', permissoes: { bot: true } } as any, { canal: 'whatsapp', chave: 'tel:5521999990002' });
+      expect(r.id).toBe(doRobo);
+      expect((await q(`select responsavel_id from atendimento_chamado where id = $1`, [doRobo]))[0].responsavel_id).toBe(bia);
+      const antes = (await q(`select count(*)::int as n from atendimento_chamado where tenant_id = $1`, [T]))[0].n;
+      expect((await erro(chatWa.assumir({ tenantId: T, colaboradorId: bia, categoria: 'gerente', permissoes: { bot: false } } as any, { canal: 'whatsapp', chave: 'tel:5521999990009' })))?.status).toBe(403);
+      expect((await erro(chatWa.assumir({ tenantId: T, colaboradorId: bia, categoria: 'execucao', permissoes: { bot: true } } as any, { canal: 'whatsapp', chave: 'tel:5521999990009' })))?.status).toBe(403);
+      for (const chave of ['tel:123', '5521999990009', 'tel:55219999900091234', 'ext:5521999990009'])
+        expect((await erro(chatWa.assumir({ tenantId: T, colaboradorId: ana, categoria: 'presidente' } as any, { canal: 'whatsapp', chave })))?.status).toBe(400);
+      expect((await q(`select count(*)::int as n from atendimento_chamado where tenant_id = $1`, [T]))[0].n).toBe(antes);
+    });
   });
 });

@@ -19,6 +19,10 @@ import { PonteChatService } from '../ponte-chat/ponte-chat.service';
 import { TEXTO_MAX, temContatoProibido } from '../ponte-chat/texto-do-chat';
 import { ehCanalDaPonte } from '../ponte-chat/lideranca';
 import { chaveSql } from '../ponte-chat/casos-do-chat';
+import { WhatsappProvedorService } from '../whatsapp/whatsapp-provedor.service';
+import { pausarPeloAtendente } from '../whatsapp/robo-pausa';
+import { chaveTelefone, sqlChaveTelefone } from '../../common/telefone-chave';
+import { podeAcessar } from '../../auth/permissoes';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -30,6 +34,18 @@ import { chaveSql } from '../ponte-chat/casos-do-chat';
 // servidor (V37) — "não li" aparece diferente de "vazio".
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Quem vê (e assume) as conversas do WHATSAPP em "Conversas agora": quem atende a caixa de conversas do WhatsApp —
+ * presidente, ou gerente/supervisão com a permissão `bot` (as mesmas travas de `WhatsappCaixaController`).
+ */
+export function veOWhatsapp(u: { categoria?: string | null; permissoes?: any } | null | undefined): boolean {
+  if (!u) return false;
+  if (u.categoria === 'presidente') return true;
+  return (u.categoria === 'gerente' || u.categoria === 'supervisao') && podeAcessar(u.permissoes, 'bot');
+}
+const CHAVE_DO_WHATSAPP = /^tel:\d{8,15}$/;
+const mascararTelefone = (t: string) => (t.length > 4 ? `***${t.slice(-4)}` : '***');
 const LIMITE_DA_CONVERSA = 100;
 const linhas = (r: any): any[] => (r?.rows ?? r) as any[];
 
@@ -75,6 +91,8 @@ export class ChatDoCasoService {
     private readonly events: EventEmitter2,
     private readonly ponte: PonteChatService,
     @Optional() private readonly auditoria?: AuditoriaService,
+    // As conversas do WhatsApp (Evolution ou API oficial) para "Conversas agora". Opcional: os testes montam sem ele.
+    @Optional() private readonly whatsapp?: WhatsappProvedorService,
   ) {}
 
   /** O caso e o pedido dele na plataforma (o id do canal do chat; sem ele, o número). 404 se não é da empresa. */
@@ -226,13 +244,69 @@ export class ChatDoCasoService {
    * — quem está nelas é o robô (ou só os avisos automáticos). Da loja em uso (e as sem loja). Cada uma com o cliente, o
    * pedido e as últimas 8 mensagens; e se o robô do chat está ligado (a tela diz "com o robô" só quando está). Só na
    * nuvem: as mensagens moram lá.
+   *
+   * E as do WHATSAPP (protótipo v3: "dos três canais"), para quem atende a caixa do WhatsApp (`veOWhatsapp`) e com o robô
+   * do WhatsApp ligado: as conversas da última hora em que o robô está — sem pausa (ninguém assumiu) e sem caso aberto
+   * do número (a MESMA regra de "robô calado" da caixa: `robo-pausa.ts`). Pela via da loja (Evolution ou API oficial),
+   * como a caixa; as mensagens a tela pede ao abrir (a rota da caixa). `whatsapp.lida = false` = não deu para ler.
    */
-  async conversasAgora(tenantId: string, unidade: string | null) {
-    const [conversas, robo] = await Promise.all([
+  async conversasAgora(tenantId: string, unidade: string | null, quem?: { categoria?: string | null; permissoes?: any }) {
+    const [conversas, robo, whatsapp] = await Promise.all([
       this.db.execute(this.sqlDasConversasAgora(tenantId, unidade)),
       this.db.execute(sql`select chat_robo_responde from robo_config where tenant_id = ${tenantId}::uuid`),
+      veOWhatsapp(quem) ? this.conversasDoWhatsapp(tenantId) : Promise.resolve(null),
     ]);
-    return { conversas: linhas(conversas), roboResponde: linhas(robo)[0]?.chat_robo_responde === true };
+    const roboResponde = linhas(robo)[0]?.chat_robo_responde === true;
+    const todas = [...linhas(conversas).map((c) => ({ ...c, comRobo: roboResponde })), ...(whatsapp?.conversas ?? [])];
+    todas.sort((a, b) => new Date(b.ultima).getTime() - new Date(a.ultima).getTime());
+    return {
+      conversas: todas,
+      roboResponde,
+      whatsapp: whatsapp ? { ligado: whatsapp.ligado, lida: whatsapp.lida } : null,
+    };
+  }
+
+  /** As conversas do WhatsApp com o robô agora (última hora, sem pausa e sem caso aberto), pela via da loja. */
+  private async conversasDoWhatsapp(tenantId: string): Promise<{ ligado: boolean; lida: boolean; conversas: any[] }> {
+    if (!this.whatsapp) return { ligado: false, lida: true, conversas: [] };
+    const [cfg] = linhas(
+      await this.db.execute(sql`
+        select coalesce(bool_or(robo_ativo and ativo), false) as ligado from cardapio_config where tenant_id = ${tenantId}::uuid`),
+    );
+    if (cfg?.ligado !== true) return { ligado: false, lida: true, conversas: [] };
+    let lista: any[];
+    try {
+      lista = await this.whatsapp.conversas(tenantId);
+    } catch (e: any) {
+      this.logger.warn(`conversas do WhatsApp para "Conversas agora" (empresa ${tenantId}): ${e?.message ?? e}`);
+      return { ligado: true, lida: false, conversas: [] };
+    }
+    const desde = Date.now() / 1000 - 3600;
+    const conversas = (Array.isArray(lista) ? lista : [])
+      .filter((c) => {
+        const tel = String(c?.telefone ?? '').replace(/\D/g, '');
+        return tel.length >= 8 && Number(c?.timestamp) >= desde && c?.pausada !== true && !c?.chamado;
+      })
+      .slice(0, 50)
+      .map((c) => {
+        const tel = String(c.telefone).replace(/\D/g, '').slice(0, 15);
+        const nome = typeof c.nome === 'string' && c.nome.trim() ? c.nome.trim().slice(0, 120) : null;
+        return {
+          canal: 'whatsapp',
+          chave: `tel:${tel}`,
+          ultima: new Date(Number(c.timestamp) * 1000).toISOString(),
+          cliente: nome,
+          telefone: tel,
+          jids: (Array.isArray(c.jids) && c.jids.length ? c.jids : [tel]).map(String).slice(0, 5),
+          ultimaMensagem: typeof c.ultimaMensagem === 'string' ? c.ultimaMensagem.slice(0, 300) : null,
+          pedidoId: null,
+          pedidoNumero: null,
+          pedidoStatus: null,
+          mensagens: [],
+          comRobo: true,
+        };
+      });
+    return { ligado: true, lida: true, conversas };
   }
 
   /**
@@ -285,11 +359,12 @@ export class ChatDoCasoService {
    * trava da empresa (a mesma dos casos do chat): se a conversa já tem caso aberto — sem ninguém, ele fica com quem
    * assumiu; com outra pessoa, 409 com o nome.
    */
-  async assumir(user: AuthUser, dto: { canal?: unknown; chave?: unknown } | null | undefined) {
+  async assumir(user: AuthUser, dto: { canal?: unknown; chave?: unknown; nome?: unknown } | null | undefined) {
     const eu = user.colaboradorId;
     if (!eu) throw new ForbiddenException('Entre com o seu usuário para assumir a conversa.');
     const canal = dto?.canal;
     const chave = typeof dto?.chave === 'string' ? dto.chave : '';
+    if (canal === 'whatsapp') return this.assumirNoWhatsapp(user, eu, chave, dto?.nome);
     if (!ehCanalDaPonte(canal) || !/^(ext|id|num):.{1,120}$/.test(chave)) throw new BadRequestException('Conversa inválida.');
     const r = await this.db.transaction(async (tx) => {
       await tx.execute(sql`select 1 from robo_config where tenant_id = ${user.tenantId}::uuid for update`);
@@ -344,6 +419,66 @@ export class ChatDoCasoService {
         entidadeTipo: 'atendimento_chamado',
         entidadeId: r.id,
         detalhe: { canal, chave },
+        origem: 'web',
+      })
+      .catch((e: any) => this.logger.warn(`auditoria do "assumir a conversa" (${r.id}): ${e?.message ?? e}`));
+    if (r.novo) this.events.emit('atendimento.novo', { tenantId: user.tenantId, chamado: r.novo });
+    else this.events.emit('atendimento.mudou', { tenantId: user.tenantId, id: r.id, motivo: 'assumiu_a_conversa' });
+    return { ok: true, id: r.id };
+  }
+
+  /**
+   * "ASSUMIR A CONVERSA" DO WHATSAPP: quem atende a caixa do WhatsApp (`veOWhatsapp`). Com a trava da empresa (duas
+   * pessoas ao mesmo tempo: uma fica com ela, a outra recebe 409): o número já tem caso aberto — sem ninguém, fica com
+   * quem assumiu; com outra pessoa, 409 com o nome —; senão nasce o caso "Quer falar com alguém" já com a pessoa. O caso
+   * aberto cala o robô (robo-pausa.ts) e a pausa "atendente" segura pelo tempo da loja, como quando a equipe responde
+   * pela caixa. A auditoria guarda o número mascarado.
+   */
+  private async assumirNoWhatsapp(user: AuthUser, eu: string, chave: string, nome: unknown) {
+    if (!veOWhatsapp(user)) throw new ForbiddenException('Quem assume a conversa do WhatsApp é quem atende a caixa do WhatsApp.');
+    if (!CHAVE_DO_WHATSAPP.test(chave)) throw new BadRequestException('Conversa inválida.');
+    const tel = chave.slice(4);
+    const k = chaveTelefone(tel);
+    if (!k) throw new BadRequestException('Conversa inválida.');
+    const cliente = typeof nome === 'string' && nome.trim() ? nome.trim().slice(0, 120) : null;
+    const r = await this.db.transaction(async (tx) => {
+      await tx.execute(sql`select 1 from robo_config where tenant_id = ${user.tenantId}::uuid for update`);
+      const [aberto] = linhas(
+        await tx.execute(sql`
+          select c.id, c.responsavel_id, col.nome from atendimento_chamado c
+            left join colaborador col on col.id = c.responsavel_id and col.tenant_id = c.tenant_id
+           where c.tenant_id = ${user.tenantId}::uuid and c.status = 'aberto'
+             and ${sqlChaveTelefone(sql`c.telefone`)} = ${k}
+           order by c.criado_em desc limit 1`),
+      );
+      if (aberto) {
+        if (aberto.responsavel_id && aberto.responsavel_id !== eu) throw new ConflictException(`${aberto.nome ?? 'Outra pessoa'} já está com esta conversa.`);
+        if (!aberto.responsavel_id)
+          await tx.execute(sql`update atendimento_chamado set responsavel_id = ${eu}::uuid, pego_em = now() where id = ${aberto.id}::uuid`);
+        return { id: aberto.id as string, novo: null };
+      }
+      const [novo] = linhas(
+        await tx.execute(sql`
+          insert into atendimento_chamado (tenant_id, tipo, cliente, telefone, mensagem, prioridade, canal, responsavel_id, pego_em, detalhe)
+          values (${user.tenantId}::uuid, 'humano', ${cliente}, ${tel}, 'Conversa do WhatsApp assumida do robô', 'normal', 'whatsapp',
+                  ${eu}::uuid, now(), jsonb_build_object('assumida', true))
+          returning *`),
+      );
+      return { id: novo.id as string, novo };
+    });
+    await pausarPeloAtendente(this.db, { tenantId: user.tenantId, telefone: tel, motivo: 'atendente', por: eu }).catch((e: any) =>
+      this.logger.warn(`"assumir a conversa" do WhatsApp (${r.id}): pausa do robô não gravada (o caso aberto já cala): ${e?.message ?? e}`),
+    );
+    await this.auditoria
+      ?.registrar({
+        tenantId: user.tenantId,
+        atorId: eu,
+        atorPerfil: user.categoria,
+        tipo: 'atendimento',
+        acao: 'assumiu_conversa_do_chat',
+        entidadeTipo: 'atendimento_chamado',
+        entidadeId: r.id,
+        detalhe: { canal: 'whatsapp', telefone: mascararTelefone(tel) },
         origem: 'web',
       })
       .catch((e: any) => this.logger.warn(`auditoria do "assumir a conversa" (${r.id}): ${e?.message ?? e}`));

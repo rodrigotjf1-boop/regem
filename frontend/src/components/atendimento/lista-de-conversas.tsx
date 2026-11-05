@@ -13,6 +13,8 @@ export function ListaDeConversas({
   erro,
   vazioPorFiltro,
   roboResponde,
+  comWhatsapp = false,
+  erroWhatsapp = false,
   selecionada,
   agora,
   aoAbrir,
@@ -23,6 +25,10 @@ export function ListaDeConversas({
   erro: boolean;
   vazioPorFiltro: boolean;
   roboResponde: boolean;
+  /** As conversas do WhatsApp entram (quem atende a caixa do WhatsApp, com o robô dele ligado). */
+  comWhatsapp?: boolean;
+  /** A leitura do WhatsApp falhou (≠ nenhuma conversa). */
+  erroWhatsapp?: boolean;
   selecionada: string | null;
   agora: number | null;
   aoAbrir: (id: string) => void;
@@ -38,6 +44,11 @@ export function ListaDeConversas({
       <p className="px-1 py-6 text-center text-sm text-secondary-foreground">Carregando…</p>
     );
   }
+  const avisoDoWhatsapp = erroWhatsapp && (
+    <p className="text-xs text-destructive" role="status">
+      Não consegui ler as conversas do WhatsApp agora: elas continuam em Delivery › WhatsApp.
+    </p>
+  );
   if (!conversas.length) {
     return vazioPorFiltro ? (
       <div className="rounded-lg border border-dashed border-input bg-card px-4 py-8 text-center text-sm" role="status">
@@ -47,23 +58,30 @@ export function ListaDeConversas({
         </Button>
       </div>
     ) : (
-      <div className="rounded-lg border border-dashed border-input bg-card px-4 py-8 text-center text-sm" role="status">
-        <p className="text-2xl" aria-hidden="true">💬</p>
-        <p className="font-semibold">Nenhuma conversa sem caso na última hora.</p>
-        <p className="text-secondary-foreground">
-          {roboResponde
-            ? 'Quando o robô atender alguém no chat do iFood ou da 99, a conversa aparece aqui e dá para assumir.'
-            : 'O robô do chat está desligado: o que o cliente escreve vira caso na fila. Aqui ficam as conversas só com os avisos automáticos.'}
-        </p>
+      <div className="space-y-2">
+        {avisoDoWhatsapp}
+        <div className="rounded-lg border border-dashed border-input bg-card px-4 py-8 text-center text-sm" role="status">
+          <p className="text-2xl" aria-hidden="true">💬</p>
+          <p className="font-semibold">Nenhuma conversa sem caso na última hora.</p>
+          <p className="text-secondary-foreground">
+            {comWhatsapp
+              ? 'Quando o robô atender alguém no WhatsApp (ou no chat do iFood e da 99), a conversa aparece aqui e dá para assumir.'
+              : roboResponde
+                ? 'Quando o robô atender alguém no chat do iFood ou da 99, a conversa aparece aqui e dá para assumir.'
+                : 'O robô do chat está desligado: o que o cliente escreve vira caso na fila. Aqui ficam as conversas só com os avisos automáticos.'}
+          </p>
+        </div>
       </div>
     );
   }
   return (
-    <ul className="space-y-2" aria-label="Conversas do chat">
+    <ul className="space-y-2" aria-label="Conversas com o robô">
       {erro && <li className="text-xs text-destructive">Não consegui atualizar agora; mostrando a última leitura.</li>}
+      {erroWhatsapp && <li>{avisoDoWhatsapp}</li>}
       {conversas.map((c) => {
         const id = idDaConversa(c);
         const atual = selecionada === id;
+        const comRobo = c.comRobo ?? roboResponde;
         return (
           <li key={id}>
             <button
@@ -76,12 +94,12 @@ export function ListaDeConversas({
             >
               <span className="flex flex-wrap items-center gap-1.5">
                 <ChipDoCanal canal={c.canal} />
-                {roboResponde && <span className="rounded-full bg-info/15 px-2 py-0.5 text-xs font-bold text-foreground">🤖 Com o robô</span>}
+                {comRobo && <span className="rounded-full bg-info/15 px-2 py-0.5 text-xs font-bold text-foreground">🤖 Com o robô</span>}
               </span>
               <span className="mt-1 block break-words font-bold">{tituloDaConversa(c)}</span>
               <span className="mt-0.5 line-clamp-2 block break-words text-sm text-secondary-foreground">{resumoDaConversa(c)}</span>
               <span className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-secondary-foreground">
-                <span>{roboResponde ? 'o robô está atendendo' : 'sem caso aberto'}</span>
+                <span>{comRobo ? 'o robô está atendendo' : 'sem caso aberto'}</span>
                 {agora && <span>última mensagem há {tempoDesde(c.ultima, agora)}</span>}
               </span>
             </button>

@@ -19,6 +19,11 @@
   os gateways de PIX como canal de pedidos, e o cartão da Rede em Integrações (as rotas são da nuvem); a integração
   `rede` (tabela `integracao`) não sincroniza; nada no `sync`/`edge`.
 
+- **"Conversas agora" com o WhatsApp (05/11; sem migration).** Na nuvem com o merge: para quem atende a caixa do WhatsApp
+  e com o robô dele ligado, a situação "Conversas agora" traz também as conversas do WhatsApp em que o robô está, com
+  "Assumir a conversa". **No `.zip` 1.30.13:** só a tela (a situação não aparece no servidor da loja — a rota é da nuvem);
+  nada no `sync`/`edge`.
+
 - **Ponte do chat em Equipamentos (05/11; sem migration).** Na nuvem com o merge: em Configurações › Equipamentos, a
   ponte aparece no cartão do PC onde roda, com o papel de agora, os logins e o movimento de hoje, e a faixa "em ordem /
   aviso". **No `.zip` 1.30.13:** só a tela (no servidor da loja a ponte segue em "Outros aparelhos" e o aviso diz que o PC
