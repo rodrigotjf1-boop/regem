@@ -33,15 +33,19 @@ function ligarLeitor(wc, { aoChegar, aoMudarChat, diagnostico, registrarErro }) 
   const sockets = new Map(); // `${sessão}|${requestId}` → endereço (só os do chat)
   const corpos = new Map();
   const vistos = new Vistos();
+  const ouvintes = new Set(); // quem espera mensagens (o envio espera o eco do que mandou)
   let ultimoLogi = 0;
+  let ultimoCanal = null; // o último canal de conversa que o Gestor carregou: { canal, em }
   const avisar = () => {
     if (aoMudarChat) aoMudarChat();
   };
-  const preparar = (sid) => {
-    dbg.sendCommand('Network.enable', {}, sid).catch(() => {});
-    dbg.sendCommand('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }, sid).catch(() => {});
-  };
-  preparar(undefined);
+  const preparar = (sid) =>
+    Promise.all([
+      dbg.sendCommand('Network.enable', {}, sid).catch(() => {}),
+      dbg.sendCommand('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }, sid).catch(() => {}),
+    ]);
+  // A página só carrega depois disto (`pronto`): conexão do chat aberta antes da escuta passaria sem ser lida (ERR-376).
+  const pronto = preparar(undefined);
   dbg.on('detach', (_e, motivo) => {
     sockets.clear();
     avisar();
@@ -66,9 +70,16 @@ function ligarLeitor(wc, { aoChegar, aoMudarChat, diagnostico, registrarErro }) 
         return;
       }
       if (metodo === 'Network.webSocketFrameReceived') {
-        if (!sockets.has(chave(p.requestId))) return;
         const q = lerQuadro(p.response && p.response.payloadData);
         if (!q) return;
+        if (!sockets.has(chave(p.requestId))) {
+          // conexão que a escuta não viu abrir (aberta antes dela, ERR-376): vale se o quadro é do chat — uma mensagem
+          // de um canal de conversa (`sendbird_…`); a conexão passa a contar como do chat
+          const doChat = q.cmd === 'MESG' && q.corpo && typeof q.corpo.channel_url === 'string' && q.corpo.channel_url.startsWith('sendbird_');
+          if (!doChat) return;
+          sockets.set(chave(p.requestId), '(aberta antes da escuta)');
+          avisar();
+        }
         if (q.cmd === 'LOGI') {
           if (q.corpo && !q.corpo.error) {
             ultimoLogi = Date.now();
@@ -81,14 +92,24 @@ function ligarLeitor(wc, { aoChegar, aoMudarChat, diagnostico, registrarErro }) 
         if (!m || !vistos.novo(m.id)) return;
         if (diagnostico) diagnostico.mesg(q.corpo);
         aoChegar(m);
+        for (const f of ouvintes) {
+          try {
+            f(m);
+          } catch {
+            /* quem ouve não derruba a leitura */
+          }
+        }
+        return;
+      }
+      if (metodo === 'Network.requestWillBeSent') {
+        const rq = p.request || {};
+        // abrir uma conversa = o Gestor carrega o canal dela (`…/group_channels/sendbird_gc_cm_<pedido>_<loja>`)
+        const canal = /\/v3\/(?:sdk\/)?group_channels\/(sendbird_gc_cm_[0-9a-f-]+_[0-9a-f-]+)(?:[/?]|$)/i.exec(rq.url || '');
+        if (canal && rq.method === 'GET') ultimoCanal = { canal: canal[1], em: Date.now() };
+        if (diagnostico && interessa(rq.url || '')) diagnostico.chamada(rq.method, rq.url);
         return;
       }
       if (!diagnostico) return;
-      if (metodo === 'Network.requestWillBeSent') {
-        const rq = p.request || {};
-        if (interessa(rq.url || '')) diagnostico.chamada(rq.method, rq.url);
-        return;
-      }
       if (metodo === 'Network.responseReceived') {
         const r = p.response || {};
         if (!interessa(r.url || '')) return;
@@ -120,8 +141,30 @@ function ligarLeitor(wc, { aoChegar, aoMudarChat, diagnostico, registrarErro }) 
     }
   });
   return {
+    pronto,
     chatAberto: () => sockets.size > 0,
     ultimoLogi: () => ultimoLogi,
+    ultimoCanal: () => ultimoCanal,
+    /**
+     * Espera a mensagem da LOJA com este texto chegar depois de `desde` — na conversa `canal` (quando se sabe) e do pedido
+     * `pedidoExterno` (quando se sabe) — ou null no prazo.
+     */
+    esperarEco: ({ canal, pedidoExterno, texto, desde, prazoMs = 20000 }) =>
+      new Promise((resolver) => {
+        const fim = setTimeout(() => {
+          ouvintes.delete(ouvir);
+          resolver(null);
+        }, prazoMs);
+        const ouvir = (m) => {
+          if (m.autor !== 'loja' || m.texto.trim() !== String(texto).trim() || Date.now() < desde) return;
+          if (canal && m.canalDoChat !== canal) return;
+          if (pedidoExterno && String(m.pedidoExterno || '').toLowerCase() !== String(pedidoExterno).toLowerCase()) return;
+          clearTimeout(fim);
+          ouvintes.delete(ouvir);
+          resolver(m);
+        };
+        ouvintes.add(ouvir);
+      }),
   };
 }
 
