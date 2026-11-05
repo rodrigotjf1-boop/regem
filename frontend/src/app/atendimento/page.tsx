@@ -22,6 +22,7 @@ import { EnderecoDepoisQueSaiu } from '@/components/atendimento/endereco-depois-
 import { ListaDeConversas } from '@/components/atendimento/lista-de-conversas';
 import { ConversaDoRobo } from '@/components/atendimento/conversa-do-robo';
 import { enderecoDoCaso } from '@/lib/endereco-do-caso';
+import { NO_SERVIDOR_DA_LOJA } from '@/components/ui/so-pela-nuvem';
 import {
   CASO_DA_PLATAFORMA,
   ROTULO_DO_CANAL,
@@ -31,6 +32,7 @@ import {
   hora,
   idDaConversa,
   relerFila,
+  resumoDasConversas,
   tempoAte,
   tempoDesde,
   tituloDaConversa,
@@ -78,9 +80,14 @@ export default function AtendimentoPage() {
   const [conversas, setConversas] = useState<ConversaAgora[] | null>(null);
   const [erroConversas, setErroConversas] = useState(false);
   const [roboResponde, setRoboResponde] = useState(false);
+  // O WhatsApp em "Conversas agora": `null` = não entra para quem está na tela (não atende a caixa do WhatsApp).
+  const [whatsapp, setWhatsapp] = useState<{ ligado: boolean; lida: boolean } | null>(null);
   const [conversaSel, setConversaSel] = useState<string | null>(null);
   const [podeAssumir, setPodeAssumir] = useState(false);
   const comPonte = ponte?.ligada === true;
+  const comWhatsapp = whatsapp?.ligado === true;
+  // A situação aparece com a ponte do chat ligada OU com o robô do WhatsApp ligado (para quem atende a caixa dele).
+  const temConversas = comPonte || comWhatsapp;
   const naConversa = sit === 'conversas';
 
   useEffect(() => {
@@ -138,29 +145,33 @@ export default function AtendimentoPage() {
       if (n !== leituraDasConversas.current) return;
       setConversas(Array.isArray(r?.conversas) ? (r.conversas as ConversaAgora[]) : []);
       setRoboResponde(r?.roboResponde === true);
+      setWhatsapp(r?.whatsapp && typeof r.whatsapp.ligado === 'boolean' ? { ligado: r.whatsapp.ligado, lida: r.whatsapp.lida !== false } : null);
       setErroConversas(false);
     } catch {
       // Falhou: o que já estava fica, marcado como "não li agora" — nunca vira "nenhuma conversa" (V37).
       if (n === leituraDasConversas.current) setErroConversas(true);
     }
   }, []);
-  // Com a ponte ligada: ao abrir, sempre que um caso do chat abre ou fecha (a conversa sai daqui quando vira caso e volta
-  // quando ele é resolvido) e a cada 15 s com a aba à vista.
-  const casosDoChat = useMemo(() => casos.filter((c) => c.tipo === 'chat').map((c) => c.id).join(','), [casos]);
+  // Na nuvem (a rota é só dela): ao abrir e sempre que um caso do chat ou do WhatsApp abre ou fecha (a conversa sai daqui
+  // quando vira caso e volta quando ele é resolvido); com a ponte ou o robô do WhatsApp ligados, a cada 15 s com a aba à vista.
+  const casosDasConversas = useMemo(
+    () => casos.filter((c) => c.tipo === 'chat' || c.canal === 'whatsapp').map((c) => c.id).join(','),
+    [casos],
+  );
   useEffect(() => {
-    if (comPonte) void lerConversas();
-  }, [comPonte, casosDoChat, lerConversas]);
+    if (!NO_SERVIDOR_DA_LOJA) void lerConversas();
+  }, [comPonte, casosDasConversas, lerConversas]);
   useEffect(() => {
-    if (!comPonte) return;
+    if (!temConversas) return;
     const t = setInterval(() => {
       if (document.visibilityState === 'visible') void lerConversas();
     }, 15_000);
     return () => clearInterval(t);
-  }, [comPonte, lerConversas]);
-  // A ponte desligou: a situação some e a tela volta para "Abertos".
+  }, [temConversas, lerConversas]);
+  // A ponte e o robô do WhatsApp desligados: a situação some e a tela volta para "Abertos".
   useEffect(() => {
-    if (!comPonte && sit === 'conversas') setSit('abertos');
-  }, [comPonte, sit]);
+    if (!temConversas && sit === 'conversas') setSit('abertos');
+  }, [temConversas, sit]);
   useEffect(() => setPodeAssumir(GESTAO.includes(getCategoria() ?? '')), []);
 
   const base = sit === 'resolvidos' ? resolvidos ?? [] : casos;
@@ -208,7 +219,9 @@ export default function AtendimentoPage() {
   // As conversas que passam na busca e no canal (motivo e "com quem" são de caso: nem aparecem nesta situação).
   const conversasVisiveis = useMemo(() => {
     const q = semAcento(busca.trim());
-    return (conversas ?? []).filter((c) => (!q || semAcento(tituloDaConversa(c)).includes(q)) && (!canal || c.canal === canal));
+    return (conversas ?? []).filter(
+      (c) => (!q || semAcento(`${tituloDaConversa(c)} ${c.telefone ?? ''}`).includes(q)) && (!canal || c.canal === canal),
+    );
   }, [conversas, busca, canal]);
   const conversa = useMemo(() => (conversas ?? []).find((c) => idDaConversa(c) === conversaSel) ?? null, [conversas, conversaSel]);
   // A conversa aberta virou caso (ou saiu da última hora): na coluna da direita aparece a primeira da lista.
@@ -258,11 +271,9 @@ export default function AtendimentoPage() {
           </h2>
           <p className="text-sm text-secondary-foreground" role="status" aria-live="polite">
             {contagens ? `${contagens.comPrazo} com prazo · ${contagens.naFila} na fila · ` : ''}
-            {comPonte && conversas !== null && (
+            {temConversas && conversas !== null && (
               <>
-                {roboResponde
-                  ? `o robô está em ${conversas.length === 1 ? '1 conversa' : `${conversas.length} conversas`} no iFood e na 99 (`
-                  : `${conversas.length === 1 ? '1 conversa' : `${conversas.length} conversas`} no chat do iFood e da 99 sem caso (`}
+                {resumoDasConversas(conversas, { comWhatsapp, comPonte, roboResponde })} (
                 <button
                   type="button"
                   onClick={() => irPara('conversas')}
@@ -273,7 +284,7 @@ export default function AtendimentoPage() {
                 {') · '}
               </>
             )}
-            as conversas que o robô atende sozinho {comPonte ? 'no WhatsApp ' : ''}ficam em{' '}
+            {whatsapp ? 'a conversa inteira do WhatsApp fica em ' : `as conversas que o robô atende sozinho ${comPonte ? 'no WhatsApp ' : ''}ficam em `}
             <Link href="/whatsapp" className="font-semibold text-foreground underline underline-offset-2">
               Delivery › WhatsApp
             </Link>
@@ -287,7 +298,7 @@ export default function AtendimentoPage() {
         <ChatDoIfood />
 
         <div className="flex flex-wrap gap-2" role="group" aria-label="Situação">
-          {SITUACOES.filter((s) => s.k !== 'conversas' || comPonte).map((s) => {
+          {SITUACOES.filter((s) => s.k !== 'conversas' || temConversas).map((s) => {
             const ligada = sit === s.k;
             return (
               <button
@@ -305,7 +316,8 @@ export default function AtendimentoPage() {
                     ligada ? 'bg-background/20 text-background' : s.critico && contagemDe(s.k) ? 'bg-destructive/15 text-foreground' : 'bg-secondary text-foreground'
                   }`}
                 >
-                  {contagemDe(s.k)}
+                  {/* "Conversas agora" antes da 1ª leitura: "…", nunca 0 — não ter lido não é não ter conversa (V37). */}
+                  {s.k === 'conversas' && conversas === null ? '…' : contagemDe(s.k)}
                 </span>
               </button>
             );
@@ -354,7 +366,9 @@ export default function AtendimentoPage() {
                 {sit === 'resolvidos' ? 'Resolvidos hoje' : naConversa ? 'Conversas agora' : 'Fila'}
               </h3>
               {naConversa ? (
-                <span className="text-xs text-secondary-foreground">Chat do iFood e da 99 · última hora · sem caso aberto</span>
+                <span className="text-xs text-secondary-foreground">
+                  {[comWhatsapp ? 'WhatsApp' : '', comPonte ? 'chat do iFood e da 99' : ''].filter(Boolean).join(' e ')} · última hora · sem caso aberto
+                </span>
               ) : (
                 sit !== 'resolvidos' && (
                   <span className="text-xs text-secondary-foreground">Ordem: prazo vencendo, depois urgente, depois quem espera há mais tempo</span>
@@ -367,6 +381,8 @@ export default function AtendimentoPage() {
                 erro={erroConversas}
                 vazioPorFiltro={(conversas?.length ?? 0) > 0}
                 roboResponde={roboResponde}
+                comWhatsapp={comWhatsapp}
+                erroWhatsapp={whatsapp?.lida === false}
                 selecionada={duplo ? (conversaNaColuna ? idDaConversa(conversaNaColuna) : null) : conversaSel}
                 agora={agora}
                 aoAbrir={abrirConversa}

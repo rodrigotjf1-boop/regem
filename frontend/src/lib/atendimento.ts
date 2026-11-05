@@ -201,9 +201,12 @@ export type MensagemDaConversa = {
   motivo: string | null;
   em: string;
 };
-/** "Conversas agora" (ponte do chat): a conversa do chat do iFood/99 que o robô (ou os avisos) atende, sem caso aberto. */
+/**
+ * "Conversas agora": a conversa que o robô (ou os avisos) atende, sem caso aberto — do chat do iFood/99 (ponte do chat,
+ * com as últimas mensagens) ou do WhatsApp (o número e a última mensagem; a conversa a tela lê da caixa ao abrir).
+ */
 export type ConversaAgora = {
-  canal: 'ifood' | '99food';
+  canal: 'ifood' | '99food' | 'whatsapp';
   chave: string;
   ultima: string;
   cliente: string | null;
@@ -211,15 +214,32 @@ export type ConversaAgora = {
   pedidoNumero: string | null;
   pedidoStatus: string | null;
   mensagens: MensagemDaConversa[];
+  /** O robô está atendendo (no iFood/99, se o robô do chat está ligado; no WhatsApp, sempre — só vem com ele ligado). */
+  comRobo?: boolean;
+  /** WhatsApp: o número (só dígitos), os jids da caixa e a última mensagem. */
+  telefone?: string | null;
+  jids?: string[];
+  ultimaMensagem?: string | null;
 };
 export const idDaConversa = (c: { canal: string; chave: string }) => `${c.canal}|${c.chave}`;
-/** "Maria S. · pedido iFood 4821" — como o título do caso. */
+/** "(21) 97654-3210" a partir dos dígitos (com ou sem o 55). */
+export function telefoneLegivel(t: string | null | undefined): string {
+  const d = String(t ?? '').replace(/\D/g, '');
+  const n = d.length > 11 && d.startsWith('55') ? d.slice(2) : d;
+  if (n.length === 11) return `(${n.slice(0, 2)}) ${n.slice(2, 7)}-${n.slice(7)}`;
+  if (n.length === 10) return `(${n.slice(0, 2)}) ${n.slice(2, 6)}-${n.slice(6)}`;
+  return d;
+}
+/** "Maria S. · pedido iFood 4821" — como o título do caso; no WhatsApp, o nome (do perfil do WhatsApp) ou o número. */
 export function tituloDaConversa(c: ConversaAgora): string {
+  if (c.canal === 'whatsapp') return c.cliente || telefoneLegivel(c.telefone) || 'Cliente';
   const plataforma = c.canal === 'ifood' ? 'iFood' : '99Food';
   return `${c.cliente || 'Cliente'}${c.pedidoNumero ? ` · pedido ${plataforma} ${c.pedidoNumero}` : ` · chat ${c.canal === 'ifood' ? 'do iFood' : 'da 99'}`}`;
 }
 /** O que aconteceu por último: a fala do cliente e, se houve, o que o robô (ou o aviso) disse depois. */
 export function resumoDaConversa(c: ConversaAgora): string {
+  // WhatsApp: a última mensagem da conversa, sem aspas — a lista da caixa não diz se foi o cliente ou a loja.
+  if (!c.mensagens.length) return c.ultimaMensagem ?? '';
   const ultimaDoCliente = [...c.mensagens].reverse().find((m) => m.direcao === 'entrada' && m.autor === 'cliente');
   const ultima = c.mensagens[c.mensagens.length - 1];
   if (ultima && ultima.direcao === 'saida') {
@@ -227,6 +247,21 @@ export function resumoDaConversa(c: ConversaAgora): string {
     return ultimaDoCliente ? `"${ultimaDoCliente.texto}" · ${quem} respondeu` : `${quem}: ${ultima.texto}`;
   }
   return ultimaDoCliente ? `"${ultimaDoCliente.texto}"` : ultima?.texto ?? '';
+}
+
+/**
+ * O resumo do topo da tela Atendimento: "o robô está em 3 conversas no WhatsApp, no iFood e na 99" — os canais em que o
+ * robô atende para quem está na tela —; com a ponte ligada e o robô do chat desligado, "2 conversas no chat do iFood e da
+ * 99 sem caso".
+ */
+export function resumoDasConversas(conversas: ConversaAgora[], o: { comWhatsapp: boolean; comPonte: boolean; roboResponde: boolean }): string {
+  const fmt = (n: number) => (n === 1 ? '1 conversa' : `${n} conversas`);
+  const comRobo = conversas.filter((c) => c.comRobo ?? o.roboResponde).length;
+  const onde = [o.comWhatsapp ? 'no WhatsApp' : '', o.comPonte && o.roboResponde ? 'no iFood e na 99' : ''].filter(Boolean);
+  const partes: string[] = [];
+  if (onde.length) partes.push(`o robô está em ${fmt(comRobo)} ${onde.join(', ')}`);
+  if (o.comPonte && !o.roboResponde) partes.push(`${fmt(conversas.length - comRobo)} no chat do iFood e da 99 sem caso`);
+  return partes.join(' · ');
 }
 
 /** "agora", "4 min", "1 h 20 min" desde o instante. */

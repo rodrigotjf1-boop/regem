@@ -1189,8 +1189,9 @@ export const api = {
     req(`/atendimento/${id}/aguardar`, { method: 'POST', body: JSON.stringify({ aguardando }) }),
   // "Conversas agora" (ponte do chat): as conversas que o robô atende, e "Assumir a conversa" (o caso nasce com quem assumiu).
   atendimentoConversasAgora: () => req('/atendimento/conversas-agora'),
-  atendimentoAssumirConversa: (canal: string, chave: string) =>
-    req('/atendimento/conversas-agora/assumir', { method: 'POST', body: JSON.stringify({ canal, chave }) }),
+  // No WhatsApp vai junto o nome do perfil (o caso nasce com ele).
+  atendimentoAssumirConversa: (canal: string, chave: string, nome?: string | null) =>
+    req('/atendimento/conversas-agora/assumir', { method: 'POST', body: JSON.stringify({ canal, chave, ...(nome ? { nome } : {}) }) }),
   // O chat do iFood e da 99 dentro do caso (ponte do chat, Etapa 2): a conversa do pedido e a resposta pela ponte.
   atendimentoChat: (id: string) => req(`/atendimento/${id}/chat`),
   atendimentoResponderChat: (id: string, texto: string) =>
