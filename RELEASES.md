@@ -12,6 +12,14 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Ponte do chat do iFood e da 99 — parte A2 (04/11; sem migration).** Na nuvem com o merge: os avisos no chat
+  ("saiu para entrega" pela rotina de 30 s, só na entrega da loja e com a previsão do rastreio; "o entregador está
+  chegando" pela cerca e pelo botão do app do entregador, com a posição que o iFood e a 99 mandam no pedido; "obrigado"
+  desligado), o grupo "iFood e 99 · chat pela ponte" em Delivery › Configurações › Atendimento e a faixa da ponte na
+  tela Atendimento. Nasce DESLIGADO e só sai algo com o programa da ponte (PR B). O botão "Chat do iFood" passa a
+  "Chat oficial do iFood". **No `.zip` 1.30.13:** só a tela (o nome do botão; a faixa e o grupo não aparecem no
+  servidor da loja) — as rotas e a rotina são só da nuvem; nada muda no `sync`/`edge`.
+
 - **Ponte do chat do iFood e da 99 — parte A1 (04/11; mig 366 SÓ NUVEM).** Na nuvem com o merge: o aparelho "Ponte do
   chat" em Configurações › Equipamentos (cadastra e pareia só na nuvem) e as rotas `ponte-chat/*` que o programa da ponte
   vai usar (nasce DESLIGADA nos ajustes). **No `.zip`/`.exe` (o mesmo corte 1.30.13):** `edge/sync-daemon.mjs` com

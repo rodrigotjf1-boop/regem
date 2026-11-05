@@ -4,7 +4,9 @@ import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
+import { BadRequestException } from '@nestjs/common';
 import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
+import { lerAjusteDaPonte } from '../ponte-chat/ajustes-da-ponte.service';
 import { AJUSTE_DA_FILA_PADRAO, FilaEAvisosService, lerAjusteDaFila } from './fila-e-avisos.service';
 import { AtendimentoService } from './atendimento.service';
 import { AtendimentoController } from './atendimento.controller';
@@ -213,7 +215,29 @@ descrever('fila e avisos (Postgres)', () => {
       somDoAlterado: async () => '1min',
       salvarSomDoAlterado: async (_t: string, loja: string | null, som: string) => void gravadosSom.push({ loja, som }),
     } as any;
-    const rota = new AtendimentoController({} as any, {} as any, pedido99, chatIfood, svc, chegada, repetido, producao);
+    // A ponte do chat (mig 366, parte A2): o grupo "iFood e 99 · chat pela ponte".
+    const gravadosPonte: any[] = [];
+    const ponte = {
+      ajustes: async () => ({ ligada: false }),
+      // a conferência de verdade do texto; o papel dos PCs, como o serviço recusa sem a principal
+      conferir: async (_u: any, _loja: string | null, dto: any) => {
+        lerAjusteDaPonte(dto);
+        if (dto?.onde === 'escolher' && !dto.principalId) throw new BadRequestException('Escolha o PC principal da ponte.');
+      },
+      salvar: async (_u: any, loja: string | null, dto: any) => void gravadosPonte.push({ loja, dto }),
+      situacao: async () => null,
+    } as any;
+    const rota = new AtendimentoController({} as any, {} as any, pedido99, chatIfood, svc, chegada, repetido, producao, ponte);
+    // o texto do aviso da ponte com WhatsApp: nada é gravado (nem a fila, nem a 99, nem a ponte)
+    await expect(
+      rota.salvarAjustes(user, null, { fila: { avisarGerenteMin: 10 }, ajuste99: { decidirCancelamento: false }, ponte: { avisos: { saiu: { texto: 'Chama no whats' } } } }),
+    ).rejects.toThrow('proíbem telefone, WhatsApp, Instagram ou link');
+    expect([gravados99, gravadosPonte]).toEqual([[], []]);
+    // o papel dos PCs recusado (precisa ler as pontes): também nada é gravado — a 99 viria antes da ponte
+    await expect(rota.salvarAjustes(user, null, { ajuste99: { decidirCancelamento: false }, ponte: { onde: 'escolher' } })).rejects.toThrow(
+      'Escolha o PC principal da ponte.',
+    );
+    expect([gravados99, gravadosPonte]).toEqual([[], []]);
     // o grupo do iFood torto: nada é gravado (nem a fila, nem a 99)
     await expect(rota.salvarAjustes(user, null, { fila: { avisarGerenteMin: 10 }, ifood: { avisarDeNovoMin: 5 }, ajuste99: { decidirCancelamento: false } })).rejects.toThrow('Avisar de novo');
     expect([gravados99, gravadosIfood]).toEqual([[], []]);

@@ -1,4 +1,5 @@
 import { Module, forwardRef } from '@nestjs/common';
+import { PonteChatModule } from '../ponte-chat/ponte-chat.module';
 import { AtendimentoController } from './atendimento.controller';
 import { AtendimentoLojaController } from './atendimento-loja.controller';
 import { AtendimentoService } from './atendimento.service';
@@ -24,7 +25,8 @@ import { AvisoDoEnderecoProcessor } from './aviso-do-endereco.processor';
   // ChegadaModule: o grupo "Retirada · cliente chegou" dos ajustes (mig 354).
   // ProducaoPedidoModule: o grupo "Pedido alterado" dos ajustes — o som do KDS mora no ajuste do KDS (mig 362).
   // WhatsappModule: "Endereço atualizado!" ao cliente pela via da conversa (PR 3b-2) — o módulo já sobe com o Delivery.
-  imports: [DeliveryModule, forwardRef(() => IntegracoesModule), EquipamentoModule, ChegadaModule, ProducaoPedidoModule, WhatsappModule],
+  // PonteChatModule: o grupo "iFood e 99 · chat pela ponte" dos ajustes e a faixa da ponte na fila (mig 366, parte A2).
+  imports: [DeliveryModule, forwardRef(() => IntegracoesModule), EquipamentoModule, ChegadaModule, ProducaoPedidoModule, WhatsappModule, PonteChatModule],
   // AtendimentoAppController: o app "Regem Atendimento" (mig 353) — entrar com o PIN e "Disponível / Ocupado". O
   // AuthService vem do AuthModule (global); o EquipamentoService, do EquipamentoModule (o celular pareado).
   controllers: [AtendimentoController, AtendimentoLojaController, AtendimentoAppController],

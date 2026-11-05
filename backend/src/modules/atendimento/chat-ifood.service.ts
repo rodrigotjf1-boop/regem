@@ -148,7 +148,7 @@ export class ChatIfoodService {
       ...new Set(linhas.flatMap((x) => String(x.merchantId).split(/[\s,;]+/)).filter((m) => UUID.test(m))),
     ].slice(0, LOJAS_NO_WIDGET);
     if (!merchantIds.length) return { disponivel: false, motivo: 'sem_ifood' };
-    // A loja desligou o chat na tela Atendimento (ajuste "Chat do iFood na tela Atendimento").
+    // A loja desligou o chat na tela Atendimento (ajuste "Chat oficial do iFood na tela Atendimento").
     if (linhas.some((x) => !ajusteDe(x.config?.atendimentoIfood).chat)) return { disponivel: false, motivo: 'desligado' };
     return { disponivel: true, widgetId, merchantIds };
   }
