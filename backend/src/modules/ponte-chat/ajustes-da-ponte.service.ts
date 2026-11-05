@@ -33,6 +33,8 @@ const NOME_DO_AVISO: Record<MotivoDoAviso, string> = {
 export type AvisoDaPonte = { ligado: boolean; texto: string | null };
 export type ParcialDaPonte = {
   ligada?: boolean;
+  /** O robô responde no chat (Etapa 3; `robo_config.chat_robo_responde`, nasce desligado). */
+  roboResponde?: boolean;
   avisos?: Partial<Record<MotivoDoAviso, Partial<AvisoDaPonte>>>;
   onde?: 'auto' | 'escolher';
   principalId?: string | null;
@@ -50,6 +52,7 @@ export function lerAjusteDaPonte(dto: unknown): ParcialDaPonte {
   const d = (dto ?? {}) as any;
   const p: ParcialDaPonte = {};
   if (d.ligada !== undefined) p.ligada = exigirBooleano(d.ligada, 'ligada');
+  if (d.roboResponde !== undefined) p.roboResponde = exigirBooleano(d.roboResponde, 'roboResponde');
   if (d.onde !== undefined) {
     if (d.onde !== 'auto' && d.onde !== 'escolher') throw new BadRequestException('Onde a ponte roda: escolha "Automático" ou "Escolher os PCs".');
     p.onde = d.onde;
@@ -110,8 +113,8 @@ export class AjustesDaPonteService {
   /** Os ajustes da ponte (sem linha em robo_config, os padrões) e as pontes da loja. */
   async ajustes(tenantId: string, unidade: string | null) {
     const [rc] = linhas(await this.db.execute(sql`
-      select chat_ponte_ligada, chat_aviso_saiu, chat_aviso_saiu_texto, chat_aviso_chegando, chat_aviso_chegando_texto,
-             chat_aviso_obrigado, chat_aviso_obrigado_texto
+      select chat_ponte_ligada, chat_robo_responde, chat_aviso_saiu, chat_aviso_saiu_texto, chat_aviso_chegando,
+             chat_aviso_chegando_texto, chat_aviso_obrigado, chat_aviso_obrigado_texto
         from robo_config where tenant_id = ${tenantId}::uuid`));
     const avisos = {} as Record<MotivoDoAviso, AvisoDaPonte>;
     for (const m of MOTIVOS) {
@@ -123,6 +126,7 @@ export class AjustesDaPonteService {
     const reserva = pontes.find((p) => p.papel === 'reserva');
     return {
       ligada: rc?.chat_ponte_ligada === true,
+      roboResponde: rc?.chat_robo_responde === true,
       avisos,
       padroes: TEXTO_PADRAO,
       onde: principal || reserva ? ('escolher' as const) : ('auto' as const),
@@ -149,6 +153,7 @@ export class AjustesDaPonteService {
     const plano = await this.planoDosPapeis(user, unidade, p, antes);
     const sets: { coluna: string; valor: unknown }[] = [];
     if (p.ligada !== undefined && p.ligada !== antes.ligada) sets.push({ coluna: 'chat_ponte_ligada', valor: p.ligada });
+    if (p.roboResponde !== undefined && p.roboResponde !== antes.roboResponde) sets.push({ coluna: 'chat_robo_responde', valor: p.roboResponde });
     for (const m of MOTIVOS) {
       const a = p.avisos?.[m];
       if (!a) continue;

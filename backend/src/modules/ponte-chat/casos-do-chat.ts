@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm';
+import type { ResumoDoRobo } from '../atendimento/resumo-do-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -100,13 +101,27 @@ export function conversasDoLote(msgs: MensagemDoCliente[]): Conversa[] {
   return [...porChave.values()];
 }
 
+/** O que o robô (Etapa 3) manda no caso que ELE chama: o resumo para a equipe e se o cliente está chateado (urgente). */
+export type RoboNoCaso = { resumo: ResumoDoRobo; urgente: boolean };
+/** A chave de uma conversa num mapa: canal + chave do pedido. */
+export const chaveDoMapa = (c: { canal: string; chave: string }) => `${c.canal}|${c.chave}`;
+
 /**
  * Abre ou soma os casos das mensagens NOVAS do cliente (as que acabaram de entrar), set-based, dentro da transação de
  * quem chama (`tx`). Devolve os casos abertos agora (`novos`, as linhas — a tela recebe "atendimento.novo") e os que
- * mudaram (`somados` — "atendimento.mudou"); quem chama avisa a tela DEPOIS do commit.
+ * mudaram (`somados` — "atendimento.mudou"); quem chama avisa a tela DEPOIS do commit. `robo`: o caso novo que o robô
+ * chamou nasce com o resumo dele e, cliente chateado, urgente.
  */
-export async function casosDoChat(tx: any, tenantId: string, msgs: MensagemDoCliente[]): Promise<{ novos: any[]; somados: string[] }> {
-  const conversas = conversasDoLote(msgs);
+export async function casosDoChat(
+  tx: any,
+  tenantId: string,
+  msgs: MensagemDoCliente[],
+  robo?: Map<string, RoboNoCaso>,
+): Promise<{ novos: any[]; somados: string[] }> {
+  const conversas = conversasDoLote(msgs).map((c) => {
+    const r = robo?.get(chaveDoMapa(c));
+    return { ...c, robo: r ? r.resumo : null, urgente: r?.urgente === true };
+  });
   if (!conversas.length) return { novos: [], somados: [] };
   // A trava da empresa: duas pontes (ou duas réplicas) no mesmo instante — uma decide, a outra espera e já vê o caso.
   await tx.execute(sql`select 1 from robo_config where tenant_id = ${tenantId}::uuid for update`);
@@ -114,7 +129,7 @@ export async function casosDoChat(tx: any, tenantId: string, msgs: MensagemDoCli
     with g as (
       select * from jsonb_to_recordset(${JSON.stringify(conversas)}::jsonb)
         as x(canal text, chave text, pedido_id uuid, pedido_externo text, pedido_numero text, cliente text, unidade_id uuid,
-             texto text, em timestamptz, so_agradecimento boolean)
+             texto text, em timestamptz, so_agradecimento boolean, robo jsonb, urgente boolean)
     ), abertos as (
       select distinct on (c.canal, c.detalhe #>> '{chat,chave}') c.id, c.canal, c.detalhe #>> '{chat,chave}' as chave,
              c.aguardando_desde is not null as aguardava
@@ -136,9 +151,11 @@ export async function casosDoChat(tx: any, tenantId: string, msgs: MensagemDoCli
       returning c.id, a.aguardava
     ), novos as (
       insert into atendimento_chamado (tenant_id, unidade_id, tipo, cliente, pedido_numero, pedido_id, mensagem, prioridade, canal, detalhe)
-      select ${tenantId}::uuid, g.unidade_id, 'chat', g.cliente, g.pedido_numero, g.pedido_id, g.texto, 'normal', g.canal,
+      select ${tenantId}::uuid, g.unidade_id, 'chat', g.cliente, g.pedido_numero, g.pedido_id, g.texto,
+             case when g.urgente then 'urgente' else 'normal' end, g.canal,
              jsonb_build_object('chat', jsonb_build_object('chave', g.chave, 'pedidoExterno', g.pedido_externo,
                                                            'pedidoNumero', g.pedido_numero, 'ultimaEm', g.em))
+               || case when g.robo is null then '{}'::jsonb else jsonb_build_object('robo', g.robo || jsonb_build_object('em', now())) end
         from g
        where not g.so_agradecimento
          and not exists (select 1 from abertos a where a.canal = g.canal and a.chave = g.chave)
