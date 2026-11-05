@@ -2,7 +2,7 @@
 
 import { Card } from '@/components/ui/card';
 import { Selo, type Acao } from '@/components/ui/lista';
-import { conexaoDe, ligacaoDe, seloDe, tipoDe, type GrupoPc } from './equipamento';
+import { conexaoDe, detalheDaPonte, ligacaoDe, loginsDaPonte, seloDe, tipoDe, type GrupoPc } from './equipamento';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -43,14 +43,19 @@ export function EquipamentosPorPc({
               const s = seloDe(e, estado, todos);
               const lista = acoes(e);
               const ligacao = e.tipo === 'impressora' || e.tipo === 'pdv' || e.tipo === 'salao' ? ligacaoDe(e, todos) : '';
+              // A ponte do chat (peça 6): os logins, a versão e o que ela faz agora — vem da nuvem.
+              const ponte = e.tipo === 'ponte_chat' && e.ponte ? e.ponte : null;
               return (
                 <li key={e.id} className="grid grid-cols-1 gap-2 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                   <div className="min-w-0">
                     <p className="text-[11px] font-bold uppercase tracking-wide text-secondary-foreground">{tipoDe(e)}</p>
                     <p className="break-words font-semibold">{e.nome}</p>
                     <p className="break-words text-xs text-secondary-foreground">
-                      {[conexaoDe(e, estado), ligacao].filter((x) => x && x !== '—').join(' · ') || '—'}
+                      {ponte
+                        ? [loginsDaPonte(ponte), ponte.versao ? `versão ${ponte.versao}` : ''].filter(Boolean).join(' · ') || '—'
+                        : [conexaoDe(e, estado), ligacao].filter((x) => x && x !== '—').join(' · ') || '—'}
                     </p>
+                    {ponte && <p className="break-words text-xs">{detalheDaPonte(ponte)}</p>}
                   </div>
                   <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                     <Selo tom={s.tom}>{s.rotulo}</Selo>

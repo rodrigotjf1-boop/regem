@@ -17,6 +17,9 @@ import { JANELA_PRESENCA_MS, PresencaService, TIPOS_PRESENTES } from './presenca
 import { redeDaSaude } from '../edge/rede-local';
 import { tamanhosDaTela } from '../tela-senhas/tela-senhas.regras';
 import { mesmoLugarDeParear, ondeDigitar } from '../../common/onde-digitar';
+import { CANAIS, VIVA_POR_MS, ehCanalDaPonte, quemResponde, type PonteCandidata } from '../ponte-chat/lideranca';
+import { instanteDe } from '../../common/fuso-sql';
+import { hojeISO } from '../../common/data';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -601,6 +604,12 @@ export class EquipamentoService {
       const sinais = await this.sinaisDosServidores(tenantId);
       lista = lista.map((e: any) => (e.tipo === 'servidor_local' ? { ...e, servidor: sinais.get(e.id) ?? null } : e));
     }
+    // A ponte do chat do iFood e da 99 (peça 6 do protótipo de conexão): em qual PC ela roda e o papel de agora. Só na
+    // nuvem — no servidor da loja as tabelas da ponte não existem e a linha vem sem `ponte` (a tela diz que é da nuvem).
+    if (!ehServidorLocal() && rows.some((r) => r.tipo === 'ponte_chat')) {
+      const pontes = await this.sinaisDasPontes(tenantId);
+      lista = lista.map((e: any) => (e.tipo === 'ponte_chat' && pontes.has(e.id) ? { ...e, ponte: pontes.get(e.id) } : e));
+    }
     // Quem está ligado AGORA (conexão PC ↔ servidor, parte 1): terminal com o app aberto e estação.
     const temPresenca = (tipo: string) => (TIPOS_PRESENTES as readonly string[]).includes(tipo);
     if (rows.some((r) => temPresenca(r.tipo))) {
@@ -647,6 +656,79 @@ export class EquipamentoService {
         }
       }
     } catch { /* sem edge_status */ }
+    return mapa;
+  }
+
+  /**
+   * A PONTE DO CHAT de cada aparelho `ponte_chat` ativo (peça 6 do protótipo de conexão): o PC onde ela roda
+   * (`chat_ponte.maquina` — o nome do Windows, o mesmo que a estação e o servidor mandam: a tela junta no cartão do PC), o
+   * último sinal, a versão, os logins, o papel escolhido nos ajustes e, por canal CONECTADO, o papel de AGORA pela regra
+   * única (`quemResponde`, entre as pontes da mesma loja — a mesma conta da faixa do Atendimento e da fila de saída); e o
+   * movimento de hoje (o dia da operação). Só na nuvem. Best-effort: sem ler, a lista sai sem `ponte` (e o motivo no log).
+   */
+  private async sinaisDasPontes(tenantId: string) {
+    const mapa = new Map<string, any>();
+    try {
+      const [pontes, config, conectados, hoje] = await Promise.all([
+        this.db.execute(sql`
+          select e.id, e.unidade_id as "unidadeId", e.created_at as "criadaEm", coalesce(cp.papel, 'auto') as papel,
+                 cp.maquina, cp.versao, cp.visto_em as "vistoEm",
+                 coalesce((cp.plataformas -> 'ifood' ->> 'logado')::boolean, false) as ifood,
+                 coalesce((cp.plataformas -> '99food' ->> 'logado')::boolean, false) as n99
+            from equipamento e
+            left join chat_ponte cp on cp.equipamento_id = e.id
+           where e.tenant_id = ${tenantId}::uuid and e.tipo = 'ponte_chat' and e.ativo and e.revogado_em is null`),
+        this.db.execute(sql`select chat_ponte_ligada from robo_config where tenant_id = ${tenantId}::uuid`),
+        this.db.execute(sql`
+          select distinct canal from integracao where tenant_id = ${tenantId}::uuid and ativo and canal in ('ifood', '99food')`),
+        this.db.execute(sql`
+          select ponte_id as id,
+                 count(*) filter (where direcao = 'entrada')::int as recebidas,
+                 count(*) filter (where direcao = 'saida' and estado = 'enviada')::int as enviadas,
+                 max(criado_em) filter (where direcao = 'entrada') as "ultimaEm"
+            from chat_plataforma_msg
+           where tenant_id = ${tenantId}::uuid and criado_em >= ${instanteDe(hojeISO())} and ponte_id is not null
+           group by ponte_id`),
+      ]);
+      const rows = (r: any): any[] => r.rows ?? r;
+      const lista = rows(pontes);
+      const ligada = rows(config)[0]?.chat_ponte_ligada === true;
+      const canais = CANAIS.filter((c) => rows(conectados).some((x) => ehCanalDaPonte(x.canal) && x.canal === c));
+      const doDia = new Map(rows(hoje).map((x) => [String(x.id), x]));
+      const ms = (v: unknown) => (v ? new Date(v as string).getTime() : 0);
+      const iso = (v: unknown) => (v ? new Date(v as string).toISOString() : null);
+      const agora = Date.now();
+      for (const p of lista) {
+        // As pontes da mesma loja (a dela e as sem loja; a sem loja concorre com todas) — como `pontesDaLoja`.
+        const daLoja = lista.filter((x) => !p.unidadeId || !x.unidadeId || x.unidadeId === p.unidadeId);
+        const papelAgora: Record<string, 'responde' | 'reserva' | 'fora'> = {};
+        for (const c of canais) {
+          const candidatas: PonteCandidata[] = daLoja.map((x) => ({
+            id: x.id,
+            papel: x.papel,
+            vistoEm: ms(x.vistoEm),
+            logada: c === 'ifood' ? x.ifood === true : x.n99 === true,
+            criadaEm: ms(x.criadaEm),
+          }));
+          const logadaViva = (c === 'ifood' ? p.ifood === true : p.n99 === true) && agora - ms(p.vistoEm) <= VIVA_POR_MS;
+          papelAgora[c] = quemResponde(candidatas, agora) === p.id ? 'responde' : logadaViva ? 'reserva' : 'fora';
+        }
+        const d = doDia.get(String(p.id));
+        mapa.set(String(p.id), {
+          maquina: p.maquina ?? null,
+          versao: p.versao ?? null,
+          vistoEm: iso(p.vistoEm),
+          viva: !!p.vistoEm && agora - ms(p.vistoEm) <= VIVA_POR_MS,
+          logado: { ifood: p.ifood === true, '99food': p.n99 === true },
+          papel: p.papel,
+          ligada,
+          canais: papelAgora,
+          hoje: { recebidas: d?.recebidas ?? 0, enviadas: d?.enviadas ?? 0, ultimaEm: iso(d?.ultimaEm) },
+        });
+      }
+    } catch (e: any) {
+      this.logger.warn(`ponte do chat na lista de equipamentos (empresa ${tenantId}): ${e?.message ?? e}`);
+    }
     return mapa;
   }
 
