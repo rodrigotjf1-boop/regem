@@ -5,7 +5,7 @@ import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { CardapioService } from './cardapio.service';
-import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
+import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -32,7 +32,7 @@ descrever('código de entrega opcional (Postgres)', () => {
 
   beforeAll(async () => {
     // Idempotente: o banco do CI já a tem (apply-all-local); um banco de teste antigo, não. De novo na corrida (ERR-194).
-    await repetirNaCorridaDeCatalogo(() => pool.query(readFileSync(MIG_348, 'utf8')));
+    await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(readFileSync(MIG_348, 'utf8'))));
   });
   beforeEach(() => {
     auditados.length = 0;

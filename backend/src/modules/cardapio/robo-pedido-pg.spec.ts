@@ -15,6 +15,7 @@ import { ProdutoService } from '../produto/produto.service';
 import { VendasService } from '../vendas/vendas.service';
 import { CardapioService } from './cardapio.service';
 import { RoboPedidoService } from './robo-pedido.service';
+import { comTravaDaEmpresa } from '../../common/corrida-de-catalogo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -89,7 +90,7 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     try {
       for (const m of MIGRATIONS) {
         await c.query('begin');
-        await c.query(readFileSync(m, 'utf8'));
+        await c.query(comTravaDaEmpresa(readFileSync(m, 'utf8')));
         await c.query('commit');
       }
     } catch (e) {

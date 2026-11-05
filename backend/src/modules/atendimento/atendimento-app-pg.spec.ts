@@ -11,7 +11,7 @@ import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { EquipamentoService } from '../equipamento/equipamento.service';
 import { autorizarPorPinDoUsuario, NIVEIS_DA_PLATAFORMA } from '../../common/autorizacao-gestor';
-import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
+import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { AtendimentoAppService } from './atendimento-app.service';
 import { lerPresenca, MOTIVO_MAX } from './presenca';
 
@@ -61,7 +61,7 @@ descrever('app "Regem Atendimento" (Postgres)', () => {
       const c = await pool.connect();
       try {
         await c.query('begin');
-        await c.query(readFileSync(MIG(arq), 'utf8'));
+        await c.query(comTravaDaEmpresa(readFileSync(MIG(arq), 'utf8')));
         await c.query('commit');
       } catch (e) {
         await c.query('rollback').catch(() => {});

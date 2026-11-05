@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
-import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
+import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
 import { DeliveryService } from '../delivery/delivery.service';
 import { clientePeloTelefone, idDaConfirmacao, marcaAbertaDaComanda, procurarPedidoIgual } from './pedido-repetido';
@@ -46,7 +46,7 @@ descrever('pedido igual em até 30 min (Postgres)', () => {
       const c = await pool.connect();
       try {
         await c.query('begin');
-        await c.query(readFileSync(MIG(arq), 'utf8'));
+        await c.query(comTravaDaEmpresa(readFileSync(MIG(arq), 'utf8')));
         await c.query('commit');
       } catch (e) {
         await c.query('rollback').catch(() => {});

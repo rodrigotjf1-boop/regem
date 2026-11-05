@@ -10,6 +10,7 @@ import { DeliveryService } from '../delivery/delivery.service';
 import { Logger } from '@nestjs/common';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { comTravaDaEmpresa } from '../../common/corrida-de-catalogo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -81,8 +82,8 @@ descrever('roteamento da impressão por loja (Postgres com todas as migrations)'
     await q(`create table if not exists edge_heartbeat (id uuid primary key default gen_random_uuid(),
              tenant_id uuid, unidade_id uuid, recebido_em timestamptz not null default now())`);
     const MIG = join(__dirname, '..', '..', '..', '..', 'database', 'migrations');
-    await q(readFileSync(join(MIG, '124_edge_release_comando.sql'), 'utf8'));
-    await q(readFileSync(join(MIG, '269_impressora_status_codepage_comando_destino.sql'), 'utf8'));
+    await q(comTravaDaEmpresa(readFileSync(join(MIG, '124_edge_release_comando.sql'), 'utf8')));
+    await q(comTravaDaEmpresa(readFileSync(join(MIG, '269_impressora_status_codepage_comando_destino.sql'), 'utf8')));
     await q(`insert into empresa (id, nome) values ($1,'teste roteamento')`, [T]);
     await q(`insert into unidade (id, tenant_id, nome) values ($1,$3,'Loja A'),($2,$3,'Loja B')`, [A, B, T]);
     await q(`insert into setor (id, tenant_id, unidade_id, nome) values

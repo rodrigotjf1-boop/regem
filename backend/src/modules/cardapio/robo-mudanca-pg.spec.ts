@@ -5,7 +5,7 @@ import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { assinarConversa } from '../../common/conversa-do-robo';
-import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
+import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { CashbackService } from '../cashback/cashback.service';
 import { DeliveryService } from '../delivery/delivery.service';
 import { FidelidadeService } from '../fidelidade/fidelidade.service';
@@ -93,7 +93,7 @@ descrever('o robô muda o pedido já feito (Postgres)', () => {
       const c = await pool.connect();
       try {
         await c.query('begin');
-        await c.query(readFileSync(MIG(arq), 'utf8'));
+        await c.query(comTravaDaEmpresa(readFileSync(MIG(arq), 'utf8')));
         await c.query('commit');
       } catch (e) {
         await c.query('rollback').catch(() => {});

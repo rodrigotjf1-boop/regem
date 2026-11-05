@@ -5,7 +5,7 @@ import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { BadRequestException } from '@nestjs/common';
-import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
+import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { lerAjusteDaPonte } from '../ponte-chat/ajustes-da-ponte.service';
 import { AJUSTE_DA_FILA_PADRAO, FilaEAvisosService, lerAjusteDaFila } from './fila-e-avisos.service';
 import { AtendimentoService } from './atendimento.service';
@@ -54,7 +54,7 @@ descrever('fila e avisos (Postgres)', () => {
       const c = await pool.connect();
       try {
         await c.query('begin');
-        await c.query(readFileSync(MIG(arq), 'utf8'));
+        await c.query(comTravaDaEmpresa(readFileSync(MIG(arq), 'utf8')));
         await c.query('commit');
       } catch (e) {
         await c.query('rollback').catch(() => {});

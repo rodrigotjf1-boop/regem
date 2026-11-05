@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Pool, PoolClient } from 'pg';
-import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
+import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 
 // O VENCIMENTO DO CASHBACK SAI DO EXTRATO (mig 355). O defeito que isto guarda: o crédito feito no servidor da loja
 // subia para a nuvem, o gatilho da 274 recalculava o SALDO, mas o vencimento da nuvem ficava o antigo (ou vazio) — o
@@ -29,7 +29,7 @@ descrever('vencimento do cashback pelo extrato (mig 355)', () => {
         `select position('mig 355' in pg_get_functiondef(to_regprocedure(current_schema() || '.cashback_saldo_do_extrato()'))) > 0 as tem`,
       )
     ).rows;
-    if (!tem) await repetirNaCorridaDeCatalogo(() => pool.query(readFileSync(ARQUIVO, 'utf8')));
+    if (!tem) await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(readFileSync(ARQUIVO, 'utf8'))));
     const e = await pool.query(`insert into empresa (nome) values ('Teste vencimento do cashback') returning id`);
     tenant = e.rows[0].id;
     const p1 = await pool.query(
@@ -126,7 +126,7 @@ descrever('vencimento do cashback pelo extrato (mig 355)', () => {
     await pool.query(`update cashback_saldo set expira_em = now() + interval '60 days' where tenant_id = $1 and telefone = $2`, [tenant, maisTarde]);
 
     // o arquivo inteiro, como na nuvem (de novo se cruzar com o DDL de outra spec — ERR-194)
-    const r: any = await repetirNaCorridaDeCatalogo(() => pool.query(readFileSync(ARQUIVO, 'utf8')));
+    const r: any = await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(readFileSync(ARQUIVO, 'utf8'))));
     const conferencia = (Array.isArray(r) ? r[r.length - 1] : r).rows as { item: string; estado: string }[];
     expect(conferencia.map((x) => x.estado)).toEqual(['ok', 'ok', 'ok']);
 

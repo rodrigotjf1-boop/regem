@@ -7,7 +7,7 @@ import * as schema from '../../db/schema';
 import { DeliveryService } from './delivery.service';
 import { AvisoDeAtrasoProcessor } from './aviso-de-atraso.processor';
 import { WhatsappProvedorService } from '../whatsapp/whatsapp-provedor.service';
-import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
+import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -51,7 +51,7 @@ descrever('aviso automático de atraso (Postgres)', () => {
       const c = await pool.connect();
       try {
         await c.query('begin');
-        await c.query(readFileSync(MIG(arq), 'utf8'));
+        await c.query(comTravaDaEmpresa(readFileSync(MIG(arq), 'utf8')));
         await c.query('commit');
       } catch (e) {
         await c.query('rollback').catch(() => {});
@@ -63,9 +63,9 @@ descrever('aviso automático de atraso (Postgres)', () => {
 
   beforeAll(async () => {
     delete process.env.EDGE_MODE; // como NUVEM
-    await repetirNaCorridaDeCatalogo(() => pool.query(readFileSync(MIG('215_whatsapp_mensagem.sql'), 'utf8')));
+    await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(readFileSync(MIG('215_whatsapp_mensagem.sql'), 'utf8'))));
     for (const s of [...daTabelaDeModelos('227_whatsapp_template.sql'), ...daTabelaDeModelos('236_whatsapp_template_evento.sql')])
-      await repetirNaCorridaDeCatalogo(() => pool.query(s));
+      await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(s)));
     // A 349 (lembrete do carrinho) e a 352 ("chegou tudo certo?") põem colunas que a leitura dos ajustes do robô lê; a 349
     // altera o carrinho da 344 (ERR-273: toda migration nova da robo_config entra nesta lista).
     for (const m of [

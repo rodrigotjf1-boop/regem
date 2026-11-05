@@ -5,6 +5,7 @@ import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { DeliveryService } from './delivery.service';
+import { comTravaDaEmpresa } from '../../common/corrida-de-catalogo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -58,7 +59,7 @@ descrever('totem: pedido pago sai da lista ao ficar pronto (mig 301)', () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: URL_PG });
     // A coluna da 301 (no CI ela vem com todas as migrations; aqui a própria spec garante).
-    await pool.query(readFileSync(MIG_301, 'utf8'));
+    await pool.query(comTravaDaEmpresa(readFileSync(MIG_301, 'utf8')));
     const vendas = { baixarEstoqueExterno: async (_t: string, comandaId: string) => void baixas.push(comandaId) };
     servico = new DeliveryService(
       drizzle(pool, { schema }) as any,
