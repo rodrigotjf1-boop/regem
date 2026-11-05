@@ -5,6 +5,7 @@ import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
 import { DisputaIfoodService, RespostaDaDisputa } from './disputa-ifood.service';
 import { Pedido99Service, RespostaAo99 } from './pedido-99.service';
 import { ChatIfoodService } from './chat-ifood.service';
+import { ChatDoCasoService } from './chat-do-caso.service';
 
 // Pedidos do SERVIDOR DA LOJA à nuvem sobre a central de atendimento (V37): a credencial do iFood fica só na nuvem.
 // Autenticação pelo token do servidor (x-sync-token) — a empresa vem do token, nunca do corpo. Só na nuvem.
@@ -14,7 +15,25 @@ export class AtendimentoLojaController {
     private readonly disputa: DisputaIfoodService,
     private readonly pedido99: Pedido99Service,
     private readonly chatIfood: ChatIfoodService,
+    private readonly chat: ChatDoCasoService,
   ) {}
+
+  // O chat do iFood e da 99 dentro do caso, para a tela do servidor da loja (as mensagens moram só na nuvem — V37).
+  @Get('chat-da-loja')
+  @CloudOnly()
+  @UseGuards(SyncTokenGuard)
+  chatDaLoja(@SyncCtx() ctx: SyncCtxData, @Query('chamado') chamado: string) {
+    return this.chat.conversaDaEmpresa(ctx.tenantId, String(chamado ?? ''));
+  }
+
+  // A resposta da equipe no chat, vinda do servidor da loja (quem respondeu foi conferido lá): entra na fila da ponte.
+  @Post('chat-da-loja')
+  @HttpCode(200)
+  @CloudOnly()
+  @UseGuards(SyncTokenGuard)
+  responderDaLoja(@SyncCtx() ctx: SyncCtxData, @Body() dto: { chamadoId?: unknown; texto?: unknown; atorId?: unknown; atorPerfil?: unknown }) {
+    return this.chat.responderVindoDaLoja(ctx.tenantId, dto);
+  }
 
   // A configuração do chat oficial do iFood para a tela do servidor da loja (a integração mora só na nuvem — V37).
   @Get('chat-ifood-da-loja')

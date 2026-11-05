@@ -227,7 +227,8 @@ descrever('fila e avisos (Postgres)', () => {
       salvar: async (_u: any, loja: string | null, dto: any) => void gravadosPonte.push({ loja, dto }),
       situacao: async () => null,
     } as any;
-    const rota = new AtendimentoController({} as any, {} as any, pedido99, chatIfood, svc, chegada, repetido, producao, ponte);
+    // O último é o chat do caso (ponte do chat, Etapa 2): os ajustes não passam por ele.
+    const rota = new AtendimentoController({} as any, {} as any, pedido99, chatIfood, svc, chegada, repetido, producao, ponte, {} as any);
     // o texto do aviso da ponte com WhatsApp: nada é gravado (nem a fila, nem a 99, nem a ponte)
     await expect(
       rota.salvarAjustes(user, null, { fila: { avisarGerenteMin: 10 }, ajuste99: { decidirCancelamento: false }, ponte: { avisos: { saiu: { texto: 'Chama no whats' } } } }),
