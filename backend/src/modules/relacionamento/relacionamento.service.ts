@@ -458,11 +458,14 @@ export class RelacionamentoService {
 
   // ===================== O painel da aba =====================
 
-  /** Tudo o que a aba Automáticas mostra: ajustes, opções, o número, o modelo, a prévia e o resultado. */
-  async painel(tenantId: string) {
+  /**
+   * Tudo o que a aba Automáticas mostra: ajustes, opções, o número, o modelo, a prévia e o resultado. `agora` = o dia da
+   * semana e a hora da operação (o teste fixa: depois das 21:00 o próximo envio é amanhã e a prévia anda um dia).
+   */
+  async painel(tenantId: string, agora = agoraNaOperacao()) {
     const a = await this.ajustes(tenantId);
     const listas = await this.horarios(tenantId);
-    const hoje = agoraNaOperacao();
+    const hoje = agora;
     const envioHoje = {
       antes_de_abrir: horaDoEnvio(listas, 'antes_de_abrir', hoje.dia),
       ao_abrir: horaDoEnvio(listas, 'ao_abrir', hoje.dia),

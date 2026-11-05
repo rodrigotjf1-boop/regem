@@ -136,7 +136,7 @@ descrever('sentimos sua falta (Postgres)', () => {
     await q(`insert into campanha_envio (tenant_id, telefone, status, enviado_em) values ($1,'5521987660009','enviado', now() - interval '3 days')`, [t]);
 
     const { svc, saidas } = automaticas('evolution');
-    const p: any = await svc.painel(t);
+    const p: any = await svc.painel(t, naJanela());
     expect(p.volta.previa.lista.map((x: any) => x.nome)).toEqual(['Paulo R.', 'Sara M.']); // quem sumiu há menos tempo primeiro
     expect(p.volta.previa.lista[0].detalhe).toBe('31 dias sem pedir · 4 pedidos');
     expect(await svc.rodarEmpresa(t, naJanela())).toEqual({ separados: 2, enviados: 1 });
@@ -293,7 +293,7 @@ descrever('sentimos sua falta (Postgres)', () => {
     }
     for (let i = 0; i < 12; i++) await cliente(t, `Sumido ${i}`, `219876661${String(i).padStart(2, '0')}`, 31 + i);
     const { svc } = automaticas('evolution');
-    const p: any = await svc.painel(t);
+    const p: any = await svc.painel(t, naJanela());
     expect(p.volta.previa).toMatchObject({ total: 12, vagas: 7 });
     expect(p.cashback.previa).toMatchObject({ total: 0, vagas: 10 });
 
