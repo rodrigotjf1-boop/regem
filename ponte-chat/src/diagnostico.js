@@ -103,6 +103,11 @@ class Diagnostico {
     });
   }
 
+  /** Uma chamada que o Gestor fez (o método e a forma do endereço, com os ids em marca) — para ver o que o abrir de uma conversa chama. */
+  chamada(metodo, url) {
+    this.anotar({ ev: 'chamada', metodo: String(metodo || ''), url: this.endereco(url) });
+  }
+
   /** A resposta de uma chamada do Gestor (o chat do pedido, o pedido, o canal): onde aparecem os ids, como marca. */
   resposta(url, json) {
     this.anotar({ ev: 'resposta', url: this.endereco(url), chaves: json && typeof json === 'object' ? Object.keys(json).slice(0, 30) : null, ids: this.varrer(json) });
@@ -123,11 +128,16 @@ class Diagnostico {
   }
 }
 
-/** Os endereços do Gestor cujo corpo interessa ao diagnóstico (o chat do pedido, o pedido, o canal do chat). */
+/**
+ * Os endereços do Gestor que interessam ao diagnóstico: toda a API de pedidos do Gestor (o chat do pedido mora lá), os
+ * pedidos da API do lojista e toda a API do chat (Sendbird — a lista de conversas e os canais). Conferido em 04/11: o
+ * canal é `sendbird_gc_cm_<id do cliente no chat>_<id da loja no iFood>` — por cliente e loja, não por pedido — e o id do
+ * cliente no chat não vem no pedido: a ligação sai do que o Gestor chama ao abrir a conversa.
+ */
 function interessa(url) {
-  return /order-manager-api\.ifood\.com\.br\/orderManager\/v1\.0\/chat\//i.test(url)
-    || /(merchant-api|order-manager-api)\.ifood\.com\.br\/.*\/orders?\//i.test(url)
-    || /sendbird\.com\/v3\/(sdk\/)?group_channels\//i.test(url);
+  return /order-manager-api\.ifood\.com\.br\//i.test(url)
+    || /merchant-api\.ifood\.com\.br\/.*\/orders?\//i.test(url)
+    || /sendbird\.com\/v3\//i.test(url);
 }
 
 module.exports = { Diagnostico, interessa };

@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { lerQuadro, mensagemDoQuadro, Vistos } = require('../src/sendbird');
+const { lerQuadro, mensagemDoQuadro, pedidoDoCanal, Vistos } = require('../src/sendbird');
 
 // A forma conferida em 04/11/2026 (valores inventados): MESG com o remetente em user.metadata.type.
 const quadro = (tipo, extra = {}) =>
@@ -32,6 +32,7 @@ test('mensagem do cliente e da loja; o nome só do cliente', () => {
     autor: 'cliente',
     texto: 'Ok',
     canalDoChat: 'sendbird_gc_cm_aaaaaaaa-1111-2222-3333-444444444444_bbbbbbbb-5555-6666-7777-888888888888',
+    pedidoExterno: 'aaaaaaaa-1111-2222-3333-444444444444',
     cliente: 'Carine S.',
     em: 1762304344505,
   });
@@ -47,6 +48,16 @@ test('fora: outro comando, remetente desconhecido, sem texto, apagada, sem id', 
   assert.equal(mensagemDoQuadro(lerQuadro(quadro('CUSTOMER', { is_removed: true }))), null);
   assert.equal(mensagemDoQuadro(lerQuadro(quadro('CUSTOMER', { msg_id: null }))), null);
   assert.equal(mensagemDoQuadro(lerQuadro('MESG{"msg_id":1,"message":"oi"}')), null); // sem user
+});
+
+test('o pedido vem do canal (sendbird_gc_cm_<pedido>_<loja>); canal de outra forma não inventa pedido', () => {
+  assert.equal(pedidoDoCanal('sendbird_gc_cm_aaaaaaaa-1111-2222-3333-444444444444_bbbbbbbb-5555-6666-7777-888888888888'), 'aaaaaaaa-1111-2222-3333-444444444444');
+  assert.equal(pedidoDoCanal('sendbird_gc_xx_aaaaaaaa-1111-2222-3333-444444444444_b'), null);
+  assert.equal(pedidoDoCanal('sendbird_gc_cm_123_456'), null);
+  assert.equal(pedidoDoCanal('sendbird_gc_cm_aaaaaaaa-1111-2222-3333-444444444444'), null); // sem a loja
+  assert.equal(pedidoDoCanal(null), null);
+  const semPedido = mensagemDoQuadro(lerQuadro(quadro('CUSTOMER', { channel_url: 'outro_formato' })));
+  assert.equal(semPedido.pedidoExterno, null);
 });
 
 test('a mesma mensagem (uma por conexão) passa uma vez só; a lista não cresce sem fim', () => {
