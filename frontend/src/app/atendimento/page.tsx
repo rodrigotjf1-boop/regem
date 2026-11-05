@@ -22,7 +22,6 @@ import { EnderecoDepoisQueSaiu } from '@/components/atendimento/endereco-depois-
 import { ListaDeConversas } from '@/components/atendimento/lista-de-conversas';
 import { ConversaDoRobo } from '@/components/atendimento/conversa-do-robo';
 import { enderecoDoCaso } from '@/lib/endereco-do-caso';
-import { NO_SERVIDOR_DA_LOJA } from '@/components/ui/so-pela-nuvem';
 import {
   CASO_DA_PLATAFORMA,
   ROTULO_DO_CANAL,
@@ -152,14 +151,15 @@ export default function AtendimentoPage() {
       if (n === leituraDasConversas.current) setErroConversas(true);
     }
   }, []);
-  // Na nuvem (a rota é só dela): ao abrir e sempre que um caso do chat ou do WhatsApp abre ou fecha (a conversa sai daqui
-  // quando vira caso e volta quando ele é resolvido); com a ponte ou o robô do WhatsApp ligados, a cada 15 s com a aba à vista.
+  // Ao abrir e sempre que um caso do chat ou do WhatsApp abre ou fecha (a conversa sai daqui quando vira caso e volta quando
+  // ele é resolvido); com a ponte ou o robô do WhatsApp ligados, a cada 15 s com a aba à vista. No servidor da loja a rota
+  // pede à nuvem (V37) — a falha vira "não li", nunca "nenhuma conversa".
   const casosDasConversas = useMemo(
     () => casos.filter((c) => c.tipo === 'chat' || c.canal === 'whatsapp').map((c) => c.id).join(','),
     [casos],
   );
   useEffect(() => {
-    if (!NO_SERVIDOR_DA_LOJA) void lerConversas();
+    void lerConversas();
   }, [comPonte, casosDasConversas, lerConversas]);
   useEffect(() => {
     if (!temConversas) return;

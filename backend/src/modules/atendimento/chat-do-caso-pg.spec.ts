@@ -640,5 +640,98 @@ descrever('o chat do iFood e da 99 na fila do Atendimento (Postgres)', () => {
         expect((await erro(chatWa.assumir({ tenantId: T, colaboradorId: ana, categoria: 'presidente' } as any, { canal: 'whatsapp', chave })))?.status).toBe(400);
       expect((await q(`select count(*)::int as n from atendimento_chamado where tenant_id = $1`, [T]))[0].n).toBe(antes);
     });
+
+    it('na nuvem, o que vem do servidor da loja: as conversas pela permissão de quem está lá; assumir só com colaborador da empresa e da gestão', async () => {
+      expect(doWhatsapp(await chatWa.conversasVindoDaLoja(T, { unidade: loja, categoria: 'gerente', bot: 'true' }))).toHaveLength(2);
+      const sem = await chatWa.conversasVindoDaLoja(T, { unidade: loja, categoria: 'gerente', bot: 'false' });
+      expect([sem.whatsapp, doWhatsapp(sem)]).toEqual([null, []]);
+      expect((await chatWa.conversasVindoDaLoja(T, { unidade: 'nao-e-uuid', categoria: 'presidente' })).conversas.length).toBeGreaterThan(0);
+      const antes = (await q(`select count(*)::int as n from atendimento_chamado where tenant_id = $1`, [T]))[0].n;
+      const vinda = (dto: any) => erro(chatWa.assumirVindoDaLoja(T, { canal: 'whatsapp', chave: 'tel:5521999990005', bot: true, ...dto }));
+      expect((await vinda({ atorId: deOutra, atorPerfil: 'gerente' }))?.status).toBe(403); // colaborador de outra empresa
+      expect((await vinda({ atorId: bia, atorPerfil: 'execucao' }))?.status).toBe(403);
+      // no iFood só a trava da gestão segura (a do WhatsApp não entra): execução vindo da loja é recusada antes de tudo
+      expect((await vinda({ canal: 'ifood', chave: 'ext:qualquer', atorId: bia, atorPerfil: 'execucao' }))?.status).toBe(403);
+      expect((await vinda({ atorPerfil: 'gerente' }))?.status).toBe(403);
+      expect((await vinda({ atorId: bia, atorPerfil: 'gerente', bot: false }))?.status).toBe(403); // sem a caixa do WhatsApp
+      expect((await q(`select count(*)::int as n from atendimento_chamado where tenant_id = $1`, [T]))[0].n).toBe(antes);
+      const r = await chatWa.assumirVindoDaLoja(T, { canal: 'whatsapp', chave: 'tel:5521999990005', nome: 'Da loja', atorId: bia, atorPerfil: 'gerente', bot: true });
+      expect((await q(`select responsavel_id, cliente from atendimento_chamado where id = $1`, [r.id]))[0]).toEqual({ responsavel_id: bia, cliente: 'Da loja' });
+      expect(auditados.at(-1)).toMatchObject({ acao: 'assumiu_conversa_do_chat', atorId: bia, origem: 'servidor_loja' });
+    });
+
+    it('no servidor da loja: as conversas e o assumir vão à nuvem pelo token do servidor, com quem está na tela; a recusa chega igual', async () => {
+      const fetchAntes = global.fetch;
+      const pedidos: Array<{ url: string; init: any }> = [];
+      let resposta: { status: number; corpo: any } = { status: 200, corpo: { conversas: [], roboResponde: false, whatsapp: null } };
+      global.fetch = (async (url: any, init: any) => {
+        pedidos.push({ url: String(url), init });
+        return new Response(JSON.stringify(resposta.corpo), { status: resposta.status, headers: { 'content-type': 'application/json' } });
+      }) as any;
+      const antes = { EDGE_MODE: process.env.EDGE_MODE, CLOUD_API: process.env.CLOUD_API, SYNC_TOKEN: process.env.SYNC_TOKEN };
+      process.env.EDGE_MODE = 'true';
+      process.env.CLOUD_API = 'https://nuvem.teste/api/v1';
+      process.env.SYNC_TOKEN = 'token-do-servidor';
+      try {
+        expect(await chatWa.conversasAgora(T, loja, quem('gerente', { bot: true }))).toEqual(resposta.corpo);
+        expect(pedidos[0].url).toBe(`https://nuvem.teste/api/v1/atendimento/conversas-da-loja?unidade=${loja}&categoria=gerente&bot=true`);
+        expect(pedidos[0].init.headers['x-sync-token']).toBe('token-do-servidor');
+        await chatWa.conversasAgora(T, null, quem('execucao'));
+        expect(pedidos[1].url).toBe('https://nuvem.teste/api/v1/atendimento/conversas-da-loja?categoria=execucao&bot=false');
+        resposta = { status: 200, corpo: { ok: true, id: randomUUID() } };
+        const gerente = { tenantId: T, colaboradorId: bia, categoria: 'gerente', permissoes: { bot: true } } as any;
+        await chatWa.assumir(gerente, { canal: 'whatsapp', chave: 'tel:5521999990001', nome: 'Fernanda' });
+        expect(pedidos[2].url).toBe('https://nuvem.teste/api/v1/atendimento/conversas-da-loja/assumir');
+        expect(JSON.parse(pedidos[2].init.body)).toEqual({ canal: 'whatsapp', chave: 'tel:5521999990001', nome: 'Fernanda', atorId: bia, atorPerfil: 'gerente', bot: true });
+        resposta = { status: 409, corpo: { message: 'Ana já está com esta conversa.' } };
+        const e = await erro(chatWa.assumir(gerente, { canal: 'ifood', chave: 'ext:x' }));
+        expect([e?.status, e?.message]).toEqual([409, 'Ana já está com esta conversa.']);
+        resposta = { status: 403, corpo: { message: 'Quem assume a conversa é a gerência ou a supervisão.' } };
+        expect((await erro(chatWa.assumir(gerente, { canal: 'ifood', chave: 'ext:x' })))?.status).toBe(403);
+      } finally {
+        global.fetch = fetchAntes;
+        for (const [k, v] of Object.entries(antes)) {
+          if (v === undefined) delete process.env[k];
+          else process.env[k] = v;
+        }
+      }
+    });
+
+    it('a faixa da ponte no servidor da loja: sem esperar a nuvem — a 1ª leitura vem vazia e busca; depois, a guardada; velha de 2 min, nada', async () => {
+      const fetchAntes = global.fetch;
+      let chamadas = 0;
+      let soltar: () => void = () => {};
+      const situacao = { ligada: true, pontes: 1, canais: { ifood: { responde: { nome: 'PC', maquina: 'CX' }, reservas: [] } }, ultimaMensagemEm: null };
+      global.fetch = (async (url: any) => {
+        chamadas++;
+        expect(String(url)).toBe(`https://nuvem.teste/api/v1/atendimento/ponte-da-loja?unidade=${loja}`);
+        await new Promise<void>((r) => (soltar = r));
+        return new Response(JSON.stringify(situacao), { status: 200, headers: { 'content-type': 'application/json' } });
+      }) as any;
+      const antes = { CLOUD_API: process.env.CLOUD_API, SYNC_TOKEN: process.env.SYNC_TOKEN };
+      process.env.CLOUD_API = 'https://nuvem.teste/api/v1';
+      process.env.SYNC_TOKEN = 'token-do-servidor';
+      const loja2 = new ChatDoCasoService(db, events, ponte, auditoria);
+      try {
+        expect(loja2.ponteDaNuvem(T, loja)).toBeNull(); // a fila não espera
+        expect(loja2.ponteDaNuvem(T, loja)).toBeNull(); // e não busca duas vezes ao mesmo tempo
+        expect(chamadas).toBe(1);
+        soltar();
+        await new Promise((r) => setTimeout(r, 20));
+        expect(loja2.ponteDaNuvem(T, loja)).toEqual(situacao);
+        expect(chamadas).toBe(1); // guardada há menos de 15 s: não busca de novo
+        const entrada = (loja2 as any).ponteDaLoja.get(`${T}|${loja}`);
+        entrada.em = Date.now() - 3 * 60_000; // a última é de 3 min atrás (a nuvem não respondeu desde então)
+        expect(loja2.ponteDaNuvem(T, loja)).toBeNull();
+        expect(chamadas).toBe(2); // e já pediu de novo
+        soltar();
+      } finally {
+        global.fetch = fetchAntes;
+        for (const [k, v] of Object.entries(antes)) {
+          if (v === undefined) delete process.env[k];
+          else process.env[k] = v;
+        }
+      }
+    });
   });
 });

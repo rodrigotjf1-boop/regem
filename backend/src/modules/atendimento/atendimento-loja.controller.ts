@@ -6,6 +6,7 @@ import { DisputaIfoodService, RespostaDaDisputa } from './disputa-ifood.service'
 import { Pedido99Service, RespostaAo99 } from './pedido-99.service';
 import { ChatIfoodService } from './chat-ifood.service';
 import { ChatDoCasoService } from './chat-do-caso.service';
+import { AjustesDaPonteService } from '../ponte-chat/ajustes-da-ponte.service';
 
 // Pedidos do SERVIDOR DA LOJA à nuvem sobre a central de atendimento (V37): a credencial do iFood fica só na nuvem.
 // Autenticação pelo token do servidor (x-sync-token) — a empresa vem do token, nunca do corpo. Só na nuvem.
@@ -16,7 +17,37 @@ export class AtendimentoLojaController {
     private readonly pedido99: Pedido99Service,
     private readonly chatIfood: ChatIfoodService,
     private readonly chat: ChatDoCasoService,
+    private readonly ponte: AjustesDaPonteService,
   ) {}
+
+  // A faixa da ponte do chat para a fila do servidor da loja (a situação mora na nuvem — V37). `unidade` = a loja em uso lá.
+  @Get('ponte-da-loja')
+  @CloudOnly()
+  @UseGuards(SyncTokenGuard)
+  ponteDaLoja(@SyncCtx() ctx: SyncCtxData, @Query('unidade') unidade?: string) {
+    const u = typeof unidade === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(unidade) ? unidade : null;
+    return this.ponte.situacao(ctx.tenantId, u);
+  }
+
+  // "Conversas agora" para a tela do servidor da loja: o login e a permissão de quem está lá foram conferidos lá.
+  @Get('conversas-da-loja')
+  @CloudOnly()
+  @UseGuards(SyncTokenGuard)
+  conversasDaLoja(@SyncCtx() ctx: SyncCtxData, @Query() q: { unidade?: string; categoria?: string; bot?: string }) {
+    return this.chat.conversasVindoDaLoja(ctx.tenantId, q ?? {});
+  }
+
+  // "Assumir a conversa" vindo do servidor da loja (quem assumiu é conferido aqui: colaborador da empresa e da gestão).
+  @Post('conversas-da-loja/assumir')
+  @HttpCode(200)
+  @CloudOnly()
+  @UseGuards(SyncTokenGuard)
+  assumirDaLoja(
+    @SyncCtx() ctx: SyncCtxData,
+    @Body() dto: { canal?: unknown; chave?: unknown; nome?: unknown; atorId?: unknown; atorPerfil?: unknown; bot?: unknown },
+  ) {
+    return this.chat.assumirVindoDaLoja(ctx.tenantId, dto);
+  }
 
   // O chat do iFood e da 99 dentro do caso, para a tela do servidor da loja (as mensagens moram só na nuvem — V37).
   @Get('chat-da-loja')

@@ -57,9 +57,8 @@ export class AtendimentoController {
 
   // "CONVERSAS AGORA" (protótipo v3): as conversas do chat do iFood e da 99 que o robô (ou os avisos) atende, sem caso
   // aberto, na última hora — e as do WhatsApp com o robô, só para quem atende a caixa do WhatsApp (o serviço confere).
-  // Só na nuvem (as mensagens moram lá — no servidor da loja, como a faixa, não aparece).
+  // As mensagens moram na nuvem: no servidor da loja o serviço pede a ela, com quem está na tela de lá (V37).
   @Get('conversas-agora')
-  @CloudOnly()
   @Roles('presidente', 'gerente', 'supervisao', 'execucao')
   conversasAgora(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
     return this.chat.conversasAgora(user.tenantId, unidade, user);
@@ -67,9 +66,8 @@ export class AtendimentoController {
 
   // "Assumir a conversa": o caso nasce com quem assumiu e o robô fica quieto. Só quem responde no chat (a gestão, como
   // `POST :id/chat`): assumir sem poder responder calaria o robô e deixaria o cliente sem ninguém. No WhatsApp, só quem
-  // atende a caixa do WhatsApp (permissão `bot` — o serviço confere).
+  // atende a caixa do WhatsApp (permissão `bot` — o serviço confere). No servidor da loja, a nuvem assume (V37).
   @Post('conversas-agora/assumir')
-  @CloudOnly()
   @Roles('presidente', 'gerente', 'supervisao')
   assumirConversa(@CurrentUser() user: AuthUser, @Body() dto: { canal?: unknown; chave?: unknown; nome?: unknown }) {
     return this.chat.assumir(user, dto);
@@ -184,12 +182,13 @@ export class AtendimentoController {
   @Roles('presidente', 'gerente', 'supervisao', 'execucao')
   async fila(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
     // Com os avisos da disputa (ajuste do iFood): o app e o computador de quem é gerente avisam por eles.
-    // E a FAIXA da ponte do chat (mig 366, só nuvem — no servidor da loja não há a tabela; a faixa não aparece).
+    // E a FAIXA da ponte do chat (mig 366, só nuvem): no servidor da loja, a última que a nuvem mandou — renovada em
+    // segundo plano, sem a fila esperar a internet (`ponteDaNuvem`).
     const [fila, avisos, ponte] = await Promise.all([
       this.service.fila(user, unidade),
       this.chatIfood.avisos(user.tenantId),
       ehServidorLocal()
-        ? Promise.resolve(null)
+        ? Promise.resolve(this.chat.ponteDaNuvem(user.tenantId, unidade))
         : this.ponte.situacao(user.tenantId, unidade).catch((e: any) => {
             // A fila sai mesmo assim (a faixa some); o motivo fica no log (V11).
             new Logger('Atendimento').warn(`[ponte-chat] situação da ponte: ${e?.message ?? e}`);
