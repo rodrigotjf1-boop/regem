@@ -1,9 +1,11 @@
-import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, Optional } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { versaoInformada } from '../equipamento/presenca.service';
 import { CANAIS, CanalDaPonte, PonteCandidata, ehCanalDaPonte, quemResponde, VIVA_POR_MS } from './lideranca';
 import type { PonteCtx } from './ponte-chat.guard';
+import { casosDoChat } from './casos-do-chat';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -34,7 +36,11 @@ export type PapelNoCanal = 'responde' | 'reserva' | 'fora';
 
 @Injectable()
 export class PonteChatService {
-  constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
+  constructor(
+    @Inject(DRIZZLE) private readonly db: DrizzleDB,
+    // Avisa a tela Atendimento (tempo real) do caso que o chat abriu ou somou (Etapa 2). Opcional: os testes montam sem.
+    @Optional() private readonly events?: EventEmitter2,
+  ) {}
 
   /** A ponte está ligada nos ajustes da empresa? Sem linha em robo_config = desligada (nasce desligada). */
   async ligada(tenantId: string): Promise<boolean> {
@@ -98,8 +104,14 @@ export class PonteChatService {
    * As mensagens que a ponte leu no chat. Entram de uma vez (uma consulta, set-based) e uma vez só: a mesma mensagem da
    * plataforma (canal + id dela) não entra de novo — a ponte reenvia o que não teve resposta, e duas pontes leem o mesmo
    * chat. O pedido é achado pelo id na plataforma ou, sem ele, pelo número exibido (dos últimos 2 dias).
+   * Etapa 2: a mensagem NOVA do cliente abre ou soma o caso da conversa na fila do Atendimento (`casos-do-chat.ts`), na
+   * mesma transação — mensagem e caso entram juntos ou nada entra (a ponte reenvia e a conta fecha). A tela é avisada
+   * depois do commit.
    */
-  async receber(p: PonteCtx, dto: any): Promise<{ recebidas: number; repetidas: number; recusadas: number; desligada?: true }> {
+  async receber(
+    p: PonteCtx,
+    dto: any,
+  ): Promise<{ recebidas: number; repetidas: number; recusadas: number; casosNovos?: number; casosSomados?: number; desligada?: true }> {
     const lista: any[] = Array.isArray(dto?.mensagens) ? dto.mensagens : [];
     if (lista.length > LOTE_ENTRADA) throw new BadRequestException(`No máximo ${LOTE_ENTRADA} mensagens por vez.`);
     // Desligada nos ajustes: o chat fica só no Gestor de cada plataforma — nada de conversa de cliente gravada aqui. A
@@ -127,7 +139,8 @@ export class PonteChatService {
       });
     }
     if (!validas.length) return { recebidas: 0, repetidas: 0, recusadas };
-    const r = linhas(await this.db.execute(sql`
+    const { r, casos } = await this.db.transaction(async (tx) => {
+      const r = linhas(await tx.execute(sql`
       with entrada as (
         select * from jsonb_to_recordset(${JSON.stringify(validas)}::jsonb)
           as x(canal text, ext text, pedext text, pednum text, cliente text, autor text, texto text)
@@ -151,8 +164,20 @@ export class PonteChatService {
              ${p.id}::uuid
         from ligada l
       on conflict (tenant_id, canal, externo_msg_id) where externo_msg_id is not null do nothing
-      returning id`));
-    return { recebidas: r.length, repetidas: validas.length - r.length, recusadas };
+      returning id, canal, autor, pedido_id as "pedidoId", pedido_externo as "pedidoExterno", pedido_numero as "pedidoNumero",
+                cliente_nome as "cliente", unidade_id as "unidadeId", texto, criado_em as "criadoEm"`));
+      const casos = await casosDoChat(tx, p.tenantId, r.filter((m) => m.autor === 'cliente'));
+      return { r, casos };
+    });
+    for (const chamado of casos.novos) this.events?.emit('atendimento.novo', { tenantId: p.tenantId, chamado });
+    for (const id of casos.somados) this.events?.emit('atendimento.mudou', { tenantId: p.tenantId, id, motivo: 'cliente_escreveu_no_chat' });
+    return {
+      recebidas: r.length,
+      repetidas: validas.length - r.length,
+      recusadas,
+      casosNovos: casos.novos.length,
+      casosSomados: casos.somados.length,
+    };
   }
 
   /**

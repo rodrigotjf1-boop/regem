@@ -17,6 +17,7 @@ import { ResumoDoRobo, resumoCurto } from '@/components/atendimento/resumo-do-ro
 import { ChatDoIfood } from '@/components/atendimento/chat-do-ifood';
 import { FaixaDaPonte } from '@/components/atendimento/faixa-da-ponte';
 import { ConversaDoCaso } from '@/components/atendimento/conversa-do-caso';
+import { ChatDaPlataforma } from '@/components/atendimento/chat-da-plataforma';
 import { EnderecoDepoisQueSaiu } from '@/components/atendimento/endereco-depois-que-saiu';
 import { enderecoDoCaso } from '@/lib/endereco-do-caso';
 import {
@@ -426,6 +427,11 @@ function Caso({
   useEffect(() => setPodeResponder(['presidente', 'gerente', 'supervisao'].includes(getCategoria() ?? '')), []);
   const aberto = c.situacao !== 'resolvido';
   const meu = !!eu && c.responsavelId === eu;
+  // O chat do iFood e da 99 pela ponte (Etapa 2): no caso "Mensagem no chat" sempre; na disputa e no pedido da 99, com a
+  // ponte ligada (a conversa do mesmo pedido). Na fila do servidor da loja a situação da ponte não vem — só o caso do chat.
+  const { ponte } = useFilaDeAtendimento();
+  const daPlataforma = c.canal === 'ifood' || c.canal === '99food';
+  const comChat = daPlataforma && (c.tipo === 'chat' || (CASO_DA_PLATAFORMA.has(c.tipo) && ponte?.ligada === true));
 
   async function fazer(fn: () => Promise<unknown>, ok: string) {
     if (enviando) return;
@@ -520,7 +526,7 @@ function Caso({
                   </details>
                 )}
               </div>
-            ) : (
+            ) : c.tipo === 'chat' ? null : (
               <section className="rounded-lg border border-border bg-secondary/40 p-3">
                 <h4 className="mb-1 font-display text-sm font-bold">O que o cliente precisa</h4>
                 {c.mensagem ? (
@@ -569,6 +575,9 @@ function Caso({
             </Link>
           </section>
         )}
+
+        {/* O chat do iFood e da 99 pela ponte (Etapa 2): a conversa do pedido e a resposta, que a ponte digita no chat. */}
+        {comChat && <ChatDaPlataforma key={c.id} caso={c} aberto={aberto} podeResponder={podeResponder} />}
 
         {/* A conversa dentro do caso (2B): quem responde pelo WhatsApp é a gestão — a caixa de conversas confere. */}
         {c.telefone && c.canal === 'whatsapp' && aberto && podeResponder && <ConversaDoCaso key={c.id} caso={c} rascunho={rascunho} />}
@@ -631,7 +640,9 @@ function Caso({
           <p className="text-sm">
             {c.canal === 'whatsapp'
               ? 'A conversa volta para o robô. Se o cliente escrever de novo, o robô atende e abre outro caso quando precisar.'
-              : 'O caso sai da fila.'}
+              : c.tipo === 'chat'
+                ? `O caso sai da fila. Se o cliente escrever de novo no chat ${c.canal === 'ifood' ? 'do iFood' : 'da 99'}, chega outro caso.`
+                : 'O caso sai da fila.'}
           </p>
         </Dialogo>
       )}

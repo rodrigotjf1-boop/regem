@@ -23,6 +23,7 @@ import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.servic
 import { lerAjusteAlterado, SONS_DO_ALTERADO } from '../pedido-alterado/pedido-alterado';
 import { AjustesDaPonteService } from '../ponte-chat/ajustes-da-ponte.service';
 import { ehServidorLocal } from '../../common/modo';
+import { ChatDoCasoService } from './chat-do-caso.service';
 
 // Chamados de atendimento (handoff). Operados por quem está no balcão/gestão.
 @Controller('atendimento')
@@ -42,7 +43,25 @@ export class AtendimentoController {
     private readonly producao: ProducaoPedidoService,
     // A ponte do chat do iFood e da 99 (mig 366, parte A2): o grupo "iFood e 99 · chat pela ponte" e a faixa da fila.
     private readonly ponte: AjustesDaPonteService,
+    // O chat do iFood e da 99 dentro do caso (Etapa 2): a conversa do pedido e a resposta da equipe pela ponte.
+    private readonly chat: ChatDoCasoService,
   ) {}
+
+  // O CHAT DO iFOOD E DA 99 DENTRO DO CASO (ponte do chat, Etapa 2): a conversa do pedido, com o estado de cada envio. Lê
+  // quem atende a fila; no servidor da loja, vem da nuvem (V37).
+  @Get(':id/chat')
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
+  chatDoCaso(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.chat.conversa(user, id);
+  }
+
+  // A resposta da equipe no chat da plataforma: entra na fila de saída e a ponte do PC da loja digita. Responde a gestão,
+  // como no WhatsApp do caso.
+  @Post(':id/chat')
+  @Roles('presidente', 'gerente', 'supervisao')
+  responderNoChat(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { texto?: unknown }) {
+    return this.chat.responder(user, id, dto);
+  }
 
   // A configuração do CHAT OFICIAL DO iFOOD (o widget da distribuição e as lojas do iFood da empresa). Sem o widget
   // cadastrado pela distribuição, `disponivel: false` — a tela não mostra o botão.

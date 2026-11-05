@@ -18,6 +18,7 @@ import { PedidoRepetidoService } from '../pedido-repetido/pedido-repetido.servic
 import { ProducaoPedidoModule } from '../producao-pedido/producao-pedido.module';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { AvisoDoEnderecoProcessor } from './aviso-do-endereco.processor';
+import { ChatDoCasoService } from './chat-do-caso.service';
 
 @Module({
   // Integrações: a resposta à disputa do iFood (IfoodService). forwardRef: integrações e delivery já se referem.
@@ -35,6 +36,7 @@ import { AvisoDoEnderecoProcessor } from './aviso-do-endereco.processor';
   // FilaEAvisosService (mig 353): o aviso ao gerente (rotina da nuvem) e os ajustes "Fila e avisos".
   // PedidoRepetidoService (mig 360): o grupo "Pedido repetido" dos ajustes (só o banco e a auditoria, que é global).
   // AvisoDoEnderecoProcessor (PR 3b-2): "Endereço atualizado!" ao cliente quando a mudança feita pelo caso vale (só a nuvem).
+  // ChatDoCasoService (ponte do chat, Etapa 2): a conversa do iFood e da 99 no caso e a resposta da equipe pela ponte.
   providers: [
     AtendimentoService,
     DisputaIfoodService,
@@ -45,6 +47,7 @@ import { AvisoDoEnderecoProcessor } from './aviso-do-endereco.processor';
     FilaEAvisosService,
     PedidoRepetidoService,
     AvisoDoEnderecoProcessor,
+    ChatDoCasoService,
   ],
   exports: [AtendimentoService],
 })

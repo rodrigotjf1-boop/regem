@@ -116,7 +116,7 @@ descrever('ponte do chat (Postgres)', () => {
   afterAll(async () => {
     delete process.env.EDGE_MODE;
     for (const t of [T, T2]) {
-      for (const tab of ['chat_plataforma_msg', 'chat_ponte', 'robo_config', 'pedido_externo', 'equipamento', 'colaborador', 'unidade'])
+      for (const tab of ['atendimento_chamado', 'chat_plataforma_msg', 'chat_ponte', 'robo_config', 'pedido_externo', 'equipamento', 'colaborador', 'unidade'])
         await q(`delete from ${tab} where tenant_id = $1`, [t]).catch(() => {});
       await q(`delete from empresa where id = $1`, [t]).catch(() => {});
     }
@@ -198,12 +198,13 @@ descrever('ponte do chat (Postgres)', () => {
         { canal: 'ifood', id: 'sb-5', autor: 'robo', texto: 'autor errado' },
       ],
     });
-    expect(r1).toEqual({ recebidas: 4, repetidas: 0, recusadas: 4 });
-    // a ponte reenvia (sem resposta) e a outra ponte lê o mesmo chat: não entra de novo
+    // Etapa 2: cada conversa nova do cliente abre o seu caso na fila do Atendimento (as 4 — a conversa é a chave do pedido).
+    expect(r1).toEqual({ recebidas: 4, repetidas: 0, recusadas: 4, casosNovos: 4, casosSomados: 0 });
+    // a ponte reenvia (sem resposta) e a outra ponte lê o mesmo chat: não entra de novo (nem soma no caso)
     const r2 = await svc.receber(await entrar(servidor), {
       mensagens: [{ canal: 'ifood', id: 'sb-1', pedido: { externo: 'ifood-abc' }, autor: 'cliente', texto: 'Cadê meu pedido?' }],
     });
-    expect(r2).toEqual({ recebidas: 0, repetidas: 1, recusadas: 0 });
+    expect(r2).toEqual({ recebidas: 0, repetidas: 1, recusadas: 0, casosNovos: 0, casosSomados: 0 });
     const linhas = await q(`select externo_msg_id, pedido_id, unidade_id, direcao, autor, estado, cliente_nome from chat_plataforma_msg where tenant_id = $1 order by externo_msg_id`, [T]);
     expect(linhas).toEqual([
       { externo_msg_id: 'sb-1', pedido_id: ped, unidade_id: lojaA, direcao: 'entrada', autor: 'cliente', estado: 'recebida', cliente_nome: 'Maria S.' },
@@ -279,7 +280,13 @@ descrever('ponte do chat (Postgres)', () => {
     expect(await msg(id)).toMatchObject({ estado: 'enviada', externo_msg_id: 'sb-99', erro: null });
     expect((await q(`select count(*)::int n from chat_plataforma_msg where tenant_id = $1 and externo_msg_id = 'sb-99'`, [T]))[0].n).toBe(1);
     // o eco que chega depois também não entra de novo
-    expect(await svc.receber(d, { mensagens: [{ canal: 'ifood', id: 'sb-99', autor: 'loja', texto: 'Seu pedido saiu' }] })).toEqual({ recebidas: 0, repetidas: 1, recusadas: 0 });
+    expect(await svc.receber(d, { mensagens: [{ canal: 'ifood', id: 'sb-99', autor: 'loja', texto: 'Seu pedido saiu' }] })).toEqual({
+      recebidas: 0,
+      repetidas: 1,
+      recusadas: 0,
+      casosNovos: 0,
+      casosSomados: 0,
+    });
     // não enviada: volta para a fila; definitiva (o chat fechou): falha
     const id2 = await saida(lojaA);
     await svc.pegar(d, { canal: 'ifood' });

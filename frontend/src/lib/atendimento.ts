@@ -164,6 +164,8 @@ export const ROTULO_DO_TIPO: Record<string, string> = {
   disputa: 'Disputa',
   cancelamento_99: 'Cancelamento pedido à 99',
   reembolso_99: 'Reembolso pedido à 99',
+  // A mensagem do cliente no chat do iFood ou da 99, trazida pela ponte (Etapa 2).
+  chat: 'Mensagem no chat',
 };
 
 /** Casos que se resolvem pela resposta à plataforma (ou pelo prazo): "aguardar" e "resolver" à mão os esconderiam. */

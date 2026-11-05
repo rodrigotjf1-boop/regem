@@ -1187,6 +1187,10 @@ export const api = {
     req(`/atendimento/${id}/passar`, { method: 'POST', body: JSON.stringify({ para }) }),
   atendimentoAguardar: (id: string, aguardando: boolean) =>
     req(`/atendimento/${id}/aguardar`, { method: 'POST', body: JSON.stringify({ aguardando }) }),
+  // O chat do iFood e da 99 dentro do caso (ponte do chat, Etapa 2): a conversa do pedido e a resposta pela ponte.
+  atendimentoChat: (id: string) => req(`/atendimento/${id}/chat`),
+  atendimentoResponderChat: (id: string, texto: string) =>
+    req(`/atendimento/${id}/chat`, { method: 'POST', body: JSON.stringify({ texto }) }),
   // Disputa do iFood (PR 2): a resposta (aceitar, recusar, propor — com a senha de gerente/presidente) e a foto do cliente.
   atendimentoResponderDisputa: (id: string, body: Record<string, unknown>) =>
     req(`/atendimento/${id}/disputa`, { method: 'POST', body: JSON.stringify(body) }),

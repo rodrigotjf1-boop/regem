@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Ponte do chat do iFood e da 99 — Etapa 2 (05/11; sem migration).** Na nuvem com o merge: a fala do cliente no chat
+  (trazida pela ponte) abre o caso "Mensagem no chat" na fila do Atendimento; a conversa do pedido aparece no caso
+  (também na disputa e no pedido da 99) e a equipe responde por ali — a ponte digita no chat. Com a ponte desligada,
+  nada muda. **No `.zip` 1.30.13:** a tela (o bloco do chat no caso) e as rotas do servidor da loja que leem e
+  respondem pela nuvem (`atendimento/:id/chat` → `chat-da-loja`, V37); nada no `sync`/`edge`.
+
 - **Ponte do chat do iFood e da 99 — parte B, versões 0.1 a 0.4 (04–05/11; sem migration).** O programa `ponte-chat/`
   (NOVO, Electron) — lê o chat com o pedido (0.2), tem o "Teste de envio" manual com ensaio (0.3) e, na **0.4, ENVIA
   SOZINHO o que a nuvem enfileira** (avisos "saiu"/"chegando"), só com a tela do Gestor livre, sem tomar o teclado, sem
