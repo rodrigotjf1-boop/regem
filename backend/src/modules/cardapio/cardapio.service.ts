@@ -40,6 +40,9 @@ function ehEdge(): boolean {
   return String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
 }
 
+// Um gateway de PIX resolvido para a loja. Na Rede, `token` é a chave de integração (já aberta) e `pv` o estabelecimento.
+type GatewayPix = { provider: 'mercadopago' | 'pagseguro' | 'rede'; token: string; pv?: string };
+
 // Categoria visível agora? Sem janelas = sempre. Senão, hoje (0=Dom..6=Sáb) precisa
 // bater em alguma janela e o horário atual estar entre inicio e fim (HH:MM).
 function categoriaDisponivelAgora(disp: any): boolean {
@@ -86,6 +89,10 @@ import {
 import { precoComAtacado } from '../../common/preco-atacado';
 import { criarPixMP, consultarPagamentoMP, cancelarPagamentoMP, reembolsarPagamentoMP, assinaturaWebhookMPOk } from '../../common/mercadopago';
 import { criarPixPagBank, consultarPagamentoPagBank, reembolsarPagamentoPagBank } from '../../common/pagbank';
+import { criarPixRede, consultarPagamentoRede, reembolsarPagamentoRede, type ConsultaPixRede, type CredencialRede } from '../../common/erede';
+import { lerCredencialRede } from '../../common/credencial-rede';
+import { ehServidorLocal } from '../../common/modo';
+import { decidirPrazoPixRede, type DecisaoDoPrazo } from './prazo-pix-rede';
 import { GatewayError } from '../../common/gateway-erro';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Cron } from '@nestjs/schedule';
@@ -2099,26 +2106,42 @@ export class CardapioService {
   }
 
   // Provedores de PIX ATIVOS do tenant, ORDENADOS por prioridade (primário → fallback).
-  // A loja pode ter os dois configurados: `pix_gateway_prioritario` diz quem tenta
-  // primeiro; o outro entra se o primário falhar ao gerar o QR. Vazio = [] (mock).
-  private async resolveGateways(
-    tenantId: string,
-  ): Promise<{ provider: 'mercadopago' | 'pagseguro'; token: string }[]> {
+  // A loja pode ter mais de um configurado: `pix_gateway_prioritario` diz quem tenta
+  // primeiro; os outros entram se o primário falhar ao gerar o QR. Vazio = [] (mock).
+  // Rede (e.Rede): o PV e a chave CIFRADA (`common/credencial-rede.ts`). Ligada com a chave que não abre, ela
+  // NÃO vira "sem gateway": sem outro gateway, a cobrança é recusada — senão o fallback mock aprovaria o pedido
+  // sem cobrar (LIC-350).
+  private async resolveGateways(tenantId: string): Promise<GatewayPix[]> {
     const [mp, ps] = await Promise.all([
       this.resolveMpToken(tenantId),
       this.resolvePagseguroToken(tenantId),
     ]);
-    const disp: { provider: 'mercadopago' | 'pagseguro'; token: string }[] = [];
+    const disp: GatewayPix[] = [];
     if (mp) disp.push({ provider: 'mercadopago', token: mp });
     if (ps) disp.push({ provider: 'pagseguro', token: ps });
+    let redeQuebrada = false;
+    try {
+      const rede = await lerCredencialRede(this.db, tenantId);
+      if (rede) disp.push({ provider: 'rede', token: rede.chave, pv: rede.pv });
+    } catch (e) {
+      redeQuebrada = true;
+      this.logger.error(`PIX rede: credencial indisponível (tenant ${tenantId}): ${e instanceof Error ? e.message : e}`);
+    }
+    if (!disp.length && redeQuebrada)
+      throw new BadRequestException('Pagamento indisponível no momento. Tente novamente em instantes.');
     // Primário conforme a config (null = mercadopago, incumbente).
     const [cfg] = await this.db
       .select({ prio: cardapioConfig.pixGatewayPrioritario })
       .from(cardapioConfig)
       .where(eq(cardapioConfig.tenantId, tenantId))
       .limit(1);
-    const prim = cfg?.prio === 'pagseguro' ? 'pagseguro' : 'mercadopago';
+    const prim = cfg?.prio === 'pagseguro' || cfg?.prio === 'rede' ? cfg.prio : 'mercadopago';
     return disp.sort((a, b) => (a.provider === prim ? -1 : 0) - (b.provider === prim ? -1 : 0));
+  }
+
+  /** A credencial da Rede do gateway já resolvido. */
+  private static credRede(gw: GatewayPix): CredencialRede {
+    return { pv: String(gw.pv ?? ''), chave: gw.token };
   }
 
   // Público: pagamento online. Com Mercado Pago configurado → gera PIX (QR +
@@ -2165,7 +2188,8 @@ export class CardapioService {
     const erros: string[] = [];
     const criarESalvar = async (gw: (typeof gws)[number]) => {
       const rota = gw.provider === 'pagseguro' ? 'pagbank' : 'mercadopago';
-      const notificationUrl = base ? `${base}/api/v1/publico/cardapio/pagamento/${rota}/webhook` : undefined;
+      // A Rede não recebe URL na cobrança (o aviso dela é cadastrado por telefone): confere pela consulta.
+      const notificationUrl = base && gw.provider !== 'rede' ? `${base}/api/v1/publico/cardapio/pagamento/${rota}/webhook` : undefined;
       const args = {
         valor: aCobrar, // sinal (encomenda) ou total
         descricao: ehSinal ? `Sinal · ${descricao}` : descricao,
@@ -2179,7 +2203,9 @@ export class CardapioService {
       const pix =
         gw.provider === 'pagseguro'
           ? await criarPixPagBank(gw.token, args)
-          : await criarPixMP(gw.token, args);
+          : gw.provider === 'rede'
+            ? await criarPixRede(CardapioService.credRede(gw), args)
+            : await criarPixMP(gw.token, args);
       await this.db
         .update(pedidoExterno)
         .set({ gatewayPaymentId: pix.id, gatewayProvider: gw.provider, statusPagamento: 'aguardando' })
@@ -2241,6 +2267,9 @@ export class CardapioService {
       if (p.gatewayProvider === 'pagseguro') {
         const t = await this.resolvePagseguroToken(cfg.tenantId);
         if (t) aprovado = (await consultarPagamentoPagBank(t, p.gatewayPaymentId)).status === 'paid';
+      } else if (p.gatewayProvider === 'rede') {
+        const c = await lerCredencialRede(this.db, cfg.tenantId);
+        if (c) aprovado = (await consultarPagamentoRede(c, p.gatewayPaymentId)).status === 'paid';
       } else {
         const t = await this.resolveMpToken(cfg.tenantId);
         if (t) aprovado = (await consultarPagamentoMP(t, p.gatewayPaymentId)).status === 'approved';
@@ -2331,6 +2360,10 @@ export class CardapioService {
         const t = await this.resolvePagseguroToken(tenantId);
         if (!t) throw new Error('sem token PagBank');
         await reembolsarPagamentoPagBank(t, p.gatewayPaymentId, valor);
+      } else if (p.gatewayProvider === 'rede') {
+        const c = await lerCredencialRede(this.db, tenantId);
+        if (!c) throw new Error('sem credencial da Rede');
+        await reembolsarPagamentoRede(c, p.gatewayPaymentId, valor);
       } else {
         const t = await this.resolveMpToken(tenantId);
         if (!t) throw new Error('sem token Mercado Pago');
@@ -2728,6 +2761,7 @@ export class CardapioService {
   // A cada 2 min: cancela pedidos de pagamento ONLINE que passaram do prazo (10 min)
   // sem pagar — evita produção/desperdício. Só na NUVEM (onde os webhooks chegam) e
   // cancela também a cobrança no gateway (impede pagamento tardio).
+  // Rede: ela não avisa sozinha nem deixa cancelar o QR — antes de cancelar, pergunta a ela (`prazo-pix-rede.ts`).
   @Cron('*/2 * * * *')
   async expirarPixNaoPagos() {
     if (ehEdge()) return;
@@ -2738,6 +2772,7 @@ export class CardapioService {
         tenantId: pedidoExterno.tenantId,
         gatewayProvider: pedidoExterno.gatewayProvider,
         gatewayPaymentId: pedidoExterno.gatewayPaymentId,
+        criadoEm: pedidoExterno.criadoEm,
       })
       .from(pedidoExterno)
       .where(
@@ -2748,6 +2783,10 @@ export class CardapioService {
         ),
       );
     for (const v of vencidos) {
+      if (v.gatewayProvider === 'rede' && v.gatewayPaymentId) {
+        const decisao = await this.prazoDoPixRede(v.tenantId, v.id, v.gatewayPaymentId, v.criadoEm);
+        if (decisao !== 'cancelar') continue; // pago (aprovado agora) ou ainda esperando
+      }
       try {
         if (v.gatewayPaymentId && v.gatewayProvider === 'mercadopago') {
           const t = await this.resolveMpToken(v.tenantId);
@@ -2759,6 +2798,80 @@ export class CardapioService {
       await this.delivery
         .cancelarSistema(v.tenantId, v.id, 'Pagamento PIX não recebido no prazo (10 min)')
         .catch(() => {});
+    }
+  }
+
+  /** O PIX da Rede passou do prazo: pago → aprova; QR valendo ou Rede sem resposta → espera; senão cancela. Nunca lança. */
+  private async prazoDoPixRede(tenantId: string, pedidoId: string, tid: string, criadoEm: Date): Promise<DecisaoDoPrazo> {
+    let consulta: ConsultaPixRede | null = null;
+    try {
+      const c = await lerCredencialRede(this.db, tenantId);
+      if (!c) return 'cancelar'; // a loja desligou a Rede: o QR vence sozinho
+      consulta = await consultarPagamentoRede(c, tid);
+    } catch (e) {
+      this.logger.warn(`PIX rede: sem resposta no prazo do pedido ${pedidoId} (tenant ${tenantId}): ${e instanceof Error ? e.message : e}`);
+    }
+    const decisao = decidirPrazoPixRede(consulta, Date.now(), criadoEm);
+    if (decisao === 'aprovar') {
+      try {
+        await this.aprovarPagamento(tenantId, pedidoId);
+      } catch (e) {
+        this.logger.error(`PIX rede: pago no prazo, mas a aprovação falhou (pedido ${pedidoId}): ${e instanceof Error ? e.message : e}`);
+        return 'esperar'; // tenta de novo na próxima volta; nunca cancela um pago
+      }
+    }
+    return decisao;
+  }
+
+  /** Lote da conferência de minuto (os mais novos primeiro). Estático para o teste da V84 usar um lote pequeno. */
+  static LOTE_PIX_REDE = 200;
+  private conferindoPixRede = false;
+
+  // A cada minuto, SÓ NA NUVEM (o cardápio online cobra de lá e a credencial da Rede não vai para o servidor da
+  // loja — V1): confere os PIX da Rede ainda aguardando e aprova os pagos. A Rede não avisa sozinha (o aviso dela
+  // é cadastrado por telefone): sem isto, o pedido de quem pagou e fechou a página só entraria no prazo de 10 min.
+  // Lote: os MAIS NOVOS dos últimos 15 min (usa o índice dos pedidos novos sem comanda). Um pendente antigo não
+  // tranca a fila (V84) — o que ficar fora do lote o prazo confere de novo antes de cancelar (`expirarPixNaoPagos`).
+  @Cron('* * * * *')
+  async conferirPixRede() {
+    if (ehServidorLocal() || this.conferindoPixRede) return;
+    this.conferindoPixRede = true;
+    try {
+      const desde = new Date(Date.now() - 15 * 60 * 1000);
+      const lista = await this.db
+        .select({ id: pedidoExterno.id, tenantId: pedidoExterno.tenantId, tid: pedidoExterno.gatewayPaymentId })
+        .from(pedidoExterno)
+        .where(
+          and(
+            eq(pedidoExterno.status, 'novo'),
+            isNull(pedidoExterno.comandaId),
+            eq(pedidoExterno.statusPagamento, 'aguardando'),
+            eq(pedidoExterno.gatewayProvider, 'rede'),
+            gte(pedidoExterno.criadoEm, desde),
+          ),
+        )
+        .orderBy(desc(pedidoExterno.criadoEm))
+        .limit(CardapioService.LOTE_PIX_REDE);
+      // Uma leitura da credencial por empresa; consultas em grupos de 8 (cada uma com tempo-limite próprio).
+      const creds = new Map<string, Promise<CredencialRede | null>>();
+      const credDe = (t: string) => {
+        if (!creds.has(t)) creds.set(t, lerCredencialRede(this.db, t).catch(() => null));
+        return creds.get(t)!;
+      };
+      const conferir = async (p: (typeof lista)[number]) => {
+        try {
+          const c = p.tid ? await credDe(p.tenantId) : null;
+          if (!c || !p.tid) return;
+          if ((await consultarPagamentoRede(c, p.tid)).status === 'paid') await this.aprovarPagamento(p.tenantId, p.id);
+        } catch (e) {
+          this.logger.warn(`PIX rede: conferência do pedido ${p.id} falhou: ${e instanceof Error ? e.message : e}`);
+        }
+      };
+      for (let i = 0; i < lista.length; i += 8) await Promise.all(lista.slice(i, i + 8).map(conferir));
+    } catch (e) {
+      this.logger.warn(`PIX rede: conferência de minuto falhou: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      this.conferindoPixRede = false;
     }
   }
 
