@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import type { SituacaoDaPonte } from '@/lib/atendimento';
+import { COMO_RETOMAR_A_PONTE } from '@/lib/ponte-do-chat';
 
 // A FAIXA DA PONTE DO CHAT no topo da tela Atendimento (ponte do chat do iFood e da 99, parte A2 — protótipo
 // `mockups/regem-central-atendimento.html` v3). Desligada (ou sem leitura, como no servidor da loja): nada.
@@ -51,6 +52,8 @@ export function FaixaDaPonte({ ponte, agora }: { ponte: SituacaoDaPonte | null; 
   const semPc = canais.filter(([, c]) => !c.responde).map(([k]) => k);
   const passa = porOndePassa(canais);
   const ultima = haQuanto(ponte.ultimaMensagemEm, agora);
+  // pausada pela pessoa no PC (mig 368): o que fazer é retomar lá, não "entrar no iFood"
+  const pausadas = ponte.pausadas ?? [];
 
   if (semPc.length)
     return (
@@ -60,12 +63,16 @@ export function FaixaDaPonte({ ponte, agora }: { ponte: SituacaoDaPonte | null; 
         data-ponte="sem-sinal"
       >
         <span className="rounded-full bg-destructive/15 px-2 py-0.5 text-xs font-bold text-destructive">
-          ⚠️ Ponte do chat sem sinal {semPc.map((k) => NO[k]).join(' e ')}
+          ⚠️ Ponte do chat {pausadas.length ? 'pausada' : 'sem sinal'} {semPc.map((k) => NO[k]).join(' e ')}
         </span>
         <span className="min-w-0 flex-1 basis-64 break-words">
           O que o Regem manda no chat (saiu para entrega, entregador chegando) espera a ponte voltar; o que passar de
           30 min não sai mais.{' '}
-          {ponte.pontes ? (
+          {pausadas.length ? (
+            <>
+              Pausada pela loja: {pausadas.join(' e ')}. {COMO_RETOMAR_A_PONTE}
+            </>
+          ) : ponte.pontes ? (
             <>
               No PC da ponte, abra o programa Regem · Ponte do chat e entre {semPc.map((k) => NO[k]).join(' e ')}.
             </>
@@ -92,6 +99,7 @@ export function FaixaDaPonte({ ponte, agora }: { ponte: SituacaoDaPonte | null; 
       <span className="rounded-full border border-ok/40 bg-ok/15 px-2 py-0.5 text-xs font-bold text-foreground">🔗 Ponte do chat ligada</span>
       <span className="min-w-0 flex-1 basis-64 break-words text-secondary-foreground">
         {passa}
+        {pausadas.length ? ` · pausada: ${pausadas.join(' e ')}` : ''}
         {ultima ? ` · última mensagem do cliente ${ultima}` : ''}
       </span>
     </div>

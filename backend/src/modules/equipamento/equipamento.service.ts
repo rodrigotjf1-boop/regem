@@ -672,7 +672,7 @@ export class EquipamentoService {
       const [pontes, config, conectados, hoje] = await Promise.all([
         this.db.execute(sql`
           select e.id, e.unidade_id as "unidadeId", e.created_at as "criadaEm", coalesce(cp.papel, 'auto') as papel,
-                 cp.maquina, cp.versao, cp.visto_em as "vistoEm",
+                 cp.maquina, cp.versao, cp.visto_em as "vistoEm", cp.pausada_em as "pausadaEm",
                  coalesce((cp.plataformas -> 'ifood' ->> 'logado')::boolean, false) as ifood,
                  coalesce((cp.plataformas -> '99food' ->> 'logado')::boolean, false) as n99
             from equipamento e
@@ -703,14 +703,15 @@ export class EquipamentoService {
         const daLoja = lista.filter((x) => !p.unidadeId || !x.unidadeId || x.unidadeId === p.unidadeId);
         const papelAgora: Record<string, 'responde' | 'reserva' | 'fora'> = {};
         for (const c of canais) {
+          // pausada no PC (mig 368) não responde nem fica de reserva — como em `quemRespondePeloCanal`
           const candidatas: PonteCandidata[] = daLoja.map((x) => ({
             id: x.id,
             papel: x.papel,
             vistoEm: ms(x.vistoEm),
-            logada: c === 'ifood' ? x.ifood === true : x.n99 === true,
+            logada: !x.pausadaEm && (c === 'ifood' ? x.ifood === true : x.n99 === true),
             criadaEm: ms(x.criadaEm),
           }));
-          const logadaViva = (c === 'ifood' ? p.ifood === true : p.n99 === true) && agora - ms(p.vistoEm) <= VIVA_POR_MS;
+          const logadaViva = !p.pausadaEm && (c === 'ifood' ? p.ifood === true : p.n99 === true) && agora - ms(p.vistoEm) <= VIVA_POR_MS;
           papelAgora[c] = quemResponde(candidatas, agora) === p.id ? 'responde' : logadaViva ? 'reserva' : 'fora';
         }
         const d = doDia.get(String(p.id));
@@ -719,6 +720,7 @@ export class EquipamentoService {
           versao: p.versao ?? null,
           vistoEm: iso(p.vistoEm),
           viva: !!p.vistoEm && agora - ms(p.vistoEm) <= VIVA_POR_MS,
+          pausadaEm: iso(p.pausadaEm),
           logado: { ifood: p.ifood === true, '99food': p.n99 === true },
           papel: p.papel,
           ligada,

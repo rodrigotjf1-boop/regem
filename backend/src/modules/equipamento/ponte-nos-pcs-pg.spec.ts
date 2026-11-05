@@ -89,7 +89,7 @@ descrever('Equipamentos: a ponte do chat no PC certo, com o papel de agora (Post
 
   beforeAll(async () => {
     delete process.env.EDGE_MODE; // como NUVEM
-    for (const m of ['342_robo_pausa_e_config.sql', '366_ponte_do_chat.sql', '367_chat_ordem_e_indices.sql']) await aplicar(m);
+    for (const m of ['342_robo_pausa_e_config.sql', '366_ponte_do_chat.sql', '367_chat_ordem_e_indices.sql', '368_ponte_pausada.sql']) await aplicar(m);
     await q(`insert into empresa (id, nome) values ($1, 'teste ponte nos pcs')`, [T]);
     await q(`insert into unidade (id, tenant_id, nome) values ($1, $3, 'Loja 1'), ($2, $3, 'Loja 2')`, [L1, L2, T]);
     await q(`insert into robo_config (tenant_id, chat_ponte_ligada) values ($1, true)`, [T]);
@@ -153,6 +153,22 @@ descrever('Equipamentos: a ponte do chat no PC certo, com o papel de agora (Post
       expect(p['Ponte sem loja'].ponte.canais).toEqual({ ifood: 'reserva' });
     } finally {
       await q(`update chat_ponte set visto_em = now() where equipamento_id = $1`, [ids['Ponte do delivery']]);
+    }
+  });
+
+  it('pausada no PC (mig 368): vem com a hora, não responde nem é reserva; a seguinte responde', async () => {
+    const pausada = await q(`update chat_ponte set pausada_em = now() - interval '3 minutes' where equipamento_id = $1 returning pausada_em`, [ids['Ponte do delivery']]);
+    try {
+      const p = await lista();
+      expect(p['Ponte do delivery'].ponte).toMatchObject({ viva: true, logado: { ifood: true }, canais: { ifood: 'fora' } });
+      expect(p['Ponte do delivery'].ponte.pausadaEm).toBe(new Date(pausada[0].pausada_em).toISOString());
+      expect(p['Ponte do servidor'].ponte).toMatchObject({ pausadaEm: null, canais: { ifood: 'responde' } });
+      expect(p['Ponte sem loja'].ponte.canais).toEqual({ ifood: 'reserva' });
+      // a reserva pausada também sai da conta: a sem loja (reserva) pausada vira "fora"
+      await q(`update chat_ponte set pausada_em = now() where equipamento_id = $1`, [ids['Ponte sem loja']]);
+      expect((await lista())['Ponte sem loja'].ponte.canais).toEqual({ ifood: 'fora' });
+    } finally {
+      await q(`update chat_ponte set pausada_em = null where equipamento_id = any($1::uuid[])`, [[ids['Ponte do delivery'], ids['Ponte sem loja']]]);
     }
   });
 

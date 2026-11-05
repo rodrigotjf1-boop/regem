@@ -101,7 +101,7 @@ export class AjustesDaPonteService {
       select e.id, e.nome, e.unidade_id as "unidadeId", coalesce(cp.papel, 'auto') as papel, cp.maquina, cp.visto_em as "vistoEm",
              coalesce((cp.plataformas -> 'ifood' ->> 'logado')::boolean, false) as "ifood",
              coalesce((cp.plataformas -> '99food' ->> 'logado')::boolean, false) as "n99",
-             e.created_at as "criadaEm",
+             e.created_at as "criadaEm", cp.pausada_em as "pausadaEm",
              coalesce(cp.visto_em > now() - make_interval(secs => ${VIVA_POR_MS / 1000}), false) as viva
         from equipamento e
         left join chat_ponte cp on cp.equipamento_id = e.id
@@ -132,7 +132,7 @@ export class AjustesDaPonteService {
       onde: principal || reserva ? ('escolher' as const) : ('auto' as const),
       principalId: principal?.id ?? null,
       reservaId: reserva?.id ?? null,
-      pontes: pontes.map((p) => ({ id: p.id, nome: p.nome, maquina: p.maquina ?? null, vistoEm: p.vistoEm ?? null, viva: p.viva === true, logado: { ifood: p.ifood === true, '99food': p.n99 === true } })),
+      pontes: pontes.map((p) => ({ id: p.id, nome: p.nome, maquina: p.maquina ?? null, vistoEm: p.vistoEm ?? null, viva: p.viva === true, pausadaEm: p.pausadaEm ?? null, logado: { ifood: p.ifood === true, '99food': p.n99 === true } })),
     };
   }
 
@@ -239,7 +239,8 @@ export class AjustesDaPonteService {
   /**
    * A FAIXA da tela Atendimento: a ponte está ligada? Por canal conectado (iFood, 99): qual PC responde agora (a regra
    * única de `quemResponde`) e os NOMES das que ficam de reserva (vivas e logadas no canal — a faixa diz "reserva:
-   * Servidor da loja"); quando chegou a última mensagem do chat.
+   * Servidor da loja"); quando chegou a última mensagem do chat. A ponte PAUSADA no PC (mig 368) não responde nem é
+   * reserva: vem em `pausadas` (as com sinal), para a faixa dizer onde retomar.
    */
   async situacao(tenantId: string, unidade: string | null) {
     const [rc] = linhas(await this.db.execute(sql`select chat_ponte_ligada from robo_config where tenant_id = ${tenantId}::uuid`));
@@ -255,7 +256,7 @@ export class AjustesDaPonteService {
         id: p.id,
         papel: p.papel,
         vistoEm: p.vistoEm ? new Date(p.vistoEm).getTime() : 0,
-        logada: c === 'ifood' ? p.ifood === true : p.n99 === true,
+        logada: !p.pausadaEm && (c === 'ifood' ? p.ifood === true : p.n99 === true),
         criadaEm: new Date(p.criadaEm).getTime(),
       }));
       const quem = quemResponde(candidatas, agora);
@@ -271,6 +272,7 @@ export class AjustesDaPonteService {
        where tenant_id = ${tenantId}::uuid and direcao = 'entrada'
          and (${unidade}::uuid is null or unidade_id is null or unidade_id = ${unidade}::uuid)
          and criado_em > now() - interval '1 day'`));
-    return { ligada: true as const, pontes: pontes.length, canais, ultimaMensagemEm: ult?.em ?? null };
+    const pausadas = pontes.filter((p) => p.pausadaEm && p.viva === true).map((p) => p.nome as string);
+    return { ligada: true as const, pontes: pontes.length, canais, pausadas, ultimaMensagemEm: ult?.em ?? null };
   }
 }

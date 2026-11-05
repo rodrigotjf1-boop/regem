@@ -60,3 +60,23 @@ test('arquivo estragado: começa do zero', () => {
   fs.writeFileSync(path.join(dir, 'ponte.json'), '{quebrado');
   assert.deepEqual(new Configuracao(dir, cofre()).ler(), {});
 });
+
+test('pausar guarda a hora (a 1ª pausa vale) e fica depois de reabrir; retomar apaga; esquecer o pareamento não retoma', () => {
+  const dir = pasta();
+  const c = new Configuracao(dir, cofre());
+  assert.equal(c.pausadaEm(), null);
+  const h1 = c.pausar(true, new Date('2026-11-05T17:32:00Z'));
+  assert.equal(h1, '2026-11-05T17:32:00.000Z');
+  // pausar de novo não troca a hora
+  assert.equal(c.pausar(true, new Date('2026-11-05T18:00:00Z')), h1);
+  // o programa reaberto (outra instância lendo o mesmo arquivo) segue pausado
+  assert.equal(new Configuracao(dir, cofre()).pausadaEm(), h1);
+  c.guardarPareamento({ terminalId: 'id', segredo: 's' });
+  c.esquecerPareamento();
+  assert.equal(c.pausadaEm(), h1);
+  assert.equal(c.pausar(false), null);
+  assert.equal(new Configuracao(dir, cofre()).pausadaEm(), null);
+  // hora estragada no arquivo não conta como pausa
+  fs.writeFileSync(path.join(dir, 'ponte.json'), JSON.stringify({ pausadaEm: 'ontem' }));
+  assert.equal(c.pausadaEm(), null);
+});

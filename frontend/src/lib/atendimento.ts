@@ -87,6 +87,8 @@ export type SituacaoDaPonte =
       /** As pontes cadastradas da loja (pareadas ou não): 0 = nenhum PC cadastrado como ponte. */
       pontes: number;
       canais: Partial<Record<'ifood' | '99food', { responde: { nome: string; maquina: string | null } | null; reservas: string[] }>>;
+      /** As pontes pausadas no PC (mig 368), com sinal: não respondem nem são reserva. Servidor antigo: não vem. */
+      pausadas?: string[];
       ultimaMensagemEm: string | null;
     };
 /** Os padrões do servidor (`AJUSTE_IFOOD_PADRAO`): a tela usa enquanto não leu. */

@@ -9,7 +9,10 @@
 //  • (v0.4) ENVIA SOZINHO o que a nuvem enfileira para o chat (avisos "saiu"/"chegando"): pega a vez na fila só com a
 //    tela do Gestor LIVRE, confere se a mensagem já está no chat (contra o envio em dobro), digita pelo caminho conferido
 //    da v0.3 sem tomar o teclado, e devolve o resultado — `saida.js`;
-//  • anota o diagnóstico da ligação conversa × pedido (só marcas, nenhum texto — `diagnostico.js`).
+//  • anota o diagnóstico da ligação conversa × pedido (só marcas, nenhum texto — `diagnostico.js`);
+//  • (v0.5) PAUSA neste PC ("Pausar a ponte neste PC": não lê nem responde até retomar — guardada, vale depois de
+//    reiniciar; a nuvem passa a vez à reserva), a janela "Estado da ponte" e o canal com o ícone "Regem neste PC": o
+//    arquivo `estado-da-ponte.json` e os comandos --abrir/--pausar/--retomar (`estado-local.js`).
 // A 99 fica fora por enquanto (aceita um login só — ERR-365: abrir aqui derrubaria a 99 da loja).
 
 // Aberto do terminal do VS Code, o Electron herda ELECTRON_RUN_AS_NODE e roda como Node puro (ERR-363): reabre sem ela.
@@ -37,6 +40,7 @@ const nuvem = require('./nuvem');
 const { Jornal } = require('./jornal');
 const { Saida } = require('./saida');
 const { INSTALAR_VIGIA, ESTADO_DA_TELA, avaliarTela, mexeuDesde } = require('./tela-livre');
+const local = require('./estado-local');
 
 const GESTOR = process.env.REGEM_PONTE_GESTOR || 'https://gestordepedidos.ifood.com.br/';
 const SO_OBSERVAR = process.argv.includes('--so-observar') || process.env.REGEM_PONTE_SO_OBSERVAR === '1';
@@ -67,8 +71,11 @@ if (!app.requestSingleInstanceLock()) {
     logadoNoIfood: false,
     enviadas: 0,
     ultimoErro: null,
+    // pausada pela pessoa NESTE PC (peça 6): não lê nem responde até retomar — guardada, vale depois de reiniciar
+    pausadaEm: cfg.pausadaEm(),
   };
   let gestor = null;
+  let janelaDoEstado = null;
   let pareamento = null;
   let testeEnvio = null;
   let bandeja = null;
@@ -106,6 +113,7 @@ if (!app.requestSingleInstanceLock()) {
     if (SO_OBSERVAR) return 'Só observando (sem nuvem) — diagnóstico ligado';
     if (!cfg.credencial()) return 'Falta parear este PC';
     const ifood = estado.logadoNoIfood ? 'iFood: logado' : 'iFood: entre com o login da loja';
+    if (estado.pausadaEm) return `PAUSADA neste PC desde ${local.hora(estado.pausadaEm)} · ${ifood}`;
     const n = {
       ok: estado.ligada ? (estado.papel === 'responde' ? 'ponte ligada · este PC responde' : 'ponte ligada · este PC é reserva') : 'ponte DESLIGADA nos ajustes do Regem',
       aguardando: 'falando com a nuvem…',
@@ -119,11 +127,38 @@ if (!app.requestSingleInstanceLock()) {
     return `${ifood} · ${n}`;
   }
 
+  /** O resumo de agora (a janela "Estado da ponte" e o arquivo que o ícone "Regem neste PC" lê). */
+  function resumoDeAgora() {
+    return local.resumo(estado, {
+      versao: app.getVersion(),
+      maquina: os.hostname(),
+      pareada: !!cfg.credencial(),
+      nome: cfg.nome(),
+      soObservar: SO_OBSERVAR,
+      pausadaEm: estado.pausadaEm,
+      saida: saida ? { situacao: saida.situacao, enviadas: saida.enviadas } : null,
+      abrir: { exe: process.execPath, args: app.isPackaged ? [] : [app.getAppPath()] },
+    });
+  }
+
+  /** O estado mudou (ou passou um sinal de vida): a janela do estado e o arquivo do ícone do Regem acompanham. */
+  function publicarEstado() {
+    const r = resumoDeAgora();
+    try {
+      local.gravar(app.getPath('userData'), r);
+    } catch {
+      /* sem gravar: o ícone do Regem diz que não sabe da ponte — a ponte segue */
+    }
+    if (janelaDoEstado && !janelaDoEstado.isDestroyed()) janelaDoEstado.webContents.send('ponte:mudou', local.paraAJanela(r));
+  }
+
   function atualizarBandeja() {
     const sit = textoDaSituacao();
     if (gestor && !gestor.isDestroyed()) gestor.setTitle(`Regem · Ponte do chat — ${sit}`);
+    publicarEstado();
     if (!bandeja) return;
     bandeja.setToolTip(`Regem · Ponte do chat\n${sit}`.slice(0, 127));
+    const pareada = !SO_OBSERVAR && !!cfg.credencial();
     bandeja.setContextMenu(
       Menu.buildFromTemplate([
         { label: 'Regem · Ponte do chat', enabled: false },
@@ -131,6 +166,9 @@ if (!app.requestSingleInstanceLock()) {
         ...(estado.ultimoErro ? [{ label: `Último aviso: ${estado.ultimoErro}`.slice(0, 120), enabled: false }] : []),
         ...(saida ? [{ label: `Fila de saída: ${saida.situacao} · ${saida.enviadas} enviada(s) por este PC`.slice(0, 120), enabled: false }] : []),
         { type: 'separator' },
+        { label: 'Ver o estado da ponte', click: () => abrirEstado() },
+        // os nomes destes dois itens são os que as telas do Regem citam (V65 — `frontend/src/lib/ponte-do-chat.ts`)
+        ...(pareada ? [estado.pausadaEm ? { label: 'Retomar a ponte neste PC', click: () => pausar(false) } : { label: 'Pausar a ponte neste PC', click: () => pausar(true) }] : []),
         { label: 'Abrir o Gestor do iFood', click: () => abrirGestor() },
         { label: 'Teste de envio (ensaio)…', click: () => abrirTesteDeEnvio() },
         ...(!SO_OBSERVAR && !cfg.credencial() ? [{ label: 'Parear este PC', click: () => abrirPareamento() }] : []),
@@ -173,6 +211,8 @@ if (!app.requestSingleInstanceLock()) {
       plataformas: { ifood: { logado: estado.logadoNoIfood } },
       versao: app.getVersion(),
       maquina: os.hostname(),
+      // pausada aqui: a nuvem passa a vez para a reserva e as telas dizem "pausada neste PC" (mig 368)
+      pausada: !!estado.pausadaEm,
     });
     const c = nuvem.classificar(r);
     if (c === 'ok' && r.dados) {
@@ -228,7 +268,8 @@ if (!app.requestSingleInstanceLock()) {
         }
         // o pedido vem do canal da conversa (`sendbird_gc_cm_<id do pedido>_<loja>`); a nuvem liga pelo external_id
         const pedido = m.pedidoExterno ? { externo: m.pedidoExterno } : undefined;
-        fila.por({ canal: 'ifood', id: m.id, autor: m.autor, texto: m.texto, cliente: m.cliente, pedido }, estado.ligada && !SO_OBSERVAR);
+        // pausada neste PC: não leva nada ao Regem (a reserva, se houver, lê o mesmo chat)
+        fila.por({ canal: 'ifood', id: m.id, autor: m.autor, texto: m.texto, cliente: m.cliente, pedido }, estado.ligada && !estado.pausadaEm && !SO_OBSERVAR);
       },
       aoMudarChat: () => {
         estado.logadoNoIfood = logadoNoIfood();
@@ -458,12 +499,81 @@ if (!app.requestSingleInstanceLock()) {
     return { ok: true, nome: r.dados && r.dados.nome };
   });
 
+  /**
+   * Pausa ou retoma a ponte NESTE PC (peça 6, "Pausar a ponte do chat"): pausada, não leva nada ao Regem (a fila de
+   * entrada é esvaziada) e não pega a vez na fila de saída; o sinal vai na hora para a nuvem passar a vez à reserva.
+   */
+  function pausar(sim) {
+    if (SO_OBSERVAR || !cfg.credencial()) return { ok: false, mensagem: 'Pareie este PC antes de pausar a ponte.' };
+    estado.pausadaEm = cfg.pausar(sim);
+    if (sim) fila.esvaziar();
+    registrarErro(sim ? 'ponte pausada neste PC' : 'ponte retomada neste PC');
+    sinalDeVida().catch((e) => registrarErro(String(e && e.message)));
+    return { ok: true, mensagem: sim ? 'Ponte pausada neste PC.' : 'Ponte retomada neste PC.' };
+  }
+
+  /** A janela "Estado da ponte" (o clique no ícone, "Ver o estado da ponte" e o "Abrir a ponte" do ícone do Regem). */
+  function abrirEstado() {
+    if (janelaDoEstado && !janelaDoEstado.isDestroyed()) {
+      janelaDoEstado.show();
+      janelaDoEstado.focus();
+      return janelaDoEstado;
+    }
+    janelaDoEstado = new BrowserWindow({
+      width: 600,
+      height: 640,
+      minWidth: 360,
+      title: 'Estado da ponte · Regem · Ponte do chat',
+      icon: ICONE,
+      autoHideMenuBar: true,
+      webPreferences: { preload: path.join(__dirname, 'estado-preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false },
+    });
+    janelaDoEstado.loadFile(path.join(__dirname, 'estado.html'));
+    janelaDoEstado.on('closed', () => {
+      janelaDoEstado = null;
+    });
+    return janelaDoEstado;
+  }
+
+  /** Um comando de fora (linha de comando, o ícone do Regem) ou um botão da janela do estado. */
+  function executar(comando) {
+    if (comando === 'pausar') return pausar(true);
+    if (comando === 'retomar') return pausar(false);
+    if (comando === 'abrir-ifood') {
+      abrirGestor();
+      return { ok: true };
+    }
+    if (comando === 'parear') {
+      abrirPareamento();
+      return { ok: true };
+    }
+    if (comando === 'atendimento') {
+      shell.openExternal(local.enderecoDoAtendimento()).catch(() => {});
+      return { ok: true, mensagem: 'Abrindo o Atendimento no navegador…' };
+    }
+    abrirEstado();
+    return { ok: true };
+  }
+
+  ipcMain.handle('ponte:estado', () => local.paraAJanela(resumoDeAgora()));
+  ipcMain.handle('ponte:acao', (_e, acao) => {
+    const permitidas = ['pausar', 'retomar', 'abrir-ifood', 'parear', 'atendimento'];
+    if (!permitidas.includes(String(acao))) return { ok: false, mensagem: 'Ação desconhecida.' };
+    const r = executar(String(acao));
+    atualizarBandeja();
+    return { ...r, estado: local.paraAJanela(resumoDeAgora()) };
+  });
+
   function sair() {
     saindo = true;
     app.quit();
   }
 
-  app.on('second-instance', () => abrirGestor());
+  // Abriram o programa de novo (o atalho, o ícone do Regem com --pausar/--retomar/--abrir): o que já está aberto atende.
+  app.on('second-instance', (_e, argv) => {
+    executar(local.comandoDe(argv) || 'estado');
+    atualizarBandeja();
+  });
   app.on('window-all-closed', () => {
     /* segue no ícone perto do relógio */
   });
@@ -480,6 +590,7 @@ if (!app.requestSingleInstanceLock()) {
         if (SO_OBSERVAR) return { ok: false, motivo: 'só observando (sem nuvem)' };
         if (!cfg.credencial()) return { ok: false, motivo: 'falta parear este PC' };
         if (!estado.ligada) return { ok: false, motivo: 'ponte desligada nos ajustes' };
+        if (estado.pausadaEm) return { ok: false, motivo: 'ponte pausada neste PC' };
         if (estado.papel !== 'responde') return { ok: false, motivo: `este PC não responde pelo iFood (${estado.papel})` };
         if (!logadoNoIfood()) return { ok: false, motivo: 'sem login no iFood' };
         return { ok: true };
@@ -502,7 +613,7 @@ if (!app.requestSingleInstanceLock()) {
     });
     try {
       bandeja = new Tray(ICONE);
-      bandeja.on('click', () => abrirGestor());
+      bandeja.on('click', () => abrirEstado());
     } catch {
       bandeja = null; // sem ícone (teste): a janela mostra a situação no título
     }
@@ -512,10 +623,13 @@ if (!app.requestSingleInstanceLock()) {
       abrirTesteDeEnvio(); // a prova de ponta a ponta abre a janela direto (o ícone perto do relógio não se pilota)
     }
     else abrirGestor();
+    // aberto já com um comando (o ícone do Regem chamou com --pausar/--retomar/--abrir e a ponte estava fechada)
+    const primeiro = local.comandoDe(process.argv);
+    if (primeiro) executar(primeiro);
     atualizarBandeja();
     setInterval(() => sinalDeVida().catch((e) => registrarErro(String(e && e.message))), SINAL_MS);
     setInterval(() => {
-      fila.descarregar(estado.ligada && !SO_OBSERVAR).catch((e) => registrarErro(String(e && e.message)));
+      fila.descarregar(estado.ligada && !estado.pausadaEm && !SO_OBSERVAR).catch((e) => registrarErro(String(e && e.message)));
     }, FILA_MS);
     // a fila de SAÍDA (v0.4): uma volta por vez; a bandeja mostra a situação
     let ultimaSituacao = '';

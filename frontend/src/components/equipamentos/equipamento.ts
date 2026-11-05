@@ -1,4 +1,5 @@
 import type { Tom } from '@/components/ui/lista';
+import { COMO_RETOMAR_A_PONTE } from '@/lib/ponte-do-chat';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -228,6 +229,8 @@ export function loginsDaPonte(p: any): string {
 /** O selo da ponte com sinal: quem responde, a reserva pronta, sem login ou só no ar (canal nenhum conectado). */
 function seloDaPonteViva(p: any): { tom: Tom; rotulo: string } {
   if (!p.ligada) return { tom: 'neutro', rotulo: 'no ar · ponte desligada' };
+  // pausada pela pessoa no PC (mig 368): não lê nem responde — a reserva assume
+  if (p.pausadaEm) return { tom: 'aviso', rotulo: `pausada neste PC · há ${tempoDesde(p.pausadaEm)}` };
   if (canaisCom(p, 'responde').length) return { tom: 'ok', rotulo: 'responde o chat' };
   if (canaisCom(p, 'reserva').length) return { tom: 'ok', rotulo: 'reserva pronta' };
   if (canaisCom(p, 'fora').length) return { tom: 'aviso', rotulo: 'sem login' };
@@ -245,6 +248,8 @@ export function detalheDaPonte(p: any): string {
     return p.vistoEm
       ? `Sem sinal há ${tempoDesde(p.vistoEm)}: o PC desligou ou o programa da ponte fechou.`
       : 'Pareada, mas o programa da ponte ainda não deu sinal neste PC.';
+  if (p.pausadaEm)
+    return `Pausada neste PC há ${tempoDesde(p.pausadaEm)}: não lê nem responde o chat (a reserva, se houver, assume). ${COMO_RETOMAR_A_PONTE}`;
   const partes: string[] = [];
   const responde = canaisCom(p, 'responde');
   const reserva = canaisCom(p, 'reserva');

@@ -81,7 +81,7 @@ descrever('ponte do chat — avisos, ajustes e faixa (Postgres)', () => {
 
   beforeAll(async () => {
     delete process.env.EDGE_MODE; // como NUVEM
-    for (const m of ['342_robo_pausa_e_config.sql', '366_ponte_do_chat.sql', '367_chat_ordem_e_indices.sql']) await aplicar(m);
+    for (const m of ['342_robo_pausa_e_config.sql', '366_ponte_do_chat.sql', '367_chat_ordem_e_indices.sql', '368_ponte_pausada.sql']) await aplicar(m);
     if (!(await tem('entregador_chegada'))) await aplicar('201_entregador_chegada.sql');
     await q(`insert into empresa (id, nome) values ($1, 'teste avisos do chat')`, [T]);
     [{ id: lojaA }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja A') returning id`, [T]);
@@ -333,5 +333,16 @@ descrever('ponte do chat — avisos, ajustes e faixa (Postgres)', () => {
     // a "Ponte parada" (30 min sem sinal) não conta como reserva
     expect(s).toMatchObject({ ligada: true, pontes: 3, canais: { ifood: { responde: { nome: 'Ponte do delivery', maquina: 'PONTE DO DELIVERY' }, reservas: ['Ponte do servidor'] } } });
     expect(Object.keys((s as any).canais)).toEqual(['ifood']); // a 99 não está conectada: não aparece
+    expect((s as any).pausadas).toEqual([]);
+    // pausada no PC (mig 368): sai de quem responde e das reservas; a faixa diz onde está pausada (só as com sinal)
+    await q(`update chat_ponte set pausada_em = now() where tenant_id = $1 and maquina in ('PONTE DO DELIVERY', 'PONTE PARADA')`, [T]);
+    const p = await ajustes.situacao(T, lojaA);
+    expect(p).toMatchObject({ canais: { ifood: { responde: { nome: 'Ponte do servidor' }, reservas: [] } }, pausadas: ['Ponte do delivery'] });
+    await q(`update chat_ponte set pausada_em = now() where tenant_id = $1 and maquina = 'PONTE DO SERVIDOR'`, [T]);
+    expect(await ajustes.situacao(T, lojaA)).toMatchObject({ canais: { ifood: { responde: null, reservas: [] } }, pausadas: ['Ponte do delivery', 'Ponte do servidor'] });
+    // os ajustes também dizem desde quando cada uma está pausada
+    const a = await ajustes.ajustes(T, lojaA);
+    expect(a.pontes.find((x: any) => x.nome === 'Ponte do servidor')?.pausadaEm).toBeTruthy();
+    expect(a.pontes.find((x: any) => x.nome === 'Ponte do delivery')?.pausadaEm).toBeTruthy();
   });
 });

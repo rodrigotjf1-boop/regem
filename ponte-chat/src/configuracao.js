@@ -77,6 +77,22 @@ class Configuracao {
   nome() {
     return this.ler().nome || null;
   }
+
+  /** Desde quando a ponte está PAUSADA neste PC (ISO) — ou null. Fica guardado: segue pausada depois de reiniciar. */
+  pausadaEm() {
+    const v = this.ler().pausadaEm;
+    return typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? v : null;
+  }
+
+  /** Pausa (guarda a hora, só se ainda não estava) ou retoma. Devolve a hora da pausa (ou null). */
+  pausar(sim, agora = new Date()) {
+    const cfg = this.ler();
+    if (sim) {
+      if (!(typeof cfg.pausadaEm === 'string' && !Number.isNaN(Date.parse(cfg.pausadaEm)))) cfg.pausadaEm = agora.toISOString();
+    } else delete cfg.pausadaEm;
+    this.gravar(cfg);
+    return cfg.pausadaEm || null;
+  }
 }
 
 module.exports = { Configuracao };

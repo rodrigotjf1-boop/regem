@@ -65,7 +65,7 @@ const DO_AVISO_DA_PONTE: Record<string, [MotivoDoAviso, 'ligado' | 'texto']> = {
 };
 /** O papel dos PCs vai junto (onde + principal + reserva): a escolha é uma só, e o servidor confere as três. */
 const DO_PAPEL_DA_PONTE = ['ponteOnde', 'pontePrincipal', 'ponteReserva'];
-type PonteDaLoja = { id: string; nome: string; maquina: string | null; vistoEm: string | null; viva: boolean; logado: { ifood: boolean; '99food': boolean } };
+type PonteDaLoja = { id: string; nome: string; maquina: string | null; vistoEm: string | null; viva: boolean; pausadaEm?: string | null; logado: { ifood: boolean; '99food': boolean } };
 type AjusteDaPonte = {
   ligada: boolean;
   /** O robô responde no chat (ponte do chat, Etapa 3) — nasce desligado. */
@@ -366,7 +366,7 @@ export function AjustesDoAtendimento() {
   const padroes = resp?.ponte?.padroes;
   const escolher = valores.ponteOnde === 'escolher';
   const principalAtual = String(valores.pontePrincipal ?? '');
-  const rotuloDaPonte = (p: PonteDaLoja) => `${p.nome}${p.viva ? '' : ' · sem sinal agora'}`;
+  const rotuloDaPonte = (p: PonteDaLoja) => `${p.nome}${!p.viva ? ' · sem sinal agora' : p.pausadaEm ? ' · pausada no PC' : ''}`;
   const grupoDaPonte: GrupoDeAjustes = {
     titulo: 'iFood e 99 · chat pela ponte',
     nota: 'Sempre vale, não se desliga (protege a conta da loja na plataforma): nunca telefone, WhatsApp, Instagram nem link no chat · no máximo 3 avisos por pedido · a conversa não entra em campanha.',
