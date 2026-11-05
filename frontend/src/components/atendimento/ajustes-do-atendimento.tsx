@@ -68,6 +68,8 @@ const DO_PAPEL_DA_PONTE = ['ponteOnde', 'pontePrincipal', 'ponteReserva'];
 type PonteDaLoja = { id: string; nome: string; maquina: string | null; vistoEm: string | null; viva: boolean; logado: { ifood: boolean; '99food': boolean } };
 type AjusteDaPonte = {
   ligada: boolean;
+  /** O robô responde no chat (ponte do chat, Etapa 3) — nasce desligado. */
+  roboResponde?: boolean;
   avisos: Record<MotivoDoAviso, { ligado: boolean; texto: string | null }>;
   padroes: Record<MotivoDoAviso, string>;
   onde: 'auto' | 'escolher';
@@ -105,6 +107,7 @@ const paraValores = (r: Resposta): Valores => ({
         ponteChegandoTexto: r.ponte.avisos.chegando.texto ?? '',
         ponteObrigado: r.ponte.avisos.obrigado.ligado,
         ponteObrigadoTexto: r.ponte.avisos.obrigado.texto ?? '',
+        ponteRobo: r.ponte.roboResponde === true,
       }
     : {}),
   ...(r.repetido?.temCardapio ? { repetidoAtivo: r.repetido.ativo, repetidoMin: String(r.repetido.minutos) } : {}),
@@ -458,6 +461,14 @@ export function AjustesDoAtendimento() {
         ajuda: 'Em branco, vai o texto padrão. {nome} vira o primeiro nome do cliente.',
         palavras: 'texto agradecimento obrigado',
       },
+      {
+        id: 'ponteRobo',
+        rotulo: 'Robô responde no chat',
+        tipo: 'chave',
+        ajuda:
+          'O robô responde o "cadê meu pedido?" com o dado do pedido (em preparo, saiu às tantas, a previsão), no máximo 2 vezes por pedido por hora. Qualquer outra mensagem vira caso na fila do Atendimento, e o robô avisa o cliente que chamou a equipe. Com o caso aberto, ele fica quieto.',
+        palavras: 'robo robô responder automatico chat ifood 99 cade pedido previsao',
+      },
     ],
   };
   const grupos: GrupoDeAjustes[] = [
@@ -484,6 +495,7 @@ export function AjustesDoAtendimento() {
     let alterado: { som?: string; roboMuda?: boolean } | null = null;
     const ponte: {
       ligada?: boolean;
+      roboResponde?: boolean;
       onde?: string;
       principalId?: string | null;
       reservaId?: string | null;
@@ -501,6 +513,10 @@ export function AjustesDoAtendimento() {
       if (DO_PAPEL_DA_PONTE.includes(k)) continue;
       if (k === 'ponteLigada') {
         ponte.ligada = valores[k] === true;
+        continue;
+      }
+      if (k === 'ponteRobo') {
+        ponte.roboResponde = valores[k] === true;
         continue;
       }
       if (DO_AVISO_DA_PONTE[k]) {

@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Ponte do chat do iFood e da 99 — Etapa 3, o robô no chat (05/11; sem migration).** Na nuvem com o merge: com
+  "Robô responde no chat" ligado (nasce DESLIGADO), o robô responde o "cadê meu pedido?" pelo dado do pedido e chama a
+  equipe no resto (o caso nasce com o resumo dele). **No `.zip` 1.30.13:** só a tela (o campo novo no grupo da ponte, que
+  o servidor da loja não mostra — os ajustes são da nuvem); o robô roda na nuvem; nada no `sync`/`edge`.
+
 - **Ponte do chat do iFood e da 99 — Etapa 2 (05/11; sem migration).** Na nuvem com o merge: a fala do cliente no chat
   (trazida pela ponte) abre o caso "Mensagem no chat" na fila do Atendimento; a conversa do pedido aparece no caso
   (também na disputa e no pedido da 99) e a equipe responde por ali — a ponte digita no chat. Com a ponte desligada,

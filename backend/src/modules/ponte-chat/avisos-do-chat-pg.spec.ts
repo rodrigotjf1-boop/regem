@@ -256,6 +256,20 @@ descrever('ponte do chat — avisos, ajustes e faixa (Postgres)', () => {
     expect(auditados.map((x) => x.acao)).toEqual(['ponte_do_chat_ajustada', 'ponte_do_chat_ajustada', 'ponte_do_chat_ajustada']);
   });
 
+  it('ajustes: "o robô responde no chat" (Etapa 3) nasce desligado, liga e desliga só com booleano e vai para a auditoria', async () => {
+    await q(`delete from robo_config where tenant_id = $1`, [T]);
+    expect((await ajustes.ajustes(T, lojaA)).roboResponde).toBe(false);
+    const ligado = await ajustes.salvar(user, lojaA, { roboResponde: true });
+    expect(ligado.roboResponde).toBe(true);
+    expect((await q(`select chat_robo_responde, chat_ponte_ligada from robo_config where tenant_id = $1`, [T]))[0]).toEqual({
+      chat_robo_responde: true,
+      chat_ponte_ligada: false, // ligar o robô não liga a ponte (só o que veio — V16)
+    });
+    expect(auditados).toEqual([expect.objectContaining({ acao: 'ponte_do_chat_ajustada', detalhe: { chat_robo_responde: true } })]);
+    await expect(ajustes.salvar(user, lojaA, { roboResponde: 'sim' })).rejects.toThrow('Informe "roboResponde" (true ou false).');
+    expect((await ajustes.salvar(user, lojaA, { roboResponde: false })).roboResponde).toBe(false);
+  });
+
   it('onde a ponte roda: escolher a principal e a reserva da loja (a que ainda não deu sinal também); de outra loja, não', async () => {
     const delivery = await ponte(lojaA, 'Ponte do delivery', { ifood: true, minAtras: 0 });
     const servidor = await ponte(lojaA, 'Ponte do servidor'); // pareada, sem sinal ainda
