@@ -84,28 +84,36 @@ function ligarLeitor(wc, { aoChegar, aoMudarChat, diagnostico, registrarErro }) 
         return;
       }
       if (!diagnostico) return;
+      if (metodo === 'Network.requestWillBeSent') {
+        const rq = p.request || {};
+        if (interessa(rq.url || '')) diagnostico.chamada(rq.method, rq.url);
+        return;
+      }
       if (metodo === 'Network.responseReceived') {
         const r = p.response || {};
-        if ((p.type === 'XHR' || p.type === 'Fetch') && /json/i.test(r.mimeType || '') && interessa(r.url || '')) corpos.set(chave(p.requestId), { url: r.url, sid });
+        if (!interessa(r.url || '')) return;
+        if ((p.type === 'XHR' || p.type === 'Fetch') && /json/i.test(r.mimeType || '')) corpos.set(chave(p.requestId), { url: r.url, sid });
+        else diagnostico.anotar({ ev: 'resposta_sem_corpo', url: diagnostico.endereco(r.url), tipo: p.type, mime: r.mimeType, status: r.status });
         return;
       }
       if (metodo === 'Network.loadingFinished' && corpos.has(chave(p.requestId))) {
         const { url, sid: s } = corpos.get(chave(p.requestId));
         corpos.delete(chave(p.requestId));
+        // a página principal chega com a sessão "" — o Electron recusa sessão vazia: aí vai sem sessão
         dbg
-          .sendCommand('Network.getResponseBody', { requestId: p.requestId }, s)
+          .sendCommand('Network.getResponseBody', { requestId: p.requestId }, s || undefined)
           .then((b) => {
             const txt = b.base64Encoded ? Buffer.from(b.body, 'base64').toString('utf8') : b.body;
-            if (!txt || txt.length > 2000000) return;
+            if (!txt || txt.length > 2000000) return diagnostico.anotar({ ev: 'corpo_fora', url: diagnostico.endereco(url), tamanho: txt ? txt.length : 0 });
             let j;
             try {
               j = JSON.parse(txt);
             } catch {
-              return;
+              return diagnostico.anotar({ ev: 'corpo_nao_json', url: diagnostico.endereco(url), tamanho: txt.length });
             }
             diagnostico.resposta(url, j);
           })
-          .catch(() => {});
+          .catch((e) => diagnostico.anotar({ ev: 'corpo_falhou', url: diagnostico.endereco(url), sessao: Boolean(s), erro: String((e && e.message) || e).slice(0, 160) }));
       }
     } catch (e) {
       if (registrarErro) registrarErro(String((e && e.message) || e));

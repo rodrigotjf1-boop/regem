@@ -55,10 +55,23 @@ test('o arquivo tem teto: passou, o anterior vira .1', () => {
   assert.ok(fs.statSync(arq).size < 400);
 });
 
-test('só os corpos do chat do pedido, do pedido e do canal interessam', () => {
+test('interessam: a API de pedidos do Gestor, os pedidos e toda a API do chat; o resto não', () => {
   assert.equal(interessa(`https://order-manager-api.ifood.com.br/orderManager/v1.0/chat/orders/${PEDIDO}`), true);
+  assert.equal(interessa('https://order-manager-api.ifood.com.br/orderManager/v1.0/qualquer'), true);
   assert.equal(interessa(`https://merchant-api.ifood.com.br/order/v1.0/orders/${PEDIDO}`), true);
   assert.equal(interessa(`https://api-x.sendbird.com/v3/sdk/group_channels/${CANAL}`), true);
+  assert.equal(interessa('https://api-x.sendbird.com/v3/users/123456/my_group_channels'), true);
   assert.equal(interessa('https://merchant-api.ifood.com.br/merchant/v1.0/merchants/x/status/delivery'), false);
+  assert.equal(interessa('https://merchant-api.ifood.com.br/order/v1.0/events:polling'), false);
   assert.equal(interessa('https://api.amplitude.com/'), false);
+});
+
+test('a chamada anota o método e a forma do endereço, com os ids em marca', () => {
+  const d = new Diagnostico(null, 'sal', { gravar: false });
+  d.chamada('GET', `https://order-manager-api.ifood.com.br/orderManager/v1.0/chat/orders/${PEDIDO}?x=1`);
+  const l = d.ultimos.at(-1);
+  assert.equal(l.ev, 'chamada');
+  assert.equal(l.metodo, 'GET');
+  assert.equal(l.url, `order-manager-api.ifood.com.br/orderManager/v1.0/chat/orders/<${d.marca(PEDIDO)}>`);
+  assert.ok(!JSON.stringify(l).includes(PEDIDO));
 });

@@ -191,7 +191,9 @@ if (!app.requestSingleInstanceLock()) {
     });
     leitor = ligarLeitor(wc, {
       aoChegar: (m) => {
-        fila.por({ canal: 'ifood', id: m.id, autor: m.autor, texto: m.texto, cliente: m.cliente }, estado.ligada && !SO_OBSERVAR);
+        // o pedido vem do canal da conversa (`sendbird_gc_cm_<id do pedido>_<loja>`); a nuvem liga pelo external_id
+        const pedido = m.pedidoExterno ? { externo: m.pedidoExterno } : undefined;
+        fila.por({ canal: 'ifood', id: m.id, autor: m.autor, texto: m.texto, cliente: m.cliente, pedido }, estado.ligada && !SO_OBSERVAR);
       },
       aoMudarChat: () => {
         estado.logadoNoIfood = logadoNoIfood();

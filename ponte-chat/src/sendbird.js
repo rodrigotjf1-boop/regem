@@ -6,7 +6,10 @@
 //  • a mensagem chega como MESG; quem mandou está em `user.metadata.type`: "CUSTOMER" (o cliente) ou "MERCHANT" (a loja —
 //    também o que a equipe escreve no Gestor de OUTRO PC);
 //  • chega repetida, uma vez por conexão que o Gestor mantém aberta: a chave é o `msg_id`;
-//  • o aviso "Sua loja não costuma responder" o próprio Gestor desenha — não vem por aqui.
+//  • o aviso "Sua loja não costuma responder" o próprio Gestor desenha — não vem por aqui;
+//  • a conversa é POR PEDIDO: o canal é `sendbird_gc_cm_<id do pedido no iFood>_<id da loja no iFood>` (conferido em
+//    04/11 na lista de conversas do Gestor — o 1º id é o `metadata.orderId` em todas — e no Regem: é o `external_id`
+//    do pedido). Assim cada mensagem já diz o pedido.
 
 /** "MESG{...}" → { cmd: 'MESG', corpo: {...} }; o que não é comando + JSON → null. */
 function lerQuadro(payload) {
@@ -21,6 +24,13 @@ function lerQuadro(payload) {
 }
 
 const AUTOR = { CUSTOMER: 'cliente', MERCHANT: 'loja' };
+const CANAL_DO_PEDIDO = /^sendbird_gc_cm_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})_[0-9a-f-]+$/i;
+
+/** O id do pedido no iFood que o canal da conversa traz — ou null (canal de outra forma). */
+function pedidoDoCanal(canal) {
+  const m = typeof canal === 'string' ? CANAL_DO_PEDIDO.exec(canal) : null;
+  return m ? m[1] : null;
+}
 
 /**
  * A mensagem de um quadro MESG que CHEGOU, no formato que a nuvem recebe — ou null (outro comando, sem remetente
@@ -40,6 +50,7 @@ function mensagemDoQuadro(q) {
     autor,
     texto,
     canalDoChat: typeof c.channel_url === 'string' ? c.channel_url : null,
+    pedidoExterno: pedidoDoCanal(c.channel_url),
     // o nome do cliente como o iFood mostra ("Carine S."); da loja não interessa
     cliente: autor === 'cliente' && typeof usuario.name === 'string' && usuario.name.trim() ? usuario.name.trim() : null,
     em: typeof c.ts === 'number' ? c.ts : typeof c.created_at === 'number' ? c.created_at : null,
@@ -61,4 +72,4 @@ class Vistos {
   }
 }
 
-module.exports = { lerQuadro, mensagemDoQuadro, Vistos };
+module.exports = { lerQuadro, mensagemDoQuadro, pedidoDoCanal, Vistos };
