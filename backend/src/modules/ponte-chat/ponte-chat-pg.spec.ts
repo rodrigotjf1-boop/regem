@@ -303,7 +303,29 @@ descrever('ponte do chat (Postgres)', () => {
     await q(`update chat_plataforma_msg set estado = 'pendente', ponte_id = null, vence_em = null where id = $1`, [id3]);
     expect(await svc.resultado(d, id3, { ok: true, id: 'sb-100' })).toEqual({ ok: true, estado: 'enviada' });
     expect(await svc.pegar(d, { canal: 'ifood' })).toEqual({ papel: 'responde', itens: [] });
+    // a mesma confirmação de novo (a ponte repete o que não teve resposta): igual, sem erro e sem mexer
+    expect(await svc.resultado(d, id3, { ok: true, id: 'sb-100' })).toEqual({ ok: true, estado: 'enviada' });
     // id inválido
     expect((await erro(svc.resultado(d, 'nao-e-uuid', { ok: true })))?.message).toBe('Mensagem inválida.');
+  });
+
+  it('enviada que chega depois de a nuvem dar a mensagem como falha ou cancelada vale: o registro fica com a verdade', async () => {
+    const d = await entrar(delivery);
+    await svc.estado(d, logada(true));
+    // falhou (a 3ª tentativa venceu o prazo) e cancelada (passou de 30 min na fila) — mas a ponte tinha digitado
+    const falhou = await saida(lojaA, { texto: 'Seu pedido saiu' });
+    const cancelada = await saida(lojaA, { texto: 'O entregador está chegando' });
+    await q(`update chat_plataforma_msg set estado = 'falhou', erro = 'a ponte não confirmou o envio', tentativas = 3 where id = $1`, [falhou]);
+    await q(`update chat_plataforma_msg set estado = 'cancelada', erro = 'passou da hora: não saiu em 30 min' where id = $1`, [cancelada]);
+    expect(await svc.resultado(d, falhou, { ok: true, id: 'sb-tarde-1' })).toEqual({ ok: true, estado: 'enviada' });
+    expect(await svc.resultado(d, cancelada, { ok: true, id: 'sb-tarde-2' })).toEqual({ ok: true, estado: 'enviada' });
+    expect(await msg(falhou)).toMatchObject({ estado: 'enviada', erro: null, externo_msg_id: 'sb-tarde-1' });
+    expect(await msg(cancelada)).toMatchObject({ estado: 'enviada', erro: null, externo_msg_id: 'sb-tarde-2' });
+    // "não enviada" para uma falha antiga continua recusado (não é desta ponte agora)
+    const outra = await saida(lojaA);
+    await q(`update chat_plataforma_msg set estado = 'falhou' where id = $1`, [outra]);
+    expect((await erro(svc.resultado(d, outra, { ok: false, erro: 'x' })))?.status).toBe(409);
+    // e a mensagem que não existe continua 409 também quando "enviada"
+    expect((await erro(svc.resultado(d, '00000000-0000-4000-8000-000000000000', { ok: true, id: 'sb-x' })))?.status).toBe(409);
   });
 });
