@@ -1242,10 +1242,13 @@ export const api = {
   integracoesDelivery: () => req('/delivery/integracoes'),
   salvarIntegracao: (body: Record<string, unknown>) =>
     req('/delivery/integracoes', { method: 'PUT', body: JSON.stringify(body) }),
-  // Testa a conexão do gateway de PIX (mercadopago). token opcional: se
-  // vazio, o servidor usa o token salvo.
-  testarGatewayPix: (canal: string, token?: string) =>
-    req(`/delivery/integracoes/${canal}/testar-pix`, { method: 'POST', body: JSON.stringify({ token: token || undefined }) }),
+  // Testa a conexão do gateway de PIX (Mercado Pago, PagBank, Rede). Vazio = o servidor usa o salvo.
+  // Na Rede, `token` é a chave de integração e `clientId` o PV.
+  testarGatewayPix: (canal: string, token?: string, clientId?: string) =>
+    req(`/delivery/integracoes/${canal}/testar-pix`, {
+      method: 'POST',
+      body: JSON.stringify({ token: token || undefined, clientId: clientId || undefined }),
+    }),
   // Gateway de PIX primário (o outro é fallback)
   getPixPrioritario: () => req('/delivery/pix-prioritario'),
   setPixPrioritario: (gateway: string) =>

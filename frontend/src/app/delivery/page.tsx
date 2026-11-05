@@ -1249,9 +1249,11 @@ function RodapeDelivery({
   cancelados: any[];
   onAbrir: (p: any) => void;
 }) {
+  // Só os canais de PEDIDOS: o robô (n8n) e os gateways de PIX do cardápio (Mercado Pago, PagBank, Rede) não são canal.
+  const naoSaoCanal = ['n8n', 'mercadopago', 'pagseguro', 'rede'];
   const canais = [
     { nome: 'Cardápio Regem', on: cardapioAtivo },
-    ...integracoes.filter((it) => it.canal !== 'n8n').map((it) => ({ nome: CANAL_LABEL[it.canal] ?? it.canal, on: !!it.ativo })),
+    ...integracoes.filter((it) => !naoSaoCanal.includes(it.canal)).map((it) => ({ nome: CANAL_LABEL[it.canal] ?? it.canal, on: !!it.ativo })),
   ];
   // Os cancelados não aparecem nas colunas do painel: daqui se abre cada um (o "Registrar perda" do que o canal, o
   // cliente ou o sistema cancelou — dono, 28/10/2026).

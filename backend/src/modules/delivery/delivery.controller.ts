@@ -406,15 +406,15 @@ export class DeliveryController {
     return this.service.salvarIntegracao(user.tenantId, dto);
   }
 
-  // Testa a conexão do gateway de PIX (Mercado Pago): valida o token na
-  // API do provedor. Usa o token do corpo (o que está no campo) ou, se vazio, o salvo.
+  // Testa a conexão do gateway de PIX (Mercado Pago, PagBank, Rede): valida a credencial na
+  // API do provedor. Usa o do corpo (o que está no campo) ou, se vazio, o salvo. Rede: `clientId` = PV.
   @CloudOnly()
   @Post('integracoes/:canal/testar-pix')
   @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente')
   @RequirePerm('delivery')
   testarPix(@CurrentUser() user: AuthUser, @Param('canal') canal: string, @Body() dto: any) {
-    return this.service.testarGatewayPix(user.tenantId, canal, dto?.token);
+    return this.service.testarGatewayPix(user.tenantId, canal, dto?.token, dto?.clientId);
   }
 
   // Gateway de PIX PRIMÁRIO (o outro vira fallback). GET lê, PATCH define.

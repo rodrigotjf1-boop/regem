@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **PIX do cardápio online pela Rede — e.Rede (05/11; sem migration).** Na nuvem com o merge: o cardápio online cobra o
+  PIX pela Rede como 3º gateway (nasce desligado: a loja liga em Delivery › Configurações › Integrações › "Rede (e.Rede)"
+  com o PV e a chave de integração; precisa de conta Itaú e do PIX habilitado no portal da Rede); a conferência de minuto
+  e o prazo do PIX rodam só na nuvem. **No `.zip` 1.30.13:** só a tela — o rodapé do painel de Delivery deixa de listar
+  os gateways de PIX como canal de pedidos, e o cartão da Rede em Integrações (as rotas são da nuvem); a integração
+  `rede` (tabela `integracao`) não sincroniza; nada no `sync`/`edge`.
+
 - **Ponte do chat em Equipamentos (05/11; sem migration).** Na nuvem com o merge: em Configurações › Equipamentos, a
   ponte aparece no cartão do PC onde roda, com o papel de agora, os logins e o movimento de hoje, e a faixa "em ordem /
   aviso". **No `.zip` 1.30.13:** só a tela (no servidor da loja a ponte segue em "Outros aparelhos" e o aviso diz que o PC

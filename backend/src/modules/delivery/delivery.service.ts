@@ -8,9 +8,13 @@ import {
   Logger,
   NotFoundException,
   Optional,
+  ServiceUnavailableException,
   forwardRef,
 } from '@nestjs/common';
 import { enfileirarComandoEdge } from '../../common/edge-comando';
+import { CANAL_REDE, PV_VALIDO, abrirChaveRede, cifrarChaveRede } from '../../common/credencial-rede';
+import { validarCredencialRede } from '../../common/erede';
+import { ChaveSegredosAusente } from '../../common/cifra-segredo';
 import { compararVersao } from '../edge/release-selecao';
 import { createHmac, randomBytes, randomUUID } from 'crypto';
 import { and, desc, eq, gte, ilike, inArray, isNotNull, isNull, notInArray, or, sql } from 'drizzle-orm';
@@ -3455,8 +3459,10 @@ export class DeliveryService {
   }
 
   // ===== Integrações (credenciais de apps externos) =====
-  // Delivery/marketplaces + integração + gateways de PIX (mercadopago/pagseguro no fim).
-  private static readonly CANAIS_INTEGRACAO = ['ifood', '99food', 'delivery_direto', 'cardapio_web', 'rappi', 'anotaai', 'keeta', 'n8n', 'mercadopago', 'pagseguro'];
+  // Delivery/marketplaces + integração + gateways de PIX (mercadopago/pagseguro/rede no fim).
+  private static readonly CANAIS_INTEGRACAO = ['ifood', '99food', 'delivery_direto', 'cardapio_web', 'rappi', 'anotaai', 'keeta', 'n8n', 'mercadopago', 'pagseguro', CANAL_REDE];
+  // Gateways de PIX do cardápio online, na ordem em que aparecem; o primário é escolhido entre os configurados.
+  private static readonly GATEWAYS_PIX = ['mercadopago', 'pagseguro', CANAL_REDE] as const;
 
   // Avisa o webhook (n8n) quando o pedido muda de status. Fire-and-forget:
   // nunca quebra o fluxo do pedido. Assina o corpo com HMAC-SHA256 (X-Regem-Signature).
@@ -4261,6 +4267,7 @@ export class DeliveryService {
       config,
       updatedAt: new Date(),
     };
+    if (canal === CANAL_REDE) Object.assign(vals, DeliveryService.valoresDaRede(dto, atual, secretNovo));
     if (atual) {
       await this.db.update(integracao).set(vals).where(eq(integracao.id, atual.id));
     } else {
@@ -4269,9 +4276,33 @@ export class DeliveryService {
     return { ok: true };
   }
 
+  // Rede (e.Rede): PV só com números; a chave de integração NUNCA em texto puro — cifrada (LIC-350), e recusada se o
+  // servidor não tem a chave de proteção; liga/desliga só true/false (V15); ligar exige PV e chave. Toda recusa
+  // acontece antes da gravação. O `token` não é usado.
+  static valoresDaRede(dto: any, atual: any, chaveNova?: string) {
+    const pvDigitado = dto.clientId != null ? String(dto.clientId).replace(/[\s.\-/]/g, '') : '';
+    if (pvDigitado && !PV_VALIDO.test(pvDigitado))
+      throw new BadRequestException('Informe o PV (número do estabelecimento na Rede) só com números.');
+    const pv: string | null = pvDigitado || atual?.clientId || null;
+    let guardada: string | null = atual?.clientSecret ?? null;
+    if (chaveNova) {
+      try {
+        guardada = cifrarChaveRede(chaveNova);
+      } catch (e) {
+        if (e instanceof ChaveSegredosAusente) throw new ServiceUnavailableException(e.message);
+        throw e;
+      }
+    }
+    const ativo = dto.ativo != null ? exigirBooleano(dto.ativo, 'ativo') : !!atual?.ativo;
+    if (ativo && (!pv || !guardada))
+      throw new BadRequestException('Para ligar a Rede, informe o PV e a chave de integração.');
+    return { ativo, clientId: pv, clientSecret: guardada, token: null };
+  }
+
   // Testa a conexão de um gateway de PIX validando o token na API do provedor.
   // Usa o token do corpo (o que está no campo, ainda não salvo) ou, se vazio, o salvo.
-  async testarGatewayPix(tenantId: string, canal: string, tokenBody?: string) {
+  async testarGatewayPix(tenantId: string, canal: string, tokenBody?: string, clientIdBody?: string) {
+    if (canal === CANAL_REDE) return this.testarRede(tenantId, tokenBody, clientIdBody);
     if (canal !== 'mercadopago' && canal !== 'pagseguro')
       throw new BadRequestException('Canal inválido para teste de PIX.');
     let token = String(tokenBody ?? '').trim();
@@ -4292,20 +4323,46 @@ export class DeliveryService {
     }
   }
 
-  // Gateway de PIX primário (o outro é fallback). null = mercadopago (incumbente).
+  // "Testar conexão" da Rede: faz o login com o PV e a chave do campo (ou os salvos). Não cobra nada.
+  private async testarRede(tenantId: string, chaveBody?: string, pvBody?: string) {
+    const [row] = await this.db
+      .select({ pv: integracao.clientId, guardada: integracao.clientSecret })
+      .from(integracao)
+      .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, CANAL_REDE)));
+    const pv = String(pvBody ?? '').replace(/[\s.\-/]/g, '') || row?.pv || '';
+    if (!PV_VALIDO.test(pv)) throw new BadRequestException('Informe o PV (número do estabelecimento na Rede) só com números.');
+    let chave = String(chaveBody ?? '').trim();
+    if (!chave && row?.guardada) {
+      try {
+        chave = abrirChaveRede(row.guardada);
+      } catch (e) {
+        throw new ServiceUnavailableException(e instanceof Error ? e.message : 'Chave guardada indisponível.');
+      }
+    }
+    if (!chave) throw new BadRequestException('Cole a chave de integração no campo antes de testar (ou salve-a primeiro).');
+    try {
+      const r = await validarCredencialRede({ pv, chave });
+      return { ok: true as const, conta: r.conta };
+    } catch (e) {
+      throw new BadRequestException(e instanceof Error ? e.message : 'PV ou chave inválidos');
+    }
+  }
+
+  // Gateway de PIX primário (os outros são fallback). null = mercadopago (incumbente).
   async getPixPrioritario(tenantId: string) {
     const [row] = await this.db
       .select({ prio: cardapioConfig.pixGatewayPrioritario })
       .from(cardapioConfig)
       .where(eq(cardapioConfig.tenantId, tenantId))
       .limit(1);
-    return { gateway: row?.prio === 'pagseguro' ? 'pagseguro' : 'mercadopago' };
+    const g = DeliveryService.GATEWAYS_PIX.find((x) => x === row?.prio);
+    return { gateway: g ?? 'mercadopago' };
   }
 
   async setPixPrioritario(tenantId: string, gateway: string) {
-    // Ausente/desconhecido virava 'mercadopago' em silêncio (trocava o gateway da loja).
-    if (gateway !== 'pagseguro' && gateway !== 'mercadopago')
-      throw new BadRequestException('Informe o gateway: mercadopago ou pagseguro.');
+    // Ausente/desconhecido virava 'mercadopago' em silêncio (trocava o gateway da loja — ERR-042).
+    if (!DeliveryService.GATEWAYS_PIX.some((x) => x === gateway))
+      throw new BadRequestException('Informe o gateway: mercadopago, pagseguro ou rede.');
     const g = gateway;
     await this.db
       .update(cardapioConfig)

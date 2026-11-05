@@ -1481,12 +1481,15 @@ function Robo({ loja, up, onSalvar, salvando, pode }: { loja: any; up: (p: any) 
   );
 }
 
-const CANAL_NOME: Record<string, string> = { ifood: 'iFood', rappi: 'Rappi', '99food': '99Food', anotaai: 'Anota Aí', keeta: 'Keeta', delivery_direto: 'Delivery Direto', open_delivery: 'Open Delivery (Abrasel)', cardapio_web: 'Cardápio Web', n8n: 'WhatsApp / n8n', mercadopago: 'Mercado Pago', pagseguro: 'PagBank / PagSeguro' };
+const CANAL_NOME: Record<string, string> = { ifood: 'iFood', rappi: 'Rappi', '99food': '99Food', anotaai: 'Anota Aí', keeta: 'Keeta', delivery_direto: 'Delivery Direto', open_delivery: 'Open Delivery (Abrasel)', cardapio_web: 'Cardápio Web', n8n: 'WhatsApp / n8n', mercadopago: 'Mercado Pago', pagseguro: 'PagBank / PagSeguro', rede: 'Rede (e.Rede)' };
 
-// Gateways de PIX (Mercado Pago, PagBank) e WhatsApp/n8n são recursos do CARDÁPIO
+// Gateways de PIX (Mercado Pago, PagBank, Rede) e WhatsApp/n8n são recursos do CARDÁPIO
 // DIGITAL do Regem — só aparecem quando ele está ativo (senão a loja usa cardápio
 // externo e o Regem é só centralizador de pedidos).
-const CANAIS_DO_CARDAPIO = ['mercadopago', 'pagseguro', 'n8n'];
+const CANAIS_DO_CARDAPIO = ['mercadopago', 'pagseguro', 'rede', 'n8n'];
+const GATEWAYS_PIX = ['mercadopago', 'pagseguro', 'rede'];
+// Gateway com a credencial salva: na Rede, o PV e a chave; nos outros, o token.
+const gatewayConfigurado = (it: any) => (it.canal === 'rede' ? !!it.clientId && !!it.temSecret : !!it.temToken);
 
 // Metadados por plataforma: cor da marca (fundo do card, editável) + caminho do logo.
 // As imagens ficam em /public/integracoes/<arquivo> — se o arquivo não existir, o card
@@ -1503,6 +1506,7 @@ const PLAT_META: Record<string, { cor: string; logo?: string }> = {
   n8n: { cor: '#EA4B71', logo: '/integracoes/n8n.png' },
   mercadopago: { cor: '#009EE3', logo: '/integracoes/mercado-pago.png' },
   pagseguro: { cor: '#F9C846', logo: '/integracoes/pagbank.png' },
+  rede: { cor: '#FF7A00' }, // sem logo: o card mostra as iniciais na cor da marca
 };
 
 // Texto legível sobre a cor da marca (tinta escura em cores claras, branco em escuras).
@@ -1578,31 +1582,41 @@ function Integracoes({ lista, onSalvar, pode, cardapioAtivo }: { lista: any[]; o
   );
   const [aberto, setAberto] = useState<string | null>(null);
   const itemAberto = visiveis.find((it) => it.canal === aberto);
-  // Gateway de PIX primário (só relevante quando os DOIS estão configurados).
+  // Gateway de PIX primário (só relevante com DOIS ou mais configurados).
   const [pixPrio, setPixPrio] = useState<string>('mercadopago');
   useEffect(() => {
     if (cardapioAtivo) api.getPixPrioritario().then((r: any) => setPixPrio(r?.gateway || 'mercadopago')).catch(() => {});
   }, [cardapioAtivo]);
-  const gatewaysComToken = visiveis.filter((it) => (it.canal === 'mercadopago' || it.canal === 'pagseguro') && it.temToken);
+  const gatewaysComToken = visiveis.filter((it) => GATEWAYS_PIX.includes(it.canal) && gatewayConfigurado(it));
+  // Primário salvo que não está configurado: o servidor usa o 1º configurado (mesma ordem desta lista).
+  const prioNaTela = gatewaysComToken.some((it) => it.canal === pixPrio) ? pixPrio : gatewaysComToken[0]?.canal ?? pixPrio;
   async function mudarPrio(g: string) {
+    const antes = pixPrio;
     setPixPrio(g);
-    try { await api.setPixPrioritario(g); } catch { /* ignore */ }
+    try {
+      await api.setPixPrioritario(g);
+      toast.success('Gateway de PIX primário salvo.');
+    } catch (e) {
+      setPixPrio(antes);
+      toast.error(e instanceof Error ? e.message : 'Não foi possível salvar o gateway primário.');
+    }
   }
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">Escolha uma plataforma para conectar. As chaves ficam guardadas com segurança e <strong>não são exibidas de volta</strong> — deixe o campo em branco para manter a atual.</p>
       {!cardapioAtivo && (
-        <p className="rounded bg-secondary px-2 py-1 text-[11px] text-muted-foreground">Mercado Pago e WhatsApp/n8n aparecem quando o <strong>cardápio digital do Regem</strong> está ativo — são recursos dele.</p>
+        <p className="rounded bg-secondary px-2 py-1 text-[11px] text-muted-foreground">Mercado Pago, PagBank, Rede e WhatsApp/n8n aparecem quando o <strong>cardápio digital do Regem</strong> está ativo — são recursos dele.</p>
       )}
-      {gatewaysComToken.length === 2 && (
+      {gatewaysComToken.length >= 2 && (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 p-2 text-[11px]">
-          <span className="font-semibold">Gateway de PIX primário:</span>
-          <select value={pixPrio} onChange={(e) => mudarPrio(e.target.value)} disabled={!pode}
+          <label htmlFor="pix-primario" className="font-semibold">Gateway de PIX primário:</label>
+          <select id="pix-primario" value={prioNaTela} onChange={(e) => mudarPrio(e.target.value)} disabled={!pode}
             className="h-7 rounded border border-input bg-card px-2">
-            <option value="mercadopago">Mercado Pago</option>
-            <option value="pagseguro">PagBank / PagSeguro</option>
+            {gatewaysComToken.map((it) => (
+              <option key={it.canal} value={it.canal}>{CANAL_NOME[it.canal] ?? it.canal}</option>
+            ))}
           </select>
-          <span className="text-muted-foreground">o outro entra como <strong>fallback</strong> se o primário falhar ao gerar o QR.</span>
+          <span className="text-muted-foreground">{gatewaysComToken.length > 2 ? 'os outros entram' : 'o outro entra'} como <strong>reserva</strong> se o primário falhar ao gerar o QR.</span>
         </div>
       )}
       <div className="flex flex-wrap justify-center gap-3">
@@ -1634,11 +1648,12 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
     setCor(it.cor ?? '');
   }, [it]);
   // Cor de identificação no kanban — só cardápios/marketplaces (não pagamento/robô).
-  const temCor = !['n8n', 'mercadopago', 'pagseguro'].includes(it.canal);
+  const temCor = !['n8n', ...GATEWAYS_PIX].includes(it.canal);
   const ehN8n = it.canal === 'n8n';
   const ehMp = it.canal === 'mercadopago';
   const ehPs = it.canal === 'pagseguro';
-  const ehGatewayPix = ehMp || ehPs;
+  const ehRede = it.canal === 'rede';
+  const ehGatewayPix = ehMp || ehPs || ehRede;
   const ehCw = it.canal === 'cardapio_web';
   const ehFood99 = it.canal === '99food';
   const ehDD = it.canal === 'delivery_direto';
@@ -1684,10 +1699,13 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
     setPixTestBusy(true);
     setPixTestMsg(null);
     try {
-      const r: any = await api.testarGatewayPix(it.canal, tokenV || undefined);
+      // Rede: a chave de integração vai no campo do segredo e o PV no clientId.
+      const r: any = ehRede
+        ? await api.testarGatewayPix(it.canal, clientSecret || undefined, clientId || undefined)
+        : await api.testarGatewayPix(it.canal, tokenV || undefined);
       setPixTestMsg({ ok: true, txt: r?.conta ? `Conectado ✓ — ${r.conta}` : 'Conexão OK ✓' });
     } catch (e: any) {
-      setPixTestMsg({ ok: false, txt: 'Falhou: ' + (e?.message ?? 'token inválido') });
+      setPixTestMsg({ ok: false, txt: 'Falhou: ' + (e?.message ?? (ehRede ? 'PV ou chave inválidos' : 'token inválido')) });
     } finally {
       setPixTestBusy(false);
     }
@@ -1900,7 +1918,18 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
         </>
       ) : ehGatewayPix ? (
         <>
-          {ehPs ? (
+          {ehRede ? (
+            <>
+              <p className="text-[11px] text-muted-foreground">PIX online pela <strong>Rede (Itaú)</strong> — o dinheiro cai na <strong>conta Itaú da loja</strong>. Só funciona para quem tem conta no Itaú. Antes, no portal da Rede (userede.com.br), com o usuário master: habilite o PIX em <strong>Para vender → PIX → Quero utilizar o Pix</strong> e gere a chave em <strong>e.Rede → Para vender → E-commerce → Chave de integração</strong>.</p>
+              <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">A Rede não avisa sozinha quando o PIX é pago: o Regem confere a cada minuto e, antes de cancelar um pedido no prazo, pergunta a ela.</p>
+              <Campo label="PV (número do estabelecimento)">
+                <Input inputMode="numeric" value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="o número que aparece no topo do portal da Rede" className="h-8" disabled={!pode} />
+              </Campo>
+              <Campo label={`Chave de integração${it.temSecret ? ' (salva)' : ''}`}>
+                <Input type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} placeholder={it.temSecret ? '•••••• (mantém)' : 'cole a chave gerada no portal da Rede'} className="h-8" disabled={!pode} />
+              </Campo>
+            </>
+          ) : ehPs ? (
             <>
               <p className="text-[11px] text-muted-foreground">PIX online direto na <strong>sua conta PagBank</strong> — o dinheiro cai em você. Precisa de uma <strong>chave PIX ativa</strong> na conta. Cole o <strong>token</strong> de produção (PagBank → Perfis de integração → Vendedor → Credenciais / Gerar Token).</p>
               <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">O webhook do PagBank é automático (o Regem informa a URL na cobrança). Requer conta de produção (homologada).</p>
@@ -1911,9 +1940,11 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
               <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">O webhook do Mercado Pago é automático (o Regem informa a URL na cobrança). A <strong>assinatura secreta</strong> abaixo é opcional — reforça a segurança do webhook.</p>
             </>
           )}
-          <Campo label={`${ehPs ? 'Token PagBank' : 'Access Token'}${it.temToken ? ' (salvo)' : ''}`}>
-            <Input type="password" value={tokenV} onChange={(e) => setTokenV(e.target.value)} placeholder={it.temToken ? '•••••• (mantém)' : ehPs ? 'cole o token de produção do PagBank' : 'cole o Access Token de produção do Mercado Pago'} className="h-8" disabled={!pode} />
-          </Campo>
+          {!ehRede && (
+            <Campo label={`${ehPs ? 'Token PagBank' : 'Access Token'}${it.temToken ? ' (salvo)' : ''}`}>
+              <Input type="password" value={tokenV} onChange={(e) => setTokenV(e.target.value)} placeholder={it.temToken ? '•••••• (mantém)' : ehPs ? 'cole o token de produção do PagBank' : 'cole o Access Token de produção do Mercado Pago'} className="h-8" disabled={!pode} />
+            </Campo>
+          )}
           {ehMp && (
             <Campo label={`Assinatura secreta do webhook — opcional${it.temSecret ? ' (salva)' : ''}`}>
               <Input type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} placeholder={it.temSecret ? '•••••• (mantém)' : 'Mercado Pago → Webhooks → Assinatura secreta'} className="h-8" disabled={!pode} />
@@ -1924,7 +1955,7 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
               {pixTestMsg ? (
                 <p className={`min-w-0 flex-1 truncate text-[11px] ${pixTestMsg.ok ? 'text-ok' : 'text-destructive'}`}>{pixTestMsg.txt}</p>
               ) : (
-                <span className="min-w-0 flex-1 text-[11px] text-muted-foreground">Valida o token na API do provedor (usa o do campo, ou o salvo se vazio).</span>
+                <span className="min-w-0 flex-1 text-[11px] text-muted-foreground">{ehRede ? 'Entra na Rede com o PV e a chave (os do campo, ou os salvos se vazio). Não cobra nada.' : 'Valida o token na API do provedor (usa o do campo, ou o salvo se vazio).'}</span>
               )}
               <Button type="button" size="sm" variant="outline" disabled={pixTestBusy} onClick={testarPix}>
                 {pixTestBusy ? 'Testando…' : 'Testar conexão'}
