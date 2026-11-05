@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { EdgeService } from './edge.service';
+import { comTravaDaEmpresa } from '../../common/corrida-de-catalogo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -43,7 +44,7 @@ descrever('atualização do servidor local (Postgres com todas as migrations)', 
     svc = new EdgeService(drizzle(pool) as any);
     // edge_release é só da nuvem (124/156/270 são @cloud-only): cria aqui como na nuvem.
     for (const f of ['124_edge_release_comando.sql', '156_edge_release_assinatura.sql', '270_edge_release_distribuicao_escalonada.sql'])
-      await q(readFileSync(join(MIG, f), 'utf8'));
+      await q(comTravaDaEmpresa(readFileSync(join(MIG, f), 'utf8')));
     await q(`insert into empresa (id, nome) values ($1,'teste atualizacao')`, [T]);
     await q(`insert into unidade (id, tenant_id, nome) values ($1,$3,'Loja'),($2,$3,'Outra')`, [LOJA, OUTRA, T]);
   });

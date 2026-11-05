@@ -6,7 +6,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { EquipamentoService } from '../equipamento/equipamento.service';
-import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
+import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { PonteChatGuard, type PonteCtx } from './ponte-chat.guard';
 import { PonteChatService } from './ponte-chat.service';
 
@@ -45,7 +45,7 @@ descrever('ponte do chat (Postgres)', () => {
       const c = await pool.connect();
       try {
         await c.query('begin');
-        await c.query(readFileSync(MIG(arq), 'utf8'));
+        await c.query(comTravaDaEmpresa(readFileSync(MIG(arq), 'utf8')));
         await c.query('commit');
       } catch (e) {
         await c.query('rollback').catch(() => {});

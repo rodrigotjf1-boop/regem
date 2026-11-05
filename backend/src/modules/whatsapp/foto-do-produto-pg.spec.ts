@@ -4,6 +4,7 @@ import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { escolherProduto, perguntaDoCliente, produtosDaLoja } from './foto-do-produto';
+import { comTravaDaEmpresa } from '../../common/corrida-de-catalogo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -25,7 +26,7 @@ descrever('foto do produto: produtos da loja e a pergunta do cliente (Postgres)'
   const empresas: string[] = [];
 
   beforeAll(async () => {
-    await pool.query(readFileSync(MIG_215, 'utf8'));
+    await pool.query(comTravaDaEmpresa(readFileSync(MIG_215, 'utf8')));
   });
   afterAll(async () => {
     if (empresas.length) {

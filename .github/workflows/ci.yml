@@ -72,6 +72,14 @@ jobs:
           TEST_PG_URL: postgresql://postgres:postgres@localhost:5432/regem_ci
           KIT_DMS_OBRIGATORIO: 'true'
 
+      # Só quando o backend falha: o log do Postgres do serviço. Num impasse ("deadlock detected"), a spec que caiu só
+      # recebe a instrução DELA; o servidor registra as duas — é ali que se vê quem estava do outro lado (ERR-377).
+      - name: Log do Postgres (quando falha)
+        if: failure() && matrix.dir == 'backend'
+        run: |
+          docker logs "${{ job.services.postgres.id }}" > pg.log 2>&1 || true
+          if grep -q 'deadlock detected' pg.log; then grep -B 2 -A 14 'deadlock detected' pg.log | head -n 300; else tail -n 80 pg.log; fi
+
   # O programa da ponte do chat (ponte-chat/, Electron): os testes dos módulos que não dependem do Electron (o leitor do
   # chat, a fila, a nuvem, o diagnóstico, a configuração) — sem npm ci (não precisam de pacote; nada de baixar o Electron).
   ponte-chat:

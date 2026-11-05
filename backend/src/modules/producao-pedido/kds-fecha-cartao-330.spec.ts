@@ -6,6 +6,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ProducaoPedidoService } from './producao-pedido.service';
+import { TRAVA_DA_EMPRESA } from '../../common/corrida-de-catalogo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -75,6 +76,8 @@ descrever('migration 330 e a fila do KDS (Postgres)', () => {
     const c: PoolClient = await pool.connect();
     try {
       await c.query('begin');
+      // Trava `empresa` ANTES dos inserts: esta transação insere empresa e depois roda a migration (ERR-377).
+      await c.query(TRAVA_DA_EMPRESA);
       const q = (s: string, p: any[] = []) => c.query(s, p).then((r) => r.rows);
       // "Como nuvem": a parte única só roda onde existe `edge_status` (o banco do CI é de loja).
       if (!(await q(`select to_regclass(current_schema() || '.edge_status') as t`))[0].t) {

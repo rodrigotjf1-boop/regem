@@ -5,6 +5,7 @@ import { Pool, PoolClient } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { ProducaoPedidoService } from './producao-pedido.service';
+import { TRAVA_DA_EMPRESA } from '../../common/corrida-de-catalogo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -139,6 +140,8 @@ descrever('KDS: item removido e ajustes da loja (Postgres)', () => {
     const c: PoolClient = await pool.connect();
     try {
       await c.query('begin');
+      // Trava `empresa` ANTES dos inserts: esta transação insere empresa e depois roda a migration (ERR-377).
+      await c.query(TRAVA_DA_EMPRESA);
       const qq = (s: string, p: any[] = []) => c.query(s, p).then((r) => r.rows);
       const novaEmpresa = async () => (await qq(`insert into empresa (nome) values ('teste mig 332') returning id`))[0].id as string;
       const semAjuste = await novaEmpresa();

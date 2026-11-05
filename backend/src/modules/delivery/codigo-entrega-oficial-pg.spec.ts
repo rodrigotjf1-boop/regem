@@ -5,6 +5,7 @@ import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { DeliveryService } from './delivery.service';
+import { comTravaDaEmpresa } from '../../common/corrida-de-catalogo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -34,8 +35,8 @@ descrever('código de entrega pela API oficial (Postgres)', () => {
 
   beforeAll(async () => {
     delete process.env.OTP_WEBHOOK_URL;
-    await pool.query(readFileSync(MIG_215, 'utf8'));
-    await pool.query(readFileSync(MIG_215, 'utf8')); // idempotente
+    await pool.query(comTravaDaEmpresa(readFileSync(MIG_215, 'utf8')));
+    await pool.query(comTravaDaEmpresa(readFileSync(MIG_215, 'utf8'))); // idempotente
   });
   beforeEach(() => {
     enviados.length = 0;

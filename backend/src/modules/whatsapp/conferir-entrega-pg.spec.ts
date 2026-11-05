@@ -8,7 +8,7 @@ import * as schema from '../../db/schema';
 import { ConferirEntregaProcessor } from './conferir-entrega.processor';
 import { OPCOES_DA_CONFERENCIA, TEXTO_DEPOIS_DA_RESPOSTA, portaoDaConferencia, textoDaPergunta } from './conferir-entrega';
 import { WhatsappProvedorService } from './whatsapp-provedor.service';
-import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
+import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -48,7 +48,7 @@ descrever('"chegou tudo certo?" (Postgres)', () => {
       const c = await pool.connect();
       try {
         await c.query('begin');
-        await c.query(readFileSync(MIG(arq), 'utf8'));
+        await c.query(comTravaDaEmpresa(readFileSync(MIG(arq), 'utf8')));
         await c.query('commit');
       } catch (e) {
         await c.query('rollback').catch(() => {});
@@ -60,7 +60,7 @@ descrever('"chegou tudo certo?" (Postgres)', () => {
 
   beforeAll(async () => {
     delete process.env.EDGE_MODE; // como NUVEM
-    await repetirNaCorridaDeCatalogo(() => pool.query(readFileSync(MIG('215_whatsapp_mensagem.sql'), 'utf8')));
+    await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(readFileSync(MIG('215_whatsapp_mensagem.sql'), 'utf8'))));
     // A 363 (a mudança do pedido feito) altera o carrinho e o ajuste do robô (ERR-273: o `select()` do carrinho lê tudo).
     for (const m of ['342_robo_pausa_e_config.sql', '344_robo_carrinho.sql', '347_aviso_de_atraso.sql', '349_lembrete_do_carrinho.sql', '352_conferir_entrega.sql', '363_robo_mudanca_do_pedido.sql'])
       await aplicar(m);

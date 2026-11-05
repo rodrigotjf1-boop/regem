@@ -11,6 +11,7 @@ import { CashbackService } from '../cashback/cashback.service';
 import { DeliveryService } from '../delivery/delivery.service';
 import { EdgeAlteracoesProcessor } from '../delivery/edge-alteracoes.processor';
 import { EntregadorService } from '../entregador/entregador.service';
+import { comTravaDaEmpresa } from '../../common/corrida-de-catalogo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -59,14 +60,14 @@ descrever('pedido alterado pela equipe (Postgres real)', () => {
     // A versão do servidor da loja (a telemetria da frota, na nuvem): a alteração pedida na nuvem só vai ao servidor que aplica.
     await pool.query(`alter table edge_heartbeat add column if not exists versao text`);
     const tem = async (t: string) => (await q(`select to_regclass(current_schema() || '.' || $1) is not null as ok`, [t]))[0].ok;
-    if (!(await tem('entregador_chegada'))) await pool.query(readFileSync(join(MIGRATIONS, '201_entregador_chegada.sql'), 'utf8'));
+    if (!(await tem('entregador_chegada'))) await pool.query(comTravaDaEmpresa(readFileSync(join(MIGRATIONS, '201_entregador_chegada.sql'), 'utf8')));
     // A fila de comandos para o servidor da loja (só nuvem): a mig 124 cria, a 269 põe o destino e os dados.
     if (!(await tem('edge_comando'))) {
-      await pool.query(readFileSync(join(MIGRATIONS, '124_edge_release_comando.sql'), 'utf8'));
-      await pool.query(readFileSync(join(MIGRATIONS, '269_impressora_status_codepage_comando_destino.sql'), 'utf8'));
+      await pool.query(comTravaDaEmpresa(readFileSync(join(MIGRATIONS, '124_edge_release_comando.sql'), 'utf8')));
+      await pool.query(comTravaDaEmpresa(readFileSync(join(MIGRATIONS, '269_impressora_status_codepage_comando_destino.sql'), 'utf8')));
     }
     // A mig 362 só quando falta (o banco do CI já a tem pelo apply-all; o local de quem testa, talvez não).
-    if (!(await tem('pedido_alteracao'))) await pool.query(readFileSync(join(MIGRATIONS, '362_pedido_alteracao.sql'), 'utf8'));
+    if (!(await tem('pedido_alteracao'))) await pool.query(comTravaDaEmpresa(readFileSync(join(MIGRATIONS, '362_pedido_alteracao.sql'), 'utf8')));
   });
   afterAll(async () => {
     if (edgeOriginal !== undefined) process.env.EDGE_MODE = edgeOriginal;

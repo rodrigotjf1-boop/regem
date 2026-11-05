@@ -5,6 +5,7 @@ import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { EntregadorService } from './entregador.service';
+import { comTravaDaEmpresa } from '../../common/corrida-de-catalogo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -35,7 +36,7 @@ descrever('roteiro do entregador com pedido cancelado (Postgres)', () => {
   const empresas: string[] = [];
 
   beforeAll(async () => {
-    for (const s of daTabelaDeSaidas()) await pool.query(s);
+    for (const s of daTabelaDeSaidas()) await pool.query(comTravaDaEmpresa(s));
   });
   beforeEach(() => {
     links.length = 0;

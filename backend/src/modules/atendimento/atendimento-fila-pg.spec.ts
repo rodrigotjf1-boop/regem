@@ -7,7 +7,7 @@ import * as schema from '../../db/schema';
 import { AtendimentoService } from './atendimento.service';
 import { abrirChamadoPeloRobo, clienteRespondeu } from './abrir-chamado';
 import { compararNaFila } from './fila';
-import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
+import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -69,7 +69,7 @@ descrever('fila da central de atendimento (Postgres)', () => {
       const c = await pool.connect();
       try {
         await c.query('begin');
-        await c.query(readFileSync(MIG(arq), 'utf8'));
+        await c.query(comTravaDaEmpresa(readFileSync(MIG(arq), 'utf8')));
         await c.query('commit');
       } catch (e) {
         await c.query('rollback').catch(() => {});

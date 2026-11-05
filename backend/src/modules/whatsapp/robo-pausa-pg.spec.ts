@@ -13,6 +13,7 @@ import {
   retomarConversa,
 } from './robo-pausa';
 import { CardapioService } from '../cardapio/cardapio.service';
+import { comTravaDaEmpresa } from '../../common/corrida-de-catalogo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -43,7 +44,7 @@ descrever('robô calado numa conversa (Postgres)', () => {
     const c = await pool.connect();
     try {
       await c.query('begin');
-      await c.query(readFileSync(MIGRATION, 'utf8'));
+      await c.query(comTravaDaEmpresa(readFileSync(MIGRATION, 'utf8')));
       await c.query('commit');
     } catch (e) {
       await c.query('rollback').catch(() => {});

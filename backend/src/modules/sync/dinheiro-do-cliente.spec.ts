@@ -1,6 +1,7 @@
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { CashbackService } from '../cashback/cashback.service';
+import { comTravaDaEmpresa } from '../../common/corrida-de-catalogo';
 
 // CASHBACK E FIDELIDADE — O SALDO É RECALCULADO DO EXTRATO (mig 274).
 //
@@ -348,8 +349,8 @@ descrever('saldo de cashback e pontos de fidelidade vêm do extrato', () => {
       'utf8',
     );
     expect(arquivo).not.toMatch(/\bdrop\b|\btruncate\b|^\s*delete\b/im); // LIC-171
-    await pool.query(arquivo);
-    await pool.query(arquivo);
+    await pool.query(comTravaDaEmpresa(arquivo));
+    await pool.query(comTravaDaEmpresa(arquivo));
     const g = await pool.query(
       `select count(*)::int as n from pg_trigger
         where tgrelid = 'fidelidade_resgate'::regclass and tgname = 'trg_fidelidade_pontos_resgate'`,
