@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { lerQuadro, mensagemDoQuadro, pedidoDoCanal, Vistos } = require('../src/sendbird');
+const { lerQuadro, mensagemDoQuadro, mensagensDaResposta, pedidoDoCanal, lojaDoCanal, Vistos } = require('../src/sendbird');
 
 // A forma conferida em 04/11/2026 (valores inventados): MESG com o remetente em user.metadata.type.
 const quadro = (tipo, extra = {}) =>
@@ -35,6 +35,7 @@ test('mensagem do cliente e da loja; o nome só do cliente', () => {
     pedidoExterno: 'aaaaaaaa-1111-2222-3333-444444444444',
     cliente: 'Carine S.',
     em: 1762304344505,
+    avisoDaPlataforma: false,
   });
   const l = mensagemDoQuadro(lerQuadro(quadro('MERCHANT', { message: 'seu pedido esta a caminho' })));
   assert.equal(l.autor, 'loja');
@@ -58,6 +59,42 @@ test('o pedido vem do canal (sendbird_gc_cm_<pedido>_<loja>); canal de outra for
   assert.equal(pedidoDoCanal(null), null);
   const semPedido = mensagemDoQuadro(lerQuadro(quadro('CUSTOMER', { channel_url: 'outro_formato' })));
   assert.equal(semPedido.pedidoExterno, null);
+});
+
+test('v0.4: o AVISO AUTOMÁTICO do iFood (MERCHANT mandado pela CONTA da loja — o 2º id do canal) vem marcado', () => {
+  const LOJA = 'bbbbbbbb-5555-6666-7777-888888888888';
+  assert.equal(lojaDoCanal(`sendbird_gc_cm_aaaaaaaa-1111-2222-3333-444444444444_${LOJA}`), LOJA);
+  assert.equal(lojaDoCanal('outro'), null);
+  // visto ao vivo em 05/11 (#8916): o "…pedidos nos últimos 30 dias" chega com o remetente = o id da loja
+  const aviso = mensagemDoQuadro(lerQuadro(quadro('MERCHANT', { user: { id: 1, guest_id: LOJA.toUpperCase(), metadata: { type: 'MERCHANT' } }, message: 'O cliente fez 3 pedidos nos últimos 30 dias' })));
+  assert.equal(aviso.avisoDaPlataforma, true);
+  assert.equal(aviso.autor, 'loja');
+  // a equipe (outro usuário da loja) e o cliente não são aviso
+  const equipe = mensagemDoQuadro(lerQuadro(quadro('MERCHANT', { user: { id: 2, guest_id: 'usuario-do-gestor', metadata: { type: 'MERCHANT' } }, message: 'boa noite' })));
+  assert.equal(equipe.avisoDaPlataforma, false);
+  const doCliente = mensagemDoQuadro(lerQuadro(quadro('CUSTOMER', { user: { id: 3, guest_id: LOJA, metadata: { type: 'CUSTOMER' } } })));
+  assert.equal(doCliente.avisoDaPlataforma, false);
+});
+
+test('v0.4: o HISTÓRICO da conversa (`…/messages`) vira mensagens no mesmo formato; só as de texto', () => {
+  const canal = 'sendbird_gc_cm_aaaaaaaa-1111-2222-3333-444444444444_bbbbbbbb-5555-6666-7777-888888888888';
+  const r = mensagensDaResposta({
+    messages: [
+      { type: 'MESG', message_id: 41, message: 'Seu pedido saiu para entrega!', channel_url: canal, created_at: 1000, user: { user_id: 'gestor-1', metadata: { type: 'MERCHANT' } } },
+      { type: 'MESG', message_id: 42, message: 'Obrigada', channel_url: canal, created_at: 2000, user: { user_id: 'c-1', nickname: 'Carine S.', metadata: { type: 'CUSTOMER' } } },
+      { type: 'ADMM', message_id: 43, message: 'aviso do sistema', channel_url: canal, created_at: 3000 },
+      { type: 'MESG', message_id: 44, message: 'apagada', channel_url: canal, is_removed: true, user: { user_id: 'gestor-1', metadata: { type: 'MERCHANT' } } },
+      null,
+    ],
+    has_next: false,
+  });
+  assert.deepEqual(r.map((m) => [m.id, m.autor, m.em, m.pedidoExterno]), [
+    ['41', 'loja', 1000, 'aaaaaaaa-1111-2222-3333-444444444444'],
+    ['42', 'cliente', 2000, 'aaaaaaaa-1111-2222-3333-444444444444'],
+  ]);
+  assert.equal(r[1].cliente, 'Carine S.');
+  assert.deepEqual(mensagensDaResposta(null), []);
+  assert.deepEqual(mensagensDaResposta({ messages: 'x' }), []);
 });
 
 test('a mesma mensagem (uma por conexão) passa uma vez só; a lista não cresce sem fim', () => {

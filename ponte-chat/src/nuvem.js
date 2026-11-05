@@ -69,4 +69,24 @@ function mensagens(cred, lista, opcoes) {
   return chamar('/ponte-chat/mensagens', { mensagens: lista }, cred, opcoes);
 }
 
-module.exports = { baseDaNuvem, classificar, chamar, parear, estado, mensagens, NUVEM_PADRAO };
+/**
+ * A vez na fila de SAÍDA (v0.4): até 10 mensagens para mandar pelo chat do canal, cada uma "pega" por 90 s (e com uma
+ * tentativa gasta — por isso o programa só pede com a tela do Gestor livre). Resposta: `{ papel, itens }` — papel
+ * `responde` (com os itens), `reserva`, `fora` ou `desligada` (sem itens).
+ */
+function pegar(cred, canal, opcoes) {
+  return chamar('/ponte-chat/saida/pegar', { canal }, cred, opcoes);
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * O resultado de um envio da fila: `{ ok: true, id }` (o id da mensagem no chat) ou `{ ok: false, erro, definitivo? }`
+ * (volta para a fila; definitivo ou na 3ª tentativa, "falhou"). 409 = a mensagem não está mais com esta ponte.
+ */
+function resultado(cred, id, corpo, opcoes) {
+  if (!UUID.test(String(id || ''))) return Promise.resolve({ ok: false, status: 0, code: null, mensagem: 'id de mensagem inválido' });
+  return chamar(`/ponte-chat/saida/${String(id).toLowerCase()}/resultado`, corpo, cred, opcoes);
+}
+
+module.exports = { baseDaNuvem, classificar, chamar, parear, estado, mensagens, pegar, resultado, NUVEM_PADRAO };

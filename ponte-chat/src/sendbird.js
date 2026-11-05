@@ -24,12 +24,44 @@ function lerQuadro(payload) {
 }
 
 const AUTOR = { CUSTOMER: 'cliente', MERCHANT: 'loja' };
-const CANAL_DO_PEDIDO = /^sendbird_gc_cm_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})_[0-9a-f-]+$/i;
+const CANAL_DO_PEDIDO = /^sendbird_gc_cm_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})_([0-9a-f-]+)$/i;
 
 /** O id do pedido no iFood que o canal da conversa traz — ou null (canal de outra forma). */
 function pedidoDoCanal(canal) {
   const m = typeof canal === 'string' ? CANAL_DO_PEDIDO.exec(canal) : null;
   return m ? m[1] : null;
+}
+
+/** O id da LOJA no iFood (a 2ª parte do canal) — ou null. */
+function lojaDoCanal(canal) {
+  const m = typeof canal === 'string' ? CANAL_DO_PEDIDO.exec(canal) : null;
+  return m ? m[2].toLowerCase() : null;
+}
+
+/**
+ * Uma mensagem do chat no formato da ponte (do quadro ao vivo ou do histórico) — ou null (sem remetente conhecido, sem
+ * texto, apagada). O AVISO AUTOMÁTICO do iFood ("…pedidos nos últimos 30 dias", que só a loja vê) chega como MERCHANT,
+ * mas quem manda é a CONTA da loja (o id da loja, 2ª parte do canal), não uma pessoa: visto ao vivo em 05/11 no #8916.
+ * Ele vem marcado (`avisoDaPlataforma`) — não é resposta da equipe, nem eco do que a ponte mandou.
+ */
+function mensagemDoChat({ id, tipo, remetente, nome, texto, canal, em, removida }) {
+  const autor = AUTOR[tipo];
+  const msgId = id === undefined || id === null ? '' : String(id);
+  const corpo = typeof texto === 'string' ? texto : '';
+  if (!autor || !msgId || !corpo.trim() || removida === true) return null;
+  const quem = typeof remetente === 'string' && remetente ? remetente.toLowerCase() : null;
+  const loja = lojaDoCanal(canal);
+  return {
+    id: msgId,
+    autor,
+    texto: corpo,
+    canalDoChat: typeof canal === 'string' ? canal : null,
+    pedidoExterno: pedidoDoCanal(canal),
+    // o nome do cliente como o iFood mostra ("Carine S."); da loja não interessa
+    cliente: autor === 'cliente' && typeof nome === 'string' && nome.trim() ? nome.trim() : null,
+    em: typeof em === 'number' ? em : null,
+    avisoDaPlataforma: autor === 'loja' && !!quem && !!loja && quem === loja,
+  };
 }
 
 /**
@@ -40,21 +72,42 @@ function mensagemDoQuadro(q) {
   if (!q || q.cmd !== 'MESG' || !q.corpo || typeof q.corpo !== 'object') return null;
   const c = q.corpo;
   const usuario = c.user && typeof c.user === 'object' ? c.user : null;
-  const tipo = usuario && usuario.metadata && typeof usuario.metadata === 'object' ? usuario.metadata.type : null;
-  const autor = AUTOR[tipo];
-  const id = c.msg_id === undefined || c.msg_id === null ? '' : String(c.msg_id);
-  const texto = typeof c.message === 'string' ? c.message : '';
-  if (!autor || !id || !texto.trim() || c.is_removed === true) return null;
-  return {
-    id,
-    autor,
-    texto,
-    canalDoChat: typeof c.channel_url === 'string' ? c.channel_url : null,
-    pedidoExterno: pedidoDoCanal(c.channel_url),
-    // o nome do cliente como o iFood mostra ("Carine S."); da loja não interessa
-    cliente: autor === 'cliente' && typeof usuario.name === 'string' && usuario.name.trim() ? usuario.name.trim() : null,
-    em: typeof c.ts === 'number' ? c.ts : typeof c.created_at === 'number' ? c.created_at : null,
-  };
+  return mensagemDoChat({
+    id: c.msg_id,
+    tipo: usuario && usuario.metadata && typeof usuario.metadata === 'object' ? usuario.metadata.type : null,
+    remetente: usuario ? usuario.user_id || usuario.guest_id : null,
+    nome: usuario ? usuario.name : null,
+    texto: c.message,
+    canal: c.channel_url,
+    em: typeof c.ts === 'number' ? c.ts : c.created_at,
+    removida: c.is_removed,
+  });
+}
+
+/**
+ * As mensagens do HISTÓRICO de uma conversa — a resposta de `…/v3/group_channels/<canal>/messages` que o Gestor pede ao
+ * abrir a conversa (`{ messages: [...], has_next }`; o `message_id` é o mesmo `msg_id` do quadro ao vivo). Só as de
+ * texto (`type` MESG ou sem tipo); o resto fica de fora.
+ */
+function mensagensDaResposta(json) {
+  const lista = json && Array.isArray(json.messages) ? json.messages : [];
+  const r = [];
+  for (const x of lista.slice(0, 200)) {
+    if (!x || typeof x !== 'object' || (x.type && x.type !== 'MESG')) continue;
+    const u = x.user && typeof x.user === 'object' ? x.user : null;
+    const m = mensagemDoChat({
+      id: x.message_id,
+      tipo: u && u.metadata && typeof u.metadata === 'object' ? u.metadata.type : null,
+      remetente: u ? u.user_id : null,
+      nome: u ? u.nickname || u.name : null,
+      texto: x.message,
+      canal: x.channel_url,
+      em: x.created_at,
+      removida: x.is_removed,
+    });
+    if (m) r.push(m);
+  }
+  return r;
 }
 
 /** Os ids já vistos (a mesma mensagem chega por mais de uma conexão). Guarda só os últimos `max`. */
@@ -72,4 +125,4 @@ class Vistos {
   }
 }
 
-module.exports = { lerQuadro, mensagemDoQuadro, pedidoDoCanal, Vistos };
+module.exports = { lerQuadro, mensagemDoQuadro, mensagensDaResposta, pedidoDoCanal, lojaDoCanal, Vistos };

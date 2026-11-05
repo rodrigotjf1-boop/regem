@@ -4,7 +4,7 @@ Parte B da ponte do chat do iFood e da 99 (plano e protótipos v3 aprovados pelo
 **Gestor de Pedidos do iFood dentro dele** — a pessoa da loja entra com o login dela, uma vez; a senha nunca passa pelo
 Regem — e liga o chat à nuvem do Regem.
 
-## O que a versão 0.3 faz
+## O que a versão 0.4 faz
 
 - **Pareia este PC por código:** Configurações › Equipamentos › cadastrar "Ponte do chat (iFood e 99, no PC)" › Gerar
   código → digitar os 6 números no programa (`publico/terminal/parear`, tipo `ponte_chat`). O segredo fica cifrado pelo
@@ -33,9 +33,40 @@ Regem — e liga o chat à nuvem do Regem.
   Instagram ou link — `regras.js`, igual ao `texto-do-chat.ts`; até 300 letras). Testado no Gestor de verdade em 04/11
   (ensaio no pedido real, nada enviado).
 
-**Ainda não envia sozinho** (a fila de saída da nuvem — avisos "saiu"/"chegando" — entra na próxima versão, depois do
-envio de verdade com o dono olhando). **A 99 fica fora** por enquanto: ela aceita um login só (ERR-365) — abrir aqui
-derrubaria a 99 da loja.
+- **Envio automático pela fila da nuvem (v0.4, `saida.js`)** — o que a nuvem enfileira para o chat do iFood (os avisos
+  "saiu"/"chegando"; depois, o robô e a equipe) sai por aqui, uma mensagem por vez, pelo mesmo caminho conferido do envio
+  manual. As travas:
+  - **só pega a vez** (`ponte-chat/saida/pegar` — cada pega gasta uma das 3 tentativas) com o PC pareado, a ponte LIGADA,
+    este PC respondendo pelo iFood, logado — e com a **tela do Gestor livre**: no quadro "Pedidos", **nenhum texto no
+    "Campo de mensagem"** (o rascunho de alguém) e **ninguém mexendo há 10 s** (um vigia na página anota a última tecla,
+    clique ou rolagem DE GENTE — `isTrusted`; os cliques e o texto do programa não contam; vigia recém-posto conta como
+    "mexeram agora");
+  - **não toma o teclado**: escreve pelo "setter" do campo (o mesmo jeito do apagar, aceito pelo Gestor de verdade no
+    ensaio), sem trazer a janela para a frente — quem usa outro programa no PC segue usando; a janela do Gestor roda sem
+    freio mesmo escondida (`backgroundThrottling: false`);
+  - **nunca mexe no rascunho de alguém**: campo com texto → não escreve, não apaga, não aperta (o ensaio manual também —
+    na 0.3 ele apagaria o rascunho se a escrita falhasse: ERR-378); apagar só apaga o texto que o PROGRAMA escreveu; se a
+    pessoa volta a mexer no meio, desiste antes de apertar;
+  - **sem envio em dobro**: antes de digitar, e de novo com a conversa aberta (o Gestor carrega o histórico), confere se
+    a mesma mensagem da loja já está na conversa do pedido depois de o aviso nascer — está: dá por enviada com o id que
+    achou, sem digitar (`memoria-do-chat.js`: só o resumo sha-256 do texto, na memória). O **diário** `envios.jsonl`
+    anota "apertei" ANTES do clique e o id do eco (sem texto): se o programa cai entre apertar e avisar a nuvem, a nuvem
+    devolve o aviso e o programa, reaberto, confere antes — sem prova de que saiu, NÃO digita de novo ("envio incerto",
+    definitivo, para a equipe conferir no Gestor);
+  - **o resultado** vai à nuvem (`saida/<id>/resultado`) com o id da mensagem no chat (o eco) ou o motivo. Definitivos
+    (não adianta tentar de novo): texto proibido, sem o número do pedido, pedido fora do quadro, envio incerto. Voltam
+    para a fila: tela ocupada (depois de pegar, espera até 45 s), conferência que falhou;
+  - **volta a tela** ao quadro: fecha a conversa e o resumo SÓ por um botão de rótulo EXATO "Fechar" (nunca "fechar"
+    solto — o Gestor tem "fechar a loja"); sem esse botão, deixa como está.
+- **O aviso automático do iFood** ("…pedidos nos últimos 30 dias", que só a loja vê) chega como mensagem da loja, mas
+  quem manda é a CONTA da loja (o 2º id do canal — visto ao vivo em 05/11 no #8916): vem marcado (`avisoDaPlataforma`),
+  não vai à nuvem (que ainda não tem esse tipo de autor), não conta como eco nem como "já enviada".
+
+**A 99 fica fora** por enquanto: ela aceita um login só (ERR-365) — abrir aqui derrubaria a 99 da loja.
+
+**Pendências de teste no Gestor de verdade** (provado só com o Gestor de mentira): o 1º envio automático com o dono
+olhando, num pedido de entrega própria saindo; o "Fechar" da conversa e do resumo (o rótulo do X no Gestor real não está
+mapeado — sem ele, a tela fica na conversa); o "setter" com a janela escondida.
 
 ## Rodar (desenvolvimento)
 
@@ -59,12 +90,14 @@ percebe e se reabre sem ela.
 | `REGEM_PONTE_CHAT_WS` | o padrão do endereço do WebSocket do chat (padrão: `sendbird.com`) |
 | `REGEM_PONTE_DADOS` | outra pasta de dados (a prova usa uma pasta temporária) |
 | `REGEM_PONTE_SINAL_MS`, `REGEM_PONTE_FILA_MS` | intervalos menores na prova |
+| `REGEM_PONTE_SAIDA_MS`, `REGEM_PONTE_PARADA_MS`, `REGEM_PONTE_ESPERA_TELA_MS`, `REGEM_PONTE_ECO_MS` | a fila de saída na prova (5 s · 10 s de tela parada · 45 s de espera pela tela · 20 s pelo eco) |
 | `REGEM_PONTE_SO_OBSERVAR=1` | o mesmo que `npm run observar` |
 
 ## Onde guarda (neste PC)
 
 `%APPDATA%\Regem Ponte do chat\`: `ponte.json` (o pareamento, com o segredo cifrado, e o sal do diagnóstico),
-`diagnostico.jsonl` (marcas) e a sessão do iFood (o perfil do navegador do programa). Apagar a pasta despareia o PC e
+`diagnostico.jsonl` (marcas), `envios.jsonl` (o diário dos envios da fila: ids, sem texto) e a sessão do iFood (o perfil
+do navegador do programa). Apagar a pasta despareia o PC e
 sai do iFood nele.
 
 ## Instalador

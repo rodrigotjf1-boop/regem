@@ -63,6 +63,30 @@ test('sem rede ou sem resposta a tempo: status 0, com o motivo em português', a
   assert.equal(lenta.mensagem, 'A nuvem do Regem não respondeu a tempo.');
 });
 
+test('v0.4: pegar a vez na fila de saída manda o canal, com a credencial do PC', async () => {
+  let pedido;
+  const r = await nuvem.pegar({ terminalId: 't', segredo: 's' }, 'ifood', {
+    base: 'http://x/api/v1',
+    fetchImpl: async (url, init) => ((pedido = { url, init }), resposta(200, { papel: 'responde', itens: [] })),
+  });
+  assert.equal(pedido.url, 'http://x/api/v1/ponte-chat/saida/pegar');
+  assert.deepEqual(JSON.parse(pedido.init.body), { canal: 'ifood' });
+  assert.equal(pedido.init.headers['x-terminal-secret'], 's');
+  assert.deepEqual(r.dados, { papel: 'responde', itens: [] });
+});
+
+test('v0.4: o resultado vai para a mensagem certa; id que não é de mensagem nem sai do PC', async () => {
+  const pedidos = [];
+  const fetchImpl = async (url, init) => (pedidos.push({ url, corpo: JSON.parse(init.body) }), resposta(200, { ok: true, estado: 'enviada' }));
+  const id = 'AAAAAAAA-1111-2222-3333-444444444444';
+  const r = await nuvem.resultado({ terminalId: 't', segredo: 's' }, id, { ok: true, id: '9001' }, { base: 'http://x/api/v1', fetchImpl });
+  assert.equal(r.ok, true);
+  assert.deepEqual(pedidos, [{ url: `http://x/api/v1/ponte-chat/saida/${id.toLowerCase()}/resultado`, corpo: { ok: true, id: '9001' } }]);
+  const ruim = await nuvem.resultado({ terminalId: 't', segredo: 's' }, '../../equipamento', { ok: true }, { base: 'http://x/api/v1', fetchImpl });
+  assert.equal(ruim.ok, false);
+  assert.equal(pedidos.length, 1);
+});
+
 test('mensagens vão no corpo { mensagens }', async () => {
   let corpo;
   await nuvem.mensagens({ terminalId: 't', segredo: 's' }, [{ id: '1' }], { base: 'http://x', fetchImpl: async (_u, i) => ((corpo = JSON.parse(i.body)), resposta(200, { recebidas: 1 })) });

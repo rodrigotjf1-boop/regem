@@ -5,8 +5,12 @@
 // Só LÊ: não envia nada, não clica em nada. Cada mensagem nova (o msg_id; a mesma chega por mais de uma conexão) vai para
 // `aoChegar`; o diagnóstico recebe a forma (sem texto) e os corpos das chamadas do chat do pedido.
 
-const { lerQuadro, mensagemDoQuadro, Vistos } = require('./sendbird');
+const { lerQuadro, mensagemDoQuadro, mensagensDaResposta, pedidoDoCanal, Vistos } = require('./sendbird');
 const { interessa } = require('./diagnostico');
+const { MemoriaDoChat } = require('./memoria-do-chat');
+
+// O histórico de uma conversa, que o Gestor pede ao abri-la: alimenta a memória do que a loja já mandou (v0.4).
+const HISTORICO = /\/v3\/group_channels\/sendbird_gc_cm_[^/?]+\/messages(?:[?#]|$)/i;
 
 /** O WebSocket do chat (`REGEM_PONTE_CHAT_WS` troca no teste com o chat de mentira). */
 function filtroDoChat(env = process.env) {
@@ -33,6 +37,8 @@ function ligarLeitor(wc, { aoChegar, aoMudarChat, diagnostico, registrarErro }) 
   const sockets = new Map(); // `${sessão}|${requestId}` → endereço (só os do chat)
   const corpos = new Map();
   const vistos = new Vistos();
+  const memoria = new MemoriaDoChat(); // o que a loja já mandou em cada conversa (contra o envio em dobro)
+  const historicos = new Map(); // id do pedido → quando o histórico da conversa chegou (a última vez)
   const ouvintes = new Set(); // quem espera mensagens (o envio espera o eco do que mandou)
   let ultimoLogi = 0;
   let ultimoCanal = null; // o último canal de conversa que o Gestor carregou: { canal, em }
@@ -90,6 +96,7 @@ function ligarLeitor(wc, { aoChegar, aoMudarChat, diagnostico, registrarErro }) 
         if (q.cmd !== 'MESG') return;
         const m = mensagemDoQuadro(q);
         if (!m || !vistos.novo(m.id)) return;
+        memoria.guardar(m);
         if (diagnostico) diagnostico.mesg(q.corpo);
         aoChegar(m);
         for (const f of ouvintes) {
@@ -109,32 +116,42 @@ function ligarLeitor(wc, { aoChegar, aoMudarChat, diagnostico, registrarErro }) 
         if (diagnostico && interessa(rq.url || '')) diagnostico.chamada(rq.method, rq.url);
         return;
       }
-      if (!diagnostico) return;
       if (metodo === 'Network.responseReceived') {
         const r = p.response || {};
-        if (!interessa(r.url || '')) return;
-        if ((p.type === 'XHR' || p.type === 'Fetch') && /json/i.test(r.mimeType || '')) corpos.set(chave(p.requestId), { url: r.url, sid });
-        else diagnostico.anotar({ ev: 'resposta_sem_corpo', url: diagnostico.endereco(r.url), tipo: p.type, mime: r.mimeType, status: r.status });
+        const url = r.url || '';
+        const historico = HISTORICO.test(url); // vale também sem o diagnóstico: é o que evita o envio em dobro
+        const diag = !!diagnostico && interessa(url);
+        if (!historico && !diag) return;
+        if ((p.type === 'XHR' || p.type === 'Fetch') && /json/i.test(r.mimeType || '')) corpos.set(chave(p.requestId), { url, sid, historico, diag });
+        else if (diag) diagnostico.anotar({ ev: 'resposta_sem_corpo', url: diagnostico.endereco(url), tipo: p.type, mime: r.mimeType, status: r.status });
         return;
       }
       if (metodo === 'Network.loadingFinished' && corpos.has(chave(p.requestId))) {
-        const { url, sid: s } = corpos.get(chave(p.requestId));
+        const { url, sid: s, historico, diag } = corpos.get(chave(p.requestId));
         corpos.delete(chave(p.requestId));
+        const anotar = (o) => {
+          if (diag) diagnostico.anotar(o);
+        };
         // a página principal chega com a sessão "" — o Electron recusa sessão vazia: aí vai sem sessão
         dbg
           .sendCommand('Network.getResponseBody', { requestId: p.requestId }, s || undefined)
           .then((b) => {
             const txt = b.base64Encoded ? Buffer.from(b.body, 'base64').toString('utf8') : b.body;
-            if (!txt || txt.length > 2000000) return diagnostico.anotar({ ev: 'corpo_fora', url: diagnostico.endereco(url), tamanho: txt ? txt.length : 0 });
+            if (!txt || txt.length > 2000000) return anotar({ ev: 'corpo_fora', url: diagnostico && diagnostico.endereco(url), tamanho: txt ? txt.length : 0 });
             let j;
             try {
               j = JSON.parse(txt);
             } catch {
-              return diagnostico.anotar({ ev: 'corpo_nao_json', url: diagnostico.endereco(url), tamanho: txt.length });
+              return anotar({ ev: 'corpo_nao_json', url: diagnostico && diagnostico.endereco(url), tamanho: txt.length });
             }
-            diagnostico.resposta(url, j);
+            if (historico) {
+              for (const m of mensagensDaResposta(j)) memoria.guardar(m);
+              const doPedido = pedidoDoCanal((/group_channels\/(sendbird_gc_cm_[^/?]+)\/messages/i.exec(url) || [])[1]);
+              if (doPedido) historicos.set(doPedido.toLowerCase(), Date.now());
+            }
+            if (diag) diagnostico.resposta(url, j);
           })
-          .catch((e) => diagnostico.anotar({ ev: 'corpo_falhou', url: diagnostico.endereco(url), sessao: Boolean(s), erro: String((e && e.message) || e).slice(0, 160) }));
+          .catch((e) => anotar({ ev: 'corpo_falhou', url: diagnostico && diagnostico.endereco(url), sessao: Boolean(s), erro: String((e && e.message) || e).slice(0, 160) }));
       }
     } catch (e) {
       if (registrarErro) registrarErro(String((e && e.message) || e));
@@ -145,9 +162,13 @@ function ligarLeitor(wc, { aoChegar, aoMudarChat, diagnostico, registrarErro }) 
     chatAberto: () => sockets.size > 0,
     ultimoLogi: () => ultimoLogi,
     ultimoCanal: () => ultimoCanal,
+    /** A mensagem da loja com este texto já está na conversa deste pedido (de `desde` em diante)? — v0.4. */
+    jaEnviada: (q) => memoria.jaEnviada(q),
+    /** Quando chegou (a última vez) o histórico da conversa deste pedido — ou 0. */
+    historicoEm: (pedidoExterno) => historicos.get(String(pedidoExterno || '').toLowerCase()) || 0,
     /**
      * Espera a mensagem da LOJA com este texto chegar depois de `desde` — na conversa `canal` (quando se sabe) e do pedido
-     * `pedidoExterno` (quando se sabe) — ou null no prazo.
+     * `pedidoExterno` (quando se sabe) — ou null no prazo. O aviso automático do iFood nunca conta como eco.
      */
     esperarEco: ({ canal, pedidoExterno, texto, desde, prazoMs = 20000 }) =>
       new Promise((resolver) => {
@@ -156,7 +177,7 @@ function ligarLeitor(wc, { aoChegar, aoMudarChat, diagnostico, registrarErro }) 
           resolver(null);
         }, prazoMs);
         const ouvir = (m) => {
-          if (m.autor !== 'loja' || m.texto.trim() !== String(texto).trim() || Date.now() < desde) return;
+          if (m.autor !== 'loja' || m.avisoDaPlataforma || m.texto.trim() !== String(texto).trim() || Date.now() < desde) return;
           if (canal && m.canalDoChat !== canal) return;
           if (pedidoExterno && String(m.pedidoExterno || '').toLowerCase() !== String(pedidoExterno).toLowerCase()) return;
           clearTimeout(fim);
