@@ -214,6 +214,15 @@ descrever('ponte do chat (Postgres)', () => {
     // lote grande demais
     const muitas = Array.from({ length: 51 }, (_, i) => ({ canal: 'ifood', id: `m${i}`, autor: 'cliente', texto: 'x' }));
     expect((await erro(svc.receber(d, { mensagens: muitas })))?.message).toBe('No máximo 50 mensagens por vez.');
+    // ponte DESLIGADA nos ajustes: nada de conversa de cliente gravada; a resposta avisa a ponte
+    await ligar(false);
+    expect(await svc.receber(d, { mensagens: [{ canal: 'ifood', id: 'sb-7', autor: 'cliente', texto: 'Com a ponte desligada' }] })).toEqual({
+      recebidas: 0,
+      repetidas: 0,
+      recusadas: 0,
+      desligada: true,
+    });
+    expect(await q(`select count(*)::int as n from chat_plataforma_msg where tenant_id = $1 and externo_msg_id = 'sb-7'`, [T])).toEqual([{ n: 0 }]);
   });
 
   it('fila de saída: só quem responde pega; duas chamadas juntas nunca pegam a mesma; a loja B não pega a da loja A', async () => {

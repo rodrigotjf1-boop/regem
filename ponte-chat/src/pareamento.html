@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self'">
+<title>Parear este PC · Regem · Ponte do chat</title>
+<style>
+  :root { --tinta: #0F2230; --base: #EDF0F4; --ouro: #E2A340; --ok: #0E7C66; --erro: #B42318; --cinza: #4A5A68; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--base); color: var(--tinta);
+         font: 15px/1.5 "Segoe UI", system-ui, sans-serif; padding: 16px; }
+  main { width: 100%; max-width: 440px; background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 8px 30px rgba(15,34,48,.12); }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  .sub { margin: 0 0 16px; color: var(--cinza); font-size: 13px; }
+  ol { margin: 0 0 16px; padding-left: 20px; }
+  li { margin: 4px 0; }
+  label { display: block; font-weight: 600; margin-bottom: 6px; }
+  input { width: 100%; font: 600 28px/1.2 Consolas, "Courier New", monospace; letter-spacing: 8px; text-align: center;
+          padding: 10px; border: 2px solid #C9D2DB; border-radius: 8px; color: var(--tinta); }
+  input:focus-visible { outline: 3px solid var(--ouro); outline-offset: 1px; border-color: var(--ouro); }
+  button { margin-top: 14px; width: 100%; min-height: 44px; border: 0; border-radius: 8px; background: var(--ouro); color: var(--tinta);
+           font: 700 16px "Segoe UI", system-ui, sans-serif; cursor: pointer; }
+  button:disabled { opacity: .6; cursor: wait; }
+  button:focus-visible { outline: 3px solid var(--tinta); outline-offset: 2px; }
+  #msg { margin: 12px 0 0; min-height: 1.5em; font-size: 14px; }
+  #msg.erro { color: var(--erro); }
+  #msg.ok { color: var(--ok); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Parear este PC</h1>
+  <p class="sub">Regem · Ponte do chat do iFood e da 99</p>
+  <ol>
+    <li>No Regem, abra <strong>Configurações › Equipamentos</strong>.</li>
+    <li>Cadastre este PC como <strong>Ponte do chat (iFood e 99, no PC)</strong> — ou ache o que já está lá.</li>
+    <li>Toque em <strong>Gerar código</strong> e digite aqui os 6 números (vale por 15 minutos).</li>
+  </ol>
+  <form id="form" autocomplete="off">
+    <label for="codigo">Código de 6 números</label>
+    <input id="codigo" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" autocomplete="one-time-code" required aria-describedby="msg">
+    <button id="parear" type="submit">Parear este PC</button>
+    <p id="msg" role="status" aria-live="polite"></p>
+  </form>
+</main>
+<script src="pareamento.js"></script>
+</body>
+</html>

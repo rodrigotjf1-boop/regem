@@ -99,9 +99,12 @@ export class PonteChatService {
    * plataforma (canal + id dela) não entra de novo — a ponte reenvia o que não teve resposta, e duas pontes leem o mesmo
    * chat. O pedido é achado pelo id na plataforma ou, sem ele, pelo número exibido (dos últimos 2 dias).
    */
-  async receber(p: PonteCtx, dto: any): Promise<{ recebidas: number; repetidas: number; recusadas: number }> {
+  async receber(p: PonteCtx, dto: any): Promise<{ recebidas: number; repetidas: number; recusadas: number; desligada?: true }> {
     const lista: any[] = Array.isArray(dto?.mensagens) ? dto.mensagens : [];
     if (lista.length > LOTE_ENTRADA) throw new BadRequestException(`No máximo ${LOTE_ENTRADA} mensagens por vez.`);
+    // Desligada nos ajustes: o chat fica só no Gestor de cada plataforma — nada de conversa de cliente gravada aqui. A
+    // resposta avisa a ponte (ela para de mandar e esvazia a fila dela).
+    if (!(await this.ligada(p.tenantId))) return { recebidas: 0, repetidas: 0, recusadas: 0, desligada: true };
     const validas: any[] = [];
     let recusadas = 0;
     for (const m of lista) {
