@@ -225,9 +225,11 @@ export class PonteChatService {
 
   /**
    * O resultado de um envio. Enviada: guarda o id que a plataforma deu (se a ponte já tinha trazido o PRÓPRIO envio
-   * como "mensagem da loja" — o eco —, o eco sai e fica o envio). Enviada vale mesmo depois do prazo: marcar "enviada"
-   * evita mandar de novo. Não enviada: só a ponte que pegou; volta para a fila, ou falha (3ª vez ou falha definitiva,
-   * como o chat do pedido já fechado).
+   * como "mensagem da loja" — o eco —, o eco sai e fica o envio). Enviada vale mesmo depois do prazo — e também depois
+   * de a nuvem ter dado a mensagem como falha ou cancelada (a ponte confirmou pelo eco: ela SAIU; o registro fica com a
+   * verdade e nada a manda de novo). A mesma confirmação de novo não é erro (a ponte repete o que não teve resposta).
+   * Não enviada: só a ponte que pegou; volta para a fila, ou falha (3ª vez ou falha definitiva, como o chat do pedido
+   * já fechado).
    */
   async resultado(p: PonteCtx, id: string, dto: any): Promise<{ ok: true; estado: string }> {
     if (!/^[0-9a-f-]{36}$/i.test(String(id ?? ''))) throw new BadRequestException('Mensagem inválida.');
@@ -251,7 +253,7 @@ export class PonteChatService {
                  set estado = 'enviada', enviado_em = now(), externo_msg_id = coalesce(${ext}, externo_msg_id),
                      erro = null, vence_em = null, ponte_id = ${p.id}::uuid
                where id = ${id}::uuid and tenant_id = ${p.tenantId}::uuid and direcao = 'saida'
-                 and estado in ('enviando', 'pendente')
+                 and estado in ('enviando', 'pendente', 'falhou', 'cancelada')
               returning estado`
             : sql`
               update chat_plataforma_msg
@@ -263,7 +265,16 @@ export class PonteChatService {
         ),
       );
     });
-    if (!r.length) throw new ConflictException('Esta mensagem não está mais com esta ponte (já saiu, venceu o prazo ou foi cancelada).');
-    return { ok: true, estado: r[0].estado };
+    if (r.length) return { ok: true, estado: r[0].estado };
+    // A confirmação repetida de um envio que já está como enviado: responde igual (idempotente), sem mexer em nada.
+    if (enviada) {
+      const [ja] = linhas(
+        await this.db.execute(sql`
+          select estado from chat_plataforma_msg
+           where id = ${id}::uuid and tenant_id = ${p.tenantId}::uuid and direcao = 'saida' and estado = 'enviada'`),
+      );
+      if (ja) return { ok: true, estado: 'enviada' };
+    }
+    throw new ConflictException('Esta mensagem não está mais com esta ponte (já saiu, venceu o prazo ou foi cancelada).');
   }
 }
