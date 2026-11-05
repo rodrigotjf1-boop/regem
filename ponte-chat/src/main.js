@@ -28,6 +28,9 @@ const { Configuracao } = require('./configuracao');
 const { Diagnostico } = require('./diagnostico');
 const { FilaDeEntrada } = require('./fila-entrada');
 const { ligarLeitor } = require('./leitor');
+const { lerATelaDoChat, lerOQuadro } = require('./tela-do-chat');
+const envio = require('./envio-ifood');
+const { motivoParaNaoEnviar } = require('./regras');
 const nuvem = require('./nuvem');
 
 const GESTOR = process.env.REGEM_PONTE_GESTOR || 'https://gestordepedidos.ifood.com.br/';
@@ -57,10 +60,13 @@ if (!app.requestSingleInstanceLock()) {
   };
   let gestor = null;
   let pareamento = null;
+  let testeEnvio = null;
   let bandeja = null;
   let leitor = null;
   let saindo = false;
   let diagnostico = null;
+  let ocupadoNoGestor = false; // um ensaio/envio por vez (os dois mexem na tela do Gestor)
+  let ultimoEnsaio = null; // { numero, em } — o envio de verdade só depois de um ensaio certo do MESMO pedido
 
   const fila = new FilaDeEntrada(async (lote) => {
     const cred = cfg.credencial();
@@ -112,6 +118,7 @@ if (!app.requestSingleInstanceLock()) {
         ...(estado.ultimoErro ? [{ label: `Último aviso: ${estado.ultimoErro}`.slice(0, 120), enabled: false }] : []),
         { type: 'separator' },
         { label: 'Abrir o Gestor do iFood', click: () => abrirGestor() },
+        { label: 'Teste de envio (ensaio)…', click: () => abrirTesteDeEnvio() },
         ...(!SO_OBSERVAR && !cfg.credencial() ? [{ label: 'Parear este PC', click: () => abrirPareamento() }] : []),
         { label: 'Abrir a pasta do diagnóstico', click: () => shell.openPath(app.getPath('userData')) },
         { type: 'separator' },
@@ -209,10 +216,97 @@ if (!app.requestSingleInstanceLock()) {
         gestor.hide();
       }
     });
-    gestor.loadURL(GESTOR).catch((e) => registrarErro(`não abriu o Gestor: ${e && e.message}`));
+    // Só abre o Gestor depois de a escuta da rede estar ligada (ERR-376: conexão do chat aberta antes dela passava sem
+    // ser lida). A escuta só termina de ligar com uma página carregada: primeiro uma página em branco, depois o Gestor.
+    const janela = gestor;
+    (async () => {
+      try {
+        await janela.loadURL('about:blank');
+        await Promise.race([leitor && leitor.pronto, new Promise((r) => setTimeout(r, 3000))]);
+        if (!janela.isDestroyed()) await janela.loadURL(GESTOR);
+      } catch (e) {
+        registrarErro(`não abriu o Gestor: ${e && e.message}`);
+      }
+    })();
     atualizarBandeja();
     return gestor;
   }
+
+  function abrirTesteDeEnvio() {
+    if (testeEnvio && !testeEnvio.isDestroyed()) {
+      testeEnvio.show();
+      testeEnvio.focus();
+      return;
+    }
+    testeEnvio = new BrowserWindow({
+      width: 620,
+      height: 760,
+      title: 'Teste de envio · Regem · Ponte do chat',
+      icon: ICONE,
+      autoHideMenuBar: true,
+      webPreferences: { preload: path.join(__dirname, 'teste-envio-preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false },
+    });
+    testeEnvio.loadFile(path.join(__dirname, 'teste-envio.html'));
+    testeEnvio.on('closed', () => {
+      testeEnvio = null;
+    });
+  }
+
+  /** O que o ensaio e o envio usam: a página do Gestor, o leitor e o "digitar" (como o teclado faria). */
+  function contextoDoGestor() {
+    if (!gestor || gestor.isDestroyed() || !leitor) return null;
+    const wc = gestor.webContents;
+    return {
+      pagina: wc.mainFrame,
+      leitor,
+      digitar: async (t) => {
+        wc.focus();
+        await wc.insertText(t);
+      },
+    };
+  }
+
+  /** Roda um ensaio/envio com o Gestor à vista e um de cada vez. */
+  async function noGestor(acao) {
+    if (ocupadoNoGestor) return { ok: false, etapas: ['✗ já há um ensaio ou envio em andamento — espere terminar'] };
+    abrirGestor();
+    const ctx = contextoDoGestor();
+    if (!ctx) return { ok: false, etapas: ['✗ o Gestor do iFood não está aberto no programa'] };
+    ocupadoNoGestor = true;
+    try {
+      gestor.show();
+      gestor.focus();
+      return await acao(ctx);
+    } catch (e) {
+      registrarErro(`ensaio/envio: ${e && e.message}`);
+      return { ok: false, etapas: [`✗ falhou: ${e && e.message}`] };
+    } finally {
+      ocupadoNoGestor = false;
+    }
+  }
+
+  ipcMain.handle('ponte:ensaiar', async (_e, { numero, texto }) => {
+    const motivo = motivoParaNaoEnviar(texto);
+    if (motivo) return { ok: false, etapas: [`✗ ${motivo}`] };
+    const r = await noGestor((ctx) => envio.ensaiar(ctx, { numero, texto }, { segurarMs: Number(process.env.REGEM_PONTE_SEGURAR_MS) || 5000 }));
+    ultimoEnsaio = r.ok ? { numero: String(numero), em: Date.now() } : null;
+    // o que a tela tinha quando o ensaio parou (só rótulos e estrutura) — para ajustar o caminho sem chute
+    if (!r.ok && diagnostico) diagnostico.anotar({ ev: 'ensaio_parou', etapa: (r.etapas || []).at(-1), detalhes: r.detalhes || null });
+    return r;
+  });
+
+  ipcMain.handle('ponte:enviar', async (_e, { numero, texto }) => {
+    // O programa confere de novo (a tela só pede): ensaio certo do MESMO pedido há menos de 10 min; texto de verdade.
+    if (!ultimoEnsaio || ultimoEnsaio.numero !== String(numero) || Date.now() - ultimoEnsaio.em > 10 * 60 * 1000)
+      return { ok: false, etapas: ['✗ faça um ensaio certo deste pedido antes (vale por 10 minutos)'] };
+    if (/teste do regem|não será enviada/i.test(String(texto))) return { ok: false, etapas: ['✗ o texto de teste não vai para cliente — troque o texto'] };
+    const motivo = motivoParaNaoEnviar(texto);
+    if (motivo) return { ok: false, etapas: [`✗ ${motivo}`] };
+    ultimoEnsaio = null; // um envio por ensaio
+    const r = await noGestor((ctx) => envio.enviar(ctx, { numero, texto }));
+    registrarErro(r.ok ? `envio de teste no pedido #${numero}: enviado` : `envio de teste no pedido #${numero}: não confirmado`);
+    return r;
+  });
 
   function abrirPareamento(aviso) {
     if (aviso) registrarErro(aviso);
@@ -288,6 +382,10 @@ if (!app.requestSingleInstanceLock()) {
       bandeja = null; // sem ícone (teste): a janela mostra a situação no título
     }
     if (!SO_OBSERVAR && !cfg.credencial()) abrirPareamento();
+    else if (process.env.REGEM_PONTE_ABRIR_TESTE === '1') {
+      abrirGestor();
+      abrirTesteDeEnvio(); // a prova de ponta a ponta abre a janela direto (o ícone perto do relógio não se pilota)
+    }
     else abrirGestor();
     atualizarBandeja();
     setInterval(() => sinalDeVida().catch((e) => registrarErro(String(e && e.message))), SINAL_MS);
@@ -295,5 +393,26 @@ if (!app.requestSingleInstanceLock()) {
       fila.descarregar(estado.ligada && !SO_OBSERVAR).catch((e) => registrarErro(String(e && e.message)));
     }, FILA_MS);
     setTimeout(() => sinalDeVida().catch(() => {}), 3000);
+    // Diagnóstico da TELA do chat (só a estrutura, sem texto): com uma conversa aberta no Gestor, anota onde ficam o campo
+    // de digitar e o botão de enviar — uma vez por forma diferente. É o que o envio (o ensaio) precisa para não chutar.
+    let ultimaForma = '';
+    let ultimoQuadro = '';
+    setInterval(async () => {
+      if (!diagnostico || !gestor || gestor.isDestroyed()) return;
+      const q = await lerOQuadro(gestor.webContents).catch(() => null);
+      if (q) {
+        const fq = JSON.stringify({ c: q.cartoes.map((c) => [c.caminho.replace(/\d/g, '0'), c.clicavel && c.clicavel.caminho]), b: q.botoesDeChat.map((b) => [b.rotulo, b.titulo, b.testid]), k: q.ultimoClique && q.ultimoClique.em });
+        if (fq !== ultimoQuadro) {
+          ultimoQuadro = fq;
+          diagnostico.anotar({ ev: 'quadro', ...q });
+        }
+      }
+      const r = await lerATelaDoChat(gestor.webContents).catch(() => null);
+      if (!r) return;
+      const forma = JSON.stringify({ c: r.campo, b: r.botoes.map((b) => [b.rotulo, b.titulo, b.testid, b.temIcone, b.perto]), t: r.topo.map((t) => t.forma.replace(/\d/g, '0')), n: (r.comNumero || []).map((x) => x.caminho) });
+      if (forma === ultimaForma) return;
+      ultimaForma = forma;
+      diagnostico.anotar({ ev: 'tela_do_chat', ...r });
+    }, 3000);
   });
 }

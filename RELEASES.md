@@ -12,11 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
-- **Ponte do chat do iFood e da 99 — parte B, versões 0.1 e 0.2 (04/11; sem migration).** O programa `ponte-chat/`
-  (NOVO, Electron) — só lê (a 0.2 manda cada mensagem com o pedido, tirado do canal da conversa), não envia, não abre a
-  99 — ainda **sem instalador**: gerar sob comando do dono (electron-builder NSIS + assinatura pela CA interna, no molde
-  de `desktop/`); por enquanto roda do repositório (`npm start` / `npm run observar`). Na nuvem com o merge da 0.1:
-  `ponte-chat/mensagens` não grava com a ponte desligada. Nada muda no `.zip`/`.exe` do servidor da loja.
+- **Ponte do chat do iFood e da 99 — parte B, versões 0.1 a 0.3 (04/11; sem migration).** O programa `ponte-chat/`
+  (NOVO, Electron) — lê o chat com o pedido (0.2) e tem o "Teste de envio" manual com ensaio (0.3; ainda não envia
+  sozinho), não abre a 99 — ainda **sem instalador**: gerar sob comando do dono (electron-builder NSIS + assinatura pela
+  CA interna, no molde de `desktop/`); por enquanto roda do repositório (`npm start` / `npm run observar`). Na nuvem com
+  o merge da 0.1: `ponte-chat/mensagens` não grava com a ponte desligada. Nada muda no `.zip`/`.exe` do servidor da loja.
 
 - **Ponte do chat do iFood e da 99 — parte A2 (04/11; sem migration).** Na nuvem com o merge: os avisos no chat
   ("saiu para entrega" pela rotina de 30 s, só na entrega da loja e com a previsão do rastreio; "o entregador está

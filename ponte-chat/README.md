@@ -4,7 +4,7 @@ Parte B da ponte do chat do iFood e da 99 (plano e protótipos v3 aprovados pelo
 **Gestor de Pedidos do iFood dentro dele** — a pessoa da loja entra com o login dela, uma vez; a senha nunca passa pelo
 Regem — e liga o chat à nuvem do Regem.
 
-## O que a versão 0.2 faz
+## O que a versão 0.3 faz
 
 - **Pareia este PC por código:** Configurações › Equipamentos › cadastrar "Ponte do chat (iFood e 99, no PC)" › Gerar
   código → digitar os 6 números no programa (`publico/terminal/parear`, tipo `ponte_chat`). O segredo fica cifrado pelo
@@ -23,8 +23,19 @@ Regem — e liga o chat à nuvem do Regem.
 - **Revogada no Regem** (`TERMINAL_REVOGADO`): esquece o pareamento e pede código novo. "Não reconhecido", falta de rede,
   limite e falha da nuvem só fazem esperar e tentar de novo (V70).
 
-**Não envia mensagem ao cliente** — o envio entra depois do teste com a loja fechada, com o "pode" do dono. **A 99 fica
-fora** por enquanto: ela aceita um login só (ERR-365) — abrir aqui derrubaria a 99 da loja.
+- **Teste de envio (manual)** — ícone R perto do relógio › botão direito › "Teste de envio (ensaio)…": o programa digita
+  na tela do Gestor como a pessoa faria (cartão do pedido no quadro "Pedidos" › resumo › botão de chat do resumo › a
+  conversa) e, ANTES de escrever, confere: o topo da conversa diz "#<número>"; o canal que o Gestor carregou é o do pedido
+  (quando ele recarrega — conversa já aberta fica na memória do Gestor e aí vale o topo); há um só "Campo de mensagem".
+  **Ensaio** = escreve, segura 5 s e APAGA, nunca aperta "Enviar". **Enviar de verdade** só depois de um ensaio certo do
+  MESMO pedido (10 min), com confirmação na janela e um texto que não seja o de teste; dá por enviado só quando a mensagem
+  volta pelo chat (o eco — escutado ANTES de apertar, ERR-375). O texto segue a regra da nuvem (sem telefone, WhatsApp,
+  Instagram ou link — `regras.js`, igual ao `texto-do-chat.ts`; até 300 letras). Testado no Gestor de verdade em 04/11
+  (ensaio no pedido real, nada enviado).
+
+**Ainda não envia sozinho** (a fila de saída da nuvem — avisos "saiu"/"chegando" — entra na próxima versão, depois do
+envio de verdade com o dono olhando). **A 99 fica fora** por enquanto: ela aceita um login só (ERR-365) — abrir aqui
+derrubaria a 99 da loja.
 
 ## Rodar (desenvolvimento)
 

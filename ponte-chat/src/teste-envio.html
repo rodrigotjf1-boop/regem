@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self'">
+<title>Teste de envio · Regem · Ponte do chat</title>
+<style>
+  :root { --tinta: #0F2230; --base: #EDF0F4; --ouro: #E2A340; --ok: #0E7C66; --erro: #B42318; --cinza: #4A5A68; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--base); color: var(--tinta); font: 14px/1.5 "Segoe UI", system-ui, sans-serif; padding: 16px; }
+  main { max-width: 560px; margin: 0 auto; background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 8px 30px rgba(15,34,48,.12); }
+  h1 { margin: 0 0 4px; font-size: 20px; }
+  .sub { margin: 0 0 12px; color: var(--cinza); font-size: 13px; }
+  ol { margin: 0 0 14px; padding-left: 20px; }
+  label { display: block; font-weight: 600; margin: 10px 0 4px; }
+  input { width: 100%; font: 15px "Segoe UI", system-ui, sans-serif; padding: 9px 10px; border: 2px solid #C9D2DB; border-radius: 8px; color: var(--tinta); }
+  input:focus-visible { outline: 3px solid var(--ouro); outline-offset: 1px; border-color: var(--ouro); }
+  .botoes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  button { min-height: 42px; padding: 0 16px; border: 0; border-radius: 8px; font: 700 15px "Segoe UI", system-ui, sans-serif; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button:focus-visible { outline: 3px solid var(--tinta); outline-offset: 2px; }
+  .primario { background: var(--ouro); color: var(--tinta); }
+  .perigo { background: var(--erro); color: #fff; }
+  .neutro { background: #E3E8EE; color: var(--tinta); }
+  #confirmar { display: none; margin-top: 14px; padding: 12px; border: 2px solid var(--erro); border-radius: 8px; background: #FEF3F2; }
+  #confirmar p { margin: 0 0 8px; font-weight: 600; }
+  #etapas { margin: 14px 0 0; padding: 0; list-style: none; }
+  #etapas li { padding: 4px 0; border-bottom: 1px solid #EEF1F4; }
+  #etapas li.erro { color: var(--erro); font-weight: 600; }
+  #etapas li.ok { color: var(--ok); }
+  #situacao { min-height: 1.5em; margin: 10px 0 0; font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Teste de envio</h1>
+  <p class="sub">Regem · Ponte do chat — no Gestor do iFood desta janela</p>
+  <ol>
+    <li><strong>Ensaio:</strong> o programa abre a conversa do pedido, confere o número, o canal e o campo, escreve o texto e <strong>não envia</strong> — apaga depois de 5 segundos.</li>
+    <li>Só depois de um ensaio certo do mesmo pedido você pode <strong>enviar de verdade</strong>, com confirmação.</li>
+  </ol>
+  <form id="form" autocomplete="off">
+    <label for="numero">Número do pedido (como no quadro do Gestor)</label>
+    <input id="numero" inputmode="numeric" maxlength="6" required>
+    <label for="texto">Texto</label>
+    <input id="texto" maxlength="300" value="Teste do Regem — esta mensagem não será enviada" required>
+    <div class="botoes">
+      <button id="ensaiar" class="primario" type="submit">Ensaiar (não envia)</button>
+      <button id="enviar" class="perigo" type="button" disabled>Enviar de verdade…</button>
+    </div>
+  </form>
+  <div id="confirmar" role="alertdialog" aria-labelledby="confirmar-texto">
+    <p id="confirmar-texto"></p>
+    <div class="botoes">
+      <button id="sim" class="perigo" type="button">Sim, enviar ao cliente</button>
+      <button id="nao" class="neutro" type="button">Cancelar</button>
+    </div>
+  </div>
+  <p id="situacao" role="status" aria-live="polite"></p>
+  <ul id="etapas" aria-live="polite"></ul>
+</main>
+<script src="teste-envio.js"></script>
+</body>
+</html>
