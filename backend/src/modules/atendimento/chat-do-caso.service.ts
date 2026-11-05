@@ -2,6 +2,7 @@ import {
   BadGatewayException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   Logger,
@@ -17,6 +18,7 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { PonteChatService } from '../ponte-chat/ponte-chat.service';
 import { TEXTO_MAX, temContatoProibido } from '../ponte-chat/texto-do-chat';
 import { ehCanalDaPonte } from '../ponte-chat/lideranca';
+import { chaveSql } from '../ponte-chat/casos-do-chat';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -215,6 +217,139 @@ export class ChatDoCasoService {
       .catch((e: any) => this.logger.warn(`auditoria da resposta no chat (caso ${c.id}): ${e?.message ?? e}`));
     this.events.emit('atendimento.mudou', { tenantId, id: c.id, motivo: 'respondeu_no_chat' });
     return { ok: true, id: msg.id, estado: 'pendente', criadoEm: msg.criadoEm };
+  }
+
+  // ───────────────────────── Conversas agora ─────────────────────────
+
+  /**
+   * "CONVERSAS AGORA" (protótipo v3): as conversas do chat do iFood e da 99 com movimento na ÚLTIMA HORA e SEM caso aberto
+   * — quem está nelas é o robô (ou só os avisos automáticos). Da loja em uso (e as sem loja). Cada uma com o cliente, o
+   * pedido e as últimas 8 mensagens; e se o robô do chat está ligado (a tela diz "com o robô" só quando está). Só na
+   * nuvem: as mensagens moram lá.
+   */
+  async conversasAgora(tenantId: string, unidade: string | null) {
+    const [conversas, robo] = await Promise.all([
+      this.db.execute(this.sqlDasConversasAgora(tenantId, unidade)),
+      this.db.execute(sql`select chat_robo_responde from robo_config where tenant_id = ${tenantId}::uuid`),
+    ]);
+    return { conversas: linhas(conversas), roboResponde: linhas(robo)[0]?.chat_robo_responde === true };
+  }
+
+  /**
+   * A consulta das "Conversas agora" (à parte para o teste do plano). UMA leitura das mensagens do último dia da empresa
+   * (índice da 367: roda a cada 15 s com a tela aberta, nunca o histórico inteiro); a conversa é achada pela MESMA chave
+   * dos casos (`chaveSql` = `chaveDaConversa`); as conversas com caso aberto ficam de fora ANTES de juntar as mensagens.
+   */
+  sqlDasConversasAgora(tenantId: string, unidade: string | null) {
+    return sql`
+      with dia as (
+        select m.id, m.canal, m.direcao, m.autor, m.texto, m.estado, m.motivo, m.criado_em, m.cliente_nome, m.pedido_id,
+               m.pedido_numero, ${chaveSql('m')} as chave
+          from chat_plataforma_msg m
+         where m.tenant_id = ${tenantId}::uuid and m.criado_em > now() - interval '1 day'
+           and (${unidade}::uuid is null or m.unidade_id is null or m.unidade_id = ${unidade}::uuid)
+      ), ativas as (
+        select g.*
+          from (select canal, chave, max(criado_em) as ultima,
+                       (array_agg(cliente_nome order by criado_em desc) filter (where cliente_nome is not null))[1] as cliente,
+                       (array_agg(pedido_id order by criado_em desc) filter (where pedido_id is not null))[1] as pedido_id,
+                       (array_agg(pedido_numero order by criado_em desc) filter (where pedido_numero is not null))[1] as pedido_numero
+                  from dia where chave is not null
+                 group by canal, chave) g
+         where g.ultima > now() - interval '60 minutes'
+           and not exists (select 1 from atendimento_chamado c
+                            where c.tenant_id = ${tenantId}::uuid and c.tipo = 'chat' and c.status = 'aberto'
+                              and c.canal = g.canal and c.detalhe #>> '{chat,chave}' = g.chave)
+         order by g.ultima desc
+         limit 50
+      ), ultimas as (
+        select x.canal, x.chave,
+               jsonb_agg(jsonb_build_object('id', x.id, 'direcao', x.direcao, 'autor', x.autor, 'texto', x.texto,
+                                            'estado', x.estado, 'motivo', x.motivo, 'em', x.criado_em)
+                         order by x.criado_em, x.id) as mensagens
+          from (select d.*, row_number() over (partition by d.canal, d.chave order by d.criado_em desc, d.id desc) as n
+                  from dia d join ativas a on a.canal = d.canal and a.chave = d.chave) x
+         where x.n <= 8
+         group by x.canal, x.chave
+      )
+      select a.canal, a.chave, a.ultima, a.cliente, a.pedido_id as "pedidoId",
+             coalesce(pe.display_id, a.pedido_numero) as "pedidoNumero", pe.status as "pedidoStatus", u.mensagens
+        from ativas a
+        join ultimas u on u.canal = a.canal and u.chave = a.chave
+        left join pedido_externo pe on pe.id = a.pedido_id and pe.tenant_id = ${tenantId}::uuid
+       order by a.ultima desc`;
+  }
+
+  /**
+   * "ASSUMIR A CONVERSA": o caso "Mensagem no chat" nasce JÁ com quem assumiu (o robô fica quieto com o caso aberto). Com a
+   * trava da empresa (a mesma dos casos do chat): se a conversa já tem caso aberto — sem ninguém, ele fica com quem
+   * assumiu; com outra pessoa, 409 com o nome.
+   */
+  async assumir(user: AuthUser, dto: { canal?: unknown; chave?: unknown } | null | undefined) {
+    const eu = user.colaboradorId;
+    if (!eu) throw new ForbiddenException('Entre com o seu usuário para assumir a conversa.');
+    const canal = dto?.canal;
+    const chave = typeof dto?.chave === 'string' ? dto.chave : '';
+    if (!ehCanalDaPonte(canal) || !/^(ext|id|num):.{1,120}$/.test(chave)) throw new BadRequestException('Conversa inválida.');
+    const r = await this.db.transaction(async (tx) => {
+      await tx.execute(sql`select 1 from robo_config where tenant_id = ${user.tenantId}::uuid for update`);
+      const [aberto] = linhas(
+        await tx.execute(sql`
+          select c.id, c.responsavel_id, col.nome from atendimento_chamado c
+            left join colaborador col on col.id = c.responsavel_id and col.tenant_id = c.tenant_id
+           where c.tenant_id = ${user.tenantId}::uuid and c.tipo = 'chat' and c.status = 'aberto'
+             and c.canal = ${canal} and c.detalhe #>> '{chat,chave}' = ${chave}
+           order by c.criado_em desc limit 1`),
+      );
+      if (aberto) {
+        if (aberto.responsavel_id && aberto.responsavel_id !== eu) throw new ConflictException(`${aberto.nome ?? 'Outra pessoa'} já está com esta conversa.`);
+        if (!aberto.responsavel_id)
+          await tx.execute(sql`update atendimento_chamado set responsavel_id = ${eu}::uuid, pego_em = now() where id = ${aberto.id}::uuid`);
+        return { id: aberto.id as string, novo: null };
+      }
+      const [c] = linhas(
+        await tx.execute(sql`
+          select (array_agg(m.cliente_nome order by m.criado_em desc) filter (where m.cliente_nome is not null))[1] as cliente,
+                 (array_agg(m.pedido_id order by m.criado_em desc) filter (where m.pedido_id is not null))[1] as pedido_id,
+                 (array_agg(m.pedido_externo order by m.criado_em desc) filter (where m.pedido_externo is not null))[1] as pedido_externo,
+                 (array_agg(m.pedido_numero order by m.criado_em desc) filter (where m.pedido_numero is not null))[1] as pedido_numero,
+                 (array_agg(m.unidade_id order by m.criado_em desc) filter (where m.unidade_id is not null))[1] as unidade_id,
+                 (array_agg(m.texto order by m.criado_em desc) filter (where m.direcao = 'entrada' and m.autor = 'cliente'))[1] as fala,
+                 max(m.criado_em) as ultima, count(*)::int as n
+            from chat_plataforma_msg m
+           where m.tenant_id = ${user.tenantId}::uuid and m.canal = ${canal} and ${chaveSql('m')} = ${chave}
+             and m.criado_em > now() - interval '1 day'`),
+      );
+      if (!c?.n) throw new NotFoundException('Esta conversa não está mais no chat.');
+      const [novo] = linhas(
+        await tx.execute(sql`
+          insert into atendimento_chamado (tenant_id, unidade_id, tipo, cliente, pedido_numero, pedido_id, mensagem, prioridade, canal,
+                                           responsavel_id, pego_em, detalhe)
+          values (${user.tenantId}::uuid, ${c.unidade_id}::uuid, 'chat', ${c.cliente}, ${c.pedido_numero}, ${c.pedido_id}::uuid,
+                  ${c.fala ?? 'Conversa assumida do robô'}, 'normal', ${canal}, ${eu}::uuid, now(),
+                  jsonb_build_object('chat', jsonb_build_object('chave', ${chave}::text, 'pedidoExterno', ${c.pedido_externo}::text,
+                                                                'pedidoNumero', ${c.pedido_numero}::text, 'ultimaEm', ${c.ultima}::timestamptz),
+                                     'assumida', true))
+          returning *`),
+      );
+      return { id: novo.id as string, novo };
+    });
+    await this.auditoria
+      ?.registrar({
+        tenantId: user.tenantId,
+        atorId: eu,
+        atorPerfil: user.categoria,
+        tipo: 'atendimento',
+        acao: 'assumiu_conversa_do_chat',
+        entidadeTipo: 'atendimento_chamado',
+        entidadeId: r.id,
+        detalhe: { canal, chave },
+        origem: 'web',
+      })
+      .catch((e: any) => this.logger.warn(`auditoria do "assumir a conversa" (${r.id}): ${e?.message ?? e}`));
+    if (r.novo) this.events.emit('atendimento.novo', { tenantId: user.tenantId, chamado: r.novo });
+    else this.events.emit('atendimento.mudou', { tenantId: user.tenantId, id: r.id, motivo: 'assumiu_a_conversa' });
+    return { ok: true, id: r.id };
   }
 
   // ───────────────────────── servidor da loja → nuvem ─────────────────────────

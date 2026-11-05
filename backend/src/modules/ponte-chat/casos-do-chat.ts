@@ -52,6 +52,18 @@ export function chaveDaConversa(m: { pedidoExterno?: string | null; pedidoId?: s
   return null;
 }
 
+/**
+ * A MESMA chave de `chaveDaConversa`, em SQL, sobre uma linha de `chat_plataforma_msg` (o apelido `alias`): o pedido na
+ * plataforma, senão o do Regem, senão o número; sem nada, null. "Conversas agora" e "Assumir a conversa" acham a conversa
+ * por ela (um teste com o Postgres compara as duas).
+ */
+export const chaveSql = (alias: string) =>
+  sql.raw(
+    `(case when ${alias}.pedido_externo is not null then 'ext:' || ${alias}.pedido_externo
+           when ${alias}.pedido_id is not null then 'id:' || ${alias}.pedido_id::text
+           when ${alias}.pedido_numero is not null then 'num:' || ${alias}.pedido_numero end)`,
+  );
+
 export type MensagemDoCliente = {
   canal: string;
   pedidoId: string | null;

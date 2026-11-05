@@ -81,7 +81,7 @@ descrever('ponte do chat — avisos, ajustes e faixa (Postgres)', () => {
 
   beforeAll(async () => {
     delete process.env.EDGE_MODE; // como NUVEM
-    for (const m of ['342_robo_pausa_e_config.sql', '366_ponte_do_chat.sql']) await aplicar(m);
+    for (const m of ['342_robo_pausa_e_config.sql', '366_ponte_do_chat.sql', '367_chat_ordem_e_indices.sql']) await aplicar(m);
     if (!(await tem('entregador_chegada'))) await aplicar('201_entregador_chegada.sql');
     await q(`insert into empresa (id, nome) values ($1, 'teste avisos do chat')`, [T]);
     [{ id: lojaA }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja A') returning id`, [T]);

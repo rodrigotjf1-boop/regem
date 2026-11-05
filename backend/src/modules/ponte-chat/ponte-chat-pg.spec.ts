@@ -98,7 +98,7 @@ descrever('ponte do chat (Postgres)', () => {
 
   beforeAll(async () => {
     delete process.env.EDGE_MODE; // como NUVEM
-    for (const m of ['342_robo_pausa_e_config.sql', '366_ponte_do_chat.sql']) await aplicar(m);
+    for (const m of ['342_robo_pausa_e_config.sql', '366_ponte_do_chat.sql', '367_chat_ordem_e_indices.sql']) await aplicar(m);
     for (const t of [T, T2]) await q(`insert into empresa (id, nome) values ($1, 'teste ponte do chat')`, [t]);
     [{ id: lojaA }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja A') returning id`, [T]);
     [{ id: lojaB }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja B') returning id`, [T]);
@@ -224,6 +224,22 @@ descrever('ponte do chat (Postgres)', () => {
       desligada: true,
     });
     expect(await q(`select count(*)::int as n from chat_plataforma_msg where tenant_id = $1 and externo_msg_id = 'sb-7'`, [T])).toEqual([{ n: 0 }]);
+  });
+
+  it('um lote de falas sai na ordem em que a ponte mandou: a hora de cada linha cresce (não é a da transação — ERR-379)', async () => {
+    const d = await entrar(delivery);
+    await pedido(lojaA, { ext: 'ifood-lote', num: '6161' });
+    const falas = ['Oi', 'Meu pedido veio sem o molho', 'E o refrigerante veio quente', 'Alguém aí?'];
+    await svc.receber(d, {
+      mensagens: falas.map((texto, i) => ({ canal: 'ifood', id: `lote-${i}-${randomUUID().slice(0, 6)}`, pedido: { externo: 'ifood-lote' }, cliente: 'Maria S.', autor: 'cliente', texto })),
+    });
+    const linhas = await q(
+      `select texto, criado_em > lag(criado_em) over (order by criado_em, id) as depois
+         from chat_plataforma_msg where tenant_id = $1 and pedido_externo = 'ifood-lote' order by criado_em, id`,
+      [T],
+    );
+    expect(linhas.map((l: any) => l.texto)).toEqual(falas);
+    expect(linhas.slice(1).map((l: any) => l.depois)).toEqual([true, true, true]); // nenhuma hora repetida
   });
 
   it('fila de saída: só quem responde pega; duas chamadas juntas nunca pegam a mesma; a loja B não pega a da loja A', async () => {

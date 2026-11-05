@@ -82,7 +82,7 @@ descrever('o robô no chat do iFood e da 99 (Postgres)', () => {
 
   beforeAll(async () => {
     delete process.env.EDGE_MODE; // como NUVEM
-    for (const m of ['342_robo_pausa_e_config.sql', '366_ponte_do_chat.sql']) await aplicar(m);
+    for (const m of ['342_robo_pausa_e_config.sql', '366_ponte_do_chat.sql', '367_chat_ordem_e_indices.sql']) await aplicar(m);
     await q(`insert into empresa (id, nome) values ($1, 'teste robô do chat')`, [T]);
     [{ id: loja }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja A') returning id`, [T]);
     [{ id: ana }] = await q(`insert into colaborador (tenant_id, nome, unidade_id, status) values ($1, 'Ana', $2, 'ativo') returning id`, [T, loja]);
@@ -121,6 +121,24 @@ descrever('o robô no chat do iFood e da 99 (Postgres)', () => {
     // com o caso aberto, o robô fica quieto: a fala soma no caso e nada sai dele
     expect(await fala('r-a', 'Alô?')).toMatchObject({ casosNovos: 0, casosSomados: 1, roboRespondeu: 0 });
     expect(await doRobo('r-a')).toHaveLength(3);
+  });
+
+  it('a ordem da conversa: a pergunta do cliente vem ANTES da resposta do robô gravada na mesma transação (ERR-379)', async () => {
+    await pedido('r-ordem', { status: 'despachado', minAtras: 5 });
+    await fala('r-ordem', 'Cadê meu pedido?'); // a pergunta e a resposta: a mesma transação
+    await fala('r-ordem', 'Veio errado, um absurdo'); // a reclamação e o "já chamei a equipe": a mesma transação
+    const linhas = await q(
+      `select autor, texto, criado_em > lag(criado_em) over (order by criado_em, id) as depois
+         from chat_plataforma_msg where tenant_id = $1 and pedido_externo = 'r-ordem' order by criado_em, id`,
+      [T],
+    );
+    expect(linhas.map((l: any) => [l.autor, l.texto])).toEqual([
+      ['cliente', 'Cadê meu pedido?'],
+      ['robo', expect.stringMatching(/^Oi, Maria! Seu pedido saiu às/)],
+      ['cliente', 'Veio errado, um absurdo'],
+      ['robo', CHAMEI_A_EQUIPE],
+    ]);
+    expect(linhas.slice(1).map((l: any) => l.depois)).toEqual([true, true, true]); // a hora de cada linha, nunca repetida
   });
 
   it('o entregador da plataforma: acompanhar pelo app; a retirada pronta: já pode retirar', async () => {
