@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Ponte do chat 0.5.1 — o envio automático abre a conversa no Gestor de verdade (05/11; ERR-380; sem migration).** Só o
+  programa `ponte-chat/` (ainda sem instalador — gerar sob comando): espera o resumo do pedido assentar antes de clicar no
+  chat (o clique cedo se perdia) e clica de novo uma vez se nada abriu; fecha a conversa pelo `close-icon` e o resumo por
+  "Fechar detalhes"; e reconhece o eco da 1ª mensagem de uma conversa nova (volta pela conta da loja — ERR-381). Nada muda
+  no `.zip`/`.exe` do Regem nem na nuvem.
+
 - **A ponte do chat no ícone "Regem neste PC" (05/11; sem migration; ⚠️ pede `.exe` novo nos PCs).** O ícone da estação
   (`edge/bandeja/RegemEstacao.cs`) lê o `estado-da-ponte.json` que o programa da ponte grava e, num PC onde a ponte roda,
   mostra a linha "Ponte do chat: responde o chat - iFood logado" (pausada, fechada, sem login…) e os itens "Abrir a ponte

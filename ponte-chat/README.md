@@ -78,9 +78,24 @@ Regem — e liga o chat à nuvem do Regem.
 - **`estado-da-ponte.json`** (na pasta de dados): o resumo do estado, gravado a cada sinal e a cada mudança — o que o
   ícone "Regem neste PC" vai ler (no próximo `.exe`). Sem segredo nem conversa; leva o caminho do executável.
 
-**Pendências de teste no Gestor de verdade** (provado só com o Gestor de mentira): o 1º envio automático com o dono
-olhando, num pedido de entrega própria saindo; o "Fechar" da conversa e do resumo (o rótulo do X no Gestor real não está
-mapeado — sem ele, a tela fica na conversa); o "setter" com a janela escondida.
+## O que a versão 0.5.1 corrige (1º teste real do envio automático, 05/11 — ERR-380)
+
+No Gestor de verdade, com a loja aberta, o envio automático nunca abria a conversa ("o topo da conversa não mostra
+#número" em todo pedido; nada foi digitado). A causa, achada pela inspeção do Gestor real (a porta de depuração do
+programa, só leitura e texto mascarado): o clique no botão de chat do resumo vinha ~80 ms depois de abrir o pedido, com o
+resumo ainda montando — e se perdia. Agora o programa espera o resumo DESTE pedido, dá 700 ms para ele assentar, clica e,
+se nada abrir (nada na tela e o Gestor sem pedir a conversa), clica de novo uma vez. E os "X" de hoje: o do resumo é
+"Fechar detalhes"; o da conversa, um ícone `close-icon` sem rótulo. Conferido no Gestor real (abre no 1º clique; conversa e
+resumo fecham).
+
+**E o eco da 1ª mensagem (ERR-381).** Com a correção acima, o 1º envio de verdade (05/11, #0845) SAIU — mas ficou "envio
+incerto": a 1ª mensagem da loja numa conversa nova sai pelo iFood (o `POST` do chat do pedido) e volta com o remetente = a
+CONTA da loja, a mesma cara do aviso automático do iFood, que a ponte descartava como eco. Agora o eco e a memória do "já
+enviada" aceitam a mensagem da conta da loja quando o texto é EXATAMENTE o que a ponte mandou (um aviso do iFood nunca tem
+esse texto). Ela segue fora do que vai à nuvem como fala da equipe.
+
+**Pendências:** o 1º envio com o eco confirmado no Gestor de verdade (com esta versão); o "setter" com a janela escondida;
+a 1ª mensagem que a EQUIPE digita no Gestor numa conversa nova tem a mesma cara do aviso e não entra no Atendimento.
 
 ## Rodar (desenvolvimento)
 

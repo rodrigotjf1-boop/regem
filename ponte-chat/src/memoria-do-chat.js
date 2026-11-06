@@ -5,8 +5,11 @@
 // aviso nasceu?" Se está (a ponte mandou e caiu antes de avisar a nuvem; ou alguém da loja mandou o mesmo texto), não
 // digita de novo: dá por enviada com o id que a mensagem tem no chat.
 // Alimentam a memória: as mensagens que chegam ao vivo (o quadro MESG — inclusive o eco do que a ponte mandou) e o
-// HISTÓRICO que o Gestor carrega ao abrir a conversa (`…/messages`). Só da LOJA e nunca o aviso automático do iFood. Guarda
-// o RESUMO do texto (sha-256), não o texto; só na memória do programa, com teto.
+// HISTÓRICO que o Gestor carrega ao abrir a conversa (`…/messages`). Só da LOJA. Guarda o RESUMO do texto (sha-256), não o
+// texto; só na memória do programa, com teto.
+// 0.5.1 (ERR-381, 05/11 no Gestor de verdade): a 1ª mensagem de uma conversa NOVA sai pelo iFood (o `POST` do chat do pedido)
+// e volta com o remetente = a CONTA da loja — a mesma cara do aviso automático do iFood ("Apenas você pode ver"). Ela
+// também entra aqui: a busca é pelo texto EXATO do que a ponte mandou, que um aviso do iFood nunca tem.
 
 const crypto = require('crypto');
 
@@ -31,9 +34,12 @@ class MemoriaDoChat {
     return p || (m && m.canalDoChat) || null;
   }
 
-  /** Guarda uma mensagem (do quadro ao vivo ou do histórico). Só da loja, nunca o aviso automático do iFood. */
+  /**
+   * Guarda uma mensagem (do quadro ao vivo ou do histórico). Só da loja — também a que vem da CONTA da loja (o aviso do iFood
+   * e a 1ª mensagem de uma conversa nova têm a mesma cara): `jaEnviada` só acha pelo texto exato.
+   */
   guardar(m) {
-    if (!m || m.autor !== 'loja' || m.avisoDaPlataforma || !m.id) return false;
+    if (!m || m.autor !== 'loja' || !m.id) return false;
     const k = MemoriaDoChat.chave(m);
     if (!k) return false;
     let lista = this.conversas.get(k);

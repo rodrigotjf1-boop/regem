@@ -168,7 +168,8 @@ function ligarLeitor(wc, { aoChegar, aoMudarChat, diagnostico, registrarErro }) 
     historicoEm: (pedidoExterno) => historicos.get(String(pedidoExterno || '').toLowerCase()) || 0,
     /**
      * Espera a mensagem da LOJA com este texto chegar depois de `desde` — na conversa `canal` (quando se sabe) e do pedido
-     * `pedidoExterno` (quando se sabe) — ou null no prazo. O aviso automático do iFood nunca conta como eco.
+     * `pedidoExterno` (quando se sabe) — ou null no prazo. Vale pelo texto EXATO: o aviso automático do iFood (outro texto)
+     * nunca conta; a 1ª mensagem de uma conversa nova (remetente = a conta da loja, como o aviso) conta (ERR-381).
      */
     esperarEco: ({ canal, pedidoExterno, texto, desde, prazoMs = 20000 }) =>
       new Promise((resolver) => {
@@ -177,7 +178,9 @@ function ligarLeitor(wc, { aoChegar, aoMudarChat, diagnostico, registrarErro }) 
           resolver(null);
         }, prazoMs);
         const ouvir = (m) => {
-          if (m.autor !== 'loja' || m.avisoDaPlataforma || m.texto.trim() !== String(texto).trim() || Date.now() < desde) return;
+          // A 1ª mensagem de uma conversa NOVA volta com o remetente = a conta da loja, a cara do aviso automático do iFood
+          // (ERR-381, 05/11): vale como eco pelo texto EXATO do que a ponte mandou — um aviso do iFood nunca tem esse texto.
+          if (m.autor !== 'loja' || m.texto.trim() !== String(texto).trim() || Date.now() < desde) return;
           if (canal && m.canalDoChat !== canal) return;
           if (pedidoExterno && String(m.pedidoExterno || '').toLowerCase() !== String(pedidoExterno).toLowerCase()) return;
           clearTimeout(fim);
