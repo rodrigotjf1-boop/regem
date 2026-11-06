@@ -157,9 +157,12 @@ assinatura         v1,HCkTVm4dLgQ3u7I1gRWpJRTcGU2jcgTizQ7kZe1t/7U=
 }
 ```
 
+- **Desde 06/11/2026 o botão da tela é "Publicar nas integrações"**, em Cadastros › Cardápio (saiu de Configurações ›
+  Equipamentos). Ele publica no GoGeM com esta MESMA chamada — nada muda para o GoGeM — e, no mesmo clique, pede a quem
+  lê o cardápio pela porta (Farol) para ler de novo. No servidor da loja, o clique passa pela nuvem (`POST
+  /integracoes/loja/publicar`, token de sync): só a nuvem fala com o GoGeM (ERR-108).
 - `webhook-id` = `publicar_<uuid novo>`, um por clique.
-- **Resposta:** `200` `{ "alterados": <número> }`. O Regem mostra "Publicado no GoGeM: N produto(s)
-  sincronizado(s)."
+- **Resposta:** `200` `{ "alterados": <número> }`. O Regem mostra "Publicado: N produtos atualizados no totem."
 - **Sem repetição.** Se falhar, o atendente vê o erro e clica de novo; o poller do GoGeM segue como rede de
   segurança.
 - **Qual registro:** o da loja em uso pelo atendente; numa empresa de uma loja só, o dela. Se a loja não tem
@@ -178,13 +181,14 @@ assinatura         v1,HCkTVm4dLgQ3u7I1gRWpJRTcGU2jcgTizQ7kZe1t/7U=
 1. Registrar com o `PUT`.
 2. Cancelar no Regem uma venda de teste do totem paga em PIX.
 3. Conferir no GoGeM o estorno pedido e, no Regem, a mensagem "Estorno de R$ X solicitado".
-4. Clicar em "Publicar no GoGeM" e ver o número de alterados.
+4. Clicar em "Publicar nas integrações" (Cadastros › Cardápio) e ver o número de alterados na linha do GoGeM.
 5. Fazer o `DELETE` e repetir o cancelamento: tem de funcionar pelo caminho antigo.
 
 ## 7. Depois da fase 4
 
 - O `X-Sync-Token` some dos avisos e os dois caminhos antigos param de ser chamados.
 - Loja sem registro: o cancelamento fica "aguardando a integração", com a mesma mensagem e o mesmo prazo de 7 dias
-  de hoje, e sai assim que o GoGeM fizer o `PUT`. "Publicar no GoGeM" diz que a integração não está ligada.
+  de hoje, e sai assim que o GoGeM fizer o `PUT`. A linha do GoGeM no "Publicar nas integrações" diz que a
+  integração não está ligada.
 - Versão nova do contrato (`contrato: 2`) só com aviso ao GoGeM e com as duas versões valendo juntas por um tempo
   combinado.

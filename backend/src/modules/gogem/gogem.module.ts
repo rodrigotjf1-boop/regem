@@ -10,11 +10,13 @@ import { GogemAvisoService } from './gogem-aviso.service';
  * cancelada no Regem (o GoGeM estorna o cartão/PIX — fila `aviso_integracao`, mig 289). O servidor
  * da loja repassa o aviso para a nuvem (`GogemRepasseController`, token de sync — por isso o
  * `EquipamentoModule`, que o `SyncTokenGuard` usa), e só a nuvem fala com o GoGeM (ERR-108).
+ * O botão da tela agora é o "Publicar nas integrações" do Cardápio (`PublicarIntegracoesModule` usa o
+ * `GogemPublishService`); a rota `integracoes/gogem/publicar` segue para quem ainda a chama.
  */
 @Module({
   imports: [EquipamentoModule],
   controllers: [GogemController, GogemRepasseController],
   providers: [GogemPublishService, GogemAvisoService],
-  exports: [GogemAvisoService],
+  exports: [GogemAvisoService, GogemPublishService],
 })
 export class GogemModule {}

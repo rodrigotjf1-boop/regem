@@ -57,6 +57,8 @@ export const SYNC_MODULES = [
   // Tabela do IBPT (Lei 12.741, mig 291): a distribuição envia na nuvem; o servidor da loja baixa a
   // da UF dele (não é sync de tenant — é dado da distribuição, sem empresa).
   'IbptModule',
+  // "Publicar nas integrações" (Cardápio): a situação e o envio são da nuvem; no servidor da loja só repassa à nuvem.
+  'PublicarIntegracoesModule',
 ] as const;
 
 // Infra sempre presente (auth, orm, agendador, sync, edge, realtime).

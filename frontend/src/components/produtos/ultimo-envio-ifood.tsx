@@ -20,6 +20,9 @@ type Envio = {
   quando: string;
 };
 
+const ACOMPANHAR_MS = 5_000;
+const ACOMPANHAR_VEZES = 12;
+
 const brl = (n: number) => Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const SITUACAO: Record<string, { rotulo: string; cor: string }> = {
   na_fila: { rotulo: 'na fila', cor: 'text-muted-foreground' },
@@ -38,6 +41,7 @@ export function UltimoEnvioIfood({ alvo, id }: { alvo: 'produto' | 'opcao'; id: 
   const [semConexao, setSemConexao] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const pedido = useRef(0);
+  const voltas = useRef(0);
 
   const carregar = useCallback(async () => {
     const meu = ++pedido.current;
@@ -57,8 +61,21 @@ export function UltimoEnvioIfood({ alvo, id }: { alvo: 'produto' | 'opcao'; id: 
   }, [alvo, id]);
 
   useEffect(() => {
+    voltas.current = 0;
     void carregar();
   }, [carregar]);
+
+  // Enquanto algum envio está a caminho (na fila / enviando), o quadro relê sozinho a cada 5 s, por até 1 minuto — o
+  // envio sai em segundos depois de salvar. O link "Conferir de novo" só relê o quadro; não envia nada ao iFood.
+  useEffect(() => {
+    if (!envios?.some((e) => e.situacao === 'na_fila' || e.situacao === 'enviando')) return;
+    if (voltas.current >= ACOMPANHAR_VEZES) return;
+    const t = setTimeout(() => {
+      voltas.current += 1;
+      void carregar();
+    }, ACOMPANHAR_MS);
+    return () => clearTimeout(t);
+  }, [envios, carregar]);
 
   return (
     <div className="mt-3 rounded-lg border border-border p-2.5" aria-live="polite">
@@ -66,11 +83,15 @@ export function UltimoEnvioIfood({ alvo, id }: { alvo: 'produto' | 'opcao'; id: 
         <p className="text-xs font-semibold">Último envio ao iFood</p>
         <button
           type="button"
-          onClick={() => void carregar()}
+          onClick={() => {
+            voltas.current = 0;
+            void carregar();
+          }}
           disabled={carregando}
+          title="Lê de novo o resultado do envio (o envio ao iFood já sai sozinho quando você salva)"
           className="ml-auto text-[11px] font-medium text-primary hover:underline disabled:opacity-50"
         >
-          {carregando ? 'Atualizando…' : 'Atualizar'}
+          {carregando ? 'Conferindo…' : 'Conferir de novo'}
         </button>
       </div>
       {envios === null ? (

@@ -236,6 +236,17 @@ export function clearTerminal() {
 // reinstalação do servidor. Estado da aba (não é dado de negócio): some ao recarregar, e a próxima chamada reconfere.
 export type SuspensaoDoTerminal = { ate: number; code: 'TERMINAL_NAO_RECONHECIDO' | 'LOJA_CARREGANDO'; message: string };
 const SUSPENSAO_MS = 30_000;
+
+/** Uma integração que usa o cardápio, como o servidor a descreve ("Publicar nas integrações"). */
+export type LinhaIntegracao = {
+  chave: string;
+  rotulo: string;
+  modo: 'automatico' | 'ao_publicar';
+  tom: 'ok' | 'atencao' | 'problema' | 'neutro';
+  frase: string;
+  detalhes?: string[];
+};
+export type SituacaoIntegracoes = { linhas: LinhaIntegracao[]; podePublicar: boolean; semConexao: boolean };
 let suspensao: SuspensaoDoTerminal | null = null;
 /** O servidor ainda não reconheceu este terminal (até a próxima resposta boa com ele). */
 export function terminalSuspenso(): SuspensaoDoTerminal | null {
@@ -747,6 +758,11 @@ export const api = {
   // `semConexao` = não deu para ler (não é "nenhum envio").
   produtoIfoodEnvios: (id: string) => req(`/produtos/${id}/ifood-envios`) as Promise<{ envios: any[]; semConexao: boolean }>,
   opcaoIfoodEnvios: (id: string) => req(`/produtos/opcoes/${id}/ifood-envios`) as Promise<{ envios: any[]; semConexao: boolean }>,
+  // "Publicar nas integrações" (Cadastros › Cardápio): a situação de cada integração que usa o cardápio e o publicar
+  // (GoGeM na hora; quem lê pela porta lê de novo; o iFood já vai sozinho). Só gestão; no servidor da loja vem da nuvem.
+  integracoesDoCardapio: () => req('/integracoes/publicar') as Promise<SituacaoIntegracoes>,
+  publicarNasIntegracoes: () =>
+    req('/integracoes/publicar', { method: 'POST', body: '{}' }) as Promise<SituacaoIntegracoes & { resumo: string }>,
   produtoCategorias: () => req('/produtos/categorias'),
   criarCategoriaProduto: (body: Record<string, unknown>) =>
     req('/produtos/categorias', { method: 'POST', body: JSON.stringify(body) }),
