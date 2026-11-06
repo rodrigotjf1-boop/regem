@@ -2329,6 +2329,9 @@ const SO_NUVEM = new Set([
   // O pedido de avaliação no Google depois da entrega (mig 365, @cloud-only): sai pelo WhatsApp oficial, só da nuvem; o
   // toque no link também chega lá. A loja não tem esta tabela.
   'avaliacao_pedida',
+  // iFood pelo Orzuni (mig 370, @cloud-only): a ligação de cada loja com o Orzuni (segredo cifrado com a chave da nuvem) e
+  // a fila do envio — só a nuvem fala com o Orzuni; a edição feita na loja chega lá pelo sincronismo e enfileira lá.
+  'orzuni_ligacao', 'orzuni_envio',
 ]);
 
 // LEGADO SEM USO: tabelas criadas nas migrations de fundação (002/003) para recursos que

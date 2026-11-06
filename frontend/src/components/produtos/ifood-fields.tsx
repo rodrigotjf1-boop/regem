@@ -9,8 +9,8 @@ const brl = (n: number) => Number(n || 0).toLocaleString('pt-BR', { style: 'curr
 
 // iFood pelo Orzuni (mig 369) — só aparece com o direito `ifood_pelo_orzuni` ligado na empresa.
 // O preço no iFood é guardado À PARTE do preço do Regem (preços diferentes por canal). A ligação com o
-// item do iFood é pelo código PDV do produto. O envio ao iFood ainda não existe (R2): o texto diz isso,
-// para a tela não prometer o que o servidor não faz (V39).
+// item do iFood é pelo código PDV do produto. O envio (R2a, mig 370): a mudança entra na fila na mesma
+// gravação e sai para o iFood das lojas ligadas ao Orzuni; o texto diz só o que o servidor faz (V39).
 export function IfoodFields({ f, set }: { f: any; set: (patch: any) => void }) {
   const codigo = String(f.codigo ?? '').trim();
   const precoRegem = Number(String(f.precoVenda ?? '').replace(',', '.'));
@@ -50,8 +50,8 @@ export function IfoodFields({ f, set }: { f: any; set: (patch: any) => void }) {
         </div>
       </div>
       <p id="preco-ifood-ajuda" className="mt-2 text-[11px] text-muted-foreground">
-        Guardado à parte do preço do Regem. Em branco, o produto fica sem preço próprio no iFood. O envio ao iFood ainda
-        não está ligado: por enquanto o preço fica só guardado aqui.
+        Guardado à parte do preço do Regem. Ao salvar, o Regem manda este preço ao iFood das lojas ligadas ao Orzuni; em
+        branco, não mexe no preço de lá. Pausar o produto (&quot;Ativo no iFood&quot; ou esgotado) também pausa no iFood.
       </p>
       {codigo ? (
         <p className="mt-2 break-all text-[11px] text-muted-foreground">

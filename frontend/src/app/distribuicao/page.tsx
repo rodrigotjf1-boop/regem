@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { clearDistToken, distApi, getDistToken, setToken } from '@/lib/api';
 import { TokensIntegracao } from '@/components/distribuicao/tokens-integracao';
+import { IfoodPeloOrzuni } from '@/components/distribuicao/ifood-pelo-orzuni';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -340,7 +341,7 @@ export default function DistHome() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
-      <header className="flex items-center justify-between border-b border-slate-800 px-6 py-4">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 px-4 py-4 sm:px-6">
         <div>
           <p className="text-xs font-semibold uppercase tracking-widest text-amber-400">Regem · Distribuição</p>
           <h1 className="text-lg font-bold">Console de controle</h1>
@@ -352,7 +353,8 @@ export default function DistHome() {
         </div>
       </header>
 
-      <nav className="flex gap-1 border-b border-slate-800 px-6">
+      {/* As abas quebram a linha (sem rolagem lateral no celular nem com zoom — regra do dono, V45). */}
+      <nav className="flex flex-wrap gap-1 border-b border-slate-800 px-4 sm:px-6">
         {abas.map((a) => (
           <button key={a.k} onClick={() => setAba(a.k as any)} className={`border-b-2 px-4 py-2.5 text-sm ${aba === a.k ? 'border-amber-500 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>{a.t}</button>
         ))}
@@ -757,6 +759,9 @@ export default function DistHome() {
 
             {/* Tokens de integração por loja (trilha C) — só Diretoria. */}
             {ehDiretoria && <TokensIntegracao empresas={frota ?? []} />}
+
+            {/* iFood pelo Orzuni (mig 370) — só Diretoria: a ligação de cada loja, a liberação e os envios. */}
+            {ehDiretoria && <IfoodPeloOrzuni empresas={frota ?? []} />}
 
             {modalIfood && (
               <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={() => setModalIfood(null)}>
