@@ -25,6 +25,12 @@
    equipe responde aqui e a resposta sai no chat da plataforma. Avisos automáticos no chat: "saiu" ao despachar e
    "chegando" a 70 m da posição que a plataforma manda no pedido. Situação nova "Conversas agora": o que o robô está
    atendendo nos três canais. Sem a ponte, o chat oficial do iFood (Widget) continua de reserva.
+   VERSÃO 4 (06/11/2026, item 5 do checkpoint): GERENTE NO WHATSAPP — aba nova "WhatsApp do gerente" e o grupo de
+   ajustes "Gerente no WhatsApp". Cada gestor (gerente ou presidente) liga o PRÓPRIO WhatsApp mandando um código ao
+   WhatsApp da loja; as decisões com prazo (disputa do iFood, cancelamento e reembolso da 99, cancelamento pedido no
+   cardápio) chegam com botões (API oficial) ou enquete (conexão por QR code), com a confirmação em dois toques; o caso
+   que ninguém pegou chega como aviso. Limite de valor só para ACEITAR (o que devolve dinheiro): acima dele, só "Recusar"
+   e o link para aceitar no Regem com a senha. Nasce desligado. Escolhas recomendadas nas Notas.
    O que a tela faz:
    (1) uma FILA só com tudo o que precisa de uma pessoa: chamado do robô, disputa do iFood, pedido de cancelamento ou
        reembolso da 99, cancelamento pedido no cardápio e a resposta ao "sem contato". A conversa que o robô atende
@@ -279,6 +285,39 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 
 /* app Android */
 .vitrine{padding:20px 16px 60px;display:flex;flex-wrap:wrap;gap:28px 24px;justify-content:center}
+
+/* WhatsApp do gerente (versão 4): a conversa do gestor com o WhatsApp da loja, no celular dele */
+.wa-topo{display:flex;align-items:center;gap:10px;background:#1F3A4D;color:#fff;padding:9px 12px}
+.wa-topo .av{width:32px;height:32px;border-radius:50%;background:var(--gold);color:var(--on-gold);display:grid;place-items:center;font-weight:800;font-size:13px;flex:none}
+.wa-topo b{display:block;font-size:14px}
+.wa-topo small{font-size:11.5px;color:#C9D6E2}
+.wa-chat{flex:1;overflow-y:auto;padding:12px 10px;display:flex;flex-direction:column;gap:8px;background:#E9E4DC}
+.wa-dia{align-self:center;font-size:11.5px;background:#fff;color:var(--ink-2);border-radius:8px;padding:3px 10px}
+.bolha{max-width:88%;background:#fff;color:var(--ink);border-radius:10px;padding:8px 10px 6px;font-size:13.5px;line-height:1.4;box-shadow:0 1px 1px rgba(0,0,0,.08);overflow-wrap:anywhere}
+.bolha.eu{align-self:flex-end;background:#D9F2D0}
+.bolha small{display:block;text-align:right;font-family:var(--mono);font-size:10.5px;color:var(--ink-2);margin-top:2px}
+.bolha .lk{color:var(--info);font-weight:600}
+.bolha .cab-m{display:block;font-weight:800;font-family:var(--display);margin-bottom:2px}
+.wa-bts{display:flex;flex-direction:column;gap:4px;max-width:88%}
+.wa-bts button{min-height:40px;border:none;border-radius:10px;background:#fff;color:var(--info);font-weight:700;font-size:13.5px;box-shadow:0 1px 1px rgba(0,0,0,.08)}
+.wa-bts button[disabled]{cursor:default}
+/* a conversa inteira à vista: o celular desta aba cresce com ela */
+#v-wa .fone{height:auto;min-height:640px}
+#v-wa .fone .vidro{min-height:620px}
+#v-wa .wa-chat{overflow:visible}
+.enquete{max-width:88%;background:#fff;border-radius:10px;padding:10px;font-size:13.5px;box-shadow:0 1px 1px rgba(0,0,0,.08)}
+.enquete b{display:block;margin-bottom:6px}
+.enquete .op{display:flex;align-items:center;gap:8px;min-height:38px;border-top:1px solid var(--line);font-weight:600}
+.enquete .op::before{content:"";width:16px;height:16px;border-radius:50%;border:2px solid var(--line-2);flex:none}
+.enquete .op.marcada::before{background:var(--ok);border-color:var(--ok)}
+.enquete small{display:block;font-size:11.5px;color:var(--ink-2);margin-top:4px}
+/* "Quem recebe" no ajuste: uma linha por gestor */
+.pessoas{display:flex;flex-direction:column;gap:6px;width:100%}
+.pessoa{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.pessoa .nm{font-weight:700;min-width:0}
+.pessoa .st{font-size:13px;color:var(--ink-2);flex:1 1 160px;min-width:0}
+.pessoa .bt{min-height:36px}
+.qr{width:150px;height:150px;margin:4px auto;border-radius:10px;background:repeating-conic-gradient(var(--ink) 0 25%,#fff 0 50%) 0 0/20px 20px;border:8px solid #fff;box-shadow:0 0 0 1px var(--line)}
 .tela-app{width:min(360px,100%);display:flex;flex-direction:column;gap:8px}
 .tela-app > figcaption{font-size:13.5px;color:var(--ink-2)}
 .tela-app > figcaption strong{display:block;font-family:var(--display);color:var(--ink);font-size:15px}
@@ -358,6 +397,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   <div class="abas" role="group" aria-label="Ver">
     <button type="button" class="aba" data-vista="pc" aria-pressed="true">Tela do PC</button>
     <button type="button" class="aba" data-vista="app" aria-pressed="false">App Android</button>
+    <button type="button" class="aba" data-vista="wa" aria-pressed="false">WhatsApp do gerente</button>
     <button type="button" class="aba" data-vista="aj" aria-pressed="false">Ajustes</button>
     <button type="button" class="aba" data-vista="notas" aria-pressed="false">Notas</button>
   </div>
@@ -437,7 +477,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     <main id="v-aj" hidden>
       <div class="trilha">Delivery › Configurações › Operação</div>
       <h1>Atendimento</h1>
-      <p class="resumo">18 ajustes em 4 grupos · item novo no grupo "Operação", ao lado de "Robô de atendimento" · grupo novo: "iFood e 99 · chat pela ponte"</p>
+      <p class="resumo">25 ajustes em 5 grupos · item novo no grupo "Operação", ao lado de "Robô de atendimento" · grupos novos: "Gerente no WhatsApp" e "iFood e 99 · chat pela ponte"</p>
       <div class="filtros" style="grid-template-columns:minmax(0,1fr)"><div class="campo"><label for="busca-aj">Buscar ajuste</label><input id="busca-aj" type="search" placeholder="Ex.: 99, disputa, som"></div></div>
 
       <section class="grupo" data-grupo>
@@ -448,6 +488,26 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
           <div class="ctrl"><select aria-label="Tempo para avisar o gerente" data-aj><option>2 min</option><option selected>3 min</option><option>5 min</option><option>10 min</option></select></div></div>
         <div class="aj"><div><span class="rot-aj">Dizer ao cliente a posição na fila</span><span class="ajuda">No WhatsApp, o robô responde "Você é o 2º da fila, cerca de 4 min". Só onde a loja pode escrever ao cliente.</span></div>
           <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Dizer ao cliente a posição na fila" data-aj></button></div></div>
+      </section>
+
+      <section class="grupo" data-grupo>
+        <header><h3>Gerente no WhatsApp <span class="novo-t">NOVO</span></h3><span>6 ajustes</span></header>
+        <div class="aj"><div><span class="rot-aj">Avisar e decidir pelo WhatsApp</span><span class="ajuda">O WhatsApp da loja manda ao WhatsApp de cada gestor ligado abaixo o que pede uma decisão, com os botões para responder ali mesmo, e o caso que ninguém pegou. Desligado, o aviso fica só no Regem e no app de atendimento.</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="false" aria-label="Avisar e decidir pelo WhatsApp" data-aj></button></div></div>
+        <div class="aj"><div><span class="rot-aj">Quem recebe</span><span class="ajuda">Gerentes e presidente. Cada um liga o próprio WhatsApp, pelo celular dele: ninguém liga o número de outra pessoa. Gerente recebe o que é da loja dele; presidente, de todas as lojas.</span></div>
+          <div class="linha-txt"><div class="pessoas" id="pessoas-wa">
+            <div class="pessoa" id="p-ana"><span class="nm">Ana · gerente (você)</span><span class="st">Não ligado</span><button type="button" class="bt pri" data-dlg="ligar-wa">Ligar o meu WhatsApp</button></div>
+            <div class="pessoa" id="p-bruno"><span class="nm">Bruno · gerente</span><span class="st">Ligado · final 4321 · desde 02/11</span><button type="button" class="bt" data-dlg="desligar-wa">Desligar</button></div>
+            <div class="pessoa"><span class="nm">Rodrigo · presidente</span><span class="st">Não ligado · só ele liga o dele, entrando com o próprio usuário</span></div>
+          </div></div></div>
+        <div class="aj"><div><span class="rot-aj">Decisões com prazo</span><span class="ajuda">Disputa do iFood, cancelamento e reembolso pedidos na 99 e cancelamento pedido no cardápio online, com os botões. A primeira resposta vale; quem tocar depois fica sabendo quem já respondeu.</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Decisões com prazo pelo WhatsApp" data-aj></button></div></div>
+        <div class="aj"><div><span class="rot-aj">Caso que ninguém pegou</span><span class="ajuda">No tempo de "Avisar o gerente se ninguém pegar o caso em", do grupo Fila e avisos. Vai só o aviso, com o link do caso.</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Avisar pelo WhatsApp o caso que ninguém pegou" data-aj></button></div></div>
+        <div class="aj"><div><span class="rot-aj">Aceitar pelo WhatsApp até</span><span class="ajuda">Vale para o que devolve dinheiro: aceitar a disputa, o cancelamento ou o reembolso. Acima disso, a mensagem traz só "Recusar" e o link para aceitar no Regem com a senha. Recusar não tem limite.</span></div>
+          <div class="ctrl"><select aria-label="Aceitar pelo WhatsApp até" data-aj><option>Não aceitar pelo WhatsApp</option><option>R$ 30,00</option><option>R$ 50,00</option><option selected>R$ 100,00</option><option>R$ 200,00</option><option>Sem limite</option></select></div></div>
+        <div class="aj"><div><span class="rot-aj">Sempre vale</span><span class="ajuda">Não se desliga: o WhatsApp vira uma porta de decisão como a senha e o PIN.</span></div>
+          <div class="ctrl"><span class="fixo">A resposta só vale do número ligado, de quem ainda é gerente ou presidente · confirmação em dois toques · uma resposta por caso · fica no histórico como "pelo WhatsApp" · PARAR AVISOS no WhatsApp para os avisos</span></div></div>
       </section>
 
       <section class="grupo" data-grupo>
@@ -641,6 +701,101 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   </div>
 </section>
 
+<!-- ============ WHATSAPP DO GERENTE (versão 4, 06/11/2026) ============ -->
+<section id="v-wa" hidden aria-label="WhatsApp do gerente">
+  <div class="vitrine">
+
+    <figure class="tela-app">
+      <div class="fone"><div class="vidro">
+        <div class="barra-sis"><span>19:02</span><span>4G</span></div>
+        <div class="wa-topo"><span class="av" aria-hidden="true">LC</span><span><b>Loja Centro</b><small>WhatsApp da loja</small></span></div>
+        <div class="wa-chat">
+          <span class="wa-dia">hoje</span>
+          <div class="bolha eu">REGEM 482913<small>19:02 ✓✓</small></div>
+          <div class="bolha">Pronto, Ana! Este WhatsApp está ligado a você no Regem da Loja Centro.<br><br>Daqui chegam as decisões do atendimento, com botões, e o caso que ninguém pegou. Pelo WhatsApp você aceita até R$ 100,00; recusar não tem limite.<br><br>Para parar estes avisos, responda PARAR AVISOS.<small>19:02</small></div>
+        </div>
+      </div></div>
+      <figcaption><strong>1 · Ligar o próprio WhatsApp</strong>No Regem, em Ajustes › Gerente no WhatsApp, a Ana toca em "Ligar o meu WhatsApp" e aponta o celular para o código. O WhatsApp abre com a mensagem pronta para a loja; ela envia. O número que mandou fica ligado a ela.</figcaption>
+    </figure>
+
+    <figure class="tela-app">
+      <div class="fone"><div class="vidro">
+        <div class="barra-sis"><span>19:54</span><span>4G</span></div>
+        <div class="wa-topo"><span class="av" aria-hidden="true">LC</span><span><b>Loja Centro</b><small>WhatsApp da loja · API oficial</small></span></div>
+        <div class="wa-chat">
+          <div class="bolha"><span class="cab-m">⚖️ Disputa do iFood · pedido 4521</span>Ana P. diz: "Faltou a batata." (2 fotos no Regem)<br>Contesta: 1× Batata média · R$ 12,90<br><br>⏱ Responda até 19:58. Sem resposta, o iFood aceita sozinho e devolve o valor.<br><span class="lk">Abrir no Regem</span><small>19:53</small></div>
+          <div class="wa-bts"><button type="button" disabled>Aceitar · R$ 12,90</button><button type="button" disabled>Recusar</button></div>
+          <div class="bolha eu">Aceitar · R$ 12,90<small>19:55 ✓✓</small></div>
+          <div class="bolha">Confirma? O iFood cancela a batata média e a cliente recebe R$ 12,90 de volta. O iFood aceita uma resposta só.<small>19:55</small></div>
+          <div class="wa-bts"><button type="button" disabled>Confirmar</button><button type="button" disabled>Voltar</button></div>
+          <div class="bolha eu">Confirmar<small>19:55 ✓✓</small></div>
+          <div class="bolha">✅ Feito: disputa do pedido 4521 aceita. No histórico do caso: Ana, pelo WhatsApp, 19:55.<small>19:55</small></div>
+        </div>
+      </div></div>
+      <figcaption><strong>2 · Decidir com dois toques (API oficial)</strong>A escolha e a confirmação, como a senha no computador e o PIN no app. Na disputa, os botões são Aceitar e Recusar; a proposta (crédito ou outro valor) fica no Regem.</figcaption>
+    </figure>
+
+    <figure class="tela-app">
+      <div class="fone"><div class="vidro">
+        <div class="barra-sis"><span>19:54</span><span>4G</span></div>
+        <div class="wa-topo"><span class="av" aria-hidden="true">LC</span><span><b>Loja Centro</b><small>WhatsApp da loja · conexão por QR code</small></span></div>
+        <div class="wa-chat">
+          <div class="bolha"><span class="cab-m">⚖️ Disputa do iFood · pedido 4521</span>Ana P. diz: "Faltou a batata." Contesta: 1× Batata média · R$ 12,90. Responda até 19:58.<br><span class="lk">Abrir no Regem</span><small>19:53</small></div>
+          <div class="enquete"><b>Disputa 4521 · R$ 12,90</b><div class="op marcada">Aceitar · caso 4521</div><div class="op">Recusar · caso 4521</div><small>Toque numa opção</small></div>
+          <div class="enquete"><b>Confirma aceitar a disputa 4521 e devolver R$ 12,90?</b><div class="op marcada">Confirmar · caso 4521</div><div class="op">Voltar · caso 4521</div></div>
+          <div class="bolha">✅ Feito: disputa do pedido 4521 aceita. No histórico do caso: Ana, pelo WhatsApp, 19:55.<small>19:55</small></div>
+        </div>
+      </div></div>
+      <figcaption><strong>3 · Sem a API oficial: enquete</strong>A conexão por QR code não mostra botões. A enquete faz o mesmo papel, e o número do caso na opção diz a qual decisão o toque responde.</figcaption>
+    </figure>
+
+    <figure class="tela-app">
+      <div class="fone"><div class="vidro">
+        <div class="barra-sis"><span>20:10</span><span>4G</span></div>
+        <div class="wa-topo"><span class="av" aria-hidden="true">LC</span><span><b>Loja Centro</b><small>WhatsApp da loja · API oficial</small></span></div>
+        <div class="wa-chat">
+          <div class="bolha"><span class="cab-m">99Food · cancelamento · pedido 77</span>Marina S. pediu para cancelar: "Demorou demais." Pedido de R$ 186,40.<br><br>Acima do seu limite pelo WhatsApp (R$ 100,00): para aceitar, abra no Regem e confirme com a sua senha. Recusar dá por aqui.<br>⏱ A 99 recusa sozinha às 20:14.<br><span class="lk">Abrir no Regem</span><small>20:09</small></div>
+          <div class="wa-bts"><button type="button" disabled>Recusar</button></div>
+          <span class="wa-dia">no celular do Bruno</span>
+          <div class="bolha eu">Recusar<small>20:12 ✓✓</small></div>
+          <div class="bolha">A Ana já respondeu às 20:11: aceitou o cancelamento, no Regem. Nada foi enviado de novo.<small>20:12</small></div>
+        </div>
+      </div></div>
+      <figcaption><strong>4 · Acima do limite e "já respondido"</strong>O limite vale para aceitar. Mensagem mandada a dois gestores: a primeira resposta vale, pelo Regem, pelo app ou pelo WhatsApp; quem toca depois fica sabendo.</figcaption>
+    </figure>
+
+    <figure class="tela-app">
+      <div class="fone"><div class="vidro">
+        <div class="barra-sis"><span>20:31</span><span>4G</span></div>
+        <div class="wa-topo"><span class="av" aria-hidden="true">LC</span><span><b>Loja Centro</b><small>WhatsApp da loja</small></span></div>
+        <div class="wa-chat">
+          <div class="bolha"><span class="cab-m">🔔 Ninguém pegou um caso</span>Carlos M. · WhatsApp · pedido 1180 · atraso. Esperando há 3 min.<br><span class="lk">Abrir no Regem</span><small>20:30</small></div>
+          <div class="bolha eu">PARAR AVISOS<small>22:40 ✓✓</small></div>
+          <div class="bolha">Certo, Ana: este WhatsApp não recebe mais os avisos do atendimento. Para voltar, responda VOLTAR AVISOS.<small>22:40</small></div>
+        </div>
+      </div></div>
+      <figcaption><strong>5 · Caso que ninguém pegou</strong>Só o aviso e o link. PARAR AVISOS desliga na hora, VOLTAR AVISOS religa, sem precisar do Regem ("PARAR" sozinho continua sendo sair das ofertas). As respostas aos avisos não vão ao robô nem viram conversa de cliente; o resto que o gestor escrever é conversa normal com a loja.</figcaption>
+    </figure>
+
+    <figure class="tela-app">
+      <div class="fone"><div class="vidro">
+        <div class="barra-sis"><span>19:53</span><span>4G</span></div>
+        <div class="wa-topo"><span class="av" aria-hidden="true">LC</span><span><b>Loja Centro</b><small>WhatsApp da loja · API oficial</small></span></div>
+        <div class="wa-chat">
+          <span class="wa-dia">mais de 24 h sem conversa</span>
+          <div class="bolha"><span class="cab-m">Atendimento</span>Atendimento da Loja Centro: disputa do iFood no pedido 4521, responder até 19:58. Toque abaixo para ver por aqui.<small>19:53</small></div>
+          <div class="wa-bts"><button type="button" disabled>Ver por aqui</button></div>
+          <div class="bolha eu">Ver por aqui<small>19:54 ✓✓</small></div>
+          <div class="bolha"><span class="cab-m">⚖️ Disputa do iFood · pedido 4521</span>Ana P. diz: "Faltou a batata." Contesta: 1× Batata média · R$ 12,90…<small>19:54</small></div>
+          <div class="wa-bts"><button type="button" disabled>Aceitar · R$ 12,90</button><button type="button" disabled>Recusar</button></div>
+        </div>
+      </div></div>
+      <figcaption><strong>6 · Fora da janela de 24 h (API oficial)</strong>Regra da Meta: sem conversa nas últimas 24 h, a loja só manda modelo aprovado. Vai o modelo "Atendimento", que o Regem envia à Meta quando a loja liga o ajuste; o toque abre a conversa e chegam os botões.</figcaption>
+    </figure>
+
+  </div>
+</section>
+
 <!-- ============ NOTAS ============ -->
 <section id="v-notas" hidden class="notas" aria-label="Notas do protótipo">
   <div class="trilha">Notas do protótipo · 02/11/2026 · versão 3 em 04/11/2026</div>
@@ -723,6 +878,26 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   <div class="cartao">
     <h3>Onde cada coisa fica</h3>
     <p>Os casos sincronizam com o servidor da loja, como os chamados de hoje. O texto das conversas fica na nuvem, como o histórico do WhatsApp hoje. A resposta da loja ao iFood e à 99 sai de um lado só, para não sair em dobro (fica decidido no código).</p>
+  </div>
+
+  <div class="cartao">
+    <h3>Gerente no WhatsApp · versão 4 (06/11/2026)</h3>
+    <p>O que pede uma decisão chega ao WhatsApp de quem decide, com o botão para responder ali, sem abrir o Regem. A resposta passa pelo mesmo caminho da tela: o mesmo envio ao iFood ou à 99, o mesmo cancelamento e o mesmo estorno do Pix, a mesma auditoria.</p>
+    <ul>
+      <li><b>O que vai:</b> disputa do iFood, cancelamento e reembolso pedidos na 99, cancelamento pedido no cardápio online (decisões, com botões) e o caso que ninguém pegou no tempo de "Fila e avisos" (só aviso). A decisão sai quando o caso abre; respondida antes (no Regem, no app ou por outro gestor), os botões deixam de valer. O aviso do caso que ninguém pegou não sai se alguém pegar antes.</li>
+      <li><b>Por onde sai:</b> pelo WhatsApp principal da loja. Na API oficial, botões; fora da janela de 24 h, o modelo "Atendimento" com "Ver por aqui". Na conexão por QR code (sem botões), enquete com o número do caso.</li>
+      <li><b>Segurança:</b> o WhatsApp vira mais uma porta de decisão, como a senha e o PIN. Vale só a resposta do número ligado, de quem continua gerente ou presidente e com acesso (excluído, bloqueado ou rebaixado perde a porta na hora). O toque vale uma vez, para aquele caso, até o prazo. Quem ligou o número foi o próprio dono do celular, mandando o código.</li>
+      <li><b>As respostas aos avisos</b> (o código, os botões, a enquete, PARAR AVISOS, VOLTAR AVISOS e "Ver por aqui") não vão ao robô nem viram conversa de cliente. O resto que o gestor escreve é conversa normal com a loja: quem testa o robô pelo próprio celular continua atendido. "PARAR" sozinho continua sendo sair das ofertas.</li>
+      <li><b>Entregas:</b> 5a (06/11/2026) — ligar o número, os avisos com o link do caso (decisão e "ninguém pegou"), o modelo "Atendimento" e PARAR/VOLTAR AVISOS. 5b — os botões e a enquete, a confirmação em dois toques e o limite de valor.</li>
+    </ul>
+    <h3>Escolhas recomendadas (o dono pode mudar)</h3>
+    <ol>
+      <li>Nasce <b>desligado</b>; cada gestor liga o próprio número, mandando um código. O número não vem do cadastro do colaborador, porque quem edita o cadastro não pode dar a outra pessoa a porta de decisão de um gerente.</li>
+      <li>Quem recebe e decide: <b>gerente e presidente</b> (a mesma regra da disputa e da 99). Gerente recebe só o que é da loja dele; presidente, de todas.</li>
+      <li>Limite de <b>R$ 100,00</b>, só para <b>aceitar</b> (o que devolve dinheiro). Recusar não tem limite.</li>
+      <li><b>Confirmação em dois toques</b>: a resposta ao iFood e à 99 não volta atrás.</li>
+      <li>Na disputa, pelo WhatsApp só <b>Aceitar e Recusar</b>; a proposta (crédito, outro valor, mais tempo) fica no Regem, pelo link.</li>
+    </ol>
   </div>
 
   <div class="cartao">
@@ -1181,7 +1356,34 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   const senha = (id = 'senha') => `<div class="campo"><label for="${id}">Senha de quem decide (gerente ou presidente)</label><input id="${id}" class="senha" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="text"></div>`;
   const insumos = `<div class="campo"><span class="rot">O que aconteceu com os insumos deste pedido?</span><div class="opcoes" role="group" aria-label="Destino dos insumos">
       <button type="button" class="opcao" aria-pressed="true" data-op>♻️ Reutilizados (ficam no estoque)</button><button type="button" class="opcao perda" aria-pressed="false" data-op>🗑️ Perda (saem do estoque)</button></div></div>`;
+  // Gerente no WhatsApp (versão 4): a linha da pessoa no ajuste "Quem recebe".
+  const botaoLigar = () => '<button type="button" class="bt pri" data-dlg="ligar-wa">Ligar o meu WhatsApp</button>';
   const DLG = {
+    'ligar-wa': () => ({ t: 'Ligar o meu WhatsApp', b: `<p style="margin:0">Faça no <b>seu</b> celular: o número que mandar a mensagem fica ligado a você (Ana).</p>
+      <ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px">
+        <li>Aponte a câmera do celular para o código. Ou abra este link no celular: <span style="font-family:var(--mono);overflow-wrap:anywhere">wa.me/5521…?text=REGEM%20482913</span></li>
+        <li>O WhatsApp abre com a mensagem <b style="font-family:var(--mono)">REGEM 482913</b> para o WhatsApp da loja. Toque em enviar.</li>
+        <li>Pronto: o Regem responde no seu WhatsApp e esta tela mostra "Ligado".</li></ol>
+      <div class="qr" role="img" aria-label="Código para abrir o WhatsApp com a mensagem pronta"></div>
+      <p class="ajuda" style="margin:0">⏳ Esperando a sua mensagem · o código vale por 10 min e uma vez só. Um número liga uma pessoa só.</p>`,
+      ok: 'Simular: a mensagem chegou', cl: 'pri',
+      aoConfirmar: () => {
+        $('#p-ana .st').textContent = 'Ligado · final 7788 · agora';
+        $('#p-ana [data-dlg]').outerHTML = '<button type="button" class="bt" data-dlg="desligar-wa">Desligar</button>';
+        toast('✅ WhatsApp ligado: final 7788 (protótipo)');
+      } }),
+    'desligar-wa': (b) => {
+      const p = b.closest('.pessoa');
+      const nome = $('.nm', p).textContent.split(' · ')[0];
+      return { t: `Desligar o WhatsApp de ${nome}`, b: `<p style="margin:0">${nome} para de receber os avisos na hora, e os botões das mensagens já enviadas deixam de valer. Para voltar, só ${nome === 'Ana' ? 'você liga' : 'a própria pessoa liga'} de novo, pelo celular.</p>`,
+        ok: 'Desligar', cl: 'perigo',
+        aoConfirmar: () => {
+          $('.st', p).textContent = 'Não ligado · desligado agora';
+          const bt = $('[data-dlg]', p);
+          if (p.id === 'p-ana') bt.outerHTML = botaoLigar(); else bt.remove();
+          toast(`WhatsApp de ${nome} desligado (protótipo)`);
+        } };
+    },
     // A avaliação (06/11/2026): confirma o texto antes, porque ele fica público e o iFood não aceita outro.
     'responder-avaliacao': () => ({ t: 'Responder a avaliação no iFood', b: `<p style="margin:0">A resposta fica <b>pública</b> no iFood, junto da avaliação da Luiza F. O iFood não aceita outra depois.</p>
       <blockquote style="margin:8px 0 0;padding:8px 10px;border-left:3px solid currentColor;opacity:.85">${esc(($('#resp-aval') || {}).value || '(escreva a resposta)')}</blockquote>`, ok: 'Enviar ao iFood', cl: 'pri' }),
@@ -1229,7 +1431,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     $$('.opcoes', fundo).forEach((g) => $$('[data-op]', g).forEach((o) => o.addEventListener('click', () => $$('[data-op]', g).forEach((x) => x.setAttribute('aria-pressed', String(x === o))))));
     $('[data-cancelar]', fundo).addEventListener('click', fecharDialogo);
     const conf = $('[data-confirmar]', fundo);
-    if (conf) conf.addEventListener('click', () => { const t = d.t; fecharDialogo(); toast(`✅ Feito (protótipo): ${t.toLowerCase()}`); });
+    if (conf) conf.addEventListener('click', () => { const t = d.t; fecharDialogo(); if (d.aoConfirmar) d.aoConfirmar(); else toast(`✅ Feito (protótipo): ${t.toLowerCase()}`); });
     fundo.addEventListener('click', (e) => { if (e.target === fundo) fecharDialogo(); });
     const primeiro = $('input,select,[data-op]', fundo) || $('[data-confirmar]', fundo) || $('[data-cancelar]', fundo); primeiro.focus();
   }
@@ -1298,7 +1500,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     $$('.proto .aba').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.vista === v)));
     $('#shell').hidden = !(v === 'pc' || v === 'aj');
     $('#v-pc').hidden = v !== 'pc'; $('#v-aj').hidden = v !== 'aj';
-    $('#v-app').hidden = v !== 'app'; $('#v-notas').hidden = v !== 'notas';
+    $('#v-app').hidden = v !== 'app'; $('#v-notas').hidden = v !== 'notas'; $('#v-wa').hidden = v !== 'wa';
     $('#ctl-pc').hidden = v !== 'pc';
     $('#menu-atend').toggleAttribute('aria-current', v === 'pc'); if (v === 'pc') $('#menu-atend').setAttribute('aria-current', 'page');
     $('#menu-config').toggleAttribute('aria-current', v === 'aj'); if (v === 'aj') $('#menu-config').setAttribute('aria-current', 'page');
@@ -1343,6 +1545,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     const q = e.target.value.trim().toLowerCase();
     $$('#v-aj .grupo').forEach((g) => { let algum = false; $$('.aj', g).forEach((a) => { const ok = (!q || a.textContent.toLowerCase().includes(q) || $('h3', g).textContent.toLowerCase().includes(q)) && !(a.hasAttribute('data-so-escolher') && $('#onde-ponte').value !== 'escolher'); a.hidden = !ok; algum = algum || ok; }); g.hidden = !algum; });
   });
+
+  // Gerente no WhatsApp: os botões da lista "Quem recebe" mudam depois de ligar/desligar — o clique vai pela seção.
+  $('#v-aj').addEventListener('click', (e) => { const b = e.target.closest('[data-dlg]'); if (b) abrirDialogo(b.dataset.dlg, b); });
 
   // ---------- app: "Disponível × Ocupado" ----------
   $$('[data-est]').forEach((b) => b.addEventListener('click', () => $$('[data-est]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)))));

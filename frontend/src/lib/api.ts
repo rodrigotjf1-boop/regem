@@ -1261,8 +1261,16 @@ export const api = {
     repetido?: Record<string, unknown>; // pedido igual em até 30 min (mig 360)
     // o som do KDS (mig 362), "O robô faz mudanças simples" (mig 363) e "O robô cobra no Pix o item posto…" (mig 373)
     alterado?: { som?: string; roboMuda?: boolean; roboCobraPix?: boolean };
+    // "Gerente no WhatsApp" (mig 375): os liga/desliga do grupo.
+    gestorWa?: { ligado?: boolean; decisoes?: boolean; ninguemPegou?: boolean };
   }) =>
     req('/atendimento/ajustes', { method: 'PUT', body: JSON.stringify(body) }),
+  // Gerente no WhatsApp (mig 375): o grupo (quem recebe — de cada pessoa só o final do número), o código para o gestor
+  // ligar o PRÓPRIO WhatsApp e o desligar de alguém. Só na nuvem, só gerente e presidente.
+  whatsappDoGestor: () => req('/atendimento/whatsapp-do-gestor'),
+  ligarWhatsappDoGestor: () => req('/atendimento/whatsapp-do-gestor/ligar', { method: 'POST', body: '{}' }),
+  desligarWhatsappDoGestor: (colaboradorId: string) =>
+    req(`/atendimento/whatsapp-do-gestor/${encodeURIComponent(colaboradorId)}`, { method: 'DELETE' }),
   // O chat oficial do iFood (PR 5): o widget da distribuição e as lojas do iFood da empresa (ou `disponivel: false`).
   atendimentoChatIfood: () => req('/atendimento/chat-ifood'),
   resolverAtendimento: (id: string) =>

@@ -8,6 +8,7 @@ import { Ajustes, alterados, type GrupoDeAjustes, type Valor, type Valores } fro
 import { NO_SERVIDOR_DA_LOJA, SoPelaNuvem } from '@/components/ui/so-pela-nuvem';
 import { texto2 } from '@/components/ui/lista';
 import { MOTIVO_REEMBOLSO_99 } from '@/components/atendimento/pedido-99';
+import { QuemRecebeNoWhatsapp, type GrupoDoWhatsapp } from '@/components/atendimento/whatsapp-do-gestor';
 
 // AJUSTES DO ATENDIMENTO — Delivery › Configurações › Operação › Atendimento (protótipo
 // `mockups/regem-central-atendimento.html`, vista "ajustes"; o grupo do "Cheguei" é do `mockups/regem-relacionamento.html`).
@@ -29,6 +30,8 @@ import { MOTIVO_REEMBOLSO_99 } from '@/components/atendimento/pedido-99';
 //  • "iFood e 99 · chat pela ponte" (mig 366, parte A2; protótipo v3): ligar a ponte, onde ela roda (automático ou a
 //    principal e a reserva — das pontes da loja em uso) e os três avisos no chat com o texto de cada um. Liga/desliga e
 //    textos na `robo_config` da empresa; o papel, em `chat_ponte`. Só aparece com o iFood ou a 99 conectados.
+//  • "Gerente no WhatsApp" (mig 375, parte 5a; protótipo v4): os avisos ao WhatsApp de cada gestor (a decisão com prazo e
+//    o caso que ninguém pegou, com o link) e quem recebe — cada um liga o próprio número. Na `robo_config` da empresa.
 // Tudo mora só na NUVEM: no servidor da loja a tela só explica. Só gerente e presidente mudam (o servidor confere).
 
 const HORAS_PADRAO = [1, 2, 4, 8, 12, 20];
@@ -68,6 +71,12 @@ const DO_AVISO_DA_PONTE: Record<string, [MotivoDoAviso, 'ligado' | 'texto']> = {
   ponteObrigado: ['obrigado', 'ligado'],
   ponteObrigadoTexto: ['obrigado', 'texto'],
 };
+// Gerente no WhatsApp (mig 375): a chave da tela → o campo do servidor.
+const DO_GESTOR_WA: Record<string, 'ligado' | 'decisoes' | 'ninguemPegou'> = {
+  gestorWaLigado: 'ligado',
+  gestorWaDecisoes: 'decisoes',
+  gestorWaNinguemPegou: 'ninguemPegou',
+};
 /** O papel dos PCs vai junto (onde + principal + reserva): a escolha é uma só, e o servidor confere as três. */
 const DO_PAPEL_DA_PONTE = ['ponteOnde', 'pontePrincipal', 'ponteReserva'];
 type PonteDaLoja = { id: string; nome: string; maquina: string | null; vistoEm: string | null; viva: boolean; pausadaEm?: string | null; logado: { ifood: boolean; '99food': boolean } };
@@ -97,9 +106,13 @@ type Resposta = {
   repetido?: { ativo: boolean; minutos: number; temCardapio: boolean; janelas?: number[] };
   alterado?: { som: string; sons?: string[]; roboMuda?: boolean; roboCobraPix?: boolean };
   ponte?: AjusteDaPonte | null;
+  gestorWa?: GrupoDoWhatsapp | null;
 };
 
 const paraValores = (r: Resposta): Valores => ({
+  ...(r.gestorWa
+    ? { gestorWaLigado: r.gestorWa.ligado, gestorWaDecisoes: r.gestorWa.decisoes, gestorWaNinguemPegou: r.gestorWa.ninguemPegou }
+    : {}),
   ...(r.ponte
     ? {
         ponteLigada: r.ponte.ligada,
@@ -503,9 +516,48 @@ export function AjustesDoAtendimento() {
       },
     ],
   };
+  // Gerente no WhatsApp (mig 375, parte 5a): os avisos com o link do caso; decidir pelo botão é a parte 5b.
+  const grupoDoGestor: GrupoDeAjustes | null = resp?.gestorWa
+    ? {
+        titulo: 'Gerente no WhatsApp',
+        nota: 'Sempre vale: o aviso só sai para quem ainda é gerente ou presidente, com acesso · o que o gestor responde aos avisos não vai ao robô nem vira conversa de cliente · PARAR AVISOS no WhatsApp para os avisos, VOLTAR AVISOS religa.',
+        itens: [
+          {
+            id: 'gestorWaLigado',
+            rotulo: 'Avisar o gerente pelo WhatsApp',
+            tipo: 'chave',
+            ajuda:
+              'O WhatsApp da loja manda ao WhatsApp de cada gestor ligado abaixo o que pede uma decisão e o caso que ninguém pegou, com o link para abrir o caso no Regem. Desligado, o aviso fica só no Regem e no app de atendimento.',
+            palavras: 'gerente whatsapp aviso celular presidente decisão',
+          },
+          {
+            id: 'gestorWaDecisoes',
+            rotulo: 'Decisões com prazo',
+            tipo: 'chave',
+            ajuda: 'Disputa do iFood, cancelamento e reembolso pedidos na 99 e cancelamento pedido no cardápio online, assim que o caso chega, com o prazo e o que acontece se ninguém responder.',
+            palavras: 'gerente whatsapp disputa ifood 99 cancelamento reembolso prazo',
+          },
+          {
+            id: 'gestorWaNinguemPegou',
+            rotulo: 'Caso que ninguém pegou',
+            tipo: 'chave',
+            ajuda: 'No tempo de "Avisar o gerente se ninguém pegar o caso em", do grupo Fila e avisos. Não sai se alguém pegar antes.',
+            palavras: 'gerente whatsapp ninguém pegou fila espera',
+          },
+        ],
+        depois: (
+          <QuemRecebeNoWhatsapp
+            grupo={resp.gestorWa}
+            // Só a lista muda (ligar/desligar alguém): o que está na tela e ainda não foi salvo fica como está.
+            aoMudar={(g) => setResp((r) => (r ? { ...r, gestorWa: g } : r))}
+          />
+        ),
+      }
+    : null;
   const grupos: GrupoDeAjustes[] = [
     ...(resp?.cheguei?.temCardapio ? [grupoDoCheguei] : []),
     grupoDaFila,
+    ...(grupoDoGestor ? [grupoDoGestor] : []),
     ...(resp?.ponte && (resp.conectadoIfood || resp.conectado99) ? [grupoDaPonte] : []),
     ...(resp?.conectadoIfood ? [grupoDoIfood] : []),
     ...(resp?.conectado99 ? [grupoDa99] : []),
@@ -525,6 +577,7 @@ export function AjustesDoAtendimento() {
     const cheguei: Record<string, unknown> = {};
     const repetido: Record<string, unknown> = {};
     let alterado: { som?: string; roboMuda?: boolean; roboCobraPix?: boolean } | null = null;
+    const gestorWa: Record<string, boolean> = {};
     const ponte: {
       ligada?: boolean;
       roboResponde?: boolean;
@@ -557,6 +610,10 @@ export function AjustesDoAtendimento() {
         avisos[m] = { ...avisos[m], [campo]: campo === 'ligado' ? valores[k] === true : String(valores[k] ?? '').trim() || null };
         continue;
       }
+      if (DO_GESTOR_WA[k]) {
+        gestorWa[DO_GESTOR_WA[k]] = valores[k] === true;
+        continue;
+      }
       if (k === 'alteradoSom') {
         alterado = { ...(alterado ?? {}), som: String(valores[k]) };
         continue;
@@ -586,6 +643,7 @@ export function AjustesDoAtendimento() {
         ...(Object.keys(repetido).length ? { repetido } : {}),
         ...(alterado ? { alterado } : {}),
         ...(Object.keys(ponte).length ? { ponte } : {}),
+        ...(Object.keys(gestorWa).length ? { gestorWa } : {}),
       });
       setResp(r);
       setValores(paraValores(r));

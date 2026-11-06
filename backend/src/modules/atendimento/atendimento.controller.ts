@@ -1,4 +1,19 @@
-import { BadGatewayException, Body, Controller, Get, Logger, Optional, Param, Post, Put, Res, StreamableFile, UseGuards } from '@nestjs/common';
+import {
+  BadGatewayException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Logger,
+  Optional,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Put,
+  Res,
+  StreamableFile,
+  UseGuards,
+} from '@nestjs/common';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { Pedido99Service, RespostaAo99 } from './pedido-99.service';
 import type { Response } from 'express';
@@ -25,6 +40,8 @@ import { AjustesDaPonteService } from '../ponte-chat/ajustes-da-ponte.service';
 import { ehServidorLocal } from '../../common/modo';
 import { ChatDoCasoService } from './chat-do-caso.service';
 import { AvaliacaoIfoodService } from './avaliacao-ifood.service';
+import { GestorWhatsappService } from './gestor-whatsapp.service';
+import { lerAjusteGestorWa } from './gestor-whatsapp';
 
 // Chamados de atendimento (handoff). Operados por quem está no balcão/gestão.
 @Controller('atendimento')
@@ -48,7 +65,39 @@ export class AtendimentoController {
     private readonly chat: ChatDoCasoService,
     // A avaliação do iFood no caso (06/11/2026): a resposta da loja, pública no iFood.
     @Optional() private readonly avaliacao?: AvaliacaoIfoodService,
+    // Gerente no WhatsApp (mig 375): o grupo dos ajustes, ligar e desligar o WhatsApp de cada gestor.
+    @Optional() private readonly gestorWa?: GestorWhatsappService,
   ) {}
+
+  // GERENTE NO WHATSAPP (mig 375, parte 5a): o grupo da tela (o ajuste, a via da loja, o modelo da Meta e quem recebe —
+  // de cada pessoa só o final do número), o código para o gestor ligar o PRÓPRIO WhatsApp e o desligar. Só na nuvem (os
+  // webhooks do WhatsApp moram lá), só gerente e presidente — quem recebe os avisos.
+  @Get('whatsapp-do-gestor')
+  @CloudOnly()
+  @Roles('presidente', 'gerente')
+  whatsappDoGestor(@CurrentUser() user: AuthUser) {
+    return this.gestorWaOuErro().grupo(user);
+  }
+
+  @Post('whatsapp-do-gestor/ligar')
+  @CloudOnly()
+  @Roles('presidente', 'gerente')
+  ligarWhatsappDoGestor(@CurrentUser() user: AuthUser) {
+    return this.gestorWaOuErro().ligar(user);
+  }
+
+  @Delete('whatsapp-do-gestor/:colaboradorId')
+  @CloudOnly()
+  @Roles('presidente', 'gerente')
+  async desligarWhatsappDoGestor(@CurrentUser() user: AuthUser, @Param('colaboradorId', ParseUUIDPipe) colaboradorId: string) {
+    await this.gestorWaOuErro().desligar(user, colaboradorId);
+    return this.gestorWaOuErro().grupo(user);
+  }
+
+  private gestorWaOuErro(): GestorWhatsappService {
+    if (!this.gestorWa) throw new BadGatewayException('Gerente no WhatsApp indisponível neste servidor.');
+    return this.gestorWa;
+  }
 
   // A RESPOSTA À AVALIAÇÃO do iFood (06/11/2026): a gestão responde, como no chat do caso. Fica pública no iFood; uma só.
   @Post(':id/avaliacao')
@@ -118,7 +167,7 @@ export class AtendimentoController {
   @CloudOnly()
   @Roles('presidente', 'gerente')
   async ajustes(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
-    const [da99, fila, doIfood, cheguei, repetido, som, roboMuda, ponte, roboCobraPix] = await Promise.all([
+    const [da99, fila, doIfood, cheguei, repetido, som, roboMuda, ponte, roboCobraPix, gestorWa] = await Promise.all([
       this.pedido99.ajustes(user.tenantId),
       this.filaEAvisos.ajustes(user.tenantId),
       this.chatIfood.ajustes(user.tenantId),
@@ -131,9 +180,22 @@ export class AtendimentoController {
       this.ponte.ajustes(user.tenantId, unidade),
       // "O robô cobra no Pix o item posto em pedido já pago" (mig 373): no grupo "Pedido alterado"; da empresa.
       this.filaEAvisos.roboCobraAdicionalPix(user.tenantId),
+      // "Gerente no WhatsApp" (mig 375): o ajuste da empresa e quem recebe.
+      this.gestorWa ? this.gestorWa.grupo(user) : Promise.resolve(null),
     ]);
     const alterado = { som, sons: SONS_DO_ALTERADO, roboMuda, roboCobraPix };
-    return { ...da99, fila, minutosDoAviso: MINUTOS_DO_AVISO, ...doIfood, cheguei, minutosDeNovoCheguei: MINUTOS_DE_NOVO, repetido, alterado, ponte };
+    return {
+      ...da99,
+      fila,
+      minutosDoAviso: MINUTOS_DO_AVISO,
+      ...doIfood,
+      cheguei,
+      minutosDeNovoCheguei: MINUTOS_DE_NOVO,
+      repetido,
+      alterado,
+      ponte,
+      gestorWa,
+    };
   }
 
   // Cada grupo pelo seu dono, só o que veio. A fila, o iFood e o "Cheguei" são conferidos ANTES de gravar qualquer
@@ -147,6 +209,7 @@ export class AtendimentoController {
     const cheguei = dto?.cheguei !== undefined ? lerAjusteCheguei(dto.cheguei) : null;
     const repetido = dto?.repetido !== undefined ? lerAjusteRepetido(dto.repetido) : null;
     const alterado = dto?.alterado !== undefined ? lerAjusteAlterado(dto.alterado) : null;
+    const gestorWa = dto?.gestorWa !== undefined ? lerAjusteGestorWa(dto.gestorWa) : null;
     // A ponte: o texto e o papel dos PCs (lê as pontes da loja) — conferidos antes de gravar qualquer grupo.
     if (dto?.ponte !== undefined) await this.ponte.conferir(user, unidade, dto.ponte);
     if (dto?.ajuste99 !== undefined) await this.pedido99.salvarAjustes(user, dto);
@@ -159,6 +222,7 @@ export class AtendimentoController {
       await this.producao.salvarSomDoAlterado(user.tenantId, unidade, alterado.som, { id: user.colaboradorId, perfil: user.categoria });
     if (alterado?.roboMuda !== undefined) await this.filaEAvisos.salvarRoboMudaPedido(user, alterado.roboMuda);
     if (alterado?.roboCobraPix !== undefined) await this.filaEAvisos.salvarRoboCobraAdicionalPix(user, alterado.roboCobraPix);
+    if (gestorWa) await this.gestorWa?.salvar(user, gestorWa);
     return this.ajustes(user, unidade);
   }
 

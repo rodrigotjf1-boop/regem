@@ -13,6 +13,8 @@ import { anotarNaMemoria, chaveDaMemoria, conversaNaMemoria, portaoDoRoboDoOutro
 import { portaoDaRespostaAoSemContato, registrarConfirmacao } from './resposta-ao-sem-contato';
 import { ChegadaService } from '../chegada/chegada.service';
 import { clienteRespondeu } from '../atendimento/abrir-chamado';
+import { portaoDoGestor } from '../atendimento/gestor-whatsapp-entrada';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 import { assinarConversa } from '../../common/conversa-do-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -89,6 +91,8 @@ export class EvolutionEntradaService {
     private readonly evolution: WhatsappService,
     // O aviso em tempo real do chamado que o detector do robô do outro lado abre (opcional: os testes não passam).
     @Optional() private readonly events?: EventEmitter2,
+    // O gestor que liga ou para os avisos pelo WhatsApp (mig 375) fica na auditoria. Opcional, como o de cima.
+    @Optional() private readonly auditoria?: AuditoriaService,
   ) {}
 
   /** Mensagem já vista nesta janela (a Evolution reenvia quando demora)? Marca como vista. */
@@ -140,6 +144,19 @@ export class EvolutionEntradaService {
     }
 
     const lida = lerMensagemEvolution(data);
+    // O gestor respondendo aos avisos do atendimento (mig 375): o código de ligar, PARAR/VOLTAR AVISOS. Não vai ao robô;
+    // falhou, segue o caminho de sempre.
+    try {
+      const doGestor = await portaoDoGestor(
+        this.db,
+        { tenantId: cfg.tenantId, telefone: de, texto: lida.texto, idMensagem: id },
+        (texto) => this.evolution.enviar(cfg.tenantId, de, texto),
+        this.auditoria ? (e) => this.auditoria!.registrar(e as any) : undefined,
+      );
+      if (doGestor) return;
+    } catch (e: any) {
+      this.logger.warn(`resposta do gestor não conferida para ${mascarar(de)} (segue como antes): ${e?.message ?? e}`);
+    }
     const txt = lida.texto.trim().toLowerCase();
     if (SAIR.test(txt)) {
       await registrarSaida(this.db, { tenantId: cfg.tenantId, telefone: de, origem: 'whatsapp', motivo: 'palavra_chave' })
