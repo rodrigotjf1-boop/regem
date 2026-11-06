@@ -75,13 +75,16 @@ descrever('ponte do chat (Postgres)', () => {
   const logada = (ifood: boolean, n99 = false) => ({ plataformas: { ifood: { logado: ifood }, '99food': { logado: n99 } }, versao: '1.0.0', maquina: 'CX-DELIVERY' });
   const ligar = (v: boolean, tenant = T) =>
     q(`insert into robo_config (tenant_id, chat_ponte_ligada) values ($1, $2) on conflict (tenant_id) do update set chat_ponte_ligada = $2`, [tenant, v]);
-  async function pedido(unidadeId: string, o: { canal?: string; ext?: string; num?: string; diasAtras?: number } = {}) {
+  // `cliente99`: o uid do cliente no IM da 99, guardado como a 99 manda (`raw.receive_address.uid`, um NÚMERO no jsonb)
+  async function pedido(unidadeId: string, o: { canal?: string; ext?: string; num?: string; diasAtras?: number; minAtras?: number; cliente99?: string } = {}) {
     return (
       await q(
-        `insert into pedido_externo (tenant_id, unidade_id, canal, external_id, display_id, numero, tipo, status, cliente_nome, total, criado_em)
-         values ($1,$2,$3,$4,$5,(floor(random()*90000)+10000)::int,'entrega','despachado','Maria S.',50, now() - make_interval(days => $6::int))
+        `insert into pedido_externo (tenant_id, unidade_id, canal, external_id, display_id, numero, tipo, status, cliente_nome, total, criado_em, raw)
+         values ($1,$2,$3,$4,$5,(floor(random()*90000)+10000)::int,'entrega','despachado','Maria S.',50,
+                 now() - make_interval(days => $6::int, mins => $8::int),
+                 case when $7::text is null then null else jsonb_build_object('receive_address', jsonb_build_object('uid', $7::numeric)) end)
          returning id`,
-        [T, unidadeId, o.canal ?? 'ifood', o.ext ?? `ext-${randomUUID()}`, o.num ?? String(1000 + Math.floor(Math.random() * 8999)), o.diasAtras ?? 0],
+        [T, unidadeId, o.canal ?? 'ifood', o.ext ?? `ext-${randomUUID()}`, o.num ?? String(1000 + Math.floor(Math.random() * 8999)), o.diasAtras ?? 0, o.cliente99 ?? null, o.minAtras ?? 0],
       )
     )[0].id as string;
   }
@@ -173,6 +176,13 @@ descrever('ponte do chat (Postgres)', () => {
     expect((await svc.estado(d, logada(true))).canais.ifood).toBe('reserva');
     // a 99 (um login só): quem estiver logado nela responde
     expect((await svc.estado(d, logada(true, true))).canais['99food']).toBe('responde');
+    // a 99 "só lendo" (4a): fica anotado, mas não responde pela 99 (nem é reserva); `lendo` com `logado` vale o logado
+    const lendo = { ...logada(true), plataformas: { ifood: { logado: true }, '99food': { logado: false, lendo: true } } };
+    expect((await svc.estado(d, lendo)).canais['99food']).toBe('fora');
+    expect((await q(`select plataformas from chat_ponte where equipamento_id = $1`, [delivery.id]))[0].plataformas['99food']).toEqual({ logado: false, lendo: true });
+    expect(await svc.quemRespondePeloCanal(T, lojaA, '99food')).toBeNull();
+    await svc.estado(d, { ...lendo, plataformas: { ifood: { logado: true }, '99food': { logado: true, lendo: true } } });
+    expect((await q(`select plataformas from chat_ponte where equipamento_id = $1`, [delivery.id]))[0].plataformas['99food']).toEqual({ logado: true });
     // a loja B é outra conta: a ponte dela responde pela loja dela
     expect((await svc.estado(await entrar(pdvB), logada(true))).canais.ifood).toBe('responde');
     // desligada nos ajustes: a ponte sabe
@@ -224,6 +234,67 @@ descrever('ponte do chat (Postgres)', () => {
       desligada: true,
     });
     expect(await q(`select count(*)::int as n from chat_plataforma_msg where tenant_id = $1 and externo_msg_id = 'sb-7'`, [T])).toEqual([{ n: 0 }]);
+  });
+
+  it('99 (Etapa 4a): a conversa liga pelo CLIENTE (o pedido mais recente dele na 99); o id e o número saem do pedido — a mesma conversa dos avisos', async () => {
+    const d = await entrar(delivery);
+    const CLI = '900000000000123';
+    const OUTRO = '900000000000456';
+    const antigo = await pedido(lojaB, { canal: '99food', ext: '9100000000000000001', num: '900001', minAtras: 90, cliente99: CLI });
+    const recente = await pedido(lojaB, { canal: '99food', ext: '9100000000000003441', num: '900002', minAtras: 10, cliente99: CLI });
+    await pedido(lojaA, { canal: '99food', ext: '9100000000000009999', num: '900009', diasAtras: 5, cliente99: OUTRO }); // de 5 dias atrás: não liga
+    await pedido(lojaA, { canal: 'ifood', ext: 'ifood-mesmo-uid', num: '4100', cliente99: CLI }); // outro canal: nunca
+    const r = await svc.receber(d, {
+      mensagens: [
+        { canal: '99food', id: '9200000000000000344', pedido: { cliente99: CLI }, cliente: 'Léa', autor: 'cliente', texto: 'Cadê meu pedido?' },
+        { canal: '99food', id: '9200000000000000345', pedido: { cliente99: CLI }, autor: 'loja', texto: 'Já saiu!' },
+        // a loja numa conversa em que o cliente ainda não falou: sem pedido
+        { canal: '99food', id: '9200000000000000346', autor: 'loja', texto: 'Oi!' },
+        { canal: '99food', id: '9200000000000000347', pedido: { cliente99: OUTRO }, autor: 'cliente', texto: 'Só um pedido velho' },
+        // a sessão ↔ pedido conhecida (a página abriu a conversa): o id vence o cliente
+        { canal: '99food', id: '9200000000000000348', pedido: { externo: '9100000000000000001', cliente99: CLI }, autor: 'cliente', texto: 'Do pedido de antes' },
+        // o "cliente" que não é só dígitos é ignorado (guarda sem pedido)
+        { canal: '99food', id: '9200000000000000349', pedido: { cliente99: "1' or '1'='1" }, autor: 'cliente', texto: 'Cliente torto' },
+        // no iFood o cliente da 99 não vale
+        { canal: 'ifood', id: 'sb-99-uid', pedido: { cliente99: CLI }, autor: 'cliente', texto: 'iFood com uid' },
+      ],
+    });
+    expect(r).toMatchObject({ recebidas: 7, repetidas: 0, recusadas: 0 });
+    const linhas = await q(
+      `select externo_msg_id as id, autor, pedido_id, pedido_externo, pedido_numero, unidade_id from chat_plataforma_msg where tenant_id = $1 order by externo_msg_id`,
+      [T],
+    );
+    expect(linhas).toEqual([
+      { id: '9200000000000000344', autor: 'cliente', pedido_id: recente, pedido_externo: '9100000000000003441', pedido_numero: '900002', unidade_id: lojaB },
+      { id: '9200000000000000345', autor: 'loja', pedido_id: recente, pedido_externo: '9100000000000003441', pedido_numero: '900002', unidade_id: lojaB },
+      { id: '9200000000000000346', autor: 'loja', pedido_id: null, pedido_externo: null, pedido_numero: null, unidade_id: lojaA },
+      { id: '9200000000000000347', autor: 'cliente', pedido_id: null, pedido_externo: null, pedido_numero: null, unidade_id: lojaA },
+      { id: '9200000000000000348', autor: 'cliente', pedido_id: antigo, pedido_externo: '9100000000000000001', pedido_numero: '900001', unidade_id: lojaB },
+      { id: '9200000000000000349', autor: 'cliente', pedido_id: null, pedido_externo: null, pedido_numero: null, unidade_id: lojaA },
+      { id: 'sb-99-uid', autor: 'cliente', pedido_id: null, pedido_externo: null, pedido_numero: null, unidade_id: lojaA },
+    ]);
+    // a conversa do cliente é a MESMA do aviso que a nuvem manda pelo pedido (chave `ext:`): um caso só, do pedido certo
+    const casos = await q(
+      `select detalhe -> 'chat' ->> 'chave' as chave, detalhe -> 'chat' ->> 'pedidoNumero' as numero from atendimento_chamado
+        where tenant_id = $1 and canal = '99food' and detalhe -> 'chat' ->> 'chave' like 'ext:%' order by 1`,
+      [T],
+    );
+    expect(casos).toEqual([
+      { chave: 'ext:9100000000000000001', numero: '900001' },
+      { chave: 'ext:9100000000000003441', numero: '900002' },
+    ]);
+    await q(`delete from atendimento_chamado where tenant_id = $1`, [T]);
+  });
+
+  it('iFood só com o id do pedido: o número vem do pedido ligado (o caso mostra o número)', async () => {
+    const d = await entrar(delivery);
+    await pedido(lojaA, { ext: 'ifood-com-numero', num: '4242' });
+    await svc.receber(d, { mensagens: [{ canal: 'ifood', id: 'sb-num-1', pedido: { externo: 'ifood-com-numero' }, autor: 'cliente', texto: 'Oi' }] });
+    expect((await q(`select pedido_externo, pedido_numero from chat_plataforma_msg where tenant_id = $1 and externo_msg_id = 'sb-num-1'`, [T]))[0]).toEqual({
+      pedido_externo: 'ifood-com-numero',
+      pedido_numero: '4242',
+    });
+    await q(`delete from atendimento_chamado where tenant_id = $1`, [T]);
   });
 
   it('um lote de falas sai na ordem em que a ponte mandou: a hora de cada linha cresce (não é a da transação — ERR-379)', async () => {

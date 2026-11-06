@@ -84,6 +84,22 @@ class Configuracao {
     return typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? v : null;
   }
 
+  /**
+   * A 99 é lida NESTE PC? (4a: a pessoa abriu a 99 no programa, com o usuário EXTRA da loja.) Fica guardado: ao reiniciar,
+   * a janela da 99 reabre sozinha. A sessão da 99 fica na sessão do navegador do programa, nunca aqui.
+   */
+  usar99() {
+    return this.ler().usar99 === true;
+  }
+
+  marcarUsar99(sim) {
+    const cfg = this.ler();
+    if (sim) cfg.usar99 = true;
+    else delete cfg.usar99;
+    this.gravar(cfg);
+    return !!sim;
+  }
+
   /** Pausa (guarda a hora, só se ainda não estava) ou retoma. Devolve a hora da pausa (ou null). */
   pausar(sim, agora = new Date()) {
     const cfg = this.ler();

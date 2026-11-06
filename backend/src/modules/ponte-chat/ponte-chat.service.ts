@@ -34,6 +34,11 @@ const texto = (v: unknown, max: number): string | null => {
   const t = v.trim();
   return t ? t.slice(0, max) : null;
 };
+/** O cliente no IM da 99 (só dígitos, como o `receive_address.uid` do pedido) — ou null. */
+const clienteDa99 = (v: unknown): string | null => {
+  const t = typeof v === 'number' && Number.isSafeInteger(v) ? String(v) : typeof v === 'string' ? v.trim() : '';
+  return /^\d{6,25}$/.test(t) ? t : null;
+};
 
 export type PapelNoCanal = 'responde' | 'reserva' | 'fora';
 
@@ -92,10 +97,12 @@ export class PonteChatService {
    * ponte não responde por canal nenhum (a reserva assume); o sinal sem `pausada: true` retoma.
    */
   async estado(p: PonteCtx, dto: any): Promise<{ ligada: boolean; canais: Record<CanalDaPonte, PapelNoCanal> }> {
-    const plataformas: Record<string, { logado: boolean }> = {};
+    const plataformas: Record<string, { logado: boolean; lendo?: true }> = {};
     for (const c of CANAIS) {
       const v = dto?.plataformas?.[c];
-      if (v && typeof v === 'object') plataformas[c] = { logado: v.logado === true };
+      // `lendo` (4a, a 99): a ponte LÊ o chat do canal, mas ainda não envia por ele — não responde nem é reserva (só o
+      // `logado` conta para quem envia); a faixa diz "só lendo"
+      if (v && typeof v === 'object') plataformas[c] = v.lendo === true && v.logado !== true ? { logado: false, lendo: true } : { logado: v.logado === true };
     }
     const versao = versaoInformada(dto?.versao);
     const maquina = texto(dto?.maquina, 80);
@@ -162,6 +169,8 @@ export class PonteChatService {
         ext: id,
         pedext: texto(m?.pedido?.externo, 120),
         pednum: texto(m?.pedido?.numero, 40),
+        // 99 (Etapa 4a): a conversa não diz o pedido — diz o CLIENTE (o uid dele no IM da 99 = `receive_address.uid`)
+        cli99: canal === '99food' ? clienteDa99(m?.pedido?.cliente99) : null,
         cliente: texto(m?.cliente, 120),
         autor,
         texto: corpo,
@@ -169,28 +178,34 @@ export class PonteChatService {
     }
     if (!validas.length) return { recebidas: 0, repetidas: 0, recusadas };
     const { r, casos, respondeu } = await this.db.transaction(async (tx) => {
+      // O pedido: pelo id na plataforma; sem ele, pelo número exibido; sem os dois (99), pelo CLIENTE — o pedido mais
+      // recente dele na 99 (dos últimos 2 dias). O id e o número que faltam saem do pedido ligado: a conversa fica com a
+      // mesma chave dos avisos que a nuvem manda (`ext:` — `chaveDaConversa`), e não vira duas.
       const r = linhas(await tx.execute(sql`
       with entrada as (
         select * from jsonb_to_recordset(${JSON.stringify(validas)}::jsonb)
-          as x(canal text, ext text, pedext text, pednum text, cliente text, autor text, texto text)
+          as x(canal text, ext text, pedext text, pednum text, cli99 text, cliente text, autor text, texto text)
       ), ligada as (
-        select e.*, (
-          select pe.id from pedido_externo pe
-           where pe.tenant_id = ${p.tenantId}::uuid and pe.canal = e.canal
-             and pe.criado_em > now() - interval '2 days'
-             and ((e.pedext is not null and pe.external_id = e.pedext)
-               or (e.pedext is null and e.pednum is not null and pe.display_id = e.pednum))
-           order by pe.criado_em desc
-           limit 1) as pedido_id
+        select e.*, pe.id as pedido_id, pe.unidade_id as pedido_unidade, pe.external_id as pedido_ext, pe.display_id as pedido_num
           from entrada e
+          left join lateral (
+            select pe.id, pe.unidade_id, pe.external_id, pe.display_id from pedido_externo pe
+             where pe.tenant_id = ${p.tenantId}::uuid and pe.canal = e.canal
+               and pe.criado_em > now() - interval '2 days'
+               and ((e.pedext is not null and pe.external_id = e.pedext)
+                 or (e.pedext is null and e.pednum is not null and pe.display_id = e.pednum)
+                 or (e.pedext is null and e.pednum is null and e.cli99 is not null
+                     and pe.raw -> 'receive_address' ->> 'uid' = e.cli99))
+             order by pe.criado_em desc
+             limit 1) pe on true
       )
       insert into chat_plataforma_msg
         (tenant_id, unidade_id, canal, pedido_id, pedido_externo, pedido_numero, cliente_nome, direcao, autor, texto,
          externo_msg_id, estado, ponte_id)
       select ${p.tenantId}::uuid,
-             coalesce((select pe.unidade_id from pedido_externo pe where pe.id = l.pedido_id), ${p.unidadeId}::uuid),
-             l.canal, l.pedido_id, l.pedext, l.pednum, l.cliente, 'entrada', l.autor, l.texto, l.ext, 'recebida',
-             ${p.id}::uuid
+             coalesce(l.pedido_unidade, ${p.unidadeId}::uuid),
+             l.canal, l.pedido_id, coalesce(l.pedext, l.pedido_ext), coalesce(l.pednum, l.pedido_num), l.cliente, 'entrada',
+             l.autor, l.texto, l.ext, 'recebida', ${p.id}::uuid
         from ligada l
       on conflict (tenant_id, canal, externo_msg_id) where externo_msg_id is not null do nothing
       returning id, canal, autor, pedido_id as "pedidoId", pedido_externo as "pedidoExterno", pedido_numero as "pedidoNumero",
@@ -200,9 +215,12 @@ export class PonteChatService {
       const robo = await this.roboNoLote(tx, p.tenantId, doCliente);
       const paraCasos = doCliente.filter((m) => !robo.semCaso.has(chaveDoMapa({ canal: m.canal, chave: chaveDaConversa(m) ?? '' })));
       const casos = await casosDoChat(tx, p.tenantId, paraCasos, robo.chamar);
-      // "Já chamei a equipe" — uma vez, no caso que o robô acabou de chamar.
+      // "Já chamei a equipe" — uma vez, no caso que o robô acabou de chamar (e só se algum PC envia pelo canal).
       const chamados = casos.novos
-        .filter((n) => robo.chamar.has(chaveDoMapa({ canal: n.canal, chave: n.detalhe?.chat?.chave })))
+        .filter((n) => {
+          const k = chaveDoMapa({ canal: n.canal, chave: n.detalhe?.chat?.chave });
+          return robo.chamar.has(k) && !robo.semEnvio.has(k);
+        })
         .map((n) => ({
           canal: n.canal,
           pedido_id: n.pedido_id ?? null,
@@ -236,12 +254,25 @@ export class PonteChatService {
     tx: any,
     tenantId: string,
     msgs: MensagemDoCliente[],
-  ): Promise<{ semCaso: Set<string>; chamar: Map<string, RoboNoCaso>; respostas: any[] }> {
+  ): Promise<{ semCaso: Set<string>; chamar: Map<string, RoboNoCaso>; semEnvio: Set<string>; respostas: any[] }> {
     const semCaso = new Set<string>();
     const chamar = new Map<string, RoboNoCaso>();
+    const semEnvio = new Set<string>(); // chamou a equipe, mas ninguém envia pelo canal: sem o "já chamei a equipe"
     const respostas: any[] = [];
     const conversas = conversasDoLote(msgs);
-    if (!conversas.length) return { semCaso, chamar, respostas };
+    if (!conversas.length) return { semCaso, chamar, semEnvio, respostas };
+    // Quem ENVIA pelo canal para a loja da conversa — a mesma regra do `pegar`: a ponte que responde pela loja, ou a de
+    // uma ponte sem loja (pega de todas). Uma leitura por canal e loja do lote (poucas), nunca por mensagem.
+    const enviaPor = new Map<string, Promise<boolean>>();
+    const envia = (canal: CanalDaPonte, unidade: string | null) => {
+      const k = `${canal}|${unidade ?? ''}`;
+      if (!enviaPor.has(k))
+        enviaPor.set(
+          k,
+          (async () => !!(await this.quemRespondePeloCanal(tenantId, unidade, canal)) || (unidade !== null && !!(await this.quemRespondePeloCanal(tenantId, null, canal))))(),
+        );
+      return enviaPor.get(k)!;
+    };
     await tx.execute(sql`select 1 from robo_config where tenant_id = ${tenantId}::uuid for update`);
     const dados = linhas(
       await tx.execute(sql`
@@ -272,18 +303,22 @@ export class PonteChatService {
         ? { status: String(d.status ?? ''), despachadoEm: d.despachadoEm ?? null, modo: modoEntrega({ tipo: d.tipo, canal: d.canalDoPedido, raw: d.raw }), cliente: d.clienteDoPedido ?? c.cliente, canal }
         : null;
       const intencao = intencaoDoCliente(c.texto);
+      const podeEnviar = await envia(canal, c.unidade_id ?? null);
       // A previsão é a mesma conta do aviso "saiu" (só quando ele pode responder e a loja entrega).
-      const precisaDaHora = intencao === 'onde_esta' && !!pedido && pedido.modo !== 'logistica_canal' && pedido.modo !== 'retirada';
+      const precisaDaHora = podeEnviar && intencao === 'onde_esta' && !!pedido && pedido.modo !== 'logistica_canal' && pedido.modo !== 'retirada';
       const horaPrevista = precisaDaHora && this.delivery ? await this.delivery.horaPrevistaDoPedido(tenantId, d.pedidoId).catch(() => null) : null;
-      const decisao = decidir({ intencao, casoAberto: d?.casoAberto === true, respostasNaHora: Number(d?.respostasNaHora ?? 0), pedido, horaPrevista, fala: c.texto, canal });
+      const decisao = decidir({ intencao, casoAberto: d?.casoAberto === true, respostasNaHora: Number(d?.respostasNaHora ?? 0), pedido, horaPrevista, fala: c.texto, canal, envia: podeEnviar });
       if (decisao.acao === 'responder') {
         semCaso.add(k);
         respostas.push({ canal: c.canal, pedido_id: c.pedido_id, pedido_externo: c.pedido_externo, pedido_numero: c.pedido_numero, cliente: c.cliente, unidade_id: c.unidade_id, texto: decisao.texto });
       } else if (decisao.acao === 'nada') semCaso.add(k);
-      else if (decisao.acao === 'chamar_equipe') chamar.set(k, { resumo: decisao.resumo, urgente: decisao.urgente });
+      else if (decisao.acao === 'chamar_equipe') {
+        chamar.set(k, { resumo: decisao.resumo, urgente: decisao.urgente });
+        if (!podeEnviar) semEnvio.add(k);
+      }
       // 'quieto': segue para os casos (soma no caso aberto).
     }
-    return { semCaso, chamar, respostas };
+    return { semCaso, chamar, semEnvio, respostas };
   }
 
   /** O que o robô diz entra na fila de saída (a ponte que responde pelo canal digita) — uma gravação para o lote todo. */

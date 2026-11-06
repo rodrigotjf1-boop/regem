@@ -674,7 +674,8 @@ export class EquipamentoService {
           select e.id, e.unidade_id as "unidadeId", e.created_at as "criadaEm", coalesce(cp.papel, 'auto') as papel,
                  cp.maquina, cp.versao, cp.visto_em as "vistoEm", cp.pausada_em as "pausadaEm",
                  coalesce((cp.plataformas -> 'ifood' ->> 'logado')::boolean, false) as ifood,
-                 coalesce((cp.plataformas -> '99food' ->> 'logado')::boolean, false) as n99
+                 coalesce((cp.plataformas -> '99food' ->> 'logado')::boolean, false) as n99,
+                 coalesce((cp.plataformas -> '99food' ->> 'lendo')::boolean, false) as "n99Lendo"
             from equipamento e
             left join chat_ponte cp on cp.equipamento_id = e.id
            where e.tenant_id = ${tenantId}::uuid and e.tipo = 'ponte_chat' and e.ativo and e.revogado_em is null`),
@@ -701,7 +702,8 @@ export class EquipamentoService {
       for (const p of lista) {
         // As pontes da mesma loja (a dela e as sem loja; a sem loja concorre com todas) — como `pontesDaLoja`.
         const daLoja = lista.filter((x) => !p.unidadeId || !x.unidadeId || x.unidadeId === p.unidadeId);
-        const papelAgora: Record<string, 'responde' | 'reserva' | 'fora'> = {};
+        // 'lendo' (4a, a 99): a ponte lê o chat do canal, mas ainda não envia por ele
+        const papelAgora: Record<string, 'responde' | 'reserva' | 'lendo' | 'fora'> = {};
         for (const c of canais) {
           // pausada no PC (mig 368) não responde nem fica de reserva — como em `quemRespondePeloCanal`
           const candidatas: PonteCandidata[] = daLoja.map((x) => ({
@@ -712,7 +714,8 @@ export class EquipamentoService {
             criadaEm: ms(x.criadaEm),
           }));
           const logadaViva = !p.pausadaEm && (c === 'ifood' ? p.ifood === true : p.n99 === true) && agora - ms(p.vistoEm) <= VIVA_POR_MS;
-          papelAgora[c] = quemResponde(candidatas, agora) === p.id ? 'responde' : logadaViva ? 'reserva' : 'fora';
+          const lendoViva = c === '99food' && !p.pausadaEm && p.n99Lendo === true && agora - ms(p.vistoEm) <= VIVA_POR_MS;
+          papelAgora[c] = quemResponde(candidatas, agora) === p.id ? 'responde' : logadaViva ? 'reserva' : lendoViva ? 'lendo' : 'fora';
         }
         const d = doDia.get(String(p.id));
         mapa.set(String(p.id), {

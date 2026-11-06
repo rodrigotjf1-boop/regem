@@ -1,6 +1,6 @@
 'use client';
 
-import { porOndePassa } from '@/components/atendimento/faixa-da-ponte';
+import { porOndeLe, porOndePassa, soLendo } from '@/components/atendimento/faixa-da-ponte';
 import { COMO_RETOMAR_A_PONTE } from '@/lib/ponte-do-chat';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -11,7 +11,7 @@ import { COMO_RETOMAR_A_PONTE } from '@/lib/ponte-do-chat';
 // nuvem (no servidor da loja a lista vem sem `ponte`) e com ao menos uma ponte cadastrada.
 
 type Canal = 'ifood' | '99food';
-type DoCanal = { responde: { nome: string; maquina: string | null } | null; reservas: string[] };
+type DoCanal = { responde: { nome: string; maquina: string | null } | null; reservas: string[]; lendo: string[] };
 const NO: Record<Canal, string> = { ifood: 'no iFood', '99food': 'na 99' };
 
 const pcDa = (e: any): string => e.ponte?.maquina || e.nome;
@@ -41,13 +41,15 @@ export function FaixaDaPonteNosPcs({ lista, nomeDaLoja }: { lista: any[]; nomeDa
           {
             responde: responde ? { nome: pcDa(responde), maquina: responde.ponte.maquina ?? null } : null,
             reservas: daLoja.filter((e) => e.ponte.canais?.[c] === 'reserva').map(pcDa),
+            // 4a (a 99): lê o chat, mas ainda não envia — não é "nenhum PC"
+            lendo: daLoja.filter((e) => e.ponte.canais?.[c] === 'lendo').map(pcDa),
           },
         ];
       });
-    const semPc = canais.filter(([, c]) => !c.responde).map(([k]) => k);
+    const semPc = canais.filter(([, c]) => !c.responde && !soLendo(c)).map(([k]) => k);
     // pausada pela pessoa no PC (mig 368), com sinal: a faixa diz onde retomar em vez de "entre no iFood"
     const pausadas = daLoja.filter((e) => e.ponte.pausadaEm && e.ponte.viva).map(pcDa);
-    return { u, canais, semPc, pausadas, passa: porOndePassa(canais) };
+    return { u, canais, semPc, pausadas, passa: [porOndePassa(canais), porOndeLe(canais)].filter(Boolean).join(' · ') };
   });
   const comAviso = linhas.some((l) => l.semPc.length);
   const semCanal = linhas.every((l) => !l.canais.length);

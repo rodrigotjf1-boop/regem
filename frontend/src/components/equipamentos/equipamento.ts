@@ -223,7 +223,14 @@ const canaisCom = (p: any, papel: string) => CANAIS_PONTE.filter((c) => p?.canai
 /** "iFood logado ✓ · 99 sem login": o que a ponte informou no último sinal (das plataformas conectadas ou logadas). */
 export function loginsDaPonte(p: any): string {
   const ks = CANAIS_PONTE.filter((c) => (p?.canais && c in p.canais) || p?.logado?.[c]);
-  return ks.map((c) => (c === 'ifood' ? `iFood ${p.logado?.ifood ? 'logado ✓' : 'sem login'}` : `99 ${p.logado?.['99food'] ? 'logada ✓' : 'sem login'}`)).join(' · ');
+  // a 99 "só lendo" (4a): logada na janela da ponte, mas o envio por ela ainda não chegou
+  return ks
+    .map((c) =>
+      c === 'ifood'
+        ? `iFood ${p.logado?.ifood ? 'logado ✓' : 'sem login'}`
+        : `99 ${p.logado?.['99food'] ? 'logada ✓' : p.canais?.['99food'] === 'lendo' ? 'logada ✓ (só lendo)' : 'sem login'}`,
+    )
+    .join(' · ');
 }
 
 /** O selo da ponte com sinal: quem responde, a reserva pronta, sem login ou só no ar (canal nenhum conectado). */
@@ -234,6 +241,7 @@ function seloDaPonteViva(p: any): { tom: Tom; rotulo: string } {
   if (canaisCom(p, 'responde').length) return { tom: 'ok', rotulo: 'responde o chat' };
   if (canaisCom(p, 'reserva').length) return { tom: 'ok', rotulo: 'reserva pronta' };
   if (canaisCom(p, 'fora').length) return { tom: 'aviso', rotulo: 'sem login' };
+  if (canaisCom(p, 'lendo').length) return { tom: 'ok', rotulo: 'lê o chat' };
   return { tom: 'ok', rotulo: 'no ar' };
 }
 
@@ -254,10 +262,12 @@ export function detalheDaPonte(p: any): string {
   const responde = canaisCom(p, 'responde');
   const reserva = canaisCom(p, 'reserva');
   const fora = canaisCom(p, 'fora');
+  const lendo = canaisCom(p, 'lendo');
   if (responde.length) partes.push(`Lê e responde ${juntar(responde.map((c) => COM_ARTIGO[c]))}`);
   if (reserva.length) partes.push(`Reserva ${juntar(reserva.map((c) => DE[c]))}: assume sozinha se a que responde ficar 2 min sem sinal`);
+  if (lendo.length) partes.push(`Lê ${juntar(lendo.map((c) => COM_ARTIGO[c]))}, ainda sem enviar: responda pelo portal ${juntar(lendo.map((c) => DE[c]))}`);
   if (fora.length) partes.push(`Sem login ${juntar(fora.map((c) => EM[c]))}: entre dentro da janela da ponte`);
-  if (!responde.length && !reserva.length && !fora.length) partes.push('No ar (nem o iFood nem a 99 estão conectados)');
+  if (!responde.length && !reserva.length && !fora.length && !lendo.length) partes.push('No ar (nem o iFood nem a 99 estão conectados)');
   const h = p.hoje ?? {};
   if (h.ultimaEm) partes.push(`última mensagem do cliente ${minutosDesde(h.ultimaEm) < 1 ? 'agora' : `há ${tempoDesde(h.ultimaEm)}`}`);
   if (h.recebidas || h.enviadas) partes.push(`${h.recebidas ?? 0} recebidas e ${h.enviadas ?? 0} enviadas hoje`);
