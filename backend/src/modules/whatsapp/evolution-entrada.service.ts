@@ -149,9 +149,11 @@ export class EvolutionEntradaService {
     try {
       const doGestor = await portaoDoGestor(
         this.db,
-        { tenantId: cfg.tenantId, telefone: de, texto: lida.texto, idMensagem: id },
+        { tenantId: cfg.tenantId, telefone: de, texto: lida.texto, opcaoId: lida.opcaoId, idMensagem: id },
         (texto) => this.evolution.enviar(cfg.tenantId, de, texto),
         this.auditoria ? (e) => this.auditoria!.registrar(e as any) : undefined,
+        // O voto na enquete de uma decisão (parte 5b) vai ao serviço do gestor.
+        this.events ? (ev, p) => this.events!.emit(ev, p) : undefined,
       );
       if (doGestor) return;
     } catch (e: any) {

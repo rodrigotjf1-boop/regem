@@ -72,6 +72,15 @@ const DO_AVISO_DA_PONTE: Record<string, [MotivoDoAviso, 'ligado' | 'texto']> = {
   ponteObrigadoTexto: ['obrigado', 'texto'],
 };
 // Gerente no WhatsApp (mig 375): a chave da tela → o campo do servidor.
+// "Aceitar pelo WhatsApp até" (parte 5b): centavos; "sem" = sem limite; "0" = não aceitar pelo WhatsApp.
+const LIMITES_DO_GESTOR_WA = [
+  { v: '0', rotulo: 'Não aceitar pelo WhatsApp' },
+  { v: '3000', rotulo: 'R$ 30,00' },
+  { v: '5000', rotulo: 'R$ 50,00' },
+  { v: '10000', rotulo: 'R$ 100,00 (padrão)' },
+  { v: '20000', rotulo: 'R$ 200,00' },
+  { v: 'sem', rotulo: 'Sem limite' },
+];
 const DO_GESTOR_WA: Record<string, 'ligado' | 'decisoes' | 'ninguemPegou'> = {
   gestorWaLigado: 'ligado',
   gestorWaDecisoes: 'decisoes',
@@ -111,7 +120,12 @@ type Resposta = {
 
 const paraValores = (r: Resposta): Valores => ({
   ...(r.gestorWa
-    ? { gestorWaLigado: r.gestorWa.ligado, gestorWaDecisoes: r.gestorWa.decisoes, gestorWaNinguemPegou: r.gestorWa.ninguemPegou }
+    ? {
+        gestorWaLigado: r.gestorWa.ligado,
+        gestorWaDecisoes: r.gestorWa.decisoes,
+        gestorWaNinguemPegou: r.gestorWa.ninguemPegou,
+        gestorWaLimite: r.gestorWa.limiteCentavos === null ? 'sem' : String(r.gestorWa.limiteCentavos ?? 10000),
+      }
     : {}),
   ...(r.ponte
     ? {
@@ -516,33 +530,43 @@ export function AjustesDoAtendimento() {
       },
     ],
   };
-  // Gerente no WhatsApp (mig 375, parte 5a): os avisos com o link do caso; decidir pelo botão é a parte 5b.
+  // Gerente no WhatsApp (mig 375): os avisos (5a) e a decisão por botão, com o limite do que devolve dinheiro (5b).
   const grupoDoGestor: GrupoDeAjustes | null = resp?.gestorWa
     ? {
         titulo: 'Gerente no WhatsApp',
-        nota: 'Sempre vale: o aviso só sai para quem ainda é gerente ou presidente, com acesso · o que o gestor responde aos avisos não vai ao robô nem vira conversa de cliente · PARAR AVISOS no WhatsApp para os avisos, VOLTAR AVISOS religa.',
+        nota: 'Sempre vale: a resposta só vale do número ligado, de quem ainda é gerente ou presidente, com acesso · confirmação em dois toques · uma resposta por caso · fica no caso como "pelo WhatsApp" · o que o gestor responde aos avisos não vai ao robô nem vira conversa de cliente · PARAR AVISOS no WhatsApp para os avisos, VOLTAR AVISOS religa.',
         itens: [
           {
             id: 'gestorWaLigado',
-            rotulo: 'Avisar o gerente pelo WhatsApp',
+            rotulo: 'Avisar e decidir pelo WhatsApp',
             tipo: 'chave',
             ajuda:
-              'O WhatsApp da loja manda ao WhatsApp de cada gestor ligado abaixo o que pede uma decisão e o caso que ninguém pegou, com o link para abrir o caso no Regem. Desligado, o aviso fica só no Regem e no app de atendimento.',
-            palavras: 'gerente whatsapp aviso celular presidente decisão',
+              'O WhatsApp da loja manda ao WhatsApp de cada gestor ligado abaixo o que pede uma decisão, com os botões para responder ali mesmo, e o caso que ninguém pegou. Desligado, o aviso fica só no Regem e no app de atendimento.',
+            palavras: 'gerente whatsapp aviso decidir botão celular presidente decisão',
           },
           {
             id: 'gestorWaDecisoes',
             rotulo: 'Decisões com prazo',
             tipo: 'chave',
-            ajuda: 'Disputa do iFood, cancelamento e reembolso pedidos na 99 e cancelamento pedido no cardápio online, assim que o caso chega, com o prazo e o que acontece se ninguém responder.',
-            palavras: 'gerente whatsapp disputa ifood 99 cancelamento reembolso prazo',
+            ajuda:
+              'Disputa do iFood, cancelamento e reembolso pedidos na 99 e cancelamento pedido no cardápio online, com os botões (na conexão por QR code, uma enquete). A primeira resposta vale; quem tocar depois fica sabendo quem já respondeu. A proposta da disputa (crédito, outro valor, mais tempo) fica no Regem.',
+            palavras: 'gerente whatsapp disputa ifood 99 cancelamento reembolso prazo botões enquete',
           },
           {
             id: 'gestorWaNinguemPegou',
             rotulo: 'Caso que ninguém pegou',
             tipo: 'chave',
-            ajuda: 'No tempo de "Avisar o gerente se ninguém pegar o caso em", do grupo Fila e avisos. Não sai se alguém pegar antes.',
+            ajuda: 'No tempo de "Avisar o gerente se ninguém pegar o caso em", do grupo Fila e avisos. Vai só o aviso, com o link do caso; não sai se alguém pegar antes.',
             palavras: 'gerente whatsapp ninguém pegou fila espera',
+          },
+          {
+            id: 'gestorWaLimite',
+            rotulo: 'Aceitar pelo WhatsApp até',
+            tipo: 'selecao',
+            opcoes: LIMITES_DO_GESTOR_WA,
+            ajuda:
+              'Vale para o que devolve dinheiro: aceitar a disputa, o cancelamento ou o reembolso. Acima disso, a mensagem traz só "Recusar" e o link para aceitar no Regem com a senha. Recusar não tem limite.',
+            palavras: 'gerente whatsapp limite valor aceitar reembolso dinheiro',
           },
         ],
         depois: (
@@ -577,7 +601,7 @@ export function AjustesDoAtendimento() {
     const cheguei: Record<string, unknown> = {};
     const repetido: Record<string, unknown> = {};
     let alterado: { som?: string; roboMuda?: boolean; roboCobraPix?: boolean } | null = null;
-    const gestorWa: Record<string, boolean> = {};
+    const gestorWa: Record<string, boolean | number | null> = {};
     const ponte: {
       ligada?: boolean;
       roboResponde?: boolean;
@@ -612,6 +636,10 @@ export function AjustesDoAtendimento() {
       }
       if (DO_GESTOR_WA[k]) {
         gestorWa[DO_GESTOR_WA[k]] = valores[k] === true;
+        continue;
+      }
+      if (k === 'gestorWaLimite') {
+        gestorWa.limiteCentavos = valores[k] === 'sem' ? null : Number(valores[k]);
         continue;
       }
       if (k === 'alteradoSom') {

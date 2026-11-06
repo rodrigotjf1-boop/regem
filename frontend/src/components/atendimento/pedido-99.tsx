@@ -164,7 +164,8 @@ function ComoFicou({ caso: c, pedido: p, prazoVenceu }: { caso: CasoDaFila; pedi
   let texto: string;
   if (resposta?.automatico) texto = `O Regem recusou ${oQue} sozinho: o tempo do ajuste acabou${resposta.motivo ? ` · ${motivo(resposta.motivo)}` : ''}${resposta.em ? ` · às ${hora(resposta.em)}` : ''}.`;
   else if (resposta)
-    texto = `${resposta.por ? `${resposta.por} ` : 'A loja '}${resposta.acao === 'aceitar' ? 'aceitou' : 'recusou'} ${oQue}${resposta.motivo ? ` · ${motivo(resposta.motivo)}` : ''}${resposta.em ? ` · às ${hora(resposta.em)}` : ''}.`;
+    // `via` = "whatsapp": a resposta saiu pelo WhatsApp de quem decide (Gerente no WhatsApp, mig 375, parte 5b).
+    texto = `${resposta.por ? `${resposta.por} ` : 'A loja '}${resposta.acao === 'aceitar' ? 'aceitou' : 'recusou'} ${oQue}${resposta.motivo ? ` · ${motivo(resposta.motivo)}` : ''}${resposta.em ? ` · às ${hora(resposta.em)}` : ''}${resposta.via === 'whatsapp' ? ' · pelo WhatsApp' : ''}.`;
   else if (c.decisao === 'aceito_automatico') texto = 'O Regem aceitou o cancelamento na hora: o ajuste "decidir na fila" está desligado.';
   else if (encerramento?.status === 'RECUSADO_PELA_99' || (cancelamento && prazoVenceu))
     texto = 'Ninguém respondeu em 5 min: a 99 recusou o cancelamento sozinha. O pedido segue.';

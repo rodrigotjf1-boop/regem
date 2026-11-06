@@ -539,9 +539,17 @@ export class WhatsappCloudService {
     try {
       return await portaoDoGestor(
         this.db,
-        { tenantId: cfg.tenantId, telefone: de, texto: this.textoDe(m), idMensagem: String(m?.id ?? '') || null },
+        {
+          tenantId: cfg.tenantId,
+          telefone: de,
+          texto: this.textoDe(m),
+          // O botão de uma decisão (parte 5b): o id que o Regem pôs no botão.
+          opcaoId: String(m?.interactive?.button_reply?.id ?? m?.interactive?.list_reply?.id ?? '') || null,
+          idMensagem: String(m?.id ?? '') || null,
+        },
         (texto) => this.enviarInterno(cfg.tenantId, de, { texto }),
         this.auditoria ? (e) => this.auditoria!.registrar(e as any) : undefined,
+        this.events ? (ev, p) => this.events!.emit(ev, p) : undefined,
       );
     } catch (e: any) {
       this.logger.warn(`resposta do gestor não conferida para ${mascarar(de)} (segue o caminho de sempre): ${e?.message ?? e}`);
@@ -969,6 +977,8 @@ export class WhatsappCloudService {
     corpo: string,
     opcoes: { id?: string; titulo: string; descricao?: string }[],
     botaoLista = 'Ver opções',
+    // Mensagem INTERNA (a decisão ao gestor — Gerente no WhatsApp, parte 5b): não entra na caixa de conversas.
+    interno = false,
   ) {
     const para = soDigitos(numero);
     if (!para) throw new BadRequestException('Número inválido.');
@@ -1000,6 +1010,7 @@ export class WhatsappCloudService {
           },
         };
     const r = await this.postarMensagem(cfg.waCloudPhoneId!, { to: para, type: 'interactive', interactive });
+    if (interno) return { ok: true, id: r.wamid };
     await this.gravar({
       tenantId,
       telefone: para,

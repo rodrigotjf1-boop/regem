@@ -395,6 +395,9 @@ export class AtendimentoService {
     id: string,
     dto: { aceita?: boolean; senha?: string; motivo?: string; reaproveitado?: boolean; perdaItens?: unknown },
     terminalId: string | null = null,
+    // Pelo WhatsApp do gestor (Gerente no WhatsApp, parte 5b): quem decide já foi conferido pela rotina do WhatsApp (o
+    // número ligado, o nível e o acesso na hora) — vai no lugar da senha. A tela nunca passa isto.
+    autorizadoPor: { id: string; nome: string } | null = null,
   ) {
     const [row] = await this.db
       .select()
@@ -421,6 +424,7 @@ export class AtendimentoService {
         dto.reaproveitado !== false,
         terminalId,
         lerItensDaPerda(dto.perdaItens),
+        autorizadoPor,
       );
       comprovante = cancelado?.comprovante;
     }

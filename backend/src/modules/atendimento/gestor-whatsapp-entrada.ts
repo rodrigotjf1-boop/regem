@@ -7,20 +7,35 @@ import {
   finalDoNumero,
   lerCodigoDeLigar,
   textoDeLigado,
-  textoDoAviso,
 } from './gestor-whatsapp';
+import { ehRespostaDeDecisao } from './gestor-whatsapp-decisao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // A ENTRADA DO GESTOR NO WHATSAPP DA LOJA (mig 375). Chamada pela entrada da API oficial e pela da Evolution ANTES de
 // qualquer outro portão e antes de gravar a mensagem na caixa de conversas: o que é resposta aos avisos (o código de
-// ligar, PARAR AVISOS, VOLTAR AVISOS, o "Ver por aqui" do modelo) não vai ao robô nem vira conversa de cliente. O resto
-// que o gestor escreve segue o caminho de sempre — quem testa o robô pelo próprio celular continua sendo atendido. Uma
-// palavra dessas vinda de quem não é gestor ligado também segue o caminho de sempre (o código de ligar não: ele responde).
+// ligar, PARAR AVISOS, VOLTAR AVISOS, o "Ver por aqui" do modelo, o botão ou a enquete de uma decisão) não vai ao robô nem
+// vira conversa de cliente. O resto que o gestor escreve segue o caminho de sempre — quem testa o robô pelo próprio
+// celular continua sendo atendido. Uma palavra dessas vinda de quem não é gestor ligado também segue o caminho de sempre
+// (o código de ligar não: ele responde).
+// Ligar e PARAR/VOLTAR se resolvem aqui (só o banco). O "Ver por aqui" e a resposta a uma decisão vão ao serviço do
+// gestor (`gestor-whatsapp.service.ts`) pelo evento `gestor.whatsapp.resposta`: é ele que confere quem decide, executa
+// pelo mesmo caminho da tela e responde — a entrada do WhatsApp não depende do módulo do atendimento.
 // Nunca lança: falhou, a mensagem segue o caminho de sempre (e o motivo vai ao log de quem chamou).
 
-export type EntradaDoGestor = { tenantId: string; telefone: string; texto: string; idMensagem?: string | null };
+export const EVENTO_RESPOSTA_DO_GESTOR = 'gestor.whatsapp.resposta';
+export type RespostaDoGestor = {
+  tenantId: string;
+  telefone: string;
+  colaboradorId: string;
+  tipo: 'ver' | 'decisao';
+  texto: string;
+  opcaoId: string | null;
+};
+
+export type EntradaDoGestor = { tenantId: string; telefone: string; texto: string; opcaoId?: string | null; idMensagem?: string | null };
 export type Enviar = (texto: string) => Promise<unknown>;
+export type Emitir = (evento: string, payload: RespostaDoGestor) => unknown;
 export type Auditar = (e: {
   tenantId: string;
   atorId?: string;
@@ -38,7 +53,8 @@ const linhas = (r: any) => (r?.rows ?? r ?? []) as any[];
 const niveis = sql.join(NIVEIS_DO_GESTOR_WA.map((n) => sql`${n}`), sql`, `);
 
 // A Meta reenvia a mensagem quando o 200 demora: a mesma mensagem não responde duas vezes (10 min de memória; com mais
-// de uma réplica, o reenvio pode cair em outra — o custo é uma resposta repetida, nunca uma decisão em dobro).
+// de uma réplica, o reenvio pode cair em outra — o custo é uma resposta repetida, nunca uma decisão em dobro: a decisão
+// grava cada passo com condição).
 const vistas = new Map<string, number>();
 function jaVista(id: string | null | undefined): boolean {
   const k = String(id ?? '').trim();
@@ -62,14 +78,16 @@ async function nomeDaLoja(db: any, tenantId: string): Promise<string> {
 
 /**
  * Trata a mensagem se for do gestor e responder aos avisos. `true` = tratada (não segue); `false` = segue o caminho de
- * sempre. `enviar` responde pela MESMA via que recebeu.
+ * sempre. `enviar` responde pela MESMA via que recebeu; `emitir` entrega ao serviço do gestor o que é dele.
  */
-export async function portaoDoGestor(db: any, e: EntradaDoGestor, enviar: Enviar, auditar?: Auditar): Promise<boolean> {
+export async function portaoDoGestor(db: any, e: EntradaDoGestor, enviar: Enviar, auditar?: Auditar, emitir?: Emitir): Promise<boolean> {
   const tel = soDigitos(e.telefone);
   if (!tel || !e.tenantId) return false;
   const texto = String(e.texto ?? '');
+  const opcaoId = String(e.opcaoId ?? '') || null;
   const codigo = lerCodigoDeLigar(texto);
-  const comando = !!codigo || ehPararAvisos(texto) || ehVoltarAvisos(texto) || ehVerPorAqui(texto);
+  const decisao = ehRespostaDeDecisao(texto, opcaoId);
+  const comando = !!codigo || ehPararAvisos(texto) || ehVoltarAvisos(texto) || ehVerPorAqui(texto) || decisao;
   // Mensagem comum (a de quase todo cliente): nem consulta o banco — a entrada de cada mensagem não pode pagar por isso.
   // A janela de 24 h dela fica na caixa de conversas, como sempre (o envio ao gestor olha as duas).
   if (!comando) return false;
@@ -105,8 +123,13 @@ export async function portaoDoGestor(db: any, e: EntradaDoGestor, enviar: Enviar
     await enviar(`Voltou, ${primeiro}: este WhatsApp recebe de novo os avisos do atendimento.`);
     return true;
   }
-  // "Ver por aqui" (o botão do modelo da API oficial): manda o texto de tudo o que esperava o toque.
-  return verPorAqui(db, e.tenantId, g, enviar);
+  // "Ver por aqui" (o botão do modelo) e a resposta a uma decisão: o serviço do gestor confere, executa e responde.
+  if (!emitir) {
+    await enviar('Não deu para tratar agora. Abra o caso no Regem.');
+    return true;
+  }
+  emitir(EVENTO_RESPOSTA_DO_GESTOR, { tenantId: e.tenantId, telefone: tel, colaboradorId: g.colaboradorId, tipo: decisao ? 'decisao' : 'ver', texto, opcaoId });
+  return true;
 }
 
 /** O código que o Regem mostrou: liga ESTE número a quem pediu o código, se ainda pode (V75: acesso vivo e nível). */
@@ -168,42 +191,5 @@ async function ligar(db: any, tenantId: string, tel: string, codigo: string, env
     detalhe: { final: finalDoNumero(tel) },
   });
   await enviar(textoDeLigado(ligado.nome, await nomeDaLoja(db, tenantId)));
-  return true;
-}
-
-/** Manda o texto dos avisos que saíram como modelo (fora da janela) e ainda valem; os que não valem mais, expiram. */
-async function verPorAqui(db: any, tenantId: string, g: any, enviar: Enviar): Promise<boolean> {
-  const pendentes = linhas(
-    await db.execute(sql`
-      select a.id, a.tipo as "tipoDoAviso", ch.id as "chamadoId", ch.tipo, ch.canal, ch.cliente, ch.pedido_numero as "pedidoNumero",
-             ch.mensagem, ch.prazo_em as "prazoEm", ch.criado_em as "criadoEm", ch.detalhe,
-             (ch.status = 'aberto' and ch.decisao is null and (ch.prazo_em is null or ch.prazo_em > now())
-               and (a.tipo <> 'ninguem_pegou' or ch.responsavel_id is null)) as vale
-        from aviso_gestor_whatsapp a
-        join atendimento_chamado ch on ch.id = a.chamado_id
-        join colaborador c on c.id = a.colaborador_id
-        left join funcao f on f.id = c.funcao_id
-        left join perfil_acesso p on p.id = c.perfil_acesso_id
-       where a.tenant_id = ${tenantId}::uuid and a.colaborador_id = ${g.colaboradorId}::uuid and a.situacao = 'modelo'
-         and c.deleted_at is null and c.status = 'ativo' and coalesce(p.nivel, f.categoria::text) in (${niveis})
-       order by ch.prazo_em nulls last, ch.criado_em
-       limit 10`),
-  );
-  const validos = pendentes.filter((p) => p.vale === true);
-  const velhos = pendentes.filter((p) => p.vale !== true).map((p) => p.id);
-  if (velhos.length)
-    await db.execute(sql`
-      update aviso_gestor_whatsapp set situacao = 'expirado', atualizado_em = now()
-       where id in (${sql.join(velhos.map((id) => sql`${id}::uuid`), sql`, `)}) and situacao = 'modelo'`);
-  if (!validos.length) {
-    await enviar('Nada esperando por você agora: o caso já foi respondido ou pegou alguém. O que chegar de novo aparece aqui.');
-    return true;
-  }
-  for (const p of validos) {
-    await enviar(textoDoAviso({ ...p, id: p.chamadoId }, p.tipoDoAviso));
-    await db.execute(sql`
-      update aviso_gestor_whatsapp set situacao = 'enviado', enviado_em = now(), atualizado_em = now()
-       where id = ${p.id}::uuid and situacao = 'modelo'`);
-  }
   return true;
 }

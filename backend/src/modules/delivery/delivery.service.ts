@@ -2471,6 +2471,9 @@ export class DeliveryService {
     reaproveitado = true,
     terminalId: string | null = null, // o PC que cancelou: o comprovante sai na impressora dele
     perdaItens: ItemDaPerda[] | null = null, // na perda: os itens marcados (sem a lista, vale o pedido inteiro)
+    // Gerente no WhatsApp (parte 5b): o gestor já conferido pela rotina do WhatsApp (número ligado, nível e acesso na
+    // hora) vai no lugar da senha. Só o caminho do WhatsApp passa isto; a tela e as rotas, nunca.
+    autorizadoPor: { id: string; nome: string } | null = null,
   ) {
     const ped = await this.carregar(tenantId, id);
     if (ped.status === 'cancelado')
@@ -2480,8 +2483,8 @@ export class DeliveryService {
     // Pago no Pix: o cancelamento estorna o valor (a rotina da nuvem, mig 372) — e o Pix só devolve até 90 dias depois do
     // pagamento. Passou do prazo (89 dias, 1 de folga): a loja é avisada e o pedido não é cancelado (o dinheiro não voltaria).
     if (pagoNoPixOnline(ped) && !podeCancelarPagoNoPix(ped.criadoEm)) throw new BadRequestException(MENSAGEM_PRAZO_DO_PIX);
-    // Trava: exige senha de um gestor com autoridade para cancelar.
-    const autorizou = await this.autorizarPorSenha(tenantId, senha);
+    // Trava: exige senha de um gestor com autoridade para cancelar (ou o gestor conferido pelo WhatsApp).
+    const autorizou = autorizadoPor ?? (await this.autorizarPorSenha(tenantId, senha));
     // O que aconteceu com o estoque — dito ao operador pelo que foi FEITO, não pelo que se supõe.
     let estoque: 'devolvido' | 'perda' | 'perda_nenhum' | 'nada' | 'nao_iniciado' | 'perda_falhou' = 'nada';
     let perda: { itens: number; custo: number } | null = null;
