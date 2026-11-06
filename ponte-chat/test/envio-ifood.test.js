@@ -23,19 +23,31 @@ const ehEscreverNoCampo = (s) => s.includes('ocupado: true') && s.includes('defi
  * `canal` é o que o Gestor "carrega" ao abrir a conversa; o campo guarda o que foi digitado (`rascunho` = texto de alguém
  * que já estava no campo).
  */
-function gestorDeMentira({ topo = '3118', canal = CANAL(PEDIDO), cartoes = 1, botaoLiga = true, recarrega = true, rascunho = '' } = {}) {
+function gestorDeMentira({ topo = '3118', canal = CANAL(PEDIDO), cartoes = 1, botaoLiga = true, recarrega = true, rascunho = '', resumo = true, cliquesPerdidos = 0, lenta = 0 } = {}) {
   const rodados = [];
   let campo = rascunho;
   let canalCarregado = null;
+  let cliques = 0;
+  let voltasAteAbrir = lenta; // a conversa demora `lenta` leituras para aparecer depois do clique que vale
+  const momentos = {}; // quando o resumo deste pedido apareceu e quando veio o 1º clique no chat
   const pagina = {
     executeJavaScript: async (s) => {
       if (s === R.ABRIR_CARTAO('3118')) return (rodados.push('ABRIR_CARTAO'), cartoes === 1 ? { ok: true } : { ok: false, codigo: 'fora_do_quadro', motivo: 'o pedido não está no quadro do Gestor' });
+      if (s === R.RESUMO_DO_PEDIDO('3118')) return (rodados.push('RESUMO'), resumo && !momentos.resumo && (momentos.resumo = Date.now()), { ok: resumo });
       if (s === R.ABRIR_CHAT_DO_RESUMO('3118')) {
         rodados.push('ABRIR_CHAT');
-        if (recarrega) canalCarregado = { canal, em: Date.now() };
+        if (!momentos.chat) momentos.chat = Date.now();
+        cliques++;
+        // o clique cedo demais se perde (05/11): nada abre e o Gestor nem carrega a conversa
+        if (cliques > cliquesPerdidos && recarrega) canalCarregado = { canal, em: Date.now() };
         return { ok: true };
       }
-      if (s === R.CONVERSA_ABERTA('3118')) return (rodados.push('CONVERSA'), { campos: 1, topo: topo === '3118' });
+      if (s === R.CONVERSA_ABERTA('3118')) {
+        rodados.push('CONVERSA');
+        if (cliques <= cliquesPerdidos) return { campos: 0, topo: false };
+        if (voltasAteAbrir > 0) return (voltasAteAbrir--, { campos: 0, topo: false });
+        return { campos: 1, topo: topo === '3118' };
+      }
       if (s === R.FOCAR_CAMPO) return (rodados.push('FOCAR'), true);
       if (s === R.LER_CAMPO) return (rodados.push('LER'), { campos: 1, valor: campo, botaoLigado: botaoLiga && campo !== '' });
       if (s === R.APAGAR_CAMPO) return (rodados.push('APAGAR'), (campo = ''), true);
@@ -69,7 +81,7 @@ function gestorDeMentira({ topo = '3118', canal = CANAL(PEDIDO), cartoes = 1, bo
     digitados.push(t);
     campo += t;
   };
-  return { ctx: { pagina, leitor, digitar }, rodados, digitados, eco, campo: () => campo, porNoCampo: (t) => (campo = t) };
+  return { ctx: { pagina, leitor, digitar }, rodados, digitados, eco, momentos, campo: () => campo, porNoCampo: (t) => (campo = t) };
 }
 
 test('ENSAIO: abre, confere, escreve e APAGA — nunca aperta "Enviar"', async () => {
@@ -239,6 +251,63 @@ test('ERR-375: o eco chega NO MOMENTO do clique — quem escuta só depois perde
   const r = await enviar(g.ctx, { numero: '3118', pedidoExterno: PEDIDO, texto: 'Seu pedido saiu para entrega!' }, { ecoMs: 200 });
   assert.equal(r.ok, true, r.etapas.join(' | '));
   assert.equal(r.id, '888');
+});
+
+test('05/11: o 1º clique no chat se perde (resumo montando) → clica de novo UMA vez e abre; o resumo assenta antes do clique', async () => {
+  const g = gestorDeMentira({ cliquesPerdidos: 1 });
+  const t0 = Date.now();
+  const r = await abrirConversa(g.ctx.pagina, g.ctx.leitor, { numero: '3118', pedidoExterno: PEDIDO }, { prazoMs: 4000, assentarMs: 120, cliqueMs: 300 });
+  assert.equal(r.ok, true, r.etapas.join(' | '));
+  assert.equal(g.rodados.filter((x) => x === 'ABRIR_CHAT').length, 2);
+  assert.ok(r.etapas.some((e) => /cliquei de novo/.test(e)));
+  // o resumo DESTE pedido conferido antes do 1º clique, e o tempo de assentar respeitado
+  assert.ok(g.rodados.indexOf('RESUMO') < g.rodados.indexOf('ABRIR_CHAT'));
+  assert.ok(Date.now() - t0 >= 120);
+});
+
+test('05/11: o clique no chat só vem DEPOIS de o resumo deste pedido assentar (assentarMs)', async () => {
+  const g = gestorDeMentira();
+  const r = await abrirConversa(g.ctx.pagina, g.ctx.leitor, { numero: '3118', pedidoExterno: PEDIDO }, { prazoMs: 3000, assentarMs: 400, cliqueMs: 300 });
+  assert.equal(r.ok, true, r.etapas.join(' | '));
+  assert.ok(g.momentos.chat - g.momentos.resumo >= 380, `clicou ${g.momentos.chat - g.momentos.resumo} ms depois do resumo`);
+  // o padrão (sem opção) é o medido no Gestor de verdade com folga: 700 ms
+  assert.match(require('fs').readFileSync(require.resolve('../src/envio-ifood'), 'utf8'), /const ASSENTAR_MS = 700;/);
+});
+
+test('05/11: o clique se perde duas vezes → para no topo, sem 3º clique', async () => {
+  const g = gestorDeMentira({ cliquesPerdidos: 9 });
+  const r = await abrirConversa(g.ctx.pagina, g.ctx.leitor, { numero: '3118', pedidoExterno: PEDIDO }, { prazoMs: 1500, assentarMs: 0, cliqueMs: 300 });
+  assert.equal(r.ok, false);
+  assert.equal(r.codigo, 'topo');
+  assert.equal(g.rodados.filter((x) => x === 'ABRIR_CHAT').length, 2);
+});
+
+test('05/11: o Gestor começou a carregar a conversa (canal pedido depois do clique) → NÃO clica de novo; espera e abre', async () => {
+  const g = gestorDeMentira({ lenta: 3 });
+  const r = await abrirConversa(g.ctx.pagina, g.ctx.leitor, { numero: '3118', pedidoExterno: PEDIDO }, { prazoMs: 4000, assentarMs: 0, cliqueMs: 100 });
+  assert.equal(r.ok, true, r.etapas.join(' | '));
+  assert.equal(g.rodados.filter((x) => x === 'ABRIR_CHAT').length, 1);
+});
+
+test('05/11: algo da conversa já na tela (campo, sem o título deste pedido) → não clica de novo; para no topo', async () => {
+  const g = gestorDeMentira({ topo: '9999', recarrega: false });
+  const r = await abrirConversa(g.ctx.pagina, g.ctx.leitor, { numero: '3118', pedidoExterno: PEDIDO }, { prazoMs: 800, assentarMs: 0, cliqueMs: 200 });
+  assert.equal(r.codigo, 'topo');
+  assert.equal(g.rodados.filter((x) => x === 'ABRIR_CHAT').length, 1);
+});
+
+test('05/11: o resumo deste pedido não aparece → para antes de clicar no chat', async () => {
+  const g = gestorDeMentira({ resumo: false });
+  const r = await abrirConversa(g.ctx.pagina, g.ctx.leitor, { numero: '3118', pedidoExterno: PEDIDO }, { prazoMs: 400, assentarMs: 0 });
+  assert.equal(r.codigo, 'resumo');
+  assert.ok(!g.rodados.includes('ABRIR_CHAT'));
+});
+
+test('05/11: os "X" do Gestor de hoje — o do resumo é "Fechar detalhes"; o da conversa, o ícone close-icon sem rótulo', () => {
+  assert.match(R.FECHAR_RESUMO, /\^\(fechar\|close\|fechar detalhes\)\$/);
+  assert.match(R.FECHAR_CONVERSA('3118'), /\[data-testid="close-icon"\]/);
+  // "fechar" solto continua fora (no Gestor há "Fechar a loja" e "Fechar pedido")
+  assert.ok(!/fechar pedido|fechar a loja/i.test(R.FECHAR_RESUMO + R.FECHAR_CONVERSA('3118')));
 });
 
 test('os roteiros da página compilam — também com aspas, barra e quebra de linha no texto', () => {

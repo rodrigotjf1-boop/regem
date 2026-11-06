@@ -13,6 +13,16 @@
 // mensagem" e só dá por enviado quando a mensagem volta pelo chat (da loja, na conversa desse pedido, com o mesmo texto).
 // Apagar = só se o campo tem EXATAMENTE o texto que o programa escreveu (nunca o rascunho de alguém).
 
+// (05/11, no Gestor de verdade com a loja aberta) O clique no botão de chat do resumo SE PERDE quando chega cedo demais: a
+// ponte clicava ~80 ms depois de abrir o pedido, com o resumo ainda montando — a conversa nunca abria ("o topo da conversa
+// não mostra #…", 3 de 3 no caminho da ponte; com o resumo parado o mesmo clique abre em 0,4 s, 7 de 7). Agora: espera o
+// resumo DESTE pedido aparecer, dá um instante para ele assentar e só então clica; se nada abrir e o Gestor não começar a
+// carregar a conversa, clica de novo (uma vez). E os "X" do Gestor de hoje: o do resumo é "Fechar detalhes"; o da conversa é
+// um ícone `data-testid="close-icon"` sem rótulo, no topo dela.
+const ASSENTAR_MS = 700; // o resumo leva ~150 ms para montar (medido); com folga
+const CLIQUE_MS = 2500; // a conversa abre em ~0,4 s depois do clique (medido); sem ela em 2,5 s, o clique se perdeu
+const CLIQUES = 2;
+
 const NUMERO = /^\d{3,6}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -29,6 +39,13 @@ const ABRIR_CARTAO = (numero) => `(() => {
   if (cartoes.length !== 1) return { ok: false, codigo: cartoes.length ? 'cartao_repetido' : 'fora_do_quadro', motivo: cartoes.length ? 'há mais de um cartão com esse número no quadro' : 'o pedido não está no quadro do Gestor (confira se ele aparece em alguma coluna)' };
   cartoes[0].click();
   return { ok: true };
+})()`;
+
+// Só lê: o resumo aberto é DESTE pedido (o número no cabeçalho)?
+const RESUMO_DO_PEDIDO = (numero) => `(() => {
+  const resumo = document.querySelector('.OrderDetails__content');
+  const cab = resumo && resumo.querySelector('header');
+  return { ok: !!cab && /(^|\\D)${numero}(\\D|$)/.test(cab.innerText || '') };
 })()`;
 
 const ABRIR_CHAT_DO_RESUMO = (numero) => `(() => {
@@ -121,8 +138,10 @@ const APERTAR_ENVIAR = `(() => {
   return true;
 })()`;
 
-// Voltar a tela: fecha a conversa e o resumo SÓ por um botão com o rótulo EXATO "Fechar"/"Close" (nunca "fechar" solto —
-// no Gestor há "fechar a loja"); a conversa = o ancestral do campo que tem o topo "#<número>"; nunca com texto no campo.
+// Voltar a tela: fecha a conversa e o resumo SÓ pelo "X" deles — botão de rótulo EXATO ("Fechar"/"Close"; no resumo de hoje,
+// "Fechar detalhes") ou, na conversa, o ícone `close-icon` dela (sem rótulo no Gestor de 05/11). Nunca "fechar" solto: no
+// Gestor há "fechar a loja" e "Fechar pedido". A conversa = o ancestral do campo que tem o topo "#<número>"; nunca com texto
+// no campo.
 const FECHAR_CONVERSA = (numero) => `(() => {
   ${VISIVEL}
   const c = ${CAMPOS};
@@ -134,8 +153,10 @@ const FECHAR_CONVERSA = (numero) => `(() => {
     painel = painel.parentElement;
     if ([...painel.querySelectorAll('h1')].some((h) => /#\\s?${numero}(\\D|$)/.test(h.innerText || ''))) break;
   }
-  const alvo = [...painel.querySelectorAll('button, [role=button]')].filter(vis).filter(exato);
-  if (alvo.length !== 1) return { ok: false, motivo: 'sem um botão "Fechar" na conversa' };
+  const porRotulo = [...painel.querySelectorAll('button, [role=button]')].filter(vis).filter(exato);
+  const porIcone = [...painel.querySelectorAll('[data-testid="close-icon"]')].filter(vis);
+  const alvo = porRotulo.length === 1 ? porRotulo : porRotulo.length === 0 ? porIcone : [];
+  if (alvo.length !== 1) return { ok: false, motivo: 'sem um "X" só na conversa' };
   alvo[0].click();
   return { ok: true };
 })()`;
@@ -144,7 +165,7 @@ const FECHAR_RESUMO = `(() => {
   ${VISIVEL}
   const resumo = document.querySelector('.OrderDetails__content');
   if (!resumo || !vis(resumo)) return { ok: true, nada: true };
-  const exato = (b) => /^(fechar|close)$/i.test((b.getAttribute('aria-label') || b.getAttribute('title') || '').trim());
+  const exato = (b) => /^(fechar|close|fechar detalhes)$/i.test((b.getAttribute('aria-label') || b.getAttribute('title') || '').trim());
   const alvo = [...resumo.querySelectorAll('button, [role=button]')].filter(vis).filter(exato);
   if (alvo.length !== 1) return { ok: false, motivo: 'sem um botão "Fechar" no resumo' };
   alvo[0].click();
@@ -170,7 +191,7 @@ async function ate(fn, ok, prazoMs, passoMs = 250) {
  * @param {{ executeJavaScript: (s: string) => Promise<any> }} pagina  o quadro principal do Gestor
  * @param {{ ultimoCanal: () => ({ canal: string, em: number } | null) }} leitor
  */
-async function abrirConversa(pagina, leitor, { numero, pedidoExterno }, { prazoMs = 8000 } = {}) {
+async function abrirConversa(pagina, leitor, { numero, pedidoExterno }, { prazoMs = 8000, assentarMs = ASSENTAR_MS, cliqueMs = CLIQUE_MS } = {}) {
   const etapas = [];
   const falhou = (m, codigo) => ({ ok: false, codigo, etapas: [...etapas, `✗ ${m}`] });
   if (!NUMERO.test(String(numero || ''))) return falhou('o número do pedido tem de ter de 3 a 6 algarismos', 'numero');
@@ -179,10 +200,29 @@ async function abrirConversa(pagina, leitor, { numero, pedidoExterno }, { prazoM
   const cartao = await ate(() => pagina.executeJavaScript(ABRIR_CARTAO(numero)), (r) => r && (r.ok || !r.espera), prazoMs);
   if (!cartao || !cartao.ok) return falhou((cartao && cartao.motivo) || 'não deu para abrir o pedido', (cartao && cartao.codigo) || 'cartao');
   etapas.push(`✓ abri o pedido #${numero} no quadro`);
-  const chat = await ate(() => pagina.executeJavaScript(ABRIR_CHAT_DO_RESUMO(numero)), (r) => r && (r.ok || !r.espera), prazoMs);
-  if (!chat || !chat.ok) return { ...falhou((chat && chat.motivo) || 'não deu para abrir o chat do pedido', (chat && chat.codigo) || 'botao_chat'), detalhes: chat && chat.detalhes };
-  etapas.push('✓ abri o chat do resumo');
-  const aberta = await ate(() => pagina.executeJavaScript(CONVERSA_ABERTA(numero)), (r) => r && r.campos === 1 && r.topo, prazoMs);
+  // O resumo DESTE pedido na tela e um instante para ele assentar: o clique cedo demais se perde (05/11).
+  const resumo = await ate(() => pagina.executeJavaScript(RESUMO_DO_PEDIDO(numero)), (r) => r && r.ok, prazoMs);
+  if (!resumo || !resumo.ok) return falhou('o resumo do pedido não abriu', 'resumo');
+  await esperar(assentarMs);
+  const fim = Date.now() + prazoMs;
+  const vendo = (r) => r && r.campos === 1 && r.topo;
+  let aberta = null;
+  for (let clique = 1; clique <= CLIQUES; clique++) {
+    const cliqueEm = Date.now();
+    const chat = await ate(() => pagina.executeJavaScript(ABRIR_CHAT_DO_RESUMO(numero)), (r) => r && (r.ok || !r.espera), Math.max(500, fim - Date.now()));
+    if (!chat || !chat.ok) return { ...falhou((chat && chat.motivo) || 'não deu para abrir o chat do pedido', (chat && chat.codigo) || 'botao_chat'), detalhes: chat && chat.detalhes };
+    etapas.push(clique === 1 ? '✓ abri o chat do resumo' : '• a conversa não abriu no 1º clique (nada na tela, o Gestor não carregou a conversa): cliquei de novo');
+    aberta = await ate(() => pagina.executeJavaScript(CONVERSA_ABERTA(numero)), vendo, Math.max(0, Math.min(cliqueMs, fim - Date.now())));
+    if (vendo(aberta)) break;
+    // Clicar de novo SÓ se o clique se perdeu: nada da conversa na tela e o Gestor não começou a carregar o canal. Com algo
+    // abrindo, um 2º clique poderia fechar o que abriu — espera o resto do prazo.
+    const ultimo = leitor.ultimoCanal();
+    const carregando = !!ultimo && ultimo.em >= cliqueEm;
+    if ((aberta && (aberta.campos > 0 || aberta.topo)) || carregando || clique === CLIQUES || Date.now() >= fim) {
+      if (!vendo(aberta) && Date.now() < fim) aberta = await ate(() => pagina.executeJavaScript(CONVERSA_ABERTA(numero)), vendo, Math.max(0, fim - Date.now()));
+      break;
+    }
+  }
   if (!aberta || !aberta.topo) return falhou(`o topo da conversa não mostra #${numero}`, 'topo');
   if (aberta.campos !== 1) return falhou(`achei ${aberta ? aberta.campos : 0} campos de mensagem (tem de ser 1)`, 'campos');
   etapas.push(`✓ conferido: o topo da conversa é o #${numero} e há um "Campo de mensagem"`);
@@ -306,6 +346,7 @@ module.exports = {
   voltarAoQuadro,
   ROTEIROS: {
     ABRIR_CARTAO,
+    RESUMO_DO_PEDIDO,
     ABRIR_CHAT_DO_RESUMO,
     CONVERSA_ABERTA,
     FOCAR_CAMPO,

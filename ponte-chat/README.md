@@ -78,9 +78,18 @@ Regem — e liga o chat à nuvem do Regem.
 - **`estado-da-ponte.json`** (na pasta de dados): o resumo do estado, gravado a cada sinal e a cada mudança — o que o
   ícone "Regem neste PC" vai ler (no próximo `.exe`). Sem segredo nem conversa; leva o caminho do executável.
 
-**Pendências de teste no Gestor de verdade** (provado só com o Gestor de mentira): o 1º envio automático com o dono
-olhando, num pedido de entrega própria saindo; o "Fechar" da conversa e do resumo (o rótulo do X no Gestor real não está
-mapeado — sem ele, a tela fica na conversa); o "setter" com a janela escondida.
+## O que a versão 0.5.1 corrige (1º teste real do envio automático, 05/11 — ERR-380)
+
+No Gestor de verdade, com a loja aberta, o envio automático nunca abria a conversa ("o topo da conversa não mostra
+#número" em todo pedido; nada foi digitado). A causa, achada pela inspeção do Gestor real (a porta de depuração do
+programa, só leitura e texto mascarado): o clique no botão de chat do resumo vinha ~80 ms depois de abrir o pedido, com o
+resumo ainda montando — e se perdia. Agora o programa espera o resumo DESTE pedido, dá 700 ms para ele assentar, clica e,
+se nada abrir (nada na tela e o Gestor sem pedir a conversa), clica de novo uma vez. E os "X" de hoje: o do resumo é
+"Fechar detalhes"; o da conversa, um ícone `close-icon` sem rótulo. Conferido no Gestor real (abre no 1º clique; conversa e
+resumo fecham).
+
+**Pendências de teste no Gestor de verdade:** o 1º envio automático DE VERDADE com o dono olhando (com a 0.5.1), num pedido
+de entrega própria saindo; o "setter" com a janela escondida.
 
 ## Rodar (desenvolvimento)
 
