@@ -107,7 +107,7 @@ export class AtendimentoController {
   @CloudOnly()
   @Roles('presidente', 'gerente')
   async ajustes(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
-    const [da99, fila, doIfood, cheguei, repetido, som, roboMuda, ponte] = await Promise.all([
+    const [da99, fila, doIfood, cheguei, repetido, som, roboMuda, ponte, roboCobraPix] = await Promise.all([
       this.pedido99.ajustes(user.tenantId),
       this.filaEAvisos.ajustes(user.tenantId),
       this.chatIfood.ajustes(user.tenantId),
@@ -118,8 +118,10 @@ export class AtendimentoController {
       this.filaEAvisos.roboMudaPedido(user.tenantId),
       // A ponte do chat do iFood e da 99 (mig 366): os ajustes da empresa e as pontes da loja em uso.
       this.ponte.ajustes(user.tenantId, unidade),
+      // "O robô cobra no Pix o item posto em pedido já pago" (mig 373): no grupo "Pedido alterado"; da empresa.
+      this.filaEAvisos.roboCobraAdicionalPix(user.tenantId),
     ]);
-    const alterado = { som, sons: SONS_DO_ALTERADO, roboMuda };
+    const alterado = { som, sons: SONS_DO_ALTERADO, roboMuda, roboCobraPix };
     return { ...da99, fila, minutosDoAviso: MINUTOS_DO_AVISO, ...doIfood, cheguei, minutosDeNovoCheguei: MINUTOS_DE_NOVO, repetido, alterado, ponte };
   }
 
@@ -145,6 +147,7 @@ export class AtendimentoController {
     if (alterado?.som !== undefined)
       await this.producao.salvarSomDoAlterado(user.tenantId, unidade, alterado.som, { id: user.colaboradorId, perfil: user.categoria });
     if (alterado?.roboMuda !== undefined) await this.filaEAvisos.salvarRoboMudaPedido(user, alterado.roboMuda);
+    if (alterado?.roboCobraPix !== undefined) await this.filaEAvisos.salvarRoboCobraAdicionalPix(user, alterado.roboCobraPix);
     return this.ajustes(user, unidade);
   }
 
@@ -184,7 +187,9 @@ export class AtendimentoController {
     // Com os avisos da disputa (ajuste do iFood): o app e o computador de quem é gerente avisam por eles.
     // E a FAIXA da ponte do chat (mig 366, só nuvem): no servidor da loja, a última que a nuvem mandou — renovada em
     // segundo plano, sem a fila esperar a internet (`ponteDaNuvem`).
-    const [fila, avisos, ponte] = await Promise.all([
+    // E o ALERTA do Pix do adicional (mig 373, só nuvem): o robô pôs item num pedido já pago e espera o Pix — "segure o
+    // pedido". Fora da fila (não é caso); null = não li (o servidor da loja ainda sem a resposta da nuvem).
+    const [fila, avisos, ponte, adicionaisPix] = await Promise.all([
       this.service.fila(user, unidade),
       this.chatIfood.avisos(user.tenantId),
       ehServidorLocal()
@@ -194,8 +199,14 @@ export class AtendimentoController {
             new Logger('Atendimento').warn(`[ponte-chat] situação da ponte: ${e?.message ?? e}`);
             return null;
           }),
+      ehServidorLocal()
+        ? Promise.resolve(this.chat.adicionaisDaNuvem(user.tenantId, unidade))
+        : this.chat.adicionaisDaEmpresa(user.tenantId, unidade).catch((e: any) => {
+            new Logger('Atendimento').warn(`alerta do Pix do adicional: ${e?.message ?? e}`);
+            return null;
+          }),
     ]);
-    return { ...fila, avisos, ponte };
+    return { ...fila, avisos, ponte, adicionaisPix };
   }
 
   // Os casos resolvidos hoje (a situação "Resolvidos hoje" da tela).

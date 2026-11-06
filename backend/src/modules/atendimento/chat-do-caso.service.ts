@@ -23,6 +23,8 @@ import { WhatsappProvedorService } from '../whatsapp/whatsapp-provedor.service';
 import { pausarPeloAtendente } from '../whatsapp/robo-pausa';
 import { chaveTelefone, sqlChaveTelefone } from '../../common/telefone-chave';
 import { podeAcessar } from '../../auth/permissoes';
+// O alerta do Pix do adicional (mig 373): só a leitura da tabela — o Atendimento não importa o módulo do cardápio.
+import { type AlertaDoAdicional, alertasDoAdicionalPix } from '../cardapio/adicional-pix-alertas';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -533,6 +535,34 @@ export class ChatDoCasoService {
         .finally(() => (entrada.buscando = false));
     }
     return atual && atual.em && agora - atual.em <= 120_000 ? atual.valor : null;
+  }
+
+  /**
+   * O ALERTA DO PIX DO ADICIONAL para a fila do servidor da loja (mig 373, só nuvem — V37): o robô pôs um item num pedido
+   * já pago e espera o Pix ("segure o pedido"). Como a faixa da ponte: a última resposta da nuvem, renovada em segundo
+   * plano a cada 10 s (o Pix vale 5 min); null = não li (sem internet há mais de 2 min, ou a primeira leitura).
+   */
+  private readonly adicionaisDaLoja = new Map<string, { em: number; valor: any; buscando: boolean }>();
+  adicionaisDaNuvem(tenantId: string, unidade: string | null): AlertaDoAdicional[] | null {
+    const k = `${tenantId}|${unidade ?? ''}`;
+    const agora = Date.now();
+    const atual = this.adicionaisDaLoja.get(k);
+    if ((!atual || agora - atual.em > 10_000) && !atual?.buscando) {
+      const entrada = atual ?? { em: 0, valor: null, buscando: false };
+      entrada.buscando = true;
+      this.adicionaisDaLoja.set(k, entrada);
+      const q = unidade && UUID_RE.test(unidade) ? `?unidade=${unidade}` : '';
+      this.pelaNuvem('GET', `adicionais-pix-da-loja${q}`, undefined, 8000)
+        .then((v) => Object.assign(entrada, { em: Date.now(), valor: Array.isArray(v) ? v : null }))
+        .catch((e: any) => this.logger.warn(`alerta do Pix do adicional no servidor da loja: ${e?.message ?? e}`))
+        .finally(() => (entrada.buscando = false));
+    }
+    return atual && atual.em && agora - atual.em <= 120_000 ? atual.valor : null;
+  }
+
+  /** Na nuvem: os alertas do Pix do adicional da empresa (a fila daqui e o servidor da loja). */
+  adicionaisDaEmpresa(tenantId: string, unidade: string | null): Promise<AlertaDoAdicional[]> {
+    return alertasDoAdicionalPix(this.db, tenantId, unidade);
   }
 
   /** Na nuvem, para o servidor da loja: as "Conversas agora" de quem está na tela de lá (o login foi conferido lá). */

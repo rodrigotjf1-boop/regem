@@ -118,6 +118,30 @@ describe('pedido alterado — os valores pela diferença', () => {
   it('valor negativo: recusa', () => {
     expect((valoresDepois(dinheiro, { deltaItens: -60, taxaNova: 6 }) as any).recusa.code).toBe('VALOR_NEGATIVO');
   });
+
+  // O Pix do item novo (mig 373): a diferença que o cliente ACABOU de pagar entra como mais um pagamento já feito.
+  it('pago no Pix + a diferença paga agora (pagoNaHora): o total e o pago pelo cliente sobem; o entregador continua sem receber nada', () => {
+    const pix = { ...dinheiro, pago: true, statusPagamento: 'aprovado', trocoPara: null, pagamentos: null };
+    const r: any = valoresDepois(pix, { deltaItens: 12, taxaNova: 6, pagoNaHora: 12 });
+    expect(r).toMatchObject({ ok: true, aReceber: 0, valores: { total: '57.00', valorBruto: '51.00', valorPagoCliente: '57.00', trocoPara: null } });
+    // Com o detalhe do pagamento: o Pix do adicional é uma linha a mais, já paga.
+    const comLinhas: any = valoresDepois({ ...pix, pagamentos: [{ rotulo: 'Pix online', valor: 45, prepago: true }] }, { deltaItens: 12, taxaNova: 6, pagoNaHora: 12 });
+    expect(comLinhas.valores.pagamentos).toEqual([
+      { rotulo: 'Pix online', valor: 45, prepago: true },
+      { forma: 'pix', valor: 12, prepago: true, adicional: true },
+    ]);
+    expect(comLinhas.aReceber).toBe(0);
+  });
+
+  it('o Pix pago tem de ser a diferença, centavo a centavo; sem ele, o pago continua recusado', () => {
+    const pix = { ...dinheiro, pago: true, statusPagamento: 'aprovado', pagamentos: null };
+    expect((valoresDepois(pix, { deltaItens: 12, taxaNova: 6, pagoNaHora: 11.99 }) as any).recusa).toMatchObject({
+      code: 'VALOR_DO_PIX',
+      message: expect.stringContaining('não bate com a diferença do pedido (R$ 12,00)'),
+    });
+    expect((valoresDepois(pix, { deltaItens: 12, taxaNova: 6 }) as any).recusa.code).toBe('PAGO_ONLINE');
+    expect((valoresDepois(pix, { deltaItens: 12, taxaNova: 6, pagoNaHora: null }) as any).recusa.code).toBe('PAGO_ONLINE');
+  });
 });
 
 describe('pedido alterado — a via e o resumo', () => {

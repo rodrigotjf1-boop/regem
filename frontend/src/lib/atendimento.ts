@@ -77,6 +77,21 @@ export type EstadoDaFila = {
   avisos: AvisosDaFila;
   /** A ponte do chat do iFood e da 99 (mig 366): a faixa do topo da tela. `null` = não veio (servidor da loja, falha). */
   ponte: SituacaoDaPonte | null;
+  /**
+   * O alerta "segure o pedido" (mig 373): o robô pôs um item num pedido já pago e espera o Pix do cliente (ou o Pix caiu
+   * e a mudança está entrando). Fora da fila. `null` = não li (servidor antigo, sem internet); `[]` = nenhum.
+   */
+  adicionaisPix: AlertaDoAdicionalPix[] | null;
+};
+export type AlertaDoAdicionalPix = {
+  id: string;
+  pedidoId: string;
+  numero: string | null;
+  descricao: string;
+  valor: number;
+  situacao: 'aguardando' | 'pago' | 'pedido_a_loja' | string;
+  expiraEm: string;
+  texto: string;
 };
 export type AvisosDaFila = { disputa: { avisar: boolean; deNovoMin: number } };
 /** Por canal conectado: qual PC responde agora (null = nenhum) e os nomes das pontes de reserva (vivas e logadas). */
@@ -95,7 +110,7 @@ export type SituacaoDaPonte =
 /** Os padrões do servidor (`AJUSTE_IFOOD_PADRAO`): a tela usa enquanto não leu. */
 export const AVISOS_PADRAO: AvisosDaFila = { disputa: { avisar: true, deNovoMin: 2 } };
 
-let estado: EstadoDaFila = { casos: [], contagens: null, lida: false, erro: false, eu: null, avisos: AVISOS_PADRAO, ponte: null };
+let estado: EstadoDaFila = { casos: [], contagens: null, lida: false, erro: false, eu: null, avisos: AVISOS_PADRAO, ponte: null, adicionaisPix: null };
 const ouvintes = new Set<() => void>();
 const avisar = () => ouvintes.forEach((f) => f());
 
@@ -128,6 +143,7 @@ export function relerFila(): Promise<void> {
             ? { disputa: { avisar: r.avisos.disputa.avisar, deNovoMin: r.avisos.disputa.deNovoMin } }
             : AVISOS_PADRAO,
         ponte: r?.ponte && typeof r.ponte.ligada === 'boolean' ? (r.ponte as SituacaoDaPonte) : null,
+        adicionaisPix: Array.isArray(r?.adicionaisPix) ? (r.adicionaisPix as AlertaDoAdicionalPix[]) : null,
       };
     } catch {
       // A leitura falhou: o que já estava na tela fica, marcado como "não li agora" — nunca vira "fila vazia" (V37).

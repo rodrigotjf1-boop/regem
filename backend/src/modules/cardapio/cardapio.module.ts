@@ -20,6 +20,8 @@ import { LembreteDoCarrinhoProcessor } from './lembrete-do-carrinho.processor';
 import { AvisoDaMudancaProcessor } from './aviso-da-mudanca.processor';
 import { EstornoPixService } from './estorno-pix.service';
 import { EstornoPixProcessor } from './estorno-pix.processor';
+import { AdicionalPixService } from './adicional-pix.service';
+import { AdicionalPixProcessor } from './adicional-pix.processor';
 import { ChegadaModule } from '../chegada/chegada.module';
 import { AniversarioModule } from '../aniversario/aniversario.module';
 
@@ -32,6 +34,19 @@ import { AniversarioModule } from '../aniversario/aniversario.module';
   // LembreteDoCarrinhoProcessor: o lembrete do pedido que ficou pela metade no robô (mig 349; só nuvem).
   // AvisoDaMudancaProcessor: a decisão do servidor da loja sobre a mudança pedida pelo robô chega ao cliente (mig 363; só nuvem).
   // EstornoPixService/Processor: o estorno do Pix no cancelamento do pedido pago online (mig 372; só nuvem).
-  providers: [CardapioService, OrigemPedidoService, EventosCardapioService, RoboPedidoService, LembreteDoCarrinhoProcessor, AvisoDaMudancaProcessor, EstornoPixService, EstornoPixProcessor],
+  // AdicionalPixService/Processor: o Pix do item que o robô põe no pedido já pago (mig 373; só nuvem). O alerta da
+  // Central lê a tabela direto (`adicional-pix-alertas.ts`) — o Atendimento não importa este módulo (ele importa o dele).
+  providers: [
+    CardapioService,
+    OrigemPedidoService,
+    EventosCardapioService,
+    RoboPedidoService,
+    LembreteDoCarrinhoProcessor,
+    AvisoDaMudancaProcessor,
+    EstornoPixService,
+    EstornoPixProcessor,
+    AdicionalPixService,
+    AdicionalPixProcessor,
+  ],
 })
 export class CardapioModule {}

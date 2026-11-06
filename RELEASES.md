@@ -12,6 +12,16 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **O robô põe item no pedido JÁ PAGO no Pix e cobra a diferença (06/11; mig 373 `@cloud-only`).** Na NUVEM com o merge
+  (nasce DESLIGADO — o dono liga em Atendimento › Ajustes › "O robô cobra no Pix o item posto em pedido já pago"): a
+  conferência com o Pix de 5 min, o código, a faixa "Segure o pedido" no Atendimento e, pago, a mudança pela alteração da
+  equipe — numa loja SEM servidor ligado, tudo já vale. **No `.zip` 1.30.13 (obrigatório para a loja com servidor):** o
+  servidor da loja aplicar a alteração "pedida" com a diferença paga (`pagoNaHora` no `aplicarAlteracaoPedida`) e a faixa
+  na tela do Atendimento de lá (lê da nuvem, `adicionais-pix-da-loja`). ⚠️ O robô só oferece o Pix quando o servidor está
+  na versão que aplica a pedida (`VERSAO_QUE_APLICA_ALTERACAO` = 1.30.13); **se o corte 1.30.13 sair SEM este PR, subir a
+  constante** para a versão que o tiver — senão o servidor antigo recusa a pedida e o Pix volta ao cliente. No
+  `.exe`: só a classificação `pedido_adicional_pix` em SO_NUVEM no `edge/sync-daemon.mjs` (sem efeito na loja).
+
 - **Estorno do Pix no cancelamento + o "Salvar" do aniversário (06/11; mig 372 `@cloud-only`; ERR-386, ERR-387).** Tudo na
   NUVEM com o merge: a rotina de minuto em minuto estorna o pedido cancelado pago online (o cancelamento feito na loja
   chega pelo sincronismo — a loja não precisa do `.zip` para isso); o cliente lê o aviso do estorno no cardápio e no robô; o

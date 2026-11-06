@@ -2,6 +2,7 @@
 import { normalizar, reais } from './robo-consultas';
 import { sugestoesDeTroco } from './robo-pedido';
 import { STATUS_ALTERAVEL, valoresDepois } from '../pedido-alterado/pedido-alterado';
+import { OPCAO_MANDAR_PIX, VALIDADE_DO_PIX_DO_ADICIONAL_MIN, avisoDoPixNaConferencia } from './adicional-pix';
 
 // O ROBÔ MUDA O PEDIDO JÁ FEITO (PR 3 do pedido repetido/alterado; pedido do dono de 03/11/2026 — protótipo
 // `mockups/regem-alteracao-pedido.html`, vista "Robô do WhatsApp"; decisões 3A, 4A, 7 e 8 aprovadas no mesmo dia).
@@ -42,8 +43,17 @@ export type PedidoFeito = {
   trocoPara: number | null;
   /** Pago na entrega numa forma que pode ser dinheiro ("pagar na entrega" ou uma forma de dinheiro): o troco conta. */
   trocoPossivel: boolean;
-  /** Já pago fora da entrega (link, canal): mudar o valor vai para a equipe (decisão 4A). */
+  /** Já pago fora da entrega (link, canal): mudar o valor vai para a equipe (decisão 4A) — fora o "pôr item" pelo Pix. */
   pagoAntes: boolean;
+  /**
+   * Pago online pelo gateway da loja (o Pix do cardápio — `pagoNoPixOnline`): PÔR item cobra a diferença num Pix de 5
+   * minutos (mig 373), com o ajuste `cobraNoPix` ligado. Tirar e trocar continuam com a equipe (devolver parte).
+   */
+  pagoNoPix: boolean;
+  /** "O robô cobra no Pix o item posto em pedido já pago" (`robo_config.cobra_adicional_pix`, mig 373; nasce desligado). */
+  cobraNoPix: boolean;
+  /** Um Pix de item novo deste pedido espera o pagamento (ou o pago está entrando): uma mudança por vez. */
+  pixDoAdicionalAberto: boolean;
   /** Tem nota fiscal emitida, enviada ou em contingência: mudar o valor vai para a equipe (decisão 7). */
   comNota: boolean;
   /** O robô já mudou os ITENS deste pedido (uma mudança de item por pedido — 3A). */
@@ -103,8 +113,12 @@ export type MudancaDoRobo = {
   aguardaTroco?: boolean;
   /** A conferência saiu ao cliente: o "Pode alterar" só vale depois dela. */
   conferida?: boolean;
-  /** "Pode alterar": aplicada na hora, ou pedida ao servidor da loja (a rotina da nuvem avisa a decisão). */
-  situacao?: 'aplicada' | 'pedida' | null;
+  /**
+   * "Pode alterar": aplicada na hora, ou pedida ao servidor da loja (a rotina da nuvem avisa a decisão). `pix` (mig 373):
+   * o Pix da diferença saiu e a mudança espera o pagamento — quem segue daí é a rotina do Pix do adicional, que grava aqui
+   * o que aconteceu (`aplicada`, `pedida` ou `recusada`, já avisada).
+   */
+  situacao?: 'aplicada' | 'pedida' | 'pix' | 'recusada' | null;
   pedidaEm?: string | null;
   /** O cliente já soube da decisão da loja (a rotina marca antes de mandar). */
   avisada?: boolean;
@@ -174,6 +188,20 @@ export type MotivoParaNaoMudar = {
 };
 
 /**
+ * O pedido PAGO aceita a mudança pelo Pix do adicional (mig 373)? Só pôr item, no pedido pago no Pix do cardápio, com o
+ * ajuste ligado. Sem a operação (o `ver_pedido`, a primeira conferência), vale enquanto der para pôr.
+ */
+export function podePorPeloPix(p: PedidoFeito, quer: 'itens' | 'endereco', op?: OperacaoDoRobo | null): boolean {
+  if (!p.pagoAntes || !p.pagoNoPix || !p.cobraNoPix || quer !== 'itens') return false;
+  return !op || op.tipo === 'por';
+}
+
+/** A mudança vai pelo Pix do adicional: pôr item com valor, no pedido pago (a de valor zero entra direto, sem Pix). */
+export function vaiPeloPix(p: PedidoFeito, op: OperacaoDoRobo): boolean {
+  return podePorPeloPix(p, 'itens', op) && deltaDaMudanca(op) > 0;
+}
+
+/**
  * Por que o robô NÃO muda este pedido agora (null = muda). Com a operação, também o item pronto. `quer`: a mudança de
  * itens ou a de endereço (a da operação, quando vem) — cada uma uma vez por pedido; o endereço só no pedido de entrega.
  */
@@ -201,8 +229,14 @@ export function motivoParaNaoMudar(p: PedidoFeito, op?: OperacaoDoRobo | null, q
     if (p.jaMudouEnderecoPeloRobo) return nao('ja_mudou_endereco', `Por aqui dá para mudar o endereço uma vez por pedido, e o do ${n} já foi mudado.`);
   } else if (p.jaMudouPeloRobo) return nao('ja_mudou', `Por aqui dá para fazer uma mudança por pedido, e o ${n} já foi mudado.`);
   // Decisões 4A e 7 (aprovadas em 03/11): o pedido pago pelo link e o pedido com nota fiscal vão para a equipe — qualquer
-  // mudança, também a que não mexe no valor (o ajuste da tela diz "com o pedido em produção e pago na entrega").
-  if (p.pagoAntes) return nao('pago', `O ${n} já foi pago pelo link: a mudança precisa de alguém da equipe.`);
+  // mudança, também a que não mexe no valor (o ajuste da tela diz "com o pedido em produção e pago na entrega"). A
+  // exceção (mig 373, pedido do dono de 06/11): PÔR item no pedido pago no Pix do cardápio, com o ajuste ligado — o robô
+  // cobra a diferença num Pix. Sem a operação ainda (o `ver_pedido`), vale se der para pôr.
+  if (p.pagoAntes) {
+    if (!podePorPeloPix(p, querQue, op)) return nao('pago', `O ${n} já foi pago pelo link: a mudança precisa de alguém da equipe.`);
+    if (p.pixDoAdicionalAberto)
+      return nao('pix_aberto', `O Pix do item novo do ${n} está esperando o pagamento: assim que cair, o item entra no pedido.`, false);
+  }
   if (p.comNota) return nao('nota', `O ${n} já tem nota fiscal: a mudança precisa de alguém da equipe.`);
   if (op) {
     if (op.tipo === 'tirar' || op.tipo === 'trocar') {
@@ -236,16 +270,17 @@ export function motivoDoEnderecoDepoisQueSaiu(p: PedidoFeito): MotivoParaNaoMuda
 
 export type ContaDaMudanca =
   | { ok: true; total: number; aReceber: number; troco: number | null }
-  | { ok: false; code: 'PAGO_ONLINE' | 'TROCO_INSUFICIENTE' | 'VALOR_NEGATIVO'; message: string };
+  | { ok: false; code: 'PAGO_ONLINE' | 'TROCO_INSUFICIENTE' | 'VALOR_NEGATIVO' | 'VALOR_DO_PIX'; message: string };
 
 /**
  * Os valores do pedido depois da mudança pela MESMA conta da gravação (`valoresDepois`, V74): o total, o que o
  * entregador recebe e o troco. `trocoPara` ausente = fica o do pedido; null = sem troco. A taxa só muda na mudança de
- * endereço (a da área nova).
+ * endereço (a da área nova). `peloPix` (mig 373): a diferença vai paga no Pix do adicional (`pagoNaHora`) — a mesma
+ * conta que a gravação faz quando o Pix cair.
  */
-export function contaDaMudanca(ped: any, op: OperacaoDoRobo, trocoPara?: number | null): ContaDaMudanca {
+export function contaDaMudanca(ped: any, op: OperacaoDoRobo, trocoPara?: number | null, o: { peloPix?: boolean } = {}): ContaDaMudanca {
   const taxaNova = op.tipo === 'endereco' ? op.taxaNova : Number(ped?.taxaEntrega ?? 0);
-  const v = valoresDepois(ped, { deltaItens: deltaDaMudanca(op), taxaNova, trocoPara });
+  const v = valoresDepois(ped, { deltaItens: deltaDaMudanca(op), taxaNova, trocoPara, pagoNaHora: o.peloPix ? deltaDaMudanca(op) : null });
   if (!v.ok) return { ok: false, code: v.recusa.code, message: v.recusa.message };
   return {
     ok: true,
@@ -322,6 +357,15 @@ export const OPCAO_MUDAR_TROCO = 'Mudar o troco';
 export const OPCAO_DEIXAR = 'Deixar como estava';
 export const opcoesDaConferencia = (trocoPossivel: boolean) =>
   trocoPossivel ? [OPCAO_PODE_ALTERAR, OPCAO_MUDAR_TROCO, OPCAO_DEIXAR] : [OPCAO_PODE_ALTERAR, OPCAO_DEIXAR];
+
+/**
+ * A conferência da mudança no pedido JÁ PAGO no Pix (mig 373): as linhas da mudança, o total de antes → depois e o aviso
+ * do Pix da diferença (5 minutos; sem pagar, o pedido pode sair sem o item). Sem troco: o pedido está pago.
+ */
+export function textoDaConferenciaPeloPix(numero: string | null, op: OperacaoDoRobo, totalAntes: number, totalDepois: number): string {
+  return [...cabecalho(numero, op, totalAntes, totalDepois), '', avisoDoPixNaConferencia(deltaDaMudanca(op)), '', 'Mando o Pix? 👇'].join('\n');
+}
+export const OPCOES_DA_CONFERENCIA_PELO_PIX = [OPCAO_MANDAR_PIX, OPCAO_DEIXAR];
 
 /** As opções para perguntar se o cliente quer a equipe (a regra 9 das instruções: nunca "atendente" nos botões). */
 export const OPCOES_DE_AJUDA = ['Sim, quero ajuda', 'Não, obrigado'];
@@ -404,10 +448,17 @@ export function visaoDoPedidoFeito(p: PedidoFeito, situacaoParaOCliente: string,
     ...(motivo ? { motivo: motivo.motivo, mensagem: motivo.mensagem, chamaEquipe: motivo.chamaEquipe } : {}),
     ...(motivo
       ? {}
-      : {
-          comoMudar:
-            'mexer_no_pedido com acao = pedido_por (produto, quantidade, versão, adicionais, observação), pedido_tirar (linha) ou pedido_trocar (linha e o que muda: produto, quantidade, versão, adicionais ou observação).',
-        }),
+      : p.pagoAntes
+        ? {
+            // Pago no Pix (mig 373): só pôr — o Regem manda a conferência com o Pix da diferença.
+            soPor: true,
+            comoMudar: `O pedido já foi pago no Pix: dá só para PÔR item — mexer_no_pedido com acao = pedido_por (produto, quantidade, versão, adicionais, observação). O Regem manda ao cliente a conferência com o valor do Pix da diferença, que vale ${VALIDADE_DO_PIX_DO_ADICIONAL_MIN} minutos. Tirar ou trocar item deste pedido é com a equipe.`,
+          }
+        : {
+            comoMudar:
+              'mexer_no_pedido com acao = pedido_por (produto, quantidade, versão, adicionais, observação), pedido_tirar (linha) ou pedido_trocar (linha e o que muda: produto, quantidade, versão, adicionais ou observação).',
+          }),
+    ...(p.pixDoAdicionalAberto ? { pixDoItemNovo: 'esperando o pagamento do Pix do item novo (quando cair, o item entra no pedido)' } : {}),
     // O endereço tem a regra dele (uma vez por pedido, só na entrega): pode dar para mudar o endereço e não os itens.
     podeMudarEndereco: !motivoEnd,
     ...(enderecoPelaEquipe

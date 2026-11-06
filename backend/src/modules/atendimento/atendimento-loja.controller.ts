@@ -29,6 +29,15 @@ export class AtendimentoLojaController {
     return this.ponte.situacao(ctx.tenantId, u);
   }
 
+  // O alerta do Pix do adicional (mig 373) para a fila do servidor da loja — a tabela mora na nuvem (V37).
+  @Get('adicionais-pix-da-loja')
+  @CloudOnly()
+  @UseGuards(SyncTokenGuard)
+  adicionaisPixDaLoja(@SyncCtx() ctx: SyncCtxData, @Query('unidade') unidade?: string) {
+    const u = typeof unidade === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(unidade) ? unidade : null;
+    return this.chat.adicionaisDaEmpresa(ctx.tenantId, u);
+  }
+
   // "Conversas agora" para a tela do servidor da loja: o login e a permissão de quem está lá foram conferidos lá.
   @Get('conversas-da-loja')
   @CloudOnly()

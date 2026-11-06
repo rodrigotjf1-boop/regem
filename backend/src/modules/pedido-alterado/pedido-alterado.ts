@@ -47,17 +47,19 @@ export const SOM_DO_ALTERADO_PADRAO: SomDoAlterado = '1min';
  * e "O robô faz mudanças simples" (`roboMuda` — `robo_config.muda_pedido`, mig 363). O que não vem fica como estava (V16);
  * o liga/desliga só como verdadeiro/falso (V15). Nada dos dois: recusa.
  */
-export function lerAjusteAlterado(dto: unknown): { som?: SomDoAlterado; roboMuda?: boolean } {
+export function lerAjusteAlterado(dto: unknown): { som?: SomDoAlterado; roboMuda?: boolean; roboCobraPix?: boolean } {
   const d = (dto ?? {}) as any;
-  const r: { som?: SomDoAlterado; roboMuda?: boolean } = {};
+  const r: { som?: SomDoAlterado; roboMuda?: boolean; roboCobraPix?: boolean } = {};
   if (d.som !== undefined) {
     if (!(SONS_DO_ALTERADO as readonly string[]).includes(d.som))
       throw new BadRequestException('Som do pedido alterado: escolha "uma vez", "a cada 1 minuto" ou "a cada 2 minutos".');
     r.som = d.som;
   }
   if (d.roboMuda !== undefined) r.roboMuda = exigirBooleano(d.roboMuda, 'O robô faz mudanças simples');
-  if (r.som === undefined && r.roboMuda === undefined)
-    throw new BadRequestException('Pedido alterado: nada para salvar (o som do KDS ou "O robô faz mudanças simples").');
+  // "O robô cobra no Pix o item posto em pedido já pago" (mig 373; nasce desligado).
+  if (d.roboCobraPix !== undefined) r.roboCobraPix = exigirBooleano(d.roboCobraPix, 'O robô cobra no Pix o item posto em pedido já pago');
+  if (r.som === undefined && r.roboMuda === undefined && r.roboCobraPix === undefined)
+    throw new BadRequestException('Pedido alterado: nada para salvar (o som do KDS ou os ajustes do robô).');
   return r;
 }
 
@@ -132,7 +134,7 @@ export interface ValoresDoPedido {
   taxaEntrega: string;
 }
 
-export type RecusaDosValores = { code: 'PAGO_ONLINE' | 'TROCO_INSUFICIENTE' | 'VALOR_NEGATIVO'; message: string };
+export type RecusaDosValores = { code: 'PAGO_ONLINE' | 'TROCO_INSUFICIENTE' | 'VALOR_NEGATIVO' | 'VALOR_DO_PIX'; message: string };
 
 const brl = (n: number) => `R$ ${r2(n).toFixed(2).replace('.', ',')}`;
 
@@ -148,17 +150,29 @@ export function pagoAntes(ped: any): boolean {
  * Os valores do pedido depois da mudança, pela DIFERENÇA — nunca pela soma dos itens: no pedido do Anota AI o adicional
  * vem sem preço, e a soma dos itens fica abaixo do total; refazer o total pela soma baixaria o valor sem ninguém mexer.
  * A diferença vai para a forma paga NA ENTREGA (a primeira); o troco é conferido contra o que o entregador vai receber.
- * Pedido pago antes (link, canal, totem) que mudaria de valor é RECUSADO (decisão 4A): cobrar ou devolver a diferença
- * online ainda não existe.
+ * Pedido pago antes (link, canal, totem) que mudaria de valor é RECUSADO (decisão 4A) — a não ser a diferença que o
+ * cliente ACABOU de pagar no Pix do adicional (mig 373, `pagoNaHora`: só o robô, por chamada interna): ela entra como
+ * mais um pagamento já feito, o total sobe e o entregador continua sem nada a receber. O valor pago tem de ser a
+ * diferença, centavo a centavo; tirar item de pedido pago (devolver parte) continua com a equipe.
  */
 export function valoresDepois(
   ped: any,
-  o: { deltaItens: number; taxaNova: number; trocoPara?: number | null },
+  o: { deltaItens: number; taxaNova: number; trocoPara?: number | null; pagoNaHora?: number | null },
 ): { ok: true; valores: ValoresDoPedido; aReceber: number } | { ok: false; recusa: RecusaDosValores } {
   const taxaAntes = r2(Number(ped?.taxaEntrega ?? 0));
   const taxaNova = r2(o.taxaNova);
   const delta = r2(o.deltaItens + (taxaNova - taxaAntes));
-  if (delta !== 0 && pagoAntes(ped)) {
+  const pagoAgora = o.pagoNaHora != null && Number(o.pagoNaHora) > 0;
+  if (pagoAgora && r2(Number(o.pagoNaHora)) !== delta) {
+    return {
+      ok: false,
+      recusa: {
+        code: 'VALOR_DO_PIX',
+        message: `O Pix do adicional (${brl(Number(o.pagoNaHora))}) não bate com a diferença do pedido (${brl(delta)}): a equipe confere com o cliente.`,
+      },
+    };
+  }
+  if (delta !== 0 && pagoAntes(ped) && !pagoAgora) {
     return {
       ok: false,
       recusa: {
@@ -172,12 +186,20 @@ export function valoresDepois(
   const total = r2(Number(ped?.total ?? 0) + delta);
   if (total < 0) return { ok: false, recusa: { code: 'VALOR_NEGATIVO', message: 'O pedido ficaria com valor negativo.' } };
 
-  // A forma paga na entrega recebe a diferença; a pré-paga fica como está.
+  // A forma paga na entrega recebe a diferença; a pré-paga fica como está. A diferença paga agora no Pix do adicional é
+  // um pagamento a mais, já feito: nada muda no que o entregador recebe.
   let pagamentos: any[] | null = Array.isArray(ped?.pagamentos) && ped.pagamentos.length ? ped.pagamentos.map((p: any) => ({ ...p })) : null;
   const trocoPara =
     o.trocoPara !== undefined ? (o.trocoPara == null || !(Number(o.trocoPara) > 0) ? null : r2(Number(o.trocoPara))) : ped?.trocoPara != null ? r2(Number(ped.trocoPara)) : null;
   let aReceber: number;
-  if (pagamentos) {
+  if (pagoAgora) {
+    if (pagamentos) pagamentos.push({ forma: 'pix', valor: delta, prepago: true, adicional: true });
+    aReceber = pagamentos
+      ? r2(pagamentos.filter((p) => !p?.prepago).reduce((a, p) => a + (Number(p?.valor) || 0), 0))
+      : ped?.pago
+        ? 0
+        : r2(Number(ped?.valorPagoCliente ?? ped?.total ?? 0));
+  } else if (pagamentos) {
     const ix = pagamentos.findIndex((p) => !p?.prepago);
     if (ix >= 0) {
       const novo = r2((Number(pagamentos[ix].valor) || 0) + delta);

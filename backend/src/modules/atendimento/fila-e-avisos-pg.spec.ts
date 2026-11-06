@@ -84,7 +84,9 @@ descrever('fila e avisos (Postgres)', () => {
   beforeAll(async () => {
     delete process.env.EDGE_MODE; // como NUVEM
     // A 363 ("O robô faz mudanças simples", no grupo "Pedido alterado") altera o carrinho da 344 (ERR-273).
-    for (const m of ['342_robo_pausa_e_config.sql', '353_app_atendimento.sql', '344_robo_carrinho.sql', '363_robo_mudanca_do_pedido.sql']) await aplicar(m);
+    // A 373: "O robô cobra no Pix o item posto em pedido já pago" (`robo_config.cobra_adicional_pix`) — ERR-273.
+    for (const m of ['342_robo_pausa_e_config.sql', '353_app_atendimento.sql', '344_robo_carrinho.sql', '363_robo_mudanca_do_pedido.sql', '373_pedido_adicional_pix.sql'])
+      await aplicar(m);
     A = await empresa('teste aviso ao gerente A');
     B = await empresa('teste aviso ao gerente B');
     Z = await empresa('teste aviso ao gerente Z');
@@ -271,7 +273,7 @@ descrever('fila e avisos (Postgres)', () => {
     expect([gravadosCheguei.length, gravadosSom]).toEqual([1, []]);
     const comSom: any = await rota.salvarAjustes(user, 'loja-x', { alterado: { som: 'uma' } });
     expect(gravadosSom).toEqual([{ loja: 'loja-x', som: 'uma' }]);
-    expect(comSom.alterado).toEqual({ som: '1min', sons: ['uma', '1min', '2min'], roboMuda: true });
+    expect(comSom.alterado).toEqual({ som: '1min', sons: ['uma', '1min', '2min'], roboMuda: true, roboCobraPix: false });
     // "O robô faz mudanças simples" (mig 363), no mesmo grupo: nasce ligado; só verdadeiro/falso; o som não muda junto.
     auditados.length = 0;
     await expect(rota.salvarAjustes(user, null, { alterado: { roboMuda: 'sim' } })).rejects.toThrow('O robô faz mudanças simples');
@@ -285,6 +287,14 @@ descrever('fila e avisos (Postgres)', () => {
     await rota.salvarAjustes(user, null, { alterado: { roboMuda: false } }); // de novo: nada muda, nada na auditoria
     expect(auditados.map((a) => a.acao)).toEqual(['robo_muda_pedido_desligado']);
     expect((await rota.salvarAjustes(user, null, { alterado: { roboMuda: true } })).alterado.roboMuda).toBe(true);
+    // "O robô cobra no Pix o item posto em pedido já pago" (mig 373): nasce DESLIGADO; só verdadeiro/falso; grava só a dela.
+    auditados.length = 0;
+    await expect(rota.salvarAjustes(user, null, { alterado: { roboCobraPix: 'sim' } })).rejects.toThrow('O robô cobra no Pix');
+    const comPix: any = await rota.salvarAjustes(user, null, { alterado: { roboCobraPix: true } });
+    expect(comPix.alterado).toMatchObject({ roboCobraPix: true, roboMuda: true });
+    expect((await q(`select muda_pedido, cobra_adicional_pix from robo_config where tenant_id = $1`, [D]))[0]).toEqual({ muda_pedido: true, cobra_adicional_pix: true });
+    expect(auditados.map((a) => a.acao)).toEqual(['robo_cobra_adicional_pix_ligado']);
+    expect((await rota.salvarAjustes(user, null, { alterado: { roboCobraPix: false } })).alterado.roboCobraPix).toBe(false);
     await expect(rota.salvarAjustes(user, null, { alterado: {} })).rejects.toThrow('nada para salvar');
   });
 

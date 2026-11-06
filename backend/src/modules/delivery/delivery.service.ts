@@ -2867,9 +2867,13 @@ export class DeliveryService {
     // entrega — só o endereço (e o troco), sem item, sem cozinha e sem via nova (o entregador já está na rua; quem o
     // avisa é a equipe, pelo WhatsApp dele); `chamadoId` = o caso (a rotina da nuvem avisa o cliente por ele). Também só
     // por chamada interna.
-    opts: { aplicandoPedida?: boolean; precoInformado?: boolean; depoisQueSaiu?: boolean; chamadoId?: string | null } = {},
+    // `pagoNaHora` (mig 373): a diferença que o cliente ACABOU de pagar no Pix do adicional (o robô) — entra como mais um
+    // pagamento já feito (`valoresDepois`); sem ele, o pedido pago antes que mudaria de valor é recusado. Só por chamada
+    // interna; viaja na "pedida" ao servidor da loja como o preço informado.
+    opts: { aplicandoPedida?: boolean; precoInformado?: boolean; depoisQueSaiu?: boolean; chamadoId?: string | null; pagoNaHora?: number | null } = {},
   ) {
     const tenantId = user.tenantId;
+    const pagoNaHora = opts.pagoNaHora != null && Number(opts.pagoNaHora) > 0 ? Math.round(Number(opts.pagoNaHora) * 100) / 100 : null;
     const podeNoStatus = (s: string) => STATUS_ALTERAVEL.includes(s) || (!!opts.depoisQueSaiu && s === 'despachado');
     const idAlteracao = UUID_ALTERACAO.test(String(dto.idAlteracao ?? '')) ? String(dto.idAlteracao) : randomUUID();
     const ja = await this.alteracaoJaFeita(tenantId, idAlteracao);
@@ -2949,6 +2953,7 @@ export class DeliveryService {
           // O que a nuvem decidiu viaja na pedida (o servidor da loja aplica igual): o preço e a taxa informados (já
           // filtrados aqui) e o "depois que saiu" (com o caso).
           ...(opts.precoInformado ? { precoInformado: true } : {}),
+          ...(pagoNaHora != null ? { pagoNaHora } : {}),
           ...marcaDoSaiu,
         },
         {
@@ -2983,7 +2988,7 @@ export class DeliveryService {
       const valorDe = (p: { precoUnitario: number; quantidade: number }) => Math.round(Number(p.precoUnitario) * Number(p.quantidade) * 100) / 100;
       const deltaItens = Math.round((postos.reduce((s, p) => s + valorDe(p), 0) - tirados.reduce((s, t) => s + valorDe(t), 0)) * 100) / 100;
 
-      const v = valoresDepois(atual, { deltaItens, taxaNova, trocoPara: trocoPedido });
+      const v = valoresDepois(atual, { deltaItens, taxaNova, trocoPara: trocoPedido, pagoNaHora });
       if (!v.ok) throw new ConflictException({ statusCode: 409, code: v.recusa.code, message: v.recusa.message });
       // Nota fiscal emitida (ou enviada, ou em contingência): nada que mude o valor — a nota é daquele valor (decisão 7).
       if (Number(v.valores.total) !== Number(atual.total) && (await this.temNotaFiscal(tx, tenantId, atual.comandaId as string))) {
@@ -3099,6 +3104,7 @@ export class DeliveryService {
                 remover,
                 endereco: enderecoPedido ?? null,
                 trocoPara: dto.trocoPara,
+                ...(pagoNaHora != null ? { pagoNaHora } : {}),
                 ...marcaDoSaiu,
               },
               ...historico,
@@ -3170,6 +3176,7 @@ export class DeliveryService {
       endereco?: unknown;
       trocoPara?: number | null;
       precoInformado?: boolean;
+      pagoNaHora?: number;
       depoisQueSaiu?: boolean;
       chamadoId?: string;
     },
@@ -3284,6 +3291,8 @@ export class DeliveryService {
         {
           aplicandoPedida: true,
           precoInformado: a.origem === 'robo' || p.precoInformado === true,
+          // O Pix do adicional que o cliente pagou (mig 373): só na pedida do robô.
+          pagoNaHora: a.origem === 'robo' && Number(p.pagoNaHora) > 0 ? Number(p.pagoNaHora) : null,
           depoisQueSaiu: p.depoisQueSaiu === true,
           chamadoId: typeof p.chamadoId === 'string' ? p.chamadoId : null,
         },

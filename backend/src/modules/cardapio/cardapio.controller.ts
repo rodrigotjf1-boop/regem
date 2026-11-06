@@ -7,10 +7,12 @@ import {
   Param,
   Post,
   Put,
+  Optional,
   Query,
   UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { AdicionalPixService } from './adicional-pix.service';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
@@ -32,7 +34,17 @@ import { CABECALHO_SEGREDO_ROBO, segredoDaChamada } from '../../common/segredo-r
 @Controller('publico/cardapio')
 @CloudOnly()
 export class CardapioPublicoController {
-  constructor(private readonly service: CardapioService) {}
+  constructor(
+    private readonly service: CardapioService,
+    // O aviso do gateway de um Pix que não é de pedido pode ser do Pix do ADICIONAL (mig 373): ele confere.
+    @Optional() private readonly adicionalPix?: AdicionalPixService,
+  ) {}
+
+  /** O aviso que não achou pedido (`naoCorrelacionado`) vai ao Pix do adicional — que confere no gateway, nunca pelo corpo. */
+  private async ouDoAdicional(r: any, paymentId: string) {
+    if (r?.naoCorrelacionado && this.adicionalPix) return { ...(await this.adicionalPix.confirmarPeloAviso(paymentId)), ...r };
+    return r;
+  }
 
   // `?evento=natal` mostra o cardápio como fica naquele evento (a prévia do painel), sem mudar a
   // escolha da loja.
@@ -134,24 +146,25 @@ export class CardapioPublicoController {
   // Webhook do Mercado Pago (confirmação de PIX). Sem token de loja: correlaciona
   // pelo gateway_payment_id do pedido. Aceita o id no body (data.id) ou na query.
   @Post('pagamento/mercadopago/webhook')
-  mpWebhook(@Body() body: any, @Query() q: any, @Headers() h: any) {
+  async mpWebhook(@Body() body: any, @Query() q: any, @Headers() h: any) {
     const paymentId =
       body?.data?.id ?? body?.resource ?? q?.['data.id'] ?? q?.id ?? '';
     // Assinatura (defesa em profundidade): validada só se MP_WEBHOOK_SECRET setado.
-    return this.service.webhookMercadoPago(
+    const r = await this.service.webhookMercadoPago(
       String(paymentId || ''),
       h?.['x-signature'],
       h?.['x-request-id'],
     );
+    return this.ouDoAdicional(r, String(paymentId || ''));
   }
 
   // Webhook do PagBank (Orders). Sem token de loja: correlaciona pelo id do pedido
   // (gateway_payment_id). O id do pedido vem no corpo (id / order.id / charges[].order_id).
   @Post('pagamento/pagbank/webhook')
-  pagbankWebhook(@Body() body: any, @Query() q: any) {
+  async pagbankWebhook(@Body() body: any, @Query() q: any) {
     const orderId =
       body?.id ?? body?.order?.id ?? body?.data?.id ?? body?.charges?.[0]?.order_id ?? q?.id ?? '';
-    return this.service.webhookPagBank(String(orderId || ''));
+    return this.ouDoAdicional(await this.service.webhookPagBank(String(orderId || '')), String(orderId || ''));
   }
 
   @Get(':token/pontos')
