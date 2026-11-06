@@ -2309,6 +2309,9 @@ const SO_NUVEM = new Set([
   // Robô de WhatsApp (mig 342, @cloud-only): a pausa do robô numa conversa e o ajuste da loja. O robô e a caixa de
   // conversas só existem na nuvem (a loja usa a caixa repassando para ela) — a loja não tem estas tabelas.
   'robo_pausa', 'robo_config',
+  // Gerente no WhatsApp (mig 375, @cloud-only): o WhatsApp ligado de cada gestor e os avisos que saíram para ele. Os
+  // webhooks do WhatsApp e a rotina dos avisos só existem na nuvem — a loja não tem estas tabelas.
+  'gestor_whatsapp', 'aviso_gestor_whatsapp',
   // O pedido em montagem na conversa do robô (mig 344, @cloud-only). Registrado, vira pedido pelo caminho do cardápio
   // online e desce à loja como qualquer pedido — o carrinho em si nunca vai.
   'robo_carrinho',

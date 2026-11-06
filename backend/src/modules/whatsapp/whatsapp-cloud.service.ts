@@ -13,6 +13,8 @@ import { portaoDaRespostaAoSemContato, registrarConfirmacao } from './resposta-a
 import { portaoDaConferencia } from './conferir-entrega';
 import { ChegadaService } from '../chegada/chegada.service';
 import { clienteRespondeu } from '../atendimento/abrir-chamado';
+import { portaoDoGestor } from '../atendimento/gestor-whatsapp-entrada';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig, empresa, whatsappMensagem, whatsappNumero, whatsappTemplate } from '../../db/schema';
 import { registrarSaida, registrarVolta } from '../../common/consentimento-marketing';
@@ -144,6 +146,19 @@ export const CATALOGO_RELACIONAMENTO: Array<{
     rodape: 'Para não receber estes avisos, responda SAIR.',
     exemplo: ['Marina', 'R$ 12,40', '06/11'],
     botoes: [{ tipo: 'beneficios', texto: 'Ver meu saldo' }],
+  },
+  //  • aviso_ao_gestor — UTILIDADE (mig 375, Gerente no WhatsApp): o aviso ao GESTOR da loja (não ao cliente) fora da
+  //    janela de 24 h. {{1}} = o resumo do caso ("disputa do iFood no pedido 4521, responder até 19:58"). O toque em "Ver
+  //    por aqui" volta como texto e manda o aviso inteiro. O Regem pede à Meta quando a loja liga "Avisar e decidir pelo
+  //    WhatsApp" (Delivery › Configurações › Atendimento) — não é uma automática de Marketing.
+  {
+    nome: 'aviso_ao_gestor',
+    categoria: 'UTILITY',
+    cabecalho: 'Atendimento',
+    corpo: 'Atendimento da {loja}: {{1}}. Toque abaixo para ver por aqui.',
+    rodape: 'Para parar, responda PARAR AVISOS.',
+    exemplo: ['disputa do iFood no pedido 4521, responder até 19:58'],
+    botoes: [{ tipo: 'quick_reply', texto: 'Ver por aqui' }],
   },
   //  • aniversario_presente / aniversario_parabens — MARKETING (aniversário está na lista de marketing da Meta). Com
   //    presente: {{1}} nome, {{2}} o presente ("R$ 10 de desconto em pedido acima de R$ 40"), {{3}} até quando; "Peça agora"
@@ -307,6 +322,8 @@ export class WhatsappCloudService {
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     // O aviso em tempo real do chamado que o detector do robô do outro lado abre (opcional: os testes passam só o banco).
     @Optional() private readonly events?: EventEmitter2,
+    // O gestor que liga ou para os avisos pelo WhatsApp (mig 375) fica na auditoria. Opcional, como o de cima.
+    @Optional() private readonly auditoria?: AuditoriaService,
   ) {}
 
   private token(): string {
@@ -516,6 +533,22 @@ export class WhatsappCloudService {
     }
   }
 
+  // O GESTOR respondendo aos avisos do atendimento (mig 375): o código de ligar, PARAR/VOLTAR AVISOS e o "Ver por aqui"
+  // do modelo. Tratada: não vai ao robô nem entra na caixa de conversas. Falhou: segue o caminho de sempre.
+  private async respostaDoGestor(cfg: any, de: string, m: any): Promise<boolean> {
+    try {
+      return await portaoDoGestor(
+        this.db,
+        { tenantId: cfg.tenantId, telefone: de, texto: this.textoDe(m), idMensagem: String(m?.id ?? '') || null },
+        (texto) => this.enviarInterno(cfg.tenantId, de, { texto }),
+        this.auditoria ? (e) => this.auditoria!.registrar(e as any) : undefined,
+      );
+    } catch (e: any) {
+      this.logger.warn(`resposta do gestor não conferida para ${mascarar(de)} (segue o caminho de sempre): ${e?.message ?? e}`);
+      return false;
+    }
+  }
+
   // Pausa o robô para UMA conversa (coexistência: o lojista respondeu pelo app) pelo tempo da loja
   // (robo-pausa.ts, mig 342). Best-effort.
   private async pausarRoboConversa(tenantId: string, telefone: string): Promise<void> {
@@ -679,6 +712,9 @@ export class WhatsappCloudService {
           this.logger.log(
             `msg loja=${cfg.tenantId} de=${mascarar(de)} tipo=${m?.type} id=${m?.id}`,
           );
+
+          // O gestor respondendo aos avisos do atendimento (mig 375) — antes de gravar: não é conversa de cliente.
+          if (await this.respostaDoGestor(cfg, de, m)) continue;
 
           // Grava ANTES dos portoes do robo, de proposito: o painel precisa mostrar
           // o que o cliente disse mesmo com o robo desligado ou com a conversa
@@ -879,6 +915,32 @@ export class WhatsappCloudService {
     if (!cfg) throw new NotFoundException('Cardápio não configurado.');
     if (!cfg.waCloudPhoneId) throw new BadRequestException('Esta loja não tem número da API oficial vinculado.');
     return cfg;
+  }
+
+  /**
+   * Mensagem INTERNA da loja — o aviso ao gestor (mig 375): pelo número principal, SEM entrar na caixa de conversas (o
+   * gestor não é cliente). Texto (dentro da janela de 24 h) ou o modelo aprovado com as variáveis do corpo (fora dela).
+   */
+  async enviarInterno(tenantId: string, numero: string, conteudo: { texto: string } | { modelo: string; variaveis: string[] }) {
+    const para = soDigitos(numero);
+    if (!para) throw new BadRequestException('Número inválido.');
+    const cfg = await this.cfgDoEnvio(tenantId);
+    const corpo =
+      'texto' in conteudo
+        ? { to: para, type: 'text', text: { body: cortar(String(conteudo.texto ?? '').trim(), 4096) } }
+        : {
+            to: para,
+            type: 'template',
+            template: {
+              name: conteudo.modelo,
+              language: { code: 'pt_BR' },
+              ...(conteudo.variaveis.length
+                ? { components: [{ type: 'body', parameters: conteudo.variaveis.map((t) => ({ type: 'text', text: t })) }] }
+                : {}),
+            },
+          };
+    const r = await this.postarMensagem(cfg.waCloudPhoneId!, corpo);
+    return { ok: true, id: r.wamid };
   }
 
   // POST de uma mensagem na Graph; o erro da Meta vai no texto (é o que diagnostica: janela fechada, formato).

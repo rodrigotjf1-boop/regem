@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Gerente no WhatsApp, parte 5a (06/11; mig 375 `@cloud-only`, toca `backend/edge/sync-daemon.mjs`).** Na NUVEM com o
+  merge (nasce DESLIGADO — Delivery › Configurações › Operação › Atendimento, grupo "Gerente no WhatsApp"): cada gerente
+  e presidente liga o próprio WhatsApp mandando "REGEM 123456" à loja; a decisão com prazo e o caso que ninguém pegou
+  chegam ao WhatsApp dele com o link do caso. Tudo na nuvem (webhooks e rotina) — a loja não tem as tabelas. **No
+  `sync-daemon.mjs` (vai no próximo `.zip`/`.exe`):** `gestor_whatsapp` e `aviso_gestor_whatsapp` na lista SÓ-NUVEM
+  (classificação, sem efeito na loja, que não tem as tabelas). A tela de ajustes no servidor da loja segue "só pela nuvem".
+
 - **Avaliações do iFood na Central de atendimento (06/11; sem migration, sem `edge/`).** Na NUVEM com o merge (nasce
   DESLIGADO — Delivery › Configurações › Operação › Atendimento, grupo "iFood · disputas e chat", "Avaliações do iFood na
   fila"; e só funciona depois de a distribuição liberar o módulo de avaliações no app do iFood): a rotina de 30 min traz a
