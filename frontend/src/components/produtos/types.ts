@@ -60,6 +60,8 @@ export const vazio = () => ({
   atacadoAtivo: false,
   selos: [] as string[],
   canaisPausados: [] as string[],
+  precoIfood: '', // preço no iFood (mig 369): vazio = o Regem não mexe no preço de lá
+  noIfood: false, // está no cardápio do iFood
   sugestoes: [] as string[],
   duracaoMin: '',
   vendaMultiplo: '',

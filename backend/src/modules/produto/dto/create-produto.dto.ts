@@ -128,6 +128,10 @@ export class CreateProdutoDto {
   @IsOptional() @IsArray() @IsString({ each: true }) selos?: string[];
   // Canais de integração (delivery) em que o produto está pausado (mig 150).
   @IsOptional() @IsArray() @IsString({ each: true }) canaisPausados?: string[];
+  // iFood pelo Orzuni (mig 369). Conferidos no serviço, com o motivo em pt-BR (`precoIfoodDoPedido`,
+  // `exigirBooleano`): ausente mantém; preço null/vazio limpa. Só gravados com o direito ligado.
+  @IsOptional() precoIfood?: number | string | null;
+  @IsOptional() noIfood?: boolean;
   @IsOptional() @IsBoolean() disponivelCardapio?: boolean;
   @IsOptional() @IsBoolean() disponivelBalcao?: boolean;
   @IsOptional() @IsBoolean() destaque?: boolean;

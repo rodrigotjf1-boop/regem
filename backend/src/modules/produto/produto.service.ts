@@ -26,6 +26,8 @@ import { conferirDestinosDeProducao, destinosDeProducaoConferidos } from '../../
 import { FichasService } from '../fichas/fichas.service';
 import { exigirUnidade, unidadeOuPadrao } from '../estoque/unidades';
 import { arredondarEstoque, fatorParaEstoque, unidadesDoProduto } from '../../common/conversao-unidade';
+import { exigirBooleano } from '../../common/exigir';
+import { ifoodPeloOrzuniLigado, precoIfoodDoPedido } from '../../common/ifood-pelo-orzuni';
 import { CreateCategoriaDto } from './dto/create-categoria.dto';
 import { CreateProdutoDto } from './dto/create-produto.dto';
 
@@ -41,6 +43,32 @@ export class ProdutoService {
     private readonly flash: EdgeFlashSyncService,
     private readonly fichas: FichasService,
   ) {}
+
+  // ----- iFood pelo Orzuni (mig 369) -----
+  /** O direito `ifood_pelo_orzuni` está ligado nesta empresa? (a tela mostra os campos só assim) */
+  ifoodPeloOrzuni(tenantId: string): Promise<boolean> {
+    return ifoodPeloOrzuniLigado(this.db, tenantId);
+  }
+
+  /**
+   * Os campos do iFood que o pedido manda gravar. Ausente = não mexe (V16: a tela que regrava a opção inteira para
+   * pausar não pode apagar o preço). Conferidos SEMPRE — valor inválido é recusado com o motivo — e só entram na
+   * gravação com o direito ligado; desligado, ficam de fora em silêncio (a tela nem os mostra).
+   */
+  private async camposIfood(
+    tenantId: string,
+    dto: { precoIfood?: unknown; noIfood?: unknown },
+    comMarcador: boolean,
+  ): Promise<{ precoIfood?: string | null; noIfood?: boolean }> {
+    const preco = precoIfoodDoPedido(dto?.precoIfood);
+    const marcador = comMarcador && dto?.noIfood !== undefined ? exigirBooleano(dto.noIfood, 'noIfood') : undefined;
+    if (preco === undefined && marcador === undefined) return {};
+    if (!(await ifoodPeloOrzuniLigado(this.db, tenantId))) return {};
+    const out: { precoIfood?: string | null; noIfood?: boolean } = {};
+    if (preco !== undefined) out.precoIfood = preco;
+    if (marcador !== undefined) out.noIfood = marcador;
+    return out;
+  }
 
   // ----- Ligação direta com um produto do estoque (mig 309) -----
   // "Na hora de ligar é só perguntar se vai calcular valor unitário ou do fardo" (dono,
@@ -159,7 +187,7 @@ export class ProdutoService {
   async listarOpcoes(tenantId: string, veCustoDaFicha = false, veFinanceiro = false) {
     // Traz a opção + nome da ficha/insumo ligado (para exibir o tipo com clareza).
     const res: any = await this.db.execute(sql`
-      select o.id, o.nome, o.codigo_pdv as "codigoPdv", o.descricao,
+      select o.id, o.nome, o.codigo_pdv as "codigoPdv", o.preco_ifood as "precoIfood", o.descricao,
              o.imagem_ref as "imagemRef", o.tipo, o.preco_custo as "precoCusto",
              o.controla_estoque as "controlaEstoque", o.ficha_id as "fichaId",
              o.item_id as "itemId", o.produto_ref_id as "produtoRefId",
@@ -844,8 +872,10 @@ export class ProdutoService {
     const vals = this.opcaoVals(dto);
     if (!vals.nome) throw new NotFoundException('Informe o nome da opção.');
     if (!podeCusto) vals.precoCusto = '0';
+    // Preço no iFood (mig 369): um por opção = por código PDV; só com o direito ligado.
+    const ifood = await this.camposIfood(tenantId, dto, false);
     const { unidade: itemUnidade } = await this.vinculoComEstoque(tenantId, vals.itemId, dto?.itemUnidade);
-    const [row] = await this.db.insert(opcao).values({ tenantId, ...vals, itemUnidade }).returning();
+    const [row] = await this.db.insert(opcao).values({ tenantId, ...vals, ...ifood, itemUnidade }).returning();
     return podeCusto ? row : { ...row, precoCusto: null };
   }
 
@@ -856,6 +886,8 @@ export class ProdutoService {
     // opção por ela zerava o custo.
     const mandouCusto = dto?.precoCusto != null && dto.precoCusto !== '';
     if (!podeCusto || !mandouCusto) delete vals.precoCusto;
+    // Preço no iFood (mig 369): ausente mantém (a pausa pela lista regrava a opção sem ele).
+    Object.assign(vals, await this.camposIfood(tenantId, dto, false));
     // Unidade da ligação com o insumo: quem não manda o campo (telas que regravam a opção
     // inteira para mudar "esgotado", por exemplo) mantém a que estava — se o insumo é o mesmo.
     let unidadePedida = dto?.itemUnidade;
@@ -945,6 +977,7 @@ export class ProdutoService {
              p.permite_negativo as "permiteNegativo",
              p.disponivel_balcao as "disponivelBalcao",
              p.canais_pausados as "canaisPausados",
+             p.preco_ifood as "precoIfood", p.no_ifood as "noIfood",
              p.ativo, p.categoria_id as "categoriaId", p.ficha_id as "fichaId",
              p.item_id as "itemId", p.item_unidade as "itemUnidade", p.item_fator as "itemFator",
              p.setor_producao_id as "setorProducaoId", p.imagem_ref as "imagemRef",
@@ -1217,7 +1250,8 @@ export class ProdutoService {
     /* eslint-enable @typescript-eslint/no-unused-vars */
     const [novo] = await this.db
       .insert(produto)
-      .values({ ...rest, nome: `${orig.nome} (cópia)`, codigo: null })
+      // Sem código PDV a cópia não se liga ao iFood: nasce fora do cardápio de lá (mig 369).
+      .values({ ...rest, nome: `${orig.nome} (cópia)`, codigo: null, noIfood: false })
       .returning();
 
     // `chave` = propriedade JS que aponta pro produto pai (a coluna Drizzle usa
@@ -1603,6 +1637,8 @@ export class ProdutoService {
   ) {
     this.exigirCategoria(dto.categoriaId);
     const vinculo = await this.vinculoComEstoque(tenantId, dto.itemId, dto.itemUnidade);
+    // Preço no iFood e "está no iFood" (mig 369): só com o direito ligado; senão ficam no padrão.
+    const ifood = await this.camposIfood(tenantId, dto, true);
     const row = await this.db.transaction(async (tx) => {
       const [p] = await tx
         .insert(produto)
@@ -1653,6 +1689,7 @@ export class ProdutoService {
           cstCofins: dto.cstCofins,
           aliqCofins: dto.aliqCofins != null ? String(dto.aliqCofins) : undefined,
           imagemRef: dto.imagemRef,
+          ...ifood,
         })
         .returning();
 
@@ -1764,6 +1801,8 @@ export class ProdutoService {
     if (dto.aliqCofins !== undefined)
       patch.aliqCofins = dto.aliqCofins != null ? String(dto.aliqCofins) : null;
     set('imagemRef', dto.imagemRef);
+    // Preço no iFood e "está no iFood" (mig 369): ausente mantém; só com o direito ligado.
+    Object.assign(patch, await this.camposIfood(tenantId, dto, true));
 
     const [row] = await this.db
       .update(produto)

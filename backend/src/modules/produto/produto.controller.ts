@@ -80,6 +80,13 @@ export class ProdutoController {
     );
   }
 
+  // iFood pelo Orzuni (mig 369): a tela só mostra o preço no iFood e o "está no iFood" com o direito
+  // ligado na empresa. Quem liga é a distribuição — não há rota do lojista que grave o direito.
+  @Get('ifood-pelo-orzuni')
+  async ifoodPeloOrzuni(@CurrentUser() user: AuthUser) {
+    return { ligado: await this.service.ifoodPeloOrzuni(user.tenantId) };
+  }
+
   // ----- Opções (catálogo reutilizável, Fase 2) -----
   @Get('opcoes')
   listarOpcoes(@CurrentUser() user: AuthUser) {

@@ -732,6 +732,8 @@ export const api = {
     req(`/produtos/${id}`, { method: 'DELETE' }),
   duplicarProduto: (id: string) =>
     req(`/produtos/${id}/duplicar`, { method: 'POST' }),
+  // iFood pelo Orzuni (mig 369): o preço no iFood e o "está no iFood" só aparecem com o direito ligado.
+  ifoodPeloOrzuni: () => req('/produtos/ifood-pelo-orzuni') as Promise<{ ligado: boolean }>,
   produtoCategorias: () => req('/produtos/categorias'),
   criarCategoriaProduto: (body: Record<string, unknown>) =>
     req('/produtos/categorias', { method: 'POST', body: JSON.stringify(body) }),
