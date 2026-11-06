@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **iFood pelo Orzuni — "Último envio ao iFood" na tela (R2b; 06/11; sem migration, sem `edge/`).** Na nuvem, no ar com o
+  merge. **No `.zip` 1.30.13:** a tela do servidor da loja passa a mostrar a lista, que o servidor pede à nuvem
+  (`/orzuni/loja/envios`, token de sync); sem o `.zip`, a tela da loja nem tem a seção (e o direito só liga com a 1.30.13).
 - **Ponte do chat 0.7.0 — a ponte ENVIA pela 99 (Etapa 4b; 06/11; sem migration, sem mudança na nuvem).** Só o programa
   `ponte-chat/` (ainda sem instalador — gerar sob comando): "Responder pela 99 neste PC" (nasce desligado) e o envio
   automático pela 99 — busca o pedido, abre a conversa com clique de mouse, confere o número duas vezes, aperta o
