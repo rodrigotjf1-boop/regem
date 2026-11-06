@@ -505,6 +505,9 @@ body.tema-escuro .p-root.tpl-fluxo{--p-bg:#0B1620;--p-surf:#12212E;--p-card:#0F1
 .p-root .ac-cod b{font:700 18px var(--p-num);letter-spacing:.2em}
 .p-root .ac-acts{display:flex;gap:14px;flex-wrap:wrap}
 .p-root .ac-acts button{color:var(--p-acc);font-weight:600;font-size:13px}
+/* o botão PRINCIPAL dentro das ações (o "Salvar" do aniversário) tem o fundo de destaque: o texto é o de cima do destaque,
+   nunca o próprio destaque (06/11: botão vermelho sem texto) */
+.p-root .ac-acts .p-btn{color:var(--p-on);font:700 15px var(--p-font)}
 .p-root .ac-del{color:var(--p-err);font-weight:600;font-size:13px}
 .p-root .ac-sair{font-weight:600;font-size:14px;text-decoration:underline;text-underline-offset:2px}
 .p-root .p-modal dl{margin:0;display:grid;gap:10px}

@@ -2337,6 +2337,31 @@ export class CardapioService {
     return { ok: true, status: st.status };
   }
 
+  /**
+   * O estorno TOTAL de um pagamento online, pelo gateway que o recebeu (mig 372 — o cancelamento do pedido pago por Pix;
+   * quem chama é a rotina `estorno-pix.service.ts`, só na nuvem). Sem valor = o gateway devolve o pagamento inteiro.
+   * Lança em falha (sem token, recusa do gateway): quem chama conta a tentativa e, na última, avisa a loja.
+   */
+  async reembolsarPagamentoTotal(tenantId: string, provedor: string, paymentId: string): Promise<{ id: string; status: string }> {
+    if (!paymentId) throw new Error('o pedido não tem o id do pagamento');
+    if (provedor === 'pagseguro') {
+      const t = await this.resolvePagseguroToken(tenantId);
+      if (!t) throw new Error('sem o token do PagBank');
+      return reembolsarPagamentoPagBank(t, paymentId);
+    }
+    if (provedor === 'rede') {
+      const c = await lerCredencialRede(this.db, tenantId);
+      if (!c) throw new Error('sem a credencial da Rede');
+      return reembolsarPagamentoRede(c, paymentId);
+    }
+    if (provedor === 'mercadopago') {
+      const t = await this.resolveMpToken(tenantId);
+      if (!t) throw new Error('sem o token do Mercado Pago');
+      return reembolsarPagamentoMP(t, paymentId);
+    }
+    throw new Error(`gateway desconhecido: ${provedor}`);
+  }
+
   // ===== Reembolso do sinal (S3) =====
 
   // Estorna o sinal PAGO de uma encomenda cancelada. Idempotente pelo status:

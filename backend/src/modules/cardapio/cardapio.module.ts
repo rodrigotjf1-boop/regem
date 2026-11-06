@@ -18,6 +18,8 @@ import { RoboPedidoService } from './robo-pedido.service';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { LembreteDoCarrinhoProcessor } from './lembrete-do-carrinho.processor';
 import { AvisoDaMudancaProcessor } from './aviso-da-mudanca.processor';
+import { EstornoPixService } from './estorno-pix.service';
+import { EstornoPixProcessor } from './estorno-pix.processor';
 import { ChegadaModule } from '../chegada/chegada.module';
 import { AniversarioModule } from '../aniversario/aniversario.module';
 
@@ -29,6 +31,7 @@ import { AniversarioModule } from '../aniversario/aniversario.module';
   controllers: [CardapioController, CardapioPublicoController, EventosCardapioController, RoboConsultasController, RoboPedidoController],
   // LembreteDoCarrinhoProcessor: o lembrete do pedido que ficou pela metade no robô (mig 349; só nuvem).
   // AvisoDaMudancaProcessor: a decisão do servidor da loja sobre a mudança pedida pelo robô chega ao cliente (mig 363; só nuvem).
-  providers: [CardapioService, OrigemPedidoService, EventosCardapioService, RoboPedidoService, LembreteDoCarrinhoProcessor, AvisoDaMudancaProcessor],
+  // EstornoPixService/Processor: o estorno do Pix no cancelamento do pedido pago online (mig 372; só nuvem).
+  providers: [CardapioService, OrigemPedidoService, EventosCardapioService, RoboPedidoService, LembreteDoCarrinhoProcessor, AvisoDaMudancaProcessor, EstornoPixService, EstornoPixProcessor],
 })
 export class CardapioModule {}

@@ -849,8 +849,13 @@ export class WhatsappService {
   // Texto legível do status de um pedido (o robô repassa ao cliente).
   private textoStatusPedido(p: { status: string; statusPagamento: string | null; tipo: string | null }): string {
     const entrega = p.tipo === 'entrega';
-    if (p.status === 'cancelado')
+    if (p.status === 'cancelado') {
+      // pago online: a nuvem pede o estorno total ao gateway sozinha (mig 372, `cardapio/estorno-pix.service.ts`) — o mesmo
+      // texto da página do pedido (`frontend/.../texto-do-estorno.ts`)
+      if (p.statusPagamento === 'aprovado')
+        return 'Seu pedido foi cancelado. O valor pago no Pix será devolvido automaticamente para a mesma conta, pela instituição financeira — costuma cair em poucos minutos.';
       return `Seu pedido foi cancelado${p.statusPagamento === 'aguardando' ? ' por falta de pagamento no prazo' : ''}.`;
+    }
     if (p.status === 'novo')
       return p.statusPagamento === 'aguardando'
         ? 'Seu pedido está aguardando a confirmação do pagamento PIX. Assim que o pagamento cair, ele entra em preparo.'

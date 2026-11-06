@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { ChegueiDoPedido } from '@/components/loja/cardapio/cheguei-do-pedido';
+import { TEXTO_DO_ESTORNO } from '@/components/loja/cardapio/texto-do-estorno';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -114,6 +115,8 @@ export default function StatusPedidoPage() {
         {cancelado ? (
           <p className="mt-6 rounded-xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">
             Este pedido foi cancelado.
+            {/* pago online: a nuvem pede o estorno total ao gateway sozinha (mig 372) */}
+            {ped.statusPagamento === 'aprovado' && <span className="mt-1 block font-normal text-red-700">{TEXTO_DO_ESTORNO}</span>}
           </p>
         ) : (
           <>
