@@ -22,8 +22,11 @@ export const BOTAO_DO_MODELO = 'Ver por aqui';
 /** O que vale dentro da janela de 24 h da API oficial: a margem de 30 min evita mandar texto que a Meta já recusa. */
 export const JANELA_HORAS = 23.5;
 
-export type AjusteGestorWa = { ligado: boolean; decisoes: boolean; ninguemPegou: boolean };
-export const AJUSTE_GESTOR_WA_PADRAO: AjusteGestorWa = { ligado: false, decisoes: true, ninguemPegou: true };
+/** `limiteCentavos` = "Aceitar pelo WhatsApp até" (parte 5b): `null` = sem limite; 0 = não aceitar pelo WhatsApp. */
+export type AjusteGestorWa = { ligado: boolean; decisoes: boolean; ninguemPegou: boolean; limiteCentavos: number | null };
+export const AJUSTE_GESTOR_WA_PADRAO: AjusteGestorWa = { ligado: false, decisoes: true, ninguemPegou: true, limiteCentavos: 10000 };
+/** As escolhas da lista "Aceitar pelo WhatsApp até" (a mesma regra da coluna, mig 375). */
+export const LIMITES_DO_GESTOR_WA = [0, 3000, 5000, 10000, 20000] as const;
 
 const ROTULO_DO_CANAL: Record<string, string> = {
   whatsapp: 'WhatsApp',
@@ -163,8 +166,11 @@ function minutosDesde(d: Date | string, agora: Date): number {
   return Math.max(0, Math.floor((agora.getTime() - new Date(d).getTime()) / 60_000));
 }
 
-/** O texto que vai ao WhatsApp do gestor (dentro da janela de 24 h ou depois do "Ver por aqui"). */
-export function textoDoAviso(c: CasoDoAviso, tipo: 'decisao' | 'ninguem_pegou', agora: Date = new Date()): string {
+/**
+ * O texto que vai ao WhatsApp do gestor (dentro da janela de 24 h ou depois do "Ver por aqui"). `comBotoes`: a decisão vai
+ * com os botões (parte 5b) — o link fica de reserva.
+ */
+export function textoDoAviso(c: CasoDoAviso, tipo: 'decisao' | 'ninguem_pegou', agora: Date = new Date(), comBotoes = false): string {
   if (tipo === 'ninguem_pegou') {
     const partes = [
       umaLinha(c.cliente) || 'Cliente',
@@ -178,7 +184,8 @@ export function textoDoAviso(c: CasoDoAviso, tipo: 'decisao' | 'ninguem_pegou', 
       `Abrir no Regem: ${linkDoCaso(c.id)}`,
     ].join('\n');
   }
-  return [titulo(c), quemPediu(c), linhaDoPrazo(c), `Para responder, abra no Regem: ${linkDoCaso(c.id)}`]
+  const link = comBotoes ? `Responda aqui ou no Regem: ${linkDoCaso(c.id)}` : `Para responder, abra no Regem: ${linkDoCaso(c.id)}`;
+  return [titulo(c), quemPediu(c), linhaDoPrazo(c), link]
     .filter(Boolean)
     .join('\n');
 }
@@ -202,7 +209,7 @@ export function textoDeLigado(nome: string, loja: string): string {
   return [
     `Pronto, ${primeiro}! Este WhatsApp está ligado a você no Regem da ${umaLinha(loja) || 'loja'}.`,
     '',
-    'Daqui chegam as decisões do atendimento com prazo e o caso que ninguém pegou, com o link para abrir no Regem.',
+    'Daqui chegam as decisões do atendimento com prazo, para responder com um toque, e o caso que ninguém pegou.',
     '',
     'Para parar estes avisos, responda PARAR AVISOS.',
   ].join('\n');
@@ -216,6 +223,12 @@ export function lerAjusteGestorWa(dto: unknown): Partial<AjusteGestorWa> {
     if (d[k] === undefined) continue;
     if (typeof d[k] !== 'boolean') throw new BadRequestException('Gerente no WhatsApp: escolha ligado ou desligado.');
     parcial[k] = d[k] as boolean;
+  }
+  if (d.limiteCentavos !== undefined) {
+    const v = d.limiteCentavos;
+    if (v !== null && !(typeof v === 'number' && (LIMITES_DO_GESTOR_WA as readonly number[]).includes(v)))
+      throw new BadRequestException('Aceitar pelo WhatsApp até: escolha um valor da lista.');
+    parcial.limiteCentavos = v as number | null;
   }
   return parcial;
 }

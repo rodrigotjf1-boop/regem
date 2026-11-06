@@ -7,14 +7,20 @@ import * as schema from '../../db/schema';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { GestorWhatsappService } from './gestor-whatsapp.service';
 import { portaoDoGestor } from './gestor-whatsapp-entrada';
+import { DisputaIfoodService } from './disputa-ifood.service';
+import { Pedido99Service } from './pedido-99.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// GERENTE NO WHATSAPP (mig 375, parte 5a), contra o Postgres real, com o WhatsApp de mentira: ligar o PRÓPRIO número pelo
-// código (uma vez, um número por pessoa, o de quem saiu fica livre); PARAR/VOLTAR AVISOS; a rotina manda a decisão e o
-// "ninguém pegou" a quem pode receber AGORA (V75: pausado, bloqueado, rebaixado, loja apagada ficam de fora; gerente só a
-// loja dele), uma vez só; API oficial: texto na janela, modelo fora dela e o "Ver por aqui"; a falha passageira tenta de
-// novo até 3 vezes; o limite da volta só pega quem vale (V84); desligar; o grupo da tela (só o final do número; V82).
+// GERENTE NO WHATSAPP (mig 375), contra o Postgres real, com o WhatsApp, o iFood e a 99 de mentira.
+// Parte 5a: ligar o PRÓPRIO número pelo código (uma vez, um número por pessoa, o de quem saiu fica livre); PARAR/VOLTAR
+// AVISOS; a rotina manda a decisão e o "ninguém pegou" a quem pode receber AGORA (V75: pausado, bloqueado, rebaixado, loja
+// apagada ficam de fora; gerente só a loja dele), uma vez só; API oficial: texto na janela, modelo fora dela e o "Ver por
+// aqui"; a falha passageira tenta de novo até 3 vezes; o limite da volta só pega quem vale (V84); desligar; o grupo da
+// tela (só o final do número; V82).
+// Parte 5b: a decisão pela enquete e pelos botões, passo a passo, pelo MESMO serviço da tela (disputa e 99 de verdade),
+// com quem decidiu e "pelo WhatsApp"; o botão vindo de outro número não vale; o limite (e o limite que muda depois do
+// envio); o acesso que muda depois do envio; a falha da plataforma devolve a vez; "Voltar"; o mesmo toque duas vezes.
 const URL_PG = process.env.TEST_PG_URL;
 const descrever = URL_PG ? describe : describe.skip;
 if (!URL_PG) console.warn('gestor-whatsapp-pg.spec: sem TEST_PG_URL — PULADO');
@@ -39,24 +45,75 @@ descrever('gerente no WhatsApp (Postgres)', () => {
   const evolution: any = {
     enviar: async (tenantId: string, para: string, texto: string) => {
       if (falharEnvio) throw new Error('Falha ao enviar (sem resposta)');
-      enviados.push({ via: 'evolution', tenantId, para, texto });
+      enviados.push({ via: 'evolution', tipo: 'texto', tenantId, para, texto });
+      return { ok: true };
+    },
+    enviarEnquete: async (tenantId: string, para: string, pergunta: string, opcoes: string[]) => {
+      if (falharEnvio) throw new Error('Falha ao enviar a enquete (sem resposta)');
+      enviados.push({ via: 'evolution', tipo: 'enquete', tenantId, para, pergunta, opcoes });
       return { ok: true };
     },
   };
   const cloud: any = {
     enviarInterno: async (tenantId: string, para: string, conteudo: any) => {
       if (falharEnvio) throw new Error('Falha ao enviar pela Cloud API (500)');
-      enviados.push({ via: 'cloud', tenantId, para, ...conteudo });
+      enviados.push({ via: 'cloud', tipo: 'texto' in conteudo ? 'texto' : 'modelo', tenantId, para, ...conteudo });
+      return { ok: true, id: 'wamid' };
+    },
+    enviarOpcoes: async (tenantId: string, para: string, corpo: string, opcoes: any[], botao: string, interno: boolean) => {
+      if (falharEnvio) throw new Error('Falha ao enviar pela Cloud API (500)');
+      enviados.push({ via: 'cloud', tipo: 'opcoes', tenantId, para, corpo, opcoes, botao, interno });
       return { ok: true, id: 'wamid' };
     },
     garantirModeloRelacionamento: async () => 'pendente',
   };
+  // As plataformas de mentira: o que o Regem mandou ao iFood e à 99 (a resposta de cada vez).
+  const aoIfood: any[] = [];
+  const aoNoventaENove: any[] = [];
+  let respostaDaPlataforma: any = { ok: true };
+  const ig = { id: 'ig-gw', tenantId: '' } as any;
+  const ifood: any = {
+    integracaoDoTenant: async () => ig,
+    responderDisputa: async (...a: any[]) => {
+      aoIfood.push(a);
+      return respostaDaPlataforma;
+    },
+  };
+  const food99: any = {
+    integracaoDoTenant: async () => ig,
+    responderCancelamento: async (...a: any[]) => {
+      aoNoventaENove.push(['cancelamento', ...a]);
+      return respostaDaPlataforma;
+    },
+    responderReembolso: async (...a: any[]) => {
+      aoNoventaENove.push(['reembolso', ...a]);
+      return respostaDaPlataforma;
+    },
+  };
+  const cancelamentos: any[] = [];
+  const atendimento: any = { decidirCancelamento: async (...a: any[]) => void cancelamentos.push(a) };
+  const eventos = { emit: () => true } as any;
   let svc: GestorWhatsappService;
   const q = async (s: string, p: any[] = []) => (await pool.query(s, p)).rows;
   const user = (nome: string, categoria = 'gerente') => ({ tenantId: T, colaboradorId: pessoa[nome], categoria }) as any;
   const auditar = async (e: any) => void auditados.push(e);
-  const entrada = (telefone: string, texto: string, idMensagem: string = randomUUID()) =>
-    portaoDoGestor(db, { tenantId: T, telefone, texto, idMensagem }, async (t) => void respostas.push(t), auditar);
+  // A entrada entrega ao serviço (o evento) — aqui o teste espera o serviço terminar.
+  let pendente: Promise<void> | null = null;
+  const emitir = (_ev: string, p: any) => {
+    pendente = svc.responder(p);
+  };
+  const entrada = async (telefone: string, texto: string, idMensagem: string = randomUUID(), opcaoId: string | null = null) => {
+    const r = await portaoDoGestor(db, { tenantId: T, telefone, texto, opcaoId, idMensagem }, async (t) => void respostas.push(t), auditar, emitir);
+    if (pendente) {
+      const p = pendente;
+      pendente = null;
+      await p;
+    }
+    return r;
+  };
+  /** O que saiu para um número depois de `desde` (índice em `enviados`). */
+  const paraOnde = (tel: string, desde = 0) => enviados.slice(desde).filter((e) => e.para === tel);
+  const textoDe = (e: any) => e?.texto ?? e?.corpo ?? '';
   const ligarComo = async (nome: string, telefone: string) => {
     const { codigo } = await svc.ligar(user(nome, nome === 'rodrigo' ? 'presidente' : 'gerente'));
     return entrada(telefone, `REGEM ${codigo}`);
@@ -74,16 +131,50 @@ descrever('gerente no WhatsApp (Postgres)', () => {
       criado: '0 minutes',
       detalhe: { disputa: { acaoAutomatica: 'ACCEPT_CANCELLATION' } },
       responsavel_id: null,
+      pedido_id: null,
+      externo_id: null,
       ...o,
     };
     const [{ id }] = await q(
       `insert into atendimento_chamado (tenant_id, unidade_id, tipo, canal, cliente, pedido_numero, mensagem, prazo_em, detalhe,
-                                        criado_em, responsavel_id)
+                                        criado_em, responsavel_id, pedido_id, externo_id)
        values ($1, $2, $3, $4, $5, $6, $7, case when $8::text is null then null else now() + $8::interval end, $9::jsonb,
-               now() - $10::interval, $11) returning id`,
-      [T, c.unidade_id, c.tipo, c.canal, c.cliente, c.pedido_numero, c.mensagem, c.prazo, JSON.stringify(c.detalhe), c.criado, c.responsavel_id],
+               now() - $10::interval, $11, $12, $13) returning id`,
+      [T, c.unidade_id, c.tipo, c.canal, c.cliente, c.pedido_numero, c.mensagem, c.prazo, JSON.stringify(c.detalhe), c.criado, c.responsavel_id, c.pedido_id, c.externo_id],
     );
     return id as string;
+  };
+  /** Um pedido com o total (o valor do aceite de um cancelamento). */
+  const pedido = async (total: number, canal = 'ifood') =>
+    (
+      await q(
+        `insert into pedido_externo (tenant_id, canal, external_id, display_id, tipo, itens, total, status, cliente_nome)
+         values ($1, $2, $3, '4521', 'entrega', '[]', $4, 'producao', 'Ana P.') returning id`,
+        [T, canal, `ext-${randomUUID()}`, total],
+      )
+    )[0].id as string;
+  /** A disputa do iFood que pede para cancelar o pedido inteiro, com os motivos de aceite que o iFood mandou. */
+  const disputaDeCancelamento = async (total: number, motivosParaAceitar: string[] = ['CUSTOMER_REQUEST']) =>
+    novoCaso({
+      pedido_id: await pedido(total),
+      externo_id: `disp-${randomUUID()}`,
+      detalhe: { plataforma: 'ifood', disputa: { id: 'disp-1', acao: 'CANCELLATION', tipo: 'PREPARATION_TIME', acaoAutomatica: 'ACCEPT_CANCELLATION', motivosParaAceitar, alternativas: [], itens: [] } },
+    });
+  /** A última enquete que saiu para um número (a pergunta e as opções). */
+  const ultimaEnquete = (tel: string) => [...enviados].reverse().find((e) => e.para === tel && e.tipo === 'enquete');
+  const ultimosBotoes = (tel: string) => [...enviados].reverse().find((e) => e.para === tel && e.tipo === 'opcoes');
+  const ultimoTexto = (tel: string) => textoDe([...enviados].reverse().find((e) => e.para === tel && e.tipo === 'texto'));
+  /** O voto numa opção da última enquete do número (pelo começo do nome da opção). */
+  const votar = async (tel: string, comeco: string) => {
+    const opcao = (ultimaEnquete(tel)?.opcoes ?? []).find((o: string) => o.startsWith(comeco));
+    if (!opcao) throw new Error(`a enquete não tem "${comeco}": ${JSON.stringify(ultimaEnquete(tel)?.opcoes)}`);
+    return entrada(tel, opcao);
+  };
+  /** O toque num botão dos últimos botões do número (pelo começo do título). */
+  const tocar = async (tel: string, comeco: string, de = tel) => {
+    const b = (ultimosBotoes(tel)?.opcoes ?? []).find((o: any) => o.titulo.startsWith(comeco));
+    if (!b) throw new Error(`os botões não têm "${comeco}": ${JSON.stringify(ultimosBotoes(tel)?.opcoes)}`);
+    return entrada(de, b.titulo, randomUUID(), b.id);
   };
   const quemRecebeu = (chamado: string) =>
     q(`select c.nome, a.situacao, a.tipo from aviso_gestor_whatsapp a join colaborador c on c.id = a.colaborador_id
@@ -92,6 +183,10 @@ descrever('gerente no WhatsApp (Postgres)', () => {
     enviados.length = 0;
     respostas.length = 0;
     auditados.length = 0;
+    aoIfood.length = 0;
+    aoNoventaENove.length = 0;
+    cancelamentos.length = 0;
+    respostaDaPlataforma = { ok: true };
     falharEnvio = false;
   };
 
@@ -118,7 +213,16 @@ descrever('gerente no WhatsApp (Postgres)', () => {
     // `avisar_gerente_min` que o teste do V82 confere — sem ela, a suíte só passava depois da suíte da fila) e a 375.
     for (const m of ['215_whatsapp_mensagem.sql', '342_robo_pausa_e_config.sql', '353_app_atendimento.sql', '375_gestor_whatsapp.sql'])
       await aplicar(m);
-    svc = new GestorWhatsappService(db, cloud, evolution, { registrar: auditar } as any);
+    const aud = { registrar: auditar } as any;
+    svc = new GestorWhatsappService(
+      db,
+      cloud,
+      evolution,
+      aud,
+      new DisputaIfoodService(db, ifood, eventos, aud),
+      new Pedido99Service(db, food99, eventos, aud),
+      atendimento,
+    );
     [{ id: T }] = await q(`insert into empresa (nome) values ('teste gerente no whatsapp') returning id`);
     [{ id: T2 }] = await q(`insert into empresa (nome) values ('teste gerente no whatsapp sem ajuste') returning id`);
     [{ id: lojaA }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja A') returning id`, [T]);
@@ -157,6 +261,7 @@ descrever('gerente no WhatsApp (Postgres)', () => {
     if (!T) return;
     await q(`update atendimento_chamado set status = 'resolvido' where tenant_id = $1 and status = 'aberto'`, [T]);
     await q(`update cardapio_config set provedor = 'evolution' where tenant_id = $1`, [T]);
+    await q(`update robo_config set gestor_wa_limite_centavos = 10000, gestor_wa_decisoes = true where tenant_id = $1`, [T]);
   });
 
   it('ligar: só gerente e presidente; o código liga o número que mandou, uma vez; a mesma mensagem não responde duas vezes', async () => {
@@ -233,11 +338,16 @@ descrever('gerente no WhatsApp (Postgres)', () => {
       ['Ana Souza', 'enviado', 'decisao'],
       ['Rodrigo Dono', 'enviado', 'decisao'],
     ]);
-    expect(enviados.map((e) => e.para).sort()).toEqual([TEL.ana, TEL.rodrigo]);
-    expect(enviados[0].texto).toContain('⚖️ *Disputa do iFood · pedido 4521*');
-    expect(enviados[0].texto).toContain(`/atendimento?caso=${c}`);
+    // Pela conexão por QR: o texto do caso e, depois, a enquete da decisão.
+    expect(paraOnde(TEL.ana).map((e) => e.tipo)).toEqual(['texto', 'enquete']);
+    expect(paraOnde(TEL.rodrigo).map((e) => e.tipo)).toEqual(['texto', 'enquete']);
+    expect(paraOnde(TEL.bruno)).toEqual([]);
+    const t = paraOnde(TEL.ana)[0].texto;
+    expect(t).toContain('⚖️ *Disputa do iFood · pedido 4521*');
+    expect(t).toContain(`Responda aqui ou no Regem: `);
+    expect(t).toContain(`/atendimento?caso=${c}`);
     expect(await svc.enviarPendentes([T])).toBe(0);
-    expect(enviados).toHaveLength(2);
+    expect(enviados).toHaveLength(4);
   });
 
   it('quem não pode receber AGORA fica de fora (V75): pausado, bloqueado, rebaixado; e a loja apagada não manda nada', async () => {
@@ -306,17 +416,30 @@ descrever('gerente no WhatsApp (Postgres)', () => {
     await q(`update gestor_whatsapp set ultima_entrada_em = now() - interval '1 hour' where colaborador_id = $1`, [pessoa.rodrigo]);
     const c = await novoCaso();
     await svc.enviarPendentes([T]);
-    const paraAna = enviados.find((e) => e.para === TEL.ana);
-    expect(paraAna).toEqual({ via: 'cloud', tenantId: T, para: TEL.ana, modelo: 'aviso_ao_gestor', variaveis: ['disputa do iFood no pedido 4521, responder até ' + paraAna.variaveis[0].slice(-5)] });
-    expect(enviados.find((e) => e.para === TEL.rodrigo)?.texto).toContain('Disputa do iFood');
+    const paraAna = paraOnde(TEL.ana)[0];
+    expect(paraAna).toEqual({
+      via: 'cloud',
+      tipo: 'modelo',
+      tenantId: T,
+      para: TEL.ana,
+      modelo: 'aviso_ao_gestor',
+      variaveis: ['disputa do iFood no pedido 4521, responder até ' + paraAna.variaveis[0].slice(-5)],
+    });
+    // Dentro da janela: a decisão com os botões (mensagem interna, fora da caixa de conversas).
+    const paraRodrigo = paraOnde(TEL.rodrigo)[0];
+    expect(paraRodrigo).toMatchObject({ via: 'cloud', tipo: 'opcoes', interno: true });
+    expect(paraRodrigo.corpo).toContain('Disputa do iFood');
     expect((await quemRecebeu(c)).map((x) => [x.nome, x.situacao])).toEqual([
       ['Ana Souza', 'modelo'],
       ['Rodrigo Dono', 'enviado'],
     ]);
-    // A Ana toca em "Ver por aqui": chega o texto, o aviso fica "enviado" e a janela abre.
+    // A Ana toca em "Ver por aqui": chega o caso com os botões, o aviso fica "enviado" e a janela abre.
+    const antes = enviados.length;
     expect(await entrada(TEL.ana, 'Ver por aqui')).toBe(true);
-    expect(respostas).toHaveLength(1);
-    expect(respostas[0]).toContain(`/atendimento?caso=${c}`);
+    const verAna = paraOnde(TEL.ana, antes);
+    expect(verAna.map((e) => e.tipo)).toEqual(['opcoes']);
+    expect(verAna[0].corpo).toContain(`/atendimento?caso=${c}`);
+    expect(respostas).toEqual([]);
     expect((await quemRecebeu(c)).find((x) => x.nome === 'Ana Souza')?.situacao).toBe('enviado');
     expect(new Date((await gestor('ana')).ultima_entrada_em).getTime()).toBeGreaterThan(Date.now() - 60_000);
     // Outro modelo; o caso é resolvido antes do toque: "nada esperando", e o aviso expira.
@@ -324,9 +447,9 @@ descrever('gerente no WhatsApp (Postgres)', () => {
     const c2 = await novoCaso();
     await svc.enviarPendentes([T]);
     await q(`update atendimento_chamado set status = 'resolvido' where id = $1`, [c2]);
-    respostas.length = 0;
+    const antes2 = enviados.length;
     expect(await entrada(TEL.ana, 'ver por aqui')).toBe(true);
-    expect(respostas[0]).toContain('Nada esperando por você agora');
+    expect(textoDe(paraOnde(TEL.ana, antes2)[0])).toContain('Nada esperando por você agora');
     expect((await quemRecebeu(c2)).find((x) => x.nome === 'Ana Souza')?.situacao).toBe('expirado');
     await q(`update cardapio_config set provedor = 'evolution' where tenant_id = $1`, [T]);
   });
@@ -381,7 +504,7 @@ descrever('gerente no WhatsApp (Postgres)', () => {
   });
 
   it('o grupo da tela: nasce desligado; de cada pessoa só o final do número; salvar grava só as colunas dele (V82) e anota', async () => {
-    expect(await svc.ajuste(T2)).toEqual({ ligado: false, decisoes: true, ninguemPegou: true });
+    expect(await svc.ajuste(T2)).toEqual({ ligado: false, decisoes: true, ninguemPegou: true, limiteCentavos: 10000 });
     await q(`update robo_config set avisar_gerente_min = 5 where tenant_id = $1`, [T]);
     const g = await svc.grupo(user('ana'));
     expect(g).toMatchObject({ ligado: true, decisoes: true, ninguemPegou: true, via: 'evolution', numeroDaLoja: true, modelo: null });
@@ -402,5 +525,184 @@ descrever('gerente no WhatsApp (Postgres)', () => {
     expect(auditados).toEqual([expect.objectContaining({ acao: 'gestor_whatsapp_ajuste', detalhe: { ajuste: 'ninguemPegou', de: true, para: false } })]);
     await svc.salvar(user('ana'), { ninguemPegou: false });
     expect(auditados).toHaveLength(1);
+  });
+
+  // ------------------------------------------------------------------ parte 5b: a decisão pelo WhatsApp
+
+  it('5b · enquete (QR): Aceitar → motivo do iFood → Confirmar → a disputa vai ao iFood pelo serviço da tela, com quem decidiu e "pelo WhatsApp"; o outro gestor fica sabendo', async () => {
+    const c = await disputaDeCancelamento(39.9);
+    await svc.enviarPendentes([T]);
+    const e1 = ultimaEnquete(TEL.ana);
+    expect(e1.pergunta).toBe('O que responder?');
+    expect(e1.opcoes).toEqual([expect.stringMatching(/^Aceitar · R\$ 39,90 · caso \d{4}$/), expect.stringMatching(/^Recusar · caso \d{4}$/)]);
+    await votar(TEL.ana, 'Aceitar');
+    const e2 = ultimaEnquete(TEL.ana);
+    expect(e2.pergunta).toBe('Qual o motivo? A lista é do iFood.');
+    expect(e2.opcoes).toEqual([expect.stringMatching(/^Solicitação do cliente · caso \d{4}$/)]);
+    await votar(TEL.ana, 'Solicitação do cliente');
+    expect(ultimaEnquete(TEL.ana).pergunta).toBe(
+      'Confirma? Aceitar a disputa do pedido 4521, devolvendo R$ 39,90 (motivo: Solicitação do cliente). A resposta vai ao iFood, que aceita uma só.',
+    );
+    expect(aoIfood).toEqual([]); // nada sai antes de confirmar
+    await votar(TEL.ana, 'Confirmar');
+    expect(aoIfood).toHaveLength(1);
+    expect(aoIfood[0].slice(2)).toEqual(['accept', { reason: 'CUSTOMER_REQUEST' }]);
+    const ch = (await q(`select status, decisao, resolvido_por_id, detalhe from atendimento_chamado where id = $1`, [c]))[0];
+    expect(ch).toMatchObject({ status: 'resolvido', decisao: 'aceito', resolvido_por_id: pessoa.ana });
+    expect(ch.detalhe.resposta).toMatchObject({ acao: 'aceitar', motivo: 'CUSTOMER_REQUEST', por: 'Ana Souza', via: 'whatsapp' });
+    expect(ultimoTexto(TEL.ana)).toMatch(
+      /^✅ Feito: disputa do pedido 4521 aceita \(R\$ 39,90 de volta ao cliente\)\. No histórico do caso: Ana Souza, pelo WhatsApp, \d\d:\d\d\.$/,
+    );
+    expect(auditados.filter((a) => a.origem === 'whatsapp').map((a) => a.acao)).toEqual(expect.arrayContaining(['respondeu_disputa_ifood', 'decidiu_pelo_whatsapp']));
+    expect(auditados.find((a) => a.acao === 'respondeu_disputa_ifood')).toMatchObject({ atorId: pessoa.ana, atorPerfil: 'gerente' });
+    expect((await quemRecebeu(c)).map((x) => [x.nome, x.situacao])).toEqual([
+      ['Ana Souza', 'respondido'],
+      ['Rodrigo Dono', 'expirado'],
+    ]);
+    // O Rodrigo vota na enquete dele: fica sabendo quem respondeu; nada vai de novo ao iFood.
+    await votar(TEL.rodrigo, 'Aceitar');
+    expect(ultimoTexto(TEL.rodrigo)).toMatch(/^Ana Souza já respondeu às \d\d:\d\d, pelo WhatsApp: aceitou\. Nada foi enviado de novo\.$/);
+    // A Ana vota de novo no Confirmar: uma resposta só.
+    await votar(TEL.ana, 'Confirmar');
+    expect(aoIfood).toHaveLength(1);
+  });
+
+  it('5b · botões (API oficial): Recusar → motivo da 99 → Confirmar → a 99 recebe a recusa com o motivo; o botão vindo de outro número não vale', async () => {
+    await q(`update cardapio_config set provedor = 'cloud', wa_cloud_phone_id = 'pid-teste' where tenant_id = $1`, [T]);
+    for (const n of ['ana', 'rodrigo']) await q(`update gestor_whatsapp set ultima_entrada_em = now() where colaborador_id = $1`, [pessoa[n]]);
+    const c = await novoCaso({
+      tipo: 'cancelamento_99',
+      canal: '99food',
+      pedido_numero: '77',
+      pedido_id: await pedido(58, '99food'),
+      detalhe: {
+        plataforma: '99food',
+        pedido99: { tipo: 'cancelamento', pedidoExterno: 'p-99', applyId: 'ap-1', motivoDoCliente: 'Demorou demais', motivosDeRecusa: ['preparing', 'prepared'], motivosDoReembolso: [], fotos: [] },
+      },
+    });
+    await svc.enviarPendentes([T]);
+    const b1 = ultimosBotoes(TEL.ana);
+    expect(b1.corpo).toContain('*99Food · cancelamento · pedido 77*');
+    expect(b1.interno).toBe(true);
+    expect(b1.opcoes.map((o: any) => o.titulo)).toEqual(['Aceitar · R$ 58,00', 'Recusar']);
+    expect(b1.opcoes[0].id).toMatch(/^gw:[0-9a-f-]{36}:acao:aceitar$/);
+    // O botão da Ana tocado no celular do Bruno (ligado, mas a mensagem não foi para ele): não vale.
+    const antes = enviados.length;
+    await tocar(TEL.ana, 'Recusar', TEL.bruno);
+    expect(textoDe(paraOnde(TEL.bruno, antes)[0])).toContain('Não achei a decisão deste botão');
+    // E de um número que não é de gestor: não é tratado aqui (segue o caminho de sempre).
+    expect(await entrada(TEL.outro, 'Recusar', randomUUID(), b1.opcoes[1].id)).toBe(false);
+    await tocar(TEL.ana, 'Recusar');
+    const b2 = ultimosBotoes(TEL.ana);
+    expect(b2.botao).toBe('Ver os motivos');
+    expect(b2.opcoes.map((o: any) => o.titulo)).toEqual(['O pedido já está em preparo', 'O pedido já está pronto']);
+    await tocar(TEL.ana, 'O pedido já está em preparo');
+    expect(ultimosBotoes(TEL.ana).corpo).toBe(
+      'Confirma? Recusar o cancelamento do pedido 77 (motivo: O pedido já está em preparo). A resposta vai à 99 e não volta atrás.',
+    );
+    expect(aoNoventaENove).toEqual([]);
+    await tocar(TEL.ana, 'Confirmar');
+    expect(aoNoventaENove).toEqual([['cancelamento', ig, 'p-99', 'ap-1', false, 'preparing']]);
+    expect((await q(`select decisao, detalhe from atendimento_chamado where id = $1`, [c]))[0]).toMatchObject({
+      decisao: 'recusado',
+      detalhe: { resposta: { via: 'whatsapp', por: 'Ana Souza' } },
+    });
+    expect(textoDe(paraOnde(TEL.ana).pop())).toMatch(/^✅ Feito: cancelamento do pedido 77 recusado\. No histórico do caso: Ana Souza, pelo WhatsApp/);
+  });
+
+  it('5b · o limite: acima dele, só Recusar (e o porquê); "Não aceitar pelo WhatsApp"; o limite que cai depois do envio — o Aceitar velho não vale', async () => {
+    const cardapio = async (total: number, numero: string) =>
+      novoCaso({ tipo: 'cancelamento', canal: 'cardapio', pedido_numero: numero, prazo: null, pedido_id: await pedido(total, 'cardapio'), detalhe: {}, mensagem: 'Pedi errado' });
+    await cardapio(186.4, '1185');
+    await svc.enviarPendentes([T]);
+    expect(ultimaEnquete(TEL.ana).opcoes).toEqual([expect.stringMatching(/^Recusar · caso \d{4}$/)]);
+    expect(ultimoTexto(TEL.ana)).toContain('Acima do seu limite pelo WhatsApp (R$ 100,00): para aceitar, abra no Regem e confirme com a sua senha. Recusar dá por aqui.');
+    await q(`update robo_config set gestor_wa_limite_centavos = 0 where tenant_id = $1`, [T]);
+    await cardapio(30, '1186');
+    await svc.enviarPendentes([T]);
+    expect(ultimoTexto(TEL.ana)).toContain('Aceitar só pelo Regem, com a sua senha. Recusar dá por aqui.');
+    await q(`update robo_config set gestor_wa_limite_centavos = 10000 where tenant_id = $1`, [T]);
+    await cardapio(50, '1187');
+    await svc.enviarPendentes([T]);
+    expect(ultimaEnquete(TEL.ana).opcoes[0]).toMatch(/^Aceitar · R\$ 50,00 · caso \d{4}$/);
+    // O limite cai para R$ 30 depois do envio: o "Aceitar" da enquete não vale mais — vai o passo de agora, só Recusar.
+    await q(`update robo_config set gestor_wa_limite_centavos = 3000 where tenant_id = $1`, [T]);
+    const antes = enviados.length;
+    await votar(TEL.ana, 'Aceitar');
+    const depois = paraOnde(TEL.ana, antes);
+    expect(textoDe(depois[0])).toContain('Esse botão é de uma mensagem anterior');
+    expect(depois.find((e) => e.tipo === 'enquete')?.opcoes).toEqual([expect.stringMatching(/^Recusar · caso \d{4}$/)]);
+    expect(cancelamentos).toEqual([]);
+  });
+
+  it('5b · cancelamento do cardápio: Aceitar → Perda → Confirmar → o cancelamento da tela, com quem decidiu no lugar da senha', async () => {
+    const c = await novoCaso({ tipo: 'cancelamento', canal: 'cardapio', pedido_numero: '1190', prazo: null, pedido_id: await pedido(42, 'cardapio'), detalhe: {}, mensagem: 'Mudei de ideia' });
+    await svc.enviarPendentes([T]);
+    await votar(TEL.ana, 'Aceitar');
+    expect(ultimaEnquete(TEL.ana).pergunta).toContain('O que aconteceu com os insumos do pedido?');
+    await votar(TEL.ana, 'Perda');
+    expect(ultimaEnquete(TEL.ana).pergunta).toBe(
+      'Confirma? Aceitar o cancelamento do pedido 1190; insumos como perda. O pedido é cancelado aqui, como no painel; pago no Pix pelo cardápio, o valor volta ao cliente sozinho.',
+    );
+    await votar(TEL.ana, 'Confirmar');
+    expect(cancelamentos).toHaveLength(1);
+    const [u, id, dto, terminal, autorizadoPor] = cancelamentos[0];
+    expect(u).toMatchObject({ tenantId: T, colaboradorId: pessoa.ana, categoria: 'gerente' });
+    expect([id, dto, terminal, autorizadoPor]).toEqual([c, { aceita: true, reaproveitado: false }, null, { id: pessoa.ana, nome: 'Ana Souza' }]);
+    expect(ultimoTexto(TEL.ana)).toMatch(/^✅ Feito: cancelamento do pedido 1190 aceito, insumos como perda\./);
+  });
+
+  it('5b · quem não pode mais decidir (V75): rebaixado depois do envio, ou "Decisões com prazo" desligado — nada muda nem vai à plataforma', async () => {
+    const c = await disputaDeCancelamento(20);
+    await svc.enviarPendentes([T]);
+    await q(`update colaborador set funcao_id = $1 where id = $2`, [funcao.supervisao, pessoa.ana]);
+    await votar(TEL.ana, 'Recusar');
+    expect(ultimoTexto(TEL.ana)).toContain('Este WhatsApp não decide mais por aqui');
+    await q(`update colaborador set funcao_id = $1 where id = $2`, [funcao.gerente, pessoa.ana]);
+    await q(`update robo_config set gestor_wa_decisoes = false where tenant_id = $1`, [T]);
+    await votar(TEL.ana, 'Recusar');
+    expect(ultimoTexto(TEL.ana)).toContain('Este WhatsApp não decide mais por aqui');
+    expect(aoIfood).toEqual([]);
+    expect((await q(`select escolha from aviso_gestor_whatsapp where chamado_id = $1 and colaborador_id = $2`, [c, pessoa.ana]))[0].escolha).toBeNull();
+  });
+
+  it('5b · a falha do iFood devolve a vez (Confirmar de novo); "Voltar" recomeça; o toque numa enquete velha manda o passo de agora', async () => {
+    const c = await disputaDeCancelamento(20, []); // sem motivo de aceite: o Aceitar vai direto ao Confirmar
+    await svc.enviarPendentes([T]);
+    const daAcao = ultimaEnquete(TEL.ana);
+    await votar(TEL.ana, 'Recusar');
+    expect(ultimaEnquete(TEL.ana).pergunta).toBe('Qual o motivo? A lista é do iFood.');
+    // O voto na enquete VELHA (a da ação): não muda nada, e vai o passo de agora.
+    const antes = enviados.length;
+    await entrada(TEL.ana, daAcao.opcoes.find((o: string) => o.startsWith('Aceitar')));
+    expect(textoDe(paraOnde(TEL.ana, antes)[0])).toContain('Esse botão é de uma mensagem anterior');
+    expect(ultimaEnquete(TEL.ana).pergunta).toBe('Qual o motivo? A lista é do iFood.');
+    await votar(TEL.ana, 'Problema técnico');
+    await votar(TEL.ana, 'Voltar');
+    expect(ultimaEnquete(TEL.ana).pergunta).toBe('O que responder?');
+    await votar(TEL.ana, 'Aceitar');
+    expect(ultimaEnquete(TEL.ana).pergunta).toBe('Confirma? Aceitar a disputa do pedido 4521, devolvendo R$ 20,00. A resposta vai ao iFood, que aceita uma só.');
+    respostaDaPlataforma = { ok: false, status: 500 };
+    await votar(TEL.ana, 'Confirmar');
+    expect(ultimoTexto(TEL.ana)).toContain('Não deu: O iFood não respondeu agora. Tente de novo.');
+    expect((await q(`select decisao, situacao from aviso_gestor_whatsapp where chamado_id = $1 and colaborador_id = $2`, [c, pessoa.ana]))[0]).toEqual({
+      decisao: null,
+      situacao: 'enviado',
+    });
+    respostaDaPlataforma = { ok: true };
+    await votar(TEL.ana, 'Confirmar');
+    expect(aoIfood).toHaveLength(2);
+    expect(aoIfood[1].slice(2)).toEqual(['accept', {}]);
+    expect((await q(`select decisao from atendimento_chamado where id = $1`, [c]))[0].decisao).toBe('aceito');
+  });
+
+  it('5b · dois toques em Confirmar ao mesmo tempo (ou duas réplicas): uma resposta só ao iFood', async () => {
+    await disputaDeCancelamento(20, []);
+    await svc.enviarPendentes([T]);
+    await votar(TEL.ana, 'Aceitar');
+    const voto = ultimaEnquete(TEL.ana).opcoes.find((o: string) => o.startsWith('Confirmar'));
+    const p = { tenantId: T, telefone: TEL.ana, colaboradorId: pessoa.ana, tipo: 'decisao' as const, texto: voto, opcaoId: null };
+    await Promise.all([svc.responder(p), svc.responder(p), svc.responder(p)]);
+    expect(aoIfood).toHaveLength(1);
   });
 });

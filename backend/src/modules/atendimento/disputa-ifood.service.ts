@@ -154,6 +154,17 @@ export class DisputaIfoodService {
     return this.enviar(tenantId, c, pedido, quem, dto?.atorId ?? null, null, 'servidor_local');
   }
 
+  /**
+   * Pelo WhatsApp do gestor (Gerente no WhatsApp, parte 5b): quem decide já foi conferido pela rotina do WhatsApp (o número
+   * ligado, o nível e o acesso NA HORA) — no lugar da senha. Só na nuvem, onde moram os webhooks. O mesmo envio da tela.
+   */
+  async responderComo(tenantId: string, id: string, dto: RespostaDaDisputa, quem: { id: string; nome: string; nivel: string }) {
+    const c = await this.carregar(tenantId, id);
+    this.conferirAberta(c);
+    const pedido = montarRespostaAoIfood(c.detalhe.disputa, dto ?? {});
+    return this.enviar(tenantId, c, pedido, { id: quem.id, nome: quem.nome }, quem.id, quem.nivel, 'whatsapp');
+  }
+
   private async enviar(
     tenantId: string,
     c: { id: string; unidadeId: string | null; externoId: string },
@@ -172,7 +183,8 @@ export class DisputaIfoodService {
       if (r.status === 400) throw new BadRequestException(`O iFood recusou a resposta${r.mensagem ? `: ${r.mensagem}` : '.'}`);
       throw new BadGatewayException('O iFood não respondeu agora. Tente de novo.');
     }
-    const resposta = { ...pedido.resumo, por: quem.nome, porId: quem.id || null, em: new Date().toISOString() };
+    // `via` = "whatsapp" quando a resposta saiu pelo WhatsApp do gestor (a tela mostra "pelo WhatsApp").
+    const resposta = { ...pedido.resumo, por: quem.nome, porId: quem.id || null, em: new Date().toISOString(), ...(origem === 'whatsapp' ? { via: 'whatsapp' } : {}) };
     await this.db.execute(sql`
       update atendimento_chamado
          set detalhe = coalesce(detalhe, '{}'::jsonb) || jsonb_build_object('resposta', ${JSON.stringify(resposta)}::jsonb),

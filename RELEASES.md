@@ -12,6 +12,14 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Gerente no WhatsApp, parte 5b — decidir pelo botão (06/11; sem migration, sem `edge/`).** Na NUVEM com o merge (dentro
+  do ajuste da 5a, que nasce desligado): a decisão chega com botões (API oficial) ou enquete (conexão por QR), em passos
+  — ação, motivo da lista da plataforma, insumos (cancelamento do cardápio), confirmar —, com o limite "Aceitar pelo
+  WhatsApp até" (R$ 100,00 de padrão; só no aceitar). Executa pelos MESMOS serviços da tela (`responderComo` da disputa e
+  da 99; `autorizadoPor` no `DeliveryService.cancelar`, que só o caminho do WhatsApp passa). **No `.zip` 1.30.13:** só o
+  código novo do `cancelar` e do `decidirCancelamento` (parâmetro opcional no fim, sem efeito na loja — quem decide pelo
+  WhatsApp é a nuvem).
+
 - **Gerente no WhatsApp, parte 5a (06/11; mig 375 `@cloud-only`, toca `backend/edge/sync-daemon.mjs`).** Na NUVEM com o
   merge (nasce DESLIGADO — Delivery › Configurações › Operação › Atendimento, grupo "Gerente no WhatsApp"): cada gerente
   e presidente liga o próprio WhatsApp mandando "REGEM 123456" à loja; a decisão com prazo e o caso que ninguém pegou

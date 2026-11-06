@@ -110,6 +110,16 @@ export class Pedido99Service {
     return this.enviar(tenantId, c, dto, quem, dto?.atorId ?? null, null, 'servidor_local');
   }
 
+  /**
+   * Pelo WhatsApp do gestor (Gerente no WhatsApp, parte 5b): quem decide já foi conferido pela rotina do WhatsApp (o número
+   * ligado, o nível e o acesso NA HORA) — no lugar da senha. Só na nuvem. O mesmo envio da tela.
+   */
+  async responderComo(tenantId: string, id: string, dto: RespostaAo99, quem: { id: string; nome: string; nivel: string }) {
+    const c = await this.carregar(tenantId, id);
+    this.conferirAberto(c);
+    return this.enviar(tenantId, c, dto, { id: quem.id, nome: quem.nome }, quem.id, quem.nivel, 'whatsapp');
+  }
+
   private async enviar(tenantId: string, c: Caso99, dto: RespostaAo99, quem: { id: string; nome: string }, atorId: string | null, atorPerfil: string | null, origem = 'web') {
     const p: PedidoDoCliente99 = c.detalhe.pedido99;
     const m = montarRespostaAo99(p, dto ?? {});
@@ -120,7 +130,8 @@ export class Pedido99Service {
         ? await this.food99.responderCancelamento(ig, p.pedidoExterno, p.applyId, m.aceita, m.motivo ?? undefined)
         : await this.food99.responderReembolso(ig, p.pedidoExterno, p.applyId, m.aceita, m.recusa);
     if (!r.ok) throw new BadGatewayException(`A 99 não aceitou a resposta${r.errmsg ? `: ${r.errmsg}` : ' agora. Tente de novo.'}`);
-    const resposta = { ...m.resumo, por: quem.nome, porId: quem.id || null, em: new Date().toISOString() };
+    // `via` = "whatsapp" quando a resposta saiu pelo WhatsApp do gestor (a tela mostra "pelo WhatsApp").
+    const resposta = { ...m.resumo, por: quem.nome, porId: quem.id || null, em: new Date().toISOString(), ...(origem === 'whatsapp' ? { via: 'whatsapp' } : {}) };
     await this.db.execute(sql`
       update atendimento_chamado
          set detalhe = coalesce(detalhe, '{}'::jsonb) || jsonb_build_object('resposta', ${JSON.stringify(resposta)}::jsonb),

@@ -1262,7 +1262,7 @@ export const api = {
     // o som do KDS (mig 362), "O robô faz mudanças simples" (mig 363) e "O robô cobra no Pix o item posto…" (mig 373)
     alterado?: { som?: string; roboMuda?: boolean; roboCobraPix?: boolean };
     // "Gerente no WhatsApp" (mig 375): os liga/desliga do grupo.
-    gestorWa?: { ligado?: boolean; decisoes?: boolean; ninguemPegou?: boolean };
+    gestorWa?: { ligado?: boolean; decisoes?: boolean; ninguemPegou?: boolean; limiteCentavos?: number | null };
   }) =>
     req('/atendimento/ajustes', { method: 'PUT', body: JSON.stringify(body) }),
   // Gerente no WhatsApp (mig 375): o grupo (quem recebe — de cada pessoa só o final do número), o código para o gestor

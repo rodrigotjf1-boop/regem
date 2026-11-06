@@ -28,6 +28,8 @@ export type GrupoDoWhatsapp = {
   ligado: boolean;
   decisoes: boolean;
   ninguemPegou: boolean;
+  /** "Aceitar pelo WhatsApp até" (centavos); `null` = sem limite; 0 = não aceitar pelo WhatsApp. */
+  limiteCentavos: number | null;
   via: 'cloud' | 'evolution' | null;
   numeroDaLoja: boolean;
   modelo: string | null;

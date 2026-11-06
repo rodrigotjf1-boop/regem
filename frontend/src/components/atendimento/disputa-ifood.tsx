@@ -130,7 +130,9 @@ export function DisputaIfood({ caso: c, agora, aoMudar }: { caso: CasoDaFila; ag
                   ? 'recusou o pedido do cliente'
                   : `propôs ${resposta.tipo === 'ADDITIONAL_TIME' ? `mais ${resposta.minutos} min` : `${NOME_DA_PROPOSTA[resposta.tipo]?.toLowerCase() ?? 'outra coisa'}${resposta.centavos ? ` (${brl(resposta.centavos)})` : ''}`}`}
               {resposta.motivo ? ` · ${motivo(resposta.motivo)}` : ''}
-              {resposta.em ? ` · às ${hora(resposta.em)}` : ''}.
+              {resposta.em ? ` · às ${hora(resposta.em)}` : ''}
+              {/* Gerente no WhatsApp (mig 375, parte 5b): a resposta saiu pelo WhatsApp de quem decide. */}
+              {resposta.via === 'whatsapp' ? ' · pelo WhatsApp' : ''}.
             </p>
           )}
           {encerramento ? (
