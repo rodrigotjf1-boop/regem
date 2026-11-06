@@ -10,7 +10,7 @@
 import { createHash, createHmac, createPublicKey, randomBytes, randomUUID, timingSafeEqual, verify as conferirAssinatura, type JsonWebKey, type KeyObject } from 'node:crypto';
 import { isIP } from 'node:net';
 
-export const VERSAO_PACOTE = '0.9.0';
+export const VERSAO_PACOTE = '0.10.1';
 
 const DIA_MS = 86_400_000;
 
@@ -1150,6 +1150,417 @@ export class ClienteIntegracao {
       cursor = proximo;
     }
     throw new ErroPorta(200, 'paginas-demais');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// 8c. O cliente pronto de uma porta MCP do Padrão: a ferramenta, o token, a ligação e cada erro no seu tipo (Padrão §6
+//     e §14; 0.10.0, 05/11/2026 — primeiro uso: o Regem chamando a porta do Orzuni)
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** A geração da especificação MCP do Padrão (§6): sem estado, cada chamada é um POST com um pedido JSON-RPC. */
+export const VERSAO_MCP = '2026-07-28';
+
+/**
+ * Monta a `chaveIdempotencia` de uma ferramenta que grava (8 a 100 caracteres, Padrão §6). Sem partes: uma chave nova
+ * — guarde-a e use a MESMA ao repetir a operação. Com partes: a mesma operação de negócio dá sempre a mesma chave, até
+ * depois de reiniciar o processo; ponha nas partes tudo o que distingue a operação (o produto, o valor, a versão),
+ * porque a mesma chave com outro pedido é recusada pela porta (`chave-reutilizada`).
+ */
+export function montarChaveIdempotencia(...partes: readonly (string | number)[]): string {
+  if (partes.length === 0) return randomUUID();
+  return `dms_${createHash('sha256').update(jsonCanonico(partes), 'utf8').digest('hex').slice(0, 48)}`;
+}
+
+/**
+ * As permissões que faltam, lidas do `WWW-Authenticate` de um 403 da porta MCP (`error="insufficient_scope"`,
+ * `scope="a b"`: TODAS de uma vez, Padrão §6). Vazio quando o cabeçalho não diz.
+ */
+export function permissoesQueFaltam(cabecalho: string | null): string[] {
+  if (!cabecalho || !cabecalho.includes('error="insufficient_scope"')) return [];
+  const inicio = cabecalho.indexOf('scope="');
+  if (inicio < 0) return [];
+  const fim = cabecalho.indexOf('"', inicio + 7);
+  if (fim < 0) return [];
+  return cabecalho
+    .slice(inicio + 7, fim)
+    .split(' ')
+    .filter((p) => p !== '');
+}
+
+/**
+ * O tipo de cada falha, para quem chama decidir sem ler mensagem:
+ * - `ferramenta`: a ferramenta recusou (`isError`); `frase` é o texto em pt-BR que a tela mostraria;
+ * - `protocolo`: erro JSON-RPC, ou outro 4xx (cabeçalho que não bate com o corpo, versão que a porta não fala);
+ * - `token`: 401 mesmo depois de pedir outro token ao DMS ID;
+ * - `ligacao`: 401 `ligacao-invalida` — a loja desfez a ligação, outro token não ajuda (só ela liga de novo);
+ * - `permissao`: 403 sem a permissão (`faltando` traz todas), ou a ferramenta não existe para esta credencial (a porta
+ *   nem lista o que a credencial não pode usar, Padrão §6);
+ * - `recusada`: outro 403 (`conta-bloqueada`, `ligacao-suspensa`, `chave-suspensa`, em `problema`);
+ * - `limite`: 429 depois das tentativas (`retryAfter`);
+ * - `indisponivel`: 502, 503 (inclusive `integracao-parada`) ou 504 depois das tentativas;
+ * - `sem-resposta`: queda ou tempo esgotado depois das tentativas;
+ * - `resposta-invalida`: 2xx que não é a resposta JSON-RPC desta chamada.
+ */
+export type TipoErroMcp =
+  | 'ferramenta'
+  | 'protocolo'
+  | 'token'
+  | 'ligacao'
+  | 'permissao'
+  | 'recusada'
+  | 'limite'
+  | 'indisponivel'
+  | 'sem-resposta'
+  | 'resposta-invalida';
+
+/** Uma chamada MCP que não deu certo. Nunca leva o token, o segredo da ligação nem os argumentos. */
+export class ErroMcp extends Error {
+  readonly tipo: TipoErroMcp;
+  /** A ferramenta chamada (`tools/list` no `listar`). */
+  readonly ferramenta: string;
+  readonly status: number;
+  /** O nome do problema do Padrão (`problem+json`) ou o motivo local (`cursor-repetido`, `chave-idempotencia-invalida`). */
+  readonly problema: string;
+  /** O código do erro JSON-RPC, quando veio um. */
+  readonly codigo: number | null;
+  /** No 403 de permissão: todas as que faltam (do `WWW-Authenticate`). */
+  readonly faltando: string[];
+  readonly retryAfter: string | null;
+  readonly wwwAuthenticate: string | null;
+  /** No `ferramenta`: o texto da recusa (até 300 caracteres). */
+  readonly frase: string;
+  /**
+   * No `ferramenta` (0.10.1): o que a recusa trouxe de estruturado — o `structuredContent` (ou, sem ele, o texto que é
+   * JSON), onde o produto põe o código da regra e se pode repetir (o Orzuni: `codigo`, `pode_repetir`, `situacao`).
+   * `null` quando não veio. Nunca entra na mensagem do erro (pode ter dado da loja).
+   */
+  readonly dados: unknown;
+  /** Repetir mais tarde com os MESMOS argumentos (a mesma `chaveIdempotencia`) não faz mal. */
+  readonly podeRepetir: boolean;
+  readonly tentativas: number;
+
+  constructor(o: {
+    tipo: TipoErroMcp;
+    ferramenta: string;
+    status?: number;
+    problema?: string;
+    codigo?: number | null;
+    faltando?: readonly string[];
+    retryAfter?: string | null;
+    wwwAuthenticate?: string | null;
+    frase?: string;
+    dados?: unknown;
+    podeRepetir?: boolean;
+    tentativas?: number;
+  }) {
+    const detalhe = o.frase ? `: ${o.frase}` : o.problema ? ` (${o.problema})` : o.codigo !== undefined && o.codigo !== null ? ` (código ${o.codigo})` : '';
+    super(`${o.ferramenta}: ${o.tipo}${o.status ? ` ${o.status}` : ''}${detalhe}`);
+    this.name = 'ErroMcp';
+    this.tipo = o.tipo;
+    this.ferramenta = o.ferramenta;
+    this.status = o.status ?? 0;
+    this.problema = o.problema ?? '';
+    this.codigo = o.codigo ?? null;
+    this.faltando = [...(o.faltando ?? [])];
+    this.retryAfter = o.retryAfter ?? null;
+    this.wwwAuthenticate = o.wwwAuthenticate ?? null;
+    this.frase = o.frase ?? '';
+    this.dados = o.dados === undefined ? null : o.dados;
+    this.podeRepetir = o.podeRepetir ?? false;
+    this.tentativas = o.tentativas ?? 0;
+  }
+}
+
+export type OpcoesClienteMcp = {
+  /** O endereço da porta MCP (`https://api.orzuni.com/v1/mcp`). */
+  endereco: string;
+  /** O destino do token: o recurso do produto no DMS ID (na porta MCP, o mesmo endereço da porta). */
+  recurso: string;
+  /** As permissões que o token pede (a porta ainda confere a da ligação: vale a menor das duas). */
+  permissoes: readonly string[];
+  dmsId: ClienteDmsId;
+  /** O segredo da ligação da loja, no cabeçalho `DMS-Ligacao`. Sem ele, a chamada vai só com o token. */
+  ligacao?: string;
+  /** Quem chama, no `clientInfo` do pedido (padrão: `dms` e a versão do pacote). */
+  cliente?: { nome: string; versao: string };
+  buscar?: typeof fetch;
+  /** Quantas tentativas ao todo, a primeira inclusive (padrão 4). */
+  tentativas?: number;
+  recuo?: Partial<RecuoDaRepeticao>;
+  tempoLimiteMs?: number;
+  /** Teto de páginas do `listar` (padrão 50). */
+  maxPaginas?: number;
+  esperar?: (ms: number) => Promise<void>;
+  sorteio?: () => number;
+  relogio?: () => number;
+};
+
+/** Uma ferramenta da porta, como o `tools/list` devolve. */
+export type FerramentaMcp = {
+  name: string;
+  title?: string;
+  description?: string;
+  inputSchema?: unknown;
+  outputSchema?: unknown;
+  annotations?: unknown;
+};
+
+export type OpcoesChamadaMcp = {
+  /**
+   * A ferramenta só lê: repete sozinha na queda, no limite e no produto fora. A que grava repete só com uma
+   * `chaveIdempotencia` válida nos argumentos (Padrão §6), e a repetição leva a MESMA chave.
+   */
+  leitura?: boolean;
+};
+
+/** As mensagens JSON-RPC de uma resposta em fluxo (`text/event-stream`): uma por evento com `data:`. */
+function mensagensDoFluxo(texto: string): unknown[] {
+  const saida: unknown[] = [];
+  let dados: string[] = [];
+  const fecharEvento = () => {
+    if (dados.length === 0) return;
+    try {
+      saida.push(JSON.parse(dados.join('\n')) as unknown);
+    } catch {
+      // Evento que não é JSON (comentário, ping): não é a resposta.
+    }
+    dados = [];
+  };
+  for (const cru of texto.split('\n')) {
+    const linha = cru.endsWith('\r') ? cru.slice(0, -1) : cru;
+    if (linha === '') fecharEvento();
+    else if (linha.startsWith('data:')) dados.push(linha.slice(linha.startsWith('data: ') ? 6 : 5));
+  }
+  fecharEvento();
+  return saida;
+}
+
+/**
+ * O resultado lido de uma ferramenta: o `structuredContent` quando vem (Padrão §6: esquema de saída declarado); senão,
+ * o único conteúdo de texto, quando ele é um objeto ou uma lista em JSON (a porta que ainda manda o resultado só como
+ * texto, como o Orzuni de 04/11/2026); senão, `null` (a ferramenta não devolveu dado).
+ */
+function dadosDoResultado(result: Record<string, unknown>): unknown {
+  if (result.structuredContent !== undefined) return result.structuredContent;
+  const conteudo = result.content;
+  if (!Array.isArray(conteudo) || conteudo.length !== 1) return null;
+  const unico = conteudo[0] as { type?: unknown; text?: unknown } | null;
+  if (!unico || unico.type !== 'text' || typeof unico.text !== 'string') return null;
+  const texto = unico.text.trim();
+  // Só objeto ou lista: começando por `{` ou `[`, o que o JSON lê é sempre um dos dois.
+  if (!texto.startsWith('{') && !texto.startsWith('[')) return null;
+  try {
+    return JSON.parse(texto) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+/** O texto da recusa de uma ferramenta (`isError`): o primeiro conteúdo de texto, com os espaços juntos, até 300. */
+function fraseDoConteudo(conteudo: unknown): string {
+  if (!Array.isArray(conteudo)) return '';
+  for (const c of conteudo as unknown[]) {
+    if (c && typeof c === 'object' && (c as { type?: unknown }).type === 'text') {
+      const texto = (c as { text?: unknown }).text;
+      if (typeof texto === 'string') return texto.split(/\s+/).filter((p) => p !== '').join(' ').slice(0, 300);
+    }
+  }
+  return '';
+}
+
+/**
+ * O cliente pronto de uma porta MCP do Padrão (§6 e §14), geração 2026-07-28 sem estado. Cada chamada é um POST com
+ * o pedido JSON-RPC, a versão no `_meta` e nos cabeçalhos que a especificação manda a porta conferir contra o corpo
+ * (`MCP-Method`, `MCP-Name`, `MCP-Protocol-Version`), o token do DMS ID (destino = o recurso) e o segredo da ligação.
+ * Lê a resposta em JSON ou em fluxo. O limite (429) e o produto fora (502, 503, 504, sem resposta) repetem com recuo,
+ * só em leitura ou com `chaveIdempotencia`; o 401 pede outro token uma vez, menos `ligacao-invalida`. Não segue
+ * redirecionamento: o token não vai a outro lugar. Cada falha sai como `ErroMcp`, com o tipo separado.
+ */
+export class ClienteMcp {
+  private readonly endereco: string;
+  private readonly recurso: string;
+  private readonly permissoes: readonly string[];
+  private readonly dmsId: ClienteDmsId;
+  private readonly ligacao: string | undefined;
+  private readonly cliente: { name: string; version: string };
+  private readonly buscar: typeof fetch;
+  private readonly tentativas: number;
+  private readonly recuo: RecuoDaRepeticao;
+  private readonly tempoLimiteMs: number;
+  private readonly maxPaginas: number;
+  private readonly esperar: (ms: number) => Promise<void>;
+  private readonly sorteio: () => number;
+  private readonly relogio: () => number;
+  private ultimoId = 0;
+
+  constructor(o: OpcoesClienteMcp) {
+    this.endereco = new URL(o.endereco).href;
+    this.recurso = o.recurso;
+    this.permissoes = [...o.permissoes];
+    this.dmsId = o.dmsId;
+    this.ligacao = o.ligacao;
+    this.cliente = { name: o.cliente?.nome ?? 'dms', version: o.cliente?.versao ?? VERSAO_PACOTE };
+    this.buscar = o.buscar ?? fetch;
+    this.tentativas = Math.max(1, Math.floor(o.tentativas ?? 4));
+    this.recuo = { ...RECUO_PADRAO, ...o.recuo };
+    this.tempoLimiteMs = o.tempoLimiteMs ?? 15_000;
+    this.maxPaginas = Math.max(1, Math.floor(o.maxPaginas ?? 50));
+    this.esperar = o.esperar ?? ((ms) => new Promise((resolver) => setTimeout(resolver, ms)));
+    this.sorteio = o.sorteio ?? Math.random;
+    this.relogio = o.relogio ?? Date.now;
+  }
+
+  /**
+   * Chama uma ferramenta e devolve o resultado já lido: o `structuredContent`; na porta que ainda manda só texto, o
+   * JSON desse texto; `null` se a ferramenta não devolveu dado. A recusa da ferramenta (`isError`) e toda outra falha
+   * saem como `ErroMcp`.
+   */
+  async chamar<T = unknown>(ferramenta: string, argumentos: Readonly<Record<string, unknown>> = {}, o: OpcoesChamadaMcp = {}): Promise<T> {
+    const chave = argumentos.chaveIdempotencia;
+    if (chave !== undefined && !chaveIdempotenciaMcpValida(chave)) {
+      throw new ErroMcp({ tipo: 'protocolo', ferramenta, problema: 'chave-idempotencia-invalida' });
+    }
+    const repete = o.leitura === true || chave !== undefined;
+    const { result, tentativas } = await this.enviar('tools/call', { name: ferramenta, arguments: argumentos }, ferramenta, repete);
+    if (result.isError === true) {
+      const frase = fraseDoConteudo(result.content);
+      const dados = dadosDoResultado(result);
+      throw new ErroMcp({ tipo: 'ferramenta', ferramenta, status: 200, frase, dados, podeRepetir: frase.toLowerCase().startsWith('erro interno'), tentativas });
+    }
+    return dadosDoResultado(result) as T;
+  }
+
+  /** As ferramentas que a credencial pode usar (`tools/list`, todas as páginas). Repete como uma leitura. */
+  async listar(): Promise<FerramentaMcp[]> {
+    const ferramentas: FerramentaMcp[] = [];
+    const vistos = new Set<string>();
+    let cursor: string | undefined;
+    for (let pagina = 1; pagina <= this.maxPaginas; pagina += 1) {
+      const { result, tentativas } = await this.enviar('tools/list', cursor === undefined ? {} : { cursor }, undefined, true);
+      const lista = result.tools;
+      if (!Array.isArray(lista)) throw new ErroMcp({ tipo: 'resposta-invalida', ferramenta: 'tools/list', status: 200, problema: 'sem-ferramentas', tentativas });
+      for (const f of lista as unknown[]) {
+        if (f && typeof f === 'object' && typeof (f as { name?: unknown }).name === 'string') ferramentas.push(f as FerramentaMcp);
+      }
+      const proximo = result.nextCursor;
+      if (typeof proximo !== 'string' || proximo === '') return ferramentas;
+      if (vistos.has(proximo)) throw new ErroMcp({ tipo: 'resposta-invalida', ferramenta: 'tools/list', status: 200, problema: 'cursor-repetido', tentativas });
+      vistos.add(proximo);
+      cursor = proximo;
+    }
+    throw new ErroMcp({ tipo: 'resposta-invalida', ferramenta: 'tools/list', status: 200, problema: 'paginas-demais' });
+  }
+
+  private async enviar(
+    metodo: 'tools/call' | 'tools/list',
+    params: Record<string, unknown>,
+    nome: string | undefined,
+    repete: boolean,
+  ): Promise<{ result: Record<string, unknown>; tentativas: number }> {
+    const rotulo = nome ?? metodo;
+    let renovou = false;
+    let tentativa = 0;
+    for (;;) {
+      tentativa += 1;
+      this.ultimoId = (this.ultimoId % 1_000_000_000) + 1;
+      const id = this.ultimoId;
+      const token = await this.dmsId.token(this.recurso, this.permissoes);
+      const cabecalhos: Record<string, string> = {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-method': metodo,
+        'mcp-protocol-version': VERSAO_MCP,
+      };
+      if (nome !== undefined) cabecalhos['mcp-name'] = nome;
+      if (this.ligacao) cabecalhos[CABECALHO_LIGACAO] = this.ligacao;
+      const corpo = {
+        jsonrpc: '2.0',
+        id,
+        method: metodo,
+        params: {
+          ...params,
+          _meta: {
+            'io.modelcontextprotocol/protocolVersion': VERSAO_MCP,
+            'io.modelcontextprotocol/clientInfo': this.cliente,
+            'io.modelcontextprotocol/clientCapabilities': {},
+          },
+        },
+      };
+      let r: Response | null = null;
+      let texto = '';
+      try {
+        r = await this.buscar(this.endereco, {
+          method: 'POST',
+          headers: cabecalhos,
+          body: JSON.stringify(corpo),
+          redirect: 'error',
+          signal: AbortSignal.timeout(this.tempoLimiteMs),
+        });
+        texto = await r.text();
+      } catch {
+        r = null;
+      }
+      const status = r ? r.status : 0;
+      const retryAfter = r ? r.headers.get('retry-after') : null;
+      const tipoConteudo = r ? (r.headers.get('content-type') ?? '') : '';
+      const emFluxo = tipoConteudo.toLowerCase().startsWith('text/event-stream');
+      let lido: unknown = null;
+      if (!emFluxo && texto !== '') {
+        try {
+          lido = JSON.parse(texto) as unknown;
+        } catch {
+          lido = null;
+        }
+      }
+      const problema = problemaDaResposta(lido);
+
+      if (status === 401 && !renovou && problema !== 'ligacao-invalida') {
+        renovou = true;
+        tentativa -= 1;
+        this.dmsId.esquecer(this.recurso, this.permissoes);
+        continue;
+      }
+      if (repete && respostaParaRepetir(status) && tentativa < this.tentativas) {
+        await this.esperar(esperaDaRepeticao(tentativa, retryAfter, this.recuo, this.sorteio(), this.relogio()));
+        continue;
+      }
+      const base = { ferramenta: rotulo, status, problema, retryAfter, tentativas: tentativa };
+      if (!r) throw new ErroMcp({ ...base, tipo: 'sem-resposta', problema: 'sem-resposta', podeRepetir: true });
+      const www = r.headers.get('www-authenticate');
+      if (status === 401) throw new ErroMcp({ ...base, tipo: problema === 'ligacao-invalida' ? 'ligacao' : 'token', wwwAuthenticate: www });
+      if (status === 403) {
+        const faltando = permissoesQueFaltam(www);
+        const semPermissao = faltando.length > 0 || problema === 'escopo-insuficiente';
+        throw new ErroMcp({ ...base, tipo: semPermissao ? 'permissao' : 'recusada', faltando, wwwAuthenticate: www });
+      }
+      if (status === 429) throw new ErroMcp({ ...base, tipo: 'limite', podeRepetir: true });
+      if (respostaParaRepetir(status)) throw new ErroMcp({ ...base, tipo: 'indisponivel', podeRepetir: true });
+
+      const mensagens = emFluxo ? mensagensDoFluxo(texto) : [lido];
+      const resposta = mensagens.find(
+        (m): m is { jsonrpc?: unknown; id?: unknown; result?: unknown; error?: unknown } =>
+          !!m && typeof m === 'object' && (m as { id?: unknown }).id === id && ('result' in m || 'error' in m),
+      );
+      // No 4xx, a porta pode devolver o erro JSON-RPC com o id nulo (corpo que nem chegou a ser lido como pedido).
+      const comErro =
+        resposta ??
+        (status >= 400 ? (mensagens.find((m) => !!m && typeof m === 'object' && 'error' in m) as { error?: unknown } | undefined) : undefined);
+      if (comErro && comErro.error && typeof comErro.error === 'object') {
+        const erro = comErro.error as { code?: unknown; message?: unknown };
+        const codigo = typeof erro.code === 'number' ? erro.code : null;
+        const mensagem = typeof erro.message === 'string' ? erro.message : '';
+        // A porta não lista o que a credencial não pode usar: chamar mesmo assim responde "não encontrada" (§6).
+        const ausente = codigo === -32602 && nome !== undefined && mensagem === `Tool ${nome} not found`;
+        throw new ErroMcp({ ...base, tipo: ausente ? 'permissao' : 'protocolo', codigo, problema: ausente ? 'ferramenta-ausente' : problema });
+      }
+      if (status < 200 || status >= 300) throw new ErroMcp({ ...base, tipo: 'protocolo' });
+      if (!resposta || !resposta.result || typeof resposta.result !== 'object') {
+        throw new ErroMcp({ ...base, tipo: 'resposta-invalida', problema: 'sem-resultado' });
+      }
+      return { result: resposta.result as Record<string, unknown>, tentativas: tentativa };
+    }
   }
 }
 

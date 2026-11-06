@@ -19,6 +19,7 @@ import { DistCtx, DistUser, DistribuicaoGuard, PerfilDist, PerfilDistGuard } fro
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { IbptService } from '../fiscal/ibpt/ibpt.service';
 import { IntegracaoTokenService } from '../integracao-api/integracao-token.service';
+import { OrzuniLigacaoService } from '../orzuni/orzuni-ligacao.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -30,7 +31,51 @@ export class DistribuicaoController {
     private readonly service: DistribuicaoService,
     private readonly ibpt: IbptService,
     private readonly integracao: IntegracaoTokenService,
+    private readonly orzuni: OrzuniLigacaoService,
   ) {}
+
+  // iFood pelo Orzuni (R2a; mig 370) — só Diretoria. A chave `orz_live_` da loja entra aqui UMA vez e é trocada
+  // pelo segredo da ligação, guardado cifrado; nenhum dos dois volta nesta resposta nem vai para o log.
+  @Get('orzuni')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  painelOrzuni(@Query('tenantId') tenantId: string) {
+    return this.orzuni.painel(tenantId);
+  }
+
+  @Post('orzuni/ligacoes')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
+  @Header('Cache-Control', 'no-store')
+  async registrarLigacaoOrzuni(@DistUser() u: DistCtx, @Body() dto: any) {
+    const r = await this.orzuni.registrar(dto, u);
+    await this.service.auditar(u, 'ligou_loja_ao_orzuni', r.id, {
+      tenantId: dto?.tenantId,
+      loja: r.loja,
+      prefixo: r.prefixo,
+      trocouAnterior: r.trocouAnterior,
+    });
+    return r;
+  }
+
+  @Post('orzuni/ligacoes/:id/revogar')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  async revogarLigacaoOrzuni(@DistUser() u: DistCtx, @Param('id') id: string, @Body() dto: any) {
+    const r = await this.orzuni.revogar(id, dto?.motivo, u);
+    if (!r.jaRevogada) await this.service.auditar(u, 'desligou_loja_do_orzuni', id, { tenantId: r.tenantId, prefixo: r.prefixo });
+    return r;
+  }
+
+  @Post('orzuni/liberacao')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  async liberacaoOrzuni(@DistUser() u: DistCtx, @Body() dto: any) {
+    const r = await this.orzuni.liberacao(dto, u);
+    await this.service.auditar(u, r.liberado ? 'ligou_ifood_pelo_orzuni' : 'desligou_ifood_pelo_orzuni', r.tenantId, {});
+    return r;
+  }
 
   @Post('login')
   @Throttle({ default: { ttl: 60000, limit: 10 } })

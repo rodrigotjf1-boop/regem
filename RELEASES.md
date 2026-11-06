@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **iFood pelo Orzuni — o envio (R2a; 06/11; mig 370 `@cloud-only`).** Tudo na NUVEM (fila, gatilhos, despacho, console):
+  a edição feita na loja chega pela sincronização e sai de lá — **a loja não precisa do `.zip` para o envio**. No `.zip`/
+  `.exe` (o mesmo corte 1.30.13): só a classificação `orzuni_ligacao`/`orzuni_envio` em SO_NUVEM no `edge/sync-daemon.mjs`
+  (sem efeito na loja: ela não tem as tabelas) e o texto novo da seção "iFood" na tela do servidor da loja.
+
 - **Ponte do chat 0.5.1 — o envio automático abre a conversa no Gestor de verdade (05/11; ERR-380; sem migration).** Só o
   programa `ponte-chat/` (ainda sem instalador — gerar sob comando): espera o resumo do pedido assentar antes de clicar no
   chat (o clique cedo se perdia) e clica de novo uma vez se nada abriu; fecha a conversa pelo `close-icon` e o resumo por

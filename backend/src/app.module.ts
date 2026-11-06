@@ -86,6 +86,7 @@ import { UnidadeUnicaInterceptor } from './auth/unidade-unica.interceptor';
 import { RlsInterceptor } from './auth/rls.interceptor';
 import { TerminalSegredoInterceptor } from './auth/terminal-segredo.interceptor';
 import { DistribuicaoModule } from './modules/distribuicao/distribuicao.module';
+import { OrzuniModule } from './modules/orzuni/orzuni.module';
 import { SuporteModule } from './modules/suporte/suporte.module';
 import { IntegracaoApiModule } from './modules/integracao-api/integracao-api.module';
 import { AutorizacaoLojaModule } from './modules/integracao-api/autorizacao-loja.module';
@@ -109,6 +110,8 @@ const CLOUD_ONLY_IMPORTS = IS_EDGE
       EntregadorModule,
       BotModule,
       DistribuicaoModule,
+      // iFood pelo Orzuni (mig 370): a fila do envio e a ligação da loja — só nuvem (o console também o importa).
+      OrzuniModule,
       SuporteModule,
       // API de integração por token de loja (trilha C) — a tabela é só da nuvem (mig 295).
       IntegracaoApiModule,
