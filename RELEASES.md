@@ -18,6 +18,12 @@
   "Fechar detalhes"; e reconhece o eco da 1ª mensagem de uma conversa nova (volta pela conta da loja — ERR-381). Nada muda
   no `.zip`/`.exe` do Regem nem na nuvem.
 
+- **Preço no iFood e "está no iFood" no cadastro — R1 do Orzuni (05/11; mig 369, roda TAMBÉM no servidor da loja; sem
+  `edge/`).** Colunas `produto.preco_ifood`, `produto.no_ifood` e `opcao.preco_ifood`; seção "iFood" no produto e campo na
+  janela da opção, só com o direito `ifood_pelo_orzuni` ligado (nasce desligado; nada é enviado ao iFood). **No `.zip`
+  1.30.13:** a migration e a tela no servidor da loja. ⚠️ **O direito só se liga numa empresa depois que TODOS os servidores
+  de loja dela estiverem na 1.30.13** (a linha de ligar confere `edge_status.versao`) — antes disso o preço iFood editado
+  na nuvem poderia voltar vazio da loja (ver a mig 369).
 - **A ponte do chat no ícone "Regem neste PC" (05/11; sem migration; ⚠️ pede `.exe` novo nos PCs).** O ícone da estação
   (`edge/bandeja/RegemEstacao.cs`) lê o `estado-da-ponte.json` que o programa da ponte grava e, num PC onde a ponte roda,
   mostra a linha "Ponte do chat: responde o chat - iFood logado" (pausada, fechada, sem login…) e os itens "Abrir a ponte

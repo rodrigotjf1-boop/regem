@@ -1395,6 +1395,10 @@ export const produto = pgTable('produto', {
   // Canais de integração (delivery) em que o produto está pausado/oculto (mig 150).
   // Ex.: ['ifood','99food']. Vazio = disponível em todos os canais ativos.
   canaisPausados: jsonb('canais_pausados').notNull().default('[]'),
+  // iFood pelo Orzuni (mig 369): o preço NO iFood (null = o Regem não mexe no preço de lá) e se o
+  // produto está no cardápio do iFood. Só gravados com o direito `ifood_pelo_orzuni` ligado.
+  precoIfood: numeric('preco_ifood', { precision: 12, scale: 2 }),
+  noIfood: boolean('no_ifood').notNull().default(false),
   disponivelCardapio: boolean('disponivel_cardapio').notNull().default(true),
   pausadoEstoque: boolean('pausado_estoque').notNull().default(false), // auto-pausa por estoque
   pausaMotivo: text('pausa_motivo'), // motivo do "esgotado" (aparece no aviso geral)
@@ -1771,6 +1775,8 @@ export const opcao = pgTable('opcao', {
     .references(() => empresa.id, { onDelete: 'cascade' }),
   nome: text('nome').notNull(),
   codigoPdv: text('codigo_pdv'),
+  // Preço do complemento NO iFood (mig 369): um por opção = por código PDV. null = o Regem não mexe.
+  precoIfood: numeric('preco_ifood', { precision: 12, scale: 2 }),
   descricao: text('descricao'),
   imagemRef: text('imagem_ref'),
   tipo: text('tipo').notNull().default('simples'), // simples | ficha | insumo

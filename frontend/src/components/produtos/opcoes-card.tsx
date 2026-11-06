@@ -34,7 +34,8 @@ function custoDaOpcao(o: any): string {
 
 // Opções reutilizáveis do catálogo (Fase 2): produto simples / preparado c/ ficha /
 // insumo. Reaproveitadas pelos complementos (ligação vem na Fase 3).
-export function OpcoesCard() {
+// `ifoodLigado`: direito `ifood_pelo_orzuni` da empresa (mig 369) — a janela da opção ganha o "Preço no iFood".
+export function OpcoesCard({ ifoodLigado = false }: { ifoodLigado?: boolean } = {}) {
   const [opcoes, setOpcoes] = useState<any[]>([]);
   const [fichas, setFichas] = useState<any[]>([]);
   const [itens, setItens] = useState<any[]>([]);
@@ -226,17 +227,21 @@ export function OpcoesCard() {
       )}
 
       {editar && (
-        <OpcaoModal opcao={editar} fichas={fichas} itens={itens} verFin={verFin} onFechar={() => setEditar(null)} onSalvo={async () => { setEditar(null); await carregar(); }} />
+        <OpcaoModal opcao={editar} fichas={fichas} itens={itens} verFin={verFin} ifoodLigado={ifoodLigado} onFechar={() => setEditar(null)} onSalvo={async () => { setEditar(null); await carregar(); }} />
       )}
     </Card>
   );
 }
 
-function OpcaoModal({ opcao, fichas, itens, verFin, onFechar, onSalvo }: { opcao: any; fichas: any[]; itens: any[]; verFin: boolean; onFechar: () => void; onSalvo: () => void }) {
+function OpcaoModal({ opcao, fichas, itens, verFin, ifoodLigado, onFechar, onSalvo }: { opcao: any; fichas: any[]; itens: any[]; verFin: boolean; ifoodLigado: boolean; onFechar: () => void; onSalvo: () => void }) {
   const novo = !opcao?.id;
   const [f, setF] = useState<any>({
     nome: opcao.nome ?? '',
     codigoPdv: opcao.codigoPdv ?? '',
+    // Preço no iFood (mig 369): só vai ao servidor com o direito ligado; vazio = sem preço próprio
+    // (o servidor limpa). Desligado, o campo nem entra no pedido — ausente mantém o que está gravado.
+    // O banco devolve "4.50"; no campo, com vírgula (o servidor aceita as duas).
+    ...(ifoodLigado ? { precoIfood: opcao.precoIfood != null ? String(opcao.precoIfood).replace('.', ',') : '' } : {}),
     precoCusto: opcao.precoCusto ?? '',
     descricao: opcao.descricao ?? '',
     imagemRef: opcao.imagemRef ?? '',
@@ -335,6 +340,25 @@ function OpcaoModal({ opcao, fichas, itens, verFin, onFechar, onSalvo }: { opcao
                 <div className="min-w-[6.5rem] flex-1 space-y-1"><Label className="text-xs">Preço de custo</Label><Input type="number" value={f.precoCusto} onChange={(e) => up({ precoCusto: e.target.value })} placeholder="0,00" /></div>
               ) : null}
             </div>
+            {/* iFood pelo Orzuni (mig 369): um preço no iFood por opção = por código PDV. O envio ao
+                iFood ainda não existe (R2) — o texto não promete o que o servidor não faz (V39). */}
+            {ifoodLigado && (
+              <div className="space-y-1">
+                <Label htmlFor="opcao-preco-ifood" className="text-xs">Preço no iFood (R$)</Label>
+                <Input
+                  id="opcao-preco-ifood"
+                  inputMode="decimal"
+                  value={f.precoIfood ?? ''}
+                  onChange={(e) => up({ precoIfood: e.target.value })}
+                  placeholder="em branco = sem preço próprio"
+                  aria-describedby="opcao-preco-ifood-ajuda"
+                />
+                <p id="opcao-preco-ifood-ajuda" className="text-[11px] text-muted-foreground">
+                  Um preço por código PDV, à parte do preço das etapas. O envio ao iFood ainda não está ligado.
+                  {!temCodigo && ' Sem código PDV, o Regem não acha esta opção no iFood.'}
+                </p>
+              </div>
+            )}
           </div>
         </div>
 

@@ -10,6 +10,7 @@ import { chaveUnidade, comoFoiCadastrada, unidadesDoCadastro } from '@/lib/conve
 import { VariacoesEditor } from '@/components/produtos/variacoes-editor';
 import { ComboEditor } from '@/components/produtos/combo-editor';
 import { FiscalFields } from '@/components/produtos/fiscal-fields';
+import { IfoodFields } from '@/components/produtos/ifood-fields';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -57,6 +58,7 @@ export function ProdutoForm({
   verFin,
   catLabel,
   canaisAtivos = [],
+  ifoodLigado = false,
   onSubmit,
 }: {
   f: any;
@@ -71,6 +73,8 @@ export function ProdutoForm({
   verFin: boolean;
   catLabel: (c: any) => string;
   canaisAtivos?: { canal: string; label: string }[];
+  // iFood pelo Orzuni (mig 369): a seção "iFood" só aparece com o direito ligado na empresa.
+  ifoodLigado?: boolean;
   onSubmit: (e: React.FormEvent) => void;
   onCancel: () => void;
 }) {
@@ -199,6 +203,8 @@ export function ProdutoForm({
               )}
             </div>
           </Secao>
+
+          {ifoodLigado && <IfoodFields f={f} set={set} />}
 
           <Secao titulo="Origem do custo e produção">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

@@ -51,6 +51,9 @@ export default function ProdutosPage() {
   const [verFin, setVerFin] = useState(false);
   const [cardapio, setCardapio] = useState<any>(null); // token/base p/ "copiar link"
   const [integracoes, setIntegracoes] = useState<any[]>([]); // canais de delivery (ativos)
+  // iFood pelo Orzuni (mig 369): o direito é ligado pela distribuição; desligado, a tela não mostra
+  // nem manda os campos do iFood (o servidor também não os grava).
+  const [ifoodLigado, setIfoodLigado] = useState(false);
 
   // categoria rápida
   const [catNome, setCatNome] = useState('');
@@ -74,6 +77,7 @@ export default function ProdutosPage() {
     setVerFin(podeVerFinanceiro());
     api.cardapioConfig().then(setCardapio).catch(() => {});
     api.integracoesDelivery().then((r: any) => setIntegracoes(Array.isArray(r) ? r : [])).catch(() => {});
+    api.ifoodPeloOrzuni().then((r: any) => setIfoodLigado(r?.ligado === true)).catch(() => setIfoodLigado(false));
     reload();
   }, [reload, router]);
 
@@ -213,6 +217,9 @@ export default function ProdutosPage() {
         atacadoAtivo: p.atacadoAtivo ?? false,
         selos: p.selos ?? [],
         canaisPausados: p.canaisPausados ?? [],
+        // O banco devolve "34.90"; no campo, com vírgula (o servidor aceita as duas).
+        precoIfood: p.precoIfood != null ? String(p.precoIfood).replace('.', ',') : '',
+        noIfood: p.noIfood === true,
         sugestoes: p.sugestoes ?? [],
         duracaoMin: p.duracaoMin ?? '',
         vendaMultiplo: p.vendaMultiplo ?? '',
@@ -289,6 +296,15 @@ export default function ProdutosPage() {
         atacadoAtivo: f.atacadoAtivo,
         selos: f.selos,
         canaisPausados: f.canaisPausados ?? [],
+        // iFood pelo Orzuni (mig 369): só com o direito ligado. O preço vai como DIGITADO (o servidor
+        // aceita vírgula e recusa o que não entende com o motivo); vazio = null, o Regem deixa de mexer
+        // no preço do iFood. Nada de Number() aqui: "abc" viraria NaN → null e apagaria o preço.
+        ...(ifoodLigado
+          ? {
+              precoIfood: String(f.precoIfood ?? '').trim() === '' ? null : String(f.precoIfood).trim(),
+              noIfood: f.noIfood === true,
+            }
+          : {}),
         sugestoes: f.sugestoes ?? [],
         duracaoMin: f.duracaoMin !== '' ? Number(f.duracaoMin) : undefined,
         vendaMultiplo: f.vendaMultiplo !== '' ? Number(f.vendaMultiplo) : undefined,
@@ -555,6 +571,7 @@ export default function ProdutosPage() {
                   verFin={verFin}
                   catLabel={catLabel}
                   canaisAtivos={canaisAtivos}
+                  ifoodLigado={ifoodLigado}
                   onSubmit={salvar}
                   onCancel={fecharForm}
                 />
@@ -644,7 +661,7 @@ export default function ProdutosPage() {
               )}
             </div>
 
-            {aba === 'opcoes' && <div className="scroll-fino min-h-0 flex-1 overflow-y-auto pr-1"><OpcoesCard /></div>}
+            {aba === 'opcoes' && <div className="scroll-fino min-h-0 flex-1 overflow-y-auto pr-1"><OpcoesCard ifoodLigado={ifoodLigado} /></div>}
             {aba === 'complementos' && <div className="scroll-fino min-h-0 flex-1 overflow-y-auto pr-1"><ComplementosCatalogoCard /></div>}
 
             {aba === 'produtos' && (
