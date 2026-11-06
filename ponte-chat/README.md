@@ -88,8 +88,14 @@ se nada abrir (nada na tela e o Gestor sem pedir a conversa), clica de novo uma 
 "Fechar detalhes"; o da conversa, um ícone `close-icon` sem rótulo. Conferido no Gestor real (abre no 1º clique; conversa e
 resumo fecham).
 
-**Pendências de teste no Gestor de verdade:** o 1º envio automático DE VERDADE com o dono olhando (com a 0.5.1), num pedido
-de entrega própria saindo; o "setter" com a janela escondida.
+**E o eco da 1ª mensagem (ERR-381).** Com a correção acima, o 1º envio de verdade (05/11, #0845) SAIU — mas ficou "envio
+incerto": a 1ª mensagem da loja numa conversa nova sai pelo iFood (o `POST` do chat do pedido) e volta com o remetente = a
+CONTA da loja, a mesma cara do aviso automático do iFood, que a ponte descartava como eco. Agora o eco e a memória do "já
+enviada" aceitam a mensagem da conta da loja quando o texto é EXATAMENTE o que a ponte mandou (um aviso do iFood nunca tem
+esse texto). Ela segue fora do que vai à nuvem como fala da equipe.
+
+**Pendências:** o 1º envio com o eco confirmado no Gestor de verdade (com esta versão); o "setter" com a janela escondida;
+a 1ª mensagem que a EQUIPE digita no Gestor numa conversa nova tem a mesma cara do aviso e não entra no Atendimento.
 
 ## Rodar (desenvolvimento)
 

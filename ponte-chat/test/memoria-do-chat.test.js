@@ -20,11 +20,25 @@ test('acha a mensagem da LOJA com o mesmo texto na conversa do pedido, de "desde
   assert.equal(m.jaEnviada({ pedidoExterno: 'cccccccc-1111-2222-3333-444444444444', texto: 'Seu pedido saiu para entrega!', desde: 0 }), null);
 });
 
-test('só a loja: o cliente e o AVISO AUTOMÁTICO do iFood nunca contam; repetida não entra duas vezes', () => {
+test('só a loja: o cliente nunca conta; a CONTA da loja só pelo texto exato (ERR-381); repetida não entra duas vezes', () => {
   const m = new MemoriaDoChat();
   assert.equal(m.guardar(msg({ id: '1', autor: 'cliente' })), false);
-  assert.equal(m.guardar(msg({ id: '2', avisoDaPlataforma: true })), false);
   assert.equal(m.jaEnviada({ pedidoExterno: P, texto: 'Seu pedido saiu para entrega!', desde: 0 }), null);
+  // o aviso automático do iFood (a conta da loja, OUTRO texto) entra, mas nunca vale como "já enviada" do nosso texto
+  assert.equal(m.guardar(msg({ id: '2', avisoDaPlataforma: true, texto: 'Sua loja não costuma responder... Taxa de resposta 53%' })), true);
+  assert.equal(m.jaEnviada({ pedidoExterno: P, texto: 'Seu pedido saiu para entrega!', desde: 0 }), null);
+  // a 1ª mensagem de uma conversa nova volta pela conta da loja (a mesma cara do aviso): com o NOSSO texto, vale
+  assert.equal(m.guardar(msg({ id: '4', avisoDaPlataforma: true })), true);
+  assert.deepEqual(m.jaEnviada({ pedidoExterno: P, texto: 'Seu pedido saiu para entrega!', desde: 0 }), { id: '4', em: 10_000_000 });
+  const m2 = new MemoriaDoChat();
+  assert.equal(m2.guardar(msg({ id: '3' })), true);
+  assert.equal(m2.guardar(msg({ id: '3' })), false); // a mesma (veio ao vivo e no histórico)
+  assert.equal(m2.conversas.get(P).length, 1);
+  assert.equal(m2.guardar(null), false);
+});
+
+test('(antigo, mantido) repetida não entra duas vezes', () => {
+  const m = new MemoriaDoChat();
   assert.equal(m.guardar(msg({ id: '3' })), true);
   assert.equal(m.guardar(msg({ id: '3' })), false); // a mesma (veio ao vivo e no histórico)
   assert.equal(m.conversas.get(P).length, 1);
