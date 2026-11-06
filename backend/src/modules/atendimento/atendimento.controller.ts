@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Logger, Param, Post, Put, Res, StreamableFile, UseGuards } from '@nestjs/common';
+import { BadGatewayException, Body, Controller, Get, Logger, Optional, Param, Post, Put, Res, StreamableFile, UseGuards } from '@nestjs/common';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { Pedido99Service, RespostaAo99 } from './pedido-99.service';
 import type { Response } from 'express';
@@ -24,6 +24,7 @@ import { lerAjusteAlterado, SONS_DO_ALTERADO } from '../pedido-alterado/pedido-a
 import { AjustesDaPonteService } from '../ponte-chat/ajustes-da-ponte.service';
 import { ehServidorLocal } from '../../common/modo';
 import { ChatDoCasoService } from './chat-do-caso.service';
+import { AvaliacaoIfoodService } from './avaliacao-ifood.service';
 
 // Chamados de atendimento (handoff). Operados por quem está no balcão/gestão.
 @Controller('atendimento')
@@ -45,7 +46,17 @@ export class AtendimentoController {
     private readonly ponte: AjustesDaPonteService,
     // O chat do iFood e da 99 dentro do caso (Etapa 2): a conversa do pedido e a resposta da equipe pela ponte.
     private readonly chat: ChatDoCasoService,
+    // A avaliação do iFood no caso (06/11/2026): a resposta da loja, pública no iFood.
+    @Optional() private readonly avaliacao?: AvaliacaoIfoodService,
   ) {}
+
+  // A RESPOSTA À AVALIAÇÃO do iFood (06/11/2026): a gestão responde, como no chat do caso. Fica pública no iFood; uma só.
+  @Post(':id/avaliacao')
+  @Roles('presidente', 'gerente', 'supervisao')
+  responderAvaliacao(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { texto?: unknown }) {
+    if (!this.avaliacao) throw new BadGatewayException('A resposta de avaliações não está disponível agora.');
+    return this.avaliacao.responder(user, id, dto ?? {});
+  }
 
   // O CHAT DO iFOOD E DA 99 DENTRO DO CASO (ponte do chat, Etapa 2): a conversa do pedido, com o estado de cada envio. Lê
   // quem atende a fila; no servidor da loja, vem da nuvem (V37).

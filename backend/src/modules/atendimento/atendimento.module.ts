@@ -4,6 +4,7 @@ import { AtendimentoController } from './atendimento.controller';
 import { AtendimentoLojaController } from './atendimento-loja.controller';
 import { AtendimentoService } from './atendimento.service';
 import { DisputaIfoodService } from './disputa-ifood.service';
+import { AvaliacaoIfoodService } from './avaliacao-ifood.service';
 import { Pedido99Service } from './pedido-99.service';
 import { ChatIfoodService } from './chat-ifood.service';
 import { AtendimentoAppController } from './atendimento-app.controller';
@@ -37,9 +38,11 @@ import { ChatDoCasoService } from './chat-do-caso.service';
   // PedidoRepetidoService (mig 360): o grupo "Pedido repetido" dos ajustes (só o banco e a auditoria, que é global).
   // AvisoDoEnderecoProcessor (PR 3b-2): "Endereço atualizado!" ao cliente quando a mudança feita pelo caso vale (só a nuvem).
   // ChatDoCasoService (ponte do chat, Etapa 2): a conversa do iFood e da 99 no caso e a resposta da equipe pela ponte.
+  // AvaliacaoIfoodService (06/11/2026): a resposta à avaliação do iFood pelo caso.
   providers: [
     AtendimentoService,
     DisputaIfoodService,
+    AvaliacaoIfoodService,
     Pedido99Service,
     ChatIfoodService,
     SyncTokenGuard,

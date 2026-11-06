@@ -12,6 +12,7 @@ import { FiltroBusca, FiltroSelect, Filtros, semAcento } from '@/components/ui/l
 import { ChipDoCanal } from '@/components/atendimento/chip-do-canal';
 import { DecidirCancelamento } from '@/components/atendimento/decidir-cancelamento';
 import { DisputaIfood } from '@/components/atendimento/disputa-ifood';
+import { AvaliacaoIfood } from '@/components/atendimento/avaliacao-ifood';
 import { Pedido99 } from '@/components/atendimento/pedido-99';
 import { ResumoDoRobo, resumoCurto } from '@/components/atendimento/resumo-do-robo';
 import { ChatDoIfood } from '@/components/atendimento/chat-do-ifood';
@@ -668,6 +669,8 @@ function Caso({
       <div className="space-y-4 p-4">
         {c.tipo === 'disputa' && c.detalhe?.disputa ? (
           <DisputaIfood caso={c} agora={agora} aoMudar={aoMudar} />
+        ) : c.tipo === 'avaliacao' && c.detalhe?.avaliacao ? (
+          <AvaliacaoIfood caso={c} aoMudar={aoMudar} />
         ) : (c.tipo === 'cancelamento_99' || c.tipo === 'reembolso_99') && c.detalhe?.pedido99 ? (
           <Pedido99 caso={c} agora={agora} aoMudar={aoMudar} />
         ) : (

@@ -7,6 +7,7 @@ import { Pedido99Service, RespostaAo99 } from './pedido-99.service';
 import { ChatIfoodService } from './chat-ifood.service';
 import { ChatDoCasoService } from './chat-do-caso.service';
 import { AjustesDaPonteService } from '../ponte-chat/ajustes-da-ponte.service';
+import { AvaliacaoIfoodService } from './avaliacao-ifood.service';
 
 // Pedidos do SERVIDOR DA LOJA à nuvem sobre a central de atendimento (V37): a credencial do iFood fica só na nuvem.
 // Autenticação pelo token do servidor (x-sync-token) — a empresa vem do token, nunca do corpo. Só na nuvem.
@@ -18,7 +19,18 @@ export class AtendimentoLojaController {
     private readonly chatIfood: ChatIfoodService,
     private readonly chat: ChatDoCasoService,
     private readonly ponte: AjustesDaPonteService,
+    // A resposta à avaliação do iFood vinda do servidor da loja (06/11/2026).
+    private readonly avaliacao: AvaliacaoIfoodService,
   ) {}
+
+  // A loja responde a uma avaliação do iFood: quem respondeu (a gestão) foi conferido no servidor dela.
+  @Post('avaliacao-da-loja')
+  @HttpCode(200)
+  @CloudOnly()
+  @UseGuards(SyncTokenGuard)
+  avaliacaoDaLoja(@SyncCtx() ctx: SyncCtxData, @Body() dto: { chamadoId?: unknown; texto?: unknown; atorId?: unknown; atorNome?: unknown }) {
+    return this.avaliacao.responderVindoDaLoja(ctx.tenantId, dto ?? {});
+  }
 
   // A faixa da ponte do chat para a fila do servidor da loja (a situação mora na nuvem — V37). `unidade` = a loja em uso lá.
   @Get('ponte-da-loja')

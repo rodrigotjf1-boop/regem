@@ -32,8 +32,10 @@ export const LOJAS_NO_WIDGET = 10;
 // Atendimento; avisar o gerente quando chega uma disputa (no app e no computador de quem é gerente ou presidente); avisar
 // de novo quando faltarem 1, 2 ou 3 minutos, se ninguém respondeu. Moram na integração do iFood da empresa
 // (`integracao.config.atendimentoIfood`, só na nuvem), gravados por chave (V82). Sem ajuste, os padrões.
-export type AjusteIfood = { chat: boolean; avisarDisputa: boolean; avisarDeNovoMin: number };
-export const AJUSTE_IFOOD_PADRAO: AjusteIfood = { chat: true, avisarDisputa: true, avisarDeNovoMin: 2 };
+// `avaliacoes` (06/11/2026): "Avaliações do iFood na fila" — a rotina da nuvem traz as avaliações que pedem uma pessoa
+// como caso (`integracoes/ifood/ifood-avaliacao.ts`). Nasce DESLIGADO: precisa do módulo de avaliações liberado no iFood.
+export type AjusteIfood = { chat: boolean; avisarDisputa: boolean; avisarDeNovoMin: number; avaliacoes: boolean };
+export const AJUSTE_IFOOD_PADRAO: AjusteIfood = { chat: true, avisarDisputa: true, avisarDeNovoMin: 2, avaliacoes: false };
 export const MINUTOS_DE_NOVO = [1, 2, 3] as const;
 
 /** O que a tela mandou para o grupo do iFood, conferido (V15: liga/desliga só com booleano; V16: ausente fica de fora). */
@@ -42,6 +44,7 @@ export function lerAjusteIfood(dto: unknown): Partial<AjusteIfood> {
   const parcial: Partial<AjusteIfood> = {};
   if (d.chat !== undefined) parcial.chat = exigirBooleano(d.chat, 'chat');
   if (d.avisarDisputa !== undefined) parcial.avisarDisputa = exigirBooleano(d.avisarDisputa, 'avisarDisputa');
+  if (d.avaliacoes !== undefined) parcial.avaliacoes = exigirBooleano(d.avaliacoes, 'avaliacoes');
   if (d.avisarDeNovoMin !== undefined) {
     const m = typeof d.avisarDeNovoMin === 'number' ? d.avisarDeNovoMin : NaN;
     if (!(MINUTOS_DE_NOVO as readonly number[]).includes(m)) throw new BadRequestException('Avisar de novo: escolha 1, 2 ou 3 minutos.');
@@ -57,6 +60,7 @@ function ajusteDe(bruto: unknown): AjusteIfood {
     chat: typeof a.chat === 'boolean' ? a.chat : AJUSTE_IFOOD_PADRAO.chat,
     avisarDisputa: typeof a.avisarDisputa === 'boolean' ? a.avisarDisputa : AJUSTE_IFOOD_PADRAO.avisarDisputa,
     avisarDeNovoMin: (MINUTOS_DE_NOVO as readonly number[]).includes(a.avisarDeNovoMin as number) ? (a.avisarDeNovoMin as number) : AJUSTE_IFOOD_PADRAO.avisarDeNovoMin,
+    avaliacoes: typeof a.avaliacoes === 'boolean' ? a.avaliacoes : AJUSTE_IFOOD_PADRAO.avaliacoes,
   };
 }
 

@@ -8,6 +8,7 @@ import { CardapioWebPoller } from './cardapio-web/cardapio-web.poller';
 import { IfoodService } from './ifood/ifood.service';
 import { IfoodController } from './ifood/ifood.controller';
 import { IfoodPoller } from './ifood/ifood.poller';
+import { IfoodAvaliacoesPoller } from './ifood/ifood-avaliacoes.poller';
 import { Food99Service } from './food99/food99.service';
 import { Food99Controller } from './food99/food99.controller';
 import { Food99Poller } from './food99/food99.poller';
@@ -23,7 +24,20 @@ import { AnotaAiPoller } from './anotaai/anotaai.poller';
 @Module({
   imports: [forwardRef(() => DeliveryModule)],
   controllers: [CardapioWebController, Food99Controller, AnotaAiController, IfoodController],
-  providers: [OpenDeliveryService, OpenDeliveryPoller, CardapioWebService, CardapioWebPoller, IfoodService, IfoodPoller, Food99Service, Food99Poller, AnotaAiService, AnotaAiPoller],
+  // IfoodAvaliacoesPoller: as avaliações do iFood viram caso na central (só nuvem, com o ajuste ligado — 06/11/2026).
+  providers: [
+    OpenDeliveryService,
+    OpenDeliveryPoller,
+    CardapioWebService,
+    CardapioWebPoller,
+    IfoodService,
+    IfoodPoller,
+    IfoodAvaliacoesPoller,
+    Food99Service,
+    Food99Poller,
+    AnotaAiService,
+    AnotaAiPoller,
+  ],
   exports: [OpenDeliveryService, CardapioWebService, IfoodService, Food99Service, AnotaAiService],
 })
 export class IntegracoesModule {}

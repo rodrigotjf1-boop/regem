@@ -37,7 +37,12 @@ const DE_NOVO_PADRAO = [1, 2, 3];
 const DE_NOVO_CHEGUEI_PADRAO = [3, 5, 10];
 /** As chaves do grupo "Fila e avisos", as do iFood e as do "Cheguei" (o resto é da 99). */
 const DA_FILA = ['avisarGerenteMin', 'dizerPosicao'];
-const DO_IFOOD: Record<string, string> = { ifoodChat: 'chat', ifoodAvisarDisputa: 'avisarDisputa', ifoodAvisarDeNovoMin: 'avisarDeNovoMin' };
+const DO_IFOOD: Record<string, string> = {
+  ifoodChat: 'chat',
+  ifoodAvisarDisputa: 'avisarDisputa',
+  ifoodAvisarDeNovoMin: 'avisarDeNovoMin',
+  ifoodAvaliacoes: 'avaliacoes', // as avaliações do iFood na fila (06/11/2026)
+};
 const DO_CHEGUEI: Record<string, string> = {
   chegueiAtivo: 'ativo',
   chegueiPerguntarOnde: 'perguntarOnde',
@@ -85,7 +90,7 @@ type Resposta = {
   fila?: { avisarGerenteMin: number; dizerPosicao: boolean };
   minutosDoAviso?: number[];
   conectadoIfood?: boolean;
-  ajusteIfood?: { chat: boolean; avisarDisputa: boolean; avisarDeNovoMin: number } | null;
+  ajusteIfood?: { chat: boolean; avisarDisputa: boolean; avisarDeNovoMin: number; avaliacoes?: boolean } | null;
   minutosDeNovo?: number[];
   cheguei?: { ativo: boolean; perguntarOnde: boolean; todasTelas: boolean; deNovoMin: number; temCardapio: boolean };
   minutosDeNovoCheguei?: number[];
@@ -128,6 +133,7 @@ const paraValores = (r: Resposta): Valores => ({
         ifoodChat: r.ajusteIfood.chat,
         ifoodAvisarDisputa: r.ajusteIfood.avisarDisputa,
         ifoodAvisarDeNovoMin: String(r.ajusteIfood.avisarDeNovoMin),
+        ...(typeof r.ajusteIfood.avaliacoes === 'boolean' ? { ifoodAvaliacoes: r.ajusteIfood.avaliacoes } : {}),
       }
     : {}),
   ...(r.ajuste99
@@ -265,6 +271,19 @@ export function AjustesDoAtendimento() {
         ajuda: 'Segundo aviso, se ninguém respondeu.',
         palavras: 'ifood disputa aviso de novo minutos prazo',
       },
+      // As avaliações do iFood na fila (06/11/2026; protótipo da Central): nasce desligado.
+      ...(typeof resp?.ajusteIfood?.avaliacoes === 'boolean'
+        ? [
+            {
+              id: 'ifoodAvaliacoes',
+              rotulo: 'Avaliações do iFood na fila',
+              tipo: 'chave' as const,
+              ajuda:
+                'A avaliação com comentário ou nota até 3 vira caso (nota até 2, urgente), para responder pelo Regem. A resposta fica pública no iFood. Precisa do módulo de avaliações liberado no iFood.',
+              palavras: 'ifood avaliação avaliacoes nota comentário estrelas review responder',
+            },
+          ]
+        : []),
     ],
   };
   const deNovoCheguei = resp?.minutosDeNovoCheguei?.length ? resp.minutosDeNovoCheguei : DE_NOVO_CHEGUEI_PADRAO;
