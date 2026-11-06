@@ -598,6 +598,15 @@ export const distApi = {
   }) => distReq('/distribuicao/integracoes/tokens', { method: 'POST', body: JSON.stringify(dto) }),
   revogarTokenIntegracao: (id: string, motivo: string) =>
     distReq(`/distribuicao/integracoes/tokens/${id}/revogar`, { method: 'POST', body: JSON.stringify({ motivo }) }),
+  // iFood pelo Orzuni (mig 370) — só Diretoria. A chave `orz_live_` vai UMA vez e não volta; o segredo da ligação
+  // fica cifrado na nuvem e nunca aparece.
+  orzuniPainel: (tenantId: string) => distReq(`/distribuicao/orzuni?tenantId=${encodeURIComponent(tenantId)}`),
+  orzuniRegistrar: (dto: { tenantId: string; unidadeId: string; chave: string }) =>
+    distReq('/distribuicao/orzuni/ligacoes', { method: 'POST', body: JSON.stringify(dto) }),
+  orzuniRevogar: (id: string, motivo: string) =>
+    distReq(`/distribuicao/orzuni/ligacoes/${id}/revogar`, { method: 'POST', body: JSON.stringify({ motivo }) }),
+  orzuniLiberacao: (tenantId: string, ligar: boolean) =>
+    distReq('/distribuicao/orzuni/liberacao', { method: 'POST', body: JSON.stringify({ tenantId, ligar }) }),
 };
 
 // Upload multipart: NÃO define Content-Type (o browser injeta o boundary).

@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **iFood pelo Orzuni — o envio (R2a; 06/11; mig 370 `@cloud-only`).** Tudo na NUVEM (fila, gatilhos, despacho, console):
+  a edição feita na loja chega pela sincronização e sai de lá — **a loja não precisa do `.zip` para o envio**. No `.zip`/
+  `.exe` (o mesmo corte 1.30.13): só a classificação `orzuni_ligacao`/`orzuni_envio` em SO_NUVEM no `edge/sync-daemon.mjs`
+  (sem efeito na loja: ela não tem as tabelas) e o texto novo da seção "iFood" na tela do servidor da loja.
 - **Ponte do chat 0.6.0 — a ponte LÊ o chat da 99 (Etapa 4a; 05/11; sem migration).** Na nuvem com o merge: a mensagem
   da 99 liga ao pedido pelo cliente (`raw.receive_address.uid`), o id e o número do pedido saem do pedido ligado (também
   no iFood), o sinal "99 só lendo" aparece na faixa do Atendimento e em Equipamentos, e o robô não responde num canal em

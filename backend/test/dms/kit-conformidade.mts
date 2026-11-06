@@ -37,6 +37,8 @@ export const VERSOES_DO_PACOTE: Readonly<Record<string, string>> = {
   '0.7.2': 'b4ca278d635caae2fb6a9e225467393a2fda4967a5ca7fccdafd28fb10301f22',
   '0.8.0': '5794e1875c316861d73995682b3e0e5a29b0ccfb837a8f96f99ef2ded23758ad',
   '0.9.0': '1bee8b1b294ec3b221486f6ca0cb4a33607c6577d4a9b2bcf56be59e8c98ce97',
+  '0.10.0': '4ae1d693c81a6d510eef5d0f8568f6405781ad8930542c5d3ffd2f0de4b4efe6',
+  '0.10.1': 'af85d73b321cac949876b64627db2e7f2f1305a66e946eaf3fa42fc1c7946a10',
 };
 
 type Pacote = typeof import('../pacote/integracao-dms.ts');

@@ -340,8 +340,8 @@ function OpcaoModal({ opcao, fichas, itens, verFin, ifoodLigado, onFechar, onSal
                 <div className="min-w-[6.5rem] flex-1 space-y-1"><Label className="text-xs">Preço de custo</Label><Input type="number" value={f.precoCusto} onChange={(e) => up({ precoCusto: e.target.value })} placeholder="0,00" /></div>
               ) : null}
             </div>
-            {/* iFood pelo Orzuni (mig 369): um preço no iFood por opção = por código PDV. O envio ao
-                iFood ainda não existe (R2) — o texto não promete o que o servidor não faz (V39). */}
+            {/* iFood pelo Orzuni (mig 369): um preço no iFood por opção = por código PDV. O envio (R2a, mig 370)
+                vai a todas as opções com o código no iFood das lojas ligadas; "Em falta" pausa lá também (V39). */}
             {ifoodLigado && (
               <div className="space-y-1">
                 <Label htmlFor="opcao-preco-ifood" className="text-xs">Preço no iFood (R$)</Label>
@@ -354,7 +354,8 @@ function OpcaoModal({ opcao, fichas, itens, verFin, ifoodLigado, onFechar, onSal
                   aria-describedby="opcao-preco-ifood-ajuda"
                 />
                 <p id="opcao-preco-ifood-ajuda" className="text-[11px] text-muted-foreground">
-                  Um preço por código PDV, à parte do preço das etapas. O envio ao iFood ainda não está ligado.
+                  Um preço por código PDV, à parte do preço das etapas. Ao salvar, vai ao iFood das lojas ligadas ao Orzuni
+                  (em todos os grupos com este código); &quot;Em falta&quot; também pausa lá.
                   {!temCodigo && ' Sem código PDV, o Regem não acha esta opção no iFood.'}
                 </p>
               </div>
