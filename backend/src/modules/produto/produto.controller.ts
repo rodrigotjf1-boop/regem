@@ -21,6 +21,7 @@ import { ProdutoService } from './produto.service';
 import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { podeAcessar } from '../../auth/permissoes';
 import { CreateProdutoDto } from './dto/create-produto.dto';
+import { UpdateProdutoDto } from './dto/update-produto.dto';
 import { CreateCategoriaDto } from './dto/create-categoria.dto';
 
 const GESTOR = ['presidente', 'gerente', 'supervisao'];
@@ -226,12 +227,13 @@ export class ProdutoController {
     return this.service.criar(user.tenantId, user.colaboradorId, user.categoria, dto);
   }
 
+  // Edição PARCIAL (só o que veio muda): o "Ocultar/Retomar" da lista e a tela de Catálogo mandam um campo só.
   @Patch(':id')
   @Roles(...GESTOR)
   atualizar(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
-    @Body() dto: CreateProdutoDto,
+    @Body() dto: UpdateProdutoDto,
   ) {
     return this.service.atualizar(user.tenantId, id, dto);
   }

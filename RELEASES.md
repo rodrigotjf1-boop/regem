@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **"Ocultar" da lista do Cardápio voltou a funcionar (ERR-385) + "Ocultar" pausa no iFood (mig 371 `@cloud-only`) +
+  "Pausado no iFood" (06/11; sem `edge/`).** Na nuvem, no ar com o merge. **No `.zip` 1.30.13:** a correção do PATCH do
+  produto no servidor da loja (lá o "Ocultar/Retomar" e a tela de Catálogo seguem dando 400 até o `.zip`) e o botão
+  "Pausado no iFood" na tela da loja. A pausa no iFood pelo "Ocultar" feito na loja já vale (a nuvem enfileira quando a
+  mudança chega pelo sincronismo).
+
 - **iFood pelo Orzuni — "Último envio ao iFood" na tela (R2b; 06/11; sem migration, sem `edge/`).** Na nuvem, no ar com o
   merge. **No `.zip` 1.30.13:** a tela do servidor da loja passa a mostrar a lista, que o servidor pede à nuvem
   (`/orzuni/loja/envios`, token de sync); sem o `.zip`, a tela da loja nem tem a seção (e o direito só liga com a 1.30.13).
