@@ -348,7 +348,7 @@
     "/api/v1/integracao/catalogo": {
       "get": {
         "operationId": "get_api_v1_integracao_catalogo",
-        "summary": "Catálogo da loja: categorias, setores, produtos, variações, combos e adicionais, sem preço.",
+        "summary": "Catálogo da loja: categorias, setores, produtos, variações, combos e adicionais, sem preço. Com catalogo.ifood.ler também, o produto traz preco_ifood_centavos e no_ifood, e a opção, preco_ifood_centavos.",
         "x-dms-permissao": "catalogo.ler",
         "responses": {
           "200": {
@@ -916,6 +916,13 @@
       "classes": [
         "dms",
         "parceiro"
+      ],
+      "sensivel": false
+    },
+    "catalogo.ifood.ler": {
+      "frase": "Preço do iFood e se o produto está no cardápio do iFood, no catálogo (junto de catalogo.ler)",
+      "classes": [
+        "dms"
       ],
       "sensivel": false
     }

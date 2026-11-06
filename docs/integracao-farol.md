@@ -315,6 +315,10 @@ O teste `integracao-farol.http.spec.ts` monta um cadastro e uma venda cheios de 
 do cliente e varre as três respostas atrás de qualquer campo com nome de dinheiro ou de cliente e
 de qualquer um daqueles valores. A leitura da fila nem toca a tabela da venda onde eles estão.
 
+**O preço do iFood (migration 374, 06/11/2026)** só sai no catálogo para quem tem também a permissão
+`catalogo.ifood.ler` (o Orzuni, `docs/integracao-orzuni.md`). O token do Farol não a tem e não pode tê-la: para ele, o
+catálogo segue IGUAL, sem o nome dos campos e com a mesma versão (o teste `integracao-orzuni.http.spec.ts` confere).
+
 O token do Farol **não liga a cópia das vendas** que serve ao Liame e ao RegemCast (o carimbador):
 a empresa que só tem o Farol conectado não ganha carga de vendas, fila nem reconciliação.
 

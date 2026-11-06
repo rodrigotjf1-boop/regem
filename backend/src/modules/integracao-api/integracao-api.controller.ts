@@ -194,7 +194,8 @@ export class IntegracaoApiController {
 
   // ───────────────────────────── catálogo e fichas (Farol — mig 315) ─────────────────────────────
 
-  // O catálogo da loja do token, lido na hora: retrato inteiro com versão. Sem preço.
+  // O catálogo da loja do token, lido na hora: retrato inteiro com versão. Sem preço — a não ser o do iFood, para quem
+  // também tem `catalogo.ifood.ler` (Orzuni, mig 374).
   @Get('catalogo')
   @Escopos('catalogo.ler')
   @ApiOperation({
@@ -204,7 +205,8 @@ export class IntegracaoApiController {
       '{ versao, atualizado: false }. Os produtos são os da loja do token e os cadastrados sem loja (empresa de uma loja: ' +
       'todos); os apagados não saem, os inativos saem com ativo: false. Os ids do produto, da ficha, da etapa (`etapa_id`) ' +
       'e da opção reutilizável (`opcao_id`) são fixos; os da variação, do grupo e da opção do produto mudam a cada ' +
-      'salvamento do catálogo.',
+      'salvamento do catálogo. Com a permissão catalogo.ifood.ler também, o produto traz `preco_ifood_centavos` e ' +
+      '`no_ifood`, e a opção, `preco_ifood_centavos`; sem ela, esses campos não vêm.',
   })
   @ApiQuery({ name: 'versao', required: false, description: 'A `versao` da última resposta que você guardou.' })
   @ApiOkResponse({ type: CatalogoIntegracao })
