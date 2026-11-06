@@ -2335,6 +2335,9 @@ const SO_NUVEM = new Set([
   // O estorno do Pix no cancelamento (mig 372, @cloud-only): a rotina da nuvem pede o estorno ao gateway (o token é da
   // nuvem); o cancelamento feito na loja chega lá pelo sincronismo do pedido. A loja não tem esta tabela.
   'pedido_estorno',
+  // O Pix do item que o robô põe no pedido já pago (mig 373, @cloud-only): o robô, o gateway e a rotina moram na nuvem; a
+  // mudança paga desce à loja como alteração "pedida" (comando do servidor), nunca esta tabela.
+  'pedido_adicional_pix',
 ]);
 
 // LEGADO SEM USO: tabelas criadas nas migrations de fundação (002/003) para recursos que

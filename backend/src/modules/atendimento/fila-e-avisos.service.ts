@@ -181,6 +181,42 @@ export class FilaEAvisosService {
   }
 
   /**
+   * "O robô cobra no Pix o item posto em pedido já pago" (mig 373; grupo "Pedido alterado"): nasce DESLIGADO — o dono liga.
+   * Sem linha (ou banco sem a 373), desligado. Vale para a empresa toda (o robô é um só).
+   */
+  async roboCobraAdicionalPix(tenantId: string): Promise<boolean> {
+    try {
+      const r: any = await this.db.execute(sql`select cobra_adicional_pix from robo_config where tenant_id = ${tenantId}::uuid`);
+      return (r.rows ?? r)[0]?.cobra_adicional_pix === true;
+    } catch (e: any) {
+      if (e?.code === '42703' || e?.code === '42P01') return false; // banco sem a 373
+      throw e;
+    }
+  }
+
+  /** Grava SÓ a coluna dele (`cobra_adicional_pix` — V82); a mudança vai à auditoria. */
+  async salvarRoboCobraAdicionalPix(user: AuthUser, ligado: boolean): Promise<boolean> {
+    const antes = await this.roboCobraAdicionalPix(user.tenantId);
+    if (antes === ligado) return antes;
+    await this.db.execute(sql`
+      insert into robo_config (tenant_id, cobra_adicional_pix, atualizado_por)
+      values (${user.tenantId}::uuid, ${ligado}, ${user.colaboradorId}::uuid)
+      on conflict (tenant_id) do update
+         set cobra_adicional_pix = excluded.cobra_adicional_pix, atualizado_por = excluded.atualizado_por, atualizado_em = now()`);
+    await this.auditoria?.registrar({
+      tenantId: user.tenantId,
+      atorId: user.colaboradorId,
+      atorPerfil: user.categoria,
+      tipo: 'config',
+      acao: ligado ? 'robo_cobra_adicional_pix_ligado' : 'robo_cobra_adicional_pix_desligado',
+      entidadeTipo: 'robo_config',
+      entidadeId: user.tenantId,
+      detalhe: {},
+    });
+    return this.roboCobraAdicionalPix(user.tenantId);
+  }
+
+  /**
    * O robô diz ao cliente o lugar dele na fila? Na dúvida (leitura falhou), diz — é o padrão e o que ele sempre fez.
    * No servidor da loja não há robô nem a tabela: diz.
    */

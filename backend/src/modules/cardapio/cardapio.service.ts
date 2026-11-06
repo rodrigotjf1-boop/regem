@@ -2362,6 +2362,90 @@ export class CardapioService {
     throw new Error(`gateway desconhecido: ${provedor}`);
   }
 
+  // ===== Pix AVULSO da loja (mig 373 — o Pix do adicional que o robô põe no pedido já pago) =====
+
+  /**
+   * Gera um Pix avulso pelos gateways da loja: primeiro o `preferido` (o que recebeu o pedido — o dinheiro cai na mesma
+   * conta), depois os outros pela prioridade. A MESMA regra de ambiguidade do `pagarPedidoPublico`: estado ambíguo
+   * (tempo esgotado, 5xx) tenta o mesmo gateway 1× com a mesma chave de idempotência e PARA (nunca dois Pix vivos); falha
+   * definitiva (4xx: nada criado) passa ao próximo. Lança quando nenhum gerou. Só na nuvem (os gateways moram lá).
+   */
+  async cobrarPixAvulso(
+    tenantId: string,
+    a: { valor: number; descricao: string; nome?: string | null; telefone?: string | null; referencia: string; idempotencia: string; expiraEm: Date; preferido?: string | null },
+  ): Promise<{ provider: 'mercadopago' | 'pagseguro' | 'rede'; id: string; copiaECola: string }> {
+    const todos = await this.resolveGateways(tenantId);
+    const gws = [...todos.filter((g) => g.provider === a.preferido), ...todos.filter((g) => g.provider !== a.preferido)];
+    if (!gws.length) throw new Error('a loja não tem gateway de Pix ligado');
+    const base = process.env.PUBLIC_API_URL || '';
+    const email = a.telefone ? `cliente-${String(a.telefone).replace(/\D/g, '')}@dmsregem.com` : undefined;
+    const criar = async (gw: GatewayPix) => {
+      const rota = gw.provider === 'pagseguro' ? 'pagbank' : 'mercadopago';
+      const notificationUrl = base && gw.provider !== 'rede' ? `${base}/api/v1/publico/cardapio/pagamento/${rota}/webhook` : undefined;
+      const args = {
+        valor: a.valor,
+        descricao: a.descricao,
+        nome: a.nome ?? undefined,
+        email,
+        referenciaExterna: a.referencia,
+        notificationUrl,
+        idempotencia: a.idempotencia,
+        expiraEm: a.expiraEm,
+      };
+      const pix =
+        gw.provider === 'pagseguro'
+          ? await criarPixPagBank(gw.token, args)
+          : gw.provider === 'rede'
+            ? await criarPixRede(CardapioService.credRede(gw), args)
+            : await criarPixMP(gw.token, args);
+      if (!pix?.qrCode) throw new GatewayError(`${gw.provider} não devolveu o Pix copia e cola`, { ambiguo: false });
+      return { provider: gw.provider, id: String(pix.id), copiaECola: String(pix.qrCode) };
+    };
+    const erros: string[] = [];
+    for (const gw of gws) {
+      try {
+        return await criar(gw);
+      } catch (e) {
+        const motivo = e instanceof Error ? e.message : 'erro no gateway';
+        this.logger.error(`PIX avulso ${gw.provider} falhou (${a.referencia}, tenant ${tenantId}): ${motivo}`);
+        erros.push(`${gw.provider}: ${motivo}`);
+        if (!(e instanceof GatewayError) || e.ambiguo) return await criar(gw); // a 2ª falha sobe: nada de outro gateway
+      }
+    }
+    throw new Error(`não deu para gerar o Pix: ${erros.join(' | ')}`);
+  }
+
+  /** O Pix avulso foi pago? Pela consulta ao gateway que o gerou ('pago' | 'aguardando'). Lança se a consulta falhar. */
+  async situacaoDoPixAvulso(tenantId: string, provedor: string, id: string): Promise<'pago' | 'aguardando'> {
+    if (provedor === 'pagseguro') {
+      const t = await this.resolvePagseguroToken(tenantId);
+      if (!t) throw new Error('sem o token do PagBank');
+      return (await consultarPagamentoPagBank(t, id)).status === 'paid' ? 'pago' : 'aguardando';
+    }
+    if (provedor === 'rede') {
+      const c = await lerCredencialRede(this.db, tenantId);
+      if (!c) throw new Error('sem a credencial da Rede');
+      return (await consultarPagamentoRede(c, id)).status === 'paid' ? 'pago' : 'aguardando';
+    }
+    const t = await this.resolveMpToken(tenantId);
+    if (!t) throw new Error('sem o token do Mercado Pago');
+    return (await consultarPagamentoMP(t, id)).status === 'approved' ? 'pago' : 'aguardando';
+  }
+
+  /**
+   * Cancela o Pix avulso que venceu: no Mercado Pago, o pagamento vira "cancelado" (não dá mais para pagar); o PagBank
+   * vence sozinho pela validade do QR; a Rede não deixa cancelar (quem chama confere ainda por um tempo). Nunca lança.
+   */
+  async cancelarPixAvulso(tenantId: string, provedor: string, id: string): Promise<void> {
+    if (provedor !== 'mercadopago') return;
+    try {
+      const t = await this.resolveMpToken(tenantId);
+      if (t) await cancelarPagamentoMP(t, id);
+    } catch (e) {
+      this.logger.warn(`PIX avulso: o cancelamento no Mercado Pago falhou (${id}): ${e instanceof Error ? e.message : e}`);
+    }
+  }
+
   // ===== Reembolso do sinal (S3) =====
 
   // Estorna o sinal PAGO de uma encomenda cancelada. Idempotente pelo status:

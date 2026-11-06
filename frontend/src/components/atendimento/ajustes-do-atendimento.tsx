@@ -90,7 +90,7 @@ type Resposta = {
   cheguei?: { ativo: boolean; perguntarOnde: boolean; todasTelas: boolean; deNovoMin: number; temCardapio: boolean };
   minutosDeNovoCheguei?: number[];
   repetido?: { ativo: boolean; minutos: number; temCardapio: boolean; janelas?: number[] };
-  alterado?: { som: string; sons?: string[]; roboMuda?: boolean };
+  alterado?: { som: string; sons?: string[]; roboMuda?: boolean; roboCobraPix?: boolean };
   ponte?: AjusteDaPonte | null;
 };
 
@@ -113,6 +113,7 @@ const paraValores = (r: Resposta): Valores => ({
   ...(r.repetido?.temCardapio ? { repetidoAtivo: r.repetido.ativo, repetidoMin: String(r.repetido.minutos) } : {}),
   ...(r.alterado ? { alteradoSom: r.alterado.som } : {}),
   ...(typeof r.alterado?.roboMuda === 'boolean' ? { alteradoRobo: r.alterado.roboMuda } : {}),
+  ...(typeof r.alterado?.roboCobraPix === 'boolean' ? { alteradoRoboPix: r.alterado.roboCobraPix } : {}),
   ...(r.cheguei?.temCardapio
     ? {
         chegueiAtivo: r.cheguei.ativo,
@@ -351,6 +352,18 @@ export function AjustesDoAtendimento() {
             },
           ]
         : []),
+      ...(typeof resp?.alterado?.roboCobraPix === 'boolean'
+        ? [
+            {
+              id: 'alteradoRoboPix',
+              rotulo: 'O robô cobra no Pix o item posto em pedido já pago',
+              tipo: 'chave' as const,
+              ajuda:
+                'Pedido do cardápio já pago no Pix e ainda em produção: o robô põe o item e manda ao cliente um Pix só da diferença, que vale 5 minutos. A Central recebe o aviso "segure o pedido" até o pagamento cair; pago, o item entra com a via "PEDIDO ALTERADO". Sem pagar, o pedido segue como estava. Precisa de "O robô faz mudanças simples" ligado.',
+              palavras: 'robô whatsapp pix adicional item pago diferença cobrar pagamento segurar pedido',
+            },
+          ]
+        : []),
       {
         id: 'alteradoSom',
         rotulo: 'Som do KDS no pedido alterado',
@@ -492,7 +505,7 @@ export function AjustesDoAtendimento() {
     const ajuste99: Record<string, unknown> = {};
     const cheguei: Record<string, unknown> = {};
     const repetido: Record<string, unknown> = {};
-    let alterado: { som?: string; roboMuda?: boolean } | null = null;
+    let alterado: { som?: string; roboMuda?: boolean; roboCobraPix?: boolean } | null = null;
     const ponte: {
       ligada?: boolean;
       roboResponde?: boolean;
@@ -531,6 +544,10 @@ export function AjustesDoAtendimento() {
       }
       if (k === 'alteradoRobo') {
         alterado = { ...(alterado ?? {}), roboMuda: valores[k] === true };
+        continue;
+      }
+      if (k === 'alteradoRoboPix') {
+        alterado = { ...(alterado ?? {}), roboCobraPix: valores[k] === true };
         continue;
       }
       if (DA_FILA.includes(k)) fila[k] = k === 'avisarGerenteMin' ? Number(valores[k]) : valores[k];

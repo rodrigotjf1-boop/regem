@@ -79,8 +79,10 @@ import {
   type OperacaoDoRobo,
   type PedidoFeito,
   OPCOES_DE_AJUDA,
+  OPCOES_DA_CONFERENCIA_PELO_PIX,
   TEXTO_DA_PEDIDA,
   contaDaMudanca,
+  deltaDaMudanca,
   enderecoCurto,
   lerMudanca,
   linhasDaMudanca,
@@ -92,12 +94,17 @@ import {
   opcoesDoTroco,
   r2,
   textoDaConferencia,
+  textoDaConferenciaPeloPix,
   textoDaDecisao,
   textoDaPerguntaDoTroco,
   textoDaRecusaDaGravacao,
   textoDoFeito,
+  vaiPeloPix,
   visaoDoPedidoFeito,
 } from './robo-mudanca';
+import { textoDoPix } from './adicional-pix';
+import { AdicionalPixService } from './adicional-pix.service';
+import { pagoNoPixOnline } from '../../common/prazo-estorno-pix';
 import {
   type EnderecoDoCaso,
   enderecoEmUmaLinha,
@@ -212,6 +219,8 @@ export class RoboPedidoService {
     // os testes que só montam o pedido criam o serviço sem elas (a mudança responde "indisponível").
     @Optional() private readonly delivery?: DeliveryService,
     @Optional() private readonly atendimento?: AtendimentoService,
+    // O Pix do item que o robô põe no pedido já pago (mig 373). Opcional como as duas de cima.
+    @Optional() private readonly adicionalPix?: AdicionalPixService,
   ) {}
 
   /** A loja (pela chave do número, com a senha do robô) e o cliente (pela ficha da conversa, da mesma loja). */
@@ -589,7 +598,7 @@ export class RoboPedidoService {
       .limit(2);
     const ped: any = pedidos[0];
     if (!ped) return null;
-    const [itens, alteracoes, desligado, comNota, quemAplica] = await Promise.all([
+    const [itens, alteracoes, desligado, comNota, quemAplica, cobraNoPix, pixDoAdicionalAberto] = await Promise.all([
       ped.comandaId ? this.itensDoPedidoFeito(tenantId, ped.comandaId, ped.itens) : Promise.resolve([] as ItemDoPedidoFeito[]),
       this.db
         .select({ situacao: pedidoAlteracao.situacao, createdAt: pedidoAlteracao.createdAt, mudanca: pedidoAlteracao.mudanca })
@@ -599,6 +608,9 @@ export class RoboPedidoService {
       ped.comandaId && this.delivery ? this.delivery.temNotaFiscal(this.db, tenantId, ped.comandaId) : Promise.resolve(false),
       // Quem aplicaria a mudança agora — a regra da gravação: o servidor da loja numa versão antiga recusaria.
       this.delivery ? this.delivery.quemAplicaAlteracao(tenantId, ped.unidadeId ?? null) : Promise.resolve('nuvem' as const),
+      // O Pix do item novo no pedido já pago (mig 373): o ajuste e o Pix que já está aberto.
+      this.adicionalPix ? this.cobraAdicionalNoPix(tenantId) : Promise.resolve(false),
+      this.adicionalPix ? this.temPixDoAdicionalAberto(tenantId, ped.id) : Promise.resolve(false),
     ]);
     const p: PedidoFeito = {
       id: ped.id,
@@ -610,6 +622,9 @@ export class RoboPedidoService {
       trocoPara: ped.trocoPara != null && Number(ped.trocoPara) > 0 ? r2(Number(ped.trocoPara)) : null,
       trocoPossivel: !pagoAntes(ped) && pedeTroco(ped.formaPagamento),
       pagoAntes: pagoAntes(ped),
+      pagoNoPix: pagoNoPixOnline(ped),
+      cobraNoPix,
+      pixDoAdicionalAberto,
       comNota,
       // Uma mudança de item e uma de endereço por pedido (3A e 8): cada uma pela sua parte da mudança aplicada.
       jaMudouPeloRobo: alteracoes.some((a) => a.situacao === 'aplicada' && ((a.mudanca as any)?.itens?.length ?? 0) > 0),
@@ -675,6 +690,33 @@ export class RoboPedidoService {
       return l ? l.muda_pedido === false : false;
     } catch (e: any) {
       if (e?.code === '42P01' || e?.code === '42703') return false; // banco sem a mig 363: como nasce, ligado
+      throw e;
+    }
+  }
+
+  /** "O robô cobra no Pix o item posto em pedido já pago" (mig 373; nasce DESLIGADO). Banco sem a 373: desligado. */
+  private async cobraAdicionalNoPix(tenantId: string): Promise<boolean> {
+    try {
+      const [l] = linhasDe(await this.db.execute(sql`select cobra_adicional_pix from robo_config where tenant_id = ${tenantId}::uuid`));
+      return l?.cobra_adicional_pix === true;
+    } catch (e: any) {
+      if (e?.code === '42P01' || e?.code === '42703') return false;
+      throw e;
+    }
+  }
+
+  /** Um Pix de item novo deste pedido está aberto (esperando o pagamento, ou pago e entrando)? */
+  private async temPixDoAdicionalAberto(tenantId: string, pedidoId: string): Promise<boolean> {
+    try {
+      const r = linhasDe(
+        await this.db.execute(sql`
+          select 1 from pedido_adicional_pix
+           where tenant_id = ${tenantId}::uuid and pedido_id = ${pedidoId}::uuid and situacao in ('aguardando', 'pago', 'pedido_a_loja')
+           limit 1`),
+      );
+      return r.length > 0;
+    } catch (e: any) {
+      if (e?.code === '42P01') return false;
       throw e;
     }
   }
@@ -904,6 +946,7 @@ export class RoboPedidoService {
    */
   private async seguirMudanca(ctx: Contexto, f: { p: PedidoFeito; ped: any }, m: MudancaDoRobo, o: { perguntarTroco?: boolean; nova?: boolean } = {}) {
     const { p, ped } = f;
+    if (vaiPeloPix(p, m.op)) return this.conferenciaPeloPix(ctx, f, m, o);
     const semTroco = contaDaMudanca(ped, m.op, null);
     if (!semTroco.ok) return this.naoMuda(textoDaRecusaDaGravacao(p.numero, semTroco.code));
     const conta = contaDaMudanca(ped, m.op, m.trocoPara);
@@ -960,6 +1003,108 @@ export class RoboPedidoService {
         };
   }
 
+  /**
+   * A conferência da mudança no pedido JÁ PAGO no Pix (mig 373): as linhas, o total de antes → depois (pela MESMA conta da
+   * gravação com a diferença paga — V74) e o aviso do Pix de 5 minutos, com "Mandar o Pix | Deixar como estava". Sem troco.
+   */
+  private async conferenciaPeloPix(ctx: Contexto, f: { p: PedidoFeito; ped: any }, m: MudancaDoRobo, o: { nova?: boolean }) {
+    const { p, ped } = f;
+    const conta = contaDaMudanca(ped, m.op, null, { peloPix: true });
+    if (!conta.ok) return this.naoMuda(textoDaRecusaDaGravacao(p.numero, conta.code));
+    const texto = textoDaConferenciaPeloPix(p.numero, m.op, p.total, conta.total);
+    const opcoes = OPCOES_DA_CONFERENCIA_PELO_PIX;
+    const proximo: Falta = {
+      campo: 'confirmar_mudanca',
+      pergunta:
+        'A CONFERÊNCIA DA MUDANÇA (COM O VALOR DO PIX) JÁ FOI ENVIADA ao cliente pelo Regem, com os botões. Não repita a mudança nem ponha OPCOES: responda só algo curto, como "Confere aí 👆".',
+      opcoes,
+      comoResponder: '"Mandar o Pix": mexer_no_pedido com acao = confirmar_mudanca; "Deixar como estava": acao = desistir_da_mudanca.',
+    };
+    const gravou = await this.gravarMudanca(ctx, { ...m, aguardaTroco: false, conferida: true }, (atual) =>
+      o.nova ? !(atual?.situacao === 'pedida' && !atual.avisada) : !!atual && atual.id === m.id && !atual.situacao,
+    );
+    if (!gravou)
+      return this.naoMuda(
+        o.nova
+          ? { motivo: 'uma_por_vez', mensagem: `A mudança anterior do ${noPedido(p.numero)} ainda está com a loja: a confirmação chega aqui em instantes.`, chamaEquipe: false }
+          : { motivo: 'mudanca_mudou', mensagem: 'A mudança mudou enquanto o cliente respondia: pergunte de novo o que ele quer mudar.', chamaEquipe: false },
+      );
+    const enviado = await this.enviarAoCliente(ctx, texto, opcoes);
+    return enviado
+      ? { ok: true, feito: 'conferência da mudança (com o Pix da diferença) enviada', proximo }
+      : {
+          ok: true,
+          feito: 'conferência da mudança (com o Pix da diferença) pronta (não saiu por aqui)',
+          proximo: { ...proximo, pergunta: `Mande ao cliente o texto de mensagemParaOCliente exatamente como veio, terminando com OPCOES: ${opcoes.join(' | ')}` },
+          mensagemParaOCliente: texto,
+        };
+  }
+
+  /**
+   * "Mandar o Pix" (mig 373): gera o Pix da diferença (`AdicionalPixService.gerar` — pelo gateway que recebeu o pedido, 5
+   * minutos) e manda ao cliente o aviso e o código copia-e-cola SOZINHO na mensagem seguinte. A mudança só entra quando o
+   * pagamento cair (a rotina do Pix aplica pela MESMA alteração e avisa o cliente); a Central recebe o alerta "segure o
+   * pedido". O Pix não saiu: a mudança fecha e a equipe é oferecida.
+   */
+  private async mandarPixDoAdicional(ctx: Contexto, f: { p: PedidoFeito; ped: any }, m: MudancaDoRobo) {
+    if (!this.adicionalPix)
+      return this.naoMuda({ motivo: 'indisponivel', mensagem: 'O Pix do item novo não está disponível agora.', chamaEquipe: true });
+    const conta = contaDaMudanca(f.ped, m.op, null, { peloPix: true });
+    if (!conta.ok) {
+      await this.gravarMudanca(ctx, null, (a) => a?.id === m.id && !a.situacao);
+      return this.naoMuda(textoDaRecusaDaGravacao(f.p.numero, conta.code));
+    }
+    const via = (ctx.cfg.provedor ?? 'evolution') === 'cloud' ? 'cloud' : 'evolution';
+    let pix: Awaited<ReturnType<AdicionalPixService['gerar']>>;
+    try {
+      pix = await this.adicionalPix.gerar({
+        tenantId: ctx.cfg.tenantId,
+        unidadeId: f.ped.unidadeId ?? null,
+        pedidoId: f.p.id,
+        telefone: ctx.conversa.telefone,
+        via,
+        nome: f.ped.clienteNome ?? null,
+        mudanca: { ...m, via },
+        valor: deltaDaMudanca(m.op),
+        gatewayDoPedido: f.ped.gatewayProvider ?? null,
+      });
+    } catch (e: any) {
+      this.logger.warn(`Pix do item novo do pedido ${m.pedidoId}: não saiu — ${e?.message ?? e}`);
+      await this.gravarMudanca(ctx, null, (a) => a?.id === m.id && !a.situacao);
+      const code = e instanceof HttpException ? (e.getResponse() as any)?.code : null;
+      if (code === 'ADICIONAL_ABERTO')
+        return this.naoMuda({
+          motivo: 'pix_aberto',
+          mensagem: `O Pix do item novo do ${noPedido(m.numero)} está esperando o pagamento: assim que cair, o item entra no pedido.`,
+          chamaEquipe: false,
+        });
+      return this.naoMuda({ motivo: 'pix_falhou', mensagem: `Não consegui gerar o Pix do item novo do ${noPedido(m.numero)} agora.`, chamaEquipe: true });
+    }
+    await this.gravarMudanca(ctx, { ...m, via, situacao: 'pix', avisada: true }, (a) => a?.id === m.id);
+    const texto = textoDoPix(m.numero, pix.descricao, pix.valor);
+    const pausado = await estadoDaPausa(this.db, ctx.cfg.tenantId, ctx.conversa.telefone)
+      .then((x) => x.pausado)
+      .catch(() => false);
+    let enviado = false;
+    if (!pausado) {
+      try {
+        await this.adicionalPix.enviarCodigo(ctx.cfg.tenantId, ctx.conversa.telefone, via, texto, pix.copiaECola);
+        enviado = true;
+      } catch (e: any) {
+        this.logger.warn(`Pix do item novo do pedido ${m.pedidoId}: a mensagem não saiu (o robô manda) — ${e?.message ?? e}`);
+      }
+    }
+    const feito = `Pix de ${reais(pix.valor)} do item novo enviado: quando o pagamento cair, o Regem põe o item no pedido e avisa o cliente`;
+    return enviado
+      ? { ok: true, feito, orientacao: 'O Regem JÁ MANDOU o Pix (o aviso e o código) ao cliente. Não repita o código: responda só algo curto, como "É só pagar por aí 👆".' }
+      : {
+          ok: true,
+          feito: `${feito} (a mensagem não saiu por aqui)`,
+          mensagemParaOCliente: `${texto}\n\n${pix.copiaECola}`,
+          orientacao: 'Mande ao cliente o texto de mensagemParaOCliente exatamente como veio — o código Pix inteiro, sem mudar nada.',
+        };
+  }
+
   /** O troco da mudança: o valor dito ("100", "não preciso") — ou, sem valor, a pergunta do troco ("Mudar o troco"). */
   private async trocoDaMudanca(ctx: Contexto, dito: string) {
     const m = lerMudanca((await this.carrinhoAberto(ctx))?.mudanca);
@@ -994,6 +1139,20 @@ export class RoboPedidoService {
       return this.naoMuda({ motivo: 'indisponivel', mensagem: 'A mudança do pedido não está disponível agora.', chamaEquipe: true });
     const m = lerMudanca((await this.carrinhoAberto(ctx))?.mudanca);
     if (!m) return recusa('sem_mudanca', 'Não há mudança esperando o "Pode alterar": pergunte o que o cliente quer mudar no pedido.');
+    if (m.situacao === 'pix')
+      return {
+        ok: true,
+        feito: 'o Pix do item novo já foi mandado: o item entra quando o pagamento cair',
+        jaFeita: true,
+        orientacao: 'Diga só que, assim que o Pix for pago, o item entra no pedido e o Regem avisa aqui.',
+      };
+    if (m.situacao === 'recusada')
+      return {
+        ok: true,
+        feito: 'esta mudança não entrou no pedido (o cliente já foi avisado)',
+        jaFeita: true,
+        orientacao: 'Diga só que essa mudança não entrou e pergunte se ele quer outra coisa.',
+      };
     if (m.situacao)
       return {
         ok: true,
@@ -1016,6 +1175,8 @@ export class RoboPedidoService {
       await this.gravarMudanca(ctx, null, (a) => a?.id === m.id && !a.situacao);
       return this.naoMuda(motivo);
     }
+    // O pedido já pago no Pix (mig 373): o "Mandar o Pix" gera o Pix da diferença — a mudança entra quando ele for pago.
+    if (vaiPeloPix(f.p, m.op)) return this.mandarPixDoAdicional(ctx, f, m);
     const op = m.op;
     const dto = {
       idAlteracao: m.id,

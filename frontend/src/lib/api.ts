@@ -1256,7 +1256,8 @@ export const api = {
     ajuste99?: Record<string, unknown>;
     cheguei?: Record<string, unknown>;
     repetido?: Record<string, unknown>; // pedido igual em até 30 min (mig 360)
-    alterado?: { som?: string; roboMuda?: boolean }; // o som do KDS (mig 362) e "O robô faz mudanças simples" (mig 363)
+    // o som do KDS (mig 362), "O robô faz mudanças simples" (mig 363) e "O robô cobra no Pix o item posto…" (mig 373)
+    alterado?: { som?: string; roboMuda?: boolean; roboCobraPix?: boolean };
   }) =>
     req('/atendimento/ajustes', { method: 'PUT', body: JSON.stringify(body) }),
   // O chat oficial do iFood (PR 5): o widget da distribuição e as lojas do iFood da empresa (ou `disponivel: false`).

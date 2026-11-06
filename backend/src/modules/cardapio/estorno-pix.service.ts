@@ -45,7 +45,11 @@ export class EstornoPixService {
     const r = this.linhas(
       await this.db.execute(sql`
         insert into pedido_estorno (tenant_id, pedido_id, provedor, valor)
-        select pe.tenant_id, pe.id, pe.gateway_provider, pe.total
+        -- O valor do pagamento do PEDIDO: o total menos o item posto depois pelo Pix do adicional (mig 373), que tem o
+        -- pagamento (e o estorno) dele (adicional-pix.service.ts).
+        select pe.tenant_id, pe.id, pe.gateway_provider,
+               pe.total - coalesce((select sum(a.valor) from pedido_adicional_pix a
+                                     where a.pedido_id = pe.id and a.aplicado_em is not null), 0)
           from pedido_externo pe
          where pe.status = 'cancelado' and pe.pago and pe.status_pagamento = 'aprovado' and pe.gateway_payment_id is not null
            and pe.cancelado_em > now() - make_interval(days => ${JANELA_DIAS})

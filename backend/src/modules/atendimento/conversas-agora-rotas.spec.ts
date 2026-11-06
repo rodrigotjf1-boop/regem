@@ -25,8 +25,9 @@ describe('as rotas das Conversas agora', () => {
     for (const nome of ['conversasAgora', 'assumirConversa']) expect(Reflect.getMetadata(CLOUD_ONLY, rota(nome))).toBeUndefined();
   });
 
-  it('a fila do servidor da loja leva a faixa da ponte guardada (sem esperar a nuvem); a da nuvem lê a situação', async () => {
+  it('a fila do servidor da loja leva a faixa da ponte e o alerta do Pix guardados (sem esperar a nuvem); a da nuvem lê os dois', async () => {
     const situacao = { ligada: true, pontes: 1, canais: {}, ultimaMensagemEm: null };
+    const alerta = [{ id: 'a1', pedidoId: 'p1', numero: '57', descricao: '1x Coca lata', valor: 6, situacao: 'aguardando', expiraEm: 'x', texto: 'Segure' }];
     const lidas: string[] = [];
     const ctrl = new AtendimentoController(
       { fila: async () => ({ casos: [], contagens: null }) } as any,
@@ -38,16 +39,25 @@ describe('as rotas das Conversas agora', () => {
       {} as any,
       {} as any,
       { situacao: async () => (lidas.push('nuvem'), situacao) } as any,
-      { ponteDaNuvem: (t: string, u: string | null) => (lidas.push(`loja:${t}:${u}`), situacao) } as any,
+      {
+        ponteDaNuvem: (t: string, u: string | null) => (lidas.push(`loja:${t}:${u}`), situacao),
+        // O alerta "segure o pedido" do Pix do adicional (mig 373): no servidor da loja, o guardado; na nuvem, a tabela.
+        adicionaisDaNuvem: (t: string, u: string | null) => (lidas.push(`pix-loja:${t}:${u}`), alerta),
+        adicionaisDaEmpresa: async (t: string, u: string | null) => (lidas.push(`pix-nuvem:${t}:${u}`), alerta),
+      } as any,
     );
     const user = { tenantId: 'T1', colaboradorId: 'C1', categoria: 'gerente' } as any;
     const antes = process.env.EDGE_MODE;
     try {
       process.env.EDGE_MODE = 'true';
-      expect((await ctrl.fila(user, 'U1')).ponte).toEqual(situacao);
+      const daLoja = await ctrl.fila(user, 'U1');
+      expect(daLoja.ponte).toEqual(situacao);
+      expect(daLoja.adicionaisPix).toEqual(alerta);
       delete process.env.EDGE_MODE;
-      expect((await ctrl.fila(user, 'U1')).ponte).toEqual(situacao);
-      expect(lidas).toEqual(['loja:T1:U1', 'nuvem']);
+      const daNuvem = await ctrl.fila(user, 'U1');
+      expect(daNuvem.ponte).toEqual(situacao);
+      expect(daNuvem.adicionaisPix).toEqual(alerta);
+      expect(lidas).toEqual(['loja:T1:U1', 'pix-loja:T1:U1', 'nuvem', 'pix-nuvem:T1:U1']);
     } finally {
       if (antes === undefined) delete process.env.EDGE_MODE;
       else process.env.EDGE_MODE = antes;
@@ -55,7 +65,7 @@ describe('as rotas das Conversas agora', () => {
   });
 
   it('as rotas da loja: só na nuvem e só com o token do servidor', () => {
-    for (const nome of ['ponteDaLoja', 'conversasDaLoja', 'assumirDaLoja']) {
+    for (const nome of ['ponteDaLoja', 'adicionaisPixDaLoja', 'conversasDaLoja', 'assumirDaLoja']) {
       expect(Reflect.getMetadata(CLOUD_ONLY, daLoja(nome))).toBe(true);
       expect(Reflect.getMetadata(GUARDS_METADATA, daLoja(nome))).toContain(SyncTokenGuard);
     }

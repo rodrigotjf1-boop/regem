@@ -10,10 +10,14 @@ import {
   linhasDaMudanca,
   motivoDoEnderecoDepoisQueSaiu,
   motivoParaNaoMudar,
+  OPCOES_DA_CONFERENCIA_PELO_PIX,
   opcoesDaConferencia,
   opcoesDoTroco,
   ordemDoPedido,
+  podePorPeloPix,
   textoDaConferencia,
+  textoDaConferenciaPeloPix,
+  vaiPeloPix,
   textoDaDecisao,
   textoDaPerguntaDoTroco,
   textoDaRecusaDaGravacao,
@@ -35,6 +39,9 @@ const pedido = (o: Partial<PedidoFeito> = {}): PedidoFeito => ({
   trocoPara: 50,
   trocoPossivel: true,
   pagoAntes: false,
+  pagoNoPix: false,
+  cobraNoPix: false,
+  pixDoAdicionalAberto: false,
   comNota: false,
   jaMudouPeloRobo: false,
   jaMudouEnderecoPeloRobo: false,
@@ -136,6 +143,64 @@ describe('quando o robô muda o pedido', () => {
     expect(motivoParaNaoMudar(pedido(), { tipo: 'trocar', sai: tirarCoca.sai, entra: entra() })?.mensagem).toContain('não dá para trocar');
     expect(motivoParaNaoMudar(pedido(), por)).toBeNull();
     expect(motivoParaNaoMudar(pedido(), trocarXBacon)).toBeNull();
+  });
+});
+
+// O Pix do item novo (mig 373): pôr item no pedido pago no Pix do cardápio, com o ajuste ligado — o robô cobra a diferença.
+describe('pôr item no pedido já pago no Pix', () => {
+  const pagoNoPix = (o: Partial<PedidoFeito> = {}) => pedido({ pagoAntes: true, pagoNoPix: true, cobraNoPix: true, trocoPossivel: false, trocoPara: null, ...o });
+
+  it('com o ajuste ligado, PÔR passa (a conferência traz o Pix); tirar, trocar e o endereço continuam com a equipe', () => {
+    expect(motivoParaNaoMudar(pagoNoPix())).toBeNull(); // o ver_pedido: dá para pôr
+    expect(motivoParaNaoMudar(pagoNoPix(), por)).toBeNull();
+    expect(vaiPeloPix(pagoNoPix(), por)).toBe(true);
+    expect(motivoParaNaoMudar(pagoNoPix(), tirarCoca)).toMatchObject({ motivo: 'pago', chamaEquipe: true });
+    expect(motivoParaNaoMudar(pagoNoPix(), trocarXBacon)).toMatchObject({ motivo: 'pago', chamaEquipe: true });
+    expect(motivoParaNaoMudar(pagoNoPix(), paraOJardim)).toMatchObject({ motivo: 'pago' });
+    expect(motivoParaNaoMudar(pagoNoPix(), null, 'endereco')).toMatchObject({ motivo: 'pago' });
+  });
+
+  it('sem o ajuste, pago fora do Pix do cardápio ou com nota: a equipe, como antes', () => {
+    expect(motivoParaNaoMudar(pagoNoPix({ cobraNoPix: false }), por)).toMatchObject({ motivo: 'pago' });
+    expect(motivoParaNaoMudar(pagoNoPix({ pagoNoPix: false }), por)).toMatchObject({ motivo: 'pago' });
+    expect(motivoParaNaoMudar(pagoNoPix({ comNota: true }), por)).toMatchObject({ motivo: 'nota' });
+    expect(podePorPeloPix(pagoNoPix({ pagoAntes: false }), 'itens', por)).toBe(false); // pago na entrega: o caminho de sempre
+  });
+
+  it('um Pix de item novo aberto: espera ele (sem chamar a equipe); item de valor zero entra sem Pix', () => {
+    expect(motivoParaNaoMudar(pagoNoPix({ pixDoAdicionalAberto: true }), por)).toEqual({
+      motivo: 'pix_aberto',
+      mensagem: 'O Pix do item novo do pedido nº 57 está esperando o pagamento: assim que cair, o item entra no pedido.',
+      chamaEquipe: false,
+    });
+    expect(vaiPeloPix(pagoNoPix(), { tipo: 'por', entra: entra({ precoUnitario: 0 }) })).toBe(false);
+  });
+
+  it('a conta é a da gravação com a diferença paga; a conferência traz o Pix e os botões', () => {
+    const pago = linha({ pago: true, statusPagamento: 'aprovado', pagamentos: null, trocoPara: null });
+    expect(contaDaMudanca(pago, por)).toMatchObject({ ok: false, code: 'PAGO_ONLINE' });
+    expect(contaDaMudanca(pago, por, null, { peloPix: true })).toEqual({ ok: true, total: 59, aReceber: 0, troco: null });
+    expect(textoDaConferenciaPeloPix('57', por, 45, 59)).toBe(
+      [
+        'Mudança no pedido nº 57',
+        '➕ 1 Batata — R$ 14,00',
+        'Total: R$ 45,00 → R$ 59,00',
+        '',
+        'Este pedido já foi pago no Pix. Para pôr o item, eu te mando um Pix de R$ 14,00.',
+        'Ele vale 5 minutos: se não for pago a tempo, o código expira e o pedido pode sair sem o item.',
+        '',
+        'Mando o Pix? 👇',
+      ].join('\n'),
+    );
+    expect(OPCOES_DA_CONFERENCIA_PELO_PIX).toEqual(['Mandar o Pix', 'Deixar como estava']);
+    for (const o of OPCOES_DA_CONFERENCIA_PELO_PIX) expect(o.length).toBeLessThanOrEqual(20); // o limite do botão do WhatsApp
+  });
+
+  it('o ver_pedido diz que só dá para pôr, e que o Pix de um item novo está esperando', () => {
+    const v: any = visaoDoPedidoFeito(pagoNoPix(), 'em produção', null);
+    expect(v).toMatchObject({ podeMudar: true, soPor: true });
+    expect(v.comoMudar).toMatch(/dá só para PÔR item/);
+    expect(visaoDoPedidoFeito(pagoNoPix({ pixDoAdicionalAberto: true }), 'em produção', null)).toMatchObject({ podeMudar: false, motivo: 'pix_aberto', pixDoItemNovo: expect.any(String) });
   });
 });
 

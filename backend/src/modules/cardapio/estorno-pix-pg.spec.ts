@@ -57,19 +57,22 @@ descrever('estorno do Pix no cancelamento (Postgres)', () => {
 
   beforeAll(async () => {
     delete process.env.EDGE_MODE; // como NUVEM
-    await repetirNaCorridaDeCatalogo(async () => {
-      const c = await pool.connect();
-      try {
-        await c.query('begin');
-        await c.query(comTravaDaEmpresa(readFileSync(MIG('372_pedido_estorno.sql'), 'utf8')));
-        await c.query('commit');
-      } catch (e) {
-        await c.query('rollback').catch(() => {});
-        throw e;
-      } finally {
-        c.release();
-      }
-    });
+    // A 372 e a 373 (o valor do estorno desconta o Pix do item novo — `pedido_adicional_pix`; a 373 mexe no ajuste do robô,
+    // que nasce na 342): só da nuvem, o banco do CI é o de uma loja (ERR-273).
+    for (const arq of ['342_robo_pausa_e_config.sql', '372_pedido_estorno.sql', '373_pedido_adicional_pix.sql'])
+      await repetirNaCorridaDeCatalogo(async () => {
+        const c = await pool.connect();
+        try {
+          await c.query('begin');
+          await c.query(comTravaDaEmpresa(readFileSync(MIG(arq), 'utf8')));
+          await c.query('commit');
+        } catch (e) {
+          await c.query('rollback').catch(() => {});
+          throw e;
+        } finally {
+          c.release();
+        }
+      });
     await q(`insert into empresa (id, nome) values ($1, 'teste estorno pix')`, [T]);
     [{ id: loja }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja A') returning id`, [T]);
   });
