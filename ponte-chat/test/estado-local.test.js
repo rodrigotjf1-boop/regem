@@ -33,7 +33,7 @@ test('respondendo: selo "responde o chat", sem faixa, botão de pausar; o resumo
   assert.equal(par(v, 'Mensagens'), '3 levadas ao Regem desde que o programa abriu');
   assert.equal(par(v, 'Fila de saída'), 'livre · 2 enviadas por este PC');
   assert.deepEqual(botoes(v), ['Abrir o iFood', 'Abrir a 99', 'Pausar a ponte neste PC', 'Abrir o Atendimento']);
-  assert.deepEqual(Object.keys(r).sort(), ['abrir', 'atualizadoEm', 'ifood', 'lidas', 'ligada', 'maquina', 'n99', 'nome', 'nuvem', 'papel', 'pareada', 'pausadaEm', 'saida', 'soObservar', 'ultimoAviso', 'versao'].sort());
+  assert.deepEqual(Object.keys(r).sort(), ['abrir', 'atualizadoEm', 'ifood', 'lidas', 'ligada', 'maquina', 'n99', 'nome', 'nuvem', 'papel', 'pareada', 'pausadaEm', 'saida', 'saida99', 'soObservar', 'ultimoAviso', 'versao'].sort());
   assert.equal(r.atualizadoEm, '2026-11-05T17:40:00.000Z');
 });
 
@@ -81,7 +81,7 @@ test('a 99 (4a): não lida, sem login (faixa com o usuário EXTRA) e lendo; o bo
   assert.equal(semLogin.faixa.acao, 'abrir-99');
   assert.match(semLogin.faixa.texto, /USUÁRIO EXTRA da loja/);
   assert.equal(par(semLogin, '99Food'), 'sem login — entre com o usuário extra da loja');
-  assert.deepEqual(botoes(semLogin), ['Abrir o iFood', 'Abrir a 99', 'Parar de ler a 99 neste PC', 'Pausar a ponte neste PC', 'Abrir o Atendimento']);
+  assert.deepEqual(botoes(semLogin), ['Abrir o iFood', 'Abrir a 99', 'Responder pela 99 neste PC', 'Parar de ler a 99 neste PC', 'Pausar a ponte neste PC', 'Abrir o Atendimento']);
   const lendo = local.paraAJanela(base({ logadoNa99: true }, { usar99: true }));
   assert.equal(lendo.faixa, null);
   assert.match(par(lendo, '99Food'), /só LÊ o chat .*responda pelo portal da 99/);
@@ -92,6 +92,19 @@ test('a 99 (4a): não lida, sem login (faixa com o usuário EXTRA) e lendo; o bo
   assert.match(par(local.paraAJanela(antigo), '99Food'), /^não é lida/);
   // o modo só observar não oferece a 99
   assert.ok(!botoes(local.paraAJanela(base({}, { soObservar: true }))).includes('Abrir a 99'));
+});
+
+test('a 99 respondendo (4b): a linha diz que lê e responde (com o papel), a fila da 99 aparece e o botão vira "Só ler"', () => {
+  const r = local.paraAJanela(base({ logadoNa99: true, papel99: 'responde' }, { usar99: true, responder99: true, saida99: { situacao: 'em dia', enviadas: 2 } }));
+  assert.equal(par(r, '99Food'), 'logada · lê e RESPONDE o chat · este PC responde o chat');
+  assert.equal(par(r, 'Fila de saída da 99'), 'em dia · 2 enviadas por este PC');
+  assert.ok(botoes(r).includes('Só ler a 99 (parar de responder)') && !botoes(r).includes('Responder pela 99 neste PC'));
+  // pausada: sem o papel; não pareada: sem o botão de responder
+  assert.equal(par(local.paraAJanela(base({ logadoNa99: true, papel99: 'responde' }, { usar99: true, responder99: true, pausadaEm: new Date().toISOString() })), '99Food'), 'logada · lê e RESPONDE o chat');
+  assert.ok(!botoes(local.paraAJanela(base({}, { usar99: true, pareada: false }))).includes('Responder pela 99 neste PC'));
+  // os nomes que a janela mostra são os do menu do ícone
+  const main = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
+  assert.ok(main.includes("label: 'Responder pela 99 neste PC'"));
 });
 
 test('o arquivo do ícone do Regem: gravado de uma vez, no nome combinado; o endereço do Atendimento', () => {

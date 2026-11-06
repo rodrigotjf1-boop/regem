@@ -95,9 +95,29 @@ class Configuracao {
   marcarUsar99(sim) {
     const cfg = this.ler();
     if (sim) cfg.usar99 = true;
-    else delete cfg.usar99;
+    else {
+      delete cfg.usar99;
+      delete cfg.responder99; // sem ler a 99, também não responde por ela
+    }
     this.gravar(cfg);
     return !!sim;
+  }
+
+  /**
+   * Este PC RESPONDE pela 99? (4b: envia pela 99 os avisos, o robô e a equipe, como no iFood.) Nasce desligado — quem liga
+   * é a pessoa da loja ("Responder pela 99 neste PC"); só vale com a 99 lida neste PC.
+   */
+  responder99() {
+    const cfg = this.ler();
+    return cfg.usar99 === true && cfg.responder99 === true;
+  }
+
+  marcarResponder99(sim) {
+    const cfg = this.ler();
+    if (sim && cfg.usar99 === true) cfg.responder99 = true;
+    else delete cfg.responder99;
+    this.gravar(cfg);
+    return cfg.responder99 === true;
   }
 
   /** Pausa (guarda a hora, só se ainda não estava) ou retoma. Devolve a hora da pausa (ou null). */

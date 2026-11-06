@@ -15,6 +15,11 @@
 - **iFood pelo Orzuni — "Último envio ao iFood" na tela (R2b; 06/11; sem migration, sem `edge/`).** Na nuvem, no ar com o
   merge. **No `.zip` 1.30.13:** a tela do servidor da loja passa a mostrar a lista, que o servidor pede à nuvem
   (`/orzuni/loja/envios`, token de sync); sem o `.zip`, a tela da loja nem tem a seção (e o direito só liga com a 1.30.13).
+- **Ponte do chat 0.7.0 — a ponte ENVIA pela 99 (Etapa 4b; 06/11; sem migration, sem mudança na nuvem).** Só o programa
+  `ponte-chat/` (ainda sem instalador — gerar sob comando): "Responder pela 99 neste PC" (nasce desligado) e o envio
+  automático pela 99 — busca o pedido, abre a conversa com clique de mouse, confere o número duas vezes, aperta o
+  "Enviar" da conversa (nunca o "Cheguei" do resumo) e confirma pela resposta da 99; devolve a tela como estava. Nada muda
+  no `.zip`/`.exe` do Regem.
 
 - **iFood pelo Orzuni — o envio (R2a; 06/11; mig 370 `@cloud-only`).** Tudo na NUVEM (fila, gatilhos, despacho, console):
   a edição feita na loja chega pela sincronização e sai de lá — **a loja não precisa do `.zip` para o envio**. No `.zip`/

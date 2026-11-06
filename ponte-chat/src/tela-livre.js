@@ -11,7 +11,8 @@ const INSTALAR_VIGIA = `(() => {
     window.__ponteVigia = true;
     window.__ponteAcaoEm = 0;
     window.__ponteVigiaDesde = Date.now(); // o que houve antes do vigia ninguém viu: conta como "mexeram agora"
-    const marcar = (e) => { if (e.isTrusted) window.__ponteAcaoEm = Date.now(); };
+    // o clique de MOUSE do próprio programa (a 99 só abre o chat com clique de verdade — 4b) avisa antes: não é gente
+    const marcar = (e) => { if (e.isTrusted && !(window.__ponteCliqueAte > Date.now())) window.__ponteAcaoEm = Date.now(); };
     for (const t of ['keydown', 'mousedown', 'pointerdown', 'wheel', 'touchstart']) window.addEventListener(t, marcar, true);
   }
   return true;

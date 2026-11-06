@@ -124,6 +124,32 @@ a 1ª mensagem que a EQUIPE digita no Gestor numa conversa nova tem a mesma cara
 loja); conferir que a fala mandada pela 99 do PC da loja (o outro usuário) chega com o `uid` da loja; o ícone "Regem neste
 PC" ainda mostra só o iFood (pede `.exe`).
 
+## O que a versão 0.7 soma (Etapa 4b — a ponte ENVIA pela 99)
+
+- **"Responder pela 99 neste PC"** (menu do ícone, caixinha, e a janela do estado; nasce DESLIGADO, só com a 99 lida
+  neste PC; ligar pergunta antes): o sinal passa a dizer `99food: { logado: true }` e a nuvem põe este PC para enviar
+  pela 99 os avisos ("saiu", "chegando"), o robô (se ligado) e as respostas da equipe pelo Atendimento — como no iFood.
+  Desligar ("Só ler a 99") volta a "lendo". "Parar de ler a 99 neste PC" desliga os dois.
+- **O envio** (`src/envio-99.js`, mapeado em 06/11 no portal de verdade, só leitura): busca o pedido pelo número
+  (`Nº pedido/índice do pedido` + Enter — a 99 mostra só ele, com o resumo aberto, de qualquer aba; "nada encontrado" =
+  falha DEFINITIVA, não gasta as 3 tentativas); confere o número no resumo; clica no balão do chat com clique de MOUSE de
+  verdade pelo depurador (`Input.dispatchMouseEvent` — o `click()` no elemento não abre; sem mexer no mouse do PC), de novo
+  UMA vez se nada abrir; confere o número da conversa (`.im-order-id`); espera o campo (até 45 s — a conversa levou 30 s
+  para carregar com a loja fechada); escreve pelo setter; aperta o "Enviar" DA GAVETA (`button.im-chat-window-edit-btn`,
+  texto exato — o rodapé do resumo tem um "Cheguei" com a mesma cara: nunca); confirma pela resposta da 99 ao envio
+  (`/im/broker/` op 3, o `uniq_msg_id`) ou pelo eco no polling. Depois devolve a tela: fecha a conversa (voltar), limpa a
+  busca e volta à aba que estava.
+- **A tela livre na 99:** só com o portal na lista de pedidos, nenhuma conversa aberta, nada escrito, a busca vazia e
+  ninguém mexendo há 10 s. O clique do próprio programa avisa o vigia antes (`window.__ponteCliqueAte`): é "de verdade"
+  e, sem o aviso, o programa se acharia uma pessoa mexendo.
+- **A fila de saída da 99** é o mesmo trabalhador do iFood (`saida.js`, canal `99food`): "já está no chat?" pela memória
+  do leitor (a fala da loja com o texto exato, na conversa cuja sessão ↔ pedido o portal abriu), "apertei" no diário antes
+  do clique, "incerto" sem confirmação (definitivo).
+
+**Pendências (teste real):** o 1º envio de verdade pela 99 (ligar "Responder pela 99 neste PC" e olhar o 1º aviso de um
+pedido da 99 de entrega própria); o envio com a janela da 99 escondida (o clique pelo depurador precisa da página pintada —
+se não der, a janela precisa ficar aberta, atrás das outras).
+
 ## Rodar (desenvolvimento)
 
 ```bash
@@ -153,6 +179,7 @@ percebe e se reabre sem ela.
 | `REGEM_PONTE_99_IM`, `REGEM_PONTE_99_BROKER` | o padrão do endereço do polling e do broker do IM (padrão: `lion.didiglobal.com/im/…`) |
 | `REGEM_PONTE_ABRIR_99=1` | abre a 99 sem a pergunta (a prova não pilota o diálogo do Windows) |
 | `REGEM_PONTE_99_LOGADA_MS` | quanto tempo sem polling conta como "sem login na 99" (padrão: 5 min) |
+| `REGEM_PONTE_RESPONDER_99=1` | liga "Responder pela 99 neste PC" sem a pergunta (a prova) |
 
 ## Onde guarda (neste PC)
 

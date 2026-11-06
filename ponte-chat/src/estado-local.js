@@ -60,10 +60,11 @@ function resumo(e, o = {}) {
     papel: e.papel || 'fora',
     nuvem: e.nuvem || 'aguardando',
     ifood: { logado: !!e.logadoNoIfood },
-    // a 99 (4a): lida neste PC? logada? (nesta versão só LÊ — responder é pelo portal da 99)
-    n99: { usar: !!o.usar99, logado: !!e.logadoNa99 },
+    // a 99: lida neste PC? logada? responde por ela (4b — "Responder pela 99 neste PC") e o papel de agora
+    n99: { usar: !!o.usar99, logado: !!e.logadoNa99, responder: !!o.responder99, papel: e.papel99 || 'fora' },
     lidas: Number(e.enviadas) || 0,
     saida: o.saida ? { situacao: String(o.saida.situacao || ''), enviadas: Number(o.saida.enviadas) || 0 } : null,
+    saida99: o.saida99 ? { situacao: String(o.saida99.situacao || ''), enviadas: Number(o.saida99.enviadas) || 0 } : null,
     ultimoAviso: e.ultimoErro || null,
     // para o ícone do Regem abrir/pausar/retomar ESTE programa (o caminho do executável e, no modo de teste, a pasta)
     abrir: o.abrir || null,
@@ -72,7 +73,7 @@ function resumo(e, o = {}) {
 }
 
 /** A 99 do resumo (um resumo antigo, gravado antes da 4a, não tem). */
-const n99 = (r) => (r && r.n99 && typeof r.n99 === 'object' ? r.n99 : { usar: false, logado: false });
+const n99 = (r) => (r && r.n99 && typeof r.n99 === 'object' ? r.n99 : { usar: false, logado: false, responder: false, papel: 'fora' });
 
 /** O selo do topo da janela: a palavra e o tom (ok | aviso | neutro). */
 function selo(r) {
@@ -121,11 +122,14 @@ function paraAJanela(r) {
   const ifood = r.ifood.logado
     ? `logado${r.ligada && !r.pausadaEm ? (r.papel === 'responde' ? ' · este PC responde o chat' : r.papel === 'reserva' ? ' · reserva (assume se a outra parar)' : '') : ''}`
     : 'sem login';
+  const papel99 = n99(r).papel === 'responde' ? ' · este PC responde o chat' : n99(r).papel === 'reserva' ? ' · reserva' : '';
   const da99 = !n99(r).usar
     ? 'não é lida neste PC (para ler o chat dela: Abrir a 99, com o usuário extra da loja)'
-    : n99(r).logado
-      ? 'logada · só LÊ o chat (as mensagens entram no Atendimento; responda pelo portal da 99)'
-      : 'sem login — entre com o usuário extra da loja';
+    : !n99(r).logado
+      ? 'sem login — entre com o usuário extra da loja'
+      : n99(r).responder
+        ? `logada · lê e RESPONDE o chat${r.ligada && !r.pausadaEm ? papel99 : ''}`
+        : 'logada · só LÊ o chat (as mensagens entram no Atendimento; responda pelo portal da 99 — ou ligue "Responder pela 99 neste PC")';
   const pares = [
     ['Regem', r.soObservar ? 'não fala com a nuvem (só observando)' : !r.pareada ? 'falta parear' : `${NUVEM[r.nuvem] || r.nuvem}${r.nuvem === 'ok' && r.nome ? ` · ${r.nome}` : ''}`],
     ['iFood', ifood],
@@ -133,10 +137,14 @@ function paraAJanela(r) {
     ['Mensagens', `${r.lidas} levada${r.lidas === 1 ? '' : 's'} ao Regem desde que o programa abriu`],
   ];
   if (r.saida) pares.push(['Fila de saída', `${r.saida.situacao || '—'} · ${r.saida.enviadas} enviada${r.saida.enviadas === 1 ? '' : 's'} por este PC`]);
+  if (r.saida99) pares.push(['Fila de saída da 99', `${r.saida99.situacao || '—'} · ${r.saida99.enviadas} enviada${r.saida99.enviadas === 1 ? '' : 's'} por este PC`]);
   if (r.ultimoAviso) pares.push(['Último aviso', String(r.ultimoAviso)]);
 
   const botoes = [{ acao: 'abrir-ifood', texto: 'Abrir o iFood' }];
   if (!r.soObservar) botoes.push({ acao: 'abrir-99', texto: 'Abrir a 99' });
+  // os nomes são os do menu do ícone
+  if (n99(r).usar && r.pareada && !r.soObservar)
+    botoes.push(n99(r).responder ? { acao: 'so-ler-99', texto: 'Só ler a 99 (parar de responder)' } : { acao: 'responder-99', texto: 'Responder pela 99 neste PC' });
   if (n99(r).usar && !r.soObservar) botoes.push({ acao: 'parar-99', texto: 'Parar de ler a 99 neste PC' });
   if (r.pareada && !r.soObservar) botoes.push(r.pausadaEm ? { acao: 'retomar', texto: 'Retomar a ponte neste PC' } : { acao: 'pausar', texto: 'Pausar a ponte neste PC' });
   if (!r.pareada && !r.soObservar) botoes.push({ acao: 'parear', texto: 'Parear este PC' });

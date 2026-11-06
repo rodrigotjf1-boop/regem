@@ -16,7 +16,10 @@
 //  • (v0.6, Etapa 4a) LÊ o chat da 99: a pessoa abre a 99 numa janela própria ("Abrir a 99") e entra com o USUÁRIO EXTRA
 //    da loja — a 99 aceita um login por usuário (ERR-365: com o mesmo login do PC da loja, derrubaria a 99 de lá); o
 //    usuário extra tem sessão própria (05/11). A escuta é do IM da 99 (`leitor-99.js`); a nuvem liga cada mensagem ao
-//    pedido pelo cliente. Nesta versão a ponte só LÊ a 99 (o sinal diz "lendo"): responder é pelo portal da 99 (4b).
+//    pedido pelo cliente. Sozinha, a 99 só é LIDA (o sinal diz "lendo"): responder é pelo portal da 99;
+//  • (v0.7, Etapa 4b) com "Responder pela 99 neste PC" ligado (nasce desligado), ENVIA pela 99 o que a nuvem enfileira
+//    (avisos, robô, equipe): busca o pedido, abre a conversa com clique de mouse pelo depurador, confere o número duas
+//    vezes, escreve, aperta o "Enviar" da conversa e confirma pela resposta da 99 — `envio-99.js`; a mesma fila de saída.
 
 // Aberto do terminal do VS Code, o Electron herda ELECTRON_RUN_AS_NODE e roda como Node puro (ERR-363): reabre sem ela.
 if (process.env.ELECTRON_RUN_AS_NODE) {
@@ -39,6 +42,7 @@ const { ligarLeitor } = require('./leitor');
 const { ligarLeitor99 } = require('./leitor-99');
 const { lerATelaDoChat, lerOQuadro } = require('./tela-do-chat');
 const envio = require('./envio-ifood');
+const envio99 = require('./envio-99');
 const { motivoParaNaoEnviar } = require('./regras');
 const nuvem = require('./nuvem');
 const { Jornal } = require('./jornal');
@@ -77,6 +81,7 @@ if (!app.requestSingleInstanceLock()) {
     nuvem: 'aguardando', // ok | rede | servidor | limite | nao_reconhecido | revogado | recusado
     logadoNoIfood: false,
     logadoNa99: false, // a 99 (4a): a janela da 99 aberta e o IM dela respondendo
+    papel99: 'fora', // o papel desta ponte na 99 (4b — só com "Responder pela 99 neste PC" ligado): responde | reserva | fora
     enviadas: 0,
     ultimoErro: null,
     // pausada pela pessoa NESTE PC (peça 6): não lê nem responde até retomar — guardada, vale depois de reiniciar
@@ -97,6 +102,9 @@ if (!app.requestSingleInstanceLock()) {
   let ultimaTeclaEm = 0; // a última tecla de GENTE na janela do Gestor (o Electron conta à parte da página)
   let jornal = null; // o diário dos envios da fila (v0.4)
   let saida = null; // o envio automático pela fila da nuvem (v0.4)
+  let saida99 = null; // o mesmo, pela 99 (4b)
+  let ocupadoNa99 = false; // um envio por vez na janela da 99
+  let ultimaTecla99Em = 0; // a última tecla de GENTE na janela da 99
 
   const fila = new FilaDeEntrada(async (lote) => {
     const cred = cfg.credencial();
@@ -122,7 +130,8 @@ if (!app.requestSingleInstanceLock()) {
   function textoDaSituacao() {
     if (SO_OBSERVAR) return 'Só observando (sem nuvem) — diagnóstico ligado';
     if (!cfg.credencial()) return 'Falta parear este PC';
-    const ifood = `${estado.logadoNoIfood ? 'iFood: logado' : 'iFood: entre com o login da loja'}${cfg.usar99() ? (estado.logadoNa99 ? ' · 99: lendo' : ' · 99: sem login') : ''}`;
+    const da99 = !cfg.usar99() ? '' : !estado.logadoNa99 ? ' · 99: sem login' : cfg.responder99() ? ' · 99: lê e responde' : ' · 99: lendo';
+    const ifood = `${estado.logadoNoIfood ? 'iFood: logado' : 'iFood: entre com o login da loja'}${da99}`;
     if (estado.pausadaEm) return `PAUSADA neste PC desde ${local.hora(estado.pausadaEm)} · ${ifood}`;
     const n = {
       ok: estado.ligada ? (estado.papel === 'responde' ? 'ponte ligada · este PC responde' : 'ponte ligada · este PC é reserva') : 'ponte DESLIGADA nos ajustes do Regem',
@@ -147,7 +156,9 @@ if (!app.requestSingleInstanceLock()) {
       soObservar: SO_OBSERVAR,
       pausadaEm: estado.pausadaEm,
       usar99: cfg.usar99(),
+      responder99: cfg.responder99(),
       saida: saida ? { situacao: saida.situacao, enviadas: saida.enviadas } : null,
+      saida99: saida99 && cfg.responder99() ? { situacao: saida99.situacao, enviadas: saida99.enviadas } : null,
       abrir: { exe: process.execPath, args: app.isPackaged ? [] : [app.getAppPath()] },
     });
   }
@@ -184,6 +195,10 @@ if (!app.requestSingleInstanceLock()) {
         ...(pareada ? [estado.pausadaEm ? { label: 'Retomar a ponte neste PC', click: () => pausar(false) } : { label: 'Pausar a ponte neste PC', click: () => pausar(true) }] : []),
         { label: 'Abrir o Gestor do iFood', click: () => abrirGestor() },
         ...(!SO_OBSERVAR ? [{ label: 'Abrir a 99 (usuário extra)', click: () => abrir99().catch((e) => registrarErro(String(e && e.message))) }] : []),
+        ...(!SO_OBSERVAR && cfg.usar99() && cfg.credencial()
+          ? [{ label: 'Responder pela 99 neste PC', type: 'checkbox', checked: cfg.responder99(), click: () => responder99(!cfg.responder99()).catch((e) => registrarErro(String(e && e.message))) }]
+          : []),
+        ...(saida99 && cfg.responder99() ? [{ label: `Fila de saída da 99: ${saida99.situacao} · ${saida99.enviadas} enviada(s)`.slice(0, 120), enabled: false }] : []),
         ...(!SO_OBSERVAR && cfg.usar99() ? [{ label: 'Parar de ler a 99 neste PC', click: () => parar99() }] : []),
         { label: 'Teste de envio (ensaio)…', click: () => abrirTesteDeEnvio() },
         ...(!SO_OBSERVAR && !cfg.credencial() ? [{ label: 'Parear este PC', click: () => abrirPareamento() }] : []),
@@ -238,8 +253,8 @@ if (!app.requestSingleInstanceLock()) {
     const cred = cfg.credencial();
     if (SO_OBSERVAR || !cred) return atualizarBandeja();
     const r = await nuvem.estado(cred, {
-      // a 99 só LÊ nesta versão (4a): "lendo" — a nuvem não a põe para responder nem para reserva pela 99
-      plataformas: { ifood: { logado: estado.logadoNoIfood }, '99food': { logado: false, lendo: estado.logadoNa99 } },
+      // a 99: "lendo" (a nuvem não põe este PC para responder pela 99) até a pessoa ligar "Responder pela 99 neste PC" (4b)
+      plataformas: { ifood: { logado: estado.logadoNoIfood }, '99food': { logado: estado.logadoNa99 && cfg.responder99(), lendo: estado.logadoNa99 } },
       versao: app.getVersion(),
       maquina: os.hostname(),
       // pausada aqui: a nuvem passa a vez para a reserva e as telas dizem "pausada neste PC" (mig 368)
@@ -250,6 +265,7 @@ if (!app.requestSingleInstanceLock()) {
       const antes = estado.ligada;
       estado.ligada = r.dados.ligada === true;
       estado.papel = (r.dados.canais && r.dados.canais.ifood) || 'fora';
+      estado.papel99 = (r.dados.canais && r.dados.canais['99food']) || 'fora';
       if (antes && !estado.ligada) fila.esvaziar(); // desligada: nada de conversa de cliente guardada aqui
     }
     tratarClassificacao(c);
@@ -362,6 +378,7 @@ if (!app.requestSingleInstanceLock()) {
         if (r.response !== 0) return { ok: false, mensagem: 'A 99 não foi aberta.' };
       }
       cfg.marcarUsar99(true);
+      if (process.env.REGEM_PONTE_RESPONDER_99 === '1') cfg.marcarResponder99(true); // a prova (sem o diálogo)
     }
     janela99 = new BrowserWindow({
       width: 1280,
@@ -382,6 +399,13 @@ if (!app.requestSingleInstanceLock()) {
     });
     wc.on('will-navigate', (e, url) => {
       if (!/^https?:\/\//i.test(url)) e.preventDefault();
+    });
+    // a pessoa usando a 99 (4b): a tecla pela janela e o vigia DENTRO da página (o mesmo do Gestor)
+    wc.on('before-input-event', () => {
+      ultimaTecla99Em = Date.now();
+    });
+    wc.on('dom-ready', () => {
+      wc.mainFrame.executeJavaScript(INSTALAR_VIGIA).catch(() => {});
     });
     leitor99 = ligarLeitor99(wc, {
       // já no formato da nuvem; pausada neste PC ou desligada: não leva nada ao Regem
@@ -425,7 +449,7 @@ if (!app.requestSingleInstanceLock()) {
 
   /** "Parar de ler a 99 neste PC": fecha a janela da 99 e esquece a escolha (o login fica guardado na sessão dela). */
   function parar99() {
-    cfg.marcarUsar99(false);
+    cfg.marcarUsar99(false); // também desliga o "Responder pela 99"
     const j = janela99;
     janela99 = null;
     leitor99 = null;
@@ -434,6 +458,78 @@ if (!app.requestSingleInstanceLock()) {
     registrarErro('a 99 não é mais lida neste PC');
     sinalDeVida().catch((e) => registrarErro(String(e && e.message)));
     return { ok: true, mensagem: 'A 99 não é mais lida neste PC.' };
+  }
+
+  /**
+   * "Responder pela 99 neste PC" (4b): ligado, o sinal diz "logado" na 99 e a nuvem põe este PC para enviar pela 99 os
+   * avisos, o robô e a equipe (como no iFood). Nasce desligado; ligar pergunta antes (a prova liga pela variável).
+   */
+  async function responder99(sim) {
+    if (SO_OBSERVAR || !cfg.credencial()) return { ok: false, mensagem: 'Pareie este PC antes.' };
+    if (sim && !cfg.usar99()) return { ok: false, mensagem: 'Abra a 99 neste PC antes (Abrir a 99).' };
+    if (sim && !cfg.responder99() && process.env.REGEM_PONTE_RESPONDER_99 !== '1') {
+      const r = await dialog.showMessageBox({
+        type: 'question',
+        title: 'Responder pela 99 · Regem · Ponte do chat',
+        message: 'Este PC vai ENVIAR pela 99',
+        detail:
+          'Com isto ligado, o que o Regem manda no chat da 99 sai por este PC: os avisos (saiu para entrega, entregador ' +
+          'chegando), o robô (se estiver ligado) e as respostas da equipe pelo Atendimento — como já acontece no iFood. ' +
+          'O programa só mexe na janela da 99 com ela parada, confere o número do pedido duas vezes e nunca aperta outro botão.',
+        buttons: ['Ligar', 'Cancelar'],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true,
+      });
+      if (r.response !== 0) return { ok: false, mensagem: 'Nada mudou.' };
+    }
+    const ligado = cfg.marcarResponder99(sim);
+    registrarErro(ligado ? 'este PC passou a responder pela 99' : 'este PC deixou de responder pela 99 (só lê)');
+    sinalDeVida().catch((e) => registrarErro(String(e && e.message)));
+    atualizarBandeja();
+    return { ok: true, mensagem: ligado ? 'Este PC responde pela 99.' : 'Este PC só lê a 99.' };
+  }
+
+  // ---------- o envio pela 99 (4b) ----------
+
+  async function estadoDaTela99() {
+    if (!janela99 || janela99.isDestroyed()) return null;
+    try {
+      await janela99.webContents.mainFrame.executeJavaScript(INSTALAR_VIGIA);
+      return await janela99.webContents.mainFrame.executeJavaScript(envio99.ROTEIROS.ESTADO_DA_TELA);
+    } catch {
+      return null;
+    }
+  }
+
+  async function telaLivre99() {
+    if (!janela99 || janela99.isDestroyed() || !leitor99) return { ok: false, motivo: 'a 99 não está aberta no programa' };
+    if (ocupadoNa99) return { ok: false, motivo: 'um envio está em andamento' };
+    return envio99.avaliarTela(await estadoDaTela99(), { ultimaTeclaEm: ultimaTecla99Em, paradaMs: PARADA_MS });
+  }
+
+  async function pessoaMexeuDesde99(desde) {
+    return mexeuDesde(await estadoDaTela99(), desde, ultimaTecla99Em);
+  }
+
+  /** Envia um item da fila pela 99 sem trazer a janela para a frente; devolve a tela como estava (conversa, busca, aba). */
+  async function enviarItem99(item, opcoes) {
+    if (ocupadoNa99) return { ok: false, adiar: true, codigo: 'ocupado', etapas: ['✗ já há um envio em andamento na 99'] };
+    if (!janela99 || janela99.isDestroyed() || !leitor99) return { ok: false, adiar: true, codigo: 'sem_99', etapas: ['✗ a 99 não está aberta no programa'] };
+    const wc = janela99.webContents;
+    const ctx = { pagina: wc.mainFrame, cdp: (m, p) => wc.debugger.sendCommand(m, p), leitor: leitor99 };
+    ocupadoNa99 = true;
+    const antes = await estadoDaTela99();
+    try {
+      return await envio99.enviar(ctx, { numero: item.pedidoNumero, pedidoExterno: item.pedidoExterno, texto: item.texto }, { ecoMs: ECO_MS, ...opcoes });
+    } catch (e) {
+      registrarErro(`envio pela 99: ${e && e.message}`);
+      return { ok: false, codigo: 'erro', etapas: [`✗ falhou: ${e && e.message}`] };
+    } finally {
+      const v = await envio99.voltar(ctx, antes).catch(() => null);
+      if (diagnostico) diagnostico.anotar({ ev: 'saida99_voltou', ...(v || { falhou: true }) });
+      ocupadoNa99 = false;
+    }
   }
 
   function abrirTesteDeEnvio() {
@@ -682,6 +778,8 @@ if (!app.requestSingleInstanceLock()) {
     }
     if (comando === 'abrir-99') return abrir99();
     if (comando === 'parar-99') return parar99();
+    if (comando === 'responder-99') return responder99(true);
+    if (comando === 'so-ler-99') return responder99(false);
     if (comando === 'parear') {
       abrirPareamento();
       return { ok: true };
@@ -696,7 +794,7 @@ if (!app.requestSingleInstanceLock()) {
 
   ipcMain.handle('ponte:estado', () => local.paraAJanela(resumoDeAgora()));
   ipcMain.handle('ponte:acao', async (_e, acao) => {
-    const permitidas = ['pausar', 'retomar', 'abrir-ifood', 'abrir-99', 'parar-99', 'parear', 'atendimento'];
+    const permitidas = ['pausar', 'retomar', 'abrir-ifood', 'abrir-99', 'parar-99', 'responder-99', 'so-ler-99', 'parear', 'atendimento'];
     if (!permitidas.includes(String(acao))) return { ok: false, mensagem: 'Ação desconhecida.' };
     const r = await executar(String(acao));
     atualizarBandeja();
@@ -751,6 +849,37 @@ if (!app.requestSingleInstanceLock()) {
       marca: (v) => diagnostico.marca(v),
       esperaTelaMs: ESPERA_TELA_MS,
     });
+    // a fila de saída da 99 (4b): o mesmo trabalhador, pelo canal 99food — só com "Responder pela 99 neste PC" ligado
+    saida99 = new Saida({
+      canal: '99food',
+      podeTrabalhar: () => {
+        if (SO_OBSERVAR) return { ok: false, motivo: 'só observando (sem nuvem)' };
+        if (!cfg.credencial()) return { ok: false, motivo: 'falta parear este PC' };
+        if (!cfg.responder99()) return { ok: false, motivo: 'este PC só lê a 99' };
+        if (!estado.ligada) return { ok: false, motivo: 'ponte desligada nos ajustes' };
+        if (estado.pausadaEm) return { ok: false, motivo: 'ponte pausada neste PC' };
+        if (estado.papel99 !== 'responde') return { ok: false, motivo: `este PC não responde pela 99 (${estado.papel99})` };
+        if (!logadoNa99()) return { ok: false, motivo: 'sem login na 99' };
+        return { ok: true };
+      },
+      telaLivre: telaLivre99,
+      pessoaMexeuDesde: pessoaMexeuDesde99,
+      enviarItem: enviarItem99,
+      // sem histórico para reler na 99: a confirmação do envio e o eco do polling ficam na memória do leitor
+      abrirSemEnviar: async () => null,
+      jaEnviada: (q) => (leitor99 ? leitor99.jaEnviada(q) : null),
+      jornal,
+      nuvem,
+      credencial: () => cfg.credencial(),
+      tratarClassificacao: (c) => {
+        if (c === 'revogado' || c === 'nao_reconhecido') tratarClassificacao(c);
+      },
+      anotar: (ev) => diagnostico.anotar({ ...ev, canal: '99food' }),
+      marca: (v) => diagnostico.marca(v),
+      esperaTelaMs: ESPERA_TELA_MS,
+    });
+    // a prova liga o "Responder pela 99" pela variável (o diálogo do Windows não se pilota)
+    if (process.env.REGEM_PONTE_RESPONDER_99 === '1' && cfg.usar99()) cfg.marcarResponder99(true);
     try {
       bandeja = new Tray(ICONE);
       bandeja.on('click', () => abrirEstado());
@@ -786,6 +915,18 @@ if (!app.requestSingleInstanceLock()) {
           }
         })
         .catch((e) => registrarErro(`fila de saída: ${e && e.message}`));
+    }, SAIDA_MS);
+    let ultimaSituacao99 = '';
+    setInterval(() => {
+      saida99
+        .volta()
+        .then(() => {
+          if (saida99.situacao !== ultimaSituacao99) {
+            ultimaSituacao99 = saida99.situacao;
+            atualizarBandeja();
+          }
+        })
+        .catch((e) => registrarErro(`fila de saída da 99: ${e && e.message}`));
     }, SAIDA_MS);
     setTimeout(() => sinalDeVida().catch(() => {}), 3000);
     // Diagnóstico da TELA do chat (só a estrutura, sem texto): com uma conversa aberta no Gestor, anota onde ficam o campo
