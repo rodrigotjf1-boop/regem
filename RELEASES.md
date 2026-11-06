@@ -12,8 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Ponte do chat 0.7.1 — a 1ª fala da equipe numa conversa nova do iFood entra no Atendimento (06/11; sem migration,
+  sem mudança na nuvem).** Só o programa `ponte-chat/` (ainda sem instalador — gerar sob comando): da conta da loja, só os
+  avisos automáticos do iFood (pelo texto) ficam de fora. Nada muda no `.zip`/`.exe` do Regem.
+
 - **O robô põe item no pedido JÁ PAGO no Pix e cobra a diferença (06/11; mig 373 `@cloud-only`).** Na NUVEM com o merge
-  (nasce DESLIGADO — o dono liga em Atendimento › Ajustes › "O robô cobra no Pix o item posto em pedido já pago"): a
+  (nasce DESLIGADO — o dono liga em Delivery › Configurações › Operação › Atendimento, grupo "Pedido alterado", "O robô
+  cobra no Pix o item posto em pedido já pago"): a
   conferência com o Pix de 5 min, o código, a faixa "Segure o pedido" no Atendimento e, pago, a mudança pela alteração da
   equipe — numa loja SEM servidor ligado, tudo já vale. **No `.zip` 1.30.13 (obrigatório para a loja com servidor):** o
   servidor da loja aplicar a alteração "pedida" com a diferença paga (`pagoNaHora` no `aplicarAlteracaoPedida`) e a faixa

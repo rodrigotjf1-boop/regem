@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { lerQuadro, mensagemDoQuadro, mensagensDaResposta, pedidoDoCanal, lojaDoCanal, Vistos } = require('../src/sendbird');
+const { lerQuadro, mensagemDoQuadro, mensagensDaResposta, pedidoDoCanal, lojaDoCanal, ehAvisoDoIfood, Vistos } = require('../src/sendbird');
 
 // A forma conferida em 04/11/2026 (valores inventados): MESG com o remetente em user.metadata.type.
 const quadro = (tipo, extra = {}) =>
@@ -36,6 +36,7 @@ test('mensagem do cliente e da loja; o nome só do cliente', () => {
     cliente: 'Carine S.',
     em: 1762304344505,
     avisoDaPlataforma: false,
+    avisoDoIfood: false,
   });
   const l = mensagemDoQuadro(lerQuadro(quadro('MERCHANT', { message: 'seu pedido esta a caminho' })));
   assert.equal(l.autor, 'loja');
@@ -68,12 +69,35 @@ test('v0.4: o AVISO AUTOMÁTICO do iFood (MERCHANT mandado pela CONTA da loja �
   // visto ao vivo em 05/11 (#8916): o "…pedidos nos últimos 30 dias" chega com o remetente = o id da loja
   const aviso = mensagemDoQuadro(lerQuadro(quadro('MERCHANT', { user: { id: 1, guest_id: LOJA.toUpperCase(), metadata: { type: 'MERCHANT' } }, message: 'O cliente fez 3 pedidos nos últimos 30 dias' })));
   assert.equal(aviso.avisoDaPlataforma, true);
+  assert.equal(aviso.avisoDoIfood, true); // fica fora do Atendimento
   assert.equal(aviso.autor, 'loja');
   // a equipe (outro usuário da loja) e o cliente não são aviso
   const equipe = mensagemDoQuadro(lerQuadro(quadro('MERCHANT', { user: { id: 2, guest_id: 'usuario-do-gestor', metadata: { type: 'MERCHANT' } }, message: 'boa noite' })));
   assert.equal(equipe.avisoDaPlataforma, false);
+  assert.equal(equipe.avisoDoIfood, false);
   const doCliente = mensagemDoQuadro(lerQuadro(quadro('CUSTOMER', { user: { id: 3, guest_id: LOJA, metadata: { type: 'CUSTOMER' } } })));
   assert.equal(doCliente.avisoDaPlataforma, false);
+  assert.equal(doCliente.avisoDoIfood, false);
+});
+
+test('06/11: a 1ª fala da EQUIPE numa conversa nova chega pela conta da loja — vai ao Atendimento; o aviso do iFood, não', () => {
+  const LOJA = 'bbbbbbbb-5555-6666-7777-888888888888';
+  const pelaConta = (texto) =>
+    mensagemDoQuadro(lerQuadro(quadro('MERCHANT', { user: { id: 1, guest_id: LOJA, metadata: { type: 'MERCHANT' } }, message: texto })));
+  const primeira = pelaConta('Oi Carine, seu lanche já está saindo!');
+  assert.equal(primeira.autor, 'loja');
+  assert.equal(primeira.avisoDaPlataforma, true); // da conta da loja: o eco só vale pelo texto exato (ERR-381)
+  assert.equal(primeira.avisoDoIfood, false); // não é aviso: vai à nuvem como fala da loja
+  for (const aviso of [
+    'O cliente fez 3 pedidos nos últimos 30 dias',
+    'Cliente fez 1 pedido nos ultimos 90 dias na sua loja',
+    'Este é o primeiro pedido do cliente na sua loja',
+    'Sua loja não costuma responder… Taxa de resposta 53%',
+  ])
+    assert.equal(pelaConta(aviso).avisoDoIfood, true, aviso);
+  // o texto da equipe que fala de pedido não é confundido com o aviso
+  for (const fala of ['Seu pedido saiu para entrega!', 'Pode deixar, já já chega', 'Você pediu 2 pedidos? Confere?'])
+    assert.equal(ehAvisoDoIfood(fala), false, fala);
 });
 
 test('v0.4: o HISTÓRICO da conversa (`…/messages`) vira mensagens no mesmo formato; só as de texto', () => {

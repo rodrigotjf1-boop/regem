@@ -59,8 +59,10 @@ Regem — e liga o chat à nuvem do Regem.
   - **volta a tela** ao quadro: fecha a conversa e o resumo SÓ por um botão de rótulo EXATO "Fechar" (nunca "fechar"
     solto — o Gestor tem "fechar a loja"); sem esse botão, deixa como está.
 - **O aviso automático do iFood** ("…pedidos nos últimos 30 dias", que só a loja vê) chega como mensagem da loja, mas
-  quem manda é a CONTA da loja (o 2º id do canal — visto ao vivo em 05/11 no #8916): vem marcado (`avisoDaPlataforma`),
-  não vai à nuvem (que ainda não tem esse tipo de autor), não conta como eco nem como "já enviada".
+  quem manda é a CONTA da loja (o 2º id do canal — visto ao vivo em 05/11 no #8916): vem marcado (`avisoDoIfood`, pelo
+  texto — `AVISOS_DO_IFOOD` em `src/sendbird.js`), não vai à nuvem, não conta como eco nem como "já enviada".
+- **A 1ª fala de uma conversa nova** também chega pela conta da loja (a da equipe no Gestor e a da própria ponte): desde a
+  0.7.1 ela VAI à nuvem como fala da loja (a da ponte a nuvem reconhece como o próprio envio pelo id e não guarda duas).
 
 **A 99** entra na 0.6 (abaixo), só lendo e com o usuário EXTRA da loja: ela aceita um login por usuário (ERR-365).
 
@@ -94,8 +96,9 @@ CONTA da loja, a mesma cara do aviso automático do iFood, que a ponte descartav
 enviada" aceitam a mensagem da conta da loja quando o texto é EXATAMENTE o que a ponte mandou (um aviso do iFood nunca tem
 esse texto). Ela segue fora do que vai à nuvem como fala da equipe.
 
-**Pendências:** o 1º envio com o eco confirmado no Gestor de verdade (com esta versão); o "setter" com a janela escondida;
-a 1ª mensagem que a EQUIPE digita no Gestor numa conversa nova tem a mesma cara do aviso e não entra no Atendimento.
+**Pendências:** nenhuma desta parte. Feitos: o envio com o eco confirmado no Gestor de verdade (05/11); a janela
+minimizada e escondida (06/11 — no Gestor de verdade o vigia lê e o chat segue conectado; na prova, os avisos saem na 1ª
+tentativa); a 1ª fala da equipe numa conversa nova entra no Atendimento (0.7.1).
 
 ## O que a versão 0.6 soma (Etapa 4a — a ponte LÊ o chat da 99)
 
@@ -147,8 +150,8 @@ PC" ainda mostra só o iFood (pede `.exe`).
   do clique, "incerto" sem confirmação (definitivo).
 
 **Pendências (teste real):** o 1º envio de verdade pela 99 (ligar "Responder pela 99 neste PC" e olhar o 1º aviso de um
-pedido da 99 de entrega própria); o envio com a janela da 99 escondida (o clique pelo depurador precisa da página pintada —
-se não der, a janela precisa ficar aberta, atrás das outras).
+pedido da 99 de entrega própria). A janela da 99 minimizada e escondida foi conferida em 06/11: o clique pelo depurador
+chega e a busca do programa funciona no portal de verdade.
 
 ## Rodar (desenvolvimento)
 
