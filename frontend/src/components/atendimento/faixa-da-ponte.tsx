@@ -11,10 +11,23 @@ import { COMO_RETOMAR_A_PONTE } from '@/lib/ponte-do-chat';
 // `ponte-chat.service.ts`). As mensagens dos clientes entram na fila na etapa 2; até lá a faixa não diz que entram aqui.
 
 type Canal = 'ifood' | '99food';
-type DoCanal = { responde: { nome: string; maquina: string | null } | null; reservas: string[] };
+/** `lendo` (4a, a 99): as pontes que LEEM o chat do canal, mas ainda não enviam por ele (servidor antigo: não vem). */
+type DoCanal = { responde: { nome: string; maquina: string | null } | null; reservas: string[]; lendo?: string[] };
 
 const NOME: Record<Canal, string> = { ifood: 'iFood', '99food': '99' };
 const NO: Record<Canal, string> = { ifood: 'no iFood', '99food': 'na 99' };
+const DO: Record<Canal, string> = { ifood: 'do iFood', '99food': 'da 99' };
+
+/** O canal sem PC respondendo, mas que alguma ponte LÊ: as mensagens entram no Atendimento — não é "sem sinal". */
+export const soLendo = (c: DoCanal) => !c.responde && !!c.lendo?.length;
+
+/** "99 só lendo pela ponte do PC do delivery: responda pelo portal da 99" (os canais que a ponte lê, mas não envia). */
+export function porOndeLe(canais: [Canal, DoCanal][]): string {
+  return canais
+    .filter(([, c]) => soLendo(c))
+    .map(([k, c]) => `${NOME[k]} só lendo pela ponte do ${c.lendo!.join(' e ')}: responda pelo portal ${DO[k]}`)
+    .join(' · ');
+}
 
 /** "agora" / "há 3 min" / "há 2 h" — `agora` só existe depois de montar (V35). */
 export function haQuanto(iso: string | null, agora: number | null): string | null {
@@ -49,8 +62,8 @@ export function FaixaDaPonte({ ponte, agora }: { ponte: SituacaoDaPonte | null; 
       </p>
     );
 
-  const semPc = canais.filter(([, c]) => !c.responde).map(([k]) => k);
-  const passa = porOndePassa(canais);
+  const semPc = canais.filter(([, c]) => !c.responde && !soLendo(c)).map(([k]) => k);
+  const passa = [porOndePassa(canais), porOndeLe(canais)].filter(Boolean).join(' · ');
   const ultima = haQuanto(ponte.ultimaMensagemEm, agora);
   // pausada pela pessoa no PC (mig 368): o que fazer é retomar lá, não "entrar no iFood"
   const pausadas = ponte.pausadas ?? [];

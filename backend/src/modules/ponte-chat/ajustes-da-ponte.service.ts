@@ -101,6 +101,7 @@ export class AjustesDaPonteService {
       select e.id, e.nome, e.unidade_id as "unidadeId", coalesce(cp.papel, 'auto') as papel, cp.maquina, cp.visto_em as "vistoEm",
              coalesce((cp.plataformas -> 'ifood' ->> 'logado')::boolean, false) as "ifood",
              coalesce((cp.plataformas -> '99food' ->> 'logado')::boolean, false) as "n99",
+             coalesce((cp.plataformas -> '99food' ->> 'lendo')::boolean, false) as "n99Lendo",
              e.created_at as "criadaEm", cp.pausada_em as "pausadaEm",
              coalesce(cp.visto_em > now() - make_interval(secs => ${VIVA_POR_MS / 1000}), false) as viva
         from equipamento e
@@ -250,7 +251,9 @@ export class AjustesDaPonteService {
       select distinct canal from integracao where tenant_id = ${tenantId}::uuid and ativo and canal in ('ifood', '99food')`)).map((x) => x.canal as CanalDaPonte);
     const pontes = await this.pontesDaLoja(tenantId, unidade);
     const agora = Date.now();
-    const canais: Record<string, { responde: { nome: string; maquina: string | null } | null; reservas: string[] }> = {};
+    // `lendo` (4a): as pontes vivas que só LEEM o chat do canal (a 99, enquanto o envio por ela não chega) — o que o
+    // cliente escreve entra aqui, mas a resposta é pelo portal da plataforma
+    const canais: Record<string, { responde: { nome: string; maquina: string | null } | null; reservas: string[]; lendo: string[] }> = {};
     for (const c of CANAIS.filter((x) => conectados.includes(x))) {
       const candidatas: PonteCandidata[] = pontes.map((p) => ({
         id: p.id,
@@ -265,6 +268,9 @@ export class AjustesDaPonteService {
       canais[c] = {
         responde: p ? { nome: p.nome, maquina: p.maquina ?? null } : null,
         reservas: pontes.filter((x) => vivas.has(x.id) && x.id !== quem).map((x) => x.nome),
+        lendo: pontes
+          .filter((x) => c === '99food' && x.n99Lendo === true && !x.pausadaEm && x.viva === true && !vivas.has(x.id))
+          .map((x) => x.nome as string),
       };
     }
     const [ult] = linhas(await this.db.execute(sql`

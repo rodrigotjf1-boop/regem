@@ -180,7 +180,14 @@ descrever('Equipamentos: a ponte do chat no PC certo, com o papel de agora (Post
       expect(p['Ponte do delivery'].ponte.canais).toEqual({ ifood: 'responde', '99food': 'fora' });
       expect(p['Ponte do servidor'].ponte.canais).toEqual({ ifood: 'reserva', '99food': 'fora' });
       expect(p['Ponte do delivery'].ponte.ligada).toBe(false);
+      // a 99 "só lendo" (4a): lê o chat da 99, mas não envia — papel "lendo" (nem responde nem é reserva); sem sinal, fora
+      await q(`update chat_ponte set plataformas = jsonb_set(plataformas, '{99food}', '{"logado": false, "lendo": true}') where tenant_id = $1`, [T]);
+      const l = await lista();
+      expect(l['Ponte do delivery'].ponte.canais).toEqual({ ifood: 'responde', '99food': 'lendo' });
+      expect(l['Ponte do servidor'].ponte.canais).toEqual({ ifood: 'reserva', '99food': 'lendo' });
+      expect(l['Ponte do caixa'].ponte.canais['99food']).toBe('fora'); // nunca deu sinal
     } finally {
+      await q(`update chat_ponte set plataformas = jsonb_set(plataformas, '{99food}', '{"logado": false}') where tenant_id = $1`, [T]);
       await q(`delete from integracao where tenant_id = $1 and canal = '99food'`, [T]);
       await q(`update robo_config set chat_ponte_ligada = true where tenant_id = $1`, [T]);
     }

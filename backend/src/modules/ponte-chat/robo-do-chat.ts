@@ -129,10 +129,16 @@ export function decidir(c: {
   horaPrevista: string | null;
   fala: string;
   canal: 'ifood' | '99food';
+  /**
+   * Algum PC da ponte ENVIA pelo canal agora (a regra do `pegar`)? Sem ele (pausada, sem login, ou a 99 só lendo — 4a),
+   * o robô não fala: o que ele dissesse ficaria na fila e cairia em 30 min, e o cliente ficaria sem resposta e sem caso.
+   */
+  envia?: boolean;
 }): Decisao {
   if (c.casoAberto) return { acao: 'quieto' };
   if (c.intencao === 'agradecimento') return { acao: 'nada' };
-  const resposta = c.intencao === 'onde_esta' && c.pedido && c.respostasNaHora < RESPOSTAS_POR_HORA ? respostaDoRobo(c.pedido, c.horaPrevista) : null;
+  const envia = c.envia !== false;
+  const resposta = envia && c.intencao === 'onde_esta' && c.pedido && c.respostasNaHora < RESPOSTAS_POR_HORA ? respostaDoRobo(c.pedido, c.horaPrevista) : null;
   if (resposta) return { acao: 'responder', texto: resposta };
   const chateado = ehChateado(c.fala);
   const plataforma = c.canal === 'ifood' ? 'do iFood' : 'da 99';
@@ -140,7 +146,9 @@ export function decidir(c: {
     c.intencao === 'onde_esta'
       ? c.respostasNaHora >= RESPOSTAS_POR_HORA
         ? 'Perguntou de novo pelo pedido (o robô já respondeu)'
-        : 'Perguntou pelo pedido (o robô não tem como dizer)'
+        : envia
+          ? 'Perguntou pelo pedido (o robô não tem como dizer)'
+          : 'Perguntou pelo pedido'
       : `Mensagem no chat ${plataforma}`;
   return {
     acao: 'chamar_equipe',
@@ -149,7 +157,7 @@ export function decidir(c: {
       // "cliente chateado" vem do humor (a tela junta ao motivo — não repetir aqui).
       motivo,
       quer: String(c.fala ?? '').replace(/\s+/g, ' ').trim().slice(0, 300) || null,
-      jaFez: 'Avisou o cliente no chat que chamou a equipe da loja',
+      jaFez: envia ? 'Avisou o cliente no chat que chamou a equipe da loja' : `Não respondeu: nenhum PC da ponte envia pelo chat ${plataforma} agora`,
       humor: chateado ? 'chateado' : null,
     },
   };

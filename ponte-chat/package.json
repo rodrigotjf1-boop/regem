@@ -1,9 +1,9 @@
 {
   "name": "regem-ponte-chat",
   "productName": "Regem Ponte do chat",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "private": true,
-  "description": "Regem · Ponte do chat — o programa do PC da loja que traz o chat do iFood (e depois da 99) para o Regem.",
+  "description": "Regem · Ponte do chat — o programa do PC da loja que traz o chat do iFood e da 99 para o Regem.",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",

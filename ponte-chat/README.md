@@ -62,7 +62,7 @@ Regem — e liga o chat à nuvem do Regem.
   quem manda é a CONTA da loja (o 2º id do canal — visto ao vivo em 05/11 no #8916): vem marcado (`avisoDaPlataforma`),
   não vai à nuvem (que ainda não tem esse tipo de autor), não conta como eco nem como "já enviada".
 
-**A 99 fica fora** por enquanto: ela aceita um login só (ERR-365) — abrir aqui derrubaria a 99 da loja.
+**A 99** entra na 0.6 (abaixo), só lendo e com o usuário EXTRA da loja: ela aceita um login por usuário (ERR-365).
 
 ## O que a versão 0.5 soma (peça 6 do protótipo de conexão)
 
@@ -97,6 +97,33 @@ esse texto). Ela segue fora do que vai à nuvem como fala da equipe.
 **Pendências:** o 1º envio com o eco confirmado no Gestor de verdade (com esta versão); o "setter" com a janela escondida;
 a 1ª mensagem que a EQUIPE digita no Gestor numa conversa nova tem a mesma cara do aviso e não entra no Atendimento.
 
+## O que a versão 0.6 soma (Etapa 4a — a ponte LÊ o chat da 99)
+
+- **"Abrir a 99 (usuário extra)"** (menu do ícone e janela do estado): abre o portal da 99 numa janela própria, com a
+  sessão à parte (`persist:99`). Na 1ª vez pergunta e avisa: entre com o **usuário EXTRA** da loja (com e-mail próprio)
+  — a 99 aceita um login por usuário, e entrar com o login do PC da loja derruba a 99 de lá (ERR-365); o usuário extra tem
+  sessão própria (conferido em 05/11). A escolha fica guardada (`usar99` em `ponte.json`): a janela reabre sozinha ao
+  reiniciar (e ao parear de novo). **"Parar de ler a 99 neste PC"** fecha a janela e esquece a escolha (o login fica na
+  sessão da janela). Fechar a janela só a esconde.
+- **A leitura** (`src/leitor-99.js`): a página da 99 pergunta ao IM da DiDi (`lion.didiglobal.com/im/polling/`); a ponte
+  lê as respostas pelo depurador do Chromium (como no iFood) — só a CONVERSA (`session_type` 1): texto e imagem (vai
+  "📷 (o cliente mandou uma imagem — veja no portal da 99)"); aviso de sistema fica fora. Os ids passam de 2^53 e são
+  lidos como TEXTO (o `sid` de 05/11 arredondava). Uma vez por mensagem (`uniq_msg_id`). Quem é a loja vem na resposta
+  (`backfill_uid`): sem nunca saber, não leva nada (a fala da loja viraria caso de cliente).
+- **O pedido:** a conversa da 99 não diz o pedido — diz o CLIENTE (o `uid` dele = `receive_address.uid` do pedido que o
+  Regem já recebe da 99). A ponte manda `pedido.cliente99` e a nuvem liga ao pedido mais recente dele na 99 (2 dias),
+  preenchendo o id e o número do pedido (a mesma conversa dos avisos — `ext:`). A fala da loja leva o cliente daquela
+  conversa. Quando o portal abre uma conversa (`/im/broker/`, op_type 12), a ponte aprende a sessão ↔ pedido e passa a
+  mandar o id do pedido dela (vence o "mais recente").
+- **Só lendo:** o sinal de vida diz `99food: { logado: false, lendo: true }` — a nuvem não põe esta ponte para responder
+  nem para reserva pela 99 (o envio é a 4b). O robô não responde a 99 (ninguém envia por ela — vira caso para a equipe);
+  a faixa do Atendimento e Equipamentos dizem "99 só lendo: responda pelo portal da 99".
+- "Logada na 99" = a janela no portal e o polling do IM respondendo nos últimos 5 min.
+
+**Pendências (teste real):** o usuário extra logado na janela da 99 no PC da loja (o 1º login pode pedir SMS no celular da
+loja); conferir que a fala mandada pela 99 do PC da loja (o outro usuário) chega com o `uid` da loja; o ícone "Regem neste
+PC" ainda mostra só o iFood (pede `.exe`).
+
 ## Rodar (desenvolvimento)
 
 ```bash
@@ -122,14 +149,18 @@ percebe e se reabre sem ela.
 | `REGEM_PONTE_SAIDA_MS`, `REGEM_PONTE_PARADA_MS`, `REGEM_PONTE_ESPERA_TELA_MS`, `REGEM_PONTE_ECO_MS` | a fila de saída na prova (5 s · 10 s de tela parada · 45 s de espera pela tela · 20 s pelo eco) |
 | `REGEM_PONTE_SO_OBSERVAR=1` | o mesmo que `npm run observar` |
 | `REGEM_PONTE_APP` | outro endereço do app no "Abrir o Atendimento" (padrão: `https://app.dmsregem.com`) |
+| `REGEM_PONTE_99` | outra página no lugar do portal da 99 (a 99 de mentira da prova) |
+| `REGEM_PONTE_99_IM`, `REGEM_PONTE_99_BROKER` | o padrão do endereço do polling e do broker do IM (padrão: `lion.didiglobal.com/im/…`) |
+| `REGEM_PONTE_ABRIR_99=1` | abre a 99 sem a pergunta (a prova não pilota o diálogo do Windows) |
+| `REGEM_PONTE_99_LOGADA_MS` | quanto tempo sem polling conta como "sem login na 99" (padrão: 5 min) |
 
 ## Onde guarda (neste PC)
 
 `%APPDATA%\Regem Ponte do chat\`: `ponte.json` (o pareamento, com o segredo cifrado, e o sal do diagnóstico),
 `diagnostico.jsonl` (marcas), `envios.jsonl` (o diário dos envios da fila: ids, sem texto), `estado-da-ponte.json` (o
-resumo do estado para o ícone "Regem neste PC") e a sessão do iFood (o perfil
+resumo do estado para o ícone "Regem neste PC") e as sessões do iFood e da 99 (os perfis
 do navegador do programa). Apagar a pasta despareia o PC e
-sai do iFood nele.
+sai do iFood e da 99 nele.
 
 ## Instalador
 

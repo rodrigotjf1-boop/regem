@@ -32,8 +32,8 @@ test('respondendo: selo "responde o chat", sem faixa, botão de pausar; o resumo
   assert.equal(par(v, 'iFood'), 'logado · este PC responde o chat');
   assert.equal(par(v, 'Mensagens'), '3 levadas ao Regem desde que o programa abriu');
   assert.equal(par(v, 'Fila de saída'), 'livre · 2 enviadas por este PC');
-  assert.deepEqual(botoes(v), ['Abrir o iFood', 'Pausar a ponte neste PC', 'Abrir o Atendimento']);
-  assert.deepEqual(Object.keys(r).sort(), ['abrir', 'atualizadoEm', 'ifood', 'lidas', 'ligada', 'maquina', 'nome', 'nuvem', 'papel', 'pareada', 'pausadaEm', 'saida', 'soObservar', 'ultimoAviso', 'versao'].sort());
+  assert.deepEqual(botoes(v), ['Abrir o iFood', 'Abrir a 99', 'Pausar a ponte neste PC', 'Abrir o Atendimento']);
+  assert.deepEqual(Object.keys(r).sort(), ['abrir', 'atualizadoEm', 'ifood', 'lidas', 'ligada', 'maquina', 'n99', 'nome', 'nuvem', 'papel', 'pareada', 'pausadaEm', 'saida', 'soObservar', 'ultimoAviso', 'versao'].sort());
   assert.equal(r.atualizadoEm, '2026-11-05T17:40:00.000Z');
 });
 
@@ -45,7 +45,7 @@ test('pausada: o selo e a faixa dizem desde quando; o botão vira "Retomar" (o n
   assert.equal(v.faixa.acao, 'retomar');
   // pausada, o papel não aparece (ela não responde nem é reserva)
   assert.equal(par(v, 'iFood'), 'logado');
-  assert.deepEqual(botoes(v), ['Abrir o iFood', 'Retomar a ponte neste PC', 'Abrir o Atendimento']);
+  assert.deepEqual(botoes(v), ['Abrir o iFood', 'Abrir a 99', 'Retomar a ponte neste PC', 'Abrir o Atendimento']);
   // o texto das telas do Regem tem de citar este mesmo item
   const tela = fs.readFileSync(path.join(__dirname, '..', '..', 'frontend', 'src', 'lib', 'ponte-do-chat.ts'), 'utf8');
   assert.ok(tela.includes('Retomar a ponte neste PC'));
@@ -55,7 +55,7 @@ test('pausada: o selo e a faixa dizem desde quando; o botão vira "Retomar" (o n
 
 test('cada situação dá a faixa com o que fazer agora', () => {
   assert.deepEqual(local.paraAJanela(base({}, { pareada: false })).faixa, { tom: 'aviso', texto: 'Falta parear este PC com o Regem.', acao: 'parear' });
-  assert.deepEqual(botoes(local.paraAJanela(base({}, { pareada: false }))), ['Abrir o iFood', 'Parear este PC', 'Abrir o Atendimento']);
+  assert.deepEqual(botoes(local.paraAJanela(base({}, { pareada: false }))), ['Abrir o iFood', 'Abrir a 99', 'Parear este PC', 'Abrir o Atendimento']);
   assert.equal(local.paraAJanela(base({ ligada: false })).selo.texto, 'desligada nos ajustes');
   assert.match(local.paraAJanela(base({ ligada: false })).faixa.texto, /Delivery › Configurações › Atendimento/);
   const semLogin = local.paraAJanela(base({ logadoNoIfood: false }));
@@ -71,6 +71,27 @@ test('cada situação dá a faixa com o que fazer agora', () => {
   assert.equal(par(um, 'Mensagens'), '1 levada ao Regem desde que o programa abriu');
   assert.equal(par(um, 'Fila de saída'), 'livre · 1 enviada por este PC');
   assert.equal(par(um, 'Último aviso'), '14:00 ponte pausada neste PC');
+});
+
+test('a 99 (4a): não lida, sem login (faixa com o usuário EXTRA) e lendo; o botão de parar só com ela escolhida', () => {
+  const nao = local.paraAJanela(base());
+  assert.match(par(nao, '99Food'), /^não é lida neste PC/);
+  assert.ok(!botoes(nao).includes('Parar de ler a 99 neste PC'));
+  const semLogin = local.paraAJanela(base({}, { usar99: true }));
+  assert.equal(semLogin.faixa.acao, 'abrir-99');
+  assert.match(semLogin.faixa.texto, /USUÁRIO EXTRA da loja/);
+  assert.equal(par(semLogin, '99Food'), 'sem login — entre com o usuário extra da loja');
+  assert.deepEqual(botoes(semLogin), ['Abrir o iFood', 'Abrir a 99', 'Parar de ler a 99 neste PC', 'Pausar a ponte neste PC', 'Abrir o Atendimento']);
+  const lendo = local.paraAJanela(base({ logadoNa99: true }, { usar99: true }));
+  assert.equal(lendo.faixa, null);
+  assert.match(par(lendo, '99Food'), /só LÊ o chat .*responda pelo portal da 99/);
+  // o iFood sem login vem antes (é o que a ponte faz sozinha); um resumo antigo (sem `n99`) não quebra a janela
+  assert.equal(local.paraAJanela(base({ logadoNoIfood: false }, { usar99: true })).faixa.acao, 'abrir-ifood');
+  const antigo = base();
+  delete antigo.n99;
+  assert.match(par(local.paraAJanela(antigo), '99Food'), /^não é lida/);
+  // o modo só observar não oferece a 99
+  assert.ok(!botoes(local.paraAJanela(base({}, { soObservar: true }))).includes('Abrir a 99'));
 });
 
 test('o arquivo do ícone do Regem: gravado de uma vez, no nome combinado; o endereço do Atendimento', () => {

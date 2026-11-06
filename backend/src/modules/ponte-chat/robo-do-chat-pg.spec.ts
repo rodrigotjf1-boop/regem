@@ -55,10 +55,14 @@ descrever('o robô no chat do iFood e da 99 (Postgres)', () => {
     await guarda.canActivate({ switchToHttp: () => ({ getRequest: () => req }) } as any);
     return req.ponteChat;
   };
+  // Os avisos automáticos DESLIGADOS nesta empresa: a rotina dos avisos (`enfileirarDaVolta`, que o spec dos avisos roda
+  // no mesmo banco, ao mesmo tempo no CI) varre TODAS as empresas e punha o "saiu" no pedido despachado deste teste (ERR-383).
   const ajustar = (ligada: boolean, robo: boolean) =>
     q(
-      `insert into robo_config (tenant_id, chat_ponte_ligada, chat_robo_responde) values ($1, $2, $3)
-       on conflict (tenant_id) do update set chat_ponte_ligada = $2, chat_robo_responde = $3`,
+      `insert into robo_config (tenant_id, chat_ponte_ligada, chat_robo_responde, chat_aviso_saiu, chat_aviso_chegando, chat_aviso_obrigado)
+       values ($1, $2, $3, false, false, false)
+       on conflict (tenant_id) do update set chat_ponte_ligada = $2, chat_robo_responde = $3,
+         chat_aviso_saiu = false, chat_aviso_chegando = false, chat_aviso_obrigado = false`,
       [T, ligada, robo],
     );
   async function pedido(ext: string, o: { status?: string; tipo?: string; raw?: any; minAtras?: number } = {}) {
@@ -91,9 +95,12 @@ descrever('o robô no chat do iFood e da 99 (Postgres)', () => {
     const p = await equipamentos.parearPorCodigo(codigo, 'PC delivery', 'ponte_chat');
     delivery = { id: p.terminalId as string, segredo: p.segredo as string };
   });
+  // O sinal de vida da ponte (logada no iFood): o robô só fala no canal em que algum PC ENVIA (a regra do `pegar`).
+  const sinal = async (plataformas: any = { ifood: { logado: true } }) => ponte.estado(await entrar(delivery), { plataformas, versao: '0.6.0', maquina: 'CX-DELIVERY' });
   beforeEach(async () => {
     delete process.env.EDGE_MODE;
     await ajustar(true, true);
+    await sinal();
   });
   afterAll(async () => {
     delete process.env.EDGE_MODE;
@@ -170,6 +177,44 @@ descrever('o robô no chat do iFood e da 99 (Postgres)', () => {
     await pedido('r-g', { status: 'entregue' });
     expect(await fala('r-g', 'Ainda não chegou')).toMatchObject({ casosNovos: 1, roboRespondeu: 0 });
     expect((await casosDo('r-g'))[0].detalhe.robo.motivo).toBe('Perguntou pelo pedido (o robô não tem como dizer)');
+  });
+
+  it('ninguém envia pelo canal (sem login, pausada, a 99 só lendo): o robô não fala — o caso nasce com o resumo, sem "já chamei a equipe"', async () => {
+    // sem login no iFood: nenhum PC envia
+    await sinal({ ifood: { logado: false } });
+    await pedido('r-sem', { status: 'despachado', minAtras: 5 });
+    expect(await fala('r-sem', 'Cadê meu pedido?')).toMatchObject({ recebidas: 1, casosNovos: 1, roboRespondeu: 0 });
+    expect(await doRobo('r-sem')).toEqual([]);
+    const [caso] = await casosDo('r-sem');
+    expect(caso.detalhe.robo).toMatchObject({ motivo: 'Perguntou pelo pedido', jaFez: 'Não respondeu: nenhum PC da ponte envia pelo chat do iFood agora' });
+    // cliente chateado: o caso nasce urgente, mesmo sem envio
+    await pedido('r-sem2', { status: 'despachado' });
+    expect(await fala('r-sem2', 'Isso é um absurdo')).toMatchObject({ casosNovos: 1, roboRespondeu: 0 });
+    expect((await casosDo('r-sem2'))[0].prioridade).toBe('urgente');
+    expect(await doRobo('r-sem2')).toEqual([]);
+    // o agradecimento segue sem caso (não precisa enviar nada)
+    await pedido('r-sem3', { status: 'despachado' });
+    expect(await fala('r-sem3', 'Obrigada!')).toMatchObject({ casosNovos: 0 });
+    // pausada no PC: também não envia
+    await ponte.estado(await entrar(delivery), { plataformas: { ifood: { logado: true } }, pausada: true });
+    await pedido('r-pausa', { status: 'despachado', minAtras: 5 });
+    expect(await fala('r-pausa', 'Cadê meu pedido?')).toMatchObject({ casosNovos: 1, roboRespondeu: 0 });
+    // a 99 só lendo (4a): a ponte lê, mas não envia pela 99 — o robô não responde a 99
+    await sinal({ ifood: { logado: true }, '99food': { logado: false, lendo: true } });
+    const [{ id: p99 }] = await q(
+      `insert into pedido_externo (tenant_id, unidade_id, canal, external_id, display_id, numero, tipo, status, cliente_nome, total, raw, despachado_em)
+       values ($1, $2, '99food', '9100000000000003441', '900002', 43600, 'entrega', 'despachado', 'MARIA SILVA', 50,
+               jsonb_build_object('receive_address', jsonb_build_object('uid', 900000000000123::numeric)), now() - interval '5 minutes') returning id`,
+      [T, loja],
+    );
+    const r99 = await ponte.receber(await entrar(delivery), {
+      mensagens: [{ canal: '99food', id: `99-${randomUUID().slice(0, 8)}`, pedido: { cliente99: '900000000000123' }, cliente: 'Maria', autor: 'cliente', texto: 'Cadê meu pedido?' }],
+    });
+    expect(r99).toMatchObject({ recebidas: 1, casosNovos: 1, roboRespondeu: 0 });
+    expect(await q(`select count(*)::int as n from chat_plataforma_msg where tenant_id = $1 and pedido_id = $2 and autor = 'robo'`, [T, p99])).toEqual([{ n: 0 }]);
+    // e o iFood, que ela envia, o robô segue respondendo
+    await pedido('r-volta', { status: 'despachado', minAtras: 5 });
+    expect(await fala('r-volta', 'Cadê meu pedido?')).toMatchObject({ casosNovos: 0, roboRespondeu: 1 });
   });
 
   it('o robô desligado: a Etapa 2 (o caso nasce, nada sai do robô); a fala da loja nunca aciona o robô', async () => {

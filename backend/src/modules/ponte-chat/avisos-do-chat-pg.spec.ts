@@ -344,5 +344,15 @@ descrever('ponte do chat — avisos, ajustes e faixa (Postgres)', () => {
     const a = await ajustes.ajustes(T, lojaA);
     expect(a.pontes.find((x: any) => x.nome === 'Ponte do servidor')?.pausadaEm).toBeTruthy();
     expect(a.pontes.find((x: any) => x.nome === 'Ponte do delivery')?.pausadaEm).toBeTruthy();
+    // a 99 "só lendo" (4a): a ponte lê o chat da 99, mas não envia — não responde nem é reserva; a faixa diz quem lê
+    await q(`update chat_ponte set pausada_em = null where tenant_id = $1`, [T]);
+    await q(`insert into integracao (tenant_id, canal, ativo, config) values ($1, '99food', true, '{}'::jsonb)`, [T]);
+    await q(`update chat_ponte set plataformas = jsonb_set(plataformas, '{99food}', '{"logado": false, "lendo": true}') where tenant_id = $1 and maquina in ('PONTE DO DELIVERY', 'PONTE PARADA')`, [T]);
+    const l = await ajustes.situacao(T, lojaA);
+    expect((l as any).canais['99food']).toEqual({ responde: null, reservas: [], lendo: ['Ponte do delivery'] }); // a parada (sem sinal) não lê
+    expect((l as any).canais.ifood).toMatchObject({ responde: { nome: 'Ponte do delivery' }, lendo: [] });
+    // pausada também não lê
+    await q(`update chat_ponte set pausada_em = now() where tenant_id = $1 and maquina = 'PONTE DO DELIVERY'`, [T]);
+    expect(((await ajustes.situacao(T, lojaA)) as any).canais['99food'].lendo).toEqual([]);
   });
 });

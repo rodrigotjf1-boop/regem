@@ -60,6 +60,8 @@ function resumo(e, o = {}) {
     papel: e.papel || 'fora',
     nuvem: e.nuvem || 'aguardando',
     ifood: { logado: !!e.logadoNoIfood },
+    // a 99 (4a): lida neste PC? logada? (nesta versão só LÊ — responder é pelo portal da 99)
+    n99: { usar: !!o.usar99, logado: !!e.logadoNa99 },
     lidas: Number(e.enviadas) || 0,
     saida: o.saida ? { situacao: String(o.saida.situacao || ''), enviadas: Number(o.saida.enviadas) || 0 } : null,
     ultimoAviso: e.ultimoErro || null,
@@ -68,6 +70,9 @@ function resumo(e, o = {}) {
     atualizadoEm: (o.agora || new Date()).toISOString(),
   };
 }
+
+/** A 99 do resumo (um resumo antigo, gravado antes da 4a, não tem). */
+const n99 = (r) => (r && r.n99 && typeof r.n99 === 'object' ? r.n99 : { usar: false, logado: false });
 
 /** O selo do topo da janela: a palavra e o tom (ok | aviso | neutro). */
 function selo(r) {
@@ -106,20 +111,33 @@ function paraAJanela(r) {
     };
   else if (r.nuvem === 'ok' && !r.ifood.logado)
     faixa = { tom: 'aviso', texto: 'O iFood está sem login neste PC. Abra o iFood e entre com o login da loja.', acao: 'abrir-ifood' };
+  else if (r.nuvem === 'ok' && n99(r).usar && !n99(r).logado)
+    faixa = {
+      tom: 'aviso',
+      texto: 'A 99 está sem login neste PC. Abra a 99 e entre com o USUÁRIO EXTRA da loja (nunca com o login do PC da loja: a 99 derrubaria o de lá).',
+      acao: 'abrir-99',
+    };
 
   const ifood = r.ifood.logado
     ? `logado${r.ligada && !r.pausadaEm ? (r.papel === 'responde' ? ' · este PC responde o chat' : r.papel === 'reserva' ? ' · reserva (assume se a outra parar)' : '') : ''}`
     : 'sem login';
+  const da99 = !n99(r).usar
+    ? 'não é lida neste PC (para ler o chat dela: Abrir a 99, com o usuário extra da loja)'
+    : n99(r).logado
+      ? 'logada · só LÊ o chat (as mensagens entram no Atendimento; responda pelo portal da 99)'
+      : 'sem login — entre com o usuário extra da loja';
   const pares = [
     ['Regem', r.soObservar ? 'não fala com a nuvem (só observando)' : !r.pareada ? 'falta parear' : `${NUVEM[r.nuvem] || r.nuvem}${r.nuvem === 'ok' && r.nome ? ` · ${r.nome}` : ''}`],
     ['iFood', ifood],
-    ['99Food', 'ainda não entra pela ponte (a 99 aceita um login só)'],
+    ['99Food', da99],
     ['Mensagens', `${r.lidas} levada${r.lidas === 1 ? '' : 's'} ao Regem desde que o programa abriu`],
   ];
   if (r.saida) pares.push(['Fila de saída', `${r.saida.situacao || '—'} · ${r.saida.enviadas} enviada${r.saida.enviadas === 1 ? '' : 's'} por este PC`]);
   if (r.ultimoAviso) pares.push(['Último aviso', String(r.ultimoAviso)]);
 
   const botoes = [{ acao: 'abrir-ifood', texto: 'Abrir o iFood' }];
+  if (!r.soObservar) botoes.push({ acao: 'abrir-99', texto: 'Abrir a 99' });
+  if (n99(r).usar && !r.soObservar) botoes.push({ acao: 'parar-99', texto: 'Parar de ler a 99 neste PC' });
   if (r.pareada && !r.soObservar) botoes.push(r.pausadaEm ? { acao: 'retomar', texto: 'Retomar a ponte neste PC' } : { acao: 'pausar', texto: 'Pausar a ponte neste PC' });
   if (!r.pareada && !r.soObservar) botoes.push({ acao: 'parear', texto: 'Parear este PC' });
   botoes.push({ acao: 'atendimento', texto: 'Abrir o Atendimento' });

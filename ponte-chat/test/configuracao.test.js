@@ -80,3 +80,16 @@ test('pausar guarda a hora (a 1ª pausa vale) e fica depois de reabrir; retomar 
   fs.writeFileSync(path.join(dir, 'ponte.json'), JSON.stringify({ pausadaEm: 'ontem' }));
   assert.equal(c.pausadaEm(), null);
 });
+
+test('a 99 lida neste PC (4a): fica guardada (reabre ao reiniciar) e "parar" esquece; nada além do sim/não no arquivo', () => {
+  const dir = pasta();
+  const c = new Configuracao(dir, cofre());
+  assert.equal(c.usar99(), false);
+  assert.equal(c.marcarUsar99(true), true);
+  assert.equal(new Configuracao(dir, cofre()).usar99(), true);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'ponte.json'), 'utf8')), { usar99: true });
+  c.marcarUsar99(false);
+  assert.equal(new Configuracao(dir, cofre()).usar99(), false);
+  fs.writeFileSync(path.join(dir, 'ponte.json'), JSON.stringify({ usar99: 'sim' }));
+  assert.equal(c.usar99(), false); // só o verdadeiro conta
+});

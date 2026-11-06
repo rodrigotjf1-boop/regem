@@ -88,6 +88,20 @@ describe('o robô do chat: a decisão', () => {
     expect(decidir({ ...base, pedido: null })).toMatchObject({ acao: 'chamar_equipe', resumo: { motivo: 'Perguntou pelo pedido (o robô não tem como dizer)' } });
     expect(decidir({ ...base, pedido: { ...pedido, status: 'entregue' }, fala: 'Ainda não chegou' })).toMatchObject({ acao: 'chamar_equipe' });
   });
+  it('ninguém envia pelo canal: o robô não responde (chama a equipe sem dizer que avisou); quieto e agradecimento seguem', () => {
+    expect(decidir({ ...base, envia: false })).toEqual({
+      acao: 'chamar_equipe',
+      urgente: false,
+      resumo: { motivo: 'Perguntou pelo pedido', quer: 'Cadê meu pedido?', jaFez: 'Não respondeu: nenhum PC da ponte envia pelo chat do iFood agora', humor: null },
+    });
+    expect(decidir({ ...base, canal: '99food', envia: false, intencao: 'outra', fala: 'Veio frio, um absurdo' })).toMatchObject({
+      urgente: true,
+      resumo: { motivo: 'Mensagem no chat da 99', jaFez: 'Não respondeu: nenhum PC da ponte envia pelo chat da 99 agora' },
+    });
+    expect(decidir({ ...base, envia: false, casoAberto: true })).toEqual({ acao: 'quieto' });
+    expect(decidir({ ...base, envia: false, intencao: 'agradecimento', fala: 'Obrigada!' })).toEqual({ acao: 'nada' });
+    expect(decidir({ ...base, envia: true })).toMatchObject({ acao: 'responder' });
+  });
   it('reclamação com raiva: chama a equipe URGENTE, humor chateado', () => {
     expect(decidir({ ...base, intencao: 'outra', fala: 'Veio tudo frio, um absurdo' })).toEqual({
       acao: 'chamar_equipe',

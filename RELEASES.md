@@ -16,6 +16,13 @@
   a edição feita na loja chega pela sincronização e sai de lá — **a loja não precisa do `.zip` para o envio**. No `.zip`/
   `.exe` (o mesmo corte 1.30.13): só a classificação `orzuni_ligacao`/`orzuni_envio` em SO_NUVEM no `edge/sync-daemon.mjs`
   (sem efeito na loja: ela não tem as tabelas) e o texto novo da seção "iFood" na tela do servidor da loja.
+- **Ponte do chat 0.6.0 — a ponte LÊ o chat da 99 (Etapa 4a; 05/11; sem migration).** Na nuvem com o merge: a mensagem
+  da 99 liga ao pedido pelo cliente (`raw.receive_address.uid`), o id e o número do pedido saem do pedido ligado (também
+  no iFood), o sinal "99 só lendo" aparece na faixa do Atendimento e em Equipamentos, e o robô não responde num canal em
+  que nenhum PC envia (ERR-382 — vale já para o iFood com a ponte pausada ou sem login). **No programa `ponte-chat/`
+  0.6.0** (ainda sem instalador — gerar sob comando): "Abrir a 99 (usuário extra)" numa janela própria, a leitura do IM da
+  99, "Parar de ler a 99 neste PC" e a linha da 99 na janela do estado. Nada muda no `.zip`/`.exe` do Regem (o ícone
+  "Regem neste PC" segue mostrando só o iFood até um `.exe` novo).
 
 - **Ponte do chat 0.5.1 — o envio automático abre a conversa no Gestor de verdade (05/11; ERR-380; sem migration).** Só o
   programa `ponte-chat/` (ainda sem instalador — gerar sob comando): espera o resumo do pedido assentar antes de clicar no
