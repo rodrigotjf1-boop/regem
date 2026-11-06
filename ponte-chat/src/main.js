@@ -307,9 +307,10 @@ if (!app.requestSingleInstanceLock()) {
     });
     leitor = ligarLeitor(wc, {
       aoChegar: (m) => {
-        // O aviso automático do iFood ("…pedidos nos últimos 30 dias", só a loja vê) chega como mensagem da loja, mas é da
-        // CONTA da loja (visto em 05/11 no #8916): não é conversa — não vai à nuvem (que ainda não tem esse tipo de autor).
-        if (m.avisoDaPlataforma) {
+        // O aviso automático do iFood ("…pedidos nos últimos 30 dias", só a loja vê) chega pela CONTA da loja (visto em 05/11
+        // no #8916): não é conversa — não vai à nuvem. A 1ª fala da equipe numa conversa nova também chega pela conta da
+        // loja (06/11): essa vai, como fala da loja (`avisoDoIfood` separa as duas pelo texto).
+        if (m.avisoDoIfood) {
           if (diagnostico) diagnostico.anotar({ ev: 'aviso_da_plataforma', msg: diagnostico.marca(m.id), canal: diagnostico.canal(m.canalDoChat) });
           return;
         }

@@ -39,10 +39,26 @@ function lojaDoCanal(canal) {
 }
 
 /**
+ * Os AVISOS AUTOMÁTICOS do iFood que chegam pela conta da loja e só a loja vê ("O cliente fez 3 pedidos nos últimos 30
+ * dias" — visto em 05/11 no #8916; e os da mesma família: primeiro pedido, taxa de resposta). Pelo TEXTO: a conta da loja
+ * também traz a 1ª fala da equipe numa conversa nova (06/11), e essa tem de chegar ao Atendimento.
+ */
+const AVISOS_DO_IFOOD = [
+  /pedidos?\s+nos\s+[uú]ltimos\s+\d+\s+dias/i,
+  /primeiro\s+pedido\s+(do|deste|desse)\s+cliente/i,
+  /taxa\s+de\s+resposta/i,
+  /n[aã]o\s+costuma\s+responder/i,
+];
+function ehAvisoDoIfood(texto) {
+  return typeof texto === 'string' && AVISOS_DO_IFOOD.some((r) => r.test(texto));
+}
+
+/**
  * Uma mensagem do chat no formato da ponte (do quadro ao vivo ou do histórico) — ou null (sem remetente conhecido, sem
- * texto, apagada). O AVISO AUTOMÁTICO do iFood ("…pedidos nos últimos 30 dias", que só a loja vê) chega como MERCHANT,
- * mas quem manda é a CONTA da loja (o id da loja, 2ª parte do canal), não uma pessoa: visto ao vivo em 05/11 no #8916.
- * Ele vem marcado (`avisoDaPlataforma`) — não é resposta da equipe, nem eco do que a ponte mandou.
+ * texto, apagada). A CONTA da loja (o id da loja, 2ª parte do canal — não uma pessoa) manda duas coisas como MERCHANT:
+ * o AVISO AUTOMÁTICO do iFood (visto ao vivo em 05/11 no #8916) e a 1ª mensagem de uma conversa nova — a da equipe no
+ * Gestor e a da própria ponte (ERR-381). As duas vêm marcadas `avisoDaPlataforma` (o eco só vale pelo texto exato); só o
+ * aviso do iFood vem marcado `avisoDoIfood` — é o que fica fora do Atendimento.
  */
 function mensagemDoChat({ id, tipo, remetente, nome, texto, canal, em, removida }) {
   const autor = AUTOR[tipo];
@@ -51,6 +67,7 @@ function mensagemDoChat({ id, tipo, remetente, nome, texto, canal, em, removida 
   if (!autor || !msgId || !corpo.trim() || removida === true) return null;
   const quem = typeof remetente === 'string' && remetente ? remetente.toLowerCase() : null;
   const loja = lojaDoCanal(canal);
+  const daContaDaLoja = autor === 'loja' && !!quem && !!loja && quem === loja;
   return {
     id: msgId,
     autor,
@@ -60,7 +77,8 @@ function mensagemDoChat({ id, tipo, remetente, nome, texto, canal, em, removida 
     // o nome do cliente como o iFood mostra ("Carine S."); da loja não interessa
     cliente: autor === 'cliente' && typeof nome === 'string' && nome.trim() ? nome.trim() : null,
     em: typeof em === 'number' ? em : null,
-    avisoDaPlataforma: autor === 'loja' && !!quem && !!loja && quem === loja,
+    avisoDaPlataforma: daContaDaLoja,
+    avisoDoIfood: daContaDaLoja && ehAvisoDoIfood(corpo),
   };
 }
 
@@ -125,4 +143,4 @@ class Vistos {
   }
 }
 
-module.exports = { lerQuadro, mensagemDoQuadro, mensagensDaResposta, pedidoDoCanal, lojaDoCanal, Vistos };
+module.exports = { lerQuadro, mensagemDoQuadro, mensagensDaResposta, pedidoDoCanal, lojaDoCanal, ehAvisoDoIfood, Vistos };
