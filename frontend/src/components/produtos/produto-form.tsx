@@ -204,7 +204,7 @@ export function ProdutoForm({
             </div>
           </Secao>
 
-          {ifoodLigado && <IfoodFields f={f} set={set} />}
+          {ifoodLigado && <IfoodFields f={f} set={set} produtoId={editId} />}
 
           <Secao titulo="Origem do custo e produção">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

@@ -13,6 +13,7 @@ import { api, podeVerFinanceiro } from '@/lib/api';
 import { chaveUnidade, comoFoiCadastrada, unidadesDoCadastro } from '@/lib/conversao-unidade';
 import { toast } from '@/lib/toast';
 import { destinosParaEscolher, foraDeUso } from '@/components/equipamentos/equipamento';
+import { UltimoEnvioIfood } from '@/components/produtos/ultimo-envio-ifood';
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @next/next/no-img-element */
 
@@ -358,6 +359,8 @@ function OpcaoModal({ opcao, fichas, itens, verFin, ifoodLigado, onFechar, onSal
                   (em todos os grupos com este código); &quot;Em falta&quot; também pausa lá.
                   {!temCodigo && ' Sem código PDV, o Regem não acha esta opção no iFood.'}
                 </p>
+                {/* R2b: o "último envio ao iFood" desta opção, por loja (opção já salva). */}
+                {!novo && <UltimoEnvioIfood alvo="opcao" id={opcao.id} />}
               </div>
             )}
           </div>

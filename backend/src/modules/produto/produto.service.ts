@@ -28,6 +28,8 @@ import { exigirUnidade, unidadeOuPadrao } from '../estoque/unidades';
 import { arredondarEstoque, fatorParaEstoque, unidadesDoProduto } from '../../common/conversao-unidade';
 import { exigirBooleano } from '../../common/exigir';
 import { ifoodPeloOrzuniLigado, precoIfoodDoPedido } from '../../common/ifood-pelo-orzuni';
+import { ehServidorLocal } from '../../common/modo';
+import { AlvoIfood, RespostaEnvios, ehIdDoAlvo, enviosDoAlvo, enviosDoAlvoPelaNuvem } from '../orzuni/envios-do-alvo';
 import { CreateCategoriaDto } from './dto/create-categoria.dto';
 import { CreateProdutoDto } from './dto/create-produto.dto';
 
@@ -48,6 +50,20 @@ export class ProdutoService {
   /** O direito `ifood_pelo_orzuni` está ligado nesta empresa? (a tela mostra os campos só assim) */
   ifoodPeloOrzuni(tenantId: string): Promise<boolean> {
     return ifoodPeloOrzuniLigado(this.db, tenantId);
+  }
+
+  /** Para os testes: o fetch da leitura pela nuvem no servidor da loja. */
+  buscarNaNuvem: typeof fetch = fetch;
+
+  /**
+   * O "último envio ao iFood" do produto ou da opção, por loja (R2b; mig 370). A fila só existe na NUVEM: no servidor
+   * da loja, pede à nuvem — sem conexão, a tela diz isso (V37). Direito desligado: lista vazia.
+   */
+  async ifoodEnvios(tenantId: string, alvo: AlvoIfood, refId: string): Promise<RespostaEnvios> {
+    if (!ehIdDoAlvo(refId)) throw new BadRequestException('Item inválido.');
+    if (!(await ifoodPeloOrzuniLigado(this.db, tenantId))) return { envios: [], semConexao: false };
+    if (ehServidorLocal()) return enviosDoAlvoPelaNuvem(tenantId, alvo, refId, this.buscarNaNuvem);
+    return { envios: await enviosDoAlvo(this.db, tenantId, alvo, refId), semConexao: false };
   }
 
   /**

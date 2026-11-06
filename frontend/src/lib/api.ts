@@ -743,6 +743,10 @@ export const api = {
     req(`/produtos/${id}/duplicar`, { method: 'POST' }),
   // iFood pelo Orzuni (mig 369): o preço no iFood e o "está no iFood" só aparecem com o direito ligado.
   ifoodPeloOrzuni: () => req('/produtos/ifood-pelo-orzuni') as Promise<{ ligado: boolean }>,
+  // O "último envio ao iFood" do produto / da opção, por loja (mig 370). No servidor da loja vem da nuvem;
+  // `semConexao` = não deu para ler (não é "nenhum envio").
+  produtoIfoodEnvios: (id: string) => req(`/produtos/${id}/ifood-envios`) as Promise<{ envios: any[]; semConexao: boolean }>,
+  opcaoIfoodEnvios: (id: string) => req(`/produtos/opcoes/${id}/ifood-envios`) as Promise<{ envios: any[]; semConexao: boolean }>,
   produtoCategorias: () => req('/produtos/categorias'),
   criarCategoriaProduto: (body: Record<string, unknown>) =>
     req('/produtos/categorias', { method: 'POST', body: JSON.stringify(body) }),

@@ -2,6 +2,7 @@
 
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { UltimoEnvioIfood } from '@/components/produtos/ultimo-envio-ifood';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -11,7 +12,8 @@ const brl = (n: number) => Number(n || 0).toLocaleString('pt-BR', { style: 'curr
 // O preço no iFood é guardado À PARTE do preço do Regem (preços diferentes por canal). A ligação com o
 // item do iFood é pelo código PDV do produto. O envio (R2a, mig 370): a mudança entra na fila na mesma
 // gravação e sai para o iFood das lojas ligadas ao Orzuni; o texto diz só o que o servidor faz (V39).
-export function IfoodFields({ f, set }: { f: any; set: (patch: any) => void }) {
+// R2b: com o produto já salvo (`produtoId`), mostra o "último envio ao iFood" por loja.
+export function IfoodFields({ f, set, produtoId }: { f: any; set: (patch: any) => void; produtoId?: string | null }) {
   const codigo = String(f.codigo ?? '').trim();
   const precoRegem = Number(String(f.precoVenda ?? '').replace(',', '.'));
   return (
@@ -63,6 +65,7 @@ export function IfoodFields({ f, set }: { f: any; set: (patch: any) => void }) {
           Identificação.
         </p>
       )}
+      {produtoId && <UltimoEnvioIfood alvo="produto" id={produtoId} />}
     </section>
   );
 }
