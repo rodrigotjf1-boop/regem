@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Avaliações do iFood na Central de atendimento (06/11; sem migration, sem `edge/`).** Na NUVEM com o merge (nasce
+  DESLIGADO — Delivery › Configurações › Operação › Atendimento, grupo "iFood · disputas e chat", "Avaliações do iFood na
+  fila"; e só funciona depois de a distribuição liberar o módulo de avaliações no app do iFood): a rotina de 30 min traz a
+  avaliação que pede uma pessoa como caso, e a gestão responde no caso. **No `.zip` 1.30.13:** a resposta dada na tela do
+  servidor da loja (vai pela nuvem, `avaliacao-da-loja`) e a renovação do token do iFood sem apagar ajuste (V82 — sem
+  efeito na loja, que não fala com o iFood).
+
 - **Ponte do chat 0.7.1 — a 1ª fala da equipe numa conversa nova do iFood entra no Atendimento (06/11; sem migration,
   sem mudança na nuvem).** Só o programa `ponte-chat/` (ainda sem instalador — gerar sob comando): da conta da loja, só os
   avisos automáticos do iFood (pelo texto) ficam de fora. Nada muda no `.zip`/`.exe` do Regem.

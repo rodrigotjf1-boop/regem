@@ -1230,6 +1230,9 @@ export const api = {
   // Disputa do iFood (PR 2): a resposta (aceitar, recusar, propor — com a senha de gerente/presidente) e a foto do cliente.
   atendimentoResponderDisputa: (id: string, body: Record<string, unknown>) =>
     req(`/atendimento/${id}/disputa`, { method: 'POST', body: JSON.stringify(body) }),
+  // Avaliação do iFood (06/11/2026): a resposta da loja (pública no iFood, uma só; de 10 a 300 caracteres).
+  atendimentoResponderAvaliacao: (id: string, texto: string) =>
+    req(`/atendimento/${id}/avaliacao`, { method: 'POST', body: JSON.stringify({ texto }) }),
   // A foto vem por fetch (no servidor da loja a sessão é Bearer, que o <img> não manda) e vira um endereço local.
   atendimentoFotoUrl: async (id: string, n: number): Promise<string> => {
     const token = getJwt();

@@ -127,11 +127,12 @@ descrever('chat oficial do iFood: a configuração (Postgres)', () => {
     ]);
     expect((await comAuditoria.ajustes(T)).ajusteIfood).toEqual(AJUSTE_IFOOD_PADRAO);
     expect((await comAuditoria.salvarAjustes(user, { avisarDeNovoMin: 3 })).ajusteIfood).toEqual({ ...AJUSTE_IFOOD_PADRAO, avisarDeNovoMin: 3 });
-    expect((await comAuditoria.salvarAjustes(user, { chat: false })).ajusteIfood).toEqual({ chat: false, avisarDisputa: true, avisarDeNovoMin: 3 });
+    // `avaliacoes` (06/11/2026): "Avaliações do iFood na fila", nasce desligado.
+    expect((await comAuditoria.salvarAjustes(user, { chat: false })).ajusteIfood).toEqual({ chat: false, avisarDisputa: true, avisarDeNovoMin: 3, avaliacoes: false });
     const [{ config }] = await q(`select config from integracao where tenant_id = $1 and canal = 'ifood'`, [T]);
     expect(config).toEqual({ accessToken: 'tok-guardado', pollingCursor: 7, atendimentoIfood: { avisarDeNovoMin: 3, chat: false } });
     expect(auditados.map((a) => a.acao)).toEqual(['ajustou_atendimento_ifood', 'ajustou_atendimento_ifood']);
-    expect(auditados[1].detalhe).toEqual({ de: { ...AJUSTE_IFOOD_PADRAO, avisarDeNovoMin: 3 }, para: { chat: false, avisarDisputa: true, avisarDeNovoMin: 3 } });
+    expect(auditados[1].detalhe).toEqual({ de: { ...AJUSTE_IFOOD_PADRAO, avisarDeNovoMin: 3 }, para: { chat: false, avisarDisputa: true, avisarDeNovoMin: 3, avaliacoes: false } });
     // nada mudou: nem grava, nem audita
     await comAuditoria.salvarAjustes(user, {});
     expect(auditados).toHaveLength(2);

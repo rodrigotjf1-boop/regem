@@ -76,6 +76,65 @@ export class IfoodService {
     return { ok: false, status: res.status, codigo, mensagem };
   }
 
+  // ===== Avaliações (Review API v2.0) — a central de atendimento, checkpoint item 4 (06/11/2026) =====
+
+  /**
+   * As avaliações da loja de `desde` até agora, a mais nova primeiro, até `paginas` páginas de 50 (o máximo do iFood).
+   * `ok: false` com o status quando o iFood recusa (401/403: o módulo de avaliações não está liberado no app).
+   */
+  async avaliacoes(ig: IntegIfood, o: { desde: Date; paginas?: number }): Promise<{ ok: boolean; status: number; itens: any[] }> {
+    const itens: any[] = [];
+    const iso = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, 'Z');
+    for (let page = 1; page <= (o.paginas ?? 3); page++) {
+      const q = new URLSearchParams({
+        page: String(page),
+        pageSize: '50',
+        addCount: 'true',
+        dateFrom: iso(o.desde),
+        dateTo: iso(new Date()),
+        sort: 'DESC',
+        sortBy: 'CREATED_AT',
+      });
+      const res = await this.req(ig, `/review/v2.0/merchants/${encodeURIComponent(ig.merchantId)}/reviews?${q}`, { method: 'GET' });
+      if (!res.ok) {
+        if (page === 1) return { ok: false, status: res.status, itens: [] };
+        break;
+      }
+      const j: any = await res.json().catch(() => null);
+      const lote: any[] = Array.isArray(j) ? j : (j?.reviews ?? j?.items ?? j?.data ?? []);
+      itens.push(...lote);
+      if (lote.length < 50) break;
+    }
+    return { ok: true, status: 200, itens };
+  }
+
+  /**
+   * Responde à avaliação: `POST /review/v2.0/merchants/{merchantId}/reviews/{id}/answers` com `{ text }`. O iFood aceita UMA
+   * resposta (409/422 depois de respondida ou publicada) e de 10 a 300 caracteres (400). Devolve o que o iFood respondeu.
+   */
+  async responderAvaliacao(ig: IntegIfood, reviewId: string, texto: string): Promise<{ ok: boolean; status: number; codigo: string | null; mensagem: string | null }> {
+    if (!/^[A-Za-z0-9_-]{1,120}$/.test(reviewId)) return { ok: false, status: 400, codigo: 'ID', mensagem: 'id da avaliação inválido' };
+    const res = await this.req(ig, `/review/v2.0/merchants/${encodeURIComponent(ig.merchantId)}/reviews/${reviewId}/answers`, {
+      method: 'POST',
+      body: JSON.stringify({ text: texto }),
+    });
+    if (res.ok) {
+      this.logger.log(`avaliação ${reviewId.slice(0, 8)} respondida`);
+      return { ok: true, status: res.status, codigo: null, mensagem: null };
+    }
+    const txt = await res.text().catch(() => '');
+    let j: any = null;
+    try {
+      j = JSON.parse(txt);
+    } catch {
+      /* corpo sem JSON */
+    }
+    const codigo = j?.code ?? j?.error?.code ?? null;
+    const mensagem = j?.message ?? j?.error?.message ?? (txt.slice(0, 160) || null);
+    this.logger.warn(`avaliação ${reviewId.slice(0, 8)} resposta ${res.status}: ${codigo ?? ''} ${String(mensagem ?? '').slice(0, 120)}`);
+    return { ok: false, status: res.status, codigo, mensagem };
+  }
+
   /**
    * A FOTO que o cliente mandou na disputa. O endereço vem do iFood e pede o token da loja — por isso só vale o próprio
    * `https://merchant-api.ifood.com.br/…` (o token nunca vai para outro endereço — V68). Até 8 MB, só imagem.
@@ -249,9 +308,11 @@ export class IfoodService {
       const j: any = await res.json();
       const access = j.accessToken as string;
       const tokenExp = Date.now() + (Number(j.expiresIn) || 21600) * 1000;
+      // Só a chave dele, mesclando no banco (V82): uma cópia da config em memória apagaria o ajuste que a tela gravou
+      // entre a leitura da integração e a renovação do token (o "Avaliações do iFood na fila", por exemplo).
       await this.db
         .update(integracao)
-        .set({ token: access, config: { ...(ig.config ?? {}), tokenExp } })
+        .set({ token: access, config: sql`coalesce(${integracao.config}, '{}'::jsonb) || jsonb_build_object('tokenExp', ${tokenExp}::bigint)` })
         .where(eq(integracao.id, ig.id));
       ig.token = access;
       ig.config = { ...(ig.config ?? {}), tokenExp };

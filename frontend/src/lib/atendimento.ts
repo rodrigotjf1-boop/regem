@@ -181,6 +181,8 @@ export const ROTULO_DO_TIPO: Record<string, string> = {
   cancelamento: 'Pedido de cancelamento',
   outro: 'Atendimento',
   disputa: 'Disputa',
+  // A avaliação do iFood que pede uma pessoa (comentário ou nota até 3 — 06/11/2026).
+  avaliacao: 'Avaliação',
   cancelamento_99: 'Cancelamento pedido à 99',
   reembolso_99: 'Reembolso pedido à 99',
   // A mensagem do cliente no chat do iFood ou da 99, trazida pela ponte (Etapa 2).

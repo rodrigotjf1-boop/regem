@@ -421,7 +421,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <div class="filtros">
         <div class="campo larga"><label for="busca">Buscar</label><input id="busca" type="search" placeholder="Cliente, pedido ou telefone"></div>
         <div class="campo"><label for="f-canal">Canal</label><select id="f-canal"><option value="">Todos</option><option value="wa">WhatsApp</option><option value="ifood">iFood</option><option value="n99">99Food</option><option value="card">Cardápio</option></select></div>
-        <div class="campo"><label for="f-motivo">Motivo</label><select id="f-motivo"><option value="">Todos</option><option>Atraso</option><option>Faltou item</option><option>Disputa</option><option>Cancelamento</option><option>Reembolso</option><option>Sem contato</option><option>Outro</option></select></div>
+        <div class="campo"><label for="f-motivo">Motivo</label><select id="f-motivo"><option value="">Todos</option><option>Atraso</option><option>Faltou item</option><option>Disputa</option><option>Avaliação</option><option>Cancelamento</option><option>Reembolso</option><option>Sem contato</option><option>Outro</option></select></div>
         <div class="campo"><label for="f-resp">Com quem</label><select id="f-resp"><option value="">Qualquer um</option><option value="-">Ninguém ainda</option><option value="Ana">Ana (você)</option><option value="Bruno">Bruno</option><option value="Carla">Carla</option></select></div>
       </div>
       <div class="corpo" id="corpo" data-modo="duplo">
@@ -476,7 +476,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       </section>
 
       <section class="grupo" data-grupo>
-        <header><h3>iFood · disputas e chat</h3><span>4 ajustes</span></header>
+        <header><h3>iFood · disputas e chat</h3><span>5 ajustes</span></header>
+        <div class="aj"><div><span class="rot-aj">Avaliações do iFood na fila</span><span class="ajuda">A avaliação com comentário ou nota até 3 vira caso (nota até 2, urgente), para responder pelo Regem. A resposta fica pública no iFood. Precisa do módulo de avaliações liberado no iFood.</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="false" aria-label="Avaliações do iFood na fila" data-aj></button></div></div>
         <div class="aj"><div><span class="rot-aj">Chat oficial do iFood na tela Atendimento</span><span class="ajuda">Mostra o botão "Chat oficial do iFood", para quando a ponte estiver sem sinal. Cada computador autoriza uma vez, com um usuário "Dono" ou "Administrador" do iFood.</span></div>
           <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Chat oficial do iFood na tela Atendimento" data-aj></button></div></div>
         <div class="aj"><div><span class="rot-aj">Quem responde</span><span class="ajuda">Gerente e presidente. No computador, com a senha de quem decide; no app, com o PIN.</span></div>
@@ -753,6 +755,10 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       cliente: 'Marina S.', pedido: '77', fala: '"Não quero mais, demorou" · a 99 recusa sozinha se ninguém responder', resp: null, sit: 'fila', espera: '2 min' },
     { id: 'c9', canal: 'n99', motivo: 'Reembolso', tipo: 'n99-reembolso', urgente: false, prazoFim: em(11700), titulo: 'Paulo R. · pedido 99Food 81 · pede reembolso',
       cliente: 'Paulo R.', pedido: '81', fala: '"Faltou o refrigerante, quero o reembolso" · 1 foto', resp: null, sit: 'fila', espera: '45 min' },
+    // A AVALIAÇÃO do iFood (06/11/2026): a que tem comentário ou nota até 3 vira caso; nota até 2, urgente. Sem prazo do iFood
+    // (a resposta só não sai depois de a avaliação ser publicada).
+    { id: 'a1', canal: 'ifood', motivo: 'Avaliação', tipo: 'avaliacao', urgente: true, titulo: 'Luiza F. · pedido iFood 4511 · nota 2',
+      cliente: 'Luiza F.', pedido: '4511', fala: '★★☆☆☆ "A pizza chegou fria e demorou bastante"', resp: null, sit: 'fila', espera: '1 h' },
     { id: 'c3', canal: 'wa', motivo: 'Atraso', tipo: 'conversa', urgente: true, titulo: 'Carlos · pedido 1180 · atraso', cliente: 'Carlos',
       tel: '(21) 98412-3301', pedido: '1180', fala: '"Cadê meu lanche? Já faz mais de 1 hora"', resp: null, sit: 'fila', espera: '4 min', robo: true },
     // Versão 3 — o chat do iFood e da 99 pela ponte: identificados por nome do cliente + número do pedido.
@@ -896,6 +902,8 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       tempo: [['18:40', 'Aceito'], ['19:12', 'Saiu com o João'], ['19:25', 'Entregue']] },
     '1150': { itens: [['1× X-bacon', '32,90']], total: '32,90', tempo: [['18:20', 'Resolvido']] },
     '4498': { itens: [['1× Combo família', '89,90']], total: '89,90', tempo: [['17:55', 'Disputa recusada']] },
+    '4511': { itens: [['1× Pizza grande portuguesa', '62,90'], ['1× Guaraná 2 L', '14,00']], total: '76,90', app: 'iFood',
+      tempo: [['18:40', 'Aceito'], ['19:12', 'Saiu com o entregador do iFood'], ['19:38', 'Entregue'], ['20:41', 'A cliente avaliou: nota 2']] },
     '4821': { itens: [['1× X-burguer duplo', '32,90'], ['1× Batata média', '14,00'], ['1× Guaraná lata', '8,00']], total: '54,90', app: 'iFood', entregaLoja: true,
       tempo: [['19:44', 'Aceito'], ['20:02', 'Pronto (cozinha)'], ['20:05', 'Saiu com o Carlos (entrega da loja) · aviso "saiu" no chat'], ['20:32', 'Previsão de chegada']] },
     '92': { itens: [['1× Combo smash', '39,90'], ['1× Guaraná lata', '8,00', true]], total: '47,90', app: '99Food', entregaLoja: true,
@@ -1100,7 +1108,33 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   function casoFeito(c) {
     return topo(c, '') + `<div class="c-corpo"><div class="col"><div class="nota ok">${esc(c.fala)}</div></div><div class="col">${blocoPedido(c.pedido)}</div></div>`;
   }
-  const RENDER = { disputa: casoDisputa, 'disputa-atraso': casoDisputa, n99: caso99, 'n99-reembolso': caso99Reembolso, conversa: casoConversa, cardapio: casoCardapio, feito: casoFeito, chat: casoChat, robo: casoRobo };
+  // A AVALIAÇÃO do iFood (06/11/2026): a nota, o comentário e as respostas às perguntas do iFood; a resposta da loja vai ao
+  // iFood (fica PÚBLICA junto da avaliação), de 10 a 300 caracteres, uma só. Quem responde: como no chat (gestão).
+  function casoAvaliacao(c) {
+    return topo(c, `<button type="button" class="bt">Pegar para mim</button>`) + `<div class="c-corpo"><div class="col">
+      <section class="bloco"><h3>O que a cliente avaliou <span class="dir">há 1 h · aguardando resposta</span></h3>
+        <p style="margin:0 0 6px;font-size:22px;letter-spacing:2px" aria-label="Nota 2 de 5">★★<span style="opacity:.25">★★★</span></p>
+        <p style="margin:0 0 8px;font-size:15px">"A pizza chegou fria e demorou bastante."</p>
+        <ul class="ajuda" style="margin:0;padding-left:18px"><li>Entrega: ruim</li><li>Embalagem: boa</li></ul>
+      </section>
+      <section class="bloco"><h3>Responder no iFood</h3>
+        <div class="campo"><label for="resp-aval">A resposta da loja</label>
+          <textarea id="resp-aval" rows="4" maxlength="300" placeholder="Ex.: Luiza, sentimos muito pela pizza fria. Já conversamos com a equipe da entrega — na próxima, queremos te surpreender."></textarea>
+          <span class="ajuda" data-conta-aval>0 de 300 · mínimo 10</span></div>
+        <div class="acoes" style="margin-top:8px"><button type="button" class="bt pri" data-dlg="responder-avaliacao">Responder no iFood</button></div>
+        <p class="ajuda" style="margin:8px 0 0">A resposta fica <b>pública</b> no iFood, junto da avaliação. O iFood aceita uma resposta só por avaliação; depois que ela é publicada, não aceita mais. <a href="https://comunidade.ifood.com.br/t/conheca-nossa-politica-de-avaliacoes-de-pedidos/87541" target="_blank" rel="noopener">Política de avaliações do iFood</a></p>
+      </section></div>
+      <div class="col">${blocoPedido(c.pedido)}
+      <section class="bloco"><h3>Histórico do caso</h3><ol class="linha-tempo"><li><span class="h">20:41</span><span>A cliente avaliou o pedido no iFood</span></li><li><span class="h">20:55</span><span>O Regem trouxe a avaliação (nota 2: urgente)</span></li></ol></section></div></div>`;
+  }
+  const RENDER = { disputa: casoDisputa, 'disputa-atraso': casoDisputa, n99: caso99, 'n99-reembolso': caso99Reembolso, conversa: casoConversa, cardapio: casoCardapio, feito: casoFeito, chat: casoChat, robo: casoRobo, avaliacao: casoAvaliacao };
+  // O contador da resposta da avaliação (10 a 300 caracteres — a regra do iFood).
+  document.addEventListener('input', (e) => {
+    if (e.target && e.target.id === 'resp-aval') {
+      const n = e.target.value.trim().length, el = $('[data-conta-aval]');
+      if (el) el.textContent = `${n} de 300${n < 10 ? ' · mínimo 10' : ''}`;
+    }
+  });
 
   let modo = 'duplo';
   function abrirCaso(id, doClique) {
@@ -1148,6 +1182,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   const insumos = `<div class="campo"><span class="rot">O que aconteceu com os insumos deste pedido?</span><div class="opcoes" role="group" aria-label="Destino dos insumos">
       <button type="button" class="opcao" aria-pressed="true" data-op>♻️ Reutilizados (ficam no estoque)</button><button type="button" class="opcao perda" aria-pressed="false" data-op>🗑️ Perda (saem do estoque)</button></div></div>`;
   const DLG = {
+    // A avaliação (06/11/2026): confirma o texto antes, porque ele fica público e o iFood não aceita outro.
+    'responder-avaliacao': () => ({ t: 'Responder a avaliação no iFood', b: `<p style="margin:0">A resposta fica <b>pública</b> no iFood, junto da avaliação da Luiza F. O iFood não aceita outra depois.</p>
+      <blockquote style="margin:8px 0 0;padding:8px 10px;border-left:3px solid currentColor;opacity:.85">${esc(($('#resp-aval') || {}).value || '(escreva a resposta)')}</blockquote>`, ok: 'Enviar ao iFood', cl: 'pri' }),
     'aceitar-ifood': () => ({ t: 'Aceitar a disputa do pedido 4521', b: `<p style="margin:0">O iFood cancela a <b>batata média (R$ 12,90)</b> e o cliente recebe esse valor de volta. A loja não pode responder de novo depois.</p>
       <div class="campo"><label for="mot-a">Motivo (a lista vem do iFood nesta disputa)</label><select id="mot-a"><option>Pedido incorreto</option><option>Qualidade do produto</option><option>Satisfação do cliente</option></select></div>
       <div class="campo"><label for="det-a">Detalhe (opcional)</label><input id="det-a" type="text" placeholder="Ex.: a batata ficou no balcão"></div>${senha()}`, ok: 'Enviar ao iFood', cl: 'perigo' }),
