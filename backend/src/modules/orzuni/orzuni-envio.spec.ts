@@ -10,6 +10,10 @@ import { ErroMcp } from '../../dms/integracao-dms';
 import { OrzuniEnvioService } from './orzuni-envio.service';
 import { OrzuniLigacaoService } from './orzuni-ligacao.service';
 import { chaveDoEnvio, desfechoDaRecusa, lerConfigOrzuni, recuoMinutos } from './orzuni.regras';
+import { enviosDoAlvo, envioParaTela } from './envios-do-alvo';
+import { OrzuniLojaController } from './orzuni-loja.controller';
+import { FichasService } from '../fichas/fichas.service';
+import { ProdutoService } from '../produto/produto.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -57,18 +61,37 @@ describe('regras do Orzuni (sem banco)', () => {
     expect(a.length).toBeGreaterThanOrEqual(8);
     expect(a.length).toBeLessThanOrEqual(100);
   });
-  it('recusa: lê o código do JSON da frase (plano B do 0.10.0); sem JSON, a frase é o motivo', () => {
-    const json = new ErroMcp({ tipo: 'ferramenta', ferramenta: 'preco_definir', frase: JSON.stringify({ situacao: 'recusado', codigo: 'ifood_indisponivel', pode_repetir: true }) });
-    expect(desfechoDaRecusa(json)).toMatchObject({ resultado: 'recusado', repetir: true, resposta: { codigo: 'ifood_indisponivel' } });
-    const nao = new ErroMcp({ tipo: 'ferramenta', ferramenta: 'preco_definir', frase: JSON.stringify({ situacao: 'nao_encontrado', codigo: 'pdv_inexistente', pode_repetir: false }) });
-    expect(desfechoDaRecusa(nao)).toMatchObject({ resultado: 'nao_encontrado', repetir: false, resposta: { codigo: 'pdv_inexistente' } });
-    const frase = new ErroMcp({ tipo: 'ferramenta', ferramenta: 'preco_definir', frase: 'Input validation error: valor' });
-    expect(desfechoDaRecusa(frase)).toMatchObject({ resultado: 'recusado', repetir: false, resposta: { frase: 'Input validation error: valor' } });
-    // O 0.10.1 deve trazer o structuredContent da recusa em `dados`: vale antes da frase.
-    const comDados = Object.assign(new ErroMcp({ tipo: 'ferramenta', ferramenta: 'item_pausar', frase: 'Código PDV 9 não existe' }), {
+  it('recusa: o envelope vem em ErroMcp.dados (0.10.1) e a frase pt-BR do Orzuni fica guardada para a tela', () => {
+    const nao = new ErroMcp({
+      tipo: 'ferramenta',
+      ferramenta: 'preco_definir',
+      frase: 'Código de PDV "137" não existe no cardápio do iFood desta loja.',
       dados: { situacao: 'nao_encontrado', codigo: 'pdv_inexistente', pode_repetir: false },
     });
-    expect(desfechoDaRecusa(comDados)).toMatchObject({ resultado: 'nao_encontrado', resposta: { codigo: 'pdv_inexistente' } });
+    expect(desfechoDaRecusa(nao)).toEqual({
+      resultado: 'nao_encontrado',
+      repetir: false,
+      resposta: {
+        situacao: 'nao_encontrado',
+        codigo: 'pdv_inexistente',
+        pode_repetir: false,
+        frase: 'Código de PDV "137" não existe no cardápio do iFood desta loja.',
+      },
+      erro: 'preco_definir: pdv_inexistente',
+    });
+    const repete = new ErroMcp({
+      tipo: 'ferramenta',
+      ferramenta: 'item_pausar',
+      frase: 'O iFood está fora do ar agora.',
+      dados: { situacao: 'recusado', codigo: 'ifood_indisponivel', pode_repetir: true },
+    });
+    expect(desfechoDaRecusa(repete)).toMatchObject({ resultado: 'recusado', repetir: true });
+    // Sem envelope: a frase é o motivo e vale o `podeRepetir` genérico do pacote ("Erro interno…").
+    const semDados = new ErroMcp({ tipo: 'ferramenta', ferramenta: 'preco_definir', frase: 'Input validation error: valor' });
+    expect(desfechoDaRecusa(semDados)).toMatchObject({ resultado: 'recusado', repetir: false, resposta: { frase: 'Input validation error: valor' } });
+    // Porta antiga que mandava JSON no texto: não vai JSON cru para a tela.
+    const jsonNoTexto = new ErroMcp({ tipo: 'ferramenta', ferramenta: 'preco_definir', frase: '{"situacao":"recusado"}' });
+    expect(desfechoDaRecusa(jsonNoTexto).resposta).toEqual({});
   });
 });
 
@@ -308,10 +331,15 @@ descrever('iFood pelo Orzuni — fila e envio (Postgres real, porta falsa)', () 
   it('recusa da porta: "não existe no iFood" fica guardado com o código; recusa que pode repetir volta à fila com a MESMA chave', async () => {
     const l = await loja({ lojas: 1 });
     const p = await produto(l);
+    // Como o Orzuni responde desde o O5 (#52): a frase pt-BR no texto, o envelope só no structuredContent.
+    const FRASES: Record<string, string> = {
+      pdv_inexistente: 'Código de PDV "12" não existe no cardápio do iFood desta loja.',
+      ifood_indisponivel: 'O iFood não respondeu agora. Tente de novo em instantes.',
+    };
     const recusa = (codigo: string, pode: boolean, situacao = 'recusado') => ({
       result: {
         isError: true,
-        content: [{ type: 'text', text: JSON.stringify({ situacao, codigo, pode_repetir: pode }) }],
+        content: [{ type: 'text', text: FRASES[codigo] }],
         structuredContent: { situacao, codigo, pode_repetir: pode },
       },
     });
@@ -319,7 +347,15 @@ descrever('iFood pelo Orzuni — fila e envio (Postgres real, porta falsa)', () 
     await q(`update produto set preco_ifood = 40 where id = $1`, [p]);
     await despachar(l);
     let [f] = await fila(l.t);
-    expect([f.situacao, f.resultado, f.resposta.codigo]).toEqual(['feito', 'nao_encontrado', 'pdv_inexistente']);
+    expect([f.situacao, f.resultado, f.resposta.codigo, f.resposta.frase]).toEqual([
+      'feito',
+      'nao_encontrado',
+      'pdv_inexistente',
+      FRASES.pdv_inexistente,
+    ]);
+    // O "último envio ao iFood" (R2b) mostra a frase do Orzuni ao lojista.
+    const [tela] = await enviosDoAlvo(db, l.t, 'produto', p);
+    expect([tela.oQue, tela.situacao, tela.frase]).toEqual(['preco', 'nao_encontrado', FRASES.pdv_inexistente]);
 
     responder = () => recusa('ifood_indisponivel', true);
     await q(`update produto set preco_ifood = 41 where id = $1`, [p]);
@@ -425,6 +461,98 @@ descrever('iFood pelo Orzuni — fila e envio (Postgres real, porta falsa)', () 
     const todas = await q(`select tenant_id, situacao, tentativas from orzuni_envio where tenant_id = any($1::uuid[])`, [[a.t, b.t, c.t]]);
     expect(todas.every((x: any) => x.situacao === 'pendente')).toBe(true);
     expect(todas.map((x: any) => x.tentativas).sort()).toEqual([0, 1, 1]); // a terceira não chegou a sair
+  });
+
+  // ── o "último envio ao iFood" na tela do produto e da opção (R2b) ─────────────────────────────────────────────
+
+  it('último envio (regra da tela): cada situação da fila vira a frase do lojista, sem detalhe técnico', () => {
+    const base = { unidade_id: '22222222-2222-4222-8222-222222222222', loja: 'Loja 1', tipo: 'preco_item', quando: '2026-11-06T10:00:00Z' };
+    expect(envioParaTela({ ...base, situacao: 'pendente', tentativas: 0, resposta: null })).toMatchObject({ situacao: 'na_fila', frase: null });
+    expect(envioParaTela({ ...base, situacao: 'pendente', tentativas: 2, resposta: null }).frase).toMatch(/tenta de novo sozinho/);
+    expect(envioParaTela({ ...base, situacao: 'desistiu', resultado: 'erro', tentativas: 9, resposta: null }).frase).toMatch(/24 horas/);
+    expect(
+      envioParaTela({ ...base, situacao: 'feito', resultado: 'dispensado', resposta: { motivo: 'a loja não tem ligação viva com o Orzuni' } }).frase,
+    ).toBe('A ligação desta loja com o iFood precisa ser refeita pelo suporte do Regem.');
+    expect(
+      envioParaTela({ ...base, situacao: 'feito', resultado: 'dispensado', resposta: { motivo: 'o iFood não aceita item com preço zero' } }),
+    ).toMatchObject({ situacao: 'nao_enviado', frase: 'o iFood não aceita item com preço zero' });
+    expect(
+      envioParaTela({ ...base, tipo: 'status_item', situacao: 'feito', resultado: 'aplicado', resposta: { situacao: 'aplicado', antes: 30, depois: 36.5 } }),
+    ).toMatchObject({ oQue: 'pausa', situacao: 'aplicado', antes: 30, depois: 36.5, frase: null, loja: 'Loja 1' });
+  });
+
+  it('último envio (nuvem): por loja e tipo, com antes → depois; direito desligado = lista vazia; id inválido recusado', async () => {
+    const produtos = new (ProdutoService as any)(db, auditoria, { flashProdutos: async () => undefined }, new FichasService(db)) as ProdutoService;
+    const l = await loja();
+    const p = await produto(l);
+    responder = () => ({
+      result: { content: [{ type: 'text', text: 'Preço alterado de R$ 30,00 para R$ 36,50.' }], structuredContent: { situacao: 'aplicado', antes: 30, depois: 36.5 } },
+    });
+    await q(`update produto set preco_ifood = 36.5 where id = $1`, [p]);
+    await despachar(l);
+    const r = await produtos.ifoodEnvios(l.t, 'produto', p);
+    expect(r.semConexao).toBe(false);
+    expect(r.envios.map((x) => [x.loja, x.oQue, x.situacao, x.antes, x.depois])).toEqual([
+      ['Loja 1', 'preco', 'aplicado', 30, 36.5],
+      ['Loja 2', 'preco', 'aplicado', 30, 36.5],
+    ]);
+    // De outra empresa, nada (o filtro é pela empresa de quem pede).
+    const outra = await loja({ ligadas: 0 });
+    expect((await produtos.ifoodEnvios(outra.t, 'produto', p)).envios).toEqual([]);
+    await q(`update entitlement set ativo = false where tenant_id = $1`, [l.t]);
+    expect(await produtos.ifoodEnvios(l.t, 'produto', p)).toEqual({ envios: [], semConexao: false });
+    await expect(produtos.ifoodEnvios(l.t, 'produto', 'nao-e-uuid')).rejects.toThrow(/Item inválido/);
+  });
+
+  it('último envio (servidor da loja): pede à nuvem com o token de sync; sem conexão, outra empresa ou erro → "sem conexão", nunca "nenhum envio" (V37)', async () => {
+    const produtos = new (ProdutoService as any)(db, auditoria, { flashProdutos: async () => undefined }, new FichasService(db)) as ProdutoService;
+    const l = await loja({ lojas: 1 });
+    const p = await produto(l);
+    const antes = { EDGE_MODE: process.env.EDGE_MODE, CLOUD_API: process.env.CLOUD_API, SYNC_TOKEN: process.env.SYNC_TOKEN };
+    const pedidos: { url: string; token: string | null }[] = [];
+    let resposta: () => Response = () => json(200, { tenantId: l.t, envios: [{ loja: 'Loja 1', oQue: 'preco', situacao: 'aplicado' }] });
+    produtos.buscarNaNuvem = (async (url: any, init: any) => {
+      pedidos.push({ url: String(url), token: new Headers(init?.headers ?? {}).get('x-sync-token') });
+      return resposta();
+    }) as typeof fetch;
+    try {
+      process.env.EDGE_MODE = 'true';
+      delete process.env.CLOUD_API;
+      expect(await produtos.ifoodEnvios(l.t, 'opcao', p)).toEqual({ envios: [], semConexao: true }); // sem CLOUD_API
+      expect(pedidos).toHaveLength(0);
+      process.env.CLOUD_API = 'https://nuvem.exemplo.test/api/v1/';
+      process.env.SYNC_TOKEN = 'token-de-sync-de-teste';
+      const ok = await produtos.ifoodEnvios(l.t, 'opcao', p);
+      expect(ok).toEqual({ envios: [{ loja: 'Loja 1', oQue: 'preco', situacao: 'aplicado' }], semConexao: false });
+      expect(pedidos[0]).toEqual({ url: `https://nuvem.exemplo.test/api/v1/orzuni/loja/envios?alvo=opcao&ref=${p}`, token: 'token-de-sync-de-teste' });
+      resposta = () => json(200, { tenantId: randomUUID(), envios: [{ loja: 'De outra' }] });
+      expect(await produtos.ifoodEnvios(l.t, 'opcao', p)).toEqual({ envios: [], semConexao: true });
+      resposta = () => json(500, { erro: 'x' });
+      expect(await produtos.ifoodEnvios(l.t, 'opcao', p)).toEqual({ envios: [], semConexao: true });
+      resposta = () => {
+        throw new TypeError('fetch failed');
+      };
+      expect(await produtos.ifoodEnvios(l.t, 'opcao', p)).toEqual({ envios: [], semConexao: true });
+    } finally {
+      for (const [k, v] of Object.entries(antes)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
+
+  it('rota da nuvem para o servidor da loja: responde pela empresa do TOKEN, só o item pedido; alvo inválido recusado', async () => {
+    const rota = new OrzuniLojaController(db);
+    const l = await loja({ lojas: 1 });
+    const o = (await q(`insert into opcao (tenant_id, nome, codigo_pdv) values ($1, 'Bacon', '501') returning id`, [l.t]))[0].id;
+    await q(`update opcao set esgotado = true where id = $1`, [o]);
+    await despachar(l);
+    const r = await rota.envios({ tenantId: l.t } as any, 'opcao', o);
+    expect(r.tenantId).toBe(l.t);
+    expect(r.envios.map((x) => [x.oQue, x.situacao])).toEqual([['pausa', 'aplicado']]);
+    const outra = await loja({ ligadas: 0 });
+    expect((await rota.envios({ tenantId: outra.t } as any, 'opcao', o)).envios).toEqual([]);
+    await expect(rota.envios({ tenantId: l.t } as any, 'qualquer', o)).rejects.toThrow(/alvo e ref/);
   });
 
   // ── o console da distribuição ─────────────────────────────────────────────────────────────────────────────────

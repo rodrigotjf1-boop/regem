@@ -87,6 +87,17 @@ export class ProdutoController {
     return { ligado: await this.service.ifoodPeloOrzuni(user.tenantId) };
   }
 
+  // O "último envio ao iFood" de uma opção e de um produto, por loja (R2b; mig 370). No servidor da loja, vem da nuvem.
+  @Get('opcoes/:id/ifood-envios')
+  ifoodEnviosOpcao(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.ifoodEnvios(user.tenantId, 'opcao', id);
+  }
+
+  @Get(':id/ifood-envios')
+  ifoodEnviosProduto(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.ifoodEnvios(user.tenantId, 'produto', id);
+  }
+
   // ----- Opções (catálogo reutilizável, Fase 2) -----
   @Get('opcoes')
   listarOpcoes(@CurrentUser() user: AuthUser) {

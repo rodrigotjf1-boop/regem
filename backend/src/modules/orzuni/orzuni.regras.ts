@@ -124,29 +124,21 @@ export function desfechoDoResultado(dados: unknown): Desfecho {
 
 /**
  * A recusa da ferramenta (`isError`). O envelope (`codigo`, `pode_repetir`, `situacao`) vem em `ErroMcp.dados` (pacote
- * 0.10.1: o `structuredContent` da recusa, ou o texto que é JSON). Sem `dados`, plano B: o JSON da frase (até 300
- * caracteres; cortado, fica a frase). Sem JSON, a frase é o motivo.
+ * 0.10.1: o `structuredContent` da recusa); a FRASE é o texto pt-BR que o Orzuni manda para a tela (Padrão §6, O5 do
+ * Orzuni) e fica guardada para o "último envio ao iFood". Sem envelope, a frase é o motivo e vale o `podeRepetir`
+ * genérico do pacote. Frase que é JSON (porta antiga) não vai para a tela.
  */
 export function desfechoDaRecusa(erro: ErroMcp): Desfecho {
-  let e: Record<string, unknown> = {};
-  const dados = erro.dados;
-  if (dados && typeof dados === 'object' && !Array.isArray(dados)) e = dados as Record<string, unknown>;
-  else if (erro.frase.startsWith('{')) {
-    try {
-      const lido = JSON.parse(erro.frase) as unknown;
-      if (lido && typeof lido === 'object' && !Array.isArray(lido)) e = lido as Record<string, unknown>;
-    } catch {
-      // JSON cortado (a frase tem até 300 caracteres): fica a frase.
-    }
-  }
+  const d = erro.dados;
+  const e: Record<string, unknown> = d && typeof d === 'object' && !Array.isArray(d) ? (d as Record<string, unknown>) : {};
+  const temEnvelope = Object.keys(e).length > 0;
+  const frase = erro.frase.trim().startsWith('{') ? '' : erro.frase.trim();
   const situacao = String(e.situacao ?? '');
-  const repetir = e.pode_repetir === true || (Object.keys(e).length === 0 && erro.podeRepetir);
-  const resposta = Object.keys(e).length ? doEnvelope(e) : { frase: erro.frase };
   return {
     resultado: situacao === 'nao_encontrado' ? 'nao_encontrado' : 'recusado',
-    repetir,
-    resposta,
-    erro: `${erro.ferramenta}: ${String(e.codigo ?? '') || erro.frase || 'recusado'}`.slice(0, 300),
+    repetir: temEnvelope ? e.pode_repetir === true : erro.podeRepetir,
+    resposta: { ...doEnvelope(e), ...(frase ? { frase } : {}) },
+    erro: `${erro.ferramenta}: ${String(e.codigo ?? '') || frase || 'recusado'}`.slice(0, 300),
   };
 }
 

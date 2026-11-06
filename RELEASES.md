@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **iFood pelo Orzuni — "Último envio ao iFood" na tela (R2b; 06/11; sem migration, sem `edge/`).** Na nuvem, no ar com o
+  merge. **No `.zip` 1.30.13:** a tela do servidor da loja passa a mostrar a lista, que o servidor pede à nuvem
+  (`/orzuni/loja/envios`, token de sync); sem o `.zip`, a tela da loja nem tem a seção (e o direito só liga com a 1.30.13).
+
 - **iFood pelo Orzuni — o envio (R2a; 06/11; mig 370 `@cloud-only`).** Tudo na NUVEM (fila, gatilhos, despacho, console):
   a edição feita na loja chega pela sincronização e sai de lá — **a loja não precisa do `.zip` para o envio**. No `.zip`/
   `.exe` (o mesmo corte 1.30.13): só a classificação `orzuni_ligacao`/`orzuni_envio` em SO_NUVEM no `edge/sync-daemon.mjs`
