@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { GATEWAYS_DO_PIX, PRAZO_DEVOLUCAO_PIX_DIAS, diasDesdeOPagamento } from '../../common/prazo-estorno-pix';
 import { CardapioService } from './cardapio.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -48,7 +49,7 @@ export class EstornoPixService {
           from pedido_externo pe
          where pe.status = 'cancelado' and pe.pago and pe.status_pagamento = 'aprovado' and pe.gateway_payment_id is not null
            and pe.cancelado_em > now() - make_interval(days => ${JANELA_DIAS})
-           and pe.gateway_provider in ('mercadopago', 'pagseguro', 'rede')
+           and pe.gateway_provider in (${sql.join(GATEWAYS_DO_PIX.map((g) => sql`${g}`), sql`, `)})
            and pe.sinal_status is null
            and not exists (select 1 from pedido_estorno e where e.pedido_id = pe.id)
          order by pe.cancelado_em
@@ -77,7 +78,7 @@ export class EstornoPixService {
          where e.id = alvo.id and pe.id = e.pedido_id
         returning e.id, e.tenant_id as "tenantId", e.pedido_id as "pedidoId", e.provedor, e.valor, e.tentativas,
                   pe.gateway_payment_id as "pagamento", pe.unidade_id as "unidadeId", pe.display_id as "numero",
-                  pe.cliente_nome as "cliente", pe.cliente_telefone as "telefone"`),
+                  pe.cliente_nome as "cliente", pe.cliente_telefone as "telefone", pe.criado_em as "criadoEm"`),
     );
   }
 
@@ -88,6 +89,15 @@ export class EstornoPixService {
     let falhas = 0;
     let desistiu = 0;
     for (const e of await this.pegar()) {
+      // O Pix só devolve até 90 dias depois do pagamento (`common/prazo-estorno-pix.ts`): passou, nem tenta — uma pessoa resolve.
+      if (diasDesdeOPagamento(e.criadoEm) > PRAZO_DEVOLUCAO_PIX_DIAS) {
+        const motivo = `o Pix só aceita devolução até ${PRAZO_DEVOLUCAO_PIX_DIAS} dias depois do pagamento (regra do Banco Central)`;
+        await this.db.execute(sql`
+          update pedido_estorno set situacao = 'falhou', erro = ${motivo}, atualizado_em = clock_timestamp() where id = ${e.id}::uuid`);
+        desistiu++;
+        await this.avisarALoja(e, motivo, false);
+        continue;
+      }
       try {
         const r = await this.cardapio.reembolsarPagamentoTotal(e.tenantId, e.provedor, e.pagamento);
         await this.db.execute(sql`
@@ -116,12 +126,12 @@ export class EstornoPixService {
   }
 
   /** A 3ª falha: um caso URGENTE na fila do Atendimento — a loja devolve à mão. */
-  private async avisarALoja(e: any, motivo: string): Promise<void> {
+  private async avisarALoja(e: any, motivo: string, doGateway = true): Promise<void> {
     const nome = { mercadopago: 'Mercado Pago', pagseguro: 'PagBank', rede: 'Rede' }[e.provedor as string] ?? e.provedor;
     const valor = Number(e.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     const mensagem =
       `O estorno do Pix do pedido #${e.numero ?? ''} (${valor}) não saiu: devolva o valor ao cliente pelo app do ${nome}. ` +
-      `Motivo do ${nome}: ${motivo}`;
+      `${doGateway ? `Motivo do ${nome}` : 'Motivo'}: ${motivo}`;
     const [caso] = this.linhas(
       await this.db.execute(sql`
         insert into atendimento_chamado (tenant_id, unidade_id, tipo, cliente, telefone, pedido_numero, pedido_id, mensagem, prioridade)

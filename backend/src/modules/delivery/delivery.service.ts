@@ -21,6 +21,7 @@ import { and, desc, eq, gte, ilike, inArray, isNotNull, isNull, notInArray, or, 
 import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { PREFIXO_BALCAO } from '../../common/senha-origem';
+import { MENSAGEM_PRAZO_DO_PIX, pagoNoPixOnline, podeCancelarPagoNoPix } from '../../common/prazo-estorno-pix';
 import { textoDasEscolhas } from '../../common/adicionais';
 import { serieDaSenha } from './serie-da-senha';
 import { retidosVencidos } from './totem-retido.query';
@@ -2476,6 +2477,9 @@ export class DeliveryService {
       throw new BadRequestException('Pedido já cancelado.');
     if (ped.status === 'concluido')
       throw new BadRequestException('Pedido concluído não pode ser cancelado.');
+    // Pago no Pix: o cancelamento estorna o valor (a rotina da nuvem, mig 372) — e o Pix só devolve até 90 dias depois do
+    // pagamento. Passou do prazo (89 dias, 1 de folga): a loja é avisada e o pedido não é cancelado (o dinheiro não voltaria).
+    if (pagoNoPixOnline(ped) && !podeCancelarPagoNoPix(ped.criadoEm)) throw new BadRequestException(MENSAGEM_PRAZO_DO_PIX);
     // Trava: exige senha de um gestor com autoridade para cancelar.
     const autorizou = await this.autorizarPorSenha(tenantId, senha);
     // O que aconteceu com o estoque — dito ao operador pelo que foi FEITO, não pelo que se supõe.

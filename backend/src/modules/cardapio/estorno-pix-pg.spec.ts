@@ -40,16 +40,16 @@ descrever('estorno do Pix no cancelamento (Postgres)', () => {
   const eventos: any[] = [];
   const svc = new EstornoPixService(db, gateway as any, { emit: (n: string, p: any) => eventos.push({ n, p }) } as any);
 
-  async function pedido(o: { status?: string; pago?: boolean; statusPagamento?: string; provedor?: string | null; pagamento?: string | null; sinal?: string | null; diasAtras?: number; total?: number } = {}) {
+  async function pedido(o: { status?: string; pago?: boolean; statusPagamento?: string; provedor?: string | null; pagamento?: string | null; sinal?: string | null; diasAtras?: number; total?: number; pagoHaDias?: number } = {}) {
     const pagamento = o.pagamento === undefined ? `pay-${randomUUID().slice(0, 8)}` : o.pagamento;
     const [r] = await q(
       `insert into pedido_externo (tenant_id, unidade_id, canal, tipo, itens, total, status, pago, status_pagamento, gateway_provider,
-                                   gateway_payment_id, sinal_status, display_id, cliente_nome, cliente_telefone, cancelado_em)
+                                   gateway_payment_id, sinal_status, display_id, cliente_nome, cliente_telefone, cancelado_em, criado_em)
        values ($1, $2, 'cardapio', 'entrega', '[]', $3, $4, $5, $6, $7, $8, $9, $10, 'Cliente Teste', '21900000000',
-               case when $4 = 'cancelado' then now() - make_interval(days => $11::int) end)
+               case when $4 = 'cancelado' then now() - make_interval(days => $11::int) end, now() - make_interval(days => $12::int))
        returning id`,
       [T, loja, o.total ?? 34, o.status ?? 'cancelado', o.pago ?? true, o.statusPagamento ?? 'aprovado', o.provedor === undefined ? 'mercadopago' : o.provedor,
-       pagamento, o.sinal ?? null, String(1000 + Math.floor(Math.random() * 8999)), o.diasAtras ?? 0],
+       pagamento, o.sinal ?? null, String(1000 + Math.floor(Math.random() * 8999)), o.diasAtras ?? 0, o.pagoHaDias ?? o.diasAtras ?? 0],
     );
     return { id: r.id as string, pagamento };
   }
@@ -132,6 +132,19 @@ descrever('estorno do Pix no cancelamento (Postgres)', () => {
     await svc.volta();
     expect(chamadas.filter((c) => c.pagamento === p.pagamento)).toHaveLength(3);
     expect(await q(`select 1 from atendimento_chamado where pedido_id = $1`, [p.id])).toHaveLength(1);
+  });
+
+  it('pago há mais de 90 dias (o Pix não devolve mais): nem chama o gateway — caso URGENTE com o motivo do prazo', async () => {
+    const p = await pedido({ pagoHaDias: 91 });
+    const dentro = await pedido({ pagoHaDias: 89 });
+    await svc.volta();
+    expect(chamadas.filter((c) => c.pagamento === p.pagamento)).toHaveLength(0);
+    expect(await estorno(p.id)).toMatchObject({ situacao: 'falhou', erro: 'o Pix só aceita devolução até 90 dias depois do pagamento (regra do Banco Central)' });
+    const [caso] = await q(`select prioridade, mensagem from atendimento_chamado where pedido_id = $1`, [p.id]);
+    expect(caso.prioridade).toBe('urgente');
+    expect(caso.mensagem).toMatch(/devolva o valor ao cliente pelo app do Mercado Pago\. Motivo: o Pix só aceita devolução até 90 dias/);
+    expect(chamadas.filter((c) => c.pagamento === dentro.pagamento)).toHaveLength(1);
+    expect(await estorno(dentro.id)).toMatchObject({ situacao: 'feito' });
   });
 
   it('a réplica que caiu no meio ("processando" há mais de 5 min) devolve a vez; a que está trabalhando agora, não', async () => {

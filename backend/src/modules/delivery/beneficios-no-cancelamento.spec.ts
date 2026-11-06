@@ -12,6 +12,7 @@ import { FinanceiroService } from '../financeiro/financeiro.service';
 import { OpenDeliveryPoller } from '../integracoes/open-delivery/open-delivery.poller';
 import { DeliveryService } from './delivery.service';
 import { baixarPendenciasAntigas, EVENTO_CANCELADOS_NA_BAIXA } from './pendencias-turno';
+import { MENSAGEM_PRAZO_DO_PIX } from '../../common/prazo-estorno-pix';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -128,6 +129,24 @@ descrever('descontos no cancelamento (Postgres real)', () => {
     expect(r.movs).toEqual(ESTORNADO);
     expect(r.estornado).toBe(true);
     expect(r.usosDoCupom).toBe(1); // antes o uso era apagado e a cota voltava
+  });
+
+  it('pago no Pix há mais de 89 dias: o cancelamento é RECUSADO com o aviso do prazo do Pix (o estorno não sairia); 88 dias passa', async () => {
+    const l = await loja();
+    const pagoNoPix = async (dias: number) => {
+      const id = await pedido(l, 'confirmado', dias * 24);
+      await q(`update pedido_externo set pago = true, status_pagamento = 'aprovado', gateway_provider = 'mercadopago', gateway_payment_id = $2 where id = $1`, [id, `pay-${randomUUID().slice(0, 8)}`]);
+      return id;
+    };
+    const velho = await pagoNoPix(90);
+    await expect(servico().cancelar(l.t, l.gerente, 'gerente', velho, 'x', SENHA_GERENTE, true, null)).rejects.toThrow(MENSAGEM_PRAZO_DO_PIX);
+    expect((await q(`select status from pedido_externo where id = $1`, [velho]))[0].status).toBe('confirmado');
+    // o mesmo pedido sem pagamento online (pago na entrega): cancela normalmente
+    await q(`update pedido_externo set status_pagamento = 'na_entrega', gateway_provider = null, gateway_payment_id = null where id = $1`, [velho]);
+    await servico().cancelar(l.t, l.gerente, 'gerente', velho, 'x', SENHA_GERENTE, true, null);
+    const novo = await pagoNoPix(88);
+    await servico().cancelar(l.t, l.gerente, 'gerente', novo, 'Cliente desistiu', SENHA_GERENTE, true, null);
+    expect((await q(`select status from pedido_externo where id = $1`, [novo]))[0].status).toBe('cancelado');
   });
 
   it('sistema (PIX que não chegou) e canal: o mesmo estorno; o cupom também se perde', async () => {
