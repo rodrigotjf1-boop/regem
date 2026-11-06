@@ -114,8 +114,10 @@ descrever('gerente no WhatsApp (Postgres)', () => {
     delete process.env.EDGE_MODE; // como NUVEM
     pool = new Pool({ connectionString: URL_PG });
     db = drizzle(pool, { schema });
-    // As tabelas só da nuvem (o banco do CI é o de uma loja — ERR-273): a caixa de conversas, o robo_config e a 375.
-    for (const m of ['215_whatsapp_mensagem.sql', '342_robo_pausa_e_config.sql', '375_gestor_whatsapp.sql']) await aplicar(m);
+    // As tabelas só da nuvem (o banco do CI é o de uma loja — ERR-273): a caixa de conversas, o robo_config, a 353 (o
+    // `avisar_gerente_min` que o teste do V82 confere — sem ela, a suíte só passava depois da suíte da fila) e a 375.
+    for (const m of ['215_whatsapp_mensagem.sql', '342_robo_pausa_e_config.sql', '353_app_atendimento.sql', '375_gestor_whatsapp.sql'])
+      await aplicar(m);
     svc = new GestorWhatsappService(db, cloud, evolution, { registrar: auditar } as any);
     [{ id: T }] = await q(`insert into empresa (nome) values ('teste gerente no whatsapp') returning id`);
     [{ id: T2 }] = await q(`insert into empresa (nome) values ('teste gerente no whatsapp sem ajuste') returning id`);
