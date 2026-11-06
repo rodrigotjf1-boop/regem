@@ -65,7 +65,6 @@ export default function EquipamentosPage() {
   const [reativando, setReativando] = useState<any | null>(null);
   const [verAvisos, setVerAvisos] = useState(false);
   const [testando, setTestando] = useState<string | null>(null);
-  const [publicando, setPublicando] = useState(false);
   // "Lista | Por PC" (conexão PC ↔ servidor): a escolha fica neste navegador — é preferência de tela.
   const [vista, setVista] = useState<'lista' | 'pc'>('lista');
   const [servidorRede, setServidorRede] = useState<{ ip?: string | null; maquina?: string | null } | null>(null);
@@ -134,17 +133,6 @@ export default function EquipamentosPage() {
       toast.error(motivo(err, 'Erro ao enviar teste'));
     } finally {
       setTestando(null);
-    }
-  }
-  async function publicarGogem() {
-    setPublicando(true);
-    try {
-      const r: any = await api.post('/integracoes/gogem/publicar', {});
-      toast.success(r?.alterados != null ? `Publicado no GoGeM: ${r.alterados} produto(s) sincronizado(s).` : 'Publicado no GoGeM.');
-    } catch (err) {
-      toast.error(motivo(err, 'Erro ao publicar no GoGeM'));
-    } finally {
-      setPublicando(false);
     }
   }
 
@@ -281,15 +269,6 @@ export default function EquipamentosPage() {
               “Regem - parear este PC”. Assim o PC volta a confiar no servidor novo. Se o navegador do PC ainda mostrar erro de certificado, ou
               se o PC não tem o ícone, rode o RegemEdgeSetup.exe nele, no modo Cliente.
             </p>
-            {pode && (
-              <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
-                <div className="min-w-0">
-                  <h3 className="font-display text-base font-bold">Integração GoGeM (autoatendimento)</h3>
-                  <p className={`mt-1 text-sm ${texto2}`}>Pausou ou editou um produto? Publique para o GoGeM refletir na hora (preço, nome e disponibilidade dos itens linkados).</p>
-                </div>
-                <Button type="button" variant="outline" onClick={() => void publicarGogem()} disabled={publicando}>{publicando ? 'Publicando…' : 'Publicar no GoGeM'}</Button>
-              </Card>
-            )}
 
             <Situacoes base={base} opcoes={SITUACOES} valor={sit} aoMudar={setSit} todas={{ rotulo: 'Em uso', filtro: emUso }} />
             <Filtros>

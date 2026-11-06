@@ -79,6 +79,7 @@ import { BotModule } from './modules/bot/bot.module';
 import { SyncModule } from './modules/sync/sync.module';
 import { EdgeFlashSyncModule } from './modules/sync/edge-flash-sync.service';
 import { GogemModule } from './modules/gogem/gogem.module';
+import { PublicarIntegracoesModule } from './modules/publicar-integracoes/publicar-integracoes.module';
 import { EdgeModule } from './modules/edge/edge.module';
 import { BandejaModule } from './modules/bandeja/bandeja.module';
 import { TelemetriaInterceptor } from './modules/edge/telemetria.interceptor';
@@ -195,6 +196,8 @@ const CLOUD_ONLY_IMPORTS = IS_EDGE
     SyncModule,
     EdgeFlashSyncModule,
     GogemModule,
+    // "Publicar nas integrações" (Cadastros › Cardápio): no servidor da loja, repassa à nuvem.
+    PublicarIntegracoesModule,
     EdgeModule,
     BandejaModule, // o ícone do servidor da loja (só responde no servidor da loja)
     LicencaModule,

@@ -20,6 +20,7 @@ import { DestinosCard } from '@/components/produtos/destinos-card';
 import { FaixasCard } from '@/components/produtos/faixas-card';
 import { ComplementosCard } from '@/components/produtos/complementos-card';
 import { ProdutosLista } from '@/components/produtos/produtos-lista';
+import { PublicarIntegracoes } from '@/components/produtos/publicar-integracoes';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -650,15 +651,19 @@ export default function ProdutosPage() {
                   {label}
                 </button>
               ))}
-              {aba === 'produtos' && (
-                <button
-                  type="button"
-                  onClick={abrirNovo}
-                  className="mb-1 ml-auto inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold transition-colors hover:border-primary hover:text-primary"
-                >
-                  ＋ Novo produto
-                </button>
-              )}
+              <div className="mb-1 ml-auto flex flex-wrap items-center justify-end gap-2">
+                {aba === 'produtos' && (
+                  <button
+                    type="button"
+                    onClick={abrirNovo}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold transition-colors hover:border-primary hover:text-primary"
+                  >
+                    ＋ Novo produto
+                  </button>
+                )}
+                {/* Pedido do dono (06/11/2026): o "Publicar no GoGeM" saiu de Equipamentos e virou este botão. */}
+                <PublicarIntegracoes />
+              </div>
             </div>
 
             {aba === 'opcoes' && <div className="scroll-fino min-h-0 flex-1 overflow-y-auto pr-1"><OpcoesCard ifoodLigado={ifoodLigado} /></div>}

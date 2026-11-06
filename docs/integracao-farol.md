@@ -366,6 +366,10 @@ com `user-agent: Regem-Integracao/1`:
 - **O que não avisa:** o que nenhuma das duas rotas devolve — preço, custo, pausa por estoque e
   custo médio. Pode chegar aviso sem que a versão mude (a resposta é `atualizado: false`); o
   contrário não acontece.
+- **"Publicar nas integrações"** (Cadastros › Cardápio, desde 06/11/2026): o clique da gestão pede às integrações
+  conectadas que leiam de novo — chega um `catalogo.alterado` ou `fichas.alterado` da loja em uso (ou de todas, se a
+  pessoa está em "todas as lojas"), com as mesmas regras acima (no máximo um por minuto), **mesmo sem nada mudado**. É o
+  caso do `atualizado: false`: nada a fazer além de ler.
 - **O que vem do servidor da loja** (cadastro feito lá, que sobe pelo sincronismo) avisa igual.
 - **Resposta esperada:** `2xx` = entregue. `404`/`410` por mais de uma hora = a conexão não existe
   mais: o Regem pausa o aviso até um registro novo. Qualquer outra coisa: tenta de novo em 1, 2, 5,

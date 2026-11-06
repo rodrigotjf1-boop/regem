@@ -18,6 +18,11 @@
   botão do aniversário no cardápio online. **No `.zip`/`.exe` (o mesmo corte 1.30.13):** só a classificação
   `pedido_estorno` em SO_NUVEM no `edge/sync-daemon.mjs` (sem efeito na loja: ela não tem a tabela).
 
+- **"Publicar nas integrações" no Cardápio (06/11; sem migration, sem `edge/`).** Na nuvem, no ar com o merge: o botão
+  em Cadastros › Cardápio (GoGeM na hora, pedido de leitura ao Farol, situação do iFood) e o "Publicar no GoGeM" sai de
+  Equipamentos. **No `.zip` 1.30.13:** a tela do servidor da loja ganha o botão (e perde o antigo) e o servidor da loja
+  passa a pedir à nuvem (`/integracoes/loja/publicar`, token de sync) — o "Publicar no GoGeM" chamado NA LOJA dependia da
+  credencial do GoGeM, que só existe na nuvem. Também na tela da loja: o "Conferir de novo" do "Último envio ao iFood".
 - **"Ocultar" da lista do Cardápio voltou a funcionar (ERR-385) + "Ocultar" pausa no iFood (mig 371 `@cloud-only`) +
   "Pausado no iFood" (06/11; sem `edge/`).** Na nuvem, no ar com o merge. **No `.zip` 1.30.13:** a correção do PATCH do
   produto no servidor da loja (lá o "Ocultar/Retomar" e a tela de Catálogo seguem dando 400 até o `.zip`) e o botão
