@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { jsonSemArredondar, mensagensDoPolling, sessoesDoBroker, paraANuvem, filtroDoIm, filtroDoBroker, ligarLeitor99 } = require('../src/leitor-99');
+const { jsonSemArredondar, mensagensDoPolling, sessoesDoBroker, envioDoBroker, confirmacaoDoBroker, paraANuvem, filtroDoIm, filtroDoBroker, ligarLeitor99 } = require('../src/leitor-99');
 
 const LOJA = '9000000000000001';
 const CLIENTE = '900000000000123';
@@ -111,9 +111,10 @@ function depuradorFalso() {
   };
 }
 let proximo = 1;
-async function responder(dbg, url, corpo, type = 'XHR') {
+async function responder(dbg, url, corpo, type = 'XHR', postData) {
   const id = `r${proximo++}`;
   dbg.corpos.set(id, corpo);
+  if (postData !== undefined) dbg.emitir('Network.requestWillBeSent', { requestId: id, type, request: { url, method: 'POST', postData } });
   dbg.emitir('Network.responseReceived', { requestId: id, type, response: { url, mimeType: 'text/plain' } });
   dbg.emitir('Network.loadingFinished', { requestId: id });
   await new Promise((r) => setImmediate(r));
@@ -183,4 +184,52 @@ test('a escuta na 99 de mentira da prova (REGEM_PONTE_99_IM)', async () => {
   await responder(dbg, POLL, polling([texto(4, CLIENTE, 'da 99 de verdade')]));
   await responder(dbg, 'http://127.0.0.1:4499/im/polling/', polling([texto(7, CLIENTE, 'da 99 de mentira')]));
   assert.deepEqual(chegaram.map((m) => m.texto), ['da 99 de mentira']);
+});
+
+// ---------- 4b: o envio da loja e a confirmação ----------
+
+const envio = (cont, sid = SID) => `{"op_type":3,"body":{"msgs":[{"body":{"cont":${JSON.stringify(cont)}},"msg_type":65536,"sid":${sid},"local_id":"x1","soid":"y"}]}}`;
+const confirmacao = (uniq) => `{"body":{"mids":[123456789012345678],"msgs":[{"mid":123456789012345678,"uniq_msg_id":${uniq}}]},"errno":0}`;
+
+test('o envio que a página faz (op 3) e a confirmação do broker: o texto, a sessão e o id (o mesmo do polling)', () => {
+  assert.deepEqual(envioDoBroker(envio('Seu pedido saiu!')), { sid: SID, texto: 'Seu pedido saiu!' });
+  assert.equal(envioDoBroker('{"op_type":12,"body":{}}'), null);
+  assert.equal(envioDoBroker(envio('x').replace('65536', '196608')), null);
+  assert.equal(envioDoBroker('{quebrado'), null);
+  assert.deepEqual(confirmacaoDoBroker(confirmacao('920000000000000099')), { id: '920000000000000099' });
+  assert.deepEqual(confirmacaoDoBroker('{"body":{"mids":[123456789012345678]},"errno":0}'), { id: '123456789012345678' });
+  assert.equal(confirmacaoDoBroker('{"errno":500,"body":{"mids":[1]}}'), null);
+  assert.equal(confirmacaoDoBroker('{"body":{},"errno":0}'), null);
+});
+
+test('esperar o eco: a confirmação do broker ao envio, com o texto exato, na conversa do pedido', async () => {
+  const dbg = depuradorFalso();
+  const l = ligarLeitor99({ debugger: dbg }, { aoChegar: () => {}, env: {} });
+  // a página abriu a conversa (sessão ↔ pedido)
+  await responder(dbg, BROKER, broker(JSON.stringify({ payload: `{"orderId":${PEDIDO},"orderNum":"#900002"}` })));
+  const desde = Date.now();
+  const esperando = l.esperarEco({ pedidoExterno: PEDIDO, texto: 'Seu pedido saiu!', desde, prazoMs: 2000 });
+  // outro texto e outra conversa conhecida: não contam
+  await responder(dbg, BROKER, confirmacao('920000000000000001'), 'XHR', envio('Outro texto'));
+  await responder(dbg, BROKER, confirmacao('920000000000000099'), 'XHR', envio('Seu pedido saiu!'));
+  assert.deepEqual(await esperando, { id: '920000000000000099', fonte: 'envio' });
+  // e ficou guardada: "já está no chat?" para ESTE pedido; para outro pedido, não
+  assert.deepEqual(l.jaEnviada({ pedidoExterno: PEDIDO, texto: 'Seu pedido saiu!', desde }), { id: '920000000000000099' });
+  assert.equal(l.jaEnviada({ pedidoExterno: '9100000000000000001', texto: 'Seu pedido saiu!', desde }), null);
+  assert.equal(l.jaEnviada({ pedidoExterno: PEDIDO, texto: 'Seu pedido saiu!', desde: Date.now() + 1000 }), null);
+});
+
+test('esperar o eco pelo polling (a fala da loja com o texto exato); sem nada no prazo: null', async () => {
+  const dbg = depuradorFalso();
+  const l = ligarLeitor99({ debugger: dbg }, { aoChegar: () => {}, env: {} });
+  await responder(dbg, BROKER, broker(JSON.stringify({ payload: `{"orderId":${PEDIDO},"orderNum":"#900002"}` })));
+  const esperando = l.esperarEco({ pedidoExterno: PEDIDO, texto: 'Já saiu!', desde: Date.now(), prazoMs: 2000 });
+  await responder(dbg, POLL, polling([texto(8, CLIENTE, 'Já saiu!'), texto(9, LOJA, 'Já saiu!')]));
+  assert.deepEqual(await esperando, { id: '920000000000000039', fonte: 'polling' }); // a do cliente com o mesmo texto não conta
+  assert.equal(await l.esperarEco({ pedidoExterno: PEDIDO, texto: 'Nada', desde: Date.now(), prazoMs: 50 }), null);
+  // a conversa de OUTRO pedido conhecido: o eco não vale
+  await responder(dbg, BROKER, `{"body":{"infos":[{"sid":9000000000000000888,"extend":{"payload":{"orderId":"9100000000000000001"}}}]},"errno":0}`);
+  const outro = l.esperarEco({ pedidoExterno: PEDIDO, texto: 'Oi', desde: Date.now(), prazoMs: 300 });
+  await responder(dbg, POLL, polling([texto(10, LOJA, 'Oi', '9000000000000000888')]));
+  assert.equal(await outro, null);
 });

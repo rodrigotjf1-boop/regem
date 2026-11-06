@@ -17,6 +17,7 @@
 const { motivoParaNaoEnviar } = require('./regras');
 
 const NUMERO = /^\d{3,6}$/;
+const NUMERO_99 = /^\d{4,8}$/; // o número do pedido na 99 (6 dígitos hoje)
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 
 class Saida {
@@ -38,6 +39,9 @@ class Saida {
    */
   constructor(o) {
     Object.assign(this, { esperaTelaMs: 45000, passoTelaMs: 2000, canal: 'ifood', anotar: () => {}, marca: () => null, tratarClassificacao: () => {}, esperarHistorico: async () => {} }, o);
+    // os textos por canal (a 99 desde a 4b): "pelo iFood" × "pela 99", "do Gestor" × "da 99"
+    const n99 = this.canal === '99food';
+    this.txt = { pelo: n99 ? 'pela 99' : 'pelo iFood', no: n99 ? 'na 99' : 'no iFood', tela: n99 ? 'da 99' : 'do Gestor', onde: n99 ? 'no portal da 99' : 'no Gestor', numero: n99 ? NUMERO_99 : NUMERO };
     this.rodando = false;
     this.situacao = 'aguardando';
     this.enviadas = 0;
@@ -56,7 +60,7 @@ class Saida {
       const p = this.podeTrabalhar();
       if (!p.ok) return this.parar(p.motivo);
       const t = await this.telaLivre();
-      if (!t.ok) return this.parar(`esperando a tela do Gestor (${t.motivo})`);
+      if (!t.ok) return this.parar(`esperando a tela ${this.txt.tela} (${t.motivo})`);
       const cred = this.credencial();
       const r = await this.nuvem.pegar(cred, this.canal);
       const c = this.nuvem.classificar(r);
@@ -65,7 +69,7 @@ class Saida {
         return this.parar(`a nuvem não entregou a fila (${c})`);
       }
       const { papel, itens } = r.dados || {};
-      if (papel !== 'responde') return this.parar(papel === 'desligada' ? 'ponte desligada nos ajustes' : `este PC não responde pelo iFood (${papel || 'fora'})`);
+      if (papel !== 'responde') return this.parar(papel === 'desligada' ? 'ponte desligada nos ajustes' : `este PC não responde ${this.txt.pelo} (${papel || 'fora'})`);
       if (!Array.isArray(itens) || !itens.length) return this.parar('em dia');
       this.anotar({ ev: 'saida_pegou', n: itens.length });
       for (const item of itens) await this.tratar(cred, item);
@@ -89,7 +93,7 @@ class Saida {
     const motivo = motivoParaNaoEnviar(texto);
     if (motivo) return this.devolver(cred, item, { ok: false, erro: `o texto não pode sair pelo chat: ${motivo}`, definitivo: true }, 'texto_proibido');
     const numero = String(item.pedidoNumero || '');
-    if (!NUMERO.test(numero)) return this.devolver(cred, item, { ok: false, erro: 'a mensagem veio sem o número do pedido no iFood', definitivo: true }, 'sem_numero');
+    if (!this.txt.numero.test(numero)) return this.devolver(cred, item, { ok: false, erro: `a mensagem veio sem o número do pedido ${this.txt.no}`, definitivo: true }, 'sem_numero');
     const q = { pedidoExterno: item.pedidoExterno, texto, desde: Date.parse(item.criadoEm) || 0 };
 
     // 1) JÁ ESTÁ NO CHAT? — a ponte mandou e caiu antes de avisar a nuvem, ou alguém da loja mandou o mesmo texto
@@ -99,7 +103,7 @@ class Saida {
       await this.abrirSemEnviar(item).catch(() => null);
       ja = this.jaEnviada(q);
       if (!ja)
-        return this.devolver(cred, item, { ok: false, erro: 'envio incerto: o programa já tinha apertado "Enviar" e a mensagem não apareceu no chat — confira no Gestor', definitivo: true }, 'incerto_antes');
+        return this.devolver(cred, item, { ok: false, erro: `envio incerto: o programa já tinha apertado "Enviar" e a mensagem não apareceu no chat — confira ${this.txt.onde}`, definitivo: true }, 'incerto_antes');
     }
     if (ja) {
       this.jornal.eco(item.id, ja.id);
@@ -113,7 +117,7 @@ class Saida {
       await esperar(this.passoTelaMs);
       livre = await this.telaLivre();
     }
-    if (!livre.ok) return this.devolver(cred, item, { ok: false, erro: `esperando a tela do Gestor: ${livre.motivo}` }, 'tela_ocupada');
+    if (!livre.ok) return this.devolver(cred, item, { ok: false, erro: `esperando a tela ${this.txt.tela}: ${livre.motivo}` }, 'tela_ocupada');
 
     // 3) envia
     const inicio = Date.now();
@@ -139,11 +143,11 @@ class Saida {
         this.enviadas += 1;
         return this.devolver(cred, item, { ok: true, id: tarde.id }, 'eco_tarde');
       }
-      return this.devolver(cred, item, { ok: false, erro: 'envio incerto: o programa apertou "Enviar" e a mensagem não voltou pelo chat — confira no Gestor', definitivo: true }, 'incerto');
+      return this.devolver(cred, item, { ok: false, erro: `envio incerto: o programa apertou "Enviar" e a mensagem não voltou pelo chat — confira ${this.txt.onde}`, definitivo: true }, 'incerto');
     }
     const ultima = ((r && r.etapas) || []).slice(-1)[0] || '';
     const erro = ultima.replace(/^✗\s*/, '') || 'não deu para enviar';
-    if (r && r.codigo === 'fora_do_quadro') return this.devolver(cred, item, { ok: false, erro, definitivo: true }, 'fora_do_quadro');
+    if (r && (r.codigo === 'fora_do_quadro' || r.definitivo === true)) return this.devolver(cred, item, { ok: false, erro, definitivo: true }, r.codigo || 'definitivo');
     return this.devolver(cred, item, { ok: false, erro }, (r && r.codigo) || 'falhou');
   }
 }

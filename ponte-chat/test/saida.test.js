@@ -17,7 +17,7 @@ const novoJornal = () => new Jornal(path.join(fs.mkdtempSync(path.join(os.tmpdir
  * A ponte de mentira em volta do trabalhador: a nuvem (a fila e os resultados), a tela, o envio e a memória do chat.
  * `envio(item, opcoes, n)` decide o que o Gestor "fez" na n-ésima chamada.
  */
-function montar({ pode = { ok: true }, telas = null, papel = 'responde', itens = [aviso(1)], envio, memoria = () => null, jornal = novoJornal(), pegarResposta, resultadoResposta } = {}) {
+function montar({ pode = { ok: true }, telas = null, papel = 'responde', itens = [aviso(1)], envio, memoria = () => null, jornal = novoJornal(), pegarResposta, resultadoResposta, canal } = {}) {
   const pegou = [];
   const resultados = [];
   const enviados = [];
@@ -25,6 +25,7 @@ function montar({ pode = { ok: true }, telas = null, papel = 'responde', itens =
   const classes = [];
   let iTela = 0;
   const s = new Saida({
+    ...(canal ? { canal } : {}),
     podeTrabalhar: () => pode,
     telaLivre: async () => {
       const t = telas ? telas[Math.min(iTela, telas.length - 1)] : { ok: true };
@@ -257,4 +258,29 @@ test('uma volta por vez (a volta seguinte, durante uma em andamento, não faz na
   solta();
   await primeira;
   assert.equal(m.pegou.length, 1);
+});
+
+test('canal 99 (4b): pede a fila da 99, aceita o número de 6 dígitos, fala "pela 99"; a busca que não acha é definitiva', async () => {
+  const doc99 = (n, o = {}) => aviso(n, { canal: '99food', pedidoNumero: '900003', pedidoExterno: '9100000000000003441', ...o });
+  const ok = montar({ canal: '99food', itens: [doc99(1)] });
+  await ok.s.volta();
+  assert.deepEqual(ok.pegou, ['99food']);
+  assert.deepEqual(ok.resultados.map((x) => [x.ok, x.id]), [[true, 'eco-1']]);
+  // reserva / tela ocupada: os textos dizem a 99
+  const reserva = montar({ canal: '99food', papel: 'reserva' });
+  assert.match((await reserva.s.volta()).situacao, /não responde pela 99/);
+  const ocupada = montar({ canal: '99food', telas: [{ ok: false, motivo: 'há uma conversa aberta na 99' }] });
+  assert.match((await ocupada.s.volta()).situacao, /esperando a tela da 99 \(há uma conversa aberta/);
+  // sem número: "na 99"
+  const sem = montar({ canal: '99food', itens: [doc99(2, { pedidoNumero: '' })] });
+  await sem.s.volta();
+  assert.match(sem.resultados[0].erro, /sem o número do pedido na 99/);
+  // o pedido que a busca não acha: definitivo (não gasta as 3 tentativas)
+  const naoAchou = montar({ canal: '99food', itens: [doc99(3)], envio: () => ({ ok: false, codigo: 'sem_pedido', definitivo: true, etapas: ['✗ a busca da 99 não achou o pedido #900003 entre os em andamento'] }) });
+  await naoAchou.s.volta();
+  assert.deepEqual([naoAchou.resultados[0].definitivo, naoAchou.resultados[0].erro], [true, 'a busca da 99 não achou o pedido #900003 entre os em andamento']);
+  // sem confirmação: "confira no portal da 99"
+  const incerto = montar({ canal: '99food', itens: [doc99(4)], envio: async (_i, o) => (await o.aoApertar(), { ok: false, incerto: true, apertou: true }) });
+  await incerto.s.volta();
+  assert.match(incerto.resultados[0].erro, /confira no portal da 99/);
 });

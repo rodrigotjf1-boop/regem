@@ -149,6 +149,40 @@ function paraANuvem(m, loja, clienteDaConversa, pedidoDaConversa) {
   };
 }
 
+/**
+ * O ENVIO da loja que a página faz ao broker (op_type 3): `{ sid, texto }` da 1ª mensagem de texto — ou null (outro op,
+ * outro tipo, corpo estragado). Mapeado em 05/11: `{ op_type: 3, body: { msgs: [{ body: { cont }, msg_type: 65536, sid }] } }`.
+ */
+function envioDoBroker(txt) {
+  let j;
+  try {
+    j = jsonSemArredondar(txt);
+  } catch {
+    return null;
+  }
+  if (!j || Number(j.op_type) !== 3) return null;
+  const msgs = (j.body && Array.isArray(j.body.msgs) && j.body.msgs) || (Array.isArray(j.msgs) && j.msgs) || [];
+  const m = msgs.find((x) => x && Number(x.msg_type) === TEXTO && x.body && typeof x.body.cont === 'string');
+  if (!m) return null;
+  const sid = comoTexto(m.sid);
+  return sid ? { sid, texto: m.body.cont } : null;
+}
+
+/** A CONFIRMAÇÃO do broker ao envio: o id da mensagem (`uniq_msg_id`, o mesmo do polling; sem ele, o `mid`) — ou null. */
+function confirmacaoDoBroker(txt) {
+  let j;
+  try {
+    j = jsonSemArredondar(txt);
+  } catch {
+    return null;
+  }
+  if (!j || (j.errno !== undefined && Number(j.errno) !== 0)) return null;
+  const b = j.body && typeof j.body === 'object' ? j.body : {};
+  const m = Array.isArray(b.msgs) ? b.msgs.find((x) => x && (x.uniq_msg_id !== undefined || x.mid !== undefined)) : null;
+  const id = m ? comoTexto(m.uniq_msg_id) || comoTexto(m.mid) : Array.isArray(b.mids) && b.mids.length ? comoTexto(b.mids[0]) : '';
+  return id ? { id } : null;
+}
+
 /** O endereço do polling do IM (a prova troca pelo da 99 de mentira com `REGEM_PONTE_99_IM`). */
 function filtroDoIm(env = process.env) {
   const p = String(env.REGEM_PONTE_99_IM || '').trim();
@@ -192,6 +226,9 @@ function ligarLeitor99(wc, { aoChegar, aoMudar, registrarErro, anotar, env = pro
   const vistos = new Vistos();
   const clientes = new Map(); // sid → uid do cliente (aprendido nas falas dele)
   const pedidos = new Map(); // sid → { externo, numero } (a página abriu a conversa)
+  const envios = new Map(); // `${sessão}|${requestId}` → { sid, texto } (o envio que a página fez — op_type 3)
+  const daLoja = []; // o que a LOJA mandou (polling e confirmação do envio): { sid, texto, em, id } — o "já está no chat?"
+  const ouvintes = new Set(); // quem espera a confirmação do envio (4b)
   let loja = null;
   let ultimoPolling = 0;
   let avisouSemLoja = false;
@@ -208,6 +245,23 @@ function ligarLeitor99(wc, { aoChegar, aoMudar, registrarErro, anotar, env = pro
       dbg.sendCommand('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }, sid).catch(() => {}),
     ]);
   const pronto = preparar(undefined);
+
+  /** Guarda o que a loja mandou e avisa quem espera a confirmação de um envio. */
+  function daLojaChegou(ev) {
+    daLoja.push(ev);
+    if (daLoja.length > 500) daLoja.shift();
+    for (const f of ouvintes) {
+      try {
+        f(ev);
+      } catch {
+        /* quem ouve não derruba a leitura */
+      }
+    }
+  }
+  const doPedido = (sid, pedidoExterno) => {
+    const p = pedidos.get(String(sid));
+    return !!p && !!pedidoExterno && p.externo === String(pedidoExterno);
+  };
 
   function doPolling(txt) {
     const r = mensagensDoPolling(txt);
@@ -226,13 +280,20 @@ function ligarLeitor99(wc, { aoChegar, aoMudar, registrarErro, anotar, env = pro
     for (const m of r.msgs) if (m.uid !== loja) guardar(clientes, m.sid, m.uid);
     for (const m of r.msgs) {
       if (!vistos.novo(m.id)) continue;
+      if (m.uid === loja && m.tipo === 'texto') daLojaChegou({ fonte: 'polling', sid: m.sid, texto: m.texto, em: agora(), id: m.id });
       const n = paraANuvem(m, loja, clientes.get(m.sid), pedidos.get(m.sid));
       if (anotar) anotar({ ev: 'msg_99', autor: n.autor, tipo: m.tipo, comCliente: !!(n.pedido && n.pedido.cliente99), comPedido: !!(n.pedido && n.pedido.externo) });
       aoChegar(n);
     }
   }
 
-  function doBroker(txt) {
+  function doBroker(txt, envio) {
+    if (envio) {
+      // a resposta ao envio da loja (op 3): o id da mensagem confirma que saiu
+      const c = confirmacaoDoBroker(txt);
+      if (c) daLojaChegou({ fonte: 'envio', sid: envio.sid, texto: envio.texto, em: agora(), id: c.id });
+      return;
+    }
     for (const s of sessoesDoBroker(txt)) guardar(pedidos, s.sid, { externo: s.externo, numero: s.numero });
   }
 
@@ -248,6 +309,14 @@ function ligarLeitor99(wc, { aoChegar, aoMudar, registrarErro, anotar, env = pro
         preparar(p.sessionId);
         return;
       }
+      if (metodo === 'Network.requestWillBeSent') {
+        const rq = p.request || {};
+        if (rq.method === 'POST' && broker.test(rq.url || '') && typeof rq.postData === 'string') {
+          const e = envioDoBroker(rq.postData);
+          if (e) envios.set(chave(p.requestId), e);
+        }
+        return;
+      }
       if (metodo === 'Network.responseReceived') {
         const url = (p.response && p.response.url) || '';
         // XHR/Fetch do IM, qualquer tipo de conteúdo (a 99 nem sempre diz que é JSON): o corpo se lê no fim do carregamento
@@ -258,18 +327,21 @@ function ligarLeitor99(wc, { aoChegar, aoMudar, registrarErro, anotar, env = pro
       }
       if (metodo === 'Network.loadingFailed') {
         corpos.delete(chave(p.requestId));
+        envios.delete(chave(p.requestId));
         return;
       }
       if (metodo === 'Network.loadingFinished' && corpos.has(chave(p.requestId))) {
         const { tipo, sid: s } = corpos.get(chave(p.requestId));
         corpos.delete(chave(p.requestId));
+        const envio = envios.get(chave(p.requestId)) || null;
+        envios.delete(chave(p.requestId));
         dbg
           .sendCommand('Network.getResponseBody', { requestId: p.requestId }, s || undefined)
           .then((b) => {
             const txt = b.base64Encoded ? Buffer.from(b.body, 'base64').toString('utf8') : b.body;
             if (!txt || txt.length > 2000000) return;
             if (tipo === 'polling') doPolling(txt);
-            else doBroker(txt);
+            else doBroker(txt, envio);
           })
           .catch((e) => {
             if (anotar) anotar({ ev: 'corpo_99_falhou', tipo, erro: String((e && e.message) || e).slice(0, 160) });
@@ -287,7 +359,49 @@ function ligarLeitor99(wc, { aoChegar, aoMudar, registrarErro, anotar, env = pro
     loja: () => loja,
     /** A sessão ↔ pedido que a página já abriu (o envio da 4b confere por aqui). */
     pedidoDaSessao: (s) => pedidos.get(String(s)) || null,
+    /**
+     * A mensagem da LOJA com este texto EXATO já está na conversa deste pedido (de `desde` em diante)? Só vale na conversa
+     * cuja sessão ↔ pedido a página abriu (o mesmo texto noutra conversa não conta) — { id } ou null.
+     */
+    jaEnviada: ({ pedidoExterno, texto, desde = 0 }) => {
+      const t = String(texto || '').trim();
+      const m = [...daLoja].reverse().find((x) => x.em >= desde && x.texto.trim() === t && doPedido(x.sid, pedidoExterno));
+      return m ? { id: m.id } : null;
+    },
+    /**
+     * Espera a confirmação do envio: a resposta do broker ao envio da loja OU o eco no polling, com o texto EXATO, na
+     * conversa deste pedido (quando a sessão ↔ pedido é conhecida — a página acabou de abri-la) — { id } ou null no prazo.
+     */
+    esperarEco: ({ pedidoExterno, texto, desde, prazoMs = 20000 }) =>
+      new Promise((resolver) => {
+        const t = String(texto || '').trim();
+        const fim = setTimeout(() => {
+          ouvintes.delete(ouvir);
+          resolver(null);
+        }, prazoMs);
+        const ouvir = (ev) => {
+          if (ev.texto.trim() !== t || ev.em < desde) return;
+          if (pedidoExterno && pedidos.has(String(ev.sid)) && !doPedido(ev.sid, pedidoExterno)) return;
+          clearTimeout(fim);
+          ouvintes.delete(ouvir);
+          resolver({ id: ev.id, fonte: ev.fonte });
+        };
+        ouvintes.add(ouvir);
+      }),
   };
 }
 
-module.exports = { jsonSemArredondar, mensagensDoPolling, sessoesDoBroker, paraANuvem, filtroDoIm, filtroDoBroker, ligarLeitor99, TEXTO, IMAGEM, TEXTO_DA_IMAGEM };
+module.exports = {
+  jsonSemArredondar,
+  mensagensDoPolling,
+  sessoesDoBroker,
+  envioDoBroker,
+  confirmacaoDoBroker,
+  paraANuvem,
+  filtroDoIm,
+  filtroDoBroker,
+  ligarLeitor99,
+  TEXTO,
+  IMAGEM,
+  TEXTO_DA_IMAGEM,
+};

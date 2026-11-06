@@ -93,3 +93,21 @@ test('a 99 lida neste PC (4a): fica guardada (reabre ao reiniciar) e "parar" esq
   fs.writeFileSync(path.join(dir, 'ponte.json'), JSON.stringify({ usar99: 'sim' }));
   assert.equal(c.usar99(), false); // só o verdadeiro conta
 });
+
+test('"Responder pela 99" (4b): nasce desligado, só liga com a 99 lida neste PC, fica guardado; parar de ler a 99 desliga', () => {
+  const dir = pasta();
+  const c = new Configuracao(dir, cofre());
+  assert.equal(c.responder99(), false);
+  assert.equal(c.marcarResponder99(true), false); // sem a 99 lida neste PC, não liga
+  c.marcarUsar99(true);
+  assert.equal(c.marcarResponder99(true), true);
+  assert.equal(new Configuracao(dir, cofre()).responder99(), true);
+  assert.equal(c.marcarResponder99(false), false);
+  c.marcarResponder99(true);
+  c.marcarUsar99(false); // "Parar de ler a 99 neste PC"
+  assert.equal(new Configuracao(dir, cofre()).responder99(), false);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'ponte.json'), 'utf8')), {});
+  // responder sem usar (arquivo editado à mão): não vale
+  fs.writeFileSync(path.join(dir, 'ponte.json'), JSON.stringify({ responder99: true }));
+  assert.equal(c.responder99(), false);
+});
