@@ -361,6 +361,7 @@ export class OrzuniEnvioService implements OnModuleInit, OnModuleDestroy {
         select p.codigo, p.preco_ifood::text as preco, p.no_ifood, p.deleted_at, p.unidade_id,
                coalesce(jsonb_exists(p.canais_pausados, 'ifood'), false) as pausado_no_ifood,
                p.pausado_estoque,
+               (not p.disponivel_balcao and not p.disponivel_cardapio) as oculto_no_regem,
                exists (select 1 from produto_pausa_estoque pe
                         where pe.produto_id = p.id and pe.unidade_id = ${envio.unidade_id}
                           and pe.pausado and pe.deleted_at is null) as esgotado_na_loja
@@ -377,7 +378,10 @@ export class OrzuniEnvioService implements OnModuleInit, OnModuleDestroy {
         if (!(valor > 0)) return { dispensar: 'o iFood não aceita item com preço zero' };
         return { ferramenta: 'preco_definir', argumentos: { codigo_pdv: codigo, valor } };
       }
-      const pausar = p.pausado_no_ifood === true || p.pausado_estoque === true || p.esgotado_na_loja === true;
+      // Pausado no iFood se QUALQUER pausa vale: o "Pausado no iFood" (canais_pausados), o esgotado (todas as lojas ou
+      // esta) ou o "Ocultar" do Regem (oculto no balcão E no cardápio digital — mig 371, decisão do dono de 06/11).
+      const pausar =
+        p.pausado_no_ifood === true || p.pausado_estoque === true || p.esgotado_na_loja === true || p.oculto_no_regem === true;
       return { ferramenta: pausar ? 'item_pausar' : 'item_reativar', argumentos: { codigo_pdv: codigo } };
     }
     const r: any = await this.db.execute(sql`

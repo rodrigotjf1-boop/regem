@@ -28,6 +28,7 @@ if (!URL_PG) console.warn('orzuni-envio.spec: sem TEST_PG_URL — PULADO');
 jest.setTimeout(180_000);
 
 const MIGRATION = join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '370_orzuni_envio.sql');
+const MIGRATION_371 = join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '371_orzuni_ocultar_pausa.sql');
 const MCP = 'https://orzuni.exemplo.test/v1/mcp';
 const TROCA = 'https://orzuni.exemplo.test/v1/dms-id/ligacao';
 const ENV = {
@@ -147,6 +148,9 @@ descrever('iFood pelo Orzuni — fila e envio (Postgres real, porta falsa)', () 
     // Só nuvem: o banco do CI é de loja. Trava `empresa` primeiro (ERR-377) e repete na corrida de catálogo.
     const texto = readFileSync(MIGRATION, 'utf8');
     await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(texto)));
+    // 371: o "Ocultar" do Regem também pausa no iFood (troca a função do gatilho do produto).
+    const texto371 = readFileSync(MIGRATION_371, 'utf8');
+    await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(texto371)));
     // `edge_status` é só da nuvem; outras specs a criam com o mínimo — aqui ela ganha as colunas que a liberação lê.
     await pool
       .query(`create table if not exists edge_status (id uuid primary key default gen_random_uuid(), tenant_id uuid,
@@ -276,6 +280,33 @@ descrever('iFood pelo Orzuni — fila e envio (Postgres real, porta falsa)', () 
     }
     expect(chamadas.map((c) => c.args.valor)).toEqual([30, 35, 30]);
     expect(new Set(chaves).size).toBe(3);
+  });
+
+  it('"Ocultar" do Regem (mig 371): oculto no balcão E no cardápio pausa no iFood; um canal só não mexe; retomar reativa — salvo "Pausado no iFood"', async () => {
+    const produtos = new (ProdutoService as any)(db, auditoria, { flashProdutos: async () => undefined }, new FichasService(db)) as ProdutoService;
+    const l = await loja({ lojas: 1 });
+    const p = await produto(l);
+    // A edição PARCIAL que a lista manda (o PATCH aceita dois campos — editar-parcial.spec).
+    await produtos.atualizar(l.t, p, { disponivelBalcao: false, disponivelCardapio: false });
+    await despachar(l);
+    expect(chamadas.map((c) => c.ferramenta)).toEqual(['item_pausar']);
+    chamadas = [];
+    await produtos.atualizar(l.t, p, { disponivelBalcao: true, disponivelCardapio: true });
+    await despachar(l);
+    expect(chamadas.map((c) => c.ferramenta)).toEqual(['item_reativar']);
+    chamadas = [];
+    // Esconder de UM canal do Regem não mexe no iFood (nem enfileira).
+    await produtos.atualizar(l.t, p, { disponivelCardapio: false });
+    expect(await despachar(l)).toEqual({ enviados: 0, dispensados: 0, adiados: 0, desistidos: 0 });
+    await produtos.atualizar(l.t, p, { disponivelCardapio: true });
+    // "Pausado no iFood" marcado: ocultar e retomar no Regem deixam pausado no iFood.
+    await produtos.atualizar(l.t, p, { canaisPausados: ['ifood'] });
+    await despachar(l);
+    chamadas = [];
+    await produtos.atualizar(l.t, p, { disponivelBalcao: false, disponivelCardapio: false });
+    await produtos.atualizar(l.t, p, { disponivelBalcao: true, disponivelCardapio: true });
+    await despachar(l);
+    expect(chamadas.map((c) => c.ferramenta)).toEqual(['item_pausar']);
   });
 
   it('status: "Ativo no iFood" pausa e reativa em todas; esgotado da LOJA só nela; esgotado de todas, em todas', async () => {

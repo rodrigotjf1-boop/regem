@@ -1749,7 +1749,8 @@ export class ProdutoService {
     return row;
   }
 
-  async atualizar(tenantId: string, id: string, dto: CreateProdutoDto) {
+  // Edição PARCIAL: cada campo só muda quando veio (o `set` pula o ausente).
+  async atualizar(tenantId: string, id: string, dto: Partial<CreateProdutoDto>) {
     // Se o campo veio no payload, não pode vir vazio (limpar categoria é proibido).
     if (dto.categoriaId !== undefined) this.exigirCategoria(dto.categoriaId);
     const patch: any = { updatedAt: new Date() };

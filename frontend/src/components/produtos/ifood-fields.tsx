@@ -13,23 +13,40 @@ const brl = (n: number) => Number(n || 0).toLocaleString('pt-BR', { style: 'curr
 // item do iFood é pelo código PDV do produto. O envio (R2a, mig 370): a mudança entra na fila na mesma
 // gravação e sai para o iFood das lojas ligadas ao Orzuni; o texto diz só o que o servidor faz (V39).
 // R2b: com o produto já salvo (`produtoId`), mostra o "último envio ao iFood" por loja.
+// "Pausado no iFood" (mig 371) = o canal 'ifood' em `canais_pausados` (a mesma chave do "Ativo no iFood" da integração
+// direta): pausa SÓ no iFood. O "Ocultar" do Regem (balcão e cardápio digital) também pausa lá — decisão do dono.
 export function IfoodFields({ f, set, produtoId }: { f: any; set: (patch: any) => void; produtoId?: string | null }) {
   const codigo = String(f.codigo ?? '').trim();
   const precoRegem = Number(String(f.precoVenda ?? '').replace(',', '.'));
+  const pausados: string[] = Array.isArray(f.canaisPausados) ? f.canaisPausados : [];
+  const pausadoNoIfood = pausados.includes('ifood');
+  const setPausado = (pausar: boolean) =>
+    set({ canaisPausados: pausar ? [...pausados.filter((c) => c !== 'ifood'), 'ifood'] : pausados.filter((c) => c !== 'ifood') });
   return (
     <section aria-labelledby="secao-ifood" className="rounded-xl border border-border bg-card p-4">
       <h3 id="secao-ifood" className="mb-3 font-display text-sm font-bold">
         iFood
       </h3>
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={f.noIfood === true}
-          onChange={(e) => set({ noIfood: e.target.checked })}
-          className="h-4 w-4 accent-primary"
-        />
-        Está no cardápio do iFood
-      </label>
+      <div className="flex flex-wrap gap-x-6 gap-y-1">
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={f.noIfood === true}
+            onChange={(e) => set({ noIfood: e.target.checked })}
+            className="h-4 w-4 accent-primary"
+          />
+          Está no cardápio do iFood
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={pausadoNoIfood}
+            onChange={(e) => setPausado(e.target.checked)}
+            className="h-4 w-4 accent-primary"
+          />
+          Pausado no iFood
+        </label>
+      </div>
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="min-w-0 space-y-1">
           <Label htmlFor="preco-ifood" className="text-xs">
@@ -53,7 +70,8 @@ export function IfoodFields({ f, set, produtoId }: { f: any; set: (patch: any) =
       </div>
       <p id="preco-ifood-ajuda" className="mt-2 text-[11px] text-muted-foreground">
         Guardado à parte do preço do Regem. Ao salvar, o Regem manda este preço ao iFood das lojas ligadas ao Orzuni; em
-        branco, não mexe no preço de lá. Pausar o produto (&quot;Ativo no iFood&quot; ou esgotado) também pausa no iFood.
+        branco, não mexe no preço de lá. &quot;Pausado no iFood&quot; pausa só lá; ocultar o produto no Regem (balcão e cardápio
+        digital) ou esgotar o estoque também pausa no iFood.
       </p>
       {codigo ? (
         <p className="mt-2 break-all text-[11px] text-muted-foreground">

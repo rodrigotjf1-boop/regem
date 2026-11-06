@@ -86,6 +86,9 @@ export function ProdutoForm({
     else s.add(canal);
     set({ canaisPausados: [...s] });
   };
+  // Com o iFood pelo Orzuni ligado, a pausa do iFood fica na seção "iFood" ("Pausado no iFood"): aqui sai, para a
+  // mesma chave não aparecer duas vezes com sentidos opostos ("Ativo" × "Pausado").
+  const canaisDaColuna = ifoodLigado ? canaisAtivos.filter((c) => c.canal !== 'ifood') : canaisAtivos;
   return (
     <form onSubmit={onSubmit} className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-[minmax(0,240px)_1fr]">
@@ -114,10 +117,10 @@ export function ProdutoForm({
 
             {/* Um toggle por integração de delivery ATIVA (ex.: "Ativo no iFood").
                 Só aparece quando a integração está ligada em Delivery → Integrações. */}
-            {canaisAtivos.length > 0 && (
+            {canaisDaColuna.length > 0 && (
               <div className="mt-2 border-t border-border pt-2">
                 <p className="mb-1 text-[11px] font-semibold text-muted-foreground">Canais de delivery</p>
-                {canaisAtivos.map(({ canal, label }) => (
+                {canaisDaColuna.map(({ canal, label }) => (
                   <label key={canal} className="flex items-center gap-2 py-1 text-sm">
                     <input
                       type="checkbox"
