@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Estorno do Pix no cancelamento + o "Salvar" do aniversário (06/11; mig 372 `@cloud-only`; ERR-386, ERR-387).** Tudo na
+  NUVEM com o merge: a rotina de minuto em minuto estorna o pedido cancelado pago online (o cancelamento feito na loja
+  chega pelo sincronismo — a loja não precisa do `.zip` para isso); o cliente lê o aviso do estorno no cardápio e no robô; o
+  botão do aniversário no cardápio online. **No `.zip`/`.exe` (o mesmo corte 1.30.13):** só a classificação
+  `pedido_estorno` em SO_NUVEM no `edge/sync-daemon.mjs` (sem efeito na loja: ela não tem a tabela).
+
 - **"Ocultar" da lista do Cardápio voltou a funcionar (ERR-385) + "Ocultar" pausa no iFood (mig 371 `@cloud-only`) +
   "Pausado no iFood" (06/11; sem `edge/`).** Na nuvem, no ar com o merge. **No `.zip` 1.30.13:** a correção do PATCH do
   produto no servidor da loja (lá o "Ocultar/Retomar" e a tela de Catálogo seguem dando 400 até o `.zip`) e o botão

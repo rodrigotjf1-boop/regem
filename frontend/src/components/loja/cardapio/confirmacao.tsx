@@ -4,6 +4,7 @@ import type { Cardapio } from './use-cardapio';
 import { brl, Ic } from './partes';
 import { EvApoioOk, EvChamadaOk, EvSeloOk, EvTopo, useEventoNoAr } from '../eventos/contexto';
 import { PerguntaDoAniversario } from './aniversario-do-cliente';
+import { TEXTO_DO_ESTORNO } from './texto-do-estorno';
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @next/next/no-img-element */
 
@@ -147,7 +148,13 @@ export function Confirmacao({ c }: { c: Cardapio }) {
               </div>
             </div>
           )}
-          {cancelado && !aguardandoPag && <p className="c-msg err">Pedido cancelado.</p>}
+          {cancelado && !aguardandoPag && (
+            <p className="c-msg err" data-cancelado-estorno={ped.statusPagamento === 'aprovado' ? 'sim' : undefined}>
+              Pedido cancelado.
+              {/* pago online: a nuvem pede o estorno total ao gateway sozinha (mig 372, `estorno-pix.service.ts`) */}
+              {ped.statusPagamento === 'aprovado' && <> {TEXTO_DO_ESTORNO}</>}
+            </p>
+          )}
 
           {agendado && !cancelado && (
             <div className="ok-eta">
