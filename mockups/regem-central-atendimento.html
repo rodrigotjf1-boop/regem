@@ -51,6 +51,14 @@
    NÃO vê pedido nem cadastro — "cadê meu pedido", reclamação, encomenda e "quero falar com alguém" viram caso, com o
    resumo. A conversa que o robô está atendendo aparece em "Conversas agora" (chip Instagram) e dá para assumir. Ajuste
    novo "Robô responde no Direct" (nasce desligado) e "Cardápio que o robô usa" (só com mais de uma loja).
+   VERSÃO 9 (07/11/2026, item 2 do checkpoint — pedido do dono de 05/11: "no PC o atendente só vê metade do corpo"):
+   O TOPO COMPACTO. O que vinha antes da fila (faixa do teste grátis, título da tela duas vezes, resumo, faixa da ponte,
+   bloco do chat do iFood com a explicação inteira, situações e o cartão dos filtros com os rótulos em cima) ocupava
+   metade da tela no PC. Agora: (a) o teste grátis vira um selo no topo ("✨ Teste grátis: 16 dias"), que leva a Ver
+   planos — a faixa larga só volta quando o teste ACABA (as operações param, tem de estar à vista); (b) contagem,
+   resumo, ponte, chat do iFood e Números numa linha só; os detalhes da ponte e a explicação do chat ficam a um clique;
+   a ponte SEM SINAL continua como aviso à vista; (c) situações numa linha e os filtros numa linha, com o rótulo ao lado
+   do campo. Nada muda no que a fila e o caso fazem.
    O que a tela faz:
    (1) uma FILA só com tudo o que precisa de uma pessoa: chamado do robô, disputa do iFood, pedido de cancelamento ou
        reembolso da 99, cancelamento pedido no cardápio e a resposta ao "sem contato". A conversa que o robô atende
@@ -396,6 +404,32 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 
 /* números do atendimento (versão 6): placar, motivos e produtos — tudo se arruma pelo espaço da área (nada rola para o lado) */
 .cab-tela{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between}
+/* versão 9: o topo compacto da tela do PC — uma linha com a contagem, o resumo e as ações; os detalhes a um clique */
+#v-pc{padding-top:12px}
+.topo{flex-wrap:wrap}
+.topo .dir{flex-wrap:wrap;justify-content:flex-end}
+.topo #bt-numeros{min-height:36px;padding:0 12px;font-size:13.5px}
+.cab-atend{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin-bottom:10px}
+.cab-atend h1{font-size:21px;margin:0;white-space:nowrap}
+.cab-atend .resumo{flex:1 1 20rem;min-width:0;margin:0;font-size:13.5px;overflow-wrap:anywhere}
+.cab-atend .resumo a{white-space:nowrap}
+.cab-atend .bt{min-height:36px;padding:0 12px;font-size:13.5px}
+.cab-atend .bt.icone{min-width:36px;padding:0;border-radius:50%;font-weight:800}
+.cab-atend .det{flex:1 1 100%;order:9;min-width:0;margin:0;font-size:13px;color:var(--ink-2);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 12px;overflow-wrap:anywhere}
+.selo-bt{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 12px;border-radius:999px;border:1px solid #BFE3CF;background:var(--ok-bg);color:var(--ink);font-weight:700;font-size:13px;white-space:nowrap}
+.selo-bt::after{content:'▾';font-size:11px;color:var(--ink-2)}
+.selo-bt[aria-expanded="true"]::after{content:'▴'}
+.cab-atend .faixa{flex:1 1 100%;order:8;margin:0}
+.teste-gratis{display:inline-flex;align-items:center;gap:5px;min-height:32px;padding:0 10px;border-radius:999px;border:1px solid #F1D49A;background:#FFF6E3;color:#6B4708;font-weight:700;font-size:12.5px;white-space:nowrap;text-decoration:none}
+.teste-gratis.urgente{border-color:#EBC2C2;background:var(--crit-bg);color:var(--crit)}
+.faixa-licenca{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;padding:9px 20px;background:var(--crit-bg);border-bottom:1px solid #EBC2C2;color:var(--crit);font-size:14px}
+.filtros.linha{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;background:transparent;border:0;padding:0;margin-bottom:12px}
+.filtros.linha .campo{flex-direction:row;align-items:center;gap:6px;max-width:100%}
+.filtros.linha .campo label{white-space:nowrap}
+.filtros.linha .larga{flex:1 1 15rem}
+.filtros.linha select{width:auto;max-width:100%;min-height:38px}
+.filtros.linha input{min-height:38px}
+@container principal (max-width:520px){.filtros.linha .campo{flex:1 1 100%}.filtros.linha select{flex:1 1 auto}}
 .periodo{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 12px}
 .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:12px}
 @container principal (max-width:900px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -485,6 +519,11 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     <span>Ponte do chat:</span>
     <button type="button" data-ponte="ok" aria-pressed="true">ligada</button>
     <button type="button" data-ponte="caiu" aria-pressed="false">sem sinal</button>
+    <span>Licença (versão 9):</span>
+    <button type="button" data-licenca="teste" aria-pressed="true">teste grátis</button>
+    <button type="button" data-licenca="urgente" aria-pressed="false">perto do fim</button>
+    <button type="button" data-licenca="acabou" aria-pressed="false">teste acabou</button>
+    <button type="button" data-licenca="plano" aria-pressed="false">plano ativo</button>
   </div>
   <div class="ctl" id="ctl-num" role="group" aria-label="Estado dos números" hidden>
     <span>Números:</span>
@@ -521,10 +560,14 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     <button type="button" class="it">Configurações</button>
   </nav>
   <div style="min-width:0">
+    <!-- Versão 9: a faixa larga da licença só quando o teste ACABOU (as operações param) -->
+    <div class="faixa-licenca" id="faixa-licenca" hidden><b>⛔ Seu teste do Regem terminou.</b><span>Novas operações estão bloqueadas — a leitura continua liberada.</span><a href="#" onclick="return false" style="color:inherit;font-weight:700">Ver planos e reativar</a></div>
     <header class="topo">
       <button type="button" class="menu-bt" aria-label="Menu (no Regem abre o menu lateral)">☰</button>
       <span class="onde" id="onde">Atendimento</span>
       <div class="dir">
+        <button type="button" class="bt" id="bt-numeros" data-ir="num" data-so-pc>📊 Números do atendimento</button>
+        <a href="#" onclick="return false" class="teste-gratis" id="teste-gratis" aria-label="Teste grátis: 16 dias restantes — ver planos">✨ Teste grátis: 16 dias</a>
         <button type="button" class="sino" id="sino" aria-expanded="false" aria-controls="pop-sino" aria-label="Avisos de atendimento: 7 abertos">🔔<b id="badge-sino">7</b></button>
         <span class="quem"><span class="av" aria-hidden="true">AN</span><span class="nome-u">Ana · gerente · Loja Centro</span></span>
       </div>
@@ -538,13 +581,20 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 
     <!-- vista: atendimento -->
     <main id="v-pc">
-      <div class="trilha">Atendimento</div>
-      <div class="cab-tela"><h1 id="titulo-fila">7 casos abertos</h1><button type="button" class="bt" data-ir="num">📊 Números do atendimento</button></div>
-      <p class="resumo" id="resumo-fila">2 com prazo · 3 na fila · o robô está em 5 conversas agora (<a href="#" onclick="return false">ver em Delivery › WhatsApp</a>)</p>
-      <div class="faixa" id="faixa-ponte"><span class="selo ok" id="ponte-selo">🔗 Ponte do chat ligada</span><span class="txt" id="ponte-txt"></span><button type="button" class="bt" id="bt-chat-ifood">💬 Chat oficial do iFood</button></div>
+      <!-- Versão 9: o topo numa linha — contagem, resumo, ponte, chat do iFood e Números; os detalhes a um clique -->
+      <div class="cab-atend" data-topo-atendimento>
+        <h1 id="titulo-fila">7 casos abertos</h1>
+        <p class="resumo" id="resumo-fila">2 com prazo · 3 na fila · o robô está em 5 conversas agora (<a href="#" onclick="return false">ver em Delivery › WhatsApp</a>)</p>
+        <button type="button" class="selo-bt" id="ponte-selo" aria-expanded="false" aria-controls="ponte-det">🔗 Ponte do chat ligada</button>
+        <button type="button" class="bt" id="bt-chat-ifood">💬 Chat oficial do iFood</button>
+        <button type="button" class="bt icone" id="bt-chat-ajuda" aria-expanded="false" aria-controls="chat-ajuda" aria-label="Como funciona o chat oficial do iFood">?</button>
+        <p class="det" id="ponte-det" hidden></p>
+        <p class="det" id="chat-ajuda" hidden>O chat oficial do iFood abre sozinho nesta tela — o botão dele fica no canto. "Esconder" vale para este computador. Na primeira vez, cada computador autoriza com um usuário Dono ou Administrador do iFood. As mensagens dele não entram na fila: o iFood não as entrega a sistemas.</p>
+        <div class="faixa caiu" id="faixa-ponte" role="alert" hidden><span class="selo crit">⚠️ Ponte do chat sem sinal</span><span class="txt" id="ponte-txt"></span></div>
+      </div>
       <div class="sits" role="group" aria-label="Situação" id="sits"></div>
-      <div class="filtros">
-        <div class="campo larga"><label for="busca">Buscar</label><input id="busca" type="search" placeholder="Cliente, pedido ou telefone"></div>
+      <div class="filtros linha" role="group" aria-label="Filtros">
+        <div class="campo larga"><label for="busca" class="sr">Buscar</label><input id="busca" type="search" placeholder="Buscar cliente, pedido ou telefone"></div>
         <div class="campo"><label for="f-canal">Canal</label><select id="f-canal"><option value="">Todos</option><option value="wa">WhatsApp</option><option value="ifood">iFood</option><option value="n99">99Food</option><option value="card">Cardápio</option><option value="ig">Instagram</option></select></div>
         <div class="campo"><label for="f-motivo">Motivo</label><select id="f-motivo"><option value="">Todos</option><option>Atraso</option><option>Faltou item</option><option>Disputa</option><option>Avaliação</option><option>Cancelamento</option><option>Reembolso</option><option>Sem contato</option><option>Outro</option></select></div>
         <div class="campo"><label for="f-resp">Com quem</label><select id="f-resp"><option value="">Qualquer um</option><option value="-">Ninguém ainda</option><option value="Ana">Ana (você)</option><option value="Bruno">Bruno</option><option value="Carla">Carla</option></select></div>
@@ -922,7 +972,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 
 <!-- ============ NOTAS ============ -->
 <section id="v-notas" hidden class="notas" aria-label="Notas do protótipo">
-  <div class="trilha">Notas do protótipo · 02/11/2026 · versão 8 em 07/11/2026</div>
+  <div class="trilha">Notas do protótipo · 02/11/2026 · versão 9 em 07/11/2026</div>
   <h1>Atendimento: o que cada parte faz</h1>
 
   <div class="cartao">
@@ -1023,6 +1073,18 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <li><b>Confirmação em dois toques</b>: a resposta ao iFood e à 99 não volta atrás.</li>
       <li>Na disputa, pelo WhatsApp só <b>Aceitar e Recusar</b>; a proposta (crédito, outro valor, mais tempo) fica no Regem, pelo link.</li>
     </ol>
+  </div>
+
+  <div class="cartao">
+    <h3>Topo compacto · versão 9 (07/11/2026)</h3>
+    <p>Pedido do dono (05/11): no PC, o atendente via só metade do corpo — o topo ocupava a outra metade. Medido na tela real em 1366×768, o corpo começava a 479 px do alto.</p>
+    <ul>
+      <li><b>O "aviso de teste"</b> é a faixa "Teste grátis: N dias restantes", que o Regem mostra em todas as telas da loja em teste. Ela é da distribuição (o plano), então não some do sistema: na tela Atendimento vira um selo no topo, ao lado do relógio, que leva a Ver planos. Perto do fim (7 dias ou menos) o selo fica vermelho. Quando o teste ACABA, a faixa larga volta, porque as operações param.</li>
+      <li><b>Uma linha só</b> com a contagem, o resumo, a ponte do chat, o chat oficial do iFood e os Números. Os detalhes da ponte ("por onde o chat passa") e a explicação do chat do iFood ficam a um clique. A ponte SEM SINAL continua como aviso à vista, logo abaixo da linha.</li>
+      <li><b>Situações numa linha e filtros numa linha</b>, com o rótulo ao lado do campo (Canal, Motivo, Com quem); a busca com o rótulo para o leitor de tela.</li>
+      <li>O título da tela não se repete mais ("ATENDIMENTO / Atendimento").</li>
+      <li>Nada muda no que a fila, o caso, as situações e os filtros fazem.</li>
+    </ul>
   </div>
 
   <div class="cartao">
@@ -1206,8 +1268,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     $$('#sits .sit').forEach((b) => b.addEventListener('click', () => { filtroSit = b.dataset.sit; desenharTudo(); }));
     const ab = n.todos;
     $('#titulo-fila').textContent = `${ab} casos abertos`;
-    $('#resumo-fila').innerHTML = `${n.prazo} com prazo · ${n.fila} na fila · o robô está em ${n.conversas} conversas agora, no WhatsApp, no Instagram, no iFood e na 99 (<a href="#" id="ir-conversas">ver em Conversas agora</a>)`;
-    $('#ir-conversas').addEventListener('click', (e) => { e.preventDefault(); filtroSit = 'conversas'; desenharTudo(); });
+    // Versão 9: o resumo curto (as contagens das situações estão logo abaixo); de onde vêm as conversas fica no
+    // cabeçalho de "Conversas agora".
+    $('#resumo-fila').innerHTML = `${n.prazo} com prazo · ${n.fila} na fila · a conversa inteira do WhatsApp fica em <a href="#" onclick="return false">Delivery › WhatsApp</a>`;
     $('#badge-menu').textContent = ab; $('#badge-sino').textContent = ab;
     $('#sino').setAttribute('aria-label', `Avisos de atendimento: ${ab} abertos`);
   }
@@ -1761,15 +1824,34 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   }
   $('#bt-chat-ifood').addEventListener('click', (e) => abrirDialogo('chat-ifood', e.currentTarget));
   // Versão 3: a faixa da ponte do chat no topo da tela (ligada × sem sinal).
+  // Versão 9: ligada = um selo na linha do topo (os detalhes a um clique); sem sinal = o aviso à vista, embaixo da linha.
   function desenharFaixa() {
     const ok = ponte === 'ok';
-    $('#faixa-ponte').classList.toggle('caiu', !ok);
-    $('#ponte-selo').className = `selo ${ok ? 'ok' : 'crit'}`;
-    $('#ponte-selo').textContent = ok ? '🔗 Ponte do chat ligada' : '⚠️ Ponte do chat sem sinal';
-    $('#ponte-txt').innerHTML = ok
-      ? 'As conversas do iFood e da 99 entram aqui pela ponte do <b>CX-DELIVERY</b> · reserva do iFood: Servidor da loja · última mensagem há 1 min'
-      : 'Desde 20:14: o CX-DELIVERY parou e a reserva (Servidor da loja) está sem o iFood aberto. Mensagens novas do iFood e da 99 não chegam e as respostas ficam esperando. O gerente foi avisado.';
+    $('#ponte-selo').hidden = !ok;
+    $('#faixa-ponte').hidden = ok;
+    if (!ok) { $('#ponte-det').hidden = true; $('#ponte-selo').setAttribute('aria-expanded', 'false'); }
+    $('#ponte-det').innerHTML = 'As conversas do iFood e da 99 entram aqui pela ponte do <b>CX-DELIVERY</b> · reserva do iFood: Servidor da loja · última mensagem há 1 min';
+    $('#ponte-txt').innerHTML = 'Desde 20:14: o CX-DELIVERY parou e a reserva (Servidor da loja) está sem o iFood aberto. Mensagens novas do iFood e da 99 não chegam e as respostas ficam esperando. O gerente foi avisado.';
   }
+  const alternar = (bt, alvo) => bt.addEventListener('click', () => {
+    const abrir = bt.getAttribute('aria-expanded') !== 'true';
+    bt.setAttribute('aria-expanded', String(abrir));
+    $(alvo).hidden = !abrir;
+  });
+  alternar($('#ponte-selo'), '#ponte-det');
+  alternar($('#bt-chat-ajuda'), '#chat-ajuda');
+  // Versão 9: a licença — teste grátis = selo no topo (vermelho com 7 dias ou menos); acabou = a faixa larga volta.
+  $$('#ctl-pc [data-licenca]').forEach((b) => b.addEventListener('click', () => {
+    const l = b.dataset.licenca;
+    $$('#ctl-pc [data-licenca]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    const sel = $('#teste-gratis');
+    sel.hidden = l === 'acabou' || l === 'plano';
+    sel.classList.toggle('urgente', l === 'urgente');
+    const dias = l === 'urgente' ? 5 : 16;
+    sel.textContent = `${l === 'urgente' ? '⏳' : '✨'} Teste grátis: ${dias} dias`;
+    sel.setAttribute('aria-label', `Teste grátis: ${dias} dias restantes — ver planos`);
+    $('#faixa-licenca').hidden = l !== 'acabou';
+  }));
   $$('#ctl-pc [data-ponte]').forEach((b) => b.addEventListener('click', () => {
     ponte = b.dataset.ponte;
     $$('#ctl-pc [data-ponte]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
@@ -1803,6 +1885,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     $('#v-pc').hidden = v !== 'pc'; $('#v-aj').hidden = v !== 'aj'; $('#v-num').hidden = v !== 'num';
     $('#v-app').hidden = v !== 'app'; $('#v-notas').hidden = v !== 'notas'; $('#v-wa').hidden = v !== 'wa';
     $('#ctl-pc').hidden = v !== 'pc'; $('#ctl-num').hidden = v !== 'num';
+    $$('[data-so-pc]').forEach((el) => { el.hidden = v !== 'pc'; }); // versão 9: "Números" na barra do topo, só no Atendimento
     $('#menu-atend').toggleAttribute('aria-current', v === 'pc'); if (v === 'pc') $('#menu-atend').setAttribute('aria-current', 'page');
     $('#menu-config').toggleAttribute('aria-current', v === 'aj'); if (v === 'aj') $('#menu-config').setAttribute('aria-current', 'page');
     $('#menu-num').toggleAttribute('aria-current', v === 'num'); if (v === 'num') { $('#menu-num').setAttribute('aria-current', 'page'); desenharNumeros(); }

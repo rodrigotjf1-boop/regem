@@ -47,7 +47,7 @@ import { api, sair as deslogar, getCategoria, getPermissoes, getToken, guardarMe
 import { cn } from '@/lib/utils';
 import { RegemMark } from '@/components/brand/regem-mark';
 import { BottomNav } from '@/components/app-shell/bottom-nav';
-import { LicencaAviso } from '@/components/licenca/licenca-aviso';
+import { LicencaAviso, LicencaSelo, useLicencaStatus } from '@/components/licenca/licenca-aviso';
 import { ModoOperacao } from '@/components/ui/modo-operacao';
 import { ServidorOfflineAviso } from '@/components/ui/servidor-offline-aviso';
 import { AtualizacaoAviso } from '@/components/ui/atualizacao-aviso';
@@ -207,6 +207,7 @@ export function Shell({
   actions,
   children,
   fill = false,
+  compacto = false,
 }: {
   title?: string;
   eyebrow?: string;
@@ -217,7 +218,11 @@ export function Shell({
   // scroll interno). Usado no Painel de controle do Delivery. No mobile, o menu
   // fica acessível por um hambúrguer flutuante.
   fill?: boolean;
+  // compacto: tela de OPERAÇÃO, em que o corpo precisa da altura (o Atendimento — protótipo da Central v9): o teste
+  // grátis vira um selo na barra do topo (o bloqueio continua na faixa) e o conteúdo começa mais perto da barra.
+  compacto?: boolean;
 }) {
+  const licenca = useLicencaStatus();
   const path = usePathname();
   const router = useRouter();
   const { prefs, set, toggleColapso } = useUiPrefs();
@@ -460,7 +465,7 @@ export function Shell({
       )}
 
       <div className="shell-content min-w-0">
-        <LicencaAviso />
+        <LicencaAviso status={licenca} compacto={compacto} />
         <ServidorOfflineAviso />
         <AtualizacaoAviso />
         {/* Só nas telas do PDV e só para quem pode cobrar o pedido na Retirada. */}
@@ -484,7 +489,9 @@ export function Shell({
                 </h1>
               )}
             </div>
-            <div className="ml-auto flex items-center gap-2">
+            {/* flex-wrap: na tela estreita, os botões da barra quebram a linha em vez de passar da largura (V45). */}
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+              {compacto && <LicencaSelo status={licenca} />}
               <UnidadeSeletor />
               <ModoOperacao className="!py-1 !px-2" />
               <span className="hidden items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 font-mono text-xs text-muted-foreground sm:inline-flex">
@@ -509,7 +516,7 @@ export function Shell({
             <span className="flex-1">MODO SUPORTE — acesso técnico da distribuição · todas as ações são auditadas e visíveis para a loja</span>
           </div>
         )}
-        <main className={fill ? 'main-fill' : 'px-5 py-5 pb-16'}>{children}</main>
+        <main className={fill ? 'main-fill' : compacto ? 'px-5 pb-16 pt-3' : 'px-5 py-5 pb-16'}>{children}</main>
       </div>
 
       {/* Navegação-topo no rodapé (Material 3) — só no mobile (<860px);

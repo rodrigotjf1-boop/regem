@@ -275,55 +275,50 @@ export default function AtendimentoPage() {
 
   const total = contagens?.abertos ?? casos.length;
   const veNumeros = categoria === 'presidente' || categoria === 'gerente';
+  const resumoConversas = conversas !== null ? resumoDasConversas(conversas, { comWhatsapp, comPonte, roboResponde, comInstagram }) : '';
+  // TOPO COMPACTO (item 2 do checkpoint, protótipo v9 — pedido do dono: no PC o atendente via só metade do corpo): a
+  // barra do Shell sem o título repetido, com os Números e o selo do teste grátis; uma linha com a contagem, o resumo, a
+  // ponte e o chat do iFood (os detalhes a um clique; o que pede ação, logo abaixo); situações numa linha e filtros
+  // numa linha. Nada muda no que a fila e o caso fazem.
   return (
-    <Shell eyebrow="Atendimento" title="Atendimento">
-      <div className="space-y-4">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-display text-xl font-bold">
-              {total} {total === 1 ? 'caso aberto' : 'casos abertos'}
-            </h2>
-            {/* Os Números do atendimento (item 8): só gerente e presidente — o servidor confere. */}
-            {veNumeros && (
-              <Link
-                href="/atendimento/numeros"
-                className="inline-flex min-h-10 items-center gap-2 rounded-md border border-input bg-card px-3 text-sm font-semibold hover:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <BarChart3 className="h-4 w-4" aria-hidden="true" />
-                Números do atendimento
-              </Link>
-            )}
-          </div>
-          <p className="text-sm text-secondary-foreground" role="status" aria-live="polite">
+    <Shell
+      title="Atendimento"
+      compacto
+      actions={
+        // Os Números do atendimento (item 8): só gerente e presidente — o servidor confere.
+        veNumeros && (
+          <Link
+            href="/atendimento/numeros"
+            className="inline-flex min-h-10 items-center gap-2 rounded-md border border-input bg-card px-3 text-sm font-semibold hover:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <BarChart3 className="h-4 w-4" aria-hidden="true" />
+            Números do atendimento
+          </Link>
+        )
+      }
+    >
+      <div className="space-y-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2" data-topo-atendimento>
+          <h2 className="whitespace-nowrap font-display text-xl font-bold">
+            {total} {total === 1 ? 'caso aberto' : 'casos abertos'}
+          </h2>
+          <p className="min-w-0 flex-1 basis-72 text-sm text-secondary-foreground" role="status" aria-live="polite">
             {contagens ? `${contagens.comPrazo} com prazo · ${contagens.naFila} na fila · ` : ''}
-            {temConversas && conversas !== null && (
-              <>
-                {resumoDasConversas(conversas, { comWhatsapp, comPonte, roboResponde, comInstagram })} (
-                <button
-                  type="button"
-                  onClick={() => irPara('conversas')}
-                  className="font-semibold text-foreground underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  ver em Conversas agora
-                </button>
-                {') · '}
-              </>
-            )}
-            {whatsapp ? 'a conversa inteira do WhatsApp fica em ' : `as conversas que o robô atende sozinho ${comPonte ? 'no WhatsApp ' : ''}ficam em `}
-            <Link href="/whatsapp" className="font-semibold text-foreground underline underline-offset-2">
+            {whatsapp ? 'a conversa inteira do WhatsApp fica em ' : 'o que o robô atende sozinho no WhatsApp fica em '}
+            <Link href="/whatsapp" className="whitespace-nowrap font-semibold text-foreground underline underline-offset-2">
               Delivery › WhatsApp
             </Link>
           </p>
-        </div>
 
-        {/* A ponte do chat do iFood e da 99 (mig 366): só aparece ligada; sem sinal, o aviso. Vem com a fila. */}
-        <FaixaDaPonte ponte={ponte} agora={agora} />
+          {/* A ponte do chat do iFood e da 99 (mig 366): ligada = selo; sem sinal = o aviso logo abaixo. Vem com a fila. */}
+          <FaixaDaPonte ponte={ponte} agora={agora} />
+
+          {/* O chat oficial do iFood (PR 5): só aparece com o widget da distribuição e o iFood ligado na empresa. */}
+          <ChatDoIfood />
+        </div>
 
         {/* "Segure o pedido" (mig 373): o robô pôs item num pedido já pago e espera o Pix. Fora da fila; vem com ela. */}
         <AlertaDoAdicionalPix alertas={adicionaisPix} agora={agora} />
-
-        {/* O chat oficial do iFood (PR 5): só aparece com o widget da distribuição e o iFood ligado na empresa. */}
-        <ChatDoIfood />
 
         <div className="flex flex-wrap gap-2" role="group" aria-label="Situação">
           {SITUACOES.filter((s) => s.k !== 'conversas' || temConversas).map((s) => {
@@ -352,8 +347,8 @@ export default function AtendimentoPage() {
           })}
         </div>
 
-        <Filtros>
-          <FiltroBusca id="busca-atendimento" valor={busca} aoMudar={setBusca} placeholder="Cliente, pedido ou telefone" />
+        <Filtros emLinha>
+          <FiltroBusca id="busca-atendimento" valor={busca} aoMudar={setBusca} placeholder="Buscar cliente, pedido ou telefone" />
           <FiltroSelect
             id="filtro-canal"
             rotulo="Canal"
@@ -396,6 +391,8 @@ export default function AtendimentoPage() {
               {naConversa ? (
                 <span className="text-xs text-secondary-foreground">
                   {[comWhatsapp ? 'WhatsApp' : '', comInstagram ? 'Direct do Instagram' : '', comPonte ? 'chat do iFood e da 99' : ''].filter(Boolean).join(', ')} · última hora · sem caso aberto
+                  {/* De onde vêm as conversas e quantas o robô atende (antes no resumo do topo — protótipo v9). */}
+                  {resumoConversas ? ` · ${resumoConversas}` : ''}
                 </span>
               ) : (
                 sit !== 'resolvidos' && (
