@@ -9,6 +9,7 @@ import { ChatDoCasoService } from './chat-do-caso.service';
 import { AjustesDaPonteService } from '../ponte-chat/ajustes-da-ponte.service';
 import { AvaliacaoIfoodService } from './avaliacao-ifood.service';
 import { NumerosDoAtendimentoService } from './numeros.service';
+import { InstagramService } from '../instagram/instagram.service';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** A loja pedida pelo servidor da loja: um id válido, ou nenhuma (= todas). */
@@ -28,7 +29,26 @@ export class AtendimentoLojaController {
     private readonly avaliacao: AvaliacaoIfoodService,
     // Os números do atendimento (item 8): a conta mora na nuvem (as mensagens do chat do iFood e da 99 só existem lá).
     private readonly numeros: NumerosDoAtendimentoService,
+    // O Instagram Direct (mig 377): a conversa e o acesso moram na nuvem.
+    private readonly instagram: InstagramService,
   ) {}
+
+  // A conversa do Instagram no caso, para a tela do servidor da loja (as mensagens moram só na nuvem — V37).
+  @Get('instagram-da-loja')
+  @CloudOnly()
+  @UseGuards(SyncTokenGuard)
+  instagramDaLoja(@SyncCtx() ctx: SyncCtxData, @Query('chamado') chamado: string) {
+    return this.instagram.conversa(ctx.tenantId, String(chamado ?? ''));
+  }
+
+  // A resposta no Instagram vinda do servidor da loja: quem respondeu é conferido aqui (colaborador ativo e da gestão).
+  @Post('instagram-da-loja')
+  @HttpCode(200)
+  @CloudOnly()
+  @UseGuards(SyncTokenGuard)
+  responderInstagramDaLoja(@SyncCtx() ctx: SyncCtxData, @Body() dto: { chamadoId?: unknown; texto?: unknown; atorId?: unknown }) {
+    return this.instagram.responderVindoDaLoja(ctx.tenantId, dto ?? {});
+  }
 
   // Os NÚMEROS DO ATENDIMENTO para a tela do servidor da loja: quem pediu (gerente ou presidente) e a loja em uso foram
   // conferidos lá; `unidade` vazia = todas as lojas (o presidente lá). A empresa vem do token.

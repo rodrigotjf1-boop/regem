@@ -45,6 +45,7 @@ import { AvaliacaoIfoodService } from './avaliacao-ifood.service';
 import { GestorWhatsappService } from './gestor-whatsapp.service';
 import { CopilotoService } from './copiloto.service';
 import { NumerosDoAtendimentoService } from './numeros.service';
+import { InstagramService } from '../instagram/instagram.service';
 import { lerAjusteGestorWa } from './gestor-whatsapp';
 
 // Chamados de atendimento (handoff). Operados por quem está no balcão/gestão.
@@ -75,6 +76,8 @@ export class AtendimentoController {
     @Optional() private readonly copiloto?: CopilotoService,
     // Os números do atendimento (item 8): o placar, as reclamações e o "O que aconteceu?" do caso.
     @Optional() private readonly numerosSvc?: NumerosDoAtendimentoService,
+    // O Instagram Direct (mig 377): o grupo "Instagram Direct" dos ajustes (a conta e "Mensagens do Direct na fila").
+    @Optional() private readonly instagram?: InstagramService,
   ) {}
 
   // O COPILOTO (mig 376; protótipo versão 5): se o botão aparece (ligado na empresa E disponível na distribuição) e a
@@ -227,7 +230,7 @@ export class AtendimentoController {
   @CloudOnly()
   @Roles('presidente', 'gerente')
   async ajustes(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
-    const [da99, fila, doIfood, cheguei, repetido, som, roboMuda, ponte, roboCobraPix, gestorWa, copiloto] = await Promise.all([
+    const [da99, fila, doIfood, cheguei, repetido, som, roboMuda, ponte, roboCobraPix, gestorWa, copiloto, instagram] = await Promise.all([
       this.pedido99.ajustes(user.tenantId),
       this.filaEAvisos.ajustes(user.tenantId),
       this.chatIfood.ajustes(user.tenantId),
@@ -244,6 +247,8 @@ export class AtendimentoController {
       this.gestorWa ? this.gestorWa.grupo(user) : Promise.resolve(null),
       // "Copiloto" (mig 376): ligado na empresa e disponível na distribuição.
       this.copiloto ? this.copiloto.estado(user.tenantId) : Promise.resolve(null),
+      // "Instagram Direct" (mig 377): se a distribuição liberou e a conta conectada (nunca o acesso).
+      this.instagram ? this.instagram.ajuste(user.tenantId) : Promise.resolve(null),
     ]);
     const alterado = { som, sons: SONS_DO_ALTERADO, roboMuda, roboCobraPix };
     return {
@@ -258,6 +263,7 @@ export class AtendimentoController {
       ponte,
       gestorWa,
       copiloto,
+      instagram,
     };
   }
 
@@ -276,6 +282,9 @@ export class AtendimentoController {
     // O copiloto (mig 376): liga/desliga só com booleano (V15), conferido antes de gravar qualquer grupo.
     if (dto?.copiloto !== undefined && typeof dto.copiloto?.ligado !== 'boolean')
       throw new BadRequestException('Copiloto: escolha ligado ou desligado.');
+    // "Mensagens do Direct na fila" (mig 377): só booleano (V15), conferido antes de gravar qualquer grupo.
+    if (dto?.instagram !== undefined && typeof dto.instagram?.filaLigada !== 'boolean')
+      throw new BadRequestException('Instagram Direct: escolha ligado ou desligado.');
     // A ponte: o texto e o papel dos PCs (lê as pontes da loja) — conferidos antes de gravar qualquer grupo.
     if (dto?.ponte !== undefined) await this.ponte.conferir(user, unidade, dto.ponte);
     if (dto?.ajuste99 !== undefined) await this.pedido99.salvarAjustes(user, dto);
@@ -290,6 +299,7 @@ export class AtendimentoController {
     if (alterado?.roboCobraPix !== undefined) await this.filaEAvisos.salvarRoboCobraAdicionalPix(user, alterado.roboCobraPix);
     if (gestorWa) await this.gestorWa?.salvar(user, gestorWa);
     if (dto?.copiloto !== undefined) await this.copiloto?.salvar(user, dto.copiloto.ligado);
+    if (dto?.instagram !== undefined) await this.instagram?.salvarFila(user, dto.instagram.filaLigada);
     return this.ajustes(user, unidade);
   }
 

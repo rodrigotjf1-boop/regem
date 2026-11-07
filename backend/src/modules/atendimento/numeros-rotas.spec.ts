@@ -54,7 +54,7 @@ describe('as rotas dos Números do atendimento', () => {
     const ctrl = new AtendimentoLojaController({} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {
       numeros: async (...a: any[]) => (chamadas.push(['numeros', ...a]), { ok: 1 }),
       casos: async (...a: any[]) => (chamadas.push(['casos', ...a]), { ok: 2 }),
-    } as any);
+    } as any, {} as any);
     const U = '11111111-2222-4333-8444-555555555555';
     await ctrl.numerosDaLoja({ tenantId: 'T1' } as any, { periodo: 'mes', unidade: U });
     await ctrl.numerosDaLoja({ tenantId: 'T1' } as any, { periodo: '7', unidade: "x' or 1=1" });

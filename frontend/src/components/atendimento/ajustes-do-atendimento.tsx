@@ -9,6 +9,7 @@ import { NO_SERVIDOR_DA_LOJA, SoPelaNuvem } from '@/components/ui/so-pela-nuvem'
 import { texto2 } from '@/components/ui/lista';
 import { MOTIVO_REEMBOLSO_99 } from '@/components/atendimento/pedido-99';
 import { QuemRecebeNoWhatsapp, type GrupoDoWhatsapp } from '@/components/atendimento/whatsapp-do-gestor';
+import { ContaDoInstagram, situacaoDoInstagram, useVoltaDoInstagram, type EstadoDoInstagram } from '@/components/atendimento/instagram-da-loja';
 
 // AJUSTES DO ATENDIMENTO — Delivery › Configurações › Operação › Atendimento (protótipo
 // `mockups/regem-central-atendimento.html`, vista "ajustes"; o grupo do "Cheguei" é do `mockups/regem-relacionamento.html`).
@@ -118,10 +119,13 @@ type Resposta = {
   gestorWa?: GrupoDoWhatsapp | null;
   // O copiloto (mig 376): ligado na empresa; disponível = a distribuição ligou o modelo.
   copiloto?: { ligado: boolean; disponivel: boolean } | null;
+  // O Instagram Direct (mig 377): se a distribuição liberou e a conta conectada (nunca o acesso).
+  instagram?: EstadoDoInstagram | null;
 };
 
 const paraValores = (r: Resposta): Valores => ({
   ...(r.copiloto ? { copilotoLigado: r.copiloto.ligado } : {}),
+  ...(r.instagram?.conta ? { instagramFila: r.instagram.conta.filaLigada } : {}),
   ...(r.gestorWa
     ? {
         gestorWaLigado: r.gestorWa.ligado,
@@ -184,6 +188,8 @@ export function AjustesDoAtendimento() {
   const [salvos, setSalvos] = useState<Valores>({});
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
+  // A volta do login do Instagram (`?instagram=`): avisa como foi (a tela já relê os ajustes ao montar).
+  useVoltaDoInstagram(() => undefined);
 
   const ler = () => {
     setEstado('carregando');
@@ -600,11 +606,41 @@ export function AjustesDoAtendimento() {
         ],
       }
     : null;
+  // O Instagram Direct (mig 377; protótipo v7): conectar a conta profissional da loja e "Mensagens do Direct na fila".
+  const ig = resp?.instagram ?? null;
+  const grupoDoInstagram: GrupoDeAjustes | null = ig
+    ? {
+        titulo: 'Instagram Direct',
+        nota: 'Sempre vale (regras do Instagram): a loja só responde a quem escreveu primeiro · até 24 h depois da última mensagem do cliente · as mensagens seguem no app do Instagram também · o acesso fica com a Regem, cifrado, e é renovado sozinho.',
+        itens: [
+          {
+            id: 'instagramConta',
+            rotulo: 'Instagram da loja',
+            tipo: 'livre',
+            ajuda: situacaoDoInstagram(ig),
+            palavras: 'instagram direct conectar conta perfil mensagens',
+            desenhar: () => <ContaDoInstagram estado={ig} aoMudar={(e) => setResp((r) => (r ? { ...r, instagram: e } : r))} />,
+          },
+          ...(ig.conta
+            ? [
+                {
+                  id: 'instagramFila',
+                  rotulo: 'Mensagens do Direct na fila',
+                  tipo: 'chave' as const,
+                  ajuda: 'Cada conversa nova do Direct vira caso, com o perfil do cliente; a resposta sai pelo Instagram da loja. Desligado, as mensagens continuam só no app do Instagram.',
+                  palavras: 'instagram direct fila caso mensagens',
+                },
+              ]
+            : []),
+        ],
+      }
+    : null;
   const grupos: GrupoDeAjustes[] = [
     ...(resp?.cheguei?.temCardapio ? [grupoDoCheguei] : []),
     grupoDaFila,
     ...(grupoDoGestor ? [grupoDoGestor] : []),
     ...(grupoDoCopiloto ? [grupoDoCopiloto] : []),
+    ...(grupoDoInstagram ? [grupoDoInstagram] : []),
     ...(resp?.ponte && (resp.conectadoIfood || resp.conectado99) ? [grupoDaPonte] : []),
     ...(resp?.conectadoIfood ? [grupoDoIfood] : []),
     ...(resp?.conectado99 ? [grupoDa99] : []),
@@ -626,6 +662,7 @@ export function AjustesDoAtendimento() {
     let alterado: { som?: string; roboMuda?: boolean; roboCobraPix?: boolean } | null = null;
     const gestorWa: Record<string, boolean | number | null> = {};
     let copiloto: { ligado: boolean } | null = null;
+    let instagram: { filaLigada: boolean } | null = null;
     const ponte: {
       ligada?: boolean;
       roboResponde?: boolean;
@@ -670,6 +707,11 @@ export function AjustesDoAtendimento() {
         copiloto = { ligado: valores[k] === true };
         continue;
       }
+      if (k === 'instagramFila') {
+        instagram = { filaLigada: valores[k] === true };
+        continue;
+      }
+      if (k === 'instagramConta') continue; // a conta muda pelos botões dela, não pelo salvar
       if (k === 'alteradoSom') {
         alterado = { ...(alterado ?? {}), som: String(valores[k]) };
         continue;
@@ -701,6 +743,7 @@ export function AjustesDoAtendimento() {
         ...(Object.keys(ponte).length ? { ponte } : {}),
         ...(Object.keys(gestorWa).length ? { gestorWa } : {}),
         ...(copiloto ? { copiloto } : {}),
+        ...(instagram ? { instagram } : {}),
       });
       setResp(r);
       setValores(paraValores(r));

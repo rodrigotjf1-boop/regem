@@ -41,6 +41,10 @@
    (com quanto custou: devolvido ou deixado de receber) e as RECLAMAÇÕES POR PRODUTO (para a cozinha e a ficha técnica).
    O motivo e o produto vêm do que a plataforma disse (disputa do iFood: atraso e os itens apontados) e, nos outros
    casos, do passo novo e opcional "O que aconteceu?" ao resolver o caso. Só gerente e presidente veem (tem valor em R$).
+   VERSÃO 7 (06/11/2026, item 6 do checkpoint): INSTAGRAM DIRECT NA FILA — o grupo de ajustes "Instagram Direct" (conectar
+   a conta profissional do Instagram da loja: entrar e autorizar; o resto é da Regem) e a conversa do Direct como caso, com o
+   perfil do cliente e a janela do Instagram (a loja só responde a quem escreveu, até 24 h depois da última mensagem; até
+   7 dias como "atendente humano", quando a Meta liberar). Caminho oficial: Instagram API com o login do Instagram.
    O que a tela faz:
    (1) uma FILA só com tudo o que precisa de uma pessoa: chamado do robô, disputa do iFood, pedido de cancelamento ou
        reembolso da 99, cancelamento pedido no cardápio e a resposta ao "sem contato". A conversa que o robô atende
@@ -60,7 +64,7 @@
   --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
   --gold:#E8A845; --on-gold:#281B06; --navy:#0F2230; --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9;
   --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8; --radius:12px;
-  --c-wa:#0B6E3A; --c-ifood:#C3122B; --c-99:#FFD21F; --c-99-ink:#2A2300; --c-card:#7A5209; --c-card-bg:#FCF1DD;
+  --c-ig:#B02E7A; --c-wa:#0B6E3A; --c-ifood:#C3122B; --c-99:#FFD21F; --c-99-ink:#2A2300; --c-card:#7A5209; --c-card-bg:#FCF1DD;
   --display:'Archivo',sans-serif; --body:'Figtree',sans-serif; --mono:'JetBrains Mono',monospace;
 }
 *{box-sizing:border-box}
@@ -142,6 +146,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 /* chips de canal e selos */
 .canal{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:800;letter-spacing:.02em;border-radius:6px;padding:2px 7px;white-space:nowrap}
 .canal.wa{background:var(--c-wa);color:#fff} .canal.ifood{background:var(--c-ifood);color:#fff}
+.canal.ig{background:var(--c-ig);color:#fff}
 .canal.n99{background:var(--c-99);color:var(--c-99-ink)} .canal.card{background:var(--c-card-bg);color:var(--c-card);border:1px solid #E9CF9E}
 .selo{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:999px;font-weight:700;font-size:12px;white-space:nowrap}
 .selo.crit{background:var(--crit-bg);color:var(--crit)} .selo.warn{background:var(--warn-bg);color:var(--warn)}
@@ -533,7 +538,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <div class="sits" role="group" aria-label="Situação" id="sits"></div>
       <div class="filtros">
         <div class="campo larga"><label for="busca">Buscar</label><input id="busca" type="search" placeholder="Cliente, pedido ou telefone"></div>
-        <div class="campo"><label for="f-canal">Canal</label><select id="f-canal"><option value="">Todos</option><option value="wa">WhatsApp</option><option value="ifood">iFood</option><option value="n99">99Food</option><option value="card">Cardápio</option></select></div>
+        <div class="campo"><label for="f-canal">Canal</label><select id="f-canal"><option value="">Todos</option><option value="wa">WhatsApp</option><option value="ifood">iFood</option><option value="n99">99Food</option><option value="card">Cardápio</option><option value="ig">Instagram</option></select></div>
         <div class="campo"><label for="f-motivo">Motivo</label><select id="f-motivo"><option value="">Todos</option><option>Atraso</option><option>Faltou item</option><option>Disputa</option><option>Avaliação</option><option>Cancelamento</option><option>Reembolso</option><option>Sem contato</option><option>Outro</option></select></div>
         <div class="campo"><label for="f-resp">Com quem</label><select id="f-resp"><option value="">Qualquer um</option><option value="-">Ninguém ainda</option><option value="Ana">Ana (você)</option><option value="Bruno">Bruno</option><option value="Carla">Carla</option></select></div>
       </div>
@@ -550,7 +555,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     <main id="v-aj" hidden>
       <div class="trilha">Delivery › Configurações › Operação</div>
       <h1>Atendimento</h1>
-      <p class="resumo">27 ajustes em 6 grupos · item novo no grupo "Operação", ao lado de "Robô de atendimento" · grupos novos: "Gerente no WhatsApp", "Copiloto" e "iFood e 99 · chat pela ponte"</p>
+      <p class="resumo">30 ajustes em 7 grupos · item novo no grupo "Operação", ao lado de "Robô de atendimento" · grupos novos: "Gerente no WhatsApp", "Copiloto", "Instagram Direct" e "iFood e 99 · chat pela ponte"</p>
       <div class="filtros" style="grid-template-columns:minmax(0,1fr)"><div class="campo"><label for="busca-aj">Buscar ajuste</label><input id="busca-aj" type="search" placeholder="Ex.: 99, disputa, som"></div></div>
 
       <section class="grupo" data-grupo>
@@ -589,6 +594,18 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
           <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="false" aria-label="Sugerir resposta no caso" data-aj></button></div></div>
         <div class="aj"><div><span class="rot-aj">Sempre vale</span><span class="ajuda">Não se desliga: protege o cliente e a loja.</span></div>
           <div class="ctrl"><span class="fixo">Ao modelo vai só o primeiro nome do cliente, a conversa e o pedido; nunca telefone, endereço nem pagamento · a sugestão nunca é enviada sozinha · cada sugestão pedida fica no histórico do caso</span></div></div>
+      </section>
+
+      <!-- Versão 7: o Instagram Direct da loja na fila. Conectar = entrar com a conta do Instagram da loja e autorizar; o
+           resto (o app na Meta, o segredo, o aviso de mensagem, a renovação do acesso) é da Regem. -->
+      <section class="grupo" data-grupo id="grupo-ig">
+        <header><h3>Instagram Direct <span class="novo-t">NOVO</span></h3><span>3 ajustes</span></header>
+        <div class="aj"><div><span class="rot-aj">Instagram da loja</span><span class="ajuda" id="ig-estado">Não conectado. Conecte a conta profissional do Instagram da loja para as mensagens do Direct entrarem na fila.</span></div>
+          <div class="ctrl" id="ig-botao"><button type="button" class="bt pri" data-dlg="conectar-ig">Conectar o Instagram</button></div></div>
+        <div class="aj"><div><span class="rot-aj">Mensagens do Direct na fila</span><span class="ajuda">Cada conversa nova vira caso, com o perfil do cliente. A resposta sai pelo Instagram da loja. Desligado, as mensagens continuam só no app do Instagram.</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Mensagens do Direct na fila" data-aj></button></div></div>
+        <div class="aj"><div><span class="rot-aj">Sempre vale</span><span class="ajuda">Regras do Instagram: não se desligam.</span></div>
+          <div class="ctrl"><span class="fixo">A loja só responde a quem escreveu primeiro · até 24 h depois da última mensagem do cliente (até 7 dias, quando a Meta liberar o "atendente humano") · as mensagens seguem no app do Instagram também</span></div></div>
       </section>
 
       <section class="grupo" data-grupo>
@@ -996,6 +1013,19 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   </div>
 
   <div class="cartao">
+    <h3>Instagram Direct · versão 7 (06/11/2026)</h3>
+    <p>As mensagens do Direct da loja entram na mesma fila, com o chip "Instagram" e o perfil do cliente. Escolhas recomendadas, já aplicadas:</p>
+    <ul>
+      <li><b>Caminho oficial: Instagram API com o login do Instagram</b> (<a href="https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/business-login">Business Login for Instagram</a>, conferido em 06/11/2026). A loja entra com a conta <b>profissional</b> do Instagram e autoriza duas coisas: ver o perfil e ler/responder o Direct (<code>instagram_business_basic</code> e <code>instagram_business_manage_messages</code>). Não precisa de página do Facebook. O app, o segredo, o aviso de mensagem e a renovação do acesso (vale 60 dias; o Regem renova sozinho) são da Regem — a loja não vê nada disso.</li>
+      <li><b>As regras do Instagram</b> (<a href="https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/messaging-api/">Messaging API</a>): a loja só responde a quem escreveu primeiro; até 24 h depois da última mensagem do cliente; até 7 dias marcando a resposta como "atendente humano", quando a Meta liberar essa permissão; texto até 1.000 bytes; áudio em aac, m4a, wav ou mp4 (não OGG), imagem png ou jpeg até 8 MB. As mensagens também ficam no app do Instagram; a recebida pelo Regem só aparece como lida lá depois de respondida.</li>
+      <li><b>Caso</b>: cada conversa nova do Direct vira caso (um aberto por cliente); o que a loja responde no próprio app do Instagram também aparece na conversa (o Instagram avisa o Regem). Identificação: o nome do perfil e o @. O Instagram não manda telefone: o pedido só se liga quando o cliente pedir por um canal da loja.</li>
+      <li>No Instagram a loja pode mandar link e telefone (o canal é dela) — a trava de contato é só do chat do iFood e da 99.</li>
+      <li>O robô no Direct fica para depois (a mesma etapa do robô nos outros canais).</li>
+      <li><b>Da sua parte (Meta, conta da distribuição)</b>: somar o produto "Instagram" ao app do Regem; o endereço de retorno do login e o do aviso de mensagem; pedir o "Acesso avançado" das duas permissões na Análise do app (com o vídeo do Regem mostrando: conectar, receber no Regem, responder) e, depois, a do "atendente humano". Até a Meta aprovar, só contas com papel no app (teste) conectam.</li>
+    </ul>
+  </div>
+
+  <div class="cartao">
     <h3>Números do atendimento · versão 6 (06/11/2026)</h3>
     <p>Página nova em <b>Relatórios › Atendimento</b> (e o botão "📊 Números do atendimento" no topo do Atendimento). Escolhas recomendadas, já aplicadas:</p>
     <ul>
@@ -1062,6 +1092,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       pedido: '4821', fala: '"Quero falar com alguém" · no chat do iFood', resp: null, sit: 'fila', espera: '2 min', robo: true },
     { id: 'n1', canal: 'n99', motivo: 'Faltou item', tipo: 'chat', urgente: false, titulo: 'João P. · pedido 99Food 92 · faltou item', cliente: 'João P.',
       pedido: '92', fala: '"Veio sem o refrigerante" · no chat da 99', resp: 'Bruno', sit: 'comigo', espera: '5 min', robo: true },
+    // Versão 7 — o Instagram Direct da loja: identificado pelo @ do cliente (e o nome do perfil).
+    { id: 'ig1', canal: 'ig', motivo: 'Outro', tipo: 'instagram', urgente: false, titulo: 'Joana Souza · @joana.souza · Direct',
+      cliente: 'Joana Souza', pedido: '', fala: '"Quero fazer um pedido grande pra sábado, umas 15 pessoas"', resp: null, sit: 'fila', espera: '6 min' },
     // O que o robô está atendendo agora (não é caso): situação "Conversas agora", dos três canais.
     { id: 'v1', canal: 'wa', motivo: 'Pedido', tipo: 'robo', urgente: false, titulo: 'Fernanda · fazendo um pedido', cliente: 'Fernanda', tel: '(21) 99876-5432',
       pedido: '', fala: 'Cliente cadastrada: aparece pelo nome · 2 itens no carrinho', resp: null, sit: 'robo', espera: '' },
@@ -1091,7 +1124,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
   const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const CANAL = { wa: ['wa', 'WhatsApp'], ifood: ['ifood', 'iFood'], n99: ['n99', '99Food'], card: ['card', 'Cardápio'] };
+  const CANAL = { wa: ['wa', 'WhatsApp'], ifood: ['ifood', 'iFood'], n99: ['n99', '99Food'], card: ['card', 'Cardápio'], ig: ['ig', 'Instagram'] };
   const chip = (c) => `<span class="canal ${CANAL[c][0]}">${CANAL[c][1]}</span>`;
   const mmss = (ms) => {
     const s = Math.max(0, Math.round(ms / 1000)), dd = (n) => String(n).padStart(2, '0');
@@ -1299,10 +1332,15 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     v2: { msgs: [['cli', 'Vocês abrem até que horas?', '20:25'], ['robo', 'Hoje até as 23h59! Quer ver o cardápio?', 'robô · 20:25']] },
     v3: { msgs: [['cli', 'Vai demorar muito?', '20:22'], ['robo', 'Oi, Paulo! Seu pedido está na cozinha e sai em uns 10 minutos. Chega por volta das 20h40.', 'robô · 20:22']] },
     v4: { msgs: [['auto', 'Seu pedido saiu para entrega! Chega por volta das 20h45.', 'aviso automático · 20:20'], ['cli', 'Obrigada!', '20:21']] },
+    ig1: { msgs: [['cli', 'Oi! Vocês entregam no Centro?', '20:12'], ['cli', 'Quero fazer um pedido grande pra sábado, umas 15 pessoas', '20:13']],
+      prontas: ['Oi! Entregamos sim. Me conta o que você precisa?', 'Para pedidos grandes, fazemos encomenda: me passa a data e a hora?', 'Nosso cardápio está no link da bio.'],
+      perfil: { usuario: '@joana.souza', nome: 'Joana Souza', segue: true } },
   };
   // Versão 5 (copiloto, item 7): sugestões de exemplo — no Regem, o modelo de IA escreve com a conversa, o pedido e as
   // respostas prontas da loja. Duas por caso, para o "Outra sugestão".
   const SUGESTOES = {
+    ig1: ['Oi, Joana! Entregamos no Centro, sim. Para 15 pessoas fazemos encomenda: qual o horário de sábado e o que vocês gostariam?',
+      'Oi, Joana! Que bom! Entregamos no Centro. Me passa o horário de sábado que eu monto a encomenda com você.'],
     c3: ['Carlos, peço desculpas pela espera. O João saiu com o seu pedido às 19h31 e chega por volta das 19h55 — já está perto. Qualquer coisa, estou por aqui.',
       'Sinto muito pela demora, Carlos. Acabei de conferir: o João está a caminho e chega em uns 10 minutos.'],
     c4: ['Juliana, desculpe pelo erro! Já vamos mandar a Coca-Cola lata que faltou, sem custo. Chega em até 30 minutos. Pode ser?',
@@ -1441,7 +1479,46 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <div class="col">${blocoPedido(c.pedido)}
       <section class="bloco"><h3>Histórico do caso</h3><ol class="linha-tempo"><li><span class="h">20:41</span><span>A cliente avaliou o pedido no iFood</span></li><li><span class="h">20:55</span><span>O Regem trouxe a avaliação (nota 2: urgente)</span></li></ol></section></div></div>`;
   }
-  const RENDER = { disputa: casoDisputa, 'disputa-atraso': casoDisputa, n99: caso99, 'n99-reembolso': caso99Reembolso, conversa: casoConversa, cardapio: casoCardapio, feito: casoFeito, chat: casoChat, robo: casoRobo, avaliacao: casoAvaliacao };
+  // Versão 7: a conversa do Instagram Direct. A janela do Instagram (24 h depois da última mensagem do cliente) aparece
+  // por extenso; fora dela o botão de enviar some e a tela diz por quê. No Instagram a loja pode mandar link e telefone
+  // (é o canal dela) — a regra de barrar é só do chat do iFood e da 99.
+  function casoInstagram(c) {
+    const d = CONVERSAS[c.id];
+    const acoes = c.resp ? `<button type="button" class="bt" data-dlg="passar">Passar</button><button type="button" class="bt">Aguardar o cliente</button><button type="button" class="bt ok" data-dlg="resolver">Resolver</button>`
+      : `<button type="button" class="bt pri">Pegar para mim</button><button type="button" class="bt" data-dlg="passar">Passar</button><button type="button" class="bt ok" data-dlg="resolver">Resolver</button>`;
+    return topo(c, acoes) + `<div class="c-corpo"><div class="col">
+      <section class="bloco"><h3>Direct do Instagram com ${esc(d.perfil.usuario)} <span class="dir">pela conta @burgerdapraca</span></h3>
+        <div class="msgs" data-msgs>${msgsHtml(d.msgs, c.canal)}</div>
+        <div class="prontas" aria-label="Respostas prontas">${(d.prontas || []).map((p) => `<button type="button" class="pronta" data-pronta>${esc(p)}</button>`).join('')}</div>
+        ${copiloto(c)}
+        <div class="escrever"><textarea aria-label="Escrever ao cliente no Instagram" placeholder="Escreva para ${esc(d.perfil.nome)} (sai no Direct da loja)" data-txt></textarea><button type="button" class="bt pri" data-enviar-ig>Enviar pelo Instagram</button></div>
+        <p class="ajuda" style="margin:6px 0 0">⏱️ Pode responder até <b>amanhã, 20:13</b> (24 h depois da última mensagem dela — regra do Instagram). A mensagem também aparece no app do Instagram da loja.</p></section></div>
+      <div class="col"><section class="bloco"><h3>Cliente</h3>
+        <p style="margin:0;font-size:14px"><b>${esc(d.perfil.nome)}</b> · ${esc(d.perfil.usuario)}</p>
+        <p class="ajuda" style="margin:6px 0 0">${d.perfil.segue ? 'Segue a loja no Instagram.' : 'Não segue a loja.'} Sem pedido ligado: o Instagram não manda telefone. Se ela fizer o pedido pelo cardápio ou pelo WhatsApp, ele aparece aqui.</p></section>
+      <section class="bloco"><h3>Histórico do caso</h3><ol class="linha-tempo"><li><span class="h">20:12</span><span>Joana escreveu no Direct da loja</span></li><li><span class="h">20:12</span><span>O Regem abriu o caso (Instagram Direct na fila)</span></li></ol></section></div></div>`;
+  }
+  const RENDER = { disputa: casoDisputa, 'disputa-atraso': casoDisputa, n99: caso99, 'n99-reembolso': caso99Reembolso, conversa: casoConversa, cardapio: casoCardapio, feito: casoFeito, chat: casoChat, robo: casoRobo, avaliacao: casoAvaliacao, instagram: casoInstagram };
+  // O envio pelo Instagram (versão 7): sai na hora pela conta da loja; o Regem guarda a mensagem (a Meta não guarda).
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-enviar-ig]');
+    if (!b) return;
+    const bloco = b.closest('.bloco');
+    const t = $('[data-txt]', bloco);
+    const txt = t.value.trim();
+    if (!txt) return;
+    const m = document.createElement('div');
+    m.className = 'msg loja';
+    m.textContent = txt;
+    const s = document.createElement('small');
+    s.innerHTML = 'Ana · agora · <span class="env-ok">✓ enviada pelo Instagram</span>';
+    m.appendChild(s);
+    const caixa = $('[data-msgs]', bloco);
+    caixa.appendChild(m);
+    caixa.scrollTop = caixa.scrollHeight;
+    t.value = '';
+    toast('✅ Enviada no Direct da loja (protótipo)');
+  });
   // O contador da resposta da avaliação (10 a 300 caracteres — a regra do iFood).
   document.addEventListener('input', (e) => {
     if (e.target && e.target.id === 'resp-aval') {
@@ -1556,6 +1633,25 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     'recusar-card': () => ({ t: 'Recusar o cancelamento do pedido 1185', b: `<p style="margin:0">O pedido segue normalmente. Avise o cliente pelo WhatsApp, se quiser.</p>`, ok: 'Recusar', cl: 'pri' }),
     passar: () => ({ t: 'Passar o caso', b: `<div class="campo"><span class="rot">Para quem</span><div class="opcoes" role="group" aria-label="Para quem"><button type="button" class="opcao" aria-pressed="true" data-op>Bruno · disponível</button><button type="button" class="opcao" aria-pressed="false" data-op>Carla · ocupada: caixa</button><button type="button" class="opcao" aria-pressed="false" data-op>De volta para a fila</button></div></div>
       <div class="campo"><label for="nota-p">Recado (opcional)</label><input id="nota-p" type="text" placeholder="Ex.: já pedi a foto"></div>`, ok: 'Passar', cl: 'pri' }),
+    // Versão 7: conectar o Instagram da loja — a pessoa entra com a conta do Instagram e autoriza; o resto é da Regem.
+    'conectar-ig': () => ({ t: 'Conectar o Instagram da loja', b: `<ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px">
+        <li>Abre a página do Instagram. Entre com a conta <b>profissional</b> da loja (comercial ou criador de conteúdo).</li>
+        <li>O Instagram mostra o que o Regem vai poder fazer: <b>ver o perfil</b> e <b>ler e responder as mensagens do Direct</b>. Toque em "Permitir".</li>
+        <li>Pronto: volta para cá e esta tela mostra "Conectado". A partir daí, as conversas novas do Direct entram na fila.</li></ol>
+      <p class="ajuda" style="margin:0">A loja não cria app nem guarda senha: o acesso fica com a Regem, cifrado, e é renovado sozinho. A conta pessoal do Instagram não serve — no app do Instagram, em Configurações › Tipo de conta, dá para mudar para conta profissional sem custo.</p>`,
+      ok: 'Simular: autorizei no Instagram', cl: 'pri',
+      aoConfirmar: () => {
+        $('#ig-estado').textContent = 'Conectado: @burgerdapraca · desde agora, por Ana. As conversas novas do Direct entram na fila.';
+        $('#ig-botao').innerHTML = '<button type="button" class="bt" data-dlg="desconectar-ig">Desconectar</button>';
+        toast('✅ Instagram conectado: @burgerdapraca (protótipo)');
+      } }),
+    'desconectar-ig': () => ({ t: 'Desconectar o Instagram da loja', b: `<p style="margin:0">As mensagens novas do Direct deixam de entrar na fila e a loja não responde mais pelo Regem — elas continuam no app do Instagram. Os casos que já estão na fila ficam, para resolver.</p>`,
+      ok: 'Desconectar', cl: 'perigo',
+      aoConfirmar: () => {
+        $('#ig-estado').textContent = 'Não conectado. Desconectado agora, por Ana.';
+        $('#ig-botao').innerHTML = '<button type="button" class="bt pri" data-dlg="conectar-ig">Conectar o Instagram</button>';
+        toast('Instagram desconectado (protótipo)');
+      } }),
     // Versão 6: "O que aconteceu?" — opcional; alimenta os Números do atendimento. Vem marcado com o que a plataforma disse.
     resolver: () => ({ t: 'Resolver o caso', b: `<p style="margin:0">A conversa volta para o robô. Se o cliente escrever de novo, o robô atende e abre outro caso quando precisar.</p>
       ${blocoMarcar(selecionado)}`, ok: 'Resolver', cl: 'ok' }),

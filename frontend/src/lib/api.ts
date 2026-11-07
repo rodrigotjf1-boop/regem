@@ -1232,6 +1232,14 @@ export const api = {
     if (filtro.produto) p.set('produto', filtro.produto);
     return req(`/atendimento/numeros/casos?${p.toString()}`, daRede(todas));
   },
+  // INSTAGRAM DIRECT (mig 377): o estado da conta (gerente e presidente), o endereço do login do Instagram, desconectar;
+  // a conversa do caso e a resposta da gestão (nas duas pontas — no servidor da loja, pela nuvem).
+  instagramEstado: () => req('/atendimento/instagram'),
+  instagramConectar: () => req('/atendimento/instagram/conectar', { method: 'POST', body: '{}' }),
+  instagramDesconectar: () => req('/atendimento/instagram', { method: 'DELETE' }),
+  atendimentoInstagram: (id: string) => req(`/atendimento/${id}/instagram`),
+  atendimentoResponderInstagram: (id: string, texto: string) =>
+    req(`/atendimento/${id}/instagram`, { method: 'POST', body: JSON.stringify({ texto }) }),
   atendimentoOQueAconteceu: (id: string) => req(`/atendimento/${id}/o-que-aconteceu`),
   atendimentoMarcarOQueAconteceu: (id: string, body: { motivo: string | null; produtos: string[] }) =>
     req(`/atendimento/${id}/o-que-aconteceu`, { method: 'PUT', body: JSON.stringify(body) }),

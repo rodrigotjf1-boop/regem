@@ -23,6 +23,8 @@ import { ChatDoCasoService } from './chat-do-caso.service';
 import { GestorWhatsappService } from './gestor-whatsapp.service';
 import { CopilotoService } from './copiloto.service';
 import { NumerosDoAtendimentoService } from './numeros.service';
+import { InstagramService } from '../instagram/instagram.service';
+import { InstagramController, InstagramPublicoController } from '../instagram/instagram.controller';
 
 @Module({
   // Integrações: a resposta à disputa do iFood (IfoodService). forwardRef: integrações e delivery já se referem.
@@ -34,7 +36,9 @@ import { NumerosDoAtendimentoService } from './numeros.service';
   imports: [DeliveryModule, forwardRef(() => IntegracoesModule), EquipamentoModule, ChegadaModule, ProducaoPedidoModule, WhatsappModule, PonteChatModule],
   // AtendimentoAppController: o app "Regem Atendimento" (mig 353) — entrar com o PIN e "Disponível / Ocupado". O
   // AuthService vem do AuthModule (global); o EquipamentoService, do EquipamentoModule (o celular pareado).
-  controllers: [AtendimentoController, AtendimentoLojaController, AtendimentoAppController],
+  // InstagramPublicoController / InstagramController (mig 377): o aviso do Direct e a volta do login (públicos, só a
+  // nuvem); conectar, a conversa do caso e a resposta.
+  controllers: [AtendimentoController, AtendimentoLojaController, AtendimentoAppController, InstagramPublicoController, InstagramController],
   // Pedido99Service: a resposta ao pedido do cliente da 99 e a rotina da nuvem (cancelamento vencido, reembolso recusado).
   // ChatIfoodService: a configuração do chat oficial do iFood (o widget da distribuição e as lojas do iFood).
   // FilaEAvisosService (mig 353): o aviso ao gerente (rotina da nuvem) e os ajustes "Fila e avisos".
@@ -60,6 +64,8 @@ import { NumerosDoAtendimentoService } from './numeros.service';
     CopilotoService,
     // NumerosDoAtendimentoService (item 8): o placar, as reclamações por motivo e produto e o "O que aconteceu?" do caso.
     NumerosDoAtendimentoService,
+    // InstagramService (mig 377): a conta conectada, o aviso do Direct, a conversa, a resposta e a renovação do acesso.
+    InstagramService,
   ],
   exports: [AtendimentoService],
 })
