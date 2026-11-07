@@ -13,7 +13,7 @@ const ENDERECO = 'R. Visconde de Pirajá, 414, sala 718 — Rio de Janeiro/RJ, C
 // simplesmente não renderiza — melhor omitir do que publicar número errado.
 const CNPJ = '67.748.508/0001-43';
 // Data da última revisão do texto. Atualize ao mexer no conteúdo.
-const ATUALIZADO_EM = '1º de outubro de 2026';
+const ATUALIZADO_EM = '7 de novembro de 2026';
 const CONTATO = 'suporte@dmsregem.com';
 
 // Política de Privacidade pública (LGPD). Mesmo padrão visual das outras páginas
@@ -187,7 +187,10 @@ const SECOES: Secao[] = [
               </tr>
               <tr>
                 <td>Atendimento</td>
-                <td>Mensagens trocadas nos canais de atendimento, incluindo WhatsApp</td>
+                <td>
+                  Mensagens trocadas nos canais de atendimento, incluindo WhatsApp e o Direct do
+                  Instagram (no Instagram, também o nome e o @ do perfil de quem escreveu)
+                </td>
                 <td>Conversa iniciada pelo cliente</td>
               </tr>
               <tr>
@@ -384,8 +387,11 @@ const SECOES: Secao[] = [
                 <td>Proteção contra ataques e entrega do site</td>
               </tr>
               <tr>
-                <td>Meta Platforms (WhatsApp Business)</td>
-                <td>Envio e recebimento das mensagens de atendimento por WhatsApp</td>
+                <td>Meta Platforms (WhatsApp Business e Instagram)</td>
+                <td>
+                  Envio e recebimento das mensagens de atendimento por WhatsApp e pelo Direct do
+                  Instagram
+                </td>
               </tr>
               <tr>
                 <td>Provedores de pagamento</td>
