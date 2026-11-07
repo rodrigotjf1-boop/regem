@@ -5,6 +5,7 @@ import type { AddressInfo, Socket } from 'node:net';
 import { join } from 'node:path';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import * as schema from '../../db/schema';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { cifrar } from '../../common/cifra-segredo';
@@ -475,7 +476,7 @@ descrever('Robô no Direct do Instagram (Postgres + Meta e n8n de mentira)', () 
     const gestao = { tenantId: T, colaboradorId: pessoa.ana, categoria: 'gerente', permissoes: {} } as any;
     const r: any = await chat.conversasAgora(T, null, gestao);
     const c = r.conversas.find((x: any) => x.canal === 'instagram');
-    expect(r.instagram).toEqual({ ligado: true });
+    expect(r.instagram).toEqual({ ligado: true, lida: true });
     expect(c).toMatchObject({ chave: `ig:${CLIENTE}`, cliente: 'Lívia Ramos', usuario: '@livia.ramos', segue: false, comRobo: true });
     expect(c.mensagens.map((m: any) => m.autor)).toEqual(['cliente', 'robo']);
     const exec = { tenantId: T, colaboradorId: pessoa.edu, categoria: 'execucao', permissoes: {} } as any;
@@ -493,7 +494,25 @@ descrever('Robô no Direct do Instagram (Postgres + Meta e n8n de mentira)', () 
     // Do servidor da loja, a nuvem confere quem assume (outra empresa = recusa).
     await expect(chat.assumirVindoDaLoja(T, { canal: 'instagram', chave: `ig:${CLIENTE}`, atorId: pessoa.gil, atorPerfil: 'gerente' })).rejects.toThrow();
     const daLoja: any = await chat.conversasVindoDaLoja(T, { categoria: 'gerente' });
-    expect(daLoja.instagram).toEqual({ ligado: true });
+    expect(daLoja.instagram).toEqual({ ligado: true, lida: true });
+  });
+
+  it('"Conversas agora" num banco SEM as tabelas do Instagram (ou sem a 378): o Direct não está ligado e os outros canais seguem; outra falha vem como "não li" (ERR-393)', async () => {
+    const dialeto = new PgDialect();
+    const comFalha = (codigo: string) =>
+      new Proxy(db, {
+        get(alvo: any, nome) {
+          if (nome !== 'execute') return alvo[nome];
+          return (consulta: any) =>
+            /instagram_/.test(dialeto.sqlToQuery(consulta).sql) ? Promise.reject(Object.assign(new Error('falha de teste'), { code: codigo })) : alvo.execute(consulta);
+        },
+      });
+    const gestao = { tenantId: T, colaboradorId: pessoa.ana, categoria: 'gerente', permissoes: {} } as any;
+    for (const [codigo, esperado] of [['42P01', { ligado: false, lida: true }], ['42703', { ligado: false, lida: true }], ['57014', { ligado: true, lida: false }]] as const) {
+      const r: any = await new ChatDoCasoService(comFalha(codigo), { emit: () => true } as any, {} as any).conversasAgora(T, null, gestao);
+      expect(r.instagram).toEqual(esperado);
+      expect(Array.isArray(r.conversas)).toBe(true);
+    }
   });
 
   it('os ajustes: liga/desliga só com booleano, o cardápio de outra empresa e o robô sem conta recusados ANTES de gravar; o que vale fica na auditoria', async () => {

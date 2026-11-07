@@ -281,7 +281,7 @@ export class ChatDoCasoService {
       conversas: todas,
       roboResponde,
       whatsapp: whatsapp ? { ligado: whatsapp.ligado, lida: whatsapp.lida } : null,
-      instagram: direct ? { ligado: direct.ligado } : null,
+      instagram: direct ? { ligado: direct.ligado, lida: direct.lida } : null,
     };
   }
 
@@ -289,10 +289,22 @@ export class ChatDoCasoService {
    * O DIRECT do Instagram com o robô agora (mig 378; protótipo v8): com o robô do Direct ligado, as conversas com
    * mensagem na última hora e SEM caso aberto — o robô está nelas. Com as últimas 8 mensagens (moram aqui, na nuvem) e o
    * perfil do cliente (nome e @). Da empresa (o Instagram é da empresa, não de uma loja).
+   * NUNCA derruba "Conversas agora" (os outros canais seguem): sem a tabela só da nuvem (377) ou sem a coluna da 378 neste
+   * banco, o Direct não está ligado; outra falha vem como "não li" (`lida: false` — V37), nunca como "nenhuma" (ERR-393).
    */
-  private async conversasDoDirect(tenantId: string): Promise<{ ligado: boolean; conversas: any[] }> {
+  private async conversasDoDirect(tenantId: string): Promise<{ ligado: boolean; lida: boolean; conversas: any[] }> {
+    try {
+      return await this.lerConversasDoDirect(tenantId);
+    } catch (e: any) {
+      if (e?.code === '42P01' || e?.code === '42703') return { ligado: false, lida: true, conversas: [] };
+      this.logger.warn(`o Direct em "Conversas agora" (empresa ${tenantId}): ${e?.message ?? e}`);
+      return { ligado: true, lida: false, conversas: [] };
+    }
+  }
+
+  private async lerConversasDoDirect(tenantId: string): Promise<{ ligado: boolean; lida: boolean; conversas: any[] }> {
     const [conta] = linhas(await this.db.execute(sql`select robo_responde from instagram_conta where tenant_id = ${tenantId}::uuid`));
-    if (conta?.robo_responde !== true) return { ligado: false, conversas: [] };
+    if (conta?.robo_responde !== true) return { ligado: false, lida: true, conversas: [] };
     const r = linhas(
       await this.db.execute(sql`
         with ativas as (
@@ -329,7 +341,7 @@ export class ChatDoCasoService {
       mensagens: (Array.isArray(c.mensagens) ? c.mensagens : []).map(({ tipo, ...m }: any) => ({ ...m, texto: String(m?.texto || (DESCRICAO_DO_TIPO as any)[tipo] || '') })),
       comRobo: true,
     }));
-    return { ligado: true, conversas };
+    return { ligado: true, lida: true, conversas };
   }
 
   /** As conversas do WhatsApp com o robô agora (última hora, sem pausa e sem caso aberto), pela via da loja. */
