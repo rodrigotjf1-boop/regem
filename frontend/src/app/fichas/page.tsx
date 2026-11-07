@@ -102,6 +102,11 @@ export default function FichasPage() {
   const [excluindo, setExcluindo] = useState<any>(null);
   const [apagando, setApagando] = useState(false);
   const [busca, setBusca] = useState('');
+  // `?busca=` (Números do atendimento → "Abrir a ficha técnica" do produto reclamado): já chega filtrado.
+  useEffect(() => {
+    const b = new URLSearchParams(window.location.search).get('busca');
+    if (b) setBusca(b.slice(0, 120));
+  }, []);
   const [sit, setSit] = useState(-1);
   const [filtroCategoria, setFiltroCategoria] = useState('');
   const [filtroSub, setFiltroSub] = useState('');

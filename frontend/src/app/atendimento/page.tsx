@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { BarChart3 } from 'lucide-react';
 import { api, getCategoria } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
@@ -23,6 +24,7 @@ import { ChatDaPlataforma } from '@/components/atendimento/chat-da-plataforma';
 import { EnderecoDepoisQueSaiu } from '@/components/atendimento/endereco-depois-que-saiu';
 import { ListaDeConversas } from '@/components/atendimento/lista-de-conversas';
 import { ConversaDoRobo } from '@/components/atendimento/conversa-do-robo';
+import { OQueAconteceu, type MarcaDoCaso } from '@/components/atendimento/o-que-aconteceu';
 import { enderecoDoCaso } from '@/lib/endereco-do-caso';
 import {
   CASO_DA_PLATAFORMA,
@@ -67,6 +69,9 @@ export default function AtendimentoPage() {
   // `eu` vem do servidor com a fila: marca "Comigo" e "você" (o servidor confere tudo de novo em cada ação).
   const { casos, contagens, lida, erro, eu, ponte, adicionaisPix } = useFilaDeAtendimento();
   const [sit, setSit] = useState<Sit>('abertos');
+  // O perfil só depois de montar (V35): o botão dos Números é de gerente e presidente.
+  const [categoria, setCategoria] = useState<string | null>(null);
+  useEffect(() => setCategoria(getCategoria()), []);
   const [busca, setBusca] = useState('');
   const [canal, setCanal] = useState('');
   const [tipo, setTipo] = useState('');
@@ -264,13 +269,26 @@ export default function AtendimentoPage() {
   };
 
   const total = contagens?.abertos ?? casos.length;
+  const veNumeros = categoria === 'presidente' || categoria === 'gerente';
   return (
     <Shell eyebrow="Atendimento" title="Atendimento">
       <div className="space-y-4">
         <div className="min-w-0">
-          <h2 className="font-display text-xl font-bold">
-            {total} {total === 1 ? 'caso aberto' : 'casos abertos'}
-          </h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-display text-xl font-bold">
+              {total} {total === 1 ? 'caso aberto' : 'casos abertos'}
+            </h2>
+            {/* Os Números do atendimento (item 8): só gerente e presidente — o servidor confere. */}
+            {veNumeros && (
+              <Link
+                href="/atendimento/numeros"
+                className="inline-flex min-h-10 items-center gap-2 rounded-md border border-input bg-card px-3 text-sm font-semibold hover:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <BarChart3 className="h-4 w-4" aria-hidden="true" />
+                Números do atendimento
+              </Link>
+            )}
+          </div>
           <p className="text-sm text-secondary-foreground" role="status" aria-live="polite">
             {contagens ? `${contagens.comPrazo} com prazo · ${contagens.naFila} na fila · ` : ''}
             {temConversas && conversas !== null && (
@@ -582,6 +600,11 @@ function Caso({
 }) {
   const [passando, setPassando] = useState(false);
   const [resolvendo, setResolvendo] = useState(false);
+  // "O que aconteceu?" no Resolver (Números do atendimento): só vai junto se a pessoa mexeu.
+  const [marca, setMarca] = useState<{ marca: MarcaDoCaso; mexeu: boolean }>({ marca: null, mexeu: false });
+  useEffect(() => {
+    if (resolvendo) setMarca({ marca: null, mexeu: false }); // cada vez que o diálogo abre, começa do que está gravado
+  }, [resolvendo, c.id]);
   const [enviando, setEnviando] = useState(false);
   const [podeResponder, setPodeResponder] = useState(false);
   // O rascunho que um bloco do caso leva ao campo da conversa ("Não dá: responder ao cliente"); `n` reaplica o mesmo texto.
@@ -796,7 +819,8 @@ function Caso({
                 disabled={enviando}
                 onClick={() => {
                   setResolvendo(false);
-                  void fazer(() => api.resolverAtendimento(c.id), 'Caso resolvido.');
+                  const vai = marca.mexeu ? marca.marca : null;
+                  void fazer(() => api.resolverAtendimento(c.id, vai), vai ? 'Caso resolvido. O motivo entra nos Números do atendimento.' : 'Caso resolvido.');
                 }}
               >
                 Resolver
@@ -811,6 +835,9 @@ function Caso({
                 ? `O caso sai da fila. Se o cliente escrever de novo no chat ${c.canal === 'ifood' ? 'do iFood' : 'da 99'}, chega outro caso.`
                 : 'O caso sai da fila.'}
           </p>
+          <div className="mt-3">
+            <OQueAconteceu casoId={c.id} aoMudar={setMarca} />
+          </div>
         </Dialogo>
       )}
     </article>

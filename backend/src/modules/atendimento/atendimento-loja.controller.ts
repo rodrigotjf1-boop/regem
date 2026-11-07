@@ -8,6 +8,11 @@ import { ChatIfoodService } from './chat-ifood.service';
 import { ChatDoCasoService } from './chat-do-caso.service';
 import { AjustesDaPonteService } from '../ponte-chat/ajustes-da-ponte.service';
 import { AvaliacaoIfoodService } from './avaliacao-ifood.service';
+import { NumerosDoAtendimentoService } from './numeros.service';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** A loja pedida pelo servidor da loja: um id válido, ou nenhuma (= todas). */
+const unidadeDaConsulta = (u: unknown): string | null => (typeof u === 'string' && UUID_RE.test(u) ? u : null);
 
 // Pedidos do SERVIDOR DA LOJA à nuvem sobre a central de atendimento (V37): a credencial do iFood fica só na nuvem.
 // Autenticação pelo token do servidor (x-sync-token) — a empresa vem do token, nunca do corpo. Só na nuvem.
@@ -21,7 +26,25 @@ export class AtendimentoLojaController {
     private readonly ponte: AjustesDaPonteService,
     // A resposta à avaliação do iFood vinda do servidor da loja (06/11/2026).
     private readonly avaliacao: AvaliacaoIfoodService,
+    // Os números do atendimento (item 8): a conta mora na nuvem (as mensagens do chat do iFood e da 99 só existem lá).
+    private readonly numeros: NumerosDoAtendimentoService,
   ) {}
+
+  // Os NÚMEROS DO ATENDIMENTO para a tela do servidor da loja: quem pediu (gerente ou presidente) e a loja em uso foram
+  // conferidos lá; `unidade` vazia = todas as lojas (o presidente lá). A empresa vem do token.
+  @Get('numeros-da-loja')
+  @CloudOnly()
+  @UseGuards(SyncTokenGuard)
+  numerosDaLoja(@SyncCtx() ctx: SyncCtxData, @Query() q: { periodo?: string; unidade?: string }) {
+    return this.numeros.numeros(ctx.tenantId, unidadeDaConsulta(q?.unidade), q?.periodo);
+  }
+
+  @Get('numeros-da-loja/casos')
+  @CloudOnly()
+  @UseGuards(SyncTokenGuard)
+  casosDaLoja(@SyncCtx() ctx: SyncCtxData, @Query() q: { periodo?: string; unidade?: string; motivo?: string; produto?: string }) {
+    return this.numeros.casos(ctx.tenantId, unidadeDaConsulta(q?.unidade), q ?? {});
+  }
 
   // A loja responde a uma avaliação do iFood: quem respondeu (a gestão) foi conferido no servidor dela.
   @Post('avaliacao-da-loja')

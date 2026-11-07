@@ -30,6 +30,7 @@ import {
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { AuthUser } from '../../auth/auth-user';
 import { lerItensDaPerda } from '../vendas/itens-da-perda';
+import { classificacaoGravada, lerOQueAconteceu } from './numeros';
 import { sqlUnidadeOuRede } from '../../common/filtro-unidade';
 import { instanteDe } from '../../common/fuso-sql';
 import { hojeISO } from '../../common/data';
@@ -156,10 +157,28 @@ export class AtendimentoService {
       .limit(100);
   }
 
-  async resolver(tenantId: string, id: string, atorId: string) {
+  /**
+   * Resolve o caso. `dto.oQueAconteceu` (opcional, Números do atendimento): o motivo e os produtos que a equipe marcou —
+   * conferidos ANTES de gravar (V86) e gravados na MESMA troca, só na chave `classificacao` do `detalhe` (V82).
+   */
+  async resolver(tenantId: string, id: string, atorId: string, dto?: { oQueAconteceu?: unknown } | null, atorNome?: string | null) {
+    let marca: Record<string, unknown> | null = null;
+    if (dto?.oQueAconteceu !== undefined && dto?.oQueAconteceu !== null) {
+      const lido = lerOQueAconteceu(dto.oQueAconteceu);
+      if (!lido.ok) throw new BadRequestException(lido.erro);
+      if (lido.valor) marca = classificacaoGravada(lido.valor, { colaboradorId: atorId, nome: atorNome ?? null });
+    }
     const [row] = await this.db
       .update(atendimentoChamado)
-      .set({ status: 'resolvido', resolvidoPorId: atorId, resolvidoEm: new Date(), aguardandoDesde: null })
+      .set({
+        status: 'resolvido',
+        resolvidoPorId: atorId,
+        resolvidoEm: new Date(),
+        aguardandoDesde: null,
+        ...(marca
+          ? { detalhe: sql`coalesce(${atendimentoChamado.detalhe}, '{}'::jsonb) || jsonb_build_object('classificacao', ${JSON.stringify(marca)}::jsonb)` }
+          : {}),
+      })
       .where(and(eq(atendimentoChamado.tenantId, tenantId), eq(atendimentoChamado.id, id)))
       .returning();
     if (!row) throw new NotFoundException('Chamado não encontrado');

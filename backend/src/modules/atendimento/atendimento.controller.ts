@@ -11,6 +11,7 @@ import {
   ParseUUIDPipe,
   Post,
   Put,
+  Query,
   Res,
   StreamableFile,
   UseGuards,
@@ -43,6 +44,7 @@ import { ChatDoCasoService } from './chat-do-caso.service';
 import { AvaliacaoIfoodService } from './avaliacao-ifood.service';
 import { GestorWhatsappService } from './gestor-whatsapp.service';
 import { CopilotoService } from './copiloto.service';
+import { NumerosDoAtendimentoService } from './numeros.service';
 import { lerAjusteGestorWa } from './gestor-whatsapp';
 
 // Chamados de atendimento (handoff). Operados por quem está no balcão/gestão.
@@ -71,6 +73,8 @@ export class AtendimentoController {
     @Optional() private readonly gestorWa?: GestorWhatsappService,
     // O copiloto (mig 376): a sugestão de resposta no caso e o grupo "Copiloto" dos ajustes.
     @Optional() private readonly copiloto?: CopilotoService,
+    // Os números do atendimento (item 8): o placar, as reclamações e o "O que aconteceu?" do caso.
+    @Optional() private readonly numerosSvc?: NumerosDoAtendimentoService,
   ) {}
 
   // O COPILOTO (mig 376; protótipo versão 5): se o botão aparece (ligado na empresa E disponível na distribuição) e a
@@ -89,6 +93,40 @@ export class AtendimentoController {
   sugerirResposta(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: unknown) {
     if (!this.copiloto) throw new BadGatewayException('O copiloto não está disponível neste servidor.');
     return this.copiloto.sugerir(user, id, dto);
+  }
+
+  // NÚMEROS DO ATENDIMENTO (item 8; protótipo versão 6): o placar por canal, as reclamações por motivo e por produto e
+  // quanto custou — da loja em uso (o presidente em "todas as lojas" vê a soma). Só gerente e presidente: tem valor em R$.
+  // No servidor da loja, a conta vem da nuvem (o chat do iFood e da 99 mora lá — V37).
+  @Get('numeros')
+  @Roles('presidente', 'gerente')
+  numerosDoAtendimento(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null, @Query('periodo') periodo?: string) {
+    return this.exigirNumeros().numeros(user.tenantId, unidade, periodo);
+  }
+
+  @Get('numeros/casos')
+  @Roles('presidente', 'gerente')
+  casosDoNumero(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null, @Query() q: { periodo?: string; motivo?: string; produto?: string }) {
+    return this.exigirNumeros().casos(user.tenantId, unidade, q ?? {});
+  }
+
+  // "O que aconteceu?" no caso (o passo opcional do Resolver e o "Marcar o motivo" dos números): o que está marcado e os
+  // produtos do pedido; e gravar. Quem resolve o caso marca (os quatro níveis).
+  @Get(':id/o-que-aconteceu')
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
+  oQueAconteceu(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.exigirNumeros().doCaso(user.tenantId, id);
+  }
+
+  @Put(':id/o-que-aconteceu')
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
+  marcarOQueAconteceu(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: unknown) {
+    return this.exigirNumeros().salvar(user, id, dto);
+  }
+
+  private exigirNumeros(): NumerosDoAtendimentoService {
+    if (!this.numerosSvc) throw new BadGatewayException('Os números do atendimento não estão disponíveis neste servidor.');
+    return this.numerosSvc;
   }
 
   // GERENTE NO WHATSAPP (mig 375, parte 5a): o grupo da tela (o ajuste, a via da loja, o modelo da Meta e quem recebe —
@@ -349,8 +387,8 @@ export class AtendimentoController {
 
   @Post(':id/resolver')
   @Roles('presidente', 'gerente', 'supervisao', 'execucao')
-  resolver(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.resolver(user.tenantId, id, user.colaboradorId);
+  resolver(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto?: { oQueAconteceu?: unknown }) {
+    return this.service.resolver(user.tenantId, id, user.colaboradorId, dto ?? null, user.nome ?? null);
   }
 
   // Veredito de um pedido de cancelamento feito pelo cliente: aceita (cancela o
