@@ -3237,7 +3237,17 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
           }
         }
       },
@@ -3487,6 +3497,26 @@
     "/api/v1/equipamento/{id}/revogar": {
       "patch": {
         "operationId": "EquipamentoController_revogar",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/equipamento/{id}/reativar": {
+      "patch": {
+        "operationId": "EquipamentoController_reativar",
         "parameters": [
           {
             "name": "id",
@@ -4116,24 +4146,6 @@
         }
       }
     },
-    "/api/v1/whatsapp/status": {
-      "get": {
-        "operationId": "WhatsappController_status",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/whatsapp/desconectar": {
       "delete": {
         "operationId": "WhatsappController_desconectar",
@@ -4214,135 +4226,18 @@
         }
       }
     },
-    "/api/v1/whatsapp/conversas": {
-      "get": {
-        "operationId": "WhatsappController_conversas",
+    "/api/v1/whatsapp/robo-config": {
+      "post": {
+        "operationId": "WhatsappController_salvarRoboConfig",
         "parameters": [],
         "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "type": "object"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/whatsapp/mensagens": {
-      "get": {
-        "operationId": "WhatsappController_mensagens",
-        "parameters": [
-          {
-            "name": "jids",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "jid",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "type": "object"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/whatsapp/historico-config": {
-      "get": {
-        "operationId": "WhatsappController_historicoConfig",
-        "parameters": [],
-        "responses": {
-          "200": {
+          "201": {
             "description": ""
           }
         }
       },
-      "post": {
-        "operationId": "WhatsappController_salvarHistoricoConfig",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        }
-      }
-    },
-    "/api/v1/whatsapp/enviar": {
-      "post": {
-        "operationId": "WhatsappController_enviar",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        }
-      }
-    },
-    "/api/v1/whatsapp/midia": {
       "get": {
-        "operationId": "WhatsappController_midia",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "jid",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "fromMe",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        }
-      }
-    },
-    "/api/v1/whatsapp/cardapios": {
-      "get": {
-        "operationId": "WhatsappController_cardapios",
+        "operationId": "WhatsappCaixaController_roboConfig",
         "parameters": [],
         "responses": {
           "200": {
@@ -4358,20 +4253,9 @@
         }
       }
     },
-    "/api/v1/whatsapp/enviar-cardapio": {
+    "/api/v1/whatsapp/avaliacao": {
       "post": {
-        "operationId": "WhatsappController_enviarCardapio",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        }
-      }
-    },
-    "/api/v1/whatsapp/pausar-conversa": {
-      "post": {
-        "operationId": "WhatsappController_pausarConversa",
+        "operationId": "WhatsappController_salvarAvaliacao",
         "parameters": [],
         "responses": {
           "201": {
@@ -4643,6 +4527,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "x-regem-robo-segredo",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -4692,6 +4584,14 @@
             "name": "phoneNumberId",
             "required": true,
             "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-regem-robo-segredo",
+            "required": true,
+            "in": "header",
             "schema": {
               "type": "string"
             }
@@ -4746,11 +4646,29 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "x-regem-robo-segredo",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -4810,10 +4728,26 @@
     "/api/v1/publico/bot/cloud/enviar": {
       "post": {
         "operationId": "WhatsappCloudController_enviarBot",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-regem-robo-segredo",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "201": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -4821,7 +4755,16 @@
     "/api/v1/publico/bot/cloud/template": {
       "post": {
         "operationId": "WhatsappCloudController_enviarTemplateBot",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-regem-robo-segredo",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "201": {
             "description": ""
@@ -4853,6 +4796,574 @@
             "name": "mediaId",
             "required": true,
             "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-regem-robo-segredo",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/whatsapp/status": {
+      "get": {
+        "operationId": "WhatsappCaixaController_status",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/whatsapp/conversas": {
+      "get": {
+        "operationId": "WhatsappCaixaController_conversas",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/whatsapp/mensagens": {
+      "get": {
+        "operationId": "WhatsappCaixaController_mensagens",
+        "parameters": [
+          {
+            "name": "jids",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "jid",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/whatsapp/enviar": {
+      "post": {
+        "operationId": "WhatsappCaixaController_enviar",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/whatsapp/midia": {
+      "get": {
+        "operationId": "WhatsappCaixaController_midia",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "jid",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fromMe",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/whatsapp/cardapios": {
+      "get": {
+        "operationId": "WhatsappCaixaController_cardapios",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/whatsapp/enviar-cardapio": {
+      "post": {
+        "operationId": "WhatsappCaixaController_enviarCardapio",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/whatsapp/pausar-conversa": {
+      "post": {
+        "operationId": "WhatsappCaixaController_pausarConversa",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/whatsapp/historico-config": {
+      "get": {
+        "operationId": "WhatsappCaixaController_historicoConfig",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "WhatsappCaixaController_salvarHistoricoConfig",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/whatsapp/da-loja/status": {
+      "get": {
+        "operationId": "WhatsappDaLojaController_status",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/whatsapp/da-loja/conversas": {
+      "get": {
+        "operationId": "WhatsappDaLojaController_conversas",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/whatsapp/da-loja/mensagens": {
+      "get": {
+        "operationId": "WhatsappDaLojaController_mensagens",
+        "parameters": [
+          {
+            "name": "jids",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "jid",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/whatsapp/da-loja/enviar": {
+      "post": {
+        "operationId": "WhatsappDaLojaController_enviar",
+        "parameters": [
+          {
+            "name": "x-regem-usuario",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/whatsapp/da-loja/midia": {
+      "get": {
+        "operationId": "WhatsappDaLojaController_midia",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "jid",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fromMe",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/whatsapp/da-loja/cardapios": {
+      "get": {
+        "operationId": "WhatsappDaLojaController_cardapios",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/whatsapp/da-loja/enviar-cardapio": {
+      "post": {
+        "operationId": "WhatsappDaLojaController_enviarCardapio",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/whatsapp/da-loja/pausar-conversa": {
+      "post": {
+        "operationId": "WhatsappDaLojaController_pausarConversa",
+        "parameters": [
+          {
+            "name": "x-regem-usuario",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/whatsapp/da-loja/historico-config": {
+      "get": {
+        "operationId": "WhatsappDaLojaController_historicoConfig",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "operationId": "WhatsappDaLojaController_salvarHistoricoConfig",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/whatsapp/da-loja/robo-config": {
+      "get": {
+        "operationId": "WhatsappDaLojaController_roboConfig",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/publico/bot/responder": {
+      "post": {
+        "operationId": "RoboRespostaController_responder",
+        "parameters": [
+          {
+            "name": "x-regem-robo-segredo",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/publico/bot/midia": {
+      "get": {
+        "operationId": "RoboRespostaController_midia",
+        "parameters": [
+          {
+            "name": "instancia",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "phoneNumberId",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "mediaId",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "mensagemId",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "jid",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-regem-robo-segredo",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/publico/whatsapp/evolution/webhook": {
+      "post": {
+        "operationId": "EvolutionEntradaController_webhook",
+        "parameters": [
+          {
+            "name": "x-regem-evolution",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/publico/avaliacao/{id}": {
+      "get": {
+        "operationId": "AvaliacaoPublicaController_redirecionar",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
             "schema": {
               "type": "string"
             }
@@ -5374,6 +5885,33 @@
         ],
         "responses": {
           "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/producao/pedidos/{id}/visto": {
+      "post": {
+        "operationId": "ProducaoPedidoController_visto",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
             "description": ""
           }
         }
@@ -5457,6 +5995,143 @@
         "responses": {
           "201": {
             "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/producao/kds/telas": {
+      "get": {
+        "operationId": "ProducaoPedidoController_telasKds",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/producao/kds/{id}/produtos": {
+      "get": {
+        "operationId": "ProducaoPedidoController_produtosKds",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "put": {
+        "operationId": "ProducaoPedidoController_setProdutosKds",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/producao/kds/{id}/fluxo": {
+      "put": {
+        "operationId": "ProducaoPedidoController_setFluxoKds",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/producao/kds/{id}/despacho": {
+      "get": {
+        "operationId": "ProducaoPedidoController_filaDespacho",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "canal",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "unidadeId",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "operationId": "ProducaoPedidoController_acaoDespacho",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -5601,6 +6276,56 @@
       },
       "put": {
         "operationId": "ProducaoPedidoController_setSenhaPeriodo",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/publico/cardapio/{token}/pedido/{id}/cheguei": {
+      "post": {
+        "operationId": "ChegadaPublicoController_cheguei",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/delivery/retirada/chegadas": {
+      "get": {
+        "operationId": "ChegadaLojaController_paraAsTelas",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/delivery/chegadas/loja": {
+      "get": {
+        "operationId": "ChegadaLojaController_paraOServidorDaLoja",
         "parameters": [],
         "responses": {
           "200": {
@@ -6245,6 +6970,71 @@
         }
       }
     },
+    "/api/v1/produtos/ifood-pelo-orzuni": {
+      "get": {
+        "operationId": "ProdutoController_ifoodPeloOrzuni",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/produtos/opcoes/{id}/ifood-envios": {
+      "get": {
+        "operationId": "ProdutoController_ifoodEnviosOpcao",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/produtos/{id}/ifood-envios": {
+      "get": {
+        "operationId": "ProdutoController_ifoodEnviosProduto",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/produtos/opcoes": {
       "get": {
         "operationId": "ProdutoController_listarOpcoes",
@@ -6635,7 +7425,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateProdutoDto"
+                "$ref": "#/components/schemas/UpdateProdutoDto"
               }
             }
           }
@@ -6760,7 +7550,14 @@
         ],
         "responses": {
           "201": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -8837,7 +9634,14 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -8857,7 +9661,14 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -9707,6 +10518,26 @@
         }
       }
     },
+    "/api/v1/delivery/pedidos/{id}/sem-contato": {
+      "post": {
+        "operationId": "DeliveryController_avisarSemContato",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/delivery/pedidos/{id}/avisar-pronto": {
       "post": {
         "operationId": "DeliveryController_avisarPronto",
@@ -9730,6 +10561,53 @@
     "/api/v1/delivery/pedidos/{id}/alterar": {
       "post": {
         "operationId": "DeliveryController_alterar",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/delivery/pedidos/{id}/alteracoes": {
+      "get": {
+        "operationId": "DeliveryController_alteracoes",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/delivery/pedidos/{id}/repetido/confirmar": {
+      "post": {
+        "operationId": "DeliveryController_confirmarRepetido",
         "parameters": [
           {
             "name": "id",
@@ -9926,6 +10804,26 @@
     "/api/v1/delivery/pedidos/{id}/cancelar": {
       "post": {
         "operationId": "DeliveryController_cancelar",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/delivery/pedidos/{id}/perda": {
+      "post": {
+        "operationId": "DeliveryController_registrarPerda",
         "parameters": [
           {
             "name": "id",
@@ -10162,9 +11060,58 @@
         }
       }
     },
+    "/api/v1/delivery/entregadores-ao-vivo/telas-kds": {
+      "get": {
+        "operationId": "EntregadoresAoVivoController_telasKds",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "put": {
+        "operationId": "EntregadoresAoVivoController_mostrarNosKds",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/delivery/entregadores-ao-vivo/loja": {
       "get": {
         "operationId": "EntregadoresAoVivoController_loja",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/delivery/entregadores-ao-vivo/fila": {
+      "get": {
+        "operationId": "EntregadoresAoVivoController_fila",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/delivery/entregadores-ao-vivo/fila/loja": {
+      "get": {
+        "operationId": "EntregadoresAoVivoController_filaLoja",
         "parameters": [],
         "responses": {
           "200": {
@@ -10959,6 +11906,55 @@
         }
       }
     },
+    "/api/v1/publico/senhas": {
+      "get": {
+        "operationId": "TelaSenhasPublicoController_quadro",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/tela-senhas/{id}/ajustes": {
+      "get": {
+        "operationId": "TelaSenhasController_ajustes",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "put": {
+        "operationId": "TelaSenhasController_salvar",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/impressao/pendentes": {
       "get": {
         "operationId": "ImpressaoController_pendentes",
@@ -11054,6 +12050,75 @@
         ],
         "responses": {
           "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/impressao/{id}/interrompido": {
+      "post": {
+        "operationId": "ImpressaoController_interrompido",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/impressao/estacao/batida": {
+      "post": {
+        "operationId": "ImpressaoController_batida",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/impressao/estacao/retidos": {
+      "get": {
+        "operationId": "ImpressaoController_retidos",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "ImpressaoController_decidirRetidos",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/impressao/estacao/servidor": {
+      "get": {
+        "operationId": "ImpressaoController_servidorDaLoja",
+        "parameters": [],
+        "responses": {
+          "200": {
             "description": ""
           }
         }
@@ -11417,6 +12482,262 @@
         }
       }
     },
+    "/api/v1/atendimento/whatsapp-do-gestor": {
+      "get": {
+        "operationId": "AtendimentoController_whatsappDoGestor",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/whatsapp-do-gestor/ligar": {
+      "post": {
+        "operationId": "AtendimentoController_ligarWhatsappDoGestor",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/whatsapp-do-gestor/{colaboradorId}": {
+      "delete": {
+        "operationId": "AtendimentoController_desligarWhatsappDoGestor",
+        "parameters": [
+          {
+            "name": "colaboradorId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/{id}/avaliacao": {
+      "post": {
+        "operationId": "AtendimentoController_responderAvaliacao",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/{id}/chat": {
+      "get": {
+        "operationId": "AtendimentoController_chatDoCaso",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "AtendimentoController_responderNoChat",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/conversas-agora": {
+      "get": {
+        "operationId": "AtendimentoController_conversasAgora",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/conversas-agora/assumir": {
+      "post": {
+        "operationId": "AtendimentoController_assumirConversa",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/chat-ifood": {
+      "get": {
+        "operationId": "AtendimentoController_chatDoIfood",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/{id}/pedido99": {
+      "post": {
+        "operationId": "AtendimentoController_responderPedido99",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/ajustes": {
+      "get": {
+        "operationId": "AtendimentoController_ajustes",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "put": {
+        "operationId": "AtendimentoController_salvarAjustes",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/{id}/disputa": {
+      "post": {
+        "operationId": "AtendimentoController_responderDisputa",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/{id}/foto/{n}": {
+      "get": {
+        "operationId": "AtendimentoController_fotoDaDisputa",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "n",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/atendimento": {
       "get": {
         "operationId": "AtendimentoController_listar",
@@ -11431,6 +12752,109 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/fila": {
+      "get": {
+        "operationId": "AtendimentoController_fila",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/fila/resolvidos": {
+      "get": {
+        "operationId": "AtendimentoController_resolvidos",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/equipe": {
+      "get": {
+        "operationId": "AtendimentoController_equipe",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/{id}/pegar": {
+      "post": {
+        "operationId": "AtendimentoController_pegar",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/{id}/passar": {
+      "post": {
+        "operationId": "AtendimentoController_passar",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/{id}/aguardar": {
+      "post": {
+        "operationId": "AtendimentoController_aguardar",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
           }
         }
       }
@@ -11470,6 +12894,336 @@
         ],
         "responses": {
           "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/{id}/endereco-depois-que-saiu": {
+      "post": {
+        "operationId": "AtendimentoController_mudarEnderecoDepoisQueSaiu",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/avaliacao-da-loja": {
+      "post": {
+        "operationId": "AtendimentoLojaController_avaliacaoDaLoja",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/ponte-da-loja": {
+      "get": {
+        "operationId": "AtendimentoLojaController_ponteDaLoja",
+        "parameters": [
+          {
+            "name": "unidade",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/adicionais-pix-da-loja": {
+      "get": {
+        "operationId": "AtendimentoLojaController_adicionaisPixDaLoja",
+        "parameters": [
+          {
+            "name": "unidade",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/conversas-da-loja": {
+      "get": {
+        "operationId": "AtendimentoLojaController_conversasDaLoja",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/conversas-da-loja/assumir": {
+      "post": {
+        "operationId": "AtendimentoLojaController_assumirDaLoja",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/chat-da-loja": {
+      "get": {
+        "operationId": "AtendimentoLojaController_chatDaLoja",
+        "parameters": [
+          {
+            "name": "chamado",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "AtendimentoLojaController_responderDaLoja",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/chat-ifood-da-loja": {
+      "get": {
+        "operationId": "AtendimentoLojaController_chatIfoodDaLoja",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/pedido99-da-loja": {
+      "post": {
+        "operationId": "AtendimentoLojaController_pedido99DaLoja",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/disputa-da-loja": {
+      "post": {
+        "operationId": "AtendimentoLojaController_disputaDaLoja",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/foto-da-loja": {
+      "get": {
+        "operationId": "AtendimentoLojaController_fotoDaLoja",
+        "parameters": [
+          {
+            "name": "chamado",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "n",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/app/entrar": {
+      "post": {
+        "operationId": "AtendimentoAppController_entrar",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/app/presenca": {
+      "get": {
+        "operationId": "AtendimentoAppController_presenca",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "put": {
+        "operationId": "AtendimentoAppController_marcar",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/app/sair": {
+      "post": {
+        "operationId": "AtendimentoAppController_sair",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/ponte-chat/estado": {
+      "post": {
+        "operationId": "PonteChatController_estado",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/ponte-chat/mensagens": {
+      "post": {
+        "operationId": "PonteChatController_mensagens",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/ponte-chat/saida/pegar": {
+      "post": {
+        "operationId": "PonteChatController_pegar",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/ponte-chat/saida/{id}/resultado": {
+      "post": {
+        "operationId": "PonteChatController_resultado",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
             "description": ""
           }
         }
@@ -12093,6 +13847,36 @@
         }
       }
     },
+    "/api/v1/sync/pedidos-pendentes": {
+      "get": {
+        "operationId": "SyncController_pedidosPendentes",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "operationId": "SyncController_pedidosPorId",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PedidosPorIdDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/sync/push": {
       "post": {
         "operationId": "SyncController_push",
@@ -12134,6 +13918,100 @@
         },
         "responses": {
           "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/integracoes/publicar": {
+      "get": {
+        "operationId": "PublicarIntegracoesController_situacao",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "PublicarIntegracoesController_publicar",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integracoes/loja/publicar": {
+      "get": {
+        "operationId": "PublicarIntegracoesLojaController_situacao",
+        "parameters": [
+          {
+            "name": "unidade",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "operationId": "PublicarIntegracoesLojaController_publicar",
+        "parameters": [
+          {
+            "name": "unidade",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/edge/rede": {
+      "get": {
+        "operationId": "EdgeController_redeDoServidor",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/edge/presenca": {
+      "post": {
+        "operationId": "EdgeController_presencaDoPc",
+        "parameters": [],
+        "responses": {
+          "200": {
             "description": ""
           }
         }
@@ -12373,6 +14251,98 @@
         "parameters": [],
         "responses": {
           "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/edge/bandeja/estado": {
+      "get": {
+        "operationId": "BandejaController_estado",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/edge/bandeja/equipamento/{id}/codigo": {
+      "post": {
+        "operationId": "BandejaController_gerarCodigo",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/edge/bandeja/equipamento/{id}/revogar": {
+      "post": {
+        "operationId": "BandejaController_revogar",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/edge/bandeja/equipamento/{id}/reativar": {
+      "post": {
+        "operationId": "BandejaController_reativar",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
             "description": "",
             "content": {
               "application/json": {
@@ -13100,14 +15070,7 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
+            "description": ""
           }
         }
       },
@@ -13116,7 +15079,14 @@
         "parameters": [],
         "responses": {
           "201": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -13697,7 +15667,14 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -13796,6 +15773,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "x-regem-robo-segredo",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -13818,6 +15803,451 @@
       "put": {
         "operationId": "EventosCardapioController_salvar",
         "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/publico/bot/loja": {
+      "get": {
+        "operationId": "RoboConsultasController_loja",
+        "parameters": [
+          {
+            "name": "instancia",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "phoneNumberId",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "secret",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-regem-robo-segredo",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/publico/bot/cardapio": {
+      "get": {
+        "operationId": "RoboConsultasController_cardapioBusca",
+        "parameters": [
+          {
+            "name": "busca",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "instancia",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "phoneNumberId",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "secret",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-regem-robo-segredo",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/publico/bot/taxa": {
+      "get": {
+        "operationId": "RoboConsultasController_taxa",
+        "parameters": [
+          {
+            "name": "bairro",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "instancia",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "phoneNumberId",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "secret",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-regem-robo-segredo",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/publico/bot/instrucoes": {
+      "get": {
+        "operationId": "RoboConsultasController_instrucoes",
+        "parameters": [
+          {
+            "name": "fluxo",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "instancia",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "phoneNumberId",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "secret",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-regem-robo-segredo",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/publico/bot/pedido": {
+      "get": {
+        "operationId": "RoboPedidoController_ver",
+        "parameters": [
+          {
+            "name": "x-regem-robo-segredo",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-regem-conversa",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/publico/bot/pedido/itens": {
+      "post": {
+        "operationId": "RoboPedidoController_itens",
+        "parameters": [
+          {
+            "name": "x-regem-robo-segredo",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-regem-conversa",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/publico/bot/pedido/entrega": {
+      "post": {
+        "operationId": "RoboPedidoController_entrega",
+        "parameters": [
+          {
+            "name": "x-regem-robo-segredo",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-regem-conversa",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/publico/bot/pedido/pagamento": {
+      "post": {
+        "operationId": "RoboPedidoController_pagamento",
+        "parameters": [
+          {
+            "name": "x-regem-robo-segredo",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-regem-conversa",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/publico/bot/pedido/nome": {
+      "post": {
+        "operationId": "RoboPedidoController_nome",
+        "parameters": [
+          {
+            "name": "x-regem-robo-segredo",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-regem-conversa",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/publico/bot/pedido/registrar": {
+      "post": {
+        "operationId": "RoboPedidoController_registrar",
+        "parameters": [
+          {
+            "name": "x-regem-robo-segredo",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-regem-conversa",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/publico/bot/pedido/cancelar": {
+      "post": {
+        "operationId": "RoboPedidoController_cancelar",
+        "parameters": [
+          {
+            "name": "x-regem-robo-segredo",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-regem-conversa",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": ""
@@ -13853,6 +16283,14 @@
             "name": "token",
             "required": true,
             "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-regem-robo-segredo",
+            "required": true,
+            "in": "header",
             "schema": {
               "type": "string"
             }
@@ -14108,6 +16546,74 @@
         ],
         "responses": {
           "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/publico/cardapio/{token}/cliente/aniversario": {
+      "post": {
+        "operationId": "ClientePublicoController_aniversario",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/publico/cardapio/{token}/cliente/aniversario/agora-nao": {
+      "post": {
+        "operationId": "ClientePublicoController_aniversarioAgoraNao",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/publico/cardapio/{token}/cliente/presentes": {
+      "get": {
+        "operationId": "ClientePublicoController_presentes",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "clienteToken",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
             "description": ""
           }
         }
@@ -14414,6 +16920,58 @@
         ],
         "responses": {
           "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clientes/crm/{id}/aniversario": {
+      "get": {
+        "operationId": "ClienteAdminController_crmAniversario",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "ClienteAdminController_crmCorrigirAniversario",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
             "description": "",
             "content": {
               "application/json": {
@@ -14823,6 +17381,46 @@
         }
       }
     },
+    "/api/v1/entregador/pedido/{id}/sem-contato": {
+      "post": {
+        "operationId": "EntregadorController_semContato",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/entregador/pedido/{id}/resposta-do-cliente": {
+      "get": {
+        "operationId": "EntregadorController_respostaDoCliente",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/entregador/pedido/{id}/rota": {
       "post": {
         "operationId": "EntregadorController_rota",
@@ -14936,7 +17534,10 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
                 }
               }
             }
@@ -15235,6 +17836,68 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/orzuni": {
+      "get": {
+        "operationId": "DistribuicaoController_painelOrzuni",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/orzuni/ligacoes": {
+      "post": {
+        "operationId": "DistribuicaoController_registrarLigacaoOrzuni",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/orzuni/ligacoes/{id}/revogar": {
+      "post": {
+        "operationId": "DistribuicaoController_revogarLigacaoOrzuni",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/orzuni/liberacao": {
+      "post": {
+        "operationId": "DistribuicaoController_liberacaoOrzuni",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
           }
         }
       }
@@ -15828,7 +18491,7 @@
       "put": {
         "operationId": "IntegracaoApiController_registrarWebhook",
         "summary": "Registra (ou troca) o endereço e o segredo do aviso deste token. Registrar de novo religa o que estava pausado.",
-        "description": "O Regem manda um POST assinado (Standard Webhooks: webhook-id, webhook-timestamp, webhook-signature) quando há venda, cupom, uso de cupom ou cliente anonimizado novo para a loja do token, ou quando o catálogo ou as fichas dela mudam — só do que o escopo libera, no máximo um por minuto por loja, e um aviso pode valer por várias mudanças (o id é o da mais recente). Corpo: { \"tipo\": \"pedido.alterado\" | \"cupom.alterado\", \"id\", \"versao\" }, { \"tipo\": \"cupom.usado\", \"id\", \"cupom_id\", \"pedido_id\" }, { \"tipo\": \"cliente.anonimizado\", \"id\" } ou { \"tipo\": \"catalogo.alterado\" | \"fichas.alterado\" } (sem id: releia a rota com ?versao=) — todos com \"loja_id\" (a loja do token; o token da empresa inteira não manda). É só gatilho: aviso perdido ou repetido não muda nada. 422 endereco-nao-permitido: endereço fora da lista da integração; 503 aviso-indisponivel: tente de novo mais tarde.",
+        "description": "O Regem manda um POST assinado (Standard Webhooks: webhook-id, webhook-timestamp, webhook-signature) quando há venda, cupom, uso de cupom ou cliente anonimizado novo para a loja do token, ou quando o catálogo ou as fichas dela mudam — só do que o escopo libera, no máximo um por minuto por loja, e um aviso pode valer por várias mudanças (o id é o da mais recente). Corpo: { \"tipo\": \"pedido.alterado\" | \"cupom.alterado\", \"id\", \"versao\" }, { \"tipo\": \"cupom.usado\", \"id\", \"cupom_id\", \"pedido_id\" }, { \"tipo\": \"cliente.anonimizado\", \"id\" } ou { \"tipo\": \"catalogo.alterado\" | \"fichas.alterado\" } (sem id: releia a rota com ?versao=) — todos com \"loja_id\" (a loja do token; o token da empresa inteira não manda). É só gatilho: aviso perdido ou repetido não muda nada. O GoGeM recebe só os dois avisos dele, que pedem resposta: { \"tipo\": \"pedido.cancelado\" } e { \"tipo\": \"catalogo.publicar\" } (contrato em docs/integracao-gogem/AVISOS-ASSINADOS.md). 422 endereco-nao-permitido: endereço fora da lista da integração; 503 aviso-indisponivel: tente de novo mais tarde.",
         "parameters": [],
         "requestBody": {
           "required": true,
@@ -16050,7 +18713,7 @@
       "get": {
         "operationId": "IntegracaoApiController_catalogo",
         "summary": "Catálogo da loja: categorias, setores, produtos, variações, combos e adicionais — sem preço.",
-        "description": "Retrato inteiro, com a `versao` dele. Mande a versão que você tem em `?versao=`: se nada mudou, a resposta é só { versao, atualizado: false }. Os produtos são os da loja do token e os cadastrados sem loja (empresa de uma loja: todos); os apagados não saem, os inativos saem com ativo: false. Os ids do produto, da ficha, da etapa (`etapa_id`) e da opção reutilizável (`opcao_id`) são fixos; os da variação, do grupo e da opção do produto mudam a cada salvamento do catálogo.",
+        "description": "Retrato inteiro, com a `versao` dele. Mande a versão que você tem em `?versao=`: se nada mudou, a resposta é só { versao, atualizado: false }. Os produtos são os da loja do token e os cadastrados sem loja (empresa de uma loja: todos); os apagados não saem, os inativos saem com ativo: false. Os ids do produto, da ficha, da etapa (`etapa_id`) e da opção reutilizável (`opcao_id`) são fixos; os da variação, do grupo e da opção do produto mudam a cada salvamento do catálogo. Com a permissão catalogo.ifood.ler também, o produto traz `preco_ifood_centavos` e `no_ifood`, e a opção, `preco_ifood_centavos`; sem ela, esses campos não vêm.",
         "parameters": [
           {
             "name": "versao",
@@ -16354,6 +19017,75 @@
         ]
       }
     },
+    "/api/v1/integracao/dms-id/ligacao": {
+      "post": {
+        "operationId": "DmsIdController_trocar",
+        "summary": "Troca o token de integração da loja pelo segredo da ligação do DMS ID (Hub DMS).",
+        "description": "Só com a via do DMS ID ligada (senão, 404). Cabeçalho `Authorization: Bearer <token do DMS ID>` do aplicativo; corpo `{ \"token_integracao\": \"rgm_it_…\" }`, o token que o aplicativo já usa na loja. Resposta: `{ ligacao, prefixo, loja_id, permissoes, segredo_em }` — o segredo aparece só aqui. Depois, cada chamada leva o token do DMS ID no `Authorization` e o segredo no `DMS-Ligacao`. Repetir a troca gira o segredo (o anterior para de valer). 401 token-invalido: o token do DMS ID não vale; 401 ligacao-invalida: o token de integração não vale para este aplicativo.",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "token_integracao"
+                ],
+                "properties": {
+                  "token_integracao": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Integração (token por loja)"
+        ]
+      }
+    },
+    "/api/v1/orzuni/loja/envios": {
+      "get": {
+        "operationId": "OrzuniLojaController_envios",
+        "parameters": [
+          {
+            "name": "alvo",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ref",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/suporte/estado": {
       "get": {
         "operationId": "SuporteController_estado",
@@ -16406,6 +19138,140 @@
             "description": ""
           }
         }
+      }
+    },
+    "/api/v1/integracoes/autorizacao": {
+      "get": {
+        "operationId": "AutorizacaoLojaController_telaDoClique",
+        "summary": "A autorização por clique: o que a página mostra, numa das situações (Hub DMS, F3).",
+        "parameters": [
+          {
+            "name": "request_uri",
+            "required": true,
+            "in": "query",
+            "description": "O número do pedido (RFC 9126), de uso único.",
+            "schema": {}
+          },
+          {
+            "name": "client_id",
+            "required": true,
+            "in": "query",
+            "description": "O client_id do DMS ID do aplicativo que empurrou o pedido.",
+            "schema": {}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Integração — autorização pela loja"
+        ]
+      },
+      "post": {
+        "operationId": "AutorizacaoLojaController_autorizarPorClique",
+        "summary": "O presidente autoriza com a senha: devolve o endereço cadastrado com o código, o state e o iss.",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "clientId",
+                  "requestUri",
+                  "senha",
+                  "lojas",
+                  "opcionais",
+                  "confirmoOutraEmpresa"
+                ],
+                "properties": {
+                  "clientId": {
+                    "type": "string"
+                  },
+                  "requestUri": {
+                    "type": "string"
+                  },
+                  "senha": {
+                    "type": "string",
+                    "description": "A senha do Regem de quem está logado (nunca o PIN)."
+                  },
+                  "lojas": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "opcionais": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "As opcionais que o presidente ligou."
+                  },
+                  "confirmoOutraEmpresa": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Integração — autorização pela loja"
+        ]
+      }
+    },
+    "/api/v1/integracoes/autorizacao/recusar": {
+      "post": {
+        "operationId": "AutorizacaoLojaController_recusarPorClique",
+        "summary": "Recusa (ou volta sem autorizar): gasta o pedido e devolve o endereço com access_denied.",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "clientId",
+                  "requestUri"
+                ],
+                "properties": {
+                  "clientId": {
+                    "type": "string"
+                  },
+                  "requestUri": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Integração — autorização pela loja"
+        ]
       }
     },
     "/api/v1/integracao-autorizacao/pedido": {
@@ -16608,11 +19474,27 @@
         ]
       }
     },
+    "/api/v1/integracao/autorizacao/pedido": {
+      "post": {
+        "operationId": "AutorizacaoTokenController_pedido",
+        "summary": "A autorização por clique: o aplicativo empurra o pedido (RFC 9126) com o token do DMS ID.",
+        "description": "Corpo (formulário ou JSON): `response_type=code`, `client_id` (opcional; o do token), `redirect_uri` (um dos cadastrados), `scope` (separado por espaço), `state`, `code_challenge` e `code_challenge_method=S256`, e a conta que pede: `conta_nome`, `conta_cnpj` (opcional), `conta_email`, `conta_marca` (opcional). Resposta 201 `{ request_uri, expires_in: 600 }`: a pessoa abre a página com `?client_id=…&request_uri=…`. Desligada: 404.",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Integração (token por loja)"
+        ]
+      }
+    },
     "/api/v1/integracao/autorizacao/token": {
       "post": {
         "operationId": "AutorizacaoTokenController_token",
-        "summary": "Troca o código da autorização pelos tokens das lojas (uma tentativa; o código vale 10 minutos).",
-        "description": "Corpo: `code`, `code_verifier` (PKCE S256), `redirect_uri` (o mesmo do pedido), `client_id` e `client_secret`. Resposta: `{ lojas: [{ loja_id, loja_nome, empresa_nome, fuso, moeda, escopos, cardapio_url, token }] }` — o token de cada loja aparece só aqui. A loja que já tinha um token deste cliente troca: o antigo passa a devolver 401.",
+        "summary": "Troca o código da autorização: pelos tokens das lojas (01/10) ou, com o token do DMS ID, pelas ligações.",
+        "description": "Sem `Authorization`: a página de 01/10. Corpo `code`, `code_verifier` (PKCE S256), `redirect_uri` (o mesmo do pedido), `client_id` e `client_secret`; resposta `{ lojas: [{ loja_id, loja_nome, empresa_nome, fuso, moeda, escopos, cardapio_url, token }] }` — o token de cada loja aparece só aqui; a loja que já tinha um token deste cliente troca: o antigo passa a devolver 401. Com `Authorization: Bearer <token do DMS ID>`: a autorização por clique (Hub DMS). Corpo `grant_type=authorization_code`, `code`, `code_verifier`, `redirect_uri` e `client_id` (opcional); resposta `{ lojas: [{ …a loja, ligacao, prefixo, permissoes, segredo_em }] }` — o segredo da ligação de cada loja aparece só aqui; o acesso antigo da loja com o aplicativo é trocado.",
         "parameters": [],
         "requestBody": {
           "required": true,
@@ -16656,6 +19538,86 @@
         "tags": [
           "Integração (token por loja)"
         ]
+      }
+    },
+    "/api/v1/marketing/automaticas": {
+      "get": {
+        "operationId": "RelacionamentoController_painel",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "put": {
+        "operationId": "RelacionamentoController_salvar",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/marketing/automaticas/modelo/{tipo}": {
+      "post": {
+        "operationId": "RelacionamentoController_enviarModelo",
+        "parameters": [
+          {
+            "name": "tipo",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/marketing/automaticas/voltaram/{tipo}": {
+      "get": {
+        "operationId": "RelacionamentoController_voltaram",
+        "parameters": [
+          {
+            "name": "tipo",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/publico/relacionamento/r/{id}": {
+      "get": {
+        "operationId": "RelacionamentoPublicoController_redirect",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
       }
     }
   },
@@ -18181,7 +21143,11 @@
               "impressora",
               "pdv",
               "salao",
-              "ponto_baixa"
+              "ponto_baixa",
+              "estacao_impressao",
+              "tela_senhas",
+              "atendimento",
+              "ponte_chat"
             ]
           },
           "nome": {
@@ -18198,7 +21164,8 @@
             "enum": [
               "producao",
               "avisos",
-              "entrega"
+              "entrega",
+              "despacho"
             ]
           },
           "papel": {
@@ -18256,6 +21223,13 @@
           "padrao": {
             "type": "boolean"
           },
+          "formaProducao": {
+            "type": "string",
+            "enum": [
+              "itens",
+              "completo"
+            ]
+          },
           "impressoraPadraoId": {
             "type": "string"
           },
@@ -18275,6 +21249,9 @@
             "type": "string"
           },
           "pdvMainId": {
+            "type": "string"
+          },
+          "estacaoId": {
             "type": "string"
           }
         },
@@ -18762,6 +21739,12 @@
               "type": "string"
             }
           },
+          "precoIfood": {
+            "type": "object"
+          },
+          "noIfood": {
+            "type": "boolean"
+          },
           "disponivelCardapio": {
             "type": "boolean"
           },
@@ -18848,6 +21831,178 @@
           "nome",
           "precoVenda"
         ]
+      },
+      "UpdateProdutoDto": {
+        "type": "object",
+        "properties": {
+          "codigo": {
+            "type": "string"
+          },
+          "nome": {
+            "type": "string",
+            "minLength": 1
+          },
+          "descricao": {
+            "type": "string"
+          },
+          "categoriaId": {
+            "type": "string"
+          },
+          "fichaId": {
+            "type": "string"
+          },
+          "itemId": {
+            "type": "string"
+          },
+          "itemUnidade": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 40
+          },
+          "tipo": {
+            "type": "string",
+            "enum": [
+              "simples",
+              "variavel",
+              "combo"
+            ]
+          },
+          "unidadeMedida": {
+            "type": "string"
+          },
+          "precoVenda": {
+            "type": "number"
+          },
+          "precoCusto": {
+            "type": "number"
+          },
+          "controlaEstoque": {
+            "type": "boolean"
+          },
+          "validadeDias": {
+            "type": "number"
+          },
+          "controlaValidade": {
+            "type": "boolean"
+          },
+          "validadeFechadoDias": {
+            "type": "number"
+          },
+          "validadeAbertoDias": {
+            "type": "number"
+          },
+          "vaiParaProducao": {
+            "type": "boolean"
+          },
+          "setorProducaoId": {
+            "type": "string"
+          },
+          "tempoPreparoMin": {
+            "type": "number"
+          },
+          "precoPromocional": {
+            "type": "number"
+          },
+          "selos": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "canaisPausados": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "precoIfood": {
+            "type": "object"
+          },
+          "noIfood": {
+            "type": "boolean"
+          },
+          "disponivelCardapio": {
+            "type": "boolean"
+          },
+          "disponivelBalcao": {
+            "type": "boolean"
+          },
+          "destaque": {
+            "type": "boolean"
+          },
+          "atacadoAtivo": {
+            "type": "boolean"
+          },
+          "vendaMultiplo": {
+            "type": "number"
+          },
+          "duracaoMin": {
+            "type": "number"
+          },
+          "gtin": {
+            "type": "string"
+          },
+          "cstPis": {
+            "type": "string"
+          },
+          "aliqPis": {
+            "type": "number"
+          },
+          "cstCofins": {
+            "type": "string"
+          },
+          "aliqCofins": {
+            "type": "number"
+          },
+          "ncm": {
+            "type": "string"
+          },
+          "cfop": {
+            "type": "string"
+          },
+          "cest": {
+            "type": "string"
+          },
+          "origem": {
+            "type": "string"
+          },
+          "csosn": {
+            "type": "string"
+          },
+          "cstIcms": {
+            "type": "string"
+          },
+          "unidadeTrib": {
+            "type": "string"
+          },
+          "aliqIcms": {
+            "type": "number"
+          },
+          "imagemRef": {
+            "type": "string"
+          },
+          "unidadeId": {
+            "type": "string"
+          },
+          "variacoes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VariacaoDto"
+            }
+          },
+          "combo": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ComboItemDto"
+            }
+          },
+          "sugestoes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
       },
       "PausaSyncDto": {
         "type": "object",
@@ -19168,6 +22323,20 @@
         },
         "required": [
           "humor"
+        ]
+      },
+      "PedidosPorIdDto": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "ids"
         ]
       },
       "LoteSyncDto": {
@@ -19835,6 +23004,11 @@
           "ordem": {
             "type": "number"
           },
+          "preco_ifood_centavos": {
+            "type": "number",
+            "nullable": true,
+            "description": "SÓ com a permissão catalogo.ifood.ler. O preço da opção no iFood, em centavos: o da opção reutilizável (um por código PDV). null = sem preço próprio no iFood, ou opção criada só neste produto."
+          },
           "informativa": {
             "type": "boolean",
             "description": "Sem código PDV: é só uma observação (\"ponto da carne\") — não acrescenta nem retira nada."
@@ -19977,6 +23151,15 @@
           },
           "ativo": {
             "type": "boolean"
+          },
+          "preco_ifood_centavos": {
+            "type": "number",
+            "nullable": true,
+            "description": "SÓ com a permissão catalogo.ifood.ler. O preço do produto no iFood, em centavos (pode ser diferente do preço do Regem). null = sem preço próprio no iFood: quem integra não deve mandar preço ao iFood."
+          },
+          "no_ifood": {
+            "type": "boolean",
+            "description": "SÓ com a permissão catalogo.ifood.ler. true = a loja diz que o produto ESTÁ no cardápio do iFood; false = não está (ou ainda não foi marcado)."
           },
           "variacoes": {
             "type": "array",

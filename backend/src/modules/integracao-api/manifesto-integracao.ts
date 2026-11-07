@@ -37,11 +37,13 @@ export const ESCOPOS_DA_PORTA = [
   'catalogo.ler',
   'fichas.ler',
   'producao.ler',
+  // Orzuni (mig 374): acrescenta os campos do iFood ao `GET /integracao/catalogo` (sem rota própria).
+  'catalogo.ifood.ler',
 ] as const satisfies readonly EscopoIntegracao[];
 
 /**
- * As permissões, com a classe que alcança cada uma: `dms` em todas (o console emite para o Liame, o RegemCast, o Farol e
- * o GoGeM) e `parceiro` nas do teto da classe (`ESCOPOS_DO_PARCEIRO`, o catálogo aprovado na F4). É o que o hub lê para
+ * As permissões, com a classe que alcança cada uma: `dms` em todas (o console emite para o Liame, o RegemCast, o Farol,
+ * o GoGeM e o Orzuni) e `parceiro` nas do teto da classe (`ESCOPOS_DO_PARCEIRO`, o catálogo aprovado na F4). É o que o hub lê para
  * aprovar um aplicativo de parceiro e o simulador usa para gerar a porta de mentira; o Regem só passa a aceitar o
  * aplicativo de parceiro com o resto da parte F.
  */
@@ -201,7 +203,9 @@ export const ROTAS_DA_PORTA: readonly RotaNoManifesto[] = [
   {
     metodo: 'GET',
     caminho: `${I}/catalogo`,
-    resumo: 'Catálogo da loja: categorias, setores, produtos, variações, combos e adicionais, sem preço.',
+    resumo:
+      'Catálogo da loja: categorias, setores, produtos, variações, combos e adicionais, sem preço. Com catalogo.ifood.ler ' +
+      'também, o produto traz preco_ifood_centavos e no_ifood, e a opção, preco_ifood_centavos.',
     permissao: 'catalogo.ler',
     exemploResposta: {
       versao: '9f2c1a0b7d6e5f4a3b2c1d0e9f8a7b6c',

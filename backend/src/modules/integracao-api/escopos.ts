@@ -4,7 +4,7 @@ import { BadRequestException } from '@nestjs/common';
 // do Liame; contrato Regem → RegemCast em `docs/integracao-regemcast.md`; contrato Regem → Farol em
 // `docs/integracao-farol.md`; contrato Regem → GoGeM em `docs/integracao-gogem/ENDPOINTS.md`). Cada rota
 // confere o seu; o que o token não tem volta 403. A lista é a MESMA do `check` das tabelas (migs 295,
-// 302, 303, 315 e 323): escopo fora dela nem chega a ser gravado.
+// 302, 303, 315, 323 e 374): escopo fora dela nem chega a ser gravado.
 export const ESCOPOS_INTEGRACAO = [
   'pedidos.ler',
   'clientes.telefone.ler',
@@ -25,6 +25,9 @@ export const ESCOPOS_INTEGRACAO = [
   'totem.catalogo.ler',
   'totem.produtos.pausar',
   'totem.vendas.lancar',
+  // Orzuni (mig 374): o preço do iFood e o "está no cardápio do iFood" (mig 369) no MESMO catálogo do
+  // `catalogo.ler` — sozinho não abre rota nenhuma, só acrescenta esses campos. Lido na hora.
+  'catalogo.ifood.ler',
 ] as const;
 
 export type EscopoIntegracao = (typeof ESCOPOS_INTEGRACAO)[number];
@@ -42,6 +45,8 @@ export const ESCOPOS_SEM_CARIMBO: readonly EscopoIntegracao[] = [
   'totem.catalogo.ler',
   'totem.produtos.pausar',
   'totem.vendas.lancar',
+  // Orzuni (mig 374): os campos do iFood no catálogo, lidos na hora como o resto do catálogo.
+  'catalogo.ifood.ler',
 ];
 
 /** Os escopos cuja leitura depende do carimbador (todos os outros). */
@@ -66,6 +71,7 @@ export const ROTULO_ESCOPO: Record<EscopoIntegracao, string> = {
   'totem.catalogo.ler': 'Catálogo do totem, com preço (GET /sync/catalogo)',
   'totem.produtos.pausar': 'Pausar e despausar item no canal do totem (POST /sync/produtos/pausa)',
   'totem.vendas.lancar': 'Lançar a venda do totem: paga, falha e dinheiro (POST /vendas/externa-pdv e /delivery/totem-dinheiro)',
+  'catalogo.ifood.ler': 'Preço do iFood e se o produto está no cardápio do iFood, no catálogo (junto de catalogo.ler)',
 };
 
 /**
@@ -130,6 +136,15 @@ export const CLIENTES_INTEGRACAO: Record<
     rotulo: 'GoGeM',
     abrangencia: 'loja',
     escopos: ['totem.catalogo.ler', 'totem.produtos.pausar', 'totem.vendas.lancar'],
+    cargaDias: null,
+  },
+  // Orzuni (mig 374): o cardápio do iFood da loja. Um acesso por loja, só leitura na hora: o catálogo com o preço do
+  // iFood, para importar o que falta no iFood. O preço e a pausa que MUDAM no Regem vão por outro caminho, o Regem
+  // chamando a porta do Orzuni (`modules/orzuni/`). Nada de vendas, clientes ou custo.
+  orzuni: {
+    rotulo: 'Orzuni',
+    abrangencia: 'loja',
+    escopos: ['catalogo.ler', 'catalogo.ifood.ler'],
     cargaDias: null,
   },
 };
@@ -231,6 +246,7 @@ export const DESCRICAO_CLIENTE: Record<string, string> = {
   liame: AUTORIZACAO_LOJA.liame.descricao,
   regemcast: 'Campanhas de WhatsApp · lê os clientes e as vendas da empresa',
   farol: AUTORIZACAO_LOJA.farol.descricao,
+  orzuni: 'Cardápio do iFood · lê o cardápio e o preço do iFood para montar o cardápio no iFood',
 };
 
 export function ehEscopoIntegracao(v: unknown): v is EscopoIntegracao {

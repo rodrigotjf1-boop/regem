@@ -10,12 +10,14 @@ import { rendeEm } from '../fichas/fichas-carga';
 //
 // SEM DINHEIRO, POR CONSTRUÇÃO: nenhuma consulta do serviço seleciona preço, custo, margem ou CMV,
 // e nada daqui os calcula. O teste `integracao-farol.http.spec` varre as duas respostas atrás de
-// qualquer campo com nome de dinheiro (ERR-166).
+// qualquer campo com nome de dinheiro (ERR-166). A exceção é o preço do iFood, só para o acesso com
+// `catalogo.ifood.ler` (Orzuni, mig 374; `integracao-orzuni.http.spec`): sem ela, nem o nome do campo sai.
 //
 // A VERSÃO é a impressão do conteúdo (SHA-256), não um carimbo de data: a linha que o sincronismo
 // traz da loja chega com o `updated_at` de quem a editou — mais velho que uma leitura já feita —,
 // e uma versão por "maior data" deixaria essa mudança passar. Mudou o retrato, muda a versão;
-// mudou só o preço (que não está no retrato), a versão é a mesma.
+// mudou só o preço (que não está no retrato), a versão é a mesma. Com os campos do iFood, eles fazem
+// parte do retrato DAQUELE acesso: mudar o preço do iFood muda a versão do Orzuni, e a do Farol não.
 
 export type RetratoCatalogo = {
   loja_id: string | null;
@@ -81,11 +83,23 @@ function retira(o: any) {
   };
 }
 
-/** Monta o retrato do catálogo a partir das linhas das sete consultas (cada lista já vem ordenada). */
+/** Centavos que vêm do banco como texto (bigint): número, ou null quando não há preço. */
+function centavosOuNulo(v: unknown): number | null {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  return Number.isSafeInteger(n) ? n : null;
+}
+
+/**
+ * Monta o retrato do catálogo a partir das linhas das sete consultas (cada lista já vem ordenada). Com `ifood` (o
+ * acesso tem `catalogo.ifood.ler`), o produto ganha `preco_ifood_centavos` e `no_ifood`, e a opção, `preco_ifood_centavos`.
+ */
 export function montarCatalogo(
   lojaId: string | null,
   linhas: { categorias: any[]; setores: any[]; produtos: any[]; variacoes: any[]; combos: any[]; grupos: any[]; opcoes: any[] },
+  opcoesDoRetrato: { ifood?: boolean } = {},
 ): RetratoCatalogo {
+  const ifood = opcoesDoRetrato.ifood === true;
   const variacoes = agrupar(linhas.variacoes, 'produto_id');
   const combos = agrupar(linhas.combos, 'produto_id');
   const grupos = agrupar(linhas.grupos, 'produto_id');
@@ -113,6 +127,7 @@ export function montarCatalogo(
       tempo_preparo_min: p.tempo_preparo_min == null ? null : Number(p.tempo_preparo_min),
       ficha_id: p.ficha_id ?? null,
       ativo: p.ativo === true,
+      ...(ifood ? { preco_ifood_centavos: centavosOuNulo(p.preco_ifood_centavos), no_ifood: p.no_ifood === true } : {}),
       variacoes: (variacoes.get(p.id) ?? []).map((v) => ({
         id: v.id,
         nome: v.nome,
@@ -136,6 +151,7 @@ export function montarCatalogo(
           nome: o.nome,
           codigo: o.codigo ?? null,
           ordem: Number(o.ordem),
+          ...(ifood ? { preco_ifood_centavos: centavosOuNulo(o.preco_ifood_centavos) } : {}),
           informativa: !String(o.codigo ?? '').trim(),
           acrescenta: g.tipo === 'remover' ? null : acrescenta(o),
           retira: g.tipo === 'remover' ? retira(o) : null,
