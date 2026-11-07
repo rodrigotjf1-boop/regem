@@ -12482,6 +12482,68 @@
         }
       }
     },
+    "/api/v1/atendimento/whatsapp-do-gestor": {
+      "get": {
+        "operationId": "AtendimentoController_whatsappDoGestor",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/whatsapp-do-gestor/ligar": {
+      "post": {
+        "operationId": "AtendimentoController_ligarWhatsappDoGestor",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/whatsapp-do-gestor/{colaboradorId}": {
+      "delete": {
+        "operationId": "AtendimentoController_desligarWhatsappDoGestor",
+        "parameters": [
+          {
+            "name": "colaboradorId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/{id}/avaliacao": {
+      "post": {
+        "operationId": "AtendimentoController_responderAvaliacao",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/atendimento/{id}/chat": {
       "get": {
         "operationId": "AtendimentoController_chatDoCaso",
@@ -12860,6 +12922,17 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/atendimento/avaliacao-da-loja": {
+      "post": {
+        "operationId": "AtendimentoLojaController_avaliacaoDaLoja",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
           }
         }
       }
