@@ -1,5 +1,6 @@
 import {
   BadGatewayException,
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -41,6 +42,7 @@ import { ehServidorLocal } from '../../common/modo';
 import { ChatDoCasoService } from './chat-do-caso.service';
 import { AvaliacaoIfoodService } from './avaliacao-ifood.service';
 import { GestorWhatsappService } from './gestor-whatsapp.service';
+import { CopilotoService } from './copiloto.service';
 import { lerAjusteGestorWa } from './gestor-whatsapp';
 
 // Chamados de atendimento (handoff). Operados por quem está no balcão/gestão.
@@ -67,7 +69,27 @@ export class AtendimentoController {
     @Optional() private readonly avaliacao?: AvaliacaoIfoodService,
     // Gerente no WhatsApp (mig 375): o grupo dos ajustes, ligar e desligar o WhatsApp de cada gestor.
     @Optional() private readonly gestorWa?: GestorWhatsappService,
+    // O copiloto (mig 376): a sugestão de resposta no caso e o grupo "Copiloto" dos ajustes.
+    @Optional() private readonly copiloto?: CopilotoService,
   ) {}
+
+  // O COPILOTO (mig 376; protótipo versão 5): se o botão aparece (ligado na empresa E disponível na distribuição) e a
+  // sugestão de resposta do caso. Quem atende o caso pede (os quatro níveis, como o "Enviar"); só na nuvem — a chave do
+  // modelo mora lá. A sugestão só volta para a caixa de escrever: nada é enviado.
+  @Get('copiloto')
+  @CloudOnly()
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
+  estadoDoCopiloto(@CurrentUser() user: AuthUser) {
+    return this.copiloto ? this.copiloto.estado(user.tenantId) : { ligado: false, disponivel: false };
+  }
+
+  @Post(':id/sugestao')
+  @CloudOnly()
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
+  sugerirResposta(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: unknown) {
+    if (!this.copiloto) throw new BadGatewayException('O copiloto não está disponível neste servidor.');
+    return this.copiloto.sugerir(user, id, dto);
+  }
 
   // GERENTE NO WHATSAPP (mig 375, parte 5a): o grupo da tela (o ajuste, a via da loja, o modelo da Meta e quem recebe —
   // de cada pessoa só o final do número), o código para o gestor ligar o PRÓPRIO WhatsApp e o desligar. Só na nuvem (os
@@ -167,7 +189,7 @@ export class AtendimentoController {
   @CloudOnly()
   @Roles('presidente', 'gerente')
   async ajustes(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
-    const [da99, fila, doIfood, cheguei, repetido, som, roboMuda, ponte, roboCobraPix, gestorWa] = await Promise.all([
+    const [da99, fila, doIfood, cheguei, repetido, som, roboMuda, ponte, roboCobraPix, gestorWa, copiloto] = await Promise.all([
       this.pedido99.ajustes(user.tenantId),
       this.filaEAvisos.ajustes(user.tenantId),
       this.chatIfood.ajustes(user.tenantId),
@@ -182,6 +204,8 @@ export class AtendimentoController {
       this.filaEAvisos.roboCobraAdicionalPix(user.tenantId),
       // "Gerente no WhatsApp" (mig 375): o ajuste da empresa e quem recebe.
       this.gestorWa ? this.gestorWa.grupo(user) : Promise.resolve(null),
+      // "Copiloto" (mig 376): ligado na empresa e disponível na distribuição.
+      this.copiloto ? this.copiloto.estado(user.tenantId) : Promise.resolve(null),
     ]);
     const alterado = { som, sons: SONS_DO_ALTERADO, roboMuda, roboCobraPix };
     return {
@@ -195,6 +219,7 @@ export class AtendimentoController {
       alterado,
       ponte,
       gestorWa,
+      copiloto,
     };
   }
 
@@ -210,6 +235,9 @@ export class AtendimentoController {
     const repetido = dto?.repetido !== undefined ? lerAjusteRepetido(dto.repetido) : null;
     const alterado = dto?.alterado !== undefined ? lerAjusteAlterado(dto.alterado) : null;
     const gestorWa = dto?.gestorWa !== undefined ? lerAjusteGestorWa(dto.gestorWa) : null;
+    // O copiloto (mig 376): liga/desliga só com booleano (V15), conferido antes de gravar qualquer grupo.
+    if (dto?.copiloto !== undefined && typeof dto.copiloto?.ligado !== 'boolean')
+      throw new BadRequestException('Copiloto: escolha ligado ou desligado.');
     // A ponte: o texto e o papel dos PCs (lê as pontes da loja) — conferidos antes de gravar qualquer grupo.
     if (dto?.ponte !== undefined) await this.ponte.conferir(user, unidade, dto.ponte);
     if (dto?.ajuste99 !== undefined) await this.pedido99.salvarAjustes(user, dto);
@@ -223,6 +251,7 @@ export class AtendimentoController {
     if (alterado?.roboMuda !== undefined) await this.filaEAvisos.salvarRoboMudaPedido(user, alterado.roboMuda);
     if (alterado?.roboCobraPix !== undefined) await this.filaEAvisos.salvarRoboCobraAdicionalPix(user, alterado.roboCobraPix);
     if (gestorWa) await this.gestorWa?.salvar(user, gestorWa);
+    if (dto?.copiloto !== undefined) await this.copiloto?.salvar(user, dto.copiloto.ligado);
     return this.ajustes(user, unidade);
   }
 

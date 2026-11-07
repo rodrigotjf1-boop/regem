@@ -31,6 +31,10 @@
    cardápio) chegam com botões (API oficial) ou enquete (conexão por QR code), com a confirmação em dois toques; o caso
    que ninguém pegou chega como aviso. Limite de valor só para ACEITAR (o que devolve dinheiro): acima dele, só "Recusar"
    e o link para aceitar no Regem com a senha. Nasce desligado. Escolhas recomendadas nas Notas.
+   VERSÃO 5 (06/11/2026, item 7 do checkpoint): COPILOTO — no caso do WhatsApp e no chat do iFood/99, o botão "✨ Sugerir
+   resposta" põe na caixa de escrever uma sugestão feita pelo modelo de IA da distribuição com a conversa, o pedido e as
+   respostas prontas da loja; a pessoa confere, muda e envia (nunca sai sozinha). Grupo de ajustes "Copiloto" (nasce
+   desligado).
    O que a tela faz:
    (1) uma FILA só com tudo o que precisa de uma pessoa: chamado do robô, disputa do iFood, pedido de cancelamento ou
        reembolso da 99, cancelamento pedido no cardápio e a resposta ao "sem contato". A conversa que o robô atende
@@ -311,6 +315,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 .enquete .op::before{content:"";width:16px;height:16px;border-radius:50%;border:2px solid var(--line-2);flex:none}
 .enquete .op.marcada::before{background:var(--ok);border-color:var(--ok)}
 .enquete small{display:block;font-size:11.5px;color:var(--ink-2);margin-top:4px}
+/* copiloto (versão 5): o botão da sugestão, entre as respostas prontas e a caixa de escrever */
+.copiloto{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;margin:6px 0 0}
+.copiloto .bt{min-height:34px}
 /* "Quem recebe" no ajuste: uma linha por gestor */
 .pessoas{display:flex;flex-direction:column;gap:6px;width:100%}
 .pessoa{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;border:1px solid var(--line);border-radius:10px;padding:8px 10px}
@@ -477,7 +484,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     <main id="v-aj" hidden>
       <div class="trilha">Delivery › Configurações › Operação</div>
       <h1>Atendimento</h1>
-      <p class="resumo">25 ajustes em 5 grupos · item novo no grupo "Operação", ao lado de "Robô de atendimento" · grupos novos: "Gerente no WhatsApp" e "iFood e 99 · chat pela ponte"</p>
+      <p class="resumo">27 ajustes em 6 grupos · item novo no grupo "Operação", ao lado de "Robô de atendimento" · grupos novos: "Gerente no WhatsApp", "Copiloto" e "iFood e 99 · chat pela ponte"</p>
       <div class="filtros" style="grid-template-columns:minmax(0,1fr)"><div class="campo"><label for="busca-aj">Buscar ajuste</label><input id="busca-aj" type="search" placeholder="Ex.: 99, disputa, som"></div></div>
 
       <section class="grupo" data-grupo>
@@ -508,6 +515,14 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
           <div class="ctrl"><select aria-label="Aceitar pelo WhatsApp até" data-aj><option>Não aceitar pelo WhatsApp</option><option>R$ 30,00</option><option>R$ 50,00</option><option selected>R$ 100,00</option><option>R$ 200,00</option><option>Sem limite</option></select></div></div>
         <div class="aj"><div><span class="rot-aj">Sempre vale</span><span class="ajuda">Não se desliga: o WhatsApp vira uma porta de decisão como a senha e o PIN.</span></div>
           <div class="ctrl"><span class="fixo">A resposta só vale do número ligado, de quem ainda é gerente ou presidente · confirmação em dois toques · uma resposta por caso · fica no histórico como "pelo WhatsApp" · PARAR AVISOS no WhatsApp para os avisos</span></div></div>
+      </section>
+
+      <section class="grupo" data-grupo>
+        <header><h3>Copiloto <span class="novo-t">NOVO</span></h3><span>2 ajustes</span></header>
+        <div class="aj"><div><span class="rot-aj">Sugerir resposta no caso</span><span class="ajuda">O botão "✨ Sugerir resposta" escreve uma sugestão com a conversa, o pedido (situação, previsão, entregador) e as respostas prontas da loja. Nada sai sozinho: a pessoa confere, muda e envia. No chat do iFood e da 99, a sugestão segue as regras da plataforma.</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="false" aria-label="Sugerir resposta no caso" data-aj></button></div></div>
+        <div class="aj"><div><span class="rot-aj">Sempre vale</span><span class="ajuda">Não se desliga: protege o cliente e a loja.</span></div>
+          <div class="ctrl"><span class="fixo">Ao modelo vai só o primeiro nome do cliente, a conversa e o pedido; nunca telefone, endereço nem pagamento · a sugestão nunca é enviada sozinha · cada sugestão pedida fica no histórico do caso</span></div></div>
       </section>
 
       <section class="grupo" data-grupo>
@@ -901,6 +916,19 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   </div>
 
   <div class="cartao">
+    <h3>Copiloto · versão 5 (06/11/2026)</h3>
+    <p>No caso do WhatsApp e no chat do iFood e da 99, o botão "✨ Sugerir resposta" põe na caixa de escrever uma sugestão. Ela nasce da conversa, do pedido (situação, previsão, entregador) e das respostas prontas da loja, e a pessoa confere, muda e envia. Outro toque traz outra sugestão.</p>
+    <h3>Escolhas recomendadas (o dono pode mudar)</h3>
+    <ol>
+      <li><b>Nunca envia sozinha</b>: a sugestão só preenche a caixa. Quem envia é a pessoa, pelo botão de sempre (que segue barrando telefone e link no chat do iFood e da 99).</li>
+      <li><b>O mínimo de dado</b>: ao modelo vai o primeiro nome do cliente, a conversa e o pedido; nunca telefone, endereço completo nem pagamento.</li>
+      <li><b>O modelo é da distribuição</b> (a chave fica com a Regem, nunca com a loja): Claude Haiku 5.5, rápido e barato para uma sugestão curta; a distribuição troca o modelo sem mudar a tela. Sem a chave ligada, o botão não aparece.</li>
+      <li><b>Nasce desligado</b>, por empresa, em Delivery › Configurações › Atendimento, grupo "Copiloto".</li>
+      <li>Cada sugestão pedida fica no histórico do caso (quem pediu e quando), sem o texto do cliente.</li>
+    </ol>
+  </div>
+
+  <div class="cartao">
     <h3>Decisões do dono</h3>
     <ol>
       <li>Versão 1 aprovada em 02/11/2026 ("ficou bom"): "Atendimento" como item próprio do menu, com o sino em todas as telas; a ordem da fila (prazo, urgente, espera); senha de quem decide no computador; app próprio "Regem Atendimento".</li>
@@ -1179,6 +1207,22 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     v3: { msgs: [['cli', 'Vai demorar muito?', '20:22'], ['robo', 'Oi, Paulo! Seu pedido está na cozinha e sai em uns 10 minutos. Chega por volta das 20h40.', 'robô · 20:22']] },
     v4: { msgs: [['auto', 'Seu pedido saiu para entrega! Chega por volta das 20h45.', 'aviso automático · 20:20'], ['cli', 'Obrigada!', '20:21']] },
   };
+  // Versão 5 (copiloto, item 7): sugestões de exemplo — no Regem, o modelo de IA escreve com a conversa, o pedido e as
+  // respostas prontas da loja. Duas por caso, para o "Outra sugestão".
+  const SUGESTOES = {
+    c3: ['Carlos, peço desculpas pela espera. O João saiu com o seu pedido às 19h31 e chega por volta das 19h55 — já está perto. Qualquer coisa, estou por aqui.',
+      'Sinto muito pela demora, Carlos. Acabei de conferir: o João está a caminho e chega em uns 10 minutos.'],
+    c4: ['Juliana, desculpe pelo erro! Já vamos mandar a Coca-Cola lata que faltou, sem custo. Chega em até 30 minutos. Pode ser?',
+      'Poxa, Juliana, faltou mesmo. Mandamos o refrigerante agora ou, se preferir, damos R$ 6,00 de desconto no próximo pedido. O que é melhor para você?'],
+    c5: ['O Diego já está no portão azul e vai subir agora. Obrigado por avisar!', 'Recebido! O Diego está aí e já sobe.'],
+    c7: ['Renata, combinado: o molho especial sai agora com o próximo entregador. Obrigado pela paciência!', 'Renata, deixei os R$ 4,00 de desconto para o seu próximo pedido. Obrigado!'],
+    i1: ['Maria, sentimos muito pela espera. O Carlos está a 1,2 km e chega em uns 5 minutos.', 'Oi, Maria! Seu pedido está chegando: o Carlos está bem perto. Desculpe a demora.'],
+    n1: ['João, desculpe pelo Guaraná que faltou. Podemos mandar agora, ou você pede o reembolso pelo app da 99 (Ajuda › Problema com o pedido), que a gente aprova.',
+      'Sentimos muito, João! Já estamos mandando o refrigerante.'],
+  };
+  /** O botão do copiloto (versão 5): preenche a caixa de escrever; nunca envia sozinho. */
+  const copiloto = (c) => `<div class="copiloto"><button type="button" class="bt leve" data-sugerir="${c.id}">✨ Sugerir resposta</button>
+    <span class="ajuda" data-sug-nota hidden>Sugestão do copiloto: confira e mude o que quiser antes de enviar.</span></div>`;
   // Versão 3: o que a ponte traz do chat da plataforma nos casos de disputa (iFood) e de cancelamento/reembolso (99).
   const CHAT_DAS_PLATAFORMAS = {
     '4521': [['cli', 'Faltou a batata.', '19:51'], ['robo', 'Sinto muito, Ana! Já passei para a equipe, que está vendo o seu pedido no iFood.', 'robô · 19:52']],
@@ -1201,6 +1245,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     return `<section class="bloco"><h3>Chat ${daPlat} com ${esc(c.cliente)} <span class="dir">pedido ${esc(c.pedido)} · pela ponte</span></h3>${aviso}
       <div class="msgs" data-msgs>${msgsHtml(d.msgs, c.canal)}</div>
       <div class="prontas" aria-label="Respostas prontas">${(d.prontas || []).map((p) => `<button type="button" class="pronta" data-pronta>${esc(p)}</button>`).join('')}</div>
+      ${copiloto(c)}
       <div class="escrever"><textarea aria-label="Escrever ao cliente no chat ${daPlat}" placeholder="Escreva para ${esc(c.cliente)} (sai no chat ${daPlat})" data-txt></textarea><button type="button" class="bt pri" data-enviar data-canal="${c.canal}">Enviar ${pela}</button></div>
       <p class="ajuda" data-erro style="color:var(--crit);font-weight:600;margin:6px 0 0" hidden></p>
       <p class="ajuda" style="margin:6px 0 0">Sai pela ponte do CX-DELIVERY, como se alguém digitasse no chat ${daPlat}. Telefone, WhatsApp, Instagram e link o Regem barra: a plataforma proíbe.</p></section>`;
@@ -1268,6 +1313,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <section class="bloco"><h3>Conversa no WhatsApp <span class="dir">${d.aguardando ? 'aguardando a Renata · volta para a fila quando ela responder' : ''}</span></h3>
         <div class="msgs">${d.msgs.map(([q, t, h]) => `<div class="msg ${q}">${esc(t)}${h ? `<small>${esc(h)}</small>` : ''}</div>`).join('')}</div>
         <div class="prontas" aria-label="Respostas prontas">${d.prontas.map((p) => `<button type="button" class="pronta">${esc(p)}</button>`).join('')}</div>
+        ${copiloto(c)}
         <div class="escrever"><textarea aria-label="Escrever ao cliente" placeholder="Escreva a resposta (Enter envia)"></textarea><button type="button" class="bt pri">Enviar</button></div>
         <div class="pausa"><span aria-hidden="true">🤖</span><span>O robô está quieto nesta conversa e volta quando o caso for resolvido.</span></div></section></div>
       <div class="col">${blocoPedido(c.pedido, `<p class="ajuda" style="margin:8px 0 0">Entregador: ${esc(d.entregador)}</p>`)}</div></div>`;
@@ -1544,6 +1590,22 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   $('#busca-aj').addEventListener('input', (e) => {
     const q = e.target.value.trim().toLowerCase();
     $$('#v-aj .grupo').forEach((g) => { let algum = false; $$('.aj', g).forEach((a) => { const ok = (!q || a.textContent.toLowerCase().includes(q) || $('h3', g).textContent.toLowerCase().includes(q)) && !(a.hasAttribute('data-so-escolher') && $('#onde-ponte').value !== 'escolher'); a.hidden = !ok; algum = algum || ok; }); g.hidden = !algum; });
+  });
+
+  // Copiloto (versão 5): a sugestão vai para a caixa de escrever do MESMO bloco; outro toque traz outra.
+  const vezDaSugestao = {};
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-sugerir]');
+    if (!b) return;
+    const id = b.dataset.sugerir;
+    const lista = SUGESTOES[id] || ['Oi! Já estou vendo o seu pedido e te respondo em seguida.'];
+    const n = (vezDaSugestao[id] = (vezDaSugestao[id] ?? -1) + 1);
+    const bloco = b.closest('.bloco');
+    const t = bloco && $('textarea', bloco);
+    if (t) { t.value = lista[n % lista.length]; t.focus(); }
+    b.textContent = '✨ Outra sugestão';
+    const nota = bloco && $('[data-sug-nota]', bloco);
+    if (nota) nota.hidden = false;
   });
 
   // Gerente no WhatsApp: os botões da lista "Quem recebe" mudam depois de ligar/desligar — o clique vai pela seção.

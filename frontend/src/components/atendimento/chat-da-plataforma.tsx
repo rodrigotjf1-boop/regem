@@ -6,6 +6,7 @@ import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { hora, type CasoDaFila } from '@/lib/atendimento';
 import { TEXTO_MAX_DO_CHAT, temContatoProibido } from '@/lib/texto-do-chat';
+import { BotaoCopiloto } from '@/components/atendimento/botao-copiloto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -205,6 +206,20 @@ export function ChatDaPlataforma({ caso: c, aberto, podeResponder }: { caso: Cas
               </button>
             ))}
           </div>
+          {/* O copiloto (mig 376): a sugestão vai para o campo; o envio segue barrando telefone e link. */}
+          <BotaoCopiloto
+            casoId={c.id}
+            mensagens={(conversa?.mensagens ?? []).map((m) => ({
+              de: m.autor === 'cliente' ? ('cliente' as const) : m.autor === 'robo' ? ('robo' as const) : m.autor === 'aviso' ? ('sistema' as const) : ('loja' as const),
+              texto: m.texto,
+            }))}
+            prontas={PRONTAS}
+            aoSugerir={(t) => {
+              setTexto(t);
+              setAviso('');
+              campo.current?.focus();
+            }}
+          />
           <form
             className="mt-2 flex flex-wrap items-end gap-2"
             onSubmit={(e) => {

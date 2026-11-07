@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { MidiaMsg, mesmoNumero } from '@/components/whatsapp/midia-msg';
+import { BotaoCopiloto } from '@/components/atendimento/botao-copiloto';
 import type { CasoDaFila } from '@/lib/atendimento';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -178,6 +179,19 @@ export function ConversaDoCaso({
               </button>
             ))}
           </div>
+
+          {/* O copiloto (mig 376): a sugestão vai para o campo; quem envia é a pessoa. */}
+          <BotaoCopiloto
+            casoId={c.id}
+            mensagens={(msgs ?? [])
+              .filter((m) => !m.midia && (m.texto ?? '').trim())
+              .map((m) => ({ de: m.fromMe ? ('loja' as const) : ('cliente' as const), texto: m.texto ?? '' }))}
+            prontas={prontas}
+            aoSugerir={(t) => {
+              setTexto(t);
+              campo.current?.focus();
+            }}
+          />
 
           <form
             className="mt-2 flex items-end gap-2"
