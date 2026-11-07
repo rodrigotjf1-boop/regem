@@ -129,14 +129,48 @@ export class NumerosDoAtendimentoService {
     return (r.rows ?? r) as ChatDoPeriodo[];
   }
 
+  /**
+   * O placar do Instagram Direct (mig 377), pela mesma régua do chat: a mensagem do cliente que espera e a primeira da loja
+   * depois dela — a equipe pelo Regem ou quem respondeu no próprio app do Instagram (o eco); a que falhou não conta. A
+   * conta do Instagram é da empresa (não tem loja): entra em todas as lojas, como o caso sem loja (V4).
+   */
+  private async instagram(tenantId: string, de: string, ate: string): Promise<ChatDoPeriodo[]> {
+    const r: any = await this.db.execute(sql`
+      with m as (
+        select igsid as conv,
+               case when autor = 'cliente' then 'c' when autor in ('equipe', 'loja', 'robo') and estado = 'enviada' then 'l' end as quem,
+               criado_em as em
+          from instagram_mensagem
+         where tenant_id = ${tenantId}
+           and criado_em >= ${de}::timestamptz - interval '1 day' and criado_em < ${ate}::timestamptz + interval '1 day'
+      ), v as (
+        select quem, em,
+               lag(quem) over (partition by conv order by em, quem desc) as antes,
+               min(case when quem = 'l' then em end) over (partition by conv order by em, quem desc rows between current row and unbounded following) as resposta
+          from m
+         where quem is not null
+      )
+      select 'instagram' as canal,
+             count(*) filter (where resposta is not null or em <= now() - ${ESPERA_DO_CHAT})::int as chegaram,
+             count(*) filter (where resposta is not null)::int as respondidas,
+             round(avg(extract(epoch from resposta - em)) filter (where resposta is not null))::int as seg
+        from v
+       where quem = 'c' and antes is distinct from 'c' and em >= ${de}::timestamptz and em < ${ate}::timestamptz`);
+    return ((r.rows ?? r) as ChatDoPeriodo[]).filter((l) => Number(l.chegaram) > 0 || Number(l.respondidas) > 0);
+  }
+
   /** Os números do período, para a página "Números do atendimento". */
   async numeros(tenantId: string, unidade: string | null, periodoPedido: unknown) {
     const periodo = lerPeriodo(periodoPedido);
     if (ehServidorLocal()) return this.pelaNuvem(`numeros-da-loja?${this.consulta(periodo, unidade).toString()}`);
     const { de, ate } = await this.limites(periodo);
-    const [linhas, chat] = await Promise.all([this.linhas(tenantId, unidade, de, ate), this.chat(tenantId, unidade, de, ate)]);
+    const [linhas, chat, direct] = await Promise.all([
+      this.linhas(tenantId, unidade, de, ate),
+      this.chat(tenantId, unidade, de, ate),
+      this.instagram(tenantId, de, ate),
+    ]);
     const parcial = linhas.length > LIMITE_DE_CASOS;
-    const n = montarNumeros(linhas.slice(0, LIMITE_DE_CASOS), chat, Date.now());
+    const n = montarNumeros(linhas.slice(0, LIMITE_DE_CASOS), [...chat, ...direct], Date.now());
     return { periodo: { chave: periodo, de, ate }, parcial, ...n, motivosDaLista: MOTIVOS.map((m) => ({ k: m.k, nome: m.nome })) };
   }
 

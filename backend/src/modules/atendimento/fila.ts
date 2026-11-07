@@ -8,7 +8,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 /** De onde o caso veio. NULL nos chamados antigos (antes da mig 350): `canalDoCaso` deduz. */
-export const CANAIS = ['whatsapp', 'cardapio', 'anotaai', 'ifood', '99food'] as const;
+export const CANAIS = ['whatsapp', 'cardapio', 'anotaai', 'ifood', '99food', 'instagram'] as const;
 export type Canal = (typeof CANAIS)[number];
 
 export function canalValido(v: unknown): Canal | null {

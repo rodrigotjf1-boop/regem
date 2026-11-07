@@ -2323,6 +2323,9 @@ const SO_NUVEM = new Set([
   // A ponte do chat do iFood e da 99 (mig 366, @cloud-only): o programa da ponte fala com a nuvem; as mensagens do chat
   // e a presença de cada ponte moram lá — a loja não tem estas tabelas.
   'chat_ponte', 'chat_plataforma_msg',
+  // O Instagram Direct (mig 377, @cloud-only): o aviso da Meta chega na nuvem e o acesso da conta mora lá (cifrado) —
+  // a loja não tem estas tabelas; a conversa do caso, ela pede à nuvem.
+  'instagram_conta', 'instagram_mensagem', 'instagram_contato',
   // As automáticas de Delivery › Marketing (mig 356, @cloud-only): os ajustes e o que cada uma mandou — o WhatsApp e o
   // cardápio moram na nuvem; a loja não tem estas tabelas.
   'relacionamento_config', 'relacionamento_envio',

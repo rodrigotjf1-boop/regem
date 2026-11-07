@@ -128,7 +128,7 @@ export type ProdutoApontado = { nome: string; motivo: Motivo | null };
 export type ResultadoDoCaso = { motivo: Motivo | null; fonte: 'equipe' | 'plataforma' | null; produtos: ProdutoApontado[] };
 
 /** Os tipos que PODEM ser reclamação: sem motivo marcado, entram em "Sem motivo marcado". A mudança de pedido não. */
-const PODE_SER_RECLAMACAO = new Set(['disputa', 'cancelamento_99', 'reembolso_99', 'cancelamento', 'avaliacao', 'erro', 'chat', 'humano', 'outro']);
+const PODE_SER_RECLAMACAO = new Set(['disputa', 'cancelamento_99', 'reembolso_99', 'cancelamento', 'avaliacao', 'erro', 'chat', 'humano', 'outro', 'instagram']);
 
 /**
  * O que aconteceu no caso: o que a EQUIPE marcou vence; senão o que a PLATAFORMA disse (disputa do iFood: atraso pelo tipo,
@@ -212,7 +212,7 @@ export const GRUPOS_DOS_CASOS = ['casos', 'disputa', 'pedido99', 'avaliacao', 'c
 export type GrupoDosCasos = (typeof GRUPOS_DOS_CASOS)[number];
 
 export function grupoDoPlacar(l: LinhaDoCaso): GrupoDosCasos | null {
-  if (l.tipo === 'chat') return null; // a conversa do chat entra pelas mensagens, não pelo caso
+  if (l.tipo === 'chat' || l.tipo === 'instagram') return null; // o chat e o Direct entram pelas mensagens, não pelo caso
   if (l.tipo === 'disputa') return 'disputa';
   if (l.tipo === 'cancelamento_99' || l.tipo === 'reembolso_99') return 'pedido99';
   if (l.tipo === 'avaliacao') return 'avaliacao';
@@ -264,7 +264,7 @@ export function situacaoNoPlacar(l: LinhaDoCaso, agora: number): { conta: boolea
 
 export type LinhaDoPlacar = {
   k: string;
-  canal: 'ifood' | '99food' | 'whatsapp' | 'cardapio';
+  canal: 'ifood' | '99food' | 'whatsapp' | 'cardapio' | 'instagram';
   nome: string;
   o: string;
   chegaram: number;
@@ -279,6 +279,7 @@ export type ChatDoPeriodo = { canal: string; chegaram: number; respondidas: numb
 const DESCRICAO: Record<string, Omit<LinhaDoPlacar, 'chegaram' | 'respondidas' | 'segMedio' | 'semResposta'>> = {
   'chat-ifood': { k: 'chat-ifood', canal: 'ifood', nome: 'Chat do iFood', o: 'mensagens do cliente' },
   'chat-99': { k: 'chat-99', canal: '99food', nome: 'Chat da 99', o: 'mensagens do cliente' },
+  'chat-instagram': { k: 'chat-instagram', canal: 'instagram', nome: 'Instagram Direct', o: 'mensagens do cliente no Direct da loja' },
   casos: { k: 'casos', canal: 'whatsapp', nome: 'WhatsApp', o: 'casos que o robô passou à equipe · tempo até alguém pegar' },
   disputa: { k: 'disputa', canal: 'ifood', nome: 'Disputas do iFood', o: 'disputas · sem resposta, o iFood decide sozinho' },
   pedido99: { k: 'pedido99', canal: '99food', nome: 'Cancelamento e reembolso da 99', o: 'pedidos do cliente · sem resposta, a 99 decide' },
@@ -325,6 +326,7 @@ export function montarNumeros(linhas: LinhaDoCaso[], chat: ChatDoPeriodo[], agor
   const canais: LinhaDoPlacar[] = [
     doChat('ifood', 'chat-ifood'),
     doChat('99food', 'chat-99'),
+    doChat('instagram', 'chat-instagram'),
     ...GRUPOS_DOS_CASOS.map((g) => {
       const t = soma.get(g)!;
       return { ...DESCRICAO[g], chegaram: t.chegaram, respondidas: t.respondidas, segMedio: t.nSeg ? Math.round(t.seg / t.nSeg) : null, semResposta: t.chegaram - t.respondidas } as LinhaDoPlacar;

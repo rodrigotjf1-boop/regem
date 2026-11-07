@@ -218,8 +218,8 @@ describe('a montagem', () => {
   ];
   const n = montarNumeros(linhas, [{ canal: 'ifood', chegaram: 21, respondidas: 19, seg: 160 }], AGORA);
 
-  it('placar: 7 linhas na ordem; o chat vem das mensagens; os casos pelos grupos', () => {
-    expect(n.canais.map((c) => c.k)).toEqual(['chat-ifood', 'chat-99', 'casos', 'disputa', 'pedido99', 'avaliacao', 'cancelamento']);
+  it('placar: 8 linhas na ordem; o chat vem das mensagens; os casos pelos grupos', () => {
+    expect(n.canais.map((c) => c.k)).toEqual(['chat-ifood', 'chat-99', 'chat-instagram', 'casos', 'disputa', 'pedido99', 'avaliacao', 'cancelamento']);
     expect(n.canais[0]).toMatchObject({ chegaram: 21, respondidas: 19, segMedio: 160, semResposta: 2 });
     expect(n.canais[1]).toMatchObject({ chegaram: 0, semMensagens: true, segMedio: null });
     expect(n.canais.find((c) => c.k === 'disputa')).toMatchObject({ chegaram: 2, respondidas: 1, semResposta: 1, segMedio: 300 });

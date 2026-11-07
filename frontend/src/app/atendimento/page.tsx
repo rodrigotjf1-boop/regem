@@ -21,6 +21,7 @@ import { FaixaDaPonte } from '@/components/atendimento/faixa-da-ponte';
 import { AlertaDoAdicionalPix } from '@/components/atendimento/alerta-do-adicional-pix';
 import { ConversaDoCaso } from '@/components/atendimento/conversa-do-caso';
 import { ChatDaPlataforma } from '@/components/atendimento/chat-da-plataforma';
+import { ConversaDoInstagram } from '@/components/atendimento/conversa-do-instagram';
 import { EnderecoDepoisQueSaiu } from '@/components/atendimento/endereco-depois-que-saiu';
 import { ListaDeConversas } from '@/components/atendimento/lista-de-conversas';
 import { ConversaDoRobo } from '@/components/atendimento/conversa-do-robo';
@@ -769,6 +770,9 @@ function Caso({
         {/* O chat do iFood e da 99 pela ponte (Etapa 2): a conversa do pedido e a resposta, que a ponte digita no chat. */}
         {comChat && <ChatDaPlataforma key={c.id} caso={c} aberto={aberto} podeResponder={podeResponder} />}
 
+        {/* O Instagram Direct (mig 377): a conversa e a resposta pela conta da loja, dentro da janela de 24 h. */}
+        {c.tipo === 'instagram' && <ConversaDoInstagram key={c.id} caso={c} aberto={aberto} podeResponder={podeResponder} />}
+
         {/* A conversa dentro do caso (2B): quem responde pelo WhatsApp é a gestão — a caixa de conversas confere. */}
         {c.telefone && c.canal === 'whatsapp' && aberto && podeResponder && <ConversaDoCaso key={c.id} caso={c} rascunho={rascunho} />}
         {c.telefone && c.canal === 'whatsapp' && aberto && !podeResponder && (
@@ -833,7 +837,9 @@ function Caso({
               ? 'A conversa volta para o robô. Se o cliente escrever de novo, o robô atende e abre outro caso quando precisar.'
               : c.tipo === 'chat'
                 ? `O caso sai da fila. Se o cliente escrever de novo no chat ${c.canal === 'ifood' ? 'do iFood' : 'da 99'}, chega outro caso.`
-                : 'O caso sai da fila.'}
+                : c.tipo === 'instagram'
+                  ? 'O caso sai da fila. Se o cliente escrever de novo no Direct, chega outro caso.'
+                  : 'O caso sai da fila.'}
           </p>
           <div className="mt-3">
             <OQueAconteceu casoId={c.id} aoMudar={setMarca} />

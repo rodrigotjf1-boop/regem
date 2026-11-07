@@ -99,7 +99,7 @@ descrever('números do atendimento (Postgres)', () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: URL_PG });
     db = drizzle(pool, { schema });
-    for (const m of ['342_robo_pausa_e_config.sql', '366_ponte_do_chat.sql', '367_chat_ordem_e_indices.sql']) await aplicar(m);
+    for (const m of ['342_robo_pausa_e_config.sql', '366_ponte_do_chat.sql', '367_chat_ordem_e_indices.sql', '377_instagram_direct.sql']) await aplicar(m);
     [{ id: T }] = await q(`insert into empresa (nome) values ('teste números') returning id`);
     [{ id: T2 }] = await q(`insert into empresa (nome) values ('outra empresa') returning id`);
     [{ id: lojaA }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja A') returning id`, [T]);

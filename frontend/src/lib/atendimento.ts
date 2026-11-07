@@ -162,6 +162,8 @@ export const ROTULO_DO_CANAL: Record<string, string> = {
   anotaai: 'Anota AI',
   ifood: 'iFood',
   '99food': '99Food',
+  // O Direct da loja (mig 377).
+  instagram: 'Instagram',
 };
 
 /** Classes do chip do canal (cores de identificação do canal, com contraste conferido). */
@@ -169,6 +171,8 @@ export const COR_DO_CANAL: Record<string, string> = {
   whatsapp: 'bg-[#0B6E3A] text-white',
   ifood: 'bg-[#C3122B] text-white',
   '99food': 'bg-[#FFD21F] text-[#2A2300]',
+  // Magenta do Instagram escurecido para o branco ler (5,97:1).
+  instagram: 'bg-[#B02E7A] text-white',
   cardapio: 'border border-[#E9CF9E] bg-[#FCF1DD] text-[#7A5209]',
   anotaai: 'bg-secondary text-foreground',
 };
@@ -187,6 +191,8 @@ export const ROTULO_DO_TIPO: Record<string, string> = {
   reembolso_99: 'Reembolso pedido à 99',
   // A mensagem do cliente no chat do iFood ou da 99, trazida pela ponte (Etapa 2).
   chat: 'Mensagem no chat',
+  // A conversa do Direct da loja (mig 377).
+  instagram: 'Mensagem no Direct',
 };
 
 /** A situação do pedido ligado ao caso ou à conversa, como a equipe fala. */
@@ -206,6 +212,11 @@ export const CASO_DA_PLATAFORMA = new Set(['disputa', 'cancelamento_99', 'reembo
 /** "Ana P. · pedido iFood 4521": cliente + plataforma + número (o da plataforma quando há; senão o da loja). */
 export function tituloDoCaso(c: CasoDaFila): string {
   const quem = c.cliente || c.pedidoCliente || 'Cliente';
+  // O Direct: o nome do perfil e o @ (o Instagram não manda telefone nem pedido).
+  if (c.tipo === 'instagram') {
+    const u = typeof c.detalhe?.instagram?.usuario === 'string' ? `@${c.detalhe.instagram.usuario}` : '';
+    return [quem, u && u !== quem ? u : '', 'Direct'].filter(Boolean).join(' · ');
+  }
   const plataforma = c.canal === 'ifood' ? 'iFood' : c.canal === '99food' ? '99Food' : '';
   const numero = c.pedidoNaPlataforma && plataforma ? c.pedidoNaPlataforma : c.pedidoNumero;
   if (!numero) return quem;

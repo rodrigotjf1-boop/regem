@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Instagram Direct na fila (06/11; mig 377 `@cloud-only`; toca `backend/edge/sync-daemon.mjs` — só a lista SO_NUVEM).**
+  Na NUVEM com o merge, mas só funciona depois que a distribuição configurar o app na Meta (`INSTAGRAM_APP_ID`,
+  `INSTAGRAM_APP_SECRET`, `INSTAGRAM_VERIFY_TOKEN` no `regem-api` do EasyPanel; sem elas o grupo diz "A Regem está
+  liberando o Instagram com a Meta"): Delivery › Configurações › Atendimento, grupo "Instagram Direct" (conectar a conta
+  profissional da loja); a conversa do Direct vira caso e a gestão responde pelo Regem. **No `.zip`/`.exe` 1.30.13:** a lista
+  das tabelas só da nuvem no `sync-daemon` e, no servidor da loja, a conversa e a resposta do caso pedem à nuvem.
+
 - **Números do atendimento (06/11; sem migration; sem `edge/`).** Na NUVEM com o merge: a página Relatórios ›
   Atendimento (e o botão "Números do atendimento" no topo do Atendimento), só de gerente e presidente — o placar por canal
   (no chat do iFood, tempo médio e taxa de resposta, a régua que o iFood mostra ao cliente), as reclamações por motivo e
