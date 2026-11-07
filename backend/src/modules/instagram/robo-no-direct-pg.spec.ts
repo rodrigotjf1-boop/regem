@@ -122,6 +122,7 @@ descrever('Robô no Direct do Instagram (Postgres + Meta e n8n de mentira)', () 
       '367_chat_ordem_e_indices.sql',
       '377_instagram_direct.sql',
       '378_instagram_robo_no_direct.sql',
+      '379_horario_da_equipe.sql',
     ])
       await aplicar(m);
     servidor = createServer((req, res) => {
@@ -468,6 +469,68 @@ descrever('Robô no Direct do Instagram (Postgres + Meta e n8n de mentira)', () 
     await ligarRobo(false);
     expect(await svc.semResposta()).toBe(0);
   });
+
+  // ───── HORÁRIO DA EQUIPE (mig 379): fora do horário (o do cardápio do robô), o caso do Direct nasce como RECADO ─────
+  const FUSO = 'America/Sao_Paulo';
+  const daqui3 = new Date(Date.now() + 3 * 86_400_000);
+  const semanaSp = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(new Intl.DateTimeFormat('en-US', { timeZone: FUSO, weekday: 'short' }).format(daqui3));
+  const VOLTA = new Date(`${daqui3.toLocaleDateString('en-CA', { timeZone: FUSO })}T09:30:00-03:00`); // 30 min antes das 10:00
+  const foraDoHorario = async (fn: () => Promise<void>) => {
+    await q(`update robo_config set equipe_atende = 'loja' where tenant_id = $1`, [T]);
+    await q(`update cardapio_config set horarios = $2::jsonb where id = $1`, [CARD, JSON.stringify([{ dia: semanaSp, ativo: true, abre: '10:00', fecha: '11:00' }])]);
+    try {
+      await fn();
+    } finally {
+      await q(`update robo_config set equipe_atende = 'sempre' where tenant_id = $1`, [T]);
+      await q(`update cardapio_config set horarios = '[]'::jsonb where id = $1`, [CARD]);
+    }
+  };
+
+  it('fora do horário: o "chamar atendente" deixa RECADO — a frase para o cliente, sem posição — e o robô SEGUE respondendo; somar mantém', () =>
+    foraDoHorario(async () => {
+      await svc.processar(aviso({ mid: 'f1', texto: 'O lanche de ontem veio sem o molho' }));
+      expect(await esperar(() => aoRobo.length === 1)).toBe(true);
+      const tok = `tok-direct-${T.slice(0, 8)}`;
+      const r: any = await cardapio.abrirAtendimento(tok, { tipo: 'erro', telefone: `ig:${CLIENTE}`, conversa: fichaDoDirect(), mensagem: 'Motivo: faltou o molho' }, SENHA);
+      expect(r).toMatchObject({ ok: true, foraDoHorario: true, posicao: null, comAlguem: false });
+      expect(r.paraOCliente).toMatch(/^Nossa equipe volta (na|no) .+ às 09:30\. Já deixei o seu recado aqui/);
+      const [c] = await casos();
+      expect(c.detalhe.recado.ate).toBe(VOLTA.toISOString());
+      expect(eventos.some((e) => e.nome === 'atendimento.novo' && e.dados.chamado.id === c.id)).toBe(true);
+      // o robô manda a frase E continua respondendo (o recado não cala a conversa)
+      expect(await responder(r.paraOCliente)).toMatchObject({ enviado: true });
+      expect(await responder('Posso ajudar com mais alguma coisa?')).toMatchObject({ enviado: true });
+      aoRobo.length = 0;
+      await svc.processar(aviso({ mid: 'f2', texto: 'Vocês abrem amanhã?' }));
+      expect(await esperar(() => aoRobo.length === 1)).toBe(true); // a mensagem nova vai ao robô…
+      expect((await q(`select chamado_id from instagram_mensagem where mid = 'f2'`))[0].chamado_id).toBe(c.id); // …e entra no recado
+      // chamar de novo: o mesmo recado, a mesma frase
+      const r2: any = await cardapio.abrirAtendimento(tok, { tipo: 'erro', telefone: `ig:${CLIENTE}`, conversa: fichaDoDirect(), mensagem: 'Motivo: de novo' }, SENHA);
+      expect(r2).toMatchObject({ id: c.id, foraDoHorario: true, paraOCliente: r.paraOCliente });
+      expect(await casos()).toHaveLength(1);
+      expect((await casos())[0].detalhe.recado.ate).toBe(VOLTA.toISOString());
+    }));
+
+  it('fora do horário: com o robô desligado e a fila ligada, a conversa nova vira RECADO (não toca)', () =>
+    foraDoHorario(async () => {
+      await ligarRobo(false);
+      await svc.processar(aviso({ mid: 'f3', texto: 'Oi, boa noite' }));
+      await quieto();
+      const [c] = await casos();
+      expect(c.detalhe.recado).toMatchObject({ ate: VOLTA.toISOString() });
+    }));
+
+  it('fora do horário: o "sem resposta" (3 min) vira RECADO para a abertura', () =>
+    foraDoHorario(async () => {
+      await q(
+        `insert into instagram_mensagem (tenant_id, ig_user_id, igsid, direcao, autor, texto, mid, estado, criado_em)
+         values ($1, $2, $3, 'entrada', 'cliente', 'Alguém aí?', 'sr-f', 'recebida', now() - interval '5 minutes')`,
+        [T, CONTA, CLIENTE],
+      );
+      expect(await svc.semResposta()).toBe(1);
+      const [c] = await casos();
+      expect(c.detalhe).toMatchObject({ instagram: { semResposta: true }, recado: { ate: VOLTA.toISOString() } });
+    }));
 
   it('"Conversas agora": o Direct com o robô aparece para a gestão (com o perfil e as mensagens) e some depois do "Assumir"; a execução não vê nem assume', async () => {
     await q(`insert into instagram_contato (tenant_id, igsid, usuario, nome, segue_a_loja) values ($1, $2, 'livia.ramos', 'Lívia Ramos', false)`, [T, CLIENTE]);

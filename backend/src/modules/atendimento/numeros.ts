@@ -108,6 +108,8 @@ export type LinhaDoCaso = {
   status: string;
   decisao: string | null;
   criadoEm: string | Date;
+  /** Desde quando o caso espera uma pessoa (mig 379): o recado da madrugada, desde a volta da equipe. Sem ele, `criadoEm`. */
+  inicioEm?: string | Date | null;
   pegoEm: string | Date | null;
   resolvidoEm: string | Date | null;
   resolvidoPorId: string | null;
@@ -229,7 +231,8 @@ export const ESPERA_SEM_PRAZO_MS = 15 * 60_000;
  * quando se sabe a hora.
  */
 export function situacaoNoPlacar(l: LinhaDoCaso, agora: number): { conta: boolean; respondida: boolean; seg: number | null } {
-  const criado = ms(l.criadoEm);
+  // O RECADO para a abertura (mig 379) espera desde a volta da equipe: a madrugada não conta como demora da loja.
+  const criado = ms(l.inicioEm ?? l.criadoEm);
   const seg = (fim: number) => (Number.isFinite(fim) && fim >= criado ? Math.round((fim - criado) / 1000) : null);
   const aberto = l.status !== 'resolvido';
   const prazo = ms(l.prazoEm);

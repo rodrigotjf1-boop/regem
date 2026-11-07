@@ -385,6 +385,8 @@ export class CardapioService {
     // já aberto não ganha outro: soma ao aberto e só sobe a prioridade (abrirPeloRobo).
     // O resumo do caso (Onda 1, PR 4): motivo, o que o cliente quer e o que o robô já fez — dos campos próprios ou das
     // linhas "Motivo / Quer / Já fiz" da mensagem. A resposta traz a POSIÇÃO na fila, que o robô diz ao cliente.
+    // Fora do HORÁRIO DA EQUIPE (mig 379), pelo horário DESTE cardápio: o caso vira recado e a resposta traz
+    // `foraDoHorario`, `equipeVolta` e `paraOCliente` (o robô manda a frase como veio, sem a posição).
     const prioridade = prioridadeDe(dto);
     return this.atendimento.abrirPeloRobo(cfg.tenantId, cfg.unidadeId, {
       tipo: dto?.tipo,
@@ -395,6 +397,7 @@ export class CardapioService {
       mensagem: dto?.mensagem,
       prioridade,
       resumo: resumoDoRobo(dto, prioridade === 'urgente'),
+      cardapioId: cfg.id,
     });
   }
 

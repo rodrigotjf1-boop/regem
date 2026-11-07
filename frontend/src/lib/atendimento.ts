@@ -32,7 +32,10 @@ export type CasoDaFila = {
   criadoEm: string;
   resolvidoEm?: string | null;
   resolvidoPorNome?: string | null;
-  situacao: 'fila' | 'com_alguem' | 'aguardando' | 'resolvido';
+  /** `abertura` (mig 379): recado deixado fora do horário da equipe, que entra na fila quando ela começa. */
+  situacao: 'fila' | 'com_alguem' | 'aguardando' | 'resolvido' | 'abertura';
+  /** O recado (mig 379): chegou fora do horário da equipe (`em`) e entra na fila em `ate`. Fica depois, para o selo. */
+  recado?: { ate: string | null; em: string } | null;
   posicao?: number | null;
   /** O que a plataforma mandou e o que a loja respondeu (mig 351): a disputa do iFood, o pedido da 99. */
   detalhe?: any;
@@ -82,7 +85,20 @@ export type EstadoDaFila = {
    * e a mudança está entrando). Fora da fila. `null` = não li (servidor antigo, sem internet); `[]` = nenhum.
    */
   adicionaisPix: AlertaDoAdicionalPix[] | null;
+  /**
+   * Os RECADOS PARA A ABERTURA (mig 379): o que o robô deixou fora do horário da equipe. Ficam FORA de `casos` — não tocam,
+   * não contam nos abertos nem no sino — até a equipe começar; aí o servidor os devolve como caso da fila.
+   */
+  recados: CasoDaFila[];
+  /** O horário da equipe agora (mig 379), para a faixa do topo. `null` = não veio (servidor da loja, servidor antigo). */
+  equipe: EquipeAgora | null;
 };
+export type EquipeAgora = { modo: 'sempre' | 'loja'; atendendo: boolean; voltaEm: string | null; voltaTexto: string | null };
+/** O recado da noite (mig 379): a hora em que chegou, para o selo "🌙 Recado das 02:14". */
+export function recadoDe(c: CasoDaFila): { em: string; ate: string | null } | null {
+  const r = c.recado ?? c.detalhe?.recado;
+  return r?.em ? { em: String(r.em), ate: r.ate ? String(r.ate) : null } : null;
+}
 export type AlertaDoAdicionalPix = {
   id: string;
   pedidoId: string;
@@ -110,7 +126,18 @@ export type SituacaoDaPonte =
 /** Os padrões do servidor (`AJUSTE_IFOOD_PADRAO`): a tela usa enquanto não leu. */
 export const AVISOS_PADRAO: AvisosDaFila = { disputa: { avisar: true, deNovoMin: 2 } };
 
-let estado: EstadoDaFila = { casos: [], contagens: null, lida: false, erro: false, eu: null, avisos: AVISOS_PADRAO, ponte: null, adicionaisPix: null };
+let estado: EstadoDaFila = {
+  casos: [],
+  contagens: null,
+  lida: false,
+  erro: false,
+  eu: null,
+  avisos: AVISOS_PADRAO,
+  ponte: null,
+  adicionaisPix: null,
+  recados: [],
+  equipe: null,
+};
 const ouvintes = new Set<() => void>();
 const avisar = () => ouvintes.forEach((f) => f());
 
@@ -132,8 +159,17 @@ export function relerFila(): Promise<void> {
   lendo = (async () => {
     try {
       const r: any = await api.atendimentoFila();
+      // Os recados para a abertura (mig 379) saem da fila de agora: quem lê `casos` (o alerta, o sino, a contagem) não os
+      // vê até a equipe começar — aí o servidor os devolve como caso da fila e eles entram como novidade, uma vez.
+      const todos: CasoDaFila[] = Array.isArray(r?.casos) ? r.casos : [];
+      const e = r?.equipe;
       estado = {
-        casos: Array.isArray(r?.casos) ? r.casos : [],
+        casos: todos.filter((c) => c.situacao !== 'abertura'),
+        recados: todos.filter((c) => c.situacao === 'abertura'),
+        equipe:
+          e && typeof e.atendendo === 'boolean'
+            ? { modo: e.modo === 'loja' ? 'loja' : 'sempre', atendendo: e.atendendo, voltaEm: e.voltaEm ?? null, voltaTexto: e.voltaTexto ?? null }
+            : null,
         contagens: r?.contagens ?? null,
         lida: true,
         erro: false,
@@ -327,3 +363,15 @@ export function tempoAte(iso: string | null | undefined, agora: number): string 
 
 export const hora = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' }) : '';
+
+/**
+ * O que o robô faz na conversa do caso aberto. O recado que espera a abertura (mig 379) NÃO cala o robô — a regra do
+ * servidor (`robo-pausa.ts`) —; os outros casos calam até serem resolvidos.
+ */
+export function fraseDoRoboNoCaso(c: CasoDaFila): string {
+  if (c.situacao === 'abertura') {
+    const ate = recadoDe(c)?.ate;
+    return `Recado para a abertura: o robô segue respondendo esta conversa até a equipe começar${ate ? ` (às ${hora(ate)})` : ''}. Depois, fica quieto até o caso ser resolvido.`;
+  }
+  return 'O robô fica quieto nesta conversa enquanto o caso está aberto, e volta quando ele for resolvido.';
+}

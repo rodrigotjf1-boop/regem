@@ -23,6 +23,15 @@ import { assinarConversaDoDirect, lerConversaDoDirect } from '../../common/conve
 import { uuidDeChave } from '../../common/id-deterministico';
 import { entregarJuntando } from '../whatsapp/juntar-mensagens';
 import { juntarMensagem, posicaoNaFila } from '../atendimento/abrir-chamado';
+import {
+  type Recado,
+  inicioDoCasoSql,
+  lerRecado,
+  recadoAtivoSql,
+  recadoDoCasoNovo,
+  respostaDoRecado,
+  situacaoDaEquipe,
+} from '../atendimento/horario-da-equipe';
 import { resumoDoRobo } from '../atendimento/resumo-do-robo';
 import {
   SEM_RESPOSTA_MS,
@@ -363,7 +372,9 @@ export class InstagramService {
       const [contato] = ((await tx.execute(sql`
         select nome, usuario from instagram_contato where tenant_id = ${conta.tenantId} and igsid = ${ev.igsid}`)) as any).rows ?? [];
       const [aberto] = ((await tx.execute(sql`
-        select id, aguardando_desde as "aguardava", criado_em as "criadoEm", responsavel_id as "responsavelId" from atendimento_chamado
+        select id, aguardando_desde as "aguardava", ${inicioDoCasoSql('atendimento_chamado')} as "criadoEm",
+               responsavel_id as "responsavelId", ${recadoAtivoSql('atendimento_chamado')} as recado
+          from atendimento_chamado
          where tenant_id = ${conta.tenantId} and tipo = 'instagram' and status = 'aberto' and detalhe #>> '{instagram,igsid}' = ${ev.igsid}
          order by criado_em desc limit 1`)) as any).rows ?? [];
       const [quieto] = roboLigado
@@ -395,9 +406,13 @@ export class InstagramService {
       }
       if (!decisao.abrir) return null; // o robô responde (ou a loja está respondendo pelo app do Instagram)
       const semRobo = querRobo && !roboLigado ? 'robo_indisponivel' : null;
+      // Fora do HORÁRIO DA EQUIPE (mig 379), pelo horário do cardápio do robô: o caso nasce como recado para a abertura
+      // (não toca). No Direct o robô não vê pedido — vale só o horário. Lido fora da transação (não a derruba).
+      const fora = await recadoDoCasoNovo(this.db, conta.tenantId, { cardapioId: cardapio?.id ?? conta.cardapioId ?? null });
       const detalhe = {
         plataforma: 'instagram',
         instagram: { igsid: ev.igsid, usuario: contato?.usuario ?? null, nome: contato?.nome ?? null, ultimaEm: ev.em.toISOString(), ...(semRobo ? { semRobo } : {}) },
+        ...(fora ? { recado: fora.recado } : {}),
       };
       const [novo] = ((await tx.execute(sql`
         insert into atendimento_chamado (tenant_id, unidade_id, tipo, canal, cliente, mensagem, prioridade, detalhe)
@@ -626,7 +641,8 @@ export class InstagramService {
       if (!conta) return { pode: false as const, motivo: 'robo_desligado' };
       const [l] = ((await tx.execute(sql`
         select (select row_to_json(x) from (
-                  select a.id, a.criado_em as "criadoEm", a.responsavel_id as "responsavelId",
+                  select a.id, ${inicioDoCasoSql('a')} as "criadoEm", a.responsavel_id as "responsavelId",
+                         ${recadoAtivoSql('a')} as recado,
                          (a.detalhe #>> '{instagram,avisoLiberado}') = 'true' as "avisoLiberado"
                     from atendimento_chamado a
                    where a.tenant_id = ${tenantId} and a.tipo = 'instagram' and a.status = 'aberto' and a.detalhe #>> '{instagram,igsid}' = ${igsid}
@@ -690,6 +706,8 @@ export class InstagramService {
    * a conversa já estava com alguém (V83) — se não estava, libera UMA resposta do robô (o "já chamei a equipe"); abre o
    * caso do Direct com o resumo (Motivo / Quer / Já fiz), ou soma ao que já está aberto (a prioridade só sobe). A resposta
    * traz a posição na fila (se a loja diz a posição) ou `comAlguem`.
+   * HORÁRIO DA EQUIPE (mig 379): fora do horário (o do cardápio do robô), o caso novo nasce como RECADO para a abertura
+   * e somar a um recado o mantém; a resposta traz `foraDoHorario`, `equipeVolta` e `paraOCliente` (sem a posição).
    */
   async abrirPeloRobo(tenantIdDoCardapio: string, dto: any) {
     const conv = lerConversaDoDirect(dto?.conversa);
@@ -700,12 +718,16 @@ export class InstagramService {
     const urgente = dto?.prioridade === 'urgente' || dto?.urgente === true || dto?.urgente === 'true';
     const resumo = resumoDoRobo(dto, urgente);
     const mensagem = typeof dto?.mensagem === 'string' && dto.mensagem.trim() ? dto.mensagem.trim().slice(0, 1000) : null;
-    const r = await this.db.transaction(async (tx: any) => {
-      const [conta] = ((await tx.execute(sql`select id from instagram_conta where tenant_id = ${tenantId} for update`)) as any).rows ?? [];
+    type Chamou = { id: string; novo: any; mudou: boolean; prioridade: string; recado: Recado | null; textoFora?: string | null; cardapioId: string | null };
+    const r = await this.db.transaction(async (tx: any): Promise<Chamou> => {
+      const [conta] = ((await tx.execute(sql`
+        select id, cardapio_id as "cardapioId" from instagram_conta where tenant_id = ${tenantId} for update`)) as any).rows ?? [];
       if (!conta) throw new NotFoundException('Instagram não conectado.');
+      const cardapioId: string | null = conta.cardapioId ?? null;
       const [l] = ((await tx.execute(sql`
         select (select row_to_json(x) from (
-                  select a.id, a.prioridade, a.mensagem, a.responsavel_id as "responsavelId", a.criado_em as "criadoEm"
+                  select a.id, a.prioridade, a.mensagem, a.responsavel_id as "responsavelId", a.criado_em as "criadoEm",
+                         a.detalhe -> 'recado' as recado, ${recadoAtivoSql('a')} as "recadoAtivo"
                     from atendimento_chamado a
                    where a.tenant_id = ${tenantId} and a.tipo = 'instagram' and a.status = 'aberto' and a.detalhe #>> '{instagram,igsid}' = ${igsid}
                    order by a.criado_em desc limit 1) x) as caso,
@@ -732,12 +754,19 @@ export class InstagramService {
                            || jsonb_build_object('instagram', coalesce(detalhe -> 'instagram', '{}'::jsonb) || jsonb_build_object('avisoLiberado', ${liberar}::boolean))
            where id = ${caso.id}
            returning *`)) as any).rows ?? [];
-        return { id: caso.id as string, novo: subiu ? row : null, mudou: !subiu, prioridade: row?.prioridade ?? caso.prioridade };
+        // Somou a um RECADO que ainda espera a equipe (mig 379): continua recado (o `detalhe.recado` fica — a mescla só
+        // toca o robô e o Direct) e a resposta repete ao robô quando a equipe volta.
+        const recado = caso.recadoAtivo === true ? lerRecado({ recado: caso.recado }) : null;
+        return { id: caso.id as string, novo: subiu ? row : null, mudou: !subiu, prioridade: row?.prioridade ?? caso.prioridade, recado, cardapioId };
       }
+      // Fora do HORÁRIO DA EQUIPE (mig 379), pelo horário do cardápio do robô: o caso nasce como recado para a abertura.
+      // No Direct o robô não vê pedido — vale só o horário. Lido fora da transação (não a derruba).
+      const fora = await recadoDoCasoNovo(this.db, tenantId, { cardapioId });
       const detalhe = {
         plataforma: 'instagram',
         instagram: { igsid, usuario: l?.contato?.usuario ?? null, nome: l?.contato?.nome ?? null, ultimaEm: new Date(agora).toISOString(), abertoPeloRobo: true, avisoLiberado: liberar },
         ...(robo ? { robo } : {}),
+        ...(fora ? { recado: fora.recado } : {}),
       };
       const [novo] = ((await tx.execute(sql`
         insert into atendimento_chamado (tenant_id, unidade_id, tipo, canal, cliente, mensagem, prioridade, detalhe)
@@ -748,10 +777,23 @@ export class InstagramService {
       await tx.execute(sql`
         update instagram_mensagem set chamado_id = ${novo.id}
          where tenant_id = ${tenantId} and igsid = ${igsid} and chamado_id is null and criado_em > now() - interval '12 hours'`);
-      return { id: novo.id as string, novo, mudou: false, prioridade: novo.prioridade };
+      return {
+        id: novo.id as string,
+        novo,
+        mudou: false,
+        prioridade: novo.prioridade,
+        recado: fora?.recado ?? null,
+        textoFora: fora?.situacao.textoFora ?? null,
+        cardapioId,
+      };
     });
     if (r.novo) this.events.emit('atendimento.novo', { tenantId, chamado: r.novo });
     else if (r.mudou) this.events.emit('atendimento.mudou', { tenantId, id: r.id, motivo: 'robo_somou' });
+    if (r.recado) {
+      // Fora do horário: o robô manda ao cliente `paraOCliente` como veio (quando a equipe volta), sem a posição.
+      const textoFora = r.textoFora !== undefined ? r.textoFora : (await situacaoDaEquipe(this.db, tenantId, { cardapioId: r.cardapioId })).textoFora;
+      return { ok: true, id: r.id, prioridade: r.prioridade, comAlguem: false, ...respostaDoRecado(r.recado, textoFora) };
+    }
     const pos = await posicaoNaFila(this.db, tenantId, r.id);
     const [cfg] = ((await this.db.execute(sql`select dizer_posicao as "dizer" from robo_config where tenant_id = ${tenantId}`)) as any).rows ?? [];
     return { ok: true, id: r.id, prioridade: r.prioridade, posicao: cfg?.dizer === false ? null : pos.posicao, comAlguem: pos.comAlguem };
@@ -767,7 +809,7 @@ export class InstagramService {
   async semResposta(): Promise<number> {
     if (ehServidorLocal()) return 0;
     const r: any = await this.db.execute(sql`
-      select c.tenant_id as "tenantId", m.igsid, m.id as "msgId", m.texto, m.tipo
+      select c.tenant_id as "tenantId", c.cardapio_id as "cardapioId", m.igsid, m.id as "msgId", m.texto, m.tipo
         from instagram_conta c
         join lateral (
           select distinct on (x.igsid) x.igsid, x.id, x.texto, x.tipo, x.autor, x.criado_em
@@ -793,7 +835,14 @@ export class InstagramService {
                              order by criado_em desc, id desc limit 1) = 'cliente'`)) as any).rows ?? [];
           if (!ainda) return null;
           const [ct] = ((await tx.execute(sql`select nome, usuario from instagram_contato where tenant_id = ${p.tenantId} and igsid = ${p.igsid}`)) as any).rows ?? [];
-          const detalhe = { plataforma: 'instagram', instagram: { igsid: p.igsid, usuario: ct?.usuario ?? null, nome: ct?.nome ?? null, ultimaEm: new Date().toISOString(), semResposta: true } };
+          // Fora do HORÁRIO DA EQUIPE (mig 379): o caso nasce como recado para a abertura — o "3 min sem resposta" não
+          // toca de madrugada; a conversa fica guardada para quando a equipe começar.
+          const fora = await recadoDoCasoNovo(this.db, p.tenantId, { cardapioId: p.cardapioId ?? null });
+          const detalhe = {
+            plataforma: 'instagram',
+            instagram: { igsid: p.igsid, usuario: ct?.usuario ?? null, nome: ct?.nome ?? null, ultimaEm: new Date().toISOString(), semResposta: true },
+            ...(fora ? { recado: fora.recado } : {}),
+          };
           const [c] = ((await tx.execute(sql`
             insert into atendimento_chamado (id, tenant_id, unidade_id, tipo, canal, cliente, mensagem, prioridade, detalhe)
             values (${uuidDeChave('instagram-sem-resposta', p.tenantId, p.msgId)}, ${p.tenantId}, null, 'instagram', 'instagram', ${nomeDoCliente(ct)},

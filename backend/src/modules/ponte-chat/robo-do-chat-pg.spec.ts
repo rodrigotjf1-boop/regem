@@ -86,7 +86,8 @@ descrever('o robô no chat do iFood e da 99 (Postgres)', () => {
 
   beforeAll(async () => {
     delete process.env.EDGE_MODE; // como NUVEM
-    for (const m of ['342_robo_pausa_e_config.sql', '366_ponte_do_chat.sql', '367_chat_ordem_e_indices.sql', '368_ponte_pausada.sql']) await aplicar(m);
+    for (const m of ['342_robo_pausa_e_config.sql', '366_ponte_do_chat.sql', '367_chat_ordem_e_indices.sql', '368_ponte_pausada.sql', '379_horario_da_equipe.sql'])
+      await aplicar(m);
     await q(`insert into empresa (id, nome) values ($1, 'teste robô do chat')`, [T]);
     [{ id: loja }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja A') returning id`, [T]);
     [{ id: ana }] = await q(`insert into colaborador (tenant_id, nome, unidade_id, status) values ($1, 'Ana', $2, 'ativo') returning id`, [T, loja]);
@@ -230,4 +231,70 @@ descrever('o robô no chat do iFood e da 99 (Postgres)', () => {
     expect(await fala('r-i', 'Cadê meu pedido?', 'loja')).toMatchObject({ recebidas: 1, casosNovos: 0, roboRespondeu: 0 });
     expect(await doRobo('r-i')).toEqual([]);
   });
+
+  // ───── HORÁRIO DA EQUIPE (mig 379): fora do horário da loja da conversa, o caso novo nasce como RECADO ─────
+  const FUSO = 'America/Sao_Paulo';
+  const daqui3 = new Date(Date.now() + 3 * 86_400_000);
+  const semanaSp = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(new Intl.DateTimeFormat('en-US', { timeZone: FUSO, weekday: 'short' }).format(daqui3));
+  const VOLTA = new Date(`${daqui3.toLocaleDateString('en-CA', { timeZone: FUSO })}T09:30:00-03:00`); // 30 min antes das 10:00
+  const foraDoHorario = async (fn: () => Promise<void>, textoFora: string | null = null) => {
+    await q(`update robo_config set equipe_atende = 'loja', equipe_fora_texto = $2 where tenant_id = $1`, [T, textoFora]);
+    await q(`insert into cardapio_config (tenant_id, unidade_id, token, ativo, horarios) values ($1, $2, $3, true, $4::jsonb)`, [
+      T,
+      loja,
+      `tok-chat-${randomUUID()}`,
+      JSON.stringify([{ dia: semanaSp, ativo: true, abre: '10:00', fecha: '11:00' }]),
+    ]);
+    try {
+      await fn();
+    } finally {
+      await q(`update robo_config set equipe_atende = 'sempre', equipe_fora_texto = null where tenant_id = $1`, [T]);
+      await q(`delete from cardapio_config where tenant_id = $1`, [T]);
+    }
+  };
+
+  it('fora do horário (pedido concluído): o caso nasce RECADO e no lugar do "já chamei" vai a frase de quando a equipe volta', () =>
+    foraDoHorario(async () => {
+      await pedido('r-noite', { status: 'concluido' });
+      expect(await fala('r-noite', 'Veio errado, um absurdo')).toMatchObject({ casosNovos: 1 });
+      const [caso] = await casosDo('r-noite');
+      expect(caso.detalhe.recado).toMatchObject({ ate: VOLTA.toISOString() });
+      expect(caso.detalhe.robo).toMatchObject({ humor: 'chateado' }); // o resumo do robô vai junto
+      const ditos = await doRobo('r-noite');
+      expect(ditos).toHaveLength(1);
+      expect(ditos[0]).toMatch(/^Nossa equipe volta (na|no) .+ às 09:30\. Já deixei o seu recado aqui/);
+      expect(ditos[0]).not.toBe(CHAMEI_A_EQUIPE);
+      // o recado NÃO cala o robô: o agradecimento é "nada" (com um caso comum, ele ficaria quieto e a fala somaria)
+      expect(await fala('r-noite', 'Obrigada!')).toMatchObject({ casosNovos: 0, casosSomados: 0 });
+      // o que ele não resolve soma no recado (não abre outro, não repete a frase)
+      expect(await fala('r-noite', 'Quero o reembolso')).toMatchObject({ casosNovos: 0, casosSomados: 1 });
+      expect(await doRobo('r-noite')).toHaveLength(1);
+    }));
+
+  it('fora do horário, a frase da loja com contato não sai no chat: vai a padrão (a trava da plataforma)', () =>
+    foraDoHorario(async () => {
+      await pedido('r-noite-2', { status: 'entregue' });
+      await fala('r-noite-2', 'Não chegou nada');
+      const [d] = await doRobo('r-noite-2');
+      expect(d).toMatch(/^Nossa equipe volta /);
+      expect(d).not.toMatch(/whats/i);
+    }, 'Chama no WhatsApp! Voltamos {volta}.'));
+
+  it('fora do horário com o pedido EM ANDAMENTO: conta como horário — caso comum na fila e o "já chamei"', () =>
+    foraDoHorario(async () => {
+      await pedido('r-andamento', { status: 'despachado' });
+      expect(await fala('r-andamento', 'Veio errado, um absurdo')).toMatchObject({ casosNovos: 1 });
+      const [caso] = await casosDo('r-andamento');
+      expect(caso.detalhe.recado).toBeUndefined();
+      expect(await doRobo('r-andamento')).toEqual([CHAMEI_A_EQUIPE]);
+    }));
+
+  it('fora do horário com o robô desligado (Etapa 2): o caso nasce RECADO e nada sai do robô', () =>
+    foraDoHorario(async () => {
+      await ajustar(true, false);
+      await pedido('r-noite-3', { status: 'concluido' });
+      expect(await fala('r-noite-3', 'Faltou o refri')).toMatchObject({ casosNovos: 1 });
+      expect((await casosDo('r-noite-3'))[0].detalhe.recado).toMatchObject({ ate: VOLTA.toISOString() });
+      expect(await doRobo('r-noite-3')).toEqual([]);
+    }));
 });

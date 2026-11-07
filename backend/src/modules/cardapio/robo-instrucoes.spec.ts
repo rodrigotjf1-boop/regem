@@ -78,6 +78,16 @@ describe('instruções do robô', () => {
     expect(texto).toContain('Nunca prometa tempo.');
   });
 
+  // .f16 (mig 379): o horário da equipe — fora dele, o chamado vira recado e a resposta traz a frase para o cliente.
+  it('fora do horário da equipe: manda paraOCliente como veio, sem "em instantes" nem a posição, e segue a conversa', () => {
+    expect(VERSAO_INSTRUCOES).toBe('2026-11-07.f16');
+    expect(texto).toContain('Se a resposta de chamar_atendente trouxer foraDoHorario = true');
+    expect(texto).toContain('mande ao cliente o texto de paraOCliente exatamente como veio');
+    expect(texto).toContain('NÃO diga "em instantes", não diga a posição na fila');
+    expect(texto).toContain('continue a conversa normalmente');
+    expect(texto).toContain('fora do horário da equipe, traz foraDoHorario = true e paraOCliente');
+  });
+
   it('o exemplo do resumo, lido como a central lê, dá as três partes (instrução e leitor andam juntos)', () => {
     const exemplo = (texto.match(/Ex\.: "(Motivo: [^"]+)"/) || [])[1] ?? '';
     expect(lerResumoDaMensagem(exemplo.replace(/ \/ /g, '\n'))).toEqual({
@@ -165,7 +175,7 @@ describe('instruções do robô — fluxo 2 (o pedido na conversa)', () => {
 
   // .f15 (PR 3b-2): o pedido que JÁ SAIU — o mesmo caminho, e o Regem chama a equipe como urgente e manda o "já chamei".
   it('o endereço do pedido que JÁ SAIU: o mesmo pedido_endereco + definir_entrega; o sistema chama a equipe e avisa o cliente', () => {
-    expect(VERSAO_INSTRUCOES).toBe('2026-11-04.f15');
+    expect(VERSAO_INSTRUCOES >= '2026-11-04.f15').toBe(true);
     expect(texto).toContain('O pedido JÁ SAIU para a entrega e o cliente quer outro endereço (enderecoPelaEquipe = true)');
     expect(texto).toContain('acao = pedido_endereco e o endereço novo em definir_entrega, como acima (sem a referência, se ele não disse)');
     expect(texto).toContain('O sistema chama a equipe como URGENTE (ela avisa o entregador e confere a distância)');

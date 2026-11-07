@@ -224,11 +224,14 @@ export type DecisaoDoDirect = {
  * caso só nasce do "chamar atendente", do "Assumir" ou do "sem resposta". Ele fica QUIETO quando a conversa está com
  * alguém — caso aberto com uma pessoa, caso aberto há menos que a pausa da loja (0 = até resolver), ou resposta da loja
  * pelo app do Instagram dentro da pausa (0 = 12 h) —, a mesma régua do "humano assumiu" do WhatsApp.
+ * HORÁRIO DA EQUIPE (mig 379): o caso que é RECADO esperando a abertura (`caso.recado`) e sem ninguém com ele não cala
+ * o robô — a mensagem entra no recado e o robô responde (salvo a loja respondendo pelo app do Instagram). Depois do
+ * `ate`, ele é um caso comum, e quem chama passa em `criadoEm` a volta da equipe: a pausa conta dali.
  */
 export function quemRespondeNoDirect(e: {
   roboLigado: boolean;
   filaLigada: boolean;
-  caso: { criadoEm: Date | string; responsavelId: string | null } | null;
+  caso: { criadoEm: Date | string; responsavelId: string | null; recado?: boolean | null } | null;
   ultimaDaLojaEm: Date | string | null;
   minutos: number;
   agora: number;
@@ -238,6 +241,7 @@ export function quemRespondeNoDirect(e: {
   const pausa = minutos > 0 ? minutos * 60_000 : null;
   const t = e.ultimaDaLojaEm ? new Date(e.ultimaDaLojaEm).getTime() : NaN;
   const lojaRespondeu = Number.isFinite(t) && agora - t < (pausa ?? CALADO_SEM_PRAZO_MS);
+  if (caso?.recado === true && !caso.responsavelId) return { anexar: true, abrir: false, robo: !lojaRespondeu };
   if (caso) {
     const idade = agora - new Date(caso.criadoEm).getTime();
     const comAlguem = !!caso.responsavelId || lojaRespondeu || pausa === null || idade < pausa;

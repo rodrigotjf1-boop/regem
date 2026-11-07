@@ -14,7 +14,10 @@ import { chaveTelefone, sqlChaveTelefone } from '../../common/telefone-chave';
 //    o robô não fica falando por cima de quem vai atender, mas também não some para sempre se ninguém aparecer;
 //  • RESOLVER o chamado devolve a conversa ao robô: chamado resolvido DEPOIS da pausa encerra a pausa. Vale também quando
 //    o chamado é resolvido no servidor da loja — a resolução chega à nuvem pelo sync e a regra a lê, sem aviso à parte;
-//  • "Retomar robô" vale contra tudo o que veio ANTES dele (pausa e chamado já aberto).
+//  • "Retomar robô" vale contra tudo o que veio ANTES dele (pausa e chamado já aberto);
+//  • HORÁRIO DA EQUIPE (mig 379): o chamado que é RECADO PARA A ABERTURA (`detalhe.recado`, fora do horário) NÃO cala o
+//    robô enquanto espera — não há ninguém para atender, e o robô segue respondendo o que sabe. No `ate` (a equipe
+//    começou) ele vira um chamado comum: o tempo da pausa conta DALI, não da criação.
 //
 // O número é comparado pela CHAVE do telefone (com/sem 55, com/sem o nono dígito — ERR-134).
 
@@ -30,6 +33,8 @@ export type ChamadoAberto = {
   prioridade?: 'normal' | 'urgente';
   /** O resumo da dificuldade que o robô escreveu ao chamar (a caixa mostra na faixa do chamado). */
   mensagem?: string | null;
+  /** Recado para a abertura (mig 379): até quando ele espera a equipe. Ausente/null = chamado comum. */
+  recadoAte?: Date | null;
 };
 const prioridadeDaLinha = (v: unknown): 'normal' | 'urgente' => (v === 'urgente' ? 'urgente' : 'normal');
 const mensagemDaLinha = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 500) : null);
@@ -48,6 +53,11 @@ type LinhaPausa = { ate: Date | null; motivo: string; atualizadoEm: Date } | nul
 const SEM_PAUSA: EstadoPausa = { pausado: false, ate: null, motivo: null, chamado: null };
 const linhas = (r: any): any[] => (Array.isArray(r) ? r : (r?.rows ?? []));
 const data = (v: any): Date | null => (v == null ? null : v instanceof Date ? v : new Date(v));
+/** O `recadoAte` do chamado (mig 379), só quando o caso é recado e a data é válida — o chamado comum fica como era. */
+const recadoDaLinha = (v: unknown): { recadoAte?: Date } => {
+  const d = typeof v === 'string' && v ? new Date(v) : null;
+  return d && !Number.isNaN(d.getTime()) ? { recadoAte: d } : {};
+};
 
 /**
  * A decisão, sem banco (testável caso a caso). `minutos` = robo_config.pausa_minutos (0 = sem prazo); `resolvidoEm` = a
@@ -69,9 +79,14 @@ export function decidirPausa(e: {
     (pausa.ate == null || pausa.ate.getTime() > agora.getTime()) &&
     !(resolvidoEm && resolvidoEm.getTime() > pausa.atualizadoEm.getTime());
 
-  const fimDoChamado = chamado && minutos > 0 ? new Date(chamado.criadoEm.getTime() + minutos * 60_000) : null;
+  // O recado que ainda espera a equipe não cala; o que já chegou à abertura conta o tempo da volta da equipe (mig 379).
+  const recadoAte = chamado?.recadoAte && !Number.isNaN(chamado.recadoAte.getTime()) ? chamado.recadoAte : null;
+  const recadoEsperando = !!recadoAte && recadoAte.getTime() > agora.getTime();
+  const inicioDoChamado = chamado ? (recadoAte ?? chamado.criadoEm) : null;
+  const fimDoChamado = inicioDoChamado && minutos > 0 ? new Date(inicioDoChamado.getTime() + minutos * 60_000) : null;
   const chamadoVale =
     !!chamado &&
+    !recadoEsperando &&
     !(retomadoEm && retomadoEm.getTime() >= chamado.criadoEm.getTime()) &&
     (minutos === 0 || (fimDoChamado as Date).getTime() > agora.getTime());
 
@@ -109,7 +124,8 @@ export async function estadoDaPausa(db: any, tenantId: string, telefone: string)
          select rp.ate, rp.motivo, rp.atualizado_em from robo_pausa rp
           where rp.tenant_id = ${tenantId}::uuid and rp.telefone_chave = ${k}) p) as pausa,
       (select row_to_json(c) from (
-         select a.id, a.tipo, a.pedido_numero, a.criado_em, a.prioridade, a.mensagem from atendimento_chamado a
+         select a.id, a.tipo, a.pedido_numero, a.criado_em, a.prioridade, a.mensagem,
+                a.detalhe -> 'recado' ->> 'ate' as recado_ate from atendimento_chamado a
           where a.tenant_id = ${tenantId}::uuid and a.status = 'aberto' and ${chaveDoChamado} = ${k}
           order by a.criado_em desc limit 1) c) as chamado,
       (select max(a.resolvido_em) from atendimento_chamado a
@@ -130,6 +146,7 @@ export async function estadoDaPausa(db: any, tenantId: string, telefone: string)
           criadoEm: data(c.criado_em) as Date,
           prioridade: prioridadeDaLinha(c.prioridade),
           mensagem: mensagemDaLinha(c.mensagem),
+          ...recadoDaLinha(c.recado_ate),
         }
       : null,
     minutos: Number(l.minutos),
@@ -149,7 +166,8 @@ export async function pausasDaLoja(db: any, tenantId: string): Promise<Map<strin
          select rp.telefone_chave, rp.ate, rp.motivo, rp.atualizado_em from robo_pausa rp
           where rp.tenant_id = ${tenantId}::uuid) p), '[]'::json) as pausas,
       coalesce((select json_agg(c) from (
-         select a.id, a.tipo, a.pedido_numero, a.criado_em, a.telefone, a.prioridade, a.mensagem from atendimento_chamado a
+         select a.id, a.tipo, a.pedido_numero, a.criado_em, a.telefone, a.prioridade, a.mensagem,
+                a.detalhe -> 'recado' ->> 'ate' as recado_ate from atendimento_chamado a
           where a.tenant_id = ${tenantId}::uuid and a.status = 'aberto' and a.telefone is not null
           order by a.criado_em desc limit 300) c), '[]'::json) as chamados,
       coalesce((select json_agg(x) from (
@@ -179,6 +197,7 @@ export async function pausasDaLoja(db: any, tenantId: string): Promise<Map<strin
       criadoEm: data(c.criado_em) as Date,
       prioridade: prioridadeDaLinha(c.prioridade),
       mensagem: mensagemDaLinha(c.mensagem),
+      ...recadoDaLinha(c.recado_ate),
     });
   }
   const resolvidos = new Map<string, Date>();

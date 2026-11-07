@@ -115,10 +115,11 @@ export async function portaoDaConferencia(
     on conflict (pedido_id, acao) where acao in ('conferir_entrega', 'conferir_entrega_resposta') do nothing
     returning id`);
   if (!(gravou?.rows ?? gravou ?? []).length) return { tratou: false, responder: null }; // já respondeu: segue ao robô
+  let responder = TEXTO_DEPOIS_DA_RESPOSTA[resposta];
   if (resposta !== 'ok') {
     const naoChegou = resposta === 'nao_chegou';
     const n = ped.numero ? ` #${ped.numero}` : '';
-    await abrirChamadoPeloRobo(db, emitir, d.tenantId, ped.unidadeId ?? d.unidadeId ?? null, {
+    const caso = await abrirChamadoPeloRobo(db, emitir, d.tenantId, ped.unidadeId ?? d.unidadeId ?? null, {
       tipo: 'erro',
       cliente: ped.clienteNome ?? d.nome ?? undefined,
       telefone: d.telefone,
@@ -133,6 +134,14 @@ export async function portaoDaConferencia(
         humor: null,
       },
     });
+    // HORÁRIO DA EQUIPE (mig 379): o pedido já concluído, fora do horário, vira RECADO para a abertura — o cliente não
+    // ouve "alguém responde em instantes", e sim quando a equipe volta (a frase da loja).
+    if (caso.foraDoHorario && caso.paraOCliente) responder = textoDepoisDaRespostaForaDoHorario(resposta, caso.paraOCliente);
   }
-  return { tratou: true, responder: TEXTO_DEPOIS_DA_RESPOSTA[resposta], pedidoId: ped.id, resposta };
+  return { tratou: true, responder, pedidoId: ped.id, resposta };
+}
+
+/** A resposta ao "Chegou tudo certo?" quando o caso virou recado (fora do horário da equipe): sem "em instantes". */
+export function textoDepoisDaRespostaForaDoHorario(resposta: RespostaDaConferencia, paraOCliente: string): string {
+  return resposta === 'problema' ? `Poxa, sinto muito! Me conta aqui o que aconteceu. ${paraOCliente}` : `Poxa! ${paraOCliente}`;
 }

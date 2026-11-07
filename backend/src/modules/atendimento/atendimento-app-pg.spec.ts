@@ -105,7 +105,7 @@ descrever('app "Regem Atendimento" (Postgres)', () => {
 
   beforeAll(async () => {
     delete process.env.EDGE_MODE; // como NUVEM
-    for (const m of ['342_robo_pausa_e_config.sql', '353_app_atendimento.sql']) await aplicar(m);
+    for (const m of ['342_robo_pausa_e_config.sql', '353_app_atendimento.sql', '379_horario_da_equipe.sql']) await aplicar(m);
     await q(`insert into empresa (id, nome) values ($1, 'teste app de atendimento')`, [T]);
     [{ id: lojaA }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja A') returning id`, [T]);
     [{ id: lojaB }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja B') returning id`, [T]);

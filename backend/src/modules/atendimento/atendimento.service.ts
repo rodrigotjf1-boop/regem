@@ -44,9 +44,16 @@ import {
   juntarMensagem,
 } from './abrir-chamado';
 import { canalDoCaso, posicoes, situacaoDo } from './fila';
+import { lerRecado, recadoAtivoSql, situacaoDaEquipe } from './horario-da-equipe';
 import { PRESENCA_VALE_MIN } from './presenca';
 import { FilaEAvisosService } from './fila-e-avisos.service';
 import { ehServidorLocal } from '../../common/modo';
+
+/**
+ * O RECADO PARA A ABERTURA na fila (mig 379): recado ativo e ninguém com ele (sem responsável, sem esperar o cliente) — a
+ * situação 'abertura'. O que alguém pegou de madrugada é um caso comum (com alguém / aguardando).
+ */
+const RECADO_NA_ESPERA = sql`(${recadoAtivoSql('c')} and c.responsavel_id is null and c.aguardando_desde is null)`;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -197,8 +204,13 @@ export class AtendimentoService {
    * A FILA da central: os casos ABERTOS da loja em uso (e os sem loja — o robô do WhatsApp atende a empresa toda), na
    * ordem da fila (prazo vencendo, urgente, quem espera há mais tempo), com a posição de quem espera uma pessoa e o
    * pedido ligado (situação e o número na plataforma). As CONTAGENS vêm do banco, não da lista (que tem limite — V39).
+   * HORÁRIO DA EQUIPE (mig 379): o RECADO que espera a abertura (sem ninguém com ele) é a situação 'abertura' — só vem
+   * com `comRecados` (a tela nova pede; o app Android e as telas antigas não recebem, para não tocar de madrugada) e fica
+   * fora das contagens de agora (`contagens.paraAbertura` conta os dele, sempre). Todo caso traz `recado` ({ ate, em })
+   * quando tem a marca — também depois do `ate`, para o selo "Recado das 02:14". `equipe`: se a equipe da loja em uso
+   * está agora e quando volta (a faixa "Fora do horário da equipe").
    */
-  async fila(user: AuthUser, unidadeAtual: string | null) {
+  async fila(user: AuthUser, unidadeAtual: string | null, opcoes: { comRecados?: boolean } = {}) {
     const loja = sqlUnidadeOuRede('c.unidade_id', unidadeAtual);
     const r: any = await this.db.execute(sql`
       select c.id, c.tipo, c.canal, c.cliente, c.telefone, c.mensagem, c.prioridade, c.status, c.decisao,
@@ -207,21 +219,36 @@ export class AtendimentoService {
              c.prazo_em as "prazoEm", c.criado_em as "criadoEm", c.detalhe, c.externo_id as "externoId",
              r.nome as "responsavelNome",
              p.canal as "pedidoCanal", p.status as "pedidoStatus", p.display_id as "pedidoNaPlataforma",
-             p.cliente_nome as "pedidoCliente", ${COLUNAS_DA_MUDANCA_DO_ENDERECO}
+             p.cliente_nome as "pedidoCliente", ${COLUNAS_DA_MUDANCA_DO_ENDERECO},
+             ${recadoAtivoSql('c')} as "recadoAtivo"
         from atendimento_chamado c
         left join colaborador r on r.id = c.responsavel_id and r.tenant_id = c.tenant_id
         left join pedido_externo p on p.id = c.pedido_id and p.tenant_id = c.tenant_id
         ${JUNTA_A_MUDANCA_DO_ENDERECO}
        where c.tenant_id = ${user.tenantId} and c.status = 'aberto' ${loja}
+             ${opcoes.comRecados ? sql`` : sql`and not ${RECADO_NA_ESPERA}`}
        order by (c.prazo_em is null), c.prazo_em, (c.prioridade = 'urgente') desc, c.criado_em
        limit ${LIMITE_DA_FILA}`);
-    const casos = posicoes((r.rows ?? r) as any[]).map((c) => ({
+    const casos = posicoes((r.rows ?? r) as any[]).map(({ recadoAtivo, ...c }) => ({
       ...comAMudancaDoEndereco(c),
       canal: canalDoCaso(c),
-      situacao: situacaoDo(c),
+      situacao: situacaoDo({ ...c, recadoAtivo }),
+      recado: lerRecado(c.detalhe),
     }));
+    const [contagens, equipe] = await Promise.all([this.contagens(user, loja), situacaoDaEquipe(this.db, user.tenantId, { unidadeId: unidadeAtual })]);
     // `eu`: quem pediu a fila — a tela marca "Comigo" e "você" sem ler o token (na nuvem a sessão é um cookie httpOnly).
-    return { casos, contagens: await this.contagens(user, loja), limite: LIMITE_DA_FILA, eu: user.colaboradorId ?? null };
+    return {
+      casos,
+      contagens,
+      limite: LIMITE_DA_FILA,
+      eu: user.colaboradorId ?? null,
+      equipe: {
+        modo: equipe.modo,
+        atendendo: equipe.atendendo,
+        voltaEm: equipe.voltaEm ? equipe.voltaEm.toISOString() : null,
+        voltaTexto: equipe.voltaTexto,
+      },
+    };
   }
 
   /** Os casos resolvidos HOJE (dia da operação, não da sessão do banco — ERR-120), os mais recentes primeiro. */
@@ -241,7 +268,12 @@ export class AtendimentoService {
          and c.resolvido_em >= ${instanteDe(hojeISO())}
        order by c.resolvido_em desc
        limit ${LIMITE_DA_FILA}`);
-    return ((r.rows ?? r) as any[]).map((c) => ({ ...comAMudancaDoEndereco(c), canal: canalDoCaso(c), situacao: 'resolvido' as const }));
+    return ((r.rows ?? r) as any[]).map((c) => ({
+      ...comAMudancaDoEndereco(c),
+      canal: canalDoCaso(c),
+      situacao: 'resolvido' as const,
+      recado: lerRecado(c.detalhe), // o selo "Recado das 02:14" (mig 379)
+    }));
   }
 
   /**
@@ -276,13 +308,14 @@ export class AtendimentoService {
   private async contagens(user: AuthUser, loja: ReturnType<typeof sqlUnidadeOuRede>) {
     const desdeHoje = instanteDe(hojeISO());
     const r: any = await this.db.execute(sql`
-      select count(*) filter (where c.status = 'aberto')::int as abertos,
+      select count(*) filter (where c.status = 'aberto' and not ${RECADO_NA_ESPERA})::int as abertos,
              count(*) filter (where c.status = 'aberto' and c.prazo_em is not null)::int as "comPrazo",
              count(*) filter (where c.status = 'aberto' and c.prazo_em is null and c.responsavel_id is null
-                                and c.aguardando_desde is null)::int as "naFila",
+                                and c.aguardando_desde is null and not ${RECADO_NA_ESPERA})::int as "naFila",
              count(*) filter (where c.status = 'aberto' and c.responsavel_id = ${user.colaboradorId ?? null})::int as comigo,
              count(*) filter (where c.status = 'aberto' and c.aguardando_desde is not null)::int as aguardando,
-             count(*) filter (where c.status = 'resolvido')::int as "resolvidosHoje"
+             count(*) filter (where c.status = 'resolvido')::int as "resolvidosHoje",
+             count(*) filter (where c.status = 'aberto' and ${RECADO_NA_ESPERA})::int as "paraAbertura"
         from atendimento_chamado c
        where c.tenant_id = ${user.tenantId} ${loja}
          and (c.status = 'aberto' or c.resolvido_em >= ${desdeHoje})`);

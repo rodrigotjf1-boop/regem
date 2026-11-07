@@ -22,6 +22,7 @@ import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { AtendimentoService } from './atendimento.service';
 import { DisputaIfoodService } from './disputa-ifood.service';
 import { Pedido99Service } from './pedido-99.service';
+import { inicioDoCasoSql, recadoAtivoSql } from './horario-da-equipe';
 import {
   AJUSTE_GESTOR_WA_PADRAO,
   AjusteGestorWa,
@@ -386,9 +387,13 @@ export class GestorWhatsappService {
                   or c.unidade_id = ch.unidade_id)
              and (ch.unidade_id is null
                   or exists (select 1 from unidade u where u.id = ch.unidade_id and u.tenant_id = ch.tenant_id and u.deleted_at is null))
+             -- HORÁRIO DA EQUIPE (mig 379): fora do horário ninguém é avisado — o recado que espera a abertura não gera aviso
+             -- (o "ninguém pegou" já não teria a marca; a decisão sem prazo, como um cancelamento, também não sai). A
+             -- disputa e a 99 têm prazo e nunca nascem como recado. Depois da abertura, a decisão conta da volta da equipe.
+             and not ${recadoAtivoSql('ch')}
              and (
                   (t.tipo = 'decisao' and rc.gestor_wa_decisoes
-                     and ch.criado_em > now() - make_interval(hours => ${DECISAO_ATE_HORAS})
+                     and ${inicioDoCasoSql('ch')} > now() - make_interval(hours => ${DECISAO_ATE_HORAS})
                      and (ch.prazo_em is null or ch.prazo_em > now()))
                or (t.tipo = 'ninguem_pegou' and rc.gestor_wa_ninguem_pegou
                      and ch.responsavel_id is null and ch.aguardando_desde is null

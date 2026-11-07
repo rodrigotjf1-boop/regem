@@ -12,6 +12,14 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **O horário da equipe — F1 do atendente virtual (07/11; mig 379 `@cloud-only` — só colunas em `robo_config`, que já
+  é SO_NUVEM; nenhuma estrutura nova em `atendimento_chamado`, que sincroniza: o recado vai em `detalhe.recado`; sem
+  `edge/`).** Na NUVEM com o merge (nasce em "Sempre" — nada muda até a loja escolher "No horário da loja" em
+  Delivery › Configurações › Atendimento › Horário da equipe). **No `.zip` 1.30.13:** a tela Atendimento do servidor da
+  loja separa os recados da noite ("🌙 Para a abertura", o selo "Recado das HH:MM") e pede a fila com `comRecados`; a
+  faixa "Fora do horário da equipe" não aparece lá (a `robo_config` é só da nuvem). O app Android não muda (não recebe
+  o recado que espera).
+
 - **O topo compacto da tela Atendimento (07/11; só tela, sem migration, sem `edge/`).** Na NUVEM com o merge. **No `.zip`
   1.30.13:** a mesma tela no servidor da loja (o teste grátis vira selo na barra do topo do Atendimento; as outras telas
   só ganham a barra que quebra a linha no estreito).

@@ -1,5 +1,15 @@
-import { CHAMEI_A_EQUIPE, RESPOSTAS_POR_HORA, decidir, intencaoDoCliente, respostaDoRobo, type PedidoDoRobo } from './robo-do-chat';
+import {
+  CHAMEI_A_EQUIPE,
+  FORA_DO_HORARIO_FIXA,
+  RESPOSTAS_POR_HORA,
+  decidir,
+  fraseForaDoHorarioNoChat,
+  intencaoDoCliente,
+  respostaDoRobo,
+  type PedidoDoRobo,
+} from './robo-do-chat';
 import { TEXTO_MAX, temContatoProibido } from './texto-do-chat';
+import type { SituacaoDaEquipe } from '../atendimento/horario-da-equipe';
 
 // O robô no chat do iFood e da 99 (ponte do chat, Etapa 3) — as regras sem banco: o que ele entende, o que ele responde
 // por situação e por quem entrega, e quando chama a equipe.
@@ -113,5 +123,41 @@ describe('o robô do chat: a decisão', () => {
         humor: 'chateado',
       },
     });
+  });
+});
+
+// Mig 379: fora do horário da equipe, o "Já chamei a equipe" vira a frase de quando a equipe volta — pela trava da
+// plataforma (nada de telefone, WhatsApp, Instagram ou link) e em até 300 letras.
+describe('o robô do chat: a frase de fora do horário da equipe', () => {
+  const equipe = (textoFora: string | null): SituacaoDaEquipe => ({
+    modo: 'loja',
+    atendendo: false,
+    voltaEm: new Date('2026-11-09T20:30:00Z'),
+    voltaTexto: 'hoje às 17:30',
+    frase: null,
+    textoFora,
+  });
+  const recado = { ate: '2026-11-09T20:30:00.000Z' };
+  const agora = new Date('2026-11-09T05:00:00Z');
+  beforeAll(() => jest.useFakeTimers({ now: agora }));
+  afterAll(() => jest.useRealTimers());
+
+  it('a frase da loja com a volta pelo `ate` do recado', () => {
+    expect(fraseForaDoHorarioNoChat(equipe('Voltamos {volta}, já anotei aqui.'), recado)).toBe('Voltamos hoje às 17:30, já anotei aqui.');
+  });
+  it('sem a da loja, a padrão; e ela passa na trava', () => {
+    const t = fraseForaDoHorarioNoChat(equipe(null), recado);
+    expect(t).toBe('Nossa equipe volta hoje às 17:30. Já deixei o seu recado aqui e respondemos assim que começarmos.');
+    expect(temContatoProibido(t)).toBe(false);
+    expect(t.length).toBeLessThanOrEqual(TEXTO_MAX);
+  });
+  it('a da loja com contato ou comprida demais (com a volta) não sai: vai a padrão', () => {
+    expect(fraseForaDoHorarioNoChat(equipe('Fala com a gente no WhatsApp: {volta}'), recado)).toContain('Nossa equipe volta hoje às 17:30');
+    expect(fraseForaDoHorarioNoChat(equipe(`${'x'.repeat(290)} {volta}`), recado)).toContain('Nossa equipe volta hoje às 17:30');
+  });
+  it('a frase fixa (a última saída) também passa na trava; sem recado nem equipe, a padrão sem hora', () => {
+    expect(temContatoProibido(FORA_DO_HORARIO_FIXA)).toBe(false);
+    expect(fraseForaDoHorarioNoChat(undefined, null)).toBe('Nossa equipe volta em breve. Já deixei o seu recado aqui e respondemos assim que começarmos.');
+    expect(fraseForaDoHorarioNoChat(undefined, null)).not.toBe(CHAMEI_A_EQUIPE);
   });
 });

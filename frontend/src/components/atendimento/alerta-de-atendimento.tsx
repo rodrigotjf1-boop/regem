@@ -8,6 +8,7 @@ import { getCategoria } from '@/lib/api';
 import {
   ROTULO_DO_TIPO,
   escaladoDe,
+  recadoDe,
   relerFila,
   tempoAte,
   tempoDesde,
@@ -211,6 +212,12 @@ export function AlertaDeAtendimento({ ativo }: { ativo: boolean }) {
     }
     const novos = casos.filter((c) => !ant.ids.has(c.id));
     if (!novos.length) return;
+    // Os recados da noite (mig 379) entram juntos quando a equipe começa: um aviso só, com a contagem, e um toque.
+    if (novos.every((c) => recadoDe(c))) {
+      toast.info(`🌙 ${novos.length === 1 ? '1 recado da noite entrou' : `${novos.length} recados da noite entraram`} na fila.`, 10000);
+      tocar('novo');
+      return;
+    }
     const c = novos[0];
     toast.info(
       `🔔 Atendimento: ${ROTULO_DO_TIPO[c.tipo] ?? 'Atendimento'} · ${tituloDoCaso(c)}${resumo(c)}${novos.length > 1 ? ` (+${novos.length - 1})` : ''}`,

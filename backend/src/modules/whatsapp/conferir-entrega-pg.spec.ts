@@ -62,7 +62,16 @@ descrever('"chegou tudo certo?" (Postgres)', () => {
     delete process.env.EDGE_MODE; // como NUVEM
     await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(readFileSync(MIG('215_whatsapp_mensagem.sql'), 'utf8'))));
     // A 363 (a mudança do pedido feito) altera o carrinho e o ajuste do robô (ERR-273: o `select()` do carrinho lê tudo).
-    for (const m of ['342_robo_pausa_e_config.sql', '344_robo_carrinho.sql', '347_aviso_de_atraso.sql', '349_lembrete_do_carrinho.sql', '352_conferir_entrega.sql', '363_robo_mudanca_do_pedido.sql'])
+    // A 379: o caso do "não chegou" fora do horário da equipe vira recado (ERR-273).
+    for (const m of [
+      '342_robo_pausa_e_config.sql',
+      '344_robo_carrinho.sql',
+      '347_aviso_de_atraso.sql',
+      '349_lembrete_do_carrinho.sql',
+      '352_conferir_entrega.sql',
+      '363_robo_mudanca_do_pedido.sql',
+      '379_horario_da_equipe.sql',
+    ])
       await aplicar(m);
   });
   beforeEach(() => {
@@ -236,6 +245,24 @@ descrever('"chegou tudo certo?" (Postgres)', () => {
     ]);
     // a mensagem seguinte do cliente não é mais a resposta: vai ao robô (o caso aberto cala o robô)
     expect(await portaoDaConferencia(db, emitir, { tenantId: t, telefone: NA_CONVERSA, texto: 'Não chegou' })).toMatchObject({ tratou: false });
+  });
+
+  it('"Não chegou" FORA do horário da equipe (mig 379): o caso vira recado e o cliente ouve quando a equipe volta — nada de "em instantes"', async () => {
+    const t = await loja();
+    // a equipe no horário da loja, e a única janela daqui a 3 dias: agora está fora
+    const daqui3 = new Date(Date.now() + 3 * 86_400_000);
+    const dia = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Sao_Paulo', weekday: 'short' }).format(daqui3));
+    await q(`update robo_config set equipe_atende = 'loja' where tenant_id = $1`, [t]);
+    await q(`update cardapio_config set horarios = $2::jsonb where tenant_id = $1`, [t, JSON.stringify([{ dia, ativo: true, abre: '10:00', fecha: '11:00' }])]);
+    await pedido(t);
+    await escreveu(t);
+    await rotina.perguntar();
+    const r = await portaoDaConferencia(db, emitir, { tenantId: t, telefone: NA_CONVERSA, texto: 'Não chegou', opcaoId: 'conferir_nao_chegou' });
+    expect(r.tratou).toBe(true);
+    expect(r.responder).toMatch(/^Poxa! Nossa equipe volta (na|no) .+ às 09:30\. Já deixei o seu recado aqui/);
+    expect(r.responder).not.toContain('em instantes');
+    const [caso] = await q(`select detalhe from atendimento_chamado where tenant_id = $1`, [t]);
+    expect(caso.detalhe.recado).toBeTruthy();
   });
 
   it('"Tudo certo" (por escrito): só agradece, sem caso; "Tive um problema": caso normal', async () => {

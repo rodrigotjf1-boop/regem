@@ -81,6 +81,25 @@ describe('robô calado numa conversa — a decisão', () => {
       decidirPausa({ pausa: semPrazo, chamado: chamado(T0), minutos: 60, resolvidoEm: null, agora: min(5) }).ate,
     ).toBeNull();
   });
+
+  // Mig 379: o chamado que é RECADO para a abertura (fora do horário da equipe) não cala o robô enquanto espera.
+  it('recado esperando a equipe: o robô responde (o chamado aparece na caixa); na volta da equipe, cala pelo prazo contado DALI', () => {
+    const recado = { ...chamado(T0), recadoAte: min(600) }; // a equipe volta 10 h depois
+    const esperando = decidirPausa({ pausa: null, chamado: recado, minutos: 60, resolvidoEm: null, agora: min(5) });
+    expect(esperando).toEqual({ pausado: false, ate: null, motivo: null, chamado: recado });
+    // "0 = até alguém retomar" também não cala o recado
+    expect(decidirPausa({ pausa: null, chamado: recado, minutos: 0, resolvidoEm: null, agora: min(5) }).pausado).toBe(false);
+    // a equipe chegou: chamado comum, calado do `ate` até `ate` + o prazo
+    expect(decidirPausa({ pausa: null, chamado: recado, minutos: 60, resolvidoEm: null, agora: min(610) })).toMatchObject({
+      pausado: true,
+      ate: min(660),
+      motivo: 'chamado',
+    });
+    expect(decidirPausa({ pausa: null, chamado: recado, minutos: 60, resolvidoEm: null, agora: min(661) }).pausado).toBe(false);
+    // a pausa do atendente vale sobre o recado (alguém respondeu de madrugada)
+    const pausa = { ate: min(65), motivo: 'atendente', atualizadoEm: min(5) };
+    expect(decidirPausa({ pausa, chamado: recado, minutos: 60, resolvidoEm: null, agora: min(10) })).toMatchObject({ pausado: true, motivo: 'atendente', ate: min(65) });
+  });
 });
 
 describe('a conversa na caixa', () => {

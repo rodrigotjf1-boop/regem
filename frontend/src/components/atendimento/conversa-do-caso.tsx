@@ -7,7 +7,7 @@ import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { MidiaMsg, mesmoNumero } from '@/components/whatsapp/midia-msg';
 import { BotaoCopiloto } from '@/components/atendimento/botao-copiloto';
-import type { CasoDaFila } from '@/lib/atendimento';
+import { fraseDoRoboNoCaso, type CasoDaFila } from '@/lib/atendimento';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -223,7 +223,7 @@ export function ConversaDoCaso({
         </>
       )}
       <p className="mt-2 text-xs text-secondary-foreground">
-        O robô fica quieto nesta conversa enquanto o caso está aberto, e volta quando ele for resolvido.{' '}
+        {fraseDoRoboNoCaso(c)}{' '}
         <Link href={`/whatsapp?numero=${numero}`} className="font-semibold text-foreground underline underline-offset-2">
           Ver em Delivery › WhatsApp
         </Link>
