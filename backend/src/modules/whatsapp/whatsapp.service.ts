@@ -12,6 +12,7 @@ import {
 import { lembrarEnvio } from './evolution-envios';
 import { anotarNaMemoria, chaveDaMemoria } from './robo-do-outro-lado';
 import { pedidosParaORobo } from './pedidos-do-robo';
+import { ehChaveDoDirect } from '../../common/conversa-do-robo';
 import {
   estadoDaPausa,
   minutosDaPausa,
@@ -876,6 +877,9 @@ export class WhatsappService {
   // da Meta. Loja migrada para a Cloud API nao tem instancia, e loja no Evolution nao
   // tem phone id — um dos dois basta, e o chamador manda o que tiver.
   private async lojaPorChaveBot(instancia?: string, phoneNumberId?: string) {
+    // O Direct do Instagram (mig 378) não é loja de WhatsApp: as rotas de telefone do robô (pedidos, situação do pedido,
+    // resolver, mídia) não acham loja para a chave `ig:` — tirando o `ig:`, sobram dígitos (V79).
+    if (ehChaveDoDirect(instancia)) return null;
     const pid = String(phoneNumberId ?? '').trim();
     if (pid) {
       const [c] = await this.db
@@ -956,6 +960,8 @@ export class WhatsappService {
     if (!segredoDoRoboOk(secret)) throw new BadRequestException('Não autorizado.');
     const cfg = await this.lojaPorChaveBot(instancia, phoneNumberId);
     if (!cfg) throw new NotFoundException('Número/instância não vinculado a uma loja.');
+    // `ig:<igsid>` (o Direct do Instagram) não é telefone: os últimos dígitos casariam com o pedido de um desconhecido.
+    if (ehChaveDoDirect(telefone)) return [];
     const tail = this.soNumero(telefone).slice(-8);
     if (tail.length < 8) return [];
     const rows = await this.db

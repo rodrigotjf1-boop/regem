@@ -282,9 +282,9 @@ export class AtendimentoController {
     // O copiloto (mig 376): liga/desliga só com booleano (V15), conferido antes de gravar qualquer grupo.
     if (dto?.copiloto !== undefined && typeof dto.copiloto?.ligado !== 'boolean')
       throw new BadRequestException('Copiloto: escolha ligado ou desligado.');
-    // "Mensagens do Direct na fila" (mig 377): só booleano (V15), conferido antes de gravar qualquer grupo.
-    if (dto?.instagram !== undefined && typeof dto.instagram?.filaLigada !== 'boolean')
-      throw new BadRequestException('Instagram Direct: escolha ligado ou desligado.');
+    // "Instagram Direct" (migs 377/378): a fila, o robô e o cardápio do robô — conferidos (com o banco) antes de gravar
+    // qualquer grupo (V86); só booleano nos liga/desliga (V15); o que não veio fica (V16).
+    const instagram = dto?.instagram !== undefined && this.instagram ? await this.instagram.conferirAjuste(user.tenantId, dto.instagram) : null;
     // A ponte: o texto e o papel dos PCs (lê as pontes da loja) — conferidos antes de gravar qualquer grupo.
     if (dto?.ponte !== undefined) await this.ponte.conferir(user, unidade, dto.ponte);
     if (dto?.ajuste99 !== undefined) await this.pedido99.salvarAjustes(user, dto);
@@ -299,7 +299,7 @@ export class AtendimentoController {
     if (alterado?.roboCobraPix !== undefined) await this.filaEAvisos.salvarRoboCobraAdicionalPix(user, alterado.roboCobraPix);
     if (gestorWa) await this.gestorWa?.salvar(user, gestorWa);
     if (dto?.copiloto !== undefined) await this.copiloto?.salvar(user, dto.copiloto.ligado);
-    if (dto?.instagram !== undefined) await this.instagram?.salvarFila(user, dto.instagram.filaLigada);
+    if (instagram) await this.instagram?.salvarAjuste(user, instagram);
     return this.ajustes(user, unidade);
   }
 

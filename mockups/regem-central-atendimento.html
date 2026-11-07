@@ -45,6 +45,12 @@
    a conta profissional do Instagram da loja: entrar e autorizar; o resto é da Regem) e a conversa do Direct como caso, com o
    perfil do cliente e a janela do Instagram (a loja só responde a quem escreveu, até 24 h depois da última mensagem; até
    7 dias como "atendente humano", quando a Meta liberar). Caminho oficial: Instagram API com o login do Instagram.
+   VERSÃO 8 (07/11/2026, F4 — o dono escolheu o Regem, não o Liame): O ROBÔ RESPONDE NO DIRECT — o mesmo robô do WhatsApp
+   (o fluxo do n8n, com as instruções do Regem) atende o Direct da loja: horário, área de entrega e taxa, o que tem no
+   cardápio, foto e o link do cardápio para pedir. O Instagram não diz quem é o cliente (nem telefone): no Direct o robô
+   NÃO vê pedido nem cadastro — "cadê meu pedido", reclamação, encomenda e "quero falar com alguém" viram caso, com o
+   resumo. A conversa que o robô está atendendo aparece em "Conversas agora" (chip Instagram) e dá para assumir. Ajuste
+   novo "Robô responde no Direct" (nasce desligado) e "Cardápio que o robô usa" (só com mais de uma loja).
    O que a tela faz:
    (1) uma FILA só com tudo o que precisa de uma pessoa: chamado do robô, disputa do iFood, pedido de cancelamento ou
        reembolso da 99, cancelamento pedido no cardápio e a resposta ao "sem contato". A conversa que o robô atende
@@ -445,6 +451,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 .notas ol,.notas ul{padding-left:22px}
 .notas .cartao{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin:10px 0}
 .notas a{color:var(--info);font-weight:600;overflow-wrap:anywhere}
+.notas code{overflow-wrap:anywhere}
 
 /* telas estreitas: o menu lateral some (no app é o ☰) */
 @media (max-width:900px){
@@ -555,7 +562,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     <main id="v-aj" hidden>
       <div class="trilha">Delivery › Configurações › Operação</div>
       <h1>Atendimento</h1>
-      <p class="resumo">30 ajustes em 7 grupos · item novo no grupo "Operação", ao lado de "Robô de atendimento" · grupos novos: "Gerente no WhatsApp", "Copiloto", "Instagram Direct" e "iFood e 99 · chat pela ponte"</p>
+      <p class="resumo">32 ajustes em 7 grupos · item novo no grupo "Operação", ao lado de "Robô de atendimento" · grupos novos: "Gerente no WhatsApp", "Copiloto", "Instagram Direct" e "iFood e 99 · chat pela ponte"</p>
       <div class="filtros" style="grid-template-columns:minmax(0,1fr)"><div class="campo"><label for="busca-aj">Buscar ajuste</label><input id="busca-aj" type="search" placeholder="Ex.: 99, disputa, som"></div></div>
 
       <section class="grupo" data-grupo>
@@ -599,13 +606,18 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <!-- Versão 7: o Instagram Direct da loja na fila. Conectar = entrar com a conta do Instagram da loja e autorizar; o
            resto (o app na Meta, o segredo, o aviso de mensagem, a renovação do acesso) é da Regem. -->
       <section class="grupo" data-grupo id="grupo-ig">
-        <header><h3>Instagram Direct <span class="novo-t">NOVO</span></h3><span>3 ajustes</span></header>
+        <header><h3>Instagram Direct <span class="novo-t">NOVO</span></h3><span>5 ajustes</span></header>
         <div class="aj"><div><span class="rot-aj">Instagram da loja</span><span class="ajuda" id="ig-estado">Não conectado. Conecte a conta profissional do Instagram da loja para as mensagens do Direct entrarem na fila.</span></div>
           <div class="ctrl" id="ig-botao"><button type="button" class="bt pri" data-dlg="conectar-ig">Conectar o Instagram</button></div></div>
-        <div class="aj"><div><span class="rot-aj">Mensagens do Direct na fila</span><span class="ajuda">Cada conversa nova vira caso, com o perfil do cliente. A resposta sai pelo Instagram da loja. Desligado, as mensagens continuam só no app do Instagram.</span></div>
+        <!-- Versão 8: o robô do WhatsApp responde também no Direct. Nasce desligado. -->
+        <div class="aj"><div><span class="rot-aj">Robô responde no Direct <span class="novo-t">NOVO</span></span><span class="ajuda">O mesmo robô do WhatsApp responde primeiro: horário, área de entrega e taxa, o que tem no cardápio, foto e o link do cardápio para pedir. O Instagram não diz quem é o cliente, então no Direct o robô não vê pedido nem cadastro: "cadê meu pedido", reclamação, encomenda e "quero falar com alguém" viram caso, com o resumo. Sem áudio por enquanto (ele pede para escrever).</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="false" aria-label="Robô responde no Direct" data-aj></button></div></div>
+        <div class="aj"><div><span class="rot-aj">Cardápio que o robô usa</span><span class="ajuda">O Instagram é da empresa; o horário, a taxa e o link saem do cardápio desta loja. Só aparece quando a empresa tem mais de uma loja com cardápio; com uma loja, é ela.</span></div>
+          <div class="ctrl"><select aria-label="Cardápio que o robô usa no Direct" data-aj><option>Burger da Praça · Centro</option><option>Burger da Praça · Penha</option></select></div></div>
+        <div class="aj"><div><span class="rot-aj">Mensagens do Direct na fila</span><span class="ajuda">Com o robô desligado: cada conversa nova vira caso, com o perfil do cliente. Com o robô ligado: vira caso só o que ele passa para a equipe ou quando alguém assume a conversa. A resposta sai pelo Instagram da loja. Desligado (e sem o robô), as mensagens continuam só no app do Instagram.</span></div>
           <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Mensagens do Direct na fila" data-aj></button></div></div>
-        <div class="aj"><div><span class="rot-aj">Sempre vale</span><span class="ajuda">Regras do Instagram: não se desligam.</span></div>
-          <div class="ctrl"><span class="fixo">A loja só responde a quem escreveu primeiro · até 24 h depois da última mensagem do cliente (até 7 dias, quando a Meta liberar o "atendente humano") · as mensagens seguem no app do Instagram também</span></div></div>
+        <div class="aj"><div><span class="rot-aj">Sempre vale</span><span class="ajuda">Regras do Instagram e do robô: não se desligam.</span></div>
+          <div class="ctrl"><span class="fixo">A loja só responde a quem escreveu primeiro · até 24 h depois da última mensagem do cliente (até 7 dias, quando a Meta liberar o "atendente humano") · as mensagens seguem no app do Instagram também · o robô fica quieto enquanto a conversa está com alguém (caso aberto ou resposta da loja pelo app do Instagram) · se o robô não responder em 3 min, a conversa vira caso</span></div></div>
       </section>
 
       <section class="grupo" data-grupo>
@@ -910,7 +922,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 
 <!-- ============ NOTAS ============ -->
 <section id="v-notas" hidden class="notas" aria-label="Notas do protótipo">
-  <div class="trilha">Notas do protótipo · 02/11/2026 · versão 3 em 04/11/2026</div>
+  <div class="trilha">Notas do protótipo · 02/11/2026 · versão 8 em 07/11/2026</div>
   <h1>Atendimento: o que cada parte faz</h1>
 
   <div class="cartao">
@@ -922,8 +934,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <li>Pedido de cancelamento ou de alteração feito no cardápio online (hoje já vira chamado).</li>
       <li>A resposta do cliente ao "sem contato" do entregador (no ar desde o #789).</li>
       <li>Versão 3: a mensagem do cliente no chat do iFood ou da 99 que o robô não resolve, trazida pela ponte, já com o resumo.</li>
+      <li>Versão 8: a conversa do Direct do Instagram que o robô passa para a equipe (pedido, reclamação, encomenda, "quero falar com alguém"), com o resumo.</li>
     </ul>
-    <p>A conversa que o robô está atendendo sozinho não é caso: ela aparece em <b>Conversas agora</b>, dos três canais (WhatsApp, iFood e 99), e qualquer pessoa pode assumir. Delivery › WhatsApp continua com o histórico completo do WhatsApp.</p>
+    <p>A conversa que o robô está atendendo sozinho não é caso: ela aparece em <b>Conversas agora</b>, dos quatro canais (WhatsApp, Instagram — versão 8 —, iFood e 99), e qualquer pessoa pode assumir. Delivery › WhatsApp continua com o histórico completo do WhatsApp.</p>
   </div>
 
   <div class="cartao">
@@ -1013,6 +1026,22 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   </div>
 
   <div class="cartao">
+    <h3>Robô no Direct do Instagram · versão 8 (07/11/2026)</h3>
+    <p>O mesmo robô do WhatsApp responde primeiro no Direct da loja. Escolhas recomendadas, já aplicadas:</p>
+    <ul>
+      <li><b>O mesmo robô, as mesmas instruções.</b> O Direct vai para o fluxo do robô que já atende o WhatsApp (o agente de IA e as consultas da loja e do cardápio); o texto das instruções sai do Regem, com uma versão para o Direct. Muda o jeito do robô no Direct sem a loja mexer em nada.</li>
+      <li><b>No Direct o robô não sabe quem é o cliente.</b> O Instagram manda só o perfil (nome e @), nunca o telefone. Por isso o robô <b>não vê pedido nem cadastro</b> nem monta pedido na conversa — mesmo que o cliente escreva um telefone (qualquer um poderia escrever o número de outra pessoa). Para pedir, ele manda o <b>link do cardápio</b>, que já marca que o pedido veio do Direct.</li>
+      <li><b>Vira caso, com o resumo</b> ("O robô resumiu"): "cadê meu pedido", reclamação, encomenda ou pedido grande, troca, cancelamento e "quero falar com alguém". O robô diz ao cliente que chamou a equipe e o lugar na fila (se a loja liga "Dizer ao cliente a posição na fila").</li>
+      <li><b>Quieto quando é com alguém:</b> enquanto há caso aberto da conversa (pelo tempo de pausa da loja, como no WhatsApp) ou quando a loja respondeu pelo próprio app do Instagram. Resolver o caso devolve a conversa ao robô.</li>
+      <li><b>Conversas agora</b> mostra o Direct que o robô está atendendo (chip Instagram); "Assumir a conversa" cala o robô e põe o caso com você.</li>
+      <li><b>Se o robô não responder</b> (fora do ar, sem o endereço do robô na Regem): a conversa vira caso — resposta que não saiu não conta como respondida. A mesma coisa se ele não responder em 3 minutos.</li>
+      <li><b>Sem áudio no Direct por enquanto:</b> ele pede, com gentileza, para escrever. O robô fala por escrito (o Instagram não aceita o áudio que o robô gera). Opções viram uma lista numerada; textos longos saem em até 3 mensagens (o Instagram aceita até 1.000 bytes por mensagem).</li>
+      <li><b>Cardápio que o robô usa:</b> o Instagram é da empresa; com mais de uma loja, escolhe-se de qual cardápio saem horário, taxa e link. Com uma loja, é ela.</li>
+      <li><b>Nasce desligado</b> ("Robô responde no Direct"). Precisa do Instagram conectado.</li>
+    </ul>
+  </div>
+
+  <div class="cartao">
     <h3>Instagram Direct · versão 7 (06/11/2026)</h3>
     <p>As mensagens do Direct da loja entram na mesma fila, com o chip "Instagram" e o perfil do cliente. Escolhas recomendadas, já aplicadas:</p>
     <ul>
@@ -1020,7 +1049,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <li><b>As regras do Instagram</b> (<a href="https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/messaging-api/">Messaging API</a>): a loja só responde a quem escreveu primeiro; até 24 h depois da última mensagem do cliente; até 7 dias marcando a resposta como "atendente humano", quando a Meta liberar essa permissão; texto até 1.000 bytes; áudio em aac, m4a, wav ou mp4 (não OGG), imagem png ou jpeg até 8 MB. As mensagens também ficam no app do Instagram; a recebida pelo Regem só aparece como lida lá depois de respondida.</li>
       <li><b>Caso</b>: cada conversa nova do Direct vira caso (um aberto por cliente); o que a loja responde no próprio app do Instagram também aparece na conversa (o Instagram avisa o Regem). Identificação: o nome do perfil e o @. O Instagram não manda telefone: o pedido só se liga quando o cliente pedir por um canal da loja.</li>
       <li>No Instagram a loja pode mandar link e telefone (o canal é dela) — a trava de contato é só do chat do iFood e da 99.</li>
-      <li>O robô no Direct fica para depois (a mesma etapa do robô nos outros canais).</li>
+      <li>O robô no Direct entra na versão 8 (cartão abaixo).</li>
       <li><b>Da sua parte (Meta, conta da distribuição)</b>: somar o produto "Instagram" ao app do Regem; o endereço de retorno do login e o do aviso de mensagem; pedir o "Acesso avançado" das duas permissões na Análise do app (com o vídeo do Regem mostrando: conectar, receber no Regem, responder) e, depois, a do "atendente humano". Até a Meta aprovar, só contas com papel no app (teste) conectam.</li>
     </ul>
   </div>
@@ -1093,8 +1122,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     { id: 'n1', canal: 'n99', motivo: 'Faltou item', tipo: 'chat', urgente: false, titulo: 'João P. · pedido 99Food 92 · faltou item', cliente: 'João P.',
       pedido: '92', fala: '"Veio sem o refrigerante" · no chat da 99', resp: 'Bruno', sit: 'comigo', espera: '5 min', robo: true },
     // Versão 7 — o Instagram Direct da loja: identificado pelo @ do cliente (e o nome do perfil).
-    { id: 'ig1', canal: 'ig', motivo: 'Outro', tipo: 'instagram', urgente: false, titulo: 'Joana Souza · @joana.souza · Direct',
-      cliente: 'Joana Souza', pedido: '', fala: '"Quero fazer um pedido grande pra sábado, umas 15 pessoas"', resp: null, sit: 'fila', espera: '6 min' },
+    // Versão 8: o robô atendeu no Direct e passou a encomenda para a equipe (o caso nasce com o resumo).
+    { id: 'ig1', canal: 'ig', motivo: 'Encomenda', tipo: 'instagram', urgente: false, titulo: 'Joana Souza · @joana.souza · Direct · encomenda',
+      cliente: 'Joana Souza', pedido: '', fala: '"Quero fazer um pedido grande pra sábado, umas 15 pessoas"', resp: null, sit: 'fila', espera: '6 min', robo: true },
     // O que o robô está atendendo agora (não é caso): situação "Conversas agora", dos três canais.
     { id: 'v1', canal: 'wa', motivo: 'Pedido', tipo: 'robo', urgente: false, titulo: 'Fernanda · fazendo um pedido', cliente: 'Fernanda', tel: '(21) 99876-5432',
       pedido: '', fala: 'Cliente cadastrada: aparece pelo nome · 2 itens no carrinho', resp: null, sit: 'robo', espera: '' },
@@ -1104,6 +1134,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       pedido: '4790', fala: 'O robô respondeu: chega por volta das 20h40', resp: null, sit: 'robo', espera: '' },
     { id: 'v4', canal: 'n99', motivo: 'Aviso', tipo: 'robo', urgente: false, titulo: 'Carla M. · pedido 99Food 95 · aviso "saiu" enviado', cliente: 'Carla M.',
       pedido: '95', fala: 'A cliente respondeu "Obrigada!"', resp: null, sit: 'robo', espera: '' },
+    // Versão 8: o robô atendendo no Direct (sem caso). Identificação: o nome do perfil e o @.
+    { id: 'v5', canal: 'ig', motivo: 'Dúvida', tipo: 'robo', urgente: false, titulo: 'Lívia Ramos · @livia.ramos · perguntou do cardápio', cliente: 'Lívia Ramos',
+      pedido: '', fala: 'O robô mandou o link do cardápio e a taxa da Penha', resp: null, sit: 'robo', espera: '' },
     { id: 'c5', canal: 'wa', motivo: 'Sem contato', tipo: 'conversa', urgente: true, titulo: 'Marcos · pedido 1182 · respondeu ao "sem contato"',
       cliente: 'Marcos', tel: '(21) 99231-0045', pedido: '1182', fala: '"Estou no portão azul, pode subir"', resp: 'Ana', sit: 'comigo', espera: '2 min' },
     { id: 'c4', canal: 'wa', motivo: 'Faltou item', tipo: 'conversa', urgente: false, titulo: 'Juliana · pedido 1176 · faltou item', cliente: 'Juliana',
@@ -1173,7 +1206,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     $$('#sits .sit').forEach((b) => b.addEventListener('click', () => { filtroSit = b.dataset.sit; desenharTudo(); }));
     const ab = n.todos;
     $('#titulo-fila').textContent = `${ab} casos abertos`;
-    $('#resumo-fila').innerHTML = `${n.prazo} com prazo · ${n.fila} na fila · o robô está em ${n.conversas} conversas agora, no WhatsApp, no iFood e na 99 (<a href="#" id="ir-conversas">ver em Conversas agora</a>)`;
+    $('#resumo-fila').innerHTML = `${n.prazo} com prazo · ${n.fila} na fila · o robô está em ${n.conversas} conversas agora, no WhatsApp, no Instagram, no iFood e na 99 (<a href="#" id="ir-conversas">ver em Conversas agora</a>)`;
     $('#ir-conversas').addEventListener('click', (e) => { e.preventDefault(); filtroSit = 'conversas'; desenharTudo(); });
     $('#badge-menu').textContent = ab; $('#badge-sino').textContent = ab;
     $('#sino').setAttribute('aria-label', `Avisos de atendimento: ${ab} abertos`);
@@ -1332,9 +1365,18 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     v2: { msgs: [['cli', 'Vocês abrem até que horas?', '20:25'], ['robo', 'Hoje até as 23h59! Quer ver o cardápio?', 'robô · 20:25']] },
     v3: { msgs: [['cli', 'Vai demorar muito?', '20:22'], ['robo', 'Oi, Paulo! Seu pedido está na cozinha e sai em uns 10 minutos. Chega por volta das 20h40.', 'robô · 20:22']] },
     v4: { msgs: [['auto', 'Seu pedido saiu para entrega! Chega por volta das 20h45.', 'aviso automático · 20:20'], ['cli', 'Obrigada!', '20:21']] },
-    ig1: { msgs: [['cli', 'Oi! Vocês entregam no Centro?', '20:12'], ['cli', 'Quero fazer um pedido grande pra sábado, umas 15 pessoas', '20:13']],
+    ig1: { msgs: [['cli', 'Oi! Vocês entregam no Centro?', '20:12'],
+        ['robo', 'Oi, Joana! Entregamos no Centro, sim — a taxa é R$ 7,00. O cardápio está aqui 👇 app.dmsregem.com/c/burgerdapraca', 'robô · 20:12'],
+        ['cli', 'Quero fazer um pedido grande pra sábado, umas 15 pessoas', '20:13'],
+        ['robo', 'Que legal! Encomenda grande quem combina é a equipe da loja. Já chamei: você é a 1ª da fila.', 'robô · 20:13']],
+      resumo: [['Motivo', 'Encomenda'], ['Quer', 'Pedido para 15 pessoas no sábado'], ['Já fiz', 'Disse que entregamos no Centro (taxa R$ 7,00) e mandei o cardápio']],
       prontas: ['Oi! Entregamos sim. Me conta o que você precisa?', 'Para pedidos grandes, fazemos encomenda: me passa a data e a hora?', 'Nosso cardápio está no link da bio.'],
       perfil: { usuario: '@joana.souza', nome: 'Joana Souza', segue: true } },
+    v5: { msgs: [['cli', 'Oi, vcs têm lanche vegano?', '20:26'],
+        ['robo', 'Oi, Lívia! Temos o Smash Veggie (R$ 32,00), com hambúrguer de grão-de-bico. Dá uma olhada 👇 app.dmsregem.com/c/burgerdapraca?produto=smash-veggie', 'robô · 20:26'],
+        ['cli', 'Entregam na Penha?', '20:27'],
+        ['robo', 'Entregamos! A taxa da Penha é R$ 6,00 e chega em uns 40 min. É só pedir pelo link 😉', 'robô · 20:27']],
+      perfil: { usuario: '@livia.ramos', nome: 'Lívia Ramos', segue: false } },
   };
   // Versão 5 (copiloto, item 7): sugestões de exemplo — no Regem, o modelo de IA escreve com a conversa, o pedido e as
   // respostas prontas da loja. Duas por caso, para o "Outra sugestão".
@@ -1398,8 +1440,11 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   }
   function casoRobo(c) {
     const d = CONVERSAS[c.id];
-    const titulo = c.canal === 'wa' ? 'Conversa no WhatsApp' : `Chat ${c.canal === 'ifood' ? 'do iFood' : 'da 99'} com ${esc(c.cliente)}`;
-    const lado = c.pedido
+    // Versão 8: no Direct, a identificação é o perfil do Instagram (nome e @) — sem telefone, sem pedido ligado.
+    const titulo = c.canal === 'wa' ? 'Conversa no WhatsApp' : c.canal === 'ig' ? `Direct do Instagram com ${esc(d.perfil.usuario)}` : `Chat ${c.canal === 'ifood' ? 'do iFood' : 'da 99'} com ${esc(c.cliente)}`;
+    const lado = c.canal === 'ig'
+      ? `<section class="bloco"><h3>Cliente</h3><p style="margin:0;font-size:14px"><b>${esc(d.perfil.nome)}</b> · ${esc(d.perfil.usuario)}</p><p class="ajuda" style="margin:6px 0 0">${d.perfil.segue ? 'Segue a loja no Instagram.' : 'Não segue a loja.'} O Instagram não manda telefone: no Direct o robô responde sobre a loja e o cardápio e manda o link para pedir. Pedido, reclamação e encomenda vão para a equipe.</p></section>`
+      : c.pedido
       ? blocoPedido(c.pedido)
       : `<section class="bloco"><h3>Cliente</h3><p style="margin:0;font-size:14px">${esc(c.tel ? `${c.cliente} · ${c.tel}` : c.cliente)}</p><p class="ajuda" style="margin:6px 0 0">${c.tel ? 'Cliente cadastrada: aparece pelo nome.' : 'Sem cadastro: aparece pelo número do WhatsApp.'}</p></section>`;
     return topo(c, '<button type="button" class="bt pri" data-assumir>Assumir a conversa</button>') + `<div class="c-corpo"><div class="col">
@@ -1486,7 +1531,14 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     const d = CONVERSAS[c.id];
     const acoes = c.resp ? `<button type="button" class="bt" data-dlg="passar">Passar</button><button type="button" class="bt">Aguardar o cliente</button><button type="button" class="bt ok" data-dlg="resolver">Resolver</button>`
       : `<button type="button" class="bt pri">Pegar para mim</button><button type="button" class="bt" data-dlg="passar">Passar</button><button type="button" class="bt ok" data-dlg="resolver">Resolver</button>`;
-    return topo(c, acoes) + `<div class="c-corpo"><div class="col">
+    // Versão 8: o caso que o robô passou para a equipe abre com o resumo, como no WhatsApp.
+    const resumo = c.robo && d.resumo
+      ? `<section class="bloco resumo-robo"><h3>🤖 O robô resumiu <span class="dir">aberto às 20:13</span></h3><dl>${d.resumo.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl></section>`
+      : '';
+    const historico = c.robo
+      ? '<li><span class="h">20:12</span><span>Joana escreveu no Direct da loja</span></li><li><span class="h">20:12</span><span>O robô respondeu (área de entrega e cardápio)</span></li><li><span class="h">20:13</span><span>O robô passou para a equipe: encomenda</span></li>'
+      : '<li><span class="h">20:12</span><span>Joana escreveu no Direct da loja</span></li><li><span class="h">20:12</span><span>O Regem abriu o caso (Instagram Direct na fila)</span></li>';
+    return topo(c, acoes) + `<div class="c-corpo"><div class="col">${resumo}
       <section class="bloco"><h3>Direct do Instagram com ${esc(d.perfil.usuario)} <span class="dir">pela conta @burgerdapraca</span></h3>
         <div class="msgs" data-msgs>${msgsHtml(d.msgs, c.canal)}</div>
         <div class="prontas" aria-label="Respostas prontas">${(d.prontas || []).map((p) => `<button type="button" class="pronta" data-pronta>${esc(p)}</button>`).join('')}</div>
@@ -1496,7 +1548,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <div class="col"><section class="bloco"><h3>Cliente</h3>
         <p style="margin:0;font-size:14px"><b>${esc(d.perfil.nome)}</b> · ${esc(d.perfil.usuario)}</p>
         <p class="ajuda" style="margin:6px 0 0">${d.perfil.segue ? 'Segue a loja no Instagram.' : 'Não segue a loja.'} Sem pedido ligado: o Instagram não manda telefone. Se ela fizer o pedido pelo cardápio ou pelo WhatsApp, ele aparece aqui.</p></section>
-      <section class="bloco"><h3>Histórico do caso</h3><ol class="linha-tempo"><li><span class="h">20:12</span><span>Joana escreveu no Direct da loja</span></li><li><span class="h">20:12</span><span>O Regem abriu o caso (Instagram Direct na fila)</span></li></ol></section></div></div>`;
+      <section class="bloco"><h3>Histórico do caso</h3><ol class="linha-tempo">${historico}</ol></section></div></div>`;
   }
   const RENDER = { disputa: casoDisputa, 'disputa-atraso': casoDisputa, n99: caso99, 'n99-reembolso': caso99Reembolso, conversa: casoConversa, cardapio: casoCardapio, feito: casoFeito, chat: casoChat, robo: casoRobo, avaliacao: casoAvaliacao, instagram: casoInstagram };
   // O envio pelo Instagram (versão 7): sai na hora pela conta da loja; o Regem guarda a mensagem (a Meta não guarda).

@@ -112,6 +112,9 @@ import { escolhaNoCheckout, promocoesDaLoja } from './promocoes-cardapio';
 import { TIPOS_EVENTO_FUNIL, ehTemplateCardapio, proximaAberturaDe, templateDoCardapio } from './menu-themes';
 import { ehEventoCardapio, eventoEmPrevia, eventoNoAr, lerEventos } from './eventos-cardapio';
 import type { Distancia } from '../atendimento/endereco-depois-que-saiu';
+import { InstagramService } from '../instagram/instagram.service';
+import { idDaChave } from '../instagram/instagram';
+import { ehChaveDoDirect } from '../../common/conversa-do-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // O tema que a tela mandou, sem a chave dos eventos sazonais (ela não se grava pela rota geral).
@@ -161,6 +164,8 @@ export class CardapioService {
     @Optional() private readonly chegadaInj?: ChegadaService,
     // Aniversário (mig 357): o cupom pessoal e o "só aniversariantes". Opcional: sem ela, uma instância só com o banco.
     @Optional() private readonly aniversarioInj?: AniversarioService,
+    // O robô no Direct do Instagram (mig 378): o "chamar atendente" abre o caso do Direct. Opcional, como as de cima.
+    @Optional() private readonly instagram?: InstagramService,
   ) {}
 
   private chegadaLocal?: ChegadaService;
@@ -369,6 +374,12 @@ export class CardapioService {
   async abrirAtendimento(token: string, dto: any, segredo: string) {
     if (!segredoDoRoboOk(segredo)) throw new UnauthorizedException('Não autorizado.');
     const cfg = await this.resolver(token);
+    // O robô no Direct do Instagram (mig 378): o "telefone" é `ig:<igsid>` — o caso é o do Direct, só com a ficha do Direct
+    // desta empresa e deste cliente. NUNCA cai no caminho do telefone: tirando o `ig:`, sobram dígitos (V79).
+    if (ehChaveDoDirect(dto?.telefone)) {
+      if (!this.instagram || !idDaChave(dto?.telefone)) throw new UnauthorizedException('Conversa do Direct inválida.');
+      return this.instagram.abrirPeloRobo(cfg.tenantId, dto);
+    }
     const pedido = await this.pedidoDoChamado(cfg.tenantId, dto?.pedidoNumero, dto?.telefone);
     // Cliente irritado → `urgente: true` (mig 343): a tela põe na frente, em vermelho. O mesmo cliente com um chamado
     // já aberto não ganha outro: soma ao aberto e só sobe a prioridade (abrirPeloRobo).
@@ -445,6 +456,13 @@ export class CardapioService {
     const pid = String(phoneNumberId ?? '').trim();
     const inst = String(instancia ?? '').trim();
     if (!pid && !inst) throw new BadRequestException('Informe a instância ou o phoneNumberId.');
+    // O Direct do Instagram (mig 378): a chave `ig:<conta>` dá o cardápio que o robô do Direct usa — só com o robô do
+    // Direct ligado. É a ÚNICA porta das consultas que conhece `ig:`; as de telefone (pedidos, link do cliente) recusam.
+    if (!pid && ehChaveDoDirect(inst)) {
+      const c = this.instagram ? await this.instagram.cardapioDaConta(inst) : null;
+      if (!c) throw new NotFoundException('Instagram não vinculado a uma loja com o robô ligado.');
+      return c.token;
+    }
     const [cfg] = await this.db
       .select({ token: cardapioConfig.token })
       .from(cardapioConfig)

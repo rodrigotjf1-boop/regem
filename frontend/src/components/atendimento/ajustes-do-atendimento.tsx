@@ -125,7 +125,13 @@ type Resposta = {
 
 const paraValores = (r: Resposta): Valores => ({
   ...(r.copiloto ? { copilotoLigado: r.copiloto.ligado } : {}),
-  ...(r.instagram?.conta ? { instagramFila: r.instagram.conta.filaLigada } : {}),
+  ...(r.instagram?.conta
+    ? {
+        instagramFila: r.instagram.conta.filaLigada,
+        instagramRobo: r.instagram.conta.roboResponde === true,
+        instagramCardapio: r.instagram.conta.cardapioId ?? '',
+      }
+    : {}),
   ...(r.gestorWa
     ? {
         gestorWaLigado: r.gestorWa.ligado,
@@ -607,11 +613,14 @@ export function AjustesDoAtendimento() {
       }
     : null;
   // O Instagram Direct (mig 377; protótipo v7): conectar a conta profissional da loja e "Mensagens do Direct na fila".
+  // O robô no Direct (mig 378; protótipo v8): "Robô responde no Direct" (nasce desligado) e "Cardápio que o robô usa"
+  // (só com mais de um cardápio — com um, é ele).
   const ig = resp?.instagram ?? null;
+  const cardapiosDoRobo = ig?.cardapios ?? [];
   const grupoDoInstagram: GrupoDeAjustes | null = ig
     ? {
         titulo: 'Instagram Direct',
-        nota: 'Sempre vale (regras do Instagram): a loja só responde a quem escreveu primeiro · até 24 h depois da última mensagem do cliente · as mensagens seguem no app do Instagram também · o acesso fica com a Regem, cifrado, e é renovado sozinho.',
+        nota: 'Sempre vale (regras do Instagram e do robô): a loja só responde a quem escreveu primeiro · até 24 h depois da última mensagem do cliente · as mensagens seguem no app do Instagram também · o acesso fica com a Regem, cifrado, e é renovado sozinho · o robô fica quieto enquanto a conversa está com alguém (caso aberto ou resposta da loja pelo app do Instagram) · se o robô não responder em 3 min, a conversa vira caso.',
         itens: [
           {
             id: 'instagramConta',
@@ -624,10 +633,31 @@ export function AjustesDoAtendimento() {
           ...(ig.conta
             ? [
                 {
+                  id: 'instagramRobo',
+                  rotulo: 'Robô responde no Direct',
+                  tipo: 'chave' as const,
+                  ajuda: `O mesmo robô do WhatsApp responde primeiro: horário, área de entrega e taxa, o que tem no cardápio e o link do cardápio para pedir. O Instagram não diz quem é o cliente, então no Direct o robô não vê pedido nem cadastro: "cadê meu pedido", reclamação, encomenda e "quero falar com alguém" viram caso, com o resumo. Sem áudio por enquanto (ele pede para escrever).${
+                    ig.roboDisponivel === false ? ' A Regem ainda está ligando o robô no Direct: até lá, ligado aqui, as conversas viram caso para a equipe.' : ''
+                  }`,
+                  palavras: 'instagram direct robô robo responder automático ia',
+                },
+                ...(cardapiosDoRobo.length > 1
+                  ? [
+                      {
+                        id: 'instagramCardapio',
+                        rotulo: 'Cardápio que o robô usa',
+                        tipo: 'selecao' as const,
+                        opcoes: [{ v: '', rotulo: 'Escolha o cardápio' }, ...cardapiosDoRobo.map((c) => ({ v: c.id, rotulo: c.ativo ? c.nome : `${c.nome} (desligado)` }))],
+                        ajuda: 'O Instagram é da empresa; o horário, a taxa e o link saem do cardápio desta loja. Sem escolher, o robô não liga no Direct.',
+                        palavras: 'instagram direct robô cardápio loja',
+                      },
+                    ]
+                  : []),
+                {
                   id: 'instagramFila',
                   rotulo: 'Mensagens do Direct na fila',
                   tipo: 'chave' as const,
-                  ajuda: 'Cada conversa nova do Direct vira caso, com o perfil do cliente; a resposta sai pelo Instagram da loja. Desligado, as mensagens continuam só no app do Instagram.',
+                  ajuda: 'Com o robô desligado: cada conversa nova do Direct vira caso, com o perfil do cliente. Com o robô ligado: vira caso só o que ele passa para a equipe ou quando alguém assume a conversa. A resposta sai pelo Instagram da loja. Desligado (e sem o robô), as mensagens continuam só no app do Instagram.',
                   palavras: 'instagram direct fila caso mensagens',
                 },
               ]
@@ -662,7 +692,7 @@ export function AjustesDoAtendimento() {
     let alterado: { som?: string; roboMuda?: boolean; roboCobraPix?: boolean } | null = null;
     const gestorWa: Record<string, boolean | number | null> = {};
     let copiloto: { ligado: boolean } | null = null;
-    let instagram: { filaLigada: boolean } | null = null;
+    let instagram: { filaLigada?: boolean; roboResponde?: boolean; cardapioId?: string | null } | null = null;
     const ponte: {
       ligada?: boolean;
       roboResponde?: boolean;
@@ -708,7 +738,15 @@ export function AjustesDoAtendimento() {
         continue;
       }
       if (k === 'instagramFila') {
-        instagram = { filaLigada: valores[k] === true };
+        instagram = { ...(instagram ?? {}), filaLigada: valores[k] === true };
+        continue;
+      }
+      if (k === 'instagramRobo') {
+        instagram = { ...(instagram ?? {}), roboResponde: valores[k] === true };
+        continue;
+      }
+      if (k === 'instagramCardapio') {
+        instagram = { ...(instagram ?? {}), cardapioId: String(valores[k] ?? '') || null };
         continue;
       }
       if (k === 'instagramConta') continue; // a conta muda pelos botões dela, não pelo salvar

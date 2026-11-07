@@ -1,8 +1,11 @@
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional, UnauthorizedException } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig } from '../../db/schema';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
+import { ehChaveDoDirect } from '../../common/conversa-do-robo';
+import { InstagramService } from '../instagram/instagram.service';
+import { comOrigemDoDirect } from '../instagram/instagram';
 import { WhatsappService } from './whatsapp.service';
 import { WhatsappCloudService, cabeEmBotoes, opcoesValidas } from './whatsapp-cloud.service';
 import { EstadoPausa, estadoDaPausa } from './robo-pausa';
@@ -22,6 +25,8 @@ import { buscarUrlPublica } from '../../common/ssrf-guard';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 export type Opcao = { id?: string; titulo: string; descricao?: string };
+/** O que a rota do robô devolve: saiu (e por qual forma) ou foi segurada (o motivo). Sempre 200. */
+export type RespostaDoRobo = { ok: boolean; enviado: boolean; motivo?: string; enviados?: string[] };
 export type PedidoDeResposta = {
   instancia?: string; // Evolution
   phoneNumberId?: string; // API oficial
@@ -82,10 +87,15 @@ export class RoboRespostaService {
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly evolution: WhatsappService,
     private readonly cloud: WhatsappCloudService,
+    // O robô no Direct do Instagram (mig 378). Opcional: os testes do WhatsApp montam sem ele.
+    @Optional() private readonly instagram?: InstagramService,
   ) {}
 
-  async responder(segredo: string, p: PedidoDeResposta) {
+  async responder(segredo: string, p: PedidoDeResposta): Promise<RespostaDoRobo> {
     if (!segredoDoRoboOk(segredo)) throw new UnauthorizedException('Não autorizado.');
+    // O Direct do Instagram (chave `ig:` na instância e no `para`) ANTES de qualquer conta de telefone: tirando o `ig:`,
+    // sobram dígitos que virariam um número de WhatsApp.
+    if (ehChaveDoDirect(p?.instancia) || ehChaveDoDirect(p?.para)) return this.responderNoDirect(p);
     const via: 'cloud' | 'evolution' = String(p?.phoneNumberId ?? '').trim() ? 'cloud' : 'evolution';
     const loja = await this.evolution.lojaDoRobo(p?.instancia, p?.phoneNumberId);
     if (!loja) throw new NotFoundException('Número/instância não vinculado a uma loja.');
@@ -216,6 +226,28 @@ export class RoboRespostaService {
       rotulo: 'Ver no cardápio',
       foto,
     };
+  }
+
+  /**
+   * A resposta do robô no DIRECT do Instagram (mig 378). A conta, o robô ligado e o cardápio são conferidos na hora
+   * (InstagramService.alvoDoRobo). Como nas outras vias, só o link do cardápio da loja sai — e com a origem do Direct
+   * (`utm_source=instagram`); as opções viram lista numerada (o Instagram não tem os botões do WhatsApp); voz não sai no
+   * Direct (o Instagram não aceita o áudio que o robô gera). Segurada = `enviado: false` com o motivo (200).
+   */
+  private async responderNoDirect(p: PedidoDeResposta): Promise<RespostaDoRobo> {
+    if (!this.instagram) throw new NotFoundException('Instagram indisponível.');
+    const alvo = await this.instagram.alvoDoRobo(p?.instancia, p?.para);
+    if (!alvo.ligado) return { ok: true, enviado: false, motivo: alvo.motivo };
+    const link = linkDoCardapioDaLoja(alvo.cardapio.token);
+    const bruto = String(p?.texto ?? '').trim();
+    const opcoes = opcoesValidas(p?.opcoes ?? []);
+    const temAudio = !!String(p?.audio?.base64 ?? '').trim();
+    if (!bruto && !opcoes.length && !temAudio) throw new BadRequestException('Nada para enviar (texto, opções ou áudio).');
+    const { texto: daLoja, trocados } = soLinksDaLoja(bruto, link, [alvo.cardapio.site, alvo.cardapio.instagram ? 'instagram.com' : null]);
+    if (trocados) this.logger.warn(`resposta do robô: ${trocados} link(s) de fora trocado(s) pelo do cardápio (instagram)`);
+    const texto = comOrigemDoDirect(opcoes.length ? menuNumerado(daLoja, opcoes) : daLoja, link).trim();
+    if (!texto) return { ok: true, enviado: false, motivo: 'sem_voz_no_direct' };
+    return this.instagram.enviarDoRobo(alvo, texto);
   }
 
   private enviarTexto(via: 'cloud' | 'evolution', tenantId: string, para: string, texto: string) {

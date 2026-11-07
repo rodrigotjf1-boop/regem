@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **O robô responde no Direct do Instagram (07/11; mig 378 `@cloud-only` — só colunas em `instagram_conta`, que já é
+  SO_NUVEM; sem `edge/`).** Na NUVEM com o merge (nasce DESLIGADO — Delivery › Configurações › Atendimento, grupo
+  "Instagram Direct", "Robô responde no Direct"); o robô é o mesmo fluxo do n8n do WhatsApp (nada a importar). **No `.zip`
+  1.30.13:** no servidor da loja, "Conversas agora" mostra o Direct com o robô e o "Assumir" do Direct (os dois pedem à
+  nuvem, como os outros canais) e o grupo de ajustes novo. Junto, a política de privacidade com o Instagram (#862, só tela).
+
 - **Instagram Direct na fila (06/11; mig 377 `@cloud-only`; toca `backend/edge/sync-daemon.mjs` — só a lista SO_NUVEM).**
   Na NUVEM com o merge, mas só funciona depois que a distribuição configurar o app na Meta (`INSTAGRAM_APP_ID`,
   `INSTAGRAM_APP_SECRET`, `INSTAGRAM_VERIFY_TOKEN` no `regem-api` do EasyPanel; sem elas o grupo diz "A Regem está

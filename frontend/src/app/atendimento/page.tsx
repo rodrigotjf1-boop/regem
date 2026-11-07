@@ -89,12 +89,15 @@ export default function AtendimentoPage() {
   const [roboResponde, setRoboResponde] = useState(false);
   // O WhatsApp em "Conversas agora": `null` = não entra para quem está na tela (não atende a caixa do WhatsApp).
   const [whatsapp, setWhatsapp] = useState<{ ligado: boolean; lida: boolean } | null>(null);
+  // O Direct do Instagram em "Conversas agora" (mig 378): `null` = não entra para quem está na tela (não é da gestão).
+  const [instagram, setInstagram] = useState<{ ligado: boolean } | null>(null);
   const [conversaSel, setConversaSel] = useState<string | null>(null);
   const [podeAssumir, setPodeAssumir] = useState(false);
   const comPonte = ponte?.ligada === true;
   const comWhatsapp = whatsapp?.ligado === true;
-  // A situação aparece com a ponte do chat ligada OU com o robô do WhatsApp ligado (para quem atende a caixa dele).
-  const temConversas = comPonte || comWhatsapp;
+  const comInstagram = instagram?.ligado === true;
+  // A situação aparece com a ponte do chat ligada OU com o robô do WhatsApp ou do Direct ligado (para quem atende ali).
+  const temConversas = comPonte || comWhatsapp || comInstagram;
   const naConversa = sit === 'conversas';
 
   useEffect(() => {
@@ -153,6 +156,7 @@ export default function AtendimentoPage() {
       setConversas(Array.isArray(r?.conversas) ? (r.conversas as ConversaAgora[]) : []);
       setRoboResponde(r?.roboResponde === true);
       setWhatsapp(r?.whatsapp && typeof r.whatsapp.ligado === 'boolean' ? { ligado: r.whatsapp.ligado, lida: r.whatsapp.lida !== false } : null);
+      setInstagram(r?.instagram && typeof r.instagram.ligado === 'boolean' ? { ligado: r.instagram.ligado } : null);
       setErroConversas(false);
     } catch {
       // Falhou: o que já estava fica, marcado como "não li agora" — nunca vira "nenhuma conversa" (V37).
@@ -163,7 +167,7 @@ export default function AtendimentoPage() {
   // ele é resolvido); com a ponte ou o robô do WhatsApp ligados, a cada 15 s com a aba à vista. No servidor da loja a rota
   // pede à nuvem (V37) — a falha vira "não li", nunca "nenhuma conversa".
   const casosDasConversas = useMemo(
-    () => casos.filter((c) => c.tipo === 'chat' || c.canal === 'whatsapp').map((c) => c.id).join(','),
+    () => casos.filter((c) => c.tipo === 'chat' || c.canal === 'whatsapp' || c.canal === 'instagram').map((c) => c.id).join(','),
     [casos],
   );
   useEffect(() => {
@@ -294,7 +298,7 @@ export default function AtendimentoPage() {
             {contagens ? `${contagens.comPrazo} com prazo · ${contagens.naFila} na fila · ` : ''}
             {temConversas && conversas !== null && (
               <>
-                {resumoDasConversas(conversas, { comWhatsapp, comPonte, roboResponde })} (
+                {resumoDasConversas(conversas, { comWhatsapp, comPonte, roboResponde, comInstagram })} (
                 <button
                   type="button"
                   onClick={() => irPara('conversas')}
@@ -391,7 +395,7 @@ export default function AtendimentoPage() {
               </h3>
               {naConversa ? (
                 <span className="text-xs text-secondary-foreground">
-                  {[comWhatsapp ? 'WhatsApp' : '', comPonte ? 'chat do iFood e da 99' : ''].filter(Boolean).join(' e ')} · última hora · sem caso aberto
+                  {[comWhatsapp ? 'WhatsApp' : '', comInstagram ? 'Direct do Instagram' : '', comPonte ? 'chat do iFood e da 99' : ''].filter(Boolean).join(', ')} · última hora · sem caso aberto
                 </span>
               ) : (
                 sit !== 'resolvidos' && (

@@ -183,3 +183,140 @@ export function nomeDoCliente(p: { nome?: string | null; usuario?: string | null
   const u = p?.usuario?.trim().replace(/^@/, '');
   return u ? `@${u}`.slice(0, 120) : 'Cliente do Instagram';
 }
+
+// ───────────────────────── o robô no Direct (F4, 07/11/2026 — mig 378; protótipo v8) ─────────────────────────
+// O MESMO robô do WhatsApp (o fluxo do n8n, com as instruções do Regem) atende o Direct. A chave da loja para o robô é
+// `ig:<conta>` (no campo `instancia`, que o fluxo já repassa em todas as consultas) e o cliente é `ig:<igsid>` (no campo
+// `de`, que o fluxo usa na memória e devolve como `para`): nada muda no fluxo. O Instagram não manda telefone — no Direct o
+// robô NÃO vê pedido nem cadastro (as rotas de telefone recusam `ig:`); para pedir, ele manda o link do cardápio.
+
+const DIGITOS = /^[0-9]{5,32}$/;
+
+/** `ig:<conta>` — a chave da loja do Direct para o robô. */
+export const chaveDaConta = (igUserId: string): string => `ig:${igUserId}`;
+/** `ig:<igsid>` — o cliente do Direct para o robô (o `de` da mensagem e o `para` da resposta). */
+export const chaveDoCliente = (igsid: string): string => `ig:${igsid}`;
+/** O id que vem depois de `ig:` (a conta ou o cliente), só se forem só dígitos; senão `null`. */
+export function idDaChave(v: unknown): string | null {
+  const s = typeof v === 'string' ? v.trim() : '';
+  if (!/^ig:/i.test(s)) return null;
+  const id = s.slice(3);
+  return DIGITOS.test(id) ? id : null;
+}
+
+/** Por quanto tempo a resposta da loja pelo app do Instagram cala o robô quando a pausa da loja é "sem prazo" (0). */
+export const CALADO_SEM_PRAZO_MS = 12 * 3_600_000;
+/** O cliente escreveu e ninguém respondeu nisto: a conversa vira caso ("O robô não respondeu"). */
+export const SEM_RESPOSTA_MS = 3 * 60_000;
+
+export type DecisaoDoDirect = {
+  /** A mensagem entra no caso aberto (que já existe). */
+  anexar: boolean;
+  /** Abre um caso novo para a conversa. */
+  abrir: boolean;
+  /** A mensagem vai ao robô. */
+  robo: boolean;
+};
+
+/**
+ * QUEM RESPONDE a mensagem nova do cliente no Direct. Com o robô desligado (ou indisponível), como no #861: caso aberto →
+ * anexa; sem caso, abre se "Mensagens do Direct na fila" estiver ligado. Com o robô ligado: o robô responde primeiro e o
+ * caso só nasce do "chamar atendente", do "Assumir" ou do "sem resposta". Ele fica QUIETO quando a conversa está com
+ * alguém — caso aberto com uma pessoa, caso aberto há menos que a pausa da loja (0 = até resolver), ou resposta da loja
+ * pelo app do Instagram dentro da pausa (0 = 12 h) —, a mesma régua do "humano assumiu" do WhatsApp.
+ */
+export function quemRespondeNoDirect(e: {
+  roboLigado: boolean;
+  filaLigada: boolean;
+  caso: { criadoEm: Date | string; responsavelId: string | null } | null;
+  ultimaDaLojaEm: Date | string | null;
+  minutos: number;
+  agora: number;
+}): DecisaoDoDirect {
+  const { roboLigado, filaLigada, caso, minutos, agora } = e;
+  if (!roboLigado) return caso ? { anexar: true, abrir: false, robo: false } : { anexar: false, abrir: filaLigada, robo: false };
+  const pausa = minutos > 0 ? minutos * 60_000 : null;
+  const t = e.ultimaDaLojaEm ? new Date(e.ultimaDaLojaEm).getTime() : NaN;
+  const lojaRespondeu = Number.isFinite(t) && agora - t < (pausa ?? CALADO_SEM_PRAZO_MS);
+  if (caso) {
+    const idade = agora - new Date(caso.criadoEm).getTime();
+    const comAlguem = !!caso.responsavelId || lojaRespondeu || pausa === null || idade < pausa;
+    return { anexar: true, abrir: false, robo: !comAlguem };
+  }
+  return { anexar: false, abrir: false, robo: !lojaRespondeu };
+}
+
+/** O que o robô recebe no lugar do texto quando o cliente mandou outra coisa (no Direct ele não ouve áudio). */
+export function textoParaORobo(e: Pick<EventoDoDirect, 'texto' | 'tipo'>): string {
+  if (e.texto) return e.texto.slice(0, 4000);
+  if (e.tipo === 'audio') return '(o cliente mandou um áudio pelo Direct; aqui você não ouve áudio)';
+  return `(o cliente mandou ${DESCRICAO_DO_TIPO[e.tipo] ?? DESCRICAO_DO_TIPO.outro})`;
+}
+
+/** Até 3 mensagens de até 1.000 bytes cada (regra do Instagram), pelos parágrafos, depois pelas linhas e pelas palavras. */
+export const MAX_PARTES = 3;
+export function partirTexto(texto: string, maxBytes = MAX_BYTES_DO_TEXTO, maxPartes = MAX_PARTES): string[] {
+  const bytes = (s: string) => Buffer.byteLength(s, 'utf8');
+  const limpo = String(texto ?? '').replace(/\r\n/g, '\n').trim();
+  if (!limpo) return [];
+  if (bytes(limpo) <= maxBytes) return [limpo];
+  // Pedaços que cabem, cada um com o separador que vinha ANTES dele no texto: o parágrafo inteiro; se não, as linhas; se
+  // não, as palavras; e a palavra gigante, letra a letra (por caractere, nunca no meio de um emoji).
+  const cortar = (s: string): string[] => {
+    const out: string[] = [];
+    let atual = '';
+    for (const ch of Array.from(s)) {
+      if (atual && bytes(atual + ch) > maxBytes) {
+        out.push(atual);
+        atual = ch;
+      } else atual += ch;
+    }
+    if (atual) out.push(atual);
+    return out;
+  };
+  const pedacos: { t: string; antes: string }[] = [];
+  limpo.split(/\n{2,}/).forEach((par, i) => {
+    const linhas = bytes(par) <= maxBytes ? [par] : par.split('\n');
+    linhas.forEach((linha, j) => {
+      const palavras = bytes(linha) <= maxBytes ? [linha] : linha.split(' ');
+      palavras.forEach((palavra, k) => {
+        const antes = k > 0 ? ' ' : j > 0 ? '\n' : i > 0 ? '\n\n' : '';
+        (bytes(palavra) <= maxBytes ? [palavra] : cortar(palavra)).forEach((t, m) => pedacos.push({ t, antes: m === 0 ? antes : '' }));
+      });
+    });
+  });
+  // Junta os pedaços de volta enquanto couber, com o separador original.
+  const partes: string[] = [];
+  let atual = '';
+  for (const p of pedacos) {
+    if (!atual) atual = p.t;
+    else if (bytes(atual + p.antes + p.t) > maxBytes) {
+      partes.push(atual);
+      atual = p.t;
+    } else atual += p.antes + p.t;
+  }
+  if (atual) partes.push(atual);
+  if (partes.length <= maxPartes) return partes;
+  // Mais do que o Instagram aguenta numa resposta: as primeiras inteiras e a última cortada com reticências.
+  const fica = partes.slice(0, maxPartes);
+  let ultima = fica[maxPartes - 1];
+  while (bytes(`${ultima}…`) > maxBytes) ultima = Array.from(ultima).slice(0, -1).join('');
+  fica[maxPartes - 1] = `${ultima.trimEnd()}…`;
+  return fica;
+}
+
+/**
+ * O link do cardápio da loja no Direct sai marcando de onde veio (`utm_source=instagram&utm_medium=direct`): o cardápio
+ * guarda a origem do pedido (origem-pedido.ts). Só nos links da PRÓPRIA loja; o que já tem `utm_source` fica como está.
+ */
+export function comOrigemDoDirect(texto: string, linkDaLoja: string): string {
+  const base = String(linkDaLoja ?? '').replace(/\/+$/, '');
+  if (!base) return texto;
+  const re = new RegExp(`${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])(\\?[^\\s)]*)?`, 'g');
+  return String(texto ?? '').replace(re, (todo: string, q?: string) => {
+    if (q && /[?&]utm_source=/.test(q)) return todo;
+    const sobra = (q ?? '').replace(/[.,!?;:]+$/, '');
+    const fim = (q ?? '').slice(sobra.length);
+    return `${base}${sobra ? `${sobra}&` : '?'}utm_source=instagram&utm_medium=direct${fim}`;
+  });
+}

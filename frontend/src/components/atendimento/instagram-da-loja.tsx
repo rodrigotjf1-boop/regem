@@ -13,11 +13,19 @@ import { Dialogo } from '@/components/ui/sobreposto';
 // segredo, o aviso de mensagem, a renovação do acesso) é da Regem. A volta do login chega com `?instagram=<situação>`.
 
 export type EstadoDoInstagram = {
+  /** O robô do Direct pode rodar (a distribuição: o fluxo do robô e a senha) — mig 378. */
+  roboDisponivel?: boolean;
+  /** Os cardápios da empresa, para "Cardápio que o robô usa" (aparece com mais de um). */
+  cardapios?: { id: string; nome: string; ativo: boolean }[];
   disponivel: boolean;
   conta: {
     usuario: string | null;
     nome: string | null;
     filaLigada: boolean;
+    /** "Robô responde no Direct" (mig 378) — nasce desligado. */
+    roboResponde?: boolean;
+    /** "Cardápio que o robô usa" — vazio = o único cardápio da empresa. */
+    cardapioId?: string | null;
     conectadoEm: string | null;
     conectadoPor: string | null;
     erro: string | null;

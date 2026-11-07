@@ -48,3 +48,56 @@ export function lerConversa(ficha: unknown, agora = Date.now()): Conversa | null
   const k2 = chaveTelefone(d.f);
   return k2 ? { tenantId: d.t, telefone: d.f, chave: k2 } : null;
 }
+
+// ───────────────────────── a ficha do DIRECT do Instagram (F4, 07/11/2026 — mig 378) ─────────────────────────
+// O Instagram não manda telefone: o cliente do Direct é o IGSID (o id dele no Instagram, para este app). A ficha do Direct
+// prova que o robô fala com ESTE cliente desta empresa — o "chamar atendente" só abre o caso do Direct com ela. A chave é
+// derivada com OUTRO rótulo e o corpo tem `g` (não `f`): a ficha do telefone nunca vale como a do Direct, e vice-versa —
+// as rotas que leem pedido e cadastro pelo telefone (`lerConversa`) recusam a do Direct.
+
+function chaveDoDirect(): Buffer | null {
+  const s = (process.env.BOT_RESOLVER_SECRET ?? '').trim();
+  return s ? createHmac('sha256', s).update('regem:conversa-do-direct:v1').digest() : null;
+}
+
+/** O IGSID que vale: só dígitos (5 a 32). */
+export const IGSID_RE = /^[0-9]{5,32}$/;
+
+/** A ficha para a mensagem deste cliente do Direct nesta empresa (ou `null` sem a senha do robô configurada). */
+export function assinarConversaDoDirect(tenantId: string, igsid: unknown, agora = Date.now()): string | null {
+  const k = chaveDoDirect();
+  const g = String(igsid ?? '');
+  if (!k || !tenantId || !IGSID_RE.test(g)) return null;
+  const corpo = Buffer.from(JSON.stringify({ t: tenantId, g, e: agora + VALIDADE_DA_CONVERSA_MS })).toString('base64url');
+  return `${corpo}.${createHmac('sha256', k).update(corpo).digest('base64url')}`;
+}
+
+export type ConversaDoDirect = { tenantId: string; igsid: string };
+
+/** A conversa do Direct da ficha, se a assinatura confere e ela não venceu; senão `null` (quem chama recusa com 401). */
+export function lerConversaDoDirect(ficha: unknown, agora = Date.now()): ConversaDoDirect | null {
+  const k = chaveDoDirect();
+  if (!k) return null;
+  const [corpo, assinatura, sobra] = String(ficha ?? '').trim().split('.');
+  if (!corpo || !assinatura || sobra !== undefined) return null;
+  const esperada = createHmac('sha256', k).update(corpo).digest();
+  const recebida = Buffer.from(assinatura, 'base64url');
+  if (recebida.length !== esperada.length || !timingSafeEqual(recebida, esperada)) return null;
+  let d: any;
+  try {
+    d = JSON.parse(Buffer.from(corpo, 'base64url').toString('utf8'));
+  } catch {
+    return null;
+  }
+  if (typeof d?.t !== 'string' || typeof d?.g !== 'string' || d?.f !== undefined || !IGSID_RE.test(d.g) || !(Number(d?.e) > agora)) return null;
+  return { tenantId: d.t, igsid: d.g };
+}
+
+/**
+ * A chave do Direct que o robô repassa no lugar do telefone (`ig:<igsid>`) e no lugar da instância (`ig:<conta>`). As
+ * rotas de TELEFONE recusam qualquer valor `ig:` de propósito: tirando o `ig:`, sobram dígitos que a busca pelos últimos
+ * dígitos do telefone casaria com o pedido de um desconhecido.
+ */
+export function ehChaveDoDirect(v: unknown): boolean {
+  return typeof v === 'string' && v.trim().toLowerCase().startsWith('ig:');
+}
