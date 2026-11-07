@@ -23,8 +23,7 @@ import { ChatDoCasoService } from './chat-do-caso.service';
 import { GestorWhatsappService } from './gestor-whatsapp.service';
 import { CopilotoService } from './copiloto.service';
 import { NumerosDoAtendimentoService } from './numeros.service';
-import { InstagramService } from '../instagram/instagram.service';
-import { InstagramController, InstagramPublicoController } from '../instagram/instagram.controller';
+import { InstagramModule } from '../instagram/instagram.module';
 
 @Module({
   // Integrações: a resposta à disputa do iFood (IfoodService). forwardRef: integrações e delivery já se referem.
@@ -33,12 +32,11 @@ import { InstagramController, InstagramPublicoController } from '../instagram/in
   // ProducaoPedidoModule: o grupo "Pedido alterado" dos ajustes — o som do KDS mora no ajuste do KDS (mig 362).
   // WhatsappModule: "Endereço atualizado!" ao cliente pela via da conversa (PR 3b-2) — o módulo já sobe com o Delivery.
   // PonteChatModule: o grupo "iFood e 99 · chat pela ponte" dos ajustes e a faixa da ponte na fila (mig 366, parte A2).
-  imports: [DeliveryModule, forwardRef(() => IntegracoesModule), EquipamentoModule, ChegadaModule, ProducaoPedidoModule, WhatsappModule, PonteChatModule],
+  // InstagramModule (migs 377/378): o Direct — o grupo dos ajustes, a conversa do caso e da loja, e "Conversas agora".
+  imports: [DeliveryModule, forwardRef(() => IntegracoesModule), EquipamentoModule, ChegadaModule, ProducaoPedidoModule, WhatsappModule, PonteChatModule, InstagramModule],
   // AtendimentoAppController: o app "Regem Atendimento" (mig 353) — entrar com o PIN e "Disponível / Ocupado". O
   // AuthService vem do AuthModule (global); o EquipamentoService, do EquipamentoModule (o celular pareado).
-  // InstagramPublicoController / InstagramController (mig 377): o aviso do Direct e a volta do login (públicos, só a
-  // nuvem); conectar, a conversa do caso e a resposta.
-  controllers: [AtendimentoController, AtendimentoLojaController, AtendimentoAppController, InstagramPublicoController, InstagramController],
+  controllers: [AtendimentoController, AtendimentoLojaController, AtendimentoAppController],
   // Pedido99Service: a resposta ao pedido do cliente da 99 e a rotina da nuvem (cancelamento vencido, reembolso recusado).
   // ChatIfoodService: a configuração do chat oficial do iFood (o widget da distribuição e as lojas do iFood).
   // FilaEAvisosService (mig 353): o aviso ao gerente (rotina da nuvem) e os ajustes "Fila e avisos".
@@ -64,8 +62,6 @@ import { InstagramController, InstagramPublicoController } from '../instagram/in
     CopilotoService,
     // NumerosDoAtendimentoService (item 8): o placar, as reclamações por motivo e produto e o "O que aconteceu?" do caso.
     NumerosDoAtendimentoService,
-    // InstagramService (mig 377): a conta conectada, o aviso do Direct, a conversa, a resposta e a renovação do acesso.
-    InstagramService,
   ],
   exports: [AtendimentoService],
 })

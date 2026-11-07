@@ -44,6 +44,7 @@ import { lerXlsx } from './ler-xlsx';
 import { urlPublicaSegura } from '../../common/ssrf-guard';
 import { AtendimentoService } from '../atendimento/atendimento.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { ehChaveDoDirect } from '../../common/conversa-do-robo';
 import { AuthUser } from '../../auth/auth-user';
 import PDFDocument from 'pdfkit';
 
@@ -965,6 +966,9 @@ export class ClienteService {
     segredo: string,
   ): Promise<{ slug: string; url: string }> {
     if (!segredoDoRoboOk(segredo)) throw new UnauthorizedException('Não autorizado.');
+    // O Direct do Instagram (mig 378) não tem telefone: `ig:<igsid>` sem o `ig:` viraria um cadastro com os dígitos do
+    // Instagram (V79). No Direct o robô manda o link do cardápio.
+    if (ehChaveDoDirect(dto?.telefone)) throw new BadRequestException('No Direct do Instagram não há link do cliente: mande o link do cardápio.');
     const tenantId = await this.tenantDoCardapio(cardapioToken);
     const c = await this.acharOuCriarCliente(tenantId, dto.telefone, dto.nome);
     let [link] = await this.db

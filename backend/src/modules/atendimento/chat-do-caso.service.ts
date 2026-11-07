@@ -25,6 +25,9 @@ import { chaveTelefone, sqlChaveTelefone } from '../../common/telefone-chave';
 import { podeAcessar } from '../../auth/permissoes';
 // O alerta do Pix do adicional (mig 373): só a leitura da tabela — o Atendimento não importa o módulo do cardápio.
 import { type AlertaDoAdicional, alertasDoAdicionalPix } from '../cardapio/adicional-pix-alertas';
+// O Direct do Instagram em "Conversas agora" (mig 378): só a leitura das mensagens e o caso do Direct.
+import { DESCRICAO_DO_TIPO, chaveDoCliente, idDaChave, nomeDoCliente } from '../instagram/instagram';
+import { QUEM_RESPONDE } from '../instagram/instagram.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -48,6 +51,10 @@ export function veOWhatsapp(u: { categoria?: string | null; permissoes?: any } |
 }
 const CHAVE_DO_WHATSAPP = /^tel:\d{8,15}$/;
 const mascararTelefone = (t: string) => (t.length > 4 ? `***${t.slice(-4)}` : '***');
+/** Quem vê e assume o Direct do Instagram em "Conversas agora": quem responde no Direct (a gestão — instagram.service). */
+export function veODirect(u: { categoria?: string | null } | null | undefined): boolean {
+  return !!u?.categoria && (QUEM_RESPONDE as readonly string[]).includes(u.categoria);
+}
 const LIMITE_DA_CONVERSA = 100;
 const linhas = (r: any): any[] => (r?.rows ?? r) as any[];
 
@@ -261,19 +268,68 @@ export class ChatDoCasoService {
       q.set('bot', String(podeAcessar(quem?.permissoes, 'bot')));
       return this.pelaNuvem('GET', `conversas-da-loja?${q.toString()}`);
     }
-    const [conversas, robo, whatsapp] = await Promise.all([
+    const [conversas, robo, whatsapp, direct] = await Promise.all([
       this.db.execute(this.sqlDasConversasAgora(tenantId, unidade)),
       this.db.execute(sql`select chat_robo_responde from robo_config where tenant_id = ${tenantId}::uuid`),
       veOWhatsapp(quem) ? this.conversasDoWhatsapp(tenantId) : Promise.resolve(null),
+      veODirect(quem) ? this.conversasDoDirect(tenantId) : Promise.resolve(null),
     ]);
     const roboResponde = linhas(robo)[0]?.chat_robo_responde === true;
-    const todas = [...linhas(conversas).map((c) => ({ ...c, comRobo: roboResponde })), ...(whatsapp?.conversas ?? [])];
+    const todas = [...linhas(conversas).map((c) => ({ ...c, comRobo: roboResponde })), ...(whatsapp?.conversas ?? []), ...(direct?.conversas ?? [])];
     todas.sort((a, b) => new Date(b.ultima).getTime() - new Date(a.ultima).getTime());
     return {
       conversas: todas,
       roboResponde,
       whatsapp: whatsapp ? { ligado: whatsapp.ligado, lida: whatsapp.lida } : null,
+      instagram: direct ? { ligado: direct.ligado } : null,
     };
+  }
+
+  /**
+   * O DIRECT do Instagram com o robô agora (mig 378; protótipo v8): com o robô do Direct ligado, as conversas com
+   * mensagem na última hora e SEM caso aberto — o robô está nelas. Com as últimas 8 mensagens (moram aqui, na nuvem) e o
+   * perfil do cliente (nome e @). Da empresa (o Instagram é da empresa, não de uma loja).
+   */
+  private async conversasDoDirect(tenantId: string): Promise<{ ligado: boolean; conversas: any[] }> {
+    const [conta] = linhas(await this.db.execute(sql`select robo_responde from instagram_conta where tenant_id = ${tenantId}::uuid`));
+    if (conta?.robo_responde !== true) return { ligado: false, conversas: [] };
+    const r = linhas(
+      await this.db.execute(sql`
+        with ativas as (
+          select m.igsid, max(m.criado_em) as ultima
+            from instagram_mensagem m
+           where m.tenant_id = ${tenantId}::uuid and m.criado_em > now() - interval '60 minutes'
+             and not exists (select 1 from atendimento_chamado a
+                              where a.tenant_id = ${tenantId}::uuid and a.tipo = 'instagram' and a.status = 'aberto'
+                                and a.detalhe #>> '{instagram,igsid}' = m.igsid)
+           group by m.igsid
+           order by 2 desc
+           limit 50
+        )
+        select a.igsid, a.ultima, ct.nome, ct.usuario, ct.segue_a_loja as segue,
+               (select jsonb_agg(jsonb_build_object('id', x.id, 'direcao', x.direcao, 'autor', x.autor, 'texto', x.texto, 'tipo', x.tipo,
+                                                    'estado', x.estado, 'motivo', null, 'em', x.criado_em) order by x.criado_em, x.id)
+                  from (select y.* from instagram_mensagem y
+                         where y.tenant_id = ${tenantId}::uuid and y.igsid = a.igsid and y.estado <> 'apagada'
+                         order by y.criado_em desc, y.id desc limit 8) x) as mensagens
+          from ativas a
+          left join instagram_contato ct on ct.tenant_id = ${tenantId}::uuid and ct.igsid = a.igsid
+         order by a.ultima desc`),
+    );
+    const conversas = r.map((c) => ({
+      canal: 'instagram',
+      chave: chaveDoCliente(String(c.igsid)),
+      ultima: new Date(c.ultima).toISOString(),
+      cliente: c.nome || c.usuario ? nomeDoCliente({ nome: c.nome, usuario: c.usuario }) : null,
+      usuario: c.usuario ? `@${String(c.usuario).replace(/^@/, '')}` : null,
+      segue: c.segue === true ? true : c.segue === false ? false : null,
+      pedidoId: null,
+      pedidoNumero: null,
+      pedidoStatus: null,
+      mensagens: (Array.isArray(c.mensagens) ? c.mensagens : []).map(({ tipo, ...m }: any) => ({ ...m, texto: String(m?.texto || (DESCRICAO_DO_TIPO as any)[tipo] || '') })),
+      comRobo: true,
+    }));
+    return { ligado: true, conversas };
   }
 
   /** As conversas do WhatsApp com o robô agora (última hora, sem pausa e sem caso aberto), pela via da loja. */
@@ -389,6 +445,7 @@ export class ChatDoCasoService {
     const canal = dto?.canal;
     const chave = typeof dto?.chave === 'string' ? dto.chave : '';
     if (canal === 'whatsapp') return this.assumirNoWhatsapp(user, eu, chave, dto?.nome, origem);
+    if (canal === 'instagram') return this.assumirNoDirect(user, eu, chave, origem);
     if (!ehCanalDaPonte(canal) || !/^(ext|id|num):.{1,120}$/.test(chave)) throw new BadRequestException('Conversa inválida.');
     const r = await this.db.transaction(async (tx) => {
       await tx.execute(sql`select 1 from robo_config where tenant_id = ${user.tenantId}::uuid for update`);
@@ -443,6 +500,79 @@ export class ChatDoCasoService {
         entidadeTipo: 'atendimento_chamado',
         entidadeId: r.id,
         detalhe: { canal, chave },
+        origem,
+      })
+      .catch((e: any) => this.logger.warn(`auditoria do "assumir a conversa" (${r.id}): ${e?.message ?? e}`));
+    if (r.novo) this.events.emit('atendimento.novo', { tenantId: user.tenantId, chamado: r.novo });
+    else this.events.emit('atendimento.mudou', { tenantId: user.tenantId, id: r.id, motivo: 'assumiu_a_conversa' });
+    return { ok: true, id: r.id };
+  }
+
+  /**
+   * "ASSUMIR A CONVERSA" DO DIRECT do Instagram (mig 378): quem responde no Direct (`veODirect`, a gestão). Na trava da
+   * CONTA do Instagram — a mesma do aviso de mensagem e do robô: uma mensagem nova que chega junto não abre outro caso —: a
+   * conversa já tem caso aberto — sem ninguém, fica com quem assumiu; com outra pessoa, 409 com o nome —; senão nasce o
+   * caso do Direct já com a pessoa (as mensagens das últimas 12 h passam a ser dele). O caso aberto com alguém cala o robô
+   * (instagram.ts › quemRespondeNoDirect); resolver devolve a conversa ao robô.
+   */
+  private async assumirNoDirect(user: AuthUser, eu: string, chave: string, origem: 'web' | 'servidor_loja' = 'web') {
+    if (!veODirect(user)) throw new ForbiddenException('Quem assume a conversa do Direct é a gerência ou a supervisão.');
+    const igsid = idDaChave(chave);
+    if (!igsid) throw new BadRequestException('Conversa inválida.');
+    const r = await this.db.transaction(async (tx) => {
+      const [conta] = linhas(await tx.execute(sql`select id from instagram_conta where tenant_id = ${user.tenantId}::uuid for update`));
+      if (!conta) throw new NotFoundException('O Instagram da loja não está conectado.');
+      const [aberto] = linhas(
+        await tx.execute(sql`
+          select c.id, c.responsavel_id, col.nome from atendimento_chamado c
+            left join colaborador col on col.id = c.responsavel_id and col.tenant_id = c.tenant_id
+           where c.tenant_id = ${user.tenantId}::uuid and c.tipo = 'instagram' and c.status = 'aberto'
+             and c.detalhe #>> '{instagram,igsid}' = ${igsid}
+           order by c.criado_em desc limit 1`),
+      );
+      if (aberto) {
+        if (aberto.responsavel_id && aberto.responsavel_id !== eu) throw new ConflictException(`${aberto.nome ?? 'Outra pessoa'} já está com esta conversa.`);
+        if (!aberto.responsavel_id)
+          await tx.execute(sql`update atendimento_chamado set responsavel_id = ${eu}::uuid, pego_em = now() where id = ${aberto.id}::uuid`);
+        return { id: aberto.id as string, novo: null };
+      }
+      const [c] = linhas(
+        await tx.execute(sql`
+          select (array_agg(m.texto order by m.criado_em desc) filter (where m.autor = 'cliente' and m.texto is not null))[1] as fala,
+                 max(m.criado_em) as ultima, count(*)::int as n,
+                 (select row_to_json(ct) from (select nome, usuario from instagram_contato
+                                                where tenant_id = ${user.tenantId}::uuid and igsid = ${igsid}) ct) as contato
+            from instagram_mensagem m
+           where m.tenant_id = ${user.tenantId}::uuid and m.igsid = ${igsid} and m.criado_em > now() - interval '1 day'`),
+      );
+      if (!c?.n) throw new NotFoundException('Esta conversa não está mais no Direct.');
+      const detalhe = {
+        plataforma: 'instagram',
+        instagram: { igsid, usuario: c.contato?.usuario ?? null, nome: c.contato?.nome ?? null, ultimaEm: new Date(c.ultima).toISOString() },
+        assumida: true,
+      };
+      const [novo] = linhas(
+        await tx.execute(sql`
+          insert into atendimento_chamado (tenant_id, unidade_id, tipo, canal, cliente, mensagem, prioridade, responsavel_id, pego_em, detalhe)
+          values (${user.tenantId}::uuid, null, 'instagram', 'instagram', ${nomeDoCliente(c.contato)}, ${c.fala ?? 'Conversa do Direct assumida do robô'},
+                  'normal', ${eu}::uuid, now(), ${JSON.stringify(detalhe)}::jsonb)
+          returning *`),
+      );
+      await tx.execute(sql`
+        update instagram_mensagem set chamado_id = ${novo.id}::uuid
+         where tenant_id = ${user.tenantId}::uuid and igsid = ${igsid} and chamado_id is null and criado_em > now() - interval '12 hours'`);
+      return { id: novo.id as string, novo };
+    });
+    await this.auditoria
+      ?.registrar({
+        tenantId: user.tenantId,
+        atorId: eu,
+        atorPerfil: user.categoria,
+        tipo: 'atendimento',
+        acao: 'assumiu_conversa_do_chat',
+        entidadeTipo: 'atendimento_chamado',
+        entidadeId: r.id,
+        detalhe: { canal: 'instagram' },
         origem,
       })
       .catch((e: any) => this.logger.warn(`auditoria do "assumir a conversa" (${r.id}): ${e?.message ?? e}`));

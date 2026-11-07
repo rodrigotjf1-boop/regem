@@ -5,7 +5,8 @@ import { CABECALHO_SEGREDO_ROBO, segredoDaChamada } from '../../common/segredo-r
 import { CardapioService } from './cardapio.service';
 import { buscarNoCardapio, resumoDaLoja, taxaDoBairro } from './robo-consultas';
 import { categoriasPorPapel, procurarNoCardapio } from './robo-busca';
-import { instrucoesDoRobo } from './robo-instrucoes';
+import { instrucoesDoDirect, instrucoesDoRobo } from './robo-instrucoes';
+import { ehChaveDoDirect } from '../../common/conversa-do-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -78,6 +79,8 @@ export class RoboConsultasController {
     @Headers(CABECALHO_SEGREDO_ROBO) segredo?: string,
   ) {
     const { menu } = await this.cardapio(segredoDaChamada(segredo, secret), instancia, phoneNumberId);
+    // O Direct do Instagram (mig 378): a chave `ig:` recebe as instruções do Direct — sem as ferramentas de telefone.
+    if (ehChaveDoDirect(instancia)) return instrucoesDoDirect({ loja: (menu as any)?.loja?.nome ?? null }, fluxo);
     return instrucoesDoRobo({ loja: (menu as any)?.loja?.nome ?? null }, fluxo);
   }
 }

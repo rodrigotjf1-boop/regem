@@ -9,6 +9,7 @@ import {
   Logger,
   NotFoundException,
   Optional,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -18,18 +19,55 @@ import { AuthUser } from '../../auth/auth-user';
 import { ehServidorLocal } from '../../common/modo';
 import { chaveSegredosDisponivel, cifrar, decifrar } from '../../common/cifra-segredo';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { assinarConversaDoDirect, lerConversaDoDirect } from '../../common/conversa-do-robo';
+import { uuidDeChave } from '../../common/id-deterministico';
+import { entregarJuntando } from '../whatsapp/juntar-mensagens';
+import { juntarMensagem, posicaoNaFila } from '../atendimento/abrir-chamado';
+import { resumoDoRobo } from '../atendimento/resumo-do-robo';
 import {
+  SEM_RESPOSTA_MS,
   assinarEstado,
+  chaveDaConta,
+  chaveDoCliente,
   frase,
+  idDaChave,
   janela,
   lerAviso,
   lerEstado,
   nomeDoCliente,
+  partirTexto,
+  quemRespondeNoDirect,
   textoDaResposta,
+  textoParaORobo,
   urlDeAutorizacao,
   type EventoDoDirect,
 } from './instagram';
 import * as meta from './instagram-graph';
+
+/** O cardápio que o robô do Direct usa (o horário, a taxa, o link e os textos do robô da loja). */
+export type CardapioDoRobo = {
+  id: string;
+  token: string;
+  ativo: boolean;
+  aberto: boolean;
+  nomePublico: string | null;
+  roboSaudacao: string | null;
+  roboAusencia: string | null;
+  roboPrompt: string | null;
+  roboMensagens: any;
+  site: string | null;
+  instagram: string | null;
+};
+
+/** Para quem o robô manda a resposta no Direct (conferido na hora da resposta — V87). */
+export type AlvoDoRobo =
+  | { ligado: true; tenantId: string; igUserId: string; igsid: string; cardapio: CardapioDoRobo }
+  | { ligado: false; motivo: 'robo_desligado' };
+
+const minutosDaPausa = (v: unknown) => {
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 0 ? n : 60;
+};
 
 // INSTAGRAM DIRECT NA FILA (item 6 da Central; protótipo versão 7; mig 377). A loja conecta a conta profissional (entra
 // no Instagram e autoriza); o acesso fica cifrado na nuvem, com a distribuição. O aviso de mensagem da Meta chega na
@@ -69,15 +107,114 @@ export class InstagramService {
 
   // ───────────────────────── a conta ─────────────────────────
 
-  /** O grupo "Instagram Direct" dos ajustes: se dá para conectar e a conta conectada (nunca o acesso). */
+  /**
+   * O robô do Direct pode rodar (a distribuição): a nuvem, o endereço do fluxo ÚNICO do robô (`N8N_ROBO_WEBHOOK_URL` — o
+   * fluxo antigo da API oficial não conhece a chave `ig:`) e a senha do robô (assina a ficha do Direct). Sem isso, quem
+   * ligou o robô recebe a conversa como caso (V88: resposta que não sai não é resposta dada).
+   */
+  roboDisponivel(): boolean {
+    return !ehServidorLocal() && !!String(process.env.N8N_ROBO_WEBHOOK_URL ?? '').trim() && !!String(process.env.BOT_RESOLVER_SECRET ?? '').trim();
+  }
+
+  /** O grupo "Instagram Direct" dos ajustes: se dá para conectar, a conta conectada (nunca o acesso) e o robô do Direct. */
   async ajuste(tenantId: string) {
-    const r: any = await this.db.execute(sql`
-      select c.usuario, c.nome, c.fila_ligada as "filaLigada", c.conectado_em as "conectadoEm", c.token_vence_em as "venceEm",
-             c.erro, c.erro_em as "erroEm", col.nome as "conectadoPor"
-        from instagram_conta c left join colaborador col on col.id = c.conectado_por and col.tenant_id = c.tenant_id
-       where c.tenant_id = ${tenantId}`);
+    const [r, cards]: any[] = await Promise.all([
+      this.db.execute(sql`
+        select c.usuario, c.nome, c.fila_ligada as "filaLigada", c.robo_responde as "roboResponde", c.cardapio_id as "cardapioId",
+               c.conectado_em as "conectadoEm", c.token_vence_em as "venceEm", c.erro, c.erro_em as "erroEm", col.nome as "conectadoPor"
+          from instagram_conta c left join colaborador col on col.id = c.conectado_por and col.tenant_id = c.tenant_id
+         where c.tenant_id = ${tenantId}`),
+      this.db.execute(sql`
+        select cc.id, coalesce(nullif(trim(cc.nome_publico), ''), u.nome, 'Cardápio') as nome, cc.ativo
+          from cardapio_config cc left join unidade u on u.id = cc.unidade_id and u.tenant_id = cc.tenant_id
+         where cc.tenant_id = ${tenantId}
+         order by 2 limit 50`),
+    ]);
     const c = (r.rows ?? r)[0] ?? null;
-    return { disponivel: this.disponivel(), conta: c };
+    const cardapios = ((cards.rows ?? cards) as any[]).map((x) => ({ id: String(x.id), nome: String(x.nome), ativo: x.ativo === true }));
+    return { disponivel: this.disponivel(), roboDisponivel: this.roboDisponivel(), cardapios, conta: c };
+  }
+
+  /**
+   * Confere o grupo "Instagram Direct" do salvar ANTES de gravar qualquer grupo (V86): liga/desliga só com booleano (V15),
+   * o cardápio do robô é um cardápio DESTA empresa (ou vazio = o único), e o robô só liga com a conta conectada. O que não
+   * veio fica como está (V16). Devolve o que gravar.
+   */
+  async conferirAjuste(tenantId: string, dto: any): Promise<{ filaLigada?: boolean; roboResponde?: boolean; cardapioId?: string | null }> {
+    if (!dto || typeof dto !== 'object') throw new BadRequestException('Instagram Direct: ajuste inválido.');
+    const saida: { filaLigada?: boolean; roboResponde?: boolean; cardapioId?: string | null } = {};
+    for (const k of ['filaLigada', 'roboResponde'] as const) {
+      if (dto[k] === undefined) continue;
+      if (typeof dto[k] !== 'boolean') throw new BadRequestException('Instagram Direct: escolha ligado ou desligado.');
+      saida[k] = dto[k];
+    }
+    if (dto.cardapioId !== undefined) {
+      if (dto.cardapioId === null || dto.cardapioId === '') saida.cardapioId = null;
+      else if (typeof dto.cardapioId !== 'string' || !UUID_RE.test(dto.cardapioId)) throw new BadRequestException('Instagram Direct: escolha o cardápio do robô.');
+      else {
+        const [ok] = ((await this.db.execute(sql`select 1 from cardapio_config where id = ${dto.cardapioId} and tenant_id = ${tenantId}`)) as any).rows ?? [];
+        if (!ok) throw new BadRequestException('Instagram Direct: este cardápio não é desta empresa.');
+        saida.cardapioId = dto.cardapioId;
+      }
+    }
+    if (saida.roboResponde === true) {
+      const [c] = ((await this.db.execute(sql`select 1 from instagram_conta where tenant_id = ${tenantId}`)) as any).rows ?? [];
+      if (!c) throw new BadRequestException('Conecte o Instagram da loja antes de ligar o robô no Direct.');
+    }
+    return saida;
+  }
+
+  /** Grava o que `conferirAjuste` devolveu, só nas colunas que vieram, e cada mudança fica na auditoria. */
+  async salvarAjuste(user: AuthUser, a: { filaLigada?: boolean; roboResponde?: boolean; cardapioId?: string | null }) {
+    if (a.filaLigada !== undefined) await this.salvarFila(user, a.filaLigada);
+    if (a.roboResponde !== undefined) {
+      const r: any = await this.db.execute(sql`
+        update instagram_conta set robo_responde = ${a.roboResponde}, atualizado_em = clock_timestamp()
+         where tenant_id = ${user.tenantId} and robo_responde is distinct from ${a.roboResponde} returning id`);
+      if ((r.rows ?? r)[0])
+        await this.auditoria?.registrar({
+          tenantId: user.tenantId,
+          atorId: user.colaboradorId,
+          atorPerfil: user.categoria,
+          tipo: 'config',
+          acao: a.roboResponde ? 'robo_no_direct_ligado' : 'robo_no_direct_desligado',
+          entidadeTipo: 'instagram_conta',
+          entidadeId: user.tenantId,
+          detalhe: {},
+        });
+    }
+    if (a.cardapioId !== undefined) {
+      const r: any = await this.db.execute(sql`
+        update instagram_conta set cardapio_id = ${a.cardapioId}, atualizado_em = clock_timestamp()
+         where tenant_id = ${user.tenantId} and cardapio_id is distinct from ${a.cardapioId}::uuid returning id`);
+      if ((r.rows ?? r)[0])
+        await this.auditoria?.registrar({
+          tenantId: user.tenantId,
+          atorId: user.colaboradorId,
+          atorPerfil: user.categoria,
+          tipo: 'config',
+          acao: 'cardapio_do_robo_no_direct',
+          entidadeTipo: 'instagram_conta',
+          entidadeId: user.tenantId,
+          detalhe: { cardapioId: a.cardapioId },
+        });
+    }
+  }
+
+  /**
+   * O cardápio que o robô do Direct usa: o escolhido, se for desta empresa; sem escolha, o ÚNICO cardápio da empresa;
+   * com mais de um e nenhum escolhido, nenhum (o robô não liga). Com os textos do robô da loja (saudação, ausência…).
+   */
+  async cardapioDoRobo(db: any, tenantId: string, cardapioId: string | null): Promise<CardapioDoRobo | null> {
+    const r: any = await db.execute(sql`
+      select id, token, ativo, aberto, nome_publico as "nomePublico", robo_saudacao as "roboSaudacao", robo_ausencia as "roboAusencia",
+             robo_prompt as "roboPrompt", robo_mensagens as "roboMensagens", site, instagram
+        from cardapio_config
+       where tenant_id = ${tenantId} and (${cardapioId}::uuid is null or id = ${cardapioId}::uuid)
+       order by id limit 2`);
+    const linhas = (r.rows ?? r) as CardapioDoRobo[];
+    if (cardapioId) return linhas[0] ?? null;
+    return linhas.length === 1 ? linhas[0] : null;
   }
 
   /** O endereço do login do Instagram, com o "state" assinado (empresa, pessoa, 15 min). */
@@ -193,10 +330,12 @@ export class InstagramService {
   }
 
   private async umaMensagem(ev: EventoDoDirect) {
+    let paraORobo: any = null;
     const aviso: { evento: string; dados: any } | null = await this.db.transaction(async (tx: any) => {
       // A trava da conta: dois avisos do mesmo cliente ao mesmo tempo — um decide, o outro espera e já vê o caso.
       const [conta] = ((await tx.execute(sql`
-        select id, tenant_id as "tenantId", fila_ligada as "filaLigada" from instagram_conta where ig_user_id = ${ev.conta} for update`)) as any).rows ?? [];
+        select id, tenant_id as "tenantId", fila_ligada as "filaLigada", robo_responde as "roboResponde", cardapio_id as "cardapioId"
+          from instagram_conta where ig_user_id = ${ev.conta} for update`)) as any).rows ?? [];
       if (!conta) return null; // conta que não está (mais) conectada: nada a fazer
       if (ev.apagada) {
         if (ev.mid) await tx.execute(sql`update instagram_mensagem set estado = 'apagada' where tenant_id = ${conta.tenantId} and mid = ${ev.mid}`);
@@ -210,15 +349,41 @@ export class InstagramService {
         on conflict (tenant_id, mid) where mid is not null do nothing
         returning id`);
       const msg = (ins.rows ?? ins)[0];
-      if (!msg) return null; // aviso repetido, ou o eco da resposta que o Regem mandou
-      if (ev.eco || !conta.filaLigada) return null;
+      // Aviso repetido, ou o eco da resposta que o Regem mandou: nada mais — nem caso, nem o robô (V79/ERR-319: o efeito só
+      // quando a gravação idempotente diz que a mensagem é NOVA).
+      if (!msg) return null;
+      if (ev.eco) return null; // a loja escreveu pelo app do Instagram: fica na conversa (e cala o robô — quemRespondeNoDirect)
+      // O robô do Direct (mig 378): ligado pela loja, a distribuição pronta e um cardápio ativo para ele falar da loja.
+      const querRobo = conta.roboResponde === true;
+      const cardapio = querRobo ? await this.cardapioDoRobo(tx, conta.tenantId, conta.cardapioId) : null;
+      const roboLigado = querRobo && this.roboDisponivel() && !!cardapio?.ativo;
+      // V88: quem ligou o robô e ele não pode responder recebe a conversa como CASO, mesmo com a fila desligada.
+      const filaLigada = conta.filaLigada === true || (querRobo && !roboLigado);
+      if (!filaLigada && !roboLigado) return null;
       const [contato] = ((await tx.execute(sql`
         select nome, usuario from instagram_contato where tenant_id = ${conta.tenantId} and igsid = ${ev.igsid}`)) as any).rows ?? [];
       const [aberto] = ((await tx.execute(sql`
-        select id, aguardando_desde as "aguardava" from atendimento_chamado
+        select id, aguardando_desde as "aguardava", criado_em as "criadoEm", responsavel_id as "responsavelId" from atendimento_chamado
          where tenant_id = ${conta.tenantId} and tipo = 'instagram' and status = 'aberto' and detalhe #>> '{instagram,igsid}' = ${ev.igsid}
          order by criado_em desc limit 1`)) as any).rows ?? [];
-      if (aberto) {
+      const [quieto] = roboLigado
+        ? (((await tx.execute(sql`
+            select (select max(m.criado_em) from instagram_mensagem m
+                     where m.tenant_id = ${conta.tenantId} and m.igsid = ${ev.igsid} and m.autor = 'loja') as "ultimaDaLojaEm",
+                   (select pausa_minutos from robo_config where tenant_id = ${conta.tenantId}) as minutos,
+                   now() as agora`)) as any).rows ?? [])
+        : [null];
+      const decisao = quemRespondeNoDirect({
+        roboLigado,
+        filaLigada,
+        caso: aberto ?? null,
+        ultimaDaLojaEm: quieto?.ultimaDaLojaEm ?? null,
+        minutos: minutosDaPausa(quieto?.minutos),
+        agora: quieto?.agora ? new Date(quieto.agora).getTime() : Date.now(),
+      });
+      if (decisao.robo && cardapio)
+        paraORobo = this.mensagemParaORobo({ tenantId: conta.tenantId, igUserId: ev.conta, ev, contato, cardapio });
+      if (aberto && decisao.anexar) {
         await tx.execute(sql`
           update atendimento_chamado
              set mensagem = ${texto}, aguardando_desde = null,
@@ -228,7 +393,12 @@ export class InstagramService {
         await tx.execute(sql`update instagram_mensagem set chamado_id = ${aberto.id} where id = ${msg.id}`);
         return { evento: 'atendimento.mudou', dados: { tenantId: conta.tenantId, id: aberto.id, motivo: 'instagram_mensagem' } };
       }
-      const detalhe = { plataforma: 'instagram', instagram: { igsid: ev.igsid, usuario: contato?.usuario ?? null, nome: contato?.nome ?? null, ultimaEm: ev.em.toISOString() } };
+      if (!decisao.abrir) return null; // o robô responde (ou a loja está respondendo pelo app do Instagram)
+      const semRobo = querRobo && !roboLigado ? 'robo_indisponivel' : null;
+      const detalhe = {
+        plataforma: 'instagram',
+        instagram: { igsid: ev.igsid, usuario: contato?.usuario ?? null, nome: contato?.nome ?? null, ultimaEm: ev.em.toISOString(), ...(semRobo ? { semRobo } : {}) },
+      };
       const [novo] = ((await tx.execute(sql`
         insert into atendimento_chamado (tenant_id, unidade_id, tipo, canal, cliente, mensagem, prioridade, detalhe)
         values (${conta.tenantId}, null, 'instagram', 'instagram', ${nomeDoCliente(contato)}, ${texto}, 'normal', ${JSON.stringify(detalhe)}::jsonb)
@@ -237,7 +407,40 @@ export class InstagramService {
       return { evento: 'atendimento.novo', dados: { tenantId: conta.tenantId, chamado: novo } };
     });
     if (aviso) this.events.emit(aviso.evento, aviso.dados);
+    // Ao robô só DEPOIS de gravar (a resposta dele confere o caso e a janela no banco). Nunca rejeita (V3).
+    if (paraORobo) void entregarJuntando(paraORobo).catch((e: any) => this.logger.warn(`Direct ao robô: ${e?.message ?? e}`));
     if (!ev.eco) void this.lerPerfil(ev.conta, ev.igsid);
+  }
+
+  /**
+   * A mensagem do Direct no formato que o robô (n8n) recebe — o MESMO da API oficial e da Evolution (`MsgNormalizada`):
+   * a loja na chave `instancia` (`ig:<conta>`), o cliente em `de` (`ig:<igsid>`), a ficha do Direct em `conversa`. O
+   * `tipo` é sempre texto: no Direct o robô não ouve áudio (o texto diz o que veio) e não responde em voz.
+   */
+  mensagemParaORobo(o: { tenantId: string; igUserId: string; ev: EventoDoDirect; contato: any; cardapio: CardapioDoRobo }) {
+    const { ev, cardapio } = o;
+    return {
+      provedor: 'instagram',
+      tenantId: o.tenantId,
+      cardapioToken: cardapio.token,
+      phoneNumberId: null,
+      instancia: chaveDaConta(o.igUserId),
+      jid: null,
+      loja: { nome: cardapio.nomePublico ?? null, aberto: cardapio.aberto !== false },
+      de: chaveDoCliente(ev.igsid),
+      nome: (o.contato?.nome || o.contato?.usuario || null) as string | null,
+      tipo: 'text',
+      texto: textoParaORobo(ev),
+      mensagemId: ev.mid ?? '',
+      timestamp: Math.floor(ev.em.getTime() / 1000),
+      midiaId: null,
+      opcaoId: null,
+      roboSaudacao: cardapio.roboSaudacao ?? null,
+      roboAusencia: cardapio.roboAusencia ?? null,
+      roboPrompt: cardapio.roboPrompt ?? null,
+      roboMensagens: Array.isArray(cardapio.roboMensagens) ? cardapio.roboMensagens : [],
+      conversa: assinarConversaDoDirect(o.tenantId, ev.igsid),
+    };
   }
 
   /** O perfil do cliente (nome, @, se segue a loja): na primeira mensagem e depois de uma semana. Nunca lança (V3). */
@@ -370,6 +573,249 @@ export class InstagramService {
     });
     this.events.emit('atendimento.mudou', { tenantId, id: c.id, motivo: 'respondeu_instagram' });
     return { ok: true, mid };
+  }
+
+  // ───────────────────────── o robô no Direct (mig 378) ─────────────────────────
+
+  /**
+   * Para quem vai a resposta do robô (`publico/bot/responder` com a chave `ig:`), RECONFERIDO na hora (V87): a conta
+   * conectada, o robô do Direct ligado e a distribuição pronta, o cardápio dele ativo. O cliente é o `ig:<igsid>` que o
+   * robô recebeu em `de`. 400 para chave que não é do Direct; 404 para conta que não está conectada.
+   */
+  /**
+   * O cardápio que as consultas do robô usam no Direct (loja, cardápio, taxa e as instruções — chave `ig:<conta>`): só
+   * com a conta conectada, o robô do Direct ligado, a distribuição pronta e o cardápio ativo; senão `null` (404).
+   */
+  async cardapioDaConta(instancia: unknown): Promise<CardapioDoRobo | null> {
+    const igUserId = idDaChave(instancia);
+    if (!igUserId || !this.roboDisponivel()) return null;
+    const [c] = ((await this.db.execute(sql`
+      select tenant_id as "tenantId", robo_responde as "roboResponde", cardapio_id as "cardapioId" from instagram_conta where ig_user_id = ${igUserId}`)) as any).rows ?? [];
+    if (!c || c.roboResponde !== true) return null;
+    const cardapio = await this.cardapioDoRobo(this.db, c.tenantId, c.cardapioId);
+    return cardapio?.ativo ? cardapio : null;
+  }
+
+  async alvoDoRobo(instancia: unknown, para: unknown): Promise<AlvoDoRobo> {
+    const igUserId = idDaChave(instancia);
+    const igsid = idDaChave(para);
+    if (!igUserId || !igsid) throw new BadRequestException('Conversa do Direct inválida.');
+    const [c] = ((await this.db.execute(sql`
+      select tenant_id as "tenantId", robo_responde as "roboResponde", cardapio_id as "cardapioId" from instagram_conta where ig_user_id = ${igUserId}`)) as any).rows ?? [];
+    if (!c) throw new NotFoundException('Instagram não conectado a uma loja.');
+    if (c.roboResponde !== true || !this.roboDisponivel()) return { ligado: false, motivo: 'robo_desligado' };
+    const cardapio = await this.cardapioDoRobo(this.db, c.tenantId, c.cardapioId);
+    if (!cardapio?.ativo) return { ligado: false, motivo: 'robo_desligado' };
+    return { ligado: true, tenantId: c.tenantId, igUserId, igsid, cardapio };
+  }
+
+  /**
+   * A resposta do robô no Direct (o texto já pronto: links da loja e opções numeradas — robo-resposta.service). Na trava
+   * da conta: SEGURA quando a conversa está com alguém (a mesma régua da entrada — quemRespondeNoDirect), salvo UMA vez o
+   * "já chamei a equipe" que o handoff liberou (V83, decidido ANTES de o caso abrir); segura também fora da janela de 24 h.
+   * Sai em até 3 mensagens de 1.000 bytes; cada uma fica na conversa como `robo`, com o id da Meta (o eco não entra de
+   * novo e não cala o robô). Falha da Meta fica na conversa e volta 502.
+   */
+  async enviarDoRobo(alvo: Extract<AlvoDoRobo, { ligado: true }>, texto: string): Promise<{ ok: true; enviado: boolean; motivo?: string; enviados?: string[] }> {
+    const { tenantId, igUserId, igsid } = alvo;
+    const partes = partirTexto(texto);
+    if (!partes.length) throw new BadRequestException('Nada para enviar.');
+    const decisao = await this.db.transaction(async (tx: any) => {
+      const [conta] = ((await tx.execute(sql`
+        select token_cifrado as token from instagram_conta where tenant_id = ${tenantId} and ig_user_id = ${igUserId} for update`)) as any).rows ?? [];
+      if (!conta) return { pode: false as const, motivo: 'robo_desligado' };
+      const [l] = ((await tx.execute(sql`
+        select (select row_to_json(x) from (
+                  select a.id, a.criado_em as "criadoEm", a.responsavel_id as "responsavelId",
+                         (a.detalhe #>> '{instagram,avisoLiberado}') = 'true' as "avisoLiberado"
+                    from atendimento_chamado a
+                   where a.tenant_id = ${tenantId} and a.tipo = 'instagram' and a.status = 'aberto' and a.detalhe #>> '{instagram,igsid}' = ${igsid}
+                   order by a.criado_em desc limit 1) x) as caso,
+               (select max(m.criado_em) from instagram_mensagem m where m.tenant_id = ${tenantId} and m.igsid = ${igsid} and m.autor = 'loja') as "ultimaDaLojaEm",
+               (select max(m.criado_em) from instagram_mensagem m where m.tenant_id = ${tenantId} and m.igsid = ${igsid} and m.autor = 'cliente') as "ultimaDoCliente",
+               (select pausa_minutos from robo_config where tenant_id = ${tenantId}) as minutos,
+               now() as agora`)) as any).rows ?? [];
+      if (!janela(l?.ultimaDoCliente ?? null).aberta) return { pode: false as const, motivo: 'fora_da_janela' };
+      const caso = l?.caso ?? null;
+      const r = quemRespondeNoDirect({
+        roboLigado: true,
+        filaLigada: false,
+        caso,
+        ultimaDaLojaEm: l?.ultimaDaLojaEm ?? null,
+        minutos: minutosDaPausa(l?.minutos),
+        agora: l?.agora ? new Date(l.agora).getTime() : Date.now(),
+      });
+      if (!r.robo) {
+        // O "já chamei" do handoff: liberado uma vez só, consumido aqui (vale com várias instâncias da API).
+        if (!caso?.avisoLiberado) return { pode: false as const, motivo: 'conversa_pausada' };
+        const usado: any = await tx.execute(sql`
+          update atendimento_chamado
+             set detalhe = detalhe || jsonb_build_object('instagram', (detalhe -> 'instagram') || jsonb_build_object('avisoLiberado', false))
+           where id = ${caso.id} and status = 'aberto' and (detalhe #>> '{instagram,avisoLiberado}') = 'true'
+           returning id`);
+        if (!(usado.rows ?? usado)[0]) return { pode: false as const, motivo: 'conversa_pausada' };
+      }
+      return { pode: true as const, token: conta.token as string, chamadoId: (caso?.id as string) ?? null };
+    });
+    if (!decisao.pode) {
+      this.logger.log(`resposta do robô no Direct segurada (${decisao.motivo}) empresa=${tenantId}`);
+      return { ok: true, enviado: false, motivo: decisao.motivo };
+    }
+    const enviados: string[] = [];
+    for (const parte of partes) {
+      let mid: string | null = null;
+      try {
+        mid = (await meta.enviarTexto(igUserId, decifrar(decisao.token), igsid, parte)).mid;
+      } catch (e: any) {
+        await this.db.execute(sql`
+          insert into instagram_mensagem (tenant_id, ig_user_id, igsid, direcao, autor, tipo, texto, chamado_id, estado, erro)
+          values (${tenantId}, ${igUserId}, ${igsid}, 'saida', 'robo', 'texto', ${parte}, ${decisao.chamadoId}, 'falhou', ${String(e?.message ?? e).slice(0, 300)})`);
+        this.logger.warn(`resposta do robô no Direct (empresa ${tenantId}): ${e?.message ?? e}`);
+        throw new BadGatewayException(`O Instagram não aceitou a mensagem${e?.message ? `: ${String(e.message).slice(0, 200)}` : '.'}`);
+      }
+      // O eco da Meta pode chegar ANTES desta gravação (entrou como `loja`): pelo mesmo id, ela passa a ser do robô.
+      await this.db.execute(sql`
+        insert into instagram_mensagem (tenant_id, ig_user_id, igsid, direcao, autor, tipo, texto, mid, chamado_id, estado)
+        values (${tenantId}, ${igUserId}, ${igsid}, 'saida', 'robo', 'texto', ${parte}, ${mid}, ${decisao.chamadoId}, 'enviada')
+        on conflict (tenant_id, mid) where mid is not null do update set autor = 'robo', chamado_id = coalesce(instagram_mensagem.chamado_id, excluded.chamado_id)`);
+      enviados.push('texto');
+    }
+    if (decisao.chamadoId) this.events.emit('atendimento.mudou', { tenantId, id: decisao.chamadoId, motivo: 'robo_respondeu_instagram' });
+    return { ok: true, enviado: true, enviados };
+  }
+
+  /**
+   * "CHAMAR ATENDENTE" no Direct (a ferramenta do robô, pela rota do cardápio com `telefone: ig:<igsid>`): só com a ficha
+   * do Direct desta empresa e deste cliente (o robô não abre caso para outra pessoa — V79). Na trava da conta: lê ANTES se
+   * a conversa já estava com alguém (V83) — se não estava, libera UMA resposta do robô (o "já chamei a equipe"); abre o
+   * caso do Direct com o resumo (Motivo / Quer / Já fiz), ou soma ao que já está aberto (a prioridade só sobe). A resposta
+   * traz a posição na fila (se a loja diz a posição) ou `comAlguem`.
+   */
+  async abrirPeloRobo(tenantIdDoCardapio: string, dto: any) {
+    const conv = lerConversaDoDirect(dto?.conversa);
+    if (!conv || conv.tenantId !== tenantIdDoCardapio) throw new UnauthorizedException('Conversa do Direct inválida.');
+    const igsidDoTelefone = idDaChave(dto?.telefone);
+    if (igsidDoTelefone && igsidDoTelefone !== conv.igsid) throw new UnauthorizedException('Conversa do Direct inválida.');
+    const { tenantId, igsid } = conv;
+    const urgente = dto?.prioridade === 'urgente' || dto?.urgente === true || dto?.urgente === 'true';
+    const resumo = resumoDoRobo(dto, urgente);
+    const mensagem = typeof dto?.mensagem === 'string' && dto.mensagem.trim() ? dto.mensagem.trim().slice(0, 1000) : null;
+    const r = await this.db.transaction(async (tx: any) => {
+      const [conta] = ((await tx.execute(sql`select id from instagram_conta where tenant_id = ${tenantId} for update`)) as any).rows ?? [];
+      if (!conta) throw new NotFoundException('Instagram não conectado.');
+      const [l] = ((await tx.execute(sql`
+        select (select row_to_json(x) from (
+                  select a.id, a.prioridade, a.mensagem, a.responsavel_id as "responsavelId", a.criado_em as "criadoEm"
+                    from atendimento_chamado a
+                   where a.tenant_id = ${tenantId} and a.tipo = 'instagram' and a.status = 'aberto' and a.detalhe #>> '{instagram,igsid}' = ${igsid}
+                   order by a.criado_em desc limit 1) x) as caso,
+               (select max(m.criado_em) from instagram_mensagem m where m.tenant_id = ${tenantId} and m.igsid = ${igsid} and m.autor = 'loja') as "ultimaDaLojaEm",
+               (select pausa_minutos from robo_config where tenant_id = ${tenantId}) as minutos,
+               (select row_to_json(ct) from (select nome, usuario from instagram_contato where tenant_id = ${tenantId} and igsid = ${igsid}) ct) as contato,
+               now() as agora`)) as any).rows ?? [];
+      const caso = l?.caso ?? null;
+      const minutos = minutosDaPausa(l?.minutos);
+      const agora = l?.agora ? new Date(l.agora).getTime() : Date.now();
+      const t = l?.ultimaDaLojaEm ? new Date(l.ultimaDaLojaEm).getTime() : NaN;
+      const lojaRespondeu = Number.isFinite(t) && agora - t < (minutos > 0 ? minutos * 60_000 : 12 * 3_600_000);
+      // V83: a leitura de ANTES de abrir decide o "já chamei" — com a conversa já com alguém, o robô não fala por cima.
+      const liberar = !(caso?.responsavelId || lojaRespondeu);
+      const robo = resumo ? { ...resumo, em: new Date(agora).toISOString() } : null;
+      if (caso) {
+        const subiu = urgente && caso.prioridade !== 'urgente';
+        const junta = juntarMensagem(caso.mensagem, mensagem);
+        const [row] = ((await tx.execute(sql`
+          update atendimento_chamado
+             set prioridade = ${subiu ? 'urgente' : caso.prioridade}, mensagem = ${junta}, aguardando_desde = null,
+                 detalhe = coalesce(detalhe, '{}'::jsonb)
+                           || ${JSON.stringify(robo ? { robo } : {})}::jsonb
+                           || jsonb_build_object('instagram', coalesce(detalhe -> 'instagram', '{}'::jsonb) || jsonb_build_object('avisoLiberado', ${liberar}::boolean))
+           where id = ${caso.id}
+           returning *`)) as any).rows ?? [];
+        return { id: caso.id as string, novo: subiu ? row : null, mudou: !subiu, prioridade: row?.prioridade ?? caso.prioridade };
+      }
+      const detalhe = {
+        plataforma: 'instagram',
+        instagram: { igsid, usuario: l?.contato?.usuario ?? null, nome: l?.contato?.nome ?? null, ultimaEm: new Date(agora).toISOString(), abertoPeloRobo: true, avisoLiberado: liberar },
+        ...(robo ? { robo } : {}),
+      };
+      const [novo] = ((await tx.execute(sql`
+        insert into atendimento_chamado (tenant_id, unidade_id, tipo, canal, cliente, mensagem, prioridade, detalhe)
+        values (${tenantId}, null, 'instagram', 'instagram', ${nomeDoCliente(l?.contato)}, ${mensagem ?? 'O robô chamou a equipe no Direct'},
+                ${urgente ? 'urgente' : 'normal'}, ${JSON.stringify(detalhe)}::jsonb)
+        returning *`)) as any).rows ?? [];
+      // As mensagens da conversa (últimas 12 h) passam a ser deste caso.
+      await tx.execute(sql`
+        update instagram_mensagem set chamado_id = ${novo.id}
+         where tenant_id = ${tenantId} and igsid = ${igsid} and chamado_id is null and criado_em > now() - interval '12 hours'`);
+      return { id: novo.id as string, novo, mudou: false, prioridade: novo.prioridade };
+    });
+    if (r.novo) this.events.emit('atendimento.novo', { tenantId, chamado: r.novo });
+    else if (r.mudou) this.events.emit('atendimento.mudou', { tenantId, id: r.id, motivo: 'robo_somou' });
+    const pos = await posicaoNaFila(this.db, tenantId, r.id);
+    const [cfg] = ((await this.db.execute(sql`select dizer_posicao as "dizer" from robo_config where tenant_id = ${tenantId}`)) as any).rows ?? [];
+    return { ok: true, id: r.id, prioridade: r.prioridade, posicao: cfg?.dizer === false ? null : pos.posicao, comAlguem: pos.comAlguem };
+  }
+
+  /**
+   * O ROBÔ NÃO RESPONDEU (V88), a cada minuto, só na nuvem: a conversa do Direct com o robô ligado em que a ÚLTIMA
+   * mensagem é do cliente, há mais de 3 min, sem caso aberto, vira caso para uma pessoa. A condição toda no `where` (V84);
+   * as últimas 30 min, até 100 por rodada. Na trava da conta, confere de novo; o id do caso vem da mensagem (`uuidDeChave`:
+   * duas rodadas ou duas instâncias = um caso — V42).
+   */
+  @Cron('*/1 * * * *')
+  async semResposta(): Promise<number> {
+    if (ehServidorLocal()) return 0;
+    const r: any = await this.db.execute(sql`
+      select c.tenant_id as "tenantId", m.igsid, m.id as "msgId", m.texto, m.tipo
+        from instagram_conta c
+        join lateral (
+          select distinct on (x.igsid) x.igsid, x.id, x.texto, x.tipo, x.autor, x.criado_em
+            from instagram_mensagem x
+           where x.tenant_id = c.tenant_id and x.criado_em > now() - interval '30 minutes' and x.estado not in ('apagada', 'falhou')
+           order by x.igsid, x.criado_em desc, x.id desc) m on true
+       where c.robo_responde
+         and m.autor = 'cliente' and m.criado_em < now() - make_interval(secs => ${SEM_RESPOSTA_MS / 1000})
+         and not exists (select 1 from atendimento_chamado a
+                          where a.tenant_id = c.tenant_id and a.tipo = 'instagram' and a.status = 'aberto'
+                            and a.detalhe #>> '{instagram,igsid}' = m.igsid)
+       limit 100`);
+    let abertos = 0;
+    for (const p of (r.rows ?? r) as any[]) {
+      try {
+        const novo = await this.db.transaction(async (tx: any) => {
+          await tx.execute(sql`select 1 from instagram_conta where tenant_id = ${p.tenantId} for update`);
+          const [ainda] = ((await tx.execute(sql`
+            select 1 where not exists (select 1 from atendimento_chamado a
+                                        where a.tenant_id = ${p.tenantId} and a.tipo = 'instagram' and a.status = 'aberto'
+                                          and a.detalhe #>> '{instagram,igsid}' = ${p.igsid})
+                       and (select autor from instagram_mensagem where tenant_id = ${p.tenantId} and igsid = ${p.igsid} and estado not in ('apagada', 'falhou')
+                             order by criado_em desc, id desc limit 1) = 'cliente'`)) as any).rows ?? [];
+          if (!ainda) return null;
+          const [ct] = ((await tx.execute(sql`select nome, usuario from instagram_contato where tenant_id = ${p.tenantId} and igsid = ${p.igsid}`)) as any).rows ?? [];
+          const detalhe = { plataforma: 'instagram', instagram: { igsid: p.igsid, usuario: ct?.usuario ?? null, nome: ct?.nome ?? null, ultimaEm: new Date().toISOString(), semResposta: true } };
+          const [c] = ((await tx.execute(sql`
+            insert into atendimento_chamado (id, tenant_id, unidade_id, tipo, canal, cliente, mensagem, prioridade, detalhe)
+            values (${uuidDeChave('instagram-sem-resposta', p.tenantId, p.msgId)}, ${p.tenantId}, null, 'instagram', 'instagram', ${nomeDoCliente(ct)},
+                    ${frase({ texto: p.texto, tipo: p.tipo as any })}, 'normal', ${JSON.stringify(detalhe)}::jsonb)
+            on conflict (id) do nothing
+            returning *`)) as any).rows ?? [];
+          if (!c) return null;
+          await tx.execute(sql`
+            update instagram_mensagem set chamado_id = ${c.id}
+             where tenant_id = ${p.tenantId} and igsid = ${p.igsid} and chamado_id is null and criado_em > now() - interval '12 hours'`);
+          return c;
+        });
+        if (novo) {
+          abertos++;
+          this.logger.log(`Direct sem resposta do robô virou caso (empresa ${p.tenantId}).`);
+          this.events.emit('atendimento.novo', { tenantId: p.tenantId, chamado: novo });
+        }
+      } catch (e: any) {
+        this.logger.warn(`Direct sem resposta (empresa ${p.tenantId}): ${e?.message ?? e}`);
+      }
+    }
+    return abertos;
   }
 
   // ───────────────────────── a renovação do acesso ─────────────────────────

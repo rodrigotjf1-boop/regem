@@ -238,7 +238,8 @@ export type MensagemDaConversa = {
  * com as últimas mensagens) ou do WhatsApp (o número e a última mensagem; a conversa a tela lê da caixa ao abrir).
  */
 export type ConversaAgora = {
-  canal: 'ifood' | '99food' | 'whatsapp';
+  /** `instagram` = o Direct que o robô está atendendo (mig 378): com as últimas mensagens e o perfil (nome e @). */
+  canal: 'ifood' | '99food' | 'whatsapp' | 'instagram';
   chave: string;
   ultima: string;
   cliente: string | null;
@@ -252,6 +253,9 @@ export type ConversaAgora = {
   telefone?: string | null;
   jids?: string[];
   ultimaMensagem?: string | null;
+  /** Direct: o @ do perfil e se o cliente segue a loja (o Instagram não manda telefone). */
+  usuario?: string | null;
+  segue?: boolean | null;
 };
 export const idDaConversa = (c: { canal: string; chave: string }) => `${c.canal}|${c.chave}`;
 /** "(21) 97654-3210" a partir dos dígitos (com ou sem o 55). */
@@ -265,6 +269,9 @@ export function telefoneLegivel(t: string | null | undefined): string {
 /** "Maria S. · pedido iFood 4821" — como o título do caso; no WhatsApp, o nome (do perfil do WhatsApp) ou o número. */
 export function tituloDaConversa(c: ConversaAgora): string {
   if (c.canal === 'whatsapp') return c.cliente || telefoneLegivel(c.telefone) || 'Cliente';
+  // Direct: "Lívia Ramos · @livia.ramos · Direct" (o protótipo v8) — o nome do perfil, o @ e o canal.
+  if (c.canal === 'instagram')
+    return [c.cliente && c.cliente !== c.usuario ? c.cliente : null, c.usuario, 'Direct'].filter(Boolean).join(' · ') || 'Cliente do Instagram';
   const plataforma = c.canal === 'ifood' ? 'iFood' : '99Food';
   return `${c.cliente || 'Cliente'}${c.pedidoNumero ? ` · pedido ${plataforma} ${c.pedidoNumero}` : ` · chat ${c.canal === 'ifood' ? 'do iFood' : 'da 99'}`}`;
 }
@@ -286,10 +293,13 @@ export function resumoDaConversa(c: ConversaAgora): string {
  * robô atende para quem está na tela —; com a ponte ligada e o robô do chat desligado, "2 conversas no chat do iFood e da
  * 99 sem caso".
  */
-export function resumoDasConversas(conversas: ConversaAgora[], o: { comWhatsapp: boolean; comPonte: boolean; roboResponde: boolean }): string {
+export function resumoDasConversas(
+  conversas: ConversaAgora[],
+  o: { comWhatsapp: boolean; comPonte: boolean; roboResponde: boolean; comInstagram?: boolean },
+): string {
   const fmt = (n: number) => (n === 1 ? '1 conversa' : `${n} conversas`);
   const comRobo = conversas.filter((c) => c.comRobo ?? o.roboResponde).length;
-  const onde = [o.comWhatsapp ? 'no WhatsApp' : '', o.comPonte && o.roboResponde ? 'no iFood e na 99' : ''].filter(Boolean);
+  const onde = [o.comWhatsapp ? 'no WhatsApp' : '', o.comInstagram ? 'no Instagram' : '', o.comPonte && o.roboResponde ? 'no iFood e na 99' : ''].filter(Boolean);
   const partes: string[] = [];
   if (onde.length) partes.push(`o robô está em ${fmt(comRobo)} ${onde.join(', ')}`);
   if (o.comPonte && !o.roboResponde) partes.push(`${fmt(conversas.length - comRobo)} no chat do iFood e da 99 sem caso`);
