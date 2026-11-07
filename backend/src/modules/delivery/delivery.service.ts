@@ -1998,10 +1998,15 @@ export class DeliveryService {
       update delivery_config set totem_conclui_ao_ficar_pronto = ${v}, updated_at = now()
       where tenant_id = ${tenantId} and unidade_id is null`);
     if ((upd.rowCount ?? 0) === 0) {
-      // id pela chave (mig 339): a linha que a nuvem e o servidor da loja criam é a MESMA.
+      // id pela chave (mig 339): a linha que a nuvem e o servidor da loja criam é a MESMA. Outro salvamento pode criá-la
+      // ao mesmo tempo (dois únicos — ERR-391): "não faz nada" e grava de novo por cima.
       await this.db.execute(sql`
         insert into delivery_config (id, tenant_id, unidade_id, totem_conclui_ao_ficar_pronto)
-        values (${idConfigDaLoja('delivery_config', tenantId, null)}, ${tenantId}, null, ${v})`);
+        values (${idConfigDaLoja('delivery_config', tenantId, null)}, ${tenantId}, null, ${v})
+        on conflict do nothing`);
+      await this.db.execute(sql`
+        update delivery_config set totem_conclui_ao_ficar_pronto = ${v}, updated_at = now()
+        where tenant_id = ${tenantId} and unidade_id is null`);
     }
     return { totemConcluiAoFicarPronto: v, mudou: antes !== v };
   }
@@ -2032,9 +2037,14 @@ export class DeliveryService {
       update delivery_config set totem_producao_apos_pagamento = ${v}, updated_at = now()
       where tenant_id = ${tenantId} and unidade_id is null`);
     if ((upd.rowCount ?? 0) === 0) {
+      // Outro salvamento pode criar a linha ao mesmo tempo (dois únicos — ERR-391): "não faz nada" e grava por cima.
       await this.db.execute(sql`
         insert into delivery_config (id, tenant_id, unidade_id, totem_producao_apos_pagamento)
-        values (${idConfigDaLoja('delivery_config', tenantId, null)}, ${tenantId}, null, ${v})`);
+        values (${idConfigDaLoja('delivery_config', tenantId, null)}, ${tenantId}, null, ${v})
+        on conflict do nothing`);
+      await this.db.execute(sql`
+        update delivery_config set totem_producao_apos_pagamento = ${v}, updated_at = now()
+        where tenant_id = ${tenantId} and unidade_id is null`);
     }
     return { totemAposPagamento: v };
   }
@@ -5012,10 +5022,18 @@ export class DeliveryService {
         .set({ ...vals, updatedAt: new Date() })
         .where(eq(deliveryConfig.id, row.id));
     } else {
-      // id pela chave (mig 339): a linha que a nuvem e o servidor da loja criam é a MESMA.
-      await this.db
+      // id pela chave (mig 339): a linha que a nuvem e o servidor da loja criam é a MESMA. Outro salvamento pode criá-la
+      // ao mesmo tempo (dois únicos — ERR-391): "não faz nada" e grava por cima pela chave.
+      const criada = await this.db
         .insert(deliveryConfig)
-        .values({ id: idConfigDaLoja('delivery_config', tenantId, unidadeId), tenantId, unidadeId, ...vals });
+        .values({ id: idConfigDaLoja('delivery_config', tenantId, unidadeId), tenantId, unidadeId, ...vals })
+        .onConflictDoNothing()
+        .returning({ id: deliveryConfig.id });
+      if (!criada.length)
+        await this.db
+          .update(deliveryConfig)
+          .set({ ...vals, updatedAt: new Date() })
+          .where(and(eq(deliveryConfig.tenantId, tenantId), unidadeId ? eq(deliveryConfig.unidadeId, unidadeId) : isNull(deliveryConfig.unidadeId)));
     }
     return this.getConfig(tenantId, unidadeId);
   }

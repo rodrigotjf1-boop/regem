@@ -193,8 +193,18 @@ export class TefService {
         .set({ ...vals, updatedAt: new Date() })
         .where(eq(tefConfig.id, row.id));
     } else {
-      // id pela chave (mig 339): a linha que a nuvem e o servidor da loja criam é a MESMA.
-      await this.db.insert(tefConfig).values({ id: idConfigDaLoja('tef_config', tenantId, unidadeId), tenantId, unidadeId, ...vals });
+      // id pela chave (mig 339): a linha que a nuvem e o servidor da loja criam é a MESMA. Outro salvamento pode criá-la
+      // ao mesmo tempo (dois únicos — ERR-391): "não faz nada" e grava por cima pela chave.
+      const criada = await this.db
+        .insert(tefConfig)
+        .values({ id: idConfigDaLoja('tef_config', tenantId, unidadeId), tenantId, unidadeId, ...vals })
+        .onConflictDoNothing()
+        .returning({ id: tefConfig.id });
+      if (!criada.length)
+        await this.db
+          .update(tefConfig)
+          .set({ ...vals, updatedAt: new Date() })
+          .where(and(eq(tefConfig.tenantId, tenantId), unidadeId ? eq(tefConfig.unidadeId, unidadeId) : sql`${tefConfig.unidadeId} is null`));
     }
     return this.getConfig(tenantId, unidadeId);
   }

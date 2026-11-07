@@ -303,10 +303,14 @@ export class OrzuniLigacaoService {
       }
     }
     const [antes] = await this.rows(sql`select ativo from entitlement where tenant_id = ${emp.id} and modulo = ${MODULO_IFOOD_PELO_ORZUNI}`);
+    // Dois únicos (o id da chave e empresa+módulo): "não faz nada" vale para qualquer um, e o valor vai pela chave
+    // natural — dois salvamentos juntos não dão 23505 (ERR-391).
     await this.db.execute(sql`
       insert into entitlement (id, tenant_id, modulo, ativo)
       values (${idEntitlement(emp.id, MODULO_IFOOD_PELO_ORZUNI)}, ${emp.id}, ${MODULO_IFOOD_PELO_ORZUNI}, ${ligar})
-      on conflict (tenant_id, modulo) do update set ativo = excluded.ativo, updated_at = now()`);
+      on conflict do nothing`);
+    await this.db.execute(sql`
+      update entitlement set ativo = ${ligar}, updated_at = now() where tenant_id = ${emp.id} and modulo = ${MODULO_IFOOD_PELO_ORZUNI}`);
     if ((antes?.ativo === true) !== ligar) {
       await this.auditoria.registrar({
         tenantId: emp.id,

@@ -9,7 +9,7 @@ import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { entitlement, fichaIngrediente, fichaTecnica, itemConversao, itemEstoque } from '../../db/schema';
 import { MODULO_MESMA_EMBALAGEM } from '../../common/embalagem-da-ficha';
-import { idEntitlement } from '../../common/id-deterministico';
+import { gravarEntitlement } from '../../common/gravar-entitlement';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { arredondarEstoque, arredondarInformado, CASAS_INFORMADO, chaveUnidade, fatorParaEstoque, type Conversao } from '../../common/conversao-unidade';
 import { conferirConversoes, unidadeOuPadrao } from '../estoque/unidades';
@@ -115,13 +115,7 @@ export class FichasService {
 
   async setEmbalagemConfig(tenantId: string, mesmaEmbalagem: boolean, ator?: { colaboradorId?: string; categoria?: string } | null) {
     const antes = await mesmaEmbalagemDaEmpresa(this.db, tenantId);
-    await this.db
-      .insert(entitlement)
-      .values({ id: idEntitlement(tenantId, MODULO_MESMA_EMBALAGEM), tenantId, modulo: MODULO_MESMA_EMBALAGEM, ativo: mesmaEmbalagem })
-      .onConflictDoUpdate({
-        target: [entitlement.tenantId, entitlement.modulo],
-        set: { ativo: mesmaEmbalagem, updatedAt: new Date() },
-      });
+    await gravarEntitlement(this.db, tenantId, MODULO_MESMA_EMBALAGEM, mesmaEmbalagem); // dois salvamentos juntos: ERR-391
     // Muda o custo de balcão e a baixa de estoque de todas as fichas: fica no registro de auditoria.
     if (antes !== mesmaEmbalagem)
       await this.auditoria?.registrar({

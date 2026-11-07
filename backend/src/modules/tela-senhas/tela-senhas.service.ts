@@ -188,15 +188,18 @@ export class TelaSenhasService {
       if (mudouTamanho)
         await tx.update(equipamento).set({ telaTamanhos: depois.tamanhos, updatedAt: new Date() }).where(eq(equipamento.id, t.id));
       if (mudou.includes('prontoMin') || mudou.includes('som')) {
-        // Um comando só, pelo índice único da empresa e loja (mig 034, `uq_kds_cor_tenant_unidade`): duas gravações ao
-        // mesmo tempo não criam duas linhas. Sem ajuste da empresa, a linha nasce com o padrão nas cores e etapas — o
-        // mesmo que a leitura do KDS já usa quando não há linha.
-        // id pela chave (mig 339): a linha que a nuvem e o servidor da loja criam é a MESMA.
+        // A linha da empresa existe (sem ajuste dela, nasce com o padrão nas cores e etapas — o mesmo que a leitura do KDS
+        // já usa quando não há linha), e depois recebe o valor. A tabela tem DOIS únicos: o id da chave (mig 339 — a
+        // linha que a nuvem e o servidor da loja criam é a MESMA) e empresa+loja (mig 034). `on conflict` de um só deixava
+        // o segundo salvamento ao mesmo tempo esbarrar no outro (23505, ERR-391): "não faz nada" vale para qualquer um, e
+        // o `update` grava por cima da linha que o outro criou.
         await tx.execute(sql`
           insert into kds_cor_config (id, tenant_id, unidade_id, tela_pronto_min, tela_som)
           values (${idConfigDaLoja('kds_cor_config', tenantId, null)}, ${tenantId}, null, ${depois.prontoMin}, ${depois.som})
-          on conflict (tenant_id, (coalesce(unidade_id, '00000000-0000-0000-0000-000000000000'::uuid)))
-          do update set tela_pronto_min = excluded.tela_pronto_min, tela_som = excluded.tela_som, updated_at = now()`);
+          on conflict do nothing`);
+        await tx.execute(sql`
+          update kds_cor_config set tela_pronto_min = ${depois.prontoMin}, tela_som = ${depois.som}, updated_at = now()
+           where tenant_id = ${tenantId} and unidade_id is null`);
       }
     });
     await this.auditoria.registrar({

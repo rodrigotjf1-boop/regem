@@ -59,7 +59,8 @@ import {
   desperdicio,
 } from '../../db/schema';
 import { precoComAtacado } from '../../common/preco-atacado';
-import { idEntitlement, uuidDeChave } from '../../common/id-deterministico';
+import { uuidDeChave } from '../../common/id-deterministico';
+import { gravarEntitlement } from '../../common/gravar-entitlement';
 import { MOTIVO_PERDA_CANCELAMENTO } from '../desperdicio/motivos';
 import { lerItensDaPerda, type ItemDaPerda } from './itens-da-perda';
 export type { ItemDaPerda } from './itens-da-perda';
@@ -3717,13 +3718,7 @@ export class VendasService {
 
   // Liga/desliga o cancelamento livre pelo atendente (upsert do entitlement).
   async setCancelamentoLivre(tenantId: string, ativo: boolean) {
-    await this.db
-      .insert(entitlement)
-      .values({ id: idEntitlement(tenantId, 'pdv_cancelamento_livre'), tenantId, modulo: 'pdv_cancelamento_livre', ativo })
-      .onConflictDoUpdate({
-        target: [entitlement.tenantId, entitlement.modulo],
-        set: { ativo, updatedAt: new Date() },
-      });
+    await gravarEntitlement(this.db, tenantId, 'pdv_cancelamento_livre', ativo); // dois salvamentos juntos: ERR-391
     return { cancelamentoLivre: ativo };
   }
 

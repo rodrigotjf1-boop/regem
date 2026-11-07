@@ -58,7 +58,8 @@ describe('configuração de linha única — regra do id e do sincronismo', () =
         if (!/idConfigDaLoja\(|idEntitlement\(/.test(depois)) achados.push(`${arq.slice(src.length)}: ${m[0]}`);
       }
     }
-    expect(total).toBeGreaterThanOrEqual(12);
+    // 10 desde o ERR-391: os seis liga/desliga de módulo passaram a gravar por `common/gravar-entitlement.ts` (um insert só).
+    expect(total).toBeGreaterThanOrEqual(10);
     expect(achados).toEqual([]);
   });
 });
@@ -108,6 +109,55 @@ descrever('configuração de linha única — Postgres', () => {
     expect(await id('tef_config', 'tenant_id = $1 and unidade_id = $2', [T, LOJA])).toBe(idConfigDaLoja('tef_config', T, LOJA));
     expect(await id('delivery_config', 'tenant_id = $1 and unidade_id is null', [T])).toBe(idConfigDaLoja('delivery_config', T, null));
     expect(await id('kds_cor_config', 'tenant_id = $1 and unidade_id = $2', [T, LOJA])).toBe(idConfigDaLoja('kds_cor_config', T, LOJA));
+  });
+
+  // ERR-391: estas tabelas têm DOIS únicos — o id da chave (339) e a chave natural (empresa+loja, empresa+módulo). Gravar
+  // com `on conflict` de um só, ou "lê; atualiza ou insere", deixava o segundo salvamento ao mesmo tempo esbarrar no outro
+  // único (23505) — de vez em quando. Em rodadas, numa empresa nova cada vez, com vários salvamentos juntos: um de cada
+  // caminho (o da TV de senhas está em `tela-senhas.spec.ts`).
+  it('salvamentos juntos, em rodadas: nunca 23505, sempre UMA linha (os caminhos que criam a linha)', async () => {
+    const db = drizzle(pool, { schema }) as any;
+    const semAuditoria = { registrar: async () => undefined } as any;
+    const financeiro = new FinanceiroService(db, semAuditoria, {} as any);
+    const tef = new TefService(db, semAuditoria);
+    const delivery = Object.create(DeliveryService.prototype);
+    delivery.db = db;
+    const producao = Object.create(ProducaoPedidoService.prototype);
+    producao.db = db;
+    producao.auditoria = semAuditoria;
+    const empresas: string[] = [];
+    try {
+      for (let i = 0; i < 25; i++) {
+        const t = randomUUID();
+        const loja = randomUUID();
+        empresas.push(t);
+        await q(`insert into empresa (id, nome) values ($1, 'teste corrida linha unica')`, [t]);
+        await Promise.all([
+          financeiro.setCaixaLivre(t, true),
+          financeiro.setCaixaLivre(t, false),
+          financeiro.setCaixaLivre(t, true),
+          tef.setConfig(t, loja, { ativo: false }),
+          tef.setConfig(t, loja, { ativo: true }),
+          tef.setConfig(t, loja, { ativo: false }),
+          delivery.setTotemModo(t, true),
+          delivery.setTotemModo(t, false),
+          delivery.setTotemConcluiAoFicarPronto(t, true),
+          producao.setSenhaPeriodo(t, loja, 'semanal'),
+          producao.setSenhaPeriodo(t, loja, 'diario'),
+          producao.salvarSomDoAlterado(t, loja, 'uma'),
+        ]);
+        const n = async (tabela: string, onde: string, p: any[]) => (await q(`select count(*)::int as n from ${tabela} where ${onde}`, p)).rows[0].n;
+        expect([i, await n('entitlement', `tenant_id = $1 and modulo = 'pdv_caixa_livre'`, [t])]).toEqual([i, 1]);
+        expect([i, await n('tef_config', 'tenant_id = $1 and unidade_id = $2', [t, loja])]).toEqual([i, 1]);
+        expect([i, await n('delivery_config', 'tenant_id = $1 and unidade_id is null', [t])]).toEqual([i, 1]);
+        expect([i, await n('kds_cor_config', 'tenant_id = $1 and unidade_id = $2', [t, loja])]).toEqual([i, 1]);
+      }
+    } finally {
+      for (const t of empresas) {
+        for (const tab of TABELAS) await q(`delete from ${tab} where tenant_id = $1`, [t]).catch(() => undefined);
+        await q('delete from empresa where id = $1', [t]).catch(() => undefined);
+      }
+    }
   });
 
   // A migration roda num schema SÓ do teste (cópias das quatro tabelas, com o gatilho de carimbo de verdade, e uma
