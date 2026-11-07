@@ -1223,6 +1223,18 @@ export const api = {
   // No WhatsApp vai junto o nome do perfil (o caso nasce com ele).
   atendimentoAssumirConversa: (canal: string, chave: string, nome?: string | null) =>
     req('/atendimento/conversas-agora/assumir', { method: 'POST', body: JSON.stringify({ canal, chave, ...(nome ? { nome } : {}) }) }),
+  // NÚMEROS DO ATENDIMENTO (item 8): o placar, as reclamações por motivo e produto e quanto custou (gerente e presidente;
+  // `todas` = o presidente somando as lojas); os casos atrás de um número; e o "O que aconteceu?" do caso.
+  atendimentoNumeros: (periodo: string, todas?: boolean) => req(`/atendimento/numeros?periodo=${encodeURIComponent(periodo)}`, daRede(todas)),
+  atendimentoNumerosCasos: (periodo: string, filtro: { motivo?: string; produto?: string }, todas?: boolean) => {
+    const p = new URLSearchParams({ periodo });
+    if (filtro.motivo) p.set('motivo', filtro.motivo);
+    if (filtro.produto) p.set('produto', filtro.produto);
+    return req(`/atendimento/numeros/casos?${p.toString()}`, daRede(todas));
+  },
+  atendimentoOQueAconteceu: (id: string) => req(`/atendimento/${id}/o-que-aconteceu`),
+  atendimentoMarcarOQueAconteceu: (id: string, body: { motivo: string | null; produtos: string[] }) =>
+    req(`/atendimento/${id}/o-que-aconteceu`, { method: 'PUT', body: JSON.stringify(body) }),
   // O copiloto (mig 376): se o botão aparece (ligado na empresa e disponível na distribuição) e a sugestão de resposta
   // do caso — só a nuvem; a sugestão volta para a caixa de escrever, nada é enviado.
   atendimentoCopiloto: () => req('/atendimento/copiloto'),
@@ -1280,8 +1292,9 @@ export const api = {
     req(`/atendimento/whatsapp-do-gestor/${encodeURIComponent(colaboradorId)}`, { method: 'DELETE' }),
   // O chat oficial do iFood (PR 5): o widget da distribuição e as lojas do iFood da empresa (ou `disponivel: false`).
   atendimentoChatIfood: () => req('/atendimento/chat-ifood'),
-  resolverAtendimento: (id: string) =>
-    req(`/atendimento/${id}/resolver`, { method: 'POST', body: '{}' }),
+  // `oQueAconteceu` (Números do atendimento): o motivo e os produtos marcados no "Resolver" — opcional.
+  resolverAtendimento: (id: string, oQueAconteceu?: { motivo: string; produtos: string[] } | null) =>
+    req(`/atendimento/${id}/resolver`, { method: 'POST', body: JSON.stringify(oQueAconteceu ? { oQueAconteceu } : {}) }),
   decidirCancelamento: (
     id: string,
     body: { aceita: boolean; senha?: string; motivo?: string; reaproveitado?: boolean; perdaItens?: { comandaItemId: string; quantidade: number }[] | null },

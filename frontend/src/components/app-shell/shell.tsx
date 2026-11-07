@@ -68,6 +68,8 @@ type NavSub = {
   icon: LucideIcon;
   perm: string;
   soPres?: boolean;
+  // Só gerente e presidente (a tela tem valor em R$ — o servidor confere; aqui o menu só esconde).
+  soGestao?: boolean;
   modulo?: string;
   // Tela que só existe na nuvem: no servidor da loja o item nem aparece.
   soNuvem?: boolean;
@@ -172,6 +174,8 @@ const NAV: NavNode[] = [
       { href: '/caixa/fechamentos', label: 'Turnos', icon: Wallet, perm: 'turnos' },
       { href: '/relatorios', label: 'Relatórios de vendas', icon: BarChart3, perm: 'relatorios_vendas', tambem: ['/relatorios/delivery'] },
       { href: '/vendas/remocoes', label: 'Cancelamentos de itens', icon: FileText, perm: 'cancelamentos' },
+      // Os Números do atendimento (item 8 da Central): placar, reclamações por motivo e produto, quanto custou.
+      { href: '/atendimento/numeros', label: 'Atendimento', icon: Headset, perm: 'pedidos', soGestao: true },
     ],
   },
   { href: '/auditoria', label: 'Auditoria', icon: History, perm: 'auditoria' },
@@ -392,6 +396,7 @@ export function Shell({
                   // módulo desligado (ou fora do plano) some do menu — o filtro existia e não era chamado
                   temModulo(c.modulo, modulos) &&
                   (!c.soPres || isPres) &&
+                  (!c.soGestao || isPres || cat === 'gerente') &&
                   (!c.soNuvem || process.env.NEXT_PUBLIC_EDGE !== '1'),
               );
               if (kids.length === 0) return null;

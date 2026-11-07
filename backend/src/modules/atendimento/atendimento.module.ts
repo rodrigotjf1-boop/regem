@@ -22,6 +22,7 @@ import { AvisoDoEnderecoProcessor } from './aviso-do-endereco.processor';
 import { ChatDoCasoService } from './chat-do-caso.service';
 import { GestorWhatsappService } from './gestor-whatsapp.service';
 import { CopilotoService } from './copiloto.service';
+import { NumerosDoAtendimentoService } from './numeros.service';
 
 @Module({
   // Integrações: a resposta à disputa do iFood (IfoodService). forwardRef: integrações e delivery já se referem.
@@ -57,6 +58,8 @@ import { CopilotoService } from './copiloto.service';
     GestorWhatsappService,
     // CopilotoService (mig 376): a sugestão de resposta no caso, pelo modelo de IA da distribuição (só a nuvem).
     CopilotoService,
+    // NumerosDoAtendimentoService (item 8): o placar, as reclamações por motivo e produto e o "O que aconteceu?" do caso.
+    NumerosDoAtendimentoService,
   ],
   exports: [AtendimentoService],
 })

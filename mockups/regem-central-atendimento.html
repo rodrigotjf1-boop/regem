@@ -35,6 +35,12 @@
    resposta" põe na caixa de escrever uma sugestão feita pelo modelo de IA da distribuição com a conversa, o pedido e as
    respostas prontas da loja; a pessoa confere, muda e envia (nunca sai sozinha). Grupo de ajustes "Copiloto" (nasce
    desligado).
+   VERSÃO 6 (06/11/2026, item 8 do checkpoint): NÚMEROS DO ATENDIMENTO — página nova (Relatórios › Atendimento e o botão
+   "Números" no topo do Atendimento) com o PLACAR por canal (o que chegou, quanto foi respondido e o tempo médio da 1ª
+   resposta — no chat do iFood, a mesma régua que o iFood mostra ao cliente, últimos 30 dias), as RECLAMAÇÕES POR MOTIVO
+   (com quanto custou: devolvido ou deixado de receber) e as RECLAMAÇÕES POR PRODUTO (para a cozinha e a ficha técnica).
+   O motivo e o produto vêm do que a plataforma disse (disputa do iFood: atraso e os itens apontados) e, nos outros
+   casos, do passo novo e opcional "O que aconteceu?" ao resolver o caso. Só gerente e presidente veem (tem valor em R$).
    O que a tela faz:
    (1) uma FILA só com tudo o que precisa de uma pessoa: chamado do robô, disputa do iFood, pedido de cancelamento ou
        reembolso da 99, cancelamento pedido no cardápio e a resposta ao "sem contato". A conversa que o robô atende
@@ -377,6 +383,55 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 .notif .acs{display:flex;gap:6px;margin-top:8px}
 .notif .acs button{flex:1;min-height:38px;border-radius:10px;border:none;background:#EEF2F6;font-weight:700;font-size:13px;color:var(--info)}
 
+/* números do atendimento (versão 6): placar, motivos e produtos — tudo se arruma pelo espaço da área (nada rola para o lado) */
+.cab-tela{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between}
+.periodo{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 12px}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:12px}
+@container principal (max-width:900px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@container principal (max-width:420px){.kpis{grid-template-columns:minmax(0,1fr)}}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;min-width:0}
+.kpi .rot-k{font-size:12.5px;font-weight:700;color:var(--ink-2)}
+.kpi .val{font-family:var(--mono);font-size:24px;font-weight:700;margin:4px 0 2px;overflow-wrap:anywhere}
+.kpi .val.crit{color:var(--crit)}
+.kpi .ajuda{font-size:12.5px}
+.kpi.da-vitrine{border-color:#E8C27A;background:#FFFBF2}
+.linhas{display:flex;flex-direction:column}
+.linha-n{display:grid;grid-template-columns:minmax(0,2.2fr) repeat(4,minmax(0,1fr));gap:4px 12px;align-items:center;padding:10px 16px;border-top:1px solid var(--line)}
+.linha-n.cab{border-top:0;font-size:12px;font-weight:700;color:var(--ink-2);padding-top:8px;padding-bottom:6px}
+.linha-n .num{font-family:var(--mono);font-size:14px}
+.linha-n .num small{font-family:var(--body);color:var(--ink-2);font-size:12px;margin-left:4px}
+.linha-n .nome-c{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-width:0}
+.linha-n .nome-c .ajuda{flex-basis:100%}
+.linha-n .rot-m{display:none;font-family:var(--body);font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:2px}
+.linha-n .crit{color:var(--crit);font-weight:700}
+@container principal (max-width:720px){
+  .linha-n{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .linha-n.cab{display:none}
+  .linha-n .nome-c{grid-column:1/-1}
+  .linha-n .rot-m{display:block}
+}
+.barras{display:flex;flex-direction:column}
+.barra-l{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,2fr) auto;gap:6px 12px;align-items:center;padding:10px 16px;border-top:1px solid var(--line);background:none;border-left:0;border-right:0;border-bottom:0;text-align:left;width:100%}
+.barra-l:first-child{border-top:0}
+.barra-l:hover{background:#F6F8FB}
+.barra-l .tit{font-weight:700;min-width:0}
+.barra-l .tit .ajuda{display:block;font-weight:500}
+.barra-l .trilho{height:12px;border-radius:999px;background:#EEF2F6;overflow:hidden;min-width:0}
+.barra-l .trilho span{display:block;height:100%;border-radius:999px;background:var(--gold)}
+.barra-l.sem .trilho span{background:var(--line-2)}
+.barra-l .qt{font-family:var(--mono);font-size:13.5px;text-align:right;white-space:nowrap}
+.barra-l .qt small{display:block;color:var(--ink-2);font-family:var(--body);font-size:12px}
+@container principal (max-width:560px){.barra-l{grid-template-columns:minmax(0,1fr) auto}.barra-l .trilho{grid-column:1/-1;grid-row:2}}
+.chips-m{display:flex;flex-wrap:wrap;gap:4px}
+.chip-m{font-size:12px;font-weight:700;border-radius:999px;padding:1px 8px;background:#EEF2F6;color:var(--ink);white-space:nowrap}
+.dois-n{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+@container principal (max-width:1000px){.dois-n{grid-template-columns:minmax(0,1fr)}}
+.lista-casos{display:flex;flex-direction:column;gap:8px;margin:0;padding:0;list-style:none}
+.lista-casos li{border:1px solid var(--line);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:2px}
+.lista-casos .l1{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.marcar{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--line);padding-top:12px}
+.marcar .opcao{flex:1 1 140px}
+
 /* notas */
 .notas{max-width:920px;margin:0 auto;padding:20px 16px 80px}
 .notas h2{font-family:var(--display);font-size:20px;margin:22px 0 8px}
@@ -403,6 +458,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   <strong>Protótipo · Atendimento</strong>
   <div class="abas" role="group" aria-label="Ver">
     <button type="button" class="aba" data-vista="pc" aria-pressed="true">Tela do PC</button>
+    <button type="button" class="aba" data-vista="num" aria-pressed="false">Números</button>
     <button type="button" class="aba" data-vista="app" aria-pressed="false">App Android</button>
     <button type="button" class="aba" data-vista="wa" aria-pressed="false">WhatsApp do gerente</button>
     <button type="button" class="aba" data-vista="aj" aria-pressed="false">Ajustes</button>
@@ -417,6 +473,13 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     <span>Ponte do chat:</span>
     <button type="button" data-ponte="ok" aria-pressed="true">ligada</button>
     <button type="button" data-ponte="caiu" aria-pressed="false">sem sinal</button>
+  </div>
+  <div class="ctl" id="ctl-num" role="group" aria-label="Estado dos números" hidden>
+    <span>Números:</span>
+    <button type="button" data-num="com" aria-pressed="true">com casos</button>
+    <button type="button" data-num="vazio" aria-pressed="false">nenhum caso</button>
+    <button type="button" data-num="erro" aria-pressed="false">sem conexão</button>
+    <button type="button" data-num="semponte" aria-pressed="false">sem a ponte</button>
   </div>
   <span class="obs">Dados inventados. Nada aqui fala com o Regem.</span>
 </div>
@@ -440,6 +503,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     <button type="button" class="it">Escalas</button>
     <button type="button" class="it">Estoque</button>
     <button type="button" class="it">Financeiro</button>
+    <div class="grupo-menu">Relatórios</div>
+    <button type="button" class="it sub">Relatórios de vendas</button>
+    <button type="button" class="it sub" id="menu-num" data-ir="num"><span>Atendimento <span class="novo">NOVO</span></span></button>
     <button type="button" class="it">Configurações</button>
   </nav>
   <div style="min-width:0">
@@ -461,7 +527,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     <!-- vista: atendimento -->
     <main id="v-pc">
       <div class="trilha">Atendimento</div>
-      <h1 id="titulo-fila">7 casos abertos</h1>
+      <div class="cab-tela"><h1 id="titulo-fila">7 casos abertos</h1><button type="button" class="bt" data-ir="num">📊 Números do atendimento</button></div>
       <p class="resumo" id="resumo-fila">2 com prazo · 3 na fila · o robô está em 5 conversas agora (<a href="#" onclick="return false">ver em Delivery › WhatsApp</a>)</p>
       <div class="faixa" id="faixa-ponte"><span class="selo ok" id="ponte-selo">🔗 Ponte do chat ligada</span><span class="txt" id="ponte-txt"></span><button type="button" class="bt" id="bt-chat-ifood">💬 Chat oficial do iFood</button></div>
       <div class="sits" role="group" aria-label="Situação" id="sits"></div>
@@ -576,6 +642,20 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
         <div class="aj"><div><span class="rot-aj">Explicação que a 99 recebe</span><span class="ajuda">Vai junto com o motivo da recusa automática.</span></div>
           <div class="ctrl"><input type="text" aria-label="Explicação que a 99 recebe" value="Pedido conferido na saída" data-aj></div></div>
       </section>
+    </main>
+
+    <!-- vista: NÚMEROS DO ATENDIMENTO (versão 6) — o placar, as reclamações por motivo e por produto, e quanto custou -->
+    <main id="v-num" hidden>
+      <div class="trilha">Relatórios › Atendimento</div>
+      <div class="cab-tela"><h1>Números do atendimento</h1><button type="button" class="bt" data-ir="pc">Abrir o Atendimento</button></div>
+      <p class="resumo" id="num-resumo"></p>
+      <div class="periodo" role="group" aria-label="Período" id="num-periodo">
+        <button type="button" class="sit" data-per="7" aria-pressed="false">Últimos 7 dias</button>
+        <button type="button" class="sit" data-per="30" aria-pressed="true">Últimos 30 dias</button>
+        <button type="button" class="sit" data-per="mes" aria-pressed="false">Este mês</button>
+        <button type="button" class="sit" data-per="ant" aria-pressed="false">Mês passado</button>
+      </div>
+      <div id="num-corpo" aria-live="polite"></div>
     </main>
   </div>
 </div>
@@ -913,6 +993,19 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <li><b>Confirmação em dois toques</b>: a resposta ao iFood e à 99 não volta atrás.</li>
       <li>Na disputa, pelo WhatsApp só <b>Aceitar e Recusar</b>; a proposta (crédito, outro valor, mais tempo) fica no Regem, pelo link.</li>
     </ol>
+  </div>
+
+  <div class="cartao">
+    <h3>Números do atendimento · versão 6 (06/11/2026)</h3>
+    <p>Página nova em <b>Relatórios › Atendimento</b> (e o botão "📊 Números do atendimento" no topo do Atendimento). Escolhas recomendadas, já aplicadas:</p>
+    <ul>
+      <li><b>Placar por canal</b>: o que chegou, quanto foi respondido e o tempo médio da 1ª resposta. No chat do iFood, a mesma régua que o iFood mostra ao cliente: <i>tempo médio de resposta</i> e <i>taxa de resposta</i>, últimos 30 dias (<a href="https://blog-parceiros.ifood.com.br/atendimento-via-chat-importancia-e-melhorias-para-seu-negocio/">blog de parceiros do iFood</a>, conferido em 06/11/2026). Melhorar aqui melhora o número que o cliente vê lá.</li>
+      <li><b>Como se conta</b>: no chat, cada vez que o cliente escreve e espera é uma mensagem; respondida quando a loja escreve depois (a equipe pelo Regem, o robô ou quem respondeu direto no Gestor do iFood); os avisos automáticos ("saiu", "chegando") não contam como resposta — o número do Regem fica igual ou abaixo do iFood, nunca acima. Nos casos: respondido quando uma pessoa pega, responde ou resolve. Disputa e pedido da 99: respondido pela loja (pelo Regem ou pelo app da plataforma); vencido o prazo, "a plataforma decidiu sozinha". O que ainda está no prazo não conta como sem resposta.</li>
+      <li><b>Reclamações por motivo e por produto</b>, com <b>quanto custou</b> (o pedido cancelado, os itens reembolsados, a proposta aceita pelo cliente; no reembolso da 99, que não manda o valor, conta o pedido inteiro). O motivo e o produto vêm do que a plataforma disse (disputa do iFood: atraso, e os itens que o cliente apontou) e, nos outros casos, do passo <b>"O que aconteceu?"</b> ao resolver — opcional, com uma lista fixa de motivos e os produtos do próprio pedido. "Não foi reclamação" tira o caso da conta. Caso resolvido sem motivo aparece como "Sem motivo marcado", com o botão para marcar depois.</li>
+      <li><b>Quem vê</b>: gerente e presidente (tem valor em R$). Loja: a que está em uso; o presidente vê todas juntas. Períodos: últimos 7 dias, últimos 30 dias (padrão, como o iFood), este mês e o mês passado.</li>
+      <li><b>No servidor da loja</b>: os números vêm da nuvem (o chat do iFood e da 99 só existe lá).</li>
+      <li>Fica para depois: placar por pessoa da equipe e o custo informado à mão (item reenviado, desconto dado).</li>
+    </ul>
   </div>
 
   <div class="cartao">
@@ -1463,8 +1556,22 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     'recusar-card': () => ({ t: 'Recusar o cancelamento do pedido 1185', b: `<p style="margin:0">O pedido segue normalmente. Avise o cliente pelo WhatsApp, se quiser.</p>`, ok: 'Recusar', cl: 'pri' }),
     passar: () => ({ t: 'Passar o caso', b: `<div class="campo"><span class="rot">Para quem</span><div class="opcoes" role="group" aria-label="Para quem"><button type="button" class="opcao" aria-pressed="true" data-op>Bruno · disponível</button><button type="button" class="opcao" aria-pressed="false" data-op>Carla · ocupada: caixa</button><button type="button" class="opcao" aria-pressed="false" data-op>De volta para a fila</button></div></div>
       <div class="campo"><label for="nota-p">Recado (opcional)</label><input id="nota-p" type="text" placeholder="Ex.: já pedi a foto"></div>`, ok: 'Passar', cl: 'pri' }),
+    // Versão 6: "O que aconteceu?" — opcional; alimenta os Números do atendimento. Vem marcado com o que a plataforma disse.
     resolver: () => ({ t: 'Resolver o caso', b: `<p style="margin:0">A conversa volta para o robô. Se o cliente escrever de novo, o robô atende e abre outro caso quando precisar.</p>
-      <div class="campo"><label for="nota-r">Como foi resolvido (opcional)</label><input id="nota-r" type="text" placeholder="Ex.: mandamos o refrigerante"></div>`, ok: 'Resolver', cl: 'ok' }),
+      ${blocoMarcar(selecionado)}`, ok: 'Resolver', cl: 'ok' }),
+    marcar: (b) => ({ t: `O que aconteceu · ${b.dataset.titulo}`, b: blocoMarcar(b.dataset.caso, true), ok: 'Salvar', cl: 'pri',
+      aoConfirmar: () => toast('✅ Motivo salvo: entra nos Números do atendimento (protótipo)') }),
+    'num-casos': (b) => {
+      const lista = casosDoNumero(b.dataset.grupo, b.dataset.chave);
+      const produto = b.dataset.grupo === 'produto';
+      const titulo = b.dataset.grupo === 'motivo' ? (MOTIVOS_N.find((m) => m.k === b.dataset.chave) || {}).nome : b.dataset.chave;
+      return { gaveta: true, t: `${titulo} · ${lista.length} ${lista.length === 1 ? 'caso' : 'casos'}`, b: `
+        ${produto ? '<p style="margin:0">Leve à cozinha: o que se repete costuma estar na ficha técnica (porção, embalagem, tempo de preparo).</p><button type="button" class="bt" style="align-self:flex-start">Abrir a ficha técnica</button>' : ''}
+        ${b.dataset.chave === 'sem' ? '<p style="margin:0">Casos resolvidos sem o motivo. Marque para eles entrarem na conta por motivo e por produto.</p>' : ''}
+        <ul class="lista-casos">${lista.map((c) => `<li><div class="l1">${chip(c.canal)}<b>${esc(c.tit)}</b><span class="ajuda" style="margin-left:auto">${esc(c.quando)}</span></div>
+          <span class="ajuda">${esc(c.o)}${c.custou ? ` · custou <b style="font-family:var(--mono)">${brl(c.custou)}</b>` : ''}</span>
+          <div class="acoes" style="margin-top:4px"><button type="button" class="bt">Abrir o caso</button>${b.dataset.chave === 'sem' ? `<button type="button" class="bt pri" data-dlg="marcar" data-caso="${c.id}" data-titulo="${esc(c.tit)}">Marcar o motivo</button>` : ''}</div></li>`).join('')}</ul>`, ok: null };
+    },
   };
   function abrirDialogo(k, origem) {
     const d = DLG[k](origem);
@@ -1544,13 +1651,14 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   // ---------- vistas e estado ----------
   function irPara(v) {
     $$('.proto .aba').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.vista === v)));
-    $('#shell').hidden = !(v === 'pc' || v === 'aj');
-    $('#v-pc').hidden = v !== 'pc'; $('#v-aj').hidden = v !== 'aj';
+    $('#shell').hidden = !(v === 'pc' || v === 'aj' || v === 'num');
+    $('#v-pc').hidden = v !== 'pc'; $('#v-aj').hidden = v !== 'aj'; $('#v-num').hidden = v !== 'num';
     $('#v-app').hidden = v !== 'app'; $('#v-notas').hidden = v !== 'notas'; $('#v-wa').hidden = v !== 'wa';
-    $('#ctl-pc').hidden = v !== 'pc';
+    $('#ctl-pc').hidden = v !== 'pc'; $('#ctl-num').hidden = v !== 'num';
     $('#menu-atend').toggleAttribute('aria-current', v === 'pc'); if (v === 'pc') $('#menu-atend').setAttribute('aria-current', 'page');
     $('#menu-config').toggleAttribute('aria-current', v === 'aj'); if (v === 'aj') $('#menu-config').setAttribute('aria-current', 'page');
-    $('#onde').textContent = v === 'aj' ? 'Delivery › Configurações › Atendimento' : 'Atendimento';
+    $('#menu-num').toggleAttribute('aria-current', v === 'num'); if (v === 'num') { $('#menu-num').setAttribute('aria-current', 'page'); desenharNumeros(); }
+    $('#onde').textContent = v === 'aj' ? 'Delivery › Configurações › Atendimento' : v === 'num' ? 'Relatórios › Atendimento' : 'Atendimento';
     fecharFolha(false); fecharSino();
     $('#barra-salvar').hidden = v !== 'aj' || !mudancas();
     window.scrollTo(0, 0);
@@ -1610,6 +1718,158 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 
   // Gerente no WhatsApp: os botões da lista "Quem recebe" mudam depois de ligar/desligar — o clique vai pela seção.
   $('#v-aj').addEventListener('click', (e) => { const b = e.target.closest('[data-dlg]'); if (b) abrirDialogo(b.dataset.dlg, b); });
+
+  // ---------- versão 6: "O que aconteceu?" e NÚMEROS DO ATENDIMENTO ----------
+  const brl = (c) => 'R$ ' + (c / 100).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  // A lista fixa de motivos (o servidor guarda a chave; a tela mostra o nome). "Não foi reclamação" tira o caso da conta.
+  const MOTIVOS_DO_CASO = [
+    ['atraso', 'Atraso'], ['faltou', 'Faltou item'], ['errado', 'Item errado ou trocado'], ['frio', 'Chegou frio'],
+    ['embalagem', 'Embalagem ou derramou'], ['qualidade', 'Qualidade ou sabor'], ['entregador', 'Entregador'],
+    ['cobranca', 'Cobrança ou valor'], ['outro', 'Outro problema'], ['nao', 'Não foi reclamação'],
+  ];
+  const DO_PRODUTO = ['faltou', 'errado', 'frio', 'embalagem', 'qualidade']; // só estes perguntam "qual produto"
+  const ITENS_DO_PEDIDO = {
+    c1: ['X-Burguer duplo', 'Batata média', 'Coca-Cola lata'], c9: ['Combo smash', 'Guaraná lata'], a1: ['Pizza calabresa', 'Pizza marguerita'],
+    c3: ['X-Salada', 'Batata média'], c2: ['Açaí 500 ml'], c4: ['X-Bacon', 'Batata média', 'Coca-Cola lata'], i1: ['Combo família'],
+    s1: ['Pizza calabresa'], s2: ['X-Burguer duplo', 'Suco de laranja'],
+  };
+  // O que a plataforma já disse (fica marcado; a pessoa pode mudar).
+  const JA_DITO = { c1: { motivo: 'faltou', produtos: ['Batata média'], fonte: 'o iFood disse na disputa' }, i1: { motivo: 'atraso', fonte: 'o cliente falou de atraso no chat' } };
+  function blocoMarcar(id, resolvido) {
+    const itens = ITENS_DO_PEDIDO[id] || [];
+    const dito = JA_DITO[id] || {};
+    const prod = dito.motivo && DO_PRODUTO.includes(dito.motivo);
+    return `<div class="marcar" data-marcar>
+      <span class="rot">O que aconteceu? <span class="ajuda" style="font-weight:500">(opcional · entra nos Números do atendimento)</span></span>
+      <div class="opcoes" role="group" aria-label="O que aconteceu">${MOTIVOS_DO_CASO.map(([k, n]) => `<button type="button" class="opcao" data-mo="${k}" aria-pressed="${dito.motivo === k}">${n}</button>`).join('')}</div>
+      ${dito.fonte ? `<span class="ajuda">Já vem marcado: ${esc(dito.fonte)}. Mude se não foi isso.</span>` : ''}
+      <div data-produtos ${prod ? '' : 'hidden'}>
+        ${itens.length ? `<span class="rot">Qual produto? <span class="ajuda" style="font-weight:500">(os deste pedido · um ou mais)</span></span>
+        <div class="opcoes" role="group" aria-label="Produto com problema" style="margin-top:6px">${itens.map((p) => `<button type="button" class="opcao" data-pm aria-pressed="${(dito.produtos || []).includes(p)}">${esc(p)}</button>`).join('')}</div>`
+        : '<span class="ajuda">Este caso não tem pedido ligado: fica só o motivo.</span>'}
+      </div>
+      ${resolvido ? '<span class="ajuda">O caso já está resolvido: só o motivo muda.</span>' : ''}</div>`;
+  }
+  document.addEventListener('click', (e) => {
+    const mo = e.target.closest('[data-mo]');
+    if (mo) {
+      const g = mo.closest('[data-marcar]');
+      const liga = mo.getAttribute('aria-pressed') !== 'true'; // tocar de novo desmarca (o passo é opcional)
+      $$('[data-mo]', g).forEach((x) => x.setAttribute('aria-pressed', String(liga && x === mo)));
+      $('[data-produtos]', g).hidden = !(liga && DO_PRODUTO.includes(mo.dataset.mo));
+      return;
+    }
+    const pm = e.target.closest('[data-pm]');
+    if (pm) pm.setAttribute('aria-pressed', String(pm.getAttribute('aria-pressed') !== 'true'));
+  });
+  // Botões de diálogo DENTRO de um diálogo (a gaveta dos casos → "Marcar o motivo") e na página dos números.
+  $('#camada').addEventListener('click', (e) => { const b = e.target.closest('.dlg [data-dlg]'); if (b) abrirDialogo(b.dataset.dlg, b); });
+  $('#v-num').addEventListener('click', (e) => { const b = e.target.closest('[data-dlg]'); if (b) abrirDialogo(b.dataset.dlg, b); });
+
+  // Os números (inventados). Base = 30 dias; os outros períodos escalam.
+  const CANAIS_N = [
+    { k: 'chat-ifood', canal: 'ifood', nome: 'Chat do iFood', o: 'mensagens do cliente', chegaram: 21, resp: 19, seg: 160, chat: true, nota: 'A régua do iFood: o cliente vê a média de 30 dias.' },
+    { k: 'chat-99', canal: 'n99', nome: 'Chat da 99', o: 'mensagens do cliente', chegaram: 8, resp: 8, seg: 70, chat: true },
+    { k: 'wa', canal: 'wa', nome: 'WhatsApp', o: 'casos que o robô passou à equipe · tempo até alguém pegar', chegaram: 7, resp: 7, seg: 185 },
+    { k: 'disputa', canal: 'ifood', nome: 'Disputas do iFood', o: 'disputas · sem resposta, o iFood decide sozinho', chegaram: 4, resp: 2, seg: 360 },
+    { k: '99', canal: 'n99', nome: 'Cancelamento e reembolso da 99', o: 'pedidos do cliente · sem resposta, a 99 decide', chegaram: 2, resp: 1, seg: 240 },
+    { k: 'aval', canal: 'ifood', nome: 'Avaliações do iFood', o: 'com comentário ou nota até 3 · a resposta fica pública', chegaram: 3, resp: 1, seg: 4800 },
+    { k: 'card', canal: 'card', nome: 'Cancelamento no cardápio', o: 'pedidos de cancelamento', chegaram: 1, resp: 1, seg: 120 },
+  ];
+  const MOTIVOS_N = [
+    { k: 'atraso', nome: 'Atraso', casos: 6, custou: 9800, o: '4 vieram das disputas do iFood' },
+    { k: 'faltou', nome: 'Faltou item', casos: 3, custou: 1800 },
+    { k: 'errado', nome: 'Item errado ou trocado', casos: 2, custou: 3290 },
+    { k: 'frio', nome: 'Chegou frio', casos: 2, custou: 0 },
+    { k: 'qualidade', nome: 'Qualidade ou sabor', casos: 1, custou: 3740 },
+    { k: 'sem', nome: 'Sem motivo marcado', casos: 4, custou: 0, o: 'marque ao resolver o caso', sem: true },
+  ];
+  const PRODUTOS_N = [
+    { nome: 'X-Burguer duplo', casos: 3, motivos: { 'Chegou frio': 2, 'Item errado': 1 }, custou: 3290 },
+    { nome: 'Batata média', casos: 2, motivos: { 'Faltou item': 2 }, custou: 1290 },
+    { nome: 'Pizza calabresa', casos: 1, motivos: { 'Qualidade ou sabor': 1 }, custou: 3740 },
+    { nome: 'Coca-Cola lata', casos: 1, motivos: { 'Faltou item': 1 }, custou: 510 },
+  ];
+  const PERIODO = { 7: ['nos últimos 7 dias', 0.3], 30: ['nos últimos 30 dias', 1], mes: ['neste mês (de 1º a 6 de novembro)', 0.22], ant: ['em outubro', 1.15] };
+  let periodo = '30';
+  let estadoNum = 'com';
+  const tempo = (s) => (s >= 3600 ? `${Math.floor(s / 3600)} h ${String(Math.round((s % 3600) / 60)).padStart(2, '0')} min` : s >= 60 ? `${Math.floor(s / 60)} min ${String(Math.round(s % 60)).padStart(2, '0')} s` : `${Math.round(s)} s`);
+  const escala = (n) => Math.max(0, Math.round(n * PERIODO[periodo][1]));
+  function casosDoNumero(grupo, chave) {
+    const ex = [
+      { id: 's1', canal: 'ifood', tit: 'Ana P. · pedido iFood 4521', quando: 'ontem, 19:51', o: 'Faltou item · Batata média · o iFood disse na disputa', custou: 1290 },
+      { id: 's2', canal: 'wa', tit: 'Carlos · pedido 1180', quando: '03/11, 20:40', o: 'Chegou frio · X-Burguer duplo · marcado por Bruno ao resolver', custou: 0 },
+      { id: 's3', canal: 'ifood', tit: 'Maria S. · pedido iFood 4821', quando: '02/11, 21:05', o: 'Atraso · disputa sem resposta: o iFood cancelou o pedido', custou: 5200 },
+      { id: 's4', canal: 'n99', tit: 'Paulo R. · pedido 99Food 81', quando: '01/11, 20:30', o: 'Faltou item · Coca-Cola lata · reembolso aceito (a 99 não manda o valor: conta o pedido inteiro)', custou: 3150 },
+    ];
+    if (chave === 'sem') return ex.slice(1, 3).map((c) => ({ ...c, o: c.o.replace(/^[^·]+· /, 'sem motivo · ') }));
+    return grupo === 'produto' ? ex.filter((c) => c.o.includes(chave)) : ex.slice(0, 3);
+  }
+  function desenharNumeros() {
+    $$('#num-periodo [data-per]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.per === periodo)));
+    const quando = PERIODO[periodo][0];
+    $('#num-resumo').textContent = `Loja Centro · ${quando} · os números do chat do iFood e da 99 só existem com a ponte do chat ligada`;
+    const corpo = $('#num-corpo');
+    if (estadoNum === 'erro') { corpo.innerHTML = '<div class="vazio"><div class="grande" aria-hidden="true">⚠️</div><p>Não deu para ler os números agora.</p><button type="button" class="bt pri" id="num-tentar">Tentar de novo</button></div>'; $('#num-tentar').addEventListener('click', () => { estadoNum = 'com'; marcarCtlNum(); desenharNumeros(); }); return; }
+    if (estadoNum === 'vazio') { corpo.innerHTML = `<div class="vazio"><div class="grande" aria-hidden="true">📭</div><p>Nenhum caso ${quando}.</p><p class="ajuda">Quando chegar mensagem, disputa, avaliação ou caso do robô, os números aparecem aqui.</p></div>`; return; }
+    const semPonte = estadoNum === 'semponte';
+    const canais = CANAIS_N.map((c) => ({ ...c, chegaram: escala(c.chegaram), resp: escala(c.resp), seg: c.seg * (periodo === '7' ? 0.9 : periodo === 'ant' ? 1.2 : 1) }));
+    const ci = canais[0];
+    const disp = canais.find((c) => c.k === 'disputa');
+    const motivos = MOTIVOS_N.map((m) => ({ ...m, casos: escala(m.casos), custou: escala(m.custou) })).filter((m) => m.casos > 0);
+    const produtos = PRODUTOS_N.map((p) => ({ ...p, casos: escala(p.casos), custou: escala(p.custou) })).filter((p) => p.casos > 0);
+    const custou = motivos.reduce((s, m) => s + m.custou, 0);
+    const nCusto = motivos.filter((m) => m.custou > 0).reduce((s, m) => s + m.casos, 0);
+    const pct = (c) => (c.chegaram ? Math.round((c.resp / c.chegaram) * 100) + '%' : '—');
+    const maxM = Math.max(1, ...motivos.map((m) => m.casos));
+    const maxP = Math.max(1, ...produtos.map((p) => p.casos));
+    corpo.innerHTML = `
+      <div class="kpis">
+        <div class="kpi da-vitrine"><div class="rot-k">1ª resposta no chat do iFood</div><div class="val">${semPonte || !ci.resp ? '—' : tempo(ci.seg)}</div><div class="ajuda">${semPonte ? 'a ponte do chat não estava ligada' : 'média · o cliente vê este número no iFood'}</div></div>
+        <div class="kpi da-vitrine"><div class="rot-k">Taxa de resposta no chat do iFood</div><div class="val">${semPonte ? '—' : pct(ci)}</div><div class="ajuda">${semPonte ? 'ligue a ponte para medir' : `${ci.resp} de ${ci.chegaram} mensagens respondidas`}</div></div>
+        <div class="kpi"><div class="rot-k">Disputas do iFood sem resposta</div><div class="val ${disp.chegaram - disp.resp ? 'crit' : ''}">${disp.chegaram - disp.resp} de ${disp.chegaram}</div><div class="ajuda">o iFood decidiu sozinho</div></div>
+        <div class="kpi"><div class="rot-k">Custou ${periodo === 'ant' ? 'em outubro' : periodo === 'mes' ? 'neste mês' : 'no período'}</div><div class="val">${brl(custou)}</div><div class="ajuda">devolvido ou deixado de receber · ${nCusto} ${nCusto === 1 ? 'caso' : 'casos'}</div></div>
+      </div>
+
+      <section class="grupo">
+        <header><h3>Placar por canal</h3><span>quanto chegou, quanto foi respondido e em quanto tempo</span></header>
+        <div class="linhas" role="table" aria-label="Placar por canal">
+          <div class="linha-n cab" role="row"><span role="columnheader">Canal</span><span role="columnheader">Chegaram</span><span role="columnheader">Respondidas</span><span role="columnheader">1ª resposta (média)</span><span role="columnheader">Sem resposta</span></div>
+          ${canais.map((c) => {
+            const fora = semPonte && c.chat;
+            return `<div class="linha-n" role="row">
+              <div class="nome-c" role="cell">${chip(c.canal)}<b>${esc(c.nome)}</b><span class="ajuda">${fora ? 'A ponte do chat não estava ligada: o Regem não vê este chat.' : esc(c.o)}</span></div>
+              <div class="num" role="cell"><span class="rot-m">Chegaram</span>${fora ? '—' : c.chegaram}</div>
+              <div class="num" role="cell"><span class="rot-m">Respondidas</span>${fora ? '—' : `${c.resp}<small>${pct(c)}</small>`}</div>
+              <div class="num" role="cell"><span class="rot-m">1ª resposta</span>${fora || !c.resp ? '—' : tempo(c.seg)}</div>
+              <div class="num ${!fora && c.chegaram - c.resp ? 'crit' : ''}" role="cell"><span class="rot-m">Sem resposta</span>${fora ? '—' : c.chegaram - c.resp}</div></div>`;
+          }).join('')}
+        </div>
+      </section>
+
+      <div class="dois-n">
+        <section class="grupo">
+          <header><h3>Reclamações por motivo</h3><span>e quanto cada uma custou</span></header>
+          <div class="barras">${motivos.map((m) => `<button type="button" class="barra-l ${m.sem ? 'sem' : ''}" data-dlg="num-casos" data-grupo="motivo" data-chave="${m.k}">
+            <span class="tit">${esc(m.nome)}${m.o ? `<span class="ajuda">${esc(m.o)}</span>` : ''}</span>
+            <span class="trilho" aria-hidden="true"><span style="width:${Math.round((m.casos / maxM) * 100)}%"></span></span>
+            <span class="qt">${m.casos} ${m.casos === 1 ? 'caso' : 'casos'}<small>${m.sem ? 'ver e marcar' : m.custou ? brl(m.custou) : 'R$ 0,00'}</small></span></button>`).join('')}</div>
+        </section>
+        <section class="grupo">
+          <header><h3>Reclamações por produto</h3><span>para a cozinha e a ficha técnica</span></header>
+          <div class="barras">${produtos.length ? produtos.map((p) => `<button type="button" class="barra-l" data-dlg="num-casos" data-grupo="produto" data-chave="${esc(p.nome)}">
+            <span class="tit">${esc(p.nome)}<span class="chips-m" style="margin-top:4px">${Object.entries(p.motivos).map(([n, q]) => `<span class="chip-m">${esc(n)} ${q}</span>`).join('')}</span></span>
+            <span class="trilho" aria-hidden="true"><span style="width:${Math.round((p.casos / maxP) * 100)}%"></span></span>
+            <span class="qt">${p.casos} ${p.casos === 1 ? 'caso' : 'casos'}<small>${p.custou ? brl(p.custou) : 'R$ 0,00'}</small></span></button>`).join('') : '<p class="ajuda" style="padding:12px 16px;margin:0">Nenhum produto apontado no período.</p>'}</div>
+          <p class="ajuda" style="padding:0 16px 12px;margin:0">Vêm dos itens que o cliente apontou na disputa do iFood e dos que a equipe marcou ao resolver. Atraso não entra aqui: é do pedido, não do produto.</p>
+        </section>
+      </div>
+
+      <div class="nota" style="margin-top:4px"><b>Como contamos.</b> Chat: cada vez que o cliente escreve e espera, conta uma mensagem; respondida quando a loja escreve depois (a equipe, o robô ou quem respondeu no próprio Gestor do iFood); os avisos automáticos ("saiu", "chegando") não contam. Casos: respondido quando uma pessoa pega, responde ou resolve. O que ainda está no prazo não conta como "sem resposta". Custou: o pedido cancelado, os itens reembolsados e a proposta aceita pelo cliente.</div>`;
+  }
+  function marcarCtlNum() { $$('#ctl-num [data-num]').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.num === estadoNum))); }
+  $$('#num-periodo [data-per]').forEach((b) => b.addEventListener('click', () => { periodo = b.dataset.per; desenharNumeros(); }));
+  $$('#ctl-num [data-num]').forEach((b) => b.addEventListener('click', () => { estadoNum = b.dataset.num; marcarCtlNum(); desenharNumeros(); }));
 
   // ---------- app: "Disponível × Ocupado" ----------
   $$('[data-est]').forEach((b) => b.addEventListener('click', () => $$('[data-est]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)))));

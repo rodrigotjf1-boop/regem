@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Números do atendimento (06/11; sem migration; sem `edge/`).** Na NUVEM com o merge: a página Relatórios ›
+  Atendimento (e o botão "Números do atendimento" no topo do Atendimento), só de gerente e presidente — o placar por canal
+  (no chat do iFood, tempo médio e taxa de resposta, a régua que o iFood mostra ao cliente), as reclamações por motivo e
+  por produto e quanto custou; e o passo opcional "O que aconteceu?" no "Resolver o caso" (grava `detalhe.classificacao`).
+  **No `.zip` 1.30.13:** no servidor da loja a página pede a conta à nuvem pelo token do servidor (as mensagens do chat
+  moram lá) e o "Resolver" passa a gravar o motivo no caso local (sobe com o sincronismo).
+
 - **Copiloto do atendimento (06/11; mig 376 `@cloud-only`; dependência nova `@anthropic-ai/sdk` 1.1.0 no backend; sem
   `edge/`).** Na NUVEM com o merge (nasce DESLIGADO — Delivery › Configurações › Atendimento, grupo "Copiloto"; e só
   aparece com `ANTHROPIC_API_KEY` no serviço `regem-api` do EasyPanel, a chave da DISTRIBUIÇÃO): o botão "✨ Sugerir
