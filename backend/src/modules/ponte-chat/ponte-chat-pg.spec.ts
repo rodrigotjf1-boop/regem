@@ -8,7 +8,7 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { EquipamentoService } from '../equipamento/equipamento.service';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { PonteChatGuard, type PonteCtx } from './ponte-chat.guard';
-import { PonteChatService } from './ponte-chat.service';
+import { ERRO_AVISO_SEM_SENTIDO, PonteChatService } from './ponte-chat.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -387,6 +387,40 @@ descrever('ponte do chat (Postgres)', () => {
     await saida(lojaA);
     await ligar(false);
     expect(await svc.pegar(d, { canal: 'ifood' })).toEqual({ papel: 'desligada', itens: [] });
+  });
+
+  it('aviso do caminho de pedido já encerrado: "saiu" e "chegando" viram cancelada (no pegar e no resultado); o "obrigado" e a fala da equipe seguem', async () => {
+    const d = await entrar(delivery);
+    await svc.estado(d, logada(true));
+    const aviso = async (pedidoId: string, motivo: string) =>
+      (
+        await q(
+          `insert into chat_plataforma_msg (tenant_id, unidade_id, canal, pedido_id, pedido_numero, cliente_nome, direcao, autor, motivo, texto, estado)
+           values ($1,$2,'ifood',$3,'4821','Maria S.','saida','aviso',$4,$5,'pendente') returning id`,
+          [T, lojaA, pedidoId, motivo, `Aviso ${motivo} ${randomUUID().slice(0, 6)}`],
+        )
+      )[0].id as string;
+    const encerrado = await pedido(lojaA);
+    await q(`update pedido_externo set status = 'concluido', concluido_em = now() where id = $1`, [encerrado]);
+    const aCaminho = await pedido(lojaA); // nasce "despachado"
+    const saiuEncerrado = await aviso(encerrado, 'saiu');
+    const chegandoEncerrado = await aviso(encerrado, 'chegando');
+    const obrigado = await aviso(encerrado, 'obrigado'); // é para depois da entrega: segue
+    const daEquipe = await saida(lojaA, { pedidoId: encerrado }); // a fala de uma pessoa: segue
+    const saiuACaminho = await aviso(aCaminho, 'saiu');
+    const r = await svc.pegar(d, { canal: 'ifood' });
+    expect(r.itens.map((i: any) => i.id).sort()).toEqual([obrigado, daEquipe, saiuACaminho].sort());
+    expect(await msg(saiuEncerrado)).toMatchObject({ estado: 'cancelada', erro: ERRO_AVISO_SEM_SENTIDO });
+    expect(await msg(chegandoEncerrado)).toMatchObject({ estado: 'cancelada', erro: ERRO_AVISO_SEM_SENTIDO });
+    // A corrida de 07/11 (99): a ponte pegou o "saiu" com o pedido a caminho, o pedido foi concluído antes de sair e a
+    // busca do portal não o achou — o aviso fica "cancelada", não "falhou".
+    await q(`update pedido_externo set status = 'concluido', concluido_em = now() where id = $1`, [aCaminho]);
+    expect(await svc.resultado(d, saiuACaminho, { ok: false, erro: 'a busca da 99 não achou o pedido', definitivo: true })).toEqual({ ok: true, estado: 'cancelada' });
+    expect(await msg(saiuACaminho)).toMatchObject({ estado: 'cancelada', erro: ERRO_AVISO_SEM_SENTIDO, ponte_id: null });
+    // a fala da equipe que não saiu, com o pedido encerrado: falha como antes (uma pessoa escreveu — a tela mostra)
+    expect(await svc.resultado(d, daEquipe, { ok: false, erro: 'o chat deste pedido fechou', definitivo: true })).toEqual({ ok: true, estado: 'falhou' });
+    // o "obrigado" que não saiu (não definitivo): volta para a fila, como antes
+    expect(await svc.resultado(d, obrigado, { ok: false, erro: 'o campo de texto não apareceu' })).toEqual({ ok: true, estado: 'pendente' });
   });
 
   it('resultado: enviada guarda o id e tira o eco; não enviada volta; de outra ponte é recusado; enviada depois do prazo ainda vale', async () => {

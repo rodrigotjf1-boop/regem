@@ -23,9 +23,24 @@ import { modoEntrega } from '../entregador/modo-entrega';
 //                prazo (90 s) — duas pontes, duas réplicas da nuvem, nunca a mesma mensagem (`for update skip locked`);
 //   • resultado — enviada (com o id que a plataforma deu) ou não (volta para a fila; na 3ª falha, "falhou").
 // Mensagem de saída que não saiu em 30 min não sai mais (um "saiu para entrega" de meia hora atrás só confunde).
+// O AVISO QUE PERDEU O SENTIDO também não sai: "saiu para entrega" e "o entregador está chegando" de um pedido que já foi
+// entregue, concluído ou cancelado viram "cancelada" — na hora de pegar e no resultado que não saiu. Visto em 07/11 na 99:
+// os pedidos despachados e concluídos ~10 s depois saíram da lista "em andamento" do portal, a ponte não os achou e o
+// aviso ficava "falhou" (um alarme falso). O "obrigado" é justamente para depois da entrega: segue como era.
 
 const PRAZO_ENVIO_S = 90;
 const TENTATIVAS = 3;
+/** Os avisos que só fazem sentido com o pedido a caminho. */
+const AVISOS_DO_CAMINHO = ['saiu', 'chegando'] as const;
+/** O pedido que já não está a caminho. */
+const PEDIDO_ENCERRADO = ['entregue', 'concluido', 'cancelado'] as const;
+export const ERRO_AVISO_SEM_SENTIDO = 'o pedido já tinha sido entregue, concluído ou cancelado: o aviso perdeu o sentido';
+/** Condição SQL (na linha `alias` de `chat_plataforma_msg`): aviso do caminho cujo pedido já foi encerrado. */
+const avisoSemSentido = (alias: string) => sql`(${sql.raw(alias)}.autor = 'aviso'
+  and ${sql.raw(alias)}.motivo in (${sql.join(AVISOS_DO_CAMINHO.map((m) => sql`${m}`), sql`, `)})
+  and exists (select 1 from pedido_externo pe
+               where pe.id = ${sql.raw(alias)}.pedido_id and pe.tenant_id = ${sql.raw(alias)}.tenant_id
+                 and pe.status in (${sql.join(PEDIDO_ENCERRADO.map((s) => sql`${s}`), sql`, `)})))`;
 const LOTE_SAIDA = 10;
 const LOTE_ENTRADA = 50;
 
@@ -363,6 +378,12 @@ export class PonteChatService {
          set estado = 'cancelada', erro = 'passou da hora: não saiu em 30 min'
        where m.tenant_id = ${p.tenantId}::uuid and m.canal = ${canal} and m.direcao = 'saida'
          and m.estado = 'pendente' and m.criado_em < now() - interval '30 minutes' and ${daLoja}`);
+    // O aviso do caminho de um pedido já encerrado não vai à ponte (ver o topo do arquivo).
+    await this.db.execute(sql`
+      update chat_plataforma_msg m
+         set estado = 'cancelada', erro = ${ERRO_AVISO_SEM_SENTIDO}
+       where m.tenant_id = ${p.tenantId}::uuid and m.canal = ${canal} and m.direcao = 'saida'
+         and m.estado = 'pendente' and ${daLoja} and ${avisoSemSentido('m')}`);
     const itens = linhas(await this.db.execute(sql`
       with alvo as (
         select m.id from chat_plataforma_msg m
@@ -416,12 +437,15 @@ export class PonteChatService {
                  and estado in ('enviando', 'pendente', 'falhou', 'cancelada')
               returning estado`
             : sql`
-              update chat_plataforma_msg
-                 set estado = case when ${definitivo} or tentativas >= ${TENTATIVAS} then 'falhou' else 'pendente' end,
-                     erro = coalesce(${erro}, 'a ponte não conseguiu enviar'), vence_em = null, ponte_id = null
-               where id = ${id}::uuid and tenant_id = ${p.tenantId}::uuid and direcao = 'saida'
-                 and estado = 'enviando' and ponte_id = ${p.id}::uuid
-              returning estado`,
+              update chat_plataforma_msg m
+                 set estado = case when ${avisoSemSentido('m')} then 'cancelada'
+                                   when ${definitivo} or m.tentativas >= ${TENTATIVAS} then 'falhou' else 'pendente' end,
+                     erro = case when ${avisoSemSentido('m')} then ${ERRO_AVISO_SEM_SENTIDO}
+                                 else coalesce(${erro}, 'a ponte não conseguiu enviar') end,
+                     vence_em = null, ponte_id = null
+               where m.id = ${id}::uuid and m.tenant_id = ${p.tenantId}::uuid and m.direcao = 'saida'
+                 and m.estado = 'enviando' and m.ponte_id = ${p.id}::uuid
+              returning m.estado`,
         ),
       );
     });
