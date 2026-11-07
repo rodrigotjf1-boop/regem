@@ -47,7 +47,10 @@
 // novo vai pelo definir_entrega; a conferência traz a entrega da área nova); fora da área e retirada: a equipe.
 // .f15 (04/11, PR 3b-2 — decisão 8): o pedido que JÁ SAIU — o mesmo pedido_endereco + definir_entrega, e o Regem chama a
 // equipe como urgente (avisa o entregador, confere a distância) e manda sozinho o "já chamei"; o robô não promete nada.
-export const VERSAO_INSTRUCOES = '2026-11-04.f15';
+// .f16 (07/11, horário da equipe — mig 379): fora do horário, o chamar_atendente volta foraDoHorario = true com
+// paraOCliente (quando a equipe volta): o robô manda essa frase como veio, sem "em instantes" nem a posição, e segue
+// respondendo o resto normalmente.
+export const VERSAO_INSTRUCOES = '2026-11-07.f16';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -104,8 +107,17 @@ function quandoChamarUmaPessoa(): string {
     '  Ex.: "Motivo: não consegue abrir o link do cardápio no celular / Quer: 1 X-Bacon e 1 Coca / Já fiz: mandei o link 2 vezes" — uma linha para cada, sem as barras.',
     '- Fora desses casos, resolva você mesmo. Nunca ofereça "falar com atendente" no começo da conversa nem como saída fácil.',
     '- Depois de chamar, diga que alguém da equipe responde aqui em instantes e não continue o assunto. Se a resposta de chamar_atendente trouxer posicao, diga também o lugar dele na fila (ex.: "Você é o 2º da fila."); se trouxer comAlguem = true, diga que a pessoa que já está com o caso dele responde aqui. Nunca prometa tempo.',
+    FORA_DO_HORARIO_DA_EQUIPE,
   );
 }
+
+/**
+ * HORÁRIO DA EQUIPE (.f16 / .d2, mig 379): fora do horário, o chamar_atendente deixa um RECADO para a abertura e volta
+ * `foraDoHorario = true` com `paraOCliente` (a frase da loja, com o dia e a hora em que a equipe volta). A mesma regra no
+ * WhatsApp e no Direct.
+ */
+const FORA_DO_HORARIO_DA_EQUIPE =
+  '- Se a resposta de chamar_atendente trouxer foraDoHorario = true, a equipe não está agora: mande ao cliente o texto de paraOCliente exatamente como veio (ele já diz quando a equipe volta e que o recado ficou guardado). NÃO diga "em instantes", não diga a posição na fila e não prometa outra hora. Depois, continue a conversa normalmente: responda o que você sabe (cardápio, horário, taxa, situação do pedido) e só não repita o chamado.';
 
 function ferramentasDoFluxo1(): string {
   return linhas(
@@ -115,7 +127,7 @@ function ferramentasDoFluxo1(): string {
     '- taxa_de_entrega: a taxa de entrega. Se a loja cobra por distância, a resposta traz as faixas (até X km) e como funciona.',
     '- pedidos_do_cliente: os pedidos do cliente, do mais novo ao mais velho; o pedido atual é o que tem maisRecente = true. Explique o status em linguagem simples.',
     '- link_personalizado: o link do cardápio já com os dados deste cliente. Prefira este ao linkCardapio.',
-    '- chamar_atendente: chama uma pessoa da loja; urgente = true quando o cliente está chateado. A resposta traz posicao (o lugar do cliente na fila) ou comAlguem.',
+    '- chamar_atendente: chama uma pessoa da loja; urgente = true quando o cliente está chateado. A resposta traz posicao (o lugar do cliente na fila) ou comAlguem; fora do horário da equipe, traz foraDoHorario = true e paraOCliente.',
   );
 }
 
@@ -250,7 +262,9 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
 // telefone recusam `ig:` — o texto só fala das ferramentas que funcionam aqui). Para pedir, o link do cardápio. Sem áudio:
 // o robô pede para escrever. As opções viram uma lista numerada (o Regem monta) e o texto sai em até 3 mensagens.
 // .d1 (07/11): a primeira versão.
-export const VERSAO_DO_DIRECT = '2026-11-07.d1';
+// .d2 (07/11, horário da equipe — mig 379): fora do horário, o chamar_atendente volta foraDoHorario = true com
+// paraOCliente: o robô manda a frase como veio, sem "em instantes" nem a posição, e segue respondendo o resto.
+export const VERSAO_DO_DIRECT = '2026-11-07.d2';
 
 function jeitoDoDirect(): string {
   return linhas(
@@ -294,6 +308,7 @@ function quandoChamarNoDirect(): string {
     '  Quer: o que o cliente quer agora',
     '  Já fiz: o que você já fez ou disse a ele',
     '- Depois de chamar, diga que alguém da equipe responde aqui no Direct em instantes e não continue o assunto. Se a resposta de chamar_atendente trouxer posicao, diga também o lugar dele na fila (ex.: "Você é o 2º da fila."); se trouxer comAlguem = true, diga que a pessoa que já está com o caso dele responde aqui. Nunca prometa tempo.',
+    FORA_DO_HORARIO_DA_EQUIPE,
     '- Fora desses casos, resolva você mesmo. Nunca ofereça "falar com atendente" no começo da conversa.',
   );
 }
@@ -304,7 +319,7 @@ function ferramentasDoDirect(): string {
     '- consultar_loja: se está aberta agora, o dia e a hora de agora (agora), os horários de cada dia (horariosDaSemana), quando abre, formas de pagamento, endereço, pedido mínimo, tempo de entrega, como é a taxa de entrega, link do cardápio (linkCardapio), mensagem de ausência, respostas prontas e a base de conhecimento da loja. Consulte no começo da conversa.',
     '- buscar_no_cardapio: use o que o cliente falou. Devolve levam, podeAdicionar, parecidos, os combos, o link direto de cada produto e, na pergunta de ingrediente, a lista pronta (paraOCliente).',
     '- taxa_de_entrega: a taxa de entrega. Se a loja cobra por distância, a resposta traz as faixas (até X km) e como funciona.',
-    '- chamar_atendente: chama uma pessoa da loja; urgente = true quando o cliente está chateado. A resposta traz posicao (o lugar do cliente na fila) ou comAlguem.',
+    '- chamar_atendente: chama uma pessoa da loja; urgente = true quando o cliente está chateado. A resposta traz posicao (o lugar do cliente na fila) ou comAlguem; fora do horário da equipe, traz foraDoHorario = true e paraOCliente.',
     '- As outras ferramentas (pedidos_do_cliente, link_personalizado, ver_pedido, mexer_no_pedido, definir_entrega, definir_nome, definir_pagamento, registrar_pedido, cancelar_pedido) NÃO funcionam no Direct: nunca use.',
   );
 }

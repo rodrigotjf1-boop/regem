@@ -7,6 +7,7 @@ import { AuthUser } from '../../auth/auth-user';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ehServidorLocal } from '../../common/modo';
 import { exigirBooleano } from '../../common/exigir';
+import { AJUSTE_DA_EQUIPE_PADRAO, type AjusteDaEquipe, ajusteDaLinha, inicioDoCasoSql, lerAjusteDaEquipe, recadoAtivoSql } from './horario-da-equipe';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -74,9 +75,14 @@ export class FilaEAvisosService {
    * As condições do caso estão DENTRO da seleção (para o limite da volta só pegar quem vale — senão os casos antigos já
    * avisados enchem o limite e os novos nunca são avisados) e DE NOVO na gravação (vale o caso como está na hora: alguém
    * pode ter pegado entre a seleção e a gravação). `limite`: o teste do "não emperra" usa um pequeno.
+   * HORÁRIO DA EQUIPE (mig 379): o RECADO que ainda espera a equipe não é marcado (fora do horário ninguém é avisado —
+   * nem o gerente, nem o "Gerente no WhatsApp", que depende desta marca); depois do `ate`, o tempo conta DALI (a volta
+   * da equipe), não da criação — o recado das 02:14 não vira "ninguém pegou" no primeiro minuto da abertura. O
+   * `criado_em <= …` fica (o recado acaba sempre depois de criado): a volta usa o índice da criação como antes.
    */
   async escalar(soEmpresas?: string[], limite: number = ESCALAR_POR_VOLTA): Promise<number> {
     const empresas = soEmpresas?.length ? sql`and c2.tenant_id in (${sql.join(soEmpresas.map((t) => sql`${t}::uuid`), sql`, `)})` : sql``;
+    const prazo = sql`now() - make_interval(mins => coalesce(rc.avisar_gerente_min, ${AJUSTE_DA_FILA_PADRAO.avisarGerenteMin}))`;
     const r: any = await this.db.execute(sql`
       update atendimento_chamado c
          set detalhe = coalesce(c.detalhe, '{}'::jsonb)
@@ -87,13 +93,15 @@ export class FilaEAvisosService {
             left join robo_config rc on rc.tenant_id = c2.tenant_id
            where c2.status = 'aberto' and c2.responsavel_id is null and c2.aguardando_desde is null and c2.prazo_em is null
              and coalesce(rc.avisar_gerente_min, ${AJUSTE_DA_FILA_PADRAO.avisarGerenteMin}) > 0
-             and c2.criado_em <= now() - make_interval(mins => coalesce(rc.avisar_gerente_min, ${AJUSTE_DA_FILA_PADRAO.avisarGerenteMin}))
+             and c2.criado_em <= ${prazo}
+             and ${inicioDoCasoSql('c2')} <= ${prazo}
              and c2.detalhe -> 'escalado' is null
              ${empresas}
            order by c2.criado_em
            limit ${limite}
         ) alvo
        where c.id = alvo.id and c.status = 'aberto' and c.responsavel_id is null and c.detalhe -> 'escalado' is null
+         and not ${recadoAtivoSql('c')}
       returning c.tenant_id as "tenantId", c.id`);
     const linhas = (r.rows ?? r) as Array<{ tenantId: string; id: string }>;
     for (const l of linhas) this.events.emit('atendimento.mudou', { tenantId: l.tenantId, id: l.id, motivo: 'escalou' });
@@ -141,6 +149,71 @@ export class FilaEAvisosService {
       await registrar('aviso_ao_gerente_alterado', { de: antes.avisarGerenteMin, para: depois.avisarGerenteMin });
     if (antes.dizerPosicao !== depois.dizerPosicao) await registrar(depois.dizerPosicao ? 'dizer_posicao_ligado' : 'dizer_posicao_desligado', {});
     return this.ajustes(user.tenantId);
+  }
+
+  /**
+   * "Horário da equipe" (mig 379; protótipo versão 10): a equipe atende sempre ou no horário da loja, a folga antes de
+   * abrir e depois de fechar, e o que o robô diz fora do horário. Da empresa; sem linha, os padrões (nasce em "Sempre").
+   * Num banco sem a 379 (ou sem a `robo_config`), os padrões: o resto dos ajustes não cai por causa deste grupo.
+   */
+  async ajusteDaEquipe(tenantId: string): Promise<AjusteDaEquipe> {
+    try {
+      const r: any = await this.db.execute(sql`
+        select equipe_atende as atende, equipe_antes_min as "antesMin", equipe_depois_min as "depoisMin",
+               equipe_fora_texto as "textoFora"
+          from robo_config where tenant_id = ${tenantId}::uuid`);
+      return ajusteDaLinha((r.rows ?? r)[0]);
+    } catch (e: any) {
+      if (e?.code === '42703' || e?.code === '42P01') return { ...AJUSTE_DA_EQUIPE_PADRAO }; // banco sem a 379
+      throw e;
+    }
+  }
+
+  /**
+   * Salva o que veio de "Horário da equipe" (V16: ausente mantém; cada escolha só entre as opções; texto vazio = o
+   * padrão). Grava SÓ as colunas que vieram — as outras da `robo_config` têm outros donos, e dois salvamentos ao mesmo
+   * tempo não desfazem um ao outro (V82). Cada mudança fica na auditoria.
+   */
+  async salvarEquipe(user: AuthUser, dto: unknown): Promise<AjusteDaEquipe> {
+    const parcial = lerAjusteDaEquipe(dto);
+    const antes = await this.ajusteDaEquipe(user.tenantId);
+    const mudou = (Object.keys(parcial) as Array<keyof AjusteDaEquipe>).filter((k) => parcial[k] !== antes[k]);
+    if (!mudou.length) return antes;
+    const depois: AjusteDaEquipe = { ...antes, ...parcial };
+    const coluna: Record<keyof AjusteDaEquipe, string> = {
+      atende: 'equipe_atende',
+      antesMin: 'equipe_antes_min',
+      depoisMin: 'equipe_depois_min',
+      textoFora: 'equipe_fora_texto',
+    };
+    const atualizar = sql.join(
+      mudou.map((k) => sql.raw(`${coluna[k]} = excluded.${coluna[k]}`)),
+      sql`, `,
+    );
+    await this.db.execute(sql`
+      insert into robo_config (tenant_id, equipe_atende, equipe_antes_min, equipe_depois_min, equipe_fora_texto, atualizado_por)
+      values (${user.tenantId}::uuid, ${depois.atende}, ${depois.antesMin}, ${depois.depoisMin}, ${depois.textoFora}::text,
+              ${user.colaboradorId}::uuid)
+      on conflict (tenant_id) do update
+         set ${atualizar}, atualizado_por = excluded.atualizado_por, atualizado_em = now()`);
+    const acao: Record<keyof AjusteDaEquipe, string> = {
+      atende: 'equipe_atende_alterado',
+      antesMin: 'equipe_comeca_alterado',
+      depoisMin: 'equipe_para_alterado',
+      textoFora: 'equipe_texto_fora_alterado',
+    };
+    for (const k of mudou)
+      await this.auditoria?.registrar({
+        tenantId: user.tenantId,
+        atorId: user.colaboradorId,
+        atorPerfil: user.categoria,
+        tipo: 'config',
+        acao: acao[k],
+        entidadeTipo: 'robo_config',
+        entidadeId: user.tenantId,
+        detalhe: { de: antes[k], para: depois[k] },
+      });
+    return this.ajusteDaEquipe(user.tenantId);
   }
 
   /**

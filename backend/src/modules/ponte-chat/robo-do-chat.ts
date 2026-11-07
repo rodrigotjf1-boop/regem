@@ -2,6 +2,7 @@ import { ehSoAgradecimento } from './casos-do-chat';
 import { TEXTO_MAX, primeiroNome, temContatoProibido } from './texto-do-chat';
 import type { ResumoDoRobo } from '../atendimento/resumo-do-robo';
 import type { ModoEntrega } from '../entregador/modo-entrega';
+import { type SituacaoDaEquipe, fraseForaDoHorario, textoDaVolta } from '../atendimento/horario-da-equipe';
 
 // O ROBÔ NO CHAT DO iFOOD E DA 99 (ponte do chat, Etapa 3 — protótipo `mockups/regem-central-atendimento.html` v3: "o robô
 // responde no chat com o dado do pedido (cozinha, saída, entregador, previsão). O que ele não resolve vira caso com o
@@ -11,7 +12,8 @@ import type { ModoEntrega } from '../entregador/modo-entrega';
 //
 // Ligado em Delivery › Configurações › Atendimento › "iFood e 99 · chat pela ponte" › "Robô responde no chat"
 // (`robo_config.chat_robo_responde`, nasce desligado). Por conversa (= o pedido), na entrada das mensagens:
-//   • caso aberto (com alguém ou na fila) → o robô fica QUIETO (a equipe já está nela);
+//   • caso aberto (com alguém ou na fila) → o robô fica QUIETO (a equipe já está nela) — o RECADO que espera a abertura
+//     (mig 379, fora do horário da equipe) não conta: quem chama passa `casoAberto` falso e o robô segue respondendo;
 //   • agradecimento curto → nada (nem resposta, nem caso);
 //   • "cadê meu pedido?" / previsão, com o pedido ligado e situação que ele sabe dizer → RESPONDE (sem caso), no máximo
 //     2 vezes por pedido por hora — a 3ª pergunta é de quem precisa de uma pessoa;
@@ -111,6 +113,22 @@ export function respostaDoRobo(p: PedidoDoRobo, horaPrevista: string | null): st
 
 /** O que o robô diz uma vez, quando chama a equipe. */
 export const CHAMEI_A_EQUIPE = 'Já chamei a equipe da loja. Em instantes alguém responde por aqui.';
+
+/** Fora do horário, quando a frase da loja e a padrão não passam na trava da plataforma (não acontece com a padrão). */
+export const FORA_DO_HORARIO_FIXA = 'Nossa equipe não está agora. Já deixei o seu recado aqui e respondemos assim que começarmos.';
+
+/**
+ * HORÁRIO DA EQUIPE (mig 379): o que o robô diz no lugar do "Já chamei a equipe" quando o caso nasceu RECADO (fora do
+ * horário): a frase da loja com o dia e a hora em que a equipe volta (pelo `ate` do recado). Tudo o que sai no chat da
+ * plataforma passa pela trava dela (nada de telefone, WhatsApp, Instagram ou link) e cabe em 300 letras; se a frase da
+ * loja não passa, vai a padrão; se nem ela, uma frase fixa sem hora.
+ */
+export function fraseForaDoHorarioNoChat(equipe: SituacaoDaEquipe | null | undefined, recado: { ate?: unknown } | null | undefined): string {
+  const ate = typeof recado?.ate === 'string' ? new Date(recado.ate) : null;
+  const volta = textoDaVolta(ate && !Number.isNaN(ate.getTime()) ? ate : (equipe?.voltaEm ?? null));
+  const candidatas = [fraseForaDoHorario(equipe?.textoFora ?? null, volta), fraseForaDoHorario(null, volta)];
+  return candidatas.find((t) => t.length <= TEXTO_MAX && !temContatoProibido(t)) ?? FORA_DO_HORARIO_FIXA;
+}
 
 /** No máximo tantas respostas do robô por pedido na última hora — depois, a pergunta repetida vai para uma pessoa. */
 export const RESPOSTAS_POR_HORA = 2;

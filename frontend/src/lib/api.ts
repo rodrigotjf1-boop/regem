@@ -1210,7 +1210,8 @@ export const api = {
   edgeRestaurar: () => req('/edge/restaurar', { method: 'POST', body: '{}' }),
   atendimentos: () => req('/atendimento'),
   // Central de atendimento (Onda 1): a fila da loja em uso, os resolvidos de hoje, a equipe do "Passar" e as ações do caso.
-  atendimentoFila: () => req('/atendimento/fila'),
+  // Com os recados para a abertura (mig 379): a tela os mostra à parte; servidor antigo ignora o parâmetro.
+  atendimentoFila: () => req('/atendimento/fila?comRecados=1'),
   atendimentoResolvidos: () => req('/atendimento/fila/resolvidos'),
   atendimentoEquipe: () => req('/atendimento/equipe'),
   atendimentoPegar: (id: string) => req(`/atendimento/${id}/pegar`, { method: 'POST', body: '{}' }),

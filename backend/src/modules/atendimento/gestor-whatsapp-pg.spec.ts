@@ -211,7 +211,7 @@ descrever('gerente no WhatsApp (Postgres)', () => {
     db = drizzle(pool, { schema });
     // As tabelas só da nuvem (o banco do CI é o de uma loja — ERR-273): a caixa de conversas, o robo_config, a 353 (o
     // `avisar_gerente_min` que o teste do V82 confere — sem ela, a suíte só passava depois da suíte da fila) e a 375.
-    for (const m of ['215_whatsapp_mensagem.sql', '342_robo_pausa_e_config.sql', '353_app_atendimento.sql', '375_gestor_whatsapp.sql'])
+    for (const m of ['215_whatsapp_mensagem.sql', '342_robo_pausa_e_config.sql', '353_app_atendimento.sql', '375_gestor_whatsapp.sql', '379_horario_da_equipe.sql'])
       await aplicar(m);
     const aud = { registrar: auditar } as any;
     svc = new GestorWhatsappService(

@@ -6,7 +6,8 @@ import { versaoInformada } from '../equipamento/presenca.service';
 import { CANAIS, CanalDaPonte, PonteCandidata, ehCanalDaPonte, quemResponde, VIVA_POR_MS } from './lideranca';
 import type { PonteCtx } from './ponte-chat.guard';
 import { MensagemDoCliente, RoboNoCaso, casosDoChat, chaveDaConversa, chaveDoMapa, conversasDoLote } from './casos-do-chat';
-import { CHAMEI_A_EQUIPE, decidir, intencaoDoCliente } from './robo-do-chat';
+import { CHAMEI_A_EQUIPE, decidir, fraseForaDoHorarioNoChat, intencaoDoCliente } from './robo-do-chat';
+import { chaveDaLoja, recadoAtivoSql, situacoesPorLoja } from '../atendimento/horario-da-equipe';
 import { DeliveryService } from '../delivery/delivery.service';
 import { modoEntrega } from '../entregador/modo-entrega';
 
@@ -211,11 +212,15 @@ export class PonteChatService {
       returning id, canal, autor, pedido_id as "pedidoId", pedido_externo as "pedidoExterno", pedido_numero as "pedidoNumero",
                 cliente_nome as "cliente", unidade_id as "unidadeId", texto, criado_em as "criadoEm"`));
       const doCliente: MensagemDoCliente[] = r.filter((m) => m.autor === 'cliente');
-      if (!ajustes.roboResponde) return { r, casos: await casosDoChat(tx, p.tenantId, doCliente), respondeu: null };
+      // HORÁRIO DA EQUIPE (mig 379): a situação da equipe de cada loja do lote — fora do horário, o caso novo nasce como
+      // recado para a abertura. Lida pela conexão comum (uma leitura que falhe não derruba esta transação).
+      const equipe = doCliente.length ? await situacoesPorLoja(this.db, p.tenantId, doCliente.map((m) => m.unidadeId ?? null)) : undefined;
+      if (!ajustes.roboResponde) return { r, casos: await casosDoChat(tx, p.tenantId, doCliente, undefined, equipe), respondeu: null };
       const robo = await this.roboNoLote(tx, p.tenantId, doCliente);
       const paraCasos = doCliente.filter((m) => !robo.semCaso.has(chaveDoMapa({ canal: m.canal, chave: chaveDaConversa(m) ?? '' })));
-      const casos = await casosDoChat(tx, p.tenantId, paraCasos, robo.chamar);
-      // "Já chamei a equipe" — uma vez, no caso que o robô acabou de chamar (e só se algum PC envia pelo canal).
+      const casos = await casosDoChat(tx, p.tenantId, paraCasos, robo.chamar, equipe);
+      // "Já chamei a equipe" — uma vez, no caso que o robô acabou de chamar (e só se algum PC envia pelo canal). Se o caso
+      // nasceu RECADO (fora do horário da equipe), no lugar dele vai a frase de fora do horário, pela trava da plataforma.
       const chamados = casos.novos
         .filter((n) => {
           const k = chaveDoMapa({ canal: n.canal, chave: n.detalhe?.chat?.chave });
@@ -228,7 +233,7 @@ export class PonteChatService {
           pedido_numero: n.detalhe?.chat?.pedidoNumero ?? null,
           cliente: n.cliente ?? null,
           unidade_id: n.unidade_id ?? null,
-          texto: CHAMEI_A_EQUIPE,
+          texto: n.detalhe?.recado ? fraseForaDoHorarioNoChat(equipe?.get(chaveDaLoja(n.unidade_id)), n.detalhe.recado) : CHAMEI_A_EQUIPE,
         }));
       await this.enfileirarDoRobo(tx, p.tenantId, [...robo.respostas, ...chamados]);
       return { r, casos, respondeu: robo.respostas.length };
@@ -281,9 +286,11 @@ export class PonteChatService {
             as x(canal text, chave text, pedido_id uuid, pedido_externo text)
         )
         select g.canal, g.chave,
+               -- o RECADO que espera a abertura (mig 379) não cala o robô: ele segue respondendo o que sabe
                exists (select 1 from atendimento_chamado a
                         where a.tenant_id = ${tenantId}::uuid and a.tipo = 'chat' and a.status = 'aberto'
-                          and a.canal = g.canal and a.detalhe #>> '{chat,chave}' = g.chave) as "casoAberto",
+                          and a.canal = g.canal and a.detalhe #>> '{chat,chave}' = g.chave
+                          and not ${recadoAtivoSql('a')}) as "casoAberto",
                (select count(*)::int from chat_plataforma_msg m
                  where m.tenant_id = ${tenantId}::uuid and m.canal = g.canal and m.direcao = 'saida' and m.autor = 'robo'
                    and m.texto <> ${CHAMEI_A_EQUIPE} and m.criado_em > now() - interval '1 hour'

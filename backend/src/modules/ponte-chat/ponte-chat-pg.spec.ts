@@ -101,7 +101,9 @@ descrever('ponte do chat (Postgres)', () => {
 
   beforeAll(async () => {
     delete process.env.EDGE_MODE; // como NUVEM
-    for (const m of ['342_robo_pausa_e_config.sql', '366_ponte_do_chat.sql', '367_chat_ordem_e_indices.sql', '368_ponte_pausada.sql']) await aplicar(m);
+    // A 379: o caso do chat fora do horário da equipe vira recado (ERR-273).
+    for (const m of ['342_robo_pausa_e_config.sql', '366_ponte_do_chat.sql', '367_chat_ordem_e_indices.sql', '368_ponte_pausada.sql', '379_horario_da_equipe.sql'])
+      await aplicar(m);
     for (const t of [T, T2]) await q(`insert into empresa (id, nome) values ($1, 'teste ponte do chat')`, [t]);
     [{ id: lojaA }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja A') returning id`, [T]);
     [{ id: lojaB }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja B') returning id`, [T]);

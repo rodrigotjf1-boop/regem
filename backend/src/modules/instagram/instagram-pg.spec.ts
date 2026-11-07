@@ -93,7 +93,15 @@ descrever('Instagram Direct (Postgres + Meta de mentira)', () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: URL_PG });
     db = drizzle(pool, { schema });
-    for (const m of ['342_robo_pausa_e_config.sql', '366_ponte_do_chat.sql', '367_chat_ordem_e_indices.sql', '377_instagram_direct.sql', '378_instagram_robo_no_direct.sql']) await aplicar(m);
+    for (const m of [
+      '342_robo_pausa_e_config.sql',
+      '366_ponte_do_chat.sql',
+      '367_chat_ordem_e_indices.sql',
+      '377_instagram_direct.sql',
+      '378_instagram_robo_no_direct.sql',
+      '379_horario_da_equipe.sql', // o caso do Direct fora do horário da equipe vira recado (ERR-273)
+    ])
+      await aplicar(m);
     meta = createServer((req, res) => {
       let corpo = '';
       req.on('data', (c) => (corpo += c));

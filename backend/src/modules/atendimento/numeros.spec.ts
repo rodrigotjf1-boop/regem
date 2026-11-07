@@ -187,6 +187,12 @@ describe('o caso no placar', () => {
     expect(situacaoNoPlacar(caso({ status: 'aberto', criadoEm: min(20) }), AGORA)).toEqual({ conta: true, respondida: false, seg: null });
     expect(situacaoNoPlacar(caso({ tipo: 'disputa', status: 'aberto', criadoEm: min(20), prazoEm: new Date(AGORA + 60_000).toISOString() }), AGORA).conta).toBe(false);
   });
+  it('o recado da madrugada (mig 379) espera desde a volta da equipe: a noite não conta como demora', () => {
+    // criado há 10 h, a equipe voltou há 30 min, pegou há 27 min: 3 min de espera
+    expect(situacaoNoPlacar(caso({ criadoEm: min(600), inicioEm: min(30), pegoEm: min(27) }), AGORA)).toEqual({ conta: true, respondida: true, seg: 180 });
+    // ainda esperando a equipe (a volta no futuro): fora do placar
+    expect(situacaoNoPlacar(caso({ status: 'aberto', criadoEm: min(600), inicioEm: new Date(AGORA + 3_600_000).toISOString() }), AGORA).conta).toBe(false);
+  });
   it('disputa: pela central (com o tempo), pelo app do iFood (sem o tempo), venceu = sem resposta', () => {
     expect(situacaoNoPlacar(caso({ tipo: 'disputa', criadoEm: min(10), resposta: { em: min(4) } }), AGORA)).toEqual({ conta: true, respondida: true, seg: 360 });
     expect(situacaoNoPlacar(caso({ tipo: 'disputa', encerramento: { status: 'ALTERNATIVE_REPLIED' } }), AGORA)).toEqual({ conta: true, respondida: true, seg: null });

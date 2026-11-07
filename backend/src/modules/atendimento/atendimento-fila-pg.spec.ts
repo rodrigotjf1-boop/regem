@@ -83,7 +83,8 @@ descrever('fila da central de atendimento (Postgres)', () => {
     delete process.env.EDGE_MODE; // como NUVEM
     pool = new Pool({ connectionString: URL_PG });
     db = drizzle(pool, { schema });
-    for (const m of ['342_robo_pausa_e_config.sql', '353_app_atendimento.sql']) await aplicar(m);
+    // A 379 (horário da equipe): a fila lê o ajuste da equipe para a faixa (ERR-273 — a lista das migrations acompanha).
+    for (const m of ['342_robo_pausa_e_config.sql', '353_app_atendimento.sql', '379_horario_da_equipe.sql']) await aplicar(m);
     svc = new AtendimentoService(db, { emit: emitir } as any, {} as any, { registrar: async (e: any) => void auditoria.push(e) } as any);
     await q(`insert into empresa (id, nome) values ($1, 'teste fila de atendimento')`, [T]);
     [{ id: lojaA }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja A') returning id`, [T]);
@@ -145,7 +146,8 @@ descrever('fila da central de atendimento (Postgres)', () => {
     await chamado({ status: 'resolvido', resolvido_em: new Date() });
     await chamado({ status: 'resolvido', resolvido_em: new Date(Date.now() - 3 * 86_400_000) }); // de outro dia
     const { contagens } = await svc.fila(gerente(), null);
-    expect(contagens).toEqual({ abertos: 4, comPrazo: 1, naFila: 1, comigo: 1, aguardando: 1, resolvidosHoje: 1 });
+    // paraAbertura (mig 379): os recados que esperam a equipe — nenhum aqui
+    expect(contagens).toEqual({ abertos: 4, comPrazo: 1, naFila: 1, comigo: 1, aguardando: 1, resolvidosHoje: 1, paraAbertura: 0 });
   });
 
   it('"resolvidos hoje" é o dia da operação mesmo com a sessão do banco em outro fuso (V46)', async () => {

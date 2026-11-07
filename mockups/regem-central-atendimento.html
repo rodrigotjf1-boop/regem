@@ -59,6 +59,15 @@
    resumo, ponte, chat do iFood e Números numa linha só; os detalhes da ponte e a explicação do chat ficam a um clique;
    a ponte SEM SINAL continua como aviso à vista; (c) situações numa linha e os filtros numa linha, com o rótulo ao lado
    do campo. Nada muda no que a fila e o caso fazem.
+   VERSÃO 10 (07/11/2026, F1 do atendente virtual — pedido do dono: "o atendimento só está disponível em horários que a
+   loja funcione; fora desse horário fica basicamente off"): O HORÁRIO DA EQUIPE. O robô atende 24 h em todos os canais
+   (WhatsApp, Direct, chat do iFood e da 99); a pessoa da equipe só entra no horário. Grupo de ajustes novo "Horário da
+   equipe": "A equipe atende" (sempre — como hoje — ou no horário da loja, o de Delivery › Configurações › Horários),
+   quanto antes de abrir começa e quanto depois de fechar para, e o que o robô diz fora do horário. Fora do horário, o
+   que ele passaria para a equipe vira RECADO PARA A ABERTURA: nada toca, o gerente não é avisado, o "3 min sem resposta"
+   do Direct vira recado sem tocar; o cliente fica sabendo quando a equipe volta. Na abertura, os recados entram na fila pela
+   ordem de chegada, com o selo "🌙 recado das 02:14", e o sino toca UMA vez ("3 recados da noite"). Pedido ainda em
+   andamento conta como horário (a equipe ainda está trabalhando nele). Situação nova "Para a abertura".
    O que a tela faz:
    (1) uma FILA só com tudo o que precisa de uma pessoa: chamado do robô, disputa do iFood, pedido de cancelamento ou
        reembolso da 99, cancelamento pedido no cardápio e a resposta ao "sem contato". A conversa que o robô atende
@@ -220,6 +229,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 .faixa{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:-4px 0 12px;font-size:13.5px}
 .faixa .txt{flex:1 1 240px;min-width:0;overflow-wrap:anywhere}
 .faixa.caiu{border-color:#EBC2C2;background:var(--crit-bg)}
+/* versão 10: fora do horário da equipe (aviso calmo, não alarme) e o selo do recado da noite */
+.faixa.noite{border-color:#C9DCEC;background:var(--info-bg)}
+.selo.noite{background:#E9E6F5;color:#4A3F86}
 .novo-t{font-size:10.5px;font-weight:800;letter-spacing:.06em;color:var(--on-gold);background:var(--gold);border-radius:6px;padding:1px 6px;vertical-align:middle}
 .mapa{position:relative;height:140px;border-radius:10px;border:1px solid var(--line);margin:0 0 6px;overflow:hidden;background:linear-gradient(90deg,rgba(67,88,108,.08) 1px,transparent 1px) 0 0/24px 24px,linear-gradient(0deg,rgba(67,88,108,.08) 1px,transparent 1px) 0 0/24px 24px,#F7F9FB}
 .mapa .rua{position:absolute;left:0;right:0;top:58%;height:14px;background:#E3E9EF}
@@ -524,6 +536,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     <button type="button" data-licenca="urgente" aria-pressed="false">perto do fim</button>
     <button type="button" data-licenca="acabou" aria-pressed="false">teste acabou</button>
     <button type="button" data-licenca="plano" aria-pressed="false">plano ativo</button>
+    <span>Horário da equipe (versão 10):</span>
+    <button type="button" data-horario="dentro" aria-pressed="true">no horário (18:47)</button>
+    <button type="button" data-horario="fora" aria-pressed="false">fora do horário (02:20)</button>
   </div>
   <div class="ctl" id="ctl-num" role="group" aria-label="Estado dos números" hidden>
     <span>Números:</span>
@@ -591,6 +606,8 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
         <p class="det" id="ponte-det" hidden></p>
         <p class="det" id="chat-ajuda" hidden>O chat oficial do iFood abre sozinho nesta tela — o botão dele fica no canto. "Esconder" vale para este computador. Na primeira vez, cada computador autoriza com um usuário Dono ou Administrador do iFood. As mensagens dele não entram na fila: o iFood não as entrega a sistemas.</p>
         <div class="faixa caiu" id="faixa-ponte" role="alert" hidden><span class="selo crit">⚠️ Ponte do chat sem sinal</span><span class="txt" id="ponte-txt"></span></div>
+        <!-- Versão 10: fora do horário da equipe, uma linha só — o robô segue atendendo; o recado espera a abertura. -->
+        <div class="faixa noite" id="faixa-horario" role="status" hidden><span class="selo info">🌙 Fora do horário da equipe</span><span class="txt">O robô segue atendendo. O que ele passaria para a equipe vira recado e entra na fila hoje às 17:30, quando a equipe começa, sem tocar nada agora.</span></div>
       </div>
       <div class="sits" role="group" aria-label="Situação" id="sits"></div>
       <div class="filtros linha" role="group" aria-label="Filtros">
@@ -612,8 +629,23 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     <main id="v-aj" hidden>
       <div class="trilha">Delivery › Configurações › Operação</div>
       <h1>Atendimento</h1>
-      <p class="resumo">32 ajustes em 7 grupos · item novo no grupo "Operação", ao lado de "Robô de atendimento" · grupos novos: "Gerente no WhatsApp", "Copiloto", "Instagram Direct" e "iFood e 99 · chat pela ponte"</p>
+      <p class="resumo">37 ajustes em 8 grupos · item novo no grupo "Operação", ao lado de "Robô de atendimento" · grupos novos: "Horário da equipe" (versão 10), "Gerente no WhatsApp", "Copiloto", "Instagram Direct" e "iFood e 99 · chat pela ponte"</p>
       <div class="filtros" style="grid-template-columns:minmax(0,1fr)"><div class="campo"><label for="busca-aj">Buscar ajuste</label><input id="busca-aj" type="search" placeholder="Ex.: 99, disputa, som"></div></div>
+
+      <!-- Versão 10: o horário da equipe. O robô atende 24 h; a pessoa só entra no horário. Nasce em "Sempre" (como hoje). -->
+      <section class="grupo" data-grupo id="grupo-horario">
+        <header><h3>Horário da equipe <span class="novo-t">NOVO</span></h3><span>5 ajustes</span></header>
+        <div class="aj"><div><span class="rot-aj">A equipe atende</span><span class="ajuda">O robô atende 24 h no WhatsApp, no Direct e no chat do iFood e da 99. Aqui você diz quando tem gente para os casos. "No horário da loja" usa os horários de Delivery › Configurações › Horários desta loja.</span></div>
+          <div class="ctrl"><select aria-label="A equipe atende" data-aj id="equipe-atende"><option value="sempre">Sempre (como hoje)</option><option value="loja" selected>No horário da loja</option></select></div></div>
+        <div class="aj" data-so-horario><div><span class="rot-aj">Começa a atender</span><span class="ajuda">Os recados da noite entram na fila nessa hora, pela ordem de chegada, e o sino toca uma vez só.</span></div>
+          <div class="ctrl"><select aria-label="Começa a atender" data-aj><option>Quando a loja abre</option><option selected>30 min antes de abrir</option><option>1 h antes de abrir</option></select></div></div>
+        <div class="aj" data-so-horario><div><span class="rot-aj">Para de atender</span><span class="ajuda">Depois de fechar, a equipe ainda entrega os últimos pedidos. Pedido em andamento conta como horário: o caso dele vai para a fila na hora, mesmo depois desse tempo.</span></div>
+          <div class="ctrl"><select aria-label="Para de atender" data-aj><option>Quando a loja fecha</option><option>30 min depois de fechar</option><option selected>1 h depois de fechar</option><option>2 h depois de fechar</option></select></div></div>
+        <div class="aj" data-so-horario><div><span class="rot-aj">Fora do horário, o robô diz</span><span class="ajuda">Quando ele passaria a conversa para a equipe. {volta} vira o dia e a hora em que a equipe volta: "hoje às 17:30", "amanhã às 17:30", "na terça às 17:30".</span></div>
+          <div class="linha-txt"><input type="text" aria-label="O que o robô diz fora do horário" value="Nossa equipe volta {volta}. Já deixei o seu recado aqui e respondemos assim que começarmos." data-aj></div></div>
+        <div class="aj" data-so-horario><div><span class="rot-aj">Sempre vale</span><span class="ajuda">Não se desliga: ninguém é chamado quando não há ninguém.</span></div>
+          <div class="ctrl"><span class="fixo">Fora do horário nada toca, o gerente não é avisado (nem pelo WhatsApp) e o "3 min sem resposta" do Direct vira recado, sem tocar · o robô continua respondendo o que sabe (cardápio, horário, taxa, situação do pedido) · o recado guarda a conversa e o resumo · no chat do iFood e da 99 a frase segue a trava da plataforma</span></div></div>
+      </section>
 
       <section class="grupo" data-grupo>
         <header><h3>Fila e avisos</h3><span>3 ajustes</span></header>
@@ -972,7 +1004,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 
 <!-- ============ NOTAS ============ -->
 <section id="v-notas" hidden class="notas" aria-label="Notas do protótipo">
-  <div class="trilha">Notas do protótipo · 02/11/2026 · versão 9 em 07/11/2026</div>
+  <div class="trilha">Notas do protótipo · 02/11/2026 · versão 10 em 07/11/2026</div>
   <h1>Atendimento: o que cada parte faz</h1>
 
   <div class="cartao">
@@ -1073,6 +1105,20 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <li><b>Confirmação em dois toques</b>: a resposta ao iFood e à 99 não volta atrás.</li>
       <li>Na disputa, pelo WhatsApp só <b>Aceitar e Recusar</b>; a proposta (crédito, outro valor, mais tempo) fica no Regem, pelo link.</li>
     </ol>
+  </div>
+
+  <div class="cartao">
+    <h3>Horário da equipe · versão 10 (07/11/2026)</h3>
+    <p>Pedido do dono: o robô administra o atendimento e só passa para uma pessoa quando não resolve; a equipe só atende no horário em que a loja funciona — fora dele, o atendimento fica "off". É a F1 do atendente virtual: vale para o WhatsApp, o Direct e o chat do iFood e da 99. Escolhas recomendadas, já aplicadas:</p>
+    <ul>
+      <li><b>O robô atende 24 h.</b> Fora do horário ele continua respondendo o que sabe (cardápio, horário, taxa, situação do pedido). Muda só o que acontece quando ele chamaria uma pessoa.</li>
+      <li><b>Fora do horário, o chamado vira recado para a abertura:</b> nada toca, o gerente não é avisado (nem pelo WhatsApp), o "3 min sem resposta" do Direct vira recado (não toca). O cliente recebe a frase do ajuste, com o dia e a hora em que a equipe volta. O recado aparece na situação "🌙 Para a abertura" (para quem abrir o Regem de madrugada) e fica fora de "Abertos".</li>
+      <li><b>Na abertura</b> (com a folga de "Começa a atender"), os recados entram na fila pela ordem de chegada, com o selo "🌙 Recado das 02:14", e o sino toca uma vez só.</li>
+      <li><b>Pedido em andamento conta como horário:</b> quem fala de um pedido que ainda não saiu ou não chegou cai na fila na hora, mesmo depois de "Para de atender" — a equipe ainda está trabalhando nele. No Direct o robô não vê o pedido, então vale só o horário.</li>
+      <li><b>O horário é o da loja</b> (Delivery › Configurações › Horários), de cada loja. "Para de atender" nasce em 1 h depois de fechar, por causa das últimas entregas.</li>
+      <li><b>Nasce em "Sempre (como hoje)"</b>: nada muda até a loja escolher "No horário da loja". O protótipo mostra a escolha já feita.</li>
+      <li>No chat do iFood e da 99, a frase de fora do horário passa pela mesma trava da plataforma (nada de telefone, WhatsApp, Instagram ou link).</li>
+    </ul>
   </div>
 
   <div class="cartao">
@@ -1187,6 +1233,12 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     // Versão 8: o robô atendeu no Direct e passou a encomenda para a equipe (o caso nasce com o resumo).
     { id: 'ig1', canal: 'ig', motivo: 'Encomenda', tipo: 'instagram', urgente: false, titulo: 'Joana Souza · @joana.souza · Direct · encomenda',
       cliente: 'Joana Souza', pedido: '', fala: '"Quero fazer um pedido grande pra sábado, umas 15 pessoas"', resp: null, sit: 'fila', espera: '6 min', robo: true },
+    // Versão 10: RECADOS DA NOITE — o robô atendeu fora do horário da equipe e deixou para a abertura. No horário, eles já
+    // entraram na fila pela ordem de chegada (selo "🌙 recado das 02:14"); fora do horário, ficam em "Para a abertura".
+    { id: 'rn1', canal: 'ig', motivo: 'Outro', tipo: 'instagram', urgente: false, titulo: 'Carlos Lima · @carlos.lima · Direct · recado da noite',
+      cliente: 'Carlos Lima', pedido: '', fala: '"O lanche de ontem veio sem o molho" · o robô disse que a equipe volta hoje às 17:30', resp: null, sit: 'fila', espera: '', robo: true, recado: '02:14' },
+    { id: 'rn2', canal: 'wa', motivo: 'Faltou item', tipo: 'conversa', urgente: false, titulo: 'Bia · (21) 98877-1200 · recado da noite',
+      cliente: 'Bia', tel: '(21) 98877-1200', pedido: '1166', fala: '"Faltou o guaraná no pedido de ontem" · o robô deixou o recado com o pedido 1166', resp: null, sit: 'fila', espera: '', robo: true, recado: '01:05' },
     // O que o robô está atendendo agora (não é caso): situação "Conversas agora", dos três canais.
     { id: 'v1', canal: 'wa', motivo: 'Pedido', tipo: 'robo', urgente: false, titulo: 'Fernanda · fazendo um pedido', cliente: 'Fernanda', tel: '(21) 99876-5432',
       pedido: '', fala: 'Cliente cadastrada: aparece pelo nome · 2 itens no carrinho', resp: null, sit: 'robo', espera: '' },
@@ -1228,7 +1280,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   const classePrazo = (ms) => (ms < 120000 ? 'crit' : 'warn');
 
   // ---------- ordem e filtros ----------
-  const abertos = () => CASOS.filter((c) => c.sit !== 'resolvido' && c.sit !== 'robo');
+  const abertos = () => CASOS.filter((c) => c.sit !== 'resolvido' && c.sit !== 'robo' && c.sit !== 'abertura');
+  // Versão 10: a hora simulada — no horário da equipe (18:47) ou fora dele (02:20).
+  let horario = 'dentro';
   function ordenar(lista) {
     return [...lista].sort((a, b) => {
       if (!!a.prazoFim !== !!b.prazoFim) return a.prazoFim ? -1 : 1;
@@ -1251,7 +1305,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     if (filtroSit === 'aguardando') return c.sit === 'aguardando';
     if (filtroSit === 'resolvido') return c.sit === 'resolvido';
     if (filtroSit === 'conversas') return c.sit === 'robo';
-    return c.sit !== 'resolvido' && c.sit !== 'robo';
+    if (filtroSit === 'abertura') return c.sit === 'abertura';
+    // Versão 10: o recado que espera a abertura não está na fila de agora (não toca, não conta no tempo de espera).
+    return c.sit !== 'resolvido' && c.sit !== 'robo' && c.sit !== 'abertura';
   }
   function contar() {
     const a = abertos();
@@ -1259,11 +1315,15 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       todos: a.length, prazo: a.filter((c) => c.prazoFim).length, fila: a.filter((c) => c.sit === 'fila' && !c.prazoFim).length,
       comigo: a.filter((c) => c.resp === 'Ana').length, aguardando: a.filter((c) => c.sit === 'aguardando').length, resolvido: 14,
       conversas: CASOS.filter((c) => c.sit === 'robo').length,
+      abertura: CASOS.filter((c) => c.sit === 'abertura').length,
     };
   }
   function desenharSits() {
     const n = contar();
     const S = [['todos', 'Abertos'], ['prazo', 'Com prazo', 'crit'], ['fila', 'Na fila'], ['comigo', 'Comigo'], ['aguardando', 'Aguardando o cliente'], ['conversas', 'Conversas agora'], ['resolvido', 'Resolvidos hoje']];
+    // Versão 10: "Para a abertura" só aparece quando há recado esperando (fora do horário da equipe).
+    if (n.abertura) S.splice(6, 0, ['abertura', '🌙 Para a abertura']);
+    if (filtroSit === 'abertura' && !n.abertura) filtroSit = 'todos';
     $('#sits').innerHTML = S.map(([k, r, cl]) => `<button type="button" class="sit ${cl || ''}" data-sit="${k}" aria-pressed="${filtroSit === k}">${r} <b>${n[k]}</b></button>`).join('');
     $$('#sits .sit').forEach((b) => b.addEventListener('click', () => { filtroSit = b.dataset.sit; desenharTudo(); }));
     const ab = n.todos;
@@ -1278,8 +1338,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   // ---------- lista ----------
   function linhaItem(c, posicao) {
     const prazo = c.prazoFim ? `<span class="prazo ${classePrazo(c.prazoFim - Date.now())}" data-prazo="${c.id}">${mmss(c.prazoFim - Date.now())}</span>` : '';
-    const sitTxt = c.sit === 'aguardando' ? '<span class="selo info">Aguardando o cliente</span>' : c.sit === 'resolvido' ? '<span class="selo ok">Resolvido</span>' : c.sit === 'robo' ? '<span class="selo info">🤖 Com o robô</span>' : '';
-    const quem = c.sit === 'robo' ? 'o robô está atendendo' : c.resp ? `com ${c.resp === 'Ana' ? 'você' : c.resp}` : 'ninguém pegou';
+    const sitTxt = c.sit === 'aguardando' ? '<span class="selo info">Aguardando o cliente</span>' : c.sit === 'resolvido' ? '<span class="selo ok">Resolvido</span>' : c.sit === 'robo' ? '<span class="selo info">🤖 Com o robô</span>'
+      : c.sit === 'abertura' ? '<span class="selo noite">🌙 Entra na fila às 17:30</span>' : c.recado ? `<span class="selo noite">🌙 Recado das ${c.recado}</span>` : '';
+    const quem = c.sit === 'robo' ? 'o robô está atendendo' : c.sit === 'abertura' ? `recebido às ${c.recado} · o cliente sabe que a equipe volta às 17:30` : c.resp ? `com ${c.resp === 'Ana' ? 'você' : c.resp}` : 'ninguém pegou';
     const pos = posicao ? `<span class="pos">${posicao}º</span>` : '';
     return `<div role="listitem"><button type="button" class="item ${c.urgente ? 'urgente' : ''} ${c.sit === 'resolvido' ? 'feito' : ''}" data-id="${c.id}" aria-current="${selecionado === c.id}">
       <div class="l1">${chip(c.canal)}${c.urgente ? '<span class="selo crit">🚨 Urgente</span>' : ''}<span class="selo neutro">${esc(c.motivo)}</span>${sitTxt}<span class="dir">${prazo}${pos}</span></div>
@@ -1318,6 +1379,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       tempo: [['18:31', 'Aceito'], ['18:52', 'Saiu com o Diego (entrega da loja)'], ['19:05', 'Entregue']], app: '99Food', entregaLoja: true },
     '1180': { itens: [['1× X-tudo', '38,90'], ['1× Batata média', '12,90'], ['Taxa de entrega', '6,00']], total: '57,80',
       tempo: [['18:48', 'Aceito'], ['19:22', 'Pronto (cozinha)'], ['19:31', 'Saiu com o João'], ['19:55', 'Previsão de chegada']] },
+    // Versão 10: o pedido de ontem do recado da noite (r2).
+    '1166': { itens: [['1× X-salada', '29,90'], ['1× Guaraná lata', '6,00', true], ['Taxa de entrega', '6,00']], total: '41,90',
+      tempo: [['ontem 21:10', 'Aceito'], ['ontem 21:38', 'Saiu com o João'], ['ontem 21:52', 'Entregue']] },
     '1176': { itens: [['1× Combo smash', '42,90'], ['1× Coca-Cola lata', '6,00', true], ['Taxa de entrega', '6,00']], total: '54,90',
       tempo: [['18:55', 'Aceito'], ['19:28', 'Saiu com o Diego'], ['19:40', 'Entregue']] },
     '1182': { itens: [['1× Pizza média calabresa', '49,90'], ['Taxa de entrega', '6,00']], total: '55,90',
@@ -1435,6 +1499,17 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       resumo: [['Motivo', 'Encomenda'], ['Quer', 'Pedido para 15 pessoas no sábado'], ['Já fiz', 'Disse que entregamos no Centro (taxa R$ 7,00) e mandei o cardápio']],
       prontas: ['Oi! Entregamos sim. Me conta o que você precisa?', 'Para pedidos grandes, fazemos encomenda: me passa a data e a hora?', 'Nosso cardápio está no link da bio.'],
       perfil: { usuario: '@joana.souza', nome: 'Joana Souza', segue: true } },
+    // Versão 10: os recados da noite — o robô atendeu fora do horário da equipe e deixou para a abertura.
+    rn1: { msgs: [['cli', 'Boa noite. O lanche de ontem veio sem o molho', '02:13'],
+        ['robo', 'Poxa, Carlos, sinto muito pelo molho. Nossa equipe volta hoje às 17:30. Já deixei o seu recado aqui e respondemos assim que começarmos.', 'robô · 02:14'],
+        ['cli', 'Ok, obrigado', '02:15']],
+      resumo: [['Motivo', 'Faltou o molho no pedido de ontem'], ['Quer', 'O molho ou uma compensação'], ['Já fiz', 'Pedi desculpas e disse que a equipe volta hoje às 17:30 (fora do horário da equipe)']],
+      prontas: ['Oi, Carlos! Aqui é a Ana. Sentimos muito pelo molho. Podemos mandar no seu próximo pedido?', 'Oi! Me conta qual foi o lanche, por favor?'],
+      perfil: { usuario: '@carlos.lima', nome: 'Carlos Lima', segue: true }, abertoEm: '02:14', janela: 'amanhã, 02:15',
+      historico: [['02:13', 'Carlos escreveu no Direct da loja'], ['02:14', 'O robô respondeu e deixou o recado (fora do horário da equipe)'], ['17:30', 'O recado entrou na fila (a equipe começou)']] },
+    rn2: { resumo: [['Motivo', 'Faltou item: 1× Guaraná lata (R$ 6,00)'], ['Quer', 'O refrigerante ou o dinheiro de volta'], ['Pedido', '1166 · entregue ontem às 21:52 pelo João'], ['O robô já fez', 'Pediu desculpas e disse que a equipe volta hoje às 17:30 (fora do horário da equipe)']],
+      msgs: [['cli', 'Faltou o guaraná no pedido de ontem', '01:04'], ['robo', 'Sinto muito, Bia! Nossa equipe volta hoje às 17:30. Já deixei o seu recado aqui com o pedido 1166 e respondemos assim que começarmos.', 'robô · 01:05']],
+      prontas: ['Oi, Bia! Vamos mandar o guaraná no seu próximo pedido, sem custo.', 'Sentimos muito pelo erro.'], entregador: 'João (não compartilhou o contato)' },
     v5: { msgs: [['cli', 'Oi, vcs têm lanche vegano?', '20:26'],
         ['robo', 'Oi, Lívia! Temos o Smash Veggie (R$ 32,00), com hambúrguer de grão-de-bico. Dá uma olhada 👇 app.dmsregem.com/c/burgerdapraca?produto=smash-veggie', 'robô · 20:26'],
         ['cli', 'Entregam na Penha?', '20:27'],
@@ -1596,9 +1671,11 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       : `<button type="button" class="bt pri">Pegar para mim</button><button type="button" class="bt" data-dlg="passar">Passar</button><button type="button" class="bt ok" data-dlg="resolver">Resolver</button>`;
     // Versão 8: o caso que o robô passou para a equipe abre com o resumo, como no WhatsApp.
     const resumo = c.robo && d.resumo
-      ? `<section class="bloco resumo-robo"><h3>🤖 O robô resumiu <span class="dir">aberto às 20:13</span></h3><dl>${d.resumo.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl></section>`
+      ? `<section class="bloco resumo-robo"><h3>🤖 O robô resumiu <span class="dir">aberto às ${d.abertoEm || '20:13'}</span></h3><dl>${d.resumo.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl></section>`
       : '';
-    const historico = c.robo
+    const historico = d.historico
+      ? d.historico.map(([h, t]) => `<li><span class="h">${h}</span><span>${esc(t)}</span></li>`).join('')
+      : c.robo
       ? '<li><span class="h">20:12</span><span>Joana escreveu no Direct da loja</span></li><li><span class="h">20:12</span><span>O robô respondeu (área de entrega e cardápio)</span></li><li><span class="h">20:13</span><span>O robô passou para a equipe: encomenda</span></li>'
       : '<li><span class="h">20:12</span><span>Joana escreveu no Direct da loja</span></li><li><span class="h">20:12</span><span>O Regem abriu o caso (Instagram Direct na fila)</span></li>';
     return topo(c, acoes) + `<div class="c-corpo"><div class="col">${resumo}
@@ -1607,7 +1684,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
         <div class="prontas" aria-label="Respostas prontas">${(d.prontas || []).map((p) => `<button type="button" class="pronta" data-pronta>${esc(p)}</button>`).join('')}</div>
         ${copiloto(c)}
         <div class="escrever"><textarea aria-label="Escrever ao cliente no Instagram" placeholder="Escreva para ${esc(d.perfil.nome)} (sai no Direct da loja)" data-txt></textarea><button type="button" class="bt pri" data-enviar-ig>Enviar pelo Instagram</button></div>
-        <p class="ajuda" style="margin:6px 0 0">⏱️ Pode responder até <b>amanhã, 20:13</b> (24 h depois da última mensagem dela — regra do Instagram). A mensagem também aparece no app do Instagram da loja.</p></section></div>
+        <p class="ajuda" style="margin:6px 0 0">⏱️ Pode responder até <b>${d.janela || 'amanhã, 20:13'}</b> (24 h depois da última mensagem do cliente — regra do Instagram). A mensagem também aparece no app do Instagram da loja.</p></section></div>
       <div class="col"><section class="bloco"><h3>Cliente</h3>
         <p style="margin:0;font-size:14px"><b>${esc(d.perfil.nome)}</b> · ${esc(d.perfil.usuario)}</p>
         <p class="ajuda" style="margin:6px 0 0">${d.perfil.segue ? 'Segue a loja no Instagram.' : 'Não segue a loja.'} Sem pedido ligado: o Instagram não manda telefone. Se ela fizer o pedido pelo cardápio ou pelo WhatsApp, ele aparece aqui.</p></section>
@@ -1852,6 +1929,14 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     sel.setAttribute('aria-label', `Teste grátis: ${dias} dias restantes — ver planos`);
     $('#faixa-licenca').hidden = l !== 'acabou';
   }));
+  // Versão 10: fora do horário da equipe, os recados da noite esperam a abertura (não entram na fila de agora).
+  $$('#ctl-pc [data-horario]').forEach((b) => b.addEventListener('click', () => {
+    horario = b.dataset.horario;
+    $$('#ctl-pc [data-horario]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    $('#faixa-horario').hidden = horario !== 'fora';
+    CASOS.forEach((c) => { if (c.recado) c.sit = horario === 'fora' ? 'abertura' : 'fila'; });
+    desenharTudo();
+  }));
   $$('#ctl-pc [data-ponte]').forEach((b) => b.addEventListener('click', () => {
     ponte = b.dataset.ponte;
     $$('#ctl-pc [data-ponte]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
@@ -1916,6 +2001,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     const n = mudancas(); $('#barra-salvar').hidden = !n; $('#n-mud').textContent = `${n} ${n === 1 ? 'alteração ainda não salva' : 'alterações ainda não salvas'}`;
     const escolher = $('#onde-ponte').value === 'escolher';
     $$('#v-aj [data-so-escolher]').forEach((a) => { a.hidden = !escolher; });
+    // Versão 10: os ajustes do horário só aparecem com "No horário da loja".
+    const noHorario = $('#equipe-atende').value === 'loja';
+    $$('#v-aj [data-so-horario]').forEach((a) => { a.hidden = !noHorario; });
     const lig = $('#aj99').getAttribute('aria-checked') === 'true';
     $('#aj99-ajuda').textContent = lig
       ? 'Ligado (padrão): o pedido vira caso na fila; se ninguém responder em 5 min, a 99 recusa sozinha (regra da 99). Desligado: o Regem aceita na hora e avisa a equipe.'
@@ -1928,7 +2016,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   $('#salvar').addEventListener('click', () => { inicial.forEach((_, el) => inicial.set(el, valorDe(el))); atualizarBarra(); toast('✅ Ajustes do atendimento salvos (protótipo)'); });
   $('#busca-aj').addEventListener('input', (e) => {
     const q = e.target.value.trim().toLowerCase();
-    $$('#v-aj .grupo').forEach((g) => { let algum = false; $$('.aj', g).forEach((a) => { const ok = (!q || a.textContent.toLowerCase().includes(q) || $('h3', g).textContent.toLowerCase().includes(q)) && !(a.hasAttribute('data-so-escolher') && $('#onde-ponte').value !== 'escolher'); a.hidden = !ok; algum = algum || ok; }); g.hidden = !algum; });
+    $$('#v-aj .grupo').forEach((g) => { let algum = false; $$('.aj', g).forEach((a) => { const ok = (!q || a.textContent.toLowerCase().includes(q) || $('h3', g).textContent.toLowerCase().includes(q)) && !(a.hasAttribute('data-so-escolher') && $('#onde-ponte').value !== 'escolher') && !(a.hasAttribute('data-so-horario') && $('#equipe-atende').value !== 'loja'); a.hidden = !ok; algum = algum || ok; }); g.hidden = !algum; });
   });
 
   // Copiloto (versão 5): a sugestão vai para a caixa de escrever do MESMO bloco; outro toque traz outra.

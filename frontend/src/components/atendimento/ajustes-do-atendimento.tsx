@@ -17,6 +17,9 @@ import { ContaDoInstagram, situacaoDoInstagram, useVoltaDoInstagram, type Estado
 //    onde a equipe é avisada e quando avisar de novo. Ficam no `cardapio_config` da LOJA EM USO (sincroniza com o servidor
 //    da loja) — só aparecem com o cardápio online da loja.
 // E os três grupos da central:
+//  • "Horário da equipe" (mig 379, F1 do atendente virtual; protótipo v10): a equipe atende sempre (como era) ou no
+//    horário da loja, com a folga antes de abrir e depois de fechar, e o que o robô diz fora do horário. Fora dele, o que
+//    o robô passaria para a equipe vira recado para a abertura. Na `robo_config` da empresa — o primeiro grupo da tela.
 //  • "Fila e avisos" (Onda 2, mig 353): avisar o gerente se ninguém pegar o caso; dizer ao cliente a posição na fila.
 //    Ficam na `robo_config` da empresa — sempre aparecem. O "Som do aviso no computador" é de cada computador (no sino).
 //  • "iFood · disputas e chat": o chat do iFood na tela; avisar o gerente da disputa e de novo perto do prazo. Ficam na
@@ -41,6 +44,16 @@ const DE_NOVO_PADRAO = [1, 2, 3];
 const DE_NOVO_CHEGUEI_PADRAO = [3, 5, 10];
 /** As chaves do grupo "Fila e avisos", as do iFood e as do "Cheguei" (o resto é da 99). */
 const DA_FILA = ['avisarGerenteMin', 'dizerPosicao'];
+// O horário da equipe (mig 379, F1 do atendente virtual; protótipo `mockups/regem-central-atendimento.html` v10, grupo
+// "Horário da equipe"): o robô atende 24 h; a equipe só no horário. Na `robo_config` da empresa; nasce em "Sempre".
+const DA_EQUIPE: Record<string, string> = {
+  equipeAtende: 'atende',
+  equipeAntesMin: 'antesMin',
+  equipeDepoisMin: 'depoisMin',
+  equipeTextoFora: 'textoFora',
+};
+/** O que o robô diz fora do horário quando a loja deixa o campo em branco (o mesmo padrão do servidor). */
+const FORA_DO_HORARIO_PADRAO = 'Nossa equipe volta {volta}. Já deixei o seu recado aqui e respondemos assim que começarmos.';
 const DO_IFOOD: Record<string, string> = {
   ifoodChat: 'chat',
   ifoodAvisarDisputa: 'avisarDisputa',
@@ -107,6 +120,8 @@ type Resposta = {
   ajuste99: { decidirCancelamento: boolean; reembolsoRecusarEmHoras: number; reembolsoMotivo: string; reembolsoExplicacao: string } | null;
   horasPermitidas?: number[];
   fila?: { avisarGerenteMin: number; dizerPosicao: boolean };
+  // O horário da equipe (mig 379): "sempre" (como era) ou "no horário da loja", com a folga antes e depois.
+  equipe?: { atende: 'sempre' | 'loja'; antesMin: number; depoisMin: number; textoFora: string | null } | null;
   minutosDoAviso?: number[];
   conectadoIfood?: boolean;
   ajusteIfood?: { chat: boolean; avisarDisputa: boolean; avisarDeNovoMin: number; avaliacoes?: boolean } | null;
@@ -168,6 +183,14 @@ const paraValores = (r: Resposta): Valores => ({
       }
     : {}),
   ...(r.fila ? { avisarGerenteMin: String(r.fila.avisarGerenteMin), dizerPosicao: r.fila.dizerPosicao } : {}),
+  ...(r.equipe
+    ? {
+        equipeAtende: r.equipe.atende,
+        equipeAntesMin: String(r.equipe.antesMin),
+        equipeDepoisMin: String(r.equipe.depoisMin),
+        equipeTextoFora: r.equipe.textoFora ?? '',
+      }
+    : {}),
   ...(r.ajusteIfood
     ? {
         ifoodChat: r.ajusteIfood.chat,
@@ -244,6 +267,69 @@ export function AjustesDoAtendimento() {
         ajuda: 'No WhatsApp, o robô responde "Você é o 2º da fila". Nunca promete tempo. Só onde a loja pode escrever ao cliente.',
         palavras: 'posição fila robô whatsapp cliente',
       },
+    ],
+  };
+  // O horário da equipe (protótipo v10): os três ajustes de baixo só aparecem com "No horário da loja".
+  const noHorarioDaLoja = valores.equipeAtende === 'loja';
+  const grupoDaEquipe: GrupoDeAjustes = {
+    titulo: 'Horário da equipe',
+    nota: noHorarioDaLoja
+      ? 'Sempre vale: fora do horário nada toca, o gerente não é avisado (nem pelo WhatsApp) e o "3 min sem resposta" do Direct vira recado, sem tocar · o robô continua respondendo o que sabe (cardápio, horário, taxa, situação do pedido) · o recado guarda a conversa e o resumo · no chat do iFood e da 99 a frase segue a trava da plataforma.'
+      : 'O robô atende 24 h no WhatsApp, no Direct e no chat do iFood e da 99. Aqui você diz quando tem gente para os casos.',
+    itens: [
+      {
+        id: 'equipeAtende',
+        rotulo: 'A equipe atende',
+        tipo: 'selecao',
+        opcoes: [
+          { v: 'sempre', rotulo: 'Sempre (como hoje)' },
+          { v: 'loja', rotulo: 'No horário da loja' },
+        ],
+        ajuda:
+          '"No horário da loja" usa os horários de Delivery › Configurações › Horários de cada loja. Fora dele, o que o robô passaria para a equipe vira recado para a abertura.',
+        palavras: 'horário equipe atendimento fora noite recado abertura funcionamento',
+      },
+      ...(noHorarioDaLoja
+        ? ([
+            {
+              id: 'equipeAntesMin',
+              rotulo: 'Começa a atender',
+              tipo: 'selecao',
+              opcoes: [
+                { v: '0', rotulo: 'Quando a loja abre' },
+                { v: '30', rotulo: '30 min antes de abrir' },
+                { v: '60', rotulo: '1 h antes de abrir' },
+              ],
+              ajuda: 'Os recados da noite entram na fila nessa hora, pela ordem de chegada, e o aviso toca uma vez só.',
+              palavras: 'começa abre antes recado noite fila',
+            },
+            {
+              id: 'equipeDepoisMin',
+              rotulo: 'Para de atender',
+              tipo: 'selecao',
+              opcoes: [
+                { v: '0', rotulo: 'Quando a loja fecha' },
+                { v: '30', rotulo: '30 min depois de fechar' },
+                { v: '60', rotulo: '1 h depois de fechar' },
+                { v: '120', rotulo: '2 h depois de fechar' },
+              ],
+              ajuda:
+                'Depois de fechar, a equipe ainda entrega os últimos pedidos. Quem fala de um pedido em andamento vai para a fila na hora, mesmo depois desse tempo.',
+              palavras: 'para fecha depois últimos pedidos entrega',
+            },
+            {
+              id: 'equipeTextoFora',
+              rotulo: 'Fora do horário, o robô diz',
+              tipo: 'texto',
+              opcional: true,
+              maximo: 300,
+              placeholder: FORA_DO_HORARIO_PADRAO,
+              ajuda:
+                'Quando ele passaria a conversa para a equipe. {volta} vira o dia e a hora em que a equipe volta: "hoje às 17:30", "amanhã às 17:30", "na terça às 17:30". Em branco, vale o texto de exemplo.',
+              palavras: 'frase mensagem fora horário volta recado robô diz',
+            },
+          ] satisfies GrupoDeAjustes['itens'])
+        : []),
     ],
   };
   const grupoDa99: GrupoDeAjustes = {
@@ -666,6 +752,7 @@ export function AjustesDoAtendimento() {
       }
     : null;
   const grupos: GrupoDeAjustes[] = [
+    ...(resp?.equipe ? [grupoDaEquipe] : []),
     ...(resp?.cheguei?.temCardapio ? [grupoDoCheguei] : []),
     grupoDaFila,
     ...(grupoDoGestor ? [grupoDoGestor] : []),
@@ -685,6 +772,7 @@ export function AjustesDoAtendimento() {
     setErro('');
     // Cada grupo vai com o seu dono (a fila na configuração do robô, o iFood e a 99 nas integrações) — só o que mudou.
     const fila: Record<string, unknown> = {};
+    const equipe: Record<string, unknown> = {};
     const ifood: Record<string, unknown> = {};
     const ajuste99: Record<string, unknown> = {};
     const cheguei: Record<string, unknown> = {};
@@ -750,6 +838,12 @@ export function AjustesDoAtendimento() {
         continue;
       }
       if (k === 'instagramConta') continue; // a conta muda pelos botões dela, não pelo salvar
+      if (DA_EQUIPE[k]) {
+        // As folgas vão em minutos; o texto em branco volta ao padrão (null).
+        equipe[DA_EQUIPE[k]] =
+          k === 'equipeAntesMin' || k === 'equipeDepoisMin' ? Number(valores[k]) : k === 'equipeTextoFora' ? String(valores[k] ?? '').trim() || null : valores[k];
+        continue;
+      }
       if (k === 'alteradoSom') {
         alterado = { ...(alterado ?? {}), som: String(valores[k]) };
         continue;
@@ -773,6 +867,7 @@ export function AjustesDoAtendimento() {
     try {
       const r: Resposta = await api.salvarAtendimentoAjustes({
         ...(Object.keys(fila).length ? { fila } : {}),
+        ...(Object.keys(equipe).length ? { equipe } : {}),
         ...(Object.keys(ifood).length ? { ifood } : {}),
         ...(Object.keys(ajuste99).length ? { ajuste99 } : {}),
         ...(Object.keys(cheguei).length ? { cheguei } : {}),

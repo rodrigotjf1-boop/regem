@@ -47,6 +47,7 @@ import { CopilotoService } from './copiloto.service';
 import { NumerosDoAtendimentoService } from './numeros.service';
 import { InstagramService } from '../instagram/instagram.service';
 import { lerAjusteGestorWa } from './gestor-whatsapp';
+import { FRASE_FORA_PADRAO, MINUTOS_ANTES_DA_EQUIPE, MINUTOS_DEPOIS_DA_EQUIPE, TEXTO_FORA_MAX, lerAjusteDaEquipe } from './horario-da-equipe';
 
 // Chamados de atendimento (handoff). Operados por quem está no balcão/gestão.
 @Controller('atendimento')
@@ -226,11 +227,12 @@ export class AtendimentoController {
   // nuvem".
   // "Retirada · cliente chegou" (mig 354): o "Cheguei" mora no `cardapio_config` da LOJA EM USO (sem linha dela, a da
   // empresa) — sincroniza com o servidor da loja, que lê o aviso e o "avisar de novo" de lá.
+  // "Horário da equipe" (mig 379): `equipe` (da empresa, na `robo_config`) e `equipeOpcoes` (as escolhas e o texto padrão).
   @Get('ajustes')
   @CloudOnly()
   @Roles('presidente', 'gerente')
   async ajustes(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
-    const [da99, fila, doIfood, cheguei, repetido, som, roboMuda, ponte, roboCobraPix, gestorWa, copiloto, instagram] = await Promise.all([
+    const [da99, fila, doIfood, cheguei, repetido, som, roboMuda, ponte, roboCobraPix, gestorWa, copiloto, instagram, equipe] = await Promise.all([
       this.pedido99.ajustes(user.tenantId),
       this.filaEAvisos.ajustes(user.tenantId),
       this.chatIfood.ajustes(user.tenantId),
@@ -249,10 +251,14 @@ export class AtendimentoController {
       this.copiloto ? this.copiloto.estado(user.tenantId) : Promise.resolve(null),
       // "Instagram Direct" (mig 377): se a distribuição liberou e a conta conectada (nunca o acesso).
       this.instagram ? this.instagram.ajuste(user.tenantId) : Promise.resolve(null),
+      // "Horário da equipe" (mig 379): sempre ou no horário da loja, a folga e o que o robô diz fora do horário; da empresa.
+      this.filaEAvisos.ajusteDaEquipe(user.tenantId),
     ]);
     const alterado = { som, sons: SONS_DO_ALTERADO, roboMuda, roboCobraPix };
     return {
       ...da99,
+      equipe,
+      equipeOpcoes: { antesMin: MINUTOS_ANTES_DA_EQUIPE, depoisMin: MINUTOS_DEPOIS_DA_EQUIPE, textoForaPadrao: FRASE_FORA_PADRAO, textoForaMax: TEXTO_FORA_MAX },
       fila,
       minutosDoAviso: MINUTOS_DO_AVISO,
       ...doIfood,
@@ -274,6 +280,9 @@ export class AtendimentoController {
   @Roles('presidente', 'gerente')
   async salvarAjustes(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null, @Body() dto: any) {
     if (dto?.fila !== undefined) lerAjusteDaFila(dto.fila);
+    // "Horário da equipe" (mig 379): cada escolha só entre as opções e o texto até 300 letras — conferido antes de gravar
+    // qualquer grupo (V86); o que não veio fica (V16).
+    if (dto?.equipe !== undefined) lerAjusteDaEquipe(dto.equipe);
     if (dto?.ifood !== undefined) lerAjusteIfood(dto.ifood);
     const cheguei = dto?.cheguei !== undefined ? lerAjusteCheguei(dto.cheguei) : null;
     const repetido = dto?.repetido !== undefined ? lerAjusteRepetido(dto.repetido) : null;
@@ -290,6 +299,7 @@ export class AtendimentoController {
     if (dto?.ajuste99 !== undefined) await this.pedido99.salvarAjustes(user, dto);
     if (dto?.ponte !== undefined) await this.ponte.salvar(user, unidade, dto.ponte);
     if (dto?.fila !== undefined) await this.filaEAvisos.salvar(user, dto.fila);
+    if (dto?.equipe !== undefined) await this.filaEAvisos.salvarEquipe(user, dto.equipe);
     if (dto?.ifood !== undefined) await this.chatIfood.salvarAjustes(user, dto.ifood);
     if (cheguei) await this.chegada.salvarAjustes(user, unidade, cheguei);
     if (repetido) await this.repetido.salvarAjustes(user, unidade, repetido);
@@ -333,16 +343,18 @@ export class AtendimentoController {
   }
 
   // A FILA da central de atendimento (Onda 1): os casos abertos da loja em uso, na ordem da fila, e as contagens.
+  // HORÁRIO DA EQUIPE (mig 379): o recado que espera a abertura só vem com `?comRecados=1` (a tela nova pede; o app e as
+  // telas antigas não recebem — não tocam de madrugada); a resposta traz `equipe` (a faixa "Fora do horário da equipe").
   @Get('fila')
   @Roles('presidente', 'gerente', 'supervisao', 'execucao')
-  async fila(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
+  async fila(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null, @Query('comRecados') comRecados?: string) {
     // Com os avisos da disputa (ajuste do iFood): o app e o computador de quem é gerente avisam por eles.
     // E a FAIXA da ponte do chat (mig 366, só nuvem): no servidor da loja, a última que a nuvem mandou — renovada em
     // segundo plano, sem a fila esperar a internet (`ponteDaNuvem`).
     // E o ALERTA do Pix do adicional (mig 373, só nuvem): o robô pôs item num pedido já pago e espera o Pix — "segure o
     // pedido". Fora da fila (não é caso); null = não li (o servidor da loja ainda sem a resposta da nuvem).
     const [fila, avisos, ponte, adicionaisPix] = await Promise.all([
-      this.service.fila(user, unidade),
+      this.service.fila(user, unidade, { comRecados: comRecados === '1' || comRecados === 'true' }),
       this.chatIfood.avisos(user.tenantId),
       ehServidorLocal()
         ? Promise.resolve(this.chat.ponteDaNuvem(user.tenantId, unidade))

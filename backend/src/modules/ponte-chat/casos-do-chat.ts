@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import type { ResumoDoRobo } from '../atendimento/resumo-do-robo';
+import { STATUS_DO_PEDIDO_ENCERRADO, type SituacaoDaEquipe, chaveDaLoja } from '../atendimento/horario-da-equipe';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -123,16 +124,23 @@ export const chaveDoMapa = (c: { canal: string; chave: string }) => `${c.canal}|
  * quem chama (`tx`). Devolve os casos abertos agora (`novos`, as linhas — a tela recebe "atendimento.novo") e os que
  * mudaram (`somados` — "atendimento.mudou"); quem chama avisa a tela DEPOIS do commit. `robo`: o caso novo que o robô
  * chamou nasce com o resumo dele e, cliente chateado, urgente.
+ * HORÁRIO DA EQUIPE (mig 379): `equipe` = a situação da equipe por loja (`situacoesPorLoja`, lida por quem chama). Fora
+ * do horário da loja da conversa, o caso NOVO nasce como RECADO para a abertura (`detalhe.recado`) — salvo o do pedido
+ * ainda em andamento (a equipe ainda trabalha nele: vai para a fila na hora). Somar não muda a marca.
  */
 export async function casosDoChat(
   tx: any,
   tenantId: string,
   msgs: MensagemDoCliente[],
   robo?: Map<string, RoboNoCaso>,
+  equipe?: Map<string, SituacaoDaEquipe>,
 ): Promise<{ novos: any[]; somados: string[] }> {
+  const agora = new Date();
   const conversas = conversasDoLote(msgs).map((c) => {
     const r = robo?.get(chaveDoMapa(c));
-    return { ...c, robo: r ? r.resumo : null, urgente: r?.urgente === true };
+    const s = equipe?.get(chaveDaLoja(c.unidade_id));
+    const recadoAte = s && !s.atendendo && s.voltaEm ? s.voltaEm.toISOString() : null;
+    return { ...c, robo: r ? r.resumo : null, urgente: r?.urgente === true, recado_ate: recadoAte, recado_em: recadoAte ? agora.toISOString() : null };
   });
   if (!conversas.length) return { novos: [], somados: [] };
   // A trava da empresa: duas pontes (ou duas réplicas) no mesmo instante — uma decide, a outra espera e já vê o caso.
@@ -141,7 +149,7 @@ export async function casosDoChat(
     with g as (
       select * from jsonb_to_recordset(${JSON.stringify(conversas)}::jsonb)
         as x(canal text, chave text, pedido_id uuid, pedido_externo text, pedido_numero text, cliente text, unidade_id uuid,
-             texto text, em timestamptz, so_agradecimento boolean, robo jsonb, urgente boolean)
+             texto text, em timestamptz, so_agradecimento boolean, robo jsonb, urgente boolean, recado_ate text, recado_em text)
     ), abertos as (
       select distinct on (c.canal, c.detalhe #>> '{chat,chave}') c.id, c.canal, c.detalhe #>> '{chat,chave}' as chave,
              c.aguardando_desde is not null as aguardava
@@ -168,6 +176,13 @@ export async function casosDoChat(
              jsonb_build_object('chat', jsonb_build_object('chave', g.chave, 'pedidoExterno', g.pedido_externo,
                                                            'pedidoNumero', g.pedido_numero, 'ultimaEm', g.em))
                || case when g.robo is null then '{}'::jsonb else jsonb_build_object('robo', g.robo || jsonb_build_object('em', now())) end
+               -- fora do horário da equipe e sem pedido em andamento: recado para a abertura (mig 379)
+               || case when g.recado_ate is not null
+                        and not exists (select 1 from pedido_externo pe
+                                         where pe.tenant_id = ${tenantId}::uuid and pe.id = g.pedido_id
+                                           and pe.status not in (${sql.join(STATUS_DO_PEDIDO_ENCERRADO.map((s) => sql`${s}`), sql`, `)}))
+                       then jsonb_build_object('recado', jsonb_build_object('ate', g.recado_ate, 'em', g.recado_em))
+                       else '{}'::jsonb end
         from g
        where not g.so_agradecimento
          and not exists (select 1 from abertos a where a.canal = g.canal and a.chave = g.chave)

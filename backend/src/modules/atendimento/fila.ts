@@ -7,6 +7,8 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import { recadoAtivo } from './horario-da-equipe';
+
 /** De onde o caso veio. NULL nos chamados antigos (antes da mig 350): `canalDoCaso` deduz. */
 export const CANAIS = ['whatsapp', 'cardapio', 'anotaai', 'ifood', '99food', 'instagram'] as const;
 export type Canal = (typeof CANAIS)[number];
@@ -27,12 +29,22 @@ export function canalDoCaso(c: { canal?: string | null; pedidoCanal?: string | n
   return c.telefone ? 'whatsapp' : null;
 }
 
-export type Situacao = 'fila' | 'com_alguem' | 'aguardando' | 'resolvido';
+/** 'abertura' (mig 379): o RECADO que espera a equipe voltar — fora da fila de agora (não toca, não tem posição). */
+export type Situacao = 'fila' | 'com_alguem' | 'aguardando' | 'abertura' | 'resolvido';
 
-export function situacaoDo(c: { status?: string | null; responsavelId?: string | null; aguardandoDesde?: unknown }): Situacao {
+/**
+ * A situação do caso. O recado ativo SEM ninguém com ele é 'abertura'; o que alguém pegou (ou espera o cliente) segue o
+ * ciclo comum. `recadoAtivo` = o que o banco calculou na mesma leitura (a hora do banco); sem ele, pela marca e `agora`.
+ */
+export function situacaoDo(
+  c: { status?: string | null; responsavelId?: string | null; aguardandoDesde?: unknown; detalhe?: unknown; recadoAtivo?: unknown },
+  agora: Date = new Date(),
+): Situacao {
   if (c.status === 'resolvido') return 'resolvido';
   if (c.aguardandoDesde) return 'aguardando';
-  return c.responsavelId ? 'com_alguem' : 'fila';
+  if (c.responsavelId) return 'com_alguem';
+  const recado = typeof c.recadoAtivo === 'boolean' ? c.recadoAtivo : recadoAtivo(c.detalhe, agora);
+  return recado ? 'abertura' : 'fila';
 }
 
 const ms = (d: unknown) => (d ? new Date(d as any).getTime() : NaN);
@@ -56,9 +68,12 @@ export function compararNaFila(
 
 /**
  * A POSIÇÃO de cada caso que espera uma pessoa (1º, 2º…): só os que estão "na fila" — sem responsável, sem esperar o
- * cliente e sem prazo de plataforma (a disputa tem o relógio dela, não uma vez na fila). A lista já vem na ordem da fila.
+ * cliente, sem prazo de plataforma (a disputa tem o relógio dela, não uma vez na fila) e sem recado esperando a equipe
+ * (mig 379). A lista já vem na ordem da fila.
  */
-export function posicoes<T extends { prazoEm?: unknown; responsavelId?: string | null; aguardandoDesde?: unknown; status?: string | null }>(
+export function posicoes<
+  T extends { prazoEm?: unknown; responsavelId?: string | null; aguardandoDesde?: unknown; status?: string | null; detalhe?: unknown; recadoAtivo?: unknown },
+>(
   ordenados: T[],
 ): Array<T & { posicao: number | null }> {
   let n = 0;

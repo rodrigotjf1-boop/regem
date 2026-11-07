@@ -108,6 +108,20 @@ describe('quem responde a mensagem nova no Direct', () => {
     expect(quemRespondeNoDirect({ ...base, caso: { criadoEm: min(90), responsavelId: null } })).toEqual({ anexar: true, abrir: false, robo: true });
     expect(quemRespondeNoDirect({ ...base, minutos: 0, caso: { criadoEm: min(900), responsavelId: null } }).robo).toBe(false);
   });
+
+  // Mig 379: o RECADO que espera a abertura (fora do horário da equipe) não cala o robô.
+  it('caso que é recado esperando a equipe: anexa e o robô responde — salvo a loja respondendo pelo app ou alguém com ele', () => {
+    const recado = { criadoEm: min(-600), responsavelId: null, recado: true }; // `criadoEm` = a volta da equipe (no futuro)
+    expect(quemRespondeNoDirect({ ...base, caso: recado })).toEqual({ anexar: true, abrir: false, robo: true });
+    expect(quemRespondeNoDirect({ ...base, minutos: 0, caso: recado }).robo).toBe(true);
+    expect(quemRespondeNoDirect({ ...base, caso: recado, ultimaDaLojaEm: min(5) }).robo).toBe(false);
+    expect(quemRespondeNoDirect({ ...base, caso: { ...recado, responsavelId: 'ana' } }).robo).toBe(false);
+    // robô desligado: o recado recebe a mensagem, como qualquer caso
+    expect(quemRespondeNoDirect({ ...base, roboLigado: false, caso: recado })).toEqual({ anexar: true, abrir: false, robo: false });
+    // depois da volta da equipe, um caso comum: a pausa conta da volta (criadoEm), não da criação
+    expect(quemRespondeNoDirect({ ...base, caso: { criadoEm: min(10), responsavelId: null, recado: false } }).robo).toBe(false);
+    expect(quemRespondeNoDirect({ ...base, caso: { criadoEm: min(61), responsavelId: null, recado: false } }).robo).toBe(true);
+  });
 });
 
 describe('o texto do Direct', () => {
@@ -174,6 +188,12 @@ describe('as instruções do Direct', () => {
     expect(texto).toContain('cadê meu pedido');
     expect(texto).toContain('encomenda');
     expect(texto).toMatch(/Motivo: .*\n\s+Quer: .*\n\s+Já fiz:/);
+  });
+  it('.d2 (mig 379): fora do horário da equipe, manda paraOCliente como veio e segue respondendo', () => {
+    expect(VERSAO_DO_DIRECT).toBe('2026-11-07.d2');
+    expect(texto).toContain('Se a resposta de chamar_atendente trouxer foraDoHorario = true');
+    expect(texto).toContain('mande ao cliente o texto de paraOCliente exatamente como veio');
+    expect(texto).toContain('NÃO diga "em instantes"');
   });
   it('o WhatsApp continua com as suas instruções', () => {
     expect(instrucoesDoRobo({ loja: 'X' }, '2').texto).toContain('no WhatsApp');
