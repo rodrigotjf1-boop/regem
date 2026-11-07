@@ -104,6 +104,15 @@ export class OpcaoAdicionalIntegracao {
   @ApiProperty()
   ordem!: number;
 
+  @ApiPropertyOptional({
+    nullable: true,
+    type: Number,
+    description:
+      'SÓ com a permissão catalogo.ifood.ler. O preço da opção no iFood, em centavos: o da opção reutilizável (um por ' +
+      'código PDV). null = sem preço próprio no iFood, ou opção criada só neste produto.',
+  })
+  preco_ifood_centavos?: number | null;
+
   @ApiProperty({ description: 'Sem código PDV: é só uma observação ("ponto da carne") — não acrescenta nem retira nada.' })
   informativa!: boolean;
 
@@ -179,6 +188,23 @@ export class ProdutoCatalogoIntegracao {
 
   @ApiProperty()
   ativo!: boolean;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    type: Number,
+    description:
+      'SÓ com a permissão catalogo.ifood.ler. O preço do produto no iFood, em centavos (pode ser diferente do preço do ' +
+      'Regem). null = sem preço próprio no iFood: quem integra não deve mandar preço ao iFood.',
+  })
+  preco_ifood_centavos?: number | null;
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    description:
+      'SÓ com a permissão catalogo.ifood.ler. true = a loja diz que o produto ESTÁ no cardápio do iFood; false = não está ' +
+      '(ou ainda não foi marcado).',
+  })
+  no_ifood?: boolean;
 
   @ApiProperty({ type: [VariacaoCatalogoIntegracao] })
   variacoes!: VariacaoCatalogoIntegracao[];

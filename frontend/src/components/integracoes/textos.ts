@@ -61,6 +61,11 @@ export const TEXTO_ESCOPO: Record<string, { rotulo: string; texto: string }> = {
     rotulo: 'Lançar as vendas do totem',
     texto: 'As vendas feitas no totem entram no Regem: as pagas, as em dinheiro (pagas no balcão) e as que falharam no pagamento.',
   },
+  // Orzuni (mig 374) — acrescenta ao cardápio o que a loja cadastrou para o iFood.
+  'catalogo.ifood.ler': {
+    rotulo: 'Preço do iFood',
+    texto: 'O preço do iFood de cada produto e adicional e se o produto está no cardápio do iFood, como cadastrados no Regem.',
+  },
 };
 
 /** O que a página diz quando a chave do custo está travada (presidente sem "Ver valores em R$"). */
@@ -128,6 +133,19 @@ export const TEXTO_APP: Record<string, TextoApp> = {
       { titulo: 'A sua conta', texto: 'O GoGeM não recebe senha nem entra no seu Regem.' },
     ],
   },
+  orzuni: {
+    nome: 'Orzuni',
+    le: 'ler o cardápio e o preço do iFood',
+    faz: 'monta no iFood os produtos que estão no Regem e ainda faltam lá. Ele só lê o que está listado aqui; não muda pedido, preço nem cardápio no Regem.',
+    ondeConectar: null,
+    leitura: 'o cardápio e o preço do iFood',
+    naoVai: [
+      { titulo: 'O resto dos preços', texto: 'Preço do balcão, custo, margem e CMV ficam no Regem.' },
+      { titulo: 'Vendas e clientes', texto: 'Pedidos, caixa e clientes não fazem parte.' },
+      { titulo: 'O resto da operação', texto: 'Fichas, estoque, equipe e ponto não fazem parte.' },
+      { titulo: 'A sua conta', texto: 'O Orzuni não recebe senha nem entra no seu Regem.' },
+    ],
+  },
 };
 
 /** Os textos do aplicativo. O que ainda não tem os seus usa os do primeiro que a página teve (o Liame). */
@@ -158,6 +176,7 @@ export function resumoDoAcesso(escopos: string[], cliente: string): { recebe: st
   if (tem('producao.ler')) partes.push('pedidos em produção');
   if (tem('totem.catalogo.ler')) partes.push('cardápio do totem');
   if (tem('totem.produtos.pausar')) partes.push('pausa de item no totem');
+  if (tem('catalogo.ifood.ler')) partes.push('preço do iFood');
   const texto = partes.join(', ');
   const recebe = texto ? texto[0].toUpperCase() + texto.slice(1) : '—';
   if (cliente === 'gogem') return { recebe, nota: tem('totem.vendas.lancar') ? 'Lança as vendas do totem' : null };

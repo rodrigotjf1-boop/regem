@@ -20,7 +20,9 @@ import { ConsultaComVersao, daLojaDoToken, responderComVersao } from './leitura-
 // LOJA: vem do token. Produto e ficha são da loja OU da rede (sem loja — V4); a empresa de uma
 // loja só lê tudo, como nas vendas e nos cupons (`daLojaDoToken`). Setor é sempre de uma loja: só os dela.
 //
-// DINHEIRO: nenhuma consulta daqui seleciona preço, custo, margem ou CMV (ERR-166).
+// DINHEIRO: nenhuma consulta daqui seleciona preço, custo, margem ou CMV (ERR-166). A ÚNICA exceção é o preço do
+// iFood (mig 369), e só para o acesso com `catalogo.ifood.ler` (Orzuni, mig 374): sem ela, a coluna nem entra no
+// `select` — o corte é no servidor, nunca "o cliente ignora".
 
 @Injectable()
 export class CatalogoIntegracaoService {
@@ -35,6 +37,8 @@ export class CatalogoIntegracaoService {
   async catalogo(ctx: IntegracaoCtxData, q: ConsultaComVersao = {}) {
     const tenant = sql`${ctx.tenantId}::uuid`;
     const produtoDaLoja = daLojaDoToken(sql`p.unidade_id`, ctx);
+    // O preço do iFood em centavos, como todo dinheiro da porta (numeric(12,2) × 100 é exato; bigint: até 10^12).
+    const ifood = ctx.escopos.includes('catalogo.ifood.ler');
 
     const categorias = await this.rows(sql`
       select c.id::text as id, c.nome, c.parent_id::text as categoria_pai_id, c.ordem, c.ativo
@@ -54,6 +58,7 @@ export class CatalogoIntegracaoService {
              p.categoria_id::text as categoria_id, p.vai_para_producao,
              p.setor_producao_id::text as setor_producao_id, p.tempo_preparo_min,
              p.ficha_id::text as ficha_id, p.ativo
+             ${ifood ? sql`, (p.preco_ifood * 100)::bigint::text as preco_ifood_centavos, p.no_ifood` : sql``}
         from produto p
        where p.tenant_id = ${tenant} and p.deleted_at is null and ${produtoDaLoja}
        order by p.nome, p.id`);
@@ -85,6 +90,7 @@ export class CatalogoIntegracaoService {
     // A opção com o que ela põe ou tira: o insumo (pelo item do estoque), a ficha (pela opção
     // reutilizável de onde foi materializada) ou o produto; e, no grupo de retirar, o ingrediente
     // da ficha — lido mesmo se a ficha foi salva de novo depois (a linha antiga fica, apagada).
+    // O preço do iFood é o da opção REUTILIZÁVEL (um por código PDV, mig 369): a opção criada só no produto não tem.
     const opcoes = await this.rows(sql`
       select o.id::text as id, o.grupo_id::text as grupo_id, o.nome, o.codigo_pdv as codigo, o.ordem,
              o.origem_opcao_id::text as opcao_id,
@@ -95,6 +101,7 @@ export class CatalogoIntegracaoService {
              (o.ficha_ingrediente_id is not null) as tem_retira,
              fi.item_id::text as retira_item_id, fi.sub_ficha_id::text as retira_sub_ficha_id,
              fi.insumo_nome as retira_nome
+             ${ifood ? sql`, (op.preco_ifood * 100)::bigint::text as preco_ifood_centavos` : sql``}
         from complemento_opcao o
         join complemento_grupo g on g.id = o.grupo_id and g.tenant_id = o.tenant_id
         join produto p on p.id = g.produto_id and p.tenant_id = g.tenant_id
@@ -106,7 +113,7 @@ export class CatalogoIntegracaoService {
        order by o.grupo_id, o.ordem, o.nome, o.id`);
 
     return responderComVersao(
-      montarCatalogo(ctx.unidadeId, { categorias, setores, produtos, variacoes, combos, grupos, opcoes }),
+      montarCatalogo(ctx.unidadeId, { categorias, setores, produtos, variacoes, combos, grupos, opcoes }, { ifood }),
       q,
     );
   }
