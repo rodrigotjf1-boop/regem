@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -170,13 +170,25 @@ export function Situacoes<T>({
 }
 
 // ── filtros ─────────────────────────────────────────────────────────────────────────────────
-export function Filtros({ children }: { children: React.ReactNode }) {
+// `emLinha` (tela de operação — Atendimento, protótipo da Central v9): os filtros numa linha que quebra, com o rótulo AO
+// LADO do campo (a busca com o rótulo só para o leitor de tela) — sem o cartão e sem a linha dos rótulos em cima.
+const FiltrosEmLinha = createContext(false);
+export function Filtros({ children, emLinha = false }: { children: React.ReactNode; emLinha?: boolean }) {
+  if (emLinha)
+    return (
+      <div role="group" aria-label="Filtros" className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <FiltrosEmLinha.Provider value>{children}</FiltrosEmLinha.Provider>
+      </div>
+    );
   return <Card className="grid grid-cols-2 gap-3 p-3 md:grid-cols-[repeat(auto-fit,minmax(180px,1fr))]">{children}</Card>;
 }
 export function FiltroBusca({ id, valor, aoMudar, placeholder = 'Digite parte do nome' }: { id: string; valor: string; aoMudar: (v: string) => void; placeholder?: string }) {
+  const emLinha = useContext(FiltrosEmLinha);
   return (
-    <div className="col-span-2 space-y-1">
-      <Label htmlFor={id}>Buscar</Label>
+    <div className={emLinha ? 'min-w-0 flex-1 basis-60' : 'col-span-2 space-y-1'}>
+      <Label htmlFor={id} className={emLinha ? 'sr-only' : undefined}>
+        Buscar
+      </Label>
       <Input id={id} type="search" value={valor} onChange={(e) => aoMudar(e.target.value)} placeholder={placeholder} autoComplete="off" />
     </div>
   );
@@ -197,10 +209,13 @@ export function FiltroSelect({
   valor: string;
   aoMudar: (v: string) => void;
 }) {
+  const emLinha = useContext(FiltrosEmLinha);
   return (
-    <div className="min-w-0 space-y-1">
-      <Label htmlFor={id}>{rotulo}</Label>
-      <Select id={id} value={valor} onChange={(e) => aoMudar(e.target.value)}>
+    <div className={emLinha ? 'flex min-w-0 max-w-full items-center gap-2' : 'min-w-0 space-y-1'}>
+      <Label htmlFor={id} className={emLinha ? 'shrink-0 whitespace-nowrap' : undefined}>
+        {rotulo}
+      </Label>
+      <Select id={id} value={valor} onChange={(e) => aoMudar(e.target.value)} className={emLinha ? 'w-auto min-w-0 max-w-full' : undefined}>
         {todos !== undefined && <option value="">{todos}</option>}
         {opcoes.map((o) => (typeof o === 'string' ? <option key={o} value={o}>{o}</option> : <option key={o.v} value={o.v}>{o.rotulo}</option>))}
       </Select>

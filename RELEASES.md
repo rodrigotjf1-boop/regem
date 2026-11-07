@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **O topo compacto da tela Atendimento (07/11; só tela, sem migration, sem `edge/`).** Na NUVEM com o merge. **No `.zip`
+  1.30.13:** a mesma tela no servidor da loja (o teste grátis vira selo na barra do topo do Atendimento; as outras telas
+  só ganham a barra que quebra a linha no estreito).
+
 - **O robô responde no Direct do Instagram (07/11; mig 378 `@cloud-only` — só colunas em `instagram_conta`, que já é
   SO_NUVEM; sem `edge/`).** Na NUVEM com o merge (nasce DESLIGADO — Delivery › Configurações › Atendimento, grupo
   "Instagram Direct", "Robô responde no Direct"); o robô é o mesmo fluxo do n8n do WhatsApp (nada a importar). **No `.zip`

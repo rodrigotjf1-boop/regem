@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
@@ -75,10 +75,16 @@ function gravarEscondido(v: boolean) {
   }
 }
 
+// TOPO COMPACTO (protótipo v9): as peças entram direto na LINHA do topo da tela (um `flex-wrap`): o botão e o "?" na
+// linha; a explicação (a um clique) e o aviso de que não abriu sozinho numa linha só deles, logo abaixo.
+const LINHA_DE_BAIXO = 'order-last basis-full text-xs text-secondary-foreground';
+
 export function ChatDoIfood() {
   const [cfg, setCfg] = useState<Config | null>(null);
   const [aberto, setAberto] = useState(false);
   const [abrindo, setAbrindo] = useState(false);
+  const [ajuda, setAjuda] = useState(false);
+  const idAjuda = useId();
   // A abertura SOZINHA não deu certo (sem internet, script do iFood fora): o aviso fica na tela, sem pop-up.
   const [naoAbriuSozinho, setNaoAbriuSozinho] = useState(false);
   const montado = useRef(true);
@@ -138,7 +144,7 @@ export function ChatDoIfood() {
   if (!cfg) return null;
   if (!cfg.disponivel) {
     if (cfg.motivo !== 'sem_nuvem') return null; // sem o widget da distribuição ou sem o iFood ligado: não há chat
-    return <p className="text-xs text-secondary-foreground">O chat oficial do iFood não carregou agora (a nuvem não respondeu). Abra a tela de novo daqui a pouco.</p>;
+    return <p className={LINHA_DE_BAIXO}>O chat oficial do iFood não carregou agora (a nuvem não respondeu). Abra a tela de novo daqui a pouco.</p>;
   }
   const c = cfg;
 
@@ -153,16 +159,39 @@ export function ChatDoIfood() {
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1" data-chat-ifood={aberto ? 'aberto' : 'fechado'}>
-      <Button type="button" variant="outline" aria-pressed={aberto} disabled={abrindo} onClick={alternar}>
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        aria-pressed={aberto}
+        disabled={abrindo}
+        onClick={alternar}
+        data-chat-ifood={aberto ? 'aberto' : 'fechado'}
+        className="h-10 max-w-full"
+      >
         <span aria-hidden="true">💬</span>{' '}
         {abrindo ? 'Abrindo o chat oficial do iFood…' : aberto ? 'Esconder o chat oficial do iFood' : 'Chat oficial do iFood'}
       </Button>
-      <span className="min-w-0 flex-1 basis-64 text-xs text-secondary-foreground">
-        {naoAbriuSozinho
-          ? 'O chat oficial do iFood não abriu sozinho agora (confira a internet deste computador). Toque em "Chat oficial do iFood" para tentar de novo.'
-          : 'O chat oficial do iFood abre sozinho nesta tela — o botão dele fica no canto. "Esconder" vale para este computador. Na primeira vez, cada computador autoriza com um usuário Dono ou Administrador do iFood. As mensagens dele não entram na fila: o iFood não as entrega a sistemas.'}
-      </span>
-    </div>
+      <button
+        type="button"
+        aria-expanded={ajuda}
+        aria-controls={idAjuda}
+        aria-label="Como funciona o chat oficial do iFood"
+        onClick={() => setAjuda((a) => !a)}
+        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-input bg-card text-sm font-bold hover:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        ?
+      </button>
+      {naoAbriuSozinho && (
+        <p className={LINHA_DE_BAIXO} role="status">
+          O chat oficial do iFood não abriu sozinho agora (confira a internet deste computador). Toque em &quot;Chat oficial do iFood&quot; para tentar de novo.
+        </p>
+      )}
+      <p id={idAjuda} hidden={!ajuda} className={`${LINHA_DE_BAIXO} rounded-lg border border-border bg-card px-3 py-2`}>
+        O chat oficial do iFood abre sozinho nesta tela — o botão dele fica no canto. &quot;Esconder&quot; vale para este computador. Na primeira vez, cada computador
+        autoriza com um usuário Dono ou Administrador do iFood. As mensagens dele não entram na fila: o iFood não as entrega a sistemas.
+      </p>
+    </>
   );
 }

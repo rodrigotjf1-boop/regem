@@ -1,5 +1,6 @@
 'use client';
 
+import { useId, useState } from 'react';
 import Link from 'next/link';
 import type { SituacaoDaPonte } from '@/lib/atendimento';
 import { COMO_RETOMAR_A_PONTE } from '@/lib/ponte-do-chat';
@@ -50,14 +51,21 @@ export function porOndePassa(canais: [Canal, DoCanal][]): string {
   return partes.join(' · ');
 }
 
+// TOPO COMPACTO (protótipo v9): as peças entram direto na LINHA do topo da tela (um `flex-wrap`). Ligada = um selo na
+// linha, e por onde o chat passa fica a um clique (`aria-expanded`); sem sinal = o aviso à vista, numa linha só dele
+// logo abaixo (`basis-full order-last`) — o que pede ação nunca fica escondido.
+const LINHA_DE_BAIXO = 'order-last basis-full';
+
 export function FaixaDaPonte({ ponte, agora }: { ponte: SituacaoDaPonte | null; agora: number | null }) {
+  const [aberto, setAberto] = useState(false);
+  const idDetalhe = useId();
   if (!ponte || !ponte.ligada) return null;
   const canais = (Object.entries(ponte.canais) as [Canal, DoCanal | undefined][]).filter(
     (x): x is [Canal, DoCanal] => !!x[1] && x[0] in NOME,
   );
   if (!canais.length)
     return (
-      <p className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-secondary-foreground" role="status" data-ponte="sem-canal">
+      <p className={`${LINHA_DE_BAIXO} rounded-lg border border-border bg-card px-3 py-2 text-sm text-secondary-foreground`} role="status" data-ponte="sem-canal">
         A ponte do chat está ligada, mas nem o iFood nem a 99 estão conectados nesta empresa.
       </p>
     );
@@ -71,7 +79,7 @@ export function FaixaDaPonte({ ponte, agora }: { ponte: SituacaoDaPonte | null; 
   if (semPc.length)
     return (
       <div
-        className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm"
+        className={`${LINHA_DE_BAIXO} flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm`}
         role="alert"
         data-ponte="sem-sinal"
       >
@@ -103,18 +111,28 @@ export function FaixaDaPonte({ ponte, agora }: { ponte: SituacaoDaPonte | null; 
       </div>
     );
 
+  const detalhe = [passa, pausadas.length ? `pausada: ${pausadas.join(' e ')}` : '', ultima ? `última mensagem do cliente ${ultima}` : '']
+    .filter(Boolean)
+    .join(' · ');
   return (
-    <div
-      className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-border bg-card px-3 py-2 text-sm"
-      role="status"
-      data-ponte="ligada"
-    >
-      <span className="rounded-full border border-ok/40 bg-ok/15 px-2 py-0.5 text-xs font-bold text-foreground">🔗 Ponte do chat ligada</span>
-      <span className="min-w-0 flex-1 basis-64 break-words text-secondary-foreground">
-        {passa}
-        {pausadas.length ? ` · pausada: ${pausadas.join(' e ')}` : ''}
-        {ultima ? ` · última mensagem do cliente ${ultima}` : ''}
+    <>
+      <span className="contents" data-ponte="ligada">
+        <button
+          type="button"
+          aria-expanded={aberto}
+          aria-controls={idDetalhe}
+          onClick={() => setAberto((a) => !a)}
+          className="inline-flex min-h-10 items-center gap-1.5 whitespace-nowrap rounded-full border border-ok/40 bg-ok/15 px-3 text-xs font-bold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <span aria-hidden="true">🔗</span> Ponte do chat ligada
+          <span aria-hidden="true" className="text-secondary-foreground">
+            {aberto ? '▴' : '▾'}
+          </span>
+        </button>
       </span>
-    </div>
+      <p id={idDetalhe} hidden={!aberto} className={`${LINHA_DE_BAIXO} break-words rounded-lg border border-border bg-card px-3 py-2 text-sm text-secondary-foreground`}>
+        {detalhe || 'A ponte do chat está ligada.'}
+      </p>
+    </>
   );
 }
