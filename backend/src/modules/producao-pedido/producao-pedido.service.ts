@@ -2513,14 +2513,16 @@ export class ProducaoPedidoService {
     const antes = (await this.getSenhaConfig(tenantId, unidadeId)).periodo;
     // Grava no ajuste do KDS da loja (ou da empresa, como a tela faz), que sincroniza: o contador de cada máquina — o do
     // servidor da loja inclusive — lê o período dali (mig 332). Antes ia para uma linha do contador da nuvem, que o
-    // servidor da loja nunca via. Um comando só (índice único por empresa e loja): dois salvamentos juntos não duplicam.
-    // id pela chave (mig 339): a linha que a nuvem e o servidor da loja criam é a MESMA.
+    // servidor da loja nunca via. id pela chave (mig 339): a linha que a nuvem e o servidor da loja criam é a MESMA. Dois
+    // únicos (o id e empresa+loja): cria se não existe ("não faz nada" vale para qualquer um) e grava pela chave — dois
+    // salvamentos juntos não duplicam nem dão 23505 (ERR-391).
     await this.db.execute(sql`
       insert into kds_cor_config (id, tenant_id, unidade_id, senha_periodo)
       values (${idConfigDaLoja('kds_cor_config', tenantId, unidadeId)}, ${tenantId}, ${unidadeId}, ${p})
-      on conflict (tenant_id, coalesce(unidade_id, '00000000-0000-0000-0000-000000000000'::uuid))
-      do update set senha_periodo = excluded.senha_periodo, updated_at = now()
-    `);
+      on conflict do nothing`);
+    await this.db.execute(sql`
+      update kds_cor_config set senha_periodo = ${p}, updated_at = now()
+       where tenant_id = ${tenantId} and unidade_id is not distinct from ${unidadeId}::uuid`);
     if (antes !== p) {
       await this.auditoria.registrar({
         tenantId,
@@ -2765,11 +2767,14 @@ export class ProducaoPedidoService {
   /** Grava o som do pedido alterado no ajuste do KDS da loja (ou da empresa), que sincroniza. Audita a mudança. */
   async salvarSomDoAlterado(tenantId: string, unidadeId: string | null, som: SomDoAlterado, ator?: AtorKds) {
     const antes = await this.somDoAlterado(tenantId, unidadeId);
+    // Dois únicos (o id da chave e empresa+loja): cria se não existe e grava pela chave (ERR-391).
     await this.db.execute(sql`
       insert into kds_cor_config (id, tenant_id, unidade_id, alterado_som)
       values (${idConfigDaLoja('kds_cor_config', tenantId, unidadeId)}, ${tenantId}, ${unidadeId}, ${som})
-      on conflict (tenant_id, coalesce(unidade_id, '00000000-0000-0000-0000-000000000000'::uuid))
-      do update set alterado_som = excluded.alterado_som, updated_at = now()`);
+      on conflict do nothing`);
+    await this.db.execute(sql`
+      update kds_cor_config set alterado_som = ${som}, updated_at = now()
+       where tenant_id = ${tenantId} and unidade_id is not distinct from ${unidadeId}::uuid`);
     if (antes !== som) {
       await this.auditoria.registrar({
         tenantId,
@@ -4138,10 +4143,18 @@ export class ProducaoPedidoService {
         .set({ ...vals, updatedAt: new Date() })
         .where(eq(kdsCorConfig.id, row.id));
     } else {
-      // id pela chave (mig 339): a linha que a nuvem e o servidor da loja criam é a MESMA.
-      await this.db
+      // id pela chave (mig 339): a linha que a nuvem e o servidor da loja criam é a MESMA. Outro salvamento pode criá-la
+      // ao mesmo tempo (dois únicos — ERR-391): "não faz nada" e grava por cima pela chave.
+      const criada = await this.db
         .insert(kdsCorConfig)
-        .values({ id: idConfigDaLoja('kds_cor_config', tenantId, unidadeId), tenantId, unidadeId, ...vals });
+        .values({ id: idConfigDaLoja('kds_cor_config', tenantId, unidadeId), tenantId, unidadeId, ...vals })
+        .onConflictDoNothing()
+        .returning({ id: kdsCorConfig.id });
+      if (!criada.length)
+        await this.db
+          .update(kdsCorConfig)
+          .set({ ...vals, updatedAt: new Date() })
+          .where(and(eq(kdsCorConfig.tenantId, tenantId), unidadeId ? eq(kdsCorConfig.unidadeId, unidadeId) : isNull(kdsCorConfig.unidadeId)));
     }
     // Etapas e cores mudam o que a cozinha vê e por onde o pedido passa: fica na auditoria.
     const mudou = (Object.keys(vals) as (keyof typeof vals)[]).filter((k) => vals[k] !== atual[k]);

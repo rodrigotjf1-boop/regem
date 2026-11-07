@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Dois salvamentos juntos das configurações de linha única não dão mais erro (06/11; ERR-391; sem migration, sem
+  `edge/`).** As configurações da empresa/loja que ganharam o id da chave na 339 (`delivery_config`, `tef_config`,
+  `kds_cor_config`, `entitlement`) têm dois únicos; gravar com `on conflict` de um só, ou "lê; atualiza ou insere",
+  deixava o segundo salvamento ao mesmo tempo cair com 23505 (500 na tela). Agora: cria se não existe ("não faz nada") e
+  grava pela chave — os liga/desliga de módulo por `common/gravar-entitlement.ts`. Na nuvem com o merge; **no `.zip`
+  1.30.13** vale também no servidor da loja (as telas de ajuste salvam lá).
+
 - **Gerente no WhatsApp, parte 5b — decidir pelo botão (06/11; sem migration, sem `edge/`).** Na NUVEM com o merge (dentro
   do ajuste da 5a, que nasce desligado): a decisão chega com botões (API oficial) ou enquete (conexão por QR), em passos
   — ação, motivo da lista da plataforma, insumos (cancelamento do cardápio), confirmar —, com o limite "Aceitar pelo

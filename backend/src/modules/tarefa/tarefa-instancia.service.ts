@@ -7,7 +7,8 @@ import {
 } from '@nestjs/common';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { idEntitlement, idTarefaInstancia } from '../../common/id-deterministico';
+import { idTarefaInstancia } from '../../common/id-deterministico';
+import { gravarEntitlement } from '../../common/gravar-entitlement';
 import {
   tarefaDef,
   tarefaInstancia,
@@ -174,14 +175,8 @@ export class TarefaInstanciaService {
     tenantId: string,
     dto: { conclusao?: boolean; parcial?: boolean },
   ) {
-    const upsert = async (modulo: string, ativo: boolean) =>
-      this.db
-        .insert(entitlement)
-        .values({ id: idEntitlement(tenantId, modulo), tenantId, modulo, ativo })
-        .onConflictDoUpdate({
-          target: [entitlement.tenantId, entitlement.modulo],
-          set: { ativo, updatedAt: new Date() },
-        });
+    // Dois salvamentos juntos (ERR-391): `gravarEntitlement` cria a linha se não existe e grava pela chave natural.
+    const upsert = async (modulo: string, ativo: boolean) => gravarEntitlement(this.db, tenantId, modulo, ativo);
     if (dto.conclusao !== undefined) await upsert('tarefa_foto_conclusao', !!dto.conclusao);
     if (dto.parcial !== undefined) await upsert('tarefa_foto_parcial', !!dto.parcial);
     return this.politicaFoto(tenantId);

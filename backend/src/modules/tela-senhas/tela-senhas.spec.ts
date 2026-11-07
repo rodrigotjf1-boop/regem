@@ -247,6 +247,21 @@ descrever('tela de senhas — serviço (Postgres real)', () => {
     expect(linhas).toEqual([{ verde_ate_min: 5, amarelo_ate_min: 10, usa_preparo: true, usa_entregue: true }]);
   });
 
+  // ERR-391: a tabela tem DOIS únicos (o id da chave, mig 339, e empresa+loja, mig 034). O `on conflict` de um só deixava o
+  // segundo salvamento esbarrar no outro (23505) — de vez em quando. Em rodadas, para a corrida aparecer.
+  it('salvamentos juntos, em 40 rodadas de 4: nunca 23505, sempre UMA linha', async () => {
+    for (let i = 0; i < 40; i++) {
+      const s = await cenario();
+      await Promise.all([
+        svc.salvarAjustes(s.t, s.tv, { prontoMin: 15 }),
+        svc.salvarAjustes(s.t, s.tv, { som: false }),
+        svc.salvarAjustes(s.t, s.tv, { prontoMin: 10 }),
+        svc.salvarAjustes(s.t, s.tv, { prontoMin: 20 }),
+      ]);
+      expect((await q(`select count(*)::int as n from kds_cor_config where tenant_id = $1`, [s.t]))[0].n).toBe(1);
+    }
+  });
+
   it('salvar: ausente mantém, valor torto é recusado, e o que mudou vai para a auditoria e avisa as TVs', async () => {
     const s = await cenario();
     await svc.salvarAjustes(s.t, s.tv, { prontoMin: 2 });

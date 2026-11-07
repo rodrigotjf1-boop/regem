@@ -31,7 +31,7 @@ import { paraCentavos, paraReais, somarCentavos } from '../../util/dinheiro';
 import { ratearCentavos } from '../../common/rateio';
 import { REGRA_COM_REPETICAO, rotuloDaEscolha, vezesPorOpcao } from '../../common/adicionais';
 import { geocode, montarEndereco } from '../../common/geocode';
-import { idEntitlement } from '../../common/id-deterministico';
+import { gravarEntitlement } from '../../common/gravar-entitlement';
 import { chaveTelefone, formasNoCadastro, sqlChaveTelefone, telefoneCadastro } from '../../common/telefone-chave';
 import { textoDaObservacao } from '../../common/observacao-do-pedido';
 
@@ -191,13 +191,7 @@ export class CardapioService {
   }
 
   async setAutoPausa(tenantId: string, ativo: boolean) {
-    await this.db
-      .insert(entitlement)
-      .values({ id: idEntitlement(tenantId, 'cardapio_auto_pausa'), tenantId, modulo: 'cardapio_auto_pausa', ativo })
-      .onConflictDoUpdate({
-        target: [entitlement.tenantId, entitlement.modulo],
-        set: { ativo, updatedAt: new Date() },
-      });
+    await gravarEntitlement(this.db, tenantId, 'cardapio_auto_pausa', ativo); // dois salvamentos juntos: ERR-391
     return { ativo };
   }
 
