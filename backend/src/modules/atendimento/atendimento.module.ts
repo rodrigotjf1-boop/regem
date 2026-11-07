@@ -21,6 +21,7 @@ import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { AvisoDoEnderecoProcessor } from './aviso-do-endereco.processor';
 import { ChatDoCasoService } from './chat-do-caso.service';
 import { GestorWhatsappService } from './gestor-whatsapp.service';
+import { CopilotoService } from './copiloto.service';
 
 @Module({
   // Integrações: a resposta à disputa do iFood (IfoodService). forwardRef: integrações e delivery já se referem.
@@ -54,6 +55,8 @@ import { GestorWhatsappService } from './gestor-whatsapp.service';
     ChatDoCasoService,
     // GestorWhatsappService (mig 375): Gerente no WhatsApp — ligar o número do gestor e a rotina dos avisos (só a nuvem).
     GestorWhatsappService,
+    // CopilotoService (mig 376): a sugestão de resposta no caso, pelo modelo de IA da distribuição (só a nuvem).
+    CopilotoService,
   ],
   exports: [AtendimentoService],
 })

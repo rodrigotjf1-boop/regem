@@ -116,9 +116,12 @@ type Resposta = {
   alterado?: { som: string; sons?: string[]; roboMuda?: boolean; roboCobraPix?: boolean };
   ponte?: AjusteDaPonte | null;
   gestorWa?: GrupoDoWhatsapp | null;
+  // O copiloto (mig 376): ligado na empresa; disponível = a distribuição ligou o modelo.
+  copiloto?: { ligado: boolean; disponivel: boolean } | null;
 };
 
 const paraValores = (r: Resposta): Valores => ({
+  ...(r.copiloto ? { copilotoLigado: r.copiloto.ligado } : {}),
   ...(r.gestorWa
     ? {
         gestorWaLigado: r.gestorWa.ligado,
@@ -578,10 +581,30 @@ export function AjustesDoAtendimento() {
         ),
       }
     : null;
+  // O copiloto (mig 376; protótipo v5): a sugestão de resposta no caso; nasce desligado.
+  const grupoDoCopiloto: GrupoDeAjustes | null = resp?.copiloto
+    ? {
+        titulo: 'Copiloto',
+        nota: resp.copiloto.disponivel
+          ? 'Sempre vale: ao modelo vai só o primeiro nome do cliente, a conversa e o pedido — nunca telefone, endereço nem pagamento · a sugestão nunca é enviada sozinha · cada sugestão pedida fica no histórico do caso.'
+          : 'O copiloto ainda não está disponível: a distribuição Regem liga o modelo de IA. Você pode deixar ligado; o botão aparece quando ele estiver pronto.',
+        itens: [
+          {
+            id: 'copilotoLigado',
+            rotulo: 'Sugerir resposta no caso',
+            tipo: 'chave',
+            ajuda:
+              'O botão "✨ Sugerir resposta" escreve uma sugestão com a conversa, o pedido (situação, horários, entregador) e as respostas prontas. Nada sai sozinho: a pessoa confere, muda e envia. No chat do iFood e da 99, a sugestão segue as regras da plataforma.',
+            palavras: 'copiloto sugestão resposta ia inteligência artificial sugerir atendimento',
+          },
+        ],
+      }
+    : null;
   const grupos: GrupoDeAjustes[] = [
     ...(resp?.cheguei?.temCardapio ? [grupoDoCheguei] : []),
     grupoDaFila,
     ...(grupoDoGestor ? [grupoDoGestor] : []),
+    ...(grupoDoCopiloto ? [grupoDoCopiloto] : []),
     ...(resp?.ponte && (resp.conectadoIfood || resp.conectado99) ? [grupoDaPonte] : []),
     ...(resp?.conectadoIfood ? [grupoDoIfood] : []),
     ...(resp?.conectado99 ? [grupoDa99] : []),
@@ -602,6 +625,7 @@ export function AjustesDoAtendimento() {
     const repetido: Record<string, unknown> = {};
     let alterado: { som?: string; roboMuda?: boolean; roboCobraPix?: boolean } | null = null;
     const gestorWa: Record<string, boolean | number | null> = {};
+    let copiloto: { ligado: boolean } | null = null;
     const ponte: {
       ligada?: boolean;
       roboResponde?: boolean;
@@ -642,6 +666,10 @@ export function AjustesDoAtendimento() {
         gestorWa.limiteCentavos = valores[k] === 'sem' ? null : Number(valores[k]);
         continue;
       }
+      if (k === 'copilotoLigado') {
+        copiloto = { ligado: valores[k] === true };
+        continue;
+      }
       if (k === 'alteradoSom') {
         alterado = { ...(alterado ?? {}), som: String(valores[k]) };
         continue;
@@ -672,6 +700,7 @@ export function AjustesDoAtendimento() {
         ...(alterado ? { alterado } : {}),
         ...(Object.keys(ponte).length ? { ponte } : {}),
         ...(Object.keys(gestorWa).length ? { gestorWa } : {}),
+        ...(copiloto ? { copiloto } : {}),
       });
       setResp(r);
       setValores(paraValores(r));

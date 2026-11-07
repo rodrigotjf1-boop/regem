@@ -1223,6 +1223,11 @@ export const api = {
   // No WhatsApp vai junto o nome do perfil (o caso nasce com ele).
   atendimentoAssumirConversa: (canal: string, chave: string, nome?: string | null) =>
     req('/atendimento/conversas-agora/assumir', { method: 'POST', body: JSON.stringify({ canal, chave, ...(nome ? { nome } : {}) }) }),
+  // O copiloto (mig 376): se o botão aparece (ligado na empresa e disponível na distribuição) e a sugestão de resposta
+  // do caso — só a nuvem; a sugestão volta para a caixa de escrever, nada é enviado.
+  atendimentoCopiloto: () => req('/atendimento/copiloto'),
+  atendimentoSugerir: (id: string, body: { mensagens: { de: string; texto: string }[]; prontas: string[] }) =>
+    req(`/atendimento/${id}/sugestao`, { method: 'POST', body: JSON.stringify(body) }),
   // O chat do iFood e da 99 dentro do caso (ponte do chat, Etapa 2): a conversa do pedido e a resposta pela ponte.
   atendimentoChat: (id: string) => req(`/atendimento/${id}/chat`),
   atendimentoResponderChat: (id: string, texto: string) =>
@@ -1263,6 +1268,8 @@ export const api = {
     alterado?: { som?: string; roboMuda?: boolean; roboCobraPix?: boolean };
     // "Gerente no WhatsApp" (mig 375): os liga/desliga do grupo.
     gestorWa?: { ligado?: boolean; decisoes?: boolean; ninguemPegou?: boolean; limiteCentavos?: number | null };
+    // "Copiloto" (mig 376): sugerir resposta no caso.
+    copiloto?: { ligado: boolean };
   }) =>
     req('/atendimento/ajustes', { method: 'PUT', body: JSON.stringify(body) }),
   // Gerente no WhatsApp (mig 375): o grupo (quem recebe — de cada pessoa só o final do número), o código para o gestor

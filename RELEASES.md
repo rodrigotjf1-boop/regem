@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Copiloto do atendimento (06/11; mig 376 `@cloud-only`; dependência nova `@anthropic-ai/sdk` 1.1.0 no backend; sem
+  `edge/`).** Na NUVEM com o merge (nasce DESLIGADO — Delivery › Configurações › Atendimento, grupo "Copiloto"; e só
+  aparece com `ANTHROPIC_API_KEY` no serviço `regem-api` do EasyPanel, a chave da DISTRIBUIÇÃO): o botão "✨ Sugerir
+  resposta" no caso do WhatsApp e no chat do iFood/99 põe uma sugestão na caixa de escrever; nada é enviado sozinho. **No
+  `.zip` 1.30.13:** só a dependência nova no `node_modules` do backend (a rota é só da nuvem; no servidor da loja o
+  botão não aparece).
+
 - **Dois salvamentos juntos das configurações de linha única não dão mais erro (06/11; ERR-391; sem migration, sem
   `edge/`).** As configurações da empresa/loja que ganharam o id da chave na 339 (`delivery_config`, `tef_config`,
   `kds_cor_config`, `entitlement`) têm dois únicos; gravar com `on conflict` de um só, ou "lê; atualiza ou insere",
