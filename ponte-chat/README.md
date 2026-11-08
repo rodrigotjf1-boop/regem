@@ -102,7 +102,7 @@ tentativa); a 1ª fala da equipe numa conversa nova entra no Atendimento (0.7.1)
 
 ## O que a versão 0.6 soma (Etapa 4a — a ponte LÊ o chat da 99)
 
-- **"Abrir a 99 (usuário extra)"** (menu do ícone e janela do estado): abre o portal da 99 numa janela própria, com a
+- **"Abrir a 99 (usuário extra)"** — desde a 0.7.3, "(conta principal)", ver abaixo — (menu do ícone e janela do estado): abre o portal da 99 numa janela própria, com a
   sessão à parte (`persist:99`). Na 1ª vez pergunta e avisa: entre com o **usuário EXTRA** da loja (com e-mail próprio)
   — a 99 aceita um login por usuário, e entrar com o login do PC da loja derruba a 99 de lá (ERR-365); o usuário extra tem
   sessão própria (conferido em 05/11). A escolha fica guardada (`usar99` em `ponte.json`): a janela reabre sozinha ao
@@ -163,6 +163,17 @@ chega e a busca do programa funciona no portal de verdade.
   Com o chat fechado, o polling do IM do usuário extra responde vazio (`max_mid` parado) e a conversa de um pedido aberta
   por ele não mostra o que o cliente e o usuário principal trocaram. As mensagens do cliente só chegam à ponte se ela usar
   a conta que conversa com o cliente (a principal) — ou se a 99 tiver uma permissão de chat para o usuário extra.
+
+## O que a versão 0.7.3 muda (08/11 — a 99 com a CONTA PRINCIPAL, decisão do dono)
+
+- **A 99 entra com a conta principal da loja**, não mais com o usuário extra: é com ela que o cliente conversa (o achado da
+  0.7.2). A janela da 99, o item do menu ("Abrir a 99 (conta principal)"), o aviso da 1ª vez e a faixa do estado dizem isso.
+- **A 99 aceita um login por conta (ERR-365): a 99 fica aberta SÓ na ponte.** Entrar com a conta principal em outro
+  aparelho (o PC da loja, um tablet) derruba a da ponte, e a ponte derruba a de lá. A loja combina que a 99 fica aberta só
+  aqui; os pedidos seguem no Regem. Se a ponte cair do login, o estado mostra "99: sem login" — entrar de novo só com a
+  loja fechada ou depois de conferir que ninguém está usando a 99 em outro lugar.
+- Na troca (08/11, loja fechada), a sessão do usuário extra foi apagada só na janela da 99 da ponte (cookies dos domínios
+  da 99/DiDi e os dados do portal); o iFood não foi tocado.
 
 ## Rodar (desenvolvimento)
 

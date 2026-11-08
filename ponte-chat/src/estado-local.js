@@ -115,7 +115,9 @@ function paraAJanela(r) {
   else if (r.nuvem === 'ok' && n99(r).usar && !n99(r).logado)
     faixa = {
       tom: 'aviso',
-      texto: 'A 99 está sem login neste PC. Abra a 99 e entre com o USUÁRIO EXTRA da loja (nunca com o login do PC da loja: a 99 derrubaria o de lá).',
+      // 0.7.3 (decisão do dono, 08/11/2026): a CONTA PRINCIPAL — o usuário extra da 99 tem conversas próprias e não recebe o
+      // chat dos clientes (medido em 07/11). A 99 aceita um login por conta (ERR-365): a 99 fica aberta SÓ aqui.
+      texto: 'A 99 está sem login neste PC. Abra a 99 e entre com a CONTA PRINCIPAL da loja (é com ela que o cliente conversa). A 99 aceita um login por conta: deixe a 99 aberta só aqui — entrar em outro aparelho derruba esta.',
       acao: 'abrir-99',
     };
 
@@ -124,9 +126,9 @@ function paraAJanela(r) {
     : 'sem login';
   const papel99 = n99(r).papel === 'responde' ? ' · este PC responde o chat' : n99(r).papel === 'reserva' ? ' · reserva' : '';
   const da99 = !n99(r).usar
-    ? 'não é lida neste PC (para ler o chat dela: Abrir a 99, com o usuário extra da loja)'
+    ? 'não é lida neste PC (para ler o chat dela: Abrir a 99, com a conta principal da loja)'
     : !n99(r).logado
-      ? 'sem login — entre com o usuário extra da loja'
+      ? 'sem login — entre com a conta principal da loja'
       : n99(r).responder
         ? `logada · lê e RESPONDE o chat${r.ligada && !r.pausadaEm ? papel99 : ''}`
         : 'logada · só LÊ o chat (as mensagens entram no Atendimento; responda pelo portal da 99 — ou ligue "Responder pela 99 neste PC")';
