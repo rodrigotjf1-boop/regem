@@ -402,6 +402,18 @@ descrever('gerente no WhatsApp (Postgres)', () => {
     await q(`update robo_config set gestor_wa_decisoes = true where tenant_id = $1`, [T]);
   });
 
+  it('o RECADO PARA O RESPONSÁVEL (mig 381: fornecedor, vaga, parceria) não avisa ninguém — nem com a marca de escalado', async () => {
+    const recado = { responsavel: { assunto: 'vaga', em: new Date().toISOString() } };
+    const escalado = { escalado: { em: new Date().toISOString(), minutos: 3 } };
+    const r1 = await novoCaso({ tipo: 'vaga', canal: 'whatsapp', prazo: null, detalhe: { ...recado, ...escalado } });
+    const r2 = await novoCaso({ tipo: 'instagram', canal: 'instagram', prazo: null, detalhe: { ...recado, ...escalado } });
+    const comum = await novoCaso({ tipo: 'humano', canal: 'whatsapp', prazo: null, detalhe: escalado });
+    await svc.enviarPendentes([T]);
+    expect(await quemRecebeu(r1)).toEqual([]);
+    expect(await quemRecebeu(r2)).toEqual([]);
+    expect((await quemRecebeu(comum)).length).toBe(2); // o caso comum segue avisando
+  });
+
   it('o limite da volta só pega quem vale (V84): 12 escalados velhos na frente não seguram o novo', async () => {
     const velho = { escalado: { em: new Date(Date.now() - 2 * 3600_000).toISOString(), minutos: 3 } };
     for (let i = 0; i < 12; i++) await novoCaso({ tipo: 'humano', canal: 'whatsapp', prazo: null, detalhe: velho, criado: '3 hours' });

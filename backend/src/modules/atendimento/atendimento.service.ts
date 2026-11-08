@@ -45,6 +45,8 @@ import {
 } from './abrir-chamado';
 import { canalDoCaso, posicoes, situacaoDo } from './fila';
 import { lerRecado, recadoAtivoSql, situacaoDaEquipe } from './horario-da-equipe';
+import { lerResponsavel, responsavelNaEsperaSql, soDaGestaoSql } from '../cardapio/assuntos-do-atendente';
+import { ehGestor } from '../../auth/niveis';
 import { PRESENCA_VALE_MIN } from './presenca';
 import { FilaEAvisosService } from './fila-e-avisos.service';
 import { ehServidorLocal } from '../../common/modo';
@@ -54,6 +56,18 @@ import { ehServidorLocal } from '../../common/modo';
  * situação 'abertura'. O que alguém pegou de madrugada é um caso comum (com alguém / aguardando).
  */
 const RECADO_NA_ESPERA = sql`(${recadoAtivoSql('c')} and c.responsavel_id is null and c.aguardando_desde is null)`;
+
+/**
+ * O RECADO PARA O RESPONSÁVEL na fila (mig 381): assunto que não é pedido (fornecedor, vaga, parceria) e ninguém com ele —
+ * a situação 'responsavel'. Nunca está na fila da equipe nem nas contagens de agora; só a gestão o vê.
+ */
+const RESPONSAVEL_NA_ESPERA = responsavelNaEsperaSql('c');
+
+/**
+ * O que a pessoa NÃO vê (RBAC no servidor, mig 381): quem não é gerente nem presidente (nem o suporte da distribuição,
+ * tratado como gerente) não recebe recado para o responsável — salvo o que está com ela (passaram o caso para ela).
+ */
+const foraDoPerfil = (user: AuthUser) => (ehGestor(user.categoria) ? sql`` : sql`and not ${soDaGestaoSql('c', user.colaboradorId)}`);
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -155,11 +169,13 @@ export class AtendimentoService {
   }
 
   // Urgente primeiro (cliente irritado espera menos); dentro de cada grupo, o mais novo em cima — como sempre foi.
-  listar(tenantId: string, status = 'aberto') {
+  // `user` (mig 381): quem não é da gestão não recebe o recado para o responsável que não está com ele (RBAC no servidor).
+  listar(tenantId: string, status = 'aberto', user?: AuthUser) {
+    const soGestao = user && !ehGestor(user.categoria) ? sql`not ${soDaGestaoSql('atendimento_chamado', user.colaboradorId)}` : undefined;
     return this.db
       .select()
       .from(atendimentoChamado)
-      .where(and(eq(atendimentoChamado.tenantId, tenantId), eq(atendimentoChamado.status, status)))
+      .where(and(eq(atendimentoChamado.tenantId, tenantId), eq(atendimentoChamado.status, status), soGestao))
       .orderBy(sql`(${atendimentoChamado.prioridade} = 'urgente') desc`, desc(atendimentoChamado.criadoEm))
       .limit(100);
   }
@@ -209,9 +225,14 @@ export class AtendimentoService {
    * fora das contagens de agora (`contagens.paraAbertura` conta os dele, sempre). Todo caso traz `recado` ({ ate, em })
    * quando tem a marca — também depois do `ate`, para o selo "Recado das 02:14". `equipe`: se a equipe da loja em uso
    * está agora e quando volta (a faixa "Fora do horário da equipe").
+   * ASSUNTOS QUE NÃO SÃO PEDIDO (mig 381): o RECADO PARA O RESPONSÁVEL sem ninguém com ele é a situação 'responsavel' — só
+   * vem com `comRecados` E para a gestão (gerente, presidente e o suporte); quem não é da gestão nem recebe recado para o
+   * responsável (salvo o que passaram para ele). Fica fora das contagens de agora (`contagens.paraOResponsavel` conta os
+   * que esperam — 0 para quem não é da gestão). Todo caso traz `responsavel` ({ assunto, em }) quando tem a marca.
    */
   async fila(user: AuthUser, unidadeAtual: string | null, opcoes: { comRecados?: boolean } = {}) {
     const loja = sqlUnidadeOuRede('c.unidade_id', unidadeAtual);
+    const recadosDoResponsavel = !!opcoes.comRecados && ehGestor(user.categoria);
     const r: any = await this.db.execute(sql`
       select c.id, c.tipo, c.canal, c.cliente, c.telefone, c.mensagem, c.prioridade, c.status, c.decisao,
              c.pedido_id as "pedidoId", c.pedido_numero as "pedidoNumero", c.unidade_id as "unidadeId",
@@ -227,6 +248,8 @@ export class AtendimentoService {
         ${JUNTA_A_MUDANCA_DO_ENDERECO}
        where c.tenant_id = ${user.tenantId} and c.status = 'aberto' ${loja}
              ${opcoes.comRecados ? sql`` : sql`and not ${RECADO_NA_ESPERA}`}
+             ${recadosDoResponsavel ? sql`` : sql`and not ${RESPONSAVEL_NA_ESPERA}`}
+             ${foraDoPerfil(user)}
        order by (c.prazo_em is null), c.prazo_em, (c.prioridade = 'urgente') desc, c.criado_em
        limit ${LIMITE_DA_FILA}`);
     const casos = posicoes((r.rows ?? r) as any[]).map(({ recadoAtivo, ...c }) => ({
@@ -234,6 +257,7 @@ export class AtendimentoService {
       canal: canalDoCaso(c),
       situacao: situacaoDo({ ...c, recadoAtivo }),
       recado: lerRecado(c.detalhe),
+      responsavel: lerResponsavel(c.detalhe),
     }));
     const [contagens, equipe] = await Promise.all([this.contagens(user, loja), situacaoDaEquipe(this.db, user.tenantId, { unidadeId: unidadeAtual })]);
     // `eu`: quem pediu a fila — a tela marca "Comigo" e "você" sem ler o token (na nuvem a sessão é um cookie httpOnly).
@@ -266,6 +290,7 @@ export class AtendimentoService {
         ${JUNTA_A_MUDANCA_DO_ENDERECO}
        where c.tenant_id = ${user.tenantId} and c.status = 'resolvido' ${loja}
          and c.resolvido_em >= ${instanteDe(hojeISO())}
+         ${foraDoPerfil(user)}
        order by c.resolvido_em desc
        limit ${LIMITE_DA_FILA}`);
     return ((r.rows ?? r) as any[]).map((c) => ({
@@ -273,6 +298,7 @@ export class AtendimentoService {
       canal: canalDoCaso(c),
       situacao: 'resolvido' as const,
       recado: lerRecado(c.detalhe), // o selo "Recado das 02:14" (mig 379)
+      responsavel: lerResponsavel(c.detalhe), // o recado para o responsável (mig 381) — só a gestão recebe
     }));
   }
 
@@ -305,21 +331,28 @@ export class AtendimentoService {
     }));
   }
 
+  /**
+   * As contagens da fila. O recado para o responsável que espera (mig 381) fica fora de "abertos" e "na fila" e conta em
+   * `paraOResponsavel` — 0 para quem não é da gestão, que também não conta recado nenhum que não está com ele (RBAC).
+   */
   private async contagens(user: AuthUser, loja: ReturnType<typeof sqlUnidadeOuRede>) {
     const desdeHoje = instanteDe(hojeISO());
     const r: any = await this.db.execute(sql`
-      select count(*) filter (where c.status = 'aberto' and not ${RECADO_NA_ESPERA})::int as abertos,
+      select count(*) filter (where c.status = 'aberto' and not ${RECADO_NA_ESPERA} and not ${RESPONSAVEL_NA_ESPERA})::int as abertos,
              count(*) filter (where c.status = 'aberto' and c.prazo_em is not null)::int as "comPrazo",
              count(*) filter (where c.status = 'aberto' and c.prazo_em is null and c.responsavel_id is null
-                                and c.aguardando_desde is null and not ${RECADO_NA_ESPERA})::int as "naFila",
+                                and c.aguardando_desde is null and not ${RECADO_NA_ESPERA} and not ${RESPONSAVEL_NA_ESPERA})::int as "naFila",
              count(*) filter (where c.status = 'aberto' and c.responsavel_id = ${user.colaboradorId ?? null})::int as comigo,
              count(*) filter (where c.status = 'aberto' and c.aguardando_desde is not null)::int as aguardando,
              count(*) filter (where c.status = 'resolvido')::int as "resolvidosHoje",
-             count(*) filter (where c.status = 'aberto' and ${RECADO_NA_ESPERA})::int as "paraAbertura"
+             count(*) filter (where c.status = 'aberto' and ${RECADO_NA_ESPERA})::int as "paraAbertura",
+             count(*) filter (where c.status = 'aberto' and ${RESPONSAVEL_NA_ESPERA})::int as "paraOResponsavel"
         from atendimento_chamado c
        where c.tenant_id = ${user.tenantId} ${loja}
-         and (c.status = 'aberto' or c.resolvido_em >= ${desdeHoje})`);
-    return (r.rows ?? r)[0];
+         and (c.status = 'aberto' or c.resolvido_em >= ${desdeHoje})
+         ${foraDoPerfil(user)}`);
+    const contagens = (r.rows ?? r)[0];
+    return { ...contagens, paraOResponsavel: ehGestor(user.categoria) ? contagens.paraOResponsavel : 0 };
   }
 
   /** Por que o caso não mudou: sumiu (404), já foi resolvido (409) ou outra pessoa pegou (409, com o nome). */

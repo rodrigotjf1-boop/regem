@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Os assuntos que não são pedido — F3 (07/11; mig 381 `@cloud-only` — só `robo_config.atendente_assuntos`, SO_NUVEM;
+  nenhuma estrutura nova em `atendimento_chamado`: o recado vai em `detalhe.responsavel`; sem `edge/`).** Na NUVEM com o
+  merge (nasce "Como hoje" nos três assuntos). **No `.zip` 1.30.13:** a tela do servidor da loja mostra "📋 Recados" e o
+  grupo novo (lá os ajustes são "só pela nuvem").
+
 - **O perfil do atendente virtual por canal — F2 (07/11; mig 380 `@cloud-only` — só a coluna `robo_config.atendente_perfis`,
   SO_NUVEM; sem `edge/`).** Na NUVEM com o merge (nasce em "Como hoje" — as instruções do robô ficam idênticas até a loja
   escolher, em Delivery › Configurações › Atendimento › Perfil do atendente virtual). **No `.zip` 1.30.13:** só o grupo novo

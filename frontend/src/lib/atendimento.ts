@@ -33,9 +33,12 @@ export type CasoDaFila = {
   resolvidoEm?: string | null;
   resolvidoPorNome?: string | null;
   /** `abertura` (mig 379): recado deixado fora do horário da equipe, que entra na fila quando ela começa. */
-  situacao: 'fila' | 'com_alguem' | 'aguardando' | 'resolvido' | 'abertura';
+  /** `responsavel` (mig 381): recado para o responsável (fornecedor, vaga, parceria) — só gerente e presidente recebem. */
+  situacao: 'fila' | 'com_alguem' | 'aguardando' | 'resolvido' | 'abertura' | 'responsavel';
   /** O recado (mig 379): chegou fora do horário da equipe (`em`) e entra na fila em `ate`. Fica depois, para o selo. */
   recado?: { ate: string | null; em: string } | null;
+  /** O recado para o responsável (mig 381): o assunto (fornecedor, vaga, parceria) e quando chegou. */
+  responsavel?: { assunto: string; em: string } | null;
   posicao?: number | null;
   /** O que a plataforma mandou e o que a loja respondeu (mig 351): a disputa do iFood, o pedido da 99. */
   detalhe?: any;
@@ -90,6 +93,11 @@ export type EstadoDaFila = {
    * não contam nos abertos nem no sino — até a equipe começar; aí o servidor os devolve como caso da fila.
    */
   recados: CasoDaFila[];
+  /**
+   * Os RECADOS PARA O RESPONSÁVEL (mig 381): assuntos que não são pedido (fornecedor, vaga, parceria). Fora de `casos` (não
+   * tocam, não contam) — o servidor só os manda a gerente e presidente; a tela mostra em "📋 Recados".
+   */
+  paraOResponsavel: CasoDaFila[];
   /** O horário da equipe agora (mig 379), para a faixa do topo. `null` = não veio (servidor da loja, servidor antigo). */
   equipe: EquipeAgora | null;
 };
@@ -99,6 +107,13 @@ export function recadoDe(c: CasoDaFila): { em: string; ate: string | null } | nu
   const r = c.recado ?? c.detalhe?.recado;
   return r?.em ? { em: String(r.em), ate: r.ate ? String(r.ate) : null } : null;
 }
+/** O recado para o responsável (mig 381): o assunto, para o selo "📋 Fornecedor". */
+export function responsavelDe(c: CasoDaFila): { assunto: string; em: string | null } | null {
+  const r = c.responsavel ?? c.detalhe?.responsavel;
+  return r?.assunto ? { assunto: String(r.assunto), em: r.em ? String(r.em) : null } : null;
+}
+/** Os assuntos que não são pedido, como a equipe fala. */
+export const ROTULO_DO_ASSUNTO: Record<string, string> = { fornecedor: 'Fornecedor', vaga: 'Vaga de emprego', parceria: 'Parceria' };
 export type AlertaDoAdicionalPix = {
   id: string;
   pedidoId: string;
@@ -136,6 +151,7 @@ let estado: EstadoDaFila = {
   ponte: null,
   adicionaisPix: null,
   recados: [],
+  paraOResponsavel: [],
   equipe: null,
 };
 const ouvintes = new Set<() => void>();
@@ -164,8 +180,10 @@ export function relerFila(): Promise<void> {
       const todos: CasoDaFila[] = Array.isArray(r?.casos) ? r.casos : [];
       const e = r?.equipe;
       estado = {
-        casos: todos.filter((c) => c.situacao !== 'abertura'),
+        casos: todos.filter((c) => c.situacao !== 'abertura' && c.situacao !== 'responsavel'),
         recados: todos.filter((c) => c.situacao === 'abertura'),
+        // Os recados para o responsável (mig 381): o servidor só os manda a gerente e presidente.
+        paraOResponsavel: todos.filter((c) => c.situacao === 'responsavel'),
         equipe:
           e && typeof e.atendendo === 'boolean'
             ? { modo: e.modo === 'loja' ? 'loja' : 'sempre', atendendo: e.atendendo, voltaEm: e.voltaEm ?? null, voltaTexto: e.voltaTexto ?? null }
@@ -229,6 +247,10 @@ export const ROTULO_DO_TIPO: Record<string, string> = {
   chat: 'Mensagem no chat',
   // A conversa do Direct da loja (mig 377).
   instagram: 'Mensagem no Direct',
+  // Os recados para o responsável (mig 381): assuntos que não são pedido.
+  fornecedor: 'Fornecedor',
+  vaga: 'Vaga de emprego',
+  parceria: 'Parceria',
 };
 
 /** A situação do pedido ligado ao caso ou à conversa, como a equipe fala. */
@@ -369,6 +391,7 @@ export const hora = (iso: string | null | undefined) =>
  * servidor (`robo-pausa.ts`) —; os outros casos calam até serem resolvidos.
  */
 export function fraseDoRoboNoCaso(c: CasoDaFila): string {
+  if (c.situacao === 'responsavel') return 'Recado para o responsável: o robô segue respondendo esta conversa (o recado não o cala).';
   if (c.situacao === 'abertura') {
     const ate = recadoDe(c)?.ate;
     return `Recado para a abertura: o robô segue respondendo esta conversa até a equipe começar${ate ? ` (às ${hora(ate)})` : ''}. Depois, fica quieto até o caso ser resolvido.`;

@@ -37,6 +37,8 @@ import {
   hora,
   idDaConversa,
   recadoDe,
+  responsavelDe,
+  ROTULO_DO_ASSUNTO,
   relerFila,
   resumoDasConversas,
   tempoAte,
@@ -56,7 +58,8 @@ import {
 // "Conversas agora" (ponte do chat, protótipo v3): as conversas do chat do iFood e da 99 sem caso aberto — só aparece com
 // a ponte ligada (na nuvem; no servidor da loja a situação da ponte não vem).
 // "Para a abertura" (mig 379, protótipo v10): os recados que o robô deixou fora do horário da equipe — só aparece quando há.
-type Sit = 'abertos' | 'prazo' | 'fila' | 'comigo' | 'aguardando' | 'conversas' | 'abertura' | 'resolvidos';
+// "📋 Recados" (mig 381, protótipo v12): os recados para o responsável — o servidor só os manda a gerente e presidente.
+type Sit = 'abertos' | 'prazo' | 'fila' | 'comigo' | 'aguardando' | 'conversas' | 'abertura' | 'responsavel' | 'resolvidos';
 const SITUACOES: { k: Sit; rotulo: string; critico?: boolean }[] = [
   { k: 'abertos', rotulo: 'Abertos' },
   { k: 'prazo', rotulo: 'Com prazo', critico: true },
@@ -65,6 +68,7 @@ const SITUACOES: { k: Sit; rotulo: string; critico?: boolean }[] = [
   { k: 'aguardando', rotulo: 'Aguardando o cliente' },
   { k: 'conversas', rotulo: 'Conversas agora' },
   { k: 'abertura', rotulo: '🌙 Para a abertura' },
+  { k: 'responsavel', rotulo: '📋 Recados' },
   { k: 'resolvidos', rotulo: 'Resolvidos hoje' },
 ];
 /** Quem responde no chat da plataforma (e por isso pode assumir a conversa do robô): a gestão — o servidor confere. */
@@ -72,7 +76,7 @@ const GESTAO = ['presidente', 'gerente', 'supervisao'];
 
 export default function AtendimentoPage() {
   // `eu` vem do servidor com a fila: marca "Comigo" e "você" (o servidor confere tudo de novo em cada ação).
-  const { casos, contagens, lida, erro, eu, ponte, adicionaisPix, recados, equipe } = useFilaDeAtendimento();
+  const { casos, contagens, lida, erro, eu, ponte, adicionaisPix, recados, paraOResponsavel, equipe } = useFilaDeAtendimento();
   const [sit, setSit] = useState<Sit>('abertos');
   // O perfil só depois de montar (V35): o botão dos Números é de gerente e presidente.
   const [categoria, setCategoria] = useState<string | null>(null);
@@ -191,10 +195,11 @@ export default function AtendimentoPage() {
   // Os recados entraram na fila (a equipe começou): "Para a abertura" some e a tela volta para "Abertos".
   useEffect(() => {
     if (!recados.length && sit === 'abertura') setSit('abertos');
-  }, [recados.length, sit]);
+    if (!paraOResponsavel.length && sit === 'responsavel') setSit('abertos');
+  }, [recados.length, paraOResponsavel.length, sit]);
   useEffect(() => setPodeAssumir(GESTAO.includes(getCategoria() ?? '')), []);
 
-  const base = sit === 'resolvidos' ? resolvidos ?? [] : sit === 'abertura' ? recados : casos;
+  const base = sit === 'resolvidos' ? resolvidos ?? [] : sit === 'abertura' ? recados : sit === 'responsavel' ? paraOResponsavel : casos;
   const responsaveis = useMemo(
     () => [...new Map(casos.filter((c) => c.responsavelId).map((c) => [c.responsavelId!, c.responsavelNome ?? 'Alguém'])).entries()],
     [casos],
@@ -223,6 +228,7 @@ export default function AtendimentoPage() {
     if (k === 'comigo') return casos.filter((c) => eu && c.responsavelId === eu).length;
     if (k === 'conversas') return conversas?.length ?? 0;
     if (k === 'abertura') return recados.length;
+    if (k === 'responsavel') return paraOResponsavel.length;
     return casos.filter((c) => c.situacao === 'aguardando').length;
   };
   const limpar = () => {
@@ -341,7 +347,7 @@ export default function AtendimentoPage() {
         <AlertaDoAdicionalPix alertas={adicionaisPix} agora={agora} />
 
         <div className="flex flex-wrap gap-2" role="group" aria-label="Situação">
-          {SITUACOES.filter((s) => (s.k !== 'conversas' || temConversas) && (s.k !== 'abertura' || recados.length > 0)).map((s) => {
+          {SITUACOES.filter((s) => (s.k !== 'conversas' || temConversas) && (s.k !== 'abertura' || recados.length > 0) && (s.k !== 'responsavel' || paraOResponsavel.length > 0)).map((s) => {
             const ligada = sit === s.k;
             return (
               <button
@@ -592,6 +598,12 @@ function ListaDaFila({
                       : `🌙 Recado das ${hora(recadoDe(c)?.em)}`}
                   </span>
                 )}
+                {/* O recado para o responsável (mig 381): o assunto que não é pedido. */}
+                {responsavelDe(c) && (
+                  <span className="rounded-full bg-info/15 px-2 py-0.5 text-xs font-bold text-foreground" data-responsavel>
+                    📋 {ROTULO_DO_ASSUNTO[responsavelDe(c)?.assunto ?? ''] ?? 'Recado'}
+                  </span>
+                )}
                 {/* Ninguém pegou no tempo do ajuste (mig 353): o gerente foi avisado. */}
                 {escaladoDe(c) && <span className="rounded-full bg-warn/15 px-2 py-0.5 text-xs font-bold text-foreground">⏰ Gerente avisado</span>}
                 <span className="ml-auto flex items-center gap-2 font-mono text-sm font-bold">
@@ -609,9 +621,11 @@ function ListaDaFila({
                     ? `resolvido às ${hora(c.resolvidoEm)}${c.resolvidoPorNome ? ` por ${c.resolvidoPorNome}` : ''}`
                     : c.situacao === 'abertura'
                       ? `recebido às ${hora(recadoDe(c)?.em)} · o cliente sabe quando a equipe volta`
-                      : quem}
+                      : c.situacao === 'responsavel'
+                        ? `recado para o responsável · recebido às ${hora(responsavelDe(c)?.em ?? c.criadoEm)} · o robô segue na conversa`
+                        : quem}
                 </span>
-                {c.situacao !== 'resolvido' && c.situacao !== 'abertura' && agora && <span>esperando há {tempoDesde(c.criadoEm, agora)}</span>}
+                {c.situacao !== 'resolvido' && c.situacao !== 'abertura' && c.situacao !== 'responsavel' && agora && <span>esperando há {tempoDesde(c.criadoEm, agora)}</span>}
               </span>
             </button>
           </li>

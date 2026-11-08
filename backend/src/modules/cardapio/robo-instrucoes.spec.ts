@@ -1,6 +1,7 @@
 import { instrucoesDoDirect, instrucoesDoRobo, VERSAO_DO_DIRECT, VERSAO_INSTRUCOES } from './robo-instrucoes';
 import { ACOES_DA_MUDANCA } from './robo-mudanca';
 import { jeitoDoAtendente, perfisPadrao } from './perfis-do-atendente';
+import { assuntosPadrao, blocoDasInstrucoes, resumoDoRecado } from './assuntos-do-atendente';
 import { lerResumoDaMensagem } from '../atendimento/resumo-do-robo';
 
 // AS INSTRUÇÕES DO ROBÔ (Fase 5, F1 — pedido do dono de 30/10/2026). O texto é a "mensagem do sistema" do agente no
@@ -290,9 +291,9 @@ describe('instruções do robô — o perfil do atendente virtual (mig 380)', ()
   const canalDe = (k: 'f1' | 'f2' | 'direct') => (k === 'direct' ? 'direct' : 'whatsapp');
   const semJeito = gerar();
 
-  it('as versões subiram (.f17 e .d3)', () => {
-    expect(VERSAO_INSTRUCOES).toBe('2026-11-07.f17');
-    expect(VERSAO_DO_DIRECT).toBe('2026-11-07.d3');
+  it('as versões subiram (.f17 e .d3, ou depois)', () => {
+    expect(VERSAO_INSTRUCOES >= '2026-11-07.f17').toBe(true);
+    expect(VERSAO_DO_DIRECT >= '2026-11-07.d3').toBe(true);
   });
 
   it('"Como hoje" sem jeito: o texto é IDÊNTICO ao de antes — a abertura de sempre e nada a mais', () => {
@@ -346,5 +347,68 @@ describe('instruções do robô — o perfil do atendente virtual (mig 380)', ()
       expect(com).toBe([ABERTURA_DE_HOJE[canal], jeito, resto].join('\n\n'));
       expect(jeito).toBe('JEITO DA LOJA (escrito pela loja, siga quando não contrariar as regras abaixo): nunca prometa brinde');
     }
+  });
+});
+
+describe('instruções do robô — os assuntos que não são pedido (mig 381)', () => {
+  const LOJA = 'Mister Burguer';
+  const gerar = (assuntos: unknown, jeito?: string | null) => ({
+    f1: instrucoesDoRobo({ loja: LOJA, jeito, assuntos: blocoDasInstrucoes(assuntos, 'whatsapp') }, '1').texto,
+    f2: instrucoesDoRobo({ loja: LOJA, jeito, assuntos: blocoDasInstrucoes(assuntos, 'whatsapp') }, '2').texto,
+    direct: instrucoesDoDirect({ loja: LOJA, jeito, assuntos: blocoDasInstrucoes(assuntos, 'direct') }, '2').texto,
+  });
+  // O texto de antes: sem o campo `assuntos` (como a F2 gerava).
+  const antes = {
+    f1: instrucoesDoRobo({ loja: LOJA }, '1').texto,
+    f2: instrucoesDoRobo({ loja: LOJA }, '2').texto,
+    direct: instrucoesDoDirect({ loja: LOJA }, '2').texto,
+  };
+  const ANTES_DA_SECAO = { f1: 'QUANDO CHAMAR UMA PESSOA', f2: 'QUANDO CHAMAR UMA PESSOA', direct: 'QUANDO CHAMAR UMA PESSOA' };
+
+  it('as versões subiram (.f18 e .d4)', () => {
+    expect(VERSAO_INSTRUCOES).toBe('2026-11-07.f18');
+    expect(VERSAO_DO_DIRECT).toBe('2026-11-07.d4');
+  });
+
+  it('tudo em "Como hoje": o texto é IDÊNTICO ao de antes, nos três lugares (com e sem perfil)', () => {
+    expect(gerar(assuntosPadrao())).toEqual(antes);
+    expect(gerar(null)).toEqual(antes);
+    for (const vazio of [undefined, null, '', '   '])
+      expect(instrucoesDoRobo({ loja: LOJA, assuntos: vazio }, '1').texto).toBe(antes.f1);
+    for (const k of ['f1', 'f2', 'direct'] as const) expect(antes[k]).not.toContain('ASSUNTOS QUE NÃO SÃO PEDIDO');
+    // com um perfil escolhido, os assuntos em "Como hoje" também não mexem em nada
+    const jeito = jeitoDoAtendente({ whatsapp: { perfil: 'cordial' }, direct: { perfil: 'cordial' } }, 'whatsapp', true);
+    expect(gerar(assuntosPadrao(), jeito).f1).toBe(instrucoesDoRobo({ loja: LOJA, jeito }, '1').texto);
+  });
+
+  it('com recado ou "não é por aqui": a seção entra logo depois de QUANDO CHAMAR UMA PESSOA, nos três lugares; o resto não muda', () => {
+    const escolhas = { fornecedor: { modo: 'recado' }, vaga: { modo: 'nao', texto: 'Currículos: rh@loja.com' } };
+    const com = gerar(escolhas);
+    for (const k of ['f1', 'f2', 'direct'] as const) {
+      const secao = blocoDasInstrucoes(escolhas, k === 'direct' ? 'direct' : 'whatsapp');
+      const partes = com[k].split('\n\n');
+      const i = partes.findIndex((p) => p.startsWith('ASSUNTOS QUE NÃO SÃO PEDIDO'));
+      expect(i).toBeGreaterThan(0);
+      expect(partes[i - 1].startsWith(ANTES_DA_SECAO[k])).toBe(true);
+      expect(partes[i]).toBe(secao);
+      // tirando a seção, é o texto de antes, letra por letra
+      expect([...partes.slice(0, i), ...partes.slice(i + 1)].join('\n\n')).toBe(antes[k]);
+      expect(com[k]).toContain('tipo = fornecedor');
+      expect(com[k]).toContain('"Currículos: rh@loja.com"');
+    }
+    // no WhatsApp não pede o telefone; no Direct pergunta o contato
+    expect(com.f1).toContain('não peça telefone: o contato é este número do WhatsApp');
+    expect(com.direct).toContain('e o melhor contato para o responsável falar com ela');
+    expect(com.direct).not.toContain('não peça telefone: o contato é este número');
+  });
+
+  it('o exemplo do recado nas instruções, lido como o Regem lê, dá as quatro partes (instrução e leitor andam juntos)', () => {
+    const t = blocoDasInstrucoes({ vaga: { modo: 'recado' } }, 'whatsapp');
+    const linhasDoResumo = t
+      .split('\n')
+      .filter((l) => /^\s{5}(Assunto|Quem|Contato|Já fiz):/.test(l))
+      .map((l) => l.trim().replace(/: .*/, ': x'));
+    expect(linhasDoResumo).toEqual(['Assunto: x', 'Quem: x', 'Contato: x', 'Já fiz: x']);
+    expect(Object.keys(resumoDoRecado(linhasDoResumo.join('\n'))).sort()).toEqual(['assunto', 'contato', 'jaFez', 'quem']);
   });
 });

@@ -49,6 +49,14 @@ import { InstagramService } from '../instagram/instagram.service';
 import { lerAjusteGestorWa } from './gestor-whatsapp';
 import { FRASE_FORA_PADRAO, MINUTOS_ANTES_DA_EQUIPE, MINUTOS_DEPOIS_DA_EQUIPE, TEXTO_FORA_MAX, lerAjusteDaEquipe } from './horario-da-equipe';
 import { CANAIS_DO_PERFIL, JEITO_MAX, PERFIS_DO_ATENDENTE, PERFIS_FORA_DO_HORARIO, lerPerfisDoAtendente } from '../cardapio/perfis-do-atendente';
+import {
+  ASSUNTOS_DO_ATENDENTE,
+  MODOS_DO_ASSUNTO,
+  TEXTO_DO_ASSUNTO_MAX,
+  TEXTO_PADRAO_DO_RECADO,
+  TEXTO_PADRAO_NAO,
+  lerAssuntosDoAtendente,
+} from '../cardapio/assuntos-do-atendente';
 
 // Chamados de atendimento (handoff). Operados por quem está no balcão/gestão.
 @Controller('atendimento')
@@ -230,11 +238,13 @@ export class AtendimentoController {
   // empresa) — sincroniza com o servidor da loja, que lê o aviso e o "avisar de novo" de lá.
   // "Horário da equipe" (mig 379): `equipe` (da empresa, na `robo_config`) e `equipeOpcoes` (as escolhas e o texto padrão).
   // "Perfil do atendente virtual" (mig 380): `perfis` (sempre WhatsApp e Direct, com os padrões) e `perfisOpcoes`.
+  // "Assuntos que não são pedido" (mig 381): `assuntos` (sempre fornecedor, vaga e parceria, com os padrões) e
+  // `assuntosOpcoes` (os assuntos, os modos, o limite do texto e os textos padrão).
   @Get('ajustes')
   @CloudOnly()
   @Roles('presidente', 'gerente')
   async ajustes(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
-    const [da99, fila, doIfood, cheguei, repetido, som, roboMuda, ponte, roboCobraPix, gestorWa, copiloto, instagram, equipe, perfis] = await Promise.all([
+    const [da99, fila, doIfood, cheguei, repetido, som, roboMuda, ponte, roboCobraPix, gestorWa, copiloto, instagram, equipe, perfis, assuntos] = await Promise.all([
       this.pedido99.ajustes(user.tenantId),
       this.filaEAvisos.ajustes(user.tenantId),
       this.chatIfood.ajustes(user.tenantId),
@@ -257,6 +267,8 @@ export class AtendimentoController {
       this.filaEAvisos.ajusteDaEquipe(user.tenantId),
       // "Perfil do atendente virtual" (mig 380): o perfil, o de fora do horário e o jeito da loja de cada canal; da empresa.
       this.filaEAvisos.perfisDoAtendente(user.tenantId),
+      // "Assuntos que não são pedido" (mig 381): o que o robô faz com fornecedor, vaga e parceria, e o que diz; da empresa.
+      this.filaEAvisos.assuntosDoAtendente(user.tenantId),
     ]);
     const alterado = { som, sons: SONS_DO_ALTERADO, roboMuda, roboCobraPix };
     return {
@@ -265,6 +277,14 @@ export class AtendimentoController {
       equipeOpcoes: { antesMin: MINUTOS_ANTES_DA_EQUIPE, depoisMin: MINUTOS_DEPOIS_DA_EQUIPE, textoForaPadrao: FRASE_FORA_PADRAO, textoForaMax: TEXTO_FORA_MAX },
       perfis,
       perfisOpcoes: { canais: CANAIS_DO_PERFIL, perfis: PERFIS_DO_ATENDENTE, foraDoHorario: PERFIS_FORA_DO_HORARIO, jeitoMax: JEITO_MAX },
+      assuntos,
+      assuntosOpcoes: {
+        assuntos: ASSUNTOS_DO_ATENDENTE,
+        modos: MODOS_DO_ASSUNTO,
+        textoMax: TEXTO_DO_ASSUNTO_MAX,
+        textoPadrao: TEXTO_PADRAO_DO_RECADO,
+        textoPadraoNao: TEXTO_PADRAO_NAO,
+      },
       fila,
       minutosDoAviso: MINUTOS_DO_AVISO,
       ...doIfood,
@@ -292,6 +312,9 @@ export class AtendimentoController {
     // "Perfil do atendente virtual" (mig 380): canal, perfil e o jeito até 300 letras — conferidos antes de gravar
     // qualquer grupo (V86); o que não veio fica (V16).
     if (dto?.perfis !== undefined) lerPerfisDoAtendente(dto.perfis);
+    // "Assuntos que não são pedido" (mig 381): assunto, o que o robô faz e o texto até 300 letras — conferidos antes de
+    // gravar qualquer grupo (V86); o que não veio fica (V16).
+    if (dto?.assuntos !== undefined) lerAssuntosDoAtendente(dto.assuntos);
     if (dto?.ifood !== undefined) lerAjusteIfood(dto.ifood);
     const cheguei = dto?.cheguei !== undefined ? lerAjusteCheguei(dto.cheguei) : null;
     const repetido = dto?.repetido !== undefined ? lerAjusteRepetido(dto.repetido) : null;
@@ -310,6 +333,7 @@ export class AtendimentoController {
     if (dto?.fila !== undefined) await this.filaEAvisos.salvar(user, dto.fila);
     if (dto?.equipe !== undefined) await this.filaEAvisos.salvarEquipe(user, dto.equipe);
     if (dto?.perfis !== undefined) await this.filaEAvisos.salvarPerfis(user, dto.perfis);
+    if (dto?.assuntos !== undefined) await this.filaEAvisos.salvarAssuntos(user, dto.assuntos);
     if (dto?.ifood !== undefined) await this.chatIfood.salvarAjustes(user, dto.ifood);
     if (cheguei) await this.chegada.salvarAjustes(user, unidade, cheguei);
     if (repetido) await this.repetido.salvarAjustes(user, unidade, repetido);
@@ -349,7 +373,8 @@ export class AtendimentoController {
   @Get()
   @Roles('presidente', 'gerente', 'supervisao', 'execucao')
   listar(@CurrentUser() user: AuthUser) {
-    return this.service.listar(user.tenantId);
+    // O recado para o responsável (mig 381) só vai à gestão (e a quem está com ele): o serviço filtra pelo perfil.
+    return this.service.listar(user.tenantId, 'aberto', user);
   }
 
   // A FILA da central de atendimento (Onda 1): os casos abertos da loja em uso, na ordem da fila, e as contagens.
