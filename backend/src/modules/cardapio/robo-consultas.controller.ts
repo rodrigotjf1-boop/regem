@@ -5,8 +5,8 @@ import { CABECALHO_SEGREDO_ROBO, segredoDaChamada } from '../../common/segredo-r
 import { CardapioService } from './cardapio.service';
 import { buscarNoCardapio, resumoDaLoja, taxaDoBairro } from './robo-consultas';
 import { categoriasPorPapel, procurarNoCardapio } from './robo-busca';
-import { instrucoesDoChat, instrucoesDoDirect, instrucoesDoRobo } from './robo-instrucoes';
-import { ehChaveDeTeste, ehChaveDoChat, ehChaveDoDirect } from '../../common/conversa-do-robo';
+import { instrucoesDoChat, instrucoesDoDirect, instrucoesDosComentarios, instrucoesDoRobo } from './robo-instrucoes';
+import { ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario, ehChaveDoDirect } from '../../common/conversa-do-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -91,15 +91,19 @@ export class RoboConsultasController {
     // O CHAT DO iFOOD E DA 99 (F5, mig 383): a chave `chat:` recebe as instruções do chat (a trava da plataforma, o pedido no
     // campo `pedido`), com o perfil do canal `chat`; os assuntos que não são pedido (F3) não se aplicam no chat. O teste do
     // chat (`teste:` com o canal `chat`) recebe as mesmas, dizendo que no teste não há pedido.
+    // Os COMENTÁRIOS dos posts do Instagram (F6, mig 384): a chave `cm:` recebe as instruções dos comentários (públicos: curto,
+    // sem link nem contato), com o perfil do canal `comentarios`; os assuntos que não são pedido (F3) não se aplicam.
     const semPid = !String(phoneNumberId ?? '').trim();
     const teste = semPid && ehChaveDeTeste(instancia) ? await this.service.testeDoRobo(instancia) : null;
     const chat = semPid && ehChaveDoChat(instancia) ? await this.service.chatDoRobo(instancia) : null;
-    const canal = teste ? teste.canal : chat ? 'chat' : ehChaveDoDirect(instancia) ? 'direct' : 'whatsapp';
+    const comentario = semPid && ehChaveDoComentario(instancia);
+    const canal = teste ? teste.canal : chat ? 'chat' : comentario ? 'comentarios' : ehChaveDoDirect(instancia) ? 'direct' : 'whatsapp';
     const [jeito, assuntos, conhecimento] = await Promise.all([
       this.service.jeitoDoAtendenteDoRobo(token, canal, { foraDoHorario: teste?.foraDoHorario === true }),
-      canal === 'chat' ? Promise.resolve('') : this.service.assuntosDoAtendenteDoRobo(token, canal),
+      canal === 'chat' || canal === 'comentarios' ? Promise.resolve('') : this.service.assuntosDoAtendenteDoRobo(token, canal),
       this.service.conhecimentoDoRobo(token),
     ]);
+    if (canal === 'comentarios') return instrucoesDosComentarios({ loja, jeito, conhecimento }, fluxo);
     if (canal === 'chat') return instrucoesDoChat({ loja, jeito, conhecimento, plataforma: chat?.plataforma ?? 'ifood', teste: !!teste }, fluxo);
     if (canal === 'direct') return instrucoesDoDirect({ loja, jeito, assuntos, conhecimento }, fluxo);
     return instrucoesDoRobo({ loja, jeito, assuntos, conhecimento }, fluxo);

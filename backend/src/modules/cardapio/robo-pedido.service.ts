@@ -17,6 +17,18 @@ import { Conversa, lerConversa } from '../../common/conversa-do-robo';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
 import { LINHA_DO_PEDIDO, RESPOSTA_DO_PEDIDO_NO_TESTE, gravarUmaVezPorFala, testeDaChave } from '../atendimento/teste-do-atendente';
 import { conversaDaChave } from '../ponte-chat/atendente-no-chat';
+import { comentarioDaChave } from '../instagram/comentarios.service';
+
+/**
+ * O que as rotas do pedido devolvem ao robô no COMENTÁRIO de um post do Instagram (F6, mig 384): 200, a forma das recusas de
+ * regra, para o robô explicar em vez de tropeçar num erro.
+ */
+export const RESPOSTA_DO_PEDIDO_NO_COMENTARIO = {
+  ok: false as const,
+  motivo: 'comentario_do_instagram',
+  mensagem:
+    'No comentário de um post do Instagram não se monta, não se muda e não se cancela pedido (é público). Para pedir, diga que é só chamar no Direct; para um problema com pedido, chame a equipe (chamar_atendente).',
+};
 
 /**
  * O que as rotas do pedido devolvem ao robô no CHAT DO iFOOD E DA 99 (F5, mig 383): 200, a forma das recusas de regra
@@ -280,6 +292,17 @@ export class RoboPedidoService {
     if (!segredoDoRoboOk(segredo)) throw new UnauthorizedException('Não autorizado.');
     if (!(await conversaDaChave(this.db, instancia))) throw new NotFoundException('Conversa do chat não encontrada.');
     return { ...RESPOSTA_DO_PEDIDO_NO_CHAT };
+  }
+
+  /**
+   * As rotas do pedido no COMENTÁRIO de um post do Instagram (`cm:<conversa>` na instância, F6 — mig 384): NUNCA mexem em
+   * carrinho, comanda, cliente, pagamento, Pix nem impressão (o comentário é público e não tem telefone). Com a senha do
+   * robô e a conversa que existe, a recusa de regra (`ok: false`, `motivo: 'comentario_do_instagram'`); senão 404.
+   */
+  async pedidoNoComentario(segredo: string, instancia: string) {
+    if (!segredoDoRoboOk(segredo)) throw new UnauthorizedException('Não autorizado.');
+    if (!(await comentarioDaChave(this.db, instancia))) throw new NotFoundException('Comentário do Instagram não encontrado.');
+    return { ...RESPOSTA_DO_PEDIDO_NO_COMENTARIO };
   }
 
   // ───────────────────────── leitura ─────────────────────────

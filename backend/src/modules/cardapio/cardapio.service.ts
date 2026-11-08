@@ -119,7 +119,7 @@ import { ehEventoCardapio, eventoEmPrevia, eventoNoAr, lerEventos } from './even
 import type { Distancia } from '../atendimento/endereco-depois-que-saiu';
 import { InstagramService } from '../instagram/instagram.service';
 import { idDaChave } from '../instagram/instagram';
-import { ehChaveDeTeste, ehChaveDoChat, ehChaveDoDirect } from '../../common/conversa-do-robo';
+import { ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario, ehChaveDoDirect } from '../../common/conversa-do-robo';
 import { cardapioDoChat, chamarAtendenteNoChat, conversaDaChave } from '../ponte-chat/atendente-no-chat';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -393,6 +393,12 @@ export class CardapioService {
     // O atendente virtual no CHAT DO iFOOD E DA 99 (F5, mig 383): o "telefone" é `chat:<id da fala>` — o caso é o de chat
     // DESSA conversa (a da empresa do token), pelo mesmo caminho dos casos do chat. NUNCA cai no caminho do telefone.
     if (ehChaveDoChat(dto?.telefone)) return chamarAtendenteNoChat(this.db, (e, d) => this.events.emit(e, d), cfg.tenantId, dto);
+    // Os COMENTÁRIOS dos posts do Instagram (F6, mig 384): o "telefone" é `cm:<comentário de cima>` — o caso
+    // `instagram_comentario` da conversa (da empresa do token) e a resposta privada no Direct. NUNCA cai no caminho do telefone.
+    if (ehChaveDoComentario(dto?.telefone)) {
+      if (!this.instagram) throw new UnauthorizedException('Conversa do comentário inválida.');
+      return this.instagram.comentarios.chamarPeloRobo(cfg.tenantId, dto);
+    }
     const pedido = await this.pedidoDoChamado(cfg.tenantId, dto?.pedidoNumero, dto?.telefone);
     // Cliente irritado → `urgente: true` (mig 343): a tela põe na frente, em vermelho. O mesmo cliente com um chamado
     // já aberto não ganha outro: soma ao aberto e só sobe a prioridade (abrirPeloRobo).
@@ -519,6 +525,13 @@ export class CardapioService {
       const conversa = await conversaDaChave(this.db, inst);
       const c = conversa ? await cardapioDoChat(this.db, conversa.tenantId, conversa.unidadeId) : null;
       if (!c) throw new NotFoundException('Conversa do chat não encontrada (ou a loja sem cardápio ativo).');
+      return c.token;
+    }
+    // Os COMENTÁRIOS dos posts do Instagram (F6, mig 384): a chave `cm:<comentário de cima>` dá o cardápio do robô da conta —
+    // só com o robô dos comentários ligado, a permissão e o cardápio ativo. Só LEITURA; as rotas de telefone e de envio recusam.
+    if (!pid && ehChaveDoComentario(inst)) {
+      const c = this.instagram ? await this.instagram.comentarios.cardapioDaChave(inst) : null;
+      if (!c) throw new NotFoundException('Comentário do Instagram não encontrado (ou o robô dos comentários desligado).');
       return c.token;
     }
     const [cfg] = await this.db

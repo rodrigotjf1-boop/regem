@@ -123,6 +123,9 @@ descrever('treinar o atendente (Postgres)', () => {
       '380_perfis_do_atendente.sql',
       '381_assuntos_do_atendente.sql',
       '382_treinar_atendente.sql',
+      // a 383 também altera `chat_plataforma_msg` (robo_ia, robo_entregue_em): sem a 366 antes, num banco em que nenhuma outra
+      // spec criou a tabela ainda, a suíte inteira caía no beforeAll ("relação chat_plataforma_msg não existe")
+      '366_ponte_do_chat.sql',
       '383_atendente_no_chat.sql', // o teste do chat do iFood (F5): atendente_teste.plataforma (ERR-273)
     ])
       await aplicar(m);

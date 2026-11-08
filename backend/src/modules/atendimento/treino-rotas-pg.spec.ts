@@ -102,6 +102,10 @@ descrever('treinar o atendente — as rotas HTTP de verdade', () => {
     process.env.N8N_ROBO_WEBHOOK_URL = 'https://n8n.teste.invalid/webhook/robo';
     pool = new Pool({ connectionString: URL_PG });
     db = drizzle(pool, { schema });
+    // a 383 altera `robo_config` (342) e `chat_plataforma_msg` (366): as duas antes, ou a suíte cai no beforeAll num banco em
+    // que nenhuma outra spec criou as tabelas ainda
+    await aplicar('342_robo_pausa_e_config.sql');
+    await aplicar('366_ponte_do_chat.sql');
     await aplicar('382_treinar_atendente.sql');
     await aplicar('383_atendente_no_chat.sql'); // o teste do chat do iFood (F5): atendente_teste.plataforma (ERR-273)
     await q(`insert into empresa (id, nome) values ($1, 'teste rotas do treino'), ($2, 'outra empresa das rotas')`, [T, T2]);

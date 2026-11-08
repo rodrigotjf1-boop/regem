@@ -98,6 +98,15 @@
    barra vira a frase pronta. Sem resposta do atendente em 2 min, o caso abre para a equipe. O perfil ganha o canal "Chat
    do iFood e da 99"; o "Testar o atendente" ganha o canal "Chat iFood/99" (mostra quando a trava tiraria algo); no caso do
    chat, "Corrigir" nas falas do atendente virtual (as frases prontas não se corrigem).
+   VERSÃO 15 (08/11/2026, F6 do atendente virtual — pedido do dono: "interagir com os posts, responder comentários"):
+   OS COMENTÁRIOS DO INSTAGRAM. Botão "💬 Comentários" no topo do Atendimento: a gaveta com os comentários dos posts dos
+   últimos 30 dias (Sem resposta · Respondidos · Escondidos · Todos), cada um com o post, o @ de quem comentou e as ações:
+   Responder no post (uma resposta da loja por comentário), Responder no Direct (a resposta privada da Meta: uma só, até 7
+   dias depois do comentário; a conversa segue no Direct quando a pessoa responder), Esconder / Mostrar (nada apaga) e
+   Corrigir (na resposta do robô). O grupo "Instagram" ganha "Robô responde comentários" (nasce desligado: responde no
+   post em 1–2 frases o que sabe — elogio, horário, cardápio, entrega; pedido, reclamação ou dado pessoal ele leva para o
+   Direct e chama a equipe; ofensivo ele não responde) e "Comentário que pede a equipe vira caso". Quem conectou antes
+   precisa RECONECTAR (a Meta pede a permissão de comentários). O perfil ganha o canal "Comentários do Instagram".
    O que a tela faz:
    (1) uma FILA só com tudo o que precisa de uma pessoa: chamado do robô, disputa do iFood, pedido de cancelamento ou
        reembolso da 99, cancelamento pedido no cardápio e a resposta ao "sem contato". A conversa que o robô atende
@@ -467,7 +476,25 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 #v-pc{padding-top:12px}
 .topo{flex-wrap:wrap}
 .topo .dir{flex-wrap:wrap;justify-content:flex-end}
-.topo #bt-numeros,.topo #bt-testar{min-height:36px;padding:0 12px;font-size:13.5px}
+.topo #bt-numeros,.topo #bt-testar,.topo #bt-comentarios{min-height:36px;padding:0 12px;font-size:13.5px}
+/* Versão 15: os comentários do Instagram (a gaveta) */
+.cm{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;background:var(--card);min-width:0}
+.cm .cm-topo{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;font-size:13px;color:var(--ink-2)}
+.cm .cm-topo b{color:var(--ink);font-size:14px}
+.cm .cm-post{display:flex;gap:8px;align-items:center;font-size:12.5px;color:var(--ink-2);min-width:0}
+.cm .cm-post .mini{flex:none;width:34px;height:34px;border-radius:6px;background:var(--c-card-bg);display:grid;place-items:center;font-size:16px}
+.cm .cm-post span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cm .cm-texto{margin:0;font-size:14.5px;color:var(--ink);overflow-wrap:anywhere}
+.cm .cm-resp{margin:0;padding:6px 10px;border-left:3px solid var(--info);background:var(--info-bg);border-radius:0 6px 6px 0;font-size:13.5px;color:var(--ink);overflow-wrap:anywhere}
+.cm .cm-resp small{display:block;color:var(--ink-2);font-size:12px}
+.cm .cm-sit{display:flex;flex-wrap:wrap;gap:6px}
+.cm .selo{font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--bg);color:var(--ink)}
+.cm .selo.warn{background:var(--warn-bg);color:var(--warn)}
+.cm .selo.ok{background:var(--ok-bg);color:var(--ok)}
+.cm .acoes{display:flex;flex-wrap:wrap;gap:6px}
+.cm .resp-inline{display:flex;flex-direction:column;gap:6px}
+.cm .resp-inline textarea{width:100%;min-height:64px;resize:vertical;font:inherit;padding:8px;border:1px solid var(--line-2);border-radius:8px;box-sizing:border-box}
+.topo .conta-cm{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 5px;margin-left:4px;border-radius:999px;background:var(--warn-bg);color:var(--warn);font-size:12px}
 .cab-atend{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin-bottom:10px}
 .cab-atend h1{font-size:21px;margin:0;white-space:nowrap}
 .cab-atend .resumo{flex:1 1 20rem;min-width:0;margin:0;font-size:13.5px;overflow-wrap:anywhere}
@@ -589,6 +616,10 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     <span>Atendente virtual (versão 13):</span>
     <button type="button" data-robo-teste="sim" aria-pressed="true">disponível</button>
     <button type="button" data-robo-teste="nao" aria-pressed="false">indisponível</button>
+    <span>Comentários (versão 15):</span>
+    <button type="button" data-cm-perm="sim" aria-pressed="true">liberados</button>
+    <button type="button" data-cm-perm="nao" aria-pressed="false">precisa reconectar</button>
+    <button type="button" data-cm-perm="vazio" aria-pressed="false">nenhum comentário</button>
   </div>
   <div class="ctl" id="ctl-num" role="group" aria-label="Estado dos números" hidden>
     <span>Números:</span>
@@ -631,6 +662,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <button type="button" class="menu-bt" aria-label="Menu (no Regem abre o menu lateral)">☰</button>
       <span class="onde" id="onde">Atendimento</span>
       <div class="dir">
+        <button type="button" class="bt" id="bt-comentarios" data-so-pc>💬 Comentários <b class="conta-cm" data-conta-cm-topo>2</b></button>
         <button type="button" class="bt" id="bt-testar" data-so-pc>🧪 Testar o atendente</button>
         <button type="button" class="bt" id="bt-numeros" data-ir="num" data-so-pc>📊 Números do atendimento</button>
         <a href="#" onclick="return false" class="teste-gratis" id="teste-gratis" aria-label="Teste grátis: 16 dias restantes — ver planos">✨ Teste grátis: 16 dias</a>
@@ -664,7 +696,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <div class="filtros linha" role="group" aria-label="Filtros">
         <div class="campo larga"><label for="busca" class="sr">Buscar</label><input id="busca" type="search" placeholder="Buscar cliente, pedido ou telefone"></div>
         <div class="campo"><label for="f-canal">Canal</label><select id="f-canal"><option value="">Todos</option><option value="wa">WhatsApp</option><option value="ifood">iFood</option><option value="n99">99Food</option><option value="card">Cardápio</option><option value="ig">Instagram</option></select></div>
-        <div class="campo"><label for="f-motivo">Motivo</label><select id="f-motivo"><option value="">Todos</option><option>Atraso</option><option>Faltou item</option><option>Disputa</option><option>Avaliação</option><option>Cancelamento</option><option>Reembolso</option><option>Sem contato</option><option>Outro</option></select></div>
+        <div class="campo"><label for="f-motivo">Motivo</label><select id="f-motivo"><option value="">Todos</option><option>Atraso</option><option>Faltou item</option><option>Disputa</option><option>Avaliação</option><option>Cancelamento</option><option>Reembolso</option><option>Sem contato</option><option>Comentário</option><option>Outro</option></select></div>
         <div class="campo"><label for="f-resp">Com quem</label><select id="f-resp"><option value="">Qualquer um</option><option value="-">Ninguém ainda</option><option value="Ana">Ana (você)</option><option value="Bruno">Bruno</option><option value="Carla">Carla</option></select></div>
       </div>
       <div class="corpo" id="corpo" data-modo="duplo">
@@ -680,7 +712,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     <main id="v-aj" hidden>
       <div class="trilha">Delivery › Configurações › Operação</div>
       <h1>Atendimento</h1>
-      <p class="resumo">54 ajustes em 10 grupos · item novo no grupo "Operação", ao lado de "Robô de atendimento" · grupos novos: "Horário da equipe" (versão 10), "Perfil do atendente virtual" (versão 11), "Assuntos que não são pedido" (versão 12), "Gerente no WhatsApp", "Copiloto", "Instagram Direct" e "iFood e 99 · chat pela ponte"</p>
+      <p class="resumo">60 ajustes em 10 grupos · item novo no grupo "Operação", ao lado de "Robô de atendimento" · grupos novos: "Horário da equipe" (versão 10), "Perfil do atendente virtual" (versão 11), "Assuntos que não são pedido" (versão 12), "Gerente no WhatsApp", "Copiloto", "Instagram · Direct e comentários" e "iFood e 99 · chat pela ponte"</p>
       <div class="filtros" style="grid-template-columns:minmax(0,1fr)"><div class="campo"><label for="busca-aj">Buscar ajuste</label><input id="busca-aj" type="search" placeholder="Ex.: 99, disputa, som"></div></div>
 
       <!-- Versão 10: o horário da equipe. O robô atende 24 h; a pessoa só entra no horário. Nasce em "Sempre" (como hoje). -->
@@ -702,7 +734,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
            para responder Direct, para o Messenger do Facebook, para responder comentários"), com um perfil opcional para fora
            do horário da equipe. Nasce em "Como hoje": nada muda até a loja escolher. -->
       <section class="grupo" data-grupo id="grupo-perfil">
-        <header><h3>Perfil do atendente virtual <span class="novo-t">NOVO</span></h3><span>11 ajustes</span></header>
+        <header><h3>Perfil do atendente virtual <span class="novo-t">NOVO</span></h3><span>14 ajustes</span></header>
         <div class="aj"><div><span class="rot-aj">WhatsApp · perfil</span><span class="ajuda" data-exemplo-de="wa"></span></div>
           <div class="ctrl"><select aria-label="Perfil do atendente no WhatsApp" data-aj data-perfil="wa"><option value="hoje">Como hoje</option><option value="profissional">Profissional</option><option value="cordial" selected>Cordial</option><option value="gentil">Gentil</option><option value="descontraido">Descontraído</option><option value="objetivo">Objetivo</option><option value="acolhedor">Acolhedor</option></select></div></div>
         <div class="aj"><div><span class="rot-aj">WhatsApp · fora do horário</span><span class="ajuda">O perfil quando a equipe não está (o horário da equipe, acima). "O mesmo" mantém o de cima.</span></div>
@@ -722,8 +754,15 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
           <div class="ctrl"><select aria-label="Perfil do atendente no chat do iFood e da 99 fora do horário" data-aj><option value="mesmo" selected>O mesmo</option><option value="profissional">Profissional</option><option value="cordial">Cordial</option><option value="gentil">Gentil</option><option value="descontraido">Descontraído</option><option value="objetivo">Objetivo</option><option value="acolhedor">Acolhedor</option></select></div></div>
         <div class="aj"><div><span class="rot-aj">Chat do iFood e da 99 · jeito da loja</span><span class="ajuda">Opcional, até 300 letras. Vale só quando "Quem responde no chat" é o atendente virtual (grupo "iFood e 99 · chat pela ponte").</span></div>
           <div class="linha-txt"><input type="text" aria-label="Jeito da loja no chat do iFood e da 99" placeholder="Como a loja gosta de falar (opcional)" data-aj></div></div>
-        <div class="aj"><div><span class="rot-aj">Os outros canais</span><span class="ajuda">Cada um ganha o perfil quando o atendente virtual chegar nele.</span></div>
-          <div class="ctrl"><span class="fixo">Messenger do Facebook e respostas aos comentários do Instagram: chegam nas próximas fases, já com o perfil de cada um</span></div></div>
+        <!-- Versão 15 (F6): os comentários do Instagram ganham o perfil — vale quando "Robô responde comentários" está ligado -->
+        <div class="aj"><div><span class="rot-aj">Comentários do Instagram · perfil</span><span class="ajuda" data-exemplo-de="cm"></span></div>
+          <div class="ctrl"><select aria-label="Perfil do atendente nos comentários do Instagram" data-aj data-perfil="cm"><option value="hoje">Como hoje</option><option value="profissional">Profissional</option><option value="cordial" selected>Cordial</option><option value="gentil">Gentil</option><option value="descontraido">Descontraído</option><option value="objetivo">Objetivo</option><option value="acolhedor">Acolhedor</option></select></div></div>
+        <div class="aj"><div><span class="rot-aj">Comentários do Instagram · fora do horário</span><span class="ajuda">O perfil quando a equipe não está. "O mesmo" mantém o de cima.</span></div>
+          <div class="ctrl"><select aria-label="Perfil do atendente nos comentários do Instagram fora do horário" data-aj><option value="mesmo" selected>O mesmo</option><option value="profissional">Profissional</option><option value="cordial">Cordial</option><option value="gentil">Gentil</option><option value="descontraido">Descontraído</option><option value="objetivo">Objetivo</option><option value="acolhedor">Acolhedor</option></select></div></div>
+        <div class="aj"><div><span class="rot-aj">Comentários do Instagram · jeito da loja</span><span class="ajuda">Opcional, até 300 letras. Vale só quando "Robô responde comentários" está ligado (grupo "Instagram"). No comentário a resposta é pública e curta.</span></div>
+          <div class="linha-txt"><input type="text" aria-label="Jeito da loja nos comentários do Instagram" placeholder="Como a loja gosta de falar (opcional)" data-aj></div></div>
+        <div class="aj"><div><span class="rot-aj">Os outros canais</span><span class="ajuda">Ganha o perfil quando o atendente virtual chegar nele.</span></div>
+          <div class="ctrl"><span class="fixo">Messenger do Facebook: chega na próxima fase, já com o perfil</span></div></div>
         <div class="aj"><div><span class="rot-aj">Sempre vale</span><span class="ajuda">Não se desliga: o perfil muda o jeito de falar, nunca as regras.</span></div>
           <div class="ctrl"><span class="fixo">O robô nunca inventa preço, prazo, taxa nem promoção · segue as regras de cada canal (no Direct, sem telefone; no chat das plataformas, sem contato fora) · no máximo 1 emoji por mensagem, em qualquer perfil · cliente chateado: o robô fica sério e chama a equipe, em qualquer perfil</span></div></div>
         <p class="ajuda" style="margin:10px 0 0;display:flex;flex-wrap:wrap;gap:8px;align-items:center">Quer ver como fica? Salve antes: o teste usa o perfil gravado. <button type="button" class="bt" data-dlg="testar">🧪 Testar o atendente</button></p>
@@ -790,7 +829,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <!-- Versão 7: o Instagram Direct da loja na fila. Conectar = entrar com a conta do Instagram da loja e autorizar; o
            resto (o app na Meta, o segredo, o aviso de mensagem, a renovação do acesso) é da Regem. -->
       <section class="grupo" data-grupo id="grupo-ig">
-        <header><h3>Instagram Direct <span class="novo-t">NOVO</span></h3><span>5 ajustes</span></header>
+        <header><h3>Instagram · Direct e comentários <span class="novo-t">NOVO</span></h3><span>8 ajustes</span></header>
         <div class="aj"><div><span class="rot-aj">Instagram da loja</span><span class="ajuda" id="ig-estado">Não conectado. Conecte a conta profissional do Instagram da loja para as mensagens do Direct entrarem na fila.</span></div>
           <div class="ctrl" id="ig-botao"><button type="button" class="bt pri" data-dlg="conectar-ig">Conectar o Instagram</button></div></div>
         <!-- Versão 8: o robô do WhatsApp responde também no Direct. Nasce desligado. -->
@@ -800,8 +839,16 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
           <div class="ctrl"><select aria-label="Cardápio que o robô usa no Direct" data-aj><option>Burger da Praça · Centro</option><option>Burger da Praça · Penha</option></select></div></div>
         <div class="aj"><div><span class="rot-aj">Mensagens do Direct na fila</span><span class="ajuda">Com o robô desligado: cada conversa nova vira caso, com o perfil do cliente. Com o robô ligado: vira caso só o que ele passa para a equipe ou quando alguém assume a conversa. A resposta sai pelo Instagram da loja. Desligado (e sem o robô), as mensagens continuam só no app do Instagram.</span></div>
           <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Mensagens do Direct na fila" data-aj></button></div></div>
+        <!-- Versão 15 (F6): os COMENTÁRIOS dos posts. A Meta pede uma permissão a mais (comentários): quem conectou antes
+             reconecta — o botão "Reconectar" fica aqui. A lista dos comentários fica no botão "💬 Comentários" do topo. -->
+        <div class="aj"><div><span class="rot-aj">Comentários dos posts <span class="novo-t">NOVO</span></span><span class="ajuda" id="cm-estado">Liberados: os comentários dos posts aparecem no botão "💬 Comentários", no topo do Atendimento.</span></div>
+          <div class="ctrl" id="cm-botao"><span class="fixo">✅ Liberados</span></div></div>
+        <div class="aj"><div><span class="rot-aj">Robô responde comentários <span class="novo-t">NOVO</span></span><span class="ajuda">O mesmo atendente virtual responde no post, em 1 ou 2 frases: agradece o elogio e tira a dúvida simples (horário, cardápio, entrega). Pedido, reclamação ou dado pessoal ele não trata em público: manda uma mensagem no Direct da pessoa e chama a equipe. Ofensivo ou propaganda ele não responde (a equipe decide esconder). Até 30 respostas por hora.</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="false" aria-label="Robô responde comentários" data-aj data-robo-cm></button></div></div>
+        <div class="aj"><div><span class="rot-aj">Comentário que pede a equipe vira caso <span class="novo-t">NOVO</span></span><span class="ajuda">Quando o robô chama a equipe por causa de um comentário, ele vira caso na fila, com o post e o resumo. Desligado, a pessoa recebe a mensagem no Direct e o comentário fica só na lista.</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Comentário que pede a equipe vira caso" data-aj></button></div></div>
         <div class="aj"><div><span class="rot-aj">Sempre vale</span><span class="ajuda">Regras do Instagram e do robô: não se desligam.</span></div>
-          <div class="ctrl"><span class="fixo">A loja só responde a quem escreveu primeiro · até 24 h depois da última mensagem do cliente (até 7 dias, quando a Meta liberar o "atendente humano") · as mensagens seguem no app do Instagram também · o robô fica quieto enquanto a conversa está com alguém (caso aberto ou resposta da loja pelo app do Instagram) · se o robô não responder em 3 min, a conversa vira caso</span></div></div>
+          <div class="ctrl"><span class="fixo">A loja só responde a quem escreveu primeiro · até 24 h depois da última mensagem do cliente (até 7 dias, quando a Meta liberar o "atendente humano") · as mensagens seguem no app do Instagram também · o robô fica quieto enquanto a conversa está com alguém (caso aberto ou resposta da loja pelo app do Instagram) · se o robô não responder em 3 min, a conversa vira caso · nos comentários: uma resposta da loja por comentário, uma mensagem no Direct por comentário (até 7 dias depois dele), nada se apaga sozinho e os comentários da própria loja e das lives ficam de fora</span></div></div>
       </section>
 
       <section class="grupo" data-grupo>
@@ -1109,7 +1156,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 
 <!-- ============ NOTAS ============ -->
 <section id="v-notas" hidden class="notas" aria-label="Notas do protótipo">
-  <div class="trilha">Notas do protótipo · 02/11/2026 · versão 14 em 08/11/2026</div>
+  <div class="trilha">Notas do protótipo · 02/11/2026 · versão 15 em 08/11/2026</div>
   <h1>Atendimento: o que cada parte faz</h1>
 
   <div class="cartao">
@@ -1210,6 +1257,20 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <li><b>Confirmação em dois toques</b>: a resposta ao iFood e à 99 não volta atrás.</li>
       <li>Na disputa, pelo WhatsApp só <b>Aceitar e Recusar</b>; a proposta (crédito, outro valor, mais tempo) fica no Regem, pelo link.</li>
     </ol>
+  </div>
+
+  <div class="cartao">
+    <h3>Os comentários do Instagram · versão 15 (08/11/2026)</h3>
+    <p>Pedido do dono: "interagir com os posts — responder comentários". É a F6. Escolhas recomendadas, já aplicadas:</p>
+    <ul>
+      <li><b>"💬 Comentários"</b> no topo do Atendimento (com o número dos sem resposta): a gaveta com os comentários dos posts dos últimos 30 dias, em <b>Sem resposta · Respondidos · Escondidos · Todos</b>. Cada um mostra o post, o @ de quem comentou e a hora.</li>
+      <li>Ações: <b>Responder no post</b> (uma resposta da loja por comentário, todo mundo vê), <b>Responder no Direct</b> (só quem comentou vê; regra do Instagram: uma mensagem por comentário, até 7 dias depois dele; quando a pessoa responder, a conversa segue no Direct), <b>Esconder / Mostrar no post</b> (some para os outros; nada se apaga) e <b>Corrigir</b> na resposta do robô.</li>
+      <li><b>"Robô responde comentários"</b> (grupo "Instagram · Direct e comentários", nasce desligado): o mesmo atendente virtual responde no post em 1 ou 2 frases o que sabe — elogio, horário, cardápio, entrega. Pedido, reclamação ou dado pessoal ele não trata em público: manda a mensagem no Direct da pessoa e chama a equipe (o comentário vira caso na fila, com o post e o resumo). Ofensivo ou propaganda ele não responde: fica em "Sem resposta" para a equipe decidir esconder. Até 30 respostas por hora.</li>
+      <li>Ficam de fora: os comentários da própria loja, os das lives e os só de emoji (não vão ao robô).</li>
+      <li><b>Quem conectou o Instagram antes precisa reconectar</b>: a Meta pede uma permissão a mais (comentários). O grupo mostra "Reconectar" e a gaveta avisa.</li>
+      <li>O perfil do atendente ganha o canal <b>"Comentários do Instagram"</b>.</li>
+      <li>Sem mexer no n8n: o comentário entra pelo mesmo caminho do robô, com uma chave própria (uma por conversa do comentário).</li>
+    </ul>
   </div>
 
   <div class="cartao">
@@ -1392,6 +1453,10 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     // Versão 8: o robô atendeu no Direct e passou a encomenda para a equipe (o caso nasce com o resumo).
     { id: 'ig1', canal: 'ig', motivo: 'Encomenda', tipo: 'instagram', urgente: false, titulo: 'Joana Souza · @joana.souza · Direct · encomenda',
       cliente: 'Joana Souza', pedido: '', fala: '"Quero fazer um pedido grande pra sábado, umas 15 pessoas"', resp: null, sit: 'fila', espera: '6 min', robo: true },
+    // Versão 15 — o COMENTÁRIO no post em que o robô chamou a equipe: vira caso com o post, o comentário e o resumo; a pessoa
+    // já recebeu a mensagem no Direct (a resposta privada) e, quando responder, a conversa segue lá.
+    { id: 'cm1', canal: 'ig', motivo: 'Comentário', tipo: 'comentario', urgente: false, titulo: 'Rafa Costa · @rafa.costa · comentário no post · chegou frio',
+      cliente: 'Rafa Costa', pedido: '', fala: '"Pedi ontem pelo cardápio e chegou tudo frio 😡" · no post do Combo Duplo', resp: null, sit: 'fila', espera: '3 min', robo: true, cm: 'k3' },
     // Versão 10: RECADOS DA NOITE — o robô atendeu fora do horário da equipe e deixou para a abertura. No horário, eles já
     // entraram na fila pela ordem de chegada (selo "🌙 recado das 02:14"); fora do horário, ficam em "Para a abertura".
     { id: 'rn1', canal: 'ig', motivo: 'Outro', tipo: 'instagram', urgente: false, titulo: 'Carlos Lima · @carlos.lima · Direct · recado da noite',
@@ -1881,7 +1946,80 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
         <p class="ajuda" style="margin:6px 0 0">${d.perfil.segue ? 'Segue a loja no Instagram.' : 'Não segue a loja.'} Sem pedido ligado: o Instagram não manda telefone. Se ela fizer o pedido pelo cardápio ou pelo WhatsApp, ele aparece aqui.</p></section>
       <section class="bloco"><h3>Histórico do caso</h3><ol class="linha-tempo">${historico}</ol></section></div></div>`;
   }
-  const RENDER = { disputa: casoDisputa, 'disputa-atraso': casoDisputa, n99: caso99, 'n99-reembolso': caso99Reembolso, conversa: casoConversa, cardapio: casoCardapio, feito: casoFeito, chat: casoChat, robo: casoRobo, avaliacao: casoAvaliacao, instagram: casoInstagram };
+  // ---------- versão 15: os COMENTÁRIOS do Instagram ----------
+  // "Sem resposta" = sem resposta no post, sem mensagem no Direct e não escondido (a mesma regra do servidor).
+  const COMENT = { perm: 'sim', filtro: 'sem', itens: [
+    { id: 'k1', usuario: '@lu.martins', hora: 'hoje, 19:02', post: 'Combo Duplo · "O combo da semana chegou!"', texto: 'Que delícia!! Amo esse lanche 😍', resp: { t: 'Obrigado, Lu! Esperamos você de novo 🧡', por: 'robo', h: '19:03' }, privada: null, escondido: false },
+    { id: 'k2', usuario: '@pedro.alves', hora: 'hoje, 18:40', post: 'Combo Duplo · "O combo da semana chegou!"', texto: 'Vocês abrem que horas no domingo?', resp: { t: 'Oi, Pedro! No domingo abrimos das 18h às 23h. Te esperamos!', por: 'robo', h: '18:40' }, privada: null, escondido: false },
+    { id: 'k3', usuario: '@rafa.costa', hora: 'hoje, 18:51', post: 'Combo Duplo · "O combo da semana chegou!"', texto: 'Pedi ontem pelo cardápio e chegou tudo frio 😡', resp: { t: 'Sinto muito, Rafa! Te mandei uma mensagem no Direct para resolver.', por: 'robo', h: '18:52' }, privada: { t: 'Oi, Rafa! Vi seu comentário e sinto muito. Já chamei a equipe: me conta por aqui o número do pedido?', por: 'robo', h: '18:52' }, escondido: false, caso: 'cm1' },
+    { id: 'k4', usuario: '@julia_r', hora: 'hoje, 17:15', post: 'Batata da casa · "Crocante por fora, macia por dentro"', texto: 'Quanto custa a batata grande? E entrega na Penha?', resp: null, privada: null, escondido: false },
+    { id: 'k5', usuario: '@promo.seguidores', hora: 'ontem, 22:40', post: 'Batata da casa · "Crocante por fora, macia por dentro"', texto: 'Ganhe 10 mil seguidores reais!!! link na bio 🔥🔥', resp: null, privada: null, escondido: true },
+    { id: 'k6', usuario: '@marcos.lima', hora: '30/10, 20:10', post: 'Noite do hambúrguer · "Toda quinta, dobro de cheddar"', texto: 'Ainda tem a promoção de quinta?', resp: null, privada: null, escondido: false, velho: true },
+  ] };
+  const ehSemResposta = (k) => !k.resp && !k.privada && !k.escondido;
+  const FILTROS_CM = [['sem', 'Sem resposta', ehSemResposta], ['resp', 'Respondidos', (k) => !!(k.resp || k.privada)], ['esc', 'Escondidos', (k) => k.escondido], ['todos', 'Todos', () => true]];
+  const roboCmLigado = () => ($('[data-robo-cm]') || {}).getAttribute?.('aria-checked') === 'true';
+  function htmlComentario(k, noCaso) {
+    const resp = k.resp ? `<div class="cm-resp">${esc(k.resp.t)}<small>Resposta no post · ${k.resp.por === 'robo' ? 'atendente virtual' : esc(k.resp.quem || 'equipe')} · ${esc(k.resp.h)}</small>${k.resp.por === 'robo' ? `<button type="button" class="corrigir" data-dlg="corrigir" data-origem="caso" data-q="${esc(k.texto)}" data-r="${esc(k.resp.t)}">Corrigir</button>` : ''}</div>` : '';
+    const priv = k.privada ? `<div class="cm-resp">${esc(k.privada.t)}<small>Mensagem no Direct · ${k.privada.por === 'robo' ? 'atendente virtual' : 'equipe'} · ${esc(k.privada.h)} · só quem comentou vê; a conversa segue no Direct quando a pessoa responder</small></div>` : '';
+    const motivoPriv = k.privada ? '' : k.velho ? 'passou de 7 dias do comentário' : '';
+    const sit = [k.escondido ? '<span class="selo">🙈 Escondido</span>' : ehSemResposta(k) ? '<span class="selo warn">Sem resposta</span>' : '<span class="selo ok">Respondido</span>', k.caso ? '<span class="selo">📋 Caso na fila</span>' : ''].join('');
+    const suf = noCaso ? '-c' : '';
+    const acoes = [
+      !k.resp && !k.escondido ? `<button type="button" class="bt" data-cm-responder="${k.id}" aria-expanded="false" aria-controls="ri-${k.id}${suf}">Responder no post</button>` : '',
+      !k.privada ? `<button type="button" class="bt" data-dlg="privada-cm" data-cm="${k.id}"${motivoPriv ? ' disabled' : ''}>Responder no Direct</button>` : '',
+      `<button type="button" class="bt" data-cm-esconder="${k.id}" aria-pressed="${k.escondido}">${k.escondido ? 'Mostrar no post' : 'Esconder'}</button>`,
+      k.caso && !noCaso ? `<button type="button" class="bt leve" data-abrir-caso="${k.caso}">Abrir o caso</button>` : '',
+    ].join('');
+    return `<article class="cm" data-cm-item="${k.id}" aria-label="Comentário de ${esc(k.usuario)}">
+      <div class="cm-topo"><b>${esc(k.usuario)}</b><span>${esc(k.hora)}</span></div>
+      <div class="cm-post"><span class="mini" aria-hidden="true">🍔</span><span>${esc(k.post)}</span><a href="#" onclick="return false">ver o post</a></div>
+      <p class="cm-texto">${esc(k.texto)}</p>
+      <div class="cm-sit">${sit}</div>${resp}${priv}
+      ${motivoPriv ? `<p class="ajuda" style="margin:0">Responder no Direct não dá mais: ${motivoPriv} (regra do Instagram). Ainda dá para responder no post.</p>` : ''}
+      <div class="acoes">${acoes}</div>
+      <div class="resp-inline" id="ri-${k.id}${suf}" data-resp-inline hidden><label class="rot" for="txt-cm-${k.id}${suf}">Resposta no post (todo mundo vê)</label><textarea id="txt-cm-${k.id}${suf}" maxlength="1000" placeholder="Escreva a resposta que aparece embaixo do comentário"></textarea><div class="acoes"><button type="button" class="bt pri" data-cm-publicar="${k.id}">Publicar no post</button><button type="button" class="bt leve" data-cm-cancelar>Cancelar</button></div><span class="ajuda">Uma resposta da loja por comentário. Sai pelo Instagram da loja e aparece no post.</span></div>
+    </article>`;
+  }
+  function htmlGavetaCm() {
+    if (COMENT.perm === 'nao') return `<div class="nota warn">Para ver e responder os comentários, <b>reconecte o Instagram</b>: a Meta pede uma permissão a mais (comentários), e a conta foi conectada antes dela.</div><button type="button" class="bt pri" data-ir-aj-ig style="align-self:flex-start">Ir para Ajustes › Instagram</button>`;
+    const itens = COMENT.perm === 'vazio' ? [] : COMENT.itens;
+    const f = FILTROS_CM.find((x) => x[0] === COMENT.filtro);
+    const lista = itens.filter(f[2]);
+    return `<div class="opcoes" role="group" aria-label="Filtrar comentários">${FILTROS_CM.map(([k, n, fn]) => `<button type="button" class="opcao" aria-pressed="${COMENT.filtro === k}" data-filtro-cm="${k}">${n} · <b>${itens.filter(fn).length}</b></button>`).join('')}</div>
+      <p class="ajuda" style="margin:0">Comentários dos posts da loja nos últimos 30 dias. ${roboCmLigado() ? 'O atendente virtual responde primeiro; o que ele não resolve fica em "Sem resposta" ou vira caso na fila.' : 'O atendente virtual está desligado para comentários (Ajustes › Instagram): tudo chega em "Sem resposta".'} Os da própria loja e os das lives ficam de fora.</p>
+      <div data-lista-cm style="display:flex;flex-direction:column;gap:10px">${lista.length ? lista.map((k) => htmlComentario(k, false)).join('') : `<div class="vazio" role="status">${itens.length ? '<p><b>Nenhum comentário neste filtro.</b></p>' : '<p><b>Nenhum comentário nos últimos 30 dias.</b><br>Quando alguém comentar num post da loja, aparece aqui.</p>'}</div>`}</div>`;
+  }
+  function contarCm() {
+    const itens = COMENT.perm === 'sim' ? COMENT.itens : [];
+    const n = itens.filter(ehSemResposta).length;
+    $$('[data-conta-cm-topo]').forEach((b) => { b.textContent = String(n); b.hidden = n === 0; });
+    const bt = $('#bt-comentarios'); if (bt) bt.setAttribute('aria-label', COMENT.perm === 'nao' ? 'Comentários do Instagram: precisa reconectar' : `Comentários do Instagram: ${n} sem resposta`);
+    $$('#camada [data-filtro-cm]').forEach((b) => { const f = FILTROS_CM.find((x) => x[0] === b.dataset.filtroCm); $('b', b).textContent = String(itens.filter(f[2]).length); });
+  }
+  function desenharGavetaCm() { const g = $('#camada [data-gaveta-cm]'); if (g) g.innerHTML = htmlGavetaCm(); }
+  function redesenharCm(id, focar) {
+    const k = COMENT.itens.find((x) => x.id === id);
+    $$(`[data-cm-item="${id}"]`).forEach((el) => {
+      const t = document.createElement('div'); t.innerHTML = htmlComentario(k, !!el.closest('.caso')).trim();
+      const novo = t.firstElementChild; el.replaceWith(novo);
+      if (!novo.closest('.dlg')) $$('[data-dlg]', novo).forEach((b) => b.addEventListener('click', () => abrirDialogo(b.dataset.dlg, b)));
+    });
+    contarCm();
+    const alvo = focar && $(`[data-cm-item="${id}"] ${focar}`); if (alvo) alvo.focus();
+  }
+  function casoComentario(c) {
+    const k = COMENT.itens.find((x) => x.id === c.cm);
+    const acoes = c.resp ? `<button type="button" class="bt" data-dlg="passar">Passar</button><button type="button" class="bt ok" data-dlg="resolver">Resolver</button>`
+      : `<button type="button" class="bt pri">Pegar para mim</button><button type="button" class="bt" data-dlg="passar">Passar</button><button type="button" class="bt ok" data-dlg="resolver">Resolver</button>`;
+    return topo(c, acoes) + `<div class="c-corpo"><div class="col">
+      <section class="bloco resumo-robo"><h3>🤖 O robô resumiu <span class="dir">aberto às 18:52</span></h3><dl><dt>Motivo</dt><dd>Reclamação: o pedido de ontem chegou frio</dd><dt>Quer</dt><dd>Não disse: reclamou em público</dd><dt>Já fiz</dt><dd>Mandei mensagem no Direct pedindo o número do pedido e respondi no post que chamei no Direct</dd></dl></section>
+      <section class="bloco"><h3>Comentário no post <span class="dir">pela conta @burgerdapraca</span></h3>${htmlComentario(k, true)}</section></div>
+      <div class="col"><section class="bloco"><h3>Quem comentou</h3><p style="margin:0;font-size:14px"><b>${esc(c.cliente)}</b> · ${esc(k.usuario)}</p>
+        <p class="ajuda" style="margin:6px 0 0">Sem pedido ligado: o Instagram não manda telefone. Quando a pessoa responder a mensagem do Direct, a conversa segue no Direct, como as outras.</p></section>
+      <section class="bloco"><h3>Histórico do caso</h3><ol class="linha-tempo"><li><span class="h">18:51</span><span>${esc(k.usuario)} comentou no post do Combo Duplo</span></li><li><span class="h">18:52</span><span>O atendente virtual mandou mensagem no Direct (a resposta privada) e chamou a equipe</span></li><li><span class="h">18:52</span><span>O Regem abriu o caso (comentário que pede a equipe)</span></li></ol></section></div></div>`;
+  }
+  const RENDER = { disputa: casoDisputa, 'disputa-atraso': casoDisputa, n99: caso99, 'n99-reembolso': caso99Reembolso, conversa: casoConversa, cardapio: casoCardapio, feito: casoFeito, chat: casoChat, robo: casoRobo, avaliacao: casoAvaliacao, instagram: casoInstagram, comentario: casoComentario };
   // O envio pelo Instagram (versão 7): sai na hora pela conta da loja; o Regem guarda a mensagem (a Meta não guarda).
   document.addEventListener('click', (e) => {
     const b = e.target.closest('[data-enviar-ig]');
@@ -2163,6 +2301,24 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
         $$('[data-exemplo-t]', fundo).forEach((b) => b.addEventListener('click', () => enviarTeste(b.textContent)));
         $('[data-nova-t]', fundo).addEventListener('click', () => nova('Conversa nova (protótipo)'));
       } }),
+    // Versão 15: os COMENTÁRIOS do Instagram — a gaveta com a lista e a resposta no Direct (a privada da Meta).
+    comentarios: () => ({ gaveta: true, t: 'Comentários do Instagram', foco: '[data-filtro-cm][aria-pressed="true"]', b: `<div data-gaveta-cm style="display:flex;flex-direction:column;gap:10px">${htmlGavetaCm()}</div>`, ok: null }),
+    'privada-cm': (b) => {
+      const k = COMENT.itens.find((x) => x.id === b.dataset.cm) || { id: '', usuario: '', texto: '' };
+      return { t: 'Responder no Direct', foco: '#txt-priv', b: `<p style="margin:0"><b>${esc(k.usuario)} comentou</b></p><p class="citacao">${esc(k.texto)}</p>
+        <div class="campo"><label for="txt-priv">Mensagem no Direct</label><textarea id="txt-priv" rows="4" maxlength="1000" placeholder="Ex.: Oi! Vi seu comentário. Me conta o número do pedido que eu resolvo por aqui."></textarea><span class="ajuda">Só quem comentou vê. Chega no Direct da pessoa (ou em "Solicitações", se ela não segue a loja), com o link do post.</span></div>
+        <p class="ajuda" style="margin:0">Regra do Instagram: <b>uma mensagem por comentário</b>, até 7 dias depois dele. Quando a pessoa responder, a conversa segue no Direct, como as outras.</p>`,
+        ok: 'Enviar no Direct', cl: 'pri',
+        conferir: (fundo) => {
+          const v = $('#txt-priv', fundo).value.trim();
+          let e = $('[data-erro-priv]', fundo);
+          if (!e) { e = document.createElement('p'); e.className = 'ajuda'; e.setAttribute('data-erro-priv', ''); e.setAttribute('role', 'alert'); e.style.cssText = 'margin:0;color:var(--crit);font-weight:700'; $('.meio', fundo).appendChild(e); }
+          e.textContent = v ? '' : 'Escreva a mensagem antes de enviar.';
+          return !!v;
+        },
+        ler: (fundo) => $('#txt-priv', fundo).value.trim(),
+        aoConfirmar: (v) => { k.privada = { t: v, por: 'equipe', h: 'agora' }; redesenharCm(k.id, '[data-cm-esconder]'); toast(`✅ Mensagem enviada no Direct de ${esc(k.usuario)} (protótipo)`); } };
+    },
     // "Corrigir" (no teste e nas conversas reais), "＋ Ensinar uma resposta" e "Editar": o mesmo diálogo.
     corrigir: (b) => {
       const ed = b.dataset.editar ? APRENDIDO.find((a) => a.id === b.dataset.editar) : null;
@@ -2176,7 +2332,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
         <div class="campo"><label for="cor-assunto">Assunto</label><select id="cor-assunto">${ASSUNTOS_K.map(([k, n]) => `<option value="${k}"${k === (ed ? ed.assunto : sugerirAssunto(q)) ? ' selected' : ''}>${n}</option>`).join('')}</select></div>
         <div class="campo"><label for="cor-perg">Quando o cliente perguntar</label><input id="cor-perg" type="text" maxlength="300" value="${esc(q)}" placeholder="Ex.: Vocês entregam no Recreio?"><span class="ajuda">Uma linha. Não precisa ser igual: o atendente usa a resposta quando a pergunta combinar.</span></div>
         <div class="campo"><label for="cor-resp">${sozinho ? 'O atendente responde' : 'O atendente deveria responder'}</label><textarea id="cor-resp" rows="4" maxlength="600" placeholder="Escreva como a loja responderia">${ed ? esc(r) : ''}</textarea><span class="ajuda">Até 600 letras. Preço, taxa, prazo e horário ele continua tirando do cadastro, mesmo que a resposta traga um valor.</span></div>
-        <p class="ajuda" style="margin:0">Vale para todos os canais do atendente virtual: WhatsApp, Direct e o chat do iFood e da 99. Só gerente e presidente ensinam.</p>`,
+        <p class="ajuda" style="margin:0">Vale para todos os canais do atendente virtual: WhatsApp, Direct, o chat do iFood e da 99 e os comentários do Instagram. Só gerente e presidente ensinam.</p>`,
         ok: ed ? 'Salvar' : 'Ensinar ao atendente', cl: 'pri',
         conferir: (fundo) => {
           const pq = $('#cor-perg', fundo).value.trim();
@@ -2205,7 +2361,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     // Versão 7: conectar o Instagram da loja — a pessoa entra com a conta do Instagram e autoriza; o resto é da Regem.
     'conectar-ig': () => ({ t: 'Conectar o Instagram da loja', b: `<ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px">
         <li>Abre a página do Instagram. Entre com a conta <b>profissional</b> da loja (comercial ou criador de conteúdo).</li>
-        <li>O Instagram mostra o que o Regem vai poder fazer: <b>ver o perfil</b> e <b>ler e responder as mensagens do Direct</b>. Toque em "Permitir".</li>
+        <li>O Instagram mostra o que o Regem vai poder fazer: <b>ver o perfil</b>, <b>ler e responder as mensagens do Direct</b> e <b>responder e esconder os comentários dos posts</b>. Toque em "Permitir".</li>
         <li>Pronto: volta para cá e esta tela mostra "Conectado". A partir daí, as conversas novas do Direct entram na fila.</li></ol>
       <p class="ajuda" style="margin:0">A loja não cria app nem guarda senha: o acesso fica com a Regem, cifrado, e é renovado sozinho. A conta pessoal do Instagram não serve — no app do Instagram, em Configurações › Tipo de conta, dá para mudar para conta profissional sem custo.</p>`,
       ok: 'Simular: autorizei no Instagram', cl: 'pri',
@@ -2213,6 +2369,8 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
         $('#ig-estado').textContent = 'Conectado: @burgerdapraca · desde agora, por Ana. As conversas novas do Direct entram na fila.';
         $('#ig-botao').innerHTML = '<button type="button" class="bt" data-dlg="desconectar-ig">Desconectar</button>';
         toast('✅ Instagram conectado: @burgerdapraca (protótipo)');
+        // versão 15: reconectar com a permissão nova libera os comentários
+        if (COMENT.perm === 'nao') { const s = $('[data-cm-perm="sim"]'); if (s) s.click(); }
       } }),
     'desconectar-ig': () => ({ t: 'Desconectar o Instagram da loja', b: `<p style="margin:0">As mensagens novas do Direct deixam de entrar na fila e a loja não responde mais pelo Regem — elas continuam no app do Instagram. Os casos que já estão na fila ficam, para resolver.</p>`,
       ok: 'Desconectar', cl: 'perigo',
@@ -2435,6 +2593,67 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     TESTE.disponivel = b.dataset.roboTeste === 'sim';
     $$('[data-robo-teste]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
   }));
+
+  // Versão 15: "💬 Comentários" no topo, as ações de cada comentário (na gaveta e no caso) e o estado da permissão.
+  $('#bt-comentarios').addEventListener('click', (e) => abrirDialogo('comentarios', e.currentTarget));
+  document.addEventListener('click', (e) => {
+    const r = e.target.closest('[data-cm-responder]');
+    if (r) {
+      const box = $('[data-resp-inline]', r.closest('.cm'));
+      const abrir = box.hidden;
+      box.hidden = !abrir; r.setAttribute('aria-expanded', String(abrir));
+      if (abrir) $('textarea', box).focus();
+      return;
+    }
+    const c = e.target.closest('[data-cm-cancelar]');
+    if (c) {
+      const art = c.closest('.cm');
+      $('[data-resp-inline]', art).hidden = true;
+      const rb = $('[data-cm-responder]', art); if (rb) { rb.setAttribute('aria-expanded', 'false'); rb.focus(); }
+      return;
+    }
+    const p = e.target.closest('[data-cm-publicar]');
+    if (p) {
+      const art = p.closest('.cm');
+      const txt = $('textarea', art).value.trim();
+      if (!txt) {
+        let er = $('[data-erro-cm]', art);
+        if (!er) { er = document.createElement('p'); er.className = 'ajuda'; er.setAttribute('data-erro-cm', ''); er.setAttribute('role', 'alert'); er.style.cssText = 'margin:0;color:var(--crit);font-weight:700'; $('[data-resp-inline]', art).appendChild(er); }
+        er.textContent = 'Escreva a resposta antes de publicar.';
+        $('textarea', art).focus();
+        return;
+      }
+      const k = COMENT.itens.find((x) => x.id === p.dataset.cmPublicar);
+      k.resp = { t: txt, por: 'equipe', quem: 'Ana', h: 'agora' };
+      redesenharCm(k.id, '[data-cm-esconder]');
+      toast('✅ Resposta publicada no post (protótipo)');
+      return;
+    }
+    const h = e.target.closest('[data-cm-esconder]');
+    if (h) {
+      const k = COMENT.itens.find((x) => x.id === h.dataset.cmEsconder);
+      k.escondido = !k.escondido;
+      redesenharCm(k.id, '[data-cm-esconder]');
+      toast(k.escondido ? '🙈 Comentário escondido: some do post para os outros; quem comentou continua vendo (protótipo)' : 'Comentário visível de novo no post (protótipo)');
+      return;
+    }
+    const f = e.target.closest('[data-filtro-cm]');
+    if (f) { COMENT.filtro = f.dataset.filtroCm; desenharGavetaCm(); const nf = $(`#camada [data-filtro-cm="${COMENT.filtro}"]`); if (nf) nf.focus(); return; }
+    const a = e.target.closest('[data-abrir-caso]');
+    if (a) { const id = a.dataset.abrirCaso; while (pilha.length) fecharDialogo(); irPara('pc'); abrirCaso(id, true); return; }
+    const ig = e.target.closest('[data-ir-aj-ig]');
+    if (ig) { while (pilha.length) fecharDialogo(); irPara('aj'); const g = $('#grupo-ig'); if (g) g.scrollIntoView({ block: 'start' }); return; }
+  });
+  $$('[data-cm-perm]').forEach((b) => b.addEventListener('click', () => {
+    COMENT.perm = b.dataset.cmPerm;
+    $$('[data-cm-perm]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    const ok = COMENT.perm !== 'nao';
+    $('#cm-estado').textContent = ok ? 'Liberados: os comentários dos posts aparecem no botão "💬 Comentários", no topo do Atendimento.' : 'Falta a permissão de comentários: o Instagram foi conectado antes de ela existir. Toque em "Reconectar" e permita os comentários.';
+    $('#cm-botao').innerHTML = ok ? '<span class="fixo">✅ Liberados</span>' : '<button type="button" class="bt pri" data-dlg="conectar-ig">Reconectar</button>';
+    const rob = $('[data-robo-cm]'); if (rob) { rob.disabled = !ok; if (!ok) rob.setAttribute('aria-checked', 'false'); }
+    contarCm(); desenharGavetaCm();
+  }));
+  contarCm();
 
   // ---------- versão 6: "O que aconteceu?" e NÚMEROS DO ATENDIMENTO ----------
   const brl = (c) => 'R$ ' + (c / 100).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');

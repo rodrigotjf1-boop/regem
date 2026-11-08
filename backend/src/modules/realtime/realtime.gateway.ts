@@ -280,6 +280,18 @@ export class RealtimeGateway
     });
   }
 
+  // Comentário de post do Instagram novo ou que mudou (F6, mig 384: chegou, o robô respondeu, a equipe respondeu, privada,
+  // escondido) → a lista "Comentários" relê. Só o aviso; o que a tela mostra vem da lista (que confere o perfil).
+  @OnEvent('instagram.comentario')
+  onComentarioDoInstagram(p: { tenantId: string; id: string; motivo?: string }) {
+    if (!this.server) return;
+    this.server.to(`tenant:${p.tenantId}`).emit('instagram:comentario', {
+      id: p.id,
+      motivo: p.motivo ?? null,
+      em: new Date().toISOString(),
+    });
+  }
+
   // Garçom lançou item numa mesa → avisa o PDV dono (e o tenant como fallback).
   @OnEvent('mesa.evento')
   onMesaEvento(p: {

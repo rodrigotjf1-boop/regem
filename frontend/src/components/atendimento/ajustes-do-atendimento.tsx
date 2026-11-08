@@ -63,12 +63,14 @@ const FORA_DO_HORARIO_PADRAO = 'Nossa equipe volta {volta}. Já deixei o seu rec
 // O PERFIL DO ATENDENTE POR CANAL (mig 380, F2; protótipo v11, grupo "Perfil do atendente virtual"): nos canais onde o
 // atendente virtual já fala. Nasce em "Como hoje" — nada muda até a loja escolher. Na `robo_config` da empresa.
 // F5 (protótipo v14): o chat do iFood e da 99 ganha o perfil — vale quando "Quem responde no chat" é o atendente virtual.
-type CanalDoPerfil = 'whatsapp' | 'direct' | 'chat';
+// F6 (protótipo v15): os comentários do Instagram ganham o perfil — vale quando "Robô responde comentários" está ligado.
+type CanalDoPerfil = 'whatsapp' | 'direct' | 'chat' | 'comentarios';
 type PerfilDoCanal = { perfil: string; foraDoHorario: string; jeito: string | null };
 const CANAIS_DO_PERFIL: { canal: CanalDoPerfil; nome: string; chave: string }[] = [
   { canal: 'whatsapp', nome: 'WhatsApp', chave: 'Wa' },
   { canal: 'direct', nome: 'Direct do Instagram', chave: 'Ig' },
   { canal: 'chat', nome: 'Chat do iFood e da 99', chave: 'Chat' },
+  { canal: 'comentarios', nome: 'Comentários do Instagram', chave: 'Cm' },
 ];
 const PERFIS: { v: string; rotulo: string; exemplo: string }[] = [
   { v: 'hoje', rotulo: 'Como hoje', exemplo: 'Como hoje — simpático e objetivo: "Oi, Joana! Entregamos no Centro, sim — a taxa é R$ 7,00. O cardápio está aqui 👇"' },
@@ -226,6 +228,9 @@ const paraValores = (r: Resposta): Valores => ({
         instagramRobo: r.instagram.conta.roboResponde === true,
         instagramCardapio: r.instagram.conta.cardapioId ?? '',
       }
+    : {}),
+  ...(r.instagram?.conta && r.instagram.comentarios
+    ? { instagramCmRobo: r.instagram.comentarios.roboResponde === true, instagramCmFila: r.instagram.comentarios.naFila !== false }
     : {}),
   ...(r.gestorWa
     ? {
@@ -411,7 +416,7 @@ export function AjustesDoAtendimento() {
   };
   const grupoDoPerfil: GrupoDeAjustes = {
     titulo: 'Perfil do atendente virtual',
-    nota: 'Sempre vale: o perfil muda o jeito de falar, nunca as regras — o robô nunca inventa preço, prazo, taxa nem promoção; segue as regras de cada canal; no máximo 1 emoji por mensagem; cliente chateado: o robô fica sério e chama a equipe. O perfil do chat do iFood e da 99 vale quando "Quem responde no chat" é o atendente virtual (grupo "iFood e 99 · chat pela ponte"); Messenger e comentários ganham o perfil quando o atendente virtual chegar neles.',
+    nota: 'Sempre vale: o perfil muda o jeito de falar, nunca as regras — o robô nunca inventa preço, prazo, taxa nem promoção; segue as regras de cada canal; no máximo 1 emoji por mensagem; cliente chateado: o robô fica sério e chama a equipe. O perfil do chat do iFood e da 99 vale quando "Quem responde no chat" é o atendente virtual (grupo "iFood e 99 · chat pela ponte"); o dos comentários do Instagram, quando "Robô responde comentários" está ligado (grupo "Instagram · Direct e comentários"). O Messenger ganha o perfil quando o atendente virtual chegar nele.',
     itens: CANAIS_DO_PERFIL.flatMap(({ nome, chave }) => [
       {
         id: `perfil${chave}`,
@@ -899,8 +904,8 @@ export function AjustesDoAtendimento() {
   const cardapiosDoRobo = ig?.cardapios ?? [];
   const grupoDoInstagram: GrupoDeAjustes | null = ig
     ? {
-        titulo: 'Instagram Direct',
-        nota: 'Sempre vale (regras do Instagram e do robô): a loja só responde a quem escreveu primeiro · até 24 h depois da última mensagem do cliente · as mensagens seguem no app do Instagram também · o acesso fica com a Regem, cifrado, e é renovado sozinho · o robô fica quieto enquanto a conversa está com alguém (caso aberto ou resposta da loja pelo app do Instagram) · se o robô não responder em 3 min, a conversa vira caso.',
+        titulo: 'Instagram · Direct e comentários',
+        nota: 'Sempre vale (regras do Instagram e do robô): a loja só responde a quem escreveu primeiro · até 24 h depois da última mensagem do cliente · as mensagens seguem no app do Instagram também · o acesso fica com a Regem, cifrado, e é renovado sozinho · o robô fica quieto enquanto a conversa está com alguém (caso aberto ou resposta da loja pelo app do Instagram) · se o robô não responder em 3 min, a conversa vira caso · nos comentários: uma resposta da loja por comentário, uma mensagem no Direct por comentário (até 7 dias depois dele), nada se apaga sozinho e os comentários da própria loja e das lives ficam de fora.',
         itens: [
           {
             id: 'instagramConta',
@@ -940,6 +945,42 @@ export function AjustesDoAtendimento() {
                   ajuda: 'Com o robô desligado: cada conversa nova do Direct vira caso, com o perfil do cliente. Com o robô ligado: vira caso só o que ele passa para a equipe ou quando alguém assume a conversa. A resposta sai pelo Instagram da loja. Desligado (e sem o robô), as mensagens continuam só no app do Instagram.',
                   palavras: 'instagram direct fila caso mensagens',
                 },
+                // F6 (mig 384; protótipo v15): os COMENTÁRIOS dos posts. Sem a permissão nova (conta conectada antes), a
+                // linha pede para reconectar (o botão "Reconectar" fica na linha da conta, acima) e o robô não liga.
+                {
+                  id: 'instagramCmEstado',
+                  rotulo: 'Comentários dos posts',
+                  tipo: 'livre' as const,
+                  ajuda: ig.comentarios?.permitido
+                    ? 'Liberados: os comentários dos posts aparecem no botão "💬 Comentários", no topo do Atendimento.'
+                    : 'Falta a permissão de comentários: o Instagram foi conectado antes de ela existir. Toque em "Reconectar" (acima) e permita os comentários.',
+                  palavras: 'instagram comentários comentario post posts permissão reconectar',
+                  desenhar: () => (
+                    <span className={`text-sm font-semibold ${ig.comentarios?.permitido ? 'text-foreground' : 'text-destructive'}`}>
+                      {ig.comentarios?.permitido ? '✅ Liberados' : 'Precisa reconectar'}
+                    </span>
+                  ),
+                },
+                ...(ig.comentarios?.permitido
+                  ? [
+                      {
+                        id: 'instagramCmRobo',
+                        rotulo: 'Robô responde comentários',
+                        tipo: 'chave' as const,
+                        ajuda: `O mesmo atendente virtual responde no post, em 1 ou 2 frases: agradece o elogio e tira a dúvida simples (horário, cardápio, entrega). Pedido, reclamação ou dado pessoal ele não trata em público: manda uma mensagem no Direct da pessoa e chama a equipe. Ofensivo ou propaganda ele não responde (a equipe decide esconder). Até 30 respostas por hora.${
+                          ig.roboDisponivel === false ? ' A Regem ainda está ligando o robô: até lá, os comentários chegam todos em "Sem resposta".' : ''
+                        }`,
+                        palavras: 'instagram comentários robô robo responder automático ia post',
+                      },
+                      {
+                        id: 'instagramCmFila',
+                        rotulo: 'Comentário que pede a equipe vira caso',
+                        tipo: 'chave' as const,
+                        ajuda: 'Quando o robô chama a equipe por causa de um comentário, ele vira caso na fila, com o post e o resumo. Desligado, a pessoa recebe a mensagem no Direct e o comentário fica só na lista "💬 Comentários".',
+                        palavras: 'instagram comentários fila caso equipe',
+                      },
+                    ]
+                  : []),
               ]
             : []),
         ],
@@ -978,7 +1019,12 @@ export function AjustesDoAtendimento() {
     let alterado: { som?: string; roboMuda?: boolean; roboCobraPix?: boolean } | null = null;
     const gestorWa: Record<string, boolean | number | null> = {};
     let copiloto: { ligado: boolean } | null = null;
-    let instagram: { filaLigada?: boolean; roboResponde?: boolean; cardapioId?: string | null } | null = null;
+    let instagram: {
+      filaLigada?: boolean;
+      roboResponde?: boolean;
+      cardapioId?: string | null;
+      comentarios?: { roboResponde?: boolean; naFila?: boolean };
+    } | null = null;
     const ponte: {
       ligada?: boolean;
       roboResponde?: boolean;
@@ -1040,7 +1086,12 @@ export function AjustesDoAtendimento() {
         instagram = { ...(instagram ?? {}), cardapioId: String(valores[k] ?? '') || null };
         continue;
       }
-      if (k === 'instagramConta') continue; // a conta muda pelos botões dela, não pelo salvar
+      if (k === 'instagramCmRobo' || k === 'instagramCmFila') {
+        const campo = k === 'instagramCmRobo' ? 'roboResponde' : 'naFila';
+        instagram = { ...(instagram ?? {}), comentarios: { ...(instagram?.comentarios ?? {}), [campo]: valores[k] === true } };
+        continue;
+      }
+      if (k === 'instagramConta' || k === 'instagramCmEstado') continue; // mudam pelos botões da conta, não pelo salvar
       if (DO_ASSUNTO[k]) {
         // Só o campo que mudou, do assunto dele; o texto em branco volta a null (o padrão).
         const [assunto, campo] = DO_ASSUNTO[k];

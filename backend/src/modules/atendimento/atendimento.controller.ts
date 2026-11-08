@@ -237,8 +237,9 @@ export class AtendimentoController {
   // "Retirada · cliente chegou" (mig 354): o "Cheguei" mora no `cardapio_config` da LOJA EM USO (sem linha dela, a da
   // empresa) — sincroniza com o servidor da loja, que lê o aviso e o "avisar de novo" de lá.
   // "Horário da equipe" (mig 379): `equipe` (da empresa, na `robo_config`) e `equipeOpcoes` (as escolhas e o texto padrão).
-  // "Perfil do atendente virtual" (mig 380): `perfis` (sempre WhatsApp, Direct e — F5 — o chat do iFood e da 99, com os
-  // padrões) e `perfisOpcoes`. A ponte: `ponte.roboModo` (F5, mig 383 — quem responde no chat: regras ou atendente).
+  // "Perfil do atendente virtual" (mig 380): `perfis` (sempre WhatsApp, Direct, — F5 — o chat do iFood e da 99 e — F6 — os
+  // comentários do Instagram, com os padrões) e `perfisOpcoes`. "Instagram Direct" (`instagram`): + `comentarios` (F6, mig
+  // 384 — `permitido`, `roboResponde`, `naFila`). A ponte: `ponte.roboModo` (F5, mig 383 — quem responde no chat: regras ou atendente).
   // "Assuntos que não são pedido" (mig 381): `assuntos` (sempre fornecedor, vaga e parceria, com os padrões) e
   // `assuntosOpcoes` (os assuntos, os modos, o limite do texto e os textos padrão).
   @Get('ajustes')
@@ -277,7 +278,7 @@ export class AtendimentoController {
       equipe,
       equipeOpcoes: { antesMin: MINUTOS_ANTES_DA_EQUIPE, depoisMin: MINUTOS_DEPOIS_DA_EQUIPE, textoForaPadrao: FRASE_FORA_PADRAO, textoForaMax: TEXTO_FORA_MAX },
       perfis,
-      // `rotulos` (F5): o nome de cada canal na tela — o `chat` é "Chat do iFood e da 99".
+      // `rotulos` (F5): o nome de cada canal na tela — o `chat` é "Chat do iFood e da 99"; `comentarios` (F6), "Comentários do Instagram".
       perfisOpcoes: { canais: CANAIS_DO_PERFIL, rotulos: ROTULO_DO_CANAL, perfis: PERFIS_DO_ATENDENTE, foraDoHorario: PERFIS_FORA_DO_HORARIO, jeitoMax: JEITO_MAX },
       assuntos,
       assuntosOpcoes: {

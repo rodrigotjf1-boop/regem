@@ -2,7 +2,7 @@ import { Body, Controller, Get, Headers, HttpCode, Post, Query } from '@nestjs/c
 import { Throttle } from '@nestjs/throttler';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { CABECALHO_SEGREDO_ROBO } from '../../common/segredo-robo';
-import { CABECALHO_CONVERSA, ehChaveDeTeste, ehChaveDoChat } from '../../common/conversa-do-robo';
+import { CABECALHO_CONVERSA, ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario } from '../../common/conversa-do-robo';
 import { RoboPedidoService } from './robo-pedido.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -38,11 +38,14 @@ export class RoboPedidoController {
    * teste = null (segue o caminho de sempre).
    * O CHAT DO iFOOD E DA 99 (chave `chat:` na instância, F5 — mig 383): idem — no chat da plataforma o cliente já tem o
    * pedido; a recusa de regra (200, `ok: false`, `motivo: 'chat_da_plataforma'`) diz isso ao robô.
+   * Os COMENTÁRIOS dos posts do Instagram (chave `cm:` na instância, F6 — mig 384): idem — no comentário público não se monta
+   * pedido; a recusa de regra (200, `ok: false`, `motivo: 'comentario_do_instagram'`) diz isso ao robô.
    */
   private recusaNoTeste(segredo: string | undefined, q: any, corpo?: any) {
     const instancia = String(q?.instancia ?? corpo?.instancia ?? '');
     if (String(q?.phoneNumberId ?? corpo?.phoneNumberId ?? '').trim()) return null;
     if (ehChaveDoChat(instancia)) return this.service.pedidoNoChat(String(segredo ?? '').trim(), instancia);
+    if (ehChaveDoComentario(instancia)) return this.service.pedidoNoComentario(String(segredo ?? '').trim(), instancia);
     if (!ehChaveDeTeste(instancia)) return null;
     return this.service.pedidoNoTeste(String(segredo ?? '').trim(), instancia);
   }

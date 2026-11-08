@@ -247,6 +247,8 @@ export const ROTULO_DO_TIPO: Record<string, string> = {
   chat: 'Mensagem no chat',
   // A conversa do Direct da loja (mig 377).
   instagram: 'Mensagem no Direct',
+  // O comentário num post em que o atendente virtual chamou a equipe (F6, mig 384).
+  instagram_comentario: 'Comentário no post',
   // Os recados para o responsável (mig 381): assuntos que não são pedido.
   fornecedor: 'Fornecedor',
   vaga: 'Vaga de emprego',
@@ -274,6 +276,11 @@ export function tituloDoCaso(c: CasoDaFila): string {
   if (c.tipo === 'instagram') {
     const u = typeof c.detalhe?.instagram?.usuario === 'string' ? `@${c.detalhe.instagram.usuario}` : '';
     return [quem, u && u !== quem ? u : '', 'Direct'].filter(Boolean).join(' · ');
+  }
+  // O comentário no post (F6): o @ de quem comentou (o Instagram não manda nome nem telefone).
+  if (c.tipo === 'instagram_comentario') {
+    const u = typeof c.detalhe?.comentario?.autorUsuario === 'string' ? `@${c.detalhe.comentario.autorUsuario}` : '';
+    return [u || quem, 'comentário no post'].filter(Boolean).join(' · ');
   }
   const plataforma = c.canal === 'ifood' ? 'iFood' : c.canal === '99food' ? '99Food' : '';
   const numero = c.pedidoNaPlataforma && plataforma ? c.pedidoNaPlataforma : c.pedidoNumero;

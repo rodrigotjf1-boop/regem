@@ -60,7 +60,7 @@ export function OQueAprendeu({
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-xs text-secondary-foreground" data-conta-aprendido>
-          {itens.length} de {LIMITE_DO_CONHECIMENTO} · vale para o WhatsApp, o Direct e o chat do iFood e da 99
+          {itens.length} de {LIMITE_DO_CONHECIMENTO} · vale para o WhatsApp, o Direct, o chat do iFood e da 99 e os comentários do Instagram
         </span>
         <Button type="button" variant="outline" size="sm" onClick={() => setEditando('novo')} disabled={itens.length >= LIMITE_DO_CONHECIMENTO}>
           ＋ Ensinar uma resposta

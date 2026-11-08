@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Os comentários do Instagram — F6 (08/11; mig 384 `@cloud-only` — tabela nova `instagram_comentario` e
+  `instagram_conta.comentarios_robo`/`comentarios_fila`; mexe em `backend/edge/sync-daemon.mjs` SÓ na lista `SO_NUVEM`).**
+  Na NUVEM com o merge (o aviso da Meta, o robô e a Graph moram lá). **No `.zip` 1.30.13 e no próximo `.exe`:** a
+  classificação de `instagram_comentario` no `sync-daemon` e a tela do servidor da loja (o "💬 Comentários" pede à nuvem
+  pelas portas novas `instagram-comentarios-da-loja`).
+
 - **O atendente virtual no chat do iFood e da 99 — F5 (08/11; mig 383 `@cloud-only` — só colunas novas em tabelas que já
   são SO_NUVEM: `robo_config.chat_robo_modo`, `chat_plataforma_msg.robo_ia` e `robo_entregue_em`,
   `atendente_teste.plataforma`; sem `edge/`, sem mudança no `sync-daemon`).** Na NUVEM com o merge (o robô, a ponte do
