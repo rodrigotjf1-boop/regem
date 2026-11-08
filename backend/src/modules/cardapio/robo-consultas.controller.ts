@@ -78,9 +78,13 @@ export class RoboConsultasController {
     @Query('secret') secret?: string,
     @Headers(CABECALHO_SEGREDO_ROBO) segredo?: string,
   ) {
-    const { menu } = await this.cardapio(segredoDaChamada(segredo, secret), instancia, phoneNumberId);
+    const { token, menu } = await this.cardapio(segredoDaChamada(segredo, secret), instancia, phoneNumberId);
+    const loja = (menu as any)?.loja?.nome ?? null;
+    // O perfil do atendente virtual (mig 380): o do canal — o de fora do horário quando a equipe não está — e o jeito da
+    // loja, logo depois da abertura. Falha ao ler = as instruções de hoje (o serviço nunca rejeita).
     // O Direct do Instagram (mig 378): a chave `ig:` recebe as instruções do Direct — sem as ferramentas de telefone.
-    if (ehChaveDoDirect(instancia)) return instrucoesDoDirect({ loja: (menu as any)?.loja?.nome ?? null }, fluxo);
-    return instrucoesDoRobo({ loja: (menu as any)?.loja?.nome ?? null }, fluxo);
+    if (ehChaveDoDirect(instancia))
+      return instrucoesDoDirect({ loja, jeito: await this.service.jeitoDoAtendenteDoRobo(token, 'direct') }, fluxo);
+    return instrucoesDoRobo({ loja, jeito: await this.service.jeitoDoAtendenteDoRobo(token, 'whatsapp') }, fluxo);
   }
 }

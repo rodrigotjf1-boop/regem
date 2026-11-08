@@ -8,6 +8,7 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ehServidorLocal } from '../../common/modo';
 import { exigirBooleano } from '../../common/exigir';
 import { AJUSTE_DA_EQUIPE_PADRAO, type AjusteDaEquipe, ajusteDaLinha, inicioDoCasoSql, lerAjusteDaEquipe, recadoAtivoSql } from './horario-da-equipe';
+import { type PerfisDoAtendente, perfisDaEmpresa, salvarPerfisDoAtendente } from '../cardapio/perfis-do-atendente';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -214,6 +215,23 @@ export class FilaEAvisosService {
         detalhe: { de: antes[k], para: depois[k] },
       });
     return this.ajusteDaEquipe(user.tenantId);
+  }
+
+  /**
+   * "Perfil do atendente virtual" (mig 380; protótipo versão 11): o perfil de cada canal (WhatsApp e Direct), o de fora do
+   * horário da equipe e o jeito da loja. Da empresa; sempre os dois canais, com os padrões ("Como hoje") no que faltar —
+   * num banco sem a 380 (ou sem a `robo_config`), os padrões: o resto dos ajustes não cai por causa deste grupo.
+   */
+  perfisDoAtendente(tenantId: string): Promise<PerfisDoAtendente> {
+    return perfisDaEmpresa(this.db, tenantId);
+  }
+
+  /**
+   * Salva o que veio de "Perfil do atendente virtual" (V16: ausente mantém; cada escolha só entre as opções). Grava SÓ os
+   * campos que mudaram, mesclados dentro do jsonb (V82); cada mudança fica na auditoria (`atendente_perfil_alterado`).
+   */
+  salvarPerfis(user: AuthUser, dto: unknown): Promise<PerfisDoAtendente> {
+    return salvarPerfisDoAtendente(this.db, user, dto, this.auditoria ? (e) => this.auditoria!.registrar(e as any) : undefined);
   }
 
   /**

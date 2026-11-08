@@ -123,6 +123,7 @@ descrever('Robô no Direct do Instagram (Postgres + Meta e n8n de mentira)', () 
       '377_instagram_direct.sql',
       '378_instagram_robo_no_direct.sql',
       '379_horario_da_equipe.sql',
+      '380_perfis_do_atendente.sql', // o perfil do atendente nas instruções do Direct (ERR-273)
     ])
       await aplicar(m);
     servidor = createServer((req, res) => {
@@ -411,6 +412,32 @@ descrever('Robô no Direct do Instagram (Postgres + Meta e n8n de mentira)', () 
       expect(w.canal).toBeUndefined();
       expect(w.texto).toContain('no WhatsApp');
     } finally {
+      await q(`update cardapio_config set wa_cloud_phone_id = null where id = $1`, [CARD]);
+    }
+  });
+
+  it('o perfil do atendente do Direct (mig 380) entra nas instruções do Direct, logo depois da abertura; o do WhatsApp fica no WhatsApp', async () => {
+    const consultas = new RoboConsultasController(cardapio);
+    await q(`insert into robo_config (tenant_id, atendente_perfis) values ($1, $2::jsonb) on conflict (tenant_id) do update set atendente_perfis = excluded.atendente_perfis`, [
+      T,
+      JSON.stringify({ direct: { perfil: 'objetivo', jeito: 'assine como Burger da Praça' }, whatsapp: { perfil: 'gentil' } }),
+    ]);
+    await q(`update cardapio_config set wa_cloud_phone_id = 'PID-DIRECT-3' where id = $1`, [CARD]);
+    try {
+      const r: any = await consultas.instrucoes('1', `ig:${CONTA}`, '', undefined, SENHA);
+      expect(r.canal).toBe('instagram');
+      expect(
+        r.texto.startsWith(
+          'Você atende os clientes da Burger da Praça no Direct do Instagram. Converse como uma pessoa da equipe.\n\nPERFIL DE ATENDIMENTO (escolhido pela loja): OBJETIVO.',
+        ),
+      ).toBe(true);
+      expect(r.texto).toContain('JEITO DA LOJA (escrito pela loja, siga quando não contrariar as regras abaixo): assine como Burger da Praça');
+      expect(r.texto).not.toContain('GENTIL');
+      const w: any = await consultas.instrucoes('1', '', 'PID-DIRECT-3', undefined, SENHA);
+      expect(w.texto).toContain('(escolhido pela loja): GENTIL.');
+      expect(w.texto).not.toContain('OBJETIVO');
+    } finally {
+      await q(`update robo_config set atendente_perfis = '{}'::jsonb where tenant_id = $1`, [T]);
       await q(`update cardapio_config set wa_cloud_phone_id = null where id = $1`, [CARD]);
     }
   });

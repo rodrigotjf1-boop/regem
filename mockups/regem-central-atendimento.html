@@ -68,6 +68,14 @@
    do Direct vira recado sem tocar; o cliente fica sabendo quando a equipe volta. Na abertura, os recados entram na fila pela
    ordem de chegada, com o selo "🌙 recado das 02:14", e o sino toca UMA vez ("3 recados da noite"). Pedido ainda em
    andamento conta como horário (a equipe ainda está trabalhando nele). Situação nova "Para a abertura".
+   VERSÃO 11 (07/11/2026, F2 do atendente virtual — pedido do dono: "perfis diferentes de atendimento… profissional, cordial
+   e gentil, e outros disponíveis", e depois "o perfil pode ser para cada tipo de ação: WhatsApp, Direct, Messenger do
+   Facebook, comentários"): O PERFIL DO ATENDENTE POR CANAL. Grupo novo "Perfil do atendente virtual": em cada canal
+   onde o atendente virtual já fala (WhatsApp e Direct), o perfil (Como hoje, Profissional, Cordial, Gentil, Descontraído,
+   Objetivo, Acolhedor — cada um com um exemplo da mesma resposta), o perfil de FORA do horário da equipe (ou "o mesmo") e o
+   "jeito da loja" (texto curto, opcional). Os outros canais (chat do iFood e da 99, Messenger, comentários) ganham o perfil
+   quando o atendente virtual chegar neles. Nasce em "Como hoje": nada muda até a loja escolher. O perfil muda o jeito de
+   falar, nunca as regras (preço, prazo, contato fora da plataforma, cliente chateado = sério e chama a equipe).
    O que a tela faz:
    (1) uma FILA só com tudo o que precisa de uma pessoa: chamado do robô, disputa do iFood, pedido de cancelamento ou
        reembolso da 99, cancelamento pedido no cardápio e a resposta ao "sem contato". A conversa que o robô atende
@@ -629,7 +637,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     <main id="v-aj" hidden>
       <div class="trilha">Delivery › Configurações › Operação</div>
       <h1>Atendimento</h1>
-      <p class="resumo">37 ajustes em 8 grupos · item novo no grupo "Operação", ao lado de "Robô de atendimento" · grupos novos: "Horário da equipe" (versão 10), "Gerente no WhatsApp", "Copiloto", "Instagram Direct" e "iFood e 99 · chat pela ponte"</p>
+      <p class="resumo">45 ajustes em 9 grupos · item novo no grupo "Operação", ao lado de "Robô de atendimento" · grupos novos: "Horário da equipe" (versão 10), "Perfil do atendente virtual" (versão 11), "Gerente no WhatsApp", "Copiloto", "Instagram Direct" e "iFood e 99 · chat pela ponte"</p>
       <div class="filtros" style="grid-template-columns:minmax(0,1fr)"><div class="campo"><label for="busca-aj">Buscar ajuste</label><input id="busca-aj" type="search" placeholder="Ex.: 99, disputa, som"></div></div>
 
       <!-- Versão 10: o horário da equipe. O robô atende 24 h; a pessoa só entra no horário. Nasce em "Sempre" (como hoje). -->
@@ -645,6 +653,29 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
           <div class="linha-txt"><input type="text" aria-label="O que o robô diz fora do horário" value="Nossa equipe volta {volta}. Já deixei o seu recado aqui e respondemos assim que começarmos." data-aj></div></div>
         <div class="aj" data-so-horario><div><span class="rot-aj">Sempre vale</span><span class="ajuda">Não se desliga: ninguém é chamado quando não há ninguém.</span></div>
           <div class="ctrl"><span class="fixo">Fora do horário nada toca, o gerente não é avisado (nem pelo WhatsApp) e o "3 min sem resposta" do Direct vira recado, sem tocar · o robô continua respondendo o que sabe (cardápio, horário, taxa, situação do pedido) · o recado guarda a conversa e o resumo · no chat do iFood e da 99 a frase segue a trava da plataforma</span></div></div>
+      </section>
+
+      <!-- Versão 11 (F2): o PERFIL do atendente virtual, POR CANAL (pedido do dono: "perfil para atendimento no WhatsApp,
+           para responder Direct, para o Messenger do Facebook, para responder comentários"), com um perfil opcional para fora
+           do horário da equipe. Nasce em "Como hoje": nada muda até a loja escolher. -->
+      <section class="grupo" data-grupo id="grupo-perfil">
+        <header><h3>Perfil do atendente virtual <span class="novo-t">NOVO</span></h3><span>8 ajustes</span></header>
+        <div class="aj"><div><span class="rot-aj">WhatsApp · perfil</span><span class="ajuda" data-exemplo-de="wa"></span></div>
+          <div class="ctrl"><select aria-label="Perfil do atendente no WhatsApp" data-aj data-perfil="wa"><option value="hoje">Como hoje</option><option value="profissional">Profissional</option><option value="cordial" selected>Cordial</option><option value="gentil">Gentil</option><option value="descontraido">Descontraído</option><option value="objetivo">Objetivo</option><option value="acolhedor">Acolhedor</option></select></div></div>
+        <div class="aj"><div><span class="rot-aj">WhatsApp · fora do horário</span><span class="ajuda">O perfil quando a equipe não está (o horário da equipe, acima). "O mesmo" mantém o de cima.</span></div>
+          <div class="ctrl"><select aria-label="Perfil do atendente no WhatsApp fora do horário" data-aj><option value="mesmo">O mesmo</option><option value="profissional">Profissional</option><option value="cordial">Cordial</option><option value="gentil">Gentil</option><option value="descontraido">Descontraído</option><option value="objetivo" selected>Objetivo</option><option value="acolhedor">Acolhedor</option></select></div></div>
+        <div class="aj"><div><span class="rot-aj">WhatsApp · jeito da loja</span><span class="ajuda">Opcional, até 300 letras. Ex.: "trate o cliente por você; assine como Burger da Praça; nunca prometa brinde". Vem depois do perfil.</span></div>
+          <div class="linha-txt"><input type="text" aria-label="Jeito da loja no WhatsApp" placeholder="Como a loja gosta de falar (opcional)" data-aj></div></div>
+        <div class="aj"><div><span class="rot-aj">Direct do Instagram · perfil</span><span class="ajuda" data-exemplo-de="ig"></span></div>
+          <div class="ctrl"><select aria-label="Perfil do atendente no Direct" data-aj data-perfil="ig"><option value="hoje">Como hoje</option><option value="profissional">Profissional</option><option value="cordial">Cordial</option><option value="gentil">Gentil</option><option value="descontraido" selected>Descontraído</option><option value="objetivo">Objetivo</option><option value="acolhedor">Acolhedor</option></select></div></div>
+        <div class="aj"><div><span class="rot-aj">Direct do Instagram · fora do horário</span><span class="ajuda">O perfil quando a equipe não está. "O mesmo" mantém o de cima.</span></div>
+          <div class="ctrl"><select aria-label="Perfil do atendente no Direct fora do horário" data-aj><option value="mesmo" selected>O mesmo</option><option value="profissional">Profissional</option><option value="cordial">Cordial</option><option value="gentil">Gentil</option><option value="descontraido">Descontraído</option><option value="objetivo">Objetivo</option><option value="acolhedor">Acolhedor</option></select></div></div>
+        <div class="aj"><div><span class="rot-aj">Direct do Instagram · jeito da loja</span><span class="ajuda">Opcional, até 300 letras. Vem depois do perfil.</span></div>
+          <div class="linha-txt"><input type="text" aria-label="Jeito da loja no Direct" placeholder="Como a loja gosta de falar (opcional)" data-aj></div></div>
+        <div class="aj"><div><span class="rot-aj">Os outros canais</span><span class="ajuda">Cada um ganha o perfil quando o atendente virtual chegar nele.</span></div>
+          <div class="ctrl"><span class="fixo">Chat do iFood e da 99: hoje o robô usa frases prontas (a regra da plataforma) — o perfil chega com a F5 · Messenger do Facebook e respostas aos comentários do Instagram: chegam nas próximas fases, já com o perfil de cada um</span></div></div>
+        <div class="aj"><div><span class="rot-aj">Sempre vale</span><span class="ajuda">Não se desliga: o perfil muda o jeito de falar, nunca as regras.</span></div>
+          <div class="ctrl"><span class="fixo">O robô nunca inventa preço, prazo, taxa nem promoção · segue as regras de cada canal (no Direct, sem telefone; no chat das plataformas, sem contato fora) · no máximo 1 emoji por mensagem, em qualquer perfil · cliente chateado: o robô fica sério e chama a equipe, em qualquer perfil</span></div></div>
       </section>
 
       <section class="grupo" data-grupo>
@@ -1004,7 +1035,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 
 <!-- ============ NOTAS ============ -->
 <section id="v-notas" hidden class="notas" aria-label="Notas do protótipo">
-  <div class="trilha">Notas do protótipo · 02/11/2026 · versão 10 em 07/11/2026</div>
+  <div class="trilha">Notas do protótipo · 02/11/2026 · versão 11 em 07/11/2026</div>
   <h1>Atendimento: o que cada parte faz</h1>
 
   <div class="cartao">
@@ -1105,6 +1136,20 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <li><b>Confirmação em dois toques</b>: a resposta ao iFood e à 99 não volta atrás.</li>
       <li>Na disputa, pelo WhatsApp só <b>Aceitar e Recusar</b>; a proposta (crédito, outro valor, mais tempo) fica no Regem, pelo link.</li>
     </ol>
+  </div>
+
+  <div class="cartao">
+    <h3>Perfil do atendente virtual · versão 11 (07/11/2026)</h3>
+    <p>Pedido do dono: perfis diferentes de atendimento — profissional, cordial, gentil e outros —, um para cada canal (WhatsApp, Direct, Messenger do Facebook, comentários) e um para fora do horário. É a F2 do atendente virtual. Escolhas recomendadas, já aplicadas:</p>
+    <ul>
+      <li><b>Sete perfis</b>: Como hoje (o jeito atual: simpático e objetivo), Profissional, Cordial, Gentil, Descontraído, Objetivo e Acolhedor. Cada um mostra a mesma resposta ("Vocês entregam no Centro?") no jeito dele, para a loja escolher vendo.</li>
+      <li><b>Por canal</b>: WhatsApp e Direct agora (é onde o atendente virtual já fala). Chat do iFood e da 99, Messenger e comentários entram com o perfil quando o atendente chegar neles — o chat das plataformas hoje usa frases prontas.</li>
+      <li><b>Fora do horário</b> da equipe (o grupo acima): um perfil próprio ou "o mesmo". Ex.: Cordial de dia, Objetivo à noite.</li>
+      <li><b>Jeito da loja</b>: um texto curto e opcional por canal (até 300 letras), que vem depois do perfil — "trate por você", "assine como…", "nunca prometa brinde".</li>
+      <li><b>Nasce em "Como hoje"</b>: nada muda até a loja escolher. O protótipo mostra escolhas feitas para dar o exemplo.</li>
+      <li><b>O perfil muda o jeito, nunca as regras</b>: preço, prazo e taxa só do cadastro; as travas de cada canal; no máximo 1 emoji; cliente chateado = o robô fica sério e chama a equipe, em qualquer perfil.</li>
+      <li>As instruções são servidas pelo Regem ao robô (como hoje): muda o jeito sem mexer no n8n.</li>
+    </ul>
   </div>
 
   <div class="cartao">
@@ -1993,6 +2038,16 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   }
 
   // ---------- ajustes ----------
+  // Versão 11: o mesmo atendimento em cada perfil (a pergunta "Vocês entregam no Centro?"). No máximo 1 emoji, sempre.
+  const EXEMPLO_DO_PERFIL = {
+    hoje: 'Como hoje — simpático e objetivo: "Oi, Joana! Entregamos no Centro, sim — a taxa é R$ 7,00. O cardápio está aqui 👇"',
+    profissional: 'Exemplo: "Olá, Joana. Entregamos no Centro; a taxa é de R$ 7,00. Segue o link do cardápio."',
+    cordial: 'Exemplo: "Oi, Joana! Tudo bem? Entregamos no Centro, sim — a taxa é R$ 7,00. Fique à vontade para escolher pelo cardápio 😊"',
+    gentil: 'Exemplo: "Oi, Joana, que bom falar com você! Entregamos no Centro, sim, com taxa de R$ 7,00. Se quiser ajuda para escolher, é só me chamar."',
+    descontraido: 'Exemplo: "Opa, Joana! O Centro tá no nosso mapa, sim 🙌 Taxa de R$ 7,00. Bora escolher?"',
+    objetivo: 'Exemplo: "Entregamos no Centro. Taxa: R$ 7,00. Cardápio: (link)."',
+    acolhedor: 'Exemplo: "Oi, Joana! Que bom que você chamou. Entregamos no Centro, sim, a taxa é R$ 7,00 — e qualquer dúvida no pedido, conte comigo."',
+  };
   const inicial = new Map();
   const valorDe = (el) => (el.getAttribute('role') === 'switch' ? el.getAttribute('aria-checked') : el.value);
   $$('#v-aj [data-aj]').forEach((el) => inicial.set(el, valorDe(el)));
@@ -2004,6 +2059,8 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     // Versão 10: os ajustes do horário só aparecem com "No horário da loja".
     const noHorario = $('#equipe-atende').value === 'loja';
     $$('#v-aj [data-so-horario]').forEach((a) => { a.hidden = !noHorario; });
+    // Versão 11: o exemplo do perfil escolhido — a mesma pergunta ("Vocês entregam no Centro?") em cada jeito de falar.
+    $$('#v-aj [data-perfil]').forEach((s) => { const e = $(`#v-aj [data-exemplo-de="${s.dataset.perfil}"]`); if (e) e.textContent = EXEMPLO_DO_PERFIL[s.value] || ''; });
     const lig = $('#aj99').getAttribute('aria-checked') === 'true';
     $('#aj99-ajuda').textContent = lig
       ? 'Ligado (padrão): o pedido vira caso na fila; se ninguém responder em 5 min, a 99 recusa sozinha (regra da 99). Desligado: o Regem aceita na hora e avisa a equipe.'
@@ -2014,6 +2071,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   $$('#v-aj input[data-aj]').forEach((s) => s.addEventListener('input', atualizarBarra));
   $('#desfazer').addEventListener('click', () => { inicial.forEach((v, el) => { if (el.getAttribute('role') === 'switch') el.setAttribute('aria-checked', v); else el.value = v; }); atualizarBarra(); });
   $('#salvar').addEventListener('click', () => { inicial.forEach((_, el) => inicial.set(el, valorDe(el))); atualizarBarra(); toast('✅ Ajustes do atendimento salvos (protótipo)'); });
+  atualizarBarra(); // versão 11: os exemplos dos perfis já aparecem ao abrir
   $('#busca-aj').addEventListener('input', (e) => {
     const q = e.target.value.trim().toLowerCase();
     $$('#v-aj .grupo').forEach((g) => { let algum = false; $$('.aj', g).forEach((a) => { const ok = (!q || a.textContent.toLowerCase().includes(q) || $('h3', g).textContent.toLowerCase().includes(q)) && !(a.hasAttribute('data-so-escolher') && $('#onde-ponte').value !== 'escolher') && !(a.hasAttribute('data-so-horario') && $('#equipe-atende').value !== 'loja'); a.hidden = !ok; algum = algum || ok; }); g.hidden = !algum; });
