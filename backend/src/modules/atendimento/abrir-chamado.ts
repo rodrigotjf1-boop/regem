@@ -1,4 +1,5 @@
-import { and, desc, eq, isNotNull, sql } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+import { and, desc, eq, isNotNull, sql, type SQL } from 'drizzle-orm';
 import { atendimentoChamado } from '../../db/schema';
 import { chaveTelefone, sqlChaveTelefone } from '../../common/telefone-chave';
 import { canalValido } from './fila';
@@ -7,14 +8,17 @@ import type { EnderecoDoCaso } from './endereco-depois-que-saiu';
 import {
   type ForaDoHorario,
   type Recado,
+  type SituacaoDaEquipe,
   inicioDoCasoSql,
   lerRecado,
   pedidoEmAndamento,
   recadoAtivo,
   recadoAtivoSql,
+  recadoDaSituacao,
   recadoDoCasoNovo,
   respostaDoRecado,
   situacaoDaEquipe,
+  situacaoForaDoHorario,
 } from './horario-da-equipe';
 import {
   type AssuntoDoAtendente,
@@ -202,12 +206,9 @@ export async function posicaoNaFila(db: any, tenantId: string, id: string): Prom
           from atendimento_chamado where tenant_id = ${tenantId} and id = ${id}
       )
       select c.responsavel_id is not null as "comAlguem",
-             case when c.status = 'aberto' and c.responsavel_id is null and c.aguardando_desde is null and c.prazo_em is null
-                       and not ${recadoAtivoSql('c')} and not ${paraOResponsavelSql('c')} then
+             case when ${naFilaDaEquipeSql('c')} then
                (select count(*)::int + 1 from atendimento_chamado o
-                 where o.tenant_id = ${tenantId} and o.id <> c.id and o.status = 'aberto' and o.responsavel_id is null
-                   and o.aguardando_desde is null and o.prazo_em is null and not ${recadoAtivoSql('o')}
-                   and not ${paraOResponsavelSql('o')}
+                 where o.tenant_id = ${tenantId} and o.id <> c.id and ${naFilaDaEquipeSql('o')}
                    and (c.unidade_id is null or o.unidade_id = c.unidade_id or o.unidade_id is null)
                    and ((o.prioridade = 'urgente' and c.prioridade <> 'urgente')
                         or (o.prioridade = c.prioridade and (o.criado_em, o.id) < (c.criado_em, c.id))))
@@ -218,6 +219,158 @@ export async function posicaoNaFila(db: any, tenantId: string, id: string): Prom
   } catch {
     return { posicao: null, comAlguem: false };
   }
+}
+
+const APELIDO = /^[a-z_][a-z0-9_]*$/i;
+
+/**
+ * SQL: o caso `a` (de `atendimento_chamado`) espera uma pessoa NA FILA da equipe — aberto, sem responsável, sem aguardar o
+ * cliente, sem prazo de plataforma, sem recado esperando a equipe (mig 379) e sem ser recado para o responsável (mig 381).
+ * Uma regra só para a posição do caso de verdade (`posicaoNaFila`) e a do caso que o teste do atendente simula.
+ */
+export function naFilaDaEquipeSql(a: string): SQL {
+  if (!APELIDO.test(a)) throw new Error(`apelido de tabela inválido: ${a}`);
+  return sql`(${sql.raw(`${a}.status = 'aberto' and ${a}.responsavel_id is null and ${a}.aguardando_desde is null and ${a}.prazo_em is null`)}
+          and not ${recadoAtivoSql(a)} and not ${paraOResponsavelSql(a)})`;
+}
+
+/**
+ * A POSIÇÃO que um caso NA FILA teria (o teste do atendente, F4 — mig 382 —, sem gravar caso nenhum): a conta de
+ * `posicaoNaFila` para um caso da loja `unidadeId` (null = a empresa toda), com a `prioridade` e criado em `criadoEm` —
+ * quantos casos da fila vêm antes dele (urgente primeiro, depois o mais antigo), +1. `criadoEm` null = um caso NOVO, mais
+ * novo que todos (sem comparar o relógio do servidor com o do banco). Nunca rejeita: sem posição, null.
+ */
+export async function posicaoDeUmCaso(
+  db: any,
+  tenantId: string,
+  unidadeId: string | null,
+  prioridade: Prioridade,
+  criadoEm: Date | null,
+): Promise<{ posicao: number | null; comAlguem: false }> {
+  try {
+    const antes = criadoEm ? sql`o.criado_em <= ${criadoEm.toISOString()}::timestamptz` : sql`true`;
+    const r: any = await db.execute(sql`
+      select count(*)::int + 1 as posicao from atendimento_chamado o
+       where o.tenant_id = ${tenantId} and ${naFilaDaEquipeSql('o')}
+         and (${unidadeId}::uuid is null or o.unidade_id = ${unidadeId}::uuid or o.unidade_id is null)
+         and ((o.prioridade = 'urgente' and ${prioridade}::text <> 'urgente')
+              or (o.prioridade = ${prioridade}::text and ${antes}))`);
+    const row = (r?.rows ?? r ?? [])[0];
+    return { posicao: row?.posicao ?? null, comAlguem: false };
+  } catch {
+    return { posicao: null, comAlguem: false };
+  }
+}
+
+// ───────────────────────── o "chamar atendente" do TESTE DO ATENDENTE (F4, mig 382) ─────────────────────────
+// Na conversa de teste (`teste:<id>`) o "chamar atendente" NÃO abre caso, não pausa o robô e não avisa ninguém: calcula, com
+// as MESMAS funções do caminho de verdade, o que aconteceria — o recado para o responsável (F3), o recado para a abertura
+// (F1) ou a equipe chamada, com a posição na fila — e devolve ao robô a MESMA forma de resposta. Somar a um caso que o teste
+// já "abriu" segue a regra de `abrirChamadoPeloRobo` (o recado só com o do mesmo assunto; o comum só com o comum; 12 h no
+// WhatsApp — no Direct, o caso aberto da conversa, sem janela).
+
+/** O caso que o teste já simulou nesta conversa (a linha 'sistema' guarda), para somar como o caminho real soma. */
+export type CasoSimulado = {
+  id: string;
+  /** 'equipe' = o caso comum (na fila ou recado da abertura); 'responsavel' = o recado para o responsável. */
+  fila: 'equipe' | 'responsavel';
+  assunto?: AssuntoDoAtendente | null;
+  prioridade: Prioridade;
+  recado?: Recado | null;
+  /** ISO. */
+  criadoEm: string;
+};
+
+export type Simulacao = {
+  /** A resposta que o robô recebe — a forma do caminho de verdade. */
+  resposta: RespostaDoChamado;
+  /** O que aconteceria: a equipe chamada (na fila), o recado para a abertura (F1) ou o recado para o responsável (F3). */
+  resultado: 'equipe' | 'recado' | 'responsavel';
+  /** O caso simulado como ficou (novo, ou o que somou). */
+  caso: CasoSimulado;
+  somou: boolean;
+  /** O tipo que o caso teria (o da lista — ou `humano` — ou o assunto do recado). */
+  tipoDoChamado: string;
+  /** A situação da equipe usada (null quando não precisou ler). */
+  situacao: SituacaoDaEquipe | null;
+};
+
+export type OpcoesDaSimulacao = {
+  canal: 'whatsapp' | 'direct';
+  /** "Simular fora do horário": a equipe como se não estivesse agora (`situacaoForaDoHorario`). */
+  foraDoHorario?: boolean;
+  /** Os casos que o teste já simulou (do mais novo ao mais velho). */
+  anteriores?: CasoSimulado[];
+  agora?: Date;
+  /** O id do caso simulado novo (o teste passa um fixo). */
+  novoId?: () => string;
+};
+
+/**
+ * O "chamar atendente" SIMULADO (o teste do atendente): o que `abrirChamadoPeloRobo` (WhatsApp) ou o caso do Direct fariam,
+ * sem gravar nada. `dados.prioridade` já vem decidida por quem chama (`prioridadeDe`, como no caminho real); `unidadeId` =
+ * a loja do cardápio no WhatsApp (null no Direct, como o caso do Direct). Não há pedido no teste: nunca "pedido em
+ * andamento" e ninguém pega o caso (`comAlguem` false). A posição sai crua — quem chama aplica o "dizer a posição".
+ */
+export async function simularChamadoPeloRobo(
+  db: any,
+  tenantId: string,
+  unidadeId: string | null,
+  dados: DadosDoChamado,
+  opcoes: OpcoesDaSimulacao,
+): Promise<Simulacao> {
+  const agora = opcoes.agora ?? new Date();
+  const novoId = opcoes.novoId ?? (() => randomUUID());
+  const onde = { unidadeId, cardapioId: dados.cardapioId };
+  const situacaoAgora = () => (opcoes.foraDoHorario ? situacaoForaDoHorario(db, tenantId, onde, agora) : situacaoDaEquipe(db, tenantId, onde, agora));
+  const aceito = await recadoParaOResponsavel(db, tenantId, dados.tipo);
+  // O caso aberto que o caminho real somaria: no WhatsApp, até 12 h (do começo do caso: a volta da equipe, no recado).
+  const janela = agora.getTime() - JANELA_DO_MESMO_CHAMADO_H * 3_600_000;
+  const vivo = (c: CasoSimulado) => opcoes.canal === 'direct' || new Date(c.recado?.ate ?? c.criadoEm).getTime() >= janela;
+  const anterior =
+    (opcoes.anteriores ?? []).find((c) => vivo(c) && (aceito ? c.fila === 'responsavel' && c.assunto === aceito.assunto : c.fila === 'equipe')) ?? null;
+
+  if (aceito) {
+    const caso: CasoSimulado = anterior ?? { id: novoId(), fila: 'responsavel', assunto: aceito.assunto, prioridade: 'normal', recado: null, criadoEm: agora.toISOString() };
+    return { resposta: respostaParaOResponsavel(caso.id, aceito, !!anterior), resultado: 'responsavel', caso, somou: !!anterior, tipoDoChamado: aceito.assunto, situacao: null };
+  }
+  const tipoDoChamado = TIPOS_DO_CHAMADO.includes(dados.tipo ?? '') ? (dados.tipo as string) : 'humano';
+  const urgente = dados.prioridade === 'urgente';
+
+  if (anterior) {
+    const caso: CasoSimulado = { ...anterior, prioridade: urgente ? 'urgente' : anterior.prioridade };
+    // O WhatsApp diz `jaAberto`; o Direct responde sem ele (como o caminho de cada um).
+    const base = { ok: true as const, id: caso.id, prioridade: caso.prioridade, ...(opcoes.canal === 'whatsapp' ? { jaAberto: true as const } : {}) };
+    const recado = caso.recado && new Date(caso.recado.ate).getTime() > agora.getTime() ? caso.recado : null;
+    if (recado) {
+      const situacao = await situacaoAgora();
+      return {
+        resposta: { ...base, comAlguem: false, ...respostaDoRecado(recado, situacao.textoFora, agora) },
+        resultado: 'recado',
+        caso,
+        somou: true,
+        tipoDoChamado,
+        situacao,
+      };
+    }
+    const pos = await posicaoDeUmCaso(db, tenantId, unidadeId, caso.prioridade, new Date(caso.criadoEm));
+    return { resposta: { ...base, ...pos }, resultado: 'equipe', caso, somou: true, tipoDoChamado, situacao: null };
+  }
+
+  const situacao = await situacaoAgora();
+  const recado = recadoDaSituacao(situacao, agora);
+  const caso: CasoSimulado = { id: novoId(), fila: 'equipe', assunto: null, prioridade: urgente ? 'urgente' : 'normal', recado, criadoEm: agora.toISOString() };
+  if (recado)
+    return {
+      resposta: { ok: true, id: caso.id, prioridade: caso.prioridade, comAlguem: false, ...respostaDoRecado(recado, situacao.textoFora, agora) },
+      resultado: 'recado',
+      caso,
+      somou: false,
+      tipoDoChamado,
+      situacao,
+    };
+  const pos = await posicaoDeUmCaso(db, tenantId, unidadeId, caso.prioridade, null);
+  return { resposta: { ok: true, id: caso.id, prioridade: caso.prioridade, ...pos }, resultado: 'equipe', caso, somou: false, tipoDoChamado, situacao };
 }
 
 /**

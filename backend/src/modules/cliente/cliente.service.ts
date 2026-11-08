@@ -44,7 +44,8 @@ import { lerXlsx } from './ler-xlsx';
 import { urlPublicaSegura } from '../../common/ssrf-guard';
 import { AtendimentoService } from '../atendimento/atendimento.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
-import { ehChaveDoDirect } from '../../common/conversa-do-robo';
+import { ehChaveDeTeste, ehChaveDoDirect } from '../../common/conversa-do-robo';
+import { LINHA_DO_LINK, gravarUmaVezPorFala, testeDaChave } from '../atendimento/teste-do-atendente';
 import { AuthUser } from '../../auth/auth-user';
 import PDFDocument from 'pdfkit';
 
@@ -319,6 +320,19 @@ export class ClienteService {
   }
 
   // Token do cardápio → tenant da loja (endpoints são públicos).
+  /**
+   * O link do cliente pedido na conversa de TESTE do atendente (mig 382): a linha 'sistema' (uma por fala do "cliente") na
+   * conversa de teste, só quando ela é da empresa do cardápio. Nunca rejeita — a rota recusa (400) de qualquer jeito.
+   */
+  private async linkNoTeste(cardapioToken: string, chave: unknown): Promise<void> {
+    try {
+      const [tenantId, teste] = await Promise.all([this.tenantDoCardapio(cardapioToken), testeDaChave(this.db, chave)]);
+      if (teste && teste.tenantId === tenantId) await gravarUmaVezPorFala(this.db, teste, LINHA_DO_LINK.texto, LINHA_DO_LINK.simulado);
+    } catch (e: any) {
+      this.logger.warn(`link do cliente no teste do atendente: linha não gravada (${e?.message ?? e})`);
+    }
+  }
+
   private async tenantDoCardapio(cardapioToken: string): Promise<string> {
     const [cfg] = await this.db
       .select({ tenantId: cardapioConfig.tenantId, ativo: cardapioConfig.ativo })
@@ -969,6 +983,12 @@ export class ClienteService {
     // O Direct do Instagram (mig 378) não tem telefone: `ig:<igsid>` sem o `ig:` viraria um cadastro com os dígitos do
     // Instagram (V79). No Direct o robô manda o link do cardápio.
     if (ehChaveDoDirect(dto?.telefone)) throw new BadRequestException('No Direct do Instagram não há link do cliente: mande o link do cardápio.');
+    // A conversa de TESTE do atendente (mig 382) não tem cliente: `teste:<id>` sem o prefixo viraria um cadastro com os
+    // dígitos do id. Recusa como o Direct — e a conversa de teste ganha a linha 'sistema' (quando é desta empresa).
+    if (ehChaveDeTeste(dto?.telefone)) {
+      await this.linkNoTeste(cardapioToken, dto?.telefone);
+      throw new BadRequestException('No teste do atendente não há link do cliente: mande o link do cardápio.');
+    }
     const tenantId = await this.tenantDoCardapio(cardapioToken);
     const c = await this.acharOuCriarCliente(tenantId, dto.telefone, dto.nome);
     let [link] = await this.db

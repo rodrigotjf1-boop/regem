@@ -101,3 +101,35 @@ export function lerConversaDoDirect(ficha: unknown, agora = Date.now()): Convers
 export function ehChaveDoDirect(v: unknown): boolean {
   return typeof v === 'string' && v.trim().toLowerCase().startsWith('ig:');
 }
+
+// ───────────────────────── a conversa de TESTE do atendente (F4 do atendente virtual, mig 382) ─────────────────────────
+// "Testar o atendente": o gerente conversa com o MESMO robô (o fluxo do n8n e as instruções do Regem) como se fosse um
+// cliente. A mensagem vai com a chave `teste:<id da conversa de teste>` na instância e no `de` — o mesmo truque do Direct
+// (`ig:`): nada muda no n8n. A chave só resolve pela linha de `atendente_teste` (a empresa vem dela) e NUNCA age sobre
+// conversa, cliente ou pedido de verdade: as rotas de telefone recusam qualquer valor `teste:` (tirando o prefixo, sobram
+// os dígitos do id, que a busca pelos últimos dígitos do telefone casaria com o pedido de um desconhecido). Por isso a
+// mensagem de teste vai SEM a ficha da conversa (`conversa: null`): assinar o `de` daria uma ficha de "telefone" com os
+// dígitos do id.
+
+/** O prefixo da chave de teste. */
+export const PREFIXO_DO_TESTE = 'teste:';
+const UUID_DO_TESTE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * O valor COMEÇA com `teste:`? Qualquer forma conta (mesmo com o id torto): é o que as rotas de telefone e de envio usam
+ * para recusar — uma chave de teste nunca cai no caminho do telefone. Se ela é uma conversa de teste que vale, quem diz é
+ * `idDaChaveDeTeste`.
+ */
+export function ehChaveDeTeste(v: unknown): boolean {
+  return typeof v === 'string' && v.trim().toLowerCase().startsWith(PREFIXO_DO_TESTE);
+}
+
+/** O id da conversa de teste da chave — só `teste:` + um uuid; qualquer outra forma = null (não é uma conversa de teste). */
+export function idDaChaveDeTeste(v: unknown): string | null {
+  if (!ehChaveDeTeste(v)) return null;
+  const id = (v as string).trim().slice(PREFIXO_DO_TESTE.length);
+  return UUID_DO_TESTE.test(id) ? id.toLowerCase() : null;
+}
+
+/** A chave que a conversa de teste usa na instância e no `de`. */
+export const chaveDoTeste = (id: string): string => `${PREFIXO_DO_TESTE}${id}`;

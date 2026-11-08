@@ -10,6 +10,7 @@ import { texto2 } from '@/components/ui/lista';
 import { MOTIVO_REEMBOLSO_99 } from '@/components/atendimento/pedido-99';
 import { QuemRecebeNoWhatsapp, type GrupoDoWhatsapp } from '@/components/atendimento/whatsapp-do-gestor';
 import { ContaDoInstagram, situacaoDoInstagram, useVoltaDoInstagram, type EstadoDoInstagram } from '@/components/atendimento/instagram-da-loja';
+import { TestarAtendente } from '@/components/atendimento/testar-atendente';
 
 // AJUSTES DO ATENDIMENTO — Delivery › Configurações › Operação › Atendimento (protótipo
 // `mockups/regem-central-atendimento.html`, vista "ajustes"; o grupo do "Cheguei" é do `mockups/regem-relacionamento.html`).
@@ -315,6 +316,8 @@ export function AjustesDoAtendimento() {
   const [salvos, setSalvos] = useState<Valores>({});
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
+  // "🧪 Testar o atendente" (F4) a partir do grupo do perfil.
+  const [testando, setTestando] = useState(false);
   // A volta do login do Instagram (`?instagram=`): avisa como foi (a tela já relê os ajustes ao montar).
   useVoltaDoInstagram(() => undefined);
 
@@ -432,6 +435,15 @@ export function AjustesDoAtendimento() {
         palavras: `jeito da loja como falar ${nome}`,
       },
     ]),
+    // F4 (protótipo v13): ver como fica — a conversa de teste usa o perfil SALVO (o servidor lê o que está gravado).
+    depois: (
+      <p className="flex flex-wrap items-center gap-2 text-sm text-secondary-foreground">
+        Quer ver como fica? Salve antes: o teste usa o perfil gravado.
+        <Button type="button" variant="outline" size="sm" onClick={() => setTestando(true)}>
+          <span aria-hidden="true">🧪</span> Testar o atendente
+        </Button>
+      </p>
+    ),
   };
   // O horário da equipe (protótipo v10): os três ajustes de baixo só aparecem com "No horário da loja".
   const noHorarioDaLoja = valores.equipeAtende === 'loja';
@@ -1133,6 +1145,7 @@ export function AjustesDoAtendimento() {
           Configurações › Integrações.
         </p>
       )}
+      {testando && <TestarAtendente aoFechar={() => setTestando(false)} />}
     </div>
   );
 }

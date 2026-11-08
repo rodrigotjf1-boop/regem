@@ -58,7 +58,10 @@ import { temPerfilNoJeito } from './perfis-do-atendente';
 // UMA PESSOA — fornecedor, vaga e parceria em "recado" (pergunta o mínimo, chamar_atendente com o tipo do assunto e o
 // resumo "Assunto / Quem / Contato / Já fiz", e responde com o paraOCliente que voltar) ou em "não é por aqui" (o texto
 // e ninguém chamado). Tudo em "Como hoje" = o texto de antes, letra por letra.
-export const VERSAO_INSTRUCOES = '2026-11-07.f18';
+// .f19 (08/11, treinar o atendente — mig 382): a seção O QUE A LOJA ENSINOU logo depois dos assuntos (ou de QUANDO CHAMAR
+// UMA PESSOA) — pergunta → resposta por assunto, os mais novos até ~6.000 letras; preço, taxa, prazo e horário SEMPRE das
+// ferramentas, mesmo que a resposta ensinada traga um valor. Sem itens = o texto de antes, letra por letra.
+export const VERSAO_INSTRUCOES = '2026-11-08.f19';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -73,6 +76,11 @@ export type DadosDasInstrucoes = {
    * como hoje (a seção não entra).
    */
   assuntos?: string | null;
+  /**
+   * O que a loja ensinou (mig 382 — `conhecimento-do-atendente.ts` › `blocoDoConhecimento`), já em texto. Vazio = como
+   * hoje (a seção não entra).
+   */
+  conhecimento?: string | null;
 };
 
 const linhas = (...l: string[]) => l.join('\n');
@@ -80,6 +88,12 @@ const linhas = (...l: string[]) => l.join('\n');
 /** A seção dos assuntos que não são pedido, quando a loja escolheu algum (senão nada — as instruções de hoje). */
 const secaoDosAssuntos = (dados: DadosDasInstrucoes): string[] => {
   const t = String(dados?.assuntos ?? '').trim();
+  return t ? [t] : [];
+};
+
+/** A seção do que a loja ensinou, quando há algum item (senão nada — as instruções de hoje). */
+const secaoDoConhecimento = (dados: DadosDasInstrucoes): string[] => {
+  const t = String(dados?.conhecimento ?? '').trim();
   return t ? [t] : [];
 };
 
@@ -283,6 +297,7 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
         .replace('não consegue usar o link ou fazer o pedido; ', 'tentou montar o pedido aqui e não deu certo; ')
         .replace('quer mudar ou cancelar um pedido; ', 'quer cancelar um pedido; quer mudar um pedido e você não pode mudar (veja MUDAR UM PEDIDO JÁ FEITO); '),
       ...secaoDosAssuntos(dados),
+      ...secaoDoConhecimento(dados),
       ferramentasDoFluxo2(),
       regrasDoFluxo2(),
     ].join('\n\n');
@@ -295,6 +310,7 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
     clienteChateado(),
     quandoChamarUmaPessoa(),
     ...secaoDosAssuntos(dados),
+    ...secaoDoConhecimento(dados),
     ferramentasDoFluxo1(),
     regrasQueNuncaMudam(),
   ].join('\n\n');
@@ -313,7 +329,8 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
 // WhatsApp (.f17).
 // .d4 (07/11, assuntos que não são pedido — mig 381): a seção ASSUNTOS QUE NÃO SÃO PEDIDO logo depois de QUANDO CHAMAR
 // UMA PESSOA, como no WhatsApp (.f18) — no Direct o robô pergunta o melhor contato.
-export const VERSAO_DO_DIRECT = '2026-11-07.d4';
+// .d5 (08/11, treinar o atendente — mig 382): a seção O QUE A LOJA ENSINOU logo depois dos assuntos, como no WhatsApp (.f19).
+export const VERSAO_DO_DIRECT = '2026-11-08.d5';
 
 function jeitoDoDirect(): string {
   return linhas(
@@ -395,6 +412,7 @@ export function instrucoesDoDirect(dados: DadosDasInstrucoes, fluxo?: unknown): 
     clienteChateado(),
     quandoChamarNoDirect(),
     ...secaoDosAssuntos(dados),
+    ...secaoDoConhecimento(dados),
     ferramentasDoDirect(),
     regrasDoDirect(),
   ].join('\n\n');

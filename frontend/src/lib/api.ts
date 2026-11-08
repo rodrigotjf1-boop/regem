@@ -1247,6 +1247,20 @@ export const api = {
   // O copiloto (mig 376): se o botão aparece (ligado na empresa e disponível na distribuição) e a sugestão de resposta
   // do caso — só a nuvem; a sugestão volta para a caixa de escrever, nada é enviado.
   atendimentoCopiloto: () => req('/atendimento/copiloto'),
+  // Treinar o atendente (F4, mig 382): a conversa de teste com o MESMO robô da loja (nada sai para clientes; chamar a
+  // equipe, recados e pedidos viram simulação) e o que ele aprendeu (pergunta → resposta, por assunto). Só a nuvem; só
+  // gerente e presidente (o servidor confere).
+  atendimentoTesteCriar: (body: { canal: 'whatsapp' | 'direct'; foraDoHorario: boolean }) =>
+    req('/atendimento/teste', { method: 'POST', body: JSON.stringify(body) }),
+  atendimentoTeste: (id: string) => req(`/atendimento/teste/${id}`),
+  atendimentoTesteMensagem: (id: string, texto: string) =>
+    req(`/atendimento/teste/${id}/mensagem`, { method: 'POST', body: JSON.stringify({ texto }) }),
+  atendimentoConhecimento: () => req('/atendimento/conhecimento'),
+  atendimentoConhecimentoCriar: (body: { assunto: string; pergunta: string; resposta: string; origem: 'teste' | 'caso' | 'manual' }) =>
+    req('/atendimento/conhecimento', { method: 'POST', body: JSON.stringify(body) }),
+  atendimentoConhecimentoEditar: (id: string, body: { assunto?: string; pergunta?: string; resposta?: string }) =>
+    req(`/atendimento/conhecimento/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  atendimentoConhecimentoApagar: (id: string) => req(`/atendimento/conhecimento/${id}`, { method: 'DELETE' }),
   atendimentoSugerir: (id: string, body: { mensagens: { de: string; texto: string }[]; prontas: string[] }) =>
     req(`/atendimento/${id}/sugestao`, { method: 'POST', body: JSON.stringify(body) }),
   // O chat do iFood e da 99 dentro do caso (ponte do chat, Etapa 2): a conversa do pedido e a resposta pela ponte.

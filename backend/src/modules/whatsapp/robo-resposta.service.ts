@@ -3,7 +3,8 @@ import { eq } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig } from '../../db/schema';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
-import { ehChaveDoDirect } from '../../common/conversa-do-robo';
+import { chaveDoTeste, ehChaveDeTeste, ehChaveDoDirect, idDaChaveDeTeste } from '../../common/conversa-do-robo';
+import { AUDIO_NO_TESTE, gravarMensagem, testeDaChave } from '../atendimento/teste-do-atendente';
 import { InstagramService } from '../instagram/instagram.service';
 import { comOrigemDoDirect } from '../instagram/instagram';
 import { WhatsappService } from './whatsapp.service';
@@ -93,6 +94,9 @@ export class RoboRespostaService {
 
   async responder(segredo: string, p: PedidoDeResposta): Promise<RespostaDoRobo> {
     if (!segredoDoRoboOk(segredo)) throw new UnauthorizedException('Não autorizado.');
+    // A conversa de TESTE do atendente (chave `teste:` na instância ou no `para`, mig 382) ANTES de tudo: a resposta fica
+    // na conversa de teste e NADA sai para cliente nenhum (nem as travas de robô ligado/conversa pausada valem aqui).
+    if (ehChaveDeTeste(p?.instancia) || ehChaveDeTeste(p?.para)) return this.responderNoTeste(p);
     // O Direct do Instagram (chave `ig:` na instância e no `para`) ANTES de qualquer conta de telefone: tirando o `ig:`,
     // sobram dígitos que virariam um número de WhatsApp.
     if (ehChaveDoDirect(p?.instancia) || ehChaveDoDirect(p?.para)) return this.responderNoDirect(p);
@@ -248,6 +252,33 @@ export class RoboRespostaService {
     const texto = comOrigemDoDirect(opcoes.length ? menuNumerado(daLoja, opcoes) : daLoja, link).trim();
     if (!texto) return { ok: true, enviado: false, motivo: 'sem_voz_no_direct' };
     return this.instagram.enviarDoRobo(alvo, texto);
+  }
+
+  /**
+   * A resposta do robô na conversa de TESTE do atendente (mig 382): grava na conversa de teste (autor 'robo', o texto e as
+   * opções) e responde `{ ok: true, enviado: true }` — nada sai pelo WhatsApp nem pelo Direct. O texto passa pelo MESMO
+   * filtro de links das vias de verdade (só o link do cardápio da loja; no Direct, com a origem do Direct), para o gerente
+   * ver o que o cliente receberia. Áudio não se aplica: sem texto, fica "[o robô mandaria um áudio]". A chave da instância e a
+   * do `para`, quando as duas são de teste, têm de ser a MESMA conversa; conversa que não existe (ou apagada) = 404.
+   */
+  private async responderNoTeste(p: PedidoDeResposta): Promise<RespostaDoRobo> {
+    const ids = [p?.instancia, p?.para].filter(ehChaveDeTeste).map(idDaChaveDeTeste);
+    if (ids.some((id) => !id) || new Set(ids).size !== 1) throw new BadRequestException('Conversa de teste inválida.');
+    const teste = await testeDaChave(this.db, chaveDoTeste(ids[0] as string));
+    if (!teste) throw new NotFoundException('Conversa de teste não encontrada.');
+    const bruto = String(p?.texto ?? '').trim();
+    const opcoes = opcoesValidas(p?.opcoes ?? []);
+    const temAudio = !!String(p?.audio?.base64 ?? '').trim();
+    if (!bruto && !opcoes.length && !temAudio) throw new BadRequestException('Nada para enviar (texto, opções ou áudio).');
+    let texto = bruto;
+    if (bruto && teste.cardapio?.token) {
+      const link = linkDoCardapioDaLoja(teste.cardapio.token);
+      texto = soLinksDaLoja(bruto, link, [teste.cardapio.site, teste.cardapio.instagram ? 'instagram.com' : null]).texto;
+      if (teste.canal === 'direct') texto = comOrigemDoDirect(texto, link).trim();
+    }
+    if (!texto && temAudio) texto = AUDIO_NO_TESTE;
+    await gravarMensagem(this.db, teste, { autor: 'robo', texto, opcoes });
+    return { ok: true, enviado: true };
   }
 
   private enviarTexto(via: 'cloud' | 'evolution', tenantId: string, para: string, texto: string) {
