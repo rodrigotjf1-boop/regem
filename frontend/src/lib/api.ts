@@ -1241,6 +1241,17 @@ export const api = {
   atendimentoInstagram: (id: string) => req(`/atendimento/${id}/instagram`),
   atendimentoResponderInstagram: (id: string, texto: string) =>
     req(`/atendimento/${id}/instagram`, { method: 'POST', body: JSON.stringify({ texto }) }),
+  // Os comentários dos posts do Instagram (F6, mig 384): a lista (filtro + página), responder no post, no Direct (a privada
+  // da Meta, uma só), esconder/mostrar e o comentário do caso.
+  atendimentoComentarios: (filtro: string, antes?: string | null) =>
+    req(`/atendimento/instagram/comentarios?filtro=${encodeURIComponent(filtro)}${antes ? `&antes=${encodeURIComponent(antes)}` : ''}`),
+  atendimentoComentarioResponder: (id: string, texto: string) =>
+    req(`/atendimento/instagram/comentarios/${id}/responder`, { method: 'POST', body: JSON.stringify({ texto }) }),
+  atendimentoComentarioPrivada: (id: string, texto: string) =>
+    req(`/atendimento/instagram/comentarios/${id}/privada`, { method: 'POST', body: JSON.stringify({ texto }) }),
+  atendimentoComentarioEsconder: (id: string, esconder: boolean) =>
+    req(`/atendimento/instagram/comentarios/${id}/esconder`, { method: 'POST', body: JSON.stringify({ esconder }) }),
+  atendimentoComentarioDoCaso: (casoId: string) => req(`/atendimento/${casoId}/instagram-comentario`),
   atendimentoOQueAconteceu: (id: string) => req(`/atendimento/${id}/o-que-aconteceu`),
   atendimentoMarcarOQueAconteceu: (id: string, body: { motivo: string | null; produtos: string[] }) =>
     req(`/atendimento/${id}/o-que-aconteceu`, { method: 'PUT', body: JSON.stringify(body) }),

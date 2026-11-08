@@ -125,6 +125,7 @@ descrever('Robô no Direct do Instagram (Postgres + Meta e n8n de mentira)', () 
       '379_horario_da_equipe.sql',
       '380_perfis_do_atendente.sql', // o perfil do atendente nas instruções do Direct (ERR-273)
       '381_assuntos_do_atendente.sql', // os assuntos que não são pedido: o recado para o responsável no Direct (ERR-273)
+      '384_comentarios_do_instagram.sql', // os comentários (F6): o aviso e os ajustes passam pelo código dos comentários (ERR-273)
     ])
       await aplicar(m);
     servidor = createServer((req, res) => {

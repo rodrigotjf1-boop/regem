@@ -111,6 +111,42 @@ export class InstagramController {
     return this.service.desconectar(user);
   }
 
+  // OS COMENTÁRIOS DOS POSTS (F6, mig 384): a lista (o filtro, a contagem e o cursor), a resposta pública da equipe, a
+  // resposta privada (no Direct), esconder/mostrar e o comentário do caso. Só a gestão — presidente e gerente (o serviço
+  // confere de novo). Valem nas duas pontas: no servidor da loja, pela nuvem (V37).
+  @Get('instagram/comentarios')
+  @Roles('presidente', 'gerente')
+  comentarios(@CurrentUser() user: AuthUser, @Query() q: { filtro?: string; antes?: string }) {
+    return this.service.comentarios.listarPara(user, q ?? {});
+  }
+
+  @Post('instagram/comentarios/:id/responder')
+  @HttpCode(200)
+  @Roles('presidente', 'gerente')
+  responderComentario(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: unknown) {
+    return this.service.comentarios.agirPara(user, 'responder', id, dto ?? {});
+  }
+
+  @Post('instagram/comentarios/:id/privada')
+  @HttpCode(200)
+  @Roles('presidente', 'gerente')
+  privadaDoComentario(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: unknown) {
+    return this.service.comentarios.agirPara(user, 'privada', id, dto ?? {});
+  }
+
+  @Post('instagram/comentarios/:id/esconder')
+  @HttpCode(200)
+  @Roles('presidente', 'gerente')
+  esconderComentario(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: unknown) {
+    return this.service.comentarios.agirPara(user, 'esconder', id, dto ?? {});
+  }
+
+  @Get(':id/instagram-comentario')
+  @Roles('presidente', 'gerente')
+  comentarioDoCaso(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.comentarios.doCasoPara(user, id);
+  }
+
   @Get(':id/instagram')
   @Roles('presidente', 'gerente', 'supervisao', 'execucao')
   conversa(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {

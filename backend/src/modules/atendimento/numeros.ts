@@ -131,8 +131,23 @@ const ms = (d: string | Date | null | undefined) => (d ? new Date(d).getTime() :
 export type ProdutoApontado = { nome: string; motivo: Motivo | null };
 export type ResultadoDoCaso = { motivo: Motivo | null; fonte: 'equipe' | 'plataforma' | null; produtos: ProdutoApontado[] };
 
-/** Os tipos que PODEM ser reclamação: sem motivo marcado, entram em "Sem motivo marcado". A mudança de pedido não. */
-const PODE_SER_RECLAMACAO = new Set(['disputa', 'cancelamento_99', 'reembolso_99', 'cancelamento', 'avaliacao', 'erro', 'chat', 'humano', 'outro', 'instagram']);
+/**
+ * Os tipos que PODEM ser reclamação: sem motivo marcado, entram em "Sem motivo marcado". A mudança de pedido não. O caso do
+ * comentário do Instagram (F6, mig 384) também: o robô só chama a equipe no comentário de pedido, problema ou reclamação.
+ */
+const PODE_SER_RECLAMACAO = new Set([
+  'disputa',
+  'cancelamento_99',
+  'reembolso_99',
+  'cancelamento',
+  'avaliacao',
+  'erro',
+  'chat',
+  'humano',
+  'outro',
+  'instagram',
+  'instagram_comentario',
+]);
 
 /**
  * O que aconteceu no caso: o que a EQUIPE marcou vence; senão o que a PLATAFORMA disse (disputa do iFood: atraso pelo tipo,
@@ -219,6 +234,8 @@ export type GrupoDosCasos = (typeof GRUPOS_DOS_CASOS)[number];
 
 export function grupoDoPlacar(l: LinhaDoCaso): GrupoDosCasos | null {
   if (l.tipo === 'chat' || l.tipo === 'instagram') return null; // o chat e o Direct entram pelas mensagens, não pelo caso
+  // O caso do comentário do Instagram (F6, mig 384) não é do WhatsApp (a linha "casos"): fica fora do placar até ter a dele.
+  if (l.tipo === 'instagram_comentario') return null;
   if (l.paraOResponsavel) return null; // o recado para o responsável (mig 381) não conta no tempo de espera
   if (l.tipo === 'disputa') return 'disputa';
   if (l.tipo === 'cancelamento_99' || l.tipo === 'reembolso_99') return 'pedido99';

@@ -4,7 +4,7 @@ import { Interval } from '@nestjs/schedule';
 import { ehServidorLocal } from '../../common/modo';
 import { and, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
-import { assinarConversa, ehChaveDeTeste, ehChaveDoChat } from '../../common/conversa-do-robo';
+import { assinarConversa, ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario } from '../../common/conversa-do-robo';
 import { ecoDeAvisoAutomatico } from '../../common/avisos-automaticos';
 import { estadoDaPausa, pausaDaConversa, pausarPeloAtendente, pausasDaLojaOuVazio } from './robo-pausa';
 import { entregarJuntando } from './juntar-mensagens';
@@ -35,6 +35,9 @@ export const RECUSA_NO_TESTE = 'Conversa de teste do atendente: nada é enviado 
 /** A recusa dos envios pelo WhatsApp para a fala do chat do iFood e da 99 (F5, mig 383): a resposta é no chat da plataforma. */
 export const RECUSA_NO_CHAT =
   'Conversa do chat do iFood ou da 99: nada é enviado pelo WhatsApp — a resposta vai por publico/bot/responder, no chat da plataforma.';
+/** A recusa dos envios pelo WhatsApp para o comentário de um post do Instagram (F6, mig 384): a resposta é no post. */
+export const RECUSA_NO_COMENTARIO =
+  'Comentário de um post do Instagram: nada é enviado pelo WhatsApp — a resposta vai por publico/bot/responder, no próprio post.';
 // Teto do proxy de midia. A Meta aceita ate 16MB; 20MB deixa folga e evita que um
 // arquivo inesperado vire pico de memoria no processo da API.
 const MAX_MIDIA = 20 * 1024 * 1024;
@@ -1159,6 +1162,8 @@ export class WhatsappCloudService {
     if (ehChaveDeTeste(numero)) throw new BadRequestException(RECUSA_NO_TESTE);
     // A fala do chat do iFood e da 99 (F5): idem — o `chat:<id>` sem o prefixo viraria dígitos.
     if (ehChaveDoChat(numero)) throw new BadRequestException(RECUSA_NO_CHAT);
+    // O comentário de um post do Instagram (F6): idem — o `cm:<id>` sem o prefixo viraria dígitos.
+    if (ehChaveDoComentario(numero)) throw new BadRequestException(RECUSA_NO_COMENTARIO);
 
     const cfg = await this.lojaPorPhoneId(String(phoneNumberId ?? ''));
     if (!cfg) throw new NotFoundException('Número não vinculado a uma loja.');
@@ -1523,6 +1528,7 @@ export class WhatsappCloudService {
     // A conversa de TESTE do atendente (mig 382): nenhum modelo sai pelo WhatsApp; nem para a fala do chat da plataforma (F5).
     if (ehChaveDeTeste(numero)) throw new BadRequestException(RECUSA_NO_TESTE);
     if (ehChaveDoChat(numero)) throw new BadRequestException(RECUSA_NO_CHAT);
+    if (ehChaveDoComentario(numero)) throw new BadRequestException(RECUSA_NO_COMENTARIO);
     const cfg = await this.lojaPorPhoneId(String(phoneNumberId ?? '').trim());
     if (!cfg) throw new NotFoundException('Número não vinculado a uma loja.');
     if (cfg.provedor !== 'cloud')

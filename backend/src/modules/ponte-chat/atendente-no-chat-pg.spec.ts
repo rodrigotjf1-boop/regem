@@ -310,7 +310,10 @@ descrever('o atendente virtual no chat do iFood e da 99 (Postgres + n8n de menti
       },
     });
     const { timestamp: _t, ...semAHora } = corpo;
-    expect(JSON.stringify(semAHora)).not.toMatch(/\d{10,}/); // nenhum telefone
+    // nenhum telefone — tirados antes os uuids (a empresa e as falas são aleatórias: o grupo final de 12 pode trazer 10
+    // dígitos seguidos, e o teste caía uma vez em ~20)
+    const semUuid = JSON.stringify(semAHora).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '<uuid>');
+    expect(semUuid).not.toMatch(/\d{10,}/);
     expect(await casosDo('at-1')).toHaveLength(0);
     expect(await doRobo('at-1')).toHaveLength(0); // o robô por regras não falou
     expect((await marcas('at-1')).map((m) => m.id)).toEqual([await ultimaDe('at-1')]); // a última fala espera o atendente

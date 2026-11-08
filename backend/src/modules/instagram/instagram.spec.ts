@@ -22,18 +22,18 @@ const CONTA = '17841400000000001';
 const CLIENTE = '9988776655';
 
 describe('o login do Instagram', () => {
-  it('o endereço leva o app, o retorno, só as duas permissões, o state e a conta profissional', () => {
+  it('o endereço leva o app, o retorno, as três permissões (F6: + a dos comentários), o state e a conta profissional', () => {
     const u = new URL(urlDeAutorizacao({ appId: '990602627938098', redirect: 'https://api.exemplo/retorno', estado: 'abc.def' }));
     expect(`${u.origin}${u.pathname}`).toBe('https://www.instagram.com/oauth/authorize');
     expect(Object.fromEntries(u.searchParams)).toEqual({
       client_id: '990602627938098',
       redirect_uri: 'https://api.exemplo/retorno',
       response_type: 'code',
-      scope: 'instagram_business_basic,instagram_business_manage_messages',
+      scope: 'instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments',
       state: 'abc.def',
       force_reauth: 'true',
     });
-    expect(ESCOPOS).toEqual(['instagram_business_basic', 'instagram_business_manage_messages']);
+    expect(ESCOPOS).toEqual(['instagram_business_basic', 'instagram_business_manage_messages', 'instagram_business_manage_comments']);
   });
 
   it('o state: volta quem pediu; adulterado, de outro segredo ou vencido não vale', () => {

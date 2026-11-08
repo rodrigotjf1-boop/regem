@@ -120,16 +120,17 @@ descrever('perfil do atendente virtual (Postgres)', () => {
     await horarios(SEMPRE_ABERTA);
   });
 
-  it('GET dos ajustes: sempre os três canais (F5: + o chat do iFood e da 99) com os padrões ("Como hoje", "O mesmo", sem jeito) e as opções', async () => {
+  it('GET dos ajustes: sempre os quatro canais (F5: + o chat do iFood e da 99; F6: + os comentários do Instagram) com os padrões ("Como hoje", "O mesmo", sem jeito) e as opções', async () => {
     const r: any = await ctl.ajustes(gerente(), null);
     expect(r.perfis).toEqual({
       whatsapp: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
       direct: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
       chat: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
+      comentarios: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
     });
     expect(r.perfisOpcoes).toEqual({
-      canais: ['whatsapp', 'direct', 'chat'],
-      rotulos: { whatsapp: 'WhatsApp', direct: 'Direct do Instagram', chat: 'Chat do iFood e da 99' },
+      canais: ['whatsapp', 'direct', 'chat', 'comentarios'],
+      rotulos: { whatsapp: 'WhatsApp', direct: 'Direct do Instagram', chat: 'Chat do iFood e da 99', comentarios: 'Comentários do Instagram' },
       perfis: ['hoje', 'profissional', 'cordial', 'gentil', 'descontraido', 'objetivo', 'acolhedor'],
       foraDoHorario: ['mesmo', 'profissional', 'cordial', 'gentil', 'descontraido', 'objetivo', 'acolhedor'],
       jeitoMax: 300,
@@ -140,6 +141,7 @@ descrever('perfil do atendente virtual (Postgres)', () => {
       whatsapp: { perfil: 'hoje', foraDoHorario: 'objetivo', jeito: null },
       direct: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
       chat: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
+      comentarios: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
     });
   });
 
@@ -153,6 +155,7 @@ descrever('perfil do atendente virtual (Postgres)', () => {
       whatsapp: { perfil: 'cordial', foraDoHorario: 'objetivo', jeito: null },
       direct: { perfil: 'gentil', foraDoHorario: 'mesmo', jeito: 'assine como Burger' },
       chat: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
+      comentarios: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
     });
     // no banco: só os campos que mudaram de cada canal (o resto vem dos padrões na leitura)
     expect(await coluna()).toEqual({ whatsapp: { perfil: 'cordial', foraDoHorario: 'objetivo' }, direct: { perfil: 'gentil', jeito: 'assine como Burger' } });
@@ -204,6 +207,7 @@ descrever('perfil do atendente virtual (Postgres)', () => {
       whatsapp: { perfil: 'acolhedor', foraDoHorario: 'mesmo', jeito: null },
       direct: { perfil: 'objetivo', foraDoHorario: 'mesmo', jeito: null },
       chat: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
+      comentarios: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
     });
     expect(await coluna()).toEqual({ whatsapp: { perfil: 'acolhedor' }, direct: { perfil: 'objetivo' } });
     // o canal do chat (F5) grava como os outros, só os campos que mudaram, sem tocar nos outros canais

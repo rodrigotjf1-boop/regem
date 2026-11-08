@@ -53,6 +53,7 @@ import {
   type EventoDoDirect,
 } from './instagram';
 import * as meta from './instagram-graph';
+import { ComentariosDoInstagram } from './comentarios.service';
 
 /** O cardápio que o robô do Direct usa (o horário, a taxa, o link e os textos do robô da loja). */
 export type CardapioDoRobo = {
@@ -100,12 +101,19 @@ const ajustesDoApp = (situacao: string) => `${doApp()}/delivery/configuracoes?ab
 @Injectable()
 export class InstagramService {
   private readonly logger = new Logger('Instagram');
+  /**
+   * Os COMENTÁRIOS dos posts (F6, mig 384 — `comentarios.service.ts`): o webhook, a resposta do robô (`cm:`), o "chamar
+   * atendente" do cardápio e as rotas da tela usam esta instância (uma classe simples, sem mudar a injeção dos módulos).
+   */
+  readonly comentarios: ComentariosDoInstagram;
 
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly events: EventEmitter2,
     @Optional() private readonly auditoria?: AuditoriaService,
-  ) {}
+  ) {
+    this.comentarios = new ComentariosDoInstagram(db, events, this, auditoria);
+  }
 
   private appId = () => String(process.env.INSTAGRAM_APP_ID ?? '').trim();
   private segredo = () => String(process.env.INSTAGRAM_APP_SECRET ?? '').trim();
@@ -131,7 +139,9 @@ export class InstagramService {
     const [r, cards]: any[] = await Promise.all([
       this.db.execute(sql`
         select c.usuario, c.nome, c.fila_ligada as "filaLigada", c.robo_responde as "roboResponde", c.cardapio_id as "cardapioId",
-               c.conectado_em as "conectadoEm", c.token_vence_em as "venceEm", c.erro, c.erro_em as "erroEm", col.nome as "conectadoPor"
+               c.conectado_em as "conectadoEm", c.token_vence_em as "venceEm", c.erro, c.erro_em as "erroEm", col.nome as "conectadoPor",
+               c.permissoes, (to_jsonb(c) ->> 'comentarios_robo')::boolean as "comentariosRobo",
+               (to_jsonb(c) ->> 'comentarios_fila')::boolean as "comentariosFila"
           from instagram_conta c left join colaborador col on col.id = c.conectado_por and col.tenant_id = c.tenant_id
          where c.tenant_id = ${tenantId}`),
       this.db.execute(sql`
@@ -140,9 +150,14 @@ export class InstagramService {
          where cc.tenant_id = ${tenantId}
          order by 2 limit 50`),
     ]);
-    const c = (r.rows ?? r)[0] ?? null;
+    const linha = (r.rows ?? r)[0] ?? null;
     const cardapios = ((cards.rows ?? cards) as any[]).map((x) => ({ id: String(x.id), nome: String(x.nome), ativo: x.ativo === true }));
-    return { disponivel: this.disponivel(), roboDisponivel: this.roboDisponivel(), cardapios, conta: c };
+    // Os COMENTÁRIOS (F6, mig 384): `permitido` = a conta conectada com a permissão dos comentários (a de antes da F6 pede
+    // "Reconectar"); o robô e a fila deles. As permissões e as colunas novas não vão na `conta` (lidas por `to_jsonb`: num
+    // banco sem a 384, o robô desligado e a fila ligada).
+    const { permissoes, comentariosRobo, comentariosFila, ...conta } = linha ?? ({} as any);
+    const comentarios = this.comentarios.comentariosDoAjuste(linha ? { permissoes, comentariosRobo, comentariosFila } : null);
+    return { disponivel: this.disponivel(), roboDisponivel: this.roboDisponivel(), cardapios, conta: linha ? conta : null, comentarios };
   }
 
   /**
@@ -150,9 +165,14 @@ export class InstagramService {
    * o cardápio do robô é um cardápio DESTA empresa (ou vazio = o único), e o robô só liga com a conta conectada. O que não
    * veio fica como está (V16). Devolve o que gravar.
    */
-  async conferirAjuste(tenantId: string, dto: any): Promise<{ filaLigada?: boolean; roboResponde?: boolean; cardapioId?: string | null }> {
+  async conferirAjuste(
+    tenantId: string,
+    dto: any,
+  ): Promise<{ filaLigada?: boolean; roboResponde?: boolean; cardapioId?: string | null; comentarios?: { roboResponde?: boolean; naFila?: boolean } }> {
     if (!dto || typeof dto !== 'object') throw new BadRequestException('Instagram Direct: ajuste inválido.');
-    const saida: { filaLigada?: boolean; roboResponde?: boolean; cardapioId?: string | null } = {};
+    const saida: { filaLigada?: boolean; roboResponde?: boolean; cardapioId?: string | null; comentarios?: { roboResponde?: boolean; naFila?: boolean } } = {};
+    // Os COMENTÁRIOS (F6, mig 384): conferidos aqui, com o resto do grupo, antes de gravar qualquer coisa (V86).
+    if (dto.comentarios !== undefined) saida.comentarios = await this.comentarios.conferirAjuste(tenantId, dto.comentarios);
     for (const k of ['filaLigada', 'roboResponde'] as const) {
       if (dto[k] === undefined) continue;
       if (typeof dto[k] !== 'boolean') throw new BadRequestException('Instagram Direct: escolha ligado ou desligado.');
@@ -175,7 +195,11 @@ export class InstagramService {
   }
 
   /** Grava o que `conferirAjuste` devolveu, só nas colunas que vieram, e cada mudança fica na auditoria. */
-  async salvarAjuste(user: AuthUser, a: { filaLigada?: boolean; roboResponde?: boolean; cardapioId?: string | null }) {
+  async salvarAjuste(
+    user: AuthUser,
+    a: { filaLigada?: boolean; roboResponde?: boolean; cardapioId?: string | null; comentarios?: { roboResponde?: boolean; naFila?: boolean } },
+  ) {
+    if (a.comentarios) await this.comentarios.salvarAjuste(user, a.comentarios);
     if (a.filaLigada !== undefined) await this.salvarFila(user, a.filaLigada);
     if (a.roboResponde !== undefined) {
       const r: any = await this.db.execute(sql`
@@ -328,7 +352,10 @@ export class InstagramService {
 
   // ───────────────────────── o aviso de mensagem ─────────────────────────
 
-  /** O aviso da Meta (já com a assinatura conferida). Nunca lança: cada mensagem é tratada sozinha. */
+  /**
+   * O aviso da Meta (já com a assinatura conferida). Nunca lança: cada mensagem é tratada sozinha. Os COMENTÁRIOS dos posts
+   * (F6, mig 384 — `entry[].changes[]` com `field: 'comments'`) vêm no MESMO aviso: cada um também sozinho.
+   */
   async processar(body: any): Promise<void> {
     for (const ev of lerAviso(body)) {
       try {
@@ -337,6 +364,7 @@ export class InstagramService {
         this.logger.error(`aviso do Instagram (conta ${ev.conta}): ${e?.message ?? e}`);
       }
     }
+    await this.comentarios.processar(body);
   }
 
   private async umaMensagem(ev: EventoDoDirect) {
@@ -959,7 +987,8 @@ export class InstagramService {
 
   // ───────────────────────── servidor da loja → nuvem ─────────────────────────
 
-  private async pelaNuvem(metodo: 'GET' | 'POST', caminho: string, corpo?: unknown): Promise<any> {
+  /** O pedido do servidor da loja à nuvem (token do servidor). A recusa da nuvem volta com o mesmo código HTTP (e o `code`). */
+  async pelaNuvem(metodo: 'GET' | 'POST', caminho: string, corpo?: unknown): Promise<any> {
     const nuvem = String(process.env.CLOUD_API ?? '').replace(/\/$/, '');
     const token = process.env.SYNC_TOKEN ?? '';
     if (!nuvem || !token) throw new BadGatewayException('Este servidor não está ligado à nuvem: o Instagram da loja fala com ela.');
@@ -978,11 +1007,13 @@ export class InstagramService {
     const j: any = await res.json().catch(() => null);
     if (!res.ok) {
       const msg = typeof j?.message === 'string' ? j.message : `a nuvem recusou (HTTP ${res.status})`;
-      if (res.status === 409) throw new ConflictException(msg);
-      if (res.status === 404) throw new NotFoundException(msg);
-      if (res.status === 403) throw new ForbiddenException(msg);
-      if (res.status === 400) throw new BadRequestException(msg);
-      throw new BadGatewayException(msg);
+      // O `code` da recusa (ex.: JA_RESPONDIDO nos comentários) segue até a tela do servidor da loja.
+      const corpoDoErro = (status: number) => (typeof j?.code === 'string' ? { statusCode: status, code: j.code, message: msg } : msg);
+      if (res.status === 409) throw new ConflictException(corpoDoErro(409));
+      if (res.status === 404) throw new NotFoundException(corpoDoErro(404));
+      if (res.status === 403) throw new ForbiddenException(corpoDoErro(403));
+      if (res.status === 400) throw new BadRequestException(corpoDoErro(400));
+      throw new BadGatewayException(corpoDoErro(502));
     }
     return j;
   }

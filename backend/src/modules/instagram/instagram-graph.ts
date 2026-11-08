@@ -73,9 +73,12 @@ export async function minhaConta(token: string) {
   return { igUserId: id, usuario: typeof j?.username === 'string' ? j.username : null, nome: typeof j?.name === 'string' ? j.name : null };
 }
 
-/** Liga o aviso de mensagens desta conta para o nosso app (cada conta é assinada uma vez, ao conectar). */
+/**
+ * Liga os avisos desta conta para o nosso app (cada conta é assinada uma vez, ao conectar): as mensagens do Direct e (F6,
+ * mig 384) os comentários dos posts. A conta conectada antes da F6 só passa a avisar comentário ao reconectar.
+ */
 export async function assinarAvisos(igUserId: string, token: string) {
-  const j = await chamar(`${graph()}/${versao()}/${encodeURIComponent(igUserId)}/subscribed_apps?subscribed_fields=messages`, {
+  const j = await chamar(`${graph()}/${versao()}/${encodeURIComponent(igUserId)}/subscribed_apps?subscribed_fields=messages,comments`, {
     method: 'POST',
     headers: { authorization: `Bearer ${token}` },
   });
@@ -107,4 +110,64 @@ export async function enviarTexto(igUserId: string, token: string, igsid: string
     body: JSON.stringify({ recipient: { id: igsid }, message: { text: texto } }),
   });
   return { mid: typeof j?.message_id === 'string' ? j.message_id : null };
+}
+
+// ───────────────────────── os comentários dos posts (F6 do atendente virtual, mig 384) ─────────────────────────
+// Documentação da Meta conferida em 08/11/2026 (Instagram API with Instagram Login › Comment Moderation e Private Replies):
+// permissões `instagram_business_basic` + `instagram_business_manage_comments`; a resposta pública vai no CORPO JSON
+// (`{ message }`) e volta o `id`; resposta a uma resposta entra no comentário de cima; comentário escondido não recebe
+// resposta. Os ids (comentário, mídia) são só dígitos — conferidos antes de entrar no endereço.
+
+const ID_DA_META = /^[0-9]{3,40}$/;
+const idDaMeta = (v: string, oque: string) => {
+  if (!ID_DA_META.test(String(v ?? ''))) throw new ErroDaMeta(`${oque} inválido`, 400, null);
+  return encodeURIComponent(v);
+};
+
+/** Responde em PÚBLICO no post: `POST /{comentário}/replies` com `{ message }` → o id da resposta. */
+export async function responderComentario(comentarioId: string, token: string, texto: string) {
+  const j = await chamar(`${graph()}/${versao()}/${idDaMeta(comentarioId, 'comentário')}/replies`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ message: texto }),
+  });
+  if (typeof j?.id !== 'string' && typeof j?.id !== 'number') throw new ErroDaMeta('a Meta não devolveu a resposta', 502, null);
+  return { id: String(j.id) };
+}
+
+/** Esconde (ou mostra de novo) o comentário no post: `POST /{comentário}?hide=true|false`. */
+export async function esconderComentario(comentarioId: string, token: string, esconder: boolean) {
+  const j = await chamar(`${graph()}/${versao()}/${idDaMeta(comentarioId, 'comentário')}?hide=${esconder ? 'true' : 'false'}`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}` },
+  });
+  if (j?.success !== true) throw new ErroDaMeta('a Meta não confirmou', 502, null);
+}
+
+/**
+ * A resposta PRIVADA (no Direct de quem comentou): `POST /{conta}/messages` com `recipient.comment_id`. Uma por comentário,
+ * até 7 dias depois dele. Devolve o cliente no Direct (`recipient_id`) e o id da mensagem (o eco que vier depois tem o mesmo).
+ */
+export async function respostaPrivada(igUserId: string, token: string, comentarioId: string, texto: string) {
+  const j = await chamar(`${graph()}/${versao()}/${idDaMeta(igUserId, 'conta')}/messages`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ recipient: { comment_id: comentarioId }, message: { text: texto } }),
+  });
+  return {
+    igsid: j?.recipient_id != null ? String(j.recipient_id) : null,
+    mid: typeof j?.message_id === 'string' ? j.message_id : null,
+  };
+}
+
+/** O post do comentário: o link, a legenda e o tipo (FEED, REELS, AD…). */
+export async function dadosDaMidia(midiaId: string, token: string) {
+  const j = await chamar(`${graph()}/${versao()}/${idDaMeta(midiaId, 'mídia')}?fields=permalink,caption,media_product_type,thumbnail_url,media_url`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  return {
+    link: typeof j?.permalink === 'string' && /^https:\/\//.test(j.permalink) ? j.permalink.slice(0, 500) : null,
+    legenda: typeof j?.caption === 'string' ? j.caption.slice(0, 2200) : null,
+    tipo: typeof j?.media_product_type === 'string' ? j.media_product_type.slice(0, 40) : null,
+  };
 }

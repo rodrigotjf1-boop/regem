@@ -164,3 +164,35 @@ export function idDaChaveDoChat(v: unknown): string | null {
 
 /** A chave que a fala do chat usa na instância e no `de`. */
 export const chaveDoChat = (id: string): string => `${PREFIXO_DO_CHAT}${id}`;
+
+// ───────────────────────── os COMENTÁRIOS dos posts do Instagram (F6 do atendente virtual, mig 384) ─────────────────────────
+// O atendente virtual responde os comentários dos posts da loja. O comentário vai ao MESMO robô (o fluxo do n8n) com a chave
+// `cm:<id do comentário DE CIMA da conversa>` na instância e no `de` (o `pai_id` quando o comentário é resposta, senão o
+// próprio) — estável na conversa do comentário, como a `chat:` da F5 (a memória do agente no n8n é pelo `de`); o comentário
+// que ele responde vai em `mensagemId`. O quarto uso do truque do Direct (`ig:`): nada muda no n8n. A chave só resolve pela
+// LINHA do comentário em `instagram_comentario` com a conta conectada (a empresa vem dela) e nunca cai em telefone: as rotas
+// de telefone recusam qualquer valor `cm:` (tirando o prefixo sobram os dígitos do id do comentário, que a busca pelos
+// últimos dígitos casaria com o pedido de um desconhecido). Vai SEM a ficha da conversa (`conversa: null`).
+
+/** O prefixo da chave do comentário. */
+export const PREFIXO_DO_COMENTARIO = 'cm:';
+/** O id de um comentário do Instagram: só dígitos. */
+const ID_DO_COMENTARIO = /^[0-9]{3,40}$/;
+
+/**
+ * O valor COMEÇA com `cm:`? Qualquer forma conta (mesmo com o id torto): é o que as rotas de telefone e de envio usam para
+ * recusar. Se a chave é uma conversa de comentário que vale, quem diz é `idDaChaveDoComentario` (e a linha no banco).
+ */
+export function ehChaveDoComentario(v: unknown): boolean {
+  return typeof v === 'string' && v.trim().toLowerCase().startsWith(PREFIXO_DO_COMENTARIO);
+}
+
+/** O id do comentário da chave — só `cm:` + dígitos; qualquer outra forma = null. */
+export function idDaChaveDoComentario(v: unknown): string | null {
+  if (!ehChaveDoComentario(v)) return null;
+  const id = (v as string).trim().slice(PREFIXO_DO_COMENTARIO.length);
+  return ID_DO_COMENTARIO.test(id) ? id : null;
+}
+
+/** A chave da conversa do comentário: `cm:` + o comentário de cima (o pai, se houver; senão o próprio). */
+export const chaveDoComentario = (c: { comentarioId: string; paiId?: string | null }): string => `${PREFIXO_DO_COMENTARIO}${c.paiId || c.comentarioId}`;

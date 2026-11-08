@@ -2326,6 +2326,9 @@ const SO_NUVEM = new Set([
   // O Instagram Direct (mig 377, @cloud-only): o aviso da Meta chega na nuvem e o acesso da conta mora lá (cifrado) —
   // a loja não tem estas tabelas; a conversa do caso, ela pede à nuvem.
   'instagram_conta', 'instagram_mensagem', 'instagram_contato',
+  // Os comentários dos posts do Instagram (mig 384, @cloud-only — F6 do atendente virtual): o aviso `comments` da Meta
+  // chega na nuvem e a resposta sai de lá; a loja não tem a tabela (a tela do servidor da loja pede à nuvem).
+  'instagram_comentario',
   // Treinar o atendente (mig 382, @cloud-only): a conversa de teste com o robô, as mensagens dela e o que a loja ensinou
   // ao atendente — o robô e as instruções moram na nuvem; a loja não tem estas tabelas.
   'atendente_teste', 'atendente_teste_msg', 'atendente_conhecimento',

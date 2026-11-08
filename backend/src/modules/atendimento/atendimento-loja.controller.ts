@@ -50,6 +50,31 @@ export class AtendimentoLojaController {
     return this.instagram.responderVindoDaLoja(ctx.tenantId, dto ?? {});
   }
 
+  // Os COMENTÁRIOS dos posts do Instagram (F6, mig 384) para a tela do servidor da loja (moram só na nuvem — V37): a lista
+  // e o comentário do caso (quem pediu — a gestão — foi conferido lá); a ação (responder, privada, esconder), com quem agiu
+  // conferido AQUI (colaborador ativo da empresa e da gestão).
+  @Get('instagram-comentarios-da-loja')
+  @CloudOnly()
+  @UseGuards(SyncTokenGuard)
+  comentariosDaLoja(@SyncCtx() ctx: SyncCtxData, @Query() q: { filtro?: string; antes?: string }) {
+    return this.instagram.comentarios.listar(ctx.tenantId, q ?? {});
+  }
+
+  @Get('instagram-comentario-da-loja')
+  @CloudOnly()
+  @UseGuards(SyncTokenGuard)
+  comentarioDoCasoDaLoja(@SyncCtx() ctx: SyncCtxData, @Query('chamado') chamado: string) {
+    return this.instagram.comentarios.doCaso(ctx.tenantId, String(chamado ?? ''));
+  }
+
+  @Post('instagram-comentarios-da-loja')
+  @HttpCode(200)
+  @CloudOnly()
+  @UseGuards(SyncTokenGuard)
+  agirNoComentarioDaLoja(@SyncCtx() ctx: SyncCtxData, @Body() dto: { acao?: unknown; id?: unknown; texto?: unknown; esconder?: unknown; atorId?: unknown }) {
+    return this.instagram.comentarios.agirVindoDaLoja(ctx.tenantId, dto ?? {});
+  }
+
   // Os NÚMEROS DO ATENDIMENTO para a tela do servidor da loja: quem pediu (gerente ou presidente) e a loja em uso foram
   // conferidos lá; `unidade` vazia = todas as lojas (o presidente lá). A empresa vem do token.
   @Get('numeros-da-loja')

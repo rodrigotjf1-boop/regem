@@ -9,8 +9,12 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 // Regra pura (os testes conferem cada uma sozinha). A loja entra com a conta PROFISSIONAL e autoriza; o app, o segredo,
 // o aviso de mensagem e a renovação do acesso são da distribuição.
 
-/** As duas permissões pedidas: ver o perfil e ler/responder o Direct. Nada de publicar nem de comentários. */
-export const ESCOPOS = ['instagram_business_basic', 'instagram_business_manage_messages'] as const;
+/**
+ * As permissões pedidas: ver o perfil, ler/responder o Direct e (F6, mig 384) ler/responder/esconder os comentários dos
+ * posts da loja. Nada de publicar. A conta conectada antes da F6 não tem a dos comentários — a tela pede "Reconectar"
+ * (`podeComentarios` em `comentarios.ts`).
+ */
+export const ESCOPOS = ['instagram_business_basic', 'instagram_business_manage_messages', 'instagram_business_manage_comments'] as const;
 /** A versão da Graph API (a da documentação em 06/11/2026); `INSTAGRAM_GRAPH_VERSAO` troca. */
 export const VERSAO_PADRAO = 'v27.0';
 /** O texto da mensagem vai em UTF-8 e com até 1.000 bytes (regra do Instagram). */

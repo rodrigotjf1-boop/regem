@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig } from '../../db/schema';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
-import { chaveDoTeste, ehChaveDeTeste, ehChaveDoChat, ehChaveDoDirect, idDaChaveDeTeste } from '../../common/conversa-do-robo';
+import { chaveDoTeste, ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario, ehChaveDoDirect, idDaChaveDeTeste } from '../../common/conversa-do-robo';
 import { AUDIO_NO_TESTE, gravarMensagem, linhaDaTravaNoTeste, testeDaChave } from '../atendimento/teste-do-atendente';
 import { responderNoChatDaPlataforma } from '../ponte-chat/atendente-no-chat';
 import { opcoesNoChat, travaDaPlataforma } from '../ponte-chat/texto-do-chat';
@@ -105,6 +105,9 @@ export class RoboRespostaService {
     // O CHAT DO iFOOD E DA 99 (chave `chat:`, F5 — mig 383) ANTES de qualquer conta de telefone: tirando o `chat:`, sobram
     // os dígitos do uuid, que virariam um número de WhatsApp.
     if (ehChaveDoChat(p?.instancia) || ehChaveDoChat(p?.para)) return this.responderNoChat(p);
+    // O COMENTÁRIO de um post do Instagram (chave `cm:`, F6 — mig 384) ANTES de qualquer conta de telefone: tirando o `cm:`,
+    // sobram os dígitos do id do comentário, que virariam um número de WhatsApp.
+    if (ehChaveDoComentario(p?.instancia) || ehChaveDoComentario(p?.para)) return this.responderNoComentario(p);
     // O Direct do Instagram (chave `ig:` na instância e no `para`) ANTES de qualquer conta de telefone: tirando o `ig:`,
     // sobram dígitos que virariam um número de WhatsApp.
     if (ehChaveDoDirect(p?.instancia) || ehChaveDoDirect(p?.para)) return this.responderNoDirect(p);
@@ -260,6 +263,20 @@ export class RoboRespostaService {
     const texto = comOrigemDoDirect(opcoes.length ? menuNumerado(daLoja, opcoes) : daLoja, link).trim();
     if (!texto) return { ok: true, enviado: false, motivo: 'sem_voz_no_direct' };
     return this.instagram.enviarDoRobo(alvo, texto);
+  }
+
+  /**
+   * A resposta do robô no COMENTÁRIO de um post do Instagram (chave `cm:`, F6 — mig 384): publica no post (uma resposta por
+   * comentário), pela trava do comentário — numa linha, até 300 letras, sem link nem contato (`instagram/comentarios.ts`).
+   * As opções não existem no comentário (o texto sai sem elas); voz não sai. O resto (a conversa pela linha do comentário,
+   * o robô ligado na hora — V87 —, a reserva da resposta) é `instagram/comentarios.service.ts`.
+   */
+  private async responderNoComentario(p: PedidoDeResposta): Promise<RespostaDoRobo> {
+    if (!this.instagram) throw new NotFoundException('Instagram indisponível.');
+    const bruto = String(p?.texto ?? '').trim();
+    const temAudio = !!String(p?.audio?.base64 ?? '').trim();
+    if (!bruto && !opcoesValidas(p?.opcoes ?? []).length && !temAudio) throw new BadRequestException('Nada para enviar (texto, opções ou áudio).');
+    return this.instagram.comentarios.responderDoRobo([p?.instancia, p?.para], bruto, temAudio);
   }
 
   /**

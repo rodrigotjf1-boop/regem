@@ -27,6 +27,9 @@ import { ListaDeConversas } from '@/components/atendimento/lista-de-conversas';
 import { ConversaDoRobo } from '@/components/atendimento/conversa-do-robo';
 import { OQueAconteceu, type MarcaDoCaso } from '@/components/atendimento/o-que-aconteceu';
 import { TestarAtendente } from '@/components/atendimento/testar-atendente';
+import { ComentariosDoInstagram, ehSemComentarios } from '@/components/atendimento/comentarios-do-instagram';
+import { ComentarioDoCaso } from '@/components/atendimento/comentario-do-caso';
+import type { ListaDeComentarios } from '@/lib/comentarios-do-instagram';
 import { enderecoDoCaso } from '@/lib/endereco-do-caso';
 import {
   CASO_DA_PLATAFORMA,
@@ -84,6 +87,10 @@ export default function AtendimentoPage() {
   useEffect(() => setCategoria(getCategoria()), []);
   // "🧪 Testar o atendente" (F4, protótipo v13): a gaveta da conversa de teste — gerente e presidente (o servidor confere).
   const [testando, setTestando] = useState(false);
+  // "💬 Comentários" (F6, protótipo v15): a gaveta dos comentários dos posts e o número dos sem resposta no botão.
+  // `null` = o botão não aparece (sem o Instagram conectado, ou ainda não li); `reconectar` = falta a permissão.
+  const [comentando, setComentando] = useState(false);
+  const [comentarios, setComentarios] = useState<{ semResposta: number } | 'reconectar' | null>(null);
   const [busca, setBusca] = useState('');
   const [canal, setCanal] = useState('');
   const [tipo, setTipo] = useState('');
@@ -295,6 +302,29 @@ export default function AtendimentoPage() {
 
   const total = contagens?.abertos ?? casos.length;
   const veNumeros = categoria === 'presidente' || categoria === 'gerente';
+
+  // Os comentários (F6): gerente e presidente (o servidor confere). Lê o número dos sem resposta ao abrir, ao fechar a
+  // gaveta e a cada 2 min com a aba à vista. Sem a conta com a permissão dos comentários (sem Instagram, ou conectado
+  // antes dela — a lista diz `permitido: false`) o botão não aparece: o pedido de reconectar fica nos ajustes do Instagram.
+  // Falha passageira não esconde o botão que já estava.
+  const lerComentarios = useCallback(async () => {
+    try {
+      const r = (await api.atendimentoComentarios('sem-resposta')) as ListaDeComentarios;
+      setComentarios(r?.permitido === false ? null : { semResposta: Number(r?.contagem?.semResposta ?? 0) });
+    } catch (e) {
+      if (ehSemComentarios(e)) setComentarios('reconectar');
+    }
+  }, []);
+  useEffect(() => {
+    if (!veNumeros) return;
+    void lerComentarios();
+    const t = setInterval(() => {
+      if (document.visibilityState === 'visible') void lerComentarios();
+    }, 120_000);
+    return () => clearInterval(t);
+  }, [veNumeros, lerComentarios]);
+  const contarComentarios = useCallback((n: number) => setComentarios({ semResposta: n }), []);
+  const nComentarios = comentarios && comentarios !== 'reconectar' ? comentarios.semResposta : 0;
   const resumoConversas = conversas !== null ? resumoDasConversas(conversas, { comWhatsapp, comPonte, roboResponde, comInstagram }) : '';
   // TOPO COMPACTO (item 2 do checkpoint, protótipo v9 — pedido do dono: no PC o atendente via só metade do corpo): a
   // barra do Shell sem o título repetido, com os Números e o selo do teste grátis; uma linha com a contagem, o resumo, a
@@ -308,6 +338,27 @@ export default function AtendimentoPage() {
         // Os Números do atendimento (item 8) e o teste do atendente (F4): só gerente e presidente — o servidor confere.
         veNumeros && (
           <div className="flex flex-wrap items-center justify-end gap-2">
+            {comentarios !== null && (
+              <button
+                type="button"
+                id="bt-comentarios"
+                onClick={() => setComentando(true)}
+                aria-label={comentarios === 'reconectar' ? 'Comentários do Instagram: precisa reconectar' : `Comentários do Instagram: ${nComentarios} sem resposta`}
+                className="inline-flex min-h-10 items-center gap-2 rounded-md border border-input bg-card px-3 text-sm font-semibold hover:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <span aria-hidden="true">💬</span>
+                Comentários
+                {comentarios === 'reconectar' ? (
+                  <span aria-hidden="true" className="grid h-5 min-w-5 place-items-center rounded-full bg-warn/20 px-1.5 text-xs font-bold">
+                    !
+                  </span>
+                ) : nComentarios > 0 ? (
+                  <span aria-hidden="true" className="grid h-5 min-w-5 place-items-center rounded-full bg-warn/20 px-1.5 text-xs font-bold" data-conta-comentarios>
+                    {nComentarios}
+                  </span>
+                ) : null}
+              </button>
+            )}
             <button
               type="button"
               id="bt-testar-atendente"
@@ -329,6 +380,21 @@ export default function AtendimentoPage() {
       }
     >
       {testando && <TestarAtendente aoFechar={() => setTestando(false)} />}
+      {comentando && (
+        <ComentariosDoInstagram
+          podeAgir={veNumeros}
+          aoContar={contarComentarios}
+          aoFechar={() => {
+            setComentando(false);
+            void lerComentarios();
+          }}
+          aoAbrirCaso={(id) => {
+            setComentando(false);
+            setSit('abertos');
+            abrir(id);
+          }}
+        />
+      )}
       <div className="space-y-3">
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2" data-topo-atendimento>
           <h2 className="whitespace-nowrap font-display text-xl font-bold">
@@ -838,6 +904,9 @@ function Caso({
 
         {/* O Instagram Direct (mig 377): a conversa e a resposta pela conta da loja, dentro da janela de 24 h. */}
         {c.tipo === 'instagram' && <ConversaDoInstagram key={c.id} caso={c} aberto={aberto} podeResponder={podeResponder} />}
+
+        {/* O comentário no post (F6, mig 384): o post, o comentário e as ações — responder no post, no Direct, esconder. */}
+        {c.tipo === 'instagram_comentario' && <ComentarioDoCaso key={c.id} caso={c} />}
 
         {/* A conversa dentro do caso (2B): quem responde pelo WhatsApp é a gestão — a caixa de conversas confere. */}
         {c.telefone && c.canal === 'whatsapp' && aberto && podeResponder && <ConversaDoCaso key={c.id} caso={c} rascunho={rascunho} />}

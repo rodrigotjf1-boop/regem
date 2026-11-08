@@ -30,6 +30,9 @@ export type EstadoDoInstagram = {
     conectadoPor: string | null;
     erro: string | null;
   } | null;
+  /** Os comentários dos posts (F6, mig 384): `permitido` = a conta tem a permissão de comentários (quem conectou antes
+   *  dela precisa reconectar); "Robô responde comentários" (nasce desligado) e "Comentário que pede a equipe vira caso". */
+  comentarios?: { permitido: boolean; roboResponde: boolean; naFila: boolean } | null;
 };
 
 const VOLTA: Record<string, { tipo: 'success' | 'error' | 'info'; texto: string }> = {
@@ -108,7 +111,8 @@ export function ContaDoInstagram({ estado, aoMudar }: { estado: EstadoDoInstagra
     <>
       {estado.conta ? (
         <div className="flex flex-wrap gap-2">
-          {estado.conta.erro && estado.disponivel && (
+          {/* Reconectar: com erro no acesso, ou sem a permissão dos comentários (conectada antes dela — F6, ERR-406). */}
+          {estado.disponivel && (estado.conta.erro || estado.comentarios?.permitido === false) && (
             <Button type="button" onClick={() => setDialogo('conectar')}>
               Reconectar
             </Button>
@@ -143,8 +147,8 @@ export function ContaDoInstagram({ estado, aoMudar }: { estado: EstadoDoInstagra
               Abre a página do Instagram. Entre com a conta <b>profissional</b> da loja (comercial ou criador de conteúdo).
             </li>
             <li>
-              O Instagram mostra o que o Regem vai poder fazer: <b>ver o perfil</b> e <b>ler e responder as mensagens do Direct</b>. Toque em
-              &quot;Permitir&quot;.
+              O Instagram mostra o que o Regem vai poder fazer: <b>ver o perfil</b>, <b>ler e responder as mensagens do Direct</b> e{' '}
+              <b>responder e esconder os comentários dos posts</b>. Toque em &quot;Permitir&quot;.
             </li>
             <li>Pronto: volta para cá e esta tela mostra &quot;Conectado&quot;. A partir daí, as conversas novas do Direct entram na fila.</li>
           </ol>

@@ -100,6 +100,7 @@ descrever('Instagram Direct (Postgres + Meta de mentira)', () => {
       '377_instagram_direct.sql',
       '378_instagram_robo_no_direct.sql',
       '379_horario_da_equipe.sql', // o caso do Direct fora do horário da equipe vira recado (ERR-273)
+      '384_comentarios_do_instagram.sql', // os comentários (F6): o grupo dos ajustes lê as colunas novas da conta (ERR-273)
     ])
       await aplicar(m);
     meta = createServer((req, res) => {
@@ -194,7 +195,7 @@ descrever('Instagram Direct (Postgres + Meta de mentira)', () => {
       code: 'codigo-bom', // o "#_" do fim sai (a Meta põe no endereço)
     });
     expect(pedidos.find((p) => p.caminho === '/v27.0/me')?.auth).toBe('Bearer longo-1');
-    expect(pedidos.find((p) => p.caminho === `/v27.0/${CONTA}/subscribed_apps`)?.consulta).toEqual({ subscribed_fields: 'messages' });
+    expect(pedidos.find((p) => p.caminho === `/v27.0/${CONTA}/subscribed_apps`)?.consulta).toEqual({ subscribed_fields: 'messages,comments' }); // F6: + os comentários
     const [c] = await q(`select * from instagram_conta where tenant_id = $1`, [T]);
     expect(c).toMatchObject({ ig_user_id: CONTA, usuario: 'burgerdapraca', nome: 'Burger da Praça', fila_ligada: true, conectado_por: pessoa.ana });
     expect(c.token_cifrado).not.toContain('longo-1');

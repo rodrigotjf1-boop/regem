@@ -15,7 +15,7 @@ import { ChegadaService } from '../chegada/chegada.service';
 import { clienteRespondeu } from '../atendimento/abrir-chamado';
 import { portaoDoGestor } from '../atendimento/gestor-whatsapp-entrada';
 import { AuditoriaService } from '../auditoria/auditoria.service';
-import { assinarConversa, ehChaveDeTeste, ehChaveDoChat } from '../../common/conversa-do-robo';
+import { assinarConversa, ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario } from '../../common/conversa-do-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -117,6 +117,11 @@ export class EvolutionEntradaService {
       // A chave do chat do iFood e da 99 (F5, mig 383) também só nasce no Regem (a ponte do chat): de fora, nunca entra.
       if (ehChaveDoChat(instancia)) {
         this.logger.warn('aviso da Evolution com instância do chat da plataforma: ignorado.');
+        return;
+      }
+      // A chave do comentário do Instagram (F6, mig 384) também só nasce no Regem (o aviso da Meta): de fora, nunca entra.
+      if (ehChaveDoComentario(instancia)) {
+        this.logger.warn('aviso da Evolution com instância de comentário do Instagram: ignorado.');
         return;
       }
       const evento = String(corpo?.event ?? '').toLowerCase().replace(/_/g, '.');
