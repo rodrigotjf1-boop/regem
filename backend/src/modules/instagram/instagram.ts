@@ -227,21 +227,28 @@ export type DecisaoDoDirect = {
  * HORÁRIO DA EQUIPE (mig 379): o caso que é RECADO esperando a abertura (`caso.recado`) e sem ninguém com ele não cala
  * o robô — a mensagem entra no recado e o robô responde (salvo a loja respondendo pelo app do Instagram). Depois do
  * `ate`, ele é um caso comum, e quem chama passa em `criadoEm` a volta da equipe: a pausa conta dali.
+ * ASSUNTOS QUE NÃO SÃO PEDIDO (mig 381): o RECADO PARA O RESPONSÁVEL (`caso.paraOResponsavel`) sem ninguém com ele também
+ * não cala o robô — a mensagem entra no recado e o robô responde. Com o robô desligado, ele não segura a conversa: a
+ * mensagem nova abre um caso comum (se a fila estiver ligada), porque o recado não está na fila da equipe. Quem chama
+ * passa o caso comum antes do recado (o que manda na conversa).
  */
 export function quemRespondeNoDirect(e: {
   roboLigado: boolean;
   filaLigada: boolean;
-  caso: { criadoEm: Date | string; responsavelId: string | null; recado?: boolean | null } | null;
+  caso: { criadoEm: Date | string; responsavelId: string | null; recado?: boolean | null; paraOResponsavel?: boolean | null } | null;
   ultimaDaLojaEm: Date | string | null;
   minutos: number;
   agora: number;
 }): DecisaoDoDirect {
-  const { roboLigado, filaLigada, caso, minutos, agora } = e;
+  const { roboLigado, filaLigada, minutos, agora } = e;
+  const recadoParaOResponsavel = e.caso?.paraOResponsavel === true && !e.caso.responsavelId;
+  // Sem o robô, o recado para o responsável que espera não é "o caso da conversa": a mensagem vai para a fila.
+  const caso = !roboLigado && recadoParaOResponsavel ? null : e.caso;
   if (!roboLigado) return caso ? { anexar: true, abrir: false, robo: false } : { anexar: false, abrir: filaLigada, robo: false };
   const pausa = minutos > 0 ? minutos * 60_000 : null;
   const t = e.ultimaDaLojaEm ? new Date(e.ultimaDaLojaEm).getTime() : NaN;
   const lojaRespondeu = Number.isFinite(t) && agora - t < (pausa ?? CALADO_SEM_PRAZO_MS);
-  if (caso?.recado === true && !caso.responsavelId) return { anexar: true, abrir: false, robo: !lojaRespondeu };
+  if ((caso?.recado === true || recadoParaOResponsavel) && !caso?.responsavelId) return { anexar: true, abrir: false, robo: !lojaRespondeu };
   if (caso) {
     const idade = agora - new Date(caso.criadoEm).getTime();
     const comAlguem = !!caso.responsavelId || lojaRespondeu || pausa === null || idade < pausa;

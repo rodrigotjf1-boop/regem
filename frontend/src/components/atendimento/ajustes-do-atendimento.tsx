@@ -23,6 +23,8 @@ import { ContaDoInstagram, situacaoDoInstagram, useVoltaDoInstagram, type Estado
 //  • "Perfil do atendente virtual" (mig 380, F2; protótipo v11): por canal onde o atendente virtual já fala (WhatsApp e
 //    Direct), o perfil (Como hoje, Profissional, Cordial, Gentil, Descontraído, Objetivo, Acolhedor — com o exemplo), o de
 //    fora do horário ("O mesmo" ou outro) e o "jeito da loja". Na `robo_config` da empresa; nasce em "Como hoje".
+//  • "Assuntos que não são pedido" (mig 381, F3; protótipo v12): fornecedor, vaga e parceria — o que o robô faz (como hoje,
+//    recado para o responsável ou "não é por aqui") e o que ele diz (o texto some com "como hoje"). Na `robo_config`.
 //  • "Fila e avisos" (Onda 2, mig 353): avisar o gerente se ninguém pegar o caso; dizer ao cliente a posição na fila.
 //    Ficam na `robo_config` da empresa — sempre aparecem. O "Som do aviso no computador" é de cada computador (no sino).
 //  • "iFood · disputas e chat": o chat do iFood na tela; avisar o gerente da disputa e de novo perto do prazo. Ficam na
@@ -82,6 +84,47 @@ const DO_PERFIL: Record<string, [CanalDoPerfil, keyof PerfilDoCanal]> = Object.f
     [`perfil${chave}Jeito`, [canal, 'jeito']],
   ]),
 ) as Record<string, [CanalDoPerfil, keyof PerfilDoCanal]>;
+// OS ASSUNTOS QUE NÃO SÃO PEDIDO (mig 381, F3; protótipo v12, grupo "Assuntos que não são pedido"): fornecedor, vaga e
+// parceria — o que o robô faz (como hoje, recado para o responsável ou "não é por aqui") e o que ele diz. Nasce "como hoje".
+type Assunto = 'fornecedor' | 'vaga' | 'parceria';
+type AjusteDoAssunto = { modo: string; texto: string | null };
+const ASSUNTOS: { assunto: Assunto; nome: string; chave: string; ajuda: string; padrao: string }[] = [
+  {
+    assunto: 'fornecedor',
+    nome: 'Fornecedor ou proposta comercial',
+    chave: 'Fornecedor',
+    ajuda: 'Quem quer vender para a loja (produto, serviço, embalagem). Com recado, o robô pergunta o nome, a empresa, o que oferece e o melhor contato.',
+    padrao: 'Obrigado pelo contato! Já passei a sua proposta ao responsável. Se houver interesse, ele fala com você por aqui.',
+  },
+  {
+    assunto: 'vaga',
+    nome: 'Vaga de emprego',
+    chave: 'Vaga',
+    ajuda: 'Quem quer trabalhar na loja. Com recado, o robô pergunta o nome, a função e o melhor contato. Se a loja recebe currículo por e-mail, escreva no texto.',
+    padrao: 'Que bom que você quer trabalhar com a gente! Deixei o seu contato com o responsável. Quando abrir uma vaga, ele fala com você.',
+  },
+  {
+    assunto: 'parceria',
+    nome: 'Parceria, influenciador ou imprensa',
+    chave: 'Parceria',
+    ajuda: 'Divulgação, evento, permuta, reportagem. Com recado, o robô pergunta o nome, o perfil ou veículo, a proposta e o melhor contato.',
+    padrao: 'Obrigado pelo interesse! Já passei ao responsável, que responde por aqui.',
+  },
+];
+const MODOS_DO_ASSUNTO = [
+  { v: 'hoje', rotulo: 'Como hoje: chama a equipe' },
+  { v: 'recado', rotulo: 'Deixa recado para o responsável' },
+  { v: 'nao', rotulo: 'Responde que não é por aqui' },
+];
+/** O texto do "não é por aqui" quando a loja não escreve o dela (o mesmo padrão do servidor). */
+const NAO_E_POR_AQUI = 'Obrigado pelo contato! Esse assunto não é tratado por aqui.';
+/** As chaves da tela → [assunto, campo] do grupo "assuntos" que o servidor recebe. */
+const DO_ASSUNTO: Record<string, [Assunto, keyof AjusteDoAssunto]> = Object.fromEntries(
+  ASSUNTOS.flatMap(({ assunto, chave }) => [
+    [`assunto${chave}`, [assunto, 'modo']],
+    [`assunto${chave}Texto`, [assunto, 'texto']],
+  ]),
+) as Record<string, [Assunto, keyof AjusteDoAssunto]>;
 const DO_IFOOD: Record<string, string> = {
   ifoodChat: 'chat',
   ifoodAvisarDisputa: 'avisarDisputa',
@@ -152,6 +195,8 @@ type Resposta = {
   equipe?: { atende: 'sempre' | 'loja'; antesMin: number; depoisMin: number; textoFora: string | null } | null;
   // O perfil do atendente por canal (mig 380): o servidor manda os dois canais, com os padrões.
   perfis?: Partial<Record<CanalDoPerfil, PerfilDoCanal>> | null;
+  // Os assuntos que não são pedido (mig 381): o servidor manda os três, com os padrões.
+  assuntos?: Partial<Record<Assunto, AjusteDoAssunto>> | null;
   minutosDoAviso?: number[];
   conectadoIfood?: boolean;
   ajusteIfood?: { chat: boolean; avisarDisputa: boolean; avisarDeNovoMin: number; avaliacoes?: boolean } | null;
@@ -213,6 +258,17 @@ const paraValores = (r: Resposta): Valores => ({
       }
     : {}),
   ...(r.fila ? { avisarGerenteMin: String(r.fila.avisarGerenteMin), dizerPosicao: r.fila.dizerPosicao } : {}),
+  ...Object.fromEntries(
+    ASSUNTOS.flatMap(({ assunto, chave }) => {
+      const a = r.assuntos?.[assunto];
+      return a
+        ? [
+            [`assunto${chave}`, a.modo],
+            [`assunto${chave}Texto`, a.texto ?? ''],
+          ]
+        : [];
+    }),
+  ),
   ...Object.fromEntries(
     CANAIS_DO_PERFIL.flatMap(({ canal, chave }) => {
       const p = r.perfis?.[canal];
@@ -313,6 +369,38 @@ export function AjustesDoAtendimento() {
   };
   // O perfil do atendente por canal (protótipo v11): o exemplo acompanha o perfil escolhido (a mesma resposta em cada jeito).
   const exemploDo = (perfil: unknown) => PERFIS.find((p) => p.v === perfil)?.exemplo ?? '';
+  // Os assuntos que não são pedido (protótipo v12): o modo e o texto de cada um; o texto em branco vale o padrão do modo.
+  const grupoDosAssuntos: GrupoDeAjustes = {
+    titulo: 'Assuntos que não são pedido',
+    nota: 'O recado para o responsável não entra na fila da equipe: vai para "📋 Recados", que só gerente e presidente veem — sem som e sem tempo de espera. Sempre vale: o robô pergunta só o necessário, uma pergunta por vez; nunca promete vaga, compra nem parceria; o recado não cala o robô; vale no WhatsApp e no Direct.',
+    itens: ASSUNTOS.flatMap(({ nome, chave, ajuda, padrao }) => {
+      const modo = String(valores[`assunto${chave}`] ?? 'hoje');
+      return [
+        {
+          id: `assunto${chave}`,
+          rotulo: nome,
+          tipo: 'selecao' as const,
+          opcoes: MODOS_DO_ASSUNTO,
+          ajuda,
+          palavras: `assunto recado responsável ${nome}`,
+        },
+        ...(modo === 'hoje'
+          ? []
+          : [
+              {
+                id: `assunto${chave}Texto`,
+                rotulo: `${nome} · o robô diz`,
+                tipo: 'texto' as const,
+                opcional: true,
+                maximo: 300,
+                placeholder: modo === 'nao' ? NAO_E_POR_AQUI : padrao,
+                ajuda: modo === 'nao' ? 'Sem recado: a resposta educada e o fim do assunto. Em branco, vale o texto de exemplo.' : 'O que o robô diz depois de deixar o recado. Em branco, vale o texto de exemplo.',
+                palavras: `texto mensagem robô diz ${nome}`,
+              },
+            ]),
+      ];
+    }),
+  };
   const grupoDoPerfil: GrupoDeAjustes = {
     titulo: 'Perfil do atendente virtual',
     nota: 'Sempre vale: o perfil muda o jeito de falar, nunca as regras — o robô nunca inventa preço, prazo, taxa nem promoção; segue as regras de cada canal; no máximo 1 emoji por mensagem; cliente chateado: o robô fica sério e chama a equipe. Chat do iFood e da 99, Messenger e comentários ganham o perfil quando o atendente virtual chegar neles.',
@@ -830,6 +918,7 @@ export function AjustesDoAtendimento() {
   const grupos: GrupoDeAjustes[] = [
     ...(resp?.equipe ? [grupoDaEquipe] : []),
     ...(resp?.perfis ? [grupoDoPerfil] : []),
+    ...(resp?.assuntos ? [grupoDosAssuntos] : []),
     ...(resp?.cheguei?.temCardapio ? [grupoDoCheguei] : []),
     grupoDaFila,
     ...(grupoDoGestor ? [grupoDoGestor] : []),
@@ -851,6 +940,7 @@ export function AjustesDoAtendimento() {
     const fila: Record<string, unknown> = {};
     const equipe: Record<string, unknown> = {};
     const perfis: Partial<Record<CanalDoPerfil, Partial<PerfilDoCanal>>> = {};
+    const assuntos: Partial<Record<Assunto, Partial<AjusteDoAssunto>>> = {};
     const ifood: Record<string, unknown> = {};
     const ajuste99: Record<string, unknown> = {};
     const cheguei: Record<string, unknown> = {};
@@ -916,6 +1006,12 @@ export function AjustesDoAtendimento() {
         continue;
       }
       if (k === 'instagramConta') continue; // a conta muda pelos botões dela, não pelo salvar
+      if (DO_ASSUNTO[k]) {
+        // Só o campo que mudou, do assunto dele; o texto em branco volta a null (o padrão).
+        const [assunto, campo] = DO_ASSUNTO[k];
+        assuntos[assunto] = { ...assuntos[assunto], [campo]: campo === 'texto' ? String(valores[k] ?? '').trim() || null : String(valores[k]) };
+        continue;
+      }
       if (DO_PERFIL[k]) {
         // Só o campo que mudou, do canal dele; o jeito em branco volta a null (sem jeito).
         const [canal, campo] = DO_PERFIL[k];
@@ -954,6 +1050,7 @@ export function AjustesDoAtendimento() {
         ...(Object.keys(fila).length ? { fila } : {}),
         ...(Object.keys(equipe).length ? { equipe } : {}),
         ...(Object.keys(perfis).length ? { perfis } : {}),
+        ...(Object.keys(assuntos).length ? { assuntos } : {}),
         ...(Object.keys(ifood).length ? { ifood } : {}),
         ...(Object.keys(ajuste99).length ? { ajuste99 } : {}),
         ...(Object.keys(cheguei).length ? { cheguei } : {}),

@@ -23,6 +23,7 @@ import { AtendimentoService } from './atendimento.service';
 import { DisputaIfoodService } from './disputa-ifood.service';
 import { Pedido99Service } from './pedido-99.service';
 import { inicioDoCasoSql, recadoAtivoSql } from './horario-da-equipe';
+import { paraOResponsavelSql } from '../cardapio/assuntos-do-atendente';
 import {
   AJUSTE_GESTOR_WA_PADRAO,
   AjusteGestorWa,
@@ -391,6 +392,8 @@ export class GestorWhatsappService {
              -- (o "ninguém pegou" já não teria a marca; a decisão sem prazo, como um cancelamento, também não sai). A
              -- disputa e a 99 têm prazo e nunca nascem como recado. Depois da abertura, a decisão conta da volta da equipe.
              and not ${recadoAtivoSql('ch')}
+             -- ASSUNTOS QUE NÃO SÃO PEDIDO (mig 381): o recado para o responsável nunca avisa (não é decisão nem fila).
+             and not ${paraOResponsavelSql('ch')}
              and (
                   (t.tipo = 'decisao' and rc.gestor_wa_decisoes
                      and ${inicioDoCasoSql('ch')} > now() - make_interval(hours => ${DECISAO_ATE_HORAS})

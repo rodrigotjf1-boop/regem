@@ -110,6 +110,8 @@ export type LinhaDoCaso = {
   criadoEm: string | Date;
   /** Desde quando o caso espera uma pessoa (mig 379): o recado da madrugada, desde a volta da equipe. Sem ele, `criadoEm`. */
   inicioEm?: string | Date | null;
+  /** Recado para o responsável (mig 381 — fornecedor, vaga, parceria): fora do tempo de espera e das reclamações. */
+  paraOResponsavel?: boolean | null;
   pegoEm: string | Date | null;
   resolvidoEm: string | Date | null;
   resolvidoPorId: string | null;
@@ -156,6 +158,8 @@ export function oQueAconteceuNoCaso(l: LinhaDoCaso): ResultadoDoCaso {
     return { motivo, fonte: motivo ? 'plataforma' : null, produtos: itens };
   }
   if (l.tipo === 'mudanca') return { motivo: 'nao', fonte: 'plataforma', produtos: [] };
+  // O recado para o responsável (mig 381 — fornecedor, vaga, parceria) não é reclamação.
+  if (l.paraOResponsavel) return { motivo: 'nao', fonte: null, produtos: [] };
   return { motivo: null, fonte: null, produtos: [] };
 }
 
@@ -215,6 +219,7 @@ export type GrupoDosCasos = (typeof GRUPOS_DOS_CASOS)[number];
 
 export function grupoDoPlacar(l: LinhaDoCaso): GrupoDosCasos | null {
   if (l.tipo === 'chat' || l.tipo === 'instagram') return null; // o chat e o Direct entram pelas mensagens, não pelo caso
+  if (l.paraOResponsavel) return null; // o recado para o responsável (mig 381) não conta no tempo de espera
   if (l.tipo === 'disputa') return 'disputa';
   if (l.tipo === 'cancelamento_99' || l.tipo === 'reembolso_99') return 'pedido99';
   if (l.tipo === 'avaliacao') return 'avaliacao';

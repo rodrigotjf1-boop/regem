@@ -54,7 +54,11 @@ import { temPerfilNoJeito } from './perfis-do-atendente';
 // .f17 (07/11, perfil do atendente virtual — mig 380): o bloco do perfil do canal (o de fora do horário, quando a equipe
 // não está) e o "jeito da loja" logo depois da abertura; com perfil, a abertura não impõe mais o tom. "Como hoje" sem
 // jeito = o texto de antes, letra por letra.
-export const VERSAO_INSTRUCOES = '2026-11-07.f17';
+// .f18 (07/11, assuntos que não são pedido — mig 381): a seção ASSUNTOS QUE NÃO SÃO PEDIDO logo depois de QUANDO CHAMAR
+// UMA PESSOA — fornecedor, vaga e parceria em "recado" (pergunta o mínimo, chamar_atendente com o tipo do assunto e o
+// resumo "Assunto / Quem / Contato / Já fiz", e responde com o paraOCliente que voltar) ou em "não é por aqui" (o texto
+// e ninguém chamado). Tudo em "Como hoje" = o texto de antes, letra por letra.
+export const VERSAO_INSTRUCOES = '2026-11-07.f18';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -64,9 +68,20 @@ export type DadosDasInstrucoes = {
    * da loja, já em texto. Vazio = como hoje (nada entra e a abertura fica a de sempre).
    */
   jeito?: string | null;
+  /**
+   * Os assuntos que não são pedido (mig 381 — `assuntos-do-atendente.ts` › `blocoDasInstrucoes`), já em texto. Vazio =
+   * como hoje (a seção não entra).
+   */
+  assuntos?: string | null;
 };
 
 const linhas = (...l: string[]) => l.join('\n');
+
+/** A seção dos assuntos que não são pedido, quando a loja escolheu algum (senão nada — as instruções de hoje). */
+const secaoDosAssuntos = (dados: DadosDasInstrucoes): string[] => {
+  const t = String(dados?.assuntos ?? '').trim();
+  return t ? [t] : [];
+};
 
 /**
  * O começo das instruções: a abertura e, quando houver, o bloco do jeito do atendente logo depois dela. Com um perfil
@@ -267,12 +282,22 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
       quandoChamarUmaPessoa()
         .replace('não consegue usar o link ou fazer o pedido; ', 'tentou montar o pedido aqui e não deu certo; ')
         .replace('quer mudar ou cancelar um pedido; ', 'quer cancelar um pedido; quer mudar um pedido e você não pode mudar (veja MUDAR UM PEDIDO JÁ FEITO); '),
+      ...secaoDosAssuntos(dados),
       ferramentasDoFluxo2(),
       regrasDoFluxo2(),
     ].join('\n\n');
     return { versao: VERSAO_INSTRUCOES, fluxo: 2, texto };
   }
-  const texto = [...abertura, jeitoDeConversar(), cardapioPrimeiro(), clienteChateado(), quandoChamarUmaPessoa(), ferramentasDoFluxo1(), regrasQueNuncaMudam()].join('\n\n');
+  const texto = [
+    ...abertura,
+    jeitoDeConversar(),
+    cardapioPrimeiro(),
+    clienteChateado(),
+    quandoChamarUmaPessoa(),
+    ...secaoDosAssuntos(dados),
+    ferramentasDoFluxo1(),
+    regrasQueNuncaMudam(),
+  ].join('\n\n');
   return { versao: VERSAO_INSTRUCOES, fluxo: 1, texto };
 }
 
@@ -286,7 +311,9 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
 // paraOCliente: o robô manda a frase como veio, sem "em instantes" nem a posição, e segue respondendo o resto.
 // .d3 (07/11, perfil do atendente virtual — mig 380): o perfil do Direct e o jeito da loja logo depois da abertura, como no
 // WhatsApp (.f17).
-export const VERSAO_DO_DIRECT = '2026-11-07.d3';
+// .d4 (07/11, assuntos que não são pedido — mig 381): a seção ASSUNTOS QUE NÃO SÃO PEDIDO logo depois de QUANDO CHAMAR
+// UMA PESSOA, como no WhatsApp (.f18) — no Direct o robô pergunta o melhor contato.
+export const VERSAO_DO_DIRECT = '2026-11-07.d4';
 
 function jeitoDoDirect(): string {
   return linhas(
@@ -360,6 +387,16 @@ function regrasDoDirect(): string {
 
 /** As instruções do Direct (qualquer fluxo do n8n: as ferramentas que funcionam aqui são as mesmas nos dois). */
 export function instrucoesDoDirect(dados: DadosDasInstrucoes, fluxo?: unknown): { versao: string; fluxo: number; canal: 'instagram'; texto: string } {
-  const texto = [...inicio(dados, 'no Direct do Instagram'), jeitoDoDirect(), noDirectSemCadastro(), cardapioDoDirect(), clienteChateado(), quandoChamarNoDirect(), ferramentasDoDirect(), regrasDoDirect()].join('\n\n');
+  const texto = [
+    ...inicio(dados, 'no Direct do Instagram'),
+    jeitoDoDirect(),
+    noDirectSemCadastro(),
+    cardapioDoDirect(),
+    clienteChateado(),
+    quandoChamarNoDirect(),
+    ...secaoDosAssuntos(dados),
+    ferramentasDoDirect(),
+    regrasDoDirect(),
+  ].join('\n\n');
   return { versao: VERSAO_DO_DIRECT, fluxo: String(fluxo ?? '').trim() === '2' ? 2 : 1, canal: 'instagram', texto };
 }

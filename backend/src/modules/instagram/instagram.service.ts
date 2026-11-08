@@ -33,6 +33,7 @@ import {
   situacaoDaEquipe,
 } from '../atendimento/horario-da-equipe';
 import { resumoDoRobo } from '../atendimento/resumo-do-robo';
+import { recadoParaOResponsavel, respostaParaOResponsavel, resumoComORecado, responsavelNaEsperaSql } from '../cardapio/assuntos-do-atendente';
 import {
   SEM_RESPOSTA_MS,
   assinarEstado,
@@ -371,12 +372,14 @@ export class InstagramService {
       if (!filaLigada && !roboLigado) return null;
       const [contato] = ((await tx.execute(sql`
         select nome, usuario from instagram_contato where tenant_id = ${conta.tenantId} and igsid = ${ev.igsid}`)) as any).rows ?? [];
+      // O caso da conversa: o comum antes do recado para o responsável que espera alguém (mig 381); depois, o mais novo.
       const [aberto] = ((await tx.execute(sql`
         select id, aguardando_desde as "aguardava", ${inicioDoCasoSql('atendimento_chamado')} as "criadoEm",
-               responsavel_id as "responsavelId", ${recadoAtivoSql('atendimento_chamado')} as recado
+               responsavel_id as "responsavelId", ${recadoAtivoSql('atendimento_chamado')} as recado,
+               ${responsavelNaEsperaSql('atendimento_chamado')} as "paraOResponsavel"
           from atendimento_chamado
          where tenant_id = ${conta.tenantId} and tipo = 'instagram' and status = 'aberto' and detalhe #>> '{instagram,igsid}' = ${ev.igsid}
-         order by criado_em desc limit 1`)) as any).rows ?? [];
+         order by ${responsavelNaEsperaSql('atendimento_chamado')}, criado_em desc limit 1`)) as any).rows ?? [];
       const [quieto] = roboLigado
         ? (((await tx.execute(sql`
             select (select max(m.criado_em) from instagram_mensagem m
@@ -642,11 +645,11 @@ export class InstagramService {
       const [l] = ((await tx.execute(sql`
         select (select row_to_json(x) from (
                   select a.id, ${inicioDoCasoSql('a')} as "criadoEm", a.responsavel_id as "responsavelId",
-                         ${recadoAtivoSql('a')} as recado,
+                         ${recadoAtivoSql('a')} as recado, ${responsavelNaEsperaSql('a')} as "paraOResponsavel",
                          (a.detalhe #>> '{instagram,avisoLiberado}') = 'true' as "avisoLiberado"
                     from atendimento_chamado a
                    where a.tenant_id = ${tenantId} and a.tipo = 'instagram' and a.status = 'aberto' and a.detalhe #>> '{instagram,igsid}' = ${igsid}
-                   order by a.criado_em desc limit 1) x) as caso,
+                   order by ${responsavelNaEsperaSql('a')}, a.criado_em desc limit 1) x) as caso,
                (select max(m.criado_em) from instagram_mensagem m where m.tenant_id = ${tenantId} and m.igsid = ${igsid} and m.autor = 'loja') as "ultimaDaLojaEm",
                (select max(m.criado_em) from instagram_mensagem m where m.tenant_id = ${tenantId} and m.igsid = ${igsid} and m.autor = 'cliente') as "ultimaDoCliente",
                (select pausa_minutos from robo_config where tenant_id = ${tenantId}) as minutos,
@@ -708,6 +711,11 @@ export class InstagramService {
    * traz a posição na fila (se a loja diz a posição) ou `comAlguem`.
    * HORÁRIO DA EQUIPE (mig 379): fora do horário (o do cardápio do robô), o caso novo nasce como RECADO para a abertura
    * e somar a um recado o mantém; a resposta traz `foraDoHorario`, `equipeVolta` e `paraOCliente` (sem a posição).
+   * ASSUNTOS QUE NÃO SÃO PEDIDO (mig 381): `tipo` fornecedor, vaga ou parceria com o assunto em "recado" na empresa → o
+   * caso do Direct (tipo `instagram`, como todo caso do Direct) nasce com `detalhe.responsavel = { assunto, em }`, prioridade
+   * normal, a qualquer hora; só soma ao recado aberto do MESMO assunto, e um caso comum nunca soma nele (nem ele no comum).
+   * A tela recebe só "mudou" (não toca). A resposta traz `paraOResponsavel`, `assunto` e `paraOCliente` (o texto do
+   * assunto), sem a posição. O assunto em "Como hoje" (ou "não é por aqui") = o caso comum, como antes.
    */
   async abrirPeloRobo(tenantIdDoCardapio: string, dto: any) {
     const conv = lerConversaDoDirect(dto?.conversa);
@@ -715,33 +723,79 @@ export class InstagramService {
     const igsidDoTelefone = idDaChave(dto?.telefone);
     if (igsidDoTelefone && igsidDoTelefone !== conv.igsid) throw new UnauthorizedException('Conversa do Direct inválida.');
     const { tenantId, igsid } = conv;
-    const urgente = dto?.prioridade === 'urgente' || dto?.urgente === true || dto?.urgente === 'true';
+    // Lido fora da transação (nunca rejeita: falha = o caso comum, com o motivo no log).
+    const aceito = await recadoParaOResponsavel(this.db, tenantId, dto?.tipo);
+    const urgente = !aceito && (dto?.prioridade === 'urgente' || dto?.urgente === true || dto?.urgente === 'true');
     const resumo = resumoDoRobo(dto, urgente);
     const mensagem = typeof dto?.mensagem === 'string' && dto.mensagem.trim() ? dto.mensagem.trim().slice(0, 1000) : null;
-    type Chamou = { id: string; novo: any; mudou: boolean; prioridade: string; recado: Recado | null; textoFora?: string | null; cardapioId: string | null };
+    type Chamou = {
+      id: string;
+      novo: any;
+      mudou: boolean;
+      prioridade: string;
+      recado: Recado | null;
+      textoFora?: string | null;
+      cardapioId: string | null;
+      paraOResponsavel?: true;
+    };
     const r = await this.db.transaction(async (tx: any): Promise<Chamou> => {
       const [conta] = ((await tx.execute(sql`
         select id, cardapio_id as "cardapioId" from instagram_conta where tenant_id = ${tenantId} for update`)) as any).rows ?? [];
       if (!conta) throw new NotFoundException('Instagram não conectado.');
       const cardapioId: string | null = conta.cardapioId ?? null;
+      const doDirect = sql`a.tenant_id = ${tenantId} and a.tipo = 'instagram' and a.status = 'aberto' and a.detalhe #>> '{instagram,igsid}' = ${igsid}`;
+      // `caso` = o da conversa (o comum antes do recado para o responsável que espera — decide o "já chamei", V83);
+      // `alvo` = onde somar: o recado aberto do MESMO assunto, ou o caso comum mais novo (mig 381).
       const [l] = ((await tx.execute(sql`
         select (select row_to_json(x) from (
+                  select a.id, a.responsavel_id as "responsavelId"
+                    from atendimento_chamado a where ${doDirect}
+                   order by ${responsavelNaEsperaSql('a')}, a.criado_em desc limit 1) x) as caso,
+               (select row_to_json(x) from (
                   select a.id, a.prioridade, a.mensagem, a.responsavel_id as "responsavelId", a.criado_em as "criadoEm",
                          a.detalhe -> 'recado' as recado, ${recadoAtivoSql('a')} as "recadoAtivo"
                     from atendimento_chamado a
-                   where a.tenant_id = ${tenantId} and a.tipo = 'instagram' and a.status = 'aberto' and a.detalhe #>> '{instagram,igsid}' = ${igsid}
-                   order by a.criado_em desc limit 1) x) as caso,
+                   where ${doDirect}
+                     and ${aceito ? sql`a.detalhe #>> '{responsavel,assunto}' = ${aceito.assunto}::text` : sql`(a.detalhe -> 'responsavel') is null`}
+                   order by a.criado_em desc limit 1) x) as alvo,
                (select max(m.criado_em) from instagram_mensagem m where m.tenant_id = ${tenantId} and m.igsid = ${igsid} and m.autor = 'loja') as "ultimaDaLojaEm",
                (select pausa_minutos from robo_config where tenant_id = ${tenantId}) as minutos,
                (select row_to_json(ct) from (select nome, usuario from instagram_contato where tenant_id = ${tenantId} and igsid = ${igsid}) ct) as contato,
                now() as agora`)) as any).rows ?? [];
-      const caso = l?.caso ?? null;
+      const caso = l?.alvo ?? null;
       const minutos = minutosDaPausa(l?.minutos);
       const agora = l?.agora ? new Date(l.agora).getTime() : Date.now();
       const t = l?.ultimaDaLojaEm ? new Date(l.ultimaDaLojaEm).getTime() : NaN;
       const lojaRespondeu = Number.isFinite(t) && agora - t < (minutos > 0 ? minutos * 60_000 : 12 * 3_600_000);
       // V83: a leitura de ANTES de abrir decide o "já chamei" — com a conversa já com alguém, o robô não fala por cima.
-      const liberar = !(caso?.responsavelId || lojaRespondeu);
+      const liberar = !(l?.caso?.responsavelId || lojaRespondeu);
+      if (aceito) {
+        // O RECADO PARA O RESPONSÁVEL (mig 381): não cala o robô — não precisa liberar o "já chamei".
+        const robo = { ...(resumoComORecado(resumo, mensagem) ?? {}), em: new Date(agora).toISOString() };
+        if (caso) {
+          await tx.execute(sql`
+            update atendimento_chamado
+               set mensagem = ${juntarMensagem(caso.mensagem, mensagem)}, aguardando_desde = null,
+                   detalhe = coalesce(detalhe, '{}'::jsonb) || ${JSON.stringify({ robo })}::jsonb
+             where id = ${caso.id}`);
+          return { id: caso.id as string, novo: null, mudou: true, prioridade: caso.prioridade, recado: null, cardapioId, paraOResponsavel: true };
+        }
+        const detalhe = {
+          plataforma: 'instagram',
+          instagram: { igsid, usuario: l?.contato?.usuario ?? null, nome: l?.contato?.nome ?? null, ultimaEm: new Date(agora).toISOString(), abertoPeloRobo: true, avisoLiberado: false },
+          robo,
+          responsavel: { assunto: aceito.assunto, em: new Date(agora).toISOString() },
+        };
+        const [novo] = ((await tx.execute(sql`
+          insert into atendimento_chamado (tenant_id, unidade_id, tipo, canal, cliente, mensagem, prioridade, detalhe)
+          values (${tenantId}, null, 'instagram', 'instagram', ${nomeDoCliente(l?.contato)}, ${mensagem ?? 'O robô deixou um recado para o responsável'},
+                  'normal', ${JSON.stringify(detalhe)}::jsonb)
+          returning *`)) as any).rows ?? [];
+        await tx.execute(sql`
+          update instagram_mensagem set chamado_id = ${novo.id}
+           where tenant_id = ${tenantId} and igsid = ${igsid} and chamado_id is null and criado_em > now() - interval '12 hours'`);
+        return { id: novo.id as string, novo, mudou: false, prioridade: 'normal', recado: null, cardapioId, paraOResponsavel: true };
+      }
       const robo = resumo ? { ...resumo, em: new Date(agora).toISOString() } : null;
       if (caso) {
         const subiu = urgente && caso.prioridade !== 'urgente';
@@ -787,6 +841,11 @@ export class InstagramService {
         cardapioId,
       };
     });
+    if (r.paraOResponsavel && aceito) {
+      // O recado para o responsável não toca: a tela só relê a fila (que filtra pelo perfil — o aviso não leva o caso).
+      this.events.emit('atendimento.mudou', { tenantId, id: r.id, motivo: r.novo ? 'recado_para_o_responsavel' : 'robo_somou' });
+      return respostaParaOResponsavel(r.id, aceito, !r.novo);
+    }
     if (r.novo) this.events.emit('atendimento.novo', { tenantId, chamado: r.novo });
     else if (r.mudou) this.events.emit('atendimento.mudou', { tenantId, id: r.id, motivo: 'robo_somou' });
     if (r.recado) {
@@ -803,7 +862,8 @@ export class InstagramService {
    * O ROBÔ NÃO RESPONDEU (V88), a cada minuto, só na nuvem: a conversa do Direct com o robô ligado em que a ÚLTIMA
    * mensagem é do cliente, há mais de 3 min, sem caso aberto, vira caso para uma pessoa. A condição toda no `where` (V84);
    * as últimas 30 min, até 100 por rodada. Na trava da conta, confere de novo; o id do caso vem da mensagem (`uuidDeChave`:
-   * duas rodadas ou duas instâncias = um caso — V42).
+   * duas rodadas ou duas instâncias = um caso — V42). O recado para o responsável que espera alguém (mig 381) não conta
+   * como "caso aberto": ele não está na fila da equipe — sem resposta do robô, a conversa vira um caso comum.
    */
   @Cron('*/1 * * * *')
   async semResposta(): Promise<number> {
@@ -820,7 +880,7 @@ export class InstagramService {
          and m.autor = 'cliente' and m.criado_em < now() - make_interval(secs => ${SEM_RESPOSTA_MS / 1000})
          and not exists (select 1 from atendimento_chamado a
                           where a.tenant_id = c.tenant_id and a.tipo = 'instagram' and a.status = 'aberto'
-                            and a.detalhe #>> '{instagram,igsid}' = m.igsid)
+                            and a.detalhe #>> '{instagram,igsid}' = m.igsid and not ${responsavelNaEsperaSql('a')})
        limit 100`);
     let abertos = 0;
     for (const p of (r.rows ?? r) as any[]) {
@@ -830,7 +890,7 @@ export class InstagramService {
           const [ainda] = ((await tx.execute(sql`
             select 1 where not exists (select 1 from atendimento_chamado a
                                         where a.tenant_id = ${p.tenantId} and a.tipo = 'instagram' and a.status = 'aberto'
-                                          and a.detalhe #>> '{instagram,igsid}' = ${p.igsid})
+                                          and a.detalhe #>> '{instagram,igsid}' = ${p.igsid} and not ${responsavelNaEsperaSql('a')})
                        and (select autor from instagram_mensagem where tenant_id = ${p.tenantId} and igsid = ${p.igsid} and estado not in ('apagada', 'falhou')
                              order by criado_em desc, id desc limit 1) = 'cliente'`)) as any).rows ?? [];
           if (!ainda) return null;

@@ -76,6 +76,13 @@
    "jeito da loja" (texto curto, opcional). Os outros canais (chat do iFood e da 99, Messenger, comentários) ganham o perfil
    quando o atendente virtual chegar neles. Nasce em "Como hoje": nada muda até a loja escolher. O perfil muda o jeito de
    falar, nunca as regras (preço, prazo, contato fora da plataforma, cliente chateado = sério e chama a equipe).
+   VERSÃO 12 (07/11/2026, F3 do atendente virtual — pedido do dono: "no Direct vêm fornecedores tentando contato com o
+   responsável, pessoas perguntando sobre emprego; o atendimento virtual administra isso"): OS ASSUNTOS QUE NÃO SÃO PEDIDO.
+   Grupo novo "Assuntos que não são pedido": fornecedor/proposta comercial, vaga de emprego, parceria/influenciador/imprensa
+   — em cada um, "O que o robô faz" (como hoje, recado para o responsável ou "não é por aqui"; nasce "como hoje") e o que o
+   robô diz. Com recado, o robô pergunta o mínimo (nome, empresa ou função, o assunto, o melhor
+   contato), responde com o texto da loja e deixa um RECADO PARA O RESPONSÁVEL: fora da fila da equipe, na situação
+   "📋 Recados", que só gerente e presidente veem; não toca, não conta no tempo de espera e não cala o robô.
    O que a tela faz:
    (1) uma FILA só com tudo o que precisa de uma pessoa: chamado do robô, disputa do iFood, pedido de cancelamento ou
        reembolso da 99, cancelamento pedido no cardápio e a resposta ao "sem contato". A conversa que o robô atende
@@ -637,7 +644,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     <main id="v-aj" hidden>
       <div class="trilha">Delivery › Configurações › Operação</div>
       <h1>Atendimento</h1>
-      <p class="resumo">45 ajustes em 9 grupos · item novo no grupo "Operação", ao lado de "Robô de atendimento" · grupos novos: "Horário da equipe" (versão 10), "Perfil do atendente virtual" (versão 11), "Gerente no WhatsApp", "Copiloto", "Instagram Direct" e "iFood e 99 · chat pela ponte"</p>
+      <p class="resumo">50 ajustes em 10 grupos · item novo no grupo "Operação", ao lado de "Robô de atendimento" · grupos novos: "Horário da equipe" (versão 10), "Perfil do atendente virtual" (versão 11), "Assuntos que não são pedido" (versão 12), "Gerente no WhatsApp", "Copiloto", "Instagram Direct" e "iFood e 99 · chat pela ponte"</p>
       <div class="filtros" style="grid-template-columns:minmax(0,1fr)"><div class="campo"><label for="busca-aj">Buscar ajuste</label><input id="busca-aj" type="search" placeholder="Ex.: 99, disputa, som"></div></div>
 
       <!-- Versão 10: o horário da equipe. O robô atende 24 h; a pessoa só entra no horário. Nasce em "Sempre" (como hoje). -->
@@ -676,6 +683,26 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
           <div class="ctrl"><span class="fixo">Chat do iFood e da 99: hoje o robô usa frases prontas (a regra da plataforma) — o perfil chega com a F5 · Messenger do Facebook e respostas aos comentários do Instagram: chegam nas próximas fases, já com o perfil de cada um</span></div></div>
         <div class="aj"><div><span class="rot-aj">Sempre vale</span><span class="ajuda">Não se desliga: o perfil muda o jeito de falar, nunca as regras.</span></div>
           <div class="ctrl"><span class="fixo">O robô nunca inventa preço, prazo, taxa nem promoção · segue as regras de cada canal (no Direct, sem telefone; no chat das plataformas, sem contato fora) · no máximo 1 emoji por mensagem, em qualquer perfil · cliente chateado: o robô fica sério e chama a equipe, em qualquer perfil</span></div></div>
+      </section>
+
+      <!-- Versão 12 (F3): os ASSUNTOS QUE NÃO SÃO PEDIDO (pedido do dono: "no Direct vêm fornecedores tentando contato com o
+           responsável, pessoas perguntando sobre emprego — o atendimento virtual administra isso"). O robô atende, pergunta o
+           mínimo e deixa um RECADO PARA O RESPONSÁVEL (gerente e presidente), sem passar pela fila da equipe. -->
+      <section class="grupo" data-grupo id="grupo-assuntos">
+        <header><h3>Assuntos que não são pedido <span class="novo-t">NOVO</span></h3><span>5 ajustes</span></header>
+        <div class="aj"><div><span class="rot-aj">Fornecedor ou proposta comercial</span><span class="ajuda">Quem quer vender para a loja (produto, serviço, embalagem). O robô pergunta o nome, a empresa, o que oferece e o melhor contato, e deixa o recado.</span></div>
+          <div class="ctrl"><select aria-label="O que o robô faz com fornecedor e proposta comercial" data-aj data-assunto><option value="hoje">Como hoje: chama a equipe</option><option value="recado" selected>Deixa recado para o responsável</option><option value="nao">Responde que não é por aqui</option></select></div>
+          <div class="linha-txt"><input type="text" aria-label="O que o robô diz ao fornecedor" value="Obrigado pelo contato! Já passei a sua proposta ao responsável. Se houver interesse, ele fala com você por aqui." data-aj></div></div>
+        <div class="aj"><div><span class="rot-aj">Vaga de emprego</span><span class="ajuda">Quem quer trabalhar na loja. O robô pergunta o nome, a função e o melhor contato. Se a loja recebe currículo por e-mail, escreva aqui.</span></div>
+          <div class="ctrl"><select aria-label="O que o robô faz com vaga de emprego" data-aj data-assunto><option value="hoje">Como hoje: chama a equipe</option><option value="recado" selected>Deixa recado para o responsável</option><option value="nao">Responde que não é por aqui</option></select></div>
+          <div class="linha-txt"><input type="text" aria-label="O que o robô diz a quem procura emprego" value="Que bom que você quer trabalhar com a gente! Deixei o seu contato com o responsável. Quando abrir uma vaga, ele fala com você." data-aj></div></div>
+        <div class="aj"><div><span class="rot-aj">Parceria, influenciador ou imprensa</span><span class="ajuda">Divulgação, evento, permuta, reportagem. O robô pergunta o nome, o perfil ou veículo, a proposta e o melhor contato.</span></div>
+          <div class="ctrl"><select aria-label="O que o robô faz com parceria, influenciador e imprensa" data-aj data-assunto><option value="hoje" selected>Como hoje: chama a equipe</option><option value="recado">Deixa recado para o responsável</option><option value="nao">Responde que não é por aqui</option></select></div>
+          <div class="linha-txt"><input type="text" aria-label="O que o robô diz a parceria e imprensa" value="Obrigado pelo interesse! Já passei ao responsável, que responde por aqui." data-aj></div></div>
+        <div class="aj"><div><span class="rot-aj">Quem recebe os recados</span><span class="ajuda">O recado não entra na fila da equipe: vai para "📋 Recados", que só gerente e presidente veem — sem som e sem tempo de espera.</span></div>
+          <div class="ctrl"><span class="fixo">Gerente e presidente</span></div></div>
+        <div class="aj"><div><span class="rot-aj">Sempre vale</span><span class="ajuda">Não se desliga.</span></div>
+          <div class="ctrl"><span class="fixo">O robô pergunta só o necessário, uma pergunta por vez · nunca promete vaga, compra nem parceria · o recado guarda o resumo e a conversa · o robô continua respondendo a conversa (o recado não o cala) · vale no WhatsApp e no Direct</span></div></div>
       </section>
 
       <section class="grupo" data-grupo>
@@ -1035,7 +1062,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 
 <!-- ============ NOTAS ============ -->
 <section id="v-notas" hidden class="notas" aria-label="Notas do protótipo">
-  <div class="trilha">Notas do protótipo · 02/11/2026 · versão 11 em 07/11/2026</div>
+  <div class="trilha">Notas do protótipo · 02/11/2026 · versão 12 em 07/11/2026</div>
   <h1>Atendimento: o que cada parte faz</h1>
 
   <div class="cartao">
@@ -1136,6 +1163,18 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <li><b>Confirmação em dois toques</b>: a resposta ao iFood e à 99 não volta atrás.</li>
       <li>Na disputa, pelo WhatsApp só <b>Aceitar e Recusar</b>; a proposta (crédito, outro valor, mais tempo) fica no Regem, pelo link.</li>
     </ol>
+  </div>
+
+  <div class="cartao">
+    <h3>Assuntos que não são pedido · versão 12 (07/11/2026)</h3>
+    <p>Pedido do dono: no Direct (e no WhatsApp) chegam fornecedores querendo falar com o responsável e pessoas perguntando de emprego; o atendente virtual administra isso. É a F3. Escolhas recomendadas, já aplicadas:</p>
+    <ul>
+      <li><b>Três assuntos</b>: fornecedor ou proposta comercial, vaga de emprego, parceria/influenciador/imprensa. Em cada um, "O que o robô faz": <b>Como hoje</b> (chama a equipe — o padrão: nada muda até a loja escolher), <b>Deixa recado para o responsável</b> ou <b>Responde que não é por aqui</b> (sem recado); e o que o robô diz no fim (o texto da loja — por exemplo, o e-mail do currículo).</li>
+      <li><b>O robô pergunta o mínimo</b>, uma pergunta por vez — nome, empresa ou função, o assunto e o melhor contato — e nunca promete vaga, compra nem parceria.</li>
+      <li><b>Recado para o responsável</b>: não entra na fila da equipe nem no tempo de espera, não toca e não avisa o gerente pelo WhatsApp; aparece em "📋 Recados", que só gerente e presidente veem (o servidor nem manda para os outros perfis). O robô segue respondendo a conversa.</li>
+            <li>Vale no WhatsApp e no Direct (o robô é o mesmo); o resumo do recado traz o assunto, quem, o contato e o que o robô já fez.</li>
+      <li>Sem mexer no n8n: o tipo do recado vai pelo "chamar atendente" que já existe, guiado pelas instruções que o Regem serve.</li>
+    </ul>
   </div>
 
   <div class="cartao">
@@ -1284,6 +1323,12 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       cliente: 'Carlos Lima', pedido: '', fala: '"O lanche de ontem veio sem o molho" · o robô disse que a equipe volta hoje às 17:30', resp: null, sit: 'fila', espera: '', robo: true, recado: '02:14' },
     { id: 'rn2', canal: 'wa', motivo: 'Faltou item', tipo: 'conversa', urgente: false, titulo: 'Bia · (21) 98877-1200 · recado da noite',
       cliente: 'Bia', tel: '(21) 98877-1200', pedido: '1166', fala: '"Faltou o guaraná no pedido de ontem" · o robô deixou o recado com o pedido 1166', resp: null, sit: 'fila', espera: '', robo: true, recado: '01:05' },
+    // Versão 12: RECADOS PARA O RESPONSÁVEL — assuntos que não são pedido (fornecedor, vaga, parceria). Fora da fila da
+    // equipe: só gerente e presidente veem, em "📋 Recados"; não tocam e não contam no tempo de espera.
+    { id: 'rr1', canal: 'ig', motivo: 'Fornecedor', tipo: 'instagram', urgente: false, titulo: 'Paulo Mendes · @embalagens.rio · Direct · fornecedor',
+      cliente: 'Paulo Mendes', pedido: '', fala: 'Embalagens Rio · caixas e sacos personalizados · quer falar com quem compra', resp: null, sit: 'responsavel', espera: '', robo: true, assunto: 'Fornecedor' },
+    { id: 'rr2', canal: 'wa', motivo: 'Vaga', tipo: 'conversa', urgente: false, titulo: 'Larissa · (21) 97733-4410 · vaga de emprego',
+      cliente: 'Larissa', tel: '(21) 97733-4410', pedido: '', fala: 'Quer trabalhar como atendente de balcão · tem experiência em lanchonete', resp: null, sit: 'responsavel', espera: '', robo: true, assunto: 'Vaga' },
     // O que o robô está atendendo agora (não é caso): situação "Conversas agora", dos três canais.
     { id: 'v1', canal: 'wa', motivo: 'Pedido', tipo: 'robo', urgente: false, titulo: 'Fernanda · fazendo um pedido', cliente: 'Fernanda', tel: '(21) 99876-5432',
       pedido: '', fala: 'Cliente cadastrada: aparece pelo nome · 2 itens no carrinho', resp: null, sit: 'robo', espera: '' },
@@ -1325,7 +1370,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   const classePrazo = (ms) => (ms < 120000 ? 'crit' : 'warn');
 
   // ---------- ordem e filtros ----------
-  const abertos = () => CASOS.filter((c) => c.sit !== 'resolvido' && c.sit !== 'robo' && c.sit !== 'abertura');
+  const abertos = () => CASOS.filter((c) => c.sit !== 'resolvido' && c.sit !== 'robo' && c.sit !== 'abertura' && c.sit !== 'responsavel');
   // Versão 10: a hora simulada — no horário da equipe (18:47) ou fora dele (02:20).
   let horario = 'dentro';
   function ordenar(lista) {
@@ -1351,8 +1396,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     if (filtroSit === 'resolvido') return c.sit === 'resolvido';
     if (filtroSit === 'conversas') return c.sit === 'robo';
     if (filtroSit === 'abertura') return c.sit === 'abertura';
+    if (filtroSit === 'responsavel') return c.sit === 'responsavel'; // versão 12: os recados para o responsável
     // Versão 10: o recado que espera a abertura não está na fila de agora (não toca, não conta no tempo de espera).
-    return c.sit !== 'resolvido' && c.sit !== 'robo' && c.sit !== 'abertura';
+    return c.sit !== 'resolvido' && c.sit !== 'robo' && c.sit !== 'abertura' && c.sit !== 'responsavel';
   }
   function contar() {
     const a = abertos();
@@ -1361,6 +1407,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       comigo: a.filter((c) => c.resp === 'Ana').length, aguardando: a.filter((c) => c.sit === 'aguardando').length, resolvido: 14,
       conversas: CASOS.filter((c) => c.sit === 'robo').length,
       abertura: CASOS.filter((c) => c.sit === 'abertura').length,
+      responsavel: CASOS.filter((c) => c.sit === 'responsavel').length,
     };
   }
   function desenharSits() {
@@ -1368,6 +1415,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     const S = [['todos', 'Abertos'], ['prazo', 'Com prazo', 'crit'], ['fila', 'Na fila'], ['comigo', 'Comigo'], ['aguardando', 'Aguardando o cliente'], ['conversas', 'Conversas agora'], ['resolvido', 'Resolvidos hoje']];
     // Versão 10: "Para a abertura" só aparece quando há recado esperando (fora do horário da equipe).
     if (n.abertura) S.splice(6, 0, ['abertura', '🌙 Para a abertura']);
+    // Versão 12: "📋 Recados" — os assuntos que não são pedido, para o responsável (a Ana é gerente: vê). Antes de Resolvidos.
+    if (n.responsavel) S.splice(S.length - 1, 0, ['responsavel', '📋 Recados']);
+    if (filtroSit === 'responsavel' && !n.responsavel) filtroSit = 'todos';
     if (filtroSit === 'abertura' && !n.abertura) filtroSit = 'todos';
     $('#sits').innerHTML = S.map(([k, r, cl]) => `<button type="button" class="sit ${cl || ''}" data-sit="${k}" aria-pressed="${filtroSit === k}">${r} <b>${n[k]}</b></button>`).join('');
     $$('#sits .sit').forEach((b) => b.addEventListener('click', () => { filtroSit = b.dataset.sit; desenharTudo(); }));
@@ -1384,8 +1434,8 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   function linhaItem(c, posicao) {
     const prazo = c.prazoFim ? `<span class="prazo ${classePrazo(c.prazoFim - Date.now())}" data-prazo="${c.id}">${mmss(c.prazoFim - Date.now())}</span>` : '';
     const sitTxt = c.sit === 'aguardando' ? '<span class="selo info">Aguardando o cliente</span>' : c.sit === 'resolvido' ? '<span class="selo ok">Resolvido</span>' : c.sit === 'robo' ? '<span class="selo info">🤖 Com o robô</span>'
-      : c.sit === 'abertura' ? '<span class="selo noite">🌙 Entra na fila às 17:30</span>' : c.recado ? `<span class="selo noite">🌙 Recado das ${c.recado}</span>` : '';
-    const quem = c.sit === 'robo' ? 'o robô está atendendo' : c.sit === 'abertura' ? `recebido às ${c.recado} · o cliente sabe que a equipe volta às 17:30` : c.resp ? `com ${c.resp === 'Ana' ? 'você' : c.resp}` : 'ninguém pegou';
+      : c.sit === 'responsavel' ? `<span class="selo info">📋 ${esc(c.assunto)}</span>` : c.sit === 'abertura' ? '<span class="selo noite">🌙 Entra na fila às 17:30</span>' : c.recado ? `<span class="selo noite">🌙 Recado das ${c.recado}</span>` : '';
+    const quem = c.sit === 'robo' ? 'o robô está atendendo' : c.sit === 'responsavel' ? 'recado para o responsável · o robô segue na conversa' : c.sit === 'abertura' ? `recebido às ${c.recado} · o cliente sabe que a equipe volta às 17:30` : c.resp ? `com ${c.resp === 'Ana' ? 'você' : c.resp}` : 'ninguém pegou';
     const pos = posicao ? `<span class="pos">${posicao}º</span>` : '';
     return `<div role="listitem"><button type="button" class="item ${c.urgente ? 'urgente' : ''} ${c.sit === 'resolvido' ? 'feito' : ''}" data-id="${c.id}" aria-current="${selecionado === c.id}">
       <div class="l1">${chip(c.canal)}${c.urgente ? '<span class="selo crit">🚨 Urgente</span>' : ''}<span class="selo neutro">${esc(c.motivo)}</span>${sitTxt}<span class="dir">${prazo}${pos}</span></div>
@@ -1447,6 +1497,8 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   };
   const blocoPedido = (n, extra = '') => {
     const p = PEDIDOS[n];
+    // Versão 12: o recado sem pedido (vaga, fornecedor) mostra só que não há pedido ligado.
+    if (!p) return `<section class="bloco"><h3>Sem pedido</h3><p class="ajuda" style="margin:0">Este recado não é de um pedido.</p>${extra}</section>`;
     const nome = p.app ? `Pedido ${p.app} ${n}` : `Pedido ${n}`;
     const noApp = p.app === 'iFood'
       ? '<p class="ajuda" style="margin:8px 0 0">📱 O app do iFood mostra cada etapa ao cliente: o Regem avisa o iFood quando aceita o pedido e quando ele sai para entrega.</p>'
@@ -1555,6 +1607,19 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     rn2: { resumo: [['Motivo', 'Faltou item: 1× Guaraná lata (R$ 6,00)'], ['Quer', 'O refrigerante ou o dinheiro de volta'], ['Pedido', '1166 · entregue ontem às 21:52 pelo João'], ['O robô já fez', 'Pediu desculpas e disse que a equipe volta hoje às 17:30 (fora do horário da equipe)']],
       msgs: [['cli', 'Faltou o guaraná no pedido de ontem', '01:04'], ['robo', 'Sinto muito, Bia! Nossa equipe volta hoje às 17:30. Já deixei o seu recado aqui com o pedido 1166 e respondemos assim que começarmos.', 'robô · 01:05']],
       prontas: ['Oi, Bia! Vamos mandar o guaraná no seu próximo pedido, sem custo.', 'Sentimos muito pelo erro.'], entregador: 'João (não compartilhou o contato)' },
+    // Versão 12: os recados para o responsável (assuntos que não são pedido).
+    rr1: { msgs: [['cli', 'Boa tarde! Sou da Embalagens Rio, trabalhamos com caixas e sacos personalizados. Com quem falo sobre compras?', '15:02'],
+        ['robo', 'Boa tarde, Paulo! Obrigado pelo contato. Qual o melhor contato para o responsável falar com você?', 'robô · 15:02'],
+        ['cli', 'Pode ser por aqui mesmo ou no (21) 3333-0000', '15:04'],
+        ['robo', 'Obrigado pelo contato! Já passei a sua proposta ao responsável. Se houver interesse, ele fala com você por aqui.', 'robô · 15:04']],
+      resumo: [['Assunto', 'Fornecedor: caixas e sacos personalizados'], ['Quem', 'Paulo Mendes · Embalagens Rio'], ['Contato', 'Direct ou (21) 3333-0000'], ['Já fiz', 'Agradeci e disse que o responsável fala com ele se houver interesse']],
+      prontas: ['Oi, Paulo! Aqui é a Ana, gerente. Pode me mandar o catálogo com os preços?', 'Obrigada! No momento estamos bem atendidos, mas guardamos o seu contato.'],
+      perfil: { usuario: '@embalagens.rio', nome: 'Paulo Mendes', segue: false }, abertoEm: '15:04', janela: 'amanhã, 15:04',
+      historico: [['15:02', 'Paulo escreveu no Direct da loja'], ['15:04', 'O robô deixou o recado para o responsável (fornecedor)']] },
+    rr2: { resumo: [['Assunto', 'Vaga: atendente de balcão'], ['Quem', 'Larissa · tem experiência em lanchonete'], ['Contato', 'Este WhatsApp'], ['O robô já fez', 'Agradeceu e disse que o responsável fala com ela quando abrir uma vaga']],
+      msgs: [['cli', 'Oi! Vocês estão contratando? Queria trabalhar de atendente', '14:40'], ['robo', 'Oi, Larissa! Que legal. Você já trabalhou com atendimento?', 'robô · 14:40'], ['cli', 'Sim, 2 anos numa lanchonete', '14:41'],
+        ['robo', 'Que bom que você quer trabalhar com a gente! Deixei o seu contato com o responsável. Quando abrir uma vaga, ele fala com você.', 'robô · 14:41']],
+      prontas: ['Oi, Larissa! Aqui é a Ana. Pode vir para uma conversa amanhã às 15h?', 'Obrigada! Guardamos o seu contato para a próxima vaga.'], entregador: '—' },
     v5: { msgs: [['cli', 'Oi, vcs têm lanche vegano?', '20:26'],
         ['robo', 'Oi, Lívia! Temos o Smash Veggie (R$ 32,00), com hambúrguer de grão-de-bico. Dá uma olhada 👇 app.dmsregem.com/c/burgerdapraca?produto=smash-veggie', 'robô · 20:26'],
         ['cli', 'Entregam na Penha?', '20:27'],
@@ -1674,7 +1739,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
         <div class="prontas" aria-label="Respostas prontas">${d.prontas.map((p) => `<button type="button" class="pronta">${esc(p)}</button>`).join('')}</div>
         ${copiloto(c)}
         <div class="escrever"><textarea aria-label="Escrever ao cliente" placeholder="Escreva a resposta (Enter envia)"></textarea><button type="button" class="bt pri">Enviar</button></div>
-        <div class="pausa"><span aria-hidden="true">🤖</span><span>O robô está quieto nesta conversa e volta quando o caso for resolvido.</span></div></section></div>
+        <div class="pausa"><span aria-hidden="true">🤖</span><span>${c.sit === 'responsavel' ? 'O robô segue respondendo esta conversa: o recado para o responsável não o cala.' : 'O robô está quieto nesta conversa e volta quando o caso for resolvido.'}</span></div></section></div>
       <div class="col">${blocoPedido(c.pedido, `<p class="ajuda" style="margin:8px 0 0">Entregador: ${esc(d.entregador)}</p>`)}</div></div>`;
   }
   function casoCardapio(c) {

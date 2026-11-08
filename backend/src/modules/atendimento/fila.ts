@@ -8,6 +8,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { recadoAtivo } from './horario-da-equipe';
+import { lerResponsavel } from '../cardapio/assuntos-do-atendente';
 
 /** De onde o caso veio. NULL nos chamados antigos (antes da mig 350): `canalDoCaso` deduz. */
 export const CANAIS = ['whatsapp', 'cardapio', 'anotaai', 'ifood', '99food', 'instagram'] as const;
@@ -29,12 +30,16 @@ export function canalDoCaso(c: { canal?: string | null; pedidoCanal?: string | n
   return c.telefone ? 'whatsapp' : null;
 }
 
-/** 'abertura' (mig 379): o RECADO que espera a equipe voltar — fora da fila de agora (não toca, não tem posição). */
-export type Situacao = 'fila' | 'com_alguem' | 'aguardando' | 'abertura' | 'resolvido';
+/**
+ * 'abertura' (mig 379): o RECADO que espera a equipe voltar — fora da fila de agora (não toca, não tem posição).
+ * 'responsavel' (mig 381): o RECADO PARA O RESPONSÁVEL (assunto que não é pedido) — fora da fila da equipe, só a gestão vê.
+ */
+export type Situacao = 'fila' | 'com_alguem' | 'aguardando' | 'abertura' | 'responsavel' | 'resolvido';
 
 /**
- * A situação do caso. O recado ativo SEM ninguém com ele é 'abertura'; o que alguém pegou (ou espera o cliente) segue o
- * ciclo comum. `recadoAtivo` = o que o banco calculou na mesma leitura (a hora do banco); sem ele, pela marca e `agora`.
+ * A situação do caso. O recado ativo SEM ninguém com ele é 'abertura'; o recado para o responsável sem ninguém com ele é
+ * 'responsavel'; o que alguém pegou (ou espera o cliente) segue o ciclo comum. `recadoAtivo` = o que o banco calculou na
+ * mesma leitura (a hora do banco); sem ele, pela marca e `agora`.
  */
 export function situacaoDo(
   c: { status?: string | null; responsavelId?: string | null; aguardandoDesde?: unknown; detalhe?: unknown; recadoAtivo?: unknown },
@@ -43,6 +48,7 @@ export function situacaoDo(
   if (c.status === 'resolvido') return 'resolvido';
   if (c.aguardandoDesde) return 'aguardando';
   if (c.responsavelId) return 'com_alguem';
+  if (lerResponsavel(c.detalhe)) return 'responsavel';
   const recado = typeof c.recadoAtivo === 'boolean' ? c.recadoAtivo : recadoAtivo(c.detalhe, agora);
   return recado ? 'abertura' : 'fila';
 }
@@ -68,8 +74,8 @@ export function compararNaFila(
 
 /**
  * A POSIÇÃO de cada caso que espera uma pessoa (1º, 2º…): só os que estão "na fila" — sem responsável, sem esperar o
- * cliente, sem prazo de plataforma (a disputa tem o relógio dela, não uma vez na fila) e sem recado esperando a equipe
- * (mig 379). A lista já vem na ordem da fila.
+ * cliente, sem prazo de plataforma (a disputa tem o relógio dela, não uma vez na fila), sem recado esperando a equipe
+ * (mig 379) e sem recado para o responsável (mig 381). A lista já vem na ordem da fila.
  */
 export function posicoes<
   T extends { prazoEm?: unknown; responsavelId?: string | null; aguardandoDesde?: unknown; status?: string | null; detalhe?: unknown; recadoAtivo?: unknown },

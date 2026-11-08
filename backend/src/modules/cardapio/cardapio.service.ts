@@ -22,6 +22,7 @@ import { ChegadaService } from '../chegada/chegada.service';
 import { AniversarioService } from '../aniversario/aniversario.service';
 import { palavrasDe } from './robo-busca';
 import { type CanalDoPerfil, jeitoDoAtendente, perfisDaEmpresa } from './perfis-do-atendente';
+import { type CanalDosAssuntos, assuntosDaEmpresa, blocoDasInstrucoes } from './assuntos-do-atendente';
 import { situacaoDaEquipe } from '../atendimento/horario-da-equipe';
 import { opcaoForaDeVenda } from './opcao-fora-de-venda';
 import { and, desc, eq, gte, ilike, inArray, isNull, lt, or, sql } from 'drizzle-orm';
@@ -495,6 +496,23 @@ export class CardapioService {
       return jeitoDoAtendente(perfis, canal, atendendo);
     } catch (e: any) {
       this.logger.warn(`perfil do atendente (${canal}) não lido (empresa ${tenantId || '?'}; vale o jeito de hoje): ${e?.message ?? e}`);
+      return '';
+    }
+  }
+
+  /**
+   * Os assuntos que não são pedido (F3, mig 381 — `assuntos-do-atendente.ts`), para as instruções do robô: a seção do canal
+   * (no WhatsApp o contato é o número; no Direct o robô pergunta). A empresa vem do token, como o perfil. Nunca rejeita:
+   * falha de leitura = '' (as instruções de hoje), com o motivo no log.
+   */
+  async assuntosDoAtendenteDoRobo(token: string, canal: CanalDosAssuntos): Promise<string> {
+    let tenantId = '';
+    try {
+      const cfg = await this.resolver(token);
+      tenantId = cfg.tenantId;
+      return blocoDasInstrucoes(await assuntosDaEmpresa(this.db, cfg.tenantId), canal);
+    } catch (e: any) {
+      this.logger.warn(`assuntos do atendente (${canal}) não lidos (empresa ${tenantId || '?'}; valem as instruções de hoje): ${e?.message ?? e}`);
       return '';
     }
   }

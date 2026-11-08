@@ -16,6 +16,15 @@ import {
   respostaDoRecado,
   situacaoDaEquipe,
 } from './horario-da-equipe';
+import {
+  type AssuntoDoAtendente,
+  type RecadoAceito,
+  type RecadoParaOResponsavel,
+  paraOResponsavelSql,
+  recadoParaOResponsavel,
+  respostaParaOResponsavel,
+  resumoComORecado,
+} from '../cardapio/assuntos-do-atendente';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -23,6 +32,8 @@ import {
 // do outro lado (Bloco 4, 31/10/2026) — e o módulo do WhatsApp não pode depender do de atendimento (que depende do
 // delivery, que depende do WhatsApp). O `AtendimentoService` chama estas mesmas funções: uma regra só. O HORÁRIO DA
 // EQUIPE (mig 379, `horario-da-equipe.ts`) entra aqui: todo caminho do WhatsApp que abre caso passa por estas funções.
+// Os ASSUNTOS QUE NÃO SÃO PEDIDO (mig 381, `cardapio/assuntos-do-atendente.ts`) também: o `tipo` fornecedor, vaga ou
+// parceria em "recado" na empresa vira RECADO PARA O RESPONSÁVEL — fora da fila, sem tocar, sem calar o robô.
 
 export type Prioridade = 'normal' | 'urgente';
 
@@ -47,12 +58,22 @@ export type DadosDoChamado = {
   cardapioId?: string | null;
 };
 
-/** O que o chamado guarda em `detalhe` do que chegou: o resumo do robô, o endereço do pedido que já saiu e o recado. */
-function detalheDoChamado(dto: DadosDoChamado, recado?: Recado | null): Record<string, unknown> | null {
+/**
+ * O que o chamado guarda em `detalhe` do que chegou: o resumo do robô, o endereço do pedido que já saiu e o recado. No
+ * RECADO PARA O RESPONSÁVEL (mig 381), o resumo leva também as linhas "Assunto / Quem / Contato / Já fiz" da mensagem e a
+ * marca `responsavel` (só no caso novo — somar não muda quando o robô deixou o recado).
+ */
+function detalheDoChamado(
+  dto: DadosDoChamado,
+  recado?: Recado | null,
+  doRecado?: { assunto: AssuntoDoAtendente; marca?: RecadoParaOResponsavel } | null,
+): Record<string, unknown> | null {
   const d: Record<string, unknown> = {};
-  if (dto.resumo) d.robo = { ...dto.resumo, em: new Date().toISOString() };
+  const robo = doRecado ? resumoComORecado(dto.resumo, dto.mensagem) : dto.resumo;
+  if (robo) d.robo = { ...robo, em: new Date().toISOString() };
   if (dto.endereco) d.endereco = dto.endereco;
   if (recado) d.recado = recado;
+  if (doRecado?.marca) d.responsavel = doRecado.marca;
   return Object.keys(d).length ? d : null;
 }
 
@@ -71,7 +92,10 @@ export function juntarMensagem(antes: string | null | undefined, nova: string | 
   return `${a}\n${n}`.slice(-1000);
 }
 
-/** A resposta de quem abre ou soma um chamado: a posição na fila e, fora do horário da equipe, o que dizer ao cliente. */
+/**
+ * A resposta de quem abre ou soma um chamado: a posição na fila e, fora do horário da equipe, o que dizer ao cliente. No
+ * RECADO PARA O RESPONSÁVEL (mig 381): `paraOResponsavel`, o `assunto` e `paraOCliente` (o texto do assunto), sem posição.
+ */
 export type RespostaDoChamado = {
   ok: true;
   id: string;
@@ -79,16 +103,35 @@ export type RespostaDoChamado = {
   posicao: number | null;
   comAlguem: boolean;
   jaAberto?: true;
+  paraOResponsavel?: true;
+  assunto?: AssuntoDoAtendente;
 } & Partial<Omit<ForaDoHorario, 'posicao'>>;
+
+/** Os tipos de hoje do chamado do robô; o que vier fora (e não for um recado aceito) vira `humano` — como sempre foi. */
+const TIPOS_DO_CHAMADO = ['mudanca', 'erro', 'humano', 'outro', 'cancelamento'];
 
 /**
  * Abre um chamado (handoff do robô → humano) e avisa a tela em tempo real.
  * HORÁRIO DA EQUIPE (mig 379): fora do horário, e sem pedido em andamento, o caso nasce como RECADO PARA A ABERTURA
  * (`detalhe.recado`) — não toca, não conta na fila, não cala o robô — e a resposta diz ao robô o que mandar ao cliente
  * (`foraDoHorario`, `equipeVolta`, `paraOCliente`; a posição não vale). O aviso à tela sai igual: ela decide pelo dado.
+ * ASSUNTOS QUE NÃO SÃO PEDIDO (mig 381): `tipo` fornecedor, vaga ou parceria com o assunto em "recado" na empresa → o caso
+ * nasce com esse tipo e `detalhe.responsavel = { assunto, em }`, prioridade normal, a qualquer hora (não é o recado da
+ * abertura). A tela recebe só "mudou" (sem o caso no aviso: não toca, e quem não é da gestão nem recebe o dado — a fila
+ * filtra pelo perfil). Em "Como hoje" (ou "não é por aqui"), o tipo vira `humano`, como antes. `aceito` = o que quem
+ * chama já leu (undefined = ler aqui).
  */
-export async function abrirChamado(db: any, emitir: Emitir, tenantId: string, unidadeId: string | null, dto: DadosDoChamado): Promise<RespostaDoChamado> {
-  const tipo = ['mudanca', 'erro', 'humano', 'outro', 'cancelamento'].includes(dto.tipo ?? '') ? dto.tipo : 'humano';
+export async function abrirChamado(
+  db: any,
+  emitir: Emitir,
+  tenantId: string,
+  unidadeId: string | null,
+  dto: DadosDoChamado,
+  aceito?: RecadoAceito | null,
+): Promise<RespostaDoChamado> {
+  const recadoAceito = aceito !== undefined ? aceito : await recadoParaOResponsavel(db, tenantId, dto.tipo);
+  if (recadoAceito) return abrirRecadoParaOResponsavel(db, emitir, tenantId, unidadeId, dto, recadoAceito);
+  const tipo = TIPOS_DO_CHAMADO.includes(dto.tipo ?? '') ? dto.tipo : 'humano';
   const fora = await recadoDoCasoNovo(db, tenantId, { unidadeId, cardapioId: dto.cardapioId }, dto.pedidoId);
   const detalhe = detalheDoChamado(dto, fora?.recado);
   const [row] = await db
@@ -112,11 +155,43 @@ export async function abrirChamado(db: any, emitir: Emitir, tenantId: string, un
   return { ok: true, id: row.id, prioridade: row.prioridade, ...(await posicaoNaFila(db, tenantId, row.id)) };
 }
 
+/** O RECADO PARA O RESPONSÁVEL novo (mig 381): o caso com o tipo do assunto, a marca e o resumo; a tela só relê a fila. */
+async function abrirRecadoParaOResponsavel(
+  db: any,
+  emitir: Emitir,
+  tenantId: string,
+  unidadeId: string | null,
+  dto: DadosDoChamado,
+  aceito: RecadoAceito,
+): Promise<RespostaDoChamado> {
+  const marca: RecadoParaOResponsavel = { assunto: aceito.assunto, em: new Date().toISOString() };
+  const detalhe = detalheDoChamado(dto, null, { assunto: aceito.assunto, marca });
+  const [row] = await db
+    .insert(atendimentoChamado)
+    .values({
+      tenantId,
+      unidadeId: unidadeId ?? null,
+      tipo: aceito.assunto,
+      cliente: dto.cliente?.trim() || null,
+      telefone: dto.telefone?.trim() || null,
+      pedidoNumero: dto.pedidoNumero != null ? String(dto.pedidoNumero) : null,
+      pedidoId: dto.pedidoId ?? null,
+      mensagem: dto.mensagem?.trim() || null,
+      prioridade: 'normal',
+      canal: canalValido(dto.canal),
+      detalhe,
+    })
+    .returning();
+  emitir('atendimento.mudou', { tenantId, id: row.id, motivo: 'recado_para_o_responsavel' });
+  return respostaParaOResponsavel(row.id, aceito);
+}
+
 /**
  * A POSIÇÃO do caso na fila (Onda 1, PR 4): quantos casos esperam uma pessoa antes dele, na ordem da fila (urgente
  * primeiro, depois o mais antigo — `compararNaFila`), entre os que a loja dele vê (a loja e os sem loja; caso sem loja =
  * a empresa toda). Só conta quem está NA FILA: sem responsável, sem aguardar o cliente, sem prazo de plataforma e sem
- * recado esperando a equipe (mig 379 — o recado não está na fila de agora: nem tem posição, nem passa na frente).
+ * recado esperando a equipe (mig 379 — o recado não está na fila de agora: nem tem posição, nem passa na frente) e sem
+ * recado para o responsável (mig 381 — nunca está na fila da equipe).
  * `comAlguem` = já tem uma pessoa no caso (o robô diz isso no lugar da posição). Nunca rejeita: sem posição, null.
  */
 export async function posicaoNaFila(db: any, tenantId: string, id: string): Promise<{ posicao: number | null; comAlguem: boolean }> {
@@ -128,10 +203,11 @@ export async function posicaoNaFila(db: any, tenantId: string, id: string): Prom
       )
       select c.responsavel_id is not null as "comAlguem",
              case when c.status = 'aberto' and c.responsavel_id is null and c.aguardando_desde is null and c.prazo_em is null
-                       and not ${recadoAtivoSql('c')} then
+                       and not ${recadoAtivoSql('c')} and not ${paraOResponsavelSql('c')} then
                (select count(*)::int + 1 from atendimento_chamado o
                  where o.tenant_id = ${tenantId} and o.id <> c.id and o.status = 'aberto' and o.responsavel_id is null
                    and o.aguardando_desde is null and o.prazo_em is null and not ${recadoAtivoSql('o')}
+                   and not ${paraOResponsavelSql('o')}
                    and (c.unidade_id is null or o.unidade_id = c.unidade_id or o.unidade_id is null)
                    and ((o.prioridade = 'urgente' and c.prioridade <> 'urgente')
                         or (o.prioridade = c.prioridade and (o.criado_em, o.id) < (c.criado_em, c.id))))
@@ -185,6 +261,9 @@ export async function clienteRespondeu(db: any, emitir: Emitir, tenantId: string
  * noite espera até a abertura) — somar mantém a marca e a resposta repete ao robô o que dizer ao cliente; as 12 h de um
  * recado contam da volta da equipe. Somar a um caso comum não vira recado. Pedido em andamento conta como horário: o
  * recado que passa a ter um pedido em andamento entra na fila na hora (a tela é avisada como caso novo).
+ * ASSUNTOS QUE NÃO SÃO PEDIDO (mig 381): o RECADO PARA O RESPONSÁVEL só soma ao recado aberto do MESMO assunto (12 h, como
+ * os outros) — a mensagem e o resumo novos vão juntos, a prioridade não sobe e a resposta repete o texto do assunto. Um
+ * recado nunca soma num caso comum, nem um caso comum num recado: são filas diferentes.
  */
 export async function abrirChamadoPeloRobo(
   db: any,
@@ -195,8 +274,9 @@ export async function abrirChamadoPeloRobo(
 ): Promise<RespostaDoChamado> {
   // O robô é o do WhatsApp: o caso nasce desse canal, salvo quando quem chama diz outro.
   const dto: DadosDoChamado = { ...dados, canal: dados.canal ?? 'whatsapp' };
+  const aceito = await recadoParaOResponsavel(db, tenantId, dto.tipo);
   const k = chaveTelefone(dto.telefone);
-  if (!k) return abrirChamado(db, emitir, tenantId, unidadeId, dto);
+  if (!k) return abrirChamado(db, emitir, tenantId, unidadeId, dto, aceito);
   const [aberto] = await db
     .select()
     .from(atendimentoChamado)
@@ -206,13 +286,21 @@ export async function abrirChamadoPeloRobo(
         eq(atendimentoChamado.status, 'aberto'),
         sql`${inicioDoCasoSql('atendimento_chamado')} >= now() - make_interval(hours => ${Number(JANELA_DO_MESMO_CHAMADO_H)}::int)`,
         sql`${sqlChaveTelefone(sql`${atendimentoChamado.telefone}`)} = ${k}`,
+        // O recado para o responsável só com o recado do mesmo assunto; o caso comum só com outro caso comum.
+        aceito
+          ? sql`${atendimentoChamado.detalhe} #>> '{responsavel,assunto}' = ${aceito.assunto}::text`
+          : sql`not ${paraOResponsavelSql('atendimento_chamado')}`,
       ),
     )
     .orderBy(desc(atendimentoChamado.criadoEm))
     .limit(1);
+  if (aceito) {
+    if (!aberto) return abrirChamado(db, emitir, tenantId, unidadeId, dto, aceito);
+    return somarAoRecadoParaOResponsavel(db, emitir, tenantId, aberto, dto, aceito);
+  }
   const tipoNovo = String(dto.tipo ?? '');
   const precisaDoProprio = (tipoNovo === 'cancelamento' || tipoNovo === 'mudanca') && !!dto.pedidoId && aberto?.tipo !== tipoNovo;
-  if (!aberto || precisaDoProprio) return abrirChamado(db, emitir, tenantId, unidadeId, dto);
+  if (!aberto || precisaDoProprio) return abrirChamado(db, emitir, tenantId, unidadeId, dto, null);
 
   const subiu = dto.prioridade === 'urgente' && aberto.prioridade !== 'urgente';
   const mensagem = juntarMensagem(aberto.mensagem, dto.mensagem);
@@ -254,4 +342,32 @@ export async function abrirChamadoPeloRobo(
     return { ...base, comAlguem: !!aberto.responsavelId, ...respostaDoRecado(recado, equipe.textoFora) };
   }
   return { ...base, ...(await posicaoNaFila(db, tenantId, aberto.id)) };
+}
+
+/**
+ * Soma ao RECADO PARA O RESPONSÁVEL do mesmo assunto (mig 381): a mensagem nova junto da de antes e o resumo novo (com as
+ * linhas do recado) mesclado no `detalhe` — a marca `responsavel` e o resto ficam (V82). A prioridade não sobe (recado não
+ * é urgência) e a tela só relê a fila. A resposta repete ao robô o texto do assunto.
+ */
+async function somarAoRecadoParaOResponsavel(
+  db: any,
+  emitir: Emitir,
+  tenantId: string,
+  aberto: any,
+  dto: DadosDoChamado,
+  aceito: RecadoAceito,
+): Promise<RespostaDoChamado> {
+  const patch: Record<string, unknown> = {};
+  const mensagem = juntarMensagem(aberto.mensagem, dto.mensagem);
+  if (mensagem !== (aberto.mensagem ?? null)) patch.mensagem = mensagem;
+  const novoDetalhe = detalheDoChamado(dto, null, { assunto: aceito.assunto });
+  if (novoDetalhe) patch.detalhe = sql`coalesce(${atendimentoChamado.detalhe}, '{}'::jsonb) || ${JSON.stringify(novoDetalhe)}::jsonb`;
+  if (Object.keys(patch).length) {
+    await db
+      .update(atendimentoChamado)
+      .set(patch as any)
+      .where(and(eq(atendimentoChamado.tenantId, tenantId), eq(atendimentoChamado.id, aberto.id)));
+    emitir('atendimento.mudou', { tenantId, id: aberto.id, motivo: 'robo_somou' });
+  }
+  return respostaParaOResponsavel(aberto.id, aceito, true);
 }

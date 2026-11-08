@@ -9,6 +9,7 @@ import {
   ROTULO_DO_TIPO,
   escaladoDe,
   recadoDe,
+  responsavelDe,
   relerFila,
   tempoAte,
   tempoDesde,
@@ -210,7 +211,8 @@ export function AlertaDeAtendimento({ ativo }: { ativo: boolean }) {
       tocar('escalado');
       return;
     }
-    const novos = casos.filter((c) => !ant.ids.has(c.id));
+    // O recado para o responsável (mig 381) que alguém pegou não é novidade da fila: não toca.
+    const novos = casos.filter((c) => !ant.ids.has(c.id) && !responsavelDe(c));
     if (!novos.length) return;
     // Os recados da noite (mig 379) entram juntos quando a equipe começa: um aviso só, com a contagem, e um toque.
     if (novos.every((c) => recadoDe(c))) {

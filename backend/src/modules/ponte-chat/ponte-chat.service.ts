@@ -8,6 +8,7 @@ import type { PonteCtx } from './ponte-chat.guard';
 import { MensagemDoCliente, RoboNoCaso, casosDoChat, chaveDaConversa, chaveDoMapa, conversasDoLote } from './casos-do-chat';
 import { CHAMEI_A_EQUIPE, decidir, fraseForaDoHorarioNoChat, intencaoDoCliente } from './robo-do-chat';
 import { chaveDaLoja, recadoAtivoSql, situacoesPorLoja } from '../atendimento/horario-da-equipe';
+import { responsavelNaEsperaSql } from '../cardapio/assuntos-do-atendente';
 import { DeliveryService } from '../delivery/delivery.service';
 import { modoEntrega } from '../entregador/modo-entrega';
 
@@ -301,11 +302,12 @@ export class PonteChatService {
             as x(canal text, chave text, pedido_id uuid, pedido_externo text)
         )
         select g.canal, g.chave,
-               -- o RECADO que espera a abertura (mig 379) não cala o robô: ele segue respondendo o que sabe
+               -- o RECADO que espera a abertura (mig 379) não cala o robô: ele segue respondendo o que sabe; nem o recado
+               -- para o responsável que espera alguém (mig 381 — no chat do iFood/99 ele não nasce, mas a regra é uma só)
                exists (select 1 from atendimento_chamado a
                         where a.tenant_id = ${tenantId}::uuid and a.tipo = 'chat' and a.status = 'aberto'
                           and a.canal = g.canal and a.detalhe #>> '{chat,chave}' = g.chave
-                          and not ${recadoAtivoSql('a')}) as "casoAberto",
+                          and not ${recadoAtivoSql('a')} and not ${responsavelNaEsperaSql('a')}) as "casoAberto",
                (select count(*)::int from chat_plataforma_msg m
                  where m.tenant_id = ${tenantId}::uuid and m.canal = g.canal and m.direcao = 'saida' and m.autor = 'robo'
                    and m.texto <> ${CHAMEI_A_EQUIPE} and m.criado_em > now() - interval '1 hour'

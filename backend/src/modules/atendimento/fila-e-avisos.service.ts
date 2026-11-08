@@ -9,6 +9,7 @@ import { ehServidorLocal } from '../../common/modo';
 import { exigirBooleano } from '../../common/exigir';
 import { AJUSTE_DA_EQUIPE_PADRAO, type AjusteDaEquipe, ajusteDaLinha, inicioDoCasoSql, lerAjusteDaEquipe, recadoAtivoSql } from './horario-da-equipe';
 import { type PerfisDoAtendente, perfisDaEmpresa, salvarPerfisDoAtendente } from '../cardapio/perfis-do-atendente';
+import { type AssuntosDoAtendente, assuntosDaEmpresa, paraOResponsavelSql, salvarAssuntosDoAtendente } from '../cardapio/assuntos-do-atendente';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -80,6 +81,9 @@ export class FilaEAvisosService {
    * nem o gerente, nem o "Gerente no WhatsApp", que depende desta marca); depois do `ate`, o tempo conta DALI (a volta
    * da equipe), não da criação — o recado das 02:14 não vira "ninguém pegou" no primeiro minuto da abertura. O
    * `criado_em <= …` fica (o recado acaba sempre depois de criado): a volta usa o índice da criação como antes.
+   * ASSUNTOS QUE NÃO SÃO PEDIDO (mig 381): o RECADO PARA O RESPONSÁVEL nunca é marcado (não está na fila da equipe, não
+   * avisa ninguém). A condição vai DENTRO da seleção (V84: senão os recados, que nunca ganham a marca, enchem o limite) e
+   * de novo na gravação.
    */
   async escalar(soEmpresas?: string[], limite: number = ESCALAR_POR_VOLTA): Promise<number> {
     const empresas = soEmpresas?.length ? sql`and c2.tenant_id in (${sql.join(soEmpresas.map((t) => sql`${t}::uuid`), sql`, `)})` : sql``;
@@ -97,12 +101,13 @@ export class FilaEAvisosService {
              and c2.criado_em <= ${prazo}
              and ${inicioDoCasoSql('c2')} <= ${prazo}
              and c2.detalhe -> 'escalado' is null
+             and not ${paraOResponsavelSql('c2')}
              ${empresas}
            order by c2.criado_em
            limit ${limite}
         ) alvo
        where c.id = alvo.id and c.status = 'aberto' and c.responsavel_id is null and c.detalhe -> 'escalado' is null
-         and not ${recadoAtivoSql('c')}
+         and not ${recadoAtivoSql('c')} and not ${paraOResponsavelSql('c')}
       returning c.tenant_id as "tenantId", c.id`);
     const linhas = (r.rows ?? r) as Array<{ tenantId: string; id: string }>;
     for (const l of linhas) this.events.emit('atendimento.mudou', { tenantId: l.tenantId, id: l.id, motivo: 'escalou' });
@@ -232,6 +237,23 @@ export class FilaEAvisosService {
    */
   salvarPerfis(user: AuthUser, dto: unknown): Promise<PerfisDoAtendente> {
     return salvarPerfisDoAtendente(this.db, user, dto, this.auditoria ? (e) => this.auditoria!.registrar(e as any) : undefined);
+  }
+
+  /**
+   * "Assuntos que não são pedido" (mig 381; protótipo versão 12): o que o robô faz com fornecedor, vaga de emprego e
+   * parceria (como hoje · recado para o responsável · não é por aqui) e o que ele diz. Da empresa; sempre os três, com os
+   * padrões ("Como hoje") no que faltar — num banco sem a 381 (ou sem a `robo_config`), os padrões.
+   */
+  assuntosDoAtendente(tenantId: string): Promise<AssuntosDoAtendente> {
+    return assuntosDaEmpresa(this.db, tenantId);
+  }
+
+  /**
+   * Salva o que veio de "Assuntos que não são pedido" (V16: ausente mantém; cada escolha só entre as opções). Grava SÓ os
+   * campos que mudaram, mesclados dentro do jsonb (V82); cada mudança fica na auditoria (`atendente_assunto_alterado`).
+   */
+  salvarAssuntos(user: AuthUser, dto: unknown): Promise<AssuntosDoAtendente> {
+    return salvarAssuntosDoAtendente(this.db, user, dto, this.auditoria ? (e) => this.auditoria!.registrar(e as any) : undefined);
   }
 
   /**

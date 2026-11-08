@@ -146,8 +146,8 @@ descrever('fila da central de atendimento (Postgres)', () => {
     await chamado({ status: 'resolvido', resolvido_em: new Date() });
     await chamado({ status: 'resolvido', resolvido_em: new Date(Date.now() - 3 * 86_400_000) }); // de outro dia
     const { contagens } = await svc.fila(gerente(), null);
-    // paraAbertura (mig 379): os recados que esperam a equipe — nenhum aqui
-    expect(contagens).toEqual({ abertos: 4, comPrazo: 1, naFila: 1, comigo: 1, aguardando: 1, resolvidosHoje: 1, paraAbertura: 0 });
+    // paraAbertura (mig 379): os recados que esperam a equipe — nenhum aqui; paraOResponsavel (mig 381): idem
+    expect(contagens).toEqual({ abertos: 4, comPrazo: 1, naFila: 1, comigo: 1, aguardando: 1, resolvidosHoje: 1, paraAbertura: 0, paraOResponsavel: 0 });
   });
 
   it('"resolvidos hoje" é o dia da operação mesmo com a sessão do banco em outro fuso (V46)', async () => {

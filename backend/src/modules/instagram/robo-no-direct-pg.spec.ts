@@ -124,6 +124,7 @@ descrever('Robô no Direct do Instagram (Postgres + Meta e n8n de mentira)', () 
       '378_instagram_robo_no_direct.sql',
       '379_horario_da_equipe.sql',
       '380_perfis_do_atendente.sql', // o perfil do atendente nas instruções do Direct (ERR-273)
+      '381_assuntos_do_atendente.sql', // os assuntos que não são pedido: o recado para o responsável no Direct (ERR-273)
     ])
       await aplicar(m);
     servidor = createServer((req, res) => {
@@ -496,6 +497,125 @@ descrever('Robô no Direct do Instagram (Postgres + Meta e n8n de mentira)', () 
     await ligarRobo(false);
     expect(await svc.semResposta()).toBe(0);
   });
+
+  // ───── ASSUNTOS QUE NÃO SÃO PEDIDO (mig 381): o RECADO PARA O RESPONSÁVEL no Direct ─────
+  const comAssuntos = async (assuntos: unknown, fn: () => Promise<void>) => {
+    await q(`update robo_config set atendente_assuntos = $2::jsonb where tenant_id = $1`, [T, JSON.stringify(assuntos)]);
+    try {
+      await fn();
+    } finally {
+      await q(`update robo_config set atendente_assuntos = '{}'::jsonb where tenant_id = $1`, [T]);
+    }
+  };
+  const tokDoDirect = () => `tok-direct-${T.slice(0, 8)}`;
+  const MSG_DO_FORNECEDOR = 'Assunto: caixas e sacos personalizados\nQuem: Paulo Mendes, Embalagens Rio\nContato: (21) 3333-0000\nJá fiz: agradeci';
+
+  it('fornecedor em "recado": o recado para o responsável no Direct — a marca, o resumo, a resposta ao robô — e o robô SEGUE respondendo', () =>
+    comAssuntos({ fornecedor: { modo: 'recado' } }, async () => {
+      await svc.processar(aviso({ mid: 'rr1', texto: 'Boa tarde! Sou da Embalagens Rio. Com quem falo sobre compras?' }));
+      expect(await esperar(() => aoRobo.length === 1)).toBe(true);
+      const r: any = await cardapio.abrirAtendimento(tokDoDirect(), { tipo: 'fornecedor', telefone: `ig:${CLIENTE}`, conversa: fichaDoDirect(), mensagem: MSG_DO_FORNECEDOR }, SENHA);
+      expect(r).toEqual({
+        ok: true,
+        id: expect.any(String),
+        prioridade: 'normal',
+        paraOResponsavel: true,
+        assunto: 'fornecedor',
+        paraOCliente: 'Obrigado pelo contato! Já passei a sua proposta ao responsável. Se houver interesse, ele fala com você por aqui.',
+        posicao: null,
+        comAlguem: false,
+      });
+      const [c] = await casos();
+      expect(c).toMatchObject({ id: r.id, tipo: 'instagram', canal: 'instagram', prioridade: 'normal', status: 'aberto' });
+      expect(c.detalhe.responsavel).toEqual({ assunto: 'fornecedor', em: expect.any(String) });
+      expect(c.detalhe.robo).toMatchObject({ assunto: 'caixas e sacos personalizados', quem: 'Paulo Mendes, Embalagens Rio', contato: '(21) 3333-0000' });
+      expect(c.detalhe.recado).toBeUndefined();
+      expect((await q(`select chamado_id from instagram_mensagem where mid = 'rr1'`))[0].chamado_id).toBe(c.id);
+      // a tela só relê a fila (não toca)
+      expect(eventos.filter((e) => e.nome === 'atendimento.novo')).toEqual([]);
+      expect(eventos).toContainEqual({ nome: 'atendimento.mudou', dados: { tenantId: T, id: r.id, motivo: 'recado_para_o_responsavel' } });
+      // o robô manda o texto E continua respondendo (o recado não cala a conversa)
+      expect(await responder(r.paraOCliente)).toMatchObject({ enviado: true });
+      expect(await responder('Posso ajudar com mais alguma coisa?')).toMatchObject({ enviado: true });
+      aoRobo.length = 0;
+      await svc.processar(aviso({ mid: 'rr2', texto: 'Obrigado! Vocês têm o cardápio?' }));
+      expect(await esperar(() => aoRobo.length === 1)).toBe(true); // a mensagem nova vai ao robô…
+      expect((await q(`select chamado_id from instagram_mensagem where mid = 'rr2'`))[0].chamado_id).toBe(c.id); // …e entra no recado
+      // chamar de novo pelo mesmo assunto: o mesmo recado, o mesmo texto
+      const r2: any = await cardapio.abrirAtendimento(tokDoDirect(), { tipo: 'fornecedor', telefone: `ig:${CLIENTE}`, conversa: fichaDoDirect(), mensagem: 'Já fiz: de novo' }, SENHA);
+      expect(r2).toMatchObject({ id: c.id, jaAberto: true, paraOResponsavel: true, paraOCliente: r.paraOCliente });
+      expect(await casos()).toHaveLength(1);
+      // o "sem resposta" (3 min) não conta o recado como caso aberto: sem resposta do robô, a conversa vira caso comum
+      await q(`update instagram_mensagem set criado_em = now() - interval '6 minutes' where mid = 'rr1'`);
+      await q(`update instagram_mensagem set criado_em = now() - interval '5 minutes' where mid = 'rr2'`);
+      await q(`delete from instagram_mensagem where tenant_id = $1 and autor = 'robo'`, [T]);
+      expect(await svc.semResposta()).toBe(1);
+      const depois = await casos();
+      expect(depois).toHaveLength(2);
+      expect(depois[1].detalhe.responsavel).toBeUndefined();
+      expect(depois[1].detalhe.instagram).toMatchObject({ semResposta: true });
+    }));
+
+  it('o caso comum com o recado aberto: não soma no recado; nasce à parte, manda na conversa (UM "já chamei") e o robô fica quieto', () =>
+    comAssuntos({ parceria: { modo: 'recado' } }, async () => {
+      await svc.processar(aviso({ mid: 'rc1', texto: 'Sou influenciadora, tenho uma proposta' }));
+      const tok = tokDoDirect();
+      const rec: any = await cardapio.abrirAtendimento(tok, { tipo: 'parceria', telefone: `ig:${CLIENTE}`, conversa: fichaDoDirect(), mensagem: 'Assunto: permuta' }, SENHA);
+      expect(rec.paraOResponsavel).toBe(true);
+      const comum: any = await cardapio.abrirAtendimento(tok, { tipo: 'humano', telefone: `ig:${CLIENTE}`, conversa: fichaDoDirect(), mensagem: 'Motivo: quer falar com alguém' }, SENHA);
+      expect(comum.id).not.toBe(rec.id);
+      expect(comum).toMatchObject({ posicao: 1, comAlguem: false });
+      expect(comum.paraOResponsavel).toBeUndefined();
+      const lista = await casos();
+      expect(lista).toHaveLength(2);
+      expect(lista.find((x: any) => x.id === rec.id).mensagem).toBe('Assunto: permuta'); // o recado não ganhou a fala do caso comum
+      expect(lista.find((x: any) => x.id === comum.id).detalhe.responsavel).toBeUndefined();
+      // o caso comum manda na conversa: UM "já chamei", depois quieto; a mensagem nova entra nele
+      expect(await responder('Já chamei a equipe.')).toMatchObject({ enviado: true });
+      expect(await responder('Mais alguma coisa?')).toMatchObject({ enviado: false, motivo: 'conversa_pausada' });
+      aoRobo.length = 0;
+      await svc.processar(aviso({ mid: 'rc2', texto: 'Alô?' }));
+      await quieto();
+      expect(aoRobo).toHaveLength(0);
+      expect((await q(`select chamado_id from instagram_mensagem where mid = 'rc2'`))[0].chamado_id).toBe(comum.id);
+      // e o recado de novo pelo mesmo assunto continua somando no recado, não no comum
+      const rec2: any = await cardapio.abrirAtendimento(tok, { tipo: 'parceria', telefone: `ig:${CLIENTE}`, conversa: fichaDoDirect(), mensagem: 'Contato: @influ' }, SENHA);
+      expect(rec2.id).toBe(rec.id);
+    }));
+
+  it('o robô desligado com o recado aberto: a mensagem nova não some no recado — abre um caso comum na fila', () =>
+    comAssuntos({ vaga: { modo: 'recado' } }, async () => {
+      await svc.processar(aviso({ mid: 'rd1', texto: 'Vocês estão contratando?' }));
+      const rec: any = await cardapio.abrirAtendimento(tokDoDirect(), { tipo: 'vaga', telefone: `ig:${CLIENTE}`, conversa: fichaDoDirect(), mensagem: 'Assunto: vaga' }, SENHA);
+      await ligarRobo(false);
+      await svc.processar(aviso({ mid: 'rd2', texto: 'Meu pedido não chegou' }));
+      await quieto();
+      const lista = await casos();
+      expect(lista).toHaveLength(2);
+      const novo = lista.find((x: any) => x.id !== rec.id);
+      expect(novo.detalhe.responsavel).toBeUndefined();
+      expect((await q(`select chamado_id from instagram_mensagem where mid = 'rd2'`))[0].chamado_id).toBe(novo.id);
+    }));
+
+  it('fornecedor em "Como hoje": o caso comum do Direct de antes (posição, sem marca)', async () => {
+    await svc.processar(aviso({ mid: 'rh1', texto: 'Sou fornecedor' }));
+    const r: any = await cardapio.abrirAtendimento(tokDoDirect(), { tipo: 'fornecedor', telefone: `ig:${CLIENTE}`, conversa: fichaDoDirect(), mensagem: 'Motivo: fornecedor' }, SENHA);
+    expect(r).toMatchObject({ ok: true, posicao: 1, comAlguem: false });
+    expect(r.paraOResponsavel).toBeUndefined();
+    const [c] = await casos();
+    expect(c.detalhe.responsavel).toBeUndefined();
+    expect(eventos.some((e) => e.nome === 'atendimento.novo' && e.dados.chamado.id === c.id)).toBe(true);
+  });
+
+  it('a seção dos assuntos entra nas instruções do Direct (pela chave `ig:`), perguntando o contato', () =>
+    comAssuntos({ fornecedor: { modo: 'recado' } }, async () => {
+      const rota = new RoboConsultasController(cardapio);
+      const r: any = await rota.instrucoes('1', `ig:${CONTA}`, '', undefined, SENHA);
+      expect(r.canal).toBe('instagram');
+      expect(r.texto).toContain('ASSUNTOS QUE NÃO SÃO PEDIDO (escolhidos pela loja)');
+      expect(r.texto).toContain('e o melhor contato para o responsável falar com ela');
+      expect(r.texto).not.toContain('não peça telefone: o contato é este número');
+    }));
 
   // ───── HORÁRIO DA EQUIPE (mig 379): fora do horário (o do cardápio do robô), o caso do Direct nasce como RECADO ─────
   const FUSO = 'America/Sao_Paulo';

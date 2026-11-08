@@ -18,6 +18,10 @@ import { chaveTelefone, sqlChaveTelefone } from '../../common/telefone-chave';
 //  • HORÁRIO DA EQUIPE (mig 379): o chamado que é RECADO PARA A ABERTURA (`detalhe.recado`, fora do horário) NÃO cala o
 //    robô enquanto espera — não há ninguém para atender, e o robô segue respondendo o que sabe. No `ate` (a equipe
 //    começou) ele vira um chamado comum: o tempo da pausa conta DALI, não da criação.
+//  • ASSUNTOS QUE NÃO SÃO PEDIDO (mig 381): o RECADO PARA O RESPONSÁVEL (`detalhe.responsavel` — fornecedor, vaga,
+//    parceria) que espera alguém NÃO cala o robô: a conversa continua com ele. Quem pegar o caso e responder pela caixa
+//    cala pela pausa de sempre ('atendente'). Como o caso comum é o que manda na conversa, ele vem antes do recado na
+//    escolha do "chamado aberto do número".
 //
 // O número é comparado pela CHAVE do telefone (com/sem 55, com/sem o nono dígito — ERR-134).
 
@@ -35,6 +39,8 @@ export type ChamadoAberto = {
   mensagem?: string | null;
   /** Recado para a abertura (mig 379): até quando ele espera a equipe. Ausente/null = chamado comum. */
   recadoAte?: Date | null;
+  /** Recado para o responsável esperando alguém (mig 381): não cala o robô. Ausente/false = chamado comum. */
+  paraOResponsavel?: boolean;
 };
 const prioridadeDaLinha = (v: unknown): 'normal' | 'urgente' => (v === 'urgente' ? 'urgente' : 'normal');
 const mensagemDaLinha = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 500) : null);
@@ -58,6 +64,13 @@ const recadoDaLinha = (v: unknown): { recadoAte?: Date } => {
   const d = typeof v === 'string' && v ? new Date(v) : null;
   return d && !Number.isNaN(d.getTime()) ? { recadoAte: d } : {};
 };
+/** O `paraOResponsavel` do chamado (mig 381), só quando é verdade — o chamado comum fica como era. */
+const responsavelDaLinha = (v: unknown): { paraOResponsavel?: true } => (v === true ? { paraOResponsavel: true } : {});
+/**
+ * SQL (mig 381): o chamado `a` é um recado para o responsável que espera alguém — a coluna que a regra lê e a ORDEM da
+ * escolha do "chamado aberto do número": o caso comum (o que manda na conversa) antes do recado; depois, o mais novo.
+ */
+const RESPONSAVEL_ESPERANDO = sql.raw(`((a.detalhe -> 'responsavel') is not null and a.responsavel_id is null)`);
 
 /**
  * A decisão, sem banco (testável caso a caso). `minutos` = robo_config.pausa_minutos (0 = sem prazo); `resolvidoEm` = a
@@ -84,9 +97,11 @@ export function decidirPausa(e: {
   const recadoEsperando = !!recadoAte && recadoAte.getTime() > agora.getTime();
   const inicioDoChamado = chamado ? (recadoAte ?? chamado.criadoEm) : null;
   const fimDoChamado = inicioDoChamado && minutos > 0 ? new Date(inicioDoChamado.getTime() + minutos * 60_000) : null;
+  // O recado para o responsável que espera alguém (mig 381) também não cala: a conversa segue com o robô.
   const chamadoVale =
     !!chamado &&
     !recadoEsperando &&
+    chamado.paraOResponsavel !== true &&
     !(retomadoEm && retomadoEm.getTime() >= chamado.criadoEm.getTime()) &&
     (minutos === 0 || (fimDoChamado as Date).getTime() > agora.getTime());
 
@@ -125,9 +140,10 @@ export async function estadoDaPausa(db: any, tenantId: string, telefone: string)
           where rp.tenant_id = ${tenantId}::uuid and rp.telefone_chave = ${k}) p) as pausa,
       (select row_to_json(c) from (
          select a.id, a.tipo, a.pedido_numero, a.criado_em, a.prioridade, a.mensagem,
-                a.detalhe -> 'recado' ->> 'ate' as recado_ate from atendimento_chamado a
+                a.detalhe -> 'recado' ->> 'ate' as recado_ate, ${RESPONSAVEL_ESPERANDO} as para_o_responsavel
+           from atendimento_chamado a
           where a.tenant_id = ${tenantId}::uuid and a.status = 'aberto' and ${chaveDoChamado} = ${k}
-          order by a.criado_em desc limit 1) c) as chamado,
+          order by ${RESPONSAVEL_ESPERANDO}, a.criado_em desc limit 1) c) as chamado,
       (select max(a.resolvido_em) from atendimento_chamado a
         where a.tenant_id = ${tenantId}::uuid and a.status = 'resolvido' and ${chaveDoChamado} = ${k}) as resolvido_em,
       coalesce((select pausa_minutos from robo_config where tenant_id = ${tenantId}::uuid), ${PAUSA_PADRAO_MINUTOS}) as minutos,
@@ -147,6 +163,7 @@ export async function estadoDaPausa(db: any, tenantId: string, telefone: string)
           prioridade: prioridadeDaLinha(c.prioridade),
           mensagem: mensagemDaLinha(c.mensagem),
           ...recadoDaLinha(c.recado_ate),
+          ...responsavelDaLinha(c.para_o_responsavel),
         }
       : null,
     minutos: Number(l.minutos),
@@ -167,9 +184,10 @@ export async function pausasDaLoja(db: any, tenantId: string): Promise<Map<strin
           where rp.tenant_id = ${tenantId}::uuid) p), '[]'::json) as pausas,
       coalesce((select json_agg(c) from (
          select a.id, a.tipo, a.pedido_numero, a.criado_em, a.telefone, a.prioridade, a.mensagem,
-                a.detalhe -> 'recado' ->> 'ate' as recado_ate from atendimento_chamado a
+                a.detalhe -> 'recado' ->> 'ate' as recado_ate, ${RESPONSAVEL_ESPERANDO} as para_o_responsavel
+           from atendimento_chamado a
           where a.tenant_id = ${tenantId}::uuid and a.status = 'aberto' and a.telefone is not null
-          order by a.criado_em desc limit 300) c), '[]'::json) as chamados,
+          order by ${RESPONSAVEL_ESPERANDO}, a.criado_em desc limit 300) c), '[]'::json) as chamados,
       coalesce((select json_agg(x) from (
          select a.telefone, max(a.resolvido_em) as resolvido_em from atendimento_chamado a
           where a.tenant_id = ${tenantId}::uuid and a.status = 'resolvido' and a.telefone is not null
@@ -189,7 +207,7 @@ export async function pausasDaLoja(db: any, tenantId: string): Promise<Map<strin
   const chamados = new Map<string, ChamadoAberto>();
   for (const c of l.chamados ?? []) {
     const k = chaveTelefone(c.telefone);
-    if (!k || chamados.has(k)) continue; // vem do mais novo para o mais antigo: fica o mais novo
+    if (!k || chamados.has(k)) continue; // o caso comum antes do recado para o responsável; depois, o mais novo
     chamados.set(k, {
       id: String(c.id),
       tipo: String(c.tipo),
@@ -198,6 +216,7 @@ export async function pausasDaLoja(db: any, tenantId: string): Promise<Map<strin
       prioridade: prioridadeDaLinha(c.prioridade),
       mensagem: mensagemDaLinha(c.mensagem),
       ...recadoDaLinha(c.recado_ate),
+      ...responsavelDaLinha(c.para_o_responsavel),
     });
   }
   const resolvidos = new Map<string, Date>();

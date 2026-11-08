@@ -16,6 +16,7 @@ import { FUSO_SQL } from '../../common/fuso-sql';
 import { sqlUnidadeOuRede } from '../../common/filtro-unidade';
 import { chaveSql } from '../ponte-chat/casos-do-chat';
 import { inicioDoCasoSql } from './horario-da-equipe';
+import { paraOResponsavelSql } from '../cardapio/assuntos-do-atendente';
 import {
   casosDoNumero,
   classificacaoGravada,
@@ -70,7 +71,7 @@ export class NumerosDoAtendimentoService {
   private async linhas(tenantId: string, unidade: string | null, de: string, ate: string, limite = LIMITE_DE_CASOS + 1): Promise<LinhaDoCaso[]> {
     const r: any = await this.db.execute(sql`
       select ch.id, ch.tipo, ch.canal, ch.status, ch.decisao, ch.criado_em as "criadoEm", ch.pego_em as "pegoEm",
-             ${inicioDoCasoSql('ch')} as "inicioEm",
+             ${inicioDoCasoSql('ch')} as "inicioEm", ${paraOResponsavelSql('ch')} as "paraOResponsavel",
              ch.resolvido_em as "resolvidoEm", ch.resolvido_por_id as "resolvidoPorId", ch.prazo_em as "prazoEm",
              ch.cliente, ch.pedido_numero as "pedidoNumero",
              (select round(pe.total * 100)::int from pedido_externo pe where pe.id = ch.pedido_id and pe.tenant_id = ch.tenant_id) as "totalCentavos",
