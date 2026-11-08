@@ -20,16 +20,22 @@ const textoDoRoteiro = (s, antes) => {
  * número que a gaveta mostra), `cliquesPerdidos`, `campoDepois` (leituras até o campo aparecer), `rascunho` (texto de
  * alguém no campo), `enviarLiga` (o "Enviar" liga com texto), `eco` (a confirmação chega).
  */
-function noventaDeMentira({ achaPedido = true, numeroDaConversa = `#${NUM}`, cliquesPerdidos = 0, campoDepois = 0, rascunho = '', enviarLiga = true, eco = true, busca = '', aba = 'Preparando' } = {}) {
+function noventaDeMentira({ achaPedido = true, numeroDaConversa = `#${NUM}`, cliquesPerdidos = 0, campoDepois = 0, rascunho = '', enviarLiga = true, eco = true, busca = '', aba = 'Preparando', balaoTapado = 0, resumoDeOutro = false } = {}) {
   const rodados = [];
   const cdp = [];
-  const s = { busca, aba, gaveta: false, campo: rascunho, voltasCampo: campoDepois, cliques: 0, enviou: [] };
+  const s = { busca, aba, gaveta: false, campo: rascunho, voltasCampo: campoDepois, cliques: 0, enviou: [], balaoTapado };
   const pagina = {
     executeJavaScript: async (js) => {
       if (js === R.ESTADO_DA_TELA) return { vigia: true, acaoEm: 0, vigiaDesde: 0, portal: true, gaveta: s.gaveta, gavetaNumero: s.gaveta ? numeroDaConversa : '', campoComTexto: s.campo !== '', busca: s.busca, aba: s.aba, painel: null };
       if (js === R.BUSCAR(NUM)) return (rodados.push('BUSCAR'), (s.busca = NUM), { ok: true });
       if (js === R.PEDIDO_NA_BUSCA(NUM)) return (rodados.push('NA_BUSCA'), achaPedido ? { achou: true, vazio: false, painel: `#${NUM}` } : { achou: false, vazio: true, painel: null });
-      if (js === R.BALAO(NUM)) return (rodados.push('BALAO'), { ok: true, x: 1152, y: 316 });
+      if (js === R.BALAO(NUM)) {
+        rodados.push('BALAO');
+        // 07/11: o painel ainda entrando logo depois da busca — "há algo na frente" nas primeiras conferências
+        if (resumoDeOutro) return { ok: false, motivo: 'o resumo aberto não é deste pedido' };
+        if (s.balaoTapado > 0) return (s.balaoTapado--, { ok: false, motivo: 'há algo na frente do botão do chat' });
+        return { ok: true, x: 1152, y: 316 };
+      }
       if (js === R.GAVETA_ABERTA) {
         rodados.push('GAVETA');
         if (!s.gaveta) return { aberta: false };
@@ -130,6 +136,25 @@ test('a conversa aberta é de OUTRO pedido: para NA HORA (sem esperar ela carreg
   assert.deepEqual([r.ok, r.codigo, r.fecharGaveta], [false, 'numero_errado', true]);
   assert.ok(Date.now() - inicio < 1500, `parou em ${Date.now() - inicio} ms`);
   assert.ok(!f.rodados.includes('ESCREVER'));
+});
+
+test('o painel ainda entrando (algo na frente do balão, 07/11): confere de novo e clica; tapado até o prazo, para sem clicar', async () => {
+  // o que acontecia na 99 de verdade: "há algo na frente" logo depois da busca, livre 2,5 s depois — a ponte desistia
+  const passa = noventaDeMentira({ balaoTapado: 3 });
+  const r = await enviar(passa.ctx, { numero: NUM, pedidoExterno: EXT, texto: 'Oi' }, { ...RAPIDO, balaoMs: 3000 });
+  assert.equal(r.ok, true);
+  assert.equal(passa.rodados.filter((x) => x === 'BALAO').length, 4);
+  assert.equal(passa.s.cliques, 1);
+  const tapado = noventaDeMentira({ balaoTapado: 1000 });
+  const r2 = await enviar(tapado.ctx, { numero: NUM, pedidoExterno: EXT, texto: 'Oi' }, { ...RAPIDO, balaoMs: 700 });
+  assert.deepEqual([r2.ok, r2.codigo, tapado.s.cliques], [false, 'balao', 0]);
+  assert.ok(!tapado.rodados.includes('ESCREVER'));
+  // o resumo de OUTRO pedido não é passageiro: para na hora, sem esperar o prazo
+  const outro = noventaDeMentira({ resumoDeOutro: true });
+  const inicio = Date.now();
+  const r3 = await enviar(outro.ctx, { numero: NUM, pedidoExterno: EXT, texto: 'Oi' }, { ...RAPIDO, balaoMs: 3000 });
+  assert.deepEqual([r3.ok, r3.codigo, outro.s.cliques], [false, 'balao', 0]);
+  assert.ok(Date.now() - inicio < 1000, `parou em ${Date.now() - inicio} ms`);
 });
 
 test('o 1º clique no balão se perde: clica de novo UMA vez; perdido duas vezes, para', async () => {

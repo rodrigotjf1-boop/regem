@@ -153,6 +153,17 @@ PC" ainda mostra só o iFood (pede `.exe`).
 pedido da 99 de entrega própria). A janela da 99 minimizada e escondida foi conferida em 06/11: o clique pelo depurador
 chega e a busca do programa funciona no portal de verdade.
 
+## O que a versão 0.7.2 corrige (07/11 — o envio pela 99 na loja de verdade)
+
+- **O balão do chat com o painel ainda entrando.** Logo depois da busca, o painel do pedido ainda entra na tela: o balão
+  vinha "há algo na frente" e livre 2,5 s depois (medido na 99 de verdade, 07/11). A ponte desistia na 1ª conferência —
+  o envio pela 99 nunca saía. Agora confere de novo até 4 s (`BALAO_MS`); o resumo de OUTRO pedido continua parando na
+  hora.
+- **Achado da leitura (sem correção nesta versão — decisão do dono):** na 99 cada usuário da loja tem as PRÓPRIAS conversas.
+  Com o chat fechado, o polling do IM do usuário extra responde vazio (`max_mid` parado) e a conversa de um pedido aberta
+  por ele não mostra o que o cliente e o usuário principal trocaram. As mensagens do cliente só chegam à ponte se ela usar
+  a conta que conversa com o cliente (a principal) — ou se a 99 tiver uma permissão de chat para o usuário extra.
+
 ## Rodar (desenvolvimento)
 
 ```bash

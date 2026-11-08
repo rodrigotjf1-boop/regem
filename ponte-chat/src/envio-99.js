@@ -22,6 +22,9 @@ const NUMERO = /^\d{4,8}$/;
 const BUSCA_MS = 8000;
 const GAVETA_MS = 6000;
 const CLIQUE_MS = 2500; // a gaveta abre em ~30 ms depois do clique (medido); sem ela em 2,5 s, o clique se perdeu
+// O painel do pedido ainda entra na tela logo depois da busca: em 07/11 o balão vinha "há algo na frente" na hora e livre
+// 2,5 s depois — e a ponte desistia (o envio pela 99 nunca saía). Confere de novo até este prazo.
+const BALAO_MS = 4000;
 const CAMPO_MS = 45000; // o campo levou 30 s com a loja fechada (06/11); com folga
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -199,7 +202,7 @@ async function ate(fn, ok, prazoMs, passoMs = 250) {
  * Abre a conversa do pedido na 99: busca pelo número, confere o resumo, clica no balão (de novo uma vez, se nada abrir),
  * confere o número da conversa e espera o campo. { ok, etapas } — ou { ok: false, codigo, definitivo?, adiar?, etapas }.
  */
-async function abrirConversa(ctx, { numero }, { buscaMs = BUSCA_MS, gavetaMs = GAVETA_MS, cliqueMs = CLIQUE_MS, campoMs = CAMPO_MS } = {}) {
+async function abrirConversa(ctx, { numero }, { buscaMs = BUSCA_MS, gavetaMs = GAVETA_MS, cliqueMs = CLIQUE_MS, campoMs = CAMPO_MS, balaoMs = BALAO_MS } = {}) {
   const { pagina, cdp } = ctx;
   const etapas = [];
   const falhou = (codigo, motivo, extra = {}) => ({ ok: false, codigo, etapas: [...etapas, `✗ ${motivo}`], ...extra });
@@ -215,11 +218,21 @@ async function abrirConversa(ctx, { numero }, { buscaMs = BUSCA_MS, gavetaMs = G
   etapas.push(`✓ achei o pedido ${alvo} na busca da 99 (resumo aberto)`);
   let gaveta = null;
   for (let clique = 1; clique <= 2; clique++) {
-    let balao = await pagina.executeJavaScript(BALAO(numero));
-    if (balao && balao.rolou) {
-      await esperar(400);
-      balao = await pagina.executeJavaScript(BALAO(numero));
-    }
+    // O balão livre — o painel pode estar entrando (algo na frente, fora da vista: rola e confere de novo) até o prazo; o
+    // resumo de OUTRO pedido não é passageiro: para na hora.
+    const balao = await ate(
+      async () => {
+        const b = await pagina.executeJavaScript(BALAO(numero));
+        if (b && b.rolou) {
+          await esperar(400);
+          return pagina.executeJavaScript(BALAO(numero));
+        }
+        return b;
+      },
+      (b) => !!b && (b.ok || /não é deste pedido/.test(b.motivo || '')),
+      balaoMs,
+      300,
+    );
     if (!balao || !balao.ok) return falhou('balao', (balao && balao.motivo) || 'o botão do chat não respondeu');
     await clicar(ctx, balao);
     gaveta = await ate(() => pagina.executeJavaScript(GAVETA_ABERTA), (g) => !!g && g.aberta && !!g.numero, cliqueMs);
