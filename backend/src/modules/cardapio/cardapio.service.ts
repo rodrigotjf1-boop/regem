@@ -21,6 +21,8 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ChegadaService } from '../chegada/chegada.service';
 import { AniversarioService } from '../aniversario/aniversario.service';
 import { palavrasDe } from './robo-busca';
+import { type CanalDoPerfil, jeitoDoAtendente, perfisDaEmpresa } from './perfis-do-atendente';
+import { situacaoDaEquipe } from '../atendimento/horario-da-equipe';
 import { opcaoForaDeVenda } from './opcao-fora-de-venda';
 import { and, desc, eq, gte, ilike, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { randomBytes } from 'crypto';
@@ -472,6 +474,29 @@ export class CardapioService {
       .where(pid ? eq(cardapioConfig.waCloudPhoneId, pid) : eq(cardapioConfig.evolutionInstancia, inst));
     if (!cfg?.token) throw new NotFoundException('Número/instância não vinculado a uma loja.');
     return cfg.token;
+  }
+
+  /**
+   * O jeito do atendente virtual no canal (F2, mig 380 — `perfis-do-atendente.ts`), para as instruções do robô: o perfil do
+   * canal (o de FORA do horário quando a equipe não está — o horário deste cardápio, F1) e o jeito da loja. A empresa vem
+   * do token (o cardápio da instância; no Direct, o cardápio do robô). Só lê o horário da equipe quando o perfil de fora
+   * do horário muda alguma coisa. Nunca rejeita: falha de leitura = '' (as instruções de hoje), com o motivo no log.
+   */
+  async jeitoDoAtendenteDoRobo(token: string, canal: CanalDoPerfil): Promise<string> {
+    let tenantId = '';
+    try {
+      const cfg = await this.resolver(token);
+      tenantId = cfg.tenantId;
+      const perfis = await perfisDaEmpresa(this.db, cfg.tenantId);
+      const { perfil, foraDoHorario } = perfis[canal];
+      let atendendo = true;
+      if (foraDoHorario !== 'mesmo' && foraDoHorario !== perfil)
+        atendendo = (await situacaoDaEquipe(this.db, cfg.tenantId, { cardapioId: cfg.id, unidadeId: cfg.unidadeId })).atendendo;
+      return jeitoDoAtendente(perfis, canal, atendendo);
+    } catch (e: any) {
+      this.logger.warn(`perfil do atendente (${canal}) não lido (empresa ${tenantId || '?'}; vale o jeito de hoje): ${e?.message ?? e}`);
+      return '';
+    }
   }
 
   /** O link público do cardápio (sempre a nuvem — o cliente abre no celular dele). */

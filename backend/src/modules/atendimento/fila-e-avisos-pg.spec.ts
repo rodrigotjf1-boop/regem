@@ -86,6 +86,7 @@ descrever('fila e avisos (Postgres)', () => {
     // A 363 ("O robô faz mudanças simples", no grupo "Pedido alterado") altera o carrinho da 344 (ERR-273).
     // A 373: "O robô cobra no Pix o item posto em pedido já pago" (`robo_config.cobra_adicional_pix`) — ERR-273.
     // A 379: "Horário da equipe" (`robo_config.equipe_*`) — o aviso ao gerente não marca o recado (ERR-273).
+    // A 380: "Perfil do atendente virtual" (`robo_config.atendente_perfis`) — o GET dos ajustes lê (ERR-273).
     for (const m of [
       '342_robo_pausa_e_config.sql',
       '353_app_atendimento.sql',
@@ -93,6 +94,7 @@ descrever('fila e avisos (Postgres)', () => {
       '363_robo_mudanca_do_pedido.sql',
       '373_pedido_adicional_pix.sql',
       '379_horario_da_equipe.sql',
+      '380_perfis_do_atendente.sql',
     ])
       await aplicar(m);
     A = await empresa('teste aviso ao gerente A');

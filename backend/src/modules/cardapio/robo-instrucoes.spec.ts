@@ -1,5 +1,6 @@
-import { instrucoesDoRobo, VERSAO_INSTRUCOES } from './robo-instrucoes';
+import { instrucoesDoDirect, instrucoesDoRobo, VERSAO_DO_DIRECT, VERSAO_INSTRUCOES } from './robo-instrucoes';
 import { ACOES_DA_MUDANCA } from './robo-mudanca';
+import { jeitoDoAtendente, perfisPadrao } from './perfis-do-atendente';
 import { lerResumoDaMensagem } from '../atendimento/resumo-do-robo';
 
 // AS INSTRUÇÕES DO ROBÔ (Fase 5, F1 — pedido do dono de 30/10/2026). O texto é a "mensagem do sistema" do agente no
@@ -80,7 +81,7 @@ describe('instruções do robô', () => {
 
   // .f16 (mig 379): o horário da equipe — fora dele, o chamado vira recado e a resposta traz a frase para o cliente.
   it('fora do horário da equipe: manda paraOCliente como veio, sem "em instantes" nem a posição, e segue a conversa', () => {
-    expect(VERSAO_INSTRUCOES).toBe('2026-11-07.f16');
+    expect(VERSAO_INSTRUCOES >= '2026-11-07.f16').toBe(true);
     expect(texto).toContain('Se a resposta de chamar_atendente trouxer foraDoHorario = true');
     expect(texto).toContain('mande ao cliente o texto de paraOCliente exatamente como veio');
     expect(texto).toContain('NÃO diga "em instantes", não diga a posição na fila');
@@ -264,5 +265,86 @@ describe('instruções do robô — fluxo 2 (o pedido na conversa)', () => {
     for (const nome of doFluxo2) expect(citadas.has(nome)).toBe(true);
     const listas = [...texto.matchAll(/OPCOES: ([^.\n]*)/g)].map((m) => m[1]);
     for (const l of listas) expect(l).not.toMatch(/atendente/i);
+  });
+});
+
+// .f17 / .d3 (mig 380 — o perfil do atendente virtual por canal, protótipo v11): o bloco do perfil e do jeito da loja
+// entra LOGO DEPOIS da abertura nos dois fluxos do WhatsApp e no Direct; com perfil, a abertura não impõe o tom; "Como
+// hoje" sem jeito = o texto de antes, letra por letra.
+describe('instruções do robô — o perfil do atendente virtual (mig 380)', () => {
+  const LOJA = 'Mister Burguer';
+  const ABERTURA_DE_HOJE = {
+    whatsapp: `Você atende os clientes da ${LOJA} no WhatsApp. Converse como uma pessoa da equipe: simpática, acolhedora e objetiva.`,
+    direct: `Você atende os clientes da ${LOJA} no Direct do Instagram. Converse como uma pessoa da equipe: simpática, acolhedora e objetiva.`,
+  };
+  const ABERTURA_COM_PERFIL = {
+    whatsapp: `Você atende os clientes da ${LOJA} no WhatsApp. Converse como uma pessoa da equipe.`,
+    direct: `Você atende os clientes da ${LOJA} no Direct do Instagram. Converse como uma pessoa da equipe.`,
+  };
+  // Os três textos: WhatsApp fluxo 1, WhatsApp fluxo 2 e Direct.
+  const gerar = (jeito?: string | null) => ({
+    f1: instrucoesDoRobo({ loja: LOJA, jeito }, '1').texto,
+    f2: instrucoesDoRobo({ loja: LOJA, jeito }, '2').texto,
+    direct: instrucoesDoDirect({ loja: LOJA, jeito }, '2').texto,
+  });
+  const canalDe = (k: 'f1' | 'f2' | 'direct') => (k === 'direct' ? 'direct' : 'whatsapp');
+  const semJeito = gerar();
+
+  it('as versões subiram (.f17 e .d3)', () => {
+    expect(VERSAO_INSTRUCOES).toBe('2026-11-07.f17');
+    expect(VERSAO_DO_DIRECT).toBe('2026-11-07.d3');
+  });
+
+  it('"Como hoje" sem jeito: o texto é IDÊNTICO ao de antes — a abertura de sempre e nada a mais', () => {
+    const comoHoje = jeitoDoAtendente(perfisPadrao(), 'whatsapp', true);
+    expect(comoHoje).toBe('');
+    for (const jeito of [undefined, null, '', '   ', comoHoje, jeitoDoAtendente(perfisPadrao(), 'direct', false)])
+      expect(gerar(jeito)).toEqual(semJeito);
+    for (const k of ['f1', 'f2', 'direct'] as const) {
+      expect(semJeito[k].startsWith(`${ABERTURA_DE_HOJE[canalDe(k)]}\n\n`)).toBe(true);
+      expect(semJeito[k]).not.toContain('PERFIL DE ATENDIMENTO');
+      expect(semJeito[k]).not.toContain('JEITO DA LOJA');
+    }
+  });
+
+  it('com perfil e jeito: o bloco entra logo depois da abertura (sem o tom fixo); o resto do texto não muda', () => {
+    for (const k of ['f1', 'f2', 'direct'] as const) {
+      const canal = canalDe(k);
+      const jeito = jeitoDoAtendente({ [canal]: { perfil: 'profissional', foraDoHorario: 'mesmo', jeito: 'assine como Burger da Praça' } }, canal, true);
+      expect(jeito).toContain('PROFISSIONAL');
+      expect(jeito).toContain('JEITO DA LOJA');
+      const com = gerar(jeito)[k];
+      const resto = semJeito[k].slice(ABERTURA_DE_HOJE[canal].length + 2);
+      expect(com).toBe([ABERTURA_COM_PERFIL[canal], jeito, resto].join('\n\n'));
+      expect(com.split('\n\n')[1]).toBe(jeito.split('\n\n')[0]);
+      // as regras continuam lá (o perfil não tira nada)
+      expect(com).toContain('CLIENTE CHATEADO OU IRRITADO');
+      expect(com).toContain('REGRAS QUE NUNCA MUDAM');
+    }
+  });
+
+  it('fora do horário: entra o perfil de fora do horário; "O mesmo" mantém o do canal', () => {
+    const perfis = {
+      whatsapp: { perfil: 'cordial', foraDoHorario: 'objetivo', jeito: null },
+      direct: { perfil: 'gentil', foraDoHorario: 'mesmo', jeito: null },
+    };
+    const f1Noite = instrucoesDoRobo({ loja: LOJA, jeito: jeitoDoAtendente(perfis, 'whatsapp', false) }, '1').texto;
+    expect(f1Noite).toContain('(escolhido pela loja): OBJETIVO.');
+    expect(f1Noite).not.toContain('CORDIAL');
+    const f1Dia = instrucoesDoRobo({ loja: LOJA, jeito: jeitoDoAtendente(perfis, 'whatsapp', true) }, '1').texto;
+    expect(f1Dia).toContain('(escolhido pela loja): CORDIAL.');
+    const directNoite = instrucoesDoDirect({ loja: LOJA, jeito: jeitoDoAtendente(perfis, 'direct', false) }, '1').texto;
+    expect(directNoite).toContain('(escolhido pela loja): GENTIL.');
+  });
+
+  it('só o jeito da loja ("Como hoje"): a abertura de sempre e, logo depois, a linha do jeito', () => {
+    for (const k of ['f1', 'f2', 'direct'] as const) {
+      const canal = canalDe(k);
+      const jeito = jeitoDoAtendente({ [canal]: { perfil: 'hoje', jeito: 'nunca prometa brinde' } }, canal, true);
+      const com = gerar(jeito)[k];
+      const resto = semJeito[k].slice(ABERTURA_DE_HOJE[canal].length + 2);
+      expect(com).toBe([ABERTURA_DE_HOJE[canal], jeito, resto].join('\n\n'));
+      expect(jeito).toBe('JEITO DA LOJA (escrito pela loja, siga quando não contrariar as regras abaixo): nunca prometa brinde');
+    }
   });
 });

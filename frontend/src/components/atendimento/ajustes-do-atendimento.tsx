@@ -20,6 +20,9 @@ import { ContaDoInstagram, situacaoDoInstagram, useVoltaDoInstagram, type Estado
 //  • "Horário da equipe" (mig 379, F1 do atendente virtual; protótipo v10): a equipe atende sempre (como era) ou no
 //    horário da loja, com a folga antes de abrir e depois de fechar, e o que o robô diz fora do horário. Fora dele, o que
 //    o robô passaria para a equipe vira recado para a abertura. Na `robo_config` da empresa — o primeiro grupo da tela.
+//  • "Perfil do atendente virtual" (mig 380, F2; protótipo v11): por canal onde o atendente virtual já fala (WhatsApp e
+//    Direct), o perfil (Como hoje, Profissional, Cordial, Gentil, Descontraído, Objetivo, Acolhedor — com o exemplo), o de
+//    fora do horário ("O mesmo" ou outro) e o "jeito da loja". Na `robo_config` da empresa; nasce em "Como hoje".
 //  • "Fila e avisos" (Onda 2, mig 353): avisar o gerente se ninguém pegar o caso; dizer ao cliente a posição na fila.
 //    Ficam na `robo_config` da empresa — sempre aparecem. O "Som do aviso no computador" é de cada computador (no sino).
 //  • "iFood · disputas e chat": o chat do iFood na tela; avisar o gerente da disputa e de novo perto do prazo. Ficam na
@@ -54,6 +57,31 @@ const DA_EQUIPE: Record<string, string> = {
 };
 /** O que o robô diz fora do horário quando a loja deixa o campo em branco (o mesmo padrão do servidor). */
 const FORA_DO_HORARIO_PADRAO = 'Nossa equipe volta {volta}. Já deixei o seu recado aqui e respondemos assim que começarmos.';
+// O PERFIL DO ATENDENTE POR CANAL (mig 380, F2; protótipo v11, grupo "Perfil do atendente virtual"): nos canais onde o
+// atendente virtual já fala. Nasce em "Como hoje" — nada muda até a loja escolher. Na `robo_config` da empresa.
+type CanalDoPerfil = 'whatsapp' | 'direct';
+type PerfilDoCanal = { perfil: string; foraDoHorario: string; jeito: string | null };
+const CANAIS_DO_PERFIL: { canal: CanalDoPerfil; nome: string; chave: string }[] = [
+  { canal: 'whatsapp', nome: 'WhatsApp', chave: 'Wa' },
+  { canal: 'direct', nome: 'Direct do Instagram', chave: 'Ig' },
+];
+const PERFIS: { v: string; rotulo: string; exemplo: string }[] = [
+  { v: 'hoje', rotulo: 'Como hoje', exemplo: 'Como hoje — simpático e objetivo: "Oi, Joana! Entregamos no Centro, sim — a taxa é R$ 7,00. O cardápio está aqui 👇"' },
+  { v: 'profissional', rotulo: 'Profissional', exemplo: 'Exemplo: "Olá, Joana. Entregamos no Centro; a taxa é de R$ 7,00. Segue o link do cardápio."' },
+  { v: 'cordial', rotulo: 'Cordial', exemplo: 'Exemplo: "Oi, Joana! Tudo bem? Entregamos no Centro, sim — a taxa é R$ 7,00. Fique à vontade para escolher pelo cardápio 😊"' },
+  { v: 'gentil', rotulo: 'Gentil', exemplo: 'Exemplo: "Oi, Joana, que bom falar com você! Entregamos no Centro, sim, com taxa de R$ 7,00. Se quiser ajuda para escolher, é só me chamar."' },
+  { v: 'descontraido', rotulo: 'Descontraído', exemplo: 'Exemplo: "Opa, Joana! O Centro tá no nosso mapa, sim 🙌 Taxa de R$ 7,00. Bora escolher?"' },
+  { v: 'objetivo', rotulo: 'Objetivo', exemplo: 'Exemplo: "Entregamos no Centro. Taxa: R$ 7,00. Cardápio: (link)."' },
+  { v: 'acolhedor', rotulo: 'Acolhedor', exemplo: 'Exemplo: "Oi, Joana! Que bom que você chamou. Entregamos no Centro, sim, a taxa é R$ 7,00 — e qualquer dúvida no pedido, conte comigo."' },
+];
+/** As chaves da tela → [canal, campo] do grupo "perfis" que o servidor recebe. */
+const DO_PERFIL: Record<string, [CanalDoPerfil, keyof PerfilDoCanal]> = Object.fromEntries(
+  CANAIS_DO_PERFIL.flatMap(({ canal, chave }) => [
+    [`perfil${chave}`, [canal, 'perfil']],
+    [`perfil${chave}Fora`, [canal, 'foraDoHorario']],
+    [`perfil${chave}Jeito`, [canal, 'jeito']],
+  ]),
+) as Record<string, [CanalDoPerfil, keyof PerfilDoCanal]>;
 const DO_IFOOD: Record<string, string> = {
   ifoodChat: 'chat',
   ifoodAvisarDisputa: 'avisarDisputa',
@@ -122,6 +150,8 @@ type Resposta = {
   fila?: { avisarGerenteMin: number; dizerPosicao: boolean };
   // O horário da equipe (mig 379): "sempre" (como era) ou "no horário da loja", com a folga antes e depois.
   equipe?: { atende: 'sempre' | 'loja'; antesMin: number; depoisMin: number; textoFora: string | null } | null;
+  // O perfil do atendente por canal (mig 380): o servidor manda os dois canais, com os padrões.
+  perfis?: Partial<Record<CanalDoPerfil, PerfilDoCanal>> | null;
   minutosDoAviso?: number[];
   conectadoIfood?: boolean;
   ajusteIfood?: { chat: boolean; avisarDisputa: boolean; avisarDeNovoMin: number; avaliacoes?: boolean } | null;
@@ -183,6 +213,18 @@ const paraValores = (r: Resposta): Valores => ({
       }
     : {}),
   ...(r.fila ? { avisarGerenteMin: String(r.fila.avisarGerenteMin), dizerPosicao: r.fila.dizerPosicao } : {}),
+  ...Object.fromEntries(
+    CANAIS_DO_PERFIL.flatMap(({ canal, chave }) => {
+      const p = r.perfis?.[canal];
+      return p
+        ? [
+            [`perfil${chave}`, p.perfil],
+            [`perfil${chave}Fora`, p.foraDoHorario],
+            [`perfil${chave}Jeito`, p.jeito ?? ''],
+          ]
+        : [];
+    }),
+  ),
   ...(r.equipe
     ? {
         equipeAtende: r.equipe.atende,
@@ -268,6 +310,40 @@ export function AjustesDoAtendimento() {
         palavras: 'posição fila robô whatsapp cliente',
       },
     ],
+  };
+  // O perfil do atendente por canal (protótipo v11): o exemplo acompanha o perfil escolhido (a mesma resposta em cada jeito).
+  const exemploDo = (perfil: unknown) => PERFIS.find((p) => p.v === perfil)?.exemplo ?? '';
+  const grupoDoPerfil: GrupoDeAjustes = {
+    titulo: 'Perfil do atendente virtual',
+    nota: 'Sempre vale: o perfil muda o jeito de falar, nunca as regras — o robô nunca inventa preço, prazo, taxa nem promoção; segue as regras de cada canal; no máximo 1 emoji por mensagem; cliente chateado: o robô fica sério e chama a equipe. Chat do iFood e da 99, Messenger e comentários ganham o perfil quando o atendente virtual chegar neles.',
+    itens: CANAIS_DO_PERFIL.flatMap(({ nome, chave }) => [
+      {
+        id: `perfil${chave}`,
+        rotulo: `${nome} · perfil`,
+        tipo: 'selecao' as const,
+        opcoes: PERFIS.map((p) => ({ v: p.v, rotulo: p.rotulo })),
+        ajuda: exemploDo(valores[`perfil${chave}`]),
+        palavras: `perfil atendente tom jeito ${nome} profissional cordial gentil descontraído objetivo acolhedor`,
+      },
+      {
+        id: `perfil${chave}Fora`,
+        rotulo: `${nome} · fora do horário`,
+        tipo: 'selecao' as const,
+        opcoes: [{ v: 'mesmo', rotulo: 'O mesmo' }, ...PERFIS.filter((p) => p.v !== 'hoje').map((p) => ({ v: p.v, rotulo: p.rotulo }))],
+        ajuda: 'O perfil quando a equipe não está (o grupo Horário da equipe). "O mesmo" mantém o de cima.',
+        palavras: `perfil fora horário noite ${nome}`,
+      },
+      {
+        id: `perfil${chave}Jeito`,
+        rotulo: `${nome} · jeito da loja`,
+        tipo: 'texto' as const,
+        opcional: true,
+        maximo: 300,
+        placeholder: 'Como a loja gosta de falar (opcional)',
+        ajuda: 'Opcional, até 300 letras. Ex.: "trate o cliente por você; assine como a loja; nunca prometa brinde". Vem depois do perfil.',
+        palavras: `jeito da loja como falar ${nome}`,
+      },
+    ]),
   };
   // O horário da equipe (protótipo v10): os três ajustes de baixo só aparecem com "No horário da loja".
   const noHorarioDaLoja = valores.equipeAtende === 'loja';
@@ -753,6 +829,7 @@ export function AjustesDoAtendimento() {
     : null;
   const grupos: GrupoDeAjustes[] = [
     ...(resp?.equipe ? [grupoDaEquipe] : []),
+    ...(resp?.perfis ? [grupoDoPerfil] : []),
     ...(resp?.cheguei?.temCardapio ? [grupoDoCheguei] : []),
     grupoDaFila,
     ...(grupoDoGestor ? [grupoDoGestor] : []),
@@ -773,6 +850,7 @@ export function AjustesDoAtendimento() {
     // Cada grupo vai com o seu dono (a fila na configuração do robô, o iFood e a 99 nas integrações) — só o que mudou.
     const fila: Record<string, unknown> = {};
     const equipe: Record<string, unknown> = {};
+    const perfis: Partial<Record<CanalDoPerfil, Partial<PerfilDoCanal>>> = {};
     const ifood: Record<string, unknown> = {};
     const ajuste99: Record<string, unknown> = {};
     const cheguei: Record<string, unknown> = {};
@@ -838,6 +916,13 @@ export function AjustesDoAtendimento() {
         continue;
       }
       if (k === 'instagramConta') continue; // a conta muda pelos botões dela, não pelo salvar
+      if (DO_PERFIL[k]) {
+        // Só o campo que mudou, do canal dele; o jeito em branco volta a null (sem jeito).
+        const [canal, campo] = DO_PERFIL[k];
+        const v = campo === 'jeito' ? String(valores[k] ?? '').trim() || null : String(valores[k]);
+        perfis[canal] = { ...perfis[canal], [campo]: v };
+        continue;
+      }
       if (DA_EQUIPE[k]) {
         // As folgas vão em minutos; o texto em branco volta ao padrão (null).
         equipe[DA_EQUIPE[k]] =
@@ -868,6 +953,7 @@ export function AjustesDoAtendimento() {
       const r: Resposta = await api.salvarAtendimentoAjustes({
         ...(Object.keys(fila).length ? { fila } : {}),
         ...(Object.keys(equipe).length ? { equipe } : {}),
+        ...(Object.keys(perfis).length ? { perfis } : {}),
         ...(Object.keys(ifood).length ? { ifood } : {}),
         ...(Object.keys(ajuste99).length ? { ajuste99 } : {}),
         ...(Object.keys(cheguei).length ? { cheguei } : {}),

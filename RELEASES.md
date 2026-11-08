@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **O perfil do atendente virtual por canal — F2 (07/11; mig 380 `@cloud-only` — só a coluna `robo_config.atendente_perfis`,
+  SO_NUVEM; sem `edge/`).** Na NUVEM com o merge (nasce em "Como hoje" — as instruções do robô ficam idênticas até a loja
+  escolher, em Delivery › Configurações › Atendimento › Perfil do atendente virtual). **No `.zip` 1.30.13:** só o grupo novo
+  na tela do servidor da loja (lá os ajustes do atendimento são "só pela nuvem").
+
 - **O horário da equipe — F1 do atendente virtual (07/11; mig 379 `@cloud-only` — só colunas em `robo_config`, que já
   é SO_NUVEM; nenhuma estrutura nova em `atendimento_chamado`, que sincroniza: o recado vai em `detalhe.recado`; sem
   `edge/`).** Na NUVEM com o merge (nasce em "Sempre" — nada muda até a loja escolher "No horário da loja" em

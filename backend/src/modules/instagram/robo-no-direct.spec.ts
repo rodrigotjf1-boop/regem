@@ -190,7 +190,7 @@ describe('as instruções do Direct', () => {
     expect(texto).toMatch(/Motivo: .*\n\s+Quer: .*\n\s+Já fiz:/);
   });
   it('.d2 (mig 379): fora do horário da equipe, manda paraOCliente como veio e segue respondendo', () => {
-    expect(VERSAO_DO_DIRECT).toBe('2026-11-07.d2');
+    expect(VERSAO_DO_DIRECT >= '2026-11-07.d2').toBe(true);
     expect(texto).toContain('Se a resposta de chamar_atendente trouxer foraDoHorario = true');
     expect(texto).toContain('mande ao cliente o texto de paraOCliente exatamente como veio');
     expect(texto).toContain('NÃO diga "em instantes"');

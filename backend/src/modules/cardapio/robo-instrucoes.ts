@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { temPerfilNoJeito } from './perfis-do-atendente';
 
 // AS INSTRUÇÕES DO ROBÔ DE ATENDIMENTO (Fase 5 do robô, 30/10/2026) — o texto que o agente de IA do n8n recebe como
 // "mensagem do sistema". Moram AQUI, no Regem, versionadas e testadas: o fluxo do n8n busca este texto a cada conversa
@@ -50,14 +51,34 @@
 // .f16 (07/11, horário da equipe — mig 379): fora do horário, o chamar_atendente volta foraDoHorario = true com
 // paraOCliente (quando a equipe volta): o robô manda essa frase como veio, sem "em instantes" nem a posição, e segue
 // respondendo o resto normalmente.
-export const VERSAO_INSTRUCOES = '2026-11-07.f16';
+// .f17 (07/11, perfil do atendente virtual — mig 380): o bloco do perfil do canal (o de fora do horário, quando a equipe
+// não está) e o "jeito da loja" logo depois da abertura; com perfil, a abertura não impõe mais o tom. "Como hoje" sem
+// jeito = o texto de antes, letra por letra.
+export const VERSAO_INSTRUCOES = '2026-11-07.f17';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
   loja?: string | null;
+  /**
+   * O jeito do atendente no canal (mig 380 — `perfis-do-atendente.ts` › `jeitoDoAtendente`): o perfil em vigor e o jeito
+   * da loja, já em texto. Vazio = como hoje (nada entra e a abertura fica a de sempre).
+   */
+  jeito?: string | null;
 };
 
 const linhas = (...l: string[]) => l.join('\n');
+
+/**
+ * O começo das instruções: a abertura e, quando houver, o bloco do jeito do atendente logo depois dela. Com um perfil
+ * escolhido, a abertura não impõe o tom ("simpática, acolhedora e objetiva") — quem diz o tom é o perfil; sem perfil
+ * ("Como hoje", mesmo com o jeito da loja), a abertura é exatamente a de hoje.
+ */
+function inicio(dados: DadosDasInstrucoes, onde: string): string[] {
+  const loja = String(dados?.loja ?? '').trim() || 'loja';
+  const jeito = String(dados?.jeito ?? '').trim();
+  const tom = temPerfilNoJeito(jeito) ? 'Converse como uma pessoa da equipe.' : 'Converse como uma pessoa da equipe: simpática, acolhedora e objetiva.';
+  return [`Você atende os clientes da ${loja} ${onde}. ${tom}`, ...(jeito ? [jeito] : [])];
+}
 
 function jeitoDeConversar(): string {
   return linhas(
@@ -234,11 +255,10 @@ function regrasDoFluxo2(): string {
 
 /** O texto completo para o fluxo que pede: 2 = monta e registra o pedido na conversa; o resto = fluxo 1. */
 export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { versao: string; fluxo: number; texto: string } {
-  const loja = String(dados?.loja ?? '').trim() || 'loja';
-  const abertura = `Você atende os clientes da ${loja} no WhatsApp. Converse como uma pessoa da equipe: simpática, acolhedora e objetiva.`;
+  const abertura = inicio(dados, 'no WhatsApp');
   if (String(fluxo ?? '').trim() === '2') {
     const texto = [
-      abertura,
+      ...abertura,
       jeitoDeConversar(),
       cardapioPrimeiroComAjuda(),
       montarOPedidoAqui(),
@@ -252,7 +272,7 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
     ].join('\n\n');
     return { versao: VERSAO_INSTRUCOES, fluxo: 2, texto };
   }
-  const texto = [abertura, jeitoDeConversar(), cardapioPrimeiro(), clienteChateado(), quandoChamarUmaPessoa(), ferramentasDoFluxo1(), regrasQueNuncaMudam()].join('\n\n');
+  const texto = [...abertura, jeitoDeConversar(), cardapioPrimeiro(), clienteChateado(), quandoChamarUmaPessoa(), ferramentasDoFluxo1(), regrasQueNuncaMudam()].join('\n\n');
   return { versao: VERSAO_INSTRUCOES, fluxo: 1, texto };
 }
 
@@ -264,7 +284,9 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
 // .d1 (07/11): a primeira versão.
 // .d2 (07/11, horário da equipe — mig 379): fora do horário, o chamar_atendente volta foraDoHorario = true com
 // paraOCliente: o robô manda a frase como veio, sem "em instantes" nem a posição, e segue respondendo o resto.
-export const VERSAO_DO_DIRECT = '2026-11-07.d2';
+// .d3 (07/11, perfil do atendente virtual — mig 380): o perfil do Direct e o jeito da loja logo depois da abertura, como no
+// WhatsApp (.f17).
+export const VERSAO_DO_DIRECT = '2026-11-07.d3';
 
 function jeitoDoDirect(): string {
   return linhas(
@@ -338,8 +360,6 @@ function regrasDoDirect(): string {
 
 /** As instruções do Direct (qualquer fluxo do n8n: as ferramentas que funcionam aqui são as mesmas nos dois). */
 export function instrucoesDoDirect(dados: DadosDasInstrucoes, fluxo?: unknown): { versao: string; fluxo: number; canal: 'instagram'; texto: string } {
-  const loja = String(dados?.loja ?? '').trim() || 'loja';
-  const abertura = `Você atende os clientes da ${loja} no Direct do Instagram. Converse como uma pessoa da equipe: simpática, acolhedora e objetiva.`;
-  const texto = [abertura, jeitoDoDirect(), noDirectSemCadastro(), cardapioDoDirect(), clienteChateado(), quandoChamarNoDirect(), ferramentasDoDirect(), regrasDoDirect()].join('\n\n');
+  const texto = [...inicio(dados, 'no Direct do Instagram'), jeitoDoDirect(), noDirectSemCadastro(), cardapioDoDirect(), clienteChateado(), quandoChamarNoDirect(), ferramentasDoDirect(), regrasDoDirect()].join('\n\n');
   return { versao: VERSAO_DO_DIRECT, fluxo: String(fluxo ?? '').trim() === '2' ? 2 : 1, canal: 'instagram', texto };
 }
