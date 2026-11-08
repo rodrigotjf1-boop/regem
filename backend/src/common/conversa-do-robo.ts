@@ -133,3 +133,34 @@ export function idDaChaveDeTeste(v: unknown): string | null {
 
 /** A chave que a conversa de teste usa na instância e no `de`. */
 export const chaveDoTeste = (id: string): string => `${PREFIXO_DO_TESTE}${id}`;
+
+// ───────────────────────── o CHAT DO iFOOD E DA 99 (F5 do atendente virtual, mig 383) ─────────────────────────
+// O atendente virtual responde no chat da plataforma pela ponte do chat. A fala do cliente vai ao MESMO robô (o fluxo do
+// n8n) com a chave `chat:<id da PRIMEIRA fala do cliente da conversa em chat_plataforma_msg>` na instância e no `de` (a
+// mesma em toda a conversa: a memória do agente é pela conversa) — o terceiro uso do
+// truque do Direct (`ig:`) e do teste (`teste:`): nada muda no n8n. A chave só resolve pela LINHA da fala (a empresa, a loja,
+// o canal, o pedido e a conversa vêm dela) e nunca cai em telefone: as rotas de telefone recusam qualquer valor `chat:`
+// (tirando o prefixo sobram os dígitos do uuid, que a busca pelos últimos dígitos casaria com o pedido de um desconhecido).
+// A mensagem vai SEM a ficha da conversa (`conversa: null`), como a do teste: assinar o `de` daria uma ficha de "telefone".
+
+/** O prefixo da chave do chat da plataforma. */
+export const PREFIXO_DO_CHAT = 'chat:';
+const UUID_DO_CHAT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * O valor COMEÇA com `chat:`? Qualquer forma conta (mesmo com o id torto): é o que as rotas de telefone e de envio usam para
+ * recusar. Se a chave é uma conversa que vale, quem diz é `idDaChaveDoChat` (e a linha no banco).
+ */
+export function ehChaveDoChat(v: unknown): boolean {
+  return typeof v === 'string' && v.trim().toLowerCase().startsWith(PREFIXO_DO_CHAT);
+}
+
+/** O id da fala da chave — só `chat:` + um uuid; qualquer outra forma = null. */
+export function idDaChaveDoChat(v: unknown): string | null {
+  if (!ehChaveDoChat(v)) return null;
+  const id = (v as string).trim().slice(PREFIXO_DO_CHAT.length);
+  return UUID_DO_CHAT.test(id) ? id.toLowerCase() : null;
+}
+
+/** A chave que a fala do chat usa na instância e no `de`. */
+export const chaveDoChat = (id: string): string => `${PREFIXO_DO_CHAT}${id}`;

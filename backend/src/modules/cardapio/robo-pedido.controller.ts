@@ -2,7 +2,7 @@ import { Body, Controller, Get, Headers, HttpCode, Post, Query } from '@nestjs/c
 import { Throttle } from '@nestjs/throttler';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { CABECALHO_SEGREDO_ROBO } from '../../common/segredo-robo';
-import { CABECALHO_CONVERSA, ehChaveDeTeste } from '../../common/conversa-do-robo';
+import { CABECALHO_CONVERSA, ehChaveDeTeste, ehChaveDoChat } from '../../common/conversa-do-robo';
 import { RoboPedidoService } from './robo-pedido.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -36,10 +36,14 @@ export class RoboPedidoController {
    * recusa de regra que o robô entende (200, `ok: false`, `motivo: 'teste'`) e a conversa de teste ganha a linha 'sistema'.
    * Conferido ANTES da ficha da conversa (o teste não tem): uma chave de teste nunca cai no caminho do telefone. Fora do
    * teste = null (segue o caminho de sempre).
+   * O CHAT DO iFOOD E DA 99 (chave `chat:` na instância, F5 — mig 383): idem — no chat da plataforma o cliente já tem o
+   * pedido; a recusa de regra (200, `ok: false`, `motivo: 'chat_da_plataforma'`) diz isso ao robô.
    */
   private recusaNoTeste(segredo: string | undefined, q: any, corpo?: any) {
     const instancia = String(q?.instancia ?? corpo?.instancia ?? '');
-    if (String(q?.phoneNumberId ?? corpo?.phoneNumberId ?? '').trim() || !ehChaveDeTeste(instancia)) return null;
+    if (String(q?.phoneNumberId ?? corpo?.phoneNumberId ?? '').trim()) return null;
+    if (ehChaveDoChat(instancia)) return this.service.pedidoNoChat(String(segredo ?? '').trim(), instancia);
+    if (!ehChaveDeTeste(instancia)) return null;
     return this.service.pedidoNoTeste(String(segredo ?? '').trim(), instancia);
   }
 

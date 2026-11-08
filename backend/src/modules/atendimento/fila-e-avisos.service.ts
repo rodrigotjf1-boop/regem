@@ -223,8 +223,9 @@ export class FilaEAvisosService {
   }
 
   /**
-   * "Perfil do atendente virtual" (mig 380; protótipo versão 11): o perfil de cada canal (WhatsApp e Direct), o de fora do
-   * horário da equipe e o jeito da loja. Da empresa; sempre os dois canais, com os padrões ("Como hoje") no que faltar —
+   * "Perfil do atendente virtual" (mig 380; protótipo versão 11): o perfil de cada canal (WhatsApp, Direct e — F5 — o chat do
+   * iFood e da 99), o de fora do horário da equipe e o jeito da loja. Da empresa; sempre os três canais, com os padrões
+   * ("Como hoje") no que faltar —
    * num banco sem a 380 (ou sem a `robo_config`), os padrões: o resto dos ajustes não cai por causa deste grupo.
    */
   perfisDoAtendente(tenantId: string): Promise<PerfisDoAtendente> {

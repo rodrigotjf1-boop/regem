@@ -103,6 +103,7 @@ descrever('treinar o atendente — as rotas HTTP de verdade', () => {
     pool = new Pool({ connectionString: URL_PG });
     db = drizzle(pool, { schema });
     await aplicar('382_treinar_atendente.sql');
+    await aplicar('383_atendente_no_chat.sql'); // o teste do chat do iFood (F5): atendente_teste.plataforma (ERR-273)
     await q(`insert into empresa (id, nome) values ($1, 'teste rotas do treino'), ($2, 'outra empresa das rotas')`, [T, T2]);
     await q(`insert into cardapio_config (tenant_id, unidade_id, token, ativo, nome_publico) values ($1, null, $2, true, 'Loja das rotas')`, [T, `tok-rotas-${randomUUID()}`]);
 
@@ -191,6 +192,21 @@ descrever('treinar o atendente — as rotas HTTP de verdade', () => {
     const caso = randomUUID();
     expect(await chamar('GET', `${caso}/chat`, gerente)).toEqual({ status: 200, json: { rota: 'chat-do-caso', id: caso } });
     expect(await chamar('GET', `${caso}/instagram`, gerente)).toEqual({ status: 200, json: { rota: 'instagram', id: caso } });
+  });
+
+  it('o teste no CHAT DO iFOOD (F5, mig 383): POST e GET mostram `canal: "chat"`; a mensagem vai com a plataforma e sem pedido', async () => {
+    const gerente = token('gerente');
+    const criado = await chamar('POST', 'teste', gerente, { canal: 'chat' });
+    expect(criado).toEqual({ status: 201, json: { id: expect.any(String), canal: 'chat', foraDoHorario: false, esperandoResposta: false, mensagens: [] } });
+    const id = criado.json.id;
+    expect((await chamar('GET', `teste/${id}`, gerente)).json).toMatchObject({ id, canal: 'chat' });
+    expect(await q(`select canal, plataforma from atendente_teste where id = $1`, [id])).toEqual([{ canal: 'whatsapp', plataforma: 'ifood' }]);
+    await chamar('POST', `teste/${id}/mensagem`, gerente, { texto: 'cadê meu pedido?' });
+    expect(entregas.at(-1)).toMatchObject({ instancia: `teste:${id}`, provedor: 'instagram', plataforma: 'ifood', pedido: null });
+    expect(await chamar('POST', 'teste', gerente, { canal: 'messenger' })).toMatchObject({
+      status: 400,
+      json: { message: 'Escolha o canal do teste: WhatsApp, Direct do Instagram ou chat do iFood.' },
+    });
   });
 
   it('RBAC no servidor: execução e supervisão levam 403 em TODAS as rotas do treino; presidente entra; sem token 401', async () => {

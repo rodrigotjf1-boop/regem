@@ -3,7 +3,8 @@
 // o "Corrigir" vira conhecimento, que entra nas instruções do robô. Aqui ficam os tipos, os rótulos e a sugestão de
 // assunto; a regra (limites, quem pode, o que o robô faz com a chave de teste) mora no servidor.
 
-export type CanalDoTeste = 'whatsapp' | 'direct';
+/** `chat` = o chat do iFood e da 99 (F5): as instruções e o perfil do chat e a trava da plataforma na resposta. */
+export type CanalDoTeste = 'whatsapp' | 'direct' | 'chat';
 
 export type MensagemDoTeste = {
   id: string;
@@ -11,7 +12,7 @@ export type MensagemDoTeste = {
   texto: string;
   opcoes?: { titulo: string; descricao?: string }[] | null;
   /** Na linha 'sistema': o que aconteceria na conversa real (equipe chamada, recado, pedido…). */
-  simulado?: { tipo: 'equipe' | 'recado' | 'responsavel' | 'nao' | 'pedido' | 'link'; detalhe?: string } | null;
+  simulado?: { tipo: 'equipe' | 'recado' | 'responsavel' | 'nao' | 'pedido' | 'link' | 'plataforma'; detalhe?: string } | null;
   criadoEm: string;
 };
 

@@ -180,3 +180,114 @@ export function decidir(c: {
     },
   };
 }
+
+// ───────────────────────── o ATENDENTE VIRTUAL no chat (F5 do atendente virtual, mig 383) ─────────────────────────
+// `robo_config.chat_robo_modo` (nasce 'regras' = nada muda): com 'atendente', a conversa vai ao robô com IA do n8n (o mesmo
+// do WhatsApp e do Direct — chave `chat:`) no lugar das frases fixas; o que ele escreve passa pela trava da plataforma
+// (`texto-do-chat.ts`). As regras de ANTES de responder são as mesmas do robô por regras (caso aberto = quieto, agradecimento
+// = nada) e o atendente nunca deixa a conversa sem nada: sem quem envie pelo canal, sem o robô pronto nesta instalação (o
+// endereço e a senha do robô) ou sem cardápio ativo para ele consultar, vale o robô por regras; a entrega ao n8n que falha
+// também cai nas regras (quem chama refaz a decisão em modo 'regras'). Limite de segurança: 8 falas do atendente por pedido
+// por hora — passou disso, a equipe (como a 3ª pergunta do robô por regras).
+
+export const MODOS_DO_ROBO_NO_CHAT = ['regras', 'atendente'] as const;
+export type ModoDoRoboNoChat = (typeof MODOS_DO_ROBO_NO_CHAT)[number];
+/** O modo como veio do banco: só 'atendente' liga o atendente virtual; o resto (sem coluna, nulo, lixo) é 'regras'. */
+export const modoDaLinha = (v: unknown): ModoDoRoboNoChat => (v === 'atendente' ? 'atendente' : 'regras');
+
+/** No máximo tantas falas (mensagens) do atendente virtual por pedido na última hora — depois, a equipe. */
+export const FALAS_DO_ATENDENTE_POR_HORA = 8;
+
+export type DecisaoNoChat = Decisao | { acao: 'atendente' };
+
+/**
+ * A decisão de uma conversa do lote, nos dois modos. 'regras' = `decidir`, sem tirar nem pôr (nada muda para quem não
+ * escolheu o atendente). 'atendente': quieto e nada como as regras; sem quem envie ou sem o atendente pronto → `decidir`;
+ * 8 falas do atendente na hora → chama a equipe; senão → `atendente` (a fala vai ao robô com IA, sem caso).
+ */
+export function decidirNoChat(
+  c: Parameters<typeof decidir>[0] & { modo: ModoDoRoboNoChat; atendentePronto: boolean; falasDoAtendenteNaHora: number },
+): DecisaoNoChat {
+  if (c.modo !== 'atendente') return decidir(c);
+  if (c.casoAberto) return { acao: 'quieto' };
+  if (c.intencao === 'agradecimento') return { acao: 'nada' };
+  if (c.envia === false || !c.atendentePronto) return decidir(c);
+  if (c.falasDoAtendenteNaHora >= FALAS_DO_ATENDENTE_POR_HORA) return chamarPeloLimite(c.fala);
+  return { acao: 'atendente' };
+}
+
+/** O caso que o limite de falas do atendente abre (a regra é uma só: a entrada e a resposta do robô usam esta). */
+export function chamarPeloLimite(fala: string | null | undefined): Extract<Decisao, { acao: 'chamar_equipe' }> {
+  const chateado = ehChateado(fala);
+  return {
+    acao: 'chamar_equipe',
+    urgente: chateado,
+    resumo: {
+      motivo: `O atendente virtual já respondeu ${FALAS_DO_ATENDENTE_POR_HORA} vezes a este pedido na última hora`,
+      quer: String(fala ?? '').replace(/\s+/g, ' ').trim().slice(0, 300) || null,
+      jaFez: 'Avisou o cliente no chat que chamou a equipe da loja',
+      humor: chateado ? 'chateado' : null,
+    },
+  };
+}
+
+/** O pedido no campo `pedido` da mensagem ao atendente: o que o robô por regras sabe dizer, para ele responder sem ferramenta. */
+export type PedidoParaOAtendente = {
+  /** O número que o cliente vê no app da plataforma. */
+  numero: string | null;
+  status: string;
+  /** A situação em palavras. */
+  situacao: string;
+  /** Quem entrega (`modoEntrega`): a loja, o entregador da plataforma, ou é retirada. */
+  quemEntrega: 'loja' | 'plataforma' | 'retirada';
+  /** A hora em que saiu ("20h05"), quando saiu. */
+  saiuAs: string | null;
+  /** A previsão de chegada ("20h32" — a mesma conta do aviso "saiu"), só na entrega da loja. */
+  previsao: string | null;
+  /** O que o robô por regras responderia ao "cadê meu pedido?" (null = ele não sabe dizer: entregue, cancelado…). */
+  respostaPronta: string | null;
+};
+
+export function pedidoParaOAtendente(p: PedidoDoRobo, numero: string | null | undefined, horaPrevista: string | null): PedidoParaOAtendente {
+  const quemEntrega = p.modo === 'retirada' ? 'retirada' : p.modo === 'logistica_canal' ? 'plataforma' : 'loja';
+  const doApp = p.canal === 'ifood' ? 'do iFood' : 'da 99';
+  const situacoes: Record<string, string> = {
+    novo: 'recebido pela loja, entrando em preparo',
+    confirmado: 'em preparo na loja',
+    pronto:
+      quemEntrega === 'retirada'
+        ? 'pronto para retirar na loja'
+        : quemEntrega === 'plataforma'
+          ? `pronto, esperando o entregador ${doApp}`
+          : 'pronto, sai para entrega em instantes',
+    despachado:
+      quemEntrega === 'retirada'
+        ? 'pronto para retirar na loja'
+        : quemEntrega === 'plataforma'
+          ? `saiu com o entregador ${doApp} (o cliente acompanha pelo app ${doApp})`
+          : 'saiu para entrega com o entregador da loja',
+    entregue: 'entregue',
+    concluido: 'concluído',
+    cancelado: 'cancelado',
+  };
+  const encerrado = ['entregue', 'concluido', 'cancelado'].includes(p.status);
+  const previsao = quemEntrega === 'loja' && !encerrado ? horaPrevista : null;
+  return {
+    numero: numero ? String(numero) : null,
+    status: p.status,
+    situacao: situacoes[p.status] ?? 'em andamento',
+    quemEntrega,
+    saiuAs: p.status === 'despachado' && quemEntrega !== 'retirada' ? horaDe(p.despachadoEm) : null,
+    previsao,
+    respostaPronta: respostaDoRobo(p, previsao),
+  };
+}
+
+/**
+ * A situação do pedido da conversa em uma frase, para as ferramentas de pedido do robô com `chat:` (`publico/bot/pedidos`
+ * e `pedido-status`) — sem Pix nem estorno do cardápio próprio: no iFood e na 99 o pagamento é da plataforma.
+ */
+export function textoDoPedidoNoChat(p: PedidoDoRobo): string {
+  const a = pedidoParaOAtendente(p, null, null);
+  return `Situação do pedido: ${a.situacao}${a.saiuAs ? ` (saiu às ${a.saiuAs})` : ''}.`;
+}

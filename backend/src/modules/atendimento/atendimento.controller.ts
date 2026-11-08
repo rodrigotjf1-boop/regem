@@ -48,7 +48,7 @@ import { NumerosDoAtendimentoService } from './numeros.service';
 import { InstagramService } from '../instagram/instagram.service';
 import { lerAjusteGestorWa } from './gestor-whatsapp';
 import { FRASE_FORA_PADRAO, MINUTOS_ANTES_DA_EQUIPE, MINUTOS_DEPOIS_DA_EQUIPE, TEXTO_FORA_MAX, lerAjusteDaEquipe } from './horario-da-equipe';
-import { CANAIS_DO_PERFIL, JEITO_MAX, PERFIS_DO_ATENDENTE, PERFIS_FORA_DO_HORARIO, lerPerfisDoAtendente } from '../cardapio/perfis-do-atendente';
+import { CANAIS_DO_PERFIL, JEITO_MAX, PERFIS_DO_ATENDENTE, PERFIS_FORA_DO_HORARIO, ROTULO_DO_CANAL, lerPerfisDoAtendente } from '../cardapio/perfis-do-atendente';
 import {
   ASSUNTOS_DO_ATENDENTE,
   MODOS_DO_ASSUNTO,
@@ -237,7 +237,8 @@ export class AtendimentoController {
   // "Retirada · cliente chegou" (mig 354): o "Cheguei" mora no `cardapio_config` da LOJA EM USO (sem linha dela, a da
   // empresa) — sincroniza com o servidor da loja, que lê o aviso e o "avisar de novo" de lá.
   // "Horário da equipe" (mig 379): `equipe` (da empresa, na `robo_config`) e `equipeOpcoes` (as escolhas e o texto padrão).
-  // "Perfil do atendente virtual" (mig 380): `perfis` (sempre WhatsApp e Direct, com os padrões) e `perfisOpcoes`.
+  // "Perfil do atendente virtual" (mig 380): `perfis` (sempre WhatsApp, Direct e — F5 — o chat do iFood e da 99, com os
+  // padrões) e `perfisOpcoes`. A ponte: `ponte.roboModo` (F5, mig 383 — quem responde no chat: regras ou atendente).
   // "Assuntos que não são pedido" (mig 381): `assuntos` (sempre fornecedor, vaga e parceria, com os padrões) e
   // `assuntosOpcoes` (os assuntos, os modos, o limite do texto e os textos padrão).
   @Get('ajustes')
@@ -276,7 +277,8 @@ export class AtendimentoController {
       equipe,
       equipeOpcoes: { antesMin: MINUTOS_ANTES_DA_EQUIPE, depoisMin: MINUTOS_DEPOIS_DA_EQUIPE, textoForaPadrao: FRASE_FORA_PADRAO, textoForaMax: TEXTO_FORA_MAX },
       perfis,
-      perfisOpcoes: { canais: CANAIS_DO_PERFIL, perfis: PERFIS_DO_ATENDENTE, foraDoHorario: PERFIS_FORA_DO_HORARIO, jeitoMax: JEITO_MAX },
+      // `rotulos` (F5): o nome de cada canal na tela — o `chat` é "Chat do iFood e da 99".
+      perfisOpcoes: { canais: CANAIS_DO_PERFIL, rotulos: ROTULO_DO_CANAL, perfis: PERFIS_DO_ATENDENTE, foraDoHorario: PERFIS_FORA_DO_HORARIO, jeitoMax: JEITO_MAX },
       assuntos,
       assuntosOpcoes: {
         assuntos: ASSUNTOS_DO_ATENDENTE,

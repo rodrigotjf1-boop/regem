@@ -122,7 +122,13 @@ describe('perfis do atendente — o que a tela manda (lerPerfisDoAtendente)', ()
     recusa({ direct: { perfil: 'Cordial' } }, 'Perfil do Direct: escolha um dos perfis da lista.');
     recusa({ direct: { foraDoHorario: 'hoje' } }, 'Fora do horário (Direct): escolha "O mesmo" ou um dos perfis.');
     recusa({ whatsapp: { foraDoHorario: null } }, 'Fora do horário (WhatsApp): escolha "O mesmo" ou um dos perfis.');
-    recusa({ messenger: { perfil: 'cordial' } }, 'Perfil do atendente virtual: o canal "messenger" não tem perfil (só WhatsApp e Direct).');
+    recusa(
+      { messenger: { perfil: 'cordial' } },
+      'Perfil do atendente virtual: o canal "messenger" não tem perfil (só WhatsApp, Direct e chat do iFood e da 99).',
+    );
+    // o chat do iFood e da 99 (F5, mig 383) tem perfil, com o nome dele na recusa
+    recusa({ chat: { perfil: 'bravo' } }, 'Perfil do chat do iFood e da 99: escolha um dos perfis da lista.');
+    expect(lerPerfisDoAtendente({ chat: { perfil: 'objetivo', foraDoHorario: 'gentil' } })).toEqual({ chat: { perfil: 'objetivo', foraDoHorario: 'gentil' } });
     recusa({ whatsapp: 'cordial' }, 'Perfil do WhatsApp: mande o perfil, o de fora do horário e o jeito da loja.');
     recusa({ whatsapp: null }, 'Perfil do WhatsApp: mande o perfil, o de fora do horário e o jeito da loja.');
     recusa(['whatsapp'], 'Perfil do atendente virtual: mande o perfil de cada canal.');
@@ -135,10 +141,10 @@ describe('perfis do atendente — o que a tela manda (lerPerfisDoAtendente)', ()
 });
 
 describe('perfis do atendente — o que vem do banco (perfisDaLinha)', () => {
-  it('sem nada: os dois canais em "Como hoje", "O mesmo" e sem jeito', () => {
+  it('sem nada: os três canais (WhatsApp, Direct e — F5 — o chat do iFood e da 99) em "Como hoje", "O mesmo" e sem jeito', () => {
     const padrao = { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null };
     for (const v of [undefined, null, {}, [], 'lixo', 42, '{"whatsapp":'])
-      expect(perfisDaLinha(v)).toEqual({ whatsapp: padrao, direct: padrao });
+      expect(perfisDaLinha(v)).toEqual({ whatsapp: padrao, direct: padrao, chat: padrao });
   });
 
   it('valor estranho cai no padrão daquele campo; o resto fica', () => {
@@ -151,6 +157,7 @@ describe('perfis do atendente — o que vem do banco (perfisDaLinha)', () => {
     ).toEqual({
       whatsapp: { perfil: 'cordial', foraDoHorario: 'mesmo', jeito: null },
       direct: { perfil: 'hoje', foraDoHorario: 'objetivo', jeito: 'oi tudo bem' },
+      chat: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
     });
     expect(perfisDaLinha({ whatsapp: 'cordial', direct: ['x'] })).toEqual(perfisPadrao());
   });

@@ -1,12 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api } from '@/lib/api';
+import { api, getCategoria } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { hora, type CasoDaFila } from '@/lib/atendimento';
 import { TEXTO_MAX_DO_CHAT, temContatoProibido } from '@/lib/texto-do-chat';
+import { perguntaAntes } from '@/lib/treino-do-atendente';
 import { BotaoCopiloto } from '@/components/atendimento/botao-copiloto';
+import { CorrigirResposta } from '@/components/atendimento/corrigir-resposta';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -27,6 +29,8 @@ type Mensagem = {
   quem: string | null;
   em: string;
   enviadoEm: string | null;
+  /** F5 (mig 383): a fala é do ATENDENTE VIRTUAL (não uma frase pronta) — só ela tem "Corrigir". */
+  roboIa?: boolean;
 };
 type Conversa = { disponivel: boolean; canal: 'ifood' | '99food' | null; ponte: { ligada: boolean; responde: boolean }; mensagens: Mensagem[] };
 
@@ -43,7 +47,7 @@ const MOTIVO_DO_AVISO: Record<string, string> = { saiu: '"saiu para entrega"', c
 function rotuloDaLoja(m: Mensagem): string {
   if (m.direcao === 'entrada') return 'loja · pelo app da plataforma';
   if (m.autor === 'aviso') return `aviso automático${m.motivo && MOTIVO_DO_AVISO[m.motivo] ? ` ${MOTIVO_DO_AVISO[m.motivo]}` : ''}`;
-  if (m.autor === 'robo') return 'robô';
+  if (m.autor === 'robo') return m.roboIa ? 'atendente virtual' : 'robô';
   return m.quem ?? 'equipe';
 }
 
@@ -67,6 +71,11 @@ export function ChatDaPlataforma({ caso: c, aberto, podeResponder }: { caso: Cas
   const [texto, setTexto] = useState('');
   const [aviso, setAviso] = useState('');
   const [enviando, setEnviando] = useState(false);
+  // "Corrigir" nas falas do ATENDENTE VIRTUAL (F5, protótipo v14): gerente e presidente ensinam (o servidor confere).
+  const [podeEnsinar, setPodeEnsinar] = useState(false);
+  useEffect(() => setPodeEnsinar(['presidente', 'gerente'].includes(getCategoria() ?? '')), []);
+  const [corrigindo, setCorrigindo] = useState<{ id: string; pergunta: string; resposta: string } | null>(null);
+  const [corrigidas, setCorrigidas] = useState<Set<string>>(() => new Set());
   const atual = useRef(c.id);
   // A conversa é lida pelo relógio (5 s) e logo depois de enviar: só a resposta da leitura MAIS NOVA vale (V64) — uma
   // leitura antiga que chega atrasada não volta a mostrar a conversa de antes.
@@ -165,8 +174,9 @@ export function ChatDaPlataforma({ caso: c, aberto, podeResponder }: { caso: Cas
         ) : conversa.mensagens.length === 0 ? (
           <p className="py-6 text-center text-xs text-secondary-foreground">Ainda não há mensagens deste pedido no chat.</p>
         ) : (
-          conversa.mensagens.map((m) => {
+          conversa.mensagens.map((m, i) => {
             const daLoja = !(m.direcao === 'entrada' && m.autor === 'cliente');
+            const corrigivel = podeEnsinar && m.autor === 'robo' && m.roboIa === true && !!m.texto;
             return (
               <div key={m.id} className={`flex ${daLoja ? 'justify-end' : 'justify-start'}`}>
                 <div
@@ -180,6 +190,27 @@ export function ChatDaPlataforma({ caso: c, aberto, podeResponder }: { caso: Cas
                     <span className="font-mono">{hora(m.em)}</span>
                     <SituacaoDoEnvio m={m} ponteResponde={responde} />
                   </span>
+                  {corrigivel &&
+                    (corrigidas.has(m.id) ? (
+                      <span className="block pt-0.5 text-right text-xs font-semibold text-ok">✏️ Corrigida — o atendente já usa a resposta nova</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="mt-0.5 block min-h-6 text-xs font-semibold text-info underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        onClick={() =>
+                          setCorrigindo({
+                            id: m.id,
+                            resposta: m.texto,
+                            pergunta: perguntaAntes(
+                              conversa.mensagens.map((x) => ({ autor: x.direcao === 'entrada' && x.autor === 'cliente' ? 'cliente' : x.autor, texto: x.texto ?? '' })),
+                              i,
+                            ),
+                          })
+                        }
+                      >
+                        Corrigir
+                      </button>
+                    ))}
                 </div>
               </div>
             );
@@ -270,6 +301,19 @@ export function ChatDaPlataforma({ caso: c, aberto, podeResponder }: { caso: Cas
         Sai pela ponte do PC da loja, como se alguém digitasse no chat {doCanal}. Telefone, WhatsApp, Instagram e link o Regem barra: a
         plataforma proíbe.
       </p>
+
+      {corrigindo && (
+        <CorrigirResposta
+          origem="caso"
+          pergunta={corrigindo.pergunta}
+          resposta={corrigindo.resposta}
+          aoFechar={() => setCorrigindo(null)}
+          aoSalvar={() => {
+            setCorrigidas((s) => new Set(s).add(corrigindo.id));
+            setCorrigindo(null);
+          }}
+        />
+      )}
     </section>
   );
 }

@@ -1250,7 +1250,7 @@ export const api = {
   // Treinar o atendente (F4, mig 382): a conversa de teste com o MESMO robô da loja (nada sai para clientes; chamar a
   // equipe, recados e pedidos viram simulação) e o que ele aprendeu (pergunta → resposta, por assunto). Só a nuvem; só
   // gerente e presidente (o servidor confere).
-  atendimentoTesteCriar: (body: { canal: 'whatsapp' | 'direct'; foraDoHorario: boolean }) =>
+  atendimentoTesteCriar: (body: { canal: 'whatsapp' | 'direct' | 'chat'; foraDoHorario: boolean }) =>
     req('/atendimento/teste', { method: 'POST', body: JSON.stringify(body) }),
   atendimentoTeste: (id: string) => req(`/atendimento/teste/${id}`),
   atendimentoTesteMensagem: (id: string, texto: string) =>

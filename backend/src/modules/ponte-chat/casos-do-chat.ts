@@ -66,6 +66,8 @@ export const chaveSql = (alias: string) =>
   );
 
 export type MensagemDoCliente = {
+  /** O id da fala em `chat_plataforma_msg` (o atendente virtual usa o da última fala na chave `chat:` — F5, mig 383). */
+  id?: string;
   canal: string;
   pedidoId: string | null;
   pedidoExterno: string | null;
@@ -76,7 +78,10 @@ export type MensagemDoCliente = {
   criadoEm: string | Date;
 };
 
-/** Uma conversa do lote: a última fala dela e se TODAS as falas do lote são só agradecimento. */
+/**
+ * Uma conversa do lote: a última fala dela e se TODAS as falas do lote são só agradecimento. `textos` = as falas do lote, na
+ * ordem, e `ultima_id` = o id da última (o atendente virtual recebe as falas juntas, com a chave da última — F5).
+ */
 type Conversa = {
   canal: string;
   chave: string;
@@ -88,6 +93,8 @@ type Conversa = {
   texto: string;
   em: string;
   so_agradecimento: boolean;
+  textos: string[];
+  ultima_id: string | null;
 };
 
 export function conversasDoLote(msgs: MensagemDoCliente[]): Conversa[] {
@@ -109,13 +116,18 @@ export function conversasDoLote(msgs: MensagemDoCliente[]): Conversa[] {
       texto: String(m.texto ?? '').slice(0, 1000),
       em: new Date(m.criadoEm).toISOString(),
       so_agradecimento: (antes ? antes.so_agradecimento : true) && ehSoAgradecimento(m.texto),
+      textos: [...(antes?.textos ?? []), String(m.texto ?? '').slice(0, 1000)],
+      ultima_id: m.id ?? null,
     });
   }
   return [...porChave.values()];
 }
 
-/** O que o robô (Etapa 3) manda no caso que ELE chama: o resumo para a equipe e se o cliente está chateado (urgente). */
-export type RoboNoCaso = { resumo: ResumoDoRobo; urgente: boolean };
+/**
+ * O que o robô (Etapa 3) manda no caso que ELE chama: o resumo para a equipe e se o cliente está chateado (urgente). `id` =
+ * o id do caso novo, quando quem chama precisa dele fixo (a rotina "o atendente não respondeu" usa o da chave — V42).
+ */
+export type RoboNoCaso = { resumo: ResumoDoRobo | null; urgente: boolean; id?: string };
 /** A chave de uma conversa num mapa: canal + chave do pedido. */
 export const chaveDoMapa = (c: { canal: string; chave: string }) => `${c.canal}|${c.chave}`;
 
@@ -127,6 +139,9 @@ export const chaveDoMapa = (c: { canal: string; chave: string }) => `${c.canal}|
  * HORÁRIO DA EQUIPE (mig 379): `equipe` = a situação da equipe por loja (`situacoesPorLoja`, lida por quem chama). Fora
  * do horário da loja da conversa, o caso NOVO nasce como RECADO para a abertura (`detalhe.recado`) — salvo o do pedido
  * ainda em andamento (a equipe ainda trabalha nele: vai para a fila na hora). Somar não muda a marca.
+ * ATENDENTE VIRTUAL (F5, mig 383): `opcoes.sempreAbre` = abre mesmo quando as falas são só agradecimento (quem chama já
+ * decidiu que é da equipe: o "chamar atendente", a trava da plataforma, a rotina "não respondeu"); `robo.id` = o id do caso
+ * novo (o mesmo id não abre dois — `on conflict`).
  */
 export async function casosDoChat(
   tx: any,
@@ -134,13 +149,22 @@ export async function casosDoChat(
   msgs: MensagemDoCliente[],
   robo?: Map<string, RoboNoCaso>,
   equipe?: Map<string, SituacaoDaEquipe>,
+  opcoes: { sempreAbre?: boolean } = {},
 ): Promise<{ novos: any[]; somados: string[] }> {
   const agora = new Date();
-  const conversas = conversasDoLote(msgs).map((c) => {
+  const conversas = conversasDoLote(msgs).map(({ textos: _textos, ultima_id: _ultima, ...c }) => {
     const r = robo?.get(chaveDoMapa(c));
     const s = equipe?.get(chaveDaLoja(c.unidade_id));
     const recadoAte = s && !s.atendendo && s.voltaEm ? s.voltaEm.toISOString() : null;
-    return { ...c, robo: r ? r.resumo : null, urgente: r?.urgente === true, recado_ate: recadoAte, recado_em: recadoAte ? agora.toISOString() : null };
+    return {
+      ...c,
+      so_agradecimento: opcoes.sempreAbre ? false : c.so_agradecimento,
+      id: r?.id ?? null,
+      robo: r ? r.resumo : null,
+      urgente: r?.urgente === true,
+      recado_ate: recadoAte,
+      recado_em: recadoAte ? agora.toISOString() : null,
+    };
   });
   if (!conversas.length) return { novos: [], somados: [] };
   // A trava da empresa: duas pontes (ou duas réplicas) no mesmo instante — uma decide, a outra espera e já vê o caso.
@@ -149,7 +173,7 @@ export async function casosDoChat(
     with g as (
       select * from jsonb_to_recordset(${JSON.stringify(conversas)}::jsonb)
         as x(canal text, chave text, pedido_id uuid, pedido_externo text, pedido_numero text, cliente text, unidade_id uuid,
-             texto text, em timestamptz, so_agradecimento boolean, robo jsonb, urgente boolean, recado_ate text, recado_em text)
+             texto text, em timestamptz, so_agradecimento boolean, id uuid, robo jsonb, urgente boolean, recado_ate text, recado_em text)
     ), abertos as (
       select distinct on (c.canal, c.detalhe #>> '{chat,chave}') c.id, c.canal, c.detalhe #>> '{chat,chave}' as chave,
              c.aguardando_desde is not null as aguardava
@@ -170,8 +194,8 @@ export async function casosDoChat(
        where c.id = a.id
       returning c.id, a.aguardava
     ), novos as (
-      insert into atendimento_chamado (tenant_id, unidade_id, tipo, cliente, pedido_numero, pedido_id, mensagem, prioridade, canal, detalhe)
-      select ${tenantId}::uuid, g.unidade_id, 'chat', g.cliente, g.pedido_numero, g.pedido_id, g.texto,
+      insert into atendimento_chamado (id, tenant_id, unidade_id, tipo, cliente, pedido_numero, pedido_id, mensagem, prioridade, canal, detalhe)
+      select coalesce(g.id, gen_random_uuid()), ${tenantId}::uuid, g.unidade_id, 'chat', g.cliente, g.pedido_numero, g.pedido_id, g.texto,
              case when g.urgente then 'urgente' else 'normal' end, g.canal,
              jsonb_build_object('chat', jsonb_build_object('chave', g.chave, 'pedidoExterno', g.pedido_externo,
                                                            'pedidoNumero', g.pedido_numero, 'ultimaEm', g.em))
@@ -186,6 +210,7 @@ export async function casosDoChat(
         from g
        where not g.so_agradecimento
          and not exists (select 1 from abertos a where a.canal = g.canal and a.chave = g.chave)
+      on conflict (id) do nothing
       returning *
     )
     select 'novo' as o, to_jsonb(n.*) as linha, n.id from novos n

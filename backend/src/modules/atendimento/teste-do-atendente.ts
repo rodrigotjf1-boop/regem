@@ -4,6 +4,7 @@ import { ehServidorLocal } from '../../common/modo';
 import { chaveDoTeste, idDaChaveDeTeste } from '../../common/conversa-do-robo';
 import type { CasoSimulado, Simulacao } from './abrir-chamado';
 import { NOME_DO_ASSUNTO, type AssuntoDoAtendente } from '../cardapio/assuntos-do-atendente';
+import { type MotivoDaTrava, NOME_DO_MOTIVO_DA_TRAVA } from '../ponte-chat/texto-do-chat';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -17,8 +18,12 @@ import { NOME_DO_ASSUNTO, type AssuntoDoAtendente } from '../cardapio/assuntos-d
 // Uma regra só, fora dos serviços — o WhatsApp (a resposta do robô), o cardápio (as consultas, o "chamar atendente" e o
 // pedido), o cliente (o link) e a tela (atendimento) importam daqui sem ciclo de módulo. Só banco e funções puras.
 
-/** Os canais que o teste imita (as instruções e o perfil de cada um). */
-export const CANAIS_DO_TESTE = ['whatsapp', 'direct'] as const;
+/**
+ * Os canais que o teste imita (as instruções e o perfil de cada um). `chat` (F5, mig 383) = o chat do iFood: no banco fica
+ * `canal = 'whatsapp'` com `plataforma = 'ifood'` (o check da coluna `canal` é da 382 e a migration não pode ter `drop`); a API
+ * mostra `canal: 'chat'`.
+ */
+export const CANAIS_DO_TESTE = ['whatsapp', 'direct', 'chat'] as const;
 export type CanalDoTeste = (typeof CANAIS_DO_TESTE)[number];
 /** O texto do "cliente" no teste cabe nisto. */
 export const TEXTO_DO_TESTE_MAX = 1000;
@@ -32,8 +37,8 @@ export const DIAS_DO_TESTE = 7;
 export const NOME_NO_TESTE = 'Teste da loja';
 /** O que fica na conversa quando o robô responderia em áudio (o teste não toca áudio). */
 export const AUDIO_NO_TESTE = '[o robô mandaria um áudio]';
-/** O que a linha 'sistema' diz que aconteceria. */
-export const TIPOS_SIMULADOS = ['equipe', 'recado', 'responsavel', 'nao', 'pedido', 'link'] as const;
+/** O que a linha 'sistema' diz que aconteceria. `plataforma` (F5) = a trava do chat do iFood barraria a resposta. */
+export const TIPOS_SIMULADOS = ['equipe', 'recado', 'responsavel', 'nao', 'pedido', 'link', 'plataforma'] as const;
 export type TipoSimulado = (typeof TIPOS_SIMULADOS)[number];
 
 const ehCanal = (v: unknown): v is CanalDoTeste => typeof v === 'string' && (CANAIS_DO_TESTE as readonly string[]).includes(v);
@@ -58,7 +63,7 @@ export function roboDisponivelParaTeste(): boolean {
 /** O teste novo que a tela pediu, conferido: o canal da lista; "simular fora do horário" só verdadeiro ou falso (V15). */
 export function lerNovoTeste(dto: unknown): { canal: CanalDoTeste; foraDoHorario: boolean } {
   const d = ehObjeto(dto) ? dto : {};
-  if (!ehCanal(d.canal)) throw new BadRequestException('Escolha o canal do teste: WhatsApp ou Direct do Instagram.');
+  if (!ehCanal(d.canal)) throw new BadRequestException('Escolha o canal do teste: WhatsApp, Direct do Instagram ou chat do iFood.');
   let foraDoHorario = false;
   if (d.foraDoHorario !== undefined && d.foraDoHorario !== null) {
     if (typeof d.foraDoHorario !== 'boolean') throw new BadRequestException('"Simular fora do horário": escolha sim ou não.');
@@ -117,8 +122,10 @@ export type TesteDoAtendente = {
 async function lerTesteOnde(db: any, onde: SQL): Promise<TesteDoAtendente | null> {
   let r: any;
   try {
+    // `plataforma` (mig 383) pelo to_jsonb: num banco sem a 383 a leitura não falha (o teste é de WhatsApp ou Direct).
     r = await db.execute(sql`
       select t.id, t.tenant_id as "tenantId", t.usuario_id as "usuarioId", t.canal, t.fora_do_horario as "foraDoHorario",
+             to_jsonb(t) ->> 'plataforma' as plataforma,
              t.cardapio_id as "cardapioId", t.criado_em as "criadoEm",
              case when c.id is null then null else json_build_object(
                'id', c.id, 'token', c.token, 'ativo', c.ativo, 'aberto', c.aberto, 'nomePublico', c.nome_publico,
@@ -138,7 +145,7 @@ async function lerTesteOnde(db: any, onde: SQL): Promise<TesteDoAtendente | null
     id: String(l.id),
     tenantId: String(l.tenantId),
     usuarioId: l.usuarioId ? String(l.usuarioId) : null,
-    canal: ehCanal(l.canal) ? l.canal : 'whatsapp',
+    canal: l.plataforma ? 'chat' : ehCanal(l.canal) ? l.canal : 'whatsapp',
     foraDoHorario: l.foraDoHorario === true,
     cardapioId: l.cardapioId ? String(l.cardapioId) : null,
     criadoEm: iso(l.criadoEm),
@@ -201,17 +208,20 @@ export async function criarTeste(
   lido: { canal: CanalDoTeste; foraDoHorario: boolean },
   cardapioId: string,
 ): Promise<{ id: string; canal: CanalDoTeste; foraDoHorario: boolean }> {
+  // O chat do iFood (F5, mig 383): `canal = 'whatsapp'` por baixo, com a `plataforma` — a coluna só entra na gravação dele.
+  const doChat = lido.canal === 'chat';
   const [l] = linhasDe(
     await db.execute(sql`
       with velhos as (
         delete from atendente_teste
          where tenant_id = ${quem.tenantId}::uuid and atualizado_em < clock_timestamp() - make_interval(days => ${DIAS_DO_TESTE}::int)
       )
-      insert into atendente_teste (tenant_id, usuario_id, canal, fora_do_horario, cardapio_id)
-      values (${quem.tenantId}::uuid, ${uuidOuNulo(quem.colaboradorId)}::uuid, ${lido.canal}, ${lido.foraDoHorario}::boolean, ${cardapioId}::uuid)
+      insert into atendente_teste (tenant_id, usuario_id, canal, fora_do_horario, cardapio_id${doChat ? sql`, plataforma` : sql``})
+      values (${quem.tenantId}::uuid, ${uuidOuNulo(quem.colaboradorId)}::uuid, ${doChat ? 'whatsapp' : lido.canal}, ${lido.foraDoHorario}::boolean,
+              ${cardapioId}::uuid${doChat ? sql`, 'ifood'` : sql``})
       returning id, canal, fora_do_horario as "foraDoHorario"`),
   );
-  return { id: String(l.id), canal: l.canal, foraDoHorario: l.foraDoHorario === true };
+  return { id: String(l.id), canal: doChat ? 'chat' : l.canal, foraDoHorario: l.foraDoHorario === true };
 }
 
 /** Uma mensagem da conversa de teste como a tela recebe. */
@@ -323,18 +333,22 @@ export async function gravarUmaVezPorFala(db: any, teste: { id: string; tenantId
  * em `de`, sem `phoneNumberId` (o n8n acha a loja pela instância, como na Evolution e no Direct). `provedor` segue o canal
  * escolhido: 'instagram' no Direct; 'evolution' no WhatsApp (a forma "instância, sem phoneNumberId" é a da Evolution — a
  * API oficial exigiria um phoneNumberId de verdade). `conversa` vai NULA de propósito (ver `conversa-do-robo.ts`).
+ * O chat do iFood (F5, mig 383): a forma da fala do chat de verdade (`ponte-chat/atendente-no-chat.ts` ›
+ * `mensagemDoChatParaORobo`) — `provedor` 'instagram' (só texto), `plataforma` 'ifood' e `pedido` NULO (no teste não há
+ * pedido; as instruções do teste dizem isso).
  */
 export function mensagemParaORobo(teste: TesteDoAtendente & { cardapio: CardapioDoTeste }, texto: string, mensagemId: string, agora: Date = new Date()) {
   const c = teste.cardapio;
   const chave = chaveDoTeste(teste.id);
+  const textoSo = teste.canal !== 'whatsapp';
   return {
-    provedor: teste.canal === 'direct' ? ('instagram' as const) : ('evolution' as const),
+    provedor: textoSo ? ('instagram' as const) : ('evolution' as const),
     tenantId: teste.tenantId,
     cardapioToken: c.token,
     phoneNumberId: null,
     instancia: chave,
     jid: null,
-    loja: { nome: c.nomePublico ?? null, aberto: teste.canal === 'direct' ? c.aberto !== false : !!c.aberto },
+    loja: { nome: c.nomePublico ?? null, aberto: textoSo ? c.aberto !== false : !!c.aberto },
     de: chave,
     nome: NOME_NO_TESTE,
     tipo: 'text',
@@ -348,6 +362,23 @@ export function mensagemParaORobo(teste: TesteDoAtendente & { cardapio: Cardapio
     roboPrompt: c.roboPrompt ?? null,
     roboMensagens: Array.isArray(c.roboMensagens) ? c.roboMensagens : [],
     conversa: null,
+    ...(teste.canal === 'chat' ? { plataforma: 'ifood' as const, pedido: null } : {}),
+  };
+}
+
+/**
+ * A linha 'sistema' do teste do chat do iFood quando a TRAVA DA PLATAFORMA barraria a resposta do robô (F5 — a mesma regra
+ * do caminho de verdade, `travaDaPlataforma`) ou quando ele responderia só em áudio.
+ */
+export function linhaDaTravaNoTeste(motivo: MotivoDaTrava | 'audio'): { texto: string; simulado: { tipo: 'plataforma'; detalhe: string } } {
+  if (motivo === 'audio')
+    return {
+      texto: 'No chat do iFood não sai áudio: esta resposta não iria ao cliente — sem resposta, em 2 minutos o caso abriria para a equipe.',
+      simulado: { tipo: 'plataforma', detalhe: 'audio' },
+    };
+  return {
+    texto: `O iFood barraria esta resposta: ${NOME_DO_MOTIVO_DA_TRAVA[motivo]}. Na conversa de verdade, nada deste texto sairia: iria a resposta pronta do pedido (quando o cliente pergunta dele) ou o caso abriria para a equipe, com "Já chamei a equipe da loja".`,
+    simulado: { tipo: 'plataforma', detalhe: motivo },
   };
 }
 
@@ -387,7 +418,7 @@ const ordinal = (n: number) => `${n}º`;
  * (`{ tipo, detalhe }` para a tela; o caso para a próxima chamada somar). `nao` = o tipo era um assunto em "Responde que não
  * é por aqui" — o robô não devia ter chamado (na conversa de verdade o chamado vira o caso comum).
  */
-export function linhaDaSimulacao(sim: Simulacao, nao: AssuntoDoAtendente | null): { texto: string; simulado: Record<string, unknown> } {
+export function linhaDaSimulacao(sim: Simulacao, nao: AssuntoDoAtendente | null, canal?: CanalDoTeste): { texto: string; simulado: Record<string, unknown> } {
   const r: any = sim.resposta;
   const caso = { casoId: sim.caso.id, fila: sim.caso.fila, assunto: sim.caso.assunto ?? null, prioridade: sim.caso.prioridade, recado: sim.caso.recado ?? null, criadoEm: sim.caso.criadoEm };
   const ninguem = 'Ninguém foi avisado: é um teste.';
@@ -413,7 +444,9 @@ export function linhaDaSimulacao(sim: Simulacao, nao: AssuntoDoAtendente | null)
       sim.situacao && sim.situacao.atendendo === false && !sim.situacao.voltaEm
         ? ' A loja não tem horário de funcionamento cadastrado (Delivery › Configurações › Horários): sem horário, a equipe é chamada a qualquer hora — por isso "fora do horário" dá o mesmo.'
         : '';
-    base = `o atendente ${sim.somou ? 'somaria ao caso que já abriu' : 'chamaria a equipe'}${urgente}${fila}.${semHorario}`;
+    // No chat do iFood (F5): o caso é o do chat daquela conversa (o pedido), na fila da equipe.
+    const chama = canal === 'chat' ? 'abriria o caso do chat do iFood para a equipe' : 'chamaria a equipe';
+    base = `o atendente ${sim.somou ? 'somaria ao caso que já abriu' : chama}${urgente}${fila}.${semHorario}`;
   }
   if (nao)
     return {

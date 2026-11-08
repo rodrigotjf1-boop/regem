@@ -6,6 +6,7 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { exigirBooleano } from '../../common/exigir';
 import { CANAIS, CanalDaPonte, quemResponde, type PonteCandidata, VIVA_POR_MS } from './lideranca';
 import { MotivoDoAviso, TEXTO_MAX, TEXTO_PADRAO, temContatoProibido } from './texto-do-chat';
+import { MODOS_DO_ROBO_NO_CHAT, type ModoDoRoboNoChat, modoDaLinha } from './robo-do-chat';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -15,6 +16,8 @@ import { MotivoDoAviso, TEXTO_MAX, TEXTO_PADRAO, temContatoProibido } from './te
 //    de cada um (vazio = o padrão) — em `robo_config.chat_*` da empresa; grava SÓ as colunas que vieram (V16, V82);
 //  • onde a ponte roda: "Automático" (todas as pontes da loja no papel automático) ou "Escolher os PCs" (uma principal e
 //    uma reserva — `chat_ponte.papel`). A 99 aceita um login só: a reserva vale para o iFood.
+//  • QUEM responde no chat com o robô ligado (F5, mig 383 — `roboModo`): "Frases prontas" (nasce assim) ou "Atendente
+//    virtual" (o robô com IA, com a trava da plataforma — `atendente-no-chat.ts`).
 
 export const MOTIVOS: readonly MotivoDoAviso[] = ['saiu', 'chegando', 'obrigado'];
 const COLUNAS: Record<MotivoDoAviso, { ligado: string; texto: string }> = {
@@ -35,6 +38,8 @@ export type ParcialDaPonte = {
   ligada?: boolean;
   /** O robô responde no chat (Etapa 3; `robo_config.chat_robo_responde`, nasce desligado). */
   roboResponde?: boolean;
+  /** QUEM responde no chat (F5, mig 383; `robo_config.chat_robo_modo`): o robô por regras (nasce assim) ou o atendente virtual. */
+  roboModo?: ModoDoRoboNoChat;
   avisos?: Partial<Record<MotivoDoAviso, Partial<AvisoDaPonte>>>;
   onde?: 'auto' | 'escolher';
   principalId?: string | null;
@@ -53,6 +58,11 @@ export function lerAjusteDaPonte(dto: unknown): ParcialDaPonte {
   const p: ParcialDaPonte = {};
   if (d.ligada !== undefined) p.ligada = exigirBooleano(d.ligada, 'ligada');
   if (d.roboResponde !== undefined) p.roboResponde = exigirBooleano(d.roboResponde, 'roboResponde');
+  if (d.roboModo !== undefined) {
+    if (!(MODOS_DO_ROBO_NO_CHAT as readonly unknown[]).includes(d.roboModo))
+      throw new BadRequestException('Quem responde no chat: escolha "Frases prontas" ou "Atendente virtual".');
+    p.roboModo = d.roboModo;
+  }
   if (d.onde !== undefined) {
     if (d.onde !== 'auto' && d.onde !== 'escolher') throw new BadRequestException('Onde a ponte roda: escolha "Automático" ou "Escolher os PCs".');
     p.onde = d.onde;
@@ -115,8 +125,10 @@ export class AjustesDaPonteService {
   async ajustes(tenantId: string, unidade: string | null) {
     const [rc] = linhas(await this.db.execute(sql`
       select chat_ponte_ligada, chat_robo_responde, chat_aviso_saiu, chat_aviso_saiu_texto, chat_aviso_chegando,
-             chat_aviso_chegando_texto, chat_aviso_obrigado, chat_aviso_obrigado_texto
-        from robo_config where tenant_id = ${tenantId}::uuid`));
+             chat_aviso_chegando_texto, chat_aviso_obrigado, chat_aviso_obrigado_texto,
+             -- QUEM responde (mig 383) pelo to_jsonb: num banco sem a 383 a leitura não falha (vale 'regras')
+             to_jsonb(rc) ->> 'chat_robo_modo' as chat_robo_modo
+        from robo_config rc where rc.tenant_id = ${tenantId}::uuid`));
     const avisos = {} as Record<MotivoDoAviso, AvisoDaPonte>;
     for (const m of MOTIVOS) {
       const ligado = rc?.[COLUNAS[m].ligado];
@@ -128,6 +140,7 @@ export class AjustesDaPonteService {
     return {
       ligada: rc?.chat_ponte_ligada === true,
       roboResponde: rc?.chat_robo_responde === true,
+      roboModo: modoDaLinha(rc?.chat_robo_modo),
       avisos,
       padroes: TEXTO_PADRAO,
       onde: principal || reserva ? ('escolher' as const) : ('auto' as const),
@@ -155,6 +168,7 @@ export class AjustesDaPonteService {
     const sets: { coluna: string; valor: unknown }[] = [];
     if (p.ligada !== undefined && p.ligada !== antes.ligada) sets.push({ coluna: 'chat_ponte_ligada', valor: p.ligada });
     if (p.roboResponde !== undefined && p.roboResponde !== antes.roboResponde) sets.push({ coluna: 'chat_robo_responde', valor: p.roboResponde });
+    if (p.roboModo !== undefined && p.roboModo !== antes.roboModo) sets.push({ coluna: 'chat_robo_modo', valor: p.roboModo });
     for (const m of MOTIVOS) {
       const a = p.avisos?.[m];
       if (!a) continue;

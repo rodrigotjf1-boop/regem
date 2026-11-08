@@ -150,7 +150,7 @@ export function CorrigirResposta({
             {resp.length} de {MAX_RESPOSTA}. Preço, taxa, prazo e horário ele continua tirando do cadastro, mesmo que a resposta traga um valor.
           </p>
         </div>
-        <p className="text-xs text-secondary-foreground">Vale para o WhatsApp e o Direct. Só gerente e presidente ensinam.</p>
+        <p className="text-xs text-secondary-foreground">Vale para todos os canais do atendente virtual: WhatsApp, Direct e o chat do iFood e da 99. Só gerente e presidente ensinam.</p>
         {erro && (
           <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 font-semibold text-destructive">
             {erro}

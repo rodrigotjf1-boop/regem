@@ -123,6 +123,7 @@ descrever('treinar o atendente (Postgres)', () => {
       '380_perfis_do_atendente.sql',
       '381_assuntos_do_atendente.sql',
       '382_treinar_atendente.sql',
+      '383_atendente_no_chat.sql', // o teste do chat do iFood (F5): atendente_teste.plataforma (ERR-273)
     ])
       await aplicar(m);
     const registrar = { registrar: async (e: any) => void auditoria.push(e) } as any;

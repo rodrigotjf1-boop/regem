@@ -29,6 +29,7 @@ import {
   respostaParaOResponsavel,
   resumoComORecado,
 } from '../cardapio/assuntos-do-atendente';
+import { fraseForaDoHorarioNoChat } from '../ponte-chat/robo-do-chat';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -296,7 +297,12 @@ export type Simulacao = {
 };
 
 export type OpcoesDaSimulacao = {
-  canal: 'whatsapp' | 'direct';
+  /**
+   * `chat` (F5, mig 383) = o chat do iFood: o caso de chat da conversa (soma no aberto, sem janela, como o Direct), os
+   * assuntos que não são pedido (F3) não se aplicam (o tipo vira o caso comum) e o `paraOCliente` de fora do horário passa
+   * pela trava da plataforma (`fraseForaDoHorarioNoChat`) — a mesma do caminho de verdade (`atendente-no-chat.ts`).
+   */
+  canal: 'whatsapp' | 'direct' | 'chat';
   /** "Simular fora do horário": a equipe como se não estivesse agora (`situacaoForaDoHorario`). */
   foraDoHorario?: boolean;
   /** Os casos que o teste já simulou (do mais novo ao mais velho). */
@@ -323,10 +329,15 @@ export async function simularChamadoPeloRobo(
   const novoId = opcoes.novoId ?? (() => randomUUID());
   const onde = { unidadeId, cardapioId: dados.cardapioId };
   const situacaoAgora = () => (opcoes.foraDoHorario ? situacaoForaDoHorario(db, tenantId, onde, agora) : situacaoDaEquipe(db, tenantId, onde, agora));
-  const aceito = await recadoParaOResponsavel(db, tenantId, dados.tipo);
+  const aceito = opcoes.canal === 'chat' ? null : await recadoParaOResponsavel(db, tenantId, dados.tipo);
   // O caso aberto que o caminho real somaria: no WhatsApp, até 12 h (do começo do caso: a volta da equipe, no recado).
   const janela = agora.getTime() - JANELA_DO_MESMO_CHAMADO_H * 3_600_000;
-  const vivo = (c: CasoSimulado) => opcoes.canal === 'direct' || new Date(c.recado?.ate ?? c.criadoEm).getTime() >= janela;
+  const vivo = (c: CasoSimulado) => opcoes.canal !== 'whatsapp' || new Date(c.recado?.ate ?? c.criadoEm).getTime() >= janela;
+  // Fora do horário: o que o robô diz ao cliente — no chat da plataforma, pela trava dela.
+  const doRecado = (recado: Recado, situacao: SituacaoDaEquipe) => {
+    const r = respostaDoRecado(recado, situacao.textoFora, agora);
+    return opcoes.canal === 'chat' ? { ...r, paraOCliente: fraseForaDoHorarioNoChat(situacao, recado) } : r;
+  };
   const anterior =
     (opcoes.anteriores ?? []).find((c) => vivo(c) && (aceito ? c.fila === 'responsavel' && c.assunto === aceito.assunto : c.fila === 'equipe')) ?? null;
 
@@ -345,7 +356,7 @@ export async function simularChamadoPeloRobo(
     if (recado) {
       const situacao = await situacaoAgora();
       return {
-        resposta: { ...base, comAlguem: false, ...respostaDoRecado(recado, situacao.textoFora, agora) },
+        resposta: { ...base, comAlguem: false, ...doRecado(recado, situacao) },
         resultado: 'recado',
         caso,
         somou: true,
@@ -362,7 +373,7 @@ export async function simularChamadoPeloRobo(
   const caso: CasoSimulado = { id: novoId(), fila: 'equipe', assunto: null, prioridade: urgente ? 'urgente' : 'normal', recado, criadoEm: agora.toISOString() };
   if (recado)
     return {
-      resposta: { ok: true, id: caso.id, prioridade: caso.prioridade, comAlguem: false, ...respostaDoRecado(recado, situacao.textoFora, agora) },
+      resposta: { ok: true, id: caso.id, prioridade: caso.prioridade, comAlguem: false, ...doRecado(recado, situacao) },
       resultado: 'recado',
       caso,
       somou: false,
