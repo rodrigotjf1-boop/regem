@@ -44,7 +44,7 @@ import { lerXlsx } from './ler-xlsx';
 import { urlPublicaSegura } from '../../common/ssrf-guard';
 import { AtendimentoService } from '../atendimento/atendimento.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
-import { ehChaveDeTeste, ehChaveDoDirect } from '../../common/conversa-do-robo';
+import { ehChaveDeTeste, ehChaveDoChat, ehChaveDoDirect } from '../../common/conversa-do-robo';
 import { LINHA_DO_LINK, gravarUmaVezPorFala, testeDaChave } from '../atendimento/teste-do-atendente';
 import { AuthUser } from '../../auth/auth-user';
 import PDFDocument from 'pdfkit';
@@ -983,6 +983,10 @@ export class ClienteService {
     // O Direct do Instagram (mig 378) não tem telefone: `ig:<igsid>` sem o `ig:` viraria um cadastro com os dígitos do
     // Instagram (V79). No Direct o robô manda o link do cardápio.
     if (ehChaveDoDirect(dto?.telefone)) throw new BadRequestException('No Direct do Instagram não há link do cliente: mande o link do cardápio.');
+    // O chat do iFood e da 99 (F5, mig 383) não tem telefone nem link: o cliente já fez o pedido pela plataforma, e link no
+    // chat a plataforma proíbe. `chat:<id>` sem o prefixo viraria um cadastro com os dígitos do id.
+    if (ehChaveDoChat(dto?.telefone))
+      throw new BadRequestException('No chat do iFood e da 99 não há link do cliente: o cliente já tem o pedido, e a plataforma proíbe link no chat.');
     // A conversa de TESTE do atendente (mig 382) não tem cliente: `teste:<id>` sem o prefixo viraria um cadastro com os
     // dígitos do id. Recusa como o Direct — e a conversa de teste ganha a linha 'sistema' (quando é desta empresa).
     if (ehChaveDeTeste(dto?.telefone)) {

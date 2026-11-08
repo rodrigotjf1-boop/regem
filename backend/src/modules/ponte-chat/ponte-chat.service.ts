@@ -1,16 +1,37 @@
-import { BadRequestException, ConflictException, Inject, Injectable, Optional } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { versaoInformada } from '../equipamento/presenca.service';
-import { CANAIS, CanalDaPonte, PonteCandidata, ehCanalDaPonte, quemResponde, VIVA_POR_MS } from './lideranca';
+import { CANAIS, CanalDaPonte, ehCanalDaPonte } from './lideranca';
 import type { PonteCtx } from './ponte-chat.guard';
-import { MensagemDoCliente, RoboNoCaso, casosDoChat, chaveDaConversa, chaveDoMapa, conversasDoLote } from './casos-do-chat';
-import { CHAMEI_A_EQUIPE, decidir, fraseForaDoHorarioNoChat, intencaoDoCliente } from './robo-do-chat';
-import { chaveDaLoja, recadoAtivoSql, situacoesPorLoja } from '../atendimento/horario-da-equipe';
-import { responsavelNaEsperaSql } from '../cardapio/assuntos-do-atendente';
+import { MensagemDoCliente, RoboNoCaso, casosDoChat, chaveDaConversa, chaveDoMapa, chaveSql, conversasDoLote } from './casos-do-chat';
+import {
+  CHAMEI_A_EQUIPE,
+  type ModoDoRoboNoChat,
+  decidirNoChat,
+  fraseForaDoHorarioNoChat,
+  intencaoDoCliente,
+  modoDaLinha,
+  pedidoParaOAtendente,
+} from './robo-do-chat';
+import {
+  type CardapioDoChat,
+  type ItemDaFila,
+  atendenteDisponivel,
+  cardapioDoChat,
+  casoQueCalaSql,
+  desmarcarEntregues,
+  enfileirarNoChat,
+  marcarEntregues,
+  mensagemDoChatParaORobo,
+  quemRespondePeloCanalNoBanco,
+  semRespostaDoAtendente,
+} from './atendente-no-chat';
+import { type SituacaoDaEquipe, chaveDaLoja, situacoesPorLoja } from '../atendimento/horario-da-equipe';
 import { DeliveryService } from '../delivery/delivery.service';
 import { modoEntrega } from '../entregador/modo-entrega';
+import { entregarAoRobo } from '../whatsapp/entregar-ao-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -59,8 +80,17 @@ const clienteDa99 = (v: unknown): string | null => {
 
 export type PapelNoCanal = 'responde' | 'reserva' | 'fora';
 
+/** Uma conversa que vai ao atendente virtual (F5): a mensagem pronta e as falas, para cair nas regras se a entrega falhar. */
+type ParaOAtendente = { msgId: string; mensagem: any; falas: MensagemDoCliente[] };
+
 @Injectable()
 export class PonteChatService {
+  private readonly logger = new Logger('PonteChat');
+  /** A busca da entrega ao robô (o teste troca por uma de mentira e confere o corpo que sai). */
+  buscar: typeof fetch = (url, init) => fetch(url, init);
+  /** As entregas ao atendente em andamento (rodam depois da resposta à ponte; o teste espera por elas). */
+  private readonly entregas = new Set<Promise<void>>();
+
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     // Avisa a tela Atendimento (tempo real) do caso que o chat abriu ou somou (Etapa 2). Opcional: os testes montam sem.
@@ -74,38 +104,27 @@ export class PonteChatService {
     return (await this.ajustesDoChat(tenantId)).ligada;
   }
 
-  /** Ligada e "o robô responde no chat" (Etapa 3) — os dois nascem desligados. */
-  async ajustesDoChat(tenantId: string): Promise<{ ligada: boolean; roboResponde: boolean }> {
-    const [r] = linhas(await this.db.execute(sql`select chat_ponte_ligada, chat_robo_responde from robo_config where tenant_id = ${tenantId}::uuid`));
-    return { ligada: r?.chat_ponte_ligada === true, roboResponde: r?.chat_robo_responde === true };
+  /**
+   * Ligada, "o robô responde no chat" (Etapa 3) — os dois nascem desligados — e QUEM responde (F5, mig 383: 'regras' ou
+   * 'atendente', nasce 'regras'). O modo é lido pelo `to_jsonb` da linha: num banco sem a 383 a leitura não falha (vale
+   * 'regras', como antes).
+   */
+  async ajustesDoChat(tenantId: string): Promise<{ ligada: boolean; roboResponde: boolean; roboModo: ModoDoRoboNoChat }> {
+    const [r] = linhas(
+      await this.db.execute(sql`
+        select chat_ponte_ligada, chat_robo_responde, to_jsonb(rc) ->> 'chat_robo_modo' as chat_robo_modo
+          from robo_config rc where rc.tenant_id = ${tenantId}::uuid`),
+    );
+    return { ligada: r?.chat_ponte_ligada === true, roboResponde: r?.chat_robo_responde === true, roboModo: modoDaLinha(r?.chat_robo_modo) };
   }
 
   /**
    * Quem responde pelo canal na loja da ponte: as pontes da MESMA loja (ou sem loja, ambas), ativas, não revogadas, com
-   * sinal há no máximo 2 min — e a regra única de `quemResponde`.
+   * sinal há no máximo 2 min — e a regra única de `quemResponde` (mora em `atendente-no-chat.ts`, para a resposta do
+   * atendente virtual usar a mesma regra).
    */
   async quemRespondePeloCanal(tenantId: string, unidadeId: string | null, canal: CanalDaPonte): Promise<string | null> {
-    const r = linhas(await this.db.execute(sql`
-      select cp.equipamento_id as id, cp.papel,
-             extract(epoch from (now() - cp.visto_em)) * 1000 as idade_ms,
-             extract(epoch from (now() - e.created_at)) * 1000 as cadastro_ms,
-             -- pausada no PC (mig 368) não responde: a vez passa para a reserva
-             coalesce((cp.plataformas -> ${canal} ->> 'logado')::boolean, false) and cp.pausada_em is null as logada
-        from chat_ponte cp
-        join equipamento e on e.id = cp.equipamento_id
-       where cp.tenant_id = ${tenantId}::uuid
-         and e.tipo = 'ponte_chat' and e.ativo and e.revogado_em is null
-         and cp.unidade_id is not distinct from ${unidadeId}::uuid
-         and cp.visto_em > now() - make_interval(secs => ${VIVA_POR_MS / 1000})`));
-    const agora = Date.now();
-    const candidatas: PonteCandidata[] = r.map((x) => ({
-      id: x.id,
-      papel: x.papel,
-      vistoEm: agora - Number(x.idade_ms),
-      logada: x.logada === true,
-      criadaEm: agora - Number(x.cadastro_ms),
-    }));
-    return quemResponde(candidatas, agora);
+    return quemRespondePeloCanalNoBanco(this.db, tenantId, unidadeId, canal);
   }
 
   /**
@@ -162,6 +181,8 @@ export class PonteChatService {
     casosNovos?: number;
     casosSomados?: number;
     roboRespondeu?: number;
+    /** Conversas entregues ao atendente virtual (F5) — a resposta dele vem depois, pela rota do robô. */
+    paraOAtendente?: number;
     desligada?: true;
   }> {
     const lista: any[] = Array.isArray(dto?.mensagens) ? dto.mensagens : [];
@@ -194,7 +215,7 @@ export class PonteChatService {
       });
     }
     if (!validas.length) return { recebidas: 0, repetidas: 0, recusadas };
-    const { r, casos, respondeu } = await this.db.transaction(async (tx) => {
+    const { r, casos, respondeu, paraOAtendente } = await this.db.transaction(async (tx) => {
       // O pedido: pelo id na plataforma; sem ele, pelo número exibido; sem os dois (99), pelo CLIENTE — o pedido mais
       // recente dele na 99 (dos últimos 2 dias). O id e o número que faltam saem do pedido ligado: a conversa fica com a
       // mesma chave dos avisos que a nuvem manda (`ext:` — `chaveDaConversa`), e não vira duas.
@@ -231,31 +252,14 @@ export class PonteChatService {
       // HORÁRIO DA EQUIPE (mig 379): a situação da equipe de cada loja do lote — fora do horário, o caso novo nasce como
       // recado para a abertura. Lida pela conexão comum (uma leitura que falhe não derruba esta transação).
       const equipe = doCliente.length ? await situacoesPorLoja(this.db, p.tenantId, doCliente.map((m) => m.unidadeId ?? null)) : undefined;
-      if (!ajustes.roboResponde) return { r, casos: await casosDoChat(tx, p.tenantId, doCliente, undefined, equipe), respondeu: null };
-      const robo = await this.roboNoLote(tx, p.tenantId, doCliente);
-      const paraCasos = doCliente.filter((m) => !robo.semCaso.has(chaveDoMapa({ canal: m.canal, chave: chaveDaConversa(m) ?? '' })));
-      const casos = await casosDoChat(tx, p.tenantId, paraCasos, robo.chamar, equipe);
-      // "Já chamei a equipe" — uma vez, no caso que o robô acabou de chamar (e só se algum PC envia pelo canal). Se o caso
-      // nasceu RECADO (fora do horário da equipe), no lugar dele vai a frase de fora do horário, pela trava da plataforma.
-      const chamados = casos.novos
-        .filter((n) => {
-          const k = chaveDoMapa({ canal: n.canal, chave: n.detalhe?.chat?.chave });
-          return robo.chamar.has(k) && !robo.semEnvio.has(k);
-        })
-        .map((n) => ({
-          canal: n.canal,
-          pedido_id: n.pedido_id ?? null,
-          pedido_externo: n.detalhe?.chat?.pedidoExterno ?? null,
-          pedido_numero: n.detalhe?.chat?.pedidoNumero ?? null,
-          cliente: n.cliente ?? null,
-          unidade_id: n.unidade_id ?? null,
-          texto: n.detalhe?.recado ? fraseForaDoHorarioNoChat(equipe?.get(chaveDaLoja(n.unidade_id)), n.detalhe.recado) : CHAMEI_A_EQUIPE,
-        }));
-      await this.enfileirarDoRobo(tx, p.tenantId, [...robo.respostas, ...chamados]);
-      return { r, casos, respondeu: robo.respostas.length };
+      if (!ajustes.roboResponde) return { r, casos: await casosDoChat(tx, p.tenantId, doCliente, undefined, equipe), respondeu: null, paraOAtendente: [] };
+      return { r, ...(await this.roboECasos(tx, p.tenantId, doCliente, equipe, ajustes.roboModo)) };
     });
     for (const chamado of casos.novos) this.events?.emit('atendimento.novo', { tenantId: p.tenantId, chamado });
     for (const id of casos.somados) this.events?.emit('atendimento.mudou', { tenantId: p.tenantId, id, motivo: 'cliente_escreveu_no_chat' });
+    // O ATENDENTE VIRTUAL (F5): as conversas dele vão ao robô DEPOIS de gravar (a resposta confere o caso e o limite no banco),
+    // sem segurar a resposta à ponte. Nunca rejeita (V3): a entrega que falha cai no robô por regras.
+    if (paraOAtendente.length) this.entregarAoAtendente(p.tenantId, paraOAtendente);
     return {
       recebidas: r.length,
       repetidas: validas.length - r.length,
@@ -263,25 +267,122 @@ export class PonteChatService {
       casosNovos: casos.novos.length,
       casosSomados: casos.somados.length,
       ...(respondeu === null ? {} : { roboRespondeu: respondeu }),
+      ...(paraOAtendente.length ? { paraOAtendente: paraOAtendente.length } : {}),
     };
+  }
+
+  /**
+   * O robô (por regras ou o atendente virtual) e os casos de um lote de falas do cliente, na transação de quem chama: a
+   * decisão por conversa (`roboNoLote`), os casos do que não ficou com o robô, o "já chamei a equipe" do caso que ele
+   * chamou e as respostas na fila de saída. As conversas do atendente ficam marcadas como entregues (`robo_entregue_em`)
+   * ANTES da entrega — quem chama entrega depois do commit.
+   */
+  private async roboECasos(
+    tx: any,
+    tenantId: string,
+    doCliente: MensagemDoCliente[],
+    equipe: Map<string, SituacaoDaEquipe> | undefined,
+    modo: ModoDoRoboNoChat,
+  ): Promise<{ casos: { novos: any[]; somados: string[] }; respondeu: number; paraOAtendente: ParaOAtendente[] }> {
+    const robo = await this.roboNoLote(tx, tenantId, doCliente, modo);
+    const paraCasos = doCliente.filter((m) => !robo.semCaso.has(chaveDoMapa({ canal: m.canal, chave: chaveDaConversa(m) ?? '' })));
+    const casos = await casosDoChat(tx, tenantId, paraCasos, robo.chamar, equipe);
+    // "Já chamei a equipe" — uma vez, no caso que o robô acabou de chamar (e só se algum PC envia pelo canal). Se o caso
+    // nasceu RECADO (fora do horário da equipe), no lugar dele vai a frase de fora do horário, pela trava da plataforma.
+    const chamados: ItemDaFila[] = casos.novos
+      .filter((n) => {
+        const k = chaveDoMapa({ canal: n.canal, chave: n.detalhe?.chat?.chave });
+        return robo.chamar.has(k) && !robo.semEnvio.has(k);
+      })
+      .map((n) => ({
+        canal: n.canal,
+        pedido_id: n.pedido_id ?? null,
+        pedido_externo: n.detalhe?.chat?.pedidoExterno ?? null,
+        pedido_numero: n.detalhe?.chat?.pedidoNumero ?? null,
+        cliente: n.cliente ?? null,
+        unidade_id: n.unidade_id ?? null,
+        texto: n.detalhe?.recado ? fraseForaDoHorarioNoChat(equipe?.get(chaveDaLoja(n.unidade_id)), n.detalhe.recado) : CHAMEI_A_EQUIPE,
+      }));
+    await enfileirarNoChat(tx, tenantId, [...robo.respostas, ...chamados]);
+    await marcarEntregues(
+      tx,
+      tenantId,
+      robo.paraOAtendente.map((a) => a.msgId),
+    );
+    return { casos, respondeu: robo.respostas.length, paraOAtendente: robo.paraOAtendente };
+  }
+
+  /**
+   * Entrega as conversas ao atendente virtual (o robô com IA do n8n), em segundo plano. A que o robô não recebeu (fora do
+   * ar, recusou, sem endereço) perde a marca e segue o robô POR REGRAS — refeito numa transação nova, com a trava da empresa
+   * (a conversa pode ter mudado no meio: caso aberto, outra fala). Nunca rejeita (V3); o motivo vai para o log.
+   */
+  private entregarAoAtendente(tenantId: string, itens: ParaOAtendente[]): void {
+    const tarefa = (async () => {
+      const falharam: ParaOAtendente[] = [];
+      await Promise.all(
+        itens.map(async (it) => {
+          if (!(await entregarAoRobo(it.mensagem, this.buscar))) falharam.push(it);
+        }),
+      );
+      if (!falharam.length) return;
+      this.logger.warn(`atendente virtual no chat: o robô não recebeu ${falharam.length} conversa(s) (empresa ${tenantId}) — segue o robô por regras`);
+      const falas = falharam.flatMap((f) => f.falas);
+      const equipe = await situacoesPorLoja(this.db, tenantId, falas.map((m) => m.unidadeId ?? null));
+      const { casos } = await this.db.transaction(async (tx) => {
+        await desmarcarEntregues(
+          tx,
+          tenantId,
+          falharam.map((f) => f.msgId),
+        );
+        return this.roboECasos(tx, tenantId, falas, equipe, 'regras');
+      });
+      for (const chamado of casos.novos) this.events?.emit('atendimento.novo', { tenantId, chamado });
+      for (const id of casos.somados) this.events?.emit('atendimento.mudou', { tenantId, id, motivo: 'cliente_escreveu_no_chat' });
+    })().catch((e: any) => this.logger.warn(`atendente virtual no chat (empresa ${tenantId}): ${e?.message ?? e}`));
+    this.entregas.add(tarefa);
+    void tarefa.finally(() => this.entregas.delete(tarefa));
+  }
+
+  /** Só para teste: espera as entregas ao atendente em andamento (e o que elas fizerem ao falhar). */
+  async esperarEntregas(): Promise<void> {
+    while (this.entregas.size) await Promise.all([...this.entregas]);
+  }
+
+  /** A rotina "o atendente virtual não respondeu" (V88) — `atendente-no-chat.ts`; o processador chama a cada minuto. */
+  semRespostaDoAtendente(): Promise<number> {
+    return semRespostaDoAtendente(this.db, (e, d) => this.events?.emit(e, d), this.logger);
   }
 
   /**
    * O ROBÔ no lote (Etapa 3), dentro da transação e com a trava da empresa — duas pontes trazendo falas do mesmo pedido
    * não fazem o robô responder duas vezes. Uma leitura para todas as conversas: caso aberto, quantas respostas o robô já
    * deu ao pedido na última hora e o pedido (situação, saída, quem entrega). A previsão só para quem o robô vai responder.
+   * F5 (mig 383) — modo 'atendente': também quantas falas o atendente virtual já deu ao pedido na hora e o cardápio ativo da
+   * loja (o que ele consulta); a conversa que é dele vira `paraOAtendente` (a mensagem pronta, com o pedido).
    */
   private async roboNoLote(
     tx: any,
     tenantId: string,
     msgs: MensagemDoCliente[],
-  ): Promise<{ semCaso: Set<string>; chamar: Map<string, RoboNoCaso>; semEnvio: Set<string>; respostas: any[] }> {
+    modo: ModoDoRoboNoChat = 'regras',
+  ): Promise<{ semCaso: Set<string>; chamar: Map<string, RoboNoCaso>; semEnvio: Set<string>; respostas: ItemDaFila[]; paraOAtendente: ParaOAtendente[] }> {
     const semCaso = new Set<string>();
     const chamar = new Map<string, RoboNoCaso>();
     const semEnvio = new Set<string>(); // chamou a equipe, mas ninguém envia pelo canal: sem o "já chamei a equipe"
-    const respostas: any[] = [];
+    const respostas: ItemDaFila[] = [];
+    const paraOAtendente: ParaOAtendente[] = [];
     const conversas = conversasDoLote(msgs);
-    if (!conversas.length) return { semCaso, chamar, semEnvio, respostas };
+    if (!conversas.length) return { semCaso, chamar, semEnvio, respostas, paraOAtendente };
+    const atendente = modo === 'atendente';
+    // O cardápio ativo da loja (o que o atendente consulta) — uma leitura por loja do lote, só no modo do atendente.
+    const cardapioPor = new Map<string, Promise<CardapioDoChat | null>>();
+    const cardapio = (unidade: string | null) => {
+      const k = unidade ?? '';
+      if (!cardapioPor.has(k)) cardapioPor.set(k, cardapioDoChat(this.db, tenantId, unidade).catch(() => null));
+      return cardapioPor.get(k)!;
+    };
+    const disponivel = atendente && atendenteDisponivel();
     // Quem ENVIA pelo canal para a loja da conversa — a mesma regra do `pegar`: a ponte que responde pela loja, ou a de
     // uma ponte sem loja (pega de todas). Uma leitura por canal e loja do lote (poucas), nunca por mensagem.
     const enviaPor = new Map<string, Promise<boolean>>();
@@ -305,16 +406,32 @@ export class PonteChatService {
                -- o RECADO que espera a abertura (mig 379) não cala o robô: ele segue respondendo o que sabe; nem o recado
                -- para o responsável que espera alguém (mig 381 — no chat do iFood/99 ele não nasce, mas a regra é uma só)
                exists (select 1 from atendimento_chamado a
-                        where a.tenant_id = ${tenantId}::uuid and a.tipo = 'chat' and a.status = 'aberto'
-                          and a.canal = g.canal and a.detalhe #>> '{chat,chave}' = g.chave
-                          and not ${recadoAtivoSql('a')} and not ${responsavelNaEsperaSql('a')}) as "casoAberto",
+                        where a.tenant_id = ${tenantId}::uuid and a.canal = g.canal and a.detalhe #>> '{chat,chave}' = g.chave
+                          and ${casoQueCalaSql('a')}) as "casoAberto",
                (select count(*)::int from chat_plataforma_msg m
                  where m.tenant_id = ${tenantId}::uuid and m.canal = g.canal and m.direcao = 'saida' and m.autor = 'robo'
                    and m.texto <> ${CHAMEI_A_EQUIPE} and m.criado_em > now() - interval '1 hour'
                    and ((g.pedido_id is not null and m.pedido_id = g.pedido_id)
                      or (g.pedido_externo is not null and m.pedido_externo = g.pedido_externo))) as "respostasNaHora",
+               -- as falas do ATENDENTE VIRTUAL na conversa na última hora (só no modo dele: a coluna é da 383)
+               ${
+                 atendente
+                   ? sql`(select count(*)::int from chat_plataforma_msg m
+                           where m.tenant_id = ${tenantId}::uuid and m.canal = g.canal and m.direcao = 'saida' and m.autor = 'robo'
+                             and m.robo_ia and m.criado_em > now() - interval '1 hour' and ${chaveSql('m')} = g.chave)`
+                   : sql`0`
+               } as "falasDoAtendente",
+               -- a PRIMEIRA fala do cliente na conversa (2 dias): a chave chat: do atendente, a mesma em toda a conversa
+               ${
+                 atendente
+                   ? sql`(select m.id from chat_plataforma_msg m
+                           where m.tenant_id = ${tenantId}::uuid and m.canal = g.canal and m.direcao = 'entrada' and m.autor = 'cliente'
+                             and m.criado_em > now() - interval '2 days' and ${chaveSql('m')} = g.chave
+                           order by m.criado_em, m.id limit 1)`
+                   : sql`null::uuid`
+               } as "primeiraFala",
                pe.id as "pedidoId", pe.status, pe.despachado_em as "despachadoEm", pe.cliente_nome as "clienteDoPedido",
-               pe.tipo, pe.canal as "canalDoPedido", pe.raw
+               pe.tipo, pe.canal as "canalDoPedido", pe.raw, pe.display_id as "numeroDoPedido"
           from g
           left join pedido_externo pe on pe.tenant_id = ${tenantId}::uuid and pe.id = g.pedido_id`),
     );
@@ -328,11 +445,44 @@ export class PonteChatService {
         : null;
       const intencao = intencaoDoCliente(c.texto);
       const podeEnviar = await envia(canal, c.unidade_id ?? null);
+      const card = disponivel && !d?.casoAberto && intencao !== 'agradecimento' ? await cardapio(c.unidade_id ?? null) : null;
+      // O atendente recebe o pedido com a previsão sempre que a loja entrega (ele pode precisar dela para qualquer pergunta).
+      const paraOAtendenteAgora = !!card && podeEnviar;
       // A previsão é a mesma conta do aviso "saiu" (só quando ele pode responder e a loja entrega).
-      const precisaDaHora = podeEnviar && intencao === 'onde_esta' && !!pedido && pedido.modo !== 'logistica_canal' && pedido.modo !== 'retirada';
+      const precisaDaHora =
+        podeEnviar && (intencao === 'onde_esta' || paraOAtendenteAgora) && !!pedido && pedido.modo !== 'logistica_canal' && pedido.modo !== 'retirada';
       const horaPrevista = precisaDaHora && this.delivery ? await this.delivery.horaPrevistaDoPedido(tenantId, d.pedidoId).catch(() => null) : null;
-      const decisao = decidir({ intencao, casoAberto: d?.casoAberto === true, respostasNaHora: Number(d?.respostasNaHora ?? 0), pedido, horaPrevista, fala: c.texto, canal, envia: podeEnviar });
-      if (decisao.acao === 'responder') {
+      const decisao = decidirNoChat({
+        intencao,
+        casoAberto: d?.casoAberto === true,
+        respostasNaHora: Number(d?.respostasNaHora ?? 0),
+        pedido,
+        horaPrevista,
+        fala: c.texto,
+        canal,
+        envia: podeEnviar,
+        modo,
+        atendentePronto: !!card && !!c.ultima_id,
+        falasDoAtendenteNaHora: Number(d?.falasDoAtendente ?? 0),
+      });
+      if (decisao.acao === 'atendente' && card && c.ultima_id) {
+        semCaso.add(k);
+        paraOAtendente.push({
+          msgId: c.ultima_id,
+          falas: msgs.filter((m) => m.canal === c.canal && chaveDaConversa(m) === c.chave),
+          mensagem: mensagemDoChatParaORobo({
+            tenantId,
+            chaveId: d?.primeiraFala ? String(d.primeiraFala) : c.ultima_id,
+            mensagemId: c.ultima_id,
+            canal,
+            cliente: c.cliente,
+            texto: c.textos.join('\n'),
+            em: c.em,
+            cardapio: card,
+            pedido: pedido ? pedidoParaOAtendente(pedido, d?.numeroDoPedido ?? c.pedido_numero, horaPrevista) : null,
+          }),
+        });
+      } else if (decisao.acao === 'responder') {
         semCaso.add(k);
         respostas.push({ canal: c.canal, pedido_id: c.pedido_id, pedido_externo: c.pedido_externo, pedido_numero: c.pedido_numero, cliente: c.cliente, unidade_id: c.unidade_id, texto: decisao.texto });
       } else if (decisao.acao === 'nada') semCaso.add(k);
@@ -342,19 +492,7 @@ export class PonteChatService {
       }
       // 'quieto': segue para os casos (soma no caso aberto).
     }
-    return { semCaso, chamar, semEnvio, respostas };
-  }
-
-  /** O que o robô diz entra na fila de saída (a ponte que responde pelo canal digita) — uma gravação para o lote todo. */
-  private async enfileirarDoRobo(tx: any, tenantId: string, itens: any[]): Promise<void> {
-    if (!itens.length) return;
-    await tx.execute(sql`
-      insert into chat_plataforma_msg
-        (tenant_id, unidade_id, canal, pedido_id, pedido_externo, pedido_numero, cliente_nome, direcao, autor, texto, estado)
-      select ${tenantId}::uuid, x.unidade_id, x.canal, x.pedido_id, x.pedido_externo, x.pedido_numero, x.cliente,
-             'saida', 'robo', x.texto, 'pendente'
-        from jsonb_to_recordset(${JSON.stringify(itens)}::jsonb)
-          as x(canal text, pedido_id uuid, pedido_externo text, pedido_numero text, cliente text, unidade_id uuid, texto text)`);
+    return { semCaso, chamar, semEnvio, respostas, paraOAtendente };
   }
 
   /**

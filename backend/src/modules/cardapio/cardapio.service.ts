@@ -119,7 +119,8 @@ import { ehEventoCardapio, eventoEmPrevia, eventoNoAr, lerEventos } from './even
 import type { Distancia } from '../atendimento/endereco-depois-que-saiu';
 import { InstagramService } from '../instagram/instagram.service';
 import { idDaChave } from '../instagram/instagram';
-import { ehChaveDeTeste, ehChaveDoDirect } from '../../common/conversa-do-robo';
+import { ehChaveDeTeste, ehChaveDoChat, ehChaveDoDirect } from '../../common/conversa-do-robo';
+import { cardapioDoChat, chamarAtendenteNoChat, conversaDaChave } from '../ponte-chat/atendente-no-chat';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // O tema que a tela mandou, sem a chave dos eventos sazonais (ela não se grava pela rota geral).
@@ -389,6 +390,9 @@ export class CardapioService {
       if (!this.instagram || !idDaChave(dto?.telefone)) throw new UnauthorizedException('Conversa do Direct inválida.');
       return this.instagram.abrirPeloRobo(cfg.tenantId, dto);
     }
+    // O atendente virtual no CHAT DO iFOOD E DA 99 (F5, mig 383): o "telefone" é `chat:<id da fala>` — o caso é o de chat
+    // DESSA conversa (a da empresa do token), pelo mesmo caminho dos casos do chat. NUNCA cai no caminho do telefone.
+    if (ehChaveDoChat(dto?.telefone)) return chamarAtendenteNoChat(this.db, (e, d) => this.events.emit(e, d), cfg.tenantId, dto);
     const pedido = await this.pedidoDoChamado(cfg.tenantId, dto?.pedidoNumero, dto?.telefone);
     // Cliente irritado → `urgente: true` (mig 343): a tela põe na frente, em vermelho. O mesmo cliente com um chamado
     // já aberto não ganha outro: soma ao aberto e só sobe a prioridade (abrirPeloRobo).
@@ -429,7 +433,9 @@ export class CardapioService {
       { tipo: dto?.tipo, cliente: dto?.cliente, mensagem: dto?.mensagem, prioridade, cardapioId: cfg.id },
       { canal: teste.canal, foraDoHorario: teste.foraDoHorario, anteriores },
     );
-    const linha = linhaDaSimulacao(sim, sim.resultado === 'responsavel' ? null : assuntoNaoEPorAqui(assuntos, dto?.tipo));
+    // No chat do iFood (F5) os assuntos que não são pedido não se aplicam: nada de "não é por aqui" (o tipo vira o caso comum).
+    const nao = sim.resultado === 'responsavel' || teste.canal === 'chat' ? null : assuntoNaoEPorAqui(assuntos, dto?.tipo);
+    const linha = linhaDaSimulacao(sim, nao, teste.canal);
     await gravarMensagem(this.db, teste, { autor: 'sistema', texto: linha.texto, simulado: linha.simulado });
     return sim.resposta;
   }
@@ -505,6 +511,14 @@ export class CardapioService {
     if (!pid && ehChaveDoDirect(inst)) {
       const c = this.instagram ? await this.instagram.cardapioDaConta(inst) : null;
       if (!c) throw new NotFoundException('Instagram não vinculado a uma loja com o robô ligado.');
+      return c.token;
+    }
+    // O CHAT DO iFOOD E DA 99 (F5, mig 383): a chave `chat:<id da fala>` dá o cardápio ATIVO da loja da conversa — o que o
+    // atendente consulta (loja, cardápio, taxa e as instruções). Só LEITURA; as rotas de telefone e de envio recusam `chat:`.
+    if (!pid && ehChaveDoChat(inst)) {
+      const conversa = await conversaDaChave(this.db, inst);
+      const c = conversa ? await cardapioDoChat(this.db, conversa.tenantId, conversa.unidadeId) : null;
+      if (!c) throw new NotFoundException('Conversa do chat não encontrada (ou a loja sem cardápio ativo).');
       return c.token;
     }
     const [cfg] = await this.db
@@ -583,6 +597,16 @@ export class CardapioService {
     if (!ehChaveDeTeste(instancia)) return null;
     const t = await testeDaChave(this.db, instancia);
     return t ? { canal: t.canal, foraDoHorario: t.foraDoHorario } : null;
+  }
+
+  /**
+   * A conversa do CHAT DO iFOOD E DA 99 da chave `chat:<id>` (F5, mig 383), para as instruções: a plataforma (iFood ou 99).
+   * Chave inválida ou fala que não existe = null (as consultas já recusaram pela chave).
+   */
+  async chatDoRobo(instancia: unknown): Promise<{ plataforma: 'ifood' | '99food' } | null> {
+    if (!ehChaveDoChat(instancia)) return null;
+    const c = await conversaDaChave(this.db, instancia);
+    return c ? { plataforma: c.canal } : null;
   }
 
   /** O link público do cardápio (sempre a nuvem — o cliente abre no celular dele). */

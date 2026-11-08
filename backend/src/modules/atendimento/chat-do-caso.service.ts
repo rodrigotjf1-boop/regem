@@ -69,6 +69,8 @@ export type MensagemDoChat = {
   quem: string | null;
   em: string;
   enviadoEm: string | null;
+  /** A fala do ATENDENTE VIRTUAL (F5, mig 383): a tela oferece "Corrigir" só nela. */
+  roboIa: boolean;
 };
 
 export type ConversaDoChat = {
@@ -142,7 +144,9 @@ export class ChatDoCasoService {
       this.ponte.quemRespondePeloCanal(tenantId, c.unidadeId, c.canal as 'ifood' | '99food').then((x) => !!x),
       this.db.execute(sql`
         select m.id, m.direcao, m.autor, m.texto, m.estado, m.erro, m.motivo, col.nome as quem,
-               m.criado_em as em, m.enviado_em as "enviadoEm"
+               m.criado_em as em, m.enviado_em as "enviadoEm",
+               -- a fala do atendente virtual (mig 383) pelo to_jsonb: num banco sem a 383 a conversa não cai (nenhuma é)
+               coalesce((to_jsonb(m) ->> 'robo_ia')::boolean, false) as "roboIa"
           from chat_plataforma_msg m
           left join colaborador col on col.id = m.autor_id and col.tenant_id = m.tenant_id
          where m.tenant_id = ${tenantId}::uuid and m.canal = ${c.canal}

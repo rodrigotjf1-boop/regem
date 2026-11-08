@@ -19,10 +19,25 @@ describe('corrida de catálogo nas specs (ERR-194)', () => {
   it('reconhece o impasse pelo código, em qualquer idioma — e nenhum outro código', () => {
     expect(ehCorridaDeCatalogo(impasse('deadlock detected'))).toBe(true);
     expect(ehCorridaDeCatalogo(impasse('impasse detectado'))).toBe(true);
-    // a mensagem sozinha não basta, nem outro erro de concorrência (trava que venceu, linha duplicada)
+    // a mensagem sozinha não basta, nem outro erro de concorrência (a linha duplicada)
     expect(ehCorridaDeCatalogo(new Error('deadlock detected'))).toBe(false);
-    expect(ehCorridaDeCatalogo(Object.assign(new Error('canceling statement due to lock timeout'), { code: '55P03' }))).toBe(false);
+    expect(ehCorridaDeCatalogo(new Error('canceling statement due to lock timeout'))).toBe(false);
     expect(ehCorridaDeCatalogo(Object.assign(new Error('duplicate key value'), { code: '23505' }))).toBe(false);
+  });
+
+  // ERR-405: a migration (360 em diante) desiste da espera em 5 s (`set local lock_timeout`); no banco dividido do CI,
+  // a outra spec segura a tabela mais que isso — vale o CÓDIGO, e a saída é rodar de novo, como no impasse.
+  it('a desistência da espera da migration (55P03) também roda de novo', async () => {
+    const desistiu = Object.assign(new Error('canceling statement due to lock timeout'), { code: '55P03' });
+    expect(ehCorridaDeCatalogo(desistiu)).toBe(true);
+    let vezes = 0;
+    const r = await repetirNaCorridaDeCatalogo(async () => {
+      vezes++;
+      if (vezes < 3) throw desistiu;
+      return 'aplicada';
+    }, 4, 1);
+    expect(r).toBe('aplicada');
+    expect(vezes).toBe(3);
   });
 
   it('roda de novo depois do impasse', async () => {

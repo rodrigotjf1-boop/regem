@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **O atendente virtual no chat do iFood e da 99 — F5 (08/11; mig 383 `@cloud-only` — só colunas novas em tabelas que já
+  são SO_NUVEM: `robo_config.chat_robo_modo`, `chat_plataforma_msg.robo_ia` e `robo_entregue_em`,
+  `atendente_teste.plataforma`; sem `edge/`, sem mudança no `sync-daemon`).** Na NUVEM com o merge (o robô, a ponte do
+  chat e a rotina dos 2 minutos moram lá). **No `.zip` 1.30.13:** só a tela — o ajuste "Quem responde no chat", o canal
+  "Chat iFood/99" no teste do atendente, o "Corrigir" no caso do chat e o fundo recortado com diálogo do caso aberto
+  (ERR-401) —, sem efeito de comportamento no servidor da loja. Ponte do chat: sem versão nova (segue a 0.7.3).
+
 - **Treinar o atendente — F4 (08/11; mig 382 `@cloud-only` — `atendente_teste`, `atendente_teste_msg`,
   `atendente_conhecimento`, as três SO_NUVEM; mexe em `backend/edge/sync-daemon.mjs` SÓ na lista `SO_NUVEM`).** Na NUVEM com
   o merge. **No `.zip` 1.30.13 e no próximo `.exe`:** a classificação das três tabelas no `sync-daemon` (sem ela o sync

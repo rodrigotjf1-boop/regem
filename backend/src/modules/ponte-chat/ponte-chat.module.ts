@@ -7,15 +7,17 @@ import { PonteChatService } from './ponte-chat.service';
 import { AvisosDoChatService } from './avisos-do-chat.service';
 import { AvisosDoChatProcessor } from './avisos-do-chat.processor';
 import { AjustesDaPonteService } from './ajustes-da-ponte.service';
+import { AtendenteNoChatProcessor } from './atendente-no-chat.processor';
 
 // A ponte do chat do iFood e da 99 (mig 366). EquipamentoModule: a guarda confere o PC pareado (V81 — o guarda é
 // resolvido no módulo do controlador, então o módulo que provê o EquipamentoService vem importado aqui). DeliveryModule:
 // a previsão "20h15" do aviso "saiu" (a conta do rastreio). O EntregadorModule importa este (o "chegando" pela cerca) e o
-// AtendimentoModule também (o grupo dos ajustes e a faixa da fila).
+// AtendimentoModule também (o grupo dos ajustes e a faixa da fila). AtendenteNoChatProcessor (F5, mig 383): a rotina "o
+// atendente virtual não respondeu".
 @Module({
   imports: [EquipamentoModule, DeliveryModule],
   controllers: [PonteChatController],
-  providers: [PonteChatService, PonteChatGuard, AvisosDoChatService, AvisosDoChatProcessor, AjustesDaPonteService],
+  providers: [PonteChatService, PonteChatGuard, AvisosDoChatService, AvisosDoChatProcessor, AjustesDaPonteService, AtendenteNoChatProcessor],
   exports: [PonteChatService, AvisosDoChatService, AjustesDaPonteService],
 })
 export class PonteChatModule {}

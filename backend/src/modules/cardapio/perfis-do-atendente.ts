@@ -23,9 +23,9 @@ export type PerfilDoAtendente = (typeof PERFIS_DO_ATENDENTE)[number];
 /** Fora do horário da equipe: "O mesmo" (o de cima) ou um perfil — "Como hoje" não entra (o de cima já é o "como hoje"). */
 export const PERFIS_FORA_DO_HORARIO = ['mesmo', 'profissional', 'cordial', 'gentil', 'descontraido', 'objetivo', 'acolhedor'] as const;
 export type PerfilForaDoHorario = (typeof PERFIS_FORA_DO_HORARIO)[number];
-/** Os canais com perfil nesta fase: onde o robô de IA já fala. Os outros (chat do iFood e da 99, Messenger, comentários)
- * entram quando o atendente virtual chegar neles. */
-export const CANAIS_DO_PERFIL = ['whatsapp', 'direct'] as const;
+/** Os canais com perfil: onde o robô de IA já fala — `chat` (F5, mig 383) = o chat do iFood e da 99, pela ponte do chat. Os
+ * outros (Messenger, comentários) entram quando o atendente virtual chegar neles. */
+export const CANAIS_DO_PERFIL = ['whatsapp', 'direct', 'chat'] as const;
 export type CanalDoPerfil = (typeof CANAIS_DO_PERFIL)[number];
 /** O "jeito da loja" cabe nisto (uma linha só). */
 export const JEITO_MAX = 300;
@@ -34,10 +34,16 @@ export type PerfilDoCanal = { perfil: PerfilDoAtendente; foraDoHorario: PerfilFo
 export type PerfisDoAtendente = Record<CanalDoPerfil, PerfilDoCanal>;
 /** Nasce em "Como hoje", "O mesmo" fora do horário e sem jeito da loja: nada muda até a loja escolher (versão 11). */
 export const PERFIL_DO_CANAL_PADRAO: PerfilDoCanal = { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null };
-export const perfisPadrao = (): PerfisDoAtendente => ({ whatsapp: { ...PERFIL_DO_CANAL_PADRAO }, direct: { ...PERFIL_DO_CANAL_PADRAO } });
+export const perfisPadrao = (): PerfisDoAtendente => ({
+  whatsapp: { ...PERFIL_DO_CANAL_PADRAO },
+  direct: { ...PERFIL_DO_CANAL_PADRAO },
+  chat: { ...PERFIL_DO_CANAL_PADRAO },
+});
 
-/** Como o canal aparece nas mensagens de recusa (o nome da tela). */
-const NOME_DO_CANAL: Record<CanalDoPerfil, string> = { whatsapp: 'WhatsApp', direct: 'Direct' };
+/** O nome de cada canal como a tela mostra (o rótulo do grupo e as mensagens de recusa). */
+export const ROTULO_DO_CANAL: Record<CanalDoPerfil, string> = { whatsapp: 'WhatsApp', direct: 'Direct do Instagram', chat: 'Chat do iFood e da 99' };
+/** Como o canal aparece nas mensagens de recusa ("Perfil do …"). */
+const NOME_DO_CANAL: Record<CanalDoPerfil, string> = { whatsapp: 'WhatsApp', direct: 'Direct', chat: 'chat do iFood e da 99' };
 
 const ehPerfil = (v: unknown): v is PerfilDoAtendente => typeof v === 'string' && (PERFIS_DO_ATENDENTE as readonly string[]).includes(v);
 const ehForaDoHorario = (v: unknown): v is PerfilForaDoHorario =>
@@ -61,7 +67,9 @@ export function lerPerfisDoAtendente(dto: unknown): Partial<Record<CanalDoPerfil
   const parcial: Partial<Record<CanalDoPerfil, Partial<PerfilDoCanal>>> = {};
   for (const [canal, valor] of Object.entries(dto)) {
     if (!ehCanal(canal))
-      throw new BadRequestException(`Perfil do atendente virtual: o canal "${String(canal).slice(0, 40)}" não tem perfil (só WhatsApp e Direct).`);
+      throw new BadRequestException(
+        `Perfil do atendente virtual: o canal "${String(canal).slice(0, 40)}" não tem perfil (só WhatsApp, Direct e chat do iFood e da 99).`,
+      );
     if (valor === undefined) continue;
     const nome = NOME_DO_CANAL[canal];
     if (!ehObjeto(valor)) throw new BadRequestException(`Perfil do ${nome}: mande o perfil, o de fora do horário e o jeito da loja.`);
@@ -105,7 +113,7 @@ function canalDaLinha(v: unknown): PerfilDoCanal {
 }
 
 /**
- * Os perfis de uma linha do banco (`robo_config.atendente_perfis`, ou o texto JSON dela): sempre os dois canais, com os
+ * Os perfis de uma linha do banco (`robo_config.atendente_perfis`, ou o texto JSON dela): sempre os três canais, com os
  * padrões no que faltar; valor estranho (lixo no jsonb, chave a mais, tipo errado) → o padrão daquele campo.
  */
 export function perfisDaLinha(v: unknown): PerfisDoAtendente {
@@ -118,7 +126,7 @@ export function perfisDaLinha(v: unknown): PerfisDoAtendente {
     }
   }
   const linha = ehObjeto(o) ? o : {};
-  return { whatsapp: canalDaLinha(linha.whatsapp), direct: canalDaLinha(linha.direct) };
+  return { whatsapp: canalDaLinha(linha.whatsapp), direct: canalDaLinha(linha.direct), chat: canalDaLinha(linha.chat) };
 }
 
 // ───────────────────────── o texto (puro) ─────────────────────────

@@ -17,7 +17,9 @@ import {
 } from '@/lib/treino-do-atendente';
 
 const EXEMPLOS = ['Qual o horário de hoje?', 'Vocês entregam no meu bairro?', 'Faltou um item no meu pedido', 'Sou fornecedor e quero falar com o responsável', 'Tem vaga de emprego?'];
-const NOME_DO_CANAL: Record<CanalDoTeste, string> = { whatsapp: 'WhatsApp', direct: 'Direct' };
+const NOME_DO_CANAL: Record<CanalDoTeste, string> = { whatsapp: 'WhatsApp', direct: 'Direct', chat: 'Chat do iFood' };
+/** O rótulo do botão do canal (curto, cabe três na linha). */
+const BOTAO_DO_CANAL: Record<CanalDoTeste, string> = { whatsapp: 'WhatsApp', direct: 'Direct', chat: 'Chat iFood/99' };
 /** De quanto em quanto tempo a tela lê a conversa enquanto o atendente responde (o servidor diz quando parar). */
 const LER_A_CADA_MS = 1500;
 
@@ -157,7 +159,7 @@ export function TestarAtendente({ aoFechar }: { aoFechar: () => void }) {
             <div className="space-y-3" data-painel-teste>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                 <div className="flex min-w-0 flex-1 basis-56 flex-wrap gap-2" role="group" aria-label="Canal do teste">
-                  {(['whatsapp', 'direct'] as const).map((k) => (
+                  {(['whatsapp', 'direct', 'chat'] as const).map((k) => (
                     <button
                       key={k}
                       type="button"
@@ -170,7 +172,7 @@ export function TestarAtendente({ aoFechar }: { aoFechar: () => void }) {
                         novaConversa();
                       }}
                     >
-                      {NOME_DO_CANAL[k]}
+                      {BOTAO_DO_CANAL[k]}
                     </button>
                   ))}
                 </div>

@@ -141,9 +141,11 @@ export default function AtendimentoPage() {
     if (largura === null || comDialogo) return;
     setDuplo(largura >= 900);
   }, [largura, comDialogo]);
-  // Segurado num arranjo que não cabe (as duas colunas numa tela que estreitou): o fundo, atrás do diálogo, é recortado —
-  // sem barra lateral (V45) até o diálogo fechar e a tela trocar de arranjo.
-  const segurado = comDialogo && largura !== null && largura >= 900 !== duplo;
+  // Com diálogo aberto o arranjo fica segurado e pode não caber (as duas colunas numa tela que estreitou): o fundo, atrás
+  // do diálogo, é SEMPRE recortado — sem barra lateral (V45) até o diálogo fechar e a tela trocar de arranjo. Sempre, e
+  // não só quando a largura medida já diz que não cabe: a medida chega um quadro DEPOIS da tela estreitar (o
+  // ResizeObserver), e nesse quadro a barra aparecia (ERR-401). O diálogo é `fixed`: o recorte não o corta.
+  const segurado = comDialogo;
 
   const lerResolvidos = useCallback(async () => {
     try {

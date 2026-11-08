@@ -1,10 +1,13 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional, UnauthorizedException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { eq } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig } from '../../db/schema';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
-import { chaveDoTeste, ehChaveDeTeste, ehChaveDoDirect, idDaChaveDeTeste } from '../../common/conversa-do-robo';
-import { AUDIO_NO_TESTE, gravarMensagem, testeDaChave } from '../atendimento/teste-do-atendente';
+import { chaveDoTeste, ehChaveDeTeste, ehChaveDoChat, ehChaveDoDirect, idDaChaveDeTeste } from '../../common/conversa-do-robo';
+import { AUDIO_NO_TESTE, gravarMensagem, linhaDaTravaNoTeste, testeDaChave } from '../atendimento/teste-do-atendente';
+import { responderNoChatDaPlataforma } from '../ponte-chat/atendente-no-chat';
+import { opcoesNoChat, travaDaPlataforma } from '../ponte-chat/texto-do-chat';
 import { InstagramService } from '../instagram/instagram.service';
 import { comOrigemDoDirect } from '../instagram/instagram';
 import { WhatsappService } from './whatsapp.service';
@@ -90,6 +93,8 @@ export class RoboRespostaService {
     private readonly cloud: WhatsappCloudService,
     // O robô no Direct do Instagram (mig 378). Opcional: os testes do WhatsApp montam sem ele.
     @Optional() private readonly instagram?: InstagramService,
+    // Avisa a tela Atendimento do caso que a resposta do atendente no chat da plataforma abriu (F5). Opcional: os testes montam sem.
+    @Optional() private readonly events?: EventEmitter2,
   ) {}
 
   async responder(segredo: string, p: PedidoDeResposta): Promise<RespostaDoRobo> {
@@ -97,6 +102,9 @@ export class RoboRespostaService {
     // A conversa de TESTE do atendente (chave `teste:` na instância ou no `para`, mig 382) ANTES de tudo: a resposta fica
     // na conversa de teste e NADA sai para cliente nenhum (nem as travas de robô ligado/conversa pausada valem aqui).
     if (ehChaveDeTeste(p?.instancia) || ehChaveDeTeste(p?.para)) return this.responderNoTeste(p);
+    // O CHAT DO iFOOD E DA 99 (chave `chat:`, F5 — mig 383) ANTES de qualquer conta de telefone: tirando o `chat:`, sobram
+    // os dígitos do uuid, que virariam um número de WhatsApp.
+    if (ehChaveDoChat(p?.instancia) || ehChaveDoChat(p?.para)) return this.responderNoChat(p);
     // O Direct do Instagram (chave `ig:` na instância e no `para`) ANTES de qualquer conta de telefone: tirando o `ig:`,
     // sobram dígitos que virariam um número de WhatsApp.
     if (ehChaveDoDirect(p?.instancia) || ehChaveDoDirect(p?.para)) return this.responderNoDirect(p);
@@ -255,6 +263,23 @@ export class RoboRespostaService {
   }
 
   /**
+   * A resposta do ATENDENTE VIRTUAL no chat do iFood e da 99 (chave `chat:`, F5 — mig 383). As opções viram uma lista
+   * numerada na mesma linha (o chat não tem botão); voz não sai (no chat da plataforma não há áudio). O resto — a conversa
+   * pela linha da fala, o "quieto" com o caso aberto, quem envia pelo canal, o limite por hora e a TRAVA DA PLATAFORMA (nada
+   * de telefone, WhatsApp, Instagram, e-mail ou link; até 3 mensagens de 300 letras) — é `atendente-no-chat.ts`. Nenhum link
+   * sai no chat: nem o do cardápio (a trava barra; as instruções do chat já dizem para não mandar).
+   */
+  private async responderNoChat(p: PedidoDeResposta): Promise<RespostaDoRobo> {
+    const bruto = String(p?.texto ?? '').trim();
+    const opcoes = opcoesValidas(p?.opcoes ?? []);
+    const temAudio = !!String(p?.audio?.base64 ?? '').trim();
+    if (!bruto && !opcoes.length && !temAudio) throw new BadRequestException('Nada para enviar (texto, opções ou áudio).');
+    const texto = opcoesNoChat(bruto, opcoes);
+    if (!texto) return { ok: true, enviado: false, motivo: 'sem_voz_no_chat' };
+    return responderNoChatDaPlataforma(this.db, (e, d) => this.events?.emit(e, d), [p?.instancia, p?.para], texto, this.logger);
+  }
+
+  /**
    * A resposta do robô na conversa de TESTE do atendente (mig 382): grava na conversa de teste (autor 'robo', o texto e as
    * opções) e responde `{ ok: true, enviado: true }` — nada sai pelo WhatsApp nem pelo Direct. O texto passa pelo MESMO
    * filtro de links das vias de verdade (só o link do cardápio da loja; no Direct, com a origem do Direct), para o gerente
@@ -270,6 +295,26 @@ export class RoboRespostaService {
     const opcoes = opcoesValidas(p?.opcoes ?? []);
     const temAudio = !!String(p?.audio?.base64 ?? '').trim();
     if (!bruto && !opcoes.length && !temAudio) throw new BadRequestException('Nada para enviar (texto, opções ou áudio).');
+    // O teste do CHAT DO iFOOD (F5, mig 383): a MESMA trava do caminho de verdade (`travaDaPlataforma`, V74) — as opções
+    // numeradas na linha, as partes que sairiam (uma linha de robô por parte); barrada, o texto do robô fica (para o gerente
+    // ver o que ele escreveu) e uma linha 'sistema' diz o motivo e o que iria no lugar.
+    if (teste.canal === 'chat') {
+      const noChat = opcoesNoChat(bruto, opcoes);
+      if (!noChat) {
+        const linha = linhaDaTravaNoTeste('audio');
+        await gravarMensagem(this.db, teste, { autor: 'sistema', texto: linha.texto, simulado: linha.simulado });
+        return { ok: true, enviado: true };
+      }
+      const trava = travaDaPlataforma(noChat);
+      if (!trava.ok) {
+        await gravarMensagem(this.db, teste, { autor: 'robo', texto: noChat });
+        const linha = linhaDaTravaNoTeste(trava.motivo);
+        await gravarMensagem(this.db, teste, { autor: 'sistema', texto: linha.texto, simulado: linha.simulado });
+        return { ok: true, enviado: true };
+      }
+      for (const parte of trava.partes) await gravarMensagem(this.db, teste, { autor: 'robo', texto: parte });
+      return { ok: true, enviado: true };
+    }
     let texto = bruto;
     if (bruto && teste.cardapio?.token) {
       const link = linkDoCardapioDaLoja(teste.cardapio.token);

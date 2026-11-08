@@ -5,8 +5,8 @@ import { CABECALHO_SEGREDO_ROBO, segredoDaChamada } from '../../common/segredo-r
 import { CardapioService } from './cardapio.service';
 import { buscarNoCardapio, resumoDaLoja, taxaDoBairro } from './robo-consultas';
 import { categoriasPorPapel, procurarNoCardapio } from './robo-busca';
-import { instrucoesDoDirect, instrucoesDoRobo } from './robo-instrucoes';
-import { ehChaveDeTeste, ehChaveDoDirect } from '../../common/conversa-do-robo';
+import { instrucoesDoChat, instrucoesDoDirect, instrucoesDoRobo } from './robo-instrucoes';
+import { ehChaveDeTeste, ehChaveDoChat, ehChaveDoDirect } from '../../common/conversa-do-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -88,13 +88,19 @@ export class RoboConsultasController {
     // A conversa de TESTE do atendente (mig 382): a chave `teste:` recebe as instruções do CANAL que o teste imita, com o
     // perfil dele — o de fora do horário com "simular fora do horário" (a mesma função do caminho de verdade, V74).
     // O que a loja ensinou (mig 382): a seção em TODOS os canais, quando há itens. Falha ao ler = as instruções de hoje.
-    const teste = !String(phoneNumberId ?? '').trim() && ehChaveDeTeste(instancia) ? await this.service.testeDoRobo(instancia) : null;
-    const canal = teste ? teste.canal : ehChaveDoDirect(instancia) ? 'direct' : 'whatsapp';
+    // O CHAT DO iFOOD E DA 99 (F5, mig 383): a chave `chat:` recebe as instruções do chat (a trava da plataforma, o pedido no
+    // campo `pedido`), com o perfil do canal `chat`; os assuntos que não são pedido (F3) não se aplicam no chat. O teste do
+    // chat (`teste:` com o canal `chat`) recebe as mesmas, dizendo que no teste não há pedido.
+    const semPid = !String(phoneNumberId ?? '').trim();
+    const teste = semPid && ehChaveDeTeste(instancia) ? await this.service.testeDoRobo(instancia) : null;
+    const chat = semPid && ehChaveDoChat(instancia) ? await this.service.chatDoRobo(instancia) : null;
+    const canal = teste ? teste.canal : chat ? 'chat' : ehChaveDoDirect(instancia) ? 'direct' : 'whatsapp';
     const [jeito, assuntos, conhecimento] = await Promise.all([
       this.service.jeitoDoAtendenteDoRobo(token, canal, { foraDoHorario: teste?.foraDoHorario === true }),
-      this.service.assuntosDoAtendenteDoRobo(token, canal),
+      canal === 'chat' ? Promise.resolve('') : this.service.assuntosDoAtendenteDoRobo(token, canal),
       this.service.conhecimentoDoRobo(token),
     ]);
+    if (canal === 'chat') return instrucoesDoChat({ loja, jeito, conhecimento, plataforma: chat?.plataforma ?? 'ifood', teste: !!teste }, fluxo);
     if (canal === 'direct') return instrucoesDoDirect({ loja, jeito, assuntos, conhecimento }, fluxo);
     return instrucoesDoRobo({ loja, jeito, assuntos, conhecimento }, fluxo);
   }

@@ -62,11 +62,13 @@ const DA_EQUIPE: Record<string, string> = {
 const FORA_DO_HORARIO_PADRAO = 'Nossa equipe volta {volta}. Já deixei o seu recado aqui e respondemos assim que começarmos.';
 // O PERFIL DO ATENDENTE POR CANAL (mig 380, F2; protótipo v11, grupo "Perfil do atendente virtual"): nos canais onde o
 // atendente virtual já fala. Nasce em "Como hoje" — nada muda até a loja escolher. Na `robo_config` da empresa.
-type CanalDoPerfil = 'whatsapp' | 'direct';
+// F5 (protótipo v14): o chat do iFood e da 99 ganha o perfil — vale quando "Quem responde no chat" é o atendente virtual.
+type CanalDoPerfil = 'whatsapp' | 'direct' | 'chat';
 type PerfilDoCanal = { perfil: string; foraDoHorario: string; jeito: string | null };
 const CANAIS_DO_PERFIL: { canal: CanalDoPerfil; nome: string; chave: string }[] = [
   { canal: 'whatsapp', nome: 'WhatsApp', chave: 'Wa' },
   { canal: 'direct', nome: 'Direct do Instagram', chave: 'Ig' },
+  { canal: 'chat', nome: 'Chat do iFood e da 99', chave: 'Chat' },
 ];
 const PERFIS: { v: string; rotulo: string; exemplo: string }[] = [
   { v: 'hoje', rotulo: 'Como hoje', exemplo: 'Como hoje — simpático e objetivo: "Oi, Joana! Entregamos no Centro, sim — a taxa é R$ 7,00. O cardápio está aqui 👇"' },
@@ -179,6 +181,8 @@ type AjusteDaPonte = {
   ligada: boolean;
   /** O robô responde no chat (ponte do chat, Etapa 3) — nasce desligado. */
   roboResponde?: boolean;
+  /** Quem responde no chat (F5, mig 383): as frases prontas de hoje ou o atendente virtual — nasce 'regras'. */
+  roboModo?: 'regras' | 'atendente';
   avisos: Record<MotivoDoAviso, { ligado: boolean; texto: string | null }>;
   padroes: Record<MotivoDoAviso, string>;
   onde: 'auto' | 'escolher';
@@ -244,6 +248,7 @@ const paraValores = (r: Resposta): Valores => ({
         ponteObrigado: r.ponte.avisos.obrigado.ligado,
         ponteObrigadoTexto: r.ponte.avisos.obrigado.texto ?? '',
         ponteRobo: r.ponte.roboResponde === true,
+        ponteRoboModo: r.ponte.roboModo === 'atendente' ? 'atendente' : 'regras',
       }
     : {}),
   ...(r.repetido?.temCardapio ? { repetidoAtivo: r.repetido.ativo, repetidoMin: String(r.repetido.minutos) } : {}),
@@ -406,7 +411,7 @@ export function AjustesDoAtendimento() {
   };
   const grupoDoPerfil: GrupoDeAjustes = {
     titulo: 'Perfil do atendente virtual',
-    nota: 'Sempre vale: o perfil muda o jeito de falar, nunca as regras — o robô nunca inventa preço, prazo, taxa nem promoção; segue as regras de cada canal; no máximo 1 emoji por mensagem; cliente chateado: o robô fica sério e chama a equipe. Chat do iFood e da 99, Messenger e comentários ganham o perfil quando o atendente virtual chegar neles.',
+    nota: 'Sempre vale: o perfil muda o jeito de falar, nunca as regras — o robô nunca inventa preço, prazo, taxa nem promoção; segue as regras de cada canal; no máximo 1 emoji por mensagem; cliente chateado: o robô fica sério e chama a equipe. O perfil do chat do iFood e da 99 vale quando "Quem responde no chat" é o atendente virtual (grupo "iFood e 99 · chat pela ponte"); Messenger e comentários ganham o perfil quando o atendente virtual chegar neles.',
     itens: CANAIS_DO_PERFIL.flatMap(({ nome, chave }) => [
       {
         id: `perfil${chave}`,
@@ -805,6 +810,19 @@ export function AjustesDoAtendimento() {
           'O robô responde o "cadê meu pedido?" com o dado do pedido (em preparo, saiu às tantas, a previsão), no máximo 2 vezes por pedido por hora. Qualquer outra mensagem vira caso na fila do Atendimento, e o robô avisa o cliente que chamou a equipe. Com o caso aberto, ele fica quieto.',
         palavras: 'robo robô responder automatico chat ifood 99 cade pedido previsao',
       },
+      // F5 (mig 383; protótipo v14): as frases prontas de hoje ou o atendente virtual — o mesmo robô do WhatsApp.
+      {
+        id: 'ponteRoboModo',
+        rotulo: 'Quem responde no chat',
+        tipo: 'selecao',
+        opcoes: [
+          { v: 'regras', rotulo: 'Frases prontas (como hoje)' },
+          { v: 'atendente', rotulo: 'Atendente virtual' },
+        ],
+        ajuda:
+          'Vale com "Robô responde no chat" ligado. Frases prontas: o "cadê meu pedido?" com o dado do pedido; o resto chama a equipe (como hoje). Atendente virtual: o mesmo do WhatsApp, com o dado do pedido, o perfil do chat e o que a loja ensinou — tudo o que ele escreve passa pela trava da plataforma (o que ela barra vira a frase pronta); sem resposta dele em 2 min, o caso abre para a equipe.',
+        palavras: 'quem responde chat atendente virtual ia inteligencia frases prontas ifood 99',
+      },
     ],
   };
   // Gerente no WhatsApp (mig 375): os avisos (5a) e a decisão por botão, com o limite do que devolve dinheiro (5b).
@@ -964,6 +982,7 @@ export function AjustesDoAtendimento() {
     const ponte: {
       ligada?: boolean;
       roboResponde?: boolean;
+      roboModo?: 'regras' | 'atendente';
       onde?: string;
       principalId?: string | null;
       reservaId?: string | null;
@@ -985,6 +1004,10 @@ export function AjustesDoAtendimento() {
       }
       if (k === 'ponteRobo') {
         ponte.roboResponde = valores[k] === true;
+        continue;
+      }
+      if (k === 'ponteRoboModo') {
+        ponte.roboModo = valores[k] === 'atendente' ? 'atendente' : 'regras';
         continue;
       }
       if (DO_AVISO_DA_PONTE[k]) {

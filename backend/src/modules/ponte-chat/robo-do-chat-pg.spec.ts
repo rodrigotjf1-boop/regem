@@ -86,7 +86,7 @@ descrever('o robô no chat do iFood e da 99 (Postgres)', () => {
 
   beforeAll(async () => {
     delete process.env.EDGE_MODE; // como NUVEM
-    for (const m of ['342_robo_pausa_e_config.sql', '366_ponte_do_chat.sql', '367_chat_ordem_e_indices.sql', '368_ponte_pausada.sql', '379_horario_da_equipe.sql'])
+    for (const m of ['342_robo_pausa_e_config.sql', '366_ponte_do_chat.sql', '367_chat_ordem_e_indices.sql', '368_ponte_pausada.sql', '379_horario_da_equipe.sql', '382_treinar_atendente.sql', '383_atendente_no_chat.sql'])
       await aplicar(m);
     await q(`insert into empresa (id, nome) values ($1, 'teste robô do chat')`, [T]);
     [{ id: loja }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja A') returning id`, [T]);

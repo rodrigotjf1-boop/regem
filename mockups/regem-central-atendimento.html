@@ -91,6 +91,13 @@
    do robô — no teste e nas conversas reais do Direct — "Corrigir": quem é gerente ou presidente escreve como o atendente
    deveria responder e escolhe o assunto; isso vira CONHECIMENTO, que o robô usa quando a pergunta combinar. Aba "O que ele
    aprendeu": a lista por assunto (até 100), com editar e remover.
+   VERSÃO 14 (08/11/2026, F5 do atendente virtual — pedido do dono: "assim como no messenger do iFood, se for possível, o
+   mesmo"): O ATENDENTE VIRTUAL NO CHAT DO iFOOD E DA 99. No grupo "iFood e 99 · chat pela ponte", "Quem responde no chat":
+   Frases prontas (como hoje — o padrão) ou Atendente virtual (o mesmo robô do WhatsApp, com o dado do pedido). Tudo o que
+   ele escreve passa pela trava da plataforma (sem telefone, link, WhatsApp, Instagram; até 300 letras); o que a trava
+   barra vira a frase pronta. Sem resposta do atendente em 2 min, o caso abre para a equipe. O perfil ganha o canal "Chat
+   do iFood e da 99"; o "Testar o atendente" ganha o canal "Chat iFood/99" (mostra quando a trava tiraria algo); no caso do
+   chat, "Corrigir" nas falas do atendente virtual (as frases prontas não se corrigem).
    O que a tela faz:
    (1) uma FILA só com tudo o que precisa de uma pessoa: chamado do robô, disputa do iFood, pedido de cancelamento ou
        reembolso da 99, cancelamento pedido no cardápio e a resposta ao "sem contato". A conversa que o robô atende
@@ -673,7 +680,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     <main id="v-aj" hidden>
       <div class="trilha">Delivery › Configurações › Operação</div>
       <h1>Atendimento</h1>
-      <p class="resumo">50 ajustes em 10 grupos · item novo no grupo "Operação", ao lado de "Robô de atendimento" · grupos novos: "Horário da equipe" (versão 10), "Perfil do atendente virtual" (versão 11), "Assuntos que não são pedido" (versão 12), "Gerente no WhatsApp", "Copiloto", "Instagram Direct" e "iFood e 99 · chat pela ponte"</p>
+      <p class="resumo">54 ajustes em 10 grupos · item novo no grupo "Operação", ao lado de "Robô de atendimento" · grupos novos: "Horário da equipe" (versão 10), "Perfil do atendente virtual" (versão 11), "Assuntos que não são pedido" (versão 12), "Gerente no WhatsApp", "Copiloto", "Instagram Direct" e "iFood e 99 · chat pela ponte"</p>
       <div class="filtros" style="grid-template-columns:minmax(0,1fr)"><div class="campo"><label for="busca-aj">Buscar ajuste</label><input id="busca-aj" type="search" placeholder="Ex.: 99, disputa, som"></div></div>
 
       <!-- Versão 10: o horário da equipe. O robô atende 24 h; a pessoa só entra no horário. Nasce em "Sempre" (como hoje). -->
@@ -695,7 +702,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
            para responder Direct, para o Messenger do Facebook, para responder comentários"), com um perfil opcional para fora
            do horário da equipe. Nasce em "Como hoje": nada muda até a loja escolher. -->
       <section class="grupo" data-grupo id="grupo-perfil">
-        <header><h3>Perfil do atendente virtual <span class="novo-t">NOVO</span></h3><span>8 ajustes</span></header>
+        <header><h3>Perfil do atendente virtual <span class="novo-t">NOVO</span></h3><span>11 ajustes</span></header>
         <div class="aj"><div><span class="rot-aj">WhatsApp · perfil</span><span class="ajuda" data-exemplo-de="wa"></span></div>
           <div class="ctrl"><select aria-label="Perfil do atendente no WhatsApp" data-aj data-perfil="wa"><option value="hoje">Como hoje</option><option value="profissional">Profissional</option><option value="cordial" selected>Cordial</option><option value="gentil">Gentil</option><option value="descontraido">Descontraído</option><option value="objetivo">Objetivo</option><option value="acolhedor">Acolhedor</option></select></div></div>
         <div class="aj"><div><span class="rot-aj">WhatsApp · fora do horário</span><span class="ajuda">O perfil quando a equipe não está (o horário da equipe, acima). "O mesmo" mantém o de cima.</span></div>
@@ -708,8 +715,15 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
           <div class="ctrl"><select aria-label="Perfil do atendente no Direct fora do horário" data-aj><option value="mesmo" selected>O mesmo</option><option value="profissional">Profissional</option><option value="cordial">Cordial</option><option value="gentil">Gentil</option><option value="descontraido">Descontraído</option><option value="objetivo">Objetivo</option><option value="acolhedor">Acolhedor</option></select></div></div>
         <div class="aj"><div><span class="rot-aj">Direct do Instagram · jeito da loja</span><span class="ajuda">Opcional, até 300 letras. Vem depois do perfil.</span></div>
           <div class="linha-txt"><input type="text" aria-label="Jeito da loja no Direct" placeholder="Como a loja gosta de falar (opcional)" data-aj></div></div>
+        <!-- Versão 14 (F5): o chat do iFood e da 99 ganha o perfil — vale quando "Quem responde no chat" é o atendente virtual -->
+        <div class="aj"><div><span class="rot-aj">Chat do iFood e da 99 · perfil</span><span class="ajuda" data-exemplo-de="chat"></span></div>
+          <div class="ctrl"><select aria-label="Perfil do atendente no chat do iFood e da 99" data-aj data-perfil="chat"><option value="hoje">Como hoje</option><option value="profissional" selected>Profissional</option><option value="cordial">Cordial</option><option value="gentil">Gentil</option><option value="descontraido">Descontraído</option><option value="objetivo">Objetivo</option><option value="acolhedor">Acolhedor</option></select></div></div>
+        <div class="aj"><div><span class="rot-aj">Chat do iFood e da 99 · fora do horário</span><span class="ajuda">O perfil quando a equipe não está. "O mesmo" mantém o de cima.</span></div>
+          <div class="ctrl"><select aria-label="Perfil do atendente no chat do iFood e da 99 fora do horário" data-aj><option value="mesmo" selected>O mesmo</option><option value="profissional">Profissional</option><option value="cordial">Cordial</option><option value="gentil">Gentil</option><option value="descontraido">Descontraído</option><option value="objetivo">Objetivo</option><option value="acolhedor">Acolhedor</option></select></div></div>
+        <div class="aj"><div><span class="rot-aj">Chat do iFood e da 99 · jeito da loja</span><span class="ajuda">Opcional, até 300 letras. Vale só quando "Quem responde no chat" é o atendente virtual (grupo "iFood e 99 · chat pela ponte").</span></div>
+          <div class="linha-txt"><input type="text" aria-label="Jeito da loja no chat do iFood e da 99" placeholder="Como a loja gosta de falar (opcional)" data-aj></div></div>
         <div class="aj"><div><span class="rot-aj">Os outros canais</span><span class="ajuda">Cada um ganha o perfil quando o atendente virtual chegar nele.</span></div>
-          <div class="ctrl"><span class="fixo">Chat do iFood e da 99: hoje o robô usa frases prontas (a regra da plataforma) — o perfil chega com a F5 · Messenger do Facebook e respostas aos comentários do Instagram: chegam nas próximas fases, já com o perfil de cada um</span></div></div>
+          <div class="ctrl"><span class="fixo">Messenger do Facebook e respostas aos comentários do Instagram: chegam nas próximas fases, já com o perfil de cada um</span></div></div>
         <div class="aj"><div><span class="rot-aj">Sempre vale</span><span class="ajuda">Não se desliga: o perfil muda o jeito de falar, nunca as regras.</span></div>
           <div class="ctrl"><span class="fixo">O robô nunca inventa preço, prazo, taxa nem promoção · segue as regras de cada canal (no Direct, sem telefone; no chat das plataformas, sem contato fora) · no máximo 1 emoji por mensagem, em qualquer perfil · cliente chateado: o robô fica sério e chama a equipe, em qualquer perfil</span></div></div>
         <p class="ajuda" style="margin:10px 0 0;display:flex;flex-wrap:wrap;gap:8px;align-items:center">Quer ver como fica? Salve antes: o teste usa o perfil gravado. <button type="button" class="bt" data-dlg="testar">🧪 Testar o atendente</button></p>
@@ -791,7 +805,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       </section>
 
       <section class="grupo" data-grupo>
-        <header><h3>iFood e 99 · chat pela ponte <span class="novo-t">NOVO</span></h3><span>7 ajustes</span></header>
+        <header><h3>iFood e 99 · chat pela ponte <span class="novo-t">NOVO</span></h3><span>8 ajustes</span></header>
         <div class="aj"><div><span class="rot-aj">Ponte do chat</span><span class="ajuda">O programa do Regem no PC da loja fica com o iFood e a 99 abertos e traz as conversas para a tela Atendimento, junto com o WhatsApp. Desligada, o chat fica só no Gestor de cada plataforma.</span></div>
           <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Ponte do chat" data-aj></button></div></div>
         <div class="aj"><div><span class="rot-aj">Onde a ponte roda</span><span class="ajuda">Automático: o Regem usa os PCs onde a ponte está aberta e logada. No iFood, a principal responde; a reserva lê tudo e assume sozinha se a principal ficar 2 min sem sinal. A 99 aceita um login só: ela fica na ponte do PC onde a loja usa a 99, sem reserva. Cada PC aparece em Configurações › Equipamentos.</span></div>
@@ -802,6 +816,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
           <div class="ctrl"><select aria-label="PC de reserva da ponte" data-aj><option>Servidor da loja</option><option>CX-CAIXA</option><option>CX-DELIVERY</option><option>Nenhum</option></select></div></div>
         <div class="aj"><div><span class="rot-aj">Robô responde sozinho no chat</span><span class="ajuda">Com o dado do pedido: etapa na cozinha, hora da saída, onde está o entregador, previsão e atraso. Reclamação, item faltando, reembolso, cancelamento ou "quero falar com alguém" viram caso com o resumo.</span></div>
           <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Robô responde sozinho no chat do iFood e da 99" data-aj></button></div></div>
+        <!-- Versão 14 (F5): quem responde no chat — as frases prontas de hoje ou o atendente virtual (o mesmo robô do WhatsApp) -->
+        <div class="aj"><div><span class="rot-aj">Quem responde no chat</span><span class="ajuda">Frases prontas: o "cadê meu pedido?" com o dado do pedido; o resto chama a equipe (como hoje). Atendente virtual: o mesmo do WhatsApp, com o dado do pedido, o perfil do chat e o que a loja ensinou — tudo o que ele escreve passa pela trava da plataforma (o que ela barra vira a frase pronta); sem resposta dele em 2 min, o caso abre para a equipe.</span></div>
+          <div class="ctrl"><select aria-label="Quem responde no chat do iFood e da 99" data-aj id="quem-no-chat"><option value="regras" selected>Frases prontas (como hoje)</option><option value="atendente">Atendente virtual</option></select></div></div>
         <div class="aj"><div><span class="rot-aj">Aviso "saiu para entrega" no chat</span><span class="ajuda">Sai quando o Regem despacha o pedido, com a previsão do rastreio ({hora}).</span></div>
           <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Aviso saiu para entrega no chat" data-aj></button></div>
           <div class="linha-txt"><input type="text" aria-label="Texto do aviso saiu para entrega" value="Seu pedido saiu para entrega! Chega por volta das {hora}." data-aj></div></div>
@@ -1092,7 +1109,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 
 <!-- ============ NOTAS ============ -->
 <section id="v-notas" hidden class="notas" aria-label="Notas do protótipo">
-  <div class="trilha">Notas do protótipo · 02/11/2026 · versão 13 em 08/11/2026</div>
+  <div class="trilha">Notas do protótipo · 02/11/2026 · versão 14 em 08/11/2026</div>
   <h1>Atendimento: o que cada parte faz</h1>
 
   <div class="cartao">
@@ -1193,6 +1210,20 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <li><b>Confirmação em dois toques</b>: a resposta ao iFood e à 99 não volta atrás.</li>
       <li>Na disputa, pelo WhatsApp só <b>Aceitar e Recusar</b>; a proposta (crédito, outro valor, mais tempo) fica no Regem, pelo link.</li>
     </ol>
+  </div>
+
+  <div class="cartao">
+    <h3>O atendente virtual no chat do iFood e da 99 · versão 14 (08/11/2026)</h3>
+    <p>Pedido do dono: "assim como no messenger do iFood, se for possível, o mesmo" — o mesmo atendente do WhatsApp no chat das plataformas. É a F5. Escolhas recomendadas, já aplicadas:</p>
+    <ul>
+      <li><b>"Quem responde no chat"</b> (grupo "iFood e 99 · chat pela ponte"): <b>Frases prontas (como hoje)</b> — o padrão: nada muda até a loja escolher — ou <b>Atendente virtual</b>. Vale com "Robô responde sozinho no chat" ligado.</li>
+      <li>Com o atendente virtual, a mensagem do cliente vai ao <b>mesmo robô do WhatsApp</b>, já com o dado do pedido (situação, quem entrega, saída e previsão). Ele usa o <b>perfil do chat</b> (canal novo no grupo do perfil) e o que a loja ensinou.</li>
+      <li><b>A trava da plataforma vale para tudo o que ele escreve</b>: nada de telefone, link, WhatsApp, Instagram nem e-mail; até 300 letras por mensagem. O que a trava barra não sai — vai a frase pronta (ou o caso abre para a equipe). Ele não promete reembolso, cancelamento, cupom nem desconto: isso é da plataforma e da equipe.</li>
+      <li><b>Sem resposta do atendente em 2 min</b> (ou se ele não recebeu), o caso abre para a equipe e o cliente recebe "Já chamei a equipe". Com a conversa com alguém, ele fica quieto, como hoje. No máximo 8 falas dele por pedido por hora; depois, o caso abre.</li>
+      <li>"🧪 Testar o atendente" ganha o canal <b>Chat iFood/99</b>: mostra quando a trava tiraria algo da resposta.</li>
+      <li>No caso do chat, <b>"Corrigir" só nas falas do atendente virtual</b> (as frases prontas não se corrigem).</li>
+      <li>Sem mexer no n8n: o chat entra pelo mesmo caminho do robô, com uma chave própria — como o Direct e o teste.</li>
+    </ul>
   </div>
 
   <div class="cartao">
@@ -1627,7 +1658,8 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       msgs: [['auto', 'Seu pedido saiu para entrega! Chega por volta das 20h20.', 'aviso automático · 20:05'], ['cli', 'Cadê meu pedido? Já era pra ter chegado', '20:21'], ['robo', 'Oi, Maria! O Carlos saiu com seu pedido às 20h05 e está a 1,2 km daí. Chega por volta das 20h32. Desculpe a demora!', 'robô · 20:21'], ['cli', 'Quero falar com alguém', '20:23'], ['robo', 'Claro! Já chamei a equipe e você é a próxima. Em instantes alguém responde aqui.', 'robô · 20:23']],
       prontas: ['O Carlos já está chegando, faltam 5 minutos.', 'Vou confirmar com o entregador e já te falo.', 'Sentimos muito pela demora.'], entregador: 'Carlos · a 1,2 km', mapa: true },
     n1: { resumo: [['Motivo', 'Faltou item: 1× Guaraná lata (R$ 8,00)'], ['Quer', 'O refrigerante ou o dinheiro de volta'], ['Pedido', '99Food 92 · entregue às 20:28 pelo Lucas'], ['O robô já fez', 'Pediu desculpas e explicou que o reembolso na 99 é pedido pelo app da 99 (Ajuda › Problema com o pedido), e que a loja aprova aqui']],
-      msgs: [['cli', 'Veio sem o refrigerante', '20:30'], ['robo', 'Sinto muito, João! Já passei para a equipe resolver. Se preferir o dinheiro de volta, peça pelo app da 99 em Ajuda › Problema com o pedido, que a gente aprova aqui.', 'robô · 20:30'], ['loja', 'Oi, João, aqui é o Bruno. Vou ver se dá para mandar com o próximo entregador.', 'Bruno · 20:32']],
+      // versão 14: a fala do robô aqui é do ATENDENTE VIRTUAL ("Quem responde no chat" = atendente) — tem "Corrigir"
+      msgs: [['cli', 'Veio sem o refrigerante', '20:30'], ['robo', 'Sinto muito, João! Já passei para a equipe resolver. Se preferir o dinheiro de volta, peça pelo app da 99 em Ajuda › Problema com o pedido, que a gente aprova aqui.', 'atendente virtual · 20:30', 'ia'], ['loja', 'Oi, João, aqui é o Bruno. Vou ver se dá para mandar com o próximo entregador.', 'Bruno · 20:32']],
       prontas: ['Vamos mandar o refrigerante agora.', 'Pode pedir o reembolso pelo app da 99, que a gente aprova.', 'Sentimos muito pelo erro.'], entregador: 'Lucas · entregue às 20:28' },
     v1: { msgs: [['cli', 'Boa noite! Quero um X-bacon e uma batata', '20:24'], ['robo', 'Boa noite, Fernanda! Anotei: 1× X-bacon e 1× Batata média. Quer mais alguma coisa?', 'robô · 20:24']] },
     v2: { msgs: [['cli', 'Vocês abrem até que horas?', '20:25'], ['robo', 'Hoje até as 23h59! Quer ver o cardápio?', 'robô · 20:25']] },
@@ -1702,7 +1734,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   // Versão 13: em cada resposta do ROBÔ, "Corrigir" (gerente e presidente) — a pergunta é a última mensagem do cliente antes.
   const perguntaAntes = (msgs, i) => { for (let j = i - 1; j >= 0; j--) if (msgs[j][0] === 'cli') return msgs[j][1]; return ''; };
   const botaoCorrigir = (msgs, i) => `<button type="button" class="corrigir" data-dlg="corrigir" data-origem="caso" data-q="${esc(perguntaAntes(msgs, i))}" data-r="${esc(msgs[i][1])}">Corrigir</button>`;
-  const msgsHtml = (msgs, canal) => msgs.map(([q, t, h], i) => `<div class="msg ${q}">${esc(t)}${h ? `<small>${esc(h)}${envio(q, canal)}</small>` : ''}${q === 'robo' && canal === 'ig' ? botaoCorrigir(msgs, i) : ''}</div>`).join(''); // só no Direct: no iFood/99 o robô usa frases prontas (F5); no WhatsApp a caixa não diz quem escreveu
+  // "Corrigir": no Direct (o robô é sempre o atendente virtual) e, no chat do iFood/99, só nas falas do atendente virtual
+  // (versão 14 — as frases prontas não se corrigem); no WhatsApp a caixa não diz quem escreveu.
+  const msgsHtml = (msgs, canal) => msgs.map(([q, t, h, ia], i) => `<div class="msg ${q}">${esc(t)}${h ? `<small>${esc(h)}${envio(q, canal)}</small>` : ''}${q === 'robo' && (canal === 'ig' || ia === 'ia') ? botaoCorrigir(msgs, i) : ''}</div>`).join('');
   function blocoChat(c, d) {
     const daPlat = c.canal === 'ifood' ? 'do iFood' : 'da 99';
     const pela = c.canal === 'ifood' ? 'pelo iFood' : 'pela 99';
@@ -1929,7 +1963,10 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     recado: () => '🌙 Na conversa real, viraria recado para a abertura da loja. No teste, nada é criado.',
     responsavel: (d) => `📋 Na conversa real, viraria recado para o responsável (${d}). No teste, nada é criado.`,
     nao: (d) => `ℹ️ O atendente respondeu que esse assunto não é por aqui, sem chamar ninguém (${d}).`,
+    // versão 14: no chat do iFood/99, o que a trava da plataforma tira
+    trava: () => '🛡️ A trava da plataforma tirou o link desta resposta: no chat do iFood e da 99 não pode link, telefone, WhatsApp nem Instagram.',
   };
+  const NOME_CANAL_T = { wa: 'WhatsApp', ig: 'Direct', chat: 'Chat do iFood' };
   const normK = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   const palavrasK = (t) => normK(t).split(/[^a-z0-9]+/).filter((w) => w.length > 3);
   // O perfil do canal do teste (os ajustes da versão 11), e o de fora do horário quando a pessoa simula.
@@ -1958,7 +1995,8 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     const ap = APRENDIDO.find((k) => { const a = palavrasK(k.q); return a.length && a.filter((w) => ditas.has(w)).length >= Math.min(2, a.length); });
     if (ap) return { r: ap.r, aprendida: true };
     const assunto = (rotulo, nome, chave) => {
-      const m = modoDoAssunto(rotulo);
+      // versão 14: no chat do iFood/99 os assuntos da versão 12 não se aplicam — chama a equipe
+      const m = TESTE.canal === 'chat' ? 'hoje' : modoDoAssunto(rotulo);
       if (m === 'recado') return { r: `Obrigado pelo contato! Me conta seu nome, ${chave === 'vaga' ? 'a função que procura' : 'a empresa'} e o melhor contato, que eu deixo o recado para o responsável.`, sis: { tipo: 'responsavel', d: nome } };
       if (m === 'nao') return { r: 'Obrigado pelo contato! Esse assunto não é tratado por aqui.', sis: { tipo: 'nao', d: nome } };
       return { r: 'Vou chamar alguém da equipe para falar com você.', sis: TESTE.fora ? { tipo: 'recado', d: 'abertura' } : { tipo: 'equipe', d: nome } };
@@ -1978,14 +2016,14 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     if (!TESTE.msgs.length && !TESTE.esperando) return '<p class="ajuda" style="margin:auto 0;text-align:center">Escreva a primeira mensagem, como um cliente faria.</p>';
     return TESTE.msgs.map((m, i) => {
       if (m.q === 'sis') return `<div class="msg sis simulado">${esc(m.t)}</div>`;
-      if (m.q === 'cli') return `<div class="msg cli">${esc(m.t)}<small>você, como cliente · ${m.canal === 'ig' ? 'Direct' : 'WhatsApp'}</small></div>`;
+      if (m.q === 'cli') return `<div class="msg cli">${esc(m.t)}<small>você, como cliente · ${NOME_CANAL_T[m.canal] || 'WhatsApp'}</small></div>`;
       const pe = m.corrigida ? '<span class="corrigida">✏️ Corrigida — pergunte de novo para ver</span>'
         : `<button type="button" class="corrigir" data-dlg="corrigir" data-origem="teste" data-idx="${i}" data-q="${esc(m.perg)}" data-r="${esc(m.t)}">Corrigir</button>`;
       return `<div class="msg robo">${esc(m.t)}<small>atendente virtual${m.aprendida ? ' · usou o que aprendeu' : ''}</small>${pe}</div>`;
     }).join('') + (TESTE.esperando ? '<div class="msg robo digitando">escrevendo…</div>' : '');
   }
   function htmlAprendido() {
-    const cab = `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between"><span class="ajuda">${APRENDIDO.length} de 100 · vale para o WhatsApp e o Direct</span><button type="button" class="bt" data-dlg="corrigir" data-origem="manual">＋ Ensinar uma resposta</button></div>`;
+    const cab = `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between"><span class="ajuda">${APRENDIDO.length} de 100 · vale para o WhatsApp, o Direct e o chat do iFood e da 99</span><button type="button" class="bt" data-dlg="corrigir" data-origem="manual">＋ Ensinar uma resposta</button></div>`;
     if (!APRENDIDO.length) return cab + '<div class="nota">Nada ensinado ainda. Corrija uma resposta na conversa de teste ou numa conversa real da fila.</div>';
     return cab + ASSUNTOS_K.filter(([k]) => APRENDIDO.some((a) => a.assunto === k)).map(([k, nome]) => {
       const itens = APRENDIDO.filter((a) => a.assunto === k);
@@ -2013,8 +2051,13 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     setTimeout(() => {
       const res = respostaDeTeste(t);
       const sauda = res.aprendida || TESTE.msgs.some((m) => m.q === 'robo') ? '' : SAUDACAO_K[perfilDoTeste()] || '';
+      // versão 14: no chat do iFood/99 a trava da plataforma tira o link (e a linha amarela diz)
+      let texto = sauda + res.r;
+      const travou = TESTE.canal === 'chat' && /(https?:\/\/|www\.|app\.dmsregem\.com)/.test(texto);
+      if (travou) texto = `${texto.split(' — ')[0].trim()}.`;
       TESTE.esperando = false;
-      TESTE.msgs.push({ q: 'robo', t: sauda + res.r, perg: t, aprendida: !!res.aprendida });
+      TESTE.msgs.push({ q: 'robo', t: texto, perg: t, aprendida: !!res.aprendida });
+      if (travou) TESTE.msgs.push({ q: 'sis', t: SIS_K.trava() });
       if (res.sis) TESTE.msgs.push({ q: 'sis', t: SIS_K[res.sis.tipo](res.sis.d) });
       desenharTeste();
     }, 900);
@@ -2090,7 +2133,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       ? '<div class="nota warn">O atendente virtual não está disponível nesta instalação. No servidor da loja, o teste é feito pela nuvem (app.dmsregem.com), onde o atendente roda.</div>'
       : `<div class="opcoes" role="group" aria-label="O que ver na gaveta"><button type="button" class="opcao" aria-pressed="true" data-aba-t="conversa">Conversa de teste</button><button type="button" class="opcao" aria-pressed="false" data-aba-t="aprendido">O que ele aprendeu · <b data-conta-ap>${APRENDIDO.length}</b></button></div>
       <div data-painel-t="conversa" style="display:flex;flex-direction:column;gap:10px">
-        <div class="teste-ctl"><div class="opcoes" role="group" aria-label="Canal do teste"><button type="button" class="opcao" aria-pressed="${TESTE.canal === 'wa'}" data-canal-t="wa">WhatsApp</button><button type="button" class="opcao" aria-pressed="${TESTE.canal === 'ig'}" data-canal-t="ig">Direct</button></div>
+        <div class="teste-ctl"><div class="opcoes" role="group" aria-label="Canal do teste"><button type="button" class="opcao" aria-pressed="${TESTE.canal === 'wa'}" data-canal-t="wa">WhatsApp</button><button type="button" class="opcao" aria-pressed="${TESTE.canal === 'ig'}" data-canal-t="ig">Direct</button><button type="button" class="opcao" aria-pressed="${TESTE.canal === 'chat'}" data-canal-t="chat">Chat iFood/99</button></div>
           <label class="chk"><input type="checkbox" data-fora-t ${TESTE.fora ? 'checked' : ''}> Simular fora do horário</label></div>
         <p class="ajuda" style="margin:0">Escreva como um cliente. Responde o mesmo atendente virtual da loja, com o perfil do canal escolhido. <b>Nada sai para clientes</b>: chamar a equipe, recados e pedidos viram simulação. Mudar o canal ou o horário começa outra conversa.</p>
         <div class="msgs teste" data-msgs-teste aria-live="polite">${htmlDoTeste()}</div>
@@ -2110,7 +2153,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
           if (TESTE.canal === b.dataset.canalT) return;
           TESTE.canal = b.dataset.canalT;
           $$('[data-canal-t]', fundo).forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
-          nova(`Conversa nova no ${TESTE.canal === 'ig' ? 'Direct' : 'WhatsApp'} (protótipo)`);
+          nova(`Conversa nova no ${NOME_CANAL_T[TESTE.canal]} (protótipo)`);
         }));
         $('[data-fora-t]', fundo).addEventListener('change', (e) => { TESTE.fora = e.target.checked; nova(TESTE.fora ? 'Conversa nova, como fora do horário (protótipo)' : 'Conversa nova, no horário (protótipo)'); });
         const txt = $('[data-txt-teste]', fundo);
@@ -2133,7 +2176,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
         <div class="campo"><label for="cor-assunto">Assunto</label><select id="cor-assunto">${ASSUNTOS_K.map(([k, n]) => `<option value="${k}"${k === (ed ? ed.assunto : sugerirAssunto(q)) ? ' selected' : ''}>${n}</option>`).join('')}</select></div>
         <div class="campo"><label for="cor-perg">Quando o cliente perguntar</label><input id="cor-perg" type="text" maxlength="300" value="${esc(q)}" placeholder="Ex.: Vocês entregam no Recreio?"><span class="ajuda">Uma linha. Não precisa ser igual: o atendente usa a resposta quando a pergunta combinar.</span></div>
         <div class="campo"><label for="cor-resp">${sozinho ? 'O atendente responde' : 'O atendente deveria responder'}</label><textarea id="cor-resp" rows="4" maxlength="600" placeholder="Escreva como a loja responderia">${ed ? esc(r) : ''}</textarea><span class="ajuda">Até 600 letras. Preço, taxa, prazo e horário ele continua tirando do cadastro, mesmo que a resposta traga um valor.</span></div>
-        <p class="ajuda" style="margin:0">Vale para o WhatsApp e o Direct. Só gerente e presidente ensinam.</p>`,
+        <p class="ajuda" style="margin:0">Vale para todos os canais do atendente virtual: WhatsApp, Direct e o chat do iFood e da 99. Só gerente e presidente ensinam.</p>`,
         ok: ed ? 'Salvar' : 'Ensinar ao atendente', cl: 'pri',
         conferir: (fundo) => {
           const pq = $('#cor-perg', fundo).value.trim();

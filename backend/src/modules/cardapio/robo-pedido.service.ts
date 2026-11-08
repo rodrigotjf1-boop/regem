@@ -16,6 +16,18 @@ import { cardapioConfig, cliente, clienteEndereco, pedidoAlteracao, pedidoExtern
 import { Conversa, lerConversa } from '../../common/conversa-do-robo';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
 import { LINHA_DO_PEDIDO, RESPOSTA_DO_PEDIDO_NO_TESTE, gravarUmaVezPorFala, testeDaChave } from '../atendimento/teste-do-atendente';
+import { conversaDaChave } from '../ponte-chat/atendente-no-chat';
+
+/**
+ * O que as rotas do pedido devolvem ao robô no CHAT DO iFOOD E DA 99 (F5, mig 383): 200, a forma das recusas de regra
+ * (`ok: false` com a mensagem), para o robô explicar em vez de tropeçar num erro.
+ */
+export const RESPOSTA_DO_PEDIDO_NO_CHAT = {
+  ok: false as const,
+  motivo: 'chat_da_plataforma',
+  mensagem:
+    'No chat do iFood e da 99 o cliente já tem o pedido feito pela plataforma: não se monta, não se muda e não se cancela pedido aqui. Use o campo pedido da mensagem para dizer a situação; para mudar, trocar ou cancelar, chame a equipe (chamar_atendente).',
+};
 import { sqlChaveTelefone } from '../../common/telefone-chave';
 import { DeliveryService } from '../delivery/delivery.service';
 import { AtendimentoService } from '../atendimento/atendimento.service';
@@ -257,6 +269,17 @@ export class RoboPedidoService {
     if (!teste) throw new NotFoundException('Conversa de teste não encontrada.');
     await gravarUmaVezPorFala(this.db, teste, LINHA_DO_PEDIDO.texto, LINHA_DO_PEDIDO.simulado);
     return { ...RESPOSTA_DO_PEDIDO_NO_TESTE };
+  }
+
+  /**
+   * As rotas do pedido na fala do CHAT DO iFOOD E DA 99 (`chat:<id>` na instância, F5 — mig 383): NUNCA mexem em carrinho,
+   * comanda, cliente, pagamento, Pix nem impressão — o pedido é da plataforma. Com a senha do robô e a fala que existe, a
+   * recusa de regra (`ok: false`, `motivo: 'chat_da_plataforma'`); fala que não existe = 404.
+   */
+  async pedidoNoChat(segredo: string, instancia: string) {
+    if (!segredoDoRoboOk(segredo)) throw new UnauthorizedException('Não autorizado.');
+    if (!(await conversaDaChave(this.db, instancia))) throw new NotFoundException('Conversa do chat não encontrada.');
+    return { ...RESPOSTA_DO_PEDIDO_NO_CHAT };
   }
 
   // ───────────────────────── leitura ─────────────────────────
