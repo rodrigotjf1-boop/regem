@@ -73,14 +73,16 @@ test('cada situação dá a faixa com o que fazer agora', () => {
   assert.equal(par(um, 'Último aviso'), '14:00 ponte pausada neste PC');
 });
 
-test('a 99 (4a): não lida, sem login (faixa com o usuário EXTRA) e lendo; o botão de parar só com ela escolhida', () => {
+test('a 99 (4a): não lida, sem login (faixa com a CONTA PRINCIPAL — 0.7.3) e lendo; o botão de parar só com ela escolhida', () => {
   const nao = local.paraAJanela(base());
   assert.match(par(nao, '99Food'), /^não é lida neste PC/);
   assert.ok(!botoes(nao).includes('Parar de ler a 99 neste PC'));
   const semLogin = local.paraAJanela(base({}, { usar99: true }));
   assert.equal(semLogin.faixa.acao, 'abrir-99');
-  assert.match(semLogin.faixa.texto, /USUÁRIO EXTRA da loja/);
-  assert.equal(par(semLogin, '99Food'), 'sem login — entre com o usuário extra da loja');
+  assert.match(semLogin.faixa.texto, /CONTA PRINCIPAL da loja/);
+  assert.match(semLogin.faixa.texto, /deixe a 99 aberta só aqui/);
+  assert.doesNotMatch(semLogin.faixa.texto, /usuário extra/i);
+  assert.equal(par(semLogin, '99Food'), 'sem login — entre com a conta principal da loja');
   assert.deepEqual(botoes(semLogin), ['Abrir o iFood', 'Abrir a 99', 'Responder pela 99 neste PC', 'Parar de ler a 99 neste PC', 'Pausar a ponte neste PC', 'Abrir o Atendimento']);
   const lendo = local.paraAJanela(base({ logadoNa99: true }, { usar99: true }));
   assert.equal(lendo.faixa, null);

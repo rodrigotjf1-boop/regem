@@ -13,9 +13,10 @@
 //  • (v0.5) PAUSA neste PC ("Pausar a ponte neste PC": não lê nem responde até retomar — guardada, vale depois de
 //    reiniciar; a nuvem passa a vez à reserva), a janela "Estado da ponte" e o canal com o ícone "Regem neste PC": o
 //    arquivo `estado-da-ponte.json` e os comandos --abrir/--pausar/--retomar (`estado-local.js`);
-//  • (v0.6, Etapa 4a) LÊ o chat da 99: a pessoa abre a 99 numa janela própria ("Abrir a 99") e entra com o USUÁRIO EXTRA
-//    da loja — a 99 aceita um login por usuário (ERR-365: com o mesmo login do PC da loja, derrubaria a 99 de lá); o
-//    usuário extra tem sessão própria (05/11). A escuta é do IM da 99 (`leitor-99.js`); a nuvem liga cada mensagem ao
+//  • (v0.6, Etapa 4a) LÊ o chat da 99: a pessoa abre a 99 numa janela própria ("Abrir a 99") e entra com a CONTA
+//    PRINCIPAL da loja (0.7.3, decisão do dono de 08/11/2026 — até a 0.7.2 era o usuário extra, que tem sessão própria mas
+//    também conversas próprias: não recebe o chat dos clientes, medido em 07/11). A 99 aceita um login por conta (ERR-365):
+//    a 99 fica aberta SÓ na ponte. A escuta é do IM da 99 (`leitor-99.js`); a nuvem liga cada mensagem ao
 //    pedido pelo cliente. Sozinha, a 99 só é LIDA (o sinal diz "lendo"): responder é pelo portal da 99;
 //  • (v0.7, Etapa 4b) com "Responder pela 99 neste PC" ligado (nasce desligado), ENVIA pela 99 o que a nuvem enfileira
 //    (avisos, robô, equipe): busca o pedido, abre a conversa com clique de mouse pelo depurador, confere o número duas
@@ -88,7 +89,7 @@ if (!app.requestSingleInstanceLock()) {
     pausadaEm: cfg.pausadaEm(),
   };
   let gestor = null;
-  let janela99 = null; // o portal da 99 (4a), com o usuário extra da loja
+  let janela99 = null; // o portal da 99 (4a), com a conta principal da loja (0.7.3)
   let leitor99 = null;
   let janelaDoEstado = null;
   let pareamento = null;
@@ -178,7 +179,7 @@ if (!app.requestSingleInstanceLock()) {
     const sit = textoDaSituacao();
     if (gestor && !gestor.isDestroyed()) gestor.setTitle(`Regem · Ponte do chat — ${sit}`);
     if (janela99 && !janela99.isDestroyed())
-      janela99.setTitle(`Regem · Ponte do chat — 99 (entre com o USUÁRIO EXTRA da loja) — ${estado.logadoNa99 ? 'lendo o chat' : 'sem login'}`);
+      janela99.setTitle(`Regem · Ponte do chat — 99 (conta principal da loja; a 99 fica aberta só aqui) — ${estado.logadoNa99 ? 'lendo o chat' : 'sem login'}`);
     publicarEstado();
     if (!bandeja) return;
     bandeja.setToolTip(`Regem · Ponte do chat\n${sit}`.slice(0, 127));
@@ -194,7 +195,7 @@ if (!app.requestSingleInstanceLock()) {
         // os nomes destes dois itens são os que as telas do Regem citam (V65 — `frontend/src/lib/ponte-do-chat.ts`)
         ...(pareada ? [estado.pausadaEm ? { label: 'Retomar a ponte neste PC', click: () => pausar(false) } : { label: 'Pausar a ponte neste PC', click: () => pausar(true) }] : []),
         { label: 'Abrir o Gestor do iFood', click: () => abrirGestor() },
-        ...(!SO_OBSERVAR ? [{ label: 'Abrir a 99 (usuário extra)', click: () => abrir99().catch((e) => registrarErro(String(e && e.message))) }] : []),
+        ...(!SO_OBSERVAR ? [{ label: 'Abrir a 99 (conta principal)', click: () => abrir99().catch((e) => registrarErro(String(e && e.message))) }] : []),
         ...(!SO_OBSERVAR && cfg.usar99() && cfg.credencial()
           ? [{ label: 'Responder pela 99 neste PC', type: 'checkbox', checked: cfg.responder99(), click: () => responder99(!cfg.responder99()).catch((e) => registrarErro(String(e && e.message))) }]
           : []),
@@ -350,7 +351,7 @@ if (!app.requestSingleInstanceLock()) {
   }
 
   /**
-   * A janela da 99 (4a): o portal com o USUÁRIO EXTRA da loja, numa sessão própria (`persist:99`). Na 1ª vez pergunta e
+   * A janela da 99 (4a): o portal com a CONTA PRINCIPAL da loja (0.7.3), numa sessão própria (`persist:99`). Na 1ª vez pergunta e
    * avisa do login (ERR-365); depois fica guardado ("Parar de ler a 99 neste PC" desfaz) e reabre ao reiniciar. A escuta
    * liga ANTES de a página carregar (como no Gestor — ERR-376).
    */
@@ -366,11 +367,12 @@ if (!app.requestSingleInstanceLock()) {
         const r = await dialog.showMessageBox({
           type: 'warning',
           title: 'Ler a 99 neste PC · Regem · Ponte do chat',
-          message: 'Entre na 99 com o USUÁRIO EXTRA da loja',
+          message: 'Entre na 99 com a CONTA PRINCIPAL da loja',
           detail:
-            'A 99 aceita um login por usuário: entrar aqui com o mesmo usuário do PC da loja derruba a 99 de lá. Use o usuário ' +
-            'extra (com e-mail próprio) que a loja criou no portal da 99.\n\nNesta versão a ponte só LÊ o chat da 99: as ' +
-            'mensagens dos clientes entram no Atendimento do Regem; para responder, use o portal da 99.',
+            'É com ela que o cliente conversa: o usuário extra da 99 tem conversas próprias e não recebe o chat dos clientes.\n\n' +
+            'A 99 aceita um login por conta: entrar aqui derruba a 99 aberta com a mesma conta em outro aparelho (o PC da loja, ' +
+            'um tablet), e entrar lá derruba esta. Combine com a loja: a 99 fica aberta só aqui.\n\nAs mensagens dos clientes ' +
+            'entram no Atendimento do Regem; com "Responder pela 99 neste PC" ligado, a resposta sai por aqui.',
           buttons: ['Abrir a 99', 'Cancelar'],
           defaultId: 0,
           cancelId: 1,
