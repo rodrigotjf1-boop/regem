@@ -24,6 +24,8 @@ import { GestorWhatsappService } from './gestor-whatsapp.service';
 import { CopilotoService } from './copiloto.service';
 import { NumerosDoAtendimentoService } from './numeros.service';
 import { InstagramModule } from '../instagram/instagram.module';
+import { TreinoDoAtendenteController } from './treino.controller';
+import { TreinoDoAtendenteService } from './treino.service';
 
 @Module({
   // Integrações: a resposta à disputa do iFood (IfoodService). forwardRef: integrações e delivery já se referem.
@@ -36,7 +38,8 @@ import { InstagramModule } from '../instagram/instagram.module';
   imports: [DeliveryModule, forwardRef(() => IntegracoesModule), EquipamentoModule, ChegadaModule, ProducaoPedidoModule, WhatsappModule, PonteChatModule, InstagramModule],
   // AtendimentoAppController: o app "Regem Atendimento" (mig 353) — entrar com o PIN e "Disponível / Ocupado". O
   // AuthService vem do AuthModule (global); o EquipamentoService, do EquipamentoModule (o celular pareado).
-  controllers: [AtendimentoController, AtendimentoLojaController, AtendimentoAppController],
+  // TreinoDoAtendenteController (mig 382): "Testar o atendente" e "O que ele aprendeu" (gerente e presidente, só a nuvem).
+  controllers: [AtendimentoController, AtendimentoLojaController, AtendimentoAppController, TreinoDoAtendenteController],
   // Pedido99Service: a resposta ao pedido do cliente da 99 e a rotina da nuvem (cancelamento vencido, reembolso recusado).
   // ChatIfoodService: a configuração do chat oficial do iFood (o widget da distribuição e as lojas do iFood).
   // FilaEAvisosService (mig 353): o aviso ao gerente (rotina da nuvem) e os ajustes "Fila e avisos".
@@ -62,6 +65,9 @@ import { InstagramModule } from '../instagram/instagram.module';
     CopilotoService,
     // NumerosDoAtendimentoService (item 8): o placar, as reclamações por motivo e produto e o "O que aconteceu?" do caso.
     NumerosDoAtendimentoService,
+    // TreinoDoAtendenteService (mig 382): a conversa de teste com o robô de verdade e o que ele aprendeu (só o banco e a
+    // auditoria, que é global).
+    TreinoDoAtendenteService,
   ],
   exports: [AtendimentoService],
 })

@@ -12,7 +12,7 @@ import {
 import { lembrarEnvio } from './evolution-envios';
 import { anotarNaMemoria, chaveDaMemoria } from './robo-do-outro-lado';
 import { pedidosParaORobo } from './pedidos-do-robo';
-import { ehChaveDoDirect } from '../../common/conversa-do-robo';
+import { ehChaveDeTeste, ehChaveDoDirect } from '../../common/conversa-do-robo';
 import {
   estadoDaPausa,
   minutosDaPausa,
@@ -879,7 +879,8 @@ export class WhatsappService {
   private async lojaPorChaveBot(instancia?: string, phoneNumberId?: string) {
     // O Direct do Instagram (mig 378) não é loja de WhatsApp: as rotas de telefone do robô (pedidos, situação do pedido,
     // resolver, mídia) não acham loja para a chave `ig:` — tirando o `ig:`, sobram dígitos (V79).
-    if (ehChaveDoDirect(instancia)) return null;
+    // A conversa de TESTE do atendente (`teste:`, mig 382) também não é loja de WhatsApp: nenhuma rota de telefone age por ela.
+    if (ehChaveDoDirect(instancia) || ehChaveDeTeste(instancia)) return null;
     const pid = String(phoneNumberId ?? '').trim();
     if (pid) {
       const [c] = await this.db
@@ -958,6 +959,9 @@ export class WhatsappService {
     phoneNumberId?: string,
   ) {
     if (!segredoDoRoboOk(secret)) throw new BadRequestException('Não autorizado.');
+    // A conversa de TESTE do atendente (mig 382): o "cliente" do teste não tem pedido nenhum — como um cliente novo. Nunca
+    // cai na busca pelos últimos dígitos (os dígitos do id casariam com o pedido de um desconhecido).
+    if (ehChaveDeTeste(instancia) || ehChaveDeTeste(telefone)) return [];
     const cfg = await this.lojaPorChaveBot(instancia, phoneNumberId);
     if (!cfg) throw new NotFoundException('Número/instância não vinculado a uma loja.');
     // `ig:<igsid>` (o Direct do Instagram) não é telefone: os últimos dígitos casariam com o pedido de um desconhecido.
@@ -992,6 +996,8 @@ export class WhatsappService {
 
   async resolver(instancia: string, secret: string, numero?: string) {
     if (!segredoDoRoboOk(secret)) throw new BadRequestException('Não autorizado.');
+    // A conversa de TESTE do atendente (mig 382) não é instância da Evolution.
+    if (ehChaveDeTeste(instancia)) throw new NotFoundException('Instância não vinculada a uma loja.');
     const [cfg] = await this.db
       .select()
       .from(cardapioConfig)

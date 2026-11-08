@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Treinar o atendente — F4 (08/11; mig 382 `@cloud-only` — `atendente_teste`, `atendente_teste_msg`,
+  `atendente_conhecimento`, as três SO_NUVEM; mexe em `backend/edge/sync-daemon.mjs` SÓ na lista `SO_NUVEM`).** Na NUVEM com
+  o merge. **No `.zip` 1.30.13 e no próximo `.exe`:** a classificação das três tabelas no `sync-daemon` (sem ela o sync
+  da loja não sabe que são só da nuvem) e a tela do servidor da loja com o botão "🧪 Testar o atendente" (lá a gaveta
+  diz que o teste é pela nuvem).
+
 - **Os assuntos que não são pedido — F3 (07/11; mig 381 `@cloud-only` — só `robo_config.atendente_assuntos`, SO_NUVEM;
   nenhuma estrutura nova em `atendimento_chamado`: o recado vai em `detalhe.responsavel`; sem `edge/`).** Na NUVEM com o
   merge (nasce "Como hoje" nos três assuntos). **No `.zip` 1.30.13:** a tela do servidor da loja mostra "📋 Recados" e o

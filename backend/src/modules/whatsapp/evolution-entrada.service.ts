@@ -15,7 +15,7 @@ import { ChegadaService } from '../chegada/chegada.service';
 import { clienteRespondeu } from '../atendimento/abrir-chamado';
 import { portaoDoGestor } from '../atendimento/gestor-whatsapp-entrada';
 import { AuditoriaService } from '../auditoria/auditoria.service';
-import { assinarConversa } from '../../common/conversa-do-robo';
+import { assinarConversa, ehChaveDeTeste } from '../../common/conversa-do-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -108,6 +108,12 @@ export class EvolutionEntradaService {
   /** Um aviso da Evolution (já com a assinatura da instância conferida). Nunca lança. */
   async processar(corpo: any, instancia: string): Promise<void> {
     try {
+      // A chave da conversa de TESTE do atendente (mig 382) só nasce no Regem (a rota do teste): uma "instância" `teste:`
+      // vinda de fora nunca entra — nem chega ao robô.
+      if (ehChaveDeTeste(instancia)) {
+        this.logger.warn('aviso da Evolution com instância de teste do atendente: ignorado.');
+        return;
+      }
       const evento = String(corpo?.event ?? '').toLowerCase().replace(/_/g, '.');
       if (evento !== 'messages.upsert') return;
       const lista = Array.isArray(corpo?.data) ? corpo.data : [corpo?.data];

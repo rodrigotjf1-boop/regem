@@ -146,6 +146,16 @@ export function assuntoEmRecado(assuntos: unknown, tipo: unknown): AssuntoDoAten
   return assuntoDaLinha(ehObjeto(assuntos) ? assuntos[tipo] : undefined).modo === 'recado' ? tipo : null;
 }
 
+/**
+ * O `tipo` que o robô mandou no "chamar atendente" é um assunto em "Responde que não é por aqui"? Então o assunto (o robô
+ * NÃO devia ter chamado — o teste do atendente, F4, mostra isso); senão null. Na conversa de verdade esse chamado vira o
+ * caso comum (o tipo fora da lista vira `humano`), como hoje.
+ */
+export function assuntoNaoEPorAqui(assuntos: unknown, tipo: unknown): AssuntoDoAtendente | null {
+  if (!ehAssunto(tipo)) return null;
+  return assuntoDaLinha(ehObjeto(assuntos) ? assuntos[tipo] : undefined).modo === 'nao' ? tipo : null;
+}
+
 // ───────────────────────── o texto das instruções (puro) ─────────────────────────
 
 /** Como cada assunto aparece nas instruções do robô (o que reconhecer). */

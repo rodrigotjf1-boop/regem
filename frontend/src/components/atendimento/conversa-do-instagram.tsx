@@ -1,11 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api } from '@/lib/api';
+import { api, getCategoria } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { hora, type CasoDaFila } from '@/lib/atendimento';
+import { perguntaAntes } from '@/lib/treino-do-atendente';
 import { BotaoCopiloto } from '@/components/atendimento/botao-copiloto';
+import { CorrigirResposta } from '@/components/atendimento/corrigir-resposta';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -77,6 +79,11 @@ export function ConversaDoInstagram({ caso: c, aberto, podeResponder }: { caso: 
   const ultimaLeitura = useRef(0);
   const fim = useRef<HTMLDivElement>(null);
   const campo = useRef<HTMLTextAreaElement>(null);
+  // "Corrigir" nas respostas do robô (F4, protótipo v13): gerente e presidente ensinam o atendente (o servidor confere).
+  const [podeEnsinar, setPodeEnsinar] = useState(false);
+  useEffect(() => setPodeEnsinar(['presidente', 'gerente'].includes(getCategoria() ?? '')), []);
+  const [corrigindo, setCorrigindo] = useState<{ id: string; pergunta: string; resposta: string } | null>(null);
+  const [corrigidas, setCorrigidas] = useState<Set<string>>(() => new Set());
 
   const ler = useCallback(async (id: string) => {
     const n = ++ultimaLeitura.current;
@@ -161,9 +168,10 @@ export function ConversaDoInstagram({ caso: c, aberto, podeResponder }: { caso: 
         ) : conversa.mensagens.length === 0 ? (
           <p className="py-6 text-center text-xs text-secondary-foreground">Ainda não há mensagens desta conversa.</p>
         ) : (
-          conversa.mensagens.map((m) => {
+          conversa.mensagens.map((m, i) => {
             const daLoja = m.direcao === 'saida';
             const conteudo = m.estado === 'apagada' ? 'mensagem apagada pelo cliente' : m.texto || DESCRICAO[m.tipo] || '';
+            const corrigivel = podeEnsinar && m.autor === 'robo' && !!m.texto;
             return (
               <div key={m.id} className={`flex ${daLoja ? 'justify-end' : 'justify-start'}`}>
                 <div
@@ -183,6 +191,27 @@ export function ConversaDoInstagram({ caso: c, aberto, podeResponder }: { caso: 
                     {daLoja && m.estado === 'enviada' && <span className="font-semibold text-foreground">✓ enviada</span>}
                     {daLoja && m.estado === 'falhou' && <span className="font-semibold text-destructive">✕ não saiu{m.erro ? `: ${m.erro}` : ''}</span>}
                   </span>
+                  {corrigivel &&
+                    (corrigidas.has(m.id) ? (
+                      <span className="block pt-0.5 text-right text-xs font-semibold text-ok">✏️ Corrigida — o atendente já usa a resposta nova</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="mt-0.5 block min-h-6 text-xs font-semibold text-info underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        onClick={() =>
+                          setCorrigindo({
+                            id: m.id,
+                            resposta: m.texto ?? '',
+                            pergunta: perguntaAntes(
+                              conversa.mensagens.map((x) => ({ autor: x.autor, texto: x.texto ?? '' })),
+                              i,
+                            ),
+                          })
+                        }
+                      >
+                        Corrigir
+                      </button>
+                    ))}
                 </div>
               </div>
             );
@@ -272,6 +301,19 @@ export function ConversaDoInstagram({ caso: c, aberto, podeResponder }: { caso: 
             ? `⏱️ Pode responder até ${dataHora(conversa.janela.ate)} (24 h depois da última mensagem do cliente — regra do Instagram). A mensagem também aparece no app do Instagram da loja.`
             : 'Passaram 24 h da última mensagem do cliente: o Instagram não deixa a loja responder agora. Quando ele escrever de novo, a conversa abre.'}
         </p>
+      )}
+
+      {corrigindo && (
+        <CorrigirResposta
+          origem="caso"
+          pergunta={corrigindo.pergunta}
+          resposta={corrigindo.resposta}
+          aoFechar={() => setCorrigindo(null)}
+          aoSalvar={() => {
+            setCorrigidas((s) => new Set(s).add(corrigindo.id));
+            setCorrigindo(null);
+          }}
+        />
       )}
     </section>
   );

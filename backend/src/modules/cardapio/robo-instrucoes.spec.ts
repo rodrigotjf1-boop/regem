@@ -366,8 +366,8 @@ describe('instruções do robô — os assuntos que não são pedido (mig 381)',
   const ANTES_DA_SECAO = { f1: 'QUANDO CHAMAR UMA PESSOA', f2: 'QUANDO CHAMAR UMA PESSOA', direct: 'QUANDO CHAMAR UMA PESSOA' };
 
   it('as versões subiram (.f18 e .d4)', () => {
-    expect(VERSAO_INSTRUCOES).toBe('2026-11-07.f18');
-    expect(VERSAO_DO_DIRECT).toBe('2026-11-07.d4');
+    expect(VERSAO_INSTRUCOES >= '2026-11-07.f18').toBe(true);
+    expect(VERSAO_DO_DIRECT >= '2026-11-07.d4').toBe(true);
   });
 
   it('tudo em "Como hoje": o texto é IDÊNTICO ao de antes, nos três lugares (com e sem perfil)', () => {

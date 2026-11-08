@@ -1,9 +1,21 @@
-import { BadRequestException, ConflictException, HttpException, Inject, Injectable, Logger, Optional, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  HttpException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq, gte, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig, cliente, clienteEndereco, pedidoAlteracao, pedidoExterno, roboCarrinho } from '../../db/schema';
 import { Conversa, lerConversa } from '../../common/conversa-do-robo';
+import { segredoDoRoboOk } from '../../common/segredo-robo';
+import { LINHA_DO_PEDIDO, RESPOSTA_DO_PEDIDO_NO_TESTE, gravarUmaVezPorFala, testeDaChave } from '../atendimento/teste-do-atendente';
 import { sqlChaveTelefone } from '../../common/telefone-chave';
 import { DeliveryService } from '../delivery/delivery.service';
 import { AtendimentoService } from '../atendimento/atendimento.service';
@@ -231,6 +243,20 @@ export class RoboPedidoService {
     if (!conversa || conversa.tenantId !== cfg.tenantId)
       throw new UnauthorizedException('Conversa não reconhecida: use a ficha que veio com a mensagem do cliente.');
     return { token, cfg, conversa };
+  }
+
+  /**
+   * As rotas do pedido na conversa de TESTE do atendente (`teste:<id>` na instância, mig 382): NUNCA mexem em carrinho,
+   * comanda, cliente, pagamento, Pix nem impressão — o pedido não é montado no teste (o rascunho é por telefone e as
+   * ferramentas mandam mensagens direto ao cliente). Com a senha do robô e a conversa de teste que existe, a resposta é a
+   * recusa de regra (`ok: false`, `motivo: 'teste'`) e a conversa de teste ganha UMA linha 'sistema' por fala do "cliente".
+   */
+  async pedidoNoTeste(segredo: string, instancia: string) {
+    if (!segredoDoRoboOk(segredo)) throw new UnauthorizedException('Não autorizado.');
+    const teste = await testeDaChave(this.db, instancia);
+    if (!teste) throw new NotFoundException('Conversa de teste não encontrada.');
+    await gravarUmaVezPorFala(this.db, teste, LINHA_DO_PEDIDO.texto, LINHA_DO_PEDIDO.simulado);
+    return { ...RESPOSTA_DO_PEDIDO_NO_TESTE };
   }
 
   // ───────────────────────── leitura ─────────────────────────

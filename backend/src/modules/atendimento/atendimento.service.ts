@@ -38,10 +38,13 @@ import { exigirBooleano } from '../../common/exigir';
 import {
   DadosDoChamado,
   JANELA_DO_MESMO_CHAMADO_H,
+  type OpcoesDaSimulacao,
   Prioridade,
+  type Simulacao,
   abrirChamado,
   abrirChamadoPeloRobo,
   juntarMensagem,
+  simularChamadoPeloRobo,
 } from './abrir-chamado';
 import { canalDoCaso, posicoes, situacaoDo } from './fila';
 import { lerRecado, recadoAtivoSql, situacaoDaEquipe } from './horario-da-equipe';
@@ -162,8 +165,21 @@ export class AtendimentoService {
    */
   async abrirPeloRobo(tenantId: string, unidadeId: string | null, dto: DadosDoChamado) {
     const r = await abrirChamadoPeloRobo(this.db, (ev, p) => this.events.emit(ev, p), tenantId, unidadeId, dto);
-    // "Dizer ao cliente a posição na fila" desligado (Configurações › Atendimento, mig 353): o robô não recebe o lugar do
-    // cliente — e não o diz. "Já tem alguém com o seu caso" (comAlguem) não é posição: segue.
+    return this.comAPosicaoDoAjuste(tenantId, r);
+  }
+
+  /**
+   * O "chamar atendente" da conversa de TESTE do atendente (F4, mig 382): o que o caminho de verdade faria, sem gravar caso,
+   * sem pausar o robô e sem avisar ninguém (`abrir-chamado.ts` › `simularChamadoPeloRobo`) — com o mesmo "dizer a posição".
+   */
+  async simularPeloRobo(tenantId: string, unidadeId: string | null, dto: DadosDoChamado, opcoes: OpcoesDaSimulacao): Promise<Simulacao> {
+    const s = await simularChamadoPeloRobo(this.db, tenantId, unidadeId, dto, opcoes);
+    return { ...s, resposta: await this.comAPosicaoDoAjuste(tenantId, s.resposta) };
+  }
+
+  // "Dizer ao cliente a posição na fila" desligado (Configurações › Atendimento, mig 353): o robô não recebe o lugar do
+  // cliente — e não o diz. "Já tem alguém com o seu caso" (comAlguem) não é posição: segue.
+  private async comAPosicaoDoAjuste<T extends { posicao: number | null }>(tenantId: string, r: T): Promise<T> {
     if (r.posicao != null && this.filaEAvisos && !(await this.filaEAvisos.dizPosicao(tenantId))) return { ...r, posicao: null };
     return r;
   }

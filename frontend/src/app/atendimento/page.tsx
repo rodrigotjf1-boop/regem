@@ -26,6 +26,7 @@ import { EnderecoDepoisQueSaiu } from '@/components/atendimento/endereco-depois-
 import { ListaDeConversas } from '@/components/atendimento/lista-de-conversas';
 import { ConversaDoRobo } from '@/components/atendimento/conversa-do-robo';
 import { OQueAconteceu, type MarcaDoCaso } from '@/components/atendimento/o-que-aconteceu';
+import { TestarAtendente } from '@/components/atendimento/testar-atendente';
 import { enderecoDoCaso } from '@/lib/endereco-do-caso';
 import {
   CASO_DA_PLATAFORMA,
@@ -81,6 +82,8 @@ export default function AtendimentoPage() {
   // O perfil só depois de montar (V35): o botão dos Números é de gerente e presidente.
   const [categoria, setCategoria] = useState<string | null>(null);
   useEffect(() => setCategoria(getCategoria()), []);
+  // "🧪 Testar o atendente" (F4, protótipo v13): a gaveta da conversa de teste — gerente e presidente (o servidor confere).
+  const [testando, setTestando] = useState(false);
   const [busca, setBusca] = useState('');
   const [canal, setCanal] = useState('');
   const [tipo, setTipo] = useState('');
@@ -300,18 +303,30 @@ export default function AtendimentoPage() {
       title="Atendimento"
       compacto
       actions={
-        // Os Números do atendimento (item 8): só gerente e presidente — o servidor confere.
+        // Os Números do atendimento (item 8) e o teste do atendente (F4): só gerente e presidente — o servidor confere.
         veNumeros && (
-          <Link
-            href="/atendimento/numeros"
-            className="inline-flex min-h-10 items-center gap-2 rounded-md border border-input bg-card px-3 text-sm font-semibold hover:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <BarChart3 className="h-4 w-4" aria-hidden="true" />
-            Números do atendimento
-          </Link>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              id="bt-testar-atendente"
+              onClick={() => setTestando(true)}
+              className="inline-flex min-h-10 items-center gap-2 rounded-md border border-input bg-card px-3 text-sm font-semibold hover:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <span aria-hidden="true">🧪</span>
+              Testar o atendente
+            </button>
+            <Link
+              href="/atendimento/numeros"
+              className="inline-flex min-h-10 items-center gap-2 rounded-md border border-input bg-card px-3 text-sm font-semibold hover:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <BarChart3 className="h-4 w-4" aria-hidden="true" />
+              Números do atendimento
+            </Link>
+          </div>
         )
       }
     >
+      {testando && <TestarAtendente aoFechar={() => setTestando(false)} />}
       <div className="space-y-3">
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2" data-topo-atendimento>
           <h2 className="whitespace-nowrap font-display text-xl font-bold">

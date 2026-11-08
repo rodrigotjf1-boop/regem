@@ -4,7 +4,7 @@ import { Interval } from '@nestjs/schedule';
 import { ehServidorLocal } from '../../common/modo';
 import { and, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
-import { assinarConversa } from '../../common/conversa-do-robo';
+import { assinarConversa, ehChaveDeTeste } from '../../common/conversa-do-robo';
 import { ecoDeAvisoAutomatico } from '../../common/avisos-automaticos';
 import { estadoDaPausa, pausaDaConversa, pausarPeloAtendente, pausasDaLojaOuVazio } from './robo-pausa';
 import { entregarJuntando } from './juntar-mensagens';
@@ -30,6 +30,8 @@ import { buscarUrlPublica } from '../../common/ssrf-guard';
 //   N8N_BOT_CLOUD_WEBHOOK_URL  — webhook do workflow "Bot Regem (Cloud)" no n8n.
 //                                Vazio = recebimento fica só no log (modo inerte).
 const GRAPH = 'https://graph.facebook.com/v25.0';
+/** A recusa dos envios do robô para a conversa de TESTE do atendente (mig 382): no teste nada sai pelo WhatsApp. */
+export const RECUSA_NO_TESTE = 'Conversa de teste do atendente: nada é enviado pelo WhatsApp (a resposta vai por publico/bot/responder).';
 // Teto do proxy de midia. A Meta aceita ate 16MB; 20MB deixa folga e evita que um
 // arquivo inesperado vire pico de memoria no processo da API.
 const MAX_MIDIA = 20 * 1024 * 1024;
@@ -1150,6 +1152,8 @@ export class WhatsappCloudService {
   async enviarPeloBot(secret: string, phoneNumberId: string, numero: string, texto: string) {
     if (!segredoDoRoboOk(secret))
       throw new BadRequestException('Não autorizado.');
+    // A conversa de TESTE do atendente (mig 382): nada sai pelo WhatsApp — e o `teste:<id>` sem o prefixo viraria dígitos.
+    if (ehChaveDeTeste(numero)) throw new BadRequestException(RECUSA_NO_TESTE);
 
     const cfg = await this.lojaPorPhoneId(String(phoneNumberId ?? ''));
     if (!cfg) throw new NotFoundException('Número não vinculado a uma loja.');
@@ -1511,6 +1515,8 @@ export class WhatsappCloudService {
   ) {
     if (!segredoDoRoboOk(secret))
       throw new BadRequestException('Não autorizado.');
+    // A conversa de TESTE do atendente (mig 382): nenhum modelo sai pelo WhatsApp.
+    if (ehChaveDeTeste(numero)) throw new BadRequestException(RECUSA_NO_TESTE);
     const cfg = await this.lojaPorPhoneId(String(phoneNumberId ?? '').trim());
     if (!cfg) throw new NotFoundException('Número não vinculado a uma loja.');
     if (cfg.provedor !== 'cloud')

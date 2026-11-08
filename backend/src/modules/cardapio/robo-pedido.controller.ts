@@ -2,7 +2,7 @@ import { Body, Controller, Get, Headers, HttpCode, Post, Query } from '@nestjs/c
 import { Throttle } from '@nestjs/throttler';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { CABECALHO_SEGREDO_ROBO } from '../../common/segredo-robo';
-import { CABECALHO_CONVERSA } from '../../common/conversa-do-robo';
+import { CABECALHO_CONVERSA, ehChaveDeTeste } from '../../common/conversa-do-robo';
 import { RoboPedidoService } from './robo-pedido.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -13,6 +13,7 @@ import { RoboPedidoService } from './robo-pedido.service';
 // ou `phoneNumberId` (API oficial) —, na URL ou no corpo, como nas outras consultas do robô. Só na nuvem.
 // Toda recusa de regra (produto que não existe, fora da área, troco) volta 200 com `ok: false`, `motivo` e `mensagem`
 // — e o pedido como está —, para o robô explicar ao cliente em vez de tropeçar num erro.
+// A conversa de TESTE do atendente (`teste:` na instância, mig 382): o pedido NÃO é montado — ver `recusaNoTeste`.
 const LIMITE = { default: { ttl: 60000, limit: 240 } };
 
 @Controller('publico/bot')
@@ -29,11 +30,24 @@ export class RoboPedidoController {
     );
   }
 
+  /**
+   * A conversa de TESTE do atendente (chave `teste:` na instância, sem phoneNumberId — mig 382): o pedido NÃO é montado — o
+   * rascunho é por telefone e as ferramentas mandam o resumo e a conferência direto ao cliente (efeito colateral). Volta a
+   * recusa de regra que o robô entende (200, `ok: false`, `motivo: 'teste'`) e a conversa de teste ganha a linha 'sistema'.
+   * Conferido ANTES da ficha da conversa (o teste não tem): uma chave de teste nunca cai no caminho do telefone. Fora do
+   * teste = null (segue o caminho de sempre).
+   */
+  private recusaNoTeste(segredo: string | undefined, q: any, corpo?: any) {
+    const instancia = String(q?.instancia ?? corpo?.instancia ?? '');
+    if (String(q?.phoneNumberId ?? corpo?.phoneNumberId ?? '').trim() || !ehChaveDeTeste(instancia)) return null;
+    return this.service.pedidoNoTeste(String(segredo ?? '').trim(), instancia);
+  }
+
   /** Quem é o cliente (nome, cliente novo?), os endereços salvos numerados e o pedido em montagem. */
   @Get('pedido')
   @Throttle(LIMITE)
   async ver(@Query() q: any, @Headers(CABECALHO_SEGREDO_ROBO) segredo?: string, @Headers(CABECALHO_CONVERSA) ficha?: string) {
-    return this.service.ver(await this.contexto(segredo, ficha, q));
+    return (await this.recusaNoTeste(segredo, q)) ?? this.service.ver(await this.contexto(segredo, ficha, q));
   }
 
   /**
@@ -45,7 +59,7 @@ export class RoboPedidoController {
   @HttpCode(200)
   @Throttle(LIMITE)
   async itens(@Body() b: any, @Query() q: any, @Headers(CABECALHO_SEGREDO_ROBO) segredo?: string, @Headers(CABECALHO_CONVERSA) ficha?: string) {
-    return this.service.mexerNosItens(await this.contexto(segredo, ficha, q, b), b ?? {});
+    return (await this.recusaNoTeste(segredo, q, b)) ?? this.service.mexerNosItens(await this.contexto(segredo, ficha, q, b), b ?? {});
   }
 
   /** Entrega ou retirada; endereço salvo (`endereco: n`) ou novo (rua, número, bairro), referência, localização. */
@@ -53,7 +67,7 @@ export class RoboPedidoController {
   @HttpCode(200)
   @Throttle(LIMITE)
   async entrega(@Body() b: any, @Query() q: any, @Headers(CABECALHO_SEGREDO_ROBO) segredo?: string, @Headers(CABECALHO_CONVERSA) ficha?: string) {
-    return this.service.definirEntrega(await this.contexto(segredo, ficha, q, b), b ?? {});
+    return (await this.recusaNoTeste(segredo, q, b)) ?? this.service.definirEntrega(await this.contexto(segredo, ficha, q, b), b ?? {});
   }
 
   /** A forma de pagamento (as do cardápio, de pagar na entrega/retirada) e o troco. */
@@ -61,7 +75,7 @@ export class RoboPedidoController {
   @HttpCode(200)
   @Throttle(LIMITE)
   async pagamento(@Body() b: any, @Query() q: any, @Headers(CABECALHO_SEGREDO_ROBO) segredo?: string, @Headers(CABECALHO_CONVERSA) ficha?: string) {
-    return this.service.definirPagamento(await this.contexto(segredo, ficha, q, b), b ?? {});
+    return (await this.recusaNoTeste(segredo, q, b)) ?? this.service.definirPagamento(await this.contexto(segredo, ficha, q, b), b ?? {});
   }
 
   /** O nome do cliente para o pedido. */
@@ -69,7 +83,7 @@ export class RoboPedidoController {
   @HttpCode(200)
   @Throttle(LIMITE)
   async nome(@Body() b: any, @Query() q: any, @Headers(CABECALHO_SEGREDO_ROBO) segredo?: string, @Headers(CABECALHO_CONVERSA) ficha?: string) {
-    return this.service.definirNome(await this.contexto(segredo, ficha, q, b), b ?? {});
+    return (await this.recusaNoTeste(segredo, q, b)) ?? this.service.definirNome(await this.contexto(segredo, ficha, q, b), b ?? {});
   }
 
   /** Registra o pedido que o cliente confirmou no resumo que o Regem mandou (F5: sem a versão da IA) e manda o resumo final. */
@@ -77,7 +91,7 @@ export class RoboPedidoController {
   @HttpCode(200)
   @Throttle({ default: { ttl: 60000, limit: 60 } })
   async registrar(@Body() b: any, @Query() q: any, @Headers(CABECALHO_SEGREDO_ROBO) segredo?: string, @Headers(CABECALHO_CONVERSA) ficha?: string) {
-    return this.service.registrar(await this.contexto(segredo, ficha, q, b), b ?? {});
+    return (await this.recusaNoTeste(segredo, q, b)) ?? this.service.registrar(await this.contexto(segredo, ficha, q, b), b ?? {});
   }
 
   /** O cliente desistiu: o pedido em montagem é cancelado (nada foi para a loja). */
@@ -85,6 +99,6 @@ export class RoboPedidoController {
   @HttpCode(200)
   @Throttle(LIMITE)
   async cancelar(@Body() b: any, @Query() q: any, @Headers(CABECALHO_SEGREDO_ROBO) segredo?: string, @Headers(CABECALHO_CONVERSA) ficha?: string) {
-    return this.service.cancelar(await this.contexto(segredo, ficha, q, b));
+    return (await this.recusaNoTeste(segredo, q, b)) ?? this.service.cancelar(await this.contexto(segredo, ficha, q, b));
   }
 }

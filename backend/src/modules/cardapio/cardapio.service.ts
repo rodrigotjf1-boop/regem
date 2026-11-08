@@ -22,7 +22,9 @@ import { ChegadaService } from '../chegada/chegada.service';
 import { AniversarioService } from '../aniversario/aniversario.service';
 import { palavrasDe } from './robo-busca';
 import { type CanalDoPerfil, jeitoDoAtendente, perfisDaEmpresa } from './perfis-do-atendente';
-import { type CanalDosAssuntos, assuntosDaEmpresa, blocoDasInstrucoes } from './assuntos-do-atendente';
+import { type CanalDosAssuntos, assuntoNaoEPorAqui, assuntosDaEmpresa, blocoDasInstrucoes } from './assuntos-do-atendente';
+import { blocoDoConhecimento, itensParaAsInstrucoes } from './conhecimento-do-atendente';
+import { type CanalDoTeste, casosSimuladosDoTeste, gravarMensagem, linhaDaSimulacao, testeDaChave } from '../atendimento/teste-do-atendente';
 import { situacaoDaEquipe } from '../atendimento/horario-da-equipe';
 import { opcaoForaDeVenda } from './opcao-fora-de-venda';
 import { and, desc, eq, gte, ilike, inArray, isNull, lt, or, sql } from 'drizzle-orm';
@@ -117,7 +119,7 @@ import { ehEventoCardapio, eventoEmPrevia, eventoNoAr, lerEventos } from './even
 import type { Distancia } from '../atendimento/endereco-depois-que-saiu';
 import { InstagramService } from '../instagram/instagram.service';
 import { idDaChave } from '../instagram/instagram';
-import { ehChaveDoDirect } from '../../common/conversa-do-robo';
+import { ehChaveDeTeste, ehChaveDoDirect } from '../../common/conversa-do-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // O tema que a tela mandou, sem a chave dos eventos sazonais (ela não se grava pela rota geral).
@@ -377,6 +379,10 @@ export class CardapioService {
   async abrirAtendimento(token: string, dto: any, segredo: string) {
     if (!segredoDoRoboOk(segredo)) throw new UnauthorizedException('Não autorizado.');
     const cfg = await this.resolver(token);
+    // A conversa de TESTE do atendente (mig 382): o "telefone" é `teste:<id>` — NÃO abre caso, não pausa, não avisa
+    // ninguém: calcula o que aconteceria (a mesma regra do caminho de verdade) e grava a linha 'sistema' no teste. NUNCA
+    // cai no caminho do telefone.
+    if (ehChaveDeTeste(dto?.telefone)) return this.simularAtendimentoNoTeste(cfg, dto);
     // O robô no Direct do Instagram (mig 378): o "telefone" é `ig:<igsid>` — o caso é o do Direct, só com a ficha do Direct
     // desta empresa e deste cliente. NUNCA cai no caminho do telefone: tirando o `ig:`, sobram dígitos (V79).
     if (ehChaveDoDirect(dto?.telefone)) {
@@ -402,6 +408,30 @@ export class CardapioService {
       resumo: resumoDoRobo(dto, prioridade === 'urgente'),
       cardapioId: cfg.id,
     });
+  }
+
+  /**
+   * O "chamar atendente" na conversa de TESTE do atendente (F4, mig 382). A conversa de teste tem de ser da MESMA empresa
+   * do token do cardápio (senão 404). O que o caminho de verdade faria — o recado para o responsável (F3), o recado para a
+   * abertura (F1, ou "simular fora do horário") ou a equipe chamada, com a posição na fila — sai da MESMA regra
+   * (`AtendimentoService.simularPeloRobo`) e o robô recebe a MESMA forma de resposta (inclusive o `paraOCliente`). Nada é
+   * gravado fora do teste: a linha 'sistema' diz o que aconteceria (e guarda o caso simulado, para a próxima chamada somar
+   * como o caminho real soma). O cardápio do token dá o horário e a loja (como no caminho real); no Direct, sem loja.
+   */
+  private async simularAtendimentoNoTeste(cfg: any, dto: any) {
+    const teste = await testeDaChave(this.db, dto?.telefone);
+    if (!teste || teste.tenantId !== cfg.tenantId) throw new NotFoundException('Conversa de teste não encontrada.');
+    const prioridade = prioridadeDe(dto);
+    const [anteriores, assuntos] = await Promise.all([casosSimuladosDoTeste(this.db, teste.id), assuntosDaEmpresa(this.db, teste.tenantId)]);
+    const sim = await this.atendimento.simularPeloRobo(
+      cfg.tenantId,
+      teste.canal === 'direct' ? null : (cfg.unidadeId ?? null),
+      { tipo: dto?.tipo, cliente: dto?.cliente, mensagem: dto?.mensagem, prioridade, cardapioId: cfg.id },
+      { canal: teste.canal, foraDoHorario: teste.foraDoHorario, anteriores },
+    );
+    const linha = linhaDaSimulacao(sim, sim.resultado === 'responsavel' ? null : assuntoNaoEPorAqui(assuntos, dto?.tipo));
+    await gravarMensagem(this.db, teste, { autor: 'sistema', texto: linha.texto, simulado: linha.simulado });
+    return sim.resposta;
   }
 
   /**
@@ -462,6 +492,14 @@ export class CardapioService {
     const pid = String(phoneNumberId ?? '').trim();
     const inst = String(instancia ?? '').trim();
     if (!pid && !inst) throw new BadRequestException('Informe a instância ou o phoneNumberId.');
+    // A conversa de TESTE do atendente (mig 382): a chave `teste:<id>` dá o cardápio do teste (escolhido ao abrir) — mesmo
+    // com o robô desligado na loja e sem WhatsApp/Instagram conectado (é para testar antes de ligar). Só LEITURA: as
+    // consultas leem os dados de verdade da empresa do teste; as rotas de telefone e de envio recusam `teste:`.
+    if (!pid && ehChaveDeTeste(inst)) {
+      const t = await testeDaChave(this.db, inst);
+      if (!t?.cardapio?.token) throw new NotFoundException('Conversa de teste não encontrada.');
+      return t.cardapio.token;
+    }
     // O Direct do Instagram (mig 378): a chave `ig:<conta>` dá o cardápio que o robô do Direct usa — só com o robô do
     // Direct ligado. É a ÚNICA porta das consultas que conhece `ig:`; as de telefone (pedidos, link do cliente) recusam.
     if (!pid && ehChaveDoDirect(inst)) {
@@ -483,7 +521,7 @@ export class CardapioService {
    * do token (o cardápio da instância; no Direct, o cardápio do robô). Só lê o horário da equipe quando o perfil de fora
    * do horário muda alguma coisa. Nunca rejeita: falha de leitura = '' (as instruções de hoje), com o motivo no log.
    */
-  async jeitoDoAtendenteDoRobo(token: string, canal: CanalDoPerfil): Promise<string> {
+  async jeitoDoAtendenteDoRobo(token: string, canal: CanalDoPerfil, opcoes: { foraDoHorario?: boolean } = {}): Promise<string> {
     let tenantId = '';
     try {
       const cfg = await this.resolver(token);
@@ -491,7 +529,10 @@ export class CardapioService {
       const perfis = await perfisDaEmpresa(this.db, cfg.tenantId);
       const { perfil, foraDoHorario } = perfis[canal];
       let atendendo = true;
-      if (foraDoHorario !== 'mesmo' && foraDoHorario !== perfil)
+      // O teste do atendente com "simular fora do horário" (mig 382): como se a equipe não estivesse — o mesmo perfil que a
+      // loja teria fora do horário.
+      if (opcoes.foraDoHorario === true) atendendo = false;
+      else if (foraDoHorario !== 'mesmo' && foraDoHorario !== perfil)
         atendendo = (await situacaoDaEquipe(this.db, cfg.tenantId, { cardapioId: cfg.id, unidadeId: cfg.unidadeId })).atendendo;
       return jeitoDoAtendente(perfis, canal, atendendo);
     } catch (e: any) {
@@ -515,6 +556,33 @@ export class CardapioService {
       this.logger.warn(`assuntos do atendente (${canal}) não lidos (empresa ${tenantId || '?'}; valem as instruções de hoje): ${e?.message ?? e}`);
       return '';
     }
+  }
+
+  /**
+   * O que a loja ensinou ao atendente (F4, mig 382 — `conhecimento-do-atendente.ts`), para as instruções do robô de TODOS os
+   * canais: a seção "O QUE A LOJA ENSINOU". A empresa vem do token, como o perfil. Sem itens (ou num banco sem a 382) = ''
+   * — as instruções de hoje. Nunca rejeita: falha de leitura = '', com o motivo no log.
+   */
+  async conhecimentoDoRobo(token: string): Promise<string> {
+    let tenantId = '';
+    try {
+      const cfg = await this.resolver(token);
+      tenantId = cfg.tenantId;
+      return blocoDoConhecimento(await itensParaAsInstrucoes(this.db, cfg.tenantId));
+    } catch (e: any) {
+      this.logger.warn(`conhecimento do atendente não lido (empresa ${tenantId || '?'}; valem as instruções de hoje): ${e?.message ?? e}`);
+      return '';
+    }
+  }
+
+  /**
+   * A conversa de TESTE do atendente da chave `teste:<id>` (mig 382), para as instruções: o canal que ela imita e o
+   * "simular fora do horário". Chave inválida ou teste que não existe = null (as consultas já recusaram pela chave).
+   */
+  async testeDoRobo(instancia: unknown): Promise<{ canal: CanalDoTeste; foraDoHorario: boolean } | null> {
+    if (!ehChaveDeTeste(instancia)) return null;
+    const t = await testeDaChave(this.db, instancia);
+    return t ? { canal: t.canal, foraDoHorario: t.foraDoHorario } : null;
   }
 
   /** O link público do cardápio (sempre a nuvem — o cliente abre no celular dele). */

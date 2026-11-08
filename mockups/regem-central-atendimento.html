@@ -83,6 +83,14 @@
    robô diz. Com recado, o robô pergunta o mínimo (nome, empresa ou função, o assunto, o melhor
    contato), responde com o texto da loja e deixa um RECADO PARA O RESPONSÁVEL: fora da fila da equipe, na situação
    "📋 Recados", que só gerente e presidente veem; não toca, não conta no tempo de espera e não cala o robô.
+   VERSÃO 13 (08/11/2026, F4 do atendente virtual — pedido do dono: "teríamos que ter mais treinamento do nosso atendente
+   virtual"): TREINAR O ATENDENTE. Botão "🧪 Testar o atendente" no topo do Atendimento (e no grupo do perfil, nos
+   ajustes): uma gaveta com a CONVERSA DE TESTE — a pessoa escreve como um cliente, escolhe o canal (WhatsApp ou Direct) e,
+   se quiser, "simular fora do horário"; responde o MESMO atendente virtual da loja, com o perfil daquele canal. Nada sai
+   para clientes: chamar a equipe, recados e pedidos viram SIMULAÇÃO (uma linha diz o que aconteceria). Em cada resposta
+   do robô — no teste e nas conversas reais do Direct — "Corrigir": quem é gerente ou presidente escreve como o atendente
+   deveria responder e escolhe o assunto; isso vira CONHECIMENTO, que o robô usa quando a pergunta combinar. Aba "O que ele
+   aprendeu": a lista por assunto (até 100), com editar e remover.
    O que a tela faz:
    (1) uma FILA só com tudo o que precisa de uma pessoa: chamado do robô, disputa do iFood, pedido de cancelamento ou
        reembolso da 99, cancelamento pedido no cardápio e a resposta ao "sem contato". A conversa que o robô atende
@@ -247,6 +255,23 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 /* versão 10: fora do horário da equipe (aviso calmo, não alarme) e o selo do recado da noite */
 .faixa.noite{border-color:#C9DCEC;background:var(--info-bg)}
 .selo.noite{background:#E9E6F5;color:#4A3F86}
+/* versão 13: treinar o atendente — a conversa de teste, o "Corrigir" e o que ele aprendeu */
+.teste-ctl{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center}
+.teste-ctl .opcoes{flex:1 1 220px}
+.teste-ctl .opcao{flex:1 1 90px;min-height:40px;text-align:center}
+.chk{display:inline-flex;align-items:center;gap:8px;min-height:40px;font-size:13.5px;font-weight:600}
+.chk input{width:18px;height:18px}
+.msgs.teste{max-height:none;min-height:120px}
+.msg .corrigir{display:block;margin-top:4px;background:none;border:0;padding:2px 0;min-height:24px;color:var(--info);font-weight:700;font-size:12px;cursor:pointer;text-decoration:underline;text-align:left}
+.msg .corrigida{display:block;margin-top:4px;font-size:11.5px;color:var(--ok);font-weight:700}
+.msg.digitando{color:var(--ink-2);font-style:italic}
+.msg.sis.simulado{max-width:100%;background:var(--warn-bg);color:var(--ink);border-radius:8px;padding:6px 10px;text-align:center}
+.aprendido{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.aprendido li{border:1px solid var(--line);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.aprendido .q{font-weight:700;overflow-wrap:anywhere}
+.aprendido .r{overflow-wrap:anywhere;font-size:14px}
+.aprendido-g h4{margin:6px 0;font-family:var(--display);font-size:13px;letter-spacing:.02em}
+.citacao{margin:4px 0 0;padding:6px 10px;border-left:3px solid var(--line-2);overflow-wrap:anywhere;font-size:14px}
 .novo-t{font-size:10.5px;font-weight:800;letter-spacing:.06em;color:var(--on-gold);background:var(--gold);border-radius:6px;padding:1px 6px;vertical-align:middle}
 .mapa{position:relative;height:140px;border-radius:10px;border:1px solid var(--line);margin:0 0 6px;overflow:hidden;background:linear-gradient(90deg,rgba(67,88,108,.08) 1px,transparent 1px) 0 0/24px 24px,linear-gradient(0deg,rgba(67,88,108,.08) 1px,transparent 1px) 0 0/24px 24px,#F7F9FB}
 .mapa .rua{position:absolute;left:0;right:0;top:58%;height:14px;background:#E3E9EF}
@@ -435,7 +460,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 #v-pc{padding-top:12px}
 .topo{flex-wrap:wrap}
 .topo .dir{flex-wrap:wrap;justify-content:flex-end}
-.topo #bt-numeros{min-height:36px;padding:0 12px;font-size:13.5px}
+.topo #bt-numeros,.topo #bt-testar{min-height:36px;padding:0 12px;font-size:13.5px}
 .cab-atend{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin-bottom:10px}
 .cab-atend h1{font-size:21px;margin:0;white-space:nowrap}
 .cab-atend .resumo{flex:1 1 20rem;min-width:0;margin:0;font-size:13.5px;overflow-wrap:anywhere}
@@ -554,6 +579,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     <span>Horário da equipe (versão 10):</span>
     <button type="button" data-horario="dentro" aria-pressed="true">no horário (18:47)</button>
     <button type="button" data-horario="fora" aria-pressed="false">fora do horário (02:20)</button>
+    <span>Atendente virtual (versão 13):</span>
+    <button type="button" data-robo-teste="sim" aria-pressed="true">disponível</button>
+    <button type="button" data-robo-teste="nao" aria-pressed="false">indisponível</button>
   </div>
   <div class="ctl" id="ctl-num" role="group" aria-label="Estado dos números" hidden>
     <span>Números:</span>
@@ -596,6 +624,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <button type="button" class="menu-bt" aria-label="Menu (no Regem abre o menu lateral)">☰</button>
       <span class="onde" id="onde">Atendimento</span>
       <div class="dir">
+        <button type="button" class="bt" id="bt-testar" data-so-pc>🧪 Testar o atendente</button>
         <button type="button" class="bt" id="bt-numeros" data-ir="num" data-so-pc>📊 Números do atendimento</button>
         <a href="#" onclick="return false" class="teste-gratis" id="teste-gratis" aria-label="Teste grátis: 16 dias restantes — ver planos">✨ Teste grátis: 16 dias</a>
         <button type="button" class="sino" id="sino" aria-expanded="false" aria-controls="pop-sino" aria-label="Avisos de atendimento: 7 abertos">🔔<b id="badge-sino">7</b></button>
@@ -683,6 +712,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
           <div class="ctrl"><span class="fixo">Chat do iFood e da 99: hoje o robô usa frases prontas (a regra da plataforma) — o perfil chega com a F5 · Messenger do Facebook e respostas aos comentários do Instagram: chegam nas próximas fases, já com o perfil de cada um</span></div></div>
         <div class="aj"><div><span class="rot-aj">Sempre vale</span><span class="ajuda">Não se desliga: o perfil muda o jeito de falar, nunca as regras.</span></div>
           <div class="ctrl"><span class="fixo">O robô nunca inventa preço, prazo, taxa nem promoção · segue as regras de cada canal (no Direct, sem telefone; no chat das plataformas, sem contato fora) · no máximo 1 emoji por mensagem, em qualquer perfil · cliente chateado: o robô fica sério e chama a equipe, em qualquer perfil</span></div></div>
+        <p class="ajuda" style="margin:10px 0 0;display:flex;flex-wrap:wrap;gap:8px;align-items:center">Quer ver como fica? Salve antes: o teste usa o perfil gravado. <button type="button" class="bt" data-dlg="testar">🧪 Testar o atendente</button></p>
       </section>
 
       <!-- Versão 12 (F3): os ASSUNTOS QUE NÃO SÃO PEDIDO (pedido do dono: "no Direct vêm fornecedores tentando contato com o
@@ -1062,7 +1092,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 
 <!-- ============ NOTAS ============ -->
 <section id="v-notas" hidden class="notas" aria-label="Notas do protótipo">
-  <div class="trilha">Notas do protótipo · 02/11/2026 · versão 12 em 07/11/2026</div>
+  <div class="trilha">Notas do protótipo · 02/11/2026 · versão 13 em 08/11/2026</div>
   <h1>Atendimento: o que cada parte faz</h1>
 
   <div class="cartao">
@@ -1163,6 +1193,20 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <li><b>Confirmação em dois toques</b>: a resposta ao iFood e à 99 não volta atrás.</li>
       <li>Na disputa, pelo WhatsApp só <b>Aceitar e Recusar</b>; a proposta (crédito, outro valor, mais tempo) fica no Regem, pelo link.</li>
     </ol>
+  </div>
+
+  <div class="cartao">
+    <h3>Treinar o atendente · versão 13 (08/11/2026)</h3>
+    <p>Pedido do dono: "teríamos que ter mais treinamento do nosso atendente virtual". É a F4. Escolhas recomendadas, já aplicadas:</p>
+    <ul>
+      <li><b>"🧪 Testar o atendente"</b> no topo do Atendimento e no grupo do perfil (ajustes): uma gaveta com a conversa de teste. A pessoa escreve como um cliente; responde o <b>mesmo atendente virtual</b> da loja (o robô de verdade, com as instruções, o perfil e os assuntos de hoje), no canal escolhido (WhatsApp ou Direct) e, se quiser, como <b>fora do horário</b>.</li>
+      <li><b>Nada sai para clientes.</b> Chamar a equipe, recado para a abertura, recado para o responsável e pedido viram <b>simulação</b>: uma linha amarela diz o que aconteceria na conversa real. Nenhum caso, recado, pedido ou cliente é criado.</li>
+      <li><b>"Corrigir"</b> em cada resposta do atendente — no teste e nas conversas reais do <b>Direct</b>. No caso do WhatsApp ainda não: a caixa do WhatsApp não diz se quem escreveu foi o robô ou a equipe (chega quando o Regem marcar o que o robô envia). No chat do iFood e da 99 o robô usa frases prontas (chega com a F5). A pessoa escreve como deveria ser, confere a pergunta e escolhe o assunto; vira <b>conhecimento</b>, que o atendente usa quando a pergunta combinar (não precisa ser igual).</li>
+      <li><b>"O que ele aprendeu"</b>: a lista por assunto (Entrega e taxa, Pagamento, Cardápio e ingredientes, Horário e funcionamento, Pedido e troca, Outro assunto), até 100, com editar, remover e "＋ Ensinar uma resposta". Vale para o WhatsApp e o Direct.</li>
+      <li><b>Preço, taxa, prazo e horário</b> continuam vindo do cadastro, mesmo que a resposta ensinada traga um valor: o conhecimento dá o jeito de responder, não o número.</li>
+      <li>Só <b>gerente e presidente</b> testam e ensinam (o servidor confere). A conversa de teste some sozinha depois de 7 dias; o que foi ensinado fica, com quem ensinou e quando, e vai para a auditoria.</li>
+      <li>Sem mexer no n8n: o teste entra pelo mesmo caminho do robô, com uma chave própria de teste — como o robô do Direct entrou. No servidor da loja, o teste é feito pela nuvem.</li>
+    </ul>
   </div>
 
   <div class="cartao">
@@ -1655,7 +1699,10 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   const PROIBIDO = /(https?:\/\/|www\.|\.com\b|wa\.me|whats|insta|@[a-z0-9_.]{3,}|\(?\d{2}\)?\s?9?\d{4}[-\s]?\d{4})/i;
   let ponte = 'ok';
   const envio = (q, canal) => (q === 'cli' || q === 'sis' || canal === 'wa' ? '' : ' · <span class="env-ok">✓ enviada</span>');
-  const msgsHtml = (msgs, canal) => msgs.map(([q, t, h]) => `<div class="msg ${q}">${esc(t)}${h ? `<small>${esc(h)}${envio(q, canal)}</small>` : ''}</div>`).join('');
+  // Versão 13: em cada resposta do ROBÔ, "Corrigir" (gerente e presidente) — a pergunta é a última mensagem do cliente antes.
+  const perguntaAntes = (msgs, i) => { for (let j = i - 1; j >= 0; j--) if (msgs[j][0] === 'cli') return msgs[j][1]; return ''; };
+  const botaoCorrigir = (msgs, i) => `<button type="button" class="corrigir" data-dlg="corrigir" data-origem="caso" data-q="${esc(perguntaAntes(msgs, i))}" data-r="${esc(msgs[i][1])}">Corrigir</button>`;
+  const msgsHtml = (msgs, canal) => msgs.map(([q, t, h], i) => `<div class="msg ${q}">${esc(t)}${h ? `<small>${esc(h)}${envio(q, canal)}</small>` : ''}${q === 'robo' && canal === 'ig' ? botaoCorrigir(msgs, i) : ''}</div>`).join(''); // só no Direct: no iFood/99 o robô usa frases prontas (F5); no WhatsApp a caixa não diz quem escreveu
   function blocoChat(c, d) {
     const daPlat = c.canal === 'ifood' ? 'do iFood' : 'da 99';
     const pela = c.canal === 'ifood' ? 'pelo iFood' : 'pela 99';
@@ -1870,6 +1917,109 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   });
 
   // ---------- diálogos ----------
+  // ---------- versão 13: TREINAR O ATENDENTE (dados inventados; nada fala com o Regem) ----------
+  const ASSUNTOS_K = [['entrega', 'Entrega e taxa'], ['pagamento', 'Pagamento'], ['cardapio', 'Cardápio e ingredientes'], ['horario', 'Horário e funcionamento'], ['pedido', 'Pedido e troca'], ['outro', 'Outro assunto']];
+  const ORIGEM_K = { teste: 'corrigida no teste', caso: 'corrigida numa conversa', manual: 'ensinada à mão' };
+  const APRENDIDO = [{ id: 'k1', assunto: 'entrega', q: 'Vocês entregam no Recreio?', r: 'Entregamos no Recreio, sim! Me diz a rua que eu confiro a taxa e o tempo de entrega para você.', origem: 'caso', por: 'Ana', quando: 'ontem, 21:10' }];
+  let seqK = 2;
+  const TESTE = { canal: 'wa', fora: false, msgs: [], disponivel: true, esperando: false };
+  const SAUDACAO_K = { hoje: '', profissional: 'Olá. ', cordial: 'Oi! ', gentil: 'Olá, tudo bem? ', descontraido: 'Opa! ', objetivo: '', acolhedor: 'Oi, que bom falar com você! ' };
+  const SIS_K = {
+    equipe: (d) => `🔔 Na conversa real, a equipe seria chamada agora (${d}). No teste, ninguém é chamado.`,
+    recado: () => '🌙 Na conversa real, viraria recado para a abertura da loja. No teste, nada é criado.',
+    responsavel: (d) => `📋 Na conversa real, viraria recado para o responsável (${d}). No teste, nada é criado.`,
+    nao: (d) => `ℹ️ O atendente respondeu que esse assunto não é por aqui, sem chamar ninguém (${d}).`,
+  };
+  const normK = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const palavrasK = (t) => normK(t).split(/[^a-z0-9]+/).filter((w) => w.length > 3);
+  // O perfil do canal do teste (os ajustes da versão 11), e o de fora do horário quando a pessoa simula.
+  function perfilDoTeste() {
+    const sel = $(`select[data-perfil="${TESTE.canal}"]`);
+    let p = sel ? sel.value : 'hoje';
+    const linhaFora = sel && sel.closest('.aj') ? sel.closest('.aj').nextElementSibling : null;
+    const fora = linhaFora ? $('select', linhaFora) : null;
+    if (TESTE.fora && fora && fora.value !== 'mesmo') p = fora.value;
+    return p;
+  }
+  const modoDoAssunto = (rotulo) => { const s = $(`select[aria-label="O que o robô faz com ${rotulo}"]`); return s ? s.value : 'hoje'; };
+  function sugerirAssunto(q) {
+    const t = normK(q);
+    if (/entreg|taxa|bairro|frete/.test(t)) return 'entrega';
+    if (/pix|cartao|pagamento|pagar|troco/.test(t)) return 'pagamento';
+    if (/horario|abre|abrem|fecha|aberto|domingo|feriado/.test(t)) return 'horario';
+    if (/faltou|troca|errad|pedido|cancel|demor/.test(t)) return 'pedido';
+    if (/ingrediente|cardapio|sabor|lanche|vegano|gluten|lactose/.test(t)) return 'cardapio';
+    return 'outro';
+  }
+  // A resposta inventada do protótipo: primeiro o que ele aprendeu; depois os assuntos (versão 12) e o horário (versão 10).
+  function respostaDeTeste(texto) {
+    const t = normK(texto);
+    const ditas = new Set(palavrasK(texto));
+    const ap = APRENDIDO.find((k) => { const a = palavrasK(k.q); return a.length && a.filter((w) => ditas.has(w)).length >= Math.min(2, a.length); });
+    if (ap) return { r: ap.r, aprendida: true };
+    const assunto = (rotulo, nome, chave) => {
+      const m = modoDoAssunto(rotulo);
+      if (m === 'recado') return { r: `Obrigado pelo contato! Me conta seu nome, ${chave === 'vaga' ? 'a função que procura' : 'a empresa'} e o melhor contato, que eu deixo o recado para o responsável.`, sis: { tipo: 'responsavel', d: nome } };
+      if (m === 'nao') return { r: 'Obrigado pelo contato! Esse assunto não é tratado por aqui.', sis: { tipo: 'nao', d: nome } };
+      return { r: 'Vou chamar alguém da equipe para falar com você.', sis: TESTE.fora ? { tipo: 'recado', d: 'abertura' } : { tipo: 'equipe', d: nome } };
+    };
+    if (/fornec|proposta|represent|distribuid/.test(t)) return assunto('fornecedor e proposta comercial', 'fornecedor', 'fornecedor');
+    if (/vaga|emprego|trabalhar|curriculo/.test(t)) return assunto('vaga de emprego', 'vaga de emprego', 'vaga');
+    if (/parceria|influenc|imprensa|divulga/.test(t)) return assunto('parceria, influenciador e imprensa', 'parceria', 'parceria');
+    if (/horario|abre|abrem|fecha|aberto|aberta/.test(t)) return { r: TESTE.fora ? 'Agora estamos fechados. Abrimos amanhã às 18h — o cardápio já está aqui: app.dmsregem.com/c/burgerdapraca' : 'Hoje estamos abertos até as 23h59! Quer ver o cardápio?' };
+    if (/entreg|taxa|bairro/.test(t)) return { r: 'Entregamos no Centro, na Lapa e na Glória. Me diz seu bairro que eu confiro a taxa.' };
+    if (/faltou|errad|veio sem|reclam|cancel|demor/.test(t)) return TESTE.fora
+      ? { r: 'Sinto muito! Nossa equipe volta amanhã às 17h30 e já deixei o seu recado para eles.', sis: { tipo: 'recado', d: 'abertura' } }
+      : { r: 'Sinto muito! Já chamei alguém da equipe para resolver com você.', sis: { tipo: 'equipe', d: 'troca' } };
+    if (/pix|cartao|pagamento|pagar|dinheiro/.test(t)) return { r: 'Aceitamos Pix, cartão de crédito e de débito na entrega.' };
+    return { r: 'Desculpe, não entendi bem. Pode me explicar de outro jeito? Se preferir, chamo alguém da equipe.' };
+  }
+  function htmlDoTeste() {
+    if (!TESTE.msgs.length && !TESTE.esperando) return '<p class="ajuda" style="margin:auto 0;text-align:center">Escreva a primeira mensagem, como um cliente faria.</p>';
+    return TESTE.msgs.map((m, i) => {
+      if (m.q === 'sis') return `<div class="msg sis simulado">${esc(m.t)}</div>`;
+      if (m.q === 'cli') return `<div class="msg cli">${esc(m.t)}<small>você, como cliente · ${m.canal === 'ig' ? 'Direct' : 'WhatsApp'}</small></div>`;
+      const pe = m.corrigida ? '<span class="corrigida">✏️ Corrigida — pergunte de novo para ver</span>'
+        : `<button type="button" class="corrigir" data-dlg="corrigir" data-origem="teste" data-idx="${i}" data-q="${esc(m.perg)}" data-r="${esc(m.t)}">Corrigir</button>`;
+      return `<div class="msg robo">${esc(m.t)}<small>atendente virtual${m.aprendida ? ' · usou o que aprendeu' : ''}</small>${pe}</div>`;
+    }).join('') + (TESTE.esperando ? '<div class="msg robo digitando">escrevendo…</div>' : '');
+  }
+  function htmlAprendido() {
+    const cab = `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between"><span class="ajuda">${APRENDIDO.length} de 100 · vale para o WhatsApp e o Direct</span><button type="button" class="bt" data-dlg="corrigir" data-origem="manual">＋ Ensinar uma resposta</button></div>`;
+    if (!APRENDIDO.length) return cab + '<div class="nota">Nada ensinado ainda. Corrija uma resposta na conversa de teste ou numa conversa real da fila.</div>';
+    return cab + ASSUNTOS_K.filter(([k]) => APRENDIDO.some((a) => a.assunto === k)).map(([k, nome]) => {
+      const itens = APRENDIDO.filter((a) => a.assunto === k);
+      return `<section class="aprendido-g"><h4>${nome} · ${itens.length}</h4><ul class="aprendido">${itens.map((a) => `<li><span class="q">“${esc(a.q)}”</span><span class="r">${esc(a.r)}</span><span class="ajuda">${ORIGEM_K[a.origem]} · ${esc(a.por)} · ${esc(a.quando)}</span>
+        <div class="acoes"><button type="button" class="bt" data-dlg="corrigir" data-editar="${a.id}">Editar</button><button type="button" class="bt" data-dlg="remover-aprendido" data-id="${a.id}">Remover</button></div></li>`).join('')}</ul></section>`;
+    }).join('');
+  }
+  function desenharTeste() {
+    const caixa = $('#camada [data-msgs-teste]');
+    if (!caixa) return;
+    caixa.innerHTML = htmlDoTeste();
+    caixa.scrollTop = caixa.scrollHeight;
+  }
+  function desenharAprendido() {
+    const alvo = $('#camada [data-lista-aprendido]');
+    if (alvo) alvo.innerHTML = htmlAprendido();
+    $$('#camada [data-conta-ap]').forEach((x) => { x.textContent = String(APRENDIDO.length); });
+  }
+  function enviarTeste(texto) {
+    const t = String(texto || '').trim();
+    if (!t || TESTE.esperando) return;
+    TESTE.msgs.push({ q: 'cli', t, canal: TESTE.canal });
+    TESTE.esperando = true;
+    desenharTeste();
+    setTimeout(() => {
+      const res = respostaDeTeste(t);
+      const sauda = res.aprendida || TESTE.msgs.some((m) => m.q === 'robo') ? '' : SAUDACAO_K[perfilDoTeste()] || '';
+      TESTE.esperando = false;
+      TESTE.msgs.push({ q: 'robo', t: sauda + res.r, perg: t, aprendida: !!res.aprendida });
+      if (res.sis) TESTE.msgs.push({ q: 'sis', t: SIS_K[res.sis.tipo](res.sis.d) });
+      desenharTeste();
+    }, 900);
+  }
+
   const pilha = [];
   const senha = (id = 'senha') => `<div class="campo"><label for="${id}">Senha de quem decide (gerente ou presidente)</label><input id="${id}" class="senha" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="text"></div>`;
   const insumos = `<div class="campo"><span class="rot">O que aconteceu com os insumos deste pedido?</span><div class="opcoes" role="group" aria-label="Destino dos insumos">
@@ -1935,6 +2085,80 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     'recusar-card': () => ({ t: 'Recusar o cancelamento do pedido 1185', b: `<p style="margin:0">O pedido segue normalmente. Avise o cliente pelo WhatsApp, se quiser.</p>`, ok: 'Recusar', cl: 'pri' }),
     passar: () => ({ t: 'Passar o caso', b: `<div class="campo"><span class="rot">Para quem</span><div class="opcoes" role="group" aria-label="Para quem"><button type="button" class="opcao" aria-pressed="true" data-op>Bruno · disponível</button><button type="button" class="opcao" aria-pressed="false" data-op>Carla · ocupada: caixa</button><button type="button" class="opcao" aria-pressed="false" data-op>De volta para a fila</button></div></div>
       <div class="campo"><label for="nota-p">Recado (opcional)</label><input id="nota-p" type="text" placeholder="Ex.: já pedi a foto"></div>`, ok: 'Passar', cl: 'pri' }),
+    // Versão 13: TREINAR O ATENDENTE — a gaveta da conversa de teste e do que ele aprendeu.
+    testar: () => ({ gaveta: true, t: 'Testar o atendente', foco: '[data-txt-teste]', b: !TESTE.disponivel
+      ? '<div class="nota warn">O atendente virtual não está disponível nesta instalação. No servidor da loja, o teste é feito pela nuvem (app.dmsregem.com), onde o atendente roda.</div>'
+      : `<div class="opcoes" role="group" aria-label="O que ver na gaveta"><button type="button" class="opcao" aria-pressed="true" data-aba-t="conversa">Conversa de teste</button><button type="button" class="opcao" aria-pressed="false" data-aba-t="aprendido">O que ele aprendeu · <b data-conta-ap>${APRENDIDO.length}</b></button></div>
+      <div data-painel-t="conversa" style="display:flex;flex-direction:column;gap:10px">
+        <div class="teste-ctl"><div class="opcoes" role="group" aria-label="Canal do teste"><button type="button" class="opcao" aria-pressed="${TESTE.canal === 'wa'}" data-canal-t="wa">WhatsApp</button><button type="button" class="opcao" aria-pressed="${TESTE.canal === 'ig'}" data-canal-t="ig">Direct</button></div>
+          <label class="chk"><input type="checkbox" data-fora-t ${TESTE.fora ? 'checked' : ''}> Simular fora do horário</label></div>
+        <p class="ajuda" style="margin:0">Escreva como um cliente. Responde o mesmo atendente virtual da loja, com o perfil do canal escolhido. <b>Nada sai para clientes</b>: chamar a equipe, recados e pedidos viram simulação. Mudar o canal ou o horário começa outra conversa.</p>
+        <div class="msgs teste" data-msgs-teste aria-live="polite">${htmlDoTeste()}</div>
+        <div class="prontas" aria-label="Exemplos de pergunta">${['Qual o horário de hoje?', 'Vocês entregam no Recreio?', 'Faltou a batata no meu pedido', 'Sou fornecedor de embalagens', 'Tem vaga de emprego?'].map((x) => `<button type="button" class="pronta" data-exemplo-t>${x}</button>`).join('')}</div>
+        <div class="escrever"><textarea aria-label="Mensagem de teste, como cliente" placeholder="Escreva como um cliente (Enter envia)" data-txt-teste maxlength="1000"></textarea><button type="button" class="bt pri" data-enviar-teste>Enviar</button></div>
+        <button type="button" class="bt" data-nova-t style="align-self:flex-start">Começar outra conversa</button>
+      </div>
+      <div data-painel-t="aprendido" hidden><div data-lista-aprendido style="display:flex;flex-direction:column;gap:8px">${htmlAprendido()}</div></div>`,
+      aoAbrir: (fundo) => {
+        if (!TESTE.disponivel) return;
+        $$('[data-aba-t]', fundo).forEach((b) => b.addEventListener('click', () => {
+          $$('[data-aba-t]', fundo).forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+          $$('[data-painel-t]', fundo).forEach((p) => { p.hidden = p.dataset.painelT !== b.dataset.abaT; });
+        }));
+        const nova = (aviso) => { TESTE.msgs = []; TESTE.esperando = false; desenharTeste(); if (aviso) toast(aviso); };
+        $$('[data-canal-t]', fundo).forEach((b) => b.addEventListener('click', () => {
+          if (TESTE.canal === b.dataset.canalT) return;
+          TESTE.canal = b.dataset.canalT;
+          $$('[data-canal-t]', fundo).forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+          nova(`Conversa nova no ${TESTE.canal === 'ig' ? 'Direct' : 'WhatsApp'} (protótipo)`);
+        }));
+        $('[data-fora-t]', fundo).addEventListener('change', (e) => { TESTE.fora = e.target.checked; nova(TESTE.fora ? 'Conversa nova, como fora do horário (protótipo)' : 'Conversa nova, no horário (protótipo)'); });
+        const txt = $('[data-txt-teste]', fundo);
+        const mandar = () => { enviarTeste(txt.value); txt.value = ''; };
+        $('[data-enviar-teste]', fundo).addEventListener('click', mandar);
+        txt.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); mandar(); } });
+        $$('[data-exemplo-t]', fundo).forEach((b) => b.addEventListener('click', () => enviarTeste(b.textContent)));
+        $('[data-nova-t]', fundo).addEventListener('click', () => nova('Conversa nova (protótipo)'));
+      } }),
+    // "Corrigir" (no teste e nas conversas reais), "＋ Ensinar uma resposta" e "Editar": o mesmo diálogo.
+    corrigir: (b) => {
+      const ed = b.dataset.editar ? APRENDIDO.find((a) => a.id === b.dataset.editar) : null;
+      const q = ed ? ed.q : b.dataset.q || '';
+      const r = ed ? ed.r : b.dataset.r || '';
+      const origem = ed ? ed.origem : b.dataset.origem || 'manual';
+      const sozinho = !!ed || origem === 'manual'; // sem a conversa em volta: só os campos
+      return { t: ed ? 'Editar o que o atendente aprendeu' : origem === 'manual' ? 'Ensinar uma resposta ao atendente' : 'Corrigir a resposta do atendente',
+        foco: sozinho ? '#cor-perg' : '#cor-resp', b: `
+        ${sozinho ? '' : `<p style="margin:0"><b>O cliente perguntou</b></p><p class="citacao">${esc(q || '(sem pergunta antes)')}</p><p style="margin:6px 0 0"><b>O atendente respondeu</b></p><p class="citacao">${esc(r)}</p>`}
+        <div class="campo"><label for="cor-assunto">Assunto</label><select id="cor-assunto">${ASSUNTOS_K.map(([k, n]) => `<option value="${k}"${k === (ed ? ed.assunto : sugerirAssunto(q)) ? ' selected' : ''}>${n}</option>`).join('')}</select></div>
+        <div class="campo"><label for="cor-perg">Quando o cliente perguntar</label><input id="cor-perg" type="text" maxlength="300" value="${esc(q)}" placeholder="Ex.: Vocês entregam no Recreio?"><span class="ajuda">Uma linha. Não precisa ser igual: o atendente usa a resposta quando a pergunta combinar.</span></div>
+        <div class="campo"><label for="cor-resp">${sozinho ? 'O atendente responde' : 'O atendente deveria responder'}</label><textarea id="cor-resp" rows="4" maxlength="600" placeholder="Escreva como a loja responderia">${ed ? esc(r) : ''}</textarea><span class="ajuda">Até 600 letras. Preço, taxa, prazo e horário ele continua tirando do cadastro, mesmo que a resposta traga um valor.</span></div>
+        <p class="ajuda" style="margin:0">Vale para o WhatsApp e o Direct. Só gerente e presidente ensinam.</p>`,
+        ok: ed ? 'Salvar' : 'Ensinar ao atendente', cl: 'pri',
+        conferir: (fundo) => {
+          const pq = $('#cor-perg', fundo).value.trim();
+          const pr = $('#cor-resp', fundo).value.trim();
+          const erro = !pq ? 'Escreva o que o cliente pergunta.' : !pr ? 'Escreva como o atendente deve responder.' : !ed && APRENDIDO.length >= 100 ? 'O atendente já tem 100 respostas ensinadas. Remova uma antes.' : '';
+          let e = $('[data-erro-cor]', fundo);
+          if (!e) { e = document.createElement('p'); e.className = 'ajuda'; e.setAttribute('data-erro-cor', ''); e.setAttribute('role', 'alert'); e.style.cssText = 'margin:0;color:var(--crit);font-weight:700'; $('.meio', fundo).appendChild(e); }
+          e.textContent = erro;
+          return !erro;
+        },
+        ler: (fundo) => ({ assunto: $('#cor-assunto', fundo).value, q: $('#cor-perg', fundo).value.trim(), r: $('#cor-resp', fundo).value.trim() }),
+        aoConfirmar: (v) => {
+          if (ed) Object.assign(ed, { assunto: v.assunto, q: v.q, r: v.r, quando: 'agora' });
+          else APRENDIDO.push({ id: `k${seqK++}`, assunto: v.assunto, q: v.q, r: v.r, origem, por: 'Ana', quando: 'agora' });
+          if (origem === 'teste' && b.dataset.idx) { const m = TESTE.msgs[Number(b.dataset.idx)]; if (m) m.corrigida = true; desenharTeste(); }
+          if (origem === 'caso') b.outerHTML = '<span class="corrigida">✏️ Corrigida — o atendente já usa a resposta nova</span>';
+          desenharAprendido();
+          toast(ed ? '✅ Resposta atualizada (protótipo)' : '✅ Ensinado: o atendente passa a usar esta resposta quando a pergunta combinar (protótipo)');
+        } };
+    },
+    'remover-aprendido': (b) => {
+      const a = APRENDIDO.find((x) => x.id === b.dataset.id) || { q: '', r: '' };
+      return { t: 'Remover o que o atendente aprendeu', b: `<p style="margin:0">O atendente deixa de usar esta resposta.</p><p class="citacao"><b>“${esc(a.q)}”</b><br>${esc(a.r)}</p>`, ok: 'Remover', cl: 'perigo',
+        aoConfirmar: () => { const i = APRENDIDO.indexOf(a); if (i >= 0) APRENDIDO.splice(i, 1); desenharAprendido(); toast('Resposta removida: o atendente deixa de usá-la (protótipo)'); } };
+    },
     // Versão 7: conectar o Instagram da loja — a pessoa entra com a conta do Instagram e autoriza; o resto é da Regem.
     'conectar-ig': () => ({ t: 'Conectar o Instagram da loja', b: `<ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px">
         <li>Abre a página do Instagram. Entre com a conta <b>profissional</b> da loja (comercial ou criador de conteúdo).</li>
@@ -1979,12 +2203,14 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <footer><button type="button" class="bt" data-cancelar>${d.ok ? 'Cancelar' : 'Fechar'}</button>${d.ok ? `<button type="button" class="bt ${d.cl}" data-confirmar>${d.ok}</button>` : ''}</footer></div>`;
     $('#camada').appendChild(fundo);
     pilha.push({ fundo, origem });
+    if (d.aoAbrir) d.aoAbrir(fundo); // versão 13: a gaveta de teste liga os próprios botões
     $$('.opcoes', fundo).forEach((g) => $$('[data-op]', g).forEach((o) => o.addEventListener('click', () => $$('[data-op]', g).forEach((x) => x.setAttribute('aria-pressed', String(x === o))))));
     $('[data-cancelar]', fundo).addEventListener('click', fecharDialogo);
     const conf = $('[data-confirmar]', fundo);
-    if (conf) conf.addEventListener('click', () => { const t = d.t; fecharDialogo(); if (d.aoConfirmar) d.aoConfirmar(); else toast(`✅ Feito (protótipo): ${t.toLowerCase()}`); });
+    // versão 13: `conferir` recusa ANTES de fechar (o diálogo fica aberto com o motivo) e `ler` guarda os campos para o aoConfirmar.
+    if (conf) conf.addEventListener('click', () => { if (d.conferir && !d.conferir(fundo)) return; const t = d.t; const v = d.ler ? d.ler(fundo) : undefined; fecharDialogo(); if (d.aoConfirmar) d.aoConfirmar(v); else toast(`✅ Feito (protótipo): ${t.toLowerCase()}`); });
     fundo.addEventListener('click', (e) => { if (e.target === fundo) fecharDialogo(); });
-    const primeiro = $('input,select,[data-op]', fundo) || $('[data-confirmar]', fundo) || $('[data-cancelar]', fundo); primeiro.focus();
+    const primeiro = (d.foco && $(d.foco, fundo)) || $('input,select,[data-op]', fundo) || $('[data-confirmar]', fundo) || $('[data-cancelar]', fundo); primeiro.focus();
   }
   function fecharDialogo() { const top = pilha.pop(); if (!top) return; top.fundo.remove(); if (top.origem && document.contains(top.origem)) top.origem.focus(); }
   document.addEventListener('keydown', (e) => {
@@ -2160,6 +2386,12 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 
   // Gerente no WhatsApp: os botões da lista "Quem recebe" mudam depois de ligar/desligar — o clique vai pela seção.
   $('#v-aj').addEventListener('click', (e) => { const b = e.target.closest('[data-dlg]'); if (b) abrirDialogo(b.dataset.dlg, b); });
+  // Versão 13: "🧪 Testar o atendente" no topo e o estado "indisponível" (servidor da loja ou robô não configurado).
+  $('#bt-testar').addEventListener('click', (e) => abrirDialogo('testar', e.currentTarget));
+  $$('[data-robo-teste]').forEach((b) => b.addEventListener('click', () => {
+    TESTE.disponivel = b.dataset.roboTeste === 'sim';
+    $$('[data-robo-teste]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  }));
 
   // ---------- versão 6: "O que aconteceu?" e NÚMEROS DO ATENDIMENTO ----------
   const brl = (c) => 'R$ ' + (c / 100).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');

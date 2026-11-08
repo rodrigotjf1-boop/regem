@@ -110,24 +110,52 @@ export function situacaoPura(
   if (ajuste.atende !== 'loja') return { atendendo: true, voltaEm: null };
   const validas = janelasValidas(janelas);
   if (!validas.length) return { atendendo: true, voltaEm: null };
+  const t = agora.getTime();
+  let voltaEm: number | null = null;
+  for (const { inicio, fim } of janelasDaEquipe(validas, ajuste, agora)) {
+    if (inicio <= t && t < fim) return { atendendo: true, voltaEm: null };
+    if (inicio > t && (voltaEm === null || inicio < voltaEm)) voltaEm = inicio;
+  }
+  return { atendendo: false, voltaEm: voltaEm === null ? null : new Date(voltaEm) };
+}
+
+/**
+ * As janelas da EQUIPE (instantes, ms) em volta de `agora`: cada janela da loja com a folga do ajuste — [abre − antes,
+ * fecha + depois] —, de ontem (a janela que vira a meia-noite ainda pode valer) até daqui a 8 dias (a próxima de um dia da
+ * semana só). A mesma conta para "a equipe está agora?" e para a volta do teste com "simular fora do horário".
+ */
+function* janelasDaEquipe(
+  validas: Array<{ dia: number; abre: string; fecha: string }>,
+  ajuste: Pick<AjusteDaEquipe, 'antesMin' | 'depoisMin'>,
+  agora: Date,
+): Generator<{ inicio: number; fim: number }> {
   const antes = Math.max(0, Number(ajuste.antesMin) || 0) * MIN_MS;
   const depois = Math.max(0, Number(ajuste.depoisMin) || 0) * MIN_MS;
   const hoje = partesNoFuso(agora);
-  const t = agora.getTime();
-  let voltaEm: number | null = null;
-  // De ontem (a janela que vira a meia-noite ainda pode valer) até daqui a 8 dias (a próxima de um dia da semana só).
   for (let k = -1; k <= 8; k++) {
     const data = new Date(Date.UTC(hoje.ano, hoje.mes - 1, hoje.dia + k));
     const [ano, mes, dia, semana] = [data.getUTCFullYear(), data.getUTCMonth() + 1, data.getUTCDate(), data.getUTCDay()];
     for (const j of validas) {
       if (j.dia !== semana) continue;
-      const inicio = instanteLocal(ano, mes, dia, j.abre) - antes;
-      const fim = instanteLocal(ano, mes, j.fecha <= j.abre ? dia + 1 : dia, j.fecha) + depois;
-      if (inicio <= t && t < fim) return { atendendo: true, voltaEm: null };
-      if (inicio > t && (voltaEm === null || inicio < voltaEm)) voltaEm = inicio;
+      yield {
+        inicio: instanteLocal(ano, mes, dia, j.abre) - antes,
+        fim: instanteLocal(ano, mes, j.fecha <= j.abre ? dia + 1 : dia, j.fecha) + depois,
+      };
     }
   }
-  return { atendendo: false, voltaEm: voltaEm === null ? null : new Date(voltaEm) };
+}
+
+/**
+ * "Simular fora do horário" (teste do atendente, F4 — mig 382): quando a equipe VOLTARIA se não estivesse agora — o começo
+ * da próxima janela da equipe que começa DEPOIS de agora (a de agora não conta), pelo horário da loja e a folga do ajuste,
+ * mesmo com o ajuste em "Sempre" (o teste mostra o que a loja teria com "No horário da loja"). Sem janela cadastrada: null.
+ */
+export function proximaVoltaPura(janelas: unknown, ajuste: Pick<AjusteDaEquipe, 'antesMin' | 'depoisMin'>, agora: Date = new Date()): Date | null {
+  const validas = janelasValidas(janelas);
+  const t = agora.getTime();
+  let voltaEm: number | null = null;
+  for (const { inicio } of janelasDaEquipe(validas, ajuste, agora)) if (inicio > t && (voltaEm === null || inicio < voltaEm)) voltaEm = inicio;
+  return voltaEm === null ? null : new Date(voltaEm);
 }
 
 const NO_DIA = ['no domingo', 'na segunda', 'na terça', 'na quarta', 'na quinta', 'na sexta', 'no sábado'];
@@ -307,6 +335,34 @@ export async function situacaoDaEquipe(db: any, tenantId: string, onde: OndeDaEq
   }
 }
 
+/**
+ * A situação da equipe no TESTE DO ATENDENTE com "simular fora do horário" (F4, mig 382): como se a equipe NÃO estivesse
+ * agora — a frase de fora do horário da loja (ou a padrão) e a volta = o começo da próxima janela da equipe depois de agora
+ * (`proximaVoltaPura`). `modo` diz o ajuste de verdade ("Sempre" = na conversa real a equipe estaria). Só leitura; nunca
+ * rejeita: falha de leitura = a volta "em breve", com o motivo no log.
+ */
+export async function situacaoForaDoHorario(db: any, tenantId: string, onde: OndeDaEquipe = {}, agora: Date = new Date()): Promise<SituacaoDaEquipe> {
+  const sem = (modo: ModoDaEquipe, textoFora: string | null): SituacaoDaEquipe => ({
+    modo,
+    atendendo: false,
+    voltaEm: null,
+    voltaTexto: VOLTA_SEM_DATA,
+    frase: fraseForaDoHorario(textoFora, VOLTA_SEM_DATA),
+    textoFora,
+  });
+  if (!tenantId) return sem('sempre', null);
+  try {
+    const ajuste = await ajusteDaEquipeDaEmpresa(db, tenantId);
+    const voltaEm = proximaVoltaPura(janelasDeOnde(await linhasDoHorario(db, tenantId), onde), ajuste, agora);
+    if (!voltaEm) return sem(ajuste.atende, ajuste.textoFora);
+    const voltaTexto = textoDaVolta(voltaEm, agora);
+    return { modo: ajuste.atende, atendendo: false, voltaEm, voltaTexto, frase: fraseForaDoHorario(ajuste.textoFora, voltaTexto), textoFora: ajuste.textoFora };
+  } catch (e: any) {
+    logger.warn(`horário da equipe não lido no teste (empresa ${tenantId}; volta "em breve"): ${e?.message ?? e}`);
+    return sem('sempre', null);
+  }
+}
+
 /** A chave de uma loja no mapa de `situacoesPorLoja` (sem loja = ''). */
 export const chaveDaLoja = (unidadeId: string | null | undefined) => unidadeId ?? '';
 
@@ -398,9 +454,20 @@ export async function recadoDoCasoNovo(
   agora: Date = new Date(),
 ): Promise<{ recado: Recado; situacao: SituacaoDaEquipe } | null> {
   const situacao = await situacaoDaEquipe(db, tenantId, onde, agora);
-  if (situacao.atendendo || !situacao.voltaEm) return null;
+  const recado = recadoDaSituacao(situacao, agora);
+  if (!recado) return null;
   if (await pedidoEmAndamento(db, tenantId, pedidoId)) return null;
-  return { recado: { ate: situacao.voltaEm.toISOString(), em: agora.toISOString() }, situacao };
+  return { recado, situacao };
+}
+
+/**
+ * O recado que a situação da equipe dá a um caso novo SEM pedido: fora do horário e sabendo quando a equipe volta → o
+ * recado até a volta; no horário (ou sem saber quando volta) → null, e o caso vai para a fila. A regra de
+ * `recadoDoCasoNovo` (que confere antes o pedido em andamento) e a do teste do atendente (F4, que não tem pedido).
+ */
+export function recadoDaSituacao(situacao: SituacaoDaEquipe, agora: Date = new Date()): Recado | null {
+  if (situacao.atendendo || !situacao.voltaEm) return null;
+  return { ate: situacao.voltaEm.toISOString(), em: agora.toISOString() };
 }
 
 /** O que a resposta do "chamar atendente" leva fora do horário: o robô manda `paraOCliente` como veio, sem a posição. */
