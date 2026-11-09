@@ -13,6 +13,7 @@ import { comOrigemDoDirect } from '../instagram/instagram';
 import { WhatsappService } from './whatsapp.service';
 import { WhatsappCloudService, cabeEmBotoes, opcoesValidas } from './whatsapp-cloud.service';
 import { EstadoPausa, estadoDaPausa } from './robo-pausa';
+import { idDoEnvio, marcarDoRobo } from './mensagens-do-robo';
 import { linkDoCardapioDaLoja, separarLinkDoCardapio, soLinksDaLoja } from './links-do-robo';
 import {
   escolherProduto,
@@ -138,44 +139,56 @@ export class RoboRespostaService {
     }
 
     const enviados: string[] = [];
-    if (audio) {
-      if (via === 'cloud') await this.cloud.enviarVoz(loja.tenantId, para, audio, p?.audio?.mime || 'audio/ogg');
-      else await this.evolution.enviarAudio(loja.tenantId, para, audio);
-      enviados.push('voz');
-    }
-    // API oficial com o link do cardápio no texto: o link vai num BOTÃO "Ver cardápio" (pedido do dono, 30/10). A
-    // mensagem de botão de link não leva botões de resposta junto: as opções ficam de fora (o cliente escreve).
-    const comLink = via === 'cloud' && cfg.token ? separarLinkDoCardapio(texto, linkDoCardapioDaLoja(cfg.token)) : null;
-    if (comLink) {
-      // Link direto de um produto (`?produto=`, F2): o botão abre aquele item — "Ver no cardápio" — e a FOTO dele vai
-      // em cima (F5, decisão do dono: "sempre que falar de 1 produto"). O produto é conferido pelo Regem (ERR-335):
-      // o id que a IA escreve é chute. Sem foto que sirva, vai sem.
-      // O link do cardápio todo também vira o do produto quando o cliente pediu a FOTO de um produto pelo nome.
-      const deProduto = /[?&]produto=/.test(comLink.url);
-      let { corpo, url } = comLink;
-      let rotulo = deProduto ? 'Ver no cardápio' : 'Ver cardápio';
-      let foto: string | null = null;
-      const c = await this.produtoConferido(loja.tenantId, cfg.token as string, para, comLink, deProduto).catch((e: any) => {
-        this.logger.warn(`produto do link não conferido (vai o link da IA, sem foto): ${e?.message ?? e}`);
-        return null;
-      });
-      if (c) ({ corpo, url, rotulo, foto } = c);
-      const r: any = await this.cloud.enviarLink(loja.tenantId, para, corpo, url, rotulo, foto);
-      enviados.push(r?.comFoto ? 'botao_link_com_foto' : 'botao_link');
-    } else if (opcoes.length) {
-      if (via === 'cloud' && opcoes.length <= 10) {
-        await this.cloud.enviarOpcoes(loja.tenantId, para, texto, opcoes, p?.botaoLista);
-        enviados.push(cabeEmBotoes(opcoes) ? 'botoes' : 'lista');
-      } else if (via === 'evolution' && p?.opcoesComo === 'enquete' && opcoes.length >= 2 && opcoes.length <= 12) {
-        await this.evolution.enviarEnquete(loja.tenantId, para, texto, opcoes.map((o) => o.titulo));
-        enviados.push('enquete');
-      } else {
-        await this.enviarTexto(via, loja.tenantId, para, menuNumerado(texto, opcoes));
-        enviados.push('menu_numerado');
+    // O id de cada mensagem que SAIU (o wamid na API oficial, o `key.id` na Evolution): a marca da fala do robô, para a
+    // caixa de conversas oferecer "Corrigir" nela (mig 385). Anotada no `finally`: o que já saiu fica marcado mesmo se o
+    // envio seguinte falhar; a anotação nunca derruba a resposta (mensagens-do-robo.ts).
+    const ids: (string | null)[] = [];
+    try {
+      if (audio) {
+        const r =
+          via === 'cloud'
+            ? await this.cloud.enviarVoz(loja.tenantId, para, audio, p?.audio?.mime || 'audio/ogg')
+            : await this.evolution.enviarAudio(loja.tenantId, para, audio);
+        ids.push(idDoEnvio(r));
+        enviados.push('voz');
       }
-    } else if (texto) {
-      await this.enviarTexto(via, loja.tenantId, para, texto);
-      enviados.push('texto');
+      // API oficial com o link do cardápio no texto: o link vai num BOTÃO "Ver cardápio" (pedido do dono, 30/10). A
+      // mensagem de botão de link não leva botões de resposta junto: as opções ficam de fora (o cliente escreve).
+      const comLink = via === 'cloud' && cfg.token ? separarLinkDoCardapio(texto, linkDoCardapioDaLoja(cfg.token)) : null;
+      if (comLink) {
+        // Link direto de um produto (`?produto=`, F2): o botão abre aquele item — "Ver no cardápio" — e a FOTO dele vai
+        // em cima (F5, decisão do dono: "sempre que falar de 1 produto"). O produto é conferido pelo Regem (ERR-335):
+        // o id que a IA escreve é chute. Sem foto que sirva, vai sem.
+        // O link do cardápio todo também vira o do produto quando o cliente pediu a FOTO de um produto pelo nome.
+        const deProduto = /[?&]produto=/.test(comLink.url);
+        let { corpo, url } = comLink;
+        let rotulo = deProduto ? 'Ver no cardápio' : 'Ver cardápio';
+        let foto: string | null = null;
+        const c = await this.produtoConferido(loja.tenantId, cfg.token as string, para, comLink, deProduto).catch((e: any) => {
+          this.logger.warn(`produto do link não conferido (vai o link da IA, sem foto): ${e?.message ?? e}`);
+          return null;
+        });
+        if (c) ({ corpo, url, rotulo, foto } = c);
+        const r: any = await this.cloud.enviarLink(loja.tenantId, para, corpo, url, rotulo, foto);
+        ids.push(idDoEnvio(r));
+        enviados.push(r?.comFoto ? 'botao_link_com_foto' : 'botao_link');
+      } else if (opcoes.length) {
+        if (via === 'cloud' && opcoes.length <= 10) {
+          ids.push(idDoEnvio(await this.cloud.enviarOpcoes(loja.tenantId, para, texto, opcoes, p?.botaoLista)));
+          enviados.push(cabeEmBotoes(opcoes) ? 'botoes' : 'lista');
+        } else if (via === 'evolution' && p?.opcoesComo === 'enquete' && opcoes.length >= 2 && opcoes.length <= 12) {
+          ids.push(idDoEnvio(await this.evolution.enviarEnquete(loja.tenantId, para, texto, opcoes.map((o) => o.titulo))));
+          enviados.push('enquete');
+        } else {
+          ids.push(idDoEnvio(await this.enviarTexto(via, loja.tenantId, para, menuNumerado(texto, opcoes))));
+          enviados.push('menu_numerado');
+        }
+      } else if (texto) {
+        ids.push(idDoEnvio(await this.enviarTexto(via, loja.tenantId, para, texto)));
+        enviados.push('texto');
+      }
+    } finally {
+      await marcarDoRobo(this.db, loja.tenantId, para, ids, this.logger);
     }
     return { ok: true, enviado: true, enviados };
   }

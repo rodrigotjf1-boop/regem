@@ -14,6 +14,7 @@ import { cardapioConfig } from '../../db/schema';
 import { AuthUser } from '../../auth/auth-user';
 import { WhatsappService } from './whatsapp.service';
 import { WhatsappCloudService } from './whatsapp-cloud.service';
+import { comMarcaDoRobo } from './mensagens-do-robo';
 import { OPCOES_A_PARTIR_DO, OPCOES_DEPOIS_MIN, OPCOES_DE_NOVO_DIAS, TEXTO_PADRAO, ajustesNovos, lerAvaliacao } from './pedir-avaliacao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -343,10 +344,14 @@ export class WhatsappProvedorService {
       : this.evolution.listarConversas(tenantId);
   }
 
+  // Cada mensagem com `doRobo` (mig 385): a loja mandou e saiu da resposta do robô — a tela oferece "Corrigir" nela. Vale
+  // para as duas vias e para o servidor da loja (whatsapp/da-loja chega aqui); sem a 385, todas `false`.
   async mensagens(tenantId: string, chaves: string) {
-    return (await this.provedorDe(tenantId)) === 'cloud'
-      ? this.cloud.mensagens(tenantId, chaves)
-      : this.evolution.mensagens(tenantId, chaves);
+    const lista: any[] =
+      (await this.provedorDe(tenantId)) === 'cloud'
+        ? await this.cloud.mensagens(tenantId, chaves)
+        : await this.evolution.mensagens(tenantId, chaves);
+    return comMarcaDoRobo(this.db, tenantId, lista, this.logger);
   }
 
   // Envio manual do painel (o humano assume a conversa do robo): enviado, o robô fica calado nesta conversa pelo

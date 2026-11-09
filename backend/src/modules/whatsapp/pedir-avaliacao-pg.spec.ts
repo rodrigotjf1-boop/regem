@@ -73,7 +73,9 @@ descrever('"pedir avaliação" depois da entrega (Postgres)', () => {
     delete process.env.EDGE_MODE; // como NUVEM
     process.env.PUBLIC_API_BASE = PUB;
     await repetirNaCorridaDeCatalogo(() => admin.query(readFileSync(MIG('215_whatsapp_mensagem.sql'), 'utf8')));
-    for (const m of ['342_robo_pausa_e_config.sql', '347_aviso_de_atraso.sql', '352_conferir_entrega.sql']) await aplicar(m);
+    // A 344 e a 349 também: o `roboConfig()` lê `lembrete_carrinho` (349, que altera a `robo_carrinho` da 344) — sem elas a
+    // spec só passava quando outra spec do banco dividido criava as colunas antes (ERR-410, família do ERR-273/407).
+    for (const m of ['342_robo_pausa_e_config.sql', '344_robo_carrinho.sql', '347_aviso_de_atraso.sql', '349_lembrete_do_carrinho.sql', '352_conferir_entrega.sql']) await aplicar(m);
     const r = await aplicar('365_pedir_avaliacao.sql');
     const conf = (Array.isArray(r) ? r[r.length - 1] : r).rows as { objeto: string; ok: boolean }[];
     if (conf.length !== 6 || conf.some((l) => !l.ok)) throw new Error(`conferência da 365: ${JSON.stringify(conf)}`);

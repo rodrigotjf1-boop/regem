@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { api } from '@/lib/api';
+import { api, getCategoria } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { MidiaMsg, mesmoNumero } from '@/components/whatsapp/midia-msg';
 import { BotaoCopiloto } from '@/components/atendimento/botao-copiloto';
+import { CorrigirResposta } from '@/components/atendimento/corrigir-resposta';
 import { fraseDoRoboNoCaso, type CasoDaFila } from '@/lib/atendimento';
+import { perguntaDoCliente } from '@/lib/treino-do-atendente';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -26,7 +28,10 @@ const PRONTAS: Record<string, string[]> = {
   outro: ['Recebi, obrigado! Já estou verificando e te respondo em instantes.', 'O entregador já foi avisado.'],
 };
 
-type Mensagem = { id: string; fromMe: boolean; texto?: string; timestamp: number; midia?: string; midiaKey?: any };
+/** `doRobo` (mig 385, protótipo v16): a mensagem que o ATENDENTE VIRTUAL enviou — só ela tem "Corrigir". */
+type Mensagem = { id: string; fromMe: boolean; texto?: string; timestamp: number; midia?: string; midiaKey?: any; doRobo?: boolean };
+/** Quem ensina o atendente (o servidor confere): gerente e presidente. */
+const QUEM_ENSINA = ['presidente', 'gerente'];
 
 const hora = (ts: number) => (ts ? new Date(ts * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' }) : '');
 /** O número no formato do WhatsApp (55 + DDD + número). */
@@ -49,6 +54,11 @@ export function ConversaDoCaso({
   const [erro, setErro] = useState('');
   const [texto, setTexto] = useState('');
   const [enviando, setEnviando] = useState(false);
+  // "Corrigir" nas falas do atendente virtual (v16): gerente e presidente ensinam — o perfil só depois de montar (V35).
+  const [ensina, setEnsina] = useState(false);
+  useEffect(() => setEnsina(QUEM_ENSINA.includes(getCategoria() ?? '')), []);
+  const [corrigindo, setCorrigindo] = useState<{ id: string; pergunta: string; resposta: string } | null>(null);
+  const [corrigidas, setCorrigidas] = useState<Set<string>>(() => new Set());
   const atual = useRef('');
   const fim = useRef<HTMLDivElement>(null);
   const campo = useRef<HTMLTextAreaElement>(null);
@@ -153,13 +163,26 @@ export function ConversaDoCaso({
             ) : msgs.length === 0 ? (
               <p className="py-6 text-center text-xs text-secondary-foreground">Ainda não há mensagens com este cliente. Você pode escrever a primeira.</p>
             ) : (
-              msgs.map((m) => (
-                <div key={m.id} className={`flex ${m.fromMe ? 'justify-end' : 'justify-start'}`}>
+              msgs.map((m, i) => (
+                <div key={m.id} className={`flex ${m.fromMe ? 'justify-end' : 'justify-start'}`} data-do-robo={m.doRobo ? '' : undefined}>
                   <div
                     className={`max-w-[85%] min-w-0 rounded-lg px-2.5 py-1.5 ${m.fromMe ? 'border border-ok/30 bg-ok/15 text-foreground' : 'border border-border bg-card text-foreground'}`}
                   >
                     {m.midia ? <MidiaMsg m={m} jid={jid} auto={false} /> : <span className="whitespace-pre-wrap break-words">{m.texto}</span>}
                     <span className="ml-2 align-bottom font-mono text-[11px] text-secondary-foreground">{hora(m.timestamp)}</span>
+                    {m.fromMe && m.doRobo && <span className="block text-[11px] text-secondary-foreground">atendente virtual</span>}
+                    {ensina && m.fromMe && m.doRobo && m.texto &&
+                      (corrigidas.has(m.id) ? (
+                        <span className="block pt-0.5 text-xs font-semibold text-ok">✏️ Corrigida — o atendente já usa a resposta nova</span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="mt-0.5 min-h-6 text-xs font-semibold text-info underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          onClick={() => setCorrigindo({ id: m.id, pergunta: perguntaDoCliente(msgs, i), resposta: m.texto ?? '' })}
+                        >
+                          Corrigir
+                        </button>
+                      ))}
                   </div>
                 </div>
               ))
@@ -228,6 +251,18 @@ export function ConversaDoCaso({
           Ver em Delivery › WhatsApp
         </Link>
       </p>
+      {corrigindo && (
+        <CorrigirResposta
+          origem="caso"
+          pergunta={corrigindo.pergunta}
+          resposta={corrigindo.resposta}
+          aoFechar={() => setCorrigindo(null)}
+          aoSalvar={() => {
+            setCorrigidas((s) => new Set(s).add(corrigindo.id));
+            setCorrigindo(null);
+          }}
+        />
+      )}
     </section>
   );
 }

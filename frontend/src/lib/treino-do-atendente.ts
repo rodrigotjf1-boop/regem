@@ -78,5 +78,11 @@ export function perguntaAntes<T extends { autor: string; texto: string }>(mensag
   return '';
 }
 
+/** A mesma pergunta nas mensagens do WhatsApp (v16): a última do CLIENTE (`fromMe` falso) com texto, antes da resposta. */
+export function perguntaDoCliente<T extends { fromMe: boolean; texto?: string | null }>(mensagens: T[], indice: number): string {
+  for (let j = indice - 1; j >= 0; j--) if (!mensagens[j].fromMe && mensagens[j].texto) return String(mensagens[j].texto);
+  return '';
+}
+
 /** Uma linha só (a pergunta guardada é de uma linha), aparada e no limite. */
 export const umaLinha = (t: string, max: number) => t.replace(/\s+/g, ' ').trim().slice(0, max);
