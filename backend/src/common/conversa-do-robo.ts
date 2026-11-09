@@ -196,3 +196,72 @@ export function idDaChaveDoComentario(v: unknown): string | null {
 
 /** A chave da conversa do comentário: `cm:` + o comentário de cima (o pai, se houver; senão o próprio). */
 export const chaveDoComentario = (c: { comentarioId: string; paiId?: string | null }): string => `${PREFIXO_DO_COMENTARIO}${c.paiId || c.comentarioId}`;
+
+// ───────────────────────── o MESSENGER do Facebook (a última fase do atendente virtual, mig 386) ─────────────────────────
+// O MESMO robô (o fluxo do n8n, com as instruções do Regem) atende o Messenger da página da loja, como o Direct: a página
+// vai em `instancia` como `fb:<id da página>` (o fluxo repassa em todas as consultas) e o cliente em `de` como `fb:<PSID>`
+// (o id dele no Messenger, para esta página — o fluxo usa na memória e devolve como `para`): nada muda no n8n. O quinto uso
+// do truque do Direct. O Messenger não manda telefone: as rotas de TELEFONE recusam qualquer valor `fb:` (tirando o prefixo
+// sobram dígitos que a busca pelos últimos dígitos casaria com o pedido de um desconhecido — V79).
+// A FICHA do Messenger prova que o robô fala com ESTE cliente desta empresa — o "chamar atendente" só abre o caso do
+// Messenger com ela. Chave derivada com OUTRO rótulo e corpo com `p` (nem `f`, nem `g`): a ficha do telefone e a do Direct
+// nunca valem como a do Messenger, e vice-versa.
+
+/** O prefixo da chave do Messenger. */
+export const PREFIXO_DO_MESSENGER = 'fb:';
+/** O id da página ou do cliente (PSID) que vale: só dígitos (5 a 32), como a Meta manda. */
+export const ID_DO_MESSENGER_RE = /^[0-9]{5,32}$/;
+
+/**
+ * O valor COMEÇA com `fb:`? Qualquer forma conta (mesmo com o id torto): é o que as rotas de telefone e de envio usam para
+ * recusar. Se a chave é uma página/cliente que vale, quem diz é `idDaChaveDoMessenger` (e a conta no banco).
+ */
+export function ehChaveDoMessenger(v: unknown): boolean {
+  return typeof v === 'string' && v.trim().toLowerCase().startsWith(PREFIXO_DO_MESSENGER);
+}
+
+/** O id que vem depois de `fb:` (a página ou o cliente) — só dígitos; qualquer outra forma = null. */
+export function idDaChaveDoMessenger(v: unknown): string | null {
+  if (!ehChaveDoMessenger(v)) return null;
+  const id = (v as string).trim().slice(PREFIXO_DO_MESSENGER.length);
+  return ID_DO_MESSENGER_RE.test(id) ? id : null;
+}
+
+/** `fb:<id>` — a página (na `instancia`) ou o cliente (no `de`/`para`). */
+export const chaveDoMessenger = (id: string): string => `${PREFIXO_DO_MESSENGER}${id}`;
+
+function chaveDaFichaDoMessenger(): Buffer | null {
+  const s = (process.env.BOT_RESOLVER_SECRET ?? '').trim();
+  return s ? createHmac('sha256', s).update('regem:conversa-do-messenger:v1').digest() : null;
+}
+
+/** A ficha para a mensagem deste cliente do Messenger nesta empresa (ou `null` sem a senha do robô configurada). */
+export function assinarConversaDoMessenger(tenantId: string, psid: unknown, agora = Date.now()): string | null {
+  const k = chaveDaFichaDoMessenger();
+  const p = String(psid ?? '');
+  if (!k || !tenantId || !ID_DO_MESSENGER_RE.test(p)) return null;
+  const corpo = Buffer.from(JSON.stringify({ t: tenantId, p, e: agora + VALIDADE_DA_CONVERSA_MS })).toString('base64url');
+  return `${corpo}.${createHmac('sha256', k).update(corpo).digest('base64url')}`;
+}
+
+export type ConversaDoMessenger = { tenantId: string; psid: string };
+
+/** A conversa do Messenger da ficha, se a assinatura confere e ela não venceu; senão `null` (quem chama recusa com 401). */
+export function lerConversaDoMessenger(ficha: unknown, agora = Date.now()): ConversaDoMessenger | null {
+  const k = chaveDaFichaDoMessenger();
+  if (!k) return null;
+  const [corpo, assinatura, sobra] = String(ficha ?? '').trim().split('.');
+  if (!corpo || !assinatura || sobra !== undefined) return null;
+  const esperada = createHmac('sha256', k).update(corpo).digest();
+  const recebida = Buffer.from(assinatura, 'base64url');
+  if (recebida.length !== esperada.length || !timingSafeEqual(recebida, esperada)) return null;
+  let d: any;
+  try {
+    d = JSON.parse(Buffer.from(corpo, 'base64url').toString('utf8'));
+  } catch {
+    return null;
+  }
+  if (typeof d?.t !== 'string' || typeof d?.p !== 'string' || d?.f !== undefined || d?.g !== undefined) return null;
+  if (!ID_DO_MESSENGER_RE.test(d.p) || !(Number(d?.e) > agora)) return null;
+  return { tenantId: d.t, psid: d.p };
+}

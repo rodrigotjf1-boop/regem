@@ -46,6 +46,7 @@ import { GestorWhatsappService } from './gestor-whatsapp.service';
 import { CopilotoService } from './copiloto.service';
 import { NumerosDoAtendimentoService } from './numeros.service';
 import { InstagramService } from '../instagram/instagram.service';
+import { MessengerService } from '../messenger/messenger.service';
 import { lerAjusteGestorWa } from './gestor-whatsapp';
 import { FRASE_FORA_PADRAO, MINUTOS_ANTES_DA_EQUIPE, MINUTOS_DEPOIS_DA_EQUIPE, TEXTO_FORA_MAX, lerAjusteDaEquipe } from './horario-da-equipe';
 import { CANAIS_DO_PERFIL, JEITO_MAX, PERFIS_DO_ATENDENTE, PERFIS_FORA_DO_HORARIO, ROTULO_DO_CANAL, lerPerfisDoAtendente } from '../cardapio/perfis-do-atendente';
@@ -88,6 +89,8 @@ export class AtendimentoController {
     @Optional() private readonly numerosSvc?: NumerosDoAtendimentoService,
     // O Instagram Direct (mig 377): o grupo "Instagram Direct" dos ajustes (a conta e "Mensagens do Direct na fila").
     @Optional() private readonly instagram?: InstagramService,
+    // O Messenger do Facebook (mig 386): o grupo "Messenger do Facebook" dos ajustes (a página, a fila, o robô e o cardápio).
+    @Optional() private readonly messenger?: MessengerService,
   ) {}
 
   // O COPILOTO (mig 376; protótipo versão 5): se o botão aparece (ligado na empresa E disponível na distribuição) e a
@@ -242,11 +245,13 @@ export class AtendimentoController {
   // 384 — `permitido`, `roboResponde`, `naFila`). A ponte: `ponte.roboModo` (F5, mig 383 — quem responde no chat: regras ou atendente).
   // "Assuntos que não são pedido" (mig 381): `assuntos` (sempre fornecedor, vaga e parceria, com os padrões) e
   // `assuntosOpcoes` (os assuntos, os modos, o limite do texto e os textos padrão).
+  // "Messenger do Facebook" (`messenger`, mig 386): `disponivel`, `roboDisponivel`, `cardapios`, `conta` (a página — nunca o
+  // acesso) e `escolhaPendente`; o perfil do canal `messenger` vem em `perfis`.
   @Get('ajustes')
   @CloudOnly()
   @Roles('presidente', 'gerente')
   async ajustes(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
-    const [da99, fila, doIfood, cheguei, repetido, som, roboMuda, ponte, roboCobraPix, gestorWa, copiloto, instagram, equipe, perfis, assuntos] = await Promise.all([
+    const [da99, fila, doIfood, cheguei, repetido, som, roboMuda, ponte, roboCobraPix, gestorWa, copiloto, instagram, equipe, perfis, assuntos, messenger] = await Promise.all([
       this.pedido99.ajustes(user.tenantId),
       this.filaEAvisos.ajustes(user.tenantId),
       this.chatIfood.ajustes(user.tenantId),
@@ -271,6 +276,8 @@ export class AtendimentoController {
       this.filaEAvisos.perfisDoAtendente(user.tenantId),
       // "Assuntos que não são pedido" (mig 381): o que o robô faz com fornecedor, vaga e parceria, e o que diz; da empresa.
       this.filaEAvisos.assuntosDoAtendente(user.tenantId),
+      // "Messenger do Facebook" (mig 386): se a distribuição liberou e a página conectada (nunca o acesso).
+      this.messenger ? this.messenger.ajuste(user.tenantId) : Promise.resolve(null),
     ]);
     const alterado = { som, sons: SONS_DO_ALTERADO, roboMuda, roboCobraPix };
     return {
@@ -299,6 +306,7 @@ export class AtendimentoController {
       gestorWa,
       copiloto,
       instagram,
+      messenger,
     };
   }
 
@@ -329,6 +337,9 @@ export class AtendimentoController {
     // "Instagram Direct" (migs 377/378): a fila, o robô e o cardápio do robô — conferidos (com o banco) antes de gravar
     // qualquer grupo (V86); só booleano nos liga/desliga (V15); o que não veio fica (V16).
     const instagram = dto?.instagram !== undefined && this.instagram ? await this.instagram.conferirAjuste(user.tenantId, dto.instagram) : null;
+    // "Messenger do Facebook" (mig 386): a fila, o robô e o cardápio do robô — conferidos (com o banco) antes de gravar
+    // qualquer grupo (V86); `exigirBooleano` nos liga/desliga (V15); o que não veio fica (V16).
+    const messenger = dto?.messenger !== undefined && this.messenger ? await this.messenger.conferirAjuste(user.tenantId, dto.messenger) : null;
     // A ponte: o texto e o papel dos PCs (lê as pontes da loja) — conferidos antes de gravar qualquer grupo.
     if (dto?.ponte !== undefined) await this.ponte.conferir(user, unidade, dto.ponte);
     if (dto?.ajuste99 !== undefined) await this.pedido99.salvarAjustes(user, dto);
@@ -347,6 +358,7 @@ export class AtendimentoController {
     if (gestorWa) await this.gestorWa?.salvar(user, gestorWa);
     if (dto?.copiloto !== undefined) await this.copiloto?.salvar(user, dto.copiloto.ligado);
     if (instagram) await this.instagram?.salvarAjuste(user, instagram);
+    if (messenger) await this.messenger?.salvarAjuste(user, messenger);
     return this.ajustes(user, unidade);
   }
 

@@ -17,6 +17,7 @@ import { AvaliacaoPublicaController } from './avaliacao-publica.controller';
 import { EquipamentoModule } from '../equipamento/equipamento.module';
 import { SyncTokenGuard } from '../sync/sync-token.guard';
 import { InstagramModule } from '../instagram/instagram.module';
+import { MessengerModule } from '../messenger/messenger.module';
 
 // WhatsApp da loja (Evolution): conectar/QR + resolver do bot multi-tenant.
 // WhatsappCloudController/Service = API oficial (Meta Cloud API), via paralela —
@@ -26,8 +27,9 @@ import { InstagramModule } from '../instagram/instagram.module';
 // loja repassa (este módulo também sobe lá — o PontoModule o importa). WhatsappDaLojaController = o lado da nuvem
 // desse repasse (token do servidor).
 // InstagramModule (mig 378): a resposta do robô no Direct do Instagram sai pelo mesmo `publico/bot/responder`.
+// MessengerModule (mig 386): idem para o Messenger do Facebook (chave `fb:`).
 @Module({
-  imports: [EquipamentoModule, InstagramModule],
+  imports: [EquipamentoModule, InstagramModule, MessengerModule],
   controllers: [
     WhatsappController,
     WhatsappCloudController,

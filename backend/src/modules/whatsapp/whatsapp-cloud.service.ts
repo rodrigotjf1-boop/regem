@@ -4,7 +4,7 @@ import { Interval } from '@nestjs/schedule';
 import { ehServidorLocal } from '../../common/modo';
 import { and, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
-import { assinarConversa, ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario } from '../../common/conversa-do-robo';
+import { assinarConversa, ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario, ehChaveDoMessenger } from '../../common/conversa-do-robo';
 import { ecoDeAvisoAutomatico } from '../../common/avisos-automaticos';
 import { estadoDaPausa, pausaDaConversa, pausarPeloAtendente, pausasDaLojaOuVazio } from './robo-pausa';
 import { entregarJuntando } from './juntar-mensagens';
@@ -39,6 +39,12 @@ export const RECUSA_NO_CHAT =
 /** A recusa dos envios pelo WhatsApp para o comentário de um post do Instagram (F6, mig 384): a resposta é no post. */
 export const RECUSA_NO_COMENTARIO =
   'Comentário de um post do Instagram: nada é enviado pelo WhatsApp — a resposta vai por publico/bot/responder, no próprio post.';
+/**
+ * A recusa dos envios pelo WhatsApp para o cliente do Messenger do Facebook (mig 386): a resposta vai por
+ * publico/bot/responder, no Messenger. `fb:<psid>` sem o prefixo viraria um número de WhatsApp (V79).
+ */
+export const RECUSA_NO_MESSENGER =
+  'Conversa do Messenger do Facebook: nada é enviado pelo WhatsApp — a resposta vai por publico/bot/responder, no próprio Messenger.';
 // Teto do proxy de midia. A Meta aceita ate 16MB; 20MB deixa folga e evita que um
 // arquivo inesperado vire pico de memoria no processo da API.
 const MAX_MIDIA = 20 * 1024 * 1024;
@@ -1165,6 +1171,8 @@ export class WhatsappCloudService {
     if (ehChaveDoChat(numero)) throw new BadRequestException(RECUSA_NO_CHAT);
     // O comentário de um post do Instagram (F6): idem — o `cm:<id>` sem o prefixo viraria dígitos.
     if (ehChaveDoComentario(numero)) throw new BadRequestException(RECUSA_NO_COMENTARIO);
+    // O cliente do Messenger do Facebook (mig 386): idem — o `fb:<psid>` sem o prefixo viraria dígitos.
+    if (ehChaveDoMessenger(numero)) throw new BadRequestException(RECUSA_NO_MESSENGER);
 
     const cfg = await this.lojaPorPhoneId(String(phoneNumberId ?? ''));
     if (!cfg) throw new NotFoundException('Número não vinculado a uma loja.');
@@ -1530,6 +1538,7 @@ export class WhatsappCloudService {
     if (ehChaveDeTeste(numero)) throw new BadRequestException(RECUSA_NO_TESTE);
     if (ehChaveDoChat(numero)) throw new BadRequestException(RECUSA_NO_CHAT);
     if (ehChaveDoComentario(numero)) throw new BadRequestException(RECUSA_NO_COMENTARIO);
+    if (ehChaveDoMessenger(numero)) throw new BadRequestException(RECUSA_NO_MESSENGER);
     const cfg = await this.lojaPorPhoneId(String(phoneNumberId ?? '').trim());
     if (!cfg) throw new NotFoundException('Número não vinculado a uma loja.');
     if (cfg.provedor !== 'cloud')

@@ -12,7 +12,7 @@ import {
 import { lembrarEnvio } from './evolution-envios';
 import { anotarNaMemoria, chaveDaMemoria } from './robo-do-outro-lado';
 import { pedidosParaORobo } from './pedidos-do-robo';
-import { ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario, ehChaveDoDirect } from '../../common/conversa-do-robo';
+import { ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario, ehChaveDoDirect, ehChaveDoMessenger } from '../../common/conversa-do-robo';
 import { pedidoDaConversaDoChat } from '../ponte-chat/atendente-no-chat';
 import { textoDoPedidoNoChat } from '../ponte-chat/robo-do-chat';
 import {
@@ -898,8 +898,15 @@ export class WhatsappService {
     // resolver, mídia) não acham loja para a chave `ig:` — tirando o `ig:`, sobram dígitos (V79).
     // A conversa de TESTE do atendente (`teste:`, mig 382) também não é loja de WhatsApp: nenhuma rota de telefone age por ela.
     // Nem a fala do chat do iFood e da 99 (`chat:`, F5 — mig 383): as rotas de pedido dela leem o pedido DA conversa.
-    // Nem o comentário de um post do Instagram (`cm:`, F6 — mig 384).
-    if (ehChaveDoDirect(instancia) || ehChaveDeTeste(instancia) || ehChaveDoChat(instancia) || ehChaveDoComentario(instancia)) return null;
+    // Nem o comentário de um post do Instagram (`cm:`, F6 — mig 384), nem o Messenger do Facebook (`fb:`, mig 386).
+    if (
+      ehChaveDoDirect(instancia) ||
+      ehChaveDeTeste(instancia) ||
+      ehChaveDoChat(instancia) ||
+      ehChaveDoComentario(instancia) ||
+      ehChaveDoMessenger(instancia)
+    )
+      return null;
     const pid = String(phoneNumberId ?? '').trim();
     if (pid) {
       const [c] = await this.db
@@ -1021,8 +1028,9 @@ export class WhatsappService {
     }
     const cfg = await this.lojaPorChaveBot(instancia, phoneNumberId);
     if (!cfg) throw new NotFoundException('Número/instância não vinculado a uma loja.');
-    // `ig:<igsid>` (o Direct do Instagram) não é telefone: os últimos dígitos casariam com o pedido de um desconhecido.
-    if (ehChaveDoDirect(telefone)) return [];
+    // `ig:<igsid>` (o Direct do Instagram) e `fb:<psid>` (o Messenger, mig 386) não são telefone: os últimos dígitos casariam
+    // com o pedido de um desconhecido.
+    if (ehChaveDoDirect(telefone) || ehChaveDoMessenger(telefone)) return [];
     const tail = this.soNumero(telefone).slice(-8);
     if (tail.length < 8) return [];
     const rows = await this.db
@@ -1054,8 +1062,9 @@ export class WhatsappService {
   async resolver(instancia: string, secret: string, numero?: string) {
     if (!segredoDoRoboOk(secret)) throw new BadRequestException('Não autorizado.');
     // A conversa de TESTE do atendente (mig 382) não é instância da Evolution; nem a fala do chat da plataforma (F5).
-    // Nem o comentário de um post do Instagram (F6).
-    if (ehChaveDeTeste(instancia) || ehChaveDoChat(instancia) || ehChaveDoComentario(instancia)) throw new NotFoundException('Instância não vinculada a uma loja.');
+    // Nem o comentário de um post do Instagram (F6), nem o Messenger do Facebook (mig 386).
+    if (ehChaveDeTeste(instancia) || ehChaveDoChat(instancia) || ehChaveDoComentario(instancia) || ehChaveDoMessenger(instancia))
+      throw new NotFoundException('Instância não vinculada a uma loja.');
     const [cfg] = await this.db
       .select()
       .from(cardapioConfig)

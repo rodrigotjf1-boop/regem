@@ -29,6 +29,7 @@ import { OQueAconteceu, type MarcaDoCaso } from '@/components/atendimento/o-que-
 import { TestarAtendente } from '@/components/atendimento/testar-atendente';
 import { ComentariosDoInstagram, ehSemComentarios } from '@/components/atendimento/comentarios-do-instagram';
 import { ComentarioDoCaso } from '@/components/atendimento/comentario-do-caso';
+import { ConversaDoMessenger } from '@/components/atendimento/conversa-do-messenger';
 import type { ListaDeComentarios } from '@/lib/comentarios-do-instagram';
 import { enderecoDoCaso } from '@/lib/endereco-do-caso';
 import {
@@ -109,13 +110,16 @@ export default function AtendimentoPage() {
   const [whatsapp, setWhatsapp] = useState<{ ligado: boolean; lida: boolean } | null>(null);
   // O Direct do Instagram em "Conversas agora" (mig 378): `null` = não entra para quem está na tela (não é da gestão).
   const [instagram, setInstagram] = useState<{ ligado: boolean } | null>(null);
+  // O Messenger em "Conversas agora" (mig 386): igual ao Direct.
+  const [messenger, setMessenger] = useState<{ ligado: boolean } | null>(null);
   const [conversaSel, setConversaSel] = useState<string | null>(null);
   const [podeAssumir, setPodeAssumir] = useState(false);
   const comPonte = ponte?.ligada === true;
   const comWhatsapp = whatsapp?.ligado === true;
   const comInstagram = instagram?.ligado === true;
-  // A situação aparece com a ponte do chat ligada OU com o robô do WhatsApp ou do Direct ligado (para quem atende ali).
-  const temConversas = comPonte || comWhatsapp || comInstagram;
+  const comMessenger = messenger?.ligado === true;
+  // A situação aparece com a ponte do chat ligada OU com o robô do WhatsApp, do Direct ou do Messenger ligado.
+  const temConversas = comPonte || comWhatsapp || comInstagram || comMessenger;
   const naConversa = sit === 'conversas';
 
   useEffect(() => {
@@ -177,6 +181,7 @@ export default function AtendimentoPage() {
       setRoboResponde(r?.roboResponde === true);
       setWhatsapp(r?.whatsapp && typeof r.whatsapp.ligado === 'boolean' ? { ligado: r.whatsapp.ligado, lida: r.whatsapp.lida !== false } : null);
       setInstagram(r?.instagram && typeof r.instagram.ligado === 'boolean' ? { ligado: r.instagram.ligado } : null);
+      setMessenger(r?.messenger && typeof r.messenger.ligado === 'boolean' ? { ligado: r.messenger.ligado } : null);
       setErroConversas(false);
     } catch {
       // Falhou: o que já estava fica, marcado como "não li agora" — nunca vira "nenhuma conversa" (V37).
@@ -187,7 +192,7 @@ export default function AtendimentoPage() {
   // ele é resolvido); com a ponte ou o robô do WhatsApp ligados, a cada 15 s com a aba à vista. No servidor da loja a rota
   // pede à nuvem (V37) — a falha vira "não li", nunca "nenhuma conversa".
   const casosDasConversas = useMemo(
-    () => casos.filter((c) => c.tipo === 'chat' || c.canal === 'whatsapp' || c.canal === 'instagram').map((c) => c.id).join(','),
+    () => casos.filter((c) => c.tipo === 'chat' || c.canal === 'whatsapp' || c.canal === 'instagram' || c.canal === 'messenger').map((c) => c.id).join(','),
     [casos],
   );
   useEffect(() => {
@@ -325,7 +330,7 @@ export default function AtendimentoPage() {
   }, [veNumeros, lerComentarios]);
   const contarComentarios = useCallback((n: number) => setComentarios({ semResposta: n }), []);
   const nComentarios = comentarios && comentarios !== 'reconectar' ? comentarios.semResposta : 0;
-  const resumoConversas = conversas !== null ? resumoDasConversas(conversas, { comWhatsapp, comPonte, roboResponde, comInstagram }) : '';
+  const resumoConversas = conversas !== null ? resumoDasConversas(conversas, { comWhatsapp, comPonte, roboResponde, comInstagram, comMessenger }) : '';
   // TOPO COMPACTO (item 2 do checkpoint, protótipo v9 — pedido do dono: no PC o atendente via só metade do corpo): a
   // barra do Shell sem o título repetido, com os Números e o selo do teste grátis; uma linha com a contagem, o resumo, a
   // ponte e o chat do iFood (os detalhes a um clique; o que pede ação, logo abaixo); situações numa linha e filtros
@@ -499,7 +504,7 @@ export default function AtendimentoPage() {
               </h3>
               {naConversa ? (
                 <span className="text-xs text-secondary-foreground">
-                  {[comWhatsapp ? 'WhatsApp' : '', comInstagram ? 'Direct do Instagram' : '', comPonte ? 'chat do iFood e da 99' : ''].filter(Boolean).join(', ')} · última hora · sem caso aberto
+                  {[comWhatsapp ? 'WhatsApp' : '', comInstagram ? 'Direct do Instagram' : '', comMessenger ? 'Messenger' : '', comPonte ? 'chat do iFood e da 99' : ''].filter(Boolean).join(', ')} · última hora · sem caso aberto
                   {/* De onde vêm as conversas e quantas o robô atende (antes no resumo do topo — protótipo v9). */}
                   {resumoConversas ? ` · ${resumoConversas}` : ''}
                 </span>
@@ -908,6 +913,9 @@ function Caso({
         {/* O comentário no post (F6, mig 384): o post, o comentário e as ações — responder no post, no Direct, esconder. */}
         {c.tipo === 'instagram_comentario' && <ComentarioDoCaso key={c.id} caso={c} />}
 
+        {/* O Messenger da página do Facebook (mig 386): a conversa e a resposta pela página, dentro da janela de 24 h. */}
+        {c.tipo === 'messenger' && <ConversaDoMessenger key={c.id} caso={c} aberto={aberto} podeResponder={podeResponder} />}
+
         {/* A conversa dentro do caso (2B): quem responde pelo WhatsApp é a gestão — a caixa de conversas confere. */}
         {c.telefone && c.canal === 'whatsapp' && aberto && podeResponder && <ConversaDoCaso key={c.id} caso={c} rascunho={rascunho} />}
         {c.telefone && c.canal === 'whatsapp' && aberto && !podeResponder && (
@@ -974,7 +982,9 @@ function Caso({
                 ? `O caso sai da fila. Se o cliente escrever de novo no chat ${c.canal === 'ifood' ? 'do iFood' : 'da 99'}, chega outro caso.`
                 : c.tipo === 'instagram'
                   ? 'O caso sai da fila. Se o cliente escrever de novo no Direct, chega outro caso.'
-                  : 'O caso sai da fila.'}
+                  : c.tipo === 'messenger'
+                    ? 'O caso sai da fila. Se o cliente escrever de novo no Messenger, chega outro caso.'
+                    : 'O caso sai da fila.'}
           </p>
           <div className="mt-3">
             <OQueAconteceu casoId={c.id} aoMudar={setMarca} />

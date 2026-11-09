@@ -165,8 +165,8 @@ const ASSUNTO_NAS_INSTRUCOES: Record<AssuntoDoAtendente, string> = {
   parceria: 'PARCERIA, INFLUENCIADOR OU IMPRENSA (divulgação, evento, permuta ou reportagem)',
 };
 
-/** Onde o robô fala: no WhatsApp o contato é o próprio número da conversa; no Direct, o robô pergunta. */
-export type CanalDosAssuntos = 'whatsapp' | 'direct';
+/** Onde o robô fala: no WhatsApp o contato é o próprio número da conversa; no Direct e no Messenger (mig 386), o robô pergunta. */
+export type CanalDosAssuntos = 'whatsapp' | 'direct' | 'messenger';
 
 /** Como a seção começa (os testes e as instruções reconhecem por ela). */
 export const TITULO_DOS_ASSUNTOS = 'ASSUNTOS QUE NÃO SÃO PEDIDO (escolhidos pela loja)';
@@ -195,11 +195,14 @@ export function blocoDasInstrucoes(assuntos: unknown, canal: CanalDosAssuntos): 
       );
   }
   if (comRecado.length) {
+    // No Direct e no Messenger não há telefone: o robô pergunta o melhor contato (ou "por aqui", no próprio canal).
+    const aqui = canal === 'messenger' ? 'no Messenger' : 'no Direct';
     const contatoPergunta =
-      canal === 'direct'
-        ? 'e o melhor contato para o responsável falar com ela (telefone ou e-mail — aqui pode pedir, porque é para o responsável responder, não para consultar nada; se ela preferir, pode ser por aqui no Direct)'
+      canal === 'direct' || canal === 'messenger'
+        ? `e o melhor contato para o responsável falar com ela (telefone ou e-mail — aqui pode pedir, porque é para o responsável responder, não para consultar nada; se ela preferir, pode ser por aqui ${aqui})`
         : 'e não peça telefone: o contato é este número do WhatsApp (se a pessoa der outro, anote)';
-    const contatoLinha = canal === 'direct' ? 'o contato que a pessoa deu (ou "por aqui no Direct")' : 'este WhatsApp (e o outro contato, se a pessoa deu)';
+    const contatoLinha =
+      canal === 'direct' || canal === 'messenger' ? `o contato que a pessoa deu (ou "por aqui ${aqui}")` : 'este WhatsApp (e o outro contato, se a pessoa deu)';
     const tipos = comRecado.join(', ');
     linhas.push(
       '- RECADO PARA O RESPONSÁVEL, passo a passo:',

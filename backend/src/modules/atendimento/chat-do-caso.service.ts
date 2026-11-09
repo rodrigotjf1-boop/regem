@@ -28,6 +28,8 @@ import { type AlertaDoAdicional, alertasDoAdicionalPix } from '../cardapio/adici
 // O Direct do Instagram em "Conversas agora" (mig 378): só a leitura das mensagens e o caso do Direct.
 import { DESCRICAO_DO_TIPO, chaveDoCliente, idDaChave, nomeDoCliente } from '../instagram/instagram';
 import { QUEM_RESPONDE } from '../instagram/instagram.service';
+// O Messenger do Facebook em "Conversas agora" e no "Assumir" (mig 386): pelo serviço do Messenger (opcional).
+import { MessengerService } from '../messenger/messenger.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -104,6 +106,8 @@ export class ChatDoCasoService {
     @Optional() private readonly auditoria?: AuditoriaService,
     // As conversas do WhatsApp (Evolution ou API oficial) para "Conversas agora". Opcional: os testes montam sem ele.
     @Optional() private readonly whatsapp?: WhatsappProvedorService,
+    // O Messenger do Facebook (mig 386) em "Conversas agora" e no "Assumir". Opcional: os testes montam sem ele.
+    @Optional() private readonly messenger?: MessengerService,
   ) {}
 
   /** O caso e o pedido dele na plataforma (o id do canal do chat; sem ele, o número). 404 se não é da empresa. */
@@ -272,20 +276,28 @@ export class ChatDoCasoService {
       q.set('bot', String(podeAcessar(quem?.permissoes, 'bot')));
       return this.pelaNuvem('GET', `conversas-da-loja?${q.toString()}`);
     }
-    const [conversas, robo, whatsapp, direct] = await Promise.all([
+    // O Messenger (mig 386): quem vê o Direct (a gestão) vê o Messenger — `messenger.lida = false` = não deu para ler.
+    const [conversas, robo, whatsapp, direct, messenger] = await Promise.all([
       this.db.execute(this.sqlDasConversasAgora(tenantId, unidade)),
       this.db.execute(sql`select chat_robo_responde from robo_config where tenant_id = ${tenantId}::uuid`),
       veOWhatsapp(quem) ? this.conversasDoWhatsapp(tenantId) : Promise.resolve(null),
       veODirect(quem) ? this.conversasDoDirect(tenantId) : Promise.resolve(null),
+      veODirect(quem) && this.messenger ? this.messenger.conversasAgora(tenantId) : Promise.resolve(null),
     ]);
     const roboResponde = linhas(robo)[0]?.chat_robo_responde === true;
-    const todas = [...linhas(conversas).map((c) => ({ ...c, comRobo: roboResponde })), ...(whatsapp?.conversas ?? []), ...(direct?.conversas ?? [])];
+    const todas = [
+      ...linhas(conversas).map((c) => ({ ...c, comRobo: roboResponde })),
+      ...(whatsapp?.conversas ?? []),
+      ...(direct?.conversas ?? []),
+      ...(messenger?.conversas ?? []),
+    ];
     todas.sort((a, b) => new Date(b.ultima).getTime() - new Date(a.ultima).getTime());
     return {
       conversas: todas,
       roboResponde,
       whatsapp: whatsapp ? { ligado: whatsapp.ligado, lida: whatsapp.lida } : null,
       instagram: direct ? { ligado: direct.ligado, lida: direct.lida } : null,
+      messenger: messenger ? { ligado: messenger.ligado, lida: messenger.lida } : null,
     };
   }
 
@@ -462,6 +474,11 @@ export class ChatDoCasoService {
     const chave = typeof dto?.chave === 'string' ? dto.chave : '';
     if (canal === 'whatsapp') return this.assumirNoWhatsapp(user, eu, chave, dto?.nome, origem);
     if (canal === 'instagram') return this.assumirNoDirect(user, eu, chave, origem);
+    // O Messenger do Facebook (mig 386): quem responde no Messenger (a gestão), na trava da página — `MessengerService.assumir`.
+    if (canal === 'messenger') {
+      if (!this.messenger) throw new NotFoundException('A página do Facebook da loja não está conectada.');
+      return this.messenger.assumir(user, eu, chave, origem);
+    }
     if (!ehCanalDaPonte(canal) || !/^(ext|id|num):.{1,120}$/.test(chave)) throw new BadRequestException('Conversa inválida.');
     const r = await this.db.transaction(async (tx) => {
       await tx.execute(sql`select 1 from robo_config where tenant_id = ${user.tenantId}::uuid for update`);
