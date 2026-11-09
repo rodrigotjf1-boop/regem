@@ -11,6 +11,7 @@ import { entregarJuntando } from './juntar-mensagens';
 import { conversaRecenteOficial, portaoDoRoboDoOutroLado } from './robo-do-outro-lado';
 import { portaoDaRespostaAoSemContato, registrarConfirmacao } from './resposta-ao-sem-contato';
 import { portaoDaConferencia } from './conferir-entrega';
+import { limparMarcasDoRobo } from './mensagens-do-robo';
 import { ChegadaService } from '../chegada/chegada.service';
 import { clienteRespondeu } from '../atendimento/abrir-chamado';
 import { portaoDoGestor } from '../atendimento/gestor-whatsapp-entrada';
@@ -2288,6 +2289,7 @@ export class WhatsappCloudService {
 
   // Expurgo do histórico Cloud conforme a retenção de cada loja (só nuvem). A cada 6h
   // apaga whatsapp_mensagem além do prazo (wa_retencao_dias > 0). Best-effort.
+  // Na mesma volta, as marcas da fala do robô com mais de 30 dias (mig 385 — Evolution e API oficial; nunca rejeita).
   @Interval(6 * 60 * 60 * 1000)
   async expurgarHistorico() {
     if (ehServidorLocal()) return; // era `EDGE_MODE === '1'` — nunca verdadeiro (o instalador grava 'true')
@@ -2301,6 +2303,7 @@ export class WhatsappCloudService {
     } catch {
       /* expurgo best-effort */
     }
+    await limparMarcasDoRobo(this.db, this.logger);
   }
 
   // ===== Embedded Signup (Fase 3 frente 2) — cada loja conecta o PRÓPRIO WABA =====

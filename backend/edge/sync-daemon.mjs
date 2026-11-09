@@ -2329,6 +2329,9 @@ const SO_NUVEM = new Set([
   // Os comentários dos posts do Instagram (mig 384, @cloud-only — F6 do atendente virtual): o aviso `comments` da Meta
   // chega na nuvem e a resposta sai de lá; a loja não tem a tabela (a tela do servidor da loja pede à nuvem).
   'instagram_comentario',
+  // A marca da fala do atendente virtual no WhatsApp (mig 385, @cloud-only — "Corrigir no WhatsApp"): a resposta do robô e
+  // a caixa de conversas moram na nuvem; a loja não tem a tabela (a caixa do servidor da loja pede à nuvem).
+  'whatsapp_do_robo',
   // Treinar o atendente (mig 382, @cloud-only): a conversa de teste com o robô, as mensagens dela e o que a loja ensinou
   // ao atendente — o robô e as instruções moram na nuvem; a loja não tem estas tabelas.
   'atendente_teste', 'atendente_teste_msg', 'atendente_conhecimento',

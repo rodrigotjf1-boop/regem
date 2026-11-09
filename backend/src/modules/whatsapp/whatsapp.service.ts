@@ -32,6 +32,21 @@ import {
 //   EVOLUTION_API_URL, EVOLUTION_API_KEY, N8N_BOT_WEBHOOK_URL
 const EVENTS = ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'];
 
+/**
+ * O id da mensagem que a Evolution acabou de mandar (`key.id` da resposta do `/message/send*`) — o MESMO id que o
+ * `findMessages` devolve depois na caixa de conversas (a marca da fala do robô, mig 385). Lê o corpo da resposta (o `req`
+ * leu uma cópia); sem corpo ou sem o id: nulo. Nunca rejeita (o envio já saiu).
+ */
+async function idDaMensagemEnviada(res: Response): Promise<string | null> {
+  try {
+    const j: any = await res.json();
+    const id = j?.key?.id;
+    return typeof id === 'string' && id.trim() ? id.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 @Injectable()
 export class WhatsappService {
   private readonly logger = new Logger('Whatsapp');
@@ -626,7 +641,7 @@ export class WhatsappService {
       const body = res ? await res.text().catch(() => '') : '';
       throw new BadRequestException(`Falha ao enviar (${res?.status ?? 'sem resposta'}): ${body.slice(0, 150)}`);
     }
-    return { ok: true };
+    return { ok: true, id: await idDaMensagemEnviada(res) };
   }
 
   /**
@@ -648,7 +663,7 @@ export class WhatsappService {
       const body = res ? await res.text().catch(() => '') : '';
       throw new BadRequestException(`Falha ao enviar a enquete (${res?.status ?? 'sem resposta'}): ${body.slice(0, 150)}`);
     }
-    return { ok: true };
+    return { ok: true, id: await idDaMensagemEnviada(res) };
   }
 
   /**
@@ -670,7 +685,7 @@ export class WhatsappService {
       const body = res ? await res.text().catch(() => '') : '';
       throw new BadRequestException(`Falha ao enviar o áudio (${res?.status ?? 'sem resposta'}): ${body.slice(0, 150)}`);
     }
-    return { ok: true };
+    return { ok: true, id: await idDaMensagemEnviada(res) };
   }
 
   /** A loja do robô pela chave que o n8n recebeu (phoneNumberId da API oficial ou instância da Evolution). */

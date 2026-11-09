@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **"Corrigir" no WhatsApp (08/11; mig 385 `@cloud-only` — tabela nova `whatsapp_do_robo`; mexe em
+  `backend/edge/sync-daemon.mjs` SÓ na lista `SO_NUVEM`).** Na NUVEM com o merge (o robô e a caixa moram lá). **No `.zip`
+  1.30.13 e no próximo `.exe`:** a classificação da tabela no `sync-daemon`; no servidor da loja a lista pede à nuvem e o
+  `doRobo` vem `false` (sem efeito de comportamento).
+
 - **Os comentários do Instagram — F6 (08/11; mig 384 `@cloud-only` — tabela nova `instagram_comentario` e
   `instagram_conta.comentarios_robo`/`comentarios_fila`; mexe em `backend/edge/sync-daemon.mjs` SÓ na lista `SO_NUVEM`).**
   Na NUVEM com o merge (o aviso da Meta, o robô e a Graph moram lá). **No `.zip` 1.30.13 e no próximo `.exe`:** a

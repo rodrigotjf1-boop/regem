@@ -107,6 +107,10 @@
    post em 1–2 frases o que sabe — elogio, horário, cardápio, entrega; pedido, reclamação ou dado pessoal ele leva para o
    Direct e chama a equipe; ofensivo ele não responde) e "Comentário que pede a equipe vira caso". Quem conectou antes
    precisa RECONECTAR (a Meta pede a permissão de comentários). O perfil ganha o canal "Comentários do Instagram".
+   VERSÃO 16 (08/11/2026, pendência da F4): "CORRIGIR" NO WHATSAPP. O Regem passa a marcar cada mensagem que o robô envia
+   no WhatsApp (pela API oficial e pela Evolution); na conversa do caso e em "Conversas agora", a fala do robô ganha
+   "atendente virtual" e "Corrigir" (como no Direct). As mensagens de antes da marca, da equipe, dos avisos automáticos e
+   do resumo do pedido continuam como da loja, sem "Corrigir".
    O que a tela faz:
    (1) uma FILA só com tudo o que precisa de uma pessoa: chamado do robô, disputa do iFood, pedido de cancelamento ou
        reembolso da 99, cancelamento pedido no cardápio e a resposta ao "sem contato". A conversa que o robô atende
@@ -1156,7 +1160,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 
 <!-- ============ NOTAS ============ -->
 <section id="v-notas" hidden class="notas" aria-label="Notas do protótipo">
-  <div class="trilha">Notas do protótipo · 02/11/2026 · versão 15 em 08/11/2026</div>
+  <div class="trilha">Notas do protótipo · 02/11/2026 · versão 16 em 08/11/2026</div>
   <h1>Atendimento: o que cada parte faz</h1>
 
   <div class="cartao">
@@ -1257,6 +1261,16 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <li><b>Confirmação em dois toques</b>: a resposta ao iFood e à 99 não volta atrás.</li>
       <li>Na disputa, pelo WhatsApp só <b>Aceitar e Recusar</b>; a proposta (crédito, outro valor, mais tempo) fica no Regem, pelo link.</li>
     </ol>
+  </div>
+
+  <div class="cartao">
+    <h3>"Corrigir" no WhatsApp · versão 16 (08/11/2026)</h3>
+    <p>A pendência da F4: no WhatsApp a tela não sabia se a mensagem tinha sido do robô ou da equipe. Escolhas recomendadas, já aplicadas:</p>
+    <ul>
+      <li>O Regem guarda o número de cada mensagem que o <b>atendente virtual</b> envia no WhatsApp (API oficial e Evolution), por 30 dias.</li>
+      <li>Na conversa do caso e em "Conversas agora", a fala dele aparece como <b>atendente virtual</b>, com <b>"Corrigir"</b> — o mesmo diálogo do Direct e do chat: vira o que ele aprendeu.</li>
+      <li>Ficam sem "Corrigir": as mensagens da equipe (pela tela ou pelo celular da loja), os avisos automáticos, o resumo do pedido montado pelo Regem e as mensagens de antes da marca.</li>
+    </ul>
   </div>
 
   <div class="cartao">
@@ -1800,8 +1814,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   const perguntaAntes = (msgs, i) => { for (let j = i - 1; j >= 0; j--) if (msgs[j][0] === 'cli') return msgs[j][1]; return ''; };
   const botaoCorrigir = (msgs, i) => `<button type="button" class="corrigir" data-dlg="corrigir" data-origem="caso" data-q="${esc(perguntaAntes(msgs, i))}" data-r="${esc(msgs[i][1])}">Corrigir</button>`;
   // "Corrigir": no Direct (o robô é sempre o atendente virtual) e, no chat do iFood/99, só nas falas do atendente virtual
-  // (versão 14 — as frases prontas não se corrigem); no WhatsApp a caixa não diz quem escreveu.
-  const msgsHtml = (msgs, canal) => msgs.map(([q, t, h, ia], i) => `<div class="msg ${q}">${esc(t)}${h ? `<small>${esc(h)}${envio(q, canal)}</small>` : ''}${q === 'robo' && (canal === 'ig' || ia === 'ia') ? botaoCorrigir(msgs, i) : ''}</div>`).join('');
+  // (versão 14 — as frases prontas não se corrigem). Versão 16: no WhatsApp também — o Regem marca cada mensagem que o robô
+  // envia (as de antes da marca aparecem como da loja, sem "Corrigir").
+  const msgsHtml = (msgs, canal) => msgs.map(([q, t, h, ia], i) => `<div class="msg ${q}">${esc(t)}${h ? `<small>${esc(h)}${envio(q, canal)}</small>` : ''}${q === 'robo' && (canal === 'ig' || canal === 'wa' || ia === 'ia') ? botaoCorrigir(msgs, i) : ''}</div>`).join('');
   function blocoChat(c, d) {
     const daPlat = c.canal === 'ifood' ? 'do iFood' : 'da 99';
     const pela = c.canal === 'ifood' ? 'pelo iFood' : 'pela 99';
@@ -1881,7 +1896,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <section class="bloco resumo-robo"><h3>🤖 O robô resumiu <span class="dir">aberto às 19:4${c.id === 'c3' ? '7' : '8'}</span></h3><dl>${d.resumo.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
         ${d.foto ? '<div class="fotos" style="margin-top:8px"><span class="foto">foto da sacola</span></div>' : ''}</section>
       <section class="bloco"><h3>Conversa no WhatsApp <span class="dir">${d.aguardando ? 'aguardando a Renata · volta para a fila quando ela responder' : ''}</span></h3>
-        <div class="msgs">${d.msgs.map(([q, t, h]) => `<div class="msg ${q}">${esc(t)}${h ? `<small>${esc(h)}</small>` : ''}</div>`).join('')}</div>
+        <div class="msgs">${msgsHtml(d.msgs, 'wa')}</div>
         <div class="prontas" aria-label="Respostas prontas">${d.prontas.map((p) => `<button type="button" class="pronta">${esc(p)}</button>`).join('')}</div>
         ${copiloto(c)}
         <div class="escrever"><textarea aria-label="Escrever ao cliente" placeholder="Escreva a resposta (Enter envia)"></textarea><button type="button" class="bt pri">Enviar</button></div>

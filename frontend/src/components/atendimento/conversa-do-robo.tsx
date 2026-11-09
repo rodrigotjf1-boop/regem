@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { api } from '@/lib/api';
+import { api, getCategoria } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { ChipDoCanal } from '@/components/atendimento/chip-do-canal';
+import { CorrigirResposta } from '@/components/atendimento/corrigir-resposta';
+import { perguntaDoCliente } from '@/lib/treino-do-atendente';
 import { STATUS_DO_PEDIDO, hora, telefoneLegivel, tituloDaConversa, type ConversaAgora, type MensagemDaConversa } from '@/lib/atendimento';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -27,7 +29,7 @@ function quemFalou(m: MensagemDaConversa, direct = false): string | null {
   return 'equipe';
 }
 
-function Bolha({ daLoja, texto, quem, em, enviada }: { daLoja: boolean; texto: string; quem: string | null; em: string; enviada?: boolean }) {
+function Bolha({ daLoja, texto, quem, em, enviada, extra }: { daLoja: boolean; texto: string; quem: string | null; em: string; enviada?: boolean; extra?: React.ReactNode }) {
   return (
     <div className={`flex ${daLoja ? 'justify-end' : 'justify-start'}`}>
       <div className={`min-w-0 max-w-[85%] rounded-lg px-2.5 py-1.5 text-foreground ${daLoja ? 'border border-primary/30 bg-primary/10' : 'border border-border bg-card'}`}>
@@ -37,15 +39,24 @@ function Bolha({ daLoja, texto, quem, em, enviada }: { daLoja: boolean; texto: s
           <span className="font-mono">{hora(em)}</span>
           {enviada && <span className="font-semibold text-foreground">✓ enviada</span>}
         </span>
+        {extra}
       </div>
     </div>
   );
 }
 
+/** Quem ensina o atendente (o servidor confere): gerente e presidente. */
+const QUEM_ENSINA = ['presidente', 'gerente'];
+
 /** As mensagens do WhatsApp pela caixa (Evolution ou API oficial), relidas a cada 8 s — só a leitura mais nova vale (V64). */
 function MensagensDoWhatsapp({ jids }: { jids: string[] }) {
   const [msgs, setMsgs] = useState<any[] | null>(null);
   const [erro, setErro] = useState(false);
+  // "Corrigir" nas falas do atendente virtual (mig 385, protótipo v16) — o perfil só depois de montar (V35).
+  const [ensina, setEnsina] = useState(false);
+  useEffect(() => setEnsina(QUEM_ENSINA.includes(getCategoria() ?? '')), []);
+  const [corrigindo, setCorrigindo] = useState<{ id: string; pergunta: string; resposta: string } | null>(null);
+  const [corrigidas, setCorrigidas] = useState<Set<string>>(() => new Set());
   const leitura = useRef(0);
   const chave = jids.join(',');
   useEffect(() => {
@@ -76,15 +87,47 @@ function MensagensDoWhatsapp({ jids }: { jids: string[] }) {
     <>
       {erro && <p className="text-xs text-destructive">Não consegui atualizar agora; mostrando a última leitura.</p>}
       {!ultimas.length && <p className="px-1 py-4 text-center text-secondary-foreground">Sem mensagens para mostrar.</p>}
-      {ultimas.map((m, i) => (
-        <Bolha
-          key={String(m.id ?? i)}
-          daLoja={!!m.fromMe}
-          texto={typeof m.texto === 'string' && m.texto ? m.texto : '[mídia]'}
-          quem={m.fromMe ? 'loja' : null}
-          em={m.timestamp ? new Date(Number(m.timestamp) * 1000).toISOString() : ''}
+      {ultimas.map((m, i) => {
+        const id = String(m.id ?? i);
+        const doRobo = !!m.fromMe && m.doRobo === true;
+        const podeCorrigir = ensina && doRobo && typeof m.texto === 'string' && !!m.texto;
+        return (
+          <Bolha
+            key={id}
+            daLoja={!!m.fromMe}
+            texto={typeof m.texto === 'string' && m.texto ? m.texto : '[mídia]'}
+            quem={m.fromMe ? (doRobo ? 'atendente virtual' : 'loja') : null}
+            em={m.timestamp ? new Date(Number(m.timestamp) * 1000).toISOString() : ''}
+            extra={
+              podeCorrigir ? (
+                corrigidas.has(id) ? (
+                  <span className="block pt-0.5 text-xs font-semibold text-ok">✏️ Corrigida — o atendente já usa a resposta nova</span>
+                ) : (
+                  <button
+                    type="button"
+                    className="mt-0.5 min-h-6 text-xs font-semibold text-info underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => setCorrigindo({ id, pergunta: perguntaDoCliente(ultimas, i), resposta: m.texto })}
+                  >
+                    Corrigir
+                  </button>
+                )
+              ) : null
+            }
+          />
+        );
+      })}
+      {corrigindo && (
+        <CorrigirResposta
+          origem="caso"
+          pergunta={corrigindo.pergunta}
+          resposta={corrigindo.resposta}
+          aoFechar={() => setCorrigindo(null)}
+          aoSalvar={() => {
+            setCorrigidas((s) => new Set(s).add(corrigindo.id));
+            setCorrigindo(null);
+          }}
         />
-      ))}
+      )}
     </>
   );
 }
