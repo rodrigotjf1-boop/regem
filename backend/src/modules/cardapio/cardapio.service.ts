@@ -119,8 +119,16 @@ import { ehEventoCardapio, eventoEmPrevia, eventoNoAr, lerEventos } from './even
 import type { Distancia } from '../atendimento/endereco-depois-que-saiu';
 import { InstagramService } from '../instagram/instagram.service';
 import { idDaChave } from '../instagram/instagram';
-import { ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario, ehChaveDoDirect } from '../../common/conversa-do-robo';
+import {
+  ehChaveDeTeste,
+  ehChaveDoChat,
+  ehChaveDoComentario,
+  ehChaveDoDirect,
+  ehChaveDoMessenger,
+  idDaChaveDoMessenger,
+} from '../../common/conversa-do-robo';
 import { cardapioDoChat, chamarAtendenteNoChat, conversaDaChave } from '../ponte-chat/atendente-no-chat';
+import { MessengerService } from '../messenger/messenger.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // O tema que a tela mandou, sem a chave dos eventos sazonais (ela não se grava pela rota geral).
@@ -172,6 +180,8 @@ export class CardapioService {
     @Optional() private readonly aniversarioInj?: AniversarioService,
     // O robô no Direct do Instagram (mig 378): o "chamar atendente" abre o caso do Direct. Opcional, como as de cima.
     @Optional() private readonly instagram?: InstagramService,
+    // O robô no Messenger do Facebook (mig 386): o "chamar atendente" abre o caso do Messenger; as consultas pela chave fb:.
+    @Optional() private readonly messenger?: MessengerService,
   ) {}
 
   private chegadaLocal?: ChegadaService;
@@ -390,6 +400,12 @@ export class CardapioService {
       if (!this.instagram || !idDaChave(dto?.telefone)) throw new UnauthorizedException('Conversa do Direct inválida.');
       return this.instagram.abrirPeloRobo(cfg.tenantId, dto);
     }
+    // O robô no Messenger do Facebook (mig 386): o "telefone" é `fb:<psid>` — o caso é o do Messenger, só com a ficha do
+    // Messenger desta empresa e deste cliente. NUNCA cai no caminho do telefone: tirando o `fb:`, sobram dígitos (V79).
+    if (ehChaveDoMessenger(dto?.telefone)) {
+      if (!this.messenger || !idDaChaveDoMessenger(dto?.telefone)) throw new UnauthorizedException('Conversa do Messenger inválida.');
+      return this.messenger.abrirPeloRobo(cfg.tenantId, dto);
+    }
     // O atendente virtual no CHAT DO iFOOD E DA 99 (F5, mig 383): o "telefone" é `chat:<id da fala>` — o caso é o de chat
     // DESSA conversa (a da empresa do token), pelo mesmo caminho dos casos do chat. NUNCA cai no caminho do telefone.
     if (ehChaveDoChat(dto?.telefone)) return chamarAtendenteNoChat(this.db, (e, d) => this.events.emit(e, d), cfg.tenantId, dto);
@@ -517,6 +533,13 @@ export class CardapioService {
     if (!pid && ehChaveDoDirect(inst)) {
       const c = this.instagram ? await this.instagram.cardapioDaConta(inst) : null;
       if (!c) throw new NotFoundException('Instagram não vinculado a uma loja com o robô ligado.');
+      return c.token;
+    }
+    // O Messenger do Facebook (mig 386): a chave `fb:<página>` dá o cardápio que o robô do Messenger usa — só com o robô do
+    // Messenger ligado. Só LEITURA; as rotas de telefone (pedidos, link do cliente) recusam `fb:`.
+    if (!pid && ehChaveDoMessenger(inst)) {
+      const c = this.messenger ? await this.messenger.cardapioDaConta(inst) : null;
+      if (!c) throw new NotFoundException('Página do Facebook não vinculada a uma loja com o robô ligado.');
       return c.token;
     }
     // O CHAT DO iFOOD E DA 99 (F5, mig 383): a chave `chat:<id da fala>` dá o cardápio ATIVO da loja da conversa — o que o

@@ -5,8 +5,8 @@ import { CABECALHO_SEGREDO_ROBO, segredoDaChamada } from '../../common/segredo-r
 import { CardapioService } from './cardapio.service';
 import { buscarNoCardapio, resumoDaLoja, taxaDoBairro } from './robo-consultas';
 import { categoriasPorPapel, procurarNoCardapio } from './robo-busca';
-import { instrucoesDoChat, instrucoesDoDirect, instrucoesDosComentarios, instrucoesDoRobo } from './robo-instrucoes';
-import { ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario, ehChaveDoDirect } from '../../common/conversa-do-robo';
+import { instrucoesDoChat, instrucoesDoDirect, instrucoesDoMessenger, instrucoesDosComentarios, instrucoesDoRobo } from './robo-instrucoes';
+import { ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario, ehChaveDoDirect, ehChaveDoMessenger } from '../../common/conversa-do-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -96,8 +96,21 @@ export class RoboConsultasController {
     const semPid = !String(phoneNumberId ?? '').trim();
     const teste = semPid && ehChaveDeTeste(instancia) ? await this.service.testeDoRobo(instancia) : null;
     const chat = semPid && ehChaveDoChat(instancia) ? await this.service.chatDoRobo(instancia) : null;
+    // O MESSENGER do Facebook (mig 386): a chave `fb:` recebe as instruções do Messenger (como as do Direct, sem as
+    // ferramentas de telefone), com o perfil do canal `messenger` e os assuntos que não são pedido perguntando o contato.
     const comentario = semPid && ehChaveDoComentario(instancia);
-    const canal = teste ? teste.canal : chat ? 'chat' : comentario ? 'comentarios' : ehChaveDoDirect(instancia) ? 'direct' : 'whatsapp';
+    const messenger = semPid && ehChaveDoMessenger(instancia);
+    const canal = teste
+      ? teste.canal
+      : chat
+        ? 'chat'
+        : comentario
+          ? 'comentarios'
+          : messenger
+            ? 'messenger'
+            : ehChaveDoDirect(instancia)
+              ? 'direct'
+              : 'whatsapp';
     const [jeito, assuntos, conhecimento] = await Promise.all([
       this.service.jeitoDoAtendenteDoRobo(token, canal, { foraDoHorario: teste?.foraDoHorario === true }),
       canal === 'chat' || canal === 'comentarios' ? Promise.resolve('') : this.service.assuntosDoAtendenteDoRobo(token, canal),
@@ -105,6 +118,7 @@ export class RoboConsultasController {
     ]);
     if (canal === 'comentarios') return instrucoesDosComentarios({ loja, jeito, conhecimento }, fluxo);
     if (canal === 'chat') return instrucoesDoChat({ loja, jeito, conhecimento, plataforma: chat?.plataforma ?? 'ifood', teste: !!teste }, fluxo);
+    if (canal === 'messenger') return instrucoesDoMessenger({ loja, jeito, assuntos, conhecimento }, fluxo);
     if (canal === 'direct') return instrucoesDoDirect({ loja, jeito, assuntos, conhecimento }, fluxo);
     return instrucoesDoRobo({ loja, jeito, assuntos, conhecimento }, fluxo);
   }

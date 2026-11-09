@@ -147,6 +147,7 @@ const PODE_SER_RECLAMACAO = new Set([
   'outro',
   'instagram',
   'instagram_comentario',
+  'messenger', // o caso do Messenger do Facebook (mig 386), como o do Direct
 ]);
 
 /**
@@ -236,6 +237,8 @@ export function grupoDoPlacar(l: LinhaDoCaso): GrupoDosCasos | null {
   if (l.tipo === 'chat' || l.tipo === 'instagram') return null; // o chat e o Direct entram pelas mensagens, não pelo caso
   // O caso do comentário do Instagram (F6, mig 384) não é do WhatsApp (a linha "casos"): fica fora do placar até ter a dele.
   if (l.tipo === 'instagram_comentario') return null;
+  // O caso do Messenger do Facebook (mig 386) também não é do WhatsApp: fica fora do placar até ter a linha dele.
+  if (l.tipo === 'messenger') return null;
   if (l.paraOResponsavel) return null; // o recado para o responsável (mig 381) não conta no tempo de espera
   if (l.tipo === 'disputa') return 'disputa';
   if (l.tipo === 'cancelamento_99' || l.tipo === 'reembolso_99') return 'pedido99';

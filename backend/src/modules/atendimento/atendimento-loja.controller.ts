@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Post, Query, Res, StreamableFile, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, NotFoundException, Optional, Post, Query, Res, StreamableFile, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
@@ -10,6 +10,7 @@ import { AjustesDaPonteService } from '../ponte-chat/ajustes-da-ponte.service';
 import { AvaliacaoIfoodService } from './avaliacao-ifood.service';
 import { NumerosDoAtendimentoService } from './numeros.service';
 import { InstagramService } from '../instagram/instagram.service';
+import { MessengerService } from '../messenger/messenger.service';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** A loja pedida pelo servidor da loja: um id válido, ou nenhuma (= todas). */
@@ -31,7 +32,28 @@ export class AtendimentoLojaController {
     private readonly numeros: NumerosDoAtendimentoService,
     // O Instagram Direct (mig 377): a conversa e o acesso moram na nuvem.
     private readonly instagram: InstagramService,
+    // O Messenger do Facebook (mig 386): a conversa e o acesso da página moram na nuvem.
+    @Optional() private readonly messenger?: MessengerService,
   ) {}
+
+  // A conversa do Messenger no caso, para a tela do servidor da loja (as mensagens moram só na nuvem — V37).
+  @Get('messenger-da-loja')
+  @CloudOnly()
+  @UseGuards(SyncTokenGuard)
+  messengerDaLoja(@SyncCtx() ctx: SyncCtxData, @Query('chamado') chamado: string) {
+    if (!this.messenger) throw new NotFoundException('Messenger indisponível.');
+    return this.messenger.conversa(ctx.tenantId, String(chamado ?? ''));
+  }
+
+  // A resposta no Messenger vinda do servidor da loja: quem respondeu é conferido aqui (colaborador ativo e da gestão).
+  @Post('messenger-da-loja')
+  @HttpCode(200)
+  @CloudOnly()
+  @UseGuards(SyncTokenGuard)
+  responderMessengerDaLoja(@SyncCtx() ctx: SyncCtxData, @Body() dto: { chamadoId?: unknown; texto?: unknown; atorId?: unknown }) {
+    if (!this.messenger) throw new NotFoundException('Messenger indisponível.');
+    return this.messenger.responderVindoDaLoja(ctx.tenantId, dto ?? {});
+  }
 
   // A conversa do Instagram no caso, para a tela do servidor da loja (as mensagens moram só na nuvem — V37).
   @Get('instagram-da-loja')

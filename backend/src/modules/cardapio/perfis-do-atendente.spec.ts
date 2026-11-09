@@ -123,9 +123,12 @@ describe('perfis do atendente — o que a tela manda (lerPerfisDoAtendente)', ()
     recusa({ direct: { foraDoHorario: 'hoje' } }, 'Fora do horário (Direct): escolha "O mesmo" ou um dos perfis.');
     recusa({ whatsapp: { foraDoHorario: null } }, 'Fora do horário (WhatsApp): escolha "O mesmo" ou um dos perfis.');
     recusa(
-      { messenger: { perfil: 'cordial' } },
-      'Perfil do atendente virtual: o canal "messenger" não tem perfil (só WhatsApp, Direct, chat do iFood e da 99 e comentários do Instagram).',
+      { tiktok: { perfil: 'cordial' } },
+      'Perfil do atendente virtual: o canal "tiktok" não tem perfil (só WhatsApp, Direct, chat do iFood e da 99, comentários do Instagram e Messenger).',
     );
+    // o Messenger do Facebook (mig 386) tem perfil, com o nome dele na recusa
+    recusa({ messenger: { perfil: 'bravo' } }, 'Perfil do Messenger: escolha um dos perfis da lista.');
+    expect(lerPerfisDoAtendente({ messenger: { perfil: 'cordial', jeito: ' assine  Burger ' } })).toEqual({ messenger: { perfil: 'cordial', jeito: 'assine Burger' } });
     // o chat do iFood e da 99 (F5, mig 383) tem perfil, com o nome dele na recusa
     recusa({ chat: { perfil: 'bravo' } }, 'Perfil do chat do iFood e da 99: escolha um dos perfis da lista.');
     // os comentários do Instagram (F6, mig 384) têm perfil, com o nome deles na recusa
@@ -144,10 +147,10 @@ describe('perfis do atendente — o que a tela manda (lerPerfisDoAtendente)', ()
 });
 
 describe('perfis do atendente — o que vem do banco (perfisDaLinha)', () => {
-  it('sem nada: os quatro canais (WhatsApp, Direct, — F5 — o chat do iFood e da 99 e — F6 — os comentários do Instagram) em "Como hoje", "O mesmo" e sem jeito', () => {
+  it('sem nada: os cinco canais (WhatsApp, Direct, — F5 — o chat do iFood e da 99, — F6 — os comentários do Instagram e — mig 386 — o Messenger) em "Como hoje", "O mesmo" e sem jeito', () => {
     const padrao = { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null };
     for (const v of [undefined, null, {}, [], 'lixo', 42, '{"whatsapp":'])
-      expect(perfisDaLinha(v)).toEqual({ whatsapp: padrao, direct: padrao, chat: padrao, comentarios: padrao });
+      expect(perfisDaLinha(v)).toEqual({ whatsapp: padrao, direct: padrao, chat: padrao, comentarios: padrao, messenger: padrao });
   });
 
   it('valor estranho cai no padrão daquele campo; o resto fica', () => {
@@ -156,12 +159,14 @@ describe('perfis do atendente — o que vem do banco (perfisDaLinha)', () => {
         whatsapp: { perfil: 'cordial', foraDoHorario: 'hoje', jeito: 7 },
         direct: { perfil: 'bravo', foraDoHorario: 'objetivo', jeito: '  oi\n\ntudo bem  ' },
         messenger: { perfil: 'gentil' },
+        tiktok: { perfil: 'cordial' }, // canal que não existe: fica de fora
       }),
     ).toEqual({
       whatsapp: { perfil: 'cordial', foraDoHorario: 'mesmo', jeito: null },
       direct: { perfil: 'hoje', foraDoHorario: 'objetivo', jeito: 'oi tudo bem' },
       chat: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
       comentarios: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
+      messenger: { perfil: 'gentil', foraDoHorario: 'mesmo', jeito: null },
     });
     expect(perfisDaLinha({ whatsapp: 'cordial', direct: ['x'] })).toEqual(perfisPadrao());
   });

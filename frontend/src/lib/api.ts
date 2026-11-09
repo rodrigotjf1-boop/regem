@@ -1238,6 +1238,16 @@ export const api = {
   instagramEstado: () => req('/atendimento/instagram'),
   instagramConectar: () => req('/atendimento/instagram/conectar', { method: 'POST', body: '{}' }),
   instagramDesconectar: () => req('/atendimento/instagram', { method: 'DELETE' }),
+  // O Messenger da página do Facebook (mig 386): conectar (o login do Facebook), escolher a página (com mais de uma),
+  // desconectar, o estado e a conversa do caso.
+  messengerEstado: () => req('/atendimento/messenger'),
+  messengerConectar: () => req('/atendimento/messenger/conectar', { method: 'POST', body: '{}' }),
+  messengerPaginas: () => req('/atendimento/messenger/paginas'),
+  messengerEscolher: (paginaId: string) => req('/atendimento/messenger/escolher', { method: 'POST', body: JSON.stringify({ paginaId }) }),
+  messengerDesconectar: () => req('/atendimento/messenger', { method: 'DELETE' }),
+  atendimentoMessenger: (id: string) => req(`/atendimento/${id}/messenger`),
+  atendimentoResponderMessenger: (id: string, texto: string) =>
+    req(`/atendimento/${id}/messenger`, { method: 'POST', body: JSON.stringify({ texto }) }),
   atendimentoInstagram: (id: string) => req(`/atendimento/${id}/instagram`),
   atendimentoResponderInstagram: (id: string, texto: string) =>
     req(`/atendimento/${id}/instagram`, { method: 'POST', body: JSON.stringify({ texto }) }),

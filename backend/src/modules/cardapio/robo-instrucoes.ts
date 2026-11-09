@@ -419,6 +419,59 @@ export function instrucoesDoDirect(dados: DadosDasInstrucoes, fluxo?: unknown): 
   return { versao: VERSAO_DO_DIRECT, fluxo: String(fluxo ?? '').trim() === '2' ? 2 : 1, canal: 'instagram', texto };
 }
 
+// ───────────────────────── o MESSENGER do Facebook (a última fase do atendente virtual, 09/11/2026 — mig 386) ─────────────────────────
+// O mesmo fluxo do n8n atende o Messenger da página da loja: as instruções saem daqui quando a chave da loja é `fb:`
+// (robo-consultas). Como no Direct, o Messenger não manda telefone: o robô não vê pedido nem cadastro e não monta pedido na
+// conversa (as rotas de telefone recusam `fb:`); para pedir, o link do cardápio. Sem áudio: o robô pede para escrever. As
+// opções viram lista numerada (o Regem monta) e o texto sai em até 3 mensagens. O perfil do canal `messenger`, os assuntos
+// que não são pedido (F3, perguntando o contato) e o que a loja ensinou (F4) entram como no Direct.
+// .fb1 (09/11): a primeira versão.
+export const VERSAO_DO_MESSENGER = '2026-11-09.fb1';
+
+function jeitoDoMessenger(): string {
+  return linhas(
+    'JEITO DE CONVERSAR',
+    '- Português do Brasil, natural, como uma pessoa da equipe — nunca como um robô. No máximo 3 frases curtas por mensagem (a lista de produtos que a busca manda pronta não conta: vai inteira). Sem markdown: nada de asterisco, cerquilha ou tabela.',
+    '- Chame o cliente pelo primeiro nome quando souber (o nome do perfil do Facebook). Cumprimente só na primeira mensagem da conversa; depois, vá direto ao ponto.',
+    '- Uma pergunta por vez. No máximo 1 emoji por mensagem, e só quando combinar com o tom do cliente.',
+    '- Aqui no Messenger você NÃO ouve áudio nem vê foto ou vídeo. Quando a mensagem for "(o cliente mandou um áudio pelo Messenger…)" ou "(o cliente mandou …)", peça com gentileza para ele escrever o que precisa. Isso NÃO é motivo para chamar atendente.',
+  );
+}
+
+function noMessengerSemCadastro(): string {
+  return linhas(
+    'NO MESSENGER VOCÊ NÃO SABE QUEM É O CLIENTE',
+    '- O Messenger mostra só o nome do perfil do Facebook — nunca o telefone. Aqui você NÃO vê os pedidos, o cadastro, o cashback nem a fidelidade do cliente, e NÃO monta nem registra pedido na conversa.',
+    '- Nunca peça telefone, CPF, endereço ou número do pedido para consultar alguma coisa: aqui não dá para consultar. Se o cliente mandar um telefone, não use para nada.',
+    '- Quem quer pedir faz pelo cardápio online: lá vê as fotos, escolhe os adicionais, paga e acompanha o pedido. Mande o link em uma frase.',
+  );
+}
+
+function quandoChamarNoMessenger(): string {
+  return quandoChamarNoDirect().replace(/aqui no Direct/g, 'aqui no Messenger');
+}
+
+function ferramentasDoMessenger(): string {
+  return ferramentasDoDirect().replace('NÃO funcionam no Direct', 'NÃO funcionam no Messenger');
+}
+
+/** As instruções do Messenger (qualquer fluxo do n8n: as ferramentas que funcionam aqui são as mesmas nos dois). */
+export function instrucoesDoMessenger(dados: DadosDasInstrucoes, fluxo?: unknown): { versao: string; fluxo: number; canal: 'messenger'; texto: string } {
+  const texto = [
+    ...inicio(dados, 'no Messenger do Facebook'),
+    jeitoDoMessenger(),
+    noMessengerSemCadastro(),
+    cardapioDoDirect(),
+    clienteChateado(),
+    quandoChamarNoMessenger(),
+    ...secaoDosAssuntos(dados),
+    ...secaoDoConhecimento(dados),
+    ferramentasDoMessenger(),
+    regrasDoDirect(),
+  ].join('\n\n');
+  return { versao: VERSAO_DO_MESSENGER, fluxo: String(fluxo ?? '').trim() === '2' ? 2 : 1, canal: 'messenger', texto };
+}
+
 // ───────────────────────── o CHAT DO iFOOD E DA 99 (F5 do atendente virtual, 08/11/2026 — mig 383) ─────────────────────────
 // O mesmo fluxo do n8n atende o chat da plataforma, pela ponte do chat: as instruções saem daqui quando a chave é `chat:`
 // (robo-consultas). O cliente JÁ fez o pedido pelo app — a conversa é sobre ELE, que vem pronto no campo `pedido` da mensagem

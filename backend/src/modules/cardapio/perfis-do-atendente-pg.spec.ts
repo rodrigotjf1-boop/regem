@@ -120,28 +120,36 @@ descrever('perfil do atendente virtual (Postgres)', () => {
     await horarios(SEMPRE_ABERTA);
   });
 
-  it('GET dos ajustes: sempre os quatro canais (F5: + o chat do iFood e da 99; F6: + os comentários do Instagram) com os padrões ("Como hoje", "O mesmo", sem jeito) e as opções', async () => {
+  it('GET dos ajustes: sempre os cinco canais (F5: + o chat do iFood e da 99; F6: + os comentários do Instagram; mig 386: + o Messenger) com os padrões ("Como hoje", "O mesmo", sem jeito) e as opções', async () => {
     const r: any = await ctl.ajustes(gerente(), null);
     expect(r.perfis).toEqual({
       whatsapp: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
       direct: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
       chat: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
       comentarios: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
+      messenger: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
     });
     expect(r.perfisOpcoes).toEqual({
-      canais: ['whatsapp', 'direct', 'chat', 'comentarios'],
-      rotulos: { whatsapp: 'WhatsApp', direct: 'Direct do Instagram', chat: 'Chat do iFood e da 99', comentarios: 'Comentários do Instagram' },
+      canais: ['whatsapp', 'direct', 'chat', 'comentarios', 'messenger'],
+      rotulos: {
+        whatsapp: 'WhatsApp',
+        direct: 'Direct do Instagram',
+        chat: 'Chat do iFood e da 99',
+        comentarios: 'Comentários do Instagram',
+        messenger: 'Messenger do Facebook',
+      },
       perfis: ['hoje', 'profissional', 'cordial', 'gentil', 'descontraido', 'objetivo', 'acolhedor'],
       foraDoHorario: ['mesmo', 'profissional', 'cordial', 'gentil', 'descontraido', 'objetivo', 'acolhedor'],
       jeitoMax: 300,
     });
     // linha com lixo no jsonb (outro escritor antigo): normalizado, a tela recebe os padrões no que não vale
-    await gravarPerfis({ whatsapp: { perfil: 'bravo', foraDoHorario: 'objetivo', jeito: 12 }, direct: 'cordial', messenger: {} });
+    await gravarPerfis({ whatsapp: { perfil: 'bravo', foraDoHorario: 'objetivo', jeito: 12 }, direct: 'cordial', messenger: {}, tiktok: { perfil: 'gentil' } });
     expect((await ctl.ajustes(gerente(), null)).perfis).toEqual({
       whatsapp: { perfil: 'hoje', foraDoHorario: 'objetivo', jeito: null },
       direct: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
       chat: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
       comentarios: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
+      messenger: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
     });
   });
 
@@ -156,6 +164,7 @@ descrever('perfil do atendente virtual (Postgres)', () => {
       direct: { perfil: 'gentil', foraDoHorario: 'mesmo', jeito: 'assine como Burger' },
       chat: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
       comentarios: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
+      messenger: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
     });
     // no banco: só os campos que mudaram de cada canal (o resto vem dos padrões na leitura)
     expect(await coluna()).toEqual({ whatsapp: { perfil: 'cordial', foraDoHorario: 'objetivo' }, direct: { perfil: 'gentil', jeito: 'assine como Burger' } });
@@ -208,6 +217,7 @@ descrever('perfil do atendente virtual (Postgres)', () => {
       direct: { perfil: 'objetivo', foraDoHorario: 'mesmo', jeito: null },
       chat: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
       comentarios: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
+      messenger: { perfil: 'hoje', foraDoHorario: 'mesmo', jeito: null },
     });
     expect(await coluna()).toEqual({ whatsapp: { perfil: 'acolhedor' }, direct: { perfil: 'objetivo' } });
     // o canal do chat (F5) grava como os outros, só os campos que mudaram, sem tocar nos outros canais
@@ -225,7 +235,8 @@ descrever('perfil do atendente virtual (Postgres)', () => {
     await expect(so.salvarAjustes(gerente(), null, { equipe: { atende: 'loja' }, perfis: { direct: { jeito: 'a'.repeat(301) } } })).rejects.toThrow(
       'Jeito da loja (Direct): no máximo 300 letras.',
     );
-    await expect(so.salvarAjustes(gerente(), null, { fila: { avisarGerenteMin: 10 }, perfis: { messenger: { perfil: 'cordial' } } })).rejects.toThrow(
+    // (o Messenger ganhou perfil na mig 386: o canal que não existe é outro)
+    await expect(so.salvarAjustes(gerente(), null, { fila: { avisarGerenteMin: 10 }, perfis: { tiktok: { perfil: 'cordial' } } })).rejects.toThrow(
       'não tem perfil',
     );
     // e a recusa de OUTRO grupo também não grava os perfis

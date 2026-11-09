@@ -58,7 +58,13 @@ const STATUS: Record<string, string> = {
   concluido: 'concluído',
   cancelado: 'cancelado',
 };
-const ONDE: Record<string, string> = { whatsapp: 'no WhatsApp', ifood: 'no chat do iFood', '99food': 'no chat da 99', instagram: 'no Direct do Instagram' };
+const ONDE: Record<string, string> = {
+  whatsapp: 'no WhatsApp',
+  ifood: 'no chat do iFood',
+  '99food': 'no chat da 99',
+  instagram: 'no Direct do Instagram',
+  messenger: 'no Messenger do Facebook',
+};
 const ROTULO_DE: Record<QuemFalou, string> = { cliente: 'Cliente', loja: 'Loja', robo: 'Robô da loja', sistema: 'Aviso' };
 
 export type DadosDoPedido = {

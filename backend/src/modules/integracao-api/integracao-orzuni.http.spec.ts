@@ -49,6 +49,10 @@ const semFkCompartilhada = (s: string) =>
 const ESCOPOS_ORZUNI = ['catalogo.ler', 'catalogo.ifood.ler'];
 const ESCOPOS_FAROL = ['catalogo.ler', 'fichas.ler', 'producao.ler'];
 const NOME_DE_DINHEIRO = /pre[cç]o|custo|margem|cmv|valor|markup|delta|centavo|venda/i;
+/** O corpo sem o que é sorteado a cada rodada (uuids e a hora ISO): a conferência de "nenhum valor de dinheiro" por
+ *  dígitos não pode casar com eles — "…-6915-4550-…" num uuid já derrubou o CI do #875 (ERR-414, família do ERR-408). */
+const semSorteio = (s: string) =>
+  s.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, 'UUID').replace(/\d{4}-\d{2}-\d{2}T[\d:.]+Z/g, 'DATA');
 
 /** Todo nome de campo de um JSON, em qualquer profundidade. */
 function nomesDosCampos(v: unknown, achados = new Set<string>()): Set<string> {
@@ -207,7 +211,7 @@ descrever('API de integração — Orzuni (catálogo com o preço do iFood)', ()
     // O preço do Regem (e o acréscimo do adicional) continuam fora: só o do iFood entra.
     const nomes = [...nomesDosCampos(r)];
     expect(nomes.filter((n) => NOME_DE_DINHEIRO.test(n)).sort()).toEqual(['preco_ifood_centavos']);
-    expect(JSON.stringify(r)).not.toMatch(/32\.9|3\.5|"7(\.0+)?"/);
+    expect(semSorteio(JSON.stringify(r))).not.toMatch(/32\.9|3\.5|"7(\.0+)?"/);
   });
 
   it('sem catalogo.ifood.ler (o Farol): nem o nome dos campos do iFood sai, e nenhum campo de dinheiro', async () => {
@@ -218,7 +222,7 @@ descrever('API de integração — Orzuni (catálogo com o preço do iFood)', ()
     expect(nomes).not.toContain('preco_ifood_centavos');
     expect(nomes).not.toContain('no_ifood');
     expect(nomes.filter((n) => NOME_DE_DINHEIRO.test(n))).toEqual([]);
-    expect(JSON.stringify(r)).not.toMatch(/4550|45\.5|9999999999/);
+    expect(semSorteio(JSON.stringify(r))).not.toMatch(/4550|45\.5|9999999999/);
   });
 
   it('a versão: mudar o preço do iFood muda a do Orzuni e não a do Farol', async () => {

@@ -10,8 +10,8 @@
 import { recadoAtivo } from './horario-da-equipe';
 import { lerResponsavel } from '../cardapio/assuntos-do-atendente';
 
-/** De onde o caso veio. NULL nos chamados antigos (antes da mig 350): `canalDoCaso` deduz. */
-export const CANAIS = ['whatsapp', 'cardapio', 'anotaai', 'ifood', '99food', 'instagram'] as const;
+/** De onde o caso veio. NULL nos chamados antigos (antes da mig 350): `canalDoCaso` deduz. `messenger` = mig 386. */
+export const CANAIS = ['whatsapp', 'cardapio', 'anotaai', 'ifood', '99food', 'instagram', 'messenger'] as const;
 export type Canal = (typeof CANAIS)[number];
 
 export function canalValido(v: unknown): Canal | null {

@@ -4,12 +4,22 @@ import { eq } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig } from '../../db/schema';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
-import { chaveDoTeste, ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario, ehChaveDoDirect, idDaChaveDeTeste } from '../../common/conversa-do-robo';
+import {
+  chaveDoTeste,
+  ehChaveDeTeste,
+  ehChaveDoChat,
+  ehChaveDoComentario,
+  ehChaveDoDirect,
+  ehChaveDoMessenger,
+  idDaChaveDeTeste,
+} from '../../common/conversa-do-robo';
 import { AUDIO_NO_TESTE, gravarMensagem, linhaDaTravaNoTeste, testeDaChave } from '../atendimento/teste-do-atendente';
 import { responderNoChatDaPlataforma } from '../ponte-chat/atendente-no-chat';
 import { opcoesNoChat, travaDaPlataforma } from '../ponte-chat/texto-do-chat';
 import { InstagramService } from '../instagram/instagram.service';
 import { comOrigemDoDirect } from '../instagram/instagram';
+import { MessengerService } from '../messenger/messenger.service';
+import { comOrigemDoMessenger } from '../messenger/messenger';
 import { WhatsappService } from './whatsapp.service';
 import { WhatsappCloudService, cabeEmBotoes, opcoesValidas } from './whatsapp-cloud.service';
 import { EstadoPausa, estadoDaPausa } from './robo-pausa';
@@ -96,6 +106,8 @@ export class RoboRespostaService {
     @Optional() private readonly instagram?: InstagramService,
     // Avisa a tela Atendimento do caso que a resposta do atendente no chat da plataforma abriu (F5). Opcional: os testes montam sem.
     @Optional() private readonly events?: EventEmitter2,
+    // O robô no Messenger do Facebook (mig 386). Opcional, como o do Direct.
+    @Optional() private readonly messenger?: MessengerService,
   ) {}
 
   async responder(segredo: string, p: PedidoDeResposta): Promise<RespostaDoRobo> {
@@ -109,6 +121,9 @@ export class RoboRespostaService {
     // O COMENTÁRIO de um post do Instagram (chave `cm:`, F6 — mig 384) ANTES de qualquer conta de telefone: tirando o `cm:`,
     // sobram os dígitos do id do comentário, que virariam um número de WhatsApp.
     if (ehChaveDoComentario(p?.instancia) || ehChaveDoComentario(p?.para)) return this.responderNoComentario(p);
+    // O MESSENGER do Facebook (chave `fb:` na instância e no `para`, mig 386) ANTES de qualquer conta de telefone: tirando o
+    // `fb:`, sobram dígitos que virariam um número de WhatsApp.
+    if (ehChaveDoMessenger(p?.instancia) || ehChaveDoMessenger(p?.para)) return this.responderNoMessenger(p);
     // O Direct do Instagram (chave `ig:` na instância e no `para`) ANTES de qualquer conta de telefone: tirando o `ig:`,
     // sobram dígitos que virariam um número de WhatsApp.
     if (ehChaveDoDirect(p?.instancia) || ehChaveDoDirect(p?.para)) return this.responderNoDirect(p);
@@ -276,6 +291,28 @@ export class RoboRespostaService {
     const texto = comOrigemDoDirect(opcoes.length ? menuNumerado(daLoja, opcoes) : daLoja, link).trim();
     if (!texto) return { ok: true, enviado: false, motivo: 'sem_voz_no_direct' };
     return this.instagram.enviarDoRobo(alvo, texto);
+  }
+
+  /**
+   * A resposta do robô no MESSENGER do Facebook (chave `fb:`, mig 386), como no Direct: a página, o robô ligado e o cardápio
+   * conferidos na hora (MessengerService.alvoDoRobo — V87); só o link do cardápio da loja sai, com a origem do Messenger
+   * (`utm_source=facebook&utm_medium=messenger`); as opções viram lista numerada; voz não sai no Messenger. Segurada =
+   * `enviado: false` com o motivo (200). As partes de até 2.000 caracteres e a janela de 24 h são do serviço.
+   */
+  private async responderNoMessenger(p: PedidoDeResposta): Promise<RespostaDoRobo> {
+    if (!this.messenger) throw new NotFoundException('Messenger indisponível.');
+    const alvo = await this.messenger.alvoDoRobo(p?.instancia, p?.para);
+    if (!alvo.ligado) return { ok: true, enviado: false, motivo: alvo.motivo };
+    const link = linkDoCardapioDaLoja(alvo.cardapio.token);
+    const bruto = String(p?.texto ?? '').trim();
+    const opcoes = opcoesValidas(p?.opcoes ?? []);
+    const temAudio = !!String(p?.audio?.base64 ?? '').trim();
+    if (!bruto && !opcoes.length && !temAudio) throw new BadRequestException('Nada para enviar (texto, opções ou áudio).');
+    const { texto: daLoja, trocados } = soLinksDaLoja(bruto, link, [alvo.cardapio.site, alvo.cardapio.instagram ? 'instagram.com' : null]);
+    if (trocados) this.logger.warn(`resposta do robô: ${trocados} link(s) de fora trocado(s) pelo do cardápio (messenger)`);
+    const texto = comOrigemDoMessenger(opcoes.length ? menuNumerado(daLoja, opcoes) : daLoja, link).trim();
+    if (!texto) return { ok: true, enviado: false, motivo: 'sem_voz_no_messenger' };
+    return this.messenger.enviarDoRobo(alvo, texto);
   }
 
   /**

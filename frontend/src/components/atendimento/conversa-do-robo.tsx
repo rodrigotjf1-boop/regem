@@ -20,9 +20,10 @@ import { STATUS_DO_PEDIDO, hora, telefoneLegivel, tituloDaConversa, type Convers
 const MOTIVO_DO_AVISO: Record<string, string> = { saiu: '"saiu para entrega"', chegando: '"chegando"', obrigado: '"obrigado"' };
 const RELER_WHATSAPP_MS = 8000;
 
-function quemFalou(m: MensagemDaConversa, direct = false): string | null {
-  // Direct (mig 378): `loja` é quem respondeu pelo próprio app do Instagram.
+function quemFalou(m: MensagemDaConversa, direct = false, messenger = false): string | null {
+  // Direct (mig 378): `loja` é quem respondeu pelo próprio app do Instagram; no Messenger (mig 386), pela página no Facebook.
   if (direct && m.autor === 'loja') return 'loja · pelo app do Instagram';
+  if (messenger && m.autor === 'loja') return 'loja · pela página no Facebook';
   if (m.direcao === 'entrada') return m.autor === 'cliente' ? null : 'loja · pelo app da plataforma';
   if (m.autor === 'aviso') return `aviso automático${m.motivo && MOTIVO_DO_AVISO[m.motivo] ? ` ${MOTIVO_DO_AVISO[m.motivo]}` : ''}`;
   if (m.autor === 'robo') return 'robô';
@@ -149,8 +150,9 @@ export function ConversaDoRobo({
   const [assumindo, setAssumindo] = useState(false);
   const whatsapp = c.canal === 'whatsapp';
   const direct = c.canal === 'instagram';
+  const messenger = c.canal === 'messenger';
   const comRobo = c.comRobo ?? roboResponde;
-  const doCanal = whatsapp ? 'no WhatsApp' : direct ? 'do Instagram' : c.canal === 'ifood' ? 'do iFood' : 'da 99';
+  const doCanal = whatsapp ? 'no WhatsApp' : direct ? 'do Instagram' : messenger ? 'do Messenger' : c.canal === 'ifood' ? 'do iFood' : 'da 99';
   const plataforma = c.canal === 'ifood' ? 'iFood' : '99Food';
 
   async function assumir() {
@@ -175,7 +177,7 @@ export function ConversaDoRobo({
           <div className="flex flex-wrap items-center gap-1.5">
             <ChipDoCanal canal={c.canal} />
             <span className="rounded-full bg-secondary px-2 py-0.5 text-xs font-bold text-secondary-foreground">
-              {whatsapp ? 'Conversa no WhatsApp' : direct ? 'Mensagem no Direct' : 'Mensagem no chat'}
+              {whatsapp ? 'Conversa no WhatsApp' : direct ? 'Mensagem no Direct' : messenger ? 'Mensagem no Messenger' : 'Mensagem no chat'}
             </span>
           </div>
           {!semTitulo && <h3 className="mt-1 break-words font-display text-lg font-bold">{tituloDaConversa(c)}</h3>}
@@ -192,7 +194,7 @@ export function ConversaDoRobo({
       <div className="space-y-4 p-4">
         <section
           className="rounded-lg border border-border p-3 text-sm"
-          aria-label={whatsapp ? 'Conversa no WhatsApp' : direct ? 'Direct do Instagram' : `Chat ${doCanal}`}
+          aria-label={whatsapp ? 'Conversa no WhatsApp' : direct ? 'Direct do Instagram' : messenger ? 'Messenger do Facebook' : `Chat ${doCanal}`}
         >
           <h4 className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 font-display text-sm font-bold">
             <span className="min-w-0 break-words">
@@ -200,7 +202,9 @@ export function ConversaDoRobo({
                 ? 'Conversa no WhatsApp'
                 : direct
                   ? `Direct do Instagram${c.usuario || c.cliente ? ` com ${c.usuario || c.cliente}` : ''}`
-                  : `Chat ${doCanal}${c.cliente ? ` com ${c.cliente}` : ''}`}
+                  : messenger
+                    ? `Messenger${c.cliente ? ` com ${c.cliente}` : ''}`
+                    : `Chat ${doCanal}${c.cliente ? ` com ${c.cliente}` : ''}`}
             </span>
             {comRobo && <span className="font-body text-xs font-semibold text-secondary-foreground">🤖 com o robô</span>}
           </h4>
@@ -213,7 +217,7 @@ export function ConversaDoRobo({
                   key={m.id}
                   daLoja={!(m.direcao === 'entrada' && m.autor === 'cliente')}
                   texto={m.texto}
-                  quem={quemFalou(m, direct)}
+                  quem={quemFalou(m, direct, messenger)}
                   em={m.em}
                   enviada={m.direcao === 'saida' && m.estado === 'enviada'}
                 />
@@ -222,7 +226,7 @@ export function ConversaDoRobo({
           </div>
           <p className="mt-2 text-xs text-secondary-foreground">
             {!podeAssumir
-              ? `Quem responde no ${direct ? 'Direct' : 'chat'} é a gerência ou a supervisão.`
+              ? `Quem responde no ${direct ? 'Direct' : messenger ? 'Messenger' : 'chat'} é a gerência ou a supervisão.`
               : comRobo
                 ? 'O robô está atendendo. "Assumir a conversa" cala o robô e põe o caso com você.'
                 : '"Assumir a conversa" abre o caso com você para responder ao cliente por aqui.'}
@@ -238,6 +242,16 @@ export function ConversaDoRobo({
             <p className="mt-1 text-xs text-secondary-foreground">
               {c.segue === true ? 'Segue a loja no Instagram. ' : c.segue === false ? 'Não segue a loja. ' : ''}O Instagram não manda telefone: no Direct o
               robô responde sobre a loja e o cardápio e manda o link para pedir. Pedido, reclamação e encomenda vão para a equipe.
+            </p>
+          </section>
+        )}
+
+        {messenger && (
+          <section className="rounded-lg border border-border p-3 text-sm">
+            <h4 className="mb-1 font-display text-sm font-bold">Cliente</h4>
+            <p className="break-words">{c.cliente || 'Cliente do Messenger'}</p>
+            <p className="mt-1 text-xs text-secondary-foreground">
+              O Facebook não manda telefone: no Messenger o robô responde sobre a loja e o cardápio e manda o link para pedir. Pedido, reclamação e encomenda vão para a equipe.
             </p>
           </section>
         )}

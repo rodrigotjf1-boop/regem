@@ -111,6 +111,12 @@
    no WhatsApp (pela API oficial e pela Evolution); na conversa do caso e em "Conversas agora", a fala do robô ganha
    "atendente virtual" e "Corrigir" (como no Direct). As mensagens de antes da marca, da equipe, dos avisos automáticos e
    do resumo do pedido continuam como da loja, sem "Corrigir".
+   VERSÃO 17 (08/11/2026, última fase do plano do atendente virtual — pedido do dono: "perfil para o Messenger do
+   Facebook"): O MESSENGER DA PÁGINA DO FACEBOOK. Grupo novo "Messenger do Facebook": conectar com o Facebook de quem
+   administra a página (com mais de uma, o Regem pergunta qual), "Robô responde no Messenger" (nasce desligado — o mesmo
+   atendente virtual), "Cardápio que o robô usa" e "Mensagens do Messenger na fila". O caso do Messenger na fila, como o
+   do Direct: a conversa, a janela de 24 h (regra da Meta) e "Corrigir" nas falas do robô. O perfil ganha o canal
+   "Messenger do Facebook" (não há mais "outros canais": todos os canais do plano chegaram).
    O que a tela faz:
    (1) uma FILA só com tudo o que precisa de uma pessoa: chamado do robô, disputa do iFood, pedido de cancelamento ou
        reembolso da 99, cancelamento pedido no cardápio e a resposta ao "sem contato". A conversa que o robô atende
@@ -130,7 +136,7 @@
   --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
   --gold:#E8A845; --on-gold:#281B06; --navy:#0F2230; --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9;
   --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8; --radius:12px;
-  --c-ig:#B02E7A; --c-wa:#0B6E3A; --c-ifood:#C3122B; --c-99:#FFD21F; --c-99-ink:#2A2300; --c-card:#7A5209; --c-card-bg:#FCF1DD;
+  --c-ig:#B02E7A; --c-fb:#0866FF; --c-wa:#0B6E3A; --c-ifood:#C3122B; --c-99:#FFD21F; --c-99-ink:#2A2300; --c-card:#7A5209; --c-card-bg:#FCF1DD;
   --display:'Archivo',sans-serif; --body:'Figtree',sans-serif; --mono:'JetBrains Mono',monospace;
 }
 *{box-sizing:border-box}
@@ -212,7 +218,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 /* chips de canal e selos */
 .canal{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:800;letter-spacing:.02em;border-radius:6px;padding:2px 7px;white-space:nowrap}
 .canal.wa{background:var(--c-wa);color:#fff} .canal.ifood{background:var(--c-ifood);color:#fff}
-.canal.ig{background:var(--c-ig);color:#fff}
+.canal.ig{background:var(--c-ig);color:#fff} .canal.fb{background:var(--c-fb);color:#fff}
 .canal.n99{background:var(--c-99);color:var(--c-99-ink)} .canal.card{background:var(--c-card-bg);color:var(--c-card);border:1px solid #E9CF9E}
 .selo{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:999px;font-weight:700;font-size:12px;white-space:nowrap}
 .selo.crit{background:var(--crit-bg);color:var(--crit)} .selo.warn{background:var(--warn-bg);color:var(--warn)}
@@ -699,7 +705,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <div class="sits" role="group" aria-label="Situação" id="sits"></div>
       <div class="filtros linha" role="group" aria-label="Filtros">
         <div class="campo larga"><label for="busca" class="sr">Buscar</label><input id="busca" type="search" placeholder="Buscar cliente, pedido ou telefone"></div>
-        <div class="campo"><label for="f-canal">Canal</label><select id="f-canal"><option value="">Todos</option><option value="wa">WhatsApp</option><option value="ifood">iFood</option><option value="n99">99Food</option><option value="card">Cardápio</option><option value="ig">Instagram</option></select></div>
+        <div class="campo"><label for="f-canal">Canal</label><select id="f-canal"><option value="">Todos</option><option value="wa">WhatsApp</option><option value="ifood">iFood</option><option value="n99">99Food</option><option value="card">Cardápio</option><option value="ig">Instagram</option><option value="fb">Messenger</option></select></div>
         <div class="campo"><label for="f-motivo">Motivo</label><select id="f-motivo"><option value="">Todos</option><option>Atraso</option><option>Faltou item</option><option>Disputa</option><option>Avaliação</option><option>Cancelamento</option><option>Reembolso</option><option>Sem contato</option><option>Comentário</option><option>Outro</option></select></div>
         <div class="campo"><label for="f-resp">Com quem</label><select id="f-resp"><option value="">Qualquer um</option><option value="-">Ninguém ainda</option><option value="Ana">Ana (você)</option><option value="Bruno">Bruno</option><option value="Carla">Carla</option></select></div>
       </div>
@@ -716,7 +722,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     <main id="v-aj" hidden>
       <div class="trilha">Delivery › Configurações › Operação</div>
       <h1>Atendimento</h1>
-      <p class="resumo">60 ajustes em 10 grupos · item novo no grupo "Operação", ao lado de "Robô de atendimento" · grupos novos: "Horário da equipe" (versão 10), "Perfil do atendente virtual" (versão 11), "Assuntos que não são pedido" (versão 12), "Gerente no WhatsApp", "Copiloto", "Instagram · Direct e comentários" e "iFood e 99 · chat pela ponte"</p>
+      <p class="resumo">67 ajustes em 11 grupos · item novo no grupo "Operação", ao lado de "Robô de atendimento" · grupos novos: "Horário da equipe" (versão 10), "Perfil do atendente virtual" (versão 11), "Assuntos que não são pedido" (versão 12), "Gerente no WhatsApp", "Copiloto", "Instagram · Direct e comentários", "Messenger do Facebook" (versão 17) e "iFood e 99 · chat pela ponte"</p>
       <div class="filtros" style="grid-template-columns:minmax(0,1fr)"><div class="campo"><label for="busca-aj">Buscar ajuste</label><input id="busca-aj" type="search" placeholder="Ex.: 99, disputa, som"></div></div>
 
       <!-- Versão 10: o horário da equipe. O robô atende 24 h; a pessoa só entra no horário. Nasce em "Sempre" (como hoje). -->
@@ -738,7 +744,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
            para responder Direct, para o Messenger do Facebook, para responder comentários"), com um perfil opcional para fora
            do horário da equipe. Nasce em "Como hoje": nada muda até a loja escolher. -->
       <section class="grupo" data-grupo id="grupo-perfil">
-        <header><h3>Perfil do atendente virtual <span class="novo-t">NOVO</span></h3><span>14 ajustes</span></header>
+        <header><h3>Perfil do atendente virtual <span class="novo-t">NOVO</span></h3><span>16 ajustes</span></header>
         <div class="aj"><div><span class="rot-aj">WhatsApp · perfil</span><span class="ajuda" data-exemplo-de="wa"></span></div>
           <div class="ctrl"><select aria-label="Perfil do atendente no WhatsApp" data-aj data-perfil="wa"><option value="hoje">Como hoje</option><option value="profissional">Profissional</option><option value="cordial" selected>Cordial</option><option value="gentil">Gentil</option><option value="descontraido">Descontraído</option><option value="objetivo">Objetivo</option><option value="acolhedor">Acolhedor</option></select></div></div>
         <div class="aj"><div><span class="rot-aj">WhatsApp · fora do horário</span><span class="ajuda">O perfil quando a equipe não está (o horário da equipe, acima). "O mesmo" mantém o de cima.</span></div>
@@ -765,8 +771,13 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
           <div class="ctrl"><select aria-label="Perfil do atendente nos comentários do Instagram fora do horário" data-aj><option value="mesmo" selected>O mesmo</option><option value="profissional">Profissional</option><option value="cordial">Cordial</option><option value="gentil">Gentil</option><option value="descontraido">Descontraído</option><option value="objetivo">Objetivo</option><option value="acolhedor">Acolhedor</option></select></div></div>
         <div class="aj"><div><span class="rot-aj">Comentários do Instagram · jeito da loja</span><span class="ajuda">Opcional, até 300 letras. Vale só quando "Robô responde comentários" está ligado (grupo "Instagram"). No comentário a resposta é pública e curta.</span></div>
           <div class="linha-txt"><input type="text" aria-label="Jeito da loja nos comentários do Instagram" placeholder="Como a loja gosta de falar (opcional)" data-aj></div></div>
-        <div class="aj"><div><span class="rot-aj">Os outros canais</span><span class="ajuda">Ganha o perfil quando o atendente virtual chegar nele.</span></div>
-          <div class="ctrl"><span class="fixo">Messenger do Facebook: chega na próxima fase, já com o perfil</span></div></div>
+        <!-- Versão 17: o Messenger da página do Facebook ganha o perfil — vale quando "Robô responde no Messenger" está ligado -->
+        <div class="aj"><div><span class="rot-aj">Messenger do Facebook · perfil</span><span class="ajuda" data-exemplo-de="fb"></span></div>
+          <div class="ctrl"><select aria-label="Perfil do atendente no Messenger do Facebook" data-aj data-perfil="fb"><option value="hoje">Como hoje</option><option value="profissional">Profissional</option><option value="cordial" selected>Cordial</option><option value="gentil">Gentil</option><option value="descontraido">Descontraído</option><option value="objetivo">Objetivo</option><option value="acolhedor">Acolhedor</option></select></div></div>
+        <div class="aj"><div><span class="rot-aj">Messenger do Facebook · fora do horário</span><span class="ajuda">O perfil quando a equipe não está. "O mesmo" mantém o de cima.</span></div>
+          <div class="ctrl"><select aria-label="Perfil do atendente no Messenger do Facebook fora do horário" data-aj><option value="mesmo" selected>O mesmo</option><option value="profissional">Profissional</option><option value="cordial">Cordial</option><option value="gentil">Gentil</option><option value="descontraido">Descontraído</option><option value="objetivo">Objetivo</option><option value="acolhedor">Acolhedor</option></select></div></div>
+        <div class="aj"><div><span class="rot-aj">Messenger do Facebook · jeito da loja</span><span class="ajuda">Opcional, até 300 letras. Vale só quando "Robô responde no Messenger" está ligado (grupo "Messenger do Facebook").</span></div>
+          <div class="linha-txt"><input type="text" aria-label="Jeito da loja no Messenger do Facebook" placeholder="Como a loja gosta de falar (opcional)" data-aj></div></div>
         <div class="aj"><div><span class="rot-aj">Sempre vale</span><span class="ajuda">Não se desliga: o perfil muda o jeito de falar, nunca as regras.</span></div>
           <div class="ctrl"><span class="fixo">O robô nunca inventa preço, prazo, taxa nem promoção · segue as regras de cada canal (no Direct, sem telefone; no chat das plataformas, sem contato fora) · no máximo 1 emoji por mensagem, em qualquer perfil · cliente chateado: o robô fica sério e chama a equipe, em qualquer perfil</span></div></div>
         <p class="ajuda" style="margin:10px 0 0;display:flex;flex-wrap:wrap;gap:8px;align-items:center">Quer ver como fica? Salve antes: o teste usa o perfil gravado. <button type="button" class="bt" data-dlg="testar">🧪 Testar o atendente</button></p>
@@ -828,6 +839,22 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
           <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="false" aria-label="Sugerir resposta no caso" data-aj></button></div></div>
         <div class="aj"><div><span class="rot-aj">Sempre vale</span><span class="ajuda">Não se desliga: protege o cliente e a loja.</span></div>
           <div class="ctrl"><span class="fixo">Ao modelo vai só o primeiro nome do cliente, a conversa e o pedido; nunca telefone, endereço nem pagamento · a sugestão nunca é enviada sozinha · cada sugestão pedida fica no histórico do caso</span></div></div>
+      </section>
+
+      <!-- Versão 17: o MESSENGER da página do Facebook. Conectar = entrar com o Facebook de quem administra a página e
+           autorizar; com mais de uma página, escolher qual. O app na Meta, o segredo e o aviso de mensagem são da Regem. -->
+      <section class="grupo" data-grupo id="grupo-fb">
+        <header><h3>Messenger do Facebook <span class="novo-t">NOVO</span></h3><span>5 ajustes</span></header>
+        <div class="aj"><div><span class="rot-aj">Página do Facebook</span><span class="ajuda" id="fb-estado">Não conectada. Conecte a página do Facebook da loja para as mensagens do Messenger entrarem na fila.</span></div>
+          <div class="ctrl" id="fb-botao"><button type="button" class="bt pri" data-dlg="conectar-fb">Conectar o Facebook</button></div></div>
+        <div class="aj"><div><span class="rot-aj">Robô responde no Messenger</span><span class="ajuda">O mesmo atendente virtual do WhatsApp responde primeiro: horário, área de entrega e taxa, o cardápio e o link para pedir. O Facebook não diz quem é o cliente, então o robô não vê pedido nem cadastro: "cadê meu pedido", reclamação, encomenda e "quero falar com alguém" viram caso, com o resumo.</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="false" aria-label="Robô responde no Messenger" data-aj></button></div></div>
+        <div class="aj"><div><span class="rot-aj">Cardápio que o robô usa</span><span class="ajuda">A página é da empresa; o horário, a taxa e o link saem do cardápio desta loja. Só aparece com mais de uma loja com cardápio.</span></div>
+          <div class="ctrl"><select aria-label="Cardápio que o robô usa no Messenger" data-aj><option>Burger da Praça · Centro</option><option>Burger da Praça · Penha</option></select></div></div>
+        <div class="aj"><div><span class="rot-aj">Mensagens do Messenger na fila</span><span class="ajuda">Com o robô desligado: cada conversa nova vira caso, com o nome do cliente. Com o robô ligado: vira caso só o que ele passa para a equipe. A resposta sai pela página. Desligado (e sem o robô), as mensagens ficam só na caixa de entrada da página.</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Mensagens do Messenger na fila" data-aj></button></div></div>
+        <div class="aj"><div><span class="rot-aj">Sempre vale</span><span class="ajuda">Regras do Messenger e do robô: não se desligam.</span></div>
+          <div class="ctrl"><span class="fixo">A loja só responde a quem escreveu primeiro · até 24 h depois da última mensagem do cliente · as mensagens seguem na caixa de entrada da página também · o robô fica quieto enquanto a conversa está com alguém (caso aberto ou resposta pela página no Facebook) · se o robô não responder em 3 min, a conversa vira caso</span></div></div>
       </section>
 
       <!-- Versão 7: o Instagram Direct da loja na fila. Conectar = entrar com a conta do Instagram da loja e autorizar; o
@@ -1160,7 +1187,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 
 <!-- ============ NOTAS ============ -->
 <section id="v-notas" hidden class="notas" aria-label="Notas do protótipo">
-  <div class="trilha">Notas do protótipo · 02/11/2026 · versão 16 em 08/11/2026</div>
+  <div class="trilha">Notas do protótipo · 02/11/2026 · versão 17 em 08/11/2026</div>
   <h1>Atendimento: o que cada parte faz</h1>
 
   <div class="cartao">
@@ -1261,6 +1288,18 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <li><b>Confirmação em dois toques</b>: a resposta ao iFood e à 99 não volta atrás.</li>
       <li>Na disputa, pelo WhatsApp só <b>Aceitar e Recusar</b>; a proposta (crédito, outro valor, mais tempo) fica no Regem, pelo link.</li>
     </ol>
+  </div>
+
+  <div class="cartao">
+    <h3>O Messenger do Facebook · versão 17 (08/11/2026)</h3>
+    <p>A última fase do plano do atendente virtual. Escolhas recomendadas, já aplicadas:</p>
+    <ul>
+      <li><b>Grupo "Messenger do Facebook"</b>: conectar com o Facebook de quem administra a página da loja (a loja não cria app nem guarda senha); com mais de uma página, o Regem pergunta qual — uma página por empresa.</li>
+      <li><b>"Robô responde no Messenger"</b> (nasce desligado): o mesmo atendente virtual do WhatsApp e do Direct — horário, entrega, cardápio; pedido, reclamação e encomenda viram caso com o resumo. Se não responder em 3 min, vira caso.</li>
+      <li><b>"Mensagens do Messenger na fila"</b>: com o robô desligado, cada conversa nova vira caso; com ele ligado, só o que ele passa.</li>
+      <li>O <b>caso do Messenger</b> na fila, como o do Direct: a conversa, a resposta pela página e a janela de 24 h (regra da Meta). <b>"Corrigir"</b> nas falas do robô.</li>
+      <li>O perfil ganha o canal <b>"Messenger do Facebook"</b>; o robô fica quieto quando a loja responde pela caixa de entrada da página no Facebook.</li>
+    </ul>
   </div>
 
   <div class="cartao">
@@ -1471,6 +1510,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     // já recebeu a mensagem no Direct (a resposta privada) e, quando responder, a conversa segue lá.
     { id: 'cm1', canal: 'ig', motivo: 'Comentário', tipo: 'comentario', urgente: false, titulo: 'Rafa Costa · @rafa.costa · comentário no post · chegou frio',
       cliente: 'Rafa Costa', pedido: '', fala: '"Pedi ontem pelo cardápio e chegou tudo frio 😡" · no post do Combo Duplo', resp: null, sit: 'fila', espera: '3 min', robo: true, cm: 'k3' },
+    // Versão 17 — o MESSENGER da página do Facebook: identificado pelo nome do perfil (o Facebook não manda telefone).
+    { id: 'fb1', canal: 'fb', motivo: 'Outro', tipo: 'messenger', urgente: false, titulo: 'Marcos Lima · Messenger · quer falar com alguém',
+      cliente: 'Marcos Lima', pedido: '', fala: '"Quero saber se dá pra fazer um aniversário aí no sábado"', resp: null, sit: 'fila', espera: '2 min', robo: true },
     // Versão 10: RECADOS DA NOITE — o robô atendeu fora do horário da equipe e deixou para a abertura. No horário, eles já
     // entraram na fila pela ordem de chegada (selo "🌙 recado das 02:14"); fora do horário, ficam em "Para a abertura".
     { id: 'rn1', canal: 'ig', motivo: 'Outro', tipo: 'instagram', urgente: false, titulo: 'Carlos Lima · @carlos.lima · Direct · recado da noite',
@@ -1515,7 +1557,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
   const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const CANAL = { wa: ['wa', 'WhatsApp'], ifood: ['ifood', 'iFood'], n99: ['n99', '99Food'], card: ['card', 'Cardápio'], ig: ['ig', 'Instagram'] };
+  const CANAL = { wa: ['wa', 'WhatsApp'], ifood: ['ifood', 'iFood'], n99: ['n99', '99Food'], card: ['card', 'Cardápio'], ig: ['ig', 'Instagram'], fb: ['fb', 'Messenger'] };
   const chip = (c) => `<span class="canal ${CANAL[c][0]}">${CANAL[c][1]}</span>`;
   const mmss = (ms) => {
     const s = Math.max(0, Math.round(ms / 1000)), dd = (n) => String(n).padStart(2, '0');
@@ -1751,6 +1793,14 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       resumo: [['Motivo', 'Encomenda'], ['Quer', 'Pedido para 15 pessoas no sábado'], ['Já fiz', 'Disse que entregamos no Centro (taxa R$ 7,00) e mandei o cardápio']],
       prontas: ['Oi! Entregamos sim. Me conta o que você precisa?', 'Para pedidos grandes, fazemos encomenda: me passa a data e a hora?', 'Nosso cardápio está no link da bio.'],
       perfil: { usuario: '@joana.souza', nome: 'Joana Souza', segue: true } },
+    // Versão 17: o Messenger da página — o robô atendeu e passou para a equipe (aniversário = encomenda).
+    fb1: { msgs: [['cli', 'Boa noite! Vocês abrem no sábado?', '20:40'],
+        ['robo', 'Boa noite, Marcos! No sábado abrimos das 18h às 23h. Quer ver o cardápio?', 'robô · 20:40'],
+        ['cli', 'Quero saber se dá pra fazer um aniversário aí no sábado, umas 20 pessoas', '20:41'],
+        ['robo', 'Que legal! Festa e reserva quem combina é a equipe da loja. Já chamei: você é o 1º da fila.', 'robô · 20:41']],
+      resumo: [['Motivo', 'Aniversário no sábado'], ['Quer', 'Reservar para 20 pessoas'], ['Já fiz', 'Disse o horário de sábado e ofereci o cardápio']],
+      prontas: ['Oi, Marcos! Dá sim. Me conta o horário e quantas pessoas?', 'Para festas, separamos uma área: me passa a data e a hora?', 'Nosso cardápio está no link da página.'],
+      perfil: { nome: 'Marcos Lima' }, janela: 'amanhã, 20:41' },
     // Versão 10: os recados da noite — o robô atendeu fora do horário da equipe e deixou para a abertura.
     rn1: { msgs: [['cli', 'Boa noite. O lanche de ontem veio sem o molho', '02:13'],
         ['robo', 'Poxa, Carlos, sinto muito pelo molho. Nossa equipe volta hoje às 17:30. Já deixei o seu recado aqui e respondemos assim que começarmos.', 'robô · 02:14'],
@@ -1816,7 +1866,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   // "Corrigir": no Direct (o robô é sempre o atendente virtual) e, no chat do iFood/99, só nas falas do atendente virtual
   // (versão 14 — as frases prontas não se corrigem). Versão 16: no WhatsApp também — o Regem marca cada mensagem que o robô
   // envia (as de antes da marca aparecem como da loja, sem "Corrigir").
-  const msgsHtml = (msgs, canal) => msgs.map(([q, t, h, ia], i) => `<div class="msg ${q}">${esc(t)}${h ? `<small>${esc(h)}${envio(q, canal)}</small>` : ''}${q === 'robo' && (canal === 'ig' || canal === 'wa' || ia === 'ia') ? botaoCorrigir(msgs, i) : ''}</div>`).join('');
+  const msgsHtml = (msgs, canal) => msgs.map(([q, t, h, ia], i) => `<div class="msg ${q}">${esc(t)}${h ? `<small>${esc(h)}${envio(q, canal)}</small>` : ''}${q === 'robo' && (canal === 'ig' || canal === 'wa' || canal === 'fb' || ia === 'ia') ? botaoCorrigir(msgs, i) : ''}</div>`).join('');
   function blocoChat(c, d) {
     const daPlat = c.canal === 'ifood' ? 'do iFood' : 'da 99';
     const pela = c.canal === 'ifood' ? 'pelo iFood' : 'pela 99';
@@ -1961,6 +2011,24 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
         <p class="ajuda" style="margin:6px 0 0">${d.perfil.segue ? 'Segue a loja no Instagram.' : 'Não segue a loja.'} Sem pedido ligado: o Instagram não manda telefone. Se ela fizer o pedido pelo cardápio ou pelo WhatsApp, ele aparece aqui.</p></section>
       <section class="bloco"><h3>Histórico do caso</h3><ol class="linha-tempo">${historico}</ol></section></div></div>`;
   }
+  // Versão 17: a conversa do MESSENGER da página do Facebook — como o Direct: a janela de 24 h (regra da Meta) por extenso;
+  // o robô é o atendente virtual (as falas dele têm "Corrigir"); o Facebook não manda telefone.
+  function casoMessenger(c) {
+    const d = CONVERSAS[c.id];
+    const acoes = c.resp ? `<button type="button" class="bt" data-dlg="passar">Passar</button><button type="button" class="bt">Aguardar o cliente</button><button type="button" class="bt ok" data-dlg="resolver">Resolver</button>`
+      : `<button type="button" class="bt pri">Pegar para mim</button><button type="button" class="bt" data-dlg="passar">Passar</button><button type="button" class="bt ok" data-dlg="resolver">Resolver</button>`;
+    return topo(c, acoes) + `<div class="c-corpo"><div class="col">
+      <section class="bloco resumo-robo"><h3>🤖 O robô resumiu <span class="dir">aberto às 20:41</span></h3><dl>${d.resumo.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl></section>
+      <section class="bloco"><h3>Messenger com ${esc(d.perfil.nome)} <span class="dir">pela página Burger da Praça</span></h3>
+        <div class="msgs" data-msgs>${msgsHtml(d.msgs, c.canal)}</div>
+        <div class="prontas" aria-label="Respostas prontas">${(d.prontas || []).map((p) => `<button type="button" class="pronta" data-pronta>${esc(p)}</button>`).join('')}</div>
+        <div class="escrever"><textarea aria-label="Escrever ao cliente no Messenger" placeholder="Escreva para ${esc(d.perfil.nome)} (sai no Messenger da página)" data-txt></textarea><button type="button" class="bt pri" data-enviar-fb>Enviar pelo Messenger</button></div>
+        <p class="ajuda" style="margin:6px 0 0">⏱️ Pode responder até <b>${d.janela}</b> (24 h depois da última mensagem do cliente — regra da Meta). A mensagem também aparece na caixa de entrada da página no Facebook.</p></section></div>
+      <div class="col"><section class="bloco"><h3>Cliente</h3>
+        <p style="margin:0;font-size:14px"><b>${esc(d.perfil.nome)}</b></p>
+        <p class="ajuda" style="margin:6px 0 0">Sem pedido ligado: o Facebook não manda telefone. Se ele fizer o pedido pelo cardápio ou pelo WhatsApp, ele aparece aqui.</p></section>
+      <section class="bloco"><h3>Histórico do caso</h3><ol class="linha-tempo"><li><span class="h">20:40</span><span>Marcos escreveu no Messenger da página</span></li><li><span class="h">20:40</span><span>O robô respondeu (horário de sábado)</span></li><li><span class="h">20:41</span><span>O robô passou para a equipe: aniversário</span></li></ol></section></div></div>`;
+  }
   // ---------- versão 15: os COMENTÁRIOS do Instagram ----------
   // "Sem resposta" = sem resposta no post, sem mensagem no Direct e não escondido (a mesma regra do servidor).
   const COMENT = { perm: 'sim', filtro: 'sem', itens: [
@@ -2034,10 +2102,11 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
         <p class="ajuda" style="margin:6px 0 0">Sem pedido ligado: o Instagram não manda telefone. Quando a pessoa responder a mensagem do Direct, a conversa segue no Direct, como as outras.</p></section>
       <section class="bloco"><h3>Histórico do caso</h3><ol class="linha-tempo"><li><span class="h">18:51</span><span>${esc(k.usuario)} comentou no post do Combo Duplo</span></li><li><span class="h">18:52</span><span>O atendente virtual mandou mensagem no Direct (a resposta privada) e chamou a equipe</span></li><li><span class="h">18:52</span><span>O Regem abriu o caso (comentário que pede a equipe)</span></li></ol></section></div></div>`;
   }
-  const RENDER = { disputa: casoDisputa, 'disputa-atraso': casoDisputa, n99: caso99, 'n99-reembolso': caso99Reembolso, conversa: casoConversa, cardapio: casoCardapio, feito: casoFeito, chat: casoChat, robo: casoRobo, avaliacao: casoAvaliacao, instagram: casoInstagram, comentario: casoComentario };
+  const RENDER = { disputa: casoDisputa, 'disputa-atraso': casoDisputa, n99: caso99, 'n99-reembolso': caso99Reembolso, conversa: casoConversa, cardapio: casoCardapio, feito: casoFeito, chat: casoChat, robo: casoRobo, avaliacao: casoAvaliacao, instagram: casoInstagram, comentario: casoComentario, messenger: casoMessenger };
   // O envio pelo Instagram (versão 7): sai na hora pela conta da loja; o Regem guarda a mensagem (a Meta não guarda).
+  // Versão 17: o mesmo para o Messenger da página.
   document.addEventListener('click', (e) => {
-    const b = e.target.closest('[data-enviar-ig]');
+    const b = e.target.closest('[data-enviar-ig], [data-enviar-fb]');
     if (!b) return;
     const bloco = b.closest('.bloco');
     const t = $('[data-txt]', bloco);
@@ -2047,7 +2116,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     m.className = 'msg loja';
     m.textContent = txt;
     const s = document.createElement('small');
-    s.innerHTML = 'Ana · agora · <span class="env-ok">✓ enviada pelo Instagram</span>';
+    s.innerHTML = `Ana · agora · <span class="env-ok">✓ enviada pelo ${b.hasAttribute('data-enviar-fb') ? 'Messenger' : 'Instagram'}</span>`;
     m.appendChild(s);
     const caixa = $('[data-msgs]', bloco);
     caixa.appendChild(m);
@@ -2347,7 +2416,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
         <div class="campo"><label for="cor-assunto">Assunto</label><select id="cor-assunto">${ASSUNTOS_K.map(([k, n]) => `<option value="${k}"${k === (ed ? ed.assunto : sugerirAssunto(q)) ? ' selected' : ''}>${n}</option>`).join('')}</select></div>
         <div class="campo"><label for="cor-perg">Quando o cliente perguntar</label><input id="cor-perg" type="text" maxlength="300" value="${esc(q)}" placeholder="Ex.: Vocês entregam no Recreio?"><span class="ajuda">Uma linha. Não precisa ser igual: o atendente usa a resposta quando a pergunta combinar.</span></div>
         <div class="campo"><label for="cor-resp">${sozinho ? 'O atendente responde' : 'O atendente deveria responder'}</label><textarea id="cor-resp" rows="4" maxlength="600" placeholder="Escreva como a loja responderia">${ed ? esc(r) : ''}</textarea><span class="ajuda">Até 600 letras. Preço, taxa, prazo e horário ele continua tirando do cadastro, mesmo que a resposta traga um valor.</span></div>
-        <p class="ajuda" style="margin:0">Vale para todos os canais do atendente virtual: WhatsApp, Direct, o chat do iFood e da 99 e os comentários do Instagram. Só gerente e presidente ensinam.</p>`,
+        <p class="ajuda" style="margin:0">Vale para todos os canais do atendente virtual: WhatsApp, Direct, Messenger, o chat do iFood e da 99 e os comentários do Instagram. Só gerente e presidente ensinam.</p>`,
         ok: ed ? 'Salvar' : 'Ensinar ao atendente', cl: 'pri',
         conferir: (fundo) => {
           const pq = $('#cor-perg', fundo).value.trim();
@@ -2373,6 +2442,32 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       return { t: 'Remover o que o atendente aprendeu', b: `<p style="margin:0">O atendente deixa de usar esta resposta.</p><p class="citacao"><b>“${esc(a.q)}”</b><br>${esc(a.r)}</p>`, ok: 'Remover', cl: 'perigo',
         aoConfirmar: () => { const i = APRENDIDO.indexOf(a); if (i >= 0) APRENDIDO.splice(i, 1); desenharAprendido(); toast('Resposta removida: o atendente deixa de usá-la (protótipo)'); } };
     },
+    // Versão 17: conectar a página do Facebook — a pessoa entra com o Facebook de quem administra a página e autoriza; com
+    // mais de uma página, escolhe qual (a lista mostra só o nome; o acesso de cada página fica com a Regem, cifrado).
+    'conectar-fb': () => ({ t: 'Conectar a página do Facebook', b: `<ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px">
+        <li>Abre a página do Facebook. Entre com o Facebook de quem <b>administra a página</b> da loja.</li>
+        <li>O Facebook mostra o que o Regem vai poder fazer: <b>ver as páginas</b>, <b>ler e responder as mensagens do Messenger</b> e <b>ligar o aviso de mensagem</b>. Escolha a página da loja e toque em "Continuar".</li>
+        <li>Pronto: volta para cá. Se você administra mais de uma página, o Regem pergunta qual conectar.</li></ol>
+      <p class="ajuda" style="margin:0">A loja não cria app nem guarda senha: o acesso fica com a Regem, cifrado. O perfil pessoal não serve — precisa ser uma página.</p>`,
+      ok: 'Simular: autorizei no Facebook', cl: 'pri',
+      aoConfirmar: () => setTimeout(() => abrirDialogo('escolher-pagina', $('#fb-botao button') || document.body), 50) }),
+    'escolher-pagina': () => ({ t: 'Qual página conectar?', foco: '[data-op][aria-pressed="true"]', b: `<p style="margin:0">Você administra mais de uma página. As mensagens do Messenger da página escolhida entram no Atendimento.</p>
+      <div class="opcoes" role="group" aria-label="Páginas que você administra" style="flex-direction:column;align-items:stretch"><button type="button" class="opcao" aria-pressed="true" data-op data-pagina="Burger da Praça">Burger da Praça</button><button type="button" class="opcao" aria-pressed="false" data-op data-pagina="Burger da Praça · Eventos">Burger da Praça · Eventos</button></div>
+      <p class="ajuda" style="margin:0">Uma página por empresa. Para trocar depois, desconecte e conecte de novo.</p>`,
+      ok: 'Conectar esta página', cl: 'pri',
+      ler: (fundo) => ($('[data-op][aria-pressed="true"]', fundo) || {}).dataset?.pagina || 'Burger da Praça',
+      aoConfirmar: (pagina) => {
+        $('#fb-estado').textContent = `Conectada: ${pagina} · desde agora, por Ana. As conversas novas do Messenger entram na fila.`;
+        $('#fb-botao').innerHTML = '<button type="button" class="bt" data-dlg="desconectar-fb">Desconectar</button>';
+        toast(`✅ Página conectada: ${esc(pagina)} (protótipo)`);
+      } }),
+    'desconectar-fb': () => ({ t: 'Desconectar a página do Facebook', b: `<p style="margin:0">As mensagens novas do Messenger deixam de entrar na fila e a loja não responde mais pelo Regem — elas continuam na caixa de entrada da página. Os casos que já estão na fila ficam, para resolver.</p>`,
+      ok: 'Desconectar', cl: 'perigo',
+      aoConfirmar: () => {
+        $('#fb-estado').textContent = 'Não conectada. Conecte a página do Facebook da loja para as mensagens do Messenger entrarem na fila.';
+        $('#fb-botao').innerHTML = '<button type="button" class="bt pri" data-dlg="conectar-fb">Conectar o Facebook</button>';
+        toast('Página desconectada (protótipo)');
+      } }),
     // Versão 7: conectar o Instagram da loja — a pessoa entra com a conta do Instagram e autoriza; o resto é da Regem.
     'conectar-ig': () => ({ t: 'Conectar o Instagram da loja', b: `<ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px">
         <li>Abre a página do Instagram. Entre com a conta <b>profissional</b> da loja (comercial ou criador de conteúdo).</li>

@@ -10,6 +10,7 @@ import { texto2 } from '@/components/ui/lista';
 import { MOTIVO_REEMBOLSO_99 } from '@/components/atendimento/pedido-99';
 import { QuemRecebeNoWhatsapp, type GrupoDoWhatsapp } from '@/components/atendimento/whatsapp-do-gestor';
 import { ContaDoInstagram, situacaoDoInstagram, useVoltaDoInstagram, type EstadoDoInstagram } from '@/components/atendimento/instagram-da-loja';
+import { ContaDoMessenger, situacaoDoMessenger, useVoltaDoMessenger, type EstadoDoMessenger } from '@/components/atendimento/messenger-da-loja';
 import { TestarAtendente } from '@/components/atendimento/testar-atendente';
 
 // AJUSTES DO ATENDIMENTO — Delivery › Configurações › Operação › Atendimento (protótipo
@@ -64,13 +65,15 @@ const FORA_DO_HORARIO_PADRAO = 'Nossa equipe volta {volta}. Já deixei o seu rec
 // atendente virtual já fala. Nasce em "Como hoje" — nada muda até a loja escolher. Na `robo_config` da empresa.
 // F5 (protótipo v14): o chat do iFood e da 99 ganha o perfil — vale quando "Quem responde no chat" é o atendente virtual.
 // F6 (protótipo v15): os comentários do Instagram ganham o perfil — vale quando "Robô responde comentários" está ligado.
-type CanalDoPerfil = 'whatsapp' | 'direct' | 'chat' | 'comentarios';
+// Messenger (protótipo v17): a página do Facebook ganha o perfil — vale quando "Robô responde no Messenger" está ligado.
+type CanalDoPerfil = 'whatsapp' | 'direct' | 'chat' | 'comentarios' | 'messenger';
 type PerfilDoCanal = { perfil: string; foraDoHorario: string; jeito: string | null };
 const CANAIS_DO_PERFIL: { canal: CanalDoPerfil; nome: string; chave: string }[] = [
   { canal: 'whatsapp', nome: 'WhatsApp', chave: 'Wa' },
   { canal: 'direct', nome: 'Direct do Instagram', chave: 'Ig' },
   { canal: 'chat', nome: 'Chat do iFood e da 99', chave: 'Chat' },
   { canal: 'comentarios', nome: 'Comentários do Instagram', chave: 'Cm' },
+  { canal: 'messenger', nome: 'Messenger do Facebook', chave: 'Fb' },
 ];
 const PERFIS: { v: string; rotulo: string; exemplo: string }[] = [
   { v: 'hoje', rotulo: 'Como hoje', exemplo: 'Como hoje — simpático e objetivo: "Oi, Joana! Entregamos no Centro, sim — a taxa é R$ 7,00. O cardápio está aqui 👇"' },
@@ -218,6 +221,7 @@ type Resposta = {
   copiloto?: { ligado: boolean; disponivel: boolean } | null;
   // O Instagram Direct (mig 377): se a distribuição liberou e a conta conectada (nunca o acesso).
   instagram?: EstadoDoInstagram | null;
+  messenger?: EstadoDoMessenger | null;
 };
 
 const paraValores = (r: Resposta): Valores => ({
@@ -231,6 +235,13 @@ const paraValores = (r: Resposta): Valores => ({
     : {}),
   ...(r.instagram?.conta && r.instagram.comentarios
     ? { instagramCmRobo: r.instagram.comentarios.roboResponde === true, instagramCmFila: r.instagram.comentarios.naFila !== false }
+    : {}),
+  ...(r.messenger?.conta
+    ? {
+        messengerFila: r.messenger.conta.filaLigada,
+        messengerRobo: r.messenger.conta.roboResponde === true,
+        messengerCardapio: r.messenger.conta.cardapioId ?? '',
+      }
     : {}),
   ...(r.gestorWa
     ? {
@@ -330,6 +341,9 @@ export function AjustesDoAtendimento() {
   const [testando, setTestando] = useState(false);
   // A volta do login do Instagram (`?instagram=`): avisa como foi (a tela já relê os ajustes ao montar).
   useVoltaDoInstagram(() => undefined);
+  // A volta do login do Facebook (`?messenger=`): avisa; com mais de uma página, abre a escolha.
+  const [escolherPagina, setEscolherPagina] = useState(false);
+  useVoltaDoMessenger((escolher) => setEscolherPagina(escolher));
 
   const ler = () => {
     setEstado('carregando');
@@ -416,7 +430,7 @@ export function AjustesDoAtendimento() {
   };
   const grupoDoPerfil: GrupoDeAjustes = {
     titulo: 'Perfil do atendente virtual',
-    nota: 'Sempre vale: o perfil muda o jeito de falar, nunca as regras — o robô nunca inventa preço, prazo, taxa nem promoção; segue as regras de cada canal; no máximo 1 emoji por mensagem; cliente chateado: o robô fica sério e chama a equipe. O perfil do chat do iFood e da 99 vale quando "Quem responde no chat" é o atendente virtual (grupo "iFood e 99 · chat pela ponte"); o dos comentários do Instagram, quando "Robô responde comentários" está ligado (grupo "Instagram · Direct e comentários"). O Messenger ganha o perfil quando o atendente virtual chegar nele.',
+    nota: 'Sempre vale: o perfil muda o jeito de falar, nunca as regras — o robô nunca inventa preço, prazo, taxa nem promoção; segue as regras de cada canal; no máximo 1 emoji por mensagem; cliente chateado: o robô fica sério e chama a equipe. O perfil do chat do iFood e da 99 vale quando "Quem responde no chat" é o atendente virtual (grupo "iFood e 99 · chat pela ponte"); o dos comentários do Instagram, quando "Robô responde comentários" está ligado (grupo "Instagram · Direct e comentários"). O do Messenger do Facebook, quando "Robô responde no Messenger" está ligado (grupo "Messenger do Facebook").',
     itens: CANAIS_DO_PERFIL.flatMap(({ nome, chave }) => [
       {
         id: `perfil${chave}`,
@@ -986,6 +1000,58 @@ export function AjustesDoAtendimento() {
         ],
       }
     : null;
+  // O Messenger da página do Facebook (mig 386; protótipo v17): conectar (com mais de uma página, escolher qual), o robô
+  // (nasce desligado), o cardápio (só com mais de um) e "Mensagens do Messenger na fila".
+  const fb = resp?.messenger ?? null;
+  const cardapiosDoFb = fb?.cardapios ?? [];
+  const grupoDoMessenger: GrupoDeAjustes | null = fb
+    ? {
+        titulo: 'Messenger do Facebook',
+        nota: 'Sempre vale (regras do Messenger e do robô): a loja só responde a quem escreveu primeiro · até 24 h depois da última mensagem do cliente · as mensagens seguem na caixa de entrada da página também · o acesso fica com a Regem, cifrado · o robô fica quieto enquanto a conversa está com alguém (caso aberto ou resposta pela página no Facebook) · se o robô não responder em 3 min, a conversa vira caso.',
+        itens: [
+          {
+            id: 'messengerConta',
+            rotulo: 'Página do Facebook',
+            tipo: 'livre',
+            ajuda: situacaoDoMessenger(fb),
+            palavras: 'facebook messenger página pagina conectar mensagens',
+            desenhar: () => <ContaDoMessenger estado={fb} escolherAgora={escolherPagina} aoMudar={(e) => setResp((r) => (r ? { ...r, messenger: e } : r))} />,
+          },
+          ...(fb.conta
+            ? [
+                {
+                  id: 'messengerRobo',
+                  rotulo: 'Robô responde no Messenger',
+                  tipo: 'chave' as const,
+                  ajuda: `O mesmo atendente virtual do WhatsApp responde primeiro: horário, área de entrega e taxa, o cardápio e o link para pedir. O Facebook não diz quem é o cliente, então o robô não vê pedido nem cadastro: "cadê meu pedido", reclamação, encomenda e "quero falar com alguém" viram caso, com o resumo.${
+                    fb.roboDisponivel === false ? ' A Regem ainda está ligando o robô: até lá, ligado aqui, as conversas viram caso para a equipe.' : ''
+                  }`,
+                  palavras: 'messenger facebook robô robo responder automático ia',
+                },
+                ...(cardapiosDoFb.length > 1
+                  ? [
+                      {
+                        id: 'messengerCardapio',
+                        rotulo: 'Cardápio que o robô usa',
+                        tipo: 'selecao' as const,
+                        opcoes: [{ v: '', rotulo: 'Escolha o cardápio' }, ...cardapiosDoFb.map((c) => ({ v: c.id, rotulo: c.ativo ? c.nome : `${c.nome} (desligado)` }))],
+                        ajuda: 'A página é da empresa; o horário, a taxa e o link saem do cardápio desta loja. Sem escolher, o robô não liga no Messenger.',
+                        palavras: 'messenger facebook robô cardápio loja',
+                      },
+                    ]
+                  : []),
+                {
+                  id: 'messengerFila',
+                  rotulo: 'Mensagens do Messenger na fila',
+                  tipo: 'chave' as const,
+                  ajuda: 'Com o robô desligado: cada conversa nova vira caso, com o nome do cliente. Com o robô ligado: vira caso só o que ele passa para a equipe. A resposta sai pela página. Desligado (e sem o robô), as mensagens ficam só na caixa de entrada da página.',
+                  palavras: 'messenger facebook fila caso mensagens',
+                },
+              ]
+            : []),
+        ],
+      }
+    : null;
   const grupos: GrupoDeAjustes[] = [
     ...(resp?.equipe ? [grupoDaEquipe] : []),
     ...(resp?.perfis ? [grupoDoPerfil] : []),
@@ -994,6 +1060,7 @@ export function AjustesDoAtendimento() {
     grupoDaFila,
     ...(grupoDoGestor ? [grupoDoGestor] : []),
     ...(grupoDoCopiloto ? [grupoDoCopiloto] : []),
+    ...(grupoDoMessenger ? [grupoDoMessenger] : []),
     ...(grupoDoInstagram ? [grupoDoInstagram] : []),
     ...(resp?.ponte && (resp.conectadoIfood || resp.conectado99) ? [grupoDaPonte] : []),
     ...(resp?.conectadoIfood ? [grupoDoIfood] : []),
@@ -1025,6 +1092,7 @@ export function AjustesDoAtendimento() {
       cardapioId?: string | null;
       comentarios?: { roboResponde?: boolean; naFila?: boolean };
     } | null = null;
+    let messenger: { filaLigada?: boolean; roboResponde?: boolean; cardapioId?: string | null } | null = null;
     const ponte: {
       ligada?: boolean;
       roboResponde?: boolean;
@@ -1092,6 +1160,19 @@ export function AjustesDoAtendimento() {
         continue;
       }
       if (k === 'instagramConta' || k === 'instagramCmEstado') continue; // mudam pelos botões da conta, não pelo salvar
+      if (k === 'messengerFila') {
+        messenger = { ...(messenger ?? {}), filaLigada: valores[k] === true };
+        continue;
+      }
+      if (k === 'messengerRobo') {
+        messenger = { ...(messenger ?? {}), roboResponde: valores[k] === true };
+        continue;
+      }
+      if (k === 'messengerCardapio') {
+        messenger = { ...(messenger ?? {}), cardapioId: String(valores[k] ?? '') || null };
+        continue;
+      }
+      if (k === 'messengerConta') continue; // muda pelos botões da página, não pelo salvar
       if (DO_ASSUNTO[k]) {
         // Só o campo que mudou, do assunto dele; o texto em branco volta a null (o padrão).
         const [assunto, campo] = DO_ASSUNTO[k];
@@ -1146,6 +1227,7 @@ export function AjustesDoAtendimento() {
         ...(Object.keys(gestorWa).length ? { gestorWa } : {}),
         ...(copiloto ? { copiloto } : {}),
         ...(instagram ? { instagram } : {}),
+        ...(messenger ? { messenger } : {}),
       });
       setResp(r);
       setValores(paraValores(r));
