@@ -243,7 +243,7 @@ descrever('Messenger do Facebook (Postgres + Facebook e n8n de mentira)', () => 
       antes[k] = process.env[k];
       process.env[k] = v;
     }
-    for (const k of ['EDGE_MODE', 'FACEBOOK_GRAPH_VERSAO', 'CLOUD_API', 'SYNC_TOKEN']) {
+    for (const k of ['EDGE_MODE', 'FACEBOOK_GRAPH_VERSAO', 'FACEBOOK_LOGIN_CONFIG_ID', 'CLOUD_API', 'SYNC_TOKEN']) {
       antes[k] = process.env[k];
       delete process.env[k];
     }
@@ -314,6 +314,21 @@ descrever('Messenger do Facebook (Postgres + Facebook e n8n de mentira)', () => 
   });
 
   // ───── conectar ─────
+
+  it('conectar no app do tipo empresa (ERR-415): `FACEBOOK_LOGIN_CONFIG_ID` vai como `config_id`, sem `scope`, e o `code` continua', () => {
+    process.env.FACEBOOK_LOGIN_CONFIG_ID = '1234567890123456';
+    try {
+      const u = new URL((svc.conectar(user('gerente')) as any).url);
+      expect(`${u.origin}${u.pathname}`).toBe(`${base}/v27.0/dialog/oauth`);
+      expect(u.searchParams.get('config_id')).toBe('1234567890123456');
+      expect(u.searchParams.get('override_default_response_type')).toBe('true');
+      expect(u.searchParams.get('response_type')).toBe('code');
+      expect(u.searchParams.has('scope')).toBe(false);
+      expect(u.searchParams.get('redirect_uri')).toBe('https://api.teste/api/v1/publico/messenger/retorno');
+    } finally {
+      delete process.env.FACEBOOK_LOGIN_CONFIG_ID;
+    }
+  });
 
   it('conectar com UMA página: o login da doc, o acesso longo, a página com MESSAGING, os avisos ligados e o acesso da página CIFRADO', async () => {
     const urlLogin = new URL((svc.conectar(user('gerente')) as any).url);

@@ -28,14 +28,23 @@ export const ESCOLHA_VALE_MS = 15 * 60_000;
 /** As tarefas da página (no `me/accounts`) que deixam ler e responder as mensagens dela. */
 export const TAREFAS_QUE_RESPONDEM = ['MESSAGING', 'MODERATE', 'MANAGE'] as const;
 
-/** O endereço do login do Facebook (a página onde a pessoa entra e autoriza as páginas). */
-export function urlDeAutorizacao(o: { appId: string; redirect: string; estado: string; base?: string; versao?: string }): string {
+/**
+ * O endereço do login do Facebook (a página onde a pessoa entra e autoriza as páginas).
+ *
+ * Com `configId` (app do tipo EMPRESA, "Login do Facebook para Empresas" — ERR-415): a configuração criada no painel da
+ * Meta (token de USUÁRIO, ativo Páginas, as três permissões de `ESCOPOS`) vai em `config_id` e o `scope` NÃO vai — nesse
+ * tipo de app a Meta ignora o `scope` e recusa o diálogo ("precisa pelo menos de uma permissão compatível").
+ * `override_default_response_type` faz o `code` valer sobre o padrão da configuração (doc do Login para Empresas). Sem
+ * `configId`: o login clássico, com `scope`.
+ */
+export function urlDeAutorizacao(o: { appId: string; redirect: string; estado: string; base?: string; versao?: string; configId?: string }): string {
+  const configId = String(o.configId ?? '').trim();
   const q = new URLSearchParams({
     client_id: o.appId,
     redirect_uri: o.redirect,
     state: o.estado,
     response_type: 'code',
-    scope: ESCOPOS.join(','),
+    ...(configId ? { config_id: configId, override_default_response_type: 'true' } : { scope: ESCOPOS.join(',') }),
   });
   const base = (o.base || 'https://www.facebook.com').replace(/\/+$/, '');
   return `${base}/${o.versao || VERSAO_PADRAO}/dialog/oauth?${q.toString()}`;

@@ -62,6 +62,24 @@ describe('o login do Facebook', () => {
     expect(urlDeAutorizacao({ appId: '1', redirect: 'r', estado: 'e', base: 'http://127.0.0.1:9/' }).startsWith('http://127.0.0.1:9/v27.0/dialog/oauth?')).toBe(true);
   });
 
+  it('o app do tipo empresa (ERR-415): com a configuração do login vai `config_id` e NÃO vai `scope`; vazia = o clássico', () => {
+    const u = new URL(urlDeAutorizacao({ appId: '880011223344', redirect: 'https://api.exemplo/retorno', estado: 'abc.def', configId: ' 1234567890123456 ' }));
+    expect(Object.fromEntries(u.searchParams)).toEqual({
+      client_id: '880011223344',
+      redirect_uri: 'https://api.exemplo/retorno',
+      state: 'abc.def',
+      response_type: 'code',
+      config_id: '1234567890123456',
+      override_default_response_type: 'true',
+    });
+    for (const vazio of ['', '   ', undefined]) {
+      const c = new URL(urlDeAutorizacao({ appId: '1', redirect: 'r', estado: 'e', configId: vazio }));
+      expect(c.searchParams.get('scope')).toBe('pages_show_list,pages_messaging,pages_manage_metadata');
+      expect(c.searchParams.has('config_id')).toBe(false);
+      expect(c.searchParams.has('override_default_response_type')).toBe(false);
+    }
+  });
+
   it('o state: volta quem pediu; adulterado, de outro segredo, vencido ou o state do Instagram não vale', () => {
     const agora = Date.now();
     const s = assinarEstado(T, 'col-1', SEGREDO, agora);
