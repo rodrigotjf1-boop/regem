@@ -54,6 +54,8 @@ import {
 } from './instagram';
 import * as meta from './instagram-graph';
 import { ComentariosDoInstagram } from './comentarios.service';
+import { MarcacoesDoInstagram, type StoryPendente } from './marcacoes.service';
+import { avisosDeComentarioNaoLidos } from './marcacoes';
 
 /** O cardápio que o robô do Direct usa (o horário, a taxa, o link e os textos do robô da loja). */
 export type CardapioDoRobo = {
@@ -106,12 +108,18 @@ export class InstagramService {
    * atendente" do cardápio e as rotas da tela usam esta instância (uma classe simples, sem mudar a injeção dos módulos).
    */
   readonly comentarios: ComentariosDoInstagram;
+  /**
+   * As MARCAÇÕES (mig 387 — `marcacoes.service.ts`): a menção no story (no Direct, aqui) e o @ da loja no post ou comentário
+   * de outra pessoa (no aviso dos comentários). A mesma ideia: uma classe simples, nesta instância.
+   */
+  readonly marcacoes: MarcacoesDoInstagram;
 
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly events: EventEmitter2,
     @Optional() private readonly auditoria?: AuditoriaService,
   ) {
+    this.marcacoes = new MarcacoesDoInstagram(db, events, this, auditoria);
     this.comentarios = new ComentariosDoInstagram(db, events, this, auditoria);
   }
 
@@ -141,7 +149,8 @@ export class InstagramService {
         select c.usuario, c.nome, c.fila_ligada as "filaLigada", c.robo_responde as "roboResponde", c.cardapio_id as "cardapioId",
                c.conectado_em as "conectadoEm", c.token_vence_em as "venceEm", c.erro, c.erro_em as "erroEm", col.nome as "conectadoPor",
                c.permissoes, (to_jsonb(c) ->> 'comentarios_robo')::boolean as "comentariosRobo",
-               (to_jsonb(c) ->> 'comentarios_fila')::boolean as "comentariosFila"
+               (to_jsonb(c) ->> 'comentarios_fila')::boolean as "comentariosFila",
+               (to_jsonb(c) ->> 'marcacao_story')::boolean as "marcacaoStory", (to_jsonb(c) ->> 'marcacao_post')::boolean as "marcacaoPost"
           from instagram_conta c left join colaborador col on col.id = c.conectado_por and col.tenant_id = c.tenant_id
          where c.tenant_id = ${tenantId}`),
       this.db.execute(sql`
@@ -155,9 +164,11 @@ export class InstagramService {
     // Os COMENTÁRIOS (F6, mig 384): `permitido` = a conta conectada com a permissão dos comentários (a de antes da F6 pede
     // "Reconectar"); o robô e a fila deles. As permissões e as colunas novas não vão na `conta` (lidas por `to_jsonb`: num
     // banco sem a 384, o robô desligado e a fila ligada).
-    const { permissoes, comentariosRobo, comentariosFila, ...conta } = linha ?? ({} as any);
+    const { permissoes, comentariosRobo, comentariosFila, marcacaoStory, marcacaoPost, ...conta } = linha ?? ({} as any);
     const comentarios = this.comentarios.comentariosDoAjuste(linha ? { permissoes, comentariosRobo, comentariosFila } : null);
-    return { disponivel: this.disponivel(), roboDisponivel: this.roboDisponivel(), cardapios, conta: linha ? conta : null, comentarios };
+    // As MARCAÇÕES (mig 387): os dois ajustes, se a IA da distribuição existe e se o @ em post pode chegar (a permissão).
+    const marcacoes = this.marcacoes.marcacoesDoAjuste(linha ? { story: marcacaoStory, post: marcacaoPost, permissoes } : null);
+    return { disponivel: this.disponivel(), roboDisponivel: this.roboDisponivel(), cardapios, conta: linha ? conta : null, comentarios, marcacoes };
   }
 
   /**
@@ -168,11 +179,24 @@ export class InstagramService {
   async conferirAjuste(
     tenantId: string,
     dto: any,
-  ): Promise<{ filaLigada?: boolean; roboResponde?: boolean; cardapioId?: string | null; comentarios?: { roboResponde?: boolean; naFila?: boolean } }> {
+  ): Promise<{
+    filaLigada?: boolean;
+    roboResponde?: boolean;
+    cardapioId?: string | null;
+    comentarios?: { roboResponde?: boolean; naFila?: boolean };
+    marcacoes?: { story?: boolean; post?: boolean };
+  }> {
     if (!dto || typeof dto !== 'object') throw new BadRequestException('Instagram Direct: ajuste inválido.');
-    const saida: { filaLigada?: boolean; roboResponde?: boolean; cardapioId?: string | null; comentarios?: { roboResponde?: boolean; naFila?: boolean } } = {};
-    // Os COMENTÁRIOS (F6, mig 384): conferidos aqui, com o resto do grupo, antes de gravar qualquer coisa (V86).
+    const saida: {
+      filaLigada?: boolean;
+      roboResponde?: boolean;
+      cardapioId?: string | null;
+      comentarios?: { roboResponde?: boolean; naFila?: boolean };
+      marcacoes?: { story?: boolean; post?: boolean };
+    } = {};
+    // Os COMENTÁRIOS (F6, mig 384) e as MARCAÇÕES (mig 387): conferidos aqui, com o resto do grupo, antes de gravar (V86).
     if (dto.comentarios !== undefined) saida.comentarios = await this.comentarios.conferirAjuste(tenantId, dto.comentarios);
+    if (dto.marcacoes !== undefined) saida.marcacoes = await this.marcacoes.conferirAjuste(tenantId, dto.marcacoes);
     for (const k of ['filaLigada', 'roboResponde'] as const) {
       if (dto[k] === undefined) continue;
       if (typeof dto[k] !== 'boolean') throw new BadRequestException('Instagram Direct: escolha ligado ou desligado.');
@@ -197,9 +221,16 @@ export class InstagramService {
   /** Grava o que `conferirAjuste` devolveu, só nas colunas que vieram, e cada mudança fica na auditoria. */
   async salvarAjuste(
     user: AuthUser,
-    a: { filaLigada?: boolean; roboResponde?: boolean; cardapioId?: string | null; comentarios?: { roboResponde?: boolean; naFila?: boolean } },
+    a: {
+      filaLigada?: boolean;
+      roboResponde?: boolean;
+      cardapioId?: string | null;
+      comentarios?: { roboResponde?: boolean; naFila?: boolean };
+      marcacoes?: { story?: boolean; post?: boolean };
+    },
   ) {
     if (a.comentarios) await this.comentarios.salvarAjuste(user, a.comentarios);
+    if (a.marcacoes) await this.marcacoes.salvarAjuste(user, a.marcacoes);
     if (a.filaLigada !== undefined) await this.salvarFila(user, a.filaLigada);
     if (a.roboResponde !== undefined) {
       const r: any = await this.db.execute(sql`
@@ -364,16 +395,21 @@ export class InstagramService {
         this.logger.error(`aviso do Instagram (conta ${ev.conta}): ${e?.message ?? e}`);
       }
     }
+    // O aviso `comments` que a leitura dos comentários descarta (sem id, sem texto ou sem a mídia): só os NOMES dos campos
+    // vão ao registro — é por eles que o 1º teste real fecha o formato do @ da loja na LEGENDA (mig 387).
+    for (const f of avisosDeComentarioNaoLidos(body)) this.logger.log(`aviso de comentário que o Regem não leu (talvez @ na legenda): ${f}`);
     await this.comentarios.processar(body);
   }
 
   private async umaMensagem(ev: EventoDoDirect) {
     let paraORobo: any = null;
+    let storyPendente: StoryPendente | null = null;
     const aviso: { evento: string; dados: any } | null = await this.db.transaction(async (tx: any) => {
       // A trava da conta: dois avisos do mesmo cliente ao mesmo tempo — um decide, o outro espera e já vê o caso.
       const [conta] = ((await tx.execute(sql`
-        select id, tenant_id as "tenantId", fila_ligada as "filaLigada", robo_responde as "roboResponde", cardapio_id as "cardapioId"
-          from instagram_conta where ig_user_id = ${ev.conta} for update`)) as any).rows ?? [];
+        select c.id, c.tenant_id as "tenantId", c.fila_ligada as "filaLigada", c.robo_responde as "roboResponde", c.cardapio_id as "cardapioId",
+               coalesce((to_jsonb(c) ->> 'marcacao_story')::boolean, false) as "marcacaoStory"
+          from instagram_conta c where c.ig_user_id = ${ev.conta} for update`)) as any).rows ?? [];
       if (!conta) return null; // conta que não está (mais) conectada: nada a fazer
       if (ev.apagada) {
         if (ev.mid) await tx.execute(sql`update instagram_mensagem set estado = 'apagada' where tenant_id = ${conta.tenantId} and mid = ${ev.mid}`);
@@ -391,6 +427,17 @@ export class InstagramService {
       // quando a gravação idempotente diz que a mensagem é NOVA).
       if (!msg) return null;
       if (ev.eco) return null; // a loja escreveu pelo app do Instagram: fica na conversa (e cala o robô — quemRespondeNoDirect)
+      // A MENÇÃO NO STORY com "Agradecer quem marca a loja no story" ligado (mig 387): quem cuida é a marcação — nem o robô
+      // do n8n (o agradecimento sairia em dobro), nem a fila comum. Com o caso aberto, a mensagem soma a ele.
+      const marc = await this.marcacoes.storyNaTransacao(tx, {
+        conta: { tenantId: conta.tenantId, story: conta.marcacaoStory === true, cardapioId: conta.cardapioId ?? null },
+        ev,
+        msgId: msg.id,
+      });
+      if (marc) {
+        storyPendente = marc.pendente;
+        return marc.aviso;
+      }
       // O robô do Direct (mig 378): ligado pela loja, a distribuição pronta e um cardápio ativo para ele falar da loja.
       const querRobo = conta.roboResponde === true;
       const cardapio = querRobo ? await this.cardapioDoRobo(tx, conta.tenantId, conta.cardapioId) : null;
@@ -453,6 +500,8 @@ export class InstagramService {
       return { evento: 'atendimento.novo', dados: { tenantId: conta.tenantId, chamado: novo } };
     });
     if (aviso) this.events.emit(aviso.evento, aviso.dados);
+    // A menção no story: a imagem, a IA e o agradecimento (ou o caso) DEPOIS de gravar, em segundo plano (nunca rejeita).
+    if (storyPendente) this.marcacoes.tratarStoryDepois(storyPendente);
     // Ao robô só DEPOIS de gravar (a resposta dele confere o caso e a janela no banco). Nunca rejeita (V3).
     if (paraORobo) void entregarJuntando(paraORobo).catch((e: any) => this.logger.warn(`Direct ao robô: ${e?.message ?? e}`));
     if (!ev.eco) void this.lerPerfil(ev.conta, ev.igsid);

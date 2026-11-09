@@ -33,6 +33,9 @@ export type EstadoDoInstagram = {
   /** Os comentários dos posts (F6, mig 384): `permitido` = a conta tem a permissão de comentários (quem conectou antes
    *  dela precisa reconectar); "Robô responde comentários" (nasce desligado) e "Comentário que pede a equipe vira caso". */
   comentarios?: { permitido: boolean; roboResponde: boolean; naFila: boolean } | null;
+  /** As marcações (mig 387): "Agradecer quem marca a loja no story" e "Sugerir comentário nas marcações" (nascem
+   *  desligados); `ia` = a distribuição liberou a IA de imagem; `postPermitido` = o @ no post chega (a permissão dos comentários). */
+  marcacoes?: { story: boolean; post: boolean; ia: boolean; postPermitido: boolean } | null;
 };
 
 const VOLTA: Record<string, { tipo: 'success' | 'error' | 'info'; texto: string }> = {

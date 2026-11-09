@@ -97,6 +97,23 @@ export class AtendimentoLojaController {
     return this.instagram.comentarios.agirVindoDaLoja(ctx.tenantId, dto ?? {});
   }
 
+  // As MARCAÇÕES do Instagram (mig 387) para a tela do servidor da loja: a lista (quem pediu — a gestão — foi conferido lá) e
+  // a ação (publicar, ignorar), com quem agiu conferido AQUI (colaborador ativo da empresa e da gestão).
+  @Get('instagram-marcacoes-da-loja')
+  @CloudOnly()
+  @UseGuards(SyncTokenGuard)
+  marcacoesDaLoja(@SyncCtx() ctx: SyncCtxData, @Query() q: { antes?: string }) {
+    return this.instagram.marcacoes.listar(ctx.tenantId, q ?? {});
+  }
+
+  @Post('instagram-marcacoes-da-loja')
+  @HttpCode(200)
+  @CloudOnly()
+  @UseGuards(SyncTokenGuard)
+  agirNaMarcacaoDaLoja(@SyncCtx() ctx: SyncCtxData, @Body() dto: { acao?: unknown; id?: unknown; texto?: unknown; atorId?: unknown }) {
+    return this.instagram.marcacoes.agirVindoDaLoja(ctx.tenantId, dto ?? {});
+  }
+
   // Os NÚMEROS DO ATENDIMENTO para a tela do servidor da loja: quem pediu (gerente ou presidente) e a loja em uso foram
   // conferidos lá; `unidade` vazia = todas as lojas (o presidente lá). A empresa vem do token.
   @Get('numeros-da-loja')

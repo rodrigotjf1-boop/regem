@@ -5,7 +5,8 @@ import { hora } from '@/lib/atendimento';
 // caso lê, de cara, o motivo (e se o cliente está chateado), o que ele quer e o que o robô já fez. Vem de
 // `detalhe.robo` (o servidor tira das linhas "Motivo / Quer / Já fiz" que o robô escreve, ou dos campos próprios).
 
-export type Resumo = { motivo?: string | null; quer?: string | null; jaFez?: string | null; humor?: 'chateado' | 'calmo' | null; em?: string | null };
+// `viu` (mig 387): na menção no story que parece reclamação, o que a IA viu na imagem (o produto, o lugar — nunca pessoas).
+export type Resumo = { motivo?: string | null; quer?: string | null; viu?: string | null; jaFez?: string | null; humor?: 'chateado' | 'calmo' | null; em?: string | null };
 
 const HUMOR: Record<string, string> = { chateado: 'cliente chateado', calmo: 'cliente calmo' };
 
@@ -21,6 +22,7 @@ export function ResumoDoRobo({ robo: r }: { robo: Resumo }) {
   const motivo = [r.motivo, r.humor ? HUMOR[r.humor] : null].filter(Boolean).join(' · ');
   if (motivo) linhas.push(['Motivo', motivo]);
   if (r.quer) linhas.push(['Quer', r.quer]);
+  if (r.viu) linhas.push(['A IA viu', r.viu]);
   if (r.jaFez) linhas.push(['O robô já fez', r.jaFez]);
   if (!linhas.length) return null;
   return (

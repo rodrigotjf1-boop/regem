@@ -236,6 +236,13 @@ const paraValores = (r: Resposta): Valores => ({
   ...(r.instagram?.conta && r.instagram.comentarios
     ? { instagramCmRobo: r.instagram.comentarios.roboResponde === true, instagramCmFila: r.instagram.comentarios.naFila !== false }
     : {}),
+  // As marcações (mig 387): nascem desligadas; a de post só aparece com a permissão dos comentários.
+  ...(r.instagram?.conta && r.instagram.marcacoes
+    ? {
+        instagramMarcStory: r.instagram.marcacoes.story === true,
+        ...(r.instagram.marcacoes.postPermitido ? { instagramMarcPost: r.instagram.marcacoes.post === true } : {}),
+      }
+    : {}),
   ...(r.messenger?.conta
     ? {
         messengerFila: r.messenger.conta.filaLigada,
@@ -919,7 +926,7 @@ export function AjustesDoAtendimento() {
   const grupoDoInstagram: GrupoDeAjustes | null = ig
     ? {
         titulo: 'Instagram · Direct e comentários',
-        nota: 'Sempre vale (regras do Instagram e do robô): a loja só responde a quem escreveu primeiro · até 24 h depois da última mensagem do cliente · as mensagens seguem no app do Instagram também · o acesso fica com a Regem, cifrado, e é renovado sozinho · o robô fica quieto enquanto a conversa está com alguém (caso aberto ou resposta da loja pelo app do Instagram) · se o robô não responder em 3 min, a conversa vira caso · nos comentários: uma resposta da loja por comentário, uma mensagem no Direct por comentário (até 7 dias depois dele), nada se apaga sozinho e os comentários da própria loja e das lives ficam de fora.',
+        nota: 'Sempre vale (regras do Instagram e do robô): a loja só responde a quem escreveu primeiro · até 24 h depois da última mensagem do cliente · as mensagens seguem no app do Instagram também · o acesso fica com a Regem, cifrado, e é renovado sozinho · o robô fica quieto enquanto a conversa está com alguém (caso aberto ou resposta da loja pelo app do Instagram) · se o robô não responder em 3 min, a conversa vira caso · nos comentários: uma resposta da loja por comentário, uma mensagem no Direct por comentário (até 7 dias depois dele), nada se apaga sozinho e os comentários da própria loja e das lives ficam de fora · nas marcações: a foto e o vídeo são analisados e descartados (fica só o texto), a IA nunca identifica pessoas, e perfil privado e marcação na própria foto sem o @ o Instagram não manda.',
         itens: [
           {
             id: 'instagramConta',
@@ -992,6 +999,30 @@ export function AjustesDoAtendimento() {
                         tipo: 'chave' as const,
                         ajuda: 'Quando o robô chama a equipe por causa de um comentário, ele vira caso na fila, com o post e o resumo. Desligado, a pessoa recebe a mensagem no Direct e o comentário fica só na lista "💬 Comentários".',
                         palavras: 'instagram comentários fila caso equipe',
+                      },
+                    ]
+                  : []),
+                // As MARCAÇÕES (mig 387; protótipo v18): nascem desligadas. A menção no story chega no Direct (não depende da
+                // permissão dos comentários); o @ no post de outra pessoa chega com os comentários (só aparece com ela).
+                {
+                  id: 'instagramMarcStory',
+                  rotulo: 'Agradecer quem marca a loja no story',
+                  tipo: 'chave' as const,
+                  ajuda: `A menção no story chega no Direct. Na foto, a IA olha a imagem e o atendente virtual agradece com uma frase sob medida (o lanche, o lugar, o clima — nunca as pessoas). No vídeo, sai o agradecimento padrão. Se parecer reclamação, não manda nada: vira caso na fila, com o que a IA viu. Com a conversa com alguém, fica quieto.${
+                    ig.marcacoes?.ia === false ? ' A Regem ainda está liberando a IA de imagem: até lá, sai sempre o agradecimento padrão.' : ''
+                  }`,
+                  palavras: 'instagram marcação marcacao story menção mencao agradecer ia imagem foto vídeo',
+                },
+                ...(ig.marcacoes?.postPermitido
+                  ? [
+                      {
+                        id: 'instagramMarcPost',
+                        rotulo: 'Sugerir comentário nas marcações',
+                        tipo: 'chave' as const,
+                        ajuda: `Quando alguém marca a loja (@) num post, reels ou comentário, a marcação aparece em "💬 Comentários › Marcações" com uma sugestão de comentário escrita pela IA olhando a imagem (no vídeo, a capa). Nada sai sozinho: a equipe publica ou ignora.${
+                          ig.marcacoes?.ia === false ? ' A Regem ainda está liberando a IA de imagem: até lá, as marcações chegam sem sugestão.' : ''
+                        }`,
+                        palavras: 'instagram marcação marcacao arroba post reels comentário sugestão sugerir ia',
                       },
                     ]
                   : []),
@@ -1091,6 +1122,7 @@ export function AjustesDoAtendimento() {
       roboResponde?: boolean;
       cardapioId?: string | null;
       comentarios?: { roboResponde?: boolean; naFila?: boolean };
+      marcacoes?: { story?: boolean; post?: boolean };
     } | null = null;
     let messenger: { filaLigada?: boolean; roboResponde?: boolean; cardapioId?: string | null } | null = null;
     const ponte: {
@@ -1157,6 +1189,11 @@ export function AjustesDoAtendimento() {
       if (k === 'instagramCmRobo' || k === 'instagramCmFila') {
         const campo = k === 'instagramCmRobo' ? 'roboResponde' : 'naFila';
         instagram = { ...(instagram ?? {}), comentarios: { ...(instagram?.comentarios ?? {}), [campo]: valores[k] === true } };
+        continue;
+      }
+      if (k === 'instagramMarcStory' || k === 'instagramMarcPost') {
+        const campo = k === 'instagramMarcStory' ? 'story' : 'post';
+        instagram = { ...(instagram ?? {}), marcacoes: { ...(instagram?.marcacoes ?? {}), [campo]: valores[k] === true } };
         continue;
       }
       if (k === 'instagramConta' || k === 'instagramCmEstado') continue; // mudam pelos botões da conta, não pelo salvar

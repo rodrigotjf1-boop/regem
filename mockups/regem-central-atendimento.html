@@ -117,6 +117,15 @@
    atendente virtual), "Cardápio que o robô usa" e "Mensagens do Messenger na fila". O caso do Messenger na fila, como o
    do Direct: a conversa, a janela de 24 h (regra da Meta) e "Corrigir" nas falas do robô. O perfil ganha o canal
    "Messenger do Facebook" (não há mais "outros canais": todos os canais do plano chegaram).
+   VERSÃO 18 (09/11/2026 — pedido do dono: "o atendente consegue interagir quando alguém marca a loja? a pessoa fez um
+   vídeo ou uma foto e marca a loja… a análise do vídeo ou da foto pela nossa API da Anthropic e responder ou comentar"):
+   AS MARCAÇÕES. Dois ajustes novos no grupo "Instagram" (nascem desligados): "Agradecer quem marca a loja no story" (a
+   menção no story chega no Direct; a IA olha a foto e o atendente virtual agradece no Direct com uma frase sob medida;
+   vídeo = o agradecimento padrão; parece reclamação = não manda nada e vira caso na fila com o que a IA viu) e "Sugerir
+   comentário nas marcações" (o @ da loja num post, reels ou comentário de outra pessoa entra em "💬 Comentários ›
+   Marcações" com a sugestão escrita pela IA olhando a imagem — no vídeo, a capa; nada sai sozinho: a equipe publica ou
+   ignora). A foto e o vídeo são analisados e descartados (fica só o texto); a IA fala do lanche, do lugar e do clima e
+   nunca identifica pessoas. Perfil privado e a marcação na própria foto (sem @) o Instagram não manda.
    O que a tela faz:
    (1) uma FILA só com tudo o que precisa de uma pessoa: chamado do robô, disputa do iFood, pedido de cancelamento ou
        reembolso da 99, cancelamento pedido no cardápio e a resposta ao "sem contato". A conversa que o robô atende
@@ -722,7 +731,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     <main id="v-aj" hidden>
       <div class="trilha">Delivery › Configurações › Operação</div>
       <h1>Atendimento</h1>
-      <p class="resumo">67 ajustes em 11 grupos · item novo no grupo "Operação", ao lado de "Robô de atendimento" · grupos novos: "Horário da equipe" (versão 10), "Perfil do atendente virtual" (versão 11), "Assuntos que não são pedido" (versão 12), "Gerente no WhatsApp", "Copiloto", "Instagram · Direct e comentários", "Messenger do Facebook" (versão 17) e "iFood e 99 · chat pela ponte"</p>
+      <p class="resumo">69 ajustes em 11 grupos · item novo no grupo "Operação", ao lado de "Robô de atendimento" · grupos novos: "Horário da equipe" (versão 10), "Perfil do atendente virtual" (versão 11), "Assuntos que não são pedido" (versão 12), "Gerente no WhatsApp", "Copiloto", "Instagram · Direct e comentários", "Messenger do Facebook" (versão 17) e "iFood e 99 · chat pela ponte"</p>
       <div class="filtros" style="grid-template-columns:minmax(0,1fr)"><div class="campo"><label for="busca-aj">Buscar ajuste</label><input id="busca-aj" type="search" placeholder="Ex.: 99, disputa, som"></div></div>
 
       <!-- Versão 10: o horário da equipe. O robô atende 24 h; a pessoa só entra no horário. Nasce em "Sempre" (como hoje). -->
@@ -860,7 +869,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <!-- Versão 7: o Instagram Direct da loja na fila. Conectar = entrar com a conta do Instagram da loja e autorizar; o
            resto (o app na Meta, o segredo, o aviso de mensagem, a renovação do acesso) é da Regem. -->
       <section class="grupo" data-grupo id="grupo-ig">
-        <header><h3>Instagram · Direct e comentários <span class="novo-t">NOVO</span></h3><span>8 ajustes</span></header>
+        <header><h3>Instagram · Direct e comentários <span class="novo-t">NOVO</span></h3><span>10 ajustes</span></header>
         <div class="aj"><div><span class="rot-aj">Instagram da loja</span><span class="ajuda" id="ig-estado">Não conectado. Conecte a conta profissional do Instagram da loja para as mensagens do Direct entrarem na fila.</span></div>
           <div class="ctrl" id="ig-botao"><button type="button" class="bt pri" data-dlg="conectar-ig">Conectar o Instagram</button></div></div>
         <!-- Versão 8: o robô do WhatsApp responde também no Direct. Nasce desligado. -->
@@ -878,8 +887,14 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
           <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="false" aria-label="Robô responde comentários" data-aj data-robo-cm></button></div></div>
         <div class="aj"><div><span class="rot-aj">Comentário que pede a equipe vira caso <span class="novo-t">NOVO</span></span><span class="ajuda">Quando o robô chama a equipe por causa de um comentário, ele vira caso na fila, com o post e o resumo. Desligado, a pessoa recebe a mensagem no Direct e o comentário fica só na lista.</span></div>
           <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="true" aria-label="Comentário que pede a equipe vira caso" data-aj></button></div></div>
+        <!-- Versão 18: as MARCAÇÕES. A menção no story chega no Direct; o @ da loja no post de outra pessoa chega com os
+             comentários. A IA (da distribuição) olha a imagem; a mídia é descartada, fica só o texto. -->
+        <div class="aj"><div><span class="rot-aj">Agradecer quem marca a loja no story <span class="novo-t">NOVO</span></span><span class="ajuda">A menção no story chega no Direct. Na foto, a IA olha a imagem e o atendente virtual agradece com uma frase sob medida (o lanche, o lugar, o clima — nunca as pessoas). No vídeo, sai o agradecimento padrão. Se parecer reclamação, não manda nada: vira caso na fila, com o que a IA viu. Com a conversa com alguém, fica quieto.</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="false" aria-label="Agradecer quem marca a loja no story" data-aj data-marc-story></button></div></div>
+        <div class="aj"><div><span class="rot-aj">Sugerir comentário nas marcações <span class="novo-t">NOVO</span></span><span class="ajuda">Quando alguém marca a loja (@) num post, reels ou comentário, a marcação aparece em "💬 Comentários › Marcações" com uma sugestão de comentário escrita pela IA olhando a imagem (no vídeo, a capa). Nada sai sozinho: a equipe publica ou ignora.</span></div>
+          <div class="ctrl"><button type="button" class="chave" role="switch" aria-checked="false" aria-label="Sugerir comentário nas marcações" data-aj data-marc-post></button></div></div>
         <div class="aj"><div><span class="rot-aj">Sempre vale</span><span class="ajuda">Regras do Instagram e do robô: não se desligam.</span></div>
-          <div class="ctrl"><span class="fixo">A loja só responde a quem escreveu primeiro · até 24 h depois da última mensagem do cliente (até 7 dias, quando a Meta liberar o "atendente humano") · as mensagens seguem no app do Instagram também · o robô fica quieto enquanto a conversa está com alguém (caso aberto ou resposta da loja pelo app do Instagram) · se o robô não responder em 3 min, a conversa vira caso · nos comentários: uma resposta da loja por comentário, uma mensagem no Direct por comentário (até 7 dias depois dele), nada se apaga sozinho e os comentários da própria loja e das lives ficam de fora</span></div></div>
+          <div class="ctrl"><span class="fixo">A loja só responde a quem escreveu primeiro · até 24 h depois da última mensagem do cliente (até 7 dias, quando a Meta liberar o "atendente humano") · as mensagens seguem no app do Instagram também · o robô fica quieto enquanto a conversa está com alguém (caso aberto ou resposta da loja pelo app do Instagram) · se o robô não responder em 3 min, a conversa vira caso · nos comentários: uma resposta da loja por comentário, uma mensagem no Direct por comentário (até 7 dias depois dele), nada se apaga sozinho e os comentários da própria loja e das lives ficam de fora · nas marcações: a foto e o vídeo são analisados e descartados (fica só o texto), a IA nunca identifica pessoas, e perfil privado e marcação na própria foto sem o @ o Instagram não manda</span></div></div>
       </section>
 
       <section class="grupo" data-grupo>
@@ -1187,7 +1202,7 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
 
 <!-- ============ NOTAS ============ -->
 <section id="v-notas" hidden class="notas" aria-label="Notas do protótipo">
-  <div class="trilha">Notas do protótipo · 02/11/2026 · versão 17 em 08/11/2026</div>
+  <div class="trilha">Notas do protótipo · 02/11/2026 · versão 18 em 09/11/2026</div>
   <h1>Atendimento: o que cada parte faz</h1>
 
   <div class="cartao">
@@ -1299,6 +1314,18 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       <li><b>"Mensagens do Messenger na fila"</b>: com o robô desligado, cada conversa nova vira caso; com ele ligado, só o que ele passa.</li>
       <li>O <b>caso do Messenger</b> na fila, como o do Direct: a conversa, a resposta pela página e a janela de 24 h (regra da Meta). <b>"Corrigir"</b> nas falas do robô.</li>
       <li>O perfil ganha o canal <b>"Messenger do Facebook"</b>; o robô fica quieto quando a loja responde pela caixa de entrada da página no Facebook.</li>
+    </ul>
+  </div>
+
+  <div class="cartao">
+    <h3>As marcações do Instagram · versão 18 (09/11/2026)</h3>
+    <p>Quando alguém marca a loja. Escolhas recomendadas, já aplicadas:</p>
+    <ul>
+      <li><b>"Agradecer quem marca a loja no story"</b> (grupo "Instagram", nasce desligado): a menção no story chega no Direct. Na <b>foto</b>, a IA olha a imagem e o atendente virtual agradece com uma frase sob medida (o lanche, o lugar, o clima). No <b>vídeo</b>, sai o agradecimento padrão: a IA não vê vídeo e o story não traz capa. Se a imagem <b>parecer reclamação</b>, não manda nada: vira caso na fila, com o que a IA viu. Com a conversa com alguém, fica quieto.</li>
+      <li><b>"Sugerir comentário nas marcações"</b> (nasce desligado): o <b>@ da loja</b> num post, reels ou comentário de outra pessoa entra em <b>"💬 Comentários › Marcações"</b>, com a sugestão de comentário escrita pela IA olhando a imagem (no vídeo, a capa). <b>Nada sai sozinho</b>: a equipe publica (pode mudar o texto) ou ignora.</li>
+      <li><b>Privacidade</b>: a foto e o vídeo são analisados e descartados — fica só o texto. A IA fala do produto, do lugar e do clima e <b>nunca identifica pessoas</b>.</li>
+      <li>O Instagram <b>não manda</b>: perfil privado (a não ser que siga a loja, no story) e a marcação na própria foto sem o @ na legenda.</li>
+      <li>Sem a IA liberada pela Regem, o agradecimento sai com o texto padrão e a sugestão vem em branco para a equipe escrever.</li>
     </ul>
   </div>
 
@@ -1510,6 +1537,9 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     // já recebeu a mensagem no Direct (a resposta privada) e, quando responder, a conversa segue lá.
     { id: 'cm1', canal: 'ig', motivo: 'Comentário', tipo: 'comentario', urgente: false, titulo: 'Rafa Costa · @rafa.costa · comentário no post · chegou frio',
       cliente: 'Rafa Costa', pedido: '', fala: '"Pedi ontem pelo cardápio e chegou tudo frio 😡" · no post do Combo Duplo', resp: null, sit: 'fila', espera: '3 min', robo: true, cm: 'k3' },
+    // Versão 18 — a MENÇÃO NO STORY que parece reclamação: o atendente virtual não agradeceu; vira caso com o que a IA viu.
+    { id: 'ms1', canal: 'ig', motivo: 'Reclamação', tipo: 'instagram', urgente: false, titulo: 'Bruno Dias · @bruno.dias · menção no story · parece reclamação',
+      cliente: 'Bruno Dias', pedido: '', fala: '"olha como chegou 😤" · marcou a loja no story (a IA viu o hambúrguer amassado na embalagem)', resp: null, sit: 'fila', espera: '1 min', robo: true, marc: 'm6' },
     // Versão 17 — o MESSENGER da página do Facebook: identificado pelo nome do perfil (o Facebook não manda telefone).
     { id: 'fb1', canal: 'fb', motivo: 'Outro', tipo: 'messenger', urgente: false, titulo: 'Marcos Lima · Messenger · quer falar com alguém',
       cliente: 'Marcos Lima', pedido: '', fala: '"Quero saber se dá pra fazer um aniversário aí no sábado"', resp: null, sit: 'fila', espera: '2 min', robo: true },
@@ -1801,6 +1831,12 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       resumo: [['Motivo', 'Aniversário no sábado'], ['Quer', 'Reservar para 20 pessoas'], ['Já fiz', 'Disse o horário de sábado e ofereci o cardápio']],
       prontas: ['Oi, Marcos! Dá sim. Me conta o horário e quantas pessoas?', 'Para festas, separamos uma área: me passa a data e a hora?', 'Nosso cardápio está no link da página.'],
       perfil: { nome: 'Marcos Lima' }, janela: 'amanhã, 20:41' },
+    // Versão 18: a menção no story que parece reclamação — a mensagem é a própria menção (o story não fica guardado).
+    ms1: { msgs: [['cli', '📸 Marcou a loja no story', '19:52']],
+      resumo: [['Motivo', 'Menção no story · parece reclamação'], ['A IA viu', 'Hambúrguer amassado dentro da embalagem, com o molho espalhado; no texto do story: "olha como chegou 😤"'], ['Já fiz', 'Nada: não agradeci, porque parece reclamação']],
+      prontas: ['Oi, Bruno! Vimos o seu story e sentimos muito. Me conta o número do pedido para a gente resolver?', 'Sentimos muito pelo lanche! Qual foi o pedido? Vamos resolver por aqui.'],
+      perfil: { usuario: '@bruno.dias', nome: 'Bruno Dias', segue: true }, janela: 'amanhã, 19:52', abertoEm: '19:52',
+      historico: [['19:52', 'Bruno marcou a loja no story'], ['19:52', 'A IA olhou a imagem: parece reclamação'], ['19:52', 'O Regem abriu o caso (sem agradecer)']] },
     // Versão 10: os recados da noite — o robô atendeu fora do horário da equipe e deixou para a abertura.
     rn1: { msgs: [['cli', 'Boa noite. O lanche de ontem veio sem o molho', '02:13'],
         ['robo', 'Poxa, Carlos, sinto muito pelo molho. Nossa equipe volta hoje às 17:30. Já deixei o seu recado aqui e respondemos assim que começarmos.', 'robô · 02:14'],
@@ -2042,6 +2078,41 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   const ehSemResposta = (k) => !k.resp && !k.privada && !k.escondido;
   const FILTROS_CM = [['sem', 'Sem resposta', ehSemResposta], ['resp', 'Respondidos', (k) => !!(k.resp || k.privada)], ['esc', 'Escondidos', (k) => k.escondido], ['todos', 'Todos', () => true]];
   const roboCmLigado = () => ($('[data-robo-cm]') || {}).getAttribute?.('aria-checked') === 'true';
+  // ---------- versão 18: as MARCAÇÕES (o @ da loja no post de outra pessoa e a menção no story) ----------
+  // estado: 'sugerida' (a equipe decide) · 'publicada' · 'ignorada' · 'agradecida' (story: no Direct) · 'caso' (parece reclamação).
+  // "viu" = o que a IA descreveu da imagem (o lanche, o lugar, o clima — nunca as pessoas); a mídia não fica guardada.
+  const MARC = [
+    { id: 'm1', tipo: 'post', usuario: '@ana.lopes', hora: 'hoje, 19:40', legenda: 'Sexta é dia de smash 🍔🔥 @burgerdapraca', viu: 'Dois hambúrgueres smash com cheddar derretido e uma porção de batata, numa mesa de madeira, à noite.', clima: 'positivo', sugestao: 'Que sexta, hein! Smash com cheddar é a nossa cara 🧡 Obrigado por marcar a gente!', estado: 'sugerida' },
+    { id: 'm2', tipo: 'reels', usuario: '@guto.come', hora: 'hoje, 18:05', legenda: 'Testei o Combo Duplo do @burgerdapraca: nota 10?', viu: 'Capa do reels: o Combo Duplo aberto na embalagem, com o hambúrguer em destaque.', clima: 'positivo', sugestao: '', estado: 'publicada', resp: { t: 'Valeu demais pelo review, Guto! O Combo Duplo agradece 😄', quem: 'Ana', h: '18:20' } },
+    { id: 'm3', tipo: 'comentario', usuario: '@carol.s', hora: 'hoje, 17:30', legenda: '@burgerdapraca vocês precisam provar esse!', viu: 'Comentário no post de outra pessoa, que mostra um hambúrguer artesanal.', clima: 'neutro', sugestao: 'Oi, Carol! Obrigado pela lembrança 🧡 Vem conhecer a gente!', estado: 'sugerida' },
+    { id: 'm4', tipo: 'story', usuario: '@lu.martins', hora: 'hoje, 19:55', viu: 'Batata da casa e um milkshake numa bandeja, com luz neon ao fundo.', clima: 'positivo', estado: 'agradecida', resp: { t: 'Que bom que curtiu a batata e o milkshake, Lu! Obrigado por marcar a gente 🧡', h: '19:55' } },
+    { id: 'm5', tipo: 'story', usuario: '@thiago.r', hora: 'hoje, 19:10', viu: '', clima: null, video: true, estado: 'agradecida', resp: { t: 'Obrigado por marcar a gente! 🧡', h: '19:10', padrao: true } },
+    { id: 'm6', tipo: 'story', usuario: '@bruno.dias', hora: 'hoje, 19:52', viu: 'Hambúrguer amassado dentro da embalagem, com o molho espalhado; no texto do story: "olha como chegou 😤".', clima: 'negativo', estado: 'caso', caso: 'ms1' },
+  ];
+  const TIPO_MARC = { post: '🖼️ Post', reels: '🎬 Reels', comentario: '💬 Comentário', story: '📸 Story' };
+  const CLIMA_MARC = { positivo: '<span class="selo ok">😊 Elogio</span>', neutro: '<span class="selo">😐 Neutro</span>', negativo: '<span class="selo warn">⚠️ Parece reclamação</span>' };
+  const marcLigado = (k) => ($(`[data-marc-${k}]`) || {}).getAttribute?.('aria-checked') === 'true';
+  const aDecidir = () => MARC.filter((m) => m.estado === 'sugerida').length;
+  function htmlMarcacao(m) {
+    const onde = m.tipo === 'story' ? 'no story' : m.tipo === 'comentario' ? 'num comentário' : m.tipo === 'reels' ? 'num reels' : 'num post';
+    const viu = m.video
+      ? '<p class="ajuda" style="margin:0">🎥 Vídeo no story: a IA não vê vídeo e o story não traz capa — saiu o agradecimento padrão.</p>'
+      : m.viu ? `<p class="ajuda" style="margin:0"><b>🤖 A IA viu:</b> ${esc(m.viu)}</p>` : '';
+    let corpo = '';
+    if (m.estado === 'sugerida') corpo = `<label class="rot" for="txt-mc-${m.id}">Sugestão de comentário (todo mundo vê)</label><textarea id="txt-mc-${m.id}" maxlength="300" placeholder="Escreva o comentário da loja">${esc(m.sugestao || '')}</textarea>
+      <div class="acoes"><button type="button" class="bt pri" data-mc-publicar="${m.id}">Publicar comentário</button><button type="button" class="bt leve" data-mc-ignorar="${m.id}">Ignorar</button><a href="#" onclick="return false">ver no Instagram</a></div>
+      <span class="ajuda">Sai pelo Instagram da loja ${m.tipo === 'comentario' ? 'como resposta ao comentário' : 'como comentário no post da pessoa'}. Até 300 letras, sem link nem contato.</span>`;
+    else if (m.estado === 'publicada') corpo = `<div class="cm-resp">${esc(m.resp.t)}<small>Comentário publicado · ${esc(m.resp.quem || 'equipe')} · ${esc(m.resp.h)}</small></div>`;
+    else if (m.estado === 'ignorada') corpo = '<p class="ajuda" style="margin:0">Ignorada: nada foi publicado.</p>';
+    else if (m.estado === 'agradecida') corpo = `<div class="cm-resp">${esc(m.resp.t)}<small>Agradecimento no Direct · ${m.resp.padrao ? 'texto padrão' : 'atendente virtual'} · ${esc(m.resp.h)}</small>${m.resp.padrao ? '' : `<button type="button" class="corrigir" data-dlg="corrigir" data-origem="caso" data-q="[menção no story]" data-r="${esc(m.resp.t)}">Corrigir</button>`}</div>`;
+    else if (m.estado === 'caso') corpo = `<p class="ajuda" style="margin:0">Parece reclamação: o atendente virtual não agradeceu. Virou caso na fila para a equipe responder no Direct.</p><div class="acoes"><button type="button" class="bt leve" data-abrir-caso="${m.caso}">Abrir o caso</button></div>`;
+    const sit = [m.clima ? CLIMA_MARC[m.clima] : '', m.estado === 'sugerida' ? '<span class="selo warn">A decidir</span>' : m.estado === 'caso' ? '<span class="selo">📋 Caso na fila</span>' : ''].join('');
+    return `<article class="cm" data-mc-item="${m.id}" aria-label="Marcação de ${esc(m.usuario)} ${onde}">
+      <div class="cm-topo"><b>${esc(m.usuario)}</b><span>${TIPO_MARC[m.tipo]} · ${esc(m.hora)}</span></div>
+      ${m.legenda ? `<p class="cm-texto">${esc(m.legenda)}</p>` : ''}${viu}
+      <div class="cm-sit">${sit}</div>${corpo}
+    </article>`;
+  }
   function htmlComentario(k, noCaso) {
     const resp = k.resp ? `<div class="cm-resp">${esc(k.resp.t)}<small>Resposta no post · ${k.resp.por === 'robo' ? 'atendente virtual' : esc(k.resp.quem || 'equipe')} · ${esc(k.resp.h)}</small>${k.resp.por === 'robo' ? `<button type="button" class="corrigir" data-dlg="corrigir" data-origem="caso" data-q="${esc(k.texto)}" data-r="${esc(k.resp.t)}">Corrigir</button>` : ''}</div>` : '';
     const priv = k.privada ? `<div class="cm-resp">${esc(k.privada.t)}<small>Mensagem no Direct · ${k.privada.por === 'robo' ? 'atendente virtual' : 'equipe'} · ${esc(k.privada.h)} · só quem comentou vê; a conversa segue no Direct quando a pessoa responder</small></div>` : '';
@@ -2067,9 +2138,17 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
   function htmlGavetaCm() {
     if (COMENT.perm === 'nao') return `<div class="nota warn">Para ver e responder os comentários, <b>reconecte o Instagram</b>: a Meta pede uma permissão a mais (comentários), e a conta foi conectada antes dela.</div><button type="button" class="bt pri" data-ir-aj-ig style="align-self:flex-start">Ir para Ajustes › Instagram</button>`;
     const itens = COMENT.perm === 'vazio' ? [] : COMENT.itens;
+    const marcs = COMENT.perm === 'vazio' ? [] : MARC;
+    const chips = `<div class="opcoes" role="group" aria-label="Filtrar comentários">${FILTROS_CM.map(([k, n, fn]) => `<button type="button" class="opcao" aria-pressed="${COMENT.filtro === k}" data-filtro-cm="${k}">${n} · <b>${itens.filter(fn).length}</b></button>`).join('')}<button type="button" class="opcao" aria-pressed="${COMENT.filtro === 'marc'}" data-filtro-cm="marc">Marcações · <b>${marcs.length}</b></button></div>`;
+    // Versão 18: o filtro "Marcações" mostra o @ da loja no post de outra pessoa e a menção no story (lista à parte).
+    if (COMENT.filtro === 'marc') {
+      return `${chips}
+      <p class="ajuda" style="margin:0">Quando alguém marca a loja: o @ num post, reels ou comentário de outra pessoa e a menção no story, nos últimos 30 dias. ${marcLigado('post') ? 'A IA sugere o comentário olhando a imagem; nada sai sozinho.' : '"Sugerir comentário nas marcações" está desligado (Ajustes › Instagram): elas chegam sem sugestão.'} ${marcLigado('story') ? 'No story, o atendente virtual agradece no Direct.' : 'O agradecimento no story está desligado.'}</p>
+      <div data-lista-cm style="display:flex;flex-direction:column;gap:10px">${marcs.length ? marcs.map(htmlMarcacao).join('') : '<div class="vazio" role="status"><p><b>Nenhuma marcação nos últimos 30 dias.</b><br>Quando alguém marcar a loja (@) num post ou no story, aparece aqui.</p></div>'}</div>`;
+    }
     const f = FILTROS_CM.find((x) => x[0] === COMENT.filtro);
     const lista = itens.filter(f[2]);
-    return `<div class="opcoes" role="group" aria-label="Filtrar comentários">${FILTROS_CM.map(([k, n, fn]) => `<button type="button" class="opcao" aria-pressed="${COMENT.filtro === k}" data-filtro-cm="${k}">${n} · <b>${itens.filter(fn).length}</b></button>`).join('')}</div>
+    return `${chips}
       <p class="ajuda" style="margin:0">Comentários dos posts da loja nos últimos 30 dias. ${roboCmLigado() ? 'O atendente virtual responde primeiro; o que ele não resolve fica em "Sem resposta" ou vira caso na fila.' : 'O atendente virtual está desligado para comentários (Ajustes › Instagram): tudo chega em "Sem resposta".'} Os da própria loja e os das lives ficam de fora.</p>
       <div data-lista-cm style="display:flex;flex-direction:column;gap:10px">${lista.length ? lista.map((k) => htmlComentario(k, false)).join('') : `<div class="vazio" role="status">${itens.length ? '<p><b>Nenhum comentário neste filtro.</b></p>' : '<p><b>Nenhum comentário nos últimos 30 dias.</b><br>Quando alguém comentar num post da loja, aparece aqui.</p>'}</div>`}</div>`;
   }
@@ -2078,7 +2157,19 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     const n = itens.filter(ehSemResposta).length;
     $$('[data-conta-cm-topo]').forEach((b) => { b.textContent = String(n); b.hidden = n === 0; });
     const bt = $('#bt-comentarios'); if (bt) bt.setAttribute('aria-label', COMENT.perm === 'nao' ? 'Comentários do Instagram: precisa reconectar' : `Comentários do Instagram: ${n} sem resposta`);
-    $$('#camada [data-filtro-cm]').forEach((b) => { const f = FILTROS_CM.find((x) => x[0] === b.dataset.filtroCm); $('b', b).textContent = String(itens.filter(f[2]).length); });
+    $$('#camada [data-filtro-cm]').forEach((b) => {
+      if (b.dataset.filtroCm === 'marc') { $('b', b).textContent = String(COMENT.perm === 'sim' ? MARC.length : 0); return; }
+      const f = FILTROS_CM.find((x) => x[0] === b.dataset.filtroCm); $('b', b).textContent = String(itens.filter(f[2]).length);
+    });
+  }
+  function redesenharMarc(id, focar) {
+    const m = MARC.find((x) => x.id === id);
+    $$(`[data-mc-item="${id}"]`).forEach((el) => {
+      const t = document.createElement('div'); t.innerHTML = htmlMarcacao(m).trim();
+      const novo = t.firstElementChild; el.replaceWith(novo);
+      if (!novo.closest('.dlg')) $$('[data-dlg]', novo).forEach((b) => b.addEventListener('click', () => abrirDialogo(b.dataset.dlg, b)));
+    });
+    const alvo = focar && $(`[data-mc-item="${id}"] ${focar}`); if (alvo) alvo.focus();
   }
   function desenharGavetaCm() { const g = $('#camada [data-gaveta-cm]'); if (g) g.innerHTML = htmlGavetaCm(); }
   function redesenharCm(id, focar) {
@@ -2739,6 +2830,34 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
       toast('✅ Resposta publicada no post (protótipo)');
       return;
     }
+    // Versão 18: a marcação — publicar o comentário (com o texto que a equipe deixou) ou ignorar.
+    const mp = e.target.closest('[data-mc-publicar]');
+    if (mp) {
+      const art = mp.closest('.cm');
+      const txt = $('textarea', art).value.trim();
+      if (!txt) {
+        let er = $('[data-erro-mc]', art);
+        if (!er) { er = document.createElement('p'); er.className = 'ajuda'; er.setAttribute('data-erro-mc', ''); er.setAttribute('role', 'alert'); er.style.cssText = 'margin:0;color:var(--crit);font-weight:700'; art.appendChild(er); }
+        er.textContent = 'Escreva o comentário antes de publicar.';
+        $('textarea', art).focus();
+        return;
+      }
+      const m = MARC.find((x) => x.id === mp.dataset.mcPublicar);
+      m.estado = 'publicada'; m.resp = { t: txt, quem: 'Ana', h: 'agora' };
+      redesenharMarc(m.id);
+      const art2 = $(`#camada [data-mc-item="${m.id}"]`); if (art2) { art2.setAttribute('tabindex', '-1'); art2.focus(); }
+      toast(m.tipo === 'comentario' ? '✅ Resposta publicada no comentário (protótipo)' : '✅ Comentário publicado no post da pessoa (protótipo)');
+      return;
+    }
+    const mi = e.target.closest('[data-mc-ignorar]');
+    if (mi) {
+      const m = MARC.find((x) => x.id === mi.dataset.mcIgnorar);
+      m.estado = 'ignorada';
+      redesenharMarc(m.id);
+      const art2 = $(`#camada [data-mc-item="${m.id}"]`); if (art2) { art2.setAttribute('tabindex', '-1'); art2.focus(); }
+      toast('Marcação ignorada: nada foi publicado (protótipo)');
+      return;
+    }
     const h = e.target.closest('[data-cm-esconder]');
     if (h) {
       const k = COMENT.itens.find((x) => x.id === h.dataset.cmEsconder);
@@ -2761,6 +2880,8 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 4px}
     $('#cm-estado').textContent = ok ? 'Liberados: os comentários dos posts aparecem no botão "💬 Comentários", no topo do Atendimento.' : 'Falta a permissão de comentários: o Instagram foi conectado antes de ela existir. Toque em "Reconectar" e permita os comentários.';
     $('#cm-botao').innerHTML = ok ? '<span class="fixo">✅ Liberados</span>' : '<button type="button" class="bt pri" data-dlg="conectar-ig">Reconectar</button>';
     const rob = $('[data-robo-cm]'); if (rob) { rob.disabled = !ok; if (!ok) rob.setAttribute('aria-checked', 'false'); }
+    // Versão 18: o @ no post de outra pessoa chega com os comentários (mesma permissão); o story chega no Direct (não depende dela).
+    const mpost = $('[data-marc-post]'); if (mpost) { mpost.disabled = !ok; if (!ok) mpost.setAttribute('aria-checked', 'false'); }
     contarCm(); desenharGavetaCm();
   }));
   contarCm();

@@ -141,6 +141,28 @@ export class InstagramController {
     return this.service.comentarios.agirPara(user, 'esconder', id, dto ?? {});
   }
 
+  // AS MARCAÇÕES (mig 387): a lista (o @ da loja no post de outra pessoa e a menção no story), publicar o comentário da
+  // equipe e ignorar. Só a gestão — presidente e gerente (o serviço confere de novo). No servidor da loja, pela nuvem (V37).
+  @Get('instagram/marcacoes')
+  @Roles('presidente', 'gerente')
+  marcacoes(@CurrentUser() user: AuthUser, @Query() q: { antes?: string }) {
+    return this.service.marcacoes.listarPara(user, q ?? {});
+  }
+
+  @Post('instagram/marcacoes/:id/publicar')
+  @HttpCode(200)
+  @Roles('presidente', 'gerente')
+  publicarMarcacao(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: unknown) {
+    return this.service.marcacoes.agirPara(user, 'publicar', id, dto ?? {});
+  }
+
+  @Post('instagram/marcacoes/:id/ignorar')
+  @HttpCode(200)
+  @Roles('presidente', 'gerente')
+  ignorarMarcacao(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.marcacoes.agirPara(user, 'ignorar', id, {});
+  }
+
   @Get(':id/instagram-comentario')
   @Roles('presidente', 'gerente')
   comentarioDoCaso(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
