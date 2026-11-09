@@ -15,7 +15,8 @@
 - **O Messenger do Facebook (08/11; mig 386 `@cloud-only` — `messenger_conta`, `messenger_mensagem`, `messenger_contato`,
   `messenger_escolha`; mexe em `backend/edge/sync-daemon.mjs` SÓ na lista `SO_NUVEM`).** Na NUVEM com o merge (o login,
   o aviso da página, o robô e a Send API moram lá; precisa de `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` e
-  `FACEBOOK_VERIFY_TOKEN` no `regem-api`). **No `.zip` 1.30.13 e no próximo `.exe`:** a classificação das quatro tabelas
+  `FACEBOOK_VERIFY_TOKEN` no `regem-api`; no app do tipo empresa, também `FACEBOOK_LOGIN_CONFIG_ID` — 09/11, ERR-415: só
+  nuvem, nada muda na loja). **No `.zip` 1.30.13 e no próximo `.exe`:** a classificação das quatro tabelas
   no `sync-daemon` e a tela do servidor da loja (a conversa do caso pede à nuvem por `messenger-da-loja`).
 
 - **"Corrigir" no WhatsApp (08/11; mig 385 `@cloud-only` — tabela nova `whatsapp_do_robo`; mexe em

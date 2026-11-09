@@ -128,6 +128,8 @@ export class MessengerService {
   private appId = () => String(process.env.FACEBOOK_APP_ID ?? '').trim();
   private segredo = () => String(process.env.FACEBOOK_APP_SECRET ?? '').trim();
   private verifyToken = () => String(process.env.FACEBOOK_VERIFY_TOKEN ?? '').trim();
+  /** A configuração do "Login do Facebook para Empresas" (app do tipo empresa — ERR-415); vazia = o login clássico, com `scope`. */
+  private configDoLogin = () => String(process.env.FACEBOOK_LOGIN_CONFIG_ID ?? '').trim();
 
   /** A distribuição liberou o Messenger (o app da Meta, o token do aviso e o cofre configurados) e isto é a nuvem. */
   disponivel(): boolean {
@@ -269,7 +271,9 @@ export class MessengerService {
     if (!this.disponivel())
       throw new BadGatewayException({ statusCode: 502, code: 'MESSENGER_INDISPONIVEL', message: 'A Regem ainda está liberando o Messenger com a Meta. Tente de novo mais tarde.' });
     const estado = assinarEstado(user.tenantId, user.colaboradorId, this.segredo());
-    return { url: urlDeAutorizacao({ appId: this.appId(), redirect: retornoPadrao(), estado, base: meta.login(), versao: meta.versao() }) };
+    return {
+      url: urlDeAutorizacao({ appId: this.appId(), redirect: retornoPadrao(), estado, base: meta.login(), versao: meta.versao(), configId: this.configDoLogin() }),
+    };
   }
 
   /** Quem pediu ainda é gestão (presidente ou gerente) e está ativo na empresa viva — a régua da porta na hora da volta (V75). */
