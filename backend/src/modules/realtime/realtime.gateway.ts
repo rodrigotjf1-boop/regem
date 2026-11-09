@@ -292,6 +292,18 @@ export class RealtimeGateway
     });
   }
 
+  // Marcação do Instagram nova ou que mudou (mig 387: chegou, a IA sugeriu, agradecida, virou caso, publicada, ignorada) →
+  // a lista "Marcações" relê. Só o aviso; o que a tela mostra vem da lista (que confere o perfil).
+  @OnEvent('instagram.marcacao')
+  onMarcacaoDoInstagram(p: { tenantId: string; id: string; motivo?: string }) {
+    if (!this.server) return;
+    this.server.to(`tenant:${p.tenantId}`).emit('instagram:marcacao', {
+      id: p.id,
+      motivo: p.motivo ?? null,
+      em: new Date().toISOString(),
+    });
+  }
+
   // Garçom lançou item numa mesa → avisa o PDV dono (e o tenant como fallback).
   @OnEvent('mesa.evento')
   onMesaEvento(p: {

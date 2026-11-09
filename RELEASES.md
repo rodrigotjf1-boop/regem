@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **As marcações do Instagram (09/11; mig 387 `@cloud-only` — tabela nova `instagram_marcacao` e dois ajustes em
+  `instagram_conta`; mexe em `backend/edge/sync-daemon.mjs` SÓ na lista `SO_NUVEM`).** Na NUVEM com o merge (o aviso da
+  Meta, a IA e a resposta moram lá; a IA usa `ANTHROPIC_API_KEY` — sem ela, o agradecimento padrão e nenhuma sugestão).
+  **No `.zip` 1.30.13 e no próximo `.exe`:** a classificação da tabela no `sync-daemon` e a tela do servidor da loja (a
+  lista "Marcações" pede à nuvem por `instagram-marcacoes-da-loja`).
+
 - **O Messenger do Facebook (08/11; mig 386 `@cloud-only` — `messenger_conta`, `messenger_mensagem`, `messenger_contato`,
   `messenger_escolha`; mexe em `backend/edge/sync-daemon.mjs` SÓ na lista `SO_NUVEM`).** Na NUVEM com o merge (o login,
   o aviso da página, o robô e a Send API moram lá; precisa de `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` e

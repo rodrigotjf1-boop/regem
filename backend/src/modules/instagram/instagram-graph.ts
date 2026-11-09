@@ -171,3 +171,44 @@ export async function dadosDaMidia(midiaId: string, token: string) {
     tipo: typeof j?.media_product_type === 'string' ? j.media_product_type.slice(0, 40) : null,
   };
 }
+
+// ───────────────────────── as marcações (mig 387) ─────────────────────────
+// Documentação da Meta conferida em 09/11/2026 (Instagram API with Instagram Login › Mentions): o @ da loja no post ou no
+// comentário de outra pessoa chega no aviso `comments`; a resposta sai por `POST /{conta}/mentions` com `media_id` e
+// `message` (e `comment_id` quando o @ foi num comentário) — permissão `instagram_business_manage_comments`.
+
+/**
+ * A mídia da marcação: o dono (`username` — a loja ou outra pessoa), o link, a legenda, o tipo e as imagens (a foto em
+ * `media_url`; no vídeo, a capa em `thumbnail_url`). A mídia de outra pessoa pode não abrir com o acesso da loja: quem chama
+ * trata o erro como "não é da loja".
+ */
+export async function midiaDaMarcacao(midiaId: string, token: string) {
+  const j = await chamar(`${graph()}/${versao()}/${idDaMeta(midiaId, 'mídia')}?fields=username,permalink,caption,media_type,media_product_type,media_url,thumbnail_url`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  const https = (v: unknown, max: number) => (typeof v === 'string' && /^https:\/\//.test(v) ? v.slice(0, max) : null);
+  const ehVideo = String(j?.media_type ?? '').toUpperCase() === 'VIDEO';
+  return {
+    dono: typeof j?.username === 'string' && j.username.trim() ? j.username.trim().replace(/^@/, '').slice(0, 120) : null,
+    link: https(j?.permalink, 500),
+    legenda: typeof j?.caption === 'string' ? j.caption.slice(0, 2200) : null,
+    produto: typeof j?.media_product_type === 'string' ? j.media_product_type.slice(0, 40) : null,
+    // A imagem que a IA olha: a foto; no vídeo (e no reels), a capa.
+    imagem: ehVideo ? https(j?.thumbnail_url, 2000) : (https(j?.media_url, 2000) ?? https(j?.thumbnail_url, 2000)),
+  };
+}
+
+/** Responde à marcação: `POST /{conta}/mentions` com `media_id`, `message` e (no @ em comentário) `comment_id` → o id. */
+export async function responderMarcacao(igUserId: string, token: string, o: { midiaId: string; comentarioId: string | null; texto: string }) {
+  idDaMeta(o.midiaId, 'mídia');
+  if (o.comentarioId) idDaMeta(o.comentarioId, 'comentário');
+  const corpo: Record<string, string> = { media_id: o.midiaId, message: o.texto };
+  if (o.comentarioId) corpo.comment_id = o.comentarioId;
+  const j = await chamar(`${graph()}/${versao()}/${idDaMeta(igUserId, 'conta')}/mentions`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify(corpo),
+  });
+  if (typeof j?.id !== 'string' && typeof j?.id !== 'number') throw new ErroDaMeta('a Meta não devolveu a resposta', 502, null);
+  return { id: String(j.id) };
+}

@@ -225,6 +225,9 @@ export class ComentariosDoInstagram {
   }
 
   private async umComentario(ev: EventoDoComentario) {
+    // O @ da loja num post ou comentário de OUTRA pessoa é MARCAÇÃO (mig 387): vai para a lista "Marcações" — o robô dos
+    // comentários responde só nos posts da loja (a resposta dele, `/{comentário}/replies`, não serve no post dos outros).
+    if (await this.dono.marcacoes.doComentario(ev)) return;
     const r = await this.db.transaction(async (tx: any) => {
       // A trava da conta: dois avisos ao mesmo tempo contam o limite do robô um depois do outro.
       const conta = await this.conta(tx, { igUserId: ev.conta }, true);

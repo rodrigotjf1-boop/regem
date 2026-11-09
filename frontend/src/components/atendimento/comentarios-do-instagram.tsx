@@ -6,7 +6,9 @@ import { api, ApiError } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Gaveta } from '@/components/ui/sobreposto';
 import { ComentarioCartao } from '@/components/atendimento/comentario-cartao';
+import { MarcacoesDoInstagram } from '@/components/atendimento/marcacoes-do-instagram';
 import { FILTROS_DOS_COMENTARIOS, type ComentarioDoInstagram, type FiltroDosComentarios, type ListaDeComentarios } from '@/lib/comentarios-do-instagram';
+import type { ListaDeMarcacoes } from '@/lib/marcacoes-do-instagram';
 
 /** O que a gaveta mostra além da lista: lendo, a leitura falhou ou a conta precisa reconectar (sem a permissão). */
 type Situacao = 'lendo' | 'pronta' | 'erro' | 'reconectar';
@@ -41,8 +43,25 @@ export function ComentariosDoInstagram({
   const [proximo, setProximo] = useState<string | null>(null);
   const [situacao, setSituacao] = useState<Situacao>('lendo');
   const [lendoMais, setLendoMais] = useState(false);
+  // O filtro "Marcações" (mig 387, protótipo v18): a lista à parte das marcações da loja, com o número delas no botão.
+  const [vista, setVista] = useState<'comentarios' | 'marcacoes'>('comentarios');
+  const [nMarcacoes, setNMarcacoes] = useState<number | null>(null);
   // Só a leitura mais nova vale (V64): trocar de filtro depressa cruza as respostas.
   const leitura = useRef(0);
+
+  useEffect(() => {
+    let vivo = true;
+    api
+      .atendimentoMarcacoes()
+      .then((r) => {
+        if (vivo) setNMarcacoes(Number((r as ListaDeMarcacoes)?.contagem?.todas ?? 0));
+      })
+      .catch(() => undefined);
+    return () => {
+      vivo = false;
+    };
+  }, []);
+  const contarMarcacoes = useCallback((n: number) => setNMarcacoes(n), []);
 
   const ler = useCallback(
     async (f: FiltroDosComentarios, silencioso = false) => {
@@ -119,48 +138,66 @@ export function ComentariosDoInstagram({
           <>
             <div className="flex flex-wrap gap-2" role="group" aria-label="Filtrar comentários">
               {FILTROS_DOS_COMENTARIOS.map((x) => (
-                <button key={x.filtro} type="button" aria-pressed={filtro === x.filtro} className={botaoDeFiltro(filtro === x.filtro)} onClick={() => setFiltro(x.filtro)}>
+                <button
+                  key={x.filtro}
+                  type="button"
+                  aria-pressed={vista === 'comentarios' && filtro === x.filtro}
+                  className={botaoDeFiltro(vista === 'comentarios' && filtro === x.filtro)}
+                  onClick={() => {
+                    setVista('comentarios');
+                    setFiltro(x.filtro);
+                  }}
+                >
                   {x.nome}
                   {contagem ? ` · ${contagem[x.conta]}` : ''}
                 </button>
               ))}
+              <button type="button" aria-pressed={vista === 'marcacoes'} className={botaoDeFiltro(vista === 'marcacoes')} onClick={() => setVista('marcacoes')}>
+                Marcações{nMarcacoes !== null ? ` · ${nMarcacoes}` : ''}
+              </button>
             </div>
-            <p className="text-sm text-secondary-foreground">
-              Comentários dos posts da loja nos últimos 30 dias. Com o atendente virtual ligado para comentários (Delivery › Configurações › Atendimento › Instagram · Direct e comentários), ele responde primeiro; o que não resolve
-              fica em &quot;Sem resposta&quot; ou vira caso na fila. Os da própria loja e os das lives ficam de fora.
-            </p>
-            <div className="space-y-2.5" aria-live="polite" aria-busy={situacao === 'lendo'}>
-              {situacao === 'lendo' ? (
-                <p className="py-8 text-center text-sm text-secondary-foreground">Lendo os comentários…</p>
-              ) : situacao === 'erro' ? (
-                <div className="space-y-2 rounded-md border border-dashed border-border p-4 text-center text-sm" role="status">
-                  <p>
-                    <b>Não consegui ler os comentários agora.</b> Eles continuam no Instagram.
-                  </p>
-                  <Button type="button" variant="outline" size="sm" onClick={() => void ler(filtro)}>
-                    Tentar de novo
-                  </Button>
-                </div>
-              ) : itens.length === 0 ? (
-                <div className="rounded-md border border-dashed border-border p-6 text-center text-sm text-secondary-foreground" role="status">
-                  {contagem && contagem.todos > 0 ? (
-                    <b className="text-foreground">Nenhum comentário neste filtro.</b>
+            {vista === 'marcacoes' ? (
+              <MarcacoesDoInstagram podeAgir={podeAgir} aoAbrirCaso={aoAbrirCaso} aoContar={contarMarcacoes} />
+            ) : (
+              <>
+                <p className="text-sm text-secondary-foreground">
+                  Comentários dos posts da loja nos últimos 30 dias. Com o atendente virtual ligado para comentários (Delivery › Configurações › Atendimento › Instagram · Direct e comentários), ele responde primeiro; o que não resolve
+                  fica em &quot;Sem resposta&quot; ou vira caso na fila. Os da própria loja e os das lives ficam de fora.
+                </p>
+                <div className="space-y-2.5" aria-live="polite" aria-busy={situacao === 'lendo'}>
+                  {situacao === 'lendo' ? (
+                    <p className="py-8 text-center text-sm text-secondary-foreground">Lendo os comentários…</p>
+                  ) : situacao === 'erro' ? (
+                    <div className="space-y-2 rounded-md border border-dashed border-border p-4 text-center text-sm" role="status">
+                      <p>
+                        <b>Não consegui ler os comentários agora.</b> Eles continuam no Instagram.
+                      </p>
+                      <Button type="button" variant="outline" size="sm" onClick={() => void ler(filtro)}>
+                        Tentar de novo
+                      </Button>
+                    </div>
+                  ) : itens.length === 0 ? (
+                    <div className="rounded-md border border-dashed border-border p-6 text-center text-sm text-secondary-foreground" role="status">
+                      {contagem && contagem.todos > 0 ? (
+                        <b className="text-foreground">Nenhum comentário neste filtro.</b>
+                      ) : (
+                        <>
+                          <b className="text-foreground">Nenhum comentário nos últimos 30 dias.</b>
+                          <br />
+                          Quando alguém comentar num post da loja, aparece aqui.
+                        </>
+                      )}
+                    </div>
                   ) : (
-                    <>
-                      <b className="text-foreground">Nenhum comentário nos últimos 30 dias.</b>
-                      <br />
-                      Quando alguém comentar num post da loja, aparece aqui.
-                    </>
+                    itens.map((c) => <ComentarioCartao key={c.id} comentario={c} podeAgir={podeAgir} aoMudar={mudou} aoAbrirCaso={aoAbrirCaso} />)
                   )}
                 </div>
-              ) : (
-                itens.map((c) => <ComentarioCartao key={c.id} comentario={c} podeAgir={podeAgir} aoMudar={mudou} aoAbrirCaso={aoAbrirCaso} />)
-              )}
-            </div>
-            {situacao === 'pronta' && proximo && (
-              <Button type="button" variant="outline" onClick={() => void verMais()} disabled={lendoMais}>
-                {lendoMais ? 'Lendo…' : 'Ver mais comentários'}
-              </Button>
+                {situacao === 'pronta' && proximo && (
+                  <Button type="button" variant="outline" onClick={() => void verMais()} disabled={lendoMais}>
+                    {lendoMais ? 'Lendo…' : 'Ver mais comentários'}
+                  </Button>
+                )}
+              </>
             )}
           </>
         )}

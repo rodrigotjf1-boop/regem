@@ -2329,6 +2329,9 @@ const SO_NUVEM = new Set([
   // Os comentários dos posts do Instagram (mig 384, @cloud-only — F6 do atendente virtual): o aviso `comments` da Meta
   // chega na nuvem e a resposta sai de lá; a loja não tem a tabela (a tela do servidor da loja pede à nuvem).
   'instagram_comentario',
+  // As marcações do Instagram (mig 387, @cloud-only): a menção no story e o @ da loja no post de outra pessoa chegam no aviso
+  // da Meta, na nuvem; a IA e a resposta saem de lá; a loja não tem a tabela (a tela do servidor da loja pede à nuvem).
+  'instagram_marcacao',
   // O Messenger do Facebook (mig 386, @cloud-only — a última fase do atendente virtual): o aviso da Meta chega na nuvem, o
   // acesso da página mora lá (cifrado) e a escolha da página também; a loja não tem estas tabelas (pede à nuvem).
   'messenger_conta', 'messenger_mensagem', 'messenger_contato', 'messenger_escolha',

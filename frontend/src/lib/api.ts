@@ -1262,6 +1262,12 @@ export const api = {
   atendimentoComentarioEsconder: (id: string, esconder: boolean) =>
     req(`/atendimento/instagram/comentarios/${id}/esconder`, { method: 'POST', body: JSON.stringify({ esconder }) }),
   atendimentoComentarioDoCaso: (casoId: string) => req(`/atendimento/${casoId}/instagram-comentario`),
+  // As marcações do Instagram (mig 387): a lista (o @ da loja no post de outra pessoa e a menção no story), publicar o
+  // comentário da equipe e ignorar.
+  atendimentoMarcacoes: (antes?: string | null) => req(`/atendimento/instagram/marcacoes${antes ? `?antes=${encodeURIComponent(antes)}` : ''}`),
+  atendimentoMarcacaoPublicar: (id: string, texto: string) =>
+    req(`/atendimento/instagram/marcacoes/${id}/publicar`, { method: 'POST', body: JSON.stringify({ texto }) }),
+  atendimentoMarcacaoIgnorar: (id: string) => req(`/atendimento/instagram/marcacoes/${id}/ignorar`, { method: 'POST' }),
   atendimentoOQueAconteceu: (id: string) => req(`/atendimento/${id}/o-que-aconteceu`),
   atendimentoMarcarOQueAconteceu: (id: string, body: { motivo: string | null; produtos: string[] }) =>
     req(`/atendimento/${id}/o-que-aconteceu`, { method: 'PUT', body: JSON.stringify(body) }),
