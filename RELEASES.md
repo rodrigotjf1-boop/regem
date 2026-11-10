@@ -12,6 +12,15 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **APK "Regem Entregador" 0.1.0+17 — GERADO em 10/11 02:49 por comando do dono** (`flutter build apk --release`; o
+  código do app idêntico ao da `origin/main` `c5f839a8`, conferido com `git diff`; `flutter analyze` só com os 5 avisos
+  antigos; 66,1 MB; SHA-256 `c3f0009c5fdbc1867749299af66a19b81196480226e4f640a8bd43775214cd0d`). Leva TODO o acumulado do
+  app do entregador: o "Ligar" pela central do iFood com o localizador e direto na 99 (#882), o chat com o cliente do
+  iFood/99 (#882), as logos dos canais (#882), o código da 99 sem sinal conferido pelo telefone (#883), o WhatsApp do
+  próprio entregador na 99 (#886) e o que estava pendente desde 31/10 (o "não consigo falar", a resposta do cliente, a
+  observação do pedido, a posição do toque no "Entregue" sem código). Mesma assinatura (debug do PC) do 0.1.0+16 —
+  instala por cima. Caminho: `C:\Regen\app-entregador\build\app\outputs\flutter-apk\app-release.apk`.
+
 - **O entregador e o cliente do iFood e da 99 (09–10/11; mig 388 `@cloud-only` — `robo_config.cliente_99_whatsapp` e a
   tabela `pedido_aviso_99`; mexe em `backend/edge/sync-daemon.mjs` SÓ na lista `SO_NUVEM`).** Na NUVEM com o merge: o
   chat do entregador pela ponte (rotas `entregador/pedido/:id/chat`, o robô do chat fica quieto 15 min depois da fala do
