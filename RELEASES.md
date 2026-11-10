@@ -12,6 +12,14 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **APK "Regem Entregador" 0.1.0+18 — GERADO em 10/11 06:29 a pedido do dono** ("vamos implementar o apk do
+  entregador"; `flutter build apk --release`; o código do app idêntico ao da `origin/main` `41aa2ae7`, conferido com
+  `git diff`; `flutter analyze` só com os 5 avisos antigos; 66,4 MB; SHA-256
+  `2e2b4d3daa290389cf51731193e1d1a889a85de21ffffaddafb63bfcc81991dc`). Leva tudo do 0.1.0+17 e mais: os avisos do
+  atendimento com notificação no celular, a tela do aviso e "Minhas entregas" (#888). Mesma assinatura (debug do PC) —
+  instala por cima; na primeira abertura o Android 13+ pede a permissão de notificação. Caminho:
+  `C:\Regen\app-entregador\build\app\outputs\flutter-apk\app-release.apk`.
+
 - **Os avisos ao entregador e "Minhas entregas" (10/11; mig 391 `@cloud-only` — tabela nova `entregador_aviso`; mexe
   em `backend/edge/sync-daemon.mjs` SÓ na lista `SO_NUVEM`).** Na NUVEM com o merge: o aviso automático (o cliente
   pergunta pelo pedido ou reclama da demora no WhatsApp da loja ou no chat do iFood/99, com o pedido a caminho), as
