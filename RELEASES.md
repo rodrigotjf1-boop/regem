@@ -415,11 +415,13 @@
   Atendimento que não troca de arranjo com um diálogo aberto); o APK do app de atendimento leva os avisos da disputa e
   o ícone com a marca (APK sob comando).**
 
-- **APK "Regem Atendimento" 1.1.0+2 — PENDENTE (código mesclado em 10/11; gerar sob comando do dono).** As conversas do
-  caso no app, como no computador: o chat do iFood e da 99 (pela ponte), o Direct do Instagram e o Messenger — ler é de
-  todos; responder, de presidente, gerente e supervisão — e o "✨ Sugerir resposta" do copiloto em todas as conversas
-  (inclusive a do WhatsApp). Sem mudança no servidor (as rotas são as da tela Atendimento). Gerar da `origin/main`
-  (`flutter build apk --release` em `app-atendimento/`); o caminho é o mesmo de baixo.
+- **APK "Regem Atendimento" 1.1.0+2 — GERADO em 10/11 01:48 por comando do dono** (da `origin/main` `ea311c36`: os 42
+  arquivos do app conferidos um a um; `flutter test` 36/36 antes do build; 49,6 MB; SHA-256
+  `4c548483467c8fe54f5741cee82a598588adfb3d96fac0df46676bd9a8eedaec`). As conversas do caso no app, como no computador:
+  o chat do iFood e da 99 (pela ponte), o Direct do Instagram e o Messenger — ler é de todos; responder, de presidente,
+  gerente e supervisão — e o "✨ Sugerir resposta" do copiloto em todas as conversas (inclusive a do WhatsApp). Sem
+  mudança no servidor (as rotas são as da tela Atendimento). Mesmo pacote e mesma assinatura (debug do PC) da 1.0.0 —
+  instala por cima, sem parear de novo. Caminho: `C:\Regen\app-atendimento\build\app\outputs\flutter-apk\app-release.apk`.
 
 - **APK "Regem Atendimento" (`app-atendimento/`, 1.0.0+1) — GERADO em 04/11 por comando do dono, da `origin/main` com o
   bloco "endereço depois que o pedido saiu" no caso** (o mesmo do computador: a distância, a taxa da área nova, o
