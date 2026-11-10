@@ -9,6 +9,9 @@ import '../theme.dart';
 import '../widgets/regem_mark.dart';
 import '../widgets/logo_do_canal.dart';
 import '../chat_visto.dart';
+import '../notificacoes.dart';
+import 'aviso_screen.dart';
+import 'entregas_screen.dart';
 import 'login_screen.dart';
 import 'scanner_screen.dart';
 import 'pedido_screen.dart';
@@ -47,6 +50,10 @@ class _HomeScreenState extends State<HomeScreen> {
     // Poll leve do estado da fila: posição na fila muda quando outros entram/saem, e o
     // botão "Procurar" aparece quando eu viro o 1º. 8s equilibra responsividade × bateria.
     _filaTimer = Timer.periodic(const Duration(seconds: 8), (_) => _carregarFila());
+    // Os avisos do atendimento (mig 391): a cada 20 s — com o app aberto ou em segundo plano (a localização da entrega
+    // mantém o app vivo); aviso novo toca a notificação do celular.
+    Notificacoes.iniciar().then((_) => _carregarAvisos());
+    _avisosTimer = Timer.periodic(const Duration(seconds: 20), (_) => _carregarAvisos());
     _connSub = Connectivity().onConnectivityChanged.listen((r) {
       final on = r.any((x) => x != ConnectivityResult.none);
       if (mounted) setState(() => _online = on);
@@ -58,7 +65,43 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _connSub?.cancel();
     _filaTimer?.cancel();
+    _avisosTimer?.cancel();
     super.dispose();
+  }
+
+  // ===== Os avisos do atendimento (mig 391, 10/11/2026) =====
+  List<dynamic> _avisos = [];
+  final Set<String> _avisosTocados = {}; // os que já tocaram a notificação (não toca de novo a cada volta)
+  Timer? _avisosTimer;
+
+  Future<void> _carregarAvisos() async {
+    if (_perfil != null && _perfil!['ehEntregador'] != true) return;
+    try {
+      final lista = await Api.avisos();
+      if (!mounted) return;
+      for (final x in lista) {
+        final a = x as Map;
+        final id = a['id']?.toString() ?? '';
+        if (id.isEmpty || _avisosTocados.contains(id)) continue;
+        _avisosTocados.add(id);
+        if (a['vistoEm'] != null) continue; // já abriu antes (o app reabriu): não toca de novo
+        final p = (a['pedido'] as Map?) ?? const {};
+        HapticFeedback.heavyImpact();
+        Notificacoes.mostrar(
+          '🔔 ${a['rotulo'] ?? 'Aviso do atendimento'}',
+          '${tituloDoPedido(p)} · ${p['cliente'] ?? 'Cliente'}${(a['texto'] ?? '').toString().isNotEmpty ? ' — “${a['texto']}”' : ''}',
+        );
+      }
+      setState(() => _avisos = lista);
+    } catch (_) {
+      // sem rede ou servidor antigo: tenta na próxima volta
+    }
+  }
+
+  Future<void> _abrirAviso(Map<String, dynamic> a) async {
+    await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => AvisoScreen(aviso: a)));
+    _carregarAvisos();
+    _carregar();
   }
 
   // Esvazia a fila offline e atualiza o contador de pendentes. Se algo saiu,
@@ -509,6 +552,23 @@ class _HomeScreenState extends State<HomeScreen> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        // Os avisos do atendimento (mig 391): no topo, um cartão por aviso — o toque abre as opções.
+        ..._avisos.map((x) {
+          final a = Map<String, dynamic>.from(x as Map);
+          final p = Map<String, dynamic>.from((a['pedido'] as Map?) ?? const {});
+          return Card(
+            color: Colors.orange.withValues(alpha: 0.16),
+            child: ListTile(
+              leading: const Icon(Icons.notifications_active, color: Color(0xFFB45309)),
+              title: Text(a['rotulo']?.toString() ?? 'Aviso do atendimento', style: const TextStyle(fontWeight: FontWeight.w800)),
+              subtitle: Text('${tituloDoPedido(p)} · ${p['cliente'] ?? 'Cliente'}'
+                  '${(a['texto'] ?? '').toString().isNotEmpty ? '\n“${a['texto']}”' : ''}'),
+              isThreeLine: (a['texto'] ?? '').toString().isNotEmpty,
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _abrirAviso(a),
+            ),
+          );
+        }),
         if (!_online || _pendentes > 0)
           Card(
             color: (_online ? Colors.orange : Colors.grey).withValues(alpha: 0.12),
@@ -558,35 +618,47 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(height: 12),
         ],
         if (_ganhos != null && _perfil?['ehEntregador'] == true) ...[
+          // Tocar em "Meus ganhos" abre "Minhas entregas" — as entregas que compõem o valor (10/11/2026).
           Card(
             color: const Color(0xFFE2A340).withValues(alpha: 0.12),
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _ganhos!['estimado'] == true ? 'Meus ganhos estimados' : 'Meus ganhos',
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => EntregasScreen(ganhos: _ganhos)),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _ganhos!['estimado'] == true ? 'Meus ganhos estimados' : 'Meus ganhos',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                          ),
+                          Text('${_ganhos!['entregas'] ?? 0} entrega(s)',
+                              style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                          if ((_ganhos!['pendentesConferencia'] ?? 0) > 0)
+                            Text(
+                              '${_ganhos!['pendentesConferencia']} aguardando conferência',
+                              style: const TextStyle(fontSize: 11, color: Color(0xFF7A5011)),
+                            ),
+                          const Text('Ver minhas entregas ›',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF7A5011))),
+                        ],
                       ),
-                      Text('${_ganhos!['entregas'] ?? 0} entrega(s)',
-                          style: const TextStyle(fontSize: 12, color: Colors.black54)),
-                      if ((_ganhos!['pendentesConferencia'] ?? 0) > 0)
-                        Text(
-                          '${_ganhos!['pendentesConferencia']} aguardando conferência',
-                          style: const TextStyle(fontSize: 11, color: Color(0xFF7A5011)),
-                        ),
-                    ],
-                  ),
-                  Text(
-                    _brl(_ganhos!['total']),
-                    style: const TextStyle(
-                        fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0F2230)),
-                  ),
-                ],
+                    ),
+                    Text(
+                      _brl(_ganhos!['total']),
+                      style: const TextStyle(
+                          fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0F2230)),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

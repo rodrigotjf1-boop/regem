@@ -20,6 +20,7 @@ import { ProducaoPedidoModule } from '../producao-pedido/producao-pedido.module'
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { AvisoDoEnderecoProcessor } from './aviso-do-endereco.processor';
 import { ChatDoCasoService } from './chat-do-caso.service';
+import { AvisarOEntregadorService } from './avisar-o-entregador.service';
 import { GestorWhatsappService } from './gestor-whatsapp.service';
 import { CopilotoService } from './copiloto.service';
 import { NumerosDoAtendimentoService } from './numeros.service';
@@ -70,6 +71,8 @@ import { TreinoDoAtendenteService } from './treino.service';
     // TreinoDoAtendenteService (mig 382): a conversa de teste com o robô de verdade e o que ele aprendeu (só o banco e a
     // auditoria, que é global).
     TreinoDoAtendenteService,
+    // AvisarOEntregadorService (mig 391): "Avisar o entregador" pelo caso — o aviso chega no app do entregador.
+    AvisarOEntregadorService,
   ],
   exports: [AtendimentoService],
 })

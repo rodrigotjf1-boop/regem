@@ -13,6 +13,7 @@ import { anotarNaMemoria, chaveDaMemoria, conversaNaMemoria, portaoDoRoboDoOutro
 import { portaoDaRespostaAoSemContato, registrarConfirmacao } from './resposta-ao-sem-contato';
 import { ChegadaService } from '../chegada/chegada.service';
 import { clienteRespondeu } from '../atendimento/abrir-chamado';
+import { avisarPelaMensagemDoCliente } from '../../common/aviso-ao-entregador';
 import { portaoDoGestor } from '../atendimento/gestor-whatsapp-entrada';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { assinarConversa, ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario, ehChaveDoMessenger } from '../../common/conversa-do-robo';
@@ -207,6 +208,10 @@ export class EvolutionEntradaService {
     // O cliente respondeu: o caso que esperava por ele volta para a fila da central (atendimento/abrir-chamado.ts).
     // Nunca rejeita — se falhar, a mensagem segue o caminho de sempre.
     await clienteRespondeu(this.db, (ev, p) => this.events?.emit(ev, p), cfg.tenantId, de);
+
+    // O cliente perguntou pelo pedido ou reclamou de demora com o pedido a caminho: o entregador fica sabendo no app
+    // (mig 391). Não tira a mensagem do robô. Nunca rejeita.
+    await avisarPelaMensagemDoCliente(this.db, { tenantId: cfg.tenantId, telefone: de, texto: lida.texto });
 
     // A resposta ao "entregador sem contato" (resposta-ao-sem-contato.ts, Onda 0 de 01/11/2026): vira chamado urgente do
     // pedido e não vai ao robô — com o robô ligado ou desligado. Se a conferência falhar, segue como antes.

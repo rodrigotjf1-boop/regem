@@ -1290,6 +1290,10 @@ export const api = {
   atendimentoConhecimentoApagar: (id: string) => req(`/atendimento/conhecimento/${id}`, { method: 'DELETE' }),
   atendimentoSugerir: (id: string, body: { mensagens: { de: string; texto: string }[]; prontas: string[] }) =>
     req(`/atendimento/${id}/sugestao`, { method: 'POST', body: JSON.stringify(body) }),
+  // Avisar o entregador pelo caso (mig 391): o entregador do pedido, os avisos e o que ele respondeu no app; e o aviso.
+  atendimentoEntregador: (id: string) => req(`/atendimento/${id}/entregador`),
+  atendimentoAvisarEntregador: (id: string, body: { motivo: string; nota?: string }) =>
+    req(`/atendimento/${id}/entregador`, { method: 'POST', body: JSON.stringify(body) }),
   // O chat do iFood e da 99 dentro do caso (ponte do chat, Etapa 2): a conversa do pedido e a resposta pela ponte.
   atendimentoChat: (id: string) => req(`/atendimento/${id}/chat`),
   atendimentoResponderChat: (id: string, texto: string) =>

@@ -23,6 +23,7 @@ import { ConversaDoCaso } from '@/components/atendimento/conversa-do-caso';
 import { ChatDaPlataforma } from '@/components/atendimento/chat-da-plataforma';
 import { ConversaDoInstagram } from '@/components/atendimento/conversa-do-instagram';
 import { EnderecoDepoisQueSaiu } from '@/components/atendimento/endereco-depois-que-saiu';
+import { AvisarOEntregador } from '@/components/atendimento/avisar-o-entregador';
 import { ListaDeConversas } from '@/components/atendimento/lista-de-conversas';
 import { ConversaDoRobo } from '@/components/atendimento/conversa-do-robo';
 import { OQueAconteceu, type MarcaDoCaso } from '@/components/atendimento/o-que-aconteceu';
@@ -903,6 +904,9 @@ function Caso({
             </Link>
           </section>
         )}
+
+        {/* O entregador do pedido (mig 391): os avisos que ele recebeu no app, o que fez e "Avisar o entregador". */}
+        {c.pedidoId && <AvisarOEntregador key={c.id} caso={c} aberto={aberto} />}
 
         {/* O chat do iFood e da 99 pela ponte (Etapa 2): a conversa do pedido e a resposta, que a ponte digita no chat. */}
         {comChat && <ChatDaPlataforma key={c.id} caso={c} aberto={aberto} podeResponder={podeResponder} />}
