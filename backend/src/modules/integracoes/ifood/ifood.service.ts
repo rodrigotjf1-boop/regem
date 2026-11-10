@@ -5,6 +5,7 @@ import { DRIZZLE, DrizzleDB } from '../../../db/drizzle.module';
 import { integracao } from '../../../db/schema';
 import { fetchExterno } from '../../../common/fetch-externo';
 import { registrarDisputa, registrarEncerramento } from './ifood-disputa';
+import { anotarEventoNaoTratado } from './ifood-eventos';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Cliente da API do iFood (merchant-api.ifood.com.br). Guardamos por integração
@@ -45,6 +46,11 @@ export class IfoodService {
   /** HSS: grava como a disputa terminou e resolve o caso. */
   registrarEncerramento(ig: IntegIfood, ev: any) {
     return registrarEncerramento(this.db, (e, p) => this.events?.emit(e, p), ig.tenantId, ev);
+  }
+
+  /** O evento que o Regem ainda não trata vai à telemetria da distribuição — a forma, sem valores (ERR-421). Nunca rejeita. */
+  anotarEventoNaoTratado(ig: IntegIfood, ev: any) {
+    return anotarEventoNaoTratado(this.db, ig, ev, (m) => this.logger.warn(m));
   }
 
   /**
