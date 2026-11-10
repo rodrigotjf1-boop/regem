@@ -58,6 +58,28 @@ try {
     assert.deepEqual(p.voltaDaPrevia(new Date(2026, 10, 10, 21, 40), agora), { hora: '21:40', amanha: false, texto: 'às 21:40' });
   });
 
+  caso('F2: o contador — segundos até o fim, "12:34" ou "1:02:03", e zero depois do fim', () => {
+    const agora = Date.UTC(2026, 10, 11, 0, 10, 0);
+    assert.equal(p.segundosAte('2026-11-11T00:22:34Z', agora), 754);
+    assert.equal(p.segundosAte('2026-11-11T00:09:00Z', agora), 0);
+    assert.equal(p.segundosAte('2026-11-11T00:10:00.400Z', agora), 1); // fração de segundo conta como 1 (não some antes)
+    assert.equal(p.relogioDaPausa(754), '12:34');
+    assert.equal(p.relogioDaPausa(59), '00:59');
+    assert.equal(p.relogioDaPausa(3723), '1:02:03');
+    assert.equal(p.relogioDaPausa(-5), '00:00');
+  });
+
+  caso('F2: a hora do aviso — faltam N min ou menos, com o aviso ligado; depois do fim, não', () => {
+    assert.equal(p.naHoraDoAviso(300, 5), true);
+    assert.equal(p.naHoraDoAviso(301, 5), false);
+    assert.equal(p.naHoraDoAviso(10, 0), false); // "Não avisar"
+    assert.equal(p.naHoraDoAviso(10, undefined), false); // servidor antigo, sem o aviso
+    assert.equal(p.naHoraDoAviso(0, 5), false);
+    assert.equal(p.faltamTexto(179), 'Faltam 3 min');
+    assert.equal(p.faltamTexto(60), 'Falta 1 min');
+    assert.equal(p.faltamTexto(42), 'Falta menos de 1 min');
+  });
+
   caso('cada canal tem o texto do cartão e o nome na frase do botão', () => {
     for (const c of ['cardapio', 'ifood', 'food99']) {
       assert.ok(p.DESCRICAO_DO_CANAL[c], c);

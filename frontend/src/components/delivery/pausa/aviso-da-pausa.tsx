@@ -1,4 +1,37 @@
-import { avisoDaPausa, trechosComDestaque } from '@/lib/pausa-dos-pedidos';
+'use client';
+
+import { useEffect, useState } from 'react';
+import { avisoDaPausa, relogioDaPausa, segundosAte, trechosComDestaque } from '@/lib/pausa-dos-pedidos';
+
+/**
+ * O tempo que falta até reabrir ("12:34"), andando a cada segundo (F2). Nada no primeiro desenho: a hora só existe no
+ * navegador (V35). Some quando chega a zero.
+ */
+export function ContadorDaPausa({
+  ate,
+  className,
+  texto = (r) => r,
+}: {
+  ate: string;
+  className?: string;
+  /** Como escrever o tempo ("12:34" por padrão; o cardápio escreve "(faltam 12:34)"). */
+  texto?: (relogio: string) => string;
+}) {
+  const [agora, setAgora] = useState<number | null>(null);
+  useEffect(() => {
+    setAgora(Date.now());
+    const t = setInterval(() => setAgora(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  if (agora == null) return null;
+  const seg = segundosAte(ate, agora);
+  if (!seg) return null;
+  return (
+    <span className={className} aria-label={`faltam ${relogioDaPausa(seg)} para reabrir`}>
+      {texto(relogioDaPausa(seg))}
+    </span>
+  );
+}
 
 /**
  * Texto com o destaque do WhatsApp (`*assim*`) em negrito. `<strong>`, não `<b>`: no cardápio online o `<b>` do aviso é

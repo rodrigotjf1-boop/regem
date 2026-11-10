@@ -625,6 +625,9 @@ descrever('autorização por clique do aplicativo de parceiro (Hub DMS, F4 parte
     // a ligação parada há 100 dias: a tela trata a loja como nova (não "já lê desde"), autorizar de novo começa a janela
     // agora, só com o que foi liberado agora, e o e-mail é o da autorização nova
     await q(`update integracao_ligacao set ultimo_uso_em = now() - interval '100 days', criado_em = now() - interval '100 days' where prefixo = $1`, [segunda.prefixo]);
+    // O e-mail da 2ª autorização ("passou a receber os cupons") sai em segundo plano: esperar ele chegar ANTES de limpar —
+    // atrasado, ele caía na conta da 3ª etapa e o teste ficava vermelho às vezes no CI (ERR-431).
+    expect(await esperarAte(() => email.mock.calls.some((x: any[]) => /passou a receber/.test(String(x[1]))), 5_000)).toBe(true);
     email.mockClear();
     const p3 = await pedir({ aplicativo: APP_P4 });
     const t3 = await tela(presB, p3.numero, APP_P4);

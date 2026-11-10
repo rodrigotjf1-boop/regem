@@ -2,6 +2,9 @@ import { createHash } from 'node:crypto';
 import { idPausaDoCanal } from './id-deterministico';
 import {
   ateDoCardapio,
+  ateEstendido,
+  avisoDaLinha,
+  lerAjusteDaPausa,
   fraseDoMotivo,
   instanteNoFuso,
   lerMotivo,
@@ -106,5 +109,34 @@ describe('pausa por canal — a linha e a leitura', () => {
     expect(idPausaDoCanal(t, null, 'cardapio')).toBe(`${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`);
     expect(idPausaDoCanal(t, null, 'cardapio')).not.toBe(idPausaDoCanal(t, null, 'ifood'));
     expect(idPausaDoCanal(t, '22222222-2222-2222-2222-222222222222', 'cardapio')).not.toBe(idPausaDoCanal(t, null, 'cardapio'));
+  });
+});
+
+describe('pausa por canal — F2: o aviso antes de reabrir e o estender (mig 393)', () => {
+  it('o aviso gravado vale se estiver na lista; senão (outra versão, nulo) vale o padrão 5 min, bipe', () => {
+    expect(avisoDaLinha({ pausa_aviso_min: '3', pausa_som: 'campainha' })).toEqual({ minutos: 3, som: 'campainha' });
+    expect(avisoDaLinha({ pausaAvisoMin: 0, pausaSom: 'bipe' })).toEqual({ minutos: 0, som: 'bipe' });
+    expect(avisoDaLinha({ pausa_aviso_min: '7', pausa_som: 'sirene' })).toEqual({ minutos: 5, som: 'bipe' });
+    expect(avisoDaLinha(null)).toEqual({ minutos: 5, som: 'bipe' });
+  });
+
+  it('o ajuste da tela: só o que veio; fora da lista é recusado', () => {
+    expect(lerAjusteDaPausa({ minutos: '10' })).toEqual({ ok: true, parcial: { minutos: 10 } });
+    expect(lerAjusteDaPausa({ minutos: 0, som: 'campainha' })).toEqual({ ok: true, parcial: { minutos: 0, som: 'campainha' } });
+    expect(lerAjusteDaPausa({})).toEqual({ ok: true, parcial: {} });
+    expect(lerAjusteDaPausa({ minutos: 2 })).toMatchObject({ ok: false });
+    expect(lerAjusteDaPausa({ minutos: null })).toMatchObject({ ok: false });
+    expect(lerAjusteDaPausa({ minutos: '' })).toMatchObject({ ok: false });
+    expect(lerAjusteDaPausa({ som: 'sirene' })).toEqual({ ok: false, erro: 'Som do aviso: escolha bipe ou campainha.' });
+  });
+
+  it('estender soma ao fim que vale (10 ou 30 min), até 12 h; já reaberto é recusado', () => {
+    const fim = new Date('2026-11-11T00:40:00Z');
+    expect(ateEstendido(fim, 10, AS_21_10)).toEqual({ ok: true, ate: new Date('2026-11-11T00:50:00Z') });
+    expect(ateEstendido(fim, '30', AS_21_10)).toEqual({ ok: true, ate: new Date('2026-11-11T01:10:00Z') });
+    expect(ateEstendido(fim, 15, AS_21_10)).toEqual({ ok: false, erro: 'Estenda por 10 ou 30 minutos.' });
+    expect(ateEstendido(null, 10, AS_21_10)).toEqual({ ok: false, erro: 'Este canal já reabriu.' });
+    expect(ateEstendido(new Date('2026-11-11T00:00:00Z'), 10, AS_21_10)).toEqual({ ok: false, erro: 'Este canal já reabriu.' });
+    expect(ateEstendido(new Date('2026-11-11T11:55:00Z'), 30, AS_21_10)).toEqual({ ok: false, erro: 'A pausa vai até 12 horas à frente.' });
   });
 });

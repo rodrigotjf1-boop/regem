@@ -5,7 +5,7 @@ import type { Cardapio } from './use-cardapio';
 import { brl, extrasDe, Foto, Ic, Logo, pctDesconto, Preco, seloDe } from './partes';
 import { EvFaixa, EvIcone, EvTopo } from '../eventos/contexto';
 import { avisoDaPausa } from '@/lib/pausa-dos-pedidos';
-import { ComDestaque } from '@/components/delivery/pausa/aviso-da-pausa';
+import { ComDestaque, ContadorDaPausa } from '@/components/delivery/pausa/aviso-da-pausa';
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @next/next/no-img-element */
 
@@ -28,7 +28,7 @@ function statusLoja(c: Cardapio): string {
 
 /** O aviso da pausa dos pedidos (mig 392): o motivo, a volta e que dá para olhar o cardápio. O mesmo texto da prévia do painel. */
 function AvisoDaPausaNaVitrine({ c }: { c: Cardapio }) {
-  const p = c.menu?.pausa as { frase: string; volta: { texto: string } };
+  const p = c.menu?.pausa as { frase: string; volta: { texto: string }; ate: string };
   const a = avisoDaPausa(p);
   return (
     <div className="p-aviso fechada" role="status">
@@ -36,7 +36,9 @@ function AvisoDaPausaNaVitrine({ c }: { c: Cardapio }) {
       <div>
         <b>{a.titulo}</b>
         <span>
-          <ComDestaque texto={a.motivo} /> {a.volta}. {c.soAgendado ? 'Monte seu pedido e agende o horário.' : a.rodape}
+          <ComDestaque texto={a.motivo} /> {a.volta}
+          {/* F2: quanto falta, andando (o mesmo contador da faixa do painel). */}
+          <ContadorDaPausa ate={p.ate} className="tabular-nums" texto={(r) => ` (faltam ${r})`} />. {c.soAgendado ? 'Monte seu pedido e agende o horário.' : a.rodape}
         </span>
       </div>
     </div>

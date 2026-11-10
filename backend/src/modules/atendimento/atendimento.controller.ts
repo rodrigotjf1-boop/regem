@@ -48,6 +48,7 @@ import { CopilotoService } from './copiloto.service';
 import { NumerosDoAtendimentoService } from './numeros.service';
 import { InstagramService } from '../instagram/instagram.service';
 import { MessengerService } from '../messenger/messenger.service';
+import { PausaDoCanalService } from '../delivery/pausa-do-canal.service';
 import { lerAjusteGestorWa } from './gestor-whatsapp';
 import { FRASE_FORA_PADRAO, MINUTOS_ANTES_DA_EQUIPE, MINUTOS_DEPOIS_DA_EQUIPE, TEXTO_FORA_MAX, lerAjusteDaEquipe } from './horario-da-equipe';
 import { CANAIS_DO_PERFIL, JEITO_MAX, PERFIS_DO_ATENDENTE, PERFIS_FORA_DO_HORARIO, ROTULO_DO_CANAL, lerPerfisDoAtendente } from '../cardapio/perfis-do-atendente';
@@ -94,6 +95,8 @@ export class AtendimentoController {
     @Optional() private readonly messenger?: MessengerService,
     // Avisar o entregador pelo caso (mig 391): o entregador do pedido, os avisos e o que ele respondeu no app.
     @Optional() private readonly avisarEntregador?: AvisarOEntregadorService,
+    // A pausa dos pedidos (F2, mig 393): o grupo "Pausa dos pedidos" dos ajustes (o aviso antes de reabrir e o som).
+    @Optional() private readonly pausa?: PausaDoCanalService,
   ) {}
 
   // AVISAR O ENTREGADOR (mig 391): quem está com o pedido do caso, os avisos que ele recebeu (do robô e da equipe) e o que
@@ -271,7 +274,7 @@ export class AtendimentoController {
   @CloudOnly()
   @Roles('presidente', 'gerente')
   async ajustes(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null) {
-    const [da99, fila, doIfood, cheguei, repetido, som, roboMuda, ponte, roboCobraPix, gestorWa, copiloto, instagram, equipe, perfis, assuntos, messenger] = await Promise.all([
+    const [da99, fila, doIfood, cheguei, repetido, som, roboMuda, ponte, roboCobraPix, gestorWa, copiloto, instagram, equipe, perfis, assuntos, messenger, pausa] = await Promise.all([
       this.pedido99.ajustes(user.tenantId),
       this.filaEAvisos.ajustes(user.tenantId),
       this.chatIfood.ajustes(user.tenantId),
@@ -298,6 +301,8 @@ export class AtendimentoController {
       this.filaEAvisos.assuntosDoAtendente(user.tenantId),
       // "Messenger do Facebook" (mig 386): se a distribuição liberou e a página conectada (nunca o acesso).
       this.messenger ? this.messenger.ajuste(user.tenantId) : Promise.resolve(null),
+      // "Pausa dos pedidos" (F2, mig 393): o aviso antes de reabrir e o som, da loja em uso (sem linha dela, a da empresa).
+      this.pausa ? this.pausa.ajustes(user.tenantId, unidade) : Promise.resolve(null),
     ]);
     const alterado = { som, sons: SONS_DO_ALTERADO, roboMuda, roboCobraPix };
     return {
@@ -327,6 +332,7 @@ export class AtendimentoController {
       copiloto,
       instagram,
       messenger,
+      pausa,
     };
   }
 
@@ -362,6 +368,8 @@ export class AtendimentoController {
     const messenger = dto?.messenger !== undefined && this.messenger ? await this.messenger.conferirAjuste(user.tenantId, dto.messenger) : null;
     // A ponte: o texto e o papel dos PCs (lê as pontes da loja) — conferidos antes de gravar qualquer grupo.
     if (dto?.ponte !== undefined) await this.ponte.conferir(user, unidade, dto.ponte);
+    // "Pausa dos pedidos" (F2, mig 393): o aviso antes de reabrir e o som — conferidos antes de gravar qualquer grupo (V86).
+    const pausa = dto?.pausa !== undefined && this.pausa ? this.pausa.conferirAjustes(dto.pausa) : null;
     if (dto?.ajuste99 !== undefined) await this.pedido99.salvarAjustes(user, dto);
     if (dto?.ponte !== undefined) await this.ponte.salvar(user, unidade, dto.ponte);
     if (dto?.fila !== undefined) await this.filaEAvisos.salvar(user, dto.fila);
@@ -379,6 +387,7 @@ export class AtendimentoController {
     if (dto?.copiloto !== undefined) await this.copiloto?.salvar(user, dto.copiloto.ligado);
     if (instagram) await this.instagram?.salvarAjuste(user, instagram);
     if (messenger) await this.messenger?.salvarAjuste(user, messenger);
+    if (pausa) await this.pausa?.salvarAjustes(user, unidade, pausa);
     return this.ajustes(user, unidade);
   }
 

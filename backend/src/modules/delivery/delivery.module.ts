@@ -47,6 +47,7 @@ import { PausaDoCanalService } from './pausa-do-canal.service';
     AvisoDa99Processor, // o "saiu" com o rastreio ao cliente da 99 pelo WhatsApp da loja (mig 388), só na nuvem
     EdgeAlteracoesProcessor, // a alteração pedida na nuvem, aplicada no servidor da loja (mig 362)
     PausaDoCanalService], // a pausa dos pedidos por canal e por loja (mig 392)
-  exports: [DeliveryService],
+  // PausaDoCanalService: o grupo "Pausa dos pedidos" dos ajustes do atendimento (F2, mig 393).
+  exports: [DeliveryService, PausaDoCanalService],
 })
 export class DeliveryModule {}
