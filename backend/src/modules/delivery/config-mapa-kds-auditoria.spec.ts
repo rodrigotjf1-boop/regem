@@ -13,7 +13,7 @@ describe('configuração do delivery — auditoria do mapa no KDS', () => {
       setConfig: jest.fn(async () => ({ kdsMapaEntregadores: depois, qrDespacho: true })),
     };
     const auditoria: any = { registrar: jest.fn(async () => undefined) };
-    return { ctl: new DeliveryController(service, auditoria), service, auditoria };
+    return { ctl: new DeliveryController(service, auditoria, {} as any), service, auditoria };
   }
 
   it('ligar registra quem ligou', async () => {

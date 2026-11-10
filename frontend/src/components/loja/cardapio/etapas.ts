@@ -53,6 +53,8 @@ export type EstadoFalta = {
   fechadaSemAgenda: boolean;
   /** Texto do horário da loja ("Abre às 18:00"), para a mensagem. */
   horarioLabel?: string | null;
+  /** Pedidos pausados no painel (mig 392): o `horarioLabel` já diz "Pedidos pausados até 21:40". */
+  pausada?: boolean;
   /** O pedido exige data e hora (serviços, encomenda escolhida, loja fechada com encomenda). */
   precisaAgendar: boolean;
   /** O tipo escolhido está disponível agora (ou o pedido é agendado). */
@@ -100,7 +102,11 @@ function faltaPagamento(s: EstadoFalta): Falta {
 export function falta(etapa: Etapa, s: EstadoFalta): Falta {
   if (etapa === 'sacola') {
     if (!s.qtdItens) return { campo: '', mensagem: 'Sua sacola está vazia' };
-    if (s.fechadaSemAgenda) return { campo: '', mensagem: s.horarioLabel ? `Loja fechada · ${s.horarioLabel}` : 'Loja fechada' };
+    if (s.fechadaSemAgenda)
+      return {
+        campo: '',
+        mensagem: s.pausada && s.horarioLabel ? s.horarioLabel : s.horarioLabel ? `Loja fechada · ${s.horarioLabel}` : 'Loja fechada',
+      };
     return null;
   }
   if (etapa === 'entrega') return faltaEntrega(s) ?? (dadosNaEntrega(s.template) ? faltaDados(s) : null);

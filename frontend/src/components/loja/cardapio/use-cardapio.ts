@@ -830,6 +830,7 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
     temBairros: bairros.length > 0,
     fechadaSemAgenda,
     horarioLabel: menu?.horarioLabel ?? null,
+    pausada: !!menu?.pausa,
     precisaAgendar: agendar,
     tipoDisponivel,
     pagamentos: loja?.pagamentos ?? [],

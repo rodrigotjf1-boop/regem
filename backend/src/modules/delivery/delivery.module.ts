@@ -24,6 +24,7 @@ import { EntregadoresAoVivoController } from './entregadores-ao-vivo.controller'
 import { EntregadoresAoVivoService } from './entregadores-ao-vivo.service';
 import { AvisoDeAtrasoProcessor } from './aviso-de-atraso.processor';
 import { AvisoDa99Processor } from './aviso-da-99.processor';
+import { PausaDoCanalService } from './pausa-do-canal.service';
 
 @Module({
   imports: [
@@ -44,7 +45,8 @@ import { AvisoDa99Processor } from './aviso-da-99.processor';
     TotemExpiracaoProcessor, CloudFallbackProcessor, PedidoEnvioProcessor, EntregadoresAoVivoService,
     AvisoDeAtrasoProcessor, // o aviso automático de atraso (mig 347), só na nuvem
     AvisoDa99Processor, // o "saiu" com o rastreio ao cliente da 99 pelo WhatsApp da loja (mig 388), só na nuvem
-    EdgeAlteracoesProcessor], // a alteração pedida na nuvem, aplicada no servidor da loja (mig 362)
+    EdgeAlteracoesProcessor, // a alteração pedida na nuvem, aplicada no servidor da loja (mig 362)
+    PausaDoCanalService], // a pausa dos pedidos por canal e por loja (mig 392)
   exports: [DeliveryService],
 })
 export class DeliveryModule {}

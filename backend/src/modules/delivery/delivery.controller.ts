@@ -28,6 +28,7 @@ import { DeliveryService } from './delivery.service';
 import { exigirBooleano } from '../../common/exigir';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { lerItensDaPerda } from '../vendas/itens-da-perda';
+import { PausaDoCanalService } from './pausa-do-canal.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const GESTOR = ['presidente', 'gerente', 'supervisao'];
@@ -37,6 +38,7 @@ export class DeliveryController {
   constructor(
     private readonly service: DeliveryService,
     private readonly auditoria: AuditoriaService,
+    private readonly pausa: PausaDoCanalService,
   ) {}
 
   // Ingestão pelo EDGE (token servidor_local): { canal, pedido }.
@@ -484,20 +486,31 @@ export class DeliveryController {
     return this.service.emitirNf(user.tenantId, user.colaboradorId, id);
   }
 
-  @Post('pausar')
-  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
-  @Roles(...GESTOR)
+  // ===== A pausa dos pedidos por canal (mig 392) =====
+  // Antes era `pausar`/`despausar` (30 min / 1 h / 12 h na `delivery_config`): só a faixa do painel. Agora o cardápio
+  // digital fecha de verdade e cada canal tem a sua pausa (`pausa-do-canal.service.ts`). Ver também quem lê: o
+  // `CardapioService` (menu e pedido) e o `resumoDaLoja` do atendente.
+  @Get('pausas')
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
   @RequirePerm('delivery')
-  pausar(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.service.pausar(user.tenantId, Number(dto?.minutos) || 30, dto?.motivo);
+  pausas(@CurrentUser() user: AuthUser, @UnidadeAtual() unidadeId: string | null) {
+    return this.pausa.estado(user.tenantId, unidadeId);
   }
 
-  @Post('despausar')
+  @Post('pausas')
   @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles(...GESTOR)
   @RequirePerm('delivery')
-  despausar(@CurrentUser() user: AuthUser) {
-    return this.service.despausar(user.tenantId);
+  pausarCanais(@CurrentUser() user: AuthUser, @UnidadeAtual() unidadeId: string | null, @Body() dto: any) {
+    return this.pausa.pausar(user, unidadeId, dto ?? {});
+  }
+
+  @Post('pausas/reabrir')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles(...GESTOR)
+  @RequirePerm('delivery')
+  reabrirCanal(@CurrentUser() user: AuthUser, @UnidadeAtual() unidadeId: string | null, @Body() dto: any) {
+    return this.pausa.reabrir(user, unidadeId, dto?.canal);
   }
 
   @Get('config')

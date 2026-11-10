@@ -72,6 +72,11 @@ try {
     assert.equal(falta('sacola', est({ qtdItens: 0 })).mensagem, 'Sua sacola está vazia');
     assert.equal(falta('sacola', est({ fechadaSemAgenda: true })).mensagem, 'Loja fechada · Abre às 18:00');
     assert.equal(falta('sacola', est({ fechadaSemAgenda: true, horarioLabel: null })).mensagem, 'Loja fechada');
+    // Pedidos pausados no painel (mig 392): a mensagem é a da pausa, sem o "Loja fechada ·" na frente.
+    assert.equal(
+      falta('sacola', est({ fechadaSemAgenda: true, pausada: true, horarioLabel: 'Pedidos pausados até 21:40' })).mensagem,
+      'Pedidos pausados até 21:40',
+    );
     assert.equal(falta('sacola', est()), null);
   });
 

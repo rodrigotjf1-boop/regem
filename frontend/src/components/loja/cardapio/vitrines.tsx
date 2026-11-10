@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type
 import type { Cardapio } from './use-cardapio';
 import { brl, extrasDe, Foto, Ic, Logo, pctDesconto, Preco, seloDe } from './partes';
 import { EvFaixa, EvIcone, EvTopo } from '../eventos/contexto';
+import { avisoDaPausa } from '@/lib/pausa-dos-pedidos';
+import { ComDestaque } from '@/components/delivery/pausa/aviso-da-pausa';
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @next/next/no-img-element */
 
@@ -18,14 +20,34 @@ function statusLoja(c: Cardapio): string {
   const volta = (v?: string | null) => (v ? (v.includes(' ') ? ` a partir de ${v}` : ` a partir das ${v}`) : ' indisponível agora');
   if (c.situacao === 'so_retirada') return `Só retirada · entrega${volta(c.proximaAbertura.entrega)}`;
   if (c.situacao === 'so_entrega') return `Só entrega · retirada${volta(c.proximaAbertura.retirada)}`;
+  // Pedidos pausados no painel (mig 392): "Pedidos pausados até 21:40" sem o "Fechada agora" na frente.
+  if (c.situacao === 'fechada' && c.menu?.pausa && rot) return rot;
   if (c.situacao === 'fechada') return rot && rot !== 'Fechada' ? `Fechada agora · ${rot.charAt(0).toLowerCase()}${rot.slice(1)}` : 'Fechada agora';
   return rot ?? 'Aberta';
+}
+
+/** O aviso da pausa dos pedidos (mig 392): o motivo, a volta e que dá para olhar o cardápio. O mesmo texto da prévia do painel. */
+function AvisoDaPausaNaVitrine({ c }: { c: Cardapio }) {
+  const p = c.menu?.pausa as { frase: string; volta: { texto: string } };
+  const a = avisoDaPausa(p);
+  return (
+    <div className="p-aviso fechada" role="status">
+      <Ic n="clock" s={18} />
+      <div>
+        <b>{a.titulo}</b>
+        <span>
+          <ComDestaque texto={a.motivo} /> {a.volta}. {c.soAgendado ? 'Monte seu pedido e agende o horário.' : a.rodape}
+        </span>
+      </div>
+    </div>
+  );
 }
 const classeSituacao = (c: Cardapio) => (c.situacao === 'fechada' ? 'fechada' : c.situacao === 'aberta' ? '' : 'retirada');
 
 /** Aviso do topo da vitrine quando a loja está só com um tipo ou fechada. */
 function AvisoLoja({ c }: { c: Cardapio }) {
   if (c.situacao === 'aberta' || c.isServico) return null;
+  if (c.situacao === 'fechada' && c.menu?.pausa) return <AvisoDaPausaNaVitrine c={c} />;
   const end = c.loja?.endereco?.texto;
   let titulo = '';
   let texto = '';
