@@ -110,6 +110,8 @@ try {
 
   caso('a origem do link vira "como ficou sabendo"', () => {
     assert.equal(v.origemDeclaradaDoLink('balcao'), 'qr_loja');
+    assert.equal(v.origemDeclaradaDoLink('salao'), 'qr_loja');
+    assert.equal(v.origemDeclaradaDoLink('anuncios'), ''); // o link dos anúncios: o candidato escolhe
     assert.equal(v.origemDeclaradaDoLink('instagram'), 'instagram');
     assert.equal(v.origemDeclaradaDoLink('robo'), 'whatsapp');
     assert.equal(v.origemDeclaradaDoLink(null), '');

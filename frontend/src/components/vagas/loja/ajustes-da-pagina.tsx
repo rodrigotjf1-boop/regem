@@ -111,33 +111,54 @@ function Cor({ v, m, id, padrao }: { v: Valor; m: (x: Valor) => void; id: string
     </div>
   );
 }
+// Cada função num cartão: nome e base salarial lado a lado quando cabem (a quebra é pela largura do cartão, `flex-wrap`,
+// não pela da tela — o cartão mora numa linha de ajuste), e embaixo as duas chaves com o nome escrito.
 function EditorDeFuncoes({ v, m }: { v: Valor; m: (x: Valor) => void }) {
   const fs = lerFuncoes(v);
   const gravar = (n: Funcao[]) => m(JSON.stringify(n));
+  const mudar = (i: number, d: Partial<Funcao>) => gravar(fs.map((x, j) => (j === i ? { ...x, ...d } : x)));
   return (
     <div className="space-y-2">
       {fs.map((f, i) => (
-        <div key={`${f.codigo}-${i}`} className="grid grid-cols-1 items-end gap-2 rounded-lg border border-border p-2 sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_auto_auto_auto]">
-          <div className="min-w-0 space-y-1">
-            <label htmlFor={`fn-nome-${i}`} className="text-xs font-bold">
-              Função
-            </label>
-            <Input id={`fn-nome-${i}`} value={f.nome} maxLength={60} onChange={(e) => gravar(fs.map((x, j) => (j === i ? { ...x, nome: e.target.value } : x)))} />
+        <fieldset key={`${f.codigo}-${i}`} className={`m-0 min-w-0 space-y-3 rounded-lg border border-border p-3 ${f.aberta ? 'bg-card' : 'bg-secondary/60'}`}>
+          <legend className="sr-only">{`Função ${i + 1}: ${f.nome || 'sem nome'}`}</legend>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-0 flex-[1.3_1_13rem] space-y-1">
+              <label htmlFor={`fn-nome-${i}`} className="block text-xs font-bold">
+                Função
+              </label>
+              <Input id={`fn-nome-${i}`} value={f.nome} maxLength={60} onChange={(e) => mudar(i, { nome: e.target.value })} />
+            </div>
+            <div className="min-w-0 flex-[1_1_13rem] space-y-1">
+              <label htmlFor={`fn-sal-${i}`} className="block text-xs font-bold">
+                Base salarial
+              </label>
+              <Input id={`fn-sal-${i}`} value={f.salario} maxLength={60} placeholder="Ex.: R$ 1.900,00" onChange={(e) => mudar(i, { salario: e.target.value })} />
+            </div>
           </div>
-          <div className="min-w-0 space-y-1">
-            <label htmlFor={`fn-sal-${i}`} className="text-xs font-bold">
-              Base salarial (o texto que o candidato lê)
-            </label>
-            <Input id={`fn-sal-${i}`} value={f.salario} maxLength={60} placeholder="Ex.: R$ 1.900,00" onChange={(e) => gravar(fs.map((x, j) => (j === i ? { ...x, salario: e.target.value } : x)))} />
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+            <span className="inline-flex items-center gap-2">
+              <Chave id={`fn-aberta-${i}`} comTexto={false} ligada={f.aberta} rotulo={`Vaga aberta: ${f.nome}`} aoMudar={(b) => mudar(i, { aberta: b })} />
+              <label htmlFor={`fn-aberta-${i}`} className="cursor-pointer text-sm font-semibold">
+                {f.aberta ? 'Vaga aberta' : 'Vaga fechada (não aparece)'}
+              </label>
+            </span>
+            <span className="inline-flex items-center gap-2">
+              <Chave id={`fn-lid-${i}`} comTexto={false} ligada={f.lideranca} rotulo={`Cargo de liderança: ${f.nome}`} aoMudar={(b) => mudar(i, { lideranca: b })} />
+              <label htmlFor={`fn-lid-${i}`} className="cursor-pointer text-sm font-semibold">
+                Cargo de liderança
+              </label>
+            </span>
+            <Button type="button" variant="ghost" size="sm" className="ml-auto" onClick={() => gravar(fs.filter((_, j) => j !== i))} aria-label={`Tirar a função ${f.nome}`}>
+              <Trash2 className="h-4 w-4" aria-hidden="true" /> Tirar
+            </Button>
           </div>
-          <Chave ligada={f.lideranca} rotulo={`Liderança: ${f.nome}`} aoMudar={(b) => gravar(fs.map((x, j) => (j === i ? { ...x, lideranca: b } : x)))} />
-          <Chave ligada={f.aberta} rotulo={`Aberta: ${f.nome}`} aoMudar={(b) => gravar(fs.map((x, j) => (j === i ? { ...x, aberta: b } : x)))} />
-          <Button type="button" variant="ghost" size="sm" aria-label={`Tirar ${f.nome}`} onClick={() => gravar(fs.filter((_, j) => j !== i))}>
-            <Trash2 className="h-4 w-4" aria-hidden="true" />
-          </Button>
-        </div>
+        </fieldset>
       ))}
-      <p className={`text-xs ${texto2}`}>A 1ª chave marca cargo de liderança (pede a experiência de liderança); a 2ª, se a vaga está aberta.</p>
+      <p className={`text-xs ${texto2}`}>
+        A base salarial é o texto que o candidato lê. &quot;Cargo de liderança&quot; faz a ficha pedir a experiência de liderança; vaga fechada
+        some da página sem apagar a função.
+      </p>
       <Button
         type="button"
         variant="outline"
@@ -228,7 +249,7 @@ export function AjustesDaPagina({ dados, aoSalvo, aoPendentes }: { dados: Ajuste
     {
       titulo: 'Funções e salários',
       nota: 'Só as funções abertas aparecem para o candidato.',
-      itens: [{ id: 'funcoes', rotulo: 'Funções', tipo: 'livre', desenhar: (v, m) => <EditorDeFuncoes v={v} m={m} /> }],
+      itens: [{ id: 'funcoes', rotulo: 'Funções', tipo: 'livre', largo: true, desenhar: (v, m) => <EditorDeFuncoes v={v} m={m} /> }],
     },
     { titulo: 'Benefícios', itens: [{ id: 'beneficios', rotulo: 'Benefícios (um por linha)', tipo: 'area', opcional: true, placeholder: 'Vale-refeição: R$ 150,00' }] },
     {

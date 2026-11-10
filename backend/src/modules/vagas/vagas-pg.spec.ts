@@ -121,7 +121,7 @@ descrever('vagas · página, ficha e base (Postgres)', () => {
     expect(JSON.stringify(pub)).not.toContain('"aberta"');
 
     const qrs = await svc.qrs(T, lojaA);
-    expect(qrs.map((x: any) => x.codigo)).toEqual(['balcao', 'salao', 'fachada', 'instagram']);
+    expect(qrs.map((x: any) => x.codigo)).toEqual(['instagram', 'anuncios', 'salao']);
   });
 
   it('o mesmo nome de loja em outra empresa ganha outro endereço — e a empresa de loja única salva sem escolher a loja', async () => {
@@ -130,7 +130,7 @@ descrever('vagas · página, ficha e base (Postgres)', () => {
     expect(p.codigo).not.toBe(codigo);
     expect(p.codigo!.startsWith('burger-teste')).toBe(true);
     expect((await q(`select unidade_id from vaga_pagina where tenant_id = $1`, [T2])).map((x) => x.unidade_id)).toEqual([lojaC]);
-    expect((await svc.qrs(T2, null)).map((x: any) => x.codigo)).toEqual(['balcao', 'salao', 'fachada', 'instagram']);
+    expect((await svc.qrs(T2, null)).map((x: any) => x.codigo)).toEqual(['instagram', 'anuncios', 'salao']);
     // Loja de OUTRA empresa ou id inválido: 404, nunca erro de chave no banco (500).
     await expect(svc.pagina(T, lojaC)).rejects.toThrow(NotFoundException);
     await expect(svc.salvarPagina(gerente(T), lojaC, { ligada: true })).rejects.toThrow(NotFoundException);
@@ -139,7 +139,7 @@ descrever('vagas · página, ficha e base (Postgres)', () => {
 
   let idMaria = '';
   it('recebe a ficha: grava experiências, cursos e histórico, e responde só o protocolo', async () => {
-    const r = await svc.receberFicha(codigo, { ...fichaValida(), origem: 'balcao' });
+    const r = await svc.receberFicha(codigo, { ...fichaValida(), origem: 'salao' });
     expect(Object.keys(r).sort()).toEqual(['protocolo', 'reenvio']);
     expect(r.reenvio).toBe(false);
     expect(r.protocolo).toMatch(/^[A-Z2-9]{6}$/);
@@ -149,7 +149,7 @@ descrever('vagas · página, ficha e base (Postgres)', () => {
     const l = lista[0];
     idMaria = l.id;
     expect([l.telefone, l.experiencias, l.temCarteira, l.jaLiderou, l.valorIda, l.valorVolta, l.origem, l.origemNome]).toEqual([
-      '2133330000', 1, true, true, 4.7, 18, 'balcao', 'Balcão',
+      '2133330000', 1, true, true, 4.7, 18, 'salao', 'Salão',
     ]);
     expect(l.funcoes).toEqual(['chapeiro', 'supervisao']);
     expect(l.meios).toEqual(['publico', 'uber']);
@@ -162,7 +162,7 @@ descrever('vagas · página, ficha e base (Postgres)', () => {
     expect(f.comunicacao.aceitaEm).toBeNull();
     const [{ esperado }] = await q(`select (($1::date + interval '12 months')::date)::text as esperado`, [hojeISO()]);
     expect(f.expurgoEm).toBe(esperado);
-    expect((await svc.qrs(T, lojaA)).find((x: any) => x.codigo === 'balcao')?.fichas).toBe(1);
+    expect((await svc.qrs(T, lojaA)).find((x: any) => x.codigo === 'salao')?.fichas).toBe(1);
   });
 
   it('o reenvio com o mesmo WhatsApp (com o 55) atualiza a MESMA ficha e troca as experiências', async () => {
@@ -180,7 +180,7 @@ descrever('vagas · página, ficha e base (Postgres)', () => {
     expect(f.experiencias.filter((x: any) => x.tipo === 'trabalho').map((x: any) => x.empresa)).toEqual(['A', 'B']);
     expect(f.historico.map((h: any) => h.tipo)).toEqual(['recebida', 'reenviada', 'comunicacao']);
     expect(f.comunicacao.aceitaEm).not.toBeNull();
-    expect(f.origem).toBe('balcao'); // o reenvio sem marca não apaga de onde veio
+    expect(f.origem).toBe('salao'); // o reenvio sem marca não apaga de onde veio
 
     await svc.receberFicha(codigo, fichaValida({ comunicacao: false }));
     const g: any = await svc.ficha(T, lojaA, idMaria);
