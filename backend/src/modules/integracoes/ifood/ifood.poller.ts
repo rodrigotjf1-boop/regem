@@ -4,6 +4,8 @@ import { FalhasDoPoller } from '../../../common/falhas-do-poller';
 import { DeliveryService } from '../../delivery/delivery.service';
 import { agendamentoIfood } from '../../delivery/adapters';
 import { IfoodService, IntegIfood } from './ifood.service';
+import { lerDisputa } from './ifood-disputa';
+import { deveAnotar } from './ifood-eventos';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Poller da nuvem: a cada 30s consulta os eventos de cada loja iFood ativa,
@@ -95,11 +97,17 @@ export class IfoodPoller {
           // confirmado e jogado fora — sem ninguém ver, o prazo vencia e o iFood decidia sozinho.
           const r = await this.ifood.registrarDisputa(ig, ev);
           if (r.aberto) this.logger.log(`loja ${ig.tenantId}: disputa do pedido ${String(ev.orderId).slice(0, 8)} na central`);
+          // Disputa numa forma que o Regem não lê (sem o id): não some em silêncio — a forma vai à telemetria (ERR-421).
+          else if (!lerDisputa(ev)) await this.ifood.anotarEventoNaoTratado(ig, ev);
         } else if (code === 'HSS' || code === 'HANDSHAKE_SETTLEMENT') {
           // A disputa TERMINOU (aceita, recusada, vencida ou proposta aceita): o caso ganha o resultado e sai da fila.
           await this.ifood.registrarEncerramento(ig, ev);
+        } else if (deveAnotar(ev)) {
+          // Ainda NÃO tratado — a mudança de endereço (DAR), o pedido alterado (OPA), a volta do pedido, o desconhecido:
+          // era confirmado e jogado fora sem rastro; a forma (sem valores) vai à telemetria da distribuição (ERR-421).
+          await this.ifood.anotarEventoNaoTratado(ig, ev);
         }
-        // Demais códigos: nada a fazer — reconhecidos.
+        // Demais códigos (só informativos): nada a fazer — reconhecidos.
         processados.push(ev);
       } catch (e: any) {
         this.logger.warn(`evento ${code} ${ev.orderId}: ${e?.message ?? e} — sem ACK, volta no próximo polling`);
