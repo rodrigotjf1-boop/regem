@@ -126,9 +126,16 @@ export class ChatDoEntregadorService {
   /**
    * O entregador escreve ao cliente: a mensagem entra na fila de saída da ponte ("pendente") e o PC da loja digita no chat
    * da plataforma. `idCliente` = o id que o APP gerou para a mensagem: o reenvio depois de uma falha de rede não manda
-   * duas (V24). Toda recusa vem antes de gravar (V86).
+   * duas (V24). Toda recusa vem antes de gravar (V86). `depoisDaEntrega`: a resposta a um aviso do atendimento sobre um
+   * pedido já entregue (faltou bebida, troco — mig 391; o aviso só nasce até 12 h depois) — vale com o pedido entregue ou
+   * concluído.
    */
-  async enviar(user: AuthUser, id: string, dto: { texto?: unknown; idCliente?: unknown } | null | undefined) {
+  async enviar(
+    user: AuthUser,
+    id: string,
+    dto: { texto?: unknown; idCliente?: unknown } | null | undefined,
+    opcoes: { depoisDaEntrega?: boolean } = {},
+  ) {
     const bruto = typeof dto?.texto === 'string' ? dto.texto.trim() : '';
     if (!bruto) throw new BadRequestException('Escreva a mensagem.');
     const cabe = TEXTO_MAX - PREFIXO_DO_ENTREGADOR.length;
@@ -138,7 +145,8 @@ export class ChatDoEntregadorService {
     const plataforma = p.canal === 'ifood' ? 'O iFood' : 'A 99';
     if (temContatoProibido(bruto))
       throw new BadRequestException(`${plataforma} proíbe telefone, WhatsApp, Instagram e link no chat. Tire isso da mensagem para enviar.`);
-    if (p.status !== 'despachado') throw new BadRequestException('O pedido não está a caminho do cliente.');
+    const depois = opcoes.depoisDaEntrega === true && ['entregue', 'concluido'].includes(String(p.status));
+    if (p.status !== 'despachado' && !depois) throw new BadRequestException('O pedido não está a caminho do cliente.');
     const ponte = await this.situacaoDaPonte(user.tenantId, p.unidade_id ?? null, p.canal);
     if (!ponte.ligada)
       throw new ConflictException('O chat com o cliente pela plataforma não está ligado nesta loja. Ligue para o cliente ou peça ajuda à loja.');

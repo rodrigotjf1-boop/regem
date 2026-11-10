@@ -41,6 +41,7 @@ import { lerAjusteAlterado, SONS_DO_ALTERADO } from '../pedido-alterado/pedido-a
 import { AjustesDaPonteService } from '../ponte-chat/ajustes-da-ponte.service';
 import { ehServidorLocal } from '../../common/modo';
 import { ChatDoCasoService } from './chat-do-caso.service';
+import { AvisarOEntregadorService } from './avisar-o-entregador.service';
 import { AvaliacaoIfoodService } from './avaliacao-ifood.service';
 import { GestorWhatsappService } from './gestor-whatsapp.service';
 import { CopilotoService } from './copiloto.service';
@@ -91,7 +92,26 @@ export class AtendimentoController {
     @Optional() private readonly instagram?: InstagramService,
     // O Messenger do Facebook (mig 386): o grupo "Messenger do Facebook" dos ajustes (a página, a fila, o robô e o cardápio).
     @Optional() private readonly messenger?: MessengerService,
+    // Avisar o entregador pelo caso (mig 391): o entregador do pedido, os avisos e o que ele respondeu no app.
+    @Optional() private readonly avisarEntregador?: AvisarOEntregadorService,
   ) {}
+
+  // AVISAR O ENTREGADOR (mig 391): quem está com o pedido do caso, os avisos que ele recebeu (do robô e da equipe) e o que
+  // respondeu no app; e o aviso da equipe (motivo + recado). Quem atende a fila (os quatro níveis). No servidor da loja,
+  // vem da nuvem (V37).
+  @Get(':id/entregador')
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
+  entregadorDoCaso(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    if (!this.avisarEntregador) throw new BadGatewayException('O aviso ao entregador não está disponível agora.');
+    return this.avisarEntregador.situacao(user, id);
+  }
+
+  @Post(':id/entregador')
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
+  avisarOEntregador(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { motivo?: unknown; nota?: unknown }) {
+    if (!this.avisarEntregador) throw new BadGatewayException('O aviso ao entregador não está disponível agora.');
+    return this.avisarEntregador.avisar(user, id, dto ?? {});
+  }
 
   // O COPILOTO (mig 376; protótipo versão 5): se o botão aparece (ligado na empresa E disponível na distribuição) e a
   // sugestão de resposta do caso. Quem atende o caso pede (os quatro níveis, como o "Enviar"); só na nuvem — a chave do

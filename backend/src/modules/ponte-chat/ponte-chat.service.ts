@@ -32,6 +32,7 @@ import { type SituacaoDaEquipe, chaveDaLoja, situacoesPorLoja } from '../atendim
 import { DeliveryService } from '../delivery/delivery.service';
 import { modoEntrega } from '../entregador/modo-entrega';
 import { entregarAoRobo } from '../whatsapp/entregar-ao-robo';
+import { avisarEntregador, motivoDaMensagem } from '../../common/aviso-ao-entregador';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -262,6 +263,9 @@ export class PonteChatService {
     // O ATENDENTE VIRTUAL (F5): as conversas dele vão ao robô DEPOIS de gravar (a resposta confere o caso e o limite no banco),
     // sem segurar a resposta à ponte. Nunca rejeita (V3): a entrega que falha cai no robô por regras.
     if (paraOAtendente.length) this.entregarAoAtendente(p.tenantId, paraOAtendente);
+    // O cliente perguntou pelo pedido ou reclamou de demora no chat, com o pedido a caminho: o entregador fica sabendo no
+    // app (mig 391) — com o robô ligado ou não. Depois de gravar; nunca derruba a resposta à ponte.
+    await this.avisarOsEntregadores(p.tenantId, r);
     return {
       recebidas: r.length,
       repetidas: validas.length - r.length,
@@ -271,6 +275,23 @@ export class PonteChatService {
       ...(respondeu === null ? {} : { roboRespondeu: respondeu }),
       ...(paraOAtendente.length ? { paraOAtendente: paraOAtendente.length } : {}),
     };
+  }
+
+  /**
+   * O AVISO AO ENTREGADOR pelas falas do cliente no chat (mig 391): uma vez por pedido e motivo no lote ("cadê?" e "tá
+   * demorando" no mesmo lote = um aviso de cada); o índice único da 391 faz o resto (o aviso aberto não repete).
+   */
+  private async avisarOsEntregadores(tenantId: string, recebidas: any[]): Promise<void> {
+    const vistos = new Set<string>();
+    for (const m of recebidas) {
+      if (m?.autor !== 'cliente' || !m?.pedidoId) continue;
+      const motivo = motivoDaMensagem(m.texto);
+      if (!motivo || vistos.has(`${m.pedidoId}|${motivo}`)) continue;
+      vistos.add(`${m.pedidoId}|${motivo}`);
+      await avisarEntregador(this.db, { tenantId, pedidoId: String(m.pedidoId), origem: 'robo', motivo, texto: String(m.texto ?? '') }).catch(
+        (e: any) => this.logger.warn(`aviso ao entregador pelo chat (pedido ${m.pedidoId}) não gravado: ${e?.message ?? e}`),
+      );
+    }
   }
 
   /**

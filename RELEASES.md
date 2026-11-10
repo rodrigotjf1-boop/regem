@@ -12,6 +12,16 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Os avisos ao entregador e "Minhas entregas" (10/11; mig 391 `@cloud-only` — tabela nova `entregador_aviso`; mexe
+  em `backend/edge/sync-daemon.mjs` SÓ na lista `SO_NUVEM`).** Na NUVEM com o merge: o aviso automático (o cliente
+  pergunta pelo pedido ou reclama da demora no WhatsApp da loja ou no chat do iFood/99, com o pedido a caminho), as
+  rotas do app (`entregador/avisos`, `…/visto`, `…/responder`, `entregador/entregas`) e o bloco "Entregador do pedido"
+  com "Avisar o entregador" no caso do Atendimento. **No `.zip` 1.30.13 e no próximo `.exe`:** a classificação da tabela
+  no `sync-daemon` e a tela do Atendimento do servidor da loja (o bloco pede à nuvem por `entregador-da-loja`). **APK do
+  entregador `0.1.0+18`:** os avisos no topo da tela inicial com notificação no celular (`flutter_local_notifications`
+  22.3.3, desugaring no Gradle, permissão `POST_NOTIFICATIONS`), a tela do aviso (ligar, chat, WhatsApp do entregador,
+  "a caminho / cheguei / imprevisto" com um toque) e "Minhas entregas" ao tocar em "Meus ganhos".
+
 - **APK "Regem Entregador" 0.1.0+17 — GERADO em 10/11 02:49 por comando do dono** (`flutter build apk --release`; o
   código do app idêntico ao da `origin/main` `c5f839a8`, conferido com `git diff`; `flutter analyze` só com os 5 avisos
   antigos; 66,1 MB; SHA-256 `c3f0009c5fdbc1867749299af66a19b81196480226e4f640a8bd43775214cd0d`). Leva TODO o acumulado do

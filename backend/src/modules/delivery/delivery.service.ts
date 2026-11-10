@@ -39,6 +39,7 @@ import { EVENTO_CANCELADOS_NA_BAIXA } from './pendencias-turno';
 // Quem entrega o pedido (só a regra pura — o arquivo não importa nada do módulo do entregador).
 import { modoEntrega } from '../entregador/modo-entrega';
 import { telefoneE164 } from '../../common/telefone-e164';
+import { type RespostaAoCliente, textoDaResposta } from '../../common/aviso-ao-entregador';
 
 // Documento do cliente: guardamos só os dígitos, como a NFC-e exige. Formato inválido não é
 // barrado aqui — quem emite confere os dígitos verificadores e trata como ausente se não fechar.
@@ -4030,6 +4031,37 @@ export class DeliveryService {
   }
 
   /**
+   * A RESPOSTA DO ENTREGADOR A UM AVISO DO ATENDIMENTO pelo WhatsApp da loja (mig 391): "estou a caminho", "cheguei",
+   * "tive um imprevisto" — o cliente do cardápio digital (o do iFood/99 recebe pelo chat da plataforma, no módulo do
+   * entregador). Vale com o pedido a caminho, entregue ou concluído (o "faltou bebida" chega depois da entrega:
+   * `depoisDaEntrega` = "está voltando com o que faltou"). Fora da janela de 24 h, o modelo aprovado do "saiu" (a caminho)
+   * ou do "chegando" (cheguei, imprevisto); sem ele, não sai e diz por quê — o app oferece o WhatsApp do entregador.
+   * Nunca rejeita.
+   */
+  async mensagemDoEntregadorAoCliente(
+    tenantId: string,
+    pedidoId: string,
+    acao: RespostaAoCliente,
+    depoisDaEntrega: boolean,
+  ): Promise<{ saiu: boolean; motivo?: string }> {
+    try {
+      const [ped] = await this.db
+        .select()
+        .from(pedidoExterno)
+        .where(and(eq(pedidoExterno.tenantId, tenantId), eq(pedidoExterno.id, pedidoId)));
+      if (!ped) return { saiu: false, motivo: 'pedido não encontrado' };
+      if (!ped.clienteTelefone) return { saiu: false, motivo: 'o pedido não tem o telefone do cliente' };
+      if (!(await this.podeFalarComOCliente(tenantId, ped)))
+        return { saiu: false, motivo: 'o cliente deste pedido não recebe pelo WhatsApp da loja' };
+      const modelo = acao === 'a_caminho' && !depoisDaEntrega ? 'saiu_entrega' : 'chegando';
+      return await this.avisoDoEntregador(tenantId, { ...ped, depoisDaEntrega }, `entregador_${acao}`, null, modelo);
+    } catch (e: any) {
+      this.logger.warn(`[resposta-do-entregador] pedido ${pedidoId}: não avisado — ${e?.message ?? e}`);
+      return { saiu: false, motivo: 'não deu para avisar pelo WhatsApp da loja agora' };
+    }
+  }
+
+  /**
    * O "ESTOU CHEGANDO" ao cliente da 99 pelo WhatsApp da loja (mig 388, 09/11/2026) — a cerca de 70 m e o botão do app.
    * Só com o ajuste ligado e na entrega da loja; fora da janela, o modelo `pedido_chegando` (enquanto a Meta não aprova,
    * não sai — e quem chama cai no chat da 99 pela ponte). Nunca rejeita.
@@ -4172,7 +4204,9 @@ export class DeliveryService {
     const t = DeliveryService.textoNotificacao(evento, { ...p, semBotao: true });
     const url = link?.url ?? (p.rastreioToken ? `${this.basePublica()}/r/${p.rastreioToken}` : null);
     const rotulo = evento === 'saiu_entrega' ? 'Acompanhe aqui' : 'Veja onde ele está';
-    const fim = url && evento !== 'chegando' ? `\n\n${rotulo}: ${url}` : '';
+    // A resposta do entregador a um aviso (mig 391) vai sem link: o "cheguei" e o "voltando com o que faltou" não pedem
+    // o rastreio (depois da entrega ele já mostra "entregue").
+    const fim = url && evento !== 'chegando' && !evento.startsWith('entregador_') ? `\n\n${rotulo}: ${url}` : '';
     await this.whatsappQr.enviar(tenantId, para.slice(1), `*${t.titulo}*\n${t.texto}${fim}`);
     if (!da99) await this.gravarNotificacaoPedido(tenantId, p, evento);
     this.registrarAviso(tenantId, p.id, 'cliente_whatsapp', evento, 'enviado');
@@ -4300,6 +4334,11 @@ export class DeliveryService {
         const chega = ped.previsaoChegada ? ` Chega por volta das ${ped.previsaoChegada}.` : '';
         return { titulo: 'Saiu para entrega', texto: `Seu pedido${ref} saiu para entrega! 🛵${chega} Acompanhe a chegada ${abaixo}.${lembrete}` };
       }
+      // A resposta do entregador a um aviso do atendimento (mig 391): o mesmo texto do chat do iFood/99.
+      case 'entregador_a_caminho':
+      case 'entregador_cheguei':
+      case 'entregador_imprevisto':
+        return textoDaResposta(evento.slice('entregador_'.length) as RespostaAoCliente, { ref, depoisDaEntrega: ped.depoisDaEntrega === true });
       case 'posicao_entregador': {
         // O entregador chegou perto e não acha o endereço (pedido do dono, 09/11/2026): manda a posição dele. O nome, só
         // se ELE autorizou no app ("Compartilhar meu contato").

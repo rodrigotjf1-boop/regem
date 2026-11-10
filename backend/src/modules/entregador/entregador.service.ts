@@ -288,6 +288,70 @@ export class EntregadorService implements OnModuleInit {
     return { ctx: { cliente99 }, chat, logo };
   }
 
+  /**
+   * Os pedidos como o app vê (o mesmo resumo da lista), por id — para os avisos do atendimento, que podem ser de pedido já
+   * entregue (fora da lista "em rota"). Só da empresa de quem pede.
+   */
+  async resumosDosPedidos(tenantId: string, ids: string[]): Promise<Map<string, any>> {
+    const mapa = new Map<string, any>();
+    if (!ids.length) return mapa;
+    const rows = await this.db
+      .select()
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.tenantId, tenantId), inArray(pedidoExterno.id, ids)));
+    const { ctx, chat, logo } = await this.contextoDaLista(tenantId, rows);
+    for (const p of rows) mapa.set(p.id, { ...this.resumo(p, ctx), ultimaNoChat: chat.get(p.id) ?? null, logoDaLoja: logo(p) });
+    return mapa;
+  }
+
+  /**
+   * "MINHAS ENTREGAS" (pedido do dono, 10/11/2026: "clicando em meus ganhos, abre o relatório das entregas do turno"): as
+   * entregas que compõem o cartão "Meus ganhos" — o MESMO filtro de `ganhos` (o período da loja, as entregas ainda não
+   * acertadas, entregue ou concluído) —, uma a uma, da mais nova à mais antiga, com o canal, o código, a hora e a taxa. A
+   * soma vem de `ganhos` (o app mostra os dois juntos). Até 300 por período.
+   */
+  async entregas(user: AuthUser) {
+    if (!this.ehEntregador(user)) throw new ForbiddenException('Apenas entregadores.');
+    const cfg = await this.perfilDeEntregador(user.tenantId, user.colaboradorId);
+    const { inicio, fim } = this.periodoDe(cfg.periodicidade ?? 'dia');
+    const r: any = await this.db.execute(sql`
+      select p.id, p.numero, p.display_id, p.canal, p.cliente_nome, p.endereco_bairro, p.status, p.unidade_id,
+             coalesce(p.entregue_em, p.concluido_em) as entregue_em, p.despachado_em,
+             coalesce(round(coalesce(p.taxa_entrega, 0) * 100), 0)::bigint as taxa_centavos
+        from pedido_externo p
+       where p.tenant_id = ${user.tenantId}
+         and p.entregador_id = ${user.colaboradorId}
+         and p.entregador_fechamento_id is null
+         and p.status in ('entregue', 'concluido')
+         and (coalesce(p.concluido_em, p.entregue_em) at time zone 'America/Sao_Paulo')::date
+             between ${inicio}::date and ${fim}::date
+       order by coalesce(p.entregue_em, p.concluido_em) desc nulls last
+       limit 300`);
+    const rows = (r?.rows ?? r ?? []) as any[];
+    const { logo } = await this.contextoDaLista(
+      user.tenantId,
+      rows.map((x) => ({ id: String(x.id), canal: x.canal, unidadeId: x.unidade_id ?? null })),
+    );
+    return {
+      periodicidade: cfg.periodicidade ?? 'dia',
+      periodo: { inicio, fim },
+      entregas: rows.map((x) => ({
+        id: String(x.id),
+        numero: x.numero,
+        displayId: x.display_id ?? null,
+        canal: x.canal,
+        cliente: x.cliente_nome ?? null,
+        bairro: x.endereco_bairro ?? null,
+        // 'entregue' = confirmada no app, esperando a conferência do atendente; 'concluido' = conferida
+        status: String(x.status),
+        entregueEm: x.entregue_em ? new Date(x.entregue_em).toISOString() : null,
+        saiuEm: x.despachado_em ? new Date(x.despachado_em).toISOString() : null,
+        taxaCentavos: Number(x.taxa_centavos ?? 0),
+        logoDaLoja: logo({ canal: x.canal, unidadeId: x.unidade_id ?? null }),
+      })),
+    };
+  }
+
   // Meus pedidos em rota (despachado, atrelados a mim).
   async pedidos(user: AuthUser) {
     if (!this.ehEntregador(user)) return [];

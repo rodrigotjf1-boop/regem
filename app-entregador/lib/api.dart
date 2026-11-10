@@ -244,6 +244,49 @@ class Api {
     throw Exception(_erro(r));
   }
 
+  /// 10/11/2026 — "Minhas entregas": as entregas que compõem "Meus ganhos" (o mesmo período):
+  /// `{ periodicidade, periodo: {inicio, fim}, entregas: [{id, numero, displayId, canal, cliente, bairro, status,
+  /// entregueEm, saiuEm, taxaCentavos, logoDaLoja}] }`.
+  static Future<Map<String, dynamic>> entregas() async {
+    final r = await http.get(Uri.parse('$base/entregador/entregas'), headers: _headers).timeout(const Duration(seconds: 20));
+    if (r.statusCode >= 200 && r.statusCode < 300) {
+      return jsonDecode(r.body) as Map<String, dynamic>;
+    }
+    throw ApiErro(r.statusCode, _erro(r));
+  }
+
+  /// 10/11/2026 (mig 391) — os avisos do atendimento abertos para mim: `[{id, origem, motivo, rotulo, texto, enviadoPor,
+  /// em, vistoEm, depoisDaEntrega, pedido: {...o mesmo pedido da lista}}]`.
+  static Future<List<dynamic>> avisos() async {
+    final r = await http.get(Uri.parse('$base/entregador/avisos'), headers: _headers).timeout(const Duration(seconds: 15));
+    if (r.statusCode >= 200 && r.statusCode < 300) {
+      final j = jsonDecode(r.body);
+      return j is List ? j : <dynamic>[];
+    }
+    throw ApiErro(r.statusCode, _erro(r));
+  }
+
+  /// Abri o aviso (o atendimento vê "visto"). Best-effort.
+  static Future<void> avisoVisto(String id) async {
+    try {
+      await http.post(Uri.parse('$base/entregador/avisos/$id/visto'), headers: _headers).timeout(const Duration(seconds: 15));
+    } catch (_) {
+      // silencioso
+    }
+  }
+
+  /// A minha resposta ao aviso: 'a_caminho' | 'cheguei' | 'imprevisto' (saem ao cliente pelo canal do pedido) ou
+  /// 'ligou' | 'mensagem' | 'ok' (só registram). Resposta: `{ ok, saiu, por: 'chat'|'whatsapp_loja'|null, motivo?, texto }`.
+  static Future<Map<String, dynamic>> responderAviso(String id, String acao) async {
+    final r = await http
+        .post(Uri.parse('$base/entregador/avisos/$id/responder'), headers: _headers, body: jsonEncode({'acao': acao}))
+        .timeout(const Duration(seconds: 25));
+    if (r.statusCode >= 200 && r.statusCode < 300) {
+      return jsonDecode(r.body) as Map<String, dynamic>;
+    }
+    throw ApiErro(r.statusCode, _erro(r));
+  }
+
   /// Fase 4 — minha preferência (compartilhar contato no aviso ao cliente).
   static Future<bool> preferencia() async {
     final r = await http.get(Uri.parse('$base/entregador/preferencia'), headers: _headers);

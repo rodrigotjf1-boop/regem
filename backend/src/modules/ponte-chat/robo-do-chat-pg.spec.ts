@@ -86,7 +86,7 @@ descrever('o robô no chat do iFood e da 99 (Postgres)', () => {
 
   beforeAll(async () => {
     delete process.env.EDGE_MODE; // como NUVEM
-    for (const m of ['342_robo_pausa_e_config.sql', '366_ponte_do_chat.sql', '367_chat_ordem_e_indices.sql', '368_ponte_pausada.sql', '379_horario_da_equipe.sql', '382_treinar_atendente.sql', '383_atendente_no_chat.sql'])
+    for (const m of ['342_robo_pausa_e_config.sql', '366_ponte_do_chat.sql', '367_chat_ordem_e_indices.sql', '368_ponte_pausada.sql', '379_horario_da_equipe.sql', '382_treinar_atendente.sql', '383_atendente_no_chat.sql', '391_avisos_ao_entregador.sql'])
       await aplicar(m);
     await q(`insert into empresa (id, nome) values ($1, 'teste robô do chat')`, [T]);
     [{ id: loja }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja A') returning id`, [T]);
@@ -105,7 +105,7 @@ descrever('o robô no chat do iFood e da 99 (Postgres)', () => {
   });
   afterAll(async () => {
     delete process.env.EDGE_MODE;
-    for (const tab of ['atendimento_chamado', 'chat_plataforma_msg', 'chat_ponte', 'robo_config', 'pedido_externo', 'equipamento', 'colaborador', 'unidade'])
+    for (const tab of ['entregador_aviso', 'atendimento_chamado', 'chat_plataforma_msg', 'chat_ponte', 'robo_config', 'pedido_externo', 'equipamento', 'colaborador', 'unidade'])
       await q(`delete from ${tab} where tenant_id = $1`, [T]).catch(() => {});
     await q(`delete from empresa where id = $1`, [T]).catch(() => {});
     await pool.end();
@@ -147,6 +147,23 @@ descrever('o robô no chat do iFood e da 99 (Postgres)', () => {
       ['robo', CHAMEI_A_EQUIPE],
     ]);
     expect(linhas.slice(1).map((l: any) => l.depois)).toEqual([true, true, true]); // a hora de cada linha, nunca repetida
+  });
+
+  it('o cliente perguntou pelo pedido no chat com ele a caminho (mig 391): o entregador do pedido fica sabendo no app — o robô responde igual', async () => {
+    const [{ id: zeca }] = await q(`insert into colaborador (tenant_id, nome, unidade_id, status) values ($1, 'Zeca Moto', $2, 'ativo') returning id`, [T, loja]);
+    const id = await pedido('r-av', { status: 'despachado', minAtras: 5 });
+    await q(`update pedido_externo set entregador_id = $2 where id = $1`, [id, zeca]);
+    expect(await fala('r-av', 'Cadê meu pedido?')).toMatchObject({ roboRespondeu: 1 });
+    await fala('r-av', 'Tá demorando demais');
+    expect(
+      (await q(`select origem, motivo, colaborador_id from entregador_aviso where pedido_id = $1 order by criado_em`, [id])).map((a: any) => [a.origem, a.motivo, a.colaborador_id]),
+    ).toEqual([
+      ['robo', 'onde_esta', zeca],
+      ['robo', 'demora', zeca],
+    ]);
+    // de novo, com o aviso ainda aberto: não repete
+    await fala('r-av', 'cadê??');
+    expect(await q(`select count(*)::int as n from entregador_aviso where pedido_id = $1`, [id])).toEqual([{ n: 2 }]);
   });
 
   it('o ENTREGADOR conversando pelo app (09/11/2026): o robô fica quieto e a fala vai ao caso; passados 15 min, ou a fala de outro da equipe, ele responde', async () => {
