@@ -9,6 +9,7 @@ import 'package:regem_atendimento/abrir.dart';
 import 'package:regem_atendimento/api.dart';
 import 'package:regem_atendimento/avisos.dart';
 import 'package:regem_atendimento/main.dart';
+import 'package:regem_atendimento/telas/botao_copiloto.dart';
 
 // O FLUXO DO APP contra um servidor FALSO que confere o que o app manda como o servidor de verdade confere: o pareamento
 // pelo código (com `tipo: atendimento`), a entrada com o PIN levando os cabeçalhos do celular, a fila com o token E os
@@ -21,6 +22,9 @@ class ServidorFalso {
   bool revogado = false;
   final casos = <Map<String, dynamic>>[];
   Map<String, dynamic> avisos = {'disputa': {'avisar': true, 'deNovoMin': 2}};
+  // As conversas do caso (1.1): o chat do iFood/99, o Direct e o Messenger, pelo id do caso; e o copiloto.
+  final conversas = <String, Map<String, dynamic>>{};
+  bool copilotoLigado = true;
 
   http.Response _json(Object corpo, [int status = 200]) =>
       http.Response(jsonEncode(corpo), status, headers: {'content-type': 'application/json; charset=utf-8'});
@@ -74,6 +78,33 @@ class ServidorFalso {
         return _json([]);
       case 'GET /whatsapp/mensagens':
         return _json([]);
+      case 'GET /atendimento/copiloto':
+        return _json({'ligado': copilotoLigado, 'disponivel': true});
+    }
+    // A conversa do caso (1.1), como as rotas de verdade: ler é de todos; responder, da gestão (403 para a equipe); a sugestão
+    // pede mensagem do cliente (400 sem ela) e só volta o texto — nada é enviado.
+    if (partes.length == 4 && partes[1] == 'atendimento' && const {'chat', 'instagram', 'messenger'}.contains(partes[3])) {
+      final conv = conversas[partes[2]];
+      if (conv == null) return _json({'message': 'Caso não encontrado.'}, 404);
+      if (r.method == 'GET') return _json(conv);
+      if (categoria == 'execucao') return _json({'message': 'Forbidden resource'}, 403);
+      (conv['mensagens'] as List).add({
+        'id': 'm${(conv['mensagens'] as List).length + 1}',
+        'direcao': 'saida',
+        'autor': 'equipe',
+        'quem': 'Ana Gerente',
+        'autorNome': 'Ana Gerente',
+        'texto': corpo['texto'],
+        'estado': partes[3] == 'chat' ? 'pendente' : 'enviada',
+        'em': DateTime.now().toUtc().toIso8601String(),
+        'criadoEm': DateTime.now().toUtc().toIso8601String(),
+      });
+      return _json({'ok': true}, partes[3] == 'chat' ? 201 : 200);
+    }
+    if (r.method == 'POST' && partes.length == 4 && partes[1] == 'atendimento' && partes[3] == 'sugestao') {
+      final msgs = (corpo['mensagens'] as List?) ?? const [];
+      if (!msgs.any((m) => m is Map && m['de'] == 'cliente')) return _json({'message': 'Ainda não há mensagem do cliente para responder.'}, 400);
+      return _json({'texto': 'Boa noite! Já estamos vendo o seu pedido.'}, 201);
     }
     if (r.method == 'POST' && partes.length == 4 && partes[1] == 'atendimento') {
       final id = partes[2];
@@ -178,6 +209,45 @@ Map<String, dynamic> casoDoEndereco() => {
       },
     };
 
+/// O caso "Mensagem no chat" do iFood (o do print do dono, 10/11: só o resumo e os botões, sem conversa).
+Map<String, dynamic> casoDoChat() => {
+      'id': 'ch1',
+      'tipo': 'chat',
+      'canal': 'ifood',
+      'cliente': 'Isabel Cristina',
+      'pedidoNaPlataforma': '5073',
+      'mensagem': 'estou indo',
+      'prioridade': 'normal',
+      'situacao': 'fila',
+      'responsavelId': null,
+      'criadoEm': DateTime.now().subtract(const Duration(minutes: 1)).toUtc().toIso8601String(),
+      'posicao': 1,
+      'detalhe': <String, dynamic>{},
+    };
+
+Map<String, dynamic> conversaDoChat() => {
+      'disponivel': true,
+      'canal': 'ifood',
+      'ponte': {'ligada': true, 'responde': true},
+      'mensagens': <Map<String, dynamic>>[
+        {'id': 'm1', 'direcao': 'entrada', 'autor': 'cliente', 'texto': 'Pede para o entregador ligar ao chegar', 'estado': 'recebida', 'em': DateTime.now().toUtc().toIso8601String()},
+      ],
+    };
+
+Map<String, dynamic> casoDoDirect() => {
+      'id': 'ig1',
+      'tipo': 'instagram',
+      'canal': 'instagram',
+      'cliente': 'Rafa',
+      'mensagem': 'Vocês abrem amanhã?',
+      'prioridade': 'normal',
+      'situacao': 'fila',
+      'responsavelId': null,
+      'criadoEm': DateTime.now().toUtc().toIso8601String(),
+      'posicao': 1,
+      'detalhe': <String, dynamic>{},
+    };
+
 Future<void> esperar(WidgetTester t, [int vezes = 6]) async {
   for (var i = 0; i < vezes; i++) {
     await t.pump(const Duration(milliseconds: 120));
@@ -213,6 +283,7 @@ void main() {
     FlutterSecureStorage.setMockInitialValues({});
     servidor = ServidorFalso();
     Api.cliente = MockClient(servidor.responder);
+    BotaoCopiloto.esquecer();
     await Api.carregar();
   });
 
@@ -223,9 +294,10 @@ void main() {
     addTearDown(t.view.reset);
   }
 
-  /// Rola a tela até o botão aparecer (a lista só monta o que está perto da área visível).
-  Future<void> rolarAte(WidgetTester t, Finder alvo) async {
-    await t.scrollUntilVisible(alvo, 200, scrollable: find.byType(Scrollable).first);
+  /// Rola a tela até o botão aparecer (a lista só monta o que está perto da área visível). `passo` negativo = para cima
+  /// (o alvo está acima do que se vê — depois de descer até o campo, por exemplo).
+  Future<void> rolarAte(WidgetTester t, Finder alvo, {double passo = 200}) async {
+    await t.scrollUntilVisible(alvo, passo, scrollable: find.byType(Scrollable).first);
     await t.pump();
   }
 
@@ -444,7 +516,8 @@ void main() {
     expect(campo.controller!.text, startsWith('Não conseguimos mudar o endereço do pedido nº 951: o entregador já está a caminho da Rua das Flores, 120.'));
     expect(servidor.pedidos.where((r) => r.url.path.endsWith('/whatsapp/enviar')), isEmpty);
     // "Mudar o endereço e avisar o entregador": o servidor recebe a taxa escolhida e a mensagem pronta abre no WhatsApp dele.
-    await rolarAte(t, find.text('Mudar o endereço e avisar o entregador'));
+    // O botão fica ACIMA do campo onde o "Não dá" deixou a tela (a conversa ganhou o copiloto na 1.1): sobe até ele.
+    await rolarAte(t, find.text('Mudar o endereço e avisar o entregador'), passo: -200);
     await t.tap(find.text('Mudar o endereço e avisar o entregador'));
     await esperar(t, 10);
     final mudou = servidor.pedidos.lastWhere((r) => r.url.path.endsWith('/atendimento/m1/endereco-depois-que-saiu'));
@@ -476,6 +549,127 @@ void main() {
     expect(servidor.pedidos.any((r) => r.url.path.endsWith('/atendimento/app/sair')), isTrue);
     expect(find.text('Quem vai atender?'), findsOneWidget);
     expect(Api.pareado, isTrue);
+    await fechar(t);
+  });
+
+  // ===================== As conversas do caso (1.1 — o print do dono de 10/11: "só os botões abaixo") =====================
+
+  List<http.Request> postsDa(String rota) => servidor.pedidos.where((r) => r.method == 'POST' && r.url.path.endsWith(rota)).toList();
+
+  testWidgets('gerente: o chat do iFood no caso — lê, usa a pronta e envia pela ponte; a mensagem fica "na fila da ponte"', (t) async {
+    celular(t);
+    servidor.casos.add(casoDoChat());
+    servidor.conversas['ch1'] = conversaDoChat();
+    await parearEEntrar(t);
+    await t.tap(find.text('Pegar'));
+    await esperar(t, 10);
+    expect(find.text('Mensagem no chat'), findsWidgets); // antes: "Atendimento"
+    expect(find.text('Chat do iFood com Isabel Cristina'), findsOneWidget);
+    expect(find.text('Pede para o entregador ligar ao chegar'), findsOneWidget);
+    await rolarAte(t, find.text('Vou confirmar e já te respondo por aqui.'));
+    await t.tap(find.text('Vou confirmar e já te respondo por aqui.'));
+    await t.pump();
+    await rolarAte(t, find.text('Enviar pelo iFood'));
+    await t.tap(find.text('Enviar pelo iFood'));
+    await esperar(t, 10);
+    final envio = postsDa('/atendimento/ch1/chat');
+    expect(envio, hasLength(1));
+    expect(jsonDecode(envio.single.body), {'texto': 'Vou confirmar e já te respondo por aqui.'});
+    await rolarAte(t, find.text('⏳ na fila da ponte'));
+    expect(find.text('⏳ na fila da ponte'), findsOneWidget);
+    await fechar(t);
+  });
+
+  testWidgets('no chat da plataforma, telefone não sai: o aviso aparece e nada é enviado', (t) async {
+    celular(t);
+    servidor.casos.add(casoDoChat());
+    servidor.conversas['ch1'] = conversaDoChat();
+    await parearEEntrar(t);
+    await t.tap(find.text('Pegar'));
+    await esperar(t, 10);
+    await rolarAte(t, find.text('Enviar pelo iFood'));
+    await t.enterText(find.byType(TextField).last, 'me liga no 21 99999-0000');
+    await t.pump();
+    await t.tap(find.text('Enviar pelo iFood'));
+    await esperar(t);
+    expect(find.textContaining('a plataforma proíbe'), findsWidgets);
+    expect(postsDa('/atendimento/ch1/chat'), isEmpty);
+    await fechar(t);
+  });
+
+  testWidgets('o copiloto: "✨ Sugerir resposta" manda a conversa e põe a sugestão no campo — nada sai sozinho', (t) async {
+    celular(t);
+    servidor.casos.add(casoDoChat());
+    servidor.conversas['ch1'] = conversaDoChat();
+    await parearEEntrar(t);
+    await t.tap(find.text('Pegar'));
+    await esperar(t, 10);
+    await rolarAte(t, find.text('✨ Sugerir resposta'));
+    await t.tap(find.text('✨ Sugerir resposta'));
+    await esperar(t, 10);
+    final pedido = postsDa('/atendimento/ch1/sugestao');
+    expect(pedido, hasLength(1));
+    final corpo = jsonDecode(pedido.single.body) as Map<String, dynamic>;
+    expect(corpo['mensagens'], [
+      {'de': 'cliente', 'texto': 'Pede para o entregador ligar ao chegar'},
+    ]);
+    expect((corpo['prontas'] as List), hasLength(4));
+    final campo = t.widget<TextField>(find.byType(TextField).last);
+    expect(campo.controller!.text, 'Boa noite! Já estamos vendo o seu pedido.');
+    expect(find.text('✨ Outra sugestão'), findsOneWidget);
+    expect(postsDa('/atendimento/ch1/chat'), isEmpty);
+    await fechar(t);
+  });
+
+  testWidgets('copiloto desligado na empresa: nenhum botão de sugestão', (t) async {
+    celular(t);
+    servidor.copilotoLigado = false;
+    servidor.casos.add(casoDoChat());
+    servidor.conversas['ch1'] = conversaDoChat();
+    await parearEEntrar(t);
+    await t.tap(find.text('Pegar'));
+    await esperar(t, 10);
+    await rolarAte(t, find.text('Enviar pelo iFood'));
+    expect(find.text('✨ Sugerir resposta'), findsNothing);
+    await fechar(t);
+  });
+
+  testWidgets('a equipe (execução) lê o chat e não tem campo: "quem responde é a gerência ou a supervisão"', (t) async {
+    celular(t);
+    servidor.categoria = 'execucao';
+    servidor.casos.add(casoDoChat());
+    servidor.conversas['ch1'] = conversaDoChat();
+    await parearEEntrar(t);
+    await t.tap(find.text('Pegar'));
+    await esperar(t, 10);
+    expect(find.text('Pede para o entregador ligar ao chegar'), findsOneWidget);
+    await rolarAte(t, find.textContaining('Quem responde é a gerência ou a supervisão'));
+    expect(find.text('Enviar pelo iFood'), findsNothing);
+    expect(find.text('✨ Sugerir resposta'), findsNothing);
+    await fechar(t);
+  });
+
+  testWidgets('o Direct com a janela de 24 h fechada: lê, diz por quê e não deixa escrever', (t) async {
+    celular(t);
+    servidor.casos.add(casoDoDirect());
+    servidor.conversas['ig1'] = {
+      'conectada': true,
+      'janela': {'aberta': false, 'ate': null},
+      'perfil': {'usuario': 'rafa', 'nome': 'Rafa', 'segue': true},
+      'conta': 'misterburguer',
+      'mensagens': <Map<String, dynamic>>[
+        {'id': 'i1', 'direcao': 'entrada', 'autor': 'cliente', 'tipo': 'texto', 'texto': 'Vocês abrem amanhã?', 'estado': 'recebida', 'criadoEm': DateTime.now().toUtc().toIso8601String()},
+        {'id': 'i2', 'direcao': 'entrada', 'autor': 'cliente', 'tipo': 'imagem', 'texto': null, 'estado': 'recebida', 'criadoEm': DateTime.now().toUtc().toIso8601String()},
+      ],
+    };
+    await parearEEntrar(t);
+    await t.tap(find.text('Pegar'));
+    await esperar(t, 10);
+    expect(find.text('Direct do Instagram com Rafa'), findsOneWidget);
+    await rolarAte(t, find.text('[foto]'));
+    await rolarAte(t, find.textContaining('Passaram 24 h da última mensagem do cliente'));
+    expect(find.text('A janela de 24 h fechou.'), findsOneWidget);
+    expect(find.text('Enviar no Direct'), findsNothing);
     await fechar(t);
   });
 }

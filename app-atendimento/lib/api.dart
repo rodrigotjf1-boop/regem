@@ -279,6 +279,28 @@ class Api {
     throw _erro(r);
   }
 
+  // ===================== O chat do iFood/99, o Direct e o Messenger do caso (1.1 — as rotas da tela Atendimento) =====================
+
+  /// A conversa do caso: `parte` = chat | instagram | messenger (`caminhoDaConversa`).
+  static Future<Map<String, dynamic>> conversaDoCaso(String id, String parte) async =>
+      Map<String, dynamic>.from((await _chamar('GET', '/atendimento/$id/$parte') as Map?) ?? const {});
+
+  /// A resposta da equipe: no chat, entra na fila da ponte do PC da loja; no Direct e no Messenger, sai na hora.
+  static Future<void> responderNoCaso(String id, String parte, String texto) =>
+      _chamar('POST', '/atendimento/$id/$parte', corpo: {'texto': texto});
+
+  /// O copiloto: o botão aparece com ele LIGADO na empresa e DISPONÍVEL na distribuição.
+  static Future<Map<String, dynamic>> copiloto() async =>
+      Map<String, dynamic>.from((await _chamar('GET', '/atendimento/copiloto') as Map?) ?? const {});
+
+  /// A sugestão de resposta: volta para o campo — nada é enviado.
+  static Future<String> sugerir(String id, List<Map<String, String>> mensagens, List<String> prontas) async {
+    final r = await _chamar('POST', '/atendimento/$id/sugestao', corpo: {'mensagens': mensagens, 'prontas': prontas});
+    final t = r is Map ? '${r['texto'] ?? ''}'.trim() : '';
+    if (t.isEmpty) throw const ApiErro(502, 'O copiloto não trouxe uma sugestão. Tente de novo ou escreva a resposta.');
+    return t;
+  }
+
   // ===================== A conversa do WhatsApp (a mesma caixa de Delivery › WhatsApp) =====================
 
   static Future<List<dynamic>> conversas() async => (await _chamar('GET', '/whatsapp/conversas') as List?) ?? const [];

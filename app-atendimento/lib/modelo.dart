@@ -10,6 +10,15 @@ const rotuloDoTipo = <String, String>{
   'disputa': 'Disputa',
   'cancelamento_99': 'Cancelamento pedido à 99',
   'reembolso_99': 'Reembolso pedido à 99',
+  // Os da tela do computador que o app ainda não conhecia (1.1) — `frontend/src/lib/atendimento.ts`.
+  'avaliacao': 'Avaliação',
+  'chat': 'Mensagem no chat',
+  'instagram': 'Mensagem no Direct',
+  'instagram_comentario': 'Comentário no post',
+  'messenger': 'Mensagem no Messenger',
+  'fornecedor': 'Fornecedor',
+  'vaga': 'Vaga de emprego',
+  'parceria': 'Parceria',
 };
 
 /// Casos que se resolvem pela resposta à plataforma (ou pelo prazo dela): "aguardar" e "resolver" à mão os esconderiam.
@@ -21,6 +30,9 @@ const rotuloDoCanal = <String, String>{
   '99food': '99Food',
   'cardapio': 'Cardápio',
   'balcao': 'Balcão',
+  'anotaai': 'Anota AI',
+  'instagram': 'Instagram',
+  'messenger': 'Messenger',
 };
 
 class Caso {

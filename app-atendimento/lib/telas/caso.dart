@@ -5,8 +5,11 @@ import 'package:flutter/services.dart';
 
 import '../abrir.dart';
 import '../api.dart';
+import '../conversa.dart';
 import '../modelo.dart';
 import '../tema.dart';
+import 'botao_copiloto.dart';
+import 'conversa_do_canal.dart';
 
 /// UM CASO (protótipo, telas 4 e 5). O resumo do robô vem primeiro; no WhatsApp, a conversa com as respostas prontas
 /// (vão para o campo, nunca saem sozinhas). Disputa do iFood e pedido da 99: o relógio, o que o cliente pede e — só para
@@ -309,6 +312,9 @@ class _TelaCasoState extends State<TelaCaso> {
           if (_c.canal == 'whatsapp' && !_eu.conversa)
             _bloco('Conversa no WhatsApp', const Text('Quem responde pelo WhatsApp é a gerência ou a supervisão. Pegue o caso e chame quem responde.')),
           if (_temConversa) _conversa(),
+          // O chat do iFood e da 99, o Direct e o Messenger (1.1): os mesmos blocos do computador.
+          if (conversaDoCaso(_c) != null)
+            ConversaDoCanal(key: ValueKey('conversa-${_c.id}'), caso: _c, canal: conversaDoCaso(_c)!, podeResponder: _eu.conversa),
         ],
       ),
       bottomNavigationBar: _c.aberto && !_c.daPlataforma ? _acoes(meu) : null,
@@ -412,6 +418,20 @@ class _TelaCasoState extends State<TelaCaso> {
               },
             ),
         ]),
+        // O copiloto (1.1): a sugestão vai para o campo, como as respostas prontas.
+        BotaoCopiloto(
+          casoId: _c.id,
+          temDoCliente: (msgs ?? const []).any((m) => m['fromMe'] != true && '${m['texto'] ?? ''}'.trim().isNotEmpty),
+          mensagens: () => [
+            for (final m in _msgs ?? const <Map<String, dynamic>>[])
+              if ('${m['texto'] ?? ''}'.trim().isNotEmpty) {'de': m['fromMe'] == true ? 'loja' : 'cliente', 'texto': '${m['texto']}'},
+          ],
+          prontas: prontas,
+          aoSugerir: (t) {
+            _texto.text = t;
+            _texto.selection = TextSelection.collapsed(offset: t.length);
+          },
+        ),
         const SizedBox(height: 8),
         Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
           Expanded(

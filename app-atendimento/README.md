@@ -14,6 +14,11 @@ Separado do app do entregador. Fala com o Regem na **nuvem** (decisão do dono, 
    "Ocupado: embalando" (ocupado, o app só toca para o que tem prazo). Abas Fila · Comigo · Feitos · Eu.
 4. **O caso:** o resumo do robô, a conversa do WhatsApp com respostas prontas (gestão), Pegar · Passar · Aguardar ·
    Resolver. Disputa do iFood e pedido da 99: só gerente e presidente respondem, confirmando com o PIN.
+   **Desde a 1.1 (10/11):** as conversas do caso como no computador — o chat do iFood e da 99 (a resposta entra na fila
+   da ponte do PC da loja), o Direct do Instagram e o Messenger (saem na hora, dentro da janela de 24 h) — e o
+   "✨ Sugerir resposta" do copiloto em todas (a sugestão vai para o campo; nada sai sozinho). Ler é de todos; responder,
+   de presidente, gerente e supervisão (o servidor confere). Regras em `lib/conversa.dart`, tela em
+   `lib/telas/conversa_do_canal.dart`.
 5. **Avisos:** locais, com o app aberto ou recém-fechado (caso novo, urgente, "ninguém pegou" para o gerente). O toque com
    o app fechado vem com o push (Firebase), depois.
 
