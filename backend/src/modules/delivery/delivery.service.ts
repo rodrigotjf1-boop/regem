@@ -513,10 +513,12 @@ export class DeliveryService {
     if (row.status === 'cancelado' || row.status === 'concluido') return 'ignorado';
     // Não regride: só reflete se o alvo estiver ADIANTE do atual no fluxo
     // (cancelado é exceção — sempre encerra). RANK: novo<confirmado<pronto<despachado<concluido.
+    const RANK: Record<string, number> = { novo: 0, confirmado: 1, pronto: 2, despachado: 3, entregue: 4, concluido: 5 };
     if (novoStatus !== 'cancelado') {
-      const RANK: Record<string, number> = { novo: 0, confirmado: 1, pronto: 2, despachado: 3, entregue: 4, concluido: 5 };
       if ((RANK[novoStatus] ?? 0) <= (RANK[row.status] ?? 0)) return 'ignorado';
     }
+    // Os estados de onde o reflexo pode andar (os de antes do alvo): a gravação confere de novo no banco.
+    const deOnde = Object.keys(RANK).filter((s) => RANK[s] < (RANK[novoStatus] ?? 0));
     const patch: any = { status: novoStatus };
     if (novoStatus === 'cancelado') {
       patch.canceladoEm = new Date();
@@ -536,7 +538,9 @@ export class DeliveryService {
           ? // Um só cancela: se o painel concluiu ou cancelou no meio do caminho, ou o mesmo
             // evento chegou duas vezes, esta gravação não acha o pedido e nada se desfaz em dobro.
             and(eq(pedidoExterno.id, row.id), notInArray(pedidoExterno.status, ['cancelado', 'concluido']))
-          : eq(pedidoExterno.id, row.id),
+          : // Só para a frente (V43): se o painel concluiu/despachou ou outro reflexo passou à frente entre a leitura e
+            // esta gravação (o poller da 99 pergunta a cada minuto), ela não acha o pedido e nada regride.
+            and(eq(pedidoExterno.id, row.id), inArray(pedidoExterno.status, deOnde)),
       )
       .returning();
     if (!upd) return 'ignorado';
