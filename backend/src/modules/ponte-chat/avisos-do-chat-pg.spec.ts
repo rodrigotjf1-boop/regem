@@ -69,8 +69,16 @@ descrever('ponte do chat — avisos, ajustes e faixa (Postgres)', () => {
   }
   const avisosDe = async (pedidoId: string) =>
     q(`select motivo, texto, estado, direcao, autor, canal from chat_plataforma_msg where pedido_id = $1 order by motivo`, [pedidoId]);
+  // A ordem de criação decide quem responde (`quemResponde`: papel, depois `criadaEm`, depois o id). Com o `now()` do
+  // banco, duas pontes criadas em seguida empatavam no milissegundo e o id ALEATÓRIO decidia — a faixa falhava às vezes
+  // no CI (ERR-424). Cada ponte nasce 1 s depois da anterior, na ordem em que o teste a cria.
+  let criadas = 0;
   const ponte = async (unidade: string, nome: string, o: { ifood?: boolean; n99?: boolean; minAtras?: number } = {}) => {
-    const [{ id }] = await q(`insert into equipamento (tenant_id, unidade_id, tipo, nome, token) values ($1,$2,'ponte_chat',$3,$4) returning id`, [T, unidade, nome, `tok-${randomUUID()}`]);
+    const [{ id }] = await q(
+      `insert into equipamento (tenant_id, unidade_id, tipo, nome, token, created_at)
+       values ($1,$2,'ponte_chat',$3,$4, now() - make_interval(secs => $5::int)) returning id`,
+      [T, unidade, nome, `tok-${randomUUID()}`, 100000 - ++criadas],
+    );
     if (o.minAtras !== undefined)
       await q(
         `insert into chat_ponte (equipamento_id, tenant_id, unidade_id, plataformas, maquina, visto_em) values ($1,$2,$3,$4,$5, now() - make_interval(mins => $6::int))`,
