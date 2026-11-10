@@ -38,6 +38,7 @@ import {
   ShieldCheck,
   ShoppingCart,
   Store,
+  UserPlus,
   Users,
   Wallet,
   Wand2,
@@ -146,7 +147,15 @@ const NAV: NavNode[] = [
     ],
   },
   { href: '/cadastros', label: 'Cadastros', icon: Settings, perm: 'cadastros' },
-  { href: '/pessoas', label: 'Gerenciamento de ponto', icon: Users, perm: 'ponto_gerencial', modulo: 'terminal_ponto' },
+  {
+    // Pessoas (10/11/2026): o ponto gerencial e os candidatos da página de vagas (mig 389 — só na nuvem; a permissão
+    // `candidatos` e o módulo "Vagas e candidatos" o servidor confere). Grupo sem item visível some sozinho.
+    label: 'Pessoas', icon: Users,
+    children: [
+      { href: '/pessoas', label: 'Gerenciamento de ponto', icon: Users, perm: 'ponto_gerencial', modulo: 'terminal_ponto' },
+      { href: '/candidatos', label: 'Candidatos', icon: UserPlus, perm: 'candidatos', modulo: 'vagas', soNuvem: true },
+    ],
+  },
   {
     label: 'Configurações', icon: Settings,
     children: [

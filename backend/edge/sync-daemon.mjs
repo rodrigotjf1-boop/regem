@@ -2362,6 +2362,14 @@ const SO_NUVEM = new Set([
   // O Pix do item que o robô põe no pedido já pago (mig 373, @cloud-only): o robô, o gateway e a rotina moram na nuvem; a
   // mudança paga desce à loja como alteração "pedida" (comando do servidor), nunca esta tabela.
   'pedido_adicional_pix',
+  // Vagas e candidatos (mig 389, @cloud-only): a página pública de vagas e as fichas que chegam por ela moram na nuvem;
+  // a loja não tem estas tabelas (Pessoas › Candidatos é tela da nuvem).
+  'vaga_pagina',
+  'vaga_qr',
+  'candidato',
+  'candidato_experiencia',
+  'candidato_curso',
+  'candidato_evento',
 ]);
 
 // LEGADO SEM USO: tabelas criadas nas migrations de fundação (002/003) para recursos que

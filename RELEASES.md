@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Vagas e candidatos — F1, a base (10/11; mig 389 `@cloud-only` — 6 tabelas novas: `vaga_pagina`, `vaga_qr`,
+  `candidato`, `candidato_experiencia`, `candidato_curso`, `candidato_evento`; mig 390 NÃO cloud-only — a permissão
+  `candidatos` nos perfis salvos; mexe em `backend/edge/sync-daemon.mjs` SÓ na lista `SO_NUVEM`).** Na NUVEM com o merge
+  (a página pública e as fichas moram lá; o módulo nem sobe na loja). **No `.zip` 1.30.13 e no próximo `.exe`:** a 390
+  (a chave nos perfis da loja) e a classificação das tabelas no `sync-daemon`.
+
 - **APK "Regem Entregador" 0.1.0+17 — GERADO em 10/11 02:49 por comando do dono** (`flutter build apk --release`; o
   código do app idêntico ao da `origin/main` `c5f839a8`, conferido com `git diff`; `flutter analyze` só com os 5 avisos
   antigos; 66,1 MB; SHA-256 `c3f0009c5fdbc1867749299af66a19b81196480226e4f640a8bd43775214cd0d`). Leva TODO o acumulado do

@@ -64,6 +64,9 @@ export interface Permissoes {
   fichas?: boolean; // fichas técnicas (CMV)
   bot?: boolean; // Bot de suporte + inbox do WhatsApp
   desligamento?: boolean; // desligamento CLT (RH)
+  // Pessoas › Candidatos (mig 389/390): as fichas da página de vagas — dado pessoal (LGPD). Gerente e presidente por
+  // padrão; a supervisão só se o presidente liberar no perfil; o suporte só com o acesso TOTAL.
+  candidatos?: boolean;
   loja?: boolean; // Configurações → Loja (perfil do estabelecimento)
   unidades?: boolean; // Configurações → Unidades (cadastro/edição de lojas da rede)
   ponto_gerencial?: boolean; // Gerenciamento de ponto (gerencial)
@@ -116,7 +119,7 @@ export const PACOTE_SUPORTE_TOTAL: Permissoes = {
   entregador_pedidos: true, entregador_taxas: true, entregador_ganhos: true,
   entregador_tempo: true, entregador_relatorio: true, entregador_tipos: true,
   // Gestão
-  cadastros: true, fichas: true, bot: true, desligamento: true, loja: true, unidades: true,
+  cadastros: true, fichas: true, bot: true, desligamento: true, candidatos: true, loja: true, unidades: true,
   ponto_gerencial: true, producao_kds: true,
   // Config de impressão/KDS
   impressoras: true, kds: true, direcionamento_impressao: true, cupom_layout: true,
@@ -234,6 +237,7 @@ export const CATALOGO_PERMISSOES: CatalogoItem[] = [
   { chave: 'fichas', rotulo: 'Fichas técnicas', grupo: 'Gestão', tipo: 'bool' },
   { chave: 'bot', rotulo: 'Bot & WhatsApp', grupo: 'Gestão', tipo: 'bool' },
   { chave: 'desligamento', rotulo: 'Desligamento (RH)', grupo: 'Gestão', tipo: 'bool' },
+  { chave: 'candidatos', rotulo: 'Candidatos (vagas)', grupo: 'Gestão', tipo: 'bool' },
   { chave: 'loja', rotulo: 'Loja (perfil)', grupo: 'Gestão', tipo: 'bool' },
   { chave: 'unidades', rotulo: 'Unidades (lojas da rede)', grupo: 'Gestão', tipo: 'bool' },
   { chave: 'ponto_gerencial', rotulo: 'Gerenciamento de ponto', grupo: 'Gestão', tipo: 'bool' },
@@ -290,7 +294,7 @@ export const PERFIS_PADRAO: {
         'cashback', 'meu_dia', 'manutencao', 'checklist', 'mural', 'cadastros', 'loja',
         'formas_pagamento', 'ponto_gerencial', 'producao_kds', 'servidor',
         'impressoras', 'kds', 'direcionamento_impressao', 'cupom_layout',
-        'fichas', 'bot', 'desligamento', 'guias', 'vistoria', 'desempenho', 'desperdicio',
+        'fichas', 'bot', 'desligamento', 'guias', 'vistoria', 'desempenho', 'desperdicio', 'candidatos',
       ]),
       ponto: CRUD_ALL,
       estoque: { ver: true, criar: true, editar: true, excluir: false },
@@ -345,4 +349,6 @@ export const perfilPadrao = (nivel: string) =>
 // financeiro, acessos (RBAC), planos, unidades, visão C&O, exportar clientes, fiscal.
 // Para ir além disso, o presidente concede acesso TOTAL (PACOTE_SUPORTE_TOTAL). A
 // categoria segue 'suporte' (sem bypass de presidente) e tudo é auditado na loja.
-export const PACOTE_SUPORTE: Permissoes = { ...perfilPadrao('gerente').permissoes };
+// As fichas de candidato (dado pessoal de quem nem é cliente nem colaborador) ficam FORA do pacote mínimo: a gerência
+// as vê para contratar; o suporte técnico não precisa delas para ajudar a loja — só com o acesso TOTAL.
+export const PACOTE_SUPORTE: Permissoes = { ...perfilPadrao('gerente').permissoes, candidatos: false };

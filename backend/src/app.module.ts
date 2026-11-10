@@ -65,6 +65,7 @@ import { CardapioModule } from './modules/cardapio/cardapio.module';
 import { ClienteModule } from './modules/cliente/cliente.module';
 import { CampanhaModule } from './modules/campanha/campanha.module';
 import { RelacionamentoModule } from './modules/relacionamento/relacionamento.module';
+import { VagasModule } from './modules/vagas/vagas.module';
 import { EntregadorModule } from './modules/entregador/entregador.module';
 import { AtendimentoModule } from './modules/atendimento/atendimento.module';
 import { PonteChatModule } from './modules/ponte-chat/ponte-chat.module';
@@ -121,6 +122,8 @@ const CLOUD_ONLY_IMPORTS = IS_EDGE
       AutorizacaoLojaModule,
       // As automáticas de Delivery › Marketing (Onda 3, mig 356): WhatsApp e cardápio moram na nuvem.
       RelacionamentoModule,
+      // Vagas e candidatos (mig 389): a página pública de vagas e as fichas — tabelas só da nuvem.
+      VagasModule,
     ];
 
 @Module({
