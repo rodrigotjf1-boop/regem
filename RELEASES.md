@@ -34,7 +34,9 @@
   `candidato`, `candidato_experiencia`, `candidato_curso`, `candidato_evento`; mig 390 NÃO cloud-only — a permissão
   `candidatos` nos perfis salvos; mexe em `backend/edge/sync-daemon.mjs` SÓ na lista `SO_NUVEM`).** Na NUVEM com o merge
   (a página pública e as fichas moram lá; o módulo nem sobe na loja). **No `.zip` 1.30.13 e no próximo `.exe`:** a 390
-  (a chave nos perfis da loja) e a classificação das tabelas no `sync-daemon`.
+  (a chave nos perfis da loja) e a classificação das tabelas no `sync-daemon`. Correção do mesmo dia (sem migration, só
+  nuvem): o cartão "Funções e salários" em largura inteira (opção `largo` nova no componente de ajustes, sem efeito nas
+  outras telas) e os QR de fábrica Instagram, Anúncios e Salão.
 
 - **APK "Regem Entregador" 0.1.0+18 — GERADO em 10/11 06:29 a pedido do dono** ("vamos implementar o apk do
   entregador"; `flutter build apk --release`; o código do app idêntico ao da `origin/main` `41aa2ae7`, conferido com
