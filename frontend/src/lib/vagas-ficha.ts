@@ -105,10 +105,11 @@ export function fichaVazia(origemDeclarada = ''): FichaForm {
   };
 }
 
-/** A origem marcada pelo link (`?o=`) vira a resposta "como ficou sabendo" já marcada. */
+/** A origem marcada pelo link (`?o=`) vira a resposta "como ficou sabendo" já marcada. O link dos anúncios vai para
+ *  vários lugares (grupos, sites de vaga): fica sem marcar e o candidato escolhe. Outra marca é um QR impresso na loja. */
 export function origemDeclaradaDoLink(o: string | null | undefined): string {
   const s = String(o ?? '').toLowerCase();
-  if (!s) return '';
+  if (!s || s === 'anuncios') return '';
   if (s === 'instagram') return 'instagram';
   if (['whatsapp', 'robo', 'direct', 'messenger'].includes(s)) return 'whatsapp';
   if (s === 'indicacao') return 'indicacao';

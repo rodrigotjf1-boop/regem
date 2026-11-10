@@ -36,12 +36,12 @@ const arrTexto = (lista: string[]): SQL =>
 
 export const MODULO_VAGAS = 'vagas';
 
-// As marcas de origem que a loja ganha ao criar a página (a tela deixa criar outras e apagar estas).
-const QR_INICIAIS: { codigo: string; nome: string }[] = [
-  { codigo: 'balcao', nome: 'Balcão' },
-  { codigo: 'salao', nome: 'Salão e mesas' },
-  { codigo: 'fachada', nome: 'Fachada / vitrine' },
+// As marcas de origem que a loja ganha ao criar a página (pedido do dono, 10/11/2026: Instagram, anúncios e salão; a tela
+// deixa criar outras e apagar estas).
+export const QR_INICIAIS: { codigo: string; nome: string }[] = [
   { codigo: 'instagram', nome: 'Instagram (bio e posts)' },
+  { codigo: 'anuncios', nome: 'Anúncios de vaga' },
+  { codigo: 'salao', nome: 'Salão' },
 ];
 
 @Injectable()

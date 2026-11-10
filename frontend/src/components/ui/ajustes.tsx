@@ -40,6 +40,9 @@ export type Ajuste = {
   aoSair?: (valor: string) => void;
   /** `livre`: o controle é desenhado por quem usa (ex.: envio de imagem). */
   desenhar?: (valor: Valor, mudar: (v: Valor) => void) => React.ReactNode;
+  /** O controle ocupa a linha inteira, com o rótulo em cima (editor com vários campos, como uma lista de funções) —
+   *  sem isso, um `livre` fica na coluna da direita, de 22rem. */
+  largo?: boolean;
   /** Texto do item para a busca, além do rótulo. */
   palavras?: string;
 };
@@ -190,7 +193,7 @@ function LinhaDeAjuste({ idTela, ajuste: it, valor, mudou, aoMudar }: { idTela: 
   const texto = String(valor ?? '');
   const campo = 'min-w-0 flex-1';
   return (
-    <div className={cn('grid grid-cols-1 items-center gap-x-4 gap-y-1.5 border-b border-border px-4 py-3 last:border-b-0 md:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]', it.tipo === 'area' && 'md:grid-cols-1', mudou && 'bg-primary/10 shadow-[inset_3px_0_0_hsl(var(--primary))]')}>
+    <div className={cn('grid grid-cols-1 items-center gap-x-4 gap-y-1.5 border-b border-border px-4 py-3 last:border-b-0 md:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]', (it.tipo === 'area' || it.largo) && 'md:grid-cols-1', mudou && 'bg-primary/10 shadow-[inset_3px_0_0_hsl(var(--primary))]')}>
       <div className="min-w-0">
         {it.tipo === 'chave' || it.tipo === 'livre' ? (
           <span id={idRotulo} className="text-sm font-semibold">{it.rotulo}</span>
