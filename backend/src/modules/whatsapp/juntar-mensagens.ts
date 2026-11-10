@@ -36,10 +36,12 @@ async function soltar(k: string, entregar: (m: any) => Promise<any>): Promise<vo
 /**
  * O PORTEIRO DA PAUSA (F3 da pausa dos pedidos, mig 395): olha a mensagem JÁ JUNTADA antes de ela ir ao robô — com o
  * cardápio digital pausado, a 1ª mensagem do cliente na pausa é respondida pelo Regem com a mensagem pronta e não vai ao
- * robô ('respondido'). Registrado UMA vez, quando o servidor sobe (`PausaNoAtendimentoService`); sem ele (testes, servidor
- * da loja), entrega direto. Falha do porteiro nunca segura a mensagem: entrega ao robô.
+ * robô ('respondido'); F4 (mig 396): o cliente que insiste vai ao robô com `responderFalado: true` ('falar') — o nó
+ * "Prepara a resposta" do n8n responde em áudio com a voz de sempre. Registrado UMA vez, quando o servidor sobe
+ * (`PausaNoAtendimentoService`); sem ele (testes, servidor da loja), entrega direto. Falha do porteiro nunca segura a
+ * mensagem: entrega ao robô.
  */
-type Porteiro = (msg: any) => Promise<'segue' | 'respondido'>;
+type Porteiro = (msg: any) => Promise<'segue' | 'respondido' | 'falar'>;
 let porteiro: Porteiro | null = null;
 export function definirPorteiroDaPausa(p: Porteiro | null): void {
   porteiro = p;
@@ -48,6 +50,7 @@ export async function entregarComPorteiro(msg: any, entregar: (m: any) => Promis
   if (porteiro) {
     const decisao = await porteiro(msg).catch(() => 'segue' as const);
     if (decisao === 'respondido') return true;
+    if (decisao === 'falar') return entregar({ ...msg, responderFalado: true });
   }
   return entregar(msg);
 }

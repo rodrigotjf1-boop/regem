@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **A pausa dos pedidos — F4 (10/11; mig 396 NÃO cloud-only — `cardapio_config.pausa_audio`; não mexe no `sync-daemon`).**
+  Na NUVEM com o merge (é lá que o atendente recebe; vale depois de o dono trocar a linha do n8n). **No `.zip` 1.30.13:** a
+  396 no banco da loja (o `cardapio_config` sincroniza; o servidor da loja lê todas as colunas).
+
 - **A pausa dos pedidos — F3 (10/11; mig 394 NÃO cloud-only — `cardapio_config.pausa_mensagem`; mig 395 `@cloud-only` —
   tabela `pausa_aviso_cliente`; mexe em `backend/edge/sync-daemon.mjs` SÓ na lista `SO_NUVEM`).** Na NUVEM com o merge: a
   mensagem pronta que o atendente manda (é na nuvem que ele recebe), o ajuste do texto e o aviso do cardápio online com o

@@ -231,6 +231,8 @@ type Resposta = {
     opcoes?: { minutos: number[]; sons: string[] };
     // F3 (mig 394): a mensagem da loja (nula = a padrão), a padrão e o limite.
     mensagem?: string | null;
+    // F4 (mig 396): responder em áudio quando o cliente insiste.
+    audio?: boolean;
     mensagemPadrao?: string;
     mensagemMax?: number;
   } | null;
@@ -288,7 +290,12 @@ const paraValores = (r: Resposta): Valores => ({
     : {}),
   ...(r.repetido?.temCardapio ? { repetidoAtivo: r.repetido.ativo, repetidoMin: String(r.repetido.minutos) } : {}),
   ...(r.pausa?.temCardapio
-    ? { pausaAvisoMin: String(r.pausa.minutos), pausaSom: r.pausa.som, pausaMensagem: r.pausa.mensagem ?? r.pausa.mensagemPadrao ?? '' }
+    ? {
+        pausaAvisoMin: String(r.pausa.minutos),
+        pausaSom: r.pausa.som,
+        pausaMensagem: r.pausa.mensagem ?? r.pausa.mensagemPadrao ?? '',
+        ...(typeof r.pausa.audio === 'boolean' ? { pausaAudio: r.pausa.audio } : {}),
+      }
     : {}),
   ...(r.alterado ? { alteradoSom: r.alterado.som } : {}),
   ...(typeof r.alterado?.roboMuda === 'boolean' ? { alteradoRobo: r.alterado.roboMuda } : {}),
@@ -732,6 +739,19 @@ export function AjustesDoAtendimento() {
         ajuda: 'Toca no Delivery › Painel com o "🔔 Som on" ligado nele (o navegador só toca depois de um clique na tela).',
         palavras: 'pausa som aviso bipe campainha reabrir',
       },
+      // F4 (mig 396): o áudio quando o cliente insiste (só aparece com o servidor que já tem o ajuste).
+      ...(typeof resp?.pausa?.audio === 'boolean'
+        ? [
+            {
+              id: 'pausaAudio',
+              rotulo: 'Responder em áudio quando o cliente insistir',
+              tipo: 'chave' as const,
+              ajuda:
+                'Se o cliente que recebeu a mensagem da pausa insistir em pedir ou disser que não entendeu, a resposta do atendente vai em áudio no lugar do texto — a mesma voz do atendimento. Uma vez por cliente em cada pausa. No Direct e no Messenger segue em texto.',
+              palavras: 'pausa audio áudio voz falar insistir cliente nao entendeu',
+            },
+          ]
+        : []),
       // F3 (mig 394): a mensagem pronta (o protótipo põe este item em primeiro; aqui ele vem por último por ser o maior).
       {
         id: 'pausaMensagem',
@@ -1178,7 +1198,7 @@ export function AjustesDoAtendimento() {
     const ajuste99: Record<string, unknown> = {};
     const cheguei: Record<string, unknown> = {};
     const repetido: Record<string, unknown> = {};
-    const pausa: { minutos?: number; som?: string; mensagem?: string | null } = {}; // "Pausa dos pedidos" (F2/F3, migs 393/394)
+    const pausa: { minutos?: number; som?: string; mensagem?: string | null; audio?: boolean } = {}; // "Pausa dos pedidos" (F2–F4, migs 393/394/396)
     let alterado: { som?: string; roboMuda?: boolean; roboCobraPix?: boolean } | null = null;
     const gestorWa: Record<string, boolean | number | null> = {};
     let copiloto: { ligado: boolean } | null = null;
@@ -1314,6 +1334,7 @@ export function AjustesDoAtendimento() {
       else if (DO_REPETIDO[k]) repetido[DO_REPETIDO[k]] = k === 'repetidoMin' ? Number(valores[k]) : valores[k];
       else if (k === 'pausaAvisoMin') pausa.minutos = Number(valores[k]);
       else if (k === 'pausaSom') pausa.som = String(valores[k]);
+      else if (k === 'pausaAudio') pausa.audio = valores[k] === true;
       // A padrão vai como nula ("Voltar ao texto padrão"): a loja segue com o texto do Regem, inclusive quando ele mudar.
       else if (k === 'pausaMensagem')
         pausa.mensagem = String(valores[k] ?? '').trim() === (resp?.pausa?.mensagemPadrao ?? '').trim() ? null : String(valores[k] ?? '');

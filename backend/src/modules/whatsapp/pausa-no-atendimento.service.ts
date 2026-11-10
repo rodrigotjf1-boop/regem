@@ -3,7 +3,7 @@ import { sql } from 'drizzle-orm';
 import { DRIZZLE, type DrizzleDB } from '../../db/drizzle.module';
 import { ehServidorLocal } from '../../common/modo';
 import { idPausaDoCanal } from '../../common/id-deterministico';
-import { montarMensagemDaPausa, pausaVigenteDoCanal } from '../../common/pausa-do-canal';
+import { montarMensagemDaPausa, pausaVigenteDoCanal, pedeOAudio } from '../../common/pausa-do-canal';
 import { RoboRespostaService } from './robo-resposta.service';
 import { definirPorteiroDaPausa } from './juntar-mensagens';
 
@@ -43,8 +43,11 @@ export class PausaNoAtendimentoService implements OnModuleInit, OnModuleDestroy 
     definirPorteiroDaPausa(null);
   }
 
-  /** A mensagem (já juntada) do cliente: 'respondido' quando o Regem mandou a mensagem da pausa; senão 'segue' (ao robô). */
-  async decidir(msg: any, agora: Date = new Date()): Promise<'segue' | 'respondido'> {
+  /**
+   * A mensagem (já juntada) do cliente: 'respondido' quando o Regem mandou a mensagem da pausa; 'falar' quando ela vai ao
+   * robô pedindo a resposta em áudio (F4); senão 'segue' (ao robô, como sempre).
+   */
+  async decidir(msg: any, agora: Date = new Date()): Promise<'segue' | 'respondido' | 'falar'> {
     try {
       const tenantId = String(msg?.tenantId ?? '');
       const token = String(msg?.cardapioToken ?? '');
@@ -53,7 +56,7 @@ export class PausaNoAtendimentoService implements OnModuleInit, OnModuleDestroy 
       if (FORA_DA_PAUSA.test(chave) || FORA_DA_PAUSA.test(String(msg?.instancia ?? ''))) return 'segue';
       const [cfg] = linhas(
         await this.db.execute(sql`
-          select c.unidade_id, to_jsonb(c) ->> 'pausa_mensagem' as modelo
+          select c.unidade_id, to_jsonb(c) ->> 'pausa_mensagem' as modelo, to_jsonb(c) ->> 'pausa_audio' as audio
             from cardapio_config c where c.token = ${token} and c.tenant_id = ${tenantId}::uuid limit 1`),
       );
       if (!cfg) return 'segue';
@@ -66,9 +69,20 @@ export class PausaNoAtendimentoService implements OnModuleInit, OnModuleDestroy 
           values (${tenantId}::uuid, ${idPausaDoCanal(tenantId, pausa.unidadeId, 'cardapio')}::uuid, ${pausa.pausadoEm}::timestamptz, ${chave})
           on conflict (pausa_id, pausado_em, chave) do update
             set mensagens = pausa_aviso_cliente.mensagens + 1, atualizado_em = clock_timestamp()
-          returning id, mensagens`),
+          returning id, mensagens, avisado_em, falado_em`),
       );
-      if (Number(c?.mensagens) !== 1) return 'segue';
+      if (Number(c?.mensagens) !== 1) {
+        // F4 (mig 396): quem JÁ recebeu a mensagem pronta e insiste (ou não entendeu) recebe a resposta do robô em ÁUDIO —
+        // a mesma voz do atendimento, uma vez por pausa, só no WhatsApp (Direct e Messenger não têm áudio do atendente).
+        // A gravação condicional garante o "uma vez": duas mensagens juntas, um áudio.
+        const whatsapp = !/^(ig|fb):/.test(chave);
+        if (!whatsapp || cfg.audio === 'false' || !c?.avisado_em || c?.falado_em || !pedeOAudio(msg?.texto)) return 'segue';
+        const [f] = linhas(
+          await this.db.execute(sql`
+            update pausa_aviso_cliente set falado_em = clock_timestamp() where id = ${c.id}::uuid and falado_em is null returning id`),
+        );
+        return f ? 'falar' : 'segue';
+      }
       // Direct e Messenger não mostram o negrito do WhatsApp: vai sem os asteriscos.
       const texto = montarMensagemDaPausa(cfg.modelo, { nome: msg?.nome, frase: pausa.frase, volta: pausa.volta }, { semDestaque: /^(ig|fb):/.test(chave) });
       const r = await this.resposta.responderDoRegem({

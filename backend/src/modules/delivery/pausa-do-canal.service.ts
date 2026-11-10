@@ -4,6 +4,7 @@ import { DRIZZLE, type DrizzleDB } from '../../db/drizzle.module';
 import type { AuthUser } from '../../auth/auth-user';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { idPausaDoCanal } from '../../common/id-deterministico';
+import { exigirBooleano } from '../../common/exigir';
 import {
   ateDoCardapio,
   ateEstendido,
@@ -125,7 +126,7 @@ export class PausaDoCanalService {
   private async linhaDoAviso(tenantId: string, unidadeId: string | null | undefined) {
     const r: any = await this.db.execute(sql`
       select c.id, c.unidade_id, to_jsonb(c) ->> 'pausa_aviso_min' as pausa_aviso_min, to_jsonb(c) ->> 'pausa_som' as pausa_som,
-             to_jsonb(c) ->> 'pausa_mensagem' as pausa_mensagem
+             to_jsonb(c) ->> 'pausa_mensagem' as pausa_mensagem, to_jsonb(c) ->> 'pausa_audio' as pausa_audio
         from cardapio_config c
        where c.tenant_id = ${tenantId}::uuid
          and (${unidadeId ?? null}::uuid is not null and c.unidade_id = ${unidadeId ?? null}::uuid or c.unidade_id is null)
@@ -266,6 +267,8 @@ export class PausaDoCanalService {
     return {
       ...avisoDaLinha(row),
       mensagem: mensagemDaLinha(row),
+      // F4 (mig 396): responder em áudio quando o cliente insiste (o padrão do protótipo: ligado).
+      audio: audioDaLinha(row),
       mensagemPadrao: MENSAGEM_DA_PAUSA_PADRAO,
       mensagemMax: MENSAGEM_DA_PAUSA_MAX,
       temCardapio: !!row,
@@ -284,6 +287,8 @@ export class PausaDoCanalService {
       if (!m.ok) throw new BadRequestException(m.erro);
       parcial.mensagem = m.mensagem;
     }
+    // F4: liga/desliga só com booleano (V15).
+    if (d.audio !== undefined) parcial.audio = exigirBooleano(d.audio, 'Responder em áudio quando o cliente insistir');
     return parcial;
   }
 
@@ -302,6 +307,9 @@ export class PausaDoCanalService {
     const mudouAviso = sets.length > 0;
     const mudouMensagem = parcial.mensagem !== undefined && parcial.mensagem !== mensagemAntes;
     if (mudouMensagem) sets.push(sql`pausa_mensagem = ${parcial.mensagem ?? null}`);
+    const audioAntes = audioDaLinha(row);
+    const mudouAudio = parcial.audio !== undefined && parcial.audio !== audioAntes;
+    if (mudouAudio) sets.push(sql`pausa_audio = ${parcial.audio === true}`);
     if (!sets.length) return;
     await this.db.execute(sql`
       update cardapio_config set ${sql.join(sets, sql`, `)}, updated_at = now()
@@ -316,16 +324,23 @@ export class PausaDoCanalService {
       entidadeId: row.id,
     };
     if (mudouAviso) {
-      const { mensagem: _m, ...aviso } = parcial;
+      const { mensagem: _m, audio: _a, ...aviso } = parcial;
       await this.auditoria.registrar({ ...base, acao: 'alterou_aviso_da_pausa', detalhe: { antes, depois: { ...antes, ...aviso } } });
     }
     if (mudouMensagem)
       await this.auditoria.registrar({ ...base, acao: 'alterou_mensagem_da_pausa', detalhe: { antes: mensagemAntes, depois: parcial.mensagem ?? null } });
+    if (mudouAudio)
+      await this.auditoria.registrar({ ...base, acao: parcial.audio ? 'ligou_audio_da_pausa' : 'desligou_audio_da_pausa', detalhe: { audio: parcial.audio === true } });
   }
 }
 
-/** Os ajustes que a tela grava: o aviso (F2) e a mensagem pronta (F3; nula = o texto padrão). */
-export type AjusteDaPausa = Partial<AvisoDaPausa> & { mensagem?: string | null };
+/** Os ajustes que a tela grava: o aviso (F2), a mensagem pronta (F3; nula = o texto padrão) e o áudio (F4). */
+export type AjusteDaPausa = Partial<AvisoDaPausa> & { mensagem?: string | null; audio?: boolean };
+
+/** Responder em áudio quando o cliente insiste (F4): ligado salvo quando a loja desligou (sem a coluna: o padrão, ligado). */
+function audioDaLinha(row: any): boolean {
+  return String(row?.pausa_audio ?? 'true') !== 'false';
+}
 
 /** A mensagem que a loja escreveu (nula = o texto padrão). */
 function mensagemDaLinha(row: any): string | null {
