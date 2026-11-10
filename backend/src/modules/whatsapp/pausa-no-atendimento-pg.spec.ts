@@ -65,7 +65,8 @@ descrever('pausa no atendimento (Postgres)', () => {
     );
     const gestor: any = { tenantId: t, colaboradorId: randomUUID(), categoria: 'gerente', nome: 'Rodrigo' };
     const msg = (de: string, extra: any = {}) => ({
-      provedor: 'cloud', tenantId: t, cardapioToken: token, phoneNumberId: '123456789', de, nome: 'ANA PAULA', tipo: 'text', texto: 'quero pedir', ...extra,
+      // Texto neutro por padrão (F4: "quero pedir" depois da mensagem pronta já pede o áudio — os casos da F4 dizem o texto).
+      provedor: 'cloud', tenantId: t, cardapioToken: token, phoneNumberId: '123456789', de, nome: 'ANA PAULA', tipo: 'text', texto: 'boa noite', ...extra,
     });
     return { t, token, gestor, msg };
   }
@@ -174,5 +175,49 @@ descrever('pausa no atendimento (Postgres)', () => {
     const r = await Promise.all([porteiro.decidir(msg('5521999990009')), porteiro.decidir(msg('5521999990009'))]);
     expect(r.sort()).toEqual(['respondido', 'segue']);
     expect(enviados).toHaveLength(1);
+  });
+
+  // ── F4 (mig 396): o áudio quando o cliente insiste ──────────────────────────────────────────────────────────────
+  it('F4: quem já recebeu a mensagem e insiste vai ao robô pedindo ÁUDIO — uma vez; quem só concorda, texto', async () => {
+    const { t, gestor, msg } = await loja();
+    await pausas.pausar(gestor, null, { canais: ['cardapio'], motivo: 'pedidos', tempo: { minutos: 15 } });
+    expect(await porteiro.decidir(msg('5521999990010'))).toBe('respondido');
+    expect(await porteiro.decidir(msg('5521999990010', { texto: 'Ah ok, às 21:40 eu peço então' }))).toBe('segue');
+    expect(await porteiro.decidir(msg('5521999990010', { texto: 'Mas não dá pra fazer agora? Pago no Pix' }))).toBe('falar');
+    expect(await porteiro.decidir(msg('5521999990010', { texto: 'não entendi' }))).toBe('segue'); // um áudio por pausa
+    const [l] = await q(`select mensagens, falado_em from pausa_aviso_cliente where tenant_id = $1`, [t]);
+    expect(l.mensagens).toBe(4);
+    expect(l.falado_em).not.toBeNull();
+  });
+
+  it('F4: no Direct e no Messenger, com o áudio desligado na loja, ou sem a mensagem pronta ter saído: texto', async () => {
+    const a = await loja();
+    await pausas.pausar(a.gestor, null, { canais: ['cardapio'], motivo: 'pedidos', tempo: { minutos: 15 } });
+    expect(await porteiro.decidir(a.msg('ig:901', { provedor: 'instagram', phoneNumberId: null, instancia: 'ig:1' }))).toBe('respondido');
+    expect(await porteiro.decidir(a.msg('ig:901', { provedor: 'instagram', phoneNumberId: null, instancia: 'ig:1', texto: 'mas não dá agora?' }))).toBe('segue');
+
+    const b = await loja();
+    await q(`update cardapio_config set pausa_audio = false where tenant_id = $1`, [b.t]);
+    await pausas.pausar(b.gestor, null, { canais: ['cardapio'], motivo: 'pedidos', tempo: { minutos: 15 } });
+    expect(await porteiro.decidir(b.msg('5521999990011'))).toBe('respondido');
+    expect(await porteiro.decidir(b.msg('5521999990011', { texto: 'mas não dá agora?' }))).toBe('segue');
+
+    const c = await loja();
+    await pausas.pausar(c.gestor, null, { canais: ['cardapio'], motivo: 'pedidos', tempo: { minutos: 15 } });
+    segurar = true; // a 1ª foi segurada (conversa com uma pessoa): não houve mensagem pronta, não há "insistiu"
+    expect(await porteiro.decidir(c.msg('5521999990012'))).toBe('segue');
+    segurar = false;
+    expect(await porteiro.decidir(c.msg('5521999990012', { texto: 'mas não dá agora?' }))).toBe('segue');
+  });
+
+  it('F4: duas mensagens insistindo juntas: UM áudio', async () => {
+    const { gestor, msg } = await loja();
+    await pausas.pausar(gestor, null, { canais: ['cardapio'], motivo: 'pedidos', tempo: { minutos: 15 } });
+    expect(await porteiro.decidir(msg('5521999990013'))).toBe('respondido');
+    const r = await Promise.all([
+      porteiro.decidir(msg('5521999990013', { texto: 'quero agora' })),
+      porteiro.decidir(msg('5521999990013', { texto: 'mas não dá mesmo assim?' })),
+    ]);
+    expect(r.sort()).toEqual(['falar', 'segue']);
   });
 });

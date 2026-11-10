@@ -31,4 +31,11 @@ describe('o porteiro da pausa na entrega ao robô', () => {
     await entregarComPorteiro({ de: '1' }, entregar);
     expect(entregar).toHaveBeenCalledTimes(1);
   });
+
+  it('F4: "falar" entrega ao robô marcada para responder em áudio', async () => {
+    const entregar = jest.fn(async () => true);
+    definirPorteiroDaPausa(async () => 'falar');
+    await entregarComPorteiro({ de: '1', texto: 'mas não dá agora?' }, entregar);
+    expect(entregar).toHaveBeenCalledWith({ de: '1', texto: 'mas não dá agora?', responderFalado: true });
+  });
 });

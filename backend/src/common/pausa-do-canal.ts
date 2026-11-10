@@ -143,6 +143,34 @@ export function lerMensagemDaPausa(v: unknown): { ok: true; mensagem: string | n
   return { ok: true, mensagem: t };
 }
 
+// ── F4 (mig 396): o áudio quando o cliente insiste ─────────────────────────────────────────────────────────────────
+const semAcento = (t: unknown) =>
+  String(t ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+/** Só concorda ("ok", "ah ok, às 21:40 eu peço então", "valeu") — sem "mas", "agora", "mesmo assim". */
+const CONCORDA = /^(ok|okay|ah ok|ah,? ok|ta bom|ta|tudo bem|beleza|blz|certo|combinado|entendi|entendido|valeu|vlw|obrigad[oa]|brigad[oa]|tranquilo|de boa|show|perfeito|otimo|👍|🙏)\b/u;
+const CONTRASTE = /\b(mas|porem|so que|nao da|mesmo assim|agora|urgente)\b/;
+/** Insiste em pedir já ("mas não dá pra fazer agora? Pago no Pix", "quero um x-bacon", "aceita pix?"). */
+const INSISTE =
+  /\b(nao da|mesmo assim|agora|urgente|por favor|pfv|aceita|aceitam|pix|pago|pagar|quero|queria|pedir|pedido|manda|mandar|consegue|tem como|da pra|da para|preciso|faz|fazer|abre|abrir|ainda)\b/;
+/** Não entendeu ("não entendi", "como assim?", "?"). */
+const NAO_ENTENDEU = /\b(nao entendi|nao entendo|como assim|nao vi)\b|^\?+$|^(que|hein|oi)\?+$/;
+
+/**
+ * O cliente que JÁ recebeu a mensagem da pausa insistiu em pedir ou disse que não entendeu? Aí a resposta vai em áudio (F4).
+ * Quem só concorda ("ah ok, às 21:40 eu peço então") recebe texto, como no protótipo. Na dúvida, texto.
+ */
+export function pedeOAudio(texto: unknown): boolean {
+  const t = semAcento(texto);
+  if (!t) return false;
+  if (CONCORDA.test(t) && !CONTRASTE.test(t)) return false;
+  return INSISTE.test(t) || NAO_ENTENDEU.test(t);
+}
+
 /** Os tempos prontos do cardápio digital (minutos); o outro jeito é "até HH:MM". */
 export const TEMPOS_DO_CARDAPIO = [15, 30, 60] as const;
 /** A pausa mais longa que se escolhe por "até HH:MM". */

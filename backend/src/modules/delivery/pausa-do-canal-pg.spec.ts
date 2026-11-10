@@ -265,6 +265,20 @@ descrever('pausa por canal (Postgres)', () => {
     expect(() => pausas.conferirAjustes({ som: 'sirene' })).toThrow('Som do aviso');
   });
 
+  it('F4: responder em áudio — ligado por padrão; desligar grava e audita; só booleano', async () => {
+    const { t, gestor } = await loja();
+    expect(await pausas.ajustes(t, null)).toMatchObject({ audio: true });
+    await pausas.salvarAjustes(gestor, null, pausas.conferirAjustes({ audio: false }));
+    expect(await pausas.ajustes(t, null)).toMatchObject({ audio: false });
+    const [c] = await q(`select pausa_audio from cardapio_config where tenant_id = $1`, [t]);
+    expect(c.pausa_audio).toBe(false);
+    expect(registros.filter((x) => x.acao === 'desligou_audio_da_pausa')).toHaveLength(1);
+    expect(registros.filter((x) => x.acao === 'alterou_aviso_da_pausa')).toHaveLength(0); // mudar o áudio não é mudar o aviso
+    await pausas.salvarAjustes(gestor, null, { audio: false }); // igual: nada
+    expect(registros.filter((x) => /audio_da_pausa/.test(x.acao))).toHaveLength(1);
+    expect(() => pausas.conferirAjustes({ audio: 'sim' })).toThrow('true ou false');
+  });
+
   it('F2: com um cardápio por loja, o aviso é o da loja escolhida', async () => {
     const { t, unidades: [u1, u2], gestor } = await loja({ lojas: 2, cardapioPorLoja: true });
     await pausas.salvarAjustes(gestor, u1, { minutos: 10 });

@@ -10,6 +10,7 @@ import {
   lerMensagemDaPausa,
   MENSAGEM_DA_PAUSA_PADRAO,
   montarMensagemDaPausa,
+  pedeOAudio,
   primeiroNome,
   fraseDoMotivo,
   instanteNoFuso,
@@ -174,5 +175,33 @@ describe('pausa por canal — F3: a mensagem pronta ao cliente (mig 394)', () =>
     expect(lerMensagemDaPausa(' Voltamos {volta}! ')).toEqual({ ok: true, mensagem: 'Voltamos {volta}!' });
     expect(lerMensagemDaPausa('x'.repeat(701))).toEqual({ ok: false, erro: 'A mensagem da pausa tem até 700 letras.' });
     expect(lerMensagemDaPausa(42)).toMatchObject({ ok: false });
+  });
+});
+
+describe('pausa por canal — F4: quem insiste ou não entendeu recebe áudio (mig 396)', () => {
+  it.each([
+    // os dois casos do protótipo
+    ['Mas não dá pra fazer agora? Pago no Pix', true],
+    ['Ah ok, às 21:40 eu peço então', false],
+    // insiste em pedir
+    ['quero 2 x-bacon pra entrega', true],
+    ['aceita pix?', true],
+    ['ok mas preciso agora', true],
+    ['por favor, faz só um', true],
+    // não entendeu
+    ['não entendi', true],
+    ['como assim?', true],
+    ['???', true],
+    // só concorda, ou pergunta outra coisa: texto
+    ['ok obrigado', false],
+    ['valeu!', false],
+    // concorda MESMO com palavra de pedido (a regra da concordância é que segura estes)
+    ['ok, depois eu faço o pedido', false],
+    ['beleza, quero às 21:40 então', false],
+    ['beleza, te espero', false],
+    ['qual o horário de amanhã?', false],
+    ['', false],
+  ])('"%s" → %s', (texto, esperado) => {
+    expect(pedeOAudio(texto)).toBe(esperado);
   });
 });

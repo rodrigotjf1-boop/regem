@@ -329,6 +329,11 @@ export type MsgNormalizada = {
    * que leem ou mudam dados do cliente (cadastro, endereços, carrinho, pedido) — a loja e o telefone vêm dela.
    */
   conversa?: string | null;
+  /**
+   * Responder EM ÁUDIO (pausa dos pedidos, F4 — mig 396): o cliente que já recebeu a mensagem da pausa insistiu ou não
+   * entendeu. O nó "Prepara a resposta" do n8n fala quando `tipo === 'audio'` OU isto vem `true` — a mesma voz.
+   */
+  responderFalado?: boolean;
 };
 
 @Injectable()
