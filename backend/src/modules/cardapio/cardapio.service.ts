@@ -112,6 +112,7 @@ import { CashbackService } from '../cashback/cashback.service';
 import { hojeISO } from '../../common/data';
 import { edgeAtivo } from '../../common/edge-ativo';
 import { lojaDoCanal, lojasAtivas, pausadosNaLoja } from '../../common/pausa-loja';
+import { pausaVigenteDoCanal, textoDaRecusa, type PausaVigente } from '../../common/pausa-do-canal';
 import { gravarOrigemPedido, medicaoDeAnuncios } from './origem-pedido';
 import { escolhaNoCheckout, promocoesDaLoja } from './promocoes-cardapio';
 import { TIPOS_EVENTO_FUNIL, ehTemplateCardapio, proximaAberturaDe, templateDoCardapio } from './menu-themes';
@@ -1405,6 +1406,41 @@ export class CardapioService {
     return this.estaAberta(cfg);
   }
 
+  /**
+   * Aberta agora (geral e por tipo), o rótulo do horário e a próxima abertura — com a PAUSA do cardápio digital (mig 392):
+   * durante ela nenhum tipo recebe pedido e a volta de quem estaria aberto é o fim da pausa. A pausa só vale aqui quando a
+   * loja estaria aberta pelo horário; fora dele (ou fechada à mão) fica o aviso de sempre ("Abre às 18:00").
+   */
+  private situacaoComPausa(cfg: any, pausa: PausaVigente | null) {
+    const aberto = {
+      entrega: this.estaAberta(cfg, 'entrega'),
+      retirada: this.estaAberta(cfg, 'retirada'),
+      local: this.estaAberta(cfg, 'local'),
+    };
+    const geral = this.estaAberta(cfg);
+    if (!pausa || !(geral || aberto.entrega || aberto.retirada || aberto.local)) {
+      return {
+        abertaAgora: geral,
+        abertoPorTipo: aberto,
+        horarioLabel: this.horarioLabel(cfg),
+        proximaAbertura: { entrega: this.proximaAbertura(cfg, 'entrega'), retirada: this.proximaAbertura(cfg, 'retirada') },
+        pausa: null,
+      };
+    }
+    // "21:40" ou "amanhã 00:30" (com espaço, as telas escrevem "a partir de amanhã 00:30" — como "sex 18:00").
+    const volta = pausa.volta.amanha ? `amanhã ${pausa.volta.hora}` : pausa.volta.hora;
+    return {
+      abertaAgora: false,
+      abertoPorTipo: { entrega: false, retirada: false, local: false },
+      horarioLabel: `Pedidos pausados até ${pausa.volta.amanha ? 'amanhã às ' : ''}${pausa.volta.hora}`,
+      proximaAbertura: {
+        entrega: aberto.entrega ? volta : this.proximaAbertura(cfg, 'entrega'),
+        retirada: aberto.retirada ? volta : this.proximaAbertura(cfg, 'retirada'),
+      },
+      pausa: { ate: pausa.ate, volta: pausa.volta, motivo: pausa.motivo, rotulo: pausa.rotulo, frase: pausa.frase },
+    };
+  }
+
   // Janela de funcionamento que cobre AGORA (ou null). Uma janela que vira a
   // meia-noite (ex.: 18:00–02:00) pertence ao dia em que ABRE — então, depois da
   // meia-noite, quem vale é a janela de ONTEM, não a de hoje.
@@ -1723,6 +1759,12 @@ export class CardapioService {
 
   async menu(token: string, previaEvento?: string) {
     const cfg = await this.resolver(token);
+    // A pausa do cardápio digital (mig 392), em paralelo com o resto. Sem conseguir ler, o cardápio segue como estaria
+    // (o pedido confere de novo em `receberPedido`, e lá a falha recusa).
+    const pausaDoCardapio = pausaVigenteDoCanal(this.db, cfg.tenantId, cfg.unidadeId ?? null, 'cardapio').catch((e) => {
+      this.logger.warn(`menu: a pausa do cardápio não foi lida (${e?.message ?? e}); segue sem pausa`);
+      return null;
+    });
     // ===== Consultas agrupadas por NIVEL DE DEPENDENCIA =====
     // Este e o cardapio que o cliente abre para pedir, e fazia ~14 idas e voltas ao
     // Postgres, uma de cada vez. Nenhuma delas e lenta: o custo e a viagem, que se
@@ -1966,22 +2008,12 @@ export class CardapioService {
           ].filter((s) => s && s.trim()).join(', ') || null,
         },
       },
-      // Aberta agora (respeita horários) — o storefront e o robô usam isto.
-      abertaAgora: this.estaAberta(cfg),
-      // Abertura POR TIPO: a loja pode estar aberta p/ retirada/consumo mas FORA do
-      // horário de entrega (ou vice-versa). O storefront libera cada modo por aqui.
-      abertoPorTipo: {
-        entrega: this.estaAberta(cfg, 'entrega'),
-        retirada: this.estaAberta(cfg, 'retirada'),
-        local: this.estaAberta(cfg, 'local'),
-      },
-      horarioLabel: this.horarioLabel(cfg), // "Aberta até 23:00" / "Abre às 18:00"
-      // Quando cada tipo volta a atender ("18:00" ou "sex 18:00"; null = aberto agora, sem horário
-      // ou fechado à mão). A tela usa em "entrega a partir das 18:00" sem refazer a conta.
-      proximaAbertura: {
-        entrega: this.proximaAbertura(cfg, 'entrega'),
-        retirada: this.proximaAbertura(cfg, 'retirada'),
-      },
+      // Aberta agora (respeita horários e a PAUSA do cardápio digital, mig 392) — o storefront e o robô usam isto.
+      // `abertoPorTipo`: a loja pode estar aberta p/ retirada/consumo mas FORA do horário de entrega (ou vice-versa); o
+      // storefront libera cada modo por aqui. `horarioLabel`: "Aberta até 23:00" / "Abre às 18:00" / "Pedidos pausados
+      // até 21:40". `proximaAbertura`: quando cada tipo volta ("18:00" ou "sex 18:00"; null = aberto agora, sem horário
+      // ou fechado à mão) — a tela usa em "entrega a partir das 18:00". `pausa`: o motivo e a volta, ou null.
+      ...this.situacaoComPausa(cfg, await pausaDoCardapio),
       // Evento sazonal no ar (Natal, Black Friday, Dia de jogo…) ou `null`. A tela só enfeita.
       evento: await this.eventoDoCardapio(cfg, previaEvento),
       // Contexto para o robô/atendimento (o n8n lê tudo com o token):
@@ -3773,6 +3805,12 @@ export class CardapioService {
     // Loja fechada (para o TIPO do pedido): bloqueia (pedidos agendados passam).
     if (!dto.agendamento && !this.estaAberta(cfg, dto.tipo))
       throw new BadRequestException('A loja está fechada no momento. Volte no horário de funcionamento.');
+    // O cardápio digital pausado no painel (mig 392): o site, o QR da mesa e o atendente (que pede por aqui) — com o
+    // motivo e a volta. O pedido agendado passa, como na loja fechada pelo horário.
+    if (!dto.agendamento) {
+      const pausa = await pausaVigenteDoCanal(this.db, cfg.tenantId, cfg.unidadeId ?? null, 'cardapio');
+      if (pausa) throw new BadRequestException(textoDaRecusa(pausa));
+    }
 
     // Encomenda (mig 186): para food/varejo, `agendamento` = pedido para data
     // FUTURA e só vale se a loja liga o modo Encomenda, dentro das regras. Serviços

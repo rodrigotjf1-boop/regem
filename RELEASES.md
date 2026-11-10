@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **A pausa dos pedidos por canal — F1 (10/11; mig 392 NÃO cloud-only — tabela nova `pausa_canal`, sincronizada nos
+  dois sentidos; mexe em `backend/edge/sync-daemon.mjs` SÓ na `PUSH_TABLES`).** Na NUVEM com o merge: o cardápio online
+  fecha com o aviso e recusa o pedido durante a pausa, e o painel da nuvem pausa. **No `.zip` 1.30.13 e no próximo
+  `.exe`:** o painel do servidor da loja com o diálogo novo e a faixa (o painel da loja na versão de hoje ainda mostra o
+  menu antigo, que só marcava a `delivery_config` e não fecha nada), a tabela e a subida dela pelo `sync-daemon` (a pausa
+  feita no painel da loja chega à nuvem — é lá que o cardápio e o atendente leem).
+
 - **Vagas e candidatos — F1, a base (10/11; mig 389 `@cloud-only` — 6 tabelas novas: `vaga_pagina`, `vaga_qr`,
   `candidato`, `candidato_experiencia`, `candidato_curso`, `candidato_evento`; mig 390 NÃO cloud-only — a permissão
   `candidatos` nos perfis salvos; mexe em `backend/edge/sync-daemon.mjs` SÓ na lista `SO_NUVEM`).** Na NUVEM com o merge

@@ -104,6 +104,9 @@ export const TABELAS_SYNC: TabelaSync[] = [
   // sobe. Uma linha por KDS (o id é o do equipamento), então as duas pontas geram a mesma e o LWW resolve. Depois de
   // `equipamento` (chave estrangeira).
   { tabela: 'kds_tela_ajuste', direcao: 'ambos', cursor: 'updated_at' },
+  // A pausa dos pedidos por canal e por loja (mig 392): pausada no painel da loja sobe (o cardápio online e o atendente
+  // estão na nuvem), pausada no painel da nuvem desce. Uma linha por empresa, loja e canal (id da chave): LWW resolve.
+  { tabela: 'pausa_canal', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'tef_config', direcao: 'ambos', cursor: 'updated_at' },
   // `mesa` vem ANTES de `comanda` (a comanda aponta para a mesa).
   { tabela: 'mesa', direcao: 'ambos', cursor: 'updated_at' },
@@ -454,6 +457,8 @@ export const TABELAS_DESDE_ZERO = new Set<string>([
   'pedido_repetido_ok',
   // O histórico do pedido alterado (mig 362): o que a nuvem gravou antes de a loja receber o `.zip` desce.
   'pedido_alteracao',
+  // A pausa por canal (mig 392): a que a nuvem gravou antes de a loja receber o `.zip` desce (poucas linhas).
+  'pausa_canal',
 ]);
 
 // RESTAURAÇÃO (nuvem → edge, SÓ sob demanda): tabelas TRANSACIONAIS que podem ter

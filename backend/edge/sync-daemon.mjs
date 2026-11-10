@@ -238,6 +238,8 @@ const PUSH_TABLES = [
   { tabela: 'kds_cor_config', cursor: 'updated_at' },
   // O mapa que o painel mandou para cada KDS (mig 338): marcado aqui, sobe. Depois de equipamento (FK).
   { tabela: 'kds_tela_ajuste', cursor: 'updated_at' },
+  // A pausa dos pedidos por canal (mig 392): pausada no painel daqui, sobe — o cardápio online e o atendente estão na nuvem.
+  { tabela: 'pausa_canal', cursor: 'updated_at' },
   { tabela: 'tef_config', cursor: 'updated_at' },
   { tabela: 'mesa', cursor: 'updated_at' },
   { tabela: 'documento_controlado', cursor: 'updated_at' },

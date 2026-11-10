@@ -2492,6 +2492,28 @@ export const deliveryConfig = pgTable('delivery_config', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// A pausa dos pedidos por canal e por loja (mig 392): uma linha por empresa, loja e canal, com o id da chave
+// (`idPausaDoCanal`). `ate` nulo ou no passado = aberto. Regras em `common/pausa-do-canal.ts`.
+export const pausaCanal = pgTable('pausa_canal', {
+  id: uuid('id').primaryKey(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  canal: text('canal').notNull(), // cardapio | ifood | food99
+  ate: timestamp('ate', { withTimezone: true }),
+  motivo: text('motivo'),
+  motivoTexto: text('motivo_texto'),
+  pausadoEm: timestamp('pausado_em', { withTimezone: true }),
+  pausadoPor: uuid('pausado_por'),
+  pausadoPorNome: text('pausado_por_nome'),
+  externoSituacao: text('externo_situacao'),
+  externoId: text('externo_id'),
+  externoErro: text('externo_erro'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const pedidoExterno = pgTable('pedido_externo', {
   id: uuid('id').primaryKey().defaultRandom(),
   tenantId: uuid('tenant_id')

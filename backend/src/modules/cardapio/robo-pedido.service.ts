@@ -46,6 +46,7 @@ import { AtendimentoService } from '../atendimento/atendimento.service';
 import { pagoAntes, pedidaVencida, VALIDADE_DA_PEDIDA_MIN } from '../pedido-alterado/pedido-alterado';
 import { textoDaObservacao } from '../../common/observacao-do-pedido';
 import { ratearCentavos } from '../../common/rateio';
+import { textoDaRecusa } from '../../common/pausa-do-canal';
 import { paraCentavos, paraReais } from '../../util/dinheiro';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
@@ -2042,11 +2043,11 @@ export class RoboPedidoService {
       return this.semMudar(ctx, menu, recusa('tipo', tipo === 'retirada' ? 'A loja não faz retirada pelo cardápio.' : 'A loja não faz entrega pelo cardápio.'));
     if (!abertos.includes(tipo)) {
       const volta = menu?.proximaAbertura?.[tipo];
-      return this.semMudar(
-        ctx,
-        menu,
-        recusa('fechado', `${tipo === 'entrega' ? 'A entrega' : 'A retirada'} está fechada agora${volta ? ` (volta ${String(volta).includes(' ') ? volta : `às ${volta}`})` : ''}.`),
-      );
+      // Pausa do painel (mig 392): o motivo e a volta, o mesmo texto que o cardápio recusa.
+      const texto = menu?.pausa
+        ? textoDaRecusa(menu.pausa)
+        : `${tipo === 'entrega' ? 'A entrega' : 'A retirada'} está fechada agora${volta ? ` (volta ${String(volta).includes(' ') ? volta : `às ${volta}`})` : ''}.`;
+      return this.semMudar(ctx, menu, recusa('fechado', texto));
     }
     if (tipo === 'retirada') {
       const r = await this.mudar(ctx, (c) => ({ entrega: { tipo: 'retirada' }, ...this.fechaSeSoFaltaOMaisAlgo(c, menu) }));
@@ -2413,7 +2414,7 @@ export class RoboPedidoService {
     let tipo: 'entrega' | 'retirada' | null = en?.tipo === 'entrega' || en?.tipo === 'retirada' ? en.tipo : null;
     if (!tipo && oferecidos.length === 1) tipo = oferecidos[0];
     if (tipo && !abertos.includes(tipo)) {
-      avisos.push(`${tipo === 'entrega' ? 'A entrega' : 'A retirada'} está fechada agora.`);
+      avisos.push(menu?.pausa ? textoDaRecusa(menu.pausa) : `${tipo === 'entrega' ? 'A entrega' : 'A retirada'} está fechada agora.`);
       bloqueado = true;
     }
     let taxa = 0;

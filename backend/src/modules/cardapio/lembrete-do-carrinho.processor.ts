@@ -6,6 +6,7 @@ import { cardapioConfig } from '../../db/schema';
 import { ehServidorLocal } from '../../common/modo';
 import { chaveTelefone, formasDaChaveTelefone } from '../../common/telefone-chave';
 import { estadoDaPausa } from '../whatsapp/robo-pausa';
+import { pausaVigenteDoCanal } from '../../common/pausa-do-canal';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
 import { CardapioService } from './cardapio.service';
@@ -122,6 +123,8 @@ export class LembreteDoCarrinhoProcessor {
         if (!ajustes.has(c.tenantId)) ajustes.set(c.tenantId, await this.ajusteDaLoja(c.tenantId));
         const cfg = ajustes.get(c.tenantId);
         if (!cfg || !cfg.ativo || !cfg.roboAtivo || !this.cardapio.lojaAbertaAgora(cfg)) continue;
+        // Pedidos pausados no painel (mig 392): lembrar agora seria chamar o cliente para um pedido que o cardápio recusa.
+        if (await pausaVigenteDoCanal(this.db, c.tenantId, cfg.unidadeId ?? null, 'cardapio')) continue;
         if ((await estadoDaPausa(this.db, c.tenantId, c.telefone)).pausado) continue;
         const oficial = cfg.provedor === 'cloud';
         if (oficial && !(await this.conversaParadaNaJanela(c.tenantId, c.telefone))) continue;

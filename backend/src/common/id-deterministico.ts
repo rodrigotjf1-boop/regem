@@ -47,3 +47,8 @@ export const idConfigDaLoja = (tabela: TabelaConfigDaLoja, tenantId: string, uni
 
 // Liga/desliga da empresa (`entitlement`): a empresa e o módulo. Mesma razão e mesma migration.
 export const idEntitlement = (tenantId: string, modulo: string) => uuidDeChave('entitlement', tenantId, modulo);
+
+// A pausa de um canal (mig 392): a empresa, a loja (sem loja = a empresa toda) e o canal. A nuvem e o servidor da loja
+// pausam cada um do seu lado; com o mesmo id, a pausa feita em um vira atualização da mesma linha no outro.
+export const idPausaDoCanal = (tenantId: string, unidadeId: string | null | undefined, canal: string) =>
+  uuidDeChave('pausa_canal', tenantId, unidadeId ?? null, canal);

@@ -24,6 +24,9 @@ import { Dialogo } from '@/components/ui/sobreposto';
 import { ItensDoPedido } from '@/components/delivery/itens-do-pedido';
 import { repetidoAberto, textoDoOutroPedido } from '@/lib/pedido-repetido';
 import { connectAsGestor } from '@/lib/rt';
+import { usePausas } from '@/components/delivery/pausa/use-pausas';
+import { DialogoPausa } from '@/components/delivery/pausa/dialogo-pausa';
+import { FaixasDaPausa } from '@/components/delivery/pausa/faixas-da-pausa';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -120,7 +123,10 @@ export default function DeliveryPage() {
   const [entregadores, setEntregadores] = useState<any[]>([]);
   const [tipoFiltro, setTipoFiltro] = useState<'todos' | 'entrega' | 'retirada'>('todos');
   const [novoPedido, setNovoPedido] = useState(false);
+  // A pausa dos pedidos por canal (mig 392): as faixas e o "⏸ Pausar" leem daqui.
+  const pausas = usePausas(true);
   const [pausarOpen, setPausarOpen] = useState(false);
+  const canaisPausados = (pausas.estado?.canais ?? []).filter((c) => c.pausa).length;
   const [configOpen, setConfigOpen] = useState(false);
   const [agora, setAgora] = useState(() => Date.now());
   // O relógio do topo só aparece depois de montar: a página é pré-renderizada no build, e a
@@ -569,19 +575,8 @@ export default function DeliveryPage() {
       <div className="flex h-full min-h-0 flex-col gap-2">
         {erro && <p className="text-destructive">{erro}</p>}
 
-        {cfg.pausado && (
-          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-warn/40 bg-warn/10 px-4 py-2">
-            <span className="text-sm font-bold text-warn">
-              ⏸ Loja pausada{cfg.pausadoAte ? ` até ${hora(cfg.pausadoAte)}` : ''}
-            </span>
-            {cfg.pausaMotivo && <span className="text-xs text-muted-foreground">· {cfg.pausaMotivo}</span>}
-            {isGestor && (
-              <Button type="button" size="sm" variant="outline" className="ml-auto" onClick={() => acao(api.despausarDelivery(), 'Loja reativada.')}>
-                Reativar agora
-              </Button>
-            )}
-          </div>
-        )}
+        {/* Um canal pausado = uma faixa (mig 392): o motivo, quem pausou e a hora de reabrir. */}
+        <FaixasDaPausa estado={pausas.estado} podeReabrir={isGestor} aoMudar={pausas.receber} />
 
         {/* O que o Regem tentou enviar ao canal ou ao cliente e falhou (últimas 24 h) */}
         <FalhasEnvioAviso
@@ -711,17 +706,19 @@ export default function DeliveryPage() {
               </button>
               <Button type="button" size="sm" className="h-8 text-sm" onClick={() => setNovoPedido(true)}>＋ Novo pedido</Button>
               {isGestor && (
-                <div className="relative">
-                  <Button type="button" variant="outline" size="sm" className="h-8 text-sm" onClick={() => setPausarOpen((v) => !v)}>
-                    {cfg.pausado ? '⏸ Pausada' : '⏸ Pausar'}
-                  </Button>
-                  {pausarOpen && (
-                    <PausarMenu
-                      onFechar={() => setPausarOpen(false)}
-                      onPausar={async (min, motivo) => { await acao(api.pausarDelivery(min, motivo), 'Loja pausada.'); setPausarOpen(false); }}
-                    />
-                  )}
-                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  aria-haspopup="dialog"
+                  className={`h-8 text-sm ${canaisPausados ? 'border-warn bg-warn/15 font-semibold' : ''}`}
+                  onClick={() => {
+                    setPausarOpen(true);
+                    pausas.recarregar(); // o estado mais novo antes de escolher
+                  }}
+                >
+                  {canaisPausados ? `⏸ Pausados · ${canaisPausados}` : '⏸ Pausar'}
+                </Button>
               )}
               <Button type="button" variant="outline" size="sm" className="h-8 px-2.5 text-sm" onClick={() => setConfigOpen(true)} title="Configurações do delivery">⚙️</Button>
             </div>
@@ -879,6 +876,34 @@ export default function DeliveryPage() {
       )}
 
       {novoPedido && <NovoPedido onFechar={() => setNovoPedido(false)} onCriado={reload} />}
+
+      {/* "Pausar pedidos" (mig 392): sem ter lido as pausas, diz isso — não mostra "nada pausado" à toa (V37). */}
+      {pausarOpen && pausas.estado && (
+        <DialogoPausa
+          estado={pausas.estado}
+          aoFechar={() => setPausarOpen(false)}
+          aoPausar={(novo) => {
+            pausas.receber(novo);
+            setPausarOpen(false);
+          }}
+        />
+      )}
+      {pausarOpen && !pausas.estado && (
+        <Dialogo
+          titulo="Pausar pedidos"
+          aoFechar={() => setPausarOpen(false)}
+          rodape={
+            <>
+              <Button type="button" variant="outline" onClick={() => setPausarOpen(false)}>Fechar</Button>
+              <Button type="button" onClick={() => pausas.recarregar()}>Tentar de novo</Button>
+            </>
+          }
+        >
+          <p role={pausas.erro ? 'alert' : 'status'} className="text-sm">
+            {pausas.erro ? `Não deu para ler as pausas: ${pausas.erro}` : 'Lendo as pausas…'}
+          </p>
+        </Dialogo>
+      )}
 
       </div>
     </Shell>
@@ -1365,30 +1390,6 @@ function ReabrirModal({ pedido, onFechar, onReaberto }: { pedido: any; onFechar:
         {erro && <p role="alert" className="font-medium text-destructive">{erro}</p>}
       </form>
     </Dialogo>
-  );
-}
-
-// ---- Menu de pausa (30min / 1h / 12h + motivo) ----
-function PausarMenu({ onFechar, onPausar }: { onFechar: () => void; onPausar: (min: number, motivo?: string) => void }) {
-  const [motivo, setMotivo] = useState('');
-  const opcoes: [number, string][] = [[30, '30 min'], [60, '1 hora'], [720, '12 horas']];
-  return (
-    <>
-      <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Fechar" onClick={onFechar} />
-      <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-lg border border-border bg-card p-3 shadow-lg">
-        <p className="mb-2 text-xs font-semibold text-muted-foreground">Pausar a loja por</p>
-        <div className="space-y-1">
-          <Input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo (opcional)" autoFocus />
-          <div className="mt-2 flex flex-col gap-1.5">
-            {opcoes.map(([min, lb]) => (
-              <Button key={min} type="button" size="sm" variant="outline" onClick={() => onPausar(min, motivo.trim() || undefined)}>
-                {lb}
-              </Button>
-            ))}
-          </div>
-        </div>
-      </div>
-    </>
   );
 }
 

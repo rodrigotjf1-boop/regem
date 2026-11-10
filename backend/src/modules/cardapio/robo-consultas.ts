@@ -76,7 +76,13 @@ export function resumoDaLoja(menu: any, linkCardapio: string, agora: Date = new 
     horario: menu?.horarioLabel ?? null,
     proximaAbertura: menu?.proximaAbertura ?? null,
     horariosDaSemana: horariosDaSemana(menu?.horarios),
-    pausadaPelaLoja: loja.aberto === false,
+    // Fechada à mão OU com os pedidos pausados no painel do Delivery (mig 392).
+    pausadaPelaLoja: loja.aberto === false || !!menu?.pausa,
+    // A pausa dos pedidos (mig 392): o motivo e a volta, para o atendente explicar ao cliente — sem ela, null. `frase` vem
+    // com o destaque do WhatsApp ("Estamos com *muitos pedidos agora*"); `volta` é "às 21:40" ou "amanhã às 00:30".
+    pausa: menu?.pausa
+      ? { motivo: menu.pausa.rotulo ?? null, frase: menu.pausa.frase ?? null, volta: menu.pausa.volta?.texto ?? null, ate: menu.pausa.ate ?? null }
+      : null,
     atende: {
       entrega: tipos.delivery !== false ? { abertaAgora: !!porTipo.entrega, tempoMin: loja.tempoEntregaMin ?? null } : null,
       retirada: tipos.retirada ? { abertaAgora: !!porTipo.retirada, tempoMin: loja.tempoRetiradaMin ?? null } : null,

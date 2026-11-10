@@ -1549,10 +1549,16 @@ export const api = {
     req('/delivery/pedidos', { method: 'POST', body: JSON.stringify(body) }),
   nfDelivery: (id: string) =>
     req(`/delivery/pedidos/${id}/nf`, { method: 'POST', body: '{}' }),
-  pausarDelivery: (minutos: number, motivo?: string) =>
-    req('/delivery/pausar', { method: 'POST', body: JSON.stringify({ minutos, motivo }) }),
-  despausarDelivery: () =>
-    req('/delivery/despausar', { method: 'POST', body: '{}' }),
+  // A pausa dos pedidos por canal e por loja (mig 392): o estado, pausar (canais, motivo, tempo) e reabrir um canal.
+  deliveryPausas: () => req('/delivery/pausas'),
+  deliveryPausar: (body: {
+    canais: string[];
+    motivo: string;
+    motivoTexto?: string;
+    tempo: { minutos?: number; ate?: string };
+  }) => req('/delivery/pausas', { method: 'POST', body: JSON.stringify(body) }),
+  deliveryReabrir: (canal: string) =>
+    req('/delivery/pausas/reabrir', { method: 'POST', body: JSON.stringify({ canal }) }),
   // Status da licença/trial da conta (para o aviso e o paywall).
   licencaStatus: () => req('/licenca/status'),
   // Catálogo de planos (página de assinatura).

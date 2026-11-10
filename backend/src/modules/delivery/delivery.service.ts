@@ -4823,18 +4823,8 @@ export class DeliveryService {
     return { perfis: listarPerfis(ov), campos: CAMPOS_CATALOGO };
   }
 
-  // ===== Pausa temporária da loja =====
-  async pausar(tenantId: string, minutos: number, motivo?: string) {
-    const m = [30, 60, 720].includes(Number(minutos)) ? Number(minutos) : 30;
-    const ate = new Date(Date.now() + m * 60 * 1000);
-    await this.setConfig(tenantId, null, { pausadoAte: ate, pausaMotivo: motivo ?? null });
-    return this.getConfig(tenantId, null);
-  }
-
-  async despausar(tenantId: string) {
-    await this.setConfig(tenantId, null, { pausadoAte: null, pausaMotivo: null });
-    return this.getConfig(tenantId, null);
-  }
+  // A pausa da loja saiu daqui (mig 392): é por canal e por loja, em `pausa-do-canal.service.ts`. As colunas
+  // `pausado_ate`/`pausa_motivo` da `delivery_config` ficam no banco (migration não se desfaz), sem uso.
 
   // ===== Novo pedido manual (delivery ou retirada) =====
   // Preço SEMPRE calculado no servidor a partir do cadastro do produto.
