@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { sql } from 'drizzle-orm';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -65,6 +66,26 @@ export function entrega99(raw: unknown): { localizador: string | null; pagina: s
   const localizador = String(end?.locator ?? '').trim() || null;
   const pagina = String(end?.handover_page_url ?? '').trim();
   return { localizador, pagina: /^https:\/\//i.test(pagina) ? pagina : null };
+}
+
+/**
+ * A CONFERÊNCIA SEM INTERNET do código da 99 (o dono, 10/11/2026): hoje o código de entrega da 99 são os 4 ÚLTIMOS
+ * NÚMEROS DO TELEFONE do cliente (visto na operação — a doc da 99 só diz "o código que o cliente informa"). Antes, sem
+ * sinal, o app guardava QUALQUER código e só a 99 conferia quando o sinal voltava: com o código errado, o entregador já
+ * tinha ido embora e só o atendimento finalizava. Agora o app confere no aparelho por um resumo (sha256) desses 4
+ * dígitos: o que bate fica guardado e vai à 99 quando o sinal volta; o que não bate é recusado na hora. Com internet,
+ * quem decide é sempre a 99 — se ela mudar a regra, o código novo ainda passa online (sem sinal, aí, o app pede para
+ * tentar com sinal: o erro fica do lado seguro). Sem telefone utilizável (vazio, mascarado "000****1406", curto): null —
+ * só online, como o iFood. O app do entregador já mostra o telefone do cliente da 99: o resumo não expõe nada novo.
+ */
+export function codigoOffline99(p: { canal?: unknown; clienteTelefone?: unknown; raw?: unknown }): { hash: string } | null {
+  if (String(p.canal ?? '') !== '99food') return null;
+  const end = rawObj(p.raw)?.receive_address ?? {};
+  const bruto = end?.phone != null && String(end.phone).trim() ? String(end.phone) : String(p.clienteTelefone ?? '');
+  if (bruto.includes('*')) return null;
+  const digitos = bruto.replace(/\D/g, '');
+  if (digitos.length < 8) return null;
+  return { hash: createHash('sha256').update(digitos.slice(-4)).digest('hex') };
 }
 
 /**

@@ -14,8 +14,9 @@ class ResultadoEnvio {
 /// pedido + o código digitado; ao reconectar, `flush()` reenvia. Idempotente: o
 /// backend não refaz nem volta ao canal se o pedido já estiver entregue.
 ///
-/// Só entra aqui o que PODE esperar: o código da loja (já conferido pelo hash no aparelho) e
-/// o código da 99 (conferido na 99 ao voltar o sinal). O do iFood só vale online — nem entra.
+/// Só entra aqui o que PODE esperar: o código da loja (já conferido pelo hash no aparelho) e o código
+/// da 99 que bate com os 4 últimos números do telefone do cliente (conferido no aparelho; a 99 confirma
+/// ao voltar o sinal — ERR-427). O do iFood e o da 99 que não bate só valem online — nem entram.
 class Outbox {
   static const _key = 'outbox_entregue_v1';
 

@@ -40,13 +40,29 @@ describe('app do entregador — o que o pedido mostra (resumo)', () => {
     expect(JSON.stringify(r)).not.toContain('4821');
   });
 
-  it('99 da loja: código do canal, pode guardar sem sinal, com o plano B (localizador + página da 99)', () => {
-    const r = resumo({ id: 'p', canal: '99food', tipo: 'entrega', raw: DE99_LOJA, codigoEntrega: '4821' });
+  // ERR-427 (10/11/2026): a 99 era 'depois' — sem sinal o app guardava QUALQUER código e o entregador saía do local com o
+  // código errado. Agora é 'online' (o app antigo trata como o iFood) e o app novo confere sem sinal pelo resumo dos 4
+  // últimos números do telefone do cliente (o código da 99 hoje).
+  it('99 da loja: código do canal, conferido online; sem sinal, só o que bate com os 4 últimos do telefone; plano B', () => {
+    const r = resumo({ id: 'p', canal: '99food', tipo: 'entrega', raw: DE99_LOJA, codigoEntrega: '4821', clienteTelefone: '+55 21987654321' });
     expect(r).toMatchObject({
-      modoEntrega: 'propria_canal', precisaCodigo: true, codigoDoCanal: '99food', conferencia: 'depois',
+      modoEntrega: 'propria_canal', precisaCodigo: true, codigoDoCanal: '99food', conferencia: 'online',
+      codigoOffline: { hash: createHash('sha256').update('4321').digest('hex') },
       codigoEntregaHash: null,
       entrega99: { localizador: '56244631', pagina: 'https://food-b-h5.99app.com/pt-BR/v2/confirmation-entrega' },
     });
+  });
+
+  it('99: o telefone do pedido da 99 (receive_address.phone) vale antes do cadastro; mascarado ou curto = só online', () => {
+    const h = (s: string) => createHash('sha256').update(s).digest('hex');
+    const comFone = { ...DE99_LOJA, receive_address: { ...DE99_LOJA.receive_address, phone: '21911119876' } };
+    expect(resumo({ canal: '99food', tipo: 'entrega', raw: comFone, clienteTelefone: '+55 21987654321' }).codigoOffline).toEqual({ hash: h('9876') });
+    const mascarado = { ...DE99_LOJA, receive_address: { ...DE99_LOJA.receive_address, phone: '000****1406' } };
+    expect(resumo({ canal: '99food', tipo: 'entrega', raw: mascarado, clienteTelefone: '+55 21987654321' }).codigoOffline).toBeNull();
+    expect(resumo({ canal: '99food', tipo: 'entrega', raw: DE99_LOJA, clienteTelefone: '1234' }).codigoOffline).toBeNull();
+    expect(resumo({ canal: '99food', tipo: 'entrega', raw: DE99_LOJA, clienteTelefone: null })).toMatchObject({ conferencia: 'online', codigoOffline: null });
+    // o iFood nunca tem conferência sem sinal (o código é do app do iFood)
+    expect(resumo({ canal: 'ifood', tipo: 'entrega', raw: IFOOD_LOJA, clienteTelefone: '08007050000' }).codigoOffline).toBeNull();
   });
 
   it('entrega da loja pelo cardápio: código do Regem conferido no aparelho pelo hash, nunca em texto', () => {

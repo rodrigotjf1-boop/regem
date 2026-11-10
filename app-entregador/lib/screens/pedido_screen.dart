@@ -385,14 +385,22 @@ class _PedidoScreenState extends State<PedidoScreen> {
 
   bool get _precisaCodigo => _codigoDoCanal != null || widget.pedido['precisaCodigo'] == true;
 
-  /// Onde o código é conferido: 'hash' (no aparelho), 'depois' (99: sem sinal guarda e confere
-  /// ao voltar), 'online' (iFood: só com internet, na hora — decisão do dono, 29/09/2026).
+  /// Onde o código é conferido: 'hash' (no aparelho — código do Regem), 'online' (iFood e 99: na API do canal, com
+  /// internet). A 99 deixou de ser 'depois' (guardar qualquer código sem sinal) em 10/11/2026: o entregador saía do local
+  /// com o código errado (ERR-427). Sem sinal, a 99 só guarda o código que bate com `_hashOffline`.
   String? get _conferencia {
     final c = widget.pedido['conferencia']?.toString();
     if (c != null && c.isNotEmpty) return c;
-    if (_codigoDoCanal == 'ifood') return 'online';
-    if (_codigoDoCanal == '99food') return 'depois';
+    if (_codigoDoCanal != null) return 'online';
     return _precisaCodigo ? 'hash' : null;
+  }
+
+  /// Só na 99: o resumo (sha256) dos 4 últimos números do telefone do cliente — o código da 99 hoje. Sem sinal, o app
+  /// guarda a entrega só se o código digitado bater com ele (e confirma com a 99 quando o sinal volta).
+  String? get _hashOffline {
+    final o = widget.pedido['codigoOffline'];
+    final h = o is Map ? o['hash']?.toString() : null;
+    return h != null && h.isNotEmpty ? h : null;
   }
 
   String get _rotuloCodigo => _codigoDoCanal == 'ifood'
@@ -404,7 +412,9 @@ class _PedidoScreenState extends State<PedidoScreen> {
   String get _ajudaCodigo => _codigoDoCanal == 'ifood'
       ? 'O cliente vê o código no app do iFood. A conferência é na hora e precisa de internet.'
       : _codigoDoCanal == '99food'
-          ? 'O cliente vê o código no app da 99.'
+          ? (_hashOffline != null
+              ? 'O cliente vê o código no app da 99. Sem internet, o app só aceita o código que confere com o telefone do cliente.'
+              : 'O cliente vê o código no app da 99. A conferência é na hora e precisa de internet.')
           : 'Peça ao cliente o código de 4 números do pedido.';
 
   Map<String, dynamic>? get _entrega99 {
@@ -481,14 +491,29 @@ class _PedidoScreenState extends State<PedidoScreen> {
     }
   }
 
-  /// Sem internet: o que pode esperar vai para a fila e conclui aqui; o do iFood, não.
+  /// Sem internet: o código da loja (conferido pelo hash) e o da 99 que bate com o telefone do cliente vão para a fila e
+  /// concluem aqui; o do iFood e o da 99 que NÃO bate, não — o entregador confere com o cliente antes de sair do local.
   Future<void> _semConexao(String id, String code, Map<String, dynamic>? local) async {
     if (_conferencia == 'online') {
-      _aviso(
-        'Sem internet — o código do iFood só é conferido online. Tente de novo quando o sinal voltar.',
-        erro: true,
-      );
-      setState(() => _finalizando = false);
+      final hash = _hashOffline;
+      final bate = hash != null && sha256.convert(utf8.encode(code)).toString() == hash;
+      if (!bate) {
+        _aviso(
+          hash != null
+              ? 'Sem internet e o código não confere com o telefone do cliente (na 99, o código são os 4 últimos números '
+                  'do telefone). Confira com o cliente antes de sair — ou tente de novo quando o sinal voltar.'
+              : 'Sem internet — o código ${_codigoDoCanal == 'ifood' ? 'do iFood' : 'da 99'} só é conferido online. '
+                  'Tente de novo quando o sinal voltar.',
+          erro: true,
+        );
+        setState(() => _finalizando = false);
+        return;
+      }
+      await Outbox.enfileirar(id, code, numero: widget.pedido['numero'], canal: _codigoDoCanal, local: local);
+      if (!mounted) return;
+      _aviso('Sem internet — o código confere com o telefone do cliente. Entrega guardada: confirmo com a 99 quando o '
+          'sinal voltar e aviso se ela recusar.');
+      Navigator.pop(context, true);
       return;
     }
     await Outbox.enfileirar(

@@ -23,6 +23,7 @@ import { calcularCobranca } from './cobranca';
 import { hojeISO } from '../../common/data';
 import {
   SEM_LOGISTICA_DO_CANAL,
+  codigoOffline99,
   ehCanalComCodigo,
   entrega99,
   modoEntrega,
@@ -150,8 +151,12 @@ export class EntregadorService implements OnModuleInit {
    *  • `codigoDoCanal` — 'ifood' | '99food' quando o código é o que o CLIENTE recebeu do canal
    *    (conferido na API dele); null quando é o código de 4 dígitos do Regem;
    *  • `conferencia` — onde o código é conferido: 'hash' (no aparelho, sem internet — código do
-   *    Regem), 'depois' (99: sem sinal, guarda e confere ao voltar — decisão do dono, 29/09),
-   *    'online' (iFood: só com internet, na hora), null (sem código);
+   *    Regem), 'online' (iFood e 99: com internet, na API do canal), null (sem código). A 99 deixou de
+   *    ser 'depois' (guardar qualquer código e conferir ao voltar o sinal) em 10/11/2026: o entregador
+   *    saía do local com o código errado (ERR-427) — app antigo passa a tratar a 99 como só online;
+   *  • `codigoOffline` — só na 99: `{ hash }` dos 4 últimos números do telefone do cliente (o código da
+   *    99 hoje — `codigoOffline99`). O app novo, SEM sinal, guarda só o código que bate com ele; com sinal,
+   *    manda à 99 de qualquer jeito (ela decide);
    *  • `codigoEntregaHash` — SHA-256 do código do Regem; NUNCA o código em texto;
    *  • `entrega99` — localizador + página da 99 (plano B quando a conferência pelo Regem falha).
    */
@@ -163,7 +168,8 @@ export class EntregadorService implements OnModuleInit {
       modoEntrega: modo,
       precisaCodigo: !!doCanal || doRegem,
       codigoDoCanal: doCanal,
-      conferencia: doCanal ? (doCanal === '99food' ? 'depois' : 'online') : doRegem ? 'hash' : null,
+      conferencia: doCanal ? 'online' : doRegem ? 'hash' : null,
+      codigoOffline: doCanal === '99food' ? codigoOffline99(p) : null,
       codigoEntregaHash: doRegem ? createHash('sha256').update(String(p.codigoEntrega)).digest('hex') : null,
       entrega99: doCanal === '99food' ? entrega99(p.raw) : null,
     };
