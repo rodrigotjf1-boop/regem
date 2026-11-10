@@ -28,6 +28,12 @@
   posição"; o "não consigo falar" também na 99 quando a loja liga o ajuste; a logo do canal e o código do pedido no
   canal na lista, no roteiro e no topo do pedido (as logos do painel em `assets/canais/`).
 
+- **O código da 99 sem internet (10/11; ERR-427; sem migration).** Na NUVEM com o merge: o pedido da 99 passa a
+  `conferencia: 'online'` + `codigoOffline.hash` (os 4 últimos números do telefone do cliente). O APP INSTALADO hoje
+  passa a tratar a 99 como o iFood (não guarda nada sem sinal) — já no ar com o merge, sem APK. **APK do entregador
+  `0.1.0+17` (acumulado):** sem sinal, guarda só o código da 99 que bate com o telefone do cliente; o que não bate é
+  recusado na hora ("confira com o cliente antes de sair").
+
 - **As marcações do Instagram (09/11; mig 387 `@cloud-only` — tabela nova `instagram_marcacao` e dois ajustes em
   `instagram_conta`; mexe em `backend/edge/sync-daemon.mjs` SÓ na lista `SO_NUVEM`).** Na NUVEM com o merge (o aviso da
   Meta, a IA e a resposta moram lá; a IA usa `ANTHROPIC_API_KEY` — sem ela, o agradecimento padrão e nenhuma sugestão).
