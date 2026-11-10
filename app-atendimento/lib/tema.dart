@@ -14,6 +14,9 @@ Color corDoCanal(String? canal) => switch (canal) {
       'whatsapp' => kVerde,
       'ifood' => const Color(0xFFC8102E),
       '99food' => const Color(0xFF8A5A00),
+      // Os do computador, com o branco legível (Instagram 5,97:1; Messenger 4,82:1).
+      'instagram' => const Color(0xFFB02E7A),
+      'messenger' => const Color(0xFF0866FF),
       _ => kNavy,
     };
 

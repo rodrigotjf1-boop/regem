@@ -409,6 +409,12 @@
   Atendimento que não troca de arranjo com um diálogo aberto); o APK do app de atendimento leva os avisos da disputa e
   o ícone com a marca (APK sob comando).**
 
+- **APK "Regem Atendimento" 1.1.0+2 — PENDENTE (código mesclado em 10/11; gerar sob comando do dono).** As conversas do
+  caso no app, como no computador: o chat do iFood e da 99 (pela ponte), o Direct do Instagram e o Messenger — ler é de
+  todos; responder, de presidente, gerente e supervisão — e o "✨ Sugerir resposta" do copiloto em todas as conversas
+  (inclusive a do WhatsApp). Sem mudança no servidor (as rotas são as da tela Atendimento). Gerar da `origin/main`
+  (`flutter build apk --release` em `app-atendimento/`); o caminho é o mesmo de baixo.
+
 - **APK "Regem Atendimento" (`app-atendimento/`, 1.0.0+1) — GERADO em 04/11 por comando do dono, da `origin/main` com o
   bloco "endereço depois que o pedido saiu" no caso** (o mesmo do computador: a distância, a taxa da área nova, o
   entregador, "Manter / Cobrar a nova", "Mudar o endereço e avisar o entregador" — abre a mensagem pronta no WhatsApp do
