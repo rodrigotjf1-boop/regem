@@ -146,3 +146,48 @@ describe('IfoodPoller — disputa e encerramento vão para a central', () => {
     expect(reconhecidos.map((e) => e.id)).toEqual(['e1', 'e2']);
   });
 });
+
+// ERR-421: o evento que o Regem não trata (mudança de endereço, pedido alterado, o desconhecido) era confirmado e jogado
+// fora sem rastro. Agora vai à telemetria (a forma, sem valores) — e é confirmado do mesmo jeito; o só informativo, não.
+describe('IfoodPoller — o que o Regem ainda não trata vai à telemetria', () => {
+  const ig = { id: 'ig-1', tenantId: 'loja-1', unidadeId: null, merchantId: 'm-1' };
+  const edge = process.env.EDGE_MODE;
+  beforeEach(() => {
+    delete process.env.EDGE_MODE;
+    jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    jest.restoreAllMocks();
+    if (edge === undefined) delete process.env.EDGE_MODE;
+    else process.env.EDGE_MODE = edge;
+  });
+
+  it('DAR, OPA, o desconhecido e a disputa sem id são anotados; o informativo e o tratado, não; todos confirmados', async () => {
+    const eventos = [
+      { id: 'e1', code: 'DAR', fullCode: 'DELIVERY_ADDRESS_CHANGE_REQUESTED', orderId: 'o-1', metadata: { address: { complement: 'apto 2' } } },
+      { id: 'e2', code: 'OPA', fullCode: 'ORDER_PATCHED', orderId: 'o-2', metadata: { changes: [{ changeType: 'ADD_ITEMS' }] } },
+      { id: 'e3', code: 'XYZ', orderId: 'o-3', metadata: { observacao: 'x' } },
+      { id: 'e4', code: 'HSD', orderId: 'o-4', metadata: { action: 'ADD_OBSERVATION' } },
+      { id: 'e5', code: 'ADR', fullCode: 'ASSIGN_DRIVER', orderId: 'o-5' },
+      { id: 'e6', code: 'CLT', orderId: 'o-5' },
+      { id: 'e7', code: 'HSD', orderId: 'o-6', metadata: { id: 'd-1' } },
+    ];
+    const reconhecidos: any[] = [];
+    const anotados: string[] = [];
+    const poller = new IfoodPoller(
+      {
+        integracoesAtivas: async () => [ig],
+        polling: async () => eventos,
+        acknowledge: async (_ig: any, evs: any[]) => void reconhecidos.push(...evs),
+        reconciliarCancels: async () => 0,
+        registrarDisputa: async (_ig: any, ev: any) => ({ aberto: !!ev.metadata?.id, id: ev.metadata?.id ? 'c-1' : null }),
+        anotarEventoNaoTratado: async (_ig: any, ev: any) => void anotados.push(ev.id),
+      } as any,
+      {} as any,
+    );
+    await poller.tick();
+    expect(anotados).toEqual(['e1', 'e2', 'e3', 'e4']);
+    expect(reconhecidos.map((e) => e.id)).toEqual(['e1', 'e2', 'e3', 'e4', 'e5', 'e6', 'e7']);
+  });
+});

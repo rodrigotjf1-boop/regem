@@ -127,6 +127,9 @@
   servidor da loja (vai pela nuvem, `avaliacao-da-loja`) e a renovação do token do iFood sem apagar ajuste (V82 — sem
   efeito na loja, que não fala com o iFood).
 
+- **Os eventos do iFood que o Regem ainda não trata vão à telemetria (09/11; sem migration — ERR-421).** Só nuvem (o poller
+  do iFood não roda no servidor da loja): nada muda no `.zip`/`.exe`.
+
 - **A saída da entrega da loja pelo app da 99 chega ao Regem (09/11; sem migration — ERR-419).** Nuvem: o poller da 99
   pergunta à 99 o estado dos pedidos de entrega da loja abertos e o que saiu pelo app da 99 vira "Em rota" (o aviso "saiu"
   do chat nasce). **No `.zip` (próximo corte):** só a gravação condicional do reflexo de status (`delivery.service.ts`) —
