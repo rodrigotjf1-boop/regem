@@ -1,11 +1,18 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import { sql } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
 import { DRIZZLE, type DrizzleDB } from '../../db/drizzle.module';
 import type { AuthUser } from '../../auth/auth-user';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { idPausaDoCanal } from '../../common/id-deterministico';
 import {
   ateDoCardapio,
+  ateEstendido,
+  AVISO_MINUTOS,
+  avisoDaLinha,
+  lerAjusteDaPausa,
+  MINUTOS_PARA_ESTENDER,
+  SONS_DA_PAUSA,
+  type AvisoDaPausa,
   CANAIS_DA_PAUSA,
   ehCanalDaPausa,
   lerMotivo,
@@ -96,7 +103,30 @@ export class PausaDoCanalService {
       temposDoCardapio: [...TEMPOS_DO_CARDAPIO],
       /** Precisa escolher a loja no topo antes de pausar (empresa com mais de um cardápio de loja). */
       escolherLoja: loja.unidadeId === undefined,
+      // F2 (mig 393): quando o painel avisa antes de reabrir e com que som; os botões de estender.
+      aviso: await this.avisoDaLoja(tenantId, loja.unidadeId ?? unidadeAtual),
+      minutosParaEstender: [...MINUTOS_PARA_ESTENDER],
     };
+  }
+
+  /**
+   * A linha do cardápio que guarda o aviso: a da loja, senão a da empresa (a herança do "Cheguei", mig 354). `to_jsonb`
+   * para o painel não cair num banco ainda sem a 393 (vale o padrão).
+   */
+  private async linhaDoAviso(tenantId: string, unidadeId: string | null | undefined) {
+    const r: any = await this.db.execute(sql`
+      select c.id, c.unidade_id, to_jsonb(c) ->> 'pausa_aviso_min' as pausa_aviso_min, to_jsonb(c) ->> 'pausa_som' as pausa_som
+        from cardapio_config c
+       where c.tenant_id = ${tenantId}::uuid
+         and (${unidadeId ?? null}::uuid is not null and c.unidade_id = ${unidadeId ?? null}::uuid or c.unidade_id is null)
+       order by (c.unidade_id is null), c.id
+       limit 1`);
+    return (r.rows ?? r)[0] ?? null;
+  }
+
+  /** O aviso antes de reabrir da loja (o padrão: 5 min, bipe). */
+  async avisoDaLoja(tenantId: string, unidadeId: string | null | undefined): Promise<AvisoDaPausa> {
+    return avisoDaLinha(await this.linhaDoAviso(tenantId, unidadeId));
   }
 
   /**
@@ -183,5 +213,78 @@ export class PausaDoCanalService {
       });
     }
     return this.estado(user.tenantId, unidadeAtual, agora);
+  }
+
+  /**
+   * "+10 min" / "+30 min" da faixa (F2): soma ao fim da pausa que vale agora (até 12 h à frente). A linha é lida com
+   * `for update` na mesma transação: dois cliques juntos somam os dois, sem um apagar o outro. Já reaberto: recusa.
+   */
+  async estender(user: AuthUser, unidadeAtual: string | null, canal: unknown, minutos: unknown, agora: Date = new Date()) {
+    if (!ehCanalDaPausa(canal)) throw new BadRequestException('Canal desconhecido.');
+    const loja = await this.lojaDoCardapio(user.tenantId, unidadeAtual);
+    const id = idPausaDoCanal(user.tenantId, loja.unidadeId, canal);
+    const feito = await this.db.transaction(async (tx) => {
+      const r: any = await tx.execute(sql`
+        select ate from pausa_canal where id = ${id}::uuid and tenant_id = ${user.tenantId}::uuid for update`);
+      const atual = (r.rows ?? r)[0]?.ate;
+      const e = ateEstendido(atual ? new Date(atual) : null, minutos, agora);
+      if (!e.ok) return e;
+      await tx.execute(sql`update pausa_canal set ate = ${e.ate.toISOString()}::timestamptz where id = ${id}::uuid`);
+      return { ok: true as const, ate: e.ate, eraAte: new Date(atual) };
+    });
+    if (!feito.ok) throw new BadRequestException(feito.erro);
+    await this.auditoria.registrar({
+      tenantId: user.tenantId,
+      atorId: user.colaboradorId,
+      atorPerfil: user.categoria ?? '',
+      tipo: 'delivery',
+      acao: 'estendeu_canal',
+      unidadeId: loja.unidadeId,
+      entidadeTipo: 'pausa_canal',
+      entidadeId: id,
+      detalhe: { canal, minutos: Number(minutos), eraAte: feito.eraAte.toISOString(), ate: feito.ate.toISOString() },
+    });
+    return this.estado(user.tenantId, unidadeAtual, agora);
+  }
+
+  /** O grupo "Pausa dos pedidos" dos ajustes do atendimento (F2): o aviso da loja em uso e as opções. */
+  async ajustes(tenantId: string, unidadeId: string | null) {
+    const row = await this.linhaDoAviso(tenantId, unidadeId);
+    return { ...avisoDaLinha(row), temCardapio: !!row, opcoes: { minutos: [...AVISO_MINUTOS], sons: [...SONS_DA_PAUSA] } };
+  }
+
+  /** Confere o ajuste sem gravar nada (a rota dos ajustes confere todos os grupos antes da 1ª gravação — V86). */
+  conferirAjustes(dto: unknown): Partial<AvisoDaPausa> {
+    const a = lerAjusteDaPausa(dto);
+    if (!a.ok) throw new BadRequestException(a.erro);
+    return a.parcial;
+  }
+
+  /**
+   * Grava só os campos que vieram (V16) e só as colunas deles, na linha do cardápio da loja em uso (sem ela, a da empresa).
+   * Quem mudou e de quê para quê fica na auditoria. Sem cardápio: recusa, com o caminho para criar.
+   */
+  async salvarAjustes(user: AuthUser, unidadeId: string | null, parcial: Partial<AvisoDaPausa>): Promise<void> {
+    const row = await this.linhaDoAviso(user.tenantId, unidadeId);
+    if (!row) throw new BadRequestException('A loja ainda não tem cardápio online: a pausa mora nele (Delivery › Configurações › Cardápio).');
+    const antes = avisoDaLinha(row);
+    const sets: SQL[] = [];
+    if (parcial.minutos !== undefined && parcial.minutos !== antes.minutos) sets.push(sql`pausa_aviso_min = ${parcial.minutos}`);
+    if (parcial.som !== undefined && parcial.som !== antes.som) sets.push(sql`pausa_som = ${parcial.som}`);
+    if (!sets.length) return;
+    await this.db.execute(sql`
+      update cardapio_config set ${sql.join(sets, sql`, `)}, updated_at = now()
+       where id = ${row.id}::uuid and tenant_id = ${user.tenantId}::uuid`);
+    await this.auditoria.registrar({
+      tenantId: user.tenantId,
+      atorId: user.colaboradorId,
+      atorPerfil: user.categoria ?? '',
+      tipo: 'config',
+      acao: 'alterou_aviso_da_pausa',
+      unidadeId: row.unidade_id ?? null,
+      entidadeTipo: 'cardapio_config',
+      entidadeId: row.id,
+      detalhe: { antes, depois: { ...antes, ...parcial } },
+    });
   }
 }

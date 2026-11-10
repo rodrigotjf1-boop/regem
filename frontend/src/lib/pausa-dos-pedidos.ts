@@ -26,7 +26,36 @@ export type EstadoDasPausas = {
   motivoTextoMax: number;
   temposDoCardapio: number[];
   escolherLoja: boolean;
+  /** F2 (mig 393): avisar N min antes de reabrir (0 = não avisa) e com que som. Ausente = servidor antigo (não avisa). */
+  aviso?: { minutos: number; som: 'bipe' | 'campainha' };
+  minutosParaEstender?: number[];
 };
+
+/** Segundos que faltam até o fim da pausa (0 quando já passou). */
+export function segundosAte(ate: string, agora: number): number {
+  return Math.max(0, Math.ceil((new Date(ate).getTime() - agora) / 1000));
+}
+
+/** O contador da faixa: "12:34", ou "1:02:03" com mais de uma hora. */
+export function relogioDaPausa(segundos: number): string {
+  const s = Math.max(0, Math.floor(segundos));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const dois = (n: number) => String(n).padStart(2, '0');
+  return h ? `${h}:${dois(m)}:${dois(s % 60)}` : `${dois(m)}:${dois(s % 60)}`;
+}
+
+/** A faixa está na hora do aviso? (faltam N min ou menos e o aviso está ligado; depois do fim, não) */
+export function naHoraDoAviso(segundos: number, avisoMin: number | undefined): boolean {
+  return !!avisoMin && segundos > 0 && segundos <= avisoMin * 60;
+}
+
+/** "Faltam 3 min" / "Falta 1 min" / "Falta menos de 1 min" — o texto do aviso. */
+export function faltamTexto(segundos: number): string {
+  const min = Math.ceil(segundos / 60);
+  if (segundos < 60) return 'Falta menos de 1 min';
+  return min === 1 ? 'Falta 1 min' : `Faltam ${min} min`;
+}
 
 /** O que cada canal pausa, como o cartão do diálogo diz. */
 export const DESCRICAO_DO_CANAL: Record<string, string> = {

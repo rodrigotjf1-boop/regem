@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **A pausa dos pedidos — F2 (10/11; mig 393 NÃO cloud-only — duas colunas no `cardapio_config`: `pausa_aviso_min`,
+  `pausa_som`; não mexe no `sync-daemon`).** Na NUVEM com o merge: o contador, "+10/+30 min", o aviso e o grupo de ajustes.
+  **No `.zip` 1.30.13:** o painel do servidor da loja com o contador e o aviso (vem junto com a F1) e a 393 no banco da
+  loja (o ajuste salvo na nuvem desce pelo `cardapio_config`).
+
 - **A pausa dos pedidos por canal — F1 (10/11; mig 392 NÃO cloud-only — tabela nova `pausa_canal`, sincronizada nos
   dois sentidos; mexe em `backend/edge/sync-daemon.mjs` SÓ na `PUSH_TABLES`).** Na NUVEM com o merge: o cardápio online
   fecha com o aviso e recusa o pedido durante a pausa, e o painel da nuvem pausa. **No `.zip` 1.30.13 e no próximo

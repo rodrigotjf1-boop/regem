@@ -513,6 +513,15 @@ export class DeliveryController {
     return this.pausa.reabrir(user, unidadeId, dto?.canal);
   }
 
+  // "+10 min" / "+30 min" da faixa (F2, mig 393).
+  @Post('pausas/estender')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles(...GESTOR)
+  @RequirePerm('delivery')
+  estenderCanal(@CurrentUser() user: AuthUser, @UnidadeAtual() unidadeId: string | null, @Body() dto: any) {
+    return this.pausa.estender(user, unidadeId, dto?.canal, dto?.minutos);
+  }
+
   @Get('config')
   @UseGuards(JwtAuthGuard, PermissoesGuard)
   @RequirePerm('delivery')

@@ -193,5 +193,76 @@ descrever('pausa por canal (Postgres)', () => {
     await expect(
       pausas.pausar({ tenantId: t, colaboradorId: randomUUID(), categoria: 'gerente' } as any, null, { canais: ['cardapio'], motivo: 'pedidos', tempo: { minutos: 30 } }),
     ).rejects.toThrow('Esta loja não tem cardápio digital.');
+    // F2: sem cardápio, o grupo do aviso não aparece e gravar é recusado com o caminho.
+    expect(await pausas.ajustes(t, null)).toMatchObject({ temCardapio: false, minutos: 5, som: 'bipe' });
+    await expect(
+      pausas.salvarAjustes({ tenantId: t, colaboradorId: randomUUID(), categoria: 'gerente' } as any, null, { minutos: 3 }),
+    ).rejects.toThrow('A loja ainda não tem cardápio online');
+  });
+
+  // ── F2 (mig 393): o estender e o aviso antes de reabrir ─────────────────────────────────────────────────────────
+  it('F2: estender soma ao fim — dois cliques juntos somam os dois —, audita, e o canal reaberto recusa', async () => {
+    const { t, gestor } = await loja();
+    await pausas.pausar(gestor, null, { canais: ['cardapio'], motivo: 'pedidos', tempo: { minutos: 15 } });
+    const fim = async () => new Date((await q(`select ate from pausa_canal where tenant_id = $1`, [t]))[0].ate).getTime();
+    const antes = await fim();
+    // A corrida FORÇADA (V72): uma conexão do teste segura a linha; os dois cliques ficam presos atrás DELA e saem juntos.
+    const trava = await pool.connect();
+    let r: any[];
+    try {
+      await trava.query('begin');
+      await trava.query('select 1 from pausa_canal where id = $1 for update', [idPausaDoCanal(t, null, 'cardapio')]);
+      const [{ pid }] = (await trava.query('select pg_backend_pid() as pid')).rows;
+      const cliques = Promise.all([
+        pausas.estender(gestor, null, 'cardapio', 10),
+        pausas.estender({ ...gestor, colaboradorId: randomUUID() }, null, 'cardapio', 10),
+      ]);
+      const limite = Date.now() + 15_000;
+      for (;;) {
+        const [{ n }] = await q(`select count(*)::int as n from pg_stat_activity where $1 = any(pg_blocking_pids(pid))`, [pid]);
+        if (n >= 2 || Date.now() > limite) break;
+        await new Promise((res) => setTimeout(res, 50));
+      }
+      await trava.query('commit');
+      r = await cliques;
+    } finally {
+      trava.release(true); // descarta a conexão: nunca volta ao pool com a transação aberta (ERR-161)
+    }
+    expect((await fim()) - antes).toBe(20 * 60_000);
+    expect(r[0].minutosParaEstender).toEqual([10, 30]);
+    expect(registros.filter((x) => x.acao === 'estendeu_canal')).toHaveLength(2);
+    expect(registros.find((x) => x.acao === 'estendeu_canal')).toMatchObject({ entidadeId: idPausaDoCanal(t, null, 'cardapio'), detalhe: expect.objectContaining({ canal: 'cardapio', minutos: 10 }) });
+    await expect(pausas.estender(gestor, null, 'cardapio', 15)).rejects.toThrow('Estenda por 10 ou 30 minutos.');
+    await pausas.reabrir(gestor, null, 'cardapio');
+    await expect(pausas.estender(gestor, null, 'cardapio', 10)).rejects.toThrow('Este canal já reabriu.');
+    expect(registros.filter((x) => x.acao === 'estendeu_canal')).toHaveLength(2);
+  });
+
+  it('F2: o aviso da loja — padrão 5 min e bipe; o ajuste grava só o que mudou, anda o carimbo do sync e audita', async () => {
+    const { t, gestor } = await loja();
+    expect((await pausas.estado(t, null)).aviso).toEqual({ minutos: 5, som: 'bipe' });
+    expect(await pausas.ajustes(t, null)).toMatchObject({ minutos: 5, som: 'bipe', temCardapio: true, opcoes: { minutos: [0, 1, 3, 5, 10], sons: ['bipe', 'campainha'] } });
+    const [c0] = await q(`select updated_at from cardapio_config where tenant_id = $1`, [t]);
+    await new Promise((r) => setTimeout(r, 20));
+    await pausas.salvarAjustes(gestor, null, pausas.conferirAjustes({ minutos: '3', som: 'campainha' }));
+    expect((await pausas.estado(t, null)).aviso).toEqual({ minutos: 3, som: 'campainha' });
+    const [c1] = await q(`select updated_at, pausa_aviso_min, pausa_som from cardapio_config where tenant_id = $1`, [t]);
+    expect([c1.pausa_aviso_min, c1.pausa_som]).toEqual([3, 'campainha']);
+    expect(new Date(c1.updated_at).getTime()).toBeGreaterThan(new Date(c0.updated_at).getTime());
+    expect(registros.filter((x) => x.acao === 'alterou_aviso_da_pausa')).toEqual([
+      expect.objectContaining({ tenantId: t, tipo: 'config', detalhe: { antes: { minutos: 5, som: 'bipe' }, depois: { minutos: 3, som: 'campainha' } } }),
+    ]);
+    // Igual ao gravado: nada muda nem vai para a auditoria; fora da lista é recusado antes de gravar.
+    await pausas.salvarAjustes(gestor, null, { minutos: 3 });
+    expect(registros.filter((x) => x.acao === 'alterou_aviso_da_pausa')).toHaveLength(1);
+    expect(() => pausas.conferirAjustes({ minutos: 2 })).toThrow('Avisar antes de reabrir');
+    expect(() => pausas.conferirAjustes({ som: 'sirene' })).toThrow('Som do aviso');
+  });
+
+  it('F2: com um cardápio por loja, o aviso é o da loja escolhida', async () => {
+    const { t, unidades: [u1, u2], gestor } = await loja({ lojas: 2, cardapioPorLoja: true });
+    await pausas.salvarAjustes(gestor, u1, { minutos: 10 });
+    expect((await pausas.estado(t, u1)).aviso).toEqual({ minutos: 10, som: 'bipe' });
+    expect((await pausas.estado(t, u2)).aviso).toEqual({ minutos: 5, som: 'bipe' });
   });
 });

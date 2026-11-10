@@ -222,6 +222,8 @@ type Resposta = {
   // O Instagram Direct (mig 377): se a distribuição liberou e a conta conectada (nunca o acesso).
   instagram?: EstadoDoInstagram | null;
   messenger?: EstadoDoMessenger | null;
+  // A pausa dos pedidos (F2, mig 393): o aviso antes de reabrir e o som, da loja em uso (sem cardápio: o grupo some).
+  pausa?: { minutos: number; som: 'bipe' | 'campainha'; temCardapio: boolean; opcoes?: { minutos: number[]; sons: string[] } } | null;
 };
 
 const paraValores = (r: Resposta): Valores => ({
@@ -275,6 +277,7 @@ const paraValores = (r: Resposta): Valores => ({
       }
     : {}),
   ...(r.repetido?.temCardapio ? { repetidoAtivo: r.repetido.ativo, repetidoMin: String(r.repetido.minutos) } : {}),
+  ...(r.pausa?.temCardapio ? { pausaAvisoMin: String(r.pausa.minutos), pausaSom: r.pausa.som } : {}),
   ...(r.alterado ? { alteradoSom: r.alterado.som } : {}),
   ...(typeof r.alterado?.roboMuda === 'boolean' ? { alteradoRobo: r.alterado.roboMuda } : {}),
   ...(typeof r.alterado?.roboCobraPix === 'boolean' ? { alteradoRoboPix: r.alterado.roboCobraPix } : {}),
@@ -689,6 +692,36 @@ export function AjustesDoAtendimento() {
       },
     ],
   };
+  // "Pausa dos pedidos" (F2, mig 393; protótipo `mockups/regem-pausa.html`, vista "Ajustes"): o aviso antes de reabrir.
+  const minutosDaPausa = resp?.pausa?.opcoes?.minutos?.length ? resp.pausa.opcoes.minutos : [0, 1, 3, 5, 10];
+  const grupoDaPausa: GrupoDeAjustes = {
+    titulo: 'Pausa dos pedidos',
+    nota: 'Vale para a loja em uso. A pausa se faz no botão "⏸ Pausar" do Delivery › Painel.',
+    itens: [
+      {
+        id: 'pausaAvisoMin',
+        rotulo: 'Avisar antes de reabrir',
+        tipo: 'selecao',
+        opcoes: [...minutosDaPausa.filter((m) => m > 0), ...minutosDaPausa.filter((m) => m === 0)].map((m) => ({
+          v: String(m),
+          rotulo: m === 0 ? 'Não avisar' : m === 5 ? '5 min antes (padrão)' : `${m} min antes`,
+        })),
+        ajuda: 'O painel toca o aviso e a faixa fica vermelha quando faltar este tempo para o canal reabrir.',
+        palavras: 'pausa pausar reabrir aviso contador minutos antes',
+      },
+      {
+        id: 'pausaSom',
+        rotulo: 'Som do aviso',
+        tipo: 'selecao',
+        opcoes: [
+          { v: 'bipe', rotulo: 'Bipe (padrão)' },
+          { v: 'campainha', rotulo: 'Campainha' },
+        ],
+        ajuda: 'Toca no Delivery › Painel com o "🔔 Som on" ligado nele (o navegador só toca depois de um clique na tela).',
+        palavras: 'pausa som aviso bipe campainha reabrir',
+      },
+    ],
+  };
   const sonsDoAlterado = resp?.alterado?.sons?.length ? resp.alterado.sons : Object.keys(ROTULO_DO_SOM);
   const grupoDoAlterado: GrupoDeAjustes = {
     titulo: 'Pedido alterado',
@@ -1098,6 +1131,7 @@ export function AjustesDoAtendimento() {
     ...(resp?.conectado99 ? [grupoDa99] : []),
     ...(resp?.repetido?.temCardapio ? [grupoDoRepetido] : []),
     ...(resp?.alterado ? [grupoDoAlterado] : []),
+    ...(resp?.pausa?.temCardapio ? [grupoDaPausa] : []),
   ];
 
   async function salvar() {
@@ -1114,6 +1148,7 @@ export function AjustesDoAtendimento() {
     const ajuste99: Record<string, unknown> = {};
     const cheguei: Record<string, unknown> = {};
     const repetido: Record<string, unknown> = {};
+    const pausa: { minutos?: number; som?: string } = {}; // "Pausa dos pedidos" (F2, mig 393)
     let alterado: { som?: string; roboMuda?: boolean; roboCobraPix?: boolean } | null = null;
     const gestorWa: Record<string, boolean | number | null> = {};
     let copiloto: { ligado: boolean } | null = null;
@@ -1247,6 +1282,8 @@ export function AjustesDoAtendimento() {
         cheguei[DO_CHEGUEI[k]] =
           k === 'chegueiDeNovoMin' ? Number(valores[k]) : k === 'chegueiTodasTelas' ? valores[k] === 'sim' : valores[k];
       else if (DO_REPETIDO[k]) repetido[DO_REPETIDO[k]] = k === 'repetidoMin' ? Number(valores[k]) : valores[k];
+      else if (k === 'pausaAvisoMin') pausa.minutos = Number(valores[k]);
+      else if (k === 'pausaSom') pausa.som = String(valores[k]);
       else ajuste99[k] = k === 'reembolsoRecusarEmHoras' ? Number(valores[k]) : valores[k];
     }
     try {
@@ -1259,6 +1296,7 @@ export function AjustesDoAtendimento() {
         ...(Object.keys(ajuste99).length ? { ajuste99 } : {}),
         ...(Object.keys(cheguei).length ? { cheguei } : {}),
         ...(Object.keys(repetido).length ? { repetido } : {}),
+        ...(Object.keys(pausa).length ? { pausa } : {}),
         ...(alterado ? { alterado } : {}),
         ...(Object.keys(ponte).length ? { ponte } : {}),
         ...(Object.keys(gestorWa).length ? { gestorWa } : {}),

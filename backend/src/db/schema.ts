@@ -3326,6 +3326,9 @@ export const cardapioConfig = pgTable('cardapio_config', {
   // Pedido IGUAL em até 30 min (mig 360): nasce ligado, 30 min (decisão 1 do dono, 03/11/2026).
   pedidoRepetidoAtivo: boolean('pedido_repetido_ativo').notNull().default(true),
   pedidoRepetidoMin: integer('pedido_repetido_min').notNull().default(30),
+  // A pausa dos pedidos, F2 (mig 393): o painel avisa N min antes de reabrir (0 = não avisa) com o som escolhido.
+  pausaAvisoMin: integer('pausa_aviso_min').notNull().default(5),
+  pausaSom: text('pausa_som').notNull().default('bipe'),
   // Modo Encomenda (mig 186) — OPT-IN: pedido para data futura + regras.
   encomendaAtiva: boolean('encomenda_ativa').notNull().default(false),
   encomendaAntecedenciaHoras: integer('encomenda_antecedencia_horas').notNull().default(24),

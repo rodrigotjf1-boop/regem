@@ -1559,6 +1559,9 @@ export const api = {
   }) => req('/delivery/pausas', { method: 'POST', body: JSON.stringify(body) }),
   deliveryReabrir: (canal: string) =>
     req('/delivery/pausas/reabrir', { method: 'POST', body: JSON.stringify({ canal }) }),
+  // "+10 min" / "+30 min" da faixa (F2, mig 393).
+  deliveryEstender: (canal: string, minutos: number) =>
+    req('/delivery/pausas/estender', { method: 'POST', body: JSON.stringify({ canal, minutos }) }),
   // Status da licença/trial da conta (para o aviso e o paywall).
   licencaStatus: () => req('/licenca/status'),
   // Catálogo de planos (página de assinatura).

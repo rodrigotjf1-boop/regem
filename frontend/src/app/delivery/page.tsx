@@ -227,6 +227,34 @@ export default function DeliveryPage() {
     o.start();
     o.stop(ctx.currentTime + 0.36);
   }
+  /**
+   * O aviso de "falta pouco para reabrir" da pausa (F2, mig 393): bipe (três toques) ou campainha (dois tons, duas vezes).
+   * Só com o "🔔 Som" ligado nesta tela (o navegador só toca depois de um clique). Devolve se tocou.
+   */
+  function tocarAvisoDaPausa(som: 'bipe' | 'campainha'): boolean {
+    if (!somAtivo) return false;
+    const ctx = garantirAudio();
+    if (!ctx || ctx.state !== 'running') return false;
+    const toque = (freq: number, inicio: number, dura: number) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = freq;
+      const t = ctx.currentTime + inicio;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.25, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dura);
+      o.connect(g).connect(ctx.destination);
+      o.start(t);
+      o.stop(t + dura + 0.01);
+    };
+    const notas: [number, number, number][] =
+      som === 'campainha'
+        ? [[988, 0, 0.45], [659, 0.5, 0.6], [988, 1.3, 0.45], [659, 1.8, 0.6]]
+        : [[880, 0, 0.3], [880, 0.45, 0.3], [880, 0.9, 0.3]];
+    for (const [f, i, d] of notas) toque(f, i, d);
+    return true;
+  }
   function alternarSom() {
     const ligar = !somAtivo;
     garantirAudio();
@@ -576,7 +604,13 @@ export default function DeliveryPage() {
         {erro && <p className="text-destructive">{erro}</p>}
 
         {/* Um canal pausado = uma faixa (mig 392): o motivo, quem pausou e a hora de reabrir. */}
-        <FaixasDaPausa estado={pausas.estado} podeReabrir={isGestor} aoMudar={pausas.receber} />
+        <FaixasDaPausa
+          estado={pausas.estado}
+          podeReabrir={isGestor}
+          aoMudar={pausas.receber}
+          aoAvisar={tocarAvisoDaPausa}
+          aoAcabar={pausas.recarregar}
+        />
 
         {/* O que o Regem tentou enviar ao canal ou ao cliente e falhou (últimas 24 h) */}
         <FalhasEnvioAviso

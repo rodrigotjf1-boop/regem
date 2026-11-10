@@ -32,6 +32,58 @@ export const MOTIVOS_DA_PAUSA: Record<MotivoDaPausa, { rotulo: string; frase: st
 };
 
 export const MOTIVO_TEXTO_MAX = 80;
+
+// ── F2 (mig 393): o aviso antes de reabrir e o "estender" ──────────────────────────────────────────────────────────
+/** Quantos minutos antes de reabrir o painel avisa (0 = não avisa). */
+export const AVISO_MINUTOS = [0, 1, 3, 5, 10] as const;
+export const SONS_DA_PAUSA = ['bipe', 'campainha'] as const;
+export type SomDaPausa = (typeof SONS_DA_PAUSA)[number];
+export type AvisoDaPausa = { minutos: number; som: SomDaPausa };
+export const AVISO_PADRAO: AvisoDaPausa = { minutos: 5, som: 'bipe' };
+/** Os botões "+10 min" e "+30 min" da faixa. */
+export const MINUTOS_PARA_ESTENDER = [10, 30] as const;
+
+/** O aviso gravado na linha do cardápio (o valor fora da lista vale o padrão — a linha pode vir de outra versão). */
+export function avisoDaLinha(row: any): AvisoDaPausa {
+  const min = Number(row?.pausa_aviso_min ?? row?.pausaAvisoMin);
+  const som = row?.pausa_som ?? row?.pausaSom;
+  return {
+    minutos: (AVISO_MINUTOS as readonly number[]).includes(min) ? min : AVISO_PADRAO.minutos,
+    som: (SONS_DA_PAUSA as readonly string[]).includes(som) ? (som as SomDaPausa) : AVISO_PADRAO.som,
+  };
+}
+
+/** Confere o ajuste que a tela mandou: só os campos que vieram (V16); valor fora da lista é recusado. */
+export function lerAjusteDaPausa(dto: unknown): { ok: true; parcial: Partial<AvisoDaPausa> } | { ok: false; erro: string } {
+  const d = (dto ?? {}) as Record<string, unknown>;
+  const parcial: Partial<AvisoDaPausa> = {};
+  if (d.minutos !== undefined) {
+    const n = Number(d.minutos);
+    if (d.minutos === null || d.minutos === '' || !(AVISO_MINUTOS as readonly number[]).includes(n))
+      return { ok: false, erro: 'Avisar antes de reabrir: escolha 1, 3, 5 ou 10 minutos, ou não avisar.' };
+    parcial.minutos = n;
+  }
+  if (d.som !== undefined) {
+    if (!(SONS_DA_PAUSA as readonly string[]).includes(d.som as string)) return { ok: false, erro: 'Som do aviso: escolha bipe ou campainha.' };
+    parcial.som = d.som as SomDaPausa;
+  }
+  return { ok: true, parcial };
+}
+
+/**
+ * O novo fim da pausa ao estender: o fim de agora + N minutos (10 ou 30), até 12 horas à frente. Sem pausa valendo, não
+ * há o que estender (a faixa já sumiu ou outra pessoa reabriu).
+ */
+export function ateEstendido(ateAtual: Date | null, minutos: unknown, agora: Date = new Date()):
+  { ok: true; ate: Date } | { ok: false; erro: string } {
+  const n = Number(minutos);
+  if (!(MINUTOS_PARA_ESTENDER as readonly number[]).includes(n)) return { ok: false, erro: 'Estenda por 10 ou 30 minutos.' };
+  if (!ateAtual || ateAtual.getTime() <= agora.getTime()) return { ok: false, erro: 'Este canal já reabriu.' };
+  const ate = new Date(ateAtual.getTime() + n * 60_000);
+  if (ate.getTime() - agora.getTime() > 12 * 3600_000) return { ok: false, erro: 'A pausa vai até 12 horas à frente.' };
+  return { ok: true, ate };
+}
+
 /** Os tempos prontos do cardápio digital (minutos); o outro jeito é "até HH:MM". */
 export const TEMPOS_DO_CARDAPIO = [15, 30, 60] as const;
 /** A pausa mais longa que se escolhe por "até HH:MM". */
