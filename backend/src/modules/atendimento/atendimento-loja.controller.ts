@@ -6,6 +6,7 @@ import { DisputaIfoodService, RespostaDaDisputa } from './disputa-ifood.service'
 import { Pedido99Service, RespostaAo99 } from './pedido-99.service';
 import { ChatIfoodService } from './chat-ifood.service';
 import { ChatDoCasoService } from './chat-do-caso.service';
+import { AvisarOEntregadorService } from './avisar-o-entregador.service';
 import { AjustesDaPonteService } from '../ponte-chat/ajustes-da-ponte.service';
 import { AvaliacaoIfoodService } from './avaliacao-ifood.service';
 import { NumerosDoAtendimentoService } from './numeros.service';
@@ -34,7 +35,31 @@ export class AtendimentoLojaController {
     private readonly instagram: InstagramService,
     // O Messenger do Facebook (mig 386): a conversa e o acesso da página moram na nuvem.
     @Optional() private readonly messenger?: MessengerService,
+    // Os avisos ao entregador (mig 391): moram só na nuvem (o app do entregador fala com ela).
+    @Optional() private readonly avisarEntregador?: AvisarOEntregadorService,
   ) {}
+
+  // O entregador do pedido do caso e os avisos dele, para a tela do servidor da loja (a tabela mora só na nuvem — V37).
+  @Get('entregador-da-loja')
+  @CloudOnly()
+  @UseGuards(SyncTokenGuard)
+  entregadorDaLoja(@SyncCtx() ctx: SyncCtxData, @Query('chamado') chamado: string) {
+    if (!this.avisarEntregador) throw new NotFoundException('O aviso ao entregador não está disponível agora.');
+    return this.avisarEntregador.situacaoNaEmpresa(ctx.tenantId, String(chamado ?? ''));
+  }
+
+  // O aviso ao entregador vindo do servidor da loja (quem mandou foi conferido lá).
+  @Post('entregador-da-loja')
+  @HttpCode(200)
+  @CloudOnly()
+  @UseGuards(SyncTokenGuard)
+  avisarEntregadorDaLoja(
+    @SyncCtx() ctx: SyncCtxData,
+    @Body() dto: { chamadoId?: unknown; motivo?: unknown; nota?: unknown; atorId?: unknown; atorPerfil?: unknown },
+  ) {
+    if (!this.avisarEntregador) throw new NotFoundException('O aviso ao entregador não está disponível agora.');
+    return this.avisarEntregador.avisarVindoDaLoja(ctx.tenantId, dto ?? {});
+  }
 
   // A conversa do Messenger no caso, para a tela do servidor da loja (as mensagens moram só na nuvem — V37).
   @Get('messenger-da-loja')

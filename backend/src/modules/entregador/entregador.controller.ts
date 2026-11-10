@@ -10,6 +10,7 @@ import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { EntregadorService } from './entregador.service';
 import { ChatDoEntregadorService } from './chat-do-entregador.service';
+import { AvisosDoEntregadorService } from './avisos-do-entregador.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // App do Entregador. Auth = login de colaborador (JWT); só nuvem.
@@ -20,6 +21,7 @@ export class EntregadorController {
   constructor(
     private readonly service: EntregadorService,
     private readonly chat: ChatDoEntregadorService,
+    private readonly avisos: AvisosDoEntregadorService,
   ) {}
 
   @Get('perfil')
@@ -193,6 +195,29 @@ export class EntregadorController {
   @Get('ganhos')
   ganhos(@CurrentUser() user: AuthUser) {
     return this.service.ganhos(user);
+  }
+
+  // 10/11/2026 — "Minhas entregas": as entregas que compõem "Meus ganhos" (o mesmo período e o mesmo filtro).
+  @Get('entregas')
+  minhasEntregas(@CurrentUser() user: AuthUser) {
+    return this.service.entregas(user);
+  }
+
+  // 10/11/2026 (mig 391) — os avisos do atendimento ao entregador: os abertos dele, "vi" e a resposta (a caminho,
+  // cheguei, imprevisto — saem ao cliente pelo canal do pedido; ligou, mensagem, ok — só registram).
+  @Get('avisos')
+  meusAvisos(@CurrentUser() user: AuthUser) {
+    return this.avisos.meus(user);
+  }
+
+  @Post('avisos/:id/visto')
+  avisoVisto(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.avisos.visto(user, id);
+  }
+
+  @Post('avisos/:id/responder')
+  responderAviso(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    return this.avisos.responder(user, id, dto);
   }
 
   // App do entregador: minha preferência (opt-in de compartilhar contato no aviso).

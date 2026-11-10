@@ -14,6 +14,7 @@ import { portaoDaConferencia } from './conferir-entrega';
 import { limparMarcasDoRobo } from './mensagens-do-robo';
 import { ChegadaService } from '../chegada/chegada.service';
 import { clienteRespondeu } from '../atendimento/abrir-chamado';
+import { avisarPelaMensagemDoCliente } from '../../common/aviso-ao-entregador';
 import { portaoDoGestor } from '../atendimento/gestor-whatsapp-entrada';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -794,6 +795,10 @@ export class WhatsappCloudService {
           // O cliente respondeu: o caso que esperava por ele volta para a fila da central (atendimento/abrir-chamado.ts).
           // Nunca rejeita — se falhar, a mensagem segue o caminho de sempre.
           await clienteRespondeu(this.db, (ev, p) => this.events?.emit(ev, p), cfg.tenantId, de);
+
+          // O cliente perguntou pelo pedido ou reclamou de demora com o pedido a caminho: o entregador fica sabendo no
+          // app (mig 391). Não tira a mensagem do robô. Nunca rejeita.
+          await avisarPelaMensagemDoCliente(this.db, { tenantId: cfg.tenantId, telefone: de, texto: this.textoDe(m) });
 
           // A resposta ao "entregador sem contato" (Onda 0, 01/11/2026): vai à equipe e ao entregador, não ao robô — com o
           // robô ligado ou desligado (quem pediu a resposta foi o aviso) e antes da pausa (o chamado aberto já pausa).
