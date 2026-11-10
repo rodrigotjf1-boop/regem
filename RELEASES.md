@@ -34,6 +34,12 @@
   `0.1.0+17` (acumulado):** sem sinal, guarda só o código da 99 que bate com o telefone do cliente; o que não bate é
   recusado na hora ("confira com o cliente antes de sair").
 
+- **O cliente da 99 pelo WhatsApp DO ENTREGADOR (10/11; sem migration).** O dono: a loja não inicia conversa com o
+  cliente da 99 pelo WhatsApp dela (o ajuste "Falar com o cliente da 99 pelo WhatsApp" fica desligado) — trata pelo chat
+  e pelo Atendimento; quem fala pelo WhatsApp é o entregador, do celular dele. Na NUVEM com o merge: o pedido leva
+  `rastreioUrl` (o link do acompanhamento). **APK do entregador `0.1.0+17` (acumulado):** no pedido da 99, "Mandar o
+  acompanhamento", "Não consigo falar" e "mandar minha posição" abrem o WhatsApp do entregador com o texto pronto.
+
 - **As marcações do Instagram (09/11; mig 387 `@cloud-only` — tabela nova `instagram_marcacao` e dois ajustes em
   `instagram_conta`; mexe em `backend/edge/sync-daemon.mjs` SÓ na lista `SO_NUVEM`).** Na NUVEM com o merge (o aviso da
   Meta, a IA e a resposta moram lá; a IA usa `ANTHROPIC_API_KEY` — sem ela, o agradecimento padrão e nenhuma sugestão).

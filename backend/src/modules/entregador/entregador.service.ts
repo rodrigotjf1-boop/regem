@@ -141,6 +141,9 @@ export class EntregadorService implements OnModuleInit {
       ligacao: ligacaoDoPedido(p),
       chatDaPlataforma: modo === 'propria_canal' && (p.canal === 'ifood' || p.canal === '99food'),
       whatsappCliente: modo !== 'retirada' && DeliveryService.podeFalarPeloWhatsapp(p, ctx.cliente99),
+      // O link público do acompanhamento (/r/). Na 99, quem fala com o cliente pelo WhatsApp é o ENTREGADOR, do celular
+      // dele — a loja trata pelo chat e pelo Atendimento (o dono, 10/11/2026): o app manda o link com o texto pronto.
+      rastreioUrl: modo !== 'retirada' && p.rastreioToken ? `${this.basePublica()}/r/${p.rastreioToken}` : null,
       raw: p.raw ?? null, // app antigo (<= 0.1.0+15) detecta a entrega própria de marketplace por aqui
     };
   }

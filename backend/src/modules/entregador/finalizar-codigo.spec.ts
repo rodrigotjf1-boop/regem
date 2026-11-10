@@ -65,6 +65,19 @@ describe('app do entregador — o que o pedido mostra (resumo)', () => {
     expect(resumo({ canal: 'ifood', tipo: 'entrega', raw: IFOOD_LOJA, clienteTelefone: '08007050000' }).codigoOffline).toBeNull();
   });
 
+  it('o link do acompanhamento vai ao app (na 99 o entregador manda pelo WhatsApp dele); na retirada, não', () => {
+    const antes = process.env.CARDAPIO_PUBLIC_URL;
+    process.env.CARDAPIO_PUBLIC_URL = 'https://app.dmsregem.com';
+    try {
+      expect(resumo({ canal: '99food', tipo: 'entrega', raw: DE99_LOJA, rastreioToken: 'rt99' }).rastreioUrl).toBe('https://app.dmsregem.com/r/rt99');
+      expect(resumo({ canal: '99food', tipo: 'entrega', raw: DE99_LOJA, rastreioToken: null }).rastreioUrl).toBeNull();
+      expect(resumo({ canal: 'cardapio', tipo: 'retirada', rastreioToken: 'rt1' }).rastreioUrl).toBeNull();
+    } finally {
+      if (antes === undefined) delete process.env.CARDAPIO_PUBLIC_URL;
+      else process.env.CARDAPIO_PUBLIC_URL = antes;
+    }
+  });
+
   it('entrega da loja pelo cardápio: código do Regem conferido no aparelho pelo hash, nunca em texto', () => {
     const r = resumo({ id: 'p', canal: 'cardapio', tipo: 'entrega', raw: null, codigoEntrega: '4821' });
     expect(r).toMatchObject({

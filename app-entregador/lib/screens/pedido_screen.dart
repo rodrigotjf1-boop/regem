@@ -59,6 +59,64 @@ class _PedidoScreenState extends State<PedidoScreen> {
       ? widget.pedido['whatsappCliente'] == true
       : !['ifood', '99food', 'keeta'].contains(widget.pedido['canal']?.toString());
 
+  // ===== 10/11/2026: o cliente da 99 pelo WhatsApp DO ENTREGADOR =====
+  // O dono: a loja não inicia conversa com o cliente da 99 pelo WhatsApp dela (trata pelo chat da 99 e pelo Atendimento);
+  // quem fala com ele pelo WhatsApp é o entregador, do próprio celular. Então, no pedido da 99 (sem o ajuste da loja), o
+  // acompanhamento, o "não consigo falar" e a posição abrem o WhatsApp do entregador com o texto pronto — ele só toca em
+  // enviar. Precisa do celular direto do cliente (a 99 manda; o iFood não — lá é o chat).
+  bool get _whatsappDoEntregador =>
+      widget.pedido['canal'] == '99food' && widget.pedido['whatsappCliente'] != true && _ligacao?['tipo'] == 'direto';
+
+  String get _primeiroNome {
+    final n = (widget.pedido['cliente']?.toString() ?? '').trim().split(RegExp(r'\s+')).first;
+    if (n.isEmpty || !RegExp(r'[A-Za-zÀ-ÿ]').hasMatch(n)) return '';
+    return '${n[0].toUpperCase()}${n.substring(1).toLowerCase()}';
+  }
+
+  /// "Olá, Maria! Sou o entregador do seu pedido da 99 (nº 436004)."
+  String get _abertura99 {
+    final nome = _primeiroNome;
+    final cod = widget.pedido['displayId']?.toString().trim() ?? '';
+    return 'Olá${nome.isNotEmpty ? ', $nome' : ''}! Sou o entregador do seu pedido da 99${cod.isNotEmpty ? ' (nº $cod)' : ''}.';
+  }
+
+  static const _lembrete99 = '🔑 Na entrega, me informe o código que aparece no app da 99.';
+
+  /// Abre o WhatsApp do entregador na conversa com o cliente, com o texto pronto.
+  Future<void> _meuWhatsapp(String texto) async {
+    final d = (_ligacao?['numero']?.toString() ?? '').replaceAll(RegExp(r'\D'), '');
+    if (d.isEmpty) return;
+    await _abrirUri(Uri.parse('https://wa.me/$d?text=${Uri.encodeComponent(texto)}'), 'Não foi possível abrir o WhatsApp.');
+  }
+
+  Future<void> _acompanhamentoPeloMeuWhatsapp() {
+    final url = widget.pedido['rastreioUrl']?.toString() ?? '';
+    return _meuWhatsapp('$_abertura99 Já estou a caminho 🛵'
+        '${url.isNotEmpty ? '\nAcompanhe a entrega por aqui: $url' : ''}\n$_lembrete99');
+  }
+
+  Future<void> _semContatoPeloMeuWhatsapp() =>
+      _meuWhatsapp('$_abertura99 Estou tentando falar com você sobre a entrega. Pode me responder por aqui?\n$_lembrete99');
+
+  bool _pegandoPosicao = false;
+
+  Future<void> _posicaoPeloMeuWhatsapp() async {
+    setState(() => _pegandoPosicao = true);
+    try {
+      final p = await LocationSender.posicaoAtual();
+      if (p == null) {
+        if (mounted) _aviso('Não consegui pegar a sua posição. Ligue a localização do celular e tente de novo.', erro: true);
+        return;
+      }
+      final mapa = 'https://www.google.com/maps/search/?api=1&query='
+          '${p.latitude.toStringAsFixed(6)},${p.longitude.toStringAsFixed(6)}';
+      await _meuWhatsapp('$_abertura99 Estou perto do seu endereço e não estou encontrando o local. Estou aqui: $mapa\n'
+          'Pode me orientar?');
+    } finally {
+      if (mounted) setState(() => _pegandoPosicao = false);
+    }
+  }
+
   // ===== 09/11/2026: compartilhar minha posição, o chat do iFood/99 e a ligação pela central do iFood =====
 
   bool _posicaoEnviando = false;
@@ -756,6 +814,27 @@ class _PedidoScreenState extends State<PedidoScreen> {
               onPressed: _posicaoEnviando ? null : _compartilharPosicao,
               icon: const Icon(Icons.share_location),
               label: Text(_posicaoEnviando ? 'Enviando…' : 'Não acho o endereço: mandar minha posição'),
+            ),
+          ],
+          // 99 (10/11/2026): pelo WhatsApp do próprio entregador, com o texto pronto.
+          if (_whatsappDoEntregador) ...[
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _acompanhamentoPeloMeuWhatsapp,
+              icon: const Icon(Icons.route_outlined),
+              label: const Text('Mandar o acompanhamento (meu WhatsApp)'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _semContatoPeloMeuWhatsapp,
+              icon: const Icon(Icons.phone_disabled),
+              label: const Text('Não consigo falar com o cliente (meu WhatsApp)'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _pegandoPosicao ? null : _posicaoPeloMeuWhatsapp,
+              icon: const Icon(Icons.share_location),
+              label: Text(_pegandoPosicao ? 'Pegando a posição…' : 'Não acho o endereço: mandar minha posição (meu WhatsApp)'),
             ),
           ],
           if (_resposta != null) ...[const SizedBox(height: 8), _cartaoResposta()],
