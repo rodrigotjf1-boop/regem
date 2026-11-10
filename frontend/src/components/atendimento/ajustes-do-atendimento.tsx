@@ -12,6 +12,7 @@ import { QuemRecebeNoWhatsapp, type GrupoDoWhatsapp } from '@/components/atendim
 import { ContaDoInstagram, situacaoDoInstagram, useVoltaDoInstagram, type EstadoDoInstagram } from '@/components/atendimento/instagram-da-loja';
 import { ContaDoMessenger, situacaoDoMessenger, useVoltaDoMessenger, type EstadoDoMessenger } from '@/components/atendimento/messenger-da-loja';
 import { TestarAtendente } from '@/components/atendimento/testar-atendente';
+import { CampoDaMensagemDaPausa } from '@/components/atendimento/mensagem-da-pausa';
 
 // AJUSTES DO ATENDIMENTO — Delivery › Configurações › Operação › Atendimento (protótipo
 // `mockups/regem-central-atendimento.html`, vista "ajustes"; o grupo do "Cheguei" é do `mockups/regem-relacionamento.html`).
@@ -223,7 +224,16 @@ type Resposta = {
   instagram?: EstadoDoInstagram | null;
   messenger?: EstadoDoMessenger | null;
   // A pausa dos pedidos (F2, mig 393): o aviso antes de reabrir e o som, da loja em uso (sem cardápio: o grupo some).
-  pausa?: { minutos: number; som: 'bipe' | 'campainha'; temCardapio: boolean; opcoes?: { minutos: number[]; sons: string[] } } | null;
+  pausa?: {
+    minutos: number;
+    som: 'bipe' | 'campainha';
+    temCardapio: boolean;
+    opcoes?: { minutos: number[]; sons: string[] };
+    // F3 (mig 394): a mensagem da loja (nula = a padrão), a padrão e o limite.
+    mensagem?: string | null;
+    mensagemPadrao?: string;
+    mensagemMax?: number;
+  } | null;
 };
 
 const paraValores = (r: Resposta): Valores => ({
@@ -277,7 +287,9 @@ const paraValores = (r: Resposta): Valores => ({
       }
     : {}),
   ...(r.repetido?.temCardapio ? { repetidoAtivo: r.repetido.ativo, repetidoMin: String(r.repetido.minutos) } : {}),
-  ...(r.pausa?.temCardapio ? { pausaAvisoMin: String(r.pausa.minutos), pausaSom: r.pausa.som } : {}),
+  ...(r.pausa?.temCardapio
+    ? { pausaAvisoMin: String(r.pausa.minutos), pausaSom: r.pausa.som, pausaMensagem: r.pausa.mensagem ?? r.pausa.mensagemPadrao ?? '' }
+    : {}),
   ...(r.alterado ? { alteradoSom: r.alterado.som } : {}),
   ...(typeof r.alterado?.roboMuda === 'boolean' ? { alteradoRobo: r.alterado.roboMuda } : {}),
   ...(typeof r.alterado?.roboCobraPix === 'boolean' ? { alteradoRoboPix: r.alterado.roboCobraPix } : {}),
@@ -720,6 +732,24 @@ export function AjustesDoAtendimento() {
         ajuda: 'Toca no Delivery › Painel com o "🔔 Som on" ligado nele (o navegador só toca depois de um clique na tela).',
         palavras: 'pausa som aviso bipe campainha reabrir',
       },
+      // F3 (mig 394): a mensagem pronta (o protótipo põe este item em primeiro; aqui ele vem por último por ser o maior).
+      {
+        id: 'pausaMensagem',
+        rotulo: 'Mensagem ao cliente durante a pausa',
+        tipo: 'livre',
+        largo: true,
+        ajuda:
+          'O atendente manda esta mensagem na primeira vez que o cliente escreve com os pedidos pausados (WhatsApp, Instagram e Messenger — nos dois últimos, sem o negrito). Mudando, ela também aparece no cardápio online. Toque num campo para pôr no texto.',
+        desenhar: (v, mudar) => (
+          <CampoDaMensagemDaPausa
+            valor={String(v ?? '')}
+            mudar={mudar}
+            padrao={resp?.pausa?.mensagemPadrao ?? ''}
+            maximo={resp?.pausa?.mensagemMax ?? 700}
+          />
+        ),
+        palavras: 'pausa mensagem texto cliente aviso whatsapp instagram messenger emoji motivo volta nome',
+      },
     ],
   };
   const sonsDoAlterado = resp?.alterado?.sons?.length ? resp.alterado.sons : Object.keys(ROTULO_DO_SOM);
@@ -1148,7 +1178,7 @@ export function AjustesDoAtendimento() {
     const ajuste99: Record<string, unknown> = {};
     const cheguei: Record<string, unknown> = {};
     const repetido: Record<string, unknown> = {};
-    const pausa: { minutos?: number; som?: string } = {}; // "Pausa dos pedidos" (F2, mig 393)
+    const pausa: { minutos?: number; som?: string; mensagem?: string | null } = {}; // "Pausa dos pedidos" (F2/F3, migs 393/394)
     let alterado: { som?: string; roboMuda?: boolean; roboCobraPix?: boolean } | null = null;
     const gestorWa: Record<string, boolean | number | null> = {};
     let copiloto: { ligado: boolean } | null = null;
@@ -1284,6 +1314,9 @@ export function AjustesDoAtendimento() {
       else if (DO_REPETIDO[k]) repetido[DO_REPETIDO[k]] = k === 'repetidoMin' ? Number(valores[k]) : valores[k];
       else if (k === 'pausaAvisoMin') pausa.minutos = Number(valores[k]);
       else if (k === 'pausaSom') pausa.som = String(valores[k]);
+      // A padrão vai como nula ("Voltar ao texto padrão"): a loja segue com o texto do Regem, inclusive quando ele mudar.
+      else if (k === 'pausaMensagem')
+        pausa.mensagem = String(valores[k] ?? '').trim() === (resp?.pausa?.mensagemPadrao ?? '').trim() ? null : String(valores[k] ?? '');
       else ajuste99[k] = k === 'reembolsoRecusarEmHoras' ? Number(valores[k]) : valores[k];
     }
     try {

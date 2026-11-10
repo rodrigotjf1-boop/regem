@@ -80,8 +80,18 @@ export function resumoDaLoja(menu: any, linkCardapio: string, agora: Date = new 
     pausadaPelaLoja: loja.aberto === false || !!menu?.pausa,
     // A pausa dos pedidos (mig 392): o motivo e a volta, para o atendente explicar ao cliente — sem ela, null. `frase` vem
     // com o destaque do WhatsApp ("Estamos com *muitos pedidos agora*"); `volta` é "às 21:40" ou "amanhã às 00:30".
+    // F3 (mig 394): `mensagem` é a mensagem pronta da loja (sem o nome do cliente) — o Regem já a mandou na 1ª mensagem do
+    // cliente na pausa; o atendente lamenta com gentileza, diz o motivo e a volta, e não monta pedido até reabrir.
     pausa: menu?.pausa
-      ? { motivo: menu.pausa.rotulo ?? null, frase: menu.pausa.frase ?? null, volta: menu.pausa.volta?.texto ?? null, ate: menu.pausa.ate ?? null }
+      ? {
+          motivo: menu.pausa.rotulo ?? null,
+          frase: menu.pausa.frase ?? null,
+          volta: menu.pausa.volta?.texto ?? null,
+          ate: menu.pausa.ate ?? null,
+          mensagem: menu.pausa.mensagem ? String(menu.pausa.mensagem).replace(/\*/g, '') : null,
+          comoResponder:
+            'Os pedidos estão pausados agora. Lamente com gentileza, diga o motivo e a hora em que voltamos, e convide o cliente a pedir quando reabrirmos. Não monte pedido até lá.',
+        }
       : null,
     atende: {
       entrega: tipos.delivery !== false ? { abertaAgora: !!porTipo.entrega, tempoMin: loja.tempoEntregaMin ?? null } : null,
@@ -103,7 +113,9 @@ export function resumoDaLoja(menu: any, linkCardapio: string, agora: Date = new 
     categorias: (Array.isArray(menu?.categorias) ? menu.categorias : []).map((c: any) => c.nome),
     robo: {
       saudacao: menu?.robo?.saudacao ?? null,
-      ausencia: menu?.robo?.ausencia ?? null,
+      // Durante a pausa a "mensagem de ausência" é a da pausa (F3): o atendente do n8n já usa a de ausência com a loja
+      // fechada (regra 4 do prompt) — assim ele fala da pausa sem mudar o fluxo. Sem o destaque (ele escreve sem markdown).
+      ausencia: menu?.pausa?.mensagem ? String(menu.pausa.mensagem).replace(/\*/g, '') : menu?.robo?.ausencia ?? null,
       baseDeConhecimento: menu?.robo?.prompt ?? null,
       respostasProntas: Array.isArray(menu?.robo?.mensagens) ? menu.robo.mensagens : [],
     },

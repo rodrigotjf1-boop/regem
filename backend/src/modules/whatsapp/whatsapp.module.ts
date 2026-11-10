@@ -9,6 +9,7 @@ import { EmpresaDaLojaGuard, WhatsappDaLojaController } from './whatsapp-da-loja
 import { WhatsappCaixaController } from './whatsapp-caixa.controller';
 import { RoboRespostaController } from './robo-resposta.controller';
 import { RoboRespostaService } from './robo-resposta.service';
+import { PausaNoAtendimentoService } from './pausa-no-atendimento.service';
 import { EvolutionEntradaController } from './evolution-entrada.controller';
 import { EvolutionEntradaService } from './evolution-entrada.service';
 import { ConferirEntregaProcessor } from './conferir-entrega.processor';
@@ -53,6 +54,8 @@ import { MessengerModule } from '../messenger/messenger.module';
     PedirAvaliacaoProcessor,
     SyncTokenGuard,
     EmpresaDaLojaGuard,
+    // A pausa dos pedidos no atendimento (F3, migs 394/395): a 1ª mensagem do cliente na pausa recebe a mensagem pronta.
+    PausaNoAtendimentoService,
   ],
   exports: [WhatsappService, WhatsappCloudService, WhatsappProvedorService, WhatsappNumeroService],
 })

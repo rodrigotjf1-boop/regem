@@ -29,7 +29,38 @@ export type EstadoDasPausas = {
   /** F2 (mig 393): avisar N min antes de reabrir (0 = não avisa) e com que som. Ausente = servidor antigo (não avisa). */
   aviso?: { minutos: number; som: 'bipe' | 'campainha' };
   minutosParaEstender?: number[];
+  /** F3 (mig 394): o modelo da mensagem ao cliente (o da loja ou o padrão), com {nome} {motivo} {volta}. */
+  mensagemModelo?: string;
 };
+
+/** O primeiro nome ("ANA PAULA" → "Ana"); nada que pareça nome → vazio. A MESMA regra de `primeiroNome` no servidor. */
+export function primeiroNome(nome: unknown): string {
+  const p = String(nome ?? '').trim().split(/\s+/)[0] ?? '';
+  if (!/^[\p{L}][\p{L}'’-]{1,29}$/u.test(p)) return '';
+  return p.charAt(0).toLocaleUpperCase('pt-BR') + p.slice(1).toLocaleLowerCase('pt-BR');
+}
+
+/**
+ * A mensagem da pausa montada — a MESMA conta de `montarMensagemDaPausa` no servidor (`backend/src/common/pausa-do-canal.ts`,
+ * que é quem manda de verdade; aqui é só a prévia). O `check:pausa` confere os mesmos casos dos dois lados.
+ */
+export function montarMensagemDaPausa(
+  modelo: string,
+  d: { nome?: string | null; frase: string; volta: { hora: string; amanha: boolean } },
+  opcoes: { semDestaque?: boolean } = {},
+): string {
+  const nome = primeiroNome(d.nome);
+  const volta = `${d.volta.amanha ? 'amanhã ' : ''}às *${d.volta.hora}*`;
+  let t = nome
+    ? modelo.replace(/\{nome\}/g, nome)
+    : modelo
+        .replace(/,\s*\{nome\}/g, '')
+        .replace(/\{nome\}\s*,\s*(\p{L})/gu, (_m, l: string) => l.toLocaleUpperCase('pt-BR'))
+        .replace(/\s*\{nome\}/g, '');
+  t = t.replace(/\{motivo\}/g, d.frase).replace(/\{volta\}/g, volta);
+  if (opcoes.semDestaque) t = t.replace(/\*/g, '');
+  return t.replace(/\n{3,}/g, '\n\n').trim();
+}
 
 /** Segundos que faltam até o fim da pausa (0 quando já passou). */
 export function segundosAte(ate: string, agora: number): number {

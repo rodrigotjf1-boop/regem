@@ -3329,6 +3329,8 @@ export const cardapioConfig = pgTable('cardapio_config', {
   // A pausa dos pedidos, F2 (mig 393): o painel avisa N min antes de reabrir (0 = não avisa) com o som escolhido.
   pausaAvisoMin: integer('pausa_aviso_min').notNull().default(5),
   pausaSom: text('pausa_som').notNull().default('bipe'),
+  // F3 (mig 394): a mensagem pronta ao cliente durante a pausa ({nome} {motivo} {volta}); nulo = o texto padrão.
+  pausaMensagem: text('pausa_mensagem'),
   // Modo Encomenda (mig 186) — OPT-IN: pedido para data futura + regras.
   encomendaAtiva: boolean('encomenda_ativa').notNull().default(false),
   encomendaAntecedenciaHoras: integer('encomenda_antecedencia_horas').notNull().default(24),

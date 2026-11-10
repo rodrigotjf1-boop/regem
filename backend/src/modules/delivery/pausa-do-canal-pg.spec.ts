@@ -86,6 +86,12 @@ descrever('pausa por canal (Postgres)', () => {
 
     const resumo: any = resumoDaLoja(menu, 'https://link');
     expect(resumo).toMatchObject({ abertaAgora: false, pausadaPelaLoja: true, pausa: { motivo: 'Muitos pedidos agora', volta: `às ${p.volta.hora}` } });
+    // F3 (mig 394): a mensagem pronta (sem nome, sem o destaque) no resumo, e ela é a "mensagem de ausência" durante a pausa
+    // — o atendente do n8n já usa a de ausência com a loja fechada.
+    const semDestaque = `⏸️ Pedidos pausados por alguns minutos\n\nOi! Estamos com muitos pedidos agora e pausamos os pedidos para não atrasar ninguém.\n\n🕒 Voltamos às ${p.volta.hora}.`;
+    expect(resumo.pausa.mensagem.startsWith(semDestaque)).toBe(true);
+    expect(resumo.robo.ausencia).toBe(resumo.pausa.mensagem);
+    expect(menu.pausa).toMatchObject({ mensagemPersonalizada: false, mensagem: expect.stringContaining('Estamos com *muitos pedidos agora*') });
 
     await expect(cardapio.receberPedido(tokens[0], pedido)).rejects.toThrow(
       `Pedidos pausados agora: estamos com muitos pedidos agora. Voltamos às ${p.volta.hora}.`,

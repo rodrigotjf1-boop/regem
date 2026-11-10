@@ -10,6 +10,9 @@ import {
   AVISO_MINUTOS,
   avisoDaLinha,
   lerAjusteDaPausa,
+  lerMensagemDaPausa,
+  MENSAGEM_DA_PAUSA_MAX,
+  MENSAGEM_DA_PAUSA_PADRAO,
   MINUTOS_PARA_ESTENDER,
   SONS_DA_PAUSA,
   type AvisoDaPausa,
@@ -104,9 +107,15 @@ export class PausaDoCanalService {
       /** Precisa escolher a loja no topo antes de pausar (empresa com mais de um cardápio de loja). */
       escolherLoja: loja.unidadeId === undefined,
       // F2 (mig 393): quando o painel avisa antes de reabrir e com que som; os botões de estender.
-      aviso: await this.avisoDaLoja(tenantId, loja.unidadeId ?? unidadeAtual),
+      ...(await this.avisoEMensagem(tenantId, loja.unidadeId ?? unidadeAtual)),
       minutosParaEstender: [...MINUTOS_PARA_ESTENDER],
     };
+  }
+
+  /** O aviso (F2) e o modelo da mensagem ao cliente (F3: o da loja ou o padrão) — a prévia do diálogo usa o modelo. */
+  private async avisoEMensagem(tenantId: string, unidadeId: string | null | undefined) {
+    const row = await this.linhaDoAviso(tenantId, unidadeId);
+    return { aviso: avisoDaLinha(row), mensagemModelo: mensagemDaLinha(row) ?? MENSAGEM_DA_PAUSA_PADRAO };
   }
 
   /**
@@ -115,7 +124,8 @@ export class PausaDoCanalService {
    */
   private async linhaDoAviso(tenantId: string, unidadeId: string | null | undefined) {
     const r: any = await this.db.execute(sql`
-      select c.id, c.unidade_id, to_jsonb(c) ->> 'pausa_aviso_min' as pausa_aviso_min, to_jsonb(c) ->> 'pausa_som' as pausa_som
+      select c.id, c.unidade_id, to_jsonb(c) ->> 'pausa_aviso_min' as pausa_aviso_min, to_jsonb(c) ->> 'pausa_som' as pausa_som,
+             to_jsonb(c) ->> 'pausa_mensagem' as pausa_mensagem
         from cardapio_config c
        where c.tenant_id = ${tenantId}::uuid
          and (${unidadeId ?? null}::uuid is not null and c.unidade_id = ${unidadeId ?? null}::uuid or c.unidade_id is null)
@@ -247,44 +257,78 @@ export class PausaDoCanalService {
     return this.estado(user.tenantId, unidadeAtual, agora);
   }
 
-  /** O grupo "Pausa dos pedidos" dos ajustes do atendimento (F2): o aviso da loja em uso e as opções. */
+  /**
+   * O grupo "Pausa dos pedidos" dos ajustes do atendimento: o aviso antes de reabrir (F2) e a mensagem pronta ao cliente
+   * (F3 — `mensagem` nula = o texto padrão, que vai junto para a tela mostrar e para o "Voltar ao texto padrão").
+   */
   async ajustes(tenantId: string, unidadeId: string | null) {
     const row = await this.linhaDoAviso(tenantId, unidadeId);
-    return { ...avisoDaLinha(row), temCardapio: !!row, opcoes: { minutos: [...AVISO_MINUTOS], sons: [...SONS_DA_PAUSA] } };
+    return {
+      ...avisoDaLinha(row),
+      mensagem: mensagemDaLinha(row),
+      mensagemPadrao: MENSAGEM_DA_PAUSA_PADRAO,
+      mensagemMax: MENSAGEM_DA_PAUSA_MAX,
+      temCardapio: !!row,
+      opcoes: { minutos: [...AVISO_MINUTOS], sons: [...SONS_DA_PAUSA] },
+    };
   }
 
   /** Confere o ajuste sem gravar nada (a rota dos ajustes confere todos os grupos antes da 1ª gravação — V86). */
-  conferirAjustes(dto: unknown): Partial<AvisoDaPausa> {
+  conferirAjustes(dto: unknown): AjusteDaPausa {
     const a = lerAjusteDaPausa(dto);
     if (!a.ok) throw new BadRequestException(a.erro);
-    return a.parcial;
+    const parcial: AjusteDaPausa = { ...a.parcial };
+    const d = (dto ?? {}) as Record<string, unknown>;
+    if (d.mensagem !== undefined) {
+      const m = lerMensagemDaPausa(d.mensagem);
+      if (!m.ok) throw new BadRequestException(m.erro);
+      parcial.mensagem = m.mensagem;
+    }
+    return parcial;
   }
 
   /**
    * Grava só os campos que vieram (V16) e só as colunas deles, na linha do cardápio da loja em uso (sem ela, a da empresa).
    * Quem mudou e de quê para quê fica na auditoria. Sem cardápio: recusa, com o caminho para criar.
    */
-  async salvarAjustes(user: AuthUser, unidadeId: string | null, parcial: Partial<AvisoDaPausa>): Promise<void> {
+  async salvarAjustes(user: AuthUser, unidadeId: string | null, parcial: AjusteDaPausa): Promise<void> {
     const row = await this.linhaDoAviso(user.tenantId, unidadeId);
     if (!row) throw new BadRequestException('A loja ainda não tem cardápio online: a pausa mora nele (Delivery › Configurações › Cardápio).');
     const antes = avisoDaLinha(row);
+    const mensagemAntes = mensagemDaLinha(row);
     const sets: SQL[] = [];
     if (parcial.minutos !== undefined && parcial.minutos !== antes.minutos) sets.push(sql`pausa_aviso_min = ${parcial.minutos}`);
     if (parcial.som !== undefined && parcial.som !== antes.som) sets.push(sql`pausa_som = ${parcial.som}`);
+    const mudouAviso = sets.length > 0;
+    const mudouMensagem = parcial.mensagem !== undefined && parcial.mensagem !== mensagemAntes;
+    if (mudouMensagem) sets.push(sql`pausa_mensagem = ${parcial.mensagem ?? null}`);
     if (!sets.length) return;
     await this.db.execute(sql`
       update cardapio_config set ${sql.join(sets, sql`, `)}, updated_at = now()
        where id = ${row.id}::uuid and tenant_id = ${user.tenantId}::uuid`);
-    await this.auditoria.registrar({
+    const base = {
       tenantId: user.tenantId,
       atorId: user.colaboradorId,
       atorPerfil: user.categoria ?? '',
       tipo: 'config',
-      acao: 'alterou_aviso_da_pausa',
       unidadeId: row.unidade_id ?? null,
       entidadeTipo: 'cardapio_config',
       entidadeId: row.id,
-      detalhe: { antes, depois: { ...antes, ...parcial } },
-    });
+    };
+    if (mudouAviso) {
+      const { mensagem: _m, ...aviso } = parcial;
+      await this.auditoria.registrar({ ...base, acao: 'alterou_aviso_da_pausa', detalhe: { antes, depois: { ...antes, ...aviso } } });
+    }
+    if (mudouMensagem)
+      await this.auditoria.registrar({ ...base, acao: 'alterou_mensagem_da_pausa', detalhe: { antes: mensagemAntes, depois: parcial.mensagem ?? null } });
   }
+}
+
+/** Os ajustes que a tela grava: o aviso (F2) e a mensagem pronta (F3; nula = o texto padrão). */
+export type AjusteDaPausa = Partial<AvisoDaPausa> & { mensagem?: string | null };
+
+/** A mensagem que a loja escreveu (nula = o texto padrão). */
+function mensagemDaLinha(row: any): string | null {
+  const t = String(row?.pausa_mensagem ?? '').trim();
+  return t || null;
 }

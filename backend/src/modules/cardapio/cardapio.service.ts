@@ -112,7 +112,7 @@ import { CashbackService } from '../cashback/cashback.service';
 import { hojeISO } from '../../common/data';
 import { edgeAtivo } from '../../common/edge-ativo';
 import { lojaDoCanal, lojasAtivas, pausadosNaLoja } from '../../common/pausa-loja';
-import { pausaVigenteDoCanal, textoDaRecusa, type PausaVigente } from '../../common/pausa-do-canal';
+import { montarMensagemDaPausa, pausaVigenteDoCanal, textoDaRecusa, type PausaVigente } from '../../common/pausa-do-canal';
 import { gravarOrigemPedido, medicaoDeAnuncios } from './origem-pedido';
 import { escolhaNoCheckout, promocoesDaLoja } from './promocoes-cardapio';
 import { TIPOS_EVENTO_FUNIL, ehTemplateCardapio, proximaAberturaDe, templateDoCardapio } from './menu-themes';
@@ -1437,7 +1437,17 @@ export class CardapioService {
         entrega: aberto.entrega ? volta : this.proximaAbertura(cfg, 'entrega'),
         retirada: aberto.retirada ? volta : this.proximaAbertura(cfg, 'retirada'),
       },
-      pausa: { ate: pausa.ate, volta: pausa.volta, motivo: pausa.motivo, rotulo: pausa.rotulo, frase: pausa.frase },
+      pausa: {
+        ate: pausa.ate,
+        volta: pausa.volta,
+        motivo: pausa.motivo,
+        rotulo: pausa.rotulo,
+        frase: pausa.frase,
+        // F3 (mig 394): a mensagem pronta da loja montada SEM o nome (no cardápio ninguém se identificou ainda); a tela
+        // a mostra no aviso quando a loja escreveu a sua (`mensagemPersonalizada`), senão fica o aviso de sempre.
+        mensagem: montarMensagemDaPausa(cfg.pausaMensagem, { nome: null, frase: pausa.frase, volta: pausa.volta }),
+        mensagemPersonalizada: !!String(cfg.pausaMensagem ?? '').trim(),
+      },
     };
   }
 

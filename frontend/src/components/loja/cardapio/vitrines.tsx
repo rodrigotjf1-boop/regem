@@ -5,7 +5,7 @@ import type { Cardapio } from './use-cardapio';
 import { brl, extrasDe, Foto, Ic, Logo, pctDesconto, Preco, seloDe } from './partes';
 import { EvFaixa, EvIcone, EvTopo } from '../eventos/contexto';
 import { avisoDaPausa } from '@/lib/pausa-dos-pedidos';
-import { ComDestaque, ContadorDaPausa } from '@/components/delivery/pausa/aviso-da-pausa';
+import { ComDestaque, ContadorDaPausa, MensagemComDestaque } from '@/components/delivery/pausa/aviso-da-pausa';
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @next/next/no-img-element */
 
@@ -28,8 +28,22 @@ function statusLoja(c: Cardapio): string {
 
 /** O aviso da pausa dos pedidos (mig 392): o motivo, a volta e que dá para olhar o cardápio. O mesmo texto da prévia do painel. */
 function AvisoDaPausaNaVitrine({ c }: { c: Cardapio }) {
-  const p = c.menu?.pausa as { frase: string; volta: { texto: string }; ate: string };
+  const p = c.menu?.pausa as { frase: string; volta: { texto: string }; ate: string; mensagem?: string; mensagemPersonalizada?: boolean };
   const a = avisoDaPausa(p);
+  // F3 (mig 394): a loja escreveu a sua mensagem — ela aparece aqui (sem o nome), com o tempo que falta embaixo.
+  if (p.mensagemPersonalizada && p.mensagem)
+    return (
+      <div className="p-aviso fechada" role="status">
+        <Ic n="clock" s={18} />
+        <div>
+          <MensagemComDestaque texto={p.mensagem} />
+          <span>
+            <ContadorDaPausa ate={p.ate} className="tabular-nums" texto={(r) => `Faltam ${r} para reabrir.`} />
+            {c.soAgendado ? ' Monte seu pedido e agende o horário.' : ''}
+          </span>
+        </div>
+      </div>
+    );
   return (
     <div className="p-aviso fechada" role="status">
       <Ic n="clock" s={18} />

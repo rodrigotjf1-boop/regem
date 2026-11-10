@@ -112,6 +112,15 @@ export class RoboRespostaService {
 
   async responder(segredo: string, p: PedidoDeResposta): Promise<RespostaDoRobo> {
     if (!segredoDoRoboOk(segredo)) throw new UnauthorizedException('Não autorizado.');
+    return this.responderDoRegem(p);
+  }
+
+  /**
+   * A MESMA porta, chamada pelo próprio Regem (a mensagem pronta da pausa dos pedidos, F3 — `pausa-no-atendimento.ts`):
+   * sem a senha (quem chama está aqui dentro), com o mesmo roteamento por canal e as mesmas travas (robô ligado, conversa
+   * não assumida por uma pessoa).
+   */
+  async responderDoRegem(p: PedidoDeResposta): Promise<RespostaDoRobo> {
     // A conversa de TESTE do atendente (chave `teste:` na instância ou no `para`, mig 382) ANTES de tudo: a resposta fica
     // na conversa de teste e NADA sai para cliente nenhum (nem as travas de robô ligado/conversa pausada valem aqui).
     if (ehChaveDeTeste(p?.instancia) || ehChaveDeTeste(p?.para)) return this.responderNoTeste(p);
