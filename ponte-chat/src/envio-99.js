@@ -75,7 +75,12 @@ const PEDIDO_NA_BUSCA = (numero) => `(() => {
   return { achou: cartoes.some((c) => num(c) === alvo) && !!painel && (painel.textContent || '').trim() === alvo, vazio, painel: painel ? (painel.textContent || '').trim() : null };
 })()`;
 
-/** Onde clicar no balão do chat do resumo (o centro, conferido pelo que está pintado ali). Fora da vista: rola até ele. */
+/**
+ * Onde clicar no balão do chat do resumo (o centro, conferido pelo que está pintado ali). Fora da vista: rola até ele.
+ * Uma NOTIFICAÇÃO da própria 99 na frente (`.pb-notification` — a "verifique sua conexão de internet" fica fixa no canto
+ * de cima, por cima do resumo: era ela que travava o envio pela 99, 06–09/11) é só aviso: fecha no X dela e confere de
+ * novo. Qualquer outra coisa na frente: não clica, e o motivo diz QUAL peça (só a tag e as classes, nunca texto).
+ */
 const BALAO = (numero) => `(() => {
   ${VIS}
   const painel = document.querySelector('main.order-container__detail .index-number');
@@ -85,7 +90,13 @@ const BALAO = (numero) => `(() => {
   const c = (${CENTRO})(b);
   if (c.x < 0 || c.y < 0 || c.x > innerWidth || c.y > innerHeight) { b.scrollIntoView({ block: 'center' }); return { ok: false, rolou: true, motivo: 'o botão do chat estava fora da vista' }; }
   const topo = document.elementFromPoint(c.x, c.y);
-  if (!topo || !(topo === b || b.contains(topo))) return { ok: false, motivo: 'há algo na frente do botão do chat' };
+  if (!topo || !(topo === b || b.contains(topo))) {
+    const aviso = topo && topo.closest ? topo.closest('.pb-notification') : null;
+    const fechar = aviso ? aviso.querySelector('.pb-notification__closeBtn') : null;
+    if (fechar) { fechar.click(); return { ok: false, fechouAviso: true, motivo: 'fechei uma notificação da 99 que estava na frente do botão do chat' }; }
+    const peca = topo ? (topo.tagName.toLowerCase() + '.' + String(topo.className || '').split(/\\s+/).filter(Boolean).slice(0, 3).join('.')).slice(0, 80) : 'nada';
+    return { ok: false, motivo: 'há algo na frente do botão do chat (' + peca + ')' };
+  }
   return { ok: true, x: c.x, y: c.y };
 })()`;
 

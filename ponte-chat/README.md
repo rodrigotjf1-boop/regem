@@ -164,6 +164,18 @@ chega e a busca do programa funciona no portal de verdade.
   por ele não mostra o que o cliente e o usuário principal trocaram. As mensagens do cliente só chegam à ponte se ela usar
   a conta que conversa com o cliente (a principal) — ou se a 99 tiver uma permissão de chat para o usuário extra.
 
+## O que a versão 0.7.4 muda (09/11 — o envio pela 99 destravado e o motivo da fila parada no diagnóstico)
+
+- **A notificação da 99 na frente do botão do chat é fechada.** A "Por favor, verifique sua conexão de internet" fica
+  fixa no canto de cima da página da 99, por cima do resumo do pedido — e a ponte, que só clica com o botão LIVRE,
+  desistia ("há algo na frente do botão do chat"): o envio pela 99 nunca saiu (06–09/11). Agora, quando o que está na
+  frente é uma notificação da própria 99 (`.pb-notification`), a ponte fecha no X dela e confere de novo. Qualquer outra
+  peça na frente: não clica, e o motivo diz qual (só a tag e as classes).
+- **A situação da fila de saída vai ao diagnóstico quando muda** (`saida_situacao`, de → para): em 08/11, das 19:15 às
+  20:45, a fila do iFood ficou parada (11 avisos "saiu" venceram) e o motivo só existia na memória. Os motivos são textos
+  fixos do programa (sem nome de cliente nem texto de mensagem). A janela "pronto para iniciar?" do Gestor na abertura NÃO
+  é fechada pela ponte (mexe na abertura da loja): se ela segurar a fila, o diagnóstico mostra.
+
 ## O que a versão 0.7.3 muda (08/11 — a 99 com a CONTA PRINCIPAL, decisão do dono)
 
 - **A 99 entra com a conta principal da loja**, não mais com o usuário extra: é com ela que o cliente conversa (o achado da

@@ -127,6 +127,12 @@
   servidor da loja (vai pela nuvem, `avaliacao-da-loja`) e a renovação do token do iFood sem apagar ajuste (V82 — sem
   efeito na loja, que não fala com o iFood).
 
+- **Ponte do chat 0.7.4 — o envio pela 99 destravado e o motivo da fila parada no diagnóstico (09/11; sem migration,
+  sem mudança na nuvem).** Só o programa `ponte-chat/` (ainda sem instalador): fecha a notificação da 99 ("verifique sua
+  conexão de internet") que ficava na frente do botão do chat — o envio pela 99 nunca saía —, e grava no diagnóstico
+  cada mudança da situação da fila de saída. Neste PC (a ponte roda da pasta do repositório) vale ao REINICIAR a ponte
+  (~1 min sem ler o chat — de preferência com a loja fechada). Nada muda no `.zip`/`.exe` do Regem.
+
 - **Ponte do chat 0.7.1 — a 1ª fala da equipe numa conversa nova do iFood entra no Atendimento (06/11; sem migration,
   sem mudança na nuvem).** Só o programa `ponte-chat/` (ainda sem instalador — gerar sob comando): da conta da loja, só os
   avisos automáticos do iFood (pelo texto) ficam de fora. Nada muda no `.zip`/`.exe` do Regem.
