@@ -56,10 +56,12 @@ select 'robo_config.cliente_99_whatsapp' as objeto,
                 where table_schema = current_schema() and table_name = 'robo_config'
                   and column_name = 'cliente_99_whatsapp' and column_default = 'false') as ok
 union all
+-- Pelo catálogo (pg_constraint), não pelo information_schema: este só mostra a tabela a quem tem permissão nela, e a
+-- conferência pela conexão de leitura dava "false" com a chave criada (10/11/2026).
 select 'tabela pedido_aviso_99 com a chave (pedido, aviso)',
-       (select count(*) = 2 from information_schema.key_column_usage k
-          join information_schema.table_constraints c on c.constraint_name = k.constraint_name and c.table_schema = k.table_schema
-         where k.table_schema = current_schema() and k.table_name = 'pedido_aviso_99' and c.constraint_type = 'PRIMARY KEY')
+       exists (select 1 from pg_constraint c
+                where c.conrelid = to_regclass(current_schema() || '.pedido_aviso_99') and c.contype = 'p'
+                  and pg_get_constraintdef(c.oid) = 'PRIMARY KEY (pedido_id, evento)')
 union all
 select 'RLS ligada em pedido_aviso_99',
        coalesce((select c.relrowsecurity from pg_class c where c.oid = to_regclass(current_schema() || '.pedido_aviso_99')), false);
