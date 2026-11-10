@@ -127,6 +127,11 @@
   servidor da loja (vai pela nuvem, `avaliacao-da-loja`) e a renovação do token do iFood sem apagar ajuste (V82 — sem
   efeito na loja, que não fala com o iFood).
 
+- **Ponte do chat 0.7.5 — o Gestor do iFood volta sozinho ao quadro "Pedidos" (09/11; sem migration, sem mudança na
+  nuvem).** Só o programa `ponte-chat/` (ainda sem instalador): ao reiniciar, o Gestor abre em "Início" e a fila de saída
+  do iFood esperava alguém clicar em "Pedidos" (ERR-418); agora, fora de "Pedidos" e com a tela parada há 60 s, a ponte
+  clica no item do menu (só navegação). Neste PC vale ao reiniciar a ponte. Nada muda no `.zip`/`.exe` do Regem.
+
 - **Ponte do chat 0.7.4 — o envio pela 99 destravado e o motivo da fila parada no diagnóstico (09/11; sem migration,
   sem mudança na nuvem).** Só o programa `ponte-chat/` (ainda sem instalador): fecha a notificação da 99 ("verifique sua
   conexão de internet") que ficava na frente do botão do chat — o envio pela 99 nunca saía —, e grava no diagnóstico

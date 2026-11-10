@@ -164,6 +164,19 @@ chega e a busca do programa funciona no portal de verdade.
   por ele não mostra o que o cliente e o usuário principal trocaram. As mensagens do cliente só chegam à ponte se ela usar
   a conta que conversa com o cliente (a principal) — ou se a 99 tiver uma permissão de chat para o usuário extra.
 
+## O que a versão 0.7.5 muda (09/11 — o Gestor volta sozinho ao quadro "Pedidos")
+
+- **Ao reiniciar, o Gestor do iFood abre em "Início", não no quadro "Pedidos"** — e a fila de saída só envia com o quadro
+  aberto (é nele que o programa acha o cartão do pedido). Em 09/11, logo depois de reiniciar na 0.7.4, a fila do iFood
+  ficou 5 min "esperando a tela do Gestor (o Gestor não está no quadro "Pedidos")" até alguém clicar em "Pedidos" — o
+  diagnóstico novo da 0.7.4 mostrou o motivo; é a explicação provável da fila parada de 08/11.
+- **Agora a ponte volta sozinha:** com o Gestor fora de "Pedidos" (o item do menu lateral não é a página atual), sem
+  rascunho no campo de mensagem e ninguém mexendo há 60 s (`REGEM_PONTE_VOLTAR_MS`), clica no item "Pedidos" do menu.
+  É só navegação — não aceita pedido, não abre nem fecha a loja. Se o clique não levar, não insiste antes de outros 60 s.
+  Cada volta vai ao diagnóstico (`gestor_voltou_ao_quadro`, com o começo do endereço da página de onde saiu, sem id).
+- **Quadro "Pedidos" aberto e vazio** (nenhum cartão): o motivo agora diz "o quadro "Pedidos" está sem cartões", e não
+  mais "não está no quadro".
+
 ## O que a versão 0.7.4 muda (09/11 — o envio pela 99 destravado e o motivo da fila parada no diagnóstico)
 
 - **A notificação da 99 na frente do botão do chat é fechada.** A "Por favor, verifique sua conexão de internet" fica

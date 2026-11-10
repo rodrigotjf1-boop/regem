@@ -48,7 +48,7 @@ const { motivoParaNaoEnviar } = require('./regras');
 const nuvem = require('./nuvem');
 const { Jornal } = require('./jornal');
 const { Saida } = require('./saida');
-const { INSTALAR_VIGIA, ESTADO_DA_TELA, avaliarTela, mexeuDesde } = require('./tela-livre');
+const { INSTALAR_VIGIA, ESTADO_DA_TELA, ABRIR_PEDIDOS, avaliarTela, deveVoltarAoQuadro, mexeuDesde } = require('./tela-livre');
 const local = require('./estado-local');
 
 const GESTOR = process.env.REGEM_PONTE_GESTOR || 'https://gestordepedidos.ifood.com.br/';
@@ -60,6 +60,7 @@ const FILA_MS = Number(process.env.REGEM_PONTE_FILA_MS) || 3000;
 const SAIDA_MS = Number(process.env.REGEM_PONTE_SAIDA_MS) || 5000;
 const PARADA_MS = Number(process.env.REGEM_PONTE_PARADA_MS) || 10000;
 const ESPERA_TELA_MS = Number(process.env.REGEM_PONTE_ESPERA_TELA_MS) || 45000;
+const VOLTAR_AO_QUADRO_MS = Number(process.env.REGEM_PONTE_VOLTAR_MS) || 60000; // Gestor fora de "Pedidos" e parado: volta (ERR-418)
 const ECO_MS = Number(process.env.REGEM_PONTE_ECO_MS) || 20000; // quanto esperar o eco do envio (a prova encurta)
 // A 99 (4a): o portal (a prova troca pela 99 de mentira); "logada" = respondeu o polling do IM nos últimos 5 min
 const NOVENTA = process.env.REGEM_PONTE_99 || 'https://merchant.99app.com/pt-BR/store/pc-v2/order';
@@ -600,11 +601,24 @@ if (!app.requestSingleInstanceLock()) {
     }
   }
 
-  /** A tela do Gestor está livre para o programa? (no quadro, ninguém mexendo há PARADA_MS, nenhum rascunho no campo) */
+  let voltouAoQuadroEm = 0;
+
+  /**
+   * A tela do Gestor está livre para o programa? (no quadro, ninguém mexendo há PARADA_MS, nenhum rascunho no campo)
+   * Fora de "Pedidos" e parada há VOLTAR_AO_QUADRO_MS (o Gestor abre em "Início" ao reiniciar): clica em "Pedidos" e
+   * anota no diagnóstico; a próxima volta da fila confere de novo (ERR-418).
+   */
   async function telaLivre() {
     if (!gestor || gestor.isDestroyed() || !leitor) return { ok: false, motivo: 'o Gestor não está aberto no programa' };
     if (ocupadoNoGestor) return { ok: false, motivo: 'um ensaio ou envio está em andamento' };
-    return avaliarTela(await estadoDaTela(), { ultimaTeclaEm, paradaMs: PARADA_MS });
+    const e = await estadoDaTela();
+    if (deveVoltarAoQuadro(e, { ultimaTeclaEm, ultimaVoltaEm: voltouAoQuadroEm, voltarMs: VOLTAR_AO_QUADRO_MS })) {
+      voltouAoQuadroEm = Date.now();
+      const foi = await gestor.webContents.mainFrame.executeJavaScript(ABRIR_PEDIDOS).catch(() => false);
+      if (diagnostico) diagnostico.anotar({ ev: 'gestor_voltou_ao_quadro', ok: foi === true, de: e.pagina || '' });
+      return { ok: false, motivo: foi === true ? 'voltei o Gestor para o quadro "Pedidos"' : 'não consegui voltar o Gestor para o quadro "Pedidos"' };
+    }
+    return avaliarTela(e, { ultimaTeclaEm, paradaMs: PARADA_MS });
   }
 
   async function pessoaMexeuDesde(desde) {
