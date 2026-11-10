@@ -54,6 +54,8 @@ type Dados = {
   parada: { x: number; y: number } | null;
   etaMin: number | null;
   codigoEntrega: string | null;
+  // O cliente da 99 (mig 388): o código de entrega é o que aparece no app da 99. Servidor antigo não manda.
+  codigoNoAppDe?: string | null;
   rota: { geometry: string; duracaoMin: number; distanciaM: number } | null;
 };
 
@@ -265,6 +267,24 @@ export default function RastreioPage() {
                 <div style={{ fontSize: 12.5, color: '#48586a', marginTop: 2 }}>
                   Informe este código ao entregador para confirmar a entrega.
                 </div>
+              </div>
+            )}
+
+            {!dados.codigoEntrega && dados.codigoNoAppDe && (
+              <div
+                role="note"
+                style={{
+                  background: '#f8ecd6',
+                  border: `1px solid ${OURO}`,
+                  borderRadius: 12,
+                  padding: '10px 16px',
+                  marginBottom: 12,
+                  textAlign: 'center',
+                  fontSize: 13.5,
+                  color: NAVY,
+                }}
+              >
+                🔑 Na entrega, informe ao entregador o código que aparece no app da {dados.codigoNoAppDe}.
               </div>
             )}
 

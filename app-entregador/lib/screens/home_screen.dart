@@ -7,6 +7,8 @@ import '../location.dart';
 import '../outbox.dart';
 import '../theme.dart';
 import '../widgets/regem_mark.dart';
+import '../widgets/logo_do_canal.dart';
+import '../chat_visto.dart';
 import 'login_screen.dart';
 import 'scanner_screen.dart';
 import 'pedido_screen.dart';
@@ -33,6 +35,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _online = true; // indicador de conexão (offline-first)
   int _pendentes = 0; // entregas na fila local aguardando envio
   Set<String> _pendentesIds = {}; // pedidos guardados sem sinal, aguardando confirmação
+  Set<String> _chatNovos = {}; // pedidos em que o cliente escreveu no chat do iFood/99 e o entregador não viu
   StreamSubscription<List<ConnectivityResult>>? _connSub;
 
   @override
@@ -143,6 +146,13 @@ class _HomeScreenState extends State<HomeScreen> {
           _carregando = false;
         });
       }
+      // "O cliente escreveu no chat" (09/11/2026): a última fala do cliente que o entregador ainda não viu.
+      final novos = <String>{};
+      for (final x in [...peds, ...((saida?['paradas'] as List?) ?? const [])]) {
+        final m = x as Map;
+        if (await ChatVisto.temNova('${m['id']}', m['ultimaNoChat'])) novos.add('${m['id']}');
+      }
+      if (mounted) setState(() => _chatNovos = novos);
       // GPS só com entrega ativa (LGPD + bateria): pedidos avulsos em rota OU paradas pendentes
       // numa saída (roteiro). Antes só olhava `peds` → no roteiro o GPS não ligava.
       final temSaidaAtiva =
@@ -195,6 +205,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Guardado sem sinal (99 ou código da loja), ainda não confirmado pelo servidor.
   bool _aguardando(Map m) => _pendentesIds.contains(m['id']);
+
+  /// A linha de baixo do pedido na lista: o cliente e o endereço — ou o que pede atenção (sem sinal, mensagem no chat).
+  String _linhaDoPedido(Map m) {
+    if (_aguardando(m)) return 'Aguardando confirmação · envia quando o sinal voltar';
+    if (_chatNovos.contains(m['id'])) return '💬 O cliente escreveu no chat · ${m['cliente'] ?? 'Cliente'}';
+    final end = m['endereco']?.toString() ?? '';
+    return '${m['cliente'] ?? 'Cliente'}${end.isNotEmpty ? ' · $end' : ''}';
+  }
 
   Future<void> _toggleContato(bool v) async {
     setState(() => _compartilhaContato = v);
@@ -418,10 +436,14 @@ class _HomeScreenState extends State<HomeScreen> {
               ? const Icon(Icons.check, color: Colors.white, size: 18)
               : Text('$ordem', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         ),
-        title: Text('#${m['numero'] ?? ''} · ${m['cliente'] ?? 'Cliente'}'),
-        subtitle: Text(_aguardando(m)
-            ? 'Aguardando confirmação · envia quando o sinal voltar'
-            : m['endereco']?.toString() ?? ''),
+        title: Row(
+          children: [
+            LogoDoCanal(canal: m['canal'], logoDaLoja: m['logoDaLoja']?.toString(), tamanho: 22),
+            const SizedBox(width: 6),
+            Expanded(child: Text(tituloDoPedido(m), overflow: TextOverflow.ellipsis)),
+          ],
+        ),
+        subtitle: Text(_linhaDoPedido(m)),
         trailing: entregue
             ? const Text('entregue', style: TextStyle(color: Colors.green, fontSize: 12))
             : _aguardando(m)
@@ -612,14 +634,15 @@ class _HomeScreenState extends State<HomeScreen> {
               final m = p as Map<String, dynamic>;
               return Card(
                 child: ListTile(
-                  leading: const Icon(Icons.motorcycle),
-                  title: Text('#${m['numero'] ?? ''} · ${m['cliente'] ?? 'Cliente'}'),
-                  subtitle: Text(_aguardando(m)
-                      ? 'Aguardando confirmação · envia quando o sinal voltar'
-                      : m['endereco']?.toString() ?? ''),
+                  // De onde veio o pedido, como no painel: a logo do canal (no cardápio, a da loja).
+                  leading: LogoDoCanal(canal: m['canal'], logoDaLoja: m['logoDaLoja']?.toString()),
+                  title: Text(tituloDoPedido(m), style: const TextStyle(fontWeight: FontWeight.w700)),
+                  subtitle: Text(_linhaDoPedido(m)),
                   trailing: _aguardando(m)
                       ? Icon(Icons.schedule, color: Colors.orange.shade800)
-                      : const Icon(Icons.chevron_right),
+                      : _chatNovos.contains(m['id'])
+                          ? const Badge(child: Icon(Icons.forum_outlined))
+                          : const Icon(Icons.chevron_right),
                   onTap: () => _abrir(m),
                 ),
               );

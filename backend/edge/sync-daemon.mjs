@@ -2317,6 +2317,9 @@ const SO_NUVEM = new Set([
   'robo_carrinho',
   // "Já avisei este pedido do atraso" (mig 347, @cloud-only): o aviso automático sai pelo WhatsApp oficial, só da nuvem.
   'pedido_aviso_atraso',
+  // "Já mandei este aviso ao cliente da 99" (mig 388, @cloud-only): o rastreio da 99 sai pelo WhatsApp da loja, só da
+  // nuvem — a loja não tem esta tabela.
+  'pedido_aviso_99',
   // "Disponível / Ocupado: embalando" de quem atende pelo app "Regem Atendimento" (mig 353, @cloud-only): o app fala
   // com a nuvem (decisão do dono, 02/11/2026); a loja não tem esta tabela.
   'atendimento_presenca',

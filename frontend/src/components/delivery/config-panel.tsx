@@ -18,6 +18,7 @@ import { EventosPanel } from '@/components/delivery/eventos-panel';
 import { NumerosWhatsapp } from '@/components/delivery/numeros-whatsapp';
 import { CodigoEntregaAjuste } from '@/components/delivery/codigo-entrega-ajuste';
 import { LembreteCarrinho } from '@/components/delivery/lembrete-carrinho';
+import { Cliente99Whatsapp } from '@/components/delivery/cliente-99-whatsapp';
 import { ConferirEntrega } from '@/components/delivery/conferir-entrega';
 import { PedirAvaliacao } from '@/components/delivery/pedir-avaliacao';
 import { AjustesDoAtendimento } from '@/components/atendimento/ajustes-do-atendimento';
@@ -1445,6 +1446,7 @@ function Robo({ loja, up, onSalvar, salvando, pode }: { loja: any; up: (p: any) 
       <LembreteCarrinho pode={pode} loja={loja} />
       <ConferirEntrega pode={pode} loja={loja} />
       <PedirAvaliacao pode={pode} loja={loja} />
+      <Cliente99Whatsapp pode={pode} loja={loja} />
 
       <Campo label="Saudação (primeira mensagem)">
         <textarea rows={2} className={areaTxt} disabled={!pode} value={loja.roboSaudacao ?? ''} onChange={(e) => up({ roboSaudacao: e.target.value })} placeholder="Olá! 👋 Bem-vindo. Como posso ajudar?" />

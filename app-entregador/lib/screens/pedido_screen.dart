@@ -7,6 +7,9 @@ import 'package:url_launcher/url_launcher.dart';
 import '../api.dart';
 import '../location.dart';
 import '../outbox.dart';
+import '../chat_visto.dart';
+import '../widgets/logo_do_canal.dart';
+import 'chat_screen.dart';
 import 'rota_screen.dart';
 
 class PedidoScreen extends StatefulWidget {
@@ -50,8 +53,188 @@ class _PedidoScreenState extends State<PedidoScreen> {
   // Bloco 3 — não consigo falar com o cliente: a loja avisa o cliente pelo WhatsApp, com o link de onde estou.
   bool _semContatoEnviando = false;
 
-  // iFood, 99 e Keeta falam com o cliente pelo app deles: o aviso pelo WhatsApp da loja não vale ali.
-  bool get _podeSemContato => !['ifood', '99food', 'keeta'].contains(widget.pedido['canal']?.toString());
+  // Quem decide se o WhatsApp da loja vale para o cliente é o servidor (`whatsappCliente`, 09/11/2026: o cardápio sempre;
+  // a 99 quando a loja liga; o iFood nunca). Servidor antigo: iFood, 99 e Keeta falam com o cliente pelo app deles.
+  bool get _podeSemContato => widget.pedido.containsKey('whatsappCliente')
+      ? widget.pedido['whatsappCliente'] == true
+      : !['ifood', '99food', 'keeta'].contains(widget.pedido['canal']?.toString());
+
+  // ===== 09/11/2026: compartilhar minha posição, o chat do iFood/99 e a ligação pela central do iFood =====
+
+  bool _posicaoEnviando = false;
+  DateTime? _posicaoEnviadaEm;
+
+  /// "Compartilhar minha posição": o cliente recebe pelo WhatsApp da loja onde estou, no mapa (cheguei e não acho o
+  /// endereço, ou o endereço veio errado). Vai a posição do toque; sem GPS, o servidor usa a última que mandei.
+  Future<void> _compartilharPosicao() async {
+    final antes = _posicaoEnviadaEm;
+    if (antes != null && DateTime.now().difference(antes).inSeconds < 60) {
+      _aviso('Sua posição já foi enviada há pouco. Aguarde o cliente responder.');
+      return;
+    }
+    setState(() => _posicaoEnviando = true);
+    try {
+      final p = await LocationSender.posicaoAtual();
+      await Api.compartilharPosicao(
+        widget.pedido['id'] as String,
+        p == null ? null : {'lat': p.latitude, 'lng': p.longitude, 'precisao': p.accuracy},
+      );
+      _posicaoEnviadaEm = DateTime.now();
+      if (mounted) _aviso('📍 Sua posição foi enviada ao cliente pelo WhatsApp da loja.');
+      _esperarResposta(); // a resposta do cliente chega como a do "não consigo falar"
+    } on ApiErro catch (e) {
+      if (mounted) _aviso(e.mensagem, erro: true);
+    } catch (e) {
+      if (mounted) {
+        _aviso(Outbox.ehErroDeRede(e.toString())
+            ? 'Sem internet — a posição não foi enviada. Tente de novo quando o sinal voltar.'
+            : e.toString().replaceFirst('Exception: ', ''), erro: true);
+      }
+    } finally {
+      if (mounted) setState(() => _posicaoEnviando = false);
+    }
+  }
+
+  bool get _temChat => widget.pedido['chatDaPlataforma'] == true;
+  bool _chatNovo = false;
+  Timer? _vigiaChat;
+
+  /// Com o chat da plataforma, a tela olha a conversa a cada 20 s e marca quando o cliente escreve (não há aviso no celular).
+  void _vigiarChat() {
+    if (!_temChat) return;
+    final id = widget.pedido['id'] as String;
+    ChatVisto.temNova(id, widget.pedido['ultimaNoChat']).then((v) {
+      if (mounted && v) setState(() => _chatNovo = true);
+    });
+    _vigiaChat = Timer.periodic(const Duration(seconds: 20), (_) async {
+      try {
+        final r = await Api.chat(id);
+        final doCliente = ((r['mensagens'] as List?) ?? []).where((m) => (m as Map)['de'] == 'cliente').toList();
+        if (doCliente.isEmpty || !mounted) return;
+        final nova = await ChatVisto.temNova(id, doCliente.last);
+        if (nova && !_chatNovo && mounted) {
+          HapticFeedback.heavyImpact();
+          setState(() => _chatNovo = true);
+          _aviso('💬 O cliente escreveu no chat do ${_canalDoChat()}.');
+        }
+      } catch (_) {
+        // sem rede: tenta na próxima volta
+      }
+    });
+  }
+
+  String _canalDoChat() => widget.pedido['canal'] == 'ifood' ? 'iFood' : '99';
+
+  Future<void> _abrirChat() async {
+    setState(() => _chatNovo = false);
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(pedido: widget.pedido)));
+  }
+
+  Map<String, dynamic>? get _ligacao {
+    final l = widget.pedido['ligacao'];
+    return l is Map ? Map<String, dynamic>.from(l) : null;
+  }
+
+  /// A central do iFood: disca o número com o localizador "em espera" (o `;` do discador) — quando a gravação pede o
+  /// localizador, o celular pergunta se manda os números e, no "Sim", disca sozinho. O localizador também vai para a área
+  /// de transferência (há discador que não faz a espera).
+  Future<void> _ligarPelaCentral(Map<String, dynamic> l) async {
+    final localizador = l['localizador']?.toString() ?? '';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.support_agent, size: 36),
+        title: Text('Ligar pela central do ${_canalDoChat()}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('O iFood não passa o número do cliente. Você liga para a central e a gravação pede o localizador.'),
+            const SizedBox(height: 12),
+            const Text('Quando o celular perguntar "Enviar os números?", toque em Sim — o localizador é discado sozinho.'),
+            const SizedBox(height: 12),
+            Text('Localizador: $localizador',
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: 2)),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(ctx, true),
+            icon: const Icon(Icons.phone),
+            label: const Text('Ligar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await Clipboard.setData(ClipboardData(text: localizador));
+    await _abrirUri(
+      Uri(scheme: 'tel', path: '${l['numero']};$localizador'),
+      'Não foi possível abrir o discador.',
+    );
+  }
+
+  Future<void> _ligarDireto(String numero) =>
+      _abrirUri(Uri(scheme: 'tel', path: numero), 'Não foi possível abrir o discador.');
+
+  /// Como falar com o cliente. Servidor antigo (sem `ligacao`): o telefone cru, como antes.
+  Widget _contato() {
+    final p = widget.pedido;
+    if (!p.containsKey('ligacao')) {
+      if (_telDigits().isEmpty) return const SizedBox.shrink();
+      return Row(
+        children: [
+          Expanded(child: Text(p['telefone'].toString())),
+          IconButton(icon: const Icon(Icons.phone), color: Colors.green, tooltip: 'Ligar', onPressed: _ligar),
+          IconButton(icon: const Icon(Icons.chat), color: const Color(0xFF25D366), tooltip: 'WhatsApp', onPressed: _whatsapp),
+        ],
+      );
+    }
+    final l = _ligacao;
+    if (l == null) return const SizedBox.shrink();
+    if (l['tipo'] == 'central') {
+      final loc = l['localizador']?.toString() ?? '';
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Localizador do pedido', style: TextStyle(fontSize: 12)),
+                        Text(loc, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: 2)),
+                      ],
+                    ),
+                  ),
+                  IconButton(icon: const Icon(Icons.copy), tooltip: 'Copiar localizador', onPressed: () => _copiarLocalizador(loc)),
+                ],
+              ),
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                onPressed: () => _ligarPelaCentral(l),
+                icon: const Icon(Icons.phone),
+                label: Text('Ligar para o cliente (central do ${_canalDoChat()})'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    final numero = l['numero']?.toString() ?? '';
+    return Row(
+      children: [
+        Expanded(child: Text(p['telefone']?.toString() ?? numero)),
+        IconButton(icon: const Icon(Icons.phone), color: Colors.green, tooltip: 'Ligar', onPressed: () => _ligarDireto(numero)),
+        IconButton(icon: const Icon(Icons.chat), color: const Color(0xFF25D366), tooltip: 'WhatsApp', onPressed: _whatsapp),
+      ],
+    );
+  }
 
   Future<void> _semContato() async {
     setState(() => _semContatoEnviando = true);
@@ -128,8 +311,15 @@ class _PedidoScreenState extends State<PedidoScreen> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _vigiarChat();
+  }
+
+  @override
   void dispose() {
     _esperaResposta?.cancel();
+    _vigiaChat?.cancel();
     _codigo.dispose();
     super.dispose();
   }
@@ -204,8 +394,6 @@ class _PedidoScreenState extends State<PedidoScreen> {
     if (_codigoDoCanal == '99food') return 'depois';
     return _precisaCodigo ? 'hash' : null;
   }
-
-  String get _nomeCanal => _codigoDoCanal == 'ifood' ? 'iFood' : '99';
 
   String get _rotuloCodigo => _codigoDoCanal == 'ifood'
       ? 'Código de entrega do iFood'
@@ -392,33 +580,31 @@ class _PedidoScreenState extends State<PedidoScreen> {
     final formas = (p['formasNaEntrega'] as List?) ?? [];
     return Scaffold(
       appBar: AppBar(
-        title: Text(_codigoDoCanal != null
-            ? 'Pedido #${p['numero'] ?? ''} · $_nomeCanal'
-            : 'Pedido #${p['numero'] ?? ''}'),
+        // De onde veio o pedido, como no painel: a logo do canal e o código do pedido NO canal (09/11/2026).
+        title: Row(
+          children: [
+            LogoDoCanal(canal: p['canal'], logoDaLoja: p['logoDaLoja']?.toString(), tamanho: 28),
+            const SizedBox(width: 8),
+            Expanded(child: Text(tituloDoPedido(p), overflow: TextOverflow.ellipsis)),
+          ],
+        ),
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           Text(p['cliente']?.toString() ?? 'Cliente',
               style: Theme.of(context).textTheme.titleLarge),
-          if (_telDigits().isNotEmpty)
-            Row(
-              children: [
-                Expanded(child: Text(p['telefone'].toString())),
-                IconButton(
-                  icon: const Icon(Icons.phone),
-                  color: Colors.green,
-                  tooltip: 'Ligar',
-                  onPressed: _ligar,
-                ),
-                IconButton(
-                  icon: const Icon(Icons.chat),
-                  color: const Color(0xFF25D366),
-                  tooltip: 'WhatsApp',
-                  onPressed: _whatsapp,
-                ),
-              ],
+          _contato(),
+          if (_temChat) ...[
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _abrirChat,
+              icon: Badge(isLabelVisible: _chatNovo, child: const Icon(Icons.forum_outlined)),
+              label: Text(_chatNovo
+                  ? 'O cliente escreveu · abrir o chat do ${_canalDoChat()}'
+                  : 'Chat com o cliente (${_canalDoChat()})'),
             ),
+          ],
           const SizedBox(height: 8),
           if (p['endereco'] != null)
             Card(
@@ -539,6 +725,12 @@ class _PedidoScreenState extends State<PedidoScreen> {
               onPressed: _semContatoEnviando ? null : _semContato,
               icon: const Icon(Icons.phone_disabled),
               label: Text(_semContatoEnviando ? 'Avisando…' : 'Não consigo falar com o cliente'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _posicaoEnviando ? null : _compartilharPosicao,
+              icon: const Icon(Icons.share_location),
+              label: Text(_posicaoEnviando ? 'Enviando…' : 'Não acho o endereço: mandar minha posição'),
             ),
           ],
           if (_resposta != null) ...[const SizedBox(height: 8), _cartaoResposta()],

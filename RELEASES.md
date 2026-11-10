@@ -12,6 +12,22 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **O entregador e o cliente do iFood e da 99 (09–10/11; mig 388 `@cloud-only` — `robo_config.cliente_99_whatsapp` e a
+  tabela `pedido_aviso_99`; mexe em `backend/edge/sync-daemon.mjs` SÓ na lista `SO_NUVEM`).** Na NUVEM com o merge: o
+  chat do entregador pela ponte (rotas `entregador/pedido/:id/chat`, o robô do chat fica quieto 15 min depois da fala do
+  entregador), a ligação (`ligacao` no pedido: iFood = central + localizador; 99 e cardápio = direto, com "+"), o
+  "compartilhar minha posição" (`entregador/pedido/:id/minha-posicao`), o ajuste "Falar com o cliente da 99 pelo
+  WhatsApp" (nasce DESLIGADO; Delivery › Configurações › Robô de atendimento) com o "saiu" + rastreio pela rotina
+  `AvisoDa99Processor`, o "chegando" e o "sem contato" da 99 pelo WhatsApp, a cerca de 70 m do marketplace só com
+  endereço completo quando o pedido não traz a posição, a logo da loja na lista do app e a linha do código da 99 no
+  rastreio `/r/`. **No `.zip` 1.30.13 e no próximo `.exe`:** a classificação da tabela no `sync-daemon` e o cartão do
+  ajuste na tela do servidor da loja (lê e grava pela nuvem, como o aviso de atraso). **APK do entregador `0.1.0+17`
+  (acumulado, sob comando):** "Ligar" pela central do iFood com o localizador em espera (o celular pergunta se manda os
+  números) e direto na 99 com "+"; "Chat com o cliente" no pedido do iFood/99 (tela nova `chat_screen.dart`, respostas
+  rápidas, reenvio sem duplicar, marca de mensagem nova na lista e no pedido); "Não acho o endereço: mandar minha
+  posição"; o "não consigo falar" também na 99 quando a loja liga o ajuste; a logo do canal e o código do pedido no
+  canal na lista, no roteiro e no topo do pedido (as logos do painel em `assets/canais/`).
+
 - **As marcações do Instagram (09/11; mig 387 `@cloud-only` — tabela nova `instagram_marcacao` e dois ajustes em
   `instagram_conta`; mexe em `backend/edge/sync-daemon.mjs` SÓ na lista `SO_NUVEM`).** Na NUVEM com o merge (o aviso da
   Meta, a IA e a resposta moram lá; a IA usa `ANTHROPIC_API_KEY` — sem ela, o agradecimento padrão e nenhuma sugestão).
