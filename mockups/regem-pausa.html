@@ -1,0 +1,770 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regem — Pausa dos pedidos por canal (mockup)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* MOCKUP da PAUSA DOS PEDIDOS POR CANAL, feito em 10/11/2026 para o dono aprovar ANTES de qualquer código de tela. Nada
+   aqui fala com o Regem; os dados são inventados.
+   O pedido do dono (10/11): ao pausar, perguntar o MOTIVO (prontos para tocar + digitar) — hoje "só pausamos e escolhemos 3
+   opções de tempo"; o cliente que tenta pedir recebe uma mensagem pronta e formatada com o motivo e a hora de volta; se não
+   entender ou insistir, o atendente responde em ÁUDIO, com a MESMA voz do atendimento ("ao invés da mensagem de texto, só
+   substituir por uma de áudio"); um CONTADOR REGRESSIVO que o atendente acompanha até a reabertura, com o aviso sonoro
+   quando faltar pouco; iFood e 99 pausados SEPARADOS. Fora por ora: momento de pico e aviso antes de fechar.
+   O achado que muda tudo: a pausa de hoje (botão "⏸ Pausar", 30 min / 1 h / 12 h) só mostra a faixa no painel — o cardápio
+   online continua aceitando pedido, o robô não sabe e iFood e 99 seguem abertos. Aqui ela passa a valer de verdade. */
+:root{
+  --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E8A845; --on-gold:#281B06; --navy:#0F2230; --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9;
+  --warn:#8A4B12; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8; --ouro:#7A5209; --ouro-bg:#FCF1DD; --radius:12px;
+  --ifood:#C3122B; --n99:#FFD21F; --on-99:#2A2300;
+  --display:'Archivo',sans-serif; --body:'Figtree',sans-serif; --mono:'JetBrains Mono',monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:var(--body);background:var(--bg);color:var(--ink);font-size:15px;line-height:1.45}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+button:disabled{cursor:not-allowed}
+:focus-visible{outline:3px solid #3A7FB8;outline-offset:2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+[hidden]{display:none!important}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* faixa do protótipo (fora do app) */
+.proto{background:#0B1822;color:#D5E0EA;padding:10px 16px;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center}
+.proto strong{font-family:var(--display);color:#fff;font-size:14px}
+.proto .obs{font-size:12.5px;color:#9FB2C4}
+.abas{display:flex;flex-wrap:wrap;gap:8px}
+.aba{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:6px 14px;border-radius:10px;border:1px solid #2E4456;background:#13283A;color:#D5E0EA;font-weight:600;font-size:14px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+
+main{max-width:1500px;margin:0 auto;padding:16px 16px 96px}
+.vista > h1{font-family:var(--display);font-size:clamp(20px,2.4vw,26px);margin:4px 0 6px}
+.intro{color:var(--ink-2);max-width:920px;margin:0 0 14px}
+.ctls{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;margin:0 0 16px;display:grid;gap:8px}
+.ctl{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;font-size:13px}
+.ctl > span{font-weight:700;color:var(--ink-2);margin-right:2px}
+.ctl button{min-height:36px;padding:0 12px;border-radius:9px;border:1px solid var(--line-2);background:var(--card);font-weight:600;font-size:13px}
+.ctl button[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.leg{font-size:13px;color:var(--ink-2);margin:10px 2px 0}
+
+/* ── painel do delivery ── */
+.painel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;position:relative}
+.p-topo{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 14px;border-bottom:1px solid var(--line)}
+.p-turno{font-weight:700;color:var(--ok)}
+.p-topo .esp{flex:1 1 auto}
+.pbt{min-height:38px;padding:0 12px;border-radius:9px;border:1px solid var(--line-2);background:#fff;font-weight:600;font-size:13.5px;display:inline-flex;align-items:center;gap:6px}
+.pbt.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:800}
+.pbt.pausa{border-color:var(--navy);background:var(--navy);color:#fff}
+.pbt.pausa[data-pausados="1"]{background:var(--warn-bg);border-color:#E7B48F;color:var(--warn)}
+.p-chips{display:flex;flex-wrap:wrap;gap:6px 8px;padding:8px 14px;border-bottom:1px solid var(--line)}
+.chip{display:inline-flex;align-items:center;gap:6px;min-height:30px;padding:0 10px;border-radius:999px;border:1px solid var(--line);font-size:12.5px;font-weight:600;background:#F8FAFC}
+.chip .bol{width:8px;height:8px;border-radius:50%;background:var(--ok)}
+.chip.parado .bol{background:#C77A2E}
+.chip.parado{border-color:#E7B48F;background:var(--warn-bg);color:var(--warn)}
+
+/* faixas da pausa, uma por canal, com o contador */
+.faixas{display:grid;gap:8px;padding:10px 14px;background:#FBF6EF;border-bottom:1px solid #F0DFC8}
+.faixa{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;background:#fff;border:1px solid #F0D2B5;border-left:5px solid #C77A2E;border-radius:10px;padding:10px 12px}
+.faixa.logo{border-left-color:var(--crit);background:#FFF7F2;border-color:#F2C7B6}
+.faixa .q{display:flex;flex-direction:column;min-width:0;flex:1 1 220px}
+.faixa .q b{font-size:14.5px}
+.faixa .q small{font-size:12.5px;color:var(--ink-2)}
+.canal-tag{display:inline-block;font-size:11.5px;font-weight:800;border-radius:6px;padding:1px 7px;margin-right:6px;vertical-align:1px}
+.canal-tag.cd{background:var(--navy);color:#fff}
+.canal-tag.if{background:var(--ifood);color:#fff}
+.canal-tag.n99{background:var(--n99);color:var(--on-99)}
+.relogio{display:flex;flex-direction:column;align-items:flex-start;min-width:120px}
+.relogio .t{font-family:var(--mono);font-weight:700;font-size:26px;line-height:1.1;letter-spacing:.5px}
+.relogio small{font-size:12px;color:var(--ink-2)}
+.faixa.logo .relogio .t{color:var(--crit)}
+.f-acoes{display:flex;flex-wrap:wrap;gap:6px}
+.sino{display:flex;align-items:center;gap:8px;flex:1 1 100%;font-weight:700;color:var(--crit);font-size:13.5px}
+.sino .onda{width:10px;height:10px;border-radius:50%;background:var(--crit);box-shadow:0 0 0 0 rgba(185,50,50,.5);animation:pulso 1.4s infinite}
+@keyframes pulso{0%{box-shadow:0 0 0 0 rgba(185,50,50,.5)}70%{box-shadow:0 0 0 10px rgba(185,50,50,0)}100%{box-shadow:0 0 0 0 rgba(185,50,50,0)}}
+.p-lista{padding:12px 14px;display:grid;gap:6px}
+.p-linha{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;font-size:13.5px;padding:8px 10px;border:1px solid var(--line);border-radius:9px}
+.p-linha .st{margin-left:auto;font-size:11.5px;font-weight:800;border-radius:999px;padding:2px 9px;background:#F5A524;color:#3A2400}
+.p-linha .orig{font-size:11.5px;font-weight:800;border-radius:6px;padding:1px 7px}
+
+/* diálogo "Pausar pedidos" (no PC centralizado; no celular desce de baixo) */
+/* O diálogo alinha pelo TOPO e o painel cresce até a altura dele (o script mede): alinhado por baixo, o diálogo mais alto
+   que a caixa subia para fora do topo, atrás dos controles, sem rolagem que alcançasse (achado da conferência a 320 px). */
+.camada{position:absolute;inset:0;background:rgba(15,34,48,.5);display:flex;align-items:flex-start;justify-content:center;padding:18px 12px}
+.dlg{background:#fff;border-radius:16px;width:100%;max-width:640px;box-shadow:0 20px 40px rgba(0,0,0,.3);display:flex;flex-direction:column}
+.dlg-cab{display:flex;align-items:flex-start;gap:10px;padding:16px 16px 4px}
+.dlg-cab h2{font-family:var(--display);font-size:19px;margin:0;flex:1}
+.dlg-cab p{margin:4px 0 0;font-size:13.5px;color:var(--ink-2)}
+.fechar{width:40px;height:40px;border-radius:10px;border:1px solid var(--line-2);background:#fff;font-size:18px;flex:none}
+.dlg-corpo{padding:6px 16px 4px;display:grid;gap:16px}
+fieldset{border:0;margin:0;padding:0;min-width:0}
+legend{font-family:var(--display);font-weight:700;font-size:14.5px;margin:0 0 8px;padding:0}
+.canais{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));gap:8px}
+.canal{display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;min-height:76px;padding:10px 12px;border-radius:12px;border:1.5px solid var(--line-2);background:#fff}
+.canal b{font-size:14.5px;display:flex;align-items:center;gap:6px}
+.canal small{font-size:12px;color:var(--ink-2)}
+.canal .marca{width:20px;height:20px;border-radius:6px;border:2px solid var(--line-2);display:grid;place-items:center;font-size:13px;font-weight:800;flex:none;color:transparent}
+.canal[aria-pressed="true"]{border-color:var(--navy);background:#F2F6FA;box-shadow:inset 0 0 0 1px var(--navy)}
+.canal[aria-pressed="true"] .marca{background:var(--navy);border-color:var(--navy);color:#fff}
+.canal .estado{font-size:12px;font-weight:700;color:var(--ok)}
+.canal .estado.parado{color:var(--warn)}
+.opcoes{display:flex;flex-wrap:wrap;gap:8px}
+.op{min-height:40px;padding:0 13px;border-radius:999px;border:1.5px solid var(--line-2);background:#fff;font-weight:600;font-size:13.5px;text-align:left}
+.op[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.campo{display:grid;gap:4px;margin-top:8px}
+.campo label{font-size:13px;font-weight:700;color:var(--ink-2)}
+.campo input,.campo select,.campo textarea{min-height:42px;border-radius:10px;border:1.5px solid var(--line-2);padding:8px 10px;background:#fff;width:100%;max-width:100%}
+.campo textarea{min-height:150px;resize:vertical;font-family:var(--body);line-height:1.5}
+.campo .conta{font-size:12px;color:var(--ink-2);text-align:right;font-family:var(--mono)}
+.tempo{display:grid;gap:6px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:#FAFBFC}
+.tempo + .tempo{margin-top:8px}
+.tempo .tit{font-size:13px;font-weight:700;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
+.tempo .nota{font-size:12px;color:var(--ink-2)}
+.ate{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.ate input{min-height:40px;border-radius:999px;border:1.5px solid var(--line-2);padding:0 12px;background:#fff}
+.previa{background:#EFEAE2;border-radius:12px;padding:10px}
+.previa .bolha{max-width:100%}
+.dlg-pe{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;padding:12px 16px 16px;border-top:1px solid var(--line);margin-top:8px}
+.bt{min-height:46px;border-radius:12px;font-weight:800;font-size:15px;padding:0 16px}
+.bt.pri{background:var(--gold);color:var(--on-gold);border:0}
+.bt.pri:disabled{background:#E9E4DA;color:#7C7466}
+.bt.sec{background:#fff;color:var(--ink);border:1.5px solid var(--line-2)}
+.falta{font-size:12.5px;color:var(--crit);font-weight:700;align-self:center;margin-right:auto}
+@media (max-width:640px){
+  .camada{padding:8px}
+  .dlg{border-radius:16px 16px 12px 12px}
+  .dlg-pe .bt{flex:1 1 140px}
+}
+
+/* ── celulares: WhatsApp e cardápio ── */
+.fones{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),420px));justify-content:center;gap:18px;align-items:start}
+.caso h2{font-family:var(--display);font-size:16px;margin:0 0 8px}
+.fone{width:100%;border-radius:28px;background:#0F2230;padding:10px;box-shadow:0 16px 40px rgba(15,34,48,.25)}
+.fone .vidro{border-radius:20px;background:#FAFAFA;overflow:hidden;display:flex;flex-direction:column;position:relative}
+.wa-topo,.lp-topo{background:#008069;color:#fff;padding:10px 14px;display:flex;align-items:center;gap:10px}
+.lp-topo{background:var(--navy)}
+.av{width:34px;height:34px;border-radius:50%;background:#0F2230;color:var(--gold);display:grid;place-items:center;font-family:var(--display);font-weight:800;font-size:12px;flex:none}
+.lp-topo .av{background:var(--gold);color:var(--on-gold)}
+.wa-topo b,.lp-topo b{display:block;font-size:15px} .wa-topo small,.lp-topo small{font-size:12px;color:#E9FBF6}
+.wa{background:#EFEAE2;padding:12px 10px;display:flex;flex-direction:column;gap:6px}
+.bolha{max-width:88%;background:#fff;color:#111B21;border-radius:10px;padding:7px 9px;font-size:14px;box-shadow:0 1px 1px rgba(0,0,0,.08);overflow-wrap:anywhere}
+.bolha.eu{align-self:flex-end;background:#D9FDD3}
+.bolha p{margin:0 0 8px} .bolha p:last-of-type{margin-bottom:0}
+.bolha small{display:block;text-align:right;font-size:11px;color:#54656F;margin-top:2px}
+.wa-dia{align-self:center;background:#fff;border-radius:8px;font-size:12px;color:#54656F;padding:3px 10px;text-align:center;max-width:92%}
+.audio{display:flex;align-items:center;gap:10px;min-width:220px}
+.audio .play{width:34px;height:34px;border-radius:50%;border:0;background:#00A884;color:#fff;font-size:14px;flex:none}
+.audio .onda{flex:1;height:26px;display:flex;align-items:center;gap:2px}
+.audio .onda i{display:block;width:3px;border-radius:2px;background:#8696A0}
+.audio .dur{font-size:12px;color:#54656F;font-family:var(--mono)}
+.transcricao{font-size:12.5px;color:#3B4A54;background:#F4F7F9;border-radius:8px;padding:6px 8px;margin-top:6px}
+.wa-escrever{background:#F0F2F5;padding:8px 10px;display:flex;gap:8px;align-items:center}
+.wa-escrever span{flex:1;background:#fff;border-radius:999px;padding:9px 14px;color:#54656F;font-size:14px}
+
+.lp-corpo{padding:14px;background:#F6F7F9;display:flex;flex-direction:column;gap:10px}
+.lp-pausa{background:#FFF4E6;border:1.5px solid #F0C38F;border-radius:14px;padding:12px}
+.lp-pausa h3{font-family:var(--display);font-size:16px;margin:0 0 4px}
+.lp-pausa p{margin:0 0 6px;font-size:14px}
+.lp-pausa .volta{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;font-weight:700}
+.lp-pausa .volta .t{font-family:var(--mono);font-size:20px}
+.prod{display:flex;gap:10px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px}
+.prod .foto{width:56px;height:56px;border-radius:10px;background:linear-gradient(135deg,#F2C681,#C47B2C);flex:none}
+.prod .i{flex:1;min-width:0}
+.prod .i b{display:block;font-size:14.5px}
+.prod .i small{font-size:12.5px;color:var(--ink-2)}
+.prod .add{min-height:38px;border-radius:10px;border:0;background:var(--gold);color:var(--on-gold);font-weight:800;padding:0 12px;white-space:nowrap}
+.prod .add:disabled{background:#ECE7DE;color:#776F62}
+.lp-bt{min-height:50px;border-radius:12px;border:0;background:var(--gold);color:var(--on-gold);font-weight:800;font-size:15px;width:100%}
+.lp-bt:disabled{background:#ECE7DE;color:#776F62}
+.lp-ok{background:var(--ok-bg);color:var(--ok);border-radius:12px;padding:10px 12px;font-weight:700;font-size:14px}
+
+/* ── iFood e 99 ── */
+.plats{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px}
+.plat{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px;display:grid;gap:10px;align-content:start}
+.plat h2{font-family:var(--display);font-size:17px;margin:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.situ{border-radius:10px;padding:10px 12px;font-size:14px}
+.situ.ok{background:var(--ok-bg);color:var(--ok)}
+.situ.par{background:var(--warn-bg);color:var(--warn)}
+.situ.erro{background:var(--crit-bg);color:var(--crit)}
+.situ b{display:block}
+.tab-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+caption{text-align:left;font-weight:700;margin-bottom:6px}
+th,td{border-bottom:1px solid var(--line);padding:7px 8px;text-align:left;vertical-align:top}
+th{font-size:12.5px;color:var(--ink-2)}
+code{font-family:var(--mono);font-size:12.5px;background:#EEF2F6;border-radius:5px;padding:0 4px;overflow-wrap:anywhere}
+
+/* ── ajustes (modelo de Configurações) ── */
+.trilha{font-size:13px;color:var(--ink-2);margin:0 0 10px}
+.aj-grupo{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+.aj-grupo > h2{font-family:var(--display);font-size:16px;margin:0;padding:12px 14px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}
+.aj-grupo > h2 small{font-family:var(--body);font-weight:600;font-size:12.5px;color:var(--ink-2)}
+.aj{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 14px;padding:12px 14px;border-bottom:1px solid var(--line);align-items:start}
+.aj:last-child{border-bottom:0}
+.aj .t b{display:block;font-size:14.5px}
+.aj .t small{font-size:12.5px;color:var(--ink-2)}
+.aj.largo{grid-template-columns:minmax(0,1fr)}
+.sw{width:52px;height:30px;border-radius:999px;border:0;background:#C9D2DB;position:relative;flex:none}
+.sw::after{content:'';position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:left .15s}
+.sw[aria-checked="true"]{background:var(--ok)}
+.sw[aria-checked="true"]::after{left:25px}
+.vars{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.vars button{min-height:32px;border-radius:8px;border:1px dashed var(--line-2);background:#fff;font-family:var(--mono);font-size:12.5px;padding:0 8px}
+.barra{position:fixed;left:0;right:0;bottom:0;background:var(--navy);color:#fff;padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:flex-end;z-index:20}
+.barra span{margin-right:auto;font-weight:700}
+.barra .bt{min-height:42px}
+.barra .bt.sec{background:transparent;color:#fff;border-color:#5B7286}
+
+/* ── notas ── */
+.notas{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:14px}
+.nota{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px}
+.nota h2{font-family:var(--display);font-size:16px;margin:0 0 8px}
+.nota ul,.nota ol{margin:0;padding-left:20px}
+.nota li{margin:0 0 6px}
+.toast{position:fixed;left:50%;bottom:76px;transform:translateX(-50%);background:var(--navy);color:#fff;padding:10px 16px;border-radius:10px;font-weight:700;z-index:30;max-width:calc(100vw - 32px)}
+</style>
+</head>
+<body>
+
+<header class="proto">
+  <strong>Protótipo · pausa dos pedidos por canal</strong>
+  <span class="obs">10/11/2026 · para o dono aprovar · nada aqui fala com o Regem</span>
+  <nav class="abas" aria-label="Vistas do protótipo">
+    <button type="button" class="aba" data-grupo="vista" data-valor="painel">Painel do Delivery</button>
+    <button type="button" class="aba" data-grupo="vista" data-valor="cardapio">Cardápio online</button>
+    <button type="button" class="aba" data-grupo="vista" data-valor="whats">WhatsApp</button>
+    <button type="button" class="aba" data-grupo="vista" data-valor="plats">iFood e 99</button>
+    <button type="button" class="aba" data-grupo="vista" data-valor="ajustes">Ajustes</button>
+    <button type="button" class="aba" data-grupo="vista" data-valor="notas">Plano e decisões</button>
+  </nav>
+</header>
+
+<main>
+
+<!-- ═════════════ 1. PAINEL DO DELIVERY ═════════════ -->
+<section class="vista" id="v-painel" aria-labelledby="t-painel">
+  <h1 id="t-painel">Painel do Delivery</h1>
+  <p class="intro">O botão <b>⏸ Pausar</b> abre a escolha do que pausar: o cardápio digital, o iFood e a 99, cada um com a sua pausa. Depois de pausar, cada canal ganha uma faixa com o <b>contador regressivo</b> até a reabertura; quando falta pouco, o painel toca o aviso e a faixa fica vermelha. Use os botões para ver cada situação.</p>
+  <div class="ctls">
+    <div class="ctl"><span>Situação:</span>
+      <button type="button" data-grupo="situacao" data-valor="aberto">Tudo aberto</button>
+      <button type="button" data-grupo="situacao" data-valor="cardapio">Cardápio digital pausado</button>
+      <button type="button" data-grupo="situacao" data-valor="ambos">Cardápio e iFood pausados</button>
+      <button type="button" data-grupo="situacao" data-valor="logo">Faltam 3 min para reabrir</button></div>
+    <div class="ctl"><span>Diálogo:</span>
+      <button type="button" data-grupo="dialogo" data-valor="aberto">"Pausar" aberto</button>
+      <button type="button" data-grupo="dialogo" data-valor="fechado">fechado</button></div>
+  </div>
+
+  <div class="painel" id="painel">
+    <div class="p-topo">
+      <span class="p-turno">● Turno 01</span><span>Operador: Rodrigo</span><span class="esp"></span>
+      <button type="button" class="pbt">Suprimento</button>
+      <button type="button" class="pbt">Sangria</button>
+      <button type="button" class="pbt">Fechar turno</button>
+    </div>
+    <div class="p-topo">
+      <button type="button" class="pbt">🔔 Som on</button>
+      <button type="button" class="pbt">Aceitar automaticamente ✓</button>
+      <span class="esp"></span>
+      <button type="button" class="pbt">Robô online</button>
+      <button type="button" class="pbt pri">+ Novo pedido</button>
+      <button type="button" class="pbt pausa" id="bt-pausar" data-acao="abrir-pausa" aria-haspopup="dialog">⏸ Pausar</button>
+    </div>
+    <div class="p-chips" aria-label="Canais agora">
+      <span class="chip" id="chip-cd"><span class="bol"></span>Cardápio digital <b data-mostra="situacao:aberto">aberto</b><b data-mostra="situacao:cardapio|ambos|logo">pausado</b></span>
+      <span class="chip" id="chip-if"><span class="bol"></span>iFood <b data-mostra="situacao:aberto|cardapio">aberto</b><b data-mostra="situacao:ambos|logo">pausado</b></span>
+      <span class="chip"><span class="bol"></span>99 <b>aberta</b></span>
+      <span class="chip"><span class="bol"></span>Anota Aí <b>on</b></span>
+    </div>
+
+    <div class="faixas" data-mostra="situacao:cardapio|ambos|logo" aria-live="polite">
+      <div class="faixa" id="faixa-cd">
+        <div class="q"><b><span class="canal-tag cd">Cardápio digital</span>Pausado · Muitos pedidos agora</b><small>Site, WhatsApp, Instagram e Messenger · pausado às 21:10 por Rodrigo · reabre às <b data-hora="cd">21:40</b></small></div>
+        <div class="relogio"><span class="t" data-contador="cd" aria-label="tempo até reabrir">12:34</span><small>até reabrir</small></div>
+        <div class="f-acoes">
+          <button type="button" class="pbt pri" data-acao="reabrir">Reabrir agora</button>
+          <button type="button" class="pbt" data-acao="estender">+10 min</button>
+          <button type="button" class="pbt" data-acao="estender">+30 min</button>
+        </div>
+        <p class="sino" data-mostra="situacao:logo"><span class="onda" aria-hidden="true"></span>Faltam 3 min para reabrir o cardápio digital — o painel tocou o aviso. Reabra ou estenda.</p>
+      </div>
+      <div class="faixa" id="faixa-if" data-mostra="situacao:ambos|logo">
+        <div class="q"><b><span class="canal-tag if">iFood</span>Pausado · Muitos pedidos agora</b><small>Pausado no iFood pelo Regem às 21:10 · reabre às <b>21:40</b> · o iFood mostra "fechada temporariamente"</small></div>
+        <div class="relogio"><span class="t" data-contador="if" aria-label="tempo até reabrir o iFood">12:34</span><small>até reabrir</small></div>
+        <div class="f-acoes">
+          <button type="button" class="pbt pri" data-acao="reabrir">Reabrir agora</button>
+          <button type="button" class="pbt" data-acao="estender">+10 min</button>
+          <button type="button" class="pbt" data-acao="estender">+30 min</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="p-lista" aria-label="Pedidos">
+      <div class="p-linha"><b>#64</b><span class="orig" style="background:var(--n99);color:var(--on-99)">99Food</span><span>23:09 · ALLAN narciso</span><span class="st">Em produção</span></div>
+      <div class="p-linha"><b>#65</b><span class="orig" style="background:var(--ifood);color:#fff">iFood</span><span>23:09 · Isabel Cristina</span><span class="st">Em produção</span></div>
+      <div class="p-linha"><b>#63</b><span class="orig" style="background:#2C6699;color:#fff">Anota Aí</span><span>23:08 · Estefany Menezes</span><span class="st">Em produção</span></div>
+    </div>
+
+    <!-- O diálogo "Pausar pedidos" -->
+    <div class="camada" id="camada" data-mostra="dialogo:aberto">
+      <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="t-dlg" aria-describedby="d-dlg">
+        <div class="dlg-cab">
+          <div style="flex:1;min-width:0"><h2 id="t-dlg">Pausar pedidos</h2><p id="d-dlg">Escolha o que pausar. Cada canal tem a sua pausa — dá para pausar só um.</p></div>
+          <button type="button" class="fechar" data-acao="fechar-pausa" aria-label="Fechar">✕</button>
+        </div>
+        <div class="dlg-corpo">
+          <fieldset>
+            <legend>1 · O que pausar</legend>
+            <div class="canais">
+              <button type="button" class="canal" data-canal="cd" aria-pressed="true"><b><span class="marca">✓</span>Cardápio digital</b><small>Site, WhatsApp, Instagram e Messenger</small><span class="estado">aberto agora</span></button>
+              <button type="button" class="canal" data-canal="if" aria-pressed="false"><b><span class="marca">✓</span>iFood</b><small>A loja fica "fechada temporariamente" no iFood</small><span class="estado">aberto agora</span></button>
+              <button type="button" class="canal" data-canal="n99" aria-pressed="false"><b><span class="marca">✓</span>99</b><small>A loja fica pausada no app da 99</small><span class="estado">aberta agora</span></button>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>2 · Por que vai pausar?</legend>
+            <div class="opcoes" role="group" aria-label="Motivo">
+              <button type="button" class="op" data-motivo="pedidos" aria-pressed="true">Muitos pedidos agora</button>
+              <button type="button" class="op" data-motivo="entregador" aria-pressed="false">Falta de entregador</button>
+              <button type="button" class="op" data-motivo="ingrediente" aria-pressed="false">Falta de ingrediente</button>
+              <button type="button" class="op" data-motivo="cozinha" aria-pressed="false">Problema na cozinha</button>
+              <button type="button" class="op" data-motivo="energia" aria-pressed="false">Sem energia ou internet</button>
+              <button type="button" class="op" data-motivo="fechando" aria-pressed="false">Perto de fechar</button>
+              <button type="button" class="op" data-motivo="outro" aria-pressed="false">Outro motivo…</button>
+            </div>
+            <div class="campo" id="campo-outro" hidden>
+              <label for="motivo-outro">Escreva o motivo (o cliente lê)</label>
+              <input id="motivo-outro" maxlength="80" placeholder="Ex.: estamos trocando o gás" autocomplete="off">
+              <span class="conta" id="conta-outro">0/80</span>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>3 · Por quanto tempo</legend>
+            <div class="tempo" data-tempo-de="cd">
+              <span class="tit"><span class="canal-tag cd">Cardápio digital</span></span>
+              <div class="opcoes" role="group" aria-label="Tempo do cardápio digital">
+                <button type="button" class="op" data-t-livre="15" aria-pressed="false">15 min</button>
+                <button type="button" class="op" data-t-livre="30" aria-pressed="true">30 min</button>
+                <button type="button" class="op" data-t-livre="60" aria-pressed="false">1 hora</button>
+                <span class="ate"><button type="button" class="op" data-t-livre="ate" aria-pressed="false">Até</button><label class="sr" for="ate-hora">Hora de reabrir</label><input type="time" id="ate-hora" value="22:30"></span>
+              </div>
+            </div>
+            <div class="tempo" data-tempo-de="n99" hidden>
+              <span class="tit"><span class="canal-tag n99">99</span><span class="nota">a 99 só aceita estes tempos</span></span>
+              <div class="opcoes" role="group" aria-label="Tempo da 99">
+                <button type="button" class="op" data-t99="10" aria-pressed="false">10 min</button>
+                <button type="button" class="op" data-t99="20" aria-pressed="false">20 min</button>
+                <button type="button" class="op" data-t99="30" aria-pressed="true">30 min</button>
+                <button type="button" class="op" data-t99="dia" aria-pressed="false">Até o fim do dia</button>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>4 · O cliente vai ver</legend>
+            <div class="previa"><div class="bolha" id="previa"></div></div>
+            <p class="leg" style="margin-top:6px">No cardápio online e nas respostas do atendente (WhatsApp, Instagram e Messenger). Se o cliente insistir, o atendente responde em <b>áudio</b>, com a mesma voz do atendimento. O texto se muda em Ajustes.</p>
+          </fieldset>
+        </div>
+        <div class="dlg-pe">
+          <span class="falta" id="falta" hidden></span>
+          <button type="button" class="bt sec" data-acao="fechar-pausa">Cancelar</button>
+          <button type="button" class="bt pri" id="bt-confirmar" data-acao="confirmar-pausa">⏸ Pausar o cardápio digital</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="leg">Quem pausa: gestor (como hoje). Cada pausa fica na auditoria: quem, quando, canal, motivo e até quando. Ao reabrir (na mão ou no fim do tempo) a faixa some e o canal volta a receber pedidos.</p>
+</section>
+
+<!-- ═════════════ 2. CARDÁPIO ONLINE ═════════════ -->
+<section class="vista" id="v-cardapio" aria-labelledby="t-cardapio" hidden>
+  <h1 id="t-cardapio">Cardápio online</h1>
+  <p class="intro">Com o <b>cardápio digital</b> pausado, o cardápio continua aberto para olhar, mas não aceita pedido: o aviso mostra o motivo, a hora de volta e o tempo que falta. Se só o iFood estiver pausado, o cardápio próprio segue normal — as pausas são separadas.</p>
+  <div class="ctls">
+    <div class="ctl"><span>O que está pausado:</span>
+      <button type="button" data-grupo="lp" data-valor="cd">o cardápio digital</button>
+      <button type="button" data-grupo="lp" data-valor="if">só o iFood</button></div>
+  </div>
+  <div class="fones">
+    <article class="caso">
+      <h2 data-mostra="lp:cd">Cardápio digital pausado</h2>
+      <h2 data-mostra="lp:if">Só o iFood pausado: o cardápio próprio segue aberto</h2>
+      <div class="fone"><div class="vidro">
+        <div class="lp-topo"><span class="av">MB</span><div><b>Mister Burguer</b><small data-mostra="lp:cd">Pedidos pausados agora</small><small data-mostra="lp:if">Aberto até 23:30</small></div></div>
+        <div class="lp-corpo">
+          <div class="lp-pausa" data-mostra="lp:cd" role="status">
+            <h3>⏸️ Pedidos pausados por alguns minutos</h3>
+            <p>Estamos com <b>muitos pedidos agora</b> e pausamos para não atrasar ninguém. 🍔</p>
+            <div class="volta"><span>🕒 Voltamos às 21:40</span><span class="t" data-contador="cd">12:34</span></div>
+            <p style="margin:6px 0 0;font-size:13px">Você pode olhar o cardápio à vontade. Assim que reabrirmos, é só pedir.</p>
+          </div>
+          <div class="lp-ok" data-mostra="lp:if">Aberto agora · entrega em ~45 min</div>
+          <div class="prod"><span class="foto" aria-hidden="true"></span><div class="i"><b>X-Bacon Duplo</b><small>Pão brioche, 2 carnes, bacon e cheddar · R$ 32,00</small></div>
+            <button type="button" class="add" data-mostra="lp:cd" disabled>Volta às 21:40</button><button type="button" class="add" data-mostra="lp:if">Adicionar</button></div>
+          <div class="prod"><span class="foto" aria-hidden="true"></span><div class="i"><b>Trio Clássico</b><small>Burger, batata e refri · R$ 39,90</small></div>
+            <button type="button" class="add" data-mostra="lp:cd" disabled>Volta às 21:40</button><button type="button" class="add" data-mostra="lp:if">Adicionar</button></div>
+          <button type="button" class="lp-bt" data-mostra="lp:cd" disabled>Pedidos pausados até 21:40</button>
+          <button type="button" class="lp-bt" data-mostra="lp:if">Ver carrinho</button>
+        </div>
+      </div></div>
+      <p class="leg">O servidor recusa o pedido durante a pausa (mesmo que alguém force pela página) com a mesma mensagem — hoje a pausa não fecha o cardápio.</p>
+    </article>
+  </div>
+</section>
+
+<!-- ═════════════ 3. WHATSAPP ═════════════ -->
+<section class="vista" id="v-whats" aria-labelledby="t-whats" hidden>
+  <h1 id="t-whats">WhatsApp: a mensagem e o áudio</h1>
+  <p class="intro">Quem tenta pedir com o cardápio digital pausado recebe a mensagem pronta, com o motivo e a hora de volta. Se o cliente <b>não entender ou insistir</b>, a resposta do atendente vai <b>em áudio no lugar do texto</b> — a mesma voz que o atendimento já usa quando o cliente manda áudio. Um áudio por cliente em cada pausa; depois, volta ao texto.</p>
+  <div class="ctls">
+    <div class="ctl"><span>O cliente:</span>
+      <button type="button" data-grupo="cliente" data-valor="espera">lê e espera</button>
+      <button type="button" data-grupo="cliente" data-valor="insiste">insiste em pedir</button></div>
+    <div class="ctl"><span>Canal:</span>
+      <button type="button" data-grupo="canalw" data-valor="wa">WhatsApp</button>
+      <button type="button" data-grupo="canalw" data-valor="dm">Instagram Direct</button></div>
+  </div>
+  <div class="fones">
+    <article class="caso">
+      <h2 data-mostra="canalw:wa">WhatsApp da loja</h2>
+      <h2 data-mostra="canalw:dm">Instagram Direct (lá o atendente não manda áudio)</h2>
+      <div class="fone"><div class="vidro">
+        <div class="wa-topo" data-mostra="canalw:wa"><span class="av">MB</span><div><b>Mister Burguer</b><small>conta comercial</small></div></div>
+        <div class="wa-topo" data-mostra="canalw:dm" style="background:#B02E7A"><span class="av">MB</span><div><b>misterburguer</b><small>Instagram</small></div></div>
+        <div class="wa">
+          <span class="wa-dia">HOJE</span>
+          <div class="bolha eu"><p>Boa noite! Quero 2 X-bacon pra entrega</p><small>21:28</small></div>
+          <div class="bolha">
+            <p>⏸️ <b>Pedidos pausados por alguns minutos</b></p>
+            <p>Oi, Ana! Estamos com <b>muitos pedidos agora</b> e pausamos os pedidos para não atrasar ninguém. 🍔</p>
+            <p>🕒 Voltamos às <b>21:40</b>.</p>
+            <p>Assim que reabrirmos, é só mandar o seu pedido por aqui. Obrigado pela paciência! 💛</p>
+            <small>21:28</small>
+          </div>
+          <div data-mostra="cliente:espera" style="display:contents">
+            <div class="bolha eu"><p>Ah ok, às 21:40 eu peço então</p><small>21:29</small></div>
+            <div class="bolha"><p>Combinado, Ana! Te espero às 21:40. 😊</p><small>21:29</small></div>
+          </div>
+          <div data-mostra="cliente:insiste" style="display:contents">
+            <div class="bolha eu"><p>Mas não dá pra fazer agora? Pago no Pix</p><small>21:29</small></div>
+            <div class="bolha" data-mostra="canalw:wa">
+              <div class="audio"><button type="button" class="play" aria-label="Ouvir o áudio (protótipo)">▶</button><span class="onda" aria-hidden="true" id="onda"></span><span class="dur">0:15</span></div>
+              <div class="transcricao"><b>O que o áudio diz</b> (só no protótipo): “Oi, Ana! Que pena… estamos com muitos pedidos agora e pausamos rapidinho para não atrasar ninguém. Às nove e quarenta a gente volta, tá? Aí é só me mandar o seu pedido. Obrigada pela paciência!”</div>
+              <small>21:29</small>
+            </div>
+            <div class="bolha" data-mostra="canalw:dm"><p>Entendo, Ana! 💛 Agora não conseguimos: estamos com <b>muitos pedidos</b> e pausamos para não atrasar ninguém. Às <b>21:40</b> voltamos — é só chamar aqui.</p><small>21:29</small></div>
+          </div>
+        </div>
+        <div class="wa-escrever"><span>Mensagem</span></div>
+      </div></div>
+      <p class="leg" data-mostra="canalw:wa">Se o cliente disser que não entendeu o áudio, o atendente repete por escrito (regra que já existe). Durante a pausa ninguém é chamado à toa: "falar com alguém" segue o caminho de hoje.</p>
+      <p class="leg" data-mostra="canalw:dm">No Direct, no Messenger e no chat do iFood/99 o atendente responde em texto (não há áudio nesses canais).</p>
+    </article>
+  </div>
+</section>
+
+<!-- ═════════════ 4. iFOOD E 99 ═════════════ -->
+<section class="vista" id="v-plats" aria-labelledby="t-plats" hidden>
+  <h1 id="t-plats">iFood e 99: cada um com a sua pausa</h1>
+  <p class="intro">Pausar o iFood ou a 99 no Regem pausa a loja na própria plataforma, pela API oficial. As pausas são separadas: dá para pausar só o iFood, só a 99, os dois, ou só o cardápio digital. Reabrir no Regem reabre lá.</p>
+  <div class="ctls">
+    <div class="ctl"><span>A plataforma:</span>
+      <button type="button" data-grupo="plat" data-valor="aceitou">aceitou a pausa</button>
+      <button type="button" data-grupo="plat" data-valor="recusou">recusou</button></div>
+  </div>
+  <div class="plats">
+    <article class="plat">
+      <h2><span class="canal-tag if">iFood</span>Pausa no iFood</h2>
+      <div class="situ par" data-mostra="plat:aceitou"><b>Pausado pelo Regem · 21:10 → 21:40</b>Motivo enviado: "Muitos pedidos agora". No app do iFood a loja aparece "fechada temporariamente".</div>
+      <div class="situ erro" data-mostra="plat:recusou"><b>O iFood não aceitou a pausa</b>Já existe outra pausa nesse horário no iFood. O Regem mostra a que está valendo e a faixa diz "pausado no iFood até 21:50 (feito no Gestor)".</div>
+      <p class="leg" style="margin:0">Tempo livre (de 1 min a 7 dias). <b>Reabrir agora</b> tira a pausa no iFood na hora.</p>
+    </article>
+    <article class="plat">
+      <h2><span class="canal-tag n99">99</span>Pausa na 99</h2>
+      <div class="situ par" data-mostra="plat:aceitou"><b>Pausado pelo Regem · 30 min</b>Motivo enviado à 99: "Muitos pedidos no salão" (o mais perto de "Muitos pedidos agora"). A 99 confirma em alguns segundos.</div>
+      <div class="situ erro" data-mostra="plat:recusou"><b>A 99 não aceitou a pausa</b>A loja foi fechada à mão no app da 99 — pela regra da 99, só reabre por lá. Reabra no app da 99 e pause de novo.</div>
+      <p class="leg" style="margin:0">A 99 só aceita <b>10, 20 ou 30 min</b> ou <b>até o fim do dia</b>. Para mais tempo, o painel avisa no fim e você estende.</p>
+    </article>
+  </div>
+  <div class="plat" style="margin-top:16px">
+    <div class="tab-wrap">
+      <table>
+        <caption>O motivo do Regem e o que vai para cada plataforma</caption>
+        <thead><tr><th scope="col">Motivo no Regem</th><th scope="col">99 (código oficial)</th><th scope="col">iFood (texto)</th></tr></thead>
+        <tbody>
+          <tr><td>Muitos pedidos agora</td><td>1005 · muitos pedidos no salão</td><td>o próprio motivo</td></tr>
+          <tr><td>Falta de entregador</td><td>1002 · falta de equipe</td><td>o próprio motivo</td></tr>
+          <tr><td>Falta de ingrediente</td><td>1003 · ingrediente insuficiente</td><td>o próprio motivo</td></tr>
+          <tr><td>Problema na cozinha</td><td>1001 · equipamento ou energia</td><td>o próprio motivo</td></tr>
+          <tr><td>Sem energia ou internet</td><td>1001 · equipamento ou energia</td><td>o próprio motivo</td></tr>
+          <tr><td>Perto de fechar</td><td>1004 · perto do fechamento</td><td>o próprio motivo</td></tr>
+          <tr><td>Outro motivo (escrito)</td><td>1006 · outro</td><td>o texto escrito</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ 5. AJUSTES ═════════════ -->
+<section class="vista" id="v-ajustes" aria-labelledby="t-ajustes" hidden>
+  <h1 id="t-ajustes">Ajustes da pausa</h1>
+  <p class="trilha">Delivery › Configurações › Operação › Atendimento · grupo "Pausa dos pedidos"</p>
+  <div class="aj-grupo">
+    <h2>Pausa dos pedidos <small>4 ajustes</small></h2>
+    <div class="aj largo">
+      <div class="t"><b>Mensagem ao cliente durante a pausa</b><small>No cardápio online e nas respostas do atendente. Toque num campo para pôr no texto.</small></div>
+      <div class="campo" style="margin:0">
+        <label for="msg-pausa" class="sr">Mensagem da pausa</label>
+        <textarea id="msg-pausa" data-aj="msg">⏸️ *Pedidos pausados por alguns minutos*
+
+Oi, {nome}! Estamos com *{motivo}* e pausamos os pedidos para não atrasar ninguém. 🍔
+
+🕒 Voltamos às *{volta}*.
+
+Assim que reabrirmos, é só mandar o seu pedido por aqui. Obrigado pela paciência! 💛</textarea>
+        <div class="vars"><button type="button">{nome}</button><button type="button">{motivo}</button><button type="button">{volta}</button><button type="button" data-acao="padrao" style="font-family:var(--body)">Voltar ao texto padrão</button></div>
+      </div>
+    </div>
+    <div class="aj">
+      <div class="t"><b>Responder em áudio quando o cliente insistir</b><small>Se o cliente não entender ou insistir em pedir durante a pausa, a resposta do atendente vai em áudio no lugar do texto — a mesma voz do atendimento. Um por cliente em cada pausa. No Direct, no Messenger e no chat do iFood/99 segue em texto.</small></div>
+      <button type="button" class="sw" role="switch" aria-checked="true" data-aj="audio" aria-label="Responder em áudio quando o cliente insistir"></button>
+    </div>
+    <div class="aj">
+      <div class="t"><b>Avisar antes de reabrir</b><small>O painel toca o aviso e a faixa fica vermelha quando faltar este tempo para o canal reabrir.</small></div>
+      <div class="campo" style="margin:0"><label for="aviso-min" class="sr">Avisar antes de reabrir</label>
+        <select id="aviso-min" data-aj="aviso"><option value="1">1 min antes</option><option value="3">3 min antes</option><option value="5" selected>5 min antes</option><option value="10">10 min antes</option><option value="0">Não avisar</option></select></div>
+    </div>
+    <div class="aj">
+      <div class="t"><b>Som do aviso</b><small>O mesmo som do painel (o "🔔 Som on" precisa estar ligado nesta tela).</small></div>
+      <div class="campo" style="margin:0"><label for="som" class="sr">Som do aviso</label>
+        <select id="som" data-aj="som"><option value="bipe" selected>Bipe</option><option value="campainha">Campainha</option></select></div>
+    </div>
+  </div>
+  <p class="leg">Os motivos prontos são fixos (casam com os códigos da 99); o "Outro motivo…" fica para o que não estiver na lista.</p>
+  <div class="barra" id="barra" hidden role="region" aria-label="Alterações">
+    <span id="barra-txt">1 alteração ainda não salva</span>
+    <button type="button" class="bt sec" data-acao="descartar">Descartar</button>
+    <button type="button" class="bt pri" data-acao="salvar">Salvar</button>
+  </div>
+</section>
+
+<!-- ═════════════ 6. NOTAS ═════════════ -->
+<section class="vista" id="v-notas" aria-labelledby="t-notas" hidden>
+  <h1 id="t-notas">Plano e decisões</h1>
+  <div class="notas">
+    <article class="nota"><h2>O que muda (o pedido do dono, 10/11)</h2><ul>
+      <li>A pausa passa a <b>valer de verdade</b>: hoje ela só mostra a faixa no painel — o cardápio online aceita pedido, o robô não sabe e iFood e 99 seguem abertos.</li>
+      <li><b>Por canal e separada</b>: cardápio digital (site e atendente no WhatsApp, Instagram e Messenger), iFood e 99.</li>
+      <li><b>Motivo</b> com um toque (ou escrito) e o <b>tempo</b> de cada canal (a 99 só aceita 10/20/30 min ou o fim do dia).</li>
+      <li><b>Contador regressivo</b> por canal no painel e o <b>aviso sonoro</b> quando faltar pouco para reabrir.</li>
+      <li>Mensagem pronta ao cliente e, se ele insistir, o <b>áudio</b> com a mesma voz do atendimento.</li>
+    </ul></article>
+    <article class="nota"><h2>Fases (uma por PR)</h2><ol>
+      <li><b>F1</b> — pausa por canal com motivo e tempo; o cardápio fecha de verdade; o atendente sabe; auditoria; por loja.</li>
+      <li><b>F2</b> — contador regressivo e aviso sonoro no painel (Reabrir agora / +10 / +30 min).</li>
+      <li><b>F3</b> — a mensagem pronta (editável) no cardápio e nas respostas do atendente.</li>
+      <li><b>F4</b> — o áudio quando o cliente insiste (o Regem conta a insistência e pede a resposta falada).</li>
+      <li><b>F5</b> — iFood e 99 pausados pela API oficial, separados.</li>
+    </ol></article>
+    <article class="nota"><h2>Decisões tomadas (as recomendadas)</h2><ul>
+      <li>Motivos prontos: 6 + "Outro", casados com os códigos da 99.</li>
+      <li>Tempos do cardápio: 15 min, 30 min, 1 h ou "até HH:MM" (seletor de hora).</li>
+      <li>Áudio: um por cliente em cada pausa; se ele pedir por escrito, volta ao texto.</li>
+      <li>Aviso antes de reabrir: 5 min (muda em Ajustes).</li>
+      <li>Fora por ora: momento de pico e aviso antes de fechar.</li>
+    </ul></article>
+    <article class="nota"><h2>Da parte do dono</h2><ul>
+      <li>Aprovar ou ajustar este protótipo.</li>
+      <li>Na F4: trocar uma linha no nó "Prepara a resposta" do robô (o texto vai pronto).</li>
+      <li>Na F5: conferir no Portal do Desenvolvedor do iFood se o app tem o módulo <b>Merchant</b> (é ele que pausa a loja).</li>
+      <li>Os cliques das migrations.</li>
+    </ul></article>
+  </div>
+</section>
+
+</main>
+
+<script>
+(() => {
+  // O estado de cada controle do protótipo; [data-mostra="grupo:valor[|valor] …"] aparece quando TODAS as condições valem.
+  const estado = { vista: 'painel', situacao: 'aberto', dialogo: 'aberto', lp: 'cd', cliente: 'insiste', canalw: 'wa', plat: 'aceitou' };
+  const vale = (cond) => cond.trim().split(/\s+/).every((c) => {
+    const [g, v] = c.split(':');
+    return v.split('|').includes(estado[g]);
+  });
+
+  // O diálogo da pausa
+  const dlg = { canais: new Set(['cd']), motivo: 'pedidos', outro: '', livre: '30', ate: '22:30', t99: '30' };
+  const FRASE = {
+    pedidos: 'Estamos com *muitos pedidos agora*',
+    entregador: 'Estamos *sem entregador no momento*',
+    ingrediente: '*Acabou um ingrediente* e estamos repondo',
+    cozinha: 'Estamos com *um problema na cozinha*',
+    energia: 'Estamos *sem energia ou internet*',
+    fechando: 'Estamos *perto do horário de fechar*',
+  };
+  const NOMES = { cd: 'o cardápio digital', if: 'o iFood', n99: 'a 99' };
+  const agora = () => new Date();
+  const doisDig = (n) => String(n).padStart(2, '0');
+  function voltaDe() {
+    if (dlg.canais.has('cd') || dlg.canais.has('if')) {
+      if (dlg.livre === 'ate') return dlg.ate;
+      const d = new Date(agora().getTime() + Number(dlg.livre) * 60000);
+      return `${doisDig(d.getHours())}:${doisDig(d.getMinutes())}`;
+    }
+    if (dlg.t99 === 'dia') return 'amanhã às 18:00';
+    const d = new Date(agora().getTime() + Number(dlg.t99) * 60000);
+    return `${doisDig(d.getHours())}:${doisDig(d.getMinutes())}`;
+  }
+  const negrito = (t) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])).replace(/\*([^*]+)\*/g, '<b>$1</b>');
+  function previa() {
+    const motivo = dlg.motivo === 'outro' ? (dlg.outro.trim() ? `Estamos com *${dlg.outro.trim()}*` : 'Estamos com *(o motivo que você escrever)*') : FRASE[dlg.motivo];
+    const linhas = [
+      '⏸️ *Pedidos pausados por alguns minutos*',
+      `Oi, Ana! ${motivo} e pausamos os pedidos para não atrasar ninguém. 🍔`,
+      `🕒 Voltamos às *${voltaDe()}*.`,
+      'Assim que reabrirmos, é só mandar o seu pedido por aqui. Obrigado pela paciência! 💛',
+    ];
+    document.getElementById('previa').innerHTML = linhas.map((l) => `<p>${negrito(l)}</p>`).join('');
+  }
+  function mostrarDialogo() {
+    for (const b of document.querySelectorAll('[data-canal]')) b.setAttribute('aria-pressed', String(dlg.canais.has(b.dataset.canal)));
+    for (const b of document.querySelectorAll('[data-motivo]')) b.setAttribute('aria-pressed', String(dlg.motivo === b.dataset.motivo));
+    for (const b of document.querySelectorAll('[data-t-livre]')) b.setAttribute('aria-pressed', String(dlg.livre === b.dataset.tLivre));
+    for (const b of document.querySelectorAll('[data-t99]')) b.setAttribute('aria-pressed', String(dlg.t99 === b.dataset.t99));
+    document.getElementById('campo-outro').hidden = dlg.motivo !== 'outro';
+    const livre = dlg.canais.has('cd') || dlg.canais.has('if');
+    document.querySelector('[data-tempo-de="cd"]').hidden = !livre;
+    // O tempo livre vale para o cardápio digital e para o iFood (a 99 tem os tempos dela)
+    const tit = document.querySelector('[data-tempo-de="cd"] .tit');
+    const tags = [dlg.canais.has('cd') && '<span class="canal-tag cd">Cardápio digital</span>', dlg.canais.has('if') && '<span class="canal-tag if">iFood</span>'].filter(Boolean);
+    tit.innerHTML = tags.join(' e ');
+    document.querySelector('[data-tempo-de="n99"]').hidden = !dlg.canais.has('n99');
+    const bt = document.getElementById('bt-confirmar');
+    const falta = document.getElementById('falta');
+    const n = dlg.canais.size;
+    const semMotivo = dlg.motivo === 'outro' && !dlg.outro.trim();
+    bt.disabled = n === 0 || semMotivo;
+    falta.hidden = !bt.disabled;
+    falta.textContent = n === 0 ? 'Escolha o que pausar.' : 'Escreva o motivo.';
+    bt.textContent = n === 0 ? '⏸ Pausar' : n === 1 ? `⏸ Pausar ${NOMES[[...dlg.canais][0]]}` : `⏸ Pausar ${n} canais`;
+    document.getElementById('conta-outro').textContent = `${dlg.outro.length}/80`;
+    previa();
+    ajustarAltura();
+  }
+
+  function aplicar() {
+    for (const el of document.querySelectorAll('[data-mostra]')) el.hidden = !vale(el.dataset.mostra);
+    for (const b of document.querySelectorAll('[data-grupo]')) b.setAttribute('aria-pressed', String(estado[b.dataset.grupo] === b.dataset.valor));
+    for (const s of document.querySelectorAll('.vista')) s.hidden = s.id !== 'v-' + estado.vista;
+    ajustarAltura();
+    const bp = document.getElementById('bt-pausar');
+    const pausados = estado.situacao === 'aberto' ? 0 : estado.situacao === 'cardapio' ? 1 : 2;
+    bp.dataset.pausados = pausados ? '1' : '0';
+    bp.textContent = pausados ? `⏸ Pausados · ${pausados}` : '⏸ Pausar';
+    document.getElementById('chip-cd').classList.toggle('parado', pausados > 0);
+    document.getElementById('chip-if').classList.toggle('parado', pausados > 1);
+    document.getElementById('faixa-cd').classList.toggle('logo', estado.situacao === 'logo');
+    if (estado.situacao === 'logo') alvo.cd = Date.now() + 179000;
+    else alvo.cd = alvoPadrao;
+  }
+
+  // O painel cresce até a altura do diálogo aberto (nada fica fora de alcance)
+  function ajustarAltura() {
+    const painel = document.getElementById('painel');
+    const d = document.querySelector('#camada .dlg');
+    painel.style.minHeight = estado.dialogo === 'aberto' && d ? `${d.offsetHeight + 40}px` : '';
+  }
+  window.addEventListener('resize', ajustarAltura);
+
+  // Os contadores regressivos (no app vêm do "até" de cada canal)
+  const alvoPadrao = Date.now() + (12 * 60 + 34) * 1000;
+  const alvo = { cd: alvoPadrao, if: alvoPadrao };
+  function contar() {
+    for (const el of document.querySelectorAll('[data-contador]')) {
+      const resta = Math.max(0, Math.round((alvo[el.dataset.contador] - Date.now()) / 1000));
+      el.textContent = `${doisDig(Math.floor(resta / 60))}:${doisDig(resta % 60)}`;
+    }
+  }
+  setInterval(contar, 1000);
+
+  // A onda do áudio
+  const onda = document.getElementById('onda');
+  for (let i = 0; i < 28; i++) { const b = document.createElement('i'); b.style.height = `${6 + ((i * 37) % 18)}px`; onda.appendChild(b); }
+
+  // Ajustes: a barra de "N alterações ainda não salvas"
+  const salvo = { msg: document.getElementById('msg-pausa').value, audio: 'true', aviso: '5', som: 'bipe' };
+  const padrao = salvo.msg;
+  const atual = { ...salvo };
+  function mostrarAjustes() {
+    document.querySelector('.sw[data-aj="audio"]').setAttribute('aria-checked', atual.audio);
+    document.getElementById('msg-pausa').value = atual.msg;
+    document.getElementById('aviso-min').value = atual.aviso;
+    document.getElementById('som').value = atual.som;
+    const n = Object.keys(salvo).filter((k) => salvo[k] !== atual[k]).length;
+    document.getElementById('barra').hidden = n === 0 || estado.vista !== 'ajustes';
+    document.getElementById('barra-txt').textContent = n === 1 ? '1 alteração ainda não salva' : `${n} alterações ainda não salvas`;
+  }
+  let tempoDoAviso;
+  function aviso(texto) {
+    let t = document.querySelector('.toast');
+    if (!t) { t = document.createElement('div'); t.className = 'toast'; t.setAttribute('role', 'status'); document.body.appendChild(t); }
+    t.textContent = texto;
+    clearTimeout(tempoDoAviso);
+    tempoDoAviso = setTimeout(() => t.remove(), 2600);
+  }
+
+  document.addEventListener('click', (e) => {
+    const g = e.target.closest('[data-grupo]');
+    if (g) { estado[g.dataset.grupo] = g.dataset.valor; aplicar(); mostrarAjustes(); return; }
+    const c = e.target.closest('[data-canal]');
+    if (c) { dlg.canais.has(c.dataset.canal) ? dlg.canais.delete(c.dataset.canal) : dlg.canais.add(c.dataset.canal); mostrarDialogo(); return; }
+    const m = e.target.closest('[data-motivo]');
+    if (m) { dlg.motivo = m.dataset.motivo; mostrarDialogo(); if (dlg.motivo === 'outro') document.getElementById('motivo-outro').focus(); return; }
+    const tl = e.target.closest('[data-t-livre]');
+    if (tl) { dlg.livre = tl.dataset.tLivre; mostrarDialogo(); return; }
+    const t9 = e.target.closest('[data-t99]');
+    if (t9) { dlg.t99 = t9.dataset.t99; mostrarDialogo(); return; }
+    const sw = e.target.closest('.sw[data-aj]');
+    if (sw) { atual[sw.dataset.aj] = atual[sw.dataset.aj] === 'true' ? 'false' : 'true'; mostrarAjustes(); return; }
+    const a = e.target.closest('[data-acao]');
+    if (!a) return;
+    const acao = a.dataset.acao;
+    if (acao === 'abrir-pausa') { estado.dialogo = 'aberto'; aplicar(); document.querySelector('[data-canal="cd"]').focus(); return; }
+    if (acao === 'fechar-pausa') { estado.dialogo = 'fechado'; aplicar(); document.getElementById('bt-pausar').focus(); return; }
+    if (acao === 'confirmar-pausa') {
+      estado.dialogo = 'fechado';
+      estado.situacao = dlg.canais.has('if') && dlg.canais.has('cd') ? 'ambos' : 'cardapio';
+      aplicar();
+      aviso(`Pausado até ${voltaDe()} · motivo registrado`);
+      return;
+    }
+    if (acao === 'reabrir') { estado.situacao = 'aberto'; aplicar(); aviso('Reaberto: o canal voltou a receber pedidos'); return; }
+    if (acao === 'estender') { aviso('Pausa estendida (no protótipo o contador não muda)'); return; }
+    if (acao === 'padrao') { atual.msg = padrao; mostrarAjustes(); return; }
+    if (acao === 'descartar') { Object.assign(atual, salvo); mostrarAjustes(); aviso('Alterações descartadas'); return; }
+    if (acao === 'salvar') { Object.assign(salvo, atual); mostrarAjustes(); aviso('Ajustes salvos'); return; }
+  });
+  document.getElementById('motivo-outro').addEventListener('input', (e) => { dlg.outro = e.target.value; mostrarDialogo(); });
+  document.getElementById('ate-hora').addEventListener('change', (e) => { dlg.ate = e.target.value; dlg.livre = 'ate'; mostrarDialogo(); });
+  document.getElementById('msg-pausa').addEventListener('input', (e) => { atual.msg = e.target.value; mostrarAjustes(); });
+  document.getElementById('aviso-min').addEventListener('change', (e) => { atual.aviso = e.target.value; mostrarAjustes(); });
+  document.getElementById('som').addEventListener('change', (e) => { atual.som = e.target.value; mostrarAjustes(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && estado.dialogo === 'aberto') { estado.dialogo = 'fechado'; aplicar(); } });
+
+  aplicar();
+  mostrarDialogo();
+  mostrarAjustes();
+  contar();
+})();
+</script>
+</body>
+</html>
