@@ -10,7 +10,9 @@ import { Food99Service } from './food99.service';
 // requestCancellation dos pedidos cujo cancel não foi aceito, com backoff, até o
 // 99food confirmar (errno 0); (2) o "saiu para entrega" da ENTREGA DA LOJA (mig 294):
 // avisa a 99 dos pedidos despachados — inclusive os despachados no servidor da loja,
-// onde a integração não existe. Não roda no EDGE (integração é cloud-first).
+// onde a integração não existe; (3) a volta: a entrega da loja despachada pelo APP da 99
+// (a 99 não tem webhook disso) anda para "em rota" no Regem — `verificarSaidaPeloAppDa99`.
+// Não roda no EDGE (integração é cloud-first).
 @Injectable()
 export class Food99Poller {
   private readonly logger = new Logger('Food99Poller');
@@ -32,6 +34,8 @@ export class Food99Poller {
           if (n) this.logger.log(`loja ${ig.appShopId}: ${n} cancelamento(s) reconciliado(s)`);
           const d = await this.food99.reconciliarDespachos(ig);
           if (d) this.logger.log(`loja ${ig.appShopId}: ${d} saída(s) para entrega avisada(s) à 99`);
+          const s = await this.food99.verificarSaidaPeloAppDa99(ig);
+          if (s) this.logger.log(`loja ${ig.appShopId}: ${s} saída(s) pelo app da 99 refletida(s) no Regem`);
           this.falhas.funcionou(String(ig.appShopId), `poller 99food loja ${ig.appShopId}`);
         } catch (e: any) {
           this.falhas.falhou(String(ig.appShopId), `poller 99food loja ${ig.appShopId}`, e);

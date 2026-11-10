@@ -127,6 +127,11 @@
   servidor da loja (vai pela nuvem, `avaliacao-da-loja`) e a renovação do token do iFood sem apagar ajuste (V82 — sem
   efeito na loja, que não fala com o iFood).
 
+- **A saída da entrega da loja pelo app da 99 chega ao Regem (09/11; sem migration — ERR-419).** Nuvem: o poller da 99
+  pergunta à 99 o estado dos pedidos de entrega da loja abertos e o que saiu pelo app da 99 vira "Em rota" (o aviso "saiu"
+  do chat nasce). **No `.zip` (próximo corte):** só a gravação condicional do reflexo de status (`delivery.service.ts`) —
+  o servidor da loja não fala com a 99; nada muda no `.exe`.
+
 - **Ponte do chat 0.7.5 — o Gestor do iFood volta sozinho ao quadro "Pedidos" (09/11; sem migration, sem mudança na
   nuvem).** Só o programa `ponte-chat/` (ainda sem instalador): ao reiniciar, o Gestor abre em "Início" e a fila de saída
   do iFood esperava alguém clicar em "Pedidos" (ERR-418); agora, fora de "Pedidos" e com a tela parada há 60 s, a ponte

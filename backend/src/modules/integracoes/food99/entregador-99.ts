@@ -131,3 +131,15 @@ export function limitesDaEntrega(
 }
 
 export const unix = (d: Date) => Math.floor(d.getTime() / 1000);
+
+/**
+ * O estado do pedido na consulta `order/detail` da 99 (`status` — doc "Get Order Details" e FAQ "Orders", lidas em
+ * 09/11/2026) que quer dizer que a ENTREGA DA LOJA saiu: 400 = pego para a entrega (em trânsito), 500 = chegou ao
+ * cliente. 100/200 = ainda na loja; 600 (concluído) e 9xx (cancelado) a 99 avisa por webhook (`orderFinish`,
+ * `orderCancel`).
+ */
+export function saiuParaEntregaNa99(status: unknown): boolean {
+  if (status === null || status === undefined || status === '') return false;
+  const n = Number(status);
+  return n === 400 || n === 500;
+}

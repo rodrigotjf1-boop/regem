@@ -20,6 +20,7 @@ import {
   dadosDoEntregador,
   lerDeliveryStatus,
   limitesDaEntrega,
+  saiuParaEntregaNa99,
   unix,
 } from './entregador-99';
 
@@ -46,6 +47,10 @@ const BASE = process.env.FOOD99_BASE_URL ?? 'https://openapi.99food.com';
 // reason_id padrão de cancelamento (enum 99food: 1010/1020/1030/1040/1050/1060/1080).
 // 1010 = problema no estabelecimento (ajustar quando tivermos os labels oficiais).
 const CANCEL_REASON_PADRAO = Number(process.env.FOOD99_CANCEL_REASON ?? 1010);
+// A saída da ENTREGA DA LOJA pelo app da 99 (verificarSaidaPeloAppDa99): cada pedido perguntado no máximo 1×/min, até
+// 15 por loja a cada volta do poller (30 s).
+const PERGUNTAR_99_MS = 60_000;
+const POR_VOLTA_99 = 15;
 
 export interface IntegFood99 {
   id: string;
@@ -814,6 +819,70 @@ export class Food99Service {
       if (res.ok) avisados++;
     }
     return avisados;
+  }
+
+  // Quando cada pedido de entrega da loja foi perguntado à 99 pela última vez (verificarSaidaPeloAppDa99).
+  private readonly perguntadoNa99 = new Map<string, number>();
+
+  /**
+   * Verificador (chamado pelo poller, SÓ na nuvem): a ENTREGA DA LOJA despachada pelo APP/PORTAL da 99. A 99 não avisa
+   * por webhook — a doc "Order Webhooks" (lida em 09/11/2026) só tem orderNew, orderConfirm, orderReady, orderCancel,
+   * orderPartialCancel, orderFinish e os pedidos do cliente —, então o pedido ficava "em produção" no Regem e o aviso
+   * "saiu" do chat não nascia (09/11, pedido 436004). Pergunta à 99 (`order/detail`) o estado dos pedidos de entrega da
+   * loja ainda abertos aqui (confirmado ou pronto, até 4 h); 400/500 = saiu:
+   *  1. anota em `pedido_logistica` que a 99 JÁ SABE da saída — o `reconciliarDespachos` não manda o telefone da loja
+   *     por cima do entregador que a equipe pôs no app da 99;
+   *  2. anda pelo MESMO reflexo dos avisos do canal (`refletirStatusExterno` → despachado — não regride, V43).
+   * Cada pedido no máximo 1×/min (`PERGUNTAR_99_MS`), até `POR_VOLTA_99` por volta; quem foi perguntado há mais tempo
+   * vai primeiro — o que a 99 ainda não despachou volta para o fim da fila e não toma a vez dos outros (V84).
+   * Devolve quantos pedidos andaram para "em rota".
+   */
+  async verificarSaidaPeloAppDa99(ig: IntegFood99, agora = Date.now()): Promise<number> {
+    if (ehServidorLocal()) return 0;
+    const r: any = await this.db.execute(sql`
+      select p.id, p.external_id
+        from pedido_externo p
+       where p.tenant_id = ${ig.tenantId} and p.canal = ${CANAL} and p.status in ('confirmado', 'pronto')
+         and p.criado_em > now() - interval '4 hours'
+         and p.tipo <> 'retirada'
+         and coalesce(p.raw->>'delivery_type', '') = '2'
+         and coalesce(p.raw->>'fulfillment_mode', '') <> '1'
+         ${ig.unidadeId ? sql`and (p.unidade_id = ${ig.unidadeId} or p.unidade_id is null)` : sql``}
+       order by p.criado_em
+       limit 500`);
+    const abertos = ((r.rows ?? r) as any[]).filter((p) => /^\d+$/.test(String(p.external_id ?? '')));
+    const quando = (p: any) => this.perguntadoNa99.get(p.id) ?? 0;
+    const vez = abertos
+      .filter((p) => agora - quando(p) >= PERGUNTAR_99_MS)
+      .sort((a, b) => quando(a) - quando(b))
+      .slice(0, POR_VOLTA_99);
+    let saidas = 0;
+    for (const p of vez) {
+      this.perguntadoNa99.set(p.id, agora);
+      const ext = String(p.external_id);
+      const d = await this.pedido(ig, ext);
+      if (!d || !saiuParaEntregaNa99(d.status)) continue;
+      const lim = limitesDaEntrega(new Date(agora), d.expected_arrived_eta, new Date(agora));
+      await this.db.execute(sql`
+        insert into pedido_logistica (tenant_id, pedido_id, canal, modo, despacho_enviado_em, despacho_tentativas,
+                                      limite_coleta, limite_entrega)
+        values (${ig.tenantId}, ${p.id}, ${CANAL}, 'propria_canal', now(), 0,
+                ${lim.coleta.toISOString()}::timestamptz, ${lim.entrega.toISOString()}::timestamptz)
+        on conflict (pedido_id) do update set
+          despacho_enviado_em = coalesce(pedido_logistica.despacho_enviado_em, excluded.despacho_enviado_em),
+          despacho_erro = null,
+          limite_coleta = coalesce(pedido_logistica.limite_coleta, excluded.limite_coleta),
+          limite_entrega = coalesce(pedido_logistica.limite_entrega, excluded.limite_entrega)`);
+      const feito = await this.delivery.refletirStatusExterno(ig.tenantId, CANAL, ext, 'despachado');
+      if (feito === 'aplicado') {
+        saidas++;
+        this.logger.log(`pedido ${ext.slice(-6)} saiu pelo app da 99 (status ${d.status}) → em rota no Regem`);
+      }
+    }
+    if (this.perguntadoNa99.size > 5000) {
+      for (const [k, v] of this.perguntadoNa99) if (agora - v > 6 * 3_600_000) this.perguntadoNa99.delete(k);
+    }
+    return saidas;
   }
 
   // Última posição mandada à 99 por pedido: o app manda a cada ~10 s, a 99 recebe a cada 30 s.

@@ -1,4 +1,14 @@
-import { dadosDoEntregador, lerDeliveryStatus, limitesDaEntrega, telefone99, unix } from './entregador-99';
+import { dadosDoEntregador, lerDeliveryStatus, limitesDaEntrega, saiuParaEntregaNa99, telefone99, unix } from './entregador-99';
+
+// A saída da entrega da loja pelo APP da 99: o estado do `order/detail` (doc "Get Order Details" + FAQ "Orders").
+describe('99 — saiu para entrega pelo app da 99', () => {
+  it('400 (pego para a entrega) e 500 (chegou ao cliente) = saiu; o resto, não', () => {
+    expect(saiuParaEntregaNa99(400)).toBe(true);
+    expect(saiuParaEntregaNa99(500)).toBe(true);
+    expect(saiuParaEntregaNa99('400')).toBe(true);
+    for (const s of [100, 200, 600, 901, 921, 961, 0, null, undefined, '', 'x', 140]) expect(saiuParaEntregaNa99(s)).toBe(false);
+  });
+});
 
 // O entregador na 99 — regras puras (doc oficial: Self Delivery Order Dispatched, Update Courier
 // Track, Logistics Webhooks).

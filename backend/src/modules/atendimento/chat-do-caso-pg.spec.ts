@@ -27,8 +27,12 @@ jest.setTimeout(120_000);
 
 const MIG = (arq: string) => join(__dirname, '../../../../database/migrations', arq);
 
+// As conexões DESTE arquivo levam um nome: no CI os arquivos dividem o banco, e a contagem de sessões presas do cruzamento
+// conta só as daqui (o ALTER do robo_config da migration que outro arquivo aplica também fica preso atrás da trava — V72).
+const NOME_DAS_CONEXOES = 'chat-do-caso-pg';
+
 descrever('o chat do iFood e da 99 na fila do Atendimento (Postgres)', () => {
-  const pool = new Pool({ connectionString: URL_PG });
+  const pool = new Pool({ connectionString: URL_PG, application_name: NOME_DAS_CONEXOES });
   const db = drizzle(pool, { schema }) as any;
   const q = async (s: string, p: any[] = []) => (await pool.query(s, p)).rows;
   const eventos: Array<[string, any]> = [];
@@ -484,9 +488,9 @@ descrever('o chat do iFood e da 99 na fila do Atendimento (Postgres)', () => {
         await new Promise((r) => setTimeout(r, 50));
         [{ n: presas }] = await q(
           `select count(*)::int as n from pg_stat_activity
-            where cardinality(pg_blocking_pids(pid)) > 0
+            where cardinality(pg_blocking_pids(pid)) > 0 and application_name = $3
               and ($1::int = any(pg_blocking_pids(pid)) or pid = $2::int or $2::int = any(pg_blocking_pids(pid)))`,
-          [pidL, pidB],
+          [pidL, pidB, NOME_DAS_CONEXOES],
         );
       }
       expect({ presas, assumiu, falou }).toEqual({ presas: 2, assumiu: false, falou: false });
