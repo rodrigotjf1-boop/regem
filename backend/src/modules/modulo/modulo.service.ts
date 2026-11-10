@@ -14,6 +14,9 @@ export const MODULOS = [
   // Mesas e comandas (09/10/2026): a loja que só vende no balcão desliga — some o menu, as rotas de
   // mesa recusam e a venda do balcão não aceita mesa. Corte do garçom e do QR da mesa: PR seguinte.
   { chave: 'mesas', label: 'Mesas e comandas', emoji: '🍽️' },
+  // Vagas e candidatos (mig 389): a página pública de vagas e Pessoas › Candidatos. Desligado: some o menu, as rotas da
+  // loja recusam e a página pública responde "não encontrada". A página em si nasce desligada (a loja liga quando quiser).
+  { chave: 'vagas', label: 'Vagas e candidatos', emoji: '🧑‍🍳' },
 ];
 const CHAVES = new Set(MODULOS.map((m) => m.chave));
 
@@ -28,6 +31,7 @@ const NO_PLANO: Record<string, string | null> = {
   terminal_ponto: 'ponto',
   bot: 'bot',
   mesas: null,
+  vagas: null,
 };
 // O plano contratado deixa este módulo de fora?
 function foraDoPlano(plano: Set<string> | null, modulo: string): boolean {

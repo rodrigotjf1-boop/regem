@@ -2275,6 +2275,24 @@ export const api = {
   atualizarUnidade: (id: string, body: { nome: string; tipo?: string; endereco?: string }) =>
     req(`/unidades/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   removerUnidade: (id: string) => req(`/unidades/${id}`, { method: 'DELETE' }),
+  // Vagas e candidatos (mig 389): Pessoas › Candidatos (logado; só na nuvem) e a página pública /v/<codigo>.
+  vagasCandidatos: () => req('/vagas/candidatos'),
+  vagasCandidato: (id: string) => req(`/vagas/candidatos/${id}`),
+  vagasSituacao: (id: string, situacao: string) =>
+    req(`/vagas/candidatos/${id}/situacao`, { method: 'PATCH', body: JSON.stringify({ situacao }) }),
+  vagasAnotar: (id: string, texto: string) =>
+    req(`/vagas/candidatos/${id}/anotacao`, { method: 'POST', body: JSON.stringify({ texto }) }),
+  vagasEntrevista: (id: string, quando: string) =>
+    req(`/vagas/candidatos/${id}/entrevista`, { method: 'POST', body: JSON.stringify({ quando }) }),
+  vagasApagar: (id: string) => req(`/vagas/candidatos/${id}`, { method: 'DELETE' }),
+  vagasAjustes: () => req('/vagas/pagina'),
+  vagasSalvarAjustes: (body: Record<string, unknown>) => req('/vagas/pagina', { method: 'PUT', body: JSON.stringify(body) }),
+  vagasQrs: () => req('/vagas/qr'),
+  vagasCriarQr: (nome: string) => req('/vagas/qr', { method: 'POST', body: JSON.stringify({ nome }) }),
+  vagasApagarQr: (id: string) => req(`/vagas/qr/${id}`, { method: 'DELETE' }),
+  vagasPaginaPublica: (codigo: string) => pub(`/publico/vagas/${encodeURIComponent(codigo)}`),
+  vagasEnviarFicha: (codigo: string, body: Record<string, unknown>) =>
+    pub(`/publico/vagas/${encodeURIComponent(codigo)}/ficha`, { method: 'POST', body: JSON.stringify(body) }),
   criarAlocacao: (body: Record<string, unknown>) =>
     req('/escala', { method: 'POST', body: JSON.stringify(body) }),
   alterarAlocacao: (id: string, body: Record<string, unknown>) =>

@@ -18,7 +18,8 @@
     "check:senhas": "node scripts/check-senhas.mjs",
     "check:tela-senhas": "node scripts/check-tela-senhas.mjs",
     "check:painel": "node scripts/check-painel.mjs",
-    "test": "npm run check:etapas && npm run check:eventos && npm run check:kds && npm run check:balcao && npm run check:unidades && npm run check:marcas && npm run check:conversao && npm run check:embalagem && npm run check:senhas && npm run check:tela-senhas && npm run check:painel"
+    "check:vagas": "node scripts/check-vagas.mjs",
+    "test": "npm run check:etapas && npm run check:eventos && npm run check:kds && npm run check:balcao && npm run check:unidades && npm run check:marcas && npm run check:conversao && npm run check:embalagem && npm run check:senhas && npm run check:tela-senhas && npm run check:painel && npm run check:vagas"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.0",
