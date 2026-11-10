@@ -40,8 +40,8 @@ export type Ajuste = {
   aoSair?: (valor: string) => void;
   /** `livre`: o controle é desenhado por quem usa (ex.: envio de imagem). */
   desenhar?: (valor: Valor, mudar: (v: Valor) => void) => React.ReactNode;
-  /** O controle ocupa a linha inteira, com o rótulo em cima (editor com vários campos, como uma lista de funções) —
-   *  sem isso, um `livre` fica na coluna da direita, de 22rem. */
+  /** O controle ocupa a linha inteira, com o rótulo em cima (editor com vários campos, como uma lista de funções, ou a
+   *  mensagem da pausa com os botões dos campos) — sem isso, um `livre` fica na coluna da direita, de 22rem. */
   largo?: boolean;
   /** Texto do item para a busca, além do rótulo. */
   palavras?: string;

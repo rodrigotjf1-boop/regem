@@ -84,6 +84,65 @@ export function ateEstendido(ateAtual: Date | null, minutos: unknown, agora: Dat
   return { ok: true, ate };
 }
 
+// ── F3 (migs 394 e 395): a mensagem pronta ao cliente ──────────────────────────────────────────────────────────────
+/**
+ * O texto padrão (o do protótipo aprovado). `{motivo}` é a FRASE do motivo ("Estamos com *muitos pedidos agora*" — cada
+ * motivo pronto tem a sua), `{volta}` é "às *21:40*" ou "amanhã às *00:30*" e `{nome}` o primeiro nome do cliente (sem
+ * nome, "Oi, {nome}!" vira "Oi!"). O destaque `*…*` é o negrito do WhatsApp; no Direct e no Messenger sai sem ele.
+ */
+export const MENSAGEM_DA_PAUSA_PADRAO = [
+  '⏸️ *Pedidos pausados por alguns minutos*',
+  '',
+  'Oi, {nome}! {motivo} e pausamos os pedidos para não atrasar ninguém.',
+  '',
+  '🕒 Voltamos {volta}.',
+  '',
+  'Assim que reabrirmos, é só mandar o seu pedido por aqui. Obrigado pela paciência! 💛',
+].join('\n');
+export const MENSAGEM_DA_PAUSA_MAX = 700;
+export const CAMPOS_DA_MENSAGEM = ['{nome}', '{motivo}', '{volta}'] as const;
+
+/** O primeiro nome de quem escreve ("ANA PAULA" → "Ana"); nada que pareça nome (número, @, emoji) → vazio. */
+export function primeiroNome(nome: unknown): string {
+  const p = String(nome ?? '').trim().split(/\s+/)[0] ?? '';
+  if (!/^[\p{L}][\p{L}'’-]{1,29}$/u.test(p)) return '';
+  return p.charAt(0).toLocaleUpperCase('pt-BR') + p.slice(1).toLocaleLowerCase('pt-BR');
+}
+
+/**
+ * Monta a mensagem da pausa: o modelo da loja (ou o padrão) com o nome, a frase do motivo e a volta. `semDestaque` (Direct,
+ * Messenger, a IA): sem os asteriscos. Linhas em branco seguidas viram uma só; as pontas sem espaço.
+ */
+export function montarMensagemDaPausa(
+  modelo: string | null | undefined,
+  d: { nome?: string | null; frase: string; volta: { hora: string; amanha: boolean } },
+  opcoes: { semDestaque?: boolean } = {},
+): string {
+  const base = String(modelo ?? '').trim() || MENSAGEM_DA_PAUSA_PADRAO;
+  const nome = primeiroNome(d.nome);
+  const volta = `${d.volta.amanha ? 'amanhã ' : ''}às *${d.volta.hora}*`;
+  // Sem nome: "Oi, {nome}!" → "Oi!" e "{nome}, tudo bem?" → "Tudo bem?" (some o nome e a vírgula que o acompanha).
+  let t = nome
+    ? base.replace(/\{nome\}/g, nome)
+    : base
+        .replace(/,\s*\{nome\}/g, '')
+        .replace(/\{nome\}\s*,\s*(\p{L})/gu, (_m, l: string) => l.toLocaleUpperCase('pt-BR'))
+        .replace(/\s*\{nome\}/g, '');
+  t = t.replace(/\{motivo\}/g, d.frase).replace(/\{volta\}/g, volta);
+  if (opcoes.semDestaque) t = t.replace(/\*/g, '');
+  return t.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/** Confere a mensagem que a tela mandou: vazia ou igual à padrão = o padrão (nulo); senão até 700 letras. */
+export function lerMensagemDaPausa(v: unknown): { ok: true; mensagem: string | null } | { ok: false; erro: string } {
+  if (v === null) return { ok: true, mensagem: null };
+  if (typeof v !== 'string') return { ok: false, erro: 'Mensagem da pausa: escreva um texto.' };
+  const t = v.replace(/\r\n/g, '\n').trim();
+  if (!t || t === MENSAGEM_DA_PAUSA_PADRAO) return { ok: true, mensagem: null };
+  if (t.length > MENSAGEM_DA_PAUSA_MAX) return { ok: false, erro: `A mensagem da pausa tem até ${MENSAGEM_DA_PAUSA_MAX} letras.` };
+  return { ok: true, mensagem: t };
+}
+
 /** Os tempos prontos do cardápio digital (minutos); o outro jeito é "até HH:MM". */
 export const TEMPOS_DO_CARDAPIO = [15, 30, 60] as const;
 /** A pausa mais longa que se escolhe por "até HH:MM". */

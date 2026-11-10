@@ -1,10 +1,16 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { idPausaDoCanal } from './id-deterministico';
 import {
   ateDoCardapio,
   ateEstendido,
   avisoDaLinha,
   lerAjusteDaPausa,
+  lerMensagemDaPausa,
+  MENSAGEM_DA_PAUSA_PADRAO,
+  montarMensagemDaPausa,
+  primeiroNome,
   fraseDoMotivo,
   instanteNoFuso,
   lerMotivo,
@@ -138,5 +144,35 @@ describe('pausa por canal — F2: o aviso antes de reabrir e o estender (mig 393
     expect(ateEstendido(null, 10, AS_21_10)).toEqual({ ok: false, erro: 'Este canal já reabriu.' });
     expect(ateEstendido(new Date('2026-11-11T00:00:00Z'), 10, AS_21_10)).toEqual({ ok: false, erro: 'Este canal já reabriu.' });
     expect(ateEstendido(new Date('2026-11-11T11:55:00Z'), 30, AS_21_10)).toEqual({ ok: false, erro: 'A pausa vai até 12 horas à frente.' });
+  });
+});
+
+describe('pausa por canal — F3: a mensagem pronta ao cliente (mig 394)', () => {
+  // Os MESMOS casos que a tela confere (`frontend/scripts/check-pausa.mjs`): a prévia do painel tem de dar o texto que sai.
+  const CASOS = JSON.parse(readFileSync(join(__dirname, '../../../frontend/scripts/casos-mensagem-da-pausa.json'), 'utf8'));
+
+  it('o texto padrão dos casos é o do servidor', () => {
+    expect(CASOS.padrao).toBe(MENSAGEM_DA_PAUSA_PADRAO);
+  });
+
+  it.each(CASOS.casos.map((c: any) => [c.nome, c]))('%s', (_n, c: any) => {
+    expect(montarMensagemDaPausa(c.modelo, c.dados, { semDestaque: c.semDestaque })).toBe(c.esperado);
+  });
+
+  it('o primeiro nome', () => {
+    expect(primeiroNome('ANA PAULA')).toBe('Ana');
+    expect(primeiroNome("  d'ávila ")).toBe("D'ávila");
+    expect(primeiroNome('5521999990000')).toBe('');
+    expect(primeiroNome('@rodrigo')).toBe('');
+    expect(primeiroNome(null)).toBe('');
+  });
+
+  it('a mensagem que a tela manda: vazia ou a padrão = nula; até 700 letras; o que não é texto é recusado', () => {
+    expect(lerMensagemDaPausa(null)).toEqual({ ok: true, mensagem: null });
+    expect(lerMensagemDaPausa('   ')).toEqual({ ok: true, mensagem: null });
+    expect(lerMensagemDaPausa(MENSAGEM_DA_PAUSA_PADRAO.replace(/\n/g, '\r\n'))).toEqual({ ok: true, mensagem: null });
+    expect(lerMensagemDaPausa(' Voltamos {volta}! ')).toEqual({ ok: true, mensagem: 'Voltamos {volta}!' });
+    expect(lerMensagemDaPausa('x'.repeat(701))).toEqual({ ok: false, erro: 'A mensagem da pausa tem até 700 letras.' });
+    expect(lerMensagemDaPausa(42)).toMatchObject({ ok: false });
   });
 });

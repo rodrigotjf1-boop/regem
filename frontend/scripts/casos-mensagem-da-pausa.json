@@ -1,0 +1,41 @@
+{
+  "_sobre": "Os mesmos casos da mensagem da pausa (F3, mig 394) para o servidor (backend/src/common/pausa-do-canal.spec.ts) e a tela (frontend/scripts/check-pausa.mjs): a montagem tem de dar o MESMO texto nos dois lados (V74). `padrao` tem de ser igual a MENSAGEM_DA_PAUSA_PADRAO do servidor.",
+  "padrao": "⏸️ *Pedidos pausados por alguns minutos*\n\nOi, {nome}! {motivo} e pausamos os pedidos para não atrasar ninguém.\n\n🕒 Voltamos {volta}.\n\nAssim que reabrirmos, é só mandar o seu pedido por aqui. Obrigado pela paciência! 💛",
+  "casos": [
+    {
+      "nome": "o padrão com o nome (o primeiro, com maiúscula)",
+      "modelo": null,
+      "dados": { "nome": "ANA PAULA", "frase": "Estamos com *muitos pedidos agora*", "volta": { "hora": "21:40", "amanha": false } },
+      "semDestaque": false,
+      "esperado": "⏸️ *Pedidos pausados por alguns minutos*\n\nOi, Ana! Estamos com *muitos pedidos agora* e pausamos os pedidos para não atrasar ninguém.\n\n🕒 Voltamos às *21:40*.\n\nAssim que reabrirmos, é só mandar o seu pedido por aqui. Obrigado pela paciência! 💛"
+    },
+    {
+      "nome": "sem nome: \"Oi, {nome}!\" vira \"Oi!\"",
+      "modelo": null,
+      "dados": { "nome": null, "frase": "*Acabou um ingrediente* e estamos repondo", "volta": { "hora": "00:30", "amanha": true } },
+      "semDestaque": false,
+      "esperado": "⏸️ *Pedidos pausados por alguns minutos*\n\nOi! *Acabou um ingrediente* e estamos repondo e pausamos os pedidos para não atrasar ninguém.\n\n🕒 Voltamos amanhã às *00:30*.\n\nAssim que reabrirmos, é só mandar o seu pedido por aqui. Obrigado pela paciência! 💛"
+    },
+    {
+      "nome": "o que não parece nome (número, @) conta como sem nome",
+      "modelo": "Oi, {nome}! {motivo}.",
+      "dados": { "nome": "+55 21 99999", "frase": "Estamos *sem entregador no momento*", "volta": { "hora": "20:00", "amanha": false } },
+      "semDestaque": false,
+      "esperado": "Oi! Estamos *sem entregador no momento*."
+    },
+    {
+      "nome": "Direct e Messenger: sem os asteriscos",
+      "modelo": null,
+      "dados": { "nome": "rodrigo", "frase": "Estamos com *um problema na cozinha*", "volta": { "hora": "22:15", "amanha": false } },
+      "semDestaque": true,
+      "esperado": "⏸️ Pedidos pausados por alguns minutos\n\nOi, Rodrigo! Estamos com um problema na cozinha e pausamos os pedidos para não atrasar ninguém.\n\n🕒 Voltamos às 22:15.\n\nAssim que reabrirmos, é só mandar o seu pedido por aqui. Obrigado pela paciência! 💛"
+    },
+    {
+      "nome": "o modelo da loja: \"{nome}, …\" sem nome vira a frase com maiúscula; linhas em branco seguidas viram uma",
+      "modelo": "{nome}, tudo bem?\n\n\n\n{motivo}. Voltamos {volta}!",
+      "dados": { "nome": "", "frase": "Estamos com *muitos pedidos agora*", "volta": { "hora": "21:40", "amanha": false } },
+      "semDestaque": false,
+      "esperado": "Tudo bem?\n\nEstamos com *muitos pedidos agora*. Voltamos às *21:40*!"
+    }
+  ]
+}

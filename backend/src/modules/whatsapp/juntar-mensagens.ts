@@ -33,8 +33,27 @@ async function soltar(k: string, entregar: (m: any) => Promise<any>): Promise<vo
   });
 }
 
+/**
+ * O PORTEIRO DA PAUSA (F3 da pausa dos pedidos, mig 395): olha a mensagem JÁ JUNTADA antes de ela ir ao robô — com o
+ * cardápio digital pausado, a 1ª mensagem do cliente na pausa é respondida pelo Regem com a mensagem pronta e não vai ao
+ * robô ('respondido'). Registrado UMA vez, quando o servidor sobe (`PausaNoAtendimentoService`); sem ele (testes, servidor
+ * da loja), entrega direto. Falha do porteiro nunca segura a mensagem: entrega ao robô.
+ */
+type Porteiro = (msg: any) => Promise<'segue' | 'respondido'>;
+let porteiro: Porteiro | null = null;
+export function definirPorteiroDaPausa(p: Porteiro | null): void {
+  porteiro = p;
+}
+export async function entregarComPorteiro(msg: any, entregar: (m: any) => Promise<any> = entregarAoRobo): Promise<any> {
+  if (porteiro) {
+    const decisao = await porteiro(msg).catch(() => 'segue' as const);
+    if (decisao === 'respondido') return true;
+  }
+  return entregar(msg);
+}
+
 /** Entrega ao robô juntando o texto das mensagens seguidas da mesma conversa. Nunca lança. */
-export async function entregarJuntando(msg: any, entregar: (m: any) => Promise<any> = entregarAoRobo): Promise<void> {
+export async function entregarJuntando(msg: any, entregar: (m: any) => Promise<any> = entregarComPorteiro): Promise<void> {
   const ms = espera();
   const k = chave(msg);
   if (!ms) {

@@ -11,10 +11,11 @@ import {
   NOME_NA_FRASE,
   fimDaPrevia,
   fraseDaPrevia,
+  montarMensagemDaPausa,
   voltaDaPrevia,
   type EstadoDasPausas,
 } from '@/lib/pausa-dos-pedidos';
-import { AvisoDaPausa } from './aviso-da-pausa';
+import { AvisoDaPausa, MensagemComDestaque } from './aviso-da-pausa';
 
 /** Botão de escolha (motivo, tempo): o marcado em dourado, com `aria-pressed`. */
 function Opcao({ marcado, onClick, children }: { marcado: boolean; onClick: () => void; children: React.ReactNode }) {
@@ -248,14 +249,23 @@ export function DialogoPausa({
         </Grupo>
 
         <Grupo titulo="4 · O cliente vai ver">
-          {previa ? (
+          {previa && estado.mensagemModelo ? (
+            // F3 (mig 394): a mensagem pronta como o cliente recebe no WhatsApp (o nome de exemplo é "Ana").
+            <div className="rounded-xl bg-secondary p-3">
+              <MensagemComDestaque
+                texto={montarMensagemDaPausa(estado.mensagemModelo, { nome: 'Ana', frase: previa.frase, volta: previa.volta })}
+                className="max-w-md rounded-lg rounded-tl-none bg-card p-3 text-sm shadow-sm"
+              />
+            </div>
+          ) : previa ? (
             <AvisoDaPausa frase={previa.frase} volta={previa.volta} className="rounded-xl border border-warn/40 bg-warn/10 p-3" />
           ) : (
             <p className="text-sm text-muted-foreground">Escolha a hora de reabrir.</p>
           )}
           <p className="mt-2 text-xs text-muted-foreground">
-            No cardápio online. O pedido feito pelo site ou pelo atendente do WhatsApp, Instagram e Messenger é recusado com o
-            motivo e a hora de volta.
+            {estado.mensagemModelo
+              ? 'O atendente manda esta mensagem na primeira vez que o cliente escrever durante a pausa (WhatsApp, Instagram e Messenger — nos dois últimos, sem o negrito). No cardápio online aparece o aviso da pausa, e o pedido é recusado com o motivo e a hora de volta. O texto se muda em Delivery › Configurações › Atendimento.'
+              : 'No cardápio online. O pedido feito pelo site ou pelo atendente do WhatsApp, Instagram e Messenger é recusado com o motivo e a hora de volta.'}
           </p>
         </Grupo>
 

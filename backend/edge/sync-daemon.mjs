@@ -2325,6 +2325,9 @@ const SO_NUVEM = new Set([
   // Os avisos ao entregador (mig 391, @cloud-only): o app do entregador fala com a nuvem; o Atendimento do servidor da
   // loja pede à nuvem — a loja não tem esta tabela.
   'entregador_aviso',
+  // "Já avisei este cliente nesta pausa" (mig 395, @cloud-only): o atendente recebe as mensagens na nuvem; a loja não
+  // tem esta tabela.
+  'pausa_aviso_cliente',
   // "Disponível / Ocupado: embalando" de quem atende pelo app "Regem Atendimento" (mig 353, @cloud-only): o app fala
   // com a nuvem (decisão do dono, 02/11/2026); a loja não tem esta tabela.
   'atendimento_presenca',

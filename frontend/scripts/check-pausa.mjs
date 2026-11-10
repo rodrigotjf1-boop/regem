@@ -80,6 +80,13 @@ try {
     assert.equal(p.faltamTexto(42), 'Falta menos de 1 min');
   });
 
+  caso('F3: a mensagem da pausa dá o MESMO texto do servidor (os casos de casos-mensagem-da-pausa.json)', () => {
+    const casos = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'casos-mensagem-da-pausa.json'), 'utf8'));
+    for (const c of casos.casos) assert.equal(p.montarMensagemDaPausa(c.modelo ?? casos.padrao, c.dados, { semDestaque: c.semDestaque }), c.esperado, c.nome);
+    assert.equal(p.primeiroNome('ANA PAULA'), 'Ana');
+    assert.equal(p.primeiroNome('5521999990000'), '');
+  });
+
   caso('cada canal tem o texto do cartão e o nome na frase do botão', () => {
     for (const c of ['cardapio', 'ifood', 'food99']) {
       assert.ok(p.DESCRICAO_DO_CANAL[c], c);
