@@ -3853,6 +3853,9 @@ export const roboConfig = pgTable('robo_config', {
   lembreteCarrinho: boolean('lembrete_carrinho').notNull().default(false),
   // "O robô faz mudanças simples" no pedido já feito (mig 363): nasce LIGADO (decisão 3A); desligado → a equipe.
   mudaPedido: boolean('muda_pedido').notNull().default(true),
+  // O cliente da 99 pelo WhatsApp da loja (mig 388): nasce desligado — rastreio, "chegando", "sem contato" e a posição.
+  // O "já mandei" de cada aviso mora em `pedido_aviso_99` (mig 388; lida e gravada em SQL — DeliveryService).
+  cliente99Whatsapp: boolean('cliente_99_whatsapp').notNull().default(false),
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
   atualizadoPor: uuid('atualizado_por'),
 });

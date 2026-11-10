@@ -36,6 +36,9 @@ import { autorizarPorSenhaDeGestor } from '../../common/autorizacao-gestor';
 import { conferirRegras, DocumentoImpressao } from '../../common/regras-impressao';
 import { logisticaDosPedidos } from './logistica-canal';
 import { EVENTO_CANCELADOS_NA_BAIXA } from './pendencias-turno';
+// Quem entrega o pedido (só a regra pura — o arquivo não importa nada do módulo do entregador).
+import { modoEntrega } from '../entregador/modo-entrega';
+import { telefoneE164 } from '../../common/telefone-e164';
 
 // Documento do cliente: guardamos só os dígitos, como a NFC-e exige. Formato inválido não é
 // barrado aqui — quem emite confere os dígitos verificadores e trata como ausente se não fechar.
@@ -1882,6 +1885,41 @@ export class DeliveryService {
    */
   static podeAvisarPeloWhatsapp(canal: unknown): boolean {
     return DeliveryService.grupoCanal(String(canal ?? '')) === 'regem';
+  }
+
+  /**
+   * O cliente deste pedido pode receber o que o ENTREGADOR manda pelo WhatsApp da loja (rastreio, "chegando", "não
+   * consigo falar", a posição dele)? Pedido do dono, 09/11/2026: o do canal do Regem, sempre; o da 99 só na ENTREGA DA
+   * LOJA e com o ajuste "Falar com o cliente da 99 pelo WhatsApp" ligado (mig 388) — a 99 manda o celular do cliente. O
+   * iFood nunca (termo do iFood: o cliente não pode ser levado a outro canal — ERR-342); os integrados também não (têm o
+   * próprio contato com o cliente — #391); a entrega feita pelo entregador da 99, quem avisa é a 99.
+   */
+  static podeFalarPeloWhatsapp(ped: { canal?: unknown; tipo?: unknown; raw?: unknown }, cliente99Ligado: boolean): boolean {
+    if (DeliveryService.podeAvisarPeloWhatsapp(ped?.canal)) return true;
+    return cliente99Ligado && String(ped?.canal ?? '') === '99food' && modoEntrega(ped ?? {}) === 'propria_canal';
+  }
+
+  /**
+   * O ajuste "Falar com o cliente da 99 pelo WhatsApp" (mig 388, só a nuvem tem a tabela). Na dúvida — sem linha, banco
+   * sem a 388, erro de leitura, servidor da loja — desligado: o cliente da 99 não recebe nada pelo WhatsApp da loja.
+   */
+  async cliente99Ligado(tenantId: string): Promise<boolean> {
+    if (ehServidorLocal()) return false;
+    try {
+      const r: any = await this.db.execute(sql`select cliente_99_whatsapp from robo_config where tenant_id = ${tenantId}::uuid`);
+      return (r?.rows ?? r ?? [])[0]?.cliente_99_whatsapp === true;
+    } catch (e: any) {
+      const code = e?.code ?? e?.cause?.code;
+      if (code !== '42703' && code !== '42P01') this.logger.warn(`[cliente-99] o ajuste não foi lido (${e?.message ?? e}) — fica desligado`);
+      return false;
+    }
+  }
+
+  /** `podeFalarPeloWhatsapp` lendo o ajuste da 99 só quando o pedido é da 99. */
+  async podeFalarComOCliente(tenantId: string, ped: { canal?: unknown; tipo?: unknown; raw?: unknown }): Promise<boolean> {
+    if (DeliveryService.podeAvisarPeloWhatsapp(ped?.canal)) return true;
+    if (String(ped?.canal ?? '') !== '99food') return false;
+    return DeliveryService.podeFalarPeloWhatsapp(ped, await this.cliente99Ligado(tenantId));
   }
 
   // A PREVISÃO DE CHEGADA do "saiu para entrega" (Onda 0, 01/11/2026). A conta é a do rastreio e mora no
@@ -3823,17 +3861,23 @@ export class DeliveryService {
    * com/sem 55, com/sem o nono dígito): dentro da janela de 24 h, o texto (no "saiu", com o botão "Acompanhar entrega");
    * fora dela, o modelo de utilidade aprovado do evento; sem modelo ou sem conversa, não sai por WhatsApp e o registro diz
    * o motivo (V37). Nunca rejeita (V3).
+   *
+   * Opções do entregador (09/11/2026): `paraOTelefone` — o cliente da 99 (mig 388) nunca conversou com a loja: fora da
+   * conversa, o modelo aprovado vai ao celular que a 99 mandou; `link` — o botão do texto na janela (a posição do
+   * entregador no mapa); `eventoDoModelo` — o modelo aprovado de outro aviso quando este não tem o seu.
    */
   private async avisoPelaOficial(
     tenantId: string,
     ped: any,
     evento: string,
-    opcoes: { cheguei?: boolean } = {},
+    opcoes: { cheguei?: boolean; paraOTelefone?: boolean; link?: { url: string; rotulo: string }; eventoDoModelo?: string } = {},
   ): Promise<{ saiu: boolean; motivo?: string }> {
     const nao = (motivo: string, resultado: 'nao_enviado' | 'falhou' = 'nao_enviado') => {
       this.registrarAviso(tenantId, ped.id, 'cliente_whatsapp', evento, resultado, motivo);
       return { saiu: false, motivo };
     };
+    // O cliente da 99 não acompanha pelo cardápio online: o motivo não promete que o aviso "ficou" lá.
+    const fica = opcoes.paraOTelefone ? '' : ': o aviso ficou no cardápio online';
     try {
       if (!this.whatsappOficial) return nao('o WhatsApp oficial não está disponível neste servidor');
       const formas = formasDaChaveTelefone(chaveTelefone(ped.clienteTelefone));
@@ -3844,18 +3888,25 @@ export class DeliveryService {
         .where(and(eq(whatsappMensagem.tenantId, tenantId), inArray(whatsappMensagem.telefone, formas), eq(whatsappMensagem.direcao, 'entrada')))
         .orderBy(desc(whatsappMensagem.criadoEm))
         .limit(1);
-      if (!ultima?.telefone) return nao('o cliente nunca escreveu para a loja no WhatsApp: o aviso ficou no cardápio online');
+      let para: string | null = ultima?.telefone ? String(ultima.telefone) : null;
+      if (!para) {
+        // Sem conversa: só o cliente da 99 recebe, pelo celular do pedido (o modelo — fora da janela por definição).
+        const e164 = opcoes.paraOTelefone ? telefoneE164(ped.clienteTelefone) : null;
+        if (!opcoes.paraOTelefone) return nao(`o cliente nunca escreveu para a loja no WhatsApp${fica}`);
+        if (!e164) return nao('o telefone do cliente não é um celular do Brasil');
+        para = e164.slice(1);
+      }
       let rastreio: string | null = ped.rastreioToken ?? null;
       if (!rastreio && evento === 'saiu_entrega') {
         const [pe] = await this.db.select({ t: pedidoExterno.rastreioToken }).from(pedidoExterno).where(eq(pedidoExterno.id, ped.id));
         rastreio = pe?.t ?? null;
       }
-      const para = String(ultima.telefone);
-      const dentro = !!ultima.criadoEm && Date.now() - new Date(ultima.criadoEm as any).getTime() < 24 * 60 * 60 * 1000;
+      const dentro = !!ultima?.telefone && !!ultima.criadoEm && Date.now() - new Date(ultima.criadoEm as any).getTime() < 24 * 60 * 60 * 1000;
       if (dentro) {
         const t = DeliveryService.textoNotificacao(evento, ped);
         const texto = `*${t.titulo}*\n${t.texto}`;
-        if ((evento === 'saiu_entrega' || evento === 'sem_contato') && rastreio)
+        if (opcoes.link) await this.whatsappOficial.enviarLink(tenantId, para, texto, opcoes.link.url, opcoes.link.rotulo);
+        else if ((evento === 'saiu_entrega' || evento === 'sem_contato') && rastreio)
           await this.whatsappOficial.enviarLink(
             tenantId,
             para,
@@ -3874,8 +3925,13 @@ export class DeliveryService {
         const modelo =
           (evento === 'pronto_retirada' && opcoes.cheguei
             ? await this.templateDoEvento(tenantId, 'pronto_retirada_cheguei')
-            : null) ?? (await this.templateDoEvento(tenantId, evento));
-        if (!modelo) return nao('fora da janela de 24 h e sem modelo aprovado para este aviso: ficou no cardápio online');
+            : null) ?? (await this.templateDoEvento(tenantId, opcoes.eventoDoModelo ?? evento));
+        if (!modelo)
+          return nao(
+            ultima?.telefone
+              ? `fora da janela de 24 h e sem modelo aprovado para este aviso${fica ? ': ficou no cardápio online' : ''}`
+              : 'o cliente nunca escreveu para a loja e não há modelo aprovado pela Meta para este aviso',
+          );
         await this.whatsappOficial.enviarTemplate(tenantId, para, modelo, 'pt_BR', [DeliveryService.primeiroNome(ped.clienteNome)], {
           rastreio,
         });
@@ -3956,6 +4012,77 @@ export class DeliveryService {
    * cliente responde. Só a nuvem manda (a loja pede à nuvem pelo `aviso-da-loja`). Só pedido de entrega a caminho.
    */
   async avisarSemContato(tenantId: string, pedidoId: string): Promise<{ saiu: boolean; motivo?: string }> {
+    const ped = await this.pedidoParaOEntregadorAvisar(tenantId, pedidoId);
+    return this.avisoDoEntregador(tenantId, ped, 'sem_contato', null);
+  }
+
+  /**
+   * "COMPARTILHAR A MINHA POSIÇÃO" (pedido do dono, 09/11/2026): o entregador chegou e não acha o endereço (ou o endereço
+   * veio errado) — o cliente do cardápio digital e o da 99 (com o ajuste ligado, mig 388) recebem pelo WhatsApp da loja
+   * onde o entregador está, no mapa. Na janela de 24 h da oficial e pelo QR, o link do mapa da posição DO TOQUE (a que o
+   * app mandou); fora da janela, o modelo `pedido_sem_contato` (o botão abre o rastreio, que mostra o entregador ao vivo).
+   * As mesmas travas do "sem contato". Só a nuvem manda. Nunca rejeita depois das travas.
+   */
+  async avisarPosicaoDoEntregador(tenantId: string, pedidoId: string, pos: { lat: number; lng: number }): Promise<{ saiu: boolean; motivo?: string }> {
+    const ped = await this.pedidoParaOEntregadorAvisar(tenantId, pedidoId);
+    const mapa = `https://www.google.com/maps/search/?api=1&query=${pos.lat.toFixed(6)},${pos.lng.toFixed(6)}`;
+    return this.avisoDoEntregador(tenantId, ped, 'posicao_entregador', { url: mapa, rotulo: 'Ver onde ele está' }, 'sem_contato');
+  }
+
+  /**
+   * O "ESTOU CHEGANDO" ao cliente da 99 pelo WhatsApp da loja (mig 388, 09/11/2026) — a cerca de 70 m e o botão do app.
+   * Só com o ajuste ligado e na entrega da loja; fora da janela, o modelo `pedido_chegando` (enquanto a Meta não aprova,
+   * não sai — e quem chama cai no chat da 99 pela ponte). Nunca rejeita.
+   */
+  async avisarChegadaDa99(
+    tenantId: string,
+    pedidoId: string,
+    entregador: { nome: string | null; telefone: string | null },
+  ): Promise<{ saiu: boolean; motivo?: string }> {
+    try {
+      const [ped] = await this.db
+        .select()
+        .from(pedidoExterno)
+        .where(and(eq(pedidoExterno.tenantId, tenantId), eq(pedidoExterno.id, pedidoId)));
+      if (!ped) return { saiu: false, motivo: 'pedido não encontrado' };
+      if (String(ped.canal) !== '99food' || !(await this.podeFalarComOCliente(tenantId, ped)))
+        return { saiu: false, motivo: 'o cliente da 99 não recebe pelo WhatsApp da loja (o ajuste está desligado)' };
+      const p = { ...ped, chegandoEntregadorNome: entregador.nome, chegandoEntregadorTelefone: entregador.telefone };
+      return await this.enviarPeloWhatsappDaLoja(tenantId, p, 'chegando', null);
+    } catch (e: any) {
+      this.logger.warn(`[aviso-chegada-99] pedido ${pedidoId}: não avisado — ${e?.message ?? e}`);
+      const motivo = `o WhatsApp recusou: ${String(e?.message ?? e).slice(0, 160)}`;
+      this.registrarAviso(tenantId, pedidoId, 'cliente_whatsapp', 'chegando', 'falhou', motivo);
+      return { saiu: false, motivo };
+    }
+  }
+
+  /**
+   * O "SAIU PARA ENTREGA" com o link de rastreio ao cliente da 99 pelo WhatsApp da loja (mig 388, 09/11/2026: "como no
+   * cardápio digital"). Quem chama é a rotina da nuvem (`AvisoDa99Processor`), que já marcou "mandei" em
+   * `pedido_aviso_99`: o despacho feito no servidor da loja ou pelo app da 99 não gera evento na nuvem. Nunca rejeita.
+   */
+  async avisarSaiuDa99(tenantId: string, pedidoId: string): Promise<{ saiu: boolean; motivo?: string }> {
+    try {
+      const [ped] = await this.db
+        .select()
+        .from(pedidoExterno)
+        .where(and(eq(pedidoExterno.tenantId, tenantId), eq(pedidoExterno.id, pedidoId)));
+      if (!ped) return { saiu: false, motivo: 'pedido não encontrado' };
+      if (ped.status !== 'despachado') return { saiu: false, motivo: 'o pedido já não está a caminho' };
+      const p = { ...ped, previsaoChegada: await this.horaPrevistaDeChegada(tenantId, ped) };
+      const link = ped.rastreioToken ? { url: `${this.basePublica()}/r/${ped.rastreioToken}`, rotulo: 'Acompanhar entrega' } : null;
+      return await this.enviarPeloWhatsappDaLoja(tenantId, p, 'saiu_entrega', link);
+    } catch (e: any) {
+      this.logger.warn(`[aviso-saiu-99] pedido ${pedidoId}: não avisado — ${e?.message ?? e}`);
+      const motivo = `o WhatsApp recusou: ${String(e?.message ?? e).slice(0, 160)}`;
+      this.registrarAviso(tenantId, pedidoId, 'cliente_whatsapp', 'saiu_entrega', 'falhou', motivo);
+      return { saiu: false, motivo };
+    }
+  }
+
+  /** O pedido de um aviso do entregador, com as travas: existe, é entrega a caminho, tem telefone, o canal pode receber. */
+  private async pedidoParaOEntregadorAvisar(tenantId: string, pedidoId: string): Promise<any> {
     const [ped] = await this.db
       .select()
       .from(pedidoExterno)
@@ -3963,15 +4090,33 @@ export class DeliveryService {
     if (!ped) throw new NotFoundException('Pedido não encontrado.');
     if (ped.tipo !== 'entrega' || ped.status !== 'despachado') throw new BadRequestException('O pedido não está a caminho do cliente.');
     if (!ped.clienteTelefone) throw new BadRequestException('O pedido não tem o telefone do cliente.');
-    // iFood, 99 e os integrados não podem receber mensagem pelo WhatsApp do Regem (o mesmo motivo do #391).
-    if (DeliveryService.grupoCanal(String(ped.canal ?? '')) !== 'regem')
-      throw new BadRequestException('Pedido de outro canal: fale com o cliente pelo app do canal.');
-    const nao = (motivo: string) => {
-      this.registrarAviso(tenantId, ped.id, 'cliente_whatsapp', 'sem_contato', 'nao_enviado', motivo);
+    // iFood e os integrados não podem receber mensagem pelo WhatsApp do Regem (o mesmo motivo do #391, ERR-342); a 99 só
+    // com o ajuste "Falar com o cliente da 99 pelo WhatsApp" ligado (mig 388).
+    if (!(await this.podeFalarComOCliente(tenantId, ped)))
+      throw new BadRequestException(
+        String(ped.canal) === '99food'
+          ? 'A loja não fala com o cliente da 99 pelo WhatsApp (Delivery › Configurações › Robô de atendimento). Use o chat do pedido.'
+          : 'Pedido de outro canal: fale com o cliente pelo app do canal.',
+      );
+    return ped;
+  }
+
+  /**
+   * O aviso do ENTREGADOR com o nome e o telefone dele só se ELE autorizou no app ("Compartilhar meu contato"), pela via
+   * da loja. Só a nuvem manda (a preferência e o WhatsApp oficial moram lá; a loja pede à nuvem — o painel faz isso).
+   */
+  private async avisoDoEntregador(
+    tenantId: string,
+    ped: any,
+    evento: string,
+    link: { url: string; rotulo: string } | null,
+    eventoDoModelo?: string,
+  ): Promise<{ saiu: boolean; motivo?: string }> {
+    if (ehServidorLocal()) {
+      const motivo = 'este aviso sai pela nuvem';
+      this.registrarAviso(tenantId, ped.id, 'cliente_whatsapp', evento, 'nao_enviado', motivo);
       return { saiu: false, motivo };
-    };
-    // A preferência do entregador e o WhatsApp oficial são só da nuvem: a loja pede à nuvem (o painel faz isso).
-    if (ehServidorLocal()) return nao('este aviso sai pela nuvem');
+    }
     try {
       // O entregador do pedido e o que ele autorizou mostrar.
       let nome: string | null = null;
@@ -3989,23 +4134,49 @@ export class DeliveryService {
         }
       }
       const p = { ...ped, chegandoEntregadorNome: nome, chegandoEntregadorTelefone: telefone };
-      const [cfg] = await this.db.select({ provedor: cardapioConfig.provedor }).from(cardapioConfig).where(eq(cardapioConfig.tenantId, tenantId));
-      if ((cfg?.provedor ?? 'evolution') === 'cloud') {
-        await this.gravarNotificacaoPedido(tenantId, p, 'sem_contato');
-        return await this.avisoPelaOficial(tenantId, p, 'sem_contato');
-      }
-      if (!this.whatsappQr) return nao('o WhatsApp da loja não está disponível neste servidor');
-      const t = DeliveryService.textoNotificacao('sem_contato', p);
-      const link = ped.rastreioToken ? `\n\nVeja onde ele está: ${this.basePublica()}/r/${ped.rastreioToken}` : '';
-      const tel = String(ped.clienteTelefone).replace(/\D/g, '');
-      await this.whatsappQr.enviar(tenantId, tel.length <= 11 ? `55${tel}` : tel, `*${t.titulo}*\n${t.texto}${link}`);
-      await this.gravarNotificacaoPedido(tenantId, p, 'sem_contato');
-      this.registrarAviso(tenantId, ped.id, 'cliente_whatsapp', 'sem_contato', 'enviado');
-      return { saiu: true };
+      return await this.enviarPeloWhatsappDaLoja(tenantId, p, evento, link, eventoDoModelo);
     } catch (e: any) {
-      this.logger.warn(`[aviso-sem-contato] pedido ${pedidoId}: não avisado — ${e?.message ?? e}`);
-      return nao(`o WhatsApp recusou: ${String(e?.message ?? e).slice(0, 160)}`);
+      this.logger.warn(`[aviso-${evento}] pedido ${ped?.id ?? '?'}: não avisado — ${e?.message ?? e}`);
+      const motivo = `o WhatsApp recusou: ${String(e?.message ?? e).slice(0, 160)}`;
+      this.registrarAviso(tenantId, ped.id, 'cliente_whatsapp', evento, 'nao_enviado', motivo);
+      return { saiu: false, motivo };
     }
+  }
+
+  /**
+   * Um aviso ao cliente pela via da LOJA: oficial → `avisoPelaOficial` (o cliente da 99, que nunca conversou com a loja,
+   * recebe o modelo no celular que a 99 mandou); WhatsApp por QR → o próprio Regem manda o texto pela Evolution com o link
+   * escrito no fim (o n8n não trata estes avisos). O cliente do cardápio digital também vê o aviso no cardápio online; o da
+   * 99 não tem cardápio online. `link` = o botão/link do aviso; sem ele, o rastreio do pedido.
+   */
+  private async enviarPeloWhatsappDaLoja(
+    tenantId: string,
+    p: any,
+    evento: string,
+    link: { url: string; rotulo: string } | null,
+    eventoDoModelo?: string,
+  ): Promise<{ saiu: boolean; motivo?: string }> {
+    const da99 = String(p.canal ?? '') === '99food';
+    const nao = (motivo: string) => {
+      this.registrarAviso(tenantId, p.id, 'cliente_whatsapp', evento, 'nao_enviado', motivo);
+      return { saiu: false, motivo };
+    };
+    const [cfg] = await this.db.select({ provedor: cardapioConfig.provedor }).from(cardapioConfig).where(eq(cardapioConfig.tenantId, tenantId));
+    if ((cfg?.provedor ?? 'evolution') === 'cloud') {
+      if (!da99) await this.gravarNotificacaoPedido(tenantId, p, evento);
+      return this.avisoPelaOficial(tenantId, p, evento, { paraOTelefone: da99, link: link ?? undefined, eventoDoModelo });
+    }
+    if (!this.whatsappQr) return nao('o WhatsApp da loja não está disponível neste servidor');
+    const para = telefoneE164(p.clienteTelefone);
+    if (!para) return nao('o telefone do cliente não é um celular do Brasil');
+    const t = DeliveryService.textoNotificacao(evento, { ...p, semBotao: true });
+    const url = link?.url ?? (p.rastreioToken ? `${this.basePublica()}/r/${p.rastreioToken}` : null);
+    const rotulo = evento === 'saiu_entrega' ? 'Acompanhe aqui' : 'Veja onde ele está';
+    const fim = url && evento !== 'chegando' ? `\n\n${rotulo}: ${url}` : '';
+    await this.whatsappQr.enviar(tenantId, para.slice(1), `*${t.titulo}*\n${t.texto}${fim}`);
+    if (!da99) await this.gravarNotificacaoPedido(tenantId, p, evento);
+    this.registrarAviso(tenantId, p.id, 'cliente_whatsapp', evento, 'enviado');
+    return { saiu: true };
   }
 
   /**
@@ -4083,8 +4254,11 @@ export class DeliveryService {
         return;
       }
       const t = DeliveryService.textoNotificacao(eventoStatus, ped);
+      // A posição do entregador (09/11/2026) também leva ao rastreio: lá o cliente vê o entregador ao vivo no mapa.
       const rastreioUrl =
-        eventoStatus === 'saiu_entrega' && row.rastreioToken ? `${this.basePublica()}/r/${row.rastreioToken}` : null;
+        (eventoStatus === 'saiu_entrega' || eventoStatus === 'posicao_entregador') && row.rastreioToken
+          ? `${this.basePublica()}/r/${row.rastreioToken}`
+          : null;
       await this.db.insert(pedidoNotificacao).values({
         tenantId,
         pedidoExternoId: ped.id,
@@ -4112,14 +4286,30 @@ export class DeliveryService {
     // O código de entrega lembrado a quem vai receber o pedido (01/11/2026). Sem asterisco: o texto também vai ao
     // cardápio online, que não formata.
     const codigo = DeliveryService.codigoParaLembrar(ped);
+    // O cliente da 99 pelo WhatsApp da loja (mig 388): o código de entrega é o que a 99 mostra no app dela — o Regem não o
+    // conhece (a 99 não manda); o aviso lembra onde ele está.
+    const lembrete99 = String(ped.canal ?? '') === '99food' ? '\n🔑 Na entrega, informe ao entregador o código que aparece no app da 99.' : '';
+    // Pela via por QR o link vai escrito no fim (não há botão).
+    const abaixo = ped.semBotao ? 'pelo link abaixo' : 'pelo botão abaixo';
     switch (evento) {
       case 'confirmado': return { titulo: 'Pedido em produção', texto: `Recebemos seu pedido${ref} e ele já está em produção. 👨‍🍳` };
       case 'pronto_retirada': return { titulo: 'Pedido pronto', texto: `Seu pedido${ref} está pronto para retirada! 🎉` };
       case 'saiu_entrega': {
-        const lembrete = codigo ? `\n🔑 Código de entrega: ${codigo}. Informe ao entregador para liberar o pedido.` : '';
+        const lembrete = codigo ? `\n🔑 Código de entrega: ${codigo}. Informe ao entregador para liberar o pedido.` : lembrete99;
         // A hora prevista (`horaPrevistaDeChegada`), quando deu para prever na hora do aviso.
         const chega = ped.previsaoChegada ? ` Chega por volta das ${ped.previsaoChegada}.` : '';
-        return { titulo: 'Saiu para entrega', texto: `Seu pedido${ref} saiu para entrega! 🛵${chega} Acompanhe a chegada pelo botão abaixo.${lembrete}` };
+        return { titulo: 'Saiu para entrega', texto: `Seu pedido${ref} saiu para entrega! 🛵${chega} Acompanhe a chegada ${abaixo}.${lembrete}` };
+      }
+      case 'posicao_entregador': {
+        // O entregador chegou perto e não acha o endereço (pedido do dono, 09/11/2026): manda a posição dele. O nome, só
+        // se ELE autorizou no app ("Compartilhar meu contato").
+        const nome = String(ped.chegandoEntregadorNome ?? '').trim();
+        const quem = nome ? `O entregador ${nome}` : 'O entregador';
+        const lembrete = codigo ? `\n🔑 Não esqueça do código ${codigo} para liberar o pedido.` : lembrete99;
+        return {
+          titulo: 'O entregador está perto de você',
+          texto: `${quem} está com o seu pedido${ref} perto do endereço e não está encontrando o local. Veja onde ele está ${abaixo} e responda esta mensagem para ajudar.${lembrete}`,
+        };
       }
       case 'entregue': return { titulo: 'Pedido entregue', texto: `Seu pedido${ref} foi entregue. Bom apetite! 💛` };
       case 'cancelado': return { titulo: 'Pedido cancelado', texto: `Seu pedido${ref} foi cancelado.${motivo}` };
@@ -4129,7 +4319,7 @@ export class DeliveryService {
         const nome = String(ped.chegandoEntregadorNome ?? '').trim();
         const tel = String(ped.chegandoEntregadorTelefone ?? '').replace(/\D/g, '');
         const quem = nome ? `O entregador ${nome}${tel ? ` (${tel})` : ''}` : 'O entregador';
-        const lembrete = codigo ? `\n🔑 Tenha em mãos o código ${codigo} para liberar o pedido.` : '';
+        const lembrete = codigo ? `\n🔑 Tenha em mãos o código ${codigo} para liberar o pedido.` : lembrete99;
         return { titulo: 'Pedido chegando', texto: `Seu pedido${ref} está chegando! 🛵 ${quem} está a poucos minutos daí.${lembrete}` };
       }
       case 'sem_contato': {
@@ -4138,7 +4328,7 @@ export class DeliveryService {
         const tel = String(ped.chegandoEntregadorTelefone ?? '').replace(/\D/g, '');
         const quem = nome ? `O entregador ${nome}` : 'O entregador';
         const contato = tel ? ` O telefone dele é ${tel}.` : '';
-        const lembrete = codigo ? `\n🔑 Não esqueça do código ${codigo} para liberar o pedido.` : '';
+        const lembrete = codigo ? `\n🔑 Não esqueça do código ${codigo} para liberar o pedido.` : lembrete99;
         return {
           titulo: 'O entregador está tentando falar com você',
           texto: `${quem} está com o seu pedido${ref} e não conseguiu falar com você.${contato} Responda esta mensagem para combinar a entrega.${lembrete}`,

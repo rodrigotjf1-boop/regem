@@ -149,6 +149,34 @@ descrever('o robô no chat do iFood e da 99 (Postgres)', () => {
     expect(linhas.slice(1).map((l: any) => l.depois)).toEqual([true, true, true]); // a hora de cada linha, nunca repetida
   });
 
+  it('o ENTREGADOR conversando pelo app (09/11/2026): o robô fica quieto e a fala vai ao caso; passados 15 min, ou a fala de outro da equipe, ele responde', async () => {
+    const [{ id: carlos }] = await q(`insert into colaborador (tenant_id, nome, unidade_id, status) values ($1, 'Carlos Moto', $2, 'ativo') returning id`, [T, loja]);
+    const comEntregador = async (ext: string) => {
+      const id = await pedido(ext, { status: 'despachado', minAtras: 5 });
+      await q(`update pedido_externo set entregador_id = $2 where id = $1`, [id, carlos]);
+      return id;
+    };
+    const escreve = (id: string, ext: string, autorId: string, minAtras: number) =>
+      q(
+        `insert into chat_plataforma_msg (tenant_id, unidade_id, canal, pedido_id, pedido_externo, direcao, autor, autor_id, texto, estado, criado_em)
+         values ($1,$2,'ifood',$3,$4,'saida','equipe',$5,'Entregador: Estou na portaria','enviada', now() - make_interval(mins => $6::int))`,
+        [T, loja, id, ext, autorId, minAtras],
+      );
+    // há 5 min: a pergunta do cliente é para o entregador — o robô não responde, o caso recebe a fala
+    const a = await comEntregador('r-ent-a');
+    await escreve(a, 'r-ent-a', carlos, 5);
+    expect(await fala('r-ent-a', 'Cadê meu pedido?')).toMatchObject({ casosNovos: 1, roboRespondeu: 0 });
+    expect(await doRobo('r-ent-a')).toEqual([]);
+    // há 16 min: a conversa dele acabou — o robô volta a responder
+    const b = await comEntregador('r-ent-b');
+    await escreve(b, 'r-ent-b', carlos, 16);
+    expect(await fala('r-ent-b', 'Cadê meu pedido?')).toMatchObject({ casosNovos: 0, roboRespondeu: 1 });
+    // a fala de OUTRA pessoa da equipe não é a do entregador do pedido: não cala o robô
+    const c = await comEntregador('r-ent-c');
+    await escreve(c, 'r-ent-c', ana, 2);
+    expect(await fala('r-ent-c', 'Cadê meu pedido?')).toMatchObject({ roboRespondeu: 1 });
+  });
+
   it('o entregador da plataforma: acompanhar pelo app; a retirada pronta: já pode retirar', async () => {
     await pedido('r-b', { status: 'despachado', raw: { delivery: { deliveredBy: 'IFOOD' } } });
     await fala('r-b', 'Cadê meu pedido?');

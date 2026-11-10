@@ -9,6 +9,7 @@ import { AuthUser } from '../../auth/auth-user';
 import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { EntregadorService } from './entregador.service';
+import { ChatDoEntregadorService } from './chat-do-entregador.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // App do Entregador. Auth = login de colaborador (JWT); só nuvem.
@@ -16,7 +17,10 @@ import { EntregadorService } from './entregador.service';
 @CloudOnly()
 @UseGuards(JwtAuthGuard)
 export class EntregadorController {
-  constructor(private readonly service: EntregadorService) {}
+  constructor(
+    private readonly service: EntregadorService,
+    private readonly chat: ChatDoEntregadorService,
+  ) {}
 
   @Get('perfil')
   perfil(@CurrentUser() user: AuthUser) {
@@ -91,6 +95,25 @@ export class EntregadorController {
   @Get('pedido/:id/resposta-do-cliente')
   respostaDoCliente(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.respostaDoCliente(user, id);
+  }
+
+  // 09/11/2026 — "compartilhar minha posição": o cliente (cardápio digital; 99 com o ajuste ligado) recebe pelo WhatsApp da
+  // loja onde o entregador está. Corpo: { local: { lat, lng, precisao } } = a posição do toque (sem ela, a última do GPS).
+  @Post('pedido/:id/minha-posicao')
+  minhaPosicao(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    return this.service.compartilharPosicao(user, id, dto?.local);
+  }
+
+  // 09/11/2026 — o chat do iFood e da 99 do pedido, pela ponte: ler a conversa e escrever ao cliente.
+  // Corpo do envio: { texto, idCliente } — `idCliente` (uuid gerado no app) faz o reenvio não duplicar.
+  @Get('pedido/:id/chat')
+  conversaDoChat(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.chat.conversa(user, id);
+  }
+
+  @Post('pedido/:id/chat')
+  escreverNoChat(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    return this.chat.enviar(user, id, dto);
   }
 
   // E3 — rota OSRM (traçado + ETA) até o destino do pedido, p/ o mapa in-app. Corpo: { lat, lng }

@@ -1512,6 +1512,12 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ lembreteCarrinho }),
     }),
+  // O cliente da 99 pelo WhatsApp da loja (mig 388): só o liga/desliga.
+  whatsappCliente99Salvar: (cliente99Whatsapp: boolean) =>
+    req('/whatsapp/robo-config', {
+      method: 'POST',
+      body: JSON.stringify({ cliente99Whatsapp }),
+    }),
   // "Pedir avaliação" depois da entrega (mig 365): só os campos que mudaram (o ausente mantém). Ler vem no robo-config.
   whatsappAvaliacaoSalvar: (body: {
     ativa?: boolean;

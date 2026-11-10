@@ -33,7 +33,8 @@ const conjunto = (nome: string): Set<string> => {
     .split('\n')
     .filter((l) => !l.trim().startsWith('//'))
     .join('\n');
-  return new Set([...corpo.matchAll(/'([a-z_]{3,})'/g)].map((m) => m[1]));
+  // Nome de tabela pode ter número (`pedido_aviso_99`, mig 388): só letras deixava a tabela "sem classe" aqui.
+  return new Set([...corpo.matchAll(/'([a-z][a-z0-9_]{2,})'/g)].map((m) => m[1]));
 };
 
 const VOLTA_DA_NUVEM = conjunto('VOLTA_DA_NUVEM');
@@ -44,7 +45,7 @@ const LEGADO_SEM_USO = conjunto('LEGADO_SEM_USO');
 const FILA_DE_SAIDA = conjunto('FILA_DE_SAIDA');
 // O que o daemon empurra (PUSH_TABLES). Lido da fonte dele, e não do sync-config, porque
 // é esta lista que a trava consulta em tempo de execução.
-const SOBE = new Set([...fonte.matchAll(/\{\s*tabela:\s*'([a-z_]{3,})'/g)].map((m) => m[1]));
+const SOBE = new Set([...fonte.matchAll(/\{\s*tabela:\s*'([a-z][a-z0-9_]{2,})'/g)].map((m) => m[1]));
 
 describe('trava do apagamento — listas do daemon', () => {
   it('as listas foram lidas do daemon (guarda contra o regex parar de casar)', () => {

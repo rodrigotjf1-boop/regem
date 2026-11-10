@@ -151,6 +151,50 @@ class Api {
     throw Exception(_erro(r));
   }
 
+  /// 09/11/2026 — "compartilhar minha posição": o cliente recebe pelo WhatsApp da loja onde estou (cardápio digital; 99
+  /// quando a loja liga). `local` = a posição do toque ({lat, lng, precisao}); sem ela, o servidor usa a última do GPS.
+  static Future<Map<String, dynamic>> compartilharPosicao(String id, Map<String, dynamic>? local) async {
+    final r = await http
+        .post(
+          Uri.parse('$base/entregador/pedido/$id/minha-posicao'),
+          headers: _headers,
+          body: jsonEncode({if (local != null) 'local': local}),
+        )
+        .timeout(const Duration(seconds: 25));
+    if (r.statusCode >= 200 && r.statusCode < 300) {
+      return jsonDecode(r.body) as Map<String, dynamic>;
+    }
+    throw ApiErro(r.statusCode, _erro(r));
+  }
+
+  /// 09/11/2026 — a conversa do chat do iFood/99 deste pedido (pela ponte da loja):
+  /// `{ canal, ponte: {ligada, responde}, mensagens: [{id, de: cliente|voce|loja, texto, estado, em}] }`.
+  static Future<Map<String, dynamic>> chat(String id) async {
+    final r = await http
+        .get(Uri.parse('$base/entregador/pedido/$id/chat'), headers: _headers)
+        .timeout(const Duration(seconds: 15));
+    if (r.statusCode >= 200 && r.statusCode < 300) {
+      return jsonDecode(r.body) as Map<String, dynamic>;
+    }
+    throw ApiErro(r.statusCode, _erro(r));
+  }
+
+  /// 09/11/2026 — escreve ao cliente pelo chat do iFood/99. `idCliente` = o id que o app gerou para a mensagem: reenviar
+  /// depois de uma falha de rede não manda duas. Resposta: `{ ok, id, estado, saiAgora }`.
+  static Future<Map<String, dynamic>> enviarNoChat(String id, String texto, String idCliente) async {
+    final r = await http
+        .post(
+          Uri.parse('$base/entregador/pedido/$id/chat'),
+          headers: _headers,
+          body: jsonEncode({'texto': texto, 'idCliente': idCliente}),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (r.statusCode >= 200 && r.statusCode < 300) {
+      return jsonDecode(r.body) as Map<String, dynamic>;
+    }
+    throw ApiErro(r.statusCode, _erro(r));
+  }
+
   /// Onda 0 (01/11/2026) — o que o cliente respondeu ao "não consigo falar": `{ respostaDoCliente: {texto, em} | null }`.
   static Future<Map<String, dynamic>> respostaDoCliente(String id) async {
     final r = await http

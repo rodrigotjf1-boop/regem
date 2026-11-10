@@ -33,6 +33,8 @@ import { consultarFila } from '../delivery/fila-entregadores';
 import { PREFIXO_DA_RESPOSTA } from '../whatsapp/resposta-ao-sem-contato';
 import { posicaoDaPlataforma } from './posicao-da-plataforma';
 import { AvisosDoChatService } from '../ponte-chat/avisos-do-chat.service';
+import { ligacaoDoPedido } from './ligacao';
+import { ChatDoEntregadorService } from './chat-do-entregador.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -49,7 +51,18 @@ export class EntregadorService implements OnModuleInit {
     @Optional() private readonly auditoria?: AuditoriaService,
     // O "o entregador está chegando" no chat do iFood e da 99, pela ponte (parte A2). Opcional: os testes montam sem ela.
     @Optional() private readonly avisosDoChat?: AvisosDoChatService,
+    // "O cliente respondeu no chat" na lista do app (09/11/2026). Opcional: os testes montam sem ele.
+    @Optional() private readonly chat?: ChatDoEntregadorService,
   ) {}
+
+  /** O ajuste "Falar com o cliente da 99 pelo WhatsApp" (mig 388); na dúvida, desligado. Nunca rejeita. */
+  private async cliente99(tenantId: string): Promise<boolean> {
+    try {
+      return (await this.delivery?.cliente99Ligado?.(tenantId)) === true;
+    } catch {
+      return false;
+    }
+  }
 
   // A previsão de chegada do "saiu para entrega" (Onda 0, 01/11/2026): o aviso mora no DeliveryService e a conta, aqui
   // (a mesma do rastreio). Este serviço já depende daquele; o contrário seria circular — então entrega a função a ele.
@@ -92,7 +105,15 @@ export class EntregadorService implements OnModuleInit {
     return (m ? m[1] : s).replace(/[^a-z0-9]/gi, '');
   }
 
-  private resumo(p: any) {
+  /**
+   * O pedido como o app vê. `ctx.cliente99` = o ajuste "Falar com o cliente da 99 pelo WhatsApp" (mig 388), lido uma vez
+   * por chamada por quem monta a lista. O que o app faz com o cliente vem decidido daqui (09/11/2026):
+   *  • `ligacao` — como discar (iFood: a central e o localizador; os demais: o celular, com "+" quando tem DDI);
+   *  • `chatDaPlataforma` — o pedido tem o chat do iFood/99 (entrega da loja): o app mostra "Chat com o cliente";
+   *  • `whatsappCliente` — "Não consigo falar" e "Compartilhar minha posição" pelo WhatsApp da loja valem para ele.
+   */
+  private resumo(p: any, ctx: { cliente99: boolean } = { cliente99: false }) {
+    const modo = modoEntrega(p);
     return {
       id: p.id,
       numero: p.numero,
@@ -116,6 +137,9 @@ export class EntregadorService implements OnModuleInit {
       ...calcularCobranca(p),
       status: p.status,
       ...this.regraDoCodigo(p),
+      ligacao: ligacaoDoPedido(p),
+      chatDaPlataforma: modo === 'propria_canal' && (p.canal === 'ifood' || p.canal === '99food'),
+      whatsappCliente: modo !== 'retirada' && DeliveryService.podeFalarPeloWhatsapp(p, ctx.cliente99),
       raw: p.raw ?? null, // app antigo (<= 0.1.0+15) detecta a entrega própria de marketplace por aqui
     };
   }
@@ -198,8 +222,9 @@ export class EntregadorService implements OnModuleInit {
       throw new BadRequestException(
         `Este pedido é entregue pelo entregador do ${nomeDoCanal(ped.canal)} — ele não sai com você.`,
       );
+    const ctx = { cliente99: ped.canal === '99food' && (await this.cliente99(user.tenantId)) };
     if (['despachado', 'concluido'].includes(String(ped.status))) {
-      return { ok: true, jaFeito: true, pedido: this.resumo(ped) };
+      return { ok: true, jaFeito: true, pedido: this.resumo(ped, ctx) };
     }
     if (ped.status === 'cancelado') throw new BadRequestException('Pedido cancelado.');
     if (ped.status !== 'pronto')
@@ -217,14 +242,41 @@ export class EntregadorService implements OnModuleInit {
         where id = ${ped.id} and tenant_id = ${user.tenantId} and status = 'pronto'
           and saida_id is null and (reservado_em is null or entregador_id = ${user.colaboradorId})`);
       const [res] = await this.db.select().from(pedidoExterno).where(eq(pedidoExterno.id, ped.id));
-      return { ok: true, reservado: true, modo: 'carrinho', pedido: this.resumo(res ?? ped) };
+      return { ok: true, reservado: true, modo: 'carrinho', pedido: this.resumo(res ?? ped, ctx) };
     }
     await this.delivery.avancar(user.tenantId, ped.id, {
       entregadorId: user.colaboradorId,
       entregadorNome: user.nome ?? 'Entregador',
     });
     const [atual] = await this.db.select().from(pedidoExterno).where(eq(pedidoExterno.id, ped.id));
-    return { ok: true, pedido: this.resumo(atual ?? ped) };
+    return { ok: true, pedido: this.resumo(atual ?? ped, ctx) };
+  }
+
+  /**
+   * O ajuste da 99, as últimas falas do cliente no chat e a logo da loja, para montar uma lista de pedidos (uma leitura de
+   * cada). `logo(p)` = a logo da loja do pedido (a da loja; senão a da empresa) — só no pedido do canal do Regem: a lista
+   * do app mostra a logo do canal de cada pedido, e o do cardápio leva a da loja (sem logo cadastrada, o app usa a do
+   * Regem — pedido do dono, 09/11/2026).
+   */
+  private async contextoDaLista(tenantId: string, rows: { id: string; canal: unknown; unidadeId?: string | null }[]) {
+    const doRegem = rows.some((p) => DeliveryService.podeAvisarPeloWhatsapp(p.canal));
+    const [cliente99, chat, logos] = await Promise.all([
+      rows.some((p) => p.canal === '99food') ? this.cliente99(tenantId) : Promise.resolve(false),
+      this.chat ? this.chat.ultimasDoCliente(tenantId, rows).catch(() => new Map<string, { texto: string; em: string }>()) : Promise.resolve(new Map<string, { texto: string; em: string }>()),
+      doRegem
+        ? this.db
+            .execute(sql`select unidade_id, logo_ref from cardapio_config where tenant_id = ${tenantId}::uuid and coalesce(logo_ref, '') <> ''`)
+            .then((r: any) => (r?.rows ?? r ?? []) as { unidade_id: string | null; logo_ref: string }[])
+            .catch(() => [] as { unidade_id: string | null; logo_ref: string }[])
+        : Promise.resolve([] as { unidade_id: string | null; logo_ref: string }[]),
+    ]);
+    const daEmpresa = logos.find((l) => !l.unidade_id)?.logo_ref ?? logos[0]?.logo_ref ?? null;
+    const logo = (p: { canal: unknown; unidadeId?: string | null }): string | null => {
+      if (!DeliveryService.podeAvisarPeloWhatsapp(p.canal)) return null;
+      const url = logos.find((l) => l.unidade_id && l.unidade_id === p.unidadeId)?.logo_ref ?? daEmpresa;
+      return url && /^https:\/\//i.test(url) ? url : null;
+    };
+    return { ctx: { cliente99 }, chat, logo };
   }
 
   // Meus pedidos em rota (despachado, atrelados a mim).
@@ -242,7 +294,14 @@ export class EntregadorService implements OnModuleInit {
       )
       .orderBy(desc(pedidoExterno.despachadoEm));
     const respostas = await this.respostasDoCliente(user.tenantId, rows.map((p) => p.id));
-    return rows.map((p) => ({ ...this.resumo(p), respostaDoCliente: respostas.get(p.id) ?? null }));
+    const { ctx, chat, logo } = await this.contextoDaLista(user.tenantId, rows);
+    return rows.map((p) => ({
+      ...this.resumo(p, ctx),
+      respostaDoCliente: respostas.get(p.id) ?? null,
+      // A última fala do cliente no chat do iFood/99: o app marca "o cliente escreveu" quando é nova para ele.
+      ultimaNoChat: chat.get(p.id) ?? null,
+      logoDaLoja: logo(p),
+    }));
   }
 
   /**
@@ -779,7 +838,16 @@ export class EntregadorService implements OnModuleInit {
   private async dispararChegada(user: AuthUser, ped: any): Promise<{ ok: boolean; motivo?: string }> {
     // iFood e 99: o aviso vai pelo CHAT da plataforma, pela ponte (ponte do chat, parte A2) — com a ponte e o aviso
     // "chegando" ligados nos ajustes; um por pedido (a cerca e o botão juntos não mandam dois). Não usa o telefone.
+    // A 99 com "Falar com o cliente da 99 pelo WhatsApp" ligado (mig 388, 09/11/2026): primeiro pelo WhatsApp da loja,
+    // como no cardápio digital; se não saiu (fora da janela sem o modelo aprovado, telefone que não serve), o chat.
     if (ped.canal === 'ifood' || ped.canal === '99food') {
+      let motivoDoWhatsapp: string | undefined;
+      if (ped.canal === '99food' && (await this.cliente99(user.tenantId))) {
+        const contato = await this.contatoAutorizado(user, ped);
+        const w = await this.delivery.avisarChegadaDa99(user.tenantId, ped.id, { nome: contato.nome, telefone: contato.telefone });
+        if (w.saiu) return { ok: true };
+        motivoDoWhatsapp = w.motivo;
+      }
       const r = this.avisosDoChat
         ? await this.avisosDoChat.enfileirarChegando(user.tenantId, ped.id).catch((e: any) => {
             this.logger.warn(`[chegando-chat] pedido ${ped.id}: não entrou na fila do chat — ${e?.message ?? e}`);
@@ -789,9 +857,11 @@ export class EntregadorService implements OnModuleInit {
       if (r === 'enfileirado' || r === 'ja_enfileirado') return { ok: true };
       return {
         ok: false,
-        motivo: r === 'desligado'
-          ? 'pedido do iFood ou da 99: o aviso no chat da plataforma está desligado (Delivery › Configurações › Atendimento)'
-          : 'o aviso não entrou na fila do chat da plataforma',
+        motivo: motivoDoWhatsapp
+          ? `pelo WhatsApp não saiu (${motivoDoWhatsapp}) e o aviso no chat da 99 ${r === 'desligado' ? 'está desligado' : 'não entrou na fila'}`
+          : r === 'desligado'
+            ? 'pedido do iFood ou da 99: o aviso no chat da plataforma está desligado (Delivery › Configurações › Atendimento)'
+            : 'o aviso não entrou na fila do chat da plataforma',
       };
     }
     if (!ped.clienteTelefone) return { ok: false, motivo: 'o pedido não tem o telefone do cliente' };
@@ -808,19 +878,8 @@ export class EntregadorService implements OnModuleInit {
     );
     const nomeFantasia =
       (cfg.rows ?? cfg)[0]?.nome_publico || (emp.rows ?? emp)[0]?.nome || null;
-    const pref: any = await this.db.execute(
-      sql`select compartilha_contato from entregador_preferencia where colaborador_id = ${user.colaboradorId}`,
-    );
-    const compartilha = (pref.rows ?? pref)[0]?.compartilha_contato === true;
-    let entregadorTelefone: string | null = null;
-    if (compartilha) {
-      const r: any = await this.db.execute(
-        sql`select telefone from colaborador where id = ${user.colaboradorId}`,
-      );
-      entregadorTelefone = (r.rows ?? r)[0]?.telefone ?? null;
-    }
+    const { compartilha, nome: entregadorNome, telefone: entregadorTelefone } = await this.contatoAutorizado(user, ped);
     // Loja da API OFICIAL: o próprio Regem manda, pelo número oficial (Bloco 5, ERR-341) — o n8n não sabe a janela.
-    const entregadorNome = compartilha ? (user.nome ?? ped.entregadorNome ?? 'Entregador') : null;
     const oficial = await this.delivery.avisarChegada(user.tenantId, ped.id, { nome: entregadorNome, telefone: entregadorTelefone });
     if (oficial) return { ok: oficial.saiu, motivo: oficial.motivo };
     const ok = await this.cliente.enviarEventoWebhook(user.tenantId, {
@@ -836,6 +895,46 @@ export class EntregadorService implements OnModuleInit {
       codigoEntrega: DeliveryService.codigoParaLembrar(ped),
     });
     return { ok };
+  }
+
+  /** O nome e o telefone do entregador que o aviso pode mostrar: só se ELE ligou "Compartilhar meu contato" no app. */
+  private async contatoAutorizado(user: AuthUser, ped: any): Promise<{ compartilha: boolean; nome: string | null; telefone: string | null }> {
+    const pref: any = await this.db.execute(
+      sql`select compartilha_contato from entregador_preferencia where colaborador_id = ${user.colaboradorId}`,
+    );
+    const compartilha = (pref.rows ?? pref)[0]?.compartilha_contato === true;
+    if (!compartilha) return { compartilha, nome: null, telefone: null };
+    const r: any = await this.db.execute(sql`select telefone from colaborador where id = ${user.colaboradorId}`);
+    return { compartilha, nome: user.nome ?? ped.entregadorNome ?? 'Entregador', telefone: (r.rows ?? r)[0]?.telefone ?? null };
+  }
+
+  /**
+   * "COMPARTILHAR MINHA POSIÇÃO" (pedido do dono, 09/11/2026): o entregador chegou e não acha o endereço (ou o endereço
+   * veio errado) — o cliente recebe pelo WhatsApp da loja onde ele está, no mapa. Cardápio digital, e a 99 com o ajuste
+   * ligado (mig 388); o iFood não (o chat do iFood não aceita link — o entregador escreve pelo chat). A posição é a DO
+   * TOQUE (o app manda); sem ela, a última do GPS dos últimos 10 min. Só o entregador do pedido, a caminho.
+   */
+  async compartilharPosicao(user: AuthUser, pedidoId: string, local: unknown) {
+    if (!this.ehEntregador(user)) throw new ForbiddenException('Apenas entregadores.');
+    const [ped] = await this.db
+      .select({ entregadorId: pedidoExterno.entregadorId, status: pedidoExterno.status })
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.tenantId, user.tenantId), eq(pedidoExterno.id, pedidoId)));
+    if (!ped) throw new NotFoundException('Pedido não encontrado.');
+    if (ped.entregadorId !== user.colaboradorId) throw new ForbiddenException('Este pedido não está atribuído a você.');
+    if (ped.status !== 'despachado') throw new BadRequestException('O pedido não está em rota.');
+    let pos: { lat: number; lng: number } | null = localInformado(local);
+    if (!pos) {
+      const r: any = await this.db.execute(sql`
+        select lat, lng from entregador_posicao
+         where colaborador_id = ${user.colaboradorId} and atualizado_em >= now() - interval '10 minutes'`);
+      const l = (r?.rows ?? r ?? [])[0];
+      if (l && l.lat != null && l.lng != null) pos = { lat: Number(l.lat), lng: Number(l.lng) };
+    }
+    if (!pos) throw new BadRequestException('Não consegui pegar a sua posição. Ligue a localização do celular e tente de novo.');
+    const r = await this.delivery.avisarPosicaoDoEntregador(user.tenantId, pedidoId, pos);
+    if (!r.saiu) throw new BadRequestException(`Não foi possível mandar a sua posição: ${r.motivo ?? 'tente de novo'}.`);
+    return { ok: true };
   }
 
   // Preferência do próprio entregador (opt-in de compartilhar contato no aviso).
@@ -1542,11 +1641,14 @@ export class EntregadorService implements OnModuleInit {
     // da fila. Vale também para a loja com servidor local: o cancelamento chega à nuvem pelo sync, sem evento nenhum.
     const vivas = rows.filter((p) => String(p.status) !== 'cancelado');
     const respostas = await this.respostasDoCliente(tenantId, vivas.map((p) => p.id));
+    const { ctx, chat, logo } = await this.contextoDaLista(tenantId, vivas);
     const paradas = vivas.map((p) => ({
-      ...this.resumo(p),
+      ...this.resumo(p, ctx),
       ordemParada: p.ordemParada,
       entregue: ['entregue', 'concluido'].includes(String(p.status)),
       respostaDoCliente: respostas.get(p.id) ?? null,
+      ultimaNoChat: chat.get(p.id) ?? null,
+      logoDaLoja: logo(p),
     }));
     // Nada pendente (todas canceladas, ou concluídas pelo painel sem passar pelo app): a saída terminou.
     if (!paradas.some((p) => !p.entregue)) {
@@ -1846,6 +1948,9 @@ export class EntregadorService implements OnModuleInit {
       etaMin: eta ?? rota?.duracaoMin ?? null, // saída multi-parada; senão a duração da rota (OSRM)
       rota, // { geometry(polyline6), duracaoMin, distanciaM } | null — traçado real p/ o mapa
       codigoEntrega, // o cliente informa ao entregador na entrega
+      // O cliente da 99 chega aqui pelo WhatsApp da loja (mig 388): o código dele é o do app da 99 — a página diz onde está.
+      codigoNoAppDe:
+        String(ped.canal) === '99food' && !['entregue', 'concluido', 'cancelado'].includes(String(ped.status)) ? '99' : null,
     };
   }
 
@@ -1887,7 +1992,10 @@ export class EntregadorService implements OnModuleInit {
         if (!ch) {
           // A posição que o iFood e a 99 mandaram no pedido vem antes da geocodificação pelo texto (ponte do chat, A2).
           let g: { lat: number; lng: number } | null = posicaoDaPlataforma(ped.canal, (ped as any).raw);
-          if (!g) {
+          // iFood e 99 SEM a posição no pedido: só procura no mapa o endereço COMPLETO (rua e número) — o marketplace
+          // manda muito endereço incompleto, e o "chegando" sairia na hora errada (pedido do dono, 09/11/2026).
+          const completo = !!String(ped.enderecoRua ?? '').trim() && !!String(ped.enderecoNumero ?? '').trim();
+          if (!g && (!ehCanalComCodigo(ped.canal) || completo)) {
             const partes = [ped.enderecoRua, ped.enderecoNumero, ped.enderecoBairro].filter(
               Boolean,
             ) as string[];

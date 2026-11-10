@@ -65,6 +65,8 @@ const avisoSemSentido = (alias: string) => sql`(${sql.raw(alias)}.autor = 'aviso
                  and pe.status in (${sql.join(PEDIDO_ENCERRADO.map((s) => sql`${s}`), sql`, `)})))`;
 const LOTE_SAIDA = 10;
 const LOTE_ENTRADA = 50;
+/** Por quantos minutos depois da última mensagem do ENTREGADOR no chat o robô deixa a conversa com ele (09/11/2026). */
+export const MIN_CONVERSA_DO_ENTREGADOR = 15;
 
 const linhas = (r: any): any[] => (r?.rows ?? r) as any[];
 const texto = (v: unknown, max: number): string | null => {
@@ -430,6 +432,13 @@ export class PonteChatService {
                            order by m.criado_em, m.id limit 1)`
                    : sql`null::uuid`
                } as "primeiraFala",
+               -- o ENTREGADOR do pedido escreveu ao cliente pelo app há pouco (09/11/2026): a fala do cliente é para ele —
+               -- o robô fica quieto, como no caso aberto
+               (pe.entregador_id is not null and exists (
+                  select 1 from chat_plataforma_msg m
+                   where m.tenant_id = ${tenantId}::uuid and m.pedido_id = pe.id and m.direcao = 'saida' and m.autor = 'equipe'
+                     and m.autor_id = pe.entregador_id
+                     and m.criado_em > now() - make_interval(mins => ${MIN_CONVERSA_DO_ENTREGADOR}))) as "entregadorFalou",
                pe.id as "pedidoId", pe.status, pe.despachado_em as "despachadoEm", pe.cliente_nome as "clienteDoPedido",
                pe.tipo, pe.canal as "canalDoPedido", pe.raw, pe.display_id as "numeroDoPedido"
           from g
@@ -445,7 +454,9 @@ export class PonteChatService {
         : null;
       const intencao = intencaoDoCliente(c.texto);
       const podeEnviar = await envia(canal, c.unidade_id ?? null);
-      const card = disponivel && !d?.casoAberto && intencao !== 'agradecimento' ? await cardapio(c.unidade_id ?? null) : null;
+      // O entregador conversando com o cliente cala o robô como o caso aberto (a fala vai para o caso e para o app dele).
+      const calado = d?.casoAberto === true || d?.entregadorFalou === true;
+      const card = disponivel && !calado && intencao !== 'agradecimento' ? await cardapio(c.unidade_id ?? null) : null;
       // O atendente recebe o pedido com a previsão sempre que a loja entrega (ele pode precisar dela para qualquer pergunta).
       const paraOAtendenteAgora = !!card && podeEnviar;
       // A previsão é a mesma conta do aviso "saiu" (só quando ele pode responder e a loja entrega).
@@ -454,7 +465,7 @@ export class PonteChatService {
       const horaPrevista = precisaDaHora && this.delivery ? await this.delivery.horaPrevistaDoPedido(tenantId, d.pedidoId).catch(() => null) : null;
       const decisao = decidirNoChat({
         intencao,
-        casoAberto: d?.casoAberto === true,
+        casoAberto: calado,
         respostasNaHora: Number(d?.respostasNaHora ?? 0),
         pedido,
         horaPrevista,
