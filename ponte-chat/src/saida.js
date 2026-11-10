@@ -47,7 +47,13 @@ class Saida {
     this.enviadas = 0;
   }
 
+  /**
+   * A situação da volta. Quando MUDA, vai ao diagnóstico (`saida_situacao`): em 08/11, das 19:15 às 20:45, a fila do iFood
+   * ficou parada (nada pegou, 11 avisos venceram) e o motivo só existia na memória — os motivos são textos fixos do
+   * programa (sem nome de cliente, sem texto de mensagem).
+   */
   parar(situacao) {
+    if (situacao !== this.situacao) this.anotar({ ev: 'saida_situacao', de: String(this.situacao).slice(0, 160), para: String(situacao).slice(0, 160) });
     this.situacao = situacao;
     return { situacao };
   }

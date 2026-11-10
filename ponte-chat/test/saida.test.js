@@ -284,3 +284,19 @@ test('canal 99 (4b): pede a fila da 99, aceita o número de 6 dígitos, fala "pe
   await incerto.s.volta();
   assert.match(incerto.resultados[0].erro, /confira no portal da 99/);
 });
+
+test('a situação da fila vai ao diagnóstico quando MUDA (e só quando muda) — o motivo da fila parada fica registrado', async () => {
+  const ocupada = { ok: false, motivo: 'alguém está usando o Gestor agora' };
+  const m = montar({ telas: [ocupada, ocupada, { ok: true }] });
+  const anotados = [];
+  m.s.anotar = (ev) => anotados.push(ev);
+  await m.s.volta();
+  await m.s.volta(); // a mesma situação: nada novo
+  await m.s.volta(); // a tela livre: pega, envia, "em dia"
+  const mudancas = anotados.filter((e) => e.ev === 'saida_situacao');
+  assert.deepEqual(mudancas, [
+    { ev: 'saida_situacao', de: 'aguardando', para: 'esperando a tela do Gestor (alguém está usando o Gestor agora)' },
+    { ev: 'saida_situacao', de: 'esperando a tela do Gestor (alguém está usando o Gestor agora)', para: 'em dia' },
+  ]);
+  assert.equal(m.enviados.length, 1);
+});

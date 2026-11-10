@@ -227,3 +227,50 @@ test('o "Enviar" é o da GAVETA, pela classe dele e pelo texto exato — nunca o
   assert.ok(R.APERTAR_ENVIAR.includes('const g = '));
   assert.ok(!/footer-btn|Cheguei/.test(R.APERTAR_ENVIAR));
 });
+
+/**
+ * O roteiro do balão rodando de verdade num documento de mentira: o botão do chat do resumo, a notificação da 99 na
+ * frente dele (a "verifique sua conexão de internet", fixa no canto de cima — 06–09/11) e outra peça qualquer.
+ */
+function documentoDoBalao({ naFrente }) {
+  const caixa = (x, y, w, h) => () => ({ x, y, width: w, height: h });
+  const painel = { textContent: `#${NUM}` };
+  const botao = { getBoundingClientRect: caixa(100, 100, 20, 20), contains: (el) => el === botao };
+  const fecharClicado = { n: 0 };
+  const notificacao = { closest: () => notificacao };
+  const xis = {};
+  notificacao.querySelector = (sel) => (sel === '.pb-notification__closeBtn' ? xis : null);
+  const textoDaNotificacao = { tagName: 'SPAN', className: 'pb-notification__content', closest: (sel) => (sel === '.pb-notification' ? notificacao : null) };
+  const outraPeca = { tagName: 'DIV', className: 'mascara-de-modal grande extra mais', closest: () => null };
+  let topo = naFrente === 'notificacao' ? textoDaNotificacao : naFrente === 'outra' ? outraPeca : botao;
+  xis.click = () => {
+    fecharClicado.n += 1;
+    topo = botao; // fechou: o botão fica livre
+  };
+  const document = {
+    querySelector: (sel) => (sel === 'main.order-container__detail .index-number' ? painel : null),
+    querySelectorAll: (sel) => (sel.includes('.receiver-info__chat-action') ? [botao] : []),
+    elementFromPoint: () => topo,
+  };
+  const rodar = () =>
+    new Function('document', 'getComputedStyle', 'innerWidth', 'innerHeight', `return ${R.BALAO(NUM)}`)(document, () => ({ visibility: 'visible', display: 'block' }), 1000, 800);
+  return { rodar, fecharClicado };
+}
+
+test('a notificação da 99 na frente do botão do chat: fecha no X dela e, na conferência seguinte, o botão está livre', () => {
+  const d = documentoDoBalao({ naFrente: 'notificacao' });
+  const r1 = d.rodar();
+  assert.deepEqual([r1.ok, r1.fechouAviso, d.fecharClicado.n], [false, true, 1]);
+  assert.match(r1.motivo, /fechei uma notificação da 99/);
+  assert.deepEqual(d.rodar(), { ok: true, x: 110, y: 110 });
+  assert.equal(d.fecharClicado.n, 1);
+});
+
+test('outra peça na frente do botão do chat: não clica nem fecha nada, e o motivo diz QUAL peça (só a tag e as classes)', () => {
+  const d = documentoDoBalao({ naFrente: 'outra' });
+  const r = d.rodar();
+  assert.equal(r.ok, false);
+  assert.equal(d.fecharClicado.n, 0);
+  assert.equal(r.motivo, 'há algo na frente do botão do chat (div.mascara-de-modal.grande.extra)');
+  assert.deepEqual(documentoDoBalao({ naFrente: 'nada' }).rodar(), { ok: true, x: 110, y: 110 });
+});
