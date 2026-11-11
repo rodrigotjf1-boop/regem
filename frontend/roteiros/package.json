@@ -1,0 +1,9 @@
+{
+  "name": "regem-roteiros-de-tela",
+  "private": true,
+  "type": "module",
+  "description": "Roteiros de tela do Regem: rodam no PC, contra o app buildado, com a API simulada. Não rodam no CI (ver README.md).",
+  "dependencies": {
+    "playwright-core": "1.49.1"
+  }
+}
