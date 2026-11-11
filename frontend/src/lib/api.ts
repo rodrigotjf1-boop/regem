@@ -1022,6 +1022,19 @@ export const api = {
       avisos: Record<string, boolean>;
       mudou: boolean;
     }>,
+  // A Rota da cozinha (onda 2 da auditoria do KDS, mig 410): a ordem das etapas e o "vai para" de cada KDS da loja.
+  kdsRota: () => req('/producao/kds/rota') as Promise<import('./rota-cozinha').Rota>,
+  salvarKdsRota: (body: { etapas: { nome: string; kds: string[] }[]; vai: Record<string, string | null> }) =>
+    req('/producao/kds/rota', { method: 'PUT', body: JSON.stringify(body) }) as Promise<import('./rota-cozinha').Rota>,
+  // "Por onde o pedido passa?": o roteamento de verdade de um produto nesta loja.
+  kdsRotaSimular: (produtoId: string) =>
+    req(`/producao/kds/rota/simular?produtoId=${encodeURIComponent(produtoId)}`) as Promise<{
+      produto: { id: string; nome: string };
+      vaiParaProducao: boolean;
+      estacoes: boolean;
+      caminhos: { inicio: string; passos: string[] }[];
+      impressoras: { id: string; nome: string; padrao: boolean }[];
+    }>,
   // A faixa da pausa no KDS: os canais pausados agora na loja (onda 2 da auditoria do KDS).
   kdsPausas: () =>
     req('/delivery/pausas/kds') as Promise<{

@@ -16,6 +16,7 @@ import {
   Coins,
   CreditCard,
   ReceiptText,
+  Route,
   FileText,
   Flame,
   HardDrive,
@@ -162,6 +163,8 @@ const NAV: NavNode[] = [
       { href: '/loja', label: 'Loja', icon: Store, perm: 'loja', soPres: true },
       { href: '/unidades', label: 'Unidades', icon: Building2, perm: 'unidades' },
       { href: '/producao-config', label: 'Produção & KDS', icon: Flame, perm: 'producao_kds', modulo: 'kds' },
+      // A Rota da cozinha (onda 2 da auditoria do KDS, mig 410): a ordem das etapas, o "vai para" e a impressão de cada KDS.
+      { href: '/rota-cozinha', label: 'Rota da cozinha', icon: Route, perm: 'producao_kds', modulo: 'kds' },
       { href: '/kds/alertas', label: 'Alertas do KDS', icon: Flame, perm: 'producao_kds', modulo: 'kds' },
       { href: '/direcionamento', label: 'Direcionamento do catálogo', icon: Flame, perm: 'producao_kds' },
       // Terminais de PDV e de ponto, KDS, impressoras e servidor local. Mesma permissão da API.
