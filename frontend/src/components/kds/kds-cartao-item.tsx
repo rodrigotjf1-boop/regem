@@ -1,81 +1,82 @@
 'use client';
 
-import { COR_STATUS, faixaTempo, identPedido, itemTirado, rotuloEtapa, type GrupoDeItem, type LimitesTempo } from '@/lib/kds-fila';
-import { EtiquetaKds, type CorDoCartao, type TemaKds } from './kds-cartao-pedido';
+import { faixaTempo, identPedido, itemTirado, linhasDasEscolhas, rotuloEtapa, type GrupoDeItem, type LimitesTempo } from '@/lib/kds-fila';
+import { EtiquetaKds } from './kds-cartao-pedido';
 
-// CARTÃO DO ITEM — visão "Por item" do KDS: um cartão por item, com a soma no título e, dentro, os
-// pedidos que o levam (do mais antigo para o mais novo). A cor é a do pedido mais antigo com o item.
-// Sem botão de avanço: no Regem quem avança é o PEDIDO (senha pelo teclado ou a visão "Por pedido").
+// CARTÃO DO ITEM — visão "Por item" do KDS: um cartão por item, com a soma no título e, dentro, os pedidos que o levam
+// (do mais antigo para o mais novo). Versão 2 (onda 2 da auditoria, 11/11/2026): neutro, com a cor só no selo do tempo do
+// pedido mais antigo. Sem botão de avanço: no Regem quem avança é o PEDIDO (senha pelo teclado ou a visão "Por pedido").
 
-export function KdsCartaoItem({ g, limites, T, esc, cor }: { g: GrupoDeItem; limites: LimitesTempo; T: TemaKds; esc: number; cor: CorDoCartao }) {
-  const st = COR_STATUS[faixaTempo(g.minMaisAntigo, limites)];
-  const inteiro = cor === 'inteiro';
-  const inv = inteiro ? { fundo: st.texto, texto: st.fundo } : { fundo: T.text, texto: T.panel };
+const CLASSE_FAIXA = { ok: 't-ok', atencao: 't-warn', atrasado: 't-late' } as const;
+
+export function KdsCartaoItem({ g, limites }: { g: GrupoDeItem; limites: LimitesTempo }) {
   // O pedido que só tirou o item (alteração, mig 362) não conta como "pedido que leva".
   const nPedidos = new Set(g.linhas.filter((l) => !itemTirado(l.item)).map((l) => l.pedido.id)).size;
 
   return (
     <article
+      className={`k-card ${CLASSE_FAIXA[faixaTempo(g.minMaisAntigo, limites)]}`}
       aria-label={`${g.descricao}, ${g.quantidade} no total, pedido mais antigo há ${g.minMaisAntigo} minutos`}
-      className="flex flex-col overflow-hidden border"
-      style={{ background: inteiro ? st.fundo : T.panel, color: inteiro ? st.texto : T.text, borderColor: inteiro ? 'transparent' : T.border }}
     >
-      <div
-        className="flex flex-wrap items-baseline justify-between gap-x-2.5 gap-y-1"
-        style={{
-          background: inteiro ? 'transparent' : st.fundo,
-          color: st.texto,
-          padding: `${Math.round(11 * esc)}px ${Math.round(14 * esc)}px`,
-          borderBottom: inteiro ? `1.5px solid ${st.texto}59` : undefined,
-        }}
-      >
-        <span className="min-w-0 flex-1 font-extrabold" style={{ fontFamily: 'Archivo, sans-serif', fontSize: Math.round(22 * esc), lineHeight: 1.12 }}>
-          <span style={{ fontFamily: 'JetBrains Mono, monospace' }}>{g.quantidade}×</span> {g.descricao}
+      <div className="k-cab">
+        <span className="k-ident">
+          <span style={{ fontFamily: 'var(--fm)' }}>{g.quantidade}×</span> {g.descricao}
         </span>
-        <span className="whitespace-nowrap font-bold tabular-nums" style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: Math.round(24 * esc) }}>
+        <span className="k-tempo">
           {g.minMaisAntigo}
-          <small className="ml-[3px] font-bold" style={{ fontFamily: 'Figtree, sans-serif', fontSize: Math.round(13.5 * esc) }}>min</small>
+          <small>min</small>
         </span>
-        <span className="basis-full font-bold" style={{ fontSize: Math.round(13.5 * esc) }}>
+        <span className="k-sub">
           em {nPedidos} pedido{nPedidos === 1 ? '' : 's'}
         </span>
       </div>
 
-      <ul className="grid flex-1 content-start gap-2" style={{ padding: `${Math.round(12 * esc)}px ${Math.round(14 * esc)}px ${Math.round(14 * esc)}px` }}>
+      <ul className="k-itens k-cc">
         {g.linhas.map((l, ix) => {
           // Pedido alterado (mig 362): o item que entrou leva NOVO; o que saiu fica riscado com TIRAR até o "Visto".
           const tirar = itemTirado(l.item);
           const novo = l.item.status === 'novo';
+          const comp = linhasDasEscolhas(l.item.complementosTexto);
           return (
-          <li
-            key={`${l.pedido.id}-${ix}`}
-            className="grid grid-cols-[auto_minmax(0,1fr)] gap-2 leading-snug"
-            style={{ fontSize: Math.round(16 * esc), textDecoration: tirar ? 'line-through' : undefined }}
-            data-kds-item={tirar ? 'tirar' : novo ? 'novo' : undefined}
-          >
-            <span className="min-w-[2.2ch] text-right font-bold" style={{ fontFamily: 'JetBrains Mono, monospace' }}>
-              {Number(l.item.quantidade)}×
-            </span>
-            <div>
-              <span className="font-bold">{identPedido(l.pedido)}</span>{' '}
-              <span className="whitespace-nowrap font-semibold" style={{ fontSize: Math.round(13 * esc), color: inteiro ? 'inherit' : T.muted }}>
-                {l.min} min · {rotuloEtapa(l.pedido.status)}
-              </span>
-              {novo && <> <EtiquetaKds cheia={inv} esc={esc}>Novo</EtiquetaKds></>}
-              {tirar && <> <EtiquetaKds cheia={inv} esc={esc}>Tirar</EtiquetaKds></>}
-              {l.pedido.consumo === 'viagem' && <> <EtiquetaKds esc={esc}>Viagem</EtiquetaKds></>}
-              {l.item.complementosTexto && (
-                <div className="mt-0.5 font-semibold" style={{ fontSize: Math.round(13.5 * esc), color: inteiro ? 'inherit' : T.muted }}>
-                  + {l.item.complementosTexto}
-                </div>
-              )}
-              {l.item.observacao && (
-                <div className="mt-1 font-extrabold" style={{ fontSize: Math.round(13.5 * esc) }}>
-                  <EtiquetaKds cheia={inv} esc={esc}>Obs</EtiquetaKds> {l.item.observacao}
-                </div>
-              )}
-            </div>
-          </li>
+            <li key={`${l.pedido.id}-${ix}`} className={`k-it${tirar ? ' tirar' : ''}`} data-kds-item={tirar ? 'tirar' : novo ? 'novo' : undefined}>
+              <span className="k-q">{Number(l.item.quantidade)}×</span>
+              <div>
+                <span className="k-d">{identPedido(l.pedido)}</span>{' '}
+                <span className="k-mini">
+                  {l.min} min · {rotuloEtapa(l.pedido.status)}
+                </span>
+                {novo && (
+                  <>
+                    {' '}
+                    <EtiquetaKds tipo="cheia">Novo</EtiquetaKds>
+                  </>
+                )}
+                {tirar && (
+                  <>
+                    {' '}
+                    <EtiquetaKds tipo="cheia">Tirar</EtiquetaKds>
+                  </>
+                )}
+                {l.pedido.consumo === 'viagem' && (
+                  <>
+                    {' '}
+                    <EtiquetaKds>Viagem</EtiquetaKds>
+                  </>
+                )}
+                {comp.length > 0 && (
+                  <ul className="k-comp">
+                    {comp.map((c, i) => (
+                      <li key={i}>{c}</li>
+                    ))}
+                  </ul>
+                )}
+                {l.item.observacao && (
+                  <p className="k-obs">
+                    <EtiquetaKds tipo="cheia">Obs</EtiquetaKds> {l.item.observacao}
+                  </p>
+                )}
+              </div>
+            </li>
           );
         })}
       </ul>

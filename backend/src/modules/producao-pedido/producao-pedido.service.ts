@@ -51,6 +51,7 @@ import { idConfigDaLoja } from '../../common/id-deterministico';
 import { ESTADOS_IMPRESSORA, MARCA_REIMPRESSAO } from '../../common/impressao-marca';
 import { gravarOuEncaminharImpressao } from '../../common/impressao-destino';
 import { dataHoraNoFuso, hojeISO } from '../../common/data';
+import { ehServidorLocal } from '../../common/modo';
 import { FUSO_SQL, instanteDe } from '../../common/fuso-sql';
 import { SONS_DO_ALTERADO, SOM_DO_ALTERADO_PADRAO, type SomDoAlterado } from '../pedido-alterado/pedido-alterado';
 import { logisticaDasComandas } from '../delivery/logistica-canal';
@@ -187,6 +188,9 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // cartões esquecidos se acumulavam do mais antigo para o mais novo e o pedido de agora ia parar no fim de 900 cartões
 // (auditoria do KDS, 20/10/2026; o cartão também passou a fechar quando o pedido sai da loja — mig 330).
 const JANELA_FILA_HORAS = 12;
+// As tabelas dos servidores das lojas (`edge_status`, `edge_heartbeat`) já foram vistas neste banco: na nuvem elas existem
+// sempre, e o KDS para de conferir a cada leitura da fila (`abertoPelaNuvemComServidor`).
+let tabelasDosServidoresVistas = false;
 
 // Linha que abre a via de produção de um pedido para viagem (texto aprovado pelo dono em 09/10/2026).
 export const MARCA_VIAGEM = '*** VIAGEM ***';
@@ -2821,6 +2825,13 @@ export class ProducaoPedidoService {
       new Logger('KDS').warn(`endereço mudou no KDS: ${e?.message ?? e}`);
       return new Map<string, string>();
     });
+    const encomendas = await this.encomendaDasComandas(
+      tenantId,
+      pedidos.map((p) => p.comandaId).filter((c): c is string => !!c),
+    ).catch((e: any) => {
+      new Logger('KDS').warn(`horário da encomenda no KDS: ${e?.message ?? e}`);
+      return new Map<string, string>();
+    });
     const comRepetido = (comLogistica as any[]).map((p) => {
       const m = p.comandaId ? abertas.get(p.comandaId) : undefined;
       return {
@@ -2828,10 +2839,55 @@ export class ProducaoPedidoService {
         repetido: m ? { deNumero: m.deNumero, deEm: m.deEm, texto: textoDoKds(m) } : null,
         alteracaoNaoVista: alteracaoNaoVista(p),
         enderecoMudouEm: (p.comandaId && enderecos.get(p.comandaId)) || null,
+        encomendaPara: (p.comandaId && encomendas.get(p.comandaId)) || null,
       };
     });
     const alteradoSom = await this.somDoAlterado(tenantId, opts.unidadeId ?? null).catch(() => SOM_DO_ALTERADO_PADRAO);
-    return { cores: { ...cores, alteradoSom }, pedidos: await this.comChegada(tenantId, opts.unidadeId ?? null, comRepetido) };
+    return {
+      cores: { ...cores, alteradoSom },
+      pedidos: await this.comChegada(tenantId, opts.unidadeId ?? null, comRepetido),
+      nuvemComServidor: await this.abertoPelaNuvemComServidor(tenantId, opts.unidadeId ?? null),
+    };
+  }
+
+  /**
+   * O horário marcado do pedido (encomenda, pedido agendado do canal), por comanda. O cartão começa a contar o tempo 30 min
+   * antes dele e não fica "atrasado" antes disso (auditoria do KDS, 11/11/2026, O10) — a regra mora na tela
+   * (`lib/kds-fila.ts`); o servidor só manda o horário.
+   */
+  private async encomendaDasComandas(tenantId: string, comandaIds: string[]): Promise<Map<string, string>> {
+    if (!comandaIds.length) return new Map();
+    const r: any = await this.db.execute(sql`
+      select comanda_id::text as comanda, max(agendamento) as para
+        from pedido_externo
+       where tenant_id = ${tenantId} and agendamento is not null
+         and comanda_id in (${sql.join([...new Set(comandaIds)].map((c) => sql`${c}::uuid`), sql`, `)})
+       group by comanda_id`);
+    return new Map(((r.rows ?? r) as any[]).map((x) => [String(x.comanda), new Date(x.para).toISOString()]));
+  }
+
+  /**
+   * KDS aberto pela INTERNET numa loja com o servidor ligado (auditoria do KDS, 11/11/2026, R15): quem aceita e imprime é o
+   * servidor da loja, e a via da etapa que a nuvem grava fica sem quem imprima. A tela avisa para abrir pela rede da loja.
+   * No servidor da loja é sempre false. Informação a mais — nunca derruba a fila. Banco sem as tabelas dos servidores (o
+   * do CI, o de desenvolvimento): false, conferido ANTES — o erro de tabela que não existe estragaria a transação de quem
+   * chamou. Na nuvem elas sempre existem: vistas uma vez, não se confere de novo.
+   */
+  private async abertoPelaNuvemComServidor(tenantId: string, unidadeId: string | null): Promise<boolean> {
+    if (ehServidorLocal()) return false;
+    try {
+      if (!tabelasDosServidoresVistas) {
+        const r: any = await this.db.execute(sql`
+          select to_regclass(current_schema() || '.edge_status') is not null
+             and to_regclass(current_schema() || '.edge_heartbeat') is not null as tem`);
+        if (!(r.rows ?? r)[0]?.tem) return false;
+        tabelasDosServidoresVistas = true;
+      }
+      return await edgeAtivo(this.db, tenantId, unidadeId);
+    } catch (e: any) {
+      new Logger('KDS').warn(`servidor da loja no KDS: ${e?.message ?? e}`);
+      return false;
+    }
   }
 
   // ===== Pedido ALTERADO (mig 362) =====
@@ -4040,7 +4096,7 @@ export class ProducaoPedidoService {
     else if (opts.canal === 'balcao') conds.push(sql`origem <> 'delivery'`);
     const base = await this.db.selectDistinct({ comandaId: producaoPedido.comandaId }).from(producaoPedido).where(and(...conds));
     const comandaIds = base.map((b) => b.comandaId).filter((x): x is string => !!x);
-    if (!comandaIds.length) return { cores, pedidos: [] };
+    if (!comandaIds.length) return { cores, pedidos: [], nuvemComServidor: await this.abertoPelaNuvemComServidor(tenantId, unidadeId) };
     const cartoes = await this.db
       .select()
       .from(producaoPedido)
@@ -4061,7 +4117,11 @@ export class ProducaoPedidoService {
       return new Map();
     });
     const comLogistica = pedidos.map((p) => ({ ...p, logistica: logistica.get(p.comandaId) ?? null }));
-    return { cores, pedidos: await this.comChegada(tenantId, unidadeId, comLogistica) };
+    return {
+      cores,
+      pedidos: await this.comChegada(tenantId, unidadeId, comLogistica),
+      nuvemComServidor: await this.abertoPelaNuvemComServidor(tenantId, unidadeId),
+    };
   }
 
   // Monta o pedido do despacho a partir dos cartões de KDS da comanda.

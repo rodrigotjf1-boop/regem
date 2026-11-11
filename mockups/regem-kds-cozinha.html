@@ -1,0 +1,1889 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-tema="claro">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KDS para a cozinha</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* PROTÓTIPO — onda 2 da auditoria do KDS (11/11/2026), para o dono aprovar ANTES do código.
+   Evolução de mockups/regem-kds-producao.html (tela neutra, cor só no status do tempo), regem-kds-estacoes.html
+   (estações, despacho, TV), regem-kds.html (fila com "Ciente") e regem-pausa.html (faixa com contador).
+   Nada aqui fala com o Regem; os dados são inventados.
+   Contraste: WCAG 2.x, texto normal ≥ 4,5:1. Cada número abaixo foi medido (scratchpad/contraste.mjs). */
+:root{
+  --fd:'Archivo','Segoe UI',system-ui,sans-serif;
+  --fb:'Figtree','Segoe UI',system-ui,sans-serif;
+  --fm:'JetBrains Mono',ui-monospace,Consolas,monospace;
+
+  /* ── KDS · tema CLARO (o padrão) ── */
+  --k-bg:#EDF0F4; --k-panel:#FFFFFF; --k-panel-2:#F1F4F7; --k-line:#D5DCE4;
+  --k-ink:#0F2230;      /* 14,22 bg · 16,26 panel · 14,73 panel-2 */
+  --k-muted:#4F6476;    /* 5,38 bg · 6,15 panel · 5,57 panel-2 */
+  --k-erro:#B4231C;     /* 5,74 bg · 6,57 panel · 5,95 panel-2 */
+  --k-feito:#0B6654;    /* 6,90 panel · 6,01 sobre --k-feito-fundo (chip "pronto") */
+  --k-feito-fundo:#E2F3EE;
+  --k-link:#8A5A00;     /* 5,93 panel · 5,37 panel-2 (ação em texto) */
+  --k-inv-bg:#0F2230; --k-inv-fg:#FFFFFF; /* invertido (toast, pedido alterado): 16,26 */
+  --k-sombra:0 18px 44px rgba(15,34,48,.28);
+  /* versão 2 (pouca cor): a cor da prioridade vai só no TEXTO, sobre o claro (panel · panel-2 · bg) */
+  --k-urg:#B4231C;   /* urgente, "Atrasado", "Sem conexão": 6,57 · 5,95 · 5,74 */
+  --k-aten:#8A5A00;  /* atenção, contador nos 5 min finais: 5,93 · 5,37 · 5,19 */
+  --k-info:#1F5F96;  /* aviso: 6,70 · 6,07 · 5,86 */
+  --k-ok:#0B6654;    /* positivo: 6,90 · 6,25 · 6,04 */
+
+  /* ── status do tempo e ação: o par é interno, vale nos DOIS temas ── */
+  --s-ok:#0E7C66;   --on-ok:#FFFFFF;    /* 5,13 */
+  --s-warn:#F5C842; --on-warn:#0F2230;  /* 10,24 */
+  --s-late:#D92D20; --on-late:#FFFFFF;  /* 4,83 */
+  --s-off:#5F6B76;  --on-off:#FFFFFF;   /* 5,45 — cancelado (cinza, não é cor de status) */
+  --acao:#E2A340;   --on-acao:#0F2230;  /* 7,39 — dourado do Regem */
+
+  /* ── rodapé de alertas: por token (hoje cor fixa fora do tema — L10/A12) ── */
+  --al-urg:#B4231C;  --on-al-urg:#FFFFFF;   /* 6,57 */
+  --al-alta:#F5C842; --on-al-alta:#0F2230;  /* 10,24 — hoje #B7791F com branco: 3,64 (reprovava) */
+  --al-info:#1E6FA8; --on-al-info:#FFFFFF;  /* 5,39 */
+  --al-ok:#0E7C66;   --on-al-ok:#FFFFFF;    /* 5,13 */
+
+  /* ── app do Regem (Shell, sempre claro: .app-light) ── */
+  --a-bg:#EDF0F4; --a-card:#FFFFFF; --a-s2:#F4F6F9; --a-line:#D5DCE4; --a-line-2:#C3CDD8;
+  --a-ink:#0F2230;      /* 14,22 bg · 16,26 card · 15,02 s2 */
+  --a-muted:#4F6476;    /* 5,38 bg · 6,15 card · 5,68 s2 */
+  --a-navy:#0F2230; --a-menu:#C9D6E2; /* menu: 10,99 sobre o navy; item ativo branco: 11,50 */
+  --a-gold:#E2A340; --a-on-gold:#0F2230; /* 7,39 */
+  --a-gold-txt:#7A5209; --a-gold-soft:#FBF1DD; /* 6,91 card · 6,05 bg · 6,16 gold-soft */
+  --a-ok:#0B6654; --a-ok-soft:#E2F3EE;     /* 6,01 · 6,90 card */
+  --a-warn:#8A3B12; --a-warn-soft:#FCEDE4; /* 6,77 · 7,73 card */
+  --a-crit:#A12A22; --a-crit-soft:#FBE9E9; /* 6,25 · 7,32 card */
+  --a-info:#1F5F96; --a-info-soft:#E6F0F8; /* 5,80 · 6,70 card */
+
+  /* ── TV de senhas (sempre fundo branco — lib/tela-senhas.ts) ── */
+  --tv-bg:#FFFFFF; --tv-ink:#0F2230; /* 16,26 · 14,24 no verde suave */
+  --tv-fraco:#5B6B79;  /* 5,49 fundo · 4,97 chip */
+  --tv-chip:#F1F4F7; --tv-linha:#E1E6EC;
+  --tv-ok:#0B7A3E;     /* 5,43 fundo · 4,76 verde suave · branco sobre ele 5,43 */
+  --tv-ok-suave:#E3F4EA;
+
+  /* ── faixa do protótipo (não vai para a tela real) ── */
+  --p-bg:#E4E8EE; --p-ink:#0F2230; /* 13,22 */ --p-muted:#45596B; /* 5,90 */
+  --foco:#2F7FD8;
+}
+/* ── KDS · tema ESCURO (opção do aparelho) ── */
+:root[data-tema="escuro"]{
+  --k-bg:#0B1117; --k-panel:#151E27; --k-panel-2:#1D2833; --k-line:#2C3A47;
+  --k-ink:#F1F5F8;      /* 17,31 bg · 15,36 panel · 13,65 panel-2 */
+  --k-muted:#A3B1BD;    /* 8,66 bg · 7,68 panel · 6,83 panel-2 */
+  --k-erro:#FF5A4E;     /* 6,17 bg · 5,47 panel · 4,86 panel-2 */
+  --k-feito:#4CC9A0;    /* 8,16 panel · 6,62 sobre --k-feito-fundo */
+  --k-feito-fundo:#12332C;
+  --k-link:#E2A340;     /* 7,66 panel · 6,80 panel-2 */
+  --k-inv-bg:#F1F5F8; --k-inv-fg:#151E27; /* 15,36 */
+  --k-sombra:0 18px 44px rgba(0,0,0,.55);
+  --k-urg:#FF5A4E;   /* 5,47 panel · 4,86 panel-2 · 6,17 bg */
+  --k-aten:#F5C842;  /* 10,60 · 9,42 · 11,95 */
+  --k-info:#6BB4E8;  /* 7,47 · 6,64 · 8,42 */
+  --k-ok:#4CC9A0;    /* 8,16 · 7,25 · 9,19 */
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{font-family:var(--fb);background:var(--a-bg);color:var(--a-ink);font-size:15px;line-height:1.45;overflow-x:hidden}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none}
+:focus-visible{outline:3px solid var(--foco);outline-offset:2px}
+[hidden]{display:none!important}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+
+/* ═════════ faixa do protótipo + cabeçalho da página ═════════ */
+.proto{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:8px 16px;background:var(--p-bg);color:var(--p-muted);font-size:13px;border-bottom:1px dashed var(--p-muted)}
+.proto b{color:var(--p-ink)}
+.proto .grp{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.proto button{min-height:36px;padding:4px 10px;border:1px solid #AEB9C5;background:#FFFFFF;color:var(--p-ink);font-weight:700;font-size:13px}
+.proto button[aria-pressed="true"]{background:var(--p-ink);color:#FFFFFF;border-color:var(--p-ink)}
+.proto .sepa{width:1px;align-self:stretch;background:#AEB9C5}
+.pagina{padding:18px 16px 0;max-width:1440px;margin:0 auto}
+.olho{font-family:var(--fd);font-weight:700;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--a-gold-txt)}
+.pagina h1{font-family:var(--fd);font-weight:800;font-size:clamp(24px,4vw,34px);line-height:1.15;margin-top:4px}
+.lead{max-width:80ch;color:var(--a-muted);margin-top:6px}
+.lead b{color:var(--a-ink)}
+.abas{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
+.aba{min-height:44px;padding:8px 14px;border:1px solid var(--a-line-2);background:var(--a-card);color:var(--a-ink);font-weight:700;font-size:14px;border-radius:999px}
+.aba[aria-selected="true"]{background:var(--a-navy);border-color:var(--a-navy);color:#FFFFFF}
+.resolve{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin:12px 0 10px;font-size:14px;color:var(--a-muted)}
+.resolve b{font-family:var(--fd);font-size:16px;color:var(--a-ink)}
+.cod{font-family:var(--fm);font-size:12px;font-weight:700;padding:1px 6px;border:1px solid var(--a-line-2);border-radius:5px;color:var(--a-ink);background:var(--a-card);white-space:nowrap}
+.notas-aba{max-width:1440px;margin:14px auto 28px;padding:0 16px}
+.notas-aba details{background:var(--a-card);border:1px solid var(--a-line);border-radius:12px;padding:12px 16px}
+.notas-aba summary{cursor:pointer;font-family:var(--fd);font-weight:700;min-height:28px}
+.notas-aba ul{margin:8px 0 0 18px;display:grid;gap:4px;color:var(--a-muted);font-size:14px}
+.notas-aba li b{color:var(--a-ink)}
+
+/* ═════════ 1. KDS (o aparelho) ═════════ */
+.aparelho{--esc:1;container:kds/inline-size;position:relative;height:100dvh;min-height:480px;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;overflow:hidden;background:var(--k-bg);color:var(--k-ink);border-top:1px solid var(--k-line);border-bottom:1px solid var(--k-line)}
+.aparelho *{border-radius:0}
+
+/* cabeçalho compacto: duas linhas de 48 px no tablet, uma linha só a partir de 1720 px */
+.k-top{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:6px 12px;background:var(--k-panel);border-bottom:1px solid var(--k-line);min-width:0}
+.k-logo{flex:none;width:40px;height:40px;display:grid;place-items:center;background:#0F2230;color:#E2A340;font:800 18px var(--fd)}
+.k-nome{display:flex;align-items:baseline;gap:6px;min-height:48px;padding:0 8px;font:800 18px/1.1 var(--fd);color:var(--k-ink);min-width:0;overflow-wrap:anywhere;text-align:left}
+.k-nome small{font:700 12px var(--fb);color:var(--k-muted);letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+.k-seg{display:flex;flex-wrap:wrap;border:1px solid var(--k-line);max-width:100%}
+.k-seg button{min-height:48px;padding:0 12px;font-weight:700;font-size:15px;background:var(--k-panel-2);color:var(--k-muted)}
+.k-seg button[aria-pressed="true"]{background:var(--k-ink);color:var(--k-panel)}
+.k-esp{flex:1 1 0;min-width:0}
+.k-senha{display:flex;align-items:center;gap:6px}
+.k-senha label{font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--k-muted)}
+.k-senha input{width:96px;min-height:48px;border:2px solid var(--k-line);background:var(--k-panel-2);color:var(--k-ink);text-align:center;font:700 24px var(--fm)}
+.k-conn{display:flex;align-items:center;gap:8px;min-height:40px;padding:0 10px;border:1px solid var(--k-line);background:var(--k-panel-2);color:var(--k-muted);font-weight:700;font-size:14px;white-space:nowrap}
+.k-conn i{width:10px;height:10px;border-radius:50%!important;background:var(--s-ok)}
+.k-conn.off{color:var(--k-urg)}
+.k-conn.off i{background:var(--k-urg)}
+.k-hora{font:700 26px var(--fm);font-variant-numeric:tabular-nums;white-space:nowrap}
+.k-quebra{flex-basis:100%;height:0}
+.k-etapas{display:flex;flex-wrap:wrap;gap:6px;min-width:0;max-width:100%}
+.k-etapa{display:flex;align-items:center;gap:8px;min-height:48px;padding:0 12px;border:1px solid var(--k-line);background:var(--k-panel-2);color:var(--k-muted);font-weight:700;font-size:15px;white-space:nowrap}
+.k-etapa b{font:700 16px var(--fm);color:var(--k-ink)}
+.k-etapa[aria-pressed="true"]{background:var(--k-ink);border-color:var(--k-ink);color:var(--k-panel)}
+.k-etapa[aria-pressed="true"] b{color:var(--k-panel)}
+/* "Atrasados": só o número em vermelho, sem fundo vermelho (versão 2) */
+.k-etapa.atraso b{color:var(--k-urg)}
+.k-etapa.atraso[aria-pressed="true"] b{color:var(--k-panel)}
+.k-util{display:flex;flex-wrap:wrap;gap:6px}
+.k-ib{display:flex;align-items:center;justify-content:center;gap:6px;min-width:48px;min-height:48px;padding:0 10px;border:1px solid var(--k-line);background:var(--k-panel-2);color:var(--k-ink);font-weight:700;font-size:15px;white-space:nowrap}
+.k-ib[aria-pressed="true"],.k-ib[aria-expanded="true"]{border-color:var(--k-ink);box-shadow:inset 0 0 0 1px var(--k-ink)}
+.k-ib .rot{display:none}
+@container kds (min-width:1180px){ .k-ib .rot{display:inline} }
+@container kds (min-width:1720px){
+  .k-quebra,.k-esp2{display:none}
+  .k-logo{order:1}.k-nome{order:2}.k-seg{order:3}.k-etapas{order:4}.k-esp1{order:5}.k-senha{order:6}.k-conn{order:7}.k-hora{order:8}.k-util{order:9}
+}
+.k-etapa-sel{display:none;flex:1 1 150px;min-height:48px;min-width:0;max-width:100%;padding:0 10px;border:1px solid var(--k-line);background:var(--k-panel-2);color:var(--k-ink);font-weight:800;font-size:15px}
+/* celular (o KDS não é feito para ele, mas não pode estourar): etapas num seletor (o "Atrasados" vermelho continua à
+   vista), senha só no modo teclado, conexão só com o ponto — o cabeçalho cai de ~340 px para ~230 px */
+@container kds (max-width:599px){
+  .k-hora{font-size:20px} .k-esp{display:none} .k-seg button{padding:0 10px;font-size:14px}
+  .k-conn{order:3;margin-left:auto;padding:0 10px} .k-conn span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  .k-hora{order:4} .k-seg{order:5} .k-senha{order:6} .k-quebra{order:7} .k-etapa-sel{order:8;display:block} .k-etapas{order:9} .k-esp2{order:10} .k-util{order:11}
+  .k-etapa:not(.atraso){display:none}
+  .aparelho[data-uso="toque"] .k-senha{display:none}
+}
+
+/* faixas fixas abaixo do cabeçalho: erro, sem conexão, som, pausa dos canais */
+.k-faixas{display:grid;min-width:0}
+/* versão 2: todas CLARAS (fundo do painel, linha embaixo), com ícone e texto em tinta — nenhuma pintada de vermelho
+   ou de amarelo; só a palavra "Sem conexão" em vermelho e o contador dos 5 min finais em âmbar */
+.k-faixa{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;min-height:48px;padding:6px 12px;font-weight:600;font-size:16px;min-width:0;background:var(--k-panel);color:var(--k-ink);border-bottom:1px solid var(--k-line)}
+.k-faixa > *{min-width:0;overflow-wrap:anywhere}
+.k-faixa .k-ic{font-size:18px;line-height:1}
+.k-faixa b{font-weight:800}
+.k-faixa .k-vermelho{color:var(--k-urg)}
+.k-faixa.som{width:100%;text-align:left}
+.k-faixa .k-fbt{min-height:48px;padding:0 14px;border:2px solid var(--k-ink);background:var(--k-panel-2);color:var(--k-ink);font-weight:800;margin-left:auto}
+.k-pausas{display:flex;flex-wrap:wrap;background:var(--k-panel);color:var(--k-ink);border-bottom:1px solid var(--k-line);min-width:0}
+.k-pausa{flex:1 1 300px;display:flex;flex-wrap:wrap;align-items:center;gap:2px 12px;min-height:48px;padding:6px 12px;font-size:16px;font-weight:600;min-width:0}
+.k-pausa + .k-pausa{border-left:1px solid var(--k-line)}
+.k-pausa .q{flex:1 1 200px;min-width:0;overflow-wrap:anywhere}
+.k-pausa .q b{font-weight:800}
+.k-pausa .q small{font-weight:500;font-size:15px}
+.k-pausa .t{font:800 20px var(--fm);font-variant-numeric:tabular-nums;white-space:nowrap}
+.k-pausa .t small{font:700 13px var(--fb);margin-right:6px}
+.k-pausa.logo .t{color:var(--k-aten)}
+
+/* meio: a fila e o resumo (ao lado no tablet deitado; embaixo, empurrando a fila, no estreito) */
+.k-meio{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);min-height:0;min-width:0}
+.k-meio.com-resumo{grid-template-rows:minmax(0,1fr) auto}
+@container kds (min-width:900px){ .k-meio.com-resumo{grid-template-columns:minmax(0,1fr) 260px;grid-template-rows:minmax(0,1fr)} }
+.k-fila{overflow-y:auto;overflow-x:hidden;padding:10px 12px 16px;min-width:0}
+.k-grade{display:grid;gap:4px;grid-template-columns:repeat(auto-fill,minmax(min(100%,calc(280px*var(--esc))),1fr));align-items:start}
+.k-vazio{border:1px dashed var(--k-line);padding:48px 20px;text-align:center;color:var(--k-muted);font-size:16px}
+.k-vazio b{display:block;font:800 20px var(--fd);color:var(--k-ink);margin-bottom:6px}
+.k-vazio.erro b{color:var(--k-erro)}
+.k-esq{border:1px solid var(--k-line);background:var(--k-panel);padding:14px;height:calc(200px*var(--esc))}
+.k-esq i{display:block;height:16px;background:var(--k-panel-2);margin-bottom:12px;animation:pulsa 1.2s ease-in-out infinite}
+@keyframes pulsa{50%{opacity:.45}}
+
+/* cartão (versão 2): NEUTRO em qualquer tempo — fundo do painel, tinta navy, sem borda colorida; a cor do status fica
+   só no SELO do tempo ("12 min"), e o atrasado ganha a etiqueta "Atrasado" em contorno vermelho */
+.k-card{display:flex;flex-direction:column;min-width:0;background:var(--k-panel);color:var(--k-ink);border:1px solid var(--k-line)}
+.k-card.t-ok{--c:var(--s-ok);--on:var(--on-ok)} .k-card.t-warn{--c:var(--s-warn);--on:var(--on-warn)} .k-card.t-late{--c:var(--s-late);--on:var(--on-late)}
+.k-card.t-off{--c:var(--s-off);--on:var(--on-off)}
+.k-card.t-agenda{--c:var(--k-panel-2);--on:var(--k-ink)}
+.k-cab{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 10px;padding:calc(10px*var(--esc)) calc(14px*var(--esc));background:var(--k-panel);color:var(--k-ink);border-bottom:1px solid var(--k-line);min-width:0;--inv-bg:var(--k-ink);--inv-fg:var(--k-panel)}
+.t-agenda .k-cab{border-bottom:2px dashed var(--k-line)}
+.k-ident{font:800 calc(27px*var(--esc))/1.08 var(--fd);min-width:0;overflow-wrap:anywhere}
+/* o selo: selo ok 5,13 · atenção 10,24 · atrasado 4,83 · cancelado 5,45 (par interno, igual nos dois temas) */
+.k-tempo{display:inline-flex;align-items:baseline;padding:calc(2px*var(--esc)) calc(9px*var(--esc));background:var(--c);color:var(--on);font:700 calc(22px*var(--esc))/1.15 var(--fm);font-variant-numeric:tabular-nums;white-space:nowrap}
+.k-tempo small{font:700 calc(14px*var(--esc)) var(--fb);margin:0 3px}
+.t-agenda .k-tempo{border:1.5px dashed var(--k-muted)}
+.k-sub{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-weight:700;font-size:calc(15px*var(--esc));color:var(--k-muted);min-width:0;overflow-wrap:anywhere}
+.k-tag{display:inline-block;border:1.5px solid currentColor;padding:0 6px;font-weight:800;font-size:calc(13px*var(--esc));letter-spacing:.05em;text-transform:uppercase;line-height:1.5;color:var(--k-ink);overflow-wrap:anywhere}
+.k-tag.cheia{background:var(--inv-bg,var(--on));color:var(--inv-fg,var(--c));border-color:var(--inv-bg,var(--on))}
+.k-tag.atraso{color:var(--k-urg);border-color:var(--k-urg);background:transparent}
+.k-cc{display:flex;flex-direction:column;flex:1;gap:calc(10px*var(--esc));padding:calc(12px*var(--esc)) calc(14px*var(--esc)) calc(14px*var(--esc));min-width:0;--inv-bg:var(--k-ink);--inv-fg:var(--k-panel)}
+.k-alt{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:calc(10px*var(--esc)) calc(12px*var(--esc));background:var(--k-ink);color:var(--k-panel)}
+.k-alt .ex{font:900 calc(34px*var(--esc))/1 var(--fd)}
+.k-alt .tx{flex:1 1 120px;min-width:0}
+.k-alt .tx b{display:block;font:800 calc(20px*var(--esc))/1.15 var(--fd);text-transform:uppercase;letter-spacing:.03em}
+.k-alt .tx span{font:700 calc(14px*var(--esc)) var(--fm)}
+.k-alt button{flex:1 1 100%;min-height:max(48px,calc(48px*var(--esc)));background:var(--k-panel);color:var(--k-ink);font:800 calc(16px*var(--esc)) var(--fd);letter-spacing:.08em;text-transform:uppercase}
+.k-linha-inf{font-weight:700;font-size:calc(16px*var(--esc));overflow-wrap:anywhere}
+.k-itens{list-style:none;display:grid;gap:calc(10px*var(--esc));align-content:start;flex:1}
+.k-it{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;font-size:calc(20px*var(--esc));line-height:1.25}
+.k-q{font-family:var(--fm);font-weight:700;min-width:2.4ch;text-align:right}
+.k-d{font-weight:800;overflow-wrap:anywhere}
+.k-it.tirar .k-d,.k-it.tirar .k-q{text-decoration:line-through}
+.k-comp{list-style:none;margin-top:2px;display:grid;gap:1px;font-size:calc(16px*var(--esc));font-weight:600;color:var(--k-ink)}
+.k-comp li{overflow-wrap:anywhere}
+.k-obs{margin-top:6px;padding:4px 8px;border-left:4px solid currentColor;background:var(--k-panel-2);font-size:calc(16px*var(--esc));font-weight:800;overflow-wrap:anywhere}
+/* botão de avanço neutro: tinta navy sobre o claro, com contorno (14,73 claro · 13,65 escuro) */
+.k-avancar{width:100%;min-height:max(48px,calc(52px*var(--esc)));background:var(--k-panel-2);color:var(--k-ink);border:2px solid var(--k-ink);font:800 calc(16px*var(--esc)) var(--fd);letter-spacing:.08em;text-transform:uppercase}
+.k-avancar[aria-busy="true"]{opacity:.75;cursor:wait}
+.k-card.cancelado .k-ident,.k-card.cancelado .k-it{text-decoration:line-through}
+.k-card.apagado{opacity:.32}
+.k-card.destaque{outline:5px solid var(--k-ink);outline-offset:-5px}
+.k-it.alvo .k-d{background:var(--k-ink);color:var(--k-panel);padding:0 5px}
+/* cor no cartão inteiro (opção do aparelho) */
+.aparelho[data-cor="inteiro"] .k-card:not(.t-agenda){background:var(--c);color:var(--on);border-color:transparent}
+.aparelho[data-cor="inteiro"] .k-card:not(.t-agenda) .k-cc{--inv-bg:var(--on);--inv-fg:var(--c)}
+.aparelho[data-cor="inteiro"] .k-card:not(.t-agenda) .k-cab{border-bottom:1.5px solid color-mix(in srgb,currentColor 35%,transparent)}
+.aparelho[data-cor="inteiro"] .k-card:not(.t-agenda) .k-comp{color:inherit}
+.aparelho[data-cor="inteiro"] .k-card:not(.t-agenda) .k-obs{background:transparent}
+.aparelho[data-cor="inteiro"] .k-card:not(.t-agenda) .k-alt{background:var(--on);color:var(--c)}
+.aparelho[data-cor="inteiro"] .k-card:not(.t-agenda) .k-alt button{background:var(--c);color:var(--on)}
+.aparelho[data-cor="inteiro"] .k-card:not(.t-agenda) .k-avancar{background:var(--on);color:var(--c)}
+
+/* resumo de itens */
+.k-resumo{min-width:0;min-height:0;overflow-y:auto;background:var(--k-panel);border-left:1px solid var(--k-line);padding:12px}
+@container kds (max-width:899px){ .k-resumo{border-left:0;border-top:2px solid var(--k-ink);max-height:38cqh;max-height:min(38dvh,320px);box-shadow:0 -10px 24px rgba(0,0,0,.12)} }
+.k-resumo h2{display:flex;align-items:center;justify-content:space-between;gap:8px;font:800 13px var(--fd);letter-spacing:.12em;text-transform:uppercase;color:var(--k-muted)}
+.k-resumo p{font-size:14px;color:var(--k-muted);margin:4px 0 10px}
+.k-resumo ul{list-style:none;display:grid;gap:6px}
+.k-res-it{width:100%;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:10px;min-height:48px;padding:6px 10px;border:1px solid var(--k-line);background:var(--k-panel-2);color:var(--k-ink);text-align:left}
+.k-res-it .n{font:700 22px var(--fm);min-width:2.4ch;text-align:right}
+.k-res-it .t{font-weight:800;font-size:16px;line-height:1.2;overflow-wrap:anywhere}
+.k-res-it .s{display:block;font-weight:600;font-size:13px;color:var(--k-muted)}
+.k-res-it[aria-pressed="true"]{background:var(--k-ink);border-color:var(--k-ink);color:var(--k-panel)}
+.k-res-it[aria-pressed="true"] .s{color:var(--k-panel)}
+.k-res-lista{display:grid;gap:6px}
+@container kds (max-width:899px){ .k-res-lista{grid-template-columns:repeat(auto-fill,minmax(min(100%,200px),1fr))} }
+
+/* rodapé de avisos (versão 2): PARADO, numa faixa clara (fundo do painel, borda fina em cima); o ícone e a palavra da
+   prioridade em cor, o texto em tinta, até 2 linhas — o resto em "Ver tudo". O urgente se distingue pelo ícone, pelo
+   texto em negrito e pelo "Ciente" (fica até alguém tocar) — nunca por fundo vermelho */
+.k-rodape{--rb:var(--al-info);--rf:var(--on-al-info);--pc:var(--k-info);display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;min-height:64px;background:var(--k-panel);color:var(--k-ink);border-top:1px solid var(--k-line);box-shadow:0 -6px 16px rgba(15,34,48,.08);min-width:0}
+.k-rodape.urg{--rb:var(--al-urg);--rf:var(--on-al-urg);--pc:var(--k-urg)} .k-rodape.alta{--rb:var(--al-alta);--rf:var(--on-al-alta);--pc:var(--k-aten)} .k-rodape.ok{--rb:var(--al-ok);--rf:var(--on-al-ok);--pc:var(--k-ok)}
+.k-lado{display:flex;align-items:center;gap:6px;align-self:stretch;padding:0 14px;border-right:1px solid var(--k-line);color:var(--pc);font:800 15px var(--fb);letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+.k-txt{display:flex;align-items:center;overflow:hidden;padding:8px 14px;min-width:0}
+.k-letreiro{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;white-space:normal;font:700 19px/1.3 var(--fd);overflow-wrap:anywhere}
+.k-rodape.urg .k-letreiro{font-weight:800}
+.k-letreiro small{font:500 16px var(--fb);margin-left:2px}
+.k-rodape.urg .k-letreiro small{font-weight:700}
+.k-letreiro.corre{animation:letreiro var(--dur,12s) linear infinite}
+@keyframes letreiro{0%,14%{transform:translateX(0)}86%,100%{transform:translateX(var(--dist,0))}}
+.k-ciente{min-width:120px;min-height:48px;margin:8px 0 8px 8px;padding:0 16px;background:var(--k-ink);color:var(--k-panel);font:800 18px var(--fd);letter-spacing:.08em;text-transform:uppercase}
+.k-mais{min-height:48px;margin:8px;padding:0 12px;border:1px solid var(--k-line);background:var(--k-panel-2);color:var(--k-ink);font-weight:800;font-size:15px;white-space:nowrap}
+@container kds (max-width:599px){
+  .k-rodape{grid-template-columns:minmax(0,1fr) auto auto;grid-template-areas:"lado ciente mais" "txt txt txt"}
+  .k-lado{grid-area:lado;border-right:0;min-height:48px} .k-txt{grid-area:txt;padding-top:0} .k-ciente{grid-area:ciente;min-width:0;padding:0 12px;font-size:16px} .k-mais{grid-area:mais;padding:0 8px}
+  .k-letreiro{font-size:18px}
+}
+
+/* lista dos avisos ("N avisos") — fica acima do rodapé, não o cobre */
+.k-lista{position:absolute;right:12px;bottom:calc(var(--rodape-h,64px) + 8px);z-index:30;width:min(480px,calc(100% - 24px));max-height:calc(100% - var(--rodape-h,64px) - 24px);overflow-y:auto;background:var(--k-panel);color:var(--k-ink);border:1px solid var(--k-line);box-shadow:var(--k-sombra)}
+.k-lista header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border-bottom:1px solid var(--k-line);font:800 15px var(--fd)}
+.k-lista ol{list-style:none}
+.k-av{display:grid;grid-template-columns:6px minmax(0,1fr);gap:0 12px;padding:10px 12px;border-bottom:1px solid var(--k-line)}
+.k-av .barra{grid-row:span 3;background:var(--k-line)}
+.k-av .meta .pri{color:var(--k-info);font-weight:800} .k-av.urg .meta .pri{color:var(--k-urg)} .k-av.alta .meta .pri{color:var(--k-aten)} .k-av.ok .meta .pri{color:var(--k-ok)}
+.k-av b{font:800 17px/1.2 var(--fd);overflow-wrap:anywhere}
+.k-av p{font-size:15px;color:var(--k-ink);overflow-wrap:anywhere}
+.k-av .meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin-top:6px;font-size:13px;font-weight:700;color:var(--k-muted)}
+.k-av .meta button{margin-left:auto;min-height:48px;padding:0 16px;background:var(--k-ink);color:var(--k-panel);font:800 15px var(--fd);letter-spacing:.06em;text-transform:uppercase}
+.k-lista footer{padding:10px 12px}
+.k-link{min-height:48px;font-weight:800;color:var(--k-link);text-decoration:underline;text-underline-offset:3px}
+.k-x{min-width:48px;min-height:48px;border:1px solid var(--k-line);background:var(--k-panel-2);color:var(--k-ink);font-size:18px}
+
+/* toast: um aviso curto a cada toque, acima do rodapé */
+.k-toast{position:absolute;left:50%;bottom:calc(var(--rodape-h,0px) + 14px);transform:translateX(-50%);z-index:40;max-width:calc(100% - 32px);padding:12px 18px;background:var(--k-inv-bg);color:var(--k-inv-fg);font-weight:800;font-size:17px;box-shadow:var(--k-sombra);opacity:0;pointer-events:none;transition:opacity .2s;overflow-wrap:anywhere;text-align:center}
+.k-toast.on{opacity:1}
+
+/* ── VERSÃO 1 (só para comparar — botão "Comparar com a versão 1" na faixa do protótipo): cabeçalho do cartão
+   pintado, botão na cor do status, "Atrasados" vermelho, faixas pintadas e rodapé colorido com letreiro ── */
+:root[data-versao="1"] .k-cab{background:var(--c);color:var(--on);border-bottom:0;--inv-bg:var(--on);--inv-fg:var(--c)}
+:root[data-versao="1"] .k-tempo{background:transparent;color:inherit;padding:0;font-size:calc(24px*var(--esc))}
+:root[data-versao="1"] .t-agenda .k-tempo{border:0}
+:root[data-versao="1"] .k-sub{color:inherit}
+:root[data-versao="1"] .k-cab .k-tag{color:inherit}
+:root[data-versao="1"] .k-cab .k-tag.cheia,:root[data-versao="1"] .k-tag.atraso{background:var(--on);color:var(--c);border-color:var(--on)}
+:root[data-versao="1"] .k-avancar{background:var(--c);color:var(--on);border:0}
+:root[data-versao="1"] .t-agenda .k-avancar{background:var(--acao);color:var(--on-acao)}
+:root[data-versao="1"] .k-etapa.atraso{background:var(--s-late);border-color:var(--s-late);color:var(--on-late)}
+:root[data-versao="1"] .k-etapa.atraso b{color:var(--on-late)}
+:root[data-versao="1"] .k-etapa.atraso[aria-pressed="true"]{box-shadow:inset 0 0 0 3px var(--k-ink)}
+:root[data-versao="1"] .k-conn.off{background:var(--s-late);border-color:var(--s-late);color:var(--on-late)}
+:root[data-versao="1"] .k-conn.off i{background:var(--on-late)}
+:root[data-versao="1"] .k-faixa.erro{background:var(--s-late);color:var(--on-late);border-bottom:0}
+:root[data-versao="1"] .k-faixa.som{background:var(--s-warn);color:var(--on-warn);border-bottom:0}
+:root[data-versao="1"] .k-faixa .k-vermelho{color:inherit}
+:root[data-versao="1"] .k-faixa .k-fbt{border-color:currentColor;background:transparent;color:inherit}
+:root[data-versao="1"] .k-pausas{background:var(--k-inv-bg);color:var(--k-inv-fg);border-bottom:0}
+:root[data-versao="1"] .k-pausa + .k-pausa{border-left-color:color-mix(in srgb,currentColor 35%,transparent)}
+:root[data-versao="1"] .k-pausa.logo{background:var(--s-warn);color:var(--on-warn)}
+:root[data-versao="1"] .k-pausa.logo .t{color:inherit}
+:root[data-versao="1"] .k-rodape{background:var(--rb);color:var(--rf);border-top:0;box-shadow:none;align-items:stretch}
+:root[data-versao="1"] .k-lado{color:inherit;border-right:1.5px solid color-mix(in srgb,currentColor 40%,transparent);font-size:14px}
+:root[data-versao="1"] .k-txt{padding:0 14px}
+:root[data-versao="1"] .k-letreiro{display:inline;white-space:nowrap;overflow:visible;-webkit-line-clamp:none;font:800 24px/1.15 var(--fd)}
+:root[data-versao="1"] .k-letreiro small{font:700 18px var(--fb)}
+:root[data-versao="1"] .k-ciente{background:var(--rf);color:var(--rb)}
+:root[data-versao="1"] .k-mais{border:2px solid currentColor;background:transparent;color:inherit}
+:root[data-versao="1"] .k-av.urg .barra{background:var(--al-urg)} :root[data-versao="1"] .k-av.alta .barra{background:var(--al-alta)} :root[data-versao="1"] .k-av.info .barra{background:var(--al-info)} :root[data-versao="1"] .k-av.ok .barra{background:var(--al-ok)}
+@media (prefers-reduced-motion:reduce){ :root[data-versao="1"] .k-letreiro{white-space:normal;font-size:19px;padding:6px 0} }
+@container kds (max-width:599px){
+  :root[data-versao="1"] .k-rodape{grid-template-columns:minmax(0,1fr) auto auto;grid-template-areas:none}
+  :root[data-versao="1"] .k-rodape > *{grid-area:auto}
+  :root[data-versao="1"] .k-lado{display:none}
+  :root[data-versao="1"] .k-letreiro{font-size:20px}
+}
+
+/* gaveta ⚙ e diálogo dentro do aparelho (tema do KDS) */
+.k-fundo{position:absolute;inset:0;z-index:45;background:rgba(15,34,48,.45)}
+.k-gaveta{position:absolute;top:0;right:0;bottom:0;z-index:50;width:min(480px,100%);display:flex;flex-direction:column;background:var(--k-panel);color:var(--k-ink);border-left:1px solid var(--k-line);box-shadow:var(--k-sombra);min-width:0}
+.k-gcab{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid var(--k-line)}
+.k-gcab h2{font:800 19px/1.2 var(--fd);overflow-wrap:anywhere}
+.k-gcab p{font-size:13.5px;color:var(--k-muted);margin-top:2px}
+.k-gtabs{display:flex;flex-wrap:wrap;gap:6px;padding:10px 14px 0}
+.k-gtab{min-height:48px;padding:0 14px;border:1px solid var(--k-line);background:var(--k-panel-2);color:var(--k-muted);font-weight:800;font-size:15px}
+.k-gtab[aria-selected="true"]{background:var(--k-ink);border-color:var(--k-ink);color:var(--k-panel)}
+.k-gcorpo{flex:1;overflow-y:auto;padding:12px 14px 16px;display:grid;gap:16px;align-content:start;min-width:0}
+.k-grupo{display:grid;gap:8px;min-width:0}
+.k-grupo > b{font:800 15px var(--fd)}
+.k-nota{font-size:14px;color:var(--k-muted);overflow-wrap:anywhere}
+.k-nota b{color:var(--k-ink)}
+.k-sel{min-height:48px;padding:0 10px;border:1px solid var(--k-line);background:var(--k-panel-2);color:var(--k-ink);font-weight:700;width:100%;max-width:100%}
+.k-seg2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,92px),1fr));gap:1px;background:var(--k-line);border:1px solid var(--k-line)}
+.k-seg2 button{min-height:48px;padding:4px 6px;background:var(--k-panel-2);color:var(--k-muted);font-weight:800;font-size:14.5px;line-height:1.15;overflow-wrap:break-word;hyphens:auto}
+.k-seg2 button{border:0}
+.k-seg2 button[aria-pressed="true"]{background:var(--k-ink);color:var(--k-panel)}
+.k-gpe{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px;padding:10px 14px;border-top:1px solid var(--k-line);background:var(--k-panel-2)}
+.k-gpe .k-nota{flex:1 1 160px}
+.k-gpe .k-nota:empty{display:none}
+.k-bt{min-height:48px;padding:0 16px;border:1px solid var(--k-line);background:var(--k-panel);color:var(--k-ink);font-weight:800;font-size:15px}
+.k-bt.pri{background:var(--acao);border-color:var(--acao);color:var(--on-acao)}
+/* tipos de aviso: liga/desliga por tela */
+.k-tipos{list-style:none;display:grid;border:1px solid var(--k-line)}
+.k-tipo{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--k-line)}
+.k-tipo:last-child{border-bottom:0}
+.k-tipo b{font-weight:800;font-size:15.5px;overflow-wrap:anywhere}
+.k-tipo p{font-size:13.5px;color:var(--k-muted);overflow-wrap:anywhere}
+.k-tipo .pri{display:inline-block;margin-top:4px;font-size:12px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:0 6px;border:1.5px solid currentColor;color:var(--k-ink)}
+.k-liga{min-width:112px;min-height:48px;padding:0 10px;border:2px solid var(--k-line);background:var(--k-panel-2);color:var(--k-muted);font-weight:800;font-size:14px}
+.k-liga[aria-pressed="true"]{background:var(--k-ink);border-color:var(--k-ink);color:var(--k-panel)}
+.k-liga[disabled]{cursor:not-allowed;border-style:dashed}
+@container kds (max-width:420px){ .k-tipo{grid-template-columns:minmax(0,1fr)} .k-liga{justify-self:start} }
+/* histórico */
+.k-filtros{display:flex;flex-wrap:wrap;gap:6px}
+.k-hist{list-style:none;display:grid;border:1px solid var(--k-line)}
+.k-h{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 10px;padding:10px 12px;border-bottom:1px solid var(--k-line)}
+.k-h:last-child{border-bottom:0}
+.k-h time{font:700 15px var(--fm);grid-row:span 3}
+.k-h b{font-weight:800;font-size:15.5px;overflow-wrap:anywhere}
+.k-h p{font-size:14px;color:var(--k-muted);overflow-wrap:anywhere}
+.k-h .st{font-size:14px;font-weight:800;color:var(--k-ink);overflow-wrap:anywhere}
+.k-h .st.falta{color:var(--k-erro)}
+.k-h .st.feito{color:var(--k-feito)}
+.k-dialogo{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:50;width:min(520px,calc(100% - 24px));max-height:calc(100% - 24px);overflow-y:auto;background:var(--k-panel);color:var(--k-ink);border:1px solid var(--k-line);box-shadow:var(--k-sombra)}
+.k-dialogo h2{font:800 20px/1.2 var(--fd);padding:14px 16px 0}
+.k-dialogo .k-dcorpo{padding:10px 16px 14px;display:grid;gap:8px;font-size:16px}
+.k-dialogo .k-gpe{border-top:1px solid var(--k-line)}
+
+/* ═════════ app do Regem (Shell): Rota da cozinha e Alertas cadastrados ═════════ */
+.shell-wrap{container:app/inline-size;border-top:1px solid var(--a-line);background:var(--a-bg)}
+.shell{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100dvh}
+.sh-lado{background:var(--a-navy);color:var(--a-menu);padding:14px 10px;font-size:14px}
+.sh-marca{display:flex;align-items:center;gap:10px;padding:2px 8px 14px;color:#FFFFFF;font:700 18px var(--fd)}
+.sh-marca svg{width:30px;height:30px;flex:none}
+.sh-item{display:block;padding:7px 12px;font-weight:600}
+.sh-grupo{padding:8px 12px 4px;color:#FFFFFF;font-weight:800}
+.sh-sub{display:flex;justify-content:space-between;align-items:center;gap:6px;min-height:36px;padding:6px 10px 6px 24px;border-radius:10px;color:inherit;text-decoration:none;font-weight:600}
+.sh-sub[aria-current="page"]{background:rgba(226,163,64,.18);color:#FFFFFF;box-shadow:inset 3px 0 0 var(--a-gold)}
+.sh-sub i{font-style:normal;font-size:11px;font-weight:800;padding:0 6px;border-radius:999px;background:var(--a-gold);color:var(--a-on-gold)}
+.sh-main{min-width:0;padding:18px 24px 120px;container:conteudo/inline-size}
+.sh-topo{display:none;align-items:center;gap:10px;min-height:52px;padding:0 4px 10px;font-weight:700;color:var(--a-ink)}
+.sh-topo .menu{min-width:44px;min-height:44px;border:1px solid var(--a-line-2);border-radius:10px;background:var(--a-card);font-size:18px}
+@container app (max-width:999px){ .shell{grid-template-columns:minmax(0,1fr)} .sh-lado{display:none} .sh-topo{display:flex} .sh-main{padding:12px 16px 120px} }
+.trilha{font:700 11px var(--fd);letter-spacing:.14em;text-transform:uppercase;color:var(--a-gold-txt)}
+.barra{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:10px 16px;margin:2px 0 14px}
+.barra h2{font:800 26px/1.15 var(--fd)}
+.barra .res{color:var(--a-muted);font-size:14px;margin-top:2px}
+.acoes{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.bt{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:44px;padding:0 14px;border-radius:10px;border:1px solid var(--a-line-2);background:var(--a-card);color:var(--a-ink);font-weight:700;font-size:14.5px;text-align:center}
+.bt.pri{background:var(--a-gold);border-color:var(--a-gold);color:var(--a-on-gold)}
+.bt.perigo{background:var(--a-crit);border-color:var(--a-crit);color:#FFFFFF}
+.bt.link{border:0;background:none;color:var(--a-gold-txt);text-decoration:underline;text-underline-offset:3px;padding:0 4px}
+.bt[disabled]{opacity:.55;cursor:not-allowed}
+.campo{display:grid;gap:4px;min-width:0}
+.campo > label,.rot{font-size:13px;font-weight:700;color:var(--a-muted)}
+.campo input,.campo select,.campo textarea,.inp{min-height:44px;width:100%;max-width:100%;border:1px solid var(--a-line-2);border-radius:10px;padding:0 12px;background:#FFFFFF;color:var(--a-ink)}
+.campo textarea{padding:8px 12px;min-height:72px;resize:vertical}
+.ajuda{font-size:13px;color:var(--a-muted);overflow-wrap:anywhere}
+.ajuda.erro{color:var(--a-crit);font-weight:700}
+.nota{border-left:4px solid var(--a-info);background:var(--a-info-soft);color:var(--a-ink);padding:10px 12px;border-radius:8px;font-size:14.5px;display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;min-width:0}
+.nota > span{flex:1 1 260px;min-width:0;overflow-wrap:anywhere}
+.nota.warn{border-color:var(--a-warn);background:var(--a-warn-soft)} .nota.crit{border-color:var(--a-crit);background:var(--a-crit-soft)} .nota.neutra{border-color:var(--a-muted);background:var(--a-s2)}
+.notas{display:grid;gap:8px;margin-bottom:16px}
+.selo{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;font-weight:800;font-size:12.5px;white-space:nowrap}
+.selo.ok{background:var(--a-ok-soft);color:var(--a-ok)} .selo.warn{background:var(--a-warn-soft);color:var(--a-warn)} .selo.crit{background:var(--a-crit-soft);color:var(--a-crit)} .selo.info{background:var(--a-info-soft);color:var(--a-info)} .selo.neutro{background:var(--a-s2);color:var(--a-muted);border:1px solid var(--a-line-2)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:4px 12px;border-radius:999px;border:1px solid var(--a-line-2);background:var(--a-card);color:var(--a-muted);font-weight:700;font-size:14px;text-align:left}
+.chip b{font-family:var(--fm);font-size:13px;color:var(--a-ink)}
+.chip[aria-pressed="true"]{background:var(--a-navy);border-color:var(--a-navy);color:#FFFFFF}
+.chip[aria-pressed="true"] b{color:#FFFFFF}
+.seg{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,108px),1fr));gap:1px;background:var(--a-line-2);border:1px solid var(--a-line-2);border-radius:10px;overflow:hidden}
+.seg button{min-height:44px;padding:4px 8px;background:#FFFFFF;color:var(--a-muted);font-weight:700;font-size:14px;line-height:1.15;overflow-wrap:break-word;hyphens:auto}
+.seg button{border:0}
+.seg button[aria-pressed="true"]{background:var(--a-navy);color:#FFFFFF}
+.liga{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 4px;font-weight:700;font-size:14px;color:var(--a-ink)}
+.liga span.t{position:relative;flex:none;width:46px;height:26px;border-radius:999px;background:#9AA8B6}
+.liga span.t::after{content:"";position:absolute;left:3px;top:3px;width:20px;height:20px;border-radius:50%;background:#FFFFFF;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .15s}
+.liga[aria-pressed="true"] span.t{background:var(--a-ok)}
+.liga[aria-pressed="true"] span.t::after{transform:translateX(20px)}
+.cartao{background:var(--a-card);border:1px solid var(--a-line);border-radius:12px;min-width:0}
+
+/* Rota: o fluxo */
+.fluxo{display:grid;gap:12px;grid-template-columns:minmax(0,1fr)}
+.col-fluxo{display:grid;gap:10px;align-content:start;min-width:0}
+.col-fluxo > h3{display:flex;align-items:center;gap:8px;font:800 12px var(--fd);letter-spacing:.12em;text-transform:uppercase;color:var(--a-muted)}
+.col-fluxo > h3 .seta{display:none;color:var(--a-gold-txt);font-size:16px}
+/* as colunas são as etapas da cozinha (quantas ela tiver) + a TV no fim; lado a lado só quando cada uma tem ≥ 230 px
+   (decidido pelo espaço da peça, no JS); senão viram lista vertical e "Antes/Depois" sobem e descem */
+.fluxo.horizontal{grid-template-columns:repeat(var(--cols,4),minmax(0,1fr))}
+.fluxo.horizontal .col-fluxo > h3 .seta{display:inline}
+.col-fluxo > h3 .nome-et{min-width:0;overflow-wrap:anywhere}
+.ren{flex:none;min-width:44px;min-height:44px;border:1px solid var(--a-line-2);border-radius:10px;background:var(--a-card);color:var(--a-ink);font-size:15px;letter-spacing:0}
+.ren-inp{flex:1 1 120px;min-width:0;text-transform:none;letter-spacing:0;font:700 15px var(--fb)}
+.ed-barra{position:sticky;top:0;z-index:6;display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;padding:10px 12px;margin-bottom:12px;background:var(--a-card);border:2px solid var(--a-navy);border-radius:12px;box-shadow:0 8px 20px rgba(15,34,48,.12);min-width:0}
+.ed-barra .t{flex:1 1 260px;min-width:0}
+.ed-barra .t b{display:block;font:800 16px var(--fd)}
+.ed-barra .t span{display:block;font-size:13.5px;color:var(--a-muted);overflow-wrap:anywhere}
+.ed-incluir{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0}
+[data-esmaecido]{opacity:.35;filter:grayscale(.5)}
+.fluxo.editando .col-fluxo{padding:6px;border-radius:12px}
+.bloco{cursor:grab}
+.bloco .pega{font-size:15px;margin-right:2px}
+.bloco.pegado{opacity:.45}
+.bloco.invalido{box-shadow:inset 0 0 0 2px var(--a-crit)}
+.bloco .mover{display:flex;flex-wrap:wrap;gap:6px}
+.bloco .mover .bt{flex:1 1 auto;min-height:44px;padding:0 10px;font-size:13.5px}
+.bloco .mover .bt[aria-expanded="true"]{border-color:var(--a-navy);box-shadow:inset 0 0 0 1px var(--a-navy)}
+.bloco .junto{display:flex;flex-wrap:wrap;gap:6px;padding:8px;border:1px dashed var(--a-line-2);border-radius:10px;min-width:0}
+.seta-v{display:none}
+.fluxo:not(.horizontal) .seta-h{display:none}
+.fluxo:not(.horizontal) .seta-v{display:inline}
+.zona{display:none;min-height:56px;padding:8px;border:2px dashed var(--a-line-2);border-radius:10px;font-size:13.5px;font-weight:700;color:var(--a-muted);text-align:center}
+.fluxo.arrastando .zona{display:grid;place-items:center;gap:2px}
+.fluxo.arrastando .col-fluxo[data-etapa]{outline:2px dashed var(--a-line-2);outline-offset:-2px}
+.fluxo.arrastando .col-fluxo.sobre[data-etapa],.fluxo .zona.sobre{outline-color:var(--a-navy);border-color:var(--a-navy);background:var(--a-s2)}
+.fluxo.arrastando .col-fluxo.proibido[data-etapa]{outline:2px dashed var(--a-crit)}
+.fluxo .zona.proibido{border-color:var(--a-crit);color:var(--a-crit)}
+.msg-proibido{display:none;font-size:13px;font-weight:800;color:var(--a-crit)}
+.col-fluxo.proibido > .msg-proibido,.zona.proibido > .msg-proibido{display:block}
+.fora{margin-top:12px;padding:12px;display:grid;gap:10px}
+.fora h3{font:800 16px var(--fd)}
+.fora-lista{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr))}
+.mudancas{margin:0 0 0 18px;display:grid;gap:4px;font-size:14.5px;overflow-wrap:anywhere}
+.no{padding:12px;display:grid;gap:8px;align-content:start;min-width:0}
+.no header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 8px}
+.no .tipo{display:block;font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--a-muted)}
+.no h4{font:800 19px/1.15 var(--fd);overflow-wrap:anywhere}
+.no dl{display:grid;gap:6px}
+.no dt{font-size:12.5px;font-weight:800;color:var(--a-muted)}
+.no dd{font-size:14.5px;overflow-wrap:anywhere}
+.no dd b{font-weight:800}
+.no .alerta-no{font-size:13.5px;font-weight:700;color:var(--a-warn)}
+.no.despacho{border-color:var(--a-gold);box-shadow:inset 0 0 0 1px var(--a-gold)}
+.no.desligado{border-style:dashed;background:var(--a-s2)}
+.no.no-tv{border-style:dashed}
+.no .bt{justify-self:start}
+.papel{margin-top:12px;padding:12px;display:grid;gap:10px}
+.papel h3{font:800 16px var(--fd)}
+.imps{display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr))}
+.imp{padding:10px 12px;border:1px solid var(--a-line);border-radius:10px;background:var(--a-s2);display:grid;gap:4px;min-width:0}
+.imp b{font-family:var(--fd);overflow-wrap:anywhere}
+.imp span{font-size:14px;color:var(--a-muted);overflow-wrap:anywhere}
+.sim{margin-top:16px;padding:14px;display:grid;gap:12px}
+.sim h3{font:800 18px var(--fd)}
+.sim-ctl{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));align-items:end}
+.sim-res{display:grid;gap:10px}
+.sim-item{border:1px solid var(--a-line);border-radius:10px;padding:10px 12px;display:grid;gap:8px;min-width:0}
+.sim-item > b{font-family:var(--fd);font-size:15px;overflow-wrap:anywhere}
+.passos{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;list-style:none}
+.passo{display:grid;gap:1px;padding:6px 10px;border-radius:10px;border:1px solid var(--a-line-2);background:var(--a-card);min-width:0;max-width:100%}
+.passo b{font-size:14.5px;overflow-wrap:anywhere}
+.passo span{font-size:12.5px;color:var(--a-muted);overflow-wrap:anywhere}
+.passo.despacho{border-color:var(--a-gold);background:var(--a-gold-soft)}
+.passo.pulado{border-style:dashed;background:var(--a-s2)}
+.passo.pulado b{text-decoration:line-through}
+.passo.papel-p{border-style:dashed}
+.passo.p-tv{border-color:var(--a-ok);background:var(--a-ok-soft)}
+.passo.p-tv b{color:var(--a-ok)}
+.seta-p{align-self:center;color:var(--a-gold-txt);font-weight:800}
+.sim-aviso{font-size:14px;font-weight:700;color:var(--a-warn);overflow-wrap:anywhere}
+.sim-fim{font-size:14.5px;overflow-wrap:anywhere}
+
+/* gaveta e diálogo do app (fixos na janela, como no app) */
+.a-fundo{position:fixed;inset:0;z-index:80;background:rgba(15,34,48,.45)}
+.a-gaveta{position:fixed;top:0;right:0;bottom:0;z-index:90;width:min(560px,100%);display:flex;flex-direction:column;background:var(--a-card);color:var(--a-ink);box-shadow:-12px 0 32px rgba(15,34,48,.18);min-width:0}
+.a-gaveta header,.a-dialogo header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:14px 18px;border-bottom:1px solid var(--a-line)}
+.a-gaveta h3,.a-dialogo h3{font:800 19px/1.2 var(--fd);overflow-wrap:anywhere}
+.a-gaveta header p{font-size:13.5px;color:var(--a-muted);margin-top:2px}
+.a-corpo{flex:1;overflow-y:auto;padding:14px 18px 18px;display:grid;gap:16px;align-content:start;min-width:0}
+.a-corpo > *{min-width:0}
+.a-gaveta footer,.a-dialogo footer{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px;padding:12px 18px;border-top:1px solid var(--a-line);background:var(--a-s2)}
+.a-gaveta footer .mudou{flex:1 1 180px;font-size:13.5px;font-weight:700;color:var(--a-gold-txt)}
+.x{min-width:44px;min-height:44px;border-radius:10px;border:1px solid var(--a-line-2);background:var(--a-card);font-size:17px}
+.a-dialogo{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:90;width:min(540px,calc(100% - 24px));max-height:calc(100% - 24px);display:flex;flex-direction:column;background:var(--a-card);border-radius:16px;box-shadow:0 20px 50px rgba(15,34,48,.3);overflow:hidden}
+.a-dialogo .a-corpo{gap:10px}
+.grupo-g{display:grid;gap:8px;padding-top:14px;border-top:1px solid var(--a-line)}
+.grupo-g:first-child{padding-top:0;border-top:0}
+.grupo-g > h4{font:800 15.5px var(--fd)}
+.cat{border:1px solid var(--a-line);border-radius:10px;overflow:hidden}
+.cat-cab{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:6px;padding:4px 10px;background:var(--a-s2);font-weight:800;font-size:14px}
+.prod{display:flex;align-items:center;gap:10px;min-height:44px;padding:4px 10px;border-top:1px solid var(--a-line);font-size:14.5px;cursor:pointer;min-width:0}
+.prod input{flex:none;width:20px;height:20px;accent-color:#0F2230}
+.prod span{min-width:0;overflow-wrap:anywhere}
+.prod em{font-style:normal;font-size:12.5px;font-weight:800;color:var(--a-warn)}
+.prod.dupl{background:var(--a-warn-soft)}
+.radio{display:flex;align-items:flex-start;gap:10px;min-height:44px;padding:8px 10px;border:1px solid var(--a-line);border-radius:10px;font-size:14.5px;cursor:pointer;min-width:0}
+.radio input{flex:none;margin-top:3px;width:18px;height:18px;accent-color:#0F2230}
+.radio span{min-width:0;overflow-wrap:anywhere}
+.radio:has(input:checked){border-color:var(--a-navy);box-shadow:inset 0 0 0 1px var(--a-navy)}
+.duas{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr))}
+.ticket{font:12.5px/1.45 var(--fm);background:#FFFFFF;color:#111111;border:1px dashed #8E99A4;padding:8px 10px;white-space:pre-wrap;overflow-wrap:anywhere;max-width:340px}
+.a-toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:100;max-width:calc(100% - 32px);padding:11px 18px;border-radius:12px;background:var(--a-navy);color:#FFFFFF;font-weight:700;box-shadow:0 10px 26px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:opacity .2s;overflow-wrap:anywhere}
+.a-toast.on{opacity:1}
+
+/* Alertas cadastrados: lista (tabela larga, cartões no estreito) */
+.sits{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.filtros{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));padding:12px;margin-bottom:12px}
+.lista{overflow:hidden}
+.lista table{width:100%;border-collapse:collapse}
+.lista caption{text-align:left}
+.lista th{font-size:12px;letter-spacing:.06em;text-transform:uppercase;text-align:left;color:var(--a-muted);background:var(--a-s2);padding:10px 12px;border-bottom:1px solid var(--a-line)}
+.lista td{padding:10px 12px;border-bottom:1px solid var(--a-line);vertical-align:middle;font-size:14.5px;overflow-wrap:anywhere}
+.lista tr:last-child td{border-bottom:0}
+.lista .nome{font-weight:800}
+.lista .sub-t{font-size:13px;color:var(--a-muted)}
+.lin-acoes{display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end}
+.ic{display:inline-flex;align-items:center;gap:6px;min-width:44px;min-height:44px;justify-content:center;border-radius:10px;border:1px solid var(--a-line-2);background:var(--a-card);padding:0 10px;font-weight:700;font-size:13.5px;color:var(--a-ink)}
+.ic.perigo{color:var(--a-crit)}
+@container conteudo (max-width:1279px){
+  .lista{border:0;background:none;overflow:visible}
+  .lista thead{display:none}
+  .lista table,.lista tbody{display:grid;gap:10px}
+  .lista tbody{grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr))}
+  .lista tr{display:grid;gap:4px;background:var(--a-card);border:1px solid var(--a-line);border-radius:12px;padding:12px}
+  .lista td{display:flex;justify-content:space-between;align-items:baseline;gap:12px;border:0;padding:3px 0;min-width:0}
+  .lista td::before{content:attr(data-rot);flex:none;font-size:12.5px;font-weight:800;color:var(--a-muted)}
+  .lista td > .v{text-align:right;min-width:0}
+  .lista td.c-nome{display:block} .lista td.c-nome::before,.lista td.c-acoes::before{content:none}
+  .lista td.c-acoes{margin-top:6px} .lin-acoes{width:100%;justify-content:stretch} .lin-acoes .ic{flex:1}
+}
+.previa{display:grid;gap:6px}
+.previa .k-rodape{border-radius:0}
+.prev-frame{border:1px solid var(--a-line-2);overflow:hidden;container:kds/inline-size}
+
+/* ═════════ TV de senhas ═════════ */
+.tv-palco{display:grid;gap:12px;padding:0 16px;max-width:1440px;margin:0 auto}
+.tv-ctl{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.tv{width:100%;aspect-ratio:16/9;background:var(--tv-bg);color:var(--tv-ink);border:1px solid var(--tv-linha);display:grid;grid-template-rows:auto minmax(0,1fr) auto;overflow:hidden;box-shadow:0 10px 30px rgba(15,34,48,.12)}
+.tv-topo{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:var(--tv-p1) var(--tv-p2);border-bottom:1px solid var(--tv-linha);min-width:0}
+.tv-loja{display:flex;align-items:center;gap:var(--tv-p1);min-width:0}
+.tv-logo{flex:none;width:var(--tv-logo);height:var(--tv-logo);border-radius:50%;display:grid;place-items:center;background:#C8102E;color:#FFFFFF;font:800 var(--tv-f-logo) var(--fd)}
+.tv-nome{font:800 var(--tv-f-nome)/1.1 var(--fd);overflow-wrap:anywhere;min-width:0}
+.tv-hora{font:700 var(--tv-f-hora) var(--fm);color:var(--tv-fraco);flex:none}
+.tv-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.35fr);min-height:0}
+.tv-col{display:flex;flex-direction:column;gap:var(--tv-p1);padding:var(--tv-p1) var(--tv-p2);min-width:0;min-height:0;overflow:hidden}
+.tv-col + .tv-col{border-left:1px solid var(--tv-linha)}
+.tv-col h3{font:800 var(--tv-f-tit) var(--fd);letter-spacing:.1em;text-transform:uppercase;color:var(--tv-fraco);display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 10px}
+.tv-col h3 small{font:700 calc(var(--tv-f-tit)*.62) var(--fb);letter-spacing:0;text-transform:none;color:var(--tv-fraco)}
+.tv-col.pronto{background:linear-gradient(180deg,var(--tv-ok-suave),var(--tv-bg) 60%)}
+.tv-col.pronto h3{color:var(--tv-ok)}
+.tv-senhas{flex:1;min-height:0;display:flex;flex-wrap:wrap;align-content:flex-start;gap:.22em;overflow:hidden}
+.tv-s{display:inline-flex;align-items:baseline;gap:.2em;padding:.06em .3em;border:2px solid var(--tv-linha);font:700 1em/1.05 var(--fm);font-variant-numeric:tabular-nums;white-space:nowrap}
+.tv-s small{font-size:.5em}
+.prep .tv-s{background:var(--tv-chip);color:var(--tv-fraco);border-color:transparent}
+.pronto .tv-s{background:var(--tv-bg);color:var(--tv-ink)}
+.pronto .tv-s.nova{background:var(--tv-ok);border-color:var(--tv-ok);color:#FFFFFF}
+.tv-pe{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 12px;padding:var(--tv-p3) var(--tv-p2);border-top:1px solid var(--tv-linha);font-size:var(--tv-f-pe);color:var(--tv-fraco);min-width:0}
+.tv-pe b{color:var(--tv-ink)}
+.tv-leg{font-size:14px;color:var(--a-muted)}
+.tv-leg b{color:var(--a-ink)}
+
+#medida{white-space:pre-wrap;font:12px var(--fm);padding:8px 16px}
+</style>
+</head>
+<body>
+
+<!-- ───────── faixa do protótipo (NÃO vai para a tela real) ───────── -->
+<div class="proto" role="region" aria-label="Controles do protótipo">
+  <b>Protótipo</b><span>· esta faixa não vai para a tela real ·</span>
+  <div class="grp" role="group" aria-label="Tema da cozinha"><span>Tema do KDS:</span>
+    <button type="button" data-p-tema="claro" aria-pressed="true">Claro</button>
+    <button type="button" data-p-tema="escuro" aria-pressed="false">Escuro</button></div>
+  <span class="sepa" aria-hidden="true"></span>
+  <div class="grp" role="group" aria-label="Tamanho da letra do KDS"><span>Letra:</span>
+    <button type="button" data-p-esc="0.85" aria-pressed="false">85%</button>
+    <button type="button" data-p-esc="1" aria-pressed="true">100%</button>
+    <button type="button" data-p-esc="1.5" aria-pressed="false">150%</button></div>
+  <span class="sepa" aria-hidden="true"></span>
+  <div class="grp" role="group" aria-label="Fila"><span>Fila:</span>
+    <button type="button" data-p-fila="normal" aria-pressed="true">Com pedidos</button>
+    <button type="button" data-p-fila="vazio" aria-pressed="false">Vazia</button>
+    <button type="button" data-p-fila="carregando" aria-pressed="false">Carregando</button></div>
+  <span class="sepa" aria-hidden="true"></span>
+  <div class="grp" role="group" aria-label="Simular"><span>Simular:</span>
+    <button type="button" id="pPausa" aria-pressed="false">Canal pausado</button>
+    <button type="button" id="pLogo" aria-pressed="false">iFood reabre em 5 min</button>
+    <button type="button" id="pReabre">iFood reabriu</button>
+    <button type="button" id="pUrg">Alerta urgente</button>
+    <button type="button" id="pFarol">Alerta do Farol</button>
+    <button type="button" id="pErro" aria-pressed="false">Erro de leitura</button>
+    <button type="button" id="pOff" aria-pressed="false">Sem conexão</button>
+    <button type="button" id="pSom" aria-pressed="false">Som bloqueado</button></div>
+  <span class="sepa" aria-hidden="true"></span>
+  <button type="button" id="pVersao" aria-pressed="false">Comparar com a versão 1</button>
+  <span class="sepa" aria-hidden="true"></span>
+  <div class="grp" role="group" aria-label="Cozinha de exemplo"><span>Cozinha de exemplo:</span>
+    <button type="button" data-p-ex="lanchonete" aria-pressed="true">Lanchonete (Chapa → Montagem → Despacho)</button>
+    <button type="button" data-p-ex="pizzaria" aria-pressed="false">Pizzaria (Montagem → Forno → Corte/Despacho)</button>
+    <button type="button" data-p-ex="pequena" aria-pressed="false">Cozinha pequena (um KDS só)</button></div>
+</div>
+
+<div class="pagina">
+  <p class="olho">Regem · protótipo para aprovar · onda 2 da auditoria do KDS (11/11/2026)</p>
+  <h1>KDS para a cozinha enxergar</h1>
+  <p class="lead">A tela da cozinha lida a <b>1–2 metros</b>, a <b>rota do pedido</b> entre os KDS num lugar só, o que <b>cada tela recebe de aviso</b>, a <b>TV de senhas</b> que não esconde quem espera e o <b>cadastro de alertas</b> no app. Nada muda na cozinha até ser aprovado e feito.</p>
+  <div class="abas" role="tablist" aria-label="Telas do protótipo">
+    <button type="button" class="aba" role="tab" id="aba-kds" data-aba="kds" aria-controls="tela-kds" aria-selected="true">1. KDS na cozinha</button>
+    <button type="button" class="aba" role="tab" id="aba-rota" data-aba="rota" aria-controls="tela-rota" aria-selected="false" tabindex="-1">2. Rota da cozinha</button>
+    <button type="button" class="aba" role="tab" id="aba-avisos" data-aba="avisos" aria-controls="tela-avisos" aria-selected="false" tabindex="-1">3. Avisos deste KDS</button>
+    <button type="button" class="aba" role="tab" id="aba-tv" data-aba="tv" aria-controls="tela-tv" aria-selected="false" tabindex="-1">4. TV de senhas</button>
+    <button type="button" class="aba" role="tab" id="aba-alertas" data-aba="alertas" aria-controls="tela-alertas" aria-selected="false" tabindex="-1">5. Alertas cadastrados</button>
+  </div>
+</div>
+
+<!-- ═════════ 1. KDS na cozinha ═════════ -->
+<section class="tela" id="tela-kds" role="tabpanel" aria-labelledby="aba-kds">
+  <div class="pagina"><p class="resolve"><b>Legível a 1–2 m, no tablet deitado</b> cabeçalho compacto, letra maior, nada cortado, toque ≥ 48 px, aviso a cada toque, faixa da pausa e rodapé com Ciente · loja com um KDS só (o caso mais comum) <span class="cod">L1</span><span class="cod">L3</span><span class="cod">L4</span><span class="cod">L7</span><span class="cod">L8</span><span class="cod">L9</span><span class="cod">L13</span><span class="cod">O10</span><span class="cod">A6</span><span class="cod">A7</span><span class="cod">A12</span></p></div>
+  <div id="lugarKds1"></div>
+  <div class="notas-aba"><details><summary>Como funciona e o que mudou</summary><ul>
+    <li><b>Cabeçalho:</b> duas linhas de 48 px no tablet (uma só a partir de 1720 px). "Este KDS", setor, por pedido/por item, tema e tamanho da letra foram para o ⚙ (são do aparelho). Relógio sem segundos. O nome do KDS no canto abre o ⚙.</li>
+    <li><b>Versão 2 — pouca cor (pedido do dono, 11/11):</b> o cartão é neutro em qualquer tempo (fundo do painel, tinta navy, sem borda colorida); a cor do status fica só no <b>selo do tempo</b> ("13 min": verde, amarelo com tinta navy, vermelho) e o atrasado ganha a etiqueta "Atrasado" em contorno vermelho. Botão de avançar neutro (tinta com contorno); "Atrasados" só com o número em vermelho. "Comparar com a versão 1", na faixa do protótipo, mostra o desenho anterior.</li>
+    <li><b>Cartão:</b> item 20 px, complemento 16 px na cor da tinta (um por linha), observação 16 px com barra e "Obs", etiquetas 13 px. Texto longo e palavra sem espaço quebram a linha — nada é cortado. O botão de avançar tem 48 px no mínimo em qualquer letra (85% inclusive).</li>
+    <li><b>Toque:</b> o botão diz "Aguarde…" enquanto o servidor responde e, depois, o aviso curto ("Senha B-12 → Em preparo"). "Finalizar todos" pergunta num diálogo da própria tela e só leva o que aparece.</li>
+    <li><b>Encomenda:</b> o cartão mostra "para 21:30", fica neutro (sem verde/amarelo/vermelho) e não entra em "Atrasados" antes do começo do preparo.</li>
+    <li><b>Faixa da pausa:</b> clara (fundo do painel, linha embaixo), com ⏸ e o texto em tinta; só o contador "faltam 12:34" em negrito, e em âmbar nos 5 min finais — a faixa não é pintada. Ao reabrir ela sai e o rodapé avisa. As outras faixas (sem conexão, erro de leitura, som pausado) também são claras; só a palavra "Sem conexão" fica em vermelho.</li>
+    <li><b>Rodapé:</b> o aviso fica <b>parado</b>, numa faixa clara com borda fina em cima: o ícone e a palavra da prioridade ("Urgente", "Atenção", "Aviso") em cor e o texto em tinta, em até 2 linhas — o resto em "Ver tudo". O urgente (cancelado, alterado, Farol urgente) se distingue pelo ícone, pelo negrito e pelo <b>Ciente</b>, que o mantém até alguém tocar — nunca por fundo vermelho. Vários avisos: o mais urgente na faixa e "N avisos" abre a lista.</li>
+    <li><b>Resumo de itens:</b> ao lado da fila a partir de 900 px (no tablet deitado também); abaixo disso a folha empurra a fila para cima — nunca cobre o rodapé nem os últimos cartões.</li>
+  </ul></details></div>
+</section>
+
+<!-- ═════════ 2. Rota da cozinha ═════════ -->
+<section class="tela" id="tela-rota" role="tabpanel" aria-labelledby="aba-rota" hidden>
+  <div class="pagina"><p class="resolve"><b>A corrente inteira num lugar só, na ordem de cada cozinha</b> as etapas, os produtos, o "vai para" e a impressão de cada KDS, e "Editar a ordem" para montar a rota do layout da loja (troque a cozinha de exemplo na faixa do protótipo) · tela nova em Configurações › Rota da cozinha <span class="cod">R7</span><span class="cod">R9</span><span class="cod">R11</span><span class="cod">R3</span></p></div>
+  <div class="shell-wrap"><div class="shell" id="shellRota"></div></div>
+  <div class="notas-aba"><details><summary>Como funciona e o que mudou</summary><ul>
+    <li><b>Lugar no menu:</b> Configurações › <b>Rota da cozinha</b>, logo abaixo de "Produção &amp; KDS". Os ajustes de rota que hoje ficam espalhados (Equipamentos › KDS › "Imprimir ao avançar" e a gaveta ⚙ do KDS) passam a ser editados aqui; as outras telas mostram e apontam para cá.</li>
+    <li><b>Editar</b> abre a gaveta do KDS: produtos (com a busca e "Marcar todos"), "Quando ficar pronto" (termina aqui ou vai para outro KDS), "Imprimir ao avançar" (não, ou sim: em qual etapa e em qual impressora, com a prévia do papel) e os avisos que a tela recebe.</li>
+    <li><b>O "vai para"</b> só oferece KDS de preparo e o despacho: a TV de senhas não é etapa, e a rota em círculo é recusada na hora.</li>
+    <li><b>KDS desligado no meio</b> é pulado (os cartões dele seguem para o próximo ligado) e aparece tracejado.</li>
+    <li><b>O simulador</b> usa a rota salva: escolha um produto ou um pedido de exemplo e veja por onde ele passa, onde imprime e quando a senha vai para "Pronto".</li>
+    <li><b>Editar a ordem:</b> as colunas são as <b>etapas</b> da cozinha, numeradas pela posição; o nome é opcional (✎ no título; vazio fica "Etapa 2"). Cada KDS vira um bloco que se arrasta para outra etapa; no toque e no teclado, "Antes", "Depois" e "Junto com…" (mesma etapa = preparo em paralelo). "＋ Incluir KDS na rota" traz os KDS ligados que estão fora; "Tirar da rota" deixa o KDS terminando nele mesmo, com os produtos dele. O resto da tela fica esmaecido até salvar ou cancelar.</li>
+    <li><b>Regras da ordem:</b> a TV fica sempre no fim e não se arrasta; o Despacho só na última etapa (ao arrastar, as posições proibidas aparecem). O "vai para" de cada KDS só aponta para uma etapa depois da dele, então não forma círculo. Salvar mostra antes o que muda em cada KDS ("Chapa: vai para Montagem → vai para Despacho") e recusa, com o motivo, o que não vale; "Cancelar" desfaz tudo.</li>
+    <li><b>Para o código:</b> a posição e o nome de cada etapa passam a ser um ajuste guardado da loja; quem move o cartão continua sendo o "vai para" de cada KDS, que a edição grava.</li>
+  </ul></details></div>
+</section>
+
+<!-- ═════════ 3. Avisos deste KDS ═════════ -->
+<section class="tela" id="tela-avisos" role="tabpanel" aria-labelledby="aba-avisos" hidden>
+  <div class="pagina"><p class="resolve"><b>O que cada tela recebe e quem tocou "Ciente"</b> no ⚙ do KDS (aba Avisos) e na gaveta do KDS na Rota da cozinha — é o mesmo ajuste, guardado no servidor <span class="cod">A7</span><span class="cod">A9</span><span class="cod">A11</span><span class="cod">A13</span></p></div>
+  <div id="lugarKds3"></div>
+  <div class="notas-aba"><details><summary>Como funciona e o que mudou</summary><ul>
+    <li><b>Cancelado e alterado</b> não desligam: a cozinha precisa saber para não fazer. Os outros tipos ligam e desligam por tela.</li>
+    <li><b>Avisos de gestão</b> (compra recebida, contagem, fechamento do ponto, manutenção) nascem desligados nas telas de preparo e ligados no despacho — decisão a confirmar (pergunta 1).</li>
+    <li><b>Histórico de 90 dias</b> (tabela <code>alerta_kds</code> da onda 3): cada aviso com a hora, de onde veio, se foi mostrado e quem tocou "Ciente" e quando; o que esta tela não recebe aparece como "não mostrado", para ninguém achar que o aviso sumiu.</li>
+  </ul></details></div>
+</section>
+
+<!-- ═════════ 4. TV de senhas ═════════ -->
+<section class="tela" id="tela-tv" role="tabpanel" aria-labelledby="aba-tv" hidden>
+  <div class="pagina"><p class="resolve"><b>Muitas senhas em "Pronto": a letra diminui até caber</b> antes de qualquer coisa sair da tela · medidas em px pela largura da TV (sem <code>cqi</code>, para TV com navegador antigo) <span class="cod">T1</span><span class="cod">T2</span></p></div>
+  <div class="tv-palco">
+    <div class="tv-ctl" role="group" aria-label="Quantas senhas em Pronto">
+      <b>Senhas em Pronto:</b>
+      <button type="button" class="chip" data-tv="8" aria-pressed="true">8 senhas</button>
+      <button type="button" class="chip" data-tv="25" aria-pressed="false">25 senhas</button>
+      <button type="button" class="chip" data-tv="60" aria-pressed="false">60 senhas (pico)</button>
+    </div>
+    <div class="tv" id="tv" aria-label="Tela de senhas do balcão"></div>
+    <p class="tv-leg" id="tvLeg" aria-live="polite"></p>
+  </div>
+  <div class="notas-aba"><details><summary>Como funciona e o que mudou</summary><ul>
+    <li><b>Hoje</b> a coluna que não cabe mostra "+N senhas" e esconde as mais antigas — de quem espera há mais tempo.</li>
+    <li><b>Agora:</b> a letra de cada coluna diminui até caber todas, até 60% do tamanho escolhido nos ajustes da TV. Se nem assim couber (pico), a coluna <b>alterna páginas</b> a cada 8 s ("1 de 2"), com as senhas que acabaram de ficar prontas (em verde) sempre na primeira — nenhuma senha some.</li>
+    <li><b>Tamanhos em px</b> calculados pela largura da TV, em vez de <code>cqi</code>: TV com navegador antigo (antes do Chromium 105) mostrava a senha com 16 px.</li>
+  </ul></details></div>
+</section>
+
+<!-- ═════════ 5. Alertas cadastrados ═════════ -->
+<section class="tela" id="tela-alertas" role="tabpanel" aria-labelledby="aba-alertas" hidden>
+  <div class="pagina"><p class="resolve"><b>O cadastro sai do layout escuro do KDS</b> e vai para o app (Shell claro, zoom livre), com a loja, os KDS que recebem, quanto tempo fica e a prévia da faixa <span class="cod">K1</span><span class="cod">A4</span><span class="cod">A6</span><span class="cod">A9</span><span class="cod">A10</span></p></div>
+  <div class="shell-wrap"><div class="shell" id="shellAlertas"></div></div>
+  <div class="notas-aba"><details><summary>Como funciona e o que mudou</summary><ul>
+    <li><b>Mesmo endereço</b> (Configurações › Alertas do KDS), mas com o Shell do app: o layout do KDS (escuro, zoom travado) fica só para o KDS.</li>
+    <li><b>Loja e KDS</b> de cada alerta: "Fritadeira" recebe só o da troca do óleo. O condicional conta os pedidos <b>desta loja</b>, não da empresa inteira.</li>
+    <li><b>Quanto tempo fica:</b> N segundos, ou até alguém tocar em Ciente (o padrão do urgente).</li>
+    <li><b>Prévia da faixa</b> com a cor e o aviso de texto longo; "Testar" pergunta antes e diz em quais KDS vai aparecer.</li>
+    <li><b>Validação ao salvar:</b> condicional sem número, horário vazio e nenhum KDS marcado não passam.</li>
+  </ul></details></div>
+</section>
+
+<pre id="medida" hidden></pre>
+
+<!-- ───────── o aparelho (um só; muda de lugar entre as abas 1 e 3) ───────── -->
+<template id="tplKds">
+<div class="aparelho" id="kds" data-cor="cabecalho" aria-label="Tela do KDS">
+  <header class="k-top" id="kTop">
+    <span class="k-logo" aria-hidden="true">R</span>
+    <button type="button" class="k-nome" id="kNome" aria-label="Este KDS: Cozinha, KDS 1. Abrir a configuração">Cozinha <small>KDS 1</small></button>
+    <div class="k-seg" role="group" aria-label="Canal">
+      <button type="button" data-canal="balcao" aria-pressed="false">Balcão / Salão</button>
+      <button type="button" data-canal="delivery" aria-pressed="false">Delivery</button>
+      <button type="button" data-canal="todos" aria-pressed="true">Tudo</button>
+    </div>
+    <span class="k-esp k-esp1"></span>
+    <div class="k-senha"><label for="kSenha">Senha</label><input id="kSenha" inputmode="numeric" autocomplete="off" placeholder="—" aria-label="Senha do pedido (Enter avança)"></div>
+    <span class="k-conn" id="kConn"><i aria-hidden="true"></i><span id="kConnT">online</span></span>
+    <span class="k-hora" id="kHora" aria-label="Hora">20:17</span>
+    <span class="k-quebra" aria-hidden="true"></span>
+    <select class="k-etapa-sel" id="kEtapaSel" aria-label="Filtrar por etapa"></select>
+    <div class="k-etapas" role="group" aria-label="Filtrar por etapa" id="kEtapas"></div>
+    <span class="k-esp k-esp2"></span>
+    <div class="k-util">
+      <button type="button" class="k-ib" id="kResBt" aria-pressed="false" aria-expanded="false" aria-controls="kResumo" title="Resumo de itens">📋<span class="rot">Resumo</span><span class="sr">Resumo de itens</span></button>
+      <button type="button" class="k-ib" id="kFimBt" aria-haspopup="dialog" title="Finalizar os pedidos que aparecem na tela">🧹<span class="rot">Finalizar todos</span><span class="sr">Finalizar os pedidos da tela</span></button>
+      <button type="button" class="k-ib" id="kSomBt" aria-pressed="false" aria-label="Som dos avisos: ligado" title="Som ligado">🔊</button>
+      <button type="button" class="k-ib" id="kHistBt" aria-expanded="false" aria-controls="kGaveta" aria-label="Histórico de avisos e toques" title="Histórico">🕘</button>
+      <button type="button" class="k-ib" id="kCfgBt" aria-expanded="false" aria-controls="kGaveta" aria-label="Configurar este KDS" title="Configurar este KDS">⚙️</button>
+    </div>
+  </header>
+  <div class="k-faixas" id="kFaixas"></div>
+  <div class="k-meio" id="kMeio">
+    <main class="k-fila" id="kFila" aria-label="Pedidos em produção"><div id="kGrade"></div></main>
+    <aside class="k-resumo" id="kResumo" aria-label="Resumo de itens a produzir" hidden></aside>
+  </div>
+  <footer class="k-rodape" id="kRodape" hidden>
+    <span class="k-lado" id="kLado"></span>
+    <div class="k-txt" id="kTxt" data-medida="letreiro" role="status" aria-live="polite"><span class="k-letreiro" id="kLetreiro"></span></div>
+    <button type="button" class="k-ciente" id="kCiente" hidden>Ciente</button>
+    <button type="button" class="k-mais" id="kMais" aria-expanded="false" aria-controls="kLista"></button>
+  </footer>
+  <div class="k-lista" id="kLista" role="dialog" aria-label="Avisos na tela" hidden></div>
+  <div class="k-toast" id="kToast" role="status" aria-live="polite"></div>
+  <div class="k-fundo" id="kFundo" hidden></div>
+  <aside class="k-gaveta" id="kGaveta" role="dialog" aria-modal="true" aria-labelledby="kGavT" hidden></aside>
+  <div class="k-dialogo" id="kDialogo" role="alertdialog" aria-modal="true" aria-labelledby="kDiaT" hidden></div>
+</div>
+</template>
+
+<div class="a-fundo" id="aFundo" hidden></div>
+<aside class="a-gaveta" id="aGaveta" role="dialog" aria-modal="true" aria-labelledby="aGavT" hidden></aside>
+<div class="a-dialogo" id="aDialogo" role="alertdialog" aria-modal="true" aria-labelledby="aDiaT" hidden></div>
+<div class="a-toast" id="aToast" role="status" aria-live="polite"></div>
+
+<script>
+'use strict';
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const dois = (n) => String(n).padStart(2, '0');
+const PARAMS = new URLSearchParams(location.hash.replace(/^#/, '').replace(/^([a-z]+)(&|$)/, 'aba=$1$2'));
+const MEDIR = PARAMS.has('medir');
+
+// ── relógio simulado: a cena começa às 20:17:26 (a pausa do iFood "até 20:30" mostra 12:34) ──
+const BASE = new Date(); BASE.setHours(20, 17, 26, 0);
+const T0 = Date.now();
+const agora = () => new Date(BASE.getTime() + (MEDIR ? 0 : Date.now() - T0));
+const hm = (d) => `${dois(d.getHours())}:${dois(d.getMinutes())}`;
+const mmss = (s) => `${dois(Math.floor(s / 60))}:${dois(s % 60)}`;
+const aHoras = (h, m) => { const d = new Date(BASE); d.setHours(h, m, 0, 0); return d.getTime(); };
+const haMin = (m) => BASE.getTime() - m * 60000;
+
+// ═════════════════════ dados da cozinha (inventados) ═════════════════════
+const PEDIDOS_INI = () => [
+  { id: 'b12', n: 12, ident: 'Senha B-12', canal: 'balcao', status: 'preparo', em: haMin(4), itens: [
+    { q: 2, d: 'X-Burger', comp: ['sem cebola', '+ bacon'] }, { q: 1, d: 'Batata frita G' }, { q: 2, d: 'Coca-Cola lata 350 ml' }] },
+  { id: 'd241', n: 241, ident: 'Senha D-241', canal: 'delivery', plat: 'iFood #4821', status: 'recebido', em: haMin(7), itens: [
+    { q: 1, d: 'X-Salada', comp: ['+ ovo', 'sem tomate'] }, { q: 1, d: 'Batata frita M', obs: 'Mandar dois sachês de ketchup' }, { q: 1, d: 'Guaraná 2 L' }] },
+  { id: 'm7', ident: 'Mesa 7', canal: 'balcao', status: 'preparo', em: haMin(13), itens: [
+    { q: 1, d: 'Filé à parmegiana', obs: 'Sem queijo — alergia a lactose' }, { q: 1, d: 'Arroz branco' }, { q: 1, d: 'Suco de laranja 500 ml', comp: ['sem açúcar'] }] },
+  { id: 'b14', n: 14, ident: 'Senha B-14', canal: 'balcao', plat: 'Totem', viagem: true, status: 'recebido', em: haMin(2), itens: [
+    { q: 1, d: 'Hambúrguer artesanal duplo com cheddar cremoso, cebola caramelizada e maionese da casa', comp: ['+ pão sem glúten', '+ cheddar extra', 'sem picles'], obs: 'ALÉRGICOAAMENDOIM-NÃOUSARMOLHODACASA-SEPARARUTENSÍLIOS' }] },
+  { id: 'b15', n: 15, ident: 'Senha B-15', canal: 'balcao', status: 'recebido', em: haMin(3), alterado: true, naoVisto: true, alteradoEm: '20:15', itens: [
+    { q: 1, d: 'X-Bacon', novo: true }, { q: 1, d: 'X-Burger', tirar: true }, { q: 1, d: 'Milk-shake de chocolate 400 ml' }] },
+  { id: 'd243', n: 243, ident: 'Senha D-243', canal: 'delivery', plat: '99Food #77102', status: 'pronto', em: haMin(9), entregador: 'Carlos chegou · código de coleta 5519', itens: [
+    { q: 1, d: 'Combo família', comp: ['4 X-Burger', '2 batatas G'] }, { q: 1, d: 'Coca-Cola 2 L' }] },
+  { id: 'd250', n: 250, ident: 'Senha D-250', canal: 'delivery', plat: 'Cardápio Regem', encomenda: aHoras(21, 30), status: 'recebido', em: haMin(95), itens: [
+    { q: 20, d: 'Mini X-Burger (festa)' }, { q: 4, d: 'Batata frita G' }] },
+  { id: 'd244', n: 244, ident: 'Senha D-244', canal: 'delivery', plat: 'Anota Aí', status: 'recebido', em: haMin(1), itens: [
+    { q: 2, d: 'X-Tudo', comp: ['sem milho'] }, { q: 2, d: 'Coca-Cola lata 350 ml' }] },
+  { id: 'm3', ident: 'Mesa 3', canal: 'balcao', status: 'preparo', em: haMin(6), itens: [{ q: 2, d: 'Porção de fritas com cheddar e bacon' }] },
+];
+const AVISOS_INI = () => [
+  { id: 2, tipo: 'loja', pri: 'alta', origem: 'Alertas da loja', titulo: 'Trocar o óleo da fritadeira às 20:30', det: 'Desligar a fritadeira 2 antes, esperar esfriar e anotar a troca no checklist de fechamento', fica: false, resta: 120, em: '20:16' },
+  { id: 1, tipo: 'loja', pri: 'info', origem: 'Alertas da loja', titulo: 'Lavar as mãos', det: 'Todos da cozinha', fica: false, resta: 60, em: '20:00' },
+];
+const HIST_INI = () => [
+  { em: '20:16', tit: '▲ Trocar o óleo da fritadeira às 20:30', de: 'Alertas da loja · agendado', st: 'Na tela agora', cls: '' },
+  { em: '20:14', tit: '❌ Cancelado — Senha D-239 (iFood)', de: 'Pedido cancelado pelo iFood', st: 'Ciente: Ana Souza às 20:14 (12 s depois)', cls: 'feito', urg: true },
+  { em: '20:05', tit: '! Pedido alterado — Senha B-11', de: 'Balcão · tirou 1 X-Burger, pôs 1 X-Bacon', st: 'Visto: Bruno Lima às 20:06', cls: 'feito', urg: true },
+  { em: '20:00', tit: '● Lavar as mãos', de: 'Alertas da loja · agendado', st: 'Saiu sozinho depois de 60 s', cls: '' },
+  { em: '19:58', tit: '📹 Farol — Câmera 2 (cozinha): porta da câmara fria aberta há 5 min', de: 'Farol · urgente', st: 'Ciente: Bruno Lima às 20:01 (3 min depois)', cls: 'feito', urg: true },
+  { em: '19:40', tit: '⏸ iFood pausado até 20:30 · Trocando o gás', de: 'Pausa dos canais · Rodrigo (gerente)', st: 'Faixa fixa até reabrir', cls: '' },
+  { em: '19:12', tit: '📦 Compra recebida — Hortifrúti Silva', de: 'Estoque · aviso de gestão', st: 'Não mostrado: esta tela não recebe avisos de gestão', cls: '' },
+  { em: '18:47', tit: '⚙ Avisos desta tela mudaram', de: 'Rodrigo (gerente) desligou "Avisos de gestão"', st: 'Registrado no histórico', cls: '' },
+];
+const TIPOS = [
+  { k: 'cancelado', ic: '❌', nome: 'Pedido cancelado', det: 'Não preparar; descartar o que já saiu. Bipe forte.', pri: 'Urgente · fica até o Ciente', trava: true },
+  { k: 'alterado', ic: '!', nome: 'Pedido alterado', det: 'O cartão mostra o que mudou até alguém tocar em "Visto".', pri: 'Urgente · fica até o Visto', trava: true },
+  { k: 'loja', ic: '🔔', nome: 'Alertas da loja', det: 'Os cadastrados em Configurações › Alertas do KDS que marcam esta tela (3 de 5).', pri: 'Pela prioridade de cada um' },
+  { k: 'farol', ic: '📹', nome: 'Alertas do Farol (câmeras)', det: 'Emergência e urgente ficam até o Ciente; os outros correm na faixa.', pri: 'Pela severidade do Farol' },
+  { k: 'pausa', ic: '⏸', nome: 'Pausa dos canais', det: 'Faixa fixa enquanto o iFood, a 99 ou o cardápio estão pausados; aviso 5 min antes e ao reabrir.', pri: 'Faixa · informativo' },
+  { k: 'estoque', ic: '🧊', nome: 'Estoque da cozinha', det: 'Produto esgotado, validade vencendo hoje, ponto de pedido.', pri: 'Atenção' },
+  { k: 'chegou', ic: '🙋', nome: 'Cliente chegou (retirada)', det: 'O "Cheguei" do cardápio e do WhatsApp. Útil no despacho e no balcão.', pri: 'Informativo' },
+  { k: 'gestao', ic: '📦', nome: 'Avisos de gestão', det: 'Compra recebida, contagem programada, fechamento do ponto, manutenção.', pri: 'Informativo' },
+];
+const RECEBE_INI = () => ({ cancelado: true, alterado: true, loja: true, farol: true, pausa: true, estoque: true, chegou: false, gestao: false });
+
+// ═════════════════════ estado ═════════════════════
+let S;
+function estadoInicial() {
+  return {
+    aba: 'kds', tema: 'claro', esc: 1, fila: 'normal', canal: 'todos', etapa: 'todos', ver: 'pedido', cor: 'cabecalho', agregar: false, uso: 'toque',
+    versao: 2, exemplo: 'lanchonete', rotaEd: null, arrasta: null, juntoDe: null, incluir: false, renomeia: null, pausa: false, logo: false, ifoodReabriu: false, erro: false, off: false, somBloq: false, mudo: false,
+    resumo: null, itemSel: '', gaveta: null, lista: false, dialogo: false,
+    pedidos: PEDIDOS_INI(), avisos: AVISOS_INI(), hist: HIST_INI(), recebe: RECEBE_INI(), filtroHist: 'todos', seq: 10,
+    tvN: 8, rotaGaveta: null, rotaDialogo: false, simModo: 'produto', simProd: 'X-Burger', alGaveta: null, alDialogo: false,
+  };
+}
+
+// ═════════════════════ KDS ═════════════════════
+const FAIXA = (m) => (m <= 5 ? 't-ok' : m <= 10 ? 't-warn' : 't-late');
+const ETAPA = { recebido: 'A iniciar', preparo: 'Em preparo', pronto: 'Pronto' };
+const PROX = { recebido: 'Iniciar', preparo: 'Pronto', pronto: 'Entregar' };
+const minDe = (p) => Math.max(0, Math.floor((agora().getTime() - p.em) / 60000));
+// Encomenda: começa a contar 30 min antes do horário marcado (o preparo da loja); antes disso é neutra e não atrasa.
+const PREPARO_ENC_MIN = 30;
+const encAguarda = (p) => p.encomenda && agora().getTime() < p.encomenda - PREPARO_ENC_MIN * 60000;
+const minCartao = (p) => (p.encomenda ? Math.max(0, Math.floor((agora().getTime() - (p.encomenda - PREPARO_ENC_MIN * 60000)) / 60000)) : minDe(p));
+const atrasado = (p) => !p.cancelado && !encAguarda(p) && minCartao(p) > 10;
+const doCanal = (p) => S.canal === 'todos' || p.canal === S.canal;
+function visiveis() {
+  return S.pedidos.filter(doCanal).filter((p) => S.etapa === 'todos' ? true : S.etapa === 'atrasados' ? atrasado(p) : (!p.cancelado && p.status === S.etapa));
+}
+
+function montarKds() {
+  const frag = $('#tplKds').content.cloneNode(true);
+  $(S.aba === 'avisos' ? '#lugarKds3' : '#lugarKds1').appendChild(frag);
+  ligarKds();
+}
+function moverKds() {
+  const k = $('#kds'); const alvo = $(S.aba === 'avisos' ? '#lugarKds3' : '#lugarKds1');
+  if (k && k.parentElement !== alvo) alvo.appendChild(k);
+}
+
+function renderKds() {
+  const k = $('#kds'); if (!k) return;
+  k.style.setProperty('--esc', S.esc);
+  k.dataset.cor = S.versao === 1 ? S.cor : 'cabecalho'; k.dataset.uso = S.uso;
+  $$('[data-canal]', k).forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.canal === S.canal)));
+  $('#kHora').textContent = hm(agora());
+  const c = $('#kConn'); c.classList.toggle('off', S.off); $('#kConnT').textContent = S.off ? 'offline' : 'online';
+  const som = $('#kSomBt'); som.textContent = S.mudo ? '🔇' : '🔊'; som.setAttribute('aria-pressed', String(S.mudo)); som.setAttribute('aria-label', `Som dos avisos: ${S.mudo ? 'desligado' : 'ligado'}`);
+  renderEtapas(); renderFaixas(); renderFila(); renderResumo(); renderRodape(); renderLista(); renderGaveta(); renderDialogoKds();
+}
+function renderEtapas() {
+  const base = S.fila === 'normal' ? S.pedidos.filter(doCanal) : [];
+  const n = (f) => base.filter(f).length;
+  const at = n(atrasado);
+  const lista = [['todos', 'Todos', base.length], ['recebido', 'A iniciar', n((p) => !p.cancelado && p.status === 'recebido')], ['preparo', 'Em preparo', n((p) => !p.cancelado && p.status === 'preparo')], ['pronto', 'Pronto', n((p) => !p.cancelado && p.status === 'pronto')], ['atrasados', 'Atrasados', at]];
+  $('#kEtapas').innerHTML = lista.map(([key, r, q]) => `<button type="button" class="k-etapa ${key === 'atrasados' && q > 0 ? 'atraso' : ''}" data-etapa="${key}" aria-pressed="${S.etapa === key}">${r} <b>${q}</b></button>`).join('');
+  $('#kEtapaSel').innerHTML = lista.map(([key, r, q]) => `<option value="${key}" ${S.etapa === key ? 'selected' : ''}>${r} (${q})</option>`).join('');
+}
+function renderFaixas() {
+  const h = [];
+  // versão 2: faixas claras com ícone e texto; só a palavra "Sem conexão" em vermelho
+  if (S.off) h.push(`<div class="k-faixa erro" role="alert"><span class="k-ic" aria-hidden="true">⚠</span><span><b class="k-vermelho">Sem conexão</b> com o servidor desde 20:15. A fila pode estar desatualizada — reconectando…</span></div>`);
+  if (S.erro) h.push(`<div class="k-faixa erro" role="alert"><span class="k-ic" aria-hidden="true">⚠</span><span><b>Não consegui ler a fila às 20:16.</b> Tentando de novo… Os pedidos abaixo podem estar desatualizados.</span><button type="button" class="k-fbt" id="kTentar">Tentar agora</button></div>`);
+  if (S.somBloq) h.push(`<button type="button" class="k-faixa som" id="kSomLiberar"><span class="k-ic" aria-hidden="true">🔇</span><span><b>Som pausado pelo navegador</b> — toque aqui para ligar o som dos pedidos e avisos</span></button>`);
+  if (S.pausa) {
+    const fim = aHoras(20, 30); const resta = Math.max(0, Math.round((fim - agora().getTime()) / 1000));
+    const p = [];
+    if (!S.ifoodReabriu) {
+      p.push(S.logo
+        ? `<div class="k-pausa logo"><span class="q"><span aria-hidden="true">⏸</span> iFood reabre em 5 min <small>· às 20:30 · Trocando o gás</small></span><span class="t" data-contador><small>faltam</small>04:59</span></div>`
+        : `<div class="k-pausa"><span class="q"><span aria-hidden="true">⏸</span> iFood pausado até 20:30 <small>· Trocando o gás</small></span><span class="t" data-contador><small>faltam</small>${mmss(resta)}</span></div>`);
+    }
+    p.push(`<div class="k-pausa"><span class="q"><span aria-hidden="true">⏸</span> 99 pausada até o fim do dia <small>· Sem entregador</small></span></div>`);
+    h.push(`<div class="k-pausas" role="status" aria-label="Canais pausados">${p.join('')}</div>`);
+  }
+  $('#kFaixas').innerHTML = h.join('');
+}
+function etiquetas(p) {
+  const t = [];
+  if (p.encomenda) t.push(`<span class="k-tag">Encomenda · para ${hm(new Date(p.encomenda))}</span>`);
+  if (p.viagem) t.push('<span class="k-tag">Viagem</span>');
+  if (p.cancelado) t.push('<span class="k-tag cheia">Cancelado</span>');
+  if (atrasado(p)) t.push('<span class="k-tag atraso">Atrasado</span>');
+  if (p.alterado) t.push('<span class="k-tag">Alterado</span>');
+  return t.join('');
+}
+function cartao(p) {
+  const aguarda = encAguarda(p);
+  const m = minCartao(p);
+  const cls = ['k-card', p.cancelado ? 't-off cancelado' : aguarda ? 't-agenda' : FAIXA(m)];
+  const tem = S.itemSel && !p.cancelado && p.itens.some((i) => i.d === S.itemSel);
+  if (S.itemSel) cls.push(tem ? 'destaque' : 'apagado');
+  const linha = [p.cancelado ? '' : ETAPA[p.status], p.plat || ''].filter(Boolean).join(' · ');
+  const tempo = aguarda ? `<span class="k-tempo"><small>começa</small>${hm(new Date(p.encomenda - PREPARO_ENC_MIN * 60000))}</span>` : `<span class="k-tempo">${m}<small>min</small></span>`;
+  const itens = p.itens.map((i) => `<li class="k-it ${i.tirar ? 'tirar' : ''} ${tem && i.d === S.itemSel ? 'alvo' : ''}"><span class="k-q">${i.q}×</span><div><span class="k-d">${esc(i.d)}</span>${i.novo ? ' <span class="k-tag cheia">Novo</span>' : ''}${i.tirar ? ' <span class="k-tag cheia">Tirar</span>' : ''}${i.comp ? `<ul class="k-comp">${i.comp.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}${i.obs ? `<p class="k-obs"><span class="k-tag cheia">Obs</span> ${esc(i.obs)}</p>` : ''}</div></li>`).join('');
+  const alt = p.naoVisto && !p.cancelado ? `<div class="k-alt" role="alert"><span class="ex" aria-hidden="true">!</span><span class="tx"><b>Pedido alterado</b><span>${esc(p.alteradoEm)}</span></span><button type="button" data-visto="${p.id}">Visto</button></div>` : '';
+  const btn = p.cancelado ? '' : `<button type="button" class="k-avancar" data-avancar="${p.id}" ${p.ocupado ? 'disabled aria-busy="true"' : ''}>${p.ocupado ? 'Aguarde…' : PROX[p.status]}</button>`;
+  return `<article class="${cls.join(' ')}" aria-label="${esc(p.ident)}, ${aguarda ? 'encomenda para ' + hm(new Date(p.encomenda)) : m + ' minutos'}, ${p.cancelado ? 'cancelado' : ETAPA[p.status]}${atrasado(p) ? ', atrasado' : ''}">
+    <div class="k-cab"><span class="k-ident">${p.naoVisto && !p.cancelado ? '<span aria-hidden="true">! </span>' : ''}${esc(p.ident)}</span>${tempo}<span class="k-sub">${linha ? `<span>${esc(linha)}</span>` : ''}${etiquetas(p)}</span></div>
+    <div class="k-cc">${alt}${p.entregador ? `<p class="k-linha-inf"><span class="k-tag cheia">Entregador chegou</span> ${esc(p.entregador)}</p>` : ''}<ul class="k-itens">${itens}</ul>${btn}</div>
+  </article>`;
+}
+function renderFila() {
+  const g = $('#kGrade');
+  if (S.fila === 'carregando') { g.className = 'k-grade'; g.innerHTML = Array.from({ length: 4 }, () => '<div class="k-esq" aria-hidden="true"><i style="width:55%"></i><i style="width:80%"></i><i style="width:40%"></i></div>').join('') + '<span class="sr" role="status">Carregando os pedidos…</span>'; return; }
+  const lista = S.fila === 'vazio' ? [] : visiveis();
+  if (!lista.length) {
+    g.className = '';
+    // "Nenhum pedido" só depois de uma leitura que deu certo: a que falhou não é fila vazia (L1).
+    g.innerHTML = S.erro ? '<div class="k-vazio erro"><b>Não consegui ler a fila às 20:16</b>Tentando de novo a cada 10 s. Não é fila vazia: confira o servidor da loja se demorar.</div>'
+      : S.fila === 'normal' && S.etapa !== 'todos' ? '<div class="k-vazio"><b>Nenhum pedido nesta etapa</b>Escolha "Todos" para ver a fila inteira.</div>'
+      : '<div class="k-vazio"><b>Nenhum pedido em produção</b>Os pedidos novos aparecem aqui na hora, com som.</div>';
+    return;
+  }
+  g.className = 'k-grade';
+  g.innerHTML = lista.map(cartao).join('');
+}
+function itensResumo() {
+  const mapa = new Map();
+  if (S.fila === 'normal') for (const p of S.pedidos.filter(doCanal)) {
+    if (p.cancelado || p.status === 'pronto' || encAguarda(p)) continue;
+    for (const i of p.itens) { if (i.tirar) continue; const e = mapa.get(i.d) || { q: 0, n: 0 }; e.q += i.q; e.n += 1; mapa.set(i.d, e); }
+  }
+  return [...mapa.entries()].sort((a, b) => b[1].q - a[1].q || a[0].localeCompare(b[0]));
+}
+function resumoAberto() { return S.resumo === null ? ($('#kds').getBoundingClientRect().width >= 1280) : S.resumo; }
+function renderResumo() {
+  const ab = resumoAberto();
+  const r = $('#kResumo'); r.hidden = !ab; $('#kMeio').classList.toggle('com-resumo', ab);
+  const bt = $('#kResBt'); bt.setAttribute('aria-pressed', String(ab)); bt.setAttribute('aria-expanded', String(ab));
+  if (!ab) return;
+  const lista = itensResumo();
+  r.innerHTML = `<h2>Resumo de itens <button type="button" class="k-x" id="kResFechar" aria-label="Fechar o resumo">✕</button></h2><p>O que falta produzir, somado. Toque num item para destacar os pedidos que o levam.</p>
+    <ul class="k-res-lista">${lista.length ? lista.map(([d, e]) => `<li><button type="button" class="k-res-it" data-item="${esc(d)}" aria-pressed="${S.itemSel === d}"><span class="n">${e.q}</span><span class="t">${esc(d)}<span class="s">em ${e.n} pedido${e.n === 1 ? '' : 's'}</span></span></button></li>`).join('') : '<li class="k-nota">Nada a produzir agora.</li>'}</ul>`;
+}
+// ── rodapé ──
+const RANK = { urg: 3, alta: 2, info: 1, ok: 0 };
+const LADO = { urg: '⚠ Urgente', alta: '▲ Atenção', info: '● Aviso', ok: '✓ Positivo' };
+const ordenados = () => [...S.avisos].sort((a, b) => RANK[b.pri] - RANK[a.pri] || b.id - a.id);
+function renderRodape() {
+  const f = $('#kRodape'); const a = ordenados()[0];
+  if (!a) { f.hidden = true; ajustarAlturaRodape(); return; }
+  f.hidden = false; f.className = `k-rodape ${a.pri}`;
+  $('#kLado').textContent = LADO[a.pri];
+  const txt = $('#kTxt'); txt.setAttribute('aria-live', a.pri === 'urg' ? 'assertive' : 'polite');
+  const l = $('#kLetreiro'); const novo = `${esc(a.titulo)}${a.det ? ` <small>${esc(a.det)}</small>` : ''}`;
+  if (l.dataset.id !== String(a.id)) { l.innerHTML = novo; l.dataset.id = String(a.id); }
+  $('#kCiente').hidden = !a.fica; $('#kCiente').dataset.id = a.id;
+  ajustarAlturaRodape(); medirLetreiro();
+}
+// Versão 2: o aviso fica PARADO; texto que passa de 2 linhas ganha o "Ver tudo". Vários avisos: "N avisos" abre a lista.
+// Versão 1 (comparar): o letreiro só corre se o texto não cabe, e anda exatamente o que sobra.
+function medirLetreiro() {
+  const t = $('#kTxt'), l = $('#kLetreiro'); if (!t || !l || $('#kRodape').hidden) return;
+  l.classList.remove('corre'); l.style.removeProperty('--dist');
+  const n = S.avisos.length; const mais = $('#kMais');
+  const cortado = S.versao !== 1 && l.scrollHeight > l.clientHeight + 1;
+  mais.hidden = S.versao !== 1 && n === 1 && !cortado;
+  mais.textContent = n > 1 ? `${n} avisos` : S.versao === 1 ? '1 aviso' : 'Ver tudo';
+  mais.setAttribute('aria-expanded', String(S.lista));
+  mais.setAttribute('aria-label', n > 1 ? `${n} avisos na tela: abrir a lista` : 'Ver o aviso inteiro');
+  ajustarAlturaRodape();
+  if (S.versao !== 1 || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const sobra = l.scrollWidth - (t.clientWidth - 28);
+  if (sobra > 2) { l.style.setProperty('--dist', `${-sobra}px`); l.style.setProperty('--dur', `${Math.max(8, (sobra / 50) / 0.72).toFixed(1)}s`); l.classList.add('corre'); }
+}
+function ajustarAlturaRodape() { const k = $('#kds'); if (!k) return; const f = $('#kRodape'); k.style.setProperty('--rodape-h', f.hidden ? '0px' : `${f.getBoundingClientRect().height}px`); }
+function renderLista() {
+  const el = $('#kLista'); el.hidden = !S.lista || !S.avisos.length; if (el.hidden) return;
+  el.innerHTML = `<header><span>Avisos na tela (${S.avisos.length})</span><button type="button" class="k-x" id="kListaFechar" aria-label="Fechar a lista de avisos">✕</button></header>
+    <ol>${ordenados().map((a) => `<li class="k-av ${a.pri}"><span class="barra" aria-hidden="true"></span><b>${esc(a.titulo)}</b>${a.det ? `<p>${esc(a.det)}</p>` : '<p></p>'}<div class="meta"><span><span class="pri">${LADO[a.pri]}</span> · ${esc(a.origem)} · ${esc(a.em)}</span>${a.fica ? `<button type="button" data-ciente="${a.id}">Ciente</button>` : `<span>sai sozinho em ${a.resta} s</span>`}</div></li>`).join('')}</ol>
+    <footer><button type="button" class="k-link" data-gav="historico">Ver o histórico de avisos desta tela</button></footer>`;
+}
+// ── gaveta ⚙ ──
+function seg2(rotulo, chave, ops) { return `<div class="k-seg2" role="group" aria-label="${rotulo}">${ops.map(([v, t]) => `<button type="button" data-pref="${chave}" data-v="${v}" aria-pressed="${String(S[chave]) === String(v)}">${t}</button>`).join('')}</div>`; }
+function tiposHtml() {
+  return `<ul class="k-tipos">${TIPOS.map((t) => `<li class="k-tipo"><div><b>${t.ic} ${t.nome}</b><p>${t.det}</p><span class="pri">${t.pri}</span></div><button type="button" class="k-liga" data-recebe="${t.k}" aria-pressed="${S.recebe[t.k]}" ${t.trava ? 'disabled aria-describedby="kTravaNota"' : ''}>${t.trava ? 'Sempre recebe' : S.recebe[t.k] ? 'Recebe' : 'Não recebe'}</button></li>`).join('')}</ul>`;
+}
+function histHtml() {
+  const f = S.filtroHist; const todos = S.hist;
+  const lista = todos.filter((h) => f === 'todos' || (f === 'urg' && h.urg) || (f === 'sem' && /Ainda sem/.test(h.st)) || (f === 'nao' && /Não mostrado/.test(h.st)));
+  const n = (fn) => todos.filter(fn).length;
+  return `<div class="k-filtros" role="group" aria-label="Filtrar o histórico">
+      <button type="button" class="k-gtab" data-fhist="todos" aria-pressed="${f === 'todos'}">Todos ${todos.length}</button>
+      <button type="button" class="k-gtab" data-fhist="urg" aria-pressed="${f === 'urg'}">Urgentes ${n((h) => h.urg)}</button>
+      <button type="button" class="k-gtab" data-fhist="sem" aria-pressed="${f === 'sem'}">Sem ciente ${n((h) => /Ainda sem/.test(h.st))}</button>
+      <button type="button" class="k-gtab" data-fhist="nao" aria-pressed="${f === 'nao'}">Não mostrados ${n((h) => /Não mostrado/.test(h.st))}</button></div>
+    <ol class="k-hist">${lista.length ? lista.map((h) => `<li class="k-h"><time>${h.em}</time><b>${esc(h.tit)}</b><p>${esc(h.de)}</p><span class="st ${h.cls}">${esc(h.st)}</span></li>`).join('') : '<li class="k-h"><span></span><p>Nada com este filtro hoje.</p></li>'}</ol>
+    <p class="k-nota">Hoje, 11/11 · guardado por 90 dias · o mesmo histórico aparece no app, em Configurações › Rota da cozinha › Cozinha.</p>`;
+}
+function renderGaveta() {
+  const g = $('#kGaveta'); const ab = !!S.gaveta; g.hidden = !ab; $('#kFundo').hidden = !ab;
+  $('#kCfgBt').setAttribute('aria-expanded', String(ab && S.gaveta !== 'historico')); $('#kHistBt').setAttribute('aria-expanded', String(S.gaveta === 'historico'));
+  if (!ab) return;
+  const aba = S.gaveta;
+  const corpo = aba === 'tela' ? `
+      <div class="k-grupo"><b>Este aparelho opera</b><select class="k-sel" aria-label="Qual KDS este aparelho opera"><option>Cozinha (KDS 1)</option><option>Despacho (KDS 2)</option><option>Todos os KDS da loja (por setor)</option></select>
+        <p class="k-nota">Os produtos, o "vai para" e a impressão deste KDS ficam em <b>Configurações › Rota da cozinha</b>, no app.</p></div>
+      <div class="k-grupo"><b>Setor</b><select class="k-sel" aria-label="Filtrar por setor"><option>Todos os setores</option><option>Cozinha</option><option>Bar</option></select></div>
+      <div class="k-grupo"><b>Como mostra</b>${seg2('Como mostra', 'ver', [['pedido', 'Por pedido'], ['item', 'Por item']])}</div>
+      <div class="k-grupo"><b>Tamanho da letra</b>${seg2('Tamanho da letra', 'esc', [[0.85, '85%'], [1, '100%'], [1.25, '125%'], [1.5, '150%']])}<p class="k-nota">O botão de avançar fica com 48 px no mínimo em qualquer tamanho.</p></div>
+      <div class="k-grupo"><b>Tema</b>${seg2('Tema', 'tema', [['claro', 'Claro'], ['escuro', 'Escuro']])}</div>
+      <div class="k-grupo"><b>Forma de uso</b>${seg2('Forma de uso', 'uso', [['toque', 'Toque'], ['teclado', 'Teclado']])}<p class="k-nota">Teclado: o campo da senha fica sempre pronto; Enter com o número avança o pedido.</p></div>
+      ${S.versao === 1 ? `<div class="k-grupo"><b>Cor do status</b>${seg2('Cor do status', 'cor', [['cabecalho', 'Só no cabeçalho'], ['inteiro', 'Cartão inteiro']])}</div>` : ''}
+      <div class="k-grupo"><b>Itens iguais</b>${seg2('Itens iguais', 'agregar', [[false, 'Separados'], [true, 'Somados']])}</div>`
+    : aba === 'avisos' ? `
+      <p class="k-nota">O que aparece no rodapé <b>desta tela</b> (Cozinha · KDS 1). Fica guardado no servidor e vale para qualquer aparelho que opere a Cozinha. Quem mudar fica no histórico.</p>
+      ${tiposHtml()}
+      <p class="k-nota" id="kTravaNota">Cancelado e alterado não desligam: a cozinha precisa saber para não fazer.</p>`
+    : histHtml();
+  g.innerHTML = `<div class="k-gcab"><div><h2 id="kGavT">Configurar este KDS · Cozinha</h2><p>KDS 1 · loja Centro</p></div><button type="button" class="k-x" id="kGavFechar" aria-label="Fechar">✕</button></div>
+    <div class="k-gtabs" role="tablist" aria-label="Partes da configuração">
+      <button type="button" class="k-gtab" role="tab" data-gav="tela" aria-selected="${aba === 'tela'}">Esta tela</button>
+      <button type="button" class="k-gtab" role="tab" data-gav="avisos" aria-selected="${aba === 'avisos'}">Avisos</button>
+      <button type="button" class="k-gtab" role="tab" data-gav="historico" aria-selected="${aba === 'historico'}">Histórico</button></div>
+    <div class="k-gcorpo" role="tabpanel">${corpo}</div>
+    <div class="k-gpe">${aba === 'avisos' ? '<span class="k-nota" id="kAvMudou"></span><button type="button" class="k-bt" id="kGavFechar2">Cancelar</button><button type="button" class="k-bt pri" id="kAvSalvar">Salvar avisos desta tela</button>' : aba === 'tela' ? '<span class="k-nota">Guardado neste aparelho.</span><button type="button" class="k-bt pri" id="kGavFechar2">Pronto</button>' : '<button type="button" class="k-bt" id="kGavFechar2">Fechar</button>'}</div>`;
+}
+function renderDialogoKds() {
+  const d = $('#kDialogo'); d.hidden = !S.dialogo; if (S.gaveta) return; $('#kFundo').hidden = !S.dialogo;
+  if (!S.dialogo) return;
+  const vis = visiveis().filter((p) => !p.cancelado); const fora = S.pedidos.filter((p) => !p.cancelado).length - vis.length;
+  d.innerHTML = `<h2 id="kDiaT">Finalizar os ${vis.length} pedidos da tela?</h2>
+    <div class="k-dcorpo"><p>Eles avançam para a próxima etapa (ou concluem). Fica no histórico, com o seu nome.</p>${fora > 0 ? `<p><b>${fora} pedido${fora === 1 ? '' : 's'} escondido${fora === 1 ? '' : 's'} pelo filtro não entra${fora === 1 ? '' : 'm'}.</b></p>` : ''}</div>
+    <div class="k-gpe"><button type="button" class="k-bt" id="kDiaNao">Cancelar</button><button type="button" class="k-bt pri" id="kDiaSim">Finalizar ${vis.length} pedidos</button></div>`;
+}
+function toastKds(t) { const el = $('#kToast'); if (!el) return; el.textContent = t; el.classList.add('on'); clearTimeout(toastKds.t); toastKds.t = setTimeout(() => el.classList.remove('on'), 3200); }
+let audioCtx = null;
+function bipe() { if (S.mudo || S.somBloq || MEDIR) return; try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); const o = audioCtx.createOscillator(), g = audioCtx.createGain(); o.frequency.value = 880; g.gain.setValueAtTime(0.0001, audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.12, audioCtx.currentTime + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.35); o.connect(g).connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + 0.4); } catch { /* sem som */ } }
+
+function avancar(id) {
+  const p = S.pedidos.find((x) => x.id === id); if (!p || p.cancelado || p.ocupado) return;
+  p.ocupado = true; renderFila();
+  // O toque vai ao servidor com a etapa que a tela VIU; o botão espera ("Aguarde…") e o aviso diz o que foi feito.
+  setTimeout(() => {
+    p.ocupado = false;
+    if (p.status === 'pronto') { S.pedidos = S.pedidos.filter((x) => x.id !== id); toastKds(`${p.ident} entregue`); }
+    else { p.status = p.status === 'recebido' ? 'preparo' : 'pronto'; toastKds(`${p.ident} → ${ETAPA[p.status]}`); }
+    renderKds();
+  }, 900);
+}
+function ciente(id) {
+  const a = S.avisos.find((x) => String(x.id) === String(id)); if (!a) return;
+  S.avisos = S.avisos.filter((x) => x !== a);
+  S.hist.unshift({ em: hm(agora()), tit: a.titulo, de: a.origem, st: `Ciente: Ana Souza (login deste KDS) às ${hm(agora())}`, cls: 'feito', urg: a.pri === 'urg' });
+  if (!S.avisos.length) S.lista = false;
+  toastKds(`Ciente registrado: ${a.titulo}`); renderKds();
+}
+function novoAviso(a) { S.seq += 1; S.avisos.push({ id: S.seq, em: hm(agora()), ...a }); bipe(); }
+function simularUrgente() {
+  const m3 = S.pedidos.find((p) => p.id === 'm3'); if (m3) m3.cancelado = true;
+  if (!S.avisos.some((a) => a.tipo === 'cancelado')) novoAviso({ tipo: 'cancelado', pri: 'urg', origem: 'Pedido cancelado no PDV', titulo: '❌ Cancelado — Mesa 3', det: 'Não preparar. Descartar o que já saiu.', fica: true, resta: 0 });
+}
+function simularFarol() { if (!S.avisos.some((a) => a.tipo === 'farol')) novoAviso({ tipo: 'farol', pri: 'urg', origem: 'Farol · Câmera 2', titulo: '📹 Farol — porta da câmara fria aberta há 5 min', det: 'Fechar a porta e conferir a temperatura', fica: true, resta: 0 }); }
+
+function ligarKds() {
+  const k = $('#kds');
+  k.addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.avancar) return avancar(b.dataset.avancar);
+    if (b.dataset.visto) { const p = S.pedidos.find((x) => x.id === b.dataset.visto); p.naoVisto = false; p.itens = p.itens.filter((i) => !i.tirar); toastKds(`${p.ident}: alteração vista`); return renderKds(); }
+    if (b.dataset.canal) { S.canal = b.dataset.canal; return renderKds(); }
+    if (b.dataset.etapa) { S.etapa = b.dataset.etapa; return renderKds(); }
+    if (b.dataset.item !== undefined) { S.itemSel = S.itemSel === b.dataset.item ? '' : b.dataset.item; return renderKds(); }
+    if (b.dataset.ciente) return ciente(b.dataset.ciente);
+    if (b.dataset.gav) { S.lista = false; S.gaveta = b.dataset.gav; return renderKds(); }
+    if (b.dataset.fhist) { S.filtroHist = b.dataset.fhist; return renderGaveta(); }
+    if (b.dataset.recebe) { S.recebe[b.dataset.recebe] = !S.recebe[b.dataset.recebe]; renderGaveta(); $('#kAvMudou').textContent = 'Alterações ainda não salvas'; return; }
+    if (b.dataset.pref) { const v = b.dataset.v; const ch = b.dataset.pref; S[ch] = ch === 'esc' ? Number(v) : ch === 'agregar' ? v === 'true' : v; if (ch === 'tema') aplicarTema(); if (ch === 'esc') marcarProto(); return renderKds(); }
+    switch (b.id) {
+      case 'kNome': case 'kCfgBt': S.gaveta = S.gaveta && S.gaveta !== 'historico' ? null : 'tela'; S.lista = false; return renderKds();
+      case 'kHistBt': S.gaveta = S.gaveta === 'historico' ? null : 'historico'; S.lista = false; return renderKds();
+      case 'kGavFechar': case 'kGavFechar2': S.gaveta = null; renderKds(); return $('#kCfgBt').focus();
+      case 'kAvSalvar': S.gaveta = null; S.hist.unshift({ em: hm(agora()), tit: '⚙ Avisos desta tela mudaram', de: 'Ana Souza (login deste KDS)', st: 'Registrado no histórico', cls: '' }); renderKds(); return toastKds('Avisos desta tela salvos');
+      case 'kResBt': S.resumo = !resumoAberto(); if (!S.resumo) S.itemSel = ''; return renderKds();
+      case 'kResFechar': S.resumo = false; S.itemSel = ''; renderKds(); return $('#kResBt').focus();
+      case 'kFimBt': S.dialogo = true; return renderKds();
+      case 'kDiaNao': S.dialogo = false; renderKds(); return $('#kFimBt').focus();
+      case 'kDiaSim': { const ids = new Set(visiveis().filter((p) => !p.cancelado).map((p) => p.id)); S.pedidos = S.pedidos.filter((p) => !ids.has(p.id)); S.dialogo = false; renderKds(); return toastKds(`${ids.size} pedidos finalizados`); }
+      case 'kSomBt': S.mudo = !S.mudo; return renderKds();
+      case 'kSomLiberar': S.somBloq = false; marcarProto(); renderKds(); return toastKds('Som ligado');
+      case 'kTentar': S.erro = false; marcarProto(); renderKds(); return toastKds('Fila lida às ' + hm(agora()));
+      case 'kCiente': return ciente(b.dataset.id);
+      case 'kMais': S.lista = !S.lista; return renderKds();
+      case 'kListaFechar': S.lista = false; renderKds(); return $('#kMais').focus();
+    }
+  });
+  $('#kFundo').addEventListener('click', () => { S.gaveta = null; S.dialogo = false; renderKds(); });
+  const inp = $('#kSenha');
+  inp.addEventListener('input', () => { inp.value = inp.value.replace(/\D/g, '').slice(0, 6); });
+  $('#kEtapaSel').addEventListener('change', (e) => { S.etapa = e.target.value; renderKds(); });
+  inp.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || !inp.value) return;
+    const p = S.pedidos.find((x) => String(x.n) === inp.value && !x.cancelado);
+    inp.value = ''; if (!p) return toastKds('Essa senha não está na fila'); avancar(p.id);
+  });
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => { ajustarAlturaRodape(); medirLetreiro(); }).observe(k);
+}
+
+// ═════════════════════ app: menu (Shell) ═════════════════════
+const MARCA = '<svg viewBox="0 0 80 80" aria-hidden="true"><circle cx="40" cy="40" r="29" fill="none" stroke="#E2A340" stroke-width="4.5"/><path d="M33 28V54M33 28H42A7.5 7 0 0 1 42 42H33M36 42L49 54" fill="none" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+function menu(ativo) {
+  const sub = (txt, alvo, extra = '') => alvo ? `<a class="sh-sub" href="#${alvo}" data-ir="${alvo}" ${ativo === alvo ? 'aria-current="page"' : ''}><span>${txt}</span>${extra}</a>` : `<span class="sh-sub">${txt}</span>`;
+  return `<nav class="sh-lado" aria-label="Menu principal"><div class="sh-marca">${MARCA}Regem</div>
+    <span class="sh-item">Dashboard</span><span class="sh-item">PDV · Balcão</span><span class="sh-item">Delivery</span><span class="sh-item">Atendimento</span><span class="sh-item">Tarefas</span><span class="sh-item">Estoque</span><span class="sh-item">Cadastros</span>
+    <div class="sh-grupo">Configurações</div>
+    ${sub('Loja')}${sub('Unidades')}${sub('Produção &amp; KDS')}${sub('Rota da cozinha', 'rota', '<i>novo</i>')}${sub('Alertas do KDS', 'alertas')}${sub('Direcionamento do catálogo')}${sub('Equipamentos')}${sub('Impressoras e cupons')}${sub('Servidor local')}
+    <span class="sh-item">Relatórios</span><span class="sh-item">Auditoria</span></nav>`;
+}
+function toastApp(t) { const el = $('#aToast'); el.textContent = t; el.classList.add('on'); clearTimeout(toastApp.t); toastApp.t = setTimeout(() => el.classList.remove('on'), 3200); }
+function liga(id, on, rot) { return `<button type="button" class="liga" id="${id}" aria-pressed="${on}"><span class="t" aria-hidden="true"></span><span>${rot}</span></button>`; }
+
+// ═════════════════════ 2. Rota da cozinha ═════════════════════
+// As etapas (colunas) são a ORDEM da rota de cada cozinha: numeradas pela posição, nome opcional. O que move o cartão
+// continua sendo o "vai para" de cada KDS; dois KDS na mesma etapa = preparo em paralelo. A TV fica sempre no fim.
+const IMPS = { cozinha: 'Impressora da cozinha', balcao: 'Impressora do balcão' };
+const ETAPA_IMP = { preparo: 'ao iniciar (em preparo)', pronto: 'ao ficar pronto', despachar: 'ao despachar' };
+const EXEMPLOS = {
+  lanchonete: {
+    loja: 'Burger da Esquina · Centro',
+    kdss: {
+      chapa: { n: 1, nome: 'Chapa', tipo: 'preparo', ligado: true, prods: ['X-Burger', 'X-Salada', 'X-Bacon', 'Duplo cheddar', 'X-Tudo', 'X-Frango', 'X-Egg', 'Misto quente', 'Bauru', 'Hambúrguer artesanal', 'Cachorro-quente', 'Wrap de frango', 'X-Calabresa', 'Filé à parmegiana'], vai: 'montagem', imp: null },
+      fritadeira: { n: 3, nome: 'Fritadeira', tipo: 'preparo', ligado: false, prods: ['Batata frita G', 'Batata frita M', 'Anéis de cebola', 'Mandioca frita', 'Nuggets (10 un)', 'Porção de fritas com cheddar e bacon'], vai: 'despacho', imp: null },
+      montagem: { n: 2, nome: 'Montagem', tipo: 'preparo', ligado: true, prods: ['X-Burger', 'Combo família', 'Embalagem para viagem'], vai: 'despacho', imp: { etapa: 'pronto', em: 'balcao' } },
+      despacho: { n: 4, nome: 'Despacho', tipo: 'despacho', ligado: true, prods: ['Coca-Cola lata 350 ml', 'Guaraná 2 L', 'Suco de laranja 500 ml', 'Água sem gás', 'Molho da casa'], vai: null, imp: { etapa: 'despachar', em: 'balcao' } },
+      sobremesas: { n: 5, nome: 'Sobremesas', tipo: 'preparo', ligado: true, prods: ['Milk-shake de chocolate 400 ml', 'Sundae', 'Açaí 500 ml'], vai: null, imp: null, fora: true },
+    },
+    etapas: [{ nome: 'Preparo', kds: ['chapa', 'fritadeira'] }, { nome: 'Montagem', kds: ['montagem'] }, { nome: 'Despacho', kds: ['despacho'] }],
+    soPapel: ['Petit gâteau', 'Salada da casa'],
+    imps: [['Impressora da cozinha · padrão', 'Recebe o que nenhum KDS marca, na hora da venda: Petit gâteau, Salada da casa.'], ['Impressora do balcão', 'Imprime ao avançar: Montagem (ao ficar pronto) e Despacho (ao despachar, a via do entregador).']],
+    catalogo: [['Lanches', ['X-Burger', 'X-Salada', 'X-Bacon', 'Duplo cheddar', 'X-Tudo', 'Hambúrguer artesanal']], ['Porções', ['Batata frita G', 'Batata frita M', 'Anéis de cebola']], ['Montagem', ['Combo família', 'Embalagem para viagem']], ['Bebidas e molhos', ['Coca-Cola lata 350 ml', 'Guaraná 2 L', 'Molho da casa']], ['Sobremesas', ['Petit gâteau', 'Milk-shake de chocolate 400 ml', 'Sundae']]],
+    simProds: ['X-Burger', 'X-Salada', 'Batata frita G', 'Coca-Cola lata 350 ml', 'Sundae', 'Petit gâteau'],
+    pedido: { texto: 'Senha D-241 (iFood): 2 X-Burger, 1 Batata frita G, 2 Coca-Cola lata 350 ml e 1 Petit gâteau.', itens: ['X-Burger', 'Batata frita G', 'Coca-Cola lata 350 ml', 'Petit gâteau'], fim: '<b>Senha D-241 na TV:</b> vai para "Pronto" quando Chapa, Montagem e Despacho terminarem. O papel do Petit gâteau não conta.' },
+  },
+  pizzaria: {
+    loja: 'Forno da Vila · Centro',
+    kdss: {
+      montagem: { n: 1, nome: 'Montagem', tipo: 'preparo', ligado: true, prods: ['Pizza calabresa', 'Pizza margherita', 'Pizza portuguesa', 'Pizza quatro queijos', 'Esfiha de carne', 'Calzone'], vai: 'forno', imp: null },
+      forno: { n: 2, nome: 'Forno', tipo: 'preparo', ligado: true, prods: [], vai: 'corte', imp: null },
+      corte: { n: 3, nome: 'Corte e despacho', tipo: 'despacho', ligado: true, prods: ['Coca-Cola 2 L', 'Guaraná 2 L', 'Sachês de ketchup e maionese'], vai: null, imp: { etapa: 'despachar', em: 'balcao' } },
+      bar: { n: 4, nome: 'Bar', tipo: 'preparo', ligado: true, prods: ['Chope 300 ml', 'Caipirinha', 'Suco natural 500 ml'], vai: null, imp: null, fora: true },
+    },
+    etapas: [{ nome: 'Montagem', kds: ['montagem'] }, { nome: 'Forno', kds: ['forno'] }, { nome: 'Corte e despacho', kds: ['corte'] }],
+    soPapel: ['Petit gâteau de Nutella'],
+    imps: [['Impressora da cozinha · padrão', 'Recebe o que nenhum KDS marca, na hora da venda: Petit gâteau de Nutella.'], ['Impressora do balcão', 'Imprime ao despachar: a via do entregador, no Corte e despacho.']],
+    catalogo: [['Pizzas', ['Pizza calabresa', 'Pizza margherita', 'Pizza portuguesa', 'Pizza quatro queijos', 'Calzone']], ['Esfihas', ['Esfiha de carne']], ['Bebidas', ['Coca-Cola 2 L', 'Guaraná 2 L', 'Chope 300 ml', 'Caipirinha']], ['Sobremesas', ['Petit gâteau de Nutella']]],
+    simProds: ['Pizza calabresa', 'Coca-Cola 2 L', 'Chope 300 ml', 'Petit gâteau de Nutella'],
+    pedido: { texto: 'Senha D-118 (99Food): 1 Pizza calabresa, 1 Pizza margherita, 1 Coca-Cola 2 L e 1 Chope 300 ml.', itens: ['Pizza calabresa', 'Pizza margherita', 'Coca-Cola 2 L', 'Chope 300 ml'], fim: '<b>Senha D-118 na TV:</b> vai para "Pronto" quando Montagem, Forno, Corte e despacho e o Bar terminarem.' },
+  },
+  pequena: {
+    loja: 'Lanches da Praça',
+    kdss: {
+      cozinha: { n: 1, nome: 'Cozinha', tipo: 'preparo', ligado: true, prods: [], vai: null, imp: null },
+    },
+    etapas: [{ nome: '', kds: ['cozinha'] }],
+    soPapel: [],
+    imps: [['Impressora do balcão · padrão', 'Com um KDS só e nenhum produto marcado, o pedido inteiro aparece no KDS; a impressora fica para a via do cliente.']],
+    catalogo: [['Lanches', ['X-Burger', 'X-Salada', 'Misto quente']], ['Porções', ['Batata frita G']], ['Bebidas', ['Coca-Cola lata 350 ml']]],
+    simProds: ['X-Burger', 'Batata frita G', 'Coca-Cola lata 350 ml'],
+    pedido: { texto: 'Senha B-31 (balcão): 1 X-Burger, 1 Batata frita G e 1 Coca-Cola lata 350 ml.', itens: ['X-Burger', 'Batata frita G', 'Coca-Cola lata 350 ml'], fim: '<b>Senha B-31 na TV:</b> vai para "Pronto" quando a Cozinha terminar.' },
+  },
+};
+let KDSS, ROTA, SO_PAPEL, CATALOGO, EX;
+function carregarExemplo(k) {
+  EX = JSON.parse(JSON.stringify(EXEMPLOS[k] || EXEMPLOS.lanchonete));
+  KDSS = EX.kdss; ROTA = { etapas: EX.etapas }; SO_PAPEL = EX.soPapel; CATALOGO = EX.catalogo;
+  S.simProd = EX.simProds[0];
+}
+const nomesKds = (prod) => Object.values(KDSS).filter((v) => v.prods.includes(prod)).map((v) => v.nome);
+const modoComum = () => Object.values(KDSS).every((v) => !v.prods.length);
+const naRota = (k) => ROTA.etapas.some((e) => e.kds.includes(k));
+function resumoProds(key) {
+  const v = KDSS[key]; const n = v.prods.length;
+  if (!n) { const de = Object.values(KDSS).filter((o) => o.vai === key).map((o) => o.nome); return modoComum() ? 'Todos os produtos (nenhum KDS marcou produto: a loja está no modo comum)' : de.length ? `Nenhum produto marcado: só o que chega de ${de.join(' e ')}` : 'Nenhum produto marcado'; }
+  return `${n} produto${n === 1 ? '' : 's'}: ${v.prods.slice(0, 3).join(', ')}${n > 3 ? ` e mais ${n - 3}` : ''}`;
+}
+function noKds(key) {
+  const v = KDSS[key];
+  const dupl = v.prods.filter((p) => nomesKds(p).length > 1);
+  const recebeDe = Object.values(KDSS).filter((o) => o.vai === key).map((o) => o.nome);
+  const vai = v.tipo === 'despacho' ? 'Termina aqui · chama a senha na TV' : v.vai ? `Vai para <b>${KDSS[v.vai].nome}</b>` : 'Termina aqui';
+  const imp = v.imp ? `Sim, <b>${ETAPA_IMP[v.imp.etapa]}</b>, na ${IMPS[v.imp.em]}` : 'Não, só avança';
+  return `<article class="cartao no ${v.tipo === 'despacho' ? 'despacho' : ''} ${v.ligado ? '' : 'desligado'}" aria-label="KDS ${v.n}, ${v.nome}">
+    <header><div><span class="tipo">KDS ${v.n} · ${v.tipo === 'despacho' ? 'despacho' : 'estação de preparo'}</span><h4>${v.nome}</h4></div>${v.ligado ? '<span class="selo ok">Ligado</span>' : '<span class="selo warn">Desligado · é pulado</span>'}</header>
+    <dl>
+      ${recebeDe.length ? `<div><dt>Recebe de</dt><dd>${recebeDe.join(' e ')}</dd></div>` : ''}
+      <div><dt>${v.tipo === 'despacho' ? 'Vê' : 'Produtos que recebe'}</dt><dd>${v.tipo === 'despacho' ? `O pedido inteiro, com o andamento de cada estação. Direto para cá: ${resumoProds(key)}` : resumoProds(key)}</dd></div>
+      ${dupl.length ? `<div><dd class="alerta-no">⚠ ${dupl.join(', ')} também ${dupl.length === 1 ? 'está' : 'estão'} em ${nomesKds(dupl[0]).filter((n) => n !== v.nome).join(', ')}: sai nos dois</dd></div>` : ''}
+      <div><dt>${v.tipo === 'despacho' ? 'Ao despachar' : 'Quando ficar pronto'}</dt><dd>${vai}</dd></div>
+      <div><dt>Imprimir ao avançar</dt><dd>${imp}</dd></div>
+      ${v.ligado ? '' : `<div><dd class="alerta-no">Desligado: os cartões dele ${v.vai ? `seguem para ${KDSS[v.vai].nome}` : 'saem em papel'} até ele voltar.</dd></div>`}
+    </dl>
+    <button type="button" class="bt" data-editar="${key}" aria-haspopup="dialog">✎ Editar ${v.nome}</button>
+  </article>`;
+}
+const tvNo = (edicao) => `<article class="cartao no no-tv" aria-label="TV de senhas do balcão"><header><div><span class="tipo">TV de senhas · não é etapa</span><h4>TV do balcão</h4></div><span class="selo ok">Ligada</span></header>
+  <dl><div><dt>Mostra</dt><dd><b>Preparando</b> enquanto algum KDS tem o pedido; <b>Pronto</b> quando nenhum tem. O papel não conta.</dd></div>
+  <div><dt>${edicao ? 'Fica sempre no fim' : 'Não é um "vai para"'}</dt><dd>${edicao ? 'Não se arrasta: ela acompanha a rota sozinha.' : 'Ela acompanha os KDS sozinha: não aparece na lista de destinos.'}</dd></div></dl>
+  ${edicao ? '' : '<button type="button" class="bt" data-ir="tv">Ver a TV</button>'}</article>`;
+function notasRota() {
+  const h = [];
+  if (modoComum()) h.push(`<div class="nota"><span><b>Modo comum.</b> Nenhum KDS marcou produto: todo pedido aparece inteiro no KDS ${Object.values(KDSS)[0].nome}. Marcar produtos num KDS liga as estações.</span></div>`);
+  else h.push(`<div class="nota"><span><b>Estações ligadas nesta loja.</b> Marcar produtos num KDS liga as estações: o que nenhum KDS marcar sai em papel na impressora padrão (Impressora da cozinha).${SO_PAPEL.length ? ` Hoje, <b>${SO_PAPEL.length} produto${SO_PAPEL.length === 1 ? '' : 's'}</b> sai${SO_PAPEL.length === 1 ? '' : 'em'} só no papel: ${SO_PAPEL.join(' e ')}.` : ''}</span>${SO_PAPEL.length ? `<button type="button" class="bt link" data-sim="${SO_PAPEL[0]}">Ver no simulador</button>` : ''}</div>`);
+  const vistos = new Set();
+  for (const [k, v] of Object.entries(KDSS)) for (const p of v.prods) {
+    const donos = Object.keys(KDSS).filter((o) => KDSS[o].prods.includes(p)); if (donos.length < 2 || vistos.has(p)) continue; vistos.add(p);
+    const [a, b] = donos; const ab = passosDe(a).some((x) => x.t === KDSS[b].nome); const fim = ab ? b : a; const ini = ab ? a : b;
+    h.push(`<div class="nota warn"><span><b>Produto em dois KDS sai nos dois:</b> ${p} está na ${KDSS[a].nome} e na ${KDSS[b].nome}.${ab ? ` Como a ${KDSS[ini].nome} manda para a ${KDSS[fim].nome}, a ${KDSS[fim].nome} recebe o ${p} duas vezes.` : ''}</span><button type="button" class="bt" data-editar="${fim}">Resolver na ${KDSS[fim].nome}</button></div>`);
+  }
+  for (const v of Object.values(KDSS)) if (!v.ligado) h.push(`<div class="nota neutra"><span><b>${v.nome} desligada:</b> os pedidos dela ${v.vai ? `pulam para o próximo da rota (${KDSS[v.vai].nome})` : 'saem em papel'} até ela voltar.</span></div>`);
+  const fora = Object.keys(KDSS).filter((k) => KDSS[k].ligado && !naRota(k));
+  if (fora.length) h.push(`<div class="nota neutra"><span><b>Fora da rota:</b> ${fora.map((k) => KDSS[k].nome).join(', ')} — recebe${fora.length === 1 ? '' : 'm'} os produtos marcados e termina${fora.length === 1 ? '' : 'm'} no próprio KDS.</span></div>`);
+  return h.join('');
+}
+
+// ── modo de edição da ordem ──
+const copia = (o) => JSON.parse(JSON.stringify(o));
+const idxDe = (ed, k) => ed.etapas.findIndex((e) => e.kds.includes(k));
+const tirarDe = (ed, k) => { for (const e of ed.etapas) e.kds = e.kds.filter((x) => x !== k); };
+const limpar = (ed) => { ed.etapas = ed.etapas.filter((e) => e.kds.length); };
+const ehDespacho = (k) => KDSS[k].tipo === 'despacho';
+function iniciarEdicao() {
+  const ed = { etapas: copia(ROTA.etapas), vai: {}, termina: {}, fora: [] };
+  for (const [k, v] of Object.entries(KDSS)) {
+    ed.vai[k] = v.vai;
+    if (!naRota(k) && v.ligado) ed.fora.push(k);
+    const i = idxDe(ed, k); if (i >= 0 && !v.vai && !ehDespacho(k) && i < ed.etapas.length - 1) ed.termina[k] = true;
+  }
+  S.rotaEd = ed; S.juntoDe = null; S.incluir = false; S.renomeia = null; S.arrasta = null;
+}
+// Depois de cada mudança: o "vai para" de cada KDS aponta para uma etapa DEPOIS da dele (o que ficou para trás volta
+// ao primeiro KDS da etapa seguinte); na última etapa, termina aqui. Nada volta para trás: não há círculo.
+function ajustarVai(ed) {
+  ed.etapas.forEach((e, i) => e.kds.forEach((k) => {
+    if (ehDespacho(k)) { ed.vai[k] = null; return; }
+    const alvo = ed.vai[k]; const ia = alvo ? idxDe(ed, alvo) : -1;
+    if (alvo && ia > i) return;
+    if (!alvo && ed.termina[k]) return;
+    ed.vai[k] = i < ed.etapas.length - 1 ? ed.etapas[i + 1].kds[0] : null;
+  }));
+  for (const k of ed.fora) ed.vai[k] = null;
+}
+function aplicarMov(ed, k, alvo) {
+  if (alvo.tipo === 'junto') { const et = ed.etapas[alvo.etapa]; if (!et || et.kds.includes(k)) return; tirarDe(ed, k); et.kds.push(k); }
+  else if (alvo.tipo === 'nova') { const nova = { nome: '', kds: [] }; ed.etapas.splice(alvo.pos, 0, nova); tirarDe(ed, k); nova.kds.push(k); }
+  else if (alvo.tipo === 'antes' || alvo.tipo === 'depois') {
+    const i = idxDe(ed, k); const e = ed.etapas[i]; const antes = alvo.tipo === 'antes';
+    if (e.kds.length > 1) return aplicarMov(ed, k, { tipo: 'nova', pos: antes ? i : i + 1 });
+    const j = antes ? i - 1 : i + 1; if (j < 0 || j >= ed.etapas.length) return;
+    [ed.etapas[i], ed.etapas[j]] = [ed.etapas[j], ed.etapas[i]];
+  }
+  limpar(ed); ajustarVai(ed);
+}
+function despachoNoFim(ed) {
+  const d = Object.keys(KDSS).find((k) => ehDespacho(k) && idxDe(ed, k) >= 0);
+  return !d || idxDe(ed, d) === ed.etapas.length - 1;
+}
+const valeMover = (k, alvo) => { const c = copia(S.rotaEd); aplicarMov(c, k, alvo); return despachoNoFim(c); };
+function blocoEd(k, i) {
+  const ed = S.rotaEd; const v = KDSS[k]; const ultimo = i === ed.etapas.length - 1; const sozinho = ed.etapas[i].kds.length === 1;
+  const depoisDeste = ed.etapas.slice(i + 1).flatMap((e, d) => e.kds.map((x) => [x, i + 2 + d]));
+  const opcoes = `<option value="" ${ed.vai[k] ? '' : 'selected'}>Termina aqui</option>${depoisDeste.map(([x, n]) => `<option value="${x}" ${ed.vai[k] === x ? 'selected' : ''}>${KDSS[x].nome} (etapa ${n})</option>`).join('')}`;
+  const outros = ed.etapas.flatMap((e, j) => e.kds.filter((x) => x !== k).map((x) => [x, j]));
+  const erro = ehDespacho(k) && !ultimo;
+  return `<article class="cartao no bloco ${ehDespacho(k) ? 'despacho' : ''} ${v.ligado ? '' : 'desligado'} ${S.arrasta === k ? 'pegado' : ''} ${erro ? 'invalido' : ''}" draggable="true" data-kds="${k}" aria-label="KDS ${v.n}, ${v.nome}, etapa ${i + 1}">
+    <header><div><span class="tipo"><span class="pega" aria-hidden="true">⠿</span> KDS ${v.n} · ${ehDespacho(k) ? 'despacho' : 'estação de preparo'}</span><h4>${v.nome}</h4></div>${v.ligado ? '' : '<span class="selo warn">Desligado</span>'}</header>
+    ${ehDespacho(k) ? '<p class="ajuda">Ao despachar: termina aqui e chama a senha na TV. Fica sempre na última etapa.</p>'
+      : `<div class="campo"><label for="vai-${k}">Quando ficar pronto, vai para</label><select id="vai-${k}" data-vai="${k}">${opcoes}</select></div>`}
+    ${erro ? '<p class="ajuda erro">⚠ O Despacho só pode ficar na última etapa: assim não dá para salvar.</p>' : ''}
+    <div class="mover" role="group" aria-label="Mover ${v.nome}">
+      <button type="button" class="bt" data-mv="antes" data-k="${k}" aria-label="Mover ${v.nome} para antes" ${sozinho && i === 0 ? 'disabled' : ''}><span class="seta-h" aria-hidden="true">←</span><span class="seta-v" aria-hidden="true">↑</span> Antes</button>
+      <button type="button" class="bt" data-mv="depois" data-k="${k}" aria-label="Mover ${v.nome} para depois" ${sozinho && ultimo ? 'disabled' : ''}>Depois <span class="seta-h" aria-hidden="true">→</span><span class="seta-v" aria-hidden="true">↓</span></button>
+      <button type="button" class="bt" data-mv="junto" data-k="${k}" aria-expanded="${S.juntoDe === k}" ${outros.length ? '' : 'disabled'}>Junto com…</button>
+      <button type="button" class="bt" data-mv="tirar" data-k="${k}">Tirar da rota</button>
+    </div>
+    ${S.juntoDe === k ? `<div class="junto" role="group" aria-label="Pôr ${v.nome} na mesma etapa de outro KDS"><span class="rot">Na mesma etapa de (em paralelo):</span>${outros.map(([x, j]) => `<button type="button" class="chip" data-junto="${x}" data-k="${k}">${KDSS[x].nome} · etapa ${j + 1}</button>`).join('')}</div>` : ''}
+  </article>`;
+}
+function colunasEd() {
+  const ed = S.rotaEd; const n = ed.etapas.length;
+  return ed.etapas.map((e, i) => `<div class="col-fluxo" data-etapa="${i}">
+      <h3>${i ? '<span class="seta" aria-hidden="true">→</span>' : ''}${S.renomeia === i
+        ? `<input class="inp ren-inp" id="renInp" value="${esc(e.nome)}" placeholder="Etapa ${i + 1}" aria-label="Nome da etapa ${i + 1} (vazio fica Etapa ${i + 1})"><button type="button" class="ren" data-renok="${i}" aria-label="Guardar o nome">✓</button>`
+        : `<span class="nome-et">${i + 1} · ${esc(e.nome || 'Etapa ' + (i + 1))}</span><button type="button" class="ren" data-ren="${i}" aria-label="Renomear a etapa ${i + 1}">✎</button>`}</h3>
+      <p class="msg-proibido">O Despacho só pode ficar na última etapa</p>
+      ${i === 0 ? '<div class="zona" data-nova="0">＋ Nova etapa antes<span class="msg-proibido">O Despacho só pode ficar na última etapa</span></div>' : ''}
+      ${e.kds.map((k) => blocoEd(k, i)).join('')}
+      ${i === n - 1 ? `<div class="zona" data-nova="${n}">＋ Nova etapa depois<span class="msg-proibido">O Despacho só pode ficar na última etapa</span></div>` : ''}
+    </div>`).join('') + `<div class="col-fluxo"><h3><span class="seta" aria-hidden="true">→</span>Cliente · não é etapa</h3>${tvNo(true)}</div>`;
+}
+// marca, enquanto arrasta, onde pode soltar e onde é proibido (o Despacho fora da última etapa)
+function marcarAlvos() {
+  const f = $('#fluxo'); if (!f) return; const k = S.arrasta;
+  f.classList.toggle('arrastando', !!k);
+  $$('[data-etapa], [data-nova]', f).forEach((el) => {
+    el.classList.remove('proibido', 'sobre'); if (!k) return;
+    const alvo = el.dataset.nova !== undefined ? { tipo: 'nova', pos: Number(el.dataset.nova) } : { tipo: 'junto', etapa: Number(el.dataset.etapa) };
+    if (!valeMover(k, alvo)) el.classList.add('proibido');
+  });
+}
+function ajustarFluxo() {
+  const f = $('#fluxo'); if (!f) return;
+  const cols = Number(f.style.getPropertyValue('--cols')) || 4;
+  f.classList.toggle('horizontal', f.clientWidth / cols >= 230);
+}
+function renderRota() {
+  const ed = S.rotaEd; const editando = !!ed;
+  const kdsNaRota = Object.keys(KDSS).filter(naRota); const desl = Object.values(KDSS).filter((v) => !v.ligado).length;
+  const cols = (editando ? ed.etapas.length : ROTA.etapas.length) + 1;
+  const colunas = editando ? colunasEd() : ROTA.etapas.map((e, i) => `<div class="col-fluxo"><h3>${i ? '<span class="seta" aria-hidden="true">→</span>' : ''}${i + 1} · ${esc(e.nome || 'Etapa ' + (i + 1))}</h3>${e.kds.map(noKds).join('')}</div>`).join('')
+    + `<div class="col-fluxo"><h3><span class="seta" aria-hidden="true">→</span>Cliente</h3>${tvNo(false)}</div>`;
+  const foraLig = Object.keys(KDSS).filter((k) => KDSS[k].ligado && !naRota(k));
+  const esmaece = editando ? ' data-esmaecido inert' : '';
+  $('#shellRota').innerHTML = `${menu('rota')}<div class="sh-main">
+    <div class="sh-topo"><button type="button" class="menu" aria-label="Abrir o menu">☰</button><span>Configurações › Rota da cozinha</span></div>
+    <p class="trilha">Configurações</p>
+    <div class="barra"><div><h2>Rota da cozinha</h2><p class="res">${Object.keys(KDSS).length} KDS${desl ? ` (${desl} desligado)` : ''}, ${kdsNaRota.length} na rota, 1 TV de senhas · ${ROTA.etapas.length} etapa${ROTA.etapas.length === 1 ? '' : 's'} · por onde cada pedido passa</p></div>
+      <div class="acoes"><div class="campo" style="min-width:min(100%,220px)"${esmaece}><label for="rotaLoja">Loja</label><select id="rotaLoja"><option>${EX.loja}</option></select></div>
+        ${editando ? '' : '<button type="button" class="bt" id="edEditar">✎ Editar a ordem</button>'}</div></div>
+    ${editando ? `<div class="ed-barra" role="region" aria-label="Editando a ordem da rota">
+        <div class="t"><b>Editando a ordem da rota</b><span>Arraste cada KDS para outra etapa, ou use "Antes", "Depois" e "Junto com…". Dois KDS na mesma etapa preparam em paralelo. Nada muda na cozinha até salvar.</span></div>
+        <button type="button" class="bt" id="edIncluir" aria-expanded="${S.incluir}">＋ Incluir KDS na rota</button>
+        <button type="button" class="bt" id="edCancelar">Cancelar</button>
+        <button type="button" class="bt pri" id="edSalvar">Salvar a ordem</button>
+        ${S.incluir ? `<div class="ed-incluir" role="group" aria-label="KDS ligados fora da rota">${ed.fora.length ? `<span class="rot">Ligados fora da rota:</span>${ed.fora.map((k) => `<button type="button" class="chip" data-incluir="${k}">＋ ${KDSS[k].nome} (KDS ${KDSS[k].n})</button>`).join('')}` : '<span class="ajuda">Todos os KDS ligados já estão na rota.</span>'}</div>` : ''}
+      </div>` : ''}
+    <div class="notas"${esmaece}>${notasRota()}</div>
+    <div class="fluxo ${editando ? 'editando' : ''}" id="fluxo" style="--cols:${cols}" aria-label="A rota da cozinha">${colunas}</div>
+    ${!editando && foraLig.length ? `<section class="cartao fora" aria-labelledby="tFora"><h3 id="tFora">Fora da rota · terminam no próprio KDS</h3><div class="fora-lista">${foraLig.map(noKds).join('')}</div></section>` : ''}
+    <section class="cartao papel" aria-labelledby="tImps"${esmaece}><h3 id="tImps">Impressoras da rota</h3><div class="imps">
+      ${EX.imps.map(([n, d]) => `<div class="imp"><b>${n}</b><span>${d}</span><span class="selo ok" style="justify-self:start">Pronta</span></div>`).join('')}
+    </div></section>
+    <section class="cartao sim" aria-labelledby="tSim"${esmaece}><h3 id="tSim">Por onde o pedido passa?</h3>
+      <div class="sim-ctl">
+        <div><span class="rot" id="tSimModo">Simular</span><div class="seg" role="group" aria-labelledby="tSimModo" style="margin-top:4px"><button type="button" data-simmodo="produto" aria-pressed="${S.simModo === 'produto'}">Um produto</button><button type="button" data-simmodo="pedido" aria-pressed="${S.simModo === 'pedido'}">Um pedido de exemplo</button></div></div>
+        ${S.simModo === 'produto' ? `<div class="campo"><label for="simProd">Produto</label><select id="simProd">${EX.simProds.map((p) => `<option ${p === S.simProd ? 'selected' : ''}>${p}</option>`).join('')}</select></div>` : `<p class="ajuda">${EX.pedido.texto}</p>`}
+      </div>
+      <div class="sim-res" id="simRes" aria-live="polite">${simular()}</div>
+    </section>
+  </div>`;
+  ajustarFluxo(); marcarAlvos();
+  if (S.renomeia !== null && $('#renInp') && !MEDIR) $('#renInp').focus();
+}
+function resumoEdicao() {
+  const ed = S.rotaEd; const linhas = []; const motivos = [];
+  if (!ed.etapas.length) motivos.push('A rota precisa de pelo menos um KDS.');
+  if (!despachoNoFim(ed)) { const d = Object.keys(KDSS).find((k) => ehDespacho(k) && idxDe(ed, k) >= 0); motivos.push(`O ${KDSS[d].nome} só pode ficar na última etapa: hoje está na etapa ${idxDe(ed, d) + 1} de ${ed.etapas.length}.`); }
+  for (const k of Object.keys(ed.vai)) { let a = ed.vai[k]; const vistos = [k]; while (a) { if (vistos.includes(a)) { motivos.push(`A rota fica em círculo: ${vistos.concat(a).map((x) => KDSS[x].nome).join(' → ')}.`); break; } vistos.push(a); a = ed.vai[a]; } }
+  const desc = (k, vai, dentro) => !dentro ? 'fora da rota (termina aqui)' : ehDespacho(k) ? 'termina aqui (despacho)' : vai ? `vai para ${KDSS[vai].nome}` : 'termina aqui';
+  for (const [k, v] of Object.entries(KDSS)) {
+    const a0 = ROTA.etapas.findIndex((e) => e.kds.includes(k)); const a1 = idxDe(ed, k);
+    if (a0 < 0 && a1 < 0) continue;
+    const antes = desc(k, v.vai, a0 >= 0), depois = desc(k, ed.vai[k], a1 >= 0);
+    if (antes !== depois) linhas.push(`<b>${v.nome}:</b> ${antes} → ${depois}${a1 >= 0 && a0 !== a1 ? ` (etapa ${a1 + 1})` : ''}${a1 < 0 ? '; os produtos continuam nele' : ''}`);
+    else if (a0 !== a1) linhas.push(`<b>${v.nome}:</b> etapa ${a0 + 1} → etapa ${a1 + 1} (o "vai para" não muda)`);
+  }
+  const nomes = (et) => et.map((e, i) => `${i + 1} · ${e.nome || 'Etapa ' + (i + 1)}`).join(', ');
+  if (nomes(ed.etapas) !== nomes(ROTA.etapas)) linhas.push(`<b>Etapas:</b> ${nomes(ROTA.etapas)} → ${nomes(ed.etapas)}`);
+  return { linhas, motivos };
+}
+function dialogoSalvarRota() {
+  const { linhas, motivos } = resumoEdicao(); const d = $('#aDialogo'); S.rotaDialogo = true;
+  if (!motivos.length && !linhas.length) { S.rotaDialogo = false; return toastApp('Nada mudou na ordem da rota'); }
+  d.innerHTML = motivos.length
+    ? `<header><h3 id="aDiaT">Não dá para salvar esta ordem</h3></header><div class="a-corpo"><div class="nota crit"><span>${motivos.join('<br>')}</span></div><p class="ajuda">Nada foi salvo. Corrija e tente de novo — ou "Cancelar" na barra desfaz tudo.</p></div>
+       <footer><button type="button" class="bt pri" id="dVoltarRota">Voltar e corrigir</button></footer>`
+    : `<header><h3 id="aDiaT">Salvar a nova ordem da rota?</h3></header><div class="a-corpo"><p>O que muda em cada KDS:</p><ul class="mudancas">${linhas.map((l) => `<li>${l}</li>`).join('')}</ul>
+       <p class="ajuda">Os produtos de cada KDS não mudam. Vale para os pedidos que entrarem depois de salvar; os cartões que já estão na tela terminam no caminho antigo.</p></div>
+       <footer><button type="button" class="bt" id="dVoltarRota">Voltar</button><button type="button" class="bt pri" id="dSalvarRota">Salvar a ordem</button></footer>`;
+  d.hidden = false; $('#aFundo').hidden = false;
+}
+function salvarRota() {
+  const ed = S.rotaEd;
+  for (const k of Object.keys(KDSS)) { KDSS[k].vai = ed.vai[k] || null; KDSS[k].fora = idxDe(ed, k) < 0; }
+  ROTA.etapas = copia(ed.etapas); S.rotaEd = null; fecharApp(); renderRota(); toastApp('Ordem da rota salva');
+}
+function passosDe(key) {
+  const out = []; const vistos = new Set(); let atual = key;
+  while (atual && !vistos.has(atual)) {
+    vistos.add(atual); const v = KDSS[atual];
+    if (!v.ligado) out.push({ t: v.nome, d: 'desligado: pulado', c: 'pulado' });
+    else out.push({ t: v.nome, d: v.imp ? `imprime ${ETAPA_IMP[v.imp.etapa]} · ${IMPS[v.imp.em]}` : v.tipo === 'despacho' ? 'vê o pedido inteiro' : !naRota(atual) ? 'fora da rota: termina aqui' : 'só avança', c: v.tipo === 'despacho' ? 'despacho' : '' });
+    atual = v.vai;
+  }
+  out.push({ t: 'TV: Pronto', d: 'quando nenhum KDS tem o pedido', c: 'p-tv' });
+  return out;
+}
+const passosHtml = (ps) => `<ol class="passos">${ps.map((p, i) => `${i ? '<li class="seta-p" aria-hidden="true">→</li>' : ''}<li class="passo ${p.c}"><b>${p.t}</b><span>${p.d}</span></li>`).join('')}</ol>`;
+function simProduto(prod) {
+  if (modoComum()) { const k = ROTA.etapas[0].kds[0]; return `<div class="sim-item"><b>${prod}</b>${passosHtml(passosDe(k))}<p class="sim-fim">Modo comum: o pedido inteiro aparece no KDS ${KDSS[k].nome}.</p></div>`; }
+  const donos = Object.keys(KDSS).filter((k) => KDSS[k].prods.includes(prod));
+  if (!donos.length) return `<div class="sim-item"><b>${prod}</b>${passosHtml([{ t: 'Papel', d: 'Impressora da cozinha (padrão), na hora da venda', c: 'papel-p' }])}<p class="sim-fim">Nenhum KDS marcou este produto: sai em papel. A TV de senhas não espera o papel.</p></div>`;
+  // começa só pelos KDS que ninguém da lista alimenta (o que vem de outro é o mesmo caminho) — e avisa o duplicado
+  const inicios = donos.filter((k) => !donos.some((o) => o !== k && passosDe(o).some((p) => p.t === KDSS[k].nome)));
+  const extra = donos.filter((k) => !inicios.includes(k));
+  return `<div class="sim-item"><b>${prod}</b>${inicios.map((k) => passosHtml(passosDe(k))).join('')}
+    ${extra.map((k) => `<p class="sim-aviso">⚠ Também marcado na ${KDSS[k].nome}: ela recebe um cartão direto, além do que chega da ${inicios.map((i) => KDSS[i].nome).join(' e ')}. Sai duas vezes.</p>${passosHtml(passosDe(k))}`).join('')}
+    ${donos.filter((k) => !KDSS[k].ligado).map((k) => `<p class="sim-fim">A ${KDSS[k].nome} está desligada: o item vai direto para o próximo ligado.</p>`).join('')}</div>`;
+}
+function simular() {
+  if (S.simModo === 'produto') return simProduto(S.simProd);
+  return EX.pedido.itens.map(simProduto).join('') + `<p class="sim-fim">${EX.pedido.fim}</p>`;
+}
+function abrirGavetaApp(html) { const g = $('#aGaveta'); g.innerHTML = html; g.hidden = false; $('#aFundo').hidden = false; }
+function fecharApp() { $('#aGaveta').hidden = true; $('#aDialogo').hidden = true; $('#aFundo').hidden = true; S.rotaGaveta = null; S.rotaDialogo = false; S.alGaveta = null; S.alDialogo = false; }
+function gavetaKds(key) {
+  S.rotaGaveta = key; const v = KDSS[key];
+  const destinos = Object.entries(KDSS).filter(([k]) => k !== key).map(([k, o]) => `<option value="${k}" ${v.vai === k ? 'selected' : ''}>${o.nome}${o.ligado ? '' : ' (desligado: pulado)'}${o.tipo === 'despacho' ? ' · despacho' : ''}</option>`).join('');
+  const cats = CATALOGO.map(([cat, prods]) => `<div class="cat"><div class="cat-cab"><span>${cat}</span><button type="button" class="bt link" data-marcar="${cat}">Marcar todos</button></div>${prods.map((p) => { const outros = nomesKds(p).filter((n) => n !== v.nome); const marc = v.prods.includes(p); return `<label class="prod ${marc && outros.length ? 'dupl' : ''}"><input type="checkbox" ${marc ? 'checked' : ''}><span>${p}${outros.length ? ` <em>· também em ${outros.join(', ')}${marc ? ': sai nos dois' : ''}</em>` : ''}</span></label>`; }).join('')}</div>`).join('');
+  abrirGavetaApp(`<header><div><h3 id="aGavT">Editar KDS ${v.n} · ${v.nome}</h3><p>${EX.loja} · fica guardado no servidor (trocar o aparelho não perde nada)</p></div><button type="button" class="x" data-fechar aria-label="Fechar">✕</button></header>
+    <div class="a-corpo">
+      <div class="grupo-g"><h4>Esta tela</h4><div class="duas"><div class="campo"><label for="gNome">Nome</label><input id="gNome" value="${v.nome}"></div><div class="campo"><span class="rot">Situação</span>${liga('gLigado', v.ligado, v.ligado ? 'Ligado' : 'Desligado (é pulado)')}</div></div>
+        <div role="radiogroup" aria-label="O que esta tela é" style="display:grid;gap:6px"><label class="radio"><input type="radio" name="gTipo" ${v.tipo === 'preparo' ? 'checked' : ''}><span><b>Estação de preparo</b> — mostra só os produtos marcados abaixo</span></label><label class="radio"><input type="radio" name="gTipo" ${v.tipo === 'despacho' ? 'checked' : ''}><span><b>Despacho</b> — vê o pedido inteiro e só libera quando todas as estações terminam (o gestor libera antes, com a senha)</span></label></div></div>
+      <div class="grupo-g"><h4>Produtos que recebe <span class="ajuda">· ${v.prods.length} marcados</span></h4><input class="inp" type="search" placeholder="Buscar produto" aria-label="Buscar produto">${cats}
+        ${key === 'montagem' ? '<p class="ajuda">Recebe da Chapa (o "vai para" dela). Produto marcado aqui e na Chapa chega duas vezes: desmarque o X-Burger aqui se a Montagem só deve receber o que vem da Chapa.</p>' : ''}</div>
+      <div class="grupo-g"><h4>Quando ficar pronto</h4>
+        <label class="radio"><input type="radio" name="gVai" ${v.vai ? '' : 'checked'}><span>Termina aqui (a senha vai para "Pronto" na TV quando nenhum KDS tiver mais o pedido)</span></label>
+        <label class="radio"><input type="radio" name="gVai" ${v.vai ? 'checked' : ''}><span>Vai para outro KDS</span></label>
+        <div class="campo"><label for="gVaiPara">Vai para</label><select id="gVaiPara">${destinos}</select></div>
+        <p class="ajuda" id="gVaiNota">A TV de senhas não aparece aqui: ela não é etapa e mostra a senha sozinha.</p></div>
+      <div class="grupo-g"><h4>Imprimir ao avançar</h4>
+        <label class="radio"><input type="radio" name="gImp" ${v.imp ? '' : 'checked'}><span>Não, só avança</span></label>
+        <label class="radio"><input type="radio" name="gImp" ${v.imp ? 'checked' : ''}><span>Sim, imprimir os itens deste KDS</span></label>
+        <div class="duas"><div class="campo"><label for="gEtapa">Em qual etapa</label><select id="gEtapa"><option ${v.imp && v.imp.etapa === 'preparo' ? 'selected' : ''}>Ao iniciar (em preparo)</option><option ${v.imp && v.imp.etapa === 'pronto' ? 'selected' : ''}>Ao ficar pronto</option>${v.tipo === 'despacho' ? '<option selected>Ao despachar</option>' : ''}</select></div>
+          <div class="campo"><label for="gImpQual">Em qual impressora</label><select id="gImpQual"><option>Impressora do balcão · pronta</option><option>Impressora da cozinha · pronta</option><option>＋ cadastrar nova</option></select></div></div>
+        <div><span class="rot">Prévia do papel</span><div class="ticket">${v.nome.toUpperCase()} · PRONTO
+Senha D-241 · iFood · 20:17
+${(v.prods.length ? v.prods : ['Pedido inteiro']).slice(0, 2).map((p, i) => `${i ? 1 : 2}x ${p}`).join('\n')}</div></div></div>
+      <div class="grupo-g"><h4>Avisos que esta tela recebe</h4><p class="ajuda">O mesmo ajuste do ⚙ do KDS (aba Avisos).</p>
+        <div class="chips">${TIPOS.map((t) => `<button type="button" class="chip" aria-pressed="${t.trava || RECEBE_INI()[t.k]}" ${t.trava ? 'disabled' : ''}>${t.ic} ${t.nome}</button>`).join('')}</div></div>
+    </div>
+    <footer><span class="mudou" id="gMudou">Nenhuma alteração</span><button type="button" class="bt" data-fechar>Cancelar</button><button type="button" class="bt pri" id="gSalvar">Salvar ${v.nome}</button></footer>`);
+  const nota = () => { const sel = $('#gVaiPara'); const n = $('#gVaiNota'); const s = $('#gSalvar'); const circulo = KDSS[sel.value] && KDSS[sel.value].vai === key; n.className = circulo ? 'ajuda erro' : 'ajuda'; n.textContent = circulo ? `A ${KDSS[sel.value].nome} já manda para a ${v.nome}: a rota ficaria em círculo. Escolha outro destino.` : 'A TV de senhas não aparece aqui: ela não é etapa e mostra a senha sozinha.'; s.disabled = circulo; };
+  $('#gVaiPara').addEventListener('change', nota);
+  $('#aGaveta').addEventListener('change', () => { $('#gMudou').textContent = 'Alterações ainda não salvas'; }, { once: true });
+}
+function dialogoSalvarMontagem() {
+  S.rotaDialogo = true; const d = $('#aDialogo');
+  d.innerHTML = `<header><h3 id="aDiaT">Salvar a Montagem com o X-Burger repetido?</h3></header>
+    <div class="a-corpo"><p>O X-Burger continua marcado na <b>Chapa</b> e na <b>Montagem</b>. Como a Chapa manda para a Montagem, cada X-Burger chega <b>duas vezes</b> na Montagem.</p>
+      <div class="nota warn"><span>Se a Montagem só termina o lanche que vem da Chapa, desmarque o X-Burger nela.</span></div>
+      <p class="ajuda">O resto muda assim: ao ficar pronto vai para o Despacho e imprime na Impressora do balcão.</p></div>
+    <footer><button type="button" class="bt" id="dVoltar">Voltar e corrigir</button><button type="button" class="bt pri" id="dSalvar">Salvar assim mesmo</button></footer>`;
+  d.hidden = false; $('#aFundo').hidden = false;
+}
+
+// ═════════════════════ 4. TV de senhas ═════════════════════
+function senhasTv(n) { const a = []; for (let i = 0; i < n; i++) a.push({ p: i % 3 === 0 ? 'D' : 'B', s: i % 3 === 0 ? 312 - i : 118 - i, nova: i < 2 }); return a; }
+let tvPagina = 0;
+function renderTv() {
+  const tv = $('#tv'); const w = tv.getBoundingClientRect().width || 960;
+  // Medidas em px pela largura da TV (o mesmo que os cqi de hoje, mas funciona em navegador de TV antigo — T1).
+  const px = (f) => `${Math.max(1, Math.round(w * f))}px`;
+  tv.style.setProperty('--tv-p1', px(0.016)); tv.style.setProperty('--tv-p2', px(0.024)); tv.style.setProperty('--tv-p3', px(0.011));
+  tv.style.setProperty('--tv-logo', px(0.06)); tv.style.setProperty('--tv-f-logo', px(0.022)); tv.style.setProperty('--tv-f-nome', px(0.03)); tv.style.setProperty('--tv-f-hora', px(0.024)); tv.style.setProperty('--tv-f-tit', px(0.026)); tv.style.setProperty('--tv-f-pe', `max(12px, ${px(0.018)})`);
+  const prontas = senhasTv(S.tvN); const prep = senhasTv(6).map((x, i) => ({ p: 'B', s: 119 + i }));
+  tv.innerHTML = `<div class="tv-topo"><span class="tv-loja"><span class="tv-logo" aria-hidden="true">BE</span><span class="tv-nome">Burger da Esquina</span></span><span class="tv-hora">${hm(agora())}</span></div>
+    <div class="tv-cols"><section class="tv-col prep" aria-label="Preparando"><h3>Preparando <small id="tvPrepInfo"></small></h3><div class="tv-senhas" id="tvPrep"></div></section>
+    <section class="tv-col pronto" aria-label="Pronto"><h3>Pronto <small id="tvProntoInfo"></small></h3><div class="tv-senhas" id="tvPronto" aria-live="polite"></div></section></div>
+    <div class="tv-pe"><span>Retire no balcão quando o seu número aparecer em <b>PRONTO</b></span><span>B balcão · D retirada</span></div>`;
+  const a = caber($('#tvPrep'), prep, w * 0.034, $('#tvPrepInfo'));
+  const b = caber($('#tvPronto'), prontas, w * 0.052, $('#tvProntoInfo'));
+  $('#tvLeg').innerHTML = `<b>Pronto:</b> ${S.tvN} senhas → letra a ${b.pct}% do tamanho dos ajustes${b.paginas > 1 ? `, em <b>${b.paginas} páginas</b> que alternam a cada 8 s (nenhuma some)` : ', todas na tela'}. <b>Preparando:</b> ${prep.length} senhas a ${a.pct}%.`;
+}
+const chip = (x) => `<span class="tv-s ${x.nova ? 'nova' : ''}" data-senha><span class="sr">Senha ${x.p} ${x.s}</span><small aria-hidden="true">${x.p}</small><span aria-hidden="true">${x.s}</span></span>`;
+const MIN_PCT = 0.6;
+// Diminui a letra até caber (até 60% do tamanho dos ajustes); se nem assim couber, divide em páginas — nada some.
+function caber(caixa, senhas, base, info) {
+  const cabe = () => caixa.scrollHeight <= caixa.clientHeight + 1 && caixa.scrollWidth <= caixa.clientWidth + 1;
+  caixa.innerHTML = senhas.map(chip).join('');
+  let lo = base * MIN_PCT, hi = base;
+  caixa.style.fontSize = `${hi}px`;
+  if (!cabe()) {
+    caixa.style.fontSize = `${lo}px`;
+    if (cabe()) { for (let i = 0; i < 12; i++) { const mid = (lo + hi) / 2; caixa.style.fontSize = `${mid}px`; if (cabe()) lo = mid; else hi = mid; } caixa.style.fontSize = `${lo}px`; hi = lo; }
+    else hi = lo;
+  }
+  const pct = Math.round((hi / base) * 100);
+  if (cabe()) { info.textContent = ''; return { pct, paginas: 1 }; }
+  // páginas: quantas cabem na letra mínima
+  let cap = senhas.length;
+  while (cap > 1) { caixa.innerHTML = senhas.slice(0, cap).map(chip).join(''); if (cabe()) break; cap -= 1; }
+  const paginas = Math.ceil(senhas.length / cap);
+  const pg = tvPagina % paginas;
+  caixa.innerHTML = senhas.slice(pg * cap, pg * cap + cap).map(chip).join('');
+  info.textContent = `página ${pg + 1} de ${paginas}`;
+  return { pct, paginas };
+}
+
+// ═════════════════════ 5. Alertas cadastrados ═════════════════════
+const PRI = { urg: ['crit', 'Urgente'], alta: ['warn', 'Atenção'], info: ['info', 'Informativo'], ok: ['ok', 'Positivo'] };
+const ALERTAS = [
+  { t: 'Lavar as mãos', d: 'Todos da cozinha', tipo: 'Agendado', quando: '10:00 · 14:00 · 18:00 · 20:00 — todos os dias', loja: 'Centro', kds: 'Todos os KDS', pri: 'info', fica: '60 s', ativo: true },
+  { t: 'Trocar o óleo da fritadeira às 20:30', d: 'Desligar a fritadeira 2 antes, esperar esfriar e anotar a troca no checklist de fechamento', tipo: 'Agendado', quando: '20:15 — seg e qui', loja: 'Centro', kds: 'Fritadeira, Chapa', pri: 'alta', fica: '120 s', ativo: true },
+  { t: 'Fila de delivery acumulando', d: 'Chamar reforço na expedição', tipo: 'Condicional', quando: 'Pedidos de delivery esperando nesta loja ≥ 8', loja: 'Centro', kds: 'Despacho', pri: 'urg', fica: 'Até o Ciente', ativo: true },
+  { t: 'Pico de produção', d: '', tipo: 'Condicional', quando: 'Pedidos em produção nesta loja > 15', loja: 'Shopping Norte', kds: 'Todos os KDS', pri: 'alta', fica: '60 s', ativo: false },
+  { t: 'Conferir a temperatura das geladeiras', d: 'Anotar na planilha da câmara fria', tipo: 'Agendado', quando: '09:00 · 21:00 — todos os dias', loja: 'Centro', kds: 'Montagem', pri: 'ok', fica: '45 s', ativo: true },
+];
+let alSit = 'todos';
+function renderAlertas() {
+  const n = (f) => ALERTAS.filter(f).length;
+  const lista = ALERTAS.filter((a) => alSit === 'todos' || (alSit === 'ativos' && a.ativo) || (alSit === 'inativos' && !a.ativo) || (alSit === 'agendados' && a.tipo === 'Agendado') || (alSit === 'condicionais' && a.tipo === 'Condicional') || (alSit === 'urgentes' && a.pri === 'urg'));
+  const sit = (k, r, q) => `<button type="button" class="chip" data-alsit="${k}" aria-pressed="${alSit === k}">${r} <b>${q}</b></button>`;
+  $('#shellAlertas').innerHTML = `${menu('alertas')}<div class="sh-main">
+    <div class="sh-topo"><button type="button" class="menu" aria-label="Abrir o menu">☰</button><span>Configurações › Alertas do KDS</span></div>
+    <p class="trilha">Configurações</p>
+    <div class="barra"><div><h2>Alertas do rodapé do KDS</h2><p class="res">${lista.length} de ${ALERTAS.length} alertas · o KDS confere a cada 20 segundos</p></div><div class="acoes"><button type="button" class="bt pri" data-alnovo>＋ Novo alerta</button></div></div>
+    <div class="sits" role="group" aria-label="Situação">${sit('todos', 'Todos', ALERTAS.length)}${sit('ativos', 'Ativos', n((a) => a.ativo))}${sit('inativos', 'Inativos', n((a) => !a.ativo))}${sit('agendados', 'Agendados', n((a) => a.tipo === 'Agendado'))}${sit('condicionais', 'Condicionais', n((a) => a.tipo === 'Condicional'))}${sit('urgentes', 'Urgentes', n((a) => a.pri === 'urg'))}</div>
+    <div class="cartao filtros"><div class="campo"><label for="alBusca">Buscar</label><input id="alBusca" type="search" placeholder="Título do alerta"></div>
+      <div class="campo"><label for="alLoja">Loja</label><select id="alLoja"><option>Todas as lojas</option><option>Centro</option><option>Shopping Norte</option></select></div>
+      <div class="campo"><label for="alKds">KDS</label><select id="alKds"><option>Todos os KDS</option><option>Chapa</option><option>Montagem</option><option>Fritadeira</option><option>Despacho</option></select></div>
+      <div class="campo"><label for="alPri">Prioridade</label><select id="alPri"><option>Todas as prioridades</option><option>Urgente</option><option>Atenção</option><option>Informativo</option><option>Positivo</option></select></div></div>
+    <div class="cartao lista"><table><caption class="sr">Alertas cadastrados</caption><thead><tr><th scope="col">Alerta</th><th scope="col">Quando</th><th scope="col">Onde</th><th scope="col">Prioridade</th><th scope="col">Fica</th><th scope="col">Situação</th><th scope="col"><span class="sr">Ações</span></th></tr></thead>
+    <tbody>${lista.map((a, i) => `<tr><td class="c-nome"><span class="nome">${a.t}</span>${a.d ? `<div class="sub-t">${a.d}</div>` : ''}</td>
+      <td data-rot="Quando"><span class="v">${a.tipo}: ${a.quando}</span></td><td data-rot="Onde"><span class="v">${a.loja} · ${a.kds}</span></td>
+      <td data-rot="Prioridade"><span class="v"><span class="selo ${PRI[a.pri][0]}">${PRI[a.pri][1]}</span></span></td><td data-rot="Fica"><span class="v">${a.fica}</span></td>
+      <td data-rot="Situação"><span class="v">${liga('alAt' + i, a.ativo, a.ativo ? 'Ativo' : 'Inativo')}</span></td>
+      <td class="c-acoes"><div class="lin-acoes"><button type="button" class="ic" data-altestar="${i}">▶ Testar</button><button type="button" class="ic" data-aleditar="${i}" aria-haspopup="dialog">✎ Editar</button><button type="button" class="ic perigo" data-alexcluir="${i}">🗑 Excluir</button></div></td></tr>`).join('') || '<tr><td>Nenhum alerta com este filtro.</td></tr>'}</tbody></table></div>
+  </div>`;
+}
+function previaFaixa(pri, titulo, det) {
+  // versão 2: a faixa fica PARADA e mostra até 2 linhas; o resto vai para o "Ver tudo" do KDS
+  const txt = `${titulo}${det ? ' · ' + det : ''}`; const longo = txt.length > 110;
+  return `<div class="prev-frame"><div class="k-rodape ${pri}" style="min-height:56px"><span class="k-lado">${LADO[pri]}</span><div class="k-txt" data-medida="letreiro"><span class="k-letreiro" style="white-space:normal">${esc(titulo)}${det ? ` <small>${esc(det)}</small>` : ''}</span></div>${pri === 'urg' ? '<span class="k-ciente" style="display:grid;place-items:center">Ciente</span>' : ''}</div></div>
+    <p class="ajuda ${longo ? 'erro' : ''}">${txt.length} letras. ${longo ? 'Texto longo: o KDS mostra só as 2 primeiras linhas e o resto fica no "Ver tudo". No tablet deitado cabem cerca de 110 letras.' : 'Cabe inteiro nas 2 linhas da faixa de um tablet deitado.'}</p>`;
+}
+function gavetaAlerta(i) {
+  const a = i === null ? { t: '', d: '', tipo: 'Agendado', loja: 'Centro', kds: 'Todos os KDS', pri: 'info', fica: '60 s', ativo: true } : ALERTAS[i]; S.alGaveta = i === null ? 'novo' : i;
+  const marc = (k) => a.kds.includes(k) || a.kds === 'Todos os KDS';
+  const ag = a.tipo === 'Agendado';
+  abrirGavetaApp(`<header><div><h3 id="aGavT">${i === null ? 'Novo alerta' : 'Editar alerta'}</h3><p>Aparece no rodapé dos KDS marcados, com a cor da prioridade</p></div><button type="button" class="x" data-fechar aria-label="Fechar">✕</button></header>
+    <div class="a-corpo">
+      <div class="grupo-g"><div class="campo"><label for="fTit">Título</label><input id="fTit" maxlength="80" value="${esc(a.t)}" placeholder="Ex.: Trocar o óleo da fritadeira"></div>
+        <div class="campo"><label for="fDet">Detalhe (opcional)</label><input id="fDet" maxlength="120" value="${esc(a.d)}"></div></div>
+      <div class="grupo-g"><h4>Onde aparece</h4>
+        <div class="campo"><label for="fLoja">Loja</label><select id="fLoja"><option ${a.loja === 'Centro' ? 'selected' : ''}>Centro</option><option ${a.loja === 'Shopping Norte' ? 'selected' : ''}>Shopping Norte</option><option>Todas as lojas (só o presidente)</option></select></div>
+        <span class="rot" id="fKdsRot">KDS que recebem</span><div class="chips" role="group" aria-labelledby="fKdsRot">${['Chapa', 'Montagem', 'Fritadeira', 'Despacho'].map((k) => `<button type="button" class="chip" data-chip aria-pressed="${marc(k)}">${k}${k === 'Fritadeira' ? ' · desligado' : ''}</button>`).join('')}</div>
+        <p class="ajuda">O KDS que desligou "Alertas da loja" no ⚙ não mostra, e o histórico dele diz "não mostrado".</p></div>
+      <div class="grupo-g"><h4>Prioridade e tempo</h4>
+        <div class="seg" role="group" aria-label="Prioridade">${Object.entries(PRI).map(([k, [, r]]) => `<button type="button" data-fpri="${k}" aria-pressed="${a.pri === k}">${r}</button>`).join('')}</div>
+        <div role="radiogroup" aria-label="Quanto tempo fica" style="display:grid;gap:6px"><label class="radio"><input type="radio" name="fFica" ${a.fica.includes('Ciente') ? '' : 'checked'}><span>Fica por <input class="inp" type="number" min="5" max="3600" value="${parseInt(a.fica, 10) || 60}" aria-label="Segundos" style="width:96px;min-height:40px;display:inline-block"> segundos</span></label>
+          <label class="radio"><input type="radio" name="fFica" ${a.fica.includes('Ciente') ? 'checked' : ''}><span>Fica até alguém tocar em <b>Ciente</b> (o padrão do urgente)</span></label></div>
+        <div class="campo"><label for="fSom">Som</label><select id="fSom"><option>Bipe curto</option><option ${a.pri === 'urg' ? 'selected' : ''}>Bipe forte (repete até o Ciente)</option><option>Sem som</option></select></div></div>
+      <div class="grupo-g"><h4>Quando</h4>
+        <div class="seg" role="group" aria-label="Tipo"><button type="button" data-ftipo="Agendado" aria-pressed="${ag}">Agendado (horário)</button><button type="button" data-ftipo="Condicional" aria-pressed="${!ag}">Condicional (fila)</button></div>
+        <div id="fQuando">${quandoHtml(ag)}</div></div>
+      <div class="grupo-g"><h4>Prévia da faixa</h4><div class="previa" id="fPrevia">${previaFaixa(a.pri, a.t || 'Título do alerta', a.d)}</div></div>
+      <div class="grupo-g">${liga('fAtivo', a.ativo, a.ativo ? 'Ativo' : 'Inativo')}</div>
+    </div>
+    <footer><span class="mudou" id="fErro" role="alert"></span><button type="button" class="bt" data-fechar>Cancelar</button><button type="button" class="bt pri" id="fSalvar">${i === null ? 'Criar alerta' : 'Salvar alterações'}</button></footer>`);
+  const atualizar = () => { const p = ($('[data-fpri][aria-pressed="true"]') || {}).dataset; $('#fPrevia').innerHTML = previaFaixa(p ? p.fpri : 'info', $('#fTit').value || 'Título do alerta', $('#fDet').value); };
+  $('#fTit').addEventListener('input', atualizar); $('#fDet').addEventListener('input', atualizar);
+}
+function quandoHtml(ag) {
+  return ag ? `<span class="rot" id="fHorRot">Horários</span><div class="chips" role="group" aria-labelledby="fHorRot" style="margin-top:4px"><button type="button" class="chip" aria-pressed="true">20:15 ✕</button><input class="inp" type="time" aria-label="Novo horário" style="width:auto"><button type="button" class="bt">Adicionar</button></div>
+      <span class="rot" id="fDiaRot" style="display:block;margin-top:8px">Dias da semana</span><div class="chips" role="group" aria-labelledby="fDiaRot" style="margin-top:4px">${['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((d) => `<button type="button" class="chip" data-chip aria-pressed="${d === 'Seg' || d === 'Qui'}">${d}</button>`).join('')}</div>`
+    : `<div class="duas"><div class="campo"><label for="fCond">Quando</label><select id="fCond"><option>Delivery esperando nesta loja</option><option>Balcão esperando nesta loja</option><option>Em produção nesta loja</option></select></div>
+      <div class="campo"><label for="fLim">Chega a (número de pedidos)</label><input id="fLim" type="number" min="1" placeholder="Ex.: 8"></div></div>
+      <div class="campo"><label for="fRep">Não repetir antes de</label><select id="fRep"><option>15 minutos</option><option>30 minutos</option><option>1 hora</option></select></div>
+      <p class="ajuda">Conta só os pedidos desta loja. Avaliado a cada ~20 s; não repete enquanto ainda está na tela.</p>`;
+}
+function dialogoTestar(i) {
+  S.alDialogo = true; const a = ALERTAS[i]; const d = $('#aDialogo');
+  d.innerHTML = `<header><h3 id="aDiaT">Testar o alerta agora?</h3></header>
+    <div class="a-corpo"><p><b>${a.t}</b> aparece de verdade agora nos KDS <b>${a.kds}</b> da loja ${a.loja} — onde estiverem ligados, na nuvem ou no servidor da loja. A cozinha vai ver e ouvir.</p>
+    ${a.kds.includes('Fritadeira') ? '<div class="nota neutra"><span>A Fritadeira está desligada: não recebe.</span></div>' : ''}</div>
+    <footer><button type="button" class="bt" data-fechar>Cancelar</button><button type="button" class="bt pri" id="dDisparar">Disparar agora</button></footer>`;
+  d.hidden = false; $('#aFundo').hidden = false;
+}
+
+// ═════════════════════ cliques do app e da página ═════════════════════
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('button, a[data-ir]'); if (!b) return;
+  if (b.closest('#kds')) return; // o KDS trata os dele
+  const d = b.dataset;
+  if (d.aba) return irPara(d.aba);
+  if (d.ir) { e.preventDefault(); return irPara(d.ir); }
+  if (d.pTema) { S.tema = d.pTema; aplicarTema(); marcarProto(); return renderKds(); }
+  if (d.pEsc) { S.esc = Number(d.pEsc); marcarProto(); return renderKds(); }
+  if (d.pFila) { S.fila = d.pFila; marcarProto(); return renderKds(); }
+  if (d.fechar !== undefined) return fecharApp();
+  if (d.editar) { if (S.aba !== 'rota') irPara('rota'); return gavetaKds(d.editar); }
+  if (d.sim) { S.simModo = 'produto'; S.simProd = d.sim; renderRota(); return $('#simRes').scrollIntoView({ block: 'nearest' }); }
+  if (d.simmodo) { S.simModo = d.simmodo; return renderRota(); }
+  // ── edição da ordem da rota ──
+  if (d.pEx) { S.exemplo = d.pEx; carregarExemplo(S.exemplo); S.rotaEd = null; marcarProto(); return irPara('rota'); }
+  if (d.mv) {
+    const k = d.k;
+    if (d.mv === 'junto') { S.juntoDe = S.juntoDe === k ? null : k; return renderRota(); }
+    if (d.mv === 'tirar') { tirarDe(S.rotaEd, k); limpar(S.rotaEd); S.rotaEd.fora.push(k); ajustarVai(S.rotaEd); S.juntoDe = null; renderRota(); return toastApp(`${KDSS[k].nome} saiu da rota: termina aqui (os produtos continuam nele)`); }
+    aplicarMov(S.rotaEd, k, { tipo: d.mv }); S.juntoDe = null; renderRota();
+    const bt = $(`[data-mv="${d.mv}"][data-k="${k}"]`); if (bt && !bt.disabled) bt.focus();
+    return toastApp(`${KDSS[k].nome} → etapa ${idxDe(S.rotaEd, k) + 1}`);
+  }
+  if (d.junto) { aplicarMov(S.rotaEd, d.k, { tipo: 'junto', etapa: idxDe(S.rotaEd, d.junto) }); S.juntoDe = null; renderRota(); return toastApp(`${KDSS[d.k].nome} junto com ${KDSS[d.junto].nome}, na etapa ${idxDe(S.rotaEd, d.k) + 1}`); }
+  if (d.incluir) { const ed = S.rotaEd; ed.fora = ed.fora.filter((x) => x !== d.incluir); if (!ed.etapas.length) ed.etapas.push({ nome: '', kds: [] }); ed.etapas[0].kds.push(d.incluir); delete ed.termina[d.incluir]; ajustarVai(ed); S.incluir = false; renderRota(); return toastApp(`${KDSS[d.incluir].nome} entrou na etapa 1 — mova para onde ele fica`); }
+  if (d.ren !== undefined) { S.renomeia = Number(d.ren); return renderRota(); }
+  if (d.renok !== undefined) { const i = Number(d.renok); const inp = $('#renInp'); if (inp) S.rotaEd.etapas[i].nome = inp.value.trim(); S.renomeia = null; return renderRota(); }
+  if (d.marcar) { $$('input[type="checkbox"]', b.closest('.cat')).forEach((x) => { x.checked = true; }); $('#gMudou').textContent = 'Alterações ainda não salvas'; return; }
+  if (d.tv) { S.tvN = Number(d.tv); tvPagina = 0; $$('[data-tv]').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); return renderTv(); }
+  if (d.alsit) { alSit = d.alsit; return renderAlertas(); }
+  if (d.alnovo !== undefined) return gavetaAlerta(null);
+  if (d.aleditar) return gavetaAlerta(Number(d.aleditar));
+  if (d.altestar) return dialogoTestar(Number(d.altestar));
+  if (d.alexcluir) return toastApp('No app: diálogo "Excluir alerta?" antes de apagar');
+  if (d.chip !== undefined) { b.setAttribute('aria-pressed', String(b.getAttribute('aria-pressed') !== 'true')); return; }
+  if (d.fpri) { $$('[data-fpri]').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); $('#fPrevia').innerHTML = previaFaixa(d.fpri, $('#fTit').value || 'Título do alerta', $('#fDet').value); return; }
+  if (d.ftipo) { $$('[data-ftipo]').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); $('#fQuando').innerHTML = quandoHtml(d.ftipo === 'Agendado'); return; }
+  if (b.classList.contains('liga')) { const on = b.getAttribute('aria-pressed') !== 'true'; b.setAttribute('aria-pressed', String(on)); const t = b.querySelector('span:last-child'); if (/Ativo|Inativo/.test(t.textContent)) t.textContent = on ? 'Ativo' : 'Inativo'; else t.textContent = on ? 'Ligado' : 'Desligado (é pulado)'; return; }
+  switch (b.id) {
+    case 'edEditar': iniciarEdicao(); renderRota(); return $('#edSalvar').focus();
+    case 'edCancelar': S.rotaEd = null; renderRota(); toastApp('Edição cancelada: nada mudou'); return $('#edEditar').focus();
+    case 'edIncluir': S.incluir = !S.incluir; return renderRota();
+    case 'edSalvar': if (S.renomeia !== null) { const inp = $('#renInp'); if (inp) S.rotaEd.etapas[S.renomeia].nome = inp.value.trim(); S.renomeia = null; } return dialogoSalvarRota();
+    case 'dVoltarRota': $('#aDialogo').hidden = true; $('#aFundo').hidden = true; S.rotaDialogo = false; return;
+    case 'dSalvarRota': return salvarRota();
+    case 'gSalvar': if (S.rotaGaveta === 'montagem' && KDSS.montagem && KDSS.montagem.prods.includes('X-Burger')) { $('#aGaveta').hidden = true; return dialogoSalvarMontagem(); } fecharApp(); return toastApp('Rota salva');
+    case 'dVoltar': $('#aDialogo').hidden = true; S.rotaDialogo = false; return gavetaKds('montagem');
+    case 'dSalvar': fecharApp(); return toastApp('Montagem salva · o X-Burger continua nos dois');
+    case 'dDisparar': fecharApp(); return toastApp('Alerta disparado nos KDS marcados');
+    case 'fSalvar': {
+      const lim = $('#fLim'); const err = $('#fErro');
+      if (lim && !lim.value) { err.textContent = 'Informe o número de pedidos do condicional.'; return lim.focus(); }
+      if (!$('#fTit').value.trim()) { err.textContent = 'Escreva o título do alerta.'; return $('#fTit').focus(); }
+      fecharApp(); return toastApp('Alerta salvo');
+    }
+    case 'pPausa': S.pausa = !S.pausa; S.logo = false; S.ifoodReabriu = false; marcarProto(); return renderKds();
+    case 'pLogo': S.pausa = true; S.ifoodReabriu = false; S.logo = !S.logo; marcarProto(); return renderKds();
+    case 'pReabre': if (!S.pausa || S.ifoodReabriu) { S.pausa = true; S.logo = false; S.ifoodReabriu = false; marcarProto(); renderKds(); return toastKds('Pausa simulada: toque em "iFood reabriu" de novo'); }
+      S.ifoodReabriu = true; S.logo = false; novoAviso({ tipo: 'pausa', pri: 'info', origem: 'Pausa dos canais', titulo: '▶ iFood reabriu', det: 'Voltou a receber pedidos às ' + hm(agora()), fica: false, resta: 30 }); marcarProto(); renderKds(); return toastKds('iFood reabriu');
+    case 'pUrg': if (S.aba !== 'kds' && S.aba !== 'avisos') irPara('kds'); simularUrgente(); return renderKds();
+    case 'pFarol': if (S.aba !== 'kds' && S.aba !== 'avisos') irPara('kds'); simularFarol(); return renderKds();
+    case 'pErro': S.erro = !S.erro; marcarProto(); return renderKds();
+    case 'pOff': S.off = !S.off; marcarProto(); return renderKds();
+    case 'pSom': S.somBloq = !S.somBloq; marcarProto(); return renderKds();
+    case 'pVersao': S.versao = S.versao === 1 ? 2 : 1; marcarProto(); renderKds(); if (S.aba === 'alertas') renderAlertas(); return;
+  }
+});
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'simProd') { S.simProd = e.target.value; $('#simRes').innerHTML = simular(); }
+  if (e.target.dataset && e.target.dataset.vai && S.rotaEd) { const k = e.target.dataset.vai; const v = e.target.value; S.rotaEd.vai[k] = v || null; S.rotaEd.termina[k] = !v; toastApp(v ? `${KDSS[k].nome} vai para ${KDSS[v].nome}` : `${KDSS[k].nome} termina aqui`); }
+});
+document.addEventListener('keydown', (e) => { if (e.target.id === 'renInp' && e.key === 'Enter') { e.preventDefault(); $(`[data-renok="${S.renomeia}"]`).click(); } });
+// ── arrastar os KDS entre as etapas (mouse); no toque e no teclado, "Antes", "Depois" e "Junto com…" ──
+document.addEventListener('dragstart', (e) => {
+  const b = e.target.closest && e.target.closest('.bloco'); if (!b || !S.rotaEd) return;
+  S.arrasta = b.dataset.kds; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', S.arrasta);
+  b.classList.add('pegado'); setTimeout(marcarAlvos, 0); // sem redesenhar: o navegador cancela o arrasto se a origem some
+});
+const alvoDe = (el) => el && el.closest && (el.closest('.zona') || el.closest('.col-fluxo[data-etapa]'));
+const movDe = (el) => (el.dataset.nova !== undefined ? { tipo: 'nova', pos: Number(el.dataset.nova) } : { tipo: 'junto', etapa: Number(el.dataset.etapa) });
+document.addEventListener('dragover', (e) => {
+  const a = alvoDe(e.target); if (!a || !S.arrasta) return;
+  $$('.sobre').forEach((x) => { if (x !== a) x.classList.remove('sobre'); });
+  if (a.classList.contains('proibido')) { e.dataTransfer.dropEffect = 'none'; return; }
+  e.preventDefault(); e.dataTransfer.dropEffect = 'move'; a.classList.add('sobre');
+});
+document.addEventListener('drop', (e) => {
+  const a = alvoDe(e.target); if (!a || !S.arrasta || a.classList.contains('proibido')) return;
+  e.preventDefault(); const k = S.arrasta; aplicarMov(S.rotaEd, k, movDe(a)); S.arrasta = null; S.juntoDe = null; renderRota(); toastApp(`${KDSS[k].nome} → etapa ${idxDe(S.rotaEd, k) + 1}`);
+});
+document.addEventListener('dragend', () => { if (!S.arrasta) return; S.arrasta = null; $$('.pegado').forEach((x) => x.classList.remove('pegado')); marcarAlvos(); });
+if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => ajustarFluxo()).observe($('#shellRota'));
+$('#aFundo').addEventListener('click', fecharApp);
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  // Esc fecha só a peça de cima (diálogo antes da gaveta).
+  if (!$('#aDialogo').hidden || !$('#aGaveta').hidden) return fecharApp();
+  if (S.dialogo) { S.dialogo = false; return renderKds(); }
+  if (S.lista) { S.lista = false; return renderKds(); }
+  if (S.gaveta) { S.gaveta = null; return renderKds(); }
+});
+// abas: setas do teclado
+$('.abas').addEventListener('keydown', (e) => {
+  const abas = $$('.aba'); const i = abas.indexOf(document.activeElement); if (i < 0) return;
+  const j = e.key === 'ArrowRight' ? (i + 1) % abas.length : e.key === 'ArrowLeft' ? (i - 1 + abas.length) % abas.length : -1;
+  if (j >= 0) { e.preventDefault(); abas[j].focus(); irPara(abas[j].dataset.aba); }
+});
+
+function aplicarTema() { document.documentElement.dataset.tema = S.tema; }
+function marcarProto() {
+  $$('[data-p-tema]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.pTema === S.tema)));
+  $$('[data-p-esc]').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.pEsc) === S.esc)));
+  $$('[data-p-fila]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.pFila === S.fila)));
+  $('#pPausa').setAttribute('aria-pressed', String(S.pausa)); $('#pLogo').setAttribute('aria-pressed', String(S.logo));
+  $('#pVersao').setAttribute('aria-pressed', String(S.versao === 1)); $$('[data-p-ex]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.pEx === S.exemplo)));
+  if (S.versao === 1) document.documentElement.dataset.versao = '1'; else delete document.documentElement.dataset.versao;
+  $('#pErro').setAttribute('aria-pressed', String(S.erro)); $('#pOff').setAttribute('aria-pressed', String(S.off)); $('#pSom').setAttribute('aria-pressed', String(S.somBloq));
+}
+function irPara(aba) {
+  fecharApp(); S.aba = aba;
+  $$('.aba').forEach((b) => { const on = b.dataset.aba === aba; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; });
+  $$('.tela').forEach((t) => { t.hidden = t.id !== `tela-${aba}`; });
+  if (aba === 'kds' || aba === 'avisos') { moverKds(); if (aba === 'avisos' && !S.gaveta) S.gaveta = 'avisos'; if (aba === 'kds' && S.gaveta === 'avisos') S.gaveta = null; renderKds(); }
+  if (aba === 'rota') renderRota();
+  if (aba === 'tv') renderTv();
+  if (aba === 'alertas') renderAlertas();
+  if (!MEDIR) history.replaceState(null, '', `#${aba}`);
+}
+
+// ═════════════════════ estado vindo do endereço (#aba&gaveta=…) ═════════════════════
+function aplicar(params) {
+  S = estadoInicial();
+  const g = (k) => params.get(k);
+  if (g('tema')) S.tema = g('tema');
+  if (g('v') === '1') S.versao = 1;
+  if (g('exemplo')) S.exemplo = g('exemplo');
+  if (g('esc')) S.esc = Number(g('esc')) / 100;
+  if (g('fila')) S.fila = g('fila');
+  if (g('pausa')) S.pausa = true;
+  if (g('logo')) { S.pausa = true; S.logo = true; }
+  if (g('erro')) S.erro = true;
+  if (g('off')) S.off = true;
+  if (g('som') === '0') S.somBloq = true;
+  if (g('folha')) S.resumo = true;
+  if (g('n')) S.tvN = Number(g('n'));
+  carregarExemplo(S.exemplo);
+  if (g('sim')) S.simModo = g('sim');
+  aplicarTema(); marcarProto();
+  $$('[data-tv]').forEach((x) => x.setAttribute('aria-pressed', String(Number(x.dataset.tv) === S.tvN)));
+  const aba = g('aba') || 'kds';
+  if (g('urgente')) simularUrgente();
+  if (g('farol')) simularFarol();
+  if (aba === 'kds' && g('gaveta')) S.gaveta = g('gaveta') === '1' ? 'tela' : g('gaveta');
+  if (aba === 'avisos') S.gaveta = g('gaveta') && g('gaveta') !== '1' ? g('gaveta') : 'avisos';
+  if (g('lista')) S.lista = true;
+  if (aba === 'kds' && g('dialogo')) S.dialogo = true;
+  irPara(aba);
+  if (aba === 'rota' && g('gaveta')) gavetaKds(KDSS.montagem ? 'montagem' : Object.keys(KDSS)[0]);
+  if (aba === 'rota' && g('dialogo')) dialogoSalvarMontagem();
+  if (aba === 'rota' && g('editar')) {
+    iniciarEdicao(); const ed = S.rotaEd;
+    if (g('junto')) S.juntoDe = g('junto');
+    if (g('incluir')) S.incluir = true;
+    if (g('renomeia')) S.renomeia = 1;
+    if (g('salvar')) { const k = Object.keys(KDSS).find((x) => KDSS[x].tipo !== 'despacho' && ed.etapas[0].kds.includes(x)); aplicarMov(ed, ed.etapas[0].kds.length > 1 ? ed.etapas[0].kds[1] : k, { tipo: 'depois' }); ed.etapas[ed.etapas.length - 1].nome = ed.etapas[ed.etapas.length - 1].nome || 'Saída'; }
+    if (g('invalido')) { const d = Object.keys(KDSS).find((x) => KDSS[x].tipo === 'despacho'); if (d) aplicarMov(ed, d, { tipo: 'antes' }); }
+    if (g('arrasta')) S.arrasta = g('arrasta');
+    renderRota();
+    if (g('salvar') || g('invalido')) dialogoSalvarRota();
+  }
+  if (aba === 'alertas' && g('gaveta')) gavetaAlerta(g('gaveta') === 'cond' ? 2 : 1);
+  if (aba === 'alertas' && g('dialogo')) dialogoTestar(1);
+}
+
+// ═════════════════════ medição (V45): nada passa da borda, em cada estado ═════════════════════
+const ESTADOS = [
+  'kds', 'kds&pausa=1&urgente=1&erro=1&som=0&off=1', 'kds&logo=1&farol=1', 'kds&gaveta=tela', 'kds&gaveta=historico', 'kds&lista=1&urgente=1&farol=1', 'kds&folha=1', 'kds&dialogo=1', 'kds&esc=150', 'kds&esc=85', 'kds&fila=vazio&erro=1', 'kds&tema=escuro&pausa=1',
+  'kds&v=1', 'kds&v=1&pausa=1&urgente=1&erro=1&som=0&off=1', 'kds&v=1&lista=1&urgente=1&farol=1',
+  'rota', 'rota&gaveta=1', 'rota&dialogo=1', 'rota&sim=pedido',
+  'rota&editar=1', 'rota&editar=1&junto=chapa', 'rota&editar=1&incluir=1&renomeia=1', 'rota&editar=1&arrasta=despacho', 'rota&editar=1&salvar=1', 'rota&editar=1&invalido=1',
+  'rota&exemplo=pizzaria', 'rota&exemplo=pizzaria&editar=1&arrasta=corte', 'rota&exemplo=pequena', 'rota&exemplo=pequena&editar=1&incluir=1',
+  'avisos', 'avisos&gaveta=historico',
+  'tv&n=8', 'tv&n=25', 'tv&n=60',
+  'alertas', 'alertas&gaveta=1', 'alertas&gaveta=cond', 'alertas&dialogo=1',
+];
+function medirAgora(nome) {
+  const vw = document.documentElement.clientWidth;
+  const r = { estado: nome, innerWidth: innerWidth, innerHeight: innerHeight, scrollWidth: document.documentElement.scrollWidth, estouros: [] };
+  if (r.scrollWidth > innerWidth) r.estouros.push(`página rola para o lado: ${r.scrollWidth} > ${innerWidth}`);
+  const nomeEl = (el) => `${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''}${el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\s+/).slice(0, 2).join('.') : ''}`;
+  for (const el of document.querySelectorAll('body *')) {
+    if (el.closest('[data-medida="letreiro"]') || el.closest('#medida')) continue;
+    if (el.closest('[hidden]') || el.closest('template')) continue;
+    const cs = getComputedStyle(el); if (cs.display === 'none' || cs.visibility === 'hidden' || el.classList.contains('sr')) continue;
+    const b = el.getBoundingClientRect(); if (!b.width && !b.height) continue;
+    if (b.right > vw + 1) { r.estouros.push(`${nomeEl(el)} passa da janela: ${Math.round(b.right)} > ${vw}`); continue; }
+    if ((cs.overflowX === 'auto' || cs.overflowX === 'scroll') && el.scrollWidth > el.clientWidth + 1) r.estouros.push(`${nomeEl(el)} rola para o lado: ${el.scrollWidth} > ${el.clientWidth}`);
+    // conteúdo CORTADO (caixa que esconde o que sobra e não rola): nada pode ficar escondido, nem embaixo
+    // (o texto só para leitor de tela — 1×1 px recortado — é de propósito e fica de fora)
+    if (cs.overflowX === 'hidden' && el.id !== 'kds' && !(el.clientWidth <= 1 && el.clientHeight <= 1) && (el.scrollWidth > el.clientWidth + 1 || (cs.overflowY === 'hidden' && el.scrollHeight > el.clientHeight + 1))) r.estouros.push(`${nomeEl(el)} corta o conteúdo: ${el.scrollWidth}×${el.scrollHeight} > ${el.clientWidth}×${el.clientHeight}`);
+    let p = el.parentElement;
+    while (p && p !== document.body && getComputedStyle(p).overflowX === 'visible') p = p.parentElement;
+    if (p && p !== document.body && !p.closest('[data-medida="letreiro"]')) {
+      const pb = p.getBoundingClientRect(); const lim = pb.left + p.clientLeft + p.clientWidth;
+      if (b.right > lim + 1 && b.left < lim) r.estouros.push(`${nomeEl(el)} passa da borda de ${nomeEl(p)}: ${Math.round(b.right)} > ${Math.round(lim)}`);
+    }
+  }
+  const k = $('#kds');
+  if (k && !k.closest('[hidden]')) {
+    const top = $('#kTop').getBoundingClientRect().height, fx = $('#kFaixas').getBoundingClientRect().height, alt = k.getBoundingClientRect().height;
+    r.cabecalho = { px: Math.round(top), pct: Math.round((top / alt) * 1000) / 10, comFaixas: Math.round(top + fx), aparelho: Math.round(alt) };
+    // cada botão de toque do KDS com 48 px ou mais
+    r.toquePequeno = $$('#kds button').filter((x) => { const s = getComputedStyle(x); if (s.display === 'none' || x.closest('[hidden]')) return false; const q = x.getBoundingClientRect(); return q.width > 0 && (q.height < 47.5 || q.width < 47.5); }).map((x) => `${nomeEl(x)} ${Math.round(x.getBoundingClientRect().width)}×${Math.round(x.getBoundingClientRect().height)}`).slice(0, 8);
+    const l = $('#kLetreiro'); if (l && !$('#kRodape').hidden) r.letreiro = l.classList.contains('corre') ? `corre ${l.style.getPropertyValue('--dist')}` : 'parado (cabe)';
+  }
+  r.estouros = r.estouros.slice(0, 12);
+  return r;
+}
+function medirTudo() {
+  const lista = PARAMS.get('medir') === 'todos' ? ESTADOS : [location.hash.replace(/^#/, '').replace(/&?medir=[^&]*/, '')];
+  const out = [];
+  for (const est of lista) { aplicar(new URLSearchParams(est.replace(/^([a-z]+)(&|$)/, 'aba=$1$2'))); void document.body.offsetHeight; out.push(medirAgora(est)); }
+  const pre = $('#medida'); pre.hidden = false; pre.textContent = 'MEDIDA ' + JSON.stringify(out);
+}
+
+// ═════════════════════ início ═════════════════════
+S = estadoInicial();
+montarKds();
+aplicar(PARAMS);
+if (MEDIR) {
+  let feito = false; const vai = () => { if (feito) return; feito = true; medirTudo(); };
+  (document.fonts ? document.fonts.ready : Promise.resolve()).then(() => setTimeout(vai, 30));
+  setTimeout(vai, 2500);
+} else {
+  // relógio, contadores da pausa, minutos dos cartões e o tempo dos avisos que saem sozinhos
+  setInterval(() => {
+    if (!$('#kds')) return;
+    $('#kHora').textContent = hm(agora());
+    const a = ordenados()[0];
+    if (a && !a.fica) { a.resta -= 1; if (a.resta <= 0) { S.avisos = S.avisos.filter((x) => x !== a); S.hist.unshift({ em: hm(agora()), tit: a.titulo, de: a.origem, st: 'Saiu sozinho', cls: '' }); renderRodape(); renderLista(); } else if (S.lista) renderLista(); }
+    if (S.pausa) { const fim = aHoras(20, 30); const resta = Math.max(0, Math.round((fim - agora().getTime()) / 1000)); const c = $('[data-contador]'); if (c && !S.logo) c.innerHTML = `<small>faltam</small>${mmss(resta)}`; }
+  }, 1000);
+  setInterval(() => { if (S.aba === 'kds' || S.aba === 'avisos') renderFila(); }, 30000);
+  setInterval(() => { if (S.aba === 'tv') { tvPagina += 1; renderTv(); } }, 8000);
+  addEventListener('resize', () => { if (S.aba === 'tv') renderTv(); });
+  // a conta de caber da TV depende da fonte: refaz quando as fontes chegam
+  if (document.fonts) document.fonts.ready.then(() => { if (S.aba === 'tv') renderTv(); medirLetreiro(); });
+}
+</script>
+</body>
+</html>
