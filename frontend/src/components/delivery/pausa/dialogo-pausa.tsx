@@ -8,8 +8,11 @@ import { Button } from '@/components/ui/button';
 import { Dialogo } from '@/components/ui/sobreposto';
 import {
   DESCRICAO_DO_CANAL,
-  NOME_NA_FRASE,
+  alternarTodos,
   fimDaPrevia,
+  listaDeNomes,
+  rotuloDoPausar,
+  todosMarcados,
   fraseDaPrevia,
   montarMensagemDaPausa,
   voltaDaPrevia,
@@ -106,7 +109,12 @@ export function DialogoPausa({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [motivo, outro, livre, livre99, ate, canais, estado.motivos]);
 
-  const rotuloDoBotao = n === 0 ? '⏸ Pausar' : n === 1 ? `⏸ Pausar ${NOME_NA_FRASE[[...canais][0]] ?? 'o canal'}` : `⏸ Pausar ${n} canais`;
+  const codigosDisponiveis = disponiveis.map((c) => c.canal);
+  const todos = todosMarcados(canais, codigosDisponiveis);
+  const rotuloDoBotao = rotuloDoPausar(
+    codigosDisponiveis.filter((c) => canais.has(c)),
+    codigosDisponiveis,
+  );
 
   async function pausar() {
     if (falta || enviando) return;
@@ -200,6 +208,35 @@ export function DialogoPausa({
                 </button>
               );
             })}
+            {/* "Todos os canais" (pedido do dono, 11/11): marca ou desmarca todos de uma vez; a combinação segue livre. */}
+            {disponiveis.length > 1 && (
+              <button
+                type="button"
+                aria-pressed={todos}
+                onClick={() => setCanais((s) => alternarTodos(s, codigosDisponiveis))}
+                className={cn(
+                  'min-w-0 rounded-xl border-2 p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  todos ? 'border-primary bg-primary/10' : 'border-dashed border-border bg-card hover:border-primary/60',
+                )}
+              >
+                <span className="flex items-center gap-2 font-display text-sm font-bold">
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      'grid h-5 w-5 shrink-0 place-items-center rounded-md border text-xs',
+                      todos ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-transparent',
+                    )}
+                  >
+                    ✓
+                  </span>
+                  Todos os canais
+                </span>
+                <span className="mt-1 block text-xs text-muted-foreground">{listaDeNomes(disponiveis.map((c) => c.nome))} de uma vez</span>
+                <span className="mt-1 block text-xs font-semibold">
+                  {codigosDisponiveis.filter((c) => canais.has(c)).length} de {disponiveis.length} marcados
+                </span>
+              </button>
+            )}
             {semPoder.map((c) => (
               <div key={c.canal} aria-disabled="true" className="min-w-0 rounded-xl border-2 border-dashed border-border bg-card p-3 text-left">
                 <span className="font-display text-sm font-bold text-muted-foreground">{c.nome}</span>

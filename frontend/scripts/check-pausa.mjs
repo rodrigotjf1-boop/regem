@@ -116,6 +116,22 @@ try {
     assert.equal(`${fim.getHours()}:${fim.getMinutes()}`, '23:59');
   });
 
+  caso('"Todos os canais": marca todos (ou desmarca, se já estão); um a um também chega a "todos"; o botão diz "todos"', () => {
+    const tres = ['cardapio', 'ifood', 'food99'];
+    assert.deepEqual([...p.alternarTodos(new Set(['ifood']), tres)].sort(), ['cardapio', 'food99', 'ifood']);
+    assert.deepEqual([...p.alternarTodos(new Set(tres), tres)], []);
+    assert.equal(p.todosMarcados(new Set(['cardapio', 'food99', 'ifood']), tres), true);
+    assert.equal(p.todosMarcados(new Set(['cardapio', 'ifood']), tres), false);
+    assert.equal(p.todosMarcados(new Set(['cardapio']), ['cardapio']), false); // com um canal só, não há "todos"
+    assert.equal(p.rotuloDoPausar([], tres), '⏸ Pausar');
+    assert.equal(p.rotuloDoPausar(['ifood'], tres), '⏸ Pausar o iFood');
+    assert.equal(p.rotuloDoPausar(['cardapio', 'food99'], tres), '⏸ Pausar 2 canais');
+    assert.equal(p.rotuloDoPausar(tres, tres), '⏸ Pausar todos os canais');
+    assert.equal(p.rotuloDoPausar(['cardapio', 'ifood'], ['cardapio', 'ifood']), '⏸ Pausar todos os canais');
+    assert.equal(p.listaDeNomes(['Cardápio digital', 'iFood', '99']), 'Cardápio digital, iFood e 99');
+    assert.equal(p.listaDeNomes(['Cardápio digital', '99']), 'Cardápio digital e 99');
+  });
+
   console.log(`\n${n} grupos de casos: tudo certo.`);
 } finally {
   rmSync(tmp, { recursive: true, force: true });

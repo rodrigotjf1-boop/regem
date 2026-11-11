@@ -112,6 +112,9 @@ legend{font-family:var(--display);font-weight:700;font-size:14.5px;margin:0 0 8p
 .canal[aria-pressed="true"] .marca{background:var(--navy);border-color:var(--navy);color:#fff}
 .canal .estado{font-size:12px;font-weight:700;color:var(--ok)}
 .canal .estado.parado{color:var(--warn)}
+.canal .estado.neutro{color:var(--ink-2)}
+.canal.todos{border-style:dashed}
+.canal.todos[aria-pressed="true"]{border-style:solid}
 .opcoes{display:flex;flex-wrap:wrap;gap:8px}
 .op{min-height:40px;padding:0 13px;border-radius:999px;border:1.5px solid var(--line-2);background:#fff;font-weight:600;font-size:13.5px;text-align:left}
 .op[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
@@ -324,6 +327,8 @@ code{font-family:var(--mono);font-size:12.5px;background:#EEF2F6;border-radius:5
               <button type="button" class="canal" data-canal="cd" aria-pressed="true"><b><span class="marca">✓</span>Cardápio digital</b><small>Site, WhatsApp, Instagram e Messenger</small><span class="estado">aberto agora</span></button>
               <button type="button" class="canal" data-canal="if" aria-pressed="false"><b><span class="marca">✓</span>iFood</b><small>A loja fica "fechada temporariamente" no iFood</small><span class="estado">aberto agora</span></button>
               <button type="button" class="canal" data-canal="n99" aria-pressed="false"><b><span class="marca">✓</span>99</b><small>A loja fica pausada no app da 99</small><span class="estado">aberta agora</span></button>
+              <!-- Pedido do dono (11/11): um cartão a mais para marcar ou desmarcar todos de uma vez; a combinação segue livre. -->
+              <button type="button" class="canal todos" data-todos aria-pressed="false"><b><span class="marca">✓</span>Todos os canais</b><small>Cardápio digital, iFood e 99 de uma vez</small><span class="estado neutro" id="todos-conta">1 de 3 marcados</span></button>
             </div>
           </fieldset>
 
@@ -612,6 +617,7 @@ Assim que reabrirmos, é só mandar o seu pedido por aqui. Obrigado pela paciên
     fechando: 'Estamos *perto do horário de fechar*',
   };
   const NOMES = { cd: 'o cardápio digital', if: 'o iFood', n99: 'a 99' };
+  const TODOS = ['cd', 'if', 'n99'];
   const agora = () => new Date();
   const doisDig = (n) => String(n).padStart(2, '0');
   function voltaDe() {
@@ -637,6 +643,9 @@ Assim que reabrirmos, é só mandar o seu pedido por aqui. Obrigado pela paciên
   }
   function mostrarDialogo() {
     for (const b of document.querySelectorAll('[data-canal]')) b.setAttribute('aria-pressed', String(dlg.canais.has(b.dataset.canal)));
+    // "Todos os canais": marcado quando os três estão marcados (um a um ou pelo cartão)
+    document.querySelector('[data-todos]').setAttribute('aria-pressed', String(dlg.canais.size === TODOS.length));
+    document.getElementById('todos-conta').textContent = `${dlg.canais.size} de ${TODOS.length} marcados`;
     for (const b of document.querySelectorAll('[data-motivo]')) b.setAttribute('aria-pressed', String(dlg.motivo === b.dataset.motivo));
     for (const b of document.querySelectorAll('[data-t-livre]')) b.setAttribute('aria-pressed', String(dlg.livre === b.dataset.tLivre));
     for (const b of document.querySelectorAll('[data-t99]')) b.setAttribute('aria-pressed', String(dlg.t99 === b.dataset.t99));
@@ -655,7 +664,8 @@ Assim que reabrirmos, é só mandar o seu pedido por aqui. Obrigado pela paciên
     bt.disabled = n === 0 || semMotivo;
     falta.hidden = !bt.disabled;
     falta.textContent = n === 0 ? 'Escolha o que pausar.' : 'Escreva o motivo.';
-    bt.textContent = n === 0 ? '⏸ Pausar' : n === 1 ? `⏸ Pausar ${NOMES[[...dlg.canais][0]]}` : `⏸ Pausar ${n} canais`;
+    bt.textContent =
+      n === 0 ? '⏸ Pausar' : n === 1 ? `⏸ Pausar ${NOMES[[...dlg.canais][0]]}` : n === TODOS.length ? '⏸ Pausar todos os canais' : `⏸ Pausar ${n} canais`;
     document.getElementById('conta-outro').textContent = `${dlg.outro.length}/80`;
     previa();
     ajustarAltura();
@@ -725,6 +735,11 @@ Assim que reabrirmos, é só mandar o seu pedido por aqui. Obrigado pela paciên
   document.addEventListener('click', (e) => {
     const g = e.target.closest('[data-grupo]');
     if (g) { estado[g.dataset.grupo] = g.dataset.valor; aplicar(); mostrarAjustes(); return; }
+    if (e.target.closest('[data-todos]')) {
+      dlg.canais = dlg.canais.size === TODOS.length ? new Set() : new Set(TODOS);
+      mostrarDialogo();
+      return;
+    }
     const c = e.target.closest('[data-canal]');
     if (c) { dlg.canais.has(c.dataset.canal) ? dlg.canais.delete(c.dataset.canal) : dlg.canais.add(c.dataset.canal); mostrarDialogo(); return; }
     const m = e.target.closest('[data-motivo]');
