@@ -3913,6 +3913,8 @@ export class ProducaoPedidoService {
         id: equipamento.id,
         nome: equipamento.nome,
         escopo: equipamento.escopo,
+        // A loja de cada KDS (nula = da rede): o cadastro de alertas mostra só os KDS da loja do alerta (mig 409).
+        unidadeId: equipamento.unidadeId,
         setorId: equipamento.setorId,
         proximoKdsId: equipamento.proximoKdsId,
         mapa: sql<boolean>`coalesce(${kdsTelaAjuste.mostraMapa}, false)`,

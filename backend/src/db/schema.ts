@@ -2125,6 +2125,9 @@ export const kdsAlertaConfig = pgTable('kds_alerta_config', {
   diasSemana: jsonb('dias_semana').notNull().default('[0,1,2,3,4,5,6]'), // 0=dom..6=sáb
   condicao: jsonb('condicao'), // { fonte, operador, limiar }
   duracaoSeg: integer('duracao_seg').notNull().default(60),
+  // Os KDS que recebem (mig 409): nulo = todos os KDS da loja do alerta; e se ele fica até o "Ciente" (em vez do tempo).
+  kdsIds: jsonb('kds_ids'),
+  ateCiente: boolean('ate_ciente').notNull().default(false),
   ativo: boolean('ativo').notNull().default(true),
   criadoPor: uuid('criado_por'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

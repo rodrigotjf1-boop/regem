@@ -136,6 +136,21 @@ describe('RealtimeGateway — salas da loja, prioridade e quem manda alerta', ()
     expect((g.onAlerta(gerente, { titulo: 'Mesa 7', tipo: 'gestao' }) as any).alerta.tipo).toBe('loja');
   });
 
+  // Onda 2 (mig 409): o alerta cadastrado vai para os KDS escolhidos e pode ficar até o "Ciente".
+  it('alerta do sistema leva os KDS (só ids válidos; vazio = todos) e o "fica até o Ciente" (só verdadeiro de verdade)', () => {
+    const g = comBanco();
+    const server = (g as any).server;
+    const K = '11111111-2222-4333-8444-555555555555';
+    g.onAlertaSistema({ tenantId: 't1', titulo: 'Óleo', kds: [K, 'lixo'], fica: true });
+    g.onAlertaSistema({ tenantId: 't1', titulo: 'Mãos', kds: [], fica: 'true' });
+    g.onAlertaSistema({ tenantId: 't1', titulo: 'Sem nada' });
+    expect(server.emits.map((e: any) => [e.payload.kds, e.payload.fica])).toEqual([
+      [[K], true],
+      [null, false],
+      [null, false],
+    ]);
+  });
+
   it('pelo socket só presidente e gerente mandam alerta; vai para a loja de quem mandou', () => {
     const g = comBanco();
     const server = (g as any).server;

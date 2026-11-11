@@ -41,6 +41,13 @@ export class KdsAlertaController {
     return this.service.remover(user.tenantId, id, ator(user));
   }
 
+  // "Testar" um alerta cadastrado: dispara ESTE alerta agora, com a loja e os KDS dele (onda 2 da auditoria do KDS).
+  @Post(':id/testar')
+  @Roles('presidente', 'gerente')
+  testar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.testar(user.tenantId, id, ator(user));
+  }
+
   // Disparo manual/urgente — o presidente/gerente joga um alerta no rodapé na hora.
   @Post('disparar')
   @Roles('presidente', 'gerente')

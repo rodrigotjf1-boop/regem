@@ -19,6 +19,12 @@
   nuvem pela rota do token de sync. A foto recém-trocada no servidor da loja só vai à 99 depois de subir para a nuvem (o
   envio diz isso).
 
+- **Alertas do KDS: para quais KDS e até o "Ciente" (onda 2 da auditoria do KDS; mig 409 — colunas novas em
+  `kds_alerta_config`, que sincroniza; não mexe no `sync-daemon`).** Na NUVEM com o merge: a tela de cadastro (loja, KDS,
+  quanto tempo fica, prévia, "Testar" este alerta) e os alertas que a nuvem dispara. **No `.zip` 1.30.13:** a migration 409
+  no banco da loja e o servidor da loja disparando para os KDS escolhidos e com o "até o Ciente" — sem o `.zip`, os
+  alertas que ele dispara vão para todos os KDS da loja e saem pelo tempo, como antes.
+
 - **Gestão do catálogo: a calculadora de preço e "％ Taxas e margem" de cada loja (R3, fase F5; mig 407 só nuvem; mexe no
   `sync-daemon` só na lista `SO_NUVEM`).** Na NUVEM com o merge: a gaveta das taxas, os números das vendas e a calculadora
   (Produtos e preços e Conferir com os apps). **No `.zip` 1.30.13:** as mesmas gavetas na tela do servidor da loja, que pede

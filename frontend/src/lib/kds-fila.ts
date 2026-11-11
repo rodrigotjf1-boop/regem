@@ -166,6 +166,15 @@ export function recebeAviso(avisos: AvisosDoKds, tipo: unknown): boolean {
   return avisos[t] !== false;
 }
 
+/**
+ * O alerta cadastrado é para ESTA tela? (mig 409, A9: "a Fritadeira recebe só o da troca do óleo".) Sem lista de KDS =
+ * todos da loja; o aparelho que não escolheu qual KDS é (loja de um KDS só) recebe todos.
+ */
+export function alertaParaEstaTela(a: { kds?: unknown }, kdsSel: string | null | undefined): boolean {
+  if (!Array.isArray(a?.kds) || !a.kds.length || !kdsSel) return true;
+  return a.kds.includes(kdsSel);
+}
+
 /** A aba "Avisos" da gaveta ⚙: o que cada tipo traz e como aparece (protótipo, aba 3). */
 export const AVISOS_DA_TELA: { k: TipoDeAviso | 'cancelado' | 'alterado'; ic: string; nome: string; det: string; pri: string; trava?: boolean }[] = [
   { k: 'cancelado', ic: '❌', nome: 'Pedido cancelado', det: 'Não preparar; descartar o que já saiu. Bipe forte.', pri: 'Urgente · fica até o Ciente', trava: true },
