@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **Gestão do catálogo: a calculadora de preço e "％ Taxas e margem" de cada loja (R3, fase F5; mig 407 só nuvem; mexe no
+  `sync-daemon` só na lista `SO_NUVEM`).** Na NUVEM com o merge: a gaveta das taxas, os números das vendas e a calculadora
+  (Produtos e preços e Conferir com os apps). **No `.zip` 1.30.13:** as mesmas gavetas na tela do servidor da loja, que pede
+  as taxas à nuvem pela rota do token de sync (sem o `.zip`, a tela da loja não tem a calculadora). O `.exe` já está
+  pendente pelo O3/O14.
+
 - **"Conferir com os apps": criar a opção do complemento no Regem (R3, fase F4c; SEM migration; só tela).** Na NUVEM com
   o merge. **No `.zip` 1.30.13:** a mesma gaveta na tela do servidor da loja (a criação de opção de sempre roda na loja).
 

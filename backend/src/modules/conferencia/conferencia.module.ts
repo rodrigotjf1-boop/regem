@@ -5,15 +5,18 @@ import { OrzuniModule } from '../orzuni/orzuni.module';
 import { ConferenciaController } from './conferencia.controller';
 import { ConferenciaLojaController } from './conferencia-loja.controller';
 import { ConferenciaService } from './conferencia.service';
+import { TaxasController, TaxasLojaController } from './taxas.controller';
+import { TaxasService } from './taxas.service';
 
 /**
- * "Conferir com os apps" (R3 F4a; mig 405). Lê o iFood pelo `OrzuniLeituraService` (OrzuniModule) e a 99 pelo
- * `Food99Service` (IntegracoesModule); o servidor da loja pede à nuvem pela rota do token de sync (`ConferenciaLojaController`
- * — o `SyncTokenGuard` vem do `EquipamentoModule`, V81). A auditoria é global.
+ * "Conferir com os apps" (R3 F4a; mig 405) e "％ Taxas e margem" da loja (R3 F5; mig 407). Lê o iFood pelo
+ * `OrzuniLeituraService` (OrzuniModule) e a 99 pelo `Food99Service` (IntegracoesModule); o servidor da loja pede à nuvem
+ * pela rota do token de sync (`ConferenciaLojaController`, `TaxasLojaController` — o `SyncTokenGuard` vem do
+ * `EquipamentoModule`, V81). A auditoria é global.
  */
 @Module({
   imports: [EquipamentoModule, OrzuniModule, IntegracoesModule],
-  controllers: [ConferenciaController, ConferenciaLojaController],
-  providers: [ConferenciaService],
+  controllers: [ConferenciaController, ConferenciaLojaController, TaxasController, TaxasLojaController],
+  providers: [ConferenciaService, TaxasService],
 })
 export class ConferenciaModule {}

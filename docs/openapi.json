@@ -15501,6 +15501,62 @@
         }
       }
     },
+    "/api/v1/catalogo/taxas": {
+      "get": {
+        "operationId": "TaxasController_ler",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "TaxasController_salvar",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/catalogo/taxas/loja/ler": {
+      "post": {
+        "operationId": "TaxasLojaController_ler",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/catalogo/taxas/loja": {
+      "post": {
+        "operationId": "TaxasLojaController_salvar",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/edge/rede": {
       "get": {
         "operationId": "EdgeController_redeDoServidor",

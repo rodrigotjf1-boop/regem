@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ImageOff, Pause, Pencil, Play } from 'lucide-react';
+import { Calculator, ImageOff, Pause, Pencil, Play } from 'lucide-react';
 import { api, getCategoria, getToken, podeVerFinanceiro } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
@@ -17,6 +17,9 @@ import { ChipPausa } from '@/components/catalogo/chip-pausa';
 import { EditarProduto } from '@/components/catalogo/editar-produto';
 import { ComplementosGestao } from '@/components/catalogo/complementos-gestao';
 import { ConferirApps } from '@/components/catalogo/conferir-apps';
+import { TaxasEMargem } from '@/components/catalogo/taxas-e-margem';
+import { CalculadoraPreco, type ItemDaCalculadora } from '@/components/catalogo/calculadora-preco';
+import type { CanalCalc, RespostaDasTaxas } from '@/lib/calculadora-preco';
 import { UltimoEnvioIfood } from '@/components/produtos/ultimo-envio-ifood';
 import {
   agruparPorCategoria, esgotado, pausaNoRegem, pausadoEmAlgumCanal, pausadoNa99, pausadoNoIfood, semPrecoNa99, semPrecoNoIfood,
@@ -48,6 +51,11 @@ export default function CatalogoPage() {
   // As abas do protótipo: "Produtos e preços" | "Conferir com os apps" (R3 F4a; a 2ª só com o direito ligado na empresa).
   const [aba, setAba] = useState<'produtos' | 'conferir'>('produtos');
   const [conferirLigada, setConferirLigada] = useState(false);
+  // A calculadora de preço e as taxas da loja (R3 F5).
+  const [taxas, setTaxas] = useState<RespostaDasTaxas | null>(null);
+  const [abrirTaxasGaveta, setAbrirTaxasGaveta] = useState(false);
+  const [calc, setCalc] = useState<{ produtoId: string; canal: CanalCalc } | null>(null);
+  const [versaoConf, setVersaoConf] = useState(0);
   const [ocupado, setOcupado] = useState<Set<string>>(new Set());
   const [enviados, setEnviados] = useState<Set<string>>(new Set()); // produtos com mudança ao iFood nesta visita
   const [enviados99, setEnviados99] = useState<Set<string>>(new Set()); // produtos com mudança à 99 nesta visita
@@ -136,6 +144,51 @@ export default function CatalogoPage() {
             : `Preço na 99 de "${p.nome}" salvo: vai em instantes à 99.`,
     );
   }
+
+  // ── A calculadora de preço e as taxas da loja (R3 F5): carregadas só quando se abre uma das duas gavetas. ──
+  async function lerTaxas(): Promise<RespostaDasTaxas | null> {
+    if (taxas) return taxas;
+    try {
+      const r = await api.taxas();
+      setTaxas(r);
+      return r;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Não foi possível ler as taxas da loja.');
+      return null;
+    }
+  }
+  async function abrirTaxas() {
+    if (await lerTaxas()) setAbrirTaxasGaveta(true);
+  }
+  async function abrirCalculadora(produtoId: string, canal: CanalCalc) {
+    const p = (produtos ?? []).find((x) => x.id === produtoId);
+    if (!p || p.custoEfetivo == null) return void toast.error('Este produto não tem custo (ficha técnica, item de estoque ou custo manual): a calculadora parte do custo.');
+    if (await lerTaxas()) setCalc({ produtoId, canal });
+  }
+  const itemDaCalculadora = (p: any, canal: CanalCalc): ItemDaCalculadora => {
+    const custo = Number(p.custoEfetivo) || 0;
+    const delivery = p.custoEfetivoDelivery != null ? Number(p.custoEfetivoDelivery) : custo;
+    const hoje = canal === 'ifood' ? p.precoIfood : p.preco99;
+    return {
+      id: p.id,
+      nome: p.nome,
+      custo,
+      emb: Math.max(0, Math.round((delivery - custo) * 100) / 100),
+      precoHoje: hoje != null && hoje !== '' ? Number(hoje) : null,
+      fonteDoCusto: p.custoFonte === 'ficha' ? 'da ficha técnica, com a perda' : p.custoFonte === 'estoque' ? 'custo médio do estoque' : p.custoFonte === 'manual' ? 'custo manual' : null,
+    };
+  };
+  const botaoCalcular = (p: any, canal: CanalCalc) =>
+    podeMudarPreco && p.custoEfetivo != null ? (
+      <button
+        type="button"
+        className="inline-flex min-h-8 items-center gap-1 rounded-md border border-input px-2 text-xs font-semibold hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label={`Calcular o preço ${canal === 'ifood' ? 'no iFood' : 'na 99'} de ${p.nome}`}
+        onClick={() => void abrirCalculadora(p.id, canal)}
+      >
+        <Calculator className="h-3.5 w-3.5" aria-hidden="true" /> Calcular
+      </button>
+    ) : null;
 
   async function pausar(p: any, canal: Canal, pausado: boolean, calado = false) {
     const k = `${p.id}|${canal}`;
@@ -227,6 +280,7 @@ export default function CatalogoPage() {
       <span className="inline-flex max-w-full flex-wrap items-center justify-end gap-1.5 xl:justify-start">
         <PrecoNoLugar valor={p.precoIfood} qual="no iFood" nome={p.nome} permiteVazio podeEditar={podeMudarPreco} aoSalvar={(v) => salvarPreco(p, 'ifood', v)} />
         <ChipPausa pausado={pz} onde="no iFood" nome={p.nome} ocupado={ocupado.has(`${p.id}|ifood`)} aoMudar={() => void pausar(p, 'ifood', !pz)} />
+        {botaoCalcular(p, 'ifood')}
         {esgotado(p) && !pz && <span className={`w-full text-xs ${texto2}`}>pausado pelo estoque</span>}
         {enviados.has(p.id) && (
           <span className="block w-full min-w-0 text-left">
@@ -244,6 +298,7 @@ export default function CatalogoPage() {
       <span className="inline-flex max-w-full flex-wrap items-center justify-end gap-1.5 xl:justify-start">
         <PrecoNoLugar valor={p.preco99} qual="na 99" nome={p.nome} permiteVazio podeEditar={podeMudarPreco} aoSalvar={(v) => salvarPreco(p, '99food', v)} />
         <ChipPausa pausado={pz} onde="na 99" nome={p.nome} ocupado={ocupado.has(`${p.id}|99food`)} aoMudar={() => void pausar(p, '99food', !pz)} />
+        {botaoCalcular(p, '99food')}
         {esgotado(p) && !pz && <span className={`w-full text-xs ${texto2}`}>pausado pelo estoque</span>}
         {enviados99.has(p.id) && (
           <span className="block w-full min-w-0 text-left">
@@ -291,6 +346,9 @@ export default function CatalogoPage() {
             comIfood={comIfood}
             com99={com99}
             aoNovaCategoria={(c) => setCategorias((l) => [...l, c])}
+            aoCalcular={(id, canal) => void abrirCalculadora(id, canal)}
+            aoAbrirTaxas={() => void abrirTaxas()}
+            versao={versaoConf}
           />
         </div>
       ) : (
@@ -328,7 +386,13 @@ export default function CatalogoPage() {
                   ? ' · o que você muda na 99 vai na hora'
                   : ''
           }`}
-        />
+        >
+          {podeMudarPreco && (comIfood || com99) && (
+            <Button type="button" variant="outline" onClick={() => void abrirTaxas()}>
+              ％ Taxas e margem
+            </Button>
+          )}
+        </TituloLista>
         <p className={`text-sm ${texto2}`}>
           Criar produto, ficha técnica, estoque, fiscal e complementos: em{' '}
           <button
@@ -441,6 +505,40 @@ export default function CatalogoPage() {
             if (foiA99) marcarEnviado99(editando.id);
             if (fechar) setEditando(null);
             void carregar();
+          }}
+        />
+      )}
+      {calc && taxas && (() => {
+        const p = produtos.find((x) => x.id === calc.produtoId);
+        if (!p) return null;
+        return (
+          <CalculadoraPreco
+            item={itemDaCalculadora(p, calc.canal)}
+            canal={calc.canal}
+            dados={taxas}
+            podeUsar={podeMudarPreco}
+            aoFechar={() => setCalc(null)}
+            aoAbrirTaxas={() => setAbrirTaxasGaveta(true)}
+            aoUsar={async (valor) => {
+              try {
+                await salvarPreco(p, calc.canal, valor.toFixed(2));
+                setCalc(null);
+                setVersaoConf((v) => v + 1);
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : 'Não foi possível salvar o preço.');
+              }
+            }}
+          />
+        );
+      })()}
+      {abrirTaxasGaveta && taxas && (
+        <TaxasEMargem
+          dados={taxas}
+          canais={[...(comIfood ? (['ifood'] as const) : []), ...(com99 ? (['99food'] as const) : [])]}
+          aoFechar={() => setAbrirTaxasGaveta(false)}
+          aoSalvar={(r) => {
+            setTaxas(r);
+            setAbrirTaxasGaveta(false);
           }}
         />
       )}

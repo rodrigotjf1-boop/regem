@@ -1,6 +1,7 @@
 import { baseDaApi } from './origem-api';
 import { VERSAO_DA_TELA } from './versao-da-tela';
 import type { CanalConferido, RespostaDaConferencia, TipoConferido } from './conferencia-apps';
+import type { RespostaDasTaxas } from './calculadora-preco';
 
 // Base da API. Nuvem: NEXT_PUBLIC_API_URL (fixado no build). Edge
 // (NEXT_PUBLIC_EDGE=1): cada loja tem IP proprio, entao a API fica no MESMO host
@@ -841,6 +842,10 @@ export const api = {
     req('/catalogo/conferencia/tirar-do-app', { method: 'POST', body: JSON.stringify(dto) }) as Promise<{ ok: boolean; mudou: boolean }>,
   // "Ligar a um produto" e "Corrigir o código" (R3 F4b): o produto ganha o código do item "só no app" e copia o preço e a
   // pausa de lá (nada muda no app; pede "Ver valores em R$").
+  // "％ Taxas e margem" da loja do topo (R3 F5; mig 407): o que a calculadora de preço usa e os números das vendas (o
+  // faturamento da empresa só ao presidente). Pede "Ver valores em R$"; no servidor da loja, vem da nuvem.
+  taxas: () => req('/catalogo/taxas') as Promise<RespostaDasTaxas>,
+  salvarTaxas: (taxas: unknown) => req('/catalogo/taxas', { method: 'PUT', body: JSON.stringify({ taxas }) }) as Promise<RespostaDasTaxas>,
   conferenciaLigar: (dto: { canal: CanalConferido; chave: string; produtoId: string }) =>
     req('/catalogo/conferencia/ligar', { method: 'POST', body: JSON.stringify(dto) }) as Promise<{ ok: boolean; frase: string }>,
   // "Publicar nas integrações" (Cadastros › Cardápio): a situação de cada integração que usa o cardápio e o publicar
