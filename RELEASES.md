@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **KDS — achados restantes (auditoria do KDS, onda 1, PR 5; SEM migration; não mexe no `sync-daemon`).** Na NUVEM com o
+  merge. **No `.zip` 1.30.13:** no servidor da loja, o item de canal sem cadastro na cozinha (também na via que ele monta
+  da venda da nuvem), o número no dia da operação, a fila do PDV com janela e a mesa do QR na própria loja.
+
 - **KDS — tela (auditoria do KDS, onda 1, PR 4; SEM migration; não mexe no `sync-daemon`).** Na NUVEM com o merge. **No
   `.zip` 1.30.13:** a tela do KDS servida pelo servidor da loja (faixa de falha da leitura, "Finalizar todos" só o visível,
   letreiro inteiro, painel de entrega estável, áudio). Servidor velho ignora os `ids` do "Finalizar todos" (finaliza a
