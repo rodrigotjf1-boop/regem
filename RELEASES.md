@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **KDS — avanço e rota (auditoria do KDS de 11/11, onda 1, PR 1; SEM migration; não mexe no `sync-daemon`).** Na NUVEM
+  com o merge (KDS que opera pela nuvem). **No `.zip` 1.30.13** (o KDS da loja com servidor fala com o servidor dela): o
+  toque com a etapa vista (toque duplo não pula etapa), "Entregar" só no KDS de entrega pelo cadastro, o ticket da etapa no
+  modo comum, a corrente sem estações, o KDS desligado pulado, o módulo KDS desligado mandando os itens ao papel, o
+  despacho imprimindo no Entregue e a impressora do ticket conferida. A tela nova do KDS manda `de`; servidor velho
+  ignora o campo (nada quebra).
+
 - **A pausa dos pedidos — F5: o iFood (pelo Orzuni) e a 99 pausados pelo Regem (10/11; SEM migration; não mexe no
   `sync-daemon`).** Na NUVEM com o merge: o painel da nuvem pausa o iFood e a 99 e a rotina da nuvem leva ao canal (as
   credenciais só existem lá). **No `.zip` 1.30.13:** o painel do servidor da loja passa a mostrar os cartões do iFood e da 99

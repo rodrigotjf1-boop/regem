@@ -1,7 +1,7 @@
 'use client';
 
 import { textoEntregadorDoCanal } from '@/components/delivery/logistica-canal';
-import { agregarItens, corDoPedido, estaAtrasado, identPedido, proximaAcaoNaEstacao, rotuloEtapa, type LimitesTempo } from '@/lib/kds-fila';
+import { agregarItens, corDoPedido, estaAtrasado, identPedido, proximaAcaoNaEstacao, rotuloEtapa, type EtapasDaLoja, type LimitesTempo } from '@/lib/kds-fila';
 import type { TemaKds } from '@/lib/kds-tema';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -46,6 +46,8 @@ export function KdsCartaoPedido({
   proximoNome,
   veioDe,
   onVisto,
+  etapas,
+  ocupado,
 }: {
   p: any;
   min: number;
@@ -56,7 +58,11 @@ export function KdsCartaoPedido({
   agregar: boolean;
   realce: 'nenhum' | 'destaque' | 'apagado'; // item escolhido no resumo: destaca quem o leva
   itemEmDestaque: string;
-  onAvancar: (id: string) => void;
+  // `de` = a etapa que esta tela VIU: o servidor só avança se o cartão ainda está nela (toque duplo e tela velha não
+  // pulam etapa — auditoria do KDS, 11/11/2026).
+  onAvancar: (id: string, de?: string) => void;
+  etapas?: EtapasDaLoja; // as etapas da loja: o nome do botão segue o que o servidor faz
+  ocupado?: boolean; // o toque foi mandado e a resposta ainda não voltou: o botão espera ("Aguarde…")
   proximoNome?: string | null; // o "vai para" da estação: o botão diz "Pronto → Montagem" (entrega 2)
   veioDe?: string | null; // a estação de onde o cartão veio ("Veio da Chapa")
   onVisto?: (id: string) => void; // pedido ALTERADO (mig 362): a cozinha viu a mudança
@@ -64,6 +70,7 @@ export function KdsCartaoPedido({
   const st = corDoPedido(p, min, limites);
   const inteiro = cor === 'inteiro';
   const cancelado = p.status === 'cancelado';
+  const acao = proximaAcaoNaEstacao(p.status, proximoNome, etapas);
   const atrasado = estaAtrasado(p, min, limites);
   const alterado = p.obs === 'ALTERADO';
   // Pedido ALTERADO que a cozinha ainda não viu (mig 362): o aviso grande com a exclamação e o "Visto" (decisão 6A).
@@ -238,11 +245,13 @@ export function KdsCartaoPedido({
             );
           })}
         </ul>
-        {!cancelado && (
+        {!cancelado && acao && (
           <button
             type="button"
-            onClick={() => onAvancar(p.id)}
-            className="w-full font-extrabold uppercase tracking-[0.08em] active:opacity-85"
+            onClick={() => onAvancar(p.id, p.status)}
+            disabled={!!ocupado}
+            aria-busy={!!ocupado || undefined}
+            className="w-full font-extrabold uppercase tracking-[0.08em] active:opacity-85 disabled:cursor-wait disabled:opacity-70"
             // No modo "cabeçalho" o botão tem a cor do cabeçalho; no "inteiro", invertido sobre a cor.
             style={{
               minHeight: Math.round(48 * esc),
@@ -252,7 +261,7 @@ export function KdsCartaoPedido({
               color: inteiro ? st.fundo : st.texto,
             }}
           >
-            {proximaAcaoNaEstacao(p.status, proximoNome)}
+            {ocupado ? 'Aguarde…' : acao}
           </button>
         )}
       </div>

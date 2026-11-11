@@ -1263,12 +1263,31 @@ export class EquipamentoService {
     const status = ['recebido', 'preparo', 'pronto', 'entregue'].includes(dto?.imprimeNoStatus ?? '')
       ? (dto.imprimeNoStatus as string)
       : 'pronto';
+    // A impressora do ticket tem de ser uma impressora LIGADA desta empresa, da loja do KDS (ou da rede). Antes gravava
+    // qualquer id: o ticket ia para uma impressora desligada ou de outra loja, sem aviso (auditoria do KDS, 11/11/2026).
+    const impressoraId = dto?.impressoraDestinoId || null;
+    if (impressoraId) {
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(impressoraId)))
+        throw new BadRequestException('Escolha uma impressora da lista.');
+      const [kds] = await this.db
+        .select({ unidadeId: equipamento.unidadeId })
+        .from(equipamento)
+        .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, id), eq(equipamento.tipo, 'kds')));
+      if (!kds) throw new NotFoundException('KDS não encontrado.');
+      const [imp] = await this.db
+        .select({ ativo: equipamento.ativo })
+        .from(equipamento)
+        .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, impressoraId), eq(equipamento.tipo, 'impressora')));
+      if (!imp) throw new BadRequestException('Impressora não encontrada.');
+      if (!imp.ativo) throw new BadRequestException('Esta impressora está desligada — escolha uma impressora ligada.');
+      await garantirImpressoraDaLoja(this.db, tenantId, impressoraId, kds.unidadeId ?? null);
+    }
     const [row] = await this.db
       .update(equipamento)
       .set({
         imprimeAoAvancar: !!dto?.imprimeAoAvancar,
         imprimeNoStatus: status,
-        impressoraDestinoId: dto?.impressoraDestinoId || null,
+        impressoraDestinoId: impressoraId,
       })
       .where(
         and(
