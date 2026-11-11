@@ -10,7 +10,7 @@
 --                             ('ifood', '99food'), como `produto.canais_pausados`. Vazia = como hoje (o `esgotado` vale
 --                             para tudo). Usada na fase F3; nesta fase ninguém grava nela.
 -- A ligação com a 99 é pelo código PDV (`app_item_id` = `produto.codigo`, o mesmo do "Exportar catálogo" da 99).
--- Nada é enviado à 99 por esta migration nem pelo código que a acompanha (o envio item a item é a fase F2b).
+-- Nada é enviado à 99 por esta migration (o envio item a item é a fila da mig 402, só da nuvem).
 --
 -- Nasce DESLIGADO: o servidor só grava os campos da 99 com o direito `precos_na_99` ligado na empresa (`entitlement`,
 -- sem linha = desligado), e a distribuição só o liga com TODOS os servidores de loja da empresa na versão que traz esta
