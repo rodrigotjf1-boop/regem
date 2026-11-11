@@ -356,7 +356,7 @@ export class CardapioService {
   private async avisarEsgotados(tenantId: string, unidadeId: string | null, nomes: string[]) {
     const titulo = `Produto esgotado no cardápio`;
     const detalhe = `${nomes.join(', ')} — pausado(s) por falta de insumo em estoque.`;
-    this.events.emit('kds.alerta.sistema', { tenantId, unidadeId, titulo, detalhe, prioridade: 'alta' });
+    this.events.emit('kds.alerta.sistema', { tenantId, unidadeId, titulo, detalhe, prioridade: 'alta', tipo: 'estoque' });
     // Um alerta ABERTO por (empresa, loja, tipo) — índice da mig 249. Atualiza o aberto
     // (o painel mostra os produtos de agora) e só insere se não houver nenhum.
     const abertos = await this.db

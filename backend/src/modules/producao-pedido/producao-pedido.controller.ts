@@ -162,6 +162,16 @@ export class ProducaoPedidoController {
     return this.service.setFluxoDoKds(user.tenantId, id, dto, ator(user));
   }
 
+  // Os avisos que este KDS recebe (aba "Avisos" do ⚙; onda 2 da auditoria do KDS, mig 408). Gerência, como os produtos e
+  // o lugar no fluxo — a tela mostra a escolha a todos e só deixa mudar quem tem a permissão.
+  @Put('kds/:id/avisos')
+  @RequireModulo('kds')
+  @Roles(...GESTOR)
+  @RequirePerm('producao_kds')
+  setAvisosKds(@CurrentUser() user: AuthUser, @UnidadeAtual() unidadeAtual: string | null, @Param('id') id: string, @Body() dto: any) {
+    return this.service.salvarAvisosDoKds(user.tenantId, ator(user), id, dto, unidadeAtual);
+  }
+
   // A fila do despacho: um cartão por pedido, com o andamento de cada estação. Mesmo acesso da fila do KDS; a loja de quem
   // consulta (só o presidente escolhe outra).
   @Get('kds/:id/despacho')

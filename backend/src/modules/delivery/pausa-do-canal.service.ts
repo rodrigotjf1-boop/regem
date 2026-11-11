@@ -1,5 +1,6 @@
 import { BadRequestException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { sql, type SQL } from 'drizzle-orm';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DRIZZLE, type DrizzleDB } from '../../db/drizzle.module';
 import type { AuthUser } from '../../auth/auth-user';
 import { AuditoriaService } from '../auditoria/auditoria.service';
@@ -77,6 +78,8 @@ export class PausaDoCanalService {
     private readonly auditoria: AuditoriaService,
     // F5: a rotina que leva a pausa ao iFood e à 99 (e diz se dá para pausá-los). Opcional: os testes da F1–F4 não a montam.
     @Optional() private readonly nosCanais?: PausaNosCanaisService,
+    // A faixa da pausa no KDS (onda 2 da auditoria do KDS): pausar, reabrir e estender avisam as telas. Opcional nos testes.
+    @Optional() private readonly events?: EventEmitter2,
   ) {}
 
   /**
@@ -242,6 +245,31 @@ export class PausaDoCanalService {
   }
 
   /**
+   * A FAIXA DA PAUSA no KDS (onda 2 da auditoria do KDS; protótipo aprovado pelo dono em 11/11/2026 — "incluir o status das
+   * lojas de delivery pausadas nos alertas"): só os canais pausados AGORA na loja (a mesma regra do painel, `estado`), com
+   * até quando, se é "até o fim do dia" e o motivo — e o aviso antes de reabrir da loja (a faixa fica âmbar nos minutos
+   * finais). Nada de quem pausou nem do modelo da mensagem: a cozinha só precisa saber que o canal está parado.
+   */
+  async paraOKds(tenantId: string, unidadeAtual: string | null, agora: Date = new Date()) {
+    const e = await this.estado(tenantId, unidadeAtual, agora);
+    return {
+      // Toda pausa vigente aparece — também a do canal que agora não dá para pausar daqui (servidor da loja sem a nuvem):
+      // o canal continua parado, e a cozinha precisa saber.
+      canais: e.canais
+        .filter((c) => c.pausa)
+        .map((c) => ({
+          canal: c.canal,
+          nome: c.nome,
+          ate: c.pausa!.ate,
+          // A 99 "até o fim do dia" (e o cardápio pausado até 23:59): a faixa diz isso em vez de contar as horas.
+          fimDoDia: c.pausa!.volta.hora === '23:59' && !c.pausa!.volta.amanha,
+          motivo: c.pausa!.rotulo ?? null,
+        })),
+      avisoMinutos: e.aviso.minutos,
+    };
+  }
+
+  /**
    * Pausa os canais escolhidos com o motivo e o tempo — o cardápio digital e o iFood pelo `tempo`; a 99 pelo `tempo99`
    * (10, 20 ou 30 min ou até o fim do dia: a 99 não aceita outro). Pausar de novo um canal já pausado troca o motivo e o
    * fim (é como se estende). Tudo é conferido ANTES de gravar (V86): um canal recusado não deixa o outro pausado pela metade.
@@ -325,6 +353,7 @@ export class PausaDoCanalService {
         detalhe: { canal: a.canal, motivo: m.motivo, motivoTexto: m.motivoTexto, ate: a.ate.toISOString(), tempo: a.tempo },
       });
     this.levarAosCanais(escolhidos);
+    this.events?.emit('kds.pausa.mudou', { tenantId: user.tenantId }); // a faixa do KDS deste servidor relê na hora
     return this.estado(user.tenantId, unidadeAtual, agora);
   }
 
@@ -358,6 +387,7 @@ export class PausaDoCanalService {
       });
       this.levarAosCanais([canal]);
     }
+    this.events?.emit('kds.pausa.mudou', { tenantId: user.tenantId }); // a faixa do KDS deste servidor relê na hora
     return this.estado(user.tenantId, unidadeAtual, agora);
   }
 
@@ -395,6 +425,7 @@ export class PausaDoCanalService {
       entidadeId: id,
       detalhe: { canal, minutos: Number(minutos), eraAte: feito.eraAte.toISOString(), ate: feito.ate.toISOString() },
     });
+    this.events?.emit('kds.pausa.mudou', { tenantId: user.tenantId }); // a faixa do KDS deste servidor relê na hora
     return this.estado(user.tenantId, unidadeAtual, agora);
   }
 

@@ -377,6 +377,52 @@
   margin-left: auto;
 }
 
+/* a pausa dos canais (onda 2): clara; o contador em negrito, em âmbar nos minutos do aviso — a faixa não é pintada */
+.k-pausas {
+  display: flex;
+  flex-wrap: wrap;
+  background: var(--k-panel);
+  color: var(--k-ink);
+  border-bottom: 1px solid var(--k-line);
+  min-width: 0;
+}
+.k-pausa {
+  flex: 1 1 300px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 12px;
+  min-height: 48px;
+  padding: 6px 12px;
+  font-size: 16px;
+  font-weight: 600;
+  min-width: 0;
+}
+.k-pausa + .k-pausa {
+  border-left: 1px solid var(--k-line);
+}
+.k-pausa .q {
+  flex: 1 1 200px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.k-pausa .q small {
+  font-weight: 500;
+  font-size: 15px;
+}
+.k-pausa .t {
+  font: 800 20px var(--fm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.k-pausa .t small {
+  font: 700 13px var(--fb);
+  margin-right: 6px;
+}
+.k-pausa.logo .t {
+  color: var(--k-aten);
+}
+
 /* ── meio: a fila e o resumo (ao lado a partir de 900 px; embaixo, empurrando a fila, no estreito) ── */
 .k-meio {
   display: grid;
@@ -1145,6 +1191,72 @@
 }
 .k-dcorpo p {
   margin: 0;
+}
+
+/* os avisos desta tela (aba da gaveta) */
+.k-tipos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  border: 1px solid var(--k-line);
+}
+.k-tipo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--k-line);
+}
+.k-tipo:last-child {
+  border-bottom: 0;
+}
+.k-tipo b {
+  font-weight: 800;
+  font-size: 15.5px;
+  overflow-wrap: anywhere;
+}
+.k-tipo p {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--k-muted);
+  overflow-wrap: anywhere;
+}
+.k-tipo .pri {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0 6px;
+  border: 1.5px solid currentColor;
+  color: var(--k-ink);
+}
+.k-liga {
+  min-width: 112px;
+  min-height: 48px;
+  padding: 0 10px;
+  border: 2px solid var(--k-line);
+  background: var(--k-panel-2);
+  color: var(--k-muted);
+  font-weight: 800;
+  font-size: 14px;
+}
+.k-liga[aria-pressed='true'] {
+  background: var(--k-ink);
+  border-color: var(--k-ink);
+  color: var(--k-panel);
+}
+.k-liga:disabled {
+  cursor: not-allowed;
+  border-style: dashed;
+}
+@media (max-width: 380px) {
+  .k-tipo {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* histórico (aba da gaveta) */

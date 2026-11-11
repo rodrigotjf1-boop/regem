@@ -15,6 +15,8 @@ import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { PermissoesGuard } from '../../auth/permissoes.guard';
 import { RequirePerm } from '../../auth/require-perm.decorator';
+import { ModuloGuard } from '../../auth/modulo.guard';
+import { RequireModulo } from '../../auth/require-modulo.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
@@ -495,6 +497,15 @@ export class DeliveryController {
   @RequirePerm('delivery')
   pausas(@CurrentUser() user: AuthUser, @UnidadeAtual() unidadeId: string | null) {
     return this.pausa.estado(user.tenantId, unidadeId);
+  }
+
+  // A faixa da pausa no KDS (onda 2 da auditoria do KDS): quem opera o KDS (módulo KDS, sem a permissão do Delivery) vê
+  // só os canais pausados agora na loja, até quando e o motivo — nada de quem pausou nem da mensagem ao cliente.
+  @Get('pausas/kds')
+  @UseGuards(JwtAuthGuard, ModuloGuard)
+  @RequireModulo('kds')
+  pausasNoKds(@CurrentUser() user: AuthUser, @UnidadeAtual() unidadeId: string | null) {
+    return this.pausa.paraOKds(user.tenantId, unidadeId);
   }
 
   @Post('pausas')
