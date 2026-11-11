@@ -69,7 +69,8 @@ h1{font-family:var(--display);font-size:26px;margin:2px 0 14px}
 .canal[aria-pressed="true"]{border-color:var(--navy);box-shadow:inset 0 0 0 1px var(--navy);background:var(--sel)}
 .canal small{font-weight:600;color:var(--ink-2)}
 .seg{display:inline-grid;grid-auto-flow:column;border:1px solid var(--line-2);border-radius:10px;overflow:hidden;margin-bottom:12px;max-width:100%}
-.seg button{min-height:40px;padding:0 14px;border:none;background:var(--card);font-weight:600;border-right:1px solid var(--line-2);white-space:nowrap}
+/* sem espaço, o texto do botão quebra a linha (a faixa esconde o que sobra: nowrap cortava "a resolver" em 320 px) */
+.seg button{min-height:40px;padding:6px 14px;border:none;background:var(--card);font-weight:600;border-right:1px solid var(--line-2);line-height:1.25}
 .seg button:last-child{border-right:none}
 .seg button[aria-pressed="true"]{background:var(--navy);color:#fff}
 
@@ -204,6 +205,7 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
 .erro-ed{font-size:12.5px;color:var(--crit);font-weight:600}
 .campo textarea{min-height:64px;border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;background:var(--card);width:100%;min-width:0;resize:vertical}
 .campo input[aria-invalid="true"],.editor input[aria-invalid="true"]{border-color:var(--crit);box-shadow:0 0 0 1px var(--crit)}
+.link{background:none;border:none;padding:0;min-height:24px;color:var(--info);font-weight:600;text-decoration:underline;font-size:inherit}
 .sits .ponto{width:9px;height:9px;border-radius:50%;flex:none}
 .sits .sep{width:1px;align-self:stretch;background:var(--line-2);margin:0 2px}
 .como-esta{margin:-4px 0 12px}
@@ -211,6 +213,7 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
 .grupo-cat.fora th{background:var(--warn-bg);color:var(--warn)}
 tr.so-app td{background:var(--soft)}
 .linha-app{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.linha-app .selo{white-space:normal;max-width:100%}
 .canal-linha{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--line);border-radius:10px;padding:8px 10px}
 .canal-linha b{min-width:0}
 .nao-vende{font-size:12.5px;color:var(--ink-3)}
@@ -345,6 +348,7 @@ tr.so-app td{background:var(--soft)}
             <span class="ajuda">Todos marcados = todos os catálogos. Só um = vende só ali (ex.: um combo só do iFood).</span></div>
         </div>
       </div>
+      <p class="sub" style="margin:0">As <b>opções</b> (Cadastros › Cardápio › Opções) seguem o mesmo jeito: lá se cria a opção, o código PDV, a ligação com o estoque e se monta o grupo; o preço e a pausa de cada canal ficam em "Produtos e preços › Complementos".</p>
     </section>
 
     <section class="notas" aria-labelledby="tNotas">
@@ -355,6 +359,7 @@ tr.so-app td{background:var(--soft)}
         <li><b>O lápis no preço</b> abre o campo ali mesmo (Enter salva, Esc cancela). O preço do iFood vai na hora <b>pelo Orzuni</b>; o da 99, <b>pela integração da 99</b>. Ao lado aparece a resposta do app: "✓ enviado agora" ou "não chegou", com "Tentar de novo" — o Regem guarda o valor mesmo quando o app não responde, e a conferência mostra a diferença.</li>
         <li><b>Organizar por categoria e por cardápio:</b> a lista sai agrupada por categoria. Ao lado de "Todos", um botão para cada cardápio ativo — <b>Cardápio Regem</b>, <b>iFood</b> e <b>99Food</b> (os dos apps só com a integração ligada). Cada um mostra os produtos <b>como estão naquele cardápio</b>: as categorias e os itens na ordem de lá (o iFood e a 99 pela última leitura). Na visão de um app, o item de lá que não liga a um produto do Regem aparece no lugar dele com o motivo e "Resolver em Conferir com os apps"; o preço de lá aparece quando difere; e, no fim, os produtos marcados para aquele app que não estão no cardápio dele.</li>
         <li><b>A pausa por canal</b>: o botão "No ar / Pausado" em cada coluna e "Pausar em todos" na linha. A pausa do Regem vale para o balcão e o cardápio digital.</li>
+        <li><b>Complementos</b> (o botão "Complementos" no topo da lista): cada opção com código PDV, o preço e a pausa em cada canal, no mesmo jeito dos produtos (lápis, "No ar / Pausado", "Pausar em todos", editar, calcular o preço — sem custo de entrega, que já está no produto). No <b>Regem</b>, o preço é <b>por grupo</b> (o mesmo adicional pode custar diferente em "Adicionais" e em "Adicionais da batata"); no <b>iFood</b>, é <b>um por código, em todos os grupos</b> (o Orzuni muda pelo código: <code>complemento_preco_definir</code>, <code>complemento_pausar</code> — já é o que o R2 faz); na <b>99</b>, a pausa vai pelo código (<code>updateItemStatus</code>) e o preço, grupo a grupo (<code>updateModifierGroup</code> manda o grupo inteiro). A opção sem código é <b>informativa</b> (vai como observação, sem preço nem estoque). Também aqui: organizar pelos grupos do iFood ou da 99, com as opções de lá que não ligam ao Regem (inclusive as <code>ORZ-*</code> do Orzuni); e, em cada produto, "ver os complementos" mostra só os grupos dele.</li>
         <li><b>Editar</b> (gaveta): nome, descrição, código PDV, categoria, os três preços, onde vende e a pausa. Antes de salvar, a gaveta diz o que muda no Regem e o que vai (e o que não vai) a cada app.</li>
         <li><b>O que cada app recebe hoje:</b> 99 — nome, descrição, preço e pausa. iFood (Orzuni) — <b>preço e pausa</b>; o Orzuni ainda não tem ferramenta para mudar nome nem descrição (decisão 10), então esses dois o iFood recebe pelo Gestor de Pedidos.</li>
         <li><b>Código PDV</b>: muda no Regem com os avisos (quem usa o código antigo; código que já é de outro produto não salva). Nos apps não muda sozinho: no iFood, no Gestor de Pedidos; na 99, quando o Regem enviar o cardápio de novo.</li>
@@ -395,6 +400,8 @@ tr.so-app td{background:var(--soft)}
         <li><b>Código PDV editável aqui</b>, com os avisos de quem usa o código antigo e a recusa de código que já é de outro produto. Recomendo.</li>
         <li><b>Pausa do Regem = balcão e cardápio digital juntos</b>, num botão só (como o "⏸ Pausar" do Delivery faz por canal). Recomendo. (Alternativa: separar balcão × cardápio digital na gaveta.)</li>
         <li><b>Depois de criado, o preço muda só aqui.</b> O Cadastros mostra o preço e aponta para cá — um lugar só para editar evita duas telas brigando pelo mesmo valor. Recomendo.</li>
+        <li><b>Pausa do complemento por canal.</b> Hoje a opção tem um "esgotado" só, que vale no Regem e vai junto ao iFood. Recomendo a pausa por canal (Regem, iFood, 99), como a do produto (uma migration): o bacon pode acabar no balcão e seguir no iFood, ou o contrário.</li>
+        <li><b>Preço do complemento na 99</b> (um por código, como o do iFood da mig 369), enviado grupo a grupo pela API da 99. Recomendo, na mesma migration da decisão 6.</li>
       </ol>
       <h3>Fontes das taxas de referência (consultadas em 11/11/2026)</h3>
       <ul>
@@ -404,7 +411,7 @@ tr.so-app td{background:var(--soft)}
       </ul>
       <h3>Fora desta entrega</h3>
       <ul>
-        <li>A foto do item; o preço e a pausa das <b>opções</b> (complementos) por aqui; o contexto INDOOR/WHITELABEL do iFood; criar a promoção no app (o preço "de/por") — a calculadora só simula.</li>
+        <li>A foto do item; criar ou apagar grupo de complemento e montar o grupo (fica no Cadastros › Cardápio › Opções); o contexto INDOOR/WHITELABEL do iFood; criar a promoção no app (o preço "de/por") — a calculadora só simula.</li>
       </ul>
     </section>
   </main>
@@ -476,11 +483,27 @@ tr.so-app td{background:var(--soft)}
   const kp = (pdv) => pdv || '_';
   const pdvDe = (v) => (v === '_' ? '' : v);
 
+  // A opção reutilizável do Regem (`opcao`), por código PDV: o custo, o preço no iFood (um por código — mig 369; vale em
+  // todos os grupos), o preço na 99 (não existe hoje: decisão 15) e a pausa de cada canal (hoje é um `esgotado` só, que
+  // vale no Regem e vai junto ao iFood: decisão 14).
   const OPC_REGEM = {
     A01: { nome: 'Bacon extra', custo: 1.6, emb: 0, ifood: 5.0, n99: 5.0 },
     A02: { nome: 'Cheddar extra', custo: 1.1, emb: 0, ifood: 4.5, n99: 4.0 },
     A03: { nome: 'Ovo', custo: 0.7, emb: 0, ifood: 3.0, n99: 3.0 },
+    M01: { nome: 'Maionese da casa', custo: 0.3, emb: 0, ifood: 0, n99: 0 },
+    M02: { nome: 'Barbecue', custo: 0.35, emb: 0, ifood: 0, n99: null },
   };
+  for (const o of Object.values(OPC_REGEM)) o.pausa = { regem: false, ifood: false, n99: false };
+  OPC_REGEM.A02.pausa.regem = true; // um exemplo: cheddar acabou no balcão
+  // Os grupos do Regem (`complemento` + `complemento_item`): a opção e o preço DELA NESTE GRUPO (o preço do balcão e do
+  // cardápio digital é por grupo); opção sem código = informativa (sem preço nem estoque).
+  const GRUPOS_REGEM = [
+    { nome: 'Adicionais', usadoEm: ['2051', '2052', '2053', '2099'], opcoes: [{ pdv: 'A01', preco: 5.0 }, { pdv: 'A02', preco: 4.0 }, { pdv: 'A03', preco: 2.5 }] },
+    { nome: 'Adicionais da batata', usadoEm: ['4010'], opcoes: [{ pdv: 'A02', preco: 3.5 }, { pdv: 'A01', preco: 4.5 }] },
+    { nome: 'Molhos', usadoEm: ['2051', '2052', '2053', '2099', '4010'], opcoes: [{ pdv: 'M01', preco: 0 }, { pdv: 'M02', preco: 0 }] },
+    { nome: 'Ponto da carne', usadoEm: ['2051', '2052', '2053', '2099'], opcoes: [{ pdv: '', nome: 'Ao ponto' }, { pdv: '', nome: 'Bem passado' }] },
+  ];
+  const gruposDaOpcao = (pdv) => GRUPOS_REGEM.filter((g) => g.opcoes.some((o) => o.pdv === pdv));
   // O que cada app devolve.
   const APP = {
     ifood: {
@@ -663,6 +686,8 @@ tr.so-app td{background:var(--soft)}
     aba: 'produtos', canal: 'ifood', vista: 'itens', sit: 'todas', busca: '', cat: '', estado: 'normal', ignorados: new Set(), resolvidos: new Map(),
     // Produtos e preços
     pSit: 'todos', pBusca: '', pCat: '', pEstado: 'ligados', editando: null, editandoConf: null, erroEd: '', erroConf: '',
+    // Produtos e preços › Complementos
+    pVista: 'produtos', oSit: 'todos', oDoProduto: '', editandoOpc: null, erroOpc: '',
     // o resultado do último envio a cada app, por "código|canal": o que a loja vê é o que o app respondeu
     enviados: new Map(),
   };
@@ -885,7 +910,8 @@ tr.so-app td{background:var(--soft)}
     const c = CN[canal];
     const t = TAXAS[canal];
     const g = TAXAS.geral;
-    const cen = (k) => ({ ...t[k], k, baseComissao: t.baseComissao, entrega: k === 'loja' ? g.entregaLoja : t[k].entrega });
+    // complemento (semEntrega): sem custo de entrega nem taxa fixa — já estão no produto
+    const cen = (k) => ({ ...t[k], k, baseComissao: t.baseComissao, entrega: base.semEntrega ? 0 : k === 'loja' ? g.entregaLoja : t[k].entrega, taxaFixa: base.semEntrega ? 0 : t[k].taxaFixa });
     const sn = simples(g.rbt12);
     const textoImposto = g.impostoModo === 'simples'
       ? (sn ? `Simples Nacional, faixa ${sn.faixa}: <b class="num">${pct(sn.efetiva)}</b> <span class="sub">(faturamento de 12 meses ${brl(g.rbt12)})</span>` : '<span class="neg">Faturamento acima do Simples: informe a média em ％ Taxas e margem</span>')
@@ -942,7 +968,7 @@ tr.so-app td{background:var(--soft)}
         return `<div class="cenario${seu ? ' seu' : ''}">
           <h4>${cc.rot}${seu ? ' <span class="selo info">o seu plano</span>' : ''}</h4>
           <div class="taxas">${esc(cc.plano)} · comissão ${pct(r.partes.comissao)} · pagamento e cartão ${pct(r.partes.pagamento)}${k === 'loja' && g.parteNaEntrega ? ` (${pct(g.parteNaEntrega)} pagos na entrega, maquininha ${pct(g.maquininha)})` : ''}${g.antecipa ? ` · antecipação ${pct(g.antec)}` : ''} · imposto ${pct(r.imposto)}${cc.entrega ? ` · entrega ${brl(cc.entrega)}/item` : ''}${cc.taxaFixa ? ` · taxa fixa ${brl(cc.taxaFixa)}/pedido` : ''}</div>
-          ${k === 'app' ? `<div class="campo"><label for="cFixa">Taxa fixa por entrega (média pela distância)</label><div class="pct"><span>R$</span><input id="cFixa" data-taxa="taxaFixa" data-canal-taxa="${canal}" data-max="200" inputmode="decimal" value="${dec(cc.taxaFixa || 0)}"></div><span class="ajuda">Por pedido, além da comissão, quando o app cobra pela distância. Se não cobra, deixe 0.</span></div>` : ''}
+          ${k === 'app' && !base.semEntrega ? `<div class="campo"><label for="cFixa">Taxa fixa por entrega (média pela distância)</label><div class="pct"><span>R$</span><input id="cFixa" data-taxa="taxaFixa" data-canal-taxa="${canal}" data-max="200" inputmode="decimal" value="${dec(cc.taxaFixa || 0)}"></div><span class="ajuda">Por pedido, além da comissão, quando o app cobra pela distância. Se não cobra, deixe 0.</span></div>` : ''}
           ${r.recomendado == null
             ? '<div class="aviso crit">As taxas, o desconto e a margem passam do preço: não há preço que pague. Baixe a margem ou o desconto.</div>'
             : `<div><div class="sub">${g.promo ? `Preço cheio para ganhar ${pct(g.margem)} com a promoção` : `Preço recomendado ${c.no}`}</div><div class="preco-rec">${brl(r.recomendado)}</div><div class="sub">mínimo para não ter prejuízo: <span class="num">${brl(r.minimo)}</span></div></div>`}
@@ -1266,13 +1292,15 @@ tr.so-app td{background:var(--soft)}
 
   // Uma foto de tudo o que pode mudar, para o "Desfazer".
   const precosDoApp = () => Object.fromEntries(['ifood', 'n99'].flatMap((k) => [[k, APP[k].itens.map((i) => i.preco)], [`${k}O`, APP[k].opcoes.map((o) => o.preco)]]));
-  const foto = () => JSON.stringify({ REGEM, SEM_CODIGO, OPC_REGEM, app: precosDoApp() });
+  const foto = () => JSON.stringify({ REGEM, SEM_CODIGO, OPC_REGEM, grupos: GRUPOS_REGEM.map((g) => g.opcoes), app: precosDoApp() });
   function voltar(f) {
     const o = JSON.parse(f);
     for (const k of Object.keys(REGEM)) delete REGEM[k];
     Object.assign(REGEM, o.REGEM);
     Object.assign(SEM_CODIGO, o.SEM_CODIGO);
+    for (const k of Object.keys(OPC_REGEM)) delete OPC_REGEM[k];
     Object.assign(OPC_REGEM, o.OPC_REGEM);
+    GRUPOS_REGEM.forEach((g, i) => (g.opcoes = o.grupos[i]));
     for (const k of ['ifood', 'n99']) {
       APP[k].itens.forEach((i, n) => (i.preco = o.app[k][n]));
       APP[k].opcoes.forEach((op, n) => (op.preco = o.app[`${k}O`][n]));
@@ -1383,12 +1411,17 @@ tr.so-app td{background:var(--soft)}
       : est.pEstado === 'falha'
         ? '<div class="aviso crit" style="margin-bottom:12px"><b>O Orzuni não está respondendo agora.</b> O que você mudar no iFood fica guardado no Regem e aparece como "não chegou", com "Tentar de novo". A 99 e o Regem seguem normais.</div>'
         : '';
+    // Produtos | Complementos: os complementos têm código PDV, preço e pausa em cada canal também
+    const nOpc = Object.keys(OPC_REGEM).length + GRUPOS_REGEM.flatMap((g) => g.opcoes).filter((o) => !o.pdv).length;
+    const seg = `<div class="seg" role="group" aria-label="O que mostrar"><button data-pvista="produtos" aria-pressed="${est.pVista === 'produtos'}">Produtos · ${todos.length}</button><button data-pvista="complementos" aria-pressed="${est.pVista === 'complementos'}">Complementos · ${nOpc}</button></div>`;
+    if (est.pVista === 'complementos') return desenharComplementos(aviso + seg, canais);
     const linhaProd = ({ pdv, r, item }) => {
       const ks = canaisDo(pdv, r);
       const tudo = ks.length > 0 && ks.every((k) => r.pausa[k]);
       const nomeLa = item && item.nome !== r.nome ? ` · ${CN[vistaApp].no}: ${esc(item.nome)}` : '';
+      const compl = pdv ? GRUPOS_REGEM.filter((g) => g.usadoEm.includes(pdv)) : [];
       return `<tr>
-        <td class="c-item"><div class="nome">${esc(r.nome)}</div>${r.desc ? `<div class="sub">${esc(r.desc)}</div>` : ''}<div class="sub">${esc(r.cat)} · ${pdv ? `código <span class="num">${esc(pdv)}</span>` : 'sem código PDV'} · custo ${brl(r.custo + r.emb)}${nomeLa}</div></td>
+        <td class="c-item"><div class="nome">${esc(r.nome)}</div>${r.desc ? `<div class="sub">${esc(r.desc)}</div>` : ''}<div class="sub">${esc(r.cat)} · ${pdv ? `código <span class="num">${esc(pdv)}</span>` : 'sem código PDV'} · custo ${brl(r.custo + r.emb)}${nomeLa}</div>${compl.length ? `<div class="sub">Complementos: ${compl.map((g) => esc(g.nome)).join(', ')} · <button class="link" data-ver-compl="${esc(pdv)}">ver os complementos<span class="sr"> de ${esc(r.nome)}</span></button></div>` : ''}</td>
         ${canais.map((k) => `<td data-rot="${NOME_P[k]}">${celCanal(pdv, r, k, item && k === vistaApp ? item.preco : null)}</td>`).join('')}
         <td class="c-acoes"><div class="linha-acoes">
           <button class="bt peq" data-editar-prod="${kp(pdv)}">Editar<span class="sr"> ${esc(r.nome)}</span></button>
@@ -1402,7 +1435,7 @@ tr.so-app td{background:var(--soft)}
         <td class="c-app" colspan="${nCol - 1}"><div class="linha-app"><span class="selo crit">${motivoDoApp(i, k)}</span><span class="sub">a venda ${k === 'ifood' ? 'pelo iFood' : 'pela 99'} não baixa o estoque</span><button class="bt peq" data-ir-conferir="${k}|${esc(i.pdv || i.nome)}">Resolver em "Conferir com os apps"<span class="sr">: ${esc(i.nome)}</span></button></div></td></tr>`;
     const linhas = grupos.map((g) => `<tr class="grupo-cat${g.fora ? ' fora' : ''}"><th colspan="${nCol}" scope="colgroup">${esc(g.nome)} <span class="sub">${g.linhas.length} ${g.linhas.length === 1 ? 'item' : 'itens'}</span></th></tr>
       ${g.linhas.map((l) => (l.tipo === 'prod' ? linhaProd(l) : linhaApp(l))).join('')}`).join('');
-    $('#produtos').innerHTML = `${aviso}
+    $('#produtos').innerHTML = `${aviso}${seg}
       <div class="sits" role="group" aria-label="Organizar por cardápio e filtrar">
         <button class="sit" data-psit="todos" aria-pressed="${est.pSit === 'todos'}">Todos <b>${todos.length}</b></button>
         ${cardapios.map(([k, rot, cor, n]) => `<button class="sit" data-psit="${k}" aria-pressed="${est.pSit === k}"><span class="ponto" style="background:${cor}" aria-hidden="true"></span>${rot} <b>${n}</b></button>`).join('')}
@@ -1422,6 +1455,296 @@ tr.so-app td{background:var(--soft)}
         </table>
         ${nLinhas ? '' : '<div class="vazio"><b>Nenhum produto aqui.</b><p>Troque a situação ou limpe a busca.</p></div>'}
       </div>`;
+  }
+
+  // ══ COMPLEMENTOS ═════════════════════════════════════════════════════════════════════════════════════
+  // A opção tem código PDV, preço e pausa em cada canal. No Regem o preço é por GRUPO (o mesmo adicional pode custar
+  // diferente em dois grupos); no iFood é um por código, em todos os grupos (mig 369; o Orzuni muda pelo código); na 99,
+  // a pausa vai pelo código (updateItemStatus) e o preço, grupo a grupo (updateModifierGroup manda o grupo inteiro).
+  const O_SITS = [['pausados', 'Pausadas em algum canal', 'warn'], ['semPreco', 'Sem preço num app', 'crit'], ['naoChegou', 'Não chegou ao app', 'crit'], ['informativas', 'Sem código (informativas)', '']];
+  function marcasDaOpcao(pdv, canais) {
+    const m = new Set();
+    if (!pdv) return m.add('informativas');
+    const r = OPC_REGEM[pdv];
+    if (canais.some((k) => r.pausa[k])) m.add('pausados');
+    if (['ifood', 'n99'].some((k) => ligado(k) && r[k] == null)) m.add('semPreco');
+    if ([...est.enviados].some(([chv, e]) => !e.ok && chv.startsWith(`opc:${pdv}|`))) m.add('naoChegou');
+    return m;
+  }
+  function enviarOpc(pdv, k, oque) {
+    if (k === 'regem' || !pdv) return true;
+    const ok = !(k === 'ifood' && est.pEstado === 'falha');
+    const nGr = gruposDaOpcao(pdv).length;
+    est.enviados.set(`opc:${pdv}|${k}`, ok
+      ? { ok, oque, texto: `✓ enviado ${k === 'ifood' ? 'ao iFood' : 'à 99'} agora: ${oque}${nGr > 1 ? ` (nos ${nGr} grupos)` : ''}` }
+      : { ok, oque, texto: 'Não chegou ao iFood (o Orzuni não respondeu). O Regem guardou.' });
+    if (ok && /preço/.test(oque)) for (const op of APP[k].opcoes) if (op.pdv === pdv && !op.repetido) op.preco = OPC_REGEM[pdv][k];
+    return ok;
+  }
+  const faixaNoRegem = (pdv) => gruposDaOpcao(pdv).map((g) => `${brl(g.opcoes.find((x) => x.pdv === pdv).preco)} em ${esc(g.nome)}`).join(' · ') || 'em nenhum grupo do Regem';
+
+  function celOpcao(gi, pdv, k, agora) {
+    const r = OPC_REGEM[pdv];
+    const chv = `${gi}|${pdv}|${k}`;
+    let preco;
+    if (k === 'regem' && gi < 0) preco = `<span class="sub">${faixaNoRegem(pdv)}</span>`; // na visão de um app: o preço do Regem é por grupo
+    else {
+      const p = k === 'regem' ? GRUPOS_REGEM[gi].opcoes.find((x) => x.pdv === pdv).preco : r[k];
+      const qual = k === 'regem' ? `no grupo ${GRUPOS_REGEM[gi].nome}` : CN[k].no;
+      preco = est.editandoOpc === chv
+        ? `<span class="editor"><label class="sr" for="edOpc">Preço ${qual}: ${esc(r.nome)}</label><input id="edOpc" inputmode="decimal" autocomplete="off" placeholder="Ex.: 4,50" value="${p == null ? '' : dec(p.toFixed(2))}"${est.erroOpc ? ' aria-invalid="true" aria-describedby="edOpcErro"' : ''}><button class="bt peq pri" data-salvar-opc="${chv}">Salvar</button><button class="bt peq" data-cancelar-opc="${chv}">Cancelar</button>${est.erroOpc ? `<span class="erro-ed" id="edOpcErro" role="alert">${esc(est.erroOpc)}</span>` : ''}</span>`
+        : `<button class="lapis" data-editar-opc="${chv}" aria-label="Mudar o preço ${qual} de ${esc(r.nome)} (${p == null ? 'sem preço' : brl(p)})">${p == null ? '<span class="lp">＋ pôr o preço</span>' : brl(p)} <span class="lp" aria-hidden="true">✎</span></button>`;
+    }
+    const chip = `<button class="chip" data-pausa-opc="${chv}" aria-pressed="${r.pausa[k]}" aria-label="Pausado ${ONDE_P[k]}: ${esc(r.nome)}"><span class="bol" aria-hidden="true"></span>${r.pausa[k] ? 'Pausado' : 'No ar'}</button>`;
+    const nGr = gruposDaOpcao(pdv).length;
+    const vale = k !== 'regem' && nGr > 1 ? `<span class="nao-vende">um preço para os ${nGr} grupos (código ${esc(pdv)})</span>` : '';
+    const difere = agora != null && r[k] != null && agora !== r[k] ? `<span class="nao-vende">${k === 'ifood' ? 'no iFood' : 'na 99'} agora: ${brl(agora)}</span>` : '';
+    const e = est.enviados.get(`opc:${pdv}|${k}`);
+    const envio = e ? `<span class="envio${e.ok ? '' : ' falha'}">${esc(e.texto)}${e.ok ? '' : ` <button class="bt peq" data-reenviar-opc="${gi}|${pdv}|${k}">Tentar de novo</button>`}</span>` : '';
+    return `<div class="canal-cel">${preco}${chip}${vale}${difere}${envio}</div>`;
+  }
+
+  function desenharComplementos(topo, canais) {
+    const cods = Object.keys(OPC_REGEM);
+    const nInf = GRUPOS_REGEM.flatMap((g) => g.opcoes).filter((o) => !o.pdv).length;
+    const conta = (k) => cods.filter((pdv) => marcasDaOpcao(pdv, canais).has(k)).length + (k === 'informativas' ? nInf : 0);
+    const nPaus = conta('pausados');
+    $('#resumoProd').textContent = `${cods.length} complementos com código e ${nInf} informativos, em ${GRUPOS_REGEM.length} grupos · ${nPaus} pausado${nPaus === 1 ? '' : 's'} em algum canal · o preço e a pausa que você muda aqui vão aos apps ligados`;
+    const sitsVis = O_SITS.filter(([k]) => (k !== 'naoChegou' || conta(k) > 0 || est.pEstado === 'falha') && (est.pEstado !== 'soRegem' || !['semPreco', 'naoChegou'].includes(k)));
+    const cardapios = [
+      ...(ligado('ifood') ? [['card:ifood', 'iFood', 'var(--ifood)', APP.ifood.opcoes.length]] : []),
+      ...(ligado('n99') ? [['card:n99', '99Food', 'var(--n99)', APP.n99.opcoes.length]] : []),
+    ];
+    if (est.oSit !== 'todos' && ![...sitsVis, ...cardapios].some(([k]) => k === est.oSit)) est.oSit = 'todos';
+    const vistaApp = est.oSit.startsWith('card:') ? est.oSit.slice(5) : null;
+    let grupos;
+    if (vistaApp) {
+      const ops = APP[vistaApp].opcoes;
+      const liga = (op) => !op.semCodigo && !op.repetido && OPC_REGEM[op.pdv];
+      grupos = [...new Set(ops.map((op) => op.grupo))].map((nome) => ({
+        nome,
+        linhas: ops.filter((op) => op.grupo === nome).map((op) => (liga(op) ? { tipo: 'opc', gi: -1, pdv: op.pdv, app: op } : { tipo: 'app', item: op, canal: vistaApp })),
+      }));
+    } else {
+      grupos = GRUPOS_REGEM.map((g, gi) => ({ nome: g.nome, usadoEm: g.usadoEm, sub: `em ${g.usadoEm.map((p) => REGEM[p]?.nome).filter(Boolean).join(', ')}`, linhas: g.opcoes.map((o) => (o.pdv ? { tipo: 'opc', gi, pdv: o.pdv } : { tipo: 'info', nome: o.nome })) }))
+        .filter((g) => !est.oDoProduto || g.usadoEm.includes(est.oDoProduto))
+        .map((g) => ({ ...g, linhas: g.linhas.filter((l) => est.oSit === 'todos' || marcasDaOpcao(l.pdv || '', canais).has(est.oSit)) }));
+    }
+    const cats = grupos.map((g) => g.nome);
+    if (est.pCat && !cats.includes(est.pCat)) est.pCat = '';
+    const q = est.pBusca.trim().toLowerCase();
+    const texto = (l) => (l.tipo === 'opc' ? `${OPC_REGEM[l.pdv].nome} ${l.pdv} ${l.app?.nome || ''}` : l.tipo === 'info' ? l.nome : `${l.item.nome} ${l.item.pdv} ${l.item.orz || ''}`).toLowerCase();
+    grupos = grupos.filter((g) => !est.pCat || g.nome === est.pCat).map((g) => ({ ...g, linhas: g.linhas.filter((l) => !q || texto(l).includes(q)) })).filter((g) => g.linhas.length);
+    const nLinhas = grupos.reduce((s, g) => s + g.linhas.length, 0);
+    const nCol = canais.length + 2;
+    const linhaOpc = (l) => {
+      const r = OPC_REGEM[l.pdv];
+      const tudo = canais.every((k) => r.pausa[k]);
+      const nGr = gruposDaOpcao(l.pdv).length;
+      return `<tr>
+        <td class="c-item"><div class="nome">${esc(r.nome)}</div><div class="sub">código <span class="num">${esc(l.pdv)}</span> · custo ${brl(r.custo)} · em ${nGr} ${nGr === 1 ? 'grupo' : 'grupos'}${l.app && l.app.nome !== r.nome ? ` · ${CN[vistaApp].no}: ${esc(l.app.nome)}` : ''}</div></td>
+        ${canais.map((k) => `<td data-rot="${NOME_P[k]}">${celOpcao(l.gi, l.pdv, k, l.app && k === vistaApp ? l.app.preco : null)}</td>`).join('')}
+        <td class="c-acoes"><div class="linha-acoes">
+          <button class="bt peq" data-editar-opc-gaveta="${esc(l.pdv)}">Editar<span class="sr"> ${esc(r.nome)}</span></button>
+          ${est.pEstado !== 'soRegem' ? `<button class="bt peq" data-calc-opc="${esc(l.pdv)}">Calcular o preço<span class="sr"> de ${esc(r.nome)}</span></button>` : ''}
+          <button class="bt peq" data-pausar-tudo-opc="${l.gi}|${esc(l.pdv)}">${tudo ? '▶ Reativar em todos' : '⏸ Pausar em todos'}<span class="sr">: ${esc(r.nome)}</span></button>
+        </div></td></tr>`;
+    };
+    const linhaInfo = (l) => `<tr class="so-app"><td class="c-item"><div class="nome">${esc(l.nome)}</div><div class="sub">sem código PDV · informativa</div></td>
+      <td class="c-app" colspan="${nCol - 1}"><div class="linha-app"><span class="selo neutro">vai como observação</span><span class="sub">sem preço e sem estoque. Para cobrar ou baixar o estoque, dê um código PDV à opção em Cadastros › Cardápio › Opções.</span></div></td></tr>`;
+    const linhaAppOpc = ({ item: op, canal: k }) => `<tr class="so-app">
+      <td class="c-item"><div class="nome">${esc(op.nome)}</div><div class="sub">${op.pdv ? `código <span class="num">${esc(op.pdv)}</span> · ` : ''}${brl(op.preco)} ${CN[k].no}</div></td>
+      <td class="c-app" colspan="${nCol - 1}"><div class="linha-app"><span class="selo crit">${op.semCodigo ? `sem código PDV ${CN[k].no}${op.orz ? ` (o Orzuni mostra ${esc(op.orz)})` : ''}` : op.repetido ? `código ${esc(op.pdv)} repetido ${CN[k].no}` : 'não está no Regem'}</span><span class="sub">não liga a uma opção do Regem: não é cobrado nem baixa o estoque pelo Regem</span><button class="bt peq" data-ir-conferir-opc="${k}|${esc(op.pdv || op.nome)}">Resolver em "Conferir com os apps"<span class="sr">: ${esc(op.nome)}</span></button></div></td></tr>`;
+    const linhas = grupos.map((g) => `<tr class="grupo-cat"><th colspan="${nCol}" scope="colgroup">${esc(g.nome)} <span class="sub">${g.linhas.length} ${g.linhas.length === 1 ? 'opção' : 'opções'}${g.sub ? ` · ${esc(g.sub)}` : ''}</span></th></tr>
+      ${g.linhas.map((l) => (l.tipo === 'opc' ? linhaOpc(l) : l.tipo === 'info' ? linhaInfo(l) : linhaAppOpc(l))).join('')}`).join('');
+    const doProduto = est.oDoProduto && !vistaApp
+      ? `<div class="aviso info" style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span>Os complementos de <b>${esc(REGEM[est.oDoProduto]?.nome || est.oDoProduto)}</b>.</span><button class="bt peq" data-limpar-do-produto>Ver todos os complementos</button></div>` : '';
+    const comoEsta = vistaApp ? `<p class="sub como-esta">Como estão no ${CN[vistaApp].nome === '99' ? 'cardápio da 99' : 'cardápio do iFood'}: os grupos e as opções na ordem de lá (lido hoje às ${APP[vistaApp].lidoAs}, ${CN[vistaApp].pelo}). As opções de lá que não ligam a uma do Regem aparecem com o motivo.</p>` : '';
+    $('#produtos').innerHTML = `${topo}
+      <div class="sits" role="group" aria-label="Organizar por cardápio e filtrar os complementos">
+        <button class="sit" data-osit="todos" aria-pressed="${est.oSit === 'todos'}">Todos <b>${cods.length + nInf}</b></button>
+        ${cardapios.map(([k, rot, cor, n]) => `<button class="sit" data-osit="${k}" aria-pressed="${est.oSit === k}"><span class="ponto" style="background:${cor}" aria-hidden="true"></span>${rot} <b>${n}</b></button>`).join('')}
+        <span class="sep" aria-hidden="true"></span>
+        ${sitsVis.map(([k, rot, cor]) => `<button class="sit ${cor}" data-osit="${k}" aria-pressed="${est.oSit === k}">${rot} <b>${conta(k)}</b></button>`).join('')}
+      </div>
+      ${doProduto}${comoEsta}
+      <div class="filtros">
+        <div class="campo"><label for="pBusca">Buscar por nome ou código</label><input id="pBusca" type="search" value="${esc(est.pBusca)}" placeholder="Ex.: bacon, A01" autocomplete="off"></div>
+        <div class="campo"><label for="pCat">Grupo${vistaApp ? ` ${CN[vistaApp].no}` : ''}</label><select id="pCat"><option value="">Todos</option>${cats.map((k) => `<option ${est.pCat === k ? 'selected' : ''}>${esc(k)}</option>`).join('')}</select></div>
+      </div>
+      <div class="tabela tprod">
+        <table>
+          <caption class="sr">Complementos por grupo, com o preço e a pausa em cada canal</caption>
+          <thead><tr><th>Complemento</th>${canais.map((k) => `<th>${NOME_P[k]} <span class="sub">${k === 'regem' ? '(preço no grupo)' : k === 'ifood' ? '(pelo Orzuni, pelo código)' : '(integração da 99)'}</span></th>`).join('')}<th><span class="sr">Ações</span></th></tr></thead>
+          <tbody>${linhas}</tbody>
+        </table>
+        ${nLinhas ? '' : '<div class="vazio"><b>Nenhum complemento aqui.</b><p>Troque a situação ou limpe a busca.</p></div>'}
+      </div>`;
+  }
+
+  function salvarOpc(chv) {
+    const [gs, pdv, k] = chv.split('|');
+    const gi = Number(gs);
+    const r = OPC_REGEM[pdv];
+    const v = numero($('#edOpc').value);
+    if (v == null || Number.isNaN(v) || v < 0) {
+      est.erroOpc = 'Digite o preço (0 para grátis), ex.: 4,50.';
+      const digitado = $('#edOpc').value;
+      desenharProdutos();
+      const f = $('#edOpc');
+      f.value = digitado;
+      f.focus();
+      return;
+    }
+    const linha = k === 'regem' ? GRUPOS_REGEM[gi].opcoes.find((x) => x.pdv === pdv) : null;
+    const antes = k === 'regem' ? linha.preco : r[k];
+    est.editandoOpc = null;
+    est.erroOpc = '';
+    if (v === antes) { desenharProdutos(); return focar(`[data-editar-opc="${chv}"]`); }
+    const f = foto();
+    if (k === 'regem') linha.preco = v;
+    else r[k] = v;
+    const ok = enviarOpc(pdv, k, 'preço');
+    const nGr = gruposDaOpcao(pdv).length;
+    redesenhar();
+    focar(`[data-editar-opc="${chv}"]`);
+    toast(k === 'regem'
+      ? `"${esc(r.nome)}" no grupo ${esc(GRUPOS_REGEM[gi].nome)}: ${brl(v)} (era ${brl(antes)}), no balcão e no cardápio digital.`
+      : ok ? `"${esc(r.nome)}" ${CN[k].no}: ${brl(v)} — enviado ${PELO_P[k]}${nGr > 1 ? `, nos ${nGr} grupos com o código ${esc(pdv)}` : ''}.` : `"${esc(r.nome)}": ${brl(v)} guardado no Regem, mas não chegou ao iFood. Use "Tentar de novo".`,
+      () => { voltar(f); est.enviados.delete(`opc:${pdv}|${k}`); });
+  }
+  function alternarPausaOpc(chv) {
+    const [, pdv, k] = chv.split('|');
+    const r = OPC_REGEM[pdv];
+    const f = foto();
+    r.pausa[k] = !r.pausa[k];
+    const ok = enviarOpc(pdv, k, r.pausa[k] ? 'pausa' : 'reativação');
+    redesenhar();
+    focar(`[data-pausa-opc="${chv}"]`);
+    toast(`"${esc(r.nome)}" ${r.pausa[k] ? 'pausado' : 'de volta'} ${ONDE_P[k]}, em todos os grupos${k === 'regem' ? '' : ok ? ` — enviado ${PELO_P[k]}` : ' — não chegou ao iFood (o Orzuni não respondeu)'}.`,
+      () => { voltar(f); est.enviados.delete(`opc:${pdv}|${k}`); });
+  }
+  function pausarTudoOpc(chv) {
+    const [, pdv] = chv.split('|');
+    const r = OPC_REGEM[pdv];
+    const ks = CANAIS_P.filter(ligado);
+    const pausar = !ks.every((k) => r.pausa[k]);
+    const f = foto();
+    const falhou = [];
+    for (const k of ks) {
+      if (r.pausa[k] === pausar) continue;
+      r.pausa[k] = pausar;
+      if (!enviarOpc(pdv, k, pausar ? 'pausa' : 'reativação')) falhou.push(NOME_P[k]);
+    }
+    redesenhar();
+    focar(`[data-pausar-tudo-opc="${chv}"]`);
+    toast(`"${esc(r.nome)}" ${pausar ? 'pausado' : 'de volta'} em ${ks.map((k) => NOME_P[k]).join(', ')}, em todos os grupos${falhou.length ? ` — não chegou: ${falhou.join(', ')}` : ''}.`,
+      () => { voltar(f); for (const k of ks) est.enviados.delete(`opc:${pdv}|${k}`); });
+  }
+
+  // A gaveta do complemento: nome, código, o preço do Regem em cada grupo, o preço de cada app (um por código) e a pausa.
+  let edicaoOpc = null;
+  function gavetaEditarOpc(pdv) {
+    const r = OPC_REGEM[pdv];
+    const ks = CANAIS_P.filter(ligado);
+    const apps = ['ifood', 'n99'].filter(ligado);
+    const grs = GRUPOS_REGEM.map((g, gi) => ({ g, gi, o: g.opcoes.find((x) => x.pdv === pdv) })).filter((x) => x.o);
+    $('#gTitulo').textContent = `Editar o complemento: ${r.nome}`;
+    $('#gCorpo').innerHTML = `
+      <div class="duas">
+        <div class="campo"><label for="e-nome">Nome</label><input id="e-nome" value="${esc(r.nome)}" autocomplete="off"></div>
+        <div class="campo"><label for="e-cod">Código PDV</label><input id="e-cod" value="${esc(pdv)}" autocomplete="off"><span class="ajuda">O mesmo código nos apps: é por ele que o adicional é cobrado e baixa o estoque.</span></div>
+      </div>
+      <fieldset class="grupo"><legend>Preço no Regem, em cada grupo</legend><div class="tres">${grs.map(({ g, gi, o }) => `<div class="campo"><label for="e-g-${gi}">${esc(g.nome)}</label><div class="pct"><span>R$</span><input id="e-g-${gi}" inputmode="decimal" value="${dec(o.preco.toFixed(2))}"></div></div>`).join('')}</div><span class="ajuda">Balcão e cardápio digital. O mesmo adicional pode ter preço diferente em cada grupo.</span></fieldset>
+      ${apps.length ? `<fieldset class="grupo"><legend>Preço nos apps (um por código, em todos os grupos)</legend><div class="duas">${apps.map((k) => `<div class="campo"><label for="e-p-${k}">Preço ${CN[k].no}</label><div class="pct"><span>R$</span><input id="e-p-${k}" inputmode="decimal" value="${r[k] == null ? '' : dec(r[k].toFixed(2))}"></div><span class="ajuda">${k === 'ifood' ? 'Vai ao iFood pelo Orzuni, pelo código.' : 'Vai à 99 em cada grupo que tem a opção.'} Em branco: o Regem não mexe.</span></div>`).join('')}</div></fieldset>` : ''}
+      <fieldset class="grupo"><legend>Pausa (em todos os grupos)</legend><div class="onde">${ks.map((k) => `<label><input type="checkbox" id="e-z-${k}" ${r.pausa[k] ? 'checked' : ''}> Pausado ${k === 'regem' ? 'no Regem' : CN[k].no}</label>`).join('')}</div></fieldset>
+      <p class="sub" style="margin:0">Usado em ${grs.length} ${grs.length === 1 ? 'grupo' : 'grupos'}: ${grs.map(({ g }) => esc(g.nome)).join(', ')}. A ligação com o estoque (ficha técnica ou insumo) fica em Cadastros › Cardápio › Opções.</p>
+      <div id="eEfeito" aria-live="polite"></div>`;
+    $('#gRodape').innerHTML = '<button class="bt" data-fechar2>Cancelar</button><button class="bt pri" id="bSalvarEd" data-salvar-ed-opc disabled>Salvar e enviar</button>';
+    abrir($('#gaveta'));
+    const ler = () => ({
+      nome: $('#e-nome').value.trim(), cod: $('#e-cod').value.trim(),
+      gr: Object.fromEntries(grs.map(({ gi }) => [gi, numero($(`#e-g-${gi}`).value)])),
+      preco: Object.fromEntries(apps.map((k) => [k, numero($(`#e-p-${k}`).value)])),
+      pausa: Object.fromEntries(ks.map((k) => [k, $(`#e-z-${k}`).checked])),
+    });
+    edicaoOpc = { pdv, ks, apps, grs, ler };
+    const desenharEfeito = () => {
+      const a = analisarOpc(edicaoOpc, ler());
+      let h = a.erros.length ? `<div class="aviso crit" role="alert"><b>Corrija antes de salvar:</b><ul class="passos">${a.erros.map((m) => `<li>${esc(m)}</li>`).join('')}</ul></div>` : '';
+      h += a.avisos.map((m) => `<div class="aviso">${m}</div>`).join('');
+      h += !a.mudou ? '<p class="sub" style="margin:0">Nada mudou ainda.</p>'
+        : `<div class="aviso info"><b>Ao salvar:</b><ul class="passos">${a.regem.length ? `<li><b>Regem:</b> ${a.regem.join(', ')}.</li>` : ''}${Object.entries(a.apps).map(([k, x]) => `<li><b>${NOME_P[k]}</b>${x.vai.length ? ` — vai agora ${k === 'ifood' ? 'pelo Orzuni, pelo código' : 'pela integração da 99'}: ${x.vai.join(', ')}.` : ''}${x.atencao.length ? ` <span class="neg">Atenção: ${x.atencao.join('; ')}.</span>` : ''}</li>`).join('')}</ul></div>`;
+      $('#eEfeito').innerHTML = h;
+      $('#bSalvarEd').disabled = !a.mudou || a.erros.length > 0;
+    };
+    $('#gCorpo').oninput = desenharEfeito;
+    $('#gCorpo').onchange = desenharEfeito;
+    desenharEfeito();
+  }
+  function analisarOpc({ pdv, ks, apps, grs }, v) {
+    const r = OPC_REGEM[pdv];
+    const erros = [];
+    const avisos = [];
+    if (!v.nome) erros.push('O nome não pode ficar em branco.');
+    for (const { g, gi } of grs) if (v.gr[gi] == null || Number.isNaN(v.gr[gi]) || v.gr[gi] < 0) erros.push(`O preço em "${g.nome}" está inválido: use 0 ou mais, ex.: 4,50.`);
+    for (const k of apps) if (Number.isNaN(v.preco[k]) || v.preco[k] < 0) erros.push(`O preço ${CN[k].no} está inválido: use 0 ou mais, ex.: 4,50.`);
+    const codMudou = v.cod !== pdv;
+    if (codMudou) {
+      if (!v.cod) erros.push('O código não pode ficar em branco: sem ele, o adicional vira informativo (não cobra nem baixa estoque).');
+      else if (OPC_REGEM[v.cod]) erros.push(`O código ${v.cod} já é de "${OPC_REGEM[v.cod].nome}". Dois complementos com o mesmo código ligam a venda à opção errada.`);
+      else {
+        const usos = ['ifood', 'n99'].flatMap((k) => APP[k].opcoes.filter((o) => o.pdv === pdv).map((o) => `"${esc(o.nome)}" ${CN[k].do}`));
+        avisos.push(`<b>O código passa de ${esc(pdv)} para ${esc(v.cod)} nos ${grs.length} grupos.</b> Quem usa o ${esc(pdv)} hoje: ${usos.join(', ') || 'nenhum item dos apps'}. Nos apps o código não muda sozinho: no iFood, troque no Gestor de Pedidos; na 99, ele muda quando o Regem enviar o cardápio de novo.`);
+      }
+    }
+    const regem = [];
+    if (v.nome !== r.nome) regem.push('nome');
+    if (codMudou && v.cod) regem.push('código PDV');
+    for (const { g, gi, o } of grs) if (!Number.isNaN(v.gr[gi]) && v.gr[gi] != null && v.gr[gi] !== o.preco) regem.push(`preço em ${g.nome}`);
+    if (ks.includes('regem') && v.pausa.regem !== r.pausa.regem) regem.push(v.pausa.regem ? 'pausa' : 'reativação');
+    const out = {};
+    for (const k of apps) {
+      const vai = [];
+      const atencao = [];
+      if (!Number.isNaN(v.preco[k]) && v.preco[k] !== r[k]) vai.push(k === 'ifood' ? 'preço (em todos os grupos com o código)' : 'preço (em cada grupo com a opção)');
+      if (v.pausa[k] !== r.pausa[k]) vai.push(v.pausa[k] ? 'pausa' : 'reativação');
+      if (v.nome !== r.nome) (k === 'ifood' ? atencao : vai).push(k === 'ifood' ? 'o nome não vai: o Orzuni ainda não muda nome — troque no Gestor de Pedidos (decisão 10)' : 'nome');
+      if (vai.length || atencao.length) out[k] = { vai, atencao };
+    }
+    return { erros, avisos, regem, apps: out, codMudou, mudou: regem.length > 0 || Object.keys(out).length > 0 };
+  }
+  function salvarEdicaoOpc() {
+    if (!edicaoOpc) return;
+    const { pdv, ks, apps, grs, ler } = edicaoOpc;
+    const v = ler();
+    const a = analisarOpc(edicaoOpc, v);
+    if (a.erros.length || !a.mudou) return;
+    const f = foto();
+    const r = OPC_REGEM[pdv];
+    r.nome = v.nome;
+    for (const { gi, o } of grs) o.preco = v.gr[gi];
+    for (const k of apps) r[k] = v.preco[k];
+    for (const k of ks) r.pausa[k] = v.pausa[k];
+    let cod = pdv;
+    if (a.codMudou && v.cod) {
+      delete OPC_REGEM[pdv];
+      OPC_REGEM[v.cod] = r;
+      for (const g of GRUPOS_REGEM) for (const o of g.opcoes) if (o.pdv === pdv) o.pdv = v.cod;
+      for (const k of ['ifood', 'n99']) est.enviados.delete(`opc:${pdv}|${k}`);
+      cod = v.cod;
+    }
+    const res = [];
+    for (const [k, x] of Object.entries(a.apps)) {
+      if (!x.vai.length) continue;
+      const oque = x.vai.map((s) => s.replace(/ \(.*$/, '')).join(', ');
+      res.push(`${NOME_P[k]}: ${enviarOpc(cod, k, oque) ? oque : 'não chegou (o Orzuni não respondeu)'}`);
+    }
+    edicaoOpc = null;
+    fechar();
+    redesenhar();
+    focar(`[data-editar-opc-gaveta="${cod}"]`);
+    toast(`"${esc(v.nome)}" salvo.${res.length ? ` ${res.map(esc).join(' · ')}.` : ''}`, () => { voltar(f); for (const k of ['ifood', 'n99']) est.enviados.delete(`opc:${cod}|${k}`); });
   }
 
   function salvarPreco(chv) {
@@ -1658,17 +1981,20 @@ tr.so-app td{background:var(--soft)}
       () => { voltar(f); for (const k of ['ifood', 'n99']) est.enviados.delete(`${cod}|${k}`); });
   }
 
-  // A calculadora por produto, com o app escolhido (iFood | 99) na própria gaveta.
-  function gavetaCalcProd(pdv, canal) {
-    const r = produtoDe(pdv);
-    let k = canal || ['ifood', 'n99'].find((c) => r.onde[c]) || 'ifood';
-    $('#gTitulo').textContent = `Calcular o preço: ${r.nome}`;
+  // A calculadora por produto (ou por complemento), com o app escolhido (iFood | 99) na própria gaveta.
+  function gavetaCalcProd(pdv, canal, opc = false) {
+    const r = opc ? OPC_REGEM[pdv] : produtoDe(pdv);
+    const vende = (c) => opc || r.onde[c];
+    let k = canal || ['ifood', 'n99'].find(vende) || 'ifood';
+    $('#gTitulo').textContent = opc ? `Calcular o preço do complemento: ${r.nome}` : `Calcular o preço: ${r.nome}`;
     const desenharCalc = () => {
       const hoje = r[k];
+      const regem = opc ? `no Regem: <span class="sub">${faixaNoRegem(pdv)}</span>` : `preço de venda no Regem: <b class="num">${brl(r.venda)}</b>`;
       // o seletor num bloco próprio: solto na grade da gaveta, a faixa encolhia a 2 px e o parágrafo cobria os botões
       $('#gCorpo').innerHTML = `<div><div class="seg" role="group" aria-label="Calcular para qual app" style="margin:0">${['ifood', 'n99'].map((c) => `<button type="button" data-calc-canal="${c}" aria-pressed="${c === k}">${CN[c].nome}</button>`).join('')}</div></div>
-        <p style="margin:0">${CN[k].no.replace(/^./, (l) => l.toUpperCase())} hoje: <b class="num">${hoje == null ? 'sem preço' : brl(hoje)}</b> · preço de venda no Regem: <b class="num">${brl(r.venda)}</b>${!pdv ? ' · <span class="sub">sem código PDV: não liga aos apps (só para simular)</span>' : !r.onde[k] ? ` · <span class="sub">não vende ${CN[k].no} (só para simular)</span>` : ''}</p>
-        ${blocoCalculadora({ custo: r.custo, emb: r.emb }, hoje, pdv && r.onde[k] ? pdv : null, k, 'usarSugeridoProd')}`;
+        <p style="margin:0">${CN[k].no.replace(/^./, (l) => l.toUpperCase())} hoje: <b class="num">${hoje == null ? 'sem preço' : brl(hoje)}</b> · ${regem}${!pdv ? ' · <span class="sub">sem código PDV: não liga aos apps (só para simular)</span>' : !vende(k) ? ` · <span class="sub">não vende ${CN[k].no} (só para simular)</span>` : ''}</p>
+        ${opc ? '<p class="sub" style="margin:0">Complemento: sem custo de entrega nem taxa fixa por entrega — eles já entram no preço do produto.</p>' : ''}
+        ${blocoCalculadora({ custo: r.custo, emb: r.emb || 0, semEntrega: opc }, hoje, pdv && vende(k) ? pdv : null, k, opc ? 'usarSugeridoOpc' : 'usarSugeridoProd')}`;
     };
     desenharCalc();
     $('#gRodape').innerHTML = '<button class="bt" data-fechar2>Fechar</button>';
@@ -1777,6 +2103,45 @@ tr.so-app td{background:var(--soft)}
     const cl = t.closest('[data-calc-prod]');
     if (cl) return gavetaCalcProd(pdvDe(cl.dataset.calcProd));
     if (t.closest('[data-salvar-ed]')) return salvarEdicao();
+    // ── Produtos | Complementos ──
+    const pv = t.closest('[data-pvista]');
+    if (pv) { est.pVista = pv.dataset.pvista; est.pCat = ''; est.editando = est.editandoOpc = null; desenharProdutos(); return focar(`[data-pvista="${est.pVista}"]`); }
+    const vc = t.closest('[data-ver-compl]');
+    if (vc) { Object.assign(est, { pVista: 'complementos', oDoProduto: vc.dataset.verCompl, oSit: 'todos', pCat: '', pBusca: '' }); desenharProdutos(); return focar('[data-pvista="complementos"]'); }
+    if (t.closest('[data-limpar-do-produto]')) { est.oDoProduto = ''; desenharProdutos(); return focar('[data-pvista="complementos"]'); }
+    const os = t.closest('[data-osit]');
+    if (os) { est.oSit = os.dataset.osit; est.pCat = ''; desenharProdutos(); return focar(`[data-osit="${est.oSit}"]`); }
+    const eo = t.closest('[data-editar-opc]');
+    if (eo) { est.editandoOpc = eo.dataset.editarOpc; est.erroOpc = ''; desenharProdutos(); const f = $('#edOpc'); f.focus(); f.select(); return; }
+    const so = t.closest('[data-salvar-opc]');
+    if (so) return salvarOpc(so.dataset.salvarOpc);
+    const co = t.closest('[data-cancelar-opc]');
+    if (co) { est.editandoOpc = null; est.erroOpc = ''; desenharProdutos(); return focar(`[data-editar-opc="${co.dataset.cancelarOpc}"]`); }
+    const po = t.closest('[data-pausa-opc]');
+    if (po) return alternarPausaOpc(po.dataset.pausaOpc);
+    const pto = t.closest('[data-pausar-tudo-opc]');
+    if (pto) return pausarTudoOpc(pto.dataset.pausarTudoOpc);
+    const ro = t.closest('[data-reenviar-opc]');
+    if (ro) {
+      const [, pdv, k] = ro.dataset.reenviarOpc.split('|');
+      if (k === 'ifood' && est.pEstado === 'falha') return toast('O Orzuni ainda não respondeu. O valor continua guardado no Regem; tente de novo daqui a pouco.');
+      enviarOpc(pdv, k, est.enviados.get(`opc:${pdv}|${k}`)?.oque || 'preço');
+      redesenhar();
+      return toast(`Enviado ${PELO_P[k]} agora.`);
+    }
+    const ego = t.closest('[data-editar-opc-gaveta]');
+    if (ego) return gavetaEditarOpc(ego.dataset.editarOpcGaveta);
+    const clo = t.closest('[data-calc-opc]');
+    if (clo) return gavetaCalcProd(clo.dataset.calcOpc, null, true);
+    if (t.closest('[data-salvar-ed-opc]')) return salvarEdicaoOpc();
+    const ico = t.closest('[data-ir-conferir-opc]');
+    if (ico) {
+      const [k, ...busca] = ico.dataset.irConferirOpc.split('|');
+      Object.assign(est, { aba: 'conferir', canal: k, vista: 'opcoes', sit: 'todas', cat: '', busca: busca.join('|') });
+      mostrarAba();
+      desenhar();
+      return focar('#fBusca');
+    }
     if (t.closest('#bTaxas2')) return gavetaTaxas();
     // ── conferência: o lápis no preço do app ──
     const ec = t.closest('[data-editar-conf]');
@@ -1869,6 +2234,20 @@ tr.so-app td{background:var(--soft)}
         redesenhar();
         return toast(`${brl(valor)} vira o preço ${c.no} (no Regem e ${c.ao}).`, () => { voltar(f); est.resolvidos.delete(chave(x)); });
       }
+      case 'usarSugeridoOpc': {
+        const pdv = a.dataset.id;
+        const k = a.dataset.para;
+        const valor = Number(a.dataset.valor);
+        const r = OPC_REGEM[pdv];
+        const f = foto();
+        r[k] = valor;
+        const ok = enviarOpc(pdv, k, 'preço');
+        fechar();
+        redesenhar();
+        focar(`[data-calc-opc="${pdv}"]`);
+        return toast(ok ? `${brl(valor)} é o preço do complemento "${esc(r.nome)}" ${CN[k].no} — enviado ${PELO_P[k]}, em todos os grupos.` : `${brl(valor)} guardado no Regem, mas não chegou ao iFood (o Orzuni não respondeu).`,
+          () => { voltar(f); est.enviados.delete(`opc:${pdv}|${k}`); });
+      }
       case 'usarSugeridoProd': {
         const pdv = pdvDe(a.dataset.id);
         const k = a.dataset.para;
@@ -1951,6 +2330,11 @@ tr.so-app td{background:var(--soft)}
   });
   document.addEventListener('keydown', (e) => {
     // o preço no lugar: Enter salva, Esc cancela
+    if (e.target.id === 'edOpc') {
+      if (e.key === 'Enter') { e.preventDefault(); return salvarOpc(est.editandoOpc); }
+      if (e.key === 'Escape') { e.preventDefault(); const chv = est.editandoOpc; est.editandoOpc = null; est.erroOpc = ''; desenharProdutos(); return focar(`[data-editar-opc="${chv}"]`); }
+      return;
+    }
     if (e.target.id === 'edPreco' || e.target.id === 'edConf') {
       const prod = e.target.id === 'edPreco';
       if (e.key === 'Enter') { e.preventDefault(); return prod ? salvarPreco(est.editando) : salvarConf(est.editandoConf.split(':')[1]); }
