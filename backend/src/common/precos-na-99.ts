@@ -6,8 +6,8 @@ import { precoDoAppDoPedido } from './preco-do-app';
 // dono em 11/11/2026 — decisão 6).
 //
 // O Regem guarda o preço NA 99 e se o produto está no cardápio da 99 (mig 401), como já guarda para o iFood (mig 369). O
-// envio item a item à 99 é a fase F2b. Tudo nasce DESLIGADO: o servidor só grava os campos com este direito ligado na
-// empresa, e a tela só os mostra assim.
+// envio item a item à 99 vai pela fila da mig 402 (`Food99CatalogoEnvioService`). Tudo nasce DESLIGADO: o servidor só
+// grava os campos com este direito ligado na empresa, e a tela só os mostra assim.
 //
 // Quem liga é a DISTRIBUIÇÃO (console › Integrações › "Preço e pausa na 99"; nenhuma rota do lojista grava este
 // direito). Ligar só com todos os servidores de loja da empresa na versão que traz a mig 401 — o porquê está no

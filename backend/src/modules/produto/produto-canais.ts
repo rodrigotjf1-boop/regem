@@ -12,8 +12,8 @@ import { preco99DoPedido } from '../../common/precos-na-99';
 //   • ifood — o preço no iFood (`preco_ifood`, mig 369, só com o direito `ifood_pelo_orzuni`) e o "Pausado no iFood"
 //             (`canais_pausados` com 'ifood'). O envio ao iFood é a fila do Orzuni (gatilho da mig 370/399).
 //   • 99food — o preço na 99 (`preco_99`, mig 401, só com o direito `precos_na_99`; vazio = o "Exportar catálogo" da 99
-//             manda o preço de venda) e o "Pausado na 99" (`canais_pausados` com '99food'): sai do cardápio no próximo
-//             envio à 99. O envio item a item à 99 é a fase F2b.
+//             manda o preço de venda) e o "Pausado na 99" (`canais_pausados` com '99food'). Os dois vão à 99 na
+//             hora, item a item (a fila da mig 402); o "Exportar catálogo" tira da 99 o que está pausado lá.
 // A pausa num canal da lista `canais_pausados` põe ou tira SÓ aquele canal, na própria instrução do banco — nunca regrava
 // a lista inteira (o totem também mexe nela: a pausa dele não pode sumir).
 
