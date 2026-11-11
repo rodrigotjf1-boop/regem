@@ -54,6 +54,7 @@ export class JobsService {
             titulo,
             detalhe,
             prioridade: 'alta',
+            tipo: 'gestao', // fechamento do ponto: aviso de gestão (as telas de preparo não recebem por padrão, mig 408)
           });
         }
         this.log.log(
@@ -278,7 +279,7 @@ export class JobsService {
           prioridade: 'alta',
           unidadeId,
         });
-        this.events.emit('kds.alerta.sistema', { tenantId, unidadeId, titulo, detalhe, prioridade: 'alta' });
+        this.events.emit('kds.alerta.sistema', { tenantId, unidadeId, titulo, detalhe, prioridade: 'alta', tipo: 'estoque' });
         this.log.log(`ROP tenant ${tenantId}${unidadeId ? ` loja ${unidadeId}` : ''}: ${repor.length} item(ns) a repor`);
       }
     }
@@ -342,7 +343,7 @@ export class JobsService {
         const detalhe = criticos.slice(0, 6).map((l: any) => l.itemNome).join(', ');
         const prioridade = vencidos ? 'danger' : 'alta';
         await this.estoque.registrarAlerta(tenantId, 'validade', { titulo, detalhe, prioridade, unidadeId });
-        this.events.emit('kds.alerta.sistema', { tenantId, unidadeId, titulo, detalhe, prioridade });
+        this.events.emit('kds.alerta.sistema', { tenantId, unidadeId, titulo, detalhe, prioridade, tipo: 'estoque' });
         this.log.log(`FEFO tenant ${tenantId}${unidadeId ? ` loja ${unidadeId}` : ''}: ${criticos.length} lote(s) crítico(s)`);
       }
     }

@@ -116,6 +116,27 @@ descrever('pausa por canal (Postgres)', () => {
     expect(registros).toHaveLength(2);
   });
 
+  // Onda 2 da auditoria do KDS (11/11/2026): "incluir o status das lojas de delivery pausadas nos alertas".
+  it('a faixa do KDS: só o canal pausado, até quando e o motivo (sem quem pausou); pausar e reabrir avisam as telas', async () => {
+    const { t, gestor } = await loja();
+    const eventos: any[] = [];
+    const comEventos = new PausaDoCanalService(db, auditoria, undefined, { emit: (n: string, d: any) => eventos.push([n, d]) } as any);
+    expect(await comEventos.paraOKds(t, null)).toEqual({ canais: [], avisoMinutos: 5 });
+
+    await comEventos.pausar(gestor, null, { canais: ['cardapio'], motivo: 'pedidos', tempo: { minutos: 30 } });
+    const faixa = await comEventos.paraOKds(t, null);
+    expect(faixa.canais).toEqual([
+      { canal: 'cardapio', nome: 'Cardápio digital', ate: expect.any(String), fimDoDia: expect.any(Boolean), motivo: 'Muitos pedidos agora' },
+    ]);
+    expect(new Date(faixa.canais[0].ate).getTime() - Date.now()).toBeGreaterThan(29 * 60_000);
+    expect(JSON.stringify(faixa)).not.toContain('Rodrigo'); // quem pausou não vai à cozinha
+    expect(eventos).toEqual([['kds.pausa.mudou', { tenantId: t }]]);
+
+    await comEventos.reabrir(gestor, null, 'cardapio');
+    expect((await comEventos.paraOKds(t, null)).canais).toEqual([]);
+    expect(eventos).toHaveLength(2);
+  });
+
   it('uma linha por empresa, loja e canal, com o id da chave (o mesmo md5 do Postgres); pausar de novo troca o motivo', async () => {
     const { t, gestor } = await loja();
     await pausas.pausar(gestor, null, { canais: ['cardapio'], motivo: 'pedidos', tempo: { minutos: 15 } });

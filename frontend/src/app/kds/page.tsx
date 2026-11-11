@@ -15,9 +15,18 @@ import { KdsProdutosGaveta } from '@/components/kds/kds-produtos-gaveta';
 import { KdsDespacho } from '@/components/kds/kds-despacho';
 import { ACAO_KDS, TEMAS_KDS, variaveisDoKds, type TemaKds } from '@/lib/kds-tema';
 import {
+  AVISOS_DA_TELA,
   COR_STATUS,
   FILTROS_ETAPA,
   acoesDoDespacho,
+  avisosDoKds,
+  avisosPadrao,
+  faixaDaPausa,
+  recebeAviso,
+  TIPOS_DE_AVISO,
+  type AvisosDoKds,
+  type CanalPausadoNoKds,
+  type TipoDeAviso,
   agruparPorItem,
   cartaoNaTela,
   pedidoDoDespachoNaTela,
@@ -109,6 +118,15 @@ const MONO = 'JetBrains Mono, monospace';
 const TITULO = 'Archivo, sans-serif';
 const hm = (d: Date) => d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
+// De onde veio o aviso, na lista "N avisos" (pelo tipo que o servidor manda — mig 408).
+const ORIGEM_DO_AVISO: Record<string, string> = {
+  loja: 'Alertas da loja',
+  estoque: 'Estoque da cozinha',
+  gestao: 'Aviso de gestão',
+  farol: 'Farol',
+  pausa: 'Pausa dos canais',
+};
+
 // Os sons (A12): o pedido novo, o aviso e o URGENTE (cancelado, alterado) — antes era o mesmo bipe para tudo.
 type Som = 'novo' | 'aviso' | 'urgente';
 const TONS: Record<Som, { f: number; ini: number; dur: number }[]> = {
@@ -169,8 +187,14 @@ export default function KdsPage() {
   // Preferências da tela (por aparelho; guardadas no localStorage).
   const [view, setView] = useState<ViewCfg>(VIEW_PADRAO);
   const [telaDeToque, setTelaDeToque] = useState(false); // só para adivinhar a forma de uso
-  // A gaveta ⚙ (o que é do aparelho e o histórico), a lista "N avisos" e o diálogo do "Finalizar todos".
-  const [gaveta, setGaveta] = useState<null | 'tela' | 'historico'>(null);
+  // A gaveta ⚙ (o que é do aparelho, os avisos desta tela e o histórico), a lista "N avisos" e o diálogo do "Finalizar todos".
+  const [gaveta, setGaveta] = useState<null | 'tela' | 'avisos' | 'historico'>(null);
+  // A aba "Avisos": o rascunho do que esta tela recebe (salvo no servidor, mig 408) e o estado do "Salvar".
+  const [rascunhoAvisos, setRascunhoAvisos] = useState<AvisosDoKds | null>(null);
+  const [salvandoAvisos, setSalvandoAvisos] = useState(false);
+  const [erroAvisos, setErroAvisos] = useState('');
+  // A faixa da pausa dos canais (onda 2): os pausados agora na loja e o aviso antes de reabrir.
+  const [pausas, setPausas] = useState<{ canais: CanalPausadoNoKds[]; avisoMinutos: number }>({ canais: [], avisoMinutos: 5 });
   const [listaAberta, setListaAberta] = useState(false);
   const [dialogoFinalizar, setDialogoFinalizar] = useState(false);
   // O aviso curto depois de cada toque (L13).
@@ -286,6 +310,8 @@ export default function KdsPage() {
   const kdsRef = useRef(kdsSel);
   kdsRef.current = kdsSel;
   const despachoRef = useRef(false); // este aparelho é o KDS de despacho (Cozinha em estações, entrega 2)
+  // Os avisos que esta tela recebe (mig 408) — os ouvintes do tempo real leem pela ref (atribuída abaixo, com o KDS).
+  const avisosRef = useRef<AvisosDoKds>(avisosPadrao(null));
   const usoRef = useRef(uso);
   usoRef.current = uso;
   const senhaRef = useRef<HTMLInputElement | null>(null); // Fase F — campo de senha (foco)
@@ -391,7 +417,9 @@ export default function KdsPage() {
         }
       }
       chegadasVistas.current = mapa;
-      if (!novos.length) return;
+      // A tela que não recebe "Cliente chegou" (a de preparo, por padrão — mig 408) só anota que viu: a etiqueta segue no
+      // cartão, sem aviso nem som.
+      if (!novos.length || !recebeAviso(avisosRef.current, 'chegou')) return;
       const ondeTxt = (c: any) =>
         c?.onde === 'balcao' ? `No balcão${c.obs ? ` · ${c.obs}` : ''}` : c?.onde === 'porta' ? `Na porta${c.obs ? `: ${c.obs}` : ''}` : c?.obs ?? 'Para retirar';
       const em = new Date().toISOString();
@@ -490,6 +518,31 @@ export default function KdsPage() {
     return () => clearInterval(t);
   }, []);
 
+  // A FAIXA DA PAUSA (onda 2 da auditoria do KDS — "incluir o status das lojas de delivery pausadas nos alertas"): os
+  // canais pausados agora na loja. Relida a cada 30 s, no aviso do servidor (`kds:pausa`) e quando o contador de um canal
+  // chega ao fim. Só a resposta da leitura mais nova vale (V64); a falha mantém a faixa como estava (servidor antigo sem a
+  // rota: a faixa só não aparece).
+  const pausasSeq = useRef(0);
+  const relerPausas = useCallback(() => {
+    if (!getToken()) return;
+    const seq = ++pausasSeq.current;
+    api
+      .kdsPausas()
+      .then((r) => {
+        if (seq !== pausasSeq.current) return;
+        const novo = {
+          canais: Array.isArray(r?.canais) ? r.canais : [],
+          avisoMinutos: Number(r?.avisoMinutos) >= 0 ? Number(r.avisoMinutos) : 5,
+        };
+        setPausas((antes) => (JSON.stringify(antes) === JSON.stringify(novo) ? antes : novo));
+      })
+      .catch(() => {
+        /* mantém a faixa */
+      });
+  }, []);
+  const relerPausasRef = useRef(relerPausas);
+  relerPausasRef.current = relerPausas;
+
   // Fase E — KDS da loja (p/ o seletor de cadeia). Pela lista das telas de KDS (quem tem o módulo vê): a de equipamentos
   // pede gerente, e o aparelho da cozinha ficava sem escolher qual KDS é. Relida a cada 30 s e no aviso do painel
   // (`kds:telas`): o mapa mandado pelo Delivery (entrega 5) chega sem recarregar — do painel na nuvem para o servidor da
@@ -510,9 +563,10 @@ export default function KdsPage() {
     const t = setInterval(() => {
       if (typeof document !== 'undefined' && document.hidden) return;
       relerTelas();
+      relerPausas();
     }, 30000);
     return () => clearInterval(t);
-  }, [relerTelas]);
+  }, [relerTelas, relerPausas]);
 
   useEffect(() => {
     if (getToken()) {
@@ -521,6 +575,7 @@ export default function KdsPage() {
         .then((r: any) => setMapaHabilitado(r?.habilitado === true))
         .catch(() => setMapaHabilitado(false));
       relerTelas();
+      relerPausas();
       // Restaura a última escolha de "Este KDS" e do canal.
       try {
         const s = localStorage.getItem('kds-equip');
@@ -529,7 +584,7 @@ export default function KdsPage() {
         if (c === 'balcao' || c === 'delivery' || c === 'todos') setCanal(c);
       } catch { /* ignora */ }
     }
-  }, [relerTelas]);
+  }, [relerTelas, relerPausas]);
 
   function escolherKds(id: string) {
     setKdsSel(id);
@@ -579,6 +634,10 @@ export default function KdsPage() {
     if (params.get('full') === '1') setPedirTelaCheia(true);
   }, []);
   const kdsAtual = kdsList.find((k) => k.id === kdsSel) || null;
+  // Os avisos que esta tela recebe: os do KDS escolhido (o salvo por cima do padrão do tipo dele), ou o padrão da loja de
+  // um KDS só (sem os de gestão). Servidor da loja ainda sem a mig 408: o padrão do tipo.
+  const avisosDaTela = avisosDoKds(kdsAtual?.escopo ?? null, kdsAtual?.avisos);
+  avisosRef.current = avisosDaTela;
   const modoEntrega = kdsAtual?.escopo === 'entrega'; // Fase E3 — board só-senha
   const modoDespacho = kdsAtual?.escopo === 'despacho'; // o pedido inteiro, com o andamento das estações
   despachoRef.current = modoDespacho;
@@ -632,6 +691,8 @@ export default function KdsPage() {
 
     // Alerta cadastrado (Configurações › Alertas do KDS). O urgente ganha o "Ciente" (A7): sai antes do tempo com um toque.
     socket.on('kds:alerta', (a: any) => {
+      // Cada tela escolhe os tipos que recebe (aba "Avisos" do ⚙, mig 408): o de gestão não toca na tela de preparo.
+      if (!recebeAviso(avisosRef.current, a.tipo ?? 'loja')) return;
       const prioridade = prioridadeDoRodape(a.prioridade ?? 'alta');
       setAlertas((prev) => [
         {
@@ -642,7 +703,7 @@ export default function KdsPage() {
           em: a.em,
           restanteSeg: Number(a.duracaoSeg) > 0 ? Number(a.duracaoSeg) : 60,
           ciente: prioridade === 'danger',
-          origem: 'Alertas da loja',
+          origem: ORIGEM_DO_AVISO[String(a.tipo)] ?? 'Alertas da loja',
         },
         ...prev.filter((x) => x.id !== a.id),
       ]);
@@ -689,8 +750,11 @@ export default function KdsPage() {
       });
     });
 
-    // O painel do Delivery mandou o mapa para KDS (ou tirou): relê a lista das telas — a deste aparelho diz o que mostrar.
+    // O painel do Delivery mandou o mapa para KDS (ou tirou), ou mudaram os avisos de uma tela: relê a lista das telas — a
+    // deste aparelho diz o que mostrar e o que recebe.
     socket.on('kds:telas', () => relerTelas());
+    // Pausaram, reabriram ou estenderam um canal: a faixa relê na hora.
+    socket.on('kds:pausa', () => relerPausasRef.current());
 
     return () => {
       socket.close();
@@ -784,6 +848,49 @@ export default function KdsPage() {
   const mostrado = escolherAlertaDoRodape(alertas);
   const nowMs = now ? now.getTime() : Date.now();
 
+  // A faixa da pausa: só os canais ainda dentro da hora; nos minutos do aviso da loja antes de reabrir, o contador fica em
+  // âmbar (com um bipe). O canal que sai da faixa (reabriram antes, ou a hora chegou) vira o aviso positivo "reabriu".
+  const recebePausa = recebeAviso(avisosDaTela, 'pausa');
+  const faixasDaPausa = pausas.canais
+    .map((c) => ({ c, f: faixaDaPausa(c, nowMs, pausas.avisoMinutos) }))
+    .filter((x): x is { c: CanalPausadoNoKds; f: NonNullable<ReturnType<typeof faixaDaPausa>> } => !!x.f);
+  const chaveDasPausas = faixasDaPausa.map((x) => `${x.c.canal}@${x.c.ate}`).join('|');
+  const logoDasPausas = faixasDaPausa.filter((x) => x.f.logo).map((x) => `${x.c.canal}@${x.c.ate}`).join('|');
+  const pausasAntes = useRef<Map<string, CanalPausadoNoKds> | null>(null);
+  useEffect(() => {
+    const atuais = new Map(faixasDaPausa.map((x) => [x.c.canal, x.c]));
+    const antes = pausasAntes.current;
+    pausasAntes.current = atuais;
+    if (!antes) return; // a primeira leitura é a base
+    const reabertos = [...antes.values()].filter((c) => !atuais.has(c.canal));
+    if (!reabertos.length) return;
+    relerPausasRef.current(); // a hora chegou nesta tela: confere com o servidor (estenderam noutra?)
+    if (!recebeAviso(avisosRef.current, 'pausa')) return;
+    const em = new Date().toISOString();
+    setAlertas((prev) => [
+      ...reabertos.map((c) => ({
+        id: `reab-${c.canal}-${c.ate}`,
+        titulo: `✓ ${c.nome} reabriu`,
+        detalhe: 'Os pedidos voltaram a entrar.',
+        prioridade: 'ok' as const,
+        em,
+        restanteSeg: 30,
+        origem: 'Pausa dos canais',
+      })),
+      ...prev.filter((x) => !reabertos.some((c) => x.id === `reab-${c.canal}-${c.ate}`)),
+    ]);
+    bip('aviso');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chaveDasPausas]);
+  const avisadosLogo = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    for (const k of logoDasPausas.split('|').filter(Boolean)) {
+      if (avisadosLogo.current.has(k)) continue;
+      avisadosLogo.current.add(k);
+      if (recebeAviso(avisosRef.current, 'pausa')) bip('aviso');
+    }
+  }, [logoDasPausas, bip]);
+
   // Fase C — pedidos filtrados pela sub-origem do canal ativo (client-side).
   // canal 'todos' (KDS único) não aplica sub-filtro.
   const subAtivo = canal === 'delivery' ? subDelivery : canal === 'balcao' ? subBalcao : 'todos';
@@ -869,6 +976,35 @@ export default function KdsPage() {
       return null;
     });
   }, []);
+  // A aba "Avisos": o rascunho nasce do que a tela recebe agora; fechar a gaveta descarta o que não foi salvo.
+  const podeMudarAvisos = podePerm('producao_kds');
+  const chaveDosAvisos = JSON.stringify(avisosDaTela);
+  useEffect(() => {
+    if (gaveta !== 'avisos') {
+      setRascunhoAvisos(null);
+      setErroAvisos('');
+    }
+  }, [gaveta]);
+  useEffect(() => {
+    // O que está salvo mudou (outra tela, o sync): o rascunho recomeça dele se ninguém mexeu.
+    setRascunhoAvisos((r) => (r && JSON.stringify(r) !== chaveDosAvisos ? r : null));
+  }, [chaveDosAvisos]);
+  const avisosMudados = rascunhoAvisos ? TIPOS_DE_AVISO.filter((t) => rascunhoAvisos[t] !== avisosDaTela[t]) : [];
+  async function salvarAvisos() {
+    if (!kdsAtual || !rascunhoAvisos || !avisosMudados.length) return;
+    setSalvandoAvisos(true);
+    setErroAvisos('');
+    try {
+      await api.salvarKdsAvisos(kdsAtual.id, Object.fromEntries(avisosMudados.map((t) => [t, rascunhoAvisos[t]])));
+      relerTelas();
+      mostrarToque('Avisos desta tela salvos');
+      fecharGaveta();
+    } catch (e: any) {
+      setErroAvisos(e?.message || 'Não salvei os avisos. Tente de novo.');
+    } finally {
+      setSalvandoAvisos(false);
+    }
+  }
   const fecharDialogo = useCallback(() => {
     setDialogoFinalizar(false);
     setTimeout(() => fimBtRef.current?.focus({ preventScroll: true }), 0);
@@ -1216,6 +1352,25 @@ export default function KdsPage() {
             </span>
           </div>
         )}
+        {/* A pausa dos canais: clara, com o contador em negrito — em âmbar nos minutos finais. A faixa não é pintada. */}
+        {recebePausa && faixasDaPausa.length > 0 && (
+          <div className="k-pausas" role="status" aria-label="Canais pausados">
+            {faixasDaPausa.map(({ c, f }) => (
+              <div key={c.canal} className={`k-pausa${f.logo ? ' logo' : ''}`} data-kds-pausa={c.canal}>
+                <span className="q">
+                  <span aria-hidden="true">⏸</span> {f.texto}
+                  {f.detalhe ? <small>{f.detalhe}</small> : null}
+                </span>
+                {f.contador && (
+                  <span className="t">
+                    <small>faltam</small>
+                    {f.contador}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
         {mostrarMapa && mapaDoPainel && (
           <div className="k-faixa" role="status">
             <span className="k-ic" aria-hidden="true">
@@ -1416,6 +1571,7 @@ export default function KdsPage() {
             <div className="k-gtabs" role="tablist" aria-label="Partes da configuração">
               {([
                 ['tela', 'Esta tela'],
+                ['avisos', 'Avisos'],
                 ['historico', 'Histórico'],
               ] as const).map(([aba, rotulo]) => (
                 <button key={aba} type="button" role="tab" className="k-gtab" aria-selected={gaveta === aba} onClick={() => setGaveta(aba)}>
@@ -1426,6 +1582,53 @@ export default function KdsPage() {
             <div className="k-gcorpo" role="tabpanel">
               {gaveta === 'historico' ? (
                 <HistoricoKds />
+              ) : gaveta === 'avisos' ? (
+                !kdsAtual ? (
+                  <p className="k-nota">
+                    Escolha qual KDS é este aparelho (aba <b>Esta tela</b>) para escolher os avisos dele. Sem escolher, a tela
+                    recebe tudo, menos os avisos de gestão.
+                  </p>
+                ) : (
+                  <>
+                    <p className="k-nota">
+                      O que aparece no rodapé <b>desta tela</b> ({kdsAtual.nome}). Fica guardado no servidor e vale para qualquer
+                      aparelho que opere este KDS. Quem mudar fica no histórico.
+                    </p>
+                    <ul className="k-tipos">
+                      {AVISOS_DA_TELA.map((t) => {
+                        const ligado = t.trava ? true : (rascunhoAvisos ?? avisosDaTela)[t.k as TipoDeAviso];
+                        return (
+                          <li key={t.k} className="k-tipo">
+                            <div>
+                              <b>
+                                {t.ic} {t.nome}
+                              </b>
+                              <p>{t.det}</p>
+                              <span className="pri">{t.pri}</span>
+                            </div>
+                            <button
+                              type="button"
+                              className="k-liga"
+                              aria-pressed={ligado}
+                              aria-label={`${t.nome}: ${t.trava ? 'sempre recebe' : ligado ? 'recebe' : 'não recebe'}`}
+                              disabled={t.trava || !podeMudarAvisos || salvandoAvisos}
+                              onClick={() =>
+                                setRascunhoAvisos((r) => {
+                                  const base = r ?? avisosDaTela;
+                                  return { ...base, [t.k]: !base[t.k as TipoDeAviso] };
+                                })
+                              }
+                            >
+                              {t.trava ? 'Sempre recebe' : ligado ? 'Recebe' : 'Não recebe'}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    <p className="k-nota">Cancelado e alterado não desligam: a cozinha precisa saber para não fazer.</p>
+                    {!podeMudarAvisos && <p className="k-nota">Só quem configura a produção (a gerência) muda os avisos desta tela.</p>}
+                  </>
+                )
               ) : (
                 <>
                   {kdsList.length > 0 && (
@@ -1592,9 +1795,25 @@ export default function KdsPage() {
             </div>
             <div className="k-gpe">
               {gaveta === 'tela' && <span className="k-nota">Guardado neste aparelho.</span>}
-              <button type="button" className={gaveta === 'tela' ? 'k-bt pri' : 'k-bt'} onClick={fecharGaveta}>
-                {gaveta === 'tela' ? 'Pronto' : 'Fechar'}
-              </button>
+              {gaveta === 'avisos' && kdsAtual ? (
+                <>
+                  <span className="k-nota" role="status" style={erroAvisos ? { color: 'var(--k-erro)' } : undefined}>
+                    {erroAvisos || (avisosMudados.length ? 'Alterações ainda não salvas' : '')}
+                  </span>
+                  <button type="button" className="k-bt" onClick={fecharGaveta} disabled={salvandoAvisos}>
+                    {avisosMudados.length ? 'Cancelar' : 'Fechar'}
+                  </button>
+                  {podeMudarAvisos && (
+                    <button type="button" className="k-bt pri" onClick={() => void salvarAvisos()} disabled={!avisosMudados.length || salvandoAvisos}>
+                      {salvandoAvisos ? 'Salvando…' : 'Salvar avisos desta tela'}
+                    </button>
+                  )}
+                </>
+              ) : (
+                <button type="button" className={gaveta === 'tela' ? 'k-bt pri' : 'k-bt'} onClick={fecharGaveta}>
+                  {gaveta === 'tela' ? 'Pronto' : 'Fechar'}
+                </button>
+              )}
             </div>
           </aside>
         </>

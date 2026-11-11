@@ -278,6 +278,7 @@ export class KdsAlertaService {
       detalhe: c.detalhe ?? '',
       prioridade: this.prio(c.prioridade),
       duracaoSeg: Math.max(3, Math.min(3600, Number(c.duracaoSeg) || 60)),
+      tipo: 'loja', // os cadastrados em Configurações › Alertas do KDS (mig 408)
     });
   }
 

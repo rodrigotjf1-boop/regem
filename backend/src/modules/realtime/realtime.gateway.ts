@@ -16,6 +16,7 @@ import { EquipamentoService } from '../equipamento/equipamento.service';
 import { PresencaService, enderecoDoHost, ipDoPc, versaoInformada } from '../equipamento/presenca.service';
 import { lerCookieSessao } from '../../auth/cookie-sessao';
 import { ehServidorLocal } from '../../common/modo';
+import { ehTipoDeAviso } from '../../common/avisos-do-kds';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { sql } from 'drizzle-orm';
 
@@ -244,6 +245,9 @@ export class RealtimeGateway
     detalhe?: string;
     prioridade?: string;
     duracaoSeg?: number; // quanto tempo fica no rodapé do KDS (motor de alertas, Fase B)
+    // O tipo do aviso (onda 2 da auditoria do KDS, mig 408): cada tela de KDS escolhe os tipos que recebe
+    // (`common/avisos-do-kds.ts`). Sem tipo = alerta da loja (o que sempre apareceu).
+    tipo?: string;
   }) {
     if (!this.server) return;
     // Alerta de LOJA vai só para a sala da loja (mig 249). Na sala do tenant, o KDS de
@@ -257,6 +261,7 @@ export class RealtimeGateway
       prioridade: prioridadeDoKds(p.prioridade),
       duracaoSeg: Number(p.duracaoSeg) > 0 ? Number(p.duracaoSeg) : 60,
       som: true,
+      tipo: ehTipoDeAviso(p.tipo) ? p.tipo : 'loja',
       em: new Date().toISOString(),
     });
   }
@@ -295,6 +300,14 @@ export class RealtimeGateway
   onKdsTelasMudou(p: { tenantId: string }) {
     if (!this.server) return;
     this.server.to(`tenant:${p.tenantId}`).emit('kds:telas', { em: new Date().toISOString() });
+  }
+
+  // Pausaram, reabriram ou estenderam um canal (onda 2 da auditoria do KDS): a faixa da pausa no KDS relê na hora. Só o
+  // aviso; o que a faixa mostra vem de `GET /delivery/pausas/kds` (a do outro servidor, pelo sync e pela releitura de 30 s).
+  @OnEvent('kds.pausa.mudou')
+  onKdsPausaMudou(p: { tenantId: string }) {
+    if (!this.server) return;
+    this.server.to(`tenant:${p.tenantId}`).emit('kds:pausa', { em: new Date().toISOString() });
   }
 
   // Chamado de atendimento aberto (handoff do robô) → sino no app do tenant.
@@ -380,6 +393,7 @@ export class RealtimeGateway
       detalhe: this.sanitizar(body?.detalhe, 300),
       prioridade: prioridadeDoKds(body?.prioridade),
       som: body?.som !== false,
+      tipo: 'loja', // o gestor mandou à loja: um "alerta da loja" (mig 408)
       em: new Date().toISOString(),
     };
     // Da loja de quem mandou (loja fixa ou a escolhida); sem loja (presidente em "todas"), a empresa inteira.

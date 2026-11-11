@@ -27,4 +27,6 @@ export const ACOES_KDS = [
   'forcou_despacho_kds',
   // O painel do Delivery mandou o mapa dos entregadores para KDS (ou tirou), entrega 5.
   'mostrou_mapa_nos_kds',
+  // Os avisos que cada KDS recebe (mig 408; onda 2 da auditoria do KDS, A13).
+  'configurou_avisos_kds',
 ] as const;

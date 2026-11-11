@@ -753,6 +753,7 @@ export class EtiquetaValidadeService {
         titulo: '🏷️ Etiquetas de validade',
         detalhe: `${g.vencendo} a vencer · ${g.vencidas} vencida(s)`,
         prioridade: g.vencidas > 0 ? 'danger' : 'alta',
+        tipo: 'estoque',
       });
     }
     return rows.length;

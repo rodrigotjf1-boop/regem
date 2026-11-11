@@ -65,6 +65,7 @@ import {
   textoDoKds,
 } from '../pedido-repetido/pedido-repetido';
 import { autorizarPorSenhaDeGestor } from '../../common/autorizacao-gestor';
+import { TIPOS_DE_AVISO, avisosDoKds, lerAvisosDoKds } from '../../common/avisos-do-kds';
 import { conferirProximoKds, kdsQueChegamA, lerEstacoes, proximoEfetivo, recebeDeOutroKds, type TelaDaCorrente } from '../../common/fluxo-kds';
 import { ACOES_KDS, type AtorKds } from './kds-auditoria';
 
@@ -3904,8 +3905,10 @@ export class ProducaoPedidoService {
   // de equipamentos pede gerente: o cozinheiro ficava sem escolher a tela).
   // `proximoKdsId` = o "quando ficar pronto, vai para" de cada uma (entrega 2): a tela mostra "Pronto → Montagem" e de quem
   // cada KDS recebe. `mapa` = o painel do Delivery mandou esta tela mostrar o mapa dos entregadores (entrega 5, mig 338).
-  telasDeKds(tenantId: string, unidadeId: string | null) {
-    return this.db
+  // `avisos` = os avisos que cada tela recebe (mig 408; onda 2 da auditoria do KDS): o salvo por cima do padrão do tipo de
+  // tela. Lido por `to_jsonb` para a lista não cair num servidor de loja ainda sem a 403 (vale o padrão).
+  async telasDeKds(tenantId: string, unidadeId: string | null) {
+    const telas = await this.db
       .select({
         id: equipamento.id,
         nome: equipamento.nome,
@@ -3913,11 +3916,51 @@ export class ProducaoPedidoService {
         setorId: equipamento.setorId,
         proximoKdsId: equipamento.proximoKdsId,
         mapa: sql<boolean>`coalesce(${kdsTelaAjuste.mostraMapa}, false)`,
+        avisosSalvos: sql<unknown>`to_jsonb(${kdsTelaAjuste}) -> 'avisos'`,
       })
       .from(equipamento)
       .leftJoin(kdsTelaAjuste, and(eq(kdsTelaAjuste.id, equipamento.id), eq(kdsTelaAjuste.tenantId, equipamento.tenantId)))
       .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.tipo, 'kds'), eq(equipamento.ativo, true), lojaOuRede(unidadeId)))
       .orderBy(equipamento.nome);
+    return telas.map(({ avisosSalvos, ...t }) => ({ ...t, avisos: avisosDoKds(t.escopo, avisosSalvos) }));
+  }
+
+  /**
+   * Os avisos que ESTE KDS recebe (aba "Avisos" do ⚙ do KDS; onda 2 da auditoria do KDS, A13). Grava só a coluna `avisos`
+   * da linha do KDS em `kds_tela_ajuste` (o `mostra_mapa` é do painel do Delivery — V82), audita o antes e o depois e
+   * avisa as telas para relerem. Tipo ausente fica como está (V16).
+   */
+  async salvarAvisosDoKds(tenantId: string, ator: AtorKds | undefined, equipamentoId: string, dto: unknown, unidadeAtual: string | null) {
+    const lido = lerAvisosDoKds(dto);
+    if (!lido.ok) throw new BadRequestException(lido.erro);
+    const k = await this.kdsDaEmpresa(tenantId, equipamentoId);
+    if (unidadeAtual && k.unidadeId && k.unidadeId !== unidadeAtual) throw new NotFoundException('KDS não encontrado.');
+    const r: any = await this.db.execute(sql`
+      select to_jsonb(a) -> 'avisos' as avisos from kds_tela_ajuste a where a.id = ${k.id} and a.tenant_id = ${tenantId}`);
+    const antes = avisosDoKds(k.escopo, (r.rows ?? r)[0]?.avisos);
+    const depois = { ...antes, ...lido.avisos };
+    await this.db.execute(sql`
+      insert into kds_tela_ajuste (id, tenant_id, avisos)
+      values (${k.id}::uuid, ${tenantId}::uuid, ${JSON.stringify(depois)}::jsonb)
+      on conflict (id) do update set avisos = excluded.avisos
+       where kds_tela_ajuste.tenant_id = excluded.tenant_id`);
+    const mudou = TIPOS_DE_AVISO.filter((t) => antes[t] !== depois[t]);
+    if (mudou.length) {
+      await this.auditoria.registrar({
+        tenantId,
+        unidadeId: k.unidadeId ?? unidadeAtual,
+        atorId: ator?.id ?? null,
+        atorPerfil: ator?.perfil ?? null,
+        tipo: 'config',
+        acao: 'configurou_avisos_kds',
+        entidadeTipo: 'kds',
+        entidadeId: k.id,
+        detalhe: { kds: k.nome, ligou: mudou.filter((t) => depois[t]), desligou: mudou.filter((t) => !depois[t]) },
+      });
+      // A tela ligada neste servidor relê a lista e passa a filtrar na hora (a do outro lado, pelo sync).
+      this.events?.emit('kds.telas.mudou', { tenantId });
+    }
+    return { id: k.id, avisos: depois, mudou: mudou.length > 0 };
   }
 
   private async kdsDaEmpresa(tenantId: string, equipamentoId: string) {

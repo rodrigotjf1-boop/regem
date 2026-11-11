@@ -626,6 +626,7 @@ export class ComprasService {
         titulo: `Compra recebida: ${lista.nome}`,
         detalhe: 'Itens entraram no estoque.',
         prioridade: 'baixa',
+        tipo: 'gestao', // aviso de gestão: as telas de preparo não recebem por padrão (mig 408)
       });
     // `itensComFalta`: a tela oferece na hora "gerar lista com o que faltou".
     return { ok: true, itensComFalta: lista.comFalta };
