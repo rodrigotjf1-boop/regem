@@ -204,6 +204,13 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
 .erro-ed{font-size:12.5px;color:var(--crit);font-weight:600}
 .campo textarea{min-height:64px;border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;background:var(--card);width:100%;min-width:0;resize:vertical}
 .campo input[aria-invalid="true"],.editor input[aria-invalid="true"]{border-color:var(--crit);box-shadow:0 0 0 1px var(--crit)}
+.sits .ponto{width:9px;height:9px;border-radius:50%;flex:none}
+.sits .sep{width:1px;align-self:stretch;background:var(--line-2);margin:0 2px}
+.como-esta{margin:-4px 0 12px}
+.grupo-cat th{background:var(--sel);font-family:var(--display);font-size:14px;letter-spacing:0;text-transform:none;color:var(--ink);padding:8px 12px}
+.grupo-cat.fora th{background:var(--warn-bg);color:var(--warn)}
+tr.so-app td{background:var(--soft)}
+.linha-app{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .canal-linha{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--line);border-radius:10px;padding:8px 10px}
 .canal-linha b{min-width:0}
 .nao-vende{font-size:12.5px;color:var(--ink-3)}
@@ -229,6 +236,13 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
   main .tabela.tprod td.c-item::before,main .tabela.tprod td.c-acoes::before{content:none}
   main .tabela.tprod .canal-cel{display:flex;flex-wrap:wrap;justify-content:flex-start;align-items:center;gap:6px;min-width:0}
   main .tabela.tprod td.c-acoes{margin-top:2px} main .tabela.tprod .linha-acoes{justify-content:stretch} main .tabela.tprod .linha-acoes .bt{flex:1 1 140px}
+  /* a categoria vira um título entre os cartões; o item só do app, um cartão mais claro */
+  main .tabela.tprod tbody tr.grupo-cat{display:block;background:none;border:none;padding:0;margin:16px 0 8px}
+  main .tabela.tprod tbody tr.grupo-cat th{display:block;background:none;border:none;padding:0 2px;font-size:15px}
+  main .tabela.tprod tbody tr.so-app{background:var(--soft)}
+  main .tabela.tprod tbody tr.so-app td{background:none}
+  main .tabela.tprod td.c-app{flex:1 1 100%;display:block;border:none;background:none;padding:0}
+  main .tabela.tprod td.c-app::before{content:none}
 }
 @container (max-width:980px){
   main .tabela{border:none;background:none} main thead{display:none}
@@ -339,6 +353,7 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
       <ul>
         <li><b>Delivery › Gestão do catálogo › "Produtos e preços"</b>: cada produto com o preço e a pausa de cada canal — <b>Regem</b> (balcão e cardápio digital), <b>iFood</b> e <b>99</b>. As colunas dos apps só aparecem com a integração de cada um ligada na loja.</li>
         <li><b>O lápis no preço</b> abre o campo ali mesmo (Enter salva, Esc cancela). O preço do iFood vai na hora <b>pelo Orzuni</b>; o da 99, <b>pela integração da 99</b>. Ao lado aparece a resposta do app: "✓ enviado agora" ou "não chegou", com "Tentar de novo" — o Regem guarda o valor mesmo quando o app não responde, e a conferência mostra a diferença.</li>
+        <li><b>Organizar por categoria e por cardápio:</b> a lista sai agrupada por categoria. Ao lado de "Todos", um botão para cada cardápio ativo — <b>Cardápio Regem</b>, <b>iFood</b> e <b>99Food</b> (os dos apps só com a integração ligada). Cada um mostra os produtos <b>como estão naquele cardápio</b>: as categorias e os itens na ordem de lá (o iFood e a 99 pela última leitura). Na visão de um app, o item de lá que não liga a um produto do Regem aparece no lugar dele com o motivo e "Resolver em Conferir com os apps"; o preço de lá aparece quando difere; e, no fim, os produtos marcados para aquele app que não estão no cardápio dele.</li>
         <li><b>A pausa por canal</b>: o botão "No ar / Pausado" em cada coluna e "Pausar em todos" na linha. A pausa do Regem vale para o balcão e o cardápio digital.</li>
         <li><b>Editar</b> (gaveta): nome, descrição, código PDV, categoria, os três preços, onde vende e a pausa. Antes de salvar, a gaveta diz o que muda no Regem e o que vai (e o que não vai) a cada app.</li>
         <li><b>O que cada app recebe hoje:</b> 99 — nome, descrição, preço e pausa. iFood (Orzuni) — <b>preço e pausa</b>; o Orzuni ainda não tem ferramenta para mudar nome nem descrição (decisão 10), então esses dois o iFood recebe pelo Gestor de Pedidos.</li>
@@ -360,7 +375,8 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
         <li>Mostra os dois jeitos de entregar de cada app (a loja entrega × o app entrega), com o <b>plano da loja</b> marcado, e o que o preço de hoje deixa (você recebe, lucro, margem).</li>
         <li>As taxas vêm preenchidas com <b>valores públicos de referência</b> e a loja ajusta pelo contrato dela: iFood — Plano Básico 12% e Plano Entrega 23%, mais 3,2% de pagamento online; 99 — 10,9% com entrega da loja e 8,9% com entrega da 99, mais cerca de 3,2% de pagamento. A mensalidade não entra (é por mês, não por item). <span class="sub">Fontes nas decisões abaixo.</span> Os demais números (pagos na entrega, maquininha, antecipação, entrega da loja, margem, faturamento, itens por pedido) são <b>exemplos sem fonte</b>, para a loja trocar — ou o Regem preencher pelas vendas (decisão 8).</li>
         <li><b>Promoção do app:</b> o desconto ao cliente em <b>% no item</b>, em <b>valor fixo no item</b> ou em <b>valor fixo no pedido</b> (cupom); e quem banca — <b>a loja uma parte (%)</b> ou <b>o app um valor fixo</b> (campo aberto para a média das campanhas, com os atalhos R$ 5, R$ 7 e R$ 9; o resto a loja banca). A conta mostra o que o cliente paga, a parte de cada um, o que a loja vende, cada taxa, o imposto, o custo e o <b>ganho líquido</b>; o preço cheio que mantém a margem com a promoção; e o maior desconto que a loja aguenta sem prejuízo (em % e em R$ por item).</li>
-        <li><b>Taxa fixa por entrega:</b> no jeito em que o app entrega, um valor por pedido além da comissão (quando o app cobra pela distância, a média dos pedidos). O que é por pedido entra dividido pelos <b>itens de um pedido médio</b>.</li>
+        <li><b>Sobre qual valor cada taxa incide, com promoção:</b> a <b>comissão</b> sobre a base de cada app — na <b>99</b>, o preço de venda depois de todos os descontos (o guia oficial: "a 99Food não cobra comissão sobre o valor total se houve desconto. Ela calcula sobre o que sobra"); no <b>iFood</b>, o preço menos o desconto que a loja banca (exemplo publicado; o iFood não publica a regra para todas as promoções — confirmar no Portal do Parceiro); a loja pode trocar. O <b>pagamento online</b> sai sobre o que o cliente paga; o <b>imposto</b>, sobre o que a loja recebe (o que o app banca volta para a loja — na 99, "Contribuição 99 em itens").</li>
+        <li><b>Taxa fixa por entrega:</b> no jeito em que o app entrega, um valor por pedido além da comissão (quando o app cobra pela distância, a média dos pedidos). Na 99, a fatura traz os "Custos logísticos" separados da comissão (campo <code>b2pDeliveryAmount</code> da API de fatura). O que é por pedido entra dividido pelos <b>itens de um pedido médio</b>.</li>
         <li><b>Imposto:</b> uma média informada ou o <b>Simples Nacional pelo faturamento dos últimos 12 meses</b> (Anexo I — comércio, onde ficam bares e restaurantes: alíquota efetiva = (faturamento × nominal − parcela a deduzir) ÷ faturamento). <b>Cartão:</b> nos pedidos pagos na entrega, a taxa da maquininha entra no lugar do pagamento online.</li>
         <li>É sugestão: nada muda sem o clique em "Usar este preço".</li>
       </ul>
@@ -383,6 +399,7 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
       <h3>Fontes das taxas de referência (consultadas em 11/11/2026)</h3>
       <ul>
         <li><a href="https://www.serasa.com.br/blog/abrir-loja-no-ifood/" target="_blank" rel="noopener">Serasa — planos do iFood</a> · <a href="https://diariodopara.com.br/seu-bolso/veja-como-cadastrar-uma-loja-escolher-plano-e-calcular-taxas-no-ifood/" target="_blank" rel="noopener">Diário do Pará — taxas do iFood</a></li>
+        <li><a href="https://99app.com/99food/restaurantes/guias/promocoes-e-taxas-99food/" target="_blank" rel="noopener">99Food — Promoções e Taxas</a> (quem banca o desconto, subsídio da 99) · <a href="https://99app.com/99food/restaurantes/guias/como-compreender-o-relatorio-da-99food/" target="_blank" rel="noopener">99Food — Como compreender o relatório</a> (base da comissão, custos logísticos) · <a href="https://saipos.com/integracoes/ifood/ifood-promocao" target="_blank" rel="noopener">Saipos — promoção no iFood</a> (exemplo da base da comissão)</li>
         <li><a href="https://99app.com/99food/restaurantes/guias/entendendo-as-cobrancas-da-99food/" target="_blank" rel="noopener">99Food — entendendo as cobranças</a> · <a href="https://www.infomoney.com.br/business/nova-guerra-de-tarifas-nao-envolve-trump-mas-os-apps-de-entrega-de-comida/" target="_blank" rel="noopener">InfoMoney — tarifas dos apps</a></li>
       </ul>
       <h3>Fora desta entrega</h3>
@@ -524,8 +541,11 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
   // ── as taxas e a margem da loja (exemplo: valores públicos de referência, a loja ajusta) ─────────────────
   const TAXAS = {
     // taxaFixa = o valor por PEDIDO que alguns apps cobram além da % quando ELES entregam (muda com a distância: a média)
-    ifood: { plano: 'loja', loja: { rot: 'A loja entrega', plano: 'Plano Básico', com: 12, pag: 3.2, entrega: 0, taxaFixa: 0 }, app: { rot: 'O iFood entrega', plano: 'Plano Entrega', com: 23, pag: 3.2, entrega: 0, taxaFixa: 0 } },
-    n99: { plano: 'app', loja: { rot: 'A loja entrega', plano: 'entrega própria', com: 10.9, pag: 3.2, entrega: 0, taxaFixa: 0 }, app: { rot: 'A 99 entrega', plano: 'logística da 99', com: 8.9, pag: 3.2, entrega: 0, taxaFixa: 0 } },
+    // baseComissao = sobre o que a comissão incide com promoção: 'cliente' (o preço de venda depois de TODOS os descontos —
+    // o guia oficial da 99: "Base da comissão: é o valor real da venda após os descontos"), 'loja' (o preço menos o desconto
+    // que a loja banca — o exemplo publicado do iFood; confirmar no Portal do Parceiro) ou 'cheio' (antes do desconto).
+    ifood: { plano: 'loja', baseComissao: 'loja', loja: { rot: 'A loja entrega', plano: 'Plano Básico', com: 12, pag: 3.2, entrega: 0, taxaFixa: 0 }, app: { rot: 'O iFood entrega', plano: 'Plano Entrega', com: 23, pag: 3.2, entrega: 0, taxaFixa: 0 } },
+    n99: { plano: 'app', baseComissao: 'cliente', loja: { rot: 'A loja entrega', plano: 'entrega própria', com: 10.9, pag: 3.2, entrega: 0, taxaFixa: 0 }, app: { rot: 'A 99 entrega', plano: 'logística da 99', com: 8.9, pag: 3.2, entrega: 0, taxaFixa: 0 } },
     geral: {
       impostoModo: 'simples', imposto: 6, rbt12: 540000, margem: 20, antecipa: false, antec: 2.5, entregaLoja: 0.8, arred: true,
       // pedidos do app pagos NA ENTREGA (só quando a loja entrega): a taxa da maquininha no lugar do pagamento online
@@ -559,10 +579,11 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
    *   pedido.
    * - A promoção dá ao cliente um desconto (% de P, R$ no item, ou R$ no pedido ÷ itens por pedido, nunca mais que P);
    *   o app banca uma parte (o resto da % que a loja não banca, ou um valor fixo até o desconto inteiro) e a loja, o resto.
-   * - A loja vende B = P − a parte dela; a comissão, o pagamento, a antecipação e o imposto incidem sobre B.
-   *   Ganho líquido = B − taxas − custo fixo do item.
-   * - Recomendado: o P em que B × (1 − taxas − margem) = custo fixo; mínimo: o mesmo sem a margem. Com desconto fixo ou com
-   *   teto, B não é uma conta simples de P — por isso o P sai por busca (B só cresce com P).
+   * - A loja vende B = P − a parte dela (o que o app banca volta para a loja). O cliente paga C = P − o desconto inteiro.
+   * - A comissão incide sobre a base do app (C, B ou P — `baseComissao`); o pagamento online e a maquininha, sobre C (é o
+   *   dinheiro que passa pelo cartão); a antecipação e o imposto, sobre B. Ganho líquido = B − taxas − custo fixo do item.
+   * - Recomendado: o P em que o ganho = margem × B; mínimo: ganho = 0. Com desconto fixo, teto ou bases diferentes, não é
+   *   uma conta fechada — o P sai por busca (o ganho só cresce com P).
    */
   function calcular(base, cen, g) {
     const n = Math.max(1, g.itensPedido || 1);
@@ -581,46 +602,52 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
       const app = g.quemBanca === 'appFixo' ? Math.min(cliente, porPedido ? g.appFixo / n : g.appFixo) : cliente * (1 - g.lojaBanca / 100);
       return { cliente, app, loja: cliente - app };
     };
-    const vendeDe = (p) => p - promo(p).loja;
-    // o menor preço cheio em que a loja vende `alvo`
-    const precoPara = (alvo) => {
+    const baseCom = cen.baseComissao || 'loja';
+    const resultado = (p) => {
+      const d = promo(p);
+      const vende = p - d.loja;
+      const clientePaga = p - d.cliente;
+      const baseComissao = baseCom === 'cheio' ? p : baseCom === 'cliente' ? clientePaga : vende;
+      const comissao = (baseComissao * partes.comissao) / 100;
+      const pagamento = (clientePaga * partes.pagamento) / 100;
+      const antecipacao = (vende * partes.antecipacao) / 100;
+      const imposto = (vende * partes.imposto) / 100;
+      const taxasR = comissao + pagamento + antecipacao + imposto;
+      const lucro = vende - taxasR - fixo;
+      return {
+        preco: p, clientePaga, descontoLoja: d.loja, descontoApp: d.app, vende, baseComissao,
+        comissao, pagamento, antecipacao, imposto, taxasR,
+        lucro, margem: vende > 0 ? (lucro / vende) * 100 : 0,
+      };
+    };
+    // o menor preço cheio em que o ganho chega a `margem` × o que a loja vende
+    const precoPara = (margem) => {
+      const atinge = (p) => { const x = resultado(p); return x.vende > 0 && x.lucro >= margem * x.vende; };
       let lo = 0;
-      let hi = alvo * 10 + 200;
-      if (!(alvo > 0) || vendeDe(hi) < alvo) return null;
+      let hi = (fixo + 1) * 50 + 200;
+      if (!atinge(hi)) return null;
       for (let i = 0; i < 60; i++) {
         const meio = (lo + hi) / 2;
-        if (vendeDe(meio) >= alvo) hi = meio;
+        if (atinge(meio)) hi = meio;
         else lo = meio;
       }
       return hi;
     };
-    const denRec = 1 - taxas - g.margem / 100;
-    const denMin = 1 - taxas;
     const arred = (v) => {
       if (!g.arred) return Math.round(v * 100) / 100;
       let r = Math.floor(v) + 0.9;
       if (r < v - 1e-9) r += 1;
       return Math.round(r * 100) / 100;
     };
-    const resultado = (p) => {
-      const d = promo(p);
-      const vende = p - d.loja;
-      const r = (k) => (vende * partes[k]) / 100;
-      const taxasR = vende * taxas;
-      const lucro = vende - taxasR - fixo;
-      return {
-        preco: p, clientePaga: p - d.cliente, descontoLoja: d.loja, descontoApp: d.app, vende,
-        comissao: r('comissao'), pagamento: r('pagamento'), antecipacao: r('antecipacao'), imposto: r('imposto'), taxasR,
-        lucro, margem: vende > 0 ? (lucro / vende) * 100 : 0,
-      };
-    };
-    // o maior desconto que a loja aguenta bancar sem prejuízo, no preço dado: em R$ por item e em % do preço
+    // o maior desconto que a loja aguenta bancar SOZINHA sem prejuízo, no preço dado: em R$ por item e em % do preço
     const descontoMax = (p) => {
-      const rs = Math.max(0, p - fixo / (1 - taxas));
-      return { rs, pct: Math.min(100, (rs / p) * 100) };
+      const outras = (partes.pagamento + partes.antecipacao + partes.imposto) / 100;
+      const com = partes.comissao / 100;
+      const rs = baseCom === 'cheio' ? p - (fixo + com * p) / (1 - outras) : p - fixo / (1 - taxas);
+      return { rs: Math.max(0, rs), pct: Math.max(0, Math.min(100, (rs / p) * 100)) };
     };
-    const rec = denRec > 0.05 ? precoPara(fixo / denRec) : null;
-    const min = denMin > 0.05 ? precoPara(fixo / denMin) : null;
+    const rec = 1 - taxas - g.margem / 100 > 0.05 ? precoPara(g.margem / 100) : null;
+    const min = 1 - taxas > 0.05 ? precoPara(0) : null;
     return {
       fixo, taxaFixaItem, n, partes, imposto,
       taxas: taxas * 100,
@@ -858,7 +885,7 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
     const c = CN[canal];
     const t = TAXAS[canal];
     const g = TAXAS.geral;
-    const cen = (k) => ({ ...t[k], k, entrega: k === 'loja' ? g.entregaLoja : t[k].entrega });
+    const cen = (k) => ({ ...t[k], k, baseComissao: t.baseComissao, entrega: k === 'loja' ? g.entregaLoja : t[k].entrega });
     const sn = simples(g.rbt12);
     const textoImposto = g.impostoModo === 'simples'
       ? (sn ? `Simples Nacional, faixa ${sn.faixa}: <b class="num">${pct(sn.efetiva)}</b> <span class="sub">(faturamento de 12 meses ${brl(g.rbt12)})</span>` : '<span class="neg">Faturamento acima do Simples: informe a média em ％ Taxas e margem</span>')
@@ -895,7 +922,15 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
             : `<div class="campo"><label for="cAppFixo">Quanto o app banca ${g.promoTipo === 'rsPedido' ? 'por pedido' : 'por item'} (valor médio)</label><div class="pct"><span>R$</span><input id="cAppFixo" data-taxa="appFixo" data-max="1000" inputmode="decimal" value="${dec(g.appFixo)}"></div>
               <div class="sugestoes" role="group" aria-label="Valores comuns"><span class="sub">Comuns:</span>${[5, 7, 9].map((v) => `<button type="button" class="bt peq" data-app-banca="${v}" aria-pressed="${g.appFixo === v}">${brl(v)}</button>`).join('')}</div>
               <span class="ajuda">Muda de campanha para campanha: use a média. O resto do desconto a loja banca.</span></div>`}
-        </div>` : ''}
+        </div>
+        <div class="campo"><label for="cBaseCom">A comissão ${c.do} incide sobre</label><select id="cBaseCom" data-canal-taxa="${canal}">
+            <option value="cliente" ${t.baseComissao === 'cliente' ? 'selected' : ''}>O preço de venda depois de todos os descontos (o que o cliente paga)</option>
+            <option value="loja" ${t.baseComissao === 'loja' ? 'selected' : ''}>O preço menos o desconto que a loja banca</option>
+            <option value="cheio" ${t.baseComissao === 'cheio' ? 'selected' : ''}>O preço cheio, antes do desconto</option></select>
+          <span class="ajuda">${canal === 'n99'
+            ? 'O guia oficial da 99 diz: a comissão é calculada sobre "o valor real da venda após os descontos".'
+            : 'O iFood não publica a regra para todas as promoções: num exemplo publicado, a base é o preço menos o desconto da loja. Confirme no Portal do Parceiro.'}
+            O pagamento online sai sempre sobre o que o cliente paga.</span></div>` : ''}
       </fieldset>
       <div class="cenarios">${['loja', 'app'].map((k) => {
         const cc = cen(k);
@@ -917,8 +952,8 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
             ${g.promo && v.descontoLoja ? linha(`Desconto bancado pela loja`, `− ${brl(v.descontoLoja)}`) : ''}
             ${g.promo && v.descontoApp ? linha(`Desconto bancado pelo app`, `<span class="sub">${brl(v.descontoApp)}</span>`) : ''}
             ${linha('A loja vende', brl(v.vende), 'total')}
-            ${linha(`Comissão (${pct(r.partes.comissao)})`, `− ${brl(v.comissao)}`)}
-            ${linha(`Pagamento e cartão (${pct(r.partes.pagamento)})`, `− ${brl(v.pagamento)}`)}
+            ${linha(`Comissão (${pct(r.partes.comissao)}${g.promo ? ` de ${brl(v.baseComissao)}` : ''})`, `− ${brl(v.comissao)}`)}
+            ${linha(`Pagamento e cartão (${pct(r.partes.pagamento)}${g.promo ? ` de ${brl(v.clientePaga)}` : ''})`, `− ${brl(v.pagamento)}`)}
             ${g.antecipa ? linha(`Antecipação (${pct(r.partes.antecipacao)})`, `− ${brl(v.antecipacao)}`) : ''}
             ${linha(`Imposto (${pct(r.imposto)})`, `− ${brl(v.imposto)}`)}
             ${linha('Custo do produto', `− ${brl(base.custo)}`)}
@@ -931,7 +966,7 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
           ${r.recomendado != null && alvoId ? `<button class="bt peq${seu ? ' pri' : ''}" data-acao="${acao}" data-id="${alvoId}" data-para="${canal}" data-valor="${r.recomendado}">Usar ${brl(r.recomendado)} como preço ${c.no}</button>` : ''}
         </div>`;
       }).join('')}</div>
-      <div class="formula">Como a conta é feita: a loja vende <code>preço − a parte do desconto que ela banca</code>; sobre isso saem a comissão, o pagamento e o cartão${g.antecipa ? ', a antecipação' : ''} e o imposto; depois, o custo, a embalagem, a entrega e a taxa fixa por entrega (o que é por pedido entra dividido pelos itens de um pedido médio). O preço recomendado é o preço cheio em que <code>a loja vende × (1 − taxas − imposto − margem) = custo + embalagem + entrega + taxa fixa</code>; o mínimo é a mesma conta sem a margem. A mensalidade do app não entra (é por mês, não por item). Confira no seu app sobre qual valor a comissão incide na promoção (a 99 diz que é sobre o valor depois do desconto).</div>`;
+      <div class="formula">Como a conta é feita: a loja vende <code>preço − a parte do desconto que ela banca</code> (o que o app banca volta para a loja); o cliente paga <code>preço − o desconto inteiro</code>. A comissão sai sobre a base escolhida na promoção; o pagamento e o cartão, sobre o que o cliente paga; ${g.antecipa ? 'a antecipação e ' : ''}o imposto, sobre o que a loja vende; depois, o custo, a embalagem, a entrega e a taxa fixa por entrega (o que é por pedido entra dividido pelos itens de um pedido médio). O preço recomendado é o preço cheio em que o ganho líquido chega à margem escolhida sobre o que a loja vende; o mínimo, em que o ganho é zero. A mensalidade do app não entra (é por mês, não por item).</div>`;
   }
 
   function gavetaCalcular(x) {
@@ -977,6 +1012,7 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
       else if (id === 'cPromo') g.promo = e.target.checked;
       else if (id === 'cPromoTipo') g.promoTipo = e.target.value;
       else if (id === 'cQuem') g.quemBanca = e.target.value;
+      else if (id === 'cBaseCom') TAXAS[e.target.dataset.canalTaxa].baseComissao = e.target.value;
       else return;
       desenharCalc();
       focar(`#${id}`);
@@ -1005,6 +1041,11 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
         ${k === 'app' ? `<div class="campo"><label for="t-${canal}-app-fixa">${t.app.rot}: taxa fixa por entrega (média pela distância)</label><div class="pct"><span>R$</span><input id="t-${canal}-app-fixa" inputmode="decimal" value="${dec(t.app.taxaFixa)}"></div><span class="ajuda">Por pedido, além da comissão. Se o app cobra por faixa de distância, use a média dos seus pedidos; 0 se não cobra.</span></div>` : ''}`;
       return `<fieldset class="grupo"><legend>${n.nome}</legend>
         <div class="campo"><label for="t-${canal}-plano">O seu plano ${n.no}</label><select id="t-${canal}-plano"><option ${t.plano === 'loja' ? 'selected' : ''}>${t.loja.rot} (${t.loja.plano})</option><option ${t.plano === 'app' ? 'selected' : ''}>${t.app.rot} (${t.app.plano})</option></select><span class="ajuda">A calculadora marca o seu plano e mostra o outro para comparar.</span></div>
+        <div class="campo"><label for="t-${canal}-base">Com promoção, a comissão incide sobre</label><select id="t-${canal}-base">
+          <option ${t.baseComissao === 'cliente' ? 'selected' : ''}>O preço de venda depois de todos os descontos</option>
+          <option ${t.baseComissao === 'loja' ? 'selected' : ''}>O preço menos o desconto que a loja banca</option>
+          <option ${t.baseComissao === 'cheio' ? 'selected' : ''}>O preço cheio, antes do desconto</option></select>
+          <span class="ajuda">${canal === 'n99' ? 'Guia oficial da 99: "o valor real da venda após os descontos".' : 'Confirme no Portal do Parceiro do iFood.'}</span></div>
         ${cen('loja')}${cen('app')}</fieldset>`;
     };
     $('#gCorpo').innerHTML = `<div class="aviso info">Os valores vêm preenchidos com <b>referências públicas</b> (iFood: Plano Básico 12% e Plano Entrega 23%, mais 3,2% de pagamento online; 99: 10,9% com entrega da loja e 8,9% com entrega da 99, mais cerca de 3,2%). <b>Confira no seu contrato</b> e ajuste: as taxas mudam por região e por campanha.<br><b>Os outros números são só exemplos</b>, sem fonte — pedidos pagos na entrega (30%), maquininha (2,9%), antecipação (2,5%), entrega da loja (R$ 0,80 por item), margem (20%), faturamento e itens por pedido: troque pelos da sua loja.</div>
@@ -1263,7 +1304,7 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
   }
   const P_SITS = [['pausados', 'Pausados em algum canal', 'warn'], ['semPreco', 'Sem preço num app', 'crit'], ['naoChegou', 'Não chegou ao app', 'crit'], ['semCodigo', 'Sem código PDV', '']];
 
-  function celCanal(pdv, r, k) {
+  function celCanal(pdv, r, k, agora) {
     const chv = `${kp(pdv)}|${k}`;
     if (k !== 'regem' && !pdv) return '<span class="nao-vende">sem código PDV: não liga aos apps</span>';
     if (!r.onde[k]) return `<span class="nao-vende">não vende ${ONDE_P[k]}</span>`;
@@ -1276,8 +1317,35 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
     const chip = `<button class="chip" data-pausa="${chv}" aria-pressed="${pz}" aria-label="Pausado ${ONDE_P[k]}: ${esc(r.nome)}"><span class="bol" aria-hidden="true"></span>${pz ? 'Pausado' : 'No ar'}</button>`;
     const e = est.enviados.get(chv);
     const envio = e ? `<span class="envio${e.ok ? '' : ' falha'}">${esc(e.texto)}${e.ok ? '' : ` <button class="bt peq" data-reenviar="${chv}">Tentar de novo</button>`}</span>` : '';
-    return `<div class="canal-cel">${preco}${chip}${envio}</div>`;
+    // na visão de um app: o preço que está LÁ agora, quando é outro (da última leitura)
+    const difere = agora != null && p != null && agora !== p ? `<span class="nao-vende">${k === 'ifood' ? 'no iFood' : 'na 99'} agora: ${brl(agora)}</span>` : '';
+    return `<div class="canal-cel">${preco}${chip}${difere}${envio}</div>`;
   }
+
+  // ── a organização de cada cardápio ──
+  // Regem: as categorias na ordem do cardápio digital (Cadastros › Cardápio). iFood e 99: as categorias e os itens na
+  // ordem em que o app devolve o cardápio (a última leitura: Orzuni no iFood, a integração na 99).
+  const CATS_REGEM = ['Burgers', 'Acompanhamentos', 'Bebidas', 'Sobremesas', 'Adicionais'];
+  const pelaOrdem = (lista) => (a, b) => {
+    const ia = lista.indexOf(a);
+    const ib = lista.indexOf(b);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
+  };
+  const gruposDoRegem = (prods) => [...new Set(prods.map((p) => p.r.cat))].sort(pelaOrdem(CATS_REGEM))
+    .map((nome) => ({ nome, linhas: prods.filter((p) => p.r.cat === nome).map((p) => ({ tipo: 'prod', ...p })) }));
+  function gruposDoApp(k) {
+    const itens = APP[k].itens;
+    const liga = (i) => !i.semCodigo && !i.repetido && REGEM[i.pdv];
+    const grupos = [...new Set(itens.map((i) => i.cat))].map((nome) => ({
+      nome,
+      linhas: itens.filter((i) => i.cat === nome).map((i) => (liga(i) ? { tipo: 'prod', pdv: i.pdv, r: REGEM[i.pdv], item: i } : { tipo: 'app', item: i, canal: k })),
+    }));
+    const cods = new Set(itens.map((i) => i.pdv));
+    const fora = PRODUTOS().filter((p) => p.pdv && p.r.onde[k] && !cods.has(p.pdv));
+    if (fora.length) grupos.push({ nome: `Marcados "vende ${CN[k].no}", mas fora do cardápio ${CN[k].do}`, fora: true, linhas: fora.map((p) => ({ tipo: 'prod', ...p })) });
+    return grupos;
+  }
+  const motivoDoApp = (i, k) => (i.semCodigo ? `sem código PDV ${CN[k].no}` : i.repetido ? `código ${i.pdv} repetido ${CN[k].no}` : 'não está no Regem');
 
   function desenharProdutos() {
     for (const b of document.querySelectorAll('[data-pestado]')) b.setAttribute('aria-pressed', String(b.dataset.pestado === est.pEstado));
@@ -1287,45 +1355,72 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
     const nPaus = conta('pausados');
     $('#resumoProd').textContent = `${todos.length} produtos · ${nPaus} pausado${nPaus === 1 ? '' : 's'} em algum canal · ${est.pEstado === 'soRegem' ? 'nenhum app ligado nesta loja: só o Regem' : 'iFood (pelo Orzuni) e 99 ligados — o que você muda aqui vai na hora aos apps'}`;
     const sitsVis = P_SITS.filter(([k]) => (k !== 'naoChegou' || conta(k) > 0 || est.pEstado === 'falha') && (est.pEstado !== 'soRegem' || !['semPreco', 'naoChegou'].includes(k)));
-    if (est.pSit !== 'todos' && !sitsVis.some(([k]) => k === est.pSit)) est.pSit = 'todos';
-    const cats = [...new Set(todos.map((p) => p.r.cat))].sort();
-    let vis = todos.filter((p) => est.pSit === 'todos' || marcasDe(p).has(est.pSit));
+    // os botões de cada cardápio ATIVO, ao lado de "Todos": o Regem sempre; o iFood e a 99 com a integração ligada
+    const cardapios = [
+      ['card:regem', 'Cardápio Regem', 'var(--gold)', todos.filter((p) => p.r.onde.regem).length],
+      ...(ligado('ifood') ? [['card:ifood', 'iFood', 'var(--ifood)', APP.ifood.itens.length]] : []),
+      ...(ligado('n99') ? [['card:n99', '99Food', 'var(--n99)', APP.n99.itens.length]] : []),
+    ];
+    if (est.pSit !== 'todos' && ![...sitsVis, ...cardapios].some(([k]) => k === est.pSit)) est.pSit = 'todos';
+    const vistaApp = ['card:ifood', 'card:n99'].includes(est.pSit) ? est.pSit.slice(5) : null;
+    let grupos = vistaApp ? gruposDoApp(vistaApp)
+      : gruposDoRegem(todos.filter((p) => (est.pSit === 'todos' ? true : est.pSit === 'card:regem' ? p.r.onde.regem : marcasDe(p).has(est.pSit))));
+    const cats = grupos.filter((g) => !g.fora).map((g) => g.nome);
+    if (est.pCat && !cats.includes(est.pCat)) est.pCat = '';
     const q = est.pBusca.trim().toLowerCase();
-    if (q) vis = vis.filter(({ pdv, r }) => `${r.nome} ${pdv} ${r.desc || ''}`.toLowerCase().includes(q));
-    if (est.pCat) vis = vis.filter(({ r }) => r.cat === est.pCat);
+    const texto = (l) => (l.tipo === 'prod' ? `${l.r.nome} ${l.pdv} ${l.r.desc || ''} ${l.item?.nome || ''}` : `${l.item.nome} ${l.item.pdv}`).toLowerCase();
+    grupos = grupos
+      .filter((g) => !est.pCat || g.nome === est.pCat)
+      .map((g) => ({ ...g, linhas: g.linhas.filter((l) => !q || texto(l).includes(q)) }))
+      .filter((g) => g.linhas.length);
+    const nLinhas = grupos.reduce((s, g) => s + g.linhas.length, 0);
+    const nCol = canais.length + 2;
+    const comoEsta = vistaApp
+      ? `<p class="sub como-esta">Como está no cardápio ${CN[vistaApp].do}: as categorias e os itens na ordem de lá (lido hoje às ${APP[vistaApp].lidoAs}, ${CN[vistaApp].pelo}). Os itens ${CN[vistaApp].do} que não ligam a um produto do Regem aparecem com o motivo.</p>`
+      : est.pSit === 'card:regem' ? '<p class="sub como-esta">Como está no cardápio do Regem (balcão e cardápio digital): as categorias na ordem de Cadastros › Cardápio.</p>' : '';
     const aviso = est.pEstado === 'soRegem'
       ? '<div class="aviso info" style="margin-bottom:12px">As colunas do <b>iFood</b> e da <b>99</b> aparecem quando a integração de cada app está ligada nesta loja (o iFood pela distribuição Regem, via Orzuni; a 99 em Delivery › Configurações › Integrações › 99Food). Sem elas, aqui se muda o preço de venda e a pausa do Regem.</div>'
       : est.pEstado === 'falha'
         ? '<div class="aviso crit" style="margin-bottom:12px"><b>O Orzuni não está respondendo agora.</b> O que você mudar no iFood fica guardado no Regem e aparece como "não chegou", com "Tentar de novo". A 99 e o Regem seguem normais.</div>'
         : '';
-    const linhas = vis.map(({ pdv, r }) => {
+    const linhaProd = ({ pdv, r, item }) => {
       const ks = canaisDo(pdv, r);
       const tudo = ks.length > 0 && ks.every((k) => r.pausa[k]);
+      const nomeLa = item && item.nome !== r.nome ? ` · ${CN[vistaApp].no}: ${esc(item.nome)}` : '';
       return `<tr>
-        <td class="c-item"><div class="nome">${esc(r.nome)}</div>${r.desc ? `<div class="sub">${esc(r.desc)}</div>` : ''}<div class="sub">${esc(r.cat)} · ${pdv ? `código <span class="num">${esc(pdv)}</span>` : 'sem código PDV'} · custo ${brl(r.custo + r.emb)}</div></td>
-        ${canais.map((k) => `<td data-rot="${NOME_P[k]}">${celCanal(pdv, r, k)}</td>`).join('')}
+        <td class="c-item"><div class="nome">${esc(r.nome)}</div>${r.desc ? `<div class="sub">${esc(r.desc)}</div>` : ''}<div class="sub">${esc(r.cat)} · ${pdv ? `código <span class="num">${esc(pdv)}</span>` : 'sem código PDV'} · custo ${brl(r.custo + r.emb)}${nomeLa}</div></td>
+        ${canais.map((k) => `<td data-rot="${NOME_P[k]}">${celCanal(pdv, r, k, item && k === vistaApp ? item.preco : null)}</td>`).join('')}
         <td class="c-acoes"><div class="linha-acoes">
           <button class="bt peq" data-editar-prod="${kp(pdv)}">Editar<span class="sr"> ${esc(r.nome)}</span></button>
           ${est.pEstado !== 'soRegem' ? `<button class="bt peq" data-calc-prod="${kp(pdv)}">Calcular o preço<span class="sr"> de ${esc(r.nome)}</span></button>` : ''}
           ${ks.length ? `<button class="bt peq" data-pausar-tudo="${kp(pdv)}">${tudo ? '▶ Reativar em todos' : '⏸ Pausar em todos'}<span class="sr">: ${esc(r.nome)}</span></button>` : ''}
         </div></td></tr>`;
-    }).join('');
+    };
+    // o item que está no app e não liga a um produto do Regem: aparece no lugar dele no cardápio, com o motivo
+    const linhaApp = ({ item: i, canal: k }) => `<tr class="so-app">
+        <td class="c-item"><div class="nome">${esc(i.nome)}</div><div class="sub">${i.pdv ? `código <span class="num">${esc(i.pdv)}</span> · ` : ''}${brl(i.preco)} ${CN[k].no}</div></td>
+        <td class="c-app" colspan="${nCol - 1}"><div class="linha-app"><span class="selo crit">${motivoDoApp(i, k)}</span><span class="sub">a venda ${k === 'ifood' ? 'pelo iFood' : 'pela 99'} não baixa o estoque</span><button class="bt peq" data-ir-conferir="${k}|${esc(i.pdv || i.nome)}">Resolver em "Conferir com os apps"<span class="sr">: ${esc(i.nome)}</span></button></div></td></tr>`;
+    const linhas = grupos.map((g) => `<tr class="grupo-cat${g.fora ? ' fora' : ''}"><th colspan="${nCol}" scope="colgroup">${esc(g.nome)} <span class="sub">${g.linhas.length} ${g.linhas.length === 1 ? 'item' : 'itens'}</span></th></tr>
+      ${g.linhas.map((l) => (l.tipo === 'prod' ? linhaProd(l) : linhaApp(l))).join('')}`).join('');
     $('#produtos').innerHTML = `${aviso}
-      <div class="sits" role="group" aria-label="Situação dos produtos">
+      <div class="sits" role="group" aria-label="Organizar por cardápio e filtrar">
         <button class="sit" data-psit="todos" aria-pressed="${est.pSit === 'todos'}">Todos <b>${todos.length}</b></button>
+        ${cardapios.map(([k, rot, cor, n]) => `<button class="sit" data-psit="${k}" aria-pressed="${est.pSit === k}"><span class="ponto" style="background:${cor}" aria-hidden="true"></span>${rot} <b>${n}</b></button>`).join('')}
+        <span class="sep" aria-hidden="true"></span>
         ${sitsVis.map(([k, rot, cor]) => `<button class="sit ${cor}" data-psit="${k}" aria-pressed="${est.pSit === k}">${rot} <b>${conta(k)}</b></button>`).join('')}
       </div>
+      ${comoEsta}
       <div class="filtros">
         <div class="campo"><label for="pBusca">Buscar por nome, código ou descrição</label><input id="pBusca" type="search" value="${esc(est.pBusca)}" placeholder="Ex.: bacon, 2051" autocomplete="off"></div>
-        <div class="campo"><label for="pCat">Categoria</label><select id="pCat"><option value="">Todas</option>${cats.map((k) => `<option ${est.pCat === k ? 'selected' : ''}>${esc(k)}</option>`).join('')}</select></div>
+        <div class="campo"><label for="pCat">Categoria${vistaApp ? ` ${CN[vistaApp].no}` : ''}</label><select id="pCat"><option value="">Todas</option>${cats.map((k) => `<option ${est.pCat === k ? 'selected' : ''}>${esc(k)}</option>`).join('')}</select></div>
       </div>
       <div class="tabela tprod">
         <table>
-          <caption class="sr">Produtos com o preço e a pausa em cada canal</caption>
+          <caption class="sr">Produtos por categoria${vistaApp ? `, na ordem do cardápio ${CN[vistaApp].do}` : ''}, com o preço e a pausa em cada canal</caption>
           <thead><tr><th>Produto</th>${canais.map((k) => `<th>${NOME_P[k]} <span class="sub">${k === 'regem' ? '(balcão e cardápio digital)' : k === 'ifood' ? '(pelo Orzuni)' : '(integração da 99)'}</span></th>`).join('')}<th><span class="sr">Ações</span></th></tr></thead>
           <tbody>${linhas}</tbody>
         </table>
-        ${vis.length ? '' : '<div class="vazio"><b>Nenhum produto aqui.</b><p>Troque a situação ou limpe a busca.</p></div>'}
+        ${nLinhas ? '' : '<div class="vazio"><b>Nenhum produto aqui.</b><p>Troque a situação ou limpe a busca.</p></div>'}
       </div>`;
   }
 
@@ -1647,7 +1742,16 @@ fieldset.grupo legend{font-family:var(--display);font-weight:700;padding:0 6px}
     const pe = t.closest('[data-pestado]');
     if (pe) { est.pEstado = pe.dataset.pestado; est.editando = null; return desenharProdutos(); }
     const ps = t.closest('[data-psit]');
-    if (ps) { est.pSit = ps.dataset.psit; return desenharProdutos(); }
+    if (ps) { est.pSit = ps.dataset.psit; est.pCat = ''; desenharProdutos(); return focar(`[data-psit="${est.pSit}"]`); }
+    // o item só do app: vai para a conferência daquele app, já buscando por ele
+    const ic = t.closest('[data-ir-conferir]');
+    if (ic) {
+      const [k, ...busca] = ic.dataset.irConferir.split('|');
+      Object.assign(est, { aba: 'conferir', canal: k, vista: 'itens', sit: 'todas', cat: '', busca: busca.join('|') });
+      mostrarAba();
+      desenhar();
+      return focar('#fBusca');
+    }
     const ep = t.closest('[data-editar-preco]');
     if (ep) {
       est.editando = ep.dataset.editarPreco;
