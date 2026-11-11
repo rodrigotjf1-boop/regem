@@ -7531,6 +7531,33 @@
         }
       }
     },
+    "/api/v1/produtos/opcoes/{id}/99-envios": {
+      "get": {
+        "operationId": "ProdutoController_food99EnviosOpcao",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/produtos/{id}/ifood-envios": {
       "get": {
         "operationId": "ProdutoController_ifoodEnviosProduto",

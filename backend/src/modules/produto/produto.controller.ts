@@ -108,6 +108,12 @@ export class ProdutoController {
     return this.service.ifoodEnvios(user.tenantId, 'opcao', id);
   }
 
+  // O "último envio à 99" de um complemento (R3 F3b; mig 404 — a mesma fila do produto, pelo id da opção).
+  @Get('opcoes/:id/99-envios')
+  food99EnviosOpcao(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.food99Envios(user.tenantId, id);
+  }
+
   @Get(':id/ifood-envios')
   ifoodEnviosProduto(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.ifoodEnvios(user.tenantId, 'produto', id);

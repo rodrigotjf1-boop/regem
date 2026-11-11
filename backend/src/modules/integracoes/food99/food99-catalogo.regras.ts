@@ -38,6 +38,40 @@ export function itemParaAtualizar(daLista: Record<string, any>, mudar: MudancaNo
   return corpo;
 }
 
+// ── O COMPLEMENTO (R3 F3b; mig 404) ─────────────────────────────────────────────────────────────────────────────
+// Na 99, o complemento é um item que entra nos grupos (`modifier_groups`) com um preço POR GRUPO. O "Update Modifier
+// Group" (doc 1971) troca o grupo inteiro: nome e `buy_mode` obrigatórios, a regra (obrigatório, mínimo, máximo) e a lista
+// das opções com o preço de cada uma. Então o Regem devolve o grupo como a 99 tem, trocando SÓ o preço da opção dele.
+
+/** Os campos do grupo que voltam como a 99 tem (doc 1971, fora o `auth_token` e os montados abaixo). */
+const CAMPOS_DO_GRUPO_QUE_VOLTAM = ['app_external_id', 'is_required', 'quantity_min_permitted', 'quantity_max_permitted'] as const;
+
+/** Os grupos da 99 que têm a opção com este código. */
+export function gruposComOItem(grupos: unknown[], codigo: string): Record<string, any>[] {
+  return (Array.isArray(grupos) ? grupos : []).filter(
+    (g: any) => Array.isArray(g?.app_mg_items) && g.app_mg_items.some((it: any) => String(it?.app_item_id) === codigo),
+  ) as Record<string, any>[];
+}
+
+/**
+ * O corpo do `updateModifierGroup` (sem o `auth_token`): o grupo como a 99 devolveu na leitura, com o preço da opção do
+ * código trocado (em centavos). As outras opções e a regra de escolha voltam iguais.
+ */
+export function grupoParaAtualizar(daLista: Record<string, any>, codigo: string, preco: number): Record<string, unknown> {
+  const corpo: Record<string, unknown> = {
+    modifier_group_name: String(daLista.modifier_group_name ?? ''),
+    app_modifier_group_id: String(daLista.app_modifier_group_id),
+    buy_mode: Number(daLista.buy_mode) === 1 ? 1 : 0,
+    app_mg_items: (Array.isArray(daLista.app_mg_items) ? daLista.app_mg_items : []).map((it: any) => {
+      const id = String(it?.app_item_id);
+      const valor = id === codigo ? preco : it?.price;
+      return tem(valor) ? { app_item_id: id, price: Number(valor) } : { app_item_id: id };
+    }),
+  };
+  for (const k of CAMPOS_DO_GRUPO_QUE_VOLTAM) if (tem(daLista[k])) corpo[k] = daLista[k];
+  return corpo;
+}
+
 /** Reais (texto ou número do banco) → centavos inteiros (o que a 99 recebe). */
 export const centavos = (v: unknown): number => Math.round(Number(v) * 100);
 

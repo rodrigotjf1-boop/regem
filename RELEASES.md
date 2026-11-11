@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.13)
 
+- **A 99 nos complementos — preço por código e pausa (R3, fase F3b; mig 404 só nuvem; SEM mudança na loja).** Tudo na
+  NUVEM com o merge (o envio à 99 só sai da nuvem). Nada a empacotar por esta entrega: a pausa e o preço da opção gravados
+  na loja chegam à nuvem pelo sincronismo, que enfileira lá.
+
 - **Gestão do catálogo › Complementos — preço no grupo, preço do iFood e pausa por canal (R3, fase F3a; mig 403 só
   nuvem; não mexe no `sync-daemon`).** Na NUVEM com o merge: a aba, as rotas, o cardápio digital servido pela nuvem e o
   envio ao iFood. **No `.zip` 1.30.13:** o balcão, as comandas e o cardápio servidos pelo servidor da loja passam a

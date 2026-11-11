@@ -22,6 +22,7 @@ export function EditarComplemento({
   opcao: o,
   grupos,
   comIfood,
+  com99 = false,
   podeMudarPreco,
   bloqueio,
   voltarPara,
@@ -31,12 +32,13 @@ export function EditarComplemento({
   opcao: OpcaoDoGrupo;
   grupos: { id: string; nome: string; preco: string | number | null | undefined }[];
   comIfood: boolean;
+  com99?: boolean;
   podeMudarPreco: boolean;
   /** Por que a pausa por canal ainda não vale nesta empresa (servidor da loja desatualizado); null = vale. */
   bloqueio: string | null;
   voltarPara?: string;
   aoFechar: () => void;
-  aoSalvar: (fechar: boolean, foiAoIfood: boolean) => void;
+  aoSalvar: (fechar: boolean, foiAoIfood: boolean, foiA99: boolean) => void;
 }) {
   const [e, setE] = useState<EdicaoDaOpcao>(() => edicaoInicialDaOpcao(o, grupos));
   const [salvando, setSalvando] = useState(false);
@@ -45,8 +47,14 @@ export function EditarComplemento({
     setFalha('');
     setE((x) => ({ ...x, ...m }));
   };
-  const plano = useMemo(() => analisarEdicaoDaOpcao(o, grupos, e, { comIfood, podeMudarPreco }), [o, grupos, e, comIfood, podeMudarPreco]);
+  const plano = useMemo(
+    () => analisarEdicaoDaOpcao(o, grupos, e, { comIfood, com99, podeMudarPreco }),
+    [o, grupos, e, comIfood, com99, podeMudarPreco],
+  );
   const pausaTravada = !!bloqueio || o.esgotado === true;
+  const vaiAosApps = plano.ifoodVai.length > 0 || plano.n99Vai.length > 0;
+  const PRECO_APP = { ifood: 'o preço no iFood', '99food': 'o preço na 99' } as const;
+  const PAUSA = { regem: 'a pausa do Regem', ifood: 'a pausa do iFood', '99food': 'a pausa da 99' } as const;
 
   async function salvar() {
     if (plano.erros.length || !plano.mudou) return;
@@ -67,13 +75,17 @@ export function EditarComplemento({
         const nome = grupos.find((g) => g.id === x.grupoId)?.nome ?? 'o grupo';
         await passo(`o preço em "${nome}"`, () => api.precoDaOpcaoNoGrupo(x.grupoId, o.opcaoId, x.valor));
       }
-      for (const x of plano.precosApp) await passo('o preço no iFood', () => api.precoDaOpcaoNoCanal(o.opcaoId, x.canal, x.valor));
-      for (const x of plano.pausas) await passo(x.canal === 'regem' ? 'a pausa do Regem' : 'a pausa do iFood', () => api.pausaDaOpcaoNoCanal(o.opcaoId, x.canal, x.pausado));
-      toast.success(`"${o.nome}" salvo.${plano.ifoodVai.length ? ' O que é do iFood vai em instantes pelo Orzuni.' : ''}`);
-      aoSalvar(true, plano.ifoodVai.length > 0);
+      for (const x of plano.precosApp) await passo(PRECO_APP[x.canal], () => api.precoDaOpcaoNoCanal(o.opcaoId, x.canal, x.valor));
+      for (const x of plano.pausas) await passo(PAUSA[x.canal], () => api.pausaDaOpcaoNoCanal(o.opcaoId, x.canal, x.pausado));
+      const vai = [
+        plano.ifoodVai.length ? ' O que é do iFood vai em instantes pelo Orzuni.' : '',
+        plano.n99Vai.length ? ' O que é da 99 vai em instantes à 99.' : '',
+      ].join('');
+      toast.success(`"${o.nome}" salvo.${vai}`);
+      aoSalvar(true, plano.ifoodVai.length > 0, plano.n99Vai.length > 0);
     } catch (err) {
       setFalha(err instanceof Error ? err.message : 'Não foi possível salvar.');
-      if (feito.length) aoSalvar(false, plano.ifoodVai.length > 0);
+      if (feito.length) aoSalvar(false, plano.ifoodVai.length > 0, plano.n99Vai.length > 0);
     } finally {
       setSalvando(false);
     }
@@ -91,7 +103,7 @@ export function EditarComplemento({
         <>
           <Button type="button" variant="outline" onClick={aoFechar} disabled={salvando}>Cancelar</Button>
           <Button type="button" onClick={() => void salvar()} disabled={salvando || !plano.mudou || plano.erros.length > 0}>
-            {salvando ? 'Salvando…' : plano.ifoodVai.length ? 'Salvar e enviar' : 'Salvar'}
+            {salvando ? 'Salvando…' : vaiAosApps ? 'Salvar e enviar' : 'Salvar'}
           </Button>
         </>
       }
@@ -147,6 +159,22 @@ export function EditarComplemento({
               <p className={`text-xs ${texto2}`}>Um por código ({o.codigoPdv}), em todos os grupos. Vai ao iFood pelo Orzuni.</p>
             </div>
           )}
+          {com99 && liga && (
+            <div className="space-y-1 border-t border-border pt-3">
+              <Label htmlFor="ec-p-99">Preço na 99</Label>
+              <Input
+                id="ec-p-99"
+                inputMode="decimal"
+                autoComplete="off"
+                value={e.preco99}
+                disabled={!podeMudarPreco}
+                onChange={(x) => mudar({ preco99: x.target.value })}
+                placeholder="Em branco: o Regem não mexe"
+                className="font-mono"
+              />
+              <p className={`text-xs ${texto2}`}>Um por código ({o.codigoPdv}): vai a cada grupo da 99 que tem o complemento.</p>
+            </div>
+          )}
         </fieldset>
 
         <fieldset className="space-y-3 rounded-lg border border-border p-3">
@@ -168,8 +196,14 @@ export function EditarComplemento({
                 Pausado no iFood
               </label>
             )}
+            {com99 && liga && (
+              <label className={`flex min-h-10 items-center gap-2 text-sm ${pausaTravada ? 'opacity-60' : ''}`}>
+                <input type="checkbox" className={caixa} checked={e.pausa99} disabled={pausaTravada} onChange={(x) => mudar({ pausa99: x.target.checked })} />
+                Pausado na 99
+              </label>
+            )}
           </div>
-          <p className={`text-xs ${texto2}`}>A pausa do Regem tira o complemento do balcão e do cardápio digital; a do iFood, só de lá.</p>
+          <p className={`text-xs ${texto2}`}>A pausa do Regem tira o complemento do balcão e do cardápio digital; a de cada app, só de lá.</p>
         </fieldset>
 
         <div aria-live="polite" className="space-y-2">
@@ -194,12 +228,20 @@ export function EditarComplemento({
                     {plano.ifoodAtencao.length > 0 && <> Atenção: {plano.ifoodAtencao.join('; ')}.</>}
                   </li>
                 )}
+                {(plano.n99Vai.length > 0 || plano.n99Atencao.length > 0) && (
+                  <li>
+                    <b>99</b>
+                    {plano.n99Vai.length > 0 && <> — vai agora: {plano.n99Vai.join(', ')}.</>}
+                    {plano.n99Atencao.length > 0 && <> Atenção: {plano.n99Atencao.join('; ')}.</>}
+                  </li>
+                )}
               </ul>
             </div>
           )}
         </div>
 
         {comIfood && liga && <UltimoEnvioIfood alvo="opcao" id={o.opcaoId} />}
+        {com99 && liga && <UltimoEnvioIfood alvo="opcao" id={o.opcaoId} canal="99food" />}
       </div>
     </Gaveta>
   );
