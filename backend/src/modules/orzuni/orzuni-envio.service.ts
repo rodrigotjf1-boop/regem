@@ -361,7 +361,6 @@ export class OrzuniEnvioService implements OnModuleInit, OnModuleDestroy {
         select p.codigo, p.preco_ifood::text as preco, p.no_ifood, p.deleted_at, p.unidade_id,
                coalesce(jsonb_exists(p.canais_pausados, 'ifood'), false) as pausado_no_ifood,
                p.pausado_estoque,
-               (not p.disponivel_balcao and not p.disponivel_cardapio) as oculto_no_regem,
                exists (select 1 from produto_pausa_estoque pe
                         where pe.produto_id = p.id and pe.unidade_id = ${envio.unidade_id}
                           and pe.pausado and pe.deleted_at is null) as esgotado_na_loja
@@ -371,17 +370,21 @@ export class OrzuniEnvioService implements OnModuleInit, OnModuleDestroy {
       if (p.unidade_id && String(p.unidade_id) !== envio.unidade_id) return { dispensar: 'produto de outra loja' };
       const codigo = String(p.codigo ?? '').trim();
       if (!codigo) return { dispensar: 'produto sem código PDV' };
-      if (!p.no_ifood) return { dispensar: 'produto marcado fora do cardápio do iFood' };
+      if (!p.no_ifood) {
+        if (envio.tipo === 'preco_item') return { dispensar: 'produto marcado fora do cardápio do iFood' };
+        // Fora do cardápio do iFood ("Onde vende", mig 399): o item de lá fica PAUSADO — o Regem não apaga item do iFood.
+        return { ferramenta: 'item_pausar', argumentos: { codigo_pdv: codigo } };
+      }
       if (envio.tipo === 'preco_item') {
         if (p.preco == null) return { dispensar: 'sem preço no iFood (em branco: o Regem não mexe no preço de lá)' };
         const valor = Number(p.preco);
         if (!(valor > 0)) return { dispensar: 'o iFood não aceita item com preço zero' };
         return { ferramenta: 'preco_definir', argumentos: { codigo_pdv: codigo, valor } };
       }
-      // Pausado no iFood se QUALQUER pausa vale: o "Pausado no iFood" (canais_pausados), o esgotado (todas as lojas ou
-      // esta) ou o "Ocultar" do Regem (oculto no balcão E no cardápio digital — mig 371, decisão do dono de 06/11).
-      const pausar =
-        p.pausado_no_ifood === true || p.pausado_estoque === true || p.esgotado_na_loja === true || p.oculto_no_regem === true;
+      // Pausado no iFood se QUALQUER pausa DO iFood vale: o "Pausado no iFood" (canais_pausados) ou o esgotado do estoque
+      // (todas as lojas ou esta). Desde a 399 (R3, "Onde vende"), tirar do balcão e do cardápio digital NÃO pausa no
+      // iFood: cada canal se pausa no seu botão (a regra "Ocultar = pausa no iFood" da 371 foi aposentada pelo dono).
+      const pausar = p.pausado_no_ifood === true || p.pausado_estoque === true || p.esgotado_na_loja === true;
       return { ferramenta: pausar ? 'item_pausar' : 'item_reativar', argumentos: { codigo_pdv: codigo } };
     }
     const r: any = await this.db.execute(sql`

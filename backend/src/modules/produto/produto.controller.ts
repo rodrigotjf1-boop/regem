@@ -238,6 +238,24 @@ export class ProdutoController {
     return this.service.atualizar(user.tenantId, id, dto);
   }
 
+  // ----- Gestão do catálogo › Produtos e preços (R3 F1): o preço e a pausa de UM canal, com auditoria -----
+
+  // Mudar preço pede "Ver valores em R$" (o presidente sempre) — a regra da tela, agora no servidor.
+  @Put(':id/preco-canal')
+  @Roles(...GESTOR)
+  precoDoCanal(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { canal?: unknown; valor?: unknown }) {
+    if (user.categoria !== 'presidente' && !user.permissoes?.ver_financeiro) {
+      throw new ForbiddenException('Seu perfil não tem "Ver valores em R$": quem tem pode mudar o preço.');
+    }
+    return this.service.precoDoCanal(user.tenantId, id, dto?.canal, dto?.valor, { id: user.colaboradorId ?? null, perfil: user.categoria ?? null });
+  }
+
+  @Put(':id/pausa-canal')
+  @Roles(...GESTOR)
+  pausaDoCanal(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { canal?: unknown; pausado?: unknown }) {
+    return this.service.pausaDoCanal(user.tenantId, id, dto?.canal, dto?.pausado, { id: user.colaboradorId ?? null, perfil: user.categoria ?? null });
+  }
+
   @Delete(':id')
   @Roles(...GESTOR)
   remover(@CurrentUser() user: AuthUser, @Param('id') id: string) {

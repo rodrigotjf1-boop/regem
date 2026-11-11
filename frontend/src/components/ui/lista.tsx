@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -288,6 +288,7 @@ export function ListaDados<T>({
   nome,
   colunas,
   acoes,
+  grupoDe,
 }: {
   /** Descrição da tabela para leitor de tela. */
   legenda: string;
@@ -298,9 +299,22 @@ export function ListaDados<T>({
   /** A 1ª coluna é o título do cartão no celular. */
   colunas: Coluna<T>[];
   acoes?: (r: T) => Acao<T>[];
+  /** Agrupar (ex.: por categoria): as linhas JÁ vêm na ordem dos grupos; um cabeçalho abre cada grupo. */
+  grupoDe?: (r: T) => string;
 }) {
   const larga = useTelaLarga();
   const { caixa, modo } = useModoDaLista(`${colunas.map((c) => c.titulo).join('|')}${acoes ? '|ações' : ''}`);
+  // Onde começa cada grupo e quantas linhas ele tem.
+  const abreGrupo = new Map<number, { nome: string; n: number }>();
+  if (grupoDe) {
+    let atual: { nome: string; n: number } | null = null;
+    linhas.forEach((r, i) => {
+      const g = grupoDe(r);
+      if (!atual || atual.nome !== g) abreGrupo.set(i, (atual = { nome: g, n: 0 }));
+      atual.n++;
+    });
+  }
+  const contaItens = (n: number) => `${n} ${n === 1 ? 'item' : 'itens'}`;
   const botoes = (r: T, noCartao: boolean) => {
     const lista = acoes?.(r) ?? [];
     if (!lista.length) return null;
@@ -345,12 +359,24 @@ export function ListaDados<T>({
               </tr>
             </thead>
             <tbody>
-              {linhas.map((r) => (
-                <tr key={chave(r)} className="border-b border-border last:border-b-0 hover:bg-secondary/60">
-                  {colunas.map((c, i) => <td key={c.titulo} className={cn('px-3 py-2.5 align-middle', i === 0 && 'max-w-80', c.classe)}>{c.celula(r)}</td>)}
-                  {acoes && <td className="px-2 py-1.5">{botoes(r, false)}</td>}
-                </tr>
-              ))}
+              {linhas.map((r, n) => {
+                const g = abreGrupo.get(n);
+                return (
+                  <Fragment key={chave(r)}>
+                    {g && (
+                      <tr className="border-b border-border bg-secondary/50">
+                        <th scope="colgroup" colSpan={colunas.length + (acoes ? 1 : 0)} className="px-3 py-2 text-left font-display text-sm font-bold">
+                          {g.nome} <span className={`ml-1 text-xs font-normal ${texto2}`}>{contaItens(g.n)}</span>
+                        </th>
+                      </tr>
+                    )}
+                    <tr className="border-b border-border last:border-b-0 hover:bg-secondary/60">
+                      {colunas.map((c, i) => <td key={c.titulo} className={cn('px-3 py-2.5 align-middle', i === 0 && 'max-w-80', c.classe)}>{c.celula(r)}</td>)}
+                      {acoes && <td className="px-2 py-1.5">{botoes(r, false)}</td>}
+                    </tr>
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </Card>
@@ -360,22 +386,34 @@ export function ListaDados<T>({
     <div ref={caixa} className="min-w-0">
       {/* Tela larga em que a tabela não coube (zoom): quantas colunas de cartões couberem. */}
       <ul className={cn('grid gap-3', larga ? 'grid-cols-[repeat(auto-fill,minmax(min(100%,300px),1fr))]' : 'grid-cols-1 md:grid-cols-2')} aria-label={legenda}>
-        {linhas.map((r) => (
-          <li key={chave(r)}>
-            <Card className="space-y-2 p-3">
-              <div>{colunas[0].celula(r)}</div>
-              <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm">
-                {colunas.slice(1).map((c) => (
-                  <div key={c.titulo} className="contents">
-                    <dt className={`text-xs font-bold ${texto2}`}>{c.titulo}</dt>
-                    <dd className="text-right">{c.celula(r)}</dd>
-                  </div>
-                ))}
-              </dl>
-              {botoes(r, true)}
-            </Card>
-          </li>
-        ))}
+        {linhas.map((r, n) => {
+          const g = abreGrupo.get(n);
+          return (
+            <Fragment key={chave(r)}>
+              {g && (
+                <li className="col-span-full pt-2 first:pt-0">
+                  <h3 className="font-display text-base font-bold">
+                    {g.nome} <span className={`ml-1 text-xs font-normal ${texto2}`}>{contaItens(g.n)}</span>
+                  </h3>
+                </li>
+              )}
+              <li>
+                <Card className="space-y-2 p-3">
+                  <div>{colunas[0].celula(r)}</div>
+                  <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm">
+                    {colunas.slice(1).map((c) => (
+                      <div key={c.titulo} className="contents">
+                        <dt className={`text-xs font-bold ${texto2}`}>{c.titulo}</dt>
+                        <dd className="min-w-0 text-right">{c.celula(r)}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                  {botoes(r, true)}
+                </Card>
+              </li>
+            </Fragment>
+          );
+        })}
       </ul>
     </div>
   );

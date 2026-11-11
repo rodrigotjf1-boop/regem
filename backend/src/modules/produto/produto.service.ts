@@ -32,6 +32,17 @@ import { ehServidorLocal } from '../../common/modo';
 import { AlvoIfood, RespostaEnvios, ehIdDoAlvo, enviosDoAlvo, enviosDoAlvoPelaNuvem } from '../orzuni/envios-do-alvo';
 import { CreateCategoriaDto } from './dto/create-categoria.dto';
 import { CreateProdutoDto } from './dto/create-produto.dto';
+import {
+  exigirCanalDePausa,
+  exigirCanalDePreco,
+  exigirIdDoProduto,
+  precoDeVendaDoPedido,
+  precoIfoodDoCanal,
+} from './produto-canais';
+
+/** Quem fez a mudança (para a auditoria). */
+type Ator = { id: string | null; perfil: string | null };
+const duasCasas = (v: unknown): string | null => (v === null || v === undefined || v === '' ? null : Number(v).toFixed(2));
 
 // Linhas por INSERT na materialização (o Postgres aceita até 65.535 parâmetros por comando).
 const LOTE_MATERIALIZAR = 1000;
@@ -84,6 +95,121 @@ export class ProdutoService {
     if (preco !== undefined) out.precoIfood = preco;
     if (marcador !== undefined) out.noIfood = marcador;
     return out;
+  }
+
+  // ----- Gestão do catálogo › Produtos e preços (R3 F1; regras em `produto-canais.ts`) -----
+
+  /**
+   * O preço de UM canal, com auditoria (de → para). `regem` = o preço de venda (balcão e cardápio digital); `ifood` = o
+   * preço no iFood (só com o direito `ifood_pelo_orzuni`; o envio vai pela fila do Orzuni — o gatilho da mig 370/399 vê
+   * a coluna mudar). Igual ao que está gravado: não grava nem audita (`mudou: false`).
+   */
+  async precoDoCanal(tenantId: string, idBruto: string, canalBruto: unknown, valor: unknown, ator: Ator) {
+    const id = exigirIdDoProduto(idBruto);
+    const canal = exigirCanalDePreco(canalBruto);
+    const para = canal === 'regem' ? precoDeVendaDoPedido(valor) : precoIfoodDoCanal(valor);
+    if (canal === 'ifood' && !(await ifoodPeloOrzuniLigado(this.db, tenantId))) {
+      throw new ConflictException('O iFood pelo Orzuni não está ligado nesta empresa: o preço do iFood não pode ser mudado pelo Regem.');
+    }
+    const r: any = await this.db.execute(sql`
+      with antes as (
+        select id, nome, preco_venda::text as venda, preco_ifood::text as ifood
+          from produto where id = ${id} and tenant_id = ${tenantId} and deleted_at is null
+         for update)
+      update produto p
+         set ${canal === 'regem' ? sql`preco_venda = ${para}::numeric` : sql`preco_ifood = ${para}::numeric`},
+             updated_at = now()
+        from antes
+       where p.id = antes.id
+         and ${canal === 'regem' ? sql`p.preco_venda is distinct from ${para}::numeric` : sql`p.preco_ifood is distinct from ${para}::numeric`}
+      returning antes.nome, antes.venda, antes.ifood`);
+    const [mudado] = r?.rows ?? r ?? [];
+    if (!mudado) {
+      // Nada gravado: ou o produto não existe (404), ou o valor é o mesmo (sem auditoria).
+      const [existe] = await this.db
+        .select({ id: produto.id })
+        .from(produto)
+        .where(and(eq(produto.id, id), eq(produto.tenantId, tenantId), isNull(produto.deletedAt)));
+      if (!existe) throw new NotFoundException('Produto não encontrado');
+      return { canal, valor: para, mudou: false };
+    }
+    void this.flash.flashProdutos([id]);
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: ator.id,
+      atorPerfil: ator.perfil,
+      tipo: 'cadastro',
+      acao: 'mudou_preco_do_canal',
+      entidadeTipo: 'produto',
+      entidadeId: id,
+      // `preco_venda` é numeric sem escala ("39.9"): o "de" sai com 2 casas, como o "para".
+      detalhe: { nome: mudado.nome, canal, de: duasCasas(canal === 'regem' ? mudado.venda : mudado.ifood), para },
+    });
+    return { canal, valor: para, mudou: true };
+  }
+
+  /**
+   * A pausa de UM canal, com auditoria. `regem` liga ou desliga o balcão e o cardápio digital juntos (decisão 12); `ifood`
+   * e `99food` põem ou tiram SÓ aquele canal de `canais_pausados`, na própria instrução (a lista nunca é regravada
+   * inteira: o totem também mexe nela). Já no estado pedido: não grava nem audita.
+   */
+  async pausaDoCanal(tenantId: string, idBruto: string, canalBruto: unknown, pausadoBruto: unknown, ator: Ator) {
+    const id = exigirIdDoProduto(idBruto);
+    const canal = exigirCanalDePausa(canalBruto);
+    const pausado = exigirBooleano(pausadoBruto, 'pausado');
+    const lista = sql`coalesce(p.canais_pausados, '[]'::jsonb)`;
+    const r: any = await this.db.execute(
+      canal === 'regem'
+        ? sql`
+          update produto p
+             set disponivel_balcao = ${!pausado}, disponivel_cardapio = ${!pausado}, updated_at = now()
+           where p.id = ${id} and p.tenant_id = ${tenantId} and p.deleted_at is null
+             and (p.disponivel_balcao is distinct from ${!pausado} or p.disponivel_cardapio is distinct from ${!pausado})
+          returning p.nome, p.disponivel_balcao, p.disponivel_cardapio, p.canais_pausados`
+        : sql`
+          update produto p
+             set canais_pausados = ${pausado ? sql`${lista} || jsonb_build_array(${canal}::text)` : sql`${lista} - ${canal}::text`},
+                 updated_at = now()
+           where p.id = ${id} and p.tenant_id = ${tenantId} and p.deleted_at is null
+             and jsonb_exists(${lista}, ${canal}::text) is distinct from ${pausado}
+          returning p.nome, p.disponivel_balcao, p.disponivel_cardapio, p.canais_pausados`,
+    );
+    const [mudado] = r?.rows ?? r ?? [];
+    const estado = async () => {
+      const [p] = await this.db
+        .select({
+          disponivelBalcao: produto.disponivelBalcao,
+          disponivelCardapio: produto.disponivelCardapio,
+          canaisPausados: produto.canaisPausados,
+        })
+        .from(produto)
+        .where(and(eq(produto.id, id), eq(produto.tenantId, tenantId), isNull(produto.deletedAt)));
+      return p;
+    };
+    if (!mudado) {
+      const p = await estado();
+      if (!p) throw new NotFoundException('Produto não encontrado');
+      return { canal, pausado, mudou: false, ...p };
+    }
+    void this.flash.flashProdutos([id]);
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: ator.id,
+      atorPerfil: ator.perfil,
+      tipo: 'cadastro',
+      acao: pausado ? 'pausou_produto_no_canal' : 'reativou_produto_no_canal',
+      entidadeTipo: 'produto',
+      entidadeId: id,
+      detalhe: { nome: mudado.nome, canal },
+    });
+    return {
+      canal,
+      pausado,
+      mudou: true,
+      disponivelBalcao: mudado.disponivel_balcao,
+      disponivelCardapio: mudado.disponivel_cardapio,
+      canaisPausados: mudado.canais_pausados,
+    };
   }
 
   // ----- Ligação direta com um produto do estoque (mig 309) -----

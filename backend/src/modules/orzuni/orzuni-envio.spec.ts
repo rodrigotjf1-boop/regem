@@ -29,6 +29,7 @@ jest.setTimeout(180_000);
 
 const MIGRATION = join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '370_orzuni_envio.sql');
 const MIGRATION_371 = join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '371_orzuni_ocultar_pausa.sql');
+const MIGRATION_399 = join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '399_onde_vende_sem_ocultar_no_ifood.sql');
 const MCP = 'https://orzuni.exemplo.test/v1/mcp';
 const TROCA = 'https://orzuni.exemplo.test/v1/dms-id/ligacao';
 const ENV = {
@@ -148,9 +149,13 @@ descrever('iFood pelo Orzuni — fila e envio (Postgres real, porta falsa)', () 
     // Só nuvem: o banco do CI é de loja. Trava `empresa` primeiro (ERR-377) e repete na corrida de catálogo.
     const texto = readFileSync(MIGRATION, 'utf8');
     await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(texto)));
-    // 371: o "Ocultar" do Regem também pausa no iFood (troca a função do gatilho do produto).
+    // 371: o "Ocultar" do Regem também pausava no iFood (troca a função do gatilho do produto); a 399 (R3, "Onde vende")
+    // aposenta essa regra — aplicadas na ordem, como na nuvem. A conferência da 399 tem de vir toda `ok`.
     const texto371 = readFileSync(MIGRATION_371, 'utf8');
     await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(texto371)));
+    const r399 = (await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(readFileSync(MIGRATION_399, 'utf8'))))) as unknown as any[];
+    const conferencia399 = (Array.isArray(r399) ? r399[r399.length - 1] : r399).rows;
+    if (conferencia399.length !== 2 || conferencia399.some((l: any) => l.ok !== true)) throw new Error(`conferência da 399: ${JSON.stringify(conferencia399)}`);
     // `edge_status` é só da nuvem; outras specs a criam com o mínimo — aqui ela ganha as colunas que a liberação lê.
     await pool
       .query(`create table if not exists edge_status (id uuid primary key default gen_random_uuid(), tenant_id uuid,
@@ -282,31 +287,43 @@ descrever('iFood pelo Orzuni — fila e envio (Postgres real, porta falsa)', () 
     expect(new Set(chaves).size).toBe(3);
   });
 
-  it('"Ocultar" do Regem (mig 371): oculto no balcão E no cardápio pausa no iFood; um canal só não mexe; retomar reativa — salvo "Pausado no iFood"', async () => {
+  it('"Onde vende" (mig 399): tirar do balcão e do cardápio NÃO pausa no iFood; a pausa do iFood é a dele; entrar no iFood manda a situação', async () => {
     const produtos = new (ProdutoService as any)(db, auditoria, { flashProdutos: async () => undefined }, new FichasService(db)) as ProdutoService;
     const l = await loja({ lojas: 1 });
     const p = await produto(l);
-    // A edição PARCIAL que a lista manda (o PATCH aceita dois campos — editar-parcial.spec).
+    // Oculto nos DOIS canais do Regem (o "só no iFood", ou pausado só no Regem): nada vai ao iFood, nem enfileira.
     await produtos.atualizar(l.t, p, { disponivelBalcao: false, disponivelCardapio: false });
+    expect(await despachar(l)).toEqual({ enviados: 0, dispensados: 0, adiados: 0, desistidos: 0 });
+    // A pausa do iFood é o botão dele: pausa e reativa, mesmo com o produto fora do balcão e do cardápio.
+    await produtos.atualizar(l.t, p, { canaisPausados: ['ifood'] });
     await despachar(l);
     expect(chamadas.map((c) => c.ferramenta)).toEqual(['item_pausar']);
     chamadas = [];
-    await produtos.atualizar(l.t, p, { disponivelBalcao: true, disponivelCardapio: true });
+    await produtos.atualizar(l.t, p, { canaisPausados: [] });
     await despachar(l);
     expect(chamadas.map((c) => c.ferramenta)).toEqual(['item_reativar']);
     chamadas = [];
-    // Esconder de UM canal do Regem não mexe no iFood (nem enfileira).
-    await produtos.atualizar(l.t, p, { disponivelCardapio: false });
-    expect(await despachar(l)).toEqual({ enviados: 0, dispensados: 0, adiados: 0, desistidos: 0 });
-    await produtos.atualizar(l.t, p, { disponivelCardapio: true });
-    // "Pausado no iFood" marcado: ocultar e retomar no Regem deixam pausado no iFood.
-    await produtos.atualizar(l.t, p, { canaisPausados: ['ifood'] });
+    // Entrar no cardápio do iFood já pausado: a pausa vai junto (antes ia só o preço, e o item ficava ativo lá).
+    const entra = await produto(l, { codigo: '15', no_ifood: false, canais_pausados: JSON.stringify(['ifood']) });
+    await q(`update produto set no_ifood = true where id = $1`, [entra]);
     await despachar(l);
+    expect(chamadas.map((c) => [c.ferramenta, c.args.codigo_pdv])).toEqual([['item_pausar', '15']]);
     chamadas = [];
-    await produtos.atualizar(l.t, p, { disponivelBalcao: false, disponivelCardapio: false });
-    await produtos.atualizar(l.t, p, { disponivelBalcao: true, disponivelCardapio: true });
+    // Criado já no iFood e já pausado: a pausa vai na criação. Criado sem pausa: nada de situação (o item nasce ativo).
+    await produto(l, { codigo: '16', canais_pausados: JSON.stringify(['ifood']) });
+    await produto(l, { codigo: '17' });
     await despachar(l);
-    expect(chamadas.map((c) => c.ferramenta)).toEqual(['item_pausar']);
+    expect(chamadas.map((c) => [c.ferramenta, c.args.codigo_pdv])).toEqual([['item_pausar', '16']]);
+    chamadas = [];
+    // Sair do cardápio do iFood ("Está no iFood" desmarcado): o item de lá fica PAUSADO (o Regem não apaga item do
+    // iFood) e o preço não vai mais. Voltar ao iFood manda o preço e a situação pela regra (reativa: nada o pausa).
+    await produtos.atualizar(l.t, p, { noIfood: false, precoIfood: 40 } as any);
+    await despachar(l);
+    expect(chamadas.map((c) => [c.ferramenta, c.args.codigo_pdv])).toEqual([['item_pausar', '12']]);
+    chamadas = [];
+    await produtos.atualizar(l.t, p, { noIfood: true } as any);
+    await despachar(l);
+    expect(chamadas.map((c) => c.ferramenta).sort()).toEqual(['item_reativar', 'preco_definir']);
   });
 
   it('status: "Ativo no iFood" pausa e reativa em todas; esgotado da LOJA só nela; esgotado de todas, em todas', async () => {

@@ -7967,6 +7967,46 @@
         }
       }
     },
+    "/api/v1/produtos/{id}/preco-canal": {
+      "put": {
+        "operationId": "ProdutoController_precoDoCanal",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/produtos/{id}/pausa-canal": {
+      "put": {
+        "operationId": "ProdutoController_pausaDoCanal",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/produtos/{id}/duplicar": {
       "post": {
         "operationId": "ProdutoController_duplicar",
